@@ -1,5 +1,90 @@
 # Escalations
 
+## 2026-10-25 -- Task 259: THE BORE DOES NOT START ON THE SIGHT LINE, AND THE DESIGN SAYS IT MUST START AT THE MUZZLE
+
+**For the Director. A DECISION, not a blocked task: the fix is built, measured and shipped OFF, so
+nothing in this PR changes what Karen plays. One line turns it on.**
+
+### What was measured
+
+Karen, 2026-10-24: *"we need to work on rifle acuracy when aiming with scope, it seems there is a bit
+off"* and *"when boar is running we need to aim in empty space to get hit in head neck or heart like
+in real life"*.
+
+Task 256 ruled out the arc (1.5 cm), the sway and the reticle. The cause is the CONVERGENCE.
+
+1. **The world Tool's muzzle is 0.73 studs (20 cm) to the RIGHT of the eye and 5 cm below it.**
+   MEASURED in a DEV Play session, first person, both guns, 2026-10-25
+   (`driven-hunt-runs/259-eye-muzzle.luau`): shotgun (+0.741, -0.201, -5.274), rifle
+   (+0.718, -0.135, -5.249), in the live camera's own frame. The gun is welded to the character's
+   right hand and **the player never sees it** -- in first person he sees the viewmodel, which
+   `Mode.aimOffset` lays on the camera axis.
+2. **`Weapon.onFireRequest` points the bore from that muzzle at the point the camera ray struck**,
+   which cancels the 0.73 studs exactly at the aim point and nowhere else.
+3. **So when the aim ray hits NOTHING the error is real and large**: the bore converges at the ammo's
+   whole range and the shot lands `offset * (1 - d/range)` off the reticle. Rifle, measured through
+   the real stepper: **18.6 cm RIGHT at 25 m, 16.2 cm at 50 m, 11.6 cm at 100 m** -- always to the
+   right, worst at the SHORTEST range.
+4. **And the case that misses is the case Karen named.** Leading a running animal means aiming at
+   EMPTY SPACE, so the ray goes past it into the sky or into a tree a long way behind, and the
+   convergence distance is the background's. The error is therefore DIFFERENT EVERY SHOT (a tree
+   1.3x behind the animal gives 4.7 cm where the sky gives 16.2), which is why it reads as
+   *"a bit off"* rather than as a zero a player can learn.
+
+### The conflict
+
+`docs/design/shotgun.md` section 5.5 **step 7** is explicit: *"Aim from the muzzle.
+`aim = (aimPoint - muzzle).Unit`"*, and the paragraph under step 11 gives the reason: *"Pellets
+originate at the muzzle and converge on the point the crosshair is over. **That is the standard
+third-person shooter geometry**, and the reason tracers will look right in the screenshot."*
+
+**The premise of that sentence expired with task 89.** The game is first person; the camera is in the
+head, not 12-16 studs behind it. `docs/design/` is the Architect's, so I have not changed what ships.
+
+### What IS in the PR
+
+- `Ballistics.boreOrigin(eye, look, muzzle, onSightLine)` -- pure, one owner for the choice. At
+  `false` it returns the muzzle, the same `Vector3`, asserted by identity: today bit for bit.
+  At `true` it projects the muzzle onto the camera ray **at its own depth**, so the flight time, the
+  range cap and what the first segment cast can strike are unchanged and only the 0.73 studs ACROSS
+  the sight line goes away.
+- `Ballistics.convergeAim(...)` -- the two inline lines in the owner, named, so the spec measures the
+  shipped expression instead of a copy of it.
+- `Shotgun.CONFIG.BORE_ON_SIGHT_LINE = false`.
+- `tests/server/sights.spec.luau` -- the measurement, at BOTH values, over 4 holds x 5 (gun, load)
+  x 3 ranges, with the defect pinned as a LOWER bound so it cannot be made smaller in silence.
+
+### The three options
+
+1. **Turn it on and have the Architect amend the design** (my recommendation). One line:
+   `BORE_ON_SIGHT_LINE = true` in `src/shared/Shotgun/init.luau`, plus
+   `tools/architect.sh design shotgun --task 259` (or an audit) to replace step 7's third-person
+   justification. It is the only option that answers Karen's sentence.
+2. **Leave it off and queue it.** Nothing changes; the complaint stands.
+3. **Raise `Flags.MAX_FLAGS` to 18 and make it a real flag** so it can be switched for a playtest
+   without a commit. `Flags.MAX_FLAGS` is at its ceiling and that file's own header says raising it
+   is the Director's call. This is the shape `docs/design/feature-flags.md` section 11 step 1 wants
+   for a feel-critical path; the parameter shape shipped here is the one `docs/design/ballistics.md`
+   accepted BY NAME in its place for task 256, which is why this is not already a flag.
+
+**To look at it in a playtest without any commit at all**, the parameter is not reachable from
+`tools/flags.py` -- it is a config row, not a flag -- so option 1 or 3 is needed. That is the whole
+of this entry.
+
+### Also decided in this task and NOT escalated, recorded here so the Director sees it in one place
+
+- **`WOUND.DAMAGE_BY_WEAPON.rifle.body` 100 -> 90.** `LETHAL` is 100, so a .416 through a boar's
+  PAUNCH dropped it on the spot -- the same one shot a heart hit costs. The dispatch asked for the
+  zones to match the research and the research (and Karen's sentence) says the paunch wounds. 90 is
+  mortal on a boar and on a deer and still above the lever's 80. **The trade:** a .416 through a
+  LEGENDARY's paunch is now a graze (90/2 = 45), because the legendary's paunch is mortal only at 100
+  or above and a boar's is non-lethal only below it. Ten numbers, one line each, and Karen decides.
+- **Foliage: NOTHING CHANGED, as instructed.** The rule today is that foliage DOES stop a shot, by
+  design (`MapGen.Props.placeTree`, task 63). In the Forest Test's wood all 2,398 `*branch*` parts in
+  `OurForest` are `CanQuery = false` and the only queryable foliage in the place is 357
+  `Session/OuterLeaves`. One reading could not be reconciled and the research note says so
+  (section 12.5).
+
 ## 2026-10-24 - Task 256 part 1, Reviewer finding 3: **LAG COMPENSATION IS FORBIDDEN BY BOTH DESIGN DOCS FOR THIS SYSTEM, AND THEY PREDICTED KAREN'S COMPLAINT WITH THE NUMBER I MEASURED. A DESIGN DECISION IS NEEDED; I MAY NOT WRITE ONE.**
 
 KAREN, 2026-10-24, verbatim: *"we need to aim ahead to hit animal when running"* / *"it seems there

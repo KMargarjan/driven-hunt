@@ -452,6 +452,26 @@ Shotgun.CONFIG = {
 	-- validation
 	CAMERA_ORIGIN_TOLERANCE = 30, -- studs from HumanoidRootPart; the stock camera sits behind you
 	MIN_AIM_DISTANCE = 4, -- below this the muzzle->aim vector is degenerate
+
+	-- WHERE THE BORE STARTS (task 259). KAREN, 2026-10-24: *"we need to work on rifle acuracy when
+	-- aiming with scope, it seems there is a bit off"*.
+	--
+	-- `false` IS WHAT THE GAME HAS ALWAYS DONE, BIT FOR BIT: the bore starts at the world Tool's
+	-- `Muzzle` attachment and converges on the point the camera ray hit (`docs/design/shotgun.md`
+	-- section 5.5 steps 5-7). `true` projects that muzzle onto the camera ray at its own depth, so
+	-- the bore is ON THE SIGHT LINE and the eye-to-muzzle offset cannot reach the impact at all.
+	--
+	-- WHY IT IS A ROW AND NOT A FLAG. `Flags.MAX_FLAGS` is at its ceiling and raising it is the
+	-- Director's call (`src/shared/Flags/init.luau`'s own header), and task 256 shipped the same
+	-- shape for the same reason: `docs/design/ballistics.md` accepted a PARAMETER whose off value
+	-- reproduces today bit for bit in place of a flag, by name. `Ballistics.boreOrigin` carries the
+	-- measurement -- 0.73 studs of eye-to-muzzle offset, 19 cm of error at 25 m when the aim ray
+	-- misses -- and `tests/server/sights.spec.luau` measures every cell at BOTH values.
+	--
+	-- IT SHIPS `false` BECAUSE THE DESIGN SAYS THE BORE STARTS AT THE MUZZLE and `docs/design/` is
+	-- the Architect's. `ESCALATE.md` (2026-10-25) puts the measurement and the one-line flip to the
+	-- Director.
+	BORE_ON_SIGHT_LINE = false,
 	DIR_UNIT_TOLERANCE = 1e-3,
 	SAFETY_ARC_HALF_DEG = 45, -- DEGREES, HALF angle: a different quantity from a spread cone
 

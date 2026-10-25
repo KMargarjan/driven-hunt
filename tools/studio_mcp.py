@@ -879,7 +879,12 @@ SCOPE_SPECS = {
             # aim answer never shares a field with the refusal is in this spec. The same reason
             # `weapon_state.spec` is here.
             "tests/server/licence_popup.spec.luau",
-            "tests/server/weapon_state.spec.luau"),
+            "tests/server/weapon_state.spec.luau",
+            # Task 259: where the bullet lands relative to the RETICLE, gun by gun and range by
+            # range. It reads `Rifle`/`Lever`/`SemiAuto`/`Shotgun.CONFIG` rows (this scope) as well
+            # as the flight (`weapon`), so it is in both -- the dual-membership idiom `boar_hit`
+            # and `weapon_state` already use.
+            "tests/server/sights.spec.luau"),
     # Task 224: the drawn lever -- its `"lever"` CYCLE_KIND branch, the fore-end glove and the
     # shells gate -- is the viewmodel's, exactly as `gun_client.spec` is.
     "viewmodel": ("tests/server/viewmodel_poses.spec.luau", "tests/client/gun_client.spec.luau",
@@ -892,6 +897,12 @@ SCOPE_SPECS = {
     "camera": ("tests/server/camera_mode.spec.luau", "tests/client/camera_client.spec.luau",
                "tests/server/semiauto.spec.luau", "tests/client/semiauto_client.spec.luau"),
     "weapon": ("tests/server/ballistics.spec.luau",
+               # Task 259: `Ballistics.boreOrigin` / `convergeAim` and the owner's call to them --
+               # the convergence that decides where the bullet goes relative to the sights.
+               "tests/server/sights.spec.luau",
+               # Task 259: the per-weapon damage column is read by the ANIMAL, so a change to
+               # `src/server/Weapon/` that moved a weapon id would land here.
+               "tests/server/kill_zones.spec.luau",
                # Task 223: `src/shared/Licences` flipped `reddeer.shipped`, and this spec drives
                # the fire gate from a REAL deer trunk rather than from the stub.
                "tests/server/deer.spec.luau",
@@ -941,6 +952,10 @@ SCOPE_SPECS = {
              "tests/server/boar_hit.spec.luau", "tests/server/boar_model.spec.luau",
              "tests/server/boar_shot.spec.luau", "tests/server/boar_sounder.spec.luau",
              "tests/server/boar_wound.spec.luau", "tests/server/boar_zones.spec.luau",
+             # Task 259: shots to DROP it, per zone per cartridge per kind, over all seven kinds --
+             # the ordering the hunting doctrine asserts (head and chamber drop, the paunch wounds).
+             # It reads `WOUND.DAMAGE_BY_WEAPON` as well, so it is in `weapon` too.
+             "tests/server/kill_zones.spec.luau",
              # Task 219: the legendary boar -- its geometry, its armour, its wariness, its rarity
              # and the per-drive cap. Its SCREENS are the hit card's and the report's, which are
              # already in `hud`; what is here is the animal.

@@ -1334,14 +1334,25 @@ local function onFireRequest(player: Player, req: any): string?
 	local aimTarget, aimImpact = lookAhead(player, req.origin, req.direction, range)
 	local aimPoint = if aimImpact then aimImpact.position else req.origin + req.direction * range
 
-	local toAim = aimPoint - muzzle
-	local aim = if toAim.Magnitude < CONFIG.MIN_AIM_DISTANCE then req.direction else toAim.Unit
+	-- WHERE THE BORE STARTS, AND IT IS ONE CALL (task 259). It was `muzzle` and two inline lines.
+	-- KAREN, 2026-10-24: *"we need to work on rifle acuracy when aiming with scope, it seems there
+	-- is a bit off"*. The convergence below cancels the eye-to-muzzle offset AT THE AIM POINT and
+	-- nowhere else, so when the ray hits nothing -- which is every shot led into empty space at a
+	-- running animal, her own next sentence -- the 0.73 studs MEASURED between the eye and the
+	-- world Tool's muzzle is divided down instead of cancelled, and the shot lands 19 cm right of
+	-- the reticle at 25 m. `Ballistics.boreOrigin` holds the measurement, the arithmetic and the
+	-- parameter; `CONFIG.BORE_ON_SIGHT_LINE` is false, which is today bit for bit.
+	local origin = Ballistics.boreOrigin(req.origin, req.direction, muzzle, CONFIG.BORE_ON_SIGHT_LINE)
+	local aim = Ballistics.convergeAim(origin, aimPoint, req.direction, CONFIG.MIN_AIM_DISTANCE)
 	-- HOW FAR THIS SHOT GETS, COMPUTED ONCE AND READ TWICE (task 248). It was computed inside the
 	-- safety-arc block below, AFTER the shot had been committed; the SAFETY LOCK has to ask the same
 	-- question BEFORE it, and two expressions for "where the shot stopped" would be two answers to
 	-- the question `Match.Penalty.judge` is given. The distance from the muzzle to the AIM POINT, not
 	-- `report.nearest`: the reason is in the arc block's own comment below and has not changed.
-	local stopAt = if aimImpact then (aimPoint - muzzle).Magnitude else range
+	-- ...MEASURED FROM WHERE THE SHOT ACTUALLY LEAVES (task 259), which is `origin` and not `muzzle`:
+	-- the two differ only by the 0.73 studs across the sight line when `BORE_ON_SIGHT_LINE` is on,
+	-- and with it off they are the same Vector3, so this is unchanged in the shipped build.
+	local stopAt = if aimImpact then (aimPoint - origin).Magnitude else range
 
 	-- -------------------------------------------------------------- THE RULES (task 171)
 	--
@@ -1384,7 +1395,10 @@ local function onFireRequest(player: Player, req: any): string?
 		-- measures it off the shot the player is actually about to take -- this muzzle, this
 		-- direction, this far -- so what is refused is what would have been fired, the rule
 		-- `SafetyArc` and `beaterInLine` already state for the same reason.
-		lineUnsafe = askLineUnsafe(player, muzzle, aim, stopAt),
+		-- `origin`, NOT `muzzle` (task 259): the design's rule here is *"what is refused is what
+		-- would have been fired"*, so the line tested is the line the bullet takes. The two differ
+		-- by 0.73 studs only when `CONFIG.BORE_ON_SIGHT_LINE` is on; off, they are the same Vector3.
+		lineUnsafe = askLineUnsafe(player, origin, aim, stopAt),
 	})
 	if refused ~= nil then
 		stats.refused += 1
@@ -1440,7 +1454,21 @@ local function onFireRequest(player: Player, req: any): string?
 		shooterUserId = player.UserId,
 		weapon = id,
 		ammo = ammo,
-		muzzle = muzzle,
+		-- WHERE THE PROJECTILES START (task 259). `Flight` casts its first segment from this point,
+		-- and it is `origin` -- the bore -- not the Tool's attachment: with
+		-- `CONFIG.BORE_ON_SIGHT_LINE` off the two are the same Vector3 and this is today bit for bit.
+		--
+		-- THE ATTACHMENT IS STILL WHAT THE FLASHES READ: `ShotFired` and `ShotLanded` carry `muzzle`,
+		-- because a flash has to come out of the gun.
+		-- **AND `safetySignal` BELOW IS NOT A FLASH, WHICH THE FIRST VERSION OF THIS COMMENT CALLED
+		-- IT (the Reviewer's round-1 note).** `Weapon.SafetyViolated`'s own header says the drive
+		-- needs that payload, and `Match.Penalty.judge` measures off it -- so at
+		-- `BORE_ON_SIGHT_LINE = true` the published line would start 0.73 studs off the line
+		-- `askLineUnsafe` tested, which is exactly the asymmetry the `lineUnsafe` comment argues
+		-- against. It is sub-stud and BIT FOR BIT at the shipped `false`, so it is not changed here:
+		-- `src/server/Match/` is a TWO_PLAYER_PATH and `safetySignal`'s consumers are the drive's.
+		-- Queued with the flip as TASKS.md 259b.
+		muzzle = origin,
 		-- THE SAME LIST THE AIM CAST USED, asked again rather than kept in a local: `lookAhead` owns
 		-- the cast now (task 238) and `ignoreFor` is a pure build from the player's character, so
 		-- asking twice in one frame answers the same thing and nothing is passed around to go stale.

@@ -604,15 +604,23 @@ Boar.CONFIG = {
 		--   zone   slug  rigby  lever    slug ->  rigby  lever    slug  ->  rigby  lever
 		--   head    100   100    100     lethal   lethal lethal   lethal    lethal lethal
 		--   chest   100   100    100     lethal   lethal lethal   lethal    lethal lethal
-		--   body     55   100     80     mortal   LETHAL mortal   GRAZE     mortal mortal
+		--   body     55    90     80     mortal   mortal mortal   GRAZE     mortal mortal
 		--   rear     55    75     65     mortal   mortal mortal   graze     mortal mortal
 		--   legs     30    60     50     graze    MORTAL MORTAL   graze     MORTAL graze
+		--
+		--   THE `rigby`/`body` CELL READ `100 ... LETHAL` UNTIL TASK 259 and it is 90/mortal now:
+		--   `LETHAL` is 100, so that cell was a paunch shot that dropped a boar on the spot. The
+		--   reason, the trade it makes on the legendary and the doctrine behind it are in the block
+		--   above `DAMAGE_BY_WEAPON` itself, and `kill_zones.spec` asserts the ordering it restores.
 		--
 		--   the three that were wrong, with the arithmetic. **EVERY ONE OF THEM IS ON THE DEER
 		--   SIDE**, which is the lesson rather than the typo: that column is the boar's number
 		--   DIVIDED BY 1.2 everywhere `WOUND.CLASS` does not say `vital`, and `rear` is
 		--   `crippling`, not vital -- so a severity there has to be read off the divided number.
 		--     deer body rigby   100 / 1.2 = 83.3   -- MORTAL (>= 50), not lethal (needs >= 100)
+		--                                           (TASK 259: that cell is 90 now, so the live
+		--                                            arithmetic is 90 / 1.2 = 75, still mortal. The
+		--                                            line above is task 250's history, not today's)
 		--     deer legs lever    50 / 1.2 = 41.7   -- GRAZED (< 50), not mortal
 		--     deer rear slug     55 / 1.2 = 45.8   -- GRAZED (< 50), not mortal
 		--
@@ -622,8 +630,14 @@ Boar.CONFIG = {
 		--                                              is the one number this task exists to fix.
 		--                                              The deer's "1" is ONE SHOT TO KILL and not
 		--                                              one shot to DROP: 83.3 is mortal, so the
-		--                                              stag runs out `Wound.flightStuds` first)
+		--                                              stag runs out `Wound.flightStuds` first.
+		--                                              TASK 259 RETUNED THIS CELL TO 90: the boar's
+		--                                              "1" was one shot to DROP, which is what a
+		--                                              paunch shot must not be. Both are mortal and
+		--                                              both DROP in 2 now)
 		--   body, lever:  boar 2 -> 2   deer 3 -> 2
+		--                 (and TASK 259 took the Rigby's own body cell to 90, so its row above
+		--                  reads boar 2 -> 2 and deer 2 -> 2 today, not 1 and 1)
 		--   legs, Rigby:  boar 4 -> 2   deer 4 -> 2   (one bullet now breaks the animal down)
 		--   legs, lever:  boar 4 -> 2   deer 5 -> 3
 		--   rear, Rigby:  boar 2 -> 2   deer 2 -> 2   (unchanged on purpose: see below)
@@ -639,8 +653,35 @@ Boar.CONFIG = {
 		-- down on its back end -- it just does not last as long.
 		--
 		-- Every one of these ten is one line. KAREN DECIDES whether a rifle should be this hard.
+		-- ...AND THE PAUNCH CAME BACK DOWN, 100 -> 90, BECAUSE AT 100 IT WAS A VITAL (task 259).
+		-- KAREN, 2026-10-24: *"when boar is running we need to aim in empty space to get hit in head
+		-- neck or heart like in real life smae with other animals"*.
+		--
+		-- `LETHAL` IS 100, SO `rifle.body = 100` DROPPED A BOAR ON THE SPOT -- the same one shot a
+		-- heart hit costs. That makes the *Waidwundschuss* as good as the *Kammerschuss* with a
+		-- rifle in your hands, which is the opposite of the doctrine every hunting education teaches
+		-- (`docs/research/2026-10-24-real-shooting.md` section 7: the paunch *"wounds; the animal
+		-- runs a long way"*, Stokke et al.'s `mfd` ~ 429 studs) and the opposite of the sentence
+		-- Karen asked for -- if the gut kills as fast as the chamber there is no reason to aim at the
+		-- chamber. `kill_zones.spec` asserts the ordering over all seven kinds and all four guns.
+		--
+		-- 90 IS STILL A RIFLE AND STILL FIXES WHAT TASK 250 FIXED: it is MORTAL on a boar (90 of the
+		-- 50..100 span, so `Wound.flightStuds` gives it a short run) and mortal on a red deer
+		-- (90/1.2 = 75), which was the graze that task 250 existed to remove -- and it is still 10
+		-- points above the lever's 80.
+		--
+		-- THE TRADE IT MAKES, SAID OUT LOUD: a .416 through a LEGENDARY boar's paunch is now a GRAZE
+		-- (90/2 = 45, under MORTAL 50) where at 100 it was exactly mortal. The two cannot both hold
+		-- -- the legendary's paunch is mortal only at 100 or above and a boar's paunch is non-lethal
+		-- only below 100 -- so this picks the one the doctrine and Karen both name. A `Schild` that
+		-- shrugs off a gut shot is what the animal's armour IS (the note's "Harder to kill"), and the
+		-- legendary's head and chamber are untouched: one shot, any gun, `Wound.damageFor`'s own rule.
+		-- 90 rather than 99, because a number one point under a threshold is a number waiting to be
+		-- a bug.
+		--
+		-- EVERY ONE OF THESE TEN IS STILL ONE LINE AND KAREN STILL DECIDES.
 		DAMAGE_BY_WEAPON = {
-			rifle = { head = 100, chest = 100, body = 100, legs = 60, rear = 75 },
+			rifle = { head = 100, chest = 100, body = 90, legs = 60, rear = 75 },
 			lever = { head = 100, chest = 100, body = 80, legs = 50, rear = 65 },
 		},
 		-- Studs run before collapsing, from the worst zone hit. Validated against Stokke et al.
