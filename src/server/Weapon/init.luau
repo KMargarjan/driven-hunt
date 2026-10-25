@@ -1457,8 +1457,17 @@ local function onFireRequest(player: Player, req: any): string?
 		-- WHERE THE PROJECTILES START (task 259). `Flight` casts its first segment from this point,
 		-- and it is `origin` -- the bore -- not the Tool's attachment: with
 		-- `CONFIG.BORE_ON_SIGHT_LINE` off the two are the same Vector3 and this is today bit for bit.
-		-- The attachment is still what every COSMETIC reads: `ShotFired`, `ShotLanded` and the
-		-- safety signal below all carry `muzzle`, because a flash has to come out of the gun.
+		--
+		-- THE ATTACHMENT IS STILL WHAT THE FLASHES READ: `ShotFired` and `ShotLanded` carry `muzzle`,
+		-- because a flash has to come out of the gun.
+		-- **AND `safetySignal` BELOW IS NOT A FLASH, WHICH THE FIRST VERSION OF THIS COMMENT CALLED
+		-- IT (the Reviewer's round-1 note).** `Weapon.SafetyViolated`'s own header says the drive
+		-- needs that payload, and `Match.Penalty.judge` measures off it -- so at
+		-- `BORE_ON_SIGHT_LINE = true` the published line would start 0.73 studs off the line
+		-- `askLineUnsafe` tested, which is exactly the asymmetry the `lineUnsafe` comment argues
+		-- against. It is sub-stud and BIT FOR BIT at the shipped `false`, so it is not changed here:
+		-- `src/server/Match/` is a TWO_PLAYER_PATH and `safetySignal`'s consumers are the drive's.
+		-- Queued with the flip as TASKS.md 259b.
 		muzzle = origin,
 		-- THE SAME LIST THE AIM CAST USED, asked again rather than kept in a local: `lookAhead` owns
 		-- the cast now (task 238) and `ignoreFor` is a pure build from the player's character, so

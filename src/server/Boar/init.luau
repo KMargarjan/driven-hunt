@@ -618,6 +618,9 @@ Boar.CONFIG = {
 		--   DIVIDED BY 1.2 everywhere `WOUND.CLASS` does not say `vital`, and `rear` is
 		--   `crippling`, not vital -- so a severity there has to be read off the divided number.
 		--     deer body rigby   100 / 1.2 = 83.3   -- MORTAL (>= 50), not lethal (needs >= 100)
+		--                                           (TASK 259: that cell is 90 now, so the live
+		--                                            arithmetic is 90 / 1.2 = 75, still mortal. The
+		--                                            line above is task 250's history, not today's)
 		--     deer legs lever    50 / 1.2 = 41.7   -- GRAZED (< 50), not mortal
 		--     deer rear slug     55 / 1.2 = 45.8   -- GRAZED (< 50), not mortal
 		--
@@ -633,6 +636,8 @@ Boar.CONFIG = {
 		--                                              paunch shot must not be. Both are mortal and
 		--                                              both DROP in 2 now)
 		--   body, lever:  boar 2 -> 2   deer 3 -> 2
+		--                 (and TASK 259 took the Rigby's own body cell to 90, so its row above
+		--                  reads boar 2 -> 2 and deer 2 -> 2 today, not 1 and 1)
 		--   legs, Rigby:  boar 4 -> 2   deer 4 -> 2   (one bullet now breaks the animal down)
 		--   legs, lever:  boar 4 -> 2   deer 5 -> 3
 		--   rear, Rigby:  boar 2 -> 2   deer 2 -> 2   (unchanged on purpose: see below)

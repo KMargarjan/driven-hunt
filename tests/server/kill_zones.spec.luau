@@ -47,10 +47,31 @@ local Wound = Boar.Wound
 local WOUND = Boar.CONFIG.WOUND
 local KINDS = Boar.CONFIG.KINDS
 
+-- THE KINDS ARE ASKED OF AN EXPLICIT CONFIG AND NEVER OF THE LIVE FLAG (the Reviewer's round-1 note,
+-- and the idiom `boar_kinds.spec` and `boar_legendary.spec` already use). `Boar.CONFIG.KINDS` carries
+-- `ENABLED = Flags.isOn("BOAR_MODEL")`, and `Body.kindRow`'s first line answers the DEFAULT row for
+-- every kind when that is off -- so reading the live table would make every assertion below depend on
+-- a flag the Director flips for playtests, and three of them would go red against correct code.
+--
+-- `KINDS_ON` IS WHAT THE GAME SHIPS (the flag's default is true) and `KINDS_OFF` is the world before
+-- task 115, which the last case asserts rather than ignores.
+local function configWith(on: boolean)
+	local kinds = table.clone(KINDS)
+	kinds.ENABLED = on
+	local config = table.clone(Boar.CONFIG)
+	config.KINDS = kinds
+	return config
+end
+
+local KINDS_ON = configWith(true)
+local KINDS_OFF = configWith(false)
+
 -- A hard ceiling, so a data fault that makes an animal unkillable fails as a NUMBER rather than
--- hanging the suite in a while-loop. 40 is far past anything the tables can produce: the smallest
--- non-zero charge in the whole grid is one buckshot pellet into a legendary's legs, 6/2 = 3 points,
--- which reaches LETHAL in 34.
+-- hanging the suite in a while-loop. 40 is far past anything the sweep below can produce: the
+-- smallest charge it ever fires is a 9-pellet buckshot shell into a legendary's legs,
+-- 9 x 6 / 2 = 27 points, which drops it in 4. (A SINGLE pellet there would be 3 points and 34 shots,
+-- which is where 40 came from -- but `GUNS` fires buckshot as a whole shell, so that cell is never
+-- visited. The Reviewer's round-1 note; the ceiling is unchanged and still far above the sweep.)
 local MAX_SHOTS = 40
 
 -- THE GUNS, AS THE WIRE SEES THEM. `weapon` is `hit.weapon` -- the `Weapons.WeaponId` the
@@ -68,8 +89,8 @@ local ZONES = { "head", "chest", "rear", "body", "legs" }
 
 -- HOW MANY OF THAT SHOT IT TAKES. `Wound.apply` is applied until the severity is `lethal`, exactly
 -- as `Runtime:takeHit` does it, so the count is the game's and not a division.
-local function shotsToDrop(kind: string, gun, zone: string): number
-	local toughness = Boar.toughnessFor(kind, Boar.CONFIG)
+local function shotsToDrop(kind: string, gun, zone: string, config: any?): number
+	local toughness = Boar.toughnessFor(kind, config or KINDS_ON)
 	local state = Wound.new()
 	for shot = 1, MAX_SHOTS do
 		local severity
@@ -87,8 +108,8 @@ local function shotsToDrop(kind: string, gun, zone: string): number
 	return MAX_SHOTS + 1
 end
 
-local function severityAfterOne(kind: string, gun, zone: string): string
-	local toughness = Boar.toughnessFor(kind, Boar.CONFIG)
+local function severityAfterOne(kind: string, gun, zone: string, config: any?): string
+	local toughness = Boar.toughnessFor(kind, config or KINDS_ON)
 	local _, severity = Wound.apply(Wound.new(), {
 		zone = zone,
 		ammo = gun.ammo,
@@ -198,7 +219,7 @@ return function()
 			-- would mean a rifle bullet through the guts that the animal shrugs off, which is the
 			-- opposite of the doctrine's *"runs on for a long way"*.
 			for _, kind in ipairs(KINDS.ORDER) do
-				local toughness = Boar.toughnessFor(kind, Boar.CONFIG) or 1
+				local toughness = Boar.toughnessFor(kind, KINDS_ON) or 1
 				for _, gun in ipairs({ GUNS[3], GUNS[4] }) do
 					local severity = severityAfterOne(kind, gun, "body")
 					-- THE LEGENDARY IS THE ONE EXCEPTION AND IT IS ASSERTED RATHER THAN EXCLUDED
@@ -223,7 +244,7 @@ return function()
 			-- is why 75 and 65 are deliberate and not a rounding. Asserted so a later "the rifle
 			-- needs more damage" pass cannot delete the reaction by accident.
 			for _, kind in ipairs(KINDS.ORDER) do
-				local toughness = Boar.toughnessFor(kind, Boar.CONFIG) or 1
+				local toughness = Boar.toughnessFor(kind, KINDS_ON) or 1
 				for _, gun in ipairs({ GUNS[3], GUNS[4] }) do
 					local severity = severityAfterOne(kind, gun, "rear")
 					-- 75/2 = 37.5 and 65/2 = 32.5 on the legendary, so his rump is a graze for the
@@ -256,13 +277,30 @@ return function()
 			-- says the species differ at all -- and it would catch a deer row that lost its
 			-- `toughness` in an edit.
 			for _, kind in ipairs({ "stag", "hind", "calf" }) do
-				expect(Boar.toughnessFor(kind, Boar.CONFIG)).to.equal(1.2)
+				expect(Boar.toughnessFor(kind, KINDS_ON)).to.equal(1.2)
 				for _, gun in ipairs(GUNS) do
 					expect(shotsToDrop(kind, gun, "chest")).to.equal(shotsToDrop("male", gun, "chest"))
 				end
 			end
 			for _, kind in ipairs({ "male", "female", "cub" }) do
-				expect(Boar.toughnessFor(kind, Boar.CONFIG)).to.equal(nil)
+				expect(Boar.toughnessFor(kind, KINDS_ON)).to.equal(nil)
+			end
+		end)
+	end)
+
+	describe("the flag the kinds live behind", function()
+		it("falls every kind back to the DEFAULT row with BOAR_MODEL off, so nothing is armoured", function()
+			-- `Body.kindRow`'s first line: with `KINDS.ENABLED` false every kind resolves to
+			-- `KINDS[KINDS.DEFAULT]`, which is the male and carries no `toughness`. That is the world
+			-- before task 115 and it is asserted rather than left as the thing that would make the
+			-- cases above red if the Director ever flipped the flag for a playtest.
+			for _, kind in ipairs(KINDS.ORDER) do
+				expect(Boar.toughnessFor(kind, KINDS_OFF)).to.equal(nil)
+				for _, gun in ipairs(GUNS) do
+					expect(shotsToDrop(kind, gun, "body", KINDS_OFF)).to.equal(
+						shotsToDrop("male", gun, "body", KINDS_ON)
+					)
+				end
 			end
 		end)
 	end)
@@ -285,12 +323,15 @@ return function()
 			-- NOT AN ASSERTION, A REPORT -- the bounds above are the assertions. It is generated from
 			-- the same `shotsToKill` they use, so the table a human reads and the table the harness
 			-- enforces cannot disagree.
+			local worst = 0
 			for _, kind in ipairs(KINDS.ORDER) do
-				local toughness = Boar.toughnessFor(kind, Boar.CONFIG)
+				local toughness = Boar.toughnessFor(kind, KINDS_ON)
 				for _, gun in ipairs(GUNS) do
 					local cells = {}
 					for _, zone in ipairs(ZONES) do
-						table.insert(cells, string.format("%s=%d", zone, shotsToDrop(kind, gun, zone)))
+						local shots = shotsToDrop(kind, gun, zone)
+						worst = math.max(worst, shots)
+						table.insert(cells, string.format("%s=%d", zone, shots))
 					end
 					print(
 						string.format(
@@ -303,7 +344,11 @@ return function()
 					)
 				end
 			end
-			expect(true).to.equal(true)
+			-- ...AND IT ASSERTS THE THING IT PRINTS (the Reviewer's round-1 note). `expect(true)` here
+			-- was a passing check in the harness tally that could not fail, while `shotsToDrop`
+			-- answers `MAX_SHOTS + 1` silently and `string.format` would have printed it.
+			expect(worst <= MAX_SHOTS).to.equal(true)
+			expect(worst >= 1).to.equal(true)
 		end)
 	end)
 end

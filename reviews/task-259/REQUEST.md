@@ -66,9 +66,11 @@ Note: `docs/research/2026-10-24-real-shooting.md` section 12 (this task's own).
    nearer, which is why it reads as unreliable rather than as a zero. They are LOWER bounds on
    purpose, so the defect cannot be made smaller without the spec saying so.
 
-4. **When the aim ray lands ON the target, every gun and load is within 1.6 cm of the reticle at
+4. **When the aim ray lands ON the target, every gun and load is within 1.68 cm of the reticle at
    25 / 50 / 100 m, for ANY muzzle placement.** This is the baseline claim 3 is measured against, and
    it is research note section 4's table re-derived from the stepper instead of from the closed form.
+   The asserted bound is `BALLISTIC_BOUND_STUDS = 0.06` studs, which is 1.68 cm -- the note's 1.6 cm
+   with a hair of room for the stepper's discretisation, as the spec's own comment says.
    *Verify:* `sights.spec`'s first describe -- 5 (gun, load) x 3 ranges x 4 holds, each flown through
    the real `Flight` with the real sub-step cap against a plane cast, bounded at 0.06 studs.
 

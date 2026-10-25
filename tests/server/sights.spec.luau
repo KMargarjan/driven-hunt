@@ -400,9 +400,12 @@ return function()
 		end)
 
 		it("prints the before-and-after table the dispatch asked for", function()
-			-- NOT AN ASSERTION, A REPORT. The bounds above are the assertions; this is the table a
-			-- human reads in the harness log, and it is generated from the same two calls so it
-			-- cannot disagree with them.
+			local printed = 0
+			-- NOT AN ASSERTION, A REPORT -- except that it asserts the thing it prints (the
+			-- Reviewer's round-1 note): `expect(true)` here was a passing check in the harness tally
+			-- that could not fail, while `fire` answers nil for a projectile that never reached the
+			-- plate and `cm(nil)` would have errored anyway. `printed` is what makes the sweep's own
+			-- completeness the claim.
 			for _, gun in ipairs(GUNS) do
 				local row = Weapons.row(gun.id)
 				local range = row.RANGE_STUDS[gun.ammo]
@@ -426,10 +429,13 @@ return function()
 								cm(fixed.right)
 							)
 						)
+						printed += 1
 					end
 				end
 			end
-			expect(true).to.equal(true)
+			-- 11 = rifle 3 + lever 3 + semi-auto Slug 2 + shotgun Slug 2 + semi-auto Buck 1. Buckshot
+			-- reaches 28 m, so only its 25 m cell exists; the two 330-stud slugs stop before 100 m.
+			expect(printed).to.equal(11)
 		end)
 	end)
 end

@@ -536,7 +536,8 @@ rather than from the closed form, which is an independent confirmation of it.
 
 When the ray hits NOTHING the owner falls back to `origin + direction * range` (step 5), so the bore
 converges at the ammo's whole range and the offset is divided down instead of cancelled:
-`offset * (1 - d/range)` at the target. Rifle, the measured shotgun hold:
+`offset * (1 - d/range)` at the target. Rifle ballistics flown against the SHOTGUN's measured
+hold (0.741 studs, the larger of the two readings -- the rifle's own 0.718 gives 3 % less):
 
 | | 25 m | 50 m | 100 m |
 |---|---|---|---|
