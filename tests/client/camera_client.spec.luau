@@ -1461,7 +1461,9 @@ return function()
 				task.wait(0.3)
 
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
-				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				local builtModel = Camera.Viewmodel.current()
+				local builtAt = Camera.Viewmodel.stats().rebuilds
+				local clone = (builtModel :: Model).PrimaryPart :: BasePart
 				local cloned = clone:FindFirstChild("Barrels") :: BasePart
 				local right = clone:FindFirstChild("HandRight") :: BasePart
 				local left = cloned:FindFirstChild("HandLeft") :: BasePart
@@ -1534,6 +1536,18 @@ return function()
 				table.freeze(open)
 				Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { false, false } })
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
+				-- TASK 252 PROBE: did the module rebuild UNDER this measurement? The pair above and
+				-- below is only a measurement if both halves came off the SAME clone.
+				TestKit.note(
+					string.format(
+						"task252 probe: rebuilds %d -> %d, same model %s, clone parented %s, right parented %s",
+						builtAt,
+						Camera.Viewmodel.stats().rebuilds,
+						tostring(Camera.Viewmodel.current() == builtModel),
+						tostring(clone.Parent ~= nil),
+						tostring(right.Parent ~= nil)
+					)
+				)
 				local leftNowOnBody = clone.CFrame:ToObjectSpace(left.CFrame)
 				local leftNowOnBarrels = cloned.CFrame:ToObjectSpace(left.CFrame)
 				local rightNowOnBody = clone.CFrame:ToObjectSpace(right.CFrame)
@@ -1591,6 +1605,9 @@ return function()
 				local missingBefore = Camera.Viewmodel.stats().handsMissing
 				Camera.Viewmodel.clear()
 				task.wait(0.3)
+				-- TASK 252 PROBE: who counts -- the live render step inside the wait, or the call below?
+				local missingAfterWait = Camera.Viewmodel.stats().handsMissing
+				local drawnAfterWait = Camera.Viewmodel.current() ~= nil
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
 				local bare = Camera.Viewmodel.current()
 				expect(bare).to.be.ok()
@@ -1598,9 +1615,11 @@ return function()
 				expect(bareClone:FindFirstChild("HandRight")).to.equal(nil)
 				TestKit.note(
 					string.format(
-						"task93 no templates: handsMissing %d -> %d, gun still drawn with %d part(s)",
+						"task93 no templates: handsMissing %d -> %d (%d after the wait, drawn=%s), gun still drawn with %d part(s)",
 						missingBefore,
 						Camera.Viewmodel.stats().handsMissing,
+						missingAfterWait,
+						tostring(drawnAfterWait),
 						Camera.Viewmodel.stats().parts
 					)
 				)
