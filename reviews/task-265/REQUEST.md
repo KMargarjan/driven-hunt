@@ -1,94 +1,105 @@
-# Task 265 -- a reliable shot instrument, and the 38 m scope miss
+# Task 265 -- round 2: is the 3-stud rearward offset the deer's travel or an aiming error?
 
 Task: 265
-Round: 1
+Round: 2
 Base: 670416e6 (main, which includes 264)
-Code commit: 670416e60614695a9fcf9a6fb1237d8dd66a29a4
+Code commit: 75539a9498dc533f65ceef7214a6c9578f18b798
 
-`[harness] PASS: 34/34 checks @ 670416e60614695a9fcf9a6fb1237d8dd66a29a4 (clean tree) scope=all`
-`[harness2]` N/A: **nothing under `src/`, `tests/` or `tools/` changed at all** this round, so no
-path can be in `TWO_PLAYER_PATHS`. The harness was run anyway, on the clean tree, because the
-dispatch asked for the full `test`.
+`[harness] PASS: 34/34 checks @ 75539a9498dc533f65ceef7214a6c9578f18b798 (clean tree) scope=all`
+`[harness2]` N/A: the code commit changes `src/server/Weapon/init.luau`,
+`src/shared/Ballistics/init.luau` and one research note, none of which is in `TWO_PLAYER_PATHS`
+(the weapon is on the exempt list; Director decision 2026-10-03).
 
-## PLAN (core quality protocol step 0), for item 3
+## ROUND 1's TWO FINDINGS, AND WHAT THIS ROUND DID WITH THEM
 
-- **(a) REAL LIFE.** A scoped rifle zeroed at a known distance puts the bullet on the sight line to
-  within a small fraction of the target at ordinary ranges; `docs/research/2026-10-24-real-shooting.md`
-  section 6 and `Ballistics.boreOrigin`'s own header give the residual as **1.6 cm inside 60 m**.
-- **(b) MEASURED NOW.** Task 264's single datum was *"the first real click, at a stag 136 studs out
-  with the sight on its chest, hit Terrain"*. This task measured the thing itself, with
-  `aimshot.py` and the server's own `ShotLanded` payload: the perpendicular deviation from the
-  sight line is **0.023 / 0.031 / 0.038 studs** at 25.2 / 38.1 / 50.1 m.
-- **(c) TARGET.** The dispatch's 0.3 studs. It is ~8 cm, well inside a deer's chest at any of these
-  ranges, and ten times the residual the research note predicts.
+1. *"the range table was config arithmetic"* -- **accepted and dropped as evidence.** It is not
+   quoted anywhere below. The replacement metric is built so that the two sides cannot agree by
+   construction (claim 1).
+2. *"the proof shot's miss was reported as clean"* -- **accepted.** The answer is claims 3 and 4:
+   most of that offset is distance ALONG the line, and the aiming error across it is 0.02 studs.
+
+## PLAN (core quality protocol step 0)
+
+- **(a) REAL LIFE.** A scoped rifle puts the bullet on its line of sight; the research note
+  (`docs/research/2026-10-24-real-shooting.md`) gives the residual as 1.6 cm inside 60 m, which is
+  0.057 studs at 0.28 m/stud.
+- **(b) MEASURED NOW.** `265-shotspy.luau`, in the Forest Test, real focused clicks: the
+  perpendicular distance from the server's impact to the client's own camera ray at the trigger is
+  **0.008 / 0.020 / 0.028 studs** at 36.5 / 86.2 / 319.4 studs, on targets whose measured velocity
+  is **0.000**.
+- **(c) TARGET.** The dispatch's 0.3 studs for a still target.
 - **(d) LEVER.** `Ballistics.launchDirection` / `Ballistics.boreOrigin` /
-  `Shotgun.CONFIG.BORE_ON_SIGHT_LINE`, written at `src/server/Weapon/init.luau` in
-  `onFireRequest` -- `local origin = Ballistics.boreOrigin(req.origin, req.direction, muzzle,
-  CONFIG.BORE_ON_SIGHT_LINE)` and `local bore = Ballistics.launchDirection(aim, ballistic)`.
-  **The lever was not moved**: the measurement is inside the target, so there is nothing to change.
-- **(e) HOW IT IS MEASURED AFTER.** The same instrument, `aimshot.py`, which is also what measured
-  (b). Before and after are one tool.
+  `Shotgun.CONFIG.BORE_ON_SIGHT_LINE`, written in `src/server/Weapon/init.luau`'s `onFireRequest`
+  (`local origin = Ballistics.boreOrigin(req.origin, req.direction, muzzle,
+  CONFIG.BORE_ON_SIGHT_LINE)`, `local bore = Ballistics.launchDirection(aim, ballistic)`).
+  **No lever was moved.** (b) is inside (c) by a factor of ten, so there is nothing to change --
+  and step 0 says a refuted premise is a finished item, not a failure.
+- **(e) HOW IT IS MEASURED AFTER.** The same probe, `265-shotspy.luau`.
 
-**(b) CONTRADICTS THE DISPATCH, AND THE PROTOCOL SAYS TO SAY SO AND STOP.** Item 3's premise -- that
-the 136-stud Terrain hit is a sighting or drop defect -- is **refuted**. The cause is measured
-below and it is the instrument's, not the game's.
-
-## STEP 1 -- her path
-
-The Forest Test (placeId 130094961655666), a hunter enrolled at a truck pad (rule I), on his own
-stand, the scoped rifle in his hands, real focused mouse clicks. Nothing was measured in DEV.
+**THE ONLY `src/` CHANGE THIS ROUND IS THREE COMMENTS** (claim 8). No expression, no number and no
+behaviour changed.
 
 ## Claims
 
-1. **Item 1 is MET and self-proving.** `aimshot.py --selftest` prints
-   `SELFTEST: 5 click(s) -> 5 ShotLanded` / `SELFTEST PASS`. *Verify:* run it in a Play session with
-   a gun in hand; the count comes from a listener on `Shotgun.Remotes.ShotLanded`, which is an
-   Instance and not a re-`require`d module (the task 258 trap).
-2. **The four task-264 faults are each closed by a named line of the instrument.** Studio resolved
-   by `game.PlaceId` (`ftsid.resolve`); the click through `click.ps1`, which focuses; the click
-   point computed from `winrect.ps1` every run; the reload the player's own `R` through
-   `263key.ps1`; and **no probe `FireRequest` path left at all**. *Verify:* read `aimshot.py`'s
-   docstring and `shoot()`.
-3. **Item 3 (CORE): the rifle puts the bullet on the sight line, measured at three ranges.**
-   Perpendicular deviation **0.023 / 0.031 / 0.038 studs** at 89.9 / 136.0 / 178.8 studs
-   (25.2 / 38.1 / 50.1 m), against a 0.3-stud target. *Verify:* the table in
-   `<runs-dir>/ledgers/265.md`; each row is one `ShotLanded` payload read back by the probe, and the
-   sight line is rebuilt in-game from the eye and the aim point the hold was set to.
-4. **The 136-stud Terrain hit is REPRODUCED and its cause measured.**
-   `SERVER Terrain @ ... MISS 29.812 studs (dY -0.401) | OFF-SIGHT 0.029 studs` -- the shot was
-   0.029 studs off the sight line while landing 29.8 studs from the aim point, because the aim had
-   been taken before a 2.4 s reload and the stag walked 20 studs. *Verify:* the ledger's item 3;
-   the fix is `shoot(..., rearm=...)` in `aimshot.py`, whose comment carries the measurement.
-5. **Step 3's three numbers, together, on her path, after the fix.** AIMED: `Boar90/hind` chest,
-   `offTarget=0.000 deg`, 131.2 studs. SERVER: `ZoneRear(rear) @ 3287.44,158.02,-3126.11 local
-   -0.820,-0.406,0.785`, `OFF-SIGHT 0.031 studs`. CLIENT: `Attachment @ 3287.44,158.02,-3126.11
-   (under ZoneRear)`. *Verify:* the ledger; the two sides are not one identity -- the server side is
-   the replicated payload, the client side the Instance its own effects code built from it.
-6. **The frame was opened and described.** `<runs-dir>/265-deer38b.png`: the shooter's eye, scoped
-   .416 (1 loaded, 9 reserve), the hind broadside in mid-field with a boar to its left, and the hit
-   card bottom-left reading `HIT - .416` with the red dot on the silhouette's **rear** -- the zone
-   the server named in claim 5. *Verify:* open it.
-7. **`BORE_ON_SIGHT_LINE` was not flipped, and that is a decision and not an omission.** Nothing
-   measured asks for it: its own case is a shot led into EMPTY SPACE (task 259), which is not what
-   the dispatch described. *Verify:* `git diff --name-only 670416e6..HEAD` shows no `src/` file.
-8. **Item 2 is NOT MET and item 4 is NOT PROVEN, in those words.** *Verify:* the ledger and the
-   report's handover block. Item 4 is CORE and reads *"nobody has yet seen a deer killed on the
-   road, running, lie still in her place."*
-9. **Nothing in the game changed.** No file under `src/`, `tests/` or `tools/` was touched; the only
-   repository changes are this folder and `TASKS.md`. *Verify:* `git diff --name-only 670416e6..HEAD`.
+1. **The metric can fail, which round 1's could not.** One side is the CLIENT's camera ray, cast on
+   `UserInputService.InputBegan` for MouseButton1 -- the event `Weapon.Input.fire` answers -- with
+   the same origin and direction the client sends (`src/client/Weapon/Input.luau` `Input.fire`:
+   `{ origin = cframe.Position, direction = cframe.LookVector.Unit }`). The other is the point the
+   SERVER resolved and broadcast on `ShotLanded`. A client whose crosshair says one thing while the
+   server shoots another shows up as a non-zero `ACROSS`. *Verify:* `<runs-dir>/265-shotspy.luau`;
+   nothing in `Ballistics` is consulted to produce either side of that comparison.
+2. **The animal's velocity and its CFrame are read on the SAME frame as the trigger** (L-021), in
+   consecutive lines of the `InputBegan` handler, and every local offset is expressed in that one
+   CFrame. *Verify:* the handler; `rec.cf` and `rec.vel`.
+3. **CORE -- the answer. On a STILL target (v = 0.000, anchored by the probe) the bullet is
+   0.008 / 0.020 / 0.028 studs off the client's own camera ray** at 36.5 / 86.2 / 319.4 studs,
+   against a 0.3-stud target. *Verify:* the table in `<runs-dir>/ledgers/265.md` round 2 item 2;
+   each row is one `ShotLanded` payload paired with one MouseButton1.
+4. **And the split explains round 1's three studs.** The same rows carry `worldMiss` 0.008 / 2.105 /
+   5.646 -- the straight distance from the reticle's hit to the impact. The difference is ALONG the
+   line: the client's thin ray stops on the ZONE SHELL (`ZoneRear`) and the bullet stops on the
+   TRUNK box behind it (`Boar170(body)`), 2.1 studs further down the same ray. *Verify:* row (b)'s
+   `RETICLE ZoneRear` against `SERVER Boar170(body)` with `ACROSS 0.020` and `worldMiss 2.105`.
+   **So a chest-aimed shot reported as "rump" is this geometry plus whatever the animal walked, and
+   not the gun.**
+5. **The negative control is on every row** (L-028): `resid0` is the residual recomputed with the
+   velocity taken as zero. On these still rows `resid` and `resid0` are equal because the velocity
+   IS zero -- the control saying the two agree only where they must. *Verify:* the rows.
+6. **A camera-frame artefact was found, measured and excluded, not assumed away.** The first run
+   read `RETICLE Terrain` against `SERVER ZoneChest`, 19.167 studs apart: `click.ps1` does a
+   `SetCursorPos` immediately before the button, and under `MouseBehavior = LockCenter` that jump is
+   a mouse DELTA. Two independent answers: the cursor is PARKED on the click point before the aim is
+   armed (`park.ps1`), and every row carries `RETICLE+1f`, the same ray one frame later. On every
+   row quoted above `RETICLE+1f` equals `RETICLE`, so the camera was stable across the trigger.
+   *Verify:* the `|| RETICLE+1f` field on each row.
+7. **Item 3 (the moving case) is NOT MET.** Two attempts produced no paired row inside the two
+   hours. The moving-target residual is unmeasured and is not claimed anywhere. *Verify:* the
+   ledger's round 2 item 3.
+8. **265a(a) is done, and it was THREE stale sentences, not the two the dispatch named** (L-030, and
+   the grep was run before committing): `Ballistics.boreOrigin`'s header,
+   `Weapon.onFireRequest`'s inline note and `docs/research/2026-10-24-real-shooting.md` section 12
+   all said `BORE_ON_SIGHT_LINE` ships `false`; `src/shared/Shotgun/init.luau` has
+   `BORE_ON_SIGHT_LINE = true` since task 260. `tests/server/sights.spec.luau` was already correct
+   and is untouched -- it passes `false` explicitly for its rollback cases and says why.
+   *Verify:* `git show 75539a94`; `grep -rn "BORE_ON_SIGHT_LINE" src/ tests/ docs/`.
+9. **Nothing in the game's behaviour changed.** The three edits are comment lines and one research
+   sentence. *Verify:* `git diff 670416e6..75539a94 -- src/`.
 10. **The Forest Test's attributes are identical before and after.** Read with
     `<runs-dir>/attrs-id.luau` before anything and again after the restore:
     `DHFlag_BOAR_BEHAVIOUR=true DHFlag_BOAR_MODEL=true DHFlag_COINS=true DHFlag_DEER_ROAD_LEAP=true
     DHFlag_DRIVE_BOTS=true DHFlag_HORN=true DHFlag_LICENCE_POPUP=true DHFlag_LOBBY=true
     DHFlag_SHOP=true DHForestStartRole=hunter DHShopTestGrant=true`. `DHTestOwns` was set for the
-    proof only and is cleared. *Verify:* the two strings are the same string.
+    proof only and is cleared; the probe's anchors are released (`265-free.luau` answered
+    `freed 0`, because the drive had already retired those animals).
 
 ## What could not be verified
 
-- **Item 2** (the `DHTestRelease` hook): not built. It is a `src/` change needing both branches
-  asserted and a `SCOPE_SPECS` entry, and the session's time went on items 1 and 3.
-- **Item 4** (eight running deer, four on the road): not attempted, because item 2 is its lever.
-- **Item 5**: not attempted.
-- **The empty-space case** (task 259's own, `BORE_ON_SIGHT_LINE`): one shot was fired at a point in
-  the air and the reading is not clean enough to quote -- a stale listener generation was writing
-  the row. The generation gate that fixes it is in the instrument now; the measurement is not made.
+- **The moving-target rows (item 3).** Not obtained. One click produced no `ShotLanded`, and a
+  drive ended between the placement and the trigger on the other attempt.
+- **Only four shots are tabled, not six.** Three still rows plus the tree row.
+- **No new frame this round.** The still-target rows are numbers out of the server's own payload,
+  not a look claim; round 1's `265-deer38b.png` remains the described frame and nothing here
+  supersedes it.
+- **The control animal is ANCHORED BY THE PROBE** (`265-hold-still.luau`), which is how `v = 0.000`
+  is a fact rather than an aspiration: no animal in a drive ever stands still. The anchoring is the
+  probe's, not the game's, and it is undone by `265-free.luau`.
