@@ -333,7 +333,15 @@ Flags.DEFAULTS = {
 		-- The owner is the module that READS it at its boundary (`Camera.Config.FIRST_PERSON`) and
 		-- passes it inward as `config` -- the only permitted shape, and what keeps both branches
 		-- reachable by parameter while the flag sits at one of them.
-		owner = "StarterPlayerScripts.Camera",
+		--
+		-- ...AND SINCE TASK 260 THE SERVER READS IT TOO, which this field has to say rather than
+		-- leave to be discovered (the Reviewer's round-1 note). `ServerScriptService.Weapon`'s
+		-- `ORIGIN_TOLERANCE_STUDS` asks this flag once, at its own boundary, because the two camera
+		-- branches put the player's eye in genuinely different places -- 1.993 studs from the root in
+		-- first person against the third-person clamp's 14.5 -- and since `BORE_ON_SIGHT_LINE` the
+		-- bullet LEAVES from that claimed eye. The server cannot ask the camera (there is none), and
+		-- "is this game first person" must have ONE answer or the bound and the frame disagree.
+		owner = "StarterPlayerScripts.Camera (and ServerScriptService.Weapon, for the origin bound)",
 		born = "2026-09-27 task 88 (the design); first code in task 89 (S1)",
 		-- AN ACCEPTED FLAG DOES NOT EXPIRE IN 21 DAYS (task 149b -- the same fix task 149 made
 		-- for `RIFLE`, and the Reviewer flagged this row as carrying the same bomb). First

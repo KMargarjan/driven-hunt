@@ -236,15 +236,17 @@ return function()
 		end
 	end)
 
-	describe("the sights, when the aim ray lands PAST the target -- the defect", function()
-		-- KAREN'S OWN CASE. Leading a running animal means aiming at EMPTY SPACE, so the aim ray
-		-- goes past it: the owner falls back to `origin + direction * range` (design 5.5 step 5), the
-		-- bore converges at the ammo's whole range instead of on the animal, and the eye-to-muzzle
-		-- offset is DIVIDED DOWN rather than cancelled -- `offset * (1 - d/range)` at the target.
+	describe("the sights, when the aim ray lands PAST the target -- the defect task 260 fixed", function()
+		-- KAREN'S OWN CASE, AND IT IS NOW THE ROLLBACK BRANCH. Leading a running animal means aiming
+		-- at EMPTY SPACE, so the aim ray goes past it: with `BORE_ON_SIGHT_LINE` **false** the owner
+		-- falls back to `origin + direction * range` (design 5.5 step 5), the bore converges at the
+		-- ammo's whole range instead of on the animal, and the eye-to-muzzle offset is DIVIDED DOWN
+		-- rather than cancelled -- `offset * (1 - d/range)` at the target.
 		--
-		-- THESE CASES PIN THE DEFECT RATHER THAN THE FIX, which is why the numbers are LOWER bounds:
-		-- they fail if somebody quietly makes the error smaller without saying so, and they are what
-		-- the `BORE_ON_SIGHT_LINE` cases below are measured against.
+		-- EVERY CASE HERE PASSES `false` EXPLICITLY, which is what keeps them meaningful now that the
+		-- shipped value is `true`: they are the measurement of what the game used to do, and they are
+		-- what the shipped-value cases below are measured against. The numbers are LOWER bounds, so
+		-- they fail if somebody quietly makes the old error smaller without saying so.
 		it("puts the rifle 0.4 studs or more off the reticle at every range, always to the RIGHT", function()
 			local row = Weapons.row("rifle")
 			local range = row.RANGE_STUDS.Slug
@@ -314,11 +316,39 @@ return function()
 	describe("BORE_ON_SIGHT_LINE -- the fix, measured at both values", function()
 		-- THE PARAMETER IS THE SHAPE TASK 256 ALREADY SHIPPED and `docs/design/ballistics.md`
 		-- accepted in place of a flag by name: a path reachable at both values can be tested at both
-		-- while the shipped value sits at one of them. It ships `false` because
-		-- `docs/design/shotgun.md` section 5.5 step 7 says the bore starts at the muzzle and that
-		-- document is the Architect's; `ESCALATE.md` carries the measurement and the flip.
-		it("is false in the shipped build, so nothing above describes a game Karen is not playing", function()
-			expect(Shotgun.CONFIG.BORE_ON_SIGHT_LINE).to.equal(false)
+		-- while the shipped value sits at one of them. **SINCE TASK 260 THE SHIPPED VALUE IS `true`**
+		-- (the Director's decision on `ESCALATE.md`'s option 1, 2026-10-25); `false` is the rollback
+		-- and is still measured by the describe above. **`docs/design/shotgun.md` IS NOT YET AMENDED
+		-- and still says the bore starts at the muzzle** -- the first version of this comment said it
+		-- had been, and the Reviewer caught it. See `Shotgun.CONFIG.BORE_ON_SIGHT_LINE` and
+		-- `reviews/task-260/BRIEF.md`.
+		it("is TRUE in the shipped build, and the shipped build is what hits the reticle", function()
+			-- TWO ASSERTIONS AND THE SECOND ONE IS THE POINT (the Learning Agent's L-028: a
+			-- shipped-value assertion has to fail on the PRE-FLIP config for the right REASON, not
+			-- just because a boolean changed). The first reads the row; the second fires the
+			-- SHIPPED value through the whole chain at the case Karen named -- the aim ray missing --
+			-- and demands the reticle. At `false` that second expectation lands 0.41 studs right at
+			-- 100 m and 0.66 at 25 m, so it fails by a factor of ten.
+			expect(Shotgun.CONFIG.BORE_ON_SIGHT_LINE).to.equal(true)
+			local row = Weapons.row("rifle")
+			local range = row.RANGE_STUDS.Slug
+			for _, metres in ipairs(RANGES_M) do
+				local d = metres / METRES_PER_STUD
+				local hit =
+					fire(row, "Slug", EYE + OFFSETS[1].at, d, EYE + LOOK * range, Shotgun.CONFIG.BORE_ON_SIGHT_LINE)
+				expect(hit).to.be.ok()
+				if math.abs(hit.up) > BALLISTIC_BOUND_STUDS or math.abs(hit.right) > BALLISTIC_BOUND_STUDS then
+					error(
+						string.format(
+							"[sights] SHIPPED value at %d m with the ray missing: %+.2f cm up, %+.2f cm right -- past %.2f cm",
+							metres,
+							cm(hit.up),
+							cm(hit.right),
+							cm(BALLISTIC_BOUND_STUDS)
+						)
+					)
+				end
+			end
 		end)
 
 		it("at false, reproduces the muzzle origin exactly -- the same Vector3, not a near one", function()

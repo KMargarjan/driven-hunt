@@ -30,6 +30,9 @@ local Workspace = game:GetService("Workspace")
 
 -- THE PURE MATHS OF A SHOT THAT TAKES TIME TO ARRIVE (task 185). Frozen numbers plus functions of
 -- their arguments, no writer at all -- the shape `Gun`, `Horn` and `Shop` already have.
+-- THE ONE QUESTION THIS OWNER ASKS THE FLAG TABLE (task 260): which CAMERA is this game running.
+-- `ORIGIN_TOLERANCE_STUDS` below is the only thing that reads it, once, at the boundary.
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 local Ballistics = require(ReplicatedStorage:WaitForChild("Ballistics"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
@@ -100,6 +103,22 @@ Weapon.Horn = Horn
 
 local CONFIG = Shotgun.CONFIG
 
+-- HOW FAR FROM HIS OWN ROOT A PLAYER MAY CLAIM HIS EYE IS, read ONCE at this owner's boundary and
+-- passed inward as an argument (task 260). That is the shape `docs/design/feature-flags.md` requires
+-- of a flag read, applied to the one place this server has to know which CAMERA the game is running:
+-- in FIRST PERSON the eye is 1.226 to 1.993 studs from the root (`camera_mode.spec` sweeps the whole
+-- pitch range and asserts it), and in the third-person rollback the client's own clamp puts it at
+-- 14.5. One number for both branches is the looser of the two, and this request is a CLIENT CLAIM
+-- that `BORE_ON_SIGHT_LINE` now launches the bullet from -- so the loose number is the one that
+-- matters. `Shotgun.CONFIG` carries both and says how each was measured.
+--
+-- IT READS THE SAME FLAG `Camera.Config` READS, which is the point rather than a coupling: "is this
+-- game first person" has one answer, and a server that decided it some other way could disagree with
+-- the camera that actually drew the frame.
+local ORIGIN_TOLERANCE_STUDS = if Flags.isOn("FIRST_PERSON")
+	then CONFIG.CAMERA_ORIGIN_TOLERANCE_FIRST_PERSON
+	else CONFIG.CAMERA_ORIGIN_TOLERANCE
+
 local registry = Registry.new()
 -- ONE TOOL PER WEAPON PER PLAYER (task 140). Two Tools, because the engine's own hotbar is then the
 -- switch: `1` and `2` are its keys, a switch changes `Tool.Parent` and nothing on the server runs
@@ -116,6 +135,17 @@ local stats = {
 	reports = 0,
 	rateDropped = 0,
 	badRequests = 0,
+	-- THE LARGEST |origin - root| ANY ACCEPTED SHOT HAD, in studs (task 260). In first person the
+	-- geometry caps it at 1.993; anything much above that on a real server is the replication lag
+	-- between the eye the client drew and the root this server has, which is the one term
+	-- `CAMERA_ORIGIN_TOLERANCE_FIRST_PERSON`'s margin is for and the one nothing here can measure.
+	originFarthest = 0,
+	-- HOW MANY SHOTS THE ORIGIN BOUND REFUSED, and the worst separation among them (task 260 round
+	-- 2). Both must stay 0 in an honest run: the geometry caps a first-person eye at 1.993 studs and
+	-- the bound is 6, so a non-zero `originRefused` on a real server is either a forgery or the
+	-- replication lag this margin was guessed for -- and `originRefusedFarthest` is which.
+	originRefused = 0,
+	originRefusedFarthest = 0,
 	-- THE AIM QUESTION (task 238). `aimQuestions` is every `"Aim"` that got as far as a cast;
 	-- `aimAdvised` the ones that answered with a gate -- today only `no-licence` -- and so published.
 	-- The difference between them is how often a player shouldered at something he may already shoot,
@@ -656,6 +686,14 @@ function Weapon.stats()
 	-- reference to the live table and can edit the server's own counters (the rule `StateMachine`'s
 	-- `draft` already states for `barrels` and `reserve`).
 	out.refusedBy = table.clone(stats.refusedBy)
+	-- WHICH ORIGIN BOUND THIS SERVER RESOLVED (task 260 round 3, the Reviewer's blocking finding).
+	-- `ORIGIN_TOLERANCE_STUDS` is a module local read once at the boundary, so nothing outside this
+	-- file could see WHICH of the two rows the shipped build actually chose -- and the Reviewer's
+	-- test was the right one: deleting the fourth argument from both `checkShot` call sites left the
+	-- whole suite green with the bound silently back at the third-person 15. This field is what
+	-- `weapon_shot.spec` asserts against `Shotgun.CONFIG.CAMERA_ORIGIN_TOLERANCE_FIRST_PERSON`, so
+	-- the WIRING is pinned and not just the arithmetic.
+	out.originTolerance = ORIGIN_TOLERANCE_STUDS
 	-- ...AND HOW THE EQUIPS ENDED, which is Hardware's own tally (task 129).
 	out.equipNow = Hardware.equipStats.now
 	out.equipNoCharacter = Hardware.equipStats.noCharacter
@@ -1282,11 +1320,30 @@ local function onFireRequest(player: Player, req: any): string?
 		return "untracked"
 	end
 
-	local ok, why = Validator.checkShot(req, rootPositionOf(player), CONFIG)
+	local rootPosition = rootPositionOf(player)
+	local ok, why = Validator.checkShot(req, rootPosition, CONFIG, ORIGIN_TOLERANCE_STUDS)
 	if not ok then
+		-- THE REFUSED SEPARATION IS RECORDED TOO (the Reviewer's round-1 note). Written only on the
+		-- accepted path, `originFarthest` could argue the bound TIGHTER and never looser: the one
+		-- event that would show 6 studs is too tight is a shot refused `origin-far`, and that shot
+		-- never reached the line below. Now both are instruments: `originFarthest` is the worst
+		-- HONEST shot and `originRefusedFarthest` the worst refused one, so a real server can say
+		-- which way the number should move.
+		if rootPosition and why == "origin-far" then
+			stats.originRefused += 1
+			stats.originRefusedFarthest = math.max(stats.originRefusedFarthest, (req.origin - rootPosition).Magnitude)
+		end
 		stats.badRequests += 1
 		publish(player, id, state)
 		return why or "bad-request"
+	end
+	-- THE INSTRUMENT FOR THE BOUND ABOVE (task 260). The geometry is measured and the NETWORK half is
+	-- not measurable on this PC (a loopback Studio session reads 1-2 ms of ping), so this records how
+	-- close honest shots actually come to `ORIGIN_TOLERANCE_STUDS` on a real server: the largest
+	-- separation any ACCEPTED shot had. It is the evidence a later tightening or loosening should be
+	-- argued from, and it is one `math.max` on a path that already has the two Vector3s in hand.
+	if rootPosition then
+		stats.originFarthest = math.max(stats.originFarthest, (req.origin - rootPosition).Magnitude)
 	end
 
 	local fired, reason = StateMachine.apply(state, { kind = "Fire" }, now, row)
@@ -1731,7 +1788,11 @@ local function onActionRequest(player: Player, kind: any, ammo: any, aim: any): 
 	--
 	-- Note: docs/research/2026-10-22-licence-popup-and-robux.md section 3.1
 	if kind == "Aim" then
-		local okRay, whyRay = Validator.checkShot(aim, rootPositionOf(player), CONFIG)
+		-- `ORIGIN_TOLERANCE_STUDS` HERE TOO (task 260 round 2, the Reviewer's blocking finding 2).
+		-- This payload is byte-identical to `FireRequest`'s -- `Input.fire` and `Input.aim` build it
+		-- from the same two lines -- so bounding it at 15 studs here and 6 at the trigger would be
+		-- two answers to one question, and the comment above this block promises the opposite.
+		local okRay, whyRay = Validator.checkShot(aim, rootPositionOf(player), CONFIG, ORIGIN_TOLERANCE_STUDS)
 		if not okRay then
 			-- THE SAME VALIDATOR THE TRIGGER'S RAY GETS, so a forged origin is refused here on the
 			-- same terms. Counted as a forgery, and NOTHING is published: a bad packet gets no

@@ -368,9 +368,18 @@ function Props.placeTree(
 	local top = math.min(y + row.height - crown.Y / 2, y + trunk.Y + crown.Y / 2 - config.CROWN_MIN_OVERLAP)
 	local canopy = part("Crown", crown, Vector3.new(point.x, top, point.z), row.crownColor, Enum.Material.Grass, model)
 	-- THE CANOPY DOES NOT BLOCK THE GROUND GAME (design section 7.1): the navmesh and the boar see
-	-- trunks only, so a wooded drive is still walkable -- while a shot into the canopy still stops in
-	-- the canopy, because CanQuery stays true.
+	-- trunks only, so a wooded drive is still walkable.
 	canopy.CanCollide = false
+	-- ...AND SINCE TASK 260 IT DOES NOT BLOCK A SHOT EITHER. It used to: this line read
+	-- *"a shot into the canopy still stops in the canopy, because CanQuery stays true"*, which was
+	-- task 63's deliberate choice. THE DIRECTOR DECIDED THE OTHER WAY on 2026-10-25 -- *"real life:
+	-- thin foliage does not stop a rifle bullet or a slug, and an invisible stop frustrates"* -- and
+	-- the generated map has to answer that the same way the Forest Test's wood does
+	-- (`Places.unblockFoliage`), or the two worlds disagree about whether a shot through leaves
+	-- arrives. **THE TRUNK IS UNTOUCHED** (`stem` keeps both properties), so a wooded drive still has
+	-- cover you cannot shoot through -- it is just made of trunks, which is what it is made of in a
+	-- real wood.
+	canopy.CanQuery = false
 	model.PrimaryPart = stem
 	return true
 end
