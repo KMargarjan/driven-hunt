@@ -156,7 +156,7 @@ kinds, with real proportions from the research (cite it).
    whether `Hits.targetOf` (`src/server/Weapon/Hits.luau`) still reads a part attribute or is given a
    path.
 8. **Name every volume, with its box or shape, per kind.** The seven kinds are
-   `Boar.CONFIG.SPECIES.ORDER` = `male, female, cub, legendary, stag, hind, calf` (the boar kinds use
+   `Boar.CONFIG.KINDS.ORDER` = `male, female, cub, legendary, stag, hind, calf` (**corrected in round 2**: `Boar.CONFIG.SPECIES` has one key, `reddeer`) (the boar kinds use
    `Boar.CONFIG.ZONES` and `BODY_SIZE` directly; the three deer kinds are the stag's measured boxes
    scaled). The existing measured anatomy (bone positions in the trunk's frame, read off the loaded
    rigs) is in the comments above `Boar.CONFIG.ZONES` and `SPECIES.reddeer.ZONES` and is **the
@@ -203,3 +203,120 @@ kinds, with real proportions from the research (cite it).
 `reviews/task-277/BRIEF.md` (this file), `docs/design/ballistics.md` (rewritten for A and C),
 `docs/design/hit-zones.md` (rewritten for B and C), `reviews/task-277/ARCH_RESULT.md` for both runs,
 and one review round (docs only). **Stop at 2 h.**
+
+---
+
+# ROUND 2 ADDENDUM — for Architect run 3: `design hit-zones --task 277`, again
+
+**Added by the Builder, 2026-10-26, after round 1's review.** `reviews/task-277/RESULT.md` round 1
+returned **two blocking findings**. Finding 2 (rule 7: archive the replaced designs) is the
+Builder's and is done in the same commit as this addendum. **Finding 1 is a defect in
+`docs/design/hit-zones.md` v2, and `docs/design/` is the Architect's file — the Builder may not
+rewrite a design, so this run fixes it.** `docs/design/ballistics.md` v5 is **NOT** re-run: round 1
+found nothing blocking in it.
+
+## FINDING 1 (blocking) — `PENETRATION` is absolute studs while every volume box scales per kind
+
+**The Reviewer's finding, and the Builder VERIFIED its arithmetic against the repo before passing it
+on.** `Boar.CONFIG.KINDS[kind].scale` is `male 1.0, female 0.85, cub 0.45, legendary 1.35, stag 1.0,
+hind 0.8553, calf 0.495`, and `Body.kindGeometry` builds `size = spec.size * scale` and
+`offset = spec.offset * scale` (`src/server/Boar/Body.luau`). v2's §4.1 `Zones.depthFor(zones, ammo,
+weapon)` **takes no kind and no scale**, and §5.1 step 7 compares `tEnter < depth` — an absolute
+number — against the **scaled** `geometry[name]` boxes. So:
+
+| case | depth through the scaled animal | against | consequence |
+|---|---|---|---|
+| legendary, head-on, centre line to the chamber | 1.70 × 1.35 = **2.295** | `PENETRATION.Slug` 2.20 | **crosses NOTHING, falls through to `body`** — the very defect §5.5 answers 276a(d) with |
+| legendary, tail-on | 2.00 × 1.35 = **2.70** | 2.20 | B4's *"tail-on reads `chest` on a BOAR"* fails on that kind |
+| cub, head-on, pellet | 1.70 × 0.45 = **0.765** | `PENETRATION.Pellet` 0.90 | a frontal pellet DOES reach the chamber, so B5's *"and NOT at theta = 0 deg"* fails |
+
+§3.7 derives `Slug = 2.20` as *"0.20 studs more than the worst centre-line depth to a boar's chamber
+(2.00, tail-on)"* — **2.00 is the MALE's depth; the worst boar's is the legendary's 2.70.** §5.6 B1
+asserts its band *"on all seven kinds"*, and §9.1 case 6 tells the Builder to sweep all seven and
+assert B1–B6, **which cannot pass as written**. §12's escape hatch (*"the dial is one `PENETRATION`
+row"*) does not close it: no single `Slug` value satisfies the legendary's frontal 2.295, B4's
+stag-vs-boar split (stag tail-on 3.23) and §3.7's own *"nothing reaches it by accident"* at once.
+
+**Run 1 got the same problem right in the other document.** `ballistics.md` §3.2 derives the body
+tolerance **per kind** off `trunk.Size`, precisely because the boxes scale. `hit-zones.md` must be
+internally consistent in the same way.
+
+### What this run must do about it — the choice is the Architect's, both routes are legitimate
+
+1. **Make the depth per-kind** — scale it by the animal's own `geometry` scale, or state
+   `PENETRATION` as a fraction of the trunk the way `ballistics.md` §3.2 does. Then one table holds
+   for all seven kinds.
+2. **Keep `PENETRATION` absolute and restate the depth table and B1–B6 per kind, with every number
+   computed.** **This may be the more honest physics** — a slug penetrates roughly a fixed depth of
+   tissue, so a legendary boar at 1.35x genuinely *is* harder to shoot through frontally and a cub
+   genuinely *is* easier. If this route is taken, then: §3.7's derivation must name **which kind**
+   its 2.00 is, §5.6 B1's *"on all seven kinds"* must be rewritten per kind, and **direction C's
+   third criterion must be checked per kind** so that a frontal slug on a legendary is not silently
+   a `body` hit — which would re-open 276a(d) on the one kind Karen is most likely to shoot at.
+
+Either way, **§9.1 case 6 must be a sweep the Builder can actually make pass**, and the document
+must say which kinds the doctrine deliberately treats differently rather than leaving the
+difference as an accident of scale.
+
+## Round 1's non-blocking notes — fix these in the same run, they are free here
+
+None of these blocks a merge; they are listed because this run rewrites the document anyway, and
+Karen's standing rule is *"I need quality results"*. Each was checked by the Builder against the
+repo and each is correct as the Reviewer states it.
+
+1. **Every internal cross-reference above §8 points at the section numbers the file had before its
+   headings were renumbered** — §1.1 item 3's "(11.1)" and "(12.1)" mean §5.6 and §9.1; also §3.7's
+   "(15, 16.1 item 3)", §3.6's "(12.1 case 3)", §3.8's "16.2 B", §8.2's "(12.1 case 4)" and
+   "(12.2 case 5)", §9.1's own "12.1 case 1", §12's "12.1 case 1", §13.1 item 4's "13.2 A". Dozens,
+   all off by the same block. **One renumbering pass.**
+2. **§3.7's prose overstates two numbers.** `PENETRATION_BY_WEAPON.rifle` 4.00 is not *"through a
+   stag end to end"* (a stag's trunk is 7.05 studs) and `lever` 3.00 is not *"through a boar end to
+   end"* (5.5). The parenthetical arithmetic beside them (tail-to-chamber 3.23) is right.
+3. **§4.4: there are 13 `Hits.group(` call sites in the specs, not fifteen** — `weapon_hits.spec` 8,
+   `hit_card.spec` 2, `rifle.spec` 2, `weapon_shot.spec` 1 (Builder-verified by `grep -c`).
+4. **§4.3: the zone provider is the NINTH injected provider, not the eighth.**
+   `src/server/Weapon/init.luau` already declares eight (`setDriveLineProvider`, `setTargetProvider`,
+   `setStandProvider`, `setLicenceProvider`, `setEntitlementProvider`, `setDriveOpenProvider`,
+   `setSafetyLineProvider`, `setHistoryProvider`) — Builder-verified by `grep -c`.
+5. **§4.5 misattributes a comment.** *"`body` … is not in `Boar.CONFIG.ZONES.ORDER`"* is in
+   `tests/server/report_silhouette.spec.luau`'s case *"has a rect for every zone the damage model
+   names"*, not in `Report.CONFIG.ZONES`, whose own comment says only *"The five zones the damage
+   model actually has"*.
+6. **§10.2 names one `report_silhouette.spec` assertion that must go and not the one beside it:**
+   the spec also asserts the covering rect (`expect(covering.v0).to.equal(0)`,
+   `expect(covering.v1).to.equal(1)`), which today's `SILHOUETTE.body` satisfies and which §10.2's
+   own new `body` rect (0.636–0.782, 0.150–0.767) falsifies. Name it, so the build task does not
+   spend a round finding it. (The Reviewer recomputed all seven projections in §10.2's table and
+   they are arithmetically correct.)
+7. **§10.3's `PROTRUSION` grep row is incomplete:** `src/server/HitLog/Shape.luau` also names it
+   (*"Zone parts stand `PROTRUSION` studs proud of the trunk by design"*). Comment only — but the
+   point of a carry-forward list is that it is complete.
+8. **§3.2's "unclaimed wedge" is not the real wedge.** It says z −2.00…−1.05 at y −0.50…+0.35, but
+   `legs` begins at z −2.00 only *below* y −0.50, so nothing claims z −2.75…−2.00 at y −0.50…+0.35;
+   and there is a second sliver at y 1.41…1.50, z −1.05…−0.90 (above `neck`, ahead of `spine`,
+   behind `head`). Both are charged `body`, so no behaviour changes — but §9.1 case 5's dense grid
+   has nothing to compare against unless the stated wedge is the real one.
+9. **§9.5's "`spine` is mortal on both species with both rifles" is false on the legendary.**
+   `CLASS.spine = "crippling"` is non-vital for `toughness` and the legendary carries 2.0, so 75/2
+   and 65/2 are both grazes. `rear` has the same property today, so nothing regresses — but
+   `kill_zones.spec` sweeps **seven kinds**, not two species.
+10. **§4.7 calls the claim's own direction *"bounded by check 4"*, and `ballistics.md` §5.2 says the
+    opposite in as many words** (*"`req.direction` is unbounded … not because it stops an aimbot"*).
+    §4.7's next sentence concedes the same thing, so the two agree in substance; the word "bounded"
+    is what misleads. Fix the word.
+
+## What must NOT change in this run
+
+- **Everything round 1 did not find fault with stands.** The seven volumes and their per-kind tables
+  (§3.2, §3.3), the hull, `rank` replacing the race on overlap, MAX-not-SUM over volumes crossed
+  (§5.3), the fallback chain (§5.4), §5.5's answer to 276a(d) (**no, a head-on chest shot is not
+  supposed to read `body`**), the aspect assertions in degrees (§5.6), the owner table, the build
+  order, and §10.1's list of the three sentences in `ballistics.md` v5 that go stale.
+- **`docs/design/ballistics.md` v5 is not this run's file and must not be contradicted.** Where v2
+  and v5 disagree, §10.1 is the place that records it.
+- **Rule 7's archive is already done and must not be re-asked of the Builder**: `be4de11f`'s
+  `ballistics.md` is at `backups/design-ballistics-v4.md` and `2ee60af3`'s `hit-zones.md` is at
+  `backups/design-hit-zones-v1.md`, both logged in `backups/README.md`. The header line in v2 that
+  asks the build task to do it should say it is done.
+- **The engine-API discipline still holds** (item 11 above): nothing asserted that has not been
+  verified; everything else goes in "What I could not verify".
