@@ -178,19 +178,16 @@ return function()
 					end,
 					releasePath = function() end,
 				})
-				-- THE TEMPLATE IS WAITED FOR HERE, NOT THROUGH THE STEP LOOP, and that is the
-				-- difference between a case that measures something and one that times out.
-				-- `Loader.template` answers nil until `Loader.preload` has landed the asset -- "a
-				-- late arrival is late, not lost" -- and `Runtime:_modelTemplate` only asks once a
-				-- second, so asking through the loop turned a 10-second download into a 10-second
-				-- race the spec lost. The bound is generous because the asset is a real download and
-				-- the alternative to waiting is a green case that compared the boxes with nothing.
-				local waited = os.clock()
+				-- THE TEMPLATE IS ASKED FOR THROUGH THE DOOR THAT LOADS IT, and the two attempts
+				-- before this one are why that matters. `Loader.template` only ANSWERS; it is
+				-- `Loader.preload` that fetches, it yields until the asset is in, and it is
+				-- idempotent -- so a key `BoarAssetsBoot` has already landed comes back from the
+				-- cache at once and one it has not is waited for properly. Polling `template` in a
+				-- loop (attempt two) and asking through `Runtime:_modelTemplate`'s once-a-second
+				-- gate (attempt one) both turned a real download into a race the spec lost, and a
+				-- lost race left the grid case below comparing the volumes with NOTHING.
+				Loader.preload({ MODEL_KEY[kind] })
 				local template = Loader.template(MODEL_KEY[kind])
-				while template == nil and os.clock() - waited < 25 do
-					task.wait(0.25)
-					template = Loader.template(MODEL_KEY[kind])
-				end
 				runtime:setModelSource(function(key: string): Instance?
 					return if key == kind then template else nil
 				end, function(): number?
