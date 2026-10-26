@@ -217,6 +217,7 @@ local stats = {
 	claimSweepAsked = 0,
 	claimSweepWindow = 0,
 	claimSweepPassed = false,
+	claimSweepSpread = 0,
 	-- WHY A REFUSAL HAPPENED, AS A NUMBER (task 269b). `refusedClaimBy` counts them by name;
 	-- this keeps, per name, the WORST measured value, its budget, and -- for the one rule whose
 	-- cause is an Instance -- what actually stopped the bullet.
@@ -867,7 +868,7 @@ function Weapon.claimLine(from: any): string
 	end
 	return string.format(
 		"enabled=%s claims=%d accepted=%d refused=%d ignored=%d worst=%.3f/%.3f/%.3f lag=%.3fs "
-			.. "sweep=%d/%d win=%.3fs passed=%s age=%.3f..%.3f/%d why=%s [%s]",
+			.. "sweep=%d/%d win=%.3fs spread=%.3f passed=%s age=%.3f..%.3f/%d why=%s [%s]",
 		tostring(from.claimsEnabled),
 		from.claims or 0,
 		from.claimsAccepted or 0,
@@ -880,6 +881,7 @@ function Weapon.claimLine(from: any): string
 		from.claimSweepFound or 0,
 		from.claimSweepAsked or 0,
 		from.claimSweepWindow or 0,
+		from.claimSweepSpread or 0,
 		tostring(from.claimSweepPassed),
 		from.claimAgeMin or 0,
 		from.claimAgeMax or 0,
@@ -1710,6 +1712,12 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	stats.claimSweepAsked = asked
 	stats.claimSweepWindow = window
 	stats.claimSweepPassed = anyPassed == true
+	-- HOW FAR APART THE SWEEP'S OWN CANDIDATES ARE (task 272). Nineteen candidates over 0.3 s of a
+	-- 28 studs/s animal should span ~8.5 studs; a spread near zero means the ring answered the SAME
+	-- point nineteen times, and then the first candidate wins every tie by the strict `<` and the
+	-- chosen lag is 0 whatever the window is. That is the one reading that explains
+	-- `sweep=19/19 win=0.301s passed=true lag=0.000s` beside a gap that needs 0.164 s.
+	stats.claimSweepSpread = (candidates[#candidates].point - candidates[1].point).Magnitude
 	if index == nil then
 		return refuse("claim-history")
 	end
