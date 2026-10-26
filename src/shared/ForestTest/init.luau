@@ -1159,8 +1159,12 @@ end
 --     a group at +-140 that bolts south crosses at its own release x (drift -2 to -35), which is
 --     110-145 studs from her -- past buckshot. The cap bounded the TAIL and not the BODY.
 --   cap  95 -- the bolt itself now lands inside the gun's reach: 95 studs of x plus the road sine's
---     own z offset over that span is ~102 studs, and `crossOffset`'s widest pin (+95) is the same
---     ~102. Both ends of the range are therefore inside 105 BY ARITHMETIC and not by luck.
+--     own z offset over that span is TYPICALLY ~102 studs, and `crossOffset`'s widest pin (+95) is
+--     the same ~102. Not a bound, and the bound is stated instead of implied: `amplitudeStuds` 30
+--     with `SHAPE.wavelengthDivisor` 70 lets `roadZ` move up to ~60 studs over 95 studs of x, so the
+--     worst case is `sqrt(95^2 + 60^2)` = 112 studs -- past 105, inside the 175 the item also has to
+--     hold. What the cap buys is that the typical bolt is in the gun's reach; what it does not buy is
+--     a guarantee, and the two after-drives below are the measurement of which.
 --     MEASURED: 79 % within 105 -- the target -- but four of slot 7's nine still crossed at 176-189,
 --     having drifted 95-104 studs WEST of a release at -80 whose pin was EAST of it at -35.
 --   ...AND THEN THE WEST SIDE ALONE, which is the asymmetry the three runs measured rather than
@@ -1170,18 +1174,30 @@ end
 --     own -95 is the exception and is left alone: his route is the treeline sneak, not a bolt, and
 --     the dispatch asked for the sneak to be kept.
 --
--- THE RHYTHM THE DISPATCH ASKED TO KEEP IS KEPT. The fifteen slots run -85, +80, -95, +45, -95, +95,
--- -80, -95, -90, +60, +90, -80, +75, +95, +80: both flanks, eight distinct magnitudes from 45 to 95,
+-- THE RHYTHM THE DISPATCH ASKED TO KEEP IS KEPT. The fifteen slots run -65, +80, -70, +45, -75, +95,
+-- -50, -95, -70, +60, +90, -60, +75, +95, +80: both flanks, NINE distinct magnitudes from 45 to 95,
 -- and NOT ONE OF THEM IS ZERO -- nothing is pulled onto a stand, which is the dispatch's own
 -- condition (*"real drives pass between stands at varied distances"*). The three acts, the stag's
 -- `sneak`/`sneakStuds`/`sneakDz` and his edge check, the deer leap, `files`, the paces and every
 -- route word are untouched; slot 8's own `offsetX` is the one the stag had before this task.
 --
--- THE TWO `LATERAL` ROWS ALSO MOVED THEIR `crossOffset` TO THE END OF THEIR OWN SPAN. The pass walks
--- `WAVE.lateralSpan` = 150 studs across her front, so from -145 it ends at +5 and from +145 at -5;
--- with the old -70 and +20 pins the group would have had to double back 75 studs after the pass,
--- which is not a broadside crossing. +20 and -35 are the nearest of `LINE.crossOffsets` to where the
--- pass actually ends, so the pass now finishes AT the road.
+-- THE TWO `LATERAL` ROWS ALSO MOVED THEIR `crossOffset`, AND ROUND 1 CAUGHT ME MOVING IT THE WRONG
+-- WAY. The rule a lateral row has to satisfy is that **the crossing pin lies AHEAD of the end of the
+-- pass, in the direction the pass is travelling** -- otherwise the group walks its broadside span and
+-- then turns round to reach the road, which is a doubling back and not a crossing.
+--
+-- The pass ends at `offsetX + lateralSign(lateral) * WAVE.lateralSpan`, with `lateralSign` returning
+-- +1 for `"RtoL"` and -1 for `"LtoR"` and the span 150. So:
+--   slot 5, `offsetX` -75, `"RtoL"`: it travels +X and ends at **+75**, and the pin is **+95** -- 20
+--     studs onward. My first attempt put it at +20, which is 55 studs BACK the way it came.
+--   slot 6, `offsetX` +95, `"LtoR"`: it travels -X and ends at **-55**, and the pin is **-70** -- 15
+--     studs onward. My first attempt put it at -35, which is 20 studs back.
+-- The base data (-235/-70 and +235/+20) already satisfied the rule, so the first attempt INTRODUCED
+-- the fault it claimed to remove. Nothing in `tests/` relates `offsetX`, `lateralSign`,
+-- `WAVE.lateralSpan` and `crossOffset`, which is why no spec caught it -- queued with this task.
+--
+-- All five of `LINE.crossOffsets` are still used by some row (-70 by slots 1, 6, 9; -35 by 3, 7, 8;
+-- 20 by 4; 55 by 2, 10; 95 by 5, 11, 14), which is what `forest_line.spec` asserts.
 --
 -- `lateral` IS THE PASS ACROSS HER VIEW. She faces NORTH (+Z), so -- and this is the half that is
 -- easy to get backwards -- her RIGHT is -X and her LEFT is +X (a CFrame looking down +Z has
@@ -2105,7 +2121,7 @@ ForestTest.SCHEDULE = {
 			northStuds = 150,
 			offsetX = -75,
 			files = 1,
-			crossOffset = 20,
+			crossOffset = 95,
 			route = "LATERAL",
 			lateral = "RtoL",
 			pace = "trot",
@@ -2123,7 +2139,7 @@ ForestTest.SCHEDULE = {
 			northStuds = 150,
 			offsetX = 95,
 			files = 1,
-			crossOffset = -35,
+			crossOffset = -70,
 			route = "LATERAL",
 			lateral = "LtoR",
 			pace = "trot",
