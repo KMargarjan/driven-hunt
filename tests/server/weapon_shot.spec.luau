@@ -797,9 +797,9 @@ return function()
 			-- ...AND A TREE IS STILL A TREE: the displacement is added only under the waiver.
 			lagged.displacementStuds = 5.22
 			lagged.stoppedByClaimedTarget = false
-			local okTree, whyTree = Validator.judgeClaim(lagged, CLAIM)
-			expect(okTree).to.equal(false)
-			expect(whyTree).to.equal("claim-blocked")
+			local okLagTree, whyLagTree = Validator.judgeClaim(lagged, CLAIM)
+			expect(okLagTree).to.equal(false)
+			expect(whyLagTree).to.equal("claim-blocked")
 			-- ...AND A NONSENSE DISPLACEMENT CANNOT WIDEN IT: nil, negative and NaN all read as 0.
 			lagged.stoppedByClaimedTarget = true
 			for _, bad in ipairs({ -100, 0 / 0 }) do
@@ -1483,6 +1483,11 @@ return function()
 			)
 			expect(afterOn.claimSweepFound > 1).to.equal(true)
 			expect(afterOn.claimSweepSpread > 1).to.equal(true)
+			-- **THE OWNER SUPPLIES THE DISPLACEMENT** (task 275, round 1's finding 1). The provider
+			-- here answers `at`, so the arrival instant's rewind and the swept one's are different
+			-- points and their distance is non-zero. Delete `displacementStuds` in `judgeClaimFor`
+			-- and this reads 0: it is the one assertion that sees the owner's own line.
+			expect(afterOn.claimLastDisplacement > 0).to.equal(true)
 			-- THE SWEEP CHOSE AN INSTANT THAT IS NOT THE ARRIVAL ONE. This is the single assertion
 			-- that cannot survive the producer's deletion: with one candidate the lag is 0.
 			expect(afterOn.claimWorstLagSeconds > 0).to.equal(true)

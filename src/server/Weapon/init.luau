@@ -226,6 +226,10 @@ local stats = {
 	-- refused (task 274). Not the accepted ones only: reading it as "an accepted claim named this"
 	-- is the exact mis-attribution this field was added to end.
 	claimLastPart = "none",
+	-- The displacement between the arrival instant and the swept one, on the last claim that
+	-- reached the sweep (task 275). It is what check 5's waiver is widened by, and it is published
+	-- so a spec can assert the OWNER supplies it rather than the spec's own hand.
+	claimLastDisplacement = 0,
 	-- WHY A REFUSAL HAPPENED, AS A NUMBER (task 269b). `refusedClaimBy` counts them by name;
 	-- this keeps, per name, the WORST measured value, its budget, and -- for the one rule whose
 	-- cause is an Instance -- what actually stopped the bullet.
@@ -1773,6 +1777,8 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	end
 	local serverPoint = candidates[index].point
 	local lineLagSeconds = arrivalAt - candidates[index].at
+	local displacementStuds = (candidates[1].point - candidates[index].point).Magnitude
+	stats.claimLastDisplacement = displacementStuds
 	local closest = trajectoryPoint or serverPoint
 	local closestStuds = (closest - serverPoint).Magnitude
 	local position = closest
@@ -1794,11 +1800,19 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		-- of sight was clear and check 5 has nothing to say. `Hits.targetOf` is the same walk that
 		-- found `target` above, so "the same animal" is the same question asked once more.
 		stoppedByClaimedTarget = stoppedBySame,
-		-- HOW FAR THE CLAIMED ANIMAL ITSELF MOVED BETWEEN THE SWEPT INSTANT AND NOW (task 275).
-		-- Check 5 adds it to the self-block waiver's bound and to nothing else, so a tree is still
-		-- a tree. Both factors are the SERVER's: the part's own measured speed, and `lineLagSeconds`
-		-- -- the lag the server's own sweep chose, inside a window the server owns.
-		displacementStuds = part.AssemblyLinearVelocity.Magnitude * lineLagSeconds,
+		-- HOW FAR THE CLAIMED ANIMAL ITSELF MOVED BETWEEN THE SWEPT INSTANT AND THE ARRIVAL ONE
+		-- (task 275). Check 5 adds it to the self-block waiver's bound and to nothing else, so a
+		-- tree is still a tree.
+		--
+		-- **IT IS THE SWEEP'S OWN TWO POINTS AND NOT A VELOCITY EXTRAPOLATION** (round 1's finding
+		-- 1). It was `AssemblyLinearVelocity * lineLagSeconds`, which no case could see: an
+		-- anchored spec part reads velocity 0, so the term was 0 before and after the change and
+		-- the producing line could be deleted with the suite green. `candidates[1]` is the arrival
+		-- instant and `candidates[index]` is the one the sweep chose, both of them the SERVER's own
+		-- rewinds -- so this is the displacement that actually happened between the two instants
+		-- the server itself picked, measured rather than extrapolated, and a history provider that
+		-- answers `at` makes it non-zero in a spec.
+		displacementStuds = displacementStuds,
 		flightSeconds = claim.flightSeconds,
 		expectedFlightSeconds = Ballistics.timeToRange(ballistic, claim.distanceStuds),
 	}, CONFIG.CLAIM)
