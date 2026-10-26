@@ -212,7 +212,7 @@ SERVER.** A per-weapon claim tolerance would let a new gun widen its own licence
 | `LINE_TOLERANCE_STUDS` | `2.0` | studs | check 3, **the check that makes the zone geometric rather than chosen**: the distance from the server's own trajectory, at the claimed arrival time, to the claimed point on the claimed box. 2.0 studs is under half a boar's trunk. It must absorb the client's straight-line animal step (section 5.4, up to ~2 studs over the rifle's longest flight) and the history's own interpolation (≈0.3 studs); tighter refuses honest shots at turning animals, looser lets a modified client shift a zone (section 5.2). The dial is the Director's |
 | `AGE_MAX_SECONDS` | `0.5` | s | check 5: how old the claimed arrival may be when the shot resolves. The depth is **one upward trip plus clock skew**, not a flight time (section 5.1), so 0.5 s covers a bad connection with room |
 | `FLIGHT_TOLERANCE_SECONDS` | `0.03` | s | check 6: `|claim.flightSeconds − Ballistics.timeToRange(shot, claim.distanceStuds)|`. One `FLIGHT_STEP_MAX_SECONDS` (1/30). It exists to refuse a nonsense claim, not to pin the geometry — check 3 does that |
-| `REACH_SLACK_STUDS` | `1.0` | studs | check 4: the server's own shot must have travelled at least `distanceStuds − this` before it stopped |
+| `REACH_SLACK_STUDS` | `1.0` | studs | check 4: the server's own shot must have travelled at least `distanceStuds − this` before it stopped — **or, when what stopped it is the claimed animal itself, at least `distanceStuds − (2·max(partHalf) + this)`** (task 269b) |
 | `MAX_TARGETS` | `8` | count | the client's own bound: how many animals one simulation may test. The nearest N inside the ammo's range |
 | `MAX_SUBSTEPS` | `16` | count | the client's own bound on one simulation's sub-steps. **Not `FLIGHT_MAX_SUBSTEPS` (8)**, and the difference is deliberate: the server's 8 bounds one HEARTBEAT's work across every live shot, while this bounds ONE shot's whole flight in one frame — 16 × `FLIGHT_STEP_MAX_SECONDS` = 0.53 s, above the rifle's longest 0.365 s |
 
@@ -585,6 +585,16 @@ With the shot resolved, the owner gathers the facts and `Validator.judgeClaim` d
 5. **the bullet got there** — `reachedStuds + REACH_SLACK_STUDS >= claim.distanceStuds`. A tree
    between the muzzle and the animal stopped the server's own shot, so the claim dies with it. This
    is the line of sight, measured by the flight that already ran;
+   **…unless the thing that stopped it IS the claimed animal, and the shortfall is inside that
+   animal's own body** (task 269b): `stoppedByClaimedTarget and claimedStuds − reachedStuds <=
+   2·max(partHalf) + REACH_SLACK_STUDS`. MEASURED in the Forest Test with the claim on and a deer
+   running at 30 studs/s: `claim-blocked worst 2.137/1.000 (reached 11.26 of 13.40 studs)` — the
+   server's own flight stopped two studs short **on the animal the claim was about**, because its
+   copy of that deer sits a replication interval further along the ray than the client's. That is
+   the same bullet measured twice, not a blocked line of sight. The waiver is bounded by the
+   claimed part's own largest extent, so it can never excuse a claim about a bullet that went
+   somewhere else; the owner decides the identity (`Hits.targetOf(firstImpact.instance) == target`)
+   because it needs Instances;
 6. **the clock is sane** — `0 <= ageSeconds <= AGE_MAX_SECONDS`, and
    `|flightSeconds − timeToRange(shot, distanceStuds)| <= FLIGHT_TOLERANCE_SECONDS`.
 
@@ -631,6 +641,10 @@ saw. `claimsRefused` and `refusedClaimBy` are how anybody finds out it is happen
 
 ### 5.4 The worst thing a modified client can do with this payload, and the bound that stops it
 
+**It can also overstate `distanceStuds` by up to one body length plus the slack, and only when the
+server's own bullet stopped on that same animal** (check 5's waiver, task 269b) — which moves the
+accepted impact's `distance` and nothing else: no damage, score or payout reads it.
+
 **It can shift the zone it is credited with, by up to `LINE_TOLERANCE_STUDS` (2.0 studs), on an
 animal the shot genuinely passed within 2 studs of, at a moment the server's own history agrees the
 animal was there.** On a boar that is about one zone box: a gut shot claimed as a chest shot. It
@@ -638,7 +652,8 @@ cannot do any of the following, and each is a numbered check rather than a hope:
 
 - **claim a hit on an animal it did not shoot at** — check 4 tests the server's own trajectory
   against the server's own rewind; a line that missed by more than 2 studs is refused;
-- **claim through a wall, a tree or a post** — check 5: the server's own bullet stopped there, so
+- **claim through a wall, a tree or a post** — check 5: the server's own bullet stopped there, and
+  that stopper is not the claimed animal, so the waiver above does not apply and
   `reachedStuds` is short and the claim dies;
 - **claim an animal that was somewhere else** — check 3 against the server's history (the brief's
   acceptance 3, a probe at 30 studs, is refused by a factor of five over the tolerance);

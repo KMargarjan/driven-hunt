@@ -714,6 +714,76 @@ return function()
 			expect(why).to.equal("claim-blocked")
 		end)
 
+		-- ============================== THE ANIMAL CANNOT BLOCK ITSELF (task 269b)
+		--
+		-- **THIS CASE FAILS ON THE COMMIT BEFORE THIS TASK** (L-028): check 5 had no
+		-- `stoppedByClaimedTarget`, so the first half below was refused `claim-blocked` exactly like
+		-- the second. MEASURED in Karen's place, which is why it exists:
+		-- `claim-blocked worst 2.137/1.000 (reached 11.26 of 13.40 studs, stopped by nothing it
+		-- reported)` -- the server's own flight stopped two studs short ON THE CLAIMED ANIMAL,
+		-- because its copy of a deer running at 30 studs/s sits a replication interval further along
+		-- the ray than the client's.
+		it("does not let the CLAIMED ANIMAL block its own claim, and still lets a tree do it", function()
+			local onTarget = honestFacts()
+			onTarget.reachedStuds = onTarget.claimedStuds - 2.137
+			onTarget.stoppedByClaimedTarget = true
+			local okSame, whySame = Validator.judgeClaim(onTarget, CLAIM)
+			expect(okSame).to.equal(true)
+			expect(whySame).to.equal(nil)
+
+			-- THE RULE STILL DOES ITS JOB. The same numbers, stopped by something else.
+			local tree = honestFacts()
+			tree.reachedStuds = tree.claimedStuds - 2.137
+			tree.stoppedByClaimedTarget = false
+			local okTree, whyTree, gotTree, budgetTree = Validator.judgeClaim(tree, CLAIM)
+			expect(okTree).to.equal(false)
+			expect(whyTree).to.equal("claim-blocked")
+			expect(gotTree).to.be.near(2.137, 1e-6)
+			expect(budgetTree).to.be.near(CLAIM.REACH_SLACK_STUDS, 1e-6)
+
+			-- ...AND `nil` IS EVERY CALLER WRITTEN BEFORE THIS TASK, which must behave as `false`.
+			local old = honestFacts()
+			old.reachedStuds = old.claimedStuds - 2.137
+			local okOld, whyOld = Validator.judgeClaim(old, CLAIM)
+			expect(okOld).to.equal(false)
+			expect(whyOld).to.equal("claim-blocked")
+
+			-- AND THE ANIMAL ITSELF CANNOT EXCUSE A SHOT THAT NEVER GOT NEAR IT. Round 1's note was
+			-- right that the first spelling of this proved nothing -- check 4 refuses before check 5
+			-- is reached, so the waiver changed no answer. Driven on check 5's OWN axis instead: the
+			-- waiver is on, the line is honest, and the claimed distance is past the ammo's reach by
+			-- more than any animal is long, so the only thing that could accept it is the waiver
+			-- being a blanket one.
+			-- THE WAIVER IS BOUNDED BY THE ANIMAL'S OWN BODY, and both sides of that bound are
+			-- driven here (round 2's blocking finding). The span is the claimed part's largest
+			-- extent; a shortfall inside span + slack is the same bullet measured twice, and one
+			-- outside it is a claim about a bullet that went somewhere else.
+			local span = 2 * math.max(honestFacts().partHalf.X, honestFacts().partHalf.Y, honestFacts().partHalf.Z)
+			local inside = honestFacts()
+			inside.stoppedByClaimedTarget = true
+			inside.reachedStuds = inside.claimedStuds - (span + CLAIM.REACH_SLACK_STUDS - 0.01)
+			local okInside, whyInside = Validator.judgeClaim(inside, CLAIM)
+			expect(okInside).to.equal(true)
+			expect(whyInside).to.equal(nil)
+
+			local far = honestFacts()
+			far.stoppedByClaimedTarget = true
+			far.reachedStuds = far.claimedStuds - (span + CLAIM.REACH_SLACK_STUDS + 0.01)
+			local okFar, whyFar, gotFar = Validator.judgeClaim(far, CLAIM)
+			expect(okFar).to.equal(false)
+			expect(whyFar).to.equal("claim-blocked")
+			expect(gotFar).to.be.near(span + CLAIM.REACH_SLACK_STUDS + 0.01, 1e-6)
+
+			-- ...AND A CLAIM 400 STUDS PAST WHERE THE BULLET STOPPED IS REFUSED whatever stopped it.
+			local wild = honestFacts()
+			wild.stoppedByClaimedTarget = true
+			wild.reachedStuds = 1
+			wild.claimedStuds = 400
+			local okWild, whyWild = Validator.judgeClaim(wild, CLAIM)
+			expect(okWild).to.equal(false)
+			expect(whyWild).to.equal("claim-blocked")
+		end)
+
 		it("REFUSES an arrival in the FUTURE and one outside the window", function()
 			local future = honestFacts()
 			future.ageSeconds = -0.01
@@ -726,6 +796,72 @@ return function()
 			local okStale, whyStale = Validator.judgeClaim(stale, CLAIM)
 			expect(okStale).to.equal(false)
 			expect(whyStale).to.equal("claim-stale")
+		end)
+
+		-- ============================== THE MEASURED VALUE AND ITS BUDGET (task 269b)
+		--
+		-- **THIS CASE FAILS ON THE COMMIT BEFORE THIS TASK** (L-028), and that is the point of
+		-- writing it this way rather than as a shape check: before task 269b `judgeClaim` returned
+		-- two values, so `measured` and `budget` are both nil and every `expect(...).to.be.near`
+		-- below errors on a nil. Task 269 measured `claim-line=4 claim-blocked=4` on real shots at
+		-- running deer and could not say BY HOW MUCH; these two returns are that answer.
+		it("names the measured value and its budget for every refusal that has one", function()
+			local moved = honestFacts()
+			moved.clientPoint = moved.serverPoint + Vector3.new(30, 0, 0)
+			local okMoved, whyMoved, gotMoved, budgetMoved = Validator.judgeClaim(moved, CLAIM)
+			expect(okMoved).to.equal(false)
+			expect(whyMoved).to.equal("claim-moved")
+			expect(gotMoved).to.be.near(30, 1e-6)
+			expect(budgetMoved).to.be.near(CLAIM.POSITION_TOLERANCE_STUDS, 1e-6)
+
+			local line = honestFacts()
+			line.trajectoryPoint = line.serverPoint + Vector3.new(0, 0, CLAIM.LINE_TOLERANCE_STUDS + 0.5)
+			local okLine, whyLine, gotLine, budgetLine = Validator.judgeClaim(line, CLAIM)
+			expect(okLine).to.equal(false)
+			expect(whyLine).to.equal("claim-line")
+			expect(gotLine).to.be.near(CLAIM.LINE_TOLERANCE_STUDS + 0.5, 1e-6)
+			expect(budgetLine).to.be.near(CLAIM.LINE_TOLERANCE_STUDS, 1e-6)
+
+			-- THE BLOCKED RULE'S MEASURE IS HOW FAR SHORT THE FLIGHT STOPPED, and it is the quantity
+			-- the check itself compares: `claimedStuds - reachedStuds` against `REACH_SLACK_STUDS`.
+			local blocked = honestFacts()
+			blocked.reachedStuds = 40
+			local okBlocked, whyBlocked, gotBlocked, budgetBlocked = Validator.judgeClaim(blocked, CLAIM)
+			expect(okBlocked).to.equal(false)
+			expect(whyBlocked).to.equal("claim-blocked")
+			expect(gotBlocked).to.be.near(blocked.claimedStuds - 40, 1e-6)
+			expect(budgetBlocked).to.be.near(CLAIM.REACH_SLACK_STUDS, 1e-6)
+
+			local offset = honestFacts()
+			offset.offset = Vector3.new(0, 0.5, -(offset.partHalf.Z + CLAIM.SKIN_STUDS + 0.1))
+			local okOffset, whyOffset, gotOffset, budgetOffset = Validator.judgeClaim(offset, CLAIM)
+			expect(okOffset).to.equal(false)
+			expect(whyOffset).to.equal("claim-offset")
+			expect(gotOffset).to.be.near(0.1, 1e-6)
+			expect(budgetOffset).to.be.near(CLAIM.SKIN_STUDS, 1e-6)
+
+			local stale = honestFacts()
+			stale.ageSeconds = CLAIM.AGE_MAX_SECONDS + 0.01
+			local okStale, whyStale, gotStale, budgetStale = Validator.judgeClaim(stale, CLAIM)
+			expect(okStale).to.equal(false)
+			expect(whyStale).to.equal("claim-stale")
+			expect(gotStale).to.be.near(CLAIM.AGE_MAX_SECONDS + 0.01, 1e-6)
+			expect(budgetStale).to.be.near(CLAIM.AGE_MAX_SECONDS, 1e-6)
+
+			local timing = honestFacts()
+			timing.flightSeconds = timing.expectedFlightSeconds + CLAIM.FLIGHT_TOLERANCE_SECONDS + 0.01
+			local okTime, whyTime, gotTime, budgetTime = Validator.judgeClaim(timing, CLAIM)
+			expect(okTime).to.equal(false)
+			expect(whyTime).to.equal("claim-time")
+			expect(gotTime).to.be.near(CLAIM.FLIGHT_TOLERANCE_SECONDS + 0.01, 1e-6)
+			expect(budgetTime).to.be.near(CLAIM.FLIGHT_TOLERANCE_SECONDS, 1e-6)
+
+			-- AN HONEST CLAIM NAMES NOTHING, because there is no refusal to measure.
+			local okHonest, whyHonest, gotHonest, budgetHonest = Validator.judgeClaim(honestFacts(), CLAIM)
+			expect(okHonest).to.equal(true)
+			expect(whyHonest).to.equal(nil)
+			expect(gotHonest).to.equal(nil)
+			expect(budgetHonest).to.equal(nil)
 		end)
 
 		it("REFUSES a flight time this gun could not have produced", function()
@@ -973,6 +1109,17 @@ return function()
 				claimAges = 9,
 				claimHistoryWhy = "no-sample",
 				refusedClaimBy = { ["claim-moved"] = 2, ["claim-line"] = 1, ["claim-blocked"] = 1 },
+				-- TASK 269b: per reason, the WORST measured value against its budget, and for the
+				-- one rule whose cause is an Instance, what stopped the bullet. `claim-moved` has
+				-- no row here on purpose, so the "bare count" branch is driven too.
+				refusedClaimWorst = {
+					["claim-line"] = { measured = 7.412, budget = 2.0 },
+					["claim-blocked"] = {
+						measured = 31.5,
+						budget = 1.0,
+						note = "reached 98.50 of 130.00 studs, stopped by Workspace.Boars.Boar12",
+					},
+				},
 			})
 			expect(string.find(line, "enabled=true", 1, true)).to.be.ok()
 			expect(string.find(line, "claims=7", 1, true)).to.be.ok()
@@ -987,7 +1134,20 @@ return function()
 			-- AND WHY THE REWIND SAID NO, which `claim-history` alone cannot say.
 			expect(string.find(line, "why=no-sample", 1, true)).to.be.ok()
 			-- SORTED, so two runs of the same server give the same string and a diff is a fact.
-			expect(string.find(line, "[claim-blocked=1 claim-line=1 claim-moved=2]", 1, true)).to.be.ok()
+			-- THE WORST PER REASON, ITS BUDGET AND THE INSTANCE THAT CAUSED IT (task 269b). **This
+			-- assertion fails on the commit before this task**, where the line carried bare counts:
+			-- task 269 read `[claim-blocked=4 claim-line=4]` off a real server and could not say by
+			-- how much either rule had been missed. `claim-moved` keeps its bare count, which is the
+			-- honest shape for a reason with no row.
+			expect(
+				string.find(
+					line,
+					"[claim-blocked=1 worst 31.500/1.000 (reached 98.50 of 130.00 studs, stopped by "
+						.. "Workspace.Boars.Boar12) claim-line=1 worst 7.412/2.000 claim-moved=2]",
+					1,
+					true
+				)
+			).to.be.ok()
 			expect(Weapon.claimLine(nil)).to.equal("")
 		end)
 
@@ -1163,6 +1323,230 @@ return function()
 			TestKit.note(
 				string.format(
 					"weapon_shot accepted claim: %s/%s, %d report(s), accepted %d -> %d, worst %.3f/%.3f, "
+						.. "refusedClaimBy [%s]",
+					heldId,
+					tostring(ammo),
+					#reports,
+					before.claimsAccepted,
+					after.claimsAccepted,
+					after.claimWorstStuds,
+					after.claimWorstLineStuds,
+					table.concat(reasons, " ")
+				)
+			)
+			expect(after.claimsAccepted).to.equal(before.claimsAccepted + 1)
+			expect(after.claimsRefused).to.equal(before.claimsRefused)
+			-- THE METER MEASURES WHAT THE CHECK MEASURES (round 1 finding 1, round 2's note). An
+			-- ACCEPTED claim passed check 4, so the across-track figure the meter records must be
+			-- inside the tolerance that accepted it. Swap `closestStuds` back for the trajectory's
+			-- END point -- the along-track-contaminated number -- and this fails, because that
+			-- figure carries the bore's own set-back.
+			expect(after.claimWorstLineStuds <= CLAIM.LINE_TOLERANCE_STUDS).to.equal(true)
+
+			-- AND THE REPORT IS THE CLAIM'S. One report, the claimed part, one pellet, and the zone
+			-- read off the part's own attribute -- which is what Karen sees on the hit card.
+			local mine = nil
+			for _, report in ipairs(reports) do
+				if report.target == zone then
+					mine = report
+				end
+			end
+			expect(mine).to.be.ok()
+			expect((mine :: any).zone).to.equal("chest")
+			expect((mine :: any).pellets).to.equal(1)
+			expect(math.abs((mine :: any).nearest - distance) < 1e-3).to.equal(true)
+			-- THE IMPACT IS ON THE ANIMAL, built from its LIVE CFrame and the validated offset.
+			expect(((mine :: any).position - zone.CFrame * offset).Magnitude < 1e-3).to.equal(true)
+
+			-- ...AND THE COUNTERS ARE OUT WHERE A PROBE CAN READ THEM, which is item 1's whole point.
+			local published = ServerStorage:GetAttribute(Weapon.CLAIM_STATS_ATTRIBUTE)
+			expect(type(published)).to.equal("string")
+			expect(string.find(published :: string, string.format("accepted=%d", after.claimsAccepted), 1, true)).to.be.ok()
+			zone:Destroy()
+		end)
+
+		it("ACCEPTS a claim the ANIMAL ITSELF stopped the server's flight short of (task 269b)", function()
+			local subject, snapshot = nil, nil
+			for _ = 1, 20 do
+				for _, player in ipairs(Players:GetPlayers()) do
+					local state = Weapon.getSnapshot(player)
+					if
+						state ~= nil
+						and state.equipped == true
+						and state.open == false
+						and (state.busyFor or 0) <= 0
+						and state.barrels[state.selected] == "Live"
+					then
+						subject, snapshot = player, state
+						break
+					end
+				end
+				if subject ~= nil then
+					break
+				end
+				task.wait(0.25)
+			end
+			if subject == nil then
+				TestKit.note(
+					"weapon_shot self-block claim: nobody is holding a gun that can fire, so the live ACCEPT "
+						.. "path did not run -- the one thing this case exists for. NOT PROVEN in this run."
+				)
+				expect(CLAIM.POSITION_TOLERANCE_STUDS > 0).to.equal(true)
+				return
+			end
+
+			local root = subject.Character and subject.Character:FindFirstChild("HumanoidRootPart")
+			expect(root).to.be.ok()
+			local heldId = Weapon.heldId(subject) or Weapons.PRIMARY
+			local row = Weapons.row(heldId) or Weapons.ROWS[Weapons.PRIMARY]
+			local ammo = (snapshot :: any).loaded[(snapshot :: any).selected]
+			-- A PATTERN LOAD CANNOT CLAIM (design section 6), so this case is only meaningful on a
+			-- single-pellet load. It says so rather than passing quietly on a shotgun.
+			if (row.PELLETS and row.PELLETS[ammo]) ~= 1 then
+				TestKit.note(
+					string.format(
+						"weapon_shot self-block claim: the held gun is %s/%s, a %s-pellet load, which may not "
+							.. "claim at all -- the live ACCEPT path did not run. NOT PROVEN in this run.",
+						heldId,
+						tostring(ammo),
+						tostring(row.PELLETS and row.PELLETS[ammo])
+					)
+				)
+				expect(CLAIM.POSITION_TOLERANCE_STUDS > 0).to.equal(true)
+				return
+			end
+			local shot = Ballistics.shotFor(row, ammo)
+			expect(shot).to.be.ok()
+
+			-- THE ANIMAL, AND IT IS THIS SPEC'S OWN: `Damageable` is what `Hits.targetOf` reads, and
+			-- `HitZone` is what the report's zone comes from -- neither is ever named by the claim.
+			local zone = Instance.new("Part")
+			zone.Name = "ClaimSelfBlockSpecChest"
+			zone.Size = Vector3.new(1.8, 1.8, 3)
+			zone.Anchored = true
+			zone.CanCollide = false
+			zone.CanQuery = false
+			zone:SetAttribute("Damageable", true)
+			zone:SetAttribute("HitZone", "chest")
+			local distance = 120
+			local origin = (root :: BasePart).Position + Vector3.new(0, 2, 0)
+			local direction = Vector3.new(0, 0, -1)
+			zone.Position = origin + direction * distance
+			zone.Parent = workspace
+
+			-- THE WORLD THE SHOT FLIES THROUGH: nothing stops it, so `reachedStuds` is the ammo's
+			-- own range cap and check 5 passes on the server's own measurement.
+			-- THE SERVER'S OWN FLIGHT STOPS **ON THE CLAIMED ANIMAL**, two studs short of where the
+			-- client says its bullet reached -- which is what a deer running at 30 studs/s looks
+			-- like from the two sides at once, and is exactly the live reading this task started
+			-- from (`claim-blocked worst 2.137/1.000`). **This case fails on the commit before this
+			-- task**, and it failed on round 1's too: there the owner read `firstImpact.part`, a
+			-- field `Shotgun.Impact` does not have, so `stoppedByClaimedTarget` was always false.
+			local shortBy = 2.137
+			-- MEASURED FROM THE FLIGHT'S OWN FIRST ORIGIN, not from the camera's: the server
+			-- launches from `shot.muzzle`, which is several studs from `origin`, and measuring the
+			-- reach from the wrong point is how round 3's first attempt produced a shortfall far
+			-- bigger than the one the case means to stage.
+			local firstOrigin: Vector3? = nil
+			Weapon.setCast(function(castOrigin: Vector3, castDirection: Vector3)
+				if firstOrigin == nil then
+					firstOrigin = castOrigin
+				end
+				local reach = distance - shortBy
+				local along = castDirection.Magnitude
+				if along <= 1e-6 then
+					return nil
+				end
+				local unit = castDirection.Unit
+				local here = (castOrigin - (firstOrigin :: Vector3)):Dot(unit)
+				if here + along < reach then
+					return nil
+				end
+				return {
+					instance = zone,
+					position = origin + unit * reach,
+					normal = -unit,
+					distance = reach - here,
+					material = Enum.Material.Plastic,
+				}
+			end)
+			-- THE HISTORY ANSWERS HONESTLY, which is what makes this claim honest: the animal was
+			-- where it is.
+			Weapon.setHistoryProvider(function()
+				return zone.CFrame
+			end)
+			local wasPolicy = Weapon.setClaimPolicy(true)
+			Weapon.setDriveOpenProvider(function(): boolean
+				return true
+			end)
+			Weapon.setTargetProvider(nil)
+			Weapon.setStandProvider(nil)
+			Weapon.setLicenceProvider(nil)
+
+			local reports = {}
+			local listener = Weapon.HitReported:Connect(function(report)
+				table.insert(reports, report)
+			end)
+
+			local before = Weapon.stats()
+			local offset = Vector3.new(0, 0, 0)
+			local claim = {
+				part = zone,
+				offset = offset,
+				-- THE HONEST POINT: where the server's own history says that offset was.
+				point = zone.CFrame * offset,
+				firedAtView = workspace:GetServerTimeNow(),
+				flightSeconds = Ballistics.timeToRange(shot :: any, distance),
+				distanceStuds = distance,
+			}
+			local why = Weapon.onFireRequest(subject, { origin = origin, direction = direction, claim = claim })
+			for _ = 1, 2 do
+				if why ~= "rate-limited" and why ~= "busy" then
+					break
+				end
+				task.wait(1.2)
+				claim.firedAtView = workspace:GetServerTimeNow()
+				claim.point = zone.CFrame * offset
+				why = Weapon.onFireRequest(subject, { origin = origin, direction = direction, claim = claim })
+			end
+
+			local drainBy = os.clock() + 2
+			while Weapon.flightCount() > 0 and os.clock() < drainBy do
+				task.wait()
+			end
+
+			listener:Disconnect()
+			Weapon.setClaimPolicy(wasPolicy)
+			Weapon.setHistoryProvider(nil)
+			Weapon.setCast(nil)
+			Weapon.setTargetProvider(Match.classifyTarget)
+			Weapon.setStandProvider(Match.standAreaFor)
+			Weapon.setDriveOpenProvider(Match.driveOpen)
+
+			local after = Weapon.stats()
+			if why ~= nil then
+				TestKit.note(
+					string.format(
+						"weapon_shot self-block claim: the handler refused the SHOT (%s); the ACCEPT path did "
+							.. "not run. NOT PROVEN in this run.",
+						why
+					)
+				)
+				zone:Destroy()
+				expect(CLAIM.POSITION_TOLERANCE_STUDS > 0).to.equal(true)
+				return
+			end
+
+			-- THE COUNTER MOVED. This is the assertion that had never been made: it fails if the
+			-- accept branch is deleted, if `judgeClaim` refuses, or if the policy is not honoured.
+			local reasons = {}
+			for reason, count in pairs(after.refusedClaimBy) do
+				table.insert(reasons, string.format("%s=%d", reason, count))
+			end
+			table.sort(reasons)
+			TestKit.note(
+				string.format(
+					"weapon_shot self-block claim: %s/%s, %d report(s), accepted %d -> %d, worst %.3f/%.3f, "
 						.. "refusedClaimBy [%s]",
 					heldId,
 					tostring(ammo),

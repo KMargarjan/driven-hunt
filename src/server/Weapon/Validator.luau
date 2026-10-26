@@ -133,7 +133,20 @@ end
 -- which this module may not touch. They were numbered 1-6 from here until task 266b, so "check 4"
 -- meant the LINE check in this file and the REACH check in the design, `Shotgun.CONFIG.CLAIM` and
 -- `zz_claim_window.spec` -- the Reviewer carried that from round 2 to round 3.
-function Validator.judgeClaim(facts: any, limits: any): (boolean, string?)
+--
+-- IT ALSO ANSWERS **THE MEASURED VALUE AND ITS BUDGET** (task 269b), as a third and fourth return.
+-- Purely additive: every caller written before this task takes two values and is untouched.
+--
+-- WHY: task 269 measured `claims=10 accepted=2 refused=8 [claim-blocked=4 claim-line=4]` on real
+-- shots at running deer and **could not say by how much**. `claim-line` is a distance against
+-- `LINE_TOLERANCE_STUDS`; "refused" alone does not say whether it missed by a tenth of a stud or by
+-- thirty, and those are different defects with different fixes. A rule that can refuse without
+-- leaving a number behind cannot be argued with, which is the whole reason this task exists.
+--
+-- THE PAIR IS ALWAYS (measured, budget) IN THE SAME UNIT, so a reader can divide them. For a check
+-- whose refusal is not a magnitude -- a type, a NaN -- both are nil, which says "this one has no
+-- number" rather than a zero that reads like a measurement.
+function Validator.judgeClaim(facts: any, limits: any): (boolean, string?, number?, number?)
 	if type(facts) ~= "table" or type(limits) ~= "table" then
 		return false, "claim-type"
 	end
@@ -146,12 +159,14 @@ function Validator.judgeClaim(facts: any, limits: any): (boolean, string?)
 		return false, "claim-type"
 	end
 	local skin = limits.SKIN_STUDS
-	if
-		math.abs(offset.X) > half.X + skin
-		or math.abs(offset.Y) > half.Y + skin
-		or math.abs(offset.Z) > half.Z + skin
-	then
-		return false, "claim-offset"
+	-- THE MEASURE IS THE WORST OF THE THREE AXES, as a fraction over its own half-extent plus a
+	-- skin: componentwise is how the check reads, and one number is what a counter can keep.
+	local overX = math.abs(offset.X) - (half.X + skin)
+	local overY = math.abs(offset.Y) - (half.Y + skin)
+	local overZ = math.abs(offset.Z) - (half.Z + skin)
+	local over = math.max(overX, overY, overZ)
+	if over > 0 then
+		return false, "claim-offset", over, skin
 	end
 
 	-- CHECK 3: THE CLIENT AND THE SERVER AGREE ABOUT WHERE IT WAS. This is the ONE check that exists to be
@@ -160,7 +175,7 @@ function Validator.judgeClaim(facts: any, limits: any): (boolean, string?)
 	-- why 6.0 and not 0.5.
 	local moved = (facts.clientPoint - facts.serverPoint).Magnitude
 	if moved > limits.POSITION_TOLERANCE_STUDS then
-		return false, "claim-moved"
+		return false, "claim-moved", moved, limits.POSITION_TOLERANCE_STUDS
 	end
 
 	-- CHECK 4: THE SHOT WENT THERE. The SERVER's own trajectory at the claimed flight time against the
@@ -169,30 +184,58 @@ function Validator.judgeClaim(facts: any, limits: any): (boolean, string?)
 	-- makes the ZONE geometric rather than chosen** (design 5.2, 5.4).
 	local line = (facts.trajectoryPoint - facts.serverPoint).Magnitude
 	if line > limits.LINE_TOLERANCE_STUDS then
-		return false, "claim-line"
+		return false, "claim-line", line, limits.LINE_TOLERANCE_STUDS
 	end
 
 	-- CHECK 5: THE BULLET GOT THERE -- the line of sight, measured by the flight that already ran. A tree
 	-- between the muzzle and the animal stopped the server's own shot, so the claim dies with it --
 	-- and no new raycast is needed to know it.
-	if facts.reachedStuds + limits.REACH_SLACK_STUDS < facts.claimedStuds then
-		return false, "claim-blocked"
+	-- ...AND THE CLAIMED ANIMAL CANNOT BLOCK ITSELF (task 269b). **MEASURED in Karen's place**:
+	-- `claim-blocked worst 2.137/1.000 (reached 11.26 of 13.40 studs, stopped by nothing it
+	-- reported)` -- the server's own flight stopped two studs SHORT of the claimed distance on the
+	-- very animal the claim was about, because the server's copy of a deer running at 30 studs/s sits
+	-- a replication interval further along the ray than the client's. That is not a blocked line of
+	-- sight; it is the same bullet hitting the same animal, measured twice.
+	--
+	-- THE RULE STILL DOES ITS JOB: a TREE between the muzzle and the animal stopped the flight at a
+	-- part that is not the claimed target, `stoppedByClaimedTarget` is false, and the claim dies
+	-- exactly as it did before. The owner decides the identity, because it needs Instances and this
+	-- module touches none; `nil` is every caller written before this task and behaves as `false`.
+	--
+	-- ...AND THE WAIVER IS BOUNDED BY THE ANIMAL'S OWN BODY (round 2's blocking finding, which was
+	-- right). Unbounded, "the animal stopped my bullet" would excuse ANY claimed distance the
+	-- flight-time check could be made to match, and `Validator.claimImpact` writes that number into
+	-- the report's `distance`. The shortfall a body can honestly explain is the body: the claimed
+	-- part's own largest extent, plus the slack every claim already gets. The live reading this was
+	-- built for is 2.137 studs against a deer's trunk, which is well inside it.
+	local shortfall = facts.claimedStuds - facts.reachedStuds
+	local span = 0
+	if typeof(facts.partHalf) == "Vector3" then
+		span = 2 * math.max(facts.partHalf.X, facts.partHalf.Y, facts.partHalf.Z)
+	end
+	local waived = facts.stoppedByClaimedTarget == true and shortfall <= span + limits.REACH_SLACK_STUDS
+	if not waived and facts.reachedStuds + limits.REACH_SLACK_STUDS < facts.claimedStuds then
+		-- THE MEASURE IS HOW FAR SHORT THE SERVER'S OWN FLIGHT STOPPED, in studs, against the slack
+		-- it is allowed. The owner adds WHAT stopped it, which is an Instance and so not this
+		-- module's to name.
+		return false, "claim-blocked", facts.claimedStuds - facts.reachedStuds, limits.REACH_SLACK_STUDS
 	end
 
 	-- CHECK 6, first half: THE CLOCK IS SANE. A NEGATIVE age is an arrival in the server's FUTURE, which is a claim
 	-- about something that has not happened; too old is outside the window the animal remembers.
 	if facts.ageSeconds < 0 then
-		return false, "claim-future"
+		return false, "claim-future", facts.ageSeconds, 0
 	end
 	if facts.ageSeconds > limits.AGE_MAX_SECONDS then
-		return false, "claim-stale"
+		return false, "claim-stale", facts.ageSeconds, limits.AGE_MAX_SECONDS
 	end
 
 	-- CHECK 6, second half: THE GUN COULD HAVE MADE THIS SHOT. The claimed flight time against the server's own
 	-- `Ballistics.timeToRange` for that weapon, that ammo and that range. It refuses a NONSENSE
 	-- claim; it does not pin the geometry -- check 3 does that.
-	if math.abs(facts.flightSeconds - facts.expectedFlightSeconds) > limits.FLIGHT_TOLERANCE_SECONDS then
-		return false, "claim-time"
+	local flightOff = math.abs(facts.flightSeconds - facts.expectedFlightSeconds)
+	if flightOff > limits.FLIGHT_TOLERANCE_SECONDS then
+		return false, "claim-time", flightOff, limits.FLIGHT_TOLERANCE_SECONDS
 	end
 
 	return true, nil

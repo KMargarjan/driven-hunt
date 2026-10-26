@@ -203,6 +203,17 @@ local stats = {
 	claims = 0,
 	claimsIgnored = 0,
 	claimsAccepted = 0,
+	-- WHY A REFUSAL HAPPENED, AS A NUMBER (task 269b). `refusedClaimBy` counts them by name;
+	-- this keeps, per name, the WORST measured value, its budget, and -- for the one rule whose
+	-- cause is an Instance -- what actually stopped the bullet.
+	--
+	-- **IT EXISTS BECAUSE TASK 269 COULD NOT ASK THE NEXT QUESTION.** That task measured
+	-- `claims=10 accepted=2 refused=8 [claim-blocked=4 claim-line=4]` on real shots at running deer,
+	-- and `claimWorstStuds` / `claimWorstLineStuds` / `claimWorstEndStuds` are written only AFTER
+	-- `claimsAccepted += 1` -- so a refused claim left nothing behind at all, and the published
+	-- worsts were the worst over the two ACCEPTED claims. A rule that refuses without leaving a
+	-- number cannot be argued with.
+	refusedClaimWorst = {} :: { [string]: { measured: number, budget: number, note: string? } },
 	claimsRefused = 0,
 	refusedClaimBy = {} :: { [string]: number },
 	-- THE VIEW-ERROR METER, and the one number anybody has ever had for it. The worst ACCEPTED
@@ -815,8 +826,28 @@ function Weapon.claimLine(from: any): string
 	end
 	local reasons = {}
 	if type(from.refusedClaimBy) == "table" then
+		local worst = if type(from.refusedClaimWorst) == "table" then from.refusedClaimWorst else {}
 		for reason, count in pairs(from.refusedClaimBy) do
-			table.insert(reasons, string.format("%s=%d", tostring(reason), count))
+			-- THE COUNT, AND THEN THE WORST MEASURED VALUE AGAINST ITS BUDGET (task 269b):
+			-- `claim-line=4 worst 7.412/2.000` reads as "four of them, and the worst missed a
+			-- two-stud budget by seven and a half". A reason with no number keeps its bare count,
+			-- which is the honest shape for a type or a NaN refusal.
+			local row = worst[reason]
+			if type(row) == "table" and type(row.measured) == "number" then
+				table.insert(
+					reasons,
+					string.format(
+						"%s=%d worst %.3f/%.3f%s",
+						tostring(reason),
+						count,
+						row.measured,
+						row.budget or 0,
+						if type(row.note) == "string" then " (" .. row.note .. ")" else ""
+					)
+				)
+			else
+				table.insert(reasons, string.format("%s=%d", tostring(reason), count))
+			end
 		end
 		table.sort(reasons)
 	end
@@ -879,6 +910,12 @@ function Weapon.stats()
 	out.refusedBy = table.clone(stats.refusedBy)
 	-- The same hand copy, for the same reason (task 266).
 	out.refusedClaimBy = table.clone(stats.refusedClaimBy)
+	-- ...AND ONE LEVEL DEEPER, because each row is itself a table (task 269b): a shallow clone would
+	-- hand a caller the live rows and let it edit the server's own diagnostics.
+	out.refusedClaimWorst = {}
+	for reason, row in pairs(stats.refusedClaimWorst) do
+		out.refusedClaimWorst[reason] = table.clone(row)
+	end
 	-- WHICH ANSWER THE CLAIM GATE IS ACTUALLY GIVING, for the reason `originTolerance` below is
 	-- here at all (task 260 round 3's blocking finding): a boundary read into a module local is
 	-- invisible from outside, so deleting the wiring would leave the suite green with the feature
@@ -1450,9 +1487,21 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		return res.impacts
 	end
 
-	local function refuse(reason: string): { Shotgun.Impact }
+	-- THE MEASURED VALUE AND ITS BUDGET GO IN HERE, which is the one place every refusal passes
+	-- through (task 269b). `measured`/`budget` are `Validator.judgeClaim`'s own third and fourth
+	-- returns, in the rule's own unit; `note` is the part of the cause that is an Instance and so
+	-- cannot come from that pure module. The WORST is kept per reason, so one lucky shot cannot
+	-- hide the shape of the failure.
+	local function refuse(reason: string, measured: number?, budget: number?, note: string?): { Shotgun.Impact }
 		stats.claimsRefused += 1
 		stats.refusedClaimBy[reason] = (stats.refusedClaimBy[reason] or 0) + 1
+		if type(measured) == "number" then
+			local row = stats.refusedClaimWorst[reason]
+			if row == nil or measured > row.measured then
+				stats.refusedClaimWorst[reason] =
+					{ measured = measured, budget = if type(budget) == "number" then budget else 0, note = note }
+			end
+		end
 		return res.impacts
 	end
 
@@ -1480,6 +1529,22 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		stats.claimAgeMax = math.max(stats.claimAgeMax, age)
 	end
 	stats.claimAges += 1
+	-- ONE LOOKUP, AT THE CLAIM'S OWN ARRIVAL INSTANT -- `docs/design/ballistics.md` section 5.2,
+	-- unchanged.
+	--
+	-- **ROUND 1 OF TASK 269b PUT A BACKWARD SEARCH HERE AND THE REVIEWER WAS RIGHT TO REFUSE IT.**
+	-- It kept, from thirteen instants across 0.25 s, the one minimising
+	-- `|where * claim.offset - claim.point|` -- which is the SAME EXPRESSION check 3 tests
+	-- (`|clientPoint - serverPoint|`). So it did not leave the checks alone: it widened check 3 from
+	-- one instant to the best of thirteen, i.e. to "the animal was within 6 studs of the claimed
+	-- point at ANY time in a quarter second", which at the 34 studs/s measured is 8.5 studs of path.
+	-- It also made `claim-future` unreachable -- the loop simply stepped back until an instant at or
+	-- before the present answered -- so a client could put `firedAtView` ahead of the server clock
+	-- and be judged instead of refused.
+	--
+	-- AND BY ITS OWN MEASUREMENT IT CARRIED NOTHING: `match=0.000s` on every claim of every live
+	-- trial, because the best instant was always the arrival instant. A mechanism that loosens a
+	-- rule and moves no number is deleted, not defended.
 	local rewound = askWhereWas(claim.part, arrivalAt)
 	if rewound == nil then
 		return refuse("claim-history")
@@ -1541,7 +1606,23 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		remaining -= step
 	end
 
-	local ok, reason = Validator.judgeClaim({
+	-- WHAT STOPPED THE SERVER'S OWN FLIGHT, AS AN IDENTITY (task 269b). Read once, here, because
+	-- `Hits.targetOf` needs an Instance and `Validator` may touch none: if the thing the flight
+	-- stopped on belongs to the SAME animal the claim names, the bullet reached its target and
+	-- check 5 -- the line-of-sight rule -- has nothing to say about it.
+	-- `.instance` AND NOT `.part`, which is round 1's blocking finding and it was fatal: there is no
+	-- `part` field on `Shotgun.Impact` (`{ instance, position, normal, distance, material }`), so
+	-- `stopper` was always nil, `stoppedByClaimedTarget` was always false, and the whole of item 3
+	-- was dead on arrival. The live `claim-blocked` note said so and I misread it: *"stopped by
+	-- nothing it reported"* was this bug, not an empty impact list.
+	local firstImpact = res.impacts[1]
+	local stopper = if type(firstImpact) == "table" then firstImpact.instance else nil
+	local stoppedBySame = false
+	if typeof(stopper) == "Instance" then
+		stoppedBySame = Hits.targetOf(stopper) == target
+	end
+
+	local ok, reason, measured, budget = Validator.judgeClaim({
 		offset = claim.offset,
 		partHalf = part.Size / 2,
 		clientPoint = claim.point,
@@ -1550,13 +1631,35 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		trajectoryPoint = closest,
 		reachedStuds = res.reachedStuds,
 		claimedStuds = claim.distanceStuds,
-		-- NEGATIVE MEANS THE FUTURE, which `judgeClaim` refuses by its own name.
+		-- NEGATIVE MEANS THE FUTURE, which `judgeClaim` refuses by its own name. Measured against
+		-- the MATCHED instant (task 269b), so the clock check and the geometry checks are about the
+		-- same moment.
 		ageSeconds = age,
+		-- DID THE SERVER'S OWN FLIGHT STOP ON THE CLAIMED ANIMAL ITSELF (task 269b)? Then the line
+		-- of sight was clear and check 5 has nothing to say. `Hits.targetOf` is the same walk that
+		-- found `target` above, so "the same animal" is the same question asked once more.
+		stoppedByClaimedTarget = stoppedBySame,
 		flightSeconds = claim.flightSeconds,
 		expectedFlightSeconds = Ballistics.timeToRange(ballistic, claim.distanceStuds),
 	}, CONFIG.CLAIM)
 	if not ok then
-		return refuse(reason or "claim-refused")
+		-- WHAT STOPPED THE BULLET, for the one rule whose cause is an Instance (task 269b). The
+		-- flight already ran and already knows: its first impact is the thing that cut it short, and
+		-- its FULL PATH is what tells a reader whether it was the animal's own trunk, a zone box, a
+		-- tree's collider or the terrain. `Validator` may not touch an Instance -- its own header's
+		-- first sentence -- so this is the owner's half of the same answer.
+		local note = nil :: string?
+		if reason == "claim-blocked" then
+			local first = res.impacts[1]
+			local hit = if type(first) == "table" then first.instance else nil
+			note = string.format(
+				"reached %.2f of %.2f studs, stopped by %s",
+				res.reachedStuds or -1,
+				claim.distanceStuds,
+				if typeof(hit) == "Instance" then hit:GetFullName() else "nothing it reported"
+			)
+		end
+		return refuse(reason or "claim-refused", measured, budget, note)
 	end
 
 	stats.claimsAccepted += 1
