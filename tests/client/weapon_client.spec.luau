@@ -1914,12 +1914,68 @@ return function()
 		local Claim = Weapon.Claim
 		local CLAIM = Shotgun.CONFIG.CLAIM
 
-		it("is exported, and is the one caller of Workspace:Raycast under src/client/Weapon/", function()
+		it("is exported, and is the one caller of Shotgun.Pierce.cast under src/client/Weapon/", function()
 			expect(Claim).to.be.ok()
 			expect(type(Claim.simulate)).to.equal("function")
 			expect(type(Claim.world)).to.equal("function")
 			expect(type(Claim.only)).to.equal("function")
 			expect(type(Claim.forCamera)).to.equal("function")
+		end)
+
+		-- THE REAL `Claim.only` AND THE REAL `Claim.world`, AGAINST A REAL WORLD, and that is the
+		-- whole point of this case (task 280 round 2's finding). Every other case in this describe
+		-- injects its own `castOnly`, so the two functions that actually touch Workspace were tested
+		-- for their TYPE and nothing else -- which is the hole round 1's defect came through.
+		--
+		-- THE DEFECT, in one sentence: `Claim.only` casts `FilterType = Include` with
+		-- `FilterDescendantsInstances = { target.root }`, an Include filter takes that instance AND
+		-- ITS DESCENDANTS, and task 280 put every one of a red deer's shot volumes strictly INSIDE
+		-- its trunk -- so the nearest surface is the TRUNK, `Weapon.Hits.targetOf` answers nil for a
+		-- `ZonesOnly` root, and the server refused EVERY claim on a deer as `claim-part`. With
+		-- `Claim.luau` reverted to a bare `Workspace:Raycast` both cases below fail on their first
+		-- assertion: the returned instance is the trunk.
+		it("passes the real cast THROUGH a ZonesOnly trunk to the zone inside it", function()
+			local root = Instance.new("Part")
+			root.Name = "ClaimPierceTrunk"
+			root.Size = Vector3.new(4, 4, 4)
+			root.Anchored = true
+			root.CanCollide = true -- the thing that makes CanQuery useless; see Shotgun.Pierce
+			root.CFrame = CFrame.new(0, 2000, 0)
+			root:SetAttribute("Damageable", true)
+			root:SetAttribute("ZonesOnly", true)
+			local zone = Instance.new("Part")
+			zone.Name = "ClaimPierceZone"
+			zone.Size = Vector3.new(2, 2, 2)
+			zone.Anchored = true
+			zone.CanCollide = false
+			zone.CFrame = root.CFrame
+			zone:SetAttribute("HitZone", "chest")
+			zone.Parent = root
+			root.Parent = Workspace
+
+			local origin = Vector3.new(20, 2000, 0)
+			local direction = Vector3.new(-40, 0, 0)
+			local only = Claim.only(root)(origin, direction, {})
+			expect(only).to.be.ok()
+			expect(only.instance).to.equal(zone)
+			-- ...and the distance is from the CALLER'S origin, not from the surface it stepped past:
+			-- 20 studs to the trunk's face, 1 more to the zone's.
+			expect(math.abs(only.distance - 19) < 0.05).to.equal(true)
+
+			-- `Claim.world` is the same rule with an Exclude filter: the trunk is in the way of
+			-- everything and must not be what the shot stops on.
+			local world = Claim.world(origin, direction, { Workspace.Terrain })
+			expect(world).to.be.ok()
+			expect(world.instance).to.equal(zone)
+
+			-- ...AND A BOAR IS UNTOUCHED: the same trunk without `ZonesOnly` stops the cast on its
+			-- own face, which is what `body` has always meant.
+			root:SetAttribute("ZonesOnly", nil)
+			local plain = Claim.only(root)(origin, direction, {})
+			expect(plain).to.be.ok()
+			expect(plain.instance).to.equal(root)
+
+			root:Destroy()
 		end)
 
 		-- A SCRIPTED WORLD: one 3-stud-long box, moving along +X, and two injected casts. No boar, no

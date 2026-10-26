@@ -95,18 +95,65 @@ return function()
 			)
 		end)
 
-		it("keeps every zone PROUD of its own trunk, at every size", function()
+		it("keeps every BOAR zone PROUD of its own trunk, and every DEER zone INSIDE it", function()
 			-- The clearance that stops a zone part being FLUSH with the trunk is what task 116's
 			-- review round 2 was about: two coincident faces at one ray distance is a coin toss. It
 			-- scales with the animal, so it is smaller on a cub and it is never zero.
+			--
+			-- A DEER IS THE OTHER WAY ROUND, AND TASK 280 IS WHY. Its trunk answers no ray at all
+			-- (`ZonesOnly`, because `CanQuery` cannot take a collidable part out of a cast -- the
+			-- measurement is in `src/shared/Shotgun/Pierce.luau`), so there is nothing to stand proud of
+			-- and every volume is fitted strictly INSIDE the drawn animal instead. Both halves are
+			-- asserted here rather than one of them being dropped, because "proud" and "inside" are
+			-- the two answers to the same question and a spec that only knew one of them was how the
+			-- deer's boxes came to hold the air under its neck.
 			for _, kind in ipairs(CONFIG.KINDS.ORDER) do
-				local geometry = Boar.kindGeometry(kind, on)
-				-- THE ONE THAT CAN FAIL (review round 2, note): the chest, the rump and the legs
-				-- stand proud SIDEWAYS, and they must still be wider than the trunk they hang on
-				-- after everything has been scaled. A `protrusion > 0` assertion was here and could
-				-- not fail for any positive scale, so it is gone.
-				for _, name in ipairs({ "chest", "rear", "legs" }) do
-					expect(geometry.zones[name].size.X > geometry.bodySize.X).to.equal(true)
+				-- THROUGH `kindConfig`, because a deer's volumes live on its SPECIES and its kind row
+				-- and not on the boar's table: `kindGeometry(kind, on)` alone hands back the BOAR's
+				-- four boxes at the deer's scale, which is what the first version of this case
+				-- measured and why it reported the boar's own head box as a stag's.
+				local geometry = Boar.kindGeometry(kind, Boar.kindConfig(kind, on))
+				local deer = CONFIG.KINDS[kind].species == "reddeer"
+				if deer then
+					local half = geometry.bodySize / 2
+					for _, name in ipairs(geometry.zoneOrder) do
+						for index, box in ipairs(geometry.zones[name].boxes) do
+							local reach = box.offset:Abs() + box.size / 2
+							-- X AND Z ONLY, AND +Y IS DELIBERATELY NOT ASSERTED: the trunk's own
+							-- comment says so -- *"The box top is the back; the head, the neck and
+							-- the antlers stand above it"* -- and the measured skull box reaches
+							-- y +2.64 over a box that tops out at +2.40. What IS asserted on Y is
+							-- the floor: the box bottom is the ground the animal stands on, so a
+							-- volume below it would be a hittable volume under the turf.
+							local sunk = box.offset.Y - box.size.Y / 2 < -half.Y - 1e-6
+							if reach.X > half.X or reach.Z > half.Z or sunk then
+								error(
+									string.format(
+										"%s: %s box %d reaches x %.2f z %.2f with its floor at %.2f,"
+											.. " outside its own half-box (%.2f, %.2f, %.2f)",
+										kind,
+										name,
+										index,
+										reach.X,
+										reach.Z,
+										box.offset.Y - box.size.Y / 2,
+										half.X,
+										half.Y,
+										half.Z
+									),
+									0
+								)
+							end
+						end
+					end
+				else
+					-- THE ONE THAT CAN FAIL (review round 2, note): the chest, the rump and the legs
+					-- stand proud SIDEWAYS, and they must still be wider than the trunk they hang
+					-- on after everything has been scaled. A `protrusion > 0` assertion was here
+					-- and could not fail for any positive scale, so it is gone.
+					for _, name in ipairs({ "chest", "rear", "legs" }) do
+						expect(geometry.zones[name].size.X > geometry.bodySize.X).to.equal(true)
+					end
 				end
 			end
 		end)

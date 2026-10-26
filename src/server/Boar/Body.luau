@@ -115,10 +115,38 @@ function Body.kindGeometry(kind: string?, config)
 	local zones = {}
 	for _, name in ipairs(config.ZONES.ORDER) do
 		local spec = config.ZONES[name]
+		-- THE KIND'S OWN VOLUMES, IF IT HAS THEM, AND THEY ARE NOT SCALED (task 280). `row.zones`
+		-- is absolute studs in THAT KIND's own trunk frame, because the three red deer are three
+		-- different meshes and not one mesh at three sizes: MEASURED, the stag's boxes taken to the
+		-- hind's 0.8553 leave 131 cells of air on her and to the calf's 0.495 leave 312 on it (the
+		-- numbers and the method are in `Boar.CONFIG.KINDS.hind.zones`). `BODY_SIZE` IS still one
+		-- box scaled -- a hind's trunk is exactly the stag's times her scale -- so the two answers
+		-- differ, and they differ because a trunk is a convention and a hitbox is a measurement.
+		--
+		-- NO deer kind, and no boar, reaches this branch without a `zones` row: for every boar
+		-- `row.zones` is nil, `scale` applies, and this is the code it has always been.
+		local rowZones = if type(row.zones) == "table" then row.zones[name] else nil
+		local source = rowZones or spec
+		local boxScale = if rowZones ~= nil then 1 else scale
+		-- ONE ZONE MAY BE SEVERAL BOXES (task 280). The boar's four zones are one box each and
+		-- `source.boxes or { source }` is the IDENTITY for them -- same table, same numbers, same
+		-- parts. A deer's five are a head, a neck, a barrel, a rump and four thin legs, because one
+		-- box around a deer's chest also holds the AIR UNDER ITS NECK: Karen, 2026-10-26, on a
+		-- frozen broadside hind at 28 m, *"wrong I hit the chest shows outside"*.
+		local boxes = {}
+		for index, box in ipairs(source.boxes or { source }) do
+			boxes[index] = { size = box.size * boxScale, offset = box.offset * boxScale }
+		end
 		zones[name] = {
+			-- THE NAME AND THE TINT ARE THE SPECIES' and never the kind's, so a kind row carries
+			-- numbers only and `ZoneChest` is `ZoneChest` on every animal in the game.
 			part = spec.part,
-			size = spec.size * scale,
-			offset = spec.offset * scale,
+			-- THE FIRST BOX IS STILL `size` AND `offset`, so every reader written before task 280
+			-- (`report_silhouette.spec`, `boar_kinds.spec`, `boar_behaviour_live.spec`) is unchanged
+			-- for the boar and reads a real box rather than nil for the deer.
+			size = boxes[1].size,
+			offset = boxes[1].offset,
+			boxes = boxes,
 			tint = spec.tint,
 		}
 	end
@@ -135,6 +163,14 @@ function Body.kindGeometry(kind: string?, config)
 		-- ...AND WHAT COLOUR THE COAT IS MULTIPLIED BY, or `nil` for the coat as the artist drew it.
 		tint = row.tint,
 		zones = zones,
+		-- THE THREE FACTS ABOUT THE ZONE TABLE THAT ARE NOT A BOX (task 280), carried here so that
+		-- `buildZones` and `Body.create` read ONE resolved answer instead of each re-deciding which
+		-- table applies -- which is how two readers of the same question end up disagreeing
+		-- (docs/PROJECT_CONTEXT.md, "Overlapping owners").
+		zoneOrder = config.ZONES.ORDER,
+		zoneTint = config.ZONES.ZONE_TINT,
+		-- Absent means TRUE: a boar's trunk is its own `body` zone and always has been.
+		trunkHittable = config.ZONES.TRUNK_HITTABLE ~= false,
 		-- HOW FAR THIS ANIMAL'S CARCASS HAS TO BE PUT BACK UP (task 120), travelling with the rest
 		-- of its geometry because that is what it is. Measured per kind; the derivation and the
 		-- numbers are in `Boar.CONFIG.KINDS`. Zero for the male, and zero for every kind with
@@ -209,36 +245,42 @@ end
 -- set on them: it belongs to the target root alone, and two damageable instances in one ancestor
 -- chain is an ambiguity, not a feature.
 local function buildZones(config, trunk: BasePart, geometry): { BasePart }
-	local zones = config.ZONES
 	local parts = {}
-	for _, zone in ipairs(zones.ORDER) do
-		-- THE KIND'S OWN BOX, not the male's (task 119). `geometry.zones` is the male's table times
-		-- this animal's scale, and with `BOAR_MODEL` off it IS the male's table.
+	for _, zone in ipairs(geometry.zoneOrder) do
+		-- THE KIND'S OWN BOXES. For every BOAR this is the male's table times this animal's scale,
+		-- and with `BOAR_MODEL` off it IS the male's table (task 119). For the hind and the calf it is
+		-- that kind's OWN unscaled `zones` row, because the three deer are three models (task 280);
+		-- `Body.kindGeometry` is the one place that decides which, and this reads its answer.
 		local spec = geometry.zones[zone]
-		local zonePart = Instance.new("Part")
-		zonePart.Name = spec.part
-		zonePart.Size = spec.size
-		zonePart.Color = if zones.ZONE_TINT then spec.tint else config.BODY_COLOR
-		zonePart.Material = Enum.Material.SmoothPlastic
-		zonePart.TopSurface = Enum.SurfaceType.Smooth
-		zonePart.BottomSurface = Enum.SurfaceType.Smooth
-		zonePart.Massless = true
-		zonePart.CanCollide = false
-		zonePart.CanQuery = true
-		zonePart.CanTouch = false
-		zonePart.Anchored = false
-		zonePart.CFrame = trunk.CFrame * CFrame.new(spec.offset)
-		zonePart:SetAttribute("HitZone", zone)
-		-- The trunk must already be in the DataModel: a WeldConstraint needs both parts parented.
-		zonePart.Parent = trunk
+		-- ONE PART PER BOX (task 280). A zone of ONE box keeps its BARE name -- `ZoneHead`, the name
+		-- `boar_zones.spec`, `boar_hit.spec`, `boar_behaviour_live.spec` and the Validator's log line
+		-- already use -- so the boar is byte-identical. A zone of several is numbered from 1.
+		for index, box in ipairs(spec.boxes) do
+			local zonePart = Instance.new("Part")
+			zonePart.Name = if #spec.boxes == 1 then spec.part else spec.part .. index
+			zonePart.Size = box.size
+			zonePart.Color = if geometry.zoneTint then spec.tint else config.BODY_COLOR
+			zonePart.Material = Enum.Material.SmoothPlastic
+			zonePart.TopSurface = Enum.SurfaceType.Smooth
+			zonePart.BottomSurface = Enum.SurfaceType.Smooth
+			zonePart.Massless = true
+			zonePart.CanCollide = false
+			zonePart.CanQuery = true
+			zonePart.CanTouch = false
+			zonePart.Anchored = false
+			zonePart.CFrame = trunk.CFrame * CFrame.new(box.offset)
+			zonePart:SetAttribute("HitZone", zone)
+			-- The trunk must already be in the DataModel: a WeldConstraint needs both parented.
+			zonePart.Parent = trunk
 
-		local weld = Instance.new("WeldConstraint")
-		weld.Name = "ZoneWeld"
-		weld.Part0 = trunk
-		weld.Part1 = zonePart
-		weld.Parent = zonePart
+			local weld = Instance.new("WeldConstraint")
+			weld.Name = "ZoneWeld"
+			weld.Part0 = trunk
+			weld.Part1 = zonePart
+			weld.Parent = zonePart
 
-		table.insert(parts, zonePart)
+			table.insert(parts, zonePart)
+		end
 	end
 	return parts
 end
@@ -287,7 +329,28 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 	-- of boar Instances, and the weapon only reads. The trunk keeps HitZone = "body", so belly,
 	-- flank, rear and brisket -- whatever no zone part covers -- are the default zone.
 	part:SetAttribute("Damageable", true)
-	part:SetAttribute("HitZone", "body")
+	-- THE TRUNK'S OWN ZONE, AND A DEER HAS NONE (task 280). For a boar `body` is the fallback -- the
+	-- belly, the flank and the brisket are hits although no zone part covers them -- and
+	-- `TRUNK_HITTABLE` is absent from `Boar.CONFIG.ZONES`, so `geometry.trunkHittable` reads true
+	-- and this is the line it has always been.
+	--
+	-- FOR THE RED DEER THE TRUNK IS NOT A TARGET. It is 1.8 x 4.8 x 7.05 -- the nose line to the
+	-- rump, the back line to the hooves -- and the animal does not fill it, so its surface is a hit
+	-- on NOTHING: the air in front of the chest and under the neck (measured: z -3.50..-1.25 below
+	-- the throat line) and the whole space between the legs. Karen, 2026-10-26, on a FROZEN broadside
+	-- hind at ~28 m: *"wrong I hit the chest shows outside"*, and on 2026-10-24: *"sometimes shows we
+	-- hit empty space and died"*. So it publishes no zone of its own and declares `ZonesOnly`, and
+	-- `Weapon.Hits.targetOf` then refuses it while `Weapon.Cast.world` lets the bullet through it to
+	-- the measured volumes inside.
+	--
+	-- WHY NOT `CanQuery = false`, which is what this looks like a job for: MEASURED, it does not
+	-- work on a COLLIDABLE part in this engine, and the trunk must collide. The four-row measurement
+	-- with its control is written out in `src/shared/Shotgun/Pierce.luau`.
+	if geometry.trunkHittable then
+		part:SetAttribute("HitZone", "body")
+	else
+		part:SetAttribute("ZonesOnly", true)
+	end
 	-- WHICH ANIMAL THIS IS, on the trunk (task 123 round 3). The march order is a fact about kinds,
 	-- and without this it is a fact nobody outside the server can see -- not in the Explorer, not in
 	-- a diagnostic, not in the frame Karen is looking at.

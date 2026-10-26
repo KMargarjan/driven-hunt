@@ -19,6 +19,7 @@
 -- Note:   docs/research/2026-09-24-shotgun.md, docs/research/2026-10-14-ballistics-lead.md
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Pierce = require(ReplicatedStorage:WaitForChild("Shotgun"):WaitForChild("Pierce"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 type Impact = Shotgun.Impact
@@ -32,12 +33,27 @@ Hits.POINTS_MAX = 24
 
 -- (target root, zone). The root is the nearest ancestor-or-self carrying Damageable == true; the
 -- zone is the hit instance's HitZone, else the root's, else "unknown". No root means a miss.
+--
+-- ...UNLESS THE ROOT SAYS `ZonesOnly` (task 280), AND THEN ONLY ITS NAMED ZONES ARE TARGETS. A red
+-- deer's physics trunk is 1.8 x 4.8 x 7.05 studs -- the nose line to the rump, the back line to the
+-- hooves -- and the animal does not fill it, so the trunk's own surface is a hit on nothing: the air
+-- in front of the chest, under the neck, and the whole space between the legs. Karen, 2026-10-26, on
+-- a FROZEN broadside hind at ~28 m: *"wrong I hit the chest shows outside"*.
+--
+-- IT IS AN ATTRIBUTE AND NOT A RULE ABOUT DEER, exactly as `Damageable` and `HitZone` are: the
+-- weapon still does not know what a boar is (design section 6.4). The animal's own owner publishes
+-- it (`Boar.Body.create`), a boar does not publish it at all, and this file gained one `if`.
 function Hits.targetOf(instance: Instance?): (Instance?, string)
 	local node = instance
 	while node do
 		if node:GetAttribute("Damageable") == true then
 			local zone = instance and instance:GetAttribute("HitZone")
 			if type(zone) ~= "string" then
+				if node:GetAttribute("ZonesOnly") == true then
+					-- The hit instance carries no zone of its own and this animal has no
+					-- fallback: the bullet met the box the animal lives in, not the animal.
+					return nil, ""
+				end
 				zone = node:GetAttribute("HitZone")
 			end
 			return node, if type(zone) == "string" then zone else "unknown"
@@ -46,6 +62,13 @@ function Hits.targetOf(instance: Instance?): (Instance?, string)
 	end
 	return nil, ""
 end
+
+-- A SURFACE A BULLET GOES STRAIGHT THROUGH (task 280) -- `Shotgun.Pierce`'s rule, named here so the
+-- weapon's own specs can ask it by the weapon's own path. The RULE lives in ReplicatedStorage
+-- because the CLIENT's claim cast has to apply exactly the same one: two copies, one per side, is
+-- the disagreement this project is built around (docs/PROJECT_CONTEXT.md, "Overlapping owners").
+-- The measurement that forced it -- why `CanQuery = false` cannot do this job -- is in that file.
+Hits.passesThrough = Pierce.passesThrough
 
 -- `Hits.resolve` IS GONE, AND THAT IS TASK 185 (archived: `backups/2026-10-14_task-185_hitscan-Hits-resolve.md`,
 -- rule 7). It was the HITSCAN resolver: one cast per pellet, the whole range, in the trigger's own

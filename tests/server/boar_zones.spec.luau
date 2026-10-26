@@ -356,28 +356,17 @@ return function()
 	-- *"a spec that called takeHit with zone = 'head' directly would pass happily"* while no player
 	-- could ever land a head shot.
 	--
-	-- EVERY KIND GETS ITS OWN RAYS (L-093), and they have to: a stag, a hind and a calf are the same
-	-- boxes times 1.0, 0.8553 and 0.495, and a scale is exactly the thing that can push a box
-	-- through the surface it was proud of at full size.
-	--
-	-- THE POINTS ARE IN THE ANIMAL'S OWN FRACTIONS and not in studs, so one table drives all three:
-	-- a fraction of its own `BODY_SIZE` is the same place on every size of the same animal.
+	-- EVERY KIND GETS ITS OWN RAYS (L-093), and since task 280 it gets its own BOXES too: the three
+	-- deer are three MODELS and not one model at three sizes, measured -- the stag's volumes at the
+	-- hind's 0.8553 leave 131 cells of air on her mesh and at the calf's 0.495 leave 312 on its. So
+	-- the points below are no longer one fraction table driving all three (that premise, and the
+	-- twelve fixed probes written on it, are archived in
+	-- `backups/2026-10-26_task-280_boar_zones-deer-twelve-probes.md`): each kind's rays are read off
+	-- its own geometry, and the sweep against the DRAWN MESH is
+	-- `tests/server/deer_hitbox.spec.luau`.
 	describe("the red deer's zones, with real rays, at every size", function()
-		local DEER_PROBES = {
-			-- { name, local point as a fraction of the deer's own box, from, want }
-			{ "the skull from the front", Vector3.new(0, 0.566, -0.388), Vector3.new(0, 0, -1), "head" },
-			{ "the skull from the flank", Vector3.new(0, 0.566, -0.388), Vector3.new(1, 0, 0), "head" },
-			{ "the skull from above", Vector3.new(0, 0.566, -0.388), Vector3.new(0, 1, 0), "head" },
-			{ "the chest from the near flank", Vector3.new(0, 0.255, -0.142), Vector3.new(1, 0, 0), "chest" },
-			{ "the chest from the far flank", Vector3.new(0, 0.255, -0.142), Vector3.new(-1, 0, 0), "chest" },
-			{ "the chest from above", Vector3.new(0, 0.255, -0.142), Vector3.new(0, 1, 0), "chest" },
-			{ "the rump from the near flank", Vector3.new(0, 0.231, 0.353), Vector3.new(1, 0, 0), "rear" },
-			{ "the rump from the far flank", Vector3.new(0, 0.231, 0.353), Vector3.new(-1, 0, 0), "rear" },
-			{ "the rump from behind", Vector3.new(0, 0.231, 0.353), Vector3.new(0, 0, 1), "rear" },
-			{ "the rump from above", Vector3.new(0, 0.231, 0.353), Vector3.new(0, 1, 0), "rear" },
-			{ "the legs from the near flank", Vector3.new(0, -0.302, 0.028), Vector3.new(1, 0, 0), "legs" },
-			{ "the legs from the far flank", Vector3.new(0, -0.302, 0.028), Vector3.new(-1, 0, 0), "legs" },
-		}
+		-- `DEER_PROBES` IS GONE (task 280). See the case below for where the twelve points went
+		-- and why a fraction table cannot name the same place on three different meshes.
 
 		for _, kind in ipairs({ "stag", "hind", "calf" }) do
 			describe("a " .. kind, function()
@@ -389,28 +378,27 @@ return function()
 				-- weapon does, read `HitZone` off whatever the engine returns, and measure how far
 				-- the zone part beat the bare trunk by -- so a part that is merely FLUSH fails
 				-- instead of passing on a tie.
+				-- THROUGH THE WEAPON'S OWN CASTER since task 280, and the clearance measurement is
+				-- gone with the thing it measured. It read how far the zone part beat the BARE TRUNK
+				-- by, because a part merely FLUSH with the trunk is a coin toss (task 116, review
+				-- round 2) -- and a deer's trunk is no longer on any bullet's ray at all
+				-- (`ZonesOnly`, and `Weapon.Cast.world` passes a bullet through it), so there is
+				-- nothing to tie with and every deer volume is fitted strictly INSIDE the drawn
+				-- animal rather than proud of a box. The boar's describe above still measures it, on
+				-- the animal it is still true of.
 				local function zoneAt(localPoint: Vector3, fromDirection: Vector3, distance: number)
 					local cf = trunk.CFrame
 					local target = cf:PointToWorldSpace(localPoint)
 					local offset = cf:VectorToWorldSpace(fromDirection.Unit) * distance
-					local origin = target + offset
-					local params = RaycastParams.new()
-					params.FilterType = Enum.RaycastFilterType.Include
-					params.FilterDescendantsInstances = { trunk }
-					local result = Workspace:Raycast(origin, -offset * 2, params)
-					if not result then
-						return nil, nil, 0
+					local impact = Weapon.Cast.world(target + offset, -offset * 2, { Workspace.Terrain })
+					if not impact then
+						return nil, nil
 					end
-					local _, zone = Weapon.Hits.targetOf(result.Instance)
-					local bare = RaycastParams.new()
-					bare.FilterType = Enum.RaycastFilterType.Exclude
-					bare.FilterDescendantsInstances = trunk:GetChildren()
-					local behind = Workspace:Raycast(origin, -offset * 2, bare)
-					local clearance = math.huge
-					if behind and behind.Instance == trunk then
-						clearance = behind.Distance - result.Distance
+					local hit, zone = Weapon.Hits.targetOf(impact.instance)
+					if not hit then
+						return nil, impact.instance
 					end
-					return zone, result.Instance, clearance
+					return zone, impact.instance
 				end
 
 				beforeAll(function()
@@ -468,22 +456,42 @@ return function()
 					expect((trunk.Size - boarBox).Magnitude > 0.5).to.equal(true)
 				end)
 
-				it("answers twelve real rays with the zone its geometry claims", function()
-					local box = trunk.Size
-					for _, probe in ipairs(DEER_PROBES) do
-						local point = Vector3.new(probe[2].X * box.X, probe[2].Y * box.Y, probe[2].Z * box.Z)
-						local zone, _instance, clearance = zoneAt(point, probe[3], 20)
-						-- Named in the failure, so a red line says WHICH ray on WHICH animal.
-						if zone ~= probe[4] then
-							error(
-								string.format("%s: %s answered %s, wanted %s", kind, probe[1], tostring(zone), probe[4]),
-								0
-							)
+				-- THE TWELVE FIXED PROBES ARE GONE, AND TASK 280 IS WHY (archived with the reason:
+				-- `backups/2026-10-26_task-280_boar_zones-deer-twelve-probes.md`, rule 7). They were
+				-- twelve points written as fractions of the box, which worked only while all three
+				-- deer were ONE SHAPE SCALED -- and that premise was measured and refused: the
+				-- stag's boxes at the hind's scale leave 131 cells of air on her mesh and at the
+				-- calf's 312 on its, so each kind now carries its own volumes and a shared fraction
+				-- table names a different part of each animal.
+				--
+				-- WHAT REPLACES THEM IS STRONGER, and it is a whole file:
+				-- `tests/server/deer_hitbox.spec.luau` sweeps a 0.25-stud grid of real flank rays
+				-- over each kind and asserts that EVERY ray answering a zone also crosses the DRAWN
+				-- MESH, plus that the air under the neck and between the legs answers nothing. What
+				-- stays here is the one thing that file does not do: that a ray finds a zone at all,
+				-- on every kind, read off whatever the geometry currently says.
+				it("answers a real ray at every one of its own zone boxes, on every kind", function()
+					local geometry = Boar.kindGeometry(kind, Boar.kindConfig(kind, CONFIG))
+					local seen = {}
+					for _, name in ipairs(geometry.zoneOrder) do
+						for index, box in ipairs(geometry.zones[name].boxes) do
+							local zone = zoneAt(box.offset, Vector3.new(1, 0, 0), 20)
+							if zone == nil then
+								error(
+									string.format("%s: %s box %d answered no zone at its own centre", kind, name, index),
+									0
+								)
+							end
+							seen[zone] = (seen[zone] or 0) + 1
 						end
-						expect(zone).to.equal(probe[4])
-						-- PROUD, not flush: two coincident faces at one ray distance is a coin
-						-- toss, which is the fault round 2 of task 116 removed on the boar.
-						expect(clearance > 0).to.equal(true)
+					end
+					-- ALL FIVE WORDS A DEER CAN ANSWER, `body` INCLUDED: on a boar `body` is the
+					-- trunk's fallback and no part carries it, but a deer's barrel is a real part
+					-- (task 280) and a zone word no ray reaches is a zone that does not exist.
+					for _, name in ipairs(geometry.zoneOrder) do
+						if seen[name] == nil then
+							error(string.format("%s: no ray reached the %s zone", kind, name), 0)
+						end
 					end
 				end)
 
