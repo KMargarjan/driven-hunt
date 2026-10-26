@@ -485,7 +485,6 @@ return function()
 							seen[zone] = (seen[zone] or 0) + 1
 						end
 					end
-					-- ...and the four zone words a deer can answer are all reachable.
 					-- ALL FIVE WORDS A DEER CAN ANSWER, `body` INCLUDED: on a boar `body` is the
 					-- trunk's fallback and no part carries it, but a deer's barrel is a real part
 					-- (task 280) and a zone word no ray reaches is a zone that does not exist.

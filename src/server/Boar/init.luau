@@ -3492,7 +3492,12 @@ Boar.CONFIG.SPECIES = {
 			-- WHAT IS DELIBERATELY NOT COVERED, measured and reported rather than hidden: 36 % of
 			-- the flank rays that cross the mesh hit no box. They are the ANTLERS (above y 3.0 -- an
 			-- antler is not a kill zone), the hoof flare and the hock above and below each shaft,
-			-- and the last hand's breadth of brisket, belly edge and tail. A box is widened only to
+			-- the last hand's breadth of brisket, belly edge and tail -- and THE DORSAL BAND, which
+			-- is the one a player will feel: the measured back line is y +2.30 over z -0.03..+1.97
+			-- against a thorax box topping out at +1.80 and a loin box at +1.98, so the top 0.32 to
+			-- 0.50 studs of the spine answers NOTHING where the old trunk answered `body`. It is an
+			-- axis-aligned box under a curved back; covering it needs a second thin box along the
+			-- spine on each kind, and that is queued as 280a with the calf's leg stubs. A box is widened only to
 			-- where the animal provably IS, so under-coverage is a MISS and never a hit in the air.
 			-- That asymmetry is the whole task: Karen can live with a miss she can see; a kill in
 			-- empty space is what made the card stop meaning anything.

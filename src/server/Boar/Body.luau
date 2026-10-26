@@ -247,8 +247,10 @@ end
 local function buildZones(config, trunk: BasePart, geometry): { BasePart }
 	local parts = {}
 	for _, zone in ipairs(geometry.zoneOrder) do
-		-- THE KIND'S OWN BOX, not the male's (task 119). `geometry.zones` is the male's table times
-		-- this animal's scale, and with `BOAR_MODEL` off it IS the male's table.
+		-- THE KIND'S OWN BOXES. For every BOAR this is the male's table times this animal's scale,
+		-- and with `BOAR_MODEL` off it IS the male's table (task 119). For the hind and the calf it is
+		-- that kind's OWN unscaled `zones` row, because the three deer are three models (task 280);
+		-- `Body.kindGeometry` is the one place that decides which, and this reads its answer.
 		local spec = geometry.zones[zone]
 		-- ONE PART PER BOX (task 280). A zone of ONE box keeps its BARE name -- `ZoneHead`, the name
 		-- `boar_zones.spec`, `boar_hit.spec`, `boar_behaviour_live.spec` and the Validator's log line
@@ -343,7 +345,7 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 	--
 	-- WHY NOT `CanQuery = false`, which is what this looks like a job for: MEASURED, it does not
 	-- work on a COLLIDABLE part in this engine, and the trunk must collide. The four-row measurement
-	-- with its control is written out in `Weapon.Hits.passesThrough`.
+	-- with its control is written out in `src/shared/Shotgun/Pierce.luau`.
 	if geometry.trunkHittable then
 		part:SetAttribute("HitZone", "body")
 	else

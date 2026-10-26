@@ -102,7 +102,7 @@ return function()
 			--
 			-- A DEER IS THE OTHER WAY ROUND, AND TASK 280 IS WHY. Its trunk answers no ray at all
 			-- (`ZonesOnly`, because `CanQuery` cannot take a collidable part out of a cast -- the
-			-- measurement is in `Weapon.Hits.passesThrough`), so there is nothing to stand proud of
+			-- measurement is in `src/shared/Shotgun/Pierce.luau`), so there is nothing to stand proud of
 			-- and every volume is fitted strictly INSIDE the drawn animal instead. Both halves are
 			-- asserted here rather than one of them being dropped, because "proud" and "inside" are
 			-- the two answers to the same question and a spec that only knew one of them was how the

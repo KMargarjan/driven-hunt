@@ -218,7 +218,7 @@ function Validator.judgeClaim(facts: any, limits: any): (boolean, string?, numbe
 	-- studs, stopped by Workspace.Boars.Boar147.ZoneChest)` -- the server's own bullet stopped on
 	-- the CLAIMED animal's own chest 7.3 studs short of the claim, because on the server's clock
 	-- that animal stands 7 studs nearer the muzzle than the shooter saw it. A body-only bound
-	-- (2.40 + 1.0 = 3.40 for a hind's `ZoneRear`) cannot cover that and refuses an honest shot.
+	-- (2.40 + 1.0 = 3.40 for a hind's pre-280 `ZoneRear`; her volumes are smaller since, so the waiver is narrower and the refusal, if it comes, is `claim-blocked`) cannot cover that and refuses an honest shot.
 	--
 	-- `displacementStuds` IS THE SERVER'S OWN NUMBER AND A CLIENT CANNOT INFLATE IT: the owner
 	-- computes it as the claimed animal's measured speed times `lineLagSeconds`, the lag the

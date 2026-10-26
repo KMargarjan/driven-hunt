@@ -42,9 +42,13 @@ local Workspace = game:GetService("Workspace")
 local Pierce = {}
 
 -- HOW MANY SURFACES ONE CAST MAY PASS THROUGH. A ray entering a box meets its surface once, so one
--- deer costs one pass-through and a file of them nose to tail costs one each; four is above anything
--- a single 40-stud flight segment can line up, and it is a bound rather than a loop that trusts the
--- world.
+-- deer costs one pass-through and a file of them nose to tail costs one each, so the bound is a
+-- number about HOW MANY ANIMALS can stand in one sub-step. The longest sub-step in the game is the
+-- rifle's, about 87 studs (`Weapon.Claim`'s own measurement), and `Boar.CONFIG.SOUNDER` spaces a
+-- file 7.0 to 8.5 studs centre to centre -- so ten could line up in principle. FOUR is taken, and
+-- what the fifth costs is a MISS on the animal behind four others, which is the safe way for this
+-- to be wrong: a bullet that stops at nothing rather than one that hits through a herd. Queued as
+-- 280a if a drive ever puts five trunks on one segment.
 Pierce.MAX_PASS_THROUGH = 4
 
 -- HOW FAR PAST A PASSED-THROUGH SURFACE THE NEXT CAST STARTS, in studs. Three orders above float

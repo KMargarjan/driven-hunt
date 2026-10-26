@@ -381,7 +381,6 @@ return function()
 				function()
 					-- THE KNOWN-BAD INPUTS, as fractions of this animal's own box so one table drives
 					-- all three sizes. Every one of these answered `body` before task 280.
-					local half = trunk.Size / 2
 					local misses = {
 						{ "under the neck, at the brisket's height", 0.00, -0.37 },
 						{ "in front of the chest, mid height", 0.25, -0.45 },
@@ -433,7 +432,6 @@ return function()
 							)
 						end
 					end
-					expect(half.Y > 0).to.equal(true)
 				end
 			)
 
