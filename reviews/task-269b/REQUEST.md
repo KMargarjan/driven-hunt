@@ -1,12 +1,12 @@
 # Task 269b -- make the server accept honest claims on running animals
 
 Task: 269b
-Round: 1
+Round: 2
 Base: `c7165859` (`main`, after #249)
-Code commit: `5979ad3e7f050727e07b43351480f957052dbff6`
+Code commit: `c1187f48aa416d10f9c33cf4c3af4dc6d9a20d7f`
 
 ```
-[harness] PASS: 34/34 checks @ 5979ad3e7f050727e07b43351480f957052dbff6 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ c1187f48aa416d10f9c33cf4c3af4dc6d9a20d7f (clean tree) scope=all
 ```
 
 `test2` is **N/A**: the changed files are `src/shared/Shotgun/`, `src/server/Weapon/` and
@@ -98,6 +98,40 @@ there, so `measured` and `budget` are nil and the `near` assertions error. The `
 assertion fails there too -- the line carried bare counts. For items 3 and 4 the "before" is (b)
 above, taken on `main` with the same instrument in the same place.
 
+## ROUND 2 -- ROUND 1'S THREE FINDINGS, AND ALL THREE WERE RIGHT
+
+**1. The self-blocking fix was wired to a field that does not exist.** `Shotgun.Impact` is
+`{ instance, position, normal, distance, material }` -- there is no `part` -- so `stopper` was
+always nil, `stoppedByClaimedTarget` was always false, and item 3's first half was **dead on
+arrival**. Fixed in both places (`firstImpact.instance`). **And it changes what round 1 claimed:**
+the live `claim-blocked` note *"stopped by nothing it reported"* was this bug, not an empty impact
+list -- I read a symptom of my own defect as evidence for my own hypothesis. `weapon_shot.spec` now
+drives the OWNER's wiring, not only the validator's: the server's flight stops ON the claimed animal
+2.137 studs short of the claim and the claim is accepted. It fails on the base commit AND on round
+1's.
+
+**2. The backward search widened check 3, and the comment denying it was false.** It minimised
+`|where * claim.offset - claim.point|`, which is check 3's own expression on the same two points --
+so it turned "the animal was within 6 studs of the claimed point at the arrival instant" into "...at
+any of thirteen instants across 0.25 s". **Deleted**, with `MATCH_BACK_SECONDS` and
+`MATCH_STEP_SECONDS`. By its own measurement it carried nothing (`match=0.000s` on every claim of
+every trial), so there was nothing to trade for the looseness. `docs/design/ballistics.md` section
+5.2's one lookup stands unamended.
+
+**3. `claim-future` could no longer refuse**, because the loop stepped back until an instant at or
+before the present answered. It goes with the search: the age is the claim's own arrival against the
+server clock again.
+
+Round 2 also takes two of the non-blocking notes: the `far` sub-case is re-driven on check 5's own
+axis (it was ordered out behind check 4 and proved nothing), and the `match=` field goes with the
+search.
+
+**WHAT ROUND 2 DOES NOT HAVE, said plainly: no new live trial.** The 2.5 h box was spent when the
+findings arrived. **So the self-block fix is now CORRECT and SPECCED and has NOT been seen working
+in Karen's place**, and cycle 2's `claim-blocked`-went-to-zero in the table below **must not be read
+as this fix's effect** -- the fix was inert in that build. It is sampling, and it is relabelled
+below.
+
 ## WHAT CHANGED
 
 * `src/server/Weapon/Validator.luau` -- `judgeClaim` answers **(measured, budget)** as a third and
@@ -152,11 +186,13 @@ foliage, not on a terrain lip, and not on a tree.
 |---|---|---|---|
 | before (269) | -- | `claims=4 accepted=0 refused=4` in the clean trial, 1/5 chest | 4/5 accepted+chest |
 | 1 (269b d1) | the diagnostics only | `claims=2 accepted=0 refused=2` -- `claim-line 3.260/2.000`, `claim-blocked 2.137/1.000` | unchanged, and now readable |
-| 2 (269b d2, LED) | both construction fixes | **`claims=4 accepted=2 refused=2 [claim-line=2 worst 4.778/2.000]`** -- **`claim-blocked` gone entirely**; zones `rear`, `rear`, Terrain, Terrain | 2/4 accepted, **0/5 chest** |
+| 2 (269b d2, LED) | **neither fix was live** (round 2 found the self-block read a field that does not exist, and the search measured `match=0.000s`) | `claims=4 accepted=2 refused=2 [claim-line=2 worst 4.778/2.000]`; zones `rear`, `rear`, Terrain, Terrain | 2/4 accepted, **0/5 chest** |
 | 3 (269b d3, NO LEAD) | the same build | `claims=7 accepted=2 refused=5` -- zones **`chest`**, `rear`, Terrain, **`chest`**, `body` | **2/5 chest**, 0 accepted |
 
-* **The self-blocking fix works and the number says so**: `claim-blocked` was 1 of 2 refusals before
-  it and **0 of 2** after, in the led trial, on the same instrument in the same place.
+* **The self-blocking fix did NOT work in that build and round 2 is why.** I wrote here that
+  `claim-blocked` going from 1-of-2 refusals to 0-of-2 was its effect; the Reviewer showed the fix
+  could not fire at all, so that movement is two samples of a noisy count and nothing more. The fix
+  is now correct and specced, and **has not been measured live**.
 * **The backward search is INERT and the number says that too**: `match=0.000s` on every claim of
   every trial -- `claimMatchBack` is the furthest back any match landed, and it never left the
   arrival instant. **My directional assumption was wrong.** The client's claimed point is not
@@ -207,13 +243,13 @@ measured on the client is.
    the reach rule waived. **Fails on the base commit.**
 4. **`Hits.targetOf` is what decides "the same animal"**, read once in `judgeClaimFor` against the
    `target` the claim was already matched to -- so the identity is the one the rest of the file uses.
-5. **The backward search never widens a tolerance.** Read `judgeClaimFor`: it changes which CFrame
-   `serverPoint` and `ageSeconds` are built from, and nothing else. Every bound in `judgeClaim` is
-   untouched.
-6. **The live before/after is cycle 1 against cycle 2 in the table above**, same instrument, same
-   place, same gun, same staged release: `claim-blocked` 1-of-2 refusals -> 0-of-2, accepted 0 -> 2.
-7. **The backward search is inert in this game and the attribute says so**: `match=0.000s` on every
-   claim of every trial. It is reported, not hidden.
+5. **No tolerance in `judgeClaim` moved, and the rewind is one lookup at the arrival instant**, as
+   `docs/design/ballistics.md` section 5.2 specifies. Round 1's search is deleted; `grep` for
+   `MATCH_BACK` or `matchedAt` finds nothing in `src/`.
+6. **WITHDRAWN.** Round 1 offered cycle 1 vs cycle 2 as the live before/after for the self-block
+   fix. The fix was not live in cycle 2, so that pair measures nothing about it. There is **no live
+   evidence for item 3's first half**, and the spec case is all there is.
+7. **The backward search is gone**, with both of its CONFIG numbers, and nothing reads them.
 8. **Item 4's target is not met**, with the counts above, and is written as NOT MET.
 9. **The Forest Test is as it was found.** Twelve attributes before, twelve after, the same twelve:
    `HIT_CLAIM` was set ON for the trials and **set OFF again** as rule K and the dispatch require;
@@ -222,10 +258,9 @@ measured on the client is.
 
 ## WHAT COULD NOT BE VERIFIED
 
-* **The backward search has no spec of its own.** It is owner-side and needs a history provider that
-  answers as a function of time; the three cases above cover the validator's half and the live
-  attribute covers its behaviour, but deleting the search would leave the suite green. Queued.
-  Its effect is also measured as NIL, so there is nothing it is currently carrying.
+* **No live trial was run on round 2's build.** Item 4 is CORE and is **NOT PROVEN**: with the
+  self-block fix actually wired, nobody has yet fired a shot at a running deer in Karen's place.
+  That is the first thing the next session does, and it needs no new instrument.
 * **Item 5 (269a(b), no claim after a shot without a reload): NOT DONE.** It is not in the path this
   task changed and there was no time. The instrument reloads before every shot, so no measurement
   here depends on it.
