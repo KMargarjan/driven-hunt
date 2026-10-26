@@ -1595,6 +1595,19 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	if not part:IsA("BasePart") then
 		return refuse("claim-part")
 	end
+	-- WHICH PART THE CLIENT ACTUALLY CLAIMED, and what zone that part carries (task 274). Recorded
+	-- for EVERY claim that gets this far -- accepted or refused -- because the question it answers
+	-- is about the CLIENT's own simulation and does not wait on the server's verdict.
+	--
+	-- **IT IS THE ONE FIELD THAT MOVES THIS INVESTIGATION.** An accepted claim already decides the
+	-- zone (`Validator.claimImpact` sets `instance = claim.part`; `Hits.group` reads that part's
+	-- `HitZone`), so task 272's live zones -- Terrain, legs, body on a trial with three ACCEPTED
+	-- claims -- had two possible explanations and no way to tell them apart. Measured live on this
+	-- field: with the sight settled under 0.6 degrees on the CHEST, the client claims
+	-- `ZoneRear(rear)` and the trunk. The server is applying exactly what it was told.
+	local claimedZone = part:GetAttribute("HitZone")
+	stats.claimLastPart =
+		string.format("%s(%s)", part.Name, if type(claimedZone) == "string" then claimedZone else tostring(claimedZone))
 
 	-- WHERE WAS IT WHEN THE SHOOTER SAW IT. The arrival instant is DERIVED and never sent, so there
 	-- is one fewer number for a client to lie about independently.
@@ -1841,18 +1854,6 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	end
 
 	stats.claimsAccepted += 1
-	-- WHICH PART THE CLIENT ACTUALLY CLAIMED, and what zone that part carries (task 274). The
-	-- counters have never recorded it, so task 272's live zones -- Terrain, legs, body on a trial
-	-- with three ACCEPTED claims -- could not be attributed: an accepted claim already decides the
-	-- zone (`Validator.claimImpact` sets `instance = claim.part`, `Hits.group` reads its
-	-- `HitZone`), so either the client claimed something that is not the chest, or it never
-	-- claimed at all. One field tells the two apart.
-	local claimedZone = claim.part:GetAttribute("HitZone")
-	stats.claimLastPart = string.format(
-		"%s(%s)",
-		claim.part.Name,
-		if type(claimedZone) == "string" then claimedZone else tostring(claimedZone)
-	)
 	-- THE WORST **ACCEPTED** VIEW LAG, and it is updated HERE and nowhere else (round 1's finding
 	-- 4). Before the fix the `math.max` sat above `judgeClaim`, so every claim that found a
 	-- candidate -- refused included -- raised it, and design 1.2a item 15 makes a delete-or-keep
