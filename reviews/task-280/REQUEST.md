@@ -1,15 +1,15 @@
 # Task 280 — the deer hitbox is the deer, not the air around it
 
 Task: 280
-Round: 2
+Round: 3
 Base: `main` @ `e57710ac`
-Code commit: `886dd7af0a1c288dce21147f672599e37bfb2642`
+Code commit: `d8852a45184ddc4d751e830087c70486eb568016`
 
 ```
-[harness] PASS: 34/34 checks @ 886dd7af0a1c288dce21147f672599e37bfb2642 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ d8852a45184ddc4d751e830087c70486eb568016 (clean tree) scope=all
 ```
 
-The last commit touching `src/`, `tests/` or `tools/` is `273a5863`; `886dd7af` adds round 1's
+The last commit touching `src/`, `tests/` or `tools/` is `e869e3e5`; `d8852a45` adds round 2's
 `RESULT.md` and nothing else, so the line covers every code file (git workflow step 4).
 
 `test2` is **N/A**: nothing here is under `TWO_PLAYER_PATHS`. The files touched are
@@ -40,13 +40,19 @@ and the two casters that read it (what a bullet does with them).
 **ONE PREMISE OF THE DISPATCH IS REFUTED BY MEASUREMENT** — item 1's mechanism ("a ray passes
 through it") cannot be `CanQuery`. See claim 2. The goal is met by another route.
 
-## What changed since round 1
+## What changed since round 2
 
-Round 1's finding was right and is fixed in claim 3: the client's hit-claim cast had to pass through
-the trunk exactly as the server's does, so the rule moved to **one owner both sides require**,
-`src/shared/Shotgun/Pierce.luau`. Nine notes are addressed; the four that were factually wrong
-(the archive's mechanism, the stale "one shape scaled" header, the reachability list missing `body`,
-the box count) are corrected, and the two weak assertions the Reviewer named now measure something.
+**Round 2's finding was right and it is the one that mattered**: the case offered as proof of round
+1's fix called `Shotgun.Pierce.cast` directly, so reverting `src/client/Weapon/Claim.luau` left it
+green. The proof now drives the REAL client functions — see claim 3. Eight notes are addressed:
+the `MAX_PASS_THROUGH` bound is justified with the numbers it is about, four stale citations point
+at `Shotgun.Pierce` where the measurement lives, `buildZones` no longer claims every kind's boxes
+are the male's scaled, the `Validator` comment is marked pre-280, and the two leftovers (a
+"four zone words" half-sentence and a tautological `expect`) are gone. The DORSAL BAND is now named
+in the comment's own list of what is uncovered, because it is the first thing Karen will feel.
+
+Round 1's finding stays fixed in claim 3: the rule has one owner both sides require,
+`src/shared/Shotgun/Pierce.luau`.
 
 ## Claims
 
@@ -75,9 +81,16 @@ the box count) are corrected, and the two weak assertions the Reviewer named now
    DESCENDANTS — so it met the TRUNK, nearer than every volume now inside it; `Hits.targetOf`
    answered nil for a `ZonesOnly` root and `judgeClaimFor` refused every deer claim as
    `claim-part`.
-   *Verify:* the new case `"gives the CLIENT'S CLAIM a zone part and not the trunk"` — an Include
-   cast at each kind's chest must not return the trunk, and `targetOf` on what it does return must
-   answer `(trunk, "chest")`, which is `judgeClaimFor`'s own first test. It fails on `a56f9727`.
+   *Verify:* **the proof is a CLIENT case and it is downstream of the client file**, which round 2's
+   finding was right that the previous one was not: `tests/client/weapon_client.spec.luau`,
+   `"passes the real cast THROUGH a ZonesOnly trunk to the zone inside it"`, builds a real trunk
+   (`Damageable`, `ZonesOnly`, `CanCollide = true`) with a real `HitZone` child inside it and calls
+   **`Claim.only(root)(...)` and `Claim.world(...)`** — the functions themselves, not the helper
+   they call. It asserts the returned `instance` is the CHILD, that `distance` is measured from the
+   caller's origin (round 2's note: nothing asserted that convention), and that the SAME trunk
+   without `ZonesOnly` still stops the cast on its own face. With `Claim.luau` at its base version
+   the first assertion fails. The server half is the case in `deer_hitbox.spec`, which checks that
+   `targetOf` on what comes back answers `(trunk, "chest")` — `judgeClaimFor`'s own first test.
    `Pierce.cast` also answers **nil** when it runs out of pass-throughs while still standing on one
    (round 1's note: the bound used to return the trunk, stopping the pellet on an invisible box).
 4. **The step-past could not be a filter.** `FilterDescendantsInstances` means "these instances AND
@@ -149,10 +162,12 @@ task and not a line. Queued as **280b**.
 - The calf's coverage is the worst of the three (762 of 1,606 mesh-crossing flank rays) and its four
   leg boxes are stubs the greedy fit could not grow. AIR is 0 on it, so it is harder to hit than it
   looks and never hittable where it is not — the right way round, but not a good fit. **280a.**
-- The DORSAL BAND is uncovered on all three kinds and round 1's note is right that the comment's own
-  list did not name it: the measured back line is y +2.30 over z -0.03..+1.97 against a thorax box
-  topping out at +1.80 and a loin box at +1.98, so the top 0.32–0.50 studs of the spine is a MISS.
-  Queued with **280a**.
+- The DORSAL BAND is uncovered on all three kinds, and this is a REGRESSION against the old
+  behaviour rather than merely a gap: the trunk used to answer `body` there. The measured back line
+  is y +2.30 over z -0.03..+1.97 against a thorax box topping out at +1.80 and a loin box at +1.98,
+  so the top 0.32–0.50 studs of the spine now answers nothing. It is an axis-aligned box under a
+  curved back; covering it needs a second thin box along the spine on each kind. Named in the
+  `ZONES` comment's own list and queued as **280a** with the calf's leg stubs.
 - `docs/design/red-deer.md` §7.3 and `docs/design/hit-zones.md` §4 still describe the `PROTRUSION`
   rules this task replaced for the deer. Nothing in the game is wrong because of it; queued.
 - The volumes are fitted and tested in the BIND POSE. How far a running deer's legs and head move
