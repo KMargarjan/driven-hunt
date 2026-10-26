@@ -218,6 +218,10 @@ local stats = {
 	claimSweepWindow = 0,
 	claimSweepPassed = false,
 	claimSweepSpread = 0,
+	claimSweepIndex = 0,
+	claimSweepBestLine = 0,
+	claimSweepBestIndex = 0,
+	claimSweepSegments = 0,
 	-- WHY A REFUSAL HAPPENED, AS A NUMBER (task 269b). `refusedClaimBy` counts them by name;
 	-- this keeps, per name, the WORST measured value, its budget, and -- for the one rule whose
 	-- cause is an Instance -- what actually stopped the bullet.
@@ -868,7 +872,8 @@ function Weapon.claimLine(from: any): string
 	end
 	return string.format(
 		"enabled=%s claims=%d accepted=%d refused=%d ignored=%d worst=%.3f/%.3f/%.3f lag=%.3fs "
-			.. "sweep=%d/%d win=%.3fs spread=%.3f passed=%s age=%.3f..%.3f/%d why=%s [%s]",
+			.. "sweep=%d/%d win=%.3fs spread=%.3f passed=%s took=%d best=%d@%.3f segs=%d "
+			.. "age=%.3f..%.3f/%d why=%s [%s]",
 		tostring(from.claimsEnabled),
 		from.claims or 0,
 		from.claimsAccepted or 0,
@@ -883,6 +888,10 @@ function Weapon.claimLine(from: any): string
 		from.claimSweepWindow or 0,
 		from.claimSweepSpread or 0,
 		tostring(from.claimSweepPassed),
+		from.claimSweepIndex or 0,
+		from.claimSweepBestIndex or 0,
+		from.claimSweepBestLine or 0,
+		from.claimSweepSegments or 0,
 		from.claimAgeMin or 0,
 		from.claimAgeMax or 0,
 		from.claimAges or 0,
@@ -1718,6 +1727,23 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	-- chosen lag is 0 whatever the window is. That is the one reading that explains
 	-- `sweep=19/19 win=0.301s passed=true lag=0.000s` beside a gap that needs 0.164 s.
 	stats.claimSweepSpread = (candidates[#candidates].point - candidates[1].point).Magnitude
+	-- WHICH CANDIDATE WAS TAKEN, AND WHAT THE BEST ONE WOULD HAVE BEEN (task 272). The sweep is
+	-- measured healthy -- 19 of 19, spanning 8 studs -- and still answers the arrival instant while
+	-- a candidate 0.164 s back exists. These two numbers are what separates "check 3 filtered the
+	-- right one out" from "the trajectory is no nearer to any of them".
+	stats.claimSweepIndex = index or 0
+	do
+		local best, bestAt = math.huge, 0
+		for candidateIndex, candidate in ipairs(candidates) do
+			local _, studs = Validator.closestOnSegments(segments, candidate.point)
+			if studs < best then
+				best, bestAt = studs, candidateIndex
+			end
+		end
+		stats.claimSweepBestLine = best
+		stats.claimSweepBestIndex = bestAt
+		stats.claimSweepSegments = #segments
+	end
 	if index == nil then
 		return refuse("claim-history")
 	end

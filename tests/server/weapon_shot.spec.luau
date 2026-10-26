@@ -1393,12 +1393,19 @@ return function()
 
 			TestKit.note(
 				string.format(
-					"weapon_shot view instant: window 0 -> accepted %d->%d refused %d->%d; window %.2f -> "
-						.. "accepted %d->%d, sweep %d/%d spread %.2f lag %.3f; forged -> accepted %d->%d",
+					"weapon_shot view instant: window 0 -> accepted %d->%d refused %d->%d (sweep %d/%d took %d "
+						.. "best %d@%.3f segs %d); window %.2f -> accepted %d->%d, sweep %d/%d spread %.2f lag "
+						.. "%.3f took %d best %d@%.3f segs %d; forged -> accepted %d->%d",
 					before.claimsAccepted,
 					afterOff.claimsAccepted,
 					before.claimsRefused,
 					afterOff.claimsRefused,
+					afterOff.claimSweepFound,
+					afterOff.claimSweepAsked,
+					afterOff.claimSweepIndex,
+					afterOff.claimSweepBestIndex,
+					afterOff.claimSweepBestLine,
+					afterOff.claimSweepSegments,
 					afterOn.claimSweepWindow,
 					afterOff.claimsAccepted,
 					afterOn.claimsAccepted,
@@ -1406,6 +1413,10 @@ return function()
 					afterOn.claimSweepAsked,
 					afterOn.claimSweepSpread,
 					afterOn.claimWorstLagSeconds,
+					afterOn.claimSweepIndex,
+					afterOn.claimSweepBestIndex,
+					afterOn.claimSweepBestLine,
+					afterOn.claimSweepSegments,
 					forgedFrom.claimsAccepted,
 					forgedAfter.claimsAccepted
 				)
