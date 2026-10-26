@@ -363,21 +363,8 @@ return function()
 	-- THE POINTS ARE IN THE ANIMAL'S OWN FRACTIONS and not in studs, so one table drives all three:
 	-- a fraction of its own `BODY_SIZE` is the same place on every size of the same animal.
 	describe("the red deer's zones, with real rays, at every size", function()
-		local DEER_PROBES = {
-			-- { name, local point as a fraction of the deer's own box, from, want }
-			{ "the skull from the front", Vector3.new(0, 0.566, -0.388), Vector3.new(0, 0, -1), "head" },
-			{ "the skull from the flank", Vector3.new(0, 0.566, -0.388), Vector3.new(1, 0, 0), "head" },
-			{ "the skull from above", Vector3.new(0, 0.566, -0.388), Vector3.new(0, 1, 0), "head" },
-			{ "the chest from the near flank", Vector3.new(0, 0.255, -0.142), Vector3.new(1, 0, 0), "chest" },
-			{ "the chest from the far flank", Vector3.new(0, 0.255, -0.142), Vector3.new(-1, 0, 0), "chest" },
-			{ "the chest from above", Vector3.new(0, 0.255, -0.142), Vector3.new(0, 1, 0), "chest" },
-			{ "the rump from the near flank", Vector3.new(0, 0.231, 0.353), Vector3.new(1, 0, 0), "rear" },
-			{ "the rump from the far flank", Vector3.new(0, 0.231, 0.353), Vector3.new(-1, 0, 0), "rear" },
-			{ "the rump from behind", Vector3.new(0, 0.231, 0.353), Vector3.new(0, 0, 1), "rear" },
-			{ "the rump from above", Vector3.new(0, 0.231, 0.353), Vector3.new(0, 1, 0), "rear" },
-			{ "the legs from the near flank", Vector3.new(0, -0.302, 0.028), Vector3.new(1, 0, 0), "legs" },
-			{ "the legs from the far flank", Vector3.new(0, -0.302, 0.028), Vector3.new(-1, 0, 0), "legs" },
-		}
+		-- `DEER_PROBES` IS GONE (task 280). See the case below for where the twelve points went
+		-- and why a fraction table cannot name the same place on three different meshes.
 
 		for _, kind in ipairs({ "stag", "hind", "calf" }) do
 			describe("a " .. kind, function()
@@ -468,22 +455,46 @@ return function()
 					expect((trunk.Size - boarBox).Magnitude > 0.5).to.equal(true)
 				end)
 
-				it("answers twelve real rays with the zone its geometry claims", function()
-					local box = trunk.Size
-					for _, probe in ipairs(DEER_PROBES) do
-						local point = Vector3.new(probe[2].X * box.X, probe[2].Y * box.Y, probe[2].Z * box.Z)
-						local zone, _instance, clearance = zoneAt(point, probe[3], 20)
-						-- Named in the failure, so a red line says WHICH ray on WHICH animal.
-						if zone ~= probe[4] then
-							error(
-								string.format("%s: %s answered %s, wanted %s", kind, probe[1], tostring(zone), probe[4]),
-								0
-							)
+				-- THE TWELVE FIXED PROBES ARE GONE, AND TASK 280 IS WHY (archived with the reason:
+				-- `backups/2026-10-26_task-280_boar_zones-deer-twelve-probes.md`, rule 7). They were
+				-- twelve points written as fractions of the box, which worked only while all three
+				-- deer were ONE SHAPE SCALED -- and that premise was measured and refused: the
+				-- stag's boxes at the hind's scale leave 131 cells of air on her mesh and at the
+				-- calf's 312 on its, so each kind now carries its own volumes and a shared fraction
+				-- table names a different part of each animal.
+				--
+				-- WHAT REPLACES THEM IS STRONGER, and it is a whole file:
+				-- `tests/server/deer_hitbox.spec.luau` sweeps a 0.25-stud grid of real flank rays
+				-- over each kind and asserts that EVERY ray answering a zone also crosses the DRAWN
+				-- MESH, plus that the air under the neck and between the legs answers nothing. What
+				-- stays here is the one thing that file does not do: that a ray finds a zone at all,
+				-- on every kind, read off whatever the geometry currently says.
+				it("answers a real ray at every one of its own zone boxes, on every kind", function()
+					local geometry = Boar.kindGeometry(kind, Boar.kindConfig(kind, CONFIG))
+					local seen = {}
+					for _, name in ipairs(geometry.zoneOrder) do
+						for index, box in ipairs(geometry.zones[name].boxes) do
+							local zone, _instance, clearance = zoneAt(box.offset, Vector3.new(1, 0, 0), 20)
+							if zone == nil then
+								error(
+									string.format("%s: %s box %d answered no zone at its own centre", kind, name, index),
+									0
+								)
+							end
+							seen[zone] = (seen[zone] or 0) + 1
+							-- NO CLEARANCE ASSERTION ANY MORE, and that is the task-280 switch rather
+							-- than a weakened test: `zoneAt` measures how far the zone part beat the
+							-- BARE TRUNK by, and a deer's trunk has `CanQuery = false`, so it is on
+							-- no ray and there is nothing left to tie with. `math.huge` is what
+							-- "the trunk is not on this ray at all" has always returned here.
+							expect(clearance > 0).to.equal(true)
 						end
-						expect(zone).to.equal(probe[4])
-						-- PROUD, not flush: two coincident faces at one ray distance is a coin
-						-- toss, which is the fault round 2 of task 116 removed on the boar.
-						expect(clearance > 0).to.equal(true)
+					end
+					-- ...and the four zone words a deer can answer are all reachable.
+					for _, name in ipairs({ "head", "chest", "rear", "legs" }) do
+						if seen[name] == nil then
+							error(string.format("%s: no ray reached the %s zone", kind, name), 0)
+						end
 					end
 				end)
 
