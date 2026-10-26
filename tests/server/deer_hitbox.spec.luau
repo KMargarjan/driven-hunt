@@ -32,6 +32,11 @@
 -- animal is a different question (the boxes are welded to the trunk and travel with it); that one
 -- belongs to `zz_claim_window.spec` and to Karen's own frozen-animal trial.
 --
+-- TASK 281 CLOSED THREE HOLES 280 LEFT, and this file is where they are asserted: the DORSAL BAND
+-- (the top 0.32-0.50 studs of the spine answered nothing), a `neck` ZONE of its own (Karen,
+-- 2026-10-24: *"aim in empty space to get hit in head neck or heart like in real life"*), and the
+-- calf's four leg STUBS, regrown from a per-leg seed as twelve boxes.
+--
 -- Design: docs/design/red-deer.md (section 7.3), docs/design/hit-zones.md (sections 4, 12.3)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -56,6 +61,14 @@ local FIELD = {
 
 -- THE DISPATCH'S OWN GRID: "every 0.25 stud".
 local GRID = 0.25
+
+-- HOW MUCH OF EACH KIND'S VISIBLE FLANK MUST ANSWER A ZONE (task 281). Measured on this grid; the
+-- floor is set under the measurement and above what task 280 shipped, so a lost volume fails.
+local COVERAGE_FLOOR = {
+	stag = 0.66,
+	hind = 0.63,
+	calf = 0.52,
+}
 
 -- THE DEER MODEL THIS FILE MEASURES AGAINST, asked for the way `BoarAssetsBoot` asks for it --
 -- `Loader.template` off the kind's own asset key. A spec-built runtime does NOT get the
@@ -366,11 +379,33 @@ return function()
 				-- floor has to be a number the smallest animal can reach while still refusing a
 				-- sweep that found nothing.
 				expect(both >= 20).to.equal(true)
+				-- HOW MUCH OF THE VISIBLE FLANK ANSWERS (task 281, and it is the number 280 could
+				-- only report). The floor is under this kind's MEASURED coverage and above what task
+				-- 280 shipped, so losing the dorsal band, the neck or the calf's twelve leg boxes
+				-- fails here. The complement is what is still a miss: the antlers, the hoof flare,
+				-- the hock, the brisket edge and the tail.
+				local covered = both / (both + meshOnly)
+				if covered < COVERAGE_FLOOR[kind] then
+					error(
+						string.format(
+							"%s: only %d of %d mesh-crossing flank rays answer a zone (%.1f %%), under the %.1f %% floor",
+							kind,
+							both,
+							both + meshOnly,
+							covered * 100,
+							COVERAGE_FLOOR[kind] * 100
+						),
+						0
+					)
+				end
+				expect(covered >= COVERAGE_FLOOR[kind]).to.equal(true)
 				TestKit.note(
 					string.format(
-						"deer-hitbox %s: %d flank rays on a zone, 0 in the air, %d crossing the mesh with no zone",
+						"deer-hitbox %s: %d of %d flank rays on a zone (%.1f %%), 0 in the air, %d crossing the mesh with no zone",
 						kind,
 						both,
+						both + meshOnly,
+						covered * 100,
 						meshOnly
 					)
 				)
@@ -435,6 +470,119 @@ return function()
 				end
 			)
 
+			it("covers the drawn back line, and the band is on the animal", function()
+				-- TASK 280'S WORST HOLE (280a (a)): the measured back line is y +2.30 on a stag over
+				-- a thorax box topping out at +1.80 and a loin box at +1.98, so the top of the spine
+				-- answered NOTHING. Three thin bands cover it -- `body` over the thorax and the
+				-- loin, `rear` over the croup -- and this case is their proof.
+				--
+				-- READ OFF THE GEOMETRY: a band is the box of its zone with the HIGHEST top, and it
+				-- must be higher than that zone's first box, which is the barrel or the rump.
+				for _, zoneName in ipairs({ "body", "rear" }) do
+					local boxes = geometry.zones[zoneName].boxes
+					local band, bandTop = nil, -math.huge
+					for _, box in ipairs(boxes) do
+						local topY = box.offset.Y + box.size.Y / 2
+						if topY > bandTop then
+							band, bandTop = box, topY
+						end
+					end
+					local firstTop = boxes[1].offset.Y + boxes[1].size.Y / 2
+					-- A BAND EXISTS AT ALL. Before task 281 the highest box of each zone WAS the
+					-- first one, so this line is the one that fails on the commit before it.
+					if bandTop <= firstTop + 1e-6 then
+						error(
+							string.format(
+								"%s: %s has no dorsal band -- its highest box tops out at %+.3f, which is its barrel box",
+								kind,
+								zoneName,
+								bandTop
+							),
+							0
+						)
+					end
+					-- IT ANSWERS, just under its own top...
+					local inBand = Vector3.new(0, bandTop - 0.03, band.offset.Z)
+					local zone, instance = zoneAt(inBand)
+					if zone ~= zoneName then
+						error(
+							string.format(
+								"%s: the %s band at (0, %+.2f, %+.2f) answered %s on %s",
+								kind,
+								zoneName,
+								inBand.Y,
+								inBand.Z,
+								tostring(zone),
+								instance and instance.Name or "?"
+							),
+							0
+						)
+					end
+					expect(zone).to.equal(zoneName)
+					-- ...AND THE DRAWN ANIMAL IS THERE, which is the half that cannot be read out of
+					-- the same box as the defect (Learning Agent, 2026-10-26): the same ray must
+					-- cross the MESH. Without it a band hanging over the back would pass.
+					if #meshes > 0 then
+						local meshParams = RaycastParams.new()
+						meshParams.FilterType = Enum.RaycastFilterType.Include
+						meshParams.FilterDescendantsInstances = meshes
+						local cf = trunk.CFrame
+						local target = cf:PointToWorldSpace(inBand)
+						local offset = cf:VectorToWorldSpace(Vector3.new(1, 0, 0)) * 20
+						if Workspace:Raycast(target + offset, -offset * 2, meshParams) == nil then
+							error(
+								string.format(
+									"%s: the %s band at (0, %+.2f, %+.2f) is NOT on the drawn animal",
+									kind,
+									zoneName,
+									inBand.Y,
+									inBand.Z
+								),
+								0
+							)
+						end
+					end
+					-- ...AND THE BAND IS WHAT ANSWERS ABOVE TASK 280'S CEILING. A tenth of a stud
+					-- over the barrel box's own top was a MISS on every kind before this task.
+					local above = Vector3.new(0, firstTop + 0.10, band.offset.Z)
+					local zoneAbove = zoneAt(above)
+					if zoneAbove == nil then
+						error(
+							string.format(
+								"%s: (0, %+.2f, %+.2f) -- a tenth of a stud over the %s box -- is still a MISS",
+								kind,
+								above.Y,
+								above.Z,
+								zoneName
+							),
+							0
+						)
+					end
+					expect(type(zoneAbove)).to.equal("string")
+				end
+			end)
+
+			it("charges a neck hit like the chest, and calls it neck", function()
+				-- KAREN, 2026-10-24: *"aim in empty space to get hit in head neck or heart like in
+				-- real life"*. A neck shot breaks the spine or opens the carotid, so it is LETHAL --
+				-- and it is `neck` on the wire, the hit card and the kill line, because a player who
+				-- aimed at the neck is told he hit the neck.
+				local WOUND = CONFIG.WOUND
+				expect(Boar.Wound.hitClass("neck", WOUND)).to.equal("vital")
+				expect(Boar.Wound.chargedZone("neck", WOUND)).to.equal("neck")
+				-- A SLUG KILLS, and the deer's own `toughness` cannot soften it: `damageFor` armours
+				-- only what `CLASS` does not call vital.
+				local tough = CONFIG.KINDS[kind].toughness
+				local slug = Boar.Wound.damageFor("neck", "Slug", 1, WOUND, tough)
+				expect(slug >= WOUND.LETHAL).to.equal(true)
+				expect(slug).to.equal(Boar.Wound.damageFor("chest", "Slug", 1, WOUND, tough))
+				expect(Boar.Wound.severityFor(slug, WOUND)).to.equal("lethal")
+				-- ...and the zone part carries the name, so the server charges `neck` and not `chest`.
+				local neck = geometry.zones.neck
+				expect(neck.part).to.equal("ZoneNeck")
+				expect(#neck.boxes >= 1).to.equal(true)
+			end)
+
 			it("gives the CLIENT'S CLAIM a zone part and not the trunk", function()
 				-- ROUND 1'S BLOCKING FINDING, AND THE CASE THAT WOULD HAVE CAUGHT IT. The client's
 				-- `Weapon.Claim.only` casts with `FilterType = Include` and
@@ -470,15 +618,18 @@ return function()
 
 			it("answers the chest, the neck, the head and the rump at their own centres", function()
 				-- READ OFF THE GEOMETRY, so the case cannot drift from the table: the first `chest`
-				-- box is the thorax, the last is the neck, the last `head` box is the skull and the
-				-- first `rear` box is the hindquarters. A neck shot answering `chest` IS the answer
-				-- this task chose (see `SPECIES.reddeer.ZONES.chest`).
+				-- box is the thorax, the last `neck` box is the neck itself, the last `head` box is
+				-- the skull and the first `rear` box is the hindquarters. SINCE TASK 281 A NECK SHOT
+				-- ANSWERS `neck` AND NOT `chest`: Karen names the neck as a kill zone, so the screen
+				-- has to name it too.
 				local chest = geometry.zones.chest.boxes
+				local neck = geometry.zones.neck.boxes
 				local head = geometry.zones.head.boxes
 				local rear = geometry.zones.rear.boxes
 				local named = {
 					{ "the thorax", chest[1].offset, "chest" },
-					{ "the neck", chest[#chest].offset, "chest" },
+					{ "the throat", neck[1].offset, "neck" },
+					{ "the neck", neck[#neck].offset, "neck" },
 					{ "the skull", head[#head].offset, "head" },
 					{ "the rump", rear[1].offset, "rear" },
 				}
