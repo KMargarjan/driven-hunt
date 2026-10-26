@@ -222,6 +222,10 @@ local stats = {
 	claimSweepBestLine = 0,
 	claimSweepBestIndex = 0,
 	claimSweepSegments = 0,
+	-- The last claim's own part and zone, for EVERY claim that reaches the judge -- accepted or
+	-- refused (task 274). Not the accepted ones only: reading it as "an accepted claim named this"
+	-- is the exact mis-attribution this field was added to end.
+	claimLastPart = "none",
 	-- WHY A REFUSAL HAPPENED, AS A NUMBER (task 269b). `refusedClaimBy` counts them by name;
 	-- this keeps, per name, the WORST measured value, its budget, and -- for the one rule whose
 	-- cause is an Instance -- what actually stopped the bullet.
@@ -873,7 +877,7 @@ function Weapon.claimLine(from: any): string
 	return string.format(
 		"enabled=%s claims=%d accepted=%d refused=%d ignored=%d worst=%.3f/%.3f/%.3f lag=%.3fs "
 			.. "sweep=%d/%d win=%.3fs spread=%.3f passed=%s took=%d best=%d@%.3f segs=%d "
-			.. "age=%.3f..%.3f/%d why=%s [%s]",
+			.. "claimed=%s age=%.3f..%.3f/%d why=%s [%s]",
 		tostring(from.claimsEnabled),
 		from.claims or 0,
 		from.claimsAccepted or 0,
@@ -892,6 +896,7 @@ function Weapon.claimLine(from: any): string
 		from.claimSweepBestIndex or 0,
 		from.claimSweepBestLine or 0,
 		from.claimSweepSegments or 0,
+		tostring(from.claimLastPart),
 		from.claimAgeMin or 0,
 		from.claimAgeMax or 0,
 		from.claimAges or 0,
@@ -1592,6 +1597,25 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	if not part:IsA("BasePart") then
 		return refuse("claim-part")
 	end
+	-- WHICH PART THE CLIENT ACTUALLY CLAIMED, and what zone that part carries (task 274). Recorded
+	-- for EVERY claim that gets this far -- accepted or refused -- because the question it answers
+	-- is about the CLIENT's own simulation and does not wait on the server's verdict.
+	--
+	-- **IT IS THE ONE FIELD THAT MOVES THIS INVESTIGATION.** An accepted claim already decides the
+	-- zone (`Validator.claimImpact` sets `instance = claim.part`; `Hits.group` reads that part's
+	-- `HitZone`), so task 272's live zones -- Terrain, legs, body on a trial with three ACCEPTED
+	-- claims -- had two possible explanations and no way to tell them apart.
+	--
+	-- **AND RECORDING IT FOR EVERY CLAIM RATHER THAN THE ACCEPTED ONES IS THE WHOLE POINT, because
+	-- the two readings disagree.** An earlier version of this field wrote only on acceptance and
+	-- read `ZoneRear(rear)` and the trunk -- which says *the client is claiming the rear*. Written
+	-- here, for every claim, it reads **`ZoneChest(chest)` on every claim of the same trial** with
+	-- the sight settled under 0.6 degrees on the chest. The client claims the chest; it is the
+	-- CHEST claims that are refused, and the rear ones are what survived to be accepted. A field
+	-- that only records the survivors measures the filter, not the thing.
+	local claimedZone = part:GetAttribute("HitZone")
+	stats.claimLastPart =
+		string.format("%s(%s)", part.Name, if type(claimedZone) == "string" then claimedZone else tostring(claimedZone))
 
 	-- WHERE WAS IT WHEN THE SHOOTER SAW IT. The arrival instant is DERIVED and never sent, so there
 	-- is one fewer number for a client to lie about independently.
