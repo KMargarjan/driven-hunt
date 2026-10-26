@@ -4285,6 +4285,71 @@ function Boar.scaledByWary(config, wary)
 	return out
 end
 
+-- ---------------------------------------------------------------- the statue (task 279)
+--
+-- **AN ANIMAL THAT STANDS STILL AND IS SHOT AT.** Karen, 2026-10-26: *"can we use dev and there just
+-- standing animal and I will shoot in different places and see how it works"*.
+--
+-- IT IS A SPAWN OPTION, NOT A SECOND KIND OF ANIMAL, and that is the whole point of these two
+-- functions. A statue is spawned through `Runtime:spawn` like every other animal: the same drawn
+-- model, the same welded zone parts, the same `takeHit`, the same `Wound`, the same `Downed`. So a
+-- shot at it resolves by exactly the arithmetic a shot in a drive resolves by -- which is the only
+-- reason the range is worth standing in. What is taken away is MOTION and PERCEPTION, and nothing
+-- else.
+--
+-- WHY TWO PURE FUNCTIONS AND NOT A BRANCH IN THE STEP: the flag sits at ON for the fixture and at
+-- OFF for the whole game, so without a pure seam only one of the two states is ever reachable in a
+-- spec (CLAUDE.md, "Feature flags": *"a flagged path must be reachable by parameter as well as by
+-- flag"*). These take plain values and return plain values, so `test_range.spec` states both
+-- branches with no animal, no world and no Studio.
+
+-- WHAT A STATUE IS ALLOWED TO PERCEIVE: nothing. Returns the threat list and the sound queue the
+-- Brain is handed this step.
+--
+-- A statue is deaf and blind rather than brave: `Brain` decides what a stimulus does, and the one
+-- thing a fixture must not do is teach it a new state. An empty threat list and no sounds is the
+-- world a boar alone in an empty field already lives in, so the Brain runs the code it always runs
+-- and stays IDLE -- head down, grazing, the idle clip playing.
+--
+-- NOT A STATUE -> the caller's own two values, by reference, so the live game's step is untouched.
+function Boar.statueSenses(statue: boolean?, threats, sounds)
+	if statue ~= true then
+		return threats, sounds
+	end
+	return {}, nil
+end
+
+-- WHAT A STATUE IS ALLOWED TO DO: stand where it was put, facing the way it was put. Takes the
+-- intent the Brain just produced and returns the four fields the step applies.
+--
+-- `facing` IS THE BORN FACING AND NOT THE INTENT'S, because broadside is the whole reason the row
+-- exists: Karen is aiming at a flank to see which zone a shot finds, and an animal that turned to
+-- look at her would be a different target every time she walked back to the post.
+--
+-- `despawn` IS REFUSED, which is a fixture rule and not a boar rule. The row is placed in front of
+-- wherever the player happens to stand, and that can be outside `field.bounds` -- the Brain's
+-- out-of-bounds despawn is correct for a drive and would simply delete the range.
+--
+-- A COLLAPSED ANIMAL IS NOT ASKED. The step only reaches `Body.drive` for an animal that is not
+-- collapsed, so a dead statue falls, lies and is drawn by exactly the death path every other animal
+-- gets; this function never sees it.
+function Boar.statueMotion(statue: boolean?, intent, bornFacing: Vector3?)
+	if statue ~= true then
+		return {
+			targetVelocity = intent.targetVelocity,
+			facing = intent.facing,
+			pathRequest = intent.pathRequest,
+			despawn = intent.despawn,
+		}
+	end
+	return {
+		targetVelocity = Vector3.zero,
+		facing = bornFacing or intent.facing,
+		pathRequest = nil,
+		despawn = nil,
+	}
+end
+
 function Boar.defaultWorld(field)
 	local config = Boar.CONFIG
 	local params = RaycastParams.new()
@@ -6318,7 +6383,11 @@ function Runtime:formSounder(ids: { string }): string?
 	return record.id
 end
 
-function Runtime:spawn(position: Vector3?, kind: string?)
+-- `options` IS TASK 279 AND IT IS THE ONLY NEW ARGUMENT: `{ statue = true, facing = Vector3 }`, the
+-- shooting range's two facts about an animal it is putting in a row. nil for every caller written
+-- before it, and `Boar.statueMotion(nil, ...)` is the identity on the intent, so the drive's release
+-- is the line it was.
+function Runtime:spawn(position: Vector3?, kind: string?, options: { statue: boolean?, facing: Vector3? }?)
 	assert(not self._destroyed, "Boar runtime is destroyed")
 	assert(#self._boars < self._config.maxBoars, "Boar runtime is at maxBoars")
 
@@ -6464,6 +6533,12 @@ function Runtime:spawn(position: Vector3?, kind: string?)
 		-- the price of one.
 		history = {} :: { { at: number, cframe: CFrame } },
 		historyCount = 0,
+		-- THE SHOOTING RANGE'S TWO FIELDS (task 279). `statue` is read by `Boar.statueSenses` and
+		-- `Boar.statueMotion` in the step and by the four fright doors below; `bornFacing` is the
+		-- direction the range put it at and is never written again. Both nil for every animal the
+		-- game itself spawns, and `statue ~= true` is the identity in both functions.
+		statue = (options ~= nil and options.statue == true) or nil,
+		bornFacing = options and options.facing,
 	}
 	table.insert(self._boars, entry)
 	self:_watchContacts(entry, config)
@@ -6472,8 +6547,17 @@ function Runtime:spawn(position: Vector3?, kind: string?)
 	-- A WAVE RELEASED JUST AFTER A SHOT ARRIVES RUNNING (task 123 round 3), and one released into a
 	-- quiet wood walks in. This is the whole of "otherwise running": the animal is handed the bang it
 	-- was not alive for, through the same `Brain:spook` a heard shot uses.
+	--
+	-- ...AND A STATUE INHERITS NOTHING (task 279). A replacement placed five seconds after Karen
+	-- shot the one before it would otherwise be born running, which is the one thing the range
+	-- exists to prevent.
 	local pace = config.PACE
-	if pace ~= nil and pace.ENABLED == true and os.clock() - self._lastShotAt <= pace.SPOOK_MEMORY_SECONDS then
+	if
+		entry.statue ~= true
+		and pace ~= nil
+		and pace.ENABLED == true
+		and os.clock() - self._lastShotAt <= pace.SPOOK_MEMORY_SECONDS
+	then
 		-- ...AND IT COUNTS AS HEARING THE SHOT (task 150): the animal arrives running for the same
 		-- reason the ones already out there are running, so it leaves for the same reason too.
 		brain:spook(self._lastShotPos, nil, true)
@@ -6647,7 +6731,34 @@ end
 function Runtime:spook(id: string, from: Vector3?, untilExit: boolean?): boolean
 	for _, entry in ipairs(self._boars) do
 		if entry.id == id then
+			-- A STATUE REFUSES EVERY FRIGHT (task 279), at the door and not in the Brain: `spook`,
+			-- `notice`, `urge` and `hearHorn` are the four ways a caller that knows something this
+			-- runtime does not can move an animal, and the range's answer to all four is "no". The
+			-- shot path needs no guard: it travels as a SOUND, and a statue is handed none
+			-- (`Boar.statueSenses`).
+			if entry.statue == true then
+				return false
+			end
 			return entry.brain:spook(from, nil, untilExit) == true
+		end
+	end
+	return false
+end
+
+-- REMOVE ONE ANIMAL BY ID, the public door to `_despawn` (task 279). The shooting range's
+-- replacement needs it: a carcass holds its slot for `CARCASS_SECONDS` 120 and a fresh statue put at
+-- the same spot would be spawned inside it and shoved out by the physics -- which is a moving animal
+-- in a row of still ones.
+--
+-- IT IS THE OWNER'S OWN CALL AND IT ADDS NO RULE. `_despawn` is the one place an animal leaves this
+-- world; this only lets a caller name which. Returns false for an id that is not here, so a caller
+-- cannot be told it removed something twice.
+function Runtime:remove(id: string, reason: string?): boolean
+	for index = #self._boars, 1, -1 do
+		local entry = self._boars[index]
+		if entry.id == id then
+			self:_despawn(entry, index, reason or "removed", Body.position(entry.body))
+			return true
 		end
 	end
 	return false
@@ -6663,6 +6774,9 @@ end
 function Runtime:notice(id: string, from: Vector3?, seconds: number?): boolean
 	for _, entry in ipairs(self._boars) do
 		if entry.id == id then
+			if entry.statue == true then
+				return false -- task 279, as `Runtime:spook` above
+			end
 			return entry.brain:notice(from, seconds) == true
 		end
 	end
@@ -7165,10 +7279,16 @@ function Runtime:step(dt: number)
 		local hitEvents = entry.hitEvents
 		entry.hitEvents = {}
 
+		-- WHAT A STATUE PERCEIVES: nothing (task 279). One call, here, where every stimulus the Brain
+		-- is handed passes through -- so "the range animal does not notice Karen and does not hear
+		-- her shot" is one line and not four guards that could disagree. For every other animal
+		-- `Boar.statueSenses` returns these two values by reference.
+		local seenThreats, heardSounds = Boar.statueSenses(entry.statue, threats, sounds)
+
 		local intent = entry.brain:step(dt, {
 			position = position,
 			velocity = if sample then sample.velocity else Body.velocity(entry.body),
-			threats = threats,
+			threats = seenThreats,
 			-- nil for a lone boar, and then the Brain runs exactly the code it ran before this
 			-- task. Plain values only: the Brain never holds a reference to another boar.
 			sounder = self:_sounderObs(entry, snapshot),
@@ -7181,7 +7301,7 @@ function Runtime:step(dt: number)
 			-- TASK 118: the shots drained above, and the sight probe -- handed in ONLY when
 			-- `REQUIRE_SIGHT` asks for it (section 4.7), so the default costs nothing and the hook
 			-- is real rather than described.
-			sounds = sounds,
+			sounds = heardSounds,
 			probe = if config.SENSE.REQUIRE_SIGHT then self._world.probe else nil,
 			wound = {
 				severity = entry.wound.severity,
@@ -7370,12 +7490,17 @@ function Runtime:step(dt: number)
 			end
 		end
 
-		if intent.despawn then
+		-- WHAT A STATUE DOES: stands (task 279). The second half of the pair above, at the one place
+		-- every intent becomes a motion -- so "it does not move, does not turn, does not ask for a
+		-- route and is never deleted for leaving the field" is one call. For every other animal
+		-- `Boar.statueMotion` hands back the four fields of `intent` unchanged.
+		local motion = Boar.statueMotion(entry.statue, intent, entry.bornFacing)
+		if motion.despawn then
 			self:_despawn(entry, index, intent.reason or "outOfBounds", position)
 		elseif not entry.body.collapsed then
-			Body.drive(entry.body, intent.targetVelocity, intent.facing)
-			if intent.pathRequest then
-				self:_requestPath(entry, intent.pathRequest)
+			Body.drive(entry.body, motion.targetVelocity, motion.facing)
+			if motion.pathRequest then
+				self:_requestPath(entry, motion.pathRequest)
 			end
 		end
 	end
