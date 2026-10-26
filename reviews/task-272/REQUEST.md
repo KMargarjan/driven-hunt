@@ -1,12 +1,12 @@
 # Task 272 -- the sweep reaches its whole window, and a case enters it
 
 Task: 272
-Round: 1
+Round: 2
 Base: `813b76b0` (this Builder's 271 head; its code comes with it)
-Code commit: `fd87409cd833c494ed258f08599cee717a8e1c17`
+Code commit: `a3a6ceb0d0ab79d7ab96c5f931ca681cc3323347`
 
 ```
-[harness] PASS: 34/34 checks @ fd87409cd833c494ed258f08599cee717a8e1c17 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ a3a6ceb0d0ab79d7ab96c5f931ca681cc3323347 (clean tree) scope=all
 ```
 
 `test2` is **N/A**: `src/server/Weapon/init.luau` and `tests/server/weapon_shot.spec.luau`, neither
@@ -112,15 +112,45 @@ claim-line=1 worst 3.603/2.000 (... ALONG THE ANIMAL +4.695 (v 28.6 studs/s, so 
 
 A candidate 0.164 s back exists in the sweep and `pickViewInstant` did not take it.
 
-## ITEM 2 -- **REFUTED AS WRITTEN, and a refuted premise is a finished item**
+## ROUND 2 -- THE SECOND MEASUREMENT, AND IT FINISHES THE QUESTION
 
-There is no shortness to fix. What the measurement now indicts is one of two things inside
-`Validator.pickViewInstant`: the check-3 filter removing the right candidate, or the trajectory
-distance being minimised at the arrival instant anyway -- **which would mean the server's own
-re-stepped trajectory does not pass near the point the client claimed, whatever instant is chosen.**
-The decomposition supports the second: the measured gap carries `across 3.405` of a 5.110 total,
-and an across-track component does not shrink by rewinding time. **I did not change code on a guess
-with 40 minutes left.**
+Round 1 passed. Round 2 adds two numbers to the same instrument -- **which candidate the sweep
+TOOK, and which was BEST** -- and one live trial then ends the enquiry six tasks have been running:
+
+```
+sweep=19/19 win=0.300s spread=8.523 passed=true  took=1  best=1@2.665  segs=3
+claim-line=1 worst 2.665/2.000
+  gap 5.062 = along +4.303, across 2.665, ALONG THE ANIMAL +5.044 (v 29.1 studs/s, 0.173 s of it)
+```
+
+**`best=1@2.665`: over all nineteen candidates, spanning 8.52 studs of the animal's own path, the
+NEAREST the server's own trajectory ever comes to the claimed point is 2.665 studs -- and that is
+at the arrival instant. The sweep took the best one there was.** A second trial read
+`best=1@2.943` the same way.
+
+**So rewinding the animal cannot fix this claim, and `across 2.665` says why: the residual is
+exactly the ACROSS-SHOT component, and it is identical to the best line distance.** Moving the
+point back along the animal's path moves it ALONG the server's trajectory, never toward it.
+
+**THEREFORE: the two trajectories disagree.** The server's re-stepped line misses the point the
+client's own simulated bullet passed through by **2.7-2.9 studs at ~100 studs -- about 1.5
+degrees** -- at every instant in the window. That is the 259b family of question (which origin and
+which direction each side flies) and it is now a measurement rather than a hypothesis. It is also
+**larger than `LINE_TOLERANCE_STUDS` by itself**, which is why these claims cannot be accepted
+however the instant is chosen.
+
+**Task 271's "99.7 % along the animal" was a decomposition on the ANIMAL's axis and it was right as
+far as it went.** The component check 4 actually measures is the across-SHOT one, and that one does
+not move with time. Both readings are in this file and neither is withdrawn.
+
+## ITEM 2 -- **REFUTED TWICE OVER, and a refuted premise is a finished item**
+
+There is no shortness to fix -- round 1 measured `sweep=19/19` -- and **there is no better instant
+to choose either**: round 2 measured `best=1@2.665`, the minimum over the whole window. The two
+candidate causes round 1 named are now separated, and it is the second: the server's own trajectory
+does not pass near the claimed point at ANY instant. **Nothing in the sweep or in `pickViewInstant`
+can fix that**, and I did not change code to look busy. The next task's subject is which origin and
+direction each side actually flies.
 
 ## ITEM 3 -- the case now ENTERS the sweep, which two tasks could not do
 
@@ -162,6 +192,9 @@ is now a sentence rather than a guess.
 
 1. **The sweep is not short**: `sweep=19/19 win=0.301s spread=8.046 passed=true`, read from
    `DHClaimStats` as a live `ServerStorage` attribute (L-026), in two separate live trials.
+1a. **And there is no better instant in it**: `took=1 best=1@2.665` and `best=1@2.943` in two more
+   live trials, where `best` is the minimum over all nineteen candidates. The residual equals the
+   across-shot component of the gap exactly, which is what proves it is not a time error.
 2. **The five fields are written by the sweep and by nothing else**, and `claimLine` prints them;
    `weapon_shot.spec`'s own note is the harness's reading of them.
 3. **The owner-path case enters `judgeClaimFor`** -- `onFireRequest`, a real flight, a provider
