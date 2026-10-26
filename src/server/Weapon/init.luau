@@ -222,7 +222,9 @@ local stats = {
 	claimSweepBestLine = 0,
 	claimSweepBestIndex = 0,
 	claimSweepSegments = 0,
-	-- The last ACCEPTED claim's own part and zone (task 274).
+	-- The last claim's own part and zone, for EVERY claim that reaches the judge -- accepted or
+	-- refused (task 274). Not the accepted ones only: reading it as "an accepted claim named this"
+	-- is the exact mis-attribution this field was added to end.
 	claimLastPart = "none",
 	-- WHY A REFUSAL HAPPENED, AS A NUMBER (task 269b). `refusedClaimBy` counts them by name;
 	-- this keeps, per name, the WORST measured value, its budget, and -- for the one rule whose
@@ -1602,9 +1604,15 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	-- **IT IS THE ONE FIELD THAT MOVES THIS INVESTIGATION.** An accepted claim already decides the
 	-- zone (`Validator.claimImpact` sets `instance = claim.part`; `Hits.group` reads that part's
 	-- `HitZone`), so task 272's live zones -- Terrain, legs, body on a trial with three ACCEPTED
-	-- claims -- had two possible explanations and no way to tell them apart. Measured live on this
-	-- field: with the sight settled under 0.6 degrees on the CHEST, the client claims
-	-- `ZoneRear(rear)` and the trunk. The server is applying exactly what it was told.
+	-- claims -- had two possible explanations and no way to tell them apart.
+	--
+	-- **AND RECORDING IT FOR EVERY CLAIM RATHER THAN THE ACCEPTED ONES IS THE WHOLE POINT, because
+	-- the two readings disagree.** An earlier version of this field wrote only on acceptance and
+	-- read `ZoneRear(rear)` and the trunk -- which says *the client is claiming the rear*. Written
+	-- here, for every claim, it reads **`ZoneChest(chest)` on every claim of the same trial** with
+	-- the sight settled under 0.6 degrees on the chest. The client claims the chest; it is the
+	-- CHEST claims that are refused, and the rear ones are what survived to be accepted. A field
+	-- that only records the survivors measures the filter, not the thing.
 	local claimedZone = part:GetAttribute("HitZone")
 	stats.claimLastPart =
 		string.format("%s(%s)", part.Name, if type(claimedZone) == "string" then claimedZone else tostring(claimedZone))
