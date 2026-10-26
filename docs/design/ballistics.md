@@ -1,324 +1,239 @@
-# Design: ballistics — a shot hits what the shooter saw. The client claims; the server validates by rewinding
+# Design: ballistics — one rule set an honest claim passes by construction
 
-**v4, Task 271 (2026-10-26).** Written to `reviews/task-271/BRIEF.md`, which **overrides** anything
-older in `docs/`, `TASKS.md` and v3 of this file (CLAUDE.md, the BRIEF row).
+**v5, Task 277 (2026-10-26).** Written to `reviews/task-277/BRIEF.md`, which **overrides** anything
+older in `docs/`, `TASKS.md` and v4 of this file. Direction **A** (claim validation) and the half of
+direction **C** this document is accountable for. Direction **B** is `docs/design/hit-zones.md`,
+written by run 2 of the same task.
 
-v4 changes **one thing in the mechanism** and fixes three pieces of stale paperwork. The mechanism
-change is the answer to the brief's only question — *which point check 4 is measured against* — and
-it is **neither Candidate A nor Candidate B**. It is a third shape, section 5.2.1, which the brief's
-own words authorise (*"offered for the Architect to accept, bound or refuse"*).
+**RULE 7. v4 of this file is not deleted — the Architect script replaces it in place.** The Builder
+must recover it into `backups/design-ballistics-v4.md` with a one-line note
+(`git show a3b6663e:docs/design/ballistics.md`), in the same commit as the first code change of the
+build task. I cannot write files. v3 is already archived at `backups/design-ballistics-v3.md`.
 
-**RULE 7. v3 of this file is not deleted, it is replaced in place by the Architect script.** The
-Builder must recover it from git (`git show e464c0f7:docs/design/ballistics.md`) into
-`backups/design-ballistics-v3.md` with a one-line note, in the same commit as the first code change
-of this task. I cannot write files.
+Karen, the key of the game, verbatim:
 
-Karen, 2026-10-24 / 2026-10-25, unchanged as the reason this system exists:
-
-> *"it seems there is a bit off"* · *"we need to aim in empty space to get hit in head neck or heart
-> like in real life"* · *"all shooting has to be like in real life / this is a key of this game"*
-
-This file is the design for the flight of a shot AND the **delta to `docs/design/shotgun.md`**
-(§§3.1, 5.1, 5.3, 5.5, **5.7**, 11, 11.1, 13.1, 13.2, 15 — section 14). Where it disagrees with
-`shotgun.md` or `rifle.md`, this file wins for the flight and the claim; those win for everything
-else.
+> *"all shooting has to be like in real life"* · *"when boar is running we need to aim in empty space
+> to get hit in head neck or heart like in real life smae with other animals"* · *"I need quality
+> results"*
 
 ---
 
-## 0. What v4 changes, in one page
+## 0. What v5 changes, in one page
+
+v4's mechanism is kept — the client simulates its own shot, the server validates the claim against
+its own history inside a latency-clamped window. **What changes is the rule set.** Tasks 269b–276
+iterated the checks one at a time without converging; this rewrites them as a set, each check with
+the cheat behind it and the honest worst case it must pass.
 
 | # | What | Where |
 |---|---|---|
-| 1 | **THE VIEW INSTANT.** The geometric checks (3 and 4) are no longer evaluated at the single instant `arrivalAt`. The server sweeps its **own** history backwards over a bounded window, and judges at the one instant **its own trajectory** came closest to the claimed part — among the instants that pass check 3. Check 4's target is still the **server's own rewind**, never the client's point | 5.2.1, 4.4, 4.9 |
-| 2 | `Shotgun.CONFIG.CLAIM` gains four rows: `VIEW_LAG_BASE_SECONDS`, `VIEW_LAG_MAX_SECONDS`, `VIEW_LAG_STEP_SECONDS`, `VIEW_LAG_MAX_SAMPLES` | 3.1 |
-| 3 | `Boar.CONFIG.HISTORY.SAMPLES` **64 → 96**, forced by `zz_claim_window.spec`'s own 1.5× margin rule once the window is added to the span | 3.2, 3.3 |
-| 4 | **`Validator.judgeClaim` is unchanged, bit for bit.** Two pure helpers are **moved** out of the owner into `Validator` (`closestOnSegments`, `pickViewInstant`), not written again | 4.3 |
-| 5 | **Candidate A is refused**, with the arithmetic (5.6). **Candidate B is refused** (5.6). The refusals are written down so nobody re-proposes them as overlooked | 5.6 |
-| 6 | §1.4's *"aiming AT a running animal still misses"* was **absolute and wrong**. Bounded, with the crossover arithmetic | 1.4 |
-| 7 | §4.7 step 2 and §5.5 are brought up to the code: the two-pass refinement at the **arrival** instant, and *a refined cast that finds nothing is a MISS* | 4.7, 5.5 |
-| 8 | The **check numbering** in §3.1 and §4.3 was the pre-266b scheme while §5.2, `Shotgun.CONFIG.CLAIM` and `Validator.judgeClaim` used the current one. One scheme now, §5.2's, everywhere | 3.1, 4.3 |
-| 9 | A **named prediction**: `claim-future` is the next refusal to appear on a real connection, because `Weapon.catchUpFor` deliberately resolves the shot early. Not built now; the condition and the fix are written down | 5.7, 16 |
+| 1 | **Old check 4 (`claim-line`) is DELETED.** It measured `(trajectoryPoint − serverPoint).Magnitude` — the SERVER's own re-step against the SERVER's own rewind. Neither operand is the claim. It is the quantity that read 4.09 of 2.00 on honest chest claims and refused 2 of 2 in task 276 | 5.2, **5.4** |
+| 2 | **A new check 4, "the claim's own line":** the claimed point lies on the claim's OWN ballistic path, at the claimed distance along it. An honest client satisfies it to float, by construction (4.4) | 3.1, 5.2 |
+| 3 | **Check 5 becomes direction A's existential:** the claimed target was within a **body-sized** tolerance of the claimed point at SOME instant in the window. It replaces `POSITION_TOLERANCE_STUDS = 6.0` with a per-kind number derived from the trunk the zones actually have (2.00–3.71 studs) | 3.1, 3.2, 5.2 |
+| 4 | **Check 6 becomes an explicit line-of-sight CAST**, muzzle to the chosen instant's point, through the existing `castFn` seam. The reach arithmetic and the whole self-block waiver (`stoppedByClaimedTarget`, `span + REACH_SLACK_STUDS + displacementStuds`) are **deleted**: 273a(b) 4.105/3.40 and 274a(b) 7.275/3.40 are resolved by deletion, not by a bigger bound | 5.2, 5.6 |
+| 5 | **ONE CLOCK.** Exactly two checks have an instant (5 and 6) and they share `t*`, chosen once by `Validator.nearestInstant`. Checks 3, 4 and 7 have no instant at all | 4.3, 4.9, 5.3 |
+| 6 | `Shotgun.CONFIG.CLAIM` loses `LINE_TOLERANCE_STUDS`, `POSITION_TOLERANCE_STUDS` and `REACH_SLACK_STUDS`; gains `CLAIM_LINE_STUDS`, `CLAIM_PATH_TOLERANCE_STUDS`, `BODY_TOLERANCE_FACTOR`, `BODY_TOLERANCE_MIN_STUDS`, `LOS_SLACK_STUDS`. The four `VIEW_LAG_*` rows are unchanged | 3.1 |
+| 7 | **`static-blocked` is a wrong word and the conclusion drawn from it does not follow.** `Claim.simulate` returns it whenever NO target was struck in the sub-step and anything static was — which includes a plain miss. Task 275's *"the client's own line of sight closed on grass or a trunk"* is one of three readings of that string (5.7) | 5.7, 12.6 |
+| 8 | **The shooter's lead is NOT applied twice**, and 275's suspicion is refused with the arithmetic. The compensation to remove is the view lag (`v × 0.19 s`, 5.4–7.2 studs), which is 5× the lead in dispute (`v × flight`, 0.79–2.47 studs at 20–60 m) | 5.5 |
+| 9 | The carried items of the 265–276 run are each placed or explicitly deferred, by name | 16 |
 
-Not changed, and the brief forbids changing them: `LINE_TOLERANCE_STUDS` stays **2.0**,
-`POSITION_TOLERANCE_STUDS` stays **6.0**, `AGE_MAX_SECONDS` stays **0.5**, the payload gains **no
-field**, there is **no new remote** and **no new flag**.
+**Unchanged and not up for discussion here:** the flight times, the drag, the drop, the zero, the
+pattern, `GRAVITY_SCALE`, `Ballistics` in its entirety, `Flight`, `Hits.group` as the one
+`HitReport` constructor, the six remotes, the `HitClaim` payload's six fields, and the
+`HIT_CLAIM` flag.
 
 ---
 
 ## 1. What the system must do, and must not do
 
-### 1.1 Must do — unchanged from v2
+### 1.1 Must do
 
-Items 1–9 of v2 §1.1 stand word for word: a shot takes time to arrive; the time is per weapon per
-ammo; a target that moved out of the path is not hit and one that moved into it is; gravity drop as
-data; Task 183's still-target accuracy by construction; **only the hit and the dust wait for the
-bullet**; a hit's `distance` is measured from the bore; cheap and leak-proof; and the lead a player
-learns is the real lead.
+1. A shot takes time to arrive; the time is per weapon per ammo; a target that moved out of the path
+   is not hit and one that moved into it is; gravity drop as data; a still target is hit by
+   construction; only the hit and the dust wait for the bullet; a hit's `distance` is measured from
+   the bore; cheap and leak-proof. (v2 §1.1 items 1–9, word for word.)
+2. **A shot hits what the shooter saw.** The shot is simulated on the shooter's own client against
+   his own view over the real flight time; the client sends a hit claim; the server validates it
+   against its own position history. The one thing the client is believed about is **which animal it
+   saw, and where**.
+3. **The lead stays; the view error goes** (5.5).
+4. **A refused claim costs the player nothing he had before** — the shot still resolves from the
+   server's own flight (5.8).
+5. **NEW, and this is the whole of v5: an honest claim passes BY CONSTRUCTION.** Every check is
+   either something an honest client satisfies to floating point (checks 3, 4, 7) or something the
+   SERVER's own record satisfies with a budget derived from the animal's own measured body (checks
+   5, 6). **A check whose honest worst case is a number nobody has measured is a check that will
+   refuse honest claims**, and that is how nine tasks were spent.
+6. **NEW: every check names the cheat it stops.** A check with no cheat behind it is deleted here,
+   not kept "for safety" (direction A).
 
-### 1.2 Must do — from v3
+### 1.2 Must not
 
-10. **A SHOT HITS WHAT THE SHOOTER SAW.** The player's screen is the only picture he can aim at. The
-    shot is simulated **on his own client, against his own view, over the real flight time**, and
-    the client sends a **hit claim**. The server **validates** it against its own recent position
-    history. The one thing the client is believed about is **which animal it saw, and where**.
-11. **The view error goes; the lead stays** (1.4).
-12. **A refused claim costs the player nothing he had before.** The shot still resolves by the
-    server's own flight (5.3).
-13. **One line for the safety lock and the penalty** (section 8, shipped).
-
-### 1.2a Must do — new in v4
-
-14. **THE SERVER MUST BE ABLE TO SAY WHICH PICTURE IT BELIEVED, AND HOW OLD IT WAS.** Five tasks
-    (266b, 268, 269, 269b, 270) failed to land one accepted chest claim on a running deer, and until
-    271 item 1 **nothing recorded which way the gap lay**. The view lag is the quantity this whole
-    feature is about, and until v4 it was neither bounded nor measured — only paid for. From v4 it
-    is a server-side budget (`VIEW_LAG_*`), a per-shot measurement (`lineLagSeconds`) and a
-    high-water mark (`stats.claimWorstLagSeconds`).
-15. **IF THE MECHANISM CARRIES NOTHING, IT IS DELETED.** Task 269b's backward search was deleted
-    because `match=0.000s` on every claim of every live trial: it loosened a rule and moved no
-    number. The same standard binds this one. **If `claimWorstLagSeconds` reads under 0.02 s across
-    a live trial, the sweep carried nothing and must be removed**, and the defect is elsewhere.
-
-### 1.3 Must not — v2's rewind rule, replaced (v3, unchanged)
-
-- **A per-animal position history EXISTS, and `ServerScriptService.Boar` is its one writer and one
-  reader.** A ring buffer on the animal's own record, sampled in `src/server/Boar/init.luau` →
-  `Runtime:step`, which already builds a per-animal `snapshot` of `Body.position`/`Body.velocity`
-  every Heartbeat. `Boar.Body` stays the only writer of where an animal **is**; the history is the
-  Boar's own record of where it **was** — one owner, two tenses.
-- **Nothing under `src/server/Weapon/` keeps, samples or interpolates a target's position.** The
-  weapon **asks**, through `Weapon.setHistoryProvider`, exactly as it already asks the drive six
-  questions (`setTargetProvider`, `setStandProvider`, `setDriveOpenProvider`, `setSafetyLineProvider`,
-  `setLicenceProvider`, `setEntitlementProvider`). A `Rewind.luau` under `src/server/Weapon/` that
-  sampled Workspace itself is refused.
-- **No shot is resolved against a rewound world by raycast.** `Weapon.Cast` remains the ONE caller
-  of `Workspace:Raycast` under `src/server/Weapon/`. The claim is judged by **arithmetic** over
-  stored `CFrame`s.
-
-**v4's addition to this rule, because the sweep asks the provider up to 28 times instead of once:**
-**the weapon chooses the instants; the Boar chooses the answers.** The weapon may not learn the
-ring's length, its sample stamps, its density or its span — it asks about instants on its own grid
-and gets a `CFrame?` back, exactly as it does today for one instant. **A provider that returned a
-best instant, a path, or a list would be the Boar deciding a weapon question** (which instant the
-*trajectory* came closest at), and the Boar must not know what a trajectory is. That is refused in
-5.6 with the alternative spelled out.
-
-### 1.4 Why this does NOT delete the lead Karen asked for — **BOUNDED, because v3's version was absolute and false**
-
-v2 §9 source B refused the rewind because *"lag-compensated hitscan removes lead"*. That is true of
-hitscan and it is false here:
-
-- The projectile takes its **real flight time**. `Ballistics.timeToRange` is untouched, the muzzle
-  velocities and drag coefficients are untouched, and `Flight` still steps the shot over that time.
-- The claim comes from **the same flight, run on the client, against the animal the player can
-  actually see** (`src/client/Weapon/Claim.luau` → `Claim.simulate`, which calls
-  `Ballistics.segment` and `Ballistics.advance` — the server's own functions).
-- What is removed is only the **view error**: the difference between where the player's screen draws
-  the animal and where the server holds it. Measured at **0.178 s** on Karen's own machine
-  (`reviews/task-271/BRIEF.md`, `DHClaimStats`), which at 28.7 studs/s is **5.106 studs**.
-
-**WHAT v3 GOT WRONG.** v3 §1.4 said *"**Aiming AT a running animal still misses** — the client's own
-bullet arrives where the animal is not, so no claim is produced at all"*. That sentence is absolute
-and the deterministic case refutes it. `Claim.simulate` translates the animal to the **arrival**
-instant and casts against its box. The claim is produced **whenever the lead fits inside the box**,
-and then it names the trailing part of the body:
-
-```
-lead = v * timeToRange(shot, range)      claim exists  <=>  lead < (the box's half-extent along v)
-```
-
-For a red deer (`Boar.CONFIG.SPECIES.reddeer.BODY_SIZE = (1.8, 4.8, 7.05)`, so 3.5 studs of
-half-length) crossing at 28.7 studs/s, with the slug's `MUZZLE_STUDS_PER_S = 1752`:
-
-| range | flight (ignoring drag) | lead | aiming AT the chest |
-|---|---|---|---|
-| 60 studs | 0.034 s | 0.98 studs | **claims** — a hit, one stud back from the aim point |
-| 120 | 0.069 | 1.97 | **claims** — the back of the chest |
-| 180 | 0.103 | 2.95 | **claims** — the gut, marginal |
-| 250 | 0.143 | 4.10 | **no claim** — the bullet passes behind the animal |
-
-**So the true statement is:** *aiming AT a running animal is punished in proportion to the lead it
-should have held, and becomes an outright miss once that lead exceeds the body it was aimed at.*
-That is what a real shot does, and it is what the hit **zones** make interesting — at 60 studs the
-careless shooter gets a gut shot instead of a heart shot, not a miss. **The crossover range is a
-number to be measured, not asserted**: the table above ignores drag, which lengthens the flight and
-therefore moves the crossover nearer. Section 12.6 is where it is driven.
-
-Source-engine lag compensation rewinds so that **hitscan** hits what was drawn. We rewind so that a
-**projectile fired at what was drawn** can be checked for plausibility. Identical in a one-line
-summary, opposite in effect.
-
-### 1.5 Must not — the rest, unchanged
-
-- **No Instance per projectile.** The projectile is invisible maths on both sides.
 - **No second writer of hits.** `ServerScriptService.Weapon` owns whether a shot happened and what
-  it hit; `Hits.group` is the ONE constructor of a `HitReport`, **one per (shot, target)**.
-- **No client-side copy of the ballistic arithmetic.** The client runs the *same functions* out of
-  `ReplicatedStorage.Ballistics`.
-- **No second id table.** The claim names an **Instance** (`docs/design/map-generator.md` §12.2).
+  it hit; `Hits.group` is the ONE constructor of a `HitReport`, one per (shot, target).
+- **No per-animal position store under `src/server/Weapon/`.** The weapon asks
+  `historyProvider(part, t)` and keeps nothing past one `judgeClaimFor` call. `ServerScriptService.Boar`
+  is the one store and the one reader of the ring (`Runtime:step` writes, `Runtime:cframeAt` reads).
+- **No rewound-world raycast.** The LOS cast added by v5 is against the **present** world and is
+  valid for a past instant only because everything it may hit is `Anchored` (5.6). It goes through
+  the **existing** `castFn` seam, so `Workspace:Raycast` still appears once under
+  `src/server/Weapon/` (`Cast.luau`).
+- **No Instance per projectile. No client-side copy of the ballistic arithmetic. No second id
+  table** — the claim names an Instance. **No vendored FastCast, no `.rbxm`.**
 - **The client never names a zone, a damage number or a target root.** It names a **part**; the zone
-  is the `HitZone` attribute the animal's owner wrote, read on the server by `Hits.targetOf`.
-- **No vendored FastCast. No `.rbxm`.** `RANGE_STUDS`, `PELLETS`, `SPREAD_FULL_DEG`,
-  `SAFETY_ARC_HALF_DEG`, `GRAVITY_SCALE`, `FLIGHT_*` keep their values.
-- **Everything at the trigger stays at the trigger.**
-- **NEW in v4: no second clock and no second latency estimate.** `Player:GetNetworkPing()` is read in
-  exactly one new place (`Weapon.viewWindowFor`), through the same `pcall`-and-clamp shape
-  `Weapon.catchUpFor` already has, and the client never sends a ping.
+  is that part's own `HitZone`, read on the server by `Hits.targetOf`.
+- **NEW: the weapon never learns what a boar is.** The LOS cast's exclude list is `shot.ignore`
+  (built at the trigger by `ignoreFor(player)`) plus the one `target` that `Hits.targetOf` already
+  returned. **No `Workspace.Boars` lookup, no folder name, no eighth provider.**
+- **No second clock, no second latency estimate, no new remote, no new payload field, no new flag.**
 
 ---
 
 ## 2. Owners — one writer each, named
 
-| Thing | The one writer | On disk | v4? |
+| Thing | The one writer | On disk | v5? |
 |---|---|---|---|
-| **The ballistics maths** (time of flight, remaining speed, drop, launch elevation, the bore, one sub-step's geometry and its range cap) | `ReplicatedStorage.Ballistics` — frozen numbers plus pure functions, no state, no clock, no service | `src/shared/Ballistics/init.luau` | unchanged |
-| **The live projectiles on the server** | `ServerScriptService.Weapon.Flight` | `src/server/Weapon/Flight.luau` | unchanged |
-| **The clock that advances them, every signal, remote, counter and report, the latency measurement, and WHETHER A CLAIM IS ACCEPTED** | `ServerScriptService.Weapon` | `src/server/Weapon/init.luau` | **+ the sweep's fact-gathering, + `viewWindowFor`** |
-| **The verdict on one payload** (the shot request AND the claim) | `ServerScriptService.Weapon.Validator` — pure, no Instance, no service, no clock | `src/server/Weapon/Validator.luau` | **+2 pure functions, both MOVED** |
-| **Where an animal IS** | `ServerScriptService.Boar` → `Boar.Body` | `src/server/Boar/Body.luau` | unchanged, untouched |
-| **Where an animal WAS** (the ring, the sampling, the lookup, the rewound part CFrame) | `ServerScriptService.Boar` → `Runtime:step` writes, `Runtime:cframeAt` reads. **The only store and the only reader** | `src/server/Boar/init.luau` | **`SAMPLES` 64→96 only. No code change** |
-| **The client's own simulation of its own shot, and the claim it produces** | `PlayerScripts.Weapon.Claim` | `src/client/Weapon/Claim.luau` | unchanged by v4 |
-| **The one firer of `FireRequest`** | `PlayerScripts.Weapon.Input` | `src/client/Weapon/Input.luau` | unchanged |
-| **The drawn dust at the landing point** | `PlayerScripts.Weapon.Effects` | `src/client/Weapon/Effects.luau` | unchanged, untouched |
-| **The `HIT_CLAIM` flag's declaration** | nobody at run time; frozen data | `src/shared/Flags/init.luau` | unchanged |
+| The ballistics maths (flight time, remaining speed, drop, elevation, the bore, one sub-step) | `ReplicatedStorage.Ballistics` — frozen numbers, pure functions, no state, no clock, no service | `src/shared/Ballistics/init.luau` | **untouched** |
+| The protocol's numbers (`CONFIG.CLAIM`) | `ReplicatedStorage.Shotgun` — deep-frozen, no writer at run time | `src/shared/Shotgun/init.luau` | **five rows in, three out (3.1)** |
+| The live projectiles on the server | `ServerScriptService.Weapon.Flight` | `src/server/Weapon/Flight.luau` | **untouched** |
+| The clock that advances them, every signal, remote, counter and report, the latency measurement, the LOS cast, **and whether a claim is accepted** | `ServerScriptService.Weapon` | `src/server/Weapon/init.luau` | **`judgeClaimFor` rewritten** |
+| The verdict on one payload — pure, no Instance, no service, no clock | `ServerScriptService.Weapon.Validator` | `src/server/Weapon/Validator.luau` | **`judgeClaim` rewritten; `pickViewInstant` → `nearestInstant`** |
+| The one caller of `Workspace:Raycast` under `src/server/Weapon/` | `ServerScriptService.Weapon.Cast` | `src/server/Weapon/Cast.luau` | **untouched** (the LOS cast goes through `castFn`) |
+| Where an animal IS | `ServerScriptService.Boar` → `Boar.Body` | `src/server/Boar/Body.luau` | **untouched** |
+| Where an animal WAS (the ring, the sampling, the lookup, the rewound part CFrame) | `ServerScriptService.Boar` → `Runtime:step` writes, `Runtime:cframeAt` reads | `src/server/Boar/init.luau` | **untouched** |
+| The hit ZONES on an animal, and what `HitZone` means | `ServerScriptService.Boar` → `Boar.Body.buildZones` | `src/server/Boar/Body.luau` | **`docs/design/hit-zones.md` owns it, not this file** |
+| The client's own simulation of its own shot, and the claim it produces | `PlayerScripts.Weapon.Claim` | `src/client/Weapon/Claim.luau` | **the no-claim reason strings (5.7); the coarse pass's first guess (16.2)** |
+| The one firer of `FireRequest` | `PlayerScripts.Weapon.Input` | `src/client/Weapon/Input.luau` | **untouched** |
+| **The drawn dust and where it sits on the animal** | `PlayerScripts.Weapon.Effects` → `puff` | `src/client/Weapon/Effects.luau` | **NOT this task (16.6). It is a drawing defect, not a validation one** |
+| The `HIT_CLAIM` flag's declaration | nobody at run time; frozen data | `src/shared/Flags/init.luau` | **untouched** |
 
-### 2.1 Why the sweep is not a second reader of boar state
-
-- **The weapon still holds nothing.** It asks `historyProvider(part, t)` for each `t` it chose and
-  keeps the best answer **for the duration of one `onShotLanded` call**. Nothing survives the
-  function. It cannot enumerate animals, cannot ask where one is *now*, and learns nothing about the
-  ring.
-- **`Validator` is still pure.** `pickViewInstant` takes `{ { at: number, point: Vector3 } }` — the
-  owner did the Instance work. The module still touches no Instance method, no service and no clock
-  (its own header rule).
-- **`Boar` is unchanged except for one data row.** `Runtime:cframeAt` is called more often. That is
-  it. **No new function, no new owner surface, no inverted dependency.**
-- **There is still exactly ONE constructor of a `HitReport`** (`Hits.group`), called once per shot
-  from `onShotLanded`.
-
-### 2.2 Files on disk — v4's diff
+### 2.1 Files on disk — v5's diff
 
 ```
-src/shared/Shotgun/init.luau      -> ReplicatedStorage.Shotgun   (+4 CONFIG.CLAIM rows; NO type change)
-src/server/Weapon/Validator.luau  -> ...Weapon.Validator         (+closestOnSegments, +pickViewInstant;
-                                                                  BOTH MOVED out of the owner.
-                                                                  judgeClaim UNCHANGED)
-src/server/Weapon/init.luau       -> ServerScriptService.Weapon  (the sweep in the claim's fact-gathering,
-                                                                  +Weapon.viewWindowFor, +3 stats fields,
-                                                                  the refusal note's lag pair)
-src/server/Boar/init.luau         -> ServerScriptService.Boar    (CONFIG.HISTORY.SAMPLES 64 -> 96. One row)
-tests/server/weapon_hits.spec.luau     (pickViewInstant and closestOnSegments, both sides of every rule)
-tests/server/zz_claim_window.spec.luau (the span now covers AGE_MAX + VIEW_LAG_MAX + 1/60)
-tests/server/weapon_shot.spec.luau     (the LIVE non-regression case and the LIVE accepted-at-lag case)
-tests/client/weapon_client.spec.luau   (section 1.4's crossover, driven)
-tools/studio_mcp.py                    (no change: every file above is already in a scope)
+src/shared/Shotgun/init.luau      -> ReplicatedStorage.Shotgun   (CONFIG.CLAIM: +5 rows, -3 rows)
+src/server/Weapon/Validator.luau  -> ...Weapon.Validator         (judgeClaim rewritten; pickViewInstant
+                                                                  -> nearestInstant; closestOnSegments
+                                                                  and claimImpact unchanged)
+src/server/Weapon/init.luau       -> ServerScriptService.Weapon  (judgeClaimFor rewritten: the claim's
+                                                                  own path, the existential, the LOS
+                                                                  cast; the stats rename; the dead
+                                                                  `reason == "moved"` fixed)
+src/client/Weapon/Claim.luau      -> PlayerScripts.Weapon.Claim  (the no-claim reason split, 5.7;
+                                                                  the coarse pass's midpoint guess)
+tests/server/weapon_hits.spec.luau      (every check, both sides, pure)
+tests/server/weapon_shot.spec.luau      (the live accept, the live refuse, the forged cases)
+tests/server/zz_claim_window.spec.luau  (the cross-owner invariant, re-derived against the new names)
+tests/client/weapon_client.spec.luau    (direction C4: the lead is the flight time and nothing else)
 ```
 
-**Nothing under `src/client/`, `src/server/Match/`, `src/server/Boar/Body.luau` or
-`src/server/MatchBoot.server.luau` is touched by v4.** The composition roots already wire the
-provider (task 266). **So v4 is NOT in `TWO_PLAYER_PATHS`** — see 13.2, which is a change from v3.
+**Nothing under `src/server/Match/`, `src/server/Boar/`, `src/server/MatchBoot.server.luau`,
+`src/client/Match/` or `src/shared/Drive/` is touched.** None of the files above is in
+`TWO_PLAYER_PATHS` (`tools/agents.py`), so `test2` is **N/A** with that as the reason. No new spec
+FILE, so `SCOPE_SPECS` and `BLAST_RADIUS` in `tools/studio_mcp.py` need no row and `selftest` cannot
+fail on this task.
 
 ---
 
 ## 3. The data: which number lives where
 
-### 3.1 The protocol's numbers — `Shotgun.CONFIG.CLAIM`
+### 3.1 `Shotgun.CONFIG.CLAIM` after v5
 
-**How much a server is willing to believe a client is a property of the SERVER**, not of a gun
-(`src/shared/Weapons/init.luau`'s header; v2 §3.2). A per-weapon claim tolerance would let a new gun
-widen its own licence to claim hits.
+**How much a server is willing to believe a client is a property of the SERVER, not of a gun**
+(`src/shared/Weapons/init.luau`'s header). A per-weapon claim tolerance would let a new gun widen
+its own licence.
 
-**THE CHECK NUMBERS BELOW ARE §5.2's, AND THEY ARE THE ONLY SCHEME IN THIS FILE.** v3 carried two:
-§5.2 and the shipped code used 2–6, while §3.1 and §4.3 still used the pre-266b 1–6. The comment in
-`src/server/Weapon/Validator.luau` → `judgeClaim` records what that cost (*"the Reviewer carried that
-from round 2 to round 3"*). One scheme: **2 offset · 3 moved · 4 line · 5 blocked · 6 clock**, with
-0 the policy and 1 the identity, both done by the owner.
+| Field | Value | Unit | Check | What it is |
+|---|---|---|---|---|
+| `SKIN_STUDS` | `0.15` | studs | 3 | **kept.** How far outside the claimed part's own half-extents the claimed object-space offset may lie. Both sides read the same `Size`; this absorbs floating point and nothing else |
+| **`CLAIM_LINE_STUDS`** | **`0.50`** | studs | 4 | **NEW.** The perpendicular distance from the **claim's own** ballistic path to `claim.point`. An honest client's cast returned a point ON that path, and both sides build the path from the same two wire numbers (4.4), so the honest value is float noise. 0.50 is 18× the 0.027 studs measured on a still animal in task 266b |
+| **`CLAIM_PATH_TOLERANCE_STUDS`** | **`1.00`** | studs | 4 | **NEW.** `\|along(claim.point) − claim.distanceStuds\|`. It binds the one payload number that `Validator.claimImpact` writes into the report's `distance`, and it closes the "overstate `distanceStuds` by a body length" licence v4 §5.4 admitted |
+| **`BODY_TOLERANCE_FACTOR`** | **`0.5`** | — | 5 | **NEW.** Half the claimed animal's own longest trunk extent, which is the body-sized tolerance direction A's fourth bullet asks for, derived from the box rather than guessed (3.2) |
+| **`BODY_TOLERANCE_MIN_STUDS`** | **`2.00`** | studs | 5 | **NEW.** The floor, because the honest residual does not shrink with the animal: the grid is `v × VIEW_LAG_STEP_SECONDS` = **0.63 studs at `SPRINT_SPEED` 38**, the ring's linear interpolation is of the order of 0.1, and the client's straight-line prediction over the flight adds the turn's sagitta. A cub's half-trunk is 1.24 studs and would be under all three |
+| **`LOS_SLACK_STUDS`** | **`0.50`** | studs | 6 | **NEW.** How far short of the chosen instant's point the LOS cast may stop before the claim is refused `claim-blocked`. It replaces `REACH_SLACK_STUDS` **and the whole self-block waiver** |
+| `AGE_MAX_SECONDS` | `0.5` | s | 7 | **kept.** One upward trip plus clock skew, not a flight time |
+| `FLIGHT_TOLERANCE_SECONDS` | `0.03` | s | 7 | **kept.** One `FLIGHT_STEP_MAX_SECONDS` (1/30) |
+| `MAX_TARGETS` | `8` | count | — | **kept.** The client's bound |
+| `MAX_SUBSTEPS` | `16` | count | — | **kept.** The client's bound on one simulation, and the server's bound on the path walk |
+| `VIEW_LAG_BASE_SECONDS` | `0.30` | s | 5, 6 | **kept.** The measured 0.178 s of view lag with 1.7× margin |
+| `VIEW_LAG_MAX_SECONDS` | `0.45` | s | 5, 6 | **kept.** 2.2× tighter than Source's `sv_maxunlag` (10 B) |
+| `VIEW_LAG_STEP_SECONDS` | `1/60` | s | 5, 6 | **kept.** One Heartbeat — the ring's own sampling rate, so the grid is never finer than the data |
+| `VIEW_LAG_MAX_SAMPLES` | `28` | count | 5, 6 | **kept.** `0.45 / (1/60) = 27`, plus the arrival instant |
 
-| Field | Value | Unit | What it is |
-|---|---|---|---|
-| `SKIN_STUDS` | `0.15` | studs | **check 2**: how far outside the claimed part's own half-extents the claimed object-space offset may lie. Both sides read the same `Size`, so this absorbs floating point and nothing else |
-| `POSITION_TOLERANCE_STUDS` | `6.0` | studs | **check 3**: the claimed world point against the server's own reconstruction from history, **at the view instant** (5.2.1). One `Boar.CONFIG.BODY_SIZE` (5.5) rounded up: *the same animal in the same place*, not the same millisecond. **v4 expects this to become loose by a factor of ten** and §16 Director 1 is where it is argued down from `claimWorstStuds` |
-| `LINE_TOLERANCE_STUDS` | `2.0` | studs | **check 4, the check that makes the zone geometric rather than chosen**: the perpendicular distance from the server's own trajectory to the server's own rewind of the claimed point, **at the view instant**. Under half a boar's trunk. **Unchanged by the brief's instruction**, and v4's whole argument is that it was never the wrong number — it was being measured against the wrong instant |
-| `AGE_MAX_SECONDS` | `0.5` | s | **check 6**: how old the claimed arrival may be when the shot resolves. One upward trip plus clock skew, not a flight time |
-| `FLIGHT_TOLERANCE_SECONDS` | `0.03` | s | **check 6's other half**: `\|flightSeconds − timeToRange(shot, distanceStuds)\|`. One `FLIGHT_STEP_MAX_SECONDS` (1/30). It refuses a nonsense claim; it does not pin the geometry |
-| `REACH_SLACK_STUDS` | `1.0` | studs | **check 5**: the server's own shot must have travelled at least `distanceStuds − this`, **or, when what stopped it is the claimed animal itself**, at least `distanceStuds − (2·max(partHalf) + this)` (task 269b) |
-| `MAX_TARGETS` | `8` | count | the client's bound: how many animals one simulation may test |
-| `MAX_SUBSTEPS` | `16` | count | the client's bound on one simulation's sub-steps, and the server's bound on the trajectory walk. **Not `FLIGHT_MAX_SUBSTEPS` (8)**: the server's 8 bounds one HEARTBEAT across every live shot; this bounds ONE shot's whole flight |
-| **`VIEW_LAG_BASE_SECONDS`** | **`0.30`** | s | **NEW.** How far back the server will look **before** any ping is added: the engine's own replication and interpolation delay plus clock skew. **MEASURED at 0.178 s** on Karen's own machine with `Player:GetNetworkPing()` reading 1.7 ms (task 256 round 2) — so this is almost entirely *not* ping, and 0.30 is that measurement with 1.7× margin. It is the one genuinely invented number in v4 and `claimWorstLagSeconds` is the instrument that argues it down |
-| **`VIEW_LAG_MAX_SECONDS`** | **`0.45`** | s | **NEW.** The hard cap on the window after the ping is added, and the thing the ring's span is sized against. Source's `sv_maxunlag` plays this role and ships at **1.0 s**; we are 2.2× tighter (source B) |
-| **`VIEW_LAG_STEP_SECONDS`** | **`1/60`** | s | **NEW.** The sweep's grid. One Heartbeat, which is the ring's own sampling rate (`Runtime:step` runs on `RunService.Heartbeat`), so the grid cannot be finer than the data. The quantisation error is `v · this` — **0.63 studs at `SPRINT_SPEED` 38** — and it is **conservative by construction**: a sampled minimum is never below the true minimum, so the grid can only refuse, never accept |
-| **`VIEW_LAG_MAX_SAMPLES`** | **`28`** | count | **NEW.** The loop's hard cap, so the sweep is leak-proof whatever the two seconds-valued rows say. `0.45 / (1/60) = 27`, plus the arrival instant itself. `zz_claim_window.spec` asserts `VIEW_LAG_MAX_SAMPLES >= VIEW_LAG_MAX_SECONDS / VIEW_LAG_STEP_SECONDS + 1`, so the cap can never silently truncate the window |
+**DELETED, with the reason beside each:**
 
-### 3.2 The animal's memory — `Boar.CONFIG.HISTORY`
+| Gone | Why |
+|---|---|
+| `LINE_TOLERANCE_STUDS = 2.0` | its check is deleted (5.4). The name must go with it: a reader who finds `LINE_TOLERANCE_STUDS` next to `CLAIM_LINE_STUDS` will carry the old meaning into the new check |
+| `POSITION_TOLERANCE_STUDS = 6.0` | replaced by the per-kind body tolerance, which is **tighter for every one of the seven kinds** (3.2) |
+| `REACH_SLACK_STUDS = 1.0` | its check is replaced by an explicit cast (5.6). With it go `stoppedByClaimedTarget`, `span = 2·max(partHalf)` and `displacementStuds` — the three pieces of the self-block waiver that tasks 269b, 273a(b), 274a(b) and 275 each widened by hand |
 
-| Field | Value | What it is |
-|---|---|---|
-| `SAMPLES` | **`96`** (was 64) | the ring's length, **in samples and not in seconds**, so it is leak-proof by construction and preallocated. One sample per `Runtime:step` = one per Heartbeat: **1.60 s at 60 Hz, 3.2 s at 30 Hz** — a slower server remembers *longer*, the safe direction. **64 no longer satisfies §3.3** once the window is part of the span, and the number is forced by the spec's own margin rule, not chosen (3.3) |
-| `ENABLED` | `true`, always | **not behind the flag.** One table write per animal per step, inside a loop that already writes a `snapshot` entry per animal per step. Flagging data as well as behaviour would be two switches for one feature |
+### 3.2 The body-sized tolerance, per kind, off the measured boxes
 
-**Cost of the change:** 32 more `{ at, cframe }` entries per animal. At 24 animals that is 768
-entries, written once at ring fill and overwritten thereafter — **0 allocations per step after the
-first fill**, unchanged (section 11).
-
-### 3.3 The cross-system invariant, and the spec that holds it — **RE-DERIVED**
-
-`Shotgun.CONFIG.CLAIM` is the weapon's; `Boar.CONFIG.HISTORY.SAMPLES` is the animal's. **A claim the
-weapon is willing to judge must be inside the span the animal can remember**, or the feature fails
-silently as "every claim refused". v4 makes the oldest instant the weapon can ask about
-`arrivalAt − VIEW_LAG_MAX_SECONDS`, so the window grows:
+Direction A's fourth bullet asks for *"a body-sized tolerance"*. The BRIEF asks it be derived from
+the trunk the zones actually have, not guessed. The owner reads it off the claimed animal's **own
+trunk Part** — the Instance `Hits.targetOf(claim.part)` already returned, which is the
+`Damageable` box `Boar.Body.create` sized as `config.BODY_SIZE * scale` (`Body.kindGeometry`):
 
 ```
-v3:  SAMPLES/60 >= AGE_MAX + 1/60
-     64/60 = 1.067  >=  0.5167                      ratio 2.07
-v4:  SAMPLES/60 >= AGE_MAX + VIEW_LAG_MAX + 1/60
-     64/60 = 1.067  >=  0.9667                      ratio 1.10  -- FAILS the spec's 1.5x margin
-     96/60 = 1.600  >=  0.9667                      ratio 1.65  -- OK
+bodyToleranceStuds = math.max(
+    CLAIM.BODY_TOLERANCE_MIN_STUDS,
+    CLAIM.BODY_TOLERANCE_FACTOR * math.max(trunk.Size.X, trunk.Size.Y, trunk.Size.Z)
+)
 ```
 
-`tests/server/zz_claim_window.spec.luau` already asserts `span / window >= 1.5` as well as
-`span >= window`. **96 is therefore not a choice, it is the smallest multiple of the ring's own
-granularity that keeps the margin the spec already demands.** The spec's `window` expression gains
-`+ CLAIM.VIEW_LAG_MAX_SECONDS` and nothing else moves. Its other two assertions
-(`LINE_TOLERANCE_STUDS < BODY_SIZE/2`, `POSITION_TOLERANCE_STUDS` within `[body, 2·body]`) are
-untouched, and a third is added for `VIEW_LAG_MAX_SAMPLES` (3.1).
+`Boar.CONFIG.BODY_SIZE = (2, 3, 5.5)` for the boar kinds; `Boar.CONFIG.SPECIES.reddeer.BODY_SIZE =
+(1.8, 4.8, 7.05)` for the three deer kinds; `Boar.CONFIG.KINDS.<kind>.scale` scales both
+(`Body.kindGeometry` → `bodySize = config.BODY_SIZE * scale`):
 
-### 3.4 The flag — unchanged, and **no new flag**
+| kind | scale | trunk length | half | **tolerance** |
+|---|---|---|---|---|
+| `male` | 1.0 | 5.50 | 2.75 | **2.75** |
+| `female` | 0.85 | 4.675 | 2.34 | **2.34** |
+| `cub` | 0.45 | 2.475 | 1.24 | **2.00** (floored) |
+| `legendary` | 1.35 | 7.425 | 3.71 | **3.71** |
+| `stag` | 1.0 | 7.05 | 3.525 | **3.53** |
+| `hind` | 0.8553 | **6.030** | 3.015 | **3.02** |
+| `calf` | 0.495 | 3.490 | 1.745 | **2.00** (floored) |
 
-`HIT_CLAIM` (`src/shared/Flags/init.luau`, born 2026-10-25 task 266, `expires = "2026-11-15"`,
-default `false`) already covers every line v4 touches: the sweep lives inside
-`onShotLanded`'s claim path, which does not run with the policy off. **A second flag for the view
-instant would be two switches for one feature**, and `docs/design/feature-flags.md` refuses that.
+The hind's 6.030 is the BRIEF's own measured 6.03-stud trunk, which is where the rule is anchored.
+**Every one of the seven is tighter than the 6.0 it replaces**, and the two kinds the floor catches
+are the two smallest and slowest animals in the game.
 
-The parameter reachability CLAUDE.md requires is already there and v4 strengthens it:
-`Weapon.setClaimPolicy(enabled)` reaches both states of the flag, and
-**`VIEW_LAG_BASE_SECONDS = 0` plus `VIEW_LAG_MAX_SECONDS = 0` reproduces v3's single-instant check
-exactly** — one candidate, `arrivalAt`, the identical `serverPoint`, the identical `judgeClaim` call.
-That is the non-regression proof (12.1 case 32) and it means the mechanism has a dial that turns it
-fully off without touching the flag.
+It is a **fact measured by the owner and handed in**, not a config read inside `Validator` — the
+same reason `Validator.checkShot` takes `toleranceStuds` as its fourth argument since task 260: a
+bound that can only be read at one value cannot be driven at another.
 
-**`expires` is 2026-11-15 and today is 2026-10-26.** v4 does not move it. If v4's acceptance run
-slips past that date, moving the date is one line and `tests/server/flags.spec.luau` will say so.
+### 3.3 The animal's memory — `Boar.CONFIG.HISTORY`, unchanged
+
+`SAMPLES = 96` (1.60 s at 60 Hz), `ENABLED = true`. The cross-owner invariant in
+`tests/server/zz_claim_window.spec.luau` is unchanged in substance:
+`SAMPLES/60 ≥ AGE_MAX_SECONDS + VIEW_LAG_MAX_SECONDS + 1/60`, with the existing `span/window ≥ 1.5`
+margin — `1.600 / 0.9667 = 1.655`. **Its other two assertions must be rewritten**, because both name
+rows that no longer exist (12.3).
+
+### 3.4 The flag — unchanged, and no new flag
+
+`HIT_CLAIM` (`src/shared/Flags/init.luau`, born 2026-10-25 task 266, default `false`) covers every
+line v5 touches. The parameter reachability CLAUDE.md requires is already there:
+`Weapon.setClaimPolicy(enabled)` reaches both states, and `Weapon.setViewWindow(0)` collapses the
+window to the arrival instant alone.
+
+**`expires = "2026-11-15"` and today is 2026-10-26.** v5 does not move it.
+`tests/server/flags.spec.luau` fails the harness on a past date, so the build task either ships
+before then or moves the date in one line and says why.
 
 ---
 
 ## 4. Public interface
 
-### 4.1 `ReplicatedStorage.Ballistics` — unchanged in v4
-
-```luau
-export type Pellet = { position: Vector3, velocity: Vector3, travelled: number, elapsed: number }
-
-Ballistics.segment(pellet: Pellet, step: number, shot: Shot, rangeStuds: number, g: number?)
-    : (Vector3, Vector3, Vector3, number, boolean)
-    -- (nextPosition, nextVelocity, segment, length, capped). ONE SUB-STEP'S GEOMETRY, PURE.
-    -- Mutates nothing, allocates no table. MOVED out of `Flight.advance` in task 266, so the
-    -- server's stepper and the client's simulation step one bullet with one function.
-```
+### 4.1 `ReplicatedStorage.Ballistics` — unchanged
 
 `CONFIG`, `shotFor`, `timeToRange`, `speedAt`, `dropAt`, `elevationTangent`, `launchDirection`,
-`sightOffsetAt`, `advance`, `boreOrigin`, `convergeAim`, `leadStuds`: untouched by v4.
+`sightOffsetAt`, `advance`, `segment`, `boreOrigin`, `convergeAim`, `leadStuds`: **not touched by
+v5.** Task 273 settled that the error is not vertical and not ballistic drop
+(`sightOffsetAt(150) = +0.034` studs ABOVE the sight line with `GRAVITY_SCALE = 0.12`).
 
-### 4.2 `ReplicatedStorage.Shotgun` — **the payload is unchanged**
+### 4.2 `ReplicatedStorage.Shotgun` — the payload is unchanged
 
 ```luau
 export type ShotRequest = { origin: Vector3, direction: Vector3, claim: HitClaim? }
@@ -333,276 +248,196 @@ export type HitClaim = {
 }
 ```
 
-**NO NEW FIELD, and that is the heart of v4's answer to the brief.** Candidate B would have added
-`viewLag` — a number the client chooses, inside a `VIEW_LAG_MAX_SECONDS` clamp. The window is a
-property of the **server's** willingness to look back, so the server owns it; a client-supplied lag
-would be one more thing to lie about and would buy nothing the sweep does not already give
-(5.6 B).
+**No new field.** `Shotgun.muzzleOf(tool)` and `Shotgun.remotes()` (six remotes) unchanged. The
+claim rides `FireRequest` inside `FIRE_RATE_LIMIT` (6/s). Only `CONFIG.CLAIM`'s rows move (3.1).
 
-`Shotgun.muzzleOf(tool)` and `Shotgun.remotes()` (**six remotes, no new one**) are unchanged. The
-claim rides `FireRequest` inside `FIRE_RATE_LIMIT` (6/s).
-
-### 4.3 `ServerScriptService.Weapon.Validator` — pure, +2 functions, **both MOVED**
+### 4.3 `ServerScriptService.Weapon.Validator` — pure
 
 ```luau
-Validator.checkShot(req, rootPosition, config, toleranceStuds?)        -- UNCHANGED
-Validator.checkClaim(claim, limits, pellets?): (boolean, string?)      -- UNCHANGED
-Validator.judgeClaim(facts, limits): (boolean, string?, number?, number?)  -- UNCHANGED, BIT FOR BIT
+Validator.checkShot(req, rootPosition, config, toleranceStuds?)   -- UNCHANGED (check 2)
+Validator.checkClaim(claim, config, pellets?)                     -- UNCHANGED (shape, at the trigger)
+Validator.closestOnSegments(segments, point): (Vector3?, number)  -- UNCHANGED. Now serves check 4
+Validator.claimImpact(claim, partCFrame, bore, material?)         -- UNCHANGED
+
+Validator.nearestInstant(candidates: { { at: number, point: Vector3 } }, clientPoint: Vector3)
+    : (number?, number?)
+    -- WHICH PICTURE THE SERVER JUDGES AGAINST. Returns (index, studs) -- the candidate minimising
+    -- |clientPoint - point|, and that minimum. (nil, nil) for an empty list.
+    --
+    -- IT REPLACES `pickViewInstant`, WHICH HAD TWO CRITERIA. The old one filtered on check 3 and
+    -- then minimised check 4's expression; with check 4 deleted there is only one quantity left to
+    -- minimise, and a rule with one criterion cannot disagree with itself. `limits` and `segments`
+    -- are no longer parameters: the ACCEPT/REFUSE decision is `judgeClaim`'s alone, and this
+    -- function now only answers "which instant".
+    --
+    -- **THIS IS TASK 269b's REFUSED BACKWARD SEARCH, AND IT IS CORRECT NOW FOR A STATED REASON.**
+    -- 269b was refused because it widened check 3 into "the best of thirteen" while check 4 still
+    -- carried the geometric weight -- so the only check being minimised was the one that had
+    -- stopped measuring. Check 4 is gone (5.4), the existential IS the positional check, and its
+    -- licence is enumerated in 5.9 rather than left implicit. A mechanism is not wrong for being
+    -- a search; it is wrong for being a search nobody bounded.
+
+Validator.judgeClaim(facts, limits): (boolean, string?, number?, number?)
+    -- REWRITTEN. Checks 3, 4, 5, 6 and 7 (5.2). The (measured, budget) pair is kept as the third
+    -- and fourth returns, in each rule's own unit, and nil/nil for a rule whose refusal is not a
+    -- magnitude. Every fact is a number or a Vector3; this module still touches no Instance, no
+    -- service and no clock.
 ```
 
-**`judgeClaim` does not change.** The whole of v4 is *which* `serverPoint` and `trajectoryPoint` the
-owner hands it. That is the smallest possible diff for a change of this kind and it is deliberate:
-the six checks, their reasons, their (measured, budget) pairs and all twelve boundary cases in
-`weapon_hits.spec` case 24 stay green unedited.
+`facts` after v5:
 
 ```luau
-export type Segment = { from: Vector3, to: Vector3 }
-
-Validator.closestOnSegments(segments: { Segment }, point: Vector3): (Vector3, number)
-    -- THE NEAREST POINT ON A POLYLINE, AND ITS DISTANCE. Pure. The standard clamped projection
-    -- per segment, the smallest kept.
-    --
-    -- **IT IS MOVED, NOT WRITTEN AGAIN.** This arithmetic is inline in
-    -- `src/server/Weapon/init.luau`'s claim path today (the loop that builds `closest` and
-    -- `closestStuds`). v4 has to run it once per candidate instant instead of once per claim, so
-    -- it becomes a function -- the same reason `Ballistics.segment` left `Flight.advance` in task
-    -- 266. A second copy would be two answers to "how close did the shot pass", which is the
-    -- failure `docs/PROJECT_CONTEXT.md` is named after.
-
-Validator.pickViewInstant(
-    candidates: { { at: number, point: Vector3 } },   -- NEWEST FIRST. `point` is the server's own
-                                                      -- rewind of the claimed offset at `at`
-    segments: { Segment },                            -- the SERVER's own trajectory, walked once
-    clientPoint: Vector3,
-    limits: any
-): (number?, Vector3?, number?, number?, boolean)
-    -- WHICH PICTURE THE SERVER WILL JUDGE AGAINST. Returns
-    --   (index, trajectoryPoint, lineStuds, movedStuds, anyPassedCheck3)
-    -- or (nil, nil, nil, nil, false) for an empty candidate list.
-    --
-    -- THE RULE, AND IT IS ORDER-INDEPENDENT AND A STRICT SUPERSET OF v3:
-    --   among the candidates whose `|clientPoint - point|` is within `POSITION_TOLERANCE_STUDS`
-    --   (check 3), pick the one whose `closestOnSegments(segments, point)` distance is smallest
-    --   (check 4). If NONE passes check 3, pick the one with the smallest `movedStuds` -- so the
-    --   refusal `judgeClaim` names is `claim-moved` with the best number the server could find,
-    --   not an arbitrary one.
-    --
-    -- WHY FILTER ON CHECK 3 FIRST AND MINIMISE CHECK 4 SECOND. Minimising check 4 alone could pick
-    -- an instant that fails check 3 where `arrivalAt` would have passed it -- an animal circling
-    -- across the line of fire crosses the trajectory twice. Filtering first makes the result a
-    -- STRICT SUPERSET of v3: `arrivalAt` is always candidate 1, so anything v3 accepted, v4
-    -- accepts. That is asserted, not hoped (12.1 case 31).
-    --
-    -- PURE: no Instance, no provider, no clock, no service. The owner did the Instance work and
-    -- hands numbers in, which is this module's own header rule and what makes 12.1 case 30
-    -- driveable with hand-written points and no world.
+{
+    offset: Vector3, partHalf: Vector3,        -- check 3
+    clientPoint: Vector3,                       -- checks 4, 5
+    pathStuds: number, pathAlongStuds: number,  -- check 4: the owner walked the claim's own path
+    claimedStuds: number,                       -- checks 4, 7
+    proximityStuds: number,                     -- check 5: the MINIMUM over the window
+    bodyToleranceStuds: number,                 -- check 5: 3.2's per-kind number, measured by the owner
+    losReachStuds: number, losTargetStuds: number,  -- check 6: how far the cast got, how far it had to
+    ageSeconds: number,                         -- check 7
+    flightSeconds: number, expectedFlightSeconds: number,  -- check 7
+}
 ```
+
+**Gone from `facts`:** `serverPoint`, `trajectoryPoint`, `reachedStuds`, `stoppedByClaimedTarget`,
+`displacementStuds`. The first two were old check 4's two operands; the last three were the reach
+rule and its waiver.
 
 ### 4.4 `ServerScriptService.Weapon` — what changes
 
 ```luau
--- UNCHANGED, and the Reviewer should check they are: start, grant, revoke, forget, getSnapshot,
--- markHit, refreshArming, refillForDrive, armingAction, reachable, roundsLeft, heldId, rowOf,
--- setCast, setDriveLineProvider, setArmingPolicy, setTargetProvider, setStandProvider,
--- setLicenceProvider, setEntitlementProvider, setDriveOpenProvider, setSafetyLineProvider,
--- setHistoryProvider, setClaimPolicy, onActionRequest, onFireRequest, runCycle, catchUpFor,
--- flightCount, flightShots, HitReported, SafetyViolated, ShotFired.
-
-Weapon.viewWindowFor(player: Player?, ping: number?, config: any?): number
-    -- HOW FAR BACK THIS SERVER WILL LOOK FOR THIS SHOOTER, in seconds.
-    --
-    --   math.clamp(CLAIM.VIEW_LAG_BASE_SECONDS + ping * FLIGHT_CATCHUP_PING_FACTOR,
-    --              0, CLAIM.VIEW_LAG_MAX_SECONDS)
-    --
-    -- **THE SHAPE IS `Weapon.catchUpFor`'s, DELIBERATELY AND LINE FOR LINE**: `ping` is a
-    -- PARAMETER with a `Player:GetNetworkPing()` fallback inside a `pcall`; a negative, a NaN or a
-    -- missing ping contributes ZERO rather than a guess; the result is clamped at one named
-    -- ceiling. A number that can only be read at one value cannot be tested at another, and a
-    -- loopback Studio session reads 1-2 ms (measured, task 256 round 2), so a spec that could not
-    -- supply its own ping could not reach this function's interesting half at all.
-    --
-    -- **IT REUSES `FLIGHT_CATCHUP_PING_FACTOR` AND DOES NOT ADD A SECOND ONE.** That row exists
-    -- because the engine's docs say only *"the network ping in seconds"* and do NOT say whether it
-    -- is the round trip or one way. There is exactly one uncertainty and it must have exactly one
-    -- dial; a second row would let the two readings of the same engine number drift apart.
-    --
-    -- THE BASE IS NOT PING. The 0.178 s measured in Karen's Forest Test was measured at 1.7 ms of
-    -- ping, so the overwhelming majority of the view lag is the ENGINE's own replication and
-    -- interpolation, which no latency reading reports. `VIEW_LAG_BASE_SECONDS` is that, and the
-    -- ping term is what a real connection adds on top.
-
-Weapon.stats()  -- gains, beside the existing claim counters:
-    claimWorstLagSeconds: number,  -- the worst ACCEPTED `arrivalAt - tView`. **THE INSTRUMENT THIS
-                                   -- WHOLE TASK EXISTS TO CREATE**: the first direct measurement of
-                                   -- the view lag, and the number `VIEW_LAG_BASE_SECONDS` is to be
-                                   -- argued down from. The `stats.originFarthest` idiom (task 260)
-    claimLagAtEdge: number,        -- claims whose chosen instant was the OLDEST in the window. A
-                                   -- non-zero value says the WINDOW is the binding constraint and
-                                   -- not the tolerance -- the one reading that tells a sixth task
-                                   -- apart from a seventh
-    claimViewWindowMax: number,    -- the largest window handed out, so a ping-factor or a
-                                   -- seconds/milliseconds mix-up is visible as a number
+-- UNCHANGED: start, grant, revoke, forget, getSnapshot, markHit, refreshArming, refillForDrive,
+-- armingAction, reachable, roundsLeft, heldId, rowOf, setCast, setDriveLineProvider,
+-- setArmingPolicy, setTargetProvider, setStandProvider, setLicenceProvider, setEntitlementProvider,
+-- setDriveOpenProvider, setSafetyLineProvider, setHistoryProvider, setClaimPolicy, setViewWindow,
+-- viewWindowFor, catchUpFor, onActionRequest, onFireRequest, runCycle, flightCount, flightShots,
+-- publishClaimStats, claimLine, HitReported, SafetyViolated, ShotFired.
 ```
 
-Existing claim counters are unchanged: `claims`, `claimsIgnored`, `claimsAccepted`, `claimsRefused`,
-`refusedClaimBy`, `claimWorstStuds`, `claimWorstLineStuds`, `claimWorstEndStuds`, `claimAgeMin`,
-`claimAgeMax`, `claimHistoryWhy`.
+`Weapon.stats()` — the claim counters after v5:
+
+| kept | `claims`, `claimsIgnored`, `claimsAccepted`, `claimsRefused`, `refusedClaimBy`, `refusedClaimWorst`, `claimAgeMin`, `claimAgeMax`, `claimAges`, `claimHistoryWhy`, `claimLastPart`, `claimSweepFound`, `claimSweepAsked`, `claimSweepWindow`, `claimSweepIndex`, `claimWorstLagSeconds` |
+|---|---|
+| **NEW** | `claimBestProximityStuds` — **the minimum over the window, written for EVERY claim that reached the sweep, accepted or refused.** This is the quantity check 5 budgets and **it has never been published**; task 274's reading of 274a(a) is the whole argument for writing it before the survivors are counted |
+| **NEW** | `claimWorstPathStuds` — check 4's worst, over every claim. If this is not near zero on honest claims, the two sides are not flying the same line and the defect is 259b's, not the view lag's |
+| **gone** | `claimWorstStuds` (old check 3's quantity), `claimWorstLineStuds` and `claimWorstEndStuds` (271 round-1 finding 5: the two are now **identically the same expression** — `closestStuds` and `(position − serverPoint).Magnitude` with `position = closest` — so one of the three published numbers is a duplicate), `claimSweepSpread`, `claimSweepBestLine`, `claimSweepBestIndex`, `claimSweepPassed`, `claimSweepSegments`, `claimLastDisplacement` — every one of them measures a check that no longer exists |
+| **retired, not built** | `claimLagAtEdge` and `claimViewWindowMax` (271 round-1 finding 6) are **withdrawn as names**: task 272 shipped `claimSweepIndex`, `claimSweepFound` and `claimSweepWindow`, which answer the same two questions (`atEdge` is `claimSweepIndex == claimSweepFound`). Two names for one reading is the failure this project is named after |
 
 **No setter for the history, no way to write a sample, and no remote carrying a position, a time or
-a ping in either direction** except the one optional claim field.
+a ping in either direction** beyond the one optional claim field.
 
-### 4.5 `ServerScriptService.Weapon.Flight` — unchanged in v4
-
-```luau
-export type ShotRecord = { ..., claim: Shotgun.HitClaim? }   -- carried, NEVER read by this module
-export type Resolution = { shot, impacts, reachedStuds }     -- reachedStuds is check 5's fact
-```
-
-`Flight.launch`, `substeps`, `advance`, `count`, `shots`, `stats`: untouched.
-
-### 4.6 `ServerScriptService.Boar` — one data row
+### 4.5 `ServerScriptService.Boar` — not touched
 
 ```luau
-Boar.CONFIG.HISTORY = { SAMPLES = 96, ENABLED = true }     -- 3.2
-
-Boar.sampleAt(ring, count, at): CFrame?     -- UNCHANGED. Linear interpolation between the two
-                                            -- samples that BRACKET `at`; nil outside the span,
-                                            -- which is a REFUSAL and never an extrapolation
-Runtime:cframeAt(instance, at): CFrame?     -- UNCHANGED. The one reader of the ring
-Runtime:stats()                             -- UNCHANGED: historySamples, historyMisses
+Boar.CONFIG.HISTORY = { SAMPLES = 96, ENABLED = true }
+Boar.sampleAt(ring, count, at): CFrame?   -- linear interpolation between BRACKETING samples; nil
+                                          -- outside the span, which is a REFUSAL, never an extrapolation
+Runtime:cframeAt(instance, at): CFrame?   -- the one reader of the ring
+Runtime:stats()                           -- historySamples, historyMisses
 ```
 
-**`historyMisses` must not inflate**, and that is a constraint on the *caller*, not on this module
-(4.9). The sweep stops at the first nil going backwards once it has had a non-nil answer, so at most
-one miss per sweep reaches here.
+### 4.6 `PlayerScripts.Weapon.Claim` — two changes, both about honesty of the reason
 
-### 4.7 `PlayerScripts.Weapon.Claim` — **unchanged by v4, and brought up to date here**
-
-v3 §4.7 described the target pass as translating by `-velocity * elapsed`. **The shipped code
-translates by `-velocity * (elapsed + along / speed)` and has since task 270**, and v3 was never
-amended. The brief lists that as owed. The accurate description:
+`Claim.world`, `Claim.only`, `Claim.visibleTargets`, `Claim.simulate` and `Claim.forCamera` keep
+their signatures. Two behaviours change (5.7, 16.2) and both are about the **second return**, the
+no-claim reason `Input.fire` writes to the Studio-only `DHClaimWhy`:
 
 ```luau
-Claim.world(origin, direction, ignore): Shotgun.Impact?
-    -- The ONLY caller of `Workspace:Raycast` under `src/client/Weapon/`, and the exact shape of
-    -- `Weapon.Cast.world`: RaycastParams, FilterType = Exclude, rebuilt per call.
-    -- (`src/client/Camera/Rig.luau` casts too, for occlusion -- a different question with a
-    -- different owner, named here so the grep claim is honest.)
-
-Claim.only(instance): Shotgun.CastFn
-    -- The same cast, FilterType = Include, one instance: "did this segment meet THIS animal".
-
-Claim.visibleTargets(origin, rangeStuds): { Target }
-    -- `Damageable == true` and `Carcass ~= true` off the instance's own attributes, nearest first,
-    -- bounded by `CLAIM.MAX_TARGETS`. No visibility test here: that is the simulation's static pass.
-
-Claim.simulate(opts): Shotgun.HitClaim?
-Claim.forCamera(cframe, snapshot?, firedAtView?): Shotgun.HitClaim?
+Claim.simulate(opts): (Shotgun.HitClaim?, string?)
+    -- The second return is DECLARED now. Today the function returns `nil, "static-blocked"` while
+    -- its signature says `Shotgun.HitClaim?`, so the reason is undeclared API that two tasks have
+    -- already drawn conclusions from.
+    --
+    -- THE REASONS, AND "static-blocked" IS SPLIT (5.7):
+    --   "no-target" | "no-segment" | "range-capped" | "out-of-substeps"  -- unchanged
+    --   "blocked"       the nearest TARGET impact exists and a static impact is NEARER. A tree, a
+    --                   post or the ground genuinely in front of the animal
+    --   "no-intersect"  no target impact in this sub-step at all. The bullet, as this client drew
+    --                   it, did not meet the animal. THIS IS A MISS, and it is the reading task 275
+    --                   reported as "static-blocked"
+    --   "refined-nil"   unchanged (task 270's drop-on-nil rule fired)
 ```
 
-**`Claim.simulate`, per sub-step (`Ballistics.segment`, the server's own function):**
+### 4.7 Why the client's line and the server's agree by construction
 
-1. **THE STATIC PASS.** `cast(position, segment, ignore + every target)`. **Its DISTANCE matters,
-   not its existence** — one sub-step at the rifle's 2612 studs/s is `FLIGHT_STEP_MAX_SECONDS`, which
-   is **87 studs**, so the ground beyond the animal is almost always inside the *same* segment as the
-   animal. Returning nil on any static answer made the feature inert by construction and no spec
-   could see it (measured 2026-10-25). The nearest thing in the sub-step wins. A tree **in front of**
-   the animal still kills the claim — the same line of sight check 5 tests from the server's side.
-2. **THE TARGET PASS, TWO PASSES, AND THE SECOND IS THE ANSWER.** For each of at most `MAX_TARGETS`,
-   the segment is translated into the animal's own frame and cast Include-filtered against that
-   animal alone. **The translation is `-velocity * (elapsed + along / speed)` — the instant the
-   bullet ARRIVES, not the sub-step's first edge.** `along` is the cast's own answer, so it cannot be
-   known before the cast: the first pass finds it, the second re-asks with the animal moved there.
-   One refinement converges, because the correction to `along` is second order.
-   **A REFINED CAST THAT FINDS NOTHING IS A MISS AND NO CLAIM IS MADE FOR THAT TARGET.** Keeping the
-   first pass's hit would claim a hit at a coarse instant the bullet never occupied — measured at
-   v = 20, d = 150, where the lead (1.186 studs) is wider than the box's own half-extent: the first
-   pass hit at the quantised 0.667 and the true shot passed behind the animal altogether.
+This is what makes check 4 (4.4) an honest-by-construction check rather than a tolerance, and it is
+read off the code, not assumed:
 
-   With `elapsed` alone the lead was quantised to whole sub-steps. **MEASURED** (`weapon_client.spec`,
-   a target crossing at 30 studs/s):
+- `Shotgun.CONFIG.BORE_ON_SIGHT_LINE` ships **`true`** since task 260.
+- Client: `origin = Ballistics.boreOrigin(cframe.Position, cframe.LookVector, muzzle, true)` —
+  the Tool's muzzle **projected onto the camera ray** (`Claim.forCamera`).
+- Server: `origin = Ballistics.boreOrigin(req.origin, req.direction, muzzle, CONFIG.BORE_ON_SIGHT_LINE)`
+  and `shot.muzzle = origin` (`Weapon.onFireRequest`). `req.origin` and `req.direction` are the
+  client's **own** two numbers, over the wire.
+- Both then take `convergeAim(origin, aimPoint, direction, MIN_AIM_DISTANCE)`, which with the bore on
+  the sight line returns the camera's own direction *whatever the ray hit*, and
+  `launchDirection(aim, ballistic)` to elevate.
 
-   | range | the lead that exists | the lead the old pass applied | error |
-   |---|---|---|---|
-   | 40 | 0.463 studs | 0.000 (sub-step 1) | 0.463 — **the whole lead** |
-   | 100 | 1.174 | 1.000 (sub-step 2) | 0.174 |
-   | 150 | 1.779 | 1.000 (sub-step 2) | 0.779 |
-   | 200 | 2.399 | 2.000 (sub-step 3) | 0.398 |
+**So the two polylines are the same curve, and the only disagreement — the Tool muzzle's own
+replication — is a projection onto the SAME ray, which is a shift ALONG the line and contributes
+nothing perpendicular to it.** That is why `CLAIM_LINE_STUDS` can be 0.50 and why task 266b measured
+the across-track distance at **0.027 studs of a 2.0 budget** on a still animal. **This design has a
+stated dependency on `BORE_ON_SIGHT_LINE` staying `true`**; at `false` the two bores diverge by the
+measured 0.73 studs across the sight line and check 4's budget would have to carry it.
 
-   The old cases never saw it because all of them were at 200, where the quantised value is 83 % of
-   the real one.
+### 4.8 `PlayerScripts.Weapon.Input`, `Flight`, `Hits`, `Effects` — unchanged by v5
 
-The first target impact nearer than the static block wins. **`nil` is the common case and is not a
-failure**: a miss, a shot into the wood, and a shot aimed AT a running animal once the lead exceeds
-the body (1.4).
+`Input.fire` is still the one firer of `FireRequest`. `Flight.launch/advance/count/shots/stats` are
+untouched; `Resolution.reachedStuds` is **no longer read by the claim path** and stays only as the
+flight's own report. `Hits.group` is still the one `HitReport` constructor.
+`src/client/Weapon/Effects.luau` is **not touched by this task** (16.6).
 
-**Why the client's bore and the server's agree by construction:** `CONFIG.BORE_ON_SIGHT_LINE` ships
-`true` (`src/shared/Shotgun/init.luau`, task 260), so `Ballistics.boreOrigin` projects the muzzle
-onto the camera ray and `Ballistics.convergeAim` returns the camera's own direction *whatever the ray
-hit*. Both sides compute one trajectory from the same two numbers. **With it `false` they diverge by
-0.73 studs across the sight line**, so this design has a stated dependency on it staying `true`.
-`reviews/task-271/BRIEF.md` confirms this held in the live measurement: **of a 5.120-stud gap, 5.106
-lay along the animal and the shot's own line was not the defect.**
+### 4.9 `judgeClaimFor`, the exact shape the Builder writes
 
-### 4.8 `PlayerScripts.Weapon.Input` — unchanged
-
-`Input.fire` is still the one firer of `FireRequest` and attaches `claim` only when the boundary read
-of `HIT_CLAIM` said so. `nil` is today's payload bit for bit.
-
-### 4.9 The sweep, in the owner — the exact shape the Builder writes
-
-This is `onShotLanded`'s claim path, in `src/server/Weapon/init.luau`. Everything above the sweep
-(the policy, `Hits.targetOf`, `claim.part:IsA("BasePart")`, `arrivalAt`, `age` and its min/max) is
-**unchanged**.
+In `src/server/Weapon/init.luau`. Everything above the sweep (the policy, `Hits.targetOf`,
+`claim.part:IsA("BasePart")`, `claimLastPart`, `arrivalAt`, `age` and its min/max) is **unchanged**.
 
 ```
-arrivalAt = claim.firedAtView + claim.flightSeconds           -- UNCHANGED, still derived
-age       = Workspace:GetServerTimeNow() - arrivalAt          -- UNCHANGED, still on arrivalAt
-window    = Weapon.viewWindowFor(player)                      -- NEW
+-- 0 POLICY / 1 IDENTITY -- unchanged
+target        = Hits.targetOf(claim.part)                 -- the trunk, carrying `Damageable`
+part          = claim.part :: BasePart
+arrivalAt     = claim.firedAtView + claim.flightSeconds    -- DERIVED, never sent
+age           = Workspace:GetServerTimeNow() - arrivalAt
 
--- ONE WALK OF THE SERVER'S OWN TRAJECTORY, CACHED. `Ballistics.advance` from the shot's own bore
--- along `launchDirection(aim, ballistic)`, for exactly `claim.flightSeconds`, at most
--- `CLAIM.MAX_SUBSTEPS` segments. Walked ONCE instead of once per candidate: 16 `advance` calls
--- per claimed shot, not 448.
-segments = walk(shot, claim.flightSeconds)
+-- THE CLAIM'S OWN PATH, WALKED ONCE (check 4). `Ballistics.advance` from `shot.muzzle` along
+-- `shot.bore` for exactly `claim.flightSeconds`, at most `CLAIM.MAX_SUBSTEPS` segments, each
+-- `math.min(remaining, CONFIG.FLIGHT_STEP_MAX_SECONDS)`. This is the loop that is already there.
+--
+-- IT IS NOT EXTENDED BEYOND `claim.flightSeconds`, and that is a rule: one sub-step at the slug's
+-- 1752 studs/s is 58 studs of extra line, which is 58 studs of free licence for a claim that
+-- understates its flight time. The walk is the right length by construction.
+segments, pathEndStuds = walk(shot, claim.flightSeconds)
+_, pathStuds           = Validator.closestOnSegments(segments, claim.point)
+pathAlongStuds         = alongOf(segments, claim.point)   -- path studs from the bore to the
+                                                          -- projection of `claim.point`
 
--- THE CANDIDATES, NEWEST FIRST, AT MOST `VIEW_LAG_MAX_SAMPLES`.
-candidates = {}
-lastWhy = nil
-for k = 0, VIEW_LAG_MAX_SAMPLES - 1 do
-    t = arrivalAt - k * VIEW_LAG_STEP_SECONDS
-    if arrivalAt - t > window then break end
-    where = askWhereWas(claim.part, t)
-    if where == nil then
-        lastWhy = <the reason askWhereWas recorded>
-        -- GOING BACKWARDS, ONCE THE RING'S SPAN IS LEFT IT IS LEFT FOR GOOD, so stop -- but only
-        -- AFTER a non-nil answer. `arrivalAt` itself can sit up to one Heartbeat past the newest
-        -- sample, which `Boar.sampleAt` refuses rather than extrapolates, and that must not end
-        -- the sweep before it starts.
-        if #candidates > 0 then break else continue end
-    end
-    candidates[#candidates + 1] = { at = t, point = where * claim.offset }
-end
-if #candidates == 0 then
-    stats.claimHistoryWhy = lastWhy      -- PUBLISHED ONLY HERE (see below)
-    return refuse("claim-history")
-end
+-- THE CANDIDATES, NEWEST FIRST, AT MOST `VIEW_LAG_MAX_SAMPLES`. Unchanged from v4, including the
+-- break rule and `claimHistoryWhy`'s publication point.
+window    = Weapon.viewWindowFor(shooter)
+candidates = { ... { at = t, point = askWhereWas(claim.part, t) * claim.offset } ... }
+if #candidates == 0 then return refuse("claim-history") end
 
-index, trajectoryPoint, lineStuds, movedStuds, anyPassed =
-    Validator.pickViewInstant(candidates, segments, claim.point, CONFIG.CLAIM)
+-- ONE INSTANT, CHOSEN ONCE, AND IT IS THE ONLY CLOCK IN THE RULE SET (5.3).
+index, proximityStuds = Validator.nearestInstant(candidates, claim.point)
+serverPoint     = candidates[index].point
+lineLagSeconds  = arrivalAt - candidates[index].at
 
-serverPoint    = candidates[index].point
-lineLagSeconds = arrivalAt - candidates[index].at
-atEdge         = (index == #candidates) and lineLagSeconds > 0
+-- THE LINE OF SIGHT, AT THAT SAME INSTANT (check 6), THROUGH THE EXISTING `castFn` SEAM (5.6).
+to            = serverPoint - shot.muzzle
+losTargetStuds = to.Magnitude
+ignore        = table.clone(shot.ignore); table.insert(ignore, target)
+blockHit      = castFn(shot.muzzle, to, ignore)
+losReachStuds = if blockHit ~= nil then blockHit.distance else losTargetStuds
 
 ok, reason, measured, budget = Validator.judgeClaim({
     offset = claim.offset, partHalf = part.Size / 2,
     clientPoint = claim.point,
-    serverPoint = serverPoint,            -- THE VIEW INSTANT'S. Checks 3 AND 4 use this one point
-    trajectoryPoint = trajectoryPoint,
-    reachedStuds = res.reachedStuds, claimedStuds = claim.distanceStuds,
-    ageSeconds = age,                     -- STILL ON `arrivalAt`. The sweep cannot reach the future
-    stoppedByClaimedTarget = stoppedBySame,
+    pathStuds = pathStuds, pathAlongStuds = pathAlongStuds, claimedStuds = claim.distanceStuds,
+    proximityStuds = proximityStuds,
+    bodyToleranceStuds = bodyToleranceOf(target),          -- 3.2
+    losReachStuds = losReachStuds, losTargetStuds = losTargetStuds,
+    ageSeconds = age,
     flightSeconds = claim.flightSeconds,
     expectedFlightSeconds = Ballistics.timeToRange(ballistic, claim.distanceStuds),
 }, CONFIG.CLAIM)
@@ -610,218 +445,418 @@ ok, reason, measured, budget = Validator.judgeClaim({
 
 Four details that are rules, not implementation taste:
 
-- **`stats.claimHistoryWhy` is published only when NO candidate answered.** Today `askWhereWas` sets
-  it on every nil. With a sweep the oldest candidate legitimately answers nil at the ring's edge, so
-  an *accepted* claim would leave a stale `"unwired"`-shaped string behind and the one diagnostic
-  that told an unwired root apart from an unplaceable animal (task 266b, which cost a live session)
-  would be destroyed. The sweep keeps the last reason locally and publishes it only on
-  `claim-history`.
-- **`Runtime:stats().historyMisses` must not inflate.** The break rule above bounds the sweep to at
-  most one out-of-span lookup, so the counter keeps meaning "a claim reached past the ring".
-- **The trajectory walk is NOT extended beyond `claim.flightSeconds`.** It is tempting to add one
-  sub-step so the closest approach is an interior minimum, and it is wrong: one sub-step at the
-  slug's `MUZZLE_STUDS_PER_S = 1752` is 58 studs of extra line, which is 58 studs of free licence for
-  a forged claim that understates its flight time. The walk is the right length by construction,
-  because `claim.flightSeconds` is the **client's own** and corresponds to the **client's own**
-  (older, and therefore possibly farther) picture. Written down so nobody adds it later.
-- **The refusal note carries the pair.** Task 271 item 1's three-axis decomposition stays exactly as
-  it is, and gains `lag <lineLagSeconds>/<window>` and `atEdge`. A `claim-line` refusal that says
-  `atEdge=true` means **the window is too short**; one that says `atEdge=false` means **the geometry
-  is wrong**. Those are different defects and a scalar cannot tell them apart — the lesson of task
-  269 (`claim-line=4` with no magnitude) and of task 270 (a magnitude with no axis).
+- **`stats.claimBestProximityStuds` and `stats.claimWorstPathStuds` are written BEFORE the verdict**,
+  for every claim that reached the sweep. 274a(a) is the reason: a field that records only the
+  survivors measures the filter, not the thing — the same lesson `claimLastPart` was moved for.
+- **`stats.claimHistoryWhy` is published only when NO candidate answered.** Unchanged from v4,
+  including the `whyBefore`/`lastWhy` restore. Deleting it destroys the one diagnostic that tells an
+  unwired root from an unplaceable animal (task 266b, which cost a live session).
+- **The LOS cast is made once, after the instant is chosen, and only if the claim has got that far.**
+  At most one extra cast per claimed shot, single-pellet only, at most 6/s.
+- **The refusal note's decomposition keeps its three axes and its `reason == "claim-moved"` is
+  FIXED.** Today the branch reads `reason == "claim-line" or reason == "moved"`; `judgeClaim` has
+  never returned `"moved"` (271 round-1 finding 7, still unfixed at `a3b6663e`), so the only refusal
+  the fallback was written to explain carries a nil note.
 
 ---
 
-## 5. The life of one shot
+## 5. The rule set
 
 ### 5.1 The order, end to end
 
-| # | Where | What | v4? |
+| # | Where | What | v5? |
 |---|---|---|---|
-| 1 | client, trigger frame | `Input.fire` → `Claim.forCamera` → `Claim.simulate`. **The whole simulation is in this one frame** | unchanged |
+| 1 | client, trigger frame | `Input.fire` → `Claim.forCamera` → `Claim.simulate`. The whole simulation is in this one frame | reason strings only |
 | 2 | wire | one `FireRequest`, `{ origin, direction, claim? }` | unchanged |
-| 3 | server, trigger frame | rate limit → weapon id and row → `Validator.checkShot` → `StateMachine.apply{Fire}` → muzzle → the aim ray → `boreOrigin`/`convergeAim` → `stopAt` → `Rules.refuse` → `setState` → `Ballistics.shotFor` | unchanged |
-| 4 | server, trigger frame | `Validator.checkClaim` on the claim's SHAPE. A fault counts `refusedClaimBy[reason]` and **drops the claim**; the shot proceeds | unchanged |
-| 5 | server, trigger frame | `flight:launch(record-with-claim, Pattern.directions(...), ballistic, catchUpFor(...))`, then `SafetyArc` → `safetySignal:Fire(player, aim, origin, stopAt)` → `publish` → the bolt → `ShotFired` | unchanged |
-| 6 | server, later Heartbeats | `flight:advance(dt, castFn)`; `Resolution.reachedStuds` | unchanged |
-| 7 | server, at the resolution | `onShotLanded`: **the sweep (4.9) → judge the claim (5.2) → `Hits.group` once → `HitReported`, `markHit`, `ShotLanded`** | **the sweep is new; the shape is not** |
+| 3 | server, trigger frame | rate limit → weapon id and row → `Validator.checkShot` (**check 2**) → `StateMachine.apply{Fire}` (**check 1**) → muzzle → aim ray → `boreOrigin`/`convergeAim` → `stopAt` → `Rules.refuse` → `setState` → `Ballistics.shotFor` | unchanged |
+| 4 | server, trigger frame | `Validator.checkClaim` on the claim's SHAPE and the weapon's `PELLETS` row. A fault counts `refusedClaimBy[reason]` and **drops the claim**; the shot proceeds | unchanged |
+| 5 | server, trigger frame | `flight:launch(...)` → `SafetyArc` → `safetySignal:Fire(player, aim, origin, stopAt)` → publish → bolt → `ShotFired` | unchanged |
+| 6 | server, later Heartbeats | `flight:advance(dt, castFn)` | unchanged |
+| 7 | server, at the resolution | `onShotLanded` → `judgeClaimFor`: **the sweep → the instant → the LOS cast → `judgeClaim` (checks 3–7) → `Hits.group` once** | the rule set is new |
 
 **Why step 7 and not step 4.** The claimed arrival is `firedAtView + flightSeconds`, which at step 4
 is still in the server's **future** whenever the flight is longer than the upward trip. At step 7 it
-is in the past by exactly that trip, and the history covers it. **The shot in the air IS the pending
-queue.** No second remote, no shot id, no pending table, no timeout, no race.
+is in the past and the history covers it. **The shot in the air IS the pending queue** — no second
+remote, no shot id, no pending table, no timeout, no race.
 
-### 5.2 The verdict, in the Director's order
+### 5.2 The seven checks, each with its cheat and its honest worst case
 
-0. **the policy is on** (`Weapon.setClaimPolicy` / `Flags.isOn("HIT_CLAIM")`), else `claimsIgnored`;
-1. **the claimed part belongs to a live animal the server knows** — `Hits.targetOf(claim.part)`
-   answers a root carrying `Damageable == true`, and the history answers at least one CFrame inside
-   the window. One `pcall` per lookup, one provider;
-2. **the offset is on that part** — `|claim.offset|` componentwise `<= part.Size/2 + SKIN_STUDS`
-   → `claim-offset`;
-3. **the client and the server agree about where it was** —
-   `|claim.point − serverPoint| <= POSITION_TOLERANCE_STUDS` → `claim-moved`;
-4. **the shot went there** — the server's own trajectory passes within `LINE_TOLERANCE_STUDS` of
-   `serverPoint` → `claim-line`. **This is the check that makes the ZONE geometric rather than
-   chosen**;
-5. **the bullet got there** — `reachedStuds + REACH_SLACK_STUDS >= claim.distanceStuds`, **unless
-   what stopped it IS the claimed animal and the shortfall is inside that animal's own body**
-   (task 269b, measured: `claim-blocked worst 2.137/1.000`) → `claim-blocked`;
-6. **the clock is sane** — `0 <= ageSeconds <= AGE_MAX_SECONDS` → `claim-future` / `claim-stale`, and
-   `|flightSeconds − timeToRange(shot, distanceStuds)| <= FLIGHT_TOLERANCE_SECONDS` → `claim-time`.
+Direction A's five bullets, as a numbered list. Bullets 1 and 2 are checks 1 and 2 and already
+exist, at the trigger; bullet 3 is checks 3 and 4; bullet 4 is check 5; bullet 5 is check 6.
+Check 7 is not in the direction's list and is kept because it stops three named cheats.
 
-**Accepted** → the shot is **TRUNCATED** to exactly one impact:
+---
+
+**CHECK 1 — THE SHOOTER COULD FIRE.** `FIRE_RATE_LIMIT` (6/s) → `Validator.checkRequest` →
+`StateMachine.apply{Fire}` (a chambered shell, a closed action) → `Rules.refuse` (the licence, the
+entitlement, the drive phase, the stand) → the safety lock (`SafetyArc` + `askLineUnsafe`).
+*Owner:* `Weapon.onFireRequest`. *Refusals:* the existing `badRequests` / `refusedBy` counters.
+
+- **Cheat:** a claim about a shot that never happened — firing faster than the gun cycles, with an
+  empty chamber, outside a drive, or through the drive line without the penalty.
+- **Worst honest case:** `FIRE_RATE_LIMIT` 6/s against the rifle's real cycle time; a player on a
+  bad connection whose requests bunch.
+- **Measured / budget:** requests per second / 6. **Unchanged, and no claim reaches check 3 without
+  passing it** — a claim cannot exist without a shot.
+
+---
+
+**CHECK 2 — THE CLAIMED MUZZLE IS WHERE THE SHOOTER IS.** `Validator.checkShot(req, rootPosition,
+CONFIG, toleranceStuds)`: `|req.origin − rootPosition| ≤ tolerance`, plus the finite and unit tests.
+*Owner:* `Weapon.onFireRequest`, at the trigger.
+
+- **Cheat:** shooting from somewhere the player is not — round a corner, from the far stand, from
+  inside a tree.
+- **Worst honest case:** the stock third-person camera is MEANT to be behind the character; the
+  owner passes the **first-person** number when the camera is first person, because the two branches
+  put the eye in genuinely different places (1.99 studs from the root against the third-person
+  clamp's 14.5).
+- **Measured / budget:** `|req.origin − root|` / `CAMERA_ORIGIN_TOLERANCE`, with
+  `stats.originFarthest` and `originRefusedFarthest` as the instruments (task 260).
+  **Unchanged by v5.** The claim carries no muzzle of its own, so there is nothing new to check.
+
+---
+
+**CHECK 3 — THE OFFSET IS ON THE CLAIMED BOX.** `|claim.offset|` componentwise
+`≤ part.Size/2 + SKIN_STUDS`. *Owner:* `Validator.judgeClaim`. *Refusal:* `claim-offset`.
+
+- **Cheat:** naming a point that is not on the thing the claim says it hit — a point ten studs above
+  the animal, chosen because the sky has a clear line of sight to it and the box does not.
+- **Worst honest case:** both sides read the same `Size`, and the client's own
+  `part.CFrame:PointToObjectSpace(hit.position)` returns a point on the surface the cast struck.
+  The disagreement is floating point.
+- **Measured / budget:** the worst axis's overhang / `SKIN_STUDS = 0.15`. **Unchanged by v5.**
+
+---
+
+**CHECK 4 — THE CLAIM'S OWN LINE.** Two parts, both against the claim's **own** ballistic path:
+
+```
+pathStuds       = dist(path(shot.muzzle, shot.bore, claim.flightSeconds), claim.point)
+                  <= CLAIM_LINE_STUDS                                  -> "claim-line"
+|pathAlongStuds - claim.distanceStuds| <= CLAIM_PATH_TOLERANCE_STUDS   -> "claim-path"
+```
+
+*Owner:* the owner walks the path and measures; `Validator.judgeClaim` judges.
+
+- **Cheat:** a payload whose numbers describe three different shots — a point lifted from one frame
+  with a direction from another, or a `distanceStuds` inflated to move the report's `distance`.
+  `Validator.claimImpact` writes `claim.distanceStuds` straight into the `HitReport`.
+- **Worst honest case:** §4.7 — the two sides build one curve from the same two wire numbers with
+  `BORE_ON_SIGHT_LINE = true`, so the only divergence is a shift ALONG the line. The client's own
+  cast returned a point ON its own segment, and the sub-step grid is the same
+  `FLIGHT_STEP_MAX_SECONDS` on both sides.
+- **Measured / budget:** `pathStuds` / 0.50 and the along-error / 1.00. **Measured honest value:
+  0.027 studs** on a still animal (task 266b, with the meter corrected in the same round).
+- **What this check does NOT do, said once so nobody believes otherwise:** it is a
+  self-consistency test. `req.direction` is unbounded (`Validator.checkShot` bounds the origin and
+  nothing else), so a modified client satisfies it by construction. It is kept because it costs one
+  already-existing walk and it is the only thing binding `distanceStuds` — **not because it stops an
+  aimbot.** 5.9.
+
+---
+
+**CHECK 5 — THE TARGET WAS THERE.** Direction A's fourth bullet, as an existential over the window:
+
+```
+proximityStuds = min over t in [arrivalAt - window, arrivalAt] of
+                     | rewound(t) * claim.offset - claim.point |
+                 <= bodyToleranceStuds                           -> "claim-moved"
+```
+
+with `window = Weapon.viewWindowFor(shooter)` and `bodyToleranceStuds` from 3.2.
+*Owner:* the owner builds the candidates and asks `Validator.nearestInstant`;
+`Validator.judgeClaim` judges the minimum. **This is the only positional check in the rule set.**
+
+- **Cheat:** claiming a hit on an animal that was never near the claimed point — an animal 30 studs
+  away, an animal in another part of the wood, or a point in empty space.
+- **Worst honest case, term by term:** the client's straight-line prediction over the flight
+  (`Claim.simulate` steps each animal at the velocity it is **drawn** moving at, so an animal that
+  turns is mispredicted by the turn's sagitta: **negligible at 20–60 m**, where the rifle's flight
+  is 0.028–0.086 s, and of the order of 2 studs only at the 800-stud cap's 0.365 s); the sweep's
+  grid, `v × VIEW_LAG_STEP_SECONDS` = **0.63 studs at `SPRINT_SPEED` 38**; the ring's linear
+  interpolation between 60 Hz samples, of the order of 0.1 studs; and the drawn velocity against the
+  server's. Sum at the criterion's ranges: **about 1 stud.**
+- **Measured / budget:** `proximityStuds` / 2.00–3.71 by kind. **This exact quantity has never been
+  published** — `claimWorstStuds` was the value at the chosen instant on ACCEPTED claims only — so
+  `stats.claimBestProximityStuds` ships with the check and writes on every claim (4.9). The number
+  the window has to remove is the **5.120-stud** arrival-instant gap measured in task 271.
+- **Refusing at the minimum is the whole point.** `refusedClaimBy["claim-moved"]` with
+  `claimBestProximityStuds` beside it says, in one reading, that **no** picture of the animal in the
+  last 0.30–0.45 s was within a body of the claimed point.
+
+---
+
+**CHECK 6 — THE LINE OF SIGHT, AT THAT INSTANT.** One cast, from `shot.muzzle` towards
+`serverPoint = candidates[t*].point`, through `castFn`:
+
+```
+losReachStuds + LOS_SLACK_STUDS >= losTargetStuds     -> "claim-blocked"
+```
+
+*Owner:* the owner makes the cast (it needs Instances); `Validator.judgeClaim` compares the two
+numbers. 5.6 is the mechanism and the exclusions.
+
+- **Cheat:** claiming through a wall, a trunk, a stand post, a high-seat deck or a hill.
+- **Worst honest case:** the claimed animal's own parts (**excluded by name**, 5.6); foliage
+  (**already non-blocking**, 5.6); the ground under a deer crossing low ground — which must still
+  block, and does not, because the cast **ends at the animal** rather than running the full
+  sub-step. A second animal genuinely between muzzle and target still refuses, which is correct.
+- **Measured / budget:** `losTargetStuds − losReachStuds` / `LOS_SLACK_STUDS = 0.50`.
+- **It replaces the reach rule AND the waiver.** The quantities that forced the waiver bigger three
+  times — 269b's 2.137/1.000, 273a(b)'s 4.105/3.40, 274a(b)'s **7.275/3.40, stopped by the claimed
+  animal's own `ZoneChest`** — are all the same fault: the server's own bullet stopped on the
+  claimed animal, and an arithmetic comparison of two travel distances cannot tell that from a tree.
+  A cast that **excludes the claimed animal** cannot have the fault at all.
+
+---
+
+**CHECK 7 — THE CLOCK AND THE CARTRIDGE.** Unchanged:
+
+```
+ageSeconds < 0                            -> "claim-future"
+ageSeconds > AGE_MAX_SECONDS              -> "claim-stale"
+|flightSeconds - timeToRange(shot, distanceStuds)| > FLIGHT_TOLERANCE_SECONDS -> "claim-time"
+```
+
+- **Cheats:** an arrival in the server's future (a clock pushed ahead); a claim replayed from
+  minutes ago, outside the span the animal remembers; and a claimed flight time that does not belong
+  to the claimed distance — which, with check 4's `claim-path`, is what makes `distanceStuds`
+  derived rather than free.
+- **Worst honest case:** one upward trip plus clock skew / 0.5 s; one `FLIGHT_STEP_MAX_SECONDS`
+  (1/30) of sub-step granularity / 0.03 s. Measured `age` on a loopback: **+0.007 to +0.075 s**.
+- **Named and deferred:** `Weapon.catchUpFor` resolves the shot EARLY by up to
+  `FLIGHT_CATCHUP_MAX_SECONDS` (0.15), so on a real connection `age` is expected to go **negative**
+  and `claim-future` to appear. The fix is one line — the floor becomes
+  `−FLIGHT_CATCHUP_MAX_SECONDS`, under a `claim-early` reason of its own, because the server
+  resolved early on purpose and must not charge the shooter for its own generosity. The condition is
+  `stats.claimAgeMin < 0` together with a non-zero `refusedClaimBy["claim-future"]`. **A task, not a
+  dial, and not this one.**
+
+### 5.3 One clock, and only two checks have it
+
+| check | depends on an instant? |
+|---|---|
+| 1 shooter could fire | no — the trigger frame |
+| 2 muzzle near the character | no — the trigger frame |
+| 3 offset on the box | **no.** A constant of the animal's own body |
+| 4 the claim's own line | **no.** The path and `claim.point` are both in the claim's own frame |
+| 5 the target was there | **yes — `t*`** |
+| 6 the line of sight | **yes — the same `t*`** |
+| 7 the clock and the cartridge | no — `arrivalAt`, which is derived and bounded by check 7 itself |
+
+`t*` is chosen **once**, by `Validator.nearestInstant`, called **once**, from `judgeClaimFor`. There
+is no second search and no second lookup. This is BRIEF item 4 answered: task 275 found `claim-line`
+already at the swept instant and `claim-blocked` reading the flight's own reach — **two clocks**.
+v5 removes one of them by removing the check that used it.
+
+### 5.4 `claim-line` resolved by name — BRIEF item 2
+
+> Today (`Validator.judgeClaim`, check 4) it measures `(facts.trajectoryPoint − facts.serverPoint).Magnitude`
+> against `limits.LINE_TOLERANCE_STUDS`.
+
+**That check is DELETED.** Not redefined in place, not kept with a derived budget. Both of its
+operands are **server-side reconstructions**:
+
+- `trajectoryPoint` is the closest point on the server's own re-step of the shot, which the server
+  built from `req.origin` and `req.direction` — **both supplied by the client**;
+- `serverPoint` is the server's own rewind of the claimed offset at an instant the server chose.
+
+**It therefore measures the disagreement between two of the server's own reconstructions, and the
+claim appears in neither operand.** An honest client has no way to satisfy it except by luck, and
+the magnitude it accumulates is the sum of: the re-step's own error, the ring's sampling and
+interpolation, the grid, the client's straight-line prediction, and — the dominant term — **the
+mismatch between the animal's pose the client predicted and ANY pose the server recorded**. That
+last term is check 5's business and is budgeted there at a body. Charging it to a 2.0-stud "line"
+tolerance is what produced **4.09 of 2.00 in task 274 and 2 of 2 refused in task 276**, while task
+272 proved the sweep healthy (`sweep=19/19 win=0.301s spread=8.046`) and `took == best` on every
+trial. **The sweep found the best instant available and the best was still refused: the rule, not
+the search, was wrong.**
+
+**WHICH REMAINING CHECK STOPS THE CHEAT IT WAS STOPPING.** The cheat v4 §5.4 claimed for it was
+*"claim a hit on an animal the bullet passed to the SIDE of"*. The honest answer, which v4 did not
+give:
+
+> **Nothing stopped that cheat, including the check itself.** `Validator.checkShot` bounds
+> `req.origin` against the character root and bounds `req.direction` **not at all** — `shotgun.md`
+> §5.7 already says *"the aim direction is unknowable to the server, so an aimbot passes every
+> check"*. A modified client that wants credit for an animal its bullet passed beside simply sends
+> a direction AT the animal, and the server's "own" trajectory then passes through it. The old check
+> stopped exactly one thing: a modified client that could not be bothered to send a consistent
+> direction.
+
+What the other checks do stop, with the direction free, is enumerated in 5.9. The three that carry
+real weight are **check 5** (the point must be within a body of a pose the SERVER recorded, at some
+instant in a window the SERVER owns), **check 6** (the server's own cast must reach it), and
+**check 3** (the point must be on the claimed box). None of those is weakened by deleting check 4.
+
+**The name `claim-line` is REUSED for the new check 4** (the claim's own line), and
+`LINE_TOLERANCE_STUDS` is deleted rather than renamed in place, so a stale reader cannot carry the
+old budget into the new rule. Every caller and spec must be re-grepped: 13.3.
+
+### 5.5 The lead, and whether it is applied twice — BRIEF item 6
+
+**It is not.** Direction C's *"the lead equals the bullet's flight time only"* is a statement about
+the shooter, and the client's own simulation already demands exactly that lead — once.
+
+`Claim.simulate` casts each sub-step's segment translated by `−velocity × (elapsed + along/speed)`
+into the animal's own frame, which is **algebraically identical** to advancing the animal forward to
+the instant the bullet arrives. So the simulation asks: *does the bullet, at the moment it gets
+there, meet the animal where the animal will then be?* The answer is yes **only if the shooter led
+by `v × flight`**. That is the flight-time physics, and removing it would delete the lead Karen
+asked for, not a duplicate of it. Task 270 measured the reconstruction to **worst |error| 0.009
+studs over twelve rows**, three speeds × four ranges.
+
+**What task 275 saw was a 5-stud error, and the lead in dispute is 1 stud.** The arithmetic, with
+the repo's own numbers (`METRES_PER_STUD = 0.28`; rifle `MUZZLE_STUDS_PER_S = 2612`,
+`DRAG_PER_STUD = 4.29e-4`, so `t = (e^{ks} − 1)/(k·v0)`):
+
+| range | studs | flight | lead at `v = 28.7` | **view lag `v × 0.19 s`** |
+|---|---|---|---|---|
+| 20 m | 71.4 | 0.0277 s | **0.79 studs** | **5.45 studs** |
+| 40 m | 142.9 | 0.0558 s | **1.60 studs** | **5.45 studs** |
+| 60 m | 214.3 | 0.0859 s | **2.47 studs** | **5.45 studs** |
+
+At `SPRINT_SPEED` 38 the lead runs 1.05 → 3.27 and the view lag 7.22. **The view lag is 2–7× the
+lead and does not shrink with range; the lead does.** Task 276 measured the impact's signed offset
+along the animal's velocity at **−3.6 to −7.1 studs in BOTH arms**, unled mean −5.19 against led
+mean −5.49 — a difference of 0.30 studs against a 3.5-stud spread. That is the lead being applied
+once, correctly, and being swamped.
+
+**So nothing is removed, and nobody owns a removal.** `Claim.simulate`'s advance stays; the
+shooter's lead stays; what goes is the **view error**, and checks 5 and 6's shared window is the
+only mechanism in this design that removes it. Task 275's *"a shooter who also leads applies it
+twice"* is **withdrawn**, and task 276 already withdrew the 0/5-vs-2/5 signal that suggested it as
+sampling (1 of 5 against 1 of 5).
+
+### 5.6 "Ignoring the target's own parts and foliage" — the exact mechanism — BRIEF item 5
+
+**The mechanism, verified against this repo before it is asserted:**
 
 ```luau
-{ instance = claim.part,
-  position = claim.part.CFrame * claim.offset,   -- the LIVE CFrame with the validated offset
-  normal   = -aim,
-  distance = claim.distanceStuds,                -- path studs from the BORE
-  material = claim.part.Material }
+-- `castFn` is the module-level seam `Weapon.setCast` writes and `flight:advance` reads per frame
+-- (src/server/Weapon/init.luau). In production it is `Cast.world`:
+--   params = RaycastParams.new()
+--   params.FilterType = Enum.RaycastFilterType.Exclude
+--   params.FilterDescendantsInstances = ignore
+--   params.IgnoreWater = true
+--   Workspace:Raycast(origin, direction, params)
+local ignore = table.clone(shot.ignore)   -- `ignoreFor(player)`, set at the trigger
+table.insert(ignore, target)              -- the trunk `Hits.targetOf` already returned
+local blockHit = castFn(shot.muzzle, serverPoint - shot.muzzle, ignore)
 ```
 
-and `Hits.group` runs over that one impact. A claimable shot is single-pellet (section 6), so the
-flight had at most one impact and this is *"the accepted claim replaces it"* — no merging, no second
-report, `pellets = 1`.
+**Four properties, each with its evidence:**
 
-**Refused** → `claimsRefused`, `refusedClaimBy[reason]`, and **the shot resolves exactly as it does
-today** (5.3).
+1. **The target's own parts are excluded by excluding the trunk.** The four zone parts are
+   `zonePart.Parent = trunk` (`Boar.Body.buildZones`), and `FilterDescendantsInstances` is a
+   DESCENDANT filter — so one entry covers the trunk and all four zones. No list, no name matching.
+2. **It is not a new raycast owner.** `Cast.world` stays the only caller of `Workspace:Raycast`
+   under `src/server/Weapon/`, and the cast is injectable, so every case in `weapon_hits.spec` and
+   `weapon_shot.spec` drives it with a scripted world and no boar.
+3. **Foliage needs no filter, because it is already non-blocking in the world.**
+   `src/server/Places/init.luau` → `Places.unblockFoliage` clears **both** `CanQuery` and
+   `CanCollide` on any part whose name matches `Places.FOLIAGE_WORDS`, and runs over
+   `Places.foliageRoots(root)` — `Workspace.OurForest` and `Workspace.Session`, the standing Studio
+   wood Karen walks through. **This is load-bearing and the repo measured why:** the same file
+   records a two-cast control from `driven-hunt-runs/260-why.luau` showing
+   `OurForest.SilverBirch_Var11_LOD_0.Branch.001` with `CanQuery=false, CanCollide=TRUE` **HIT**, and
+   `SM_AspenTree_Var02.SM_Leaves` with both false **no hit** — so **`CanQuery = false` does not
+   exempt a part from a raycast while it still collides**, in the Studio this game is built on.
+   **This design therefore depends on that sweep having run in the session**; `report.unblocked` is
+   the number that says it did, and 15.3 is the probe.
+4. **A present-time cast is a valid answer for a past instant because everything it may hit is
+   anchored.** The map's ground, trees, posts and high seats are `Anchored`
+   (`Effects.ridesWith`'s own discriminator rests on the same fact), so the static world is
+   identical at every instant in a 0.45 s window. **The only movers are animals and players, and
+   they are NOT excluded** — a second animal or another hunter genuinely between the muzzle and the
+   target refuses the claim, which is correct, with the bounded error that the blocker has also
+   moved by up to `v × window` ≈ 17 studs since `t*`. That is a false refusal in rare near-collinear
+   geometry, it is in the honest direction (a refused claim falls back to the server's own flight),
+   and it is written down here rather than discovered.
 
-### 5.2.1 **THE VIEW INSTANT — the brief's question, answered**
+**The waiver does not survive.** `stoppedByClaimedTarget`, `span = 2·max(partHalf)`,
+`REACH_SLACK_STUDS` and `displacementStuds` are all deleted. They existed only because the reach
+rule could not tell "my own target stopped my bullet" from "a tree stopped my bullet"; the cast can,
+by construction.
 
-> *Which point is check 4 measured against, and why?*
+### 5.7 `static-blocked` is a wrong word, and the reading taken from it does not follow
 
-**Check 4 is measured against the SERVER's own rewind of the claimed point, exactly as it always
-was. What changes is WHICH INSTANT that rewind is taken at.**
+`Claim.simulate`, as shipped:
 
-> **ONE INSTANT, CHOSEN BY THE SERVER'S OWN TRAJECTORY FROM THE SERVER'S OWN HISTORY, INSIDE A
-> SERVER-OWNED WINDOW — AND EVERY GEOMETRIC CHECK IS EVALUATED AT IT.**
-
-Formally, the claim is accepted iff
-
+```luau
+if bestHit == nil then
+    if static ~= nil then
+        return nil, if refinedNil then "refined-nil" else "static-blocked"
+    end
+end
 ```
-EXISTS t in [arrivalAt - window, arrivalAt]  such that
-    |claim.point - rewound(t) * claim.offset|                  <= POSITION_TOLERANCE_STUDS   (3)
-AND dist(server's own trajectory, rewound(t) * claim.offset)    <= LINE_TOLERANCE_STUDS       (4)
-```
 
-with `window = Weapon.viewWindowFor(player)` and the reported instant the one minimising (4) among
-those satisfying (3).
+`bestHit` is nil when **no target impact was found at all** in this sub-step, or when every target
+impact was farther along than the static one. `static` is non-nil when anything static is anywhere
+in the sub-step — and one sub-step at the rifle's 2612 studs/s is `FLIGHT_STEP_MAX_SECONDS`, which
+is **87 studs**, so the ground is in it on nearly every shot. **Therefore `"static-blocked"` is
+returned for a plain miss.**
 
-**WHY. The measurement forces it and nothing else in the chain does.**
-`reviews/task-271/BRIEF.md`, live, `HIT_CLAIM` on:
+Task 275 read *"every no-claim shot in ten reads `static-blocked`"* and concluded *"the CLIENT's own
+line of sight closed on the grass or a trunk in front of a deer crossing low ground"*. That is one
+of three readings and nothing separated them. Task 276 then measured that **6 of 10 shots were
+tail-on at the trigger although all 10 passed a chest gate** — and a shot at an animal that has
+turned and run 30–60 studs since the gate is exactly a miss. **The commonest no-claim cause is not
+established**, and 275a(c) must be read as "unknown" until the split lands.
 
-```
-claim-line=1 worst 5.457/2.000
-  gap 5.120 = along -2.079, across 4.679, ALONG THE ANIMAL +5.106   (v 28.7 studs/s, 0.178 s of it)
-```
+**The fix is 4.6's reason split**, in `PlayerScripts.Weapon.Claim`: `"blocked"` only when a target
+impact exists and a static one is nearer; `"no-intersect"` when the target cast found nothing. Two
+words, one `if`, and the next live trial answers the question instead of restating it.
 
-**5.106 of 5.120 studs — 99.7 % — lies along the animal's own velocity.** The shot's line is not the
-defect: both sides build the bore from the same two numbers and `BORE_ON_SIGHT_LINE` ships `true`.
-`serverPoint` was the animal at `firedAtView + flightSeconds`, and the animal the shooter **drew** was
-replicated state 0.178 s older. v3 rewound to an instant the shooter never saw and then charged him
-for the difference. **A tolerance cannot fix a wrong instant; it can only hide one.**
+### 5.8 What a refused claim's shot does, and why
 
-Decompose the measured gap on the animal's own axes: the along-animal component is 5.106, so the
-residual perpendicular to the animal's path is `sqrt(5.120² − 5.106²) = 0.38 studs`. **At the right
-instant this claim passes check 4 using 0.4 studs of its 2.0 budget**, plus up to 0.63 studs of grid
-quantisation (3.1) — comfortably inside. That is why `LINE_TOLERANCE_STUDS` does not have to move and
-why the brief was right to forbid moving it.
+**It flies as an ordinary server-side flight and resolves on the server's own impacts.** Unchanged,
+and the reasons are unchanged:
 
-**WHAT A MODIFIED CLIENT GETS, AND WHY THIS IS THE SMALLEST LICENCE THAT ADMITS THE MEASUREMENT.**
-The licence is *"any picture of the animal within the last `window` seconds"*, which is:
-
-| | shipped v3 | **v4 (this design)** | Candidate A |
-|---|---|---|---|
-| across the animal's own path | 2.0 studs | **2.0 studs** | 8.0 studs |
-| along the animal's own path | 2.0 studs | **`v · window`**: 8.6 at 28.7 studs/s, 11.4 at `SPRINT_SPEED` 38, 17.1 at the 0.45 cap | 8.0 studs |
-| oldest picture creditable | the arrival instant only | **`window`** (0.30 s + ping, capped 0.45) | the arrival instant only |
-| the honest measured shot (0.178 s, 5.46/2.00) | **REFUSED** | **accepted, ~0.4 of 2.0 used** | accepted |
-| is check 4 still a server-side geometric test? | yes | **yes** | **no** (5.6 A) |
-
-**The along-track licence is irreducible and every candidate pays it.** The server cannot distinguish
-*"my picture was 0.178 s old"* from *"I did not lead and want credit anyway"* — they are the same
-quantity. Any mechanism that accepts the measured honest gap accepts that much dishonest no-lead.
-What v4 declines to pay is the **across-track** licence, which is the one that converts a clean miss
-into a hit, and which Candidate A would quadruple.
-
-**WHY THIS IS NOT TASK 269b's REFUSED SEARCH.** Round 1 of 269b put a backward search in the same
-place and the Reviewer was right to refuse it. Four differences, each checkable:
-
-1. **269b minimised check 3's own expression** (`|rewound(t)*offset − claim.point|`), so check 3
-   became *"the best of thirteen"* and measured nothing. **v4 minimises check 4's expression**, whose
-   left-hand side is the **server's own re-step of the shot**. `claim.point` appears in neither term
-   of the thing being minimised. Check 3 is still a real comparison, at an instant the client does
-   not choose.
-2. **269b made `claim-future` unreachable** by stepping back until an instant answered. **v4's window
-   extends only BACKWARD from `arrivalAt`, never forward**, and `ageSeconds` is still
-   `resolutionTime − arrivalAt`. A client that puts `firedAtView` ahead of the server clock is still
-   refused `claim-future` (12.1 case 33 asserts it).
-3. **269b carried nothing**: `match=0.000s` on every claim of every live trial. **v4 is required to
-   carry 0.178 s**, and §1.2a item 15 binds this design to the same standard: if
-   `claimWorstLagSeconds` reads under 0.02 s across a live trial, **delete the sweep**.
-4. **269b widened an accept rule with no instrument.** v4 ships three (`claimWorstLagSeconds`,
-   `claimLagAtEdge`, `claimViewWindowMax`) and **predicts that `claimWorstStuds` collapses**: with
-   check 3 evaluated at the view instant, the honest client/server disagreement should fall from the
-   measured 5.120 studs to well under 1.0. If it does, **`POSITION_TOLERANCE_STUDS` 6.0 → 2.0 becomes
-   arguable from evidence** and the system ends up *tighter* than v3 on the one axis v3 was loosest.
-   That is §16 Director 1, and it is the opposite direction from Candidate A.
-
-**THE BORROWED PATTERN.** This is Source-engine lag compensation's window, reduced to the only thing
-Roblox can do: the server rewinds its own record of the target, clamps the rewind to the client's own
-measured latency plus a fixed interpolation allowance, and caps it hard (`sv_maxunlag`, 1.0 s in
-Source; 0.45 s here). Section 10 B and H.
-
-### 5.3 What a refused claim's shot does, and why
-
-**It flies as an ordinary server-side flight and resolves on the server's own impacts.** Not a forced
-miss, not a silent nothing.
-
-- It is the **only** answer that cannot be gamed. If a refusal were a miss, withholding or corrupting
-  a claim would *deny* damage, and every honest player on a bad connection would lose hits he can
-  see. If a refusal were a hit, the checks would be decoration.
-- It is the **only** answer that makes the flag's OFF state honest: *ignored* and *today* must be the
-  same code path, bit for bit.
-- It is the **only** answer that keeps one owner. The flight is still the server's answer to "what
-  did this bullet meet"; the claim replaces it only when the server has satisfied itself.
+- it is the only answer that cannot be gamed — if a refusal were a miss, withholding or corrupting a
+  claim would *deny* damage; if a refusal were a hit, the checks would be decoration;
+- it is the only answer that makes the flag's OFF state honest: *ignored* and *today* are one code
+  path, bit for bit;
+- it is the only answer that keeps one owner.
 
 `claimsRefused` and `refusedClaimBy` are how anybody finds out it is happening.
 
-### 5.4 The worst thing a modified client can do with this payload — **the enumerated bound, rewritten for v4**
+### 5.9 The worst thing a modified client can do with this payload — the enumerated bound, rewritten
 
-**It can be credited against any picture of the animal from the last `window` seconds** (0.30 s plus
-its own ping, capped at 0.45). Along the animal's own path that is `v · window`: **8.6 studs on a
-28.7 studs/s deer, 11.4 on a `SPRINT_SPEED` boar, 17.1 at the cap.** Two things follow and both must
-be said plainly:
+This replaces v4 §5.4 entirely (BRIEF item 2 requires it be rewritten, not cited).
 
-- it can **claim any zone of an animal it genuinely shot at**, because an animal's zones are arranged
-  head-to-tail along the axis it runs on, which is exactly the axis this licence lies on. A gut shot
-  claimed as a heart shot. v3's licence for the same cheat was 2.0 studs, so on a 7.05-stud deer v3
-  made it marginal and v4 makes it free;
-- it can **skip the lead** and still be credited, up to `v · window` of lead. For a deer at 28.7
-  studs/s that is the lead owed at about 180 studs with a slug (1.4's table). **A modified client can
-  therefore play the game Karen designed against, inside that range.** An honest client cannot: its
-  own simulation produces no claim.
+**The licence, in one sentence:** *credit for any point on the box of any animal it genuinely has in
+front of it, within a body of some pose that animal held in the last `window` seconds, with a clear
+line of sight from the shooter's own position.*
 
-**It can also overstate `distanceStuds`** by up to one body length plus the slack, and only when the
-server's own bullet stopped on that same animal (check 5's 269b waiver) — which moves the accepted
-impact's `distance` and nothing else: no damage, score or payout reads it.
+| | shipped v4 | **v5** | why the change |
+|---|---|---|---|
+| across the animal's own path | 2.0 studs | **2.00–3.71 by kind** (3.2) | old check 4's 2.0 was never a real bound: the direction is client-supplied (5.4) |
+| along the animal's own path | `v · window` — 8.6 at 28.7, 11.4 at `SPRINT_SPEED` 38, 17.1 at the cap | **the same, plus the body tolerance** | irreducible: the server cannot distinguish *"my picture was 0.19 s old"* from *"I did not lead"* |
+| oldest picture creditable | `window` (0.30 + ping, capped 0.45) | **unchanged** | the window is the server's, read from a server constant and a server-read ping |
+| overstating `distanceStuds` | up to one body plus the slack, under the waiver | **`CLAIM_PATH_TOLERANCE_STUDS` = 1.0 stud, always** | **tighter.** Check 4's second half binds it to the claim's own path |
+| the claimed animal blocking itself | the waiver, widened three times to 7.275 studs | **not a case at all** | the cast excludes the claimed animal |
+
+**Two things it gets for free, and both must be said plainly:**
+
+- it can **claim any zone of an animal it genuinely engaged**, because the zones are arranged
+  head-to-tail along the axis the animal runs on, which is the axis the window's licence lies on. A
+  gut shot claimed as a heart shot. v4 said the same; v5 does not make it worse.
+- it can **skip the lead** and be credited, up to `v · window` of lead — the lead owed at about 180
+  studs with a slug. **A modified client can play the game Karen designed against, inside that
+  range.** An honest client cannot: its own simulation produces no claim.
 
 **It cannot do any of the following, and each is a numbered check rather than a hope:**
 
-- **claim a hit on an animal the bullet passed to the SIDE of** — check 4 is still the server's own
-  trajectory against the server's own rewind, and 2.0 studs across the animal's path is unchanged
-  from v3. **This is the property Candidate A would have destroyed**;
-- **claim a hit on an animal that was never there** — check 3 against the server's own history. A
-  point 30 studs from the animal is refused by a factor of five, at every instant in the window;
-- **claim a picture OLDER than the window** — the sweep's loop cannot ask for one, and
-  `claimLagAtEdge` reports when a claim pressed against the edge;
-- **claim a picture from the FUTURE** — the window runs backward only, and `ageSeconds` is still
-  measured on `arrivalAt`;
-- **claim through a wall, a tree or a post** — check 5: the server's own bullet stopped there, that
-  stopper is not the claimed animal, the waiver does not apply, `reachedStuds` is short;
-- **claim a hit the gun could not have made** — check 6 against `Ballistics.timeToRange`, plus
-  `checkClaim`'s range test;
+- **claim a hit on an animal that was never there** — check 5, at a body, at **every** instant in
+  the window. A point 30 studs off is refused by a factor of eight on the hind;
+- **claim a point that is not on the box it names** — check 3;
+- **claim a picture OLDER than the window, or from the FUTURE** — the loop cannot ask for one, and
+  `ageSeconds` is still measured on `arrivalAt`;
+- **claim through a wall, a tree, a post or a hill** — check 6, a real cast through the real world;
+- **claim a hit the gun could not have made, at a distance it did not fly** — check 7 plus check 4's
+  `claim-path`;
 - **claim nine pellets, or claim a pattern** — `pellets == 1` read off the weapon's own row **on the
   server** (section 6). The spread stays the server's secret;
 - **name a zone, a damage number or a target root** — not fields of the payload;
@@ -829,166 +864,89 @@ impact's `distance` and nothing else: no damage, score or payout reads it.
   `Hits.targetOf` requires `Damageable == true`;
 - **spam claims** — the claim rides `FireRequest`, inside `FIRE_RATE_LIMIT` (6/s), behind
   `StateMachine.apply{Fire}` and an actual loaded shell;
-- **choose its own window** — it is `Weapon.viewWindowFor`'s, from a server constant and a server-read
-  ping. The client sends no timing hint beyond `firedAtView`, which check 6 bounds.
+- **choose its own window** — `Weapon.viewWindowFor`'s, from a server constant and a server-read
+  ping. The client sends no timing hint beyond `firedAtView`, which check 7 bounds.
 
-**What was already true and still is** (`shotgun.md` §5.7): *"the aim direction is unknowable to the
-server, so an aimbot passes every check"*. v4 does not make aim-botting easier. It makes **zone
-selection** free on an animal the shooter genuinely engaged, and it makes **not leading** free inside
-`v · window`. **Nobody should later believe this validation is stronger than that.** The reason this
-is accepted is source D's: there is **no victim** — the target is an AI animal, nobody shoots players,
-a drive is not ranked, and the worst a forged claim wins is points in a co-operative hunt.
+**What this validation is not.** It does not stop an aimbot, and nothing server-side can while the
+aim direction crosses the wire. **Nobody should later believe it is stronger than this.** The reason
+that is accepted is source D's: there is **no victim** — the target is an AI animal, nobody shoots
+players, a drive is not ranked, and the worst a forged claim wins is points in a co-operative hunt.
 
-### 5.5 What the client's straight-line step gets wrong, named rather than discovered
+### 5.10 Shapes considered and rejected
 
-`Claim.simulate` steps each visible animal in a **straight line** at the velocity it is **drawn**
-moving at, to the arrival instant (4.7). An animal that **turns** during the flight is mispredicted by
-the turn's sagitta: tenths of a stud over buckshot's 0.079 s, of the order of 2 studs over the rifle's
-longest 0.365 s.
+**Keeping old check 4 with a derived budget. REFUSED.** The budget would have to carry the
+animal-position term, which is check 5's and is body-sized — so the derived budget is the body
+tolerance, and the check becomes check 5 measured against the wrong operand. Two checks with one
+budget and different operands is the overlapping-owner failure in miniature.
 
-**Check 4 is what stops that becoming a free hit, and the direction of the failure is the right one:**
-a mispredicted claim is **refused**, the shot falls back to the server's own flight, and the player
-gets a miss — which is what a real shot at an animal that jinked does.
+**Relocating old check 4 onto the client's point (v4's "Candidate A"). REFUSED, for the reason v4
+gave and one more.** v4's reason stands: *a bound the server checks against a number the client also
+supplied is not a bound* (source C). The extra reason is that v5 already has that check, cheaper and
+named for what it is: check 4 is exactly "are your three numbers mutually consistent", kept at 0.50
+studs and advertised as self-consistency rather than as anti-cheat.
 
-**v4 improves this and the improvement is free.** The sweep walks the animal's **real recorded path**
-out of the ring rather than a straight line, so the turn error no longer has to fit inside
-`LINE_TOLERANCE_STUDS` all by itself: only the residual between the client's straight-line prediction
-and the real path at the chosen instant does. The claim's own simulation is still a straight line —
-that is the client's limitation and it is unchanged — but the server now judges it against the truth
-instead of against a second linearisation.
+**A per-claim `viewLag` field (v4's "Candidate B"). REFUSED, unchanged.** The window is a statement
+about how much the SERVER is willing to believe. One fewer field to lie about, one more number
+measured.
 
-The cost remains that some honest hits on hard-turning animals at long range read as misses. That is
-a feel question for Karen (§16 Karen 1) and the dial is `LINE_TOLERANCE_STUDS`.
+**A `Boar`-side provider returning the best instant or the whole path. REFUSED, unchanged.** It
+would need the Boar to know what a claim is, or the weapon to hold the buffer. 28 `pcall`s at ≤6
+claimed shots per second is not a cost worth an owner boundary.
 
-### 5.6 Shapes considered and rejected
+**Casting the LOS against a rewound world. REFUSED, and it is not possible.** Roblox cannot raycast
+a past world. 5.6 item 4 is the reduction that makes a present cast sound.
 
-**Candidate A — check 4 measured against the CLIENT's claimed point. REFUSED.**
-The brief offers it as the Builder's reading, *"offered for the Architect to accept, bound or
-refuse"*. The arithmetic refuses it:
+**Excluding every unanchored part from the LOS cast. REFUSED.** It would make an animal behind an
+animal a free hit and, worse, would need the weapon to enumerate what moves. Excluding the one
+claimed target is the smallest exclusion that removes the measured fault.
 
-- **It deletes check 4 rather than relocating it.** The server's "own" trajectory is re-stepped from
-  `req.origin` and `req.direction` — **both supplied by the client** (`onFireRequest`, and
-  `Validator.checkShot` bounds only the origin against the character root, never the direction;
-  `shotgun.md` §5.7 says so in as many words). Measuring that line against the client's own point
-  asks *"are your three numbers mutually consistent?"*, which a modified client satisfies by
-  construction. The only server fact left in the check is the ballistic curve — it forces the point
-  to lie on the declared trajectory rather than merely near the declared line. That is worth
-  roughly nothing against the threat check 4 exists for.
-- **It moves all the geometric weight onto check 3's 6.0-stud sphere**, and then check 4 adds 2.0 on
-  top, so the effective bound becomes **8.0 studs in EVERY direction** — four times v4's across-track
-  licence. A bullet that passed 7 studs to the side of an animal becomes a chest hit.
-- The Director's dispatch was *"fix it by construction… **keep the anti-cheat property**"*. A has the
-  first half and not the second.
-- Its one real virtue — that it needs no window, no new row and no sweep — is worth about forty lines
-  of owner code, which is not the right price for the only geometric check the server owns.
+**A second remote carrying the claim when the client's bullet lands. REFUSED (v3).** A shot id, a
+pending table, a timeout and a race.
 
-**Candidate B — the claim carries its own view lag, clamped. REFUSED.**
-It is honest and it would work. It is refused because the window is a statement about *how much the
-server is willing to believe*, which makes it the server's number — `Shotgun.CONFIG.CLAIM`'s own
-header rule (3.1: *"a per-weapon claim tolerance would let a new gun widen its own licence"*; a
-per-client one is worse). A client-chosen lag buys nothing the sweep does not already give: the sweep
-**finds** the lag the client actually had and **reports** it (`claimWorstLagSeconds`), where B would
-have the client assert it and the server merely bound the assertion. One fewer field to lie about,
-one more number measured.
-
-**A second remote, with the claim sent when the client's own bullet lands. REFUSED** (v3). It needs a
-shot id, a server-side pending table with a timeout, a new rate-limited inbound door, and a **race**
-between the claim and the resolution. Two correct pieces of code disagreeing is the failure
-`docs/PROJECT_CONTEXT.md` is named after.
-
-**Nine claimed pellets for buckshot. REFUSED** (v3). The client would need the pattern, which
-`shotgun.md` §5.7 refuses by name, and a per-pellet cone check would let a modified client put all
-nine in one zone inside a 1.6° cone.
-
-**Not flying the shot on the server at all for a claimed shot. REFUSED** (v3). The flight times the
-resolution, answers an unclaimed shot, and — checks 4 and 5 — proves the line of sight without a
-single new raycast.
-
-**A `Boar`-side provider that returns the best instant or the whole path. REFUSED, new in v4.** It
-would halve the provider calls. It also requires the Boar to know what a trajectory is, or to return a
-list the weapon then has to interpret — which is either the Boar answering a weapon question or the
-weapon holding the buffer, and §1.3 refuses both. 28 `pcall`s at ≤6 claimed shots per second is not a
-cost worth an owner boundary.
-
-### 5.7 **A named prediction: `claim-future` is the next refusal, and v4 does not fix it**
-
-Read off the code rather than measured, and written here so a seventh task does not discover it:
-
-- `Weapon.catchUpFor(player, ping, config)` advances the server's own flight by up to
-  `FLIGHT_CATCHUP_MAX_SECONDS` (0.15) so the bullet **resolves early** (task 256).
-- `age = Workspace:GetServerTimeNow() − arrivalAt` is measured at that early resolution.
-- `firedAtView` is the client's `GetServerTimeNow()`, which the engine already offsets to server
-  time. So, roughly, `age ≈ (the request's upward trip) − catchUp`. With
-  `FLIGHT_CATCHUP_PING_FACTOR = 1.0` the catch-up is a full round trip and the upward trip is half
-  of one, so **`age` goes negative on any real connection** and check 6 refuses `claim-future`.
-- On Karen's loopback it does not: the brief measures `age +0.075` with a 1.7 ms ping.
-
-**v4 does not change this**, because fixing it means allowing a bounded negative age, which is a
-tolerance change the brief excludes. **The instrument already exists**: `stats.claimAgeMin`.
-
-> **The condition and the fix, decided in advance.** If a live trial on a real connection reports
-> `claimAgeMin < 0` together with a non-zero `refusedClaimBy["claim-future"]`, the fix is one line in
-> `judgeClaim`: the floor becomes `-FLIGHT_CATCHUP_MAX_SECONDS` instead of `0`, because the server
-> resolved early **on purpose** and must not then charge the shooter for its own generosity. It is a
-> `claim-early` reason of its own so the two cases stay distinguishable. That is a task, not a dial.
+**Nine claimed pellets for buckshot. REFUSED (v3).** The client would need the pattern, which
+`shotgun.md` §5.7 refuses by name.
 
 ---
 
-## 6. Buckshot, and what happens to `Flight`
+## 6. Buckshot, and what happens to `Flight` — unchanged
 
-**A claim is one line and one point, and it exists only where the shot IS one line and one point:
-`row.PELLETS[ammo] == 1`** — the rifle's slug, the lever's, the shotgun's slug and the semi-auto's
-slug (`src/shared/Rifle/init.luau`, `src/shared/Lever/init.luau`, `src/shared/Shotgun/init.luau`
-`PELLETS = { Slug = 1, Buck = 9 }`). It is exactly the case Karen named.
-
-**Buckshot sends no claim and accepts none.** `Validator.checkClaim` refuses one with
-`"claim-pattern"`, read off the weapon's own row **on the server** — data, not a bit the client
-chooses. Why that is the right line:
-
-- the pattern is the server's and must stay so (`shotgun.md` §5.7);
-- buckshot's whole reach is 100 studs and its flight there is **0.079 s**. The view error it would
-  remove is a fraction of a boar, while its 1.6° full cone at that range already spans about **2.8
-  studs** — the error is *inside the pattern*;
-- `Hits.group`'s contract is untouched: nine pellets on one boar stay **one** report with
-  `pellets = 9`, grouped when the last pellet lands.
+**A claim is one line and one point, and it exists only where the shot IS one line and one point:**
+`row.PELLETS[ammo] == 1` — the rifle's slug, the lever's, the shotgun's slug and the semi-auto's
+slug. `Validator.checkClaim` refuses a pattern with `"claim-pattern"`, read off the weapon's own row
+**on the server**. Buckshot's whole reach is 100 studs and its flight there is 0.079 s; its 1.6°
+cone at that range already spans about 2.8 studs, so the error a claim would remove is *inside the
+pattern*.
 
 | Shot | What `Flight` does | What decides the hit |
 |---|---|---|
-| single pellet, claim accepted | flies it, reports `reachedStuds`, provides checks 4 and 5 and the resolution clock | the **claim** (the impact list is truncated to it) |
+| single pellet, claim accepted | flies it, times the resolution | the **claim** (impacts truncated to it) |
 | single pellet, claim refused or absent | flies it, exactly as today | the **flight** |
 | buckshot (9 pellets) | flies all nine, exactly as today | the **flight** |
-| a shot the global cap refused | resolves with no impacts — a refusal is a miss | nothing |
 
-One shot, one `Hits.group`, one report per (shot, target), one owner.
-
----
-
-## 7. The dust, and the mark Karen is complaining about
-
-- **The dust is drawn by `PlayerScripts.Weapon.Effects` from `ShotLanded`**, payload unchanged
-  (`{ shooterUserId, impacts, normals, materials, parts }`). For an accepted claim, `parts[1]` **is
-  the animal the shooter saw** and `impacts[1]` is `part.CFrame * claim.offset`, so the puff lands on
-  the right spot of the right animal and rides it.
-- **No second drawer**, and that is a deliberate deviation from task 266's brief. A client-local draw
-  **plus** `ShotLanded` would be two things drawing one puff — the overlapping-owner failure this
-  project is named after — and the shooter would see two. Going through the server is also what makes
-  the drawing honest: **a refused claim does not draw a hit.**
-- **The hit MARK (`HitMarker` → the Hud's crosshair tick) is untouched.**
-- **`Effects.luau` and `src/client/Hud/` are not touched by this task.**
+`Hits.group`'s contract is untouched: nine pellets on one boar stay **one** report with `pellets = 9`.
 
 ---
 
-## 8. 259b, fixed in task 266 and recorded here
+## 7. The dust and the mark — named, not changed here
 
-`src/server/Weapon/init.luau` → `onFireRequest` published the penalty's ray from `muzzle` while the
-lock tested it from `origin`. With `BORE_ON_SIGHT_LINE = true` the two rays are parallel and **0.73
-studs apart at every range**, so `Match.Penalty.judge`'s perpendicular distance differed by up to
-that much — a range-independent flip band around `SAFETY_MISS_STUDS`.
+- The dust is drawn by `PlayerScripts.Weapon.Effects` from `ShotLanded`, payload unchanged. For an
+  accepted claim, `parts[1]` is the animal the shooter saw and `impacts[1]` is
+  `part.CFrame * claim.offset`.
+- **No second drawer**, deliberately: a client-local draw plus `ShotLanded` would be two things
+  drawing one puff, and the shooter would see two. Going through the server is also what makes the
+  drawing honest — **a refused claim does not draw a hit.**
+- **`src/client/Weapon/Effects.luau` and `src/client/Hud/` are NOT touched by this task.** 276a(c)'s
+  defect is placed at 16.6 with its owner, and it is a drawing defect, not a validation one.
 
-**The fix was one line: `safetySignal:Fire(player, aim, origin, stopAt)`.** The line tested and the
-line published are the same line. `Match.onSafetyViolation` and `Match.lineIsUnsafe` are unchanged.
-`ShotFired` and `ShotLanded` keep the Tool's `muzzle`, and that asymmetry is deliberate: **a flash has
-to come out of the gun; a penalty has to measure the bullet's own line.** Not touched by v4.
+---
+
+## 8. 259b, closed in task 266 and recorded here
+
+`onFireRequest` published the penalty's ray from `muzzle` while the lock tested it from `origin`;
+with `BORE_ON_SIGHT_LINE = true` the two rays are parallel and 0.73 studs apart at every range. The
+fix was one line: `safetySignal:Fire(player, aim, origin, stopAt)`. `ShotFired` and `ShotLanded`
+keep the Tool's muzzle, and that asymmetry is deliberate: **a flash has to come out of the gun; a
+penalty has to measure the bullet's own line.** Not touched by v5.
 
 ---
 
@@ -999,228 +957,276 @@ to come out of the gun; a penalty has to measure the bullet's own line.** Not to
 | What | From | Its owner |
 |---|---|---|
 | the ballistic rows, `RANGE_STUDS`, `PELLETS`, `SPREAD_FULL_DEG`, `GRAVITY_SCALE` | `Weapons.ROWS` | `ReplicatedStorage.Weapons` — frozen |
-| the flight limits, the catch-up numbers, **`CONFIG.CLAIM` incl. the four `VIEW_LAG_*` rows** | `Shotgun.CONFIG` | `ReplicatedStorage.Shotgun` — deep-frozen, no writer |
+| the flight limits, the catch-up numbers, **`CONFIG.CLAIM` as rewritten by 3.1** | `Shotgun.CONFIG` | `ReplicatedStorage.Shotgun` — deep-frozen |
 | `HIT_CLAIM` | `Flags.isOn`, **once per boundary** (server `src/server/Weapon/init.luau`; client `src/client/Weapon/init.luau`) | `ReplicatedStorage.Flags` |
-| **where an animal WAS, at up to `VIEW_LAG_MAX_SAMPLES` instants per claimed shot** | `historyProvider(instance, at)` → `Runtime:cframeAt` | `ServerScriptService.Boar` — the one store and the one reader |
-| where the target IS, right now | `cast(...)` → `Workspace:Raycast` | the world (the trunk is `Boar.Body`'s) |
-| `Damageable` / `HitZone` | attributes on the instance | the target's own owner — `Hits.targetOf` |
-| the shared clock | `Workspace:GetServerTimeNow()` — one read per Boar step, one per claim resolution, one per client trigger frame | the engine. **Its tightness is UNESTABLISHED**: §15 item 1 |
-| **the shooter's latency** | `Player:GetNetworkPing()` through `Weapon.viewWindowFor`, `pcall`'d, parameterised, converted by the **existing** `FLIGHT_CATCHUP_PING_FACTOR` | the engine. Unspoofable here because the client never sends it |
-| the equipped Tool's muzzle | `Shotgun.muzzleOf` | `ReplicatedStorage.Shotgun` — one definition, both sides |
+| where an animal WAS, at up to `VIEW_LAG_MAX_SAMPLES` instants per claimed shot | `historyProvider(instance, at)` → `Runtime:cframeAt` | `ServerScriptService.Boar` |
+| **the claimed animal's own trunk box** (check 5's tolerance, 3.2) | `(Hits.targetOf(claim.part)).Size` | `ServerScriptService.Boar` → `Boar.Body.create` writes it |
+| `Damageable` / `HitZone` | attributes on the instance | the target's own owner, read by `Hits.targetOf`. **The zone VOLUMES are `docs/design/hit-zones.md`'s** |
+| **whether the muzzle can see the point** (check 6) | `castFn(...)` → `Cast.world` → `Workspace:Raycast` | the world. Its foliage flags are `src/server/Places/init.luau`'s (5.6) |
+| the shared clock | `Workspace:GetServerTimeNow()` | the engine. **Its tightness is UNESTABLISHED**: 15.1 |
+| the shooter's latency | `Player:GetNetworkPing()` through `Weapon.viewWindowFor`, `pcall`'d, parameterised, converted by the existing `FLIGHT_CATCHUP_PING_FACTOR` | the engine. Unspoofable: the client never sends it |
+| the equipped Tool's muzzle | `Hardware.muzzlePosition` / `Shotgun.muzzleOf` | `ReplicatedStorage.Shotgun` — one definition, both sides |
 | the drive line, the stand, the target, the licence, the entitlement, the drive phase, the safety line | the six existing providers | `ServerScriptService.Match` |
 
 **Still NOT read:** boar state (velocity, brain, wound, id), another player's view, a ping sent by a
-client, any client-supplied zone, damage, target root or view lag.
+client, any client-supplied zone, damage, target root or view lag. **And after v5, not
+`part.AssemblyLinearVelocity` either** — the refusal note's decomposition takes the animal's travel
+from the sweep's own two rewinds (`candidates[1]` and `candidates[index]`), which closes 271 round-2
+note 18 (*"the weapon cannot ask where one is now"*).
 
 ### 9.2 Writes
 
 | What | Who reads it | Their owner |
 |---|---|---|
-| `Weapon.HitReported(report)` — its one impact the claimed one when a claim was accepted | `MatchBoot` → `runtime:takeHit` + `HitLog.recordHit` | `ServerScriptService.Boar`, `ServerScriptService.HitLog` |
-| `HitMarker:FireClient` — unchanged | `PlayerScripts.Hud` | `PlayerScripts.Hud` |
-| `ShotLanded:FireAllClients` — unchanged payload, `parts[1]` naming the claimed animal | `PlayerScripts.Weapon` → `Effects.playLanded` | `PlayerScripts.Weapon.Effects` |
-| `ShotFired:FireAllClients` / `Weapon.ShotFired` (Bindable) — unchanged | the flash, the smoke, the sound, the kick; `runtime:hearShot` | as today |
-| `Weapon.SafetyViolated` — unchanged since task 266 (third argument `origin`) | `MatchBoot` → `Match.Penalty` | `ServerScriptService.Match` |
-| the claim counters, **+ `claimWorstLagSeconds`, `claimLagAtEdge`, `claimViewWindowMax`** | `weapon_state.spec`, the `DHClaimStats` attribute, a harness note | `ServerScriptService.Weapon` |
+| `Weapon.HitReported(report)` | `MatchBoot` → `runtime:takeHit` + `HitLog.recordHit` | `ServerScriptService.Boar`, `ServerScriptService.HitLog` |
+| `HitMarker:FireClient` | `PlayerScripts.Hud` | `PlayerScripts.Hud` |
+| `ShotLanded:FireAllClients` — unchanged payload | `PlayerScripts.Weapon` → `Effects.playLanded` | `PlayerScripts.Weapon.Effects` |
+| `ShotFired:FireAllClients` / `Weapon.ShotFired` | the flash, the smoke, the sound, the kick; `runtime:hearShot` | as today |
+| `Weapon.SafetyViolated` | `MatchBoot` → `Match.Penalty` | `ServerScriptService.Match` |
+| the claim counters as rewritten by 4.4, and `ServerStorage.DHClaimStats` in Studio | `weapon_state.spec`, the live probe, a harness note | `ServerScriptService.Weapon` |
 | the ring buffer | `Runtime:cframeAt` alone | `ServerScriptService.Boar` |
 
-**Nothing else.** v4 writes no boar state, no camera, no Hud, no team, no score, no penalty, no
-`Tool`, and no new remote.
+**Nothing else.** v5 writes no boar state, no camera, no Hud, no team, no score, no penalty, no
+Tool, no new remote.
 
 ---
 
 ## 10. External sources
 
-### A. FastCast / FastCast Redux — the segment cast, adopted as a pattern, **not vendored**
+### A. FastCast / FastCast Redux — the segment cast, adopted as a pattern, not vendored
 
 - Docs <https://etithespir.it/FastCastAPIDocs/>; docs repo
   <https://github.com/EtiTheSpirit/FastCastAPIDocs> — **MPL-2.0**, README says *"This is obsolete"*.
   Living fork <https://github.com/010DevX101/FastCastRedux> — **MIT-0**, released 2025-01-25.
-- **Well:** the right algorithm, and the reason this design can rewind **without a rewound cast** —
-  each step casts only the segment just travelled, so a *translated* segment is a cast in another
-  body's frame.
+- **Well:** the right algorithm, and the reason this design can rewind *without* a rewound cast —
+  each step casts only the segment just travelled, so a translated segment is a cast in another
+  body's frame. That is exactly what `Claim.simulate` does.
 - **Badly:** ships as `.rbxm`, which this repo bans; not on Wally; far more than we need.
-- **Adopted:** three sentences of it, in **one** place (`Ballistics.segment`), so the server and the
-  client step one bullet with one function.
+- **Adopted:** three sentences of it, in **one** place (`Ballistics.segment`), so the server's
+  stepper and the client's simulation step one bullet with one function. Unchanged by v5.
 
-### B. Valve — Source multiplayer networking and lag compensation. **The window, and v4's cap**
+### B. Valve — Source multiplayer networking and lag compensation. The window and its cap
 
 - <https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking> and
   <https://developer.valvesoftware.com/wiki/Lag_compensation>. **Licence:** Valve Developer Community
-  wiki text, **CC BY-NC-SA 2.5** per the site's own footer; read as prose, **nothing copied**.
+  wiki text, **CC BY-NC-SA 2.5** per the site's own footer; read as prose, nothing copied.
   **Maintenance:** actively edited community wiki.
-  <https://github.com/ValveSoftware/Source-1-Games/issues/2230> ("[TF2] Add lag compensation for
-  projectiles") — issue tracker, open and stale, no code taken.
-- **This source's verdict was REVERSED in v3 and v4 leans on it harder.** v2 §9 B refused it as
-  *"per-target position history, a trusted client timestamp and a rewind window… lag-compensated
-  hitscan removes lead."* True of hitscan, false here: our projectile keeps its real flight time, so
-  the rewind cannot remove a lead that lives in the flight (1.4).
 - **Well:** the correct analysis of the error — the client's picture is old by a trip **plus its own
   interpolation**, and no server-side cleverness makes the player's screen newer. It names the term
-  everybody forgets (the interpolation delay), and **it is the source of the exact shape v4 adopts:
-  the rewind amount is clamped to the client's own measured latency plus its interpolation amount,
-  and then capped hard by `sv_maxunlag` (1.0 s by default).** `Weapon.viewWindowFor` is that
-  sentence: `BASE + ping`, clamped at `VIEW_LAG_MAX_SECONDS = 0.45`, **2.2× tighter than Source's
-  default** because our window costs honest players nothing above about 0.25 s.
-- **Badly, and what we took instead of its shape:** Source rewinds **hitboxes and casts against
-  them**, which needs a second position store per target *and* a geometry test in a rewound world.
-  Roblox cannot raycast a past world, and a hand-written segment-versus-box test is an invented
-  foundation. So we rewind **one `CFrame` per animal** and judge by **arithmetic**, and the line of
-  sight comes from the flight the server already ran. Source also rewinds *everything* at once; we
-  rewind one part for one claim.
-- **Adopted:** the bounded window, clamped by measured latency, capped by a constant, with the history
-  kept by **the target's own owner** (`Boar`) and never by the weapon — the half of the old objection
-  that still stands (*"two systems wrote the creature's position"*, `PROJECT_CONTEXT.md`).
+  everybody forgets, and it is the source of the shape `Weapon.viewWindowFor` has: the rewind is
+  clamped to the client's own measured latency plus a fixed interpolation allowance and then capped
+  hard by `sv_maxunlag` (1.0 s by default; ours is 0.45, **2.2× tighter**).
+- **Badly:** Source rewinds *hitboxes* and casts against them, which needs a geometry test in a
+  rewound world. Roblox cannot raycast a past world. It also rewinds everything at once; we rewind
+  one part for one claim.
+- **Adopted:** the bounded window, clamped by measured latency, capped by a constant, with the
+  history kept by **the target's own owner** (`Boar`) and never by the weapon.
 
-### C. Epic Games — Gameplay Ability System **target data**: the client computes, the server validates
+### C. Epic Games — Gameplay Ability System *target data*: the client computes, the server validates
 
 - <https://dev.epicgames.com/documentation/en-us/unreal-engine/gameplay-ability-system-for-unreal-engine>
   and <https://dev.epicgames.com/documentation/en-us/unreal-engine/networking-overview-for-unreal-engine>.
-  **Licence: proprietary** (Epic documentation terms); read as prose, **no code taken**.
+  **Licence: proprietary** (Epic documentation terms); read as prose, no code taken.
   **Maintenance: actively maintained**, versioned with each engine release.
-- The shape: the owning client produces *target data* — what it hit, in its own view — and sends it
-  with the activation; the server runs the ability authoritatively and may validate or discard that
-  data.
-- **Well:** exactly this design's division of labour, with the right warning: client-supplied target
+- **Well:** exactly this design's division of labour, with the right warning — client-supplied target
   data is the single biggest trust surface an ability system has, accepted only inside bounds the
-  server can check **for itself**. **That warning is the whole argument against Candidate A** (5.6):
-  a bound the server checks against a number the client also supplied is not a bound.
+  server can check **for itself**. **That warning is the argument v5 turns on**: it is why old check
+  4 is deleted rather than relocated. Both of its operands were server reconstructions of
+  client-supplied numbers, so it was never a bound the server could check for itself.
 - **Badly, for us:** a C++ framework with prediction keys, prediction windows and rollback machinery
   we would be inventing a Luau copy of. And "validate" is left to the game.
 - **Adopted:** the pattern — **client target data + server validation + a named refusal path** — with
-  our own six checks, our own bounds table, and no prediction machinery.
+  our own seven checks, our own bounds table, and no prediction machinery.
 
-### D. Riot Games — "Peeking into VALORANT's Netcode". **Named, and its conclusion deliberately NOT followed**
+### D. Riot Games — "Peeking into VALORANT's Netcode". Named, and its conclusion deliberately NOT followed
 
 - <https://technology.riotgames.com/news/peeking-valorants-netcode>. **Licence:** article, all rights
   reserved; read as prose, nothing copied. **Maintenance:** a dated (2020) article on a maintained
   publication.
-- **Well:** the clearest published statement of the opposite policy — a competitive shooter rewinds on
-  the **server** with a bounded window and refuses to let the client decide what it hit, because in
-  PvP a client-authoritative hit is a cheat that cannot be detected after the fact. It is also good on
+- **Well:** the clearest published statement of the opposite policy — a competitive shooter rewinds
+  on the **server** with a bounded window and refuses to let the client decide what it hit, because
+  in PvP a client-authoritative hit is a cheat that cannot be detected after the fact. Good also on
   *why* a window must be bounded, and on favour-the-shooter's cost to the victim.
 - **Badly, for us, and this is why its conclusion does not transfer:** there is **no victim here**.
-  The target is an AI boar, nobody shoots players, a drive is not ranked, and the worst a forged claim
-  wins is points in a co-operative hunt. Its cost analysis is about a human being shot behind cover;
-  ours is about a wild animal credited to the wrong zone. **v4 pays that cost knowingly and writes the
-  size of it in 5.4.**
+  The target is an AI animal, nobody shoots players, a drive is not ranked.
 - **Adopted:** the bounded window and the discipline of counting refusals, from a source that argues
-  against the mechanism. Its conclusion is refused with the reason written here, so nobody later cites
-  it as though it had been overlooked.
+  against the mechanism. **Its conclusion is refused with the reason written in 5.9**, so nobody
+  later cites it as though it had been overlooked.
 
 ### E. Glenn Fiedler — "What every programmer needs to know about game networking"
 
 - <https://gafferongames.com/post/what_every_programmer_needs_to_know_about_game_networking/>.
   **Licence:** article; the site's sample code is **BSD**, nothing taken. **Maintenance:** a standing
   reference, still maintained and still cited.
-- **Well:** the framing in one sentence — the client's view is *authoritative about itself and nothing
-  else*, and every networked game must choose which questions it answers from which clock. Also the
-  source of *"do not interpolate what you can derive"*, which is why the claim carries an arrival time
-  and a flight time and **not** the animal's velocity — **and, in v4, why it does not carry its own
-  view lag either** (5.6 B).
+- **Well:** the framing in one sentence — the client's view is *authoritative about itself and
+  nothing else*. Also the source of *"do not interpolate what you can derive"*, which is why
+  `arrivalAt` is derived from `firedAtView + flightSeconds` rather than sent, and why the claim
+  carries no velocity and no view lag.
 - **Badly:** about deterministic lock-step and physics authority in symmetric games; no opinion on
-  validating an asymmetric PvE hit claim, no code to borrow.
-- **Adopted:** one rule, as this design's own — **the client is believed only about what it SAW, never
-  about what that means**.
+  validating an asymmetric PvE hit claim.
+- **Adopted:** one rule, as this design's own — **the client is believed only about what it SAW,
+  never about what that means.**
 
-### F. Roblox engine — the clock, the cast, the remote, the ping
+### F. Roblox engine — the clock, the cast, the filter, the remote, the ping
 
-- <https://create.roblox.com/docs/reference/engine/classes/Workspace#GetServerTimeNow>,
-  <https://create.roblox.com/docs/reference/engine/classes/Player#GetNetworkPing>,
-  <https://create.roblox.com/docs/reference/engine/datatypes/RaycastParams>,
+- <https://create.roblox.com/docs/reference/engine/datatypes/RaycastParams>,
   <https://create.roblox.com/docs/reference/engine/classes/WorldRoot#Raycast>,
+  <https://create.roblox.com/docs/reference/engine/classes/Workspace#GetServerTimeNow>,
+  <https://create.roblox.com/docs/reference/engine/classes/Player#GetNetworkPing>,
   <https://create.roblox.com/docs/reference/engine/classes/RemoteEvent>.
   **Licence:** the documentation source repo <https://github.com/Roblox/creator-docs> is **CC BY 4.0**;
   the engine is proprietary. **Maintenance: actively maintained** with the engine.
-- **Well:** `GetServerTimeNow()` is the one clock both sides can name without a protocol of our own,
-  and this repo already trusts it across the wire for the drive's countdown
-  (`src/client/Match/init.luau` → `Match.secondsLeft`). `FilterType = Include` lets one animal be
-  tested in isolation. An **Instance** reference crosses a `RemoteEvent` intact, which is why the
-  claim needs no id table.
+- **Well:** `FilterType = Exclude` with `FilterDescendantsInstances` is a **descendant** filter, which
+  is what makes check 6's exclusion of the claimed animal one table entry rather than a list of five
+  parts. `GetServerTimeNow()` is the one clock both sides can name without a protocol of our own,
+  and this repo already trusts it across the wire for the drive's countdown. An **Instance**
+  reference crosses a `RemoteEvent` intact, which is why the claim needs no id table.
 - **Badly:** the documentation makes **no promise about how tightly `GetServerTimeNow()` agrees**
-  between a server and a client, and task 265 could not establish it (`ESCALATE.md`, 2026-10-25: a
-  ~0.17 s offset measured, *not established*, because the only control was a motionless part). It also
-  says only *"the network ping in seconds"* for `GetNetworkPing` and **does not say whether that is a
-  round trip or one way** — which is why `FLIGHT_CATCHUP_PING_FACTOR` exists as a data row, and why
-  `Weapon.viewWindowFor` reuses it rather than adding a second one.
-- **Adopted:** the clock inside a window, `Include`-filtered casts, Instance references instead of
+  between a server and a client (15.1), and says only *"the network ping in seconds"* for
+  `GetNetworkPing` — **not whether that is a round trip or one way**, which is why
+  `FLIGHT_CATCHUP_PING_FACTOR` exists as a data row and `viewWindowFor` reuses it rather than adding
+  a second. **And the engine's own `CanQuery` does not behave as documented in this Studio while
+  `CanCollide` is true** — the repo measured it with a control (5.6 item 3), which is why this
+  design leans on `Places.unblockFoliage` rather than on the property.
+- **Adopted:** the clock inside a window, descendant-filtered casts, Instance references instead of
   ids, attributes as the one description of a target, and the ping as a **clamped** term with a
   documented unit uncertainty.
 
-### H. Gabriel Gambetta — "Fast-Paced Multiplayer, Part IV: Lag Compensation". **NEW in v4**
+### G. Gabriel Gambetta — "Fast-Paced Multiplayer, Part IV: Lag Compensation"
 
-- <https://www.gabrielgambetta.com/lag-compensation.html> (the series index:
+- <https://www.gabrielgambetta.com/lag-compensation.html> (series index:
   <https://www.gabrielgambetta.com/client-server-game-architecture.html>). **Licence:** article, all
-  rights reserved; the accompanying live demos' source is published separately and **nothing is
-  taken**. **Maintenance:** a standing reference, still online, still updated and still the article
-  everybody links.
-- **Well:** the single clearest statement of the thing v4 turns on — **the server must judge the shot
-  against the picture the shooter actually had, and that means reconstructing the world at
-  `now − (latency + interpolation)` rather than at `now`.** It is also honest about the consequence in
-  one line: the victim gets shot after reaching cover. That is exactly the trade 5.4 enumerates, and
-  it is why D's conclusion is refused here rather than ignored — **we have no victim to pay it.**
-- **Badly:** hitscan only, no projectiles, no discussion of what a *modified* client gains from the
-  window, and no treatment of the case where the client, not the server, computes the hit. The cheat
-  analysis in 5.4 is ours.
-- **Adopted:** the reconstruction instant itself — *the shooter's own picture, not the present* — and
-  the insistence that the amount be derived from measured latency rather than assumed. v4 adds what
-  the article does not have: the instant is chosen by the **server's own trajectory** out of the
-  **server's own history**, so the client never names it.
+  rights reserved; the demos' source is published separately and nothing is taken.
+  **Maintenance:** a standing reference, still online and still the article everybody links.
+- **Well:** the clearest statement of the thing both v4 and v5 turn on — **the server must judge the
+  shot against the picture the shooter actually had, which means reconstructing the world at
+  `now − (latency + interpolation)` rather than at `now`.** Honest about the consequence in one
+  line: the victim gets shot after reaching cover.
+- **Badly:** hitscan only, no projectiles, no treatment of a *modified* client inside the window, and
+  no case where the client, not the server, computes the hit. The cheat analysis in 5.9 is ours.
+- **Adopted:** the reconstruction instant itself, and the insistence that the amount be derived from
+  measured latency rather than assumed.
 
-### G. Borrowed from inside this repo (rule 2 applies to internal patterns too)
+### H. **NEW in v5.** ioquake3 (id Tech 3) — `g_antilag`, `G_TimeShiftAllClients`
 
-- **The injected provider.** `Weapon.setTargetProvider`, `setStandProvider`, `setDriveOpenProvider`,
+- <https://github.com/ioquake/ioq3>. **Licence: GPL-2.0** — so **nothing may be copied into this
+  repo at all**, and it is read as prose only. **Maintenance:** actively maintained community fork of
+  id's 2005 GPL release.
+- **Well:** the simplest working antilag in a shipped engine, and the clearest statement of the
+  alternative v5 refuses. The server keeps a short per-client position history, time-shifts every
+  other client back to **one** instant derived from the client's own command stamp, runs the trace,
+  and shifts them forward again — with the shift **hard-clamped** server-side. Two things transfer:
+  the clamp is the server's and never the client's, and **one instant is enough** when the server
+  owns the trace.
+- **Badly, and this is why its shape is not adopted:** the server re-runs the client's *command*,
+  including the aim, so the client never names a hit at all. Roblox cannot replay a client command,
+  and the aim already crosses our wire. It is also hitscan-only, and GPL-2.0 puts even its structure
+  off limits as code.
+- **Adopted:** nothing in code. One argument: **the clamp belongs to the server and the client never
+  names the instant.** It is why `Weapon.viewWindowFor` has no client-supplied term and why
+  `Validator.nearestInstant` is handed candidates the owner chose.
+
+### I. **NEW in v5.** Mirror (Unity) — lag compensation over a bounded history
+
+- <https://github.com/MirrorNetworking/Mirror>. **Licence: MIT.** **Maintenance:** actively
+  maintained, the most used open-source networking library for Unity.
+- **Well:** the one widely used OSS implementation of the thing check 5 is — a **bounded** ring of
+  past bounds per object, a lookup by estimated client timestamp, and an **explicit tolerance** on
+  the comparison rather than an exact match. It also keeps the history on the *object*, not on the
+  weapon, which is the owner boundary §1.2 states.
+- **Badly, for us:** C# and Unity colliders; it rewinds so the **server** can do a physics test
+  (Source's shape), not so it can validate a claim the client already made; and its bounds are AABBs
+  where ours is one `CFrame` plus a constant object-space offset.
+- **Adopted:** the discipline of a **bounded** history plus an **explicit named tolerance** on the
+  sample comparison, which is `bodyToleranceStuds`. **I could not verify its exact API names from
+  this run** (no network access) and none is cited here; see 15.5.
+
+### J. Borrowed from inside this repo (rule 2 applies to internal patterns too)
+
+- **The injected provider.** `setTargetProvider`, `setStandProvider`, `setDriveOpenProvider`,
   `setSafetyLineProvider`, `setHistoryProvider` — each a `pcall`, each defaulting to the strongest
   answer (for the claim: refuse).
-- **The injected cast.** `Weapon.setCast` / `Shotgun.CastFn`; `Claim.simulate` takes the same seam.
+- **The injected cast.** `Weapon.setCast` / `Shotgun.CastFn`; **check 6 uses it rather than adding a
+  second raycast door**, and `Claim.simulate` takes the same seam.
 - **Pure core, impure owner.** `Pattern`, `Hits`, `SafetyArc`, `StateMachine`, `Validator`, `Limits`
-  are pure and take `now` as a parameter. `Validator.pickViewInstant` and `closestOnSegments` follow
-  exactly: the owner does the Instance work, the pure half does the arithmetic.
+  are pure and take `now` as a parameter. `Validator.nearestInstant` and `closestOnSegments` follow:
+  the owner does the Instance work, the pure half does the arithmetic.
 - **A number that can only be read at one value cannot be tested at another.** `Ballistics.dropAt`'s
-  `g`, `Weapon.equipDelayFor`, `Validator.checkShot`'s fourth argument, **`Weapon.catchUpFor`'s
-  `ping` — which `Weapon.viewWindowFor` copies line for line.**
-- **Moving arithmetic out rather than writing it twice.** `Ballistics.segment` left `Flight.advance`
-  in task 266 for exactly the reason `closestOnSegments` leaves the owner in task 271.
-- **The worst-case counter as the argument for a bound.** `stats.originFarthest` /
-  `originRefusedFarthest` (task 260) → `claimWorstStuds`, `claimWorstLineStuds`,
-  **`claimWorstLagSeconds`**.
-- **A mechanism that loosens a rule and moves no number is deleted** — task 269b's backward search.
-  §1.2a item 15 binds v4 to the same test in advance.
-- **One cross-module invariant, asserted.** `tests/server/zz_horn.spec.luau` holds three modules to
-  one `METRES_PER_STUD`; `zz_claim_window.spec` holds the weapon's window inside the animal's memory.
+  `g`, `Weapon.equipDelayFor`, `Validator.checkShot`'s fourth argument, `Weapon.catchUpFor`'s `ping`,
+  `Weapon.setViewWindow` — and now `bodyToleranceStuds` as a fact rather than a config read (3.2).
+- **The worst-case counter as the argument for a bound.** `stats.originFarthest` (task 260) →
+  `claimBestProximityStuds`, `claimWorstPathStuds`.
+- **A field that records only the survivors measures the filter, not the thing** — task 274's
+  `claimLastPart`, which reversed what task 272 looked like. 4.9 applies it to the two new counters.
+- **A mechanism that loosens a rule and moves no number is deleted** — task 269b's backward search,
+  and task 271's own §1.2a item 15. 12.7 binds v5 to the same test in advance.
+- **One cross-module invariant, asserted in one file.** `zz_horn.spec` holds three modules to one
+  `METRES_PER_STUD`; `zz_claim_window.spec` holds the weapon's window inside the animal's memory.
 
 ### The pattern adopted
 
-**Client-simulated projectile with a server-validated hit claim, judged against the server's own
-rewind at a VIEW INSTANT the server chooses from its own history inside a latency-clamped window** —
-Epic's target-data division (C), Valve's and Gambetta's lag-compensation window reduced to one
-`CFrame` per animal and judged by arithmetic (B, H), FastCast's segment cast as the one stepper both
-sides share (A), the engine's clock and ping used only inside clamps (F), and VALORANT's contrary
-conclusion (D) named and refused for a stated reason — **with the flight time, the drag, the drop, the
-zero and the pattern untouched, so the lead this whole system exists to create is preserved.**
+**Client-simulated projectile with a server-validated hit claim, judged by a rule set in which every
+check is either exactly satisfiable by an honest client or budgeted against the animal's own
+measured body, at one instant the server chooses from its own history inside a latency-clamped
+window** — Epic's target-data division and its warning about client-supplied bounds (C), Valve's and
+Gambetta's lag-compensation window reduced to one `CFrame` per animal (B, G), id Tech 3's
+server-owned clamp (H), Mirror's bounded history with a named tolerance (I), FastCast's segment cast
+as the one stepper both sides share (A), the engine's own descendant filter for the line-of-sight
+cast (F), and VALORANT's contrary conclusion (D) named and refused for a stated reason — **with the
+flight time, the drag, the drop, the zero and the pattern untouched, so the lead this whole system
+exists to create is preserved.**
 
 ---
 
 ## 11. Numeric targets
 
+### 11.1 Direction C — the four acceptance criteria, and the half `ballistics` is accountable for
+
+| # | Criterion | The assertion | The instrument that reads it | Spec, or live only? |
+|---|---|---|---|---|
+| **C1** | honest claims accepted **≥ 95 %** on running animals at **20–60 m** | `claimsAccepted / (claimsAccepted + claimsRefused) ≥ 0.95` over a trial of ≥ 20 shots at animals moving at `TROT_SPEED` 18 to `SPRINT_SPEED` 38, at 71–214 studs, with `HIT_CLAIM` on | `Weapon.stats()` → `claims`, `claimsAccepted`, `claimsRefused`, `refusedClaimBy`, `refusedClaimWorst`, published as `ServerStorage.DHClaimStats` by `publishClaimStats` | **LIVE ONLY for the rate.** A spec can hold the *constructed* version — each check's stated honest worst case passes (12.1 case H) — but the RATE is a distribution and no spec produces latency: a loopback Studio session reads **1–2 ms of ping** (task 256 round 2) |
+| **C2** | a forged claim refused | a claim whose point is 30 studs from the animal is refused `claim-moved` **at every instant in the full 0.45 s window**, with the margin asserted as a RATIO over the tolerance so it cannot pass by the tolerance being widened. One forged case per deleted check as well: a point off the box (`claim-offset`), a point off the claim's own path (`claim-line`), an inflated `distanceStuds` (`claim-path`), a point behind a wall (`claim-blocked`), a future arrival (`claim-future`) | `weapon_shot.spec`'s live forged cases through `onFireRequest`; `weapon_hits.spec`'s pure cases through `judgeClaim` | **SPEC.** Six cases, all driveable with an injected cast, an injected provider and hand-written numbers |
+| **C3** | the vitals hit from **broadside, quartering and frontal** aspects | **`ballistics` is accountable for exactly one half: `refusedClaimBy` must be INDEPENDENT of the animal's aspect at the trigger.** The geometry half — that a frontal path reaches the heart and lungs at all — is `docs/design/hit-zones.md`'s and is stated there in degrees against task 276's measured 40–115° window | the aspect at the trigger, in the animal's own frame, beside each claim's verdict | **NEITHER, TODAY. THE INSTRUMENT DOES NOT EXIST**: 11.3 |
+| **C4** | **the lead equals the bullet's flight time only** | with the claim path on and an injected cast: a shot led by exactly `Ballistics.leadStuds(v, range)` produces a claim naming the aimed zone at 71, 143 and 214 studs for `v` in {18, 28.7, 38}; a shot led by **2×** that produces none; a shot with **no** lead produces one only while `v × flight` is inside the body's own half-extent, and the crossover range is **reported by the spec, not hard-coded** | `tests/client/weapon_client.spec.luau` over `Claim.simulate` with a scripted world. The existing two-pass lead table (worst \|error\| 0.009 studs over twelve rows, task 270) is half of it already | **SPEC for the arithmetic; LIVE for whether it feels right.** 16.1 Karen 1 |
+
+### 11.2 The rest
+
 | Target | How it is measured |
 |---|---|
-| **THE CORE: ≥ 4 of 5 led shots at a staged running deer are ACCEPTED claims naming the chest**, with the mark on the chest and an inspected frame | the request's own instrument: five led shots in the Forest Test with `HIT_CLAIM` on, `DHClaimStats` read live. This is the acceptance five tasks have failed |
-| **`claimWorstLagSeconds` lands in 0.10–0.30 s on a loopback session** | the brief measured 0.178 s of view lag once, as a refusal. If the sweep reports **under 0.02 s**, the mechanism carried nothing and §1.2a item 15 says delete it. If it reports **at or above `window`** with `claimLagAtEdge > 0`, `VIEW_LAG_BASE_SECONDS` is too small |
-| **`claimWorstLineStuds` falls from 5.46 to under 1.0 stud** | the decomposition says the across-path residual is 0.38 studs plus up to 0.63 of grid. Anything near 2.0 means the tolerance is doing work it should not have to (§15 item 3) |
-| **`claimWorstStuds` falls from ~5.12 to under 1.0 stud** | check 3 is now evaluated at the view instant. **This is the measurement that makes `POSITION_TOLERANCE_STUDS` 6.0 → 2.0 arguable**, §16 Director 1 |
-| **a STILL animal, 3 chest shots: chest hits, dust on the chest** | reads `SKIN_STUDS`, `LINE_TOLERANCE_STUDS`, `POSITION_TOLERANCE_STUDS`. The window contributes nothing at v = 0, which is itself the check |
-| **a FORGED claim, an animal 30 studs from where it was → REFUSED** at every instant in the window | 30 studs against `POSITION_TOLERANCE_STUDS = 6.0` is a factor of 5, and `v · 0.45 = 17.1` studs of path still leaves it outside |
-| **non-regression: `VIEW_LAG_BASE_SECONDS = VIEW_LAG_MAX_SECONDS = 0` reproduces v3 exactly** | one candidate, the identical `serverPoint`, the identical `judgeClaim` call, identical impacts. 12.1 case 32 |
-| **the sweep's cost on the server: 0 new raycasts** | grep: `Workspace:Raycast` appears once under `src/server/Weapon/` (`Cast.luau`) |
-| **the sweep's cost: ≤ 28 provider calls, ≤ 16 `Ballistics.advance` calls, ≤ 448 point-to-segment projections, and ONE ≤16-entry table, per CLAIMED shot** | `MAX_SUBSTEPS` × `VIEW_LAG_MAX_SAMPLES`. Single-pellet only, at most 6/s, so ≤ 2688 projections/s worst case: float arithmetic, no allocation in the inner loop. `weapon_hits.spec` counts the injected provider's calls and asserts the bound |
-| **`Runtime:stats().historyMisses` rises by at most 1 per claimed shot** | the break rule (4.9). Asserted in 12.1 case 34 |
-| **history memory: ≤ 96 CFrames per animal, preallocated, 0 allocations per step after the first ring fill** | `Runtime:stats().historySamples`; a pure spec fills a ring 10 000 times and asserts the length never exceeds `SAMPLES` |
-| **history cost ≤ 0.03 ms per step for 24 animals** | one table-field write per animal in a loop that already writes a `snapshot` entry per animal; a wall clock around `Runtime:step` in a Forest Test run |
-| the flight time, the drop, the zero, the pattern, `GRAVITY_SCALE` | **unchanged**; `ballistics.spec` cases 1–9 untouched |
-| `Hits.group` is the only `HitReport` constructor; one per (shot, target); `pellets` counted | grep plus `weapon_hits.spec` cases 3 and 4, unchanged |
-| **0 new remotes, 0 new rate-limited doors, 0 new payload fields, 0 new flags** | grep on `Shotgun.remotes` (six), on the `HitClaim` type's six fields, and on `Flags.MAX_FLAGS` (unchanged) |
+| **`claimWorstPathStuds` under 0.10 studs across a live trial** | check 4's honest value is float noise (4.7). Anything near 0.50 means the two sides are not flying one line and the defect is 259b's, not the view lag's |
+| **`claimBestProximityStuds` under 1.5 studs across a live trial** | check 5's honest worst case is about 1 stud (5.2). Against a 2.00–3.71 budget that is 2–3.7× of margin. **If it reads above the budget on honest claims the floor rises to the measured worst plus 50 %, one row, and the reason is written in advance** |
+| **`claimWorstLagSeconds` lands in 0.10–0.30 s on a loopback session** | the measured view lag is 0.178–0.19 s. **Under 0.02 s means the window carried nothing and is deleted** (271 §1.2a item 15 still binds). At or above `window` with `claimSweepIndex == claimSweepFound` means `VIEW_LAG_BASE_SECONDS` is too small |
+| **a STILL animal, 3 chest shots: chest hits, dust on the chest** | reads `SKIN_STUDS`, `CLAIM_LINE_STUDS` and the LOS cast. The window contributes nothing at `v = 0`, which is itself the check. Task 266b already met this (three of three `ZoneChest`) and it must not regress |
+| **non-regression: `Weapon.setViewWindow(0)` collapses to the arrival instant alone** | one candidate, `nearestInstant` returns index 1, identical `judgeClaim` call. The dial that turns the window off without touching the flag |
+| **the cost: ≤ 28 provider calls, ≤ 16 `Ballistics.advance` calls, ONE extra raycast, per CLAIMED shot** | single-pellet only, at most 6/s. `weapon_hits.spec` counts the injected provider's and the injected cast's calls and asserts both bounds. **The old cost — ≤ 448 point-to-segment projections — FALLS to ≤ 16**, because the path is walked once and `closestOnSegments` is called once, not once per candidate |
+| **`Runtime:stats().historyMisses` rises by at most 1 per claimed shot** | the break rule (4.9). The exception 271 round-2 note 14 found survives: a down, dead or unknown animal answers nil at all 19 instants and books 19. Fixed by breaking on the FIRST nil when `#candidates == 0` and the reason is not `"no-sample"` — queued, not built (16.9) |
+| **0 new remotes, 0 new rate-limited doors, 0 new payload fields, 0 new flags, 0 new raycast owners** | grep on `Shotgun.remotes` (six), on `HitClaim`'s six fields, on `Flags.MAX_FLAGS` (18), and on `Workspace:Raycast` under `src/server/Weapon/` (one, in `Cast.luau`) |
 | **the OFF state is bit-for-bit today's game** | `HIT_CLAIM = false` → `claimsIgnored` rises and nothing else moves |
+| the flight time, the drop, the zero, the pattern, `GRAVITY_SCALE` | **unchanged**; `ballistics.spec` cases 1–9 untouched |
+
+### 11.3 The instrument C3 needs and does not have
+
+Task 276a(a) measured it: **1–2 seconds pass between the instrument's chest-gate reading and the
+real focused click** (MCP round trips plus `park`/`click`), and a deer at 28 studs/s covers 30–60
+studs and turns in that time — **6 of 10 shots were tail-on at the trigger although all 10 passed a
+chest gate.** So no trial driven from outside the game loop can hold an aspect, and C3 cannot be
+read today, by a spec or by a live run.
+
+**What it would take, as two options, neither built by this task:**
+
+1. **A trigger inside the frame that reads the gate.** A Studio-only client module under the Forest
+   Test seam that, each `RenderStepped`, computes the aspect of the tracked animal in its own frame
+   and calls `Input.fire` in the **same frame** the aspect enters the asked-for band. That removes
+   the round trip entirely. It is a new instrument, it lives outside `src/` only if the Forest Test
+   can host it, and it needs its own task.
+2. **A slower animal.** Stage the release at `Boar.CONFIG.PACE.TROT_SPEED` 11 or `WALK_SPEED` 4.5
+   instead of `SPRINT_SPEED` 38 — the gate-to-trigger travel falls by 3.5× to 8.4×, from 30–60 studs
+   to 4–17, which is inside the aspect band. Cheaper, available today through `DHTestRelease`, and
+   it changes what is being measured (a walking animal is not the shot Karen is complaining about).
+
+**My reading: do (2) first to get a number at all, then (1) to get the number C3 actually asks
+for.** Either way, **C3 is not a merge gate for the build task**; it is an acceptance criterion the
+Director reads after.
 
 ---
 
@@ -1228,206 +1234,251 @@ zero and the pattern untouched, so the lead this whole system exists to create i
 
 ### 12.1 `tests/server/weapon_hits.spec.luau` — pure, over the injected cast, provider and `dt`
 
-Cases 1–29 stay as they are, **including case 24's twelve `judgeClaim` boundary assertions, which
-must not need editing** — that is the proof that `judgeClaim` did not change. Added:
+Case 24's twelve `judgeClaim` boundary assertions **must be rewritten**, because five of the facts
+they drive no longer exist. That is the honest cost of the rule change and it is stated rather than
+hidden: the proof is no longer *"`judgeClaim` did not change"*, it is *"every check is driven on both
+sides".*
 
-30. **`Validator.pickViewInstant`, every rule, on both sides.** Hand-written candidates and segments,
-    no world:
-    - the newest candidate wins when it is also the closest;
-    - an **older** candidate wins when the trajectory passes nearer to it — the whole point;
-    - a candidate that fails check 3 is **not** chosen even when it minimises check 4
-      (the circling-animal case);
-    - when **no** candidate passes check 3, the one with the smallest `movedStuds` is returned with
-      `anyPassedCheck3 = false`, so `judgeClaim` names `claim-moved` with the best number;
-    - an empty list returns `nil` and does not error.
-31. **STRICT SUPERSET, asserted and not hoped**: for 200 randomised candidate sets that include
-    `arrivalAt` as candidate 1, anything v3's single-instant rule accepted, `pickViewInstant` +
-    `judgeClaim` also accepts.
-32. **NON-REGRESSION BY PARAMETER**: with `VIEW_LAG_BASE_SECONDS = VIEW_LAG_MAX_SECONDS = 0`, the
-    whole claim path produces **byte-identical** impacts, reasons, measured values and budgets to the
-    same inputs through v3's single-instant code.
-33. **THE WINDOW RUNS BACKWARD ONLY**: a claim whose `firedAtView` is ahead of the server clock is
-    refused `claim-future` with the window at its full 0.45 — the sweep cannot rescue it.
-34. **THE SWEEP'S HOUSEKEEPING**: a provider that answers nil for the first candidate and a CFrame
-    for the second does **not** end the sweep; a provider that answers nil after a CFrame **does**;
-    `claimHistoryWhy` is written **only** when every candidate answered nil; the provider is called at
-    most `VIEW_LAG_MAX_SAMPLES` times.
-35. **`Validator.closestOnSegments` reproduces today's inline loop exactly**: 2 000 random
-    (polyline, point) pairs against the expression lifted from `src/server/Weapon/init.luau`, equal to
-    1e-9. The MOVE's regression proof, the same discipline `Ballistics.segment` got in task 266.
-36. **`Weapon.viewWindowFor`**: `nil`, negative, NaN and absent pings all contribute zero; a 0.08 s
-    ping gives `BASE + 0.08`; a 1.0 s ping clamps at `VIEW_LAG_MAX_SECONDS`; the result is never
-    negative and never above the cap.
-37. **THE MEASURED CASE, REPRODUCED PURELY**: a target crossing at 28.7 studs/s, a history that places
-    it 5.106 studs back at `arrivalAt − 0.178`, a trajectory through that older point. v3's rule gives
-    `claim-line 5.46/2.00`; v4's **accepts**, with `lineStuds < 1.0` and `lineLagSeconds` within one
-    grid step of 0.178. **This is the brief's measurement turned into a spec, so the fix cannot
-    silently stop working.**
+- **A. Check 3 both sides.** An offset on the box, an offset one skin over, an offset one skin under.
+- **B. Check 4 both sides, both halves.** A point on the claim's own path (`pathStuds` ≈ 0 → pass);
+  a point 0.51 studs off it → `claim-line`; a `distanceStuds` 1.01 studs from `pathAlongStuds` →
+  `claim-path`. The budget is read from `limits`, never a literal.
+- **C. `Validator.nearestInstant`, every rule.** Hand-written candidates, no world: the newest wins
+  when it is nearest; an **older** candidate wins when it is nearer — the whole point; the minimum
+  is returned alongside the index; an empty list returns `(nil, nil)` and does not error; the
+  function makes exactly one pass and no `limits` are consulted.
+- **D. Check 5 both sides, per kind.** A proximity of `bodyTolerance − 0.01` passes and
+  `bodyTolerance + 0.01` refuses `claim-moved`, driven **for each of the seven tolerances in 3.2**,
+  read from `Boar.CONFIG` rather than typed again. Plus the floor: a cub's and a calf's tolerance IS
+  `BODY_TOLERANCE_MIN_STUDS`, so the floor is reachable and not decorative.
+- **E. Check 6 both sides.** `losReach = losTarget` passes; `losReach = losTarget − 0.49` passes;
+  `losReach = losTarget − 0.51` refuses `claim-blocked`. Driven as two numbers, with no cast.
+- **F. Check 6's exclude list, through the owner, with an injected cast.** The cast is handed a list
+  and the case asserts that the list **contains the claimed target** and the shooter's ignore list.
+  **Deleting `table.insert(ignore, target)` must red this case** — the self-block fault
+  (269b, 273a(b), 274a(b)) is exactly what that one line removes.
+- **G. Check 7 both sides.** Unchanged: the age floor, the age ceiling, the flight tolerance.
+- **H. THE HONEST WORST CASE PASSES, AS ONE CASE** (direction A's own demand, and C1's constructible
+  half). Every check at its stated honest worst simultaneously: `pathStuds = 0.027` (task 266b's
+  measurement), `proximityStuds = 1.0`, `losReach = losTarget − 0.4`, `age = +0.075`, offset at the
+  box surface. **The claim is ACCEPTED.** If any budget is later tightened below its honest worst,
+  this case reds.
+- **I. `Validator.closestOnSegments` is unchanged**, re-asserted against 2 000 random
+  (polyline, point) pairs to 1e-9. It is the only piece of arithmetic carried across from v4.
+- **J. `Weapon.viewWindowFor`.** `nil`, negative, NaN and absent pings contribute zero; a 0.08 s ping
+  gives `BASE + 0.08`; a 1.0 s ping clamps at `VIEW_LAG_MAX_SECONDS`; `setViewWindow` overrides and
+  `setViewWindow(nil)` restores. **271 round-1 finding 1 said this function had ZERO cases and the
+  seam was dead production API; that must not ship twice.**
+- **K. The sweep's housekeeping.** A provider answering nil for the first candidate and a CFrame for
+  the second does **not** end the sweep; nil after a CFrame **does**; `claimHistoryWhy` is written
+  **only** when every candidate answered nil; the provider is called at most `VIEW_LAG_MAX_SAMPLES`
+  times.
+- **L. The degenerate claim.** `claim.flightSeconds == 0` → the path is empty. **271 round-2 note 13
+  measured that this refuses `claim-history` with no number** under v4. Under v5 it must refuse
+  `claim-time` (a zero flight cannot match any `timeToRange` for a positive distance), which is the
+  cause rather than a symptom. Asserted.
 
-### 12.2 `tests/server/boar_history.spec.luau` — pure, no world, no clock
+### 12.2 `tests/server/weapon_shot.spec.luau` — the LIVE cases, on the player's path
 
-Unchanged in substance; the ring-length assertions read `HISTORY.SAMPLES` rather than a literal, so
-64 → 96 needs no edit. If any literal 64 is present, it is replaced by the config read — a literal
-there is itself a defect.
+These are the cases that matter, because **271 round-1 finding 1 proved that the whole sweep could
+be deleted with the suite green.** Each case below must red when its line is deleted, and the
+request must say which line it deleted to prove it.
 
-1. `Boar.sampleAt` interpolates between bracketing samples and is exact at a sample.
-2. It **refuses** outside the span, before the oldest and after the newest, and never extrapolates.
-3. The ring wraps and never grows past `HISTORY.SAMPLES`; 10 000 writes leave `SAMPLES` entries.
-4. The rewound part CFrame = the trunk's rewound CFrame times the part's constant trunk-space offset.
-5. A down, dead or unknown animal answers nil, and so does an unknown Instance.
-6. **NEW: the ring spans `AGE_MAX_SECONDS + VIEW_LAG_MAX_SECONDS` of samples at 60 Hz** — the
-   consumer-side half of 3.3, so a future `SAMPLES` cut fails here as well as in `zz_claim_window`.
+- **The live ACCEPT at lag.** `setClaimPolicy(true)`, a scripted cast, a history provider that
+  ANSWERS `at` (`zone.CFrame * CFrame.new(travel * (at − now))`), the weapon loaded through
+  `refillForDrive` plus a real Reload (269b's escape), and a hand-built claim whose point is where
+  that part was **0.18 s before** `arrivalAt`. → the shot is taken, `claimsAccepted` moves by one,
+  `HitReported` fires once with the claimed part, `claimWorstLagSeconds` is within one grid step of
+  0.18, and `claimBestProximityStuds` is under 0.1.
+- **The live non-regression.** The same claim with `Weapon.setViewWindow(0)` → refused
+  `claim-moved`, with `claimBestProximityStuds` ≈ `v × 0.18` = 5.2 studs, and the impacts identical
+  to the same shot with no claim at all. **The two cases together are the whole of v5 through the
+  real handler, with no world and no second player.** **272a(b) is fixed here**: task 272's window-0
+  case was written to refuse and ACCEPTED (`best 1@0.550`), so it proved the sweep ran and not that
+  it changed a verdict. This pair does, because the two verdicts differ.
+- **The live LOS refusal.** The same accepted claim with the injected cast returning a block at
+  60 % of `losTargetStuds` → refused `claim-blocked`, note names the blocker's `GetFullName()`.
+- **The live SELF-BLOCK non-refusal.** The injected cast returns a hit on **the claimed animal's own
+  zone part** → the cast never sees it, because the exclude list contains the target, so the claim
+  is **accepted**. This is 274a(b)'s 7.275-stud refusal, turned into a case.
+- **The live forged claim.** 30 studs off → refused `claim-moved` at the full 0.45 window, the margin
+  asserted as a ratio.
+- **The OFF-state case.** Unchanged.
+- **`Weapon.claimLine`'s string.** Every counter it prints is asserted, including the two new ones.
+  271 round-2 note 16 found `lag=%.3fs` shipped with no assertion at all.
 
-### 12.3 `tests/server/zz_claim_window.spec.luau` — the cross-system invariant, widened
+### 12.3 `tests/server/zz_claim_window.spec.luau` — the cross-owner invariant, re-derived
 
-- `HISTORY.SAMPLES / 60 >= CLAIM.AGE_MAX_SECONDS + CLAIM.VIEW_LAG_MAX_SECONDS + 1/60`, **and the
-  existing `span / window >= 1.5` margin** (which is what forces 96, 3.3);
-- `CLAIM.VIEW_LAG_MAX_SAMPLES >= CLAIM.VIEW_LAG_MAX_SECONDS / CLAIM.VIEW_LAG_STEP_SECONDS + 1` — the
-  cap can never silently truncate the window;
-- `CLAIM.VIEW_LAG_BASE_SECONDS <= CLAIM.VIEW_LAG_MAX_SECONDS`;
-- `CLAIM.VIEW_LAG_STEP_SECONDS <= 1/60` — the grid is never coarser than the ring;
-- unchanged: `LINE_TOLERANCE_STUDS < BODY_SIZE.Z/2`, `POSITION_TOLERANCE_STUDS` within
-  `[BODY_SIZE.Z, 2·BODY_SIZE.Z]`, the reach-versus-longest-flight case.
+Two of its four assertions name rows that v5 deletes and must be rewritten, not merely edited:
 
-### 12.4 `tests/server/ballistics.spec.luau` — unchanged by v4
+- **kept:** `HISTORY.SAMPLES / 60 >= AGE_MAX_SECONDS + VIEW_LAG_MAX_SECONDS + 1/60`, and the
+  `span / window >= 1.5` margin (1.655 today);
+- **kept:** `VIEW_LAG_MAX_SAMPLES >= VIEW_LAG_MAX_SECONDS / VIEW_LAG_STEP_SECONDS + 1`;
+- **added, and 271 round-2 note 17 says they were specified and not built:**
+  `VIEW_LAG_BASE_SECONDS <= VIEW_LAG_MAX_SECONDS` and `VIEW_LAG_STEP_SECONDS <= 1/60`;
+- **replaces** *"the line tolerance is under half a boar's own body"* (`LINE_TOLERANCE_STUDS <
+  BODY_SIZE.Z/2`) with **`CLAIM_LINE_STUDS < BODY_TOLERANCE_MIN_STUDS`** — the self-consistency
+  budget must be far under the positional one, or the two checks stop being different questions;
+- **replaces** *"the position tolerance is about one body, not two"* with the body rule itself:
+  **for every kind in `Boar.CONFIG.KINDS.ORDER`, `BODY_TOLERANCE_FACTOR × trunkLength(kind)` floored
+  at `BODY_TOLERANCE_MIN_STUDS` is at least `BODY_TOLERANCE_MIN_STUDS` and at most one trunk
+  length.** It walks `ORDER`, so a new kind with no box fails here.
+- **added:** `MAX_SUBSTEPS × FLIGHT_STEP_MAX_SECONDS > timeToRange(rifle, 800)` — kept from today.
+- **added:** `LOS_SLACK_STUDS < BODY_TOLERANCE_MIN_STUDS` — a line-of-sight slack wider than the
+  positional budget would let a claim through a wall it is standing against.
 
-Cases 1–9 and the task-266 `Ballistics.segment` cases stay as they are. v4 touches no function here.
+### 12.4 `tests/server/boar_history.spec.luau` — unchanged in substance
 
-### 12.5 `tests/server/weapon_shot.spec.luau` — the LIVE cases, on the player's path
+`Boar.sampleAt` interpolates between bracketing samples and is exact at a sample; it **refuses**
+outside the span and never extrapolates; the ring wraps and never grows past `HISTORY.SAMPLES`; the
+rewound part CFrame is the trunk's rewound CFrame times the part's constant trunk-space offset; a
+down, dead or unknown animal answers nil. **The ring-length assertions must read `HISTORY.SAMPLES`
+rather than the literal `1.6`** — 271 round-2 note 17 found the literal `1.0667` had simply been
+edited to `1.6`, which is the same defect one commit later.
 
-- The sight-line case and the task-266 forged-claim case are **unchanged**, including the drain of
-  `Weapon.flightCount()`.
-- **NEW, the live accepted-at-lag case**: with `Weapon.setClaimPolicy(true)`, a scripted cast, and a
-  history provider that returns a part moving at 30 studs/s, a hand-built claim whose point is where
-  that part was **0.18 s before the claimed arrival** → the shot is taken, `stats.claimsAccepted`
-  moves by one, `HitReported` fires once with the claimed part, and `claimWorstLagSeconds` is within
-  one grid step of 0.18.
-- **NEW, the live non-regression case**: the same claim with the window parameterised to 0 →
-  refused `claim-line`, the impacts identical to the same shot with no claim at all. **The two cases
-  together are the whole of v4, through the real handler, with no world and no second player.**
-- **NEW, the live forged-at-every-instant case**: a claim 30 studs off is refused `claim-moved` at the
-  full 0.45 window, and the margin is asserted as a ratio over the tolerance so it cannot pass by the
-  tolerance being widened.
-- The OFF-state case is unchanged.
+### 12.5 `tests/server/ballistics.spec.luau` — unchanged by v5
 
-### 12.6 `tests/client/weapon_client.spec.luau` — unchanged mechanism, one added case
+Cases 1–9 and the task-266 `Ballistics.segment` cases stay as they are. v5 touches no function here.
 
-- `Claim.simulate` over an injected cast and a scripted world: aiming **AHEAD** by
-  `Ballistics.leadStuds` produces a chest claim; a **static obstruction** gives nil; the cast count is
-  under the `MAX_TARGETS × MAX_SUBSTEPS` bound; the two-pass lead table of 4.7 holds at 40, 100, 150
-  and 200 studs.
-- **NEW, section 1.4's crossover, driven rather than asserted in prose**: with a 7.05-stud box
-  crossing at 28.7 studs/s, aiming **AT** the chest produces a claim at 60 and 120 studs (naming a
-  point behind the aim point by `v · t`) and produces **nil** at 250. The range at which it flips is
-  **reported by the spec**, not hard-coded, so the number in 1.4's table is a measurement rather than
-  my arithmetic.
-- `Input.fire` sends the claim only when the policy is on.
-- The grep claims: `Workspace:Raycast` under `src/client/Weapon/` appears only in `Claim.luau`.
+### 12.6 `tests/client/weapon_client.spec.luau` — direction C4, and the reason split
 
-### 12.7 `tests/client/shoot_boar.spec.luau` — unchanged
+- **C4's table**, 11.1. Three speeds × three ranges, led / double-led / unled, with the crossover
+  range **reported by the spec**.
+- **The reason split (5.7).** A target impact with a nearer static impact answers `"blocked"`; no
+  target impact at all with a static one answers `"no-intersect"`; the string `"static-blocked"`
+  appears nowhere in `src/` after this task. **`tests/client/weapon_client.spec.luau` and
+  `src/client/Weapon/Claim.luau` are the only two files that mention it today.**
+- **The coarse gate (16.2).** With the animal's half-extent along `v` set to `v × FLIGHT_STEP_MAX_SECONDS`
+  exactly, the coarse pass is on the boundary; with the midpoint first guess it is inside by 2×.
+- The cast count stays under `MAX_TARGETS × MAX_SUBSTEPS × 2`.
+- The grep claim: `Workspace:Raycast` under `src/client/Weapon/` appears only in `Claim.luau`.
+  (`src/client/Camera/Rig.luau` casts too, for occlusion — a different question with a different
+  owner, named so the claim is honest.)
 
-It already leads with `Ballistics.timeToRange` through the camera owner's `LookAtRequest` — the
-end-to-end proof on the player's path, and the one case that proves the lead still has to be held.
+### 12.7 The delete-or-keep test, binding in advance
+
+271's §1.2a item 15 bound the sweep to a standard and it is kept: **if `claimWorstLagSeconds` reads
+under 0.02 s across a live trial, the window carried nothing and the sweep is deleted**, with
+`VIEW_LAG_*` and the ring's extra 32 samples going with it. v5 adds a second: **if
+`claimBestProximityStuds` and `claimWorstPathStuds` are both under 0.5 studs while `claimsRefused`
+is non-zero, the refusing check is not in this rule set** and the next task looks at the client's
+own simulation, not at the validator.
 
 ### 12.8 Harness input, screenshots, and what cannot be tested
 
-- **Harness input** (`tests/client/input_scenarios.txt`) can replay the click and stage the character.
-  It **cannot** aim at a moving animal on a schedule and cannot express "lead this target by this
-  much" (`tools/studio_mcp.py` docstring; TASKS.md Tasks 6–7), so the lead is computed **in the
-  spec**. **No new harness capability is needed and none is claimed.**
-- **The harness cannot produce latency or clock skew.** A loopback Studio session reads 1–2 ms of ping
-  (measured, task 256 round 2), so the *magnitude* of the view lag cannot be exercised by the gate at
-  all — only by Karen's own session, which is where the 0.178 s came from. Everything about the
-  mechanism is proved by **injected** times, pings and positions in the pure specs, and only *bounded*
-  in the live ones. **This is the single biggest limitation of this design's evidence and it is why
-  §11's first row is a Director acceptance run and not a spec.**
-- **Screenshot (rule 5): required.** One capture of a slug hit on a running deer with the override on,
-  inspected, showing the dust **on the chest** rather than behind it. A screenshot **cannot** show a
-  0.178 s view lag, and this design does not pretend otherwise.
+- **Harness input** (`tests/client/input_scenarios.txt`) can replay the click and stage the
+  character. It **cannot** aim at a moving animal on a schedule and cannot express "lead this target
+  by this much" (the `tools/studio_mcp.py` docstring; TASKS.md Tasks 6–7), so every lead is computed
+  **in the spec**. **No new harness capability is needed for the build and none is claimed.** The
+  instrument C3 needs is a different thing and is 11.3.
+- **The harness cannot produce latency or clock skew.** A loopback Studio session reads 1–2 ms of
+  ping, so the *magnitude* of the view lag cannot be exercised by the gate at all — only by Karen's
+  own session, which is where 0.178 s came from. Everything about the mechanism is proved by
+  **injected** times, pings, casts and positions in the pure specs, and only *bounded* in the live
+  ones. **This is the single biggest limitation of this design's evidence.**
+- **Screenshot (rule 5): required.** One capture of a slug hit on a running animal with the override
+  on, inspected, showing the dust on the zone the card names. **And it must be read with 16.6 in
+  hand**: the mark is drawn a body length behind the zone it names today, so a frame showing the
+  mark behind the chest is evidence of the DRAWING defect and not of this rule set.
 - **What cannot be tested at all, said plainly:** whether the shot now *feels* right, and whether
-  `GetServerTimeNow()` is tight between a real client and a real server. Both are §15.
+  `GetServerTimeNow()` is tight between a real client and a real server. Both are section 15.
 
 ---
 
-## 13. The harness tables, and the gate
+## 13. The harness, the gate, and the build order
 
-### 13.1 `tools/studio_mcp.py` — **no change**
+### 13.1 `tools/studio_mcp.py` — no change
 
-`BLAST_RADIUS` already maps every file v4 touches: `src/shared/Shotgun/` → `gun`,
-`src/server/Weapon` → `weapon`, `src/server/Boar` → `boar`. `SCOPE_SPECS` already holds
-`boar_history.spec` (`boar`) and `zz_claim_window.spec` (`weapon` and `boar`). **No new spec file, so
-no new row, and `selftest` cannot fail on this task.**
+`BLAST_RADIUS` already maps every file v5 touches: `src/shared/Shotgun/` → `gun`,
+`src/server/Weapon` → `weapon`, `src/client/Weapon` → `weapon`. `SCOPE_SPECS` already holds every
+spec file named above. **No new spec FILE, so no new row, and `selftest` cannot fail on this task.**
+If the Builder decides to add a spec file anyway, `SCOPE_SPECS` needs the row in the same commit or
+`selftest` fails — which is the system working.
 
-### 13.2 Which gate this task needs — **`test2` is NOT required, and that is a change from v3**
+### 13.2 Which gate — `test2` is N/A
 
-v3 needed `test2` because task 266 edited `src/server/MatchBoot.server.luau`, which is in
-`TWO_PLAYER_PATHS`. **v4 edits no composition root** — the history provider is already wired. The
-files are `src/shared/Shotgun/init.luau`, `src/server/Weapon/{init,Validator}.luau`,
-`src/server/Boar/init.luau` and their specs, and **not one of them is in `TWO_PLAYER_PATHS`**
-(`tools/agents.py`; CLAUDE.md, "Run / test": *weapon, viewmodel, camera, boar, hud, sound and tools
-need the one-player line only, for the PR to `main` as well*).
+**Not one file in 2.1 is in `TWO_PLAYER_PATHS`** (`tools/agents.py`): no `src/server/Match/`, no
+`MatchBoot`, no `src/client/Match/`, no `src/shared/Drive/`, no `tests/client/Role.luau`, none of the
+named specs. CLAUDE.md, "Run / test": *weapon, viewmodel, camera, boar, hud, sound and tools need the
+one-player line only, for the PR to `main` as well.*
 
 ```
 [harness] PASS: n/n checks @ <code commit> (clean tree) scope=all      <- the PR to main
 ```
 
-A review round may use `scope=auto:gun,weapon,boar`. **The Builder must not paste a `[harness2]` line
-and must mark that box N/A with this reason.** A second player answers exactly one class of question —
-who the OTHER player is — and nothing in v4 asks it.
+A review round may use `scope=auto:gun,weapon`. **The Builder must not paste a `[harness2]` line and
+must mark that box N/A with this reason.**
 
-### 13.3 Build order — three commits, each green on its own
+### 13.3 CARRY FORWARD, NOT ABSORB — the grep the build task owes (BRIEF item 13)
 
-CLAUDE.md rule 4 is one task per round. v4 splits, and **every step before the last is invisible with
-the flag off**:
+`claim-line` changes meaning and `LINE_TOLERANCE_STUDS`, `POSITION_TOLERANCE_STUDS` and
+`REACH_SLACK_STUDS` cease to exist. **Before the first behaviour change, the build task greps every
+one of them and lists what it found.** Measured at `a3b6663e`, 88 occurrences across eight files:
 
-1. **The MOVE and the rows.** `Validator.closestOnSegments` (lifted out of
-   `src/server/Weapon/init.luau`, the owner calling it with a one-segment-at-a-time list so the result
-   is identical), the four `CONFIG.CLAIM` rows, `Boar.CONFIG.HISTORY.SAMPLES` 64 → 96,
-   `zz_claim_window.spec`'s widened invariant, `weapon_hits.spec` case 35. **No behaviour change at
-   all.**
-2. **`Validator.pickViewInstant` and `Weapon.viewWindowFor`**, with cases 30, 31, 36 — **pure, and
-   nothing calls `pickViewInstant` yet.**
-3. **The sweep in the owner**: the candidate loop, the break rule, `claimHistoryWhy`'s new publication
-   point, the three stats fields, the refusal note's `lag`/`atEdge` pair, and cases 32, 33, 34, 37 plus
-   the three live cases in 12.5 and the client crossover case in 12.6. Then the Director's acceptance
-   run with the override on, then Karen.
+| file | what is there | what it becomes |
+|---|---|---|
+| `src/server/Weapon/Validator.luau` (15) | `judgeClaim`'s checks 3–5 and their comments | rewritten (4.3) |
+| `src/shared/Shotgun/init.luau` (6) | the three deleted rows and their headers | 3.1 |
+| `src/server/Weapon/init.luau` (8) | `judgeClaimFor`'s facts, the note branch, the counters | 4.9 |
+| `tests/server/weapon_shot.spec.luau` (47) | the live cases | 12.2 |
+| `tests/server/weapon_hits.spec.luau` (7) | case 24's boundaries | 12.1 |
+| `tests/server/zz_claim_window.spec.luau` (3) | two assertions that name deleted rows | 12.3 |
+| `src/client/Weapon/Claim.luau` (1) | a comment naming check 4 as what stops a mispredicted claim | **now check 5** |
+| `tests/client/weapon_client.spec.luau` (1) | a comment | 12.6 |
 
-Step 1 touches `src/server/Boar/init.luau` and step 3 does not, so the two scopes differ; both resolve
-inside `gun`, `weapon` and `boar`.
+**This design-only task does not do it.** It is step 0 of the build.
+
+### 13.4 Build order — three commits, each green on its own
+
+CLAUDE.md rule 4 is one task per round; this splits inside one task and **every step before the last
+is invisible with the flag off.**
+
+0. **The grep and the archive.** 13.3's list, plus `backups/design-ballistics-v4.md` with its
+   one-line note (rule 7, the header of this file).
+1. **The rows and the pure half.** `CONFIG.CLAIM`'s five in and three out;
+   `Validator.nearestInstant` replacing `pickViewInstant`; `judgeClaim` rewritten; the
+   `zz_claim_window` invariant re-derived; `weapon_hits.spec` cases A–E, G, I–L. **Nothing calls the
+   new `judgeClaim` with the new facts yet, so the game does not move.**
+2. **The owner.** `judgeClaimFor`'s rewrite: the path walk, the existential, the LOS cast, the
+   exclude list, the two new counters, the dead `reason == "moved"` fixed, the old counters removed.
+   `weapon_hits.spec` case F and H; all of `weapon_shot.spec` 12.2.
+3. **The client's reasons and the coarse gate.** `Claim.simulate`'s declared second return, the
+   `"blocked"` / `"no-intersect"` split, the midpoint first guess; `weapon_client.spec` 12.6
+   including C4's table. Then the Director's acceptance run with the override on, then Karen.
+
+Step 3 touches `src/client/Weapon/` and steps 1–2 do not, so the scopes differ; all three resolve
+inside `gun` and `weapon`.
 
 ---
 
 ## 14. The delta to `docs/design/shotgun.md` and `GAME_DESIGN.md`
 
-| `shotgun.md` | What v4 changes on top of v3's delta |
+| `shotgun.md` | What v5 changes |
 |---|---|
-| **§3.1 The one server owner** | add: `Weapon.Validator` gains `closestOnSegments` and `pickViewInstant`, both **moved**, both pure, and is **still the one place a payload is judged**. `Weapon` gains `viewWindowFor` — a latency read in the `catchUpFor` shape, not a new owner. **No new provider** (`setHistoryProvider` already exists) |
+| **§3.1 The one server owner** | `Weapon.Validator` keeps `closestOnSegments` and `claimImpact`, loses `pickViewInstant` and gains `nearestInstant`, and is **still the one place a payload is judged**. `Weapon` keeps `viewWindowFor` and `setViewWindow`. **No new provider and no new raycast owner** — check 6 goes through `setCast`'s existing seam |
 | **§5.1 Shared types** | **no change.** `HitClaim` keeps its six fields |
-| **§5.3 The pure core** | `judgeClaim` is unchanged; the two new helpers follow the same division — **the pure half judges the numbers, the owner does the Instance reads** |
-| **§5.5 The shot, step by step** | step 7 gains the sweep before the verdict. The order is otherwise unchanged |
-| **§5.7 "The client never names a target, and never casts"** | already REVERSED in v3. v4 adds one sentence: **the server now also chooses WHICH MOMENT it judges against, from its own history, inside a window clamped by the shooter's own measured latency** — and the enumerated cost of that is §5.4, including the two things it hands a modified client (free zone selection on an animal it engaged, and free no-lead inside `v · window`) |
-| **§11 Numeric targets — the one config table** | `CONFIG.CLAIM` gains four `VIEW_LAG_*` rows. **No existing number moves** |
-| **§11.1 Lag** | item (4) now reads: *the claim and the rewind, bounded, tasks 266 and 271 — judged at a view instant the server chooses inside a latency-clamped window.* The task-256 forward prediction is **not** replaced: the catch-up removes ping from the *server's own* flight for an unclaimed shot; the claim removes the view error for a claimed one. **Their interaction is a named open risk** (5.7) |
-| **§13.1 / §13.2 specs** | the cases in 12.1, 12.3, 12.5 and 12.6 |
+| **§5.3 The pure core** | `judgeClaim` is rewritten; the division is unchanged — the pure half judges the numbers, the owner does the Instance reads and the one cast |
+| **§5.5 The shot, step by step** | step 7 is the rule set of 5.2. The order is otherwise unchanged |
+| **§5.7 "The client never names a target, and never casts"** | already REVERSED in v3. v5 adds one sentence and it is a weakening, said plainly: **`req.direction` is unbounded, so the geometric check that claimed to stop "a hit on an animal the bullet passed beside" never did, and v5 deletes it rather than keep the claim.** The enumerated cost is 5.9 |
+| **§11 Numeric targets — the one config table** | `CONFIG.CLAIM` gains `CLAIM_LINE_STUDS`, `CLAIM_PATH_TOLERANCE_STUDS`, `BODY_TOLERANCE_FACTOR`, `BODY_TOLERANCE_MIN_STUDS`, `LOS_SLACK_STUDS`; loses `LINE_TOLERANCE_STUDS`, `POSITION_TOLERANCE_STUDS`, `REACH_SLACK_STUDS`. The four `VIEW_LAG_*` rows are unchanged |
+| **§11.1 Lag** | item (4) reads: *the claim and the rewind, bounded, tasks 266, 271 and 277 — judged at one instant the server chooses inside a latency-clamped window, with the positional budget derived from the animal's own trunk.* The task-256 forward prediction is not replaced; their interaction is a named open risk (5.2 check 7) |
+| **§13.1 / §13.2 specs** | the cases in 12.1–12.6 |
 | **§15 Open decisions** | gains section 16 below |
 
 **`GAME_DESIGN.md` rows:**
 
-- **"Where an animal WAS" (task 266), amended**: *a ring of `Boar.CONFIG.HISTORY.SAMPLES` (**96**,
-  1.6 s at 60 Hz) trunk CFrames per animal, written in `Runtime:step` and read only by
-  `Runtime:cframeAt`. The weapon is handed an answer per instant it asks about, never the buffer.
-  `Boar.Body` is still the one writer of where an animal IS. Design `docs/design/ballistics.md`
-  §§1.3, 4.6, 4.9.*
-- **the weapon row (41), amended**: *"…and `ServerScriptService.Weapon` validates it against the
-  Boar's position history with six checks before it becomes the shot's one impact. **Since task 271
-  the geometric checks are evaluated at a VIEW INSTANT the server picks from its own history, inside a
-  window clamped by the shooter's own measured latency (`Weapon.viewWindowFor`), because the picture
-  the shooter aimed at is older than the server's present — measured at 0.178 s.** A refused claim is
-  logged and the shot resolves from the server's own flight. Buckshot carries no claim. Behind
-  `HIT_CLAIM`, born off."*
-- **the shotgun-numbers row (44), amended**: `Shotgun.CONFIG.CLAIM` also carries the four `VIEW_LAG_*`
-  rows; still six RemoteEvents.
-- **the "client's claim" row (task 266)**: unchanged.
+- **the weapon row (41), amended:** *"…and `ServerScriptService.Weapon` validates it against the
+  Boar's position history before it becomes the shot's one impact. **Since task 277 the rule set is
+  seven checks, each named for the cheat it stops: an honest claim passes by construction, and the
+  positional budget is the claimed animal's own trunk (2.00–3.71 studs by kind) at one instant the
+  server picks from its own history inside a latency-clamped window. The line of sight is a real
+  cast from the muzzle, excluding the claimed animal itself.** A refused claim is logged and the
+  shot resolves from the server's own flight. Buckshot carries no claim. Behind `HIT_CLAIM`, born
+  off."*
+- **the shotgun-numbers row (44), amended:** `Shotgun.CONFIG.CLAIM`'s rows per 3.1; still six
+  RemoteEvents.
+- **"Where an animal WAS" (task 266):** unchanged.
+- **the "client's claim" row (task 266):** unchanged.
 
 ---
 
@@ -1436,94 +1487,139 @@ inside `gun`, `weapon` and `boar`.
 1. **THE SHARED CLOCK, first and loudest.** I cannot establish how tightly
    `Workspace:GetServerTimeNow()` agrees between a client and a server. Task 265 measured a ~0.17 s
    client/server position offset and **could not establish it** — the only control was a motionless
-   part, which reads 0.000 under any clock skew (`ESCALATE.md`, 2026-10-25). **v4 makes this matter
-   MORE, not less**, and that must be said: if some of the 0.178 s is clock skew rather than view lag,
-   the sweep is compensating for a clock error by looking at an older picture, which is wrong in
-   principle and right in effect. **`claimWorstLagSeconds` cannot tell the two apart.** The experiment
-   that could is a client and a server reporting `GetServerTimeNow()` for the same `Heartbeat`, and
-   nobody has run it. It is §16 Director 4.
-2. **Roblox Studio is not available to this run** (`.agent-evidence/INDEX.md`). **No number in this
-   file was measured by me.** 0.178 s, 28.7 studs/s, 5.106/5.120 and 5.457/2.000 are all read off
-   `reviews/task-271/BRIEF.md`'s quoted `DHClaimStats` line; 1.7 ms of ping is task 256 round 2;
-   2.137/1.000 is task 269b. Every `VIEW_LAG_*` value is a derivation from those, written as **a bound
-   to be measured**, not as a result.
-3. **I derived the across-path residual (0.38 studs) from a single refusal.** `sqrt(5.120² − 5.106²)`
-   is arithmetic on two numbers from one shot. **One shot is not a distribution.** If the residual is
-   routinely larger than that — a turning animal, a mis-set `BORE_ON_SIGHT_LINE`, a zone box that does
-   not follow the drawn mesh (item 5) — `LINE_TOLERANCE_STUDS = 2.0` will still refuse, and the
-   refusal will now say `atEdge=false`, which is the reading that sends this back to the geometry.
-4. **The grid's quantisation bound is arithmetic, not a measurement.** `v · VIEW_LAG_STEP_SECONDS` is
-   0.63 studs at 38 studs/s, and I argued it is conservative because a sampled minimum is never below
-   the true minimum. That is true of the *minimum*; it is not a proof that the chosen *instant* is the
-   one a finer grid would choose. Case 30 drives the rule; nothing drives the grid's fineness against
-   a continuous ground truth.
-5. **Whether the client's view of a `LinearVelocity`-driven trunk and its welded zone parts is
-   coherent sub-frame.** The weld makes the offset constant *by construction* (`Body.buildZones`), but
-   I have not seen it on screen, and with `BOAR_MODEL` on the drawn mesh is a separate non-queryable
-   child whose animation does **not** move the zone boxes — so the client aims at a box that may be a
-   few centimetres from the limb it is drawn over. That is today's game and not this task's, but a
-   claim makes it *the thing being claimed*.
-6. **Task 265's unexplained 3-stud rump hit is NOT explained by this design and is not claimed to
-   be.** A chest-aimed shot on a moving hind landed at trunk z +2.915 against a chest spanning
-   −1.625..−0.086. **v4 makes it easier to hide than v3 did**, because the view instant absorbs
-   along-the-body error that v3 would have refused. `claimWorstLineStuds` is still the number that
-   would show it, and it is now a weaker detector. §16 Director 5.
-7. **`Weapon.viewWindowFor`'s ping term is untested against a real connection** and reuses a factor
-   whose units the engine does not document (`FLIGHT_CATCHUP_PING_FACTOR`, *"the network ping in
-   seconds"*, round trip or one way unknown). On a loopback session the term contributes 1.7 ms and
-   the base does everything, so **the gate cannot distinguish a correct ping term from a dead one.**
-   `claimViewWindowMax` is the only thing that will.
-8. **I did not re-read `Flight.advance`, `Hits.group` or `Runtime:step` line by line in this run.** I
-   read `Validator.judgeClaim`, the claim path in `src/server/Weapon/init.luau`, `Claim.luau` in full,
-   `Shotgun.CONFIG.CLAIM` and `zz_claim_window.spec`'s assertions. Statements about the other three
-   are carried from v3 and from their symbol names, not re-verified.
+   part, which reads 0.000 under any clock skew (`ESCALATE.md`, 2026-10-25). If some of the measured
+   0.19 s is clock skew rather than view lag, the window is compensating for a clock error by looking
+   at an older picture, which is wrong in principle and right in effect. **No counter in this design
+   can tell the two apart.** The experiment that could is a client and a server reporting
+   `GetServerTimeNow()` for the same `Heartbeat`; nobody has run it. 16.3 Director 4.
+
+2. **THE "~5 STUDS BEHIND" AND THE MARK DEFECT MAY BE THE SAME 5 STUDS, MEASURED TWICE.** The BRIEF's
+   MEASURED NOW 1 reports the impact landing −3.6 to −7.1 studs along the animal's velocity, and
+   276a(c) reports the drawn mark sitting **5.033 studs** behind the zone it names because
+   `Effects.puff` converts the world point with the part's **current** CFrame. Those are the same
+   magnitude and the same sign. **Nothing in the ledgers separates them**, and I did not read the
+   instrument (it lives in `<runs-dir>/`, outside the repo). **The probe that settles it:** compare
+   the impact's world point against the claimed part's CFrame **as it was at the resolution instant**
+   (`candidates[1]`'s rewind), not as it is when the listener reads it — if the gap collapses, the
+   5 studs is an instrument and a drawing defect, and this design's premise about the view lag's
+   *magnitude* needs re-measuring before `VIEW_LAG_BASE_SECONDS = 0.30` is defended. **The design
+   does not depend on the magnitude** — the window is a server-owned bound, and `claimWorstLagSeconds`
+   argues it down from evidence — but the acceptance run does.
+
+3. **WHETHER `Places.unblockFoliage` HAS RUN IN THE SESSION KAREN PLAYS.** Check 6 depends on it
+   (5.6 item 3). I verified the function, its measured justification and its call site
+   (`Places.foliageRoots(root)` inside the planting path), but **not that the planting path runs in
+   the Forest Test session** — and the sweep is the only thing that stops a colliding `Branch` from
+   refusing an honest claim, because `CanQuery = false` demonstrably does not. **The probe:** read
+   `report.unblocked` in the live session; a 0 in Karen's wood means 623 foliage parts and 127
+   colliding branches are still blocking and check 6 will refuse honest shots at animals behind
+   leaves. **If it has not run, the build task must not ship check 6 without it.**
+
+4. **I HAVE NOT MEASURED CHECK 5's QUANTITY.** `proximityStuds` — the minimum over the window of
+   `|rewound(t)·offset − claim.point|` — has never been published by any build. My honest worst case
+   (about 1 stud, 5.2) is arithmetic over four named terms, not a reading. The budget's floor is set
+   at 2.0 and the per-kind values run to 3.71, which is 2–3.7× that arithmetic, and
+   `claimBestProximityStuds` ships with the check precisely so the first live trial argues it.
+   **If the first trial reads above the budget on honest claims, the floor rises to the measured
+   worst plus 50 % — one row, decided in advance, not another task.**
+
+5. **TWO OF THE TEN SOURCES ARE CITED AT A LEVEL I COULD NOT CHECK FROM THIS RUN.** This session has
+   no network access. The FastCast, Valve, Epic, Riot, Fiedler, Roblox and Gambetta entries carry
+   forward from v4 with their licences and maintenance as recorded there. **ioquake3 (H)** and
+   **Mirror (I)** are new in v5: I am confident of each project's identity, repository and licence
+   (GPL-2.0 and MIT), and I have deliberately **named no API, no file and no function** in either —
+   what is adopted from each is an argument, not an interface. A reader who wants the API names must
+   open the repositories.
+
+6. **ROBLOX STUDIO IS NOT AVAILABLE TO THIS RUN** (`.agent-evidence/INDEX.md`). **No number in this
+   file was measured by me.** 0.178 s, 0.19 s, 28.7 studs/s, 5.120, 5.457/2.000, 4.09/2.00,
+   2.137/1.000, 4.105/3.40, 7.275/3.40, 0.027, `sweep=19/19 win=0.301s spread=8.046`, `took == best`,
+   6-of-10 tail-on and 5.033 are all read off `TASKS.md` rows 265–276a and
+   `reviews/task-271/{BRIEF,RESULT}.md`. The box sizes, scales, config values and code behaviours are
+   read off the files named beside them at `a3b6663e`. Every derived number (the lead table, the
+   flight times, the seven tolerances, the grid's 0.63) is arithmetic over those, shown rather than
+   asserted.
+
+7. **I DID NOT RE-READ `Flight.advance`, `Hits.group`, `Runtime:step` OR `Pattern.directions` LINE BY
+   LINE.** I read `Validator` in full, `judgeClaimFor` and `viewWindowFor` in full,
+   `src/client/Weapon/Claim.luau` in full, `Cast.world`, `Hits.targetOf`, `Boar.Body.buildZones` and
+   `Body.create`, `Boar.CONFIG.ZONES` / `SPECIES.reddeer.ZONES` / `KINDS`, `Shotgun.CONFIG.CLAIM`,
+   `Places.unblockFoliage`, `Effects.puff` and `zz_claim_window.spec`. Statements about the other
+   four are carried from v4 and from their symbol names.
+
+8. **271 ROUND-1 FINDING 1 IS THE RISK THIS DESIGN CARRIES INTO THE BUILD.** The Reviewer proved that
+   v4's entire behaviour change could be deleted with the suite green. v5 adds more owner-side code
+   than v4 did (the path walk, the LOS cast, the exclude list). **I cannot test, so 12.2's "each case
+   must red when its line is deleted" is an instruction, not a verification**, and the review request
+   must name which line it deleted for each.
 
 ---
 
-## 16. Open decisions
+## 16. Open decisions, and every carried item placed
 
-### For Karen — feel. **None blocks building.**
+### 16.1 For Karen — feel. **None blocks building.**
 
-1. **Does the shot now land where she aimed?** The question this task exists for, on its sixth
+1. **Does the shot land where she aimed?** The question this system exists for, on its seventh
    attempt. `python tools/flags.py set HIT_CLAIM on`, play, then read `Weapon.stats()`:
-   `claimsAccepted` against `claimsRefused`, `refusedClaimBy`, and **`claimWorstLagSeconds`**.
-   *"It still feels behind"* and *"sometimes it does not register"* are **different** answers with
-   different dials: the first is `LINE_TOLERANCE_STUDS` or the client's own simulation, the second is
-   the window (`claimLagAtEdge > 0`) or the clock.
-2. **Does free zone selection matter to her?** 5.4 says a modified client can claim any zone of an
-   animal it genuinely shot at. The game is co-operative PvE and this design treats that as acceptable
-   (source D). **It is her game.** If she wants it closed, the answer is a smaller window, which costs
-   honest high-ping players hits — the trade, not a bug.
-3. **Close shots on fast animals, and buckshot**, both unchanged from v3. If buckshot specifically
-   feels off on running animals, the honest knob is `DRAG_PER_STUD.Buck`, **not** nine claimed pellets.
+   `claimsAccepted` against `claimsRefused`, `refusedClaimBy`, `claimBestProximityStuds`,
+   `claimWorstPathStuds`, `claimWorstLagSeconds`. *"It still feels behind"* and *"sometimes it does
+   not register"* are **different** answers with different dials: the first is the client's own
+   simulation or the drawing (16.6), the second is the window or the clock.
+2. **Does free zone selection matter to her?** 5.9 says a modified client can claim any zone of an
+   animal it genuinely engaged. The game is co-operative PvE and this design treats that as
+   acceptable (source D). **It is her game.** If she wants it closed, the answer is a smaller window,
+   which costs honest high-ping players hits — the trade, not a bug.
+3. **Close shots on fast animals, and buckshot.** Unchanged. If buckshot specifically feels off on
+   running animals, the honest knob is `DRAG_PER_STUD.Buck`, **not** nine claimed pellets.
 
-### For the Director — scope. **None blocks building.**
+### 16.2 For the Director — scope. **None blocks building.**
 
-1. **`POSITION_TOLERANCE_STUDS` 6.0 → 2.0, after the acceptance run.** v4 predicts `claimWorstStuds`
-   collapses from ~5.12 to under 1.0 because check 3 is now evaluated at the right instant. If it
-   does, 6.0 is ten times looser than it needs to be and tightening it **removes most of what
-   Candidate A would have given away**, making the whole system tighter than v3. Argued from the
-   measurement, exactly as `CAMERA_ORIGIN_TOLERANCE` was argued from `originFarthest`. **A separate
-   task; this design does not take it**, because the brief says no tolerance change.
-2. **`VIEW_LAG_BASE_SECONDS = 0.30` is the one invented number in v4.** It is the measured 0.178 s with
-   1.7× margin. Lower refuses honest shots on a slow frame; higher hands a modified client more
-   no-lead. Argue it down from `claimWorstLagSeconds` after one real session.
-3. **The next tightening available, named and not built:** a **per-player** window, clamped to that
-   player's own recent median `lineLagSeconds` plus slack, instead of one constant for everybody. It
-   would make a low-ping cheater's licence smaller than a high-ping honest player's, which is the
-   correct shape. It needs per-player state in the weapon, which this task declines to add.
-4. **The clock experiment** (§15 item 1). A client and a server reporting `GetServerTimeNow()` for the
-   same `Heartbeat` would say how much of the 0.178 s is view lag and how much is skew. Until it is
-   run, v4 compensates for both with one number. Worth a task of its own; **it does not block this
-   one**, because the sweep is right for view lag and harmless for skew.
-5. **Task 265's unexplained 3-stud rump hit is now harder to find, not easier** (§15 item 6). If the
-   Director wants it closed first, this task waits behind it. My reading: it should not — five tasks
-   have failed to land one accepted claim, and the instrument that would find the rump hit
-   (`claimWorstLineStuds`) is only readable once claims are *accepted*.
-6. **`claim-future` on a real connection** (5.7). The condition and the one-line fix are written down.
-   It is a task when `claimAgeMin` goes negative, not before.
-7. **When to flip `HIT_CLAIM`'s default.** Born off, `expires = "2026-11-15"`, three weeks after
-   2026-10-25. **Today is 2026-10-26 and v4 does not move the date.** Karen's OK is the three-line
-   commit; a refusal retires the row and archives the claim path under `backups/` (rule 7).
-8. **`Match.CONFIG.SAFETY_RANGE_STUDS` is still 330 while the rifle reaches 800** (TASKS.md 183a, still
-   open). Untouched again, for the same reason: `src/server/Match/` is a `TWO_PLAYER_PATH`.
+1. **`VIEW_LAG_BASE_SECONDS = 0.30` is still the one invented number**, and 15.2 says its justifying
+   measurement may be confounded with a drawing defect. Argue it down from `claimWorstLagSeconds`
+   after one real session, and re-measure the view lag against the resolution-instant CFrame first.
+2. **`claim-future` on a real connection.** `Weapon.catchUpFor` resolves early on purpose, so `age`
+   is expected to go negative. The condition (`claimAgeMin < 0` with a non-zero
+   `refusedClaimBy["claim-future"]`) and the one-line fix (`claim-early`, floored at
+   `−FLIGHT_CATCHUP_MAX_SECONDS`) are written in 5.2 check 7. **A task when the reading appears, not
+   before.**
+3. **A per-player window**, clamped to that player's own recent median lag plus slack, instead of one
+   constant for everybody. It would make a low-ping cheater's licence smaller than a high-ping honest
+   player's, which is the correct shape. It needs per-player state in the weapon; this design
+   declines to add it.
+4. **The clock experiment** (15.1). Worth a task of its own; it does not block this one, because the
+   window is right for view lag and harmless for skew.
+5. **The instrument C3 needs** (11.3), as its own task. My reading: take the cheap option first (a
+   walking animal) to get any aspect-resolved number at all, then build the in-frame trigger.
+6. **When to flip `HIT_CLAIM`'s default.** Born off, `expires = "2026-11-15"`. Karen's OK is a
+   three-line commit; a refusal retires the row and archives the claim path under `backups/` (rule 7).
+7. **`Match.CONFIG.SAFETY_RANGE_STUDS` is still 330 while the rifle reaches 800** (TASKS.md 183a,
+   still open). Untouched again, for the same reason: `src/server/Match/` is a `TWO_PLAYER_PATH`.
+
+### 16.3 Carried from the 265–276 run — every item placed, none dropped (BRIEF item 14)
+
+| item | what it is | **placed where** |
+|---|---|---|
+| **269a(b)** | the client builds no claim when the snapshot's chamber reads empty (`Claim.forCamera` → `"no-ammo"`), so a hunter who fires without the snapshot having caught up silently gets the server's own resolution | **PLACED, build step 3.** The owner is `PlayerScripts.Weapon.Claim` → `Claim.forCamera`. The ammo is read **only** to pick the ballistic row and to refuse a pattern, and **the server re-checks both off its own row** (`Validator.checkClaim`'s `pellets`, and check 7's `timeToRange`). So the client may fall back to the **last chamber kind it saw** instead of refusing: a wrong guess can only produce a claim the server refuses on its own data. One client case: a nil snapshot after a Reload still builds a claim, and a pattern load still does not |
+| **270a(a)** | the coarse pass's gate: the first cast uses `velocity × pellet.elapsed`, so a correctly led shot can be gated out before the refinement | **PLACED, build step 3, with the arithmetic.** The error is bounded by `v × FLIGHT_STEP_MAX_SECONDS` = **1.27 studs at `SPRINT_SPEED` 38** — not by the whole lead, which is what 270's own note implied. Against the smallest trunk half-length in the game (**cub, 1.24 studs**) it bites **exactly**, and against every other kind it does not. The fix is one expression: the first guess becomes the sub-step's **midpoint**, `elapsed + (length/2)/speed`, which halves it to 0.63 |
+| **271 round-1 finding 5** | `claimWorstEndStuds` and `claimWorstLineStuds` are now **identically the same expression**, and the along-track instrument is gone | **RESOLVED BY DELETION, build step 2.** Both counters measure old check 4 and go with it (4.4) |
+| **271 round-1 finding 6** | `claimLagAtEdge` and `claimViewWindowMax` were specified by v4 and never built | **WITHDRAWN AS NAMES, build step 2.** Task 272 shipped `claimSweepIndex`, `claimSweepFound` and `claimSweepWindow`, which answer the same two questions (`atEdge` is `claimSweepIndex == claimSweepFound`). Two names for one reading is the failure this project is named after. Grep confirms neither name exists in `src/` at `a3b6663e` |
+| **271 round-1 finding 7** | `if reason == "claim-line" or reason == "moved"` — `judgeClaim` never returns `"moved"`, so the only refusal the fallback was written to explain carries a nil note. **Still unfixed at `a3b6663e`** | **PLACED, build step 2.** `"claim-moved"`. One word |
+| **272a(b)** | the window-0 half of the owner case was written to refuse and ACCEPTS, so the case proves the sweep RUNS but not that it changes a verdict | **PLACED, build step 2** — 12.2's accept/refuse pair is written so the two verdicts differ, and the case names which line it deleted to prove it |
+| **273a(b), 274a(b)** | `claim-blocked` at 4.105 and at **7.275** against a 3.40 bound, stopped by the claimed animal's own chest zone | **RESOLVED BY DELETION, build step 2.** The reach rule and the entire waiver go; the LOS cast excludes the claimed animal, so the case cannot arise (5.6). `weapon_shot.spec`'s live self-block case is 12.2 |
+| **275a(c)** | `static-blocked` is the commonest no-claim cause | **REFUTED AS A READING, 5.7, and placed as build step 3.** The string is returned for a plain miss. The split into `"blocked"` / `"no-intersect"` is what makes the next trial answer the question |
+| **275a(a)** | a shooter who also leads applies the compensation twice | **REFUTED, 5.5, with the arithmetic.** 276 already withdrew the 0/5-vs-2/5 signal as sampling. Nothing is removed and nobody owns a removal |
+| **276a(c)** | **the mark is drawn a body length behind the zone it names** — `Effects.puff` converts the hit's world position with the part's CURRENT CFrame and then locks the emitter to the part, so it is off by the animal's travel (5.033 studs, measured) | **NAMED, NOT FOLDED IN, as the BRIEF instructs.** Owner: **`PlayerScripts.Weapon.Effects` → `puff`**, at `attachment.CFrame = attachTo.CFrame:ToObjectSpace(frame)`. It is a **client drawing defect, not a validation one**, and it needs its own task: either carry the hit CFrame on `ShotLanded` and convert with that, or draw the card's zone from the point. **It also confounds the measurement this whole run rests on** — 15.2 |
+| **276a(d)** | *is a head-on chest shot supposed to read `body`?* | **DIRECTION B's**, answered in `docs/design/hit-zones.md`. `ballistics` is accountable only for C3's other half: the accept rate must not depend on aspect (11.1) |
+| **271 round-2 note 13** | `claim.flightSeconds == 0` refuses `claim-history` with no number | **PLACED, 12.1 case L.** Under v5 it refuses `claim-time`, which is the cause |
+| **271 round-2 note 14** | a down, dead or unknown animal books up to 19 `historyMisses` and 19 ancestor walks instead of 1 | **QUEUED, not built.** The fix is to break on the FIRST nil when `#candidates == 0` and the reason is `"no-sample"` rather than a provider error. One `if`; it changes no verdict, only a counter's meaning. TASKS.md, before release |
+| **271 round-2 note 15** | on the no-candidate path the published reason is the OLDEST instant's, not the arrival instant's | **QUEUED, not built.** Same string in every case anyone has constructed; worth one comment |
+| **271 round-2 note 18** | the refusal note reads `part.AssemblyLinearVelocity`, which is the weapon asking where an animal is **now** | **PLACED, build step 2.** The note takes the travel from the sweep's own two rewinds instead (9.1) |
+| **271 round-2 note 19** | `viewWindowFor` is inserted between `catchUpFor` and `catchUpFor`'s own header, so the task-256 doc block reads as the wrong function's preamble | **PLACED, build step 2.** Move the header back |
+| **271 round-2 note 21** | *"v4 is a strict superset of v3, asserted"* overstated the case; the 200 randomised sets never shipped | **MOOT.** v5 is **not** a superset of v4 and does not claim to be: it deletes a check. 12.1 case H is the property that replaces the claim — the honest worst case is accepted, driven, on one case |
+
+---
+
+**What this document is accountable for, in one sentence:** that an honest client's claim passes,
+that each refusal names a cheat, that one instant serves both checks that need one, and that the
+lead a player must hold is the bullet's flight time and nothing else. **The zones it lands in are
+`docs/design/hit-zones.md`'s.**
