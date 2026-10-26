@@ -167,11 +167,21 @@ function Claim.simulate(opts: {
 		table.insert(staticIgnore, target.root)
 	end
 
+	-- WHY NO CLAIM WAS BUILT, AS A WORD (task 275). **MEASURED**: of five led shots at a running
+	-- deer's chest in task 274, TWO sent no claim at all and nothing anywhere said which gate had
+	-- closed. `nil` is the common case and is not a failure -- but "the client refused to claim"
+	-- has five different meanings and a player feels all of them as a miss.
+	--
+	-- RETURNED, NOT STORED: this module holds no state and writes no Instance, which is its own
+	-- header's rule. `Input.fire` is where it becomes a Studio-only attribute.
+	if #targets == 0 then
+		return nil, "no-target"
+	end
 	for _ = 1, limits.MAX_SUBSTEPS do
 		local nextPosition, nextVelocity, segment, length, capped =
 			Ballistics.segment(pellet, stepCap, opts.shot, opts.rangeStuds)
 		if length <= 1e-6 then
-			return nil
+			return nil, "no-segment"
 		end
 
 		-- (1) THE STATIC WORLD. **ITS DISTANCE IS WHAT MATTERS, NOT ITS EXISTENCE**, and that
@@ -207,6 +217,10 @@ function Claim.simulate(opts: {
 		local bestHit: Shotgun.Impact? = nil
 		local bestShift = Vector3.zero
 		local bestAlong = math.huge
+		-- DID THE COARSE PASS FIND THE ANIMAL AND THE REFINEMENT LOSE IT (task 275)? That is task
+		-- 270's drop-on-nil rule firing, and it is the one reason a claim vanishes that the player
+		-- cannot see any cause for.
+		local refinedNil = false
 		-- THE ANIMAL IS ADVANCED TO THE INSTANT THE BULLET ACTUALLY ARRIVES, NOT TO THE START OF
 		-- THE SUB-STEP (task 270). `pellet.elapsed` is the clock at the sub-step's FIRST edge, and
 		-- one sub-step at the rifle's 2612 studs/s is `FLIGHT_STEP_MAX_SECONDS` long -- about 87
@@ -246,6 +260,9 @@ function Claim.simulate(opts: {
 				local along = (hit.position + shift - pellet.position).Magnitude
 				local refinedShift = target.velocity * (pellet.elapsed + along / speed)
 				local refined = castTarget(pellet.position - refinedShift, segment, staticIgnore)
+				if refined == nil then
+					refinedNil = true
+				end
 				if refined ~= nil then
 					hit = refined
 					shift = refinedShift
@@ -260,7 +277,11 @@ function Claim.simulate(opts: {
 		end
 		if bestHit == nil then
 			if static ~= nil then
-				return nil
+				-- THE STATIC WORLD STOPPED IT: a tree, a post or the ground in front of the animal.
+				-- `refinedNil` says the other thing -- the animal WAS found by the coarse pass and
+				-- the refinement at the arrival instant missed it (task 270's drop-on-nil rule),
+				-- which is a different sentence and a different fix.
+				return nil, if refinedNil then "refined-nil" else "static-blocked"
 			end
 		else
 			local hit = bestHit :: Shotgun.Impact
@@ -294,14 +315,14 @@ function Claim.simulate(opts: {
 		end
 
 		if capped then
-			return nil
+			return nil, "range-capped"
 		end
 		pellet.travelled += length
 		pellet.elapsed += stepCap
 		pellet.position = nextPosition
 		pellet.velocity = nextVelocity
 	end
-	return nil
+	return nil, "out-of-substeps"
 end
 
 -- THE GATHERER: everything `simulate` needs, read off the live client, and nothing else.
@@ -324,20 +345,20 @@ function Claim.forCamera(cframe: CFrame, snapshot: any?, firedAtView: number?): 
 	local player = Players.LocalPlayer
 	local character = player and player.Character
 	if character == nil then
-		return nil
+		return nil, "no-character"
 	end
 	local tool = character:FindFirstChildOfClass("Tool")
 	if tool == nil then
-		return nil
+		return nil, "no-tool"
 	end
 	local muzzle = Shotgun.muzzleOf(tool)
 	if muzzle == nil then
-		return nil
+		return nil, "no-muzzle"
 	end
 	local id = Weapons.idForToolName(tool.Name)
 	local row = id and Weapons.ROWS[id]
 	if row == nil then
-		return nil
+		return nil, "no-row"
 	end
 	-- WHICH LOAD IS IN THE CHAMBER, off the snapshot the server published -- never guessed. With no
 	-- snapshot there is no claim: the ammo decides the flight time, the range AND whether a claim is
@@ -346,17 +367,20 @@ function Claim.forCamera(cframe: CFrame, snapshot: any?, firedAtView: number?): 
 		then snapshot.loaded[snapshot.selected]
 		else nil
 	if type(ammo) ~= "string" then
-		return nil
+		-- **THE ONE TASK 269a(b) NAMED**: a snapshot whose chamber is empty -- a second shot taken
+		-- without cycling -- builds no claim at all, and the player gets the server's own
+		-- resolution with no sign the feature stood down.
+		return nil, "no-ammo"
 	end
 	-- A PATTERN LOAD CLAIMS NOTHING, decided off the row on BOTH sides (the server re-checks it;
 	-- design section 6). Buckshot's cone at its own 100-stud reach is wider than the error a claim
 	-- would remove.
 	if (row.PELLETS and row.PELLETS[ammo]) ~= 1 then
-		return nil
+		return nil, "pattern"
 	end
 	local shot = Ballistics.shotFor(row, ammo)
 	if shot == nil then
-		return nil
+		return nil, "no-ballistics"
 	end
 
 	local origin = Ballistics.boreOrigin(cframe.Position, cframe.LookVector, muzzle, Shotgun.CONFIG.BORE_ON_SIGHT_LINE)
