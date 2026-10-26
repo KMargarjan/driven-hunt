@@ -64,3 +64,42 @@ Twelve attributes before and twelve after, the same twelve: `HIT_CLAIM` set ON f
 **OFF again** as rule K and the dispatch require; `flags.py --place forest clear` never run;
 `DHTestOwns` added for the session and removed by name. Play stopped, the Forest Test window closed
 before every harness run.
+
+---
+
+# ESCALATE -- task 270. THE DESIGN DELTA IS THE ARCHITECT'S, and here it is, measured.
+
+**Builder, 2026-10-26.** Branch `task-270-lead-sign`. Round 1's blocking finding is right and I am
+not the one who may close it: `docs/design/ballistics.md` is the ARCHITECT's file (CLAUDE.md's role
+table -- *"BUILDER ... Never writes designs or verdicts"*). The **code** header in
+`src/client/Weapon/Claim.luau` is mine and is fixed. These three design edits are owed:
+
+1. **§4.7, `Claim.simulate` step 2.** It still reads *"the segment is TRANSLATED by
+   `-velocity * elapsed` ... the impact point is translated back by `+velocity * elapsed`"*. It is
+   now `-velocity * (elapsed + along / speed)` -- the instant the bullet ARRIVES -- found in two
+   passes, because `along` is the cast's own answer. **Why**: `elapsed` is the sub-step's FIRST
+   edge and one sub-step at the rifle's 2612 studs/s is ~87 studs, so the lead was quantised to
+   whole sub-steps. Measured, a target crossing at 30 studs/s: at 40 studs the lead that exists is
+   0.463 studs and the lead applied was **0.000**; at 150 it is 1.779 and 1.000 was applied. After:
+   worst |error| **0.009 studs** over twelve rows.
+2. **§4.7 / §5.5, a NEW rule that is not written anywhere.** A refined cast that finds nothing means
+   the bullet did not meet that animal at the instant it arrives, so **no claim is made for that
+   target** -- a shot the coarse pass would have claimed now returns none. That is a change in what
+   a player gets back and it belongs in §5.5's list of known errors beside the turn error.
+3. **§1.4** (pre-existing, found by the Reviewer, not caused here). *"Aiming AT a running animal
+   still misses ... so no claim is produced at all"* is absolute, and the deterministic case shows
+   an aimed-AT shot DOES claim the animal's trailing body whenever the lead fits inside it. It wants
+   "no claim on the vitals", or a bound.
+
+**And one measurement for whoever takes the next lead task**, because it points away from
+`Claim.simulate`: with the fix shipped, five live led shots in Karen's place read
+`claims=4 accepted=0 refused=4 [claim-line=4 worst 4.858/2.000]` -- against 269b's `4.778`. The
+quantisation removed was 0.5-1.8 studs; the live gap is 4.9 and it moved the WRONG WAY, in the
+direction a more-advanced claim gives against a server holding the animal further back. **The next
+thing to build is 269a(a): record the refused `trajectoryPoint`/`serverPoint` PAIR, not only its
+magnitude**, so the direction of that gap can be read -- along the line, across it, or in time --
+before anything else in this path is changed.
+
+**Still owed from 269b and not started here:** its `weapon_shot.spec` owner-wiring fixture still
+escapes ("nobody is holding a gun that can fire"), and 269a(b) (a second shot without cycling sends
+no claim) is untouched. Both want re-dispatching rather than dropping.

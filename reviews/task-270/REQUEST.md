@@ -1,7 +1,7 @@
 # Task 270 -- settle the lead, by construction first, then live
 
 Task: 270
-Round: 1
+Round: 2
 Base: `1bc7a907` (this Builder's 269b head; its code comes with it)
 Code commit: `4f74b487fb012a08ed61b2e56ddd41764324399e`
 
@@ -147,15 +147,33 @@ went on item 1 and item 3; it is not started, and it is not reported as anything
 
 ## ITEM 4 (269a(b)) -- **NOT DONE.** Same reason.
 
+## ROUND 2 -- ROUND 1'S FINDING, AND IT WAS RIGHT
+
+**The design and this file's own header still specified the algorithm the change replaced.** The
+`Claim.luau` module header said *"the segment is TRANSLATED by `-velocity * elapsed`"* ninety lines
+above the new comment that contradicts it, and it said nothing about a refined cast that finds
+nothing being a miss -- which is a behaviour change in what a player gets back from a shot.
+
+**The header is fixed here.** It now states the arrival instant (`elapsed + along / speed`), why it
+takes two passes, and the refined-nil-is-a-miss rule.
+
+**The design delta is in `ESCALATE.md` and NOT written by me**, which is the Reviewer's own second
+option and the one CLAUDE.md's role table requires: `docs/design/` is the Architect's, and the
+Builder never writes designs. `ESCALATE.md` carries the exact three edits §4.7, §5.5 and §1.4 need,
+with the measured numbers, ready for an Architect run or a Director decision.
+
 ## CLAIMS
 
 1. **The lead's sign is settled by construction**: `tests/client/weapon_client.spec.luau`, "lands
    BEHIND by v x t when aimed AT, and ON when led -- at 40, 100 and 150 studs too". Twelve rows,
    three speeds and four ranges, asserting the offset along the travel axis against
    `Ballistics.leadStuds`' own number -- never a number typed in the case.
-2. **It fails on the base commit.** The table above is what it printed there; the case lists every
-   wrong row before it asserts, so a red run is a diagnosis. Twelve of twelve rows were out at
-   40/100/150/200 on the base commit; the worst was 0.779 studs.
+2. **It fails on the base commit**, and round 1's note corrects my count, which was wrong: the
+   table above was printed by the DRAFT of the case committed at `293879d8`, and against the
+   assertions that actually ship **seven of twelve rows are out on the base code**, not twelve --
+   d=40 (v=20, v=30), d=150 (v=10, 20, 30) and d=200 (v=20, 30), plus the `AT ... want at or past`
+   branch at v=20 d=150. The worst, 0.779 studs, is right. The case lists every wrong row before it
+   asserts, so a red run is a diagnosis rather than a stack trace.
 3. **The producer cannot be deleted silently**: remove the refinement and the case goes red on
    every row inside one sub-step, because the whole lead comes back.
 4. **The refinement is bounded and cannot invent a hit**: it is one extra cast per target per
@@ -164,7 +182,9 @@ went on item 1 and item 3; it is not started, and it is not reported as anything
 5. **Item 3's live result is a worsening by 0.08 studs on `claim-line`, not an improvement**, and is
    reported as NOT MET. `DHClaimStats` read as a live `ServerStorage` attribute, never through
    `require` (L-026).
-6. **The Forest Test is as it was found.** Twelve attributes before, twelve after; `HIT_CLAIM` set
+6. **The `Claim.luau` header no longer contradicts the code**, and the design delta it implies is
+   written out in `ESCALATE.md` for the Architect rather than edited by me.
+7. **The Forest Test is as it was found.** Twelve attributes before, twelve after; `HIT_CLAIM` set
    ON for the trial and OFF again (rule K); `flags.py --place forest clear` never run; `DHTestOwns`
    added and removed by name; Play stopped and the window closed before the harness ran.
 

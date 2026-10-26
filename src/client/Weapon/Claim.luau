@@ -105,11 +105,18 @@ export type Target = { root: Instance, velocity: Vector3 }
 --      tree, the ground or a stand post stops the simulation and there is NO CLAIM. The client
 --      refuses to claim a hit it could not have made -- which is the same line of sight the server's
 --      own check 5 tests, from the other side.
---   2. THE TARGET PASS, for each of at most `CLAIM.MAX_TARGETS`. The segment is TRANSLATED by
---      `-velocity * elapsed` and cast against that animal alone; the impact point is translated
---      back by `+velocity * elapsed`. **Translating the segment IS the animal's own frame**: the
---      bullet's position, velocity, drag and drop stay exactly the server's arithmetic, because
---      they are `Ballistics.segment`'s, and only the question "where was this animal then" moves.
+--   2. THE TARGET PASS, for each of at most `CLAIM.MAX_TARGETS`. The segment is TRANSLATED into
+--      the animal's own frame and cast against that animal alone; the impact point is translated
+--      back. **Translating the segment IS the animal's own frame**: the bullet's position,
+--      velocity, drag and drop stay exactly the server's arithmetic, because they are
+--      `Ballistics.segment`'s, and only the question "where was this animal then" moves.
+--      **THE TRANSLATION IS `-velocity * (elapsed + along / speed)` SINCE TASK 270** -- the instant
+--      the bullet ARRIVES, not the sub-step's first edge. `along` is the cast's own answer, so it
+--      takes two passes: the first finds it, the second re-asks with the animal moved there. With
+--      `elapsed` alone the lead was quantised to whole sub-steps -- ~87 studs at the rifle's muzzle
+--      speed -- and inside the first one the animal was not advanced at all. **AND THE SECOND PASS
+--      IS THE ANSWER**: a refined cast that finds nothing is a MISS and no claim is made for that
+--      target, because the bullet did not meet it at the instant it actually arrived.
 --      Stepping the ANIMAL instead would need a second copy of every animal's pose.
 --
 -- WHAT THIS GETS WRONG, NAMED RATHER THAN DISCOVERED (design 5.5): the animal is stepped in a
