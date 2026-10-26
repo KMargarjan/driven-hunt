@@ -1,3 +1,95 @@
+# ESCALATE — task 277, at the 2 h stop. A HARNESS FAULT ate a $5.25 Architect run. For the Director.
+
+**Builder, 2026-10-26.** Branch `task-277-hit-design`. Design-only task. **Round 1 reviewed: two
+blocking findings, both acted on. The fix for the blocking one needed a third Architect run, that run
+SUCCEEDED, and `tools/agents.py` threw its output away.** I am stopping at the 2 h the dispatch set
+rather than spending another $5 on a route I now know is broken.
+
+## WHERE IT STANDS
+
+| piece | state |
+|---|---|
+| `reviews/task-277/BRIEF.md` | **done**, with the Director's direction verbatim, MEASURED NOW, and a ROUND 2 ADDENDUM |
+| `docs/design/ballistics.md` **v5** (direction A + C) | **done, Architect PASS, and round 1 found NOTHING blocking in it** |
+| `docs/design/hit-zones.md` **v2** (direction B + C) | **committed, Architect PASS, but round 1 found ONE blocking defect in it** (below). The fixed version was written and is LOST |
+| rule 7 archives (round 1 finding 2) | **done**: `backups/design-ballistics-v4.md`, `backups/design-hit-zones-v1.md`, both logged |
+| `reviews/task-277/RESULT.md` | **round 1 = FINDINGS.** So rule 10 is not met and this branch is NOT merge-ready as it stands |
+| review rounds spent | **1 of 3.** Nothing has consumed round 2 |
+
+## THE HARNESS FAULT, exactly
+
+`tools/agents.py` `run_agent` spawns `claude -p … --output-format json --no-session-persistence`, and
+`block()` then looks for `=== BEGIN ARCH_RESULT ===` in `data["result"]`.
+
+**`result` carries only the FINAL assistant message.** Run 3's answer was 107,090 output tokens and
+spanned more than one message, so `result` begins mid-table — the log
+`.agent-logs/20261026T133518Z-architect.json` opens at *"ate at `SPRINT_SPEED` 38 | …"* and ends with
+a correct `=== END DOCUMENT ===`, with **zero** occurrences of `BEGIN ARCH_RESULT`, `END ARCH_RESULT`
+or `BEGIN DOCUMENT`. `block()` refused, so nothing was written.
+
+**And it is unrecoverable.** `--no-session-persistence` plus the throwaway worktree means there is no
+transcript: `find ~/.claude/projects -name "c2c60685*" -o -path "*dh-agent*" -name "*.jsonl" -newermt
+"2026-10-26 14:00"` returns nothing. The session reported `subtype success`, `is_error false`,
+23 turns, **$5.25** — the run worked and only the capture failed.
+
+From its surviving tail, the lost document had answered the finding and chosen route 2 of the two the
+addendum offered: *"a per-cartridge `PENETRATION` that is **absolute studs of tissue and is
+deliberately not scaled by the kind** — a legendary boar really is harder to shoot through than a
+piglet, the four values come from windows computed over all seven kinds (§3.7), and §9.1 case 2a is
+the spec that stops that ever drifting again"*, with §5.5 *"now **per kind**, with the legendary's
+0.285-stud margin stated"*. That is the right answer and I cannot commit it, because I only have the
+last 14 KB of it and `docs/design/` is the Architect's file, not mine.
+
+**This bites the Reviewer role too**, on the same line of the same function: a long verdict would be
+refused the same way, after being paid for.
+
+### The fix, which is a `tools/` task and not this one
+
+`--output-format stream-json` and concatenate every assistant text block, or drop
+`--no-session-persistence` so a refused run can be recovered. It touches `tools/agents.py`, so it
+needs its own task, its own one-player harness run and `python tools/agents.py selftest` — and
+`tools/agents.py` is the gate itself, which is exactly the kind of change that should not be smuggled
+into a design task's branch.
+
+## THE DECISION I NEED
+
+The blocking finding is real — **I verified its arithmetic against the repo before accepting it**
+(`KINDS.legendary.scale = 1.35`, `cub = 0.45`; `Body.kindGeometry` scales `size` and `offset`;
+`Zones.depthFor(zones, ammo, weapon)` takes no kind, so a frontal slug on a legendary needs 2.295
+studs of a 2.20-stud `PENETRATION.Slug` and reads `body` — the very defect §5.5 claims to have
+fixed). It is a defect in a DOCUMENT, not in the game: nothing is built on it yet.
+
+Three routes, and the choice is yours:
+
+1. **Fix `tools/agents.py` first** (one small task), then re-run `design hit-zones --task 277` and
+   finish task 277 on round 2. Costs one extra task and ~$5 of Architect; the only route that ends
+   with both designs correct and a PASS.
+2. **Merge what is right and carry the defect forward as the build task's first item.** `ballistics.md`
+   v5 is unchallenged; `hit-zones.md` v2 is right about everything except that one number's scaling,
+   which is already written down twice (round 1's `RESULT.md`, the BRIEF's addendum, `TASKS.md` 277a).
+   Needs a round-2 review to turn `RESULT.md` line 1 into `PASS`, and the merge gate then rests on the
+   Reviewer accepting the defect as deferred rather than fixed. **I do not recommend it**: the one
+   thing Karen asked for is that a frontal shot reaches the heart, and the legendary is the animal she
+   is most likely to shoot at.
+3. **Re-run `design hit-zones` as-is and hope it fits one message.** ~$5, and the same fault is
+   likelier than not: the document is ~1,300 lines and the run that just failed asked for every
+   number in it to be recomputed per kind.
+
+I recommend **1**.
+
+## WHAT I DID NOT DO, DELIBERATELY
+
+- **I did not reconstruct the lost design from its surviving tail.** It is 14 KB of a ~120 KB
+  document, and `docs/design/` is the Architect's: a design the Builder hand-assembled is exactly the
+  provenance the one-owner rule exists to prevent.
+- **I did not edit `docs/design/hit-zones.md` to fix the number myself**, for the same reason.
+- **I did not fix `tools/agents.py` inside this branch.** A design-only task that quietly changes the
+  review gate is not a design-only task.
+- **No `src/`, `tests/` or `tools/` file was touched by this branch at all** — it is still docs-only,
+  and `tools/agents.py` confirms it ("docs-only change: no harness line required").
+
+---
+
 # ESCALATE -- task 269b, after round 2. For the Director.
 
 **Builder, 2026-10-26.** Branch `task-269b-claim-accept`. Two review rounds done, both FINDINGS,
