@@ -222,6 +222,8 @@ local stats = {
 	claimSweepBestLine = 0,
 	claimSweepBestIndex = 0,
 	claimSweepSegments = 0,
+	-- The last ACCEPTED claim's own part and zone (task 274).
+	claimLastPart = "none",
 	-- WHY A REFUSAL HAPPENED, AS A NUMBER (task 269b). `refusedClaimBy` counts them by name;
 	-- this keeps, per name, the WORST measured value, its budget, and -- for the one rule whose
 	-- cause is an Instance -- what actually stopped the bullet.
@@ -873,7 +875,7 @@ function Weapon.claimLine(from: any): string
 	return string.format(
 		"enabled=%s claims=%d accepted=%d refused=%d ignored=%d worst=%.3f/%.3f/%.3f lag=%.3fs "
 			.. "sweep=%d/%d win=%.3fs spread=%.3f passed=%s took=%d best=%d@%.3f segs=%d "
-			.. "age=%.3f..%.3f/%d why=%s [%s]",
+			.. "claimed=%s age=%.3f..%.3f/%d why=%s [%s]",
 		tostring(from.claimsEnabled),
 		from.claims or 0,
 		from.claimsAccepted or 0,
@@ -892,6 +894,7 @@ function Weapon.claimLine(from: any): string
 		from.claimSweepBestIndex or 0,
 		from.claimSweepBestLine or 0,
 		from.claimSweepSegments or 0,
+		tostring(from.claimLastPart),
 		from.claimAgeMin or 0,
 		from.claimAgeMax or 0,
 		from.claimAges or 0,
@@ -1838,6 +1841,18 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	end
 
 	stats.claimsAccepted += 1
+	-- WHICH PART THE CLIENT ACTUALLY CLAIMED, and what zone that part carries (task 274). The
+	-- counters have never recorded it, so task 272's live zones -- Terrain, legs, body on a trial
+	-- with three ACCEPTED claims -- could not be attributed: an accepted claim already decides the
+	-- zone (`Validator.claimImpact` sets `instance = claim.part`, `Hits.group` reads its
+	-- `HitZone`), so either the client claimed something that is not the chest, or it never
+	-- claimed at all. One field tells the two apart.
+	local claimedZone = claim.part:GetAttribute("HitZone")
+	stats.claimLastPart = string.format(
+		"%s(%s)",
+		claim.part.Name,
+		if type(claimedZone) == "string" then claimedZone else tostring(claimedZone)
+	)
 	-- THE WORST **ACCEPTED** VIEW LAG, and it is updated HERE and nowhere else (round 1's finding
 	-- 4). Before the fix the `math.max` sat above `judgeClaim`, so every claim that found a
 	-- candidate -- refused included -- raised it, and design 1.2a item 15 makes a delete-or-keep
