@@ -1,9 +1,9 @@
 # Task 267 -- review request
 
 Task: 267
-Round: 1
+Round: 2
 Base: c243df86 (main, after PR #246)
-Code commit: 869ac755ebc7b31ac7b42e9c53b8e07eac54e28c
+Code commit: 5ba76627dd01c67bb4198c7a4f60300c4060b006
 
 ## PLAN (core quality protocol, step 0 -- committed before any `src/` edit)
 
@@ -81,7 +81,7 @@ script.
 ## THE HARNESS
 
 ```
-[harness] PASS: 34/34 checks @ 869ac755ebc7b31ac7b42e9c53b8e07eac54e28c (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 5ba76627dd01c67bb4198c7a4f60300c4060b006 (clean tree) scope=all
 ```
 
 **`test2` is N/A, and the rule says so rather than my judgement.** The only code file this round
@@ -90,8 +90,15 @@ changes is `src/shared/ForestTest/init.luau`, which is not in `TWO_PLAYER_PATHS`
 `src/client/Match/`, `src/client/MatchBoot.client.luau`, `src/shared/Drive/`,
 `tests/client/Role.luau` and the specs that test them). The dispatch asked for `test2` because it
 expected item 2 to touch `Match`; item 2 is not built this round (see `## ITEM 2` below), so nothing
-in the change reaches the match, the drive, the tie or the teams. A second client would release the
-same fifteen slots at the same offsets and answer nothing the one-player run did not.
+in the change reaches the match, the drive, the tie or the teams.
+
+**Round 1 was right that the reason I first gave for it -- "a second client would answer nothing" --
+does not hold, and it is withdrawn.** `ForestTest.hunterStandX` returns the first LOCKED pick, one
+stand for the whole drive, and this change narrows the release corridor from +-250 to +-95 around
+THAT stand, so a second hunter standing anywhere else now sees strictly less than he did before.
+That is pre-existing single-stand aim made more pronounced, not something the change invents, and it
+is queued in `TASKS.md` as 267a rather than argued away here. `test2` is N/A on the mechanical rule
+alone.
 
 `python tools/studio_mcp.py selftest` and `python tools/agents.py selftest` both PASS. No spec file
 was added, so no `SCOPE_SPECS` row changed.
@@ -109,6 +116,7 @@ on stand 5, measured by the same probe and summarised by the same script (`267-s
 | 2 | capped at 95 (`267-c2.txt`) | 76 | 78.9 % | 94.7 % | 189.0 |
 | 3 | the WEST rows alone to -50..-75 (`267-c3.txt`) | 76 | **73.7 %** | 98.7 % | **180.4** |
 | 3 | the same build, a second drive (`267-c3b.txt`) | 77 | **81.6 %** | 97.4 % | **200.1** |
+| r2 | round 1's fix: the two `LATERAL` pins put back AHEAD of their pass (`267-r2.txt`) | 76 | **72.0 %** | 97.3 % | **195.9** |
 
 **Cycle 1 taught the cap and cycle 2 taught the asymmetry, and neither was guessed.** Cycle 1 bounded
 the tail (425 -> 230) and barely moved the body (56 -> 59 % within 105), because a group released at
@@ -133,10 +141,15 @@ only the west.
    the probe recorded; group them by `firstX` against the `offsetX` column of
    `ForestTest.SCHEDULE.drive`.
 4. **The lever has a writer.** `ForestTest.wavePoint` is the one function that turns a row's
-   `offsetX` into a world point, and `releaseLine` is its one caller:
-   `src/shared/ForestTest/init.luau` `wavePoint` (`local x = standX + (spec.offsetX or 0)`) and
-   `src/server/ForestTest/init.luau` `releaseLine` (`local nominal = Data.wavePoint(standX, row,
-   chosen.layout)`).
+   `offsetX` into a world point: `src/shared/ForestTest/init.luau` `wavePoint`
+   (`local x = standX + (spec.offsetX or 0)`), reached from `src/server/ForestTest/init.luau`
+   `releaseLine` (`local nominal = Data.wavePoint(standX, row, chosen.layout)`).
+   **Round 1 corrected this claim and the correction stands**: `releaseLine` is NOT its only caller.
+   `ForestTest.release` (the pre-task-127 wave path) and `ForestTest.roarPoint` call it too, and
+   `ForestTest.waveAt`'s own comment says *"BOTH release paths read the same rows through this one
+   function"*. No behaviour consequence -- `roarPoint` reads the stag row, whose `offsetX` this
+   change leaves at -95, and `release` moves in the same direction as `releaseLine` -- but the blast
+   radius is three callers, not one.
 5. **After, two full drives of the shipped build: 73.7 % and 81.6 % within 105 studs of his own
    stand** -- the dispatch's 70 % met on each drive separately. Verify: `267-c3.txt`, `267-c3b.txt`.
 6. **"None beyond 50 m" is NOT met, and it is 3 crossings of 152.** 180.4, 200.1 and 188 studs
@@ -149,11 +162,19 @@ only the west.
 8. **No `offsetX` is 0, so nothing is pulled onto a stand** (the dispatch's condition): -65, +80,
    -70, +45, -75, +95, -50, -95, -70, +60, +90, -60, +75, +95, +80 -- both flanks, nine distinct
    magnitudes from 45 to 95. Verify: the `offsetX` lines of `ForestTest.SCHEDULE.drive`.
-9. **The two `LATERAL` rows' `crossOffset` moved to the end of their own 150-stud span** (-70 -> +20
-   on slot 5, +20 -> -35 on slot 6) so the pass finishes at the road instead of doubling back 75
-   studs, and **all five of `LINE.crossOffsets` are still used by some row**, which
-   `forest_line.spec.luau` asserts. Verify: that spec's "every crossing offset is used" case, green
-   in the 34/34 run.
+9. **The two `LATERAL` rows' pins are AHEAD of the end of their own pass, in its direction of
+   travel -- and round 1 caught me shipping them BEHIND it.** `lateralSign` is +1 for `"RtoL"` and
+   -1 for `"LtoR"`, and `WAVE.lateralSpan` is 150, so slot 5 (`offsetX` -75, `"RtoL"`) travels +X and
+   its pass ends at +75, and slot 6 (`offsetX` +95, `"LtoR"`) travels -X and ends at -55. Round 1
+   shipped pins of +20 and -35 -- 55 and 20 studs BACK the way the group had come, which is the
+   doubling back the change claimed to remove and which the base data did not have. They are now
+   **+95 and -70**, 20 and 15 studs onward. Verify: `ForestTest.lateralSign` and `releaseLine`'s
+   `walkTo`/`acrossAt` against slots 5 and 6, and the live console of the re-measurement drive,
+   which prints `offset +95, crossing -70 studs` for slot 6 (`267-r2-console.txt`).
+   **All five of `LINE.crossOffsets` are still used by some row** (-70 by slots 1, 6, 9; -35 by 3, 7,
+   8; 20 by 4; 55 by 2, 10; 95 by 5, 11, 14), which `forest_line.spec.luau` asserts -- green in the
+   34/34 run. That case is a guardrail and not proof of this change: round 1's note is right that it
+   passes byte-for-byte on the reverted tree, because the base rows use the same five values.
 10. **An unintended edit was made and reverted inside the round, and is reported rather than left to
     be found**: a bulk replace also changed `ForestTest.REST`'s `offsetX = 140` to `90`. It is back
     at 140 and the final diff shows no REST line. Verify: claim 7's `git diff`.
@@ -195,3 +216,47 @@ written:**
    task 261's own choice and not the Director's words, and that `throughSweep`'s "walked back and
    held" is asserted by no spec (`beatersWalkedBack` is named nowhere in `tests/`). A spectator built
    on it today would inherit an unverified and self-contradicting hold.
+
+
+## ROUND 2 -- what changed, and why there is a round 2 at all
+
+Round 1 returned **two blocking findings and both were right.** Neither was a wording quarrel: one
+was a behaviour fault I introduced and claimed the opposite of.
+
+1. **The `LATERAL` pins were moved the wrong way** -- claim 9 above, rewritten to the real
+   arithmetic. The base data already satisfied the rule; my change broke it and the comment asserted
+   the reverse. Fixed at `25d21b14` (slot 5 -> +95, slot 6 -> -70) and **re-measured on Karen's path**
+   (`267-r2.txt`, the `r2` row of the iteration table): 72.0 % within 105 studs of his own stand,
+   97.3 % within 175, worst 195.9 -- in line with the two cycle-3 drives and no regression.
+2. **The comment's rhythm sentence listed cycle 2's `offsetX` values, not the shipped ones**, and
+   contradicted the paragraph above it in the same comment. It now reads the fifteen shipped rows and
+   nine distinct magnitudes.
+
+Three of round 1's non-blocking notes are also taken, because each was a statement of mine that was
+not true: claim 4's "one caller" (now three), the `test2` paragraph's over-reach (withdrawn, queued
+as 267a), and the comment's *"inside 105 BY ARITHMETIC"* -- `amplitudeStuds` 30 with
+`SHAPE.wavelengthDivisor` 70 lets `roadZ` move ~60 studs over 95 studs of x, so the worst case is
+`sqrt(95^2 + 60^2)` = 112, not 102. The comment now states the typical figure AND the bound, and says
+the after-drives are the measurement of which.
+
+**Queued rather than done this round** (round 1's notes, and rule 4): a pure spec case over the
+`LATERAL` rows -- pin ahead of `offsetX + lateralSign * lateralSpan`, in the direction of travel --
+which is the case that would have caught finding 1 and which nothing in `tests/` relates today.
+
+## HANDOVER (core protocol step 5)
+
+- **Item 1 (CORE), "at least 70 % of crossings within 30 m of a stand": MET.** Measured on the stand
+  the hunter is actually on, three full drives of the fixed build: 73.7 %, 81.6 %, 72.0 % within 105
+  studs, against 56.2 % and 56.6 % before. On the dispatch's literal yardstick -- the nearest of the
+  nine stands -- it was 100 % before the change and is 100 % after; that metric cannot fail and is
+  not what Karen is feeling.
+- **Item 1, "and none beyond 50 m": NOT MET.** Three crossings of 152 on the cycle-3 build and two
+  of 76 on the fixed build land at 176-200 studs instead of 175. Before, 27 of 77 in a single drive
+  were past that bound and the worst was 428. Nobody has yet seen a drive in which every animal
+  crosses inside 50 m.
+- **Item 1, the picture: NOT PROVEN.** The numbers are attested by four counted drives; **no frame of
+  a crossing from the shooter's eye was obtained** (`ftplay.py capture` raised `FileNotFoundError` on
+  its output path and the drive had ended). Nobody has looked at this change.
+- **Item 2 (the spectator): NOT BUILT.** Not started, not stubbed, nothing in `src/`. See `## ITEM 2`
+  -- and read point 2 there before dispatching it again: the hold it is written to replace is
+  anchored in both states of its own config row, which task 261's review said and nothing has fixed.
