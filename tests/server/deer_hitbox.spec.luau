@@ -4,8 +4,8 @@
 -- chest shows outside"* -- the hit card's dot sat in empty space in front of the chest, under the
 -- neck. And on 2026-10-24: *"sometimes shows we hit empty space and died"*. The card was honest; the
 -- HITBOX was the fault. A deer's trunk is 1.8 x 4.8 x 7.05 studs -- the nose line to the rump, the
--- back line to the hooves -- it carried `HitZone = "body"` with `CanQuery = true`, and a deer does
--- not fill it. The air in front of the chest and the air between the legs were hits.
+-- back line to the hooves -- it carried `HitZone = "body"`, and a deer does not fill it. The air in
+-- front of the chest and the air between the legs were hits.
 --
 -- THE METHOD IS THE ONLY THING THAT COULD HAVE CAUGHT IT, and it is the Learning Agent's L (incident
 -- 2026-10-26: *"a week of shooting tasks passed while the deer's hitbox held the air under its
@@ -17,9 +17,10 @@
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/), and
 -- `boar_zones.spec`'s own method -- cast from OUTSIDE the animal the way the weapon does and read
 -- `HitZone` off whatever the engine returns, never by calling `takeHit` with a zone name.
---   Raycasting + CanQuery  https://create.roblox.com/docs/workspace/raycasting
---     "You can exempt any BasePart from hit detection by setting its BasePart.CanQuery property to
---     false" -- which is what the deer's trunk now is, and what the drawn mesh has always been.
+-- IT ASKS THROUGH `Weapon.Cast.world`, THE BULLET'S OWN CASTER, and not through a raycast of its
+-- own -- because `CanQuery = false` is NOT what takes the trunk out of a shot and could not be
+-- (measured: it is ignored for a COLLIDABLE part, and the four rows are in
+-- `Weapon.Hits.passesThrough`). The trunk declares `ZonesOnly` and the caster steps past it.
 --
 -- IT BUILDS ITS OWN WORLD at y = 500, the pattern `boar_body.spec` and `boar_zones.spec` use, so
 -- production's animals are untouched.
@@ -34,8 +35,11 @@
 -- Design: docs/design/red-deer.md (section 7.3), docs/design/hit-zones.md (sections 4, 12.3)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
+local Assets = require(ServerStorage:WaitForChild("Assets"))
+local Loader = require(ServerStorage.Assets:WaitForChild("Loader"))
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
@@ -51,6 +55,21 @@ local FIELD = {
 
 -- THE DISPATCH'S OWN GRID: "every 0.25 stud".
 local GRID = 0.25
+
+-- THE DEER MODEL THIS FILE MEASURES AGAINST, asked for the way `BoarAssetsBoot` asks for it --
+-- `Loader.template` off the kind's own asset key. A spec-built runtime does NOT get the
+-- module-level source that boot script installs (it is a different `Runtime`), so round 1 of
+-- this file waited 20 s per kind for a coat that was never coming and then compared the boxes
+-- with NOTHING -- the silently-skipped case this project exists to avoid. The source is supplied
+-- here instead, and the case below FAILS when the template is missing rather than passing.
+--
+-- NO ANIMATION IDS, deliberately: with none the rig stays in its BIND POSE, which is the pose the
+-- volumes were measured in. A playing idle clip would make the verdict depend on the frame.
+local MODEL_KEY = {
+	stag = Assets.KEYS.deerStag,
+	hind = Assets.KEYS.deerHind,
+	calf = Assets.KEYS.deerCalf,
+}
 
 return function()
 	-- THE BOAR IS THE CONTROL, and it is here rather than in `boar_zones.spec` because the thing
@@ -159,6 +178,11 @@ return function()
 					end,
 					releasePath = function() end,
 				})
+				runtime:setModelSource(function(key: string): Instance?
+					return Loader.template(MODEL_KEY[key])
+				end, function(): number?
+					return nil
+				end)
 				handle = runtime:spawn(Vector3.new(0, GROUND_Y, 0), kind)
 				trunk = handle.part
 				geometry = Boar.kindGeometry(kind, Boar.kindConfig(kind, CONFIG))
@@ -167,7 +191,7 @@ return function()
 				-- waits for it rather than sampling once. Bounded, and the case below says out loud
 				-- what it does when the wait runs out.
 				local started = os.clock()
-				while os.clock() - started < 20 do
+				while os.clock() - started < 8 do
 					meshes = {}
 					for _, descendant in ipairs(trunk:GetDescendants()) do
 						if descendant:IsA("MeshPart") then

@@ -3001,20 +3001,20 @@ Boar.CONFIG.KINDS = {
 			},
 			chest = {
 				boxes = {
-					{ size = Vector3.new(1.200, 1.200, 1.800), offset = Vector3.new(0.010, 0.887, 0.125) }, -- the thorax: x -0.59..+0.61 y +0.29..+1.49 z -0.78..+1.02
+					{ size = Vector3.new(1.200, 1.200, 1.459), offset = Vector3.new(0.010, 0.887, -0.046) }, -- the thorax: x -0.59..+0.61 y +0.29..+1.49 z -0.78..+0.68
 					{ size = Vector3.new(0.600, 0.600, 0.540), offset = Vector3.new(0.010, 1.307, -1.225) }, -- the throat: x -0.29..+0.31 y +1.01..+1.61 z -1.50..-0.96
 					{ size = Vector3.new(0.600, 0.720, 0.840), offset = Vector3.new(0.010, 1.667, -1.255) }, -- the neck: x -0.29..+0.31 y +1.31..+2.03 z -1.67..-0.83
 				},
 			},
 			body = {
 				boxes = {
-					{ size = Vector3.new(1.080, 1.260, 1.560), offset = Vector3.new(0.010, 1.157, 1.265) }, -- the loin and flank: x -0.53..+0.55 y +0.53..+1.79 z +0.48..+2.04
-					{ size = Vector3.new(1.020, 0.240, 0.600), offset = Vector3.new(-0.020, 0.407, 0.785) }, -- the belly: x -0.53..+0.49 y +0.29..+0.53 z +0.49..+1.08
+					{ size = Vector3.new(1.080, 1.260, 1.112), offset = Vector3.new(0.010, 1.157, 1.240) }, -- the loin and flank: x -0.53..+0.55 y +0.53..+1.79 z +0.68..+1.80
+					{ size = Vector3.new(1.020, 0.240, 0.401), offset = Vector3.new(-0.020, 0.407, 0.885) }, -- the belly: x -0.53..+0.49 y +0.29..+0.53 z +0.68..+1.09
 				},
 			},
 			rear = {
 				boxes = {
-					{ size = Vector3.new(1.080, 1.380, 0.900), offset = Vector3.new(0.010, 1.037, 2.195) }, -- the hindquarters: x -0.53..+0.55 y +0.35..+1.73 z +1.74..+2.65
+					{ size = Vector3.new(1.080, 1.380, 0.849), offset = Vector3.new(0.010, 1.037, 2.221) }, -- the hindquarters: x -0.53..+0.55 y +0.35..+1.73 z +1.80..+2.65
 				},
 			},
 			legs = {
@@ -3075,13 +3075,17 @@ Boar.CONFIG.KINDS = {
 			},
 			body = {
 				boxes = {
-					{ size = Vector3.new(0.665, 0.595, 1.610), offset = Vector3.new(0.007, 0.839, 0.690) }, -- the loin and flank: x -0.33..+0.34 y +0.54..+1.14 z -0.12..+1.50
-					{ size = Vector3.new(0.245, 0.210, 0.385), offset = Vector3.new(0.217, 0.332, 1.303) }, -- the belly, off centre: x +0.09..+0.34 y +0.23..+0.44 z +1.11..+1.50
+					{ size = Vector3.new(0.665, 0.595, 0.644), offset = Vector3.new(0.007, 0.839, 0.718) }, -- the loin and flank: x -0.33..+0.34 y +0.54..+1.14 z +0.40..+1.04
+					-- THE CALF HAS ONE `body` BOX AND NOT TWO. The grown second one -- a 0.245 x 0.210
+					-- x 0.385 stub off the centre line -- sat entirely BEHIND the rump line at
+					-- z +1.04, inside `rear`'s own span, and two zones over one place is the tie
+					-- this file refuses everywhere else. Clipped to the barrel it had 0.000 studs
+					-- left, so it is gone rather than kept at nothing.
 				},
 			},
 			rear = {
 				boxes = {
-					{ size = Vector3.new(0.665, 0.735, 0.525), offset = Vector3.new(0.007, 0.769, 1.233) }, -- the hindquarters: x -0.33..+0.34 y +0.40..+1.14 z +0.97..+1.50
+					{ size = Vector3.new(0.665, 0.735, 0.455), offset = Vector3.new(0.007, 0.769, 1.268) }, -- the hindquarters: x -0.33..+0.34 y +0.40..+1.14 z +1.04..+1.50
 				},
 			},
 			legs = {
@@ -3534,7 +3538,7 @@ Boar.CONFIG.SPECIES = {
 				part = "ZoneChest",
 				tint = Color3.fromRGB(198, 150, 150),
 				boxes = {
-					{ size = Vector3.new(1.440, 1.680, 2.460), offset = Vector3.new(0.000, 0.960, -0.055) }, -- the thorax: heart and lungs: x -0.72..+0.72 y +0.12..+1.80 z -1.28..+1.18
+					{ size = Vector3.new(1.440, 1.680, 2.085), offset = Vector3.new(0.000, 0.960, -0.243) }, -- the thorax: x -0.72..+0.72 y +0.12..+1.80 z -1.29..+0.80
 					{ size = Vector3.new(0.840, 1.080, 0.900), offset = Vector3.new(0.000, 1.320, -1.615) }, -- the throat, the neck's base: x -0.42..+0.42 y +0.78..+1.86 z -2.06..-1.17
 					{ size = Vector3.new(0.840, 1.080, 1.380), offset = Vector3.new(0.000, 2.100, -1.555) }, -- the neck, up to the skull: x -0.42..+0.42 y +1.56..+2.64 z -2.25..-0.86
 				},
@@ -3549,8 +3553,8 @@ Boar.CONFIG.SPECIES = {
 				part = "ZoneBody",
 				tint = Color3.fromRGB(170, 170, 150),
 				boxes = {
-					{ size = Vector3.new(1.320, 1.740, 1.800), offset = Vector3.new(0.000, 1.110, 1.475) }, -- the loin and flank: x -0.66..+0.66 y +0.24..+1.98 z +0.58..+2.38
-					{ size = Vector3.new(1.200, 0.480, 1.740), offset = Vector3.new(0.000, 0.360, 1.445) }, -- the belly: x -0.60..+0.60 y +0.12..+0.60 z +0.58..+2.31
+					{ size = Vector3.new(1.320, 1.740, 1.300), offset = Vector3.new(0.000, 1.110, 1.450) }, -- the loin and flank: x -0.66..+0.66 y +0.24..+1.98 z +0.80..+2.10
+					{ size = Vector3.new(1.200, 0.480, 1.300), offset = Vector3.new(0.000, 0.360, 1.450) }, -- the belly: x -0.60..+0.60 y +0.12..+0.60 z +0.80..+2.10
 				},
 			},
 			-- THE HINDQUARTERS, the crippling zone Karen asked for on 2026-10-03 (*"can be hit to
@@ -3563,7 +3567,7 @@ Boar.CONFIG.SPECIES = {
 				part = "ZoneRear",
 				tint = Color3.fromRGB(150, 150, 190),
 				boxes = {
-					{ size = Vector3.new(1.200, 1.080, 1.080), offset = Vector3.new(0.000, 1.260, 2.555) }, -- the hindquarters: x -0.60..+0.60 y +0.72..+1.80 z +2.02..+3.10
+					{ size = Vector3.new(1.200, 1.080, 0.995), offset = Vector3.new(0.000, 1.260, 2.598) }, -- the hindquarters: x -0.60..+0.60 y +0.72..+1.80 z +2.10..+3.10
 				},
 			},
 			-- FOUR THIN LEGS, where task 223 had ONE 1.92 x 1.9 x 6.4 SLAB running the animal's

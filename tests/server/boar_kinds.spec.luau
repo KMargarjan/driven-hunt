@@ -108,7 +108,11 @@ return function()
 			-- the two answers to the same question and a spec that only knew one of them was how the
 			-- deer's boxes came to hold the air under its neck.
 			for _, kind in ipairs(CONFIG.KINDS.ORDER) do
-				local geometry = Boar.kindGeometry(kind, on)
+				-- THROUGH `kindConfig`, because a deer's volumes live on its SPECIES and its kind row
+				-- and not on the boar's table: `kindGeometry(kind, on)` alone hands back the BOAR's
+				-- four boxes at the deer's scale, which is what the first version of this case
+				-- measured and why it reported the boar's own head box as a stag's.
+				local geometry = Boar.kindGeometry(kind, Boar.kindConfig(kind, on))
 				local deer = CONFIG.KINDS[kind].species == "reddeer"
 				if deer then
 					local half = geometry.bodySize / 2
