@@ -103,3 +103,79 @@ before anything else in this path is changed.
 **Still owed from 269b and not started here:** its `weapon_shot.spec` owner-wiring fixture still
 escapes ("nobody is holding a gun that can fire"), and 269a(b) (a second shot without cycling sends
 no claim) is untouched. Both want re-dispatching rather than dropping.
+
+---
+
+# ESCALATE -- task 271, after round 2. Past the mark, stopping.
+
+**Builder, 2026-10-26.** Branch `task-271-claim-line`. Two rounds, both FINDINGS, every finding
+right. `[harness] PASS: 34/34 @ ec724e019b1cd5b94144d3552a809a6cf8025ef4 (clean tree) scope=all`.
+**I am at 3 h 35 against a 2.5 h box and I am stopping rather than opening round 3 on a fixture
+that has escaped twice before (269b).**
+
+## WHAT THIS TASK ACTUALLY SETTLED, and it is the thing six tasks could not say
+
+**The cause of `claim-line` is a TIME error, not a line error, and it is now a number.** One live
+refusal, Karen's place, `HIT_CLAIM` on:
+
+```
+claim-line=1 worst 5.457/2.000
+  gap 5.120 = along -2.079, across 4.679, ALONG THE ANIMAL +5.106 (v 28.7 studs/s, so 0.178 s)
+```
+
+**99.7 % along the animal's own velocity.** The residual perpendicular to its path is 0.38 studs --
+a fifth of the 2.0 budget. `LINE_TOLERANCE_STUDS` was never the wrong number; it was being measured
+at the wrong instant.
+
+The Architect was run on that measurement (`tools/architect.ps1 design ballistics --task 271`,
+`PASS`) and wrote **v4 section 5.2.1**: the server sweeps its own history over a window it owns and
+judges at the instant its own trajectory came closest, among the instants that pass check 3. Both
+of my candidates were refused with arithmetic. That design is committed and the implementation is
+green.
+
+## WHAT IS OPEN -- one thing, twice found and still true
+
+**No case enters the OWNER's sweep.** My round-2 answer reproduced the live numbers purely
+(`weapon_hits.spec`: one candidate refuses `claim-line` at 5.489 where the live refusal read 5.457;
+the sweep accepts at 0.38) -- but it calls `Validator.pickViewInstant` directly, so deleting the
+candidate loop in `judgeClaimFor` leaves the suite green. The Reviewer is right.
+
+**What it needs, exactly:** `weapon_shot.spec`'s live accept case with a history provider that
+answers `at` (`zone.CFrame * CFrame.new(travel * (at - now))`), a claim whose `point` is where that
+part was ~0.18 s before `arrivalAt`, asserted **refused** with `Weapon.setViewWindow(0)` and
+**accepted** with the configured window. The seam for it ships (`Weapon.setViewWindow`) and is
+currently dead API, which the Reviewer also names.
+
+Round 2's findings 2-4 (the along-track instrument collapsing into the line instrument, and round
+1's findings 5-7, which I did not touch) are in `reviews/task-271/RESULT.md` and are not addressed.
+
+## AND THE CORE ITEM IS STILL NOT PROVEN
+
+Five led shots on the v4 build: `claims=4 accepted=1 refused=3 lag=0.033s`, zones `rear`, a tree,
+`rear`, `body`, `body` -- **0 of 5 chest**. Against the same instrument 269b read 2 of 4 accepted
+and 270 read 0 of 4, so 1 of 4 is inside their noise. **Nobody has seen it.**
+
+**But the new instrument says where to look next, and it is one probe:** `lag=0.033s` is two grid
+steps, while the refused shot in the same trial needed 0.163 s. The sweep is reaching one or two
+candidates, not the eighteen its 0.30 s window asks for. The two things that can do that are
+`askWhereWas` answering nil for the older instants (the loop breaks on the first nil after a hit)
+and `pickViewInstant` filtering them out on check 3. **Print `#candidates` and `anyPassed` beside
+the lag and it is decided in one trial.** (Note that number was measured on the round-1 build, so
+it is the worst over every claim that reached the sweep, not the accepted one -- round 2 fixed the
+field, not the reading.)
+
+## WHAT I AM ASKING FOR
+
+1. **A decision on round 3**: authorise one round for the owner-path fixture alone (it is the same
+   `weapon_shot.spec` fixture 269b could not make stick, so it wants a dedicated loaded subject,
+   not a sibling of the accept case), or take the branch as a measurement-and-design task with item
+   3 written NOT PROVEN.
+2. **The next dispatch is the one-probe question above**, not another five-shot trial.
+3. **Still owed and untouched:** 269b's escaping owner fixture, 269a(b), 270a(a) (the coarse gate at
+   `SPRINT_SPEED` 38), and round 1's findings 5-7 here.
+
+## THE PLACE IS AS IT WAS FOUND
+
+Twelve attributes before and twelve after; `HIT_CLAIM` ON for the two trials and **OFF again**
+(rule K); `flags.py --place forest clear` never run; `DHTestOwns` added and removed by name; Play
+stopped and the Forest Test window closed before every harness run.
