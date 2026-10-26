@@ -3,11 +3,14 @@
 Task: 270
 Round: 2
 Base: `1bc7a907` (this Builder's 269b head; its code comes with it)
-Code commit: `4f74b487fb012a08ed61b2e56ddd41764324399e`
+Code commit: `6c9be3ea816c1b043337baf046d0c264f1f01170`
 
 ```
-[harness] PASS: 34/34 checks @ 4f74b487fb012a08ed61b2e56ddd41764324399e (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 6c9be3ea816c1b043337baf046d0c264f1f01170 (clean tree) scope=all
 ```
+
+(round 1's code commit was `4f74b487`, whose own clean run also read `PASS: 34/34`; round 2 adds the
+header and the escalation, so the line above names the later commit, which is the stricter bound.)
 
 `test2` is **N/A**: the changed files are `src/client/Weapon/Claim.luau` and
 `tests/client/weapon_client.spec.luau`, neither in `TWO_PLAYER_PATHS`.
