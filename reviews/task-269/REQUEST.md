@@ -3,7 +3,11 @@
 Task: 269
 Round: 1
 Base: `2ce7e61d` (`main`, after #248)
-Code commit: (filled in with the harness line)
+Code commit: `27735477` (the PLAN). **NOTHING UNDER `src/`, `tests/` OR `tools/`
+CHANGED IN THIS TASK** -- the whole of it is a measurement and this branch is
+paperwork only (`git diff --name-only 2ce7e61d..HEAD` is `reviews/task-269/REQUEST.md`).
+The harness line below is the one-player run on the clean tree anyway, because the PR
+to `main` asks for one.
 
 ## PLAN
 
@@ -94,8 +98,133 @@ That is a before that **did** fail, measured, and not a case constructed to fail
 
 ## WHAT CHANGED
 
-(filled in after the proof)
+**No `src/`, no `tests/`, no `tools/`.** The hypothesis in the PLAN was that nothing in the game was
+wrong and that task 268's measurement had been taken with the feature switched off. **That
+hypothesis is REFUTED, and refuting it is this task's result**: with `HIT_CLAIM` ON the claims are
+built and sent, and the server **refuses almost all of them**.
+
+Changed outside the repo (Director ops, `<runs-dir>`): three measured instrument faults, below.
+
+## THE MEASUREMENT
+
+Karen's Forest Test (placeId 130094961655666), the scoped .416 in hand, `DHTestRelease` staging hind
+parties at 250 studs (70 m) crossing in front of the stand, the hold led by `v x flight` through
+`Ballistics.timeToRange`, settled under 0.6 deg on its own live generation before every trigger,
+one real focused click each through `click.ps1`. Log: `<runs-dir>/269-led4.log`.
+`DHClaimStats` read as a live `ServerStorage` attribute, never through `require` (L-026).
+
+### Item 2 -- 5 led shots. **TARGET 4 of 5 CHEST. MEASURED 1 of 5. NOT MET.**
+
+| shot | target, v at the shot | range | the server named | the claim |
+|---|---|---|---|---|
+| led4.1.1 | Boar408 hind, 20.60 | 61.8 | `Boar408(body)` | **refused** (`claim-line`) |
+| led4.2.1 | Boar425 hind, 28.78 | 171.2 | `ZoneRear(rear)` | **refused** (`claim-blocked`) |
+| led4.5.1 | Boar458 hind, 26.91 | 146.2 | **`ZoneChest(chest)`** | **refused** (`claim-blocked`) |
+| led4.6.1 | Boar466 hind, 29.30 | 133.1 | `Boar466(body)` | **refused** (`claim-line`) |
+| led4.7.1 | Boar479 calf, 37.25 | 117.6 | `Boar479(body)` | none sent |
+
+### AND HERE IS THE CAUSE, MEASURED: **THE CLAIMS ARE REFUSED**
+
+`DHClaimStats`, read before and after every shot, over this task's ten claims:
+
+```
+enabled=true claims=10 accepted=2 refused=8 ignored=0
+worst=2.590/1.840/2.008 age=0.012..0.050/10 why=ok [claim-blocked=4 claim-line=4]
+```
+
+**Eight of ten claims refused**, four by `claim-blocked` and four by `claim-line`. `accepted` moved
+exactly twice, and neither accepted claim is one of the five shots in the table. So on every shot
+in that table the zone the server named is **its own late resolution**, which is the thing
+`HIT_CLAIM` exists to replace -- the feature is ON, is reached, builds a claim, sends it, and is
+then refused at `Validator.judgeClaim`.
+
+**That is a sharper statement than "the lead is wrong", and the numbers say which:** the ballistic
+lead applied was 0.47 to 1.79 studs and the claims were refused for being off the server's own
+trajectory (`claim-line`) or blocked by its rewind (`claim-blocked`) -- neither of which the
+shooter's lead can change.
+
+### One shot DID put the mark on the chest, and the frame was opened
+
+`<runs-dir>/269-led4-led4.5.1.png`, described: the shooter's eye, the scoped .416 across the lower
+half of the frame over the stand's yellow circle, open grass and birches to the treeline with a
+small brown deer standing in the middle distance, HUD `DRIVE 6 / 4:22 TIME / 0 ANIMALS / HUNTER /
+$13238` and `9 .416` in the ammo box; bottom-left the hit card **`HIT - .416`** with a deer
+silhouette carrying a **red diamond mark on the CHEST**, just behind the foreleg, and under it
+**`Alhamdulilah824 HIND  chest  41 m  RIFLE`**. So one of the five is the picture the dispatch asked
+for -- a running hind (v 26.91), the chest named, the mark on the chest -- and **the claim for that
+very shot was refused**, so even this one is the server's own answer and not the shooter's.
+
+### Item 3 -- the 3 no-lead shots: **NOT RUN.** Honest reason
+
+The 2 h went on the enabler's three instrument faults below and on the four 5-shot trials they cost.
+It is not attempted and is not reported as anything else. **And the instrument is not yet fit for
+it**: see the warning under "what the miss distance is NOT", which is exactly L-019/L-021's case.
+
+### WHAT THE "from the CHEST" COLUMN IS NOT -- and why it is not used as the yardstick
+
+The listener computes the impact's local offset and its distance from the chest using the part's
+CFrame **as it reads them**, which is 1.5 s after the shot. At 27-37 studs/s the animal has moved
+40-55 studs by then, which is why rows show `local ... z=7.578` on a zone part two studs long. The
+**zone name** is sound (it is the part the server itself named in the report); the **distance** is
+not, and it is not used to judge anything here. Fixing it needs the aim point and the part CFrame
+LATCHED at the trigger. This is L-019/L-021's warning met in the data rather than argued about.
+
+## THREE INSTRUMENT FAULTS MEASURED AND FIXED THIS SESSION
+
+Each was found by a reading, and each had been silently corrupting the trial before it:
+
+1. **Every `track` call spawned another per-frame loop under the SAME generation string**, and each
+   loop runs `while RS:GetAttribute("DHTrackGen") == GEN` -- so none of the old ones ever stopped.
+   Two to five loops then fought over `DHTestLook` frame by frame, each holding its own animal.
+   The readings: `settle` oscillating to 48 and 91 degrees, and **a shot at a deer 23 studs away
+   landing on a different animal 113 studs out**. Fixed with a unique generation per call.
+2. **The fix for (1) then broke the handshake the other way**: an exiting loop wrote
+   `DHTrackGen = "off"` unconditionally and killed the generation that had just replaced it. Five
+   shots read `offTarget=0.000` with the hold frozen on a point the animal had long left, and
+   **all five hit Terrain**. A zero angle to a stale point is not "on target", so the settle gate
+   now checks the generation as well as the angle.
+3. **No reload between two shots means no claim at all.** Task 269's first trial sent ONE claim in
+   five shots. `Claim.forCamera` refuses to build one unless the snapshot's `loaded[selected]` is a
+   string, and the probe measured that gate live: with the rifle in hand it reads
+   `char=true tool=Rifle muzzle=true id=rifle ammo=Slug pellets=1` -- every gate open. Reloading
+   before every shot took it to one claim per shot (`claims` 7, 8, 9, 10). Whether a second shot
+   from a loaded magazine should also claim is a question for the owner; it is reported, not fixed.
 
 ## CLAIMS
 
-(filled in after the proof)
+1. **The flag was ON for the trial, live, on the real server.** `<runs-dir>/269-flaglive.luau` read
+   `SS.DHFlag_HIT_CLAIM=true` from the running server, and `DHClaimStats` itself carries
+   `enabled=true`, which is `Weapon.stats().claimsEnabled` -- the resolved answer, not the file's
+   default.
+2. **The claims were sent, one per shot.** `claims` went 7 -> 8 -> 9 -> 10 across the trial, read as
+   a `ServerStorage` attribute before and after each shot.
+3. **Eight of ten were refused, by `claim-blocked` (4) and `claim-line` (4)** -- the same attribute.
+4. **The target is not met: 1 of 5 shots named `chest`.** The table above, each row with the zone
+   the server's own report named.
+5. **The hold was on the chest at every trigger of the final trial**: `settle` under 0.6 deg against
+   the LIVE generation, 0.13 to 0.53 deg, and the read after the shot 0.000 to 0.431 deg.
+6. **The one chest shot's frame was opened and is described above**, and it is a RUNNING hind
+   (v 26.91) with the mark drawn on the chest -- and its claim was refused, so it is not evidence
+   that the claim works.
+7. **The before is task 268's, same instrument, same place, same gun, flag at its default** (the
+   PLAN's (b) table): 0 of 3 vitals. The after is 1 of 5. **Neither meets the target, and the
+   difference between them is not significant at these counts** -- which is said here rather than
+   presented as progress.
+8. **The PLAN's hypothesis is refuted and that is the item's result.** It predicted that the claim
+   would make the zone the client's; the claim is refused before it can.
+9. **Nothing in `src/`, `tests/` or `tools/` changed.** `git diff --name-only 2ce7e61d..HEAD`.
+10. **The Forest Test is as the dispatch asked.** Eleven attributes read before
+    (`<runs-dir>/attrs-id.luau`); `HIT_CLAIM` set on for the trial and **set OFF again** afterwards
+    as the dispatch instructed, so the set now differs from the baseline by exactly one row,
+    `DHFlag_HIT_CLAIM=false`, which resolves to the same OFF as its absence.
+    `flags.py --place forest clear` was never run (rule K). `DHTestOwns` was added and removed by
+    name. Play stopped, the window closed before the harness ran.
+
+## WHAT COULD NOT BE VERIFIED
+
+* **WHY each claim was refused, beyond the two rule names.** `claim-blocked` and `claim-line` are
+  `Validator.judgeClaim`'s own words; which of the six checks' numbers were out, and by how much, is
+  not in `DHClaimStats` and no probe here read it. That is the first thing the next session needs
+  and it is a one-field addition to the published line.
+* **Item 3 (the 3 no-lead shots): NOT RUN.**
+* **Whether a magazine's second shot should claim**: measured as "it does not", not judged.
