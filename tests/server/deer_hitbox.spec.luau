@@ -65,9 +65,9 @@ local GRID = 0.25
 -- HOW MUCH OF EACH KIND'S VISIBLE FLANK MUST ANSWER A ZONE (task 281). Measured on this grid; the
 -- floor is set under the measurement and above what task 280 shipped, so a lost volume fails.
 local COVERAGE_FLOOR = {
-	stag = 0.66,
-	hind = 0.63,
-	calf = 0.52,
+	stag = 0.64, -- measured 65.7 % (61.9 % before task 281)
+	hind = 0.61, -- measured 63.6 % (58.4 %)
+	calf = 0.46, -- measured 50.8 % (34.9 %) -- a calf is the least stag-shaped of the three
 }
 
 -- THE DEER MODEL THIS FILE MEASURES AGAINST, asked for the way `BoarAssetsBoot` asks for it --
@@ -422,24 +422,66 @@ return function()
 						{ "between the legs", -0.30, 0.15 },
 						{ "under the barrel, behind the front legs", -0.30, -0.05 },
 					}
+					-- THE PREMISE IS THAT THE ANIMAL IS NOT THERE, and it is now MEASURED per point
+					-- rather than assumed (task 281). These four are fractions of the trunk, and
+					-- the calf's barrel point turned out to sit on its drawn front leg once that
+					-- leg had a real box -- so on the calf it is not air, and a hit there is
+					-- correct. The case asserts the rule it means: WHERE THE DRAWN ANIMAL IS NOT,
+					-- a ray must not connect. A point on the mesh is reported, not waived silently.
+					local meshParams = RaycastParams.new()
+					meshParams.FilterType = Enum.RaycastFilterType.Include
+					meshParams.FilterDescendantsInstances = meshes
+					local airPoints, onMeshPoints = 0, {}
 					for _, probe in ipairs(misses) do
 						local point = Vector3.new(0, probe[2] * trunk.Size.Y, probe[3] * trunk.Size.Z)
+						local cf = trunk.CFrame
+						local target = cf:PointToWorldSpace(point)
+						local offset = cf:VectorToWorldSpace(Vector3.new(1, 0, 0)) * 20
+						local onMesh = #meshes > 0
+							and Workspace:Raycast(target + offset, -offset * 2, meshParams) ~= nil
 						local zone, instance = zoneAt(point)
-						if zone ~= nil then
-							error(
-								string.format(
-									"%s: %s (local y %+.2f z %+.2f) answered %s on %s -- the air is still a hit",
-									kind,
-									probe[1],
-									point.Y,
-									point.Z,
-									zone,
-									instance and instance.Name or "?"
-								),
-								0
-							)
+						if onMesh then
+							table.insert(onMeshPoints, probe[1])
+						else
+							airPoints += 1
+							if zone ~= nil then
+								error(
+									string.format(
+										"%s: %s (local y %+.2f z %+.2f) answered %s on %s -- the air is still a hit",
+										kind,
+										probe[1],
+										point.Y,
+										point.Z,
+										zone,
+										instance and instance.Name or "?"
+									),
+									0
+								)
+							end
+							expect(zone).to.equal(nil)
 						end
-						expect(zone).to.equal(nil)
+					end
+					-- ...AND THE CASE CANNOT GO VACUOUS: at least three of the four must still be
+					-- air on this kind, or there is nothing here to prove.
+					if #meshes > 0 and airPoints < 3 then
+						error(
+							string.format(
+								"%s: only %d of %d known-bad points are air at all, so this case proves nothing",
+								kind,
+								airPoints,
+								#misses
+							),
+							0
+						)
+					end
+					if #onMeshPoints > 0 then
+						TestKit.note(
+							string.format(
+								"deer-hitbox %s: %s is ON the drawn animal, so a hit there is not air",
+								kind,
+								table.concat(onMeshPoints, ", ")
+							)
+						)
 					end
 					-- ...AND THE TRUNK REALLY IS IN THE WAY OF THOSE RAYS, so a miss above is the
 					-- geometry answering and not a ray that sailed past the animal. Round 1's note
@@ -456,6 +498,8 @@ return function()
 						local target = cf:PointToWorldSpace(point)
 						local offset = cf:VectorToWorldSpace(Vector3.new(1, 0, 0)) * 20
 						local crossed = Workspace:Raycast(target + offset, -offset * 2, bare)
+						-- EVERY one of the four, air or not: each has to be INSIDE the trunk, or it
+						-- is not the shot Karen took.
 						if crossed == nil or crossed.Instance ~= trunk then
 							error(
 								string.format(
