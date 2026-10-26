@@ -327,7 +327,28 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 	-- of boar Instances, and the weapon only reads. The trunk keeps HitZone = "body", so belly,
 	-- flank, rear and brisket -- whatever no zone part covers -- are the default zone.
 	part:SetAttribute("Damageable", true)
-	part:SetAttribute("HitZone", "body")
+	-- THE TRUNK'S OWN ZONE, AND A DEER HAS NONE (task 280). For a boar `body` is the fallback -- the
+	-- belly, the flank and the brisket are hits although no zone part covers them -- and
+	-- `TRUNK_HITTABLE` is absent from `Boar.CONFIG.ZONES`, so `geometry.trunkHittable` reads true
+	-- and this is the line it has always been.
+	--
+	-- FOR THE RED DEER THE TRUNK IS NOT A TARGET. It is 1.8 x 4.8 x 7.05 -- the nose line to the
+	-- rump, the back line to the hooves -- and the animal does not fill it, so its surface is a hit
+	-- on NOTHING: the air in front of the chest and under the neck (measured: z -3.50..-1.25 below
+	-- the throat line) and the whole space between the legs. Karen, 2026-10-26, on a FROZEN broadside
+	-- hind at ~28 m: *"wrong I hit the chest shows outside"*, and on 2026-10-24: *"sometimes shows we
+	-- hit empty space and died"*. So it publishes no zone of its own and declares `ZonesOnly`, and
+	-- `Weapon.Hits.targetOf` then refuses it while `Weapon.Cast.world` lets the bullet through it to
+	-- the measured volumes inside.
+	--
+	-- WHY NOT `CanQuery = false`, which is what this looks like a job for: MEASURED, it does not
+	-- work on a COLLIDABLE part in this engine, and the trunk must collide. The four-row measurement
+	-- with its control is written out in `Weapon.Hits.passesThrough`.
+	if geometry.trunkHittable then
+		part:SetAttribute("HitZone", "body")
+	else
+		part:SetAttribute("ZonesOnly", true)
+	end
 	-- WHICH ANIMAL THIS IS, on the trunk (task 123 round 3). The march order is a fact about kinds,
 	-- and without this it is a fact nobody outside the server can see -- not in the Explorer, not in
 	-- a diagnostic, not in the frame Karen is looking at.
@@ -351,25 +372,6 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 	part:SetAttribute(Licences.SPECIES_ATTRIBUTE, (speciesRow and speciesRow.species) or Licences.ROWS.boar.species)
 	part.Anchored = false
 	part.CanCollide = true
-	-- IS THE TRUNK ITSELF A TARGET? (task 280, and it is the whole of that task.) For the BOAR it
-	-- is: `HitZone = "body"` above is the fallback, so belly, flank, rump and brisket are hits
-	-- although no zone part covers them, and `TRUNK_HITTABLE` is absent from `Boar.CONFIG.ZONES`, so
-	-- this reads `true` and nothing about a boar changes.
-	--
-	-- FOR THE RED DEER IT IS NOT. The trunk is 1.8 x 4.8 x 7.05 -- the nose line to the rump, the
-	-- back line to the hooves -- and a deer does not fill it: the AIR IN FRONT OF THE CHEST AND
-	-- UNDER THE NECK (measured: z -3.50..-1.25 below the throat) and the AIR BETWEEN THE LEGS were
-	-- `body` hits, so a shot at nothing was charged to the animal and the hit card drew its dot in
-	-- empty space. Karen, 2026-10-26, on a FROZEN broadside hind at ~28 m: *"wrong I hit the chest
-	-- shows outside"*, and on 2026-10-24: *"sometimes shows we hit empty space and died"*.
-	-- With this false the trunk still does its physics job (`CanCollide` is untouched, one line
-	-- above) and a ray passes straight through it: every deer hit is one of the eleven measured
-	-- volumes `SPECIES.reddeer.ZONES` lists, and the air inside the box is a MISS.
-	--   CanQuery  https://create.roblox.com/docs/workspace/raycasting
-	--     "You can exempt any BasePart from hit detection by setting its BasePart.CanQuery property
-	--     to false", which is the same property `attachVisual` uses to keep the drawn mesh out of
-	--     every ray.
-	part.CanQuery = geometry.trunkHittable
 	-- ...AND IT DOES NOT SHOVE ITS OWN KIND (task 127 round 3). See `Boar.CONFIG.BOAR_COLLISION`:
 	-- the group is registered once and told not to collide with itself, so a file can close up nose
 	-- to tail the way a real sounder does. Everything else -- terrain, trunks, the player -- is in

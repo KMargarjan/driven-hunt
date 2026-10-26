@@ -98,6 +98,11 @@ return function()
 			-- ...and the geometry says so too: `TRUNK_HITTABLE` is not a key of the boar's table.
 			expect(CONFIG.ZONES.TRUNK_HITTABLE).to.equal(nil)
 			expect(Boar.kindGeometry(nil, CONFIG).trunkHittable).to.equal(true)
+			-- ...and NEITHER of task 280's two switches is on it: a boar's trunk is a target, and
+			-- a bullet stops on it.
+			expect(handle.part:GetAttribute("ZonesOnly")).to.equal(nil)
+			expect(Weapon.Hits.passesThrough(handle.part)).to.equal(false)
+			expect((Weapon.Hits.targetOf(handle.part))).to.equal(handle.part)
 		end)
 	end)
 
@@ -107,20 +112,24 @@ return function()
 			local meshes: { BasePart } = {}
 			local geometry
 
-			-- The zone parts and the trunk, and nothing else in the world.
-			local function zoneAt(localPoint: Vector3): (string?, BasePart?)
+			-- THE QUESTION A BULLET ASKS, and it is asked through the BULLET'S OWN CASTER. Not a bare
+			-- `Workspace:Raycast`: `Weapon.Cast.world` is the one caller of that in the weapon, and
+			-- since task 280 it is also what passes a bullet THROUGH a `ZonesOnly` animal's trunk --
+			-- so a spec casting for itself would be measuring a different flight from the one the
+			-- game flies. A `nil` here is a MISS, exactly as it is for a pellet.
+			local function zoneAt(localPoint: Vector3): (string?, Instance?)
 				local cf = trunk.CFrame
 				local target = cf:PointToWorldSpace(localPoint)
 				local offset = cf:VectorToWorldSpace(Vector3.new(1, 0, 0)) * 20
-				local params = RaycastParams.new()
-				params.FilterType = Enum.RaycastFilterType.Include
-				params.FilterDescendantsInstances = { trunk }
-				local result = Workspace:Raycast(target + offset, -offset * 2, params)
-				if not result then
+				local impact = Weapon.Cast.world(target + offset, -offset * 2, { Workspace.Terrain })
+				if not impact then
 					return nil, nil
 				end
-				local _, zone = Weapon.Hits.targetOf(result.Instance)
-				return zone, result.Instance
+				local hit, zone = Weapon.Hits.targetOf(impact.instance)
+				if not hit then
+					return nil, impact.instance
+				end
+				return zone, impact.instance
 			end
 
 			beforeAll(function()
@@ -209,11 +218,16 @@ return function()
 				holder:Destroy()
 			end)
 
-			it("is built from this kind's own measured volumes, and the trunk answers no ray", function()
-				-- THE SWITCH. A deer's trunk is physics and nothing else now.
-				expect(trunk.CanQuery).to.equal(false)
-				expect(trunk:GetAttribute("Damageable")).to.equal(true)
+			it("is built from this kind's own measured volumes, and the trunk is not a target", function()
+				-- THE SWITCH. A deer's trunk is physics and nothing else now: it publishes no zone
+				-- of its own, it declares `ZonesOnly`, the weapon's own reader refuses it and the
+				-- weapon's own caster goes through it.
 				expect(geometry.trunkHittable).to.equal(false)
+				expect(trunk:GetAttribute("Damageable")).to.equal(true)
+				expect(trunk:GetAttribute("ZonesOnly")).to.equal(true)
+				expect(trunk:GetAttribute("HitZone")).to.equal(nil)
+				expect(Weapon.Hits.passesThrough(trunk)).to.equal(true)
+				expect((Weapon.Hits.targetOf(trunk))).to.equal(nil)
 
 				-- ONE PART PER MEASURED BOX, every one carrying its own zone and none of them
 				-- carrying `Damageable` -- two damageable instances in one ancestor chain is an

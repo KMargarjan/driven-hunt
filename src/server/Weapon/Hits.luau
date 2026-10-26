@@ -32,12 +32,27 @@ Hits.POINTS_MAX = 24
 
 -- (target root, zone). The root is the nearest ancestor-or-self carrying Damageable == true; the
 -- zone is the hit instance's HitZone, else the root's, else "unknown". No root means a miss.
+--
+-- ...UNLESS THE ROOT SAYS `ZonesOnly` (task 280), AND THEN ONLY ITS NAMED ZONES ARE TARGETS. A red
+-- deer's physics trunk is 1.8 x 4.8 x 7.05 studs -- the nose line to the rump, the back line to the
+-- hooves -- and the animal does not fill it, so the trunk's own surface is a hit on nothing: the air
+-- in front of the chest, under the neck, and the whole space between the legs. Karen, 2026-10-26, on
+-- a FROZEN broadside hind at ~28 m: *"wrong I hit the chest shows outside"*.
+--
+-- IT IS AN ATTRIBUTE AND NOT A RULE ABOUT DEER, exactly as `Damageable` and `HitZone` are: the
+-- weapon still does not know what a boar is (design section 6.4). The animal's own owner publishes
+-- it (`Boar.Body.create`), a boar does not publish it at all, and this file gained one `if`.
 function Hits.targetOf(instance: Instance?): (Instance?, string)
 	local node = instance
 	while node do
 		if node:GetAttribute("Damageable") == true then
 			local zone = instance and instance:GetAttribute("HitZone")
 			if type(zone) ~= "string" then
+				if node:GetAttribute("ZonesOnly") == true then
+					-- The hit instance carries no zone of its own and this animal has no
+					-- fallback: the bullet met the box the animal lives in, not the animal.
+					return nil, ""
+				end
 				zone = node:GetAttribute("HitZone")
 			end
 			return node, if type(zone) == "string" then zone else "unknown"
@@ -45,6 +60,37 @@ function Hits.targetOf(instance: Instance?): (Instance?, string)
 		node = node.Parent
 	end
 	return nil, ""
+end
+
+-- A SURFACE A BULLET GOES STRAIGHT THROUGH (task 280), as opposed to one it stops on.
+--
+-- IT IS NOT "`targetOf` ANSWERED NIL": a tree answers nil and a tree stops a bullet. This is the
+-- narrow case of a surface that belongs to a `ZonesOnly` animal and is not one of its zones -- its
+-- physics trunk, or the skinned mesh welded to it -- and the ONLY reason it exists is measured.
+--
+-- MEASURED, 2026-10-26, in a DEV Play session with a 2 x 2 x 2 control part behind a 4 x 4 x 4 one
+-- (`<runs-dir>/280-diag4.luau`), four rows, one variable at a time:
+--     CanQuery=false, CanCollide=true  -> the big part is STILL returned by Workspace:Raycast
+--     CanQuery=false, CanCollide=false -> it is skipped, and the small part behind it is returned
+--     and the same both ways round whether CanQuery is written before or after parenting.
+-- So in this engine a COLLIDABLE part cannot be taken out of a raycast by `CanQuery`, and a deer's
+-- trunk has to collide -- it is the body the physics simulates. `Boar.Body.attachVisual`'s own
+-- `CanQuery = false` on the drawn mesh DOES work, because that mesh is `CanCollide = false`.
+--
+-- That is why the trunk is not removed from the cast but PASSED THROUGH by `Weapon.Cast.world`,
+-- which is the one caller of `Workspace:Raycast` in this system.
+function Hits.passesThrough(instance: Instance?): boolean
+	local node = instance
+	while node do
+		if node:GetAttribute("Damageable") == true then
+			if node:GetAttribute("ZonesOnly") ~= true then
+				return false
+			end
+			return type(instance and instance:GetAttribute("HitZone")) ~= "string"
+		end
+		node = node.Parent
+	end
+	return false
 end
 
 -- `Hits.resolve` IS GONE, AND THAT IS TASK 185 (archived: `backups/2026-10-14_task-185_hitscan-Hits-resolve.md`,

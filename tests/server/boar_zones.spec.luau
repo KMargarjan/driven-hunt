@@ -376,28 +376,27 @@ return function()
 				-- weapon does, read `HitZone` off whatever the engine returns, and measure how far
 				-- the zone part beat the bare trunk by -- so a part that is merely FLUSH fails
 				-- instead of passing on a tie.
+				-- THROUGH THE WEAPON'S OWN CASTER since task 280, and the clearance measurement is
+				-- gone with the thing it measured. It read how far the zone part beat the BARE TRUNK
+				-- by, because a part merely FLUSH with the trunk is a coin toss (task 116, review
+				-- round 2) -- and a deer's trunk is no longer on any bullet's ray at all
+				-- (`ZonesOnly`, and `Weapon.Cast.world` passes a bullet through it), so there is
+				-- nothing to tie with and every deer volume is fitted strictly INSIDE the drawn
+				-- animal rather than proud of a box. The boar's describe above still measures it, on
+				-- the animal it is still true of.
 				local function zoneAt(localPoint: Vector3, fromDirection: Vector3, distance: number)
 					local cf = trunk.CFrame
 					local target = cf:PointToWorldSpace(localPoint)
 					local offset = cf:VectorToWorldSpace(fromDirection.Unit) * distance
-					local origin = target + offset
-					local params = RaycastParams.new()
-					params.FilterType = Enum.RaycastFilterType.Include
-					params.FilterDescendantsInstances = { trunk }
-					local result = Workspace:Raycast(origin, -offset * 2, params)
-					if not result then
-						return nil, nil, 0
+					local impact = Weapon.Cast.world(target + offset, -offset * 2, { Workspace.Terrain })
+					if not impact then
+						return nil, nil
 					end
-					local _, zone = Weapon.Hits.targetOf(result.Instance)
-					local bare = RaycastParams.new()
-					bare.FilterType = Enum.RaycastFilterType.Exclude
-					bare.FilterDescendantsInstances = trunk:GetChildren()
-					local behind = Workspace:Raycast(origin, -offset * 2, bare)
-					local clearance = math.huge
-					if behind and behind.Instance == trunk then
-						clearance = behind.Distance - result.Distance
+					local hit, zone = Weapon.Hits.targetOf(impact.instance)
+					if not hit then
+						return nil, impact.instance
 					end
-					return zone, result.Instance, clearance
+					return zone, impact.instance
 				end
 
 				beforeAll(function()
@@ -474,7 +473,7 @@ return function()
 					local seen = {}
 					for _, name in ipairs(geometry.zoneOrder) do
 						for index, box in ipairs(geometry.zones[name].boxes) do
-							local zone, _instance, clearance = zoneAt(box.offset, Vector3.new(1, 0, 0), 20)
+							local zone = zoneAt(box.offset, Vector3.new(1, 0, 0), 20)
 							if zone == nil then
 								error(
 									string.format("%s: %s box %d answered no zone at its own centre", kind, name, index),
@@ -482,12 +481,6 @@ return function()
 								)
 							end
 							seen[zone] = (seen[zone] or 0) + 1
-							-- NO CLEARANCE ASSERTION ANY MORE, and that is the task-280 switch rather
-							-- than a weakened test: `zoneAt` measures how far the zone part beat the
-							-- BARE TRUNK by, and a deer's trunk has `CanQuery = false`, so it is on
-							-- no ray and there is nothing left to tie with. `math.huge` is what
-							-- "the trunk is not on this ray at all" has always returned here.
-							expect(clearance > 0).to.equal(true)
 						end
 					end
 					-- ...and the four zone words a deer can answer are all reachable.

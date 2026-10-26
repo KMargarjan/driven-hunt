@@ -95,18 +95,53 @@ return function()
 			)
 		end)
 
-		it("keeps every zone PROUD of its own trunk, at every size", function()
+		it("keeps every BOAR zone PROUD of its own trunk, and every DEER zone INSIDE it", function()
 			-- The clearance that stops a zone part being FLUSH with the trunk is what task 116's
 			-- review round 2 was about: two coincident faces at one ray distance is a coin toss. It
 			-- scales with the animal, so it is smaller on a cub and it is never zero.
+			--
+			-- A DEER IS THE OTHER WAY ROUND, AND TASK 280 IS WHY. Its trunk answers no ray at all
+			-- (`ZonesOnly`, because `CanQuery` cannot take a collidable part out of a cast -- the
+			-- measurement is in `Weapon.Hits.passesThrough`), so there is nothing to stand proud of
+			-- and every volume is fitted strictly INSIDE the drawn animal instead. Both halves are
+			-- asserted here rather than one of them being dropped, because "proud" and "inside" are
+			-- the two answers to the same question and a spec that only knew one of them was how the
+			-- deer's boxes came to hold the air under its neck.
 			for _, kind in ipairs(CONFIG.KINDS.ORDER) do
 				local geometry = Boar.kindGeometry(kind, on)
-				-- THE ONE THAT CAN FAIL (review round 2, note): the chest, the rump and the legs
-				-- stand proud SIDEWAYS, and they must still be wider than the trunk they hang on
-				-- after everything has been scaled. A `protrusion > 0` assertion was here and could
-				-- not fail for any positive scale, so it is gone.
-				for _, name in ipairs({ "chest", "rear", "legs" }) do
-					expect(geometry.zones[name].size.X > geometry.bodySize.X).to.equal(true)
+				local deer = CONFIG.KINDS[kind].species == "reddeer"
+				if deer then
+					local half = geometry.bodySize / 2
+					for _, name in ipairs(geometry.zoneOrder) do
+						for index, box in ipairs(geometry.zones[name].boxes) do
+							local reach = box.offset:Abs() + box.size / 2
+							if reach.X > half.X or reach.Y > half.Y or reach.Z > half.Z then
+								error(
+									string.format(
+										"%s: %s box %d reaches (%.2f, %.2f, %.2f) outside its own half-box (%.2f, %.2f, %.2f)",
+										kind,
+										name,
+										index,
+										reach.X,
+										reach.Y,
+										reach.Z,
+										half.X,
+										half.Y,
+										half.Z
+									),
+									0
+								)
+							end
+						end
+					end
+				else
+					-- THE ONE THAT CAN FAIL (review round 2, note): the chest, the rump and the legs
+					-- stand proud SIDEWAYS, and they must still be wider than the trunk they hang
+					-- on after everything has been scaled. A `protrusion > 0` assertion was here
+					-- and could not fail for any positive scale, so it is gone.
+					for _, name in ipairs({ "chest", "rear", "legs" }) do
+						expect(geometry.zones[name].size.X > geometry.bodySize.X).to.equal(true)
+					end
 				end
 			end
 		end)
