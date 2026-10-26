@@ -534,6 +534,26 @@ Bots.start({
 -- phantoms are retired only by the file that invented them.
 ForestTest.setBotThreats(Bots.threats)
 
+-- THE STUDIO-ONLY STAGED RELEASE'S ONE READER (task 268). Three gates, and each is independent:
+--   1. `RunService:IsStudio()` is false on every live server;
+--   2. `ServerStorage` never replicates, so no client can write this attribute or read it;
+--   3. `Data.stagedRow` is handed `isStudio` again at the point of use and answers nil for a live
+--      server whatever this reader returns.
+-- ONE-SHOT: the attribute is cleared the moment it is read, so the group is released on the tick it
+-- was asked for and the next tick asks for nothing. The clear is a SERVER write to a `ServerStorage`
+-- attribute and the writer is also on the server (an instrument over StudioMCP), so unlike
+-- `DHTestLook` there is no side that cannot see the handshake (task 263 measured that one).
+ForestTest.setStagedReader(function()
+	if not RunService:IsStudio() then
+		return nil
+	end
+	local raw = ServerStorage:GetAttribute(Data.STAGED_ATTRIBUTE)
+	if raw ~= nil then
+		ServerStorage:SetAttribute(Data.STAGED_ATTRIBUTE, nil)
+	end
+	return raw
+end)
+
 -- THE COINS (task 170), started BEFORE the drive: a player already on the server must have his
 -- profile session open before the first dispatch, because a drive that ends with no session pays him
 -- nothing and says so.

@@ -24,6 +24,10 @@ local Line = ForestTest.Line
 -- The world's own data (the road curve, the stands, the push line), for the drive-line case
 -- task 157 added at the bottom.
 local Data = ForestTest.Data
+-- THE ONE METRE/STUD CONVERSION IN THE REPO (`Report.CONFIG.METRES_PER_STUD`), for the staged
+-- release's default depth: the dispatch asked for 60-90 m and the row carries studs, so the
+-- case that checks the two agree may not hold a second copy of 0.28.
+local Report = require(game:GetService("ReplicatedStorage"):WaitForChild("Report"))
 local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestKit"))
 
 -- A straight trail east along +X, one crumb a stud, then a right-angle turn south along -Z.
@@ -1395,6 +1399,165 @@ return function()
 			expect(ForestTest.computeRouteVia({})).to.equal(nil)
 			expect(ForestTest.computeRouteVia({ Vector3.new(0, 0, 0) })).to.equal(nil)
 			expect(ForestTest.computeRouteVia(nil :: any)).to.equal(nil)
+		end)
+	end)
+
+	-- ======================== THE STUDIO-ONLY STAGED RELEASE (task 268)
+	--
+	-- BOTH BRANCHES ARE DRIVEN HERE AND NEITHER NEEDS A STUDIO SESSION, which is the whole reason
+	-- `Data.stagedRow` takes `isStudio` as a parameter rather than asking `RunService` itself: a spec
+	-- that could only reach the Studio branch could not prove the live-server one is dead.
+	describe("the staged release", function()
+		-- WHAT A LIVE SERVER SEES, and it is the first case because it is the one that must never
+		-- stop being true. The repo is public and this place is published.
+		it("answers nil on a live server for every spec it would otherwise read", function()
+			for _, spec in ipairs({ "hinds@250", "stag@220,-140,60,run", "boar6@200", "harem@400" }) do
+				expect(Data.stagedRow(true, spec)).to.be.ok()
+				expect(Data.stagedRow(false, spec)).to.equal(nil)
+			end
+			-- ...AND THE ATTRIBUTE IS NAMED ONCE, here and in `ForestTestBoot`, nowhere else.
+			expect(Data.STAGED_ATTRIBUTE).to.equal("DHTestRelease")
+		end)
+
+		it("reads the dispatch's default: one named party, 250 studs out, crossing in front, running", function()
+			local row = Data.stagedRow(true, "hinds@250")
+			expect(row.species).to.equal("reddeer")
+			expect(row.party).to.equal("hinds")
+			expect(row.northStuds).to.equal(250)
+			expect(row.offsetX).to.equal(Data.STAGED.offsetX)
+			expect(row.crossOffset).to.equal(Data.STAGED.crossOffset)
+			expect(row.pace).to.equal("run")
+			expect(row.files).to.equal(1)
+			expect(row.staged).to.equal(true)
+			-- IT IS NOT ONE OF THE FIFTEEN, and `releaseLine` reads both of these.
+			expect(row.slot).to.equal(0)
+			expect(row.act).to.equal(0)
+			-- 250 STUDS IS 70 m, inside the dispatch's 60-90 m band, and the conversion is read from
+			-- the one place in the repo that holds it rather than written down again here.
+			local metres = row.northStuds * Report.CONFIG.METRES_PER_STUD
+			expect(metres >= 60 and metres <= 90).to.equal(true)
+			-- ...AND IT IS A CROSSING SHOT BY CONSTRUCTION: the start and the crossing are on
+			-- OPPOSITE sides of the stand, so the group travels across her front rather than at her.
+			expect(row.offsetX < 0 and row.crossOffset > 0).to.equal(true)
+		end)
+
+		it("takes every field by name, and the depth, the offsets and the pace are all honoured", function()
+			local row = Data.stagedRow(true, "stag@120,-200,180,trot")
+			expect(row.party).to.equal("stag")
+			expect(row.northStuds).to.equal(120)
+			expect(row.offsetX).to.equal(-200)
+			expect(row.crossOffset).to.equal(180)
+			expect(row.pace).to.equal("trot")
+			-- A FIELD LEFT EMPTY FALLS BACK rather than refusing the whole spec, so an instrument can
+			-- name the pace without re-typing the geometry.
+			local partial = Data.stagedRow(true, "hinds@200,,,walk")
+			expect(partial.offsetX).to.equal(Data.STAGED.offsetX)
+			expect(partial.crossOffset).to.equal(Data.STAGED.crossOffset)
+			expect(partial.pace).to.equal("walk")
+			-- WHITESPACE IS NOT A SYNTAX ERROR: this value is typed by a person into an attribute.
+			expect(Data.stagedRow(true, " hinds @ 250 , -100 ").northStuds).to.equal(250)
+		end)
+
+		it("names a BOAR release by its composition index, which is the animal owner's own table", function()
+			local row = Data.stagedRow(true, "boar6@200")
+			expect(row.species).to.equal("boar")
+			expect(row.party).to.equal(nil)
+			expect(row.composition).to.equal(6)
+			-- THE INDEX IS ONE THE ANIMAL OWNER ACTUALLY HAS. Read off `SOUNDER.COMPOSITIONS` rather
+			-- than trusted, because `releaseLine` indexes straight into it.
+			expect(Boar.CONFIG.SOUNDER.COMPOSITIONS[row.composition]).to.be.ok()
+		end)
+
+		-- THE PARTY NAMES IT WILL PASS ON ARE EXACTLY THE ONES THE ANIMAL OWNER KNOWS. Read off
+		-- `Boar.deerComposition` in both directions, so a word added to one table and not the other
+		-- fails here instead of in a live drive -- `deerComposition` answers nil for a name it does
+		-- not have, and a nil composition is a release that silently does not happen.
+		it("passes on only party names Boar.deerComposition can turn into counts", function()
+			local config = { KINDS = { ENABLED = true }, SPECIES = Boar.CONFIG.SPECIES }
+			local names = {}
+			for name in pairs(Data.STAGED.PARTIES) do
+				table.insert(names, name)
+			end
+			table.sort(names)
+			expect(#names > 0).to.equal(true)
+			for _, name in ipairs(names) do
+				local composition = Boar.deerComposition(0, 0, config, name)
+				expect(composition).to.be.ok()
+				-- COUNTED HERE RATHER THAN THROUGH `Boar.compositionSize`, which reads a whole world's
+				-- `KINDS` table to weigh a group and answers 0 for the two-field config above. What
+				-- this case is about is the NAME: that it reaches the animal owner and comes back as
+				-- animals.
+				local head = 0
+				for _, many in pairs(composition) do
+					head += many
+				end
+				expect(head > 0).to.equal(true)
+				expect(Data.stagedRow(true, name .. "@250").party).to.equal(name)
+			end
+			-- ...AND THE OTHER DIRECTION: every row the animal owner publishes is a word this parser
+			-- accepts, so a new party cannot be unreachable from the instrument.
+			for _, row in ipairs(Boar.CONFIG.SPECIES.reddeer.RELEASE.COMPOSITIONS) do
+				expect(Data.STAGED.PARTIES[row.name]).to.equal(true)
+			end
+		end)
+
+		it("refuses anything it cannot read, and never guesses", function()
+			local bad = {
+				"",
+				"hinds",
+				"hinds@",
+				"@250",
+				"hinds@nan",
+				"hinds@0",
+				"hinds@39",
+				"hinds@601",
+				"hinds@250,9999",
+				"hinds@250,0,9999",
+				"hinds@250,0,0,gallop",
+				"hinds@250,x",
+				"doe@250",
+				"boar@250",
+				"boar0@250",
+				"boar1.5@250",
+				"boar-1@250",
+			}
+			for _, spec in ipairs(bad) do
+				expect(Data.stagedRow(true, spec)).to.equal(nil)
+			end
+			-- NOT A STRING IS NOT A SPEC either: the attribute can hold a number or a boolean.
+			expect(Data.stagedRow(true, nil)).to.equal(nil)
+			expect(Data.stagedRow(true, 250)).to.equal(nil)
+			expect(Data.stagedRow(true, true)).to.equal(nil)
+			-- THE BAND'S OWN EDGES ARE IN, so "refused" above is the band and not an off-by-one.
+			expect(Data.stagedRow(true, "hinds@40").northStuds).to.equal(40)
+			expect(Data.stagedRow(true, "hinds@600").northStuds).to.equal(600)
+		end)
+
+		-- THE POINT OF THE WHOLE HOOK: the row it WRITES is read by exactly the functions that read a
+		-- row the SCHEDULE wrote. Every one of these is a call `releaseLine` makes, in its order.
+		it("is a row the drive's own readers accept, with no special case anywhere", function()
+			local row = Data.stagedRow(true, "hinds@250")
+			local standX = ForestTest.hunterStandX()
+			expect(Data.slotRoute(row)).to.equal("STRAIGHT")
+			-- CLAMPED TO THE LINE like any crossing row: a staged group released behind the beaters
+			-- would be flushed instead of walked, which is a different measurement.
+			expect(Data.clampedToLine(row)).to.equal(true)
+			-- ...AND WITH NO LINE MEASURED YET it is released at exactly the depth it asked for.
+			local floor = Data.routeFloor(row)
+			expect(Data.releaseDepth(row.northStuds, nil, floor)).to.equal(250)
+			-- WHERE IT COMES DOWN is her stand plus the row's own offset -- the same arithmetic every
+			-- slot gets, which is what makes "in front of HER" true wherever she stands.
+			expect(Data.wavePoint(standX, row).X).to.be.near(standX + row.offsetX, 1e-6)
+			-- WHERE IT CROSSES is on the road at her stand plus the crossing offset.
+			local crossX = standX + row.crossOffset
+			expect(Data.roadZ(crossX)).to.be.ok()
+			-- AND IT IS A SLOT-SHAPED ROW: the fields `releaseLine` reads are all present and of the
+			-- types it reads them as.
+			expect(type(row.files)).to.equal("number")
+			expect(type(row.pace)).to.equal("string")
+			expect(type(row.note)).to.equal("string")
+			expect(row.lateral).to.equal(nil)
+			expect(row.sneak).to.equal(nil)
 		end)
 	end)
 end

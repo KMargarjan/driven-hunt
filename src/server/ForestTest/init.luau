@@ -20,6 +20,10 @@
 -- Design: no new design document. This is a playtest world, behind a world string, reachable only
 -- in one place id; the game's own map and drive are untouched. TASKS.md row 122.
 local Players = game:GetService("Players")
+-- THE STUDIO GATE FOR THE STAGED RELEASE AND NOTHING ELSE (task 268). `Data.stagedRow` takes
+-- `isStudio` as a PARAMETER so a spec reaches both branches; this is the one place the real
+-- answer is asked for, which is `Camera.Poses`' own arrangement.
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local PathfindingService = game:GetService("PathfindingService")
@@ -564,6 +568,10 @@ local state = {
 	-- here beside the other two rather than springing into existence in `releaseLine`, which is this
 	-- table's own rule and which part 1's review noted it had broken (TASKS.md 251a(e)).
 	owedRow = nil :: any,
+	-- THE STUDIO-ONLY STAGED RELEASE'S READER (task 268), injected by `ForestTestBoot` and nil in
+	-- every spec and on every live server. Declared here for the same reason `owedRow` above is: a
+	-- field that springs into existence inside a function is the next reader's trap.
+	stagedReader = nil :: (() -> any)?,
 	-- WHEN THIS DRIVE OPENED, and it is NOT `startedAt` (task 251 part 2). `startedAt` is the
 	-- SESSION's, and the roar's 90-second window and the slot metronome are both about one DRIVE --
 	-- which is why `newDrive(now)` sets this and why the metronome is re-based there. Before part 2
@@ -2639,6 +2647,14 @@ function ForestTest.step(now: number): string?
 		-- boot prints whatever `step` returns, and "the beater had no visible effect" is the kind of
 		-- claim that needs a number beside it.
 		local flush = ForestTest.takeFlushLine() or spooked or roared
+		-- THE STAGED RELEASE, BEFORE THE METRONOME AND INDEPENDENT OF IT (task 268). It is asked for
+		-- on EVERY tick, including a tick inside a slot's own gap and including beater mode below --
+		-- an instrument that had to wait up to `intervalSeconds` for its deer would be measuring the
+		-- schedule. It costs no slot and returns its own line.
+		local stagedLine = ForestTest.stagedLine(now)
+		if stagedLine ~= nil then
+			flush = if flush ~= nil then stagedLine .. " | " .. flush else stagedLine
+		end
 		-- BEATER MODE HAS NO SCHEDULE (task 154). Karen walked the then 240 studs to the road in
 		-- about sixteen seconds and the first wave was still four seconds away: *"didn;t see any animals
 		-- probably need to wait 10s ?"*. So nothing is released on a timer while she is a beater --
@@ -2926,7 +2942,51 @@ function ForestTest.clearRoute(points: { Vector3 }): { Vector3 }
 end
 
 -- RELEASES ONE WAVE AS A LINE. Returns the log line, or nil when nothing could be placed.
-function ForestTest.releaseLine(now: number): string?
+-- `staged` IS THE STUDIO-ONLY STAGED ROW (task 268), or nil for the drive's own slot. It is the
+-- ONE parameter the whole hook adds: everything below -- the depth clamp, the crossing, the
+-- composition, the routes, the spawn, the file, the sounder and the console line -- is the path a
+-- slot takes, which is what makes a proof taken on a staged group a statement about the drive.
+-- ============================ THE STUDIO-ONLY STAGED RELEASE: THE WIRING (task 268)
+--
+-- WHY A READER IS INJECTED rather than this module reading `ServerStorage` itself: that is the
+-- boundary this file already has (`setBotThreats`, `setSeatProvider`, and the two ground readers at
+-- the bottom), and `ForestTestBoot` is the one place in this world that reads a `ServerStorage`
+-- attribute -- the start role, the layout override and the drive length all come in through it.
+--
+-- THE READER IS ONE-SHOT: it answers the spec once and clears the attribute, so a staged release
+-- happens on the tick it was asked for and never again. That is the same handshake
+-- `Camera.lookAt`'s `DHLookAt` has, and here it is safe for the reason that one was not -- the
+-- writer (an instrument, over StudioMCP) and the clearer (the server) are both on the SERVER side,
+-- so the clear is seen.
+function ForestTest.setStagedReader(reader: (() -> any)?)
+	state.stagedReader = reader
+end
+
+-- ONE TICK'S STAGED RELEASE, or nil when nothing was asked for. The console line is the proof: a
+-- refusal says which word was not understood, and a release prints the SAME `"line N: SLOT 0 ..."`
+-- line a slot prints, with the spec in front of it.
+function ForestTest.stagedLine(now: number): string?
+	local reader = state.stagedReader
+	if reader == nil then
+		return nil
+	end
+	local raw = reader()
+	if raw == nil then
+		return nil
+	end
+	local row = Data.stagedRow(RunService:IsStudio(), raw)
+	if row == nil then
+		return string.format(
+			"STAGED: %s is not a release spec -- <stag|hinds|harem|boarN>@<northStuds 40-600>"
+				.. "[,offsetX[,crossOffset[,walk|trot|run]]]",
+			tostring(raw)
+		)
+	end
+	local line = ForestTest.releaseLine(now, row)
+	return string.format("STAGED %s -- %s", tostring(raw), line or "NOTHING RELEASED (no route, or the animal cap)")
+end
+
+function ForestTest.releaseLine(now: number, staged: any?): string?
 	local runtime = state.runtime
 	if runtime == nil then
 		return nil
@@ -2950,8 +3010,12 @@ function ForestTest.releaseLine(now: number): string?
 	-- dial decides whether this slot carries animals at all, and a nil is one of the drive's two
 	-- deliberate SILENCES -- which still costs its slot, because the shape is the fifteen rows in
 	-- order and a skipped gap would pull act III forward by forty seconds.
-	local slot = state.driveWave or 1
-	local row = ForestTest.waveAt(slot)
+	-- A STAGED ROW SHORT-CIRCUITS THE SCHEDULE AND NOTHING ELSE (task 268): it is not one of the
+	-- fifteen, so it has no slot (`slot = 0`), it is not owed and it cannot be held over. The drive's
+	-- own counters are untouched -- `state.driveWave` is advanced by the metronome in `ForestTest.step`
+	-- and a staged release does not go through it -- so staging costs no slot and shifts no act.
+	local slot = if staged ~= nil then 0 else (state.driveWave or 1)
+	local row = if staged ~= nil then staged else ForestTest.waveAt(slot)
 	-- A DEER PARTY THE CAP REFUSED TAKES THE DRIVE'S NEXT SILENCE (task 251, and it is MEASURED, not
 	-- defensive: the first live drive of this task's own Forest Test run printed *"slot 2 wanted the
 	-- hinds and the deer cap refused -- nothing released"*, because a hind party released in the
@@ -3039,10 +3103,28 @@ function ForestTest.releaseLine(now: number): string?
 		-- ...AND IT NAMES THE PARTY (task 253), so a party of one -- the stag -- is let out while the
 		-- hind party is still on its feet. MEASURED: it was not, and he came out 26 s late at the
 		-- drive's next silence, which is 26 s off the arithmetic that gets him to the verge.
-		if type(runtime.deerAllowed) == "function" and runtime:deerAllowed(row.party) then
+		local capOk = type(runtime.deerAllowed) ~= "function" or runtime:deerAllowed(row.party)
+		-- A STAGED RELEASE IS NOT HELD BY THE DRIVE'S DEER CAP, AND THAT IS A DECISION WITH A REASON
+		-- (task 268). `MAX_GROUPS_ALIVE` is 1: it is the DRIVE's pacing rule -- *"one deer group per
+		-- drive"* (tasks 223, 239) -- and not an invariant of the world. A staged release costs no
+		-- slot, so there is nothing for it to pace; and the proof it exists for is EIGHT running deer
+		-- in one session, which that cap makes impossible by construction while the previous group is
+		-- still on its feet. The cap is still ASKED and its answer is printed, so a reader of the
+		-- console can always see that a staged group went out over it.
+		if capOk or staged ~= nil then
 			composition = Boar.deerComposition(0, 0, boar, row.party)
 		end
 		if composition == nil then
+			-- A STAGED ROW IS NEVER OWED (it has no slot to be held for): the party name it carried is
+			-- one `Boar.deerComposition` does not know, which is a typo in the instrument and is said
+			-- so rather than silently re-tried for the rest of the drive.
+			if staged ~= nil then
+				return string.format(
+					"STAGED: the animal owner has no deer party named %q (cap allowed=%s)",
+					tostring(row.party),
+					tostring(capOk)
+				)
+			end
 			-- HELD OVER, not lost: the next silence of this drive releases it (see the top of this
 			-- function). `owedRow` is the ROW and not the party, so it comes from its own zone, at its
 			-- own crossing, exactly as the script wrote it.
@@ -3355,7 +3437,9 @@ function ForestTest.releaseLine(now: number): string?
 	-- the boar branch above fills it from `SOUNDER.COMPOSITIONS` -- so the old `composition ~= nil`
 	-- test set the latch on EVERY release, and `stats().deerDone` would have read "something went
 	-- out" rather than "the drive's deer went out".
-	if row.species == "reddeer" then
+	-- ...AND A STAGED GROUP DOES NOT SPEND IT (task 268). The latch means *"this DRIVE's deer went
+	-- out"*, which `stats().deerDone` is read for; a group an instrument asked for is not the drive's.
+	if row.species == "reddeer" and staged == nil then
 		state.deerDone = true
 	end
 	-- ...AND THE STAG ANNOUNCES HIMSELF AS HE COMES (task 251 part 2). The spec's cue table:
