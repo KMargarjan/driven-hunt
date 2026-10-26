@@ -1443,14 +1443,22 @@ return function()
 			-- task**, and it failed on round 1's too: there the owner read `firstImpact.part`, a
 			-- field `Shotgun.Impact` does not have, so `stoppedByClaimedTarget` was always false.
 			local shortBy = 2.137
+			-- MEASURED FROM THE FLIGHT'S OWN FIRST ORIGIN, not from the camera's: the server
+			-- launches from `shot.muzzle`, which is several studs from `origin`, and measuring the
+			-- reach from the wrong point is how round 3's first attempt produced a shortfall far
+			-- bigger than the one the case means to stage.
+			local firstOrigin: Vector3? = nil
 			Weapon.setCast(function(castOrigin: Vector3, castDirection: Vector3)
+				if firstOrigin == nil then
+					firstOrigin = castOrigin
+				end
 				local reach = distance - shortBy
 				local along = castDirection.Magnitude
 				if along <= 1e-6 then
 					return nil
 				end
 				local unit = castDirection.Unit
-				local here = (castOrigin - origin):Dot(unit)
+				local here = (castOrigin - (firstOrigin :: Vector3)):Dot(unit)
 				if here + along < reach then
 					return nil
 				end
