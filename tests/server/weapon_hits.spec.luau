@@ -1425,6 +1425,74 @@ return function()
 			expect(movedStuds > CLAIM.POSITION_TOLERANCE_STUDS).to.equal(true)
 		end)
 
+		-- ============ THE MEASURED CASE, REPRODUCED PURELY (design 12.1 case 37)
+		--
+		-- **THIS IS ROUND 1's BLOCKING FINDING ANSWERED AT THE LEVEL IT CAN BE ANSWERED PURELY**:
+		-- the view instant must CHANGE A VERDICT, not merely be computable. The numbers are the live
+		-- ones from `reviews/task-271/BRIEF.md` -- a deer at 28.7 studs/s whose picture was 0.178 s
+		-- old, a gap of 5.12 studs of which 5.106 lay along its own velocity, and a residual of
+		-- 0.38 studs perpendicular to its path.
+		--
+		-- `judgeClaim` is called twice with facts built the way `judgeClaimFor` builds them: once
+		-- from the ARRIVAL instant alone (v3's rule, reproduced by handing the sweep one candidate)
+		-- and once from the sweep's answer. v3 refuses `claim-line`; v4 accepts. Delete
+		-- `pickViewInstant`'s filter-then-minimise and the second half fails.
+		it("turns the measured 5.46/2.00 refusal into an acceptance -- the brief's own numbers", function()
+			local STEP = CLAIM.VIEW_LAG_STEP_SECONDS
+			local travel = Vector3.new(28.7, 0, 0)
+			-- THE SHOT: a straight trajectory along +Z, passing 0.38 studs from where the animal
+			-- was when the shooter saw it.
+			local segments = {
+				{ from = Vector3.new(0, 0, 0), to = Vector3.new(0, 0, 60) },
+				{ from = Vector3.new(0, 0, 60), to = Vector3.new(0, 0, 120) },
+			}
+			local seenAt = Vector3.new(0.38, 0, 70)
+			-- THE SWEEP'S CANDIDATES, newest first: the animal at `arrivalAt` is 0.178 s of travel
+			-- further along +X than the picture the shooter shot at.
+			local candidates = {}
+			for k = 0, 15 do
+				local back = k * STEP
+				table.insert(candidates, { at = 100 - back, point = seenAt + travel * (0.178 - back) })
+			end
+			local arrivalOnly = { candidates[1] }
+
+			local function facts(point: Vector3, trajectoryPoint: Vector3?)
+				return {
+					offset = Vector3.new(0, 0, 0),
+					partHalf = Vector3.new(0.9, 2.4, 3.0),
+					clientPoint = seenAt,
+					serverPoint = point,
+					trajectoryPoint = trajectoryPoint,
+					reachedStuds = 200,
+					claimedStuds = 70,
+					ageSeconds = 0.05,
+					flightSeconds = 0.0268,
+					expectedFlightSeconds = 0.0268,
+				}
+			end
+
+			-- v3: ONE INSTANT, the arrival. The trajectory passes 5.1 studs from it.
+			local i3, p3 = Validator.pickViewInstant(arrivalOnly, segments, seenAt, CLAIM)
+			expect(i3).to.equal(1)
+			local ok3, why3, measured3 = Validator.judgeClaim(facts(arrivalOnly[1].point, p3), CLAIM)
+			expect(ok3).to.equal(false)
+			expect(why3).to.equal("claim-line")
+			expect(measured3 > CLAIM.LINE_TOLERANCE_STUDS).to.equal(true)
+			expect(measured3).to.be.near(5.108, 0.05)
+
+			-- v4: THE SWEEP. It picks the picture the shooter actually shot at, and the same facts
+			-- pass check 4 with about a fifth of the budget.
+			local i4, p4, line4 = Validator.pickViewInstant(candidates, segments, seenAt, CLAIM)
+			expect(i4 > 1).to.equal(true)
+			expect(line4 <= CLAIM.LINE_TOLERANCE_STUDS).to.equal(true)
+			expect(line4).to.be.near(0.38, 0.3)
+			local ok4, why4 = Validator.judgeClaim(facts(candidates[i4].point, p4), CLAIM)
+			expect(ok4).to.equal(true)
+			expect(why4).to.equal(nil)
+			-- AND THE LAG IT FOUND IS THE VIEW LAG, within one grid step.
+			expect(math.abs((100 - candidates[i4].at) - 0.178) <= STEP).to.equal(true)
+		end)
+
 		it("answers nothing for an empty sweep rather than a zero that reads like a hit", function()
 			local index, point, lineStuds, movedStuds, anyPassed =
 				Validator.pickViewInstant({}, line(), Vector3.zero, CLAIM)

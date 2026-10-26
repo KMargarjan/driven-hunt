@@ -1381,7 +1381,24 @@ end
 -- function's interesting half at all.
 --
 -- IT REUSES `FLIGHT_CATCHUP_PING_FACTOR` and does not add a second one.
+-- THE WINDOW, OVERRIDDEN BY A SPEC AND BY NOTHING ELSE (round 1's finding 1). `judgeClaimFor`
+-- reads `CONFIG.CLAIM` directly and asks `viewWindowFor` with no config, so without this seam no
+-- case could set the window to 0 -- and design 3.4's own claim is that
+-- `VIEW_LAG_BASE_SECONDS = 0` reproduces v3's single-instant check exactly. A claim about a dial
+-- nothing can turn is not a claim. `nil` restores the configured answer, which is every caller in
+-- the game; the shape is `Weapon.setClaimPolicy`'s.
+local viewWindowOverride: number? = nil
+
+function Weapon.setViewWindow(seconds: number?): number?
+	local was = viewWindowOverride
+	viewWindowOverride = if type(seconds) == "number" and seconds >= 0 then seconds else nil
+	return was
+end
+
 function Weapon.viewWindowFor(player: Player?, ping: number?, config: any?): number
+	if viewWindowOverride ~= nil then
+		return viewWindowOverride
+	end
 	local cfg = config or CONFIG
 	local seconds = ping
 	if seconds == nil then
@@ -1627,12 +1644,23 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	local shooter = if type(shot.shooterUserId) == "number" then Players:GetPlayerByUserId(shot.shooterUserId) else nil
 	local window = Weapon.viewWindowFor(shooter)
 	local candidates = {}
+	local lastWhy = stats.claimHistoryWhy
 	for k = 0, CONFIG.CLAIM.VIEW_LAG_MAX_SAMPLES - 1 do
 		local at = arrivalAt - k * CONFIG.CLAIM.VIEW_LAG_STEP_SECONDS
 		if arrivalAt - at > window then
 			break
 		end
+		-- THE HISTORY REASON IS KEPT LOCAL AND PUBLISHED ONLY WHEN NO CANDIDATE ANSWERED
+		-- (design 4.9, round 1's finding 3, and it was right). `askWhereWas` writes
+		-- `stats.claimHistoryWhy` on EVERY call; with a sweep the oldest candidate legitimately
+		-- answers nil at the ring's edge, so an ACCEPTED claim would leave that nil's reason behind
+		-- and destroy the one diagnostic that tells an unwired root from an unplaceable animal
+		-- (task 266b, which cost a live session). The value before the sweep is restored unless the
+		-- sweep itself found nothing.
+		local whyBefore = stats.claimHistoryWhy
 		local where = askWhereWas(claim.part, at)
+		lastWhy = stats.claimHistoryWhy
+		stats.claimHistoryWhy = whyBefore
 		if where == nil then
 			-- GOING BACKWARDS, ONCE THE RING'S SPAN IS LEFT IT IS LEFT FOR GOOD -- but only after a
 			-- non-nil answer. `arrivalAt` itself can sit up to one Heartbeat past the newest sample,
@@ -1646,6 +1674,7 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		end
 	end
 	if #candidates == 0 then
+		stats.claimHistoryWhy = lastWhy
 		return refuse("claim-history")
 	end
 	-- WHAT STOPPED THE SERVER'S OWN FLIGHT, AS AN IDENTITY (task 269b). Read once, here, because
@@ -1666,7 +1695,6 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	end
 	local serverPoint = candidates[index].point
 	local lineLagSeconds = arrivalAt - candidates[index].at
-	stats.claimWorstLagSeconds = math.max(stats.claimWorstLagSeconds, lineLagSeconds)
 	local closest = trajectoryPoint or serverPoint
 	local closestStuds = (closest - serverPoint).Magnitude
 	local position = closest
@@ -1756,6 +1784,11 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	end
 
 	stats.claimsAccepted += 1
+	-- THE WORST **ACCEPTED** VIEW LAG, and it is updated HERE and nowhere else (round 1's finding
+	-- 4). Before the fix the `math.max` sat above `judgeClaim`, so every claim that found a
+	-- candidate -- refused included -- raised it, and design 1.2a item 15 makes a delete-or-keep
+	-- decision from this number.
+	stats.claimWorstLagSeconds = math.max(stats.claimWorstLagSeconds, lineLagSeconds)
 	stats.claimWorstStuds = math.max(stats.claimWorstStuds, (claim.point - serverPoint).Magnitude)
 	-- THE METER MUST MEASURE WHAT THE CHECK MEASURES (the Reviewer, round 1). This read `position`
 	-- -- the trajectory's point at the claimed instant -- while check 4 is given `closest`, so the
