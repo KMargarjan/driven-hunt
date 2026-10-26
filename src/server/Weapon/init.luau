@@ -1649,6 +1649,50 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		-- tree's collider or the terrain. `Validator` may not touch an Instance -- its own header's
 		-- first sentence -- so this is the owner's half of the same answer.
 		local note = nil :: string?
+		-- WHICH WAY THE 4.8 STUDS LIES (task 271 item 1). `claim-line` has published a MAGNITUDE
+		-- since task 266 and a magnitude cannot tell three different defects apart:
+		--   ACROSS the shot      the two sides are not flying the same line -- an aim or a bore
+		--                        defect, 259b's own question;
+		--   ALONG the shot       sub-step granularity and the bore's set-back, which check 4 was
+		--                        rewritten in task 266b to stop charging for;
+		--   ALONG THE ANIMAL     the two sides disagree about WHEN, not where -- a view-lag defect,
+		--                        and the only one of the three a tolerance must never be widened for.
+		-- So the pair is printed, decomposed on those three named axes, with the instants beside it.
+		-- The animal's own velocity is read off the live part, which is the server's own fact.
+		if reason == "claim-line" or reason == "moved" then
+			local shotDir = if typeof(bore) == "Vector3" and bore.Magnitude > 1e-6 then bore.Unit else Vector3.zAxis
+			local gap = claim.point - serverPoint
+			local across = gap - shotDir * gap:Dot(shotDir)
+			local travel = part.AssemblyLinearVelocity
+			local travelDir = if travel.Magnitude > 1e-6 then travel.Unit else Vector3.zero
+			note = string.format(
+				"client %.2f,%.2f,%.2f vs server %.2f,%.2f,%.2f | gap %.3f = along %+.3f, across %.3f, "
+					.. "ALONG THE ANIMAL %+.3f (v %.1f studs/s, so %.3f s of it) | firedAtView %.3f + flight "
+					.. "%.4f = arrival %.3f, age %+.3f | muzzle %.2f,%.2f,%.2f dir %.3f,%.3f,%.3f",
+				claim.point.X,
+				claim.point.Y,
+				claim.point.Z,
+				serverPoint.X,
+				serverPoint.Y,
+				serverPoint.Z,
+				gap.Magnitude,
+				gap:Dot(shotDir),
+				across.Magnitude,
+				gap:Dot(travelDir),
+				travel.Magnitude,
+				if travel.Magnitude > 1e-6 then math.abs(gap:Dot(travelDir)) / travel.Magnitude else 0,
+				claim.firedAtView,
+				claim.flightSeconds,
+				arrivalAt,
+				age,
+				shot.muzzle.X,
+				shot.muzzle.Y,
+				shot.muzzle.Z,
+				shotDir.X,
+				shotDir.Y,
+				shotDir.Z
+			)
+		end
 		if reason == "claim-blocked" then
 			local first = res.impacts[1]
 			local hit = if type(first) == "table" then first.instance else nil
