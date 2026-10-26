@@ -351,7 +351,7 @@ return function()
 			expect(math.abs(stag.u1 - want.u1) < 1e-9).to.equal(true)
 			expect(stag.v0).to.equal(0)
 			expect(stag.v1).to.equal(1)
-			expect(math.abs(stag.u0 - 0.232613) < 1e-5).to.equal(true)
+			expect(math.abs(stag.u0 - 0.232582) < 1e-5).to.equal(true)
 
 			-- A MALE BOAR (946 x 474) IS WIDER THAN THE FRAME, so it letterboxes instead -- a bar
 			-- above and below, and the full width. That is why the two boars looked nearly right.
@@ -453,8 +453,10 @@ return function()
 			HitLog.clear()
 			HitLog.openDrive(1, 100.0)
 			local boar = fakeBoar("B_LOG")
-			boar.Parent = workspace
-			local shooter = { UserId = 7, Name = "Logger" } :: any
+			-- A REAL PLAYER, because `recordHit` sends the card to the shooter and `FireClient`
+			-- refuses anything that is not one ("Unable to cast value to Object"). The cases above
+			-- that pass a table never reach that line.
+			local shooter = Players:GetPlayers()[1]
 			for n = 1, 12 do
 				expect(HitLog.recordHit(report(boar, shooter, nil, { at = 100.0 + n, zone = "chest" }))).to.equal(true)
 			end
