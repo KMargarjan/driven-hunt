@@ -116,3 +116,14 @@ output. What did not happen is committing this block before that edit.
   66.4 %); the floors sit 1.5-5 points under the measurement.
 - `docs/design/red-deer.md` 7.3 and `docs/design/hit-zones.md` 4 still describe task 223's four boxes
   and now also lack the `neck` zone. That is 280a (f) and the Architect's to write.
+
+## Correction, after round 1's verdict (the Reviewer's first note)
+
+Claim 7's pasted lines come from the fail-first run made against a **pre-final revision of this
+task's specs** (`<runs-dir>/281-failfirst.txt`): the floors in it were stag 0.66 / hind 0.63 /
+calf 0.52, and they were lowered to 0.64 / 0.61 / 0.46 afterwards, when the harness measured this
+file's own 0.25-stud grid at 65.7 / 63.6 / 50.8 %. The committed line numbers differ for the same
+reason. **The conclusion is unchanged and is arithmetic**: against 87257e58 the measured coverage is
+61.9 / 58.4 / 34.9 %, under every committed floor; `geometry.zones.neck` is nil there, so the neck
+case and the centres case error; and `live.DAMAGE.neck` is nil, so `boar_wound.spec` errors. The
+quoted failures are the right failures with the wrong line numbers and one wrong floor.
