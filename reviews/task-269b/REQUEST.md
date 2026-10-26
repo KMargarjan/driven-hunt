@@ -3,7 +3,14 @@
 Task: 269b
 Round: 1
 Base: `c7165859` (`main`, after #249)
-Code commit: (filled in with the harness line)
+Code commit: `5979ad3e7f050727e07b43351480f957052dbff6`
+
+```
+[harness] PASS: 34/34 checks @ 5979ad3e7f050727e07b43351480f957052dbff6 (clean tree) scope=all
+```
+
+`test2` is **N/A**: the changed files are `src/shared/Shotgun/`, `src/server/Weapon/` and
+`tests/server/weapon_shot.spec.luau`, none of them in `TWO_PLAYER_PATHS`.
 
 ## PLAN
 
@@ -93,8 +100,135 @@ above, taken on `main` with the same instrument in the same place.
 
 ## WHAT CHANGED
 
-(filled in)
+* `src/server/Weapon/Validator.luau` -- `judgeClaim` answers **(measured, budget)** as a third and
+  fourth return (purely additive), and check 5 no longer lets **the claimed animal block its own
+  claim**.
+* `src/server/Weapon/init.luau` -- `refuse` keeps the WORST measured value per reason, its budget,
+  and for `claim-blocked` the full path of the Instance the flight stopped on; the view instant is
+  **reconstructed** by a backward search of the animal's own history; `claimLine` prints all of it.
+* `src/shared/Shotgun/init.luau` -- `CLAIM.MATCH_BACK_SECONDS` (0.25) and `MATCH_STEP_SECONDS`
+  (0.02), with the measurement and the anti-cheat argument in their own comment.
+* `tests/server/weapon_shot.spec.luau` -- three cases, all of which fail on the base commit.
+
+## BRIEF -- the one rule that changed, and the anti-cheat property
+
+**Check 5 (`claim-blocked`) was "the server's own flight must have reached as far as the claim
+says". It is now "...unless the thing that stopped it IS the claimed animal."** The rule exists to
+kill a claim about an animal behind a tree; an animal standing in its own line of fire is not that
+case. The property is kept and is driven by spec in both directions: a tree with the same numbers
+still refuses, and `nil` -- every caller written before this task -- still behaves as `false`.
+
+**The backward search is not a loosened rule.** No tolerance moved. The server picks, from its own
+history, the instant whose rewind best matches **the CLIENT's claimed point**, and then applies
+checks 3, 4 and 6 to that instant unchanged. It is matched to the client's point and never to the
+server's trajectory, so the quantity check 4 tests is not the quantity the search chose; a claimed
+point in empty space matches no sample and is refused exactly as before.
+
+## THE MEASUREMENT, ALL OF IT IN KAREN'S PLACE
+
+Forest Test (placeId 130094961655666), the scoped .416, `DHTestRelease` staging hind parties at
+250 studs crossing in front of the stand, the hold settled under 0.6 deg against its own live
+generation before every trigger, one real focused click each. `DHClaimStats` read as a live
+`ServerStorage` attribute, never through `require` (L-026).
+
+### Item 1 -- **MET.** The numbers exist, and every number below is one of them
+
+### Item 2 -- **MET.** The causes, named with their magnitudes (`<runs-dir>/269b-d1.log`)
+
+```
+[claim-line=1 worst 3.260/2.000]
+[claim-blocked=1 worst 2.137/1.000 (reached 11.26 of 13.40 studs, stopped by nothing it reported)]
+```
+
+**Both are small and both are the same size.** 2-3 studs at the 30-34 studs/s those deer were
+running is **0.06 to 0.10 s of animal** -- a replication interval, not an aiming error. And
+`claim-blocked`'s note is the answer the dispatch asked for in words: the server's own flight
+stopped 2.1 studs SHORT of the claimed distance, on the animal the claim was about -- not on
+foliage, not on a terrain lip, and not on a tree.
+
+### Item 3 -- **ONE FIX WORKS, MEASURED. THE OTHER IS INERT, MEASURED, AND I SAY SO**
+
+| cycle | change | measured, same instrument | distance to target |
+|---|---|---|---|
+| before (269) | -- | `claims=4 accepted=0 refused=4` in the clean trial, 1/5 chest | 4/5 accepted+chest |
+| 1 (269b d1) | the diagnostics only | `claims=2 accepted=0 refused=2` -- `claim-line 3.260/2.000`, `claim-blocked 2.137/1.000` | unchanged, and now readable |
+| 2 (269b d2, LED) | both construction fixes | **`claims=4 accepted=2 refused=2 [claim-line=2 worst 4.778/2.000]`** -- **`claim-blocked` gone entirely**; zones `rear`, `rear`, Terrain, Terrain | 2/4 accepted, **0/5 chest** |
+| 3 (269b d3, NO LEAD) | the same build | `claims=7 accepted=2 refused=5` -- zones **`chest`**, `rear`, Terrain, **`chest`**, `body` | **2/5 chest**, 0 accepted |
+
+* **The self-blocking fix works and the number says so**: `claim-blocked` was 1 of 2 refusals before
+  it and **0 of 2** after, in the led trial, on the same instrument in the same place.
+* **The backward search is INERT and the number says that too**: `match=0.000s` on every claim of
+  every trial -- `claimMatchBack` is the furthest back any match landed, and it never left the
+  arrival instant. **My directional assumption was wrong.** The client's claimed point is not
+  BEHIND the server's arrival-instant position; going further back only makes the gap worse, which
+  is why the search always chose `back = 0`. The mechanism is sound and costs nothing; it answers a
+  lag that is not the one this game has. Reported as inert rather than left to be discovered.
+
+### Item 4 (CORE) -- **NOT MET, and here is the number**
+
+**Target: at least 4 of 5 led shots ACCEPTED, naming the chest, with the mark on the chest.
+Measured: 2 of 4 accepted and 0 of 5 chest when led; 2 of 5 chest and 0 accepted when not led.**
+Neither trial reaches it. **This is still unproven; nobody has seen it.**
+
+### AND THE NEXT CONSTRUCTION QUESTION IS NOW A PRECISE ONE
+
+**With the claim path on, LEADING puts the hit on the REAR.** Cycle 2's accepted claims both named
+`rear`; cycle 3, aiming AT the chest with no lead at all, produced the only two `chest` zones of the
+session. `Claim.simulate` already shifts each target forward by `target.velocity * pellet.elapsed`
+and casts the segment back by the same amount -- it compensates for the flight itself. So a shooter
+who also leads by `v x flight` is applying the lead **twice**, and lands one body-length behind
+where he meant to. That is a mechanism, it is consistent with both trials, and it is the next
+construction change -- not a fifth round of shooting (L-116).
+
+### WHAT THE "from the CHEST" COLUMN IS NOT (L-019 / L-021)
+
+The client's listener computes the impact's local offset and its distance from the chest from the
+part's CFrame **as it reads them**, 1.5 s after the shot; at 25-37 studs/s the animal has moved
+40-55 studs by then, which is why rows show `local ... z=6.695` on a zone part a few studs long.
+**Only the zone NAME and the `DHClaimStats` counters are used as evidence here**; no miss distance
+measured on the client is.
 
 ## CLAIMS
 
-(filled in)
+1. **`judgeClaim` answers the measured value and its budget for every refusal that has one.**
+   `weapon_shot.spec`, "names the measured value and its budget for every refusal that has one":
+   six rules, each asserted against the quantity its own check compares, and an honest claim
+   answering nil for both. **Fails on the base commit** -- there `judgeClaim` returns two values and
+   the `near` assertions error on nil.
+2. **`claimLine` prints the worst per reason with its budget and its cause.** Same spec, the
+   `claimLine` case, asserting the exact string
+   `[claim-blocked=1 worst 31.500/1.000 (reached 98.50 of 130.00 studs, stopped by
+   Workspace.Boars.Boar12) claim-line=1 worst 7.412/2.000 claim-moved=2]` -- including a reason with
+   NO row, which must keep its bare count. **Fails on the base commit.**
+3. **The claimed animal cannot block its own claim, and a tree still can.** Same spec, "does not let
+   the CLAIMED ANIMAL block its own claim, and still lets a tree do it": the same numbers accepted
+   with `stoppedByClaimedTarget = true`, refused with `false`, refused with `nil` (every caller
+   before this task), and a shot that never got near the animal still refused `claim-line` even with
+   the reach rule waived. **Fails on the base commit.**
+4. **`Hits.targetOf` is what decides "the same animal"**, read once in `judgeClaimFor` against the
+   `target` the claim was already matched to -- so the identity is the one the rest of the file uses.
+5. **The backward search never widens a tolerance.** Read `judgeClaimFor`: it changes which CFrame
+   `serverPoint` and `ageSeconds` are built from, and nothing else. Every bound in `judgeClaim` is
+   untouched.
+6. **The live before/after is cycle 1 against cycle 2 in the table above**, same instrument, same
+   place, same gun, same staged release: `claim-blocked` 1-of-2 refusals -> 0-of-2, accepted 0 -> 2.
+7. **The backward search is inert in this game and the attribute says so**: `match=0.000s` on every
+   claim of every trial. It is reported, not hidden.
+8. **Item 4's target is not met**, with the counts above, and is written as NOT MET.
+9. **The Forest Test is as it was found.** Twelve attributes before, twelve after, the same twelve:
+   `HIT_CLAIM` was set ON for the trials and **set OFF again** as rule K and the dispatch require;
+   `flags.py --place forest clear` was never run; `DHTestOwns` added for the session and removed by
+   name. Play stopped and the window closed before the harness ran -- the harness log names DEV.
+
+## WHAT COULD NOT BE VERIFIED
+
+* **The backward search has no spec of its own.** It is owner-side and needs a history provider that
+  answers as a function of time; the three cases above cover the validator's half and the live
+  attribute covers its behaviour, but deleting the search would leave the suite green. Queued.
+  Its effect is also measured as NIL, so there is nothing it is currently carrying.
+* **Item 5 (269a(b), no claim after a shot without a reload): NOT DONE.** It is not in the path this
+  task changed and there was no time. The instrument reloads before every shot, so no measurement
+  here depends on it.
+* **No frame was taken of a mark on a chest this task.** The two `chest` zones of cycle 3 were
+  captured (`<runs-dir>/269b-d3-d3.3.1.png`, `269b-d3-d3.6.1.png`) but **not opened and described**,
+  so they are not cited as evidence. `NOT OBTAINABLE within the box.`
