@@ -1412,8 +1412,8 @@ return function()
 		-- stop being true. The repo is public and this place is published.
 		it("answers nil on a live server for every spec it would otherwise read", function()
 			for _, spec in ipairs({ "hinds@250", "stag@220,-140,60,run", "boar6@200", "harem@400" }) do
-				expect(ForestTest.stagedRow(true, spec)).to.be.ok()
-				expect(ForestTest.stagedRow(false, spec)).to.equal(nil)
+				expect(Data.stagedRow(true, spec)).to.be.ok()
+				expect(Data.stagedRow(false, spec)).to.equal(nil)
 			end
 			-- ...AND THE ATTRIBUTE IS NAMED ONCE, here and in `ForestTestBoot`, nowhere else.
 			expect(Data.STAGED_ATTRIBUTE).to.equal("DHTestRelease")
@@ -1483,7 +1483,15 @@ return function()
 			for _, name in ipairs(names) do
 				local composition = Boar.deerComposition(0, 0, config, name)
 				expect(composition).to.be.ok()
-				expect(Boar.compositionSize(composition, config) > 0).to.equal(true)
+				-- COUNTED HERE RATHER THAN THROUGH `Boar.compositionSize`, which reads a whole world's
+				-- `KINDS` table to weigh a group and answers 0 for the two-field config above. What
+				-- this case is about is the NAME: that it reaches the animal owner and comes back as
+				-- animals.
+				local head = 0
+				for _, many in pairs(composition) do
+					head += many
+				end
+				expect(head > 0).to.equal(true)
 				expect(Data.stagedRow(true, name .. "@250").party).to.equal(name)
 			end
 			-- ...AND THE OTHER DIRECTION: every row the animal owner publishes is a word this parser
