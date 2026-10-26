@@ -3460,7 +3460,8 @@ Boar.CONFIG.SPECIES = {
 			-- box below is strictly INSIDE the drawn animal instead.
 			--
 			-- ==================================================================================
-			-- HOW THESE ELEVEN BOXES WERE MEASURED (task 280, 2026-10-26), AND NOT FROM THE BONES.
+			-- HOW THESE TWELVE BOXES WERE MEASURED (task 280, 2026-10-26), AND NOT FROM THE BONES.
+			-- Twelve is the STAG's and the HIND's count; the calf carries ten (its own row says why).
 			--
 			-- The task-223 rows this replaces were fitted to BONE POSITIONS, which is why they held
 			-- air: a bone is a point on a skeleton and a box around a run of them is not the

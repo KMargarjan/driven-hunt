@@ -19,6 +19,7 @@
 -- Note:   docs/research/2026-09-24-shotgun.md, docs/research/2026-10-14-ballistics-lead.md
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Pierce = require(ReplicatedStorage:WaitForChild("Shotgun"):WaitForChild("Pierce"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 type Impact = Shotgun.Impact
@@ -62,36 +63,12 @@ function Hits.targetOf(instance: Instance?): (Instance?, string)
 	return nil, ""
 end
 
--- A SURFACE A BULLET GOES STRAIGHT THROUGH (task 280), as opposed to one it stops on.
---
--- IT IS NOT "`targetOf` ANSWERED NIL": a tree answers nil and a tree stops a bullet. This is the
--- narrow case of a surface that belongs to a `ZonesOnly` animal and is not one of its zones -- its
--- physics trunk, or the skinned mesh welded to it -- and the ONLY reason it exists is measured.
---
--- MEASURED, 2026-10-26, in a DEV Play session with a 2 x 2 x 2 control part behind a 4 x 4 x 4 one
--- (`<runs-dir>/280-diag4.luau`), four rows, one variable at a time:
---     CanQuery=false, CanCollide=true  -> the big part is STILL returned by Workspace:Raycast
---     CanQuery=false, CanCollide=false -> it is skipped, and the small part behind it is returned
---     and the same both ways round whether CanQuery is written before or after parenting.
--- So in this engine a COLLIDABLE part cannot be taken out of a raycast by `CanQuery`, and a deer's
--- trunk has to collide -- it is the body the physics simulates. `Boar.Body.attachVisual`'s own
--- `CanQuery = false` on the drawn mesh DOES work, because that mesh is `CanCollide = false`.
---
--- That is why the trunk is not removed from the cast but PASSED THROUGH by `Weapon.Cast.world`,
--- which is the one caller of `Workspace:Raycast` in this system.
-function Hits.passesThrough(instance: Instance?): boolean
-	local node = instance
-	while node do
-		if node:GetAttribute("Damageable") == true then
-			if node:GetAttribute("ZonesOnly") ~= true then
-				return false
-			end
-			return type(instance and instance:GetAttribute("HitZone")) ~= "string"
-		end
-		node = node.Parent
-	end
-	return false
-end
+-- A SURFACE A BULLET GOES STRAIGHT THROUGH (task 280) -- `Shotgun.Pierce`'s rule, named here so the
+-- weapon's own specs can ask it by the weapon's own path. The RULE lives in ReplicatedStorage
+-- because the CLIENT's claim cast has to apply exactly the same one: two copies, one per side, is
+-- the disagreement this project is built around (docs/PROJECT_CONTEXT.md, "Overlapping owners").
+-- The measurement that forced it -- why `CanQuery = false` cannot do this job -- is in that file.
+Hits.passesThrough = Pierce.passesThrough
 
 -- `Hits.resolve` IS GONE, AND THAT IS TASK 185 (archived: `backups/2026-10-14_task-185_hitscan-Hits-resolve.md`,
 -- rule 7). It was the HITSCAN resolver: one cast per pellet, the whole range, in the trigger's own

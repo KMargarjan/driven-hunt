@@ -20,7 +20,7 @@
 -- IT ASKS THROUGH `Weapon.Cast.world`, THE BULLET'S OWN CASTER, and not through a raycast of its
 -- own -- because `CanQuery = false` is NOT what takes the trunk out of a shot and could not be
 -- (measured: it is ignored for a COLLIDABLE part, and the four rows are in
--- `Weapon.Hits.passesThrough`). The trunk declares `ZonesOnly` and the caster steps past it.
+-- `Shotgun.Pierce`). The trunk declares `ZonesOnly` and the caster steps past it.
 --
 -- IT BUILDS ITS OWN WORLD at y = 500, the pattern `boar_body.spec` and `boar_zones.spec` use, so
 -- production's animals are untouched.
@@ -40,6 +40,7 @@ local Workspace = game:GetService("Workspace")
 
 local Assets = require(ServerStorage:WaitForChild("Assets"))
 local Loader = require(ServerStorage.Assets:WaitForChild("Loader"))
+local Pierce = require(ReplicatedStorage:WaitForChild("Shotgun"):WaitForChild("Pierce"))
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
@@ -406,16 +407,68 @@ return function()
 						end
 						expect(zone).to.equal(nil)
 					end
-					-- ...and the trunk really is in the way of those rays, so the misses above are the
-					-- geometry answering and not a ray that went past the animal altogether.
+					-- ...AND THE TRUNK REALLY IS IN THE WAY OF THOSE RAYS, so a miss above is the
+					-- geometry answering and not a ray that sailed past the animal. Round 1's note
+					-- was right that comparing a fraction with 0.5 proves nothing: it is measured
+					-- against the TRUNK ITSELF now -- an Include cast that must come back with the
+					-- trunk -- which is the only thing that can say "there was something there".
+					local bare = RaycastParams.new()
+					bare.FilterType = Enum.RaycastFilterType.Include
+					bare.FilterDescendantsInstances = { trunk }
+					bare.IgnoreWater = true
 					for _, probe in ipairs(misses) do
-						local y = probe[2] * trunk.Size.Y
-						local z = probe[3] * trunk.Size.Z
-						expect(math.abs(y) <= half.Y).to.equal(true)
-						expect(math.abs(z) <= half.Z).to.equal(true)
+						local point = Vector3.new(0, probe[2] * trunk.Size.Y, probe[3] * trunk.Size.Z)
+						local cf = trunk.CFrame
+						local target = cf:PointToWorldSpace(point)
+						local offset = cf:VectorToWorldSpace(Vector3.new(1, 0, 0)) * 20
+						local crossed = Workspace:Raycast(target + offset, -offset * 2, bare)
+						if crossed == nil or crossed.Instance ~= trunk then
+							error(
+								string.format(
+									"%s: %s is not inside the trunk at all, so its miss proves nothing",
+									kind,
+									probe[1]
+								),
+								0
+							)
+						end
 					end
+					expect(half.Y > 0).to.equal(true)
 				end
 			)
+
+			it("gives the CLIENT'S CLAIM a zone part and not the trunk", function()
+				-- ROUND 1'S BLOCKING FINDING, AND THE CASE THAT WOULD HAVE CAUGHT IT. The client's
+				-- `Weapon.Claim.only` casts with `FilterType = Include` and
+				-- `FilterDescendantsInstances = { target.root }` -- the TRUNK -- and an Include
+				-- filter takes that instance AND ITS DESCENDANTS, so the cast sees the trunk and
+				-- the twelve volumes welded inside it. This task put every volume INSIDE the trunk,
+				-- so the trunk's own surface is nearer than all of them: without the pass-through
+				-- the claimed part was the trunk, `Weapon.Hits.targetOf` answered nil for it, and
+				-- `judgeClaimFor`'s first line -- *"THE CLAIMED PART MUST BELONG TO A LIVE ANIMAL
+				-- THE SERVER KNOWS"* -- refused EVERY claim on a red deer as `claim-part`.
+				--
+				-- It is asserted through `Shotgun.Pierce.cast`, which is the function `Claim.only`
+				-- calls, with the params `Claim.only` builds. The client module itself lives in
+				-- StarterPlayerScripts and is a client spec's to require; what is shared, and what
+				-- broke, is this.
+				local params = RaycastParams.new()
+				params.FilterType = Enum.RaycastFilterType.Include
+				params.FilterDescendantsInstances = { trunk }
+				params.IgnoreWater = true
+				local chest = geometry.zones.chest.boxes[1].offset
+				local cf = trunk.CFrame
+				local target = cf:PointToWorldSpace(chest)
+				local offset = cf:VectorToWorldSpace(Vector3.new(1, 0, 0)) * 20
+				local hit = Pierce.cast(params, target + offset, -offset * 2)
+				expect(hit).to.be.ok()
+				if hit.instance == trunk then
+					error(kind .. ": the claim cast came back with the TRUNK, so the gate refuses it", 0)
+				end
+				local root, zone = Weapon.Hits.targetOf(hit.instance)
+				expect(root).to.equal(trunk)
+				expect(zone).to.equal("chest")
+			end)
 
 			it("answers the chest, the neck, the head and the rump at their own centres", function()
 				-- READ OFF THE GEOMETRY, so the case cannot drift from the table: the first `chest`

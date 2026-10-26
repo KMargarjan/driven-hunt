@@ -20,9 +20,14 @@ one model at three sizes. So each kind now carries its own boxes (`Boar.CONFIG.K
 `.calf.zones`) and one fraction table names a different part of each animal.
 
 The case also asserted `clearance > 0` -- how far the zone part beat the **bare trunk** by. A
-deer's trunk now has `CanQuery = false` (`SPECIES.reddeer.ZONES.TRUNK_HITTABLE`), so it is on no
-ray and there is nothing to tie with; that measurement answers `math.huge` for every deer ray and
-can no longer discriminate.
+deer's trunk is no longer something a bullet can register (`SPECIES.reddeer.ZONES.TRUNK_HITTABLE`
+-> `ZonesOnly` on the trunk, and `Shotgun.Pierce` steps a bullet past it), so there is nothing to
+tie with and that measurement can no longer discriminate.
+
+**NOT by `CanQuery`**, and the distinction matters because the first commit of task 280 tried it
+and was refuted by measurement: `CanQuery = false` is ignored for a part that CAN COLLIDE, which a
+trunk must. The trunk keeps `CanQuery = true`. The four-row measurement with its control is in
+`src/shared/Shotgun/Pierce.luau`.
 
 ## What it was
 

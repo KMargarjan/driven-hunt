@@ -356,12 +356,14 @@ return function()
 	-- *"a spec that called takeHit with zone = 'head' directly would pass happily"* while no player
 	-- could ever land a head shot.
 	--
-	-- EVERY KIND GETS ITS OWN RAYS (L-093), and they have to: a stag, a hind and a calf are the same
-	-- boxes times 1.0, 0.8553 and 0.495, and a scale is exactly the thing that can push a box
-	-- through the surface it was proud of at full size.
-	--
-	-- THE POINTS ARE IN THE ANIMAL'S OWN FRACTIONS and not in studs, so one table drives all three:
-	-- a fraction of its own `BODY_SIZE` is the same place on every size of the same animal.
+	-- EVERY KIND GETS ITS OWN RAYS (L-093), and since task 280 it gets its own BOXES too: the three
+	-- deer are three MODELS and not one model at three sizes, measured -- the stag's volumes at the
+	-- hind's 0.8553 leave 131 cells of air on her mesh and at the calf's 0.495 leave 312 on its. So
+	-- the points below are no longer one fraction table driving all three (that premise, and the
+	-- twelve fixed probes written on it, are archived in
+	-- `backups/2026-10-26_task-280_boar_zones-deer-twelve-probes.md`): each kind's rays are read off
+	-- its own geometry, and the sweep against the DRAWN MESH is
+	-- `tests/server/deer_hitbox.spec.luau`.
 	describe("the red deer's zones, with real rays, at every size", function()
 		-- `DEER_PROBES` IS GONE (task 280). See the case below for where the twelve points went
 		-- and why a fraction table cannot name the same place on three different meshes.
@@ -484,7 +486,10 @@ return function()
 						end
 					end
 					-- ...and the four zone words a deer can answer are all reachable.
-					for _, name in ipairs({ "head", "chest", "rear", "legs" }) do
+					-- ALL FIVE WORDS A DEER CAN ANSWER, `body` INCLUDED: on a boar `body` is the
+					-- trunk's fallback and no part carries it, but a deer's barrel is a real part
+					-- (task 280) and a zone word no ray reaches is a zone that does not exist.
+					for _, name in ipairs(geometry.zoneOrder) do
 						if seen[name] == nil then
 							error(string.format("%s: no ray reached the %s zone", kind, name), 0)
 						end

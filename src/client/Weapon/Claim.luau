@@ -29,7 +29,8 @@
 -- There is no copy of the arithmetic here to drift.
 --
 -- PURE OVER ITS INJECTED CASTS. No state, no clock of its own, no camera, no remote, no Instance
--- created, nothing drawn, and no `Workspace:Raycast` except in `Claim.world` and `Claim.only` below
+-- created, nothing drawn, and no cast except through `Shotgun.Pierce.cast` in `Claim.world` and
+-- `Claim.only` below
 -- -- which makes `Claim.simulate` driveable from a client spec with a scripted world and no boar
 -- (`tests/client/weapon_client.spec.luau`).
 --
@@ -40,33 +41,41 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Ballistics = require(ReplicatedStorage:WaitForChild("Ballistics"))
+local Pierce = require(ReplicatedStorage:WaitForChild("Shotgun"):WaitForChild("Pierce"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 local Claim = {}
 
--- THE ONLY CALLER OF `Workspace:Raycast` UNDER `src/client/Weapon/`, and the exact shape of
--- `ServerScriptService.Weapon.Cast.world`: `RaycastParams` with `FilterType = Exclude`, rebuilt per
--- call because the list differs per shot and a shared mutable params object is a second writer
--- waiting to happen.
+-- ONE PARAMS PER CALL, never a shared mutable one: the list differs per shot and a shared params
+-- object is a second writer waiting to happen.
+local function buildParams(filter: Enum.RaycastFilterType, list: { Instance }): RaycastParams
+	local params = RaycastParams.new()
+	params.FilterType = filter
+	params.FilterDescendantsInstances = list
+	params.IgnoreWater = true
+	return params
+end
+
+-- THE ONLY CALLER OF `Shotgun.Pierce.cast` UNDER `src/client/Weapon/`, and the exact shape of
+-- `ServerScriptService.Weapon.Cast.world` -- which is now literally true rather than a resemblance
+-- maintained by hand: since task 280 both sides call the SAME `Pierce.cast`, so a bullet passes
+-- through a `ZonesOnly` animal's trunk identically on the client's claim and on the server's shot.
+-- Two copies of that rule, one per side, is the disagreement this project is built around.
 --
 -- (`src/client/Camera/Rig.luau` casts too, for camera occlusion. That is a different question with
 -- a different owner, and it is named here so the grep claim in the review request is honest.)
 function Claim.world(origin: Vector3, direction: Vector3, ignore: { Instance }): Shotgun.Impact?
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = ignore
-	params.IgnoreWater = true
-	local result = Workspace:Raycast(origin, direction, params)
-	if not result then
+	local hit = Pierce.cast(buildParams(Enum.RaycastFilterType.Exclude, ignore), origin, direction)
+	if not hit then
 		return nil
 	end
 	return {
-		instance = result.Instance,
-		position = result.Position,
-		normal = result.Normal,
-		distance = result.Distance,
-		material = result.Material,
+		instance = hit.instance,
+		position = hit.position,
+		normal = hit.normal,
+		distance = hit.distance,
+		material = hit.material,
 	}
 end
 
@@ -74,20 +83,22 @@ end
 -- builder per target rather than one params object reused, for the reason above.
 function Claim.only(instance: Instance): Shotgun.CastFn
 	return function(origin: Vector3, direction: Vector3, _ignore: { Instance }): Shotgun.Impact?
-		local params = RaycastParams.new()
-		params.FilterType = Enum.RaycastFilterType.Include
-		params.FilterDescendantsInstances = { instance }
-		params.IgnoreWater = true
-		local result = Workspace:Raycast(origin, direction, params)
-		if not result then
+		-- THE PASS-THROUGH IS NOT OPTIONAL HERE, AND TASK 280 ROUND 1 PROVED IT. An Include filter
+		-- takes the instance AND ITS DESCENDANTS, so this cast sees a `ZonesOnly` animal's trunk and
+		-- the twelve zone volumes welded inside it -- and the trunk's own surface is NEARER than
+		-- every one of them. Without `Pierce`, every claim on a red deer came back with the TRUNK as
+		-- `claim.part`, `Weapon.Hits.targetOf` refused it as "claim-part", and the whole claim path
+		-- was dead for the one animal it had last been measured on.
+		local hit = Pierce.cast(buildParams(Enum.RaycastFilterType.Include, { instance }), origin, direction)
+		if not hit then
 			return nil
 		end
 		return {
-			instance = result.Instance,
-			position = result.Position,
-			normal = result.Normal,
-			distance = result.Distance,
-			material = result.Material,
+			instance = hit.instance,
+			position = hit.position,
+			normal = hit.normal,
+			distance = hit.distance,
+			material = hit.material,
 		}
 	end
 end
