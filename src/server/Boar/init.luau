@@ -1254,7 +1254,12 @@ Boar.CONFIG.HISTORY = {
 	-- because the thing that must never happen is a claim the weapon will judge falling outside the
 	-- span the animal can remember. `tests/server/zz_claim_window.spec.luau` holds that invariant
 	-- against `Shotgun.CONFIG.CLAIM.AGE_MAX_SECONDS`.
-	SAMPLES = 64,
+	-- 64 -> 96 (task 271). The weapon's claim window grew: it now looks back `AGE_MAX_SECONDS`
+	-- (0.5) PLUS `VIEW_LAG_MAX_SECONDS` (0.45) plus one Heartbeat, which is 0.967 s, and
+	-- `zz_claim_window.spec` holds the ring to 1.5x that with margin. 96 / 60 = 1.60 s, a ratio of
+	-- 1.66. At 64 the ring spanned 1.067 s -- longer than the window but only 1.10x it, which is
+	-- the margin that spec exists to refuse.
+	SAMPLES = 96,
 	-- NOT BEHIND THE FEATURE FLAG, and that is deliberate -- the reason `DEER_ROAD_LEAP`'s own row
 	-- gives for not flagging its clip: *"a row that exists and a clip nothing asks for cost
 	-- nothing"*. The cost is one table write per animal per step, inside a loop that already writes
