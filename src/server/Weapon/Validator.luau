@@ -190,7 +190,18 @@ function Validator.judgeClaim(facts: any, limits: any): (boolean, string?, numbe
 	-- CHECK 5: THE BULLET GOT THERE -- the line of sight, measured by the flight that already ran. A tree
 	-- between the muzzle and the animal stopped the server's own shot, so the claim dies with it --
 	-- and no new raycast is needed to know it.
-	if facts.reachedStuds + limits.REACH_SLACK_STUDS < facts.claimedStuds then
+	-- ...AND THE CLAIMED ANIMAL CANNOT BLOCK ITSELF (task 269b). **MEASURED in Karen's place**:
+	-- `claim-blocked worst 2.137/1.000 (reached 11.26 of 13.40 studs, stopped by nothing it
+	-- reported)` -- the server's own flight stopped two studs SHORT of the claimed distance on the
+	-- very animal the claim was about, because the server's copy of a deer running at 30 studs/s sits
+	-- a replication interval further along the ray than the client's. That is not a blocked line of
+	-- sight; it is the same bullet hitting the same animal, measured twice.
+	--
+	-- THE RULE STILL DOES ITS JOB: a TREE between the muzzle and the animal stopped the flight at a
+	-- part that is not the claimed target, `stoppedByClaimedTarget` is false, and the claim dies
+	-- exactly as it did before. The owner decides the identity, because it needs Instances and this
+	-- module touches none; `nil` is every caller written before this task and behaves as `false`.
+	if facts.stoppedByClaimedTarget ~= true and facts.reachedStuds + limits.REACH_SLACK_STUDS < facts.claimedStuds then
 		-- THE MEASURE IS HOW FAR SHORT THE SERVER'S OWN FLIGHT STOPPED, in studs, against the slack
 		-- it is allowed. The owner adds WHAT stopped it, which is an Instance and so not this
 		-- module's to name.

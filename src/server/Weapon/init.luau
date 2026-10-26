@@ -203,6 +203,11 @@ local stats = {
 	claims = 0,
 	claimsIgnored = 0,
 	claimsAccepted = 0,
+	-- HOW FAR BACK THE RECONSTRUCTED VIEW INSTANT LANDED, and how well it matched (task 269b).
+	-- The first IS the shooter's measured view lag; the second says whether the window found a
+	-- real sample or the nearest end of it.
+	claimMatchBack = 0,
+	claimMatchWorst = 0,
 	-- WHY A REFUSAL HAPPENED, AS A NUMBER (task 269b). `refusedClaimBy` counts them by name;
 	-- this keeps, per name, the WORST measured value, its budget, and -- for the one rule whose
 	-- cause is an Instance -- what actually stopped the bullet.
@@ -852,7 +857,8 @@ function Weapon.claimLine(from: any): string
 		table.sort(reasons)
 	end
 	return string.format(
-		"enabled=%s claims=%d accepted=%d refused=%d ignored=%d worst=%.3f/%.3f/%.3f age=%.3f..%.3f/%d why=%s [%s]",
+		"enabled=%s claims=%d accepted=%d refused=%d ignored=%d worst=%.3f/%.3f/%.3f "
+			.. "match=%.3fs/%.3f age=%.3f..%.3f/%d why=%s [%s]",
 		tostring(from.claimsEnabled),
 		from.claims or 0,
 		from.claimsAccepted or 0,
@@ -861,6 +867,8 @@ function Weapon.claimLine(from: any): string
 		from.claimWorstStuds or 0,
 		from.claimWorstLineStuds or 0,
 		from.claimWorstEndStuds or 0,
+		from.claimMatchBack or 0,
+		from.claimMatchWorst or 0,
 		from.claimAgeMin or 0,
 		from.claimAgeMax or 0,
 		from.claimAges or 0,
@@ -1529,10 +1537,34 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		stats.claimAgeMax = math.max(stats.claimAgeMax, age)
 	end
 	stats.claimAges += 1
-	local rewound = askWhereWas(claim.part, arrivalAt)
+	-- THE INSTANT THE SHOOTER'S PICTURE BELONGS TO IS RECONSTRUCTED, NOT TRUSTED (task 269b).
+	-- `CLAIM.MATCH_BACK_SECONDS`' own comment carries the measurement and the anti-cheat argument;
+	-- here is the mechanism, and it is four lines:
+	--   walk BACKWARD ONLY from the arrival instant, one `MATCH_STEP_SECONDS` at a time;
+	--   ask the animal's own history where it was at each;
+	--   keep the instant whose rewound point is NEAREST THE CLIENT'S CLAIMED POINT;
+	--   judge every later check against that instant.
+	-- Backward only, because a client cannot have seen the future, and the search is matched to the
+	-- CLIENT's point rather than to the server's trajectory -- so the quantity check 4 tests is not
+	-- the quantity this chose, and a forged claim gains nothing.
+	local rewound, matchedAt, matchedGap = nil :: CFrame?, arrivalAt, math.huge
+	local steps = math.max(1, math.floor(CONFIG.CLAIM.MATCH_BACK_SECONDS / CONFIG.CLAIM.MATCH_STEP_SECONDS))
+	for back = 0, steps do
+		local at = arrivalAt - back * CONFIG.CLAIM.MATCH_STEP_SECONDS
+		local where = askWhereWas(claim.part, at)
+		if where ~= nil then
+			local gap = ((where * claim.offset) - claim.point).Magnitude
+			if gap < matchedGap then
+				rewound, matchedAt, matchedGap = where, at, gap
+			end
+		end
+	end
 	if rewound == nil then
 		return refuse("claim-history")
 	end
+	-- HOW FAR BACK THE MATCH ACTUALLY LANDED, as a diagnostic: it IS the shooter's view lag, and a
+	-- server whose matches all sit at the far end of the window is one whose window is too small.
+	stats.claimMatchBack = math.max(stats.claimMatchBack, arrivalAt - matchedAt)
 	local serverPoint = rewound * claim.offset
 
 	-- THE SERVER'S OWN TRAJECTORY AT THE CLAIMED FLIGHT TIME, stepped with the same functions the
@@ -1590,6 +1622,17 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		remaining -= step
 	end
 
+	-- WHAT STOPPED THE SERVER'S OWN FLIGHT, AS AN IDENTITY (task 269b). Read once, here, because
+	-- `Hits.targetOf` needs an Instance and `Validator` may touch none: if the thing the flight
+	-- stopped on belongs to the SAME animal the claim names, the bullet reached its target and
+	-- check 5 -- the line-of-sight rule -- has nothing to say about it.
+	local firstImpact = res.impacts[1]
+	local stopper = if type(firstImpact) == "table" then firstImpact.part else nil
+	local stoppedBySame = false
+	if typeof(stopper) == "Instance" then
+		stoppedBySame = Hits.targetOf(stopper) == target
+	end
+
 	local ok, reason, measured, budget = Validator.judgeClaim({
 		offset = claim.offset,
 		partHalf = part.Size / 2,
@@ -1599,8 +1642,14 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		trajectoryPoint = closest,
 		reachedStuds = res.reachedStuds,
 		claimedStuds = claim.distanceStuds,
-		-- NEGATIVE MEANS THE FUTURE, which `judgeClaim` refuses by its own name.
-		ageSeconds = age,
+		-- NEGATIVE MEANS THE FUTURE, which `judgeClaim` refuses by its own name. Measured against
+		-- the MATCHED instant (task 269b), so the clock check and the geometry checks are about the
+		-- same moment.
+		ageSeconds = Workspace:GetServerTimeNow() - matchedAt,
+		-- DID THE SERVER'S OWN FLIGHT STOP ON THE CLAIMED ANIMAL ITSELF (task 269b)? Then the line
+		-- of sight was clear and check 5 has nothing to say. `Hits.targetOf` is the same walk that
+		-- found `target` above, so "the same animal" is the same question asked once more.
+		stoppedByClaimedTarget = stoppedBySame,
 		flightSeconds = claim.flightSeconds,
 		expectedFlightSeconds = Ballistics.timeToRange(ballistic, claim.distanceStuds),
 	}, CONFIG.CLAIM)
@@ -1625,6 +1674,7 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	end
 
 	stats.claimsAccepted += 1
+	stats.claimMatchWorst = math.max(stats.claimMatchWorst, matchedGap)
 	stats.claimWorstStuds = math.max(stats.claimWorstStuds, (claim.point - serverPoint).Magnitude)
 	-- THE METER MUST MEASURE WHAT THE CHECK MEASURES (the Reviewer, round 1). This read `position`
 	-- -- the trajectory's point at the claimed instant -- while check 4 is given `closest`, so the

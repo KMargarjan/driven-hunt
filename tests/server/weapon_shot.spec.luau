@@ -714,6 +714,51 @@ return function()
 			expect(why).to.equal("claim-blocked")
 		end)
 
+		-- ============================== THE ANIMAL CANNOT BLOCK ITSELF (task 269b)
+		--
+		-- **THIS CASE FAILS ON THE COMMIT BEFORE THIS TASK** (L-028): check 5 had no
+		-- `stoppedByClaimedTarget`, so the first half below was refused `claim-blocked` exactly like
+		-- the second. MEASURED in Karen's place, which is why it exists:
+		-- `claim-blocked worst 2.137/1.000 (reached 11.26 of 13.40 studs, stopped by nothing it
+		-- reported)` -- the server's own flight stopped two studs short ON THE CLAIMED ANIMAL,
+		-- because its copy of a deer running at 30 studs/s sits a replication interval further along
+		-- the ray than the client's.
+		it("does not let the CLAIMED ANIMAL block its own claim, and still lets a tree do it", function()
+			local onTarget = honestFacts()
+			onTarget.reachedStuds = onTarget.claimedStuds - 2.137
+			onTarget.stoppedByClaimedTarget = true
+			local okSame, whySame = Validator.judgeClaim(onTarget, CLAIM)
+			expect(okSame).to.equal(true)
+			expect(whySame).to.equal(nil)
+
+			-- THE RULE STILL DOES ITS JOB. The same numbers, stopped by something else.
+			local tree = honestFacts()
+			tree.reachedStuds = tree.claimedStuds - 2.137
+			tree.stoppedByClaimedTarget = false
+			local okTree, whyTree, gotTree, budgetTree = Validator.judgeClaim(tree, CLAIM)
+			expect(okTree).to.equal(false)
+			expect(whyTree).to.equal("claim-blocked")
+			expect(gotTree).to.be.near(2.137, 1e-6)
+			expect(budgetTree).to.be.near(CLAIM.REACH_SLACK_STUDS, 1e-6)
+
+			-- ...AND `nil` IS EVERY CALLER WRITTEN BEFORE THIS TASK, which must behave as `false`.
+			local old = honestFacts()
+			old.reachedStuds = old.claimedStuds - 2.137
+			local okOld, whyOld = Validator.judgeClaim(old, CLAIM)
+			expect(okOld).to.equal(false)
+			expect(whyOld).to.equal("claim-blocked")
+
+			-- AND THE ANIMAL ITSELF CANNOT EXCUSE A SHOT THAT NEVER GOT NEAR IT: the reach rule is
+			-- waived, every other rule still stands.
+			local far = honestFacts()
+			far.reachedStuds = 1
+			far.stoppedByClaimedTarget = true
+			far.trajectoryPoint = far.serverPoint + Vector3.new(0, 0, CLAIM.LINE_TOLERANCE_STUDS + 5)
+			local okFar, whyFar = Validator.judgeClaim(far, CLAIM)
+			expect(okFar).to.equal(false)
+			expect(whyFar).to.equal("claim-line")
+		end)
+
 		it("REFUSES an arrival in the FUTURE and one outside the window", function()
 			local future = honestFacts()
 			future.ageSeconds = -0.01
@@ -1058,6 +1103,9 @@ return function()
 			expect(string.find(line, "ignored=0", 1, true)).to.be.ok()
 			-- ALL THREE worst fields, so dropping one does not pass on a prefix match.
 			expect(string.find(line, "worst=1.250/0.500/2.750", 1, true)).to.be.ok()
+			-- ...AND THE RECONSTRUCTED VIEW INSTANT (task 269b): how far back the match landed, and
+			-- how well it matched. Both default to 0 for a table written before this task.
+			expect(string.find(line, "match=0.000s/0.000", 1, true)).to.be.ok()
 			-- THE AGE PAIR, which is what says "the claim arrived from the FUTURE" rather than
 			-- leaving `claim-history` as a riddle (task 266b).
 			expect(string.find(line, "age=-0.200..0.050/9", 1, true)).to.be.ok()
