@@ -1342,4 +1342,168 @@ return function()
 		-- flight itself resolves identically whether a claim rides the record or not. What is NOT
 		-- executed is the owner's `return res.impacts` on the refused path. Queued as 266a.
 	end)
+	-- ======================= THE VIEW INSTANT (task 271, design 5.2.1)
+	--
+	-- **BOTH HELPERS ARE PURE AND BOTH ARE DRIVEN WITH HAND-WRITTEN POINTS**, which is what makes
+	-- this case fail on the commit before this task: neither function existed there.
+	describe("Validator.pickViewInstant -- which picture the server judges against", function()
+		local Validator = Weapon.Validator
+		local CLAIM = Shotgun.CONFIG.CLAIM
+
+		-- A straight trajectory along +X from the origin, as two segments.
+		local function line()
+			return {
+				{ from = Vector3.new(0, 0, 0), to = Vector3.new(50, 0, 0) },
+				{ from = Vector3.new(50, 0, 0), to = Vector3.new(100, 0, 0) },
+			}
+		end
+
+		it("measures the closest approach of a walked trajectory, not its ends", function()
+			local on, studs = Validator.closestOnSegments(line(), Vector3.new(70, 3, 0))
+			expect(studs).to.be.near(3, 1e-6)
+			expect((on :: Vector3).X).to.be.near(70, 1e-6)
+			-- A point BEHIND the start is measured from the start, not extrapolated.
+			local _, behind = Validator.closestOnSegments(line(), Vector3.new(-10, 0, 0))
+			expect(behind).to.be.near(10, 1e-6)
+			-- No segments is no answer, never a zero that reads like a hit.
+			local none, far = Validator.closestOnSegments({}, Vector3.new(0, 0, 0))
+			expect(none).to.equal(nil)
+			expect(far == math.huge).to.equal(true)
+		end)
+
+		it("picks the instant the SERVER'S OWN trajectory came closest, among those passing check 3", function()
+			-- THE ANIMAL CROSSES THE LINE OF FIRE: at the arrival instant it is 5 studs off, and one
+			-- step back it is ON the line. That is the measured live case -- 99.7 % of a 5.1-stud
+			-- gap along the animal's own velocity -- written as arithmetic.
+			local candidates = {
+				{ at = 100.000, point = Vector3.new(70, 5, 0) },
+				{ at = 100.000 - CLAIM.VIEW_LAG_STEP_SECONDS, point = Vector3.new(70, 0.4, 0) },
+				{ at = 100.000 - 2 * CLAIM.VIEW_LAG_STEP_SECONDS, point = Vector3.new(70, 4, 0) },
+			}
+			local index, point, lineStuds, movedStuds, anyPassed =
+				Validator.pickViewInstant(candidates, line(), Vector3.new(70, 0.4, 0), CLAIM)
+			expect(index).to.equal(2)
+			expect(anyPassed).to.equal(true)
+			expect(lineStuds).to.be.near(0.4, 1e-6)
+			expect(movedStuds).to.be.near(0, 1e-6)
+			expect((point :: Vector3).X).to.be.near(70, 1e-6)
+			-- AND IT IS A STRICT SUPERSET: what one instant accepted, this accepts. Given only the
+			-- arrival instant, the answer is the arrival instant.
+			local only = { candidates[1] }
+			local onlyIndex, _onlyPoint, onlyLine =
+				Validator.pickViewInstant(only, line(), Vector3.new(70, 5, 0), CLAIM)
+			expect(onlyIndex).to.equal(1)
+			expect(onlyLine).to.be.near(5, 1e-6)
+		end)
+
+		it("will not take an instant that fails check 3, however close the line is", function()
+			-- The nearest-to-the-line candidate is 30 studs from what the client claimed -- five
+			-- times `POSITION_TOLERANCE_STUDS`. It must not be chosen: an animal circling across
+			-- the line of fire crosses the trajectory twice, and only one of those is the shooter's
+			-- own picture.
+			local candidates = {
+				{ at = 100.000, point = Vector3.new(70, 1.0, 0) },
+				{ at = 99.98, point = Vector3.new(70, 0.0, 30) },
+			}
+			local index, _point, lineStuds, _moved, anyPassed =
+				Validator.pickViewInstant(candidates, line(), Vector3.new(70, 1.0, 0), CLAIM)
+			expect(index).to.equal(1)
+			expect(anyPassed).to.equal(true)
+			expect(lineStuds).to.be.near(1.0, 1e-6)
+		end)
+
+		it("when nothing passes check 3 it answers the BEST number, so the refusal names claim-moved", function()
+			local candidates = {
+				{ at = 100.000, point = Vector3.new(70, 0, 40) },
+				{ at = 99.98, point = Vector3.new(70, 0, 9) },
+			}
+			local index, _point, _line, movedStuds, anyPassed =
+				Validator.pickViewInstant(candidates, line(), Vector3.new(70, 0, 0), CLAIM)
+			expect(anyPassed).to.equal(false)
+			expect(index).to.equal(2)
+			expect(movedStuds).to.be.near(9, 1e-6)
+			expect(movedStuds > CLAIM.POSITION_TOLERANCE_STUDS).to.equal(true)
+		end)
+
+		-- ============ THE MEASURED CASE, REPRODUCED PURELY (design 12.1 case 37)
+		--
+		-- **THIS IS ROUND 1's BLOCKING FINDING ANSWERED AT THE LEVEL IT CAN BE ANSWERED PURELY**:
+		-- the view instant must CHANGE A VERDICT, not merely be computable. The numbers are the live
+		-- ones from `reviews/task-271/BRIEF.md` -- a deer at 28.7 studs/s whose picture was 0.178 s
+		-- old, a gap of 5.12 studs of which 5.106 lay along its own velocity, and a residual of
+		-- 0.38 studs perpendicular to its path.
+		--
+		-- `judgeClaim` is called twice with facts built the way `judgeClaimFor` builds them: once
+		-- from the ARRIVAL instant alone (v3's rule, reproduced by handing the sweep one candidate)
+		-- and once from the sweep's answer. v3 refuses `claim-line`; v4 accepts. Delete
+		-- `pickViewInstant`'s filter-then-minimise and the second half fails.
+		it("turns the measured 5.46/2.00 refusal into an acceptance -- the brief's own numbers", function()
+			local STEP = CLAIM.VIEW_LAG_STEP_SECONDS
+			local travel = Vector3.new(28.7, 0, 0)
+			-- THE SHOT: a straight trajectory along +Z, passing 0.38 studs from where the animal
+			-- was when the shooter saw it.
+			local segments = {
+				{ from = Vector3.new(0, 0, 0), to = Vector3.new(0, 0, 60) },
+				{ from = Vector3.new(0, 0, 60), to = Vector3.new(0, 0, 120) },
+			}
+			local seenAt = Vector3.new(0.38, 0, 70)
+			-- THE SWEEP'S CANDIDATES, newest first: the animal at `arrivalAt` is 0.178 s of travel
+			-- further along +X than the picture the shooter shot at.
+			local candidates = {}
+			for k = 0, 15 do
+				local back = k * STEP
+				table.insert(candidates, { at = 100 - back, point = seenAt + travel * (0.178 - back) })
+			end
+			local arrivalOnly = { candidates[1] }
+
+			local function facts(point: Vector3, trajectoryPoint: Vector3?)
+				return {
+					offset = Vector3.new(0, 0, 0),
+					partHalf = Vector3.new(0.9, 2.4, 3.0),
+					clientPoint = seenAt,
+					serverPoint = point,
+					trajectoryPoint = trajectoryPoint,
+					reachedStuds = 200,
+					claimedStuds = 70,
+					ageSeconds = 0.05,
+					flightSeconds = 0.0268,
+					expectedFlightSeconds = 0.0268,
+				}
+			end
+
+			-- v3: ONE INSTANT, the arrival. The trajectory passes 5.1 studs from it.
+			local i3, p3 = Validator.pickViewInstant(arrivalOnly, segments, seenAt, CLAIM)
+			expect(i3).to.equal(1)
+			local ok3, why3, measured3 = Validator.judgeClaim(facts(arrivalOnly[1].point, p3), CLAIM)
+			expect(ok3).to.equal(false)
+			expect(why3).to.equal("claim-line")
+			expect(measured3 > CLAIM.LINE_TOLERANCE_STUDS).to.equal(true)
+			-- 0.38 ACROSS plus 5.109 ALONG the animal's own path, which is 5.489 -- and the live
+			-- refusal this case reproduces read **5.457**. The two agree to 0.03 studs, which is
+			-- what makes this a reproduction rather than an illustration.
+			expect(measured3).to.be.near(5.489, 0.02)
+
+			-- v4: THE SWEEP. It picks the picture the shooter actually shot at, and the same facts
+			-- pass check 4 with about a fifth of the budget.
+			local i4, p4, line4 = Validator.pickViewInstant(candidates, segments, seenAt, CLAIM)
+			expect(i4 > 1).to.equal(true)
+			expect(line4 <= CLAIM.LINE_TOLERANCE_STUDS).to.equal(true)
+			expect(line4).to.be.near(0.38, 0.3)
+			local ok4, why4 = Validator.judgeClaim(facts(candidates[i4].point, p4), CLAIM)
+			expect(ok4).to.equal(true)
+			expect(why4).to.equal(nil)
+			-- AND THE LAG IT FOUND IS THE VIEW LAG, within one grid step.
+			expect(math.abs((100 - candidates[i4].at) - 0.178) <= STEP).to.equal(true)
+		end)
+
+		it("answers nothing for an empty sweep rather than a zero that reads like a hit", function()
+			local index, point, lineStuds, movedStuds, anyPassed =
+				Validator.pickViewInstant({}, line(), Vector3.zero, CLAIM)
+			expect(index).to.equal(nil)
+			expect(point).to.equal(nil)
+			expect(lineStuds).to.equal(nil)
+			expect(movedStuds).to.equal(nil)
+			expect(anyPassed).to.equal(false)
+		end)
+	end)
 end

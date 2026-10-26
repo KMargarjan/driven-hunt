@@ -203,6 +203,25 @@ local stats = {
 	claims = 0,
 	claimsIgnored = 0,
 	claimsAccepted = 0,
+	-- THE WORST ACCEPTED VIEW LAG (task 271): how far back the sweep had to look to find the
+	-- picture the shooter actually shot at. **This is the instrument that argues
+	-- `VIEW_LAG_BASE_SECONDS` down**: a server whose accepted claims all sit near 0 does not need
+	-- the window, and one whose claims sit at the edge needs a bigger one.
+	claimWorstLagSeconds = 0,
+	-- WHAT THE SWEEP ACTUALLY REACHED, on the LAST claim that ran one (task 272 item 1). Four
+	-- numbers, because they are what separates "the sweep is short" from "the choice is wrong":
+	-- how many candidates it found against how many steps it asked for, how wide its window was,
+	-- and whether ANY of them passed check 3. Task 271 read `lag=0.033s` -- two grid steps of the
+	-- eighteen a 0.30 s window asks for -- and could not say which of the two that was.
+	claimSweepFound = 0,
+	claimSweepAsked = 0,
+	claimSweepWindow = 0,
+	claimSweepPassed = false,
+	claimSweepSpread = 0,
+	claimSweepIndex = 0,
+	claimSweepBestLine = 0,
+	claimSweepBestIndex = 0,
+	claimSweepSegments = 0,
 	-- WHY A REFUSAL HAPPENED, AS A NUMBER (task 269b). `refusedClaimBy` counts them by name;
 	-- this keeps, per name, the WORST measured value, its budget, and -- for the one rule whose
 	-- cause is an Instance -- what actually stopped the bullet.
@@ -852,7 +871,9 @@ function Weapon.claimLine(from: any): string
 		table.sort(reasons)
 	end
 	return string.format(
-		"enabled=%s claims=%d accepted=%d refused=%d ignored=%d worst=%.3f/%.3f/%.3f age=%.3f..%.3f/%d why=%s [%s]",
+		"enabled=%s claims=%d accepted=%d refused=%d ignored=%d worst=%.3f/%.3f/%.3f lag=%.3fs "
+			.. "sweep=%d/%d win=%.3fs spread=%.3f passed=%s took=%d best=%d@%.3f segs=%d "
+			.. "age=%.3f..%.3f/%d why=%s [%s]",
 		tostring(from.claimsEnabled),
 		from.claims or 0,
 		from.claimsAccepted or 0,
@@ -861,6 +882,16 @@ function Weapon.claimLine(from: any): string
 		from.claimWorstStuds or 0,
 		from.claimWorstLineStuds or 0,
 		from.claimWorstEndStuds or 0,
+		from.claimWorstLagSeconds or 0,
+		from.claimSweepFound or 0,
+		from.claimSweepAsked or 0,
+		from.claimSweepWindow or 0,
+		from.claimSweepSpread or 0,
+		tostring(from.claimSweepPassed),
+		from.claimSweepIndex or 0,
+		from.claimSweepBestIndex or 0,
+		from.claimSweepBestLine or 0,
+		from.claimSweepSegments or 0,
 		from.claimAgeMin or 0,
 		from.claimAgeMax or 0,
 		from.claimAges or 0,
@@ -1365,6 +1396,51 @@ end
 -- A NEGATIVE, A NAN OR A MISSING PING IS ZERO, never a fallback guess: 0 is exactly today's
 -- behaviour, so the failure mode of this whole feature is "the game shoots as it did yesterday".
 -- `Flight.launch` clamps the upper end again, at the one door into that module.
+-- HOW FAR BACK THIS SERVER WILL LOOK FOR THIS SHOOTER'S OWN PICTURE, in seconds (task 271,
+-- design 4.4). **THE SHAPE IS `Weapon.catchUpFor`'s, line for line and deliberately**: `ping` is a
+-- PARAMETER with a `GetNetworkPing` fallback inside a `pcall`, a negative or a NaN contributes ZERO
+-- rather than a guess, and the result is clamped at one named ceiling. A number that can only be
+-- read at one value cannot be tested at another, and a loopback Studio session reads 1-2 ms
+-- (measured, task 256 round 2), so a spec that could not supply its own ping could not reach this
+-- function's interesting half at all.
+--
+-- IT REUSES `FLIGHT_CATCHUP_PING_FACTOR` and does not add a second one.
+-- THE WINDOW, OVERRIDDEN BY A SPEC AND BY NOTHING ELSE (round 1's finding 1). `judgeClaimFor`
+-- reads `CONFIG.CLAIM` directly and asks `viewWindowFor` with no config, so without this seam no
+-- case could set the window to 0 -- and design 3.4's own claim is that
+-- `VIEW_LAG_BASE_SECONDS = 0` reproduces v3's single-instant check exactly. A claim about a dial
+-- nothing can turn is not a claim. `nil` restores the configured answer, which is every caller in
+-- the game; the shape is `Weapon.setClaimPolicy`'s.
+local viewWindowOverride: number? = nil
+
+function Weapon.setViewWindow(seconds: number?): number?
+	local was = viewWindowOverride
+	viewWindowOverride = if type(seconds) == "number" and seconds >= 0 then seconds else nil
+	return was
+end
+
+function Weapon.viewWindowFor(player: Player?, ping: number?, config: any?): number
+	if viewWindowOverride ~= nil then
+		return viewWindowOverride
+	end
+	local cfg = config or CONFIG
+	local seconds = ping
+	if seconds == nil then
+		local ok, measured = pcall(function()
+			return (player :: any):GetNetworkPing()
+		end)
+		seconds = if ok and type(measured) == "number" then measured else 0
+	end
+	if type(seconds) ~= "number" or seconds ~= seconds or seconds <= 0 then
+		seconds = 0
+	end
+	return math.clamp(
+		cfg.CLAIM.VIEW_LAG_BASE_SECONDS + seconds * cfg.FLIGHT_CATCHUP_PING_FACTOR,
+		0,
+		cfg.CLAIM.VIEW_LAG_MAX_SECONDS
+	)
+end
+
 function Weapon.catchUpFor(player: Player?, ping: number?, config: any?): number
 	local seconds = ping
 	if seconds == nil then
@@ -1545,15 +1621,9 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	-- AND BY ITS OWN MEASUREMENT IT CARRIED NOTHING: `match=0.000s` on every claim of every live
 	-- trial, because the best instant was always the arrival instant. A mechanism that loosens a
 	-- rule and moves no number is deleted, not defended.
-	local rewound = askWhereWas(claim.part, arrivalAt)
-	if rewound == nil then
-		return refuse("claim-history")
-	end
-	local serverPoint = rewound * claim.offset
-
-	-- THE SERVER'S OWN TRAJECTORY AT THE CLAIMED FLIGHT TIME, stepped with the same functions the
-	-- flight stepped with -- `Ballistics.advance` from the shot's own bore along its own launch
-	-- direction. This is check 3's left-hand side, and it is the server's, never the client's.
+	-- THE SERVER'S OWN TRAJECTORY, WALKED ONCE (task 271, design 4.9). `Ballistics.advance` from
+	-- the shot's own bore along its own launch direction, for exactly `claim.flightSeconds`. Walked
+	-- once rather than once per candidate: sixteen `advance` calls per claimed shot, not 448.
 	local ballistic = Ballistics.shotFor(Weapons.row(shot.weapon or Weapons.PRIMARY), shot.ammo)
 	if ballistic == nil then
 		return refuse("claim-weapon")
@@ -1566,61 +1636,122 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		-- and not an assert.
 		return refuse("claim-weapon")
 	end
-	local position = shot.muzzle
-	local velocity = bore * ballistic.v0
-	local remaining = claim.flightSeconds
-	-- **DID THE SHOT PASS THE POINT -- NOT "WHERE WAS IT AT THAT INSTANT".** The design's own words
-	-- for check 4 are *"the server's own trajectory ... PASSES within `LINE_TOLERANCE_STUDS`"*, and
-	-- this used to compare the claimed point with the trajectory's position at exactly
-	-- `claim.flightSeconds`. That conflates ACROSS-track error -- the aiming disagreement the check
-	-- exists to catch -- with ALONG-track error, which is timing granularity and the bore's own
-	-- 5-stud set-back and says nothing about aim.
-	--
-	-- MEASURED (task 266b): on a STILL animal `claimWorstLineStuds` read **1.526** of a 2.0 budget
-	-- with nothing moving at all, and the in-gate accept case -- where the spec controls every
-	-- number -- was refused `claim-line` outright. Both were along-track.
-	--
-	-- So the trajectory is walked and the CLOSEST APPROACH to the claimed point is kept. Each
-	-- sub-step is a segment; the nearest point on a segment is the standard clamped projection. The
-	-- result is a perpendicular distance, which is what a tolerance of "under half a boar's trunk"
-	-- was chosen to mean.
-	local closest = position
-	local closestStuds = (position - serverPoint).Magnitude
-	for _ = 1, CONFIG.CLAIM.MAX_SUBSTEPS do
-		if remaining <= 0 then
-			break
-		end
-		local step = math.min(remaining, CONFIG.FLIGHT_STEP_MAX_SECONDS)
-		local nextPosition, nextVelocity = Ballistics.advance(position, velocity, step, ballistic)
-		local segment = nextPosition - position
-		local length = segment.Magnitude
-		if length > 1e-6 then
-			local along = math.clamp((serverPoint - position):Dot(segment) / (length * length), 0, 1)
-			local on = position + segment * along
-			local distance = (on - serverPoint).Magnitude
-			if distance < closestStuds then
-				closest, closestStuds = on, distance
+	local segments = {}
+	do
+		local position = shot.muzzle
+		local velocity = bore * ballistic.v0
+		local remaining = claim.flightSeconds
+		for _ = 1, CONFIG.CLAIM.MAX_SUBSTEPS do
+			if remaining <= 0 then
+				break
 			end
+			local step = math.min(remaining, CONFIG.FLIGHT_STEP_MAX_SECONDS)
+			local nextPosition, nextVelocity = Ballistics.advance(position, velocity, step, ballistic)
+			table.insert(segments, { from = position, to = nextPosition })
+			position, velocity = nextPosition, nextVelocity
+			remaining -= step
 		end
-		position, velocity = nextPosition, nextVelocity
-		remaining -= step
 	end
 
+	-- THE VIEW INSTANT (task 271, design 5.2.1). **MEASURED, live, in Karen's place**: a
+	-- `claim-line` refusal of 5.457 against a 2.0 budget whose decomposition read
+	-- `along -2.079, across 4.679, ALONG THE ANIMAL +5.106 (v 28.7 studs/s, so 0.178 s of it)` --
+	-- 99.7 % of the gap along the animal's own velocity. The two sides did not disagree about
+	-- WHERE; they disagreed about WHEN. So the geometric checks are no longer evaluated at the
+	-- single instant `arrivalAt`: the server sweeps its OWN history backwards over a window IT
+	-- owns, and judges at the one instant its OWN trajectory came closest -- among the instants
+	-- that pass check 3. `arrivalAt` is always candidate 1, so this is a strict superset of what
+	-- one instant accepted.
+	-- THE SHOOTER, FOR HIS OWN PING AND NOTHING ELSE. `shooterUserId` is on the shot record the
+	-- flight carries; a player who has left gives nil, and `viewWindowFor` then contributes no ping
+	-- and answers the base window, which is the safe direction.
+	local shooter = if type(shot.shooterUserId) == "number" then Players:GetPlayerByUserId(shot.shooterUserId) else nil
+	local window = Weapon.viewWindowFor(shooter)
+	local candidates = {}
+	local lastWhy = stats.claimHistoryWhy
+	local asked = 0
+	for k = 0, CONFIG.CLAIM.VIEW_LAG_MAX_SAMPLES - 1 do
+		local at = arrivalAt - k * CONFIG.CLAIM.VIEW_LAG_STEP_SECONDS
+		if arrivalAt - at > window then
+			break
+		end
+		-- THE HISTORY REASON IS KEPT LOCAL AND PUBLISHED ONLY WHEN NO CANDIDATE ANSWERED
+		-- (design 4.9, round 1's finding 3, and it was right). `askWhereWas` writes
+		-- `stats.claimHistoryWhy` on EVERY call; with a sweep the oldest candidate legitimately
+		-- answers nil at the ring's edge, so an ACCEPTED claim would leave that nil's reason behind
+		-- and destroy the one diagnostic that tells an unwired root from an unplaceable animal
+		-- (task 266b, which cost a live session). The value before the sweep is restored unless the
+		-- sweep itself found nothing.
+		asked += 1
+		local whyBefore = stats.claimHistoryWhy
+		local where = askWhereWas(claim.part, at)
+		lastWhy = stats.claimHistoryWhy
+		stats.claimHistoryWhy = whyBefore
+		if where == nil then
+			-- GOING BACKWARDS, ONCE THE RING'S SPAN IS LEFT IT IS LEFT FOR GOOD -- but only after a
+			-- non-nil answer. `arrivalAt` itself can sit up to one Heartbeat past the newest sample,
+			-- which `Boar.sampleAt` refuses rather than extrapolates, and that must not end the
+			-- sweep before it has started.
+			if #candidates > 0 then
+				break
+			end
+		else
+			table.insert(candidates, { at = at, point = where * claim.offset })
+		end
+	end
+	if #candidates == 0 then
+		stats.claimHistoryWhy = lastWhy
+		return refuse("claim-history")
+	end
 	-- WHAT STOPPED THE SERVER'S OWN FLIGHT, AS AN IDENTITY (task 269b). Read once, here, because
 	-- `Hits.targetOf` needs an Instance and `Validator` may touch none: if the thing the flight
 	-- stopped on belongs to the SAME animal the claim names, the bullet reached its target and
 	-- check 5 -- the line-of-sight rule -- has nothing to say about it.
-	-- `.instance` AND NOT `.part`, which is round 1's blocking finding and it was fatal: there is no
-	-- `part` field on `Shotgun.Impact` (`{ instance, position, normal, distance, material }`), so
-	-- `stopper` was always nil, `stoppedByClaimedTarget` was always false, and the whole of item 3
-	-- was dead on arrival. The live `claim-blocked` note said so and I misread it: *"stopped by
-	-- nothing it reported"* was this bug, not an empty impact list.
 	local firstImpact = res.impacts[1]
 	local stopper = if type(firstImpact) == "table" then firstImpact.instance else nil
 	local stoppedBySame = false
 	if typeof(stopper) == "Instance" then
 		stoppedBySame = Hits.targetOf(stopper) == target
 	end
+
+	local index, trajectoryPoint, _lineStuds, _movedStuds, anyPassed =
+		Validator.pickViewInstant(candidates, segments, claim.point, CONFIG.CLAIM)
+	-- ITEM 1's FOUR NUMBERS, written for every claim that reached the sweep.
+	stats.claimSweepFound = #candidates
+	stats.claimSweepAsked = asked
+	stats.claimSweepWindow = window
+	stats.claimSweepPassed = anyPassed == true
+	-- HOW FAR APART THE SWEEP'S OWN CANDIDATES ARE (task 272). Nineteen candidates over 0.3 s of a
+	-- 28 studs/s animal should span ~8.5 studs; a spread near zero means the ring answered the SAME
+	-- point nineteen times, and then the first candidate wins every tie by the strict `<` and the
+	-- chosen lag is 0 whatever the window is. That is the one reading that explains
+	-- `sweep=19/19 win=0.301s passed=true lag=0.000s` beside a gap that needs 0.164 s.
+	stats.claimSweepSpread = (candidates[#candidates].point - candidates[1].point).Magnitude
+	-- WHICH CANDIDATE WAS TAKEN, AND WHAT THE BEST ONE WOULD HAVE BEEN (task 272). The sweep is
+	-- measured healthy -- 19 of 19, spanning 8 studs -- and still answers the arrival instant while
+	-- a candidate 0.164 s back exists. These two numbers are what separates "check 3 filtered the
+	-- right one out" from "the trajectory is no nearer to any of them".
+	stats.claimSweepIndex = index or 0
+	do
+		local best, bestAt = math.huge, 0
+		for candidateIndex, candidate in ipairs(candidates) do
+			local _, studs = Validator.closestOnSegments(segments, candidate.point)
+			if studs < best then
+				best, bestAt = studs, candidateIndex
+			end
+		end
+		stats.claimSweepBestLine = best
+		stats.claimSweepBestIndex = bestAt
+		stats.claimSweepSegments = #segments
+	end
+	if index == nil then
+		return refuse("claim-history")
+	end
+	local serverPoint = candidates[index].point
+	local lineLagSeconds = arrivalAt - candidates[index].at
+	local closest = trajectoryPoint or serverPoint
+	local closestStuds = (closest - serverPoint).Magnitude
+	local position = closest
 
 	local ok, reason, measured, budget = Validator.judgeClaim({
 		offset = claim.offset,
@@ -1649,6 +1780,50 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		-- tree's collider or the terrain. `Validator` may not touch an Instance -- its own header's
 		-- first sentence -- so this is the owner's half of the same answer.
 		local note = nil :: string?
+		-- WHICH WAY THE 4.8 STUDS LIES (task 271 item 1). `claim-line` has published a MAGNITUDE
+		-- since task 266 and a magnitude cannot tell three different defects apart:
+		--   ACROSS the shot      the two sides are not flying the same line -- an aim or a bore
+		--                        defect, 259b's own question;
+		--   ALONG the shot       sub-step granularity and the bore's set-back, which check 4 was
+		--                        rewritten in task 266b to stop charging for;
+		--   ALONG THE ANIMAL     the two sides disagree about WHEN, not where -- a view-lag defect,
+		--                        and the only one of the three a tolerance must never be widened for.
+		-- So the pair is printed, decomposed on those three named axes, with the instants beside it.
+		-- The animal's own velocity is read off the live part, which is the server's own fact.
+		if reason == "claim-line" or reason == "moved" then
+			local shotDir = if typeof(bore) == "Vector3" and bore.Magnitude > 1e-6 then bore.Unit else Vector3.zAxis
+			local gap = claim.point - serverPoint
+			local across = gap - shotDir * gap:Dot(shotDir)
+			local travel = part.AssemblyLinearVelocity
+			local travelDir = if travel.Magnitude > 1e-6 then travel.Unit else Vector3.zero
+			note = string.format(
+				"client %.2f,%.2f,%.2f vs server %.2f,%.2f,%.2f | gap %.3f = along %+.3f, across %.3f, "
+					.. "ALONG THE ANIMAL %+.3f (v %.1f studs/s, so %.3f s of it) | firedAtView %.3f + flight "
+					.. "%.4f = arrival %.3f, age %+.3f | muzzle %.2f,%.2f,%.2f dir %.3f,%.3f,%.3f",
+				claim.point.X,
+				claim.point.Y,
+				claim.point.Z,
+				serverPoint.X,
+				serverPoint.Y,
+				serverPoint.Z,
+				gap.Magnitude,
+				gap:Dot(shotDir),
+				across.Magnitude,
+				gap:Dot(travelDir),
+				travel.Magnitude,
+				if travel.Magnitude > 1e-6 then math.abs(gap:Dot(travelDir)) / travel.Magnitude else 0,
+				claim.firedAtView,
+				claim.flightSeconds,
+				arrivalAt,
+				age,
+				shot.muzzle.X,
+				shot.muzzle.Y,
+				shot.muzzle.Z,
+				shotDir.X,
+				shotDir.Y,
+				shotDir.Z
+			)
+		end
 		if reason == "claim-blocked" then
 			local first = res.impacts[1]
 			local hit = if type(first) == "table" then first.instance else nil
@@ -1663,6 +1838,11 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	end
 
 	stats.claimsAccepted += 1
+	-- THE WORST **ACCEPTED** VIEW LAG, and it is updated HERE and nowhere else (round 1's finding
+	-- 4). Before the fix the `math.max` sat above `judgeClaim`, so every claim that found a
+	-- candidate -- refused included -- raised it, and design 1.2a item 15 makes a delete-or-keep
+	-- decision from this number.
+	stats.claimWorstLagSeconds = math.max(stats.claimWorstLagSeconds, lineLagSeconds)
 	stats.claimWorstStuds = math.max(stats.claimWorstStuds, (claim.point - serverPoint).Magnitude)
 	-- THE METER MUST MEASURE WHAT THE CHECK MEASURES (the Reviewer, round 1). This read `position`
 	-- -- the trajectory's point at the claimed instant -- while check 4 is given `closest`, so the

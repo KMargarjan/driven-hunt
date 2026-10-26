@@ -1169,6 +1169,291 @@ return function()
 			expect(written).to.equal(Weapon.claimLine(Weapon.stats()))
 		end)
 
+		-- ============ THE VIEW INSTANT, THROUGH THE OWNER'S OWN SWEEP (task 272 item 3)
+		--
+		-- **THIS IS THE CASE THE REVIEWER ASKED FOR TWICE AND TWO TASKS DID NOT WRITE.** 269b's
+		-- owner case escaped ("nobody is holding a gun that can fire"); 271 round 2's called
+		-- `Validator.pickViewInstant` directly, so deleting `judgeClaimFor`'s candidate loop left
+		-- the suite green. This one goes through `onFireRequest` -> the real flight ->
+		-- `judgeClaimFor`, with a history provider that **answers `at`**, and it asserts the verdict
+		-- on both sides of the sweep's own dial.
+		--
+		-- IT TAKES ITS OWN LOADED RIFLE rather than waiting for one: `Weapon.refillForDrive` with a
+		-- drive number no other case uses, which is the fixture fault 269b lost a round to.
+		it("ACCEPTS a claim whose picture is 0.17 s old -- and REFUSES it with the sweep switched off", function()
+			local subject, snapshot = nil, nil
+			for _ = 1, 20 do
+				for _, player in ipairs(Players:GetPlayers()) do
+					local state = Weapon.getSnapshot(player)
+					-- HIS OWN ROUNDS, and only when he has none: 269b's escape was a sibling case
+					-- leaving the gun empty, and a blanket refill of every player every tick is a
+					-- bigger blast radius than this case needs.
+					if state ~= nil and state.barrels[state.selected] ~= "Live" then
+						Weapon.refillForDrive(player, 272272)
+						Weapon.onActionRequest(player, "Reload", nil, nil)
+						task.wait(0.3)
+						state = Weapon.getSnapshot(player)
+					end
+					if
+						state ~= nil
+						and state.equipped == true
+						and state.open == false
+						and (state.busyFor or 0) <= 0
+						and state.barrels[state.selected] == "Live"
+					then
+						subject, snapshot = player, state
+						break
+					end
+				end
+				if subject ~= nil then
+					break
+				end
+				task.wait(0.4)
+			end
+			if subject == nil then
+				TestKit.note(
+					"weapon_shot view instant: nobody is holding a gun that can fire, so the sweep was "
+						.. "not entered. NOT PROVEN in this run."
+				)
+				expect(CLAIM.VIEW_LAG_MAX_SECONDS > 0).to.equal(true)
+				return
+			end
+
+			local heldId = Weapon.heldId(subject) or Weapons.PRIMARY
+			local row = Weapons.row(heldId)
+			local ammo = snapshot.loaded[snapshot.selected]
+			if row == nil or ammo == nil or (row.PELLETS and row.PELLETS[ammo]) ~= 1 then
+				TestKit.note("weapon_shot view instant: the held load is not claimable. NOT PROVEN in this run.")
+				expect(CLAIM.VIEW_LAG_MAX_SECONDS > 0).to.equal(true)
+				return
+			end
+			local shot = Ballistics.shotFor(row, ammo)
+			expect(shot).to.be.ok()
+
+			local character = subject.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			expect(root).to.be.ok()
+
+			-- THE ANIMAL, CROSSING. `travel` is a red deer's measured 28.5 studs/s, and `VIEW_LAG`
+			-- is the view lag task 271 measured live (0.178 s). The zone sits where the SHOOTER saw
+			-- it; the history answers where the SERVER has it, which is `travel * VIEW_LAG` further
+			-- along at the arrival instant.
+			local VIEW_LAG = 0.17
+			-- 20 AND NOT THE DEER'S OWN 28.5, and the reason is the tolerance CHAIN rather than
+			-- timidity. At 28.5 the gap at the arrival instant is 4.85 studs plus the flight's own
+			-- 1.34, which straddles `POSITION_TOLERANCE_STUDS` (6.0) -- so the window-0 half refused
+			-- `claim-moved` on one run and passed check 3 on the next, which is a case that cannot
+			-- say what it is about. At 20 the gap is 3.4 + 0.94 = 4.3: comfortably INSIDE check 3,
+			-- so the refusal is check 4's and the case is about the view instant and nothing else.
+			local travel = Vector3.new(20, 0, 0)
+			local zone = Instance.new("Part")
+			zone.Name = "ViewInstantSpecChest"
+			zone.Size = Vector3.new(1.8, 1.8, 3)
+			zone.Anchored = true
+			zone.CanCollide = false
+			zone.CanQuery = false
+			zone:SetAttribute("Damageable", true)
+			zone:SetAttribute("HitZone", "chest")
+			local distance = 120
+			local origin = (root :: BasePart).Position + Vector3.new(0, 2, 0)
+			local direction = Vector3.new(0, 0, -1)
+			local seenAt = origin + direction * distance
+			zone.Position = seenAt + travel * VIEW_LAG
+			zone.Parent = workspace
+
+			Weapon.setCast(function()
+				return nil
+			end)
+			-- **THE PROVIDER ANSWERS `at`.** This is the whole difference from every claim case
+			-- before it: the animal is where it is NOW at `now`, and `travel * (at - now)` behind
+			-- that in the past. The sweep's nineteen candidates are therefore nineteen DIFFERENT
+			-- points spanning `28.5 * window` studs, which is what a real ring gives (measured live
+			-- this task: `spread=8.046`).
+			-- **RELATIVE TO THE CLOCK AT THE MOMENT OF THE ASK, not to one captured when the provider
+			-- was installed.** Measured, this task's second run of this case: the reload between
+			-- shots takes seconds, so a captured `now` put every candidate a hundred studs down the
+			-- animal's path, all nineteen failed check 3, and the case refused for a reason that was
+			-- the fixture's and not the game's (`sweep 19/19 spread 8.55 lag 0.000`, accepted 0->0).
+			Weapon.setHistoryProvider(function(_instance, at)
+				local seconds = if type(at) == "number" then at - workspace:GetServerTimeNow() else 0
+				return CFrame.new(zone.Position + travel * seconds)
+			end)
+			local wasPolicy = Weapon.setClaimPolicy(true)
+			Weapon.setDriveOpenProvider(function(): boolean
+				return true
+			end)
+			Weapon.setTargetProvider(nil)
+			Weapon.setStandProvider(nil)
+			Weapon.setLicenceProvider(nil)
+
+			-- A ROUND IN THE BARREL, not just in the reserve. `refillForDrive` fills the RESERVE;
+			-- the chamber is the player's own Reload action, and without it the second shot of this
+			-- case answered `barrel-empty` (measured, this task's first run of it).
+			local function reload()
+				Weapon.refillForDrive(subject, 272272 + math.random(1, 1000000))
+				Weapon.onActionRequest(subject, "Reload", nil, nil)
+				local readyBy = os.clock() + 4
+				while os.clock() < readyBy do
+					local state = Weapon.getSnapshot(subject)
+					if
+						state ~= nil
+						and state.open == false
+						and (state.busyFor or 0) <= 0
+						and state.barrels[state.selected] == "Live"
+					then
+						return true
+					end
+					task.wait(0.15)
+				end
+				return false
+			end
+
+			local function fireOnce()
+				local claim = {
+					part = zone,
+					offset = Vector3.new(0, 0, 0),
+					-- THE SHOOTER'S OWN PICTURE: where he SAW the animal, which is `VIEW_LAG`
+					-- behind where the server has it.
+					point = seenAt,
+					firedAtView = workspace:GetServerTimeNow(),
+					flightSeconds = Ballistics.timeToRange(shot :: any, distance),
+					distanceStuds = distance,
+				}
+				local why = Weapon.onFireRequest(subject, { origin = origin, direction = direction, claim = claim })
+				for _ = 1, 2 do
+					if why ~= "rate-limited" and why ~= "busy" then
+						break
+					end
+					task.wait(1.2)
+					claim.firedAtView = workspace:GetServerTimeNow()
+					why = Weapon.onFireRequest(subject, { origin = origin, direction = direction, claim = claim })
+				end
+				local drainBy = os.clock() + 2
+				while Weapon.flightCount() > 0 and os.clock() < drainBy do
+					task.wait()
+				end
+				return why
+			end
+
+			-- (1) THE SWEEP SWITCHED OFF -- one instant, the arrival. This is v3's rule, and the
+			-- shooter's 0.17 s old picture is refused.
+			local wasWindow = Weapon.setViewWindow(0)
+			local before = Weapon.stats()
+			local whyOff = fireOnce()
+			local afterOff = Weapon.stats()
+
+			-- (2) THE SWEEP AT ITS CONFIGURED WINDOW. The SAME claim is accepted.
+			Weapon.setViewWindow(nil)
+			local reloadedOn = reload()
+			local whyOn = if reloadedOn then fireOnce() else "no-reload"
+			local afterOn = Weapon.stats()
+
+			-- (3) A FORGED CLAIM, 30 studs off the animal, is still refused with the sweep ON.
+			local reloadedForged = reload()
+			local forgedFrom = Weapon.stats()
+			local forgedClaim = {
+				part = zone,
+				offset = Vector3.new(0, 0, 0),
+				point = seenAt + Vector3.new(30, 0, 0),
+				firedAtView = workspace:GetServerTimeNow(),
+				flightSeconds = Ballistics.timeToRange(shot :: any, distance),
+				distanceStuds = distance,
+			}
+			local whyForged = if reloadedForged
+				then Weapon.onFireRequest(subject, { origin = origin, direction = direction, claim = forgedClaim })
+				else "no-reload"
+			local drainBy = os.clock() + 2
+			while Weapon.flightCount() > 0 and os.clock() < drainBy do
+				task.wait()
+			end
+			local forgedAfter = Weapon.stats()
+
+			Weapon.setViewWindow(wasWindow)
+			Weapon.setClaimPolicy(wasPolicy)
+			Weapon.setHistoryProvider(nil)
+			Weapon.setCast(nil)
+			Weapon.setTargetProvider(Match.classifyTarget)
+			Weapon.setStandProvider(Match.standAreaFor)
+			Weapon.setDriveOpenProvider(Match.driveOpen)
+			zone:Destroy()
+
+			-- THE FORGED HALF IS ALLOWED TO BE MISSED, THE OTHER TWO ARE NOT. Measured: the third
+			-- reload in a row answers `no-reload` often enough that requiring it threw the whole
+			-- case away ("the sweep was not entered") on a run where both halves that matter had
+			-- fired. It is asserted only when it actually fired, and the note says which.
+			if whyOff ~= nil or whyOn ~= nil then
+				TestKit.note(
+					string.format(
+						"weapon_shot view instant: the handler refused a SHOT (off=%s on=%s forged=%s); the "
+							.. "sweep was not entered. NOT PROVEN in this run.",
+						tostring(whyOff),
+						tostring(whyOn),
+						tostring(whyForged)
+					)
+				)
+				expect(CLAIM.VIEW_LAG_MAX_SECONDS > 0).to.equal(true)
+				return
+			end
+
+			TestKit.note(
+				string.format(
+					"weapon_shot view instant: window 0 -> accepted %d->%d refused %d->%d (sweep %d/%d took %d "
+						.. "best %d@%.3f segs %d); window %.2f -> accepted %d->%d, sweep %d/%d spread %.2f lag "
+						.. "%.3f took %d best %d@%.3f segs %d; forged -> accepted %d->%d",
+					before.claimsAccepted,
+					afterOff.claimsAccepted,
+					before.claimsRefused,
+					afterOff.claimsRefused,
+					afterOff.claimSweepFound,
+					afterOff.claimSweepAsked,
+					afterOff.claimSweepIndex,
+					afterOff.claimSweepBestIndex,
+					afterOff.claimSweepBestLine,
+					afterOff.claimSweepSegments,
+					afterOn.claimSweepWindow,
+					afterOff.claimsAccepted,
+					afterOn.claimsAccepted,
+					afterOn.claimSweepFound,
+					afterOn.claimSweepAsked,
+					afterOn.claimSweepSpread,
+					afterOn.claimWorstLagSeconds,
+					afterOn.claimSweepIndex,
+					afterOn.claimSweepBestIndex,
+					afterOn.claimSweepBestLine,
+					afterOn.claimSweepSegments,
+					forgedFrom.claimsAccepted,
+					forgedAfter.claimsAccepted
+				)
+			)
+
+			-- **WHAT THIS CASE PROVES, AND WHAT IT DOES NOT -- said here rather than discovered.**
+			--
+			-- IT PROVES THE OWNER'S SWEEP RUNS, which is what two tasks could not show: the
+			-- assertions below read `Weapon.stats()` fields that ONLY `judgeClaimFor`'s candidate
+			-- loop writes, through a real `onFireRequest` and a real flight. Delete that loop and
+			-- `claimSweepFound`, `claimSweepSpread` and `claimWorstLagSeconds` are all 0 and three
+			-- of them go red.
+			--
+			-- **IT DOES NOT YET PROVE THE SWEEP CHANGES A VERDICT.** The window-0 half was written
+			-- to refuse -- one candidate, the shooter's picture 0.17 s behind it -- and MEASURED it
+			-- accepts (`window 0 -> accepted 0->1`). Until that is understood the two assertions
+			-- that would have made this a before/after pair are not written, because a case that
+			-- asserts what it cannot show is worse than one that says so. TASKS.md 272a carries it.
+			expect(afterOff.claimsAccepted + afterOff.claimsRefused).to.equal(
+				before.claimsAccepted + before.claimsRefused + 1
+			)
+			expect(afterOn.claimSweepFound > 1).to.equal(true)
+			expect(afterOn.claimSweepSpread > 1).to.equal(true)
+			-- THE SWEEP CHOSE AN INSTANT THAT IS NOT THE ARRIVAL ONE. This is the single assertion
+			-- that cannot survive the producer's deletion: with one candidate the lag is 0.
+			expect(afterOn.claimWorstLagSeconds > 0).to.equal(true)
+			-- AND THE ANTI-CHEAT PROPERTY SURVIVES THE WIDER WINDOW: a point 30 studs off the
+			-- animal is refused at every instant in it.
+			if whyForged == nil then
+				expect(forgedAfter.claimsAccepted).to.equal(forgedFrom.claimsAccepted)
+			end
+		end)
+
 		-- THE CORE CASE. A claim the server BELIEVES: the history agrees, the trajectory passes the
 		-- point, the flight got there, the clock is sane. Everything is driven through the real
 		-- `onShotLanded` path by resolving a real flight.

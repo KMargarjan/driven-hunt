@@ -241,6 +241,93 @@ function Validator.judgeClaim(facts: any, limits: any): (boolean, string?, numbe
 	return true, nil
 end
 
+-- THE CLOSEST APPROACH OF A WALKED TRAJECTORY TO A POINT (task 271, design 4.3). PURE, and it is
+-- `judgeClaimFor`'s own loop MOVED here rather than written again: the owner walked the shot and
+-- kept the nearest point on the nearest segment, and the sweep needs that answer once per candidate
+-- against ONE walk.
+--
+-- A SEGMENT IS `{ from: Vector3, to: Vector3 }` and nothing else, which is what keeps this module
+-- free of `Ballistics`, of a shot record and of a clock.
+function Validator.closestOnSegments(segments: any, point: Vector3): (Vector3?, number)
+	if type(segments) ~= "table" or typeof(point) ~= "Vector3" then
+		return nil, math.huge
+	end
+	local best, bestStuds = nil :: Vector3?, math.huge
+	for _, segment in ipairs(segments) do
+		local from, to = segment.from, segment.to
+		if typeof(from) == "Vector3" and typeof(to) == "Vector3" then
+			local span = to - from
+			local length = span.Magnitude
+			local on = from
+			if length > 1e-6 then
+				-- The standard clamped projection: the nearest point ON the segment, so a
+				-- trajectory that passes the animal is measured perpendicular to its path and not
+				-- from whichever end happened to be sampled.
+				on = from + span * math.clamp((point - from):Dot(span) / (length * length), 0, 1)
+			end
+			local studs = (on - point).Magnitude
+			if studs < bestStuds then
+				best, bestStuds = on, studs
+			end
+		end
+	end
+	return best, bestStuds
+end
+
+-- WHICH PICTURE OF THE ANIMAL THE SERVER WILL JUDGE AGAINST (task 271, design 5.2.1). PURE: the
+-- owner does the Instance work and hands numbers in.
+--
+-- `candidates` is NEWEST FIRST, each `{ at, point }` where `point` is the server's OWN rewind of
+-- the claimed offset at `at`. Returns `(index, trajectoryPoint, lineStuds, movedStuds, anyPassed)`.
+--
+-- THE RULE, ORDER-INDEPENDENT AND A STRICT SUPERSET OF what one instant did: among the candidates
+-- that PASS check 3 (`|clientPoint - point| <= POSITION_TOLERANCE_STUDS`), pick the one whose
+-- distance from the trajectory is smallest. If none passes check 3, pick the one with the smallest
+-- `movedStuds`, so the refusal `judgeClaim` names is `claim-moved` with the best number the server
+-- could find rather than an arbitrary one.
+--
+-- **WHY FILTER ON 3 AND MINIMISE 4, AND NOT THE OTHER WAY ROUND.** Minimising check 4 alone could
+-- pick an instant that fails check 3 where the arrival instant would have passed it -- an animal
+-- circling across the line of fire crosses the trajectory twice. Filtering first makes the result a
+-- strict superset: the arrival instant is always candidate 1, so anything the single-instant rule
+-- accepted, this accepts.
+--
+-- **AND IT IS NOT TASK 269b's REFUSED SEARCH.** That one minimised check 3's OWN expression, so
+-- check 3 became "the best of thirteen" and measured nothing. This minimises check 4's, whose
+-- left-hand side is the server's own re-step of the shot: `clientPoint` appears in neither term of
+-- the thing being minimised, and check 3 is still a real comparison at an instant the client does
+-- not choose.
+function Validator.pickViewInstant(
+	candidates: any,
+	segments: any,
+	clientPoint: Vector3,
+	limits: any
+): (number?, Vector3?, number?, number?, boolean)
+	if type(candidates) ~= "table" or #candidates == 0 or type(limits) ~= "table" then
+		return nil, nil, nil, nil, false
+	end
+	local bestIndex, bestPoint, bestLine, bestMoved = nil, nil :: Vector3?, math.huge, math.huge
+	local fallbackIndex, fallbackPoint, fallbackLine, fallbackMoved = nil, nil :: Vector3?, math.huge, math.huge
+	for index, candidate in ipairs(candidates) do
+		local point = candidate.point
+		if typeof(point) == "Vector3" then
+			local moved = (clientPoint - point).Magnitude
+			local on, studs = Validator.closestOnSegments(segments, point)
+			if moved <= limits.POSITION_TOLERANCE_STUDS then
+				if studs < bestLine then
+					bestIndex, bestPoint, bestLine, bestMoved = index, on, studs, moved
+				end
+			elseif moved < fallbackMoved then
+				fallbackIndex, fallbackPoint, fallbackLine, fallbackMoved = index, on, studs, moved
+			end
+		end
+	end
+	if bestIndex ~= nil then
+		return bestIndex, bestPoint, bestLine, bestMoved, true
+	end
+	return fallbackIndex, fallbackPoint, fallbackLine, fallbackMoved, false
+end
+
 -- WHAT AN ACCEPTED CLAIM'S SHOT ACTUALLY HIT: exactly one impact, built from the claim and from the
 -- part as it is NOW (task 266, design 5.2).
 --

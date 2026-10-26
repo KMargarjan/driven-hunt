@@ -175,7 +175,7 @@ return function()
 		it("is declared in samples, not seconds, and is enabled", function()
 			local history = Boar.CONFIG.HISTORY
 			expect(history).to.be.ok()
-			expect(history.SAMPLES).to.equal(64)
+			expect(history.SAMPLES).to.equal(96)
 			expect(history.ENABLED).to.equal(true)
 		end)
 
@@ -184,7 +184,7 @@ return function()
 		-- `tests/server/zz_claim_window.spec.luau` (design 3.3), because it is a fact about TWO configs
 		-- a second copy of it could pass while the real one failed. What this file owns is the ring.
 		it("spans about a second at a 60 Hz Heartbeat, which is what the window is sized against", function()
-			near(Boar.CONFIG.HISTORY.SAMPLES / 60, 1.0667, 0.001)
+			near(Boar.CONFIG.HISTORY.SAMPLES / 60, 1.6, 0.001)
 		end)
 	end)
 end
