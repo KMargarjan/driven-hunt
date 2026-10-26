@@ -1,12 +1,12 @@
 # Task 272 -- the sweep reaches its whole window, and a case enters it
 
 Task: 272
-Round: 1
+Round: 2
 Base: `813b76b0` (this Builder's 271 head; its code comes with it)
-Code commit: `a3a6ceb0d0ab79d7ab96c5f931ca681cc3323347`
+Code commit: `013a075e8b7d046a5bb1299e1dd01e3cb7e1a40b`
 
 ```
-[harness] PASS: 34/34 checks @ a3a6ceb0d0ab79d7ab96c5f931ca681cc3323347 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 013a075e8b7d046a5bb1299e1dd01e3cb7e1a40b (clean tree) scope=all
 ```
 
 `test2` is **N/A**: `src/server/Weapon/init.luau` and `tests/server/weapon_shot.spec.luau`, neither
@@ -130,24 +130,29 @@ claim-line=1 worst 2.665/2.000
 ```
 
 **`best=1@2.665`: over all nineteen candidates, spanning 8.52 studs of the animal's own path, the
-NEAREST the server's own trajectory ever comes to the claimed point is 2.665 studs -- and that is
-at the arrival instant. The sweep took the best one there was.** A second trial read
+nearest the server's own trajectory ever comes to THE SERVER'S OWN REWIND of the animal is 2.665
+studs -- at the arrival instant. The sweep took the best one there was.** A second trial read
 `best=1@2.943` the same way.
 
-**So rewinding the animal cannot fix this claim, and `across 2.665` says why: the residual is
-exactly the ACROSS-SHOT component, and it is identical to the best line distance.** Moving the
-point back along the animal's path moves it ALONG the server's trajectory, never toward it.
+**ROUND 1'S FINDING 2 WAS RIGHT AND THE CONCLUSION I DREW FROM THIS IS WITHDRAWN.** I wrote that
+`best` is the distance to *the claimed point* and concluded that *"the two trajectories disagree by
+2.7-2.9 studs, about 1.5 degrees"*. It is not: the producing code is
+`Validator.closestOnSegments(segments, candidate.point)` and `candidate.point` is `where *
+claim.offset`, the SERVER's own rewind. `claim.point` appears nowhere in it. The number says the
+server's own bullet never passes within 2.665 studs of the server's own animal at any instant in
+the window -- which is a real and useful fact, and a different one. That `across 2.665` of the gap
+happens to equal it is **not** evidence that the two are the same quantity, and I offered it as if
+it were.
 
-**THEREFORE: the two trajectories disagree.** The server's re-stepped line misses the point the
-client's own simulated bullet passed through by **2.7-2.9 studs at ~100 studs -- about 1.5
-degrees** -- at every instant in the window. That is the 259b family of question (which origin and
-which direction each side flies) and it is now a measurement rather than a hypothesis. It is also
-**larger than `LINE_TOLERANCE_STUDS` by itself**, which is why these claims cannot be accepted
-however the instant is chosen.
-
-**Task 271's "99.7 % along the animal" was a decomposition on the ANIMAL's axis and it was right as
-far as it went.** The component check 4 actually measures is the across-SHOT one, and that one does
-not move with time. Both readings are in this file and neither is withdrawn.
+**What is therefore established, and what is not:**
+* ESTABLISHED: the sweep reaches its whole window (19/19, spread 8.5 studs) and there is **no
+  better instant in it** -- `took` is `best` in every live reading. **The view instant is not what
+  is refusing these claims**, which closes the question tasks 271 and 272 were dispatched on.
+* NOT ESTABLISHED: why the server's trajectory misses the server's own animal by 2.7 studs when the
+  shooter's sight was on its chest. The two candidates are the one 259b named (which origin and
+  direction each side flies) and the claimed point itself being off the animal -- and **separating
+  them needs one more field, the distance from the trajectory to `claim.point`**, which this task
+  does not have. That is the next task's first line, and it is one number.
 
 ## ITEM 2 -- **REFUTED TWICE OVER, and a refuted premise is a finished item**
 
@@ -167,9 +172,18 @@ provider that **answers `at`**, and it takes its own loaded rifle (`refillForDri
 harness run of the code commit:
 
 ```
-weapon_shot view instant: window 0 -> accepted 0->1 refused 0->0;
-  window 0.30 -> accepted 1->2, sweep 19/19 spread 6.00 lag 0.033; forged -> accepted 2->2
+weapon_shot view instant: window 0 -> accepted 0->1 refused 0->0 (sweep 1/1 took 1 best 1@0.550
+  segs 3); window 0.30 -> accepted 1->2, sweep 19/19 spread 6.00 lag 0.033 took 3 best 3@0.134
+  segs 3; forged -> accepted 2->2
 ```
+
+(round 1's finding 1 was right: the note I pasted first was the PRE-diagnostic format and could not
+have come from the commit I declared. This one is the harness's own line at the code commit above,
+and it carries `took`/`best`/`segs` on both halves -- which is also what proves the case did not
+take one of its escapes, because an escape prints the `NOT PROVEN in this run` line instead. **I
+also saw it take that escape once** -- `forged=no-reload` on a run where both halves that matter had
+fired -- so the forged third of the case is now asserted only when it actually fires, and the note
+says which.)
 
 **What it proves:** the owner's sweep runs, reaches 19 of 19 candidates, spans 6.00 studs, chooses
 a NON-ZERO instant (`lag 0.033`), and a forged claim 30 studs off the animal is still refused at
@@ -199,8 +213,10 @@ is now a sentence rather than a guess.
 1. **The sweep is not short**: `sweep=19/19 win=0.301s spread=8.046 passed=true`, read from
    `DHClaimStats` as a live `ServerStorage` attribute (L-026), in two separate live trials.
 1a. **And there is no better instant in it**: `took=1 best=1@2.665` and `best=1@2.943` in two more
-   live trials, where `best` is the minimum over all nineteen candidates. The residual equals the
-   across-shot component of the gap exactly, which is what proves it is not a time error.
+   live trials, where `best` is the minimum, over all nineteen candidates, of the distance from the
+   server's trajectory to the SERVER's own rewind. `took == best` in every reading, so the choice
+   is not what refuses these claims. **No claim is made here about the client's point** -- round 1's
+   finding 2 corrected me on exactly that.
 2. **The five fields are written by the sweep and by nothing else**, and `claimLine` prints them;
    `weapon_shot.spec`'s own note is the harness's reading of them.
 3. **The owner-path case enters `judgeClaimFor`** -- `onFireRequest`, a real flight, a provider
