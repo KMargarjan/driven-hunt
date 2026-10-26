@@ -1,12 +1,12 @@
 # Task 271 -- why `claim-line` refuses honest shots, by construction
 
 Task: 271
-Round: 1
+Round: 2
 Base: `0b74c239` (`main`, after #250)
-Code commit: `4bb6405960cdf0f2737360e6bbddb6a1363fe23d`
+Code commit: `ec724e019b1cd5b94144d3552a809a6cf8025ef4`
 
 ```
-[harness] PASS: 34/34 checks @ 4bb6405960cdf0f2737360e6bbddb6a1363fe23d (clean tree) scope=all
+[harness] PASS: 34/34 checks @ ec724e019b1cd5b94144d3552a809a6cf8025ef4 (clean tree) scope=all
 ```
 
 `test2` is **N/A**: the changed files are `src/shared/Shotgun/`, `src/server/Weapon/`,
@@ -162,6 +162,33 @@ in a request.
 `reviews/task-271/BRIEF.md` written first. Verdict `PASS`; v4 is 1215 insertions over 980
 deletions and carries task 270's three owed edits as well.
 
+## ROUND 2 -- ROUND 1'S FOUR FINDINGS, AND ALL FOUR WERE RIGHT
+
+**1. Nothing tested the behaviour change.** The five cases drove the pure helpers; the sweep that
+feeds them had none, and the live fixture's history provider ignores `at`. Two things ship for it:
+`Weapon.setViewWindow` -- the seam design 3.4's own dial needs, without which no case could set the
+window to 0 and reproduce v3 -- and **`weapon_hits.spec`'s "turns the measured 5.46/2.00 refusal
+into an acceptance"**, which rebuilds the BRIEF's own live numbers (28.7 studs/s, 0.178 s of view
+lag, 0.38 studs of residual) and calls `judgeClaim` twice: with ONE candidate (v3) it refuses
+`claim-line` at **5.489**, and the live refusal it reproduces read **5.457** -- agreeing to 0.03
+studs; with the sweep it **accepts**, at 0.38 of a 2.0 budget, at an instant within one grid step
+of 0.178 s. Delete the filter-then-minimise and the second half fails.
+
+**2. The rule 7 archive was owed and not written.** `backups/design-ballistics-v3.md` now holds v3
+from `e464c0f7` with its one-line note. The design's own preamble ordered it and I missed it.
+
+**3. The sweep destroyed `stats.claimHistoryWhy`.** `askWhereWas` writes it on every call, and the
+sweep calls it up to 28 times, so an ACCEPTED claim left the ring-edge nil's reason behind --
+destroying the diagnostic task 266b cost a live session to get. The reason is kept in a local and
+published only when NO candidate answered, as design 4.9 writes it.
+
+**4. `claimWorstLagSeconds` was not the worst ACCEPTED lag.** The `math.max` sat above
+`judgeClaim`, so every claim that found a candidate raised it -- and design 1.2a item 15 makes a
+delete-or-keep decision from that number. It is now raised in the accepted branch beside
+`claimWorstStuds`. **Item 3's `lag=0.033s` below was measured on the round-1 build and therefore
+carries that defect**: it is the worst over every claim that reached the sweep, not over the
+accepted one, and it is relabelled here rather than re-measured, because the live box is spent.
+
 ## CLAIMS
 
 1. **The decomposition is in the one place every refusal passes through** (`refuse`'s `note`), and
@@ -182,9 +209,12 @@ deletions and carries task 270's three owed edits as well.
 5. **The live accept path still runs and still accepts**: `weapon_shot accepted claim: rifle/Slug,
    1 report(s), accepted 0 -> 1, worst 0.000/0.027, refusedClaimBy []`, from the harness run of the
    code commit.
-6. **Item 3 is NOT MET**, with the counts above, and `lag=0.033s` is reported as the open question
+6. **Round 2's own case fails without the producer**: with one candidate the same facts refuse
+   `claim-line`; with the sweep they pass. The two sides are not one identity -- the refusal's
+   number is rebuilt from the live measurement's own geometry and agrees with it to 0.03 studs.
+7. **Item 3 is NOT MET**, with the counts above, and `lag=0.033s` is reported as the open question
    rather than dressed up.
-7. **The Forest Test is as it was found.** Twelve attributes before, twelve after; `HIT_CLAIM` ON
+8. **The Forest Test is as it was found.** Twelve attributes before, twelve after; `HIT_CLAIM` ON
    for the two trials and OFF again (rule K); `flags.py --place forest clear` never run;
    `DHTestOwns` added and removed by name; Play stopped and the window closed before every harness
    run.
