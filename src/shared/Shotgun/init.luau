@@ -701,6 +701,38 @@ Shotgun.CONFIG = {
 		-- longest 0.365 s.
 		MAX_TARGETS = 8,
 		MAX_SUBSTEPS = 16,
+
+		-- ============ HOW FAR BACK THE SERVER WILL LOOK FOR THE SHOOTER'S OWN PICTURE (task 271)
+		--
+		-- **MEASURED, live, in Karen's place with `HIT_CLAIM` on** (`reviews/task-271/BRIEF.md`):
+		-- a `claim-line` refusal of `5.457` against a 2.0 budget, decomposed --
+		-- `gap 5.120 = along -2.079, across 4.679, ALONG THE ANIMAL +5.106 (v 28.7 studs/s, so
+		-- 0.178 s of it)`. **99.7 % of it lies along the animal's own velocity**: the two sides
+		-- disagree about WHEN, not where. The server rewound to `firedAtView + flightSeconds` while
+		-- the animal the shooter DREW was replicated state 0.178 s older, and then charged him for
+		-- the difference. A tolerance cannot fix a wrong instant; it can only hide one.
+		--
+		-- So the geometric checks are evaluated at an instant the SERVER picks from its OWN history
+		-- inside this window (`docs/design/ballistics.md` 5.2.1, v4). `LINE_TOLERANCE_STUDS` does
+		-- not move: at the right instant the measured claim above uses ~0.4 studs of its 2.0.
+		--
+		-- 0.30 s BEFORE PING: the engine's own replication and interpolation delay plus clock skew.
+		-- The 0.178 s above was measured on a loopback Studio session whose `GetNetworkPing` reads
+		-- 1.7 ms (task 256 round 2), so this is almost entirely NOT ping; 0.30 is that measurement
+		-- with 1.7x margin. It is the one invented number here and `claimWorstLagSeconds` is the
+		-- instrument that argues it down.
+		VIEW_LAG_BASE_SECONDS = 0.30,
+		-- THE HARD CAP after the ping is added, and what the animal's history ring is sized
+		-- against. Source's `sv_maxunlag` plays this role and ships at 1.0 s; this is 2.2x tighter.
+		VIEW_LAG_MAX_SECONDS = 0.45,
+		-- THE SWEEP'S GRID: one Heartbeat, which is the ring's own sampling rate, so the grid
+		-- cannot be finer than the data. Its quantisation error is `v * this` -- 0.63 studs at
+		-- `SPRINT_SPEED` 38 -- and it is CONSERVATIVE by construction: a sampled minimum is never
+		-- below the true one, so the grid can only refuse, never accept.
+		VIEW_LAG_STEP_SECONDS = 1 / 60,
+		-- THE LOOP'S HARD CAP, so the sweep is leak-proof whatever the two seconds-valued rows say.
+		-- `0.45 / (1/60) = 27`, plus the arrival instant itself.
+		VIEW_LAG_MAX_SAMPLES = 28,
 	},
 
 	-- rates, per player

@@ -33,6 +33,11 @@ return function()
 			expect(CLAIM).to.be.ok()
 			expect(HISTORY).to.be.ok()
 			expect(type(CLAIM.AGE_MAX_SECONDS)).to.equal("number")
+			expect(type(CLAIM.VIEW_LAG_MAX_SECONDS)).to.equal("number")
+			-- THE LOOP'S CAP MAY NEVER SILENTLY TRUNCATE THE WINDOW (task 271).
+			expect(CLAIM.VIEW_LAG_MAX_SAMPLES >= CLAIM.VIEW_LAG_MAX_SECONDS / CLAIM.VIEW_LAG_STEP_SECONDS + 1).to.equal(
+				true
+			)
 			expect(type(HISTORY.SAMPLES)).to.equal("number")
 		end)
 
@@ -46,7 +51,10 @@ return function()
 		-- one number.
 		it("remembers longer than the weapon is willing to judge, with margin", function()
 			local span = HISTORY.SAMPLES / 60
-			local window = CLAIM.AGE_MAX_SECONDS + 1 / 60
+			-- ...AND THE VIEW-LAG WINDOW (task 271): the sweep looks back as far as
+			-- `arrivalAt - VIEW_LAG_MAX_SECONDS`, so the ring must span the claim's own age PLUS
+			-- that window PLUS the Heartbeat the arrival instant can sit past the newest sample.
+			local window = CLAIM.AGE_MAX_SECONDS + CLAIM.VIEW_LAG_MAX_SECONDS + 1 / 60
 			expect(span >= window).to.equal(true)
 			-- Stated as a ratio so a future edit that halves the ring fails LOUDLY here rather than
 			-- scraping past with no margin at all.
