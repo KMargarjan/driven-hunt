@@ -2045,6 +2045,106 @@ return function()
 			box:Destroy()
 		end)
 
+		-- ================= THE SIGN OF THE LEAD, AT THREE RANGES AND THREE SPEEDS (task 270)
+		--
+		-- **THIS IS THE CASE THE TWO READINGS ABOVE DISAGREED ABOUT.** Live in Karen's place with
+		-- the claim on, LED shots named `rear` and UNLED shots named `chest` (task 269b); the two
+		-- cases above say the opposite -- and they are both at **200 studs**. One sub-step at the
+		-- rifle's muzzle speed is `FLIGHT_STEP_MAX_SECONDS` long, which is ~87 studs, so 200 is the
+		-- one range at which `pellet.elapsed` is non-zero when the target pass runs. Inside 87
+		-- studs it is 0, and the animal is not advanced at all.
+		--
+		-- SO THIS ONE WALKS THE RANGE. Three speeds and three ranges, and the assertion is the
+		-- OFFSET ALONG THE TRAVEL AXIS, which is the only quantity that can tell "ahead" from
+		-- "behind":
+		--   aiming AT the chest must land `-v x t` along it (behind, because the animal moved on);
+		--   aiming at the chest + `v x t` must land at 0 (on it).
+		-- A quarter of a stud, because the chest box is two studs across and `LINE_TOLERANCE_STUDS`
+		-- is 2.0: a test that could not tell a quarter stud from zero could not tell the chest from
+		-- the shoulder.
+		it("lands BEHIND by v x t when aimed AT, and ON when led -- at 40, 100 and 150 studs too", function()
+			local EPS = 0.25
+			local rows = {}
+			local worst = 0
+			for _, speed in ipairs({ 10, 20, 30 }) do
+				for _, distance in ipairs({ 40, 100, 150, 200 }) do
+					local origin = Vector3.new(0, 10, 0)
+					local at = origin + Vector3.new(0, 0, -distance)
+					local velocity = Vector3.new(speed, 0, 0)
+					local flight = Ballistics.timeToRange(shot :: any, distance)
+					local lead = Ballistics.leadStuds(shot :: any, distance, speed)
+
+					-- (a) AIMED AT THE CHEST. The claim must land `lead` studs BEHIND it.
+					local boxA, castA, castOnlyA = scriptedWorld(at, velocity)
+					local atClaim = Claim.simulate({
+						origin = origin,
+						aim = (at - origin).Unit,
+						shot = shot :: any,
+						rangeStuds = row.RANGE_STUDS.Slug,
+						targets = { { root = boxA, velocity = velocity } },
+						ignore = {},
+						cast = castA,
+						castOnly = castOnlyA,
+						firedAtView = 1000,
+						limits = CLAIM,
+					})
+					local gotAt = if atClaim ~= nil then (atClaim :: any).offset.X else 0 / 0
+					boxA:Destroy()
+
+					-- (b) AIMED AHEAD BY THE BALLISTIC LEAD. The claim must land ON the chest.
+					local boxB, castB, castOnlyB = scriptedWorld(at, velocity)
+					local ledClaim = Claim.simulate({
+						origin = origin,
+						aim = ((at + Vector3.new(lead, 0, 0)) - origin).Unit,
+						shot = shot :: any,
+						rangeStuds = row.RANGE_STUDS.Slug,
+						targets = { { root = boxB, velocity = velocity } },
+						ignore = {},
+						cast = castB,
+						castOnly = castOnlyB,
+						firedAtView = 1000,
+						limits = CLAIM,
+					})
+					local gotLed = if ledClaim ~= nil then (ledClaim :: any).offset.X else 0 / 0
+					boxB:Destroy()
+
+					table.insert(
+						rows,
+						string.format(
+							"v=%d d=%d t=%.4f lead=%.3f | AT -> %s | LED -> %s",
+							speed,
+							distance,
+							flight,
+							lead,
+							if atClaim ~= nil then string.format("%.3f", gotAt) else "NO CLAIM",
+							if ledClaim ~= nil then string.format("%.3f", gotLed) else "NO CLAIM"
+						)
+					)
+					-- THE LED SHOT IS THE ONE THE GAME IS ABOUT, so it is asserted first and hardest.
+					expect(ledClaim).to.be.ok()
+					worst = math.max(worst, math.abs(gotLed))
+					expect(math.abs(gotLed) <= EPS).to.equal(true)
+					-- ...AND THE UNLED ONE MUST MISS BEHIND BY THE SAME NUMBER, which is what makes
+					-- the first assertion about the LEAD and not about a box that is simply wide.
+					if atClaim ~= nil then
+						worst = math.max(worst, math.abs(gotAt + lead))
+						expect(math.abs(gotAt + lead) <= EPS).to.equal(true)
+					else
+						-- NO CLAIM AT ALL is the honest answer once the lead is wider than the box:
+						-- the bullet passed behind the animal. That is only allowed when the lead
+						-- really is that wide.
+						expect(lead > boxA.Size.X / 2).to.equal(true)
+					end
+				end
+			end
+			TestKit.note(
+				"task 270 lead sign, worst |error| "
+					.. string.format("%.3f", worst)
+					.. " studs:\n"
+					.. table.concat(rows, "\n")
+			)
+		end)
+
 		it("a tree between the bore and the target produces NO claim -- the client's own line of sight", function()
 			local origin = Vector3.new(0, 10, 0)
 			local distance = 200
