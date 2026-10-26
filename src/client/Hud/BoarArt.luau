@@ -104,6 +104,13 @@ function BoarArt.build(parent: Instance, name: string, position: UDim2, look: Lo
 	art.ZIndex = look.zIndex
 	art.Position = position
 	art.Size = UDim2.fromOffset(look.width, look.height)
+	-- THE FRAME'S OWN PIXEL SHAPE, WRITTEN WHERE `setKind` READS IT (task 278). `setKind` is called
+	-- at SHOW time, long after this, and it has to know the frame's aspect to place the drawn image
+	-- inside it (`Report.imageFit`). From `look`, which is the number the caller actually asked for,
+	-- and never `AbsoluteSize`: that is 0 until the frame has been rendered once, and the hit card
+	-- builds both its art frames hidden, before any shot is fired.
+	art:SetAttribute("FrameWidth", look.width)
+	art:SetAttribute("FrameHeight", look.height)
 	art.Parent = parent
 	if look.corner ~= nil then
 		local round = Instance.new("UICorner")
@@ -200,12 +207,26 @@ function BoarArt.setKind(art: Frame, kind: string?)
 	-- the picture cannot disagree about which way the animal is facing.
 	art:SetAttribute("Mirrored", false)
 	-- WHERE THE DOTS' UNIT SQUARE SITS ON THIS PICTURE, written on the frame so `drawDots` reads it
-	-- back rather than being told the same thing twice. `Report.CONFIG.BOAR_IMAGE`'s measured box,
-	-- scaled by the piglet's own scale so a cub's hit lands in the same place on the same body.
-	art:SetAttribute("BoxU0", inset + chosen.box.u0 * chosen.scale)
-	art:SetAttribute("BoxU1", inset + chosen.box.u1 * chosen.scale)
-	art:SetAttribute("BoxV0", inset + chosen.box.v0 * chosen.scale)
-	art:SetAttribute("BoxV1", inset + chosen.box.v1 * chosen.scale)
+	-- back rather than being told the same thing twice.
+	--
+	-- **THROUGH `Report.imageBox` SINCE TASK 278, AND THAT IS THE FIX KAREN ASKED FOR.** These four
+	-- lines used to read `inset + chosen.box.u0 * chosen.scale` -- the measured box scaled into the
+	-- FRAME -- while `picture` three lines above is drawn with `ScaleType.Fit`, which centres the
+	-- image at its own aspect and leaves a bar down two of its sides. For the two boars the aspects
+	-- nearly match (1.99 and 1.72 against the frame's 1.85) and the error is a few per cent; for a
+	-- 750 x 758 stag it is 23 % of the frame's width DOWN EACH SIDE, so a chest shot drew in bare
+	-- plate in front of the animal and a rump shot behind it -- measured on her own frame,
+	-- `<runs-dir>/design/karen-hitcard-2026-10-26.png`, dot at u 0.118 with the ink at 0.236..0.757.
+	--
+	-- The composition is `Report`'s because it is arithmetic and belongs where a spec can drive it
+	-- with no instance; this file still writes the four numbers and `drawDots` still reads them.
+	local frameWidth = (art:GetAttribute("FrameWidth") :: number?) or art.Size.X.Offset
+	local frameHeight = (art:GetAttribute("FrameHeight") :: number?) or art.Size.Y.Offset
+	local placed = Report.imageBox(chosen, frameWidth, frameHeight)
+	art:SetAttribute("BoxU0", placed.u0)
+	art:SetAttribute("BoxU1", placed.u1)
+	art:SetAttribute("BoxV0", placed.v0)
+	art:SetAttribute("BoxV1", placed.v1)
 end
 
 -- KAREN'S RULE, 2026-10-17: *"if same place spread if not same show spread"*. A buckshot pattern

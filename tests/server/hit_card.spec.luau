@@ -315,4 +315,161 @@ return function()
 			HitLog.clear()
 		end)
 	end)
+
+	-- ---------------------------------------------------------------- task 278
+	--
+	-- **WHERE THE PICTURE ACTUALLY IS INSIDE THE FRAME.** Karen, 2026-10-26: the card's red mark sat
+	-- in empty space in front of a stag's chest, and behind a walking one. Measured on her own frame
+	-- (`<runs-dir>/design/karen-hitcard-2026-10-26.png`): the stag's INK spans u 0.236..0.757 of the
+	-- 148 x 80 art frame and the dot was drawn at u 0.118.
+	--
+	-- **THE ARITHMETIC BELOW IS THIS FILE'S OWN AND NEVER `Report.imageFit`'s**, which is the one
+	-- thing that makes these cases worth running: a case that computes the expected answer with the
+	-- function under test passes whatever that function does. `drawn()` is written out from the
+	-- engine's documented rule for `ScaleType.Fit` -- "the image is scaled to fit inside the UI
+	-- element while preserving its aspect ratio" -- and the numbers it produces for a stag
+	-- (0.2326..0.7674) are the numbers measured off Karen's screenshot to three decimals.
+	describe("the unit square sits on the drawn picture, not on the frame (task 278)", function()
+		-- Where an image of `iw` x `ih` is drawn inside a `fw` x `fh` frame under `Fit`, as frame
+		-- fractions. Independent of the code under test.
+		local function drawn(iw: number, ih: number, fw: number, fh: number)
+			local image, frame = iw / ih, fw / fh
+			if image > frame then
+				local tall = frame / image
+				return { u0 = 0, u1 = 1, v0 = (1 - tall) / 2, v1 = (1 + tall) / 2 }
+			end
+			local wide = image / frame
+			return { u0 = (1 - wide) / 2, u1 = (1 + wide) / 2, v0 = 0, v1 = 1 }
+		end
+
+		it("Report.imageFit answers the letterbox, the pillarbox and the unmeasured image", function()
+			-- A STAG (750 x 758) IN THE CARD'S ART FRAME (148 x 80): pillarboxed into the middle
+			-- 53.5 % of the width. This is the number that was missing.
+			local stag = Report.imageFit({ w = 750, h = 758 }, 148, 80)
+			local want = drawn(750, 758, 148, 80)
+			expect(math.abs(stag.u0 - want.u0) < 1e-9).to.equal(true)
+			expect(math.abs(stag.u1 - want.u1) < 1e-9).to.equal(true)
+			expect(stag.v0).to.equal(0)
+			expect(stag.v1).to.equal(1)
+			expect(math.abs(stag.u0 - 0.232613) < 1e-5).to.equal(true)
+
+			-- A MALE BOAR (946 x 474) IS WIDER THAN THE FRAME, so it letterboxes instead -- a bar
+			-- above and below, and the full width. That is why the two boars looked nearly right.
+			local male = Report.imageFit({ w = 946, h = 474 }, 148, 80)
+			local wantMale = drawn(946, 474, 148, 80)
+			expect(male.u0).to.equal(0)
+			expect(male.u1).to.equal(1)
+			expect(math.abs(male.v0 - wantMale.v0) < 1e-9).to.equal(true)
+
+			-- NO MEASUREMENT -> THE WHOLE FRAME, which is every caller before this task.
+			for _, bad in ipairs({ "nothing", 0 }) do
+				local none = Report.imageFit(if bad == 0 then { w = 0, h = 0 } else nil, 148, 80)
+				expect(none.u0).to.equal(0)
+				expect(none.u1).to.equal(1)
+				expect(none.v0).to.equal(0)
+				expect(none.v1).to.equal(1)
+			end
+			TestKit.note(
+				string.format("hit card: a stag is drawn across u %.3f..%.3f of the art frame", stag.u0, stag.u1)
+			)
+		end)
+
+		it("puts every kind's unit square inside the rectangle its picture is drawn in", function()
+			-- THE CASE THAT FAILS ON THE COMMIT BEFORE THIS ONE. The stag's box was being written
+			-- as u 0.000..1.000 of the FRAME while the picture only reaches 0.2326..0.7674 of it,
+			-- so the first third of every stag card was bare plate that dots were drawn on.
+			local width, height = Report.CONFIG.CARD.ART_WIDTH, Report.CONFIG.CARD.ART_HEIGHT
+			local worst = 0
+			for _, kind in ipairs({ "male", "female", "cub", "stag", "hind", "calf" }) do
+				local chosen = Report.boarImage(kind)
+				expect(chosen.px).to.be.ok()
+				local box = Report.imageBox(chosen, width, height)
+				-- The LABEL is `chosen.scale` of the frame, centred; the IMAGE is drawn inside the
+				-- label. Both steps, this file's own arithmetic.
+				local inset = (1 - chosen.scale) / 2
+				local fit = drawn(chosen.px.w, chosen.px.h, width, height)
+				local lo = { u = inset + chosen.scale * fit.u0, v = inset + chosen.scale * fit.v0 }
+				local hi = { u = inset + chosen.scale * fit.u1, v = inset + chosen.scale * fit.v1 }
+				expect(box.u0 >= lo.u - 1e-9).to.equal(true)
+				expect(box.u1 <= hi.u + 1e-9).to.equal(true)
+				expect(box.v0 >= lo.v - 1e-9).to.equal(true)
+				expect(box.v1 <= hi.v + 1e-9).to.equal(true)
+				-- ...AND IT STILL SPANS THE ANIMAL. A box shrunk onto the torso keeps every dot on
+				-- black and stops meaning where the shot landed -- task 205's own refusal, kept.
+				local spanU = (box.u1 - box.u0) / (hi.u - lo.u)
+				local spanV = (box.v1 - box.v0) / (hi.v - lo.v)
+				expect(spanU >= 0.78).to.equal(true)
+				expect(spanV >= 0.45).to.equal(true)
+				worst = math.max(worst, math.abs(box.u0 - lo.u))
+				TestKit.note(
+					string.format(
+						"hit card: %s box u %.3f..%.3f v %.3f..%.3f, picture drawn at u %.3f..%.3f v %.3f..%.3f",
+						kind,
+						box.u0,
+						box.u1,
+						box.v0,
+						box.v1,
+						lo.u,
+						hi.u,
+						lo.v,
+						hi.v
+					)
+				)
+			end
+			expect(worst < 0.2).to.equal(true)
+		end)
+
+		it("writes one hit-log line per hit, with the offset the dot was measured from", function()
+			-- `Shape.traceLine` IS PURE, so the format is checked here and the ring is checked where
+			-- it is written. Every field is one the hit already carries.
+			local line = Shape.traceLine({
+				index = 3,
+				at = 12.8437,
+				kind = "stag",
+				id = "Animal_7",
+				zone = "chest",
+				offset = Vector3.new(-0.42, 0.91, -1.07),
+				u = 0.3512,
+				v = 0.3107,
+				distance = 118.63,
+				weapon = "rifle.scoped",
+				ammo = "Slug",
+				pellets = 1,
+				fatal = false,
+			})
+			expect(string.find(line, "#3 t=12.84s stag id=Animal_7 zone=chest", 1, true)).to.be.ok()
+			expect(string.find(line, "local=(-0.42,0.91,-1.07)", 1, true)).to.be.ok()
+			expect(string.find(line, "uv=(0.351,0.311)", 1, true)).to.be.ok()
+			expect(string.find(line, "dist=118.6 rifle.scoped/Slug pellets=1 fatal=no", 1, true)).to.be.ok()
+			-- A ROW WITH NOTHING IN IT STILL MAKES A LINE rather than raising on the server at the
+			-- instant of a shot, which is the one thing an instrument must never do.
+			expect(#Shape.traceLine({}) > 0).to.equal(true)
+			TestKit.note("hit card: " .. line)
+		end)
+
+		it("keeps the last ten hits, newest last, and clears with the drive", function()
+			-- THE RING, WHERE IT IS WRITTEN. `recordHit` is the one caller, so this drives the real
+			-- function with a real part and reads what came out -- not a second copy of the format.
+			HitLog.clear()
+			HitLog.openDrive(1, 100.0)
+			local boar = fakeBoar("B_LOG")
+			boar.Parent = workspace
+			local shooter = { UserId = 7, Name = "Logger" } :: any
+			for n = 1, 12 do
+				expect(HitLog.recordHit(report(boar, shooter, nil, { at = 100.0 + n, zone = "chest" }))).to.equal(true)
+			end
+			local kept = HitLog.lastHits()
+			expect(#kept).to.equal(10)
+			-- NEWEST LAST, and the index is the hit's own count -- so a gap in the numbers is a shot
+			-- that never reached the server.
+			expect(string.find(kept[1], "#3 ", 1, true)).to.equal(1)
+			expect(string.find(kept[10], "#12 ", 1, true)).to.equal(1)
+			expect(string.find(kept[10], "zone=chest", 1, true)).to.be.ok()
+			expect(string.find(kept[10], "id=B_LOG", 1, true)).to.be.ok()
+			TestKit.note("hit card: ring tail -> " .. kept[10])
+			HitLog.clear()
+			expect(#HitLog.lastHits()).to.equal(0)
+			boar:Destroy()
+		end)
+	end)
 end

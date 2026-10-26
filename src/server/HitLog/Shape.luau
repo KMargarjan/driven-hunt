@@ -94,6 +94,46 @@ function Shape.cardDots(
 	return out
 end
 
+-- ONE LINE OF THE HIT LOG (task 278). PURE: the row in, the text out, so the format is a spec's
+-- business and not a playtest's.
+--
+-- Karen, 2026-10-26, testing live with the Director: *"take one by one those issues and I test we do
+-- fix improve and then when I see that it improved, then we just continue to another one"* -- and
+-- the first issue was a hit card whose mark was in empty space. There was no probe-readable record
+-- of where the last shot actually struck, so "the card is wrong" and "the shot is wrong" could not
+-- be told apart without re-deriving both by hand. This is that record.
+--
+-- IT ADDS NO SOURCE OF TRUTH, exactly as this whole module does not: every field is a value
+-- `recordHit` already holds at the instant it writes the dot -- the same `(u, v)` the card is drawn
+-- from, the same local offset `Shape.dot` divided down, the same zone `Wound` will charge.
+--
+-- SHORT, BECAUSE TEN OF THESE LIVE IN ONE ROBLOX ATTRIBUTE. Fixed widths and no words that do not
+-- carry a number.
+function Shape.traceLine(row: any): string
+	local function n(value: any, digits: number): string
+		return string.format("%." .. tostring(digits) .. "f", tonumber(value) or 0)
+	end
+	local offset = if typeof(row.offset) == "Vector3" then row.offset else Vector3.zero
+	return string.format(
+		"#%d t=%ss %s id=%s zone=%s local=(%s,%s,%s) uv=(%s,%s) dist=%s %s/%s pellets=%d fatal=%s",
+		tonumber(row.index) or 0,
+		n(row.at, 2),
+		tostring(row.kind or "unknown"),
+		tostring(row.id or "?"),
+		tostring(row.zone or "unknown"),
+		n(offset.X, 2),
+		n(offset.Y, 2),
+		n(offset.Z, 2),
+		n(row.u, 3),
+		n(row.v, 3),
+		n(row.distance, 1),
+		tostring(row.weapon or "?"),
+		tostring(row.ammo or "?"),
+		math.floor(tonumber(row.pellets) or 0),
+		if row.fatal then "YES" else "no"
+	)
+end
+
 -- ONE ZONE BOX, PROJECTED INTO THE SILHOUETTE'S UNIT SQUARE. The same mapping `Shape.dot` uses, run
 -- over a BOX instead of a point, so the rectangles the panel draws and the dots it puts on them come
 -- out of one piece of arithmetic and cannot drift apart.
