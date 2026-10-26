@@ -213,7 +213,27 @@ function Validator.judgeClaim(facts: any, limits: any): (boolean, string?, numbe
 	if typeof(facts.partHalf) == "Vector3" then
 		span = 2 * math.max(facts.partHalf.X, facts.partHalf.Y, facts.partHalf.Z)
 	end
-	local waived = facts.stoppedByClaimedTarget == true and shortfall <= span + limits.REACH_SLACK_STUDS
+	-- ...AND THE BOUND CARRIES THE ANIMAL'S OWN DISPLACEMENT OVER THE SWEPT LAG (task 275).
+	-- **MEASURED** in Karen's place: `claim-blocked worst 7.275/1.000 (reached 38.79 of 46.07
+	-- studs, stopped by Workspace.Boars.Boar147.ZoneChest)` -- the server's own bullet stopped on
+	-- the CLAIMED animal's own chest 7.3 studs short of the claim, because on the server's clock
+	-- that animal stands 7 studs nearer the muzzle than the shooter saw it. A body-only bound
+	-- (2.40 + 1.0 = 3.40 for a hind's `ZoneRear`) cannot cover that and refuses an honest shot.
+	--
+	-- `displacementStuds` IS THE SERVER'S OWN NUMBER AND A CLIENT CANNOT INFLATE IT: the owner
+	-- computes it as the claimed animal's measured speed times `lineLagSeconds`, the lag the
+	-- SERVER's own sweep chose inside a window the SERVER owns (`VIEW_LAG_MAX_SECONDS`). It is
+	-- nil for every caller written before this task, which behaves exactly as before.
+	--
+	-- IT IS ADDED ONLY UNDER THE WAIVER, so a TREE between the muzzle and the animal still refuses
+	-- at the same distance it always did -- `stoppedByClaimedTarget` is false there and none of
+	-- this is reached.
+	local displacement = if type(facts.displacementStuds) == "number"
+			and facts.displacementStuds == facts.displacementStuds
+			and facts.displacementStuds > 0
+		then facts.displacementStuds
+		else 0
+	local waived = facts.stoppedByClaimedTarget == true and shortfall <= span + limits.REACH_SLACK_STUDS + displacement
 	if not waived and facts.reachedStuds + limits.REACH_SLACK_STUDS < facts.claimedStuds then
 		-- THE MEASURE IS HOW FAR SHORT THE SERVER'S OWN FLIGHT STOPPED, in studs, against the slack
 		-- it is allowed. The owner adds WHAT stopped it, which is an Instance and so not this

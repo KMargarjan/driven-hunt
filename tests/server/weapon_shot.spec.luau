@@ -774,6 +774,45 @@ return function()
 			expect(whyFar).to.equal("claim-blocked")
 			expect(gotFar).to.be.near(span + CLAIM.REACH_SLACK_STUDS + 0.01, 1e-6)
 
+			-- THE ANIMAL'S OWN DISPLACEMENT OVER THE SWEPT LAG WIDENS THE WAIVER, AND NOTHING ELSE
+			-- DOES (task 275). **This half fails on the commit before this task**: there the bound
+			-- was `span + REACH_SLACK_STUDS` with no third term, so the 7.275-stud shortfall
+			-- measured live -- a hind's `ZoneRear`, span 2.40, slack 1.0, bound 3.40 -- was refused
+			-- `claim-blocked` however fast the animal was moving.
+			local lagged = honestFacts()
+			lagged.stoppedByClaimedTarget = true
+			lagged.reachedStuds = lagged.claimedStuds - 7.275
+			lagged.partHalf = Vector3.new(0.82, 1.20, 1.02) -- a hind's ZoneRear: span 2.40
+			-- 28.5 studs/s over the 0.183 s the sweep chose live = 5.22 studs.
+			lagged.displacementStuds = 5.22
+			local okLag, whyLag = Validator.judgeClaim(lagged, CLAIM)
+			expect(okLag).to.equal(true)
+			expect(whyLag).to.equal(nil)
+			-- WITHOUT IT, THE SAME SHOT IS REFUSED -- which is the state this task found.
+			lagged.displacementStuds = 0
+			local okNoLag, whyNoLag, gotNoLag = Validator.judgeClaim(lagged, CLAIM)
+			expect(okNoLag).to.equal(false)
+			expect(whyNoLag).to.equal("claim-blocked")
+			expect(gotNoLag).to.be.near(7.275, 1e-6)
+			-- ...AND A TREE IS STILL A TREE: the displacement is added only under the waiver.
+			lagged.displacementStuds = 5.22
+			lagged.stoppedByClaimedTarget = false
+			local okTree, whyTree = Validator.judgeClaim(lagged, CLAIM)
+			expect(okTree).to.equal(false)
+			expect(whyTree).to.equal("claim-blocked")
+			-- ...AND A NONSENSE DISPLACEMENT CANNOT WIDEN IT: nil, negative and NaN all read as 0.
+			lagged.stoppedByClaimedTarget = true
+			for _, bad in ipairs({ -100, 0 / 0 }) do
+				lagged.displacementStuds = bad
+				local okBad, whyBad = Validator.judgeClaim(lagged, CLAIM)
+				expect(okBad).to.equal(false)
+				expect(whyBad).to.equal("claim-blocked")
+			end
+			lagged.displacementStuds = nil
+			local okNil, whyNil = Validator.judgeClaim(lagged, CLAIM)
+			expect(okNil).to.equal(false)
+			expect(whyNil).to.equal("claim-blocked")
+
 			-- ...AND A CLAIM 400 STUDS PAST WHERE THE BULLET STOPPED IS REFUSED whatever stopped it.
 			local wild = honestFacts()
 			wild.stoppedByClaimedTarget = true

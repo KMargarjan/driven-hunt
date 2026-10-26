@@ -1794,6 +1794,11 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		-- of sight was clear and check 5 has nothing to say. `Hits.targetOf` is the same walk that
 		-- found `target` above, so "the same animal" is the same question asked once more.
 		stoppedByClaimedTarget = stoppedBySame,
+		-- HOW FAR THE CLAIMED ANIMAL ITSELF MOVED BETWEEN THE SWEPT INSTANT AND NOW (task 275).
+		-- Check 5 adds it to the self-block waiver's bound and to nothing else, so a tree is still
+		-- a tree. Both factors are the SERVER's: the part's own measured speed, and `lineLagSeconds`
+		-- -- the lag the server's own sweep chose, inside a window the server owns.
+		displacementStuds = part.AssemblyLinearVelocity.Magnitude * lineLagSeconds,
 		flightSeconds = claim.flightSeconds,
 		expectedFlightSeconds = Ballistics.timeToRange(ballistic, claim.distanceStuds),
 	}, CONFIG.CLAIM)
