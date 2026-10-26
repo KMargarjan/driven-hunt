@@ -2700,6 +2700,149 @@ function ForestTest.roarClip(rng: Random, roar: any?)
 	}
 end
 
+-- ======================================== THE STUDIO-ONLY STAGED RELEASE (task 268)
+--
+-- WHAT IT IS FOR. Task 266b measured this, with `HIT_CLAIM` on and the rifle in hand: *a still
+-- animal was hit in the chest 3/3; NO running animal was ever hit with an accepted claim -- no
+-- runner inside 150 studs at the trigger.* And task 264's own item: *nobody has seen a deer killed
+-- running ON THE ROAD lie still in her place* -- five attempts (261, 264, 265, 266, 267) and no
+-- reading. The reason is SUPPLY and not the gun: this drive carries deer in **2 of its 15 slots**
+-- (`SCHEDULE.drive` rows 2 and 8) and releases them 200-360 studs out, so a session that wants a
+-- running deer at a shootable range waits for a slot that comes twice in three and a half minutes
+-- and then watches it cross wherever the script put it.
+--
+-- SO AN INSTRUMENT ASKS FOR ONE, AND IT ASKS FOR IT AS A ROW. `ForestTest.releaseLine` builds a
+-- whole release out of exactly one row of `SCHEDULE.drive` -- the party, the depth, the crossing,
+-- the pace, the route -- so the smallest possible hook is a row that was WRITTEN rather than read,
+-- handed to that same function. Nothing else changes: `Boar.deerComposition` still says who is in
+-- the group, `Boar.sounderKinds` still deals them, `Runtime:spawn` still places them,
+-- `Runtime:formSounder` still makes them a pack, and `stepLines` still walks them. There is no
+-- special mover, which is the whole point -- what is proved on a staged group is true of a slot.
+--
+-- STUDIO ONLY, AND BY TWO INDEPENDENT HALVES, which is `Economy.testOwnsFor`'s own shape:
+--   1. `RunService:IsStudio()` is false on every live server, and it is a PARAMETER of this pure
+--      function, so a spec reaches both branches with no Studio session and no attribute at all;
+--   2. the attribute lives on `ServerStorage`, which never replicates -- no client can write it and
+--      no client can read it.
+-- A published place has nothing that writes `DHTestRelease`, and if something did, this function
+-- would still answer nil for it.
+ForestTest.STAGED_ATTRIBUTE = "DHTestRelease"
+
+-- THE DEFAULTS, and each number is the dispatch's or a measurement's.
+--
+--   `northStuds` 250    the dispatch's *"a chosen distance (default 60-90 m) from the player's
+--                       stand"*. 250 studs is 70 m at `Report.CONFIG.METRES_PER_STUD` 0.28, the
+--                       middle of that band, and it is inside the depths the script itself writes
+--                       (95 to 360).
+--   `offsetX` -140,     where it comes down and where it crosses -- 140 studs WEST of her stand, and
+--   `crossOffset` +60   over the road 60 studs EAST of it. **IT IS A CROSSING SHOT BY
+--                       CONSTRUCTION**, which a column coming straight down at the stand is not:
+--                       200 studs of travel across 250 of depth puts ~0.62 of the animal's speed
+--                       ACROSS the line of sight, which at a measured 28.3 studs/s is ~17.6 studs/s
+--                       of lateral -- the thing a lead has to take out. Both are relative to the
+--                       stand she locked (`ForestTest.wavePoint` adds it), so "in front of it" is
+--                       true wherever she stands.
+--   `pace` "run"        the dispatch's *"at its running speed"*.
+ForestTest.STAGED = {
+	northStuds = 250,
+	offsetX = -140,
+	crossOffset = 60,
+	pace = "run",
+	-- THE DEEPEST AND SHALLOWEST A STAGED ROW MAY ASK FOR. 40 is north of the verge by more than a
+	-- body length; 600 is just inside the beaters' own start (`beaterNorthStuds` 580) and past the
+	-- deepest row the script writes. A number outside the band is REFUSED rather than clamped: an
+	-- instrument that silently moved the release would make its own measurement a guess.
+	minNorthStuds = 40,
+	maxNorthStuds = 600,
+	-- ...AND SIDEWAYS. The stands are 150 studs apart on the same road, so +-400 is already two
+	-- stands either way and nothing a proof needs is outside it.
+	maxOffsetStuds = 400,
+	PACES = { walk = true, trot = true, run = true },
+	-- WHICH WORDS NAME A DEER PARTY. The ANIMAL owner holds the rows
+	-- (`SPECIES.reddeer.RELEASE.COMPOSITIONS`) and `Boar.deerComposition` is still the only thing
+	-- that turns a name into counts -- this is the set of names this parser will pass ON to it, so a
+	-- misspelling is refused HERE with a readable reason instead of arriving there as nil.
+	PARTIES = { stag = true, hinds = true, harem = true },
+}
+
+-- PURE, exported, and the ONE place a staged spec string becomes a row.
+--
+-- THE FORMAT IS `<who>@<northStuds>[,<offsetX>[,<crossOffset>[,<pace>]]]`:
+--   `"hinds@250"`            the hind and her calf, 250 studs out, at the defaults above
+--   `"stag@220,-140,60,run"` every field named
+--   `"boar6@200"`            `SOUNDER.COMPOSITIONS` row 6 -- the lone big male -- 200 studs out
+-- A STRING AND NOT A TABLE, for `Camera.TestLook`'s own measured reason: the probe that writes this
+-- comes through `studio_mcp`'s Luau channel, which carries text.
+--
+-- `nil` FOR A LIVE SERVER, for no attribute, and for anything that is not a spec this module can
+-- read -- never an error and never a guess. A malformed attribute that threw would take the drive's
+-- own heartbeat down for a typo in a test tool, which is `TestLook.point`'s rule and the same one.
+function ForestTest.stagedRow(isStudio: boolean, raw: any, staged): any?
+	local limits = staged or ForestTest.STAGED
+	if not isStudio or type(raw) ~= "string" then
+		return nil
+	end
+	local at = string.find(raw :: string, "@", 1, true)
+	if at == nil then
+		return nil
+	end
+	local who = string.lower((string.gsub(string.sub(raw :: string, 1, at - 1), "%s", "")))
+	local rest = string.split((string.gsub(string.sub(raw :: string, at + 1), "%s", "")), ",")
+	-- `north ~= north` IS THE NaN TEST: `tonumber("nan")` parses, and a NaN depth would be compared
+	-- false against both bounds below and then released somewhere no screenshot can be described.
+	local north = tonumber(rest[1])
+	if north == nil or north ~= north or north < limits.minNorthStuds or north > limits.maxNorthStuds then
+		return nil
+	end
+	local offsetX = if rest[2] ~= nil and rest[2] ~= "" then tonumber(rest[2]) else limits.offsetX
+	local crossOffset = if rest[3] ~= nil and rest[3] ~= "" then tonumber(rest[3]) else limits.crossOffset
+	if offsetX == nil or crossOffset == nil or offsetX ~= offsetX or crossOffset ~= crossOffset then
+		return nil
+	end
+	if math.abs(offsetX) > limits.maxOffsetStuds or math.abs(crossOffset) > limits.maxOffsetStuds then
+		return nil
+	end
+	local pace = if rest[4] ~= nil and rest[4] ~= "" then string.lower(rest[4]) else limits.pace
+	if limits.PACES[pace] ~= true then
+		return nil
+	end
+	-- WHO: a deer PARTY BY NAME, or `boar<N>` for an index into `SOUNDER.COMPOSITIONS`. The same
+	-- split a `SCHEDULE.drive` row makes, and for the same reason -- who is in a group is the
+	-- ANIMAL system's fact and this module only names it.
+	local species, party, composition = "boar", nil :: string?, nil :: number?
+	if limits.PARTIES[who] == true then
+		species, party = "reddeer", who
+	else
+		local index = string.match(who, "^boar(%d+)$")
+		composition = if index ~= nil then tonumber(index) else nil
+		if composition == nil or composition < 1 or composition % 1 ~= 0 then
+			return nil
+		end
+	end
+	-- THE ROW. `slot = 0` and `act = 0` say what it is -- not one of the fifteen -- and
+	-- `staged = true` is what `releaseLine` reads to know it may not touch the drive's own counters.
+	-- `route = "STRAIGHT"` and `files = 1`: the start, the crossing and the exit, which is the route
+	-- word that needs no second table of pins and whose geometry the two offsets above already are.
+	return {
+		slot = 0,
+		atSeconds = 0,
+		act = 0,
+		staged = true,
+		species = species,
+		party = party,
+		composition = composition,
+		zone = "STAGED",
+		northStuds = north,
+		offsetX = offsetX,
+		crossOffset = crossOffset,
+		files = 1,
+		route = "STRAIGHT",
+		pace = pace,
+		keepAt = 0,
+		note = string.format("STAGED by %s (task 268)", ForestTest.STAGED_ATTRIBUTE),
+	}
+end
+
 -- WHAT THIS ROW DOES. One word, defaulted, so no caller writes `row.route or "STRAIGHT"` twice.
 function ForestTest.slotRoute(row): string
 	if row == nil then
