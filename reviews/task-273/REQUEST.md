@@ -1,7 +1,7 @@
 # Task 273 -- why led shots with the sight on the chest land low
 
 Task: 273
-Round: 1
+Round: 2
 Base: `f58ce15e` (`main`, after #251, which carries 271 and 272)
 Code commit: `70ba389e242ab37e40932f7b99bf0f1d6005b98c` (the PLAN). **NOTHING UNDER `src/`,
 `tests/` OR `tools/` CHANGED IN THIS TASK** -- the premise was refuted and the defect this task
@@ -31,12 +31,18 @@ animal. **Terrain twice and legs once says the error is DOWN.**
 
 **AND ONE BRANCH IS RULED OUT BY ARITHMETIC BEFORE ANY TRIAL**, which is what step 0 is for. The
 scoped rifle's `ZERO_STUDS` is **714** (`src/shared/Rifle/init.luau:165`), so inside 200 studs the
-bullet is still RISING toward its zero, not falling: with `v0 = 2612`, `k = 4.29e-4` and the repo's
-own gravity (35.0357 studs/s^2, derived from `Report.CONFIG.METRES_PER_STUD`), the elevation
-tangent is `dropAt(714)/714 = 1.792/714 = 0.002510`, and at 150 studs the sight line is 0.3765
-studs above the bore while the drop is only 0.0616 -- so the bullet sits **+0.315 studs ABOVE the
-sight line**, high and tiny. **Ballistic drop cannot be the low miss**, and task 265's own
-measurement agrees (0.023-0.038 studs off the sight line at 90-179 studs).
+bullet is still RISING toward its zero, not falling.
+
+**ROUND 1'S FINDING WAS RIGHT AND THIS IS THE CORRECTED ARITHMETIC.** I used the vacuum drop and
+left out `Rifle.CONFIG.GRAVITY_SCALE = 0.12` -- the fourth number `Ballistics.shotFor` refuses a row
+without, and the one `dropAt`'s own header exists to apply. Through the repo's own function:
+`Ballistics.dropAt(shot, 714)` is **0.195 studs** (not 1.792), the elevation tangent is
+`0.195/714 = 2.73e-4` (not 2.510e-3), and `Ballistics.sightOffsetAt(shot, 150)` is **+0.034 studs
+-- 0.94 cm** (not +0.315). **The conclusion survives and strengthens by an order of magnitude**:
+the bullet is above the sight line and by a centimetre. **Ballistic drop cannot be the low miss.**
+And the corroboration I cited now actually corroborates: task 265 measured 0.023-0.038 studs off the
+sight line at 90-179 studs, which IS 0.034 at 150 -- I quoted it as agreeing with a figure ten times
+larger and it did not.
 
 So what is left is GEOMETRY: where the aim point actually is on the animal. The candidates the
 dispatch lists, in the order the numbers will test them -- the instrument aiming at a point that
@@ -139,7 +145,11 @@ tracker rewrites both every frame -- so on a moving hold the recorded sight basi
 AFTER the shot. That is why task 272's log carried `OFF-SIGHT 8.119` on a gun task 265 measured at
 0.023-0.038 studs against a still target.
 
-It now latches on **`ShotFired`**, the server's own announcement of the trigger:
+It now latches on **`ShotFired`** -- and round 1's note is right that this is not the trigger
+itself: `ShotFired` reaches the client through `remotes.ShotFired.OnClientEvent`, so it is the
+trigger plus the fire request's round trip, and a hold that is still panning bleeds into the
+horizontal axis it is panning on. That is exactly what `v1.3.1`'s 3.050 being entirely `right`
+shows. It is a large improvement and not a cure:
 
 | | before (272, read at `ShotLanded`) | after (273, latched at `ShotFired`) |
 |---|---|---|
@@ -170,20 +180,29 @@ stud of the rewound animal and the claim was still refused, as `claim-blocked wo
 separate cause and it is new**: the self-block waiver is bounded by the claimed part's own largest
 extent plus the slack, and `ZoneRear` is 2.04 long, so the bound is ~4.0 and the shortfall was
 4.105. It is a hair too tight for a zone part, and the animal's TRUNK is 6.03 long.
+**Round 1's note corrects my arithmetic here too and I had the axis wrong**: `judgeClaim` takes
+`2 * max(partHalf.X, partHalf.Y, partHalf.Z)`, and the hind's `ZoneRear` is (1.64, **2.40**, 2.04),
+so the largest extent is the 2.40 in Y and the bound is **3.40**, not ~4.0. The finding survives
+either way -- 4.105 is over 3.40 as well -- but the number to argue from is 3.40.
 
 ## CLAIMS
 
-1. **Ballistic drop is ruled out by arithmetic**: `ZERO_STUDS = 714`
-   (`src/shared/Rifle/init.luau:165`), elevation tangent `dropAt(714)/714 = 0.002510`, so at 150
-   studs the bullet is +0.315 studs ABOVE the sight line. The sign is wrong for a low miss and the
-   size is two orders below it.
+1. **Ballistic drop is ruled out by arithmetic, through the repo's own function**: `ZERO_STUDS =
+   714` and `GRAVITY_SCALE = 0.12` (`src/shared/Rifle/init.luau`), `Ballistics.dropAt(shot, 714) =
+   0.195`, elevation tangent `2.73e-4`, so `Ballistics.sightOffsetAt(shot, 150)` is **+0.034 studs
+   (0.94 cm) ABOVE** the sight line. The sign is wrong for a low miss and the size is two orders
+   below the 2.7-stud residual. **Round 1 corrected my figures here by a factor of 9.2** -- I used
+   the vacuum drop and omitted `GRAVITY_SCALE` -- and the conclusion is unchanged.
 2. **The chest zone is where a chest is**: `+3.09 studs above the ground on a 5.10-stud deer`, read
    off a LIVE animal in Karen's place with `<runs-dir>/273-geom.luau`, together with the trunk box
    (`sits -0.01` on the ground), the drawn mesh and the lowest bone.
 3. **The miss is horizontal, not vertical**: `up` of 0.002-0.156 studs against `right` of
    0.18-3.05, on three live shots with the sight basis latched at the trigger.
-4. **The instrument was wrong and is fixed**, with the before/after in the table above. The listener
-   now latches on `ShotFired`; `<runs-dir>/proof268.py`, generation `273s1`.
+4. **The instrument was wrong and is much better**, with the before/after in the table above. The
+   listener latches on `ShotFired`; `<runs-dir>/proof268.py`, generation `273s1`. **It is one hop
+   late, not at the trigger** (round 1's note), so a panning hold still bleeds into the horizontal
+   axis -- which is why the two unsettled shots read 3.050 and 3.637 while the settled ones read
+   0.180 and 0.631.
 5. **Item 4 is NOT MET**, with the zones and counts above.
 6. **Nothing in `src/`, `tests/` or `tools/` changed.** `git diff --name-only f58ce15e..HEAD`.
 7. **The Forest Test is as it was found.** Twelve attributes before, twelve after; `HIT_CLAIM` ON
