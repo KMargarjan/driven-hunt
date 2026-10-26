@@ -208,6 +208,15 @@ local stats = {
 	-- `VIEW_LAG_BASE_SECONDS` down**: a server whose accepted claims all sit near 0 does not need
 	-- the window, and one whose claims sit at the edge needs a bigger one.
 	claimWorstLagSeconds = 0,
+	-- WHAT THE SWEEP ACTUALLY REACHED, on the LAST claim that ran one (task 272 item 1). Four
+	-- numbers, because they are what separates "the sweep is short" from "the choice is wrong":
+	-- how many candidates it found against how many steps it asked for, how wide its window was,
+	-- and whether ANY of them passed check 3. Task 271 read `lag=0.033s` -- two grid steps of the
+	-- eighteen a 0.30 s window asks for -- and could not say which of the two that was.
+	claimSweepFound = 0,
+	claimSweepAsked = 0,
+	claimSweepWindow = 0,
+	claimSweepPassed = false,
 	-- WHY A REFUSAL HAPPENED, AS A NUMBER (task 269b). `refusedClaimBy` counts them by name;
 	-- this keeps, per name, the WORST measured value, its budget, and -- for the one rule whose
 	-- cause is an Instance -- what actually stopped the bullet.
@@ -858,7 +867,7 @@ function Weapon.claimLine(from: any): string
 	end
 	return string.format(
 		"enabled=%s claims=%d accepted=%d refused=%d ignored=%d worst=%.3f/%.3f/%.3f lag=%.3fs "
-			.. "age=%.3f..%.3f/%d why=%s [%s]",
+			.. "sweep=%d/%d win=%.3fs passed=%s age=%.3f..%.3f/%d why=%s [%s]",
 		tostring(from.claimsEnabled),
 		from.claims or 0,
 		from.claimsAccepted or 0,
@@ -868,6 +877,10 @@ function Weapon.claimLine(from: any): string
 		from.claimWorstLineStuds or 0,
 		from.claimWorstEndStuds or 0,
 		from.claimWorstLagSeconds or 0,
+		from.claimSweepFound or 0,
+		from.claimSweepAsked or 0,
+		from.claimSweepWindow or 0,
+		tostring(from.claimSweepPassed),
 		from.claimAgeMin or 0,
 		from.claimAgeMax or 0,
 		from.claimAges or 0,
@@ -1645,6 +1658,7 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	local window = Weapon.viewWindowFor(shooter)
 	local candidates = {}
 	local lastWhy = stats.claimHistoryWhy
+	local asked = 0
 	for k = 0, CONFIG.CLAIM.VIEW_LAG_MAX_SAMPLES - 1 do
 		local at = arrivalAt - k * CONFIG.CLAIM.VIEW_LAG_STEP_SECONDS
 		if arrivalAt - at > window then
@@ -1657,6 +1671,7 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		-- and destroy the one diagnostic that tells an unwired root from an unplaceable animal
 		-- (task 266b, which cost a live session). The value before the sweep is restored unless the
 		-- sweep itself found nothing.
+		asked += 1
 		local whyBefore = stats.claimHistoryWhy
 		local where = askWhereWas(claim.part, at)
 		lastWhy = stats.claimHistoryWhy
@@ -1688,8 +1703,13 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		stoppedBySame = Hits.targetOf(stopper) == target
 	end
 
-	local index, trajectoryPoint, _lineStuds, _movedStuds =
+	local index, trajectoryPoint, _lineStuds, _movedStuds, anyPassed =
 		Validator.pickViewInstant(candidates, segments, claim.point, CONFIG.CLAIM)
+	-- ITEM 1's FOUR NUMBERS, written for every claim that reached the sweep.
+	stats.claimSweepFound = #candidates
+	stats.claimSweepAsked = asked
+	stats.claimSweepWindow = window
+	stats.claimSweepPassed = anyPassed == true
 	if index == nil then
 		return refuse("claim-history")
 	end
