@@ -178,8 +178,21 @@ return function()
 					end,
 					releasePath = function() end,
 				})
+				-- THE TEMPLATE IS WAITED FOR HERE, NOT THROUGH THE STEP LOOP, and that is the
+				-- difference between a case that measures something and one that times out.
+				-- `Loader.template` answers nil until `Loader.preload` has landed the asset -- "a
+				-- late arrival is late, not lost" -- and `Runtime:_modelTemplate` only asks once a
+				-- second, so asking through the loop turned a 10-second download into a 10-second
+				-- race the spec lost. The bound is generous because the asset is a real download and
+				-- the alternative to waiting is a green case that compared the boxes with nothing.
+				local waited = os.clock()
+				local template = Loader.template(MODEL_KEY[kind])
+				while template == nil and os.clock() - waited < 25 do
+					task.wait(0.25)
+					template = Loader.template(MODEL_KEY[kind])
+				end
 				runtime:setModelSource(function(key: string): Instance?
-					return Loader.template(MODEL_KEY[key])
+					return if key == kind then template else nil
 				end, function(): number?
 					return nil
 				end)
@@ -187,9 +200,8 @@ return function()
 				trunk = handle.part
 				geometry = Boar.kindGeometry(kind, Boar.kindConfig(kind, CONFIG))
 				disconnect = runtime:run()
-				-- THE COAT ARRIVES LATE BY DESIGN (`Runtime:step`: *"late is not lost"*), so this
-				-- waits for it rather than sampling once. Bounded, and the case below says out loud
-				-- what it does when the wait runs out.
+				-- THE COAT GOES ON IN THE STEP AFTER THE SPAWN (`Runtime:step`), so this waits a few
+				-- frames for it rather than sampling once.
 				local started = os.clock()
 				while os.clock() - started < 8 do
 					meshes = {}

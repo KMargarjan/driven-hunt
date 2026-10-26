@@ -119,16 +119,24 @@ return function()
 					for _, name in ipairs(geometry.zoneOrder) do
 						for index, box in ipairs(geometry.zones[name].boxes) do
 							local reach = box.offset:Abs() + box.size / 2
-							if reach.X > half.X or reach.Y > half.Y or reach.Z > half.Z then
+							-- X AND Z ONLY, AND +Y IS DELIBERATELY NOT ASSERTED: the trunk's own
+							-- comment says so -- *"The box top is the back; the head, the neck and
+							-- the antlers stand above it"* -- and the measured skull box reaches
+							-- y +2.64 over a box that tops out at +2.40. What IS asserted on Y is
+							-- the floor: the box bottom is the ground the animal stands on, so a
+							-- volume below it would be a hittable volume under the turf.
+							local sunk = box.offset.Y - box.size.Y / 2 < -half.Y - 1e-6
+							if reach.X > half.X or reach.Z > half.Z or sunk then
 								error(
 									string.format(
-										"%s: %s box %d reaches (%.2f, %.2f, %.2f) outside its own half-box (%.2f, %.2f, %.2f)",
+										"%s: %s box %d reaches x %.2f z %.2f with its floor at %.2f,"
+											.. " outside its own half-box (%.2f, %.2f, %.2f)",
 										kind,
 										name,
 										index,
 										reach.X,
-										reach.Y,
 										reach.Z,
+										box.offset.Y - box.size.Y / 2,
 										half.X,
 										half.Y,
 										half.Z
