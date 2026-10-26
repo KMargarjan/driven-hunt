@@ -559,6 +559,11 @@ Boar.CONFIG = {
 		DAMAGE = {
 			head = { Slug = 100, Pellet = 34 }, -- a slug kills; 3 pellets kill
 			chest = { Slug = 100, Pellet = 25 }, -- a slug kills; 2 pellets are already mortal
+			-- THE NECK IS THE CHEST'S NUMBERS (task 281). Karen, 2026-10-24: *"aim in empty space to
+			-- get hit in head neck or heart like in real life"* -- a neck shot breaks the spine or
+			-- opens the carotid, so it is a kill and not a wound. Only a red deer has a `neck` zone
+			-- part; a boar's `ZONES` lists none, so this row can never be charged on one.
+			neck = { Slug = 100, Pellet = 25 },
 			body = { Slug = 55, Pellet = 11 }, -- one slug is mortal; 5 pellets are
 			legs = { Slug = 30, Pellet = 6 }, -- one slug is NOT enough: "several hits needed"
 			-- THE TRUNK'S OWN NUMBERS, because the rump IS trunk: as much meat and bone as a flank,
@@ -690,8 +695,8 @@ Boar.CONFIG = {
 		--
 		-- EVERY ONE OF THESE TEN IS STILL ONE LINE AND KAREN STILL DECIDES.
 		DAMAGE_BY_WEAPON = {
-			rifle = { head = 100, chest = 100, body = 90, legs = 60, rear = 75 },
-			lever = { head = 100, chest = 100, body = 80, legs = 50, rear = 65 },
+			rifle = { head = 100, chest = 100, neck = 100, body = 90, legs = 60, rear = 75 },
+			lever = { head = 100, chest = 100, neck = 100, body = 80, legs = 50, rear = 65 },
 		},
 		-- Studs run before collapsing, from the worst zone hit. Validated against Stokke et al.
 		-- (2018): efd = 1.14*M^0.73 m and mfd = 4.92*M^0.73 m give 100 and 429 studs at 80 kg
@@ -703,7 +708,7 @@ Boar.CONFIG = {
 		-- (90 / 4.5); a single rump slug is 5 points past MORTAL of a 50-point span, so
 		-- `Wound.flightStuds` gives it 81 studs and about 18 s -- either way inside
 		-- `BLEED_OUT_MAX_SECONDS`.
-		FLIGHT = { head = 0, chest = 0, body = 120, legs = 420, rear = 90 },
+		FLIGHT = { head = 0, chest = 0, neck = 0, body = 120, legs = 420, rear = 90 },
 
 		-- WHAT A HIT THERE MEANS, as data (task 116). The zone decides a CLASS and the class decides
 		-- the reaction: `Brain` reads it on the hit tick to pick its state, `Body` reads it to pick
@@ -715,6 +720,7 @@ Boar.CONFIG = {
 		CLASS = {
 			head = "vital",
 			chest = "vital",
+			neck = "vital", -- task 281: a neck hit drops the animal, like the chest
 			rear = "crippling",
 			body = "nonVital",
 			legs = "nonVital",
@@ -2990,7 +2996,9 @@ Boar.CONFIG.KINDS = {
 		--
 		-- Grown from HER OWN silhouettes by the same instrument, on a 0.035-stud grid, and verified at
 		-- 0.05 by an independent sweep: AIR 0 from the flank, from above, from the front and from
-		-- behind, with 2,501 of 4,479 mesh-crossing flank rays covered.
+		-- behind. TASK 281 added her three dorsal bands by the same method at 0.06, and her covered
+		-- flank went 55.4 % -> 65.7 % with AIR still 0 from all four directions. What is left is the
+		-- antler-less skull top, the hoof flare, the hock and the tail.
 		-- These are ABSOLUTE studs in her own trunk's frame, so `Body.kindGeometry` does NOT scale them.
 		zones = {
 			head = {
@@ -2999,22 +3007,32 @@ Boar.CONFIG.KINDS = {
 					{ size = Vector3.new(0.480, 0.540, 0.960), offset = Vector3.new(0.010, 2.357, -2.095) }, -- the skull: x -0.23..+0.25 y +2.09..+2.63 z -2.58..-1.62
 				},
 			},
+			-- HER NECK, task 280's two boxes with task 281's zone name on them.
+			neck = {
+				boxes = {
+					{ size = Vector3.new(0.600, 0.600, 0.540), offset = Vector3.new(0.010, 1.307, -1.225) }, -- the throat: x -0.29..+0.31 y +1.01..+1.61 z -1.50..-0.96
+					{ size = Vector3.new(0.600, 0.720, 0.840), offset = Vector3.new(0.010, 1.667, -1.255) }, -- the neck: x -0.29..+0.31 y +1.31..+2.03 z -1.67..-0.83
+				},
+			},
 			chest = {
 				boxes = {
 					{ size = Vector3.new(1.200, 1.200, 1.459), offset = Vector3.new(0.010, 0.887, -0.046) }, -- the thorax: x -0.59..+0.61 y +0.29..+1.49 z -0.78..+0.68
-					{ size = Vector3.new(0.600, 0.600, 0.540), offset = Vector3.new(0.010, 1.307, -1.225) }, -- the throat: x -0.29..+0.31 y +1.01..+1.61 z -1.50..-0.96
-					{ size = Vector3.new(0.600, 0.720, 0.840), offset = Vector3.new(0.010, 1.667, -1.255) }, -- the neck: x -0.29..+0.31 y +1.31..+2.03 z -1.67..-0.83
 				},
 			},
 			body = {
 				boxes = {
 					{ size = Vector3.new(1.080, 1.260, 1.112), offset = Vector3.new(0.010, 1.157, 1.240) }, -- the loin and flank: x -0.53..+0.55 y +0.53..+1.79 z +0.68..+1.80
 					{ size = Vector3.new(1.020, 0.240, 0.401), offset = Vector3.new(-0.020, 0.407, 0.885) }, -- the belly: x -0.53..+0.49 y +0.29..+0.53 z +0.68..+1.09
+					-- HER DORSAL BANDS (task 281), grown off HER back and not the stag's scaled: her
+					-- worst uncovered band measured 0.48 studs, at z -0.78.
+					{ size = Vector3.new(0.960, 0.420, 1.440), offset = Vector3.new(0.010, 1.697, -0.055) }, -- over the thorax: x -0.47..+0.49 y +1.49..+1.91 z -0.78..+0.67
+					{ size = Vector3.new(0.660, 0.300, 0.720), offset = Vector3.new(-0.020, 1.937, 1.385) }, -- over the loin: x -0.35..+0.31 y +1.79..+2.09 z +1.03..+1.75
 				},
 			},
 			rear = {
 				boxes = {
 					{ size = Vector3.new(1.080, 1.380, 0.849), offset = Vector3.new(0.010, 1.037, 2.221) }, -- the hindquarters: x -0.53..+0.55 y +0.35..+1.73 z +1.80..+2.65
+					{ size = Vector3.new(0.960, 0.180, 0.600), offset = Vector3.new(0.010, 1.817, 2.105) }, -- over the croup: x -0.47..+0.49 y +1.73..+1.91 z +1.81..+2.41
 				},
 			},
 			legs = {
@@ -3053,47 +3071,67 @@ Boar.CONFIG.KINDS = {
 		-- "hit" on a calf was a hit on nothing. A calf is the least stag-shaped of the three: a short
 		-- neck, a head carried at the height of its own back, and legs a third of the stag's.
 		--
-		-- WHAT IS HONEST ABOUT THIS ROW: AIR is 0, verified the same way as the other two, but the
-		-- COVERAGE is the worst of the three -- 762 of 1,606 mesh-crossing flank rays, and the four leg
-		-- boxes are stubs the greedy fit could not grow (the front pair is 0.14 tall). The muzzle is
-		-- inside the single head box rather than having its own. So a calf is HARDER to hit than it
-		-- looks, and never hittable where it is not. That is the right way round -- and a calf is the
-		-- animal the drive PENALISES you for shooting (`Match.Penalty`), so a miss costs nothing.
-		-- Queued as task 280a: grow the calf's boxes from a per-leg seed instead of the stag's cage.
+		-- WHAT IS HONEST ABOUT THIS ROW: AIR is 0, verified the same way as the other two, and the
+		-- COVERAGE is still the worst of the three -- 56.7 % of its mesh-crossing flank rays answer a
+		-- zone against the stag's 68.9 %, even after task 281 regrew its twelve leg boxes from their
+		-- own seeds (37.6 % before). The muzzle is inside the single head box rather than having its
+		-- own. So a calf is HARDER to hit than it looks, and never hittable where it is not. That is
+		-- the right way round -- and a calf is the animal the drive PENALISES you for shooting
+		-- (`Match.Penalty`), so a miss costs nothing.
 		zones = {
 			head = {
 				boxes = {
 					{ size = Vector3.new(0.385, 0.175, 0.280), offset = Vector3.new(0.007, 1.504, -1.025) }, -- the skull and muzzle, as one: x -0.19..+0.20 y +1.42..+1.59 z -1.17..-0.88
 				},
 			},
+			-- ITS NECK, task 280's two boxes with task 281's zone name on them.
+			neck = {
+				boxes = {
+					{ size = Vector3.new(0.455, 0.490, 0.350), offset = Vector3.new(0.007, 0.927, -0.500) }, -- the throat: x -0.22..+0.23 y +0.68..+1.17 z -0.68..-0.33
+					{ size = Vector3.new(0.350, 0.560, 0.735), offset = Vector3.new(-0.010, 1.207, -0.447) }, -- the neck: x -0.18..+0.16 y +0.93..+1.49 z -0.81..-0.08
+				},
+			},
 			chest = {
 				boxes = {
 					{ size = Vector3.new(0.700, 0.665, 0.455), offset = Vector3.new(-0.010, 0.734, -0.237) }, -- the thorax: x -0.36..+0.34 y +0.40..+1.07 z -0.46..-0.01
-					{ size = Vector3.new(0.455, 0.490, 0.350), offset = Vector3.new(0.007, 0.927, -0.500) }, -- the throat: x -0.22..+0.23 y +0.68..+1.17 z -0.68..-0.33
-					{ size = Vector3.new(0.350, 0.560, 0.735), offset = Vector3.new(-0.010, 1.207, -0.447) }, -- the neck: x -0.18..+0.16 y +0.93..+1.49 z -0.81..-0.08
 				},
 			},
 			body = {
 				boxes = {
 					{ size = Vector3.new(0.665, 0.595, 0.644), offset = Vector3.new(0.007, 0.839, 0.718) }, -- the loin and flank: x -0.33..+0.34 y +0.54..+1.14 z +0.40..+1.04
-					-- THE CALF HAS ONE `body` BOX AND NOT TWO. The grown second one -- a 0.245 x 0.210
-					-- x 0.385 stub off the centre line -- sat entirely BEHIND the rump line at
-					-- z +1.04, inside `rear`'s own span, and two zones over one place is the tie
-					-- this file refuses everywhere else. Clipped to the barrel it had 0.000 studs
-					-- left, so it is gone rather than kept at nothing.
+					-- ONE DORSAL BAND AND NOT TWO (task 281): over the thorax its `neck` box already
+					-- reaches y +1.49, above the thorax box's own +1.07, so the band there grew to a
+					-- 0.12 x 0.12 x 0.24 sliver off the centre line and is gone rather than kept at
+					-- nothing -- the decision the second `body` box got in task 280.
+					{ size = Vector3.new(0.420, 0.300, 0.600), offset = Vector3.new(0.005, 1.302, 0.735) }, -- over the loin: x -0.21..+0.22 y +1.15..+1.45 z +0.44..+1.04
 				},
 			},
 			rear = {
 				boxes = {
 					{ size = Vector3.new(0.665, 0.735, 0.455), offset = Vector3.new(0.007, 0.769, 1.268) }, -- the hindquarters: x -0.33..+0.34 y +0.40..+1.14 z +1.04..+1.50
+					{ size = Vector3.new(0.480, 0.240, 0.360), offset = Vector3.new(-0.025, 1.272, 1.275) }, -- over the croup: x -0.27..+0.22 y +1.15..+1.39 z +1.10..+1.46
 				},
 			},
+			-- TWELVE LEG BOXES, THREE PER LEG, GROWN FROM THAT LEG'S OWN SEED (task 281, 280a (b)).
+			-- Task 280 grew them from the stag's cage scaled and got four STUBS 0.14 studs tall: a
+			-- calf's legs SLANT and an axis-aligned box cannot follow a slant, so each leg is a
+			-- staircase of three now -- the hoof, the shin, then the shaft up to the belly. Measured:
+			-- the calf's covered flank goes 37.6 % -> 56.7 % and AIR stays 0 from all four
+			-- directions (`<runs-dir>/281-fit3.txt`).
 			legs = {
 				boxes = {
-					{ size = Vector3.new(0.105, 0.140, 0.140), offset = Vector3.new(-0.238, -1.033, -0.290) }, -- front left: x -0.29..-0.19 y -1.10..-0.96 z -0.36..-0.22
-					{ size = Vector3.new(0.140, 0.140, 0.140), offset = Vector3.new(0.235, -1.033, -0.290) }, -- front right: x +0.16..+0.30 y -1.10..-0.96 z -0.36..-0.22
-					{ size = Vector3.new(0.105, 0.595, 0.140), offset = Vector3.new(-0.238, -0.281, 1.600) }, -- hind left: x -0.29..-0.19 y -0.58..+0.02 z +1.53..+1.67
-					{ size = Vector3.new(0.140, 0.595, 0.140), offset = Vector3.new(0.235, -0.281, 1.600) }, -- hind right: x +0.16..+0.30 y -0.58..+0.02 z +1.53..+1.67
+					{ size = Vector3.new(0.060, 0.240, 0.060), offset = Vector3.new(-0.235, -1.068, -0.315) }, -- front left, the hoof: y -1.19..-0.95
+					{ size = Vector3.new(0.120, 0.180, 0.120), offset = Vector3.new(-0.265, -0.858, -0.225) }, -- front left, the shin: y -0.95..-0.77
+					{ size = Vector3.new(0.060, 1.140, 0.120), offset = Vector3.new(-0.235, -0.198, -0.225) }, -- front left, the shaft: y -0.77..+0.37
+					{ size = Vector3.new(0.060, 0.240, 0.060), offset = Vector3.new(0.245, -1.068, -0.315) }, -- front right, the hoof: y -1.19..-0.95
+					{ size = Vector3.new(0.120, 0.120, 0.120), offset = Vector3.new(0.275, -0.888, -0.225) }, -- front right, the shin: y -0.95..-0.83
+					{ size = Vector3.new(0.060, 1.200, 0.120), offset = Vector3.new(0.245, -0.228, -0.225) }, -- front right, the shaft: y -0.83..+0.37
+					{ size = Vector3.new(0.120, 0.180, 0.060), offset = Vector3.new(-0.265, -1.038, 1.545) }, -- hind left, the hoof: y -1.13..-0.95
+					{ size = Vector3.new(0.120, 0.180, 0.120), offset = Vector3.new(-0.265, -0.858, 1.635) }, -- hind left, the hock: y -0.95..-0.77
+					{ size = Vector3.new(0.060, 0.780, 0.120), offset = Vector3.new(-0.235, -0.378, 1.635) }, -- hind left, the shaft: y -0.77..+0.01
+					{ size = Vector3.new(0.180, 0.180, 0.060), offset = Vector3.new(0.245, -1.038, 1.545) }, -- hind right, the hoof: y -1.13..-0.95
+					{ size = Vector3.new(0.120, 0.120, 0.120), offset = Vector3.new(0.275, -0.888, 1.635) }, -- hind right, the hock: y -0.95..-0.83
+					{ size = Vector3.new(0.060, 0.840, 0.120), offset = Vector3.new(0.245, -0.408, 1.635) }, -- hind right, the shaft: y -0.83..+0.01
 				},
 			},
 		},
@@ -3439,10 +3477,12 @@ Boar.CONFIG.SPECIES = {
 		-- outside"*. The volumes below are fitted to the DRAWN MESH instead, and the trunk is out of
 		-- every ray; `ZONES` itself carries the measurement.
 		ZONES = {
-			-- TWELVE VOLUMES IN FIVE ZONES (task 280), and `body` is a REAL PART here where on the
-			-- boar it is the trunk's fallback. `TRUNK_HITTABLE = false` takes the trunk out of every
-			-- ray, so the air inside the box is a MISS and these twelve boxes are all that can be hit.
-			ORDER = { "head", "chest", "body", "rear", "legs" },
+			-- FIFTEEN VOLUMES IN SIX ZONES (task 280, task 281), and `body` is a REAL PART here
+			-- where on the boar it is the trunk's fallback. `TRUNK_HITTABLE = false` takes the trunk
+			-- out of every ray, so the air inside the box is a MISS and these boxes are all that can
+			-- be hit. `neck` is task 281's: Karen, 2026-10-24, *"aim in empty space to get hit in
+			-- head neck or heart like in real life"*.
+			ORDER = { "head", "neck", "chest", "body", "rear", "legs" },
 			ZONE_TINT = true,
 			-- A RAY PASSES STRAIGHT THROUGH THE TRUNK (`Body.create` reads this). Karen, 2026-10-26,
 			-- on a FROZEN broadside hind at ~28 m: *"wrong I hit the chest shows outside"* -- the hit
@@ -3489,18 +3529,19 @@ Boar.CONFIG.SPECIES = {
 			-- flank, and 0 from all four directions at the end.
 			-- `tests/server/deer_hitbox.spec.luau` is that same grid, kept.
 			--
-			-- WHAT IS DELIBERATELY NOT COVERED, measured and reported rather than hidden: 36 % of
-			-- the flank rays that cross the mesh hit no box. They are the ANTLERS (above y 3.0 -- an
-			-- antler is not a kill zone), the hoof flare and the hock above and below each shaft,
-			-- the last hand's breadth of brisket, belly edge and tail -- and THE DORSAL BAND, which
-			-- is the one a player will feel: the measured back line is y +2.30 over z -0.03..+1.97
-			-- against a thorax box topping out at +1.80 and a loin box at +1.98, so the top 0.32 to
-			-- 0.50 studs of the spine answers NOTHING where the old trunk answered `body`. It is an
-			-- axis-aligned box under a curved back; covering it needs a second thin box along the
-			-- spine on each kind, and that is queued as 280a with the calf's leg stubs. A box is widened only to
-			-- where the animal provably IS, so under-coverage is a MISS and never a hit in the air.
-			-- That asymmetry is the whole task: Karen can live with a miss she can see; a kill in
-			-- empty space is what made the card stop meaning anything.
+			-- WHAT IS DELIBERATELY NOT COVERED, measured and reported rather than hidden: 31 % of
+			-- the flank rays that cross the mesh hit no box (38 % before task 281). They are the
+			-- ANTLERS (above y 3.0 -- an antler is not a kill zone), the hoof flare and the hock
+			-- above and below each shaft, and the last hand's breadth of brisket, belly edge and
+			-- tail. A box is widened only to where the animal provably IS, so under-coverage is a
+			-- MISS and never a hit in the air. That asymmetry is the whole task: Karen can live with
+			-- a miss she can see; a kill in empty space is what made the card stop meaning anything.
+			--
+			-- THE DORSAL BAND IS COVERED SINCE TASK 281 (it was 280's worst hole, queued as 280a):
+			-- the measured back line is y +2.30 over z -0.03..+1.97 against a thorax box topping out
+			-- at +1.80 and a loin box at +1.98, so the top 0.32-0.50 studs of the spine answered
+			-- NOTHING. Three thin bands along the spine fix it -- grown by the same instrument
+			-- (`<runs-dir>/281-fit.luau`) and each one strictly inside the drawn back.
 			--
 			-- EVERY NUMBER HERE IS THE STAG'S, AND THE OTHER TWO KINDS DO NOT SCALE IT. The
 			-- dispatch asked for "one shape scaled, as today" and the measurement refused it: the
@@ -3527,26 +3568,32 @@ Boar.CONFIG.SPECIES = {
 					{ size = Vector3.new(0.600, 0.960, 1.080), offset = Vector3.new(0.000, 2.580, -2.425) }, -- the skull: x -0.30..+0.30 y +2.10..+3.06 z -2.96..-1.88
 				},
 			},
-			-- THE CHEST IS THE NECK AND THE THORAX, and that is the answer to the dispatch's
-			-- question: the neck is part of `chest` rather than a new zone or part of `head`,
-			-- because a neck shot is a real kill zone and `WOUND.DAMAGE.chest` is already
-			-- `Slug = 100` / `Pellet = 25` with `CLASS.chest = "vital"`. A new zone would have
-			-- needed its own damage, flight and class rows -- three more numbers for a reaction
-			-- that is already the chest's.
+			-- THE NECK IS ITS OWN ZONE SINCE TASK 281, and task 280's two boxes are unmoved: only
+			-- the zone they answer changed, from `chest` to `neck`. Karen, 2026-10-24: *"aim in
+			-- empty space to get hit in head neck or heart like in real life"* -- so the screen has
+			-- to say "neck" when a player breaks one. `WOUND.CLASS.neck` is `vital` and
+			-- `WOUND.DAMAGE.neck` is the chest's, so the REACTION is unchanged: a slug kills.
 			--
-			-- THREE BOXES, because the neck is a SLANT and a box is not: it leaves the thorax at
+			-- TWO BOXES, because the neck is a SLANT and a box is not: it leaves the thorax at
 			-- (y 0.80, z -1.28) and reaches the skull at (y 2.60, z -2.05), so one box over both
-			-- would hold the wedge in front of the throat -- the exact air this task removes. The
-			-- two neck boxes are a staircase up that slant, each one's front face BEHIND the
-			-- measured throat line at its own lowest row (-2.13 against a measured -2.160 at
-			-- y 0.90; -2.05 against -2.632 at y 1.70).
+			-- would hold the wedge in front of the throat -- the exact air task 280 removed. They
+			-- are a staircase up that slant, each one's front face BEHIND the measured throat line
+			-- at its own lowest row (-2.13 against a measured -2.160 at y 0.90; -2.05 against
+			-- -2.632 at y 1.70).
+			neck = {
+				part = "ZoneNeck",
+				tint = Color3.fromRGB(190, 128, 160),
+				boxes = {
+					{ size = Vector3.new(0.840, 1.080, 0.900), offset = Vector3.new(0.000, 1.320, -1.615) }, -- the throat, the neck's base: x -0.42..+0.42 y +0.78..+1.86 z -2.06..-1.17
+					{ size = Vector3.new(0.840, 1.080, 1.380), offset = Vector3.new(0.000, 2.100, -1.555) }, -- the neck, up to the skull: x -0.42..+0.42 y +1.56..+2.64 z -2.25..-0.86
+				},
+			},
+			-- THE THORAX, AND NOTHING ELSE: heart and lungs behind the shoulder.
 			chest = {
 				part = "ZoneChest",
 				tint = Color3.fromRGB(198, 150, 150),
 				boxes = {
 					{ size = Vector3.new(1.440, 1.680, 2.085), offset = Vector3.new(0.000, 0.960, -0.243) }, -- the thorax: x -0.72..+0.72 y +0.12..+1.80 z -1.29..+0.80
-					{ size = Vector3.new(0.840, 1.080, 0.900), offset = Vector3.new(0.000, 1.320, -1.615) }, -- the throat, the neck's base: x -0.42..+0.42 y +0.78..+1.86 z -2.06..-1.17
-					{ size = Vector3.new(0.840, 1.080, 1.380), offset = Vector3.new(0.000, 2.100, -1.555) }, -- the neck, up to the skull: x -0.42..+0.42 y +1.56..+2.64 z -2.25..-0.86
 				},
 			},
 			-- THE BARREL -- loin, flank and belly -- AND IT IS A PART NOW. On the boar `body` is
@@ -3561,6 +3608,13 @@ Boar.CONFIG.SPECIES = {
 				boxes = {
 					{ size = Vector3.new(1.320, 1.740, 1.300), offset = Vector3.new(0.000, 1.110, 1.450) }, -- the loin and flank: x -0.66..+0.66 y +0.24..+1.98 z +0.80..+2.10
 					{ size = Vector3.new(1.200, 0.480, 1.300), offset = Vector3.new(0.000, 0.360, 1.450) }, -- the belly: x -0.60..+0.60 y +0.12..+0.60 z +0.80..+2.10
+					-- THE TWO DORSAL BANDS (task 281), the back line the trunk used to answer. The
+					-- spine over the thorax and over the loin is `body` and not `chest`: a shot
+					-- along the top of the back is not the heart, and Karen's lethal list is head,
+					-- neck and heart. Each band is strictly inside the drawn back, so its top is
+					-- 0.02 under the measured back line of +2.30.
+					{ size = Vector3.new(1.080, 0.420, 1.560), offset = Vector3.new(0.000, 2.070, -0.025) }, -- over the thorax: x -0.54..+0.54 y +1.86..+2.28 z -0.81..+0.76
+					{ size = Vector3.new(1.080, 0.240, 1.080), offset = Vector3.new(0.000, 2.160, 1.355) }, -- over the loin: x -0.54..+0.54 y +2.04..+2.28 z +0.82..+1.90
 				},
 			},
 			-- THE HINDQUARTERS, the crippling zone Karen asked for on 2026-10-03 (*"can be hit to
@@ -3574,6 +3628,10 @@ Boar.CONFIG.SPECIES = {
 				tint = Color3.fromRGB(150, 150, 190),
 				boxes = {
 					{ size = Vector3.new(1.200, 1.080, 0.995), offset = Vector3.new(0.000, 1.260, 2.598) }, -- the hindquarters: x -0.60..+0.60 y +0.72..+1.80 z +2.10..+3.10
+					-- AND THE CROUP (task 281): the third dorsal band, `rear` because the spine over
+					-- the hips is the hindquarters. It is the thinnest of the three -- the rump
+					-- SLOPES away under it, which is why the box above stops at +1.80.
+					{ size = Vector3.new(1.200, 0.180, 0.600), offset = Vector3.new(0.000, 1.950, 2.435) }, -- over the croup: x -0.60..+0.60 y +1.86..+2.04 z +2.14..+2.74
 				},
 			},
 			-- FOUR THIN LEGS, where task 223 had ONE 1.92 x 1.9 x 6.4 SLAB running the animal's

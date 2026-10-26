@@ -26,6 +26,7 @@ local WOUND = {
 		legs = { Slug = 30, Pellet = 6 },
 		-- Task 116's hindquarters: pinned here with the rest, so a retune shows up in one place.
 		rear = { Slug = 55, Pellet = 11 },
+		neck = { Slug = 100, Pellet = 25 }, -- task 281: the chest's numbers, for a deer's neck zone
 	},
 	-- TASK 250: what a centre-fire rifle bullet does that a 12-gauge slug does not. Pinned here
 	-- with everything else, and compared against production in the last describe.
@@ -33,10 +34,10 @@ local WOUND = {
 		-- Task 259: `body` came down 100 -> 90. At 100 a paunch shot was LETHAL, which made the
 		-- Waidwundschuss as good as the Kammerschuss with a rifle; see `Boar.CONFIG.WOUND` and
 		-- `kill_zones.spec`.
-		rifle = { head = 100, chest = 100, body = 90, legs = 60, rear = 75 },
-		lever = { head = 100, chest = 100, body = 80, legs = 50, rear = 65 },
+		rifle = { head = 100, chest = 100, neck = 100, body = 90, legs = 60, rear = 75 },
+		lever = { head = 100, chest = 100, neck = 100, body = 80, legs = 50, rear = 65 },
 	},
-	FLIGHT = { head = 0, chest = 0, body = 120, legs = 420, rear = 90 },
+	FLIGHT = { head = 0, chest = 0, neck = 0, body = 120, legs = 420, rear = 90 },
 	BLEED_OUT_MAX_SECONDS = 25,
 	WOUND_SPEED_START = 1.0,
 	WOUND_SPEED_END = 0.45,
