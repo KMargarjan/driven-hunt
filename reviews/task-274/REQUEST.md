@@ -3,7 +3,14 @@
 Task: 274
 Round: 1
 Base: `a8877335` (`main`, after #252)
-Code commit: (filled in with the harness line)
+Code commit: `df463cb9ab7a575682fb8250f83af9b44afbea08`
+
+```
+[harness] PASS: 34/34 checks @ df463cb9ab7a575682fb8250f83af9b44afbea08 (clean tree) scope=all
+```
+
+`test2` is **N/A**: the only changed file is `src/server/Weapon/init.luau`, not in
+`TWO_PLAYER_PATHS`.
 
 ## PLAN
 
@@ -88,8 +95,110 @@ Started **2026-10-26T09:07:13Z** (`<runs-dir>/274-start.txt`, the literal `date 
 
 ## WHAT CHANGED
 
-(filled in)
+`src/server/Weapon/init.luau` only: **one recorded field**, `claimLastPart` -- the part the CLIENT
+claimed and that part's `HitZone` -- written for every claim that reaches the judge, and printed in
+`claimLine`. **No rule, no tolerance and no behaviour changed.**
+
+## ITEM 1 -- **MET. The premise is refuted by reading AND the live field reverses what 272 looked
+like.**
+
+The three answers are in the PLAN, with their files and functions: the claim's hit is applied, the
+client's mark uses the same one, and the claimed part's zone is what reaches the damage and the kill
+line. **The server does not re-resolve.**
+
+**Then the field was added and measured live, and it took two readings to get right -- which is the
+part worth reading:**
+
+* **Recorded on ACCEPTED claims only** (the first version): `claimed=ZoneRear(rear)` and
+  `claimed=Boar56(body)`. Read alone, that says *the client is claiming the rear.*
+* **Recorded on EVERY claim** (the shipped version): with the sight settled on the chest, **every
+  claim reads `claimed=ZoneChest(chest)`.**
+
+**So the client claims the chest correctly, and it is the CHEST claims that were being refused** --
+the ones that survived to be accepted were the rear/trunk ones. The first reading was a selection
+effect of my own field, and I would have reported it as a client defect if I had stopped there.
+
+## ITEM 2 -- **NOT NEEDED.** No server-side re-resolution exists to remove
+
+The design is already implemented. Nothing in `src/` was changed to look busy.
+
+## ITEM 3 (CORE) -- **NOT MET on the rate. 1 of 5, not 4 of 5. BUT THE THING ITSELF HAS NOW BEEN
+SEEN, AND HERE IS ITS FRAME.**
+
+Five led shots at staged running deer, `HIT_CLAIM` on (`<runs-dir>/274-core.log`):
+`claims=6 accepted=3 refused=3`; zones `ZoneRear(rear)`, Terrain, `ZoneRear(rear)`,
+**`ZoneChest(chest)`**, Terrain.
+
+**THE CHEST SHOT, with all three numbers together, on a RUNNING animal:**
+
+* **AIMED**: `Boar148`, the tracked hold on its chest, `offTarget 0.991 deg`, **v = 28.07 studs/s**
+  (a hind at a run), lead 0.290 studs.
+* **SERVER**: `ZoneChest(chest) @ 3288.32,166.70,-3222.09`, `OFF-SIGHT 0.057 studs (right +0.038,
+  up +0.042)` at 43.0 studs.
+* **CLIENT**: `Attachment @ 3288.32,166.70,-3222.09 (under ZoneChest)` -- the mark drawn on the
+  same zone, at the same point.
+
+**THE FRAME, `<runs-dir>/274-core-core.10.1.png`, opened and described**: the shooter's eye from
+the stand, the scoped .416 across the lower half, and **a hind in mid-stride with her legs extended,
+running across the open field at centre frame** about 11 m out; two more deer on the rise behind her
+and a tower stand on the skyline. Bottom-left the hit card **`HIT - .416`** with the deer
+silhouette carrying a **red diamond on the CHEST, just behind the foreleg**; under it
+**`Alhamdulilah824 HIND  chest  11 m  RIFLE`**. HUD `DRIVE 2 / 2:32 / 0 ANIMALS / HUNTER / $13027`,
+ammo `6 .416`.
+
+**That is a led shot at a running deer whose chest was hit, with the mark on the chest -- the thing
+eight tasks have been trying to see.** It is one of five, not four of five, so **the target is NOT
+MET and the feature is not proven at the rate Karen would need.**
+
+### And the one reading that shows the whole chain working at once
+
+```
+claims=1 accepted=1 refused=0  lag=0.183s  sweep=19/19 took=12 best=12@0.767
+claimed=ZoneChest(chest)   ->   SERVER #1 ZoneChest(chest)
+```
+
+**`took=12`** -- the sweep chose the twelfth candidate, **`lag=0.183 s`**, which is the view lag
+task 271 measured (0.178 s) to within a grid step; `best` was AT that instant and used 0.767 of its
+2.0 budget; the claim was accepted; and the server named the claimed zone. **Every part of tasks
+266-273 did its job on that shot.** `spread=0.001` on that one, so the animal was nearly still at
+that instant -- which is why the running shot above is the one offered as the core evidence and
+this one is offered as the chain's own proof.
+
+## ITEM 3's second half -- the `claim-blocked` waiver: **NOT CHANGED, and the number says why**
+
+273 left it at 4.105 against a 3.40 bound. This task measured `claim-blocked=1 worst 7.275/1.000
+(reached 38.79 of 46.07 studs, stopped by Workspace.Boars.Boar147.ZoneChest)` -- **7.275 studs
+short, stopped by the claimed animal's own chest zone.** Bounding it by the trunk's 6.03 would
+still refuse this one, so the dispatch's "if it refuses honest chest shots, bound it by the trunk"
+does not reach it. **Changing a bound that would not have changed this verdict is not a fix**, and
+I did not.
 
 ## CLAIMS
 
-(filled in)
+1. **The accepted claim already decides the hit**, with the chain in the PLAN: `judgeClaimFor`'s
+   `return { Validator.claimImpact(...) }`, `onShotLanded`'s `local impacts = judgeClaimFor(res)`,
+   `Hits.group`'s `Hits.targetOf(impact.instance)` and `Validator.claimImpact`'s
+   `instance = claim.part`.
+2. **The client claims the chest**: `claimed=ZoneChest(chest)` on every claim of the led trial, read
+   from `DHClaimStats` as a live `ServerStorage` attribute (L-026).
+3. **A led shot at a running deer (v 28.07) was chest-named with the mark on the chest**, with the
+   three numbers and the frame above.
+4. **The sweep chose a non-arrival instant and it was the view lag**: `took=12 lag=0.183s
+   best=12@0.767`, the first such reading in this investigation.
+5. **Item 3's rate is NOT MET**: 1 of 5.
+6. **Nothing but one recorded field changed.** `git diff --stat a8877335..HEAD` on `src/` is
+   `src/server/Weapon/init.luau` alone.
+7. **The Forest Test is as it was found.** Twelve attributes before, twelve after; `HIT_CLAIM` ON
+   for the trials and OFF again (rule K); `flags.py --place forest clear` never run; `DHTestOwns`
+   added and removed by name. A stray second Studio session (RCC-276) was closed from its own
+   screenshot. Play stopped and the window closed before the harness ran -- only DEV was open.
+
+## WHAT COULD NOT BE VERIFIED
+
+* **Why 4 of the 5 shots did not produce a chest.** Two sent no claim at all (the client's
+  simulation found nothing -- a miss or an obstruction), and two were `claim-line` refusals at
+  4.090 of 2.000, still the 0.16 s. The rate, not the mechanism, is what is unproven.
+* **No spec was added this task.** The one field is a recording and the behaviour it describes was
+  already covered by task 272's owner-path case; a case asserting "an accepted claim names the
+  claimed zone" would pass on the base commit too, because it already does. **Writing one would be
+  the unfalsifiable-case mistake tasks 265 and 271 made**, so I did not.
