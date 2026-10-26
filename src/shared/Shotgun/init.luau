@@ -701,38 +701,6 @@ Shotgun.CONFIG = {
 		-- longest 0.365 s.
 		MAX_TARGETS = 8,
 		MAX_SUBSTEPS = 16,
-
-		-- ================= HOW FAR BACK THE SHOOTER'S PICTURE MAY BE (task 269b)
-		--
-		-- **MEASURED, in Karen's place, on real shots at running deer** (`<runs-dir>/269b-d1.log`):
-		-- `claim-line worst 3.260/2.000` and `claim-blocked worst 2.137/1.000`. Both are small, both
-		-- are the same size, and 2-3 studs at the 30-34 studs/s those deer were running is **0.06 to
-		-- 0.10 s of animal** -- which is a replication interval, not an aiming error.
-		--
-		-- THE CAUSE IS A FRAME, NOT A TOLERANCE. `claim.firedAtView` is the client's
-		-- `Workspace:GetServerTimeNow()` -- its estimate of the server's clock NOW -- while the
-		-- animal on its screen is drawn from replicated state that is already a few frames old. The
-		-- server then rewinds to `firedAtView + flightSeconds` and lands later than the picture the
-		-- shooter actually shot at. Widening the tolerances would hide that; reconstructing the
-		-- instant answers it.
-		--
-		-- SO THE SERVER SEARCHES ITS OWN HISTORY, BACKWARD ONLY, for the instant whose rewind best
-		-- matches the point the CLIENT claimed, and judges every later check against THAT instant.
-		-- **The anti-cheat property is kept and is why the search is matched to the client's point
-		-- and not to the server's own trajectory**: a forged claim gets no freedom from this, because
-		-- the thing being minimised is not the thing being tested. Check 3 still asks that the
-		-- matched point be within `POSITION_TOLERANCE_STUDS` of the claim, and check 4 still asks
-		-- that the server's OWN trajectory passed within `LINE_TOLERANCE_STUDS` of it -- so a point
-		-- in empty space matches no sample and fails both, exactly as before.
-		--
-		-- 0.25 s AND NOT MORE: it is half of `AGE_MAX_SECONDS`, it is four replication intervals at
-		-- 20 Hz, and at the 34 studs/s measured above it is 8.5 studs of travel -- already past
-		-- `POSITION_TOLERANCE_STUDS`, so the window cannot be the loosest rule in the chain.
-		MATCH_BACK_SECONDS = 0.25,
-		-- HOW FINELY THAT WINDOW IS WALKED. 0.02 s is 0.7 studs at 34 studs/s -- a third of
-		-- `LINE_TOLERANCE_STUDS`, so the grid can never be what decides a refusal -- and it is 13
-		-- lookups, each a binary-search-free walk of a 64-sample ring.
-		MATCH_STEP_SECONDS = 0.02,
 	},
 
 	-- rates, per player
