@@ -1,12 +1,12 @@
 # Task 274 -- an accepted claim must decide the hit
 
 Task: 274
-Round: 1
+Round: 2
 Base: `a8877335` (`main`, after #252)
-Code commit: `df463cb9ab7a575682fb8250f83af9b44afbea08`
+Code commit: `0a02eee2e56beb23cf4915ab30c7064effe241bd`
 
 ```
-[harness] PASS: 34/34 checks @ df463cb9ab7a575682fb8250f83af9b44afbea08 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 0a02eee2e56beb23cf4915ab30c7064effe241bd (clean tree) scope=all
 ```
 
 `test2` is **N/A**: the only changed file is `src/server/Weapon/init.luau`, not in
@@ -92,6 +92,23 @@ named here: **the staged RUNNING deer is `DHTestRelease`** (task 268's own `src/
 
 Started **2026-10-26T09:07:13Z** (`<runs-dir>/274-start.txt`, the literal `date -u` output); the
 2.5 h mark is **11:37:13Z**.
+
+## ROUND 2 -- ROUND 1'S FINDING, IN TWO PARTS, AND BOTH WERE RIGHT
+
+**(a)** The field's DECLARATION read *"The last ACCEPTED claim's own part and zone"* while the
+write sits before every refusal -- so a reader of a live `DHClaimStats` would take
+`claimed=ZoneRear(rear)` to mean *an accepted claim named the rear*, **which is exactly the
+mis-attribution this field was added to end.** It now says "for EVERY claim that reaches the judge
+-- accepted or refused", and says why reading it the other way is the trap.
+
+**(b)** The note at the write carried the ACCEPTED-ONLY reading (`ZoneRear`, the trunk) unqualified,
+after this request had already retracted it. It now carries **both readings side by side** -- the
+accepted-only one, the every-claim one (`ZoneChest(chest)` on every claim of the same trial), and
+the sentence that reconciles them: *a field that only records the survivors measures the filter,
+not the thing.*
+
+Nothing else changed; the behaviour is identical and the harness line is re-run on the comment
+commit.
 
 ## WHAT CHANGED
 
