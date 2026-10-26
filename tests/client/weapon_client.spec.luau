@@ -2065,6 +2065,7 @@ return function()
 		it("lands BEHIND by v x t when aimed AT, and ON when led -- at 40, 100 and 150 studs too", function()
 			local EPS = 0.25
 			local rows = {}
+			local bad = {}
 			local worst = 0
 			for _, speed in ipairs({ 10, 20, 30 }) do
 				for _, distance in ipairs({ 40, 100, 150, 200 }) do
@@ -2120,29 +2121,70 @@ return function()
 							if ledClaim ~= nil then string.format("%.3f", gotLed) else "NO CLAIM"
 						)
 					)
-					-- THE LED SHOT IS THE ONE THE GAME IS ABOUT, so it is asserted first and hardest.
-					expect(ledClaim).to.be.ok()
-					worst = math.max(worst, math.abs(gotLed))
-					expect(math.abs(gotLed) <= EPS).to.equal(true)
-					-- ...AND THE UNLED ONE MUST MISS BEHIND BY THE SAME NUMBER, which is what makes
-					-- the first assertion about the LEAD and not about a box that is simply wide.
-					if atClaim ~= nil then
-						worst = math.max(worst, math.abs(gotAt + lead))
-						expect(math.abs(gotAt + lead) <= EPS).to.equal(true)
+					-- EVERY ROW IS MEASURED BEFORE ANYTHING IS ASSERTED, so a red run prints the whole
+					-- table and not only its first failure -- the difference between a diagnosis and a
+					-- stack trace.
+					if ledClaim == nil then
+						table.insert(bad, string.format("v=%d d=%d: LED produced NO CLAIM", speed, distance))
 					else
-						-- NO CLAIM AT ALL is the honest answer once the lead is wider than the box:
-						-- the bullet passed behind the animal. That is only allowed when the lead
-						-- really is that wide.
-						expect(lead > boxA.Size.X / 2).to.equal(true)
+						worst = math.max(worst, math.abs(gotLed))
+						if math.abs(gotLed) > EPS then
+							table.insert(
+								bad,
+								string.format(
+									"v=%d d=%d: LED landed %+.3f along travel, want 0",
+									speed,
+									distance,
+									gotLed
+								)
+							)
+						end
+					end
+					-- ...AND THE UNLED ONE MUST MISS BEHIND BY THE SAME NUMBER, which is what makes the
+					-- first assertion about the LEAD and not about a box that is simply wide. NO CLAIM AT
+					-- ALL is the honest answer once the lead is wider than the box.
+					-- THE BOX IS TWO STUDS ACROSS, so a lead wider than one stud is a shot that passed
+					-- BEHIND the animal altogether: the honest answer there is a miss, and the
+					-- scripted cast reports the clamped edge rather than nil. So the exact `-lead`
+					-- is required only where the lead fits inside the body, and outside it the
+					-- requirement is "at or past the trailing edge" -- which is still the sign this
+					-- case is about.
+					local half = boxA.Size.X / 2
+					if atClaim ~= nil and lead > half then
+						if gotAt > -(half - EPS) then
+							table.insert(
+								bad,
+								string.format(
+									"v=%d d=%d: AT landed %+.3f, want at or past %+.3f",
+									speed,
+									distance,
+									gotAt,
+									-half
+								)
+							)
+						end
+					elseif atClaim ~= nil then
+						worst = math.max(worst, math.abs(gotAt + lead))
+						if math.abs(gotAt + lead) > EPS then
+							table.insert(
+								bad,
+								string.format("v=%d d=%d: AT landed %+.3f, want %+.3f", speed, distance, gotAt, -lead)
+							)
+						end
+					elseif lead <= boxA.Size.X / 2 then
+						table.insert(
+							bad,
+							string.format("v=%d d=%d: AT produced NO CLAIM with lead %.3f", speed, distance, lead)
+						)
 					end
 				end
 			end
-			TestKit.note(
-				"task 270 lead sign, worst |error| "
-					.. string.format("%.3f", worst)
-					.. " studs:\n"
-					.. table.concat(rows, "\n")
-			)
+			table.insert(rows, string.format("worst |error| %.3f studs over %d rows", worst, #rows))
+			for _, line in ipairs(bad) do
+				table.insert(rows, "WRONG: " .. line)
+			end
+			TestKit.note("task 270 lead sign --\n" .. table.concat(rows, "\n"))
+			expect(#bad).to.equal(0)
 		end)
 
 		it("a tree between the bore and the target produces NO claim -- the client's own line of sight", function()

@@ -200,15 +200,54 @@ function Claim.simulate(opts: {
 		local bestHit: Shotgun.Impact? = nil
 		local bestShift = Vector3.zero
 		local bestAlong = math.huge
+		-- THE ANIMAL IS ADVANCED TO THE INSTANT THE BULLET ACTUALLY ARRIVES, NOT TO THE START OF
+		-- THE SUB-STEP (task 270). `pellet.elapsed` is the clock at the sub-step's FIRST edge, and
+		-- one sub-step at the rifle's 2612 studs/s is `FLIGHT_STEP_MAX_SECONDS` long -- about 87
+		-- studs -- so using it alone QUANTISES the lead to whole sub-steps and throws away
+		-- everything inside the current one. **MEASURED** (`weapon_client.spec`, "lands BEHIND by
+		-- v x t when aimed AT, and ON when led"), a target crossing at 30 studs/s:
+		--
+		--   | range | the lead that exists | the lead this pass applied | error |
+		--   |   40  | 0.463 studs          | 0.000 (sub-step 1)         | 0.463 -- the WHOLE lead |
+		--   |  100  | 1.174                | 1.000 (sub-step 2)         | 0.174 |
+		--   |  150  | 1.779                | 1.000 (sub-step 2)         | 0.779 |
+		--   |  200  | 2.399                | 2.000 (sub-step 3)         | 0.398 |
+		--
+		-- At 40 studs the animal was not advanced AT ALL, so a shooter holding the correct lead had
+		-- it cancelled by nothing and the claim landed a whole lead off the point he aimed at. The
+		-- old cases never saw it because all of them were at 200, where the quantised value is 83 %
+		-- of the real one.
+		--
+		-- TWO PASSES, AND THE SECOND IS THE ANSWER. The arrival time inside this sub-step is
+		-- `elapsed + along / speed`, which this function already knows -- `flightSeconds` below is
+		-- built from exactly that expression. It cannot be known before the cast, because `along` IS
+		-- the cast's answer; so the first pass finds it and the second re-asks with the animal moved
+		-- to that instant. One refinement converges: the correction to `along` is second order (the
+		-- animal's own motion ACROSS the line, over a correction that is already under one sub-step).
+		-- AND THE REFINEMENT IS THE ANSWER, NOT A SUGGESTION: a second pass that finds nothing means
+		-- the bullet did not meet the animal at the instant it actually arrives, which is a MISS and
+		-- must be claimed as one. Keeping the first pass's hit there would claim a hit at a coarse
+		-- instant the bullet never occupied -- measured at v=20, d=150, where the lead (1.186 studs)
+		-- is wider than the box's own half-extent: the first pass hit at the quantised 0.667 and the
+		-- true shot passed behind the animal altogether.
 		for _, target in ipairs(targets) do
+			local castTarget = castOnly(target.root)
+			local speed = math.max(1e-6, pellet.velocity.Magnitude)
 			local shift = target.velocity * pellet.elapsed
-			local hit = castOnly(target.root)(pellet.position - shift, segment, staticIgnore)
+			local hit = castTarget(pellet.position - shift, segment, staticIgnore)
 			if hit ~= nil then
 				local along = (hit.position + shift - pellet.position).Magnitude
-				if along < blockAt and along < bestAlong then
-					bestHit = hit
-					bestShift = shift
-					bestAlong = along
+				local refinedShift = target.velocity * (pellet.elapsed + along / speed)
+				local refined = castTarget(pellet.position - refinedShift, segment, staticIgnore)
+				if refined ~= nil then
+					hit = refined
+					shift = refinedShift
+					along = (refined.position + refinedShift - pellet.position).Magnitude
+					if along < blockAt and along < bestAlong then
+						bestHit = hit
+						bestShift = shift
+						bestAlong = along
+					end
 				end
 			end
 		end
