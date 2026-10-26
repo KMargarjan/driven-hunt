@@ -83,3 +83,8 @@ name the symbol, never the line number. Blunt: no praise, no hedging, no summary
 Tool output is precomputed in `.agent-evidence/` (start at `INDEX.md`); you cannot run the harness,
 so for a Studio claim check that the pasted evidence is consistent and that the code could produce
 it. `PASS` means you would stake your name on the change being safe to merge.
+
+## Learned rules (from the per-task verdicts, filed by the Director)
+- (verdict 278, REVIEWER) a spec whose expected value is a transcription of the function under test proves nothing; a shot-placement or picture claim needs a check against what Karen SEES (the drawn model / her frame) plus its known-bad input, else it is NOT PROVEN.
+- (verdict 280, REVIEWER) check the gate checklist's own claims against `git diff --name-only` — 280's two-player line justified N/A with a stale path list ("Boar/, Weapon/, tests/server/, studio_mcp.py") that the diff touches in full; the conclusion was right by luck.
+- (verdict 280, TESTS) a change that renames or numbers zone parts updates every probe that looks them up by name in the same PR — after 280 the `reviews/task-266*` probes' `FindFirstChild("ZoneChest")` finds nothing on a deer, and the next live check aims at nothing.
