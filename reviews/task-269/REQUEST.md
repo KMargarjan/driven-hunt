@@ -7,7 +7,14 @@ Code commit: `27735477` (the PLAN). **NOTHING UNDER `src/`, `tests/` OR `tools/`
 CHANGED IN THIS TASK** -- the whole of it is a measurement and this branch is
 paperwork only (`git diff --name-only 2ce7e61d..HEAD` is `reviews/task-269/REQUEST.md`).
 The harness line below is the one-player run on the clean tree anyway, because the PR
-to `main` asks for one.
+to `main` asks for one. It names the request's own commit, which is allowed and is
+stricter (git workflow step 4): everything the harness ran over is covered.
+
+```
+[harness] PASS: 34/34 checks @ 38176f068385904b23ecb69a34dee5a142f11b12 (clean tree) scope=all
+```
+
+`test2` is **N/A**: nothing under `src/` changed at all, so no path can be in `TWO_PLAYER_PATHS`.
 
 ## PLAN
 
