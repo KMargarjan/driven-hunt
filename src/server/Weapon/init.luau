@@ -203,6 +203,17 @@ local stats = {
 	claims = 0,
 	claimsIgnored = 0,
 	claimsAccepted = 0,
+	-- WHY A REFUSAL HAPPENED, AS A NUMBER (task 269b). `refusedClaimBy` counts them by name;
+	-- this keeps, per name, the WORST measured value, its budget, and -- for the one rule whose
+	-- cause is an Instance -- what actually stopped the bullet.
+	--
+	-- **IT EXISTS BECAUSE TASK 269 COULD NOT ASK THE NEXT QUESTION.** That task measured
+	-- `claims=10 accepted=2 refused=8 [claim-blocked=4 claim-line=4]` on real shots at running deer,
+	-- and `claimWorstStuds` / `claimWorstLineStuds` / `claimWorstEndStuds` are written only AFTER
+	-- `claimsAccepted += 1` -- so a refused claim left nothing behind at all, and the published
+	-- worsts were the worst over the two ACCEPTED claims. A rule that refuses without leaving a
+	-- number cannot be argued with.
+	refusedClaimWorst = {} :: { [string]: { measured: number, budget: number, note: string? } },
 	claimsRefused = 0,
 	refusedClaimBy = {} :: { [string]: number },
 	-- THE VIEW-ERROR METER, and the one number anybody has ever had for it. The worst ACCEPTED
@@ -815,8 +826,28 @@ function Weapon.claimLine(from: any): string
 	end
 	local reasons = {}
 	if type(from.refusedClaimBy) == "table" then
+		local worst = if type(from.refusedClaimWorst) == "table" then from.refusedClaimWorst else {}
 		for reason, count in pairs(from.refusedClaimBy) do
-			table.insert(reasons, string.format("%s=%d", tostring(reason), count))
+			-- THE COUNT, AND THEN THE WORST MEASURED VALUE AGAINST ITS BUDGET (task 269b):
+			-- `claim-line=4 worst 7.412/2.000` reads as "four of them, and the worst missed a
+			-- two-stud budget by seven and a half". A reason with no number keeps its bare count,
+			-- which is the honest shape for a type or a NaN refusal.
+			local row = worst[reason]
+			if type(row) == "table" and type(row.measured) == "number" then
+				table.insert(
+					reasons,
+					string.format(
+						"%s=%d worst %.3f/%.3f%s",
+						tostring(reason),
+						count,
+						row.measured,
+						row.budget or 0,
+						if type(row.note) == "string" then " (" .. row.note .. ")" else ""
+					)
+				)
+			else
+				table.insert(reasons, string.format("%s=%d", tostring(reason), count))
+			end
 		end
 		table.sort(reasons)
 	end
@@ -879,6 +910,12 @@ function Weapon.stats()
 	out.refusedBy = table.clone(stats.refusedBy)
 	-- The same hand copy, for the same reason (task 266).
 	out.refusedClaimBy = table.clone(stats.refusedClaimBy)
+	-- ...AND ONE LEVEL DEEPER, because each row is itself a table (task 269b): a shallow clone would
+	-- hand a caller the live rows and let it edit the server's own diagnostics.
+	out.refusedClaimWorst = {}
+	for reason, row in pairs(stats.refusedClaimWorst) do
+		out.refusedClaimWorst[reason] = table.clone(row)
+	end
 	-- WHICH ANSWER THE CLAIM GATE IS ACTUALLY GIVING, for the reason `originTolerance` below is
 	-- here at all (task 260 round 3's blocking finding): a boundary read into a module local is
 	-- invisible from outside, so deleting the wiring would leave the suite green with the feature
@@ -1450,9 +1487,21 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		return res.impacts
 	end
 
-	local function refuse(reason: string): { Shotgun.Impact }
+	-- THE MEASURED VALUE AND ITS BUDGET GO IN HERE, which is the one place every refusal passes
+	-- through (task 269b). `measured`/`budget` are `Validator.judgeClaim`'s own third and fourth
+	-- returns, in the rule's own unit; `note` is the part of the cause that is an Instance and so
+	-- cannot come from that pure module. The WORST is kept per reason, so one lucky shot cannot
+	-- hide the shape of the failure.
+	local function refuse(reason: string, measured: number?, budget: number?, note: string?): { Shotgun.Impact }
 		stats.claimsRefused += 1
 		stats.refusedClaimBy[reason] = (stats.refusedClaimBy[reason] or 0) + 1
+		if type(measured) == "number" then
+			local row = stats.refusedClaimWorst[reason]
+			if row == nil or measured > row.measured then
+				stats.refusedClaimWorst[reason] =
+					{ measured = measured, budget = if type(budget) == "number" then budget else 0, note = note }
+			end
+		end
 		return res.impacts
 	end
 
@@ -1541,7 +1590,7 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		remaining -= step
 	end
 
-	local ok, reason = Validator.judgeClaim({
+	local ok, reason, measured, budget = Validator.judgeClaim({
 		offset = claim.offset,
 		partHalf = part.Size / 2,
 		clientPoint = claim.point,
@@ -1556,7 +1605,23 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		expectedFlightSeconds = Ballistics.timeToRange(ballistic, claim.distanceStuds),
 	}, CONFIG.CLAIM)
 	if not ok then
-		return refuse(reason or "claim-refused")
+		-- WHAT STOPPED THE BULLET, for the one rule whose cause is an Instance (task 269b). The
+		-- flight already ran and already knows: its first impact is the thing that cut it short, and
+		-- its FULL PATH is what tells a reader whether it was the animal's own trunk, a zone box, a
+		-- tree's collider or the terrain. `Validator` may not touch an Instance -- its own header's
+		-- first sentence -- so this is the owner's half of the same answer.
+		local note = nil :: string?
+		if reason == "claim-blocked" then
+			local first = res.impacts[1]
+			local hit = if type(first) == "table" then first.part else nil
+			note = string.format(
+				"reached %.2f of %.2f studs, stopped by %s",
+				res.reachedStuds or -1,
+				claim.distanceStuds,
+				if typeof(hit) == "Instance" then hit:GetFullName() else "nothing it reported"
+			)
+		end
+		return refuse(reason or "claim-refused", measured, budget, note)
 	end
 
 	stats.claimsAccepted += 1

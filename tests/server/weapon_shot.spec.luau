@@ -728,6 +728,72 @@ return function()
 			expect(whyStale).to.equal("claim-stale")
 		end)
 
+		-- ============================== THE MEASURED VALUE AND ITS BUDGET (task 269b)
+		--
+		-- **THIS CASE FAILS ON THE COMMIT BEFORE THIS TASK** (L-028), and that is the point of
+		-- writing it this way rather than as a shape check: before task 269b `judgeClaim` returned
+		-- two values, so `measured` and `budget` are both nil and every `expect(...).to.be.near`
+		-- below errors on a nil. Task 269 measured `claim-line=4 claim-blocked=4` on real shots at
+		-- running deer and could not say BY HOW MUCH; these two returns are that answer.
+		it("names the measured value and its budget for every refusal that has one", function()
+			local moved = honestFacts()
+			moved.clientPoint = moved.serverPoint + Vector3.new(30, 0, 0)
+			local okMoved, whyMoved, gotMoved, budgetMoved = Validator.judgeClaim(moved, CLAIM)
+			expect(okMoved).to.equal(false)
+			expect(whyMoved).to.equal("claim-moved")
+			expect(gotMoved).to.be.near(30, 1e-6)
+			expect(budgetMoved).to.be.near(CLAIM.POSITION_TOLERANCE_STUDS, 1e-6)
+
+			local line = honestFacts()
+			line.trajectoryPoint = line.serverPoint + Vector3.new(0, 0, CLAIM.LINE_TOLERANCE_STUDS + 0.5)
+			local okLine, whyLine, gotLine, budgetLine = Validator.judgeClaim(line, CLAIM)
+			expect(okLine).to.equal(false)
+			expect(whyLine).to.equal("claim-line")
+			expect(gotLine).to.be.near(CLAIM.LINE_TOLERANCE_STUDS + 0.5, 1e-6)
+			expect(budgetLine).to.be.near(CLAIM.LINE_TOLERANCE_STUDS, 1e-6)
+
+			-- THE BLOCKED RULE'S MEASURE IS HOW FAR SHORT THE FLIGHT STOPPED, and it is the quantity
+			-- the check itself compares: `claimedStuds - reachedStuds` against `REACH_SLACK_STUDS`.
+			local blocked = honestFacts()
+			blocked.reachedStuds = 40
+			local okBlocked, whyBlocked, gotBlocked, budgetBlocked = Validator.judgeClaim(blocked, CLAIM)
+			expect(okBlocked).to.equal(false)
+			expect(whyBlocked).to.equal("claim-blocked")
+			expect(gotBlocked).to.be.near(blocked.claimedStuds - 40, 1e-6)
+			expect(budgetBlocked).to.be.near(CLAIM.REACH_SLACK_STUDS, 1e-6)
+
+			local offset = honestFacts()
+			offset.offset = Vector3.new(0, 0.5, -(offset.partHalf.Z + CLAIM.SKIN_STUDS + 0.1))
+			local okOffset, whyOffset, gotOffset, budgetOffset = Validator.judgeClaim(offset, CLAIM)
+			expect(okOffset).to.equal(false)
+			expect(whyOffset).to.equal("claim-offset")
+			expect(gotOffset).to.be.near(0.1, 1e-6)
+			expect(budgetOffset).to.be.near(CLAIM.SKIN_STUDS, 1e-6)
+
+			local stale = honestFacts()
+			stale.ageSeconds = CLAIM.AGE_MAX_SECONDS + 0.01
+			local okStale, whyStale, gotStale, budgetStale = Validator.judgeClaim(stale, CLAIM)
+			expect(okStale).to.equal(false)
+			expect(whyStale).to.equal("claim-stale")
+			expect(gotStale).to.be.near(CLAIM.AGE_MAX_SECONDS + 0.01, 1e-6)
+			expect(budgetStale).to.be.near(CLAIM.AGE_MAX_SECONDS, 1e-6)
+
+			local timing = honestFacts()
+			timing.flightSeconds = timing.expectedFlightSeconds + CLAIM.FLIGHT_TOLERANCE_SECONDS + 0.01
+			local okTime, whyTime, gotTime, budgetTime = Validator.judgeClaim(timing, CLAIM)
+			expect(okTime).to.equal(false)
+			expect(whyTime).to.equal("claim-time")
+			expect(gotTime).to.be.near(CLAIM.FLIGHT_TOLERANCE_SECONDS + 0.01, 1e-6)
+			expect(budgetTime).to.be.near(CLAIM.FLIGHT_TOLERANCE_SECONDS, 1e-6)
+
+			-- AN HONEST CLAIM NAMES NOTHING, because there is no refusal to measure.
+			local okHonest, whyHonest, gotHonest, budgetHonest = Validator.judgeClaim(honestFacts(), CLAIM)
+			expect(okHonest).to.equal(true)
+			expect(whyHonest).to.equal(nil)
+			expect(gotHonest).to.equal(nil)
+			expect(budgetHonest).to.equal(nil)
+		end)
+
 		it("REFUSES a flight time this gun could not have produced", function()
 			local facts = honestFacts()
 			facts.flightSeconds = facts.expectedFlightSeconds + CLAIM.FLIGHT_TOLERANCE_SECONDS + 0.01
@@ -973,6 +1039,17 @@ return function()
 				claimAges = 9,
 				claimHistoryWhy = "no-sample",
 				refusedClaimBy = { ["claim-moved"] = 2, ["claim-line"] = 1, ["claim-blocked"] = 1 },
+				-- TASK 269b: per reason, the WORST measured value against its budget, and for the
+				-- one rule whose cause is an Instance, what stopped the bullet. `claim-moved` has
+				-- no row here on purpose, so the "bare count" branch is driven too.
+				refusedClaimWorst = {
+					["claim-line"] = { measured = 7.412, budget = 2.0 },
+					["claim-blocked"] = {
+						measured = 31.5,
+						budget = 1.0,
+						note = "reached 98.50 of 130.00 studs, stopped by Workspace.Boars.Boar12",
+					},
+				},
 			})
 			expect(string.find(line, "enabled=true", 1, true)).to.be.ok()
 			expect(string.find(line, "claims=7", 1, true)).to.be.ok()
@@ -987,7 +1064,20 @@ return function()
 			-- AND WHY THE REWIND SAID NO, which `claim-history` alone cannot say.
 			expect(string.find(line, "why=no-sample", 1, true)).to.be.ok()
 			-- SORTED, so two runs of the same server give the same string and a diff is a fact.
-			expect(string.find(line, "[claim-blocked=1 claim-line=1 claim-moved=2]", 1, true)).to.be.ok()
+			-- THE WORST PER REASON, ITS BUDGET AND THE INSTANCE THAT CAUSED IT (task 269b). **This
+			-- assertion fails on the commit before this task**, where the line carried bare counts:
+			-- task 269 read `[claim-blocked=4 claim-line=4]` off a real server and could not say by
+			-- how much either rule had been missed. `claim-moved` keeps its bare count, which is the
+			-- honest shape for a reason with no row.
+			expect(
+				string.find(
+					line,
+					"[claim-blocked=1 worst 31.500/1.000 (reached 98.50 of 130.00 studs, stopped by "
+						.. "Workspace.Boars.Boar12) claim-line=1 worst 7.412/2.000 claim-moved=2]",
+					1,
+					true
+				)
+			).to.be.ok()
 			expect(Weapon.claimLine(nil)).to.equal("")
 		end)
 
