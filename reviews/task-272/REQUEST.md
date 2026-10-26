@@ -1,7 +1,7 @@
 # Task 272 -- the sweep reaches its whole window, and a case enters it
 
 Task: 272
-Round: 2
+Round: 1
 Base: `813b76b0` (this Builder's 271 head; its code comes with it)
 Code commit: `a3a6ceb0d0ab79d7ab96c5f931ca681cc3323347`
 
@@ -112,9 +112,15 @@ claim-line=1 worst 3.603/2.000 (... ALONG THE ANIMAL +4.695 (v 28.6 studs/s, so 
 
 A candidate 0.164 s back exists in the sweep and `pickViewInstant` did not take it.
 
-## ROUND 2 -- THE SECOND MEASUREMENT, AND IT FINISHES THE QUESTION
+## THE SECOND MEASUREMENT, AND IT FINISHES THE QUESTION
 
-Round 1 passed. Round 2 adds two numbers to the same instrument -- **which candidate the sweep
+**This request is still `Round: 1`** -- `tools/review.sh` refuses a `Round: 2` after a PASS, and it
+is right to: the first verdict passed, and what follows is MORE evidence on the same round, not an
+answer to findings. It is re-reviewed because `src/` changed after that verdict (two more
+diagnostic fields), so the earlier PASS no longer covers the head.
+
+The addition is two numbers on the same instrument -- **which candidate the sweep TOOK, and which
+was BEST** -- and one live trial then ends the enquiry six tasks have been running. Two numbers to the same instrument -- **which candidate the sweep
 TOOK, and which was BEST** -- and one live trial then ends the enquiry six tasks have been running:
 
 ```
