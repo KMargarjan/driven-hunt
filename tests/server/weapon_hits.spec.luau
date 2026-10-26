@@ -1478,7 +1478,10 @@ return function()
 			expect(ok3).to.equal(false)
 			expect(why3).to.equal("claim-line")
 			expect(measured3 > CLAIM.LINE_TOLERANCE_STUDS).to.equal(true)
-			expect(measured3).to.be.near(5.108, 0.05)
+			-- 0.38 ACROSS plus 5.109 ALONG the animal's own path, which is 5.489 -- and the live
+			-- refusal this case reproduces read **5.457**. The two agree to 0.03 studs, which is
+			-- what makes this a reproduction rather than an illustration.
+			expect(measured3).to.be.near(5.489, 0.02)
 
 			-- v4: THE SWEEP. It picks the picture the shooter actually shot at, and the same facts
 			-- pass check 4 with about a fifth of the budget.
