@@ -1,41 +1,51 @@
-# Design: hit-zones (boar wounding, grey box, v1)
+# Design: hit-zones — vital organs as volumes, and the path that crosses them
 
-System: `hit-zones` — where a shot landed on a boar, what that does to it, how it behaves while it
-dies or gets away, and the one event the score system (1.7) will consume. ROADMAP step 1.5
-(`ROADMAP.md`, Milestone 1 table). Task 27.
+**v2, Task 277 (2026-10-26).** Written to `reviews/task-277/BRIEF.md`, which **overrides** anything
+older in `docs/`, `TASKS.md` and v1 of this file. Direction **B** (real vital organs, hittable from
+any angle) and the half of direction **C** this document is accountable for. Direction **A** is
+`docs/design/ballistics.md` **v5**, written by run 1 of this same task; this document is run 2 and
+does not re-open it.
 
-Architect, 2026-09-25, read-only session: Read, Grep, Glob only. No Studio, no network. Evidence
-precomputed in `.agent-evidence/` (`INDEX.md`), commit `67bb585e5d35dfe9fcb6601ed948d6736b006f3f`.
+**RULE 7. v1 of this file is not deleted — the Architect script replaces it in place.** The Builder
+must recover it into `backups/design-hit-zones-v1.md` with a one-line note
+(`git show 2ee60af3:docs/design/hit-zones.md`), in the same commit as the first code change of the
+build task. I cannot write files.
 
-Inputs, in precedence order: `reviews/task-27/BRIEF.md` (the Director's and Karen's decisions), the
-boar code on `main` (`src/server/Boar/init.luau`, `Brain.luau`, `Body.luau`,
-`src/server/BoarBoot.server.luau`), `docs/design/shotgun.md` §6 (the damage seam),
-`docs/design/boar-ai.md`, `docs/design/camera.md` §9.3 (what harness-driven input can and cannot do),
-`CLAUDE.md`, `docs/PROJECT_CONTEXT.md`.
+Karen, the key of the game, verbatim:
 
-**Test of this document:** a Builder can build hit zones and wounded running from it without asking a
-question. Every number is here, every owner is named, every interface is written out.
+> *"all shooting has to be like in real life"* · *"when boar is running we need to aim in empty space
+> to get hit in head neck or heart like in real life smae with other animals"* · *"I need quality
+> results"*
+
+Architect, read-only session (Read, Grep, Glob; no Studio, no network), evidence precomputed in
+`.agent-evidence/` for commit `2ee60af3ea147d1158372ae06f4121ee90fe512d`.
 
 ---
 
-## 0. Build precondition, stated first because it decides the branch
+## 0. What v2 changes, in one page
 
-Task 24 (the shotgun) is on branch `task-24-shotgun` and is **not merged**. This design's entry point
-is the seam that task builds: `Boar.Body` publishing the attributes `Damageable` and `HitZone`,
-`Runtime:takeHit(part, hit)` with `hit = { zone, ammo, pellets, at }`, and the wiring from
-`Weapon.HitReported` in `BoarBoot.server.luau` (`reviews/task-27/BRIEF.md`; `docs/design/shotgun.md`
-§6.3, §6.4, §6.5).
+**It is a change of KIND, not of numbers** (BRIEF item 7). Today a zone is *whichever protruding
+surface box the ray met first*; after v2 a zone is *the most vital volume the shot's path crossed
+inside the body*.
 
-**I could not read that branch.** The Architect session is one worktree at one commit with Read, Grep
-and Glob (`CLAUDE.md`, "The agent scripts"), and at this commit `src/server/Boar/Body.luau` sets no
-attributes and `src/server/Boar/init.luau` has no `takeHit`. So everything this design says about the
-shotgun side is read from `docs/design/shotgun.md` and the brief, not from code. §2 states exactly
-what it assumes and what the Builder must check first; §15 repeats it as a non-verification.
+| # | What | Where |
+|---|---|---|
+| 1 | **Zones stop being raycast targets.** The four parts `Boar.Body.buildZones` welds on — each standing `PROTRUSION = 0.06` proud so the ray meets it first — are replaced by **interior volumes that are data**, plus a minimum **hull** of queryable parts (trunk + `HullHead`, and `HullNeck` on the deer) | 3.1, 3.4 |
+| 2 | **Seven volumes per species, not four**: `head` (skull/brain), `neck`, `chest` (heart+lungs, the *Kammer*), `spine`, `rear` (hindquarters), `body` (paunch, and still the fallback), `legs`. The two new keys are `neck` and `spine` | 3.2, 3.3 |
+| 3 | **Overlap becomes legal and load-bearing.** Two coincident surfaces at one ray distance was a coin toss (task 116 review round 2) and is why every box had to be proud of its neighbour. Volumes may interpenetrate; a `rank` row decides, not the engine | 3.6 |
+| 4 | **The zone is decided by a ray/box slab test in the trunk's own frame at the shot's instant**, by a new pure module `Boar.Zones`, read by one function, `Runtime:zoneAt` | 4.1, 4.2, 5.1 |
+| 5 | **The weapon asks the animal.** `Weapon.setZoneProvider` is an eighth injected provider in exactly the shape the seven have; the answer rides on the impact as `impact.zone`; `Hits.group` prefers it and `Hits.targetOf` is **unchanged** as the fallback | 4.3, 4.4 |
+| 6 | **Penetration is modelled, per cartridge, in studs**: a slug reaches the chamber from the front and *just* from the tail of a boar; a buckshot pellet does not reach it from the front; the .416 reaches a stag's chamber from the tail and the slug does not | 3.7, 11.1 |
+| 7 | **`CONFIG.ZONES.PROTRUSION` is DELETED**, with its name, because its whole job was to win a race that no longer happens | 3.1, 10.3 |
+| 8 | **The damage model keeps its doctrine and its table shape** (BRIEF item 9): `LETHAL = 100`, `MORTAL = 50`, `DAMAGE[zone][ammo]`, `DAMAGE_BY_WEAPON[weapon][zone]`, `CLASS`, `FLIGHT`, `toughness`. Two new zone keys mean two new rows in each. **A path crossing two volumes takes the MAXIMUM, never the sum** | 4.6, 5.3 |
+| 9 | **BRIEF item 14's `276a(d)` is answered: NO.** A head-on chest shot must not read `body`. After v2 it reads `chest`, `neck` or `head` depending on the height it entered at, and the design states the heights | 5.5 |
 
-Therefore: **branch `task-27-hit-zones` from `task-24-shotgun` (a stacked PR) if Task 24 is still
-unmerged when this is built, and say so in the review request.** Every change in §3.4 is inside
-`src/server/Boar/` plus the two wiring lines in `BoarBoot`, all of which Task 24 also touches, so
-building on `main` would mean merging the same files twice.
+**Unchanged and not up for discussion here:** the wound model's arithmetic (`Wound.apply`,
+`severityFor`, `flightStuds`, `speedScale`, `advance`, `killRecord`), the two thresholds, `toughness`
+and the vitals' exemption from it, the Brain's `WOUNDED`/`DOWN`/cripple reactions, the carcass, the
+`Downed`/`Despawned`/`Hit` signals, `Hits.group` as the one `HitReport` constructor, the claim
+protocol's six payload fields, the six remotes, the `HIT_CLAIM` flag, and every number in
+`Boar.CONFIG.WOUND` that already exists.
 
 ---
 
@@ -43,1174 +53,1277 @@ building on `main` would mean merging the same files twice.
 
 ### 1.1 Must do
 
-From Karen's v1 spec as the brief states it, and `ROADMAP.md` row 1.5:
-
-1. **Four zones on the boar.** HEAD and CHEST (heart/lungs) kill. BODY (belly, flank, rear) wounds:
-   the boar runs a **short** way and drops. LEGS / hindquarters: several hits needed; it runs **far**
-   before dropping, **or escapes**.
-2. **Per-pellet zones.** A buckshot shot puts its pellets in different zones and each one counts; a
-   slug is one hit in one zone.
-3. **One owner for boar health and wound state**, and it is the boar's own runtime, not the weapon
-   (rule 3; brief).
-4. **A visible reaction to every hit**, so Karen can answer the question her playtest left open ("too
-   early to say if I can hit anything"). Visible means: the boar bolts the instant it is hit, whatever
-   it was doing, and it flashes.
-5. **A carcass.** A killed boar stays in the world as a carcass for a configured time before it is
-   removed.
-6. **A kill event and an escape event**, carrying everything the score system (1.7) needs: who shot
-   it, which zone, which ammo, at what distance, the killing shot versus the wounds before it, and —
-   for an escape — whether it got away wounded.
-7. Every number in **one config table**, with Karen's feel values marked (brief).
+1. **Model the anatomy as volumes inside the body**, not as surfaces on it: heart/lungs low and
+   forward behind the shoulder, the neck, the brain in the skull, the spine along the back, the
+   paunch behind the diaphragm, the hindquarters, the legs (direction B).
+2. **The shot's path through the body decides which volumes it crosses**, and the damage is the most
+   vital one crossed (direction B). A frontal shot reaches the heart and lungs; a quartering shot can
+   pass the paunch into the vitals.
+3. **Every vital is reachable from every aspect a drive produces**, not from the 40–115° window task
+   276 measured on a live animal (MEASURED NOW 4). The aspect window per volume per cartridge is
+   stated in degrees (11.1) and swept by a spec (12.1).
+4. **Real proportions, cited.** Both species' volumes are derived from the bone positions already
+   measured off the loaded rigs and recorded in `Boar.CONFIG.ZONES` and
+   `Boar.CONFIG.SPECIES.reddeer.ZONES`, plus the hunting doctrine the research note already holds
+   (`docs/research/2026-10-24-real-shooting.md` §7, sources D and E). **Nothing is re-guessed**
+   (BRIEF item 8).
+5. **Seven kinds, one table each per species.** `Boar.CONFIG.KINDS.ORDER` is
+   `male, female, cub, legendary, stag, hind, calf`; the boar kinds use `Boar.CONFIG.ZONES` and the
+   three deer kinds use `SPECIES.reddeer.ZONES`, each scaled by `KINDS[kind].scale` through the
+   **existing** `Body.kindGeometry`. No new scaling mechanism.
+6. **One owner for what a zone means**, and it is the animal: `ServerScriptService.Boar`. The weapon
+   gains no zone table, no anatomy and no damage number.
+7. **The answer must be cheap enough to compute per pellet** — nine pellets per shot, up to 6 shots
+   a second (3.7, 11.2).
+8. **Degrade, never crash.** No provider, no direction, no history sample, or no volume crossed each
+   has a stated answer, and each is counted (5.4).
 
 ### 1.2 Must not
 
-Each row is a named failure of the previous project (`docs/PROJECT_CONTEXT.md`, "Why the rules exist")
-or a boundary an existing design already drew, written as a prohibition.
-
 | Prohibition | Why | Whose job instead |
 |---|---|---|
-| The weapon must not gain a damage number, a zone table or a health concept | "One predicate answered two unrelated questions"; and `docs/design/shotgun.md` §1.2 already forbids the weapon a zone→reaction table | `ServerScriptService.Boar` (§3.1) |
-| Nothing outside `Boar.Body` may create, destroy, colour, weld or move a boar Instance — including the new zone parts | `Boar.Body` is "the only writer of a boar's Instances" (`src/server/Boar/Body.luau` header) | `Boar.Body` |
-| The `Brain` must stay pure: no services, no clocks, no Instances, no `os.clock`, no randomness but the injected `Random` | it is what lets `tests/server/boar_brain.spec.luau` drive 10 000 ticks with no physics | the Runtime injects; the Brain decides |
-| The `Wound` module must be pure and must own **no** state: it takes a wound state and returns a new one | one decision in one place, and the whole damage model testable with no world | `Runtime:takeHit` is the only place a wound state is stored |
-| No client code at all: no LocalScript, no RemoteEvent, no hit marker, no damage number on screen, no blood | `docs/design/boar-ai.md` §2 keeps this system server-only; anything drawn belongs to `PlayerScripts.Hud` (`docs/design/shotgun.md` §3.4) | §14 Director item C if a hit marker is wanted |
-| No blood trail, no tracking, no dogs | v1.1 (`ROADMAP.md` scope table; brief) | — |
-| No score, no points, no teams, no respawn, no spawn waves | 1.7 (`ROADMAP.md`) | this system publishes `Downed` and `Despawned` and stops there |
-| No `Humanoid`, no `Health` property, no `TakeDamage` | the boar is a driven Part, not a character (`docs/design/boar-ai.md` §2); a `Humanoid` would bring Roblox's own state machine as a second writer | the `Wound` module's damage points |
-| No `.model.json` or `.meta.json` for the zone parts | the harness fails typed property values as "cannot compare" (`tools/studio_mcp.py` docstring, check 4); audit-002 must-fix 1 is open (`TASKS.md` row 16) | §4: zone parts are built in code, as the body and the arena already are |
-| No new Wally package, no `default.project.json` change | `wally.lock` and `devpackages.sha256` are pinned against the commit, and a project-file change costs Karen a Connect click (`CLAUDE.md`, Toolchain) | nothing here needs either |
-| A dead boar must not keep taking hits or fire a second kill | a double-count in 1.7's score is a bug that looks like a cheat | §7.2: `Damageable` goes false on collapse, and `takeHit` refuses a downed boar |
-| The boar must not be despawned at the moment of death | the carcass is the point (brief item 5) | §7.3: `Downed` at death, `Despawned` at `CARCASS_SECONDS` |
+| The weapon must not gain a zone table, an anatomy, a damage number or a health concept | v1 §1.2 and `docs/design/shotgun.md` §1.2, unchanged since Milestone 1.5 | `ServerScriptService.Boar` (2) |
+| Nothing outside `Boar.Body` may create, destroy, colour, weld or move an animal Instance — including the hull parts | `Boar.Body` is "the only writer of a boar's Instances" (`src/server/Boar/Body.luau` header) | `Boar.Body` |
+| `Boar.Zones` must be **pure**: no service, no clock, no Instance, no `Random`, no state | it is what lets the aspect sweep run 7 kinds × 73 directions × 3 heights in a spec with no world | `Runtime:zoneAt` injects the frame and the geometry |
+| No second rewind reader, and no second clock | task 266 made `Runtime:cframeAt` the ONE reader of the history ring, and ballistics v5 §5.3 made `t*` the one instant. `zoneAt` calls `cframeAt`; it must not sample the ring itself | `Runtime:cframeAt` |
+| No `Workspace:Raycast` for the zone | the volume test is arithmetic on a box the server already holds. A second cast would be a second answer to "what did the bullet pass through" and a second raycast owner (ballistics v5 §1.2) | `Boar.Zones.rayBox`, pure |
+| No per-pellet Instance, no zone Instance per volume, no `CollectionService` tag | 7 volumes × 8 animals is 56 parts that nothing can ever hit; and the harness compares attributes and does not compare tags | 3.4: the hull is 2 parts (boar) or 3 (deer) |
+| **No new flag** | `Flags.MAX_FLAGS = 18` and `HIT_CLAIM` is the eighteenth (`src/shared/Flags/init.luau`). The rollback is a config row reachable by parameter (3.8) and the Director's alternative is named (16.2 B) | `CONFIG.ZONES.BY_PATH` |
+| No new remote, no new payload field on the wire, **no zone on the wire** | the client must not name a zone: direction A's whole shape. `Shotgun.HitClaim`'s six fields are unchanged and carry no zone | ballistics v5 §4.2 |
+| No change to the wound arithmetic, the thresholds, the flight formula or the Brain's states | this task adds volumes and two zone keys. Retuning the model as well would be the bundling rule 4 forbids | 4.6, and 16.1 is where Karen retunes |
+| A path must not be charged twice | one projectile does one wound: the crossings are reduced to **one** zone before `Wound.apply` ever sees them | 5.3 |
+| The drawn mesh must not become raycastable | `BOAR_MODEL`'s own contract: the visual is `CanQuery = false` and carries no `HitZone` (`src/shared/Flags/init.luau`, `BOAR_MODEL` row). v2 narrows the hull; it does not widen it onto the mesh | 3.4, and 16.2 C is the drawn-vs-hull width item |
 
-**One predicate answers one question.** `Wound.severity` says how badly hurt the boar is. It does not
-say whether the boar is fleeing, whether it is visible, whether it may be shot again, or whether the
-score should count it. Those are four different questions with four different answers in §8.
-
----
-
-## 2. The seam this design builds on, and what it assumes about it
-
-### 2.1 What Task 24 delivers (assumed, from `docs/design/shotgun.md` §6 and the brief)
-
-- `Boar.Body.create` sets, on the boar's Part: `Damageable = true`, `HitZone = "body"`.
-- `Runtime:takeHit(part: BasePart, hit: Hit): boolean` — `true` when the part is one of its live
-  boars. Its v1 body increments counters, stores `lastHit`, fires `Runtime.Hit` and changes nothing
-  about the boar's state, speed or lifetime (`docs/design/shotgun.md` §6.5).
-- `Hit = { zone: string, ammo: string, pellets: number, at: number }`, `zone = "body"` today.
-- `BoarBoot.server.luau` connects `Weapon.HitReported` to `runtime:takeHit`, so neither owner requires
-  the other.
-- `Weapon.HitReported` carries a `HitReport` with, among others: `shooter: Player`, `target: Instance`,
-  `zone: string` (dominant), `zones: { [string]: number }` (the full per-pellet tally), `pellets`,
-  `nearest: number` (studs, muzzle to the closest impact), `position: Vector3`, `normal: Vector3`,
-  `ammo`, `at` (`docs/design/shotgun.md` §5.1).
-
-### 2.2 What this design changes about it, and what it deliberately does not
-
-**The weapon does not change at all.** Not one file under `src/server/Weapon/`, `src/client/Weapon/`
-or `src/shared/Shotgun/`. That is the test `docs/design/shotgun.md` §6.4 set for its own seam — "when
-Milestone 1.5 replaces the box with a multi-part body, each part carries its own `HitZone` and
-**nothing in the weapon changes**" — and this design is the task that either passes it or exposes it.
-If the Builder finds it cannot be done without touching the weapon, that is a finding about the seam
-and belongs in `ESCALATE.md`, not a quiet edit.
-
-**Two things widen, both additively:**
-
-1. `Hit` gains optional fields (§8.1). Task 24's four fields keep their names and meanings, so Task
-   24's `tests/server/boar_hit.spec.luau` keeps passing unchanged. Everything new is optional and has
-   a stated fallback, so a `takeHit` call written against the Task 24 shape still works.
-2. `BoarBoot`'s one connection maps more of the `HitReport` it already receives into that payload
-   (§9.2). No new read of another system's internals: every field already exists on the report.
-
-### 2.3 What the Builder checks before writing anything
-
-Rule 8, and the reason §15 exists. On the branch, confirm and report:
-
-- the real field names on `HitReport` and on `takeHit`'s `hit` argument (this design's names come from
-  a design document, not from code);
-- that `Hits.targetOf` walks **ancestors** for `Damageable == true` and reads `HitZone` from the **hit
-  instance first**, falling back to the root. §4 depends on exactly that: the zone parts are children
-  of the boar's Part, so the ancestor walk must find the Part and the zone must come from the child.
-  If Task 24 implemented it as "read `HitZone` from the root only", §4 does not work and the one-line
-  fix is in `Hits.targetOf` — a weapon change, which §2.2 forbids without an escalation;
-- that `report.zones` really carries the per-pellet tally (item 2 of §1.1 depends on it; without it
-  buckshot degrades to "all pellets in the dominant zone", which §5.4 makes the explicit fallback).
+**One predicate answers one question.** `Zones.crossed` says which volumes a path passed through.
+It does not say what that does to the animal (`Wound`), whether the claim was honest (`Validator`),
+where the animal was (`Runtime:cframeAt`) or what to draw (`Effects`, `Report`).
 
 ---
 
-## 3. Ownership
+## 2. Owners — one writer each, named
 
-Rule 3: exactly one writer per system, named here, mirrored into `GAME_DESIGN.md` (§13).
-
-### 3.1 No new system owner, and that is the decision
-
-Hit zones, damage, wounded running and death are **boar state**. Boar state has one writer and it is
-already named: `ServerScriptService.Boar` (`GAME_DESIGN.md`, Boar row; `docs/design/boar-ai.md` §3).
-This design adds a private module to it and widens its published events. It does **not** create a
-"damage system", a "health service" or a "combat manager".
-
-Stated so it is overruled on purpose rather than by accident: a damage/health system of its own is the
-right answer when there are three animals, two weapons and a player damage model. Today there is one
-animal and one weapon, and a third owner between them would be the "invented foundations" failure at
-small scale (`docs/PROJECT_CONTEXT.md`). `docs/design/shotgun.md` §6.2 made the same call about a
-damage router and §15 item B queued the revisit; this design does not re-open it. §14, Director item
-A, is where it is revisited.
-
-### 3.2 The modules
-
-| Module | Is | Never |
-|---|---|---|
-| `src/server/Boar/init.luau` → `ServerScriptService.Boar` | **the owner**: `CONFIG` (now including `ZONES` and `WOUND`), the runtime list, each boar's **wound state**, the Heartbeat loop, the `Despawned`, `Hit` and new `Downed` signals | decides damage numbers itself; touches Instances directly |
-| `src/server/Boar/Wound.luau` → `…Boar.Wound` **(new)** | **pure**: the whole damage model. `(woundState, hit, config) -> (woundState, event)`, plus `severity`, `flightStuds`, `speedScale`, `advance`, `killRecord` | holds state, touches Instances, services, clocks, `Player` or `Random` |
-| `src/server/Boar/Brain.luau` → `…Boar.Brain` | boar **decision** state; gains the `WOUNDED` and `DOWN` states and the bolt reaction | knows a damage number, a zone name's meaning, or the config's `DAMAGE` table |
-| `src/server/Boar/Body.luau` → `…Boar.Body` | **every boar Instance**, now including the three zone parts, their welds, their attributes, the hit flash and the collapse | decides anything; reads the wound state |
-| `src/server/BoarBoot.server.luau` | nothing. Boot and wiring only | owns state |
-
-`Boar.Wound` is exported as `Boar.Wound` for specs, exactly as `Boar.Brain` already is
-(`src/server/Boar/init.luau`, `Boar.Brain = Brain`), and for the same reason: the pure core must be
-drivable with no world.
-
-**Why `Wound` is a module and not ten lines inside `takeHit`.** The damage table, the two thresholds,
-the flight formula and the speed ramp are the numbers Karen will retune after every playtest. Pure and
-separate, they are 30 assertions in a spec that runs in microseconds; inside `takeHit` they are
-testable only with a live boar and a physics frame. This is the same split
-`docs/design/boar-ai.md` §3 already made between `Brain` and the Runtime.
-
-### 3.3 Who writes what, within the system
-
-| Thing | Sole writer | Read by |
-|---|---|---|
-| `entry.wound` (one frozen `WoundState` per boar) | `Runtime:takeHit` and `Runtime:step` (through `Wound`'s pure returns) | the Brain, as a summary in the Observation; `Runtime:woundOf` returns a copy |
-| boar decision state (`_state`, heading, flight timers) | `Brain` | `Runtime`, through the `Intent` |
-| every boar Instance, attribute, colour and weld | `Body` | nothing writes them; the weapon **reads** two attributes |
-| `Hit`, `Downed`, `Despawned` | `Runtime` | 1.7's score, later. Nothing writes back |
-
-The Brain never writes the wound state and the Wound module never decides a state transition. That
-boundary is the one thing in this design that must not be blurred at build time: two systems writing
-one creature's state is the named cause of death of the previous project.
-
-### 3.4 Files on disk
-
-```
-src/server/Boar/
-  init.luau        CHANGED  owner: CONFIG.ZONES, CONFIG.WOUND, entry.wound, takeHit, Downed, stats
-  Wound.luau       NEW      the pure wound model
-  Brain.luau       CHANGED  WOUNDED and DOWN states, the bolt reaction, the carcass timer
-  Body.luau        CHANGED  zone parts + welds + attributes, flash, collapse, carcass marking
-src/server/BoarBoot.server.luau   CHANGED  two more fields in the existing takeHit call (§9.2)
-tests/server/boar_wound.spec.luau NEW      pure: the damage model
-tests/server/boar_brain.spec.luau CHANGED  pure: the new states and the reaction
-tests/server/boar_zones.spec.luau NEW      live: zone geometry, proved with real rays
-tests/server/boar_hit.spec.luau   CHANGED  live: the seam, the kill event, the carcass
-docs/research/2026-09-25-hit-zones.md NEW  rule 1 (§10 is its starting source set)
-```
-
-No new `default.project.json` mapping: a folder with `init.luau` takes its siblings as children, which
-`src/server/Boar/` already proves (`Brain.luau`, `Body.luau` compare green — `TASKS.md` row 18).
-
-**Rule 1, and it is the Builder's, not mine.** `docs/research/` belongs to the Builder (`CLAUDE.md`,
-Roles). Before code, write `docs/research/2026-09-25-hit-zones.md` with the sources in §10 — confirming
-each URL, licence and maintenance status, which I could not (§15) — and index it in
-`docs/research/INDEX.md`. Rule 9: `Wound.luau` carries the pattern name, its source links and that note
-path in its header, as `Brain.luau` and `Body.luau` already do.
-
----
-
-## 4. Zone geometry on the grey-box boar
-
-### 4.1 The problem a naive version gets wrong
-
-The boar is **one** `Part`, 2 × 3 × 5.5 studs, built by `Body.create`
-(`Boar.CONFIG.BODY_SIZE = Vector3.new(2, 3, 5.5)`; width X, height Y, length Z, with a Part's
-`LookVector` its −Z, so **−Z is the boar's front**). The weapon finds a zone by reading the `HitZone`
-attribute of the instance the ray hit (`docs/design/shotgun.md` §6.4). One part carries one attribute,
-so one part is one zone.
-
-The obvious fix — put four zone parts **inside** the box — does not work, and this is the trap worth
-naming: a raycast returns the first surface it meets, which is the outer box. Every shot would report
-`body`. A spec that called `takeHit` directly with `zone = "head"` would pass while no player could
-ever produce a head hit. That is "the harness was wrong as often as the game"
-(`docs/PROJECT_CONTEXT.md`), and §12.3 is the spec written specifically to make it impossible.
-
-### 4.2 The shape: one trunk, three zone parts that protrude
-
-The trunk Part stays exactly what it is — the physics body, the assembly root, the network-owned
-thing, the target root carrying `Damageable` — and keeps `HitZone = "body"`. It is therefore the
-**default zone**: belly, flank, rear and brisket are whatever no zone part covers, which is precisely
-Karen's BODY definition.
-
-Three child parts cover the zones that differ, each **protruding past the trunk surface on every face
-a pellet can arrive from**, so the ray meets the zone part first.
-
-Local coordinates: origin at the trunk's centre; x ∈ [−1, 1], y ∈ [−1.5, 1.5], z ∈ [−2.75, 2.75];
-**−Z is forward**, +Y is up.
-
-| Part | `HitZone` | Size (studs) | Centre offset (local) | Occupies | Why |
-|---|---|---|---|---|---|
-| `ZoneHead` | `head` | `(1.2, 1.2, 1.4)` | `(0, 0.5, -3.2)` | x ±0.6, y −0.1…1.1, z −3.9…−2.5 | a real head: **1.15 studs proud of the front face**, so it is hit from the front, both sides and above — and the boar visibly has a front, which the plain box never did |
-| `ZoneChest` | `chest` | `(2.12, 2.01, 1.7)` | `(0, 0.555, -1.6)` | x ±1.06, y −0.45…1.56, z −2.45…−0.75 | heart/lungs behind the shoulder. Proud by 0.06 on both flanks **and the top**, so a broadside or a downhill shot lands in it |
-| `ZoneLegs` | `legs` | `(2.12, 1.0, 5.4)` | `(0, -1.0, 0.15)` | x ±1.06, y −1.5…−0.5, z −2.55…2.85 | the bottom third over the whole length, proud by 0.06 on both flanks and **0.1 past the rear face** — so a shot at the hindquarters from behind reads `legs`, which is the brief's "LEGS / hindquarters" |
-
-Everything else is the trunk: `body`. A flank shot between y = −0.5 and y = +1.5 behind z = −0.75,
-the belly seen from below behind the legs band, the rear above the hams, the brisket low at the front.
-
-**Where the brief is ambiguous, and how it is resolved.** It says "BODY (belly, flank, **rear**)" and
-also "LEGS / **hindquarters**". This design splits them by height, not by front/back: the rear *above*
-the legs band is `body`, the rear *within* it (the hams and the back legs) is `legs`. That is the
-reading that makes both sentences true at once, and it is one number (`ZoneLegs` height) if Karen
-disagrees — §14, Karen item 3.
-
-### 4.3 Properties of the zone parts, and why each one
-
-Built in code in `Body.create`, after the trunk is parented (a `WeldConstraint` needs both parts in
-the DataModel), and parented **to the trunk Part**, not to the folder:
-
-| Property | Value | Reason |
-|---|---|---|
-| `Parent` | the trunk Part | `Hits.targetOf` walks **ancestors** for `Damageable == true`; a child of the trunk resolves to the trunk as the target, and its own `HitZone` as the zone. This is what keeps `takeHit(part, hit)` taking the same `BasePart` as today |
-| `Massless` | `true` | the assembly's mass, centre of mass and inertia stay what they were, so `MAX_FORCE`, `MAX_TORQUE` and `ACCEL` in `Boar.CONFIG` remain correct and `tests/server/boar_body.spec.luau` keeps passing (§10 source A) |
-| `CanCollide` | `false` | the collision body stays the trunk box. A protruding head that collided would catch on the arena's cover blocks and change how the boar routes — a movement change smuggled in by a hit-zone task |
-| `CanQuery` | `true` | it must be raycastable; that is its whole purpose |
-| `CanTouch` | `false` | nothing uses `Touched`, and leaving it on costs touch events per frame |
-| `Anchored` | `false` | an anchored child welded to the assembly would anchor the boar (§10 source A) |
-| joint | one `WeldConstraint` per zone part, `Part0` = trunk, `Part1` = zone part | rigid, no joint maths, the documented modern way (§10 source A) |
-| `Color` | `CONFIG.WOUND.ZONE_TINT and CONFIG.ZONES[zone].tint or CONFIG.BODY_COLOR` | grey-box teaching aid; one boolean turns it off (§11, Karen's dial) |
-| `Material` | `SmoothPlastic` | matches the trunk and the arena idiom |
-| attribute `HitZone` | `"head"` / `"chest"` / `"legs"` | the weapon's contract (`docs/design/shotgun.md` §6.4 source E) |
-| attribute `Damageable` | **not set** | it belongs on the target root only. Two `Damageable` instances in one ancestor chain is an ambiguity, not a feature |
-| `Name` | `ZoneHead` / `ZoneChest` / `ZoneLegs` | greppable; a spec finds them by name |
-
-The trunk keeps `Damageable = true` and `HitZone = "body"` exactly as Task 24 sets them.
-
-### 4.4 What this does not disturb, checked against the code on `main`
-
-- `tests/server/boar_body.spec.luau` counts `BasePart` **children of the runtime's folder** and
-  expects 1. Zone parts are children of the trunk, not of the folder, so the count stays 1. This is
-  the kind of detail that turns a green run red for a reason unrelated to the change, so it is written
-  down rather than discovered.
-- `Body.destroy` destroys the trunk; children go with it. Unchanged.
-- `Body.drive` writes `handle.mover.PlaneVelocity` and `handle.upright.CFrame`. Unchanged.
-- `part:SetNetworkOwner(nil)` is per **assembly**, so the welded zone parts follow. Unchanged.
-- `Boar.defaultWorld().probe` excludes the whole boar folder, so a boar never probes its own or
-  another boar's zone parts. Unchanged.
-- The camera's occlusion ray (`docs/design/camera.md` §7 source G) can now hit a protruding head. That
-  is the same thing as hitting the boar; no behaviour is different.
-
-### 4.5 When art arrives (Milestone 2)
-
-`Body.create` clones a template instead of building a box (`docs/design/boar-ai.md` §9), and the
-template's parts carry their own `HitZone` attributes. Nothing in `Wound`, `Brain`, the weapon or this
-design's numbers changes, because none of them names a part — they name a **zone string**. The zone
-strings are the durable contract; the boxes are grey-box geometry.
-
----
-
-## 5. The wound model
-
-### 5.1 The two quantities, and why there are two
-
-A single health pool cannot express Karen's spec. Under one pool, more damage always means a shorter
-run — so a leg hit, which needs *more* hits, would drop the boar *sooner* than a body hit. Her spec
-says the opposite: legs run far. So the model carries two numbers per zone:
-
-- **damage** (points, toward death), which decides *whether* it dies;
-- **flight** (studs), which decides *how far it gets first*.
-
-That split is the model, and it is the one thing in §5 worth arguing about. It matches how hunters
-describe it and how the wounding literature measures it — flight distance is a property of **where**
-the animal was hit, not only of how hard (§10 sources C and D).
-
-### 5.2 The table
-
-`Boar.CONFIG.WOUND.DAMAGE[zone]`, points. One slug is one hit; each buckshot pellet is counted
-separately.
-
-| Zone | Slug | Buckshot pellet | Flight (studs) |
+| Thing | The one writer | On disk | v2? |
 |---|---|---|---|
-| `head` | 100 | 34 | 0 |
-| `chest` | 100 | 25 | 0 |
-| `body` | 55 | 11 | 120 |
-| `legs` | 30 | 6 | 420 |
-| `unknown` | uses the `body` row | uses the `body` row | uses the `body` row |
+| **What a zone IS: the volume table, the ranks, the penetration depths** | `ServerScriptService.Boar` → `Boar.CONFIG.ZONES` and `SPECIES.reddeer.ZONES`, frozen data with no run-time writer | `src/server/Boar/init.luau` | **rewritten (3.2, 3.3, 3.7)** |
+| **Which volumes a path crossed, and which of them is worst** — pure, no world | `ServerScriptService.Boar.Zones` **(NEW)** | `src/server/Boar/Zones.luau` | **new file** |
+| **The one answer to "which zone did this shot hit on this animal"** | `ServerScriptService.Boar` → `Runtime:zoneAt` | `src/server/Boar/init.luau` | **new method** |
+| Where an animal WAS (the ring, the sampling, the rewound part CFrame) | `ServerScriptService.Boar` → `Runtime:step` writes, `Runtime:cframeAt` reads | `src/server/Boar/init.luau` | **untouched; `zoneAt` is a caller** |
+| **Every animal Instance**: the trunk, the hull parts, their welds, their attributes, the flash, the collapse | `ServerScriptService.Boar` → `Boar.Body` | `src/server/Boar/Body.luau` | **`buildZones` → `buildHull`; `kindGeometry` carries two more fields** |
+| The damage model (pure, stateless) | `ServerScriptService.Boar.Wound` | `src/server/Boar/Wound.luau` | **untouched** (two new keys are DATA, not code) |
+| A boar's wound state, and the one place a hit enters | `ServerScriptService.Boar` → `Runtime:takeHit` | `src/server/Boar/init.luau` | **untouched** |
+| Whether a shot happened, what it hit, and the one `HitReport` | `ServerScriptService.Weapon` / `Weapon.Hits.group` | `src/server/Weapon/init.luau`, `Hits.luau` | **asks the provider; `group` prefers `impact.zone`** |
+| The verdict on one claim — pure | `ServerScriptService.Weapon.Validator` | `src/server/Weapon/Validator.luau` | **`claimImpact` stamps `at`; ballistics v5 owns the rest** |
+| The projectiles in the air | `ServerScriptService.Weapon.Flight` | `src/server/Weapon/Flight.luau` | **stamps `impact.at`: one line** |
+| Where the server and client agree the muzzle is, and the shared types | `ReplicatedStorage.Shotgun`, deep-frozen | `src/shared/Shotgun/init.luau` | **`Impact` gains two optional fields; `ZoneQuery` is new** |
+| The drive report's silhouette and its rectangles | `ReplicatedStorage.Report`, frozen data (`docs/design/drive-report.md`) | `src/shared/Report/init.luau` | **two new rects, and the draw order (10.2)** |
+| What is drawn on screen for a hit | `PlayerScripts.Hud` / `PlayerScripts.Weapon.Effects` | `src/client/Hud/`, `src/client/Weapon/Effects.luau` | **untouched.** The mark drawn a body length behind (276a(c)) is `Effects.puff`'s and is ballistics v5 §16.6's item, not folded in here |
 
-`LETHAL = 100`, `MORTAL = 50`.
+**Boar does not require Weapon and Weapon does not require Boar.** The zone provider is wired by the
+composition roots that already wire the history provider — `MatchBoot.server.luau` and
+`ForestTestBoot.server.luau`, both of which call `Weapon.setHistoryProvider(function(instance, at) …`
+today (evidence: those two files, that call) — one line each.
 
-`unknown` is the zone the weapon reports when no `HitZone` attribute was found
-(`docs/design/shotgun.md` §5.3, `Hits.targetOf`). It must never crash and must never be silently
-free: it is charged as `body` **and** counted in `Runtime:stats().unknownZoneHits`, so a typo in an
-attribute name shows up as a number instead of as an animal that will not die.
-
-### 5.3 The rules
-
-```
-damage      = sum over every pellet of DAMAGE[zone][ammo]
-severity    = "lethal"  if damage >= LETHAL
-            = "mortal"  if damage >= MORTAL
-            = "grazed"  if damage >  0
-            = "healthy" otherwise
-
-maxFlight   = max FLIGHT[zone] over zones with damage > 0
-span        = LETHAL - MORTAL                              -- 50
-over        = clamp(damage - MORTAL, 0, span)
-flightStuds = maxFlight * (1 - over / span)                -- studs it runs before collapsing
-```
-
-- **lethal** → it drops where it stands, this tick. `flightStuds` is 0 by construction.
-- **mortal** → it will die. It bolts and runs; when the distance it has run since the mortal wound
-  reaches `flightStuds`, it collapses. `BLEED_OUT_MAX_SECONDS` is a hard ceiling so a wounded boar
-  wedged against a wall cannot live forever.
-- **grazed** → it is hurt but will not die of it. It bolts and keeps going, and it can escape. More
-  hits accumulate into the same total.
-
-A later hit **never lengthens** the run: `flightStuds` is a decreasing function of `damage`, and the
-distance already run is not reset. That property is one assertion, not a comment (§12.1 item 9).
-
-Worked, so the numbers can be argued with rather than trusted:
-
-| Shot | damage | severity | flight | Reads as |
-|---|---|---|---|---|
-| slug, head | 100 | lethal | 0 | drops on the spot ✔ Karen's spec |
-| slug, chest | 100 | lethal | 0 | drops on the spot ✔ |
-| slug, body | 55 | mortal | 120 × (1 − 5/50) = **108 studs** ≈ 4 s | "runs a short way, then drops" ✔ |
-| slug, legs | 30 | grazed | — | runs on; one leg hit is not enough ✔ |
-| 2 × slug, legs | 60 | mortal | 420 × (1 − 10/50) = **336 studs** ≈ 16 s | "several hits, runs far — or escapes" ✔ (336 studs in a 400-stud arena usually means it reaches the exit line first) |
-| slug body + slug legs | 85 | mortal | 420 × (1 − 35/50) = **126 studs** | a second hit shortens the run ✔ |
-| 9 buck pellets, chest, close | 225 | lethal | 0 | drops ✔ |
-| 3 buck pellets, chest, far | 75 | mortal | 0 (chest flight is 0) | drops ✔ — a lung hit is a lung hit |
-| 1 buck pellet, head, far | 34 | grazed | — | runs on. A single pellet in the head at distance is not a kill, and should not be |
-| 4 pellets body + 2 legs, mixed | 44 + 12 = 56 | mortal | 420 × (1 − 6/50) = **370 studs** | a pattern that caught the hindquarters tracks a long way ✔ |
-
-### 5.4 Buckshot: per-pellet zones, and the honest fallback
-
-`Wound.apply` uses `hit.zones` — the per-zone pellet tally from the weapon's `HitReport` — when it is
-present, charging `DAMAGE[zone].Pellet` once per pellet in that zone. That is brief item "Buckshot
-pellets each hit a zone".
-
-If `hit.zones` is absent (a slug, an older caller, or Task 24 not carrying it), every pellet is
-charged at the **dominant** `hit.zone`. Stated, not silent: `Runtime:stats().tallylessHits` counts it,
-so "buckshot zones do not work" is a number in the harness report rather than a feeling in a playtest.
-
-### 5.5 Speed while wounded — the second visible signal
+### 2.1 Files on disk — v2's diff
 
 ```
-bleed = WOUND_SPEED_START + (WOUND_SPEED_END - WOUND_SPEED_START) * clamp(flightRun / flightStuds, 0, 1)
-        -- 1.0 -> 0.45 over the flight; 1.0 when not mortal
-limp  = LIMP_SCALE if damage in the `legs` zone > 0 else 1.0
-speedScale = bleed * limp
+src/server/Boar/init.luau      -> ServerScriptService.Boar       (CONFIG.ZONES rewritten; WOUND +2 rows
+                                                                  per table; Runtime:zoneAt NEW;
+                                                                  Boar.Zones exported)
+src/server/Boar/Zones.luau     -> ...Boar.Zones                  NEW, pure
+src/server/Boar/Body.luau      -> ...Boar.Body                   (buildZones -> buildHull;
+                                                                  kindGeometry carries rank + hull)
+src/shared/Shotgun/init.luau   -> ReplicatedStorage.Shotgun      (Impact: +zone?, +at?; ZoneQuery NEW)
+src/server/Weapon/init.luau    -> ServerScriptService.Weapon     (setZoneProvider + askZone, the
+                                                                  annotation of flight impacts and of
+                                                                  the accepted claim's impact)
+src/server/Weapon/Hits.luau    -> ...Weapon.Hits                 (group prefers impact.zone)
+src/server/Weapon/Flight.luau  -> ...Weapon.Flight               (stamps impact.at)
+src/server/Weapon/Validator.luau -> ...Weapon.Validator          (claimImpact stamps at = t*)
+src/server/MatchBoot.server.luau, src/server/ForestTestBoot.server.luau   (one wiring line each)
+src/shared/Report/init.luau    -> ReplicatedStorage.Report       (SILHOUETTE: +neck, +spine, draw order)
+tests/server/boar_zones.spec.luau       (REWRITTEN: the pure sweep + the live hull)
+tests/server/kill_zones.spec.luau       (+ neck and spine, over 7 kinds x 4 guns)
+tests/server/boar_hit.spec.luau         (the seam, at the new zones)
+tests/server/weapon_hits.spec.luau      (the provider: wired, unwired, throwing, no direction)
+tests/server/weapon_shot.spec.luau      (LIVE: a scripted shot at a placed animal, per aspect)
+tests/server/report_silhouette.spec.luau (the two new rects; disjointness -> draw order)
+tests/server/boar_model.spec.luau, boar_kinds.spec.luau, boar_legendary.spec.luau,
+tests/server/boar_behaviour_live.spec.luau  (part counts and names: 10.3)
 ```
 
-Applied by the Brain to its speed **setpoint** in `FLEE` and `WOUNDED` — never to the physics, exactly
-as `TURN_RATE` and `ACCEL` are applied to the setpoint today (`docs/design/boar-ai.md` §5). So it is
-assertable with no physics at all.
-
-Why it earns its place: a leg-shot boar that visibly slows is the difference between "I hit it" and
-"nothing happened" at 80 studs, and `SPRINT_SPEED * LIMP_SCALE = 28.5` studs/s is still well above a
-player's walk speed of 16, so a limping boar is not a free kill — it is a boar you can now keep up
-with. That is the drive mechanic in miniature, and it is one number if Karen disagrees.
+**Nothing under `src/server/Match/`, `src/server/MatchBoot.server.luau`'s match code, `src/client/Match/`
+or `src/shared/Drive/` is touched** — `MatchBoot.server.luau` **is** on `TWO_PLAYER_PATHS`
+(`tools/agents.py`) and one wiring line in it therefore drags `test2` into the gate. **Put the wiring
+in `ForestTestBoot` and `MatchBoot` in a separate, final commit and expect `test2` for the PR** (13.2
+states the choice and the cheaper alternative).
 
 ---
 
-## 6. The Brain: new states, and how they reuse flee and route
+## 3. The geometry
 
-### 6.1 States
+### 3.1 Two kinds of box, and why the old one could not work
 
-`State = "IDLE" | "FLEE" | "WOUNDED" | "DOWN" | "GONE"` — two added to the three in
-`docs/design/boar-ai.md` §5.
+Today (`Boar.CONFIG.ZONES`, built by `Boar.Body.buildZones`) every zone is a Part welded to the
+trunk, `CanQuery = true`, `CanCollide = false`, `Massless`, standing `PROTRUSION = 0.06` studs proud
+of the trunk on every face a pellet can arrive from, **because a raycast returns the first surface it
+meets**. Three consequences, all measured:
 
-| State | Speed setpoint | Path | Leaves when |
+- the chest is reachable only **40–115° off the nose**, is **1.54 studs long against a 6.03-stud
+  trunk**, and clears the trunk by **0.05 studs a side** (MEASURED NOW 4). Head-on and tail-on chest
+  shots read `body` and `rear`;
+- a flank shot at the drawn head is charged to `body`, and the config says so in as many words:
+  *"the drawn head is 1.1 studs wide and the trunk is 2.0, so a ray from the FLANK meets the trunk
+  before it meets the head … the only fix is a narrower trunk at the front, which is a change to the
+  animal's collision shape that nobody asked for"* (`Boar.CONFIG.ZONES.head`'s comment);
+- every boundary between two zones had to be made proud or interior by hand, one face at a time, or
+  it was *"a coin toss: two coincident surfaces at the same ray distance"* (the `rear` row's comment,
+  task 116 review round 2).
+
+After v2 there are two kinds of box and they answer two different questions:
+
+| | **HULL** | **VOLUME** |
+|---|---|---|
+| Question | can a ray hit this animal here? | what is under the skin along this path? |
+| Is | an Instance: the trunk, plus one part per volume row marked `hull = true` | **data only**: a row in `CONFIG.ZONES` |
+| `CanQuery` | `true` | n/a — never an Instance |
+| May overlap | no (and does not) | **yes, and that is the point** |
+| Decided by | the engine's cast, as today | `Boar.Zones`, in the trunk's frame |
+| Carries `HitZone` | yes — as the **fallback only** (5.4) | no |
+
+`PROTRUSION` is deleted with its name. A reader who finds it next to the new rows will carry the old
+meaning into them (the same reason ballistics v5 deletes `LINE_TOLERANCE_STUDS` rather than reusing
+it).
+
+### 3.2 The boar's seven volumes
+
+Trunk: `Boar.CONFIG.BODY_SIZE = (2, 3, 5.5)` — x ±1.0, y ±1.5, z ±2.75, **−Z is the front**, origin
+at the trunk's centre. Ground is y = −1.5 (`Body.visualOffset` stands the mesh's feet on it).
+
+**The measurements these are built from** (already in the repo, read off the loaded rig in a Play
+session on 2026-10-04 and recorded above `Boar.CONFIG.ZONES`): nose z −2.388 y 0.666 · head bone
+z −1.279 y 0.912 · eye z −1.779 y 1.087 · ears z −1.208 y 1.570 · `Neck` z −0.866 y 0.872 · mesh
+front face z −2.750 · front legs attach z −0.53 to −0.70 (`hip_1_f`, `thigh_f`). The drawn skull runs
+z −2.75 to −1.10 and y 0.35 to 1.65.
+
+| volume | `rank` | `CLASS` | `hull` | size (x, y, z) | offset | spans | why this box |
+|---|---|---|---|---|---|---|---|
+| `head` | 70 | vital | **yes** | (1.20, 1.30, 1.76) | (0, 1.00, −1.93) | x ±0.60 · y 0.35…1.65 · z −2.81…−1.05 | the drawn skull, nose to the back of the jaw. Width and height are today's accepted `ZoneHead`; only the back face moves, from −1.45 to −1.05, so the whole skull is in it |
+| `neck` | 60 | vital | no | (1.00, 1.00, 0.85) | (0, 0.90, −0.625) | x ±0.50 · y 0.40…1.40 · z −1.05…−0.20 | `Neck` sits at z −0.866, y 0.872. A boar's neck is short and thick; it abuts the skull at −1.05 |
+| `chest` | 50 | vital | no | (1.50, 1.60, 1.80) | (0, 0.25, −0.15) | x ±0.75 · y −0.55…1.05 · z −1.05…+0.75 | the *Kammer*: heart and lungs, low and forward, from the base of the neck back past the shoulder (the forelegs attach at −0.53/−0.70). Source E |
+| `spine` | 40 | crippling | no | (0.70, 0.45, 3.35) | (0, 1.275, 0.775) | x ±0.35 · y 1.05…1.50 · z −0.90…+2.45 | the backbone strip under the back line. A high shot over the ribs breaks it and the animal cannot run — Karen's crippling reaction, now reachable along the whole back and not only at the rump |
+| `rear` | 30 | crippling | no | (1.80, 1.80, 1.20) | (0, 0.60, 2.15) | x ±0.90 · y −0.30…1.50 · z +1.55…+2.75 | the hams and pelvis. Karen, 2026-10-03: *"can be hit to back part start to do circles with first legs on"* (task 116). Clipped to the trunk's rear face |
+| `body` | 20 | nonVital | no | (1.80, 1.85, 0.80) | (0, 0.125, 1.15) | x ±0.90 · y −0.80…1.05 · z +0.75…+1.55 | the paunch, behind the diaphragm and in front of the pelvis — the *Waidwundschuss*. **It is also the fallback zone** (5.4), so the brisket and the flank that no volume claims are still `body`, exactly as the trunk's own comment has always said |
+| `legs` | 10 | nonVital | no | (2.00, 1.00, 4.60) | (0, −1.00, 0.30) | x ±1.00 · y −1.50…−0.50 · z −2.00…+2.60 | the bottom third, the whole length — today's band, unchanged in extent |
+
+Unclaimed, deliberately: **the brisket and lower neck**, z −2.00…−1.05 at y −0.50…+0.35 — the wedge
+in front of the chest and under the head. A short projectile that stops there crosses nothing and is
+charged `body`, which is what it is charged today.
+
+### 3.3 The red deer's seven volumes
+
+Trunk: `Boar.CONFIG.SPECIES.reddeer.BODY_SIZE = (1.8, 4.8, 7.05)` — x ±0.9, y −2.40…+2.40 (the box
+bottom **is** the ground), z ±3.525. Every deer kind is this box × `KINDS[kind].scale`.
+
+**The measurements** (already in the repo, measured in headless Blender on 2026-10-20 and
+cross-checked against the loaded model in Studio, *"the two agree to 0.02 studs on every bone"*):
+nose z −3.525 · skull bone (0, 2.72, −2.29) · mouth (0, 2.81, −2.42) · ear y 3.11 · `neck_01`
+z −1.21 · `hip_1_f` z −0.53 · `thigh_f` z −0.63 · brisket y +0.05 · back y +2.45 · `Spine_base`
+z +2.18 · `hip_b` z +2.79 · first tail bone z +3.15.
+
+| volume | `rank` | `CLASS` | `hull` | size | offset | spans | why |
+|---|---|---|---|---|---|---|---|
+| `head` | 70 | vital | **yes** | (1.00, 1.10, 1.70) | (0, 2.72, −2.74) | y 2.17…3.27 · z −3.59…−1.89 | **unchanged, measured**: the skull between the mouth and `neck_01`. A red deer carries it a whole trunk-height above a boar's |
+| `neck` | 60 | vital | **yes** | (0.75, 1.90, 1.50) | (0, 1.95, −1.60) | x ±0.375 · y 1.00…2.90 · z −2.35…−0.85 | the long neck from the withers up to the skull base. It stands above the trunk's top (2.40), so it is a hull row — on a stag it is one of the two things a shot can meet that the box does not cover |
+| `chest` | 50 | vital | no | (1.40, 1.80, 2.20) | (0, 0.95, −0.80) | x ±0.70 · y 0.05…1.85 · z −1.90…+0.30 | the chamber from the brisket (y +0.05) up to below the back line, from the base of the neck back past the shoulder (`hip_1_f` −0.53) |
+| `spine` | 40 | crippling | no | (0.60, 0.50, 3.40) | (0, 2.05, 0.50) | x ±0.30 · y 1.80…2.30 · z −1.20…+2.20 | the back line from the withers to `Spine_base` +2.18 |
+| `rear` | 30 | crippling | no | (1.60, 2.50, 2.00) | (0, 1.05, 2.40) | x ±0.80 · y −0.20…2.30 · z +1.40…+3.40 | the hams and pelvis: `hip_b` +2.79, tail +3.15 |
+| `body` | 20 | nonVital | no | (1.70, 2.00, 1.10) | (0, 0.90, 0.85) | x ±0.85 · y −0.10…1.90 · z +0.30…+1.40 | the paunch, and the fallback |
+| `legs` | 10 | nonVital | no | (1.80, 2.50, 5.00) | (0, −1.15, 0.50) | x ±0.90 · y −2.40…+0.10 · z −2.00…+3.00 | *"a deer is mostly legs"*: the band from the ground to the brisket, 52 % of the animal's height against the boar's third |
+
+### 3.4 The hull — two parts on a boar, three on a deer
+
+`Boar.Body.buildHull` (today's `buildZones`, renamed and reduced) builds **one part per volume row
+with `hull = true`**, and nothing else. Every other volume lies inside the trunk, so the trunk is its
+hull.
+
+| Property | Value | Reason — all four are today's `buildZones` values and the reasons are its own |
+|---|---|---|
+| `Parent` | the trunk Part | `Hits.targetOf` walks **ancestors** for `Damageable == true`, so a child resolves to the trunk as the target root; and `RaycastParams.FilterDescendantsInstances` is a descendant filter, so excluding the trunk excludes the hull (ballistics v5 §5.6 property 1 still holds, with fewer parts) |
+| `Massless` | `true` | the assembly's mass, centre of mass and inertia stay what they were, so `MAX_FORCE`, `MAX_TORQUE` and `ACCEL` remain correct |
+| `CanCollide` | `false` | the collision body stays the trunk box |
+| `CanQuery` | `true` | being raycastable is its entire purpose |
+| `CanTouch` | `false`, `Anchored` `false`, one `WeldConstraint` to the trunk | unchanged; an anchored welded child anchors the whole animal |
+| `Color` | `ZONE_TINT and spec.tint or BODY_COLOR` | unchanged |
+| attribute `HitZone` | the row's own name (`"head"`, `"neck"`) | **the fallback contract only** (5.4) |
+| attribute `Damageable` | **not set** | it belongs on the target root alone |
+| `Name` | `HullHead`, `HullNeck` | greppable, and **renamed on purpose**: a part called `ZoneChest` that no longer decides a zone would be the worst kind of stale name. The three that go are `ZoneChest`, `ZoneRear`, `ZoneLegs` |
+
+**What the boar's hull keeps, face by face.** `HullHead` spans z −2.81 and y 1.65 against the trunk's
+−2.75 and 1.50 — the same **0.06 proud at the front and 0.15 proud at the top** that today's
+`ZoneHead` has, because it is the same measured skull. So the one thing a player can see about the
+hull does not change: the boar still has a head sticking out in front and above, and a nose-on or
+over-the-top shot still meets it. The deer's `HullHead` is unchanged outright and `HullNeck` is new
+where there was nothing but air.
+
+**What the hull loses:** the 0.06 of flank proudness on `ZoneChest`/`ZoneRear`/`ZoneLegs` and the
+0.15 past the rear face on `ZoneRear`. Every one of those shots now lands on the trunk 0.06–0.15
+studs further in and the path answers the same zone (5.1). **This is the one place a shot that hit
+yesterday could miss today**: a ray that grazed the proud flank of `ZoneLegs` without touching the
+trunk. It is 0.06 studs of silhouette on each side, it is in the honest direction (the hull is now
+exactly the collision box plus the measured head), and the live spec sweeps the flank at ±0.05 studs
+of the box edge to show what happens there (12.2 case 5).
+
+### 3.5 Per kind: nothing new
+
+`Body.kindGeometry(kind, config)` already builds `zones[name] = { part, size = spec.size * scale,
+offset = spec.offset * scale, tint }` for every name in `ZONES.ORDER`, and `Body.create` stores the
+result on the handle as `handle.geometry`. **v2 adds two fields to that copy — `rank` and `hull` —
+and nothing else.** So:
+
+- all seven kinds scale by `KINDS[kind].scale` through the existing path (male 1.0, female 0.85, cub
+  0.45, legendary 1.35, stag 1.0, hind 0.8553, calf 0.495);
+- `boar_kinds.spec` and `boar_legendary.spec`, which assert exactly that scaling over
+  `ZONES.ORDER`, keep working against seven names instead of four;
+- `Runtime:zoneAt` reads `entry.body.geometry.zones` and therefore needs **no species lookup, no
+  kind lookup and no second table**. `Boar.speciesConfig` already decided which species' `ZONES` the
+  animal was built from, at spawn.
+
+### 3.6 Overlap is a feature, and `rank` is what replaces the race
+
+Two volumes may interpenetrate. Where they do, **the crossing with the greatest `rank` wins** — one
+number in one data row, decided by the design, never by the engine's choice between two coincident
+surfaces.
+
+`rank`, descending: `head` 70 · `neck` 60 · `chest` 50 · `spine` 40 · `rear` 30 · `body` 20 ·
+`legs` 10.
+
+**It is a data row rather than a derivation, and the spec pins it to the doctrine so it cannot
+drift** (12.1 case 3): the order must agree with `CLASS` (`vital` above `crippling` above
+`nonVital`) and, inside one class, with the `DAMAGE[zone].Slug` ordering. Today that reads:
+head/neck/chest vital at 100 · spine/rear crippling at 55 · body 55 and legs 30 nonVital. A later
+retune that makes `legs` hurt more than `body` without moving the ranks fails that assertion instead
+of silently reporting the wrong zone.
+
+Why not derive the rank from the damage directly: the damage depends on the cartridge, the weapon
+and the animal's `toughness`, and the zone has to be decided **before** any of them is consulted
+(`Wound.damageFor` takes the zone as its first argument). A rank that changed with the gun would mean
+the hit card named a different organ for the same hole.
+
+### 3.7 How deep a projectile goes — `PENETRATION`
+
+The path is bounded. Without a bound a buckshot pellet into a ham would be charged to the chamber on
+the far side of the animal.
+
+`CONFIG.ZONES.PENETRATION`, keyed by the **ammo word** exactly as `WOUND.DAMAGE` is, with
+`PENETRATION_BY_WEAPON` keyed by the **weapon id** exactly as `WOUND.DAMAGE_BY_WEAPON` is, consulted
+first, falling through when a weapon has no row (so the shotgun, the semi-auto and every hit that
+carries no weapon are unchanged in shape):
+
+| row | studs | metres (at `Report.CONFIG.METRES_PER_STUD = 0.28`) | what it is |
 |---|---|---|---|
-| `IDLE` | unchanged | none | unchanged; **plus**: any hit → `FLEE` or `WOUNDED` or `DOWN`, immediately |
-| `FLEE` | unchanged, × `speedScale` | unchanged | unchanged; **plus**: a mortal wound → `WOUNDED`; a lethal wound → `DOWN` |
-| `WOUNDED` | `SPRINT_SPEED` × `speedScale` while bolting, then exactly `FLEE`'s rule × `speedScale` | **identical to `FLEE`**: same `_fleeDirection`, same `_routeTarget`, same repath interval, same stuck handling | `flightRun ≥ flightStuds` or `woundedFor ≥ BLEED_OUT_MAX_SECONDS` → `DOWN`; crossing `exitZ` → `GONE` with reason `escaped`; **never returns to `IDLE`** |
-| `DOWN` | 0 | none | `CARCASS_SECONDS` elapsed → `despawn = true, reason = "killed"` → `GONE` |
-| `GONE` | 0 | none | terminal, unchanged |
+| `PENETRATION.Slug` | **2.20** | 0.62 | a 1 oz rifled slug / Brenneke in tissue. **Derived to a purpose and the purpose is stated**: 0.20 studs more than the worst centre-line depth to a boar's chamber (2.00, tail-on), so the Texas heart shot *just* reaches it and nothing reaches it by accident |
+| `PENETRATION.Pellet` | **0.90** | 0.25 | one 00 buckshot pellet at drive range. Enough to reach the chamber from the flank (0.25 studs of rib) and not from the front (1.70 studs of brisket) |
+| `PENETRATION_BY_WEAPON.rifle` | **4.00** | 1.12 | .416 Rigby, 400 gr: through a stag end to end (its tail-to-chamber depth is 3.23) |
+| `PENETRATION_BY_WEAPON.lever` | **3.00** | 0.84 | .45-70, 405 gr: through a boar end to end, not through a stag |
 
-**`WOUNDED` is `FLEE` with three differences and no fourth.** It does not calm down (a mortally wounded
-animal does not go back to grazing); its speed is scaled; and it is counting studs. Everything about
-where it runs — the route to the exit line, the sideways bias away from the threat, the doubled bias
-when a threat is in the way, the navmesh waypoints, the Reynolds fallback when a path fails, the stuck
-sidestep — is the existing code, called from the existing place. That is brief item "how they reuse
-flee/route", and it is also the reason this task does not re-open a tested state machine.
+**These four numbers are not measured and they are Karen's dials** (15, 16.1 item 3). What is
+measured is the geometry they are set against (3.2, 3.3) and the arithmetic in 11.1. The cartridges
+themselves are source F of `docs/research/2026-10-24-real-shooting.md`.
 
-### 6.2 The reaction to being hit — before the sense gate, and that is the point
+**Penetration is NOT divided by `toughness`.** The legendary's `Schild` already divides its damage,
+and dividing the depth as well would apply one armour twice — the same argument `Wound.damageFor`'s
+header makes for refusing a second `LETHAL` scale. 16.1 item 7 is where Karen overrules it.
 
-`Brain:step` senses on a `SENSE_INTERVAL = 0.2 s` accumulator. A reaction that waited for the next
-sense tick would be up to 200 ms late and would sometimes look like nothing happened.
+### 3.8 The switch, and why it is a config row and not a flag
 
-So: **hit events are handled at the top of `Brain:step`, before the sense gate, before anything else
-but the despawn check.** For every hit in `obs.hitEvents` (a list, because two pellets from two
-shooters can land in one tick):
+`CONFIG.ZONES.BY_PATH`, default **`true`**.
 
-1. Record the shot point: `self._lastShotPoint = event.from` (flat), if given.
-2. `severity == "lethal"` → `self._state = "DOWN"`, and nothing else matters this tick.
-3. otherwise → `self._state = "WOUNDED"` if `severity == "mortal"`, else `"FLEE"` if currently `IDLE`
-   or `FLEE`. A `WOUNDED` boar stays `WOUNDED`.
-4. **Bolt:** `self._boltFor = BOLT_SECONDS`; `self._grazeFor = 0`; `self._sinceCalm = 0`;
-   `self._sinceRepath = math.huge` (path immediately, as the IDLE→FLEE transition already does); and
-   `self._speed = math.max(self._speed, SPRINT_SPEED * BOLT_KICK)` — a single documented bypass of the
-   `ACCEL` ramp, because a shot animal does not accelerate over 0.63 s. It is the one place in the
-   system where the ramp is skipped, and it is skipped once per hit, by assignment, not by a new rule.
-5. While `_boltFor > 0`, the boar sprints and is treated as threatened whether or not a player is
-   inside `DETECT_RADIUS`, and `_threatPoint` falls back to `_lastShotPoint`. So the existing
-   `_routeTarget` runs the boar away from **the shooter**, using code that already works, even when
-   the shooter is 200 studs away and would never have registered as a threat.
+- `true`: the zone is the most vital volume the path crossed (5.1).
+- `false`: `Runtime:zoneAt` returns `nil` for every query, every impact falls through to
+  `Hits.targetOf`'s attribute answer, and the game is the attribute game — on the **new hull**, so
+  it is `head`/`neck` on those parts and `body` everywhere else. It is a rollback of the *decision*,
+  not of the *geometry*.
 
-**Numeric target:** the state change is visible within **one Heartbeat tick (≤ 17 ms at 60 Hz)** of
-`takeHit`, not one sense interval. Asserted in the pure spec (§12.1 item 5) and in the live spec.
+**It is a config row because `Flags.MAX_FLAGS = 18` and `HIT_CLAIM` is the eighteenth**
+(`src/shared/Flags/init.luau`). CLAUDE.md's rule for a feel-critical path — born OFF, merged dark,
+Karen's OK flips the default — cannot be followed without retiring a row first, and that is the
+Director's call, not mine: **16.2 B** states it, with the default that lets the build proceed either
+way. Both states are reachable **by parameter** (`Boar.newRuntime` merges `world.config`), which is
+the property CLAUDE.md actually requires of a flagged path, and 12.1 case 9 tests both.
 
-### 6.3 Escape, and what happens to a boar that gets away hurt
+---
 
-`Brain:_outcome` currently returns `escaped` only in `FLEE`. It gains `WOUNDED`:
+## 4. Public interface
+
+Types are Luau annotations. `luau-lsp analyze` is not in CI, so they are documentation plus editor
+checking, not a gate.
+
+### 4.1 `Boar.Zones` — pure, and the whole geometry
 
 ```luau
-if (self._state == "FLEE" or self._state == "WOUNDED") and position.Z <= field.exitZ then
-    return "escaped"
+-- ServerScriptService.Boar.Zones
+export type Volume = {
+    name: string,
+    size: Vector3,            -- the box, in the trunk's frame, already scaled by the kind
+    offset: Vector3,          -- the box centre, in the trunk's frame
+    rank: number,             -- 3.6
+    hull: boolean?,           -- true: Boar.Body builds a queryable part for it
+    part: string?,            -- the hull part's Name, when hull is true
+    tint: Color3?,            -- read by Report.SILHOUETTE's mirror and by the hull part
+}
+export type Crossing = { zone: string, rank: number, enter: number, exit: number }  -- studs along the path
+
+-- The slab test (source B, source F). Returns (tEnter, tExit) in studs along `direction`, or nil
+-- when the ray misses. `direction` must be a unit vector; both returns may be negative, which is
+-- "the box is behind the entry point".
+Zones.rayBox(origin: Vector3, direction: Vector3, centre: Vector3, half: Vector3): (number?, number?)
+
+-- Every volume the path crosses, in ascending `enter` order, clipped to [0, maxDepth].
+Zones.crossed(geometry, order: { string }, origin: Vector3, direction: Vector3, maxDepth: number): { Crossing }
+
+-- The most vital crossing: the greatest `rank`. nil for an empty list.
+Zones.worst(crossings: { Crossing }): string?
+
+-- How deep this projectile goes in THIS animal: PENETRATION_BY_WEAPON[weapon] or PENETRATION[ammo],
+-- else `zones.PENETRATION_DEFAULT_STUDS`.
+Zones.depthFor(zones, ammo: string?, weapon: string?): number
+
+-- crossed + worst, in one call. THE function Runtime:zoneAt uses.
+Zones.zoneFor(zones, geometry, origin: Vector3, direction: Vector3, ammo: string?, weapon: string?): (string?, { Crossing })
+
+-- The rows Boar.Body must build a part for.
+Zones.hullRows(geometry, order: { string }): { Volume }
+```
+
+`origin` and `direction` are in the **trunk's object space**. No `game:GetService`, no clock, no
+`Instance`, no `Random`, no `CFrame` of the world. `geometry` and `zones` are parameters, not
+lookups, so a spec passes its own tables — the discipline `Wound` and `Brain` are already held to.
+
+**`rayBox` is arithmetic I can state in full, which is why it is in this document and not in a
+library.** For each axis `i`, with `d = direction[i]` and `c = origin[i] − centre[i]`:
+
+```
+if |d| < 1e-9 then                      -- parallel to this slab
+    if |c| > half[i] then return nil end
+else
+    t1 = (-half[i] - c) / d ;  t2 = (half[i] - c) / d
+    tmin = max(tmin, min(t1, t2)) ;  tmax = min(tmax, max(t1, t2))
+    if tmin > tmax then return nil end
 end
 ```
+starting at `tmin = -math.huge`, `tmax = math.huge`, and returning `(tmin, tmax)`. Eighteen
+multiplications and no engine call. The degenerate cases — a ray exactly parallel to a face, a ray
+starting inside the box (`tmin < 0 < tmax`, which is legal and means "the shot began inside this
+volume"), and a zero-extent axis — are the three the spec drives first (12.1 case 1).
 
-The out-of-bounds rule is unchanged and still applies in any state. A `DOWN` boar is stationary and
-inside the field by construction, so the carcass never trips either.
-
-An escaped boar that was mortally wounded still fires `Despawned` once, with `reason = "escaped"` and
-the wound payload attached (§8.3). That is the brief's "An escaped wounded boar is also an event": 1.7
-decides whether it is a penalty, a partial score or nothing. This system does not decide, and must
-not.
-
-### 6.4 `DOWN` and the carcass timer
-
-`DOWN` is entered from any live state. On entry (once, guarded by a flag exactly as `_despawned`
-already guards the despawn report):
-
-- `intent.downed = true` — the Runtime's signal to collapse the body and publish the kill;
-- `intent.targetVelocity = Vector3.zero` and `intent.facing = nil` for every subsequent tick;
-- `self._carcassFor = CARCASS_SECONDS`, counted down with `dt` (the same clamped `dt` the rest of the
-  Brain uses, so the pure spec can run it in simulated time);
-- at zero: `intent.despawn = true, intent.reason = "killed"`, `state = "GONE"` — reusing the despawn
-  path that already exists, including `Body.destroy`, `releasePath` and the `Despawned` signal.
-
-No `task.delay`, no `os.clock`, no `Debris` inside the Brain. The Brain stays pure; §12.1 item 12
-runs a whole carcass lifetime in a few milliseconds of simulated ticks.
-
----
-
-## 7. The Body: flash, collapse, carcass
-
-All three are `Boar.Body`, which is the only writer of a boar's Instances.
-
-### 7.1 The hit flash
-
-`Body.setFlash(handle, seconds)` starts it; `Body.stepFlash(handle, dt)` is called once per boar per
-Runtime step and **writes a colour only on a transition** (flash on, flash off) — not every frame.
-Two property writes per hit, not 120.
-
-It flashes the trunk **and** the zone parts to `FLASH_COLOR`, then restores each part's own base
-colour, which `Body` remembers per part when it creates them (so the zone tint survives a flash —
-restoring everything to `BODY_COLOR` would silently erase the tint after the first hit).
-
-Why it exists: a 0.25 s red flash is the cheapest unambiguous answer to "did I hit it?" at 100 studs
-with no sound, no animation and no hit marker, and it costs no new owner — colour on a boar part is
-already `Body`'s.
-
-### 7.2 The collapse
-
-`Body.collapse(handle)`, called by the Runtime when `intent.downed` arrives, exactly once:
-
-1. `mover.PlaneVelocity = Vector2.zero`, then `mover.Enabled = false` — the drive stops.
-2. `upright.Enabled = false` — the `AlignOrientation` that keeps the box upright lets go, so the boar
-   **topples** instead of standing dead. That is the visible difference between "dropped" and
-   "paused", and it costs one property.
-3. `part:ApplyAngularImpulse(right * COLLAPSE_ANGULAR_IMPULSE)` where `right` is the body's local X
-   axis — one nudge so it reliably falls on a side rather than balancing. A physics number: §15 marks
-   it unverified and §12.4 puts it in a screenshot.
-4. `part:SetAttribute("Damageable", false)` — the weapon's `targetOf` now finds no damageable root, so
-   further pellets are a miss and produce no report. No second kill can be counted.
-5. `part:SetAttribute("Carcass", true)` — a marker for 1.7 and for any later score UI, readable
-   without requiring `Boar`. An attribute rather than a `CollectionService` tag because the harness
-   compares attributes and does not compare tags (`docs/design/shotgun.md` §10 source E).
-6. `CanCollide` stays `true`, so the carcass lies on the ground instead of falling through it.
-
-`takeHit` also refuses a boar whose state is `DOWN` or `GONE` and returns `false`. Belt and braces:
-the attribute stops the weapon reporting, and the runtime check stops anything else that calls the
-seam directly.
-
-### 7.3 The carcass
-
-It is just the collapsed body, kept for `CARCASS_SECONDS`, then destroyed by the existing despawn
-path. It is not a new Instance, not a new folder and not a new owner. `maxBoars` already bounds how
-many can exist.
-
----
-
-## 8. Public interface
-
-Types are Luau annotations. `luau-lsp analyze` is not in CI (`TASKS.md` row 3), so they are
-documentation plus editor checking, not a gate — the status `docs/design/boar-ai.md` §4 records.
-
-### 8.1 Shared types
+### 4.2 `ServerScriptService.Boar` — the owner
 
 ```luau
--- ServerScriptService.Boar
-export type State = "IDLE" | "FLEE" | "WOUNDED" | "DOWN" | "GONE"
-export type DespawnReason = "escaped" | "outOfBounds" | "killed"
-export type HitZone = "head" | "chest" | "body" | "legs" | "unknown"
-export type Severity = "healthy" | "grazed" | "mortal" | "lethal"
+-- NEW. The one answer to "which zone did this shot hit on this animal".
+Runtime:zoneAt(instance: Instance, query: Shotgun.ZoneQuery): string?
+Boar.Zones                        -- the pure module, exported for specs, as Boar.Wound and Boar.Brain are
+Boar.CONFIG.ZONES                 -- rewritten (3.2, 3.7, 3.8)
+Runtime:stats()                   -- EXTENDED, three counters: zoneQueries, zoneMisses, zoneWhy
+```
 
--- What arrives at the seam. Task 24's four fields are unchanged; everything else is optional.
-export type Hit = {
-    zone: HitZone,                      -- the dominant zone (Task 24)
-    ammo: string,                       -- "Slug" | "Buck" (Task 24)
-    pellets: number,                    -- total on this target (Task 24)
-    at: number,                         -- os.clock() on the server (Task 24)
-    zones: { [string]: number }?,       -- pellets per zone; nil -> all pellets at `zone` (§5.4)
-    distance: number?,                  -- studs, muzzle to nearest impact (HitReport.nearest)
-    shooterUserId: number?,             -- durable identity; NOT the Player instance (§8.4)
-    shooterName: string?,
-    shooterPosition: Vector3?,          -- best effort, for the bolt direction
-    normal: Vector3?,                   -- fallback bolt direction when shooterPosition is nil
+`zoneAt`, step by step — and it is deliberately the **same walk** `Runtime:cframeAt` makes:
+
+1. refuse a non-Instance, a non-finite `at`, or `CONFIG.ZONES.BY_PATH ~= true` → `nil`;
+2. find the entry whose `entry.body.part` **is** `instance` or is an ancestor of it (`cframeAt`'s own
+   loop; `entry.body.part == part` is also `takeHit`'s key, so there is one index and no second id
+   table);
+3. a dead, `DOWN` or `GONE` animal → `nil` (`cframeAt`'s own rule: a carcass has no zones to hit);
+4. `trunkThen = self:cframeAt(trunk, query.at)` — **the only rewind, through the only reader.** `nil`
+   (outside the ring's span, no sample, no provider) → `nil`, counted in `zoneMisses` with
+   `zoneWhy`;
+5. `origin = trunkThen:PointToObjectSpace(query.point)`,
+   `direction = trunkThen:VectorToObjectSpace(query.direction)` normalised (a zero or non-finite
+   direction → `nil`, `zoneWhy = "no-direction"`);
+6. `Zones.zoneFor(self._config.ZONES, entry.body.geometry.zones, origin, direction, query.ammo,
+   query.weapon)`;
+7. return the zone, or `nil` when the path crossed nothing — **`nil`, not `"body"`**: the fallback
+   is one decision in one place and that place is 5.4.
+
+```luau
+-- ReplicatedStorage.Shotgun  (NEW type, beside Impact)
+export type ZoneQuery = {
+    point: Vector3,       -- where the projectile entered the animal, in WORLD space
+    direction: Vector3,   -- the projectile's direction of travel there, world space, unit
+    ammo: string?,        -- "Slug" | "Buck"'s pellet word; picks the penetration row
+    weapon: string?,      -- the Weapons.WeaponId; picks the per-weapon penetration row
+    at: number?,          -- GetServerTimeNow() of the impact. nil is "now"
 }
+-- Impact gains two OPTIONAL fields and loses none:
+--   zone: string?   the answer, written by ServerScriptService.Weapon after it asks the provider
+--   at: number?     when this impact happened, stamped by Flight (the cast) or by Validator (t*)
+```
 
-export type WoundRecord = {             -- one per takeHit that landed
-    at: number,
-    zone: HitZone,
-    ammo: string,
-    pellets: number,
-    damage: number,                     -- points this hit added
-    distance: number?,
-    shooterUserId: number?,
-    shooterName: string?,
-}
+### 4.3 `ServerScriptService.Weapon` — the eighth provider
 
-export type WoundState = {              -- frozen; one per live boar; only the Runtime holds one
-    damage: number,
-    byZone: { [string]: number },       -- damage per zone
-    severity: Severity,
-    flightStuds: number,                -- 0 when not mortal
-    flightRun: number,                  -- studs run since the mortal wound
-    flightSeconds: number,
-    wounds: { WoundRecord },            -- in order
-    contributors: { [number]: number }, -- userId -> damage points
-    mortalWound: WoundRecord?,          -- the hit that crossed MORTAL or LETHAL
-}
+```luau
+-- WHAT THE BULLET PASSED THROUGH, as the animal's own owner describes it. The weapon knows what
+-- neither a zone nor an organ IS.
+function Weapon.setZoneProvider(provider: ((Instance, Shotgun.ZoneQuery) -> string?)?)
+```
 
-export type KillRecord = {
-    id: string,
-    at: number,
-    position: Vector3,
-    killedByUserId: number?,
-    killedByName: string?,
-    killingZone: HitZone,
-    killingAmmo: string,
-    killingDistance: number?,
-    instant: boolean,                   -- true = dropped on the spot (lethal), false = bled out
-    flightStuds: number,                -- how far it ran after the mortal wound
-    flightSeconds: number,
-    damage: number,
-    shots: number,                      -- how many takeHits landed
-    wounds: { WoundRecord },
-    contributors: { [number]: number },
-    aliveFor: number,
+- asked through `pcall`, like all seven before it (`askTarget`, `askStand`, `askDriveOpen`,
+  `askWhereWas`, `askLineUnsafe`, …);
+- **unwired means `nil` means today's game**: the attribute answers (5.4). That is this owner's
+  standing default and the reason every `tests/server/weapon_*.spec.luau` and the bare DEV place
+  keep working untouched;
+- a provider that **throws** is not a provider that refused: the error's first 120 characters go to
+  `stats.zoneProviderWhy`, exactly as `askWhereWas` records its own.
+
+**Ballistics v5 §1.2 says "no eighth provider", and this is not a contradiction.** That sentence is
+about the **LOS cast's exclude list**, where `shot.ignore` plus the `target` that `Hits.targetOf`
+already returned answer the question completely. The zone has no other source: only the animal knows
+where its heart is. The shape is the same, the `pcall` is the same, and the default is the same.
+
+**Where it is asked — two sites, both in `Weapon`, each with its own instant:**
+
+| path | site | `point` | `direction` | `at` |
+|---|---|---|---|---|
+| the server's own flight (flag off, or a refused claim) | `onShotLanded`, over `res.impacts`, before `Hits.group` | `impact.position` | `(impact.position − shot.muzzle).Unit` | `impact.at`, stamped by `Flight` when it cast |
+| an accepted claim | `judgeClaimFor`, on the one impact `Validator.claimImpact` built | `claim.point` | `(claim.point − bore).Unit` | **`t*`** — the instant checks 5 and 6 already chose (ballistics v5 §5.3). One clock, named once, and this design adds no second one |
+
+**The chord, not the tangent, and the error is bounded.** `(impact.position − muzzle).Unit` is the
+straight line from bore to impact, while the projectile arrives along its own slightly-dropped
+tangent. The drop is tiny by measurement: `sightOffsetAt(150)` is **+0.034 studs** with
+`GRAVITY_SCALE = 0.12` and the whole miss decomposition is `up` 0.002–0.156 studs (MEASURED NOW,
+supporting readings). Over a 150-stud path 0.16 studs of sag is 0.06° of angle, which across a
+7-stud body is **0.008 studs** of lateral error inside the animal — three orders under the smallest
+volume dimension (0.45). If that ever needs to be exact, the upgrade is one field: `Flight` already
+knows the segment direction at the cast and can stamp it beside `at`. Named, not built.
+
+### 4.4 `Weapon.Hits` — one preference, nothing else
+
+```luau
+-- UNCHANGED: (target root, zone) off the two attributes. It is the FALLBACK now, not the only answer.
+Hits.targetOf(instance: Instance?): (Instance?, string)
+
+-- UNCHANGED SIGNATURE. One line changes inside: the zone is `impact.zone` when the animal answered,
+-- else `Hits.targetOf`'s attribute answer, exactly as today.
+Hits.group(shooter, impacts, ammo, now, weapon): { HitReport }
+```
+
+That keeps `Hits.group` pure, keeps it the one constructor of a `HitReport`, keeps one report per
+(shot, target) with `zones` as the per-pellet tally, and keeps all fifteen existing `Hits.group`
+call sites in the specs compiling untouched (evidence: the fifteen `Hits.group(` lines under
+`tests/server/`). **Each pellet keeps its own zone**, because each impact is annotated separately —
+so buckshot still spreads across volumes and `report.zones` still means what it means.
+
+### 4.5 `Boar.CONFIG.ZONES` after v2 — the data
+
+```luau
+ZONES = {
+    ORDER = { "head", "neck", "chest", "spine", "rear", "body", "legs" },  -- the sweep order, and
+                                                                           -- what every spec walks
+    BY_PATH = true,                 -- 3.8
+    ZONE_TINT = true,               -- unchanged: paints the HULL parts; the tints stay data for all
+                                    -- seven, because Report.SILHOUETTE mirrors them
+    PENETRATION = { Slug = 2.20, Pellet = 0.90 },          -- 3.7
+    PENETRATION_BY_WEAPON = { rifle = 4.00, lever = 3.00 },
+    PENETRATION_DEFAULT_STUDS = 2.20,  -- an ammo word with no row: the slug's reach, never 0 and
+                                       -- never infinite
+    -- then the seven rows of 3.2, each { part?, hull?, rank, size, offset, tint }
 }
 ```
 
-### 8.2 `Boar.Wound` — pure, and the whole damage model
+**`body` IS in `ORDER` now**, where it used to be the trunk's own fallback and therefore unnamed.
+It needs a box because the paunch is a place, and it keeps being the fallback name (5.4). The
+consequence for `Report.CONFIG.ZONES` — which lists five and comments that `body` *"is not in
+`Boar.CONFIG.ZONES.ORDER`"* — is 10.2.
 
-```luau
-Wound.new(): WoundState                                          -- frozen, zero
-Wound.damageFor(zone: HitZone, ammo: string, pellets: number, config): number
-Wound.apply(state: WoundState, hit: Hit, config): (WoundState, Severity)
-    -- returns a NEW frozen state and the severity AFTER the hit. Never mutates its input.
-Wound.severity(state: WoundState, config): Severity
-Wound.flightStuds(state: WoundState, config): number
-Wound.speedScale(state: WoundState, config): number              -- §5.5, 1.0 when healthy
-Wound.advance(state: WoundState, movedStuds: number, dt: number, config): (WoundState, boolean)
-    -- accumulates flightRun/flightSeconds while mortal; the boolean is "collapse now"
-Wound.killRecord(state: WoundState, id: string, position: Vector3, aliveFor: number): KillRecord
-```
+`PROTRUSION` is **gone** (3.1).
 
-No `game:GetService`, no clock, no `Player`, no `Instance`, no `Random`. `config` is a parameter, not a
-lookup, so a spec passes its own table and the whole model is testable in microseconds — the same
-discipline `Brain` is already held to.
+### 4.6 `Boar.CONFIG.WOUND` after v2 — two rows per table, and nothing else
 
-### 8.3 `ServerScriptService.Boar` — the owner
+The doctrine and the shape are kept (BRIEF item 9). `LETHAL = 100`, `MORTAL = 50`, `DAMAGE` keyed by
+the ammo word, `DAMAGE_BY_WEAPON` keyed by the weapon, `CLASS`, `FLIGHT`, `toughness` dividing
+non-vital points only — all unchanged. Added:
 
-```luau
-Runtime:takeHit(part: BasePart, hit: Hit): boolean
-    -- true  = one of MY live boars and the hit was recorded
-    -- false = not mine, already despawned, or already DOWN
-Runtime:woundOf(id: string): WoundState?          -- a copy; there is no setter
-Runtime.Hit: RBXScriptSignal        -- (record) EXTENDED: id, zone, zones, ammo, pellets, damage,
-                                    --   severity, distance, shooterUserId, at
-Runtime.Downed: RBXScriptSignal     -- NEW: (record: KillRecord), exactly once per boar
-Runtime.Despawned: RBXScriptSignal  -- EXTENDED DespawnRecord: the existing id/reason/position/aliveFor
-                                    --   plus wounded: boolean, mortallyWounded: boolean,
-                                    --   damage: number, wounds, contributors
-Runtime:stats()                     -- EXTENDED: hits, pelletsTaken, damageTaken, downed, killed,
-                                    --   escapedWounded, zoneHits (per zone), unknownZoneHits,
-                                    --   tallylessHits, plus the existing path/spawn counters
-Boar.Wound                          -- the pure module, exported for specs
-Boar.CONFIG.ZONES, Boar.CONFIG.WOUND
-```
-
-`Downed` and `Despawned` are two events on purpose. The score (1.7) must be able to award a kill at
-the moment the boar dies, not `CARCASS_SECONDS` later; and the body leaving the world is a different
-fact from the animal dying. A killed boar therefore fires `Downed` at *t* and `Despawned(reason =
-"killed")` at *t* + `CARCASS_SECONDS`.
-
-Signals stay `BindableEvent.Event`, as `Despawned` already is, with the two consequences
-`docs/design/boar-ai.md` §4 records: payload tables are copied, so no metatables and no mixed-key
-tables (`wounds` is an array, `contributors` a number-keyed map, and they are separate fields for
-exactly that reason); and under `SignalBehavior = Deferred` a listener does not run inside `Fire`, so
-live specs poll.
-
-### 8.4 `Player` is not stored, and that is deliberate
-
-The wound record keeps `shooterUserId` and `shooterName`, never the `Player` instance. A boar that is
-wounded and runs for 16 s outlives plenty of disconnects, and holding a `Player` reference pins the
-instance — the leak `reviews/task-23/RESULT.md` note (c) raised against the weapon's per-player state
-(`TASKS.md` row 23a). `Runtime.Hit` may carry the live `Player` as an extra field for a listener that
-wants it *now*; nothing stored keeps it.
-
-### 8.5 `Boar.Brain` — the additions
-
-```luau
-export type HitEvent = { severity: Severity, zone: HitZone, from: Vector3? }
-
--- Observation gains:
-    hitEvents: { HitEvent }?,       -- hits since the last step; usually empty
-    wound: { severity: Severity, speedScale: number, collapse: boolean }?,
-
--- Intent gains:
-    downed: boolean,                -- true exactly once, the tick the boar collapses
-```
-
-The Brain is told a **severity and a direction**, never a damage number and never a table lookup. It
-cannot be made to disagree with the wound model because it does not hold a copy of it. `collapse`
-comes from `Wound.advance`, so the "has it run far enough" arithmetic lives in the pure wound module
-and the Brain only reacts to a boolean.
-
----
-
-## 9. What it reads, what it writes, and who owns the other end
-
-### 9.1 The table
-
-| Direction | What | Owner of the other end | Status |
+| table | `neck` | `spine` | basis |
 |---|---|---|---|
-| reads | `hit` payloads through `Runtime:takeHit` | `ServerScriptService.Weapon` (`docs/design/shotgun.md` §3.1), via `BoarBoot` | Task 24 |
-| reads | `shooter.Character.PrimaryPart.Position`, **in `BoarBoot` only**, best effort | Roblox character replication | engine |
-| reads | `Players:GetPlayers()` for threats, `PathfindingService`, `Workspace:Raycast` for the probe | engine | unchanged |
-| writes | `Workspace.Boars` and its descendants, including the new zone parts, the flash colour, the collapse and the `Carcass` attribute | **this system** (`Boar.Body`) | — |
-| writes | attributes `Damageable` (true at spawn, false on collapse) and `HitZone` (per part) | **this system**; the weapon only ever reads them | — |
-| writes | `Hit`, `Downed`, `Despawned` | **this system**. Future listener: the score (1.7), which reads and never writes back | — |
-| writes | nothing else, anywhere. No client, no remote, no UI, no camera, no character | — | — |
+| `DAMAGE` | `{ Slug = 100, Pellet = 30 }` | `{ Slug = 55, Pellet = 11 }` | the neck is an instant stop in source E's own first line (*"brain / neck (spine) — instant"*), so it is a vital and a slug kills. The spine is the `rear` row exactly: as much meat and bone, and the row exists so `CLASS` can call it crippling |
+| `DAMAGE_BY_WEAPON.rifle` | `100` | `75` | head/chest's rule: *"one shot, any gun, and the vitals are never armoured"*. The spine takes `rear`'s 75 for `rear`'s reason — *"at 100 a rifle rump shot would be instant death and the reaction she asked for would never happen"* |
+| `DAMAGE_BY_WEAPON.lever` | `100` | `65` | likewise |
+| `FLIGHT` | `0` | `90` | a neck shot drops where it stands; a broken spine *"does not run, it turns on the spot"* — `rear`'s own number and its own reason |
+| `CLASS` | `"vital"` | `"crippling"` | source E's order |
 
-`Boar` never requires `Weapon`, and `Weapon` never requires `Boar`. The composition root knows both;
-neither owner knows the other (`docs/design/shotgun.md` §6.3).
+Pellet numbers: `neck` 30 (four pellets kill, against the head's three and the chest's four) and
+`spine` 11 (the trunk's own). Both are Karen's dials and both are one line.
 
-### 9.2 The wiring, in `BoarBoot.server.luau`, which owns nothing
+**What this does to the keys**: `Wound.chargedZone`, `row()` and `FALLBACK_ZONE = "body"` are
+untouched — a zone with a `DAMAGE` row is charged under its own name, and `neck` and `spine` now have
+rows. No rename anywhere: `head`, `chest`, `body`, `rear` and `legs` keep their names and their
+numbers, so `kill_zones.spec`'s existing grid, `Report`, `HitLog`, `Match`, the hit card and the Hud
+line all keep reading what they read. The Hud prints the zone with `%-6s` (`src/client/Hud/init.luau`
+`hitLine`) and `"spine"` (5) and `"neck"` (4) both fit.
 
-The existing connection widens. Every field it adds already exists on the `HitReport` it is handed:
+### 4.7 What the claim path gains and loses — the bound, in this design's terms
 
-```luau
-Weapon.HitReported:Connect(function(report)
-    if not report.target:IsA("BasePart") then
-        return
-    end
-    local shooter = report.shooter
-    local character = shooter and shooter.Character
-    local root = character and character.PrimaryPart
-    runtime:takeHit(report.target, {
-        zone = report.zone,
-        zones = report.zones,
-        ammo = report.ammo,
-        pellets = report.pellets,
-        at = report.at,
-        distance = report.nearest,
-        shooterUserId = shooter and shooter.UserId,
-        shooterName = shooter and shooter.Name,
-        shooterPosition = root and root.Position,
-        normal = report.normal,
-    })
-end)
-```
+Ballistics v5 §5.9 owns the enumeration of what a modified client can do. **This design changes one
+term in it and the change is in the server's favour:**
 
-That is the whole cross-system change. `takeHit` still returns `false` for a part that is not one of
-its boars, so `BoarBoot` needs no filtering and a shot into a wall still costs one table lookup.
+- **Lost (by the client):** naming a zone part. Today the claim names an Instance and *"the zone is
+  that part's own `HitZone`"*, so `ZoneChest` on the wire **was** a chest claim — exactly the licence
+  task 274's `claimLastPart` measured (`ZoneChest(chest)` on every claim of a trial). After v2 there
+  are no chest, rear or leg parts to name. A cheat can name the trunk or the head hull and nothing
+  else.
+- **Still available:** choosing the entry point on the claimed part's box (bounded by check 3,
+  `SKIN_STUDS = 0.15` of the part's own half-extents) and the claim's own direction (bounded by check
+  4, `CLAIM_LINE_STUDS = 0.50` and `CLAIM_PATH_TOLERANCE_STUDS = 1.00`). Together those pick the
+  volume.
+- **So the bound is:** *a cheat gets the zone that a shot it genuinely could have taken, at an
+  instant the server's own history agrees with, through a line the server's own cast agrees was
+  clear, would have crossed.* That is aimbot-grade aim, which **no server-side check can refuse** —
+  the server cannot know where a player meant to point — and it is the same bound an honest expert
+  shot has. **Nothing in the claim decides anatomy:** the volumes, the ranks and the penetration are
+  the server's own data, read in the server's own rewound frame.
+- **And one check gets strictly tighter for free:** the claimed point must now be consistent with a
+  path that crosses a volume. A claim whose offset is on the trunk's flank with a direction along the
+  flank crosses nothing and is charged `body` — it cannot be turned into a chest by naming a part.
+
+### 4.8 What does NOT change
+
+`Runtime:takeHit`'s signature and behaviour · the `Hit` payload · `Runtime.Hit`/`Downed`/`Despawned`
+· `KillRecord` · `WoundState` · `Wound`'s whole module · `Brain`'s states, the bolt, the cripple
+circle and the carcass · `Boar.toughnessFor` · `Runtime:cframeAt` · `Boar.CONFIG.HISTORY` ·
+`Hits.POINTS_MAX` and the per-pellet `points` list · the six remotes · `HitClaim`'s six fields ·
+`Weapon.markHit` · `HitLog` · `Match.Score` (which has taken no zone since task 160) · the client,
+entirely.
 
 ---
 
-## 10. External sources
+## 5. The rules
 
-Rule 1 and rule 2 — this is where the design borrows, and where it says so. Sources A, B and G carry
-the structure; C and D carry the numbers and the behaviour; E and F are named and deliberately not
-adopted. §15 records that I could not fetch any of them this session; the Builder confirms each URL,
-licence and maintenance status in the research note before relying on it.
+### 5.1 How a zone is decided, end to end
 
-### A. Roblox `WeldConstraint`, assemblies and `Massless`
-<https://create.roblox.com/docs/reference/engine/classes/WeldConstraint> ·
-<https://create.roblox.com/docs/physics/assemblies> · first-party creator docs (creator-docs is
-CC BY 4.0); the API ships with the engine · actively maintained.
-**Good:** rigidly attaches a part to another with no offset maths and no legacy `Weld`; the welded
-parts become one assembly, so `SetNetworkOwner`, `AssemblyLinearVelocity` and the existing
-`LinearVelocity`/`AlignOrientation` drive keep working untouched; `Massless` excludes a welded part
-from the assembly's mass and inertia, which is exactly what keeps `MAX_FORCE`/`MAX_TORQUE`/`ACCEL`
-valid after three parts are added.
-**Bad:** an anchored part welded into an assembly anchors the whole thing — a real way to freeze the
-boar by accident; `WeldConstraint` needs both parts in the DataModel, so creation order matters
-(§4.3); and the assembly root is chosen by the engine, so nothing in the code may assume the trunk is
-the root without checking.
-**Adopted:** three massless, non-colliding, welded zone parts on the existing trunk, created after the
-trunk is parented.
+```
+1. the projectile stops on a hull part of animal A, at world point P, travelling along world unit D
+2. Weapon asks: zone = askZone(instance, { point = P, direction = D, ammo, weapon, at })
+3. Boar finds A's trunk, refuses if A is dead/DOWN/GONE
+4. F = Runtime:cframeAt(trunk, at)                 -- the one rewind, the one clock
+5. o = F:PointToObjectSpace(P) ; d = F:VectorToObjectSpace(D).Unit
+6. depth = Zones.depthFor(ZONES, ammo, weapon)     -- 3.7
+7. for each name in ZONES.ORDER:
+       tEnter, tExit = Zones.rayBox(o, d, geometry[name].offset, geometry[name].size / 2)
+       keep it when tExit > 0 and tEnter < depth    -- it crossed, inside the projectile's reach
+8. zone = the kept crossing with the greatest rank  -- Zones.worst
+9. nil when nothing was kept -> the fallback chain, 5.4
+```
 
-### B. Roblox raycasting, `CanQuery` and `CanCollide`
+Step 7's condition is written out because its two ends are both load-bearing: `tExit > 0` lets a path
+that **begins inside** a volume count it (a contact shot, and every hull-head entry, which starts
+inside the `head` box by construction), and `tEnter < depth` is the penetration bound.
+
+### 5.2 Why the path and not the surface, in one paragraph
+
+A surface box answers "what did the ray touch first", which is a question about the animal's outside.
+The question Karen asks is about its inside: *"to get hit in head neck or heart like in real life"*.
+Those are organs, they are at depth, and several of them are behind the same patch of skin — a boar's
+chamber is under its shoulder, its spine is above its lungs, its paunch is in front of its pelvis.
+A model made of outside patches has to choose one organ per patch and then make the patches not
+overlap, which is how the chest ended up 1.54 studs long and unreachable from 65 % of the compass.
+A model made of volumes does not choose: it reports what the hole went through.
+
+### 5.3 "The damage by the most vital volume crossed" — the function, the owner, and MAX not SUM
+
+- **The function** is `Zones.worst` (4.1), the owner is `Boar.Zones`, and it runs **before** any
+  damage exists.
+- **It takes the maximum, by `rank`, and never the sum** (BRIEF item 9). One projectile makes one
+  wound channel; charging the paunch *and* the lungs for one bullet would double the points for a
+  shot that did what one shot does, and it would make `DAMAGE`'s per-zone numbers unreadable (a
+  quartering body-into-chest hit would cost 155 of a 100-point `LETHAL`). The existing model already
+  encodes "the worst thing that happened to this animal decides": `Wound.flightStuds` takes
+  `math.max` over the zones it has been hit in, for the same reason.
+- **So `Wound.apply` is called with exactly one zone per projectile, and `Wound` is untouched.**
+  Buckshot still charges each pellet in its own zone through `hit.zones`, because each pellet got its
+  own answer (4.4).
+- `Zones.crossed` still **returns** the whole list, and `Runtime:stats().zoneCrossings` keeps a count
+  of multi-volume paths, because "how often does a shot pass through two organs" is a question the
+  first playtest will raise and a counter answers it for free.
+
+### 5.4 The fallback chain — four ways to not know, one answer each
+
+| cause | answer | counted as |
+|---|---|---|
+| `BY_PATH = false` | the attribute (`Hits.targetOf`), i.e. `head`/`neck` on the hull parts, `body` on the trunk | nothing; it is the chosen state |
+| no provider wired | the attribute | `stats.zoneProviderWhy = "unwired"` (Weapon) |
+| the provider threw | the attribute | `stats.zoneProviderWhy = <the error, 120 chars>` |
+| the animal is not this runtime's, is dead/DOWN/GONE, or the ring cannot place it at `at` | the attribute | `Runtime:stats().zoneMisses`, `zoneWhy` (the same vocabulary `cframeAt` already writes: `"no-entry"`, `"down:<state>"`, `"span live=…"`) |
+| the path crossed **no** volume (the brisket wedge, a pellet that stopped in the skin) | **`body`** — through `Hits.targetOf`'s existing answer for the trunk, not through a second constant | `Runtime:stats().zoneCrossings.none` |
+
+**The chain is "ask the animal, else read the attribute", and it is one `or`.** That is why
+`Hits.targetOf` is unchanged and why the hull parts keep their `HitZone`: the degraded game is a
+coarse game, never a crash and never an `unknown`. `Runtime:stats().unknownZoneHits` keeps meaning
+what it means — an attribute typo — because no path in this design writes a zone name that
+`WOUND.DAMAGE` does not have a row for.
+
+### 5.5 BRIEF item 14's `276a(d)`, answered: **is a head-on chest shot supposed to read `body`? No.**
+
+Today it does, and the reason is geometric: head-on, the first surface the ray meets is the trunk's
+front face, which carries `HitZone = "body"`, because `ZoneChest` starts 1.30 studs further in. Nine
+tasks of *"0 of 5 chest"* were partly this.
+
+After v2, a head-on shot on a boar's centre line reads, by the height it entered at (trunk frame):
+
+| entry height y | crosses | reads |
+|---|---|---|
+| 1.65 … 0.35 | the skull | `head` |
+| 0.35 … −0.55 | the brisket wedge, then the chest at z −1.05 | **`chest`** (1.70 studs of path; a slug reaches it, a pellet does not — 3.7) |
+| −0.55 … −1.50 | the leg band | `legs` |
+| and at y 0.40…1.40 from a steeper down-angle, the neck before the chest | | `neck` |
+
+So the answer Karen asked for — *"head neck or heart"* — is the answer a frontal shot gives, and the
+only way to read `body` from the front is to stop in the brisket, which is what a pellet at range
+does in life.
+
+### 5.6 The aspect assertions, in degrees (BRIEF item 10)
+
+**Aspect θ** is the angle, in the horizontal plane, between the animal's own forward (−Z) and the
+direction **from the animal to the shooter**: 0° head-on, 90° broadside, 180° tail-on. The band task
+276 measured for the old chest box, by ray at 5° steps on a live animal, was **40–115°**.
+
+Centre-line depth from the hull to the chamber's near face, computed off 3.2 and 3.3:
+
+| | boar (male) | red deer (stag) |
+|---|---|---|
+| θ = 0° (head-on, at the chest's own height) | 1.70 studs | 1.63 studs |
+| θ = 90° (broadside) | 0.25 studs | 0.20 studs |
+| θ = 180° (tail-on) | 2.00 studs | 3.23 studs |
+
+Against 3.7's reaches, that gives the assertions the spec holds:
+
+| # | Assertion | Holds because |
+|---|---|---|
+| **B1** | **A slug reaches `chest` at every aspect θ ∈ [0°, 135°], both flanks, aimed at the chamber's centre, on all seven kinds** | the aim point is inside a convex box, so any line through it crosses it; the only bound is the depth, and the worst depth in that band is the head-on 1.70 against 2.20 |
+| **B2** | **A frontal (θ = 0° ± 10°) slug at the chamber's centre reads `chest`**, with the margin reported: 2.20 − 1.70 = **0.50 studs** on a boar, 0.57 on a stag | 5.5 |
+| **B3** | **A rear-quartering (θ = 120°…150°) slug entering behind the last rib crosses `body` then `chest`, and reads `chest`** — direction B's *"a quartering shot can pass the paunch into the vitals"* | `Zones.crossed` returns both; `rank` 50 > 20 |
+| **B4** | **A tail-on (θ = 180°) slug reads `chest` on a BOAR and `rear`/`body` on a STAG** | 2.00 < 2.20 < 3.23. The Texas heart shot works on the short animal and not on the long one, and the **.416 (4.00) reaches the stag's chamber where the slug cannot** — the rifle doing what a rifle does, out of the geometry rather than out of a special case |
+| **B5** | **A buckshot pellet reaches `chest` at θ ∈ [60°, 120°] and NOT at θ = 0°** | 0.25 and 0.20 studs broadside against a 0.90 reach; 1.70 head-on against it |
+| **B6** | **`head` is reachable from a pure FLANK** (θ = 90°, at skull height), which it is not today | the skull is a volume 1.20 wide inside a hull 2.00 wide: the path enters the trunk and crosses it. The config's own *"a pure flank is body"* limit is removed by the change of kind, not by widening anything |
+| **B7** | **The rear band where a slug falls short is MEASURED AND REPORTED by the spec, not asserted** | B1 stops at 135° on purpose. Between 135° and 180° the path length through the paunch rises above 2.20 on the boar at some angle, and I will not write a number I have not computed per degree (15) |
+
+### 5.7 What the player is told, and what he is not
+
+The zone travels in `report.zone` exactly as it does today, so the hit card's label, the Hud's
+one-line hit row, `HitLog`, the drive report's dot and `KillRecord.killingZone` all keep working, and
+two new strings (`neck`, `spine`) appear in them. **No organ list, no damage number and no wound
+channel is drawn** — that is a new picture with a new owner and it is not this task (16.2 A).
+
+---
+
+## 6. What it reads from and writes to other systems
+
+### 6.1 Reads
+
+| What | Owner of the other end | Status |
+|---|---|---|
+| `ZoneQuery` (point, direction, ammo, weapon, at), through `Runtime:zoneAt` | `ServerScriptService.Weapon` — it asks, the animal answers | **new seam, this design** |
+| the animal's own rewound trunk CFrame | **this system** (`Runtime:cframeAt`) | unchanged |
+| the animal's per-kind volume table | **this system** (`entry.body.geometry.zones`, written once at spawn by `Body.create`) | unchanged mechanism, two more fields |
+| `Boar.toughnessFor(kind)` | **this system** | unchanged |
+
+### 6.2 Writes
+
+| What | Read by | Owner |
+|---|---|---|
+| a zone string, per impact | `Weapon` → `impact.zone` → `Hits.group` → `report.zone` → `HitLog`, `Match`, the hit card, the Hud, `Runtime:takeHit` | **this system** decides it; `Weapon` carries it |
+| the hull parts, their welds, their `HitZone` and the trunk's `Damageable` | the weapon READS the two attributes and nothing else | **this system** (`Boar.Body`) |
+| `Runtime:stats().zoneQueries / zoneMisses / zoneWhy / zoneCrossings` | the Builder's report, a probe, a spec | **this system** |
+| nothing else, anywhere. No client, no remote, no UI, no camera, no character | | |
+
+`Report.SILHOUETTE`'s rectangles **mirror** this system's boxes and are asserted against them by
+`report_silhouette.spec` — a read of frozen data at build time, not a run-time dependency, and the
+spec is what keeps the picture honest (10.2).
+
+---
+
+## 7. External sources
+
+Rule 1 and rule 2: this is where the design borrows and where it says so. **I could fetch none of
+them this session (no network).** Each licence and maintenance status is stated as I know it, and
+15 records that the Builder confirms every URL in the research note before relying on it.
+
+### A. Roblox creator documentation — raycasting, `RaycastParams`, `BasePart.CanQuery`, attributes
 <https://create.roblox.com/docs/workspace/raycasting> ·
-<https://create.roblox.com/docs/reference/engine/classes/BasePart> · first-party (CC BY 4.0) ·
-actively maintained.
-**Good:** gives the split this design needs — the **collision** body and the **queryable** body are
-different properties of different parts, so a hit box can protrude where a collision box must not;
-`RaycastResult.Instance` is exactly the handle the weapon's `targetOf` walks from.
-**Bad:** a ray returns the **first** surface only, which is the whole reason zone parts must protrude
-rather than nest (§4.1) — the single most likely way to build this wrong; `CanQuery = false` hides a
-part from *every* consumer, including the camera's occlusion cast, so it is not a per-system filter;
-and coplanar faces make the winner arbitrary, which is why `ZoneLegs` is offset rather than flush at
-both ends.
-**Adopted:** protruding, queryable, non-colliding zone parts; the trunk stays both collidable and
-queryable and is the default `body` zone.
+<https://create.roblox.com/docs/reference/engine/classes/RaycastParams> ·
+<https://create.roblox.com/docs/reference/engine/classes/BasePart> ·
+<https://create.roblox.com/docs/reference/engine/classes/Instance#GetAttribute> — first-party
+(creator-docs is CC BY 4.0; the APIs ship with the engine) · **actively maintained**.
+**Good:** it gives exactly the split this design needs — the collision body, the queryable body and
+the *data* body are three different things; `FilterDescendantsInstances` is a descendant filter, so
+one entry covers a trunk and all its children; attributes are the cross-system contract the harness
+can compare.
+**Bad:** a ray returns the **first** surface only — the whole reason the surface-box model failed —
+and it says nothing about what is behind that surface, which is the half this design has to supply
+itself.
+**Adopted:** the hull is engine geometry (trunk + the measured head/neck), and everything under the
+skin is arithmetic in this repo. The LOS exclude list keeps working through the descendant filter
+with fewer parts (ballistics v5 §5.6 property 1).
 
-### C. Stokke, Arnemo, Brainerd et al., on incapacitation time and flight distance in hunted ungulates
-*Scientific Reports* (Nature), 2018 — "Defining animal welfare standards in hunting: body mass
-determines thresholds for incapacitation time and flight distance"; open access, CC BY 4.0 ·
-published, not maintained (a paper).
-**Good:** it is the only source in this set that measures the quantity this design is inventing
-numbers for — how far a wounded animal travels before it goes down, as a function of body mass and
-shot placement — and it supports the model's core split: placement, not only energy, decides flight
-distance, and thoracic hits incapacitate on the spot far more often than abdominal or limb hits.
-**Bad:** it is about rifle hunting of moose, red deer and reindeer, not shotgun slugs at boar
-distances; its distances are metres of real animals, not studs of a 10-minute arcade drive; and a
-straight transcription would give tracking distances far beyond a 400-stud arena.
-**Adopted:** the *shape* of the model — vital → immediate, body → short, limb → long — and the
-ordering of magnitudes. The actual studs are compressed to the arena and are Karen's feel values (§11).
+### B. three.js — `Ray.intersectBox` / `Box3`, the slab method in a maintained codebase
+<https://github.com/mrdoob/three.js/blob/dev/src/math/Ray.js> · **MIT** · ~100 k stars,
+**actively maintained**, released monthly.
+**Good:** the reference implementation of exactly `Zones.rayBox`: per-axis slab clipping with the
+divide-by-zero case handled by the IEEE infinities, ~20 lines, no allocation, and a public test
+suite. It is the shape to copy and it is MIT, so copying the *shape* is clean.
+**Bad:** it is JavaScript and it relies on IEEE `±Infinity` arithmetic falling out of `0/0` and
+`x/0`; Luau has the same semantics but **I have not verified Luau's NaN comparison behaviour for
+the degenerate parallel case in this engine**, so this design writes the parallel case as an
+explicit `|d| < 1e-9` branch instead of relying on it (15, and 12.1 case 1 is the test).
+**Adopted:** the slab test, written out in 4.1, with the branch made explicit.
 
-### D. Hit-sign ("Schusszeichen") guidance from hunting associations, e.g. Deutscher Jagdverband
-<https://www.jagdverband.de/> (their "Schusszeichen" material) · copyrighted web content; **facts and
-technique taken, no text and no code** · maintained as public guidance.
-**Good:** describes exactly the observable reaction this design has to reproduce, and it is the sort
-of thing Karen (whose game this is) will recognise or reject immediately: a chest-hit boar typically
-bolts hard and collapses within a short distance; a gut-shot animal humps up and moves off slowly; a
-leg-hit animal breaks away fast and may travel a very long way.
-**Bad:** qualitative, regionally variable, and written for tracking with a dog — which v1 explicitly
-cuts (`ROADMAP.md` scope table). It gives no numbers a config can hold.
-**Adopted:** the reaction vocabulary — **bolt on any hit**, slow while bleeding out, limp when the
-legs are hit — which is §5.5 and §6.2. Nothing else.
+### C. Christer Ericson, *Real-Time Collision Detection* (Morgan Kaufmann, 2004), §5.3.3 — and Kay & Kajiya (1986), who first published the slab method
+ISBN 978-1558607323 · **copyrighted book; the algorithm is standard and unpatented; no text or code
+taken** · a 2004 book, **not maintained**.
+**Good:** the canonical statement of ray/AABB and ray/OBB intersection, with the numerical
+pitfalls — parallel rays, rays starting inside, the ordering of `tmin`/`tmax` — named and analysed.
+It is why 4.1 states them as the first three test cases rather than discovering them.
+**Bad:** it is a book: nothing is linkable, nothing is runnable, and it assumes a float pipeline this
+engine does not expose.
+**Adopted:** the correctness conditions. The axis-aligned form is enough here because every volume is
+axis-aligned **in the trunk's own frame**, and the world rotation is removed once, by
+`CFrame:PointToObjectSpace` / `VectorToObjectSpace`, instead of per box.
 
-### E. `RaycastHitbox` (Swordphin123) — named, deliberately not adopted
-<https://github.com/Swordphin123/raycast-hitbox> · MIT · community module, widely used, on Wally.
-**Good:** the standard Roblox answer to "attach hit detection to a moving object" — attachment-driven
-raycasts, per-part tagging, debug visualisation.
-**Bad:** it solves the *melee/fast-projectile* problem (sweeping a weapon's own rays between frames),
-not this one. Here the weapon already casts (`docs/design/shotgun.md` §5.4) and the boar only needs to
-*be* hittable. Adopting it would add a Wally dependency, a `default.project.json` mapping and a Connect
-click (`CLAUDE.md`, Toolchain) to replace three `Instance.new` calls, and it would put a second system
-in the hit path.
-**Decision:** not adopted, reason recorded here so it is not re-researched. Revisit if a future weapon
-needs swept hit detection.
+### D. Stokke, Arnemo, Brainerd, Söderberg, Kraabøl, Ytrehus (2018), *Defining animal welfare standards in hunting: body mass determines thresholds for incapacitation time and flight distance*, *Scientific Reports* 8
+<https://doi.org/10.1038/s41598-018-32102-0> · **CC BY 4.0**, open access · published 2018, **not
+maintained** (a paper). Already the source behind `Wound.FLIGHT` (`Wound.luau`'s header; `efd` and
+`mfd` give 100 and 429 studs at 80 kg, against `FLIGHT.body = 120` and `FLIGHT.legs = 420`).
+**Good:** real figures from thousands of hunted animals, and the one finding this design's shape
+rests on — **placement, not energy, decides whether an animal drops or runs**, with thoracic hits
+incapacitating on the spot far more often than abdominal or limb hits. It is why `chest`/`neck`/`head`
+have `FLIGHT = 0` and the paunch does not.
+**Bad:** it is about rifle hunting of moose, red deer and reindeer at welfare thresholds; it gives
+**no organ geometry at all** and no penetration depths, which is the half this design needed most.
+**Adopted:** the existing `FLIGHT` numbers, unchanged, and the ordering they encode.
 
-### F. *theHunter: Call of the Wild* (Expansive Worlds/Avalanche) — behaviour precedent, not code
-<https://www.thehunter.com/> · proprietary, all rights reserved; **nothing is copied** · actively
+### E. Deutscher Jagdverband — the *Jagdschein* material on the *Kammerschuss*, the *Blattschuss*, the *Waidwundschuss* and the *Drückjagd*
+<https://www.jagdverband.de/> · **copyrighted web guidance; facts and technique taken, no text and no
+code** · maintained as current national education material.
+**Good:** it is the doctrine for exactly this kind of hunt, in the order a hunting education teaches
+it, and it is the one source that states **where the organs are relative to the animal**: the
+*Kammer* (heart and lungs) **behind the shoulder and low**, the brain and the neck as instant stops,
+the *Blatt* as a stopper that wastes meat, the paunch as the shot that must never be taken because
+the animal runs a long way. Karen will recognise or reject it immediately, which is the test that
+matters.
+**Bad:** qualitative and regional; not one number in studs; and written for tracking with a dog,
+which v1 cuts. Also, as `docs/research/2026-10-24-real-shooting.md` §7 already noted against the old
+model, *"the doctrine's zone is the Kammer, which is behind the shoulder and NOT the whole chest"* —
+this design is where that note is acted on: the boar's `chest` goes from 1.70 studs of the front half
+to a 1.80-stud block centred on the shoulder, with the back line given to `spine` and the belly to
+`body`.
+**Adopted:** the volume list, their relative placement and the order of lethality that `rank` encodes.
+
+### F. Valve — Source/GoldSrc hitboxes and `hitgroup` damage scaling. **Named and deliberately NOT adopted**
+<https://developer.valvesoftware.com/wiki/Hitboxes> · public developer wiki, **maintained**.
+**Good:** the industry-standard cheap answer, and today's model in this repo: per-bone boxes, each
+tagged with a damage group, the hit group taken from whichever box the trace struck first. One
+lookup, no depth, no cost.
+**Bad for this game:** a hitbox is a **surface**, and the first surface wins — so an organ behind
+another organ's box is unreachable, which is precisely the 40–115° window and the head-on `body`
+reading that were measured here. Valve's own games accept it because the targets are humanoid,
+upright and shot from the front; a quadruped shot from every aspect of a drive is the case it fails.
+**Decision:** not adopted, reason recorded so it is not re-researched. What is kept from it is the
+*idea* of a per-group damage multiplier, which this repo already has in a better form
+(`WOUND.DAMAGE` per zone per ammo, plus `DAMAGE_BY_WEAPON`).
+
+### G. *theHunter: Call of the Wild* (Expansive Worlds / Avalanche) — behaviour precedent, not code
+<https://www.thehunter.com/> · **proprietary, all rights reserved; nothing is copied** · actively
 maintained commercial game.
-**Good:** the best-known player-facing contract for exactly this mechanic — vital hits drop the animal
-quickly, non-vital hits produce a long track, and the game tells the player which happened. It is
-worth naming because it sets the expectation Karen's players will arrive with.
-**Bad:** its whole loop is *tracking* — blood trails, scent, a dog — which v1 cuts to v1.1 (brief). Its
-distances assume a several-square-kilometre map; ours is 400 × 400 studs. Proprietary, so nothing may
-be taken but the observation.
-**Decision:** informs §14's open decision about whether an escaped wounded boar should leave anything
-findable; nothing adopted now.
+**Good:** the best-known player-facing contract for exactly this mechanic — the bullet's **path
+through the animal** decides what it hit, several organs can be struck by one shot, and the player is
+told which. It is the expectation Karen's players arrive with, and it is evidence that a volume model
+is playable at scale on consumer hardware.
+**Bad:** proprietary, so nothing may be taken but the observation; its loop is tracking, which v1
+cuts; and its organ list is far longer than this game simulates — the research note already records
+*"drawing a liver this game never simulates is the mistake Way of the Hunter's own players
+describe"* (`src/shared/Report/init.luau`, `ZONES`). This design stops at seven volumes for that
+reason.
+**Decision:** the path-crosses-organs model is adopted as the *shape*; the organ list is not.
 
-### G. Borrowed from inside this repo (rule 2 applies to internal patterns too)
-`src/server/Boar/init.luau`, `Brain.luau`, `Body.luau` and `docs/design/boar-ai.md`: the owner module
-that does nothing on `require`, a pure decision module driven by an injected world, one module that is
-the only writer of Instances, every number in one `CONFIG`, one named function for a policy a later
-milestone replaces (`CONFIG.isThreat`). `docs/design/shotgun.md` §6.4: attributes as the cross-system
-data contract, because the harness compares them and does not compare tags. `docs/design/camera.md`
-§10.1: a counter for the failure case (`unknownZoneHits`, `tallylessHits`) so a silent degradation
-becomes a number in the harness report.
-**Adopted whole.** The third system in a repo either keeps the conventions or starts eroding them.
+### H. Borrowed from inside this repo (rule 2 applies to internal patterns too)
+- **The provider seam** — `Weapon.setHistoryProvider` plus `askWhereWas` plus `Runtime:cframeAt`
+  (task 266). The zone provider is the same shape, the same `pcall`, the same "unwired means today's
+  game" default, wired by the same two composition roots. Seven precedents in one file.
+- **The pure core beside the owner** — `Boar.Wound` and `Boar.Brain`: a module with no state, no
+  service and no clock, exported for specs, driven with a hand-written config.
+- **Per-kind geometry** — `Body.kindGeometry`'s scale-at-spawn, which makes seven kinds free.
+- **Numbers as one frozen config table**, with Karen's feel values marked.
+- **A counter for every failure case** — `unknownZoneHits`, `tallylessHits`, `historyMisses`,
+  `historyWhy`: a silent degradation becomes a number in the harness report.
+**Adopted whole.** The fourth change to this system either keeps its conventions or starts eroding
+them.
 
-**Pattern adopted overall:** protruding, massless, welded, queryable zone parts on the existing physics
-trunk (A, B); a two-quantity wound model — damage decides *whether*, flight decides *how far* — with
-the shape taken from the wounding literature (C) and the reactions from hunting practice (D), all of
-it in one pure module inside the boar's existing owner (G). Nothing is invented except the flight
-formula in §5.3, which exists because no source gives studs for a 400-stud arena, and whose entire
-content is a clamp and a linear interpolation — one spec assertion.
+**The pattern adopted overall:** a two-body model — an engine **hull** of as few queryable parts as
+the animal's silhouette needs (A), and an arithmetic **volume** set inside it, tested with the slab
+method (B, C) — with the organ list and their placement from hunting doctrine (E), their lethality
+and flight distances from the wounding literature (D, unchanged), the path-crosses-organs contract
+from the one commercial game that ships it (G), the surface-hitbox model it replaces named and
+refused (F), and every seam, default and counter taken from this repo's own existing shapes (H).
+**What is invented** is one bound — the four `PENETRATION` numbers — and 3.7 says so where they are
+written.
 
 ---
 
-## 11. Numeric targets — the one config table
+## 8. Numeric targets
 
-Everything lives in `Boar.CONFIG`, which is already "every number the system has"
-(`src/server/Boar/init.luau`). Two new sub-tables, `ZONES` and `WOUND`. **No magic number anywhere
-else.** **K** marks Karen's feel values (brief: "mark which are Karen's feel values").
+### 8.1 Direction C — the four acceptance criteria, and the half `hit-zones` is accountable for
 
-**Note for the Builder:** `Boar.newRuntime` does `table.clone(Boar.CONFIG)` and then a shallow merge of
-`world.config`. `table.clone` is shallow, so a spec that overrides `WOUND` replaces the **whole**
-sub-table, and a spec that mutates `config.WOUND.DAMAGE` mutates production's table. Specs must pass a
-complete replacement sub-table, and `Wound` must never write into the config it is handed.
+Ballistics v5 §11.1 states the other half of each. (BRIEF item 12.)
 
-### 11.1 `CONFIG.ZONES` — geometry (§4.2)
+| # | Criterion | **This document's half, as an assertion** | The instrument that reads it | Spec, or live only? |
+|---|---|---|---|---|
+| **C1** | honest claims accepted ≥ 95 % on running animals at 20–60 m | **`hit-zones` is accountable for exactly this: an accepted claim must be charged to a zone whose volume the claimed path actually crossed, and to no other.** Assertion: for every accepted claim in a trial, `report.zone` equals `Zones.worst(Zones.crossed(…))` recomputed from `claim.point`, the claim's own direction and the server's own `cframeAt(trunk, t*)` — with **zero** disagreements. The *rate* is ballistics' | `Runtime:stats().zoneQueries/zoneMisses/zoneCrossings` beside `Weapon.stats().claimsAccepted`; the recomputation in `weapon_hits.spec` | **SPEC** for the equality (it is pure arithmetic over hand-written claims); the rate is live and ballistics' |
+| **C2** | a forged claim refused | **There is no zone on the wire to forge** (4.7). Assertion: `Shotgun.HitClaim` has exactly six fields and none of them is a zone, a volume, a rank or a damage number — a grep assertion in the spec, so a later field cannot be added quietly; plus: a claim whose offset is on the trunk's flank with a flank-parallel direction crosses no volume and is charged `body`, not `chest` | `weapon_hits.spec` over `judgeClaim` + `Hits.group`; the field count read off the type's own table | **SPEC** |
+| **C3** | **the vitals hit from broadside, quartering and frontal aspects** | **This document owns the geometry half outright, and it is B1–B7 (5.6):** a slug reaches `chest` at every θ ∈ [0°, 135°] on both flanks on all seven kinds; frontal with a stated 0.50-stud margin; rear-quartering through the paunch into the chamber; the flank head shot that is impossible today | `Zones.zoneFor` swept at 5° steps × 3 heights × 7 kinds in the pure spec; and a **live** scripted shot through `Weapon`'s own path at a placed animal (12.2 case 6) | **SPEC, both pure and live.** Ballistics v5 §11.3 is right that *no MCP-driven trial can hold an aspect* (276a(a): 1–2 s to the click, 6 of 10 shots tail-on). **A live SERVER spec does not need to:** it places the animal's CFrame and fires through an injected cast in the same frame. What remains live-only is whether **Karen** hits the vitals when she aims at them — a playtest, 16.1 item 1 |
+| **C4** | the lead equals the bullet's flight time only | **`hit-zones` is accountable for not asking for any further lead.** Assertion: the zone is resolved in the animal's own frame at the instant the claim or the flight already chose, so a shooter who leads by exactly `v × flight` and strikes the chamber gets `chest` at every speed in {18, 28.7, 38} and at 71/143/214 studs — the zone answer is **invariant under the animal's speed** for the same object-space entry point and direction. Two animals, one still and one at `SPRINT_SPEED`, same object-space shot, same zone | the pure spec (object space, so speed cannot enter) plus `weapon_shot.spec` live at two speeds | **SPEC** |
 
-| Field | Value | K? | Basis |
-|---|---|---|---|
-| `head.size` / `head.offset` | `(1.2, 1.2, 1.4)` / `(0, 0.5, -3.2)` | K (look) | 1.15 studs proud of the front face; ≈34 cm at 1 stud = 0.28 m, a boar's head |
-| `chest.size` / `chest.offset` | `(2.12, 2.01, 1.7)` / `(0, 0.555, -1.6)` | K | heart/lungs behind the shoulder; proud 0.06 on both flanks and the top |
-| `legs.size` / `legs.offset` | `(2.12, 1.0, 5.4)` / `(0, -1.0, 0.15)` | K | bottom third over the whole length; proud 0.06 on the flanks and 0.1 past the rear |
-| `PROTRUSION` | 0.06 studs | | the margin every zone part stands proud by, so the ray meets it first; one named number rather than six hand-tuned sizes |
-| `head.tint` / `chest.tint` / `legs.tint` | `RGB(206, 120, 120)` / `RGB(198, 150, 150)` / `RGB(150, 128, 104)` | K | grey-box teaching aid, readable against `BODY_COLOR = RGB(198, 158, 110)` and the grey plate. **Check on screen** — `BODY_COLOR` itself had to be measured on screen once already (`TASKS.md` row 22) |
-| `ZONE_TINT` | `true` | K | one boolean; `false` gives a uniform boar. Default on because Karen's open question is "can I hit anything", and a visible head answers half of it before she fires |
+### 8.2 The rest
 
-### 11.2 `CONFIG.WOUND` — the model (§5)
-
-| Field | Value | K? | Basis |
-|---|---|---|---|
-| `LETHAL` | 100 | K | the scale everything else is expressed in |
-| `MORTAL` | 50 | K | at or above, the boar will die |
-| `DAMAGE.head` | `{ Slug = 100, Pellet = 34 }` | K | slug kills; 3 pellets kill |
-| `DAMAGE.chest` | `{ Slug = 100, Pellet = 25 }` | K | slug kills; 4 pellets kill; 2 pellets are already mortal with flight 0 |
-| `DAMAGE.body` | `{ Slug = 55, Pellet = 11 }` | K | one slug is mortal; 5 pellets are mortal |
-| `DAMAGE.legs` | `{ Slug = 30, Pellet = 6 }` | K | one slug is **not** enough — the brief's "several hits needed" |
-| `DAMAGE.unknown` | the `body` row | | never free, never a crash (§5.2) |
-| `FLIGHT.head` / `FLIGHT.chest` | 0 / 0 | K | drops on the spot |
-| `FLIGHT.body` | 120 studs | K | ≈34 m; ~4 s at sprint. "A short way" |
-| `FLIGHT.legs` | 420 studs | K | > the 400-stud arena span, so a leg-shot boar usually reaches the exit line first: "runs far — or escapes" |
-| `BLEED_OUT_MAX_SECONDS` | 25 | K | ceiling; covers 420 studs at the wounded speed with margin. A stuck wounded boar still dies |
-| `WOUND_SPEED_START` / `WOUND_SPEED_END` | 1.0 / 0.45 | K | 38 → 17 studs/s over the flight |
-| `LIMP_SCALE` | 0.75 | K | 28.5 studs/s: still faster than a player's 16, so a limping boar is catchable, not caught |
-| `BOLT_SECONDS` | 3.0 | K | sprint away from the shot point regardless of threats |
-| `BOLT_KICK` | 0.8 | K | the speed setpoint jumps to 0.8 × sprint on the hit tick — the one documented bypass of `ACCEL` (§6.2) |
-| `FLASH_COLOR` | `RGB(190, 40, 40)` | K | **check on screen** against `BODY_COLOR` and the tints |
-| `FLASH_SECONDS` | 0.25 | K | long enough to read at 60 fps (15 frames); short enough not to look like a state |
-| `CARCASS_SECONDS` | 120 | K | a carcass outlives a drive's local action but not the 10-minute drive. 1.7 may want it to last the whole drive (§14, Director item B) |
-| `COLLAPSE_ANGULAR_IMPULSE` | 1200 | | one nudge so it falls on a side. A physics number: unverified (§15), checked in a screenshot |
-
-### 11.3 Performance and correctness targets, each one an assertion
-
-| Target | How it is checked |
+| Target | How it is measured |
 |---|---|
-| `Wound.apply` ≤ 10 µs | `boar_wound.spec`: 10 000 applies under 100 ms (the method `boar_brain.spec` already uses) |
-| `Brain:step` still ≤ 10 µs with wounds | `boar_brain.spec`: the existing 10 000-step assertion, unchanged and still passing |
-| Parts per boar == 4, `BasePart` children of the folder == 1 | `boar_zones.spec` |
-| Every zone is reachable by a real ray from outside | `boar_zones.spec` (§12.3) — the assertion that makes §4.1's trap impossible |
-| Reaction: the state changes within **one tick (≤ 17 ms)** of `takeHit`, not one `SENSE_INTERVAL` | pure spec, exact; live spec, measured |
-| A head or chest slug kills; a single leg slug does not | pure and live spec (brief: "a spec that a head hit kills and a leg hit does not") |
-| Body-slug flight is 108 ± 5 studs; two leg slugs give 336 ± 5 | pure spec, exact arithmetic |
-| `Downed` fires **exactly once** per boar; `stats().downed == stats().killed` | live spec, polled |
-| A downed boar accepts no further hits and reports `Damageable == false` | live spec |
-| The carcass exists for `CARCASS_SECONDS` ± 1 s, then is gone | pure spec in simulated time; live spec with a shortened config |
-| Property writes per hit for the flash ≤ 2 per part | read the code; `stepFlash` writes only on a transition |
-| Zero extra raycasts per tick | the Runtime adds none; `probe` is unchanged |
-| `unknownZoneHits == 0` and `tallylessHits == 0` in a live buckshot run | live spec / the Builder's report — a silent degradation becomes a number |
+| **`Zones.zoneFor` ≤ 10 µs**: 10 000 calls under 100 ms over seven volumes | the method `boar_wound.spec` and `boar_brain.spec` already use. Seven slab tests is ~130 multiplications and one small table |
+| **Zero allocation per call beyond one crossings table**, and that table is bounded by 7 | read the code; `crossed` writes into a table it created and `ORDER` bounds its length |
+| **Zero raycasts added, per shot and per frame** | the zone is arithmetic. `Workspace:Raycast` under `src/server/Weapon/` stays **one** caller (`Cast.luau`), and `Boar` adds none to its own probe |
+| **≤ 1 extra `cframeAt` call per impact**, and `Runtime:stats().historyMisses` rises by at most 1 per impact that cannot be placed | `zoneAt` calls `cframeAt` once and returns on `nil` |
+| **Parts per animal falls from 5 to 2** (boar) and **from 5 to 3** (deer); `BasePart` children of the runtime's folder stays **1** | `boar_zones.spec`, `boar_model.spec` |
+| **The hull silhouette loses at most 0.06 studs a side and 0.15 at the rear**, and nothing at the front or the top | 3.4, and the live flank sweep at ±0.05 studs of the box edge (12.2 case 5) |
+| **Every volume is inside the hull** (the trunk ∪ the hull parts), so no volume is unreachable | pure spec over all seven kinds (12.1 case 4) — the replacement for the deleted `PROTRUSION` clearance assertions |
+| **No gap a shot can fall into between the belly, the chest and the legs**: the three bands abut or overlap on both species | pure spec (12.1 case 5). Where a gap is deliberate (the brisket wedge) the spec asserts it answers `body` |
+| **`rank` agrees with `CLASS` and with the slug damage ordering** on both species | pure spec (12.1 case 3) |
+| **Shots to drop is unchanged for `head`, `chest`, `body`, `rear` and `legs`, on all 7 kinds × 4 guns** | `kill_zones.spec`'s existing grid, untouched, plus two new rows |
+| **The `BY_PATH = false` world is the attribute world** and nothing errors | pure + live spec (12.1 case 9) |
 | Zero errors, zero skipped tests | `tests/TestKit.luau` fails the run otherwise |
 
 ---
 
-## 12. How it is tested
+## 9. How it is tested
 
-`tests/server/` → `ServerStorage.Tests` (`CLAUDE.md`, Layout). Specs write their own numbers rather
-than importing `CONFIG` for the assertion, following `tests/server/test_arena.spec.luau`, so a spec
-disagreeing with the config is a finding and not a tautology. Rule 6: these test the boar's path, not
-the harness.
+`tests/server/` → `ServerStorage.Tests`. Specs write their own numbers rather than importing
+`CONFIG` for the assertion where the number IS the claim (the idiom `test_arena.spec` set), and read
+`CONFIG` where the claim is "the table and the world agree". Rule 6: these test the animal's path,
+not the harness.
 
-### 12.1 `tests/server/boar_wound.spec.luau` — NEW, pure, no Instances, no physics, no waiting
+### 9.1 `tests/server/boar_zones.spec.luau` — REWRITTEN. The pure half first, and it is the valuable half
 
-Requires `ServerScriptService.Boar` (side-effect-free on require) and drives `Boar.Wound` with a
-hand-written config:
+Requires `ServerScriptService.Boar` (side-effect-free on require) and drives `Boar.Zones` with
+hand-written geometry and with `Body.kindGeometry` for each of the seven kinds. No Instances, no
+physics, no waiting.
 
-1. `Wound.new()` is frozen, `damage == 0`, `severity == "healthy"`, `flightStuds == 0`;
-2. the damage table: a slug in each of the four zones gives exactly the §11.2 values; a pellet gives
-   the pellet value; `zone = "unknown"` is charged at the `body` row;
-3. thresholds: head slug → `"lethal"`; body slug → `"mortal"`; legs slug → `"grazed"`; two legs slugs
-   → `"mortal"`;
-4. flight: body slug → 108; two leg slugs → 336; body+legs → 126; any lethal → 0; chest, two pellets
-   → mortal with flight 0;
-5. **buckshot tallies:** `zones = { chest = 4, body = 3, legs = 2 }` with `pellets = 9` charges
-   4 × 25 + 3 × 11 + 2 × 6 = 145 → lethal; the same hit with `zones = nil` charges 9 × the dominant
-   zone's pellet value, and the `tallyless` flag is set;
-6. `apply` never mutates its input: the input table is unchanged afterwards and the result is a
-   different, frozen table (a write to it errors);
-7. `contributors` accumulates per `shooterUserId` across hits from two shooters, and `wounds` is an
-   array in order;
-8. `speedScale`: 1.0 healthy; `LIMP_SCALE` after any leg damage; ramps 1.0 → 0.45 × limp across
-   `flightRun` 0 → `flightStuds`; never 0 and never negative;
-9. **a later hit never lengthens the run:** mortal from a leg hit (flight 336), run 100 studs, then a
-   body hit → `flightStuds` drops and `flightRun` is not reset, so the remaining distance is strictly
-   smaller;
-10. `advance` returns `collapse == true` exactly when `flightRun ≥ flightStuds` or
-    `flightSeconds ≥ BLEED_OUT_MAX_SECONDS`, and never for a `grazed` or `healthy` boar;
-11. `killRecord` carries the killing shot's zone, ammo, distance and shooter, `instant == true` only
-    for a lethal hit, and `shots == #wounds`;
-12. 10 000 `apply` calls under 100 ms.
+1. **`rayBox`, the three degenerate cases first:** a ray exactly parallel to a face and outside it
+   → `nil`; parallel and inside → crosses; a ray **starting inside** the box → `tEnter < 0 < tExit`
+   and it counts; a zero-extent axis; a ray that misses on one axis only. Then the ordinary case
+   against hand-computed numbers.
+2. **`depthFor`:** the weapon row wins; an ammo word with no weapon row falls through; an unknown
+   ammo word gets `PENETRATION_DEFAULT_STUDS`; `nil` ammo and `nil` weapon both answer a number and
+   never 0.
+3. **`rank` agrees with the doctrine** (3.6): over both species' tables, `rank` is a strict total
+   order, it is monotone in `CLASS` (vital > crippling > nonVital) and, within one class, monotone in
+   `DAMAGE[zone].Slug`. **This is the assertion that stops a retune from silently renaming organs.**
+4. **Containment:** every volume of every one of the seven kinds lies inside the trunk box ∪ the hull
+   boxes of that kind. A volume outside is unreachable and is a design error, not a feature.
+5. **No accidental gap:** on both species, for a dense grid of broadside and belly rays, every ray
+   that enters the hull crosses at least one volume **or** lands in the stated brisket wedge; the
+   wedge's own rays answer `nil` (→ `body`, 5.4).
+6. **The aspect sweep — B1 to B7 (5.6).** For each of the seven kinds: θ from 0° to 180° at 5°
+   steps, both flanks, at three heights (the chamber's centre, ±40 % of its height), aimed at the
+   chamber's centre, for `Slug`, `Pellet`, `rifle` and `lever`. Asserts B1, B2, B3, B4, B5, B6, and
+   **reports** B7's rear band rather than asserting a number nobody has computed.
+7. **The most vital wins, and it is MAX not SUM:** a rear-quartering path returns `{body, chest}` and
+   answers `chest`; a high broadside returns `{spine}` and answers `spine`; a path through a foreleg
+   into the chamber returns `{legs, chest}` and answers `chest`; and in each case the damage
+   `Wound.damageFor` would charge is the single zone's, never the pair's.
+8. **Speed invariance (C4):** the same object-space origin and direction answer the same zone
+   whatever the trunk's world CFrame is — four rotations and two translations.
+9. **`BY_PATH = false`:** `Runtime:zoneAt` answers `nil` for every query and no error is raised.
+10. **Performance:** 10 000 `zoneFor` calls under 100 ms.
 
-### 12.2 `tests/server/boar_brain.spec.luau` — CHANGED, pure, the states and the reaction
+### 9.2 `tests/server/boar_zones.spec.luau` — the live half, on real animals
 
-Added to the existing file, which already drives `Brain:step(1/60, obs)` with `Random.new(1)`:
+One real animal per kind in the spec's own folder on its own plate at y = 500 (the pattern
+`boar_body.spec` and today's `boar_zones.spec` already use, with teardown in `afterAll`):
 
-1. **a head hit kills and a leg hit does not** (the brief's named assertion, at the Brain level): a
-   `lethal` hit event → `state == "DOWN"` and `intent.downed == true` **on the same tick**; a `grazed`
-   hit event → `state == "FLEE"`, `downed == false`, and the boar is still moving 5 s later;
-2. **reaction within one tick:** from `IDLE` with no threat anywhere, one hit event → the very next
-   returned `intent.state` is not `IDLE` and `|targetVelocity|` is ≥ `SPRINT_SPEED * BOLT_KICK * 0.9`
-   — i.e. it did **not** wait for the sense tick and did **not** ramp through `ACCEL`;
-3. the bolt runs **away from the shot point**: with `from` behind the boar and no threats at all, the
-   flat distance to `from` grows over 30 steps;
-4. `WOUNDED` never returns to `IDLE`: 30 s of simulated steps with no threat inside `CALM_RADIUS`
-   leaves it `WOUNDED` (a `FLEE` boar in the same conditions calms, which the existing test already
-   asserts — so the two together prove the difference is the wound, not the timer);
-5. `WOUNDED` still routes: `pathRequest` is on the exit line and inside the bounds minus
-   `EDGE_MARGIN`, exactly as the existing `FLEE` assertion requires — the proof it reuses the route
-   rather than re-implementing it;
-6. `speedScale` is applied to the setpoint: with `wound.speedScale = 0.5`, the steady-state
-   `|targetVelocity|` is half the unwounded value, and the per-step change still never exceeds
-   `ACCEL * dt` (the ramp is not bypassed except on the hit tick);
-7. `collapse == true` in the observation → `DOWN` with `downed == true` once, then `downed == false`
-   forever after and `targetVelocity == Vector3.zero` every subsequent tick;
-8. `DOWN` → after `CARCASS_SECONDS` of simulated dt, exactly one `despawn = true, reason = "killed"`,
-   then `GONE` forever;
-9. a `WOUNDED` boar crossing `exitZ` gives `despawn = true, reason = "escaped"` once (not `killed`);
-10. a hit arriving while `GONE` or `DOWN` changes nothing and never re-animates the boar;
-11. two hit events in one observation are both consumed, and the most severe wins;
-12. determinism: two brains with the same seed and the same hit sequence produce identical intent
-    sequences;
-13. `dt = 5` is still clamped in `WOUNDED` and `DOWN` — a hitch cannot skip the whole flight or the
-    whole carcass time in one step;
-14. the existing 10 000-step performance assertion still passes.
+1. the hull is **exactly** the trunk plus one part per `hull = true` row — 2 parts on a boar, 3 on a
+   deer — each `Massless`, `CanCollide == false`, `CanQuery == true`, `Anchored == false`, welded by
+   a `WeldConstraint` to the trunk; and the runtime's folder still holds **one** `BasePart` child;
+2. `Damageable == true` on the trunk alone; `HitZone` on the trunk (`"body"`) and on each hull part
+   (its own name); **no** `Damageable` on a hull part;
+3. the ancestor walk: `Hits.targetOf(hullPart)` returns the trunk — the part `takeHit` is given —
+   with the hull part's own zone;
+4. **real rays, in the animal's own frame** (computed from `part.CFrame` so the test does not depend
+   on which way the animal happens to face): nose-on, over-the-top and both flanks at skull height
+   → the provider answers `head`; both flanks at the chamber → `chest`; low flank and rear-low →
+   `legs`; high over the back → `spine`; rump from behind → `rear`; mid-flank behind the last rib →
+   `body`. **Twelve directions minimum per species.** Each one is cast for real and then handed to
+   `Runtime:zoneAt`, so the test proves the hull *and* the volume together;
+5. **the flank edge**, which is the one thing 3.4 gives up: rays at the box's own x half-extent
+   ±0.05 studs, at the leg band's height — asserting what hits and what misses, so the 0.06 studs
+   lost is a measured fact and not a surprise;
+6. `zoneAt` refuses a `DOWN` animal, a part of another runtime, and an `at` outside the ring's span,
+   each with its own `zoneWhy`;
+7. the animal still drives: after 1 s the assembly is moving, `CFrame.UpVector.Y > 0.9`, and
+   `part:GetNetworkOwner() == nil` — the hull did not tip it, anchor it or slow it.
 
-### 12.3 `tests/server/boar_zones.spec.luau` — NEW, live, and the most valuable spec here
+### 9.3 `tests/server/weapon_hits.spec.luau` — the seam, pure
 
-One real boar in the spec's own folder (the pattern `tests/server/boar_body.spec.luau` already uses:
-its own plate at y = 500, its own field, teardown in `afterAll`). It proves the geometry **with real
-rays**, which is the only way to catch §4.1:
+1. with a zone provider injected, `impact.zone` is written and `Hits.group` reports it;
+2. **unwired** → the attribute answer, byte-for-byte today's zone for the same impacts;
+3. a provider that **throws** → the attribute answer, and `zoneProviderWhy` carries the message;
+4. a provider that returns `nil` → the attribute answer;
+5. a provider asked once per impact and no more (count the calls);
+6. nine buckshot impacts across three volumes → `report.zones` is the three-way tally and
+   `report.zone` is the dominant one, with the nearest-impact tie-break unchanged;
+7. an accepted claim's impact carries `at == t*` and the zone the claim's own path crosses
+   (C1's equality assertion);
+8. **C2:** `HitClaim` has six fields and no zone; a flank-parallel claim is `body`.
 
-1. the boar has exactly 4 `BasePart`s: the trunk plus `ZoneHead`, `ZoneChest`, `ZoneLegs`; the
-   runtime's folder still has exactly **one** `BasePart` child;
-2. the trunk carries `Damageable == true` and `HitZone == "body"`; each zone part carries its own
-   `HitZone` and **no** `Damageable`; each is `Massless`, `CanCollide == false`, `CanQuery == true`,
-   `Anchored == false`, and is joined by a `WeldConstraint` to the trunk;
-3. **the ancestor walk works:** for each zone part, walking `Parent` upward reaches an instance with
-   `Damageable == true`, and that instance is the trunk — i.e. the weapon's `targetOf` will return the
-   part `takeHit` expects, with the child's zone;
-4. **rays, from outside, in the boar's own local frame** (computed from `part.CFrame` so the test does
-   not depend on which way the boar happens to be facing): a ray at the head from the front, from
-   above and from each side hits an instance whose `HitZone` is `head`; at the chest from both flanks
-   and from above → `chest`; low on both flanks and at the rear-low → `legs`; mid-flank behind the
-   chest, the belly from below behind the legs band, and the rear above the hams → `body`. **Nine
-   directions minimum.** This is the assertion that fails loudly if a future change nests a zone part
-   inside the trunk or shrinks the protrusion;
-5. the boar still drives: after 1 s the assembly is moving and `CFrame.UpVector.Y > 0.9` — the zone
-   parts did not tip it, anchor it or slow it;
-6. `part:GetNetworkOwner() == nil` still holds with the welded children (assembly ownership).
+### 9.4 `tests/server/weapon_shot.spec.luau` — LIVE, and this is C3's instrument
 
-### 12.4 `tests/server/boar_hit.spec.luau` — CHANGED, live, the seam and the kill
+A placed animal (its CFrame written directly, so the aspect is exact), an injected cast that stops
+nothing, and a shot resolved through `onFireRequest` — the path a player's trigger takes:
 
-Task 24's six assertions stay and must still pass unchanged (that is the `Hit` back-compatibility
-claim in §2.2). Added, with a spec-owned config whose `CARCASS_SECONDS` is 2 so the test takes seconds:
+1. θ = 0°, 45°, 90°, 135° at the chamber's height with a slug → `report.zone == "chest"`, four
+   times. **The live half of C3, with no human click and no MCP round trip**;
+2. θ = 0° at skull height → `"head"`; θ = 90° high over the back → `"spine"`; θ = 180° at the
+   chamber → `"chest"` on a boar and `"rear"`/`"body"` on a stag (B4);
+3. the same four shots at `SPRINT_SPEED` with the claim path on → the same four zones (C4 live);
+4. a boar and a stag of each kind, so the per-kind scaling is exercised on the player's path and not
+   only in `kindGeometry`.
 
-1. `takeHit(trunk, { zone = "head", ammo = "Slug", pellets = 1, at = os.clock() })` → `true`; within
-   0.2 s the boar's state is `DOWN`; `stats().downed == 1`;
-2. `Downed` fires **exactly once** (polled, deferred signals) with `killingZone == "head"`,
-   `instant == true`, `flightStuds == 0`, `killedByUserId` as supplied, `#wounds == 1`;
-3. the body **collapsed**: the `AlignOrientation` is disabled, the mover is disabled,
-   `GetAttribute("Damageable") == false`, `GetAttribute("Carcass") == true`, and the part is still in
-   the folder;
-4. a further `takeHit` on the carcass → `false`, no counter moves, no second `Downed`;
-5. after `CARCASS_SECONDS`, `Despawned` fires once with `reason == "killed"` and the part is gone;
-6. a **second boar**, one `legs` slug: it is **not** down after 3 s, its state is `FLEE`, and
-   `woundOf(id).severity == "grazed"` — the brief's "a leg hit does not kill", at the live seam;
-7. that boar, hit again in the legs, becomes `WOUNDED`, and its flat speed over the next second is
-   measurably below an unwounded boar's sprint (the limp and the bleed ramp, at the physics level);
-8. a mortally wounded boar driven over the exit line fires `Despawned` with `reason == "escaped"`,
-   `mortallyWounded == true` and the wound payload attached — the brief's "an escaped wounded boar is
-   also an event";
-9. `stats()` reports `zoneHits` per zone, `unknownZoneHits == 0` and `tallylessHits` matching the
-   number of tally-free calls the spec made.
+### 9.5 `tests/server/kill_zones.spec.luau`, `boar_hit.spec.luau`, `report_silhouette.spec.luau`
 
-### 12.5 Client spec: none, and harness-driven input: what it can and cannot prove
+- **`kill_zones.spec`:** the existing grid of 7 kinds × 4 guns × zones, **unchanged for the five
+  existing zones** (that invariance is the claim), plus `neck` (one shot, any gun, every kind) and
+  `spine` (mortal on both species with both rifles, mortal with a slug on a boar, and the deer
+  arithmetic read off the **divided** number — the mistake that file exists to prevent).
+- **`boar_hit.spec`:** the seam end to end — a `neck` hit kills, a `spine` hit cripples and the
+  animal circles (`CRIPPLE_SPEED`, `CRIPPLE_TURN_DEG`), a `legs` hit still does not kill, `Downed`
+  still fires exactly once, a carcass still refuses hits.
+- **`report_silhouette.spec`:** the two new rects, projected through `Shape.rectOf` from the new
+  boxes; the disjointness assertion replaced by the draw-order assertion (10.2).
 
-**No client spec.** This system has no client code (§1.2), so `tests/client/` is unchanged. Adding one
-would test the weapon, which Task 24 already tests.
+### 9.6 Client spec: none. Harness input: what it can and cannot do
 
-**What harness-driven input can do today** (Task 6 landed; `TASKS.md` rows 6 and 6a;
-`tools/studio_mcp.py` docstring): replay keyboard and mouse steps with gaps into the Play client, and
-assert in a client spec on what `ContextActionService` and `UserInputService` delivered.
+**No client spec and no client change.** The client sends a claim naming a part and never a zone
+(4.7); the hit card and the Hud read `report.zone` as they already do. `tests/client/` is unchanged
+except that `hit_card.spec`'s fixtures may name `neck` or `spine` if the Builder wants coverage of
+the new strings — optional, and not a gate.
 
-**What it cannot do, and this system needs** — say it plainly rather than build a test that looks like
-proof (rule 6):
+**What harness-driven input still cannot do**, said plainly rather than wrapped in a test that looks
+like proof (rule 6, and ballistics v5 §11.3 measured it): it cannot place the player's character, it
+cannot aim under `MouseBehavior = LockCenter`, and **it cannot hold an animal's aspect at the
+trigger** — 1–2 s pass between the gate reading and the real click, and 6 of 10 shots were tail-on
+although all 10 passed a chest gate (276a(a)). **So there is no honest end-to-end "Karen shoots a
+running boar in the heart" test today, and this design does not pretend otherwise.** 9.4 is the
+instrument that answers the geometry question without a human; the feel question is a playtest.
 
-- it **cannot place the player's character**, so it cannot guarantee a boar is in front of the muzzle;
-- it **cannot aim**: `moveTo` is absolute, and under the camera's `MouseBehavior = LockCenter` it may
-  deliver no usable `InputObject.Delta` at all (`docs/design/camera.md` §9.3);
-- it cannot order a client scenario against a **server** spec's actions: the two reports are
-  independent;
-- the boar moves, so even a lucky alignment is not repeatable.
+### 9.7 Screenshots (rule 5) — three, inspected by the Builder
 
-So there is **no honest end-to-end "shoot the boar in the head from the client" test today**, and this
-design does not pretend otherwise. What is added instead:
+This task changes what the animal **is made of**, and with `BOAR_MODEL` lit (default `true`,
+`src/shared/Flags/init.luau`) the drawn mesh covers the hull, so most of it is invisible by design.
+What must still be looked at:
 
-**One scenario, for the part that is real** — that firing from the real input path reaches the server
-and produces a hit *when it hits*, appended to `tests/client/input_scenarios.txt`:
+1. **The grey-box animal from the side and the front, `BOAR_MODEL` off** — it is now a plain trunk
+   with a head (and a neck, on a deer) instead of a trunk with four tinted bands. Confirm it still
+   reads as an animal and that nothing floats or protrudes wrongly. **Say plainly that the zone
+   tints are gone from the body**; that is 16.1 item 4.
+2. **The drive report panel** with hits in `neck` and `spine` — the two new rectangles, their rings
+   readable against the fill (`Report.RING_MIN_LUMA`), and every dot inside the animal.
+3. **A hit card** on a real shot, showing the new zone label where it lands.
 
-```json
-{ "name": "fire-at-boar", "spec": "ClientTests.weapon_client.spec", "steps": [
-  { "device": "keyboard", "action": "keyPress", "key": "One" },
-  { "device": "wait", "ms": 400 },
-  { "device": "mouse", "action": "moveTo", "x": 400, "y": 300 },
-  { "device": "wait", "ms": 200 },
-  { "device": "mouse", "action": "mouseButtonDown", "button": "left" },
-  { "device": "mouse", "action": "mouseButtonUp", "button": "left" },
-  { "device": "wait", "ms": 800 } ] }
+Describe what is actually on screen, not what should be. A number is not a verification.
+
+---
+
+## 10. Deltas to other documents, each with its owner
+
+### 10.1 `docs/design/ballistics.md` v5 — three sentences to amend, and who amends them
+
+v5 was written by run 1 of this task and is right about everything it owns. Three of its sentences
+describe the zone mechanism and become stale when this design is built. **The build task amends
+them in v5 itself** (it is the Architect's file; the Builder may not rewrite a design — so the
+honest route is: the build task records the three in its review request, and the Director calls the
+next Architect run, or accepts them as a documentation note in `TASKS.md`). Named here so neither
+document can quietly disagree with the other:
+
+| v5 says | After this design |
+|---|---|
+| §1.2: *"The client never names a zone … the zone is that part's own `HitZone`, read on the server by `Hits.targetOf`"* | the client still never names a zone. The zone is the **animal's** answer for the path; `Hits.targetOf`'s attribute is the fallback (5.4) |
+| §5.6 property 1: *"The four zone parts are `zonePart.Parent = trunk` … so one entry covers the trunk and all four zones"* | the **hull** parts are `Parent = trunk`, so one entry still covers everything. The property holds with two parts instead of four |
+| §2 owners table: `Weapon.Flight` and `Validator.claimImpact` *"untouched"* | untouched **by v5**. This design adds one stamped field to each (`impact.at`) |
+
+**No number in v5 moves.** `BODY_TOLERANCE_FACTOR`, `BODY_TOLERANCE_MIN_STUDS` and the per-kind table
+in v5 §3.2 are read off `trunk.Size` — the **trunk**, which this design does not touch — so all seven
+tolerances (2.00–3.71) are unchanged, including the hind's anchoring 6.030.
+
+### 10.2 `ReplicatedStorage.Report` — two rects, and disjointness becomes draw order
+
+`Report.CONFIG.SILHOUETTE` is *"`Boar.CONFIG.ZONES[zone]`'s own box projected through
+`HitLog.Shape.dot`'s mapping"*, and `report_silhouette.spec` asserts exactly that (case
+*"is Boar.CONFIG.ZONES projected, zone by zone"*) plus *"keeps the four named zones pairwise
+disjoint"*. Volumes overlap, so **the second assertion cannot survive and must be replaced rather
+than relaxed**:
+
+- `SILHOUETTE` gains `neck` and `spine` and keeps the other five;
+- the rects are drawn **in ascending `rank`**, so the most vital is on top and a dot in an overlap is
+  labelled by the zone the model would have charged. That is the replacement assertion: *for every
+  point in the unit square, the topmost rect containing it is the highest-ranked volume whose
+  projection contains it* — the picture tells the truth about the model, which is what the old
+  disjointness assertion was for;
+- `Report.CONFIG.ZONES` becomes seven, and its comment that `body` *"is not in
+  `Boar.CONFIG.ZONES.ORDER`"* is corrected (4.5).
+
+The projections, for the **male boar** trunk (u = (z + 2.75)/5.5, v = 0.5 − y/3, clamped to the unit
+square), as the arithmetic the Builder checks `Shape.rectOf` against:
+
+| zone | u0 | u1 | v0 | v1 |
+|---|---|---|---|---|
+| `head` | 0.000 | 0.309 | 0.000 | 0.383 |
+| `neck` | 0.309 | 0.464 | 0.033 | 0.367 |
+| `chest` | 0.309 | 0.636 | 0.150 | 0.683 |
+| `spine` | 0.336 | 0.945 | 0.000 | 0.150 |
+| `rear` | 0.782 | 1.000 | 0.000 | 0.600 |
+| `body` | 0.636 | 0.782 | 0.150 | 0.767 |
+| `legs` | 0.136 | 0.973 | 0.667 | 1.000 |
+
+`Shape.rectOf` is the authority and the spec recomputes all seven; the table above is the check, not
+the source. (`SILHOUETTE` stays deliberately **not** species-aware, which `src/shared/Report`'s own
+comment already explains and this design does not change.)
+
+### 10.3 The grep the build task owes — CARRY FORWARD, NOT ABSORB (the BRIEF item 13 analogue)
+
+Named here as a build-order step; **this design-only task does not do it.** Once the three interior
+zone parts stop existing and `PROTRUSION` is deleted, every caller and spec of these names must be
+visited **once**:
+
+```
+ZoneChest / ZoneRear / ZoneLegs   tests/server/boar_zones.spec.luau   (rewritten)
+                                  tests/server/boar_hit.spec.luau
+                                  tests/server/boar_behaviour_live.spec.luau  (reads chest.Size * scale)
+                                  tests/server/weapon_shot.spec.luau
+                                  src/server/Weapon/Validator.luau   (COMMENT only: the 7.275 waiver story)
+                                  src/server/Weapon/init.luau        (COMMENT only: claimLastPart's story)
+                                  reviews/task-266*/probes/*.luau    (probes, not code; leave, they are history)
+CONFIG.ZONES.PROTRUSION           tests/server/boar_zones.spec.luau  (CLEARANCE_FLOOR and two assertions)
+CONFIG.ZONES.ORDER                tests/server/boar_shot.spec.luau, boar_model.spec.luau (x3),
+                                  boar_kinds.spec.luau (x3), boar_legendary.spec.luau,
+                                  tests/server/report_silhouette.spec.luau
+Report.CONFIG.ZONES               src/client/Hud/BoarArt.luau, tests/client/report_panel.spec.luau,
+                                  tests/server/report_silhouette.spec.luau
+geometry.zones                    src/server/Boar/Body.luau (kindGeometry, buildHull)
 ```
 
-It asserts the weapon's own state changed (Task 24's assertions), **not** that a boar was hit. Whether
-the boar was hit is `Runtime:stats().hits` in the server report, which the Builder reports as an
-observation, never as a passing assertion. If the `One` keypress does not reach the CoreGui backpack,
-that is a harness fault and gets reported (`docs/design/camera.md` §9.3 flags the same unknown).
+Every one of the `ORDER` readers is written as a loop over the list, so seven names instead of four
+is arithmetic rather than a rewrite — but **that is a claim to verify, not to assume**: three of them
+(`boar_model.spec`'s `expect(zones).to.equal(#CONFIG.ZONES.ORDER)`) count built **parts** against
+`#ORDER`, and after 3.4 the built count is the number of `hull` rows, not the number of volumes.
+Those three assertions change.
 
-**Queued, not built here** (§14, Director item D): the smallest harness step that *would* make this
-testable end to end is "place the local character at a given CFrame and point the camera at a given
-point, during Play". That is one StudioMCP call and one gate, it is the blocker for every future
-"shoot X" test, and it belongs to a harness task, not to this one.
+### 10.4 `GAME_DESIGN.md` — the owners table row, ready to paste
 
-### 12.6 Screenshots (rule 5) — four, inspected by the Builder
+Rule 3. **No new row**: this is the boar's. In the **Boar AI** row, the sentence beginning *"Since
+Milestone 1.5 it also owns hit zones and wound state: `Boar.Body` builds the three welded, massless,
+non-colliding zone parts (`ZoneHead`, `ZoneChest`, `ZoneLegs`)…"* is **stale already** (there are
+four since task 116) and is replaced by:
 
-`python tools/studio_mcp.py capture <name> [camera x,y,z] [look-at x,y,z]` works during Play
-(`TASKS.md` row 7, closed; used in Tasks 17, 18, 22). This task changes how the boar **looks** (a head,
-tinted zones) and how it **behaves when shot**, so:
+> Since Milestone 1.5 it also owns **hit zones and wound state**, and since Task 277 a hit zone is a
+> **volume inside the body and not a box on it**: `Boar.CONFIG.ZONES` holds the seven volumes per
+> species (`head`, `neck`, `chest`, `spine`, `rear`, `body`, `legs`) with their `rank` and the
+> per-cartridge `PENETRATION`, measured off the loaded rigs; `Boar.Zones` is the pure slab-test
+> module that says which volumes a shot's path crossed and which of them is worst; `Runtime:zoneAt`
+> is the **one** answer to "which zone did this shot hit", rewinding through the one history reader
+> `Runtime:cframeAt`; `Boar.Body` builds the **hull** — the trunk plus one queryable part per `hull`
+> row (`HullHead`, and `HullNeck` on a deer) — and is the only writer of it, of the `HitZone`
+> attribute it carries as the fallback, of the hit flash, the collapse and the `Carcass` attribute;
+> `Boar.Wound` is the pure damage model and holds no state. `ServerScriptService.Weapon` **asks**
+> through `Weapon.setZoneProvider`, exactly as it asks `setHistoryProvider`, and gains no zone table,
+> no anatomy and no damage number. No damage number, health value or zone-to-reaction rule exists
+> anywhere else in the repo ([hit-zones design](docs/design/hit-zones.md)).
 
-1. **The boar from the side and from the front**, idling: it has a head that protrudes, the chest and
-   leg bands are distinguishable from the trunk, and the whole thing still reads as one animal rather
-   than four boxes. This is the `ZONE_TINT` decision on screen.
-2. **A carcass**: after a chest hit, the boar lying on its side on the ground, not standing, not
-   sunk into the plate, not floating. The `COLLAPSE_ANGULAR_IMPULSE` check.
-3. **Before / after a shot**, the same camera, ~1 s apart: the boar grazing, then sprinting away. This
-   is the "can I tell I hit it" evidence that Karen's playtest asked for.
-4. **The flash**, best effort: a capture timed inside `FLASH_SECONDS`. **Say plainly if it could not be
-   caught** — 0.25 s against a manual capture is a lottery, the spec covers the property change, and a
-   missed capture is reported, never implied.
-
-Describe what is actually on screen, not what should be. A number is not a verification
-(`docs/PROJECT_CONTEXT.md`).
-
-### 12.7 Process hazards, named so the task does not stall on them
-
-- **Rojo.** This task adds `Wound.luau` to a watched folder and needs a branch switch to get it.
-  `rojo serve` 7.7.0 panics when watched files vanish and a large branch switch alone crashed it once
-  (`CLAUDE.md`, "Known Rojo 7.7.0 crash"). Stop `rojo serve` before switching; expect a
-  **NEEDS KAREN** Connect click.
-- **Stacked branch.** §0: branch from `task-24-shotgun` while it is unmerged, and say so in the review
-  request's `Base:`.
+**`Game state` stays `_unassigned_`.** Nothing here claims it.
 
 ---
 
-## 13. Rows for `GAME_DESIGN.md` — ready to paste
+## 11. The harness, the gate, and the build order
 
-Rule 3 requires the owners table to mirror this file. **No new row**: this system is the boar's. Amend
-the existing **Boar AI** row's owner cell by appending (it will already carry Task 24's `takeHit`
-sentence; this follows it):
+### 11.1 Scope and `test2`
 
-> … Since Milestone 1.5 it also owns **hit zones and wound state**: `Boar.Body` builds the three welded,
-> massless, non-colliding zone parts (`ZoneHead`, `ZoneChest`, `ZoneLegs`) that carry the `HitZone`
-> attribute the weapon reads, and is the only writer of the hit flash, the collapse and the `Carcass`
-> attribute; `Boar.Wound` is the pure damage model and holds no state; the Runtime is the only holder
-> of a boar's `WoundState` and the only firer of `Runtime.Downed` (the kill event for Milestone 1.7)
-> and of the extended `Runtime.Despawned` (which reports an escaped wounded boar). No damage number,
-> health value or zone→reaction rule exists anywhere else in the repo
-> ([hit-zones design](docs/design/hit-zones.md)).
+- `tools/studio_mcp.py`'s `BLAST_RADIUS` already maps `src/server/Boar` → `boar`,
+  `src/server/Weapon` → `weapon`, `src/shared/Shotgun` → `gun`. `src/shared/Report/init.luau` is
+  **not** in the map and therefore resolves to `all` — which is correct and is the behaviour the
+  table's own rule intends (*"an unmapped code path can only ever mean the whole suite"*).
+- **No new spec FILE**, so `SCOPE_SPECS` needs no row and `selftest` cannot fail on this task.
+- **`test2`**: `src/server/MatchBoot.server.luau` **is** in `TWO_PLAYER_PATHS`. The wiring line
+  belongs there, so the PR that contains it needs the `[harness2]` line. **Put it in its own final
+  commit** so the three commits before it need only the one-player run, and say so in the request.
+  The cheaper alternative, if the Director prefers to avoid the human click: wire only
+  `ForestTestBoot` in this task and carry `MatchBoot` into the drive's next task — at the cost of
+  the production drive running on the attribute fallback until then. **16.2 D.**
 
-Nothing else in that table changes. In particular **`Game state` stays `_unassigned_`**: the score
-system that will consume `Downed` is Milestone 1.7 and gets its own design and its own owner. This
-task must not claim that slot by putting a points number anywhere.
+### 11.2 Build order — four commits, each green on its own
 
----
+1. **Data and arithmetic.** `Boar.Zones` (new, pure) · `CONFIG.ZONES` rewritten with the seven
+   volumes, `rank`, `hull`, `PENETRATION`, `BY_PATH`; `PROTRUSION` deleted · `WOUND`'s two new rows
+   in `DAMAGE`, `DAMAGE_BY_WEAPON`, `FLIGHT`, `CLASS` · `kindGeometry` carries `rank` and `hull` ·
+   `Report.SILHOUETTE`'s two rects and the draw order · `boar_zones.spec`'s pure half,
+   `kill_zones.spec`'s new rows, `report_silhouette.spec`'s rewrite, and the `ORDER`-reader specs.
+   **The zone parts are still built and still queryable, so the game is unchanged and the suite is
+   green.**
+2. **The answer.** `Runtime:zoneAt` · `Shotgun.ZoneQuery`, `Impact.zone`, `Impact.at` ·
+   `Weapon.setZoneProvider` + `askZone` + the two annotation sites · `Hits.group`'s one preference ·
+   `Flight`'s and `claimImpact`'s stamps · `weapon_hits.spec`. **Unwired, so still unchanged.**
+3. **The hull.** `buildZones` → `buildHull`: build only the `hull` rows, rename to
+   `HullHead`/`HullNeck`, archive the three removed part names with a note (rule 7) ·
+   `boar_zones.spec`'s live half · the part-count specs. **Wired in `ForestTestBoot` in this commit,
+   so the volumes decide before the parts that used to decide are gone** — the order matters: 3
+   before 2 would leave a window where only `head` and `body` were reachable.
+4. **Production.** `MatchBoot`'s one wiring line · `weapon_shot.spec`'s live aspect cases ·
+   `boar_hit.spec`. **This is the commit that needs `test2`.**
 
-## 14. Open decisions — none of them blocks building
+Each commit is a harness run on a clean tree and the request names the last one as `Code commit:`.
 
-Every one has a default written into `CONFIG` or into this document, so the Builder can build, test and
-report without an answer. They are the things to overrule on purpose rather than by accident.
+### 11.3 Process hazards
 
-### Karen (feel) — the "check this" list for the first shooting playtest (`ROADMAP.md` speed rule 8)
-
-1. **Does a hit read as a hit?** The flash (0.25 s, red) plus the bolt (sprint for 3 s away from you).
-   If not, the dials are `FLASH_SECONDS`, `FLASH_COLOR` and `BOLT_SECONDS` — and if it still does not,
-   the answer is sound or a hit marker, which is §14 Director item C, not more red.
-2. **Are the zones the right size?** Especially: is the head hittable at 60–80 studs with a slug, and
-   is it *too* hittable with buckshot? `CONFIG.ZONES` sizes; `DAMAGE.head.Pellet` is the other dial.
-3. **Is the hindquarters split right?** This design puts the rear *above* the legs band in `body` and
-   the hams in `legs` (§4.2). One number (`legs.size.Y`) moves the line.
-4. **Are the distances right?** Body ≈ 108 studs (~4 s), two leg hits ≈ 336 studs (usually an escape).
-   Too short and every hit is a kill; too long and the drive never ends.
-5. **Should a wounded boar be able to escape at all in v1?** Default **yes** (it is in the brief, and
-   it is what makes the drive a drive). `FLIGHT.legs` is the dial if it happens too often.
-6. **Is the zone tint on or off?** Default **on** for the grey box (`ZONE_TINT = true`). It is a
-   teaching aid, not art, and it goes when the model arrives.
-7. **Does a carcass in the way annoy you?** It is solid (`CanCollide = true`) and stays 120 s.
-
-### Director (scope)
-
-A. **A damage router / a health system of its own.** Default: **not now** (§3.1), same answer
-   `docs/design/shotgun.md` §15 item B gave. Revisit when roe deer, fox and rabbit arrive (v1.1) — the
-   expectation is that they reuse `Wound` with a different `DAMAGE` table, not a second model.
-B. **How long a carcass lives, and who removes it.** Default: 120 s, removed by the boar runtime.
-   1.7 may want carcasses to last the whole drive and be removed at the score screen; that is a config
-   number plus one call, and it is 1.7's call, not this task's.
-C. **A hit marker or a hit sound.** Default: **neither**, because both need an owner this task must not
-   invent — anything drawn is `PlayerScripts.Hud` (`docs/design/shotgun.md` §3.4) and would need the
-   server's `HitReported` replicated to the shooter, which is a weapon change. If Karen's answer to
-   item 1 is "still not obvious", this is the next task, with the Hud as the owner and the weapon
-   publishing a one-way remote.
-D. **The harness cannot place a character or aim a camera** (§12.5). That blocks every end-to-end
-   "shoot X" assertion, not only this one. Default: not built here (tooling freeze,
-   `ROADMAP.md` speed rule 1); queued as the smallest useful harness step.
-E. **Blood trail and tracking.** Out of v1 by the brief and `ROADMAP.md`. Named here only because the
-   escaped-wounded event (§6.3) is the hook it will attach to, and nothing about it needs to change
-   when that lands.
-F. **Players are not damageable**, unchanged from `docs/design/shotgun.md` §15 item C. A pellet that
-   hits a player is a miss; the drive-line rule, not damage, is the answer to shooting at people.
-G. **Several boars at once.** Unchanged: the interface is plural, `maxBoars = 4`, production spawns
-   one. Carcasses count against nothing yet.
+- **Rojo.** A new file (`Zones.luau`) in a watched folder and a branch switch to get it. `rojo serve`
+  7.7.0 panics when watched files vanish and a large branch switch alone crashed it once. Stop
+  `rojo serve` before switching; expect a **NEEDS KAREN** Connect click.
+- **`HIT_CLAIM` expires 2026-11-15** and today is 2026-10-26. Nothing in this design moves it, but a
+  build that lands after that date fails `flags.spec` and therefore the harness. One line, with a
+  reason.
+- **`python tools/flags.py clear` and `tools/pose.py clear`** before any harness run.
 
 ---
 
-## 15. What I could not verify (rule 8)
+## 12. What I could not verify (rule 8)
 
-- **The Task 24 branch.** I could not read `task-24-shotgun`. Everything in §2.1 — the field names on
-  `Hit` and on `HitReport`, that `Hits.targetOf` reads the **hit instance's** `HitZone` before the
-  root's, that `report.zones` carries the per-pellet tally, and the shape of the `BoarBoot` wiring — is
-  read from `docs/design/shotgun.md` and `reviews/task-27/BRIEF.md`, not from code. §2.3 makes
-  checking it the Builder's first act; §8.1 makes every new field optional so a mismatch is a small
-  adaptation rather than a redesign.
-- **Anything requiring Roblox Studio.** No Studio in this session (`.agent-evidence/INDEX.md`). Every
-  claim about how `WeldConstraint`, `Massless`, `CanQuery`, `ApplyAngularImpulse`, disabling an
-  `AlignOrientation` or raycast ordering behave here is from documentation and from the code already in
-  this repo, not observed. Specifically unverified: that a massless welded child leaves the assembly's
-  mass and therefore `MAX_FORCE`/`ACCEL` untouched; that disabling `upright` plus
-  `COLLAPSE_ANGULAR_IMPULSE = 1200` reliably topples a ~23-mass body rather than spinning it; and that
-  a 0.06-stud protrusion is enough for the engine to prefer the zone part at a grazing angle.
-  §12.3 item 4 and §12.6 shot 2 are the checks.
-- **The external sources' URLs, licences and maintenance status.** No network. A, B (Roblox creator
-  docs, CC BY 4.0, APIs ship with the engine) are near-certain; **C is cited from memory** — the paper
-  exists in *Scientific Reports* 2018 on incapacitation time and flight distance, and I am confident of
-  the finding but not of the exact title, author list or DOI; D is a category of source (hunting-
-  association hit-sign guidance) rather than one fixed page; E's repository name and F are from my own
-  knowledge. **The Builder confirms all of them in the research note before relying on any**, and if C
-  cannot be confirmed, the model does not change — §5's numbers are Karen's feel values compressed to a
-  400-stud arena, and C is cited for the *shape*, which D independently supports.
-- **Every number in §11.2 is a first guess.** None has been played. They are arithmetic against
-  `Boar.CONFIG.SPRINT_SPEED` and the arena span, not measurement, and §14's Karen list is where they
-  get their real values.
-- **The DEV place's `SignalBehavior`.** Not a repo file. The live specs poll, which is correct under
-  both `Immediate` and `Deferred` — the same conclusion `docs/design/boar-ai.md` and
-  `docs/design/shotgun.md` reached.
-- **Whether `tests/client/input_scenarios.txt`'s `keyPress "One"` reaches the CoreGui backpack** to
-  equip the Tool. `docs/design/camera.md` §9.3 flags the same unknown; §12.5 says what to report if it
-  does not.
+- **Anything requiring Roblox Studio.** No Studio in this session (`.agent-evidence/INDEX.md`).
+  Specifically unverified: that `CFrame:PointToObjectSpace` / `VectorToObjectSpace` behave as this
+  design assumes for a welded child's frame (the repo relies on exactly that in
+  `Runtime:cframeAt`'s `trunk.CFrame:Inverse() * instance.CFrame`, which is evidence but not a test I
+  ran); that removing three welded `Massless` children leaves the assembly's mass, `MAX_FORCE` and
+  `ACCEL` untouched (it should only make them *more* correct); that the hull head's 0.06 front
+  proudness still wins a grazing-angle cast, which is unchanged from today but was never measured;
+  and that `Luau`'s NaN/infinity behaviour in a divide-by-zero slab test matches three.js's — which
+  is why 4.1 writes the parallel case as an explicit branch and 12.1 case 1 tests it.
+- **The slab test is arithmetic I can state but not run.** Every number in 5.6's depth table is hand
+  arithmetic off 3.2 and 3.3, not a computed sweep. **B7's rear band is deliberately left as
+  "measured and reported by the spec"** for exactly that reason, and if the sweep contradicts any of
+  B1–B6 the dial is one `PENETRATION` row and the finding is a finding, not a redesign.
+- **The volume boxes are DERIVED from the repo's measurements, not re-measured.** The boar's bone
+  positions (nose, eye, ear, `Neck`, the foreleg attachments) and the stag's (skull, `neck_01`,
+  brisket, back, `Spine_base`, `hip_b`, tail) are read out of the comments above
+  `Boar.CONFIG.ZONES` and `SPECIES.reddeer.ZONES`, where earlier tasks recorded them from a Play
+  session and from headless Blender. **Where an organ sits *inside* that skeleton is doctrine (source
+  E), not measurement** — there is no dissection in this repo and there will not be one. The chamber
+  being "low and forward behind the shoulder" is as precise as the source gets, and the box is my
+  reading of it against the measured bones.
+- **The four `PENETRATION` numbers are not measured and have never been played** (3.7). They are
+  reasoned from the cartridges (source F) at `METRES_PER_STUD = 0.28` and chosen so the boundary
+  cases in 5.6 land where the doctrine says they should. They are Karen's dials.
+- **The two new pellet damage numbers (`neck` 30, `spine` 11) have never been played.**
+- **The external sources' URLs, licences and maintenance status.** No network. A (Roblox docs) and
+  B (three.js, MIT) are near-certain; D's DOI is quoted from the repo's own research note, not
+  fetched; C is cited from memory as to edition and section; E is a category of source rather than
+  one fixed page; F is a public wiki I could not open; G is my own knowledge of the game. **The
+  Builder confirms each in the research note before relying on it** (rule 1 — the note is the
+  Builder's, not mine), and if C or E cannot be confirmed the geometry does not change: the boxes are
+  built on the repo's own measurements and the doctrine is independently recorded in
+  `docs/research/2026-10-24-real-shooting.md` §7 and `kill_zones.spec`'s own header.
+- **The hull against the DRAWN silhouette.** `Boar.CONFIG.KINDS` records `drawnWidthStuds` = 3.47 for
+  the stag against a 1.8-stud trunk and 2.01 for the hind, with the deliberate note that *"the
+  collision box is NOT widened to match"*. So a shot at the outer ~0.8 studs of a drawn stag's flank
+  misses the animal entirely, before and after this design. **I did not measure it and this design
+  does not change it**; it is 16.2 C, and it may well matter more to Karen's hit rate than anything
+  in this document.
+- **`Flight`'s impact timing.** I assert that `onShotLanded` runs in the same frame as the cast that
+  produced the impact (so `impact.at` is exact) from reading `Weapon.start`'s single Heartbeat and
+  `flight:advance`; I did not observe it. If it is ever not true, the stamp is the thing that makes
+  it not matter.
 - **CI and harness status at this commit.** Lint and build are clean in the evidence
-  (`.agent-evidence/lint-selene.txt`, `lint-stylua.txt`, `rojo-build.txt`). No harness or CI output is
-  in `.agent-evidence/`.
+  (`.agent-evidence/lint-selene.txt`, `lint-stylua.txt`, `rojo-build.txt`). No harness or CI output
+  is in `.agent-evidence/`, so no claim about the suite's state is made here.
+
+---
+
+## 13. Open decisions — none of them blocks building
+
+Every one has a default written into this document or into `CONFIG`, so the Builder can build, test
+and report without an answer. They are the things to overrule on purpose rather than by accident.
+
+### 13.1 Karen — feel. The "check this" list for the first playtest after it lands
+
+1. **Can you now hit the heart when you aim at it, from the front and from behind?** That is the
+   whole task. The dials, in order of bluntness: `chest`'s box (3.2), `PENETRATION.Slug`, and then
+   the aspect sweep's own numbers.
+2. **Is a snout or jaw hit supposed to kill?** Default **yes**: `head` is the whole measured skull
+   and is `vital`, so a shot that clips the nose is lethal. In life it is a terrible wound and not a
+   kill. Splitting the skull into `head` (brain) and a jaw volume is one more row and one more
+   `DAMAGE` line — **your call, because it only ever makes the game harder.**
+3. **Is the buckshot penetration right?** A pellet reaches the chamber from the flank and not from
+   the front (B5). That is real, and it means frontal buckshot wounds instead of killing.
+   `PENETRATION.Pellet` is the one number.
+4. **The grey-box animal has no coloured zones any more.** With `BOAR_MODEL` on (the default) you
+   never saw them anyway; with it off the boar is a plain trunk with a head. If you want the teaching
+   aid back, it is a debug draw and it needs an owner — 13.2 A.
+5. **Does a spine shot read as a spine shot?** It is `crippling`, so the animal goes down on its back
+   end and circles at `CRIPPLE_SPEED` — your task-116 sentence, now reachable along the whole back
+   instead of only at the rump. If a spine shot should simply kill, that is `CLASS.spine = "vital"`,
+   one word.
+6. **A neck shot is one shot, any gun** (`DAMAGE.neck.Slug = 100`). Too easy?
+7. **Should a legendary's armour also stop the bullet going as deep?** Default **no** — `toughness`
+   divides damage and nothing else, so one armour is applied once (3.7).
+
+### 13.2 Director — scope. None blocks building
+
+A. **A wound-channel picture or an organ read-out** (*"lung + liver"*, as theHunter does). Default:
+   **not now.** Anything drawn is the Hud's and it needs the server to replicate the crossings list,
+   which is a new payload field. `Runtime:stats().zoneCrossings` is the cheap version and it is in
+   this task.
+B. **Flag or config row?** Default: `CONFIG.ZONES.BY_PATH = true`, because `Flags.MAX_FLAGS = 18` is
+   full and `HIT_CLAIM` is the eighteenth (3.8). The alternative is to retire one LIT, accepted flag
+   row (`BOAR_MODEL`, `BOAR_BEHAVIOUR`, `HORN`, … each of which has shipped for weeks) and spend the
+   slot on this. **Retiring a row is your decision and rule 7 work (archive with a note).**
+C. **The hull against the drawn animal.** `drawnWidthStuds` says a stag is drawn 3.47 studs wide over
+   a 1.8-stud box. Every shot at the outer flank of a drawn deer misses, today and after this task.
+   Default: **not this task** (it is the collision shape, it changes how animals pack and route, and
+   it needs its own measurement). It is a strong candidate for the next task, and it may be a bigger
+   share of Karen's misses than anything here.
+D. **Where the production wiring lands** (11.1): one line in `MatchBoot` and the PR needs `test2`,
+   or `ForestTestBoot` only and the drive keeps the attribute fallback for one more task.
+   Default: **wire both, pay the one `test2` click**, in its own final commit.
+E. **Retuning the model.** This task adds volumes and two keys and changes **no** existing damage,
+   flight or threshold number. The first playtest will want some of them moved. That is a content-ish
+   task over `WOUND` and it should be one task, swept by `kill_zones.spec` over all 7 kinds and 4
+   guns, as L-093 requires.
+F. **Players and beaters are still not damageable**, unchanged. A pellet that hits a person is a
+   miss; the drive-line rule, not damage, is the answer to shooting at people.
+
+### 13.3 Carried from the 265–276 run — every item placed (BRIEF item 14)
+
+| item | where it is |
+|---|---|
+| 269a(b) the instrument's `no-ammo` | **ballistics v5 §16.3.** Not this design's |
+| 270a(a) the coarse gate at `SPRINT_SPEED` 38 | **ballistics v5 §16.** It is `Claim.simulate`'s first guess |
+| 271 round-1 findings 5–7 | **ballistics v5 §16.3** |
+| 272a(b) the window-0 case that accepts | **ballistics v5 §11.2** (the non-regression row) |
+| 274a(b) the `claim-blocked` waiver at 7.275 against 3.40 | **ballistics v5 §0 item 4 and §5.6**: resolved by deleting the waiver. This design makes it smaller again — the part that stopped the server's own bullet was `ZoneChest`, which no longer exists |
+| 276a(c) the mark drawn a body length behind the zone it names | **NOT absorbed here, by the BRIEF's own instruction.** Its owner is `PlayerScripts.Weapon.Effects` → `puff` (`src/client/Weapon/Effects.luau`); the cause is measured in `docs/research/2026-10-24-real-shooting.md` §8.1 (11.4 studs in one grain lifetime at `SPRINT_SPEED`) and the item is ballistics v5 §16.6's. **It is a client drawing defect, not a validation or a geometry one**, and after this task it will be the most visible thing left: the zone will be right and the dust will still be behind the animal |
+| **276a(d) is a head-on chest shot supposed to read `body`?** | **ANSWERED HERE: no.** 5.5 |
+
+---
+
+## 14. The one-paragraph summary, for the Builder who reads nothing else
+
+Stop building zone parts and start building two: the trunk, and one queryable part per volume row
+marked `hull` (the measured skull, plus the deer's neck). Put the seven organs in `Boar.CONFIG.ZONES`
+as boxes in the trunk's frame with a `rank`, scaled per kind by the `kindGeometry` that already
+exists. Write `Boar.Zones`: a slab test, the list of volumes a path crossed, and the highest-ranked
+one, bounded by a per-cartridge `PENETRATION`. Give the animal one method, `Runtime:zoneAt`, that
+rewinds through the one reader `Runtime:cframeAt` and calls it. Give the weapon one more provider,
+`setZoneProvider`, asked through `pcall` like the seven before it, with the answer riding on
+`impact.zone` and `Hits.targetOf`'s attribute as the fallback. Change no damage arithmetic; add two
+rows (`neck`, `spine`) to each of the four `WOUND` tables. Then a frontal shot reaches the heart, a
+quartering shot passes the paunch into it, a flank shot can take the head, and a head-on chest shot
+stops being charged to the belly.
