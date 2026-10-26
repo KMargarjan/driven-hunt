@@ -3,7 +3,7 @@
 Task: 269
 Round: 1
 Base: `2ce7e61d` (`main`, after #248)
-Code commit: `27735477` (the PLAN). **NOTHING UNDER `src/`, `tests/` OR `tools/`
+Code commit: `38176f06` (the commit the harness line names; round 1's Reviewer note). **NOTHING UNDER `src/`, `tests/` OR `tools/`
 CHANGED IN THIS TASK** -- the whole of it is a measurement and this branch is
 paperwork only (`git diff --name-only 2ce7e61d..HEAD` is `reviews/task-269/REQUEST.md`).
 The harness line below is the one-player run on the clean tree anyway, because the PR
