@@ -1,12 +1,12 @@
 # Task 275 -- the two last causes of a missed led chest shot
 
 Task: 275
-Round: 1
+Round: 2
 Base: `0084d991` (`main`, after #253)
-Code commit: `5847f412b17777a2b30f99a1f2028177023ea119`
+Code commit: `3b004015602329f7a386c3656d3e95eb5704bb5d`
 
 ```
-[harness] PASS: 34/34 checks @ 5847f412b17777a2b30f99a1f2028177023ea119 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 3b004015602329f7a386c3656d3e95eb5704bb5d (clean tree) scope=all
 ```
 
 `test2` is **N/A**: `src/client/Weapon/Claim.luau`, `src/client/Weapon/Input.luau`,
@@ -110,6 +110,29 @@ crossing low ground -- which the zones of those same shots corroborate: `Trunk(n
 **269a(b) remains real and remains unfixed** -- a second shot without cycling still builds no claim,
 and `no-ammo` is now the word it leaves behind -- but it is not what cost task 274 its two shots.
 
+## ROUND 2 -- ROUND 1'S TWO FINDINGS, AND BOTH WERE RIGHT
+
+**1. The owner's half of item 2 was proven by nothing, and the term was ZERO on the very shots it
+was written for.** `displacementStuds` was `AssemblyLinearVelocity * lineLagSeconds`: an anchored
+spec part reads velocity 0, so the producing line could be deleted with the suite green; and
+`lineLagSeconds` is itself 0 whenever the sweep picks candidate 1 -- which this request's own
+numbers say it does (`took=1 best=1`). My claim 5 could not discriminate either: `claim-line` is
+check 4 and the waiver is check 5, so a claim refused at check 4 never reaches it. **A count of
+zero at a check that was never reached is the count the deleted code would give.**
+
+It is now **the sweep's own two points**: `|candidates[1].point - candidates[index].point|`, the
+displacement that actually happened between the arrival instant and the one the server chose --
+measured rather than extrapolated. It is published as `claimLastDisplacement` and **asserted `> 0`
+in the live wiring case**, whose history provider answers `at`, so the two rewinds differ and
+deleting the owner's line reds it. The harness's own note at the code commit shows that case
+reaching `took 3`, which is what makes the displacement non-zero there.
+
+**2. Two shadowed locals made `selene --config tests/selene.toml tests` exit 1** -- a CI step, so
+the commit was red. Renamed.
+
+**And claim 5 is withdrawn** for the reason finding 1 gives; the before/after table below is kept
+because the numbers in it are true, with that caveat written beside it.
+
 ## ITEM 2 -- **ONE CHECK, NOT TWO, AND IT IS FIXED**
 
 **`claim-line` was already judged at the swept instant** (the PLAN's (b2), by reading:
@@ -129,7 +152,10 @@ measured speed, and the lag the server's own sweep chose inside a window the ser
 | 275 trial A (after) | **0** |
 | 275 trial B (after) | **0** |
 
-Ten shots, no `claim-blocked` at all; every refusal in both trials is `claim-line`.
+Ten shots, no `claim-blocked` at all; every refusal in both trials is `claim-line`. **AND THAT
+TABLE DOES NOT PROVE THE FIX** (round 1's finding 1): `claim-line` is check 4 and the waiver is
+check 5, so a claim refused at check 4 never reached it. The zero is true and it is not evidence.
+What carries the fix is the spec's four arms and the live wiring case's `claimLastDisplacement > 0`.
 
 ## ITEM 3 (CORE) -- **NOT MET. This is still unproven at the rate Karen would need.**
 
@@ -169,7 +195,10 @@ within 2.0 studs of the server's own animal.
    stopped the bullet however large the displacement, and refused for a nil, negative or NaN
    displacement. **The first arm fails on the commit before this task**, where the bound had no
    third term.
-5. **`claim-blocked` went from 1 refusal to 0 over ten shots**, same instrument, same place.
+5. **WITHDRAWN** (round 1's finding 1). `claim-blocked` did go from 1 to 0 over ten shots, but
+   every refusal in those ten was `claim-line` -- check 4, ahead of the waiver -- so the count
+   cannot tell this fix from its absence. **The owner's line is carried by
+   `claimLastDisplacement > 0` in the live wiring case instead**, which reds when it is deleted.
 6. **Item 3 is NOT MET: 2 of 10.**
 7. **The Forest Test is as it was found.** Twelve attributes before, twelve after; `HIT_CLAIM` ON
    for the trials and OFF again (rule K); `flags.py --place forest clear` never run; `DHTestOwns`
