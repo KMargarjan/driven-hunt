@@ -20,6 +20,9 @@
 -- Design: docs/design/shotgun.md (sections 3.2, 5.6, 9)
 local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
+-- THE STUDIO GATE FOR `DHClaimWhy` AND NOTHING ELSE (task 275): a diagnostic attribute, never a
+-- game rule, so a live server must not write it.
+local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -186,7 +189,26 @@ function Input.fire(): boolean
 	--
 	-- THE SIMULATION IS IN THIS FRAME, which is why it is here and not in a listener: it must see the
 	-- world the player was looking at when he pulled, and one frame later the animal has moved.
-	local claim = if claimsOn then Claim.forCamera(cframe, snapshotFor()) else nil
+	local claim, claimWhy = nil, nil
+	if claimsOn then
+		claim, claimWhy = Claim.forCamera(cframe, snapshotFor())
+	end
+	-- WHY NO CLAIM WAS BUILT, WHERE A PROBE CAN READ IT (task 275). Studio only, by
+	-- `RunService:IsStudio()`, and an attribute on the player rather than a remote: it is a
+	-- diagnostic, not a game rule, and a published place has nothing that reads it. The shape is
+	-- `Camera.TestLook`'s, the other Studio-only attribute this client owns.
+	--
+	-- **MEASURED (task 274): two of five led shots at a running deer's chest sent no claim at all
+	-- and nothing anywhere said which of the eight gates had closed.** One word fixes that.
+	if RunService:IsStudio() then
+		local me = Players.LocalPlayer
+		if me ~= nil then
+			me:SetAttribute(
+				"DHClaimWhy",
+				if claim ~= nil then "claim" elseif type(claimWhy) == "string" then claimWhy else "off"
+			)
+		end
+	end
 	remotes().FireRequest:FireServer({
 		origin = cframe.Position,
 		direction = cframe.LookVector.Unit,
