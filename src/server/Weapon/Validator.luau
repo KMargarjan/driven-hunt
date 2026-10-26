@@ -201,7 +201,20 @@ function Validator.judgeClaim(facts: any, limits: any): (boolean, string?, numbe
 	-- part that is not the claimed target, `stoppedByClaimedTarget` is false, and the claim dies
 	-- exactly as it did before. The owner decides the identity, because it needs Instances and this
 	-- module touches none; `nil` is every caller written before this task and behaves as `false`.
-	if facts.stoppedByClaimedTarget ~= true and facts.reachedStuds + limits.REACH_SLACK_STUDS < facts.claimedStuds then
+	--
+	-- ...AND THE WAIVER IS BOUNDED BY THE ANIMAL'S OWN BODY (round 2's blocking finding, which was
+	-- right). Unbounded, "the animal stopped my bullet" would excuse ANY claimed distance the
+	-- flight-time check could be made to match, and `Validator.claimImpact` writes that number into
+	-- the report's `distance`. The shortfall a body can honestly explain is the body: the claimed
+	-- part's own largest extent, plus the slack every claim already gets. The live reading this was
+	-- built for is 2.137 studs against a deer's trunk, which is well inside it.
+	local shortfall = facts.claimedStuds - facts.reachedStuds
+	local span = 0
+	if typeof(facts.partHalf) == "Vector3" then
+		span = 2 * math.max(facts.partHalf.X, facts.partHalf.Y, facts.partHalf.Z)
+	end
+	local waived = facts.stoppedByClaimedTarget == true and shortfall <= span + limits.REACH_SLACK_STUDS
+	if not waived and facts.reachedStuds + limits.REACH_SLACK_STUDS < facts.claimedStuds then
 		-- THE MEASURE IS HOW FAR SHORT THE SERVER'S OWN FLIGHT STOPPED, in studs, against the slack
 		-- it is allowed. The owner adds WHAT stopped it, which is an Instance and so not this
 		-- module's to name.

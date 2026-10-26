@@ -754,19 +754,34 @@ return function()
 			-- waiver is on, the line is honest, and the claimed distance is past the ammo's reach by
 			-- more than any animal is long, so the only thing that could accept it is the waiver
 			-- being a blanket one.
+			-- THE WAIVER IS BOUNDED BY THE ANIMAL'S OWN BODY, and both sides of that bound are
+			-- driven here (round 2's blocking finding). The span is the claimed part's largest
+			-- extent; a shortfall inside span + slack is the same bullet measured twice, and one
+			-- outside it is a claim about a bullet that went somewhere else.
+			local span = 2 * math.max(honestFacts().partHalf.X, honestFacts().partHalf.Y, honestFacts().partHalf.Z)
+			local inside = honestFacts()
+			inside.stoppedByClaimedTarget = true
+			inside.reachedStuds = inside.claimedStuds - (span + CLAIM.REACH_SLACK_STUDS - 0.01)
+			local okInside, whyInside = Validator.judgeClaim(inside, CLAIM)
+			expect(okInside).to.equal(true)
+			expect(whyInside).to.equal(nil)
+
 			local far = honestFacts()
 			far.stoppedByClaimedTarget = true
-			far.reachedStuds = 1
-			far.claimedStuds = 400
-			far.expectedFlightSeconds = far.flightSeconds
-			local okFar, whyFar = Validator.judgeClaim(far, CLAIM)
-			expect(okFar).to.equal(true)
-			expect(whyFar).to.equal(nil)
-			-- ...and the same shot with ANYTHING ELSE in the way is refused, which is the rule.
-			far.stoppedByClaimedTarget = false
-			local okBlocked, whyBlocked = Validator.judgeClaim(far, CLAIM)
-			expect(okBlocked).to.equal(false)
-			expect(whyBlocked).to.equal("claim-blocked")
+			far.reachedStuds = far.claimedStuds - (span + CLAIM.REACH_SLACK_STUDS + 0.01)
+			local okFar, whyFar, gotFar = Validator.judgeClaim(far, CLAIM)
+			expect(okFar).to.equal(false)
+			expect(whyFar).to.equal("claim-blocked")
+			expect(gotFar).to.be.near(span + CLAIM.REACH_SLACK_STUDS + 0.01, 1e-6)
+
+			-- ...AND A CLAIM 400 STUDS PAST WHERE THE BULLET STOPPED IS REFUSED whatever stopped it.
+			local wild = honestFacts()
+			wild.stoppedByClaimedTarget = true
+			wild.reachedStuds = 1
+			wild.claimedStuds = 400
+			local okWild, whyWild = Validator.judgeClaim(wild, CLAIM)
+			expect(okWild).to.equal(false)
+			expect(whyWild).to.equal("claim-blocked")
 		end)
 
 		it("REFUSES an arrival in the FUTURE and one outside the window", function()
