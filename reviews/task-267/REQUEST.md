@@ -136,8 +136,9 @@ only the west.
 2. **On the instrument that answers Karen's sentence -- the stand a hunter is actually on -- 44 % of
    crossings were out of buckshot range and the worst was 428 studs.** Verify: the same two files,
    `playerDist` column.
-3. **Every before-crossing past 175 studs belonged to a row whose `offsetX` was +-185 or more** (or
-   to the stag's sneak). Verify: `267-stats.py 267-before-d5.txt` prints all 27 with the release x
+3. **All 26 before-crossings past 175 studs belonged to a row whose `offsetX` was +-185 or more** (or
+   to the stag's sneak; the file lists 27 lines and one is the stag's, so the table below sums to
+   26). Verify: `267-stats.py 267-before-d5.txt` prints them with the release x
    the probe recorded; group them by `firstX` against the `offsetX` column of
    `ForestTest.SCHEDULE.drive`.
 4. **The lever has a writer.** `ForestTest.wavePoint` is the one function that turns a row's
@@ -150,14 +151,18 @@ only the west.
    function"*. No behaviour consequence -- `roarPoint` reads the stag row, whose `offsetX` this
    change leaves at -95, and `release` moves in the same direction as `releaseLine` -- but the blast
    radius is three callers, not one.
-5. **After, two full drives of the shipped build: 73.7 % and 81.6 % within 105 studs of his own
-   stand** -- the dispatch's 70 % met on each drive separately. Verify: `267-c3.txt`, `267-c3b.txt`.
+5. **After, ONE full drive of the SHIPPED build: 72.0 % within 105 studs of his own stand**
+   (`267-r2.txt`), with two further drives at 73.7 % and 81.6 % on the cycle-3 build that differs
+   only in the two `LATERAL` pins (`267-c3.txt`, `267-c3b.txt`). The dispatch's 70 % is met on each
+   of the three separately, and the plan asked for two drives of the final build -- there is one,
+   because round 1's fix landed after the other two were run. Corroboration, not a third reading of
+   this tree.
 6. **"None beyond 50 m" is NOT met, and it is 3 crossings of 152.** 180.4, 200.1 and 188 studs
    against 50 m = 175. Verify: `267-stats.py` on the two after files. Before, the same bound was
    missed by 27 of 77 in one drive alone and the worst was 428.
 7. **Nothing the dispatch asked to keep was touched.** The fifteen slots, three acts, `route` words,
    `files`, `pace`, the deer leap, and slot 8's `sneak`/`sneakStuds`/`sneakDz`/`offsetX` are
-   unchanged. Verify: `git diff c243df86..869ac755 -- src/shared/ForestTest/init.luau` -- the only
+   unchanged. Verify: `git diff c243df86..25d21b14 -- src/shared/ForestTest/init.luau` -- the only
    value lines are 14 `offsetX` and 2 `crossOffset`.
 8. **No `offsetX` is 0, so nothing is pulled onto a stand** (the dispatch's condition): -65, +80,
    -70, +45, -75, +95, -50, -95, -70, +60, +90, -60, +75, +95, +80 -- both flanks, nine distinct
@@ -246,8 +251,9 @@ which is the case that would have caught finding 1 and which nothing in `tests/`
 ## HANDOVER (core protocol step 5)
 
 - **Item 1 (CORE), "at least 70 % of crossings within 30 m of a stand": MET.** Measured on the stand
-  the hunter is actually on, three full drives of the fixed build: 73.7 %, 81.6 %, 72.0 % within 105
-  studs, against 56.2 % and 56.6 % before. On the dispatch's literal yardstick -- the nearest of the
+  the hunter is actually on: **72.0 % on the one drive of the shipped build**, and 73.7 % and 81.6 %
+  on two drives of the cycle-3 build it differs from only in the two `LATERAL` pins -- against
+  56.2 % and 56.6 % before. On the dispatch's literal yardstick -- the nearest of the
   nine stands -- it was 100 % before the change and is 100 % after; that metric cannot fail and is
   not what Karen is feeling.
 - **Item 1, "and none beyond 50 m": NOT MET.** Three crossings of 152 on the cycle-3 build and two
