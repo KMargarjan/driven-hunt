@@ -413,6 +413,60 @@ return function()
 			TestKit.note(string.format("hit_card: box u %.3f..%.3f v %.3f..%.3f", u0, u1, v0, v1))
 		end)
 
+		it("draws a stag's dots on the stag, not on the bare plate beside it (task 278)", function()
+			-- **KAREN'S DEFECT, 2026-10-26, AS A CASE.** She shot a stag in the chest with the
+			-- scoped rifle and the card's red mark sat in empty space in front of it
+			-- (`<runs-dir>/design/karen-hitcard-2026-10-26.png`: the ink spans u 0.236..0.757 of the
+			-- art frame and the dot was drawn at u 0.118).
+			--
+			-- WHY it happened: the silhouette is drawn with `ScaleType.Fit`, which preserves the
+			-- image's aspect and CENTRES it, and the stag PNG is 750 x 758 in a 148 x 80 frame -- so
+			-- the picture only occupies the middle 53.5 % of the width and the box was being written
+			-- across all of it.
+			--
+			-- THE EXPECTED RECTANGLE IS THIS FILE'S OWN ARITHMETIC and never `Report.imageFit`'s: a
+			-- case that asks the code under test where the picture is cannot fail when it is wrong.
+			local chosen = Report.boarImage("stag")
+			expect(chosen.px).to.be.ok()
+			local image, frame = chosen.px.w / chosen.px.h, CONFIG.ART_WIDTH / CONFIG.ART_HEIGHT
+			local wide = image / frame
+			expect(wide < 1).to.equal(true) -- a stag is pillarboxed; this case is about that
+			local lo, hi = (1 - wide) / 2, (1 + wide) / 2
+			local payload = payloadFor("stag")
+			payload.dots = {
+				{ u = 0, v = 0, zone = "head", side = 1 },
+				{ u = 0.35, v = 0.45, zone = "chest", side = 1 },
+				{ u = 1, v = 0.3, zone = "rear", side = 1 },
+			}
+			Card.show(payload)
+			local art = Card.art() :: Frame
+			local xs = {}
+			for _, node in ipairs(art:GetChildren()) do
+				if node:IsA("Frame") and node.Name == "Dot" then
+					table.insert(xs, node.Position.X.Scale)
+				end
+			end
+			expect(#xs).to.equal(3)
+			table.sort(xs)
+			-- EVERY dot inside the rectangle the picture is actually drawn in. Before task 278 the
+			-- nose dot drew at about 0.03 and this line failed.
+			for _, x in ipairs(xs) do
+				expect(x >= lo - 1e-6 and x <= hi + 1e-6).to.equal(true)
+			end
+			-- ...AND THEY ARE STILL IN ORDER along the animal: nose, chest, rump.
+			expect(xs[1] < xs[2] and xs[2] < xs[3]).to.equal(true)
+			TestKit.note(
+				string.format(
+					"hit_card: stag dots at u %.3f/%.3f/%.3f, picture drawn across %.3f..%.3f",
+					xs[1],
+					xs[2],
+					xs[3],
+					lo,
+					hi
+				)
+			)
+		end)
+
 		-- THE FAR FLANK, WHICH IS THE CARD NOBODY HAD EVER DRAWN (round 1, finding 1). Every case
 		-- above uses `side = 1`, so `Report.cardFacing` was false and the MIRRORED frame -- the one
 		-- the old `UDim2.fromScale(-scale, scale)` was in -- was never shown or asserted. Roughly

@@ -23,6 +23,8 @@
 -- Note:   docs/research/2026-10-05-drive-report.md
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local ServerStorage = game:GetService("ServerStorage")
 
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
@@ -47,6 +49,49 @@ local lastRequestAt: { [Player]: number } = {}
 -- history: it is a window onto the last call, not a second record.
 local lastCard: Report.CardPayload? = nil
 
+-- ---------------------------------------------------------------- the hit log (task 278)
+--
+-- **EVERY SERVER-CONFIRMED HIT, WHERE IT LANDED, READABLE BY A PROBE.** The dispatch, after Karen
+-- tested live on 2026-10-26 and found the card's mark in empty space twice: *"This is how the
+-- Director and Karen check each shot from now on."*
+--
+-- IT IS STUDIO ONLY AND IT IS NOT A FEATURE. `RunService:IsStudio()` gates both the `print` and the
+-- attribute, so a published server writes nothing and costs nothing -- the same rule the test
+-- runners already live by (`tools/studio_mcp.py`: "inert outside Studio"). It is an INSTRUMENT, and
+-- an instrument that ships is a leak.
+--
+-- ONE ATTRIBUTE AND NOT TEN, for the reason `tools/pose.py`'s own override is one: a Roblox
+-- attribute name cannot be indexed, so ten numbered attributes would be ten reads and ten places
+-- for a stale one to survive. `DHLastHits` is the last `TRACE_KEEP` lines, newline-separated,
+-- newest LAST -- so `tail` reads like a console.
+--
+-- `DHLastHits` AND NOT `DHFlag_*`: `tools/studio_mcp.py` owns that prefix and `test`/`test2` refuse
+-- to start while one is set. This one is a reading, never an override, and nothing refuses it.
+local TRACE_KEEP = 10
+local trace: { string } = {}
+
+local function traceOn(): boolean
+	return RunService:IsStudio()
+end
+
+local function writeTrace(line: string)
+	if not traceOn() then
+		return
+	end
+	print("[hitlog] " .. line)
+	table.insert(trace, line)
+	while #trace > TRACE_KEEP do
+		table.remove(trace, 1)
+	end
+	ServerStorage:SetAttribute("DHLastHits", table.concat(trace, "\n"))
+end
+
+-- What the probe reads back without going through the attribute, so a spec checks the ring and not
+-- a round trip through Studio.
+function HitLog.lastHits(): { string }
+	return table.clone(trace)
+end
+
 local stats = {
 	hits = 0,
 	downs = 0,
@@ -67,6 +112,10 @@ local stats = {
 	cards = 0,
 	cardlessHits = 0,
 	cardFatals = 0,
+	-- HOW MANY LINES THE HIT LOG HAS WRITTEN THIS DRIVE (task 278). It is also the `#n` in the line
+	-- itself, so the ring can be read for a gap: three clicks and two numbers means a shot that
+	-- never reached the server, which is exactly the confusion this log exists to end.
+	traced = 0,
 }
 
 local function channel()
@@ -171,6 +220,10 @@ function HitLog.clear()
 	current = nil
 	lastRequestAt = {}
 	lastCard = nil
+	table.clear(trace)
+	if traceOn() then
+		ServerStorage:SetAttribute("DHLastHits", nil)
+	end
 	for key in pairs(stats) do
 		stats[key] = 0
 	end
@@ -254,6 +307,27 @@ function HitLog.recordHit(report, now: number?)
 	table.insert(animal.dots, dot)
 	animal.hits += 1
 	animal.lastAt = at
+	-- ...AND THE LOG LINE, HERE, WHERE EVERY NUMBER IN IT IS ALREADY IN HAND (task 278). The trunk's
+	-- CFrame at the instant of the shot is `part.CFrame` -- the same one `Shape.dot` just divided
+	-- down -- so the LOCAL OFFSET is the same reading as the `(u, v)` beside it, and not a second
+	-- one taken a frame later off a moving animal. That is the whole reason this is a line of
+	-- `recordHit` and not a listener wired next to it, which is also why the card is built here.
+	stats.traced += 1
+	writeTrace(Shape.traceLine({
+		index = stats.traced,
+		at = sinceOpen(at),
+		kind = part:GetAttribute("Kind") or animal.kind,
+		id = part.Name,
+		zone = dot.zone,
+		offset = part.CFrame:PointToObjectSpace(report.position or part.Position),
+		u = u,
+		v = v,
+		distance = dot.distance,
+		weapon = report.weapon,
+		ammo = report.ammo,
+		pellets = dot.pellets,
+		fatal = false,
+	}))
 	-- THE NEWEST IS DROPPED, NOT THE OLDEST: the first shots on an animal are the ones that tell the
 	-- story of how it died, and a ninth pellet-group on the same carcass tells nobody anything.
 	while #animal.dots > CONFIG.HITS_PER_ANIMAL do
@@ -335,6 +409,25 @@ function HitLog.recordDown(record, now: number?)
 	local index = Shape.fatalDot(animal.dots, record.killingZone, record.at, record.killedByUserId)
 	if index ~= nil then
 		animal.dots[index].fatal = true
+		-- ...AND THE LOG SAYS SO (task 278). A SECOND LINE and never an edit of the first: the ring
+		-- is what happened in the order it happened, and a hit line that silently becomes fatal
+		-- three seconds later would hide the gap between the shot and the death -- which is the one
+		-- thing a flight-distance argument needs to see.
+		writeTrace(Shape.traceLine({
+			index = stats.traced,
+			at = sinceOpen(at),
+			kind = animal.kind,
+			id = animal.id,
+			zone = record.killingZone,
+			offset = Vector3.zero,
+			u = animal.dots[index].u,
+			v = animal.dots[index].v,
+			distance = record.killingDistance or 0,
+			weapon = animal.dots[index].weapon,
+			ammo = "DOWN",
+			pellets = 0,
+			fatal = true,
+		}))
 		-- ...AND THE CARD THAT IS PROBABLY STILL ON HIS SCREEN LEARNS IT (task 198). The card goes out
 		-- at the instant of the HIT and the animal goes down on the Brain's NEXT tick, so at the
 		-- moment it was drawn nobody -- server included -- knew yet whether that shot killed. Rather

@@ -271,11 +271,60 @@ Report.CONFIG = {
 	-- `SILHOUETTE` is deliberately NOT species-aware (it is the boar's `ZONES` projected and
 	-- `report_silhouette.spec` asserts that by path). Validating this box against the DEER's zones
 	-- is queued with the screenshot that can show it.
+	-- **`px` IS THE IMAGE'S OWN PIXEL SIZE, AND WITHOUT IT THE `box` ABOVE IS DRAWN IN THE WRONG
+	-- RECTANGLE (task 278).** Karen, 2026-10-26, of a scoped-rifle hit on a stag: the card's red
+	-- mark sat in EMPTY SPACE in front of the chest, and of a slug at a walking stag, behind it.
+	--
+	-- MEASURED ON HER OWN FRAME (`<runs-dir>/design/karen-hitcard-2026-10-26.png`): the plate is
+	-- 164 x 96 where `CARD` says it is, so the art frame is x 18..166, y 349..429 -- and the stag's
+	-- INK spans only u 0.236..0.757 of it, while the dot was drawn at u 0.118. Seventeen pixels of
+	-- bare plate in front of the animal.
+	--
+	-- WHY: `BoarArt` draws the silhouette with `ScaleType.Fit`, which preserves the image's aspect
+	-- and CENTRES it -- so a 750 x 758 stag (0.99:1) inside a 148 x 80 frame (1.85:1) is
+	-- pillarboxed into the middle 53.5 % of the width, with 23 % of bare frame down each side. The
+	-- `box` is measured in fractions of the PNG; it was being applied to fractions of the FRAME.
+	-- The two are the same rectangle only when the aspects match, which is why the two BOARS (1.99
+	-- and 1.72 against 1.85) looked nearly right and the two DEER did not.
+	--
+	-- `Report.imageFit` is where that rectangle is now computed and `Report.imageBox` is where the
+	-- two are composed; this row carries the one number they need. All four are measurements:
+	-- `<assets-dir>/deer/silhouettes/boxes.json` records the two deer PNGs as uploaded, and the two
+	-- boars are Karen's JPGs re-keyed by task 205's own documented rule (every pixel under luminance
+	-- 60 opaque, over 150 clear, cropped to the animal), which reproduces the "1.99 and 1.72"
+	-- written above to four figures.
+	--
+	-- **THE DEER'S `u1` IS CORRECTED FROM 1.000 TO THE MEASURED RUMP**, and it is the same kind of
+	-- fault: `u = 1` is the TRUNK's rear face (`HitLog.Shape.dot`: "u = 0 at the NOSE, 1 at the
+	-- TAIL"), and 1.000 is the image's right EDGE -- which on both deer is the trailing hind hoof,
+	-- a leg-length behind the rump. Measured as the rightmost ink between the back line and
+	-- mid-body: 0.916 of 750 (stag) and 0.918 of 805 (hind). A rump hit's zone coverage goes 0.56
+	-- -> 0.74 and 0.60 -> 0.83. The boars' boxes are untouched: they are task 205's FIT, their
+	-- letterbox error is 3.7 % and 3.5 %, and the geometric rule was tried on them and LOOKED AT
+	-- (`<runs-dir>/278/overlay-male-geom.png`) -- it puts a head shot in the air in front of the
+	-- snout, because this boar carries its head low and its withers high and the game's box does
+	-- not, which is what the paragraph above already says.
 	BOAR_IMAGE = {
-		male = { id = "rbxassetid://135789362198066", box = { u0 = 0.100, u1 = 0.900, v0 = 0.230, v1 = 0.730 } },
-		female = { id = "rbxassetid://121961957713451", box = { u0 = 0.120, u1 = 0.920, v0 = 0.150, v1 = 0.650 } },
-		stag = { id = "rbxassetid://82382119550819", box = { u0 = 0.000, u1 = 1.000, v0 = 0.380, v1 = 1.000 } },
-		hind = { id = "rbxassetid://134628251396589", box = { u0 = 0.000, u1 = 1.000, v0 = 0.276, v1 = 1.000 } },
+		male = {
+			id = "rbxassetid://135789362198066",
+			px = { w = 946, h = 474 },
+			box = { u0 = 0.100, u1 = 0.900, v0 = 0.230, v1 = 0.730 },
+		},
+		female = {
+			id = "rbxassetid://121961957713451",
+			px = { w = 757, h = 440 },
+			box = { u0 = 0.120, u1 = 0.920, v0 = 0.150, v1 = 0.650 },
+		},
+		stag = {
+			id = "rbxassetid://82382119550819",
+			px = { w = 750, h = 758 },
+			box = { u0 = 0.000, u1 = 0.916, v0 = 0.380, v1 = 1.000 },
+		},
+		hind = {
+			id = "rbxassetid://134628251396589",
+			px = { w = 805, h = 662 },
+			box = { u0 = 0.000, u1 = 0.918, v0 = 0.276, v1 = 1.000 },
+		},
 	},
 
 	-- HOW SMALL A CALF IS DRAWN (task 223). The HIND's picture at 70 %, which is what a calf is
@@ -743,21 +792,90 @@ end
 -- ...AND THE THREE DEER SINCE TASK 223, through the same three shapes: `stag` takes the stag's own
 -- picture, `hind` takes the hind's, and `calf` takes the HIND's at `CALF_SCALE` -- the piglet's
 -- pattern, said out loud rather than hidden in a renderer.
-function Report.boarImage(kind: string?): { id: string, box: any, scale: number }
+-- `px` TRAVELS WITH `id` AND `box` SINCE TASK 278, because the three are one measurement of one
+-- picture: the asset, the rectangle measured on it, and the pixel size that says where `ScaleType.Fit`
+-- puts that rectangle. A caller that had two of the three drew the dot in the wrong place for eight
+-- days (see `CONFIG.BOAR_IMAGE`).
+function Report.boarImage(kind: string?): { id: string, box: any, px: any, scale: number }
 	local word = string.lower(tostring(kind or ""))
 	local art = Report.CONFIG.BOAR_IMAGE
 	if word == "female" then
-		return { id = art.female.id, box = art.female.box, scale = 1 }
+		return { id = art.female.id, box = art.female.box, px = art.female.px, scale = 1 }
 	elseif word == "cub" or word == "piglet" then
-		return { id = art.female.id, box = art.female.box, scale = Report.CONFIG.PIGLET_SCALE }
+		return { id = art.female.id, box = art.female.box, px = art.female.px, scale = Report.CONFIG.PIGLET_SCALE }
 	elseif word == "stag" then
-		return { id = art.stag.id, box = art.stag.box, scale = 1 }
+		return { id = art.stag.id, box = art.stag.box, px = art.stag.px, scale = 1 }
 	elseif word == "hind" then
-		return { id = art.hind.id, box = art.hind.box, scale = 1 }
+		return { id = art.hind.id, box = art.hind.box, px = art.hind.px, scale = 1 }
 	elseif word == "calf" then
-		return { id = art.hind.id, box = art.hind.box, scale = Report.CONFIG.CALF_SCALE }
+		return { id = art.hind.id, box = art.hind.box, px = art.hind.px, scale = Report.CONFIG.CALF_SCALE }
 	end
-	return { id = art.male.id, box = art.male.box, scale = 1 }
+	return { id = art.male.id, box = art.male.box, px = art.male.px, scale = 1 }
+end
+
+-- WHERE `ScaleType.Fit` ACTUALLY DRAWS AN IMAGE INSIDE A FRAME, as fractions of that frame (task
+-- 278). Pure, and the one piece of arithmetic that was missing: "Fit -- the image is scaled to fit
+-- inside the UI element while preserving its aspect ratio"
+-- (https://create.roblox.com/docs/reference/engine/enums/ScaleType), which means it is CENTRED with
+-- a bar down two of its sides, and nothing in the engine reports where that rectangle is.
+--
+-- A MISSING OR DEGENERATE `px` ANSWERS THE WHOLE FRAME, which is what every caller before this task
+-- assumed. That is the honest fallback: a picture nobody has measured is placed the old way rather
+-- than at a guessed aspect.
+function Report.imageFit(
+	px: any,
+	frameWidth: number,
+	frameHeight: number
+): { u0: number, u1: number, v0: number, v1: number }
+	local iw = if type(px) == "table" then tonumber(px.w) else nil
+	local ih = if type(px) == "table" then tonumber(px.h) else nil
+	if iw == nil or ih == nil or iw <= 0 or ih <= 0 or frameWidth <= 0 or frameHeight <= 0 then
+		return { u0 = 0, u1 = 1, v0 = 0, v1 = 1 }
+	end
+	local image, frame = iw / ih, frameWidth / frameHeight
+	if image > frame then
+		-- WIDER THAN THE FRAME: it fills the width and leaves a bar above and below.
+		local tall = frame / image
+		return { u0 = 0, u1 = 1, v0 = (1 - tall) / 2, v1 = (1 + tall) / 2 }
+	end
+	-- ...OR TALLER: it fills the height and leaves a bar down each side. This is both deer.
+	local wide = image / frame
+	return { u0 = (1 - wide) / 2, u1 = (1 + wide) / 2, v0 = 0, v1 = 1 }
+end
+
+-- THE ANIMAL'S UNIT SQUARE, IN THE ART FRAME'S OWN FRACTIONS -- the four numbers `BoarArt` writes
+-- onto the frame and `drawDots` reads back (task 278). Three nested rectangles, composed in the
+-- order the engine stacks them:
+--
+--   1. the IMAGE LABEL inside the art frame: `scale` of it, centred (a piglet and a calf are the
+--      sow's and the hind's picture at 70 %), so the label has the FRAME's aspect whatever `scale`
+--      is -- which is why step 2 needs no second measurement;
+--   2. the IMAGE inside that label: `Report.imageFit`, because the label is told `ScaleType.Fit`;
+--   3. the BOX inside that image: `chosen.box`, measured on the PNG's own pixels.
+--
+-- Pure, so `tests/server/hit_card.spec.luau` drives it with hand-written sizes and no instance.
+function Report.imageBox(
+	chosen: any,
+	frameWidth: number,
+	frameHeight: number
+): { u0: number, u1: number, v0: number, v1: number }
+	local scale = if type(chosen) == "table" and type(chosen.scale) == "number" then chosen.scale else 1
+	local box = if type(chosen) == "table" then chosen.box else nil
+	local u0 = if type(box) == "table" and type(box.u0) == "number" then box.u0 else 0
+	local u1 = if type(box) == "table" and type(box.u1) == "number" then box.u1 else 1
+	local v0 = if type(box) == "table" and type(box.v0) == "number" then box.v0 else 0
+	local v1 = if type(box) == "table" and type(box.v1) == "number" then box.v1 else 1
+	local fit = Report.imageFit(if type(chosen) == "table" then chosen.px else nil, frameWidth, frameHeight)
+	local inset = (1 - scale) / 2
+	local function onto(a: number, lo: number, hi: number): number
+		return inset + scale * (lo + a * (hi - lo))
+	end
+	return {
+		u0 = onto(u0, fit.u0, fit.u1),
+		u1 = onto(u1, fit.u0, fit.u1),
+		v0 = onto(v0, fit.v0, fit.v1),
+		v1 = onto(v1, fit.v0, fit.v1),
+	}
 end
 
 -- WHICH WAY THE HIT CARD DRAWS THE ANIMAL (task 198).
