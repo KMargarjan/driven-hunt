@@ -1,14 +1,23 @@
 # Task 294: the guns are never grey rectangles
 
 Task: 294
-Round: 1
+Round: 2
 Base: bb2ae06e (main, #266 merged)
-Code commit: 0d508753e263f5c76647c1272a13b64f49b0f56c
+Code commit: eb706cb1d54bd1c0c73b36a85715b5c9eb5dd598
 
 Karen, 2026-10-27, playing her build: *"weapons loaded at first in game is rectangles"*.
 
 ```
-[harness] PASS: 34/34 checks @ 0d508753e263f5c76647c1272a13b64f49b0f56c (clean tree) scope=all
+[harness] PASS: 34/34 checks @ eb706cb1d54bd1c0c73b36a85715b5c9eb5dd598 (clean tree) scope=all
+```
+
+That run's own notes are this task's measurement:
+
+```
+  note   [client] task294 hold case: 2 mesh piece(s), 2 fabricated
+  note   [client] task294 held: 0 visible; past the bound: 3 visible
+  note   [client] task294 warm asked for 16 avatar mesh id(s), once each
+  note   [client] task294 the lobby sweep handed over 4 weapon folder(s)
 ```
 
 `test2` N/A: no `TWO_PLAYER_PATHS` path is touched (the viewmodel, the hud and the client weapon
@@ -70,19 +79,42 @@ spec in the same Studio:
    everybody for ever.
 5. **One rule, two doors**: `ShopDisplay.RETRY_SECONDS == AssetFetch.RETRY_SECONDS` and
    `ShopDisplay.nextAsk` is `AssetFetch.nextAsk`. Verify: `grep -n AssetFetch src/client/Hud/ShopDisplay.luau`.
-6. **The hold withholds, and is bounded**: `Viewmodel.holdPieces` is false at 0 waiting, true inside
-   the bound, false at and past it. The fail-first above is this case going red.
+6. **The hold withholds ON THE DRAWN GUN** (round 1, finding 2). "DRAWS NOTHING A PLAYER CAN SEE":
+   the shotgun's mesh templates are FABRICATED (`semiauto_client.spec`'s own reason -- DEV has no
+   upload; a `MeshPart` with no mesh id IS the not-ready state), a real `buildNewGun` runs through
+   `Viewmodel.update`, and the case reads the INSTANCES: the gun is built (descendants > 2),
+   `holding() == true`, `stats().meshesHeld > 0`, and **0 of its pieces are visible**; then with the
+   viewmodel clock stepped past `HOLD_SECONDS`, the same build draws **3**. Delete the `if held then 1`
+   and the first number becomes 3. The pure rule is still driven beside it, production-reachable form
+   first (round 1 note).
 7. **A held piece is still BUILT.** Three gate runs proved the alternative wrong: dropping the pieces
    left `semiauto_client.spec:93` with no drawn bolt to read (it failed in both runs with the hold
    active and PASSED in the neutered run, so it was **mine**, not the known flake of TASKS 285). The
    final run is 34/34 with that spec green.
-8. **Every weapon is warmed, off one list**: `Weapon.warmWeapons` reads `Weapons.ROWS` (4+ rows), not
-   the shop's three-geometry list. Verify: the "asks for EVERY weapon's meshes" case.
+8. **The ask-early half really asks** (round 1, finding 1), in two halves that each go red alone:
+   "ASKS THE ENGINE for every mesh it is handed" drives `AssetFetch.warm` against REAL mesh ids that
+   exist in any client (the R15 avatar: 16 of them), asserting each was asked for **exactly once**
+   across two sweeps; and "hands AssetFetch EVERY weapon folder that has replicated" spies on
+   `AssetFetch.warm` to assert WHICH holders the lobby sweep passes -- all 4 weapon folders, one call,
+   and nothing that is not a weapon's folder. It cannot pass on an empty sweep: with no folder present
+   one is fabricated, so `folders > 0` always.
 9. **`tests/client/asset_fetch.spec.luau` is in a scope** (`viewmodel`), and `src/shared/AssetFetch/`
    maps to it: `python tools/studio_mcp.py selftest` and `python tools/agents.py selftest` both pass.
 10. **Owners unchanged**: no new writer of `LocalTransparencyModifier` (that is `Camera.Rig`'s; this
     writes the viewmodel clone's own `Transparency`, which `buildNewGun` already owned), and no
     server change at all.
+
+## THE ROUND-1 NOTES
+
+Taken: the status seam now DELEGATES for ids the case does not own (it was answering nil for the live
+gun four times a second, and consuming its hold); `Viewmodel.forgetHold` makes the once-per-session
+spend explicit; `HOLD_SECONDS = 0` is stated as the kill switch; the header states the window the hold
+does NOT cover (before the server publishes -- task 133's 2.050-2.7 s -- `waiting` is 0 and the boxes
+are drawn, so PLAN (c) is "zero frames once the templates exist", not "zero frames"); the fail-first
+names the production-reachable line. Queued, not done: `docs/design/camera.md` does not yet describe
+the "built, not shown" state (rule 4). The `32/34` of the fail-first is 2 checks because the client
+report fails twice over -- `status PASS` and the pass/fail count -- which is how every client failure
+in this repo reads; there was one failing case.
 
 ## WHAT I COULD NOT VERIFY
 
