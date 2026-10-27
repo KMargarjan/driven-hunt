@@ -187,6 +187,17 @@ function Range.gapText(studs: number?): string
 	return string.format("%.1f m %s", tenths, if metres < 0 then "behind" else "ahead")
 end
 
+-- IS HE AT THE SPOT? PURE, and the distance is the PROMPT'S OWN REACH -- the same number the engine
+-- shows the prompt at, so the menu closes exactly where the way in disappears (`Shop.withinReach`'s
+-- rule: the client's closer and the server's refusal are the same measurement).
+function Range.atSpot(matPosition: Vector3?, playerPosition: Vector3?, layout): boolean
+	layout = layout or Range.LAYOUT
+	if typeof(matPosition) ~= "Vector3" or typeof(playerPosition) ~= "Vector3" then
+		return false
+	end
+	return (matPosition - playerPosition).Magnitude <= layout.PROMPT.MaxActivationDistance
+end
+
 -- A DISTANCE AS THE PLAYER READS IT: "125 studs (35 m)", through `Report.metres` -- the repo's one
 -- conversion, so the menu and the board cannot disagree about how far 125 studs is.
 function Range.distanceText(studs: number?): string

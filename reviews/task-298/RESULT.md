@@ -1,102 +1,21 @@
-PASS (items 1, 2, 4, 5, 6, 7, 8, 9 NOT PROVEN)
+1. `src/server/Range/init.luau` (`release` / `blankRecord` / `zoneOrder` / `onRequest`) + `src/client/Hud/RangePanel.luau` (`select`) — the trial's SPECIES and its KIND can disagree, and the board's columns are read off the one the animal is not spawned from. The animal is chosen by the kind alone: `release` calls `boars.spawn(from, trial.kind)` and `Runtime:spawn` resolves the species with `Boar.kindConfig(wanted, config)` (`Boar.CONFIG.KINDS.stag/hind/calf` carry `species = "reddeer"`, a boar kind carries none). The columns are chosen by the species: `blankRecord` does `local columns = zoneOrder(trial.species)`. Nothing reconciles them. Two reachable consequences: (a) picking ANIMAL = REDDEER and confirming leaves `kind = "male"` (`Range.CONFIG.DEFAULT_KIND`), so the lane re-releases a BOAR while the board prints the deer's six columns — claim 5's *"the zone columns are the animal's own"* is false in that state; (b) the reverse pair drops a hit silently — with `species = "boar"` and `kind = "stag"`, `onHitReported`'s `if type(zone) == "string" and record.zones[zone] ~= nil` finds no `neck` key, so the hit raises HITS and no column. The door permits the pair because `local lists = Range.optionLists()` is captured BEFORE the option loop, so a `kind` is validated against the PREVIOUS species' kinds; the ammo branch beside it got exactly this treatment (`local against = if option == "ammo" then { weapon = request.weapon or trial.weapon } else lists`) and the kind did not. The client has the mirror gap: `select` does `if option == "weapon" then picked.ammo = nil end` and clears nothing on a species pick. Required: make the kind follow the species in the same request the way the load follows the gun (and validate a same-request `kind` against that species), and read the record's columns off the animal that is actually spawned (`trial.kind`) rather than `trial.species`.
 
-Rule 5, stated so this PASS is not read as rule 5 having been met: **nothing in this change has been
-seen in Karen's place.** `Range.ANCHORS` holds one row, `["map:v1"]`, and `range.spec` still asserts
-`RangeData.anchorFor("forest-test") == nil` -- her place has no range, no mat, and no gun on loan, so
-every item above was evidenced in the DEV harness or by reading only. What WAS exercised by real
-shipped code in the harness: item 1 (`mayShoot` true on the mat, false one mat-width off, false with
-the range stopped), item 4 (the loan's whole set, row by row, against `Shop.grantsDriveGun` /
-`grantsAlwaysHunter` / `grantsHighSeat`), item 5 (30 pulls through the real `StateMachine` cycle with
-the no-loan control), item 6's mayShoot half, and items 7/8 through `Weapon.onFireRequest` and a real
-flight -- the 106.3-studs measurement in commit `65dcf612`'s own message is the proof that the shot
-path was entered, in run 4. What was NOT: anything in Karen's place; item 2's install order
-(`compose()` in `RangeBoot` has never executed in a run that produced evidence here -- the Builder
-says so: *"argued from how Roblox loads server Scripts, not measured"*); item 9's live half (*"nobody
-has seen a range target die"*). Items 3, 10 and 11 are structural and verified against the repo. No
-visual change, so no screenshot was owed.
+2. `src/server/Range/init.luau` (`Range.onHitReported`) — every hit the player lands anywhere in the world, for the rest of the session, counts on the range board. The function's only gate is `local record = state.records[id]; if record == nil then return end` — `onShotResolved` beside it checks `if player == nil or not Range.mayShoot(player) then return end` and this one checks nothing. `RangeBoot` connects it to the global signal: `Weapon.HitReported:Connect(function(report) ... Range.onHitReported(report) end)`, and that signal fires for every hit in the place, drive included. Records are created only on the mat but are never deleted (`Range.stop` resets `state.trials` and leaves `state.records`, `state.seen` and `state.pending` untouched, and nothing listens to `PlayerRemoving`). So after one range request, a boar shot in the drive does `record.hits += 1`, `record.zones[zone] += 1` and `publish(player)` — HITS climbing with no SHOTS, pushed to the client. The header comment *"A hit with no record (a shot in the wood) is ignored: this is the range's tally only"* is true only before his first range request. Required: count a hit only when it belongs to a shot this module counted (the `state.pending[id]` slot written by `onShotResolved`) or when `Range.mayShoot(player)` is true, and drop a player's record when he leaves.
 
-Round 1's finding is FIXED and the fix bites. `loanSet` now walks `Shop.GRANT_FIELDS` and admits a row
-only when every field but `weapon`/`ammo` is nil, so `Range.LOAN` is `ammo.slug`, `rifle.scoped`,
-`rifle.lever`, `shotgun.semiauto` and the explicitly added `ammo.unlimited` -- the three `bundle.*`
-rows, whose `grants` are the merged set carrying `driveGun`/`alwaysHunter`/`highSeat`, are now
-rejected. Revert the inner walk and the case reds twice over: the row-by-row loop finds
-`grants.driveGun ~= nil`, and `Shop.grantsDriveGun(owned)` answers true against
-`expect(...).to.equal(false)`.
+3. `src/client/Hud/init.luau` (`Hud.renderObjective`, `Hud.start`) + `RangePanel.setNear` / `RangeBoard.render` — nothing ever closes the menu or hides the board when the player leaves the spot, so the two borrowed doors are never given back. `RangePanel.setNear` is written and documented as the closer (design 8.5: *"only ever CLOSES, ShopPanel.setNear's rule"*) and has no caller anywhere: grep `RangePanel.setNear` returns its own definition, the design line and nothing else, while the same function in `Hud.renderObjective` feeds the shop (`ShopPanel.setNear(...)`) and the range only gets `RangePanel.setPrompt(RangeData.promptFor(1))`. Walk away with the menu up and `Cursor.requestFree("range")` and `WeaponInput.requestHold("range")` stay out for ever; `Cursor.apply` then holds `MouseBehavior.Default` (`local behavior = if free then Enum.MouseBehavior.Default else Enum.MouseBehavior.LockCenter`), so the camera stops following the mouse and the trigger is dead until he finds the prompt again. The board is the same shape: `RangeBoard.render` ends `root.Visible = record ~= nil` and no path ever sets the record back to nil, so once he has made one request the 380x300 panel stays on screen through the next drive. Required: tell both modules he is no longer at the spot, from the one place that already reads where he is standing, as `ShopPanel.setNear` is fed.
 
-Verified against the repo, no action. `Ballistics.segment` returns `segment = segment.Unit * remaining`
-and `length = remaining` when it caps, so `pellet.position + segment` lands exactly `rangeStuds` along
-the path and `|endPoint - muzzle| <= reachedStuds` holds by chord-vs-arc -- claim 8's fix is correct and
-`nextPosition` was the real defect; a shot the global cap refused has `endPoint = nil` (`Flight.launch`)
-and `onShotLanded` falls back to `shot.muzzle`, which matches the claim. `resolvedSignal:Fire` sits on
-the one path `flight:advance`'s resolutions take (`Weapon.start`'s Heartbeat -> `onShotLanded`), so once
-per resolved shot is right. Claim 6 holds and not for the reason the request gives: `refreshArming`'s
-closing loop over `Weapons.ids()` revokes any weapon no longer in the narrowed `wanted`, so the three
-loaned guns go on the next 2 s sweep -- without that loop the loan would have survived in the Backpack
-for ever. `Weapon.setDriveOpenProvider`/`setEntitlementProvider` returning the previous provider cannot
-break a caller: `MatchBoot:196/218/351` and `ForestTestBoot:319/355/877` ignore the return and are
-untouched by the diff, and `Match.driveOpen()` takes no parameter so the new `player` argument is
-discarded. `Range.armingOver`'s short-circuit is the design's `or` with the operands swapped, which is
-the same answer with no side effect skipped. `RANGE` is still `default = false`, so `RangeBoot` returns
-before `compose()` in every harness run and the 2441-case suite is untouched by the new wiring.
-`Weapon` stays the only writer of the arming decision, the Tool and the shot; `Runtime:takeHit` loops
-its own `_boars` and returns false for a part it does not own, so the two listeners cannot answer for
-each other. Harness line names the request's `Code commit:` 9a79896c with "(clean tree)",
-`paperwork-after-code-commit.txt` says OK, FAIL FIRST's 2435 + 6 = the 2441 of the final run;
-selene/stylua/rojo clean. No secret, no absolute user path, no non-noreply email, no `.rbxm`, no script
-outside a Rojo-managed path.
+4. `tests/client/range_panel.spec.luau` ("prints a red deer's six columns from the order it was sent") — the case the request offers as claim 5's deer proof survives deleting the code it is meant to prove. The spec's own `record()` helper supplies the columns: `zoneOrder = { "head", "neck", "chest", "body", "rear", "legs" }`, so the surviving line `expect(string.find(text, "NECK 1") ~= nil).to.equal(true)` still passes with `Range`'s `zoneOrder` and `RangeBoot`'s `zonesFor = function(species) local config = Boar.speciesConfig(species, runtime:config()) ... end` both deleted. No case anywhere drives `boars.zonesFor` with a deer: `range.spec`'s only column assertion is the boar default, `expect(#record.zoneOrder).to.equal(#Boar.CONFIG.ZONES.ORDER)`, and §6's deer case asserts `Boar.kindConfig("hind", runtime:config()).ZONES.ORDER` directly, which is `Boar`'s data and not the range's seam. That untested path is how finding 1 survived. Required: one server case that starts the range, picks the deer through `Range.onRequest`, and asserts the record's `zoneOrder` is the deer's own order read through the injected seam.
 
 ## Notes (non-blocking)
-- `src/server/RangeBoot.server.luau` / `compose` -- **the ordering risk has no instrument, and its
-  failure is silent.** If any root's require chain yields past the first Heartbeat, `MatchBoot`'s
-  `Weapon.setArmingPolicy(Match.mayCarryWeapon)` lands *after* the composition and overwrites it, the
-  range arms nobody, and the print still reads `"the range's two relaxations and the four guns on loan
-  are composed"`. The Builder discloses that the order is argued and not measured; what is missing is a
-  way to notice the argument being wrong. Keep the composed function's identity in a local and re-check
-  it on a later Heartbeat -- `warn` and re-compose if something replaced it. One line each way, and it
-  turns an unverifiable claim into a self-reporting one.
-- `src/server/Weapon/init.luau` / `Weapon.ShotResolved` header -- *"Its one listener is `Range`, wired
-  at a composition root"* is false today: grep finds no `ShotResolved:Connect` anywhere in `src/`, only
-  the declaration and `range.spec`. B4's board is the first listener. Say "no listener yet (B4)".
-- `tests/server/range.spec.luau` / "fires exactly ONCE per resolved shot" -- the producer-deletion bite
-  is CONDITIONAL, unchanged from round 1. Delete the whole producer (the `resolvedSignal` declaration
-  and `Weapon.ShotResolved = resolvedSignal.Event` with the `Fire` block) and the case reds in both
-  branches, which is why this is a note. Delete only the `Fire` block and keep the signal, and in any
-  run where `readyShooter()` returns nil the single surviving assertion is
-  `expect(Weapon.ShotResolved).to.be.ok()` -- a line about the signal object, not about a publish. The
-  request does not paste this case's `TestKit.note` for the quoted run, so the pasted evidence does not
-  say which branch 9a79896c took; the only thing in the repo that shows the shot path was entered is
-  commit `65dcf612`'s message. Paste the note (it is also claim 8's own *"Verify: the note now reads
-  `end 100.0`"* -- the one number the request asks the reader to check and does not supply).
-- same case -- `putBack()` is still not reached if any assertion after `expect(#seen).to.equal(1)`
-  fails, so one red leaves `Weapon.setCast(function() return nil end)` installed and every later spec's
-  shot hits nothing, misattributing the real failure. Round 1's note (m), queued in `TASKS.md` and not
-  fixed; a pcall-and-restore around the body closes it.
-- `tests/server/range.spec.luau` / the claim-4 case -- its inner `for _, field in ipairs(Shop.GRANT_FIELDS)`
-  loop is a transcription of `loanSet`'s own walk over the same list, so a ninth grant field invisible
-  to `GRANT_FIELDS` would be invisible to both. What makes that safe is outside this case --
-  `shop.spec` asserts the list covers every key appearing in any row's `grants` -- and what carries the
-  case is the three `Shop.grants*` readers, which are independent of `loanSet`. Name the `shop.spec`
-  dependency in the comment so the transcription is not read as the assertion.
-- `src/shared/Range/init.luau` / `spotAt` -- it compares X and Z and ignores Y entirely, so
-  `Range.mayShoot` is true for a man at any height directly above or below a mat. Harmless on a flat
-  lobby plate; a `MAT.size.Y`-sized band in Y would make the predicate say what its comment says.
-- `src/server/Range/init.luau` / `Range.CONFIG.FREE` -- still read by nothing in `src/`, while B2's
-  comment beside it says *"STEP B3 READS EXACTLY THESE TWO"*. Round 1's note (p), queued, unchanged.
-  FREE is implemented by absence; delete the field or mark it declarative.
-- `tests/server/range.spec.luau` / `manAt` -- still builds a `Model` + `HumanoidRootPart` per call and
-  never destroys them. Unparented, so nothing in `Workspace` is touched.
-- `tests/server/range.spec.luau` / "is false with the range not started..." -- all four of its
-  assertions are `false`, so on its own it cannot tell `mayShoot` from `return false`. The sibling case
-  carries the true branch, and claim 1 names both, so the pair is the proof -- which is the right shape,
-  recorded only so the pair is never split.
-- `src/server/RangeBoot.server.luau` / the `HitReported` listener -- with `RANGE` on in the DEV place,
-  `MatchBoot`'s own `HitReported` listener still runs `HitLog.recordHit(report)` for a range hit and
-  will file it under whatever drive `HitLog` has open, so range shots appear in the drive's report.
-  Design section 12 asks for exactly that (*"`HitLog.recordHit` keeps receiving it, unchanged"*), so it
-  is not a defect -- named so B4's board and the drive report are not later read as disagreeing.
-- `reviews/task-298/REQUEST.md`, claim 2 -- *"the two relaxations"* in the case name covers three
-  composed providers (arming, drive-open, entitlement); the design's own heading counts two gates plus
-  the loan. Wording only.
+
+- Rule 5, stated so this review is not read as rule 5 having been met: the menu has been seen in Karen's place-equivalent (DEV) — `.screenshots/298b4-menu3.png`, described as six rows, the lit picks and the board's eight lines, which I cannot view — and the board's HIT row and zone columns have NOT been seen anywhere: the request itself says *"A range hit has still never been seen ... Four real `FireRequest` shots down the lane produced no resolved shot in DEV and no board row; the cause is not established."* Items 4 and 5 are proven by cases only.
+- `Range.onHitReported` — `record.zones[zone] += 1` runs on every report while `record.hits += 1` runs only on the first of a shot, and `range.spec` asserts that asymmetry (`expect(record.hits).to.equal(1)` next to `expect(record.zones.chest).to.equal(2)`). The columns therefore need not sum to HITS on screen; claim 4's *"counts the hit in `report.zone` and only once per shot"* is not what the code does for the column.
+- `RangePanel.rowRect` and `RangeBoard.resetRect` have no caller and no case. Claim 9 names `RangePanel.rowRect("confirm")` as verification, but no spec asserts the rectangle contains the viewport centre — the only evidence is the pasted live line, whose arithmetic is consistent (334.5..634.5 x 268..408 contains 484.5, 396). It waits on the live scenario ESCALATE already records.
+- `src/server/RangeBoot.server.luau` (`kindsFor`) — the KIND row offers LEGENDARY: `Boar.CONFIG.KINDS.ORDER` carries it and the row has no `species` field, so `owner` falls to `"boar"` and the menu shows four boar kinds. Design 7.3 lists six (`male, female, cub, stag, hind, calf`). Harmless, but say which you meant.
+- `RangePanel.render` — a row's buttons are rebuilt only when `#existing ~= #values`, and each `Activated` closure captures `entry.value` at build time while the loop below repaints `button.Text` from the fresh list. Two equal-length lists would leave a button whose label is new and whose value is old. It cannot bite today only by coincidence: rifle and lever both carry `{ "Slug" }` and shotgun and semiauto both carry `{ "Slug", "Buck" }`, and the boar's four kinds never match the deer's three. Key the rebuild on the values, not the count.
+- `RangePanel.selected` — `picked` wins over `state.record` for ever, so a pick the server rate-limited or refused off the mat stays lit. The comment *"One answer, so the lit row is never a wish the server refused"* describes the opposite arrangement.
+- `Range.onRequest` — the off-the-mat refusal increments no counter at all, so nothing can report "a legal request the game said no to"; design 8.2 names `stats.refusedBy` for it and that field is `start`'s one-off reason string. Also `Range.stats().boardPushes` is design TARGET 8's `boardWrites` under another name, and a hit shot pushes twice (`onShotResolved` then `onHitReported`).
+- `tests/server/range.spec.luau` ("says the gap in metres…") — the expected string re-derives `gapText`'s own rounding (`math.floor(math.abs(...) * 10 + 0.5) / 10`). It still catches a changed rounding at the chosen value, so it is not a tautology, but a pinned `"0.9 m behind"` beside it would be stronger and is what Karen's sentence actually is.
 
 ---
-REVIEWER verdict on commit `ad1185ce2641e74d3dbb2f80f7bfaff9382eea89` (round 2) · 2026-10-27 22:02 UTC · session cost $5.91, 63 turns · written by tools/agents.py
+REVIEWER verdict on commit `7585bdf8d4af5d403f4fc3a6fa043216f01db454` (round 1) · 2026-10-27 23:08 UTC · session cost $4.54, 37 turns · written by tools/agents.py

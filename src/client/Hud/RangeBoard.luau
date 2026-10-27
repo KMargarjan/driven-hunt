@@ -218,6 +218,16 @@ function RangeBoard.render()
 	root.Visible = record ~= nil
 end
 
+-- HE WALKED OFF THE SPOT: the board goes with the menu (round 1, finding 3). The record is the
+-- server's and this only drops the COPY -- the next push brings it back.
+function RangeBoard.setNear(near: boolean)
+	if near == true or record == nil then
+		return
+	end
+	record = nil
+	RangeBoard.render()
+end
+
 -- THE RECORD, TOLD to this module. It is the server's copy and this file never edits it.
 function RangeBoard.setRecord(next_: any)
 	record = next_

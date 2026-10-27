@@ -18,6 +18,7 @@
 -- moment a run half-finishes"*.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 
@@ -113,6 +114,13 @@ local started = Range.start({
 		end,
 		-- THE ZONE COLUMNS ARE THE ANIMAL'S OWN (design 9.1): a boar has five and a red deer six,
 		-- so the board reads the order from the config the target was spawned with.
+		-- BY THE KIND, which is what `spawn` is given: `Boar.kindConfig` resolves the species from
+		-- it, so the board's columns are the animal that is actually on the lane.
+		zonesForKind = function(kind: string)
+			local config = Boar.kindConfig(kind, runtime:config())
+			local zones = config.ZONES
+			return if type(zones) == "table" and type(zones.ORDER) == "table" then zones.ORDER else {}
+		end,
 		zonesFor = function(species: string)
 			local config = Boar.speciesConfig(species, runtime:config())
 			local zones = config.ZONES
@@ -191,6 +199,11 @@ end)
 -- which is the only way a MISS is counted at all, since `HitReported` is per hit (design 8.3).
 Weapon.ShotResolved:Connect(function(shot)
 	Range.onShotResolved(shot)
+end)
+
+-- A RECORD LEAVES WITH ITS PLAYER (round 1, finding 2).
+Players.PlayerRemoving:Connect(function(player)
+	Range.forget(player)
 end)
 
 -- ------------------------------------------------------------------ THE GUN, ON LOAN (7.4)

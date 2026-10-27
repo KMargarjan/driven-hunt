@@ -258,6 +258,20 @@ return function()
 			RangeBoard.stop()
 		end)
 
+		it("leaves the screen when he walks off the spot", function()
+			local frame = Instance.new("Frame")
+			RangeBoard.start(frame, { send = function() end })
+			RangeBoard.setRecord(record({}))
+			expect(RangeBoard.isVisible()).to.equal(true)
+			RangeBoard.setNear(false)
+			expect(RangeBoard.isVisible()).to.equal(false)
+			expect(RangeBoard.lastRecord()).to.equal(nil)
+			-- THE NEXT PUSH BRINGS IT BACK: this drops the COPY, never the server's record.
+			RangeBoard.setRecord(record({}))
+			expect(RangeBoard.isVisible()).to.equal(true)
+			RangeBoard.stop()
+		end)
+
 		it("asks the server to reset, through the same door as a pick", function()
 			local frame = Instance.new("Frame")
 			local sent = {}

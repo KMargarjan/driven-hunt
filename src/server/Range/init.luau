@@ -148,6 +148,7 @@ local state = {
 		resets = 0,
 		badRequests = 0,
 		rateLimited = 0,
+		offMat = 0,
 		refusedBy = nil :: string?,
 	},
 }
@@ -434,6 +435,10 @@ function Range.stop()
 	state.now = nil
 	state.trials = {}
 	state.acc = 0
+	-- THE RECORDS GO WITH THE RANGE: they describe trials that no longer exist (round 1, finding 2).
+	state.records = {}
+	state.pending = {}
+	state.seen = {}
 end
 
 local function release(trial: Trial)
@@ -593,13 +598,16 @@ end
 
 -- THE ZONE COLUMNS ARE THE ANIMAL'S OWN (design 9.1): a boar has five and a red deer six, so a
 -- hard-coded list would print an always-zero `neck` for a boar. Read through the injected seam.
-local function zoneOrder(species: string): { string }
+local function zoneOrder(kind: string): { string }
 	local boars = state.boars
 	if boars == nil then
 		return {}
 	end
-	if boars.zonesFor ~= nil then
-		local ok, zones = pcall(boars.zonesFor, species)
+	-- BY THE KIND, because the KIND is what `release` hands `boars.spawn`, and `Boar.kindConfig`
+	-- resolves the species from it (round 1, finding 1): a board keyed on the species field could
+	-- print a deer's six columns over a boar.
+	if boars.zonesForKind ~= nil then
+		local ok, zones = pcall(boars.zonesForKind, kind)
 		if ok and type(zones) == "table" then
 			return table.clone(zones)
 		end
@@ -644,7 +652,7 @@ end
 
 local function blankRecord(player: any, trial: Trial): any
 	local ballistic, view, measured = leadsFor(trial, player)
-	local columns = zoneOrder(trial.species)
+	local columns = zoneOrder(trial.kind)
 	local zones = {}
 	for _, zone in ipairs(columns) do
 		zones[zone] = 0
@@ -753,6 +761,17 @@ function Range.gapStuds(trial: Trial, endPoint: Vector3?, targetPosition: Vector
 	return ((endPoint :: Vector3).X - (targetPosition :: Vector3).X) * heading
 end
 
+-- WHICH KINDS THIS SPECIES HAS, through the injected seam. The door asks it of the species of the
+-- REQUEST, not of the trial's previous one (round 1, finding 1).
+function Range.kindsFor(species: string?): { string }
+	local boars = state.boars
+	if boars == nil or boars.kindsFor == nil or type(species) ~= "string" then
+		return {}
+	end
+	local ok, kinds = pcall(boars.kindsFor, species)
+	return if ok and type(kinds) == "table" then table.clone(kinds) else {}
+end
+
 local function targetPositionOf(trial: Trial): Vector3?
 	local boars = state.boars
 	if boars == nil or boars.statusOf == nil or trial.targetId == nil then
@@ -833,11 +852,16 @@ function Range.onHitReported(report: any)
 	if record == nil then
 		return
 	end
+	-- IT MUST BELONG TO A SHOT THIS MODULE COUNTED. `Weapon.HitReported` fires for EVERY hit in the
+	-- place, so without this gate a boar shot in the drive raised HITS on a range board the player
+	-- had opened an hour earlier -- hits with no shots (round 1, finding 2). `onShotResolved` wrote
+	-- the slot and checked `mayShoot`; this one trusts that slot and nothing else.
 	local pending = state.pending[id]
-	local firstOfShot = pending == nil or pending.hit ~= true
-	if pending ~= nil then
-		pending.hit = true
+	if pending == nil or pending.shots ~= record.shots then
+		return
 	end
+	local firstOfShot = pending.hit ~= true
+	pending.hit = true
 	if firstOfShot then
 		record.hits += 1
 		state.stats.hits += 1
@@ -939,6 +963,8 @@ function Range.onRequest(player: any, request: any): boolean
 	-- THE MAT IS THE PERMISSION, measured here and never claimed by the payload: the same predicate
 	-- the weapon's two relaxations read (7.4).
 	if not Range.mayShoot(player) then
+		-- COUNTED APART FROM A FORGERY (design 8.2): a legal pick from a man who has walked off.
+		state.stats.offMat += 1
 		return false
 	end
 	if not RangeData.optionAllowed("spot", request.spot) then
@@ -968,7 +994,16 @@ function Range.onRequest(player: any, request: any): boolean
 		if value ~= nil then
 			-- A CARTRIDGE IS ASKED AGAINST THE GUN OF THIS SAME REQUEST, so picking a rifle and its
 			-- own load in one message is legal and picking a slug for the rifle is not.
-			local against = if option == "ammo" then { weapon = request.weapon or trial.weapon } else lists
+			-- EACH OPTION IS ASKED AGAINST THE REQUEST'S OWN OTHER WORDS: a load against the gun of
+			-- this message, a kind against the SPECIES of this message. `lists` was captured before
+			-- the loop, so without this a kind is checked against the PREVIOUS species' kinds
+			-- (round 1, finding 1).
+			local against = lists
+			if option == "ammo" then
+				against = { weapon = request.weapon or trial.weapon }
+			elseif option == "kind" then
+				against = { kinds = Range.kindsFor(request.species or trial.species) }
+			end
 			if not RangeData.optionAllowed(option, value, against) then
 				state.stats.badRequests += 1
 				return false
@@ -983,6 +1018,21 @@ function Range.onRequest(player: any, request: any): boolean
 			-- left the shotgun's `Slug` on the trial, `Ballistics.shotFor` returned nil for that
 			-- pair and the board's LEAD BALLISTIC read 0.00. The row's own first load follows it
 			-- unless this same request named one.
+			-- A NEW ANIMAL'S KINDS ARE NOT THE OLD ANIMAL'S, exactly as a new gun's loads are not
+			-- the old gun's: picking RED DEER with no kind named left `male` on the trial, so the
+			-- lane re-released a BOAR under the deer's columns (round 1, finding 1).
+			if option == "species" and request.kind == nil then
+				local kinds = Range.kindsFor(value :: any)
+				local legal = false
+				for _, name in ipairs(kinds) do
+					if name == trial.kind then
+						legal = true
+					end
+				end
+				if not legal and kinds[1] ~= nil then
+					trial.kind = kinds[1]
+				end
+			end
 			if option == "weapon" and request.ammo == nil then
 				local row = Weapons.row(value :: any)
 				local loads = if row ~= nil then row.AMMO_KINDS else nil
@@ -1017,6 +1067,18 @@ function Range.onRequest(player: any, request: any): boolean
 	recordFor(player, trial)
 	publish(player)
 	return true
+end
+
+-- HE TOOK HIS RECORD WITH HIM. Nothing else deletes one, and `Weapon.HitReported` carries a Player,
+-- so a recycled UserId must never find a stale tally (round 1, finding 2).
+function Range.forget(player: any)
+	local id = if player ~= nil then (player :: any).UserId else nil
+	if type(id) ~= "number" then
+		return
+	end
+	state.records[id] = nil
+	state.pending[id] = nil
+	state.seen[id] = nil
 end
 
 -- The two remotes, told to this module by the root so no spec needs a DataModel. nil is legal and

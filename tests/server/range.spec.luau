@@ -1046,6 +1046,98 @@ return function()
 			Range.stop()
 		end)
 
+		it("keeps the kind with its species, and reads the columns off the animal it spawns", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			local man = manOn(RangeData.matPosition(ANCHOR, 1, LAYOUT), 109)
+
+			-- PICKING THE DEER WITH NO KIND NAMED TAKES THE DEER'S FIRST KIND: `male` left on the
+			-- trial made `release` spawn a BOAR under the deer's six columns (round 1, finding 1).
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, species = "reddeer" })).to.equal(true)
+			local trial = Range.trialOf(1) :: any
+			expect(trial.species).to.equal("reddeer")
+			local deerKinds = Range.kindsFor("reddeer")
+			local isDeerKind = false
+			for _, kind in ipairs(deerKinds) do
+				if kind == trial.kind then
+					isDeerKind = true
+				end
+			end
+			expect(isDeerKind).to.equal(true)
+			expect(trial.kind).never.to.equal("male")
+
+			-- ...AND THE COLUMNS ARE THAT ANIMAL'S OWN, read through the injected seam and compared
+			-- with the config the runtime itself resolves from the kind -- which is the thing
+			-- `release` hands `spawn`. The deer has a `neck` and the boar has none.
+			local record = Range.recordOf(man) :: any
+			local expected = Boar.kindConfig(trial.kind, Boar.CONFIG).ZONES.ORDER
+			expect(#record.zoneOrder).to.equal(#expected)
+			for index, zone in ipairs(expected) do
+				expect(record.zoneOrder[index]).to.equal(zone)
+			end
+			expect(record.zones.neck).to.be.ok()
+			expect(#record.zoneOrder).never.to.equal(#Boar.CONFIG.ZONES.ORDER)
+
+			-- A KIND FROM THE OTHER ANIMAL IS REFUSED, because the door asks the species of THIS
+			-- request and not the trial's previous one.
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, species = "boar", kind = "stag" })).to.equal(false)
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, species = "boar", kind = "female" })).to.equal(true)
+			expect((Range.trialOf(1) :: any).kind).to.equal("female")
+			expect(#(Range.recordOf(man) :: any).zoneOrder).to.equal(#Boar.CONFIG.ZONES.ORDER)
+			Range.stop()
+		end)
+
+		it("counts only the hits of the shots it counted, and forgets a player who leaves", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			local man = manOn(RangeData.matPosition(ANCHOR, 1, LAYOUT), 110)
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, go = true })).to.equal(true)
+
+			-- A HIT WITH NO SHOT OF THIS MODULE'S IS NOT THE RANGE'S HIT. `Weapon.HitReported` fires
+			-- for every hit in the place, so a boar shot in the DRIVE used to raise HITS on a board
+			-- the player had opened earlier -- hits with no shots (round 1, finding 2).
+			Range.onHitReported({ shooter = man, zone = "chest", nearest = 40 })
+			local record = Range.recordOf(man) :: any
+			expect(record.shots).to.equal(0)
+			expect(record.hits).to.equal(0)
+			expect(record.zones.chest).to.equal(0)
+
+			-- ...AND THE HIT OF A SHOT IT DID COUNT STILL COUNTS.
+			Range.onShotResolved({ shooter = man, endPoint = Vector3.new(ANCHOR.X, ANCHOR.Y, ANCHOR.Z) })
+			Range.onHitReported({ shooter = man, zone = "chest", nearest = 125 })
+			record = Range.recordOf(man) :: any
+			expect(record.shots).to.equal(1)
+			expect(record.hits).to.equal(1)
+
+			-- THE RECORD LEAVES WITH HIM, and a later stray hit finds nothing.
+			Range.forget(man)
+			expect(Range.recordOf(man)).to.equal(nil)
+			Range.onHitReported({ shooter = man, zone = "chest", nearest = 40 })
+			expect(Range.recordOf(man)).to.equal(nil)
+			Range.stop()
+		end)
+
+		it("says he is at the spot by the prompt's own reach", function()
+			-- THE CLIENT'S CLOSER AND THE SERVER'S REFUSAL ARE THE SAME MEASUREMENT: `Hud.step`
+			-- feeds this to `RangePanel.setNear`, which is what gives the two doors back
+			-- (round 1, finding 3).
+			local mat = RangeData.matPosition(ANCHOR, 1, LAYOUT)
+			local reach = LAYOUT.PROMPT.MaxActivationDistance
+			expect(RangeData.atSpot(mat, mat, LAYOUT)).to.equal(true)
+			expect(RangeData.atSpot(mat, mat + Vector3.new(reach - 1, 0, 0), LAYOUT)).to.equal(true)
+			expect(RangeData.atSpot(mat, mat + Vector3.new(reach + 1, 0, 0), LAYOUT)).to.equal(false)
+			expect(RangeData.atSpot(mat, nil, LAYOUT)).to.equal(false)
+			expect(RangeData.atSpot(nil, mat, LAYOUT)).to.equal(false)
+		end)
+
 		it("signs the miss gap against the target's own direction, both ways", function()
 			Range.stop()
 			local fake = newFakeBoars()

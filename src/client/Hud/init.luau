@@ -248,6 +248,9 @@ local rangeBoardFrame: Frame? = nil
 -- `Range.promptFor` walks `Workspace.Range`'s descendants, so it is asked at most once a second and
 -- only while the panel has no prompt (`ShopPanel.setPrompt`'s memoised field read, by hand).
 local rangeLookAt = 0
+-- The prompt this client found, kept so the per-frame "is he still at the spot" costs one field
+-- read and no search.
+local rangeMat: any = nil
 -- THE LOADING BANNER'S FRAME (task 197): created here with the rest of the screen, filled by
 -- `Hud.PadPanel`, which also owns its `Visible` -- the dialog's own arrangement, one frame over.
 local padLeavingFrame: Frame? = nil
@@ -4961,8 +4964,18 @@ function Hud.renderObjective(CameraSystem, WeaponSystem)
 	local nowClock = os.clock()
 	if not RangePanel.hasPrompt() and nowClock - rangeLookAt >= 1 then
 		rangeLookAt = nowClock
-		RangePanel.setPrompt(RangeData.promptFor(1))
+		rangeMat = RangeData.promptFor(1)
+		RangePanel.setPrompt(rangeMat)
 	end
+	-- ...AND WHETHER HE IS STILL AT THE SPOT, which is what GIVES THE TWO DOORS BACK: `setNear`
+	-- only ever closes (`ShopPanel.setNear`'s rule), and without this caller the cursor stayed free
+	-- and the trigger held for ever once he walked away with the menu up (round 1, finding 3).
+	local matPart = if rangeMat ~= nil then rangeMat.Parent else nil
+	local atSpot = matPart ~= nil
+		and matPart:IsA("BasePart")
+		and RangeData.atSpot(matPart.Position, me, RangeData.LAYOUT)
+	RangePanel.setNear(atSpot)
+	RangeBoard.setNear(atSpot)
 	-- ...AND ONE STEP OF THE SHOP WINDOW'S TURNING PICTURE (task 196). HERE, and not in a
 	-- `RenderStepped` of its own, for this function's own stated reason: it is *"THE ONE EVALUATION"*
 	-- and a second per-frame loop on this client would be a second owner of the frame. It returns
