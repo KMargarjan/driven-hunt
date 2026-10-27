@@ -841,11 +841,16 @@ end
 -- answers ONE question -- who is re-elected to pick when the first man walks off -- and it is dropped
 -- the moment he is somewhere else, so it can never claim he has been standing there since a previous
 -- hunt.
--- WOULD A PAD STEP START A FRESH DRIVE FOR HIM? (task 287.) The drive's own answer, through an
--- OPTIONAL reader -- `isHeld`'s and `assignedTeam`'s arrangement: a world with no drive, or one
--- that injects nothing, answers false and nothing restarts.
-local function restartOk(userId: number): boolean
-	return world.mayRestart ~= nil and world.mayRestart(userId) == true
+-- WOULD THE DRIVE'S DOOR REFUSE HIM RIGHT NOW? (task 287.) The drive's own answer, through an
+-- OPTIONAL reader -- `isHeld`'s and `assignedTeam`'s arrangement: a world with no drive, or one that
+-- injects nothing, refuses nobody and every pad is an ordinary pad.
+--
+-- **THIS OWNER HOLDS NO OPINION OF ITS OWN ABOUT IT** (review round 1, finding 3). `leftDrive` is a
+-- latch about his SCREEN and the next drive's party; it is not cleared when the drive number moves,
+-- so ANDing it into a pad decision locked a second withdrawn man off every pad for the whole of the
+-- fresh drive the first man's restart had just started.
+local function padRefused(userId: number): boolean
+	return world.enrolRefused ~= nil and world.enrolRefused(userId) == true
 end
 
 local function occupancy(occupants: { any }, now: number): ({ { any } }, { [number]: number })
@@ -875,19 +880,17 @@ local function occupancy(occupants: { any }, now: number): ({ { any } }, { [numb
 		-- one ends (task 246, `dismissPending` reads `leftDrive`), and `setLeftDrive` has already told
 		-- his screen so. So the pad is not his door any more: the party he is already in is.
 		-- ...UNLESS THERE IS NOBODY LEFT IN THE DRIVE, AND THEN HIS PAD STARTS A FRESH ONE (task
-		-- 287). KAREN, 2026-10-24: *"I need to be same role and from beginning"*. The rule is the
-		-- drive's and is asked of it (`Match.mayRestart` -> `Phase.mayRestart`), so this owner does
-		-- not hold a second opinion about who is in a hunt; `world.mayRestart` is OPTIONAL, like
-		-- `isHeld` and `assignedTeam`, and a world that answers nothing restarts nothing.
+		-- 287). KAREN, 2026-10-24: *"I need to be same role and from beginning"*. The whole rule is
+		-- the drive's and is asked of it in ONE question -- *would your door refuse him* -- so this
+		-- owner holds no second opinion about who is in a hunt.
 		--
-		-- HE IS MEASURED ON THE RECTANGLE EITHER WAY, which is what makes the refusal visible: a
-		-- barred man standing on a pad that cannot take him is latched for `setPadLate` and then
-		-- dropped from the list, so the pad stays empty exactly as it did before this task and his
-		-- screen says why.
+		-- HE IS MEASURED ON THE RECTANGLE EITHER WAY, which is what makes the refusal visible: a man
+		-- standing on a pad that cannot take him is latched for `setPadLate` and then dropped from
+		-- the list, so the pad stays empty exactly as it did before this task and his screen says why.
 		local late = false
 		if world.inDrive(userId) ~= true then
 			index = Pads.indexAt(rootOf(player), anchor :: Vector3, cfg)
-			if index ~= nil and live and leftDrive[userId] == true and not restartOk(userId) then
+			if index ~= nil and live and padRefused(userId) then
 				late = true
 				index = nil
 			end

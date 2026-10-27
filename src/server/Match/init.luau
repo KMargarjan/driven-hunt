@@ -3967,13 +3967,24 @@ function Match.isParticipant(userId: number): boolean
 	return state.participants[userId] ~= nil
 end
 
--- WOULD A PAD STEP START A FRESH DRIVE FOR HIM? (task 287.) The lobby's read, beside `isParticipant`:
--- true only for a man this live drive let go of (`Phase.barredFromRejoin`) with nobody else left in
--- it (`Phase.mayRestart`) -- which is exactly when `Match.enrol` below answers with a restart instead
--- of a refusal. The lobby asks it to decide whether his pad is a door or a notice, so the two cannot
--- disagree: one predicate, read twice.
-function Match.mayRestart(userId: number): boolean
-	return Phase.barredFromRejoin(state, withdrawnFrom[userId]) and Phase.mayRestart(state)
+-- WOULD THIS DOOR REFUSE HIM? (task 287.) The lobby's read, beside `isParticipant`, and it is the
+-- NEGATIVE deliberately: *would `Match.enrol` turn him away right now* -- barred from this drive
+-- (`Phase.barredFromRejoin`) AND unable to restart it (`Phase.mayRestart`). Those are the only lines
+-- in `Match.enrol` below that refuse a registered man, so the lobby's pad and this door cannot
+-- disagree: one question, asked at the two places that act on it.
+--
+-- **IT IS THE NEGATIVE BECAUSE THE LOBBY MUST NOT HOLD A LATCH OF ITS OWN** (review round 1, finding
+-- 3). The first cut asked *"may he restart"* and the lobby ANDed it with its own `leftDrive`: with
+-- two men withdrawn from one drive, the first man's restart moved the drive number -- so the second
+-- was no longer barred, `mayRestart` was false because the drive now had a man in it, and the lobby's
+-- own latch (which nothing clears when the number moves) locked him off every pad for the whole of
+-- the fresh drive he could have joined. Asking the drive the question the drive answers leaves the
+-- lobby nothing to disagree with.
+function Match.enrolRefused(userId: number): boolean
+	if state.participants[userId] ~= nil then
+		return false -- already in: the door is idempotent, not shut
+	end
+	return Phase.barredFromRejoin(state, withdrawnFrom[userId]) and not Phase.mayRestart(state)
 end
 
 -- ONE PLAYER, INTO THE DRIVE. Everything after the dispatch is today's code: `Waiting` ->
@@ -4005,15 +4016,34 @@ function Match.enrol(player: Player): boolean
 		-- lobby with the clock of an empty drive running -- so a solo pad step means START AGAIN.
 		--
 		-- THE RULE IS PURE (`Phase.mayRestart`) AND THIS IS STILL THE ONE DOOR, which is what keeps
-		-- the lobby's own answer (`Match.mayRestart` below, read by `Lobby.occupancy` to decide
-		-- whether his pad lights at all) and this enrolment from being two rules about one thing.
+		-- the lobby's own answer (`Match.enrolRefused` above, read by `Lobby.occupancy` to decide
+		-- whether his pad is a door or a notice) and this enrolment from being two rules about one
+		-- thing.
 		-- `names` IS ASKED HERE AND NOT ONLY BELOW: a restart deals teams and places everybody, and a
 		-- man this owner has never registered has no board row to put a team on -- refused rather
 		-- than half-done, which is the reason the ordinary check below gives.
 		if Phase.mayRestart(state) and names[userId] ~= nil then
-			stats.restarts += 1
+			-- **THE DRIVE HE LEFT IS PAID BEFORE IT IS REPLACED** (review round 1, finding 2). The
+			-- pay-out is on the `Scoring` edge and a restart does not cross it, so without this the
+			-- coins, the points and the completed-hunt count of the drive he was in would be wiped
+			-- unpaid by `enterAssigning`'s own `Score.new()` -- which contradicts `Match.withdraw`'s
+			-- stated rule that *"HIS RESULT FOR THIS DRIVE STANDS"*.
+			--
+			-- HERE, BEFORE THE DISPATCH, because both facts it needs are still this drive's: the
+			-- board is drive N's and `state.driveNumber` is still N. `Economy.payDrive` refuses a
+			-- repeated drive number, and drive N can never reach `Scoring` now, so the pay-out
+			-- happens exactly once either way.
+			if world and world.economy then
+				world.economy.payDrive(state.driveNumber, Score.leaderboard(board))
+			end
 			dispatch({ kind = "restart", userId = userId, name = player.Name })
-			return state.participants[userId] ~= nil
+			-- COUNTED AFTER THE DISPATCH, so the number is what HAPPENED and not what was attempted
+			-- (review round 1, note).
+			local joined = state.participants[userId] ~= nil
+			if joined then
+				stats.restarts += 1
+			end
+			return joined
 		end
 		stats.rejoinsRefused += 1
 		return false

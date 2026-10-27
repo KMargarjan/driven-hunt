@@ -812,15 +812,58 @@ return function()
 			expect(Match.trackedPlayers()).to.equal(tracked)
 		end)
 
-		-- THE THIRD READER (task 287): WOULD A PAD STEP START A FRESH DRIVE FOR HIM? The rule is pure
-		-- and is driven at every boundary in `match_phase.spec`; what this asserts is the DOOR, in
-		-- the live place, for the ordinary man -- nobody this drive has let go of, so there is nothing
-		-- to restart and the lobby's pads are an ordinary door.
-		it("says no pad restarts a drive for a man it never let go of (task 287)", function()
+		-- THE FOURTH READER (task 287): WOULD THIS DOOR REFUSE HIM? For the ordinary man, no --
+		-- nobody this drive has let go of, so his pads are ordinary pads.
+		it("refuses nobody it never let go of (task 287)", function()
 			local player = Players:GetPlayers()[1] :: Player
-			expect(Match.mayRestart(player.UserId)).to.equal(false)
-			expect(Match.mayRestart(-999)).to.equal(false)
-			expect(Match.stats().restarts).to.equal(0)
+			expect(Match.enrolRefused(player.UserId)).to.equal(false)
+			expect(Match.enrolRefused(-999)).to.equal(false)
+		end)
+
+		-- **AND THE TRUE SIDE, WHICH IS THE FEATURE** (review round 1, finding 1: *"the only live door
+		-- the feature has is proven by nothing"*). The pure rule is driven at every boundary in
+		-- `match_phase.spec`; what no case reached was `Match.enrol`'s own restart block -- the thing
+		-- that turns Karen's pad step into a fresh hunt -- and deleting it left the suite green.
+		--
+		-- IT IS DRIVEN HERE, THROUGH THE LIVE SINGLETON, because that block cannot be reached any
+		-- other way: this owner is a started module and `enrol` is its door. The drive is put back
+		-- where the rest of this file found it by construction -- a fresh `Assigning` is exactly what
+		-- every drive boundary in this place produces.
+		it("starts a FRESH drive when the man it let go of comes back to an empty one (task 287)", function()
+			local player = Players:GetPlayers()[1] :: Player
+			-- INSIDE A DRIVE FIRST, DETERMINISTICALLY: this place's drive is running while the suite
+			-- runs, but `Scoring` is four seconds of every cycle and a case that read the clock wrong
+			-- would be a flake. `advanceForTests` is the gate this file already uses to move the
+			-- drive's own clock, and `Scoring` -> `Assigning` is one hop with a roster of one.
+			for _ = 1, 20 do
+				if Match.phase() == "Running" or Match.phase() == "Assigning" then
+					break
+				end
+				expect(Match.advanceForTests(2)).to.equal(true)
+				task.wait(0.1)
+			end
+			expect(Match.phase() == "Running" or Match.phase() == "Assigning").to.equal(true)
+			local wasDrive = Match.driveNumber()
+			local hadRestarts = Match.stats().restarts
+			-- HE RESPAWNS OUT OF A LIVE DRIVE (task 248's rule), which empties this roster: he is the
+			-- only player in the DEV place.
+			expect(Match.isParticipant(player.UserId)).to.equal(true)
+			expect(Match.withdraw(player)).to.equal(true)
+			expect(Match.isParticipant(player.UserId)).to.equal(false)
+			-- ...AND NOW THE DOOR. It would refuse a rejoin (`barredFromRejoin`), and it does NOT,
+			-- because there is nobody left in the drive to refuse him on behalf of.
+			expect(Match.enrolRefused(player.UserId)).to.equal(false)
+			expect(Match.enrol(player)).to.equal(true)
+			expect(Match.isParticipant(player.UserId)).to.equal(true)
+			expect(Match.stats().restarts).to.equal(hadRestarts + 1)
+			-- A NEW DRIVE, FROM THE BEGINNING -- which is the whole of Karen's sentence.
+			expect(Match.driveNumber()).to.equal(wasDrive + 1)
+			expect(Match.phase()).to.equal("Assigning")
+			-- ...AND ONE RESTART, NOT TWO: he is in the roster now, so a second pad step is the
+			-- idempotent door and nothing else.
+			expect(Match.enrol(player)).to.equal(true)
+			expect(Match.stats().restarts).to.equal(hadRestarts + 1)
+			expect(Match.driveNumber()).to.equal(wasDrive + 1)
 		end)
 
 		it("refuses to enrol somebody it has never registered", function()

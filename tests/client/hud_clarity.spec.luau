@@ -405,6 +405,9 @@ return function()
 				-- ...AND THE LINE A RESPAWNED PLAYER READS (task 249). The dispatch asked for a
 				-- MIDDLE DOT in it; this is the case that would have caught it.
 				Objective.text("Running", nil, nil, { spot = Vector3.zero, left = true }),
+				-- ...AND THE LINE A MAN ON A PAD THAT CANNOT TAKE HIM READS (task 287), in both
+				-- lists, which is what task 249 did for the row above it and for its reason.
+				Objective.text("Running", nil, nil, { spot = Vector3.zero, padLate = true }),
 			}
 			for _, line in ipairs(extra) do
 				expect(#line > 0).to.equal(true)
@@ -484,6 +487,8 @@ return function()
 				{ name = "lobby", phase = "Waiting", lobby = SPOT },
 				{ name = "leaving", phase = "Waiting", lobby = { spot = SPOT.spot, secondsLeft = 5 } },
 				{ name = "left", phase = "Running", lobby = { spot = SPOT.spot, left = true } },
+				-- ...AND THE FOURTH (task 287), read in `Running` for the same reason the third is.
+				{ name = "late", phase = "Running", lobby = { spot = SPOT.spot, padLate = true } },
 			}) do
 				local line = Objective.text(case.phase, nil, nil, case.lobby)
 				longest = math.max(longest, #line)

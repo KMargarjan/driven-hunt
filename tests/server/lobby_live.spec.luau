@@ -90,6 +90,9 @@ local function fakes(bin: Instance)
 		-- `ALWAYS HUNTER` (the gate on the whole feature). Both are sets a case writes.
 		assigned = {} :: { [number]: string },
 		owners = {} :: { [number]: boolean },
+		-- TASK 287: who a LIVE drive let go of, which is the owner's `withdrawnFrom`. A case writes
+		-- it beside `inDrive[id] = false`, because those are the two halves of one event.
+		withdrawn = {} :: { [number]: boolean },
 	}
 	return seen,
 		{
@@ -117,18 +120,22 @@ local function fakes(bin: Instance)
 			isHeld = function(userId: number): boolean
 				return seen.held[userId] == true
 			end,
-			-- WOULD A PAD STEP START A FRESH DRIVE FOR HIM (task 287)? THE REAL RULE, over the same
-			-- set the reader above it answers from -- `Phase.mayRestart`'s own question: is there
-			-- anybody in the drive but him? A stub that answered a constant would let the two cases
-			-- below share one branch, and they are two branches: a man ALONE gets a door, a man with
-			-- other men still hunting gets a notice.
-			mayRestart = function(userId: number): boolean
-				for id, inside in pairs(seen.inDrive) do
-					if inside and id ~= userId then
-						return false
+			-- WOULD THE DRIVE'S DOOR REFUSE HIM (task 287)? THE REAL RULE, written out of the two
+			-- facts `Match.enrolRefused` is written out of: the drive let go of him
+			-- (`seen.withdrawn`, which is the owner's `withdrawnFrom`) AND somebody is still in it
+			-- (`seen.inDrive`, so there is nothing to restart). A stub that answered a constant would
+			-- let the two cases below share one branch, and they are two branches: a man ALONE gets a
+			-- door, a man with other men still hunting gets a notice.
+			enrolRefused = function(userId: number): boolean
+				if seen.withdrawn[userId] ~= true or seen.inDrive[userId] == true then
+					return false
+				end
+				for _, inside in pairs(seen.inDrive) do
+					if inside then
+						return true
 					end
 				end
-				return true
+				return false
 			end,
 			place = function(player: any, cframe: CFrame)
 				table.insert(seen.placed, { userId = player.UserId, cframe = cframe })
@@ -1147,6 +1154,7 @@ return function()
 			expect(Lobby.padOf(1).state).to.equal(Pads.EMPTY)
 			-- HE PRESSES RESET: the drive lets go of him, mid-drive. Mila is still hunting.
 			seen.inDrive[55] = false
+			seen.withdrawn[55] = true
 			Lobby.step(2002, { man, mila })
 			expect(man:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(true)
 			-- ...AND THE PAD HE IS STANDING ON STILL DOES NOTHING. Before task 261 it sized a party,
@@ -1202,6 +1210,7 @@ return function()
 			expect(Lobby.padOf(1).state).to.equal(Pads.EMPTY)
 			-- SHE PRESSES RESET. Nobody else is in the drive, so its clock is running for nobody.
 			seen.inDrive[55] = false
+			seen.withdrawn[55] = true
 			Lobby.step(2002, { man })
 			expect(man:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(true)
 			-- **THE PAD IS A DOOR AND NOT A NOTICE**: it sizes her party on the next scan, exactly as
@@ -1222,6 +1231,16 @@ return function()
 			end
 			expect(#seen.enrolled).to.equal(1)
 			expect(seen.enrolled[1]).to.equal(55)
+			-- ...AND A SECOND MAN WHO RESPAWNED OUT OF THE SAME DRIVE IS NOT LOCKED OUT BY THE DRIVE
+			-- THE FIRST ONE JUST STARTED (review round 1, finding 3). His pad is an ordinary pad the
+			-- moment the drive's door would take him -- there is no lobby-side latch left to
+			-- disagree with it.
+			local second = occupant(57, padAt(2), bin)
+			seen.withdrawn[57] = true
+			Lobby.step(went + 2 / CFG.SCAN_HZ, { man, second })
+			expect(second:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(nil)
+			Lobby.step(went + 4 / CFG.SCAN_HZ, { man, second })
+			expect(Lobby.padOf(2).state).to.equal(Pads.SIZING)
 			-- THE LATCH IS DOWN THE MOMENT A DRIVE HAS HER, so the line and the bar lift together.
 			Lobby.step(went + 1 / CFG.SCAN_HZ, { man })
 			expect(man:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(nil)
