@@ -360,3 +360,42 @@ make -- a miss she can see, instead of a kill in empty space -- but roughly one 
 at a boar, and one in two at a cub, now connects with nothing.
 
 **NEEDS KAREN:** nothing clickable. Her judgement, after the Director's shoot.
+
+---
+
+## 2026-10-27 — TASK 299, ROUND 1 = FINDINGS (3). STOPPED AT THE DEADLINE, NOT AT A DISAGREEMENT
+
+`reviews/task-299/RESULT.md` @ `8eb985d7`, round 1, three blocking findings. The dispatch allows a
+round 2; the deadline (10:26 UTC) does not — a code change costs the full one-player gate plus
+`test2` twice plus a review, ~25 minutes from here. So the branch stands at `df70c86b` with the
+verdict committed and nothing hidden.
+
+**I AGREE WITH ALL THREE, AND THE FIRST ONE IS THE ONE THAT MATTERS.** I checked each against the
+code before writing this:
+
+1. **In the only world that has pads, my fix does not deal the fresh drive at all.**
+   `Lobby.onPhase("Scoring")` sets `dismissPending` (`src/server/Lobby/init.luau`), the next
+   `Lobby.step` at 10 Hz calls `world.dismissAll()`, the roster is empty ~0.1 s into the scene, and
+   `Phase`'s `Scoring` exit then takes `enterWaiting`, not `enterAssigning`. Karen's pad step would
+   buy her the results scene of the drive she abandoned and a walk back to the lodge. Nothing live
+   caught it: `zz_pad_restart.spec` drives `Match` with no lobby wired (`hasLobby = false` in DEV),
+   and the Forest Test is where the lobby exists. **This is a real defect in my design, found by
+   reading, and I could not have shipped it.**
+2. **The faucet is slowed, not shut.** A withdrawn man's board row is never marked `left`
+   (`Score.leave` is called only in `Match.forget`), so the aborted drive still pays him
+   `PARTICIPATION = 10` and increments `drivesPaid`. One paid drive per restart cycle (~15-20 s)
+   against one per 600 s for a drive that is played.
+3. **The `Assigning` arm still skips the per-drive work** (`measureMarkers`, `stats.drives`,
+   `driveKills`, the board rebuild), which is 287 round 3's finding 2 — the arm all four runs took.
+
+**WHAT ROUND 2 HAS TO DO** (one task, and it is bigger than "enter Scoring"):
+- key the per-drive block on the drive NUMBER changing rather than on the `Assigning` edge, so both
+  restart arms run it (finding 3) — that is the shape the dispatch wanted and it needs no lobby;
+- pay on the drive-number edge too, and REFUSE the pay-out for a drive an abandonment ended (pass
+  `enterScoring`'s `reason`, or mark the abandoned rows `left`) (finding 2);
+- and then either keep the fresh drive on the restart's own path, or stop `Lobby`'s dismissal firing
+  for a restart-induced `Scoring` (finding 1) — proven with a case that wires `Lobby.onPhase` +
+  `Lobby.step` the way `lobby_live.spec` does, because nothing else can see it.
+
+**NEEDS KAREN:** nothing clickable. **For the Director:** 299 is not mergeable; 287 is still blocked
+behind it.
