@@ -133,6 +133,13 @@ local builtReady = -1
 --
 -- BOUNDED, AND THE FALLBACK IS STILL THERE: after `HOLD_SECONDS` the boxes are drawn exactly as
 -- before, so a mesh that never arrives is a plain dark gun and never an endless empty hand.
+--
+-- WHAT IT DOES NOT COVER, measured by task 133 in this very file: before the server has PUBLISHED the
+-- folder there is no mesh to wait for, so `waiting` is 0 and the boxes are drawn -- that window was
+-- 2.050 s to 2.7 s in Karen's session. The client warm sweep (`Weapon.warmWeapons`) shortens the
+-- DOWNLOAD, not the publish; closing the publish window is the server's own ordering rule.
+-- `0` IS THE KILL SWITCH, stated rather than left as a happy accident: `held` is `waiting > 0 and
+-- elapsed < 0`, which is false for every build, so the boxes are drawn exactly as they were on main.
 Viewmodel.HOLD_SECONDS = 4
 -- WHEN THIS WEAPON'S FIRST INCOMPLETE BUILD HAPPENED, per weapon folder: the bound is per gun, so
 -- switching to a rifle 60 s in gets its own hold rather than inheriting a spent one.
@@ -149,6 +156,14 @@ end
 -- Is the gun on screen one the hold is withholding pieces from? (`stats().meshesHeld` is the count.)
 function Viewmodel.holding(): boolean
 	return heldBuild
+end
+
+-- SPECS ONLY: a weapon whose hold has never been spent. The bound is deliberately once per folder per
+-- SESSION -- a gun that waited four seconds at the lobby must not wait again at every later rebuild
+-- -- so a case that wants to see a hold has to forget the live frame that already spent it.
+function Viewmodel.forgetHold()
+	table.clear(heldSince)
+	heldBuild = false
 end
 -- WHICH IDS HAVE BEEN ASKED FOR AND WHICH HAVE LANDED IS `ReplicatedStorage.AssetFetch`'s, since
 -- task 294: a template parked in `ReplicatedStorage` is never rendered, so nothing fetches it on its
