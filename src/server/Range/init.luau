@@ -61,6 +61,11 @@ Range.CONFIG = {
 	DEFAULT_SPECIES = "boar",
 	DEFAULT_KIND = "male",
 	DEFAULT_PACE = RangeData.WORD.TROT,
+	-- THE GUN THE LANE STARTS WITH, AND ITS FIRST LOAD READ OFF THE GUN'S OWN ROW -- never a
+	-- cartridge name typed here (step B4; `Ballistics.shotFor` returns nil for a load a row does
+	-- not carry, which is what made the board's lead arithmetic fail on the first gate run).
+	DEFAULT_WEAPON = "shotgun",
+	DEFAULT_AMMO = Weapons.row("shotgun").AMMO_KINDS[1],
 	-- TARGET 3: the measured crossing of the window, against `window / Boar.paceSpeed`.
 	CROSSING_TOLERANCE = 0.10,
 	-- KAREN, 2026-10-27: *"range is free and amunition is endless"*. STEP B3 READS EXACTLY THESE TWO
@@ -89,6 +94,8 @@ type Trial = {
 	pace: string,
 	speedStudsPerSecond: number,
 	issuedStudsPerSecond: number,
+	weapon: string,
+	ammo: string,
 	distanceStuds: number,
 	targetId: string?,
 	leg: number,
@@ -174,6 +181,8 @@ local function newTrial(spot: number, pace: string): Trial
 		-- `order` walks the target to the middle at WALK and `paceSpeed("stand")` is 0 (B2 note).
 		-- The board prints this one and labels it, so no column shows a speed nobody issued.
 		issuedStudsPerSecond = 0,
+		weapon = Range.CONFIG.DEFAULT_WEAPON,
+		ammo = Range.CONFIG.DEFAULT_AMMO,
 		distanceStuds = RangeData.LAYOUT.DISTANCE_STUDS,
 		targetId = nil,
 		leg = 1,

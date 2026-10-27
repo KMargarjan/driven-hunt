@@ -921,6 +921,9 @@ return function()
 			expect(record).to.be.ok()
 			expect(record.shots).to.equal(0)
 			expect(record.weapon).to.equal("rifle")
+			-- THE TRIAL STARTS WITH A REAL GUN AND A LOAD THAT GUN REALLY CARRIES, read off the row.
+			expect(Range.CONFIG.DEFAULT_AMMO).to.equal(Weapons.row(Range.CONFIG.DEFAULT_WEAPON).AMMO_KINDS[1])
+			expect(Ballistics.shotFor(Weapons.row(Range.CONFIG.DEFAULT_WEAPON), Range.CONFIG.DEFAULT_AMMO)).to.be.ok()
 			-- THE ZONE COLUMNS ARE THE ANIMAL'S OWN, read through the seam and not typed here.
 			expect(#record.zoneOrder).to.equal(#Boar.CONFIG.ZONES.ORDER)
 			Range.stop()
@@ -944,6 +947,7 @@ return function()
 			expect(record.miss).to.equal(1)
 			-- THE BALLISTIC LEAD IS THE SHIPPED FUNCTION'S ANSWER, never a number typed twice.
 			local shot = Ballistics.shotFor(Weapons.row(record.weapon), record.ammo)
+			expect(shot).to.be.ok()
 			expect(record.leadBallisticStuds).to.equal(
 				Ballistics.leadStuds(shot, record.distanceStuds, record.paceStudsPerSecond)
 			)
