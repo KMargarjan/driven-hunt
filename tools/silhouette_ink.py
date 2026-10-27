@@ -8,12 +8,22 @@ grid of row strings, and `tests/client/HitCardInk.luau` is that grid.
 A cell is `#` when the pixel at its CENTRE has alpha >= 128, `.` otherwise. Row 0 is the top of the
 image, column 0 its left (the animal's nose: every silhouette is nose-left).
 
+THE TRUNK BOX IS MEASURED ON THE PICTURE (task 283 round 2, Director: "the card's rectangle is
+measured ON THE PICTURE, per picture -- the picture is what Karen sees"). `trunk_box` states the
+rule once: the BACK LINE is the topmost row at least half as solid as the picture's solidest row,
+so a mane, a raised head and antlers sit above it; the BODY'S ENDS and the HOOVES' LINE are that
+trunk's own ink extent. `measure` prints the four numbers that go into `Report.CONFIG.TRUNK_IN_INK`,
+and `Ink.trunkBox` in the generated file is the same rule on the 120 x 60 grid, so a spec can
+re-derive the rectangle from the pixels and the two agree to a cell.
+
     python tools/silhouette_ink.py write     # rewrite tests/client/HitCardInk.luau
-    python tools/silhouette_ink.py check     # fail if the file is stale or a PNG has changed
+    python tools/silhouette_ink.py check     # fail if a PNG has changed (compares the GRID, not the text)
+    python tools/silhouette_ink.py measure   # print each picture's trunk box, full resolution
 """
 
 import hashlib
 import os
+import re
 import sys
 
 COLS, ROWS = 120, 60
@@ -58,6 +68,57 @@ def mask(path):
     return rows, width, height
 
 
+def spans(rows_or_alpha, nrows, ncols, is_grid):
+    """(first, last, count) of the ink in every row, or None for an empty row."""
+    out = []
+    for r in range(nrows):
+        if is_grid:
+            cols = [c for c in range(ncols) if rows_or_alpha[r][c] == "#"]
+        else:
+            cols = [c for c in range(ncols) if rows_or_alpha[c, r] >= 128]
+        out.append((cols[0], cols[-1], len(cols)) if cols else None)
+    return out
+
+
+def trunk_box(row_spans, nrows, ncols):
+    """THE RECTANGLE THE DOTS' UNIT SQUARE IS DRAWN INTO, read off one picture's ink.
+
+    The BACK LINE is the topmost row whose ink is at least HALF the solidest row's: above it the
+    drawing is mane, raised head or antler, and a rectangle topped there would put a dorsal hit in
+    the air. The body's ENDS and the HOOVES' LINE are the ink extent of those trunk rows.
+    """
+    counts = [s[2] if s else 0 for s in row_spans]
+    solid = max(counts)
+    trunk = [r for r in range(nrows) if counts[r] * 2 >= solid]
+    inked = [r for r in range(nrows) if counts[r] > 0]
+    return {
+        "u0": min(row_spans[r][0] for r in trunk) / ncols,
+        "u1": (max(row_spans[r][1] for r in trunk) + 1) / ncols,
+        "v0": trunk[0] / nrows,
+        "v1": (inked[-1] + 1) / nrows,
+    }
+
+
+def measure():
+    from PIL import Image
+
+    print("kind      u0     u1     v0     v1     (full resolution; grid gap, 1 row = %.4f)" % (1 / ROWS))
+    for kind in ("male", "female", "stag", "hind"):
+        sha, rel = PICTURES[kind]
+        path = find(rel, sha)
+        image = Image.open(path).convert("RGBA")
+        width, height = image.size
+        full = trunk_box(spans(image.split()[3].load(), height, width, False), height, width)
+        rows, _, _ = mask(path)
+        grid = trunk_box(spans(rows, ROWS, COLS, True), ROWS, COLS)
+        gap = max(abs(full[k] - grid[k]) for k in ("u0", "u1", "v0", "v1"))
+        print(
+            "%-8s %.4f %.4f %.4f %.4f   grid %.4f %.4f %.4f %.4f   worst gap %.4f"
+            % (kind, full["u0"], full["u1"], full["v0"], full["v1"], grid["u0"], grid["u1"], grid["v0"], grid["v1"], gap)
+        )
+    return 0
+
+
 def render():
     out = [
         "--!strict",
@@ -97,21 +158,91 @@ def render():
         "\treturn string.sub(art.rows[row], col, col) == \"#\"",
         "end",
         "",
+        "-- WHERE THE TRUNK SITS ON THIS PICTURE -- the rectangle a dot's unit square is drawn into,",
+        "-- read off the grid above and nothing else (task 283). THE BACK LINE is the topmost row whose",
+        "-- ink is at least HALF the solidest row's: above it the drawing is mane, raised head or antler.",
+        "-- THE BODY'S ENDS and THE HOOVES' LINE are those trunk rows' own ink extent.",
+        "-- The same rule as `tools/silhouette_ink.py` `trunk_box`, which measures it at FULL resolution",
+        "-- for `Report.CONFIG.TRUNK_IN_INK`: two resolutions, one rule, so the two agree to a cell.",
+        "function Ink.trunkBox(picture: string): { u0: number, u1: number, v0: number, v1: number }?",
+        "\tlocal art = Ink.PICTURES[picture]",
+        "\tif art == nil then",
+        "\t\treturn nil",
+        "\tend",
+        "\tlocal counts, first, last = {}, {}, {}",
+        "\tlocal solid = 0",
+        "\tfor row = 1, Ink.ROWS do",
+        "\t\tlocal n = 0",
+        "\t\tfor col = 1, Ink.COLS do",
+        "\t\t\tif string.sub(art.rows[row], col, col) == \"#\" then",
+        "\t\t\t\tn += 1",
+        "\t\t\t\tfirst[row] = first[row] or col",
+        "\t\t\t\tlast[row] = col",
+        "\t\t\tend",
+        "\t\tend",
+        "\t\tcounts[row] = n",
+        "\t\tsolid = math.max(solid, n)",
+        "\tend",
+        "\tlocal back: number? = nil",
+        "\tlocal u0, u1, hooves = Ink.COLS, 1, 1",
+        "\tfor row = 1, Ink.ROWS do",
+        "\t\tif counts[row] > 0 then",
+        "\t\t\thooves = row",
+        "\t\tend",
+        "\t\tif counts[row] * 2 >= solid then",
+        "\t\t\tback = back or row",
+        "\t\t\tu0 = math.min(u0, first[row])",
+        "\t\t\tu1 = math.max(u1, last[row])",
+        "\t\tend",
+        "\tend",
+        "\treturn {",
+        "\t\tu0 = (u0 - 1) / Ink.COLS,",
+        "\t\tu1 = u1 / Ink.COLS,",
+        "\t\tv0 = ((back or 1) - 1) / Ink.ROWS,",
+        "\t\tv1 = hooves / Ink.ROWS,",
+        "\t}",
+        "end",
+        "",
         "return Ink",
         "",
     ]
     return "\n".join(out)
 
 
+def grids(text):
+    """Every picture's name, pixel size and row strings, with no formatting in it."""
+    out, kind = {}, None
+    for line in text.replace(chr(13), "").split(chr(10)):
+        line = line.strip()
+        found = re.match(r"Ink.PICTURES.(@w+)@s*=".replace("@", chr(92)), line)
+        if found:
+            kind = found.group(1)
+            out[kind] = {"rows": []}
+        if kind:
+            # `w`/`h` may share the marker's line (as generated) or stand alone (after stylua).
+            for key in ("w", "h"):
+                size = re.search(r"\b" + key + r"@s*=@s*(@d+)".replace("@", chr(92)), line)
+                if size:
+                    out[kind][key] = int(size.group(1))
+            row = re.match(r'"([.#]+)",', line)
+            if row:
+                out[kind]["rows"].append(row.group(1))
+    return out
+
+
 def main():
     what = sys.argv[1] if len(sys.argv) > 1 else "check"
+    if what == "measure":
+        return measure()
     text = render()
     if what == "write":
         open(OUT, "w", encoding="utf-8", newline="\n").write(text)
         print(f"wrote {OUT} ({len(text)} bytes)")
         return 0
     have = open(OUT, encoding="utf-8").read() if os.path.isfile(OUT) else ""
-    if have.replace("\r\n", "\n") != text:
+    # THE GRID IS COMPARED, NOT THE TEXT: the committed file is stylua-formatted, so a byte compare
+    # calls a current file stale (round 1's note). This reads both sides' `w`, `h` and row strings.
+    if grids(have) != grids(text):
         print("tests/client/HitCardInk.luau is STALE: run `python tools/silhouette_ink.py write`")
         return 1
     print("tests/client/HitCardInk.luau matches the uploaded PNGs")

@@ -295,4 +295,49 @@ function Ink.isInk(picture: string, u: number, v: number): boolean
 	return string.sub(art.rows[row], col, col) == "#"
 end
 
+-- WHERE THE TRUNK SITS ON THIS PICTURE -- the rectangle a dot's unit square is drawn into,
+-- read off the grid above and nothing else (task 283). THE BACK LINE is the topmost row whose
+-- ink is at least HALF the solidest row's: above it the drawing is mane, raised head or antler.
+-- THE BODY'S ENDS and THE HOOVES' LINE are those trunk rows' own ink extent.
+-- The same rule as `tools/silhouette_ink.py` `trunk_box`, which measures it at FULL resolution
+-- for `Report.CONFIG.TRUNK_IN_INK`: two resolutions, one rule, so the two agree to a cell.
+function Ink.trunkBox(picture: string): { u0: number, u1: number, v0: number, v1: number }?
+	local art = Ink.PICTURES[picture]
+	if art == nil then
+		return nil
+	end
+	local counts, first, last = {}, {}, {}
+	local solid = 0
+	for row = 1, Ink.ROWS do
+		local n = 0
+		for col = 1, Ink.COLS do
+			if string.sub(art.rows[row], col, col) == "#" then
+				n += 1
+				first[row] = first[row] or col
+				last[row] = col
+			end
+		end
+		counts[row] = n
+		solid = math.max(solid, n)
+	end
+	local back: number? = nil
+	local u0, u1, hooves = Ink.COLS, 1, 1
+	for row = 1, Ink.ROWS do
+		if counts[row] > 0 then
+			hooves = row
+		end
+		if counts[row] * 2 >= solid then
+			back = back or row
+			u0 = math.min(u0, first[row])
+			u1 = math.max(u1, last[row])
+		end
+	end
+	return {
+		u0 = (u0 - 1) / Ink.COLS,
+		u1 = u1 / Ink.COLS,
+		v0 = ((back or 1) - 1) / Ink.ROWS,
+		v1 = hooves / Ink.ROWS,
+	}
+end
+
 return Ink

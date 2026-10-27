@@ -398,7 +398,11 @@ return function()
 				-- black and stops meaning where the shot landed -- task 205's own refusal, kept.
 				local spanU = (box.u1 - box.u0) / (hi.u - lo.u)
 				local spanV = (box.v1 - box.v0) / (hi.v - lo.v)
-				expect(spanU >= 0.78).to.equal(true)
+				-- THE FLOOR IS 0.75 SINCE TASK 283, and the hind is why: her body's ends, measured on
+				-- her own picture, are u 0.140..0.918 of it (0.778), because her head and neck are drawn
+				-- forward of her chest and reach the left edge. The guard still refuses a box shrunk onto
+				-- the torso; it no longer refuses the measurement.
+				expect(spanU >= 0.75).to.equal(true)
 				expect(spanV >= 0.45).to.equal(true)
 				worst = math.max(worst, math.abs(box.u0 - lo.u))
 				TestKit.note(
