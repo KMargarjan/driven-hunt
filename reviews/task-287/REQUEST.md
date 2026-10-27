@@ -3,10 +3,10 @@
 Task: 287
 Round: 2
 Base: 5832342d (main)
-Code commit: 1dde99da33ed3c2edfbe46c855d07a244d9bf56c
+Code commit: 55a978fb85b10aac69c5f31b3e52e16dda1a7b66
 
 ```
-[harness] PASS: 34/34 checks @ 1dde99da33ed3c2edfbe46c855d07a244d9bf56c (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 55a978fb85b10aac69c5f31b3e52e16dda1a7b66 (clean tree) scope=all
 ```
 
 Server 2408 passed / 0 failed / 0 errors; client 612 / 0 / 0. `[harness2]` is NOT pasted and the run
@@ -51,7 +51,8 @@ measured and fixed** (the Director: `weapon_shot.spec:476` failed on the branch 
 1. **The live door, true side.** `tests/server/zz_pad_restart.spec.luau`: withdraw → `enrolRefused`
    false → `enrol` true → `restarts` +1 → drive number +1 → phase `Assigning` → a second `enrol`
    that restarts nothing. Measured in the PASS run:
-   `task287 live restart: drive 2 -> 3, team Drivers -> Drivers, held Horn -> Horn, restarts 0 -> 1`.
+   `task287 live restart: drive 2 -> 3, team Drivers -> Drivers, held Horn -> Horn, restarts 0 -> 1,
+   economy true paid 1 -> 2`.
    Verify: the known-bad line above, which is the same case failing with the block disabled.
 2. **It cannot disturb what runs after it:** the `zz_` prefix puts it last of all spec files, and it
    waits for `ClientsFinished` before touching the drive. Verify: the PASS run's 34/34 with
@@ -68,9 +69,12 @@ measured and fixed** (the Director: `weapon_shot.spec:476` failed on the branch 
 6. **Exactly one fresh drive per pad step** — his own step twice, a second barred man's step in the
    same tick, then that man's ordinary `join`. Verify: `match_phase.spec`, *"gives exactly ONE fresh
    drive however many times a pad is stepped on"*, and *"restarts from `Assigning` too"*.
-7. **The aborted drive is paid.** `Match.enrol`'s restart block calls `world.economy.payDrive` before
-   the dispatch. Verify: `src/server/Match/init.luau`, the block's own comment, and `Economy.payDrive`
-   refusing a repeated drive number.
+7. **The aborted drive is paid, and it is MEASURED live.** `Match.enrol`'s restart block calls
+   `world.economy.payDrive` before the dispatch. `zz_pad_restart.spec` reads it across the restart
+   with `zz_drive_boundary.spec`'s own flag-conditional shape: in the PASS run
+   `economy true paid 1 -> 2`, `duplicatePayouts` 0, `lastPaidDrive` = the ABANDONED drive. Known-bad:
+   with the call disabled, `[harness] FAIL: 32/34 ... (DIRTY TREE (1 paths)) scope=all` --
+   `zz_pad_restart.spec:112`, *"Expected 2, got 1"*.
 8. **The lobby asks the drive and nothing else.** `Lobby.occupancy` → `padRefused` →
    `world.enrolRefused`, wired in `ForestTestBoot`. Verify: `tests/server/lobby_live.spec.luau`,
    *"hands the man alone in a dead drive back to a pad"* — and, inside it, the second withdrawn man

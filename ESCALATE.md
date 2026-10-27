@@ -1,11 +1,11 @@
 # ESCALATE -- task 287. **NEEDS KAREN: the two-player click, and it now blocks the REVIEW too.**
 
-**Builder, 2026-10-27 07:15 UTC.** Branch `task-287-pad-fresh-hunt`, head `f68f9a49`. The work is
+**Builder, 2026-10-27 07:22 UTC.** Branch `task-287-pad-fresh-hunt`, code commit `55a978fb`. The work is
 done and GREEN; round 2 of the review cannot be STARTED, and the reason is a gate, not a defect.
 
 ```
+[harness] PASS: 34/34 checks @ 55a978fb85b10aac69c5f31b3e52e16dda1a7b66 (clean tree) scope=all
 [harness] PASS: 34/34 checks @ f68f9a49cfc24a03db39e137a0c981953dbe87a7 (clean tree) scope=all
-[harness] PASS: 34/34 checks @ 1dde99da33ed3c2edfbe46c855d07a244d9bf56c (clean tree) scope=all
 ```
 Server 2408 / 0 / 0, client 612 / 0 / 0, both runs. `weapon_shot.spec:476` and
 `zz_drive_boundary.spec` are green: the branch regression is fixed (`reviews/task-287/REQUEST.md`
@@ -24,12 +24,12 @@ evidence (correctly). The only remaining key is the `[harness2]` line.
 
 **THE CLICKS, UNCHANGED, AND NOW NEEDED ONCE FOR THE ROUND AND TWICE FOR THE MERGE:**
 
-1. Studio on **Driven Hunt DEV**, **Edit** mode, Rojo connected, at `f68f9a49`.
+1. Studio on **Driven Hunt DEV**, **Edit** mode, Rojo connected, at `55a978fb` or the branch head.
 2. `python tools/studio_mcp.py test2`
 3. Studio -> **Test** -> **Clients and Servers** -> **Players: 2** -> **Start**; leave the windows
    alone; press **Cleanup** when the harness says so. Repeat once for the second clean run.
 4. Then `powershell -ExecutionPolicy Bypass -File tools/review.ps1 287` (the request is `Round: 2`;
-   its `Code commit:` is `f68f9a49`).
+   its `Code commit:` is `55a978fb`).
 
 I did not attempt the click: the dispatch says *"test2 stays NEEDS KAREN / the Director's -- do not
 wait on it"*. Everything else in the definition of done is met.
