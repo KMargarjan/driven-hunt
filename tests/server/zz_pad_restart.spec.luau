@@ -22,11 +22,12 @@ local ServerStorage = game:GetService("ServerStorage")
 -- THE PAY-OUT, read for one claim: the drive a restart ABORTS is paid, here, and not twice
 -- (`zz_drive_boundary.spec`'s arrangement for the `Scoring` edge).
 local Economy = require(ServerScriptService:WaitForChild("Economy"))
--- THE LOBBY, READ-ONLY, for one fact: whether it is even running in this place. In DEV it is not
--- (`ForestTestBoot` returns early and `Lobby.anchorFor("map:v1")` is nil), so the pad notice and the
--- next-party enrolment cannot be read here -- `lobby_live.spec` owns them. Said as a reading.
-local Lobby = require(ServerScriptService:WaitForChild("Lobby"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
+-- TWO DATA READS, for one fact: whether THIS PLACE can have a lobby at all. A world with no anchor
+-- row has none (`ForestTestBoot` returns early), so the pad notice and the next-party enrolment
+-- cannot be read here -- `lobby_live.spec` owns them. Said as a reading, not as a comment.
+local LobbyData = require(game:GetService("ReplicatedStorage"):WaitForChild("Lobby"))
+local Map = require(game:GetService("ReplicatedStorage"):WaitForChild("Map"))
 local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestKit"))
 
 local CLIENTS_DONE_TIMEOUT = 240
@@ -169,19 +170,22 @@ return function()
 				expect(Match.stats().restarts).to.equal(hadRestarts)
 				expect(Match.stats().rejoinsRefused).to.equal(hadRefused + 1)
 				expect(Economy.stats().drivesPaid).to.equal(paidBefore)
-				-- WHAT HE GETS INSTEAD IS THE LOBBY'S, AND THE LOBBY IS NOT RUNNING IN THIS PLACE --
-				-- read, not assumed: `Lobby.stats().scans` is 0 because `ForestTestBoot` never starts
-				-- it in DEV. So the `DHPadLate` notice and the next-party enrolment are asserted in
-				-- `lobby_live.spec` (fake occupants, real rule) and CANNOT be read here. Stated rather
-				-- than silently skipped.
-				local scans = Lobby.stats().scans
-				expect(scans).to.equal(0)
+				-- WHAT HE GETS INSTEAD IS THE LOBBY'S, AND THIS PLACE HAS NO LOBBY -- read, not
+				-- assumed: `Lobby.anchorFor` has no row for this world, which is why `ForestTestBoot`
+				-- returns early here. So the `DHPadLate` notice and the next-party enrolment are
+				-- asserted in `lobby_live.spec` (fake occupants, the real rule) and cannot be read in
+				-- this place. Stated rather than silently skipped.
+				--
+				-- NOT `Lobby.stats()`: measured at `247b493b` under `test2`, `scans` was 1 -- the
+				-- counters outlive `lobby_live.spec`'s own `start`/`stop`, so they are a fact about
+				-- the SUITE and not about this place.
+				local hasLobby = LobbyData.anchorFor(Map.EXPECTED_WORLD) ~= nil
 				TestKit.note(
 					string.format(
 						"task287 MULTI-PLAYER branch (still in the drive: %s): refused=%s enrolled=%s "
 							.. "drive %d (unchanged), phase %s, restarts %d (unchanged), rejoinsRefused %d -> %d, "
-							.. "paid %d (unchanged); the pad notice and the next party are the LOBBY's and it is "
-							.. "not started here (Lobby.stats().scans=%d) -- see lobby_live.spec",
+							.. "paid %d (unchanged); the pad notice and the next party are the LOBBY's and this "
+							.. "place has a lobby = %s (world %s) -- see lobby_live.spec",
 						table.concat(others, ", "),
 						tostring(Match.enrolRefused(player.UserId)),
 						tostring(Match.isParticipant(player.UserId)),
@@ -191,9 +195,11 @@ return function()
 						hadRefused,
 						Match.stats().rejoinsRefused,
 						Economy.stats().drivesPaid,
-						scans
+						tostring(hasLobby),
+						tostring(Map.EXPECTED_WORLD)
 					)
 				)
+				expect(hasLobby).to.equal(false)
 			end
 		end)
 	end)
