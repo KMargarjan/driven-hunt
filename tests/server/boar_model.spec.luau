@@ -1697,7 +1697,7 @@ return function()
 			expect(margin > epsilon).to.equal(true)
 			-- ...AND NEVER MORE THAN A FIFTH OF A SHORT CLIP, so it can never reach frame 0, which for
 			-- a death is the animal still standing.
-			expect(Boar.freezeWindow(0.1, CONFIG)).to.be.near(0.1 * MODEL.HOLD_MARGIN_RATIO, 1e-9)
+			expect(Boar.freezeWindow(0.2, CONFIG)).to.be.near(0.2 * MODEL.HOLD_MARGIN_RATIO, 1e-9)
 			-- ...with the epsilon as the floor for a clip shorter still.
 			expect(Boar.freezeWindow(0.01, CONFIG)).to.be.near(epsilon, 1e-9)
 			-- And the window is what decides: a death this close to its end is missed by the epsilon
