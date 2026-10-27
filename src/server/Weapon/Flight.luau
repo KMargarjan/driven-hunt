@@ -333,7 +333,11 @@ function Flight.advance(self: Flight, dt: number, cast: CastFn): { Resolution }
 				-- -pellet shot's first sub-step must set it.
 				if reached >= live.reached then
 					live.reached = reached
-					live.endPoint = if stoppedAt ~= nil then stoppedAt else nextPosition
+					-- `pellet.position + segment` AND NOT `nextPosition`: `Ballistics.segment` clamps
+					-- the SEGMENT to what was left of the range cap and hands back the unclamped
+					-- advance beside it, so `nextPosition` overshoots a capped shot (measured this
+					-- task: end 106.3 studs from the muzzle for a 100-stud cap).
+					live.endPoint = if stoppedAt ~= nil then stoppedAt else pellet.position + segment
 				end
 
 				if alive then

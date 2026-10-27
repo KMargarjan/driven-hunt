@@ -1060,8 +1060,13 @@ return function()
 			expect(miss.reachedStuds > 0).to.equal(true)
 			expect(type(miss.resolvedAtServerTime)).to.equal("number")
 			expect(miss.resolvedAtServerTime > 0).to.equal(true)
-			-- THE END POINT IS DOWNRANGE, not the muzzle: the flight measured it.
-			expect((miss.endPoint - miss.muzzle).Magnitude > 1).to.equal(true)
+			-- THE END POINT IS DOWNRANGE, not the muzzle: the flight measured it. AND IT IS ON THE
+			-- PATH: a straight line from the muzzle can never be longer than the curved path the
+			-- bullet flew, which is what caught the unclamped `nextPosition` this task (106.3
+			-- studs from the muzzle for a 100.0-stud cap).
+			local reach = (miss.endPoint - miss.muzzle).Magnitude
+			expect(reach > 1).to.equal(true)
+			expect(reach <= miss.reachedStuds + 0.01).to.equal(true)
 
 			-- 2. A HIT, on a part of this spec's own, 40 studs out.
 			local target = Instance.new("Part")
@@ -1108,7 +1113,7 @@ return function()
 				string.format(
 					"range ShotResolved: miss reached %.1f studs (end %.1f from the muzzle), hit on %s at %.1f studs",
 					miss.reachedStuds,
-					(miss.endPoint - miss.muzzle).Magnitude,
+					reach,
 					hit.hitParts[1].Name,
 					hit.reachedStuds
 				)
