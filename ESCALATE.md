@@ -94,3 +94,42 @@ its drawn position. Before and after come off the same four.
 ## NEEDS KAREN
 
 Nothing. No click is missing; this is a size problem, not a tooling one.
+
+## 2026-10-27 -- Task 283, the hard stop, and a refuted premise
+
+**Written at the 90-minute hard stop** (dispatch: *"At the hard stop, write ESCALATE.md AT THAT
+MOMENT and report"*). The fix is built, measured and committed (`78770e71`); what is NOT done is the
+proof Karen's frame asks for, and one of the dispatch's own statements is refuted.
+
+**1. THE DISPATCH'S DIRECTION OF THE ERROR IS WRONG, and it changes what task 282 round 2 concluded.**
+The dispatch (and `TASKS.md` 282b) says the rectangle mismatch means *"an honest hit on the withers
+draws on the mane at every u"* -- the dot pushed UP. The arithmetic says the opposite. The old male
+`box` is v 0.230..0.730 **of the image**, so v = 0 maps to 23.0 % down the PNG, not to its top; the
+crest is at the top (row 0). Karen's lead pellet (y 1.41, v 0.030) drew at image v **0.266**
+(measured, `hit_card 283` note on the pre-fix run) where the drawn geometry puts it at **0.107**. The
+old card drew that withers hit **14 % of the picture's height too LOW**, not too high.
+
+So the rectangle IS two rectangles and the fix is real -- but **the card was not what put her dots up
+on the mane. The pellets were up on the mane**: task 282 measured them at y 1.41 on a trunk whose top
+is 1.50, honest hits on the withers, and the OLD card drew them lower than they really were. The open
+question is therefore **why a shot she aimed at the chest struck the withers**, which is about aim or
+about the hitbox (282a), not about the drawing.
+
+**2. NOT PROVEN, and nobody has seen it:** no card frame of any kind was drawn and looked at (rule 5),
+and no three-cycle iteration table exists (CORE QUALITY protocol step 2). The proof route the dispatch
+named (`282-shotcard.luau`) stages a BOAR with the shotgun only; the Learning Agent's L-121/L-123
+note is right that there is no deer-capable staging probe, and I did not build one. What I did
+instead was measure the DRAWN geometry of all seven kinds by ray
+(`reviews/task-283/probes/283-extent.luau`, `283-flank.luau`) and assert the card's pixels against
+the uploaded PNGs' own alpha. That is a stronger instrument for item 1 than one card frame, and it is
+not a substitute for Karen's eye.
+
+**3. The harness is RED at the hard stop:** `[harness] FAIL: 32/34 @ 78770e71 (clean tree) scope=all`
+-- one named failure, `hit_card.spec` `hind#1`, which is a MEASURED finding for 282a rather than a
+bug in the fix (a hit on the hind's raised neck is ABOVE her trunk box, `Shape.dot` clamps it to the
+box's top line, and on her picture that line is air at that u), plus one unidentified client error.
+
+**For the Director:** (a) 282b's stated cause needs correcting in `TASKS.md` with the arithmetic
+above; (b) the real question behind Karen's sentence -- chest aim, withers hit -- is unanswered and
+belongs with 282a or with an aim task; (c) a deer-capable shot-staging probe is still missing and the
+next card or deer-shooting task will lose a session to it.
