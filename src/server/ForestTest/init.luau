@@ -2778,14 +2778,12 @@ function ForestTest.paceFor(roll: number, mix): string
 end
 
 -- ...and what that pace is in studs per second, in the BOAR's own numbers rather than new ones.
+-- IT LIVES IN `Boar` SINCE TASK 298 and this is a one-line delegation, so every caller and this
+-- module's spec are untouched: the lobby shooting range also has to ask "how fast is a trot", and it
+-- runs in a world that has no forest, so it must not require this owner (design
+-- docs/design/shooting-range.md section 6).
 function ForestTest.paceSpeed(pace: string, config): number
-	local boarPace = config.PACE
-	if pace == "run" then
-		return boarPace.RUN_SPEED
-	elseif pace == "walk" then
-		return boarPace.WALK_SPEED
-	end
-	return boarPace.TROT_SPEED
+	return Boar.paceSpeed(pace, config)
 end
 
 -- THE ROUTE, COMPUTED ONCE (task 127). Spawn -> a crossing point on the road -> the exit, far south.

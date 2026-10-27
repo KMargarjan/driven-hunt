@@ -717,6 +717,11 @@ BLAST_RADIUS = (
     # as well as in `weapon` and `shop`, so a scoped run over `SemiAuto.CONFIG` plays the spec that
     # asserts it.
     ("src/shared/SemiAuto/", "gun"),
+    # The lobby shooting range (task 298, step B2): its data and its owner. Its own scope, because
+    # `Range` requires no other owner and `range.spec` is the only spec that asserts it.
+    ("src/shared/Range/", "range"),
+    ("src/server/Range/", "range"),
+    ("src/server/RangeBoot.server.luau", "range"),
     ("src/shared/Weapons/", "weapon"),
     # The flight (task 185): the pure ballistics maths. It resolves to `weapon`, not `gun` -- `gun`
     # is the DRAWN gun's geometry (`gun.spec`, `gun_client.spec`) and has nothing to do with
@@ -1069,6 +1074,13 @@ SCOPE_SPECS = {
               "tests/server/lobby_next.spec.luau",
               "tests/client/zz_tie_to_a_tree.spec.luau"),
     # The lobby (task 177): the pure rule and the geometry, and the owner against fakes.
+    # The lobby shooting range (task 298, step B2): the lane, the geometry and the arithmetic.
+    # `boar_line.spec` is NOT in here -- the range borrows the drive's `leadTo` door and changes
+    # nothing in it -- but `forest_stand.spec` is, because `ForestTest.paceSpeed` became a one-line
+    # delegation to `Boar.paceSpeed` in the same task and that spec is what asserts the forest's
+    # paces.
+    "range": ("tests/server/range.spec.luau", "tests/server/forest_stand.spec.luau",
+              "tests/server/flags.spec.luau"),
     "lobby": ("tests/server/lobby.spec.luau", "tests/server/lobby_live.spec.luau",
               # Task 287: the drive's door the pads ask (`Match.enrolRefused`), driven live.
               "tests/server/zz_pad_restart.spec.luau",
