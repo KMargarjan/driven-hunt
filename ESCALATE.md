@@ -13,8 +13,14 @@ round 2 has the three measurements that found it).
 
 **WHY ROUND 2 IS REFUSED.** `tools/review.ps1 287` says:
 
-> REFUSED: this change touches src/server/Match/Phase.luau, ... which a one-player run cannot
-> evidence. Paste the TWO-PLAYER line for the code commit as well.
+> REFUSED: this change touches src/server/Match/Phase.luau, src/server/Match/init.luau,
+> tests/server/match_live.spec.luau, tests/server/match_phase.spec.luau, which a one-player run
+> cannot evidence. Paste the TWO-PLAYER line for the code commit as well:
+>   [harness2] PASS: n/m checks @ 55a978fb85b10aac69c5f31b3e52e16dda1a7b66 (clean tree)
+
+(Re-confirmed at 07:21 UTC against the `Round: 2` request at `55a978fb`. CI is green on the head,
+and `git diff --name-only 55a978fb..HEAD` is `ESCALATE.md`, `TASKS.md`,
+`reviews/task-287/REQUEST.md` -- paperwork only.)
 
 Round 1 got past it with a `scope=auto:...` line, which `tools/agents.py` accepts for a round. **That
 door is shut for this branch now:** fixing the regression put the new spec file into `SCOPE_SPECS`,
