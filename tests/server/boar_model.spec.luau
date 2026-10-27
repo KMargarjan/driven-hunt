@@ -1293,7 +1293,16 @@ return function()
 			-- there, at the FALL's frame (1.18 of a 4.0 s clip), for all of `CARCASS_SECONDS`.
 			local m = CONFIG.MODEL
 			local fall, paddleName = Boar.deathClips(CONFIG)
-			expect(Boar.hasClip(paddleName, CONFIG)).to.equal(true)
+			-- THE PADDLE IS PUBLISHED IN THE LIVE WORLD (BoarAssetsBoot wires its id), and a spec
+			-- says so with a fake id rather than leaning on the manifest (the boar_calm.spec idiom).
+			local ids = table.clone(m.ANIMATION_IDS)
+			ids[fall] = ids[fall] or 29301
+			ids[paddleName] = ids[paddleName] or 29302
+			local model = table.clone(m)
+			model.ANIMATION_IDS = ids
+			local config = table.clone(CONFIG)
+			config.MODEL = model
+			expect(Boar.hasClip(paddleName, config)).to.equal(true)
 			local fallLen = m.CLIPS[fall].seconds
 			local paddleLen = m.CLIPS[paddleName].seconds
 			local plays = { [fall] = 0, [paddleName] = 0 }
@@ -1338,7 +1347,7 @@ return function()
 			})
 			handle.tracks[paddleName] = paddleTrack
 			-- tick 1: `play` switches to the paddle, which starts its fade
-			Boar.stepVisual(handle, 1 / 60, { speed = 0 }, CONFIG)
+			Boar.stepVisual(handle, 1 / 60, { speed = 0 }, config)
 			expect(plays[paddleName]).to.equal(1)
 			expect(handle.heldClip).to.equal(nil)
 			-- ...AND THE FALL'S FRAME DOES NOT GO WITH IT (the second half of the finding).
@@ -1347,7 +1356,7 @@ return function()
 			for frame = 1, 3 do
 				paddleTrack.TimePosition = frame / 60
 				paddleTrack.WeightCurrent = math.min(0.11 * frame, 1)
-				Boar.stepVisual(handle, 1 / 60, { speed = 0 }, CONFIG)
+				Boar.stepVisual(handle, 1 / 60, { speed = 0 }, config)
 			end
 			expect(plays[paddleName]).to.equal(1) -- never re-played
 			expect(handle.reholds).to.equal(0)
@@ -1359,7 +1368,7 @@ return function()
 			paddleTrack.TimePosition = paddleLen + 0.04
 			paddleTrack.IsPlaying = false
 			paddleTrack.WeightCurrent = 0
-			Boar.stepVisual(handle, 1 / 60, { speed = 0 }, CONFIG)
+			Boar.stepVisual(handle, 1 / 60, { speed = 0 }, config)
 			expect(plays[paddleName]).to.equal(2)
 			expect(handle.reholds).to.equal(1)
 			expect(paddleTrack.TimePosition).to.be.near(paddleLen - m.HOLD_EPSILON, 1e-6)
