@@ -1181,23 +1181,109 @@ return function()
 			-- next step from the LAST frame's `dt`, so one longer frame steps clean past the end
 			-- before `shouldFreeze` is asked -- which is why Karen's defect is intermittent.
 			--
-			-- ONE RULE FOR EVERY SPECIES (the boar's three standing carcasses were patched one kind
-			-- at a time): the only inputs are "is this animal dead", "was a clip held", and what that
-			-- track is doing now.
-			-- A HELD TRACK THAT IS STILL PLAYING AT FULL WEIGHT IS LEFT ALONE.
-			expect(Boar.shouldRehold(true, "deathLeft", true, 1)).to.equal(false)
-			-- THE DEFECT: dead, a clip was held, and the track has STOPPED. Known-bad before today.
-			expect(Boar.shouldRehold(true, "deathLeft", false, 0)).to.equal(true)
+			-- ONE RULE FOR EVERY SPECIES: the only inputs are "is this animal dead", "which clip is
+			-- its death", what that track is doing, and how often it has been repaired.
+			local m = CONFIG.MODEL
+			-- A HELD TRACK STILL PLAYING AT FULL WEIGHT IS LEFT ALONE.
+			expect(Boar.shouldRehold(true, "deathLeft", true, 1, 0, CONFIG)).to.equal(false)
+			-- THE DEFECT: dead, and the death track has STOPPED.
+			expect(Boar.shouldRehold(true, "deathLeft", false, 0, 0, CONFIG)).to.equal(true)
 			-- ...AND PLAYING AT WEIGHT 0 IS THE SAME PICTURE: a rig nothing is weighted onto draws
 			-- its bind pose exactly as a stopped one does.
-			expect(Boar.shouldRehold(true, "deathLeft", true, 0)).to.equal(true)
-			expect(Boar.shouldRehold(true, "deathPaddleLeft", true, 0.49)).to.equal(true)
-			-- A LIVE ANIMAL IS NEVER TOUCHED, whatever its gait track is doing.
-			expect(Boar.shouldRehold(false, "deathLeft", false, 0)).to.equal(false)
-			expect(Boar.shouldRehold(false, nil, false, 0)).to.equal(false)
-			-- NOR IS A CARCASS THAT NEVER HELD A CLIP: the BOX did its falling (`boxFalls`), and
-			-- laying it down again is task 120's carcass buried upside down.
-			expect(Boar.shouldRehold(true, nil, false, 0)).to.equal(false)
+			expect(Boar.shouldRehold(true, "deathLeft", true, 0, 0, CONFIG)).to.equal(true)
+			expect(Boar.shouldRehold(true, "deathPaddleLeft", true, 0.49, 0, CONFIG)).to.equal(true)
+			-- A LIVE ANIMAL IS NEVER TOUCHED, and nor is a carcass the BOX laid down (`boxFalls`):
+			-- laying that one down again is task 120's carcass buried upside down.
+			expect(Boar.shouldRehold(false, "deathLeft", false, 0, 0, CONFIG)).to.equal(false)
+			expect(Boar.shouldRehold(true, nil, false, 0, 0, CONFIG)).to.equal(false)
+			-- BOUNDED: never a per-frame writer, whatever state it reads.
+			expect(Boar.shouldRehold(true, "deathLeft", false, 0, m.REHOLD_LIMIT, CONFIG)).to.equal(false)
+			-- THE FRAME IT GOES BACK ON IS CLAMPED SHORT OF THE END, because parking a non-looped
+			-- track AT its end is the state that stopped it.
+			expect(Boar.holdFrame(nil, 1.167, CONFIG)).to.be.near(1.167 - m.HOLD_EPSILON, 1e-6)
+			expect(Boar.holdFrame(1.166, 1.167, CONFIG)).to.be.near(1.167 - m.HOLD_EPSILON, 1e-6)
+			expect(Boar.holdFrame(0.9, 1.167, CONFIG)).to.be.near(0.9, 1e-6)
+			expect(Boar.holdFrame(nil, 0, CONFIG)).to.equal(0)
+		end)
+
+		it("drives stepVisual on a carcass whose death track stopped, and puts it back", function()
+			-- THE CASE THAT FAILS WHEN THE `stepVisual` BLOCK IS DELETED (review round 1, finding 3):
+			-- the pure rules above all pass without it. This drives the real `Body.stepVisual` on a
+			-- collapsed handle whose death track reports `IsPlaying == false` -- the measured defect
+			-- state -- and asserts the track was PUT BACK on the held frame.
+			local fall = Boar.deathClips(CONFIG)
+			local writes = { plays = 0, speeds = {}, positions = {} }
+			local track = {
+				Name = fall,
+				Length = CONFIG.MODEL.CLIPS[fall].seconds,
+				TimePosition = CONFIG.MODEL.CLIPS[fall].seconds, -- ran clean past its end and stopped
+				Speed = 1,
+				WeightCurrent = 0,
+				IsPlaying = false,
+				Looped = false,
+			}
+			function track:Play(_fadeTime, weight, speed)
+				writes.plays += 1
+				self.IsPlaying = true
+				self.WeightCurrent = weight or 1
+				self.Speed = speed or 1
+				self.TimePosition = 0 -- what `Play` really does: back to frame zero
+			end
+			function track:AdjustSpeed(speed)
+				self.Speed = speed
+				table.insert(writes.speeds, speed)
+			end
+			function track:Stop() end
+			local handle = {
+				collapsed = true,
+				toppled = false,
+				reasserted = true, -- task 150's once-per-carcass reassert is not what is under test
+				deadFor = 0,
+				clip = fall,
+				heldClip = nil,
+				heldAt = nil,
+				reholds = 0,
+				tracks = { [fall] = track },
+				hitFor = 0,
+				hitFromBehind = false,
+				clipHeldFor = 0,
+				exitFor = 0,
+				exitClip = nil,
+				activity = nil,
+				activityDraw = nil,
+				activityFor = 0,
+				paddleFor = 0,
+				warmFor = 0,
+				yawRate = 0,
+				rateWrites = 0,
+				visual = nil, -- no Instances: this case is about the hold, not about dressing a boar
+			}
+			local info = { speed = 0, collapsed = true, deadFor = 0 }
+			Boar.stepVisual(handle, 1 / 60, info, CONFIG)
+			-- PUT BACK: played once, pinned to the held frame, and frozen there.
+			expect(writes.plays).to.equal(1)
+			expect(handle.reholds).to.equal(1)
+			expect(track.IsPlaying).to.equal(true)
+			expect(track.Speed).to.equal(0)
+			expect(track.TimePosition).to.be.near(track.Length - CONFIG.MODEL.HOLD_EPSILON, 1e-6)
+			expect(handle.heldClip).to.equal(fall)
+			-- ...AND ONCE PER STOP: the next tick sees a track playing at weight 1 and leaves it.
+			Boar.stepVisual(handle, 1 / 60, info, CONFIG)
+			Boar.stepVisual(handle, 1 / 60, info, CONFIG)
+			expect(writes.plays).to.equal(1)
+			expect(handle.reholds).to.equal(1)
+			-- A LIVE ANIMAL IS NOT TOUCHED by this path, on the same instrument.
+			local live = table.clone(handle)
+			live.collapsed = false
+			live.heldClip = nil
+			live.clip = fall
+			live.reholds = 0
+			track.IsPlaying = false
+			track.WeightCurrent = 0
+			local before = writes.plays
+			Boar.stepVisual(live, 1 / 60, { speed = 0, collapsed = false, deadFor = 0 }, CONFIG)
+			expect(writes.plays).to.equal(before)
+			expect(live.reholds).to.equal(0)
 		end)
 
 		it("decides to anchor on stillness, and on the backstop only when it is not falling", function()

@@ -1428,15 +1428,36 @@ function Body.stepVisual(handle, dt: number, info, config)
 	-- design forbids (boar-ai design section 6): a stopped track can only be put back once per stop.
 	-- The frame is `handle.heldAt`, the one `shouldFreeze` chose, so the pose this restores is the
 	-- pose `KINDS.deathLiftStuds` was measured against.
-	local heldName = handle.heldClip
-	local heldTrack = if heldName ~= nil then handle.tracks[heldName] else nil
+	-- THE ANIMAL'S OWN DEATH CLIP, asked of the config and not of `heldClip` (review round 1,
+	-- finding 1). `handle.clip` is what `play` last started; either name is the death.
+	local deathName: string? = nil
+	if handle.collapsed and not handle.toppled then
+		local fall, paddle = Body.deathClips(config)
+		local current = handle.heldClip or handle.clip
+		if current == fall or current == paddle then
+			deathName = current
+		end
+	end
+	local deathTrack = if deathName ~= nil then handle.tracks[deathName] else nil
 	if
-		heldTrack ~= nil and Body.shouldRehold(handle.collapsed, heldName, heldTrack.IsPlaying, heldTrack.WeightCurrent)
+		deathTrack ~= nil
+		and Body.shouldRehold(
+			handle.collapsed,
+			deathName,
+			deathTrack.IsPlaying,
+			deathTrack.WeightCurrent,
+			handle.reholds,
+			config
+		)
 	then
-		local at = handle.heldAt or heldTrack.TimePosition
-		heldTrack:Play(0, 1, 0)
-		heldTrack.TimePosition = at
-		heldTrack:AdjustSpeed(0)
+		local at = Body.holdFrame(handle.heldAt, deathTrack.Length, config)
+		deathTrack:Play(0, 1, 0)
+		deathTrack.TimePosition = at
+		deathTrack:AdjustSpeed(0)
+		-- THE FREEZE'S OWN BOOKKEEPING, so `play` leaves this track alone from here and the repair is
+		-- one per stop: the track is playing at weight 1 again, which `shouldRehold` then refuses.
+		handle.heldAt = at
+		handle.heldClip = deathName
 		handle.reholds += 1
 	end
 
@@ -2531,12 +2552,41 @@ end
 -- saw a carcass lie still on another kill.
 --
 -- `weight` IS ASKED AS WELL AS `playing` because a track can be playing at weight 0 after a fade,
--- and a rig nothing is weighted onto draws its bind pose exactly as a stopped one does.
-function Body.shouldRehold(collapsed: boolean, heldClip: string?, playing: boolean, weight: number): boolean
-	if not collapsed or heldClip == nil then
+-- and a rig nothing is weighted onto draws its bind pose exactly as a stopped one does. `0.5` is a
+-- chosen midpoint, not a measurement: the two live states are 1.00 (held) and 0.00 (stopped).
+--
+-- IT IS NOT KEYED OFF `heldClip` (review round 1, finding 1), and that was this fix failing whole:
+-- `heldClip` is written only by the freeze, and the freeze needs `track.IsPlaying` -- which is
+-- exactly what the overrun has already made false. The caller names the animal's DEATH CLIP from the
+-- config instead, so the carcass Karen photographed is the one this sees.
+--
+-- BOUNDED (review round 1, finding 2): `MODEL.REHOLD_LIMIT` repairs per carcass, so even a state
+-- this rule reads wrong can never write every tick for `CARCASS_SECONDS`.
+function Body.shouldRehold(
+	collapsed: boolean,
+	deathClip: string?,
+	playing: boolean,
+	weight: number,
+	reholds: number,
+	config
+): boolean
+	if not collapsed or deathClip == nil then
+		return false
+	end
+	if reholds >= config.MODEL.REHOLD_LIMIT then
 		return false
 	end
 	return not playing or weight < 0.5
+end
+
+-- WHICH FRAME THE DEATH IS PUT BACK ON. Pure, and CLAMPED SHORT OF THE END (review round 1, finding
+-- 2): parking a non-looped track AT its end is the state that stopped it, so an unclamped frame
+-- could stop it again, every tick. `length - HOLD_EPSILON` is the frame `Body.shouldFreeze` aims at
+-- and the frame `KINDS.deathLiftStuds` was measured at, so it is also the fallback when nothing was
+-- ever held -- the overrun case, where the freeze never ran and `handle.heldAt` is nil.
+function Body.holdFrame(heldAt: number?, length: number, config): number
+	local target = length - config.MODEL.HOLD_EPSILON
+	return math.max(math.min(heldAt or target, target), 0)
 end
 
 -- WHETHER TO SAY THE DEATH POSE AGAIN (task 150). Pure, like every rule here, and once per carcass.
