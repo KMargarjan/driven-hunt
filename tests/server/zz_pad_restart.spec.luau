@@ -17,6 +17,9 @@ local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
 
+-- THE PAY-OUT, read for one claim: the drive the restart ABORTS is paid, here, and not twice
+-- (`zz_drive_boundary.spec`'s own arrangement for the `Scoring` edge).
+local Economy = require(ServerScriptService:WaitForChild("Economy"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestKit"))
 
@@ -77,6 +80,7 @@ return function()
 			local wasTeam = Match.assignmentOf(player.UserId)
 			local wasHeld = toolIn(player.Character)
 			local hadRestarts = Match.stats().restarts
+			local paidBefore = Economy.stats().drivesPaid
 			-- HE RESPAWNS OUT OF A LIVE DRIVE (task 248's rule), which empties this roster: he is
 			-- the only player in the DEV place.
 			expect(Match.isParticipant(player.UserId)).to.equal(true)
@@ -96,6 +100,21 @@ return function()
 			expect(Match.enrol(player)).to.equal(true)
 			expect(Match.stats().restarts).to.equal(hadRestarts + 1)
 			expect(Match.driveNumber()).to.equal(wasDrive + 1)
+			-- **AND THE DRIVE HE LEFT WAS PAID BEFORE IT WAS REPLACED** (review round 1, finding 2).
+			-- A restart does not cross the `Scoring` edge, which is the only other place that pays, so
+			-- without the pay-out on this path the coins, the points and the completed-hunt count of
+			-- drive N are wiped unpaid by `enterAssigning`'s own `Score.new()`.
+			--
+			-- CONDITIONAL ON THE FLAG AND THE CONDITION IS READ, which is `zz_drive_boundary.spec`'s
+			-- arrangement at the other edge: `COINS` is born OFF, and then the honest claim is that
+			-- nothing was paid at all.
+			if Economy.isEnabled() then
+				expect(Economy.stats().drivesPaid).to.equal(paidBefore + 1)
+				expect(Economy.stats().duplicatePayouts).to.equal(0)
+				expect(Economy.lastPaidDrive()).to.equal(wasDrive)
+			else
+				expect(Economy.stats().drivesPaid).to.equal(paidBefore)
+			end
 			-- AND THE SIDE HE WAS ON COMES BACK THROUGH THE STORED TURN, which is the mechanism
 			-- task 261 chose for *"I need to be same role"* -- read, not assumed: in a world with no
 			-- economy there is nothing owed and the fresh roster decides, so this is a NOTE and the
@@ -105,7 +124,8 @@ return function()
 			end)
 			TestKit.note(
 				string.format(
-					"task287 live restart: drive %d -> %d, team %s -> %s, held %s -> %s, restarts %d -> %d",
+					"task287 live restart: drive %d -> %d, team %s -> %s, held %s -> %s, restarts %d -> %d, "
+						.. "economy %s paid %d -> %d",
 					wasDrive,
 					Match.driveNumber(),
 					tostring(wasTeam),
@@ -113,7 +133,10 @@ return function()
 					wasHeld,
 					toolIn(player.Character),
 					hadRestarts,
-					Match.stats().restarts
+					Match.stats().restarts,
+					tostring(Economy.isEnabled()),
+					paidBefore,
+					Economy.stats().drivesPaid
 				)
 			)
 			expect(gunBack).to.equal(true)
