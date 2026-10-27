@@ -1,116 +1,111 @@
-# Task 298, step B2: the range lane
+# Task 298 step B3 — the one gate, the guns on loan, endless ammo, `Weapon.ShotResolved`
 
 Task: 298
-Round: 2
-Base: 0018eedce00799a3ec480813d9521097116d1a2b (`task-298-shooting-range`, phase A's design commit)
-Code commit: 6ece3b7d87ba8fbcfbe0fb6c1aed06f3f1a99434
+Round: 1
+Base: 98a8f587 (task-298b2-range-lane, step B2's PASS)
+Code commit: 65dcf6123d22c2214ed75b52eae86a743477cb1b
 
-Branch `task-298b2-range-lane`, stacked on `task-298-shooting-range`. The design's step B2 only
-(`docs/design/shooting-range.md` section 15, item 6): `src/shared/Range/` + `src/server/Range/`
-(`Build` and the owner) + `tests/server/range.spec.luau`, built in DEV only, no menu and no gun.
-B1, B3, B4, B5 and B6 are not in this branch.
+```
+[harness] PASS: 34/34 checks @ 65dcf6123d22c2214ed75b52eae86a743477cb1b (clean tree) scope=all
+```
 
-**Harness, clean tree, at the code commit:**
-`[harness] PASS: 34/34 checks @ 6ece3b7d87ba8fbcfbe0fb6c1aed06f3f1a99434 (clean tree) scope=all`
+`[harness2]`: **N/A.** `python -c "import agents; agents.needs_two_player([...the five changed files...])"`
+returned `[]` — no changed path is in `TWO_PLAYER_PATHS`. `Match/init.luau` and `MatchBoot` are
+**not** touched: `Match.driveOpen` ignores the new argument, which is the design's own reason.
 
-`test2` is N/A: no file in `TWO_PLAYER_PATHS` changed — the one composition root touched is the NEW
-`src/server/RangeBoot.server.luau` (claim 8).
+## PLAN (core-quality protocol step 0)
 
-## Claims
+This step moves no feel number; it builds a gate. The protocol's five lines, answered for the one
+thing that IS measurable — whether a man in the lobby can shoot and what it costs him:
 
-1. **The lane runs and FLIPS.** `Range.step` advances the leg when the target is inside
-   `WAYPOINT_STUDS` of the current end and re-issues `leadTo` for the other one. *Verify:*
-   `range.spec` "crosses the lane and FLIPS direction at the end, both ways" — it asserts
-   `stats().flips >= 2` AND orders in both directions. Note: `6 crossings and 6 flips in 40 s at a
-   trot (east 179, west 162 orders)`.
-2. **The crossing seconds are within ±10 % of `window / Boar.paceSpeed`** (design TARGET 3), measured
-   off the target's own position samples at `STEP_HZ` 10. *Verify:* the "measures the crossing
-   seconds" case; note: `walk 8.87 s (predicted 8.89, 0.3 %) · trot 3.62 s (3.64, 0.5 %) · run
-   1.63 s (1.67, 2.0 %)`. The tolerance is `Range.CONFIG.CROSSING_TOLERANCE` = 0.10.
-3. **STAND (Karen, 2026-10-27) is the Brain's own arrive-and-stop**, through the same `leadTo` seam
-   with the lane's MIDDLE as the point — no second CFrame writer, no invented speed. N = 2 studs,
-   M = 3 s. *Verify:* the STAND case: 180/180 samples (3 s at 60 Hz) within 2 studs,
-   `directions.middle > 0`, `directions.east == nil`, `crossings == 0`.
-4. **A killed target is held `CARCASS_SECONDS` (3), cleared, and a fresh one released
-   `RELEASE_SECONDS` (2) later.** *Verify:* the carcass case asserts `clears == 0` under the hold,
-   then `lastClear == "range carcass"` and `spawns` 1 → 2 only after the release delay.
-5. **The drive is untouched: one writer each.** The range never writes an animal's position (no
-   `.CFrame =` in `src/server/Range/` outside `Build`'s own parts), has its own runtime, its own
-   folder (`RangeTargets`) and its own field, and `Weapon.ShotFired` is NOT wired to it. *Verify:*
-   the "writes no Workspace.Boars, no drive runtime and no Workspace.Range" case — a REAL second
-   runtime's folder stays empty, `Workspace.Range` is never created (the range builds into the
-   folder it is handed), and `grep -n "CFrame" src/server/Range/`.
-6. **THE SCREENS STOOD ON THE LANE ENDS AND NOTHING EVER CROSSED — found live, not by the fake.**
-   Built in DEV with `RANGE` on, the target stopped against `ScreenEast`'s west face at x = +32.2
-   for 30 s. `Range.screenPosition` now puts them beyond the end by half their width + 6 studs.
-   *Verify:* commit `c74d6f92`; the "builds nothing inside the lane the target walks" case asserts
-   no built part is inside the corridor (lane widened by `Boar.bodyAvoidRadius`) AND that both
-   screens are still built outside it, so it cannot pass by building no screen.
-7. **`Boar.paceSpeed` moved beside `Boar.gaitBands`; `ForestTest.paceSpeed` is a one-line
-   delegation** and its spec is untouched (design section 6). `"stand"` returns 0. *Verify:*
-   `git diff 0018eedc..HEAD -- src/server/ForestTest/init.luau` is that one function;
-   `forest_stand.spec` unchanged and green.
-8. **DEVIATION FROM DESIGN SECTION 3, stated not slipped in:** the DEV root is a new
-   `src/server/RangeBoot.server.luau`, not a block in `MatchBoot`. Two measured reasons in its
-   header: `MatchBoot` has NO `RunService.Heartbeat` (the design's "the Heartbeat the root already
-   runs" does not exist in this world), and it is in `TWO_PLAYER_PATHS`, which costs a human click
-   per round for a range one player evidences completely. `ArenaBoot` is the precedent. B6 wires
-   Karen's place from `ForestTestBoot`, which has a Heartbeat already.
-9. **`Flags.MAX_FLAGS` 18 → 19.** `RANGE` is the nineteenth and the cap refused it (`flags.spec`'s
-   rot tripwire did its job). Stated in `src/shared/Flags/init.luau` beside the four bumps before
-   it, with the Director's alternative named (spend TASKS.md 82b instead). Born OFF, expires
-   2026-11-17.
-10. **Karen's deer question is MEASURED, not assumed.** The range's own runtime spawns a `hind` with
-    the red deer's own zones (6, including `neck`; the boar's 5 do not), through `Runtime:spawn`'s
-    `kind` parameter and no new code path, and `leadTo` accepts it. *Verify:* the last case; note:
-    `a hind spawns in the range runtime with 6 zones (boar 5), and leadTo accepts it`.
+- **(a) REAL LIFE / the brief.** Karen, 2026-10-27: *"range is free and amunition is endless"*, all
+  four guns at a spot, owned or not.
+- **(b) MEASURED NOW** (source at 98a8f587, read off the shipped wiring, not played): a player in
+  the lobby carries **no gun** (`Weapon.setArmingPolicy(Match.mayCarryWeapon)`) and his trigger is
+  **dead** between drives (`Weapon.setDriveOpenProvider(Match.driveOpen)` →`Rules.driveClosed`).
+- **(c) TARGET.** On a mat: armed, trigger live, 4/4 guns, **0 shells spent in 30 pulls**. Off it:
+  unchanged, within the 2 s arming sweep.
+- **(d) LEVER.** `Weapon.setArmingPolicy` / `setDriveOpenProvider` / `setEntitlementProvider`
+  (`src/server/Weapon/init.luau`), composed at `src/server/RangeBoot.server.luau`. The shells:
+  `Shop.startFor` → `unlimited` → `StateMachine`'s `boundless` branch in `Load`, which is the one
+  place a pocket goes down.
+- **(e) HOW MEASURED AFTER.** The same reducer, 30 pulls, with and without the loan — claim 5.
 
-## Round 1's two findings, fixed (commit `c0c58932`)
+## Claims (each with how to verify it)
 
-**F1 — nothing was frozen while three places said it was.** `Range.deepFreeze` (deep, because
-`table.freeze` is shallow: `Report`'s precedent, `Lobby`'s stated reason) over `Range.LAYOUT`,
-`Range.ANCHORS`, `Range.WORD` and the server's `Range.CONFIG`. *Verify:* the new case "is frozen, so
-there is no run-time writer" — `table.isfrozen` on all four and on a nested table, a write inside
-`pcall` that must FAIL, and `anchorFor` still handing out a mutable copy.
-
-**F2 — the carcass case's `flips >= 1` could not fail.** The counters were cumulative across
-`start` calls. `Range.start` now zeroes every numeric counter; both `>= 1` lines are a snapshot
-compared for a RISE (the flying case's correct shape, which the Reviewer named); and a new case
-starts, runs, stops and starts again, asserting `flips == scans == spawns == crossings == 0` on the
-second start. *Verify:* the two cases and `git diff c74d6f92..c0c58932`.
-
-## Rule 5: the screenshot, which round 1's request failed to describe
-
-`.screenshots/298b2-lane-eye.png` (git-ignored), DEV, **flag `RANGE` on, Play, camera at the mat
-(1200, 4, 0) looking down the lane**, the view the shooter has. **I looked at it:** the grey ground
-plate runs out to the lane; the dark berm wall spans the back; both screens stand clear of the lane
-ends; and the boar is a dark silhouette on the plate, LEFT of centre, mid-crossing — the server
-probe 2 s earlier read `target Boar1 at 1177.0,1.5,120.7 dx=-23.0`. The DEV drive's HUD is over it
-(DEV runs the match too). Round 1's note is answered: the frame exists and is described here.
-
-**The live DEV measurement behind claim 6, after the fix:** five probes over ~30 s read dx
-−25.0 → +17.0 → +17.9 → −23.9 → −12.0, so the target crosses AND reverses in the real world, not
-only against the rail. `DEV ONLY` — Karen's place has no range until B6.
-
-## FAIL FIRST
-
-`[harness] FAIL: 32/34 checks @ 0018eedce00799a3ec480813d9521097116d1a2b (DIRTY TREE (4 paths) -
-NOT valid evidence) scope=all`, server `2417 passed, 15 failed, 15 errors` — the tree was the base
-commit's `src/` plus this spec and two EMPTY modules in place of `src/shared/Range` and
-`src/server/Range` (a `return {}` each, so the requires resolve instead of yielding for ever).
-**All 15 of the spec's 15 cases failed**; every other spec passed. The Reviewer is right that a
-uniform red proves only that the modules did not exist, so per-case bite is argued by reading, on
-the same line: the flip, STAND, carcass, flying and corridor cases each red when their producer is
-removed (the corridor case reds with `screenPosition` replaced by `laneEnds` — the defect it was
-written for, and the geometry actually shipped in `c7c659a4`), and the three cases added since
-(freeze, per-run counters, the re-release rise) red against `c74d6f92`'s own code.
+1. **`Range.mayShoot` is the one predicate, server-measured.** `src/server/Range/init.luau`. False
+   when the range is not started, for `nil`, for a man with no character, and one mat-width off the
+   mat; true on it. *Verify:* `range.spec` → *"Range.mayShoot"*, two cases.
+2. **The two relaxations and the loan are built in `Range` and installed at the root.**
+   `Range.armingOver` / `driveOpenOver` / `entitlementOver` are pure functions of a base provider;
+   `RangeBoot` installs them **on the first Heartbeat** (boot Scripts run in no defined order, so
+   composing at require time would capture a base `MatchBoot` had not installed yet) and keeps the
+   base each setter hands back. *Verify:* `range.spec` → *"the two relaxations, composed"*; the spec
+   drives the real functions, so deleting a branch fails here.
+3. **`setDriveOpenProvider` is `((Player?) -> boolean?)` and every shipped caller is unchanged.**
+   `askDriveOpen(player)` passes the player it already had. *Verify:* `grep -rn setDriveOpenProvider
+   src/` — `MatchBoot.server.luau`, `ForestTestBoot.server.luau` both still pass `Match.driveOpen`
+   unedited; every `weapon_*.spec` is unchanged and green in the run above.
+4. **All four guns on loan at a spot, through the shipped composition, and NOTHING off it.** Off the
+   mat the base's answer is handed back identically (`nil` stays `nil`); on it, every row that grants
+   a gun or a cartridge plus `ammo.unlimited`. *Verify:* claim-4 case asserts
+   `Shop.loadoutFrom(Weapons.ids(), …)` has all four and that a licence the player did NOT buy is
+   absent.
+5. **Endless ammo is the shipped `ammo.unlimited` entitlement, MEASURED, with a control.**
+   `[server] range endless ammo: 30 pulls on the loan fired 30, pocket 24 -> 24; without it 14
+   fired, pocket 12`. Same reducer, same 30 pulls, the only difference being the loan. *Verify:* the
+   note in the run above; `src/server/Weapon/StateMachine.luau` `Load` → `boundless`.
+6. **The loan never follows him into a drive, and it ends on a tick, not an edge.** `mayShoot` is
+   false the moment he steps off the mat, and `Weapon.refreshArming`'s existing 2 s sweep
+   (`ARMING_SWEEP_SECONDS`) re-asks and revokes. Nothing listens for a step-off event. *Verify:*
+   case *"is TRUE on the mat and FALSE one stride off it"*, plus the unchanged sweep.
+7. **`Weapon.ShotResolved` fires exactly once per resolved shot, hit AND miss.** Published in
+   `onShotLanded` with `endPoint`, `reachedStuds`, `resolvedAtServerTime` and `hitParts`. *Verify:*
+   `range.spec` → *"Weapon.ShotResolved"*: a real shot through `Weapon.onFireRequest` and the real
+   flight, counted — `#seen == 1` after the miss and `== 2` after the hit.
+8. **The resolved end point is on the bullet's path.** The first run of claim 7 measured
+   `end 106.3 studs from the muzzle for a 100.0-stud cap`: `Ballistics.segment` clamps the SEGMENT
+   to the range cap and hands back the unclamped advance beside it. Fixed in
+   `src/server/Weapon/Flight.luau` (`pellet.position + segment`), and the spec now asserts
+   `reach <= reachedStuds`. *Verify:* the note now reads `end 100.0`; revert that line and the case
+   fails.
+9. **A range hit is the hunt's hit, and it costs nothing.** `RangeBoot` wires `Weapon.HitReported`
+   to the range runtime's `Runtime:takeHit` — the same signal and the same method the drive uses.
+   `takeHit` matches the part against its own animals, so the two listeners never answer for each
+   other. The range calls no `Economy`, no `Match.Penalty`, no `Match.Score` and never
+   `HitLog.openDrive`. *Verify:* `grep -rn "Economy\|Penalty\|Score\|openDrive" src/server/Range/
+   src/server/RangeBoot.server.luau` → nothing. **NOT PROVEN:** a real shot at a live range target
+   killing it was not driven in this round (see below).
+10. **FAIL FIRST.** With these specs committed and the code still at the base, the same full run read
+    `[harness] FAIL: 32/34 checks @ a89f5843cb29c57e770e5ce15ad2ee14b3064cbb (clean tree) scope=all`
+    — `2435 passed, 6 failed, 6 errors`, six failures for the six new cases.
 
 ## What I could not verify
 
-- **Nothing in Karen's place.** `Range.anchorFor("forest-test")` is nil by design until B6 measures
-  the anchor, so every live measurement here is **DEV ONLY** and is labelled so.
-- **TARGET 4 (the target within 2 studs of the lane in z) is NOT met live:** measured in DEV the
-  real body wanders to **z 120.0 .. 129.0**, i.e. ±4.0 studs, because a real animal steers and
-  avoids where the spec's rail does not. The spec asserts ±2 against the rail only. Not fixed here
-  (it is the Brain's steering, not the range's route); reported for B6/the Director.
-- `test2` was not run (claim 8's paths).
+- **Claim 9's live half.** No case fires a real shot at a real range target and watches it die; the
+  case that would need a player standing on the DEV mat with a target crossing the lane. The wiring
+  is one line and is asserted only by reading. **NOT PROVEN — nobody has seen a range target die.**
+- **The first-Heartbeat composition order** is argued from how Roblox loads server Scripts, not
+  measured. A probe reading `[RangeBoot] … are composed` from a live DEV console would settle it.
+- Run 3 of the harness (b1b795b5, a server-spec fixture away from the code commit) reported **2
+  client failures**; run 4 at 65dcf612 is 623/623 green and I changed no client code between them.
+  I am not calling that a flake: it is unexplained, and it is listed here rather than left out.
+
+## ANSWERED (the dispatch's CHECKED flags)
+
+- **ANSWERED: L-093** — one case per arm, each with its own fixture and each shown red first in the
+  FAIL FIRST run: on-mat armed / off-mat refused / trigger live between drives / the loan / the
+  endless shells / ShotResolved on a HIT and on a MISS in one counted case.
+- **ANSWERED: L-136** — no failure was excused. The three server failures of run 2 and the one of
+  run 3 were all mine (fixtures) and are fixed, not explained away; the two client failures of run 3
+  are reported above as unexplained rather than called the flake. `weapon_shot.spec:1490` did not
+  fire in any run.
+- **ANSWERED: L-140/L-143** — FREE is measured where it can be and declared where it cannot: the
+  30-shot case quotes both pocket numbers whole (24 → 24, control 24 → 12). The Economy-balance and
+  HitLog-row reading needs the live shot of claim 9, which is NOT PROVEN.
+- **ANSWERED: L-041** — `agents.needs_two_player()` was run against the real changed-file list and
+  returned `[]`; `Match/init.luau` is not edited.
+- **ANSWERED: L-030** — every call site of `setDriveOpenProvider` was grepped: `MatchBoot:218`,
+  `ForestTestBoot:355` and the new `RangeBoot`. All three compile and the suite is green.
+- **ANSWERED: L-029** — the loan ends on `refreshArming`'s existing 2 s level-triggered sweep. No
+  leave/step-off event is listened to anywhere in this change.
