@@ -871,7 +871,22 @@ return function()
 				return { ["licence.reddeer"] = true }
 			end)(onMat)
 			expect((withLicence :: any)["licence.reddeer"]).to.equal(true)
-			expect((owned :: any)["licence.reddeer"]).to.equal(nil)
+			-- THE WHOLE SET, ROW BY ROW, and not one id (round 1, finding 1): every lent row grants
+			-- a gun, a cartridge or the endless shells and NOTHING else -- a BUNDLE's merged grants
+			-- carry a weapon AND a drive gun AND the high seat, and the one-id check passed anyway.
+			for id in pairs(Range.LOAN) do
+				local grants = (Shop.anyRow(id) :: any).grants
+				expect(grants.weapon ~= nil or grants.ammo ~= nil or grants.unlimitedAmmo == true).to.equal(true)
+				for _, field in ipairs(Shop.GRANT_FIELDS) do
+					if field ~= "weapon" and field ~= "ammo" and field ~= "unlimitedAmmo" then
+						expect(grants[field]).to.equal(nil)
+					end
+				end
+			end
+			-- ...AND THE THREE THINGS A LOAN IS NOT, asked of the shipped readers themselves.
+			expect(Shop.grantsDriveGun(owned)).to.equal(false)
+			expect(Shop.grantsAlwaysHunter(owned)).to.equal(false)
+			expect(Shop.grantsHighSeat(owned)).to.equal(false)
 
 			-- THE ENDLESS SHELLS ARE THE SHIPPED `ammo.unlimited` ENTITLEMENT AND NOT A SECOND
 			-- COUNTER: `Shop.startFor` is the one function `Weapon.grant` asks, and it fills the

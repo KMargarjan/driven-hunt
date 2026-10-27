@@ -222,13 +222,27 @@ end
 -- WHAT IS ON LOAN AT A SPOT. KAREN, 2026-10-27: *"range is free and amunition is endless"*, all four
 -- guns owned or not -- so every row that grants a GUN or a CARTRIDGE, plus the shipped unlimited-ammo
 -- entitlement. No licence, no outfit, no drive gun: a loan is not a purchase.
+--
+-- A ROW IS LENT ONLY IF IT GRANTS *NOTHING BUT* A GUN AND/OR A CARTRIDGE, walked over
+-- `Shop.GRANT_FIELDS` (review round 1, finding 1). A BUNDLE's grants are MERGED at module load, so
+-- `bundle.season.grants.weapon` is set AND so are `driveGun`, `alwaysHunter` and `highSeat`: the
+-- weaker rule lent a 3750-coin package at a free range.
 local function loanSet(): { [string]: boolean }
 	local out: { [string]: boolean } = {}
 	for _, id in ipairs(Shop.ALL_ORDER) do
 		local row = Shop.anyRow(id)
 		local grants = if row ~= nil then row.grants else nil
 		if grants ~= nil and (grants.weapon ~= nil or grants.ammo ~= nil) then
-			out[id] = true
+			local onlyAGun = true
+			for _, field in ipairs(Shop.GRANT_FIELDS) do
+				if field ~= "weapon" and field ~= "ammo" and grants[field] ~= nil then
+					onlyAGun = false
+					break
+				end
+			end
+			if onlyAGun then
+				out[id] = true
+			end
 		end
 	end
 	if Range.CONFIG.ENDLESS_AMMO then

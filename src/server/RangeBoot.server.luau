@@ -129,6 +129,8 @@ Weapon.HitReported:Connect(function(report)
 		return
 	end
 	local shooter = report.shooter
+	local character = shooter and shooter.Character
+	local root = character and character.PrimaryPart
 	runtime:takeHit(report.target, {
 		zone = report.zone,
 		zones = report.zones,
@@ -139,6 +141,9 @@ Weapon.HitReported:Connect(function(report)
 		distance = report.nearest,
 		shooterUserId = shooter and shooter.UserId,
 		shooterName = shooter and shooter.Name,
+		-- WITHOUT IT A WOUNDED TARGET BOLTS OFF THE IMPACT NORMAL instead of away from the man who
+		-- shot it, which is not what it does in the wood (round 1, note). `MatchBoot` passes it.
+		shooterPosition = root and root.Position,
 		normal = report.normal,
 	})
 end)
