@@ -123,6 +123,7 @@ export type State = {
 
 export type Event = {
 	kind: string, -- "tick" | "join" | "leave" | "dismiss" | "withdraw" | "kill" | "gone" | "violation"
+	-- ...plus "restart" (task 287: one man, a drive nobody else is in, started again from the top).
 	-- ...plus "fine" (task 250: a money penalty, which draws one feed line), "markers" and "team".
 	userId: number?,
 	name: string?,
@@ -320,6 +321,32 @@ function Phase.participantCount(state: State): number
 		n += 1
 	end
 	return n
+end
+
+-- MAY A PAD STEP START THIS DRIVE AGAIN FROM THE TOP? (task 287.) PURE, and it is the SOLO
+-- question: is there anybody in this live drive at all?
+--
+-- KAREN, 2026-10-24: *"when I respawn and then go to lobby then go back on pad to hunt I been
+-- transferred to same hunt ... with less than min remaining ... I need to be same role and from
+-- beginning"*. Task 261 stopped the rejoin (`barredFromRejoin` above) and gave him the next drive's
+-- party instead -- which is right while OTHER men are still hunting, and is a man standing alone in
+-- a lobby watching a clock run down on a drive nobody is in when he is the only player.
+--
+-- SO IT IS A QUESTION ABOUT THE ROSTER AND NOTHING ELSE: `participants` is what a drive IS, and a
+-- withdrawn man is not in it (the `withdraw` branch below takes him out). An EMPTY roster inside a
+-- live drive is a hunt nobody is in, and it is the only state a pad step may restart.
+--
+-- **AND IT IS WHAT MAKES "EXACTLY ONE FRESH DRIVE" A PROPERTY RATHER THAN A HOPE** (Learning Agent
+-- L-029), because the restart itself falsifies it: the man is a participant the moment the branch
+-- below runs, so a second pad step in the same tick -- his own, or another barred man's -- finds a
+-- roster of one and restarts nothing. The second man is no longer barred either (the drive number
+-- moved), so the ordinary `join` takes him into that one drive.
+--
+-- `insideDrive`, FOR `barredFromRejoin`'S OWN REASON: in `Scoring` and `Waiting` there is no drive
+-- to restart -- the loop's own doors start the next one -- and a restart there would skip the
+-- results scene Karen asked for.
+function Phase.mayRestart(state: State): boolean
+	return Phase.insideDrive(state) and Phase.participantCount(state) == 0
 end
 
 -- Why it is waiting, in the words the Hud shows: "players", or the exact tag names that produced
@@ -1024,6 +1051,28 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 			table.insert(effects, { kind = "refreshArming", userIds = { event.userId } })
 		end
 		table.insert(effects, { kind = "broadcast" })
+	elseif kind == "restart" and event.userId then
+		-- A FRESH HUNT FROM THE TOP, FOR A MAN THE LIVE DRIVE HAS LET GO OF (task 287). Karen:
+		-- *"I need to be same role and from beginning"*.
+		--
+		-- IT IS `enterAssigning` AND NOTHING NEW: the drive number rises (so `barredFromRejoin` is
+		-- false for him by construction and the bar lifts with no latch to clear), the clock is the
+		-- countdown's and then the full drive's, the scene comes down, and his ROLE comes back through
+		-- the stored turn already on the event (`owed` -> `Roster.previousFrom`), which is the
+		-- mechanism the `withdraw` branch's own header says answers her.
+		--
+		-- REFUSED WHILE ANYBODY ELSE IS IN THE DRIVE, which is the whole of the multi-player rule:
+		-- `mayRestart` is false, this changes nothing and emits nothing, and the lobby keeps him off
+		-- the pad and says so instead (`Lobby`'s own `padLate` notice).
+		if Phase.mayRestart(next_) then
+			next_.participants[event.userId] = event.name or tostring(event.userId)
+			feed(effects, { kind = "join", userId = event.userId, name = event.name, at = now })
+			-- STRAIGHT TO THE FRESH DRIVE, AND IT MUST NOT CROSS `Scoring` (task 299 round 1,
+			-- finding 1): in the place that HAS pads, `Lobby.onPhase("Scoring")` dismisses the whole
+			-- roster one scan later, so a restart through the results scene lands in `Waiting`.
+			-- The owner's per-drive work is keyed on the drive NUMBER, so it runs on this arm too.
+			enterAssigning(next_, effects, now, config, event.owed, event.alwaysShooters, event.beaterWishes)
+		end
 	elseif kind == "team" and event.userId and event.team then
 		-- ONE PLAYER CHANGES SIDES INSIDE A LIVE DRIVE (task 157, docs/design/forest-drive.md
 		-- section 5.2). It is the `join` branch's shape with no participant added: the same three

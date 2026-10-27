@@ -22,6 +22,10 @@ local Workspace = game:GetService("Workspace")
 
 local Data = require(ReplicatedStorage:WaitForChild("Lobby"))
 local Lobby = require(ServerScriptService:WaitForChild("Lobby"))
+-- THE REAL DRIVE MACHINE, for the pad-restart case at the end of this file (task 299): the lobby's
+-- dismissal is driven by the phases `Phase` actually produces, not by a sequence typed by hand.
+local Match = require(ServerScriptService:WaitForChild("Match"))
+local Phase = Match.Phase
 
 local Pads = Lobby.Pads
 
@@ -90,6 +94,9 @@ local function fakes(bin: Instance)
 		-- `ALWAYS HUNTER` (the gate on the whole feature). Both are sets a case writes.
 		assigned = {} :: { [number]: string },
 		owners = {} :: { [number]: boolean },
+		-- TASK 287: who a LIVE drive let go of, which is the owner's `withdrawnFrom`. A case writes
+		-- it beside `inDrive[id] = false`, because those are the two halves of one event.
+		withdrawn = {} :: { [number]: boolean },
 	}
 	return seen,
 		{
@@ -105,6 +112,13 @@ local function fakes(bin: Instance)
 			enrol = function(player: any): boolean
 				table.insert(seen.enrolled, player.UserId)
 				seen.inDrive[player.UserId] = true
+				-- ...AND EVERY BAR IS LIFTED, which is what the owner does and not a convenience
+				-- (task 287): a man enrolled into an empty drive RESTARTS it, the drive number moves,
+				-- and `Phase.barredFromRejoin` is then false for everybody the OLD drive let go of
+				-- (`dispatch` clears `withdrawnFrom` on that edge). A fake that kept them barred would
+				-- claim this owner locks a second withdrawn man off the pads for a whole fresh drive,
+				-- which is review round 1's finding 3 and is exactly what was fixed.
+				table.clear(seen.withdrawn)
 				return true
 			end,
 			dismissAll = function(): number
@@ -116,6 +130,23 @@ local function fakes(bin: Instance)
 			end,
 			isHeld = function(userId: number): boolean
 				return seen.held[userId] == true
+			end,
+			-- WOULD THE DRIVE'S DOOR REFUSE HIM (task 287)? THE REAL RULE, written out of the two
+			-- facts `Match.enrolRefused` is written out of: the drive let go of him
+			-- (`seen.withdrawn`, which is the owner's `withdrawnFrom`) AND somebody is still in it
+			-- (`seen.inDrive`, so there is nothing to restart). A stub that answered a constant would
+			-- let the two cases below share one branch, and they are two branches: a man ALONE gets a
+			-- door, a man with other men still hunting gets a notice.
+			enrolRefused = function(userId: number): boolean
+				if seen.withdrawn[userId] ~= true or seen.inDrive[userId] == true then
+					return false
+				end
+				for _, inside in pairs(seen.inDrive) do
+					if inside then
+						return true
+					end
+				end
+				return false
 			end,
 			place = function(player: any, cframe: CFrame)
 				table.insert(seen.placed, { userId = player.UserId, cframe = cframe })
@@ -1114,37 +1145,151 @@ return function()
 		-- KAREN, 2026-10-25: *"when I respawn and then go to lobby then go back on pad to hunt I been
 		-- transfarred to same hunt where I was previuosly with less than min remaining I was hunter but
 		-- then time pass and done it's a bug"*.
-		it("keeps a man a live drive let go of off the truck pads (task 261)", function()
+		-- **A SECOND MAN IS IN THE DRIVE, AND THAT IS WHAT THIS CASE IS NOW ABOUT** (task 287). Task
+		-- 261 wrote it with one occupant, because then the only rule was *the pad is never his door
+		-- back in*; since task 287 the roster decides which of two things the pad is, so this case
+		-- states the MULTI-PLAYER half and the case below it states the solo half. The second
+		-- participant is real -- `seen.inDrive[66]`, which is the set `mayRestart` answers from --
+		-- and not a stub, or both cases would be the same branch.
+		it("keeps a man a live drive let go of off the pads while others hunt (tasks 261, 287)", function()
 			local seen = freshLoop(bin)
 			Lobby.step(2000, {})
 			-- HE IS IN THE DRIVE, STANDING ON A PAD -- which already does nothing, because a man the
-			-- drive has is left out of every pad list.
+			-- drive has is left out of every pad list. MILA IS IN IT TOO, out in the wood.
 			local man = occupant(55, padAt(1), bin)
+			local mila = occupant(66, Vector3.new(ANCHOR.x, SHELF, ANCHOR.z + 600), bin)
 			seen.inDrive[55] = true
+			seen.inDrive[66] = true
 			Lobby.onPhase("Running")
-			Lobby.step(2001, { man })
+			Lobby.step(2001, { man, mila })
 			expect(Lobby.padOf(1).state).to.equal(Pads.EMPTY)
-			-- HE PRESSES RESET: the drive lets go of him, mid-drive.
+			-- HE PRESSES RESET: the drive lets go of him, mid-drive. Mila is still hunting.
 			seen.inDrive[55] = false
-			Lobby.step(2002, { man })
+			seen.withdrawn[55] = true
+			Lobby.step(2002, { man, mila })
 			expect(man:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(true)
-			-- ...AND THE PAD HE IS STANDING ON STILL DOES NOTHING. Before this task it sized a party,
+			-- ...AND THE PAD HE IS STANDING ON STILL DOES NOTHING. Before task 261 it sized a party,
 			-- counted down and handed him back into the hunt he had just left, forty seconds from the
 			-- horn. The door he is asking at is refused as well, so the countdown cannot be started by
 			-- a forged request either.
-			Lobby.step(2003, { man })
+			Lobby.step(2003, { man, mila })
 			expect(Lobby.padOf(1).state).to.equal(Pads.EMPTY)
 			expect(Lobby.onPadRequest(man, { pad = 1, size = 1 }, 2003.1).ok).to.equal(false)
-			Lobby.step(2004, { man })
+			Lobby.step(2004, { man, mila })
 			expect(#seen.enrolled).to.equal(0)
-			-- HE IS NOT WAITING FOR NOTHING: the latch is what puts him in the next drive's party, and
-			-- the pads are his again the moment this drive is over.
+			-- ...**AND NOW HIS SCREEN SAYS WHY** (task 287). The Playtester's measurement of this
+			-- rectangle was *"no feedback at all"*: the pad is dead and nothing said that the hunt
+			-- was still on or that he goes with the next one. ONE FACT OUT, and the Hud owns the
+			-- words (`Objective.CONFIG.TEXT.LobbyLate`).
+			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(true)
+			-- IT IS ABOUT THE RECTANGLE AND NOT ABOUT THE MAN: Mila has not left anything, and a man
+			-- who steps OFF reads nothing either.
+			expect(mila:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(nil)
+			man.root.Position = Vector3.new(ANCHOR.x, SHELF, ANCHOR.z + 600)
+			Lobby.step(2004.5, { man, mila })
+			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(nil)
+			man.root.Position = padAt(1)
+			Lobby.step(2004.8, { man, mila })
+			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(true)
+			-- HE IS NOT WAITING FOR NOTHING: the latch is what puts him in the next drive's party --
+			-- both of them, which is what the line on his screen promises -- and the pads are his
+			-- again the moment this drive is over.
 			Lobby.onPhase("Scoring")
-			Lobby.step(2005, { man })
-			expect(#Lobby.nextDrive().members).to.equal(1)
+			Lobby.step(2005, { man, mila })
+			expect(#Lobby.nextDrive().members).to.equal(2)
+			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(nil)
 			-- ...AND THE PAD ASKS HIM ON THAT SAME SCAN: outside the live window he is an occupant like
 			-- anybody else, and `Pads.step` takes an EMPTY pad with somebody on it to `sizing`.
 			expect(Lobby.padOf(1).state).to.equal(Pads.SIZING)
+		end)
+
+		-- ------------------------- AND `stop` HANDS THE NOTICE BACK (task 287, review round 2
+		-- finding 1). The owner's teardown contract (docs/design/lobby.md item 16): an owner that
+		-- stopped leaves no sentence on anybody's screen -- and `setPadLate`, the only writer that
+		-- could reconcile it to nil, is unreachable once `started` is false.
+		it("hands the pad notice back when the owner stops (task 287)", function()
+			local seen = freshLoop(bin)
+			Lobby.step(2000, {})
+			local man = occupant(58, padAt(1), bin)
+			local mila = occupant(68, Vector3.new(ANCHOR.x, SHELF, ANCHOR.z + 600), bin)
+			seen.inDrive[58] = true
+			seen.inDrive[68] = true
+			Lobby.onPhase("Running")
+			Lobby.step(2001, { man, mila })
+			seen.inDrive[58] = false
+			seen.withdrawn[58] = true
+			Lobby.step(2002, { man, mila })
+			-- THE NOTICE IS UP -- the hunt is still on and his pad cannot take him.
+			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(true)
+			Lobby.stop()
+			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(nil)
+			expect(man:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(nil)
+			expect(man.RespawnLocation).to.equal(nil)
+		end)
+
+		-- ------------------------- ...AND ALONE, THE PAD STARTS A FRESH HUNT (task 287)
+		--
+		-- KAREN, 2026-10-24: *"when I respawn and then go to lobby then go back on pad to hunt I been
+		-- transferred to same hunt ... with less than min remaining ... I need to be same role and
+		-- from beginning"*. Task 261 gave her the next drive's party instead of the running one, which
+		-- is right while other men are hunting and is a woman standing alone in a lobby watching the
+		-- clock of a drive nobody is in. The DRIVE decides (`Match.mayRestart` -> `Phase.mayRestart`,
+		-- `match_phase.spec`); this case is the LOBBY half -- that the rectangle is a door again.
+		it("hands the man alone in a dead drive back to a pad, and enrols him (task 287)", function()
+			local seen = freshLoop(bin)
+			Lobby.step(2000, {})
+			local man = occupant(55, padAt(1), bin)
+			-- A SECOND MAN WHO IS REALLY IN THIS DRIVE, standing out in the wood -- away from the
+			-- pads until the restart has happened, so his pad is measured on the scan that matters
+			-- (review round 2, finding 2: he used to be a bare occupant the fake answered `false` for,
+			-- which made half of this case vacuous).
+			local second = occupant(57, Vector3.new(ANCHOR.x, SHELF, ANCHOR.z + 600), bin)
+			seen.inDrive[55] = true
+			seen.inDrive[57] = true
+			Lobby.onPhase("Running")
+			Lobby.step(2001, { man, second })
+			expect(Lobby.padOf(1).state).to.equal(Pads.EMPTY)
+			-- BOTH PRESS RESET, mid-drive: the drive lets go of both, so its clock is running for
+			-- nobody and both latches are armed.
+			seen.inDrive[55] = false
+			seen.withdrawn[55] = true
+			seen.inDrive[57] = false
+			seen.withdrawn[57] = true
+			Lobby.step(2002, { man, second })
+			expect(man:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(true)
+			expect(second:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(true)
+			-- **THE PAD IS A DOOR AND NOT A NOTICE**: it sizes her party on the next scan, exactly as
+			-- it does for anybody standing on it between drives -- and nothing on her screen says
+			-- *"the hunt is still on"*, because it is not.
+			Lobby.step(2003, { man, second })
+			expect(Lobby.padOf(1).state).to.equal(Pads.SIZING)
+			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(nil)
+			-- ...AND THE PARTY GOES, WHICH IS THE ENROLMENT THE DRIVE TURNS INTO A FRESH ONE. With no
+			-- pick at all: the timeout defaults her to 1, which is the unattended path.
+			-- 1.5 SCANS' WORTH OF TIME PER STEP, not one: `Lobby.step` throttles on
+			-- `now - lastScan < 1 / SCAN_HZ`, and a step of exactly `1 / SCAN_HZ` is skipped by
+			-- floating-point error about half the time (measured: this case's first run).
+			local went = 2003
+			for step = 1, math.ceil(SOLO_SECONDS * CFG.SCAN_HZ) + 2 do
+				went = 2003 + step * 1.5 / CFG.SCAN_HZ
+				Lobby.step(went, { man, second })
+			end
+			expect(#seen.enrolled).to.equal(1)
+			expect(seen.enrolled[1]).to.equal(55)
+			-- ...AND NOW THE SECOND MAN WALKS ONTO A PAD, AND IT IS NOT LOCKED BY THE DRIVE THE FIRST
+			-- ONE JUST STARTED (review round 1, finding 3). The bar he carries is the OLD drive's and
+			-- the old drive is gone, so the drive's door would take him -- and there is no lobby-side
+			-- latch left to disagree with it. `leftDrive[57]` is STILL ARMED here (no drive has had
+			-- him since), which is exactly what the reverted fix read instead of asking the drive.
+			expect(second:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(true)
+			second.root.Position = padAt(2)
+			Lobby.step(went + 2 / CFG.SCAN_HZ, { man, second })
+			expect(second:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(nil)
+			Lobby.step(went + 4 / CFG.SCAN_HZ, { man, second })
+			expect(Lobby.padOf(2).state).to.equal(Pads.SIZING)
+			-- THE LATCH IS DOWN THE MOMENT A DRIVE HAS HER, so the line and the bar lift together.
+			Lobby.step(went + 1 / CFG.SCAN_HZ, { man })
+			expect(man:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(nil)
 		end)
 
 		-- SIT OUT PUTS HIM BACK ON THE PADS (TASKS.md row 249b, and item 1 is what gives it teeth).
@@ -1731,6 +1876,104 @@ return function()
 			Lobby.step(8000, { man, stranger })
 			expect(man:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(Data.ROLE_WISH.HUNTER)
 			expect(stranger:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(nil)
+		end)
+	end)
+
+	-- A PAD RESTART, WITH THE LOBBY REALLY WIRED (task 299 round 1, finding 1). The drive machine is
+	-- the real `Phase`; `Lobby.onPhase` is fed every transition it makes, exactly as
+	-- `ForestTestBoot` does, and the lobby's `dismissAll` seam dispatches the real `dismiss` event.
+	-- Nothing here is a stand-in for the thing under test: a restart that crossed `Scoring` was
+	-- dismissed by the lobby one scan later and landed in `Waiting`.
+	describe("a pad restart in a world that HAS a lobby (task 299)", function()
+		local DRIVE_CFG = {
+			DRIVE_SECONDS = 60,
+			INTERMISSION_SECONDS = 10,
+			SCORE_SECONDS = 5,
+			MIN_PLAYERS = 1,
+			MAX_PLAYERS = 16,
+			ODD_PLAYER_TEAM = "Shooters",
+			SWAP_TEAMS_EACH_DRIVE = true,
+			START_HOLD_TEAM = "Drivers",
+			BOARS_PER_DRIVE = 2,
+			FIRST_RELEASE_SECONDS = 5,
+			RELEASE_INTERVAL_SECONDS = 10,
+			RELEASE_JITTER_SECONDS = 0,
+			MAX_ALIVE_BOARS = 2,
+			SEED = 7,
+		}
+		local SPAWNS = { Vector3.new(-40, 0, 120), Vector3.new(40, 0, 120) }
+
+		it("reaches a fresh Assigning, with the same role, and the lobby dismisses nobody", function()
+			local state = Phase.initial(DRIVE_CFG)
+			state = (
+				Phase.step(
+					state,
+					{ kind = "markers", complete = true, missing = {}, boarSpawns = SPAWNS },
+					0,
+					DRIVE_CFG
+				)
+			)
+			local dismissals = 0
+			local clock = 0
+			fresh(bin, function(world)
+				world.dismissAll = function(): number
+					local count = Phase.participantCount(state)
+					dismissals += 1
+					state = (Phase.step(state, { kind = "dismiss" }, clock, DRIVE_CFG))
+					return count
+				end
+			end)
+
+			-- ONE STEP OF THE WHOLE MACHINE: the drive moves, the lobby hears the phase it moved to
+			-- (`ForestTestBoot`'s `Match.PhaseChanged:Connect`), and then the lobby scans.
+			local function both(event, at: number)
+				clock = at
+				local was = state.phase
+				state = (Phase.step(state, event, at, DRIVE_CFG))
+				if state.phase ~= was then
+					Lobby.onPhase(state.phase)
+				end
+				Lobby.step(at, {})
+			end
+
+			both({ kind = "join", userId = 1, name = "Karen" }, 1)
+			both({ kind = "tick" }, 1 + DRIVE_CFG.INTERMISSION_SECONDS)
+			expect(state.phase).to.equal("Running")
+			local drive = state.driveNumber
+			local had = state.assignment[1]
+			expect(had).to.be.ok()
+
+			-- SHE RESPAWNS OUT OF THE DRIVE, AND THEN STEPS ON A PAD.
+			local at = 1 + DRIVE_CFG.INTERMISSION_SECONDS + 1
+			both({ kind = "withdraw", userId = 1, name = "Karen" }, at)
+			expect(Phase.participantCount(state)).to.equal(0)
+			both({ kind = "restart", userId = 1, name = "Karen", owed = { [1] = had } }, at + 0.1)
+
+			-- THE FRESH DRIVE, IMMEDIATELY: a new number, the countdown's full clock, her own role.
+			expect(state.phase).to.equal("Assigning")
+			expect(state.driveNumber).to.equal(drive + 1)
+			expect(state.phaseEndsAt).to.equal(at + 0.1 + DRIVE_CFG.INTERMISSION_SECONDS)
+			expect(state.assignment[1]).to.equal(had)
+			-- ...AND SHE IS STILL IN IT AFTER THE LOBBY HAS SCANNED, which is the finding: a restart
+			-- through `Scoring` set `dismissPending`, and the next scan emptied the roster.
+			for i = 1, 5 do
+				both({ kind = "tick" }, at + 0.1 + i * 0.1)
+			end
+			expect(dismissals).to.equal(0)
+			expect(Phase.participantCount(state)).to.equal(1)
+			expect(state.participants[1]).to.be.ok()
+			expect(state.phase).to.equal("Assigning")
+			-- ...AND THE DRIVE RUNS, from the beginning.
+			both({ kind = "tick" }, at + 0.1 + DRIVE_CFG.INTERMISSION_SECONDS)
+			expect(state.phase).to.equal("Running")
+			expect(state.phaseEndsAt).to.equal(at + 0.1 + DRIVE_CFG.INTERMISSION_SECONDS + DRIVE_CFG.DRIVE_SECONDS)
+			expect(state.assignment[1]).to.equal(had)
+
+			-- AND THE ORDINARY END OF A DRIVE STILL DISMISSES, so this proves the lobby is wired and
+			-- not merely quiet.
+			both({ kind = "tick" }, at + 0.1 + DRIVE_CFG.INTERMISSION_SECONDS + DRIVE_CFG.DRIVE_SECONDS + 0.1)
+			expect(state.phase).to.equal("Scoring")
+			expect(dismissals).to.equal(1)
 		end)
 	end)
 end

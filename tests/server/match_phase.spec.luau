@@ -2935,4 +2935,166 @@ return function()
 			expect(countKind(effects, "assignTeams")).to.equal(1)
 		end)
 	end)
+	-- ---------------------------------------------------------------- the pad starts a FRESH hunt
+	--
+	-- KAREN, 2026-10-24: *"when I respawn and then go to lobby then go back on pad to hunt I been
+	-- transferred to same hunt ... with less than min remaining ... I need to be same role and from
+	-- beginning"*. Task 261 stopped the rejoin and gave her the next drive's party, which is right
+	-- while other men are hunting and is a lobby with nobody in it when she is alone.
+	--
+	-- THE INVARIANT EVERY CASE HERE IS ABOUT: *a barred man or an empty roster plus a pad step gives
+	-- EXACTLY ONE fresh drive with a full clock, never two restarts and never a join with time left.*
+	describe("a pad step after a respawn (task 287)", function()
+		-- ONE MAN, so the drive he steps back into is a drive nobody is in. The two-man roster is in
+		-- the multi-player case below, which is a different branch and has to enter it for real.
+		local function soloRunning(cfg)
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg))
+			expect(state.phase).to.equal("Running")
+			return state
+		end
+
+		it("asks ONE question of the roster, and asks it only inside a drive", function()
+			local cfg = config()
+			-- WAITING: there is no drive to restart, and the loop's own door starts the next one.
+			expect(Phase.mayRestart(ready(cfg))).to.equal(false)
+			local state = soloRunning(cfg)
+			-- RUNNING, WITH A MAN IN IT: that is a hunt, and a pad does not restart somebody's hunt.
+			expect(Phase.mayRestart(state)).to.equal(false)
+			-- HE RESPAWNS OUT: the roster is empty and the clock of nobody's drive is running.
+			local at = cfg.INTERMISSION_SECONDS + 1
+			state = (Phase.step(state, { kind = "withdraw", userId = 1, name = "Karen" }, at, cfg))
+			expect(Phase.participantCount(state)).to.equal(0)
+			expect(Phase.mayRestart(state)).to.equal(true)
+			-- SCORING: the results scene is Karen's own, and a restart there would skip it.
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + 1, cfg))
+			expect(state.phase).to.equal("Scoring")
+			expect(Phase.mayRestart(state)).to.equal(false)
+		end)
+
+		-- THE WHOLE OF KAREN'S SENTENCE, IN ONE CASE: a new drive, from the beginning, same role.
+		it("gives the solo man a NEW drive number, a full clock and the same role", function()
+			local cfg = config()
+			local state = soloRunning(cfg)
+			local drive = state.driveNumber
+			local had = state.assignment[1]
+			expect(had).to.be.ok()
+			local at = cfg.INTERMISSION_SECONDS + 1
+			state = (Phase.step(state, { kind = "withdraw", userId = 1, name = "Karen" }, at, cfg))
+			-- KNOWN-BAD, AND IT IS WHAT THE PLAYTESTER MEASURED: a `join` here puts him back into the
+			-- SAME drive with whatever is left of its clock -- "DRIVE 10 - 2:31 - BEATER".
+			local joined = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, at, cfg))
+			expect(joined.driveNumber).to.equal(drive)
+			expect(joined.phase).to.equal("Running")
+			expect(joined.phaseEndsAt < at + cfg.DRIVE_SECONDS).to.equal(true)
+			-- ...AND THE PAD STEP INSTEAD. `owed` is what the drive's own withdrawal left him -- the
+			-- side he was playing -- which is the mechanism task 261 chose and this reuses.
+			local effects
+			state, effects =
+				Phase.step(state, { kind = "restart", userId = 1, name = "Karen", owed = { [1] = had } }, at, cfg)
+			expect(state.driveNumber).to.equal(drive + 1)
+			expect(state.phase).to.equal("Assigning")
+			-- FROM THE BEGINNING: the countdown's own full length, and then the drive's own.
+			expect(state.phaseEndsAt).to.equal(at + cfg.INTERMISSION_SECONDS)
+			expect(Phase.participantCount(state)).to.equal(1)
+			-- SAME ROLE, through the stored turn and not a new rule.
+			expect(state.assignment[1]).to.equal(had)
+			-- THE BAR LIFTS BY ITSELF, because the drive number moved: nothing has to clear a latch.
+			expect(Phase.barredFromRejoin(state, drive)).to.equal(false)
+			-- ...AND THE SCENE OF THE DRIVE HE LEFT COMES DOWN, which is `enterAssigning`'s own list.
+			expect(countKind(effects, "clearScene")).to.equal(1)
+			expect(countKind(effects, "assignTeams")).to.equal(1)
+			local resumed = at + cfg.INTERMISSION_SECONDS
+			state = (Phase.step(state, { kind = "tick" }, resumed, cfg))
+			expect(state.phase).to.equal("Running")
+			expect(state.phaseEndsAt).to.equal(resumed + cfg.DRIVE_SECONDS)
+			expect(state.assignment[1]).to.equal(had)
+		end)
+
+		-- THE MULTI-PLAYER BRANCH, AND IT ENTERS IT FOR REAL: a SECOND participant is in the live
+		-- roster, so `mayRestart` is false for the reason the feature exists and not by a stub.
+		it("refuses the restart while another man is still in the drive, and enrols nobody", function()
+			local cfg = config()
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+			state = (Phase.step(state, { kind = "join", userId = 2, name = "Mila" }, 0, cfg))
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg))
+			expect(state.phase).to.equal("Running")
+			local drive = state.driveNumber
+			local at = cfg.INTERMISSION_SECONDS + 1
+			state = (Phase.step(state, { kind = "withdraw", userId = 1, name = "Karen" }, at, cfg))
+			-- MILA IS STILL HUNTING, so her drive is not something a pad may restart.
+			expect(Phase.participantCount(state)).to.equal(1)
+			expect(state.participants[2]).to.be.ok()
+			expect(Phase.mayRestart(state)).to.equal(false)
+			local ends = state.phaseEndsAt
+			local effects
+			state, effects = Phase.step(state, { kind = "restart", userId = 1, name = "Karen" }, at + 0.5, cfg)
+			-- NOTHING: no new drive, no clock reset, and he is NOT in the running one -- which is the
+			-- half of Karen's bug that must stay fixed. What he gets is the lobby's own notice and
+			-- the next drive's party (`lobby_live.spec`, task 287).
+			expect(state.driveNumber).to.equal(drive)
+			expect(state.phase).to.equal("Running")
+			expect(state.phaseEndsAt).to.equal(ends)
+			expect(state.participants[1]).to.equal(nil)
+			expect(Phase.participantCount(state)).to.equal(1)
+			expect(#effects).to.equal(0)
+		end)
+
+		-- REPEATED AND OVERLAPPING STEPS, which is the invariant stated above (Learning Agent L-029:
+		-- a standing invariant is reconciled on the tick). A pad scans at 10 Hz and two men can be on
+		-- two pads in one tick, so "exactly one" has to be a property and not a hope.
+		it("gives exactly ONE fresh drive however many times a pad is stepped on", function()
+			local cfg = config()
+			local state = soloRunning(cfg)
+			local drive = state.driveNumber
+			local at = cfg.INTERMISSION_SECONDS + 1
+			state = (Phase.step(state, { kind = "withdraw", userId = 1, name = "Karen" }, at, cfg))
+			state = (Phase.step(state, { kind = "restart", userId = 1, name = "Karen" }, at, cfg))
+			expect(state.driveNumber).to.equal(drive + 1)
+			local ends = state.phaseEndsAt
+			-- HE STEPS ON AGAIN, TWICE, ON THE SAME TICK AND THE NEXT ONE: he is a participant now,
+			-- so the roster is not empty, there is nothing to restart, and the countdown he is
+			-- watching is not restarted either.
+			local effects
+			state, effects = Phase.step(state, { kind = "restart", userId = 1, name = "Karen" }, at, cfg)
+			expect(state.driveNumber).to.equal(drive + 1)
+			expect(#effects).to.equal(0)
+			state, effects = Phase.step(state, { kind = "restart", userId = 1, name = "Karen" }, at + 0.1, cfg)
+			expect(state.driveNumber).to.equal(drive + 1)
+			expect(state.phaseEndsAt).to.equal(ends)
+			expect(#effects).to.equal(0)
+			-- ...AND A SECOND MAN ON A SECOND PAD IN THE SAME TICK JOINS THAT ONE DRIVE, because the
+			-- number moved: his restart is inert and the ordinary door takes him.
+			state, effects = Phase.step(state, { kind = "restart", userId = 2, name = "Mila" }, at + 0.1, cfg)
+			expect(state.driveNumber).to.equal(drive + 1)
+			expect(state.participants[2]).to.equal(nil)
+			expect(#effects).to.equal(0)
+			state = (Phase.step(state, { kind = "join", userId = 2, name = "Mila" }, at + 0.2, cfg))
+			expect(state.driveNumber).to.equal(drive + 1)
+			expect(Phase.participantCount(state)).to.equal(2)
+			expect(state.phaseEndsAt).to.equal(ends)
+		end)
+
+		-- A STEP DURING THE COUNTDOWN, which is the other half of `insideDrive` and the window the
+		-- pads are busiest in (tasks 177 and 209: a man walks onto a pad during the intermission).
+		it("restarts from `Assigning` too, once, with the countdown's own full clock", function()
+			local cfg = config()
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+			expect(state.phase).to.equal("Assigning")
+			local drive = state.driveNumber
+			state = (Phase.step(state, { kind = "withdraw", userId = 1, name = "Karen" }, 1, cfg))
+			expect(Phase.participantCount(state)).to.equal(0)
+			state = (Phase.step(state, { kind = "restart", userId = 1, name = "Karen" }, 2, cfg))
+			expect(state.driveNumber).to.equal(drive + 1)
+			expect(state.phase).to.equal("Assigning")
+			expect(state.phaseEndsAt).to.equal(2 + cfg.INTERMISSION_SECONDS)
+			local effects
+			state, effects = Phase.step(state, { kind = "restart", userId = 1, name = "Karen" }, 2, cfg)
+			expect(state.driveNumber).to.equal(drive + 1)
+			expect(#effects).to.equal(0)
+		end)
+	end)
 end

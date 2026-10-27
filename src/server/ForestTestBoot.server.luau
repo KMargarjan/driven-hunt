@@ -673,6 +673,12 @@ local lobbyOn = Lobby.start({
 	dismissAll = Match.dismissAll,
 	inDrive = Match.isParticipant,
 	isHeld = Match.isHeld,
+	--   enrolRefused WOULD THE DRIVE'S DOOR REFUSE HIM (task 287)? The drive's fourth reader,
+	--                OPTIONAL in `Lobby.start` like `assignedTeam`: true only for a man barred from
+	--                this drive who cannot restart it either, which is exactly when `Match.enrol`
+	--                turns him away. The lobby asks it to decide whether his pad is a door or a
+	--                notice, and holds no latch of its own about it, so the two cannot disagree.
+	enrolRefused = Match.enrolRefused,
 	--   assignedTeam WHICH SIDE THE DRIVE HAS ACTUALLY GIVEN HIM, or nil (task 229). It is the ONE
 	--                fact that spends a role wish, and it is a THIRD reader of the drive rather than
 	--                a reuse of `inDrive` for a measured reason: `Lobby.depart` -> `Match.enrol`

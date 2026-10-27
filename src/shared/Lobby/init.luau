@@ -269,6 +269,19 @@ Lobby.NEXT_OUT_ATTRIBUTE = "DHNextDriveOut"
 -- two, and only the server can know it.
 Lobby.LEFT_DRIVE_ATTRIBUTE = "DHLeftDrive"
 
+-- HE IS STANDING ON A PAD THAT CANNOT TAKE HIM, BECAUSE THE HUNT IS STILL ON (task 287). KAREN,
+-- 2026-10-24: *"when I respawn and then go to lobby then go back on pad to hunt I been transferred
+-- to same hunt ... with less than min remaining"*. Alone, the pad now starts a FRESH drive; with
+-- other men still hunting it must not, and the Playtester's measurement of the pad in that case was
+-- *"no feedback at all"*.
+--
+-- SO IT IS A FACT AND NOT A MESSAGE, which is `DHLeftDrive`'s own arrangement above and its stated
+-- reason: the server writes `true` while he is on the rectangle and refused, and the Hud turns it
+-- into one line (`Objective.CONFIG.TEXT.LobbyLate`). A SECOND attribute and not a sign on
+-- `DHLeftDrive`, because the two are independent facts -- he has left the drive whether he is
+-- standing on a pad or not.
+Lobby.PAD_LATE_ATTRIBUTE = "DHPadLate"
+
 -- THE TWO WORDS, HERE because they cross the wire -- `Lobby.ROLE_WISH`'s arrangement exactly, and
 -- for its stated reason: one spelling of "out" in the repository, so a typo cannot make a button
 -- that never works.

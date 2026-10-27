@@ -243,6 +243,16 @@ Objective.CONFIG = {
 		-- out of THIS drive, and there is another one coming. Reported to the Director, and the
 		-- words are Karen's to rewrite like every other row here.
 		LobbyLeft = "you left the drive - next soon",
+		-- ...AND THE FOURTH (task 287). KAREN, 2026-10-24: *"when I respawn and then go to lobby
+		-- then go back on pad to hunt I been transferred to same hunt ... with less than min
+		-- remaining"*. Alone, the pad now starts a FRESH drive and he reads the countdown like
+		-- anybody else; with other men still hunting it cannot, and the Playtester measured what
+		-- the pad said about that: *"no feedback at all"*.
+		--
+		-- 27 CHARACTERS, ASCII, which is this table's bound (33) and its rule, and it says the two
+		-- things a man standing on a dead rectangle needs: WHY it did nothing, and that he is not
+		-- waiting for nothing. The words are Karen's to rewrite.
+		LobbyLate = "hunt still on - you go next",
 	},
 
 	-- THE THREE WORDS A TARGET CAN WEAR. `STAND` is a post the world has actually stated; `LINE` is
@@ -311,6 +321,10 @@ export type LobbyNow = {
 	-- one thing that tells a man who RESPAWNED out of a drive apart from a man who never enrolled
 	-- -- both are teamless, and only one of them left anything.
 	left: boolean?,
+	-- IS HE STANDING ON A PAD THAT CANNOT TAKE HIM (task 287)? The server's
+	-- `Lobby.PAD_LATE_ATTRIBUTE`, and it is a SECOND fact and not a sign on `left`: he has left the
+	-- drive whether he is standing on a rectangle or not, and only one of the two is about a pad.
+	padLate: boolean?,
 	-- EVERY TRUCK PAD, IN PAD ORDER (task 182). nil or empty answers exactly as task 177 did, which
 	-- is `MapUi.pointsFor`'s rule: absent is not "nowhere".
 	pads: { Vector3 }?,
@@ -358,6 +372,14 @@ function Objective.text(phase: string?, team: string?, drive: DriveNow?, lobby: 
 		--
 		-- AND IT IS A FACT FROM THE SERVER, NOT `team == nil`: a man who never enrolled is also
 		-- teamless, and he must not read that he left something.
+		-- HIS PAD IS REFUSING HIM BECAUSE THE HUNT IS STILL ON (task 287). ABOVE `LobbyLeft`,
+		-- because it says strictly more -- the same ordering rule every row here follows: it carries
+		-- *"you go next"* as well, and adds the thing he cannot otherwise tell, which is why the
+		-- rectangle he is standing on did nothing. It yields to a panel like the rest (above), and a
+		-- man alone never reads it at all: his pad starts a fresh drive instead.
+		if lobby ~= nil and lobby.padLate == true then
+			return words.LobbyLate
+		end
 		if lobby ~= nil and lobby.left == true then
 			return words.LobbyLeft
 		end

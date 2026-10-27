@@ -812,6 +812,20 @@ return function()
 			expect(Match.trackedPlayers()).to.equal(tracked)
 		end)
 
+		-- THE FOURTH READER (task 287): WOULD THIS DOOR REFUSE HIM? For the ordinary man, no --
+		-- nobody this drive has let go of, so his pads are ordinary pads.
+		it("refuses nobody it never let go of (task 287)", function()
+			local player = Players:GetPlayers()[1] :: Player
+			expect(Match.enrolRefused(player.UserId)).to.equal(false)
+			expect(Match.enrolRefused(-999)).to.equal(false)
+		end)
+
+		-- THE TRUE SIDE OF THE DOOR IS DRIVEN IN `zz_pad_restart.spec` AND NOT HERE (review round 1,
+		-- finding 1, and the Director's measurement of 2026-10-27): a restart is a drive boundary --
+		-- it respawns everybody, re-grants their guns and spends `Match.advanceForTests` -- and from
+		-- the middle of the suite it broke `weapon_shot.spec:476` and `zz_drive_boundary.spec`. That
+		-- file runs LAST, which is what the `zz_` prefix is for.
+
 		it("refuses to enrol somebody it has never registered", function()
 			-- Not a `Player`: the door reads `UserId` and `Name`, and refuses rather than half-doing
 			-- it -- there would be no board row to put a team on and no character watch to hold.

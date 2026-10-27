@@ -1012,6 +1012,9 @@ SCOPE_SPECS = {
                # describing it -- so moving either number plays it.
                "tests/server/high_seats.spec.luau"),
     "match": ("tests/server/match_config.spec.luau", "tests/server/forest_markers.spec.luau",
+              # Task 287: the LIVE door a pad step goes through, last in the suite because a restart
+              # is a drive boundary. DUAL MEMBERSHIP with `lobby`, which reads that door.
+              "tests/server/zz_pad_restart.spec.luau",
               # Task 250: `Ambience.bedFor` reads `Drive.TEAMS`, and `src/shared/Drive/` resolves
               # here -- so a team rename plays the spec that asserts the identity. The dual
               # membership this table already uses.
@@ -1062,6 +1065,8 @@ SCOPE_SPECS = {
               "tests/client/zz_tie_to_a_tree.spec.luau"),
     # The lobby (task 177): the pure rule and the geometry, and the owner against fakes.
     "lobby": ("tests/server/lobby.spec.luau", "tests/server/lobby_live.spec.luau",
+              # Task 287: the drive's door the pads ask (`Match.enrolRefused`), driven live.
+              "tests/server/zz_pad_restart.spec.luau",
               # Task 246: the party that goes again -- `Lobby.Next`, pure, plus the owner cases in
               # `lobby_live.spec` above.
               "tests/server/lobby_next.spec.luau",

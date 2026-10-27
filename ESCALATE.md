@@ -1,3 +1,181 @@
+# DIRECTOR DECISION, 2026-10-27 09:15 UTC -- task 287's round-3 findings
+
+Task 287 used its three rounds (MAX_ROUNDS 3). Its round-3 findings are code, not documentation, so no extra round is
+authorised. They are real (a pad restart pays the aborted drive every time -- a coin faucet; an Assigning->Assigning
+restart skips the per-drive work), and both come from the round-2 pay-out. DECISION: the Builder's own shortest fix is
+taken -- the restart ENTERS `Scoring`, so the loop's existing Scoring edge pays exactly once and runs the per-drive work.
+It is built as task 299 on branch `task-299-pad-restart-scoring`, stacked on `task-287-pad-fresh-hunt` (head a28bafbb),
+with its own review rounds. 287 is not merged on its own: it would ship the faucet.
+
+# ESCALATE -- task 287: round 3 returned FINDINGS, so I stop (the dispatch's rule). For the Director.
+
+**Builder, 2026-10-27 09:11 UTC.** Branch `task-287-pad-fresh-hunt`. Code commit `96d932c9`; the
+verdict is against `0a3f679d` (the request commit; only paperwork after the code).
+
+## THE GATE IS COMPLETE, THREE LINES, ONE COMMIT
+
+```
+[harness]  PASS: 34/34 checks @ 96d932c9898a2435f3eb82e0faca3f4bc2201cd9 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 96d932c9898a2435f3eb82e0faca3f4bc2201cd9 (clean tree)   (287r3a)
+[harness2] PASS: 36/36 checks @ 96d932c9898a2435f3eb82e0faca3f4bc2201cd9 (clean tree)   (287r3b)
+```
+Two CONSECUTIVE clean two-player runs, no failure of any kind in any of the three. The Players
+spinner was read off `<runs-dir>/287r3-spinner.png` first (mode `Server`, count `2`), which is why
+both started on the first try after the two that did not.
+
+## ROUND 2'S TWO FINDINGS ARE CLOSED, AND SHOWN FAILING FIRST
+
+With the finding-3 fix reverted to the lobby's own latch:
+`[harness] FAIL: 32/34 @ 96d932c9 (DIRTY TREE (1 paths)) scope=all` --
+`lobby_live.spec:1219` *"Expected true, got nil"* (the new teardown case's live notice) and
+`lobby_live.spec:1261` *"Expected sizing, got empty"* (the solo case's pad). Both pass at the commit.
+
+## ROUND 3 RETURNED **FINDINGS** (2), BOTH ABOUT THE PAY-OUT I ADDED IN ROUND 2
+
+`reviews/task-287/RESULT.md`:
+1. **The restart pay-out is REPEATABLE** -- `payDrive`'s only guard is `driveNumber <= paidUpTo`,
+   and a restart pays drive N and then raises the number, so a man who respawns and steps on a pad
+   again and again is a coin faucet. (My live case saw `paid 1 -> 2` once and never twice.)
+2. **A restart from `Assigning` into `Assigning` moves the drive number without the owner's
+   per-drive work**, because every per-drive reset in `dispatch` hangs off a PHASE edge -- and that
+   is the branch the live evidence actually took (`phase Assigning -> Assigning`).
+
+**Both are real and both are mine** (round 2's finding-2 fix, and the `Assigning` restart branch
+from round 1). Neither is in Karen's own sentence -- the solo restart and the multi-player refusal
+are proven live in both harnesses -- but finding 1 is an economy hole and must not merge as it is.
+I have NOT touched them: round 3 is the last round. **The Director decides**: a fourth round under
+`DIRECTOR_MAX_ROUNDS=4` with the authorisation recorded here, or he takes the two fixes. The
+shortest honest fix for both, if it helps: pay through the same `Scoring` edge the loop already has
+(enter `Scoring` on the restart instead of `Assigning`), which closes the faucet and gives the
+per-drive work its edge back.
+
+---
+
+# ESCALATE -- task 287: round 2 returned FINDINGS, so I stop (the dispatch's rule). For the Director.
+
+**Builder, 2026-10-27 08:12 UTC.** Branch `task-287-pad-fresh-hunt`. Code commit `9d343ffa`; the
+verdict was written against `4502baaa` (the request commit, paperwork only after the code).
+
+## THE GATE IS COMPLETE AT ONE COMMIT
+
+```
+[harness]  PASS: 34/34 checks @ 9d343ffaafd54fc836f33f9d02dfc42bf6ec9e51 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 9d343ffaafd54fc836f33f9d02dfc42bf6ec9e51 (clean tree)
+```
+One-player server 2408/0/0, client 612/0/0. Two-player server 2408/0/0, shooter 612/0/0, driver
+606/0/0 (`<runs-dir>/test2-287b1.log`). Both live doors ran, each in the harness that can reach it:
+`task287 SOLO branch ... drive 2 -> 3 ... restarts 0 -> 1, economy true paid 1 -> 2` and
+`task287 MULTI-PLAYER branch (still in the drive: Player2): refused=true enrolled=false drive 2
+(unchanged) ... rejoinsRefused 0 -> 1, paid 1 (unchanged)`.
+
+## 1. THE SECOND `test2` RUN DID NOT HAPPEN -- INSTRUMENT, NOT CODE
+
+`run-test2.sh 287b2` and `287b3`, back to back, both ended:
+`FAIL A 2-player local test appeared within 180 s (0 new studio(s) beside the editor)` --
+`[harness2] FAIL: 12/13 checks @ 9d343ffa (clean tree)`, `exit=1 took=190s studios_after=1`. The
+Start click did not land. Studio was in **Edit** with exactly **one** instance before each try
+(`studio_mcp.py state`), and I opened and closed nothing. The first run, at the same commit, passed
+36/36. **Most likely the Test tab's Players spinner is no longer 2** -- it is set by hand and the
+Director set it for `287a`; `start_stop_play` cannot ask for a player count, so F7 alone cannot fix
+it. It needs one look at that spinner.
+
+## 2. ROUND 2 RETURNED **FINDINGS** (2), AND THE DISPATCH SAYS STOP
+
+`reviews/task-287/RESULT.md`, verdict at `4502baaa`:
+1. `Lobby.stop` never hands `DHPadLate` back, so a stopped owner leaves `LobbyLate` on a screen with
+   no writer left to clear it -- the row task 249 added to that same loop for `DHLeftDrive`. Fix is
+   one line in the `touched` loop plus the `or` guard.
+2. `lobby_live.spec`'s *"hands the man alone in a dead drive back to a pad"* -- the second withdrawn
+   man (57) is never written into `seen.withdrawn` or `seen.inDrive`, so that half of claim 8 passes
+   with the finding-3 fix reverted. It is a vacuous arrangement, and the Reviewer is right.
+
+**Both are real; neither is in the shipped game's solo or multi-player behaviour** (finding 1 is a
+teardown path, finding 2 is a test arrangement). I have NOT touched them: round 2 is the last round
+the dispatch allows, so the Director decides whether to authorise a third
+(`DIRECTOR_MAX_ROUNDS=3`, CLAUDE.md's one-extra-round rule) or to take the two fixes himself.
+
+---
+
+# ESCALATE -- task 287. **NEEDS KAREN: the two-player click, and it now blocks the REVIEW too.**
+
+**Builder, 2026-10-27 07:22 UTC.** Branch `task-287-pad-fresh-hunt`, code commit `55a978fb`. The work is
+done and GREEN; round 2 of the review cannot be STARTED, and the reason is a gate, not a defect.
+
+```
+[harness] PASS: 34/34 checks @ 55a978fb85b10aac69c5f31b3e52e16dda1a7b66 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ f68f9a49cfc24a03db39e137a0c981953dbe87a7 (clean tree) scope=all
+```
+Server 2408 / 0 / 0, client 612 / 0 / 0, both runs. `weapon_shot.spec:476` and
+`zz_drive_boundary.spec` are green: the branch regression is fixed (`reviews/task-287/REQUEST.md`
+round 2 has the three measurements that found it).
+
+**WHY ROUND 2 IS REFUSED.** `tools/review.ps1 287` says:
+
+> REFUSED: this change touches src/server/Match/Phase.luau, src/server/Match/init.luau,
+> tests/server/match_live.spec.luau, tests/server/match_phase.spec.luau, which a one-player run
+> cannot evidence. Paste the TWO-PLAYER line for the code commit as well:
+>   [harness2] PASS: n/m checks @ 55a978fb85b10aac69c5f31b3e52e16dda1a7b66 (clean tree)
+
+(Re-confirmed at 07:21 UTC against the `Round: 2` request at `55a978fb`. CI is green on the head,
+and `git diff --name-only 55a978fb..HEAD` is `ESCALATE.md`, `TASKS.md`,
+`reviews/task-287/REQUEST.md` -- paperwork only.)
+
+Round 1 got past it with a `scope=auto:...` line, which `tools/agents.py` accepts for a round. **That
+door is shut for this branch now:** fixing the regression put the new spec file into `SCOPE_SPECS`,
+which is in `tools/studio_mcp.py`, and that path resolves to `all` in `BLAST_RADIUS` -- so
+`test --scope auto` can only ever print `scope=all` here, and a hand-named scope is refused as
+evidence (correctly). The only remaining key is the `[harness2]` line.
+
+**THE CLICKS, UNCHANGED, AND NOW NEEDED ONCE FOR THE ROUND AND TWICE FOR THE MERGE:**
+
+1. Studio on **Driven Hunt DEV**, **Edit** mode, Rojo connected, at `55a978fb` or the branch head.
+2. `python tools/studio_mcp.py test2`
+3. Studio -> **Test** -> **Clients and Servers** -> **Players: 2** -> **Start**; leave the windows
+   alone; press **Cleanup** when the harness says so. Repeat once for the second clean run.
+4. Then `powershell -ExecutionPolicy Bypass -File tools/review.ps1 287` (the request is `Round: 2`;
+   its `Code commit:` is `55a978fb`).
+
+I did not attempt the click: the dispatch says *"test2 stays NEEDS KAREN / the Director's -- do not
+wait on it"*. Everything else in the definition of done is met.
+
+---
+
+# ESCALATE -- task 287. **NEEDS KAREN**: the two-player run. For the Director.
+
+**Builder, 2026-10-27.** Branch `task-287-pad-fresh-hunt`. Code commit
+`c26c375c9030cf86577a816239fa1d49e0bae050`. The task is BUILT and the one-player gate is PASS twice
+over; what is missing is `test2`, which no tool on this machine can start.
+
+**WHY IT CANNOT BE WORKED AROUND.** `tools/studio_mcp.py`'s own measurement: StudioMCP's
+`start_stop_play` takes `is_start` and `studio_id` and NOTHING else, so there is no way to ask for a
+player count. The mode prints the clicks and waits 180 s for the windows.
+
+**THE EXACT CLICKS, and they are needed TWICE (the dispatch asks for two consecutive clean runs,
+because the multi-player path is a race with a live roster):**
+
+1. Studio on **Driven Hunt DEV**, in **Edit** mode, Rojo connected, at `c26c375c`.
+2. In a terminal: `python tools/studio_mcp.py test2`
+3. Studio -> **Test** tab -> **Clients and Servers** -> **Players: 2** -> **Start**.
+4. Leave the windows alone until the harness says so, then press **Cleanup** in the Test tab.
+5. Repeat 2-4 once more. Both lines must read
+   `[harness2] PASS: n/n checks @ c26c375c9030cf86577a816239fa1d49e0bae050 (clean tree)`.
+
+**WHAT THE ROUND DOES NOT NEED IT FOR.** The change touches `src/server/Match/`, so it is in
+`TWO_PLAYER_PATHS` and the MERGE gate wants the pair. The REVIEW round does not: CLAUDE.md accepts a
+`scope=auto:...` line for a round and then asks for no `[harness2]` line at all, and this task has
+one at the same commit (`reviews/task-287/REQUEST.md`). So the review ran; **the merge is the
+Director's call**, exactly as the dispatch put it (*"if test2 cannot run tonight, say so; the
+Director decides"*).
+
+Lines in hand, both clean-tree and both naming the code commit:
+
+```
+[harness] PASS: 34/34 checks @ c26c375c9030cf86577a816239fa1d49e0bae050 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ c26c375c9030cf86577a816239fa1d49e0bae050 (clean tree) scope=auto:economy,hud,lobby,match
+```
+
+---
+
 # ESCALATE -- task 282, at the hard stop. For the Director.
 
 **Builder, 2026-10-27.** Branch `task-282-boar-hitbox`. **Item 2's cause is measured and named;
@@ -182,3 +360,42 @@ make -- a miss she can see, instead of a kill in empty space -- but roughly one 
 at a boar, and one in two at a cub, now connects with nothing.
 
 **NEEDS KAREN:** nothing clickable. Her judgement, after the Director's shoot.
+
+---
+
+## 2026-10-27 — TASK 299, ROUND 1 = FINDINGS (3). STOPPED AT THE DEADLINE, NOT AT A DISAGREEMENT
+
+`reviews/task-299/RESULT.md` @ `8eb985d7`, round 1, three blocking findings. The dispatch allows a
+round 2; the deadline (10:26 UTC) does not — a code change costs the full one-player gate plus
+`test2` twice plus a review, ~25 minutes from here. So the branch stands at `df70c86b` with the
+verdict committed and nothing hidden.
+
+**I AGREE WITH ALL THREE, AND THE FIRST ONE IS THE ONE THAT MATTERS.** I checked each against the
+code before writing this:
+
+1. **In the only world that has pads, my fix does not deal the fresh drive at all.**
+   `Lobby.onPhase("Scoring")` sets `dismissPending` (`src/server/Lobby/init.luau`), the next
+   `Lobby.step` at 10 Hz calls `world.dismissAll()`, the roster is empty ~0.1 s into the scene, and
+   `Phase`'s `Scoring` exit then takes `enterWaiting`, not `enterAssigning`. Karen's pad step would
+   buy her the results scene of the drive she abandoned and a walk back to the lodge. Nothing live
+   caught it: `zz_pad_restart.spec` drives `Match` with no lobby wired (`hasLobby = false` in DEV),
+   and the Forest Test is where the lobby exists. **This is a real defect in my design, found by
+   reading, and I could not have shipped it.**
+2. **The faucet is slowed, not shut.** A withdrawn man's board row is never marked `left`
+   (`Score.leave` is called only in `Match.forget`), so the aborted drive still pays him
+   `PARTICIPATION = 10` and increments `drivesPaid`. One paid drive per restart cycle (~15-20 s)
+   against one per 600 s for a drive that is played.
+3. **The `Assigning` arm still skips the per-drive work** (`measureMarkers`, `stats.drives`,
+   `driveKills`, the board rebuild), which is 287 round 3's finding 2 — the arm all four runs took.
+
+**WHAT ROUND 2 HAS TO DO** (one task, and it is bigger than "enter Scoring"):
+- key the per-drive block on the drive NUMBER changing rather than on the `Assigning` edge, so both
+  restart arms run it (finding 3) — that is the shape the dispatch wanted and it needs no lobby;
+- pay on the drive-number edge too, and REFUSE the pay-out for a drive an abandonment ended (pass
+  `enterScoring`'s `reason`, or mark the abandoned rows `left`) (finding 2);
+- and then either keep the fresh drive on the restart's own path, or stop `Lobby`'s dismissal firing
+  for a restart-induced `Scoring` (finding 1) — proven with a case that wires `Lobby.onPhase` +
+  `Lobby.step` the way `lobby_live.spec` does, because nothing else can see it.
+
+**NEEDS KAREN:** nothing clickable. **For the Director:** 299 is not mergeable; 287 is still blocked
+behind it.

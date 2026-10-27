@@ -4893,6 +4893,9 @@ function Hud.renderObjective(CameraSystem, WeaponSystem)
 			-- The server's own attribute, read like the four above it: the screen never claims to
 			-- know more than the server said.
 			left = Players.LocalPlayer:GetAttribute(lobbyData.LEFT_DRIVE_ATTRIBUTE) == true,
+			-- ...AND WHETHER THE PAD HE IS STANDING ON IS REFUSING HIM BECAUSE THE HUNT IS STILL ON
+			-- (task 287). The server's own attribute, read like the five above it.
+			padLate = Players.LocalPlayer:GetAttribute(lobbyData.PAD_LATE_ATTRIBUTE) == true,
 		}
 		else nil
 	-- IS HE AT THE SHOP COUNTER (task 178)? ONE EVALUATION, HERE, because this function is already
