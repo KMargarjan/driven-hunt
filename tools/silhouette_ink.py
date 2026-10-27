@@ -13,7 +13,7 @@ measured ON THE PICTURE, per picture -- the picture is what Karen sees"). `trunk
 rule once: the BACK LINE is the topmost row at least half as solid as the picture's solidest row,
 so a mane, a raised head and antlers sit above it; the BODY'S ENDS and the HOOVES' LINE are that
 trunk's own ink extent. `measure` prints the four numbers that go into `Report.CONFIG.TRUNK_IN_INK`,
-and `Ink.trunkBox` in the generated file is the same rule on the 120 x 60 grid, so a spec can
+and `Ink.trunkBox` in the generated file is the same rule on the 240 x 120 grid, so a spec can
 re-derive the rectangle from the pixels and the two agree to a cell.
 
     python tools/silhouette_ink.py write     # rewrite tests/client/HitCardInk.luau
@@ -26,7 +26,7 @@ import os
 import re
 import sys
 
-COLS, ROWS = 120, 60
+COLS, ROWS = 240, 120
 
 # The four uploaded silhouettes, keyed by the sha256 `assets/uploads.json` records for each.
 PICTURES = {

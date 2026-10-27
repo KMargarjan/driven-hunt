@@ -342,8 +342,10 @@ Report.CONFIG = {
 	-- bytes at full resolution. The back line is the topmost row whose ink is at least HALF the
 	-- solidest row's (above it the drawing is mane, raised head or antlers); the body's ends and the
 	-- hooves' line are those trunk rows' own ink extent. `python tools/silhouette_ink.py measure`
-	-- prints these four numbers, and `Ink.trunkBox` re-derives them from the 120 x 60 grid in
-	-- `tests/client/HitCardInk.luau` -- two resolutions, one rule, agreeing to a cell:
+	-- prints these four numbers, and `Ink.trunkBox` re-derives them from the 240 x 120 grid in
+	-- `tests/client/HitCardInk.luau` -- two resolutions, one rule, agreeing to half a cell. The grid
+	-- is 240 x 120 since round 2: at 120 x 60 a cell is 12.6 px of the stag and a point 2 px inside
+	-- his belly line read as air (`hit_card.spec` `stag#2`, measured at full resolution as opaque).
 	--
 	--   male    u 0.0000..0.9989  v 0.1347..0.9979   (grid 0.0000..1.0000  0.1333..1.0000)
 	--   female  u 0.0013..0.9987  v 0.0816..0.9977   (grid 0.0000..1.0000  0.0833..1.0000)

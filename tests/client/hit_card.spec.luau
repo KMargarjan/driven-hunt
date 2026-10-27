@@ -907,7 +907,7 @@ return function()
 
 		it("draws the dots in the PICTURE'S OWN trunk box, to a cell, for all seven kinds", function()
 			-- THE NUMBER, per picture (Director, 2026-10-27: the rectangle is measured ON THE
-			-- PICTURE). `Ink.trunkBox` reads it off the 120 x 60 grid of the uploaded PNG's alpha;
+			-- PICTURE). `Ink.trunkBox` reads it off the 240 x 120 grid of the uploaded PNG's alpha;
 			-- the card's rectangle comes from `Report.CONFIG.TRUNK_IN_INK`, measured on the same
 			-- PNG at full resolution by `tools/silhouette_ink.py measure`. Two resolutions, one
 			-- rule: they must agree to one cell. Delete that table and the card's box becomes the
@@ -981,9 +981,10 @@ return function()
 			local pips = drawCard("male", { { u = 0.46182, v = 0.03, zone = "chest", side = 1, lead = true } })
 			expect(#pips).to.equal(1)
 			local iu, iv = pictureUV("male", pips[1].Position.X.Scale, pips[1].Position.Y.Scale)
-			-- THE NUMBER, so the case cannot pass on a different rectangle: with his measured box
-			-- this pellet is drawn at image v 0.21, with round 1's rows at 0.15, with the rows
-			-- before this task at 0.27 and with no rectangle at all at 0.07.
+			-- THE NUMBER, so the case cannot pass on a different rectangle: with his MEASURED box
+			-- this pellet is drawn at image v 0.224, with round 1's rows at 0.170, with the rows
+			-- before this task at 0.308, and with no rectangle at all at 0.093. The tolerance is
+			-- one cell of the grid (0.008), so the four are 6 cells apart at the closest.
 			expect(iv).to.be.near(expectedV("male", pips[1], 0.03), 1 / Ink.ROWS)
 			expect(Ink.isInk("male", iu, iv)).to.equal(true)
 			-- ...AND BELOW THE CREST: there is ink ABOVE it in the same column, which is the mane she
