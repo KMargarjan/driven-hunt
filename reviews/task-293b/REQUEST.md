@@ -1,7 +1,7 @@
 # Task 293b: a dead deer stays down for its whole carcass life
 
 Task: 293b
-Round: 1
+Round: 2
 Base: 5fb54278
 Code commit: e7db8844ce8c958c409568e375f7659027ac3802
 
@@ -54,7 +54,8 @@ Director's `293-pose.luau` bone read at 3 s, 60 s and 115 s, on a deer AND a boa
    cannot storm, because the state the repair produces -- playing, weight 1, speed 0, at the held
    frame -- is the state `shouldRehold` provably refuses (spec: the first case in the task-293 test).
    `handle.reholds` survives as a DIAGNOSTIC only (`Runtime:animationOf`), read by no gate.
-3. The boar's paddle still plays to its end: nothing freezes a clip that is mid-advance, asserted.
+3. The boar's paddle still plays to its end: nothing freezes a clip that is mid-advance. Held by the
+   existing case, which this branch does not touch and which passed before it.
 
 ## CLAIMS
 
@@ -65,8 +66,11 @@ Director's `293-pose.luau` bone read at 3 s, 60 s and 115 s, on a deer AND a boa
    (`grep -n "freezeReach\|freezeWindow" src/ tests/`).
 3. A carcass gets 240 overruns across `CARCASS_SECONDS` 120 and 0 standing samples
    (`tests/server/boar_model.spec.luau`, "holds a carcass down for its WHOLE life").
-4. The boar's paddle advances through most of its 4 s with 0 repairs and `Speed` 1
-   (same file, "holds the hold WITHOUT a budget while the boar's paddle still plays to its end").
+4. The fixed window freezes a death 0.04 s from its end, where the old dt window let the next
+   45 ms frame carry it over: 0 stops, 0 repairs, held at `holdFrame` (same file, "the fixed window
+   freezes the death BEFORE its end"). This is the case that bites on item 1; round 1's version of
+   it passed at main and has been replaced. The boar's paddle advancing to its end is the existing
+   case below it ("the boar paddle advances and is never pinned"), unchanged by this branch.
 5. FAIL FIRST: the same spec, with `src/` identical to main, fails. The line is pasted below.
 6. `handle.reholds` gates nothing (`grep -rn "reholds" src/`: written in `Body.stepVisual`, read
    only by `Runtime:animationOf`).
@@ -89,8 +93,10 @@ FAIL FIRST, with `src/` identical to main and only the new spec added (commit a4
 [harness] FAIL: 32/34 checks @ a4a5b8e3eba4be7ad19134b8a9615b65e794d4b8 (clean tree) scope=auto:assets,boar,flags
 ```
 
-**7110 of 7200 steps standing** -- that is the 4th overrun onwards, for the rest of the carcass's
-120 seconds, which is Karen's sentence as a number. After the fix: 0 of 7200.
+**7110 of 7200 SERVER STEPS standing** -- the 4th overrun onwards, for the rest of the carcass's
+120 seconds, which is Karen's sentence as a number. After the fix: 0 of 7200 server steps. It is a
+count of steps, not of drawn frames: a hitch worse than 20 fps still draws one frame of bind pose
+before the repair lands on the next step.
 
 `test2` is N/A: nothing here is in `TWO_PLAYER_PATHS` (`src/server/Boar/`, `tests/server/`).
 
