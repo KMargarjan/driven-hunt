@@ -210,10 +210,15 @@ return function()
 		end
 
 		-- HOW MANY PIECES OF THE DRAWN GUN A PLAYER CAN SEE. Karen's rectangles, as a number.
+		--
+		-- THE GUN'S OWN PIECE LIST AND NOTHING ELSE: the Handle and the hinge group are envelopes
+		-- (Transparency 1 by construction) and the GLOVES are not the gun -- counting those read 2
+		-- visible on a held gun and said nothing about a box.
 		local function visiblePieces(clone: Model): number
 			local seen = 0
-			for _, part in ipairs(clone:GetDescendants()) do
-				if part:IsA("BasePart") and part.Name ~= "Handle" and part.Transparency < 1 then
+			for _, piece in ipairs(Gun.pieces(Shotgun.CONFIG)) do
+				local part = clone:FindFirstChild(piece.name, true)
+				if part ~= nil and part:IsA("BasePart") and (part :: BasePart).Transparency < 1 then
 					seen += 1
 				end
 			end
