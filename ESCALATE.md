@@ -399,3 +399,23 @@ code before writing this:
 
 **NEEDS KAREN:** nothing clickable. **For the Director:** 299 is not mergeable; 287 is still blocked
 behind it.
+
+## 2026-10-27 -- Task 293: no animal can be killed in a DEV Play session (proof blocked)
+
+Written AT the hard stop (V280), not at the end of the session.
+
+The task's live after-measurement needs a real carcass in DEV. Through `FireRequest:FireServer` --
+the only sanctioned route (L-023) -- with the player staged 18-22 studs from a live calf and a live
+hind, facing it, 1.6 s after the teleport so the server saw the new root, six rounds fired with a
+`ActionRequest("Reload")` between pairs: **every target kept `Carcass = nil` and the server console
+recorded no hit at all**. Probes: `<runs-dir>/293-hunt.luau`, `293-shoot.luau`, `293-near.luau`.
+Not diagnosed: whether the shots were refused (`origin-far`, `rate-limited`, the stand rule), whether
+the arena drive arms a Shooter who was teleported, or whether the shotgun had rounds. The Weapon's
+own `stats` are not readable from a probe (L-026: `require` gives a fresh copy).
+
+What this cost: Task 293 ships with the CAUSE measured against the drawn pose and a spec that fails
+first, but with NO after-frame of a real carcass. The Director's Forest Test proof carries that.
+
+NEEDS THE DIRECTOR: a sanctioned way for a Builder to produce one real kill in DEV (a dev remote, a
+flagged "kill nearest" hook, or a documented working shot route). Three sessions in a row have now
+spent time on this plumbing.

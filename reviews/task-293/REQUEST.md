@@ -73,3 +73,28 @@ publishes `reholds`. One spec case in `boar_model.spec.luau`. 81 lines added, no
 - Whether a client whose own track also ran past the end gets the pose back from the replicated
   `Play`: task 150 measured that mechanism fixing "one in ten stands on the CLIENT", and this reuses
   it, but I did not re-measure a client carcass.
+
+## Answered flags
+- ANSWERED: L-133 -- every pose reading is taken while the real `Death_L` track is live and playing,
+  several points per kind (`293-tail.luau` samples seven frames of the tail for hind, stag, calf and
+  boar; `293-lab3.luau` reads the held and the overrun state). No instrument anchored a live animal
+  or destroyed its Animator: the lab builds its OWN rig from the published template.
+- ANSWERED: ROUTE -- kills were attempted only through `FireRequest:FireServer`
+  (`<runs-dir>/293-hunt.luau`, `293-shoot.luau`), never by aiming at a screen point. None landed; see
+  "What I could NOT verify" and `ESCALATE.md`.
+- ANSWERED: L-104 -- the carcass/death-pose code is ONE path for both places: `Body.collapse` and
+  `Body.stepVisual` in `src/server/Boar/Body.luau`, reached through `Boar.newRuntime` from
+  `MatchBoot.server.luau` (DEV) and `ForestTestBoot.server.luau` (Karen's Forest Test). Checked by
+  grep: those are the only two `Boar.newRuntime` callers, and neither replaces `Body`.
+- ANSWERED: L-026 -- every pose and track reading is a live Instance property
+  (`Bone.TransformedWorldCFrame`, `AnimationTrack.TimePosition/WeightCurrent/IsPlaying`) in place. No
+  probe required a game module for state; `Assets` is required only for asset ids.
+- ANSWERED: L-010/L-031 -- the fix is ONE shared invariant in `Body`, with no species or kind in its
+  inputs, not a deer patch. The boar's carcass is unchanged: its hold already holds, and
+  `shouldRehold` leaves a playing, full-weight track alone.
+- ANSWERED: L-029 -- it reconciles on a TICK, not on the death event, which is why it covers the
+  intermittent case; the overrun race is named in the code comment.
+- ANSWERED: L-033 -- one Forest Test kill is NOT treated as proof here: the live after-measurement is
+  marked NOT PROVEN, and the Director's proof should be several kills.
+- ANSWERED: L-020 -- no bone or Motor6D CFrame is written by this fix. It writes only
+  `AnimationTrack` properties, so no rig's axis convention is assumed.
