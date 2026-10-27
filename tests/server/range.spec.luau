@@ -901,20 +901,44 @@ return function()
 				end
 				return left
 			end
+			-- THE REAL CYCLE of a break action, through the shipped reducer and nothing else:
+			-- Fire until the barrels are spent, then Break / Load each chamber / Close. `Load` is
+			-- where a pocket goes down, and `boundless` is where it does not.
 			local function fire30(start): (number, number)
-				local state = StateMachine.initial(row, start)
+				local state = StateMachine.setEquipped(StateMachine.initial(row, start), true)
 				local clock, fired = 0, 0
-				for _ = 1, 30 do
-					clock += 10
+				for _ = 1, 400 do
+					if fired >= 30 then
+						break
+					end
+					clock += 5
 					local shot, why = StateMachine.apply(state, { kind = "Fire" }, clock, row)
 					if why == nil then
 						state = shot
 						fired += 1
-					end
-					clock += 10
-					local reloaded, reason = StateMachine.apply(state, { kind = "Reload" }, clock, row)
-					if reason == nil then
-						state = reloaded
+					else
+						clock += 5
+						local opened, openWhy = StateMachine.apply(state, { kind = "Break" }, clock, row)
+						if openWhy == nil then
+							state = opened
+						end
+						local loadedAny = false
+						for _ = 1, #state.barrels do
+							clock += 5
+							local filled, loadWhy = StateMachine.apply(state, { kind = "Load" }, clock, row)
+							if loadWhy == nil then
+								state = filled
+								loadedAny = true
+							end
+						end
+						clock += 5
+						local closed, closeWhy = StateMachine.apply(state, { kind = "Close" }, clock, row)
+						if closeWhy == nil then
+							state = closed
+						end
+						if not loadedAny then
+							break -- the pocket is empty: this is where the control run stops
+						end
 					end
 				end
 				return fired, pocket(state.reserve)
@@ -928,6 +952,7 @@ return function()
 
 			local plainFired, plainLeft = fire30(nil)
 			expect(plainFired > 0).to.equal(true)
+			expect(plainFired < 30).to.equal(true)
 			expect(plainLeft < before).to.equal(true)
 			TestKit.note(
 				string.format(
