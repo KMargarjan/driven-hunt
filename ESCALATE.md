@@ -1,37 +1,38 @@
-# ESCALATE -- task 287, AT THE HARD STOP (100 min). For the Director.
+# ESCALATE -- task 287. **NEEDS KAREN: the two-player click, and it now blocks the REVIEW too.**
 
-**Builder, 2026-10-27 ~07:36 local.** Branch `task-287-pad-fresh-hunt`, head `643ff0a0`. Written at
-the stop, before any workaround, as the dispatch asks. **The task is BUILT, round 1 is reviewed and
-all three of its findings are closed. Two things are NOT done, and neither is a code question:**
-
-## 1. The last harness run is FAIL, and the ONLY failure is the flake the dispatch named
+**Builder, 2026-10-27 07:15 UTC.** Branch `task-287-pad-fresh-hunt`, head `f68f9a49`. The work is
+done and GREEN; round 2 of the review cannot be STARTED, and the reason is a gate, not a defect.
 
 ```
-[harness] FAIL: 32/34 checks @ 643ff0a034d0d4b763a808946146d8a5c7070caa (clean tree) scope=auto:economy,hud,lobby,match
-  failed [server] weapon_shot.spec:476 Expected value "true" (boolean), got "false" (boolean) instead
-  [tests:server] FAIL: 2407 passed, 1 failed, 0 skipped, 1 errors, 74 spec files
-  [client] PASS: 612 passed, 0 failed, 0 errors
+[harness] PASS: 34/34 checks @ f68f9a49cfc24a03db39e137a0c981953dbe87a7 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 1dde99da33ed3c2edfbe46c855d07a244d9bf56c (clean tree) scope=all
 ```
+Server 2408 / 0 / 0, client 612 / 0 / 0, both runs. `weapon_shot.spec:476` and
+`zz_drive_boundary.spec` are green: the branch regression is fixed (`reviews/task-287/REQUEST.md`
+round 2 has the three measurements that found it).
 
-That is **TASKS 285's known flake** (`weapon_shot.spec` self-block), named in this dispatch as *"KNOWN
-FLAKE, NOT YOURS"*. Every spec of this task passes, on both sides. The run BEFORE this one, at
-`5a860336`, failed on that same flake plus one case of mine, which is fixed in `221b41c2` and passes
-here. **One re-run of `python tools/studio_mcp.py test --scope auto` is all that stands between this
-branch and a PASS line** -- I did not make it, because the hard stop had arrived.
+**WHY ROUND 2 IS REFUSED.** `tools/review.ps1 287` says:
 
-## 2. Round 2 of the review was therefore not run
+> REFUSED: this change touches src/server/Match/Phase.luau, ... which a one-player run cannot
+> evidence. Paste the TWO-PLAYER line for the code commit as well.
 
-`tools/agents.py` needs a PASS line for the code commit, so the round could not be started. Round 1's
-verdict and its three closures are committed (`reviews/task-287/RESULT.md`, `221b41c2`, `5a860336`).
+Round 1 got past it with a `scope=auto:...` line, which `tools/agents.py` accepts for a round. **That
+door is shut for this branch now:** fixing the regression put the new spec file into `SCOPE_SPECS`,
+which is in `tools/studio_mcp.py`, and that path resolves to `all` in `BLAST_RADIUS` -- so
+`test --scope auto` can only ever print `scope=all` here, and a hand-named scope is refused as
+evidence (correctly). The only remaining key is the `[harness2]` line.
 
-## 3. `test2` STILL NEEDS KAREN (unchanged from the entry below, which stands)
+**THE CLICKS, UNCHANGED, AND NOW NEEDED ONCE FOR THE ROUND AND TWICE FOR THE MERGE:**
 
-The clicks are in that entry. The merge gate wants the full `test` plus two `test2` runs; the review
-round does not (the scoped line is accepted for a round).
+1. Studio on **Driven Hunt DEV**, **Edit** mode, Rojo connected, at `f68f9a49`.
+2. `python tools/studio_mcp.py test2`
+3. Studio -> **Test** -> **Clients and Servers** -> **Players: 2** -> **Start**; leave the windows
+   alone; press **Cleanup** when the harness says so. Repeat once for the second clean run.
+4. Then `powershell -ExecutionPolicy Bypass -File tools/review.ps1 287` (the request is `Round: 2`;
+   its `Code commit:` is `f68f9a49`).
 
-**What the Director has to decide:** re-run the one-player gate at the branch head, then run round 2
-(the request's `Code commit:` must be updated to whatever that run names), and whether `test2` waits
-for Karen.
+I did not attempt the click: the dispatch says *"test2 stays NEEDS KAREN / the Director's -- do not
+wait on it"*. Everything else in the definition of done is met.
 
 ---
 
