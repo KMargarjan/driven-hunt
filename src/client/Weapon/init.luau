@@ -109,6 +109,10 @@ end
 -- `WARM_TRIES`. Returns how many ids this call asked for.
 Weapon.WARM_TRIES = 30
 Weapon.WARM_SECONDS = 1
+-- HOW MANY SWEEPS REALLY RAN (task 294a). Nothing asserted the sweep is ever STARTED, and
+-- `Weapon.start`'s `started` guard makes it un-re-enterable, so a spec cannot drive it: this
+-- monotonic counter is the seam, and it needs no clock to read.
+Weapon.WARM_SWEEPS = 0
 
 function Weapon.warmWeapons(): number
 	local holders: { Instance } = {}
@@ -133,6 +137,7 @@ function Weapon.start()
 	task.spawn(function()
 		for _ = 1, Weapon.WARM_TRIES do
 			Weapon.warmWeapons()
+			Weapon.WARM_SWEEPS += 1
 			task.wait(Weapon.WARM_SECONDS)
 		end
 	end)

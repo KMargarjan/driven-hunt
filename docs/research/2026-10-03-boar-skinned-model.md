@@ -342,9 +342,13 @@ already 0" guard stays as the second line of defence it was always written to be
 
 The same round found that `HOLD_EPSILON` alone is a window under two frames wide while `stepVisual`
 gets the raw Heartbeat `dt`, so one long frame could step a death clean past its end. The window is
-now `Body.freezeReach(speed, dt, epsilon)` -- whichever is larger, the epsilon or the distance the
-clip covers in that frame -- and it is exported so the spec tests the production formula rather than
-`math.max`.
+now `Body.freezeWindow(length, config)` -- a FIXED `HOLD_MARGIN_SECONDS` 0.05, capped at a fifth of
+a short clip and floored at the epsilon -- and it is exported so the spec tests the production
+formula rather than `math.max`. It took a `dt` until task 293b (2026-10-27): measuring the window
+with the LAST frame's step meant a 16 ms frame gave a 16 ms window and the 45 ms frame after it ran
+the clip over the end. A fixed width W catches every frame whose step is <= W, so nothing down to
+20 fps overruns; worse than that is repaired by `Body.shouldRehold` on the next step, with no count
+to exhaust (`backups/2026-10-27-task-293b-freezeReach.md`).
 
 ## 8. What could not be verified here (rule 8)
 

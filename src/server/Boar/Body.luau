@@ -538,8 +538,9 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 		-- How many times this boar's animation speed has been written. Nothing in the game reads it;
 		-- `Runtime:animationOf` hands it to a spec, the way `Runtime:woundOf` hands out a wound.
 		rateWrites = 0,
-		-- How many times the held death clip has been PUT BACK (task 293). Nothing in the game reads
-		-- it; `Runtime:animationOf` hands it out so a spec can say the invariant was repaired.
+		-- How many times the held death clip has been PUT BACK (task 293). A DIAGNOSTIC ONLY: it
+		-- gates nothing since task 293b removed the repair budget; `Runtime:animationOf` hands it
+		-- out so a spec can say the invariant was repaired.
 		reholds = 0,
 		hitFor = 0, -- seconds of flinch left
 		hitFromBehind = false,
@@ -1451,7 +1452,6 @@ function Body.stepVisual(handle, dt: number, info, config)
 			deathTrack.WeightCurrent,
 			deathTrack.TimePosition,
 			deathTrack.Length,
-			handle.reholds,
 			config
 		)
 	then
@@ -1602,18 +1602,22 @@ function Body.stepVisual(handle, dt: number, info, config)
 	if handle.collapsed and handle.heldClip == nil then
 		local track = handle.tracks[name or ""]
 		if track and track.IsPlaying then
-			-- THE WINDOW HAS TO BE AT LEAST A FRAME WIDE (review round 1, note). `HOLD_EPSILON` alone
-			-- is 0.03 s, under two frames at 60 fps, and `stepVisual` is handed the raw Heartbeat
-			-- `dt` -- `DT_CLAMP` is applied to the Brain, not here. One long frame steps
-			-- `TimePosition` clean past `length`, the non-looped track STOPS, and the carcass snaps
-			-- to its rest pose standing up: the exact fault the freeze exists to prevent. So the
-			-- window is whichever is larger, the fixed epsilon or the distance this clip covers in
-			-- this frame. Once frozen the speed is 0, so the second term vanishes.
-			local reach = Body.freezeReach(track.Speed, dt, config.MODEL.HOLD_EPSILON)
-			if Body.shouldFreeze(track.TimePosition, track.Length, track.Speed, reach) then
+			-- THE WINDOW IS FIXED AND DOES NOT DEPEND ON THE LAST FRAME'S dt (task 293b). It used
+			-- to: `freezeReach` predicted the next step from the previous frame, so a 16 ms frame
+			-- gave a 16 ms window and the 300 ms frame after it stepped clean past `length` -- the
+			-- non-looped track STOPS and the carcass snaps to its bind pose, standing. See
+			-- `Body.freezeWindow`.
+			local window = Body.freezeWindow(track.Length, config)
+			if Body.shouldFreeze(track.TimePosition, track.Length, track.Speed, window) then
 				track:AdjustSpeed(0)
 				handle.rateWrites += 1
-				handle.heldAt = track.TimePosition
+				-- THE FRAME IS WRITTEN, NOT INHERITED (task 293b). The window is a fixed 0.05 s, so
+				-- the freeze can fire up to 0.02 s before `holdFrame`'s target -- and an overshoot
+				-- could leave it past the end, where a non-looped track stops. One write puts it on
+				-- the frame `KINDS.deathLiftStuds` was measured at, clamped below the end.
+				local at = Body.holdFrame(nil, track.Length, config)
+				track.TimePosition = at
+				handle.heldAt = at
 				handle.paddleFor = config.MODEL.PADDLE_SECONDS
 				-- ONCE PER KILL. From here `play` leaves this track alone and this branch is skipped,
 				-- so the death's speed is written exactly as often as `shouldFreeze` says it is.
@@ -1646,21 +1650,20 @@ function Body.stepVisual(handle, dt: number, info, config)
 	end
 end
 
--- HOW WIDE THE FREEZE WINDOW IS THIS FRAME. Exported and pure because the spec used to assert
--- `math.max` rather than this repository's code (review round 2, note), and because it is the one
--- number standing between a death clip and the rest pose.
+-- HOW WIDE THE FREEZE WINDOW IS, AND IT IS THE SAME WIDTH EVERY FRAME (task 293b). Pure, exported,
+-- and it takes no `dt` on purpose: the old `Body.freezeReach` measured the window with the LAST
+-- frame's step, so a 16 ms frame followed by a 300 ms one had a 16 ms window and the clip ran past
+-- its end (`backups/2026-10-27-task-293b-freezeReach.md`).
 --
--- `HOLD_EPSILON` alone is 0.03 s, under two frames at 60 fps, and `stepVisual` is handed the RAW
--- Heartbeat `dt` -- `DT_CLAMP` is applied to the Brain, not here. One long frame steps `TimePosition`
--- clean past `length`, the non-looped track STOPS, and the carcass snaps to its rest pose. So the
--- window is whichever is larger: the fixed epsilon, or the distance this clip covers in this frame.
---
--- ON A BAD HITCH IT OVERSHOOTS, and that is the trade taken knowingly (review round 2, note): a
--- quarter-second frame would freeze the death a quarter-second short of its end rather than at it.
--- The clip is 1.21 s and its last frames are an animal settling, so a frame early is invisible; a
--- frame late is the animal standing back up. Once frozen the speed is 0 and the second term vanishes.
-function Body.freezeReach(speed: number, dt: number, epsilon: number): number
-	return math.max(epsilon, math.abs(speed) * dt)
+-- WHY A FIXED WIDTH CANNOT BE JUMPED: samples are one frame apart, so a window of width W catches
+-- every frame whose clip step is <= W. At `HOLD_MARGIN_SECONDS` 0.05 that is every frame down to
+-- 20 fps. Worse than that still overruns, and `Body.shouldRehold` then puts the pose back on the
+-- next step, for the whole carcass life, with no count to exhaust.
+function Body.freezeWindow(length: number, config): number
+	local model = config.MODEL
+	-- ...AND NEVER MORE THAN A FIFTH OF A SHORT CLIP, so freezing can never land on frame 0 -- which
+	-- for a death is the animal still standing.
+	return math.max(model.HOLD_EPSILON, math.min(model.HOLD_MARGIN_SECONDS, length * model.HOLD_MARGIN_RATIO))
 end
 
 -- Whether a one-shot track has reached its end and should be frozen there. Pure, because the branch
@@ -2551,10 +2554,10 @@ end
 -- because the deer package publishes no `Death_Paddle_L/R`: its fall is the clip that is HELD, so
 -- the hold is the only thing between a carcass and its bind pose.
 --
--- WHY THE FREEZE ALONE IS NOT ENOUGH. `Body.freezeReach` predicts the next step from the LAST
--- frame's `dt`, so one frame that is suddenly longer steps `TimePosition` clean past `length` before
--- `shouldFreeze` is ever asked -- which is why Karen's defect is intermittent and why the Playtester
--- saw a carcass lie still on another kill.
+-- WHY THE FREEZE ALONE IS NOT ENOUGH. `Body.freezeWindow` is 0.05 s wide, so every frame down to
+-- 20 fps is caught before the end -- but a worse hitch than that still steps `TimePosition` clean
+-- past `length` before `shouldFreeze` is ever asked, which is why Karen's defect is intermittent and
+-- why the Playtester saw a carcass lie still on another kill.
 --
 -- `weight` IS ASKED AS WELL AS `playing` because a track can be playing at weight 0 after a fade,
 -- and a rig nothing is weighted onto draws its bind pose exactly as a stopped one does. `0.5` is a
@@ -2565,8 +2568,12 @@ end
 -- exactly what the overrun has already made false. The caller names the animal's DEATH CLIP from the
 -- config instead, so the carcass Karen photographed is the one this sees.
 --
--- BOUNDED (review round 1, finding 2): `MODEL.REHOLD_LIMIT` repairs per carcass, so even a state
--- this rule reads wrong can never write every tick for `CARCASS_SECONDS`.
+-- NO COUNT, AND THAT IS TASK 293b (Karen, after 293 merged: *"deer error remains, after kill
+-- stands"*). 293 allowed `REHOLD_LIMIT` 3 repairs per carcass against `CARCASS_SECONDS` 120, so the
+-- 4th overrun in one carcass's life left the deer standing for the rest of it. The repair is
+-- available on every one of the carcass's ~7200 steps instead, and it still cannot storm: the state
+-- it produces -- playing, weight 1, at the held frame -- is the state the first branch below
+-- REFUSES, which the suite asserts.
 function Body.shouldRehold(
 	collapsed: boolean,
 	deathClip: string?,
@@ -2574,7 +2581,6 @@ function Body.shouldRehold(
 	weight: number,
 	timePosition: number,
 	length: number,
-	reholds: number,
 	config
 ): boolean
 	if not collapsed or deathClip == nil then
@@ -2583,9 +2589,6 @@ function Body.shouldRehold(
 	-- A ZERO LENGTH MEANS "NOT LOADED YET", never "already over" (`Body.shouldFreeze`'s own guard,
 	-- review round 2, note 2): frame 0 of the fall is the animal standing.
 	if length <= 0 then
-		return false
-	end
-	if reholds >= config.MODEL.REHOLD_LIMIT then
 		return false
 	end
 	-- STOPPED: the rig draws its bind pose, which is the animal standing inside its carcass.

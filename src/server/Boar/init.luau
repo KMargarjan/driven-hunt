@@ -87,9 +87,9 @@ Boar.shouldAdjustRate = Body.shouldAdjustRate
 -- rows are `rbxasset://` engine files and every other row is a number, which is exactly the trap
 -- this function exists for.
 Boar.soundUri = Body.soundUri
--- ...and how wide the freeze window is this frame, which decides whether a death holds its last
--- frame or runs past it into the rest pose.
-Boar.freezeReach = Body.freezeReach
+-- ...and how wide the freeze window is -- the SAME width every frame since task 293b -- which
+-- decides whether a death holds its last frame or runs past it into the bind pose.
+Boar.freezeWindow = Body.freezeWindow
 -- ...and task 116's three: which footstep loop a speed asks for, the pitch jitter band, and the
 -- shape of the dying twitch. Pure, for the same reason as every export above it -- a spec cannot
 -- make a boar run, die or be heard.
@@ -3414,10 +3414,13 @@ Boar.CONFIG.MODEL = {
 	WARM_SECONDS = 0.5,
 	RATE_EPSILON = 0.02, -- do not re-adjust a track's speed for a 2 % change: it is a property write
 	HOLD_EPSILON = 0.03, -- how close to the end a death clip is frozen at, so the carcass stays down
-	-- HOW MANY TIMES ONE CARCASS MAY HAVE ITS DEATH POSE PUT BACK (task 293). A bound, not a
-	-- measurement: `Body.shouldRehold` allows one repair per stop, and three is room for a stop
-	-- nobody has seen yet without this ever becoming a per-frame writer.
-	REHOLD_LIMIT = 3,
+	-- HOW FAR FROM THE END THE FREEZE IS DECIDED (task 293b), and it is a width, not a prediction.
+	-- Samples are one frame apart, so a window of width W catches every frame whose clip step is
+	-- <= W: 0.05 s covers everything down to 20 fps, where the old dt-based window covered only a
+	-- frame no longer than the one before it. The RATIO caps it at a fifth of a short clip, so the
+	-- freeze can never land on frame 0 -- which for a death is the animal still standing.
+	HOLD_MARGIN_SECONDS = 0.05,
+	HOLD_MARGIN_RATIO = 0.2,
 	-- THE TWITCH AFTER IT GOES DOWN, and it is NOT what was asked for -- see the research note.
 	-- `Bone.Transform` is the Animator's output and a script's write to it does not survive a single
 	-- frame (measured: 0 of 122 samples, server and client), so isolated paddling legs cannot be

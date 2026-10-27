@@ -1205,28 +1205,29 @@ return function()
 			local len = m.CLIPS.deathLeft.seconds
 			local last = len - m.HOLD_EPSILON
 			-- HELD AND STILL PLAYING AT FULL WEIGHT: left alone.
-			expect(Boar.shouldRehold(true, "deathLeft", true, 1, last, len, 0, CONFIG)).to.equal(false)
+			expect(Boar.shouldRehold(true, "deathLeft", true, 1, last, len, CONFIG)).to.equal(false)
 			-- THE DEFECT: dead, and the death track has STOPPED.
-			expect(Boar.shouldRehold(true, "deathLeft", false, 0, len, len, 0, CONFIG)).to.equal(true)
+			expect(Boar.shouldRehold(true, "deathLeft", false, 0, len, len, CONFIG)).to.equal(true)
 			-- FADED OUT AT ITS END is the same picture: nothing is weighted onto the rig.
-			expect(Boar.shouldRehold(true, "deathLeft", true, 0, last, len, 0, CONFIG)).to.equal(true)
+			expect(Boar.shouldRehold(true, "deathLeft", true, 0, last, len, CONFIG)).to.equal(true)
 			-- ...BUT A FADE *IN* IS NOT (review round 2, finding 1): `play` starts every clip with
 			-- `FADE_SECONDS` 0.15, so one Heartbeat into the 4 s paddle `WeightCurrent` is ~0.11 at
 			-- `TimePosition` ~0.017 -- and pinning THAT froze the paddle at the fall's own frame.
 			local paddle = m.CLIPS.deathPaddleLeft.seconds
-			expect(Boar.shouldRehold(true, "deathPaddleLeft", true, 0.11, 0.017, paddle, 0, CONFIG)).to.equal(false)
-			expect(Boar.shouldRehold(true, "deathPaddleLeft", true, 0.49, paddle - m.HOLD_EPSILON, paddle, 0, CONFIG)).to.equal(
+			expect(Boar.shouldRehold(true, "deathPaddleLeft", true, 0.11, 0.017, paddle, CONFIG)).to.equal(false)
+			expect(Boar.shouldRehold(true, "deathPaddleLeft", true, 0.49, paddle - m.HOLD_EPSILON, paddle, CONFIG)).to.equal(
 				true
 			)
 			-- A LIVE ANIMAL IS NEVER TOUCHED, and nor is a carcass the BOX laid down (`boxFalls`):
 			-- laying that one down again is task 120's carcass buried upside down.
-			expect(Boar.shouldRehold(false, "deathLeft", false, 0, len, len, 0, CONFIG)).to.equal(false)
-			expect(Boar.shouldRehold(true, nil, false, 0, len, len, 0, CONFIG)).to.equal(false)
+			expect(Boar.shouldRehold(false, "deathLeft", false, 0, len, len, CONFIG)).to.equal(false)
+			expect(Boar.shouldRehold(true, nil, false, 0, len, len, CONFIG)).to.equal(false)
 			-- A LENGTH OF 0 MEANS "NOT LOADED YET", never "already over" (`shouldFreeze`'s own
 			-- guard): frame 0 of the fall is the animal standing.
-			expect(Boar.shouldRehold(true, "deathLeft", false, 0, 0, 0, 0, CONFIG)).to.equal(false)
-			-- BOUNDED: never a per-frame writer, whatever state it reads.
-			expect(Boar.shouldRehold(true, "deathLeft", false, 0, len, len, m.REHOLD_LIMIT, CONFIG)).to.equal(false)
+			expect(Boar.shouldRehold(true, "deathLeft", false, 0, 0, 0, CONFIG)).to.equal(false)
+			-- NOT BOUNDED BY A COUNT ANY MORE (task 293b): a carcass that breaks its hold on the
+			-- 4th stop, or the 400th, is repaired the same way. What stops it being a per-frame
+			-- writer is the first case in this block -- the state the repair itself produces.
 			-- THE FRAME IT GOES BACK ON IS CLAMPED SHORT OF THE END, because parking a non-looped
 			-- track AT its end is the state that stopped it.
 			expect(Boar.holdFrame(nil, len, CONFIG)).to.be.near(last, 1e-6)
@@ -1285,6 +1286,148 @@ return function()
 			Boar.stepVisual(handle, 1 / 60, { speed = 0 }, deer)
 			expect(plays).to.equal(1)
 			expect(handle.reholds).to.equal(1)
+		end)
+
+		it("holds a carcass down for its WHOLE life, past any repair budget (task 293b)", function()
+			-- KAREN, 2026-10-27, AFTER task 293 merged: *"deer error remains, after kill stands"*.
+			-- 293 capped the repair at `REHOLD_LIMIT` 3 per carcass against `CARCASS_SECONDS` 120, so
+			-- the 4th overrun inside one carcass's life left the deer in its BIND POSE for the rest of
+			-- it. MEASURED on the real hind rig (`<runs-dir>/293-tail.luau`, `Bone.TransformedWorldCFrame`):
+			-- the held death draws 1.02-1.33 studs of height, the bind pose 3.85-4.94.
+			--
+			-- FAILS AT MAIN AND WHEN THE `stepVisual` REHOLD BLOCK IS DELETED: the 4th overrun there
+			-- leaves `IsPlaying` false, which is the standing deer.
+			local deer = Boar.speciesConfig("reddeer", CONFIG)
+			local fall, paddleName = Boar.deathClips(deer)
+			expect(Boar.hasClip(paddleName, deer)).to.equal(false) -- the deer HOLD the fall: no paddle
+			local len = deer.MODEL.CLIPS[fall].seconds
+			-- EVERY FRAME FROM HERE TO THE END DREW 1.03-1.20 STUDS -- lying -- on the real rig.
+			local lying = len - 0.2
+			local plays = 0
+			local track = {
+				Name = fall,
+				Length = len,
+				TimePosition = len - deer.MODEL.HOLD_EPSILON,
+				Speed = 0,
+				WeightCurrent = 1,
+				IsPlaying = true,
+				Looped = false,
+			}
+			function track:Play(_fade, weight, speed)
+				plays += 1
+				self.IsPlaying = true
+				self.WeightCurrent = weight or 1
+				self.Speed = speed or 1
+				self.TimePosition = 0 -- what Play really does
+			end
+			function track:AdjustSpeed(speed)
+				self.Speed = speed
+			end
+			function track:Stop() end
+			local handle = carcass293(fall, track, {
+				deadFor = len + 0.1,
+				heldClip = fall,
+				heldAt = len - deer.MODEL.HOLD_EPSILON,
+				visual = Instance.new("Model"),
+			})
+			-- ONE OVERRUN EVERY HALF SECOND FOR THE WHOLE CARCASS LIFE, which is 240 of them against
+			-- a budget of 3. Each is the fault exactly as the engine leaves it: `TimePosition` stepped
+			-- clean past `Length` by a long frame, and the non-looped track STOPPED.
+			local dt = 1 / 60
+			local life = deer.WOUND.CARCASS_SECONDS
+			local overruns, standingSamples, elapsed, nextOverrun = 0, 0, 0, 0
+			while elapsed < life do
+				if elapsed >= nextOverrun then
+					track.TimePosition = len + 0.04
+					track.IsPlaying = false
+					track.WeightCurrent = 0
+					overruns += 1
+					nextOverrun += 0.5
+				end
+				Boar.stepVisual(handle, dt, { speed = 0 }, deer)
+				-- AFTER EVERY SINGLE TICK, not just the last: a frame of its own death, never the bind pose.
+				if not track.IsPlaying or track.TimePosition < lying or track.TimePosition > len then
+					standingSamples += 1
+				end
+				elapsed += dt
+			end
+			expect(overruns).to.equal(240)
+			expect(overruns > 3).to.equal(true) -- more overruns than task 293's budget of 3, by 237
+			expect(standingSamples).to.equal(0) -- the whole point: 0 standing samples in 120 seconds
+			expect(plays).to.equal(overruns) -- every overrun repaired, not the first three
+			expect(handle.reholds).to.equal(overruns)
+			-- ...AND AT THE END OF THE CARCASS'S LIFE it is still held, on a frame that draws a lying deer.
+			expect(track.IsPlaying).to.equal(true)
+			expect(track.Speed).to.equal(0)
+			expect(track.TimePosition).to.be.near(len - deer.MODEL.HOLD_EPSILON, 1e-6)
+			expect(track.TimePosition >= lying).to.equal(true)
+		end)
+
+		it("the fixed window freezes the death BEFORE its end, where the dt one let it over (293b)", function()
+			-- THIS CASE BITES ON ITEM 1 and it is the only one that does: revert `Body.freezeWindow` to
+			-- the old `max(HOLD_EPSILON, |speed| * dt)` and it fails. Two ticks, no loop, no budget in it.
+			--
+			-- THE SHAPE OF THE FAULT: a 16 ms frame gives the old window 0.03 s, so a clip sitting
+			-- 0.04 s from its end is NOT frozen -- and the next frame is a 45 ms one, which steps it
+			-- clean past `Length`. A non-looped track that passes its end STOPS and the rig draws its
+			-- bind pose: the deer standing (1.02-1.33 studs held, 3.85-4.94 standing, on the real hind).
+			-- The fixed 0.05 s window catches the same frame, because a window of width W catches every
+			-- frame whose step is <= W.
+			local deer = Boar.speciesConfig("reddeer", CONFIG)
+			local fall = Boar.deathClips(deer)
+			local len = deer.MODEL.CLIPS[fall].seconds
+			local plays, stops = 0, 0
+			local track = {
+				Name = fall,
+				Length = len,
+				TimePosition = len - 0.04, -- further out than the old 0.03 window reaches
+				Speed = 1,
+				WeightCurrent = 1,
+				IsPlaying = true,
+				Looped = false,
+			}
+			function track:Play(_fade, weight, speed)
+				plays += 1
+				self.IsPlaying = true
+				self.WeightCurrent = weight or 1
+				self.Speed = speed or 1
+				self.TimePosition = 0
+			end
+			function track:AdjustSpeed(speed)
+				self.Speed = speed
+			end
+			function track:Stop() end
+			-- WHAT THE ANIMATOR DOES BETWEEN TWO HEARTBEATS, and the one rule that matters: a non-looped
+			-- track that passes its end stops there.
+			local function advance(dt: number)
+				if track.Speed <= 0 or not track.IsPlaying then
+					return
+				end
+				track.TimePosition += dt * track.Speed
+				if track.TimePosition >= len then
+					track.TimePosition = len
+					track.IsPlaying = false
+					track.WeightCurrent = 0
+					stops += 1
+				end
+			end
+			local handle = carcass293(fall, track, { deadFor = len - 0.04, visual = Instance.new("Model") })
+			expect(handle.heldClip).to.equal(nil) -- the freeze has not run yet: this is the branch under test
+			-- TICK 1, a 16 ms frame. The window must reach 0.04 s back from the end.
+			Boar.stepVisual(handle, 1 / 60, { speed = 0 }, deer)
+			expect(track.Speed).to.equal(0) -- frozen HERE, which the old dt window did not do
+			expect(handle.heldClip).to.equal(fall)
+			-- TICK 2, a 45 ms frame -- the one that used to carry it over the end.
+			advance(0.045)
+			Boar.stepVisual(handle, 0.045, { speed = 0 }, deer)
+			expect(stops).to.equal(0) -- the track never reached its end, so it never stopped
+			expect(track.IsPlaying).to.equal(true)
+			expect(handle.reholds).to.equal(0) -- and nothing had to be repaired: the cause is gone
+			expect(plays).to.equal(0)
+			-- THE FRAME IS WRITTEN, NOT INHERITED: `holdFrame`, clamped below the end.
+			expect(track.TimePosition).to.be.near(Boar.holdFrame(nil, len, deer), 1e-6)
+			expect(track.TimePosition < len).to.equal(true)
+			expect(handle.heldAt).to.be.near(Boar.holdFrame(nil, len, deer), 1e-6)
 		end)
 
 		it("drives stepVisual through play: the boar paddle advances and is never pinned", function()
@@ -1553,24 +1696,27 @@ return function()
 			runtime:destroy()
 		end)
 
-		it("the freeze window is this repository's formula, not math.max in the spec", function()
-			-- REVIEW ROUND 2, NOTE: the old case recomputed the window itself, so the production formula
-			-- had no test at all. `Body.freezeReach` is what `stepVisual` calls.
+		it("the freeze window is this repository's formula, and it takes no dt (task 293b)", function()
+			-- REVIEW ROUND 2'S NOTE, KEPT: the production formula is what is asserted, not a copy of
+			-- it in the spec. What changed is the formula -- `Body.freezeWindow` takes a LENGTH and a
+			-- config, and there is no `dt` to take, which is task 293b's whole first item.
 			local epsilon = MODEL.HOLD_EPSILON
+			local margin = MODEL.HOLD_MARGIN_SECONDS
 			local length = MODEL.CLIPS.deathLeft.seconds
-			-- A normal 60 fps frame at rate 1 covers less than the epsilon, so the epsilon is the window.
-			expect(Boar.freezeReach(1, 1 / 60, epsilon)).to.equal(epsilon)
-			-- A 0.1 s hitch covers more, and the window grows with it -- which is the whole point.
-			expect(Boar.freezeReach(1, 0.1, epsilon)).to.equal(0.1)
-			-- A fast clip on the same frame covers more still; the sign of the speed does not matter.
-			expect(Boar.freezeReach(2.2, 0.1, epsilon)).to.equal(0.1 * 2.2)
-			expect(Boar.freezeReach(-1, 0.1, epsilon)).to.equal(0.1)
-			-- Once frozen the speed is 0, so the window is the epsilon again and stays there.
-			expect(Boar.freezeReach(0, 0.1, epsilon)).to.equal(epsilon)
+			-- THE SAME WIDTH EVERY FRAME, 0.05 s: a window of width W catches every frame whose clip
+			-- step is <= W, so nothing down to 20 fps can step over it. The old window was the LAST
+			-- frame's step, so a 16 ms frame gave a 16 ms window.
+			expect(Boar.freezeWindow(length, CONFIG)).to.be.near(margin, 1e-9)
+			expect(margin > epsilon).to.equal(true)
+			-- ...AND NEVER MORE THAN A FIFTH OF A SHORT CLIP, so it can never reach frame 0, which for
+			-- a death is the animal still standing.
+			expect(Boar.freezeWindow(0.2, CONFIG)).to.be.near(0.2 * MODEL.HOLD_MARGIN_RATIO, 1e-9)
+			-- ...with the epsilon as the floor for a clip shorter still.
+			expect(Boar.freezeWindow(0.01, CONFIG)).to.be.near(epsilon, 1e-9)
 			-- And the window is what decides: a death this close to its end is missed by the epsilon
-			-- alone and caught once the frame's own reach is taken into account.
-			expect(Boar.shouldFreeze(length - 0.06, length, 1, epsilon)).to.equal(false)
-			expect(Boar.shouldFreeze(length - 0.06, length, 1, Boar.freezeReach(1, 0.1, epsilon))).to.equal(true)
+			-- alone and caught by the window.
+			expect(Boar.shouldFreeze(length - 0.04, length, 1, epsilon)).to.equal(false)
+			expect(Boar.shouldFreeze(length - 0.04, length, 1, Boar.freezeWindow(length, CONFIG))).to.equal(true)
 		end)
 	end)
 
