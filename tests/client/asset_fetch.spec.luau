@@ -272,6 +272,18 @@ return function()
 			expect(names > 0).to.equal(true)
 			TestKit.note(string.format("task294 hold case: %d mesh piece(s), %d fabricated", names, #made))
 
+			-- THE DOWNLOAD IS HELD BACK AT THE GATE'S OWN SEAM, so this case proves the same rule in
+			-- every place. Measured at 70b2a718: where the server HAS published the folder the pieces
+			-- read Success, `waiting` is 0 and the hold never fires -- "2 mesh piece(s), 0 fabricated
+			-- ... waiting=0 held=0 holding=false visible=3", red on both clients of the two-player run.
+			-- `reset()` is needed because `arrived` short-circuits `readyId` ahead of the status; both
+			-- it and the two seams are restored below.
+			AssetFetch.reset()
+			AssetFetch.setAsk(function() end) -- no PreloadAsync: nothing is really downloading here
+			AssetFetch.setStatus(function()
+				return Enum.AssetFetchStatus.Loading
+			end)
+
 			local ok, why = pcall(function()
 				withGunDrawn(function()
 					local clockNow = 1000
@@ -318,6 +330,16 @@ return function()
 			end)
 			-- ONLY WHAT THIS CASE MADE, and before the verdict: a template left behind would change
 			-- what every later frame of this session draws.
+			AssetFetch.setStatus(nil)
+			AssetFetch.setAsk(nil)
+			-- AND PUT BACK WHAT `reset()` CLEARED, through the gate's own reader: `arrived` is the
+			-- one-way "this client has the bytes" fact, so a later spec that draws a gun must not be
+			-- pushed into the hold by this case's bookkeeping.
+			for _, part in ipairs((folder :: Instance):GetDescendants()) do
+				if part:IsA("MeshPart") then
+					AssetFetch.ready(part)
+				end
+			end
 			for _, instance in ipairs(made) do
 				instance:Destroy()
 			end
@@ -406,7 +428,18 @@ return function()
 			local realWarm = AssetFetch.warm
 			local handed: { [string]: boolean } = {}
 			local calls = 0
+			local fromTheSweep = 0
+			-- ONLY THIS CASE'S OWN CALL IS COUNTED (the Reviewer of 294): `Weapon.start`'s sweep calls
+			-- `warmWeapons()` once a second for 30 tries, so a sweep landing inside this window used
+			-- to make `calls` read 2. `warm` is called SYNCHRONOUSLY, so our call is always on this
+			-- coroutine and the sweep's is always on the `task.spawn` thread: the race is closed by
+			-- identity, not by a timing window.
+			local mine = coroutine.running()
 			AssetFetch.warm = function(holders)
+				if coroutine.running() ~= mine then
+					fromTheSweep += 1
+					return realWarm(holders) -- the live sweep keeps working through the spy
+				end
 				calls += 1
 				for _, holder in ipairs(holders) do
 					handed[holder.Name] = true
@@ -424,6 +457,9 @@ return function()
 
 			expect(folders > 0).to.equal(true)
 			expect(calls).to.equal(1) -- one sweep, one call: not one per weapon
+			TestKit.note(
+				string.format("task294 warm calls: %d from this case, %d from the live sweep", calls, fromTheSweep)
+			)
 			local count = 0
 			for name in pairs(handed) do
 				-- NOTHING BUT A WEAPON'S OWN FOLDER: a sweep that handed over the hands folder or
@@ -435,6 +471,48 @@ return function()
 			expect(WeaponClient.WARM_TRIES > 1).to.equal(true)
 			expect(WeaponClient.WARM_SECONDS > 0).to.equal(true)
 			TestKit.note(string.format("task294 the lobby sweep handed over %d weapon folder(s)", count))
+		end)
+
+		it("IS REALLY STARTED by Weapon.start, so a cold client asks before anything draws", function()
+			-- NOTHING ASSERTED THE SWEEP IS EVER RUN (the Reviewer of 294): every case above calls
+			-- `warmWeapons()` itself, and `Weapon.start`'s `started` guard means it cannot be
+			-- re-entered. So the proof is the LIVE thread: a call to `AssetFetch.warm` from a
+			-- coroutine that is not this one can only come from that `task.spawn` block.
+			-- TO SEE IT FAIL: delete the `task.spawn` block in `Weapon.start`.
+			local window = WeaponClient.WARM_TRIES * WeaponClient.WARM_SECONDS
+			-- The observation is only possible while the sweep is still running, so say so as an
+			-- assertion rather than letting a late session read as a deleted sweep.
+			expect(time() < window).to.equal(true)
+
+			local realWarm = AssetFetch.warm
+			local mine = coroutine.running()
+			local fromTheSweep = 0
+			AssetFetch.warm = function(holders)
+				if coroutine.running() ~= mine then
+					fromTheSweep += 1
+				end
+				return realWarm(holders)
+			end
+			local waited = os.clock()
+			local ok, why = pcall(function()
+				local deadline = os.clock() + WeaponClient.WARM_SECONDS * 3
+				while fromTheSweep == 0 and os.clock() < deadline do
+					task.wait(0.1)
+				end
+			end)
+			AssetFetch.warm = realWarm
+			local took = os.clock() - waited
+			assert(ok, tostring(why))
+			TestKit.note(
+				string.format(
+					"task294 the sweep's own thread called warm %d time(s) in %.1fs, %.1fs into a %ds window",
+					fromTheSweep,
+					took,
+					time(),
+					window
+				)
+			)
+			expect(fromTheSweep > 0).to.equal(true)
 		end)
 	end)
 end
