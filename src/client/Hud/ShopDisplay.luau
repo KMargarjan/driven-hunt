@@ -46,6 +46,8 @@ local ContentProvider = game:GetService("ContentProvider")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Lever = require(ReplicatedStorage:WaitForChild("Lever"))
+-- The one owner of the mesh-fetch gate, shared with the gun (task 294).
+local AssetFetch = require(ReplicatedStorage:WaitForChild("AssetFetch"))
 local SemiAuto = require(ReplicatedStorage:WaitForChild("SemiAuto"))
 local LeverGeometry = require(ReplicatedStorage:WaitForChild("Lever"):WaitForChild("Geometry"))
 local SemiAutoGeometry = require(ReplicatedStorage:WaitForChild("SemiAuto"):WaitForChild("Geometry"))
@@ -211,98 +213,23 @@ end
 -- the shotgun has never asked for the rifle's meshes at all, so the status starts at `None` and
 -- stays there until somebody asks. This asks, once per id per session, and `ShopDisplay.rebuildWanted`
 -- is what tells the panel to draw the thing again when they land.
-local asked: { [string]: boolean } = {}
-local arrived: { [string]: boolean } = {}
 local waiting = 0
 
--- HOW MANY FETCHES THIS SESSION HAS ASKED FOR AND HOW MANY IT ASKED FOR A SECOND TIME, so "it
--- retries" is a number a probe can read rather than a sentence in a comment (task 244).
-local fetchStats = { asks = 0, retries = 0, imageAsks = 0, imageRetries = 0, warms = 0 }
+-- HOW MANY FETCHES THIS SESSION ASKED FOR, so "it retries" is a number a probe can read (task 244).
+-- The MESH half lives in `ReplicatedStorage.AssetFetch` since task 294 -- one owner for the whole
+-- game, shared with the gun's own gate -- and the image half is still this file's.
+local fetchStats = { imageAsks = 0, imageRetries = 0, warms = 0 }
 
--- **A FAILED FIRST FETCH IS ASKED FOR AGAIN (task 244).** `asked[id]` used to be set once and never
--- cleared, so an id whose first `PreloadAsync` FAILED -- a dropped packet, a cold CDN, a client that
--- joined before the asset was replicated -- was never asked for again and the grey fallback stood
--- for the rest of the session. `Enum.AssetFetchStatus.Failure` and `.TimedOut` are terminal
--- answers, not slow ones, so the only way out of them is to ask once more.
---   Enum.AssetFetchStatus https://create.roblox.com/docs/reference/engine/enums/AssetFetchStatus
---
--- ...AND NOT FOUR TIMES A SECOND (round 1 note). `ShopPanel.step` rebuilds the picture every
--- `PICTURE_RETRY` while the case is waiting, so a mesh that fails for good would have drawn a
--- `PreloadAsync` per piece per rebuild for as long as the shop was open. The ask is on a
--- COOL-DOWN per id: three seconds is far longer than any fetch that is merely slow and far shorter
--- than a player's patience with a blank case.
-ShopDisplay.RETRY_SECONDS = 3
-
--- WHEN EACH ID WAS LAST ASKED FOR, beside `asked` rather than inside it, so "has it been asked"
--- and "how long ago" stay two readable facts.
-local askedAt: { [string]: number } = {}
-
--- **WHAT TO DO ABOUT ONE MESH, AS A PURE RULE** (round 1 note: the retry has to be assertable where
--- it can FAIL, not only through a counter that cannot go down). `meshReady` is the one caller and
--- this is the whole of its decision, so deleting the re-arm means changing THIS function and
--- `shop_panel.spec`'s table of statuses goes red.
---
---   "ready"  the engine has it; draw the real mesh
---   "ask"    nobody has asked, or the last ask FAILED and the cool-down has run out
---   "wait"   it is in flight, or it failed and the cool-down has not run out yet
---
--- `Loading` AND `None` ARE NEVER RETRYABLE: one is in flight and the other has not been asked for,
--- and asking again for bytes that are already coming is a second request for the same bytes.
+-- THE RULE AND THE PER-ID COOL-DOWN MOVED TO `AssetFetch` (task 294), unchanged: a failed first
+-- fetch is asked for again, and not four times a second. Re-exported because `shop_panel.spec`
+-- drives the decision through this name, and because the shop is where task 244 found it.
+ShopDisplay.RETRY_SECONDS = AssetFetch.RETRY_SECONDS
 function ShopDisplay.nextAsk(status: any, askedAlready: boolean, since: number?, now: number): string
-	if status == Enum.AssetFetchStatus.Success then
-		return "ready"
-	end
-	if not askedAlready then
-		return "ask"
-	end
-	local terminal = status == Enum.AssetFetchStatus.Failure or status == Enum.AssetFetchStatus.TimedOut
-	if terminal and now - (since or 0) >= ShopDisplay.RETRY_SECONDS then
-		return "ask"
-	end
-	return "wait"
-end
-
-local function askFor(id: string, holder: Instance)
-	asked[id] = true
-	askedAt[id] = os.clock()
-	fetchStats.asks += 1
-	task.spawn(function()
-		pcall(function()
-			ContentProvider:PreloadAsync({ holder })
-		end)
-	end)
+	return AssetFetch.nextAsk(status, askedAlready, since, now)
 end
 
 local function meshReady(part: Instance): boolean
-	if not part:IsA("MeshPart") then
-		return true
-	end
-	local id = (part :: MeshPart).MeshId
-	if id == nil or id == "" then
-		return false
-	end
-	if arrived[id] then
-		return true
-	end
-	local ok, status = pcall(function()
-		return ContentProvider:GetAssetFetchStatus(id)
-	end)
-	if not ok then
-		return true -- a guard that cannot read the status must not withhold the real model for ever
-	end
-	if status == Enum.AssetFetchStatus.Success then
-		arrived[id] = true
-		return true
-	end
-	-- THE WHOLE DECISION IS `ShopDisplay.nextAsk`'s, and this is the one line that acts on it.
-	local verdict = ShopDisplay.nextAsk(status, asked[id] == true, askedAt[id], os.clock())
-	if verdict == "ask" then
-		if asked[id] then
-			fetchStats.retries += 1
-		end
-		askFor(id, part)
-	end
-	return false
+	return AssetFetch.ready(part)
 end
 
 -- IS THE MODEL ON SCREEN WAITING FOR ANYTHING? The panel asks this after a build and draws the item
@@ -322,7 +249,11 @@ end
 -- THE FETCH COUNTERS, for the reason every `stats` table in this Hud exists: *"it retries"* has to
 -- be a number rather than a sentence.
 function ShopDisplay.fetchStats()
-	return table.clone(fetchStats)
+	local merged = table.clone(fetchStats)
+	local mesh = AssetFetch.stats()
+	merged.asks = mesh.asks
+	merged.retries = mesh.retries
+	return merged
 end
 
 -- ---------------------------------------------------------------- ASK EARLY (task 244)

@@ -727,6 +727,8 @@ BLAST_RADIUS = (
     # section 16 item 1: worn is Body's, carried is Weapon's). `src/server/Weapon/` already
     # resolves to the same scope by the line below.
     ("src/shared/Horn/", "weapon"),
+    # Task 294: the shared fetch gate is read by the viewmodel and by the shop case.
+    ("src/shared/AssetFetch/", "viewmodel"),
     ("src/shared/Viewmodel/", "viewmodel"),
     ("src/client/Camera/Viewmodel.luau", "viewmodel"),
     ("src/client/Camera/Poses.luau", "viewmodel"),
@@ -892,6 +894,9 @@ SCOPE_SPECS = {
     # Task 224: the drawn lever -- its `"lever"` CYCLE_KIND branch, the fore-end glove and the
     # shells gate -- is the viewmodel's, exactly as `gun_client.spec` is.
     "viewmodel": ("tests/server/viewmodel_poses.spec.luau", "tests/client/gun_client.spec.luau",
+                  # Task 294: the shared mesh-fetch gate and the viewmodel's first-show hold -- the
+                  # gun is never drawn as boxes on a cold start.
+                  "tests/client/asset_fetch.spec.luau",
                   "tests/client/lever_client.spec.luau",
                   # Task 225: the drawn semi-auto -- its `"straight"` bolt, its SECOND moving group
                   # and the pose share that keeps the gun still -- is the viewmodel's too.
