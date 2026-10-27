@@ -1,99 +1,16 @@
-PASS (items 1, 2, 3, 4, 6, 10 NOT PROVEN)
-
-Rule 5, stated so this PASS is not read as rule 5 having been met: NOTHING in this change has been
-seen in Karen's place, and the request says so -- `Range.ANCHORS` has one row, `["map:v1"]`, and
-`range.spec` asserts `RangeData.anchorFor("forest-test") == nil`, so her place builds no range until
-B6. What WAS seen: a DEV frame, described (`.screenshots/298b2-lane-eye.png`, flag `RANGE` on, camera
-at the mat (1200, 4, 0) looking down the lane -- plate, berm, both screens clear of the lane ends, the
-target mid-crossing against a server probe `Boar1 at 1177.0,1.5,120.7 dx=-23.0`), and five DEV dx
-probes (-25.0, +17.0, +17.9, -23.9, -12.0) that show a real body crossing AND reversing. What was
-NOT: items 1, 2, 3, 4, 6 and 10 in her place, and items 2, 3, 4 and 10 anywhere but against
-`range.spec`'s fake rail. Items 5, 7, 8 and 9 are structural, verified against the repo, and not core.
-
-Verified against the repo, no action: no `.CFrame =` / `Velocity` write anywhere in `src/server/Range/`
-(claim 5, TARGET 5); `ForestTest.paceSpeed` is one delegating line and `Boar` is already required at
-`src/server/ForestTest/init.luau`:43, no forest `paceMix` row carries `"stand"`, `forest_stand.spec`
-untouched (claim 7); `Flags.DEFAULTS` holds 19 rows against `MAX_FLAGS = 19`, `RANGE` `default = false`,
-`expires = "2026-11-17"` = 21 days from born (claim 9); `test2` N/A is true -- none of the 13 changed
-paths matches a `TWO_PLAYER_PATHS` prefix, and `tools/studio_mcp.py` is excluded by that list's own
-comment; the harness line names the request's `Code commit:` 6ece3b7d with "(clean tree)",
-`paperwork-after-code-commit.txt` says only `REQUEST.md` followed it, and `c0c58932`'s fixes are an
-ancestor of it; selene/stylua/rojo clean. Producer deletion reds the cases that carry the claims:
-remove `order`'s flip branch and `flips`/`directions.west` stay 0; remove `timeWindow` and
-`expect(measured).to.be.ok()` dies; remove the STAND branch and `directions.middle` is nil while
-`held == 180` fails; remove the carcass branch and `fake.clears == 1` fails; replace `screenPosition`
-with `laneEnds` and the corridor case reds (screen at x 1240, |dx| 40 against `half + 5 + body` = 46.6).
+1. `src/server/Range/init.luau` / `loanSet` + `Range.LOAN`, and `tests/server/range.spec.luau` / "lends all four guns and the endless shells at a spot, and NOTHING off it" — the loan hands out the three BUNDLE ids, so the set the range installs as "owned" grants a drive gun, the always-hunter place and high-seat access; and the one case that guards the loan's contents asserts a sentence it does not check. Evidence: `loanSet` admits any `ALL_ORDER` row by `if grants ~= nil and (grants.weapon ~= nil or grants.ammo ~= nil) then out[id] = true end`. `Shop.BUNDLES` rows carry merged grants written at module load (`row.grants = merged`, from `Shop.mergedGrants(covers)`), so `Shop.anyRow("bundle.season").grants` is `{ weapon = "rifle", ammo = "Slug", highSeat = true, unlimitedAmmo = true, driveGun = true, alwaysHunter = true }` (covers `HIGH_SEAT, SLUG, UNLIMITED_AMMO, RIFLE, BEATER_LICENCE, ALWAYS_HUNTER`) — `grants.weapon ~= nil`, so it is in `Range.LOAN`, as are `bundle.hide` and `bundle.marksman`. Against that set `Shop.grantsDriveGun`, `Shop.grantsAlwaysHunter` and `Shop.grantsHighSeat` all answer true (each is `row.grants.X == true and owned[id] == true` over `ALL_ORDER`). The function's own header says the opposite: *"No licence, no outfit, no drive gun: a loan is not a purchase."* Design 7.4 lends *"at a spot, all four, whatever the player owns"* plus the shells — not a 3750-coin package. The spec case that would have caught it writes *"...AND THE LOAN IS A LOAN: what he had bought is still there, and nothing he had not bought came with it"* and then checks exactly one id — `expect((owned :: any)["licence.reddeer"]).to.equal(nil)` — which passes only because no included row grants a `licence`; the three bundle ids he never bought are in the set and nothing looks. That is the assertion-weaker-than-its-comment shape verdict 281 made blocking. Today no reader behind `Weapon`'s entitlement seam reads those three fields (`askOwned`'s only consumers are `Weapons.loadout` and `Shop.startFor`, and `driveGun`/`alwaysHunter`/`highSeat` are read from `Economy.ownedOf` in `Match`/`Lobby`), so the live effect is nil — the defect is the data and the hole in the gate, and both are small. Required: build the loan from rows whose grants are ONLY a weapon and/or an ammo kind (reject a row that grants any other field — `Shop.GRANT_FIELDS` is already that list) so the header's sentence is true, and make the case assert the whole set rather than one id: every id in `Range.LOAN` is a gun or cartridge row, and `Shop.grantsDriveGun(owned)`, `Shop.grantsAlwaysHunter(owned)`, `Shop.grantsHighSeat(owned)` answer what the design says they should.
 
 ## Notes (non-blocking)
-
-- `src/server/Range/init.luau`, `Range.step` -- the lane scans at **8.57 Hz, not the configured
-  `STEP_HZ` 10**, and the request's own counter proves it: `advance(fake, clock, 40)` runs
-  `math.floor(40 / (1/60))` = 2400 frames, and claim 1's note reads `east 179, west 162 orders` = 341.
-  At six frames per scan that would be 399 (400 scans, one of them the release scan); 341 is
-  2400 / **7** = 342 scans minus one. The cause is `state.acc = 0` where it should be
-  `state.acc -= period`: the double for `1/60` is below 1/60, so six of them fall short of the double
-  for `0.1` and the seventh frame pays for it, discarding the remainder each time. Consequences, all
-  cosmetic: claim 2's *"measured off the target's own position samples at `STEP_HZ` 10"* and the spec's
-  *"quantised to one scan (1 / STEP_HZ = 0.1 s), which is 6 % of the fastest crossing"* are both wrong
-  (0.1167 s, 7.0 %, still inside `CROSSING_TOLERANCE` 0.10), and design TARGET 7's *"`STEP_HZ` 10"*
-  reads 8.57. It is a note and not a finding for two reasons: `LINE.ORDER_SECONDS` is 0.6, so nothing
-  stutters, and `Lobby.step`'s cited precedent (`if now - lastScan < 1 / cfg.SCAN_HZ then return end`)
-  drifts identically. Round 1's note that it is *"exact at dt = 1/60 (6 frames = 0.1 s exactly)"* is
-  the premise that was wrong.
-- `tests/server/range.spec.luau`, "crosses the lane and FLIPS direction at the end, both ways" -- the
-  TARGET 4 line `expect(math.abs(animal.position.Z - centre.Z) <= 2).to.equal(true)`, under the comment
-  *"The target stayed ON the lane: inside the apron in x, and within 2 studs of the lane in z"*, cannot
-  fail. `fake.advance` builds `local to = Vector3.new(animal.order.X - animal.position.X, 0,
-  animal.order.Z - animal.position.Z)`, every point `order` issues has `Z == laneCentre(anchor).Z`, and
-  `release` spawns at `laneEnds`, whose Z is the same -- so the rail's z IS `centre.Z` to the bit and
-  the rail holds +-0. The request discloses the live reading that fails it (z 120.0 .. 129.0), which is
-  why this is a note; it reads as evidence for a target the live world misses, so delete both that line
-  and the x line (also unviolable: the rail stops inside `ARRIVE_STUDS` of a point on the lane) or move
-  them to B4's live spec. Two smaller things in the same disclosure: z 120.0 .. 129.0 about a lane at
-  z 125 is -5.0 / +4.0, not the stated "+-4.0 studs".
-- `reviews/task-298/REQUEST.md`, the rule 5 paragraph -- **LEFT or RIGHT**. From the mat at
-  (1200, 4, 0) *"looking down the lane"* the look is +Z, so the camera's `RightVector` is -X
-  (`X = Y x Z`, `Z = -look`), and the silhouette at x = 1177 (`dx=-23.0`) is on the frame's RIGHT. The
-  rest of the description checks out against the probe (z 120.7 is the disclosed z wander; y 1.5 is a
-  3-stud body's half-height on a shelf at 0; the plate, berm and both screens are what `Build` parents).
-  Say which side it is, so the frame can be matched to the numbers by someone who has it.
-- `reviews/task-298/REQUEST.md`, FAIL FIRST -- *"the three cases added since (freeze, per-run counters,
-  the re-release rise) red against `c74d6f92`'s own code"* overstates by one. The freeze case reds there
-  (`table.isfrozen(RangeData.LAYOUT)` was false) and "counts one run" reds there (the counters were
-  cumulative, so the second start could not read 0), but the re-release **rise** does not: at
-  `c74d6f92` the release path worked and the counters only climbed, so
-  `expect(Range.stats().flips > flipsAfterRelease)` passes against that code. It is a strengthening of
-  a line that could not fail, not a case for a defect -- what it reds against is deleting `order`'s
-  flip branch, which is the deletion that matters and which it does catch.
-- `tests/server/range.spec.luau`, "spawns a hind with the deer's own zones" -- the case builds the
-  range's world INLINE (`world.folderName = "RangeTargets"`, empty `threats`, the `LINE` clone with
-  `ENABLED = true`, `SENSE = { ENABLED = false }`, `KINDS = { ENABLED = true }`,
-  `maxBoars = Range.CONFIG.MAX_TARGETS`), which is `src/server/RangeBoot.server.luau`'s block copied
-  key for key. So claim 10's *"the range's own runtime"* is the spec's copy of it, and the case passes
-  with `RangeBoot.server.luau` deleted: the two can drift and nothing reds. One
-  `Range.worldFor(anchor, layout)` in the shared module, read by the boot and by the case, would make
-  this assert the world the game ships.
-- `src/server/Range/init.luau`, `Range.setPace` / `order` -- STAND publishes a speed it is not using.
-  `setPace(spot, "stand")` writes `trial.speedStudsPerSecond = paceSpeed(pace)` = 0 (correct, and
-  `crossingSeconds` answers `math.huge` for it), while `order`'s STAND branch issues
-  `paceSpeed(RangeData.WORD.WALK)` = 4.5. `Range.trialOf` hands both out, so B4's board reads
-  0 studs/s for a target walking to the middle at 4.5. Publish the issued speed, or name the field
-  for what it is.
-- `tests/server/range.spec.luau`, "builds nothing inside the lane the target walks" -- one line of it
-  is a transcription of the function under test and proves nothing on its own:
-  `expect(math.abs(screen.X - RangeData.laneEnds(anchor, LAYOUT, leg).X)).to.equal(LAYOUT.SCREEN.size.X
-  / 2 + LAYOUT.SCREEN.beyondStuds)` restates `screenPosition`'s own `local beyond = layout.SCREEN.size.X
-  / 2 + layout.SCREEN.beyondStuds`. The case is carried by `#blocking == 0` and by
-  `math.abs(screen.X - centre.X) > half`, which do bite; the transcription can go.
-- `tests/server/range.spec.luau`, header -- *"Nothing here touches `Workspace`, and two cases assert
-  exactly that"* is contradicted by the last case, which writes `parent.Name = "RangeDeerSpec";
-  parent.Parent = Workspace` with its own stated reason (`Body.create` calls the Network Ownership API).
-  Name the exception in the header.
-- `docs/design/shooting-range.md` section 4.1 still carries `SCREEN | 2 parts, 10 x 8 x 1, at
-  `+-(WINDOW/2 + APRON)``, the row the measured fix in claim 6 replaced. `docs/design/` is the
-  Architect's, the deviation is written into `Range.LAYOUT` and stated in the request, and
-  `RangeBoot`'s header already queues the section 3 deviation for B6's ratification -- named here only
-  so both deviations are ratified together.
+- Rule 5, stated so this review is not read as rule 5 having been met: **nothing in this change has been seen in Karen's place.** `Range.ANCHORS` has no `forest-test` row, so her place has no range and no mat; items 1, 2, 4, 5, 6, 7, 8 and 9 were evidenced only in the DEV harness (items 5, 7, 8 by a real reducer/fire path there; items 2, 6 and 9's live half by reading only — the Builder says so himself: *"NOT PROVEN — nobody has seen a range target die"*, and the first-Heartbeat composition order is *"argued from how Roblox loads server Scripts, not measured"*). `compose()` in `RangeBoot` has not executed in any run that produced evidence here. No visual change, so no screenshot was owed.
+- `Range.entitlementOver` + `Weapon.refreshArming` — claim 6 ("the loan never follows him into a drive") holds only while the BASE policy refuses him. `refreshArming` revokes on `armingAction(allowed, holds)` with `allowed = mayArm(player)`; a player the drive already arms keeps his Tool, and the pocket in it was built once by `StateMachine.initial(row, startFor(player, row))` at grant time. `state.unlimited` is only re-derived by `Weapon.refillForDrive`, which is level-triggered on the drive number (`needsRefill`), so a man who takes the loan during an open drive carries `unlimited` until the NEXT drive. Unreachable today (no `forest-test` row; the DEV mat at x 1200 is outside `Map.FIELD.bounds` maxX 620), which is why this is a note — B6 must close it, or state the cost.
+- `tests/server/range.spec.luau` / "fires exactly ONCE per resolved shot" — with the `resolvedSignal:Fire{...}` block in `onShotLanded` deleted, this case still passes in any run where `readyShooter()` finds nobody: the only surviving assertion is `expect(Weapon.ShotResolved).to.be.ok()`, on the signal object rather than on a publish. It prints *"NOT PROVEN in this run"*, which is the convention verdict 281 set and why it is not a finding; in the run quoted it did fire (claim 8's `end 106.3` → `end 100.0` can only come from this case's own note). The producer-deletion bite therefore depends on a ready shooter existing, not on the case.
+- same case — `putBack()` is not reached if any assertion after `expect(#seen).to.equal(1)` fails, so one red leaves `Weapon.setCast(function() return nil end)` installed for the rest of the server suite and every later spec's shot hits nothing; the real failure would be misattributed. `weapon_shot.spec` has the same shape. A pcall-and-restore around the body fixes it here.
+- same case — `Weapon.setLicenceProvider(nil)` is cleared and never put back (`putBack` restores target, stand, safety line and drive-open). Inert in the harness world, where `MatchBoot` passes `counterAt = nil` so `shopOn` is false and no licence provider was wired; it is `weapon_shot.spec`'s existing idiom.
+- `src/server/RangeBoot.server.luau` / the `HitReported` listener — it omits `shooterPosition`, which `MatchBoot`'s otherwise-identical call passes (`root and root.Position`), so a wounded range target bolts off the impact normal instead of away from the shooter. The comment above it says *"the same `Runtime:takeHit`, so a shot that kills on the lane kills in the wood."*
+- claim 4's case asserts through `Shop.loadoutFrom(Weapons.ids(), Weapons.PRIMARY, owned)`, not the shipped `Weapons.loadout(owned)`, which short-circuits to `{ Weapons.PRIMARY }` when the `RIFLE` flag is off. The two agree only because `Flags.ROWS.RIFLE.default = true` — right by the flag's current value rather than by construction.
+- `Range.CONFIG.FREE` is read by nothing in `src/` (grep `\.FREE\b`), while B2's comment beside it says *"STEP B3 READS EXACTLY THESE TWO"*. FREE is implemented by absence (no `Economy` call anywhere under `src/server/Range/` — verified), so the field is now a dead dial; delete it or say it is declarative.
+- `manAt` builds a `Model` + `HumanoidRootPart` per call and never destroys them (unparented, so nothing in `Workspace` is touched).
+- the request quotes claim 5's note in full but not claims 7/8's, and claim 8 asks the reader to verify *"the note now reads `end 100.0`"* — the one number not pasted. The code supports it: when `Ballistics.segment` caps, `segment = segment.Unit * remaining` while `nextPosition` is unclamped, so `pellet.position + segment` puts the end point exactly `remaining` along the chord and `|endPoint - muzzle| <= reachedStuds` holds (projectiles launch at `shot.muzzle` in `Flight.launch`). Harness line, code commit and `paperwork-after-code-commit.txt` are consistent.
 
 ---
-REVIEWER verdict on commit `74824f0a44b74137f5abbe5659b62ddc08fef894` (round 2) · 2026-10-27 20:49 UTC · session cost $4.47, 46 turns · written by tools/agents.py
+REVIEWER verdict on commit `4a81406c6e8e4391bd6c33325a45493c3e777e3e` (round 1) · 2026-10-27 21:46 UTC · session cost $5.11, 51 turns · written by tools/agents.py
