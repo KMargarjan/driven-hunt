@@ -1046,11 +1046,12 @@ return function()
 			expect(record.miss).to.equal(1)
 			expect(record.zones.chest).to.equal(1)
 			expect(record.lastDistanceStuds).to.equal(125)
-			-- A SECOND REPORT OF THE SAME SHOT DOES NOT COUNT TWICE (one report per shot, per target).
+			-- A SECOND REPORT OF THE SAME SHOT CHANGES NOTHING AT ALL: the slot is consumed, so the
+			-- zone column and HITS cannot disagree (round 2, finding 2; the Reviewer's own note).
 			Range.onHitReported({ shooter = man, zone = "chest", nearest = 125 })
 			record = Range.recordOf(man) :: any
 			expect(record.hits).to.equal(1)
-			expect(record.zones.chest).to.equal(2)
+			expect(record.zones.chest).to.equal(1)
 
 			-- THE RESET, through the same door, whitelisted like a pick: THIS player's record only.
 			local other = manOn(RangeData.matPosition(ANCHOR, 1, LAYOUT), 105)
@@ -1205,9 +1206,11 @@ return function()
 			expect(record.hits).to.equal(0)
 			expect(record.zones.chest).to.equal(0)
 
-			-- AND BACK ON THE MAT, THE OLD SLOT IS GONE TOO: only a NEW shot can be hit.
+			-- AND BACK ON THE MAT, THE OLD SLOT IS STALE: a hit minutes after the shot that opened it
+			-- is some other shot somewhere else, so `HIT_WINDOW_SECONDS` expires it.
 			rootPart.Position = mat
 			expect(Range.mayShoot(man)).to.equal(true)
+			clock.t += Range.CONFIG.HIT_WINDOW_SECONDS + 1
 			Range.onHitReported({ shooter = man, zone = "chest", nearest = 125 })
 			record = Range.recordOf(man) :: any
 			expect(record.hits).to.equal(0)

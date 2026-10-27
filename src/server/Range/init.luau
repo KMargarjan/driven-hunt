@@ -79,6 +79,9 @@ Range.CONFIG = {
 	SPECIES_ALLOWED = { boar = true, reddeer = true },
 	-- The door's own bucket, per player (`Shop.onRequest`'s shape). A menu click is not a hot path.
 	REQUEST_MIN_INTERVAL = 0.15,
+	-- A hit belongs to the shot it followed: `onShotLanded` publishes the resolution and the reports
+	-- in one frame, so anything later than this is some other shot, somewhere else.
+	HIT_WINDOW_SECONDS = 1.0,
 }
 
 -- Frozen for `Range.LAYOUT`'s reason, by the same function: no run-time writer, enforced.
@@ -846,7 +849,10 @@ function Range.onShotResolved(shot: any)
 	-- shot clears it, because a hit is neither behind nor ahead of anything.
 	record.lastGapStuds = Range.gapStuds(trial, shot.endPoint, targetPositionOf(trial))
 	record.lastGapText = RangeData.gapText(record.lastGapStuds)
-	state.pending[(player :: any).UserId] = { shots = record.shots, hit = false }
+	-- THE SLOT CARRIES THE INSTANT IT WAS OPENED. `onShotLanded` fires `ShotResolved` and then the
+	-- hit reports in the SAME frame, so a second is generous -- and it is what stops a slot left
+	-- open by a miss from catching a hit landed minutes later (round 3's own case).
+	state.pending[(player :: any).UserId] = { shots = record.shots, at = clockNow() }
 	record.miss = record.shots - record.hits
 	state.stats.shots += 1
 	publish(player)
@@ -880,6 +886,9 @@ function Range.onHitReported(report: any)
 		return
 	end
 	state.pending[id] = nil
+	if clockNow() - (pending.at or 0) > Range.CONFIG.HIT_WINDOW_SECONDS then
+		return
+	end
 	record.hits += 1
 	state.stats.hits += 1
 	local zone = report.zone
