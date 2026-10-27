@@ -1,14 +1,14 @@
 # Task 298 step B4 — the range's menu, its board and the two remotes
 
 Task: 298
-Round: 1
+Round: 2
 Base: 98df981b (task-298b3-range-gate, step B3's PASS)
-Code commit: 846bb1d346e293e8234303b17dadad44550258a1
+Code commit: edc0f24a12f9d4c07fa00ab2b8c06f820f36cd9a
 
 Harness, clean tree, full suite:
 
 ```
-[harness] PASS: 34/34 checks @ 846bb1d346e293e8234303b17dadad44550258a1 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ edc0f24a12f9d4c07fa00ab2b8c06f820f36cd9a (clean tree) scope=all
 ```
 
 `test2` is **N/A**: `agents.needs_two_player` over this branch's 25 changed paths returns `[]`.
@@ -20,6 +20,32 @@ What changed: `src/shared/Range/Remotes.model.json` (new), `src/shared/Range/ini
 `src/client/Hud/RangePanel.luau` + `RangeBoard.luau` (new), `src/client/Hud/init.luau`,
 `tests/server/range.spec.luau`, `tests/client/range_panel.spec.luau` (new), `tools/studio_mcp.py`
 (the two new scope rows).
+
+## Round 1's four findings, each fixed with a case
+
+1. **The species and the kind could disagree.** The kind now follows the species the way the load
+   follows the gun; a kind named in the same request is validated against THAT species (`lists` was
+   captured before the loop, which is how it got through); and the board's columns are read off the
+   animal that is SPAWNED — `boars.zonesForKind(trial.kind)` → `Boar.kindConfig`, the resolution
+   `Runtime:spawn` itself does. Case: *"keeps the kind with its species, and reads the columns off
+   the animal it spawns"* — it also refuses `species = boar, kind = stag` in one message.
+2. **`onHitReported` counted every hit in the place.** It now counts only a hit belonging to a shot
+   this module counted: the `pending` slot `onShotResolved` writes, keyed on that shot's number. A
+   record leaves with its player (`Range.forget`, wired to `PlayerRemoving` in `RangeBoot`) and
+   `stop` hands the records back with the lane. The off-the-mat refusal has its own counter
+   (`stats.offMat`). Case: *"counts only the hits of the shots it counted, and forgets a player who
+   leaves"* — the first half fails on the old code.
+3. **`RangePanel.setNear` had no caller.** `Hud.step` now tells both panels whether he is still at
+   the spot, by `RangeData.atSpot` — the PROMPT's own reach, so the client's closer and the server's
+   refusal are one measurement — and the board leaves with the menu (`RangeBoard.setNear`). Cases:
+   `range_panel.spec` → *"gives both doors back when he walks off the spot"* and *"leaves the screen
+   when he walks off the spot"*; `range.spec` → *"says he is at the spot by the prompt's own reach"*.
+4. **The deer-columns case passed with the code deleted.** A SERVER case now picks the deer through
+   `Range.onRequest` and asserts the record's order against `Boar.kindConfig(trial.kind).ZONES.ORDER`
+   — the seam, not a literal the spec fed in. The spec's fake runtime gained the two readers the
+   owner uses (`kindsFor`, `zonesForKind`), wired as `RangeBoot` wires them.
+
+The non-blocking notes are not fixed in this round and are queued in `TASKS.md`.
 
 ## Claims
 
