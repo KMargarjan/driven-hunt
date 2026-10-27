@@ -1,22 +1,99 @@
-1. `src/shared/Range/init.luau` (`Range.LAYOUT`, `Range.ANCHORS`, `Range.WORD`) and `src/server/Range/init.luau` (`Range.CONFIG`) — NOTHING IS FROZEN, while three separate places claim it is. Evidence: the shared module's own header says "the lobby shooting range's **FROZEN DATA** and its PURE ARITHMETIC"; the GAME_DESIGN.md owner row this change adds says "`ReplicatedStorage.Range` is the frozen DATA with no run-time writer"; `docs/design/shooting-range.md` section 8.1 says "`Range.LAYOUT`, `Range.CONFIG` — frozen" and section 8.4 "Frozen data and pure arithmetic". There is no `table.freeze` and no `deepFreeze` call anywhere in either file (grep over `src/shared/**` returns 24 files; `src/shared/Range/init.luau` is not one of them). The two modules whose shape this one says it copies both do it, with the reason written down: `src/shared/Lobby/init.luau` — "deepFreeze, REQUIRED and not copied: `table.freeze` is shallow, and this repo has already paid for that once" — then `Shotgun.deepFreeze(Lobby.CONFIG)` and `Shotgun.deepFreeze(Lobby.ANCHORS)`; `src/shared/ForestTest/init.luau` has eight such calls. "No run-time writer" is enforced by the freeze in every sibling, and here `Range.LAYOUT` is additionally re-exported off the server owner (`Range.LAYOUT = RangeData.LAYOUT`), so one write anywhere moves the lane for both readers. Required: deep-freeze `Range.LAYOUT`, `Range.ANCHORS`, `Range.WORD` and the server's `Range.CONFIG`, by the shallow-safe route the siblings use (`Shotgun.deepFreeze`, or a local `deepFreeze` on `src/shared/Report/init.luau`'s precedent, which the design itself cites) — or delete the word "frozen" from the module header and from the GAME_DESIGN.md row.
+PASS (items 1, 2, 3, 4, 6, 10 NOT PROVEN)
 
-2. `tests/server/range.spec.luau`, the carcass case ("clears a killed target after CARCASS_SECONDS and releases a fresh one after RELEASE_SECONDS") — the only assertion covering the second half of claim 4 CANNOT FAIL. Evidence: the surviving line is
-   `expect(Range.stats().flips >= 1).to.equal(true)`
-   under the comment "The new target crosses like the first: the lane did not stop with the death". `state.stats` in `src/server/Range/init.luau` is a module-level table built once at load; `Range.start` writes only `state.stats.parts`, `state.stats.buildMs` and `state.stats.refusedBy`, and `Range.stop` resets none of it — so the counter is cumulative across cases. The earlier case in the same file has already asserted `expect(Range.stats().flips >= 2)`, and the crossing-seconds case then runs three more paces over three lane lengths each. By the time the carcass case reaches that line, `flips` is in the dozens, so it passes with `order`'s flip branch deleted, with `release` deleted, and with the whole re-release path deleted — nothing else in the case asserts that the fresh target is ever steered. The same dead line appears in the drive-untouched case ("writes no Workspace.Boars, no drive runtime and no Workspace.Range"): `expect(Range.stats().flips >= 1).to.equal(true)` after `advance(fake, clock, 20)`. Required: snapshot the counter before the kill and assert the rise, exactly as the flying case already does correctly (`local skippedBefore = Range.stats().skippedFlying` … `expect(Range.stats().skippedFlying > skippedBefore)`), or reset `state.stats`' running counters in `Range.start` so `Range.stats()` describes one run. The same fix removes the brittleness of `expect(Range.stats().carcasses).to.equal(1)` and `.releases == 1`, which hold today only because no earlier case kills a target.
+Rule 5, stated so this PASS is not read as rule 5 having been met: NOTHING in this change has been
+seen in Karen's place, and the request says so -- `Range.ANCHORS` has one row, `["map:v1"]`, and
+`range.spec` asserts `RangeData.anchorFor("forest-test") == nil`, so her place builds no range until
+B6. What WAS seen: a DEV frame, described (`.screenshots/298b2-lane-eye.png`, flag `RANGE` on, camera
+at the mat (1200, 4, 0) looking down the lane -- plate, berm, both screens clear of the lane ends, the
+target mid-crossing against a server probe `Boar1 at 1177.0,1.5,120.7 dx=-23.0`), and five DEV dx
+probes (-25.0, +17.0, +17.9, -23.9, -12.0) that show a real body crossing AND reversing. What was
+NOT: items 1, 2, 3, 4, 6 and 10 in her place, and items 2, 3, 4 and 10 anywhere but against
+`range.spec`'s fake rail. Items 5, 7, 8 and 9 are structural, verified against the repo, and not core.
+
+Verified against the repo, no action: no `.CFrame =` / `Velocity` write anywhere in `src/server/Range/`
+(claim 5, TARGET 5); `ForestTest.paceSpeed` is one delegating line and `Boar` is already required at
+`src/server/ForestTest/init.luau`:43, no forest `paceMix` row carries `"stand"`, `forest_stand.spec`
+untouched (claim 7); `Flags.DEFAULTS` holds 19 rows against `MAX_FLAGS = 19`, `RANGE` `default = false`,
+`expires = "2026-11-17"` = 21 days from born (claim 9); `test2` N/A is true -- none of the 13 changed
+paths matches a `TWO_PLAYER_PATHS` prefix, and `tools/studio_mcp.py` is excluded by that list's own
+comment; the harness line names the request's `Code commit:` 6ece3b7d with "(clean tree)",
+`paperwork-after-code-commit.txt` says only `REQUEST.md` followed it, and `c0c58932`'s fixes are an
+ancestor of it; selene/stylua/rojo clean. Producer deletion reds the cases that carry the claims:
+remove `order`'s flip branch and `flips`/`directions.west` stay 0; remove `timeWindow` and
+`expect(measured).to.be.ok()` dies; remove the STAND branch and `directions.middle` is nil while
+`held == 180` fails; remove the carcass branch and `fake.clears == 1` fails; replace `screenPosition`
+with `laneEnds` and the corridor case reds (screen at x 1240, |dx| 40 against `half + 5 + body` = 46.6).
 
 ## Notes (non-blocking)
-- Rule 5, stated so this result is not read as rule 5 having been met: NOTHING in this change has been seen in Karen's place, and the request says so ("Nothing in Karen's place. `Range.anchorFor("forest-test")` is nil by design until B6"). The core items — 1 (the lane runs and flips), 2 (the crossing seconds), 3 (STAND), 4 (the carcass and the re-release) and 10 (the hind) — were seen only against the spec's fake rail in DEV. Item 6's live DEV evidence is a position number ("x = +32.2 for 30 s"), with no frame. There is no screenshot description anywhere in the request. On a round that fixes the two findings above, line 1 should read `PASS (items 1, 2, 3, 4, 6, 10 NOT PROVEN)`.
-- `docs/design/shooting-range.md` section 11.4 — the one screenshot that is buildable today ("the lane from the firing line with the target mid-window", called "the only proof the thing reads as a range") is owed, and the Builder was in DEV with `RANGE` on for 30 s when he measured claim 6. `python tools/studio_mcp.py capture` is one command. The menu and board frames are B4's.
-- `reviews/task-298/REQUEST.md` "FAIL FIRST" — the red run proves only that the modules did not exist, not that any case bites. With `src/shared/Range` as `return {}`, `local LAYOUT = RangeData.LAYOUT` is nil and every one of the 15 cases dies on the first index of it; the failure is uniform and carries no information about individual assertions. Per-case bite is established by reading instead: the flip, STAND, carcass, flying and corridor cases each red when their producer is removed (the corridor case reds with `screenPosition` replaced by `laneEnds`, which is the defect it was written for).
-- `tests/server/range.spec.luau`, "measures the crossing seconds …" — the measurement is a round trip through a rail whose speed the code under test sets: `fake.leadTo` stores `want = speed`, `fake.advance` moves at `want`, and the predicted value is `WINDOW_STUDS / speedOf(pace)`. It pins `timeWindow`'s window arithmetic and the ordered speed (deleting `timeWindow` reds `expect(measured).to.be.ok()`), but it is not evidence that a real animal crosses in that time — and the request's own "What I could not verify" shows the live body wandering ±4.0 studs in z where the rail holds ±0. TARGET 3 against a real body is B4's live spec.
-- design TARGET 6 and TARGET 7 — `buildMs` is printed in the `TestKit.note` but never asserted against the 120 ms bound, and the ≤ 1 ms step cost is not asserted at all. Only `parts <= Range.CONFIG.MAX_PARTS` is a case.
-- `src/server/Range/init.luau`, `scan` / `order` — the injected view is guarded inconsistently: `boars.spawn`, `boars.clear`, `boars.flying` and `boars.paceSpeed` are each nil-checked, but `boars.statusOf` and `boars.leadTo` are called bare. A view missing either verb crashes the Heartbeat instead of refusing.
-- `src/server/Range/init.luau`, the carcass branch — `boars.clear("range carcass")` clears the whole runtime, so with `SPOT_COUNT > 1` one death removes every spot's target. Harmless at `SPOT_COUNT = 1`; worth a per-id clear before the second spot lands.
-- `src/server/Range/init.luau`, `Range.step` — `state.acc = 0` after a scan discards the remainder rather than subtracting the period. Exact at dt = 1/60 (6 frames = 0.1 s exactly), lossy at any dt that does not divide 0.1.
-- `src/server/RangeBoot.server.luau` — the runtime's field is built from `row` (`Vector3.new(row.x, row.y or 0, row.z)`), not from the shelf `Build` actually measured. Identical while `plate = true`; for B6's `plate = false` forest row the field's `groundY` would be `row.y or 0` and not the measured ground.
-- `src/shared/Flags/init.luau` — the LIT/DARK census still does not add up: "LIT (12)" plus "DARK (6)" is 18 against 19 rows in `Flags.DEFAULTS`, because `HIT_CLAIM` is in neither list. Pre-existing (it was 12 + 5 = 17 against 18); this change moved DARK to 6 without closing it.
-- `src/shared/Range/init.luau` — `Range.promptFor` from design section 8.4 is not here. Fine as B4's, named only so it is not lost.
-- Verified against the repo, no action: the `test2` N/A claim (no changed path starts with `TWO_PLAYER_PATHS`); claim 8's two reasons (`src/server/MatchBoot.server.luau` contains no `RunService` at all, and it is `TWO_PLAYER_PATHS` entry 2); claim 7 (`ForestTest.paceSpeed` is one line, and no forest `paceMix` or line row carries `"stand"`, so moving the zero in is inert for the drive); claim 9 (19 rows, cap 19, born false, 21-day expiry); the harness line names the request's `Code commit:` with "(clean tree)", and `paperwork-after-code-commit.txt` says only `REQUEST.md` followed it.
+
+- `src/server/Range/init.luau`, `Range.step` -- the lane scans at **8.57 Hz, not the configured
+  `STEP_HZ` 10**, and the request's own counter proves it: `advance(fake, clock, 40)` runs
+  `math.floor(40 / (1/60))` = 2400 frames, and claim 1's note reads `east 179, west 162 orders` = 341.
+  At six frames per scan that would be 399 (400 scans, one of them the release scan); 341 is
+  2400 / **7** = 342 scans minus one. The cause is `state.acc = 0` where it should be
+  `state.acc -= period`: the double for `1/60` is below 1/60, so six of them fall short of the double
+  for `0.1` and the seventh frame pays for it, discarding the remainder each time. Consequences, all
+  cosmetic: claim 2's *"measured off the target's own position samples at `STEP_HZ` 10"* and the spec's
+  *"quantised to one scan (1 / STEP_HZ = 0.1 s), which is 6 % of the fastest crossing"* are both wrong
+  (0.1167 s, 7.0 %, still inside `CROSSING_TOLERANCE` 0.10), and design TARGET 7's *"`STEP_HZ` 10"*
+  reads 8.57. It is a note and not a finding for two reasons: `LINE.ORDER_SECONDS` is 0.6, so nothing
+  stutters, and `Lobby.step`'s cited precedent (`if now - lastScan < 1 / cfg.SCAN_HZ then return end`)
+  drifts identically. Round 1's note that it is *"exact at dt = 1/60 (6 frames = 0.1 s exactly)"* is
+  the premise that was wrong.
+- `tests/server/range.spec.luau`, "crosses the lane and FLIPS direction at the end, both ways" -- the
+  TARGET 4 line `expect(math.abs(animal.position.Z - centre.Z) <= 2).to.equal(true)`, under the comment
+  *"The target stayed ON the lane: inside the apron in x, and within 2 studs of the lane in z"*, cannot
+  fail. `fake.advance` builds `local to = Vector3.new(animal.order.X - animal.position.X, 0,
+  animal.order.Z - animal.position.Z)`, every point `order` issues has `Z == laneCentre(anchor).Z`, and
+  `release` spawns at `laneEnds`, whose Z is the same -- so the rail's z IS `centre.Z` to the bit and
+  the rail holds +-0. The request discloses the live reading that fails it (z 120.0 .. 129.0), which is
+  why this is a note; it reads as evidence for a target the live world misses, so delete both that line
+  and the x line (also unviolable: the rail stops inside `ARRIVE_STUDS` of a point on the lane) or move
+  them to B4's live spec. Two smaller things in the same disclosure: z 120.0 .. 129.0 about a lane at
+  z 125 is -5.0 / +4.0, not the stated "+-4.0 studs".
+- `reviews/task-298/REQUEST.md`, the rule 5 paragraph -- **LEFT or RIGHT**. From the mat at
+  (1200, 4, 0) *"looking down the lane"* the look is +Z, so the camera's `RightVector` is -X
+  (`X = Y x Z`, `Z = -look`), and the silhouette at x = 1177 (`dx=-23.0`) is on the frame's RIGHT. The
+  rest of the description checks out against the probe (z 120.7 is the disclosed z wander; y 1.5 is a
+  3-stud body's half-height on a shelf at 0; the plate, berm and both screens are what `Build` parents).
+  Say which side it is, so the frame can be matched to the numbers by someone who has it.
+- `reviews/task-298/REQUEST.md`, FAIL FIRST -- *"the three cases added since (freeze, per-run counters,
+  the re-release rise) red against `c74d6f92`'s own code"* overstates by one. The freeze case reds there
+  (`table.isfrozen(RangeData.LAYOUT)` was false) and "counts one run" reds there (the counters were
+  cumulative, so the second start could not read 0), but the re-release **rise** does not: at
+  `c74d6f92` the release path worked and the counters only climbed, so
+  `expect(Range.stats().flips > flipsAfterRelease)` passes against that code. It is a strengthening of
+  a line that could not fail, not a case for a defect -- what it reds against is deleting `order`'s
+  flip branch, which is the deletion that matters and which it does catch.
+- `tests/server/range.spec.luau`, "spawns a hind with the deer's own zones" -- the case builds the
+  range's world INLINE (`world.folderName = "RangeTargets"`, empty `threats`, the `LINE` clone with
+  `ENABLED = true`, `SENSE = { ENABLED = false }`, `KINDS = { ENABLED = true }`,
+  `maxBoars = Range.CONFIG.MAX_TARGETS`), which is `src/server/RangeBoot.server.luau`'s block copied
+  key for key. So claim 10's *"the range's own runtime"* is the spec's copy of it, and the case passes
+  with `RangeBoot.server.luau` deleted: the two can drift and nothing reds. One
+  `Range.worldFor(anchor, layout)` in the shared module, read by the boot and by the case, would make
+  this assert the world the game ships.
+- `src/server/Range/init.luau`, `Range.setPace` / `order` -- STAND publishes a speed it is not using.
+  `setPace(spot, "stand")` writes `trial.speedStudsPerSecond = paceSpeed(pace)` = 0 (correct, and
+  `crossingSeconds` answers `math.huge` for it), while `order`'s STAND branch issues
+  `paceSpeed(RangeData.WORD.WALK)` = 4.5. `Range.trialOf` hands both out, so B4's board reads
+  0 studs/s for a target walking to the middle at 4.5. Publish the issued speed, or name the field
+  for what it is.
+- `tests/server/range.spec.luau`, "builds nothing inside the lane the target walks" -- one line of it
+  is a transcription of the function under test and proves nothing on its own:
+  `expect(math.abs(screen.X - RangeData.laneEnds(anchor, LAYOUT, leg).X)).to.equal(LAYOUT.SCREEN.size.X
+  / 2 + LAYOUT.SCREEN.beyondStuds)` restates `screenPosition`'s own `local beyond = layout.SCREEN.size.X
+  / 2 + layout.SCREEN.beyondStuds`. The case is carried by `#blocking == 0` and by
+  `math.abs(screen.X - centre.X) > half`, which do bite; the transcription can go.
+- `tests/server/range.spec.luau`, header -- *"Nothing here touches `Workspace`, and two cases assert
+  exactly that"* is contradicted by the last case, which writes `parent.Name = "RangeDeerSpec";
+  parent.Parent = Workspace` with its own stated reason (`Body.create` calls the Network Ownership API).
+  Name the exception in the header.
+- `docs/design/shooting-range.md` section 4.1 still carries `SCREEN | 2 parts, 10 x 8 x 1, at
+  `+-(WINDOW/2 + APRON)``, the row the measured fix in claim 6 replaced. `docs/design/` is the
+  Architect's, the deviation is written into `Range.LAYOUT` and stated in the request, and
+  `RangeBoot`'s header already queues the section 3 deviation for B6's ratification -- named here only
+  so both deviations are ratified together.
 
 ---
-REVIEWER verdict on commit `e645dff661c31b2b867b955a4acae767e4357f03` (round 1) · 2026-10-27 20:27 UTC · session cost $4.22, 37 turns · written by tools/agents.py
+REVIEWER verdict on commit `74824f0a44b74137f5abbe5659b62ddc08fef894` (round 2) · 2026-10-27 20:49 UTC · session cost $4.47, 46 turns · written by tools/agents.py
