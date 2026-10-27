@@ -2958,22 +2958,19 @@ return function()
 		it("asks ONE question of the roster, and asks it only inside a drive", function()
 			local cfg = config()
 			-- WAITING: there is no drive to restart, and the loop's own door starts the next one.
-			expect(Phase.mayRestart(ready(cfg), 1)).to.equal(false)
+			expect(Phase.mayRestart(ready(cfg))).to.equal(false)
 			local state = soloRunning(cfg)
-			-- RUNNING, WITH HIM IN IT: he is not a man this would strand, and a second enrolment is
-			-- what `Match.enrol`'s idempotence already refuses him.
-			expect(Phase.mayRestart(state, 1)).to.equal(true)
-			-- ...AND FOR ANYBODY ELSE, WITH HIM STILL IN IT: no.
-			expect(Phase.mayRestart(state, 7)).to.equal(false)
+			-- RUNNING, WITH A MAN IN IT: that is a hunt, and a pad does not restart somebody's hunt.
+			expect(Phase.mayRestart(state)).to.equal(false)
 			-- HE RESPAWNS OUT: the roster is empty and the clock of nobody's drive is running.
 			local at = cfg.INTERMISSION_SECONDS + 1
 			state = (Phase.step(state, { kind = "withdraw", userId = 1, name = "Karen" }, at, cfg))
 			expect(Phase.participantCount(state)).to.equal(0)
-			expect(Phase.mayRestart(state, 1)).to.equal(true)
+			expect(Phase.mayRestart(state)).to.equal(true)
 			-- SCORING: the results scene is Karen's own, and a restart there would skip it.
 			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + 1, cfg))
 			expect(state.phase).to.equal("Scoring")
-			expect(Phase.mayRestart(state, 1)).to.equal(false)
+			expect(Phase.mayRestart(state)).to.equal(false)
 		end)
 
 		-- THE WHOLE OF KAREN'S SENTENCE, IN ONE CASE: a new drive, from the beginning, same role.
@@ -3030,7 +3027,7 @@ return function()
 			-- MILA IS STILL HUNTING, so her drive is not something a pad may restart.
 			expect(Phase.participantCount(state)).to.equal(1)
 			expect(state.participants[2]).to.be.ok()
-			expect(Phase.mayRestart(state, 1)).to.equal(false)
+			expect(Phase.mayRestart(state)).to.equal(false)
 			local ends = state.phaseEndsAt
 			local effects
 			state, effects = Phase.step(state, { kind = "restart", userId = 1, name = "Karen" }, at + 0.5, cfg)
@@ -3058,7 +3055,8 @@ return function()
 			expect(state.driveNumber).to.equal(drive + 1)
 			local ends = state.phaseEndsAt
 			-- HE STEPS ON AGAIN, TWICE, ON THE SAME TICK AND THE NEXT ONE: he is a participant now,
-			-- so there is nothing to restart and the countdown he is watching is not restarted either.
+			-- so the roster is not empty, there is nothing to restart, and the countdown he is
+			-- watching is not restarted either.
 			local effects
 			state, effects = Phase.step(state, { kind = "restart", userId = 1, name = "Karen" }, at, cfg)
 			expect(state.driveNumber).to.equal(drive + 1)

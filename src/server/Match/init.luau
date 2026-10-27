@@ -3973,7 +3973,7 @@ end
 -- of a refusal. The lobby asks it to decide whether his pad is a door or a notice, so the two cannot
 -- disagree: one predicate, read twice.
 function Match.mayRestart(userId: number): boolean
-	return Phase.barredFromRejoin(state, withdrawnFrom[userId]) and Phase.mayRestart(state, userId)
+	return Phase.barredFromRejoin(state, withdrawnFrom[userId]) and Phase.mayRestart(state)
 end
 
 -- ONE PLAYER, INTO THE DRIVE. Everything after the dispatch is today's code: `Waiting` ->
@@ -4010,7 +4010,7 @@ function Match.enrol(player: Player): boolean
 		-- `names` IS ASKED HERE AND NOT ONLY BELOW: a restart deals teams and places everybody, and a
 		-- man this owner has never registered has no board row to put a team on -- refused rather
 		-- than half-done, which is the reason the ordinary check below gives.
-		if Phase.mayRestart(state, userId) and names[userId] ~= nil then
+		if Phase.mayRestart(state) and names[userId] ~= nil then
 			stats.restarts += 1
 			dispatch({ kind = "restart", userId = userId, name = player.Name })
 			return state.participants[userId] ~= nil

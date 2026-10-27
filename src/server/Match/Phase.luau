@@ -315,8 +315,16 @@ function Phase.barredFromRejoin(state: State, withdrawnFrom: number?): boolean
 	return withdrawnFrom == state.driveNumber and Phase.insideDrive(state)
 end
 
+function Phase.participantCount(state: State): number
+	local n = 0
+	for _ in pairs(state.participants) do
+		n += 1
+	end
+	return n
+end
+
 -- MAY A PAD STEP START THIS DRIVE AGAIN FROM THE TOP? (task 287.) PURE, and it is the SOLO
--- question: is there anybody in the live drive but the man asking?
+-- question: is there anybody in this live drive at all?
 --
 -- KAREN, 2026-10-24: *"when I respawn and then go to lobby then go back on pad to hunt I been
 -- transferred to same hunt ... with less than min remaining ... I need to be same role and from
@@ -324,33 +332,21 @@ end
 -- party instead -- which is right while OTHER men are still hunting, and is a man standing alone in
 -- a lobby watching a clock run down on a drive nobody is in when he is the only player.
 --
--- SO IT IS A QUESTION ABOUT THE ROSTER AND NOT ABOUT THE PLAYER COUNT: `participants` is what a
--- drive IS, a withdrawn man is not in it (the `withdraw` branch below takes him out), and `userId`
--- is excluded because a man already in the roster is not somebody this would strand. Two barred men
--- stepping on pads in the same tick therefore get ONE restart: the first is dealt in by the
--- `restart` branch, the second is no longer barred (the drive number moved) and joins it.
+-- SO IT IS A QUESTION ABOUT THE ROSTER AND NOTHING ELSE: `participants` is what a drive IS, and a
+-- withdrawn man is not in it (the `withdraw` branch below takes him out). An EMPTY roster inside a
+-- live drive is a hunt nobody is in, and it is the only state a pad step may restart.
+--
+-- **AND IT IS WHAT MAKES "EXACTLY ONE FRESH DRIVE" A PROPERTY RATHER THAN A HOPE** (Learning Agent
+-- L-029), because the restart itself falsifies it: the man is a participant the moment the branch
+-- below runs, so a second pad step in the same tick -- his own, or another barred man's -- finds a
+-- roster of one and restarts nothing. The second man is no longer barred either (the drive number
+-- moved), so the ordinary `join` takes him into that one drive.
 --
 -- `insideDrive`, FOR `barredFromRejoin`'S OWN REASON: in `Scoring` and `Waiting` there is no drive
 -- to restart -- the loop's own doors start the next one -- and a restart there would skip the
 -- results scene Karen asked for.
-function Phase.mayRestart(state: State, userId: number?): boolean
-	if not Phase.insideDrive(state) then
-		return false
-	end
-	for id in pairs(state.participants) do
-		if id ~= userId then
-			return false
-		end
-	end
-	return true
-end
-
-function Phase.participantCount(state: State): number
-	local n = 0
-	for _ in pairs(state.participants) do
-		n += 1
-	end
-	return n
+function Phase.mayRestart(state: State): boolean
+	return Phase.insideDrive(state) and Phase.participantCount(state) == 0
 end
 
 -- Why it is waiting, in the words the Hud shows: "players", or the exact tag names that produced
@@ -1067,10 +1063,8 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 		--
 		-- REFUSED WHILE ANYBODY ELSE IS IN THE DRIVE, which is the whole of the multi-player rule:
 		-- `mayRestart` is false, this changes nothing and emits nothing, and the lobby keeps him off
-		-- the pad and says so instead (`Lobby`'s own `padLate` notice). One fresh drive per step and
-		-- never two: he is a participant the moment this branch runs, so a second `restart` for the
-		-- same man is refused by the same predicate.
-		if Phase.mayRestart(next_, event.userId) then
+		-- the pad and says so instead (`Lobby`'s own `padLate` notice).
+		if Phase.mayRestart(next_) then
 			next_.participants[event.userId] = event.name or tostring(event.userId)
 			feed(effects, { kind = "join", userId = event.userId, name = event.name, at = now })
 			enterAssigning(next_, effects, now, config, event.owed, event.alwaysShooters, event.beaterWishes)

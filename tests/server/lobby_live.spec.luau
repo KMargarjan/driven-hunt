@@ -1170,7 +1170,7 @@ return function()
 			Lobby.step(2004.5, { man, mila })
 			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(nil)
 			man.root.Position = padAt(1)
-			Lobby.step(2004.6, { man, mila })
+			Lobby.step(2004.8, { man, mila })
 			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(true)
 			-- HE IS NOT WAITING FOR NOTHING: the latch is what puts him in the next drive's party --
 			-- both of them, which is what the line on his screen promises -- and the pads are his
@@ -1212,9 +1212,12 @@ return function()
 			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(nil)
 			-- ...AND THE PARTY GOES, WHICH IS THE ENROLMENT THE DRIVE TURNS INTO A FRESH ONE. With no
 			-- pick at all: the timeout defaults her to 1, which is the unattended path.
+			-- 1.5 SCANS' WORTH OF TIME PER STEP, not one: `Lobby.step` throttles on
+			-- `now - lastScan < 1 / SCAN_HZ`, and a step of exactly `1 / SCAN_HZ` is skipped by
+			-- floating-point error about half the time (measured: this case's first run).
 			local went = 2003
 			for step = 1, math.ceil(SOLO_SECONDS * CFG.SCAN_HZ) + 2 do
-				went = 2003 + step / CFG.SCAN_HZ
+				went = 2003 + step * 1.5 / CFG.SCAN_HZ
 				Lobby.step(went, { man })
 			end
 			expect(#seen.enrolled).to.equal(1)
