@@ -1,16 +1,102 @@
-1. `src/server/Range/init.luau` / `loanSet` + `Range.LOAN`, and `tests/server/range.spec.luau` / "lends all four guns and the endless shells at a spot, and NOTHING off it" — the loan hands out the three BUNDLE ids, so the set the range installs as "owned" grants a drive gun, the always-hunter place and high-seat access; and the one case that guards the loan's contents asserts a sentence it does not check. Evidence: `loanSet` admits any `ALL_ORDER` row by `if grants ~= nil and (grants.weapon ~= nil or grants.ammo ~= nil) then out[id] = true end`. `Shop.BUNDLES` rows carry merged grants written at module load (`row.grants = merged`, from `Shop.mergedGrants(covers)`), so `Shop.anyRow("bundle.season").grants` is `{ weapon = "rifle", ammo = "Slug", highSeat = true, unlimitedAmmo = true, driveGun = true, alwaysHunter = true }` (covers `HIGH_SEAT, SLUG, UNLIMITED_AMMO, RIFLE, BEATER_LICENCE, ALWAYS_HUNTER`) — `grants.weapon ~= nil`, so it is in `Range.LOAN`, as are `bundle.hide` and `bundle.marksman`. Against that set `Shop.grantsDriveGun`, `Shop.grantsAlwaysHunter` and `Shop.grantsHighSeat` all answer true (each is `row.grants.X == true and owned[id] == true` over `ALL_ORDER`). The function's own header says the opposite: *"No licence, no outfit, no drive gun: a loan is not a purchase."* Design 7.4 lends *"at a spot, all four, whatever the player owns"* plus the shells — not a 3750-coin package. The spec case that would have caught it writes *"...AND THE LOAN IS A LOAN: what he had bought is still there, and nothing he had not bought came with it"* and then checks exactly one id — `expect((owned :: any)["licence.reddeer"]).to.equal(nil)` — which passes only because no included row grants a `licence`; the three bundle ids he never bought are in the set and nothing looks. That is the assertion-weaker-than-its-comment shape verdict 281 made blocking. Today no reader behind `Weapon`'s entitlement seam reads those three fields (`askOwned`'s only consumers are `Weapons.loadout` and `Shop.startFor`, and `driveGun`/`alwaysHunter`/`highSeat` are read from `Economy.ownedOf` in `Match`/`Lobby`), so the live effect is nil — the defect is the data and the hole in the gate, and both are small. Required: build the loan from rows whose grants are ONLY a weapon and/or an ammo kind (reject a row that grants any other field — `Shop.GRANT_FIELDS` is already that list) so the header's sentence is true, and make the case assert the whole set rather than one id: every id in `Range.LOAN` is a gun or cartridge row, and `Shop.grantsDriveGun(owned)`, `Shop.grantsAlwaysHunter(owned)`, `Shop.grantsHighSeat(owned)` answer what the design says they should.
+PASS (items 1, 2, 4, 5, 6, 7, 8, 9 NOT PROVEN)
+
+Rule 5, stated so this PASS is not read as rule 5 having been met: **nothing in this change has been
+seen in Karen's place.** `Range.ANCHORS` holds one row, `["map:v1"]`, and `range.spec` still asserts
+`RangeData.anchorFor("forest-test") == nil` -- her place has no range, no mat, and no gun on loan, so
+every item above was evidenced in the DEV harness or by reading only. What WAS exercised by real
+shipped code in the harness: item 1 (`mayShoot` true on the mat, false one mat-width off, false with
+the range stopped), item 4 (the loan's whole set, row by row, against `Shop.grantsDriveGun` /
+`grantsAlwaysHunter` / `grantsHighSeat`), item 5 (30 pulls through the real `StateMachine` cycle with
+the no-loan control), item 6's mayShoot half, and items 7/8 through `Weapon.onFireRequest` and a real
+flight -- the 106.3-studs measurement in commit `65dcf612`'s own message is the proof that the shot
+path was entered, in run 4. What was NOT: anything in Karen's place; item 2's install order
+(`compose()` in `RangeBoot` has never executed in a run that produced evidence here -- the Builder
+says so: *"argued from how Roblox loads server Scripts, not measured"*); item 9's live half (*"nobody
+has seen a range target die"*). Items 3, 10 and 11 are structural and verified against the repo. No
+visual change, so no screenshot was owed.
+
+Round 1's finding is FIXED and the fix bites. `loanSet` now walks `Shop.GRANT_FIELDS` and admits a row
+only when every field but `weapon`/`ammo` is nil, so `Range.LOAN` is `ammo.slug`, `rifle.scoped`,
+`rifle.lever`, `shotgun.semiauto` and the explicitly added `ammo.unlimited` -- the three `bundle.*`
+rows, whose `grants` are the merged set carrying `driveGun`/`alwaysHunter`/`highSeat`, are now
+rejected. Revert the inner walk and the case reds twice over: the row-by-row loop finds
+`grants.driveGun ~= nil`, and `Shop.grantsDriveGun(owned)` answers true against
+`expect(...).to.equal(false)`.
+
+Verified against the repo, no action. `Ballistics.segment` returns `segment = segment.Unit * remaining`
+and `length = remaining` when it caps, so `pellet.position + segment` lands exactly `rangeStuds` along
+the path and `|endPoint - muzzle| <= reachedStuds` holds by chord-vs-arc -- claim 8's fix is correct and
+`nextPosition` was the real defect; a shot the global cap refused has `endPoint = nil` (`Flight.launch`)
+and `onShotLanded` falls back to `shot.muzzle`, which matches the claim. `resolvedSignal:Fire` sits on
+the one path `flight:advance`'s resolutions take (`Weapon.start`'s Heartbeat -> `onShotLanded`), so once
+per resolved shot is right. Claim 6 holds and not for the reason the request gives: `refreshArming`'s
+closing loop over `Weapons.ids()` revokes any weapon no longer in the narrowed `wanted`, so the three
+loaned guns go on the next 2 s sweep -- without that loop the loan would have survived in the Backpack
+for ever. `Weapon.setDriveOpenProvider`/`setEntitlementProvider` returning the previous provider cannot
+break a caller: `MatchBoot:196/218/351` and `ForestTestBoot:319/355/877` ignore the return and are
+untouched by the diff, and `Match.driveOpen()` takes no parameter so the new `player` argument is
+discarded. `Range.armingOver`'s short-circuit is the design's `or` with the operands swapped, which is
+the same answer with no side effect skipped. `RANGE` is still `default = false`, so `RangeBoot` returns
+before `compose()` in every harness run and the 2441-case suite is untouched by the new wiring.
+`Weapon` stays the only writer of the arming decision, the Tool and the shot; `Runtime:takeHit` loops
+its own `_boars` and returns false for a part it does not own, so the two listeners cannot answer for
+each other. Harness line names the request's `Code commit:` 9a79896c with "(clean tree)",
+`paperwork-after-code-commit.txt` says OK, FAIL FIRST's 2435 + 6 = the 2441 of the final run;
+selene/stylua/rojo clean. No secret, no absolute user path, no non-noreply email, no `.rbxm`, no script
+outside a Rojo-managed path.
 
 ## Notes (non-blocking)
-- Rule 5, stated so this review is not read as rule 5 having been met: **nothing in this change has been seen in Karen's place.** `Range.ANCHORS` has no `forest-test` row, so her place has no range and no mat; items 1, 2, 4, 5, 6, 7, 8 and 9 were evidenced only in the DEV harness (items 5, 7, 8 by a real reducer/fire path there; items 2, 6 and 9's live half by reading only — the Builder says so himself: *"NOT PROVEN — nobody has seen a range target die"*, and the first-Heartbeat composition order is *"argued from how Roblox loads server Scripts, not measured"*). `compose()` in `RangeBoot` has not executed in any run that produced evidence here. No visual change, so no screenshot was owed.
-- `Range.entitlementOver` + `Weapon.refreshArming` — claim 6 ("the loan never follows him into a drive") holds only while the BASE policy refuses him. `refreshArming` revokes on `armingAction(allowed, holds)` with `allowed = mayArm(player)`; a player the drive already arms keeps his Tool, and the pocket in it was built once by `StateMachine.initial(row, startFor(player, row))` at grant time. `state.unlimited` is only re-derived by `Weapon.refillForDrive`, which is level-triggered on the drive number (`needsRefill`), so a man who takes the loan during an open drive carries `unlimited` until the NEXT drive. Unreachable today (no `forest-test` row; the DEV mat at x 1200 is outside `Map.FIELD.bounds` maxX 620), which is why this is a note — B6 must close it, or state the cost.
-- `tests/server/range.spec.luau` / "fires exactly ONCE per resolved shot" — with the `resolvedSignal:Fire{...}` block in `onShotLanded` deleted, this case still passes in any run where `readyShooter()` finds nobody: the only surviving assertion is `expect(Weapon.ShotResolved).to.be.ok()`, on the signal object rather than on a publish. It prints *"NOT PROVEN in this run"*, which is the convention verdict 281 set and why it is not a finding; in the run quoted it did fire (claim 8's `end 106.3` → `end 100.0` can only come from this case's own note). The producer-deletion bite therefore depends on a ready shooter existing, not on the case.
-- same case — `putBack()` is not reached if any assertion after `expect(#seen).to.equal(1)` fails, so one red leaves `Weapon.setCast(function() return nil end)` installed for the rest of the server suite and every later spec's shot hits nothing; the real failure would be misattributed. `weapon_shot.spec` has the same shape. A pcall-and-restore around the body fixes it here.
-- same case — `Weapon.setLicenceProvider(nil)` is cleared and never put back (`putBack` restores target, stand, safety line and drive-open). Inert in the harness world, where `MatchBoot` passes `counterAt = nil` so `shopOn` is false and no licence provider was wired; it is `weapon_shot.spec`'s existing idiom.
-- `src/server/RangeBoot.server.luau` / the `HitReported` listener — it omits `shooterPosition`, which `MatchBoot`'s otherwise-identical call passes (`root and root.Position`), so a wounded range target bolts off the impact normal instead of away from the shooter. The comment above it says *"the same `Runtime:takeHit`, so a shot that kills on the lane kills in the wood."*
-- claim 4's case asserts through `Shop.loadoutFrom(Weapons.ids(), Weapons.PRIMARY, owned)`, not the shipped `Weapons.loadout(owned)`, which short-circuits to `{ Weapons.PRIMARY }` when the `RIFLE` flag is off. The two agree only because `Flags.ROWS.RIFLE.default = true` — right by the flag's current value rather than by construction.
-- `Range.CONFIG.FREE` is read by nothing in `src/` (grep `\.FREE\b`), while B2's comment beside it says *"STEP B3 READS EXACTLY THESE TWO"*. FREE is implemented by absence (no `Economy` call anywhere under `src/server/Range/` — verified), so the field is now a dead dial; delete it or say it is declarative.
-- `manAt` builds a `Model` + `HumanoidRootPart` per call and never destroys them (unparented, so nothing in `Workspace` is touched).
-- the request quotes claim 5's note in full but not claims 7/8's, and claim 8 asks the reader to verify *"the note now reads `end 100.0`"* — the one number not pasted. The code supports it: when `Ballistics.segment` caps, `segment = segment.Unit * remaining` while `nextPosition` is unclamped, so `pellet.position + segment` puts the end point exactly `remaining` along the chord and `|endPoint - muzzle| <= reachedStuds` holds (projectiles launch at `shot.muzzle` in `Flight.launch`). Harness line, code commit and `paperwork-after-code-commit.txt` are consistent.
+- `src/server/RangeBoot.server.luau` / `compose` -- **the ordering risk has no instrument, and its
+  failure is silent.** If any root's require chain yields past the first Heartbeat, `MatchBoot`'s
+  `Weapon.setArmingPolicy(Match.mayCarryWeapon)` lands *after* the composition and overwrites it, the
+  range arms nobody, and the print still reads `"the range's two relaxations and the four guns on loan
+  are composed"`. The Builder discloses that the order is argued and not measured; what is missing is a
+  way to notice the argument being wrong. Keep the composed function's identity in a local and re-check
+  it on a later Heartbeat -- `warn` and re-compose if something replaced it. One line each way, and it
+  turns an unverifiable claim into a self-reporting one.
+- `src/server/Weapon/init.luau` / `Weapon.ShotResolved` header -- *"Its one listener is `Range`, wired
+  at a composition root"* is false today: grep finds no `ShotResolved:Connect` anywhere in `src/`, only
+  the declaration and `range.spec`. B4's board is the first listener. Say "no listener yet (B4)".
+- `tests/server/range.spec.luau` / "fires exactly ONCE per resolved shot" -- the producer-deletion bite
+  is CONDITIONAL, unchanged from round 1. Delete the whole producer (the `resolvedSignal` declaration
+  and `Weapon.ShotResolved = resolvedSignal.Event` with the `Fire` block) and the case reds in both
+  branches, which is why this is a note. Delete only the `Fire` block and keep the signal, and in any
+  run where `readyShooter()` returns nil the single surviving assertion is
+  `expect(Weapon.ShotResolved).to.be.ok()` -- a line about the signal object, not about a publish. The
+  request does not paste this case's `TestKit.note` for the quoted run, so the pasted evidence does not
+  say which branch 9a79896c took; the only thing in the repo that shows the shot path was entered is
+  commit `65dcf612`'s message. Paste the note (it is also claim 8's own *"Verify: the note now reads
+  `end 100.0`"* -- the one number the request asks the reader to check and does not supply).
+- same case -- `putBack()` is still not reached if any assertion after `expect(#seen).to.equal(1)`
+  fails, so one red leaves `Weapon.setCast(function() return nil end)` installed and every later spec's
+  shot hits nothing, misattributing the real failure. Round 1's note (m), queued in `TASKS.md` and not
+  fixed; a pcall-and-restore around the body closes it.
+- `tests/server/range.spec.luau` / the claim-4 case -- its inner `for _, field in ipairs(Shop.GRANT_FIELDS)`
+  loop is a transcription of `loanSet`'s own walk over the same list, so a ninth grant field invisible
+  to `GRANT_FIELDS` would be invisible to both. What makes that safe is outside this case --
+  `shop.spec` asserts the list covers every key appearing in any row's `grants` -- and what carries the
+  case is the three `Shop.grants*` readers, which are independent of `loanSet`. Name the `shop.spec`
+  dependency in the comment so the transcription is not read as the assertion.
+- `src/shared/Range/init.luau` / `spotAt` -- it compares X and Z and ignores Y entirely, so
+  `Range.mayShoot` is true for a man at any height directly above or below a mat. Harmless on a flat
+  lobby plate; a `MAT.size.Y`-sized band in Y would make the predicate say what its comment says.
+- `src/server/Range/init.luau` / `Range.CONFIG.FREE` -- still read by nothing in `src/`, while B2's
+  comment beside it says *"STEP B3 READS EXACTLY THESE TWO"*. Round 1's note (p), queued, unchanged.
+  FREE is implemented by absence; delete the field or mark it declarative.
+- `tests/server/range.spec.luau` / `manAt` -- still builds a `Model` + `HumanoidRootPart` per call and
+  never destroys them. Unparented, so nothing in `Workspace` is touched.
+- `tests/server/range.spec.luau` / "is false with the range not started..." -- all four of its
+  assertions are `false`, so on its own it cannot tell `mayShoot` from `return false`. The sibling case
+  carries the true branch, and claim 1 names both, so the pair is the proof -- which is the right shape,
+  recorded only so the pair is never split.
+- `src/server/RangeBoot.server.luau` / the `HitReported` listener -- with `RANGE` on in the DEV place,
+  `MatchBoot`'s own `HitReported` listener still runs `HitLog.recordHit(report)` for a range hit and
+  will file it under whatever drive `HitLog` has open, so range shots appear in the drive's report.
+  Design section 12 asks for exactly that (*"`HitLog.recordHit` keeps receiving it, unchanged"*), so it
+  is not a defect -- named so B4's board and the drive report are not later read as disagreeing.
+- `reviews/task-298/REQUEST.md`, claim 2 -- *"the two relaxations"* in the case name covers three
+  composed providers (arming, drive-open, entitlement); the design's own heading counts two gates plus
+  the loan. Wording only.
 
 ---
-REVIEWER verdict on commit `4a81406c6e8e4391bd6c33325a45493c3e777e3e` (round 1) · 2026-10-27 21:46 UTC · session cost $5.11, 51 turns · written by tools/agents.py
+REVIEWER verdict on commit `ad1185ce2641e74d3dbb2f80f7bfaff9382eea89` (round 2) · 2026-10-27 22:02 UTC · session cost $5.91, 63 turns · written by tools/agents.py
