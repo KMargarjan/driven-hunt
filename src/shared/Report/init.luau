@@ -304,27 +304,82 @@ Report.CONFIG = {
 	-- (`<runs-dir>/278/overlay-male-geom.png`) -- it puts a head shot in the air in front of the
 	-- snout, because this boar carries its head low and its withers high and the game's box does
 	-- not, which is what the paragraph above already says.
+	-- **THE `box` IS GONE FROM THESE ROWS AND IS NOW `TRUNK_IN_INK`, PER KIND (task 283).** The dots'
+	-- unit square is the TRUNK BOX -- `HitLog.Shape.dot` divides by it -- and these four rectangles
+	-- were not that box's image: the two boars' were task 205's zone FIT, 3.19:1 where the male's
+	-- trunk is 1.83:1, so a dot's height was squeezed into a flat band and an honest withers hit drew
+	-- on the mane. Karen, 2026-10-27: *"wrong I hit the chest shows outside"*. The rows that were
+	-- here, kept for the record: male v 0.230..0.730 u 0.100..0.900; female v 0.150..0.650
+	-- u 0.120..0.920; stag v 0.380..1.000 u 0.000..0.916; hind v 0.276..1.000 u 0.000..0.918.
+	--
+	-- `px` IS THE IMAGE'S OWN PIXEL SIZE and still travels with `id`, for task 278's reason below.
+	-- The two boars' are corrected to the uploaded files' real size (947 x 475 and 759 x 441, read
+	-- off the bytes whose sha256 `assets/uploads.json` records); each was one pixel short.
 	BOAR_IMAGE = {
 		male = {
 			id = "rbxassetid://135789362198066",
-			px = { w = 946, h = 474 },
-			box = { u0 = 0.100, u1 = 0.900, v0 = 0.230, v1 = 0.730 },
+			px = { w = 947, h = 475 },
 		},
 		female = {
 			id = "rbxassetid://121961957713451",
-			px = { w = 757, h = 440 },
-			box = { u0 = 0.120, u1 = 0.920, v0 = 0.150, v1 = 0.650 },
+			px = { w = 759, h = 441 },
 		},
 		stag = {
 			id = "rbxassetid://82382119550819",
 			px = { w = 750, h = 758 },
-			box = { u0 = 0.000, u1 = 0.916, v0 = 0.380, v1 = 1.000 },
 		},
 		hind = {
 			id = "rbxassetid://134628251396589",
 			px = { w = 805, h = 662 },
-			box = { u0 = 0.000, u1 = 0.918, v0 = 0.276, v1 = 1.000 },
 		},
+	},
+
+	-- **WHERE THE TRUNK BOX SITS ON THE PICTURE -- the ONE rectangle the dots' unit square is drawn
+	-- into, per KIND (task 283).** `HitLog.Shape.dot` normalises every dot by the trunk box, so this
+	-- has to be that box's own image and nothing else: two different rectangles is the defect Karen
+	-- photographed.
+	--
+	-- MEASURED, all seven, with one instrument: `reviews/task-283/probes/283-extent.luau` freezes
+	-- each kind's loaded model and reads the drawn mesh's AABB in the trunk's own frame. Three of the
+	-- four numbers come out the same for every kind, and that is a fact about the assets rather than a
+	-- simplification: the drawn length EQUALS the trunk's length exactly and is centred on it (so
+	-- u 0..1), and the drawn bottom IS the trunk's bottom to three decimals (so v1 = 1). Only the TOP
+	-- differs -- every one of them carries a crest, a mane, a raised head or antlers above its box --
+	-- and `v0` is that overhang as a fraction of the drawn height:
+	--
+	--   male  drawn 1.401 x 3.257 x 5.500, y -1.500..1.757, trunk 2.000 x 3.000 x 5.500 -> 0.0790
+	--   female      1.202 x 2.647 x 4.675, y -1.275..1.372,       1.700 x 2.550 x 4.675 -> 0.0368
+	--   cub         0.618 x 1.439 x 2.475, y -0.675..0.764,       0.900 x 1.350 x 2.475 -> 0.0618
+	--   legendary   1.891 x 4.397 x 7.425, y -2.025..2.372,       2.700 x 4.050 x 7.425 -> 0.0790
+	--   stag        3.467 x 7.920 x 7.050, y -2.400..5.520,       1.800 x 4.800 x 7.050 -> 0.3940
+	--   hind        2.008 x 5.101 x 6.030, y -2.053..3.048,       1.540 x 4.105 x 6.030 -> 0.1951
+	--   calf        1.234 x 3.481 x 3.490, y -1.188..2.293,       0.891 x 2.376 x 3.490 -> 0.3173
+	--
+	-- IT IS PER KIND AND NOT PER PICTURE, and a cub is why: it SHARES the sow's image, and its own
+	-- mesh stands 6.2 % of its height above its box where hers stands 3.7 % above hers. One rectangle
+	-- per picture cannot be both.
+	--
+	-- **THE PICTURES ARE CROPPED TO THE INK, which is why u 0..1 is the picture's own width.**
+	-- Measured on the uploaded bytes (`tools/silhouette_ink.py`): the opaque pixels of all four PNGs
+	-- reach every edge. So "the drawn animal's extent" and "the image" are one rectangle, and
+	-- `Report.imageFit` already says where that rectangle lands in the frame.
+	--
+	-- **THIS REVERSES TWO OF TASK 278'S CHOICES, and the measurement is why.** That task kept the
+	-- boars' FIT box because the geometric rule "puts a head shot in the air in front of the snout",
+	-- and cut the deer's `u1` to the picture's rump because the image's right edge is a trailing hoof.
+	-- Both were judged against the game's ZONE BOXES, whose dorsal band is itself wrong (task 282
+	-- measured the back line standing 0.257 studs above `ZoneHead`'s top; task 282a fixes it). Judged
+	-- against the DRAWN MESH -- which is what the player shoots -- the rearmost drawn point of every
+	-- kind IS the trunk's rear face, so u1 = 1, and a point on the drawn flank lands on ink, which
+	-- `tests/server/hit_card.spec.luau` measures against the pictures' own pixels.
+	TRUNK_IN_INK = {
+		male = { u0 = 0.000, u1 = 1.000, v0 = 0.0790, v1 = 1.000 },
+		female = { u0 = 0.000, u1 = 1.000, v0 = 0.0368, v1 = 1.000 },
+		cub = { u0 = 0.000, u1 = 1.000, v0 = 0.0618, v1 = 1.000 },
+		legendary = { u0 = 0.000, u1 = 1.000, v0 = 0.0790, v1 = 1.000 },
+		stag = { u0 = 0.000, u1 = 1.000, v0 = 0.3940, v1 = 1.000 },
+		hind = { u0 = 0.000, u1 = 1.000, v0 = 0.1951, v1 = 1.000 },
+		calf = { u0 = 0.000, u1 = 1.000, v0 = 0.3173, v1 = 1.000 },
 	},
 
 	-- HOW SMALL A CALF IS DRAWN (task 223). The HIND's picture at 70 %, which is what a calf is
@@ -799,18 +854,26 @@ end
 function Report.boarImage(kind: string?): { id: string, box: any, px: any, scale: number }
 	local word = string.lower(tostring(kind or ""))
 	local art = Report.CONFIG.BOAR_IMAGE
-	if word == "female" then
-		return { id = art.female.id, box = art.female.box, px = art.female.px, scale = 1 }
-	elseif word == "cub" or word == "piglet" then
-		return { id = art.female.id, box = art.female.box, px = art.female.px, scale = Report.CONFIG.PIGLET_SCALE }
-	elseif word == "stag" then
-		return { id = art.stag.id, box = art.stag.box, px = art.stag.px, scale = 1 }
-	elseif word == "hind" then
-		return { id = art.hind.id, box = art.hind.box, px = art.hind.px, scale = 1 }
-	elseif word == "calf" then
-		return { id = art.hind.id, box = art.hind.box, px = art.hind.px, scale = Report.CONFIG.CALF_SCALE }
+	-- `box` IS THE KIND'S OWN TRUNK RECTANGLE SINCE TASK 283 and not the picture's (`TRUNK_IN_INK`):
+	-- a cub shares the sow's image and stands differently in its own box, so the rectangle cannot
+	-- live on the picture. An unknown kind takes the male's, exactly as it takes his picture.
+	local function trunk(name: string)
+		return Report.CONFIG.TRUNK_IN_INK[name] or Report.CONFIG.TRUNK_IN_INK.male
 	end
-	return { id = art.male.id, box = art.male.box, px = art.male.px, scale = 1 }
+	if word == "female" then
+		return { id = art.female.id, box = trunk("female"), px = art.female.px, scale = 1 }
+	elseif word == "cub" or word == "piglet" then
+		return { id = art.female.id, box = trunk("cub"), px = art.female.px, scale = Report.CONFIG.PIGLET_SCALE }
+	elseif word == "stag" then
+		return { id = art.stag.id, box = trunk("stag"), px = art.stag.px, scale = 1 }
+	elseif word == "hind" then
+		return { id = art.hind.id, box = trunk("hind"), px = art.hind.px, scale = 1 }
+	elseif word == "calf" then
+		return { id = art.hind.id, box = trunk("calf"), px = art.hind.px, scale = Report.CONFIG.CALF_SCALE }
+	elseif word == "legendary" then
+		return { id = art.male.id, box = trunk("legendary"), px = art.male.px, scale = 1 }
+	end
+	return { id = art.male.id, box = trunk("male"), px = art.male.px, scale = 1 }
 end
 
 -- WHERE `ScaleType.Fit` ACTUALLY DRAWS AN IMAGE INSIDE A FRAME, as fractions of that frame (task

@@ -240,6 +240,13 @@ end
 --
 -- THE RING'S RADIUS GROWS WITH THE GROUP so eighteen pellets do not sit on a circle meant for
 -- three, and it is capped at `gap` x 2 so a pattern stays a pattern rather than becoming a halo.
+--
+-- **`width` AND `height` ARE THE ANIMAL'S OWN RECTANGLE IN PIXELS, NOT THE FRAME'S (task 283), AND
+-- THE RING NEVER LEAVES IT.** They were the frame's, so on the hit card a fan of eight was laid on
+-- an 11.9 px ring inside an animal 37 px tall and half of it hung off the picture -- Karen,
+-- 2026-10-27: *"wrong I hit the chest shows outside"*. Two things follow: the radius shrinks to the
+-- room the group actually has (never below half a gap, or a pattern stops reading as one), and what
+-- is still over the edge is clamped onto the animal.
 function BoarArt.spread(dots: { any }, gap: number, width: number, height: number): { any }
 	local out = {}
 	local taken = {}
@@ -274,10 +281,15 @@ function BoarArt.spread(dots: { any }, gap: number, width: number, height: numbe
 		end
 		cu, cv = cu / #group, cv / #group
 		local radius = math.min(gap * 2, gap * 0.6 * math.sqrt(#group))
+		-- THE ROOM THE GROUP HAS, in the animal's own pixels: the nearest of the four edges. A
+		-- pattern on the back line has almost none, so the floor is half a gap and the clamp below
+		-- finishes the job.
+		local room = math.min(math.min(cu, 1 - cu) * math.max(1, width), math.min(cv, 1 - cv) * math.max(1, height))
+		radius = math.min(radius, math.max(gap * 0.5, room))
 		for place, which in ipairs(group) do
 			local angle = (place - 1) * (2 * math.pi / #group)
-			out[which].u = cu + (radius * math.cos(angle)) / math.max(1, width)
-			out[which].v = cv + (radius * math.sin(angle)) / math.max(1, height)
+			out[which].u = math.clamp(cu + (radius * math.cos(angle)) / math.max(1, width), 0, 1)
+			out[which].v = math.clamp(cv + (radius * math.sin(angle)) / math.max(1, height), 0, 1)
 		end
 	end
 	return out
@@ -298,10 +310,6 @@ end
 function BoarArt.drawDots(art: Frame, dots: { any }?, look: DotLook)
 	BoarArt.clearDots(art)
 	local pixels = look.pixels or CONFIG.DOT_PIXELS
-	-- SAME PLACE -> SPREAD (Karen, 2026-10-17). The fan is computed on the DRAWN positions, in this
-	-- frame's own pixels, because "a dot's width apart" is a thing about the picture and not about
-	-- the animal. The record is untouched: the attributes written below still carry the true (u, v).
-	local placed = BoarArt.spread(dots or {}, pixels, look.width, look.height)
 	-- WHERE THE UNIT SQUARE SITS ON THE PICTURE. With Karen's image it is the measured box
 	-- (`build` wrote it onto the frame); with the fallback drawing it is the whole frame, which is
 	-- what every dot before task 205 was placed in.
@@ -309,6 +317,17 @@ function BoarArt.drawDots(art: Frame, dots: { any }?, look: DotLook)
 	local boxU1 = art:GetAttribute("BoxU1") or 1
 	local boxV0 = art:GetAttribute("BoxV0") or 0
 	local boxV1 = art:GetAttribute("BoxV1") or 1
+	-- **THE ANIMAL'S OWN RECTANGLE IN PIXELS, AND EVERY PIXEL DECISION BELOW IS MADE IN IT (task
+	-- 283).** The fan and the half-dot inset were measured in the FRAME's pixels and then drawn into
+	-- this box, which is smaller: on the hit card a 3.5 px inset became 1.6 px of animal and an
+	-- 11.9 px fan became a ring half off the picture. A dot's width is a thing about the ANIMAL it is
+	-- drawn on.
+	local boxWidth = math.max(1, (boxU1 - boxU0) * look.width)
+	local boxHeight = math.max(1, (boxV1 - boxV0) * look.height)
+	-- SAME PLACE -> SPREAD (Karen, 2026-10-17). The fan is computed on the DRAWN positions, in the
+	-- animal's own pixels. The record is untouched: the attributes written below still carry the
+	-- true (u, v).
+	local placed = BoarArt.spread(dots or {}, pixels, boxWidth, boxHeight)
 	for index, dot in ipairs(dots or {}) do
 		local pip = Instance.new("Frame")
 		pip.Name = "Dot"
@@ -319,8 +338,10 @@ function BoarArt.drawDots(art: Frame, dots: { any }?, look: DotLook)
 		-- hanging half outside it. The shift is at most 5 px of 104, under 5% of the body's length,
 		-- and it is a drawing decision: the record itself is untouched and the attributes below
 		-- still carry the true (u, v).
-		local insetU = (size / 2) / look.width
-		local insetV = (size / 2) / look.height
+		-- IN THE ANIMAL'S PIXELS SINCE TASK 283 (see `boxWidth` above), so half a dot is half a dot
+		-- wherever the picture sits inside the frame.
+		local insetU = (size / 2) / boxWidth
+		local insetV = (size / 2) / boxHeight
 		-- ...AND THEN ONTO THE ANIMAL, if the inset still leaves it in the air (task 138). The
 		-- nudge is applied to the DRAWN position, because that is the space `Report.CONFIG.BOAR`'s
 		-- parts are laid out in; the attributes below still carry the true `(u, v)`.
