@@ -238,71 +238,95 @@ return function()
 
 		it("DRAWS NOTHING A PLAYER CAN SEE while the gun's meshes are still downloading", function()
 			local Viewmodel = Camera.Viewmodel
-			-- THE FOLDER THE SERVER PUBLISHED, and the ids this case holds back: the cold client, in
-			-- a Studio whose cache is warm. Without the folder there is no mesh to wait for and the
-			-- case says so rather than passing quietly.
+			-- THE TEMPLATES ARE FABRICATED, for `semiauto_client.spec`'s own reason: the real ones
+			-- are uploaded meshes a Studio with no network may not have, so the waiting state must be
+			-- reached on purpose rather than on a good day. A `MeshPart` with no mesh id is EXACTLY
+			-- the state this gate exists for -- `AssetFetch.ready` answers false for it -- so no
+			-- status seam is needed and the rule being proved is the build's, not the engine's.
 			local folder = ReplicatedStorage:FindFirstChild(Gun.FOLDER_NAME)
-			expect(folder).to.be.ok()
-			local held: { [string]: boolean } = {}
-			local ids = 0
-			for _, child in ipairs((folder :: Instance):GetChildren()) do
-				if child:IsA("MeshPart") and child.MeshId ~= "" then
-					held[child.MeshId] = true
-					ids += 1
+			local made: { Instance } = {}
+			if folder == nil then
+				local created = Instance.new("Folder")
+				created.Name = Gun.FOLDER_NAME
+				created.Parent = ReplicatedStorage
+				table.insert(made, created)
+				folder = created
+			end
+			local names = 0
+			for _, piece in ipairs(Gun.pieces(Shotgun.CONFIG)) do
+				if piece.meshKey ~= nil then
+					names += 1
+					if (folder :: Instance):FindFirstChild(piece.name) == nil then
+						local mesh = Instance.new("MeshPart")
+						mesh.Name = piece.name
+						mesh.Parent = folder
+						table.insert(made, mesh)
+					end
 				end
 			end
-			expect(ids > 0).to.equal(true)
-			TestKit.note(string.format("task294 holding %d mesh id(s) of %s back", ids, Gun.FOLDER_NAME))
+			expect(names > 0).to.equal(true)
+			TestKit.note(string.format("task294 hold case: %d mesh piece(s), %d fabricated", names, #made))
 
-			withGunDrawn(function()
-				local clockNow = 1000
-				AssetFetch.reset()
-				AssetFetch.setAsk(function() end) -- no network from a test
-				AssetFetch.setStatus(function(id)
-					if held[id] then
-						return Enum.AssetFetchStatus.Loading
-					end
-					return ContentProvider:GetAssetFetchStatus(id)
-				end)
-				Viewmodel.setClock(function()
-					return clockNow
-				end)
-				Viewmodel.forgetHold()
-				Viewmodel.clear()
-				Viewmodel.update(CFrame.new(0, 12, 0), stateNow(), firstPersonConfig)
-				local clone = Viewmodel.current() :: Model
-				expect(clone).to.be.ok()
-				-- THE GUN IS BUILT -- every piece is there to be read by name...
-				expect(#clone:GetDescendants() > 2).to.equal(true)
-				expect(Viewmodel.holding()).to.equal(true)
-				expect(Viewmodel.stats().meshesHeld > 0).to.equal(true)
-				-- ...AND NOT ONE PIECE OF IT IS VISIBLE. This is Karen's sentence as a number: the
-				-- boxes are what she called rectangles. TO SEE IT FAIL: drop the `if held then 1`
-				-- from `buildNewGun`'s fallback branch.
-				expect(visiblePieces(clone)).to.equal(0)
+			local ok, why = pcall(function()
+				withGunDrawn(function()
+					local clockNow = 1000
+					Viewmodel.setClock(function()
+						return clockNow
+					end)
+					Viewmodel.forgetHold()
+					Viewmodel.clear()
+					Viewmodel.update(CFrame.new(0, 12, 0), stateNow(), firstPersonConfig)
+					local clone = Viewmodel.current() :: Model
+					expect(clone).to.be.ok()
+					-- THE GUN IS BUILT -- every piece is there for everything downstream to read by
+					-- name (dropping them left `semiauto_client.spec` with no bolt)...
+					expect(#clone:GetDescendants() > 2).to.equal(true)
+					expect(Viewmodel.holding()).to.equal(true)
+					expect(Viewmodel.stats().meshesHeld > 0).to.equal(true)
+					-- ...AND NOT ONE PIECE OF IT IS VISIBLE. This is Karen's sentence as a number.
+					-- TO SEE IT FAIL: drop the `if held then 1` from `buildNewGun`'s fallback branch.
+					expect(visiblePieces(clone)).to.equal(0)
 
-				-- PAST THE BOUND: the honest fallback. The gun comes back as boxes rather than
-				-- staying an empty hand for the session.
-				clockNow += Viewmodel.HOLD_SECONDS + 0.1
-				Viewmodel.clear()
-				Viewmodel.update(CFrame.new(0, 12, 0), stateNow(), firstPersonConfig)
-				local after = Viewmodel.current() :: Model
-				expect(Viewmodel.holding()).to.equal(false)
-				expect(Viewmodel.stats().meshesHeld).to.equal(0)
-				expect(visiblePieces(after) > 0).to.equal(true)
-				TestKit.note(string.format("task294 held=0 visible, after the bound=%d visible", visiblePieces(after)))
+					-- PAST THE BOUND: the honest fallback. The gun comes back as boxes rather than
+					-- staying an empty hand for the session.
+					clockNow += Viewmodel.HOLD_SECONDS + 0.1
+					Viewmodel.clear()
+					Viewmodel.update(CFrame.new(0, 12, 0), stateNow(), firstPersonConfig)
+					local after = Viewmodel.current() :: Model
+					expect(Viewmodel.holding()).to.equal(false)
+					expect(Viewmodel.stats().meshesHeld).to.equal(0)
+					local seen = visiblePieces(after)
+					expect(seen > 0).to.equal(true)
+					TestKit.note(string.format("task294 held: 0 visible; past the bound: %d visible", seen))
+				end)
 			end)
+			-- ONLY WHAT THIS CASE MADE, and before the verdict: a template left behind would change
+			-- what every later frame of this session draws.
+			for _, instance in ipairs(made) do
+				instance:Destroy()
+			end
+			assert(ok, tostring(why))
 		end)
 	end)
 
 	describe("asking early (task 294)", function()
-		it("ASKS THE ENGINE for every weapon folder that has replicated", function()
-			-- A PLAYER WHO HAS ONLY EVER CARRIED THE SHOTGUN HAS NEVER ASKED for the rifle's meshes,
-			-- so their status is `None` until something asks -- and until this task the first thing
-			-- that asked was the DRAW, as Karen looked at it.
-			-- EVERY ID ANYTHING ASKED FOR, AND HOW OFTEN. The live render loop shares this door, so
-			-- the claims below are a SET and a no-duplicates rule rather than a call count: a frame
-			-- landing mid-case must not be able to make this red or green by accident.
+		it("ASKS THE ENGINE for every mesh it is handed, once", function()
+			-- REAL MESH IDS, in any place and with no upload: an R15 avatar's body is MeshParts.
+			-- `warm` is what the lobby sweep and the shop case both call, and this is the whole of
+			-- its promise -- walk, ask, remember.
+			local character = player.Character or player.CharacterAdded:Wait()
+			local wanted: { [string]: boolean } = {}
+			local ids = 0
+			for _, part in ipairs(character:GetDescendants()) do
+				if part:IsA("MeshPart") and (part :: MeshPart).MeshId ~= "" then
+					if not wanted[(part :: MeshPart).MeshId] then
+						wanted[(part :: MeshPart).MeshId] = true
+						ids += 1
+					end
+				end
+			end
+			expect(ids > 0).to.equal(true)
+
 			local askedIds: { [string]: number } = {}
 			AssetFetch.reset()
 			AssetFetch.setAsk(function(holder)
@@ -312,54 +336,89 @@ return function()
 				end
 			end)
 			local ok, why = pcall(function()
-				-- WHICH FOLDERS ARE THERE TO ASK FOR, counted first: the claim is about every one of
-				-- them, so a session where nothing has replicated must fail rather than pass on an
-				-- empty sweep.
-				local wanted: { [string]: number } = {}
-				local meshes = 0
-				for id in pairs(Weapons.ROWS) do
-					local geometry = Weapons.geometry(id)
-					expect(type(geometry.FOLDER_NAME)).to.equal("string")
-					local folder = ReplicatedStorage:FindFirstChild(geometry.FOLDER_NAME)
-					if folder ~= nil then
-						for _, child in ipairs(folder:GetChildren()) do
-							if child:IsA("MeshPart") and child.MeshId ~= "" then
-								wanted[child.MeshId] = (wanted[child.MeshId] or 0) + 1
-								meshes += 1
-							end
-						end
-					end
-				end
-				expect(meshes > 0).to.equal(true)
-
-				-- THE SWEEP ASKS FOR THEM ALL, IN ONE CALL. TO SEE IT FAIL: replace
-				-- `Weapon.warmWeapons`'s loop over `Weapons.ROWS` with `return AssetFetch.warm({})`,
-				-- or drop the `AssetFetch.warm(holders)` line -- `asks` is then 0 and so is coverage.
-				local asks = WeaponClient.warmWeapons()
-				expect(asks > 0).to.equal(true)
-				-- EVERY MESH OF EVERY WEAPON THAT HAS REPLICATED was asked for, not just the one in
-				-- the hand: this is the whole claim, as a set.
+				-- TO SEE IT FAIL: delete the `request(id, part)` line in `AssetFetch.warm`.
+				expect(AssetFetch.warm({ character })).to.equal(ids)
 				for id in pairs(wanted) do
-					expect((askedIds[id] or 0) >= 1).to.equal(true)
+					expect(askedIds[id]).to.equal(1)
 				end
-				TestKit.note(string.format("task294 warm asked for %d weapon mesh(es) of %d", asks, meshes))
-
-				-- ...AND NEVER TWICE FOR THE SAME BYTES: the sweep runs every second for 30 tries,
-				-- so a second ask per id per sweep would be 30 requests for bytes already coming.
-				expect(WeaponClient.warmWeapons()).to.equal(0)
-				local twice = 0
-				for _, times in pairs(askedIds) do
-					if times > 1 then
-						twice += 1
-					end
+				-- ...AND NEVER TWICE FOR THE SAME BYTES: the lobby sweep runs every second for 30
+				-- tries, so a second ask per id per sweep would be 30 requests for bytes in flight.
+				expect(AssetFetch.warm({ character })).to.equal(0)
+				for id in pairs(wanted) do
+					expect(askedIds[id]).to.equal(1)
 				end
-				expect(twice).to.equal(0)
-				expect(WeaponClient.WARM_TRIES > 1).to.equal(true)
-				expect(WeaponClient.WARM_SECONDS > 0).to.equal(true)
 			end)
 			AssetFetch.setAsk(nil)
 			AssetFetch.reset()
 			assert(ok, tostring(why))
+			TestKit.note(string.format("task294 warm asked for %d avatar mesh id(s), once each", ids))
+		end)
+
+		it("hands AssetFetch EVERY weapon folder that has replicated, from the lobby", function()
+			-- A PLAYER WHO HAS ONLY EVER CARRIED THE SHOTGUN HAS NEVER ASKED for the rifle's meshes,
+			-- so their status is `None` until something asks -- and until this task the first thing
+			-- that asked was the DRAW, as Karen looked at it. The sweep reads `Weapons.ROWS`, so this
+			-- is the list it is checked against. TO SEE IT FAIL: replace `Weapon.warmWeapons`'s loop
+			-- with `return AssetFetch.warm({})`.
+			local expected: { [string]: boolean } = {}
+			local folders = 0
+			for id in pairs(Weapons.ROWS) do
+				local geometry = Weapons.geometry(id)
+				expect(type(geometry.FOLDER_NAME)).to.equal("string")
+				if ReplicatedStorage:FindFirstChild(geometry.FOLDER_NAME) ~= nil then
+					expected[geometry.FOLDER_NAME] = true
+					folders += 1
+				end
+			end
+
+			-- AND THERE IS ALWAYS AT LEAST ONE TO HAND OVER, so this cannot pass on an empty sweep
+			-- (the Reviewer's round-1 finding, in the one place it could come back): a DEV place with
+			-- no uploaded weapon gets one fabricated folder, destroyed below.
+			local temporary: Instance? = nil
+			if folders == 0 then
+				local created = Instance.new("Folder")
+				created.Name = Gun.FOLDER_NAME
+				created.Parent = ReplicatedStorage
+				temporary = created
+				expected[created.Name] = true
+				folders = 1
+			end
+
+			-- THE SPY IS THE MODULE'S OWN FUNCTION, swapped back whatever happens: what is being
+			-- proved is which holders the client weapon owner hands over, not what `warm` does with
+			-- them (the case above proves that half).
+			local realWarm = AssetFetch.warm
+			local handed: { [string]: boolean } = {}
+			local calls = 0
+			AssetFetch.warm = function(holders)
+				calls += 1
+				for _, holder in ipairs(holders) do
+					handed[holder.Name] = true
+				end
+				return 0
+			end
+			local ok, why = pcall(function()
+				expect(WeaponClient.warmWeapons()).to.equal(0) -- the spy's answer, passed straight out
+			end)
+			AssetFetch.warm = realWarm
+			if temporary ~= nil then
+				(temporary :: Instance):Destroy()
+			end
+			assert(ok, tostring(why))
+
+			expect(folders > 0).to.equal(true)
+			expect(calls).to.equal(1) -- one sweep, one call: not one per weapon
+			local count = 0
+			for name in pairs(handed) do
+				-- NOTHING BUT A WEAPON'S OWN FOLDER: a sweep that handed over the hands folder or
+				-- the whole of ReplicatedStorage would pass a "> 0" claim and fail this one.
+				expect(expected[name]).to.equal(true)
+				count += 1
+			end
+			expect(count).to.equal(folders)
+			expect(WeaponClient.WARM_TRIES > 1).to.equal(true)
+			expect(WeaponClient.WARM_SECONDS > 0).to.equal(true)
+			TestKit.note(string.format("task294 the lobby sweep handed over %d weapon folder(s)", count))
 		end)
 	end)
 end
