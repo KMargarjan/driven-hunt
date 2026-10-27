@@ -745,4 +745,341 @@ return function()
 			expect(table.concat(clashes, ", ")).to.equal("")
 		end)
 	end)
+
+	-- **TASK 283: A DOT LANDS ON THE ANIMAL IT IS DRAWN OVER, measured against the PICTURE'S OWN
+	-- PIXELS.** Karen, 2026-10-27, of a buckshot card at a broadside boar she aimed at the chest:
+	-- *"wrong I hit the chest shows outside"*.
+	--
+	-- WHY THIS CASE IS NOT A TAUTOLOGY, which is the thing that makes it worth its length. Three
+	-- independent instruments meet in it and none of them is the code under test:
+	--   1. `reviews/task-283/probes/283-flank.luau` found each point by RAY against the frozen DRAWN
+	--      mesh in Play -- so every `uv` below is a place the player can actually hit;
+	--   2. `HitCardInk` is the uploaded PNGs' own alpha, sampled by `tools/silhouette_ink.py` off the
+	--      bytes whose sha256 `assets/uploads.json` records;
+	--   3. the pixel is read off the DRAWN `Dot` frame's `Position`, and the composition is undone
+	--      with this file's own arithmetic. Asking `Report.imageBox` where the picture is would make
+	--      a case that cannot fail when the answer is wrong.
+	describe("a dot lands on the animal (task 283)", function()
+		local Ink = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("HitCardInk"))
+
+		-- WHICH PICTURE EACH KIND IS DRAWN ON, and at what scale -- `Report.boarImage`'s own rule,
+		-- written out here so the case does not read it from the thing it is checking. A cub is the
+		-- sow's drawing and a calf the hind's, so each shares that picture's measured rectangle.
+		local DRAWN = {
+			male = { picture = "male", scale = 1 },
+			legendary = { picture = "male", scale = 1 },
+			female = { picture = "female", scale = 1 },
+			cub = { picture = "female", scale = Report.CONFIG.PIGLET_SCALE },
+			stag = { picture = "stag", scale = 1 },
+			hind = { picture = "hind", scale = 1 },
+			calf = { picture = "hind", scale = Report.CONFIG.CALF_SCALE },
+		}
+
+		-- POINTS ON THE DRAWN FLANK, found by ray (`283-flank.luau`, 2026-10-27, DEV): four stations
+		-- along each animal -- the withers, the chest, the belly line and the rump -- as the (u, v)
+		-- `HitLog.Shape.dot` makes of them. The stag's withers is absent on purpose: the ray at that
+		-- station came back `MESH=false` (it fell in the gap under his antlers), and a point the probe
+		-- did not confirm is not evidence.
+		--
+		-- **THE WITHERS STATION IS NOT IN HERE FOR FOUR OF THE SEVEN, AND THE REASON IS A FINDING.**
+		-- On the male, the legendary, the hind and the calf the ray met the mesh ABOVE the trunk box
+		-- (the male's at y 1.510 against a box top of 1.500), so `Shape.dot` CLAMPS it to v = 0 --
+		-- the box's own top line -- and the unit square cannot represent where it struck at all.
+		-- Three of those four land on ink anyway and the hind's does not; the case below measures
+		-- that rather than hiding it, and the band itself is task 282a's.
+		local ON_FLANK = {
+			male = { { 0.4000, 0.3290 }, { 0.5200, 0.5456 }, { 0.7800, 0.4210 } },
+			female = { { 0.2800, 0.0448 }, { 0.4000, 0.3440 }, { 0.5200, 0.5480 }, { 0.7800, 0.4340 } },
+			cub = { { 0.2800, 0.0024 }, { 0.4000, 0.3820 }, { 0.5200, 0.5128 }, { 0.7800, 0.3890 } },
+			legendary = { { 0.4000, 0.3290 }, { 0.5200, 0.5456 }, { 0.7800, 0.4210 } },
+			stag = { { 0.4000, 0.0910 }, { 0.5200, 0.4600 }, { 0.7800, 0.1940 } },
+			hind = { { 0.4000, 0.4250 }, { 0.5200, 0.3920 }, { 0.7800, 0.1340 } },
+			calf = { { 0.4000, 0.3840 }, { 0.5200, 0.2672 }, { 0.7800, 0.0280 } },
+		}
+
+		-- THE DORSAL BAND, MEASURED THROUGH THE CARD. Every one of these four points is a place the
+		-- ray met the DRAWN animal ABOVE that animal's trunk box, so each arrives here as v = 0 --
+		-- the box's own top line, which IS the picture's back line now the rectangle is measured on
+		-- the picture. All four must therefore draw on the animal; round 1's rows came off the game
+		-- MESH, which put the hind's 0.09 of her picture above her back (`RESULT.md` finding 1).
+		local ABOVE_THE_BOX = {
+			{ "male", 0.2800 },
+			{ "legendary", 0.2800 },
+			{ "hind", 0.2800 },
+			{ "calf", 0.2800 },
+		}
+
+		-- THE PIXEL OF THE PICTURE A DRAWN PIP SITS ON. `pip.Position` is a fraction of the ART
+		-- FRAME; the label is `scale` of that frame, centred; and the image inside the label is
+		-- `ScaleType.Fit`, so it keeps its own aspect and is centred with a bar down two sides. All
+		-- three are undone here, in this file, with no call into `Report`'s composition.
+		local function pictureUV(kind: string, pipU: number, pipV: number): (number, number)
+			local drawn = DRAWN[kind]
+			local art = Ink.PICTURES[drawn.picture]
+			local inset = (1 - drawn.scale) / 2
+			local labelU = (pipU - inset) / drawn.scale
+			local labelV = (pipV - inset) / drawn.scale
+			local image = art.w / art.h
+			local frame = CONFIG.ART_WIDTH / CONFIG.ART_HEIGHT
+			local u0, u1, v0, v1 = 0, 1, 0, 1
+			if image > frame then
+				local tall = frame / image
+				v0, v1 = (1 - tall) / 2, (1 + tall) / 2
+			else
+				local wide = image / frame
+				u0, u1 = (1 - wide) / 2, (1 + wide) / 2
+			end
+			return (labelU - u0) / (u1 - u0), (labelV - v0) / (v1 - v0)
+		end
+
+		-- WHERE THE PICTURE IS DRAWN IN THE ART FRAME, as fractions of that frame: `ScaleType.Fit`
+		-- keeps the image's aspect and centres it. The arithmetic `pictureUV` undoes, forwards.
+		local function fitOf(kind: string): { u0: number, u1: number, v0: number, v1: number }
+			local art = Ink.PICTURES[DRAWN[kind].picture]
+			local image = art.w / art.h
+			local frame = CONFIG.ART_WIDTH / CONFIG.ART_HEIGHT
+			if image > frame then
+				local tall = frame / image
+				return { u0 = 0, u1 = 1, v0 = (1 - tall) / 2, v1 = (1 + tall) / 2 }
+			end
+			local wide = image / frame
+			return { u0 = (1 - wide) / 2, u1 = (1 + wide) / 2, v0 = 0, v1 = 1 }
+		end
+
+		-- THE IMAGE v A DOT AT BOX v MUST BE DRAWN AT, predicted from THE PICTURE and from the drawn
+		-- pip's own size: `Ink.trunkBox` plus `BoarArt`'s half-dot inset, which is half a dot of the
+		-- ANIMAL'S height. Nothing in `Report.CONFIG.TRUNK_IN_INK` is consulted, so a case that uses
+		-- this fails if that table is deleted or wrong.
+		local function expectedV(kind: string, pip: GuiObject, boxV: number): number
+			local trunk = Ink.trunkBox(DRAWN[kind].picture) :: any
+			local fit = fitOf(kind)
+			local tall = DRAWN[kind].scale * (fit.v1 - fit.v0) * (trunk.v1 - trunk.v0)
+			local insetV = (pip.Size.Y.Offset / 2) / math.max(1, tall * CONFIG.ART_HEIGHT)
+			return trunk.v0 + (insetV + boxV * (1 - 2 * insetV)) * (trunk.v1 - trunk.v0)
+		end
+
+		local function drawCard(kind: string, dots)
+			local payload = payloadFor(kind)
+			payload.dots = dots
+			Card.show(payload)
+			local art = Card.art() :: Frame
+			expect(art).to.be.ok()
+			local pips = {}
+			for _, child in ipairs(art:GetChildren()) do
+				if child:IsA("Frame") and child.Name == "Dot" then
+					table.insert(pips, child)
+				end
+			end
+			return pips
+		end
+
+		it("draws every point of the drawn flank ON the picture, for all seven kinds", function()
+			local misses = {}
+			local counted = 0
+			for _, kind in ipairs({ "male", "female", "cub", "legendary", "stag", "hind", "calf" }) do
+				for index, point in ipairs(ON_FLANK[kind]) do
+					local pips = drawCard(kind, { { u = point[1], v = point[2], zone = "chest", side = 1 } })
+					expect(#pips).to.equal(1)
+					local pipU = pips[1].Position.X.Scale
+					local pipV = pips[1].Position.Y.Scale
+					local iu, iv = pictureUV(kind, pipU, pipV)
+					counted += 1
+					if not Ink.isInk(DRAWN[kind].picture, iu, iv) then
+						table.insert(
+							misses,
+							string.format(
+								"%s#%d uv(%.3f,%.3f)->img(%.3f,%.3f)",
+								kind,
+								index,
+								point[1],
+								point[2],
+								iu,
+								iv
+							)
+						)
+					end
+					Card.hide()
+				end
+			end
+			TestKit.note(string.format("hit_card 283: %d flank points, %d off the ink", counted, #misses))
+			expect(table.concat(misses, " ")).to.equal("")
+		end)
+
+		it("draws the dots in the PICTURE'S OWN trunk box, to a cell, for all seven kinds", function()
+			-- THE NUMBER, per picture (Director, 2026-10-27: the rectangle is measured ON THE
+			-- PICTURE). `Ink.trunkBox` reads it off the 240 x 120 grid of the uploaded PNG's alpha;
+			-- the card's rectangle comes from `Report.CONFIG.TRUNK_IN_INK`, measured on the same
+			-- PNG at full resolution by `tools/silhouette_ink.py measure`. Two resolutions, one
+			-- rule: they must agree to one cell. Delete that table and the card's box becomes the
+			-- whole picture (0..1 on both axes), which fails on every one of the four pictures.
+			local cell = 1 / Ink.ROWS
+			for _, kind in ipairs({ "male", "female", "stag", "hind", "calf", "cub", "legendary" }) do
+				local pips = drawCard(kind, { { u = 0.5, v = 0.5, zone = "chest", side = 1 } })
+				expect(#pips).to.equal(1)
+				local art = Card.art() :: Frame
+				-- The box as the renderer wrote it, in FRAME fractions, undone to the picture's own
+				-- fractions by this file's arithmetic (`pictureUV`) and never by `Report`'s.
+				local u0 = art:GetAttribute("BoxU0") :: number
+				local u1 = art:GetAttribute("BoxU1") :: number
+				local v0 = art:GetAttribute("BoxV0") :: number
+				local v1 = art:GetAttribute("BoxV1") :: number
+				local gotU0, gotV0 = pictureUV(kind, u0, v0)
+				local gotU1, gotV1 = pictureUV(kind, u1, v1)
+				local want = Ink.trunkBox(DRAWN[kind].picture) :: any
+				TestKit.note(
+					string.format(
+						"hit_card 283: %s box u %.4f..%.4f v %.4f..%.4f, the picture's own u %.4f..%.4f v %.4f..%.4f",
+						kind,
+						gotU0,
+						gotU1,
+						gotV0,
+						gotV1,
+						want.u0,
+						want.u1,
+						want.v0,
+						want.v1
+					)
+				)
+				expect(gotV0).to.be.near(want.v0, cell)
+				expect(gotV1).to.be.near(want.v1, cell)
+				expect(gotU0).to.be.near(want.u0, cell)
+				expect(gotU1).to.be.near(want.u1, cell)
+				Card.hide()
+			end
+		end)
+
+		it("clamps a hit ABOVE the box onto the picture's back line, and draws it ON the animal", function()
+			local offInk, wrongV = {}, {}
+			local cell = 1 / Ink.ROWS
+			for _, row in ipairs(ABOVE_THE_BOX) do
+				local kind, u = row[1], row[2]
+				local pips = drawCard(kind, { { u = u, v = 0, zone = "head", side = 1 } })
+				expect(#pips).to.equal(1)
+				local iu, iv = pictureUV(kind, pips[1].Position.X.Scale, pips[1].Position.Y.Scale)
+				local want = expectedV(kind, pips[1], 0)
+				local where = string.format("%s img(%.3f,%.3f) want v %.3f", kind, iu, iv, want)
+				if not Ink.isInk(DRAWN[kind].picture, iu, iv) then
+					table.insert(offInk, where)
+				end
+				if math.abs(iv - want) > cell then
+					table.insert(wrongV, where)
+				end
+				TestKit.note("hit_card 283: above the box -- " .. where)
+				Card.hide()
+			end
+			-- THE NUMBER FIRST: a dot on the box's top line is drawn at the picture's own back line
+			-- plus half a dot, for every one of them. Then the picture: all four land on the animal.
+			expect(table.concat(wrongV, " ")).to.equal("")
+			expect(table.concat(offInk, " ")).to.equal("")
+		end)
+
+		it("draws KAREN'S OWN PELLET inside the boar and below its crest", function()
+			-- THE KNOWN-BAD CASE, and it is a reading rather than an example: the lead pellet of the
+			-- buckshot shot in `reviews/task-282/MEASURED.md` 2b, server local offset
+			-- (1.06, 1.41, -0.21) on a male, which `282-why2.luau` proved CROSSED the drawn mesh
+			-- (the back line at that z is 1.60). u = -0.21 / 5.5 + 0.5, v = 0.5 - 1.41 / 3.
+			local pips = drawCard("male", { { u = 0.46182, v = 0.03, zone = "chest", side = 1, lead = true } })
+			expect(#pips).to.equal(1)
+			local iu, iv = pictureUV("male", pips[1].Position.X.Scale, pips[1].Position.Y.Scale)
+			-- THE NUMBER, so the case cannot pass on a different rectangle: with his MEASURED box
+			-- this pellet is drawn at image v 0.224, with round 1's rows at 0.170, with the rows
+			-- before this task at 0.308, and with no rectangle at all at 0.093. The tolerance is
+			-- one cell of the grid (0.008), so the four are 6 cells apart at the closest.
+			expect(iv).to.be.near(expectedV("male", pips[1], 0.03), 1 / Ink.ROWS)
+			expect(Ink.isInk("male", iu, iv)).to.equal(true)
+			-- ...AND BELOW THE CREST: there is ink ABOVE it in the same column, which is the mane she
+			-- was shown the dot on. A dot drawn ON the crest line has none.
+			local column = math.clamp(math.floor(iu * Ink.COLS) + 1, 1, Ink.COLS)
+			local row = math.clamp(math.floor(iv * Ink.ROWS) + 1, 1, Ink.ROWS)
+			local above = 0
+			for r = 1, row - 1 do
+				if string.sub(Ink.PICTURES.male.rows[r], column, column) == "#" then
+					above += 1
+				end
+			end
+			TestKit.note(
+				string.format(
+					"hit_card 283: lead pellet img(%.3f,%.3f) row %d, %d ink rows above it",
+					iu,
+					iv,
+					row,
+					above
+				)
+			)
+			expect(above >= 2).to.equal(true)
+		end)
+
+		it("leaves a point that is INSIDE the box but OFF the animal off the ink", function()
+			-- THE OTHER HALF, and without it the case above passes for a card that draws everything
+			-- on the torso. `282-why2.luau` measured the male's back line at z -2.6 as y 0.74, so
+			-- (y 1.00, z -2.60) is air -- inside the trunk box (half-height 1.50) and above the
+			-- drawn animal. u = -2.6 / 5.5 + 0.5, v = 0.5 - 1.0 / 3.
+			local pips = drawCard("male", { { u = 0.027273, v = 0.166667, zone = "head", side = 1 } })
+			expect(#pips).to.equal(1)
+			local iu, iv = pictureUV("male", pips[1].Position.X.Scale, pips[1].Position.Y.Scale)
+			TestKit.note(
+				string.format(
+					"hit_card 283: air in the box -> img(%.3f,%.3f) ink=%s",
+					iu,
+					iv,
+					tostring(Ink.isInk("male", iu, iv))
+				)
+			)
+			expect(Ink.isInk("male", iu, iv)).to.equal(false)
+		end)
+
+		it("keeps a FANNED group of eight on the animal", function()
+			-- KAREN'S FRAME WAS EIGHT PELLETS. `BoarArt.spread` fans a group that shares a spot, and
+			-- until this task it measured the fan in the FRAME's pixels and drew it into the picture's
+			-- smaller rectangle -- an 11.9 px ring on an animal 37 px tall, half of it off the ink.
+			local tight = {}
+			for index = 1, 8 do
+				table.insert(tight, { u = 0.40 + index * 0.001, v = 0.06 + index * 0.001, zone = "chest", side = 1 })
+			end
+			local pips = drawCard("male", tight)
+			expect(#pips).to.equal(8)
+			local off = {}
+			local middle = 0
+			for index, pip in ipairs(pips) do
+				local iu, iv = pictureUV("male", pip.Position.X.Scale, pip.Position.Y.Scale)
+				middle += iv / #pips
+				if not Ink.isInk("male", iu, iv) then
+					table.insert(off, string.format("#%d img(%.3f,%.3f)", index, iu, iv))
+				end
+			end
+			-- THE NUMBER, for the group: `BoarArt.spread` fans about the centre, so the eight dots'
+			-- mean image v is where their shared v is drawn -- on the measured box and on no other.
+			expect(middle).to.be.near(expectedV("male", pips[1], 0.0645), 1 / Ink.ROWS)
+			TestKit.note(string.format("hit_card 283: 8 fanned pellets, %d off the ink", #off))
+			expect(table.concat(off, " ")).to.equal("")
+		end)
+
+		it("fans inside the ANIMAL'S rectangle and not the frame's", function()
+			-- THE ARITHMETIC, with no screen: a group on the back line has almost no room above it,
+			-- so the ring shrinks instead of reaching off the picture, and every fanned dot stays in
+			-- the unit square.
+			local BoarArt = Hud.BoarArt
+			local tight = {}
+			for _ = 1, 8 do
+				table.insert(tight, { u = 0.5, v = 0.02 })
+			end
+			local fanned = BoarArt.spread(tight, 7, 148, 37)
+			for _, dot in ipairs(fanned) do
+				expect(dot.u >= 0 and dot.u <= 1).to.equal(true)
+				expect(dot.v >= 0 and dot.v <= 1).to.equal(true)
+			end
+			-- ...AND A GROUP WITH ROOM IS UNTOUCHED BY THE NEW CAP: the same eight at mid-animal
+			-- still fan onto the full ring, so the fix took nothing away.
+			local roomy = {}
+			for _ = 1, 8 do
+				table.insert(roomy, { u = 0.5, v = 0.5 })
+			end
+			local wide = BoarArt.spread(roomy, 7, 148, 37)
+			local far = 0
+			for _, dot in ipairs(wide) do
+				far = math.max(far, math.abs(dot.u - 0.5) * 148)
+			end
+			expect(far).to.be.near(7 * 0.6 * math.sqrt(8), 1e-3)
+		end)
+	end)
 end
