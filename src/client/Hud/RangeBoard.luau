@@ -20,7 +20,7 @@ RangeBoard.LOOK = {
 	TEXT = Color3.fromRGB(232, 232, 224),
 	LABEL = Color3.fromRGB(160, 164, 152),
 	RESET = Color3.fromRGB(128, 72, 64),
-	WIDTH = 300,
+	WIDTH = 380,
 	HEIGHT = 300,
 	Z_INDEX = 13,
 }
@@ -135,6 +135,8 @@ function RangeBoard.reset(): boolean
 	return true
 end
 
+-- EVERY CHILD CARRIES `Z_INDEX + 1` (the button `+ 2`), for `RangePanel.build`'s measured reason:
+-- `ZIndexBehavior.Sibling` compares a child's ZIndex globally.
 function RangeBoard.build(root: Frame)
 	panel = root
 	lines = {}
@@ -151,6 +153,7 @@ function RangeBoard.build(root: Frame)
 	title.TextSize = 14
 	title.TextXAlignment = Enum.TextXAlignment.Left
 	title.TextColor3 = RangeBoard.LOOK.TEXT
+	title.ZIndex = RangeBoard.LOOK.Z_INDEX + 1
 	title.Text = "THE BOARD"
 	title.Parent = root
 
@@ -167,6 +170,7 @@ function RangeBoard.build(root: Frame)
 		line.TextWrapped = true
 		line.TextXAlignment = Enum.TextXAlignment.Left
 		line.TextColor3 = RangeBoard.LOOK.LABEL
+		line.ZIndex = RangeBoard.LOOK.Z_INDEX + 1
 		line.Text = ""
 		line.Parent = root
 		table.insert(lines, line)
@@ -182,6 +186,7 @@ function RangeBoard.build(root: Frame)
 	reset.Font = Enum.Font.GothamBold
 	reset.TextSize = 13
 	reset.TextColor3 = RangeBoard.LOOK.TEXT
+	reset.ZIndex = RangeBoard.LOOK.Z_INDEX + 2
 	reset.Text = "RESET"
 	reset.AutoButtonColor = true
 	reset.Parent = root

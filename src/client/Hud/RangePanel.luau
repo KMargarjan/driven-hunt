@@ -28,7 +28,7 @@ RangePanel.LOOK = {
 	-- 46 could not be positioned to contain the centre on every screen; 140 can, with margin.
 	CONFIRM_HEIGHT = 140,
 	WIDTH = 560,
-	HEIGHT = 440,
+	HEIGHT = 640,
 	Z_INDEX = 14,
 }
 
@@ -196,6 +196,10 @@ function RangePanel.reset(): boolean
 end
 
 -- ------------------------------------------------------------------ the frame
+--
+-- EVERY CHILD CARRIES `Z_INDEX + 1` (a button `+ 2`). With `ZIndexBehavior.Sibling` a child's
+-- ZIndex is compared globally, so children left at the default 1 draw BEHIND a panel at 14 --
+-- measured in DEV on 2026-10-27, where the menu photographed as an empty black box.
 
 local function rowLabel(parent: Frame, text: string, y: number): TextLabel
 	local label = Instance.new("TextLabel")
@@ -207,6 +211,7 @@ local function rowLabel(parent: Frame, text: string, y: number): TextLabel
 	label.TextSize = 13
 	label.TextXAlignment = Enum.TextXAlignment.Left
 	label.TextColor3 = RangePanel.LOOK.LABEL
+	label.ZIndex = RangePanel.LOOK.Z_INDEX + 1
 	label.Text = text
 	label.Parent = parent
 	return label
@@ -228,6 +233,7 @@ function RangePanel.build(root: Frame)
 	title.TextSize = 16
 	title.TextXAlignment = Enum.TextXAlignment.Left
 	title.TextColor3 = RangePanel.LOOK.TEXT
+	title.ZIndex = RangePanel.LOOK.Z_INDEX + 1
 	title.Text = "SHOOTING RANGE"
 	title.Parent = root
 
@@ -239,6 +245,7 @@ function RangePanel.build(root: Frame)
 		strip.BackgroundTransparency = 1
 		strip.Position = UDim2.fromOffset(128, y)
 		strip.Size = UDim2.new(1, -144, 0, 26)
+		strip.ZIndex = RangePanel.LOOK.Z_INDEX + 1
 		strip.Parent = root
 		buttons[row.option] = {}
 	end
@@ -256,6 +263,7 @@ function RangePanel.build(root: Frame)
 	confirm.Font = Enum.Font.GothamBold
 	confirm.TextSize = 16
 	confirm.TextColor3 = RangePanel.LOOK.TEXT
+	confirm.ZIndex = RangePanel.LOOK.Z_INDEX + 2
 	confirm.Text = "RELEASE THE TARGET"
 	confirm.AutoButtonColor = true
 	confirm.Parent = root
@@ -274,6 +282,7 @@ function RangePanel.build(root: Frame)
 	hint.TextSize = 12
 	hint.TextWrapped = true
 	hint.TextColor3 = RangePanel.LOOK.LABEL
+	hint.ZIndex = RangePanel.LOOK.Z_INDEX + 1
 	hint.Text = "The range is free: every gun, endless cartridges, no licence. Nothing here is scored."
 	hint.Parent = root
 
@@ -306,6 +315,7 @@ function RangePanel.render()
 					button.Font = Enum.Font.Gotham
 					button.TextSize = 12
 					button.TextColor3 = RangePanel.LOOK.TEXT
+					button.ZIndex = RangePanel.LOOK.Z_INDEX + 2
 					button.AutoButtonColor = true
 					button.Parent = strip
 					button.Activated:Connect(function()

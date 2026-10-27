@@ -2182,8 +2182,10 @@ local function build(): ScreenGui
 	rangeBoard.BackgroundColor3 = RangeBoard.LOOK.PANEL
 	rangeBoard.BackgroundTransparency = 0.1
 	rangeBoard.BorderSizePixel = 0
-	rangeBoard.AnchorPoint = Vector2.new(1, 0.5)
-	rangeBoard.Position = UDim2.new(1, -16, 0.5, 0)
+	-- ON THE LEFT, because the RAIL owns the right edge: photographed in DEV on 2026-10-27 the
+	-- board sat under MAP / REPORT / RELOAD / AMMO and lost its last column.
+	rangeBoard.AnchorPoint = Vector2.new(0, 0.5)
+	rangeBoard.Position = UDim2.new(0, 16, 0.5, 0)
 	rangeBoard.Size = RangeBoard.panelSize()
 	rangeBoard.ZIndex = RangeBoard.LOOK.Z_INDEX
 	rangeBoard.Visible = false
