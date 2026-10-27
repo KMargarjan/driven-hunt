@@ -1168,122 +1168,237 @@ return function()
 			expect(w.CARCASS_REASSERT_SECONDS < w.CARCASS_SECONDS).to.equal(true)
 		end)
 
-		it("puts the held death pose back whenever a carcass has lost it (task 293)", function()
-			-- KAREN, 2026-10-27, playing her build: *"deer error remains, after kill stands"*, with a
-			-- screenshot of an upright hind. MEASURED on the real hind rig in a DEV Play session,
-			-- against the DRAWN pose (`Bone.TransformedWorldCFrame`, never the track's own word): the
-			-- rig's drawn height is **1.02 studs** while the death clip is held at its last frame and
-			-- **4.94 studs** -- its standing bind pose -- the instant that non-looped track runs past
-			-- its end and STOPS. The deer kinds show it and the boar hides it: the deer package
-			-- publishes no `Death_Paddle_L/R`, so the fall itself is the clip that is held.
-			--
-			-- ASKED EVERY TICK, because what breaks the hold is a RACE: `freezeReach` predicts the
-			-- next step from the LAST frame's `dt`, so one longer frame steps clean past the end
-			-- before `shouldFreeze` is asked -- which is why Karen's defect is intermittent.
-			--
-			-- ONE RULE FOR EVERY SPECIES: the only inputs are "is this animal dead", "which clip is
-			-- its death", what that track is doing, and how often it has been repaired.
-			local m = CONFIG.MODEL
-			-- A HELD TRACK STILL PLAYING AT FULL WEIGHT IS LEFT ALONE.
-			expect(Boar.shouldRehold(true, "deathLeft", true, 1, 0, CONFIG)).to.equal(false)
-			-- THE DEFECT: dead, and the death track has STOPPED.
-			expect(Boar.shouldRehold(true, "deathLeft", false, 0, 0, CONFIG)).to.equal(true)
-			-- ...AND PLAYING AT WEIGHT 0 IS THE SAME PICTURE: a rig nothing is weighted onto draws
-			-- its bind pose exactly as a stopped one does.
-			expect(Boar.shouldRehold(true, "deathLeft", true, 0, 0, CONFIG)).to.equal(true)
-			expect(Boar.shouldRehold(true, "deathPaddleLeft", true, 0.49, 0, CONFIG)).to.equal(true)
-			-- A LIVE ANIMAL IS NEVER TOUCHED, and nor is a carcass the BOX laid down (`boxFalls`):
-			-- laying that one down again is task 120's carcass buried upside down.
-			expect(Boar.shouldRehold(false, "deathLeft", false, 0, 0, CONFIG)).to.equal(false)
-			expect(Boar.shouldRehold(true, nil, false, 0, 0, CONFIG)).to.equal(false)
-			-- BOUNDED: never a per-frame writer, whatever state it reads.
-			expect(Boar.shouldRehold(true, "deathLeft", false, 0, m.REHOLD_LIMIT, CONFIG)).to.equal(false)
-			-- THE FRAME IT GOES BACK ON IS CLAMPED SHORT OF THE END, because parking a non-looped
-			-- track AT its end is the state that stopped it.
-			expect(Boar.holdFrame(nil, 1.167, CONFIG)).to.be.near(1.167 - m.HOLD_EPSILON, 1e-6)
-			expect(Boar.holdFrame(1.166, 1.167, CONFIG)).to.be.near(1.167 - m.HOLD_EPSILON, 1e-6)
-			expect(Boar.holdFrame(0.9, 1.167, CONFIG)).to.be.near(0.9, 1e-6)
-			expect(Boar.holdFrame(nil, 0, CONFIG)).to.equal(0)
-		end)
-
-		it("drives stepVisual on a carcass whose death track stopped, and puts it back", function()
-			-- THE CASE THAT FAILS WHEN THE `stepVisual` BLOCK IS DELETED (review round 1, finding 3):
-			-- the pure rules above all pass without it. This drives the real `Body.stepVisual` on a
-			-- collapsed handle whose death track reports `IsPlaying == false` -- the measured defect
-			-- state -- and asserts the track was PUT BACK on the held frame.
-			local fall = Boar.deathClips(CONFIG)
-			local writes = { plays = 0, speeds = {}, positions = {} }
-			local track = {
-				Name = fall,
-				Length = CONFIG.MODEL.CLIPS[fall].seconds,
-				TimePosition = CONFIG.MODEL.CLIPS[fall].seconds, -- ran clean past its end and stopped
-				Speed = 1,
-				WeightCurrent = 0,
-				IsPlaying = false,
-				Looped = false,
-			}
-			function track:Play(_fadeTime, weight, speed)
-				writes.plays += 1
-				self.IsPlaying = true
-				self.WeightCurrent = weight or 1
-				self.Speed = speed or 1
-				self.TimePosition = 0 -- what `Play` really does: back to frame zero
-			end
-			function track:AdjustSpeed(speed)
-				self.Speed = speed
-				table.insert(writes.speeds, speed)
-			end
-			function track:Stop() end
-			local handle = {
+		-- ONE CARCASS HANDLE FOR TASK 293 (the fields `Body.stepVisual` reads, and nothing else), so
+		-- the cases below drive the REAL code rather than a copy of its rules.
+		local function carcass293(clip: string, track, over)
+			local handle: any = {
 				collapsed = true,
 				toppled = false,
-				reasserted = true, -- task 150's once-per-carcass reassert is not what is under test
+				reasserted = true, -- task 150's once-per-carcass reassert is not what these cases drive
 				deadFor = 0,
-				clip = fall,
-				heldClip = nil,
-				heldAt = nil,
+				clip = clip,
 				reholds = 0,
-				tracks = { [fall] = track },
+				tracks = { [clip] = track },
 				hitFor = 0,
 				hitFromBehind = false,
 				clipHeldFor = 0,
 				exitFor = 0,
-				exitClip = nil,
-				activity = nil,
-				activityDraw = nil,
 				activityFor = 0,
 				paddleFor = 0,
 				warmFor = 0,
 				yawRate = 0,
 				rateWrites = 0,
-				visual = nil, -- no Instances: this case is about the hold, not about dressing a boar
 			}
-			local info = { speed = 0, collapsed = true, deadFor = 0 }
-			Boar.stepVisual(handle, 1 / 60, info, CONFIG)
-			-- PUT BACK: played once, pinned to the held frame, and frozen there.
-			expect(writes.plays).to.equal(1)
+			for key, value in pairs(over or {}) do
+				handle[key] = value
+			end
+			return handle
+		end
+
+		it("puts the held death pose back whenever a carcass has lost it (task 293)", function()
+			-- KAREN, 2026-10-27: *"deer error remains, after kill stands"*. MEASURED on the real
+			-- published rigs in DEV Play, against the DRAWN pose (`Bone.TransformedWorldCFrame`): a
+			-- hind is 1.03 studs of drawn height while the death is held at its last frame, and
+			-- **4.94 -- its standing bind pose -- the instant that non-looped track runs past its end
+			-- and STOPS**. Probes `<runs-dir>/293-lab.luau`, `293-lab3.luau`, `293-tail.luau`.
+			local m = CONFIG.MODEL
+			local len = m.CLIPS.deathLeft.seconds
+			local last = len - m.HOLD_EPSILON
+			-- HELD AND STILL PLAYING AT FULL WEIGHT: left alone.
+			expect(Boar.shouldRehold(true, "deathLeft", true, 1, last, len, 0, CONFIG)).to.equal(false)
+			-- THE DEFECT: dead, and the death track has STOPPED.
+			expect(Boar.shouldRehold(true, "deathLeft", false, 0, len, len, 0, CONFIG)).to.equal(true)
+			-- FADED OUT AT ITS END is the same picture: nothing is weighted onto the rig.
+			expect(Boar.shouldRehold(true, "deathLeft", true, 0, last, len, 0, CONFIG)).to.equal(true)
+			-- ...BUT A FADE *IN* IS NOT (review round 2, finding 1): `play` starts every clip with
+			-- `FADE_SECONDS` 0.15, so one Heartbeat into the 4 s paddle `WeightCurrent` is ~0.11 at
+			-- `TimePosition` ~0.017 -- and pinning THAT froze the paddle at the fall's own frame.
+			local paddle = m.CLIPS.deathPaddleLeft.seconds
+			expect(Boar.shouldRehold(true, "deathPaddleLeft", true, 0.11, 0.017, paddle, 0, CONFIG)).to.equal(false)
+			expect(Boar.shouldRehold(true, "deathPaddleLeft", true, 0.49, paddle - m.HOLD_EPSILON, paddle, 0, CONFIG)).to.equal(
+				true
+			)
+			-- A LIVE ANIMAL IS NEVER TOUCHED, and nor is a carcass the BOX laid down (`boxFalls`):
+			-- laying that one down again is task 120's carcass buried upside down.
+			expect(Boar.shouldRehold(false, "deathLeft", false, 0, len, len, 0, CONFIG)).to.equal(false)
+			expect(Boar.shouldRehold(true, nil, false, 0, len, len, 0, CONFIG)).to.equal(false)
+			-- A LENGTH OF 0 MEANS "NOT LOADED YET", never "already over" (`shouldFreeze`'s own
+			-- guard): frame 0 of the fall is the animal standing.
+			expect(Boar.shouldRehold(true, "deathLeft", false, 0, 0, 0, 0, CONFIG)).to.equal(false)
+			-- BOUNDED: never a per-frame writer, whatever state it reads.
+			expect(Boar.shouldRehold(true, "deathLeft", false, 0, len, len, m.REHOLD_LIMIT, CONFIG)).to.equal(false)
+			-- THE FRAME IT GOES BACK ON IS CLAMPED SHORT OF THE END, because parking a non-looped
+			-- track AT its end is the state that stopped it.
+			expect(Boar.holdFrame(nil, len, CONFIG)).to.be.near(last, 1e-6)
+			expect(Boar.holdFrame(len - 0.001, len, CONFIG)).to.be.near(last, 1e-6)
+			expect(Boar.holdFrame(0.9, len, CONFIG)).to.be.near(0.9, 1e-6)
+		end)
+
+		it("drives stepVisual through play: the deer fall-only death survives an overrun frame", function()
+			-- FAILS WHEN THE `stepVisual` BLOCK IS DELETED (round 1, finding 3) AND AT MAIN (the rule
+			-- does not exist there). The deer package publishes no `Death_Paddle_L/R`, so the FALL is
+			-- the clip that is held -- which is why the deer show Karen's defect and the boar hides it.
+			--
+			-- THE DRAWN POSE IS WHAT IS ASSERTED, through the frame it is drawn at: measured on the
+			-- real hind (`<runs-dir>/293-tail.luau`, seven frames per kind), every frame from
+			-- `length - 0.20` to `length - 0.02` draws 1.03-1.20 studs tall -- LYING -- against 4.94
+			-- standing in the bind pose. A restored frame inside that window is a lying deer.
+			local deer = Boar.speciesConfig("reddeer", CONFIG)
+			expect(deer).never.to.equal(CONFIG)
+			local fall, paddleName = Boar.deathClips(deer)
+			expect(Boar.hasClip(paddleName, deer)).to.equal(false)
+			local len = deer.MODEL.CLIPS[fall].seconds
+			local plays = 0
+			local track = {
+				Name = fall,
+				Length = len,
+				-- one long frame stepped it clean past the end, so the non-looped track STOPPED
+				TimePosition = len + 0.04,
+				Speed = 1,
+				WeightCurrent = 0,
+				IsPlaying = false,
+				Looped = false,
+			}
+			function track:Play(_fade, weight, speed)
+				plays += 1
+				self.IsPlaying = true
+				self.WeightCurrent = weight or 1
+				self.Speed = speed or 1
+				self.TimePosition = 0 -- what Play really does
+			end
+			function track:AdjustSpeed(speed)
+				self.Speed = speed
+			end
+			function track:Stop() end
+			local handle = carcass293(fall, track, { deadFor = 1.5, visual = Instance.new("Model") })
+			Boar.stepVisual(handle, 1 / 60, { speed = 0 }, deer)
+			-- PUT BACK, ON A FRAME THAT DRAWS A LYING DEER, and frozen there.
+			expect(plays).to.equal(1)
 			expect(handle.reholds).to.equal(1)
 			expect(track.IsPlaying).to.equal(true)
 			expect(track.Speed).to.equal(0)
-			expect(track.TimePosition).to.be.near(track.Length - CONFIG.MODEL.HOLD_EPSILON, 1e-6)
+			expect(track.TimePosition).to.be.near(len - deer.MODEL.HOLD_EPSILON, 1e-6)
+			expect(track.TimePosition >= len - 0.2).to.equal(true)
 			expect(handle.heldClip).to.equal(fall)
-			-- ...AND ONCE PER STOP: the next tick sees a track playing at weight 1 and leaves it.
-			Boar.stepVisual(handle, 1 / 60, info, CONFIG)
-			Boar.stepVisual(handle, 1 / 60, info, CONFIG)
-			expect(writes.plays).to.equal(1)
+			-- ...AND ONCE PER STOP: the next ticks see a track playing at weight 1 and leave it.
+			Boar.stepVisual(handle, 1 / 60, { speed = 0 }, deer)
+			Boar.stepVisual(handle, 1 / 60, { speed = 0 }, deer)
+			expect(plays).to.equal(1)
 			expect(handle.reholds).to.equal(1)
-			-- A LIVE ANIMAL IS NOT TOUCHED by this path, on the same instrument.
-			local live = table.clone(handle)
-			live.collapsed = false
-			live.heldClip = nil
-			live.clip = fall
-			live.reholds = 0
-			track.IsPlaying = false
-			track.WeightCurrent = 0
-			local before = writes.plays
-			Boar.stepVisual(live, 1 / 60, { speed = 0, collapsed = false, deadFor = 0 }, CONFIG)
-			expect(writes.plays).to.equal(before)
+		end)
+
+		it("drives stepVisual through play: the boar paddle advances and is never pinned", function()
+			-- ROUND 2'S FINDING, AS A CASE. `play` starts the paddle with a 0.15 s fade, so one
+			-- Heartbeat later it is playing at `WeightCurrent` ~0.11 -- and the round-2 rule pinned it
+			-- there, at the FALL's frame (1.18 of a 4.0 s clip), for all of `CARCASS_SECONDS`.
+			local m = CONFIG.MODEL
+			local fall, paddleName = Boar.deathClips(CONFIG)
+			expect(Boar.hasClip(paddleName, CONFIG)).to.equal(true)
+			local fallLen = m.CLIPS[fall].seconds
+			local paddleLen = m.CLIPS[paddleName].seconds
+			local plays = { [fall] = 0, [paddleName] = 0 }
+			local function stub(name, length, state)
+				local track = {
+					Name = name,
+					Length = length,
+					TimePosition = state.TimePosition,
+					Speed = state.Speed,
+					WeightCurrent = state.WeightCurrent,
+					IsPlaying = state.IsPlaying,
+					Looped = false,
+				}
+				function track:Play(_fade, weight, speed)
+					plays[name] += 1
+					self.IsPlaying = true
+					-- ONE FRAME OF A 0.15 s FADE, which is the live state this case exists for.
+					self.WeightCurrent = if (weight or 1) > 0 then 0.11 else 0
+					self.Speed = speed or 1
+					self.TimePosition = 0
+				end
+				function track:AdjustSpeed(speed)
+					self.Speed = speed
+				end
+				function track:Stop() end
+				return track
+			end
+			-- the fall is frozen at its end, which is where `shouldFreeze` leaves it
+			local fallTrack = stub(fall, fallLen, {
+				TimePosition = fallLen - m.HOLD_EPSILON,
+				Speed = 0,
+				WeightCurrent = 1,
+				IsPlaying = true,
+			})
+			local paddleTrack =
+				stub(paddleName, paddleLen, { TimePosition = 0, Speed = 1, WeightCurrent = 0, IsPlaying = false })
+			local handle = carcass293(fall, fallTrack, {
+				deadFor = fallLen + 0.1, -- `clipFor` hands over to the paddle at the fall's length
+				heldClip = fall,
+				heldAt = fallLen - m.HOLD_EPSILON,
+				visual = Instance.new("Model"),
+			})
+			handle.tracks[paddleName] = paddleTrack
+			-- tick 1: `play` switches to the paddle, which starts its fade
+			Boar.stepVisual(handle, 1 / 60, { speed = 0 }, CONFIG)
+			expect(plays[paddleName]).to.equal(1)
+			expect(handle.heldClip).to.equal(nil)
+			-- ...AND THE FALL'S FRAME DOES NOT GO WITH IT (the second half of the finding).
+			expect(handle.heldAt).to.equal(nil)
+			-- ticks 2-4: the paddle is mid-fade and near its start. It must be left alone.
+			for frame = 1, 3 do
+				paddleTrack.TimePosition = frame / 60
+				paddleTrack.WeightCurrent = math.min(0.11 * frame, 1)
+				Boar.stepVisual(handle, 1 / 60, { speed = 0 }, CONFIG)
+			end
+			expect(plays[paddleName]).to.equal(1) -- never re-played
+			expect(handle.reholds).to.equal(0)
+			expect(paddleTrack.Speed).to.equal(1) -- never frozen: it ADVANCES
+			expect(paddleTrack.TimePosition > 0).to.equal(true)
+			expect(paddleTrack.TimePosition < 0.2).to.equal(true)
+			-- ...and when the PADDLE itself overruns, it is put back on ITS OWN end frame -- never on
+			-- the fall's 1.18, which is the pinned carcass round 2 found.
+			paddleTrack.TimePosition = paddleLen + 0.04
+			paddleTrack.IsPlaying = false
+			paddleTrack.WeightCurrent = 0
+			Boar.stepVisual(handle, 1 / 60, { speed = 0 }, CONFIG)
+			expect(plays[paddleName]).to.equal(2)
+			expect(handle.reholds).to.equal(1)
+			expect(paddleTrack.TimePosition).to.be.near(paddleLen - m.HOLD_EPSILON, 1e-6)
+			expect(paddleTrack.TimePosition > fallLen).to.equal(true)
+		end)
+
+		it("leaves a live animal and a box-toppled carcass alone (task 293)", function()
+			local fall = Boar.deathClips(CONFIG)
+			local plays = 0
+			local function stopped()
+				local track = {
+					Name = fall,
+					Length = CONFIG.MODEL.CLIPS[fall].seconds,
+					TimePosition = CONFIG.MODEL.CLIPS[fall].seconds,
+					Speed = 1,
+					WeightCurrent = 0,
+					IsPlaying = false,
+					Looped = false,
+				}
+				function track:Play()
+					plays += 1
+					self.IsPlaying = true
+				end
+				function track:AdjustSpeed(speed)
+					self.Speed = speed
+				end
+				function track:Stop() end
+				return track
+			end
+			-- A LIVE ANIMAL: no carcass, nothing to hold.
+			local live = carcass293(fall, stopped(), { collapsed = false })
+			Boar.stepVisual(live, 1 / 60, { speed = 0 }, CONFIG)
+			expect(plays).to.equal(0)
 			expect(live.reholds).to.equal(0)
+			-- THE BOX DID THE FALLING (`boxFalls`): the clip must not lay it down a second time.
+			local toppled = carcass293(fall, stopped(), { toppled = true })
+			Boar.stepVisual(toppled, 1 / 60, { speed = 0 }, CONFIG)
+			expect(plays).to.equal(0)
+			expect(toppled.reholds).to.equal(0)
 		end)
 
 		it("decides to anchor on stillness, and on the backstop only when it is not falling", function()

@@ -1394,6 +1394,9 @@ local function play(handle, name: string, rate: number, config)
 	handle.clip = name
 	handle.clipHeldFor = 0
 	handle.heldClip = nil -- a new clip is running, not held
+	-- ...AND ITS FRAME GOES WITH IT (review round 2, finding 1): `heldAt` is a time in the clip that
+	-- WAS held, and carrying it into the next one pinned the boar's 4 s paddle at the fall's 1.18 s.
+	handle.heldAt = nil
 end
 
 -- Once per boar per Runtime step, with the flag on. It measures the yaw rate (nothing else does),
@@ -1446,6 +1449,8 @@ function Body.stepVisual(handle, dt: number, info, config)
 			deathName,
 			deathTrack.IsPlaying,
 			deathTrack.WeightCurrent,
+			deathTrack.TimePosition,
+			deathTrack.Length,
 			handle.reholds,
 			config
 		)
@@ -2567,16 +2572,31 @@ function Body.shouldRehold(
 	deathClip: string?,
 	playing: boolean,
 	weight: number,
+	timePosition: number,
+	length: number,
 	reholds: number,
 	config
 ): boolean
 	if not collapsed or deathClip == nil then
 		return false
 	end
+	-- A ZERO LENGTH MEANS "NOT LOADED YET", never "already over" (`Body.shouldFreeze`'s own guard,
+	-- review round 2, note 2): frame 0 of the fall is the animal standing.
+	if length <= 0 then
+		return false
+	end
 	if reholds >= config.MODEL.REHOLD_LIMIT then
 		return false
 	end
-	return not playing or weight < 0.5
+	-- STOPPED: the rig draws its bind pose, which is the animal standing inside its carcass.
+	if not playing then
+		return true
+	end
+	-- WEIGHT ALONE IS NOT ENOUGH, AND THAT WAS ROUND 2'S FINDING: `play` starts every clip with a
+	-- fade (`FADE_SECONDS` 0.15), so one Heartbeat into the boar's paddle `WeightCurrent` is ~0.11
+	-- with `IsPlaying` true -- and pinning THAT froze the paddle at the fall's frame. A faded-out
+	-- hold is at the END of its clip; a fade-IN is at the start.
+	return weight < 0.5 and timePosition >= length - config.MODEL.HOLD_EPSILON
 end
 
 -- WHICH FRAME THE DEATH IS PUT BACK ON. Pure, and CLAMPED SHORT OF THE END (review round 1, finding
