@@ -1143,6 +1143,82 @@ return function()
 			Range.stop()
 		end)
 
+		it("writes NOTHING when any word of the request is refused", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			local man = manOn(RangeData.matPosition(ANCHOR, 1, LAYOUT), 111)
+			local before = Range.trialOf(1) :: any
+
+			-- THE MENU'S OWN CLICK ORDER: ANIMAL = REDDEER with the KIND row still showing the boar's
+			-- words. The door refuses the pair -- and must leave the trial exactly as it found it
+			-- (round 2, finding 1: species was written before kind was judged).
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, species = "reddeer", kind = "male", go = true })).to.equal(false)
+			local after = Range.trialOf(1) :: any
+			expect(after.species).to.equal(before.species)
+			expect(after.kind).to.equal(before.kind)
+
+			-- ...AND THE SAME FOR A GUN WITH A LOAD IT CANNOT FIRE: the pair that made
+			-- `Ballistics.shotFor` return nil must never reach the trial.
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, weapon = "rifle", ammo = "Buck" })).to.equal(false)
+			after = Range.trialOf(1) :: any
+			expect(after.weapon).to.equal(before.weapon)
+			expect(after.ammo).to.equal(before.ammo)
+			expect(Ballistics.shotFor(Weapons.row(after.weapon), after.ammo)).to.be.ok()
+
+			-- ...and a request whose every word passes still applies, so the two passes did not
+			-- simply stop the door working.
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, species = "reddeer", go = true })).to.equal(true)
+			expect((Range.trialOf(1) :: any).species).to.equal("reddeer")
+			Range.stop()
+		end)
+
+		it("never counts a hit landed away from the mat, however old the last range shot is", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			local mat = RangeData.matPosition(ANCHOR, 1, LAYOUT)
+			local man = manOn(mat, 112)
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, go = true })).to.equal(true)
+
+			-- A RANGE SHOT THAT MISSED: the slot is open and `record.shots` is 1.
+			Range.onShotResolved({ shooter = man, endPoint = Vector3.new(ANCHOR.X, ANCHOR.Y, ANCHOR.Z) })
+			expect((Range.recordOf(man) :: any).shots).to.equal(1)
+
+			-- HE WALKS INTO THE DRIVE AND HITS A BOAR THERE. `Weapon.HitReported` is the same signal,
+			-- so without the `mayShoot` gate AND the consumed slot this landed on the range board
+			-- (round 2, finding 2: `pending.shots` can never go stale on its own).
+			local character = (man :: any).Character
+			local rootPart = character:FindFirstChild("HumanoidRootPart")
+			rootPart.Position = mat + Vector3.new(600, 0, 0)
+			expect(Range.mayShoot(man)).to.equal(false)
+			Range.onHitReported({ shooter = man, zone = "chest", nearest = 30 })
+			local record = Range.recordOf(man) :: any
+			expect(record.shots).to.equal(1)
+			expect(record.hits).to.equal(0)
+			expect(record.zones.chest).to.equal(0)
+
+			-- AND BACK ON THE MAT, THE OLD SLOT IS GONE TOO: only a NEW shot can be hit.
+			rootPart.Position = mat
+			expect(Range.mayShoot(man)).to.equal(true)
+			Range.onHitReported({ shooter = man, zone = "chest", nearest = 125 })
+			record = Range.recordOf(man) :: any
+			expect(record.hits).to.equal(0)
+			Range.onShotResolved({ shooter = man, endPoint = Vector3.new(ANCHOR.X, ANCHOR.Y, ANCHOR.Z) })
+			Range.onHitReported({ shooter = man, zone = "chest", nearest = 125 })
+			record = Range.recordOf(man) :: any
+			expect(record.shots).to.equal(2)
+			expect(record.hits).to.equal(1)
+			expect(record.zones.chest).to.equal(1)
+			Range.stop()
+		end)
+
 		it("says he is at the spot by the prompt's own reach", function()
 			-- THE CLIENT'S CLOSER AND THE SERVER'S REFUSAL ARE THE SAME MEASUREMENT: `Hud.step`
 			-- feeds this to `RangePanel.setNear`, which is what gives the two doors back

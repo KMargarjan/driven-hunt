@@ -852,20 +852,20 @@ function Range.onHitReported(report: any)
 	if record == nil then
 		return
 	end
-	-- IT MUST BELONG TO A SHOT THIS MODULE COUNTED. `Weapon.HitReported` fires for EVERY hit in the
-	-- place, so without this gate a boar shot in the drive raised HITS on a range board the player
-	-- had opened an hour earlier -- hits with no shots (round 1, finding 2). `onShotResolved` wrote
-	-- the slot and checked `mayShoot`; this one trusts that slot and nothing else.
+	-- TWO GATES, BECAUSE ONE WAS NOT ENOUGH (round 2, finding 2). `Weapon.HitReported` fires for
+	-- EVERY hit in the place: he must still be ON THE MAT, and the hit must belong to a shot this
+	-- module counted -- a slot `onShotResolved` opens and THIS CONSUMES, so one slot can never
+	-- answer for a second hit landed anywhere later.
+	if not Range.mayShoot(player) then
+		return
+	end
 	local pending = state.pending[id]
 	if pending == nil or pending.shots ~= record.shots then
 		return
 	end
-	local firstOfShot = pending.hit ~= true
-	pending.hit = true
-	if firstOfShot then
-		record.hits += 1
-		state.stats.hits += 1
-	end
+	state.pending[id] = nil
+	record.hits += 1
+	state.stats.hits += 1
 	local zone = report.zone
 	if type(zone) == "string" and record.zones[zone] ~= nil then
 		record.zones[zone] += 1
@@ -986,41 +986,52 @@ function Range.onRequest(player: any, request: any): boolean
 		publish(player)
 		return true
 	end
+	-- TWO PASSES: NOTHING IS WRITTEN UNTIL EVERY WORD HAS PASSED (round 2, finding 1). Writing as
+	-- the loop walked left a refused request HALF APPLIED -- species written, kind refused -- which
+	-- is the disagreement round 1 required to be impossible.
 	local lists = Range.optionLists()
+	local candidate = {
+		species = request.species or trial.species,
+		kind = request.kind,
+		weapon = request.weapon or trial.weapon,
+	}
 	local picked = false
-	local respawn = false
 	for _, option in ipairs(Range.OPTIONS) do
 		local value = request[option]
 		if value ~= nil then
-			-- A CARTRIDGE IS ASKED AGAINST THE GUN OF THIS SAME REQUEST, so picking a rifle and its
-			-- own load in one message is legal and picking a slug for the rifle is not.
-			-- EACH OPTION IS ASKED AGAINST THE REQUEST'S OWN OTHER WORDS: a load against the gun of
-			-- this message, a kind against the SPECIES of this message. `lists` was captured before
-			-- the loop, so without this a kind is checked against the PREVIOUS species' kinds
-			-- (round 1, finding 1).
+			-- Each option is asked against the REQUEST's own other words: a load against this
+			-- message's gun, a kind against this message's species.
 			local against = lists
 			if option == "ammo" then
-				against = { weapon = request.weapon or trial.weapon }
+				against = { weapon = candidate.weapon }
 			elseif option == "kind" then
-				against = { kinds = Range.kindsFor(request.species or trial.species) }
+				against = { kinds = Range.kindsFor(candidate.species) }
 			end
 			if not RangeData.optionAllowed(option, value, against) then
 				state.stats.badRequests += 1
 				return false
 			end
+			picked = true
+		end
+	end
+	if not picked and request.go ~= true then
+		state.stats.badRequests += 1
+		return false
+	end
+
+	-- ...AND ONLY NOW IS THE TRIAL TOUCHED.
+	local respawn = false
+	for _, option in ipairs(Range.OPTIONS) do
+		local value = request[option]
+		if value ~= nil then
 			if option == "pace" then
 				Range.setPace(trial.spot, value)
 			else
 				(trial :: any)[option] = value
 				respawn = respawn or option == "species" or option == "kind"
 			end
-			-- A NEW GUN'S LOADS ARE NOT THE OLD GUN'S. Measured live, 2026-10-27: picking the lever
-			-- left the shotgun's `Slug` on the trial, `Ballistics.shotFor` returned nil for that
-			-- pair and the board's LEAD BALLISTIC read 0.00. The row's own first load follows it
-			-- unless this same request named one.
-			-- A NEW ANIMAL'S KINDS ARE NOT THE OLD ANIMAL'S, exactly as a new gun's loads are not
-			-- the old gun's: picking RED DEER with no kind named left `male` on the trial, so the
-			-- lane re-released a BOAR under the deer's columns (round 1, finding 1).
+			-- A new animal's kinds are not the old animal's, and a new gun's loads are not the old
+			-- gun's: each follows unless this same request named one.
 			if option == "species" and request.kind == nil then
 				local kinds = Range.kindsFor(value :: any)
 				local legal = false
@@ -1031,6 +1042,7 @@ function Range.onRequest(player: any, request: any): boolean
 				end
 				if not legal and kinds[1] ~= nil then
 					trial.kind = kinds[1]
+					respawn = true
 				end
 			end
 			if option == "weapon" and request.ammo == nil then
@@ -1040,17 +1052,12 @@ function Range.onRequest(player: any, request: any): boolean
 					trial.ammo = loads[1]
 				end
 			end
-			picked = true
 		end
-	end
-	if not picked and request.go ~= true then
-		state.stats.badRequests += 1
-		return false
 	end
 	if picked then
 		state.stats.picks += 1
 		if respawn then
-			-- A NEW ANIMAL IS A NEW ANIMAL: the old one is cleared and the next scan releases the
+			-- A new animal is a new animal: the old one is cleared and the next scan releases the
 			-- picked species at the end of the lane. `Range` never writes a CFrame.
 			local boars = state.boars
 			if boars ~= nil and boars.clear ~= nil and trial.targetId ~= nil then

@@ -165,6 +165,11 @@ function RangePanel.select(option: string, value: any)
 	if option == "weapon" then
 		-- A NEW GUN'S LOADS ARE NOT THE OLD GUN'S: the cartridge pick goes with it (design 7.3).
 		picked.ammo = nil
+	elseif option == "species" then
+		-- ...AND A NEW ANIMAL'S KINDS ARE NOT THE OLD ANIMAL'S. Without this the KIND row's stale
+		-- boar word rode along with a deer and the server refused the whole request, for ever
+		-- (round 2, finding 1).
+		picked.kind = nil
 	end
 	stats.picks += 1
 	RangePanel.render()

@@ -119,6 +119,45 @@ return function()
 			expect(Cursor.stats().reasserts).to.equal(reassertsBefore)
 		end)
 
+		it("gives both doors back when he walks off the spot", function()
+			local _, frame = freshPanel()
+			local prompt = fakePrompt()
+			RangePanel.setPrompt(prompt)
+			local cursorBefore = #Cursor.stats().tags
+			local heldBefore = #WeaponInput.holdTags()
+			prompt.fire()
+			expect(RangePanel.isOpen()).to.equal(true)
+			expect(#Cursor.stats().tags).to.equal(cursorBefore + 1)
+			expect(#WeaponInput.holdTags()).to.equal(heldBefore + 1)
+			-- `setNear` ONLY EVER CLOSES (design 8.5), and it is what gives the two doors back:
+			-- without its caller the cursor stayed free and the trigger held for ever (round 1,
+			-- finding 3; the case itself was missing in round 2, finding 3).
+			RangePanel.setNear(true)
+			expect(RangePanel.isOpen()).to.equal(true)
+			RangePanel.setNear(false)
+			expect(RangePanel.isOpen()).to.equal(false)
+			expect(frame.Visible).to.equal(false)
+			expect(#Cursor.stats().tags).to.equal(cursorBefore)
+			expect(#WeaponInput.holdTags()).to.equal(heldBefore)
+			-- ...AND WALKING BACK ON OPENS NOTHING: the prompt is the one way in.
+			RangePanel.setNear(true)
+			expect(RangePanel.isOpen()).to.equal(false)
+		end)
+
+		it("clears the kind when the animal changes, so a stale word cannot ride along", function()
+			local sent = freshPanel()
+			RangePanel.setState({ lists = lists() })
+			RangePanel.select("kind", "male")
+			expect(RangePanel.selected("kind")).to.equal("male")
+			-- ROUND 2, FINDING 1: the KIND row still shows the boar's words when the animal changes,
+			-- so without this the refused pair was sent on every CONFIRM for ever.
+			RangePanel.select("species", "reddeer")
+			expect(RangePanel.selected("kind")).to.equal(nil)
+			expect(RangePanel.confirm()).to.equal(true)
+			expect(sent[1].species).to.equal("reddeer")
+			expect(sent[1].kind).to.equal(nil)
+		end)
+
 		it("offers exactly the four pace words, STAND among them", function()
 			local _, _frame = freshPanel()
 			RangePanel.setState({ lists = lists() })
