@@ -342,6 +342,59 @@ return function()
 		end)
 	end)
 
+	describe("the corridor the target walks", function()
+		-- THE CASE THE FAKE COULD NOT GIVE US, and it is here because the live DEV lane gave it
+		-- instead: with the screens at `+-(WINDOW/2 + APRON)` -- design section 4.1's own row -- the
+		-- target walked to the east end, stopped against the screen's west face at x = +32.2 and
+		-- stayed there for 30 s. Nothing crossed, and every case above still passed, because a fake
+		-- animal walks through walls. So the geometry is asserted against the corridor.
+		it("builds nothing inside the lane the target walks", function()
+			local parent = Instance.new("Folder")
+			local built = Range.Build.build({ parent = parent, row = DEV_ROW, layout = LAYOUT })
+			expect(built).to.be.ok()
+			local anchor = (built :: any).anchor
+			local shelf = (built :: any).shelf
+			local centre = RangeData.laneCentre(anchor, LAYOUT)
+			local half = RangeData.laneLength(LAYOUT) / 2
+			-- The widest animal the lane can carry, with a stud of air each side.
+			local body = Boar.bodyAvoidRadius(Boar.CONFIG)
+			local blocking = {}
+			for _, part in ipairs((built :: any).folder:GetDescendants()) do
+				if not part:IsA("BasePart") then
+					continue
+				end
+				-- The ground is UNDER the shelf and is what the target walks ON, not into.
+				if part.Position.Y + part.Size.Y / 2 <= shelf + 1e-6 then
+					continue
+				end
+				local overlapX = math.abs(part.Position.X - centre.X) <= half + part.Size.X / 2 + body
+				local overlapZ = math.abs(part.Position.Z - centre.Z) <= part.Size.Z / 2 + body
+				if overlapX and overlapZ then
+					table.insert(
+						blocking,
+						string.format("%s at %.1f,%.1f", part.Name, part.Position.X, part.Position.Z)
+					)
+				end
+			end
+			expect(#blocking).to.equal(0)
+			if #blocking > 0 then
+				error("in the corridor: " .. table.concat(blocking, " | "))
+			end
+			-- ...AND THE TWO SCREENS ARE STILL THERE, outside it, so this case cannot be satisfied by
+			-- building no screen at all.
+			for leg = 1, 2 do
+				local screen = RangeData.screenPosition(anchor, LAYOUT, leg)
+				expect(math.abs(screen.X - centre.X) > half).to.equal(true)
+				expect(math.abs(screen.X - RangeData.laneEnds(anchor, LAYOUT, leg).X)).to.equal(
+					LAYOUT.SCREEN.size.X / 2 + LAYOUT.SCREEN.beyondStuds
+				)
+			end
+			expect((built :: any).folder:FindFirstChild("ScreenEast")).to.be.ok()
+			expect((built :: any).folder:FindFirstChild("ScreenWest")).to.be.ok()
+			TestKit.note(string.format("range: 0 parts inside the %d-stud corridor (body radius %.2f)", 2 * half, body))
+		end)
+	end)
+
 	-- ------------------------------------------------------------------ 4. THE OWNER AND THE LANE
 	describe("the lane the owner runs", function()
 		it("refuses to start with the flag off, and with no row", function()

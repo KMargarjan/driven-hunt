@@ -121,10 +121,11 @@ function Build.build(opts)
 		)
 	end
 
-	-- THE TWO SCREENS, one at each end of the lane: ISSF hides the turn-around, because a visible
-	-- 180-degree turn is not a crossing animal.
+	-- THE TWO SCREENS, one BEYOND each end of the lane: ISSF hides the turn-around, because a
+	-- visible 180-degree turn is not a crossing animal. `screenPosition` and not `laneEnds`: a
+	-- screen ON the end is a wall the target walks into (measured in DEV, section 4.1's row).
 	for leg = 1, 2 do
-		local at = RangeData.laneEnds(anchor, layout, leg)
+		local at = RangeData.screenPosition(anchor, layout, leg)
 		makePart(
 			if leg == 1 then "ScreenEast" else "ScreenWest",
 			layout.SCREEN.size,

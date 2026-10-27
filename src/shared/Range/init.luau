@@ -39,7 +39,14 @@ Range.LAYOUT = {
 	APRON_STUDS = 20,
 	SPOT_COUNT = 1,
 	SPOT_SPACING_STUDS = 24,
-	SCREEN = { size = Vector3.new(10, 8, 1), color = Color3.fromRGB(96, 88, 76) },
+	-- THE SCREENS STAND BEYOND THE ENDS OF THE LANE, NOT ON THEM, AND THIS IS A MEASUREMENT AND NOT
+	-- A PREFERENCE (task 298, step B2). Design section 4.1 puts them at `+-(WINDOW/2 + APRON)`, which
+	-- IS the turn-around point: built that way in DEV the target walked to the east end, hit the
+	-- screen's west face and STOPPED there -- measured at x = +32.2 for 30 s, 7.8 studs short of an
+	-- end it could never reach, so no leg ever finished and nothing ever crossed. `beyondStuds` is
+	-- the clearance that puts the turn in FRONT of the screen, where the design's own sentence wants
+	-- it: *"room to turn around behind a screen"*.
+	SCREEN = { size = Vector3.new(10, 8, 1), beyondStuds = 6, color = Color3.fromRGB(96, 88, 76) },
 	BERM = { size = Vector3.new(160, 10, 6), behindStuds = 12, color = Color3.fromRGB(104, 84, 62) },
 	MAT = { size = Vector3.new(8, 1, 8), color = Color3.fromRGB(70, 82, 70) },
 	PLATE = { minSpan = 120, marginStuds = 80, thickness = 4, color = Color3.fromRGB(150, 150, 150) },
@@ -122,6 +129,17 @@ function Range.laneEnds(anchor: Vector3, layout, leg: number): Vector3
 	local half = Range.laneLength(layout) / 2
 	local east = (leg % 2) == 1
 	return Vector3.new(centre.X + (if east then half else -half), centre.Y, centre.Z)
+end
+
+-- WHERE A SCREEN STANDS: beyond the end of the lane by its own half-width plus the clearance, so
+-- nothing the range builds is ever inside the corridor the target walks (`range.spec` asserts it).
+function Range.screenPosition(anchor: Vector3, layout, leg: number): Vector3
+	layout = layout or Range.LAYOUT
+	local at = Range.laneEnds(anchor, layout, leg)
+	local centre = Range.laneCentre(anchor, layout)
+	local beyond = layout.SCREEN.size.X / 2 + layout.SCREEN.beyondStuds
+	local sign = if at.X >= centre.X then 1 else -1
+	return Vector3.new(at.X + sign * beyond, at.Y, at.Z)
 end
 
 function Range.matPosition(anchor: Vector3, spot: number, layout): Vector3
