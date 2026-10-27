@@ -8,6 +8,11 @@
 -- has NO run-time writer; it is edited by the Builder in git. The geometry is
 -- `ServerScriptService.Range.Build`'s and the state is `ServerScriptService.Range`'s.
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+local Report = require(ReplicatedStorage:WaitForChild("Report"))
+
 local Range = {}
 
 Range.FOLDER_NAME = "Range"
@@ -96,9 +101,24 @@ function Range.paceAllowed(word: any): boolean
 	return false
 end
 
+-- THE PACE ROWS THE MENU OFFERS, IN THE ORDER IT OFFERS THEM. Karen, 2026-10-27: *"animals and
+-- speed (walk trot stand run)"* -- four words, STAND among them (design 7.3 lists three).
+-- STAND is first because it isolates AIM from LEAD, which is what a man starts with.
+Range.PACE_ORDER = { Range.WORD.STAND, Range.WORD.WALK, Range.WORD.TROT, Range.WORD.RUN }
+
+-- THE DISTANCES THE MENU OFFERS. One row today, and that is a MEASUREMENT and not a shortcut: the
+-- lane's length is `LAYOUT.DISTANCE_STUDS`, frozen, and `Build` puts the mat there -- so a second
+-- distance is a rebuilt lane (design 4.1: *"89 (25 m) and 179 (50 m) are rows for later"*).
+Range.DISTANCES_STUDS = { Range.LAYOUT.DISTANCE_STUDS }
+
 -- ...and the general door, so steps B3 and B4 have one place to ask. An unknown KIND is false and
 -- never true: a whitelist whose default is "yes" is not a whitelist.
-function Range.optionAllowed(kind: string, value: any): boolean
+--
+-- `lists` is the server's own published option lists (`{ species, kinds, weapons, ammo }`). The
+-- SPECIES and the KINDS are the animal owner's and cross the wire; the client sender asks this of
+-- its own argument and the server's door asks it of the payload -- `Lobby.roleAllowed`'s rule, one
+-- answer to "which words are legal". With no lists, a species or a kind is REFUSED, not assumed.
+function Range.optionAllowed(kind: string, value: any, lists: any?): boolean
 	if kind == "pace" then
 		return Range.paceAllowed(value)
 	elseif kind == "spot" then
@@ -106,8 +126,129 @@ function Range.optionAllowed(kind: string, value: any): boolean
 			and value == math.floor(value)
 			and value >= 1
 			and value <= Range.LAYOUT.SPOT_COUNT
+	elseif kind == "weapon" then
+		return type(value) == "string" and Weapons.row(value :: any) ~= nil
+	elseif kind == "ammo" then
+		-- A CARTRIDGE IS ONLY LEGAL FOR THE GUN THAT REALLY CARRIES IT (design 7.3): the pick is
+		-- read against `Weapons.row(weapon).AMMO_KINDS`, the same pair the Hud's ammo chip reads.
+		if type(value) ~= "string" then
+			return false
+		end
+		local weapon = if type(lists) == "table" then (lists :: any).weapon else nil
+		local row = Weapons.row(weapon :: any)
+		if row == nil or type(row.AMMO_KINDS) ~= "table" then
+			return false
+		end
+		for _, allowed in ipairs(row.AMMO_KINDS) do
+			if value == allowed then
+				return true
+			end
+		end
+		return false
+	elseif kind == "species" or kind == "kind" then
+		local field = if kind == "species" then "species" else "kinds"
+		local offered = if type(lists) == "table" then (lists :: any)[field] else nil
+		if type(value) ~= "string" or type(offered) ~= "table" then
+			return false
+		end
+		for _, allowed in ipairs(offered) do
+			if value == allowed then
+				return true
+			end
+		end
+		return false
+	elseif kind == "distanceStuds" then
+		if type(value) ~= "number" then
+			return false
+		end
+		for _, allowed in ipairs(Range.DISTANCES_STUDS) do
+			if value == allowed then
+				return true
+			end
+		end
+		return false
 	end
 	return false
+end
+
+-- THE SIGNED MISS GAP, IN METRES, IN KAREN'S OWN WORDS, 2026-10-27: *"0.9 m behind"* /
+-- *"0.4 m ahead"*. `Report.CONFIG.METRES_PER_STUD` IS THE CONVERSION -- this file holds no second
+-- copy of 0.28 (`MapUi`'s stated rule). `Report.metres` rounds to a whole metre, which would print
+-- every gap under half a metre as "0 m", so the tenth is taken from the same constant.
+function Range.gapText(studs: number?): string
+	if type(studs) ~= "number" or studs ~= studs then
+		return "--"
+	end
+	local metres = studs * Report.CONFIG.METRES_PER_STUD
+	local tenths = math.floor(math.abs(metres) * 10 + 0.5) / 10
+	if tenths == 0 then
+		return "0.0 m on"
+	end
+	return string.format("%.1f m %s", tenths, if metres < 0 then "behind" else "ahead")
+end
+
+-- A DISTANCE AS THE PLAYER READS IT: "125 studs (35 m)", through `Report.metres` -- the repo's one
+-- conversion, so the menu and the board cannot disagree about how far 125 studs is.
+function Range.distanceText(studs: number?): string
+	local value = if type(studs) == "number" then studs else 0
+	return string.format("%d studs (%d m)", math.floor(value + 0.5), Report.metres(value))
+end
+
+-- WHICH GUNS AND WHICH CARTRIDGES THE MENU OFFERS, read from the shipped tables and never typed
+-- here (design 7.3). The server sends the animal's lists; these two are shared, so both sides read
+-- the same rows.
+function Range.weaponRows(): { { id: string, label: string, ammo: { string }, ammoLabel: { [string]: string } } }
+	local out = {}
+	for _, id in ipairs(Weapons.ORDER) do
+		local row = Weapons.row(id :: any)
+		if row ~= nil then
+			table.insert(out, {
+				id = id,
+				label = tostring(row.label or row.toolName or id),
+				ammo = table.clone(row.AMMO_KINDS or {}),
+				ammoLabel = table.clone(row.AMMO_LABEL or {}),
+			})
+		end
+	end
+	return out
+end
+
+-- THE TWO REMOTES, resolved once and cached -- `Shop.remotes`' shape exactly, including the
+-- `WaitForChild`, because a client that requires this module before replication finishes must wait
+-- rather than read nil.
+local remotes: { RangeRequest: RemoteEvent, RangeBoard: RemoteEvent }? = nil
+
+Range.REQUEST_REMOTE = "RangeRequest"
+Range.BOARD_REMOTE = "RangeBoard"
+
+function Range.remotes(): { RangeRequest: RemoteEvent, RangeBoard: RemoteEvent }
+	local cached = remotes
+	if cached ~= nil then
+		return cached
+	end
+	local folder = ReplicatedStorage:WaitForChild(Range.FOLDER_NAME):WaitForChild(Range.REMOTES_NAME)
+	local built = {
+		RangeRequest = folder:WaitForChild(Range.REQUEST_REMOTE) :: RemoteEvent,
+		RangeBoard = folder:WaitForChild(Range.BOARD_REMOTE) :: RemoteEvent,
+	}
+	remotes = built
+	return built
+end
+
+-- THE PROMPT, BY NAME ANYWHERE UNDER `Workspace.Range` (`Lobby.Data.shopPrompt`'s shape): the
+-- client finds it, `Hud.step` hands it to the panel. nil when the range is not built.
+function Range.promptFor(spot: number, root: Instance?): any
+	local parent = root or (game:GetService("Workspace"):FindFirstChild(Range.FOLDER_NAME))
+	if parent == nil then
+		return nil
+	end
+	local wanted = Range.PROMPT_NAME .. tostring(spot)
+	for _, child in ipairs(parent:GetDescendants()) do
+		if child.Name == wanted or (Range.LAYOUT.SPOT_COUNT == 1 and child.Name == Range.PROMPT_NAME) then
+			return child
+		end
+	end
+	return nil
 end
 
 -- THE LANE, AND ITS ONE ARITHMETIC. An odd leg runs to the east end and an even leg back to the
@@ -218,5 +359,7 @@ end
 Range.deepFreeze(Range.LAYOUT)
 Range.deepFreeze(Range.ANCHORS)
 Range.deepFreeze(Range.WORD)
+Range.deepFreeze(Range.PACE_ORDER)
+Range.deepFreeze(Range.DISTANCES_STUDS)
 
 return Range

@@ -49,6 +49,7 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 -- task 181 the shopkeeper's `ProximityPrompt` is the one thing that opens it, and that prompt is
 -- resolved in the same place and handed over by `ShopPanel.setPrompt`.
 local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
+local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 -- THE ONE SOURCE for every colour, face, size, radius and duration this screen draws with (task
@@ -112,6 +113,8 @@ local ShopPanel = require(script.ShopPanel)
 -- THE TRUCK PADS' SIZE DIALOG (task 182), in the same shape as the shop panel: this file builds the
 -- frame and that module fills it and owns its `Visible`.
 local PadPanel = require(script.PadPanel)
+local RangePanel = require(script.RangePanel)
+local RangeBoard = require(script.RangeBoard)
 -- THE "NO DEER LICENCE" CARD (task 238), in the same shape again: this file builds the frame and
 -- hands the module the two things it cannot see for itself -- the shop panel (for the price, whether
 -- he owns the card, and the press) and the weapon snapshot's `advice`. It owns its own `Visible`.
@@ -238,6 +241,13 @@ local shopFrame: Frame? = nil
 -- THE PAD DIALOG'S FRAME (task 182): created here, filled by `Hud.PadPanel`, and that module -- not
 -- this one -- writes its `Visible`. The shop panel's arrangement, one task later.
 local padFrame: Frame? = nil
+-- THE RANGE'S MENU AND BOARD FRAMES (task 298 step B4): created here, filled by `Hud.RangePanel` /
+-- `Hud.RangeBoard`, and those modules -- not this one -- write their `Visible`. The shop's shape.
+local rangeFrame: Frame? = nil
+local rangeBoardFrame: Frame? = nil
+-- `Range.promptFor` walks `Workspace.Range`'s descendants, so it is asked at most once a second and
+-- only while the panel has no prompt (`ShopPanel.setPrompt`'s memoised field read, by hand).
+local rangeLookAt = 0
 -- THE LOADING BANNER'S FRAME (task 197): created here with the rest of the screen, filled by
 -- `Hud.PadPanel`, which also owns its `Visible` -- the dialog's own arrangement, one frame over.
 local padLeavingFrame: Frame? = nil
@@ -2150,6 +2160,35 @@ local function build(): ScreenGui
 	shop.Visible = false
 	shop.Parent = screen
 
+	-- THE SHOOTING RANGE'S MENU AND ITS BOARD (task 298 step B4). Centred, because the CONFIRM bar
+	-- must contain the viewport centre -- the one point the input replay can click (design 11.3).
+	-- Empty and hidden until `RangePanel.start` fills it; this file writes nothing inside either.
+	local range = Instance.new("Frame")
+	range.Name = "RangePanel"
+	range.BackgroundColor3 = RangePanel.LOOK.PANEL
+	range.BackgroundTransparency = 0
+	range.BorderSizePixel = 0
+	range.AnchorPoint = Vector2.new(0.5, 0.5)
+	range.Position = UDim2.fromScale(0.5, 0.5)
+	range.Size = RangePanel.panelSize()
+	range.ZIndex = RangePanel.LOOK.Z_INDEX
+	range.Visible = false
+	range.Parent = screen
+
+	-- THE BOARD stands beside the menu, on the right, and is shown by its own owner the moment the
+	-- server has a record for this player -- so it is still there while he shoots with the menu shut.
+	local rangeBoard = Instance.new("Frame")
+	rangeBoard.Name = "RangeBoard"
+	rangeBoard.BackgroundColor3 = RangeBoard.LOOK.PANEL
+	rangeBoard.BackgroundTransparency = 0.1
+	rangeBoard.BorderSizePixel = 0
+	rangeBoard.AnchorPoint = Vector2.new(1, 0.5)
+	rangeBoard.Position = UDim2.new(1, -16, 0.5, 0)
+	rangeBoard.Size = RangeBoard.panelSize()
+	rangeBoard.ZIndex = RangeBoard.LOOK.Z_INDEX
+	rangeBoard.Visible = false
+	rangeBoard.Parent = screen
+
 	-- THE TRUCK PADS' SIZE DIALOG (task 182). Karen: *"you come to truck back rectangle and can click
 	-- and select how many players"*. Centred, 300 wide so it fits the 400 px phone
 	-- `hud_clarity.spec` measures, empty and hidden until `PadPanel.start` fills it. This file
@@ -2702,6 +2741,8 @@ local function build(): ScreenGui
 	licenceCardFrame = licenceCard
 	shopFrame = shop
 	padFrame = padDialog
+	rangeFrame = range
+	rangeBoardFrame = rangeBoard
 	padLeavingFrame = padLeaving
 	padNextFrame = padNext
 	compassFrame = compass
@@ -4912,6 +4953,14 @@ function Hud.renderObjective(CameraSystem, WeaponSystem)
 	-- `Lobby.shopPrompt()` is memoised and drops its cache with the instance, so this is a cached
 	-- field read a frame and `ShopPanel.setPrompt` does nothing at all unless the prompt CHANGED.
 	ShopPanel.setPrompt(if lobbyData then lobbyData.shopPrompt() else nil)
+	-- ...AND THE RANGE'S PROMPT, the same way and for the same reason: one reader of the world's
+	-- parts on this client, and a panel that is TOLD. Resolved only while the panel has no prompt
+	-- and at most once a second, because `promptFor` walks `Workspace.Range`'s descendants.
+	local nowClock = os.clock()
+	if not RangePanel.hasPrompt() and nowClock - rangeLookAt >= 1 then
+		rangeLookAt = nowClock
+		RangePanel.setPrompt(RangeData.promptFor(1))
+	end
 	-- ...AND ONE STEP OF THE SHOP WINDOW'S TURNING PICTURE (task 196). HERE, and not in a
 	-- `RenderStepped` of its own, for this function's own stated reason: it is *"THE ONE EVALUATION"*
 	-- and a second per-frame loop on this client would be a second owner of the frame. It returns
@@ -5573,6 +5622,25 @@ function Hud.start()
 			-- TASK 246: the third frame, handed over the same way and optional for the same reason.
 			nextDrive = padNextFrame,
 		})
+	end
+
+	-- THE RANGE'S MENU AND BOARD (task 298 step B4), handed their frames, the two doors they borrow
+	-- by the tag "range" and the range's own two remotes. The board is told the record and the menu
+	-- the lists, from ONE payload, by this composition root -- one reader per fact (design 9.3).
+	if rangeFrame then
+		local rangeRemotes = RangeData.remotes()
+		RangePanel.start(rangeFrame :: Frame, {
+			Cursor = if CameraSystem then CameraSystem.Cursor else nil,
+			Input = Weapon.Input,
+			remotes = rangeRemotes,
+		})
+		if rangeBoardFrame then
+			RangeBoard.start(rangeBoardFrame :: Frame, { remotes = rangeRemotes })
+		end
+		rangeRemotes.RangeBoard.OnClientEvent:Connect(function(payload)
+			RangeBoard.onBoard(payload)
+			RangePanel.setState(payload)
+		end)
 	end
 
 	if hitCardFrame then

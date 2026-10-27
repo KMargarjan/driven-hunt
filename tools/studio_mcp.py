@@ -722,6 +722,10 @@ BLAST_RADIUS = (
     ("src/shared/Range/", "range"),
     ("src/server/Range/", "range"),
     ("src/server/RangeBoot.server.luau", "range"),
+    # Step B4's menu and board: the same scope, because `range_panel.spec` is the only spec that
+    # asserts them and they read `Range`'s own words (design 11.5).
+    ("src/client/Hud/RangePanel.luau", "range"),
+    ("src/client/Hud/RangeBoard.luau", "range"),
     ("src/shared/Weapons/", "weapon"),
     # The flight (task 185): the pure ballistics maths. It resolves to `weapon`, not `gun` -- `gun`
     # is the DRAWN gun's geometry (`gun.spec`, `gun_client.spec`) and has nothing to do with
@@ -1080,6 +1084,8 @@ SCOPE_SPECS = {
     # delegation to `Boar.paceSpeed` in the same task and that spec is what asserts the forest's
     # paces.
     "range": ("tests/server/range.spec.luau", "tests/server/forest_stand.spec.luau",
+              # Step B4: the menu and the board, on the client, where the two doors are.
+              "tests/client/range_panel.spec.luau",
               "tests/server/flags.spec.luau"),
     "lobby": ("tests/server/lobby.spec.luau", "tests/server/lobby_live.spec.luau",
               # Task 287: the drive's door the pads ask (`Match.enrolRefused`), driven live.

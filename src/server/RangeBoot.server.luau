@@ -111,6 +111,32 @@ local started = Range.start({
 		paceSpeed = function(pace: string)
 			return Boar.paceSpeed(pace, runtime:config())
 		end,
+		-- THE ZONE COLUMNS ARE THE ANIMAL'S OWN (design 9.1): a boar has five and a red deer six,
+		-- so the board reads the order from the config the target was spawned with.
+		zonesFor = function(species: string)
+			local config = Boar.speciesConfig(species, runtime:config())
+			local zones = config.ZONES
+			return if type(zones) == "table" and type(zones.ORDER) == "table" then zones.ORDER else {}
+		end,
+		-- WHICH KINDS THIS SPECIES HAS, from the kind rows' own `species` field (`Boar.kindConfig`
+		-- reads the same one). A boar kind carries none, which is what makes boar the default.
+		kindsFor = function(species: string)
+			local config = runtime:config()
+			local kinds = config.KINDS
+			local order = if type(kinds) == "table" then kinds.ORDER else nil
+			local out = {}
+			if type(order) ~= "table" then
+				return out
+			end
+			for _, kind in ipairs(order) do
+				local kindRow = (kinds :: any)[kind]
+				local owner = (type(kindRow) == "table" and kindRow.species) or "boar"
+				if owner == species then
+					table.insert(out, kind)
+				end
+			end
+			return out
+		end,
 	},
 })
 
@@ -146,6 +172,25 @@ Weapon.HitReported:Connect(function(report)
 		shooterPosition = root and root.Position,
 		normal = report.normal,
 	})
+	-- ...AND THE SAME REPORT IS THE BOARD'S HIT AND ITS ZONE COLUMN (design 9.1). A DERIVED VIEW of
+	-- the report `HitLog` is fed from in the same frame: no second source of truth, no drive row.
+	Range.onHitReported(report)
+end)
+
+-- ------------------------------------------------------------------ THE MENU AND THE BOARD (B4)
+--
+-- THE TWO REMOTES, TOLD to `Range` (it reaches no DataModel of its own), and the one inbound door
+-- connected here: `Range.onRequest` measures every fact off the character the server can see.
+local remotes = RangeData.remotes()
+Range.setRemotes(remotes)
+remotes.RangeRequest.OnServerEvent:Connect(function(player, request)
+	Range.onRequest(player, request)
+end)
+
+-- THE RECORD'S TWO INPUTS (design 9.1). `ShotResolved` fires once per RESOLVED shot, hit or miss --
+-- which is the only way a MISS is counted at all, since `HitReported` is per hit (design 8.3).
+Weapon.ShotResolved:Connect(function(shot)
+	Range.onShotResolved(shot)
 end)
 
 -- ------------------------------------------------------------------ THE GUN, ON LOAN (7.4)

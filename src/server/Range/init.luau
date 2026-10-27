@@ -18,6 +18,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+local Ballistics = require(ReplicatedStorage:WaitForChild("Ballistics"))
+local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
 -- THE SHOP'S PURE DATA ONLY, for one question: which item ids are a gun or a cartridge. The range
@@ -65,10 +68,19 @@ Range.CONFIG = {
 	-- step B2 reads them, and they are named here so B3 has one place to look.
 	FREE = true,
 	ENDLESS_AMMO = true,
+	-- WHICH ANIMALS THE RANGE OFFERS. Karen, 2026-10-27: boar AND red deer, and step B2 measured a
+	-- hind spawning on the lane with the deer's own zones. A species NOT in this set is refused by
+	-- the door even if the runtime could spawn it (design 7.3).
+	SPECIES_ALLOWED = { boar = true, reddeer = true },
+	-- The door's own bucket, per player (`Shop.onRequest`'s shape). A menu click is not a hot path.
+	REQUEST_MIN_INTERVAL = 0.15,
 }
 
 -- Frozen for `Range.LAYOUT`'s reason, by the same function: no run-time writer, enforced.
 RangeData.deepFreeze(Range.CONFIG)
+
+-- THE OPTIONS THE DOOR ACCEPTS, in one list so the door and the spec walk the same set.
+Range.OPTIONS = { "species", "kind", "pace", "weapon", "ammo", "distanceStuds" }
 
 type Trial = {
 	spot: number,
@@ -76,6 +88,7 @@ type Trial = {
 	kind: string,
 	pace: string,
 	speedStudsPerSecond: number,
+	issuedStudsPerSecond: number,
 	distanceStuds: number,
 	targetId: string?,
 	leg: number,
@@ -100,6 +113,14 @@ local state = {
 	now = nil :: (() -> number)?,
 	trials = {} :: { [number]: Trial },
 	acc = 0,
+	remotes = nil :: any,
+	-- THE RECORD IS THE SERVER'S AND THE BOARD IS A RENDERER (design 9.3). One row per player, by
+	-- UserId, thrown away when his trial changes; no drive row is written and `HitLog` is not called.
+	records = {} :: { [number]: any },
+	seen = {} :: { [number]: number },
+	-- One shot is one `ShotResolved` plus zero or more `HitReported`, and the two arrive in that
+	-- order for a hit (`onShotLanded` publishes after the hits). The pending slot joins them.
+	pending = {} :: { [number]: any },
 	stats = {
 		scans = 0,
 		leadTos = 0,
@@ -113,6 +134,13 @@ local state = {
 		lostTargets = 0,
 		parts = 0,
 		buildMs = 0,
+		shots = 0,
+		hits = 0,
+		boardPushes = 0,
+		picks = 0,
+		resets = 0,
+		badRequests = 0,
+		rateLimited = 0,
 		refusedBy = nil :: string?,
 	},
 }
@@ -142,6 +170,10 @@ local function newTrial(spot: number, pace: string): Trial
 		kind = Range.CONFIG.DEFAULT_KIND,
 		pace = pace,
 		speedStudsPerSecond = paceSpeed(pace),
+		-- THE SPEED THE RUNTIME WAS ACTUALLY ASKED FOR, which is NOT the pace's speed at STAND:
+		-- `order` walks the target to the middle at WALK and `paceSpeed("stand")` is 0 (B2 note).
+		-- The board prints this one and labels it, so no column shows a speed nobody issued.
+		issuedStudsPerSecond = 0,
 		distanceStuds = RangeData.LAYOUT.DISTANCE_STUDS,
 		targetId = nil,
 		leg = 1,
@@ -305,6 +337,7 @@ function Range.setPace(spot: number, pace: string): boolean
 	end
 	trial.pace = pace
 	trial.speedStudsPerSecond = paceSpeed(pace)
+	trial.issuedStudsPerSecond = 0
 	trial.windowEnteredAt = nil
 	trial.windowLeg = nil
 	trial.standSeconds = 0
@@ -474,6 +507,7 @@ local function order(trial: Trial, position: Vector3, dt: number)
 	end
 
 	trial.directions[direction] = (trial.directions[direction] or 0) + 1
+	trial.issuedStudsPerSecond = speed
 	if boars.leadTo(trial.targetId :: string, point, speed) then
 		state.stats.leadTos += 1
 	end
@@ -540,6 +574,413 @@ function Range.step(dt: number)
 	local used = state.acc
 	state.acc = 0
 	scan(used)
+end
+
+-- ================================================================== THE BOARD (design 9)
+--
+-- THE SERVER SEES THE ACCEPTED SHOT AND ITS RESOLUTION IN ORDER, IN ONE PLACE, so `Range` is the one
+-- writer of the record and `RangeBoard.luau` draws what it is sent (design 9.3). It adds no source
+-- of truth: every zone on it is `report.zone`, the server's own geometric answer.
+
+-- THE ZONE COLUMNS ARE THE ANIMAL'S OWN (design 9.1): a boar has five and a red deer six, so a
+-- hard-coded list would print an always-zero `neck` for a boar. Read through the injected seam.
+local function zoneOrder(species: string): { string }
+	local boars = state.boars
+	if boars == nil then
+		return {}
+	end
+	if boars.zonesFor ~= nil then
+		local ok, zones = pcall(boars.zonesFor, species)
+		if ok and type(zones) == "table" then
+			return table.clone(zones)
+		end
+	end
+	if boars.configOf == nil then
+		return {}
+	end
+	local ok, config = pcall(boars.configOf)
+	if not ok or type(config) ~= "table" then
+		return {}
+	end
+	local zones = (config :: any).ZONES
+	if type(zones) ~= "table" or type(zones.ORDER) ~= "table" then
+		return {}
+	end
+	return table.clone(zones.ORDER)
+end
+
+-- THE TWO LEAD NUMBERS, each naming who measured it (design 9.2). The ballistic one is the shipped
+-- function's, never a number typed twice; the view one is the CONFIGURED WINDOW and is therefore a
+-- BOUND, printed with a "<=" and never as a measurement.
+--
+-- `Weapon.HitReported` / `ShotResolved` carry no per-shot measured lag at this commit, so the bound
+-- is the only honest view number B4 can print (queued: the field pair of design 9.2).
+local function leadsFor(trial: Trial, player: any): (number, number, boolean)
+	local speed = trial.speedStudsPerSecond
+	local ballistic = 0
+	local row = Weapons.row(trial.weapon :: any)
+	if row ~= nil then
+		local shot = Ballistics.shotFor(row, trial.ammo)
+		if shot ~= nil then
+			ballistic = Ballistics.leadStuds(shot, trial.distanceStuds, speed)
+		end
+	end
+	local window = 0
+	local ok, seconds = pcall(Weapon.viewWindowFor, player)
+	if ok and type(seconds) == "number" then
+		window = seconds
+	end
+	return ballistic, speed * window, false
+end
+
+local function blankRecord(player: any, trial: Trial): any
+	local columns = zoneOrder(trial.species)
+	local zones = {}
+	for _, zone in ipairs(columns) do
+		zones[zone] = 0
+	end
+	return {
+		userId = (player :: any).UserId,
+		spot = trial.spot,
+		species = trial.species,
+		kind = trial.kind,
+		pace = trial.pace,
+		weapon = trial.weapon,
+		ammo = trial.ammo,
+		distanceStuds = trial.distanceStuds,
+		-- The pace's own speed, and the one the runtime was ASKED for -- not the same number at
+		-- STAND, and the board labels both (B2's queued note).
+		paceStudsPerSecond = trial.speedStudsPerSecond,
+		issuedStudsPerSecond = trial.issuedStudsPerSecond,
+		shots = 0,
+		hits = 0,
+		zoneOrder = columns,
+		zones = zones,
+		miss = 0,
+		lastDistanceStuds = nil,
+		crossingSeconds = trial.lastCrossingSeconds,
+		leadBallisticStuds = 0,
+		leadViewStuds = 0,
+		leadViewMeasured = false,
+		lastGapStuds = nil,
+		lastGapText = nil,
+	}
+end
+
+-- THE RECORD FOR THIS PLAYER AT THIS TRIAL. A trial change starts a fresh one: the tally is per
+-- player, per trial, and is thrown away when the trial ends (design 9.3).
+local function recordFor(player: any, trial: Trial): any
+	local id = (player :: any).UserId
+	local existing = state.records[id]
+	local fresh = existing == nil
+		or existing.spot ~= trial.spot
+		or existing.species ~= trial.species
+		or existing.kind ~= trial.kind
+		or existing.pace ~= trial.pace
+		or existing.weapon ~= trial.weapon
+		or existing.ammo ~= trial.ammo
+		or existing.distanceStuds ~= trial.distanceStuds
+	if fresh then
+		existing = blankRecord(player, trial)
+		state.records[id] = existing
+	end
+	return existing
+end
+
+function Range.recordOf(player: any): any
+	local id = if player ~= nil then (player :: any).UserId else nil
+	local record = if type(id) == "number" then state.records[id] else nil
+	if record == nil then
+		return nil
+	end
+	local copy = table.clone(record)
+	copy.zones = table.clone(record.zones)
+	copy.zoneOrder = table.clone(record.zoneOrder)
+	return copy
+end
+
+local function publish(player: any)
+	local record = Range.recordOf(player)
+	if record == nil then
+		return
+	end
+	local remotes = state.remotes
+	if remotes == nil or remotes.RangeBoard == nil then
+		return
+	end
+	pcall(function()
+		remotes.RangeBoard:FireClient(player, { record = record, lists = Range.optionLists() })
+	end)
+	state.stats.boardPushes += 1
+end
+
+-- THE SIGNED ALONG-TRACK GAP, in studs, projected onto the target's own travel (design 9.2).
+-- Negative is BEHIND the target and positive is AHEAD; `RangeData.gapText` turns it into Karen's
+-- words through the repository's one metre conversion.
+--
+-- The lane runs along X and the heading is the leg's direction, which this module already holds --
+-- so there is no second reader of the animal's CFrame. STAND has no gap: nothing is moving.
+function Range.gapStuds(trial: Trial, endPoint: Vector3?, targetPosition: Vector3?): number?
+	if typeof(endPoint) ~= "Vector3" or typeof(targetPosition) ~= "Vector3" then
+		return nil
+	end
+	if trial.pace == RangeData.WORD.STAND then
+		return nil
+	end
+	local heading = if (trial.leg % 2) == 1 then 1 else -1
+	return ((endPoint :: Vector3).X - (targetPosition :: Vector3).X) * heading
+end
+
+local function targetPositionOf(trial: Trial): Vector3?
+	local boars = state.boars
+	if boars == nil or boars.statusOf == nil or trial.targetId == nil then
+		return nil
+	end
+	local ok, status = pcall(boars.statusOf, trial.targetId :: string)
+	if not ok or type(status) ~= "table" then
+		return nil
+	end
+	return (status :: any).position
+end
+
+local function playerSpot(player: any): number?
+	local ok, position = pcall(function(): Vector3?
+		local character = (player :: any).Character
+		if typeof(character) ~= "Instance" then
+			return nil
+		end
+		local root = character:FindFirstChild("HumanoidRootPart")
+		if root == nil or not root:IsA("BasePart") then
+			return nil
+		end
+		return root.Position
+	end)
+	if not ok or position == nil then
+		return nil
+	end
+	return Range.spotAt(position)
+end
+
+-- ONE ACCEPTED SHOT. `Weapon.ShotResolved`'s listener (wired at the composition root) calls this:
+-- the signal fires once per RESOLVED shot, hit or miss, which is why a miss is counted at all
+-- (design 8.3 -- a miss produces no `HitReported`).
+function Range.onShotResolved(shot: any)
+	if not state.started or type(shot) ~= "table" then
+		return
+	end
+	local player = shot.shooter
+	if player == nil or not Range.mayShoot(player) then
+		return
+	end
+	local spot = playerSpot(player)
+	local trial = if spot ~= nil then state.trials[spot] else nil
+	if trial == nil then
+		return
+	end
+	local record = recordFor(player, trial)
+	record.shots += 1
+	record.crossingSeconds = trial.lastCrossingSeconds
+	record.issuedStudsPerSecond = trial.issuedStudsPerSecond
+	local ballistic, view, measured = leadsFor(trial, player)
+	record.leadBallisticStuds = ballistic
+	record.leadViewStuds = view
+	record.leadViewMeasured = measured
+	-- THE MISS GAP, off `endPoint` (clamped) and the target's own position. A hit that follows this
+	-- shot clears it, because a hit is neither behind nor ahead of anything.
+	record.lastGapStuds = Range.gapStuds(trial, shot.endPoint, targetPositionOf(trial))
+	record.lastGapText = RangeData.gapText(record.lastGapStuds)
+	state.pending[(player :: any).UserId] = { shots = record.shots, hit = false }
+	record.miss = record.shots - record.hits
+	state.stats.shots += 1
+	publish(player)
+end
+
+-- ONE HIT ON A RANGE TARGET. `Weapon.HitReported` is *"one report per (shot, target)"*, so the first
+-- report of a shot turns it from a miss into a hit; a second group on the same shot does not count
+-- twice. A hit with no record (a shot in the wood) is ignored: this is the range's tally only.
+function Range.onHitReported(report: any)
+	if not state.started or type(report) ~= "table" then
+		return
+	end
+	local player = report.shooter
+	if player == nil then
+		return
+	end
+	local id = (player :: any).UserId
+	local record = state.records[id]
+	if record == nil then
+		return
+	end
+	local pending = state.pending[id]
+	local firstOfShot = pending == nil or pending.hit ~= true
+	if pending ~= nil then
+		pending.hit = true
+	end
+	if firstOfShot then
+		record.hits += 1
+		state.stats.hits += 1
+	end
+	local zone = report.zone
+	if type(zone) == "string" and record.zones[zone] ~= nil then
+		record.zones[zone] += 1
+	end
+	if type(report.nearest) == "number" then
+		record.lastDistanceStuds = report.nearest
+	end
+	record.lastGapStuds = nil
+	record.lastGapText = nil
+	record.miss = math.max(0, record.shots - record.hits)
+	publish(player)
+end
+
+-- ================================================================== THE MENU'S LISTS (7.3)
+--
+-- NO LIST IS TYPED IN THE PANEL: every row is read from the thing it is about. The SERVER sends
+-- them, because the species and the kinds are the animal owner's facts and its config is server-only.
+function Range.optionLists(): any
+	local boars = state.boars
+	local config: any = nil
+	if boars ~= nil and boars.configOf ~= nil then
+		local ok, got = pcall(boars.configOf)
+		config = if ok then got else nil
+	end
+	local species = {}
+	local rows = if type(config) == "table" then (config :: any).SPECIES else nil
+	if type(rows) == "table" then
+		for name in pairs(rows) do
+			if Range.CONFIG.SPECIES_ALLOWED[name] == true then
+				table.insert(species, name)
+			end
+		end
+	end
+	if #species == 0 then
+		table.insert(species, Range.CONFIG.DEFAULT_SPECIES)
+	end
+	table.sort(species)
+	-- THE KINDS ARE THE CHOSEN SPECIES' OWN (`Boar.CONFIG.KINDS.ORDER` through the injected view),
+	-- so a red deer offers stag / hind / calf and a boar male / female / cub.
+	local current = state.trials[1]
+	local kinds = {}
+	if boars ~= nil and boars.kindsFor ~= nil then
+		local wanted = if current ~= nil then current.species else Range.CONFIG.DEFAULT_SPECIES
+		local ok, got = pcall(boars.kindsFor, wanted)
+		if ok and type(got) == "table" then
+			kinds = table.clone(got)
+		end
+	end
+	return {
+		species = species,
+		kinds = kinds,
+		pace = table.clone(RangeData.PACE_ORDER),
+		weapons = RangeData.weaponRows(),
+		distances = table.clone(RangeData.DISTANCES_STUDS),
+	}
+end
+
+-- ================================================================== THE ONE INBOUND DOOR (8.2)
+--
+-- PUBLIC SO A SPEC DRIVES IT BY PARAMETER (`Shop.onRequest`'s shape), rate-limited per player, and
+-- EVERY FACT MEASURED OFF THE CHARACTER THE SERVER CAN SEE. A forged payload is counted apart from a
+-- legal request the game said no to: `badRequests` against `refusedBy`.
+--
+-- NOTHING A CLIENT SENDS CAN SPAWN AN ANIMAL INTO THE DRIVE, WRITE A SCORE OR MOVE A TARGET: the
+-- most a pick does is choose which trial THIS spot runs, and only while his character is on that mat.
+function Range.onRequest(player: any, request: any): boolean
+	if not state.started or player == nil then
+		return false
+	end
+	if type(request) ~= "table" then
+		state.stats.badRequests += 1
+		return false
+	end
+	local id = (player :: any).UserId
+	if type(id) ~= "number" then
+		state.stats.badRequests += 1
+		return false
+	end
+	local now = clockNow()
+	local last = state.seen[id]
+	if last ~= nil and now - last < Range.CONFIG.REQUEST_MIN_INTERVAL then
+		state.stats.rateLimited += 1
+		return false
+	end
+	state.seen[id] = now
+	-- THE MAT IS THE PERMISSION, measured here and never claimed by the payload: the same predicate
+	-- the weapon's two relaxations read (7.4).
+	if not Range.mayShoot(player) then
+		return false
+	end
+	if not RangeData.optionAllowed("spot", request.spot) then
+		state.stats.badRequests += 1
+		return false
+	end
+	local trial = state.trials[request.spot]
+	if trial == nil then
+		state.stats.badRequests += 1
+		return false
+	end
+	-- A RESET CLEARS THIS PLAYER'S OWN RECORD AND NOTHING ELSE (Karen, 2026-10-27): through the same
+	-- door and whitelisted exactly like a pick, because a reset is not a second remote.
+	if request.reset == true then
+		state.records[id] = nil
+		state.pending[id] = nil
+		state.stats.resets += 1
+		recordFor(player, trial)
+		publish(player)
+		return true
+	end
+	local lists = Range.optionLists()
+	local picked = false
+	local respawn = false
+	for _, option in ipairs(Range.OPTIONS) do
+		local value = request[option]
+		if value ~= nil then
+			-- A CARTRIDGE IS ASKED AGAINST THE GUN OF THIS SAME REQUEST, so picking a rifle and its
+			-- own load in one message is legal and picking a slug for the rifle is not.
+			local against = if option == "ammo" then { weapon = request.weapon or trial.weapon } else lists
+			if not RangeData.optionAllowed(option, value, against) then
+				state.stats.badRequests += 1
+				return false
+			end
+			if option == "pace" then
+				Range.setPace(trial.spot, value)
+			else
+				(trial :: any)[option] = value
+				respawn = respawn or option == "species" or option == "kind"
+			end
+			picked = true
+		end
+	end
+	if not picked and request.go ~= true then
+		state.stats.badRequests += 1
+		return false
+	end
+	if picked then
+		state.stats.picks += 1
+		if respawn then
+			-- A NEW ANIMAL IS A NEW ANIMAL: the old one is cleared and the next scan releases the
+			-- picked species at the end of the lane. `Range` never writes a CFrame.
+			local boars = state.boars
+			if boars ~= nil and boars.clear ~= nil and trial.targetId ~= nil then
+				boars.clear("range pick")
+				state.stats.clears += 1
+			end
+			trial.targetId = nil
+			trial.releaseAt = nil
+			trial.crossings = 0
+			trial.lastCrossingSeconds = nil
+		end
+	end
+	-- A PICK STARTS A FRESH RECORD, because the trial it was tallying is over (design 9.3).
+	recordFor(player, trial)
+	publish(player)
+	return true
+end
+
+-- The two remotes, told to this module by the root so no spec needs a DataModel. nil is legal and
+-- then the board is simply not pushed -- every server spec runs that way.
+function Range.setRemotes(remotes: any)
+	state.remotes = remotes
 end
 
 return Range
