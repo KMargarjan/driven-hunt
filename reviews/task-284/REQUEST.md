@@ -3,7 +3,14 @@
 Task: 284
 Round: 0 (PLAN only -- the plan is committed before any `src/` edit, CORE QUALITY step 0)
 Base: 3aaa1556
-Code commit: (none yet)
+Code commit: (none -- no harness line was produced; see `ESCALATE.md`, 2026-10-27, task 284)
+
+## STATUS AT THE HARD STOP (150 min)
+
+**NOT A REVIEW REQUEST.** The fit is built and MET -- AIR 0.0 % on all four kinds from all four
+directions, measured by the same probe as the before (`reviews/task-284/MEASURED.md`). What is NOT
+done is the five spec files that encode the OLD contract and the harness run, so there is no
+`Code commit:` and no review round. `ESCALATE.md` names each of the five and what it asserts today.
 
 ## PLAN
 

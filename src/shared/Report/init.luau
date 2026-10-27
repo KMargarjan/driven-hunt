@@ -186,18 +186,22 @@ Report.CONFIG = {
 	-- config to every client to draw five rectangles.
 	--
 	-- The four zone rects are PAIRWISE DISJOINT in this projection, which the spec also asserts: a dot
-	-- can then only ever sit in one named zone. What is left over is `body` -- the flank between chest
-	-- and rump, the brisket under the head, the band above the legs -- which is exactly what the
-	-- trunk's own comment says `body` is ("belly, flank, rear and brisket -- whatever no zone part
-	-- covers"). So the picture tells the truth about the model, including where the model is vague.
+	-- can then only ever sit in one named zone. `body` is NOT disjoint from them and cannot be: since
+	-- task 284 it is a real zone part whose four boxes are the barrel AND the two dorsal bands over
+	-- the chest, so it spans the chest's u while sitting above it in y.
+	--
+	-- EVERY RECT IS THE UNION OF ITS ZONE'S BOXES (task 284). A zone is several boxes now -- fifteen
+	-- volumes in five zones, the shape the red deer has had since task 280 -- and the rect a dot is
+	-- placed against is the smallest one that holds them all. `body` used to be the whole unit square
+	-- (the trunk was the fallback zone and covered everything); it is the barrel's own rectangle now.
 	SILHOUETTE = {
 		-- Nose at u = 0, tail at u = 1; back at v = 0, belly at v = 1.
-		head = { u0 = 0.000, u1 = 0.236, v0 = 0.000, v1 = 0.383, tint = Color3.fromRGB(206, 120, 120) },
-		chest = { u0 = 0.236, u1 = 0.545, v0 = 0.000, v1 = 0.650, tint = Color3.fromRGB(198, 150, 150) },
-		rear = { u0 = 0.700, u1 = 1.000, v0 = 0.000, v1 = 0.600, tint = Color3.fromRGB(150, 150, 190) },
-		legs = { u0 = 0.036, u1 = 1.000, v0 = 0.667, v1 = 1.000, tint = Color3.fromRGB(150, 128, 104) },
-		-- The trunk itself, drawn under the four: `body` is the fallback zone and covers all of it.
-		body = { u0 = 0.000, u1 = 1.000, v0 = 0.000, v1 = 1.000, tint = Color3.fromRGB(96, 84, 76) },
+		head = { u0 = 0.040, u1 = 0.244, v0 = 0.133, v1 = 0.413, tint = Color3.fromRGB(206, 120, 120) },
+		chest = { u0 = 0.265, u1 = 0.542, v0 = 0.000, v1 = 0.627, tint = Color3.fromRGB(198, 150, 150) },
+		rear = { u0 = 0.702, u1 = 0.847, v0 = 0.107, v1 = 0.600, tint = Color3.fromRGB(150, 150, 190) },
+		legs = { u0 = 0.360, u1 = 0.818, v0 = 0.640, v1 = 0.853, tint = Color3.fromRGB(150, 128, 104) },
+		-- The barrel and the two dorsal bands over the chest: `body` is a PART now, not the trunk.
+		body = { u0 = 0.236, u1 = 0.702, v0 = 0.000, v1 = 0.587, tint = Color3.fromRGB(96, 84, 76) },
 	},
 
 	-- KAREN'S OWN TWO SILHOUETTES (task 205). She played on 2026-10-18 and said of the hit card:
