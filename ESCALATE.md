@@ -1,3 +1,40 @@
+# ESCALATE -- task 287, AT THE HARD STOP (100 min). For the Director.
+
+**Builder, 2026-10-27 ~07:36 local.** Branch `task-287-pad-fresh-hunt`, head `643ff0a0`. Written at
+the stop, before any workaround, as the dispatch asks. **The task is BUILT, round 1 is reviewed and
+all three of its findings are closed. Two things are NOT done, and neither is a code question:**
+
+## 1. The last harness run is FAIL, and the ONLY failure is the flake the dispatch named
+
+```
+[harness] FAIL: 32/34 checks @ 643ff0a034d0d4b763a808946146d8a5c7070caa (clean tree) scope=auto:economy,hud,lobby,match
+  failed [server] weapon_shot.spec:476 Expected value "true" (boolean), got "false" (boolean) instead
+  [tests:server] FAIL: 2407 passed, 1 failed, 0 skipped, 1 errors, 74 spec files
+  [client] PASS: 612 passed, 0 failed, 0 errors
+```
+
+That is **TASKS 285's known flake** (`weapon_shot.spec` self-block), named in this dispatch as *"KNOWN
+FLAKE, NOT YOURS"*. Every spec of this task passes, on both sides. The run BEFORE this one, at
+`5a860336`, failed on that same flake plus one case of mine, which is fixed in `221b41c2` and passes
+here. **One re-run of `python tools/studio_mcp.py test --scope auto` is all that stands between this
+branch and a PASS line** -- I did not make it, because the hard stop had arrived.
+
+## 2. Round 2 of the review was therefore not run
+
+`tools/agents.py` needs a PASS line for the code commit, so the round could not be started. Round 1's
+verdict and its three closures are committed (`reviews/task-287/RESULT.md`, `221b41c2`, `5a860336`).
+
+## 3. `test2` STILL NEEDS KAREN (unchanged from the entry below, which stands)
+
+The clicks are in that entry. The merge gate wants the full `test` plus two `test2` runs; the review
+round does not (the scoped line is accepted for a round).
+
+**What the Director has to decide:** re-run the one-player gate at the branch head, then run round 2
+(the request's `Code commit:` must be updated to whatever that run names), and whether `test2` waits
+for Karen.
+
+---
+
 # ESCALATE -- task 287. **NEEDS KAREN**: the two-player run. For the Director.
 
 **Builder, 2026-10-27.** Branch `task-287-pad-fresh-hunt`. Code commit
