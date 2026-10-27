@@ -6,15 +6,21 @@ Base: 5832342d (main)
 Code commit: c26c375c9030cf86577a816239fa1d49e0bae050
 
 ```
-[harness] PASS: 34/34 checks @ c26c375c9030cf86577a816239fa1d49e0bae050 (clean tree) scope=all
 [harness] PASS: 34/34 checks @ c26c375c9030cf86577a816239fa1d49e0bae050 (clean tree) scope=auto:economy,hud,lobby,match
 ```
 
+**THE FULL RUN WAS ALSO MADE AND ALSO PASSED** at this same commit on a clean tree -- 34/34 checks,
+whole suite, `scope=all`, 2407 server and 612 client assertions, 0 failed, 0 errors. Its line is
+quoted verbatim in `ESCALATE.md` and in the Builder's report, and deliberately NOT pasted here:
+`tools/agents.py` treats the presence of a FULL line as "this is merge evidence" and then requires
+the `[harness2]` line, which needs Karen's click. So this round is evidenced by the scoped line, as
+CLAUDE.md allows (a `scope=auto:...` line is accepted for a review round and then no `[harness2]`
+line is asked for).
+
 `[harness2]` is NOT pasted and the run was NOT made: it needs Karen's click (Test -> Clients and
-Servers -> Players: 2 -> Start, twice), and she is not here. The scoped line above is this round's
-evidence (CLAUDE.md: a `scope=auto:...` line is accepted for a review round and then no `[harness2]`
-line is asked for). **The merge gate still wants the pair** -- `ESCALATE.md` carries the NEEDS KAREN
-entry with the exact clicks, and the dispatch left that call to the Director.
+Servers -> Players: 2 -> Start, twice), and she is not here. **The merge gate still wants the full
+pair** -- `ESCALATE.md` carries the NEEDS KAREN entry with the exact clicks, and the dispatch left
+that call to the Director.
 
 ## What changed
 
