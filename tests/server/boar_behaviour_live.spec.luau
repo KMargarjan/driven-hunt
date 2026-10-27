@@ -456,11 +456,20 @@ return function()
 			local wanted = { male = 5.5, female = 4.675, cub = 2.475, legendary = 5.5 * 1.35 }
 			for _, handle in ipairs(handles) do
 				expect(math.abs(handle.part.Size.Z - wanted[handle.kind]) < 1e-3).to.equal(true)
-				-- ...and its hit zones with it: a cub's chest is a cub's chest.
-				local chest = handle.part:FindFirstChild("ZoneChest") :: BasePart
+				-- ...and its hit zones with it: a cub's chest is a cub's chest. READ OFF
+				-- `kindGeometry` SINCE TASK 284, because the answer is no longer one box scaled --
+				-- the sow and the cub are different MESHES and carry their own fitted boxes, and a
+				-- zone is several parts now (`ZoneChest1`, `ZoneChest2`), numbered from 1.
+				local geometry = Boar.kindGeometry(handle.kind, CONFIG)
+				local chest = handle.part:FindFirstChild("ZoneChest1") :: BasePart
 				expect(chest).to.be.ok()
-				local scale = wanted[handle.kind] / 5.5
-				expect((chest.Size - CONFIG.ZONES.chest.size * scale).Magnitude < 1e-3).to.equal(true)
+				expect((chest.Size - geometry.zones.chest.boxes[1].size).Magnitude < 1e-3).to.equal(true)
+				-- ...and it is NOT the male's box at this kind's scale, for the two that have their
+				-- own rows -- which is the measurement task 284 could not scale away.
+				if handle.kind == "female" or handle.kind == "cub" then
+					local scaled = CONFIG.ZONES.chest.boxes[1].size * (wanted[handle.kind] / 5.5)
+					expect((chest.Size - scaled).Magnitude > 0.05).to.equal(true)
+				end
 			end
 
 			-- AND THEY ARE ALL STILL HERE a second later, standing on the plate rather than through

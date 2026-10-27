@@ -25,6 +25,18 @@ local Workspace = game:GetService("Workspace")
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
+local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
+
+-- ONE PART PER MEASURED BOX SINCE TASK 284 -- fifteen volumes in five zones -- so the count comes
+-- off `kindGeometry` and not off `#ZONES.ORDER`.
+local function boxCount(kind: string?): number
+	local geometry = Boar.kindGeometry(kind, Boar.CONFIG)
+	local total = 0
+	for _, zone in ipairs(geometry.zoneOrder) do
+		total += #geometry.zones[zone].boxes
+	end
+	return total
+end
 local CONFIG = Boar.CONFIG
 local MODEL = CONFIG.MODEL
 
@@ -237,7 +249,7 @@ return function()
 			expect(handle.part:FindFirstChild(MODEL.NAME)).to.equal(nil)
 		end)
 
-		it("leaves the box visible and the three zone parts exactly as before", function()
+		it("leaves the box visible and every zone part exactly as before", function()
 			expect(handle.part.Transparency).to.equal(0)
 			local zones = {}
 			for _, child in ipairs(handle.part:GetChildren()) do
@@ -246,12 +258,16 @@ return function()
 					expect(child.Transparency).to.equal(0)
 				end
 			end
-			expect(#zones).to.equal(#CONFIG.ZONES.ORDER)
+			expect(#zones).to.equal(boxCount())
 		end)
 
 		it("keeps the attributes the weapon reads", function()
 			expect(handle.part:GetAttribute("Damageable")).to.equal(true)
-			expect(handle.part:GetAttribute("HitZone")).to.equal("body")
+			-- THE TRUNK CARRIED `HitZone = "body"` UNTIL TASK 284 and was the fallback zone. It
+			-- declares `ZonesOnly` now: it still collides and is still raycastable, and it is the
+			-- WEAPON's caster that steps past it (`Weapon.Cast.world`, `Shotgun.Pierce`).
+			expect(handle.part:GetAttribute("HitZone")).to.equal(nil)
+			expect(handle.part:GetAttribute("ZonesOnly")).to.equal(true)
 			expect(handle.part.CanQuery).to.equal(true)
 			expect(handle.part.CanCollide).to.equal(true)
 		end)
@@ -359,7 +375,7 @@ return function()
 					expect(child.Transparency).to.equal(1)
 				end
 			end
-			expect(zones).to.equal(#CONFIG.ZONES.ORDER)
+			expect(zones).to.equal(boxCount())
 			-- ...and the box is still the only thing a shot can land on.
 			expect(handle.part.CanQuery).to.equal(true)
 			expect(handle.part.CanCollide).to.equal(true)
@@ -369,16 +385,19 @@ return function()
 		it("a ray from outside still meets a zone part, never the model", function()
 			-- THE CLAIM THE WHOLE FLAG RESTS ON, fired as a real ray rather than reasoned about:
 			-- boar_zones.spec does this for the grey box, and this is the same shot with the model on.
-			local params = RaycastParams.new()
-			params.FilterType = Enum.RaycastFilterType.Include
-			params.FilterDescendantsInstances = { handle.part }
+			-- THROUGH THE BULLET'S OWN CASTER SINCE TASK 284. A bare `Workspace:Raycast` stops on
+			-- the trunk's own face -- it is still queryable and still collides -- and it is
+			-- `Weapon.Cast.world` that steps past a `ZonesOnly` trunk to the measured boxes inside.
 			local from = handle.part.Position + handle.part.CFrame.LookVector * -40
-			local result = Workspace:Raycast(from, handle.part.CFrame.LookVector * 80, params)
-			expect(result).to.be.ok()
-			local hit = (result :: RaycastResult).Instance
-			expect(hit:GetAttribute("HitZone")).to.be.ok()
+			local impact = Weapon.Cast.world(from, handle.part.CFrame.LookVector * 80, { Workspace.Terrain })
+			expect(impact).to.be.ok()
+			local hit = impact.instance
+			local target, zone = Weapon.Hits.targetOf(hit)
+			expect(target).to.equal(handle.part)
+			expect(zone).to.be.ok()
+			expect(hit:GetAttribute("HitZone")).to.equal(zone)
 			expect(hit:IsDescendantOf(visualsOf(handle.part)[1])).to.equal(false)
-			TestKit.note("boar-model: a ray through the boar met " .. hit.Name)
+			TestKit.note("boar-model: a ray through the boar met " .. hit.Name .. " (" .. tostring(zone) .. ")")
 		end)
 
 		it("destroys the visual with the boar and leaves the template alone", function()
@@ -1076,7 +1095,10 @@ return function()
 			expect(handle.part.CanQuery).to.equal(true)
 			expect(handle.part.CanCollide).to.equal(true)
 			expect(handle.part:GetAttribute("Damageable")).to.equal(false)
-			expect(handle.part:GetAttribute("HitZone")).to.equal("body")
+			-- `HitZone` LEFT THE TRUNK IN TASK 284; what death must not touch is `ZonesOnly` and the
+			-- zone parts' own words, which is what the loop below reads.
+			expect(handle.part:GetAttribute("HitZone")).to.equal(nil)
+			expect(handle.part:GetAttribute("ZonesOnly")).to.equal(true)
 			local zones = 0
 			for _, child in ipairs(handle.part:GetChildren()) do
 				if child:IsA("BasePart") then
@@ -1088,7 +1110,7 @@ return function()
 					expect(child.Anchored).to.equal(false)
 				end
 			end
-			expect(zones).to.equal(#CONFIG.ZONES.ORDER)
+			expect(zones).to.equal(boxCount())
 			runtime:destroy()
 		end)
 

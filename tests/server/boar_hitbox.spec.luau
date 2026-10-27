@@ -299,14 +299,18 @@ return function()
 				if #meshes == 0 then
 					return
 				end
+				-- THE GRID SCALES WITH THE ANIMAL, so every kind is sampled the same number of times:
+				-- a cub is 0.45 of the male and a fixed 0.25-stud grid gave it a quarter of his rays,
+				-- which is under the vacuity floor below (measured: 13 of a needed 20).
+				local grid = GRID * (trunk.Size.Z / CONFIG.BODY_SIZE.Z)
 				local half = trunk.Size / 2
 				local flank = Vector3.new(1, 0, 0)
 				local air, both, meshOnly = 0, 0, 0
 				local firstAir = nil
-				local y = -half.Y - GRID
-				while y <= half.Y + GRID * 4 do
-					local z = -half.Z - GRID
-					while z <= half.Z + GRID do
+				local y = -half.Y - grid
+				while y <= half.Y + grid * 4 do
+					local z = -half.Z - grid
+					while z <= half.Z + grid do
 						local point = Vector3.new(0, y, z)
 						local onMesh = crossesMesh(point, flank)
 						local zone = zoneAt(point, flank)
@@ -320,9 +324,9 @@ return function()
 						elseif onMesh then
 							meshOnly += 1
 						end
-						z += GRID
+						z += grid
 					end
-					y += GRID
+					y += grid
 				end
 				-- THE ONE NUMBER THIS TASK IS ABOUT. Before it, 53.7 %-59.2 % of the answering flank
 				-- rays on every boar kind met no animal at all.
@@ -378,7 +382,10 @@ return function()
 				--   `dir` is the axis the ray flies along: BESIDE is only a miss from the front,
 				--   because a flank ray at that x would still cross the animal further in.
 				local misses = {
-					{ "beside the flank, outside the drawn body", Vector3.new(0.85, 0.00, 0.00), Vector3.new(0, 0, 1) },
+					-- 0.42 OF THE TRUNK'S WIDTH is |x| 0.84 on the male: outside the drawn body (half-width
+					-- 0.701 at its widest) and inside the trunk (half-width 1.00), which is what makes
+					-- the miss mean something. A fraction of the SIZE, not of the half-width.
+					{ "beside the flank, outside the drawn body", Vector3.new(0.42, 0.00, 0.00), Vector3.new(0, 0, 1) },
 					{ "under the belly, between the legs", Vector3.new(0.00, -0.42, 0.05), Vector3.new(1, 0, 0) },
 					{ "over the rump", Vector3.new(0.00, 0.40, 0.42), Vector3.new(1, 0, 0) },
 					{ "past the snout, at the brow's height", Vector3.new(0.00, 0.45, -0.47), Vector3.new(1, 0, 0) },

@@ -129,8 +129,21 @@ return function()
 		end)
 
 		it("publishes the two attributes the weapon reads", function()
+			-- `HitZone = "body"` WAS THE SECOND ONE UNTIL TASK 284. The trunk was the fallback zone,
+			-- so a ray that met no box still reported `body` -- which on a 2 x 3 x 5.5 box holding a
+			-- boar 1.401 x 3.257 x 5.500 was half of every ray that met the animal, in empty air.
+			-- It declares `ZonesOnly` now and its fifteen fitted boxes carry the zones.
 			expect(handle.part:GetAttribute("Damageable")).to.equal(true)
-			expect(handle.part:GetAttribute("HitZone")).to.equal("body")
+			expect(handle.part:GetAttribute("HitZone")).to.equal(nil)
+			expect(handle.part:GetAttribute("ZonesOnly")).to.equal(true)
+			-- ...and `body` is still a zone a player can hit, on a part of its own.
+			local zones = {}
+			for _, child in ipairs(handle.part:GetChildren()) do
+				if child:IsA("BasePart") then
+					zones[child:GetAttribute("HitZone")] = true
+				end
+			end
+			expect(zones.body).to.equal(true)
 		end)
 
 		it("takes a hit, counts the pellets and says so exactly once", function()
@@ -200,7 +213,8 @@ return function()
 		end)
 
 		it("flashes on a hit, and puts its own colours back afterwards", function()
-			local zoneHead = handle.part:FindFirstChild("ZoneHead") :: BasePart
+			-- `ZoneHead1` SINCE TASK 284: a zone of several measured boxes numbers its parts from 1.
+			local zoneHead = handle.part:FindFirstChild("ZoneHead1") :: BasePart
 			local baseTrunk, baseHead = handle.part.Color, zoneHead.Color
 			runtime:takeHit(handle.part, { zone = "legs", ammo = "Buck", pellets = 1, at = 0 })
 

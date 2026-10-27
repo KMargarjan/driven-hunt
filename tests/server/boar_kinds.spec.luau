@@ -74,13 +74,31 @@ return function()
 			expect(math.abs(female.bodySize.Z - 4.675) < EPSILON).to.equal(true)
 			expect(math.abs(cub.bodySize.Z - 2.475) < EPSILON).to.equal(true)
 
-			-- EVERY HIT ZONE GOES WITH IT, which is what makes a cub a small target rather than a
-			-- small picture: its chest box is 0.45 of the male's chest box, in all three axes, and
-			-- it sits 0.45 as far forward.
+			-- A CUB'S HIT ZONES ARE ITS OWN, AND THEY ARE NOT THE MALE'S AT 0.45 (task 284). They
+			-- were, and the measurement refused it: `Boar_Cub` is a different MESH, 0.618 x 1.439 x
+			-- 2.475 where the male at 0.45 would be 0.630 x 1.466 x 2.475, and its back is flat where
+			-- his rises to a mane. `BODY_SIZE` is still one box scaled -- a trunk is a convention
+			-- this file chooses -- and a hitbox is a measurement of somebody else's mesh.
+			local unscalable = 0
 			for _, name in ipairs(CONFIG.ZONES.ORDER) do
 				local big, small = male.zones[name], cub.zones[name]
-				expect((small.size - big.size * 0.45).Magnitude < EPSILON).to.equal(true)
-				expect((small.offset - big.offset * 0.45).Magnitude < EPSILON).to.equal(true)
+				expect((small.size - CONFIG.KINDS.cub.zones[name].boxes[1].size).Magnitude < EPSILON).to.equal(true)
+				if (small.size - big.size * 0.45).Magnitude > 0.05 then
+					unscalable += 1
+				end
+			end
+			-- THE CLAIM IS ABOUT THE TABLE AND NOT ABOUT EVERY ROW, because some rows coincide: a
+			-- cub's leg shaft measures 0.080 x 0.280 x 0.080 against the male's at 0.45 of
+			-- 0.090 x 0.288 x 0.072, which is the same box to a grid step. The chest and the barrel
+			-- are not, and three of the five zones differ by more than a twentieth of a stud.
+			expect(unscalable >= 3).to.equal(true)
+			-- ...AND THE LEGENDARY IS THE ONE THAT STILL SCALES, because it is the male's own mesh at
+			-- 1.35 (measured 1.3498 / 1.3500 / 1.3500), so it has no `zones` row to read.
+			local legendary = Boar.kindGeometry("legendary", on)
+			for _, name in ipairs(CONFIG.ZONES.ORDER) do
+				local big, big35 = male.zones[name], legendary.zones[name]
+				expect((big35.size - big.size * 1.35).Magnitude < EPSILON).to.equal(true)
+				expect((big35.offset - big.offset * 1.35).Magnitude < EPSILON).to.equal(true)
 			end
 			TestKit.note(
 				string.format(
@@ -147,12 +165,28 @@ return function()
 						end
 					end
 				else
-					-- THE ONE THAT CAN FAIL (review round 2, note): the chest, the rump and the legs
-					-- stand proud SIDEWAYS, and they must still be wider than the trunk they hang
-					-- on after everything has been scaled. A `protrusion > 0` assertion was here
-					-- and could not fail for any positive scale, so it is gone.
-					for _, name in ipairs({ "chest", "rear", "legs" }) do
-						expect(geometry.zones[name].size.X > geometry.bodySize.X).to.equal(true)
+					-- THE SIGN OF THIS ONE IS REVERSED BY TASK 284, and the reversal is the task.
+					-- Every box used to stand PROUD of the trunk sideways, because the trunk was the
+					-- `body` zone and a flush part would tie with it. The trunk answers no ray now,
+					-- so every box is fitted strictly INSIDE the drawn animal -- which is narrower
+					-- than the trunk at every height -- and a box WIDER than the trunk would be a
+					-- box holding air.
+					for _, name in ipairs(CONFIG.ZONES.ORDER) do
+						for index, box in ipairs(geometry.zones[name].boxes) do
+							local reach = math.abs(box.offset.X) + box.size.X / 2
+							if reach > geometry.bodySize.X / 2 + 1e-6 then
+								error(
+									string.format(
+										"%s box %d reaches |x| %.3f, past the trunk's own %.3f",
+										name,
+										index,
+										reach,
+										geometry.bodySize.X / 2
+									),
+									0
+								)
+							end
+						end
 					end
 				end
 			end
@@ -354,9 +388,11 @@ return function()
 				local lowY, highY = head.offset.Y - head.size.Y / 2, head.offset.Y + head.size.Y / 2
 				expect(nose.z > lowZ and nose.z < highZ).to.equal(true)
 				expect(y > lowY and y < highY).to.equal(true)
-				-- ...and the box stands PROUD of this animal's own mesh front, by its own protrusion:
-				-- the snout tip is at half the mesh's length and the box has to reach past it.
-				expect(lowZ < -geometry.bodySize.Z / 2).to.equal(true)
+				-- ...AND SINCE TASK 284 IT IS INSIDE THE DRAWN NOSE, NOT PROUD OF IT. It used to have
+				-- to reach PAST the mesh's front face, because the trunk was a target and a flush box
+				-- would tie with it; the snout box is fitted inside the drawn cone now, so it stops
+				-- short of the trunk's own front line.
+				expect(lowZ > -geometry.bodySize.Z / 2).to.equal(true)
 			end
 		end)
 
@@ -387,9 +423,18 @@ return function()
 				expect((geometry.bodySize - CONFIG.BODY_SIZE).Magnitude < EPSILON).to.equal(true)
 				expect(geometry.scale).to.equal(1)
 				expect(geometry.clipScale).to.equal(1)
+				-- `CONFIG.ZONES[name]` IS A LIST OF BOXES SINCE TASK 284, so the comparison is box by
+				-- box: with the flag off every animal is the male's own table at scale 1, which is
+				-- the identity, and `size`/`offset` on the resolved zone are still box 1's.
 				for _, name in ipairs(CONFIG.ZONES.ORDER) do
-					expect((geometry.zones[name].size - CONFIG.ZONES[name].size).Magnitude < EPSILON).to.equal(true)
-					expect((geometry.zones[name].offset - CONFIG.ZONES[name].offset).Magnitude < EPSILON).to.equal(true)
+					local boxes = CONFIG.ZONES[name].boxes
+					expect(#geometry.zones[name].boxes).to.equal(#boxes)
+					for index, box in ipairs(boxes) do
+						expect((geometry.zones[name].boxes[index].size - box.size).Magnitude < EPSILON).to.equal(true)
+						expect((geometry.zones[name].boxes[index].offset - box.offset).Magnitude < EPSILON).to.equal(
+							true
+						)
+					end
 				end
 			end
 			local lone = Boar.sounderKinds(5, { 0, 0, 0, 0, 0 }, off)

@@ -1968,8 +1968,9 @@ return function()
 			expect(world).to.be.ok()
 			expect(world.instance).to.equal(zone)
 
-			-- ...AND A BOAR IS UNTOUCHED: the same trunk without `ZonesOnly` stops the cast on its
-			-- own face, which is what `body` has always meant.
+			-- ...AND A TRUNK WITHOUT `ZonesOnly` STOPS THE CAST ON ITS OWN FACE. That used to be the
+			-- boar, in those words; since task 284 no animal in the game has a hittable trunk, so
+			-- this half of the rule is proved on the scripted root and nowhere else.
 			root:SetAttribute("ZonesOnly", nil)
 			local plain = Claim.only(root)(origin, direction, {})
 			expect(plain).to.be.ok()
