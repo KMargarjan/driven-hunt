@@ -547,9 +547,15 @@ return function()
 			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 0.5)
 			expect(fake.spawns).to.equal(2)
 			expect((fake.only() :: any).alive).to.equal(true)
-			-- The new target crosses like the first: the lane did not stop with the death.
+			-- THE NEW TARGET IS STEERED LIKE THE FIRST, measured as a RISE from a snapshot taken
+			-- after the release (review round 1, finding 2: a `flips >= 1` on a cumulative counter
+			-- passes with the whole re-release path deleted).
+			local flipsAfterRelease = Range.stats().flips
+			local leadsAfterRelease = #fake.leads
 			advance(fake, clock, 20)
-			expect(Range.stats().flips >= 1).to.equal(true)
+			expect(Range.stats().flips > flipsAfterRelease).to.equal(true)
+			expect(#fake.leads > leadsAfterRelease).to.equal(true)
+			expect((fake.only() :: any).position.X ~= nil).to.equal(true)
 			TestKit.note(
 				string.format(
 					"range: carcass held %d s, cleared, fresh target after %d s",
@@ -582,6 +588,43 @@ return function()
 		end)
 	end)
 
+	describe("the data and the counters", function()
+		it("is frozen, so there is no run-time writer", function()
+			-- Deep: `table.freeze` is shallow and this repository has paid for that once.
+			expect(table.isfrozen(RangeData.LAYOUT)).to.equal(true)
+			expect(table.isfrozen(RangeData.LAYOUT.MAT)).to.equal(true)
+			expect(table.isfrozen(RangeData.ANCHORS)).to.equal(true)
+			expect(table.isfrozen(RangeData.ANCHORS["map:v1"])).to.equal(true)
+			expect(table.isfrozen(RangeData.WORD)).to.equal(true)
+			expect(table.isfrozen(Range.CONFIG)).to.equal(true)
+			expect(pcall(function()
+				(RangeData.LAYOUT :: any).WINDOW_STUDS = 1
+			end)).to.equal(false)
+			-- ...and `anchorFor` still hands out a COPY a caller may hold.
+			local row = RangeData.anchorFor("map:v1")
+			expect(table.isfrozen(row :: any)).to.equal(false)
+		end)
+
+		it("counts one run, not every run in the session", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now))).to.equal(true)
+			advance(fake, clock, 30)
+			expect(Range.stats().flips > 0).to.equal(true)
+			Range.stop()
+			-- A fresh start zeroes the running counters, or an assertion that something ROSE can be
+			-- satisfied by a previous case (review round 1, finding 2).
+			local _, now2 = newClock()
+			local fake2 = newFakeBoars()
+			expect(select(1, startRange(fake2, now2))).to.equal(true)
+			expect(Range.stats().flips).to.equal(0)
+			expect(Range.stats().scans).to.equal(0)
+			expect(Range.stats().spawns).to.equal(0)
+			expect(Range.stats().crossings).to.equal(0)
+			Range.stop()
+		end)
+	end)
+
 	-- ------------------------------------------------------------------ 5. ONE WRITER EACH
 	describe("the drive is untouched", function()
 		it("writes no Workspace.Boars, no drive runtime and no Workspace.Range", function()
@@ -608,8 +651,9 @@ return function()
 			local fake = newFakeBoars()
 			local ok, root = startRange(fake, now)
 			expect(ok).to.equal(true)
+			local flipsBefore = Range.stats().flips
 			advance(fake, clock, 20)
-			expect(Range.stats().flips >= 1).to.equal(true)
+			expect(Range.stats().flips > flipsBefore).to.equal(true)
 
 			-- THE RANGE SPAWNED THROUGH ITS OWN INJECTED VIEW AND NOWHERE ELSE.
 			expect(fake.spawns >= 1).to.equal(true)

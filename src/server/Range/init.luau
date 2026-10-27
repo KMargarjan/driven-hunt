@@ -63,6 +63,9 @@ Range.CONFIG = {
 	ENDLESS_AMMO = true,
 }
 
+-- Frozen for `Range.LAYOUT`'s reason, by the same function: no run-time writer, enforced.
+RangeData.deepFreeze(Range.CONFIG)
+
 type Trial = {
 	spot: number,
 	species: string,
@@ -238,6 +241,14 @@ function Range.start(seams): boolean
 	state.now = seams.now
 	state.acc = 0
 	state.trials = {}
+	-- THE COUNTERS DESCRIBE ONE RUN, AND THAT IS NOT A TIDINESS POINT (review round 1, finding 2):
+	-- carried over from the last `start` they can only ever rise, so an assertion like
+	-- `flips >= 1` passes with the code that flips deleted. `scans` and the rest start here.
+	for key, value in pairs(state.stats) do
+		if type(value) == "number" then
+			state.stats[key] = 0
+		end
+	end
 	state.stats.parts = built.parts
 	state.stats.buildMs = built.buildMs
 	state.stats.refusedBy = nil

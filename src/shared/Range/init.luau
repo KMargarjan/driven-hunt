@@ -201,4 +201,22 @@ function Range.fieldFor(anchor: Vector3, layout)
 	}
 end
 
+-- DEEP, AND NOT `table.freeze` (which is shallow): `src/shared/Report/init.luau`'s precedent, and
+-- `Lobby`'s stated reason -- *"this repo has already paid for that once"*. "No run-time writer" is a
+-- claim this enforces rather than asserts, and it has to be deep here because the server owner
+-- re-exports `Range.LAYOUT`, so one write anywhere would move the lane for both readers.
+function Range.deepFreeze(value)
+	if type(value) == "table" and not table.isfrozen(value) then
+		for _, child in pairs(value) do
+			Range.deepFreeze(child)
+		end
+		table.freeze(value)
+	end
+	return value
+end
+
+Range.deepFreeze(Range.LAYOUT)
+Range.deepFreeze(Range.ANCHORS)
+Range.deepFreeze(Range.WORD)
+
 return Range
