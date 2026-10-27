@@ -461,95 +461,128 @@ Boar.CONFIG = {
 	BOUNDS_SLACK = 10,
 	FALL_LIMIT = 50,
 
-	-- HIT ZONES (hit-zones design section 4.2). Three parts welded to the trunk, each PROTRUDING
-	-- past the surface a pellet can arrive from, because a ray returns the nearest surface and a
-	-- nested part would never be hit. The trunk itself stays HitZone = "body", so belly, flank, rear
-	-- and brisket -- whatever no zone part covers -- are the default zone. Local coordinates: the
-	-- trunk is 2 x 3 x 5.5 and its -Z is the boar's front.
+	-- HIT ZONES (hit-zones design section 4.2), AND SINCE TASK 284 THEY ARE THE DRAWN BOAR, not a
+	-- grey box. Fifteen volumes in five zones, every one fitted to the mesh by ray, and the trunk is
+	-- out of every cast: air beside, under or over the animal is a MISS.
+	--
+	-- WHY: MEASURED before this task, 49.5 %-59.2 % of every ray that met a hittable boar met NO
+	-- ANIMAL, on all four kinds from all four directions, and the drawn back was a HOLE on two of
+	-- them -- the male's mane crest reaches y +1.757 against `ZoneHead`'s old top of +1.650
+	-- (`reviews/task-282/MEASURED.md` 3). Karen, 2026-10-26: *"wrong I hit the chest shows outside"*.
+	-- The four old boxes were fitted to the GREY BOX and to bone positions; these are fitted to the
+	-- mesh, by `reviews/task-284/probes/284-autofit.luau` -- the instrument task 280 used on the deer.
 	ZONES = {
-		ORDER = { "head", "chest", "rear", "legs" }, -- creation order; also the order specs walk them in
+		-- `body` IS A REAL PART NOW, where it used to be the trunk's fallback. It has to be: the old
+		-- `chest` ended at z +0.25 and `rear` began at +1.10, so the 0.85-stud barrel band between
+		-- them -- the broadest part of a broadside boar -- was TRUNK ONLY, and switching the trunk
+		-- off without it would turn that band into a miss.
+		ORDER = { "head", "chest", "body", "rear", "legs" },
 		ZONE_TINT = true, -- Karen's dial: a grey-box teaching aid, off when the model arrives
-		PROTRUSION = 0.06, -- studs every zone part stands proud by, so the ray meets it first
-		-- THE HEAD IS ON THE DRAWN HEAD (task 119), and until this task it was not: it was a box
-		-- hanging in the air 1.15 studs in FRONT of the snout, which is where the grey box's "head"
-		-- was when no animal was drawn on it. A shot at the animal's face landed on the trunk and
-		-- was charged to `body`.
+		-- A RAY PASSES STRAIGHT THROUGH THE TRUNK (`Body.create` reads this), exactly as it does
+		-- through the red deer's since task 280. One 2 x 3 x 5.5 box holds a boar
+		-- 1.401 x 3.257 x 5.500: half a stud of air down each flank, the whole space between the
+		-- legs and the wedge in front of the brisket were all `body` hits.
+		TRUNK_HITTABLE = false,
+		-- NO `PROTRUSION` ROW ANY MORE, and its absence is the point (the deer's `ZONES` says the
+		-- same): it was the clearance that kept a zone part from being FLUSH with the trunk, because
+		-- two coincident surfaces at one ray distance is a coin toss (task 116, review round 2). With
+		-- the trunk out of every cast there is nothing to tie with, and every box below is strictly
+		-- INSIDE the drawn animal instead.
 		--
-		-- MEASURED OFF THE LOADED MODEL, 2026-10-04, in a Play session, reading the rig's own bones
-		-- out of `ServerStorage.AssetCache` (mesh object space, then +0.1286 on Y to put it in the
-		-- trunk's frame -- the offset `Body.visualOffset` applies to stand the feet on the box):
-		--     nose  z -2.388, y 0.666      head  z -1.279, y 0.912
-		--     eye   z -1.779, y 1.087      Neck  z -0.866, y 0.872
-		--     ears  z -1.208, y 1.570      the mesh's own front face z -2.750
-		-- So the drawn skull runs z -2.75 to about -1.10 and y 0.35 to 1.65, and these two boxes are
-		-- that, with the same PROTRUSION rules task 116 wrote for the rump:
-		--   -Z front  PROUD by 0.06 (-2.81 against the trunk's -2.75): the face is the one angle a
-		--             head shot is actually taken from, and nothing else of the animal is there.
-		--   +Y top    PROUD by 0.15 (+1.65 against +1.50): the top of the skull is the head.
-		--   +-X       NOT proud, deliberately, and it is the one thing this box cannot fix: the
-		--             drawn head is 1.1 studs wide and the trunk is 2.0, so a ray from the FLANK
-		--             meets the trunk before it meets the head and is charged to `body`. That was
-		--             already true -- the old box was narrower than the trunk too -- and the only
-		--             fix is a narrower trunk at the front, which is a change to the animal's
-		--             collision shape that nobody asked for. Front, above and ahead of the shoulder
-		--             are head; a pure flank is body.
-		--   +Z rear   an interior boundary at -1.45, where `chest` now begins.
+		-- =================================================================================
+		-- HOW THESE FIFTEEN BOXES WERE MEASURED (task 284, 2026-10-27), and these are the MALE's.
+		-- In a DEV Play session the real animal was built by `Runtime:spawn` from the real template,
+		-- the drawn `MeshPart` was given `CanQuery = true` for the length of the probe, and its THREE
+		-- silhouettes were cast on a 0.04-stud grid in the TRUNK's own frame: (y,z) from the flank,
+		-- (x,z) from above, (x,y) from the front. Each box then grew one grid step at a time from a
+		-- seed, a step accepted only while all three of its projections still lay INSIDE the matching
+		-- silhouette -- so no axis ray can meet a box and miss the animal.
+		--
+		-- The male's own profile, in studs (`<runs-dir>/284-profile.txt`): the drawn mesh runs
+		-- y -1.500..+1.757, z +-2.750, |x| <= 0.701 on a trunk 2.00 x 3.00 x 5.50; the BACK LINE
+		-- rises from 0.78 at the snout (z -2.55) to the mane crest 1.74 at z -1.15 and falls away to
+		-- 1.06 at z +1.65; the BELLY is -0.42 under the barrel and rises to 0.00 at z +1.45; the
+		-- drawn body ENDS at about z +1.95 and the last 0.8 studs of the trunk is TAIL (half-width
+		-- 0.04); the FOUR FEET are two pairs at z -1.05..-0.75 and z +1.35..+1.55, both at
+		-- |x| 0.20..0.44, with nothing between them.
+		--
+		-- WHAT IS DELIBERATELY NOT COVERED, measured and reported rather than hidden: the hoof below
+		-- y -1.06, the 0.12-stud strip at the very top of the crest, the snout's tip and the tail.
+		-- A box is widened only to where the animal provably IS, so under-coverage is a MISS and
+		-- never a hit in the air -- the asymmetry task 280 wrote down for the deer.
+		-- =================================================================================
+		--
+		-- THE HEAD is a cone, so two boxes: the snout, then the skull back to z -1.41, which is where
+		-- the head/chest line has been since task 119. The drawn skull runs on to about -1.10, and
+		-- that last hand's breadth is the shoulder's, as it was before.
 		head = {
 			part = "ZoneHead",
-			size = Vector3.new(1.2, 1.3, 1.36),
-			offset = Vector3.new(0, 1.0, -2.13), -- spans y 0.35..1.65, z -2.81..-1.45
 			tint = Color3.fromRGB(206, 120, 120),
+			boxes = {
+				{ size = Vector3.new(0.320, 0.360, 0.560), offset = Vector3.new(0.000, 0.600, -2.250) }, -- the snout: x +-0.16 y +0.42..+0.78 z -2.53..-1.97
+				{ size = Vector3.new(0.560, 0.840, 0.760), offset = Vector3.new(0.000, 0.680, -1.790) }, -- the skull: x +-0.28 y +0.26..+1.10 z -2.17..-1.41
+			},
 		},
-		-- ...AND THE CHEST MOVED BACK ONTO THE SHOULDER, because it had to: it was at z -2.45..-0.75,
-		-- which on the drawn animal is the NECK AND THE BACK OF THE SKULL, and the head cannot sit
-		-- where it belongs while another zone part is already there (two boxes at one ray distance is
-		-- the coin toss task 116's review removed). It keeps its box and its damage exactly; only the
-		-- Z moves, by one stud, onto the shoulder its own comment has always named: the front legs
-		-- attach at z -0.53 to -0.70 (`hip_1_f`, `thigh_f`), so heart and lungs are -1.45 to +0.25.
+		-- THE SHOULDER AND THE HEART, in two slabs that share a face at z -0.45 so no strip of animal
+		-- falls between them. Each stops 0.12 studs under its OWN measured back line and `body`'s
+		-- dorsal bands own the rest: a shot along the top of the back is not the heart, which is task
+		-- 281's rule for the deer and Karen's lethal list (head, neck, heart).
 		chest = {
 			part = "ZoneChest",
-			size = Vector3.new(2.12, 2.01, 1.7),
-			offset = Vector3.new(0, 0.555, -0.6), -- heart/lungs behind the shoulder: z -1.45..+0.25
 			tint = Color3.fromRGB(198, 150, 150),
+			boxes = {
+				{ size = Vector3.new(1.120, 1.640, 0.840), offset = Vector3.new(0.000, 0.680, -0.870) }, -- the shoulder: x +-0.56 y -0.14..+1.50 z -1.29..-0.45
+				{ size = Vector3.new(1.040, 1.760, 0.680), offset = Vector3.new(0.000, 0.500, -0.110) }, -- heart and lungs: x +-0.52 y -0.38..+1.38 z -0.45..+0.23
+			},
 		},
-		-- THE HINDQUARTERS (task 116). Karen, 2026-10-03: "can be hit to back part start to do circles
-		-- with first legs on" -- the spine shot every hunting game has, and the one reaction this
-		-- model could not express because no zone covered the back end above the legs.
-		--
-		-- IT IS ADDED THE WAY EVERY ZONE EXISTS AND IN NO OTHER WAY: a row here plus its `ORDER`
-		-- entry. `Body.buildZones` builds whatever this table lists, `Wound` charges whatever
-		-- `DAMAGE` names, and nothing in the hit path knows the difference. The three zone parts that
-		-- were here, their boxes, the `body` fallback and every damage number are untouched.
-		--
-		-- WHERE IT SITS, FACE BY FACE, and every face is accounted for -- because a zone part FLUSH
-		-- with the trunk is not a zone, it is a coin toss: two coincident surfaces at the same ray
-		-- distance, and which one `Raycast` returns is the engine's business (review round 2,
-		-- finding 1 -- the first version of this row was 2.0 wide, exactly the trunk's own +-1.0, so
-		-- a flank shot into the rump was decided by a tie-break and could be charged to `body`).
-		--   +X / -X  PROUD by `PROTRUSION`: 2 + 2 x 0.06 = 2.12, the same width `chest` and `legs`
-		--            take, and the flank is the angle players actually shoot from.
-		--   +Y top   PROUD by `PROTRUSION`: +1.56 against the trunk's +1.5. The top of the rump is
-		--            the animal's back and a shot from above belongs to it.
-		--   -Y floor NOT proud, deliberately: `legs` tops out at -0.5 and this starts at -0.3, so
-		--            there is 0.2 of clear air between them. Two zone parts meeting at one surface
-		--            is the same tie this row exists to remove.
-		--   +Z rear  PROUD by 0.15, against the trunk's rear face at +2.75.
-		--   -Z front NOT proud, deliberately: it is an interior boundary at +1.1: `chest` ends at
-		--            -0.75 and the trunk is all around it, so no ray reaches it from outside.
+		-- THE BARREL, AND IT IS A PART NOW. Two slabs over the band that was TRUNK-ONLY until this
+		-- task, plus the TWO DORSAL BANDS over the chest -- the top of the back, which answered
+		-- nothing at all before (the crest stood 0.107 studs above `ZoneHead`'s top).
+		body = {
+			part = "ZoneBody",
+			-- THE BOAR'S OWN `body` TINT, UNCHANGED (96, 84, 76). It was the trunk's colour of record
+			-- and `Report.CONFIG.SILHOUETTE.body` has always carried it, which is also what keeps
+			-- `Report.ringColor`'s measured lift (task 137) meaning what it meant.
+			tint = Color3.fromRGB(96, 84, 76),
+			boxes = {
+				{ size = Vector3.new(1.040, 0.120, 1.000), offset = Vector3.new(0.000, 1.560, -0.950) }, -- over the crest: x +-0.52 y +1.50..+1.62 z -1.45..-0.45
+				{ size = Vector3.new(1.280, 0.120, 0.680), offset = Vector3.new(0.000, 1.440, -0.110) }, -- over the thorax: x +-0.64 y +1.38..+1.50 z -0.45..+0.23
+				{ size = Vector3.new(1.120, 1.640, 0.440), offset = Vector3.new(0.000, 0.560, 0.450) }, -- the barrel: x +-0.56 y -0.26..+1.38 z +0.23..+0.67
+				{ size = Vector3.new(1.120, 1.560, 0.440), offset = Vector3.new(0.000, 0.520, 0.890) }, -- the loin: x +-0.56 y -0.26..+1.30 z +0.67..+1.11
+			},
+		},
+		-- THE HINDQUARTERS, the crippling zone Karen asked for on 2026-10-03 (*"can be hit to back
+		-- part start to do circles with first legs on"*). THREE slabs, because the rump SLOPES: the
+		-- back falls from 1.26 at z +1.25 to 0.70 at z +2.05 while the belly rises from -0.08 to
+		-- +0.61, so an axis-aligned box can only ever be the narrowest cross-section of its own span.
+		-- Its own top IS `rear` -- the spine over the hips is the hindquarters, as the deer's croup
+		-- band is -- so these need no band of their own. The tail past z +1.91 is left to a miss.
 		rear = {
 			part = "ZoneRear",
-			size = Vector3.new(2.12, 1.86, 1.8),
-			offset = Vector3.new(0, 0.63, 2.0), -- spans x +-1.06, y -0.30..+1.56, z +1.1..+2.9
 			tint = Color3.fromRGB(150, 150, 190),
+			boxes = {
+				{ size = Vector3.new(1.120, 1.480, 0.360), offset = Vector3.new(0.000, 0.440, 1.290) }, -- the hips: x +-0.56 y -0.30..+1.18 z +1.11..+1.47
+				{ size = Vector3.new(0.800, 0.880, 0.280), offset = Vector3.new(0.000, 0.540, 1.610) }, -- the ham: x +-0.40 y +0.10..+0.98 z +1.47..+1.75
+				{ size = Vector3.new(0.400, 0.480, 0.120), offset = Vector3.new(0.000, 0.620, 1.850) }, -- the rump's end: x +-0.20 y +0.38..+0.86 z +1.79..+1.91
+			},
 		},
+		-- FOUR SHORT LEGS, where one 2.12 x 1.0 x 5.4 SLAB ran the animal's whole length and past its
+		-- rump -- so the air BETWEEN the legs, which is most of what you can see under a standing
+		-- boar, was a `legs` hit. Each box is one measured shaft. They are SHORT: a boar's leg is
+		-- drawn down to y -1.47 and the box stops at -1.06, because below that the hoof is narrower
+		-- than any box the three silhouettes allow. The flare is left to a miss rather than squared
+		-- off, which is how the old slab came to hold air.
 		legs = {
 			part = "ZoneLegs",
-			size = Vector3.new(2.12, 1.0, 5.4),
-			offset = Vector3.new(0, -1.0, 0.15), -- the bottom third, the whole length, past the rear
 			tint = Color3.fromRGB(150, 128, 104),
+			boxes = {
+				{ size = Vector3.new(0.200, 0.640, 0.160), offset = Vector3.new(-0.300, -0.740, -0.690) }, -- front left: x -0.40..-0.20 y -1.06..-0.42 z -0.77..-0.61
+				{ size = Vector3.new(0.200, 0.640, 0.160), offset = Vector3.new(0.300, -0.740, -0.690) }, -- front right: x +0.20..+0.40
+				{ size = Vector3.new(0.200, 0.640, 0.160), offset = Vector3.new(-0.300, -0.740, 1.670) }, -- hind left: z +1.59..+1.75
+				{ size = Vector3.new(0.200, 0.640, 0.160), offset = Vector3.new(0.300, -0.740, 1.670) }, -- hind right
+			},
 		},
 	},
-
 	-- THE WOUND MODEL (hit-zones design sections 5 and 11.2). Two quantities per zone: damage decides
 	-- WHETHER the boar dies, flight decides HOW FAR it gets first. Every one of these is Karen's feel
 	-- value except COLLAPSE_ANGULAR_IMPULSE, which is physics.
@@ -2822,6 +2855,51 @@ Boar.CONFIG.KINDS = {
 		scale = 0.85,
 		clipScale = 0.8553,
 		model = "female",
+		-- HER OWN SHOT VOLUMES, AND NOT THE MALE'S SCALED (task 284), for the reason task 280 found
+		-- on the hind: `Boar_Female` is a DIFFERENT MESH and not the boar at 85 %. MEASURED -- her
+		-- drawn mesh is 1.202 x 2.647 x 4.675 where the male's at her scale would be
+		-- 1.191 x 2.769 x 4.675, so she is WIDER and 0.12 studs SHORTER than the scaled male, and
+		-- her barrel is shallower still: her shoulder slab measures 0.880 tall against the male's
+		-- 1.640 x 0.85 = 1.394. The same instrument, her own silhouettes:
+		-- `reviews/task-284/probes/284-autofit.luau`. ABSOLUTE studs in HER trunk's frame, so
+		-- `Body.kindGeometry` does NOT scale them.
+		zones = {
+			head = {
+				boxes = {
+					{ size = Vector3.new(0.280, 0.280, 0.480), offset = Vector3.new(0.010, 0.425, -1.918) }, -- the snout
+					{ size = Vector3.new(0.480, 0.680, 0.640), offset = Vector3.new(-0.010, 0.505, -1.518) }, -- the skull
+				},
+			},
+			chest = {
+				boxes = {
+					{ size = Vector3.new(1.000, 0.880, 0.560), offset = Vector3.new(0.010, 0.325, -0.678) }, -- the shoulder
+					{ size = Vector3.new(0.880, 1.400, 0.600), offset = Vector3.new(-0.010, 0.385, -0.098) }, -- heart and lungs
+				},
+			},
+			body = {
+				boxes = {
+					{ size = Vector3.new(0.800, 0.120, 0.840), offset = Vector3.new(-0.010, 1.185, -0.818) }, -- over the crest
+					{ size = Vector3.new(1.120, 0.120, 0.600), offset = Vector3.new(-0.010, 1.145, -0.098) }, -- over the thorax
+					{ size = Vector3.new(0.920, 1.400, 0.360), offset = Vector3.new(0.010, 0.465, 0.382) }, -- the barrel
+					{ size = Vector3.new(0.920, 1.360, 0.360), offset = Vector3.new(0.010, 0.445, 0.742) }, -- the loin
+				},
+			},
+			rear = {
+				boxes = {
+					{ size = Vector3.new(0.920, 1.240, 0.320), offset = Vector3.new(0.010, 0.345, 1.082) }, -- the hips
+					{ size = Vector3.new(0.800, 1.240, 0.160), offset = Vector3.new(-0.010, 0.265, 1.322) }, -- the ham
+					{ size = Vector3.new(0.200, 0.160, 0.160), offset = Vector3.new(0.010, 0.605, 1.602) }, -- the rump's end
+				},
+			},
+			legs = {
+				boxes = {
+					{ size = Vector3.new(0.160, 0.800, 0.120), offset = Vector3.new(-0.250, -0.795, -0.618) }, -- front left
+					{ size = Vector3.new(0.120, 0.800, 0.120), offset = Vector3.new(0.250, -0.795, -0.618) }, -- front right
+					{ size = Vector3.new(0.160, 0.720, 0.160), offset = Vector3.new(-0.250, -0.755, 1.402) }, -- hind left
+					{ size = Vector3.new(0.120, 0.720, 0.160), offset = Vector3.new(0.250, -0.755, 1.402) }, -- hind right
+				},
+			},
+		},
 		deathLiftStuds = 0.205,
 		drawnWidthStuds = 1.2,
 	},
@@ -2830,6 +2908,47 @@ Boar.CONFIG.KINDS = {
 		scale = 0.45,
 		clipScale = 0.4372,
 		model = "cub",
+		-- ITS OWN SHOT VOLUMES (task 284), for the sow's reason: measured, its drawn mesh is
+		-- 0.618 x 1.439 x 2.475 against the male's at 0.45 of 0.630 x 1.466 x 2.475, and its back is
+		-- flat where his rises to a mane -- the crest band it carries is 0.12 studs thick over
+		-- 0.44 studs of z where his is over 1.00. ABSOLUTE studs in ITS trunk's frame.
+		zones = {
+			head = {
+				boxes = {
+					{ size = Vector3.new(0.160, 0.160, 0.240), offset = Vector3.new(-0.010, 0.285, -1.017) }, -- the snout
+					{ size = Vector3.new(0.240, 0.440, 0.320), offset = Vector3.new(-0.010, 0.345, -0.777) }, -- the skull
+				},
+			},
+			chest = {
+				boxes = {
+					{ size = Vector3.new(0.480, 0.400, 0.240), offset = Vector3.new(-0.010, 0.165, -0.337) }, -- the shoulder
+					{ size = Vector3.new(0.480, 0.440, 0.320), offset = Vector3.new(-0.010, 0.145, -0.057) }, -- heart and lungs
+				},
+			},
+			body = {
+				boxes = {
+					{ size = Vector3.new(0.400, 0.120, 0.440), offset = Vector3.new(-0.010, 0.545, -0.437) }, -- over the crest
+					{ size = Vector3.new(0.440, 0.120, 0.320), offset = Vector3.new(0.010, 0.545, -0.057) }, -- over the thorax
+					{ size = Vector3.new(0.480, 0.440, 0.200), offset = Vector3.new(-0.010, 0.145, 0.203) }, -- the barrel
+					{ size = Vector3.new(0.480, 0.400, 0.200), offset = Vector3.new(-0.010, 0.165, 0.403) }, -- the loin
+				},
+			},
+			rear = {
+				boxes = {
+					{ size = Vector3.new(0.480, 0.440, 0.160), offset = Vector3.new(-0.010, 0.145, 0.583) }, -- the hips
+					{ size = Vector3.new(0.400, 0.480, 0.120), offset = Vector3.new(-0.010, 0.285, 0.723) }, -- the ham
+					{ size = Vector3.new(0.200, 0.080, 0.080), offset = Vector3.new(0.010, 0.365, 0.863) }, -- the rump's end
+				},
+			},
+			legs = {
+				boxes = {
+					{ size = Vector3.new(0.080, 0.280, 0.080), offset = Vector3.new(-0.130, -0.495, -0.337) }, -- front left
+					{ size = Vector3.new(0.080, 0.280, 0.080), offset = Vector3.new(0.150, -0.495, -0.337) }, -- front right
+					{ size = Vector3.new(0.080, 0.440, 0.080), offset = Vector3.new(-0.130, -0.415, 0.783) }, -- hind left
+					{ size = Vector3.new(0.080, 0.440, 0.080), offset = Vector3.new(0.150, -0.415, 0.783) }, -- hind right
+				},
+			},
+		},
 		deathLiftStuds = 1.009,
 		drawnWidthStuds = 0.62,
 	},
@@ -2841,6 +2960,11 @@ Boar.CONFIG.KINDS = {
 		deathLiftStuds = 0,
 		drawnWidthStuds = 1.89, -- the male's 1.40 mesh x `meshScale`; still inside the 2.0 box
 		meshScale = 1.35,
+		-- NO `zones` ROW, DELIBERATELY, AND IT IS MEASURED (task 284). This kind is the male's own
+		-- mesh at `meshScale` 1.35 on a trunk scaled 1.35, so `Body.kindGeometry` multiplying the
+		-- male's fitted boxes by `scale` IS its fit: its drawn mesh measures
+		-- 1.891 x 4.397 x 7.425 against the male's 1.401 x 3.257 x 5.500 -- 1.3498, 1.3500, 1.3500,
+		-- the factor to four figures. The sow and the cub are different MESHES and cannot share.
 		tint = Color3.fromRGB(150, 138, 125),
 		toughness = 2.0,
 		wary = { noticeScale = 1.4, runScale = 1.12 },

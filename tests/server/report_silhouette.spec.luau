@@ -16,6 +16,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local Shape = require(ServerScriptService:WaitForChild("HitLog"):WaitForChild("Shape"))
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 -- The constants are the projection rounded to three decimals, which at the panel's 110-px silhouette
 -- is 0.04 of a pixel. The tolerance is that rounding and nothing more.
@@ -24,10 +25,26 @@ local TOL = 1e-3
 return function()
 	describe("the silhouette's rectangles", function()
 		it("is Boar.CONFIG.ZONES projected, zone by zone", function()
+			-- EVERY RECT IS THE UNION OF ITS ZONE'S BOXES (task 284). A zone is several measured
+			-- volumes now -- fifteen in five zones -- so the rect a dot is placed against is the
+			-- smallest one that holds them all, and projecting box 1 alone would miss the rest.
 			local body = Boar.CONFIG.BODY_SIZE
 			for _, zone in ipairs(Boar.CONFIG.ZONES.ORDER) do
 				local spec = Boar.CONFIG.ZONES[zone]
-				local want = Shape.rectOf(spec.size, spec.offset, body)
+				local want = nil
+				for _, box in ipairs(spec.boxes or { spec }) do
+					local rect = Shape.rectOf(box.size, box.offset, body)
+					if want == nil then
+						want = rect
+					else
+						want = {
+							u0 = math.min(want.u0, rect.u0),
+							u1 = math.max(want.u1, rect.u1),
+							v0 = math.min(want.v0, rect.v0),
+							v1 = math.max(want.v1, rect.v1),
+						}
+					end
+				end
 				local got = Report.CONFIG.SILHOUETTE[zone]
 				expect(got).to.be.ok()
 				for _, key in ipairs({ "u0", "u1", "v0", "v1" }) do
@@ -63,17 +80,22 @@ return function()
 		end)
 
 		it("has a rect for every zone the damage model names", function()
-			-- `Report.CONFIG.ZONES` is the five the panel draws; four come from zone parts and `body`
-			-- is the trunk's own fallback, which is why it is not in `Boar.CONFIG.ZONES.ORDER`.
+			-- `Report.CONFIG.ZONES` is the five the panel draws, and SINCE TASK 284 all five come
+			-- from zone parts: `body` used to be the trunk's own fallback -- the whole unit square,
+			-- because the trunk covered everything -- and is a real part with four measured boxes now.
 			for _, zone in ipairs(Report.CONFIG.ZONES) do
 				expect(Report.CONFIG.SILHOUETTE[zone]).to.be.ok()
 				expect(Boar.CONFIG.WOUND.DAMAGE[zone]).to.be.ok()
+				expect(Boar.CONFIG.ZONES[zone]).to.be.ok()
 			end
+			-- `body` IS THE BARREL'S OWN RECTANGLE NOW, not the whole picture: it must be a real
+			-- rectangle inside the unit square and it must NOT span all of it, or the record has
+			-- quietly gone back to "everything is body".
 			local covering = Report.CONFIG.SILHOUETTE.body
-			expect(covering.u0).to.equal(0)
-			expect(covering.u1).to.equal(1)
-			expect(covering.v0).to.equal(0)
-			expect(covering.v1).to.equal(1)
+			expect(covering.u0 >= 0 and covering.u1 <= 1 and covering.u1 > covering.u0).to.equal(true)
+			expect(covering.v0 >= 0 and covering.v1 <= 1 and covering.v1 > covering.v0).to.equal(true)
+			expect(covering.u1 - covering.u0 < 0.95).to.equal(true)
+			expect(covering.v1 - covering.v0 < 0.95).to.equal(true)
 		end)
 
 		it("keeps the four named zones pairwise disjoint, so a dot is in at most one of them", function()
@@ -131,15 +153,49 @@ return function()
 			expect(covers(partNamed("Haunch"), (rear.u0 + rear.u1) / 2, (rear.v0 + rear.v1) / 2)).to.equal(true)
 		end)
 
-		it("has something drawn under the centre of every zone it draws", function()
-			-- The weaker claim over all five, because a dot in empty space is the one way this
-			-- picture can be worse than the rectangles it replaced.
-			for _, zone in ipairs(Report.CONFIG.ZONES) do
-				local rect = Report.CONFIG.SILHOUETTE[zone]
-				local u, v = (rect.u0 + rect.u1) / 2, (rect.v0 + rect.v1) / 2
-				if not onTheAnimal(u, v) then
-					error(string.format("the centre of the %s zone (%.3f, %.3f) is off the drawn animal", zone, u, v))
+		it("has something drawn under the centre of every MEASURED BOX, box by box", function()
+			-- STRONGER THAN THE ZONE-LEVEL CLAIM IT REPLACES (task 284), and it had to be: a zone is
+			-- fifteen volumes in five groups now, and the UNION's centre can be air -- `legs` is four
+			-- thin shafts, so the centre of the rectangle holding them lies between the drawn legs.
+			-- Each box's own centre is the honest question: a dot there must be drawn on the animal.
+			local body = Boar.CONFIG.BODY_SIZE
+			local clamped = {}
+			for _, zone in ipairs(Boar.CONFIG.ZONES.ORDER) do
+				local spec = Boar.CONFIG.ZONES[zone]
+				for index, box in ipairs(spec.boxes or { spec }) do
+					local rect = Shape.rectOf(box.size, box.offset, body)
+					local u, v = (rect.u0 + rect.u1) / 2, (rect.v0 + rect.v1) / 2
+					-- A BOX ABOVE THE TRUNK'S OWN TOP PROJECTS TO v = 0 AND IS CLAMPED THERE, and
+					-- that is measured here rather than waived: the two dorsal bands sit at
+					-- y 1.38..1.62 on a trunk whose top is +1.50, because the drawn mane crest
+					-- reaches +1.757. `Shape.dot` clamps them to the back line, which is right on the
+					-- hit CARD (task 283 maps that line onto the picture's measured back) and is the
+					-- very top edge of this panel's drawn boar, where only the ear is painted.
+					if box.offset.Y + box.size.Y / 2 > body.Y / 2 + 1e-9 then
+						table.insert(clamped, string.format("%s box %d", zone, index))
+						expect(v < 0.05).to.equal(true)
+					elseif not onTheAnimal(u, v) then
+						error(
+							string.format(
+								"the centre of %s box %d (%.3f, %.3f) is off the drawn animal",
+								zone,
+								index,
+								u,
+								v
+							)
+						)
+					end
 				end
+			end
+			-- ...and the exemption is NAMED, so it cannot grow quietly.
+			expect(#clamped <= 2).to.equal(true)
+			if #clamped > 0 then
+				TestKit.note(
+					string.format(
+						"report-silhouette: %s stand above the trunk's top, so their dots clamp to the back line (queued)",
+						table.concat(clamped, ", ")
+					)
+				)
 			end
 		end)
 

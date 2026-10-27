@@ -41,67 +41,47 @@ local function waitUntil(timeout: number, predicate: () -> boolean): boolean
 end
 
 return function()
-	-- Half of `PROTRUSION`: above float noise on a 20-stud cast by three orders of magnitude, and
-	-- below the smallest clearance any zone part is built with.
-	local CLEARANCE_FLOOR = CONFIG.ZONES.PROTRUSION / 2
-
 	describe("the boar's hit zones", function()
 		local testRoot, runtime, handle, trunk, disconnect
 
-		local function zonePart(name: string): BasePart?
-			local found = trunk:FindFirstChild(name)
-			return if found and found:IsA("BasePart") then found else nil
+		-- THE CLEARANCE MEASUREMENT IS GONE WITH THE THING IT MEASURED (task 284), exactly as it
+		-- went for the deer in task 280. It read how far a zone part beat the BARE TRUNK by, because
+		-- a part merely FLUSH with the trunk is a coin toss (task 116, review round 2) -- and the
+		-- boar's trunk is no longer on any bullet's ray at all (`TRUNK_HITTABLE = false`, so it
+		-- declares `ZonesOnly` and `Weapon.Cast.world` passes a bullet through it). There is nothing
+		-- left to tie with, `ZONES.PROTRUSION` is gone from the config, and every volume is fitted
+		-- strictly INSIDE the drawn animal instead.
+		local function partsByZone(): { [string]: { BasePart } }
+			local found: { [string]: { BasePart } } = {}
+			for _, child in ipairs(trunk:GetChildren()) do
+				if child:IsA("BasePart") then
+					local zone = child:GetAttribute("HitZone")
+					if type(zone) == "string" then
+						found[zone] = found[zone] or {}
+						table.insert(found[zone], child)
+					end
+				end
+			end
+			return found
 		end
 
-		-- Fires a ray AT a point given in the boar's own frame, coming FROM `distance` studs away in
-		-- the boar-local direction `fromDirection` (-Z is the boar's front, +Y is up). Returns the
-		-- HitZone of whatever the engine returns first -- read through the weapon's own targetOf, so
-		-- this is the zone a real pellet would report. Working in the boar's frame is what makes the
-		-- test independent of which way it happens to be facing; nothing yields between reading the
-		-- CFrame and casting, so a wandering boar cannot move underneath the ray.
+		-- Fires a ray AT a point given in the boar's own frame, from `distance` studs away in the
+		-- boar-local direction `fromDirection` (-Z is the front, +Y is up), THROUGH THE BULLET'S OWN
+		-- CASTER -- not a bare `Workspace:Raycast`, because since task 284 the caster is also what
+		-- steps a bullet past a `ZonesOnly` trunk. `nil` is a MISS, as it is for a pellet.
 		local function zoneAt(localPoint: Vector3, fromDirection: Vector3, distance: number): (string?, Instance?)
 			local cf = trunk.CFrame
 			local target = cf:PointToWorldSpace(localPoint)
 			local offset = cf:VectorToWorldSpace(fromDirection.Unit) * distance
-			local origin = target + offset
-
-			local params = RaycastParams.new()
-			params.FilterType = Enum.RaycastFilterType.Include
-			params.FilterDescendantsInstances = { trunk } -- the boar and its zone parts, nothing else
-			local result = Workspace:Raycast(origin, -offset * 2, params)
-			if not result then
-				return nil, nil, 0
+			local impact = Weapon.Cast.world(target + offset, -offset * 2, { Workspace.Terrain })
+			if not impact then
+				return nil, nil
 			end
-			local _, zone = Weapon.Hits.targetOf(result.Instance)
-
-			-- ...AND BY HOW FAR IT BEAT THE TRUNK (review round 2, finding 1). A zone part FLUSH with
-			-- the trunk's own surface is not a zone, it is a coin toss: two coincident faces at the
-			-- same ray distance, and which one `Raycast` returns is the engine's business. The first
-			-- `rear` row was 2.0 wide -- exactly the trunk's own +-1.0 -- so two of the three new ray
-			-- assertions passed on that tie and a flank shot into the rump could be charged to
-			-- `body`. The same ray is cast again with every child of the trunk taken out, so the
-			-- clearance is a MEASURED distance and the cases below can insist on it.
-			local bare = RaycastParams.new()
-			bare.FilterType = Enum.RaycastFilterType.Exclude
-			bare.FilterDescendantsInstances = trunk:GetChildren()
-			local behind = Workspace:Raycast(origin, -offset * 2, bare)
-			local clearance = math.huge -- the trunk is not on this ray at all: nothing to tie with
-			if behind and behind.Instance == trunk then
-				clearance = behind.Distance - result.Distance
+			local hit, zone = Weapon.Hits.targetOf(impact.instance)
+			if not hit then
+				return nil, impact.instance
 			end
-			return zone, result.Instance, clearance
-		end
-
-		-- A ZONE PART IS MET FIRST, BY GEOMETRY. Every "reachable by a real ray" case goes through
-		-- this: the zone must be the answer AND must stand clear of the trunk, so a part that is
-		-- merely flush fails instead of passing on a tie.
-		local function metFirst(localPoint: Vector3, fromDirection: Vector3, distance: number, want: string)
-			local zone, _, clearance = zoneAt(localPoint, fromDirection, distance)
-			expect(zone).to.equal(want)
-			-- `PROTRUSION` is 0.06 and float noise on a 20-stud cast is parts in 1e-5, so half the
-			-- protrusion is far above the noise and far below any real clearance.
-			expect(clearance > CLEARANCE_FLOOR).to.equal(true)
-			return clearance
+			return zone, impact.instance
 		end
 
 		beforeAll(function()
@@ -144,7 +124,23 @@ return function()
 			testRoot:Destroy()
 		end)
 
-		it("is one trunk and one zone part per declared zone, and the folder still holds ONE part", function()
+		it("is one part per MEASURED BOX, five zones, and the folder still holds ONE part", function()
+			-- COUNTED FROM THE TABLE, never from a literal. Task 284 made every zone several boxes
+			-- (fifteen volumes in five zones, fitted to the drawn mesh), so `buildZones` numbers the
+			-- parts of a multi-box zone from 1 -- `ZoneChest1`, `ZoneChest2` -- and the old flat list
+			-- `"ZoneChest,ZoneHead,ZoneLegs,ZoneRear"` is four names this animal no longer has.
+			local geometry = Boar.kindGeometry(nil, CONFIG)
+			local expected, names = 0, {}
+			for _, zone in ipairs(CONFIG.ZONES.ORDER) do
+				local boxes = geometry.zones[zone].boxes
+				expected += #boxes
+				for index = 1, #boxes do
+					table.insert(
+						names,
+						if #boxes == 1 then geometry.zones[zone].part else geometry.zones[zone].part .. index
+					)
+				end
+			end
 			local parts = {}
 			for _, child in ipairs(trunk:GetChildren()) do
 				if child:IsA("BasePart") then
@@ -152,14 +148,13 @@ return function()
 				end
 			end
 			table.sort(parts)
-			-- COUNTED FROM THE TABLE, not from a literal (task 116 added `rear` and this said 3).
-			-- `buildZones` builds whatever `ZONES.ORDER` lists, so that is what this asserts.
-			expect(#parts).to.equal(#CONFIG.ZONES.ORDER)
-			expect(table.concat(parts, ",")).to.equal("ZoneChest,ZoneHead,ZoneLegs,ZoneRear")
+			table.sort(names)
+			expect(#parts).to.equal(expected)
+			expect(table.concat(parts, ",")).to.equal(table.concat(names, ","))
+			expect(#CONFIG.ZONES.ORDER).to.equal(5)
 
 			-- The zone parts are children of the TRUNK, not of the runtime's folder, so the count
-			-- boar_body.spec asserts is unchanged. Written down because a green suite going red for
-			-- a reason unrelated to the change is the expensive kind of surprise.
+			-- boar_body.spec asserts is unchanged.
 			local topLevel = 0
 			for _, child in ipairs(runtime:folder():GetChildren()) do
 				if child:IsA("BasePart") then
@@ -169,172 +164,175 @@ return function()
 			expect(topLevel).to.equal(1)
 		end)
 
-		it("puts Damageable on the trunk alone, and a HitZone on every part", function()
+		it("puts Damageable on the trunk alone, and the trunk itself answers NO zone", function()
+			-- WHAT CHANGED (task 284): the trunk used to carry `HitZone = "body"` and was the
+			-- fallback zone, so every ray that missed the four boxes -- half of every ray that met
+			-- the animal at all -- was a `body` hit in empty air. It declares `ZonesOnly` now.
 			expect(trunk:GetAttribute("Damageable")).to.equal(true)
-			expect(trunk:GetAttribute("HitZone")).to.equal("body")
+			expect(trunk:GetAttribute("HitZone")).to.equal(nil)
+			expect(trunk:GetAttribute("ZonesOnly")).to.equal(true)
+			expect(Weapon.Hits.passesThrough(trunk)).to.equal(true)
+			expect((Weapon.Hits.targetOf(trunk))).to.equal(nil)
 
-			for zone, name in pairs({ head = "ZoneHead", chest = "ZoneChest", legs = "ZoneLegs" }) do
-				local part = zonePart(name)
-				expect(part).to.be.ok()
-				expect(part:GetAttribute("HitZone")).to.equal(zone)
-				-- Two damageable instances in one ancestor chain is an ambiguity, not a feature.
-				expect(part:GetAttribute("Damageable") == nil).to.equal(true)
+			local found = partsByZone()
+			for _, zone in ipairs(CONFIG.ZONES.ORDER) do
+				expect(found[zone]).to.be.ok()
+				for _, part in ipairs(found[zone]) do
+					expect(part:GetAttribute("HitZone")).to.equal(zone)
+					-- Two damageable instances in one ancestor chain is an ambiguity, not a feature.
+					expect(part:GetAttribute("Damageable") == nil).to.equal(true)
+				end
 			end
 		end)
 
 		it("welds them massless, queryable and non-colliding", function()
-			for _, name in ipairs({ "ZoneHead", "ZoneChest", "ZoneLegs" }) do
-				local part = zonePart(name)
-				expect(part.Massless).to.equal(true) -- the assembly's mass and inertia are unchanged
-				expect(part.CanCollide).to.equal(false) -- the collision body is still the plain box
-				expect(part.CanQuery).to.equal(true) -- being raycastable is its entire purpose
-				expect(part.Anchored).to.equal(false) -- an anchored weld would anchor the whole boar
-				local weld = part:FindFirstChildOfClass("WeldConstraint")
-				expect(weld).to.be.ok()
-				expect(weld.Part0).to.equal(trunk)
-				expect(weld.Part1).to.equal(part)
+			local found = partsByZone()
+			for _, zone in ipairs(CONFIG.ZONES.ORDER) do
+				for _, part in ipairs(found[zone]) do
+					expect(part.Massless).to.equal(true) -- the assembly's mass and inertia are unchanged
+					expect(part.CanCollide).to.equal(false) -- the collision body is still the plain box
+					expect(part.CanQuery).to.equal(true) -- being raycastable is its entire purpose
+					expect(part.Anchored).to.equal(false) -- an anchored weld would anchor the whole boar
+					local weld = part:FindFirstChildOfClass("WeldConstraint")
+					expect(weld).to.be.ok()
+					expect(weld.Part0).to.equal(trunk)
+					expect(weld.Part1).to.equal(part)
+				end
 			end
 		end)
 
 		it("resolves through the ancestor walk to the trunk, which is what takeHit is given", function()
-			for _, name in ipairs({ "ZoneHead", "ZoneChest", "ZoneLegs" }) do
-				local target, zone = Weapon.Hits.targetOf(zonePart(name))
-				expect(target).to.equal(trunk)
-				expect(zone).to.equal(zonePart(name):GetAttribute("HitZone"))
+			local found = partsByZone()
+			for _, zone in ipairs(CONFIG.ZONES.ORDER) do
+				for _, part in ipairs(found[zone]) do
+					local target, resolved = Weapon.Hits.targetOf(part)
+					expect(target).to.equal(trunk)
+					expect(resolved).to.equal(zone)
+				end
 			end
 		end)
 
-		-- THE ASSERTION THAT MATTERS. Eleven directions, every one of them a real ray from outside the
-		-- boar. Shrink a zone part back inside the trunk and these go red. TASK 119 took the two
-		-- SIDE probes off the head and put the reason in their place: the drawn head is 1.1 studs
-		-- wide inside a 2.0-wide trunk, so a flank ray meets the trunk first and is `body` -- which
-		-- is asserted below rather than left out. `docs/design/hit-zones.md` section 12.3 still asks
-		-- for nine including both sides of the head; that doc is stale and is queued as 119a.
-		it("is reachable by a real ray: head from the front and from above", function()
-			-- -Z is the boar's front. MOVED BY TASK 119, and the move is the point: the head box used
-			-- to hang in the air at z -3.9..-2.5, a stud and a bit in FRONT of the drawn snout, so
-			-- these probes used to be aimed at nothing but the box itself.
-			metFirst(Vector3.new(0, 1.0, -2.6), Vector3.new(0, 0, -1), 20, "head")
-			metFirst(Vector3.new(0, 1.5, -2.0), Vector3.new(0, 1, 0), 20, "head")
+		-- THE ASSERTION THAT MATTERS, and it is read OFF THE GEOMETRY since task 284. Every box's own
+		-- centre, from the flank, must answer that box's zone: fifteen real rays, and shrinking or
+		-- moving any volume turns one of them red. The hand-written literals this replaces named
+		-- places on a GREY BOX (a head box in the air in front of the snout, a legs slab running the
+		-- whole length); the boxes are the drawn animal now, so the geometry is where the points live.
+		it("answers every measured box's own zone, from a real ray at its centre", function()
+			local geometry = Boar.kindGeometry(nil, CONFIG)
+			local flank = Vector3.new(1, 0, 0)
+			local tested = 0
+			for _, zone in ipairs(CONFIG.ZONES.ORDER) do
+				for index, box in ipairs(geometry.zones[zone].boxes) do
+					local zoneAtCentre, instance = zoneAt(box.offset, flank, 20)
+					if zoneAtCentre ~= zone then
+						error(
+							string.format(
+								"%s box %d at (%.2f, %.2f, %.2f) answered %s on %s",
+								zone,
+								index,
+								box.offset.X,
+								box.offset.Y,
+								box.offset.Z,
+								tostring(zoneAtCentre),
+								instance and instance.Name or "?"
+							),
+							0
+						)
+					end
+					tested += 1
+				end
+			end
+			expect(tested).to.equal(15)
 		end)
 
-		-- THE ONE THE TASK WAS SET FOR (task 119): a shot at the SNOUT THE PLAYER CAN SEE is a head
-		-- shot. The point is not chosen, it is the rig's own `nose` bone, measured off the loaded
-		-- model in a Play session on 2026-10-04 at mesh (0, 0.538, -2.388) and written here in the
-		-- trunk's frame -- mesh Y plus the 0.1286 `Body.visualOffset` applies to stand the feet on
-		-- the box.
-		--
-		-- WHICH OF THESE ASSERTIONS ACTUALLY DISCRIMINATES, and the Reviewer was right that the
-		-- first version's did not (review round 2, finding 2). `zoneAt` casts from the far side and
-		-- answers with whatever box is FIRST along the axis, so a ray from the FRONT at the snout
-		-- answered `head` with the old geometry too -- the old box hung at z -3.9..-2.5, in front of
-		-- everything, and the probe passed straight through it. It is kept because it is the shot a
-		-- player actually takes; what proves the box MOVED is the one from ABOVE, where the old
-		-- head's top was +1.1 -- under the trunk at +1.5 and under the old chest at +1.56, so the
-		-- pre-task geometry answers `chest` there and only the new box answers `head`.
-		it("is a HEAD shot at the drawn snout, which is what task 119 was set for", function()
+		it("is a HEAD shot at the drawn snout, from the front AND from the flank", function()
+			-- THE RIG'S OWN `nose` BONE, measured off the loaded model in a Play session on
+			-- 2026-10-04 at mesh (0, 0.538, -2.388), written here in the trunk's frame (mesh Y plus
+			-- the 0.1286 `Body.visualOffset` stands the feet on the box).
 			local nose = Vector3.new(0, 0.538 + 0.1286, -2.388)
-			metFirst(nose, Vector3.new(0, 0, -1), 20, "head")
-			-- ...and a hand's breadth further forward, which is the mesh's own front face at -2.75:
-			-- still the head, because the box stands 0.06 proud of the trunk there and nothing else
-			-- of the animal is in front of it.
-			metFirst(Vector3.new(0, 0.667, -2.78), Vector3.new(0, 0, -1), 20, "head")
-			-- THE PROBE THE OLD GEOMETRY FAILS: straight down onto the snout's own z.
-			metFirst(Vector3.new(0, 0.667, -2.388), Vector3.new(0, 1, 0), 20, "head")
-			-- ...and the head box does not FLOAT any more, which is the defect in one number: its
-			-- front face stands exactly one PROTRUSION proud of the trunk's, where it used to stand
-			-- 1.15 studs proud of it -- a box in the air ahead of the animal.
-			local head = CONFIG.ZONES.head
-			local proud = (head.size.Z / 2 - head.offset.Z) - CONFIG.BODY_SIZE.Z / 2
-			expect(math.abs(proud - CONFIG.ZONES.PROTRUSION) < 1e-6).to.equal(true)
+			expect((zoneAt(nose, Vector3.new(0, 0, -1), 20))).to.equal("head")
+			-- ...AND FROM A PURE FLANK, WHICH IS NEW (task 284). This used to be `body` and the old
+			-- comment explained why: the drawn head is 1.1 studs wide inside a 2.0-wide trunk, so a
+			-- flank ray met the TRUNK first and a side shot at the face was charged to the body. With
+			-- the trunk out of every ray the skull box is what the ray meets, and it is a head shot.
+			expect((zoneAt(nose, Vector3.new(1, 0, 0), 20))).to.equal("head")
+			expect((zoneAt(Vector3.new(0, 1.0, -1.8), Vector3.new(1, 0, 0), 20))).to.equal("head")
 		end)
 
-		it("is the BODY from a pure flank at head height, and that is the geometry's limit", function()
-			-- SAID OUT LOUD RATHER THAN HIDDEN (task 119). The drawn head is 1.1 studs wide and the
-			-- trunk is 2.0, so a ray from the side meets the trunk before it meets the head and is
-			-- charged to `body`. That was already true -- the old box was narrower than the trunk
-			-- too -- and the only fix is a narrower trunk at the front, which is a change to the
-			-- animal's collision shape nobody asked for. Front and above are head; a flank is body.
-			expect((zoneAt(Vector3.new(0, 1.0, -2.0), Vector3.new(1, 0, 0), 20))).to.equal("body")
-			expect((zoneAt(Vector3.new(0, 1.0, -2.0), Vector3.new(-1, 0, 0), 20))).to.equal("body")
+		it("is a CHEST shot behind the shoulder, and the TOP of that back is body", function()
+			-- Heart and lungs, from either flank: the chest's two slabs span z -1.29..+0.23.
+			expect((zoneAt(Vector3.new(0, 0.55, -0.6), Vector3.new(1, 0, 0), 20))).to.equal("chest")
+			expect((zoneAt(Vector3.new(0, 0.55, -0.6), Vector3.new(-1, 0, 0), 20))).to.equal("chest")
+			-- ...AND FROM ABOVE IT IS `body`, WHICH IS THE POINT OF THE DORSAL BAND (task 284, the
+			-- deer's rule from task 281): a shot along the top of the back is not the heart. Karen's
+			-- lethal list is head, neck and heart, so the band over the chest is `body` -- and before
+			-- this task the top of the back answered NOTHING at all on the male and the legendary,
+			-- because the mane crest stands 0.107 studs above the old `ZoneHead`'s ceiling.
+			expect((zoneAt(Vector3.new(0, 1.5, -0.6), Vector3.new(0, 1, 0), 20))).to.equal("body")
 		end)
 
-		it("is reachable by a real ray: chest from both flanks and from above", function()
-			-- MOVED BY TASK 119 from z -2.45..-0.75 to -1.45..+0.25: the old box was on the drawn
-			-- animal's NECK and the back of its skull, and the head could not sit where it belongs
-			-- while another zone part was already there. The front legs attach at z -0.53 to -0.70,
-			-- so this is the shoulder its own comment has always named.
-			metFirst(Vector3.new(0, 0.55, -0.6), Vector3.new(1, 0, 0), 20, "chest")
-			metFirst(Vector3.new(0, 0.55, -0.6), Vector3.new(-1, 0, 0), 20, "chest")
-			metFirst(Vector3.new(0, 1.5, -0.6), Vector3.new(0, 1, 0), 20, "chest")
+		it("is BODY along the barrel, where the trunk used to be the only answer", function()
+			-- THE BAND THIS TASK EXISTS FOR. `chest` ended at z +0.25 and `rear` began at +1.10, so
+			-- the 0.85-stud barrel between them -- the broadest part of a broadside boar -- had no
+			-- box and was a hit only because the TRUNK was the `body` zone. Switching the trunk off
+			-- without a real `body` part would have made it a miss.
+			expect((zoneAt(Vector3.new(0, 0.55, 0.45), Vector3.new(1, 0, 0), 20))).to.equal("body")
+			expect((zoneAt(Vector3.new(0, 0.55, 0.89), Vector3.new(-1, 0, 0), 20))).to.equal("body")
 		end)
 
-		it("is reachable by a real ray: legs low on a flank and at the rear", function()
-			expect((zoneAt(Vector3.new(0, -1.0, 0.15), Vector3.new(1, 0, 0), 20))).to.equal("legs")
-			metFirst(Vector3.new(0, -1.0, 2.8), Vector3.new(0, 0, 1), 20, "legs")
+		it("is the HINDQUARTERS from behind and from a flank", function()
+			-- TASK 116's spine shot (Karen: *"can be hit to back part start to do circles with first
+			-- legs on"*), on the measured rump: three slabs over z +1.11..+1.91, where the old single
+			-- box ran to +2.90 -- a stud of tail and air past the drawn animal, which ends at ~+1.95.
+			expect((zoneAt(Vector3.new(0, 0.44, 1.29), Vector3.new(0, 0, 1), 20))).to.equal("rear")
+			expect((zoneAt(Vector3.new(0, 0.44, 1.29), Vector3.new(1, 0, 0), 20))).to.equal("rear")
+			expect((zoneAt(Vector3.new(0, 0.54, 1.61), Vector3.new(-1, 0, 0), 20))).to.equal("rear")
 		end)
 
-		it("is reachable by a real ray: the hindquarters, from behind, both flanks and above", function()
-			-- TASK 116. The spine shot Karen asked for ("can be hit to back part start to do circles
-			-- with first legs on") needed a zone, and a zone is only real if a ray finds it FIRST --
-			-- not if it ties with the trunk, which is what the first version of the row did on both
-			-- flanks (review round 2, finding 1). `metFirst` measures the clearance, so each of these
-			-- now fails if the box is merely flush.
-			--
-			-- The box spans x +-1.06, y -0.30..+1.56 and z +1.1..+2.9: the upper rump, above the hams
-			-- and behind the chest, proud by `PROTRUSION` on both flanks and on top and by 0.15 at
-			-- the back.
-			local back = metFirst(Vector3.new(0, 0.5, 2.8), Vector3.new(0, 0, 1), 20, "rear")
-			local flank = metFirst(Vector3.new(0, 0.5, 2.0), Vector3.new(1, 0, 0), 20, "rear")
-			metFirst(Vector3.new(0, 0.5, 2.0), Vector3.new(-1, 0, 0), 20, "rear")
-			metFirst(Vector3.new(0, 1.4, 2.0), Vector3.new(0, 1, 0), 20, "rear")
-			-- The two numbers the row is built on, read off the geometry rather than trusted.
-			expect(math.abs(flank - CONFIG.ZONES.PROTRUSION) < 1e-3).to.equal(true)
-			expect(math.abs(back - 0.15) < 1e-3).to.equal(true)
-			TestKit.note(
-				string.format("boar-zones: rear clears the trunk by %.3f on a flank, %.3f at the back", flank, back)
-			)
+		it("answers NOTHING between the legs, under the belly, or past the tail", function()
+			-- THE DEFECT, AS THREE KNOWN-BAD INPUTS. Every one of these was a hit before task 284:
+			-- `ZoneLegs` was one 2.12 x 1.0 x 5.4 slab under the whole animal, so the air BETWEEN the
+			-- legs was a `legs` hit, and the trunk answered `body` everywhere else. Karen,
+			-- 2026-10-26: *"wrong I hit the chest shows outside"*.
+			expect((zoneAt(Vector3.new(0, -1.0, 0.15), Vector3.new(1, 0, 0), 20))).to.equal(nil)
+			expect((zoneAt(Vector3.new(0, -1.2, 0.60), Vector3.new(1, 0, 0), 20))).to.equal(nil)
+			expect((zoneAt(Vector3.new(0, -1.0, 2.60), Vector3.new(0, 0, 1), 20))).to.equal(nil)
+			-- ...and the TRUNK is in the way of all three, so a miss is the geometry answering and
+			-- not a ray that sailed past the animal (`deer_hitbox.spec`'s own guard).
+			local bare = RaycastParams.new()
+			bare.FilterType = Enum.RaycastFilterType.Include
+			bare.FilterDescendantsInstances = { trunk }
+			for _, point in ipairs({ Vector3.new(0, -1.0, 0.15), Vector3.new(0, -1.2, 0.6), Vector3.new(0, -1.0, 2.6) }) do
+				local cf = trunk.CFrame
+				local target = cf:PointToWorldSpace(point)
+				local offset = cf:VectorToWorldSpace(Vector3.new(1, 0, 0)) * 20
+				local crossed = Workspace:Raycast(target + offset, -offset * 2, bare)
+				expect(crossed).to.be.ok()
+				expect(crossed.Instance).to.equal(trunk)
+			end
+			TestKit.note("boar-zones: the air between the legs, under the belly and past the tail answers no zone")
 		end)
 
-		it("leaves the rump's FLOOR to the legs, with clear air between them", function()
-			-- The one face the rear box is deliberately NOT proud of. `legs` tops out at y -0.5 and
-			-- `rear` starts at -0.3, so there is 0.2 of trunk between them: two zone parts meeting at
-			-- one surface would be the same tie this round removed.
-			local rear = CONFIG.ZONES.rear
-			local legs = CONFIG.ZONES.legs
-			local rearFloor = rear.offset.Y - rear.size.Y / 2
-			local legsCeiling = legs.offset.Y + legs.size.Y / 2
+		it("leaves clear air between the rump's floor and the legs", function()
+			-- The two volumes still do not meet: the hind legs' boxes top out at y -0.42 and the
+			-- rump's slabs start at -0.30, so nothing is decided by two coincident faces. A ray into
+			-- that band answers NOTHING now, where it used to answer `body` on the trunk.
+			local geometry = Boar.kindGeometry(nil, CONFIG)
+			local rearFloor = math.huge
+			for _, box in ipairs(geometry.zones.rear.boxes) do
+				rearFloor = math.min(rearFloor, box.offset.Y - box.size.Y / 2)
+			end
+			local legsCeiling = -math.huge
+			for _, box in ipairs(geometry.zones.legs.boxes) do
+				legsCeiling = math.max(legsCeiling, box.offset.Y + box.size.Y / 2)
+			end
 			expect(rearFloor > legsCeiling).to.equal(true)
-			-- ...and a ray into that band finds the trunk, which is the `body` zone.
-			expect((zoneAt(Vector3.new(0, (rearFloor + legsCeiling) / 2, 2.0), Vector3.new(1, 0, 0), 20))).to.equal(
-				"body"
-			)
-		end)
-
-		it("is the plain BODY everywhere no zone part covers", function()
-			-- Mid-flank behind the chest from both sides, and the rear ABOVE the hams: the places
-			-- Karen's "belly, flank, rear" has to mean the trunk. Design section 12.3 also asks for
-			-- "the belly from below behind the legs band"; there is no such place, because ZoneLegs
-			-- spans the boar's whole length (z -2.55..2.85) and covers the entire underside. Seen
-			-- from below, a boar is all legs -- which is the right answer for a low shot, and the
-			-- deviation is reported rather than quietly dropped.
-			-- MOVED FORWARD BY TASK 116, and the move IS the point: `rear` now covers z +1.1..+2.9,
-			-- so the two old flank probes at z 1.5 and the rear one at z 2.7 are the hindquarters
-			-- now and are asserted as such above. What is still the trunk is the waist -- behind the
-			-- chest box (which ends at z -0.75), in front of the rear box, above the legs band.
-			-- MOVED AGAIN BY TASK 119: the chest now ends at z +0.25, so the waist starts there and
-			-- the old probes at z 0.2 are the chest. z 0.6 is between the chest and the rump.
-			expect((zoneAt(Vector3.new(0, 0.6, 0.6), Vector3.new(1, 0, 0), 20))).to.equal("body")
-			expect((zoneAt(Vector3.new(0, 0.6, 0.6), Vector3.new(-1, 0, 0), 20))).to.equal("body")
-			-- ...and the band between the rump and the hams, which round 2 left to the trunk on
-			-- purpose (see "leaves the rump's FLOOR to the legs"). The top of the rump is NOT here
-			-- any more: raising the rear box to +1.56 to clear the trunk made it the rump's.
-			expect((zoneAt(Vector3.new(0, -0.4, 2.0), Vector3.new(1, 0, 0), 20))).to.equal("body")
 		end)
 
 		it("still drives, upright, with the server owning the whole assembly", function()
 			-- The zone parts did not tip it, anchor it, or take the assembly root away from the
-			-- trunk: Massless parts never win that election (docs/physics/assemblies).
+			-- trunk: Massless parts never win that election (docs/physics/assemblies). Fifteen of
+			-- them now rather than four, which is why this case is worth more than it was.
 			-- An idle boar grazes for up to GRAZE_MAX seconds at a time, so this waits rather than
 			-- sampling once.
 			expect(waitUntil(10, function()

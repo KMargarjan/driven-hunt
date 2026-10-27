@@ -86,15 +86,15 @@ end
 -- a different length: `tools/boar_prep.py` baked 4.675 and 2.475 studs into their geometry against
 -- the male's 5.5, and everything this file builds around them is the male's numbers times that ratio.
 --
--- ONE SCALE, EVERY BOX. The physics trunk and all four hit zones scale together, so a cub is a SMALL
--- TARGET in exactly the way it looks small: its chest is 0.45 of the male's chest and its head is
--- 0.45 of his head, and no number anywhere says so twice.
+-- ONE SCALE, EVERY BOX -- FOR A KIND WITH NO `zones` ROW OF ITS OWN. The physics trunk and the hit
+-- zones scale together, so the legendary is the male at 1.35 in exactly the way it looks bigger.
+-- The sow and the cub carry their own measured rows (task 284) and are NOT scaled; `row.zones` below
+-- is where that is decided.
 --
--- THE PROTRUSION SCALES WITH THEM, deliberately. `ZONES.PROTRUSION` is the clearance that stops a
--- zone part being FLUSH with the trunk, because two coincident surfaces at one ray distance is a
--- coin toss and not a hit zone (task 116, review round 2). Scaled, a cub's zones stand 0.027 studs
--- proud instead of 0.06 -- smaller, but still a clearance a float comparison settles the same way
--- every time, and still proportionally what the male has.
+-- `ZONES.PROTRUSION` IS GONE (task 284). It was the clearance that kept a zone part from being FLUSH
+-- with a HITTABLE trunk, because two coincident surfaces at one ray distance is a coin toss (task
+-- 116, review round 2). No trunk answers a ray any more, so there is nothing to tie with and every
+-- box is fitted strictly inside the drawn animal instead.
 --
 -- WITH `BOAR_MODEL` OFF EVERY KIND IS THE MALE, box for box: the flag gates the whole block, so the
 -- grey-box world is the one Milestone 1.2 shipped and every spec written against it still holds.

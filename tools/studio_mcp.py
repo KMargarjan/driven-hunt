@@ -906,6 +906,10 @@ SCOPE_SPECS = {
                # change on the weapon's side of that seam has to play this file. Dual membership,
                # like `zz_claim_window` below.
                "tests/server/deer_hitbox.spec.luau",
+               # Task 284: the BOAR's shot volumes against its drawn mesh, for exactly the reason
+               # `deer_hitbox` is here -- `Weapon.Hits.targetOf` turns a zone part into a zone word
+               # and the boar's trunk no longer answers a ray either.
+               "tests/server/boar_hitbox.spec.luau",
                # Task 266: the claim window against the Boar's own memory. The same file is in
                # `boar`, which is the dual-membership idiom `zz_horn` and `boar_hit` already use:
                # it is one invariant owned by two configs, so a change to either side must reach it.
@@ -973,6 +977,9 @@ SCOPE_SPECS = {
              # `boar` because the volumes are `Boar.CONFIG`'s and in `weapon` because
              # `Weapon.Hits.targetOf` is what reads them.
              "tests/server/deer_hitbox.spec.luau",
+             # Task 284: the same file for the boar -- fifteen measured volumes in five zones and
+             # `TRUNK_HITTABLE = false`, all of it `Boar.CONFIG`'s, so it is in `boar` too.
+             "tests/server/boar_hitbox.spec.luau",
              # Task 266: WHERE AN ANIMAL WAS -- the ring buffer, its wrap, and the refusal outside
              # its own span. Pure, so it is cheap; it belongs to `boar` and nothing else, because
              # the ring is the animal's own memory and the weapon only ever asks it a question.

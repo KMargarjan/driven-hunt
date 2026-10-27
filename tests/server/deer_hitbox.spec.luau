@@ -86,56 +86,32 @@ local MODEL_KEY = {
 }
 
 return function()
-	-- THE BOAR IS THE CONTROL, and it is here rather than in `boar_zones.spec` because the thing
-	-- being asserted is this task's one switch: `TRUNK_HITTABLE` is absent from the boar's
-	-- `Boar.CONFIG.ZONES`, so a boar's trunk still answers rays and `body` is still a zone a player
-	-- can hit. Without this case, deleting the `~= false` and hard-coding `false` would pass.
-	describe("the boar's trunk is still a target", function()
-		local holder, runtime, handle, disconnect
-
-		beforeAll(function()
-			holder = Instance.new("Folder")
-			holder.Name = "DeerHitboxSpec_boar"
-			holder.Parent = Workspace
-			runtime = Boar.newRuntime({
-				field = FIELD,
-				parent = holder,
-				folderName = "Boars",
-				rng = Random.new(280),
-				threats = function()
-					return {}
-				end,
-				probe = function()
-					return false
-				end,
-				requestPath = function(_id, _from, _to, done)
-					done(nil)
-				end,
-				releasePath = function() end,
-			})
-			handle = runtime:spawn(Vector3.new(0, GROUND_Y, 0))
-			disconnect = runtime:run()
-		end)
-
-		afterAll(function()
-			if disconnect then
-				disconnect()
-			end
-			runtime:destroy()
-			holder:Destroy()
-		end)
-
-		it("answers a ray, and its fallback zone is still body", function()
-			expect(handle.part.CanQuery).to.equal(true)
-			expect(handle.part:GetAttribute("HitZone")).to.equal("body")
-			-- ...and the geometry says so too: `TRUNK_HITTABLE` is not a key of the boar's table.
-			expect(CONFIG.ZONES.TRUNK_HITTABLE).to.equal(nil)
-			expect(Boar.kindGeometry(nil, CONFIG).trunkHittable).to.equal(true)
-			-- ...and NEITHER of task 280's two switches is on it: a boar's trunk is a target, and
-			-- a bullet stops on it.
-			expect(handle.part:GetAttribute("ZonesOnly")).to.equal(nil)
-			expect(Weapon.Hits.passesThrough(handle.part)).to.equal(false)
-			expect((Weapon.Hits.targetOf(handle.part))).to.equal(handle.part)
+	-- THE CONTROL IS A SYNTHETIC CONFIG NOW, NOT THE BOAR (task 284). It used to be a real boar,
+	-- because the boar's `ZONES` had no `TRUNK_HITTABLE` key and its trunk really did answer rays --
+	-- so a boar was living proof that `trunkHittable` READS the config rather than being hard-coded
+	-- false. Task 284 fitted the boar to its own drawn mesh and switched its trunk off too, so no
+	-- animal in the game has a hittable trunk any more and that proof has to come from a table.
+	--
+	-- WITHOUT THIS CASE, `trunkHittable = false` hard-coded would pass every other case in the file.
+	describe("a trunk is hittable only when its own table says so", function()
+		it("reads TRUNK_HITTABLE off the config, and absent means true", function()
+			-- ABSENT -> TRUE, which is the default `Body.kindGeometry` is written around
+			-- (`config.ZONES.TRUNK_HITTABLE ~= false`), and the shape every grey-box animal had.
+			local hittable = {
+				BODY_SIZE = CONFIG.BODY_SIZE,
+				ZONES = { ORDER = { "chest" }, chest = CONFIG.ZONES.chest },
+			}
+			expect(Boar.kindGeometry(nil, hittable).trunkHittable).to.equal(true)
+			-- FALSE -> FALSE, the two real species.
+			local off = {
+				BODY_SIZE = CONFIG.BODY_SIZE,
+				ZONES = { ORDER = { "chest" }, TRUNK_HITTABLE = false, chest = CONFIG.ZONES.chest },
+			}
+			expect(Boar.kindGeometry(nil, off).trunkHittable).to.equal(false)
+			-- ...and both species shipped today are off, which is the fact this file and
+			-- `boar_hitbox.spec` are the proof of.
+			expect(CONFIG.ZONES.TRUNK_HITTABLE).to.equal(false)
+			expect(CONFIG.SPECIES.reddeer.ZONES.TRUNK_HITTABLE).to.equal(false)
 		end)
 	end)
 

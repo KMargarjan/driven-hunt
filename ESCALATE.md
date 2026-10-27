@@ -159,3 +159,26 @@ NUMBER (the drawn image v of a dot at box v = 0, per kind) instead of "somewhere
 
 **For the Director:** this is one more build round on a question that is now well posed, not a third
 unknown. Nothing is merged. `main` is untouched; the branch is `task-283-card-dot` at `234a6c8d`.
+
+## 2026-10-27 -- Task 284: one item open, and it is the Director's own next step
+
+Branch `task-284-boar-fit`, code commit `e71ddef4`, Reviewer **PASS round 1**
+(`reviews/task-284/RESULT.md`), `[harness] PASS: 34/34 checks @ e71ddef4 (clean tree) scope=all`.
+The first session's entry -- written at a hard stop that was really minute 32 -- is archived at
+`backups/ESCALATE-2026-10-27-task-284-hard-stop.md`; everything it listed as open is done.
+
+**STILL OPEN: RULE 5, AND IT IS NOT BLOCKED, IT IS NEXT.** No shot has been fired at a boar with
+this hitbox on Karen's path. The dispatch assigns that to the Director's `onray.py` after this
+review, so it is handed over rather than escalated -- but it is the step that decides whether Karen's
+sentence is true on screen, and L-010 is on record that every prior "fixed" claim on this exact
+defect was measured and still wrong on her path. The Reviewer makes the same point and goes further:
+with `BOAR_MODEL` on, the zone parts are drawn at `Transparency = 1`, so **nothing this change does
+is visible in her game** -- the only thing she can judge is where her pellets connect.
+
+**THE ONE NUMBER TO PUT IN FRONT OF HER BESIDE "AIR 0"** (Reviewer's note, and it is the honest half
+of the trade): the flank MISS went from 2.2 % to 24.1 % on the male and from 1.9 % to 46.2 % on the
+cub. That is in family with the shipped deer (31-43 %) and it is the trade this task set out to
+make -- a miss she can see, instead of a kill in empty space -- but roughly one flank shot in four
+at a boar, and one in two at a cub, now connects with nothing.
+
+**NEEDS KAREN:** nothing clickable. Her judgement, after the Director's shoot.
