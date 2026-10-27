@@ -3,7 +3,7 @@
 Task: 282
 Round: 1
 Base: cb00b9cd (main)
-Code commit: (docs-only -- no `src/`, `tests/` or `tools/` file is touched in this round)
+Code commit: efb1dbcb (docs-only -- no `src/`, `tests/` or `tools/` file is touched in this round)
 
 **THIS IS A MEASUREMENT ROUND, NOT A FIX ROUND.** Dispatch item 2's cause was unknown; it is now
 measured and named, and it turns out to BE item 1. Item 1 is a task-280-sized rebuild and did not fit
