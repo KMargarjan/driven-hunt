@@ -3,7 +3,7 @@
 Task: 293b
 Round: 2
 Base: 5fb54278
-Code commit: e7db8844ce8c958c409568e375f7659027ac3802
+Code commit: 10bb9262e9d24ed9c1f43290a87b9a1847462f36
 
 Karen, 2026-10-27: *"deer error remains, after kill stands"* -- after task 293 merged.
 
@@ -83,7 +83,7 @@ and 115 s) is the Director's, per the dispatch. Nothing in this branch is proven
 ## HARNESS
 
 ```
-[harness] PASS: 34/34 checks @ e7db8844ce8c958c409568e375f7659027ac3802 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 10bb9262e9d24ed9c1f43290a87b9a1847462f36 (clean tree) scope=all
 ```
 
 FAIL FIRST, with `src/` identical to main and only the new spec added (commit a4a5b8e3):
