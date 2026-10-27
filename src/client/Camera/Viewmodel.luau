@@ -22,7 +22,6 @@
 -- Design: docs/design/camera.md (sections 3.2, 5.5)
 local Workspace = game:GetService("Workspace")
 
-local ContentProvider = game:GetService("ContentProvider")
 local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -36,6 +35,8 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 -- load them and does not know what an asset id is: the server does that and parks the templates
 -- where a client can reach them.
 local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
+-- The one owner of "has this client downloaded that mesh" (task 294), shared with the shop case.
+local AssetFetch = require(ReplicatedStorage:WaitForChild("AssetFetch"))
 -- SHARED, AND ONLY FOR THE EXACT GEOMETRY OF THE NEW GUN (task 99). Pure data: a piece list, the
 -- hinge axis, the two chambers and the bead. This module still knows nothing about weapon STATE.
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
@@ -120,18 +121,55 @@ local builtMeshes = -1
 -- about the server; whether this client can DRAW one is a different fact, and the gun was built
 -- against the first.
 local builtReady = -1
--- Every mesh id this client has been ASKED to fetch, so it is asked once. A template parked in
--- `ReplicatedStorage` is never rendered, so nothing fetches it on its own: `GetAssetFetchStatus`
--- would answer `None` for ever and the gun would wear its fallback boxes for the whole session.
--- `PreloadAsync` is what turns "published" into "downloaded", and it yields, so it is spawned.
-local requested: { [string]: boolean } = {}
--- ...AND EVERY ID THAT HAS EVER READ `Success` ON THIS CLIENT, which stays ready for the rest of the
--- session. MEASURED: the frame after the gun was rebuilt with its meshes, both groups read `Loading`
--- again for about 250 ms and then `Success` -- the fresh clone asks for content the client already
--- has, so the status describes a REQUEST and not the cache behind it. Without this the gun went
--- mesh -> box -> mesh in a quarter of a second, three builds where one was needed. Downloaded is a
--- one-way fact: nothing takes a mesh off a client mid-session.
-local arrived: { [string]: boolean } = {}
+
+-- ---------------------------------------------------------------- THE FIRST-SHOW HOLD (task 294)
+--
+-- Karen, 2026-10-27: *"weapons loaded at first in game is rectangles"*. The piece loop below used to
+-- draw the measured BOX for every mesh this client had not downloaded, so the first gun of a COLD
+-- session was a gun made of boxes. A gun that is not there yet is better than a gun that is wrong:
+-- while the hold runs, a build that is missing any mesh draws its fallback boxes INVISIBLE (they are
+-- still built, so nothing downstream loses the piece it reads by name), and the download landing
+-- rebuilds it through the staleness path task 133 already laid.
+--
+-- BOUNDED, AND THE FALLBACK IS STILL THERE: after `HOLD_SECONDS` the boxes are drawn exactly as
+-- before, so a mesh that never arrives is a plain dark gun and never an endless empty hand.
+--
+-- WHAT IT DOES NOT COVER, measured by task 133 in this very file: before the server has PUBLISHED the
+-- folder there is no mesh to wait for, so `waiting` is 0 and the boxes are drawn -- that window was
+-- 2.050 s to 2.7 s in Karen's session. The client warm sweep (`Weapon.warmWeapons`) shortens the
+-- DOWNLOAD, not the publish; closing the publish window is the server's own ordering rule.
+-- `0` IS THE KILL SWITCH, stated rather than left as a happy accident: `held` is `waiting > 0 and
+-- elapsed < 0`, which is false for every build, so the boxes are drawn exactly as they were on main.
+Viewmodel.HOLD_SECONDS = 4
+-- WHEN THIS WEAPON'S FIRST INCOMPLETE BUILD HAPPENED, per weapon folder: the bound is per gun, so
+-- switching to a rifle 60 s in gets its own hold rather than inheriting a spent one.
+local heldSince: { [string]: number } = {}
+-- Was the gun ON SCREEN built held? Read by the staleness check, so the bound expiring rebuilds.
+local heldBuild = false
+
+-- THE WHOLE RULE, PURE AND PUBLIC so a spec drives it where it can fail. `elapsed` nil is the first
+-- frame of a hold.
+function Viewmodel.holdPieces(waiting: number, elapsed: number?): boolean
+	return waiting > 0 and (elapsed == nil or elapsed < Viewmodel.HOLD_SECONDS)
+end
+
+-- Is the gun on screen one the hold is withholding pieces from? (`stats().meshesHeld` is the count.)
+function Viewmodel.holding(): boolean
+	return heldBuild
+end
+
+-- SPECS ONLY: a weapon whose hold has never been spent. The bound is deliberately once per folder per
+-- SESSION -- a gun that waited four seconds at the lobby must not wait again at every later rebuild
+-- -- so a case that wants to see a hold has to forget the live frame that already spent it.
+function Viewmodel.forgetHold()
+	table.clear(heldSince)
+	heldBuild = false
+end
+-- WHICH IDS HAVE BEEN ASKED FOR AND WHICH HAVE LANDED IS `ReplicatedStorage.AssetFetch`'s, since
+-- task 294: a template parked in `ReplicatedStorage` is never rendered, so nothing fetches it on its
+-- own and `PreloadAsync` is what turns "published" into "downloaded". That module also carries the
+-- per-id COOL-DOWN this file used to lack -- here the ask was once per id for ever, so a fetch that
+-- FAILED left the fallback standing for the session.
 
 -- THE NAME THIS MODULE WRITES ON THE GUN IT BUILDS (task 90; one gun since task 114). `Sight` is
 -- where `Mode.aimOffset` solves the aimed pose from, and `buildNewGun` adds it. The drawn `SightBead`
@@ -149,58 +187,11 @@ local BARRELS_NAME = "Barrels"
 local SPENT_NAME = "SpentShell"
 local FRESH_NAME = "FreshShell"
 
--- CAN THIS CLIENT DRAW THIS MESH YET? The question task 133 was missing.
---
--- MEASURED IN THE FOREST TEST, with a per-frame trace from t = 0: the gun was built from the
--- measured boxes at 2.050 s (3 of its 5 parts on screen), the server published model B at 2.7 s, the
--- rebuild swapped both hinge groups for their MESHES at 2.942 s -- and from there to 3.332 s the
--- whole gun on screen was the BEAD: `VISIBLE=1`, because a `MeshPart` whose mesh has not been
--- downloaded renders as NOTHING and the boxes behind it had been dropped. 390 ms on this machine,
--- whose content cache was warm. On a cold or slow client that is Karen's *"no weapon when it
--- loads"*, for as long as the download takes.
---
--- SO READINESS IS READ, NOT ASSUMED, and the one signal for it is the engine's own:
---   ContentProvider:GetAssetFetchStatus
---   https://create.roblox.com/docs/reference/engine/classes/ContentProvider#GetAssetFetchStatus
--- `Success` is the only value that means "the renderer has this". `None` means nobody has asked yet,
--- so this asks -- see `requested` -- and `Loading`/`Failure`/`TimedOut` all mean the same thing to a
--- player looking at his hands: draw the box instead.
---
--- A NON-MESH PART IS ALWAYS READY: the fallback pieces are plain `Part`s built here, with nothing to
--- download. And a status this cannot read at all answers READY rather than withholding the real gun,
--- because a guard that failed closed would ship the boxes to everybody for ever.
+-- CAN THIS CLIENT DRAW THIS MESH YET? (task 133.) `ReplicatedStorage.AssetFetch` answers it and
+-- asks for what has not been asked for; this stays public because every reader here is "can I draw
+-- it", not "fetch it". A mesh that is not ready is NOT drawn as a box while the hold below runs.
 function Viewmodel.meshReady(part: Instance): boolean
-	if not part:IsA("MeshPart") then
-		return true
-	end
-	local id = (part :: MeshPart).MeshId
-	if id == nil or id == "" then
-		return false
-	end
-	local ok, status = pcall(function()
-		return ContentProvider:GetAssetFetchStatus(id)
-	end)
-	if not ok then
-		return true
-	end
-	if status == Enum.AssetFetchStatus.Success then
-		arrived[id] = true
-		return true
-	end
-	if arrived[id] then
-		return true -- it came down earlier in this session; see `arrived`
-	end
-	-- NOBODY HAS ASKED FOR IT YET, SO ASK. Once per id per session: `PreloadAsync` yields, and a
-	-- call per frame per piece would be a queue nothing drains.
-	if not requested[id] then
-		requested[id] = true
-		task.spawn(function()
-			pcall(function()
-				ContentProvider:PreloadAsync({ part })
-			end)
-		end)
-	end
-	return false
+	return AssetFetch.ready(part)
 end
 
 -- How much of the published model this client can actually draw RIGHT NOW. The second half of the
@@ -266,6 +257,8 @@ local stats = {
 	-- boxes because the mesh has not arrived" is a NUMBER and not only a picture. Per build, like
 	-- `meshesDrawn`.
 	meshesWaiting = 0,
+	-- How many meshes the first-show hold is waiting for on the gun on screen (task 294).
+	meshesHeld = 0,
 	-- THE HORN (task 176). How many frames the drawn thing under the camera was the beater's horn
 	-- rather than a gun, how many of those were inside a blast's raise, and how many times the
 	-- block of pose numbers was missing -- which is the one way this can draw nothing while a horn
@@ -1348,6 +1341,27 @@ local function buildNewGun(config, geometry, row): Model
 	stats.meshesDrawn = 0
 	stats.meshesWaiting = 0
 	table.clear(clearParts) -- task 227: refilled below, per build, like `builtMeshes`
+	-- IS ANY MESH THIS GUN WANTS STILL DOWNLOADING? Asked for the WHOLE gun before a piece is drawn
+	-- (task 294), because half a gun and a boxed gun are the same defect to the player.
+	local waiting = 0
+	for _, piece in ipairs(geometry.pieces(row)) do
+		local mesh = if piece.meshKey ~= nil then meshFor(piece.name) else nil
+		if mesh ~= nil and not Viewmodel.meshReady(mesh) then
+			waiting += 1
+		end
+	end
+	local held = false
+	if waiting > 0 then
+		local nowHold = Viewmodel.getClock()()
+		local since = heldSince[geometry.FOLDER_NAME]
+		if since == nil then
+			since = nowHold
+			heldSince[geometry.FOLDER_NAME] = nowHold
+		end
+		held = Viewmodel.holdPieces(waiting, nowHold - since)
+	end
+	heldBuild = held
+	stats.meshesHeld = if held then waiting else 0
 	for _, piece in ipairs(geometry.pieces(row)) do
 		local mesh = if piece.meshKey ~= nil then meshFor(piece.name) else nil
 		-- PUBLISHED IS NOT DOWNLOADED (task 133). A mesh this client has not got renders as nothing,
@@ -1375,7 +1389,11 @@ local function buildNewGun(config, geometry, row): Model
 			made_.Color = piece.color
 			made_.Material = piece.material
 			made_.Reflectance = piece.reflectance or 0
-			made_.Transparency = piece.transparency or 0
+			-- THE FIRST-SHOW HOLD (task 294): the fallback BOX is what Karen called a rectangle, so
+			-- while the hold runs it is built and not SHOWN. Built, because everything downstream
+			-- reads these pieces by name -- measured: dropping them outright left
+			-- `semiauto_client.spec` with no drawn bolt to read, which is a gun no test can see.
+			made_.Transparency = if held then 1 else piece.transparency or 0
 			part = made_
 		end
 		part.Name = piece.name
@@ -1849,6 +1867,11 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: 
 			-- ...OF THE WEAPON IN THE PLAYER'S HANDS, not of whichever one this module was written
 			-- around (task 141): see `readyMeshesIn`.
 			if Viewmodel.readyMeshesIn(folderName) ~= builtReady then
+				stale = true
+			end
+			-- ...AND WHEN THE FIRST-SHOW HOLD RUNS OUT (task 294): nothing else moves if the download
+			-- never lands, so without this the held gun would stay empty instead of falling back.
+			if heldBuild and not Viewmodel.holdPieces(1, now - (heldSince[folderName] or now)) then
 				stale = true
 			end
 		end

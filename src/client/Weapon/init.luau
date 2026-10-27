@@ -19,6 +19,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
+-- EVERY WEAPON'S FOLDER NAME (task 294): the warm sweep below asks for all of them, not just the one
+-- in the hand.
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+local AssetFetch = require(ReplicatedStorage:WaitForChild("AssetFetch"))
 
 local Effects = require(script.Effects)
 local SoundOwner = require(script.Sound)
@@ -92,11 +96,46 @@ function Weapon.get(): Shotgun.WeaponSnapshot?
 	return Weapon.heldFrom(byWeapon, heldId, snapshot)
 end
 
+-- ---------------------------------------------------------------- ASK EARLY (task 294)
+--
+-- Karen, 2026-10-27: *"weapons loaded at first in game is rectangles"*. Nothing on a client asks for
+-- a gun's meshes until something DRAWS one, so on a cold start the first gun handed over is drawn
+-- while its meshes are still coming down. This asks for every weapon in the game at the LOBBY, long
+-- before the hand-over -- the same door task 244 opened for the shop case (`Hud.ShopDisplay.warm`),
+-- through the same owner (`AssetFetch`), so there is no second asking mechanism.
+--
+-- A FOLDER THAT HAS NOT REPLICATED YET IS SIMPLY NOT THERE: the server publishes them about 1.6 s in,
+-- so the sweep repeats on a slow cadence until every weapon has been asked for, bounded by
+-- `WARM_TRIES`. Returns how many ids this call asked for.
+Weapon.WARM_TRIES = 30
+Weapon.WARM_SECONDS = 1
+
+function Weapon.warmWeapons(): number
+	local holders: { Instance } = {}
+	for id in pairs(Weapons.ROWS) do
+		local geometry = Weapons.geometry(id)
+		local folder = if geometry then ReplicatedStorage:FindFirstChild(geometry.FOLDER_NAME) else nil
+		if folder ~= nil then
+			table.insert(holders, folder)
+		end
+	end
+	return AssetFetch.warm(holders)
+end
+
 function Weapon.start()
 	if started then
 		return
 	end
 	started = true
+
+	-- THE WARM SWEEP, on its own thread: `PreloadAsync` yields and a gunless player must not wait
+	-- for it (`WeaponBoot.server`'s own ordering rule, one layer over).
+	task.spawn(function()
+		for _ = 1, Weapon.WARM_TRIES do
+			Weapon.warmWeapons()
+			task.wait(Weapon.WARM_SECONDS)
+		end
+	end)
 
 	local remotes = Shotgun.remotes()
 	remotes.StateChanged.OnClientEvent:Connect(function(state)
