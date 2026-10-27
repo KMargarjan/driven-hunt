@@ -1451,15 +1451,14 @@ return function()
 			local part = handle.part
 			local dt = 1 / 60
 			local life = deer.WOUND.CARCASS_SECONDS
-			local steps, elapsed = 0, 0
-			while elapsed < life do
+			-- COUNTED, NOT ACCUMULATED: summing `dt` 7200 times drifts enough to run one step over.
+			local steps = math.ceil(life / dt)
+			for _ = 1, steps do
 				-- the held state, untouched: playing, full weight, speed 0, frozen short of the end
 				Boar.stepVisual(handle, dt, { speed = 0 }, deer)
-				steps += 1
-				elapsed += dt
 			end
 			-- IT REALLY RAN: 120 s at 60 Hz, back to back, every step through `Body.stepVisual`.
-			expect(steps).to.equal(math.ceil(life / dt))
+			expect(steps * dt >= life).to.equal(true)
 			expect(steps > 7000).to.equal(true)
 			expect(track.plays).to.equal(0) -- no repair ever fired
 			expect(handle.reholds).to.equal(0)
