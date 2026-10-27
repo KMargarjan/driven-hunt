@@ -16,18 +16,27 @@ NOT the card's mapping. Both were candidates in the dispatch; both are refuted b
   gives -- correct;
 - every one of the eight dots is drawn where `HitLog.Shape.dot` put it, through the measured ink box
   -- correct;
-- **the pellets really struck the box at y_local +1.40, 0.09 under the trunk's top face, on a 3.00
-  box holding a 3.257 animal whose back over the chest is lower than that top.** `uv v = 0.030` is
-  2.8 px below the top of the ink in an 80 px frame -- under half a dot -- so the diamond draws half
-  in the grey, and the top of the ink is the mane and ears. **That is item 1. Item 2 IS item 1.**
+- **and the pellets WERE honest hits** -- round 2's Reviewer refused my first answer for asserting a
+  back line nobody had measured, and he was right. Measured: at z -0.21 the drawn back is **1.60**
+  and the pellet struck **1.41**, 0.19 studs inside the animal at the withers.
+
+**THE CAUSE IS THE CARD'S RECTANGLE, AND IT IS A SMALLER FIX THAN ITEM 1.** `HitLog.Shape.dot`
+normalises y by the **TRUNK** (half-height 1.50); `BoarArt.drawDots` maps the result onto the
+picture's whole **INK** box (`Report.imageBox`, v 0.250..0.713), whose top edge is the mane crest at
+y 1.74. Three studs of trunk stretched over 3.257 studs of animal, all the error at the top: **an
+honest withers hit draws on the mane at every u**, and a hit on the trunk's own top (v = 0) draws ON
+the crest line. That is Karen's "bunched on the HEAD/NECK" and her "half outside the silhouette".
+The two candidate fixes are one rectangle each -- divide by the drawn extent in `Shape.dot`, or map
+the unit square onto the TRUNK's rectangle inside the picture rather than the whole ink -- and
+either needs the drawn extent per kind, which is the one thing it shares with item 1.
 
 And the complement, before, all four kinds (round 2, after the Reviewer caught a bug in the probe --
 `FilterDescendantsInstances` takes DESCENDANTS, so the drawn mesh was in the box cast and `uncovered`
-could not be anything but 0): **53.7 %-59.2 % of every ray that meets a hittable boar meets NO
-ANIMAL**, on every kind from every direction. **And 1.8 %-3.9 % of the visible animal is a MISS**:
-the back line and the mane stand 0.257 studs (male) / 0.347 (legendary) above `ZoneHead`'s top of
-+1.650, so the top of the back cannot be hit today. **The boar has BOTH defects, not just air** --
-that is the dorsal band task 280a already names for the deer.
+could not be anything but 0): **49.5 %-59.2 % of every ray that meets a hittable boar meets NO
+ANIMAL**, on every kind from every direction. **And the male and the legendary have holes too** --
+2.2 %/3.9 % and 1.8 %/3.6 % of the visible animal is a MISS, where the mane crest (1.757) stands
+0.107 studs above `ZoneHead`'s top of 1.650. Female 0.2 %, cub 1.9 %. That is the dorsal band task
+280a already names for the deer, smaller.
 
 ## WHY ITEM 1 DID NOT FIT, WITH THE ARITHMETIC
 
@@ -56,7 +65,13 @@ the one that let eight "chest" acceptances pass over air across tasks 265-278.
 
 ## WHAT I ASK FOR
 
-**One task, 282a, with task 280's box**, dispatched against the numbers in
+**TWO tasks, not one, because the measurement split them.**
+
+**282b -- the card's rectangle. Small, and it is the one Karen photographed.** One projection, one
+spec, no hitbox change: the dots must land on the drawn animal they are drawn over. It needs the
+drawn extent per kind (above) and nothing else from 282a.
+
+**282a -- the hitbox, with task 280's box**, dispatched against the numbers in
 `reviews/task-282/MEASURED.md`. The instruments are built and committed
 (`reviews/task-282/probes/`): `282-stage.luau` stages a frozen broadside boar of any kind with the
 shooter frozen and prints the camera ray's entry in the trunk's own frame, `282-fit.luau` prints the

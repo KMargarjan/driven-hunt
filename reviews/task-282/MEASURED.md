@@ -50,14 +50,41 @@ art Art vis=true abs=148x80 box u 0.100..0.900 v 0.250..0.713 dots=8
   dot true=(0.413,0.193) zone=chest drawn=(0.434,0.351)
 ```
 
-**Reading it.** u 0.260..0.590 is z_local -1.32..+0.50 and v 0.035..0.406 is y_local +1.40..+0.28:
-a pattern 1.8 studs long and 1.1 tall, which is what `SPREAD_FULL_DEG.Buck = 1.6` gives at 89 studs.
-So the SPREAD is right. The dots are drawn where the server put them, through the measured ink box
-(v 0.250..0.713), so the CARD'S ARITHMETIC is right. What is wrong is that the pellets were allowed
-to land at y_local +1.40 -- inside a 3.00-tall box whose top is above the drawn back -- and v 0.035
-is 2.8 px below the top of the ink in an 80 px frame, under half a dot. That is Karen's diamond
-"HALF OUTSIDE the silhouette in the grey", and at the top of the ink the drawn boar is its mane and
-ears, which is her "bunched on the HEAD/NECK".
+## 2b. WHAT THE BACK LINE ACTUALLY IS, AND WHAT THAT MAKES THE CAUSE (`282-why2.luau`)
+
+**ROUND 2'S FINDING WAS RIGHT AND IT REFUTES MY FIRST ANSWER.** I claimed the pellets landed above
+the drawn back without ever measuring the back AT THAT z. Measured now -- the highest y at which a
+flank ray still meets the drawn mesh, every 0.2 studs:
+
+```
+  z-2.8=none z-2.6=0.74 z-2.4=0.90 z-2.2=1.06 z-2.0=1.24 z-1.8=1.46 z-1.6=1.68 z-1.4=1.70
+  z-1.2=1.74 z-1.0=1.70 z-0.8=1.66 z-0.6=1.64 z-0.4=1.62 z-0.2=1.60 z+0.0=1.54 z+0.2=1.50
+  z+0.4=1.46 z+0.6=1.40 z+0.8=1.38 z+1.0=1.34 z+1.2=1.30 z+1.4=1.24 z+1.6=1.12 z+1.8=0.96
+  z+2.0=0.78 z+2.2=0.58 z+2.4=0.40 z+2.6=0.22
+hitlog point y=1.41 z=-0.21 : MESH HIT at local x 0.347 | BOX ZoneChest
+hitlog point y=1.40 z=0.16 : MESH HIT at local x 0.262 | BOX ZoneChest
+```
+
+**Both lead pellets CROSSED THE DRAWN ANIMAL.** At z -0.21 the back is 1.60 and the pellet struck
+1.41 -- 0.19 studs INSIDE the boar, on its upper flank at the withers. They were honest hits.
+
+**So the cause of Karen's frame is the CARD'S MAPPING, not the air.** `HitLog.Shape.dot` normalises
+y by the **TRUNK** (half-height 1.50): y 1.41 -> v = 0.030, the top of the unit square.
+`BoarArt.drawDots` then maps that unit square onto the picture's whole **INK** box
+(`Report.imageBox`, v 0.250..0.713), whose top edge is the drawn boar's highest point anywhere --
+the mane crest at z -1.2, y 1.74. Two different rectangles: 3.00 studs of trunk stretched over
+3.257 studs of animal, and the error is all at the top. **An honest hit on the withers therefore
+draws on the mane, at every u** -- Karen's "bunched on the HEAD/NECK" -- and 2.6 px below the ink's
+top edge in an 80 px frame is under half a dot, which is her "HALF OUTSIDE the silhouette".
+A hit on the trunk's own top (y 1.50) is v = 0, drawn ON the crest line; the back of a boar cannot
+be drawn below it at all.
+
+**Reading the rest of it.** u 0.260..0.590 is z_local -1.32..+0.50 and v 0.035..0.406 is
+y_local +1.40..+0.28: a pattern 1.8 studs long and 1.1 tall, which is what
+`SPREAD_FULL_DEG.Buck = 1.6` gives (a cone 2.29-2.48 studs across at 82-88.7 studs). **The spread
+is right.** Every dot is drawn where `BoarArt` places it from the server's `(u, v)` -- two of the
+eight are fanned by `BoarArt.spread` onto a 5.94 px ring, by design. **The arithmetic inside the
+card is right; the RECTANGLE it is handed is wrong.**
 
 ## 3. The complement, BEFORE (`282-fit2.luau`, 0.1-stud grid, four directions)
 
@@ -106,11 +133,13 @@ legendary: trunk 2.70,4.05,7.43  drawn mesh 1.891,4.397,7.425  hittable=5 (Zones
 ```
 
 **What it says.** AIR is the headline and it is unchanged by the bug (a box hit with no mesh cannot
-be a mesh hit): **53.7 % to 59.2 % of every ray that meets a hittable boar meets NO ANIMAL**, on all
-four kinds, from every direction. **And there ARE holes, 1.8 % to 3.9 % of the visible animal**: the
-back line and the mane stand 0.257 studs (male) and 0.347 (legendary) above the tallest box, so a
-shot at the top of the back is a MISS today. `ABOVE` is 0 % by construction -- the mesh's x and z
-both sit inside the trunk's -- and that is the only sweep where 0 is forced.
+be a mesh hit): **49.5 % to 59.2 % of every ray that meets a hittable boar meets NO ANIMAL**, on all
+four kinds, from every direction (49.5 % is legendary FRONT/BEHIND; the FLANK floor is 53.7 %).
+**And there are holes on two of the four kinds**: male FLANK 2.2 %, FRONT/BEHIND 3.9 %; legendary
+1.8 % / 3.6 %. Female is 0.2 % and 0.9 %, cub 1.9 % and 0.0 %. The hole is the crest: the drawn
+male's mane reaches 1.757 against `ZoneHead`'s top of **1.650** -- **0.107 studs**, not the 0.257
+above the TRUNK's 1.500 I wrote in round 2 (legendary 0.145, not 0.347). `ABOVE` is 0 % by
+construction -- the mesh's x and z both sit inside the trunk's -- and that is the only forced 0.
 
 **AFTER must be 0 % air AND 0 % miss on every kind.** (L-122: both remainders are located defects,
 not progress. The dorsal band is the same regression task 280a names for the deer.)
