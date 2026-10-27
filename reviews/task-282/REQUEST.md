@@ -3,7 +3,16 @@
 Task: 282
 Round: 2
 Base: cb00b9cd (main)
-Code commit: efb1dbcb (docs-only -- no `src/`, `tests/` or `tools/` file is touched in this round)
+Code commit: d4c730ae (docs-only -- no `src/`, `tests/` or `tools/` file is touched in this round)
+
+```
+[harness] PASS: 34/34 checks @ d4c730aecce39a3e2d2edcc16bce4fc322ec8d4c (clean tree) scope=all
+```
+
+Not required (docs-only; `.agent-evidence/changed-files.txt` carries the premise) and run anyway,
+because 281a(k) records the suite failing twice on a head with byte-identical `src`. `[harness2]`
+is **N/A**: nothing in `TWO_PLAYER_PATHS` is touched -- nothing at all under `src/` is.
+`tools/studio_mcp.py selftest` and `tools/agents.py selftest` both pass.
 
 **THIS IS A MEASUREMENT ROUND, NOT A FIX ROUND.** Dispatch item 2's cause was unknown; it is now
 measured and named, and it turns out to BE item 1. Item 1 is a task-280-sized rebuild and did not fit
