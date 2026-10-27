@@ -1,3 +1,45 @@
+# ESCALATE -- task 293: round 2 returned FINDINGS, so I stop (the dispatch's rule). For the Director.
+
+**Builder, 2026-10-27 12:35 UTC.** Branch `task-293-dead-deer-lies`. Code commit `5be6ae87`
+(`[harness] PASS: 34/34 checks @ 5be6ae87... (clean tree) scope=all`). The dispatch gave max 2 rounds
+and said FINDINGS on round 2 -> escalate and stop. Round 2 returned one finding. **DO NOT MERGE THIS
+BRANCH AS IT STANDS: the finding is a BOAR regression**, and it is correct.
+
+## What the task found, and it is worth keeping
+The deer death clip and its asset are RIGHT. Measured in DEV Play on the published rigs, against the
+DRAWN pose (`Bone.TransformedWorldCFrame`, not the track's word): held while still playing, `Death_L`
+lays every kind flat -- hind 4.94 -> 1.03 studs of drawn height, stag 5.66 -> 1.30, calf 3.30 -> 1.32.
+**The instant that non-looped track runs past its end it STOPS and the rig snaps to its standing bind
+pose: the same hind draws 4.94 again.** That is Karen's upright hind. The deer show it and the boar
+hides it: the deer package publishes no `Death_Paddle_L/R`, so the fall itself is the clip that is
+held, with nothing after it. Probes: `<runs-dir>/293-lab.luau`, `293-lab3.luau`, `293-tail.luau`.
+
+## The finding (round 2, the Reviewer, and it is right)
+`Body.shouldRehold` fires on a track that is still FADING IN. `play` starts the boar's paddle with
+`Play(FADE_SECONDS = 0.15, 1, rate)`, so one Heartbeat later `WeightCurrent` is about 0.11 with
+`IsPlaying == true` -- and the rule is `not playing or weight < 0.5`. On every boar kill the block
+then pins the 4.0 s paddle at `handle.heldAt` (about 1.18, a time in the FALL clip) and sets
+`heldClip`, which disables both the freeze and the scrub -- a boar held mid-swing for
+`CARCASS_SECONDS`. It also falsifies the request's claim 8: the lift was measured at the END frame.
+
+## The fix the next round should take (the Reviewer's own, and it is small)
+1. `Body.shouldRehold` must not fire on a fade-in: require the end as well --
+   `not playing or (weight < 0.5 and timePosition >= length - config.MODEL.HOLD_EPSILON)` -- or
+   compare `WeightCurrent` against `WeightTarget`.
+2. Never carry `handle.heldAt` across a clip change: clear it where `play` clears `heldClip`.
+3. Add the `length <= 0` refusal `shouldFreeze` has (non-blocking note 2), and change the spec row
+   that locks in `holdFrame(nil, 0) == 0`.
+4. A spec case that drives `stepVisual` THROUGH `play` on a collapsed boar handle whose paddle
+   reports `IsPlaying = true, WeightCurrent = 0.11, TimePosition = 0.017`, failing if it is reholded.
+   The round-2 case passes `visual = nil`, so it returns before `play` and cannot see this.
+
+## Also unproven, and it is the core item
+**No carcass was ever seen in a frame.** No animal could be killed in the DEV session (see the
+entry below this one): `FireRequest:FireServer` at a staged 18-22 studs, six rounds with reloads,
+left `Carcass = nil` on every target and no hit in the server console. So the Forest Test proof --
+and it must include a BOAR as well as a hind, because the finding above is boar-only -- is still
+outstanding, and nobody has looked at a dead deer since Karen's screenshot.
+
 # DIRECTOR DECISION, 2026-10-27 09:15 UTC -- task 287's round-3 findings
 
 Task 287 used its three rounds (MAX_ROUNDS 3). Its round-3 findings are code, not documentation, so no extra round is
@@ -399,3 +441,23 @@ code before writing this:
 
 **NEEDS KAREN:** nothing clickable. **For the Director:** 299 is not mergeable; 287 is still blocked
 behind it.
+
+## 2026-10-27 -- Task 293: no animal can be killed in a DEV Play session (proof blocked)
+
+Written AT the hard stop (V280), not at the end of the session.
+
+The task's live after-measurement needs a real carcass in DEV. Through `FireRequest:FireServer` --
+the only sanctioned route (L-023) -- with the player staged 18-22 studs from a live calf and a live
+hind, facing it, 1.6 s after the teleport so the server saw the new root, six rounds fired with a
+`ActionRequest("Reload")` between pairs: **every target kept `Carcass = nil` and the server console
+recorded no hit at all**. Probes: `<runs-dir>/293-hunt.luau`, `293-shoot.luau`, `293-near.luau`.
+Not diagnosed: whether the shots were refused (`origin-far`, `rate-limited`, the stand rule), whether
+the arena drive arms a Shooter who was teleported, or whether the shotgun had rounds. The Weapon's
+own `stats` are not readable from a probe (L-026: `require` gives a fresh copy).
+
+What this cost: Task 293 ships with the CAUSE measured against the drawn pose and a spec that fails
+first, but with NO after-frame of a real carcass. The Director's Forest Test proof carries that.
+
+NEEDS THE DIRECTOR: a sanctioned way for a Builder to produce one real kill in DEV (a dev remote, a
+flagged "kill nearest" hook, or a documented working shot route). Three sessions in a row have now
+spent time on this plumbing.

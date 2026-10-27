@@ -538,6 +538,9 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 		-- How many times this boar's animation speed has been written. Nothing in the game reads it;
 		-- `Runtime:animationOf` hands it to a spec, the way `Runtime:woundOf` hands out a wound.
 		rateWrites = 0,
+		-- How many times the held death clip has been PUT BACK (task 293). Nothing in the game reads
+		-- it; `Runtime:animationOf` hands it out so a spec can say the invariant was repaired.
+		reholds = 0,
 		hitFor = 0, -- seconds of flinch left
 		hitFromBehind = false,
 	}
@@ -1391,6 +1394,9 @@ local function play(handle, name: string, rate: number, config)
 	handle.clip = name
 	handle.clipHeldFor = 0
 	handle.heldClip = nil -- a new clip is running, not held
+	-- ...AND ITS FRAME GOES WITH IT (review round 2, finding 1): `heldAt` is a time in the clip that
+	-- WAS held, and carrying it into the next one pinned the boar's 4 s paddle at the fall's 1.18 s.
+	handle.heldAt = nil
 end
 
 -- Once per boar per Runtime step, with the flag on. It measures the yaw rate (nothing else does),
@@ -1418,6 +1424,46 @@ function Body.stepVisual(handle, dt: number, info, config)
 			-- the freeze's own bookkeeping: a held clip is never re-rated (`shouldAdjustRate`)
 			handle.heldClip = name
 		end
+	end
+
+	-- PUT THE HELD DEATH POSE BACK (task 293). One read of two properties per carcass per step, and a
+	-- write ONLY when the invariant above is broken -- so this is not the per-frame writing the
+	-- design forbids (boar-ai design section 6): a stopped track can only be put back once per stop.
+	-- The frame is `handle.heldAt`, the one `shouldFreeze` chose, so the pose this restores is the
+	-- pose `KINDS.deathLiftStuds` was measured against.
+	-- THE ANIMAL'S OWN DEATH CLIP, asked of the config and not of `heldClip` (review round 1,
+	-- finding 1). `handle.clip` is what `play` last started; either name is the death.
+	local deathName: string? = nil
+	if handle.collapsed and not handle.toppled then
+		local fall, paddle = Body.deathClips(config)
+		local current = handle.heldClip or handle.clip
+		if current == fall or current == paddle then
+			deathName = current
+		end
+	end
+	local deathTrack = if deathName ~= nil then handle.tracks[deathName] else nil
+	if
+		deathTrack ~= nil
+		and Body.shouldRehold(
+			handle.collapsed,
+			deathName,
+			deathTrack.IsPlaying,
+			deathTrack.WeightCurrent,
+			deathTrack.TimePosition,
+			deathTrack.Length,
+			handle.reholds,
+			config
+		)
+	then
+		local at = Body.holdFrame(handle.heldAt, deathTrack.Length, config)
+		deathTrack:Play(0, 1, 0)
+		deathTrack.TimePosition = at
+		deathTrack:AdjustSpeed(0)
+		-- THE FREEZE'S OWN BOOKKEEPING, so `play` leaves this track alone from here and the repair is
+		-- one per stop: the track is playing at weight 1 again, which `shouldRehold` then refuses.
+		handle.heldAt = at
+		handle.heldClip = deathName
+		handle.reholds += 1
 	end
 
 	if handle.collapsed then
@@ -2491,6 +2537,76 @@ end
 -- ON so that gravity can still drop it to the ground but can never roll it.
 function Body.boxFalls(hasVisual: boolean, hasDeathTrack: boolean): boolean
 	return not hasVisual or not hasDeathTrack
+end
+
+-- THE ONE INVARIANT EVERY SPECIES IS HELD TO (task 293): a dead animal's death clip is STILL
+-- PLAYING, at the frame it was held at. Pure, species-agnostic, and asked every tick rather than
+-- once at the death, because what breaks it is a RACE and not an event.
+--
+-- A non-looped `AnimationTrack` that reaches its end STOPS, and a stopped track draws the rig's BIND
+-- POSE -- the animal standing up inside its own carcass. MEASURED on the real hind rig, against the
+-- DRAWN pose (`Bone.TransformedWorldCFrame`, not the track's own word): the drawn height went
+-- **1.02 -> 4.94 studs** the instant the death track ran past its end, which is Karen's upright hind
+-- (2026-10-27: *"deer error remains, after kill stands"*). The deer feel it where the boar does not
+-- because the deer package publishes no `Death_Paddle_L/R`: its fall is the clip that is HELD, so
+-- the hold is the only thing between a carcass and its bind pose.
+--
+-- WHY THE FREEZE ALONE IS NOT ENOUGH. `Body.freezeReach` predicts the next step from the LAST
+-- frame's `dt`, so one frame that is suddenly longer steps `TimePosition` clean past `length` before
+-- `shouldFreeze` is ever asked -- which is why Karen's defect is intermittent and why the Playtester
+-- saw a carcass lie still on another kill.
+--
+-- `weight` IS ASKED AS WELL AS `playing` because a track can be playing at weight 0 after a fade,
+-- and a rig nothing is weighted onto draws its bind pose exactly as a stopped one does. `0.5` is a
+-- chosen midpoint, not a measurement: the two live states are 1.00 (held) and 0.00 (stopped).
+--
+-- IT IS NOT KEYED OFF `heldClip` (review round 1, finding 1), and that was this fix failing whole:
+-- `heldClip` is written only by the freeze, and the freeze needs `track.IsPlaying` -- which is
+-- exactly what the overrun has already made false. The caller names the animal's DEATH CLIP from the
+-- config instead, so the carcass Karen photographed is the one this sees.
+--
+-- BOUNDED (review round 1, finding 2): `MODEL.REHOLD_LIMIT` repairs per carcass, so even a state
+-- this rule reads wrong can never write every tick for `CARCASS_SECONDS`.
+function Body.shouldRehold(
+	collapsed: boolean,
+	deathClip: string?,
+	playing: boolean,
+	weight: number,
+	timePosition: number,
+	length: number,
+	reholds: number,
+	config
+): boolean
+	if not collapsed or deathClip == nil then
+		return false
+	end
+	-- A ZERO LENGTH MEANS "NOT LOADED YET", never "already over" (`Body.shouldFreeze`'s own guard,
+	-- review round 2, note 2): frame 0 of the fall is the animal standing.
+	if length <= 0 then
+		return false
+	end
+	if reholds >= config.MODEL.REHOLD_LIMIT then
+		return false
+	end
+	-- STOPPED: the rig draws its bind pose, which is the animal standing inside its carcass.
+	if not playing then
+		return true
+	end
+	-- WEIGHT ALONE IS NOT ENOUGH, AND THAT WAS ROUND 2'S FINDING: `play` starts every clip with a
+	-- fade (`FADE_SECONDS` 0.15), so one Heartbeat into the boar's paddle `WeightCurrent` is ~0.11
+	-- with `IsPlaying` true -- and pinning THAT froze the paddle at the fall's frame. A faded-out
+	-- hold is at the END of its clip; a fade-IN is at the start.
+	return weight < 0.5 and timePosition >= length - config.MODEL.HOLD_EPSILON
+end
+
+-- WHICH FRAME THE DEATH IS PUT BACK ON. Pure, and CLAMPED SHORT OF THE END (review round 1, finding
+-- 2): parking a non-looped track AT its end is the state that stopped it, so an unclamped frame
+-- could stop it again, every tick. `length - HOLD_EPSILON` is the frame `Body.shouldFreeze` aims at
+-- and the frame `KINDS.deathLiftStuds` was measured at, so it is also the fallback when nothing was
+-- ever held -- the overrun case, where the freeze never ran and `handle.heldAt` is nil.
+function Body.holdFrame(heldAt: number?, length: number, config): number
+	local target = length - config.MODEL.HOLD_EPSILON
+	return math.max(math.min(heldAt or target, target), 0)
 end
 
 -- WHETHER TO SAY THE DEATH POSE AGAIN (task 150). Pure, like every rule here, and once per carcass.
