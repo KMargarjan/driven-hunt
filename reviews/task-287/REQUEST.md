@@ -1,21 +1,50 @@
 # Task 287: the lobby pad starts a fresh hunt, not the one already running
 
 Task: 287
-Round: 2
+Round: 3
 Base: 5832342d (main)
-Code commit: 9d343ffaafd54fc836f33f9d02dfc42bf6ec9e51
+Code commit: 96d932c9898a2435f3eb82e0faca3f4bc2201cd9
 
 ```
-[harness] PASS: 34/34 checks @ 9d343ffaafd54fc836f33f9d02dfc42bf6ec9e51 (clean tree) scope=all
-[harness2] PASS: 36/36 checks @ 9d343ffaafd54fc836f33f9d02dfc42bf6ec9e51 (clean tree)
+[harness] PASS: 34/34 checks @ 96d932c9898a2435f3eb82e0faca3f4bc2201cd9 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 96d932c9898a2435f3eb82e0faca3f4bc2201cd9 (clean tree)
+[harness2] PASS: 36/36 checks @ 96d932c9898a2435f3eb82e0faca3f4bc2201cd9 (clean tree)
 ```
 
-Both at the same commit, clean tree. One-player: server 2408/0/0, client 612/0/0. Two-player:
-server 2408/0/0, shooter 612/0/0, driver 606/0/0 (`<runs-dir>/test2-287b1.log`). **The SECOND
-`test2` run the dispatch asked for did not happen:** `run-test2.sh` twice reported
-`FAIL A 2-player local test appeared within 180 s (0 new studio(s) beside the editor)` -- the Start
-click did not land (Studio was in Edit with one instance; I opened and closed nothing). That is an
-instrument failure, recorded in `ESCALATE.md`, not a result.
+All three at the same commit, clean tree. One-player server 2409/0/0, client 612/0/0. Both
+two-player runs (`<runs-dir>/test2-287r3a.log`, `test2-287r3b.log`): server 2409/0/0, shooter
+612/0/0, driver 606/0/0, consecutive, no failures of any kind -- so no spec is called a flake here.
+
+ANSWERED: L-093 the multi-player branch is entered with a REAL second participant -- `test2`'s note
+reads `MULTI-PLAYER branch (still in the drive: Player2)`, and the pure case in `match_phase.spec`
+has `state.participants[2]` asserted present.
+ANSWERED: L-033 `run-test2.sh` ran TWICE at this commit and both printed PASS 36/36 (lines above);
+the Players spinner was read off a screenshot first (`<runs-dir>/287r3-spinner.png`: the toolbar
+shows mode `Server` and the player count `2`).
+ANSWERED: L-028 both round-2 findings are shown FAILING before the fix: with the finding-3 fix
+reverted to the lobby's own latch, `[harness] FAIL: 32/34 @ 96d932c9 (DIRTY TREE (1 paths)) scope=all`
+-- `lobby_live.spec:1219` *"Expected true, got nil"* (the new teardown case's live notice) and
+`lobby_live.spec:1261` *"Expected sizing, got empty"* (the solo case's pad).
+ANSWERED: L-029 the invariant is stated and reconciled, not patched: the lobby holds NO latch of its
+own in the pad decision -- it asks the drive's own door (`Match.enrolRefused`) every scan.
+ANSWERED: L-054 the spinner was screenshotted and read before the first run rather than assumed;
+both runs then started on the first try.
+ANSWERED: L-041 `BLAST_RADIUS`/`SCOPE_SPECS` were not touched this round; the two-player line is
+pasted rather than dodged.
+ANSWERED: L-038 round 3 is inside `MAX_ROUNDS = 3`; no `DIRECTOR_MAX_ROUNDS` override was used.
+
+## Round 3: round 2's two findings, closed
+
+1. **`Lobby.stop` now hands `DHPadLate` back.** `src/server/Lobby/init.luau`, the `touched` loop and
+   its `or` guard, beside `LEFT_DRIVE_ATTRIBUTE` -- the teardown contract (`docs/design/lobby.md`
+   item 16). New case: `lobby_live.spec`, *"hands the pad notice back when the owner stops (task
+   287)"*, with the notice LIVE before the stop (a real second man in the drive) and nil after it,
+   plus `DHLeftDrive` and `RespawnLocation`.
+2. **The second man is really withdrawn from a real drive.** `lobby_live.spec`, *"hands the man alone
+   in a dead drive back to a pad"*: man 57 is now `seen.inDrive[57] = true` during the live drive,
+   then `inDrive=false` + `withdrawn=true` with man 55 -- out in the wood -- and only walks onto pad
+   2 AFTER the restart, with `DHLeftDrive` still true on him (asserted). That is the exact state
+   finding 3 is about, and the case fails with that fix reverted (the L-028 lines above).
 
 ## What changed since round 1
 
