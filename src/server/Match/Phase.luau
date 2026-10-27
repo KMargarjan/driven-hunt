@@ -1067,7 +1067,18 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 		if Phase.mayRestart(next_) then
 			next_.participants[event.userId] = event.name or tostring(event.userId)
 			feed(effects, { kind = "join", userId = event.userId, name = event.name, at = now })
-			enterAssigning(next_, effects, now, config, event.owed, event.alwaysShooters, event.beaterWishes)
+			-- **A DRIVE THAT RAN ENDS THROUGH `Scoring`, LIKE EVERY OTHER DRIVE** (task 299). The
+			-- pay-out and the rest of the per-drive work hang off that ONE edge, so a restart that
+			-- jumped straight to `Assigning` had to pay beside it -- and that second call made the
+			-- pad a faucet (task 287 round 3, findings 1 and 2). The loop's own `Scoring` exit then
+			-- deals the fresh drive, with the new number and the full clock.
+			-- FROM `Assigning` THERE IS NOTHING TO SCORE -- no GO, no points, nobody in it -- so that
+			-- restart pays nothing and deals the fresh drive here, exactly as it did.
+			if next_.phase == "Running" then
+				enterScoring(next_, effects, now, config, "restart")
+			else
+				enterAssigning(next_, effects, now, config, event.owed, event.alwaysShooters, event.beaterWishes)
+			end
 		end
 	elseif kind == "team" and event.userId and event.team then
 		-- ONE PLAYER CHANGES SIDES INSIDE A LIVE DRIVE (task 157, docs/design/forest-drive.md

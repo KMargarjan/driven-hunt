@@ -4023,19 +4023,10 @@ function Match.enrol(player: Player): boolean
 		-- man this owner has never registered has no board row to put a team on -- refused rather
 		-- than half-done, which is the reason the ordinary check below gives.
 		if Phase.mayRestart(state) and names[userId] ~= nil then
-			-- **THE DRIVE HE LEFT IS PAID BEFORE IT IS REPLACED** (review round 1, finding 2). The
-			-- pay-out is on the `Scoring` edge and a restart does not cross it, so without this the
-			-- coins, the points and the completed-hunt count of the drive he was in would be wiped
-			-- unpaid by `enterAssigning`'s own `Score.new()` -- which contradicts `Match.withdraw`'s
-			-- stated rule that *"HIS RESULT FOR THIS DRIVE STANDS"*.
-			--
-			-- HERE, BEFORE THE DISPATCH, because both facts it needs are still this drive's: the
-			-- board is drive N's and `state.driveNumber` is still N. `Economy.payDrive` refuses a
-			-- repeated drive number, and drive N can never reach `Scoring` now, so the pay-out
-			-- happens exactly once either way.
-			if world and world.economy then
-				world.economy.payDrive(state.driveNumber, Score.leaderboard(board))
-			end
+			-- **THE DRIVE HE LEFT IS PAID BY THE `Scoring` EDGE, AND BY NOTHING HERE** (task 299).
+			-- A restart out of `Running` now CROSSES that edge (`Phase`'s own restart branch), so the
+			-- one pay-out in this file covers it. The round-2 call that stood here paid a drive per
+			-- pad step -- `payDrive`'s only guard is the drive NUMBER, and every restart moves it.
 			dispatch({ kind = "restart", userId = userId, name = player.Name })
 			-- COUNTED AFTER THE DISPATCH, so the number is what HAPPENED and not what was attempted
 			-- (review round 1, note).

@@ -102,6 +102,7 @@ return function()
 			local hadRestarts = Match.stats().restarts
 			local hadRefused = Match.stats().rejoinsRefused
 			local paidBefore = Economy.stats().drivesPaid
+			local coinsBefore = Economy.stats().coinsPaid
 			-- HE RESPAWNS OUT OF A LIVE DRIVE (task 248's rule).
 			expect(Match.isParticipant(player.UserId)).to.equal(true)
 			expect(Match.withdraw(player)).to.equal(true)
@@ -116,31 +117,62 @@ return function()
 				expect(Match.enrol(player)).to.equal(true)
 				expect(Match.isParticipant(player.UserId)).to.equal(true)
 				expect(Match.stats().restarts).to.equal(hadRestarts + 1)
-				expect(Match.driveNumber()).to.equal(wasDrive + 1)
-				expect(Match.phase()).to.equal("Assigning")
-				-- ONE RESTART, NOT TWO: he is in the roster now, so a second pad step is the
-				-- idempotent door and nothing else.
-				expect(Match.enrol(player)).to.equal(true)
+				-- **THE OLD DRIVE ENDS THROUGH `Scoring`, AND THE PER-DRIVE WORK IS THAT EDGE'S**
+				-- (task 299). Out of `Running` the pad step puts the results scene up on the drive it
+				-- aborted -- still number N -- and the loop's own door deals the fresh one after it.
+				-- Out of `Assigning` there is nothing to score, so the fresh drive is dealt at once.
+				if wasPhase == "Running" then
+					expect(Match.phase()).to.equal("Scoring")
+					expect(Match.driveNumber()).to.equal(wasDrive)
+				else
+					expect(Match.phase()).to.equal("Assigning")
+					expect(Match.driveNumber()).to.equal(wasDrive + 1)
+				end
+				-- N PAD STEPS, ONE PAY-OUT (task 299, the faucet round 3 measured): he is in the
+				-- roster now, so every further step is the idempotent door -- and the pay-out hangs
+				-- off an edge that has already been crossed once, so it cannot be crossed again.
+				local phaseAfter, driveAfter = Match.phase(), Match.driveNumber()
+				for _ = 1, 4 do
+					expect(Match.enrol(player)).to.equal(true)
+				end
 				expect(Match.stats().restarts).to.equal(hadRestarts + 1)
-				expect(Match.driveNumber()).to.equal(wasDrive + 1)
-				-- THE DRIVE HE LEFT WAS PAID BEFORE IT WAS REPLACED (review round 1, finding 2): a
-				-- restart does not cross the `Scoring` edge, which is the only other place that pays.
-				-- Conditional on the flag, read rather than assumed -- `zz_drive_boundary.spec`'s own
-				-- arrangement at that edge.
+				expect(Match.driveNumber()).to.equal(driveAfter)
+				expect(Match.phase()).to.equal(phaseAfter)
+				-- THE PAY-OUT, COUNTED BEFORE AND AFTER. A drive that RAN is paid exactly once; a
+				-- restart out of the countdown pays nothing at all, which is what makes the pad a
+				-- door and not a faucet. Conditional on the flag, read rather than assumed --
+				-- `zz_drive_boundary.spec`'s own arrangement at that edge.
 				if Economy.isEnabled() then
-					expect(Economy.stats().drivesPaid).to.equal(paidBefore + 1)
+					if wasPhase == "Running" then
+						expect(Economy.stats().drivesPaid).to.equal(paidBefore + 1)
+						expect(Economy.lastPaidDrive()).to.equal(wasDrive)
+					else
+						expect(Economy.stats().drivesPaid).to.equal(paidBefore)
+						expect(Economy.stats().coinsPaid).to.equal(coinsBefore)
+					end
 					expect(Economy.stats().duplicatePayouts).to.equal(0)
-					expect(Economy.lastPaidDrive()).to.equal(wasDrive)
 				else
 					expect(Economy.stats().drivesPaid).to.equal(paidBefore)
 				end
+				-- ...AND THE FRESH DRIVE ARRIVES, with the new number and his role, which is the
+				-- whole of Karen's sentence.
+				expect(waitUntil(60, function()
+					if Match.driveNumber() == wasDrive + 1 then
+						return true
+					end
+					Match.advanceForTests(2)
+					return false
+				end)).to.equal(true)
+				expect(Match.isParticipant(player.UserId)).to.equal(true)
+				local paidAfterFresh = Economy.stats().drivesPaid
 				local gunBack = waitUntil(12, function()
 					return toolIn(player.Character) ~= "none"
 				end)
 				TestKit.note(
 					string.format(
-						"task287 SOLO branch (nobody else in the drive): drive %d -> %d, phase %s -> %s, "
-							.. "team %s -> %s, held %s -> %s, restarts %d -> %d, economy %s paid %d -> %d",
+						"task287/299 SOLO branch (nobody else in the drive): drive %d -> %d, phase %s -> %s, "
+							.. "team %s -> %s, held %s -> %s, restarts %d -> %d, economy %s paid %d -> %d "
+							.. "(5 pad steps), coins %d -> %d, lastPaidDrive %d, duplicates %d",
 						wasDrive,
 						Match.driveNumber(),
 						wasPhase,
@@ -153,7 +185,11 @@ return function()
 						Match.stats().restarts,
 						tostring(Economy.isEnabled()),
 						paidBefore,
-						Economy.stats().drivesPaid
+						paidAfterFresh,
+						coinsBefore,
+						Economy.stats().coinsPaid,
+						Economy.lastPaidDrive(),
+						Economy.stats().duplicatePayouts
 					)
 				)
 				expect(gunBack).to.equal(true)
