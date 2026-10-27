@@ -307,6 +307,7 @@ local ARMING_SWEEP_SECONDS = 2
 local hitSignal = Instance.new("BindableEvent")
 local safetySignal = Instance.new("BindableEvent")
 local shotSignal = Instance.new("BindableEvent")
+local resolvedSignal = Instance.new("BindableEvent")
 Weapon.HitReported = hitSignal.Event
 -- ({ shooterUserId: number, muzzle: Vector3, ammo: string }) -- A SHOT WAS FIRED, hit or miss, and
 -- before this there was no server-side way to know that: `HitReported` is per hit and the client
@@ -318,6 +319,13 @@ Weapon.HitReported = hitSignal.Event
 -- inside either of `SENSE`'s two radii sprints. Neither owner requires the other.
 -- Design: docs/design/boar-behaviour.md section 4.5
 Weapon.ShotFired = shotSignal.Event
+-- A SHOT RESOLVED, HIT *OR* MISS (task 298, design section 8.3). `HitReported` is per hit, so a miss
+-- publishes nothing, and `ShotFired` fires at the TRIGGER, up to 0.365 s before the bullet lands.
+-- One publish from the one place that knows; it decides nothing and writes nothing.
+-- ({ shooter: Player?, shooterUserId: number, weapon: string?, ammo: string, muzzle: Vector3,
+--    reachedStuds: number, endPoint: Vector3, firedAt: number, resolvedAtServerTime: number,
+--    hitParts: { Instance } })
+Weapon.ShotResolved = resolvedSignal.Event
 -- (player, aim: Vector3 unit, muzzle: Vector3, stopAt: number) -- stopAt is studs from the muzzle to
 -- where the shot stopped, or the ammo's range when it hit nothing. The drive needs it to tell a shot
 -- that went past a driver from one that stopped in the boar in front of him (Task 35).
@@ -351,10 +359,10 @@ local standProvider: ((Player) -> Rules.StandArea?)? = nil
 local licenceProvider: ((Player) -> { [string]: boolean }?)? = nil
 -- WHAT HE HAS BOUGHT (task 178). nil is "nobody answered", which is today's game.
 local entitlementProvider: ((Player) -> { [string]: boolean }?)? = nil
--- IS THE DRIVE OPEN? (task 174, the fourth fact.) It takes no `Player` and no `Instance`, because it
--- is not about either: the drive is on or it is not, for everybody at once. `Match.driveOpen` is
--- what the composition roots hand over.
-local driveOpenProvider: (() -> boolean?)? = nil
+-- IS THE DRIVE OPEN *FOR THIS PLAYER*? (task 174, the fourth fact; the `Player` is task 298's.) It
+-- was "for everybody at once" until a shooting range existed in the lobby, where one man's trigger is
+-- live between drives. `Match.driveOpen` ignores the argument, so every shipped caller is unchanged.
+local driveOpenProvider: ((Player?) -> boolean?)? = nil
 -- THE SAFETY LOCK'S PROVIDER (task 248): see `Weapon.setSafetyLineProvider`.
 local safetyLineProvider: ((Player, Vector3, Vector3, number) -> boolean?)? = nil
 -- WHERE AN ANIMAL WAS (task 266). `Boar.Runtime:cframeAt` in production, wired by a composition root.
@@ -403,8 +411,14 @@ end
 -- UNWIRED MEANS nil, AND nil IS TODAY'S GAME: the full loadout and the weapon's own shells
 -- (docs/design/shop.md section 7.1). A world with no shop -- the bare DEV place and every
 -- `tests/server/weapon_*.spec.luau` -- is untouched by this task.
-function Weapon.setEntitlementProvider(provider: ((Player) -> { [string]: boolean }?)?)
+--
+-- IT HANDS BACK THE ONE IT IS REPLACING (task 298), for `setDriveOpenProvider`'s reason.
+function Weapon.setEntitlementProvider(
+	provider: ((Player) -> { [string]: boolean }?)?
+): ((Player) -> { [string]: boolean }?)?
+	local previous = entitlementProvider
 	entitlementProvider = provider
+	return previous
 end
 
 -- WHETHER THE DRIVE IS BETWEEN ITS TWO SIGNALS (task 174). KAREN, 2026-10-13 ~09:35: *"for hunter
@@ -414,8 +428,14 @@ end
 --
 -- Unwired means "no restriction", the default every provider above takes: `Rules.driveClosed` refuses
 -- only on an explicit `false`.
-function Weapon.setDriveOpenProvider(provider: (() -> boolean?)?)
+--
+-- ...AND IT HANDS BACK THE ONE IT IS REPLACING (task 298), exactly as `setArmingPolicy` has since
+-- task 150: a second root that composes over this one must be able to keep the first one's answer
+-- without knowing who installed it.
+function Weapon.setDriveOpenProvider(provider: ((Player?) -> boolean?)?): ((Player?) -> boolean?)?
+	local previous = driveOpenProvider
 	driveOpenProvider = provider
+	return previous
 end
 
 -- DOES THIS SHOT LINE PASS CLOSE TO A PERSON? (task 248.) KAREN, 2026-10-23: *"I still can shoot
@@ -488,11 +508,11 @@ local function askStand(player: Player): Rules.StandArea?
 	return if ok and type(area) == "table" then area else nil
 end
 
-local function askDriveOpen(): boolean?
+local function askDriveOpen(player: Player?): boolean?
 	if driveOpenProvider == nil then
 		return nil
 	end
-	local ok, open = pcall(driveOpenProvider :: any)
+	local ok, open = pcall(driveOpenProvider :: any, player)
 	-- A PROVIDER THAT THREW SAYS NOTHING, not "closed": the same call `askStand` and `askTarget`
 	-- make, and the stronger one here -- a drive whose predicate errored must not leave every hunter
 	-- in the wood clicking a dead trigger with one line on screen blaming the drive.
@@ -1929,6 +1949,30 @@ local function onShotLanded(res: Flight.Resolution)
 	Weapon.publishClaimStats()
 	local reports = Hits.group(shot.shooter, impacts, shot.ammo, shot.firedAt, shot.weapon)
 	stats.reports += #reports
+
+	-- THE SHOT RESOLVED, HIT OR MISS (task 298, design 8.3). ONCE, from the facts this function
+	-- already holds, before the reports go out so no listener can be told about a hit and never
+	-- about the shot. `endPoint` is the flight's own measured end; a refused shot never flew, so it
+	-- ends at the muzzle. Its one listener is `Range`, wired at a composition root.
+	local hitParts: { Instance } = {}
+	for _, impact in ipairs(impacts) do
+		if impact.instance ~= nil then
+			table.insert(hitParts, impact.instance)
+		end
+	end
+	resolvedSignal:Fire({
+		shooter = shot.shooter,
+		shooterUserId = shot.shooterUserId,
+		weapon = shot.weapon,
+		ammo = shot.ammo,
+		muzzle = shot.muzzle,
+		reachedStuds = res.reachedStuds,
+		endPoint = if res.endPoint ~= nil then res.endPoint else shot.muzzle,
+		firedAt = shot.firedAt,
+		resolvedAtServerTime = Workspace:GetServerTimeNow(),
+		hitParts = hitParts,
+	})
+
 	for _, report in ipairs(reports) do
 		hitSignal:Fire(report)
 		-- One marker per (shot, target), not one per pellet: nine pellets on one boar is one hit.
@@ -2158,7 +2202,7 @@ local function onFireRequest(player: Player, req: any): string?
 		licences = fireLicences,
 		licencesKnown = fireLicencesKnown,
 		-- ...AND WHETHER THE DRIVE IS ON AT ALL (task 174), which `Rules.ORDER` asks FIRST.
-		driveOpen = askDriveOpen(),
+		driveOpen = askDriveOpen(player),
 		-- ...AND WHETHER THIS LINE PASSES CLOSE TO A PERSON (task 248): the SAFETY LOCK. The drive
 		-- measures it off the shot the player is actually about to take -- this muzzle, this
 		-- direction, this far -- so what is refused is what would have been fired, the rule

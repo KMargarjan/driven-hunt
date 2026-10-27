@@ -32,6 +32,9 @@ end
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Range = require(ServerScriptService:WaitForChild("Range"))
+local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
+-- Only for `CONFIG.shouldArm`: the answer a server with no arming policy already gives.
+local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 if not Range.ENABLED then
 	print("[RangeBoot] RANGE is off: nothing is built")
@@ -116,8 +119,62 @@ if not started then
 	return
 end
 
+-- A HIT ON A RANGE TARGET IS THE HUNT'S HIT (design section 12): the same `Weapon.HitReported`, the
+-- same `Runtime:takeHit`, so a shot that kills on the lane kills in the wood. `takeHit` matches the
+-- part against its OWN animals, so this listener and `MatchBoot`'s never answer for each other.
+-- The range writes no score and no money: `HitLog.recordHit` is `MatchBoot`'s line and it records
+-- nothing while no drive is open (`HitLog.openDrive` is never called here).
+Weapon.HitReported:Connect(function(report)
+	if not report.target:IsA("BasePart") then
+		return
+	end
+	local shooter = report.shooter
+	runtime:takeHit(report.target, {
+		zone = report.zone,
+		zones = report.zones,
+		ammo = report.ammo,
+		weapon = report.weapon,
+		pellets = report.pellets,
+		at = report.at,
+		distance = report.nearest,
+		shooterUserId = shooter and shooter.UserId,
+		shooterName = shooter and shooter.Name,
+		normal = report.normal,
+	})
+end)
+
+-- ------------------------------------------------------------------ THE GUN, ON LOAN (7.4)
+--
+-- THE TWO RELAXATIONS AND THE LOAN, COMPOSED OVER WHATEVER THIS WORLD ALREADY WIRED. `Range` builds
+-- the functions (`armingOver`, `driveOpenOver`, `entitlementOver`); this line installs them and keeps
+-- the base each setter hands back, so `MatchBoot`'s own answer is never lost and no caller is edited.
+--
+-- ON THE FIRST HEARTBEAT, NOT AT REQUIRE TIME: boot Scripts run in no defined order, and composing
+-- during the loading stage would capture a base `MatchBoot` had not installed yet -- and then be
+-- overwritten by it. The first Heartbeat is after every server Script has run.
+local composed = false
+local function compose()
+	local baseArming: any = nil
+	local baseDriveOpen: any = nil
+	local baseOwned: any = nil
+	baseArming = Weapon.setArmingPolicy(Range.armingOver(function(player)
+		return if baseArming ~= nil then baseArming(player) == true else Shotgun.CONFIG.shouldArm(player)
+	end))
+	baseDriveOpen = Weapon.setDriveOpenProvider(Range.driveOpenOver(function(player)
+		return if baseDriveOpen ~= nil then baseDriveOpen(player) else nil
+	end))
+	baseOwned = Weapon.setEntitlementProvider(Range.entitlementOver(function(player)
+		return if baseOwned ~= nil then baseOwned(player) else nil
+	end))
+	print("[RangeBoot] the range's two relaxations and the four guns on loan are composed")
+end
+
 -- ITS OWN HEARTBEAT, because this world's root has none. One clock for the range, throttled to
 -- `Range.CONFIG.STEP_HZ` inside the module.
 RunService.Heartbeat:Connect(function(dt: number)
+	if not composed then
+		composed = true
+		compose()
+	end
 	Range.step(dt)
 end)

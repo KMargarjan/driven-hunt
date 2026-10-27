@@ -20,6 +20,10 @@ local Workspace = game:GetService("Workspace")
 
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
+-- THE SHOP'S PURE DATA ONLY, for one question: which item ids are a gun or a cartridge. The range
+-- calls no `Economy` and spends nothing (design section 1, "must NOT"); `Weapon` reads this table
+-- for the same reason (its own task-178 note).
+local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
 
 local Build = require(ServerScriptService:WaitForChild("Range"):WaitForChild("Build"))
 
@@ -188,6 +192,94 @@ function Range.spotAt(position: Vector3?): number?
 		return nil
 	end
 	return RangeData.spotAt(state.anchor, position, RangeData.LAYOUT)
+end
+
+-- ------------------------------------------------------------------ THE ONE PREDICATE (7.4)
+
+-- MAY THIS MAN SHOOT HERE? Server-measured: his own character's root, on a mat, in a world where the
+-- range is actually built. It answers; the WEAPON still decides and still refuses (design 7.4).
+function Range.mayShoot(player: any): boolean
+	if not state.started or state.anchor == nil or player == nil then
+		return false
+	end
+	local ok, position = pcall(function(): Vector3?
+		local character = (player :: any).Character
+		if typeof(character) ~= "Instance" then
+			return nil
+		end
+		local root = character:FindFirstChild("HumanoidRootPart")
+		if root == nil or not root:IsA("BasePart") then
+			return nil
+		end
+		return root.Position
+	end)
+	if not ok or position == nil then
+		return false
+	end
+	return Range.spotAt(position) ~= nil
+end
+
+-- WHAT IS ON LOAN AT A SPOT. KAREN, 2026-10-27: *"range is free and amunition is endless"*, all four
+-- guns owned or not -- so every row that grants a GUN or a CARTRIDGE, plus the shipped unlimited-ammo
+-- entitlement. No licence, no outfit, no drive gun: a loan is not a purchase.
+local function loanSet(): { [string]: boolean }
+	local out: { [string]: boolean } = {}
+	for _, id in ipairs(Shop.ALL_ORDER) do
+		local row = Shop.anyRow(id)
+		local grants = if row ~= nil then row.grants else nil
+		if grants ~= nil and (grants.weapon ~= nil or grants.ammo ~= nil) then
+			out[id] = true
+		end
+	end
+	if Range.CONFIG.ENDLESS_AMMO then
+		out[Shop.ITEM.UNLIMITED_AMMO] = true
+	end
+	return out
+end
+
+Range.LOAN = loanSet()
+RangeData.deepFreeze(Range.LOAN)
+
+-- THE THREE COMPOSED PROVIDERS, BUILT HERE AND INSTALLED BY THE COMPOSITION ROOT. They are pure
+-- functions of a base provider, so a spec drives the real thing by parameter rather than a copy of
+-- it (design 11.1 item 8); `RangeBoot` is their only other caller.
+--
+-- ARMING: not a participant means no Tool at all, so a man on the mat must be armed anyway.
+function Range.armingOver(base: ((any) -> boolean)?): (any) -> boolean
+	return function(player: any): boolean
+		if Range.mayShoot(player) then
+			return true
+		end
+		return if base ~= nil then base(player) == true else false
+	end
+end
+
+-- DRIVE OPEN: `Rules.driveClosed` refuses the trigger between drives, which is every minute a man
+-- stands in the lobby. nil stays "nobody said", the default every provider on `Weapon` takes.
+function Range.driveOpenOver(base: ((any) -> boolean?)?): (any) -> boolean?
+	return function(player: any): boolean?
+		if Range.mayShoot(player) then
+			return true
+		end
+		return if base ~= nil then base(player) else nil
+	end
+end
+
+-- ENTITLEMENT: the loan, through the SHIPPED path and never a second ammo counter -- `Weapon.grant`
+-- asks `Shop.startFor(row, owned)`, and `ammo.unlimited` is what fills the `unlimited` pockets the
+-- reducer already reads. Off the mat the base answer is handed back untouched.
+function Range.entitlementOver(base: ((any) -> { [string]: boolean }?)?): (any) -> { [string]: boolean }?
+	return function(player: any): { [string]: boolean }?
+		local owned = if base ~= nil then base(player) else nil
+		if not Range.mayShoot(player) then
+			return owned
+		end
+		local out: { [string]: boolean } = if type(owned) == "table" then table.clone(owned :: any) else {}
+		for id in pairs(Range.LOAN) do
+			out[id] = true
+		end
+		return out
+	end
 end
 
 -- THE PACE, FOR ONE SPOT. In step B2 the Director and the spec are the only callers; step B4's
