@@ -1172,6 +1172,9 @@ return function()
 		-- the cases below drive the REAL code rather than a copy of its rules.
 		local function carcass293(clip: string, track, over)
 			local handle: any = {
+				-- THE TRUNK PART, the instance that carries `Carcass` in the game and the `Reholds`
+				-- attribute task 293c publishes (so these cases drive the real writer, not a copy).
+				part = Instance.new("Part"),
 				collapsed = true,
 				toppled = false,
 				reasserted = true, -- task 150's once-per-carcass reassert is not what these cases drive
@@ -1361,6 +1364,110 @@ return function()
 			expect(track.Speed).to.equal(0)
 			expect(track.TimePosition).to.be.near(len - deer.MODEL.HOLD_EPSILON, 1e-6)
 			expect(track.TimePosition >= lying).to.equal(true)
+		end)
+
+		-- TASK 293c: THE COUNT A LIVE PROBE CAN READ. 293b removed `REHOLD_LIMIT`, so nothing bounds
+		-- the repair any more and nothing live could show it was not firing every frame -- `reholds`
+		-- lives in module state, and a live probe gets a fresh module cache. `stepVisual` mirrors it
+		-- onto the trunk part, the instance that already carries `Carcass`.
+		local function heldDeerTrack(deer, len: number)
+			local track: any = {
+				Name = "death",
+				Length = len,
+				TimePosition = len - deer.MODEL.HOLD_EPSILON,
+				Speed = 0,
+				WeightCurrent = 1,
+				IsPlaying = true,
+				Looped = false,
+				plays = 0,
+			}
+			function track:Play(_fade, weight, speed)
+				self.plays += 1
+				self.IsPlaying = true
+				self.WeightCurrent = weight or 1
+				self.Speed = speed or 1
+				self.TimePosition = 0
+			end
+			function track:AdjustSpeed(speed)
+				self.Speed = speed
+			end
+			function track:Stop() end
+			return track
+		end
+
+		it("publishes the repair count on the carcass instance, on every change (task 293c)", function()
+			-- FAILS AT MAIN: there is no `Reholds` attribute there, so the first assertion below reads
+			-- nil. The count is asserted AFTER EVERY SINGLE OVERRUN, so a throttle, an every-Nth write
+			-- or a cap anywhere would fail it on the overrun it skipped.
+			local deer = Boar.speciesConfig("reddeer", CONFIG)
+			local fall = Boar.deathClips(deer)
+			local len = deer.MODEL.CLIPS[fall].seconds
+			local track = heldDeerTrack(deer, len)
+			track.Name = fall
+			local handle = carcass293(fall, track, {
+				deadFor = len + 0.1,
+				heldClip = fall,
+				heldAt = len - deer.MODEL.HOLD_EPSILON,
+				visual = Instance.new("Model"),
+			})
+			local part = handle.part
+			-- A CARCASS THAT HAS NOT LOST ITS POSE YET STILL SAYS SO: one step, no overrun, reads 0.
+			expect(part:GetAttribute("Reholds")).to.equal(nil)
+			Boar.stepVisual(handle, 1 / 60, { speed = 0 }, deer)
+			expect(part:GetAttribute("Reholds")).to.equal(0)
+			-- N REAL OVERRUNS through the real step path, each one the fault as the engine leaves it.
+			local N = 17
+			for i = 1, N do
+				track.TimePosition = len + 0.04
+				track.IsPlaying = false
+				track.WeightCurrent = 0
+				Boar.stepVisual(handle, 1 / 60, { speed = 0 }, deer)
+				-- THE REAL COUNT, on this overrun, not on a round number of them.
+				expect(handle.reholds).to.equal(i)
+				expect(part:GetAttribute("Reholds")).to.equal(i)
+			end
+			expect(track.plays).to.equal(N)
+			expect(part:GetAttribute("Reholds")).to.equal(N)
+			-- ...AND THE HANDLE AND THE ATTRIBUTE NEVER DISAGREE, which is what makes the attribute
+			-- usable as the proof instead of `Runtime:animationOf`.
+			expect(part:GetAttribute("Reholds")).to.equal(handle.reholds)
+		end)
+
+		it("reads 0 across a whole carcass life with no overrun (task 293c)", function()
+			-- THE STORM CASE. A repair that fires without an overrun is the thing 293b's unbounded
+			-- repair is suspected of, and 0 after a whole `CARCASS_SECONDS` of real steps is the
+			-- answer. The step count is asserted beside the 0 so this cannot pass by doing nothing.
+			local deer = Boar.speciesConfig("reddeer", CONFIG)
+			local fall = Boar.deathClips(deer)
+			local len = deer.MODEL.CLIPS[fall].seconds
+			local track = heldDeerTrack(deer, len)
+			track.Name = fall
+			local handle = carcass293(fall, track, {
+				deadFor = len + 0.1,
+				heldClip = fall,
+				heldAt = len - deer.MODEL.HOLD_EPSILON,
+				visual = Instance.new("Model"),
+			})
+			local part = handle.part
+			local dt = 1 / 60
+			local life = deer.WOUND.CARCASS_SECONDS
+			local steps, elapsed = 0, 0
+			while elapsed < life do
+				-- the held state, untouched: playing, full weight, speed 0, frozen short of the end
+				Boar.stepVisual(handle, dt, { speed = 0 }, deer)
+				steps += 1
+				elapsed += dt
+			end
+			-- IT REALLY RAN: 120 s at 60 Hz, back to back, every step through `Body.stepVisual`.
+			expect(steps).to.equal(math.ceil(life / dt))
+			expect(steps > 7000).to.equal(true)
+			expect(track.plays).to.equal(0) -- no repair ever fired
+			expect(handle.reholds).to.equal(0)
+			expect(part:GetAttribute("Reholds")).to.equal(0)
+			-- ...and the pose is still the held one, so the 0 is "never needed", not "never looked".
+			expect(track.IsPlaying).to.equal(true)
+			expect(track.Speed).to.equal(0)
+			expect(track.TimePosition).to.be.near(len - deer.MODEL.HOLD_EPSILON, 1e-6)
 		end)
 
 		it("the fixed window freezes the death BEFORE its end, where the dt one let it over (293b)", function()
