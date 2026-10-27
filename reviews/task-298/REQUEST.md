@@ -1,12 +1,13 @@
 # Task 298 step B3 — the one gate, the guns on loan, endless ammo, `Weapon.ShotResolved`
 
 Task: 298
-Round: 1
+Round: 2
 Base: 98a8f587 (task-298b2-range-lane, step B2's PASS)
-Code commit: 65dcf6123d22c2214ed75b52eae86a743477cb1b
+Code commit: 9a79896ce10454455dcdc63f134dba46d1dcfc10
 
 ```
-[harness] PASS: 34/34 checks @ 65dcf6123d22c2214ed75b52eae86a743477cb1b (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 9a79896ce10454455dcdc63f134dba46d1dcfc10 (clean tree) scope=all
+[tests:server] PASS: 2441 passed, 0 failed, 0 skipped, 0 errors, 76 spec files
 ```
 
 `[harness2]`: **N/A.** `python -c "import agents; agents.needs_two_player([...the five changed files...])"`
@@ -46,11 +47,14 @@ thing that IS measurable — whether a man in the lobby can shoot and what it co
    `askDriveOpen(player)` passes the player it already had. *Verify:* `grep -rn setDriveOpenProvider
    src/` — `MatchBoot.server.luau`, `ForestTestBoot.server.luau` both still pass `Match.driveOpen`
    unedited; every `weapon_*.spec` is unchanged and green in the run above.
-4. **All four guns on loan at a spot, through the shipped composition, and NOTHING off it.** Off the
-   mat the base's answer is handed back identically (`nil` stays `nil`); on it, every row that grants
-   a gun or a cartridge plus `ammo.unlimited`. *Verify:* claim-4 case asserts
-   `Shop.loadoutFrom(Weapons.ids(), …)` has all four and that a licence the player did NOT buy is
-   absent.
+4. **All four guns on loan at a spot, and NOTHING off it — and a loan is not a purchase.**
+   **ROUND 1, FINDING 1, FIXED:** a BUNDLE's grants are MERGED at module load, so
+   `bundle.season.grants.weapon` is set and so are `driveGun`, `alwaysHunter` and `highSeat`; the
+   old rule lent the 3750-coin package. `loanSet` now walks `Shop.GRANT_FIELDS` and takes a row only
+   when its grants are a weapon and/or an ammo kind and **nothing else**. *Verify:* the claim-4 case
+   now asserts the WHOLE set row by row, and asks `Shop.grantsDriveGun`, `Shop.grantsAlwaysHunter`
+   and `Shop.grantsHighSeat` of the lent set — all three `false`. Revert `loanSet`'s inner walk and
+   this case fails.
 5. **Endless ammo is the shipped `ammo.unlimited` entitlement, MEASURED, with a control.**
    `[server] range endless ammo: 30 pulls on the loan fired 30, pocket 24 -> 24; without it 14
    fired, pocket 12`. Same reducer, same 30 pulls, the only difference being the loan. *Verify:* the
@@ -80,6 +84,11 @@ thing that IS measurable — whether a man in the lobby can shoot and what it co
     `[harness] FAIL: 32/34 checks @ a89f5843cb29c57e770e5ce15ad2ee14b3064cbb (clean tree) scope=all`
     — `2435 passed, 6 failed, 6 errors`, six failures for the six new cases.
 
+11. **From round 1's notes, in the line it touches:** the range's `HitReported` listener now passes
+    `shooterPosition`, so a wounded target bolts away from the man who shot it rather than off the
+    impact normal — `MatchBoot`'s otherwise-identical call passes it. Every other note of round 1 is
+    queued in `TASKS.md` under task 298, not fixed here.
+
 ## What I could not verify
 
 - **Claim 9's live half.** No case fires a real shot at a real range target and watches it die; the
@@ -88,8 +97,9 @@ thing that IS measurable — whether a man in the lobby can shoot and what it co
 - **The first-Heartbeat composition order** is argued from how Roblox loads server Scripts, not
   measured. A probe reading `[RangeBoot] … are composed` from a live DEV console would settle it.
 - Run 3 of the harness (b1b795b5, a server-spec fixture away from the code commit) reported **2
-  client failures**; run 4 at 65dcf612 is 623/623 green and I changed no client code between them.
-  I am not calling that a flake: it is unexplained, and it is listed here rather than left out.
+  client failures**; runs 4 and 5 (65dcf612, 9a79896c) are both 623/623 green and I changed no
+  client code between them. I am not calling that a flake: it is unexplained, and it is listed here
+  rather than left out.
 
 ## ANSWERED (the dispatch's CHECKED flags)
 
