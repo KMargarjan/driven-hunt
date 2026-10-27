@@ -2324,7 +2324,10 @@ local function dispatch(event)
 	-- every client showed the last drive's points until the next event or the 5 s heartbeat. Round 1
 	-- of Task 38 "fixed" this by clearing the snapshot cache after the push had already gone out,
 	-- which changed nothing anybody could see; the order is the fix.
-	if state.phase ~= before and state.phase == "Assigning" then
+	-- THE DRIVE NUMBER AND NOT THE PHASE EDGE (task 299 round 1, finding 3). `enterAssigning` is the
+	-- one writer of the number, so this is the same edge for every ordinary drive -- and it also
+	-- catches the `Assigning` -> `Assigning` restart, which crosses no phase edge at all.
+	if state.driveNumber ~= driveBefore then
 		-- A map rebuilt in Edit between drives is picked up without a server restart (design
 		-- section 6.2). The EVENT goes out on the NEXT step, never from inside dispatch:
 		-- readMarkers dispatches an event of its own, and a dispatch inside a dispatch would
@@ -3693,6 +3696,11 @@ function Match.withdraw(player: Player): boolean
 	-- nothing in the `withdraw` branch moves the drive number and this way the fact recorded is the
 	-- drive he was actually in rather than whatever the next step says.
 	withdrawnFrom[userId] = state.driveNumber
+	-- HE IS NOT PAID FOR THE DRIVE HE LEFT (task 299 round 1, finding 2). `Coins.forDrive` skips a
+	-- row marked `left`, so an abandoned drive pays him no participation and counts him no hunt --
+	-- which is what stops a Reset-and-pad cycle being a coin faucet. The next drive gives him a
+	-- fresh row (`Score.join` over `names`).
+	board = Score.leave(board, userId)
 	stats.withdrawals += 1
 	dispatch({ kind = "withdraw", userId = userId, name = player.Name })
 	local out = state.participants[userId] == nil

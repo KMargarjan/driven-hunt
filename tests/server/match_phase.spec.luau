@@ -2993,21 +2993,10 @@ return function()
 			local effects
 			state, effects =
 				Phase.step(state, { kind = "restart", userId = 1, name = "Karen", owed = { [1] = had } }, at, cfg)
-			-- THE DRIVE HE LEFT ENDS THROUGH `Scoring` (task 299), the one edge the pay-out and the
-			-- rest of the per-drive work hang off: the results scene, and then the loop's own door
-			-- deals the fresh drive.
-			expect(state.phase).to.equal("Scoring")
-			expect(state.driveNumber).to.equal(drive)
-			expect(state.phaseEndsAt).to.equal(at + cfg.SCORE_SECONDS)
-			expect(Phase.participantCount(state)).to.equal(1)
-			expect(countKind(effects, "scene")).to.equal(1)
-			expect(countKind(effects, "clearBoars")).to.equal(1)
-			local dealt = at + cfg.SCORE_SECONDS
-			state, effects = Phase.step(state, { kind = "tick", owed = { [1] = had } }, dealt, cfg)
 			expect(state.driveNumber).to.equal(drive + 1)
 			expect(state.phase).to.equal("Assigning")
 			-- FROM THE BEGINNING: the countdown's own full length, and then the drive's own.
-			expect(state.phaseEndsAt).to.equal(dealt + cfg.INTERMISSION_SECONDS)
+			expect(state.phaseEndsAt).to.equal(at + cfg.INTERMISSION_SECONDS)
 			expect(Phase.participantCount(state)).to.equal(1)
 			-- SAME ROLE, through the stored turn and not a new rule.
 			expect(state.assignment[1]).to.equal(had)
@@ -3016,7 +3005,7 @@ return function()
 			-- ...AND THE SCENE OF THE DRIVE HE LEFT COMES DOWN, which is `enterAssigning`'s own list.
 			expect(countKind(effects, "clearScene")).to.equal(1)
 			expect(countKind(effects, "assignTeams")).to.equal(1)
-			local resumed = dealt + cfg.INTERMISSION_SECONDS
+			local resumed = at + cfg.INTERMISSION_SECONDS
 			state = (Phase.step(state, { kind = "tick" }, resumed, cfg))
 			expect(state.phase).to.equal("Running")
 			expect(state.phaseEndsAt).to.equal(resumed + cfg.DRIVE_SECONDS)
@@ -3063,37 +3052,29 @@ return function()
 			local at = cfg.INTERMISSION_SECONDS + 1
 			state = (Phase.step(state, { kind = "withdraw", userId = 1, name = "Karen" }, at, cfg))
 			state = (Phase.step(state, { kind = "restart", userId = 1, name = "Karen" }, at, cfg))
-			-- ONE `Scoring` EDGE, AND ONLY ONE (task 299): the old drive is still N while the scene
-			-- is up, so the owner's pay-out on that edge pays N once however many pads are stepped on.
-			expect(state.phase).to.equal("Scoring")
-			expect(state.driveNumber).to.equal(drive)
+			expect(state.driveNumber).to.equal(drive + 1)
 			local ends = state.phaseEndsAt
 			-- HE STEPS ON AGAIN, TWICE, ON THE SAME TICK AND THE NEXT ONE: he is a participant now,
-			-- and `Scoring` is no drive to restart either -- nothing moves and no edge is crossed.
+			-- so the roster is not empty, there is nothing to restart, and the countdown he is
+			-- watching is not restarted either.
 			local effects
 			state, effects = Phase.step(state, { kind = "restart", userId = 1, name = "Karen" }, at, cfg)
-			expect(state.phase).to.equal("Scoring")
-			expect(state.driveNumber).to.equal(drive)
+			expect(state.driveNumber).to.equal(drive + 1)
 			expect(#effects).to.equal(0)
 			state, effects = Phase.step(state, { kind = "restart", userId = 1, name = "Karen" }, at + 0.1, cfg)
-			expect(state.phase).to.equal("Scoring")
+			expect(state.driveNumber).to.equal(drive + 1)
 			expect(state.phaseEndsAt).to.equal(ends)
 			expect(#effects).to.equal(0)
-			-- ...AND A SECOND MAN ON A SECOND PAD IN THE SAME TICK RESTARTS NOTHING EITHER.
+			-- ...AND A SECOND MAN ON A SECOND PAD IN THE SAME TICK JOINS THAT ONE DRIVE, because the
+			-- number moved: his restart is inert and the ordinary door takes him.
 			state, effects = Phase.step(state, { kind = "restart", userId = 2, name = "Mila" }, at + 0.1, cfg)
-			expect(state.driveNumber).to.equal(drive)
+			expect(state.driveNumber).to.equal(drive + 1)
 			expect(state.participants[2]).to.equal(nil)
 			expect(#effects).to.equal(0)
-			-- THE LOOP'S OWN DOOR DEALS THE ONE FRESH DRIVE, and the ordinary join takes the second
-			-- man into it: one new number for any number of pad steps.
-			state = (Phase.step(state, { kind = "tick" }, at + cfg.SCORE_SECONDS, cfg))
-			expect(state.phase).to.equal("Assigning")
-			expect(state.driveNumber).to.equal(drive + 1)
-			local countdown = state.phaseEndsAt
-			state = (Phase.step(state, { kind = "join", userId = 2, name = "Mila" }, at + cfg.SCORE_SECONDS + 0.2, cfg))
+			state = (Phase.step(state, { kind = "join", userId = 2, name = "Mila" }, at + 0.2, cfg))
 			expect(state.driveNumber).to.equal(drive + 1)
 			expect(Phase.participantCount(state)).to.equal(2)
-			expect(state.phaseEndsAt).to.equal(countdown)
+			expect(state.phaseEndsAt).to.equal(ends)
 		end)
 
 		-- A STEP DURING THE COUNTDOWN, which is the other half of `insideDrive` and the window the
@@ -3106,14 +3087,9 @@ return function()
 			local drive = state.driveNumber
 			state = (Phase.step(state, { kind = "withdraw", userId = 1, name = "Karen" }, 1, cfg))
 			expect(Phase.participantCount(state)).to.equal(0)
-			local started
-			state, started = Phase.step(state, { kind = "restart", userId = 1, name = "Karen" }, 2, cfg)
-			-- NOTHING TO SCORE, SO NO `Scoring` EDGE AND NO PAY-OUT (task 299): a drive that never
-			-- reached GO is dealt again straight away, and the owner pays on the edge this restart
-			-- does not cross.
+			state = (Phase.step(state, { kind = "restart", userId = 1, name = "Karen" }, 2, cfg))
 			expect(state.driveNumber).to.equal(drive + 1)
 			expect(state.phase).to.equal("Assigning")
-			expect(countKind(started, "scene")).to.equal(0)
 			expect(state.phaseEndsAt).to.equal(2 + cfg.INTERMISSION_SECONDS)
 			local effects
 			state, effects = Phase.step(state, { kind = "restart", userId = 1, name = "Karen" }, 2, cfg)

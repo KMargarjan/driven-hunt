@@ -102,7 +102,11 @@ return function()
 			local hadRestarts = Match.stats().restarts
 			local hadRefused = Match.stats().rejoinsRefused
 			local paidBefore = Economy.stats().drivesPaid
-			local coinsBefore = Economy.stats().coinsPaid
+			-- WHAT THE MAN HIMSELF HAS (task 299, finding 2): the drive he abandons must pay him no
+			-- coins and count him no completed hunt, however many times he steps on a pad.
+			local coinsBefore = Economy.balanceOf(player.UserId) or 0
+			local huntsBefore = Economy.huntsOf(player.UserId) or 0
+			local drivesBefore = Match.stats().drives
 			-- HE RESPAWNS OUT OF A LIVE DRIVE (task 248's rule).
 			expect(Match.isParticipant(player.UserId)).to.equal(true)
 			expect(Match.withdraw(player)).to.equal(true)
@@ -113,66 +117,59 @@ return function()
 			local others = othersInDrive(player)
 			if #others == 0 then
 				-- ---------------- SOLO: the clock of a drive nobody is in. His pad starts a new one.
+				-- HE IS OUT OF THE DRIVE'S PAY (task 299, finding 2): `Match.withdraw` marks his
+				-- board row `left`, which is what `Coins.forDrive` skips.
+				local myRow
+				for _, row in ipairs(Match.snapshot().rows or {}) do
+					if row.userId == player.UserId then
+						myRow = row
+					end
+				end
+				expect(myRow).to.be.ok()
+				expect(myRow.left).to.equal(true)
 				expect(Match.enrolRefused(player.UserId)).to.equal(false)
 				expect(Match.enrol(player)).to.equal(true)
 				expect(Match.isParticipant(player.UserId)).to.equal(true)
 				expect(Match.stats().restarts).to.equal(hadRestarts + 1)
-				-- **THE OLD DRIVE ENDS THROUGH `Scoring`, AND THE PER-DRIVE WORK IS THAT EDGE'S**
-				-- (task 299). Out of `Running` the pad step puts the results scene up on the drive it
-				-- aborted -- still number N -- and the loop's own door deals the fresh one after it.
-				-- Out of `Assigning` there is nothing to score, so the fresh drive is dealt at once.
-				if wasPhase == "Running" then
-					expect(Match.phase()).to.equal("Scoring")
-					expect(Match.driveNumber()).to.equal(wasDrive)
-				else
-					expect(Match.phase()).to.equal("Assigning")
-					expect(Match.driveNumber()).to.equal(wasDrive + 1)
+				expect(Match.driveNumber()).to.equal(wasDrive + 1)
+				expect(Match.phase()).to.equal("Assigning")
+				-- THE PER-DRIVE WORK RAN FOR THE DRIVE THE RESTART DEALT (task 299, finding 3): the
+				-- owner's block is keyed on the drive NUMBER now, so an `Assigning` -> `Assigning`
+				-- restart -- which crosses no phase edge -- still counts a drive and rebuilds the
+				-- board, and his row is a FRESH one rather than the `left` row above.
+				expect(Match.stats().drives).to.equal(drivesBefore + 1)
+				local freshRow
+				for _, row in ipairs(Match.snapshot().rows or {}) do
+					if row.userId == player.UserId then
+						freshRow = row
+					end
 				end
-				-- N PAD STEPS, ONE PAY-OUT (task 299, the faucet round 3 measured): he is in the
-				-- roster now, so every further step is the idempotent door -- and the pay-out hangs
-				-- off an edge that has already been crossed once, so it cannot be crossed again.
-				local phaseAfter, driveAfter = Match.phase(), Match.driveNumber()
+				expect(freshRow).to.be.ok()
+				expect(freshRow.left).to.equal(false)
+				-- FOUR MORE PAD STEPS: he is in the roster, so each is the idempotent door and the
+				-- drive number does not move again.
 				for _ = 1, 4 do
 					expect(Match.enrol(player)).to.equal(true)
 				end
 				expect(Match.stats().restarts).to.equal(hadRestarts + 1)
-				expect(Match.driveNumber()).to.equal(driveAfter)
-				expect(Match.phase()).to.equal(phaseAfter)
-				-- THE PAY-OUT, COUNTED BEFORE AND AFTER. A drive that RAN is paid exactly once; a
-				-- restart out of the countdown pays nothing at all, which is what makes the pad a
-				-- door and not a faucet. Conditional on the flag, read rather than assumed --
-				-- `zz_drive_boundary.spec`'s own arrangement at that edge.
+				expect(Match.driveNumber()).to.equal(wasDrive + 1)
+				expect(Match.stats().drives).to.equal(drivesBefore + 1)
+				-- NOT ONE COIN AND NOT ONE COMPLETED HUNT FOR THE DRIVE HE ABANDONED (finding 2 --
+				-- the faucet). Conditional on the flag, read rather than assumed.
+				expect(Economy.stats().duplicatePayouts).to.equal(0)
 				if Economy.isEnabled() then
-					if wasPhase == "Running" then
-						expect(Economy.stats().drivesPaid).to.equal(paidBefore + 1)
-						expect(Economy.lastPaidDrive()).to.equal(wasDrive)
-					else
-						expect(Economy.stats().drivesPaid).to.equal(paidBefore)
-						expect(Economy.stats().coinsPaid).to.equal(coinsBefore)
-					end
-					expect(Economy.stats().duplicatePayouts).to.equal(0)
-				else
-					expect(Economy.stats().drivesPaid).to.equal(paidBefore)
+					expect(Economy.balanceOf(player.UserId) or 0).to.equal(coinsBefore)
+					expect(Economy.huntsOf(player.UserId) or 0).to.equal(huntsBefore)
 				end
-				-- ...AND THE FRESH DRIVE ARRIVES, with the new number and his role, which is the
-				-- whole of Karen's sentence.
-				expect(waitUntil(60, function()
-					if Match.driveNumber() == wasDrive + 1 then
-						return true
-					end
-					Match.advanceForTests(2)
-					return false
-				end)).to.equal(true)
-				expect(Match.isParticipant(player.UserId)).to.equal(true)
-				local paidAfterFresh = Economy.stats().drivesPaid
+				expect(Economy.stats().drivesPaid).to.equal(paidBefore)
 				local gunBack = waitUntil(12, function()
 					return toolIn(player.Character) ~= "none"
 				end)
 				TestKit.note(
 					string.format(
-						"task287/299 SOLO branch (nobody else in the drive): drive %d -> %d, phase %s -> %s, "
-							.. "team %s -> %s, held %s -> %s, restarts %d -> %d, economy %s paid %d -> %d "
-							.. "(5 pad steps), coins %d -> %d, lastPaidDrive %d, duplicates %d",
+						"task287 SOLO branch (nobody else in the drive): drive %d -> %d, phase %s -> %s, "
+							.. "team %s -> %s, held %s -> %s, restarts %d -> %d, economy %s paid %d -> %d, "
+							.. "his coins %d -> %d, his hunts %d -> %d, drives %d -> %d (5 pad steps)",
 						wasDrive,
 						Match.driveNumber(),
 						wasPhase,
@@ -185,11 +182,13 @@ return function()
 						Match.stats().restarts,
 						tostring(Economy.isEnabled()),
 						paidBefore,
-						paidAfterFresh,
+						Economy.stats().drivesPaid,
 						coinsBefore,
-						Economy.stats().coinsPaid,
-						Economy.lastPaidDrive(),
-						Economy.stats().duplicatePayouts
+						Economy.balanceOf(player.UserId) or 0,
+						huntsBefore,
+						Economy.huntsOf(player.UserId) or 0,
+						drivesBefore,
+						Match.stats().drives
 					)
 				)
 				expect(gunBack).to.equal(true)

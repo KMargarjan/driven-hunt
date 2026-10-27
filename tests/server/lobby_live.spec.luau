@@ -22,6 +22,10 @@ local Workspace = game:GetService("Workspace")
 
 local Data = require(ReplicatedStorage:WaitForChild("Lobby"))
 local Lobby = require(ServerScriptService:WaitForChild("Lobby"))
+-- THE REAL DRIVE MACHINE, for the pad-restart case at the end of this file (task 299): the lobby's
+-- dismissal is driven by the phases `Phase` actually produces, not by a sequence typed by hand.
+local Match = require(ServerScriptService:WaitForChild("Match"))
+local Phase = Match.Phase
 
 local Pads = Lobby.Pads
 
@@ -1872,6 +1876,104 @@ return function()
 			Lobby.step(8000, { man, stranger })
 			expect(man:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(Data.ROLE_WISH.HUNTER)
 			expect(stranger:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(nil)
+		end)
+	end)
+
+	-- A PAD RESTART, WITH THE LOBBY REALLY WIRED (task 299 round 1, finding 1). The drive machine is
+	-- the real `Phase`; `Lobby.onPhase` is fed every transition it makes, exactly as
+	-- `ForestTestBoot` does, and the lobby's `dismissAll` seam dispatches the real `dismiss` event.
+	-- Nothing here is a stand-in for the thing under test: a restart that crossed `Scoring` was
+	-- dismissed by the lobby one scan later and landed in `Waiting`.
+	describe("a pad restart in a world that HAS a lobby (task 299)", function()
+		local DRIVE_CFG = {
+			DRIVE_SECONDS = 60,
+			INTERMISSION_SECONDS = 10,
+			SCORE_SECONDS = 5,
+			MIN_PLAYERS = 1,
+			MAX_PLAYERS = 16,
+			ODD_PLAYER_TEAM = "Shooters",
+			SWAP_TEAMS_EACH_DRIVE = true,
+			START_HOLD_TEAM = "Drivers",
+			BOARS_PER_DRIVE = 2,
+			FIRST_RELEASE_SECONDS = 5,
+			RELEASE_INTERVAL_SECONDS = 10,
+			RELEASE_JITTER_SECONDS = 0,
+			MAX_ALIVE_BOARS = 2,
+			SEED = 7,
+		}
+		local SPAWNS = { Vector3.new(-40, 0, 120), Vector3.new(40, 0, 120) }
+
+		it("reaches a fresh Assigning, with the same role, and the lobby dismisses nobody", function()
+			local state = Phase.initial(DRIVE_CFG)
+			state = (
+				Phase.step(
+					state,
+					{ kind = "markers", complete = true, missing = {}, boarSpawns = SPAWNS },
+					0,
+					DRIVE_CFG
+				)
+			)
+			local dismissals = 0
+			local clock = 0
+			fresh(bin, function(world)
+				world.dismissAll = function(): number
+					local count = Phase.participantCount(state)
+					dismissals += 1
+					state = (Phase.step(state, { kind = "dismiss" }, clock, DRIVE_CFG))
+					return count
+				end
+			end)
+
+			-- ONE STEP OF THE WHOLE MACHINE: the drive moves, the lobby hears the phase it moved to
+			-- (`ForestTestBoot`'s `Match.PhaseChanged:Connect`), and then the lobby scans.
+			local function both(event, at: number)
+				clock = at
+				local was = state.phase
+				state = (Phase.step(state, event, at, DRIVE_CFG))
+				if state.phase ~= was then
+					Lobby.onPhase(state.phase)
+				end
+				Lobby.step(at, {})
+			end
+
+			both({ kind = "join", userId = 1, name = "Karen" }, 1)
+			both({ kind = "tick" }, 1 + DRIVE_CFG.INTERMISSION_SECONDS)
+			expect(state.phase).to.equal("Running")
+			local drive = state.driveNumber
+			local had = state.assignment[1]
+			expect(had).to.be.ok()
+
+			-- SHE RESPAWNS OUT OF THE DRIVE, AND THEN STEPS ON A PAD.
+			local at = 1 + DRIVE_CFG.INTERMISSION_SECONDS + 1
+			both({ kind = "withdraw", userId = 1, name = "Karen" }, at)
+			expect(Phase.participantCount(state)).to.equal(0)
+			both({ kind = "restart", userId = 1, name = "Karen", owed = { [1] = had } }, at + 0.1)
+
+			-- THE FRESH DRIVE, IMMEDIATELY: a new number, the countdown's full clock, her own role.
+			expect(state.phase).to.equal("Assigning")
+			expect(state.driveNumber).to.equal(drive + 1)
+			expect(state.phaseEndsAt).to.equal(at + 0.1 + DRIVE_CFG.INTERMISSION_SECONDS)
+			expect(state.assignment[1]).to.equal(had)
+			-- ...AND SHE IS STILL IN IT AFTER THE LOBBY HAS SCANNED, which is the finding: a restart
+			-- through `Scoring` set `dismissPending`, and the next scan emptied the roster.
+			for i = 1, 5 do
+				both({ kind = "tick" }, at + 0.1 + i * 0.1)
+			end
+			expect(dismissals).to.equal(0)
+			expect(Phase.participantCount(state)).to.equal(1)
+			expect(state.participants[1]).to.be.ok()
+			expect(state.phase).to.equal("Assigning")
+			-- ...AND THE DRIVE RUNS, from the beginning.
+			both({ kind = "tick" }, at + 0.1 + DRIVE_CFG.INTERMISSION_SECONDS)
+			expect(state.phase).to.equal("Running")
+			expect(state.phaseEndsAt).to.equal(at + 0.1 + DRIVE_CFG.INTERMISSION_SECONDS + DRIVE_CFG.DRIVE_SECONDS)
+			expect(state.assignment[1]).to.equal(had)
+
+			-- AND THE ORDINARY END OF A DRIVE STILL DISMISSES, so this proves the lobby is wired and
+			-- not merely quiet.
+			both({ kind = "tick" }, at + 0.1 + DRIVE_CFG.INTERMISSION_SECONDS + DRIVE_CFG.DRIVE_SECONDS + 0.1)
+			expect(state.phase).to.equal("Scoring")
+			expect(dismissals).to.equal(1)
 		end)
 	end)
 end
