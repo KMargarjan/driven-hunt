@@ -3,7 +3,7 @@
 Task: 293b
 Round: 1
 Base: 5fb54278
-Code commit: (filled in below, with the harness line)
+Code commit: e7db8844ce8c958c409568e375f7659027ac3802
 
 Karen, 2026-10-27: *"deer error remains, after kill stands"* -- after task 293 merged.
 
@@ -58,8 +58,9 @@ Director's `293-pose.luau` bone read at 3 s, 60 s and 115 s, on a deer AND a boa
 
 ## CLAIMS
 
-1. `Body.shouldRehold` takes no count and reads no limit -- `grep -rn "REHOLD_LIMIT" src/ tests/`
-   returns nothing.
+1. `Body.shouldRehold` takes no count and reads no limit: `grep -rn "REHOLD_LIMIT" src/ tests/`
+   finds only comments that say it was removed. It is gone from `Boar.CONFIG.MODEL`, from the
+   function's parameters and from the call site in `Body.stepVisual`.
 2. `Body.freezeReach` is gone and `Body.freezeWindow` does not take a `dt`
    (`grep -n "freezeReach\|freezeWindow" src/ tests/`).
 3. A carcass gets 240 overruns across `CARCASS_SECONDS` 120 and 0 standing samples
@@ -74,3 +75,34 @@ Director's `293-pose.luau` bone read at 3 s, 60 s and 115 s, on a deer AND a boa
 
 The Forest Test proof on Karen's path (a real deer and a real boar killed, bones read at 3 s, 60 s
 and 115 s) is the Director's, per the dispatch. Nothing in this branch is proven on her path by me.
+
+## HARNESS
+
+```
+[harness] PASS: 34/34 checks @ e7db8844ce8c958c409568e375f7659027ac3802 (clean tree) scope=all
+```
+
+FAIL FIRST, with `src/` identical to main and only the new spec added (commit a4a5b8e3):
+
+```
+  failed [server] boar_model.spec:1355 Expected value "0" (number), got "7110" (number) instead
+[harness] FAIL: 32/34 checks @ a4a5b8e3eba4be7ad19134b8a9615b65e794d4b8 (clean tree) scope=auto:assets,boar,flags
+```
+
+**7110 of 7200 steps standing** -- that is the 4th overrun onwards, for the rest of the carcass's
+120 seconds, which is Karen's sentence as a number. After the fix: 0 of 7200.
+
+`test2` is N/A: nothing here is in `TWO_PLAYER_PATHS` (`src/server/Boar/`, `tests/server/`).
+
+## ANSWERED
+
+- ANSWERED: L-142 -- the new bound is not a bigger number. There is NO count: `REHOLD_LIMIT` and
+  the `reholds` parameter are deleted (archived in `backups/2026-10-27-task-293b-freezeReach.md`),
+  and the repair is available on every one of the carcass's ~7200 steps. What replaces the count is
+  the rule's own fixed point: the state a repair produces is the state `shouldRehold` refuses.
+  `handle.reholds` survives only as a diagnostic that gates nothing.
+- ANSWERED: ROUTE (deer) -- no DEV kill was attempted. The route that lost two sessions in task 293
+  is not needed here: the fail-first and the proof are both on the DRAWN FRAME, driven through
+  `Body.stepVisual` itself, and the live proof on Karen's path is the Director's per the dispatch.
+- ANSWERED: ROUTE (boar) -- same: the boar half is `Body.stepVisual` driven through a real 4 s
+  paddle, asserting it advances and is never pinned. "Boar55" is not relied on by anything here.
