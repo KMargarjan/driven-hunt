@@ -845,10 +845,20 @@ return function()
 			expect(Match.phase() == "Running" or Match.phase() == "Assigning").to.equal(true)
 			local wasDrive = Match.driveNumber()
 			local hadRestarts = Match.stats().restarts
-			-- WHAT THIS CASE MUST GIVE BACK. It is the only case in this file that reloads the shared
-			-- player's character (the restart places everybody), and `weapon_shot.spec` runs after it
-			-- needing a man with a gun IN HIS HAND.
+			-- WHAT THIS CASE MUST GIVE BACK: the side he is on, the PHASE, and the gun that was in
+			-- his HAND. It is the only case in this file that reloads the shared player's character
+			-- (the restart places everybody), and `weapon_shot.spec` runs after it and needs a
+			-- subject whose gun is equipped, loaded and the one its claims are about.
 			local wasTeam = Match.assignmentOf(player.UserId)
+			local wasPhase = Match.phase()
+			local function toolIn(where: Instance?): string
+				if where == nil then
+					return "none"
+				end
+				local tool = where:FindFirstChildWhichIsA("Tool")
+				return if tool then tool.Name else "none"
+			end
+			local wasHeld = toolIn(player.Character)
 			-- HE RESPAWNS OUT OF A LIVE DRIVE (task 248's rule), which empties this roster: he is the
 			-- only player in the DEV place.
 			expect(Match.isParticipant(player.UserId)).to.equal(true)
@@ -878,31 +888,49 @@ return function()
 			if wasTeam ~= nil and Match.assignmentOf(player.UserId) ~= wasTeam then
 				Match.requestTeam(player, wasTeam)
 			end
-			local function toolIn(where: Instance?): string
-				if where == nil then
-					return "none"
-				end
-				local tool = where:FindFirstChildWhichIsA("Tool")
-				return if tool then tool.Name else "none"
-			end
-			local held = "none"
-			for _ = 1, 80 do
-				held = toolIn(player.Character)
-				if held ~= "none" then
+			-- THE PHASE BACK, THROUGH THE SAME SEAM THE ARRANGEMENT USED: the fresh countdown is the
+			-- one window in which no shot is accepted, and it is what `weapon_shot`'s live claims
+			-- need to be out of.
+			for _ = 1, 40 do
+				if Match.phase() == wasPhase then
 					break
+				end
+				expect(Match.advanceForTests(2)).to.equal(true)
+				task.wait(0.1)
+			end
+			-- ...AND THE GUN BACK IN HIS HAND. The re-grant lands in the Backpack and
+			-- `Weapon.Hardware.equip` retries for 2 s; a RELOADED character is also handed whichever
+			-- gun the drive arms first, which need not be the one he was holding. So this reconciles
+			-- to the name it read, with the client's own two steps (`Weapon.Input.carry`).
+			local held = "none"
+			for _ = 1, 100 do
+				held = toolIn(player.Character)
+				if held == wasHeld or (wasHeld == "none" and held ~= "none") then
+					break
+				end
+				local character = player.Character
+				local humanoid = if character then character:FindFirstChildOfClass("Humanoid") else nil
+				local pack = player:FindFirstChildOfClass("Backpack")
+				local wanted = if pack and wasHeld ~= "none" then pack:FindFirstChild(wasHeld) else nil
+				if humanoid ~= nil and wanted ~= nil and wanted:IsA("Tool") then
+					(humanoid :: Humanoid):UnequipTools();
+					(humanoid :: Humanoid):EquipTool(wanted :: Tool)
 				end
 				task.wait(0.1)
 			end
 			expect(Match.assignmentOf(player.UserId)).to.equal(wasTeam)
+			expect(Match.phase()).to.equal(wasPhase)
 			expect(held ~= "none").to.equal(true)
 			TestKit.note(
 				string.format(
-					"task287 handover: team=%s mayCarry=%s char=%s pack=%s phase=%s",
+					"task287 handover: team=%s mayCarry=%s heldBefore=%s heldAfter=%s pack=%s phase=%s (was %s)",
 					tostring(Match.assignmentOf(player.UserId)),
 					tostring(Match.mayCarryWeapon(player)),
+					wasHeld,
 					toolIn(player.Character),
 					toolIn(player:FindFirstChildOfClass("Backpack")),
-					Match.phase()
+					Match.phase(),
+					wasPhase
 				)
 			)
 		end)
