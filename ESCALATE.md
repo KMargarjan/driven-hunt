@@ -133,3 +133,29 @@ box's top line, and on her picture that line is air at that u), plus one unident
 above; (b) the real question behind Karen's sentence -- chest aim, withers hit -- is unanswered and
 belongs with 282a or with an aim task; (c) a deer-capable shot-staging probe is still missing and the
 next card or deer-shooting task will lose a session to it.
+
+### Round 1's verdict, and why I am stopping rather than starting round 2
+
+`reviews/task-283/RESULT.md`: three blocking findings, and **finding 1 is right and it reverses the
+method**. I derived each kind's rectangle from the MESH (the trunk's top as a fraction of the drawn
+height) and cross-checked only the stag, where it agreed with the hand-measured back line to 0.014.
+The Reviewer checked the HIND against `HitCardInk`'s pixels: her picture's back line is row 18 of 60
+(image v >= 0.283) where my geometry says 0.1951, so a hit on her box top now draws 0.09 of the
+picture's height ABOVE her back -- and the old 0.276 drew it on ink. **Her card is worse than before
+this change.** The artwork's proportions are not the mesh's: her drawn head sits higher over her body
+in Karen's picture than in the asset.
+
+That is a decision I should not take at 2.5x the hard stop, because it undoes claim 2 of my own
+request: **if the rectangle is measured on the PICTURE it is per-PICTURE, and the cub/female and
+calf/hind distinction I argued for disappears** (a cub is the sow's picture; the picture has one back
+line). The two candidate answers are (a) measure `v0` as each picture's own back line and accept one
+rectangle per picture, with the mesh as a cross-check that must agree, or (b) keep per-kind rows but
+require every one of the seven to be confirmed against its picture's pixels, geometry only where the
+two agree.
+
+Findings 2 and 3 are also right: the dorsal case asserts the defect as the required state, and two of
+my five cases pass with `TRUNK_IN_INK` deleted. Both are fixed by the same thing -- asserting the
+NUMBER (the drawn image v of a dot at box v = 0, per kind) instead of "somewhere on a black blob".
+
+**For the Director:** this is one more build round on a question that is now well posed, not a third
+unknown. Nothing is merged. `main` is untouched; the branch is `task-283-card-dot` at `234a6c8d`.
