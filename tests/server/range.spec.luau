@@ -104,6 +104,24 @@ return function()
 		fake.paceSpeed = function(pace: string)
 			return speedOf(pace)
 		end
+		-- THE TWO READERS STEP B4 ADDED, wired exactly as `RangeBoot` wires them: the kinds of a
+		-- species off the kind rows' own `species` field, and the zones of the animal a KIND spawns
+		-- (`Boar.kindConfig`, which is what `Runtime:spawn` resolves).
+		fake.kindsFor = function(species: string)
+			local out = {}
+			for _, kind in ipairs(Boar.CONFIG.KINDS.ORDER) do
+				local row = (Boar.CONFIG.KINDS :: any)[kind]
+				local owner = (type(row) == "table" and row.species) or "boar"
+				if owner == species then
+					table.insert(out, kind)
+				end
+			end
+			return out
+		end
+		fake.zonesForKind = function(kind: string)
+			local zones = Boar.kindConfig(kind, Boar.CONFIG).ZONES
+			return if type(zones) == "table" and type(zones.ORDER) == "table" then zones.ORDER else {}
+		end
 		fake.advance = function(dt: number)
 			for _, animal in pairs(fake.animals) do
 				if animal.alive and animal.order ~= nil then
