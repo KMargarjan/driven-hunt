@@ -561,7 +561,10 @@ return function()
 			-- THE RANGE SPAWNED THROUGH ITS OWN INJECTED VIEW AND NOWHERE ELSE.
 			expect(fake.spawns >= 1).to.equal(true)
 			expect(drive:count()).to.equal(0)
-			expect(#driveParent:GetChildren()).to.equal(0)
+			-- THE DRIVE'S OWN FOLDER IS EMPTY. The runtime creates it itself on `run`, so the claim
+			-- is that nothing is IN it: the range released its target through its own view.
+			expect(drive:folder().Parent).to.equal(driveParent)
+			expect(#drive:folder():GetChildren()).to.equal(0)
 			-- Nothing was built in Workspace: the range built into the folder it was handed.
 			expect(Workspace:FindFirstChild(LAYOUT.folderName)).to.equal(nil)
 			expect(root:FindFirstChild(LAYOUT.folderName)).to.be.ok()
@@ -581,7 +584,12 @@ return function()
 		-- `Boar.newRuntime` -- the world of design section 5, with its own folder, no threats, SENSE
 		-- off and `LINE` on -- spawn a DEER kind, with the deer's own zones, through no new code path?
 		it("spawns a hind with the deer's own zones, through the same seam, with no new code path", function()
+			-- A HOLDER UNDER `Workspace`, AND IT HAS TO BE (`deer.spec`'s own idiom): `Body.create`
+			-- calls the Network Ownership API, which refuses a part that is not a descendant of
+			-- `Workspace`. It is named, and destroyed at the end of the case.
 			local parent = Instance.new("Folder")
+			parent.Name = "RangeDeerSpec"
+			parent.Parent = Workspace
 			local anchor = Vector3.new(DEV_ROW.x, 0, DEV_ROW.z)
 			local world = Boar.defaultWorld(RangeData.fieldFor(anchor, LAYOUT))
 			world.parent = parent
@@ -637,6 +645,8 @@ return function()
 				)
 			)
 			runtime:destroy()
+			parent:Destroy()
+			expect(Workspace:FindFirstChild("RangeDeerSpec")).to.equal(nil)
 		end)
 	end)
 end

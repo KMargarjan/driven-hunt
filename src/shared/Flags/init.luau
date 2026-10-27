@@ -108,7 +108,18 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- in the Forest Test for Karen's test)"*, and `docs/design/ballistics.md` section 3.4 wants exactly
 -- that. `HIT_CLAIM` is the eighteenth. The two ways out are still the two task 238 listed and the
 -- first of them is still queued as TASKS.md 82b.
-Flags.MAX_FLAGS = 18
+-- 18 -> 19 FOR TASK 298 (step B2), **AND THE SAME SENTENCE AGAIN, WORD FOR WORD**: the Builder is
+-- saying so rather than quietly retiring somebody else's row. `RANGE` is the nineteenth, the cap
+-- refused it exactly as it refused the seventeenth and the eighteenth (`flags.spec`'s rot
+-- tripwire, which is the cap doing its job), and the two ways out are still the two task 238
+-- listed -- retire the lit rows queued as TASKS.md 82b, which is the DIRECTOR's call and deletes a
+-- losing branch per retirement, or ship a new feel-critical path LIT, which
+-- `docs/design/feature-flags.md` section 11 step 1 forbids. The range is a new shooting path in the
+-- lobby and `docs/design/shooting-range.md` section 8.1 wants it behind a flag born OFF
+-- (`Range.ENABLED = Flags.isOn("RANGE")`, the one boundary that reads it), so the cap moves by one
+-- again and the retirements stay queued. **The Director may prefer to spend 82b instead**: this is
+-- one line either way.
+Flags.MAX_FLAGS = 19
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
