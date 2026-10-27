@@ -845,6 +845,10 @@ return function()
 			expect(Match.phase() == "Running" or Match.phase() == "Assigning").to.equal(true)
 			local wasDrive = Match.driveNumber()
 			local hadRestarts = Match.stats().restarts
+			-- WHAT THIS CASE MUST GIVE BACK. It is the only case in this file that reloads the shared
+			-- player's character (the restart places everybody), and `weapon_shot.spec` runs after it
+			-- needing a man with a gun IN HIS HAND.
+			local wasTeam = Match.assignmentOf(player.UserId)
 			-- HE RESPAWNS OUT OF A LIVE DRIVE (task 248's rule), which empties this roster: he is the
 			-- only player in the DEV place.
 			expect(Match.isParticipant(player.UserId)).to.equal(true)
@@ -864,8 +868,16 @@ return function()
 			expect(Match.enrol(player)).to.equal(true)
 			expect(Match.stats().restarts).to.equal(hadRestarts + 1)
 			expect(Match.driveNumber()).to.equal(wasDrive + 1)
-			-- THE INSTRUMENT (Director, 2026-10-27): what this case leaves the SHARED test player as.
-			-- `weapon_shot.spec` runs after this file and its sight-line case needs a man with a gun.
+			-- **AND IT LEAVES THE SHARED PLAYER AS IT FOUND HIM** (Director, 2026-10-27, measured:
+			-- `task287 handover: team=Shooters mayCarry=true char=none pack=Shotgun`, and
+			-- `weapon_shot.spec:476` then read the muzzle at the EYE because nobody held a gun).
+			--
+			-- RECONCILED, NOT ASSUMED: the restart reloads his character, the re-grant lands in the
+			-- Backpack and `Weapon.Hardware.equip` retries the equip for 2 s -- so this waits for the
+			-- OUTCOME it has to hand on, and asserts it rather than hoping. Same for the side he is on.
+			if wasTeam ~= nil and Match.assignmentOf(player.UserId) ~= wasTeam then
+				Match.requestTeam(player, wasTeam)
+			end
 			local function toolIn(where: Instance?): string
 				if where == nil then
 					return "none"
@@ -873,6 +885,16 @@ return function()
 				local tool = where:FindFirstChildWhichIsA("Tool")
 				return if tool then tool.Name else "none"
 			end
+			local held = "none"
+			for _ = 1, 80 do
+				held = toolIn(player.Character)
+				if held ~= "none" then
+					break
+				end
+				task.wait(0.1)
+			end
+			expect(Match.assignmentOf(player.UserId)).to.equal(wasTeam)
+			expect(held ~= "none").to.equal(true)
 			TestKit.note(
 				string.format(
 					"task287 handover: team=%s mayCarry=%s char=%s pack=%s phase=%s",
