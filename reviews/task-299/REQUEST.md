@@ -1,93 +1,92 @@
-# Task 299: a pad restart ends the old drive through Scoring -- paid once
+# Task 299: a pad restart gives a fresh drive, and an abandoned drive pays nobody
 
 Task: 299
-Round: 1
+Round: 2
 Base: a28bafbb (task-287-pad-fresh-hunt head; this branch is stacked on it)
-Code commit: df70c86b4b84041e488b2cc9c04c3e96dd9b8d6a
+Code commit: 7af2954222e66272c9afe99cd827fd9d373091df
 
 Karen (2026-10-24): *"when I respawn and then go to lobby then go back on pad to hunt I been
-transferred to same hunt ... I need to be same role and from beginning"*. 287 gave her the fresh
-drive; its round-3 review found the pay-out it added was repeatable. This is that fix.
+transferred to same hunt ... I need to be same role and from beginning"*.
 
-## What changed
+## What changed, against round 1's three findings
 
-A restart out of `Running` now enters `Scoring` (`Phase.step`, the `restart` branch), so the old
-drive ends the way every drive ends: the owner's one `Scoring` edge pays it and runs the per-drive
-work, and the loop's own `Scoring` exit deals the fresh drive with the new number and a full clock.
-287 round 2's separate `world.economy.payDrive(...)` call in `Match.enrol` is deleted. A restart out
-of `Assigning` has nothing to score: it pays nothing and is dealt a fresh drive directly, as before.
+1. **The restart goes straight to `Assigning` again, and must never cross `Scoring`**
+   (`Phase.step`, the `restart` branch). In the place that HAS pads, `Lobby.onPhase("Scoring")` sets
+   `dismissPending` and the next `Lobby.step` dismisses the whole roster, so round 1's results-scene
+   detour landed in `Waiting`.
+2. **`Match.withdraw` marks his board row `left`** (`board = Score.leave(board, userId)`), which
+   `Coins.forDrive` skips — so the drive he abandons pays him no coins and counts him no hunt. The
+   faucet is shut at the row, not at a second guard.
+3. **The owner's per-drive block is keyed on the drive NUMBER** (`state.driveNumber ~= driveBefore`)
+   instead of the `Assigning` phase edge, so the restart arm — which crosses no phase edge — rebuilds
+   the board, re-measures the markers and counts the drive like any other.
 
 ## Gate lines
 
 ```
-[harness] PASS: 34/34 checks @ df70c86b4b84041e488b2cc9c04c3e96dd9b8d6a (clean tree) scope=all
-[harness2] PASS: 36/36 checks @ df70c86b4b84041e488b2cc9c04c3e96dd9b8d6a (clean tree)
-[harness2] PASS: 36/36 checks @ df70c86b4b84041e488b2cc9c04c3e96dd9b8d6a (clean tree)
+[harness] PASS: 34/34 checks @ 7af2954222e66272c9afe99cd827fd9d373091df (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 7af2954222e66272c9afe99cd827fd9d373091df (clean tree)
+[harness2] PASS: 36/36 checks @ 7af2954222e66272c9afe99cd827fd9d373091df (clean tree)
 ```
-(the one-player run was made twice, both PASS; `test2` three times -- 299a PASS, 299b FAIL, 299c PASS.)
-
-**THE ONE FAILURE, WITH ITS CONTROL.** `test2` run 299b: `[harness2] FAIL: 34/36 @ df70c86b`,
-`failed [driver] map_ui.spec:1057 Expected value to be near 20.000000 (within 8.000000) but got
-11.577399`. That assertion measures the map UI's TICK RATE on the second client over 0.6 s. Control
-run of the same scope at the merge base: `[harness2] PASS: 36/36 checks @
-a28bafbb2e7a6b9ddea7ea35b964235229333819 (clean tree)` -- and the same commit df70c86b passed it
-twice (299a, 299c). I am not calling it "the known flake": it is a client frame-rate measurement
-with no Match, Phase or Economy call in it, and three of the four runs across two commits passed it.
+No failure in any of the three runs. One Studio throughout; the Players spinner was photographed
+first and read (`driven-hunt-runs/299r2-spinner-zoom.png`: mode **Server**, count **2**).
 
 ## Claims
 
-1. **A restart out of `Running` enters `Scoring`.** `src/server/Match/Phase.luau`, the `restart`
-   branch of `Phase.step`: `enterScoring` when `next_.phase == "Running"`, `enterAssigning`
-   otherwise. `tests/server/match_phase.spec.luau`, *"gives the solo man a NEW drive number"*:
-   phase `Scoring`, drive number UNCHANGED, `scene` and `clearBoars` emitted, then the next tick at
-   `SCORE_SECONDS` deals drive+1 with the full countdown and the same role.
-2. **The 287 round-2 pay-out call is gone.** `grep -n payDrive src/server/Match/init.luau` gives one
-   call site, the `Scoring` edge; the justification comment above the old call was rewritten with it
-   (Learning Agent L-030).
-3. **N pad steps, ONE pay-out.** `match_phase.spec`, *"gives exactly ONE fresh drive however many
-   times a pad is stepped on"*: four further `restart` events over two ticks emit nothing and move
-   nothing, because he is in the roster and `Scoring` is no drive to restart. The edge the pay-out
-   hangs off can be crossed once per drive (L-031: one path, not a second guard).
-4. **LIVE, ON THE REAL ECONOMY.** `tests/server/zz_pad_restart.spec.luau` now counts coins and
-   `drivesPaid` before and after FIVE pad steps. The one-player run's own note:
-   `task287/299 SOLO branch: drive 2 -> 3, phase Assigning -> Assigning, team Drivers -> Drivers,
-   held Horn -> Horn, restarts 0 -> 1, economy true paid 1 -> 1 (5 pad steps), coins 10 -> 10,
-   lastPaidDrive 1, duplicates 0`.
-5. **A restart from `Assigning` pays nothing and still gives a fresh drive.** Claim 4's note is that
-   arm, measured: drive 2 -> 3, `drivesPaid` 1 -> 1, coins 10 -> 10. The old head paid here.
-   `match_phase.spec`, *"restarts from `Assigning` too"*, asserts no `scene` effect -- no edge, no
-   pay-out.
-6. **FAIL FIRST AT THE OLD HEAD** (L-028). The new specs against 287's `src/`
-   (`git checkout a28bafbb -- src/server/Match/*`): `[harness] FAIL: 32/34 checks @ df70c86b
-   (DIRTY TREE (2 paths) - NOT valid evidence) scope=all`, server `2406 passed, 3 failed, 3 errors`.
-   Clean tree, both files restored: `34/34`.
-7. **The multi-player door is untouched.** Both `test2` PASS runs took it:
-   `task287 MULTI-PLAYER branch (still in the drive: Player2): refused=true enrolled=false drive 2
-   (unchanged), phase Assigning, restarts 0 (unchanged), rejoinsRefused 0 -> 1, paid 1 (unchanged)`.
-8. `selene src`, `selene --config tests/selene.toml tests`, `stylua --check src tests`,
-   `rojo build`, `python tools/studio_mcp.py selftest`, `python tools/agents.py selftest`: all clean.
+1. **THE LOBBY IS REALLY WIRED, and that is the new case.** `tests/server/lobby_live.spec.luau`,
+   *"a pad restart in a world that HAS a lobby (task 299)"*: the real `Phase` machine, every
+   transition fed to the real `Lobby.onPhase` exactly as `ForestTestBoot` does, the lobby's
+   `dismissAll` seam dispatching the real `dismiss` event, `Lobby.step` called on every step.
+   A solo man in a **`Running`** drive withdraws, steps on the pad, and gets `Assigning`,
+   `driveNumber + 1`, `phaseEndsAt == at + INTERMISSION_SECONDS`, his own team back, and
+   **`dismissals == 0`** after five more scans — then the drive runs for its full length.
+2. **The same case proves the lobby is wired and not merely quiet:** the ordinary end of that fresh
+   drive reaches `Scoring` and `dismissals` becomes 1.
+3. **FAIL FIRST AT `1de1468c`** (round 1's head), new specs on round-1 `src/`:
+   `[harness] FAIL: 32/34 checks @ 1de1468cc0bd42b065e54765da6e15b53e714e74 (DIRTY TREE (3 paths) -
+   NOT valid evidence) scope=all`, server `2406 passed, 4 failed, 4 errors`:
+   `lobby_live.spec:1953 Expected value "Assigning" (string), got "Scoring"` (finding 1),
+   `match_phase.spec:2996` and `:3055` (`drive 2` expected, got `1`),
+   `zz_pad_restart.spec:129 Expected value "true", got "false"` (the `left` row, finding 2).
+4. **LIVE, ON THE REAL ECONOMY AND THE REAL MATCH.** `tests/server/zz_pad_restart.spec.luau` reads
+   HIS coins and HIS completed hunts, not just the global counter, across FIVE pad steps. The
+   one-player run's own note at the code commit:
+   `task287 SOLO branch (nobody else in the drive): drive 2 -> 3, phase Assigning -> Assigning,
+   team Drivers -> Drivers, held Horn -> Horn, restarts 0 -> 1, economy true paid 1 -> 1,
+   his coins 10 -> 10, his hunts 1 -> 1, drives 2 -> 3 (5 pad steps)`.
+5. **Finding 2, live:** the same spec asserts his snapshot row carries `left == true` the moment he
+   withdraws, and a FRESH row (`left == false`) once the restart has dealt the new drive.
+6. **Finding 3, live:** `Match.stats().drives` moves by exactly one across the restart
+   (`drives 2 -> 3` in claim 4's note) although the phase never left `Assigning`, and it does not
+   move again over the four further pad steps.
+7. **The pure machine is back to one arm** (`match_phase.spec`, restored to its pre-299 cases): a
+   restart deals drive+1 with the countdown's full clock and the same role, from `Running` and from
+   `Assigning`, once however many pads are stepped on.
+8. **One pay-out site remains** (`grep payDrive src/server/Match/init.luau` → the `Scoring` edge
+   only) and two `Score.leave` sites (`Match.withdraw`, `Match.forget`).
+9. `selene src`, `selene --config tests/selene.toml tests`, `stylua --check src tests`,
+   `rojo build`, `python tools/studio_mcp.py selftest`, `python tools/agents.py selftest`: clean.
 
 ## What I could not verify
 
-**The `Running` arm was not entered LIVE in this run.** `zz_pad_restart.spec` takes whichever phase
-the drive is in when it reaches the file, and in all four runs that was `Assigning` -- so the live
-proof above is the `Assigning` arm (which is where the faucet was measurable, and it is shut). The
-`Running` arm is proven in `match_phase.spec` only, where it is entered for real (Running, withdraw,
-restart, phase `Scoring`). No playtest in Karen's place: no Studio session is free before the
-deadline.
+**No frame and no Forest Test session.** This is a phase/economy change with nothing drawn; the proof
+is the lobby-wired case and the live counters above. **A drive nobody finished is now never paid at
+all** — that is deliberate (nobody is left in it to pay, by `mayRestart`), and it is a behaviour
+change against 287's *"his result for this drive stands"*, which the Director's round-2 dispatch
+overrides.
 
 ## Answered learning flags
 
-- **ANSWERED: L-093** both arms get a case that really ENTERS them: the pure spec drives
-  Running->restart->Scoring and Assigning->restart->Assigning as separate cases with phase
-  assertions, and the live spec branches on the measured phase rather than assuming one.
-- **ANSWERED: L-033** `test2` was run twice at the code commit (299a, 299c, both PASS), plus a third
-  run (299b) and a control at the merge base; exactly one Studio open throughout, Players spinner
-  photographed first (`driven-hunt-runs/299-spinner-zoom.png`: mode Server, count 2).
-- **ANSWERED: L-028** the new specs FAIL at 287's head (claim 6) and pass here.
-- **ANSWERED: L-029** "exactly one pay-out per drive" is asserted under five repeated pad steps live
-  (claim 4) and under overlapping steps by two men in one tick in the pure spec (claim 3).
-- **ANSWERED: L-030** both `payDrive` sites were grepped before and after; one remains (the Scoring
-  edge) and the comment block above the deleted call was rewritten, not left behind.
-- **ANSWERED: L-031** the fix routes every pay-out through the one `Scoring` edge instead of adding
-  a second guard beside `Economy.payDrive`'s drive-number one.
+- **ANSWERED: L-093** the `Running`-restart arm is ENTERED for real in the new lobby-wired case
+  (`expect(state.phase).to.equal("Running")` before the pad step); the `Assigning` arm is entered
+  live in `zz_pad_restart.spec`. Both arms, both files, neither asserted only as a count.
+- **ANSWERED: L-033** `test2` twice at the code commit, both PASS, one Studio open, spinner read.
+- **ANSWERED: L-028** fail-first at `1de1468c` with the four failing lines quoted (claim 3).
+- **ANSWERED: L-029** "no extra pay-out" is asserted over five repeated pad steps on the man's OWN
+  balance and hunts, plus the global `drivesPaid` and `duplicatePayouts == 0`.
+- **ANSWERED: L-030** every `payDrive` and `Score.leave` call site re-grepped after the change
+  (claim 8); the comment above the deleted round-1 call went with it in round 1.
+- **ANSWERED: L-031** no second guard was added: the pay-out still has exactly one call site, and
+  what changed is which ROWS it is given.
+- **ANSWERED: ROUTE** the lobby case lives in `tests/server/lobby_live.spec.luau`, the file the
+  Reviewer named.
