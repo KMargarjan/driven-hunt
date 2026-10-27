@@ -1287,6 +1287,135 @@ return function()
 			expect(handle.reholds).to.equal(1)
 		end)
 
+		it("holds a carcass down for its WHOLE life, past any repair budget (task 293b)", function()
+			-- KAREN, 2026-10-27, AFTER task 293 merged: *"deer error remains, after kill stands"*.
+			-- 293 capped the repair at `REHOLD_LIMIT` 3 per carcass against `CARCASS_SECONDS` 120, so
+			-- the 4th overrun inside one carcass's life left the deer in its BIND POSE for the rest of
+			-- it. MEASURED on the real hind rig (`<runs-dir>/293-tail.luau`, `Bone.TransformedWorldCFrame`):
+			-- the held death draws 1.02-1.33 studs of height, the bind pose 3.85-4.94.
+			--
+			-- FAILS AT MAIN AND WHEN THE `stepVisual` REHOLD BLOCK IS DELETED: the 4th overrun there
+			-- leaves `IsPlaying` false, which is the standing deer.
+			local deer = Boar.speciesConfig("reddeer", CONFIG)
+			local fall, paddleName = Boar.deathClips(deer)
+			expect(Boar.hasClip(paddleName, deer)).to.equal(false) -- the deer HOLD the fall: no paddle
+			local len = deer.MODEL.CLIPS[fall].seconds
+			-- EVERY FRAME FROM HERE TO THE END DREW 1.03-1.20 STUDS -- lying -- on the real rig.
+			local lying = len - 0.2
+			local plays = 0
+			local track = {
+				Name = fall,
+				Length = len,
+				TimePosition = len - deer.MODEL.HOLD_EPSILON,
+				Speed = 0,
+				WeightCurrent = 1,
+				IsPlaying = true,
+				Looped = false,
+			}
+			function track:Play(_fade, weight, speed)
+				plays += 1
+				self.IsPlaying = true
+				self.WeightCurrent = weight or 1
+				self.Speed = speed or 1
+				self.TimePosition = 0 -- what Play really does
+			end
+			function track:AdjustSpeed(speed)
+				self.Speed = speed
+			end
+			function track:Stop() end
+			local handle = carcass293(fall, track, {
+				deadFor = len + 0.1,
+				heldClip = fall,
+				heldAt = len - deer.MODEL.HOLD_EPSILON,
+				visual = Instance.new("Model"),
+			})
+			-- ONE OVERRUN EVERY HALF SECOND FOR THE WHOLE CARCASS LIFE, which is 240 of them against
+			-- a budget of 3. Each is the fault exactly as the engine leaves it: `TimePosition` stepped
+			-- clean past `Length` by a long frame, and the non-looped track STOPPED.
+			local dt = 1 / 60
+			local life = deer.WOUND.CARCASS_SECONDS
+			local overruns, standingSamples, elapsed, nextOverrun = 0, 0, 0, 0
+			while elapsed < life do
+				if elapsed >= nextOverrun then
+					track.TimePosition = len + 0.04
+					track.IsPlaying = false
+					track.WeightCurrent = 0
+					overruns += 1
+					nextOverrun += 0.5
+				end
+				Boar.stepVisual(handle, dt, { speed = 0 }, deer)
+				-- AFTER EVERY SINGLE TICK, not just the last: a frame of its own death, never the bind pose.
+				if not track.IsPlaying or track.TimePosition < lying or track.TimePosition > len then
+					standingSamples += 1
+				end
+				elapsed += dt
+			end
+			expect(overruns).to.equal(240)
+			expect(overruns > 3).to.equal(true) -- more overruns than task 293's budget of 3, by 237
+			expect(standingSamples).to.equal(0) -- the whole point: 0 standing samples in 120 seconds
+			expect(plays).to.equal(overruns) -- every overrun repaired, not the first three
+			expect(handle.reholds).to.equal(overruns)
+			-- ...AND AT THE END OF THE CARCASS'S LIFE it is still held, on a frame that draws a lying deer.
+			expect(track.IsPlaying).to.equal(true)
+			expect(track.Speed).to.equal(0)
+			expect(track.TimePosition).to.be.near(len - deer.MODEL.HOLD_EPSILON, 1e-6)
+			expect(track.TimePosition >= lying).to.equal(true)
+		end)
+
+		it("holds the hold WITHOUT a budget while the boar's paddle still plays to its end (293b)", function()
+			-- THE OTHER HALF OF THE DISPATCH: the repair must not become a brake on the one death
+			-- clip that is SUPPOSED to advance. The paddle runs 4 s after the fall, and nothing here
+			-- may freeze it before its own end.
+			local m = CONFIG.MODEL
+			local fall, paddleName = Boar.deathClips(CONFIG)
+			local ids = table.clone(m.ANIMATION_IDS)
+			ids[fall] = ids[fall] or 29301
+			ids[paddleName] = ids[paddleName] or 29302
+			local model = table.clone(m)
+			model.ANIMATION_IDS = ids
+			local config = table.clone(CONFIG)
+			config.MODEL = model
+			local fallLen = m.CLIPS[fall].seconds
+			local paddleLen = m.CLIPS[paddleName].seconds
+			local plays = 0
+			local paddleTrack = {
+				Name = paddleName,
+				Length = paddleLen,
+				TimePosition = 0.2,
+				Speed = 1,
+				WeightCurrent = 1,
+				IsPlaying = true,
+				Looped = false,
+			}
+			function paddleTrack:Play(_fade, weight, speed)
+				plays += 1
+				self.IsPlaying = true
+				self.WeightCurrent = weight or 1
+				self.Speed = speed or 1
+			end
+			function paddleTrack:AdjustSpeed(speed)
+				self.Speed = speed
+			end
+			function paddleTrack:Stop() end
+			local handle = carcass293(paddleName, paddleTrack, {
+				deadFor = fallLen + 0.2,
+				visual = Instance.new("Model"),
+			})
+			-- the paddle advances by its own dt, as the Animator advances it
+			local dt = 1 / 60
+			local frames = 0
+			while paddleTrack.TimePosition < paddleLen - 0.3 do
+				paddleTrack.TimePosition += dt
+				Boar.stepVisual(handle, dt, { speed = 0 }, config)
+				frames += 1
+			end
+			expect(frames > 200).to.equal(true) -- it really did run most of a 4 s clip
+			expect(plays).to.equal(0) -- never re-played
+			expect(handle.reholds).to.equal(0) -- and never repaired: nothing was broken
+			expect(paddleTrack.Speed).to.equal(1) -- STILL ADVANCING at its own rate
+			expect(paddleTrack.TimePosition > fallLen).to.equal(true)
+		end)
+
 		it("drives stepVisual through play: the boar paddle advances and is never pinned", function()
 			-- ROUND 2'S FINDING, AS A CASE. `play` starts the paddle with a 0.15 s fade, so one
 			-- Heartbeat later it is playing at `WeightCurrent` ~0.11 -- and the round-2 rule pinned it
