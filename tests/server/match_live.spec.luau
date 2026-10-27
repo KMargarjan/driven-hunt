@@ -261,14 +261,12 @@ return function()
 			-- backups/2026-10-12_task163_intermission_10s.txt,
 			-- backups/2026-10-23_task249_between-drive-gap-31s.txt.
 			expect(Match.CONFIG.INTERMISSION_SECONDS).to.equal(5)
-			-- ...AND THE WAIT ON THE OTHER SIDE OF A DRIVE (task 209). Karen, 2026-10-18: *"time for
-			-- next rount is to long make 8s max"*. This is the number she was reading: the results
-			-- panel's footer says `NEXT DRIVE IN n` and counts THIS down, and it was 25 -- measured
-			-- at 25.22 s on her own path in the live Forest Test before a line was changed. The
-			-- `<=` and not an `==` is the rule she gave ("8s max"), so a later tune down cannot
-			-- quietly fail a spec that only pins a number.
-			expect(Match.CONFIG.SCORE_SECONDS <= 8).to.equal(true)
-			expect(Match.CONFIG.SCORE_SECONDS).to.equal(4)
+			-- ...AND THE WAIT ON THE OTHER SIDE OF A DRIVE (task 209): the results panel's footer
+			-- says `NEXT DRIVE IN n` and counts THIS down. KAREN, 2026-10-27: *"before the next
+			-- round add more 5s after hunt when all animals there"* -- 4 + 5 = 9, and that
+			-- supersedes her 2026-10-18 *"time for next rount is to long make 8s max"* (which is
+			-- why the old `<= 8` bound is gone, task 295).
+			expect(Match.CONFIG.SCORE_SECONDS).to.equal(9)
 			-- TASK 163: the drive signals, and the drive it is signalling is this one.
 			expect(Match.CONFIG.SIGNAL_ENABLED).to.equal(true)
 			expect(Match.CONFIG.BOARS_PER_DRIVE).to.equal(6)
@@ -284,19 +282,21 @@ return function()
 		-- is THREE phases in two modules and no single row says how long it is, which is how it
 		-- reached 31 seconds without anybody choosing 31. This case is that sum, written down:
 		-- cut any one of the three and the total moves, and this is the assertion that notices.
-		it("is 15 seconds from the end of one drive to the start of the next (task 249)", function()
+		it("is 20 seconds from the end of one drive to the start of the next (task 295)", function()
 			local Lobby = require(game:GetService("ReplicatedStorage"):WaitForChild("Lobby"))
 			local results = Match.CONFIG.SCORE_SECONDS
 			local card = Lobby.CONFIG.PADS.NEXT.SECONDS
 			local walk = Match.CONFIG.INTERMISSION_SECONDS
-			expect(results).to.equal(4)
+			expect(results).to.equal(9)
 			expect(card).to.equal(6)
 			expect(walk).to.equal(5)
-			expect(results + card + walk).to.equal(15)
-			-- ...AND THE CARD KEEPS THE BIGGEST SHARE, which is the Director's *"keep the role
-			-- choice usable"*: `T` swaps hunter for beater and `Y` sits the drive out, and both
-			-- are bound only while that card is up.
-			expect(card > results).to.equal(true)
+			-- 15 UNTIL TASK 295, AND 20 BECAUSE KAREN ASKED FOR THE SCENE TO BE LONGER (*"add more
+			-- 5s after hunt when all animals there"*, 2026-10-27): the scene took the +5 and no
+			-- other row was cut to pay for it, so the total she waits is this sum.
+			expect(results + card + walk).to.equal(20)
+			-- THE CARD IS NO LONGER THE BIGGEST SHARE -- the scene is -- but it still outlasts the
+			-- walk, which is what keeps the role choice usable: `T` swaps hunter for beater and `Y`
+			-- sits the drive out, and both are bound only while that card is up.
 			expect(card > walk).to.equal(true)
 		end)
 
