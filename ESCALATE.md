@@ -490,3 +490,37 @@ reading before any of those columns is called working in Karen's place.
 `viewOffsetStuds` on the report) does not exist, so LEAD VIEW is always the configured window,
 printed as a bound. And at a 969 px viewport the board and the open menu overlap by ~190 px; at
 1360 px and wider they do not.
+
+## 2026-10-27 23:32 UTC — Task 298 step B4: round 2 returned FINDINGS, so the step stops
+
+The dispatch says: *"Review: max 2 rounds; FINDINGS on round 2 -> ESCALATE.md and stop."* Round 2's
+verdict is `reviews/task-298/RESULT.md` (3 blocking findings, commit `695eb02f`). They are real and
+none of them is argued against:
+
+1. **A refused request is half applied.** `Range.onRequest` writes each option as it walks
+   `Range.OPTIONS` and returns on the first word it refuses, so `species` is written before `kind`
+   is judged. The menu's own natural click order (ANIMAL = REDDEER, then KIND = MALE from the stale
+   boar list) therefore leaves the trial in exactly the species/kind disagreement round 1 required
+   to be impossible, and — because `RangePanel.selected` prefers `picked` for ever and nothing
+   clears `picked.kind` on a species pick — every later CONFIRM sends the same refused pair.
+   Fix: validate the WHOLE payload before writing any field (build a candidate trial, commit it only
+   if every option passed), and clear `picked.kind` on a species pick as `picked.ammo` is cleared on
+   a gun pick.
+2. **Round 1 finding 2 is narrowed, not closed.** The `pending` slot is never consumed or expired,
+   and `record.shots` cannot move while he is off the mat, so `pending.shots == record.shots` stays
+   true indefinitely: shoot once at the range and miss, walk into a drive, hit a boar, and that hit
+   lands on the range board. Fix: consume the slot on the first report of its shot (or expire it on
+   `resolvedAtServerTime`), and ask `Range.mayShoot` as `onShotResolved` does.
+3. **A case I claimed does not exist.** The round-2 request cites `range_panel.spec` →
+   *"gives both doors back when he walks off the spot"*. It is not in the file: the patch that added
+   it asserted and failed, I re-ran only the half that added the BOARD's case, and I did not check
+   the file before writing the claim. The board half exists; the MENU's closer — the thing that gives
+   `Cursor.requestFree("range")` and `WeaponInput.requestHold("range")` back — is asserted by
+   nothing. That is my error, not the Reviewer's.
+
+**State:** branch `task-298b4-range-menu`, pushed, PR to be opened by the Director against
+`task-298b3-range-gate`. The gate is green at the reviewed code commit
+(`[harness] PASS: 34/34 checks @ edc0f24a… (clean tree) scope=all`), `test2` is N/A
+(`agents.needs_two_player` returns `[]`). The menu and the board are proven working in DEV on screen
+(`.screenshots/298b4-menu3.png`); the three findings above are correctness holes behind that screen.
+Nothing here is merged and nothing is in Karen's place: B6 is still what puts a range in it.
