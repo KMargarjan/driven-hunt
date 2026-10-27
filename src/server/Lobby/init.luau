@@ -1743,6 +1743,7 @@ function Lobby.stop()
 			or player:GetAttribute(Data.NEXT_AT_ATTRIBUTE) ~= nil
 			or player:GetAttribute(Data.NEXT_OUT_ATTRIBUTE) ~= nil
 			or player:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE) ~= nil
+			or player:GetAttribute(Data.PAD_LATE_ATTRIBUTE) ~= nil
 		then
 			player:SetAttribute(Data.LEAVE_AT_ATTRIBUTE, nil)
 			-- ...AND THE LOADING BANNER (task 197). It is the same teardown claim as the deadline
@@ -1761,6 +1762,10 @@ function Lobby.stop()
 			-- ...AND THE LINE THAT SAYS HE LEFT A DRIVE (task 249), for the same teardown claim: an
 			-- owner that stopped must leave no sentence on anybody's screen.
 			player:SetAttribute(Data.LEFT_DRIVE_ATTRIBUTE, nil)
+			-- ...AND THE LINE THAT SAYS HIS PAD CANNOT TAKE HIM (task 287, review round 2 finding 1):
+			-- the same teardown claim, and the only writer that could reconcile it back is
+			-- `setPadLate`, which a stopped owner never reaches.
+			player:SetAttribute(Data.PAD_LATE_ATTRIBUTE, nil)
 			player.RespawnLocation = nil
 		end
 	end

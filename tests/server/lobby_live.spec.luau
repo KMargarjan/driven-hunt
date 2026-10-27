@@ -1199,6 +1199,30 @@ return function()
 			expect(Lobby.padOf(1).state).to.equal(Pads.SIZING)
 		end)
 
+		-- ------------------------- AND `stop` HANDS THE NOTICE BACK (task 287, review round 2
+		-- finding 1). The owner's teardown contract (docs/design/lobby.md item 16): an owner that
+		-- stopped leaves no sentence on anybody's screen -- and `setPadLate`, the only writer that
+		-- could reconcile it to nil, is unreachable once `started` is false.
+		it("hands the pad notice back when the owner stops (task 287)", function()
+			local seen = freshLoop(bin)
+			Lobby.step(2000, {})
+			local man = occupant(58, padAt(1), bin)
+			local mila = occupant(68, Vector3.new(ANCHOR.x, SHELF, ANCHOR.z + 600), bin)
+			seen.inDrive[58] = true
+			seen.inDrive[68] = true
+			Lobby.onPhase("Running")
+			Lobby.step(2001, { man, mila })
+			seen.inDrive[58] = false
+			seen.withdrawn[58] = true
+			Lobby.step(2002, { man, mila })
+			-- THE NOTICE IS UP -- the hunt is still on and his pad cannot take him.
+			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(true)
+			Lobby.stop()
+			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(nil)
+			expect(man:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(nil)
+			expect(man.RespawnLocation).to.equal(nil)
+		end)
+
 		-- ------------------------- ...AND ALONE, THE PAD STARTS A FRESH HUNT (task 287)
 		--
 		-- KAREN, 2026-10-24: *"when I respawn and then go to lobby then go back on pad to hunt I been
@@ -1211,19 +1235,29 @@ return function()
 			local seen = freshLoop(bin)
 			Lobby.step(2000, {})
 			local man = occupant(55, padAt(1), bin)
+			-- A SECOND MAN WHO IS REALLY IN THIS DRIVE, standing out in the wood -- away from the
+			-- pads until the restart has happened, so his pad is measured on the scan that matters
+			-- (review round 2, finding 2: he used to be a bare occupant the fake answered `false` for,
+			-- which made half of this case vacuous).
+			local second = occupant(57, Vector3.new(ANCHOR.x, SHELF, ANCHOR.z + 600), bin)
 			seen.inDrive[55] = true
+			seen.inDrive[57] = true
 			Lobby.onPhase("Running")
-			Lobby.step(2001, { man })
+			Lobby.step(2001, { man, second })
 			expect(Lobby.padOf(1).state).to.equal(Pads.EMPTY)
-			-- SHE PRESSES RESET. Nobody else is in the drive, so its clock is running for nobody.
+			-- BOTH PRESS RESET, mid-drive: the drive lets go of both, so its clock is running for
+			-- nobody and both latches are armed.
 			seen.inDrive[55] = false
 			seen.withdrawn[55] = true
-			Lobby.step(2002, { man })
+			seen.inDrive[57] = false
+			seen.withdrawn[57] = true
+			Lobby.step(2002, { man, second })
 			expect(man:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(true)
+			expect(second:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(true)
 			-- **THE PAD IS A DOOR AND NOT A NOTICE**: it sizes her party on the next scan, exactly as
 			-- it does for anybody standing on it between drives -- and nothing on her screen says
 			-- *"the hunt is still on"*, because it is not.
-			Lobby.step(2003, { man })
+			Lobby.step(2003, { man, second })
 			expect(Lobby.padOf(1).state).to.equal(Pads.SIZING)
 			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(nil)
 			-- ...AND THE PARTY GOES, WHICH IS THE ENROLMENT THE DRIVE TURNS INTO A FRESH ONE. With no
@@ -1234,17 +1268,17 @@ return function()
 			local went = 2003
 			for step = 1, math.ceil(SOLO_SECONDS * CFG.SCAN_HZ) + 2 do
 				went = 2003 + step * 1.5 / CFG.SCAN_HZ
-				Lobby.step(went, { man })
+				Lobby.step(went, { man, second })
 			end
 			expect(#seen.enrolled).to.equal(1)
 			expect(seen.enrolled[1]).to.equal(55)
-			-- ...AND A SECOND MAN WHO RESPAWNED OUT OF THE SAME DRIVE IS NOT LOCKED OUT BY THE DRIVE
-			-- THE FIRST ONE JUST STARTED (review round 1, finding 3). His pad is an ordinary pad the
-			-- moment the drive's door would take him -- there is no lobby-side latch left to
-			-- disagree with it.
-			-- HE WAS WITHDRAWN FROM THE SAME DRIVE, BEFORE THE RESTART, which is the state finding 3
-			-- is about: the bar he carries is the OLD drive's, and the old drive is gone.
-			local second = occupant(57, padAt(2), bin)
+			-- ...AND NOW THE SECOND MAN WALKS ONTO A PAD, AND IT IS NOT LOCKED BY THE DRIVE THE FIRST
+			-- ONE JUST STARTED (review round 1, finding 3). The bar he carries is the OLD drive's and
+			-- the old drive is gone, so the drive's door would take him -- and there is no lobby-side
+			-- latch left to disagree with it. `leftDrive[57]` is STILL ARMED here (no drive has had
+			-- him since), which is exactly what the reverted fix read instead of asking the drive.
+			expect(second:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(true)
+			second.root.Position = padAt(2)
 			Lobby.step(went + 2 / CFG.SCAN_HZ, { man, second })
 			expect(second:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(nil)
 			Lobby.step(went + 4 / CFG.SCAN_HZ, { man, second })
