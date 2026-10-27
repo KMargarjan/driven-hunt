@@ -127,9 +127,9 @@ local builtReady = -1
 -- Karen, 2026-10-27: *"weapons loaded at first in game is rectangles"*. The piece loop below used to
 -- draw the measured BOX for every mesh this client had not downloaded, so the first gun of a COLD
 -- session was a gun made of boxes. A gun that is not there yet is better than a gun that is wrong:
--- while the hold runs, a build that is missing any mesh draws NO pieces at all (the Handle envelope,
--- the hinge groups and the attachments are still made, so nothing downstream loses its anchor), and
--- the download landing rebuilds it through the staleness path task 133 already laid.
+-- while the hold runs, a build that is missing any mesh draws its fallback boxes INVISIBLE (they are
+-- still built, so nothing downstream loses the piece it reads by name), and the download landing
+-- rebuilds it through the staleness path task 133 already laid.
 --
 -- BOUNDED, AND THE FALLBACK IS STILL THERE: after `HOLD_SECONDS` the boxes are drawn exactly as
 -- before, so a mesh that never arrives is a plain dark gun and never an endless empty hand.
@@ -1347,7 +1347,7 @@ local function buildNewGun(config, geometry, row): Model
 	end
 	heldBuild = held
 	stats.meshesHeld = if held then waiting else 0
-	for _, piece in ipairs(if held then {} else geometry.pieces(row)) do
+	for _, piece in ipairs(geometry.pieces(row)) do
 		local mesh = if piece.meshKey ~= nil then meshFor(piece.name) else nil
 		-- PUBLISHED IS NOT DOWNLOADED (task 133). A mesh this client has not got renders as nothing,
 		-- so wearing it means wearing a hole: the measured box below is drawn instead, and the mesh
@@ -1374,7 +1374,11 @@ local function buildNewGun(config, geometry, row): Model
 			made_.Color = piece.color
 			made_.Material = piece.material
 			made_.Reflectance = piece.reflectance or 0
-			made_.Transparency = piece.transparency or 0
+			-- THE FIRST-SHOW HOLD (task 294): the fallback BOX is what Karen called a rectangle, so
+			-- while the hold runs it is built and not SHOWN. Built, because everything downstream
+			-- reads these pieces by name -- measured: dropping them outright left
+			-- `semiauto_client.spec` with no drawn bolt to read, which is a gun no test can see.
+			made_.Transparency = if held then 1 else piece.transparency or 0
 			part = made_
 		end
 		part.Name = piece.name
