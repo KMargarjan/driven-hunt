@@ -220,6 +220,7 @@ local function compose()
 	local baseArming: any = nil
 	local baseDriveOpen: any = nil
 	local baseOwned: any = nil
+	local baseStand: any = nil
 	baseArming = Weapon.setArmingPolicy(Range.armingOver(function(player)
 		return if baseArming ~= nil then baseArming(player) == true else Shotgun.CONFIG.shouldArm(player)
 	end))
@@ -229,7 +230,11 @@ local function compose()
 	baseOwned = Weapon.setEntitlementProvider(Range.entitlementOver(function(player)
 		return if baseOwned ~= nil then baseOwned(player) else nil
 	end))
-	print("[RangeBoot] the range's two relaxations and the four guns on loan are composed")
+	-- THE THIRD RELAXATION (round 3): without it the drive's stand refuses every shot on the mat.
+	baseStand = Weapon.setStandProvider(Range.standOver(function(player)
+		return if baseStand ~= nil then baseStand(player) else nil
+	end))
+	print("[RangeBoot] the range's three relaxations and the four guns on loan are composed")
 end
 
 -- ITS OWN HEARTBEAT, because this world's root has none. One clock for the range, throttled to

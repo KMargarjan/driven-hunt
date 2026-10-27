@@ -25,6 +25,7 @@ local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local Ballistics = require(ReplicatedStorage:WaitForChild("Ballistics"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
+local Rules = require(ServerScriptService:WaitForChild("Weapon"):WaitForChild("Rules"))
 -- ONLY TO PUT THE PROVIDERS BACK (`weapon_shot.spec`'s reason): `MatchBoot` wired them.
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local Range = require(ServerScriptService:WaitForChild("Range"))
@@ -1216,6 +1217,36 @@ return function()
 			expect(record.shots).to.equal(2)
 			expect(record.hits).to.equal(1)
 			expect(record.zones.chest).to.equal(1)
+			Range.stop()
+		end)
+
+		it("hands back NO STAND AREA on the mat, so the drive's stand cannot refuse a range shot", function()
+			-- MEASURED IN DEV, 2026-10-27: a real `FireRequest` from the mat came back
+			-- `refused=off-stand notice=NOT IN YOUR STAND`, because the drive had dealt the lone
+			-- player a stand 1200 studs away. Design 7.4's *"no stand -> no rule"* is false whenever
+			-- a drive is also running, which is Karen's place.
+			Range.stop()
+			local fake = newFakeBoars()
+			local _, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			local mat = RangeData.matPosition(ANCHOR, 1, LAYOUT)
+			local onMat = manOn(mat, 113)
+			local away = manOn(mat + Vector3.new(600, 0, 0), 114)
+			local driveArea = { centre = Vector3.new(0, 0, 0), radius = 24 }
+			local provider = Range.standOver(function(_player)
+				return driveArea
+			end)
+
+			-- ON THE MAT: no area, and `Rules.outsideStand` answers FALSE for a nil area by its own
+			-- first line -- which is the whole mechanism, asserted through the shipped function.
+			expect(provider(onMat)).to.equal(nil)
+			expect(Rules.outsideStand(mat, provider(onMat))).to.equal(false)
+			-- OFF THE MAT: the drive's own area, untouched, and the rule still bites.
+			expect(provider(away)).to.equal(driveArea)
+			expect(Rules.outsideStand(mat, provider(away))).to.equal(true)
+			expect(Rules.outsideStand(Vector3.new(0, 0, 0), provider(away))).to.equal(false)
+			-- WITH NO BASE PROVIDER nothing is invented: still no area.
+			expect(Range.standOver(nil)(away)).to.equal(nil)
 			Range.stop()
 		end)
 

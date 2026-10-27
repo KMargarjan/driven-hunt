@@ -321,6 +321,22 @@ function Range.driveOpenOver(base: ((any) -> boolean?)?): (any) -> boolean?
 	end
 end
 
+-- THE STAND, AND IT IS A THIRD RELAXATION THE DESIGN DID NOT ASK FOR. Design 7.4 lists `off-stand`
+-- as "no change" on the reasoning *"No stand -> NO AREA MEANS NO RULE"* -- which is FALSE in any
+-- world where a drive is also running, and that is Karen's: the lobby range sits beside it.
+-- MEASURED in DEV, 2026-10-27, with every other gate open: a real `FireRequest` from the mat came
+-- back `refused=off-stand notice=NOT IN YOUR STAND`, because the drive had dealt the lone player a
+-- stand 1200 studs away. On the mat this hands back NO AREA, so `Rules.outsideStand` answers false
+-- by its own first line; off the mat the base provider's answer is untouched.
+function Range.standOver(base: ((any) -> any)?): (any) -> any
+	return function(player: any): any
+		if Range.mayShoot(player) then
+			return nil
+		end
+		return if base ~= nil then base(player) else nil
+	end
+end
+
 -- ENTITLEMENT: the loan, through the SHIPPED path and never a second ammo counter -- `Weapon.grant`
 -- asks `Shop.startFor(row, owned)`, and `ammo.unlimited` is what fills the `unlimited` pockets the
 -- reducer already reads. Off the mat the base answer is handed back untouched.
