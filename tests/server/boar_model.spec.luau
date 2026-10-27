@@ -1168,6 +1168,38 @@ return function()
 			expect(w.CARCASS_REASSERT_SECONDS < w.CARCASS_SECONDS).to.equal(true)
 		end)
 
+		it("puts the held death pose back whenever a carcass has lost it (task 293)", function()
+			-- KAREN, 2026-10-27, playing her build: *"deer error remains, after kill stands"*, with a
+			-- screenshot of an upright hind. MEASURED on the real hind rig in a DEV Play session,
+			-- against the DRAWN pose (`Bone.TransformedWorldCFrame`, never the track's own word): the
+			-- rig's drawn height is **1.02 studs** while the death clip is held at its last frame and
+			-- **4.94 studs** -- its standing bind pose -- the instant that non-looped track runs past
+			-- its end and STOPS. The deer kinds show it and the boar hides it: the deer package
+			-- publishes no `Death_Paddle_L/R`, so the fall itself is the clip that is held.
+			--
+			-- ASKED EVERY TICK, because what breaks the hold is a RACE: `freezeReach` predicts the
+			-- next step from the LAST frame's `dt`, so one longer frame steps clean past the end
+			-- before `shouldFreeze` is asked -- which is why Karen's defect is intermittent.
+			--
+			-- ONE RULE FOR EVERY SPECIES (the boar's three standing carcasses were patched one kind
+			-- at a time): the only inputs are "is this animal dead", "was a clip held", and what that
+			-- track is doing now.
+			-- A HELD TRACK THAT IS STILL PLAYING AT FULL WEIGHT IS LEFT ALONE.
+			expect(Boar.shouldRehold(true, "deathLeft", true, 1)).to.equal(false)
+			-- THE DEFECT: dead, a clip was held, and the track has STOPPED. Known-bad before today.
+			expect(Boar.shouldRehold(true, "deathLeft", false, 0)).to.equal(true)
+			-- ...AND PLAYING AT WEIGHT 0 IS THE SAME PICTURE: a rig nothing is weighted onto draws
+			-- its bind pose exactly as a stopped one does.
+			expect(Boar.shouldRehold(true, "deathLeft", true, 0)).to.equal(true)
+			expect(Boar.shouldRehold(true, "deathPaddleLeft", true, 0.49)).to.equal(true)
+			-- A LIVE ANIMAL IS NEVER TOUCHED, whatever its gait track is doing.
+			expect(Boar.shouldRehold(false, "deathLeft", false, 0)).to.equal(false)
+			expect(Boar.shouldRehold(false, nil, false, 0)).to.equal(false)
+			-- NOR IS A CARCASS THAT NEVER HELD A CLIP: the BOX did its falling (`boxFalls`), and
+			-- laying it down again is task 120's carcass buried upside down.
+			expect(Boar.shouldRehold(true, nil, false, 0)).to.equal(false)
+		end)
+
 		it("decides to anchor on stillness, and on the backstop only when it is not falling", function()
 			-- The pure rule, because a spec cannot make a physics body topple on command. The thresholds
 			-- are 30x apart on purpose: a resting carcass measured 0.000-0.003 on both and one still

@@ -59,6 +59,7 @@ Boar.carcassIsStill = Body.carcassIsStill
 Boar.shouldAnchorCarcass = Body.shouldAnchorCarcass
 Boar.boxFalls = Body.boxFalls
 Boar.shouldReassert = Body.shouldReassert
+Boar.shouldRehold = Body.shouldRehold
 -- ...AND THE TWO THE DEATH BACKSTOP IS MADE OF (task 249), re-exported for the same reason as the
 -- pair above: they are pure, and `boar_model.spec` asks them its questions with no boar in the world.
 Boar.deathDrawn = Body.deathDrawn
@@ -5397,6 +5398,8 @@ function Runtime:animationOf(id: string)
 				clip = entry.body.clip,
 				heldClip = entry.body.heldClip,
 				rateWrites = entry.body.rateWrites,
+				-- how many times the held death pose was PUT BACK (task 293)
+				reholds = entry.body.reholds,
 				collapsed = entry.body.collapsed,
 				tracks = tracks,
 			}
