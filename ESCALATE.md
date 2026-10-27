@@ -1,3 +1,48 @@
+# ESCALATE -- task 287: round 2 returned FINDINGS, so I stop (the dispatch's rule). For the Director.
+
+**Builder, 2026-10-27 08:12 UTC.** Branch `task-287-pad-fresh-hunt`. Code commit `9d343ffa`; the
+verdict was written against `4502baaa` (the request commit, paperwork only after the code).
+
+## THE GATE IS COMPLETE AT ONE COMMIT
+
+```
+[harness]  PASS: 34/34 checks @ 9d343ffaafd54fc836f33f9d02dfc42bf6ec9e51 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 9d343ffaafd54fc836f33f9d02dfc42bf6ec9e51 (clean tree)
+```
+One-player server 2408/0/0, client 612/0/0. Two-player server 2408/0/0, shooter 612/0/0, driver
+606/0/0 (`<runs-dir>/test2-287b1.log`). Both live doors ran, each in the harness that can reach it:
+`task287 SOLO branch ... drive 2 -> 3 ... restarts 0 -> 1, economy true paid 1 -> 2` and
+`task287 MULTI-PLAYER branch (still in the drive: Player2): refused=true enrolled=false drive 2
+(unchanged) ... rejoinsRefused 0 -> 1, paid 1 (unchanged)`.
+
+## 1. THE SECOND `test2` RUN DID NOT HAPPEN -- INSTRUMENT, NOT CODE
+
+`run-test2.sh 287b2` and `287b3`, back to back, both ended:
+`FAIL A 2-player local test appeared within 180 s (0 new studio(s) beside the editor)` --
+`[harness2] FAIL: 12/13 checks @ 9d343ffa (clean tree)`, `exit=1 took=190s studios_after=1`. The
+Start click did not land. Studio was in **Edit** with exactly **one** instance before each try
+(`studio_mcp.py state`), and I opened and closed nothing. The first run, at the same commit, passed
+36/36. **Most likely the Test tab's Players spinner is no longer 2** -- it is set by hand and the
+Director set it for `287a`; `start_stop_play` cannot ask for a player count, so F7 alone cannot fix
+it. It needs one look at that spinner.
+
+## 2. ROUND 2 RETURNED **FINDINGS** (2), AND THE DISPATCH SAYS STOP
+
+`reviews/task-287/RESULT.md`, verdict at `4502baaa`:
+1. `Lobby.stop` never hands `DHPadLate` back, so a stopped owner leaves `LobbyLate` on a screen with
+   no writer left to clear it -- the row task 249 added to that same loop for `DHLeftDrive`. Fix is
+   one line in the `touched` loop plus the `or` guard.
+2. `lobby_live.spec`'s *"hands the man alone in a dead drive back to a pad"* -- the second withdrawn
+   man (57) is never written into `seen.withdrawn` or `seen.inDrive`, so that half of claim 8 passes
+   with the finding-3 fix reverted. It is a vacuous arrangement, and the Reviewer is right.
+
+**Both are real; neither is in the shipped game's solo or multi-player behaviour** (finding 1 is a
+teardown path, finding 2 is a test arrangement). I have NOT touched them: round 2 is the last round
+the dispatch allows, so the Director decides whether to authorise a third
+(`DIRECTOR_MAX_ROUNDS=3`, CLAUDE.md's one-extra-round rule) or to take the two fixes himself.
+
+---
+
 # ESCALATE -- task 287. **NEEDS KAREN: the two-player click, and it now blocks the REVIEW too.**
 
 **Builder, 2026-10-27 07:22 UTC.** Branch `task-287-pad-fresh-hunt`, code commit `55a978fb`. The work is
