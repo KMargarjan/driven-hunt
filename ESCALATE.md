@@ -1,3 +1,39 @@
+# ESCALATE -- task 287. **NEEDS KAREN**: the two-player run. For the Director.
+
+**Builder, 2026-10-27.** Branch `task-287-pad-fresh-hunt`. Code commit
+`c26c375c9030cf86577a816239fa1d49e0bae050`. The task is BUILT and the one-player gate is PASS twice
+over; what is missing is `test2`, which no tool on this machine can start.
+
+**WHY IT CANNOT BE WORKED AROUND.** `tools/studio_mcp.py`'s own measurement: StudioMCP's
+`start_stop_play` takes `is_start` and `studio_id` and NOTHING else, so there is no way to ask for a
+player count. The mode prints the clicks and waits 180 s for the windows.
+
+**THE EXACT CLICKS, and they are needed TWICE (the dispatch asks for two consecutive clean runs,
+because the multi-player path is a race with a live roster):**
+
+1. Studio on **Driven Hunt DEV**, in **Edit** mode, Rojo connected, at `c26c375c`.
+2. In a terminal: `python tools/studio_mcp.py test2`
+3. Studio -> **Test** tab -> **Clients and Servers** -> **Players: 2** -> **Start**.
+4. Leave the windows alone until the harness says so, then press **Cleanup** in the Test tab.
+5. Repeat 2-4 once more. Both lines must read
+   `[harness2] PASS: n/n checks @ c26c375c9030cf86577a816239fa1d49e0bae050 (clean tree)`.
+
+**WHAT THE ROUND DOES NOT NEED IT FOR.** The change touches `src/server/Match/`, so it is in
+`TWO_PLAYER_PATHS` and the MERGE gate wants the pair. The REVIEW round does not: CLAUDE.md accepts a
+`scope=auto:...` line for a round and then asks for no `[harness2]` line at all, and this task has
+one at the same commit (`reviews/task-287/REQUEST.md`). So the review ran; **the merge is the
+Director's call**, exactly as the dispatch put it (*"if test2 cannot run tonight, say so; the
+Director decides"*).
+
+Lines in hand, both clean-tree and both naming the code commit:
+
+```
+[harness] PASS: 34/34 checks @ c26c375c9030cf86577a816239fa1d49e0bae050 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ c26c375c9030cf86577a816239fa1d49e0bae050 (clean tree) scope=auto:economy,hud,lobby,match
+```
+
+---
+
 # ESCALATE -- task 282, at the hard stop. For the Director.
 
 **Builder, 2026-10-27.** Branch `task-282-boar-hitbox`. **Item 2's cause is measured and named;
