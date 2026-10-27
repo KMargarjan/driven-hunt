@@ -1,66 +1,75 @@
 # Task 284 -- the boar's hitbox fits the drawn boar
 
 Task: 284
-Round: 0 (PLAN only -- the plan is committed before any `src/` edit, CORE QUALITY step 0)
+Round: 1
 Base: 3aaa1556
-Code commit: (none -- no harness line was produced; see `ESCALATE.md`, 2026-10-27, task 284)
+Code commit: e71ddef477e9b0501be6c636639a9eada380ee19
 
-## STATUS AT THE HARD STOP (150 min)
+`[harness] PASS: 34/34 checks @ e71ddef477e9b0501be6c636639a9eada380ee19 (clean tree) scope=all`
 
-**NOT A REVIEW REQUEST.** The fit is built and MET -- AIR 0.0 % on all four kinds from all four
-directions, measured by the same probe as the before (`reviews/task-284/MEASURED.md`). What is NOT
-done is the five spec files that encode the OLD contract and the harness run, so there is no
-`Code commit:` and no review round. `ESCALATE.md` names each of the five and what it asserts today.
+`test2` N/A: no `TWO_PLAYER_PATHS` file is touched. `git diff --name-only 3aaa1556..e71ddef4` is
+`src/server/Boar/Body.luau`, `src/server/Boar/init.luau`, `src/shared/Report/init.luau`,
+`tools/studio_mcp.py`, eight `tests/server/*.spec.luau` and `tests/client/weapon_client.spec.luau`
+(a comment). None of them is in that list.
 
-## PLAN
+## WHAT CHANGED
 
-**(a) REAL LIFE.** A shot that passes beside, under or over an animal does not wound it, and a shot
-that crosses its chest does. `docs/research/2026-09-25-hit-zones.md` is the note; the boar's own
-anatomy is the drawn mesh of `Assets.KEYS.boarMale`, whose silhouette is a deep barrel 1.401 studs
-wide against a collision trunk 2.00 wide, with a mane crest at y +1.757 against a trunk top of
-+1.500. Karen, 2026-10-24: *"aim in empty space to get hit in head neck or heart like in real
-life"*; 2026-10-26: *"wrong I hit the chest shows outside"*.
+The boar gets the deer's shape: **fifteen measured volumes in five zones per kind**, a real `body`
+part, and `TRUNK_HITTABLE = false`. Every box is fitted to that kind's own drawn mesh by raycasting
+its three silhouettes; `legendary` is the male's boxes x `scale`, `female` and `cub` carry their own
+absolute rows. `Report.CONFIG.SILHOUETTE` is re-derived as the union per zone. Seven spec files that
+asserted the old contract are rewritten and one new file asserts the new one.
 
-**(b) MEASURED NOW** (`reviews/task-282/MEASURED.md` 3, probe `reviews/task-282/probes/282-fit2.luau`,
-0.1-stud grid, four directions, two passes with the mesh's `CanQuery` toggled):
-**49.5 %-59.2 % of every ray that meets a hittable boar meets NO ANIMAL**, every kind, every
-direction (FLANK floor 53.7 %). And the drawn back is a HOLE on two kinds: male FLANK 2.2 % /
-FRONT 3.9 %, legendary 1.8 % / 3.6 % of the visible animal answers nothing, because the crest
-reaches +1.757 against `ZoneHead`'s top of +1.650. Re-measured with my own copy of that probe at
-the start of this task, so before and after are the same instrument.
+## CLAIMS, AND HOW TO VERIFY EACH
 
-**(c) TARGET.** **AIR 0.0 % and MISS 0.0 % on the dorsal band, on all four kinds, from the flank,
-from above, from the front and from behind.** AIR 0 because a kill in empty space is the defect;
-the dorsal band at 0 because the top of the back is where a boar is shot from a stand. Residual
-under-coverage elsewhere (hoof flare, brisket edge, tail) is REPORTED as a located defect per
-L-122, never as a score: a box is widened only to where the animal provably is.
+1. **AIR IS 0 ON ALL FOUR KINDS, where it was 49.5 %-59.2 %.** `reviews/task-284/MEASURED.md` 1 and
+   3 carry both runs of `reviews/task-284/probes/284-fit.luau` -- the same probe, before and after,
+   0.1-stud grid, four directions, two casts with the mesh's `CanQuery` toggled between them so
+   neither cast sees the other's parts.
+2. **The suite proves it too, independently of that probe.** `tests/server/boar_hitbox.spec.luau`,
+   case *"never answers a ray that misses the drawn animal"*: it sweeps the flank through
+   `Weapon.Cast.world` and fails if any ray answers a zone without crossing the mesh. Its notes in
+   the harness output read `0 in the air` for male, female, cub and legendary.
+3. **FAIL FIRST.** With `src/` checked out at 3aaa1556 and this branch's specs, the same suite is
+   `[tests:server] FAIL: 2360 passed, 40 failed, 0 skipped, 40 errors` -- named: `boar_hitbox.spec:68`
+   (`TRUNK_HITTABLE` is nil), `:91` (the old head box reaches z -2.810, outside the drawn mesh's
+   -2.750), `boar_hit.spec:137`, `boar_behaviour_live.spec:465`. Reproduce:
+   `git checkout 3aaa1556 -- src/ && python tools/studio_mcp.py test`.
+4. **Every box is inside the drawn animal, and that is measured, not asserted.**
+   `boar_hitbox.spec`'s *"gives every zone several measured boxes, all strictly inside the drawn
+   male"* checks |x| and z against the measured envelope; the per-kind cases check each box's own
+   centre crosses the mesh.
+5. **The air beside, under and over answers NOTHING, and the trunk is in the way of those rays.**
+   `boar_hitbox.spec`'s *"answers NO hit beside the animal, under its belly, over its rump and past
+   its snout"* -- each of the four points is measured as air by a mesh cast and measured as inside
+   the trunk, so a miss cannot come from a ray that sailed past. `boar_zones.spec`'s
+   *"answers NOTHING between the legs, under the belly, or past the tail"* is the same rule.
+6. **`legendary` is the male x 1.35 and that factor was re-measured** (L-020): 1.891/1.401 = 1.3498,
+   4.397/3.257 = 1.3500, 7.425/5.500 = 1.3500 (`MEASURED.md` 1). It therefore carries no `zones` row;
+   `boar_kinds.spec` asserts both halves -- the legendary scales, the cub does not.
+7. **The dorsal band is `body` and not `chest`**, task 281's rule: `boar_hitbox.spec`'s
+   *"covers the drawn back line with a band that is not the chest"*, and `boar_zones.spec`'s
+   *"the TOP of that back is body"*.
+8. **The seven old-contract specs say what they assert now.** The commit message of `4eec5885` lists
+   them one by one, old contract -> new.
+9. **The deer's numbers did not move.** `git diff 3aaa1556..e71ddef4 -- src/server/Boar/init.luau`
+   touches no line of `SPECIES.reddeer`; `deer_hitbox.spec`'s own measurements are unchanged.
+10. **What is NOT covered is listed, not scored** (L-122): `MEASURED.md` 4 names the hoof below
+    y -1.06, the 0.12-stud strip at the top of the crest, the snout's tip, the tail past z +1.91, a
+    0.12-stud slot at z -1.41..-1.29, and the 0.04-0.12 joins between the rear slabs, with per-kind
+    cell counts. Covered flank: male 74.8 %, female 65.3 %, cub 59.5 %, legendary 76.3 % against the
+    stag's shipped 65.7 % and the calf's 50.8 %.
 
-**(d) LEVER.** The boxes are data in `Boar.CONFIG.ZONES` and (per kind) `Boar.CONFIG.KINDS.<kind>.zones`.
-The code that WRITES them onto the animal:
+## WHAT I COULD NOT VERIFY
 
-```
-src/server/Boar/Body.luau:261:			zonePart.Size = box.size
-src/server/Boar/Body.luau:271:			zonePart.CFrame = trunk.CFrame * CFrame.new(box.offset)
-src/server/Boar/Body.luau:272:			zonePart:SetAttribute("HitZone", zone)
-src/server/Boar/Body.luau:137:		for index, box in ipairs(source.boxes or { source }) do
-src/server/Boar/Body.luau:173:		trunkHittable = config.ZONES.TRUNK_HITTABLE ~= false,
-src/server/Boar/Body.luau:349:	if geometry.trunkHittable then
-src/server/Boar/Body.luau:350:		part:SetAttribute("HitZone", "body")
-src/server/Boar/Body.luau:352:		part:SetAttribute("ZonesOnly", true)
-```
-
-So the writers all exist and nothing new is built: `Body.buildZones` already makes one part per box
-(task 280) and `Body.create` already answers `ZonesOnly` when `TRUNK_HITTABLE` is false. This task is
-the deer's shape applied to the boar -- a fifth `body` zone part, per-kind fitted boxes, the trunk out
-of every ray -- plus `Report.CONFIG.SILHOUETTE` re-derived and the five old-contract specs rewritten.
-
-**(e) HOW IT WILL BE MEASURED AFTER.** `reviews/task-284/probes/284-fit.luau` -- the same probe as (b),
-same grid, same four directions, run on all four kinds before and after.
-
-## THE DIRECTOR'S DECISION THIS BUILDS
-
-A fifth `body` zone part (boxes along the barrel plus a dorsal band), every box fitted to its own
-kind's drawn mesh, `TRUNK_HITTABLE = false`. `legendary` = the male's fit x 1.35 (`row.scale`, which
-`Body.kindGeometry` already applies to a kind with no `zones` row); `female` and `cub` get their own
-absolute rows. The deer's numbers do not move. The hit card's rectangles come from the PICTURES
-(task 283) and do not move.
+- **No shot has been fired at a boar on Karen's path with this hitbox.** The dispatch gives that to
+  the Director's `onray.py` after this review. The frames I did take are
+  `<runs-dir>/284/zone-*.png` and `side-*.png`, one per kind, from the player's eye at 12 studs with
+  the zone volumes drawn; the staging probe's self-check reports **15 of 15 parts placed, worst drift
+  0.0001 studs** on every kind (V280), so the animal is fit to shoot at. Looked at: the trunk box is
+  visibly longer than the boar at both ends and reaches below its hooves, and the tinted volumes sit
+  on the animal, not in that empty box.
+- `Report.CONFIG.SILHOUETTE`'s two dorsal `body` boxes stand above the trunk's own top, so
+  `Shape.dot` clamps their dots to the back line. On the hit CARD that line is the picture's measured
+  back (task 283) and is right; on the report panel's drawn boar it is the top edge. Measured and
+  noted by `report_silhouette.spec`, queued rather than fixed in this task.
