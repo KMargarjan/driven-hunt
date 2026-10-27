@@ -16,7 +16,7 @@ local Camera = require(scripts:WaitForChild("Camera"))
 local WeaponClient = require(scripts:WaitForChild("Weapon"))
 local AssetFetch = require(ReplicatedStorage:WaitForChild("AssetFetch"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
-local Display = require(scripts:WaitForChild("Hud")).Display
+local Display = require(scripts:WaitForChild("Hud"):WaitForChild("ShopDisplay"))
 
 return function()
 	describe("the shared mesh-fetch gate (task 294)", function()
