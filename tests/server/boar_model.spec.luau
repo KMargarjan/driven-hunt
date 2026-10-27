@@ -1363,58 +1363,71 @@ return function()
 			expect(track.TimePosition >= lying).to.equal(true)
 		end)
 
-		it("holds the hold WITHOUT a budget while the boar's paddle still plays to its end (293b)", function()
-			-- THE OTHER HALF OF THE DISPATCH: the repair must not become a brake on the one death
-			-- clip that is SUPPOSED to advance. The paddle runs 4 s after the fall, and nothing here
-			-- may freeze it before its own end.
-			local m = CONFIG.MODEL
-			local fall, paddleName = Boar.deathClips(CONFIG)
-			local ids = table.clone(m.ANIMATION_IDS)
-			ids[fall] = ids[fall] or 29301
-			ids[paddleName] = ids[paddleName] or 29302
-			local model = table.clone(m)
-			model.ANIMATION_IDS = ids
-			local config = table.clone(CONFIG)
-			config.MODEL = model
-			local fallLen = m.CLIPS[fall].seconds
-			local paddleLen = m.CLIPS[paddleName].seconds
-			local plays = 0
-			local paddleTrack = {
-				Name = paddleName,
-				Length = paddleLen,
-				TimePosition = 0.2,
+		it("the fixed window freezes the death BEFORE its end, where the dt one let it over (293b)", function()
+			-- THIS CASE BITES ON ITEM 1 and it is the only one that does: revert `Body.freezeWindow` to
+			-- the old `max(HOLD_EPSILON, |speed| * dt)` and it fails. Two ticks, no loop, no budget in it.
+			--
+			-- THE SHAPE OF THE FAULT: a 16 ms frame gives the old window 0.03 s, so a clip sitting
+			-- 0.04 s from its end is NOT frozen -- and the next frame is a 45 ms one, which steps it
+			-- clean past `Length`. A non-looped track that passes its end STOPS and the rig draws its
+			-- bind pose: the deer standing (1.02-1.33 studs held, 3.85-4.94 standing, on the real hind).
+			-- The fixed 0.05 s window catches the same frame, because a window of width W catches every
+			-- frame whose step is <= W.
+			local deer = Boar.speciesConfig("reddeer", CONFIG)
+			local fall = Boar.deathClips(deer)
+			local len = deer.MODEL.CLIPS[fall].seconds
+			local plays, stops = 0, 0
+			local track = {
+				Name = fall,
+				Length = len,
+				TimePosition = len - 0.04, -- further out than the old 0.03 window reaches
 				Speed = 1,
 				WeightCurrent = 1,
 				IsPlaying = true,
 				Looped = false,
 			}
-			function paddleTrack:Play(_fade, weight, speed)
+			function track:Play(_fade, weight, speed)
 				plays += 1
 				self.IsPlaying = true
 				self.WeightCurrent = weight or 1
 				self.Speed = speed or 1
+				self.TimePosition = 0
 			end
-			function paddleTrack:AdjustSpeed(speed)
+			function track:AdjustSpeed(speed)
 				self.Speed = speed
 			end
-			function paddleTrack:Stop() end
-			local handle = carcass293(paddleName, paddleTrack, {
-				deadFor = fallLen + 0.2,
-				visual = Instance.new("Model"),
-			})
-			-- the paddle advances by its own dt, as the Animator advances it
-			local dt = 1 / 60
-			local frames = 0
-			while paddleTrack.TimePosition < paddleLen - 0.3 do
-				paddleTrack.TimePosition += dt
-				Boar.stepVisual(handle, dt, { speed = 0 }, config)
-				frames += 1
+			function track:Stop() end
+			-- WHAT THE ANIMATOR DOES BETWEEN TWO HEARTBEATS, and the one rule that matters: a non-looped
+			-- track that passes its end stops there.
+			local function advance(dt: number)
+				if track.Speed <= 0 or not track.IsPlaying then
+					return
+				end
+				track.TimePosition += dt * track.Speed
+				if track.TimePosition >= len then
+					track.TimePosition = len
+					track.IsPlaying = false
+					track.WeightCurrent = 0
+					stops += 1
+				end
 			end
-			expect(frames > 200).to.equal(true) -- it really did run most of a 4 s clip
-			expect(plays).to.equal(0) -- never re-played
-			expect(handle.reholds).to.equal(0) -- and never repaired: nothing was broken
-			expect(paddleTrack.Speed).to.equal(1) -- STILL ADVANCING at its own rate
-			expect(paddleTrack.TimePosition > fallLen).to.equal(true)
+			local handle = carcass293(fall, track, { deadFor = len - 0.04, visual = Instance.new("Model") })
+			expect(handle.heldClip).to.equal(nil) -- the freeze has not run yet: this is the branch under test
+			-- TICK 1, a 16 ms frame. The window must reach 0.04 s back from the end.
+			Boar.stepVisual(handle, 1 / 60, { speed = 0 }, deer)
+			expect(track.Speed).to.equal(0) -- frozen HERE, which the old dt window did not do
+			expect(handle.heldClip).to.equal(fall)
+			-- TICK 2, a 45 ms frame -- the one that used to carry it over the end.
+			advance(0.045)
+			Boar.stepVisual(handle, 0.045, { speed = 0 }, deer)
+			expect(stops).to.equal(0) -- the track never reached its end, so it never stopped
+			expect(track.IsPlaying).to.equal(true)
+			expect(handle.reholds).to.equal(0) -- and nothing had to be repaired: the cause is gone
+			expect(plays).to.equal(0)
+			-- THE FRAME IS WRITTEN, NOT INHERITED: `holdFrame`, clamped below the end.
+			expect(track.TimePosition).to.be.near(Boar.holdFrame(nil, len, deer), 1e-6)
+			expect(track.TimePosition < len).to.equal(true)
+			expect(handle.heldAt).to.be.near(Boar.holdFrame(nil, len, deer), 1e-6)
 		end)
 
 		it("drives stepVisual through play: the boar paddle advances and is never pinned", function()

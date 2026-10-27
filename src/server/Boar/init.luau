@@ -87,8 +87,8 @@ Boar.shouldAdjustRate = Body.shouldAdjustRate
 -- rows are `rbxasset://` engine files and every other row is a number, which is exactly the trap
 -- this function exists for.
 Boar.soundUri = Body.soundUri
--- ...and how wide the freeze window is this frame, which decides whether a death holds its last
--- frame or runs past it into the rest pose.
+-- ...and how wide the freeze window is -- the SAME width every frame since task 293b -- which
+-- decides whether a death holds its last frame or runs past it into the bind pose.
 Boar.freezeWindow = Body.freezeWindow
 -- ...and task 116's three: which footstep loop a speed asks for, the pitch jitter band, and the
 -- shape of the dying twitch. Pure, for the same reason as every export above it -- a spec cannot
