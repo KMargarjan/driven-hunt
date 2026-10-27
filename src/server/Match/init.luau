@@ -146,6 +146,8 @@ Match.CONFIG = {
 	-- one he spends respawned, free and walking -- keeps the largest share of what is left.
 	-- IT IS THE SMALLEST OF THE THREE ANYWAY, which is a change to what Karen asked for in task 163,
 	-- and it is hers to judge on the next playtest: one row moves it.
+	-- THE TOTAL IS 20 SINCE TASK 295 (9 + 6 + 5): she asked for the results scene to be LONGER
+	-- (*"add more 5s after hunt"*, 2026-10-27) and no other row was cut to pay for it.
 	-- backups/2026-10-11_task158_intermission_20s.txt, backups/2026-10-12_task163_intermission_10s.txt,
 	-- backups/2026-10-23_task249_between-drive-gap-31s.txt.
 	INTERMISSION_SECONDS = 5, -- K's budget, the Director's split
@@ -158,14 +160,11 @@ Match.CONFIG = {
 	-- scene, and that hold IS this row -- so it is the one wait between two drives that she spends
 	-- doing nothing at all.
 	--
-	-- ...AND 4 SINCE TASK 249, because the whole gap was still too long. KAREN, 2026-10-23: *"a bit
-	-- to long to wait for game we need to reduce seconds"*. 8 + 8 + 15 = 31 s became 4 + 6 + 5 = 15
-	-- (the Director's total), and THIS row takes the deepest cut of the three: the results scene is
-	-- the one wait she spends standing still with a table on the screen, which is exactly what she
-	-- has now asked to shorten twice. The table itself does not go away -- it is the drive's own
-	-- report and `Tab` still opens it whenever he likes.
-	-- backups/2026-10-23_task249_between-drive-gap-31s.txt.
-	SCORE_SECONDS = 4, -- K, 2026-10-23; 8 from 2026-10-18, 25 from task 32
+	-- **9 SINCE TASK 295.** KAREN, 2026-10-27: *"before the next round add more 5s after hunt when
+	-- all animals there"* -- 4 + 5, and it supersedes her 2026-10-18 *"make 8s max"* for THIS phase.
+	-- Nothing else in the gap moved, so drive to drive is 9 + 6 + 5 = 20 s (was 15 after task 249).
+	-- backups/2026-10-27_task295_score-seconds-4s.txt.
+	SCORE_SECONDS = 9, -- K, 2026-10-27; 4 from 2026-10-23, 8 from 2026-10-18, 25 from task 32
 	-- THE SECOND WAY A DRIVE CAN END (task 159). Karen: *"Timer or when all beaters cross line of
 	-- hunters"*. The clock still ends every drive; this can only ever end one EARLIER, and only when
 	-- there is at least one real beater in it -- `Phase.beatersThrough` is the whole rule.

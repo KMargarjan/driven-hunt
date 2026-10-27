@@ -266,23 +266,28 @@ return function()
 
 	describe("the numbers", function()
 		it("waits the between-drive length the Director's brief names", function()
-			-- THE TWO ARE NO LONGER THE SAME NUMBER, AND TASK 249 IS WHY. Task 246's brief said
-			-- *"reuse the existing between-drive length"*, so this card's wait was
-			-- `Match.CONFIG.SCORE_SECONDS` -- 8 and 8. Karen, 2026-10-23: *"a bit to long to wait
-			-- for game we need to reduce seconds"*, and the Director's 15-second budget splits
-			-- 4 + 6 + 5 across the three phases: this card keeps the BIGGEST share because the
-			-- role choice (`T`) and the way out (`Y`) are bound only while it is up, and the
-			-- results scene takes the deepest cut. So the relation asserted here is the one that
-			-- is still true and still load-bearing.
-			local Match = require(ServerScriptService:WaitForChild("Match"))
+			-- THE TWO ARE NO LONGER THE SAME NUMBER. Task 246's brief said *"reuse the existing
+			-- between-drive length"*, so this card's wait was `Match.CONFIG.SCORE_SECONDS` -- 8 and
+			-- 8; task 249 cut the scene to 4 and task 295 took it to 9 (Karen, 2026-10-27: *"add
+			-- more 5s after hunt when all animals there"*), so the card is now the SHORTER of the
+			-- two and this card's 6 is unchanged by either.
+			--
+			-- `SECONDS > SCORE_SECONDS` IS NOT ASSERTED ANY MORE, AND IT WAS MEASURED FIRST (task
+			-- 295): the two phases cannot overlap, so nothing on the player's path reads them
+			-- against each other. The card is up EXACTLY while the countdown is armed, and
+			-- `Next.step` arms it only once nobody is `held` -- which is the `free` edge that ENDS
+			-- the scene (`WAITING: the results scene is still up`, above, is that case). The old
+			-- relation was a share-of-the-budget statement, not a mechanism; the two that ARE
+			-- mechanisms are Valve's clamp below and `ARM_TIMEOUT_SECONDS` in the next case.
 			expect(CFG.SECONDS).to.equal(6)
-			expect(CFG.SECONDS > Match.CONFIG.SCORE_SECONDS).to.equal(true)
 			-- ...AND INSIDE VALVE'S OWN CLAMP FOR THE SAME GAP (`mp_bonusroundtime`, 5..15), which is
 			-- the note's source B and the only external number this task has.
 			expect(CFG.SECONDS >= 5).to.equal(true)
 			expect(CFG.SECONDS <= 15).to.equal(true)
 		end)
 
+		-- STILL LOAD-BEARING AT 9 (task 295): this is the rescue for a party nothing freed, and it
+		-- must land AFTER the scene or it would arm the card over Karen's score table. 12 > 9.
 		it("bounds the arming by a timeout longer than the whole results scene", function()
 			local Match = require(ServerScriptService:WaitForChild("Match"))
 			expect(CFG.ARM_TIMEOUT_SECONDS > Match.CONFIG.SCORE_SECONDS).to.equal(true)

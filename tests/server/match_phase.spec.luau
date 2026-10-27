@@ -305,6 +305,22 @@ return function()
 	end)
 
 	describe("scoring, and the next drive", function()
+		-- KAREN, 2026-10-27: *"before the next round add more 5s after hunt when all animals
+		-- there"*. The LIVE length, driven through the real state machine: 8.9 s after the drive
+		-- ended the animals are still laid out, and the scene ends at 9.
+		-- It supersedes her 2026-10-18 *"time for next rount is to long make 8s max"*.
+		it("keeps the results scene up for the whole of the live SCORE_SECONDS (task 295)", function()
+			local cfg = config({ SCORE_SECONDS = Match.CONFIG.SCORE_SECONDS })
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg))
+			local endOfDrive = cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS
+			state = (Phase.step(state, { kind = "tick" }, endOfDrive, cfg))
+			expect(state.phase).to.equal("Scoring")
+			expect((Phase.step(state, { kind = "tick" }, endOfDrive + 8.9, cfg)).phase).to.equal("Scoring")
+			expect((Phase.step(state, { kind = "tick" }, endOfDrive + 9, cfg)).phase).to.equal("Assigning")
+		end)
+
 		it("goes back to Assigning with players, and to Waiting without", function()
 			local cfg = config()
 			local state = ready(cfg)

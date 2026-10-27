@@ -2170,8 +2170,8 @@ Lobby.CONFIG = {
 			-- HOW LONG THE PARTY WAITS AT THE LODGE between drives. It was **8**, the number the
 			-- Director's task 246 brief named (*"reuse the existing between-drive length"*),
 			-- because `Match.CONFIG.SCORE_SECONDS` was 8 after Karen's *"make 8s max"* of
-			-- 2026-10-18. **That row is 4 since task 249 and these two are no longer the same
-			-- number** (round 1, note): the three phases now split one 15-second budget, and this
+			-- 2026-10-18. **That row is 9 since task 295 (4 between) and these two are no longer
+			-- the same number** (round 1, note): the three phases now split one 15-second budget, and this
 			-- card keeps the biggest share for the reason written below. It is still inside
 			-- Valve's own clamp for the same gap -- `mp_bonusroundtime`, *"Time after round win
 			-- until round restarts"*, default 15, clamped 5..15
@@ -2187,7 +2187,10 @@ Lobby.CONFIG = {
 			-- THE ROLE CHOICE IS ON THIS CARD -- `T` swaps hunter for beater and `Y` sits the
 			-- drive out -- and a control nobody has time to press is a control that is not there
 			-- (`ROLE.KEY_HINT`'s own rule). The results scene and the intermission carry the rest.
-			-- backups/2026-10-23_task249_between-drive-gap-31s.txt.
+			-- TASK 295 TOOK THE TOTAL TO 20 (9 + 6 + 5): the scene took Karen's +5 and this row did
+			-- not move, so it is no longer the biggest share -- the role choice still has 6 s.
+			-- backups/2026-10-23_task249_between-drive-gap-31s.txt,
+			-- backups/2026-10-27_task295_score-seconds-4s.txt.
 			SECONDS = 6,
 			-- WHEN THE COUNTDOWN IS ARMED ANYWAY. The deadline is normally set on the first scan
 			-- on which the whole party is out of the drive and no longer held -- which is the
@@ -2198,9 +2201,10 @@ Lobby.CONFIG = {
 			-- is hazard 1 of the note: one member stuck `held` or still a participant -- a
 			-- character that never loads, a drive that never leaves `Scoring` -- would otherwise
 			-- stop the loop for everybody with nothing on screen to say so. 12 s is longer than
-			-- the whole results scene (4 since task 249) plus a respawn, and shorter than a
-			-- player's patience. It is a BOUND and not a wait -- shortening the scene only makes
-			-- the margin bigger -- so the task 249 cut leaves it where it is.
+			-- the whole results scene (9 since task 295) and shorter than a player's patience.
+			-- It is a BOUND and not a wait: the countdown normally arms on the `free` edge that ENDS
+			-- the scene, and this only rescues a party nothing freed. 12 > 9 is what keeps the
+			-- rescue outside the scene in the worst case, and `lobby_next.spec` asserts that.
 			ARM_TIMEOUT_SECONDS = 12,
 			-- IS HE PRESSING TOO OFTEN? `PADS.REQUEST_MIN_INTERVAL`'s own number and its own
 			-- reason: a FORGERY guard, not a game rule, because a person cannot press a button

@@ -1,0 +1,19 @@
+ARCHIVED VALUE (rule 7): Match.CONFIG.SCORE_SECONDS = 4
+
+Was: SCORE_SECONDS = 4, -- K, 2026-10-23; 8 from 2026-10-18, 25 from task 32
+Now: SCORE_SECONDS = 9  (task 295, 2026-10-27)
+
+WHY IT MOVED. Karen, 2026-10-27, playing her build: "before the next round add more 5s
+after hunt when all animals there". The results scene -- the animals laid out, the lights,
+the score table, footer NEXT DRIVE IN n -- is the Scoring phase, and this row is its whole
+length. 4 + 5 = 9.
+
+WHAT IT SUPERSEDES. Her 2026-10-18 "time for next rount is to long make 8s max" (which is
+why the spec held SCORE_SECONDS <= 8) and the deepest cut of task 249's 15-second budget
+after her 2026-10-23 "a bit to long to wait for game we need to reduce seconds". The newer
+sentence wins for THIS phase only: nothing else in the gap was touched, so the whole gap
+between two drives goes 4 + 6 + 5 = 15 s -> 9 + 6 + 5 = 20 s, and the total is the
+Director's to report to her.
+
+Lineage: 25 (task 32) -> 8 (task 209, 2026-10-18) -> 4 (task 249, 2026-10-23) -> 9 (task 295).
+Earlier note: backups/2026-10-23_task249_between-drive-gap-31s.txt
