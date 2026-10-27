@@ -23,6 +23,8 @@ local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
+-- ONLY TO PUT THE PROVIDERS BACK (`weapon_shot.spec`'s reason): `MatchBoot` wired them.
+local Match = require(ServerScriptService:WaitForChild("Match"))
 local Range = require(ServerScriptService:WaitForChild("Range"))
 local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
@@ -787,6 +789,7 @@ return function()
 		end)
 
 		it("is TRUE on the mat and FALSE one stride off it", function()
+			Range.stop() -- a sibling case that failed before its own stop must not decide this one
 			local _, now = newClock()
 			expect(startRange(newFakeBoars(), now)).to.equal(true)
 			local mat = RangeData.matPosition(ANCHOR, 1, LAYOUT)
@@ -803,6 +806,7 @@ return function()
 
 	describe("the two relaxations, composed", function()
 		it("arms a man on the mat whose drive refuses him, and leaves everybody else's answer alone", function()
+			Range.stop()
 			local _, now = newClock()
 			expect(startRange(newFakeBoars(), now)).to.equal(true)
 			local onMat = manAt(RangeData.matPosition(ANCHOR, 1, LAYOUT))
@@ -836,6 +840,7 @@ return function()
 		end)
 
 		it("lends all four guns and the endless shells at a spot, and NOTHING off it", function()
+			Range.stop()
 			local _, now = newClock()
 			expect(startRange(newFakeBoars(), now)).to.equal(true)
 			local onMat = manAt(RangeData.matPosition(ANCHOR, 1, LAYOUT))
@@ -853,8 +858,12 @@ return function()
 			local owned = Range.entitlementOver(nil)(onMat)
 			expect(type(owned)).to.equal("table")
 			expect(#Shop.loadoutFrom(Weapons.ids(), Weapons.PRIMARY, owned)).to.equal(#Weapons.ORDER)
+			-- EVERY GUN BUT THE PRIMARY IS *OWNED*; the primary is in the loadout by the shipped
+			-- rule and has no row to own (*"The primary is never taken away"*, `Shop.loadoutFrom`).
 			for _, id in ipairs(Weapons.ORDER) do
-				expect(Shop.ownsWeapon(owned, id)).to.equal(true)
+				if id ~= Weapons.PRIMARY then
+					expect(Shop.ownsWeapon(owned, id)).to.equal(true)
+				end
 			end
 			-- ...AND THE LOAN IS A LOAN: what he had bought is still there, and nothing he had not
 			-- bought came with it.
@@ -879,6 +888,7 @@ return function()
 		-- KAREN, 2026-10-27: *"amunition is endless"*. MEASURED over 30 shots through the shipped
 		-- reducer, with the same 30 pulls WITHOUT the loan as the control.
 		it("never spends a shell over 30 shots at a spot -- and spends them without the loan", function()
+			Range.stop()
 			local _, now = newClock()
 			expect(startRange(newFakeBoars(), now)).to.equal(true)
 			local owned = Range.entitlementOver(nil)(manAt(RangeData.matPosition(ANCHOR, 1, LAYOUT)))
@@ -986,15 +996,36 @@ return function()
 			local connection = Weapon.ShotResolved:Connect(function(shot)
 				table.insert(seen, shot)
 			end)
+			-- THE RULES THAT ARE NOT ABOUT THIS CASE, out of the way for two shots and put back
+			-- afterwards -- `weapon_shot.spec`'s own idiom, naming the same functions.
+			Weapon.setTargetProvider(nil)
+			Weapon.setStandProvider(nil)
+			Weapon.setLicenceProvider(nil)
+			Weapon.setSafetyLineProvider(nil)
+			local wasDriveOpen = Weapon.setDriveOpenProvider(function(): boolean
+				return true
+			end)
+			local function putBack()
+				connection:Disconnect()
+				Weapon.setCast(nil)
+				Weapon.setTargetProvider(Match.classifyTarget)
+				Weapon.setStandProvider(Match.standAreaFor)
+				Weapon.setSafetyLineProvider(Match.lineIsUnsafe)
+				Weapon.setDriveOpenProvider(wasDriveOpen)
+			end
 
 			-- 1. A MISS: the cast answers nothing, so the pellets fly to the ammo's range cap.
 			Weapon.setCast(function()
 				return nil
 			end)
-			Weapon.onFireRequest(subject, { origin = origin, direction = direction })
+			local missWhy = Weapon.onFireRequest(subject, { origin = origin, direction = direction })
 			local deadline = os.clock() + 3
 			while #seen < 1 and os.clock() < deadline do
 				task.wait(0.05)
+			end
+			if #seen < 1 then
+				putBack()
+				TestKit.note("range ShotResolved: the miss was refused -- " .. tostring(missWhy))
 			end
 			expect(#seen).to.equal(1)
 			local miss = seen[1]
@@ -1028,8 +1059,7 @@ return function()
 
 			local ready = readyShooter()
 			if ready == nil then
-				connection:Disconnect()
-				Weapon.setCast(nil)
+				putBack()
 				target:Destroy()
 				TestKit.note("range ShotResolved: the miss was proven; the gun could not be reloaded for the hit.")
 				expect(#seen).to.equal(1)
@@ -1040,8 +1070,7 @@ return function()
 			while #seen < 2 and os.clock() < deadline do
 				task.wait(0.05)
 			end
-			connection:Disconnect()
-			Weapon.setCast(nil)
+			putBack()
 			target:Destroy()
 
 			expect(#seen).to.equal(2)
