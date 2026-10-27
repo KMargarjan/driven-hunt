@@ -461,3 +461,32 @@ first, but with NO after-frame of a real carcass. The Director's Forest Test pro
 NEEDS THE DIRECTOR: a sanctioned way for a Builder to produce one real kill in DEV (a dev remote, a
 flagged "kill nearest" hook, or a documented working shot route). Three sessions in a row have now
 spent time on this plumbing.
+
+## 2026-10-27 — Task 298 step B4: two proofs the step could not produce
+
+**1. NEEDS-DIRECTOR: the live scenario of design 11.3 cannot run with `RANGE` at its default.**
+The flag is read by the composition root (`src/server/RangeBoot.server.luau`: `if not Range.ENABLED
+then return end`), so with the flag off NOTHING is built — no lane, no prompt, no remote listener —
+and a client spec has no parameter that can undo that: `Range.start(seams)` takes `enabled`, but the
+BOOT never calls it. CLAUDE.md's "a flagged path must be reachable by parameter as well as by flag"
+is satisfied for the MODULE and not for the WORLD.
+Three ways out, all the Director's call: (a) flip `RANGE`'s default to on now that the gate is green
+with it off; (b) let the harness set the override for a named scenario (today `test` REFUSES to start
+while any override is set, by design); (c) a Studio-only boot branch that builds the range for a
+scenario. Until one is chosen, the panel's open path is proven by `range_panel.spec` through the
+shipped `setPrompt` seam, which is what design 11.3 itself says a spec can do.
+
+**2. NOT PROVEN: a range hit.** B3's own handover said "a range hit is the hunt's hit: NOT PROVEN --
+nobody has seen a range target die", and B4 did not change that. Four real shots sent down the lane
+through the gun's own `Shotgun.Remotes.FireRequest` (the same remote the trigger sends), aimed at the
+live target, produced NO resolved shot and no board row: `Range.stats().shots` stayed 0 and the board
+read "no shots yet". The cause was not established before this session's deadline — the shots may
+have been refused by the weapon (arming, the drive gate, the safety line) or never resolved. The
+board's SHOTS / HITS / per-zone / MISS GAP columns are therefore proven by `range.spec` and NOT on
+screen. The chain `FireRequest -> ShotResolved -> Range.onShotResolved -> the board` needs a live
+reading before any of those columns is called working in Karen's place.
+
+**3. Queued, not blocking:** the per-shot measured view lag of design 9.2 (`viewLagSeconds` /
+`viewOffsetStuds` on the report) does not exist, so LEAD VIEW is always the configured window,
+printed as a bound. And at a 969 px viewport the board and the open menu overlap by ~190 px; at
+1360 px and wider they do not.
