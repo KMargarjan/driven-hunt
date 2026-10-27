@@ -1,3 +1,47 @@
+# ESCALATE -- task 287: round 3 returned FINDINGS, so I stop (the dispatch's rule). For the Director.
+
+**Builder, 2026-10-27 09:11 UTC.** Branch `task-287-pad-fresh-hunt`. Code commit `96d932c9`; the
+verdict is against `0a3f679d` (the request commit; only paperwork after the code).
+
+## THE GATE IS COMPLETE, THREE LINES, ONE COMMIT
+
+```
+[harness]  PASS: 34/34 checks @ 96d932c9898a2435f3eb82e0faca3f4bc2201cd9 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 96d932c9898a2435f3eb82e0faca3f4bc2201cd9 (clean tree)   (287r3a)
+[harness2] PASS: 36/36 checks @ 96d932c9898a2435f3eb82e0faca3f4bc2201cd9 (clean tree)   (287r3b)
+```
+Two CONSECUTIVE clean two-player runs, no failure of any kind in any of the three. The Players
+spinner was read off `<runs-dir>/287r3-spinner.png` first (mode `Server`, count `2`), which is why
+both started on the first try after the two that did not.
+
+## ROUND 2'S TWO FINDINGS ARE CLOSED, AND SHOWN FAILING FIRST
+
+With the finding-3 fix reverted to the lobby's own latch:
+`[harness] FAIL: 32/34 @ 96d932c9 (DIRTY TREE (1 paths)) scope=all` --
+`lobby_live.spec:1219` *"Expected true, got nil"* (the new teardown case's live notice) and
+`lobby_live.spec:1261` *"Expected sizing, got empty"* (the solo case's pad). Both pass at the commit.
+
+## ROUND 3 RETURNED **FINDINGS** (2), BOTH ABOUT THE PAY-OUT I ADDED IN ROUND 2
+
+`reviews/task-287/RESULT.md`:
+1. **The restart pay-out is REPEATABLE** -- `payDrive`'s only guard is `driveNumber <= paidUpTo`,
+   and a restart pays drive N and then raises the number, so a man who respawns and steps on a pad
+   again and again is a coin faucet. (My live case saw `paid 1 -> 2` once and never twice.)
+2. **A restart from `Assigning` into `Assigning` moves the drive number without the owner's
+   per-drive work**, because every per-drive reset in `dispatch` hangs off a PHASE edge -- and that
+   is the branch the live evidence actually took (`phase Assigning -> Assigning`).
+
+**Both are real and both are mine** (round 2's finding-2 fix, and the `Assigning` restart branch
+from round 1). Neither is in Karen's own sentence -- the solo restart and the multi-player refusal
+are proven live in both harnesses -- but finding 1 is an economy hole and must not merge as it is.
+I have NOT touched them: round 3 is the last round. **The Director decides**: a fourth round under
+`DIRECTOR_MAX_ROUNDS=4` with the authorisation recorded here, or he takes the two fixes. The
+shortest honest fix for both, if it helps: pay through the same `Scoring` edge the loop already has
+(enter `Scoring` on the restart instead of `Assigning`), which closes the faucet and gives the
+per-drive work its edge back.
+
+---
+
 # ESCALATE -- task 287: round 2 returned FINDINGS, so I stop (the dispatch's rule). For the Director.
 
 **Builder, 2026-10-27 08:12 UTC.** Branch `task-287-pad-fresh-hunt`. Code commit `9d343ffa`; the
