@@ -117,6 +117,19 @@ local function fakes(bin: Instance)
 			isHeld = function(userId: number): boolean
 				return seen.held[userId] == true
 			end,
+			-- WOULD A PAD STEP START A FRESH DRIVE FOR HIM (task 287)? THE REAL RULE, over the same
+			-- set the reader above it answers from -- `Phase.mayRestart`'s own question: is there
+			-- anybody in the drive but him? A stub that answered a constant would let the two cases
+			-- below share one branch, and they are two branches: a man ALONE gets a door, a man with
+			-- other men still hunting gets a notice.
+			mayRestart = function(userId: number): boolean
+				for id, inside in pairs(seen.inDrive) do
+					if inside and id ~= userId then
+						return false
+					end
+				end
+				return true
+			end,
 			place = function(player: any, cframe: CFrame)
 				table.insert(seen.placed, { userId = player.UserId, cframe = cframe })
 			end,
@@ -1114,37 +1127,101 @@ return function()
 		-- KAREN, 2026-10-25: *"when I respawn and then go to lobby then go back on pad to hunt I been
 		-- transfarred to same hunt where I was previuosly with less than min remaining I was hunter but
 		-- then time pass and done it's a bug"*.
-		it("keeps a man a live drive let go of off the truck pads (task 261)", function()
+		-- **A SECOND MAN IS IN THE DRIVE, AND THAT IS WHAT THIS CASE IS NOW ABOUT** (task 287). Task
+		-- 261 wrote it with one occupant, because then the only rule was *the pad is never his door
+		-- back in*; since task 287 the roster decides which of two things the pad is, so this case
+		-- states the MULTI-PLAYER half and the case below it states the solo half. The second
+		-- participant is real -- `seen.inDrive[66]`, which is the set `mayRestart` answers from --
+		-- and not a stub, or both cases would be the same branch.
+		it("keeps a man a live drive let go of off the pads while others hunt (tasks 261, 287)", function()
 			local seen = freshLoop(bin)
 			Lobby.step(2000, {})
 			-- HE IS IN THE DRIVE, STANDING ON A PAD -- which already does nothing, because a man the
-			-- drive has is left out of every pad list.
+			-- drive has is left out of every pad list. MILA IS IN IT TOO, out in the wood.
+			local man = occupant(55, padAt(1), bin)
+			local mila = occupant(66, Vector3.new(ANCHOR.x, SHELF, ANCHOR.z + 600), bin)
+			seen.inDrive[55] = true
+			seen.inDrive[66] = true
+			Lobby.onPhase("Running")
+			Lobby.step(2001, { man, mila })
+			expect(Lobby.padOf(1).state).to.equal(Pads.EMPTY)
+			-- HE PRESSES RESET: the drive lets go of him, mid-drive. Mila is still hunting.
+			seen.inDrive[55] = false
+			Lobby.step(2002, { man, mila })
+			expect(man:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(true)
+			-- ...AND THE PAD HE IS STANDING ON STILL DOES NOTHING. Before task 261 it sized a party,
+			-- counted down and handed him back into the hunt he had just left, forty seconds from the
+			-- horn. The door he is asking at is refused as well, so the countdown cannot be started by
+			-- a forged request either.
+			Lobby.step(2003, { man, mila })
+			expect(Lobby.padOf(1).state).to.equal(Pads.EMPTY)
+			expect(Lobby.onPadRequest(man, { pad = 1, size = 1 }, 2003.1).ok).to.equal(false)
+			Lobby.step(2004, { man, mila })
+			expect(#seen.enrolled).to.equal(0)
+			-- ...**AND NOW HIS SCREEN SAYS WHY** (task 287). The Playtester's measurement of this
+			-- rectangle was *"no feedback at all"*: the pad is dead and nothing said that the hunt
+			-- was still on or that he goes with the next one. ONE FACT OUT, and the Hud owns the
+			-- words (`Objective.CONFIG.TEXT.LobbyLate`).
+			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(true)
+			-- IT IS ABOUT THE RECTANGLE AND NOT ABOUT THE MAN: Mila has not left anything, and a man
+			-- who steps OFF reads nothing either.
+			expect(mila:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(nil)
+			man.root.Position = Vector3.new(ANCHOR.x, SHELF, ANCHOR.z + 600)
+			Lobby.step(2004.5, { man, mila })
+			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(nil)
+			man.root.Position = padAt(1)
+			Lobby.step(2004.6, { man, mila })
+			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(true)
+			-- HE IS NOT WAITING FOR NOTHING: the latch is what puts him in the next drive's party --
+			-- both of them, which is what the line on his screen promises -- and the pads are his
+			-- again the moment this drive is over.
+			Lobby.onPhase("Scoring")
+			Lobby.step(2005, { man, mila })
+			expect(#Lobby.nextDrive().members).to.equal(2)
+			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(nil)
+			-- ...AND THE PAD ASKS HIM ON THAT SAME SCAN: outside the live window he is an occupant like
+			-- anybody else, and `Pads.step` takes an EMPTY pad with somebody on it to `sizing`.
+			expect(Lobby.padOf(1).state).to.equal(Pads.SIZING)
+		end)
+
+		-- ------------------------- ...AND ALONE, THE PAD STARTS A FRESH HUNT (task 287)
+		--
+		-- KAREN, 2026-10-24: *"when I respawn and then go to lobby then go back on pad to hunt I been
+		-- transferred to same hunt ... with less than min remaining ... I need to be same role and
+		-- from beginning"*. Task 261 gave her the next drive's party instead of the running one, which
+		-- is right while other men are hunting and is a woman standing alone in a lobby watching the
+		-- clock of a drive nobody is in. The DRIVE decides (`Match.mayRestart` -> `Phase.mayRestart`,
+		-- `match_phase.spec`); this case is the LOBBY half -- that the rectangle is a door again.
+		it("hands the man alone in a dead drive back to a pad, and enrols him (task 287)", function()
+			local seen = freshLoop(bin)
+			Lobby.step(2000, {})
 			local man = occupant(55, padAt(1), bin)
 			seen.inDrive[55] = true
 			Lobby.onPhase("Running")
 			Lobby.step(2001, { man })
 			expect(Lobby.padOf(1).state).to.equal(Pads.EMPTY)
-			-- HE PRESSES RESET: the drive lets go of him, mid-drive.
+			-- SHE PRESSES RESET. Nobody else is in the drive, so its clock is running for nobody.
 			seen.inDrive[55] = false
 			Lobby.step(2002, { man })
 			expect(man:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(true)
-			-- ...AND THE PAD HE IS STANDING ON STILL DOES NOTHING. Before this task it sized a party,
-			-- counted down and handed him back into the hunt he had just left, forty seconds from the
-			-- horn. The door he is asking at is refused as well, so the countdown cannot be started by
-			-- a forged request either.
+			-- **THE PAD IS A DOOR AND NOT A NOTICE**: it sizes her party on the next scan, exactly as
+			-- it does for anybody standing on it between drives -- and nothing on her screen says
+			-- *"the hunt is still on"*, because it is not.
 			Lobby.step(2003, { man })
-			expect(Lobby.padOf(1).state).to.equal(Pads.EMPTY)
-			expect(Lobby.onPadRequest(man, { pad = 1, size = 1 }, 2003.1).ok).to.equal(false)
-			Lobby.step(2004, { man })
-			expect(#seen.enrolled).to.equal(0)
-			-- HE IS NOT WAITING FOR NOTHING: the latch is what puts him in the next drive's party, and
-			-- the pads are his again the moment this drive is over.
-			Lobby.onPhase("Scoring")
-			Lobby.step(2005, { man })
-			expect(#Lobby.nextDrive().members).to.equal(1)
-			-- ...AND THE PAD ASKS HIM ON THAT SAME SCAN: outside the live window he is an occupant like
-			-- anybody else, and `Pads.step` takes an EMPTY pad with somebody on it to `sizing`.
 			expect(Lobby.padOf(1).state).to.equal(Pads.SIZING)
+			expect(man:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(nil)
+			-- ...AND THE PARTY GOES, WHICH IS THE ENROLMENT THE DRIVE TURNS INTO A FRESH ONE. With no
+			-- pick at all: the timeout defaults her to 1, which is the unattended path.
+			local went = 2003
+			for step = 1, math.ceil(SOLO_SECONDS * CFG.SCAN_HZ) + 2 do
+				went = 2003 + step / CFG.SCAN_HZ
+				Lobby.step(went, { man })
+			end
+			expect(#seen.enrolled).to.equal(1)
+			expect(seen.enrolled[1]).to.equal(55)
+			-- THE LATCH IS DOWN THE MOMENT A DRIVE HAS HER, so the line and the bar lift together.
+			Lobby.step(went + 1 / CFG.SCAN_HZ, { man })
+			expect(man:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(nil)
 		end)
 
 		-- SIT OUT PUTS HIM BACK ON THE PADS (TASKS.md row 249b, and item 1 is what gives it teeth).

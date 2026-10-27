@@ -136,6 +136,11 @@ local lastNextRequestAt: { [number]: number } = {}
 -- him, and `forget` / `stop` empty both.
 local leftDrive: { [number]: boolean } = {}
 local wasInDrive: { [number]: boolean } = {}
+-- IS HE STANDING ON A PAD THAT CANNOT TAKE HIM? (task 287.) MEASURED by `occupancy`, which is the
+-- one function that knows which rectangle a man is on, and WRITTEN by `stepPlayer`, which is the one
+-- writer of per-player attributes -- the same split `padOf` already has, and for the same reason: a
+-- second measurement would be a second answer to *"where is he standing"*.
+local padLate: { [number]: boolean } = {}
 -- THE FOUR PADS (task 182), indexed by pad. `Pads.empty(index)` each, rebuilt by `start`.
 local pads: { [number]: any } = {}
 -- WHERE EACH PAD IS, computed ONCE at build time off `Pads.centreFor` -- the one place that
@@ -536,6 +541,16 @@ local function setLeftDrive(player: any, left: boolean)
 	end
 end
 
+-- ...AND WHETHER THE PAD HE IS STANDING ON IS REFUSING HIM BECAUSE THE HUNT IS STILL ON (task 287).
+-- `true` or nil, never `false`, for `setNextOut`'s stated reason.
+local function setPadLate(player: any, late: boolean)
+	local wanted = if late then true else nil
+	if player:GetAttribute(Data.PAD_LATE_ATTRIBUTE) ~= wanted then
+		player:SetAttribute(Data.PAD_LATE_ATTRIBUTE, wanted)
+		touched[player.UserId] = player
+	end
+end
+
 -- WHAT THE PARTY IS DOING, for the specs, the boot's log line and a console probe. A COPY of the
 -- lists and never the state itself, which is `Lobby.padOf`'s rule: nothing outside this owner may
 -- write a membership.
@@ -694,6 +709,12 @@ local function stepPlayer(
 	end
 	wasInDrive[userId] = inDrive
 	setLeftDrive(player, leftDrive[userId] == true)
+	-- ...AND WHY HIS PAD DID NOTHING, WHEN IT DID NOTHING (task 287). Measured by `occupancy` on this
+	-- same scan: he is on the rectangle, this drive let go of him, and other men are still in it -- so
+	-- the pad cannot start a fresh hunt and must not hand him the running one. ONE LINE ON HIS SCREEN
+	-- INSTEAD OF A SILENT RECTANGLE, which is the Playtester's measurement of this case
+	-- (*"the pads gave no feedback at all"*).
+	setPadLate(player, padLate[userId] == true)
 	-- THE NEXT DRIVE'S CARD, RECONCILED ON EVERY SCAN (task 246), **before** the `inDrive` return
 	-- below and for the role wish's own stated reason: a man the drive has just taken is exactly the
 	-- man whose card has to come DOWN, and a rule that ran only for men standing in the lobby would
@@ -820,6 +841,13 @@ end
 -- answers ONE question -- who is re-elected to pick when the first man walks off -- and it is dropped
 -- the moment he is somewhere else, so it can never claim he has been standing there since a previous
 -- hunt.
+-- WOULD A PAD STEP START A FRESH DRIVE FOR HIM? (task 287.) The drive's own answer, through an
+-- OPTIONAL reader -- `isHeld`'s and `assignedTeam`'s arrangement: a world with no drive, or one
+-- that injects nothing, answers false and nothing restarts.
+local function restartOk(userId: number): boolean
+	return world.mayRestart ~= nil and world.mayRestart(userId) == true
+end
+
 local function occupancy(occupants: { any }, now: number): ({ { any } }, { [number]: number })
 	local lists: { { any } } = {}
 	local padOf: { [number]: number } = {}
@@ -846,10 +874,25 @@ local function occupancy(occupants: { any }, now: number): ({ { any } }, { [numb
 		-- HE IS NOT WAITING FOR NOTHING. The latch is what puts him in the NEXT drive's party when this
 		-- one ends (task 246, `dismissPending` reads `leftDrive`), and `setLeftDrive` has already told
 		-- his screen so. So the pad is not his door any more: the party he is already in is.
-		local barred = live and leftDrive[userId] == true
-		if world.inDrive(userId) ~= true and not barred then
+		-- ...UNLESS THERE IS NOBODY LEFT IN THE DRIVE, AND THEN HIS PAD STARTS A FRESH ONE (task
+		-- 287). KAREN, 2026-10-24: *"I need to be same role and from beginning"*. The rule is the
+		-- drive's and is asked of it (`Match.mayRestart` -> `Phase.mayRestart`), so this owner does
+		-- not hold a second opinion about who is in a hunt; `world.mayRestart` is OPTIONAL, like
+		-- `isHeld` and `assignedTeam`, and a world that answers nothing restarts nothing.
+		--
+		-- HE IS MEASURED ON THE RECTANGLE EITHER WAY, which is what makes the refusal visible: a
+		-- barred man standing on a pad that cannot take him is latched for `setPadLate` and then
+		-- dropped from the list, so the pad stays empty exactly as it did before this task and his
+		-- screen says why.
+		local late = false
+		if world.inDrive(userId) ~= true then
 			index = Pads.indexAt(rootOf(player), anchor :: Vector3, cfg)
+			if index ~= nil and live and leftDrive[userId] == true and not restartOk(userId) then
+				late = true
+				index = nil
+			end
 		end
+		padLate[userId] = late
 		if index == nil then
 			arrived[userId] = nil
 		else
@@ -1684,6 +1727,7 @@ function Lobby.stop()
 	table.clear(lastNextRequestAt)
 	-- TASK 249: the withdrawal latch, both rows. A stopped owner knows nothing about who left what.
 	table.clear(leftDrive)
+	table.clear(padLate)
 	table.clear(wasInDrive)
 	-- EXACTLY WHAT IT WROTE AND NOTHING ELSE: the players this module actually touched, not every
 	-- player on the server.
@@ -1752,6 +1796,8 @@ function Lobby.forget(userId: number)
 	-- userId would read somebody else's sentence.
 	leftDrive[userId] = nil
 	wasInDrive[userId] = nil
+	-- ...AND TASK 287'S ROW, for the same reason: it is the latch's own screen fact.
+	padLate[userId] = nil
 	returnedAt[userId] = nil
 	spawnIndex[userId] = nil
 	touched[userId] = nil

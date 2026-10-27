@@ -1138,6 +1138,9 @@ local stats = {
 	-- seconds left on it, so it is a count and not a belief. In the normal path the lobby keeps him
 	-- off the pad, so a session where this rises is one where something came in through another door.
 	rejoinsRefused = 0,
+	-- ...AND HOW MANY DRIVES WERE STARTED AGAIN FROM THE TOP BY A PAD (task 287). Karen's defect is
+	-- this number staying 0 while she steps onto a lit pad and reads 2:31 of somebody else's drive.
+	restarts = 0,
 	-- HOW MANY BEATERS WERE WALKED BEHIND THE HUNTERS' LINE AFTER CROSSING IT (task 261, item 2).
 	-- Karen's defect is this number staying 0 while she wanders among the stands, so it is a count
 	-- and not a belief; a drive with no human beater in it reports 0, and so does one where nobody
@@ -3964,6 +3967,15 @@ function Match.isParticipant(userId: number): boolean
 	return state.participants[userId] ~= nil
 end
 
+-- WOULD A PAD STEP START A FRESH DRIVE FOR HIM? (task 287.) The lobby's read, beside `isParticipant`:
+-- true only for a man this live drive let go of (`Phase.barredFromRejoin`) with nobody else left in
+-- it (`Phase.mayRestart`) -- which is exactly when `Match.enrol` below answers with a restart instead
+-- of a refusal. The lobby asks it to decide whether his pad is a door or a notice, so the two cannot
+-- disagree: one predicate, read twice.
+function Match.mayRestart(userId: number): boolean
+	return Phase.barredFromRejoin(state, withdrawnFrom[userId]) and Phase.mayRestart(state, userId)
+end
+
 -- ONE PLAYER, INTO THE DRIVE. Everything after the dispatch is today's code: `Waiting` ->
 -- `Assigning` once `MIN_PLAYERS` is met and the markers are complete.
 --
@@ -3986,6 +3998,23 @@ function Match.enrol(player: Player): boolean
 	-- 246). The lobby keeps him off the pad in the first place (`Lobby`'s own `leftDrive` latch), so
 	-- this is the owner's guarantee and not his experience of it.
 	if Phase.barredFromRejoin(state, withdrawnFrom[userId]) then
+		-- ...UNLESS THERE IS NOBODY LEFT IN IT, AND THEN THE PAD STARTS A FRESH ONE (task 287).
+		-- KAREN, 2026-10-24: *"when I respawn and then go to lobby then go back on pad to hunt I been
+		-- transferred to same hunt ... with less than min remaining ... I need to be same role and
+		-- from beginning"*. Task 261 refused the rejoin, which is right, and left her alone in a
+		-- lobby with the clock of an empty drive running -- so a solo pad step means START AGAIN.
+		--
+		-- THE RULE IS PURE (`Phase.mayRestart`) AND THIS IS STILL THE ONE DOOR, which is what keeps
+		-- the lobby's own answer (`Match.mayRestart` below, read by `Lobby.occupancy` to decide
+		-- whether his pad lights at all) and this enrolment from being two rules about one thing.
+		-- `names` IS ASKED HERE AND NOT ONLY BELOW: a restart deals teams and places everybody, and a
+		-- man this owner has never registered has no board row to put a team on -- refused rather
+		-- than half-done, which is the reason the ordinary check below gives.
+		if Phase.mayRestart(state, userId) and names[userId] ~= nil then
+			stats.restarts += 1
+			dispatch({ kind = "restart", userId = userId, name = player.Name })
+			return state.participants[userId] ~= nil
+		end
 		stats.rejoinsRefused += 1
 		return false
 	end

@@ -346,6 +346,39 @@ return function()
 			expect(Objective.lineVisible("Running", nil, false, false, false, false, { spot = spot })).to.equal(false)
 		end)
 
+		-- ---------------------------------------------- task 287: the pad that cannot take him
+		--
+		-- KAREN, 2026-10-24: *"when I respawn and then go to lobby then go back on pad to hunt I been
+		-- transferred to same hunt ... with less than min remaining"*. Alone, the pad now starts a
+		-- FRESH drive; with other men still hunting it cannot, and the Playtester measured what the
+		-- rectangle said about that: *"no feedback at all"*.
+		it("says why the pad did nothing while the hunt is still on (task 287)", function()
+			local words = Objective.CONFIG.TEXT
+			local spot = Vector3.new(0, 0, 0)
+			-- HE IS STANDING ON A PAD THAT CANNOT TAKE HIM, in every phase a drive can be in.
+			for _, phase in ipairs({ "Assigning", "Running", "Scoring" }) do
+				expect(Objective.text(phase, nil, nil, { spot = spot, left = true, padLate = true })).to.equal(
+					words.LobbyLate
+				)
+			end
+			-- IT SAYS MORE THAN "you left the drive" AND WINS OVER IT, which is this function's own
+			-- ordering rule -- and the man who is simply not on a pad still reads that one.
+			expect(Objective.text("Running", nil, nil, { spot = spot, left = true })).to.equal(words.LobbyLeft)
+			-- A MAN WHO NEVER ENROLLED READS NEITHER, and nor does the man the drive has.
+			expect(Objective.text("Running", nil, nil, { spot = spot, padLate = false })).to.equal("")
+			expect(Objective.text("Running", "Drivers", nil, { spot = spot, padLate = true })).to.equal(
+				words.Drivers.Running
+			)
+			-- A PANEL STILL WINS (task 197 part 2): a man being counted down by his own pad is
+			-- reading a number, not this.
+			expect(Objective.text("Running", nil, nil, { spot = spot, padLate = true, asking = 1 })).to.equal("")
+			expect(Objective.text("Running", nil, nil, { spot = spot, padLate = true, loading = "going" })).to.equal("")
+			-- ...AND THE LINE IS DRAWN, which is the other half of "the pads gave no feedback".
+			expect(Objective.lineVisible("Running", nil, false, false, false, false, { spot = spot, padLate = true })).to.equal(
+				true
+			)
+		end)
+
 		it("is ASCII, and never an em dash", function()
 			-- Everything drawn in this repo is ASCII (`Drive.CONFIG.TIED_TEXT`'s own rule). An em dash
 			-- is the one character a rewrite is likely to introduce, so it is named.

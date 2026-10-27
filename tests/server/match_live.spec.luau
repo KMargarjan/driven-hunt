@@ -812,6 +812,17 @@ return function()
 			expect(Match.trackedPlayers()).to.equal(tracked)
 		end)
 
+		-- THE THIRD READER (task 287): WOULD A PAD STEP START A FRESH DRIVE FOR HIM? The rule is pure
+		-- and is driven at every boundary in `match_phase.spec`; what this asserts is the DOOR, in
+		-- the live place, for the ordinary man -- nobody this drive has let go of, so there is nothing
+		-- to restart and the lobby's pads are an ordinary door.
+		it("says no pad restarts a drive for a man it never let go of (task 287)", function()
+			local player = Players:GetPlayers()[1] :: Player
+			expect(Match.mayRestart(player.UserId)).to.equal(false)
+			expect(Match.mayRestart(-999)).to.equal(false)
+			expect(Match.stats().restarts).to.equal(0)
+		end)
+
 		it("refuses to enrol somebody it has never registered", function()
 			-- Not a `Player`: the door reads `UserId` and `Name`, and refuses rather than half-doing
 			-- it -- there would be no board row to put a team on and no character watch to hold.
