@@ -22,6 +22,8 @@ local Boar = require(ServerScriptService:WaitForChild("Boar"))
 -- Step B3: the loan is the SHIPPED entitlement path, so the spec asks the shipped tables.
 local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+local Ballistics = require(ReplicatedStorage:WaitForChild("Ballistics"))
+local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 -- ONLY TO PUT THE PROVIDERS BACK (`weapon_shot.spec`'s reason): `MatchBoot` wired them.
 local Match = require(ServerScriptService:WaitForChild("Match"))
@@ -257,8 +259,11 @@ return function()
 			expect(RangeData.paceAllowed(nil)).to.equal(false)
 			expect(RangeData.paceAllowed(1 :: any)).to.equal(false)
 			expect(RangeData.paceAllowed({} :: any)).to.equal(false)
-			-- An unknown KIND is false, never true.
-			expect(RangeData.optionAllowed("weapon", "shotgun")).to.equal(false)
+			-- An unknown KIND is false, never true. ("weapon" was the example here until step B4
+			-- made it a real option; the rule is the same and the example is one that is still
+			-- unknown.)
+			expect(RangeData.optionAllowed("colour", "green")).to.equal(false)
+			expect(RangeData.optionAllowed("", "green")).to.equal(false)
 			expect(RangeData.optionAllowed("spot", 1)).to.equal(true)
 			expect(RangeData.optionAllowed("spot", 0)).to.equal(false)
 			expect(RangeData.optionAllowed("spot", 1.5)).to.equal(false)
@@ -776,6 +781,230 @@ return function()
 	end
 
 	local ANCHOR = Vector3.new(DEV_ROW.x, DEV_ROW.y, DEV_ROW.z)
+
+	-- --------------------------------------------- 2b. THE MENU'S WHITELIST (step B4, design 7.3)
+	describe("the option whitelist", function()
+		it("accepts each gun and only the cartridges that gun really carries", function()
+			for _, id in ipairs(Weapons.ORDER) do
+				expect(RangeData.optionAllowed("weapon", id)).to.equal(true)
+				for _, ammo in ipairs(Weapons.row(id).AMMO_KINDS) do
+					expect(RangeData.optionAllowed("ammo", ammo, { weapon = id })).to.equal(true)
+				end
+			end
+			-- A LOAD THE ROW DOES NOT CARRY IS REFUSED, and so is one with no gun named at all.
+			expect(RangeData.optionAllowed("ammo", "buck", { weapon = "rifle" })).to.equal(false)
+			expect(RangeData.optionAllowed("ammo", Weapons.row("rifle").AMMO_KINDS[1], {})).to.equal(false)
+			expect(RangeData.optionAllowed("weapon", "musket")).to.equal(false)
+			expect(RangeData.optionAllowed("weapon", 1 :: any)).to.equal(false)
+		end)
+
+		it("refuses a species or a kind that the server did not offer", function()
+			local offered = { species = { "boar", "reddeer" }, kinds = { "male", "female" } }
+			expect(RangeData.optionAllowed("species", "boar", offered)).to.equal(true)
+			expect(RangeData.optionAllowed("species", "wolf", offered)).to.equal(false)
+			expect(RangeData.optionAllowed("kind", "male", offered)).to.equal(true)
+			expect(RangeData.optionAllowed("kind", "stag", offered)).to.equal(false)
+			-- WITH NO LISTS, REFUSED: a whitelist whose default is "yes" is not a whitelist.
+			expect(RangeData.optionAllowed("species", "boar")).to.equal(false)
+			expect(RangeData.optionAllowed("kind", "male")).to.equal(false)
+		end)
+
+		it("offers the four pace words with STAND, and one distance -- the lane that is built", function()
+			expect(#RangeData.PACE_ORDER).to.equal(4)
+			expect(RangeData.PACE_ORDER[1]).to.equal(RangeData.WORD.STAND)
+			local seen = {}
+			for _, word in ipairs(RangeData.PACE_ORDER) do
+				seen[word] = true
+				expect(RangeData.paceAllowed(word)).to.equal(true)
+			end
+			expect(seen[RangeData.WORD.WALK]).to.equal(true)
+			expect(seen[RangeData.WORD.TROT]).to.equal(true)
+			expect(seen[RangeData.WORD.RUN]).to.equal(true)
+			expect(#RangeData.DISTANCES_STUDS).to.equal(1)
+			expect(RangeData.DISTANCES_STUDS[1]).to.equal(LAYOUT.DISTANCE_STUDS)
+			expect(RangeData.optionAllowed("distanceStuds", LAYOUT.DISTANCE_STUDS)).to.equal(true)
+			expect(RangeData.optionAllowed("distanceStuds", 200)).to.equal(false)
+		end)
+
+		it("says the gap in metres through the repository's one conversion, with Karen's words", function()
+			local metresPerStud = Report.CONFIG.METRES_PER_STUD
+			-- -3.2 studs is 0.896 m, which READS "0.9 m behind" -- Karen's own sentence, 2026-10-27.
+			expect(RangeData.gapText(-3.2)).to.equal(
+				string.format("%.1f m behind", math.floor(math.abs(-3.2 * metresPerStud) * 10 + 0.5) / 10)
+			)
+			expect(RangeData.gapText(3.2)).to.equal(
+				string.format("%.1f m ahead", math.floor(3.2 * metresPerStud * 10 + 0.5) / 10)
+			)
+			expect(string.find(RangeData.gapText(-3.2), "behind") ~= nil).to.equal(true)
+			expect(string.find(RangeData.gapText(3.2), "ahead") ~= nil).to.equal(true)
+			expect(RangeData.gapText(nil)).to.equal("--")
+			-- NO SECOND COPY OF 0.28 ANYWHERE: the number comes out of `Report.CONFIG`.
+			expect(string.find(RangeData.distanceText(125), tostring(Report.metres(125)), 1, true) ~= nil).to.equal(
+				true
+			)
+		end)
+	end)
+
+	-- --------------------------------------------- 2c. THE DOOR AND THE RECORD (step B4, 8.2 / 9)
+	describe("the range's one inbound door", function()
+		local function manOn(position: Vector3?, id: number)
+			local man = manAt(position) :: any
+			man.UserId = id
+			man.Name = "Man" .. tostring(id)
+			return man
+		end
+
+		local function tick(clock, seconds: number)
+			clock.t += seconds
+		end
+
+		it("refuses a forged payload and a pick from a man who is not on the mat", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			local mat = RangeData.matPosition(ANCHOR, 1, LAYOUT)
+			local man = manOn(mat, 101)
+			local before = Range.stats().badRequests
+
+			-- NOT A TABLE, NO SPOT, A SPOT THAT IS A STRING, A WORD OUTSIDE THE WHITELIST.
+			expect(Range.onRequest(man, "go" :: any)).to.equal(false)
+			tick(clock, 1)
+			expect(Range.onRequest(man, {})).to.equal(false)
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = "1" :: any, go = true })).to.equal(false)
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, pace = "sprint" })).to.equal(false)
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, weapon = "musket" })).to.equal(false)
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, weapon = "rifle", ammo = "buck" })).to.equal(false)
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, species = "wolf" })).to.equal(false)
+			expect(Range.stats().badRequests > before).to.equal(true)
+
+			-- A LEGAL PICK FROM A MAN OFF THE MAT IS NOT A FORGERY: it is refused, and NOT counted
+			-- as one (`badRequests` apart from `refusedBy`).
+			local away = manOn(mat + Vector3.new(500, 0, 0), 102)
+			local forged = Range.stats().badRequests
+			tick(clock, 1)
+			expect(Range.onRequest(away, { spot = 1, pace = RangeData.WORD.RUN })).to.equal(false)
+			expect(Range.stats().badRequests).to.equal(forged)
+
+			-- ...AND THE RATE BUCKET, which is per player and its own counter.
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, pace = RangeData.WORD.RUN })).to.equal(true)
+			local limited = Range.stats().rateLimited
+			expect(Range.onRequest(man, { spot = 1, pace = RangeData.WORD.WALK })).to.equal(false)
+			expect(Range.stats().rateLimited).to.equal(limited + 1)
+			Range.stop()
+		end)
+
+		it("applies a legal pick to the trial and starts a fresh record", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			local man = manOn(RangeData.matPosition(ANCHOR, 1, LAYOUT), 103)
+			tick(clock, 1)
+			expect(Range.onRequest(man, {
+				spot = 1,
+				pace = RangeData.WORD.RUN,
+				weapon = "rifle",
+				ammo = Weapons.row("rifle").AMMO_KINDS[1],
+			})).to.equal(true)
+			local trial = Range.trialOf(1) :: any
+			expect(trial.pace).to.equal(RangeData.WORD.RUN)
+			expect(trial.weapon).to.equal("rifle")
+			expect(trial.speedStudsPerSecond).to.equal(speedOf(RangeData.WORD.RUN))
+			local record = Range.recordOf(man) :: any
+			expect(record).to.be.ok()
+			expect(record.shots).to.equal(0)
+			expect(record.weapon).to.equal("rifle")
+			-- THE ZONE COLUMNS ARE THE ANIMAL'S OWN, read through the seam and not typed here.
+			expect(#record.zoneOrder).to.equal(#Boar.CONFIG.ZONES.ORDER)
+			Range.stop()
+		end)
+
+		it("counts a shot, a hit in its own zone, a miss, and resets on the same door", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			local man = manOn(RangeData.matPosition(ANCHOR, 1, LAYOUT), 104)
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, pace = RangeData.WORD.TROT })).to.equal(true)
+			advance(fake, clock, 1)
+
+			-- ONE SHOT THAT MISSES: `ShotResolved` alone, because a miss produces no `HitReported`.
+			Range.onShotResolved({ shooter = man, endPoint = Vector3.new(ANCHOR.X, ANCHOR.Y, ANCHOR.Z) })
+			local record = Range.recordOf(man) :: any
+			expect(record.shots).to.equal(1)
+			expect(record.hits).to.equal(0)
+			expect(record.miss).to.equal(1)
+			-- THE BALLISTIC LEAD IS THE SHIPPED FUNCTION'S ANSWER, never a number typed twice.
+			local shot = Ballistics.shotFor(Weapons.row(record.weapon), record.ammo)
+			expect(record.leadBallisticStuds).to.equal(
+				Ballistics.leadStuds(shot, record.distanceStuds, record.paceStudsPerSecond)
+			)
+
+			-- ONE SHOT THAT HITS, and the zone column is `report.zone` and nothing re-derived.
+			Range.onShotResolved({ shooter = man, endPoint = Vector3.new(ANCHOR.X, ANCHOR.Y, ANCHOR.Z) })
+			Range.onHitReported({ shooter = man, zone = "chest", nearest = 125 })
+			record = Range.recordOf(man) :: any
+			expect(record.shots).to.equal(2)
+			expect(record.hits).to.equal(1)
+			expect(record.miss).to.equal(1)
+			expect(record.zones.chest).to.equal(1)
+			expect(record.lastDistanceStuds).to.equal(125)
+			-- A SECOND REPORT OF THE SAME SHOT DOES NOT COUNT TWICE (one report per shot, per target).
+			Range.onHitReported({ shooter = man, zone = "chest", nearest = 125 })
+			record = Range.recordOf(man) :: any
+			expect(record.hits).to.equal(1)
+			expect(record.zones.chest).to.equal(2)
+
+			-- THE RESET, through the same door, whitelisted like a pick: THIS player's record only.
+			local other = manOn(RangeData.matPosition(ANCHOR, 1, LAYOUT), 105)
+			tick(clock, 1)
+			expect(Range.onRequest(other, { spot = 1, go = true })).to.equal(true)
+			Range.onShotResolved({ shooter = other, endPoint = Vector3.new(ANCHOR.X, ANCHOR.Y, ANCHOR.Z) })
+			expect((Range.recordOf(other) :: any).shots).to.equal(1)
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, reset = true })).to.equal(true)
+			expect((Range.recordOf(man) :: any).shots).to.equal(0)
+			expect((Range.recordOf(other) :: any).shots).to.equal(1)
+			Range.stop()
+		end)
+
+		it("signs the miss gap against the target's own direction, both ways", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			local man = manOn(RangeData.matPosition(ANCHOR, 1, LAYOUT), 106)
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, pace = RangeData.WORD.TROT })).to.equal(true)
+			advance(fake, clock, 2)
+			local animal = fake.only()
+			expect(animal).to.be.ok()
+			local target = (animal :: any).position
+			local trial = Range.trialOf(1) :: any
+
+			-- A SHOT 4 STUDS BEHIND A TARGET RUNNING EAST (an odd leg, +X) IS NEGATIVE, and the same
+			-- 4 studs on a WEST leg is positive -- the gap is projected onto the target's travel, so
+			-- the two directions read OPPOSITE signs for the same world-space error.
+			local east = Range.gapStuds(trial, target - Vector3.new(4, 0, 0), target)
+			expect(east).to.be.near(-4, 0.001)
+			local west = table.clone(trial)
+			west.leg = trial.leg + 1
+			expect(Range.gapStuds(west, target - Vector3.new(4, 0, 0), target)).to.be.near(4, 0.001)
+			-- STAND HAS NO GAP: nothing is moving, so "behind" has no meaning.
+			local standing = table.clone(trial)
+			standing.pace = RangeData.WORD.STAND
+			expect(Range.gapStuds(standing, target - Vector3.new(4, 0, 0), target)).to.equal(nil)
+			Range.stop()
+		end)
+	end)
 
 	describe("Range.mayShoot", function()
 		it("is false with the range not started, and false for nil and for a man with no character", function()

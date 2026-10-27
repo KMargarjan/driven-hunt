@@ -82,38 +82,41 @@ return function()
 			RangePanel.setPrompt(prompt)
 			expect(RangePanel.hasPrompt()).to.equal(true)
 			expect(RangePanel.isOpen()).to.equal(false)
+			-- WHAT WAS ALREADY OUT, so the claim is "the range added its own tag and gave it back"
+			-- and not "nothing else in this live client ever holds one" (which is not this task's).
+			local reassertsBefore = Cursor.stats().reasserts
+			local cursorBefore = #Cursor.stats().tags
+			local heldBefore = #WeaponInput.holdTags()
 
 			prompt.fire()
 			expect(RangePanel.isOpen()).to.equal(true)
 			expect(frame.Visible).to.equal(true)
 			-- THE TWO DOORS, BY TAG (design 11.2 item 2).
 			expect(Cursor.isFree()).to.equal(true)
-			local tags = Cursor.stats().tags
-			local found = false
-			for _, tag in ipairs(tags) do
-				if tag == "range" then
-					found = true
+			local function hasTag(list, wanted: string): boolean
+				for _, tag in ipairs(list) do
+					if tag == wanted then
+						return true
+					end
 				end
+				return false
 			end
-			expect(found).to.equal(true)
+			expect(hasTag(Cursor.stats().tags, "range")).to.equal(true)
+			expect(#Cursor.stats().tags).to.equal(cursorBefore + 1)
 			expect(WeaponInput.isHeld()).to.equal(true)
-			local heldRange = false
-			for _, tag in ipairs(WeaponInput.holdTags()) do
-				if tag == "range" then
-					heldRange = true
-				end
-			end
-			expect(heldRange).to.equal(true)
-			expect(Cursor.stats().reasserts).to.equal(0)
+			expect(hasTag(WeaponInput.holdTags(), "range")).to.equal(true)
+			expect(#WeaponInput.holdTags()).to.equal(heldBefore + 1)
+			-- `Cursor.apply` IS THE ONE PER-FRAME WRITER and the panel is not a second one.
+			expect(Cursor.stats().reasserts).to.equal(reassertsBefore)
 
 			prompt.fire()
 			expect(RangePanel.isOpen()).to.equal(false)
-			expect(Cursor.isFree()).to.equal(false)
-			expect(WeaponInput.isHeld()).to.equal(false)
-			-- NOTHING ELSE'S TAG TOUCHED: the shop's own request would still be out if it had one.
-			for _, tag in ipairs(Cursor.stats().tags) do
-				expect(tag).never.to.equal("range")
-			end
+			-- BOTH RELEASED BY TAG, AND NOTHING ELSE'S TAG TOUCHED.
+			expect(hasTag(Cursor.stats().tags, "range")).to.equal(false)
+			expect(#Cursor.stats().tags).to.equal(cursorBefore)
+			expect(hasTag(WeaponInput.holdTags(), "range")).to.equal(false)
+			expect(#WeaponInput.holdTags()).to.equal(heldBefore)
+			expect(Cursor.stats().reasserts).to.equal(reassertsBefore)
 		end)
 
 		it("offers exactly the four pace words, STAND among them", function()

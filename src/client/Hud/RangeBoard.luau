@@ -160,7 +160,9 @@ function RangeBoard.build(root: Frame)
 		line.BackgroundTransparency = 1
 		line.Position = UDim2.fromOffset(12, 32 + (index - 1) * 24)
 		line.Size = UDim2.new(1, -24, 0, 22)
-		line.Font = Enum.Font.Code
+		-- GOTHAM, NOT `Enum.Font.Code`: the house style bans it on any surface of the HUD
+		-- (`hud_style.spec`, task 201 part 1), which the first run of this spec caught.
+		line.Font = Enum.Font.Gotham
 		line.TextSize = 12
 		line.TextWrapped = true
 		line.TextXAlignment = Enum.TextXAlignment.Left
