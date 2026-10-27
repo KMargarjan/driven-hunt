@@ -779,14 +779,33 @@ return function()
 		-- `HitLog.Shape.dot` makes of them. The stag's withers is absent on purpose: the ray at that
 		-- station came back `MESH=false` (it fell in the gap under his antlers), and a point the probe
 		-- did not confirm is not evidence.
+		--
+		-- **THE WITHERS STATION IS NOT IN HERE FOR FOUR OF THE SEVEN, AND THE REASON IS A FINDING.**
+		-- On the male, the legendary, the hind and the calf the ray met the mesh ABOVE the trunk box
+		-- (the male's at y 1.510 against a box top of 1.500), so `Shape.dot` CLAMPS it to v = 0 --
+		-- the box's own top line -- and the unit square cannot represent where it struck at all.
+		-- Three of those four land on ink anyway and the hind's does not; the case below measures
+		-- that rather than hiding it, and the band itself is task 282a's.
 		local ON_FLANK = {
-			male = { { 0.2800, 0.0000 }, { 0.4000, 0.3290 }, { 0.5200, 0.5456 }, { 0.7800, 0.4210 } },
+			male = { { 0.4000, 0.3290 }, { 0.5200, 0.5456 }, { 0.7800, 0.4210 } },
 			female = { { 0.2800, 0.0448 }, { 0.4000, 0.3440 }, { 0.5200, 0.5480 }, { 0.7800, 0.4340 } },
 			cub = { { 0.2800, 0.0024 }, { 0.4000, 0.3820 }, { 0.5200, 0.5128 }, { 0.7800, 0.3890 } },
-			legendary = { { 0.2800, 0.0000 }, { 0.4000, 0.3290 }, { 0.5200, 0.5456 }, { 0.7800, 0.4210 } },
+			legendary = { { 0.4000, 0.3290 }, { 0.5200, 0.5456 }, { 0.7800, 0.4210 } },
 			stag = { { 0.4000, 0.0910 }, { 0.5200, 0.4600 }, { 0.7800, 0.1940 } },
-			hind = { { 0.2800, 0.0000 }, { 0.4000, 0.4250 }, { 0.5200, 0.3920 }, { 0.7800, 0.1340 } },
-			calf = { { 0.2800, 0.0000 }, { 0.4000, 0.3840 }, { 0.5200, 0.2672 }, { 0.7800, 0.0280 } },
+			hind = { { 0.4000, 0.4250 }, { 0.5200, 0.3920 }, { 0.7800, 0.1340 } },
+			calf = { { 0.4000, 0.3840 }, { 0.5200, 0.2672 }, { 0.7800, 0.0280 } },
+		}
+
+		-- THE DORSAL BAND, MEASURED THROUGH THE CARD (task 282a owns the fix). Every one of these
+		-- four points is a place the ray met the DRAWN animal and is ABOVE that animal's trunk box,
+		-- so every one of them arrives here as v = 0. Three draw on ink; the hind's draws in air,
+		-- because her raised neck stands over a gap in her own outline at that u. This case asserts
+		-- what is TRUE today, with the number, so the fix to the boxes has something to change.
+		local ABOVE_THE_BOX = {
+			{ "male", 0.2800 },
+			{ "legendary", 0.2800 },
+			{ "hind", 0.2800 },
+			{ "calf", 0.2800 },
 		}
 
 		-- THE PIXEL OF THE PICTURE A DRAWN PIP SITS ON. `pip.Position` is a fraction of the ART
@@ -857,6 +876,30 @@ return function()
 			end
 			TestKit.note(string.format("hit_card 283: %d flank points, %d off the ink", counted, #misses))
 			expect(table.concat(misses, " ")).to.equal("")
+		end)
+
+		it("clamps a hit ABOVE the box onto its top line, and on the hind that line is air", function()
+			local onInk, offInk = {}, {}
+			for _, row in ipairs(ABOVE_THE_BOX) do
+				local kind, u = row[1], row[2]
+				local pips = drawCard(kind, { { u = u, v = 0, zone = "head", side = 1 } })
+				expect(#pips).to.equal(1)
+				local iu, iv = pictureUV(kind, pips[1].Position.X.Scale, pips[1].Position.Y.Scale)
+				local where = string.format("%s img(%.3f,%.3f)", kind, iu, iv)
+				table.insert(if Ink.isInk(DRAWN[kind].picture, iu, iv) then onInk else offInk, where)
+				Card.hide()
+			end
+			TestKit.note(
+				string.format(
+					"hit_card 283: above the box -- on ink %s | OFF ink %s",
+					table.concat(onInk, " "),
+					table.concat(offInk, " ")
+				)
+			)
+			-- THE READING, NOT A WISH: three of the four are drawn on the animal and the hind is not.
+			expect(#onInk).to.equal(3)
+			expect(table.concat(offInk, " ")).to.equal(offInk[1] or "")
+			expect(string.find(offInk[1] or "", "hind", 1, true)).to.equal(1)
 		end)
 
 		it("draws KAREN'S OWN PELLET inside the boar and below its crest", function()
