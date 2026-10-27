@@ -108,6 +108,13 @@ local function fakes(bin: Instance)
 			enrol = function(player: any): boolean
 				table.insert(seen.enrolled, player.UserId)
 				seen.inDrive[player.UserId] = true
+				-- ...AND EVERY BAR IS LIFTED, which is what the owner does and not a convenience
+				-- (task 287): a man enrolled into an empty drive RESTARTS it, the drive number moves,
+				-- and `Phase.barredFromRejoin` is then false for everybody the OLD drive let go of
+				-- (`dispatch` clears `withdrawnFrom` on that edge). A fake that kept them barred would
+				-- claim this owner locks a second withdrawn man off the pads for a whole fresh drive,
+				-- which is review round 1's finding 3 and is exactly what was fixed.
+				table.clear(seen.withdrawn)
 				return true
 			end,
 			dismissAll = function(): number
@@ -1235,8 +1242,9 @@ return function()
 			-- THE FIRST ONE JUST STARTED (review round 1, finding 3). His pad is an ordinary pad the
 			-- moment the drive's door would take him -- there is no lobby-side latch left to
 			-- disagree with it.
+			-- HE WAS WITHDRAWN FROM THE SAME DRIVE, BEFORE THE RESTART, which is the state finding 3
+			-- is about: the bar he carries is the OLD drive's, and the old drive is gone.
 			local second = occupant(57, padAt(2), bin)
-			seen.withdrawn[57] = true
 			Lobby.step(went + 2 / CFG.SCAN_HZ, { man, second })
 			expect(second:GetAttribute(Data.PAD_LATE_ATTRIBUTE)).to.equal(nil)
 			Lobby.step(went + 4 / CFG.SCAN_HZ, { man, second })
