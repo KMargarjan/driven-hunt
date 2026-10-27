@@ -13,14 +13,21 @@
 -- owner's lane and the ordered speed, not the spec's idea of walking.
 --
 -- Design: docs/design/shooting-range.md sections 3, 4.1, 5, 6, 8.4 and 11.1.
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
+-- Step B3: the loan is the SHIPPED entitlement path, so the spec asks the shipped tables.
+local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local Range = require(ServerScriptService:WaitForChild("Range"))
 local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
+
+local StateMachine = Weapon.StateMachine
 
 local LAYOUT = RangeData.LAYOUT
 local DEV_ROW = { x = 1200, z = 0, y = 0, plate = true }
@@ -744,6 +751,314 @@ return function()
 			runtime:destroy()
 			parent:Destroy()
 			expect(Workspace:FindFirstChild("RangeDeerSpec")).to.equal(nil)
+		end)
+	end)
+
+	-- ------------------------------------------------------------------ 7. WHO HOLDS A GUN (7.4)
+	--
+	-- Task 298 step B3. The ONE predicate and the THREE composed providers, each case driving the
+	-- real function by parameter -- `Range.armingOver` and friends are what `RangeBoot` installs, so
+	-- deleting a branch here fails here.
+	local function manAt(position: Vector3?)
+		if position == nil then
+			return { Character = nil }
+		end
+		local character = Instance.new("Model")
+		local root = Instance.new("Part")
+		root.Name = "HumanoidRootPart"
+		root.Size = Vector3.one
+		root.Anchored = true
+		root.Position = position
+		root.Parent = character
+		return { Character = character }
+	end
+
+	local ANCHOR = Vector3.new(DEV_ROW.x, DEV_ROW.y, DEV_ROW.z)
+
+	describe("Range.mayShoot", function()
+		it("is false with the range not started, and false for nil and for a man with no character", function()
+			Range.stop()
+			expect(Range.mayShoot(manAt(RangeData.matPosition(ANCHOR, 1, LAYOUT)))).to.equal(false)
+			local _, now = newClock()
+			expect(startRange(newFakeBoars(), now)).to.equal(true)
+			expect(Range.mayShoot(nil)).to.equal(false)
+			expect(Range.mayShoot(manAt(nil))).to.equal(false)
+			Range.stop()
+		end)
+
+		it("is TRUE on the mat and FALSE one stride off it", function()
+			local _, now = newClock()
+			expect(startRange(newFakeBoars(), now)).to.equal(true)
+			local mat = RangeData.matPosition(ANCHOR, 1, LAYOUT)
+			expect(Range.mayShoot(manAt(mat))).to.equal(true)
+			local off = mat + Vector3.new(LAYOUT.MAT.size.X, 0, 0)
+			expect(Range.spotAt(off)).to.equal(nil)
+			expect(Range.mayShoot(manAt(off))).to.equal(false)
+			Range.stop()
+			-- ...AND IT IS FALSE AGAIN THE MOMENT THE RANGE IS GONE, which is what the weapon's own
+			-- 2 s arming sweep re-asks and what takes the loan back.
+			expect(Range.mayShoot(manAt(mat))).to.equal(false)
+		end)
+	end)
+
+	describe("the two relaxations, composed", function()
+		it("arms a man on the mat whose drive refuses him, and leaves everybody else's answer alone", function()
+			local _, now = newClock()
+			expect(startRange(newFakeBoars(), now)).to.equal(true)
+			local onMat = manAt(RangeData.matPosition(ANCHOR, 1, LAYOUT))
+			local offMat = manAt(ANCHOR + Vector3.new(0, 0, 400))
+
+			-- THE DRIVE SAYS NO TO EVERYBODY: today's lobby.
+			local asked = 0
+			local arming = Range.armingOver(function(_player)
+				asked += 1
+				return false
+			end)
+			expect(arming(onMat)).to.equal(true)
+			expect(arming(offMat)).to.equal(false)
+			expect(asked).to.equal(1) -- the man on the mat never reaches the drive's policy
+
+			-- ...AND A DRIVE THAT SAYS YES IS UNCHANGED, which is the identity the design claims.
+			expect(Range.armingOver(function(_player)
+				return true
+			end)(offMat)).to.equal(true)
+
+			-- THE TRIGGER, BETWEEN DRIVES. `Rules.driveClosed` refuses on an explicit `false`.
+			local driveOpen = Range.driveOpenOver(function(_player)
+				return false
+			end)
+			expect(driveOpen(onMat)).to.equal(true)
+			expect(driveOpen(offMat)).to.equal(false)
+			-- UNWIRED STAYS "NOBODY SAID", the default every provider on `Weapon` takes.
+			expect(Range.driveOpenOver(nil)(offMat)).to.equal(nil)
+			expect(Range.driveOpenOver(nil)(onMat)).to.equal(true)
+			Range.stop()
+		end)
+
+		it("lends all four guns and the endless shells at a spot, and NOTHING off it", function()
+			local _, now = newClock()
+			expect(startRange(newFakeBoars(), now)).to.equal(true)
+			local onMat = manAt(RangeData.matPosition(ANCHOR, 1, LAYOUT))
+			local offMat = manAt(ANCHOR + Vector3.new(0, 0, 400))
+
+			-- OFF THE MAT THE BASE'S ANSWER IS HANDED BACK UNTOUCHED, nil included: a world with no
+			-- shop is bit-for-bit what it was.
+			expect(Range.entitlementOver(nil)(offMat)).to.equal(nil)
+			local bought = { ["licence.reddeer"] = true }
+			expect(Range.entitlementOver(function(_player)
+				return bought
+			end)(offMat)).to.equal(bought)
+
+			-- ON THE MAT: every gun in `Weapons.ORDER`, through the SHIPPED loadout rule.
+			local owned = Range.entitlementOver(nil)(onMat)
+			expect(type(owned)).to.equal("table")
+			expect(#Shop.loadoutFrom(Weapons.ids(), Weapons.PRIMARY, owned)).to.equal(#Weapons.ORDER)
+			for _, id in ipairs(Weapons.ORDER) do
+				expect(Shop.ownsWeapon(owned, id)).to.equal(true)
+			end
+			-- ...AND THE LOAN IS A LOAN: what he had bought is still there, and nothing he had not
+			-- bought came with it.
+			local withLicence = Range.entitlementOver(function(_player)
+				return { ["licence.reddeer"] = true }
+			end)(onMat)
+			expect((withLicence :: any)["licence.reddeer"]).to.equal(true)
+			expect((owned :: any)["licence.reddeer"]).to.equal(nil)
+
+			-- THE ENDLESS SHELLS ARE THE SHIPPED `ammo.unlimited` ENTITLEMENT AND NOT A SECOND
+			-- COUNTER: `Shop.startFor` is the one function `Weapon.grant` asks, and it fills the
+			-- `unlimited` pockets `StateMachine` already reads.
+			expect(Shop.grantsUnlimitedAmmo(owned)).to.equal(true)
+			for _, id in ipairs(Weapons.ORDER) do
+				local start = Shop.startFor(Weapons.row(id), owned)
+				expect(start.unlimited).to.be.ok()
+				expect((start.unlimited :: any)[start.ammo]).to.equal(true)
+			end
+			Range.stop()
+		end)
+
+		-- KAREN, 2026-10-27: *"amunition is endless"*. MEASURED over 30 shots through the shipped
+		-- reducer, with the same 30 pulls WITHOUT the loan as the control.
+		it("never spends a shell over 30 shots at a spot -- and spends them without the loan", function()
+			local _, now = newClock()
+			expect(startRange(newFakeBoars(), now)).to.equal(true)
+			local owned = Range.entitlementOver(nil)(manAt(RangeData.matPosition(ANCHOR, 1, LAYOUT)))
+
+			local row = Weapons.ROWS[Weapons.PRIMARY]
+			local function pocket(reserve): number
+				local left = 0
+				for _, count in pairs(reserve) do
+					left += count
+				end
+				return left
+			end
+			local function fire30(start): (number, number)
+				local state = StateMachine.initial(row, start)
+				local clock, fired = 0, 0
+				for _ = 1, 30 do
+					clock += 10
+					local shot, why = StateMachine.apply(state, { kind = "Fire" }, clock, row)
+					if why == nil then
+						state = shot
+						fired += 1
+					end
+					clock += 10
+					local reloaded, reason = StateMachine.apply(state, { kind = "Reload" }, clock, row)
+					if reason == nil then
+						state = reloaded
+					end
+				end
+				return fired, pocket(state.reserve)
+			end
+
+			local start = Shop.startFor(row, owned)
+			local before = pocket(start.reserve)
+			local fired, left = fire30(start)
+			expect(fired).to.equal(30)
+			expect(left).to.equal(before)
+
+			local plainFired, plainLeft = fire30(nil)
+			expect(plainFired > 0).to.equal(true)
+			expect(plainLeft < before).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range endless ammo: 30 pulls on the loan fired %d, pocket %d -> %d; without it %d fired, pocket %d",
+					fired,
+					before,
+					left,
+					plainFired,
+					plainLeft
+				)
+			)
+			Range.stop()
+		end)
+	end)
+
+	-- ------------------------------------------------------------------ 8. Weapon.ShotResolved (8.3)
+	--
+	-- Task 298 step B3. A MISS publishes no `HitReported` and `ShotFired` fires at the TRIGGER, so
+	-- the range needs the one fact neither carries: this shot has LANDED, and here is where. Driven
+	-- through the owner's real fire path and its real flight, with `Weapon.setCast` scripting the
+	-- world -- a miss, then a hit, each counted on its own.
+	describe("Weapon.ShotResolved", function()
+		it("fires exactly ONCE per resolved shot, for a miss AND for a hit, with an end point", function()
+			local function readyShooter()
+				for _ = 1, 20 do
+					for _, player in ipairs(Players:GetPlayers()) do
+						local snapshot = Weapon.getSnapshot(player)
+						if snapshot ~= nil and snapshot.barrels[snapshot.selected] ~= "Live" then
+							Weapon.refillForDrive(player, 298298)
+							Weapon.onActionRequest(player, "Reload", nil, nil)
+							task.wait(0.3)
+							snapshot = Weapon.getSnapshot(player)
+						end
+						if
+							snapshot ~= nil
+							and snapshot.equipped == true
+							and snapshot.open == false
+							and (snapshot.busyFor or 0) <= 0
+							and snapshot.barrels[snapshot.selected] == "Live"
+						then
+							return player, snapshot
+						end
+					end
+					task.wait(0.4)
+				end
+				return nil, nil
+			end
+
+			local subject = readyShooter()
+			if subject == nil then
+				TestKit.note(
+					"range ShotResolved: nobody is holding a gun that can fire, so the publish was not "
+						.. "entered. NOT PROVEN in this run."
+				)
+				expect(Weapon.ShotResolved).to.be.ok()
+				return
+			end
+
+			local character = (subject :: any).Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			expect(root).to.be.ok()
+			local origin = (root :: BasePart).Position + Vector3.new(0, 2, 0)
+			local direction = Vector3.new(0, 0, -1)
+
+			local seen = {}
+			local connection = Weapon.ShotResolved:Connect(function(shot)
+				table.insert(seen, shot)
+			end)
+
+			-- 1. A MISS: the cast answers nothing, so the pellets fly to the ammo's range cap.
+			Weapon.setCast(function()
+				return nil
+			end)
+			Weapon.onFireRequest(subject, { origin = origin, direction = direction })
+			local deadline = os.clock() + 3
+			while #seen < 1 and os.clock() < deadline do
+				task.wait(0.05)
+			end
+			expect(#seen).to.equal(1)
+			local miss = seen[1]
+			expect(#miss.hitParts).to.equal(0)
+			expect(miss.shooterUserId).to.equal(subject.UserId)
+			expect(typeof(miss.endPoint)).to.equal("Vector3")
+			expect(miss.reachedStuds > 0).to.equal(true)
+			expect(type(miss.resolvedAtServerTime)).to.equal("number")
+			expect(miss.resolvedAtServerTime > 0).to.equal(true)
+			-- THE END POINT IS DOWNRANGE, not the muzzle: the flight measured it.
+			expect((miss.endPoint - miss.muzzle).Magnitude > 1).to.equal(true)
+
+			-- 2. A HIT, on a part of this spec's own, 40 studs out.
+			local target = Instance.new("Part")
+			target.Name = "ShotResolvedSpecTarget"
+			target.Size = Vector3.new(4, 4, 1)
+			target.Anchored = true
+			target.CanCollide = false
+			target.CanQuery = false
+			target.Position = origin + direction * 40
+			target.Parent = workspace
+			Weapon.setCast(function(castOrigin: Vector3, castVector: Vector3)
+				return {
+					instance = target,
+					position = castOrigin + castVector,
+					normal = -direction,
+					distance = castVector.Magnitude,
+					material = Enum.Material.Plastic,
+				}
+			end)
+
+			local ready = readyShooter()
+			if ready == nil then
+				connection:Disconnect()
+				Weapon.setCast(nil)
+				target:Destroy()
+				TestKit.note("range ShotResolved: the miss was proven; the gun could not be reloaded for the hit.")
+				expect(#seen).to.equal(1)
+				return
+			end
+			Weapon.onFireRequest(subject, { origin = origin, direction = direction })
+			deadline = os.clock() + 3
+			while #seen < 2 and os.clock() < deadline do
+				task.wait(0.05)
+			end
+			connection:Disconnect()
+			Weapon.setCast(nil)
+			target:Destroy()
+
+			expect(#seen).to.equal(2)
+			local hit = seen[2]
+			expect(#hit.hitParts >= 1).to.equal(true)
+			expect(hit.hitParts[1]).to.equal(target)
+			expect(typeof(hit.endPoint)).to.equal("Vector3")
+			expect(hit.resolvedAtServerTime >= miss.resolvedAtServerTime).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range ShotResolved: miss reached %.1f studs (end %.1f from the muzzle), hit on %s at %.1f studs",
+					miss.reachedStuds,
+					(miss.endPoint - miss.muzzle).Magnitude,
+					hit.hitParts[1].Name,
+					hit.reachedStuds
+				)
+			)
 		end)
 	end)
 end
