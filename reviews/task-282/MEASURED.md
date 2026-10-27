@@ -1,4 +1,6 @@
-# Task 282 -- the readings, verbatim
+# Task 282 -- the readings
+
+**The blocks below are the probes' own output. Where a line is annotated it says so on the line.**
 
 All DEV ONLY (Driven Hunt DEV, Play, 2026-10-27). Probes in `reviews/task-282/probes/`.
 
@@ -22,7 +24,11 @@ of +1.50 -- so the animal both FAILS TO FILL the box down each flank and STANDS 
 
 ## 2. One real buckshot shot, nine pellets, at that ray (`282-shotcard.luau`)
 
-`[hitlog]` (`ServerStorage.DHLastHits`), the server's own record:
+`[hitlog]` (`ServerStorage.DHLastHits`), the server's own record. **Two shots, 75 s apart, sharing
+one ring** -- round 1's staging probe looked for a `StringValue` child where `HitLog.writeTrace`
+writes an ATTRIBUTE, so its "log cleared" did nothing (the Reviewer, round 1; fixed in the committed
+probe). **Claim 3 reads `#1`; claims 1 and 2 read the card of `#2`.** Both are the same staging and
+the same aim point; they are not one event.
 
 ```
 #1 t=140.30s male id=Boar1 zone=chest local=(1.06,1.41,-0.21) uv=(0.462,0.030) dist=82.0 shotgun/Buck pellets=9 fatal=no
@@ -53,35 +59,61 @@ is 2.8 px below the top of the ink in an 80 px frame, under half a dot. That is 
 "HALF OUTSIDE the silhouette in the grey", and at the top of the ink the drawn boar is its mane and
 ears, which is her "bunched on the HEAD/NECK".
 
-## 3. The complement, BEFORE (`282-fit.luau`, 0.1-stud grid, four directions)
+## 3. The complement, BEFORE (`282-fit2.luau`, 0.1-stud grid, four directions)
 
-`HIT` = the ray met the drawn mesh AND a hittable box. `MISS` = mesh, no box. `AIR` = box, no mesh.
-"Hittable" is what the weapon can hit: the four zone parts plus the trunk (no `ZonesOnly` today).
+**ROUND 1'S SWEEP WAS WRONG AND THE REVIEWER CAUGHT IT.** Its box cast used
+`bp.FilterDescendantsInstances = { ...zones..., trunk }`, and `FilterDescendantsInstances` takes the
+instance AND ITS DESCENDANTS (`src/client/Weapon/Claim.luau` says so in as many words) -- the drawn
+mesh is a descendant of the trunk, so EVERY mesh hit was also a box hit and `uncovered` could not be
+anything but 0. The Reviewer's prediction was exact: `ZoneHead` tops at +1.650 and the drawn male
+reaches +1.757, so a flank row at y 1.70 must be mesh-and-no-box. The diagnostic
+(`<runs-dir>/282-why.luau`) shows the contaminated reading in isolation:
 
 ```
-male: trunk 2.00,3.00,5.50  drawn mesh 1.401,3.257,5.500  hittable parts=5 (ZonesOnly=nil)
-  FLANK   on the animal=814: HIT 814 (100.0%) MISS 0 (0.0%) | AIR hits=984   -> 54.7% of box hits are air
-  ABOVE   on the animal=506: HIT 506 (100.0%) MISS 0 (0.0%) | AIR hits=691   -> 57.7%
-  FRONT   on the animal=336: HIT 336 (100.0%) MISS 0 (0.0%) | AIR hits=341   -> 50.4%
-  BEHIND  on the animal=336: HIT 336 (100.0%) MISS 0 (0.0%) | AIR hits=341   -> 50.4%
-female: trunk 1.70,2.55,4.68  drawn mesh 1.202,2.647,4.675
-  FLANK   on the animal=560: HIT 560 (100.0%) MISS 0 (0.0%) | AIR hits=696   -> 55.4%
-  ABOVE   on the animal=370: HIT 370 (100.0%) MISS 0 (0.0%) | AIR hits=512   -> 58.1%
-  FRONT   on the animal=232: HIT 232 (100.0%) MISS 0 (0.0%) | AIR hits=238   -> 50.6%
-  BEHIND  on the animal=230: HIT 230 (100.0%) MISS 0 (0.0%) | AIR hits=238   -> 50.8%
-cub: trunk 0.90,1.35,2.47  drawn mesh 0.618,1.439,2.475
-  FLANK   on the animal=160: HIT 160 (100.0%) MISS 0 (0.0%) | AIR hits=212   -> 57.0%
-  ABOVE   on the animal=106: HIT 106 (100.0%) MISS 0 (0.0%) | AIR hits=154   -> 59.2%
-  FRONT   on the animal= 64: HIT  64 (100.0%) MISS 0 (0.0%) | AIR hits= 82   -> 56.2%
-  BEHIND  on the animal= 64: HIT  64 (100.0%) MISS 0 (0.0%) | AIR hits= 82   -> 56.2%
-legendary: NOT MEASURED -- the drawn mesh did not load on the run that measured the other three
-  (the probe keyed the template on the KIND and `legendary` asks for the `male` MODEL). Fixed in
-  `282-pose.luau`/`282-fit.luau` afterwards and the frame shows the mesh; the sweep was not re-run.
+mesh centre in trunk frame: 0.000,0.129,0.000 -> top 1.757 bottom -1.500
+  hittable ZoneHead  top 1.650 (centre y 1.00, size y 1.30)
+  hittable ZoneChest top 1.560 (centre y 0.55, size y 2.01)
+  hittable ZoneRear  top 1.560 (centre y 0.63, size y 1.86)
+  hittable ZoneLegs  top -0.500 (centre y -1.00, size y 1.00)
+  hittable Boar1     top 1.500 (centre y 0.00, size y 3.00)
+y=1.70  mesh=6 box=6 UNCOVERED=0 at z {}      <- 6 mesh hits at 1.70 with no box above 1.65
 ```
 
-**AFTER is 0 % air and 0 % miss on every kind. Today every kind measured is over half air from the
-flank, which is where a drive is shot from.** (L-122: that remainder is not progress, it is the
-located defect, and it is the whole of it -- there are no holes in the boar, only air.)
+`282-fit2.luau` casts in TWO PASSES with the mesh's `CanQuery` toggled between them, so neither cast
+can see the other's parts. Its output, four kinds, verbatim:
+
+```
+male: trunk 2.00,3.00,5.50  drawn mesh 1.401,3.257,5.500  hittable=5 (ZonesOnly=nil)
+  FLANK   rays=2944  animal=814: HIT 796 (97.8%) MISS 18 (2.2%) | box hits=1780: AIR 984 (55.3%)
+  ABOVE   rays=1728  animal=506: HIT 506 (100.0%) MISS 0 (0.0%) | box hits=1197: AIR 691 (57.7%)
+  FRONT   rays=1242  animal=336: HIT 323 (96.1%) MISS 13 (3.9%) | box hits=664: AIR 341 (51.4%)
+  BEHIND  rays=1242  animal=336: HIT 323 (96.1%) MISS 13 (3.9%) | box hits=664: AIR 341 (51.4%)
+female: trunk 1.70,2.55,4.68  drawn mesh 1.202,2.647,4.675  hittable=5 (ZonesOnly=nil)
+  FLANK   rays=2255  animal=560: HIT 559 (99.8%) MISS 1 (0.2%) | box hits=1255: AIR 696 (55.5%)
+  ABOVE   rays=1320  animal=370: HIT 370 (100.0%) MISS 0 (0.0%) | box hits=882: AIR 512 (58.0%)
+  FRONT   rays=984  animal=232: HIT 230 (99.1%) MISS 2 (0.9%) | box hits=468: AIR 238 (50.9%)
+  BEHIND  rays=984  animal=230: HIT 230 (100.0%) MISS 0 (0.0%) | box hits=468: AIR 238 (50.9%)
+cub: trunk 0.90,1.35,2.47  drawn mesh 0.618,1.439,2.475  hittable=5 (ZonesOnly=nil)
+  FLANK   rays=957  animal=160: HIT 157 (98.1%) MISS 3 (1.9%) | box hits=369: AIR 212 (57.5%)
+  ABOVE   rays=495  animal=106: HIT 106 (100.0%) MISS 0 (0.0%) | box hits=260: AIR 154 (59.2%)
+  FRONT   rays=435  animal=64: HIT 64 (100.0%) MISS 0 (0.0%) | box hits=146: AIR 82 (56.2%)
+  BEHIND  rays=435  animal=64: HIT 64 (100.0%) MISS 0 (0.0%) | box hits=146: AIR 82 (56.2%)
+legendary: trunk 2.70,4.05,7.43  drawn mesh 1.891,4.397,7.425  hittable=5 (ZonesOnly=nil)
+  FLANK   rays=4648  animal=1481: HIT 1455 (98.2%) MISS 26 (1.8%) | box hits=3145: AIR 1690 (53.7%)
+  ABOVE   rays=2822  animal=930: HIT 930 (100.0%) MISS 0 (0.0%) | box hits=2156: AIR 1226 (56.9%)
+  FRONT   rays=1904  animal=610: HIT 588 (96.4%) MISS 22 (3.6%) | box hits=1164: AIR 576 (49.5%)
+  BEHIND  rays=1904  animal=609: HIT 588 (96.6%) MISS 21 (3.4%) | box hits=1164: AIR 576 (49.5%)
+```
+
+**What it says.** AIR is the headline and it is unchanged by the bug (a box hit with no mesh cannot
+be a mesh hit): **53.7 % to 59.2 % of every ray that meets a hittable boar meets NO ANIMAL**, on all
+four kinds, from every direction. **And there ARE holes, 1.8 % to 3.9 % of the visible animal**: the
+back line and the mane stand 0.257 studs (male) and 0.347 (legendary) above the tallest box, so a
+shot at the top of the back is a MISS today. `ABOVE` is 0 % by construction -- the mesh's x and z
+both sit inside the trunk's -- and that is the only sweep where 0 is forced.
+
+**AFTER must be 0 % air AND 0 % miss on every kind.** (L-122: both remainders are located defects,
+not progress. The dorsal band is the same regression task 280a names for the deer.)
 
 ## 4. The frames, looked at
 

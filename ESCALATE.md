@@ -21,9 +21,13 @@ NOT the card's mapping. Both were candidates in the dispatch; both are refuted b
   2.8 px below the top of the ink in an 80 px frame -- under half a dot -- so the diamond draws half
   in the grey, and the top of the ink is the mane and ears. **That is item 1. Item 2 IS item 1.**
 
-And the complement, before, per kind: **54.7 % (male), 55.4 % (female), 57.0 % (cub) of every flank
-ray that meets a hittable box meets NO ANIMAL.** Nothing is uncovered -- 0 misses of 814 flank rays
-on the male. The boar's defect is air only.
+And the complement, before, all four kinds (round 2, after the Reviewer caught a bug in the probe --
+`FilterDescendantsInstances` takes DESCENDANTS, so the drawn mesh was in the box cast and `uncovered`
+could not be anything but 0): **53.7 %-59.2 % of every ray that meets a hittable boar meets NO
+ANIMAL**, on every kind from every direction. **And 1.8 %-3.9 % of the visible animal is a MISS**:
+the back line and the mane stand 0.257 studs (male) / 0.347 (legendary) above `ZoneHead`'s top of
++1.650, so the top of the back cannot be hit today. **The boar has BOTH defects, not just air** --
+that is the dorsal band task 280a already names for the deer.
 
 ## WHY ITEM 1 DID NOT FIT, WITH THE ARITHMETIC
 
@@ -66,10 +70,11 @@ its drawn position. Before and after come off the same four.
    `body` part (fifteen volumes in six zones). The boar's `body` is the trunk's fallback today and
    `Report.CONFIG.ZONES` lists it, so a fifth part is the smaller change to everything that reads a
    zone word -- but it is a new part on every boar in a drive.
-2. **`legendary` is `male` at `meshScale` 1.35 on a trunk scaled 1.35.** Its complement is not
-   measured (the probe keyed the template on the kind, not the model; fixed afterwards, the sweep
-   not re-run). If `male`'s fitted boxes are simply scaled by 1.35 it needs no fit of its own --
-   that is one probe run to confirm, and it should be confirmed rather than assumed.
+2. **`legendary` is `male` at `meshScale` 1.35 on a trunk scaled 1.35**, and it is now measured:
+   FLANK 53.7 % air, 1.8 % miss -- the male's profile, scaled, as expected. So its boxes can be the
+   male's fitted boxes x 1.35 and it needs no fit of its own. The two that cannot share are `female`
+   and `cub`: measured 1.202/1.401 = 0.858 wide against 2.647/3.257 = 0.813 tall, so neither is the
+   male scaled.
 
 ## NEEDS KAREN
 

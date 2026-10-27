@@ -1,3 +1,8 @@
+-- SUPERSEDED BY 282-fit2.luau, AND KEPT BECAUSE IT IS THE EVIDENCE (CLAUDE.md rule 7).
+-- ITS `uncovered` COUNT IS ALWAYS 0 AND THAT IS A BUG, not a reading: the box cast below is
+-- `bp.FilterDescendantsInstances = { ...zones..., trunk }`, and that takes the instance AND ITS
+-- DESCENDANTS -- the drawn mesh is a descendant of the trunk, so every mesh hit was also a box hit.
+-- Its AIR count is unaffected and stands. Caught by the Reviewer, task 282 round 1.
 -- TASK 282 item 3: THE COMPLEMENT, per boar kind. For each kind: spawn the real model, pose it,
 -- then fire a 0.1-stud grid of rays from the FLANK, ABOVE, FRONT and BEHIND and count
 --   both      = the ray met the DRAWN mesh and a hittable box      (a hit on the animal: right)

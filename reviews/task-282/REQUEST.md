@@ -1,7 +1,7 @@
 # Task 282 -- the boar's hitbox, and the buckshot card
 
 Task: 282
-Round: 1
+Round: 2
 Base: cb00b9cd (main)
 Code commit: efb1dbcb (docs-only -- no `src/`, `tests/` or `tools/` file is touched in this round)
 
@@ -29,26 +29,39 @@ the box -- `ESCALATE.md`, 2026-10-27, says so with the arithmetic. Nothing in th
 
 ## Claims
 
-1. **The buckshot card's own arithmetic is CORRECT and is not the fault.** Measured per pellet:
-   eight dots, true `(u,v)` from the server, drawn where `BoarArt` put them. Verify:
-   `282-shotcard.luau`'s output in `MEASURED.md`, dot by dot, against `HitLog.Shape.dot`.
+1. **The buckshot card's own arithmetic is CORRECT and is not the fault.** The half that falsifies
+   is `true` vs `drawn`, not `uv` vs the dot attribute (those are one `Shape.dot` result under two
+   names). Verify: recompute each `drawn` from `BoarArt.drawDots` with `DOT_PIXELS = 7` on a 148x80
+   frame and the written box. **Two of the eight are moved by `BoarArt.spread`** -- (0.332,0.326)
+   and (0.310,0.254) are 6.6 px apart and are fanned onto a ring of radius 5.94 px about their own
+   centre, which is why both draw at v 0.393. That is by design (Karen, 2026-10-17) and it is small
+   here; **a group of EIGHT gets radius 11.9 px in an 80 px frame against a 37 px ink box**, which
+   is a second, smaller card defect this round does not fix and 282a should carry.
 2. **The pattern's own spread is CORRECT and is not the fault.** The eight pellets span
-   u 0.260..0.590 and v 0.035..0.406 = 1.8 x 1.1 studs at 88.7 studs. Verify: `Shotgun.CONFIG`
-   `SPREAD_FULL_DEG.Buck = 1.6` -> radius 89 x tan(0.8 deg) = 1.24 studs.
+   u 0.260..0.590 and v 0.035..0.406 = 1.8 x 1.1 studs. Verify: `Shotgun.CONFIG`
+   `SPREAD_FULL_DEG.Buck = 1.6` -> a cone 2.3-2.5 studs across at this range. (88.7 is the STAGED
+   TRUNK's distance; the server's own record for the two shots is `dist=82.0` and `dist=85.7`. The
+   span sits inside the cone on any of the three.)
 3. **THE FAULT IS THE TRUNK'S AIR.** The lead pellet struck at local y **+1.41** -- 0.09 under the
    trunk's top face -- on a box whose top is 1.50 where the drawn boar's back over the chest is
    lower. `uv=(0.462,0.030)`: v 0.030 is the top edge of the unit square, which the card maps to the
    top of the measured ink box, i.e. the mane. That is Karen's "bunched on the head/neck" and "half
    outside the silhouette". Verify: the `[hitlog]` line in `MEASURED.md`.
-4. **THE COMPLEMENT, BEFORE, per kind** (`282-fit.luau`, 0.1-stud grids, four directions). Of every
-   ray that meets a hittable box from the FLANK: male 984 of 1798 air (**54.7 %**), female 696 of
-   1256 (**55.4 %**), cub 212 of 372 (**57.0 %**). From ABOVE: male 57.7 %. FRONT and BEHIND: 50.4 %.
-   **Legendary is NOT measured** -- its drawn mesh did not load in the probe's first two runs; it was
-   fixed (`setModelSource` keys on the model, not the kind) but re-measured only for the frame.
-   **MISS on the animal is 0 of 814 flank rays on every kind measured**: the boar's defect is air,
-   not holes, which is the opposite of the deer's.
+4. **THE COMPLEMENT, BEFORE, all four kinds** (`282-fit2.luau`, 0.1-stud grids, four directions,
+   `rays=` printed). Of every ray that meets a hittable boar: **AIR is 53.7 %-59.2 %** on every kind
+   from every direction (FLANK: male 984 of 1780 = 55.3 %, female 55.5 %, cub 57.5 %, legendary
+   53.7 %). **AND THERE ARE HOLES**: MISS on the visible animal is 18 of 814 (2.2 %) on the male's
+   flank, 13 of 336 (3.9 %) front and behind, and 26 of 1481 (1.8 %) / 22 of 610 (3.6 %) on the
+   legendary -- the back line and the mane stand 0.257 studs (male) above `ZoneHead`'s top of
+   +1.650, so the top of the back is a miss today. `ABOVE`'s 0 % is forced by the geometry and is
+   the only 0 that is. Verify: `MEASURED.md` section 3, verbatim output.
+   **ROUND 1 REPORTED MISS 0 EVERYWHERE AND THAT WAS A BUG IN MY PROBE, which the Reviewer caught**:
+   `FilterDescendantsInstances` takes the instance AND ITS DESCENDANTS, the drawn mesh is a
+   descendant of the trunk, so every mesh hit counted as a box hit. `282-fit2.luau` casts in two
+   passes with the mesh's `CanQuery` toggled between them. The diagnostic that isolates it is in
+   `MEASURED.md` section 3.
 5. **Item 4's grep, every boar zone name in `src/`, `tests/`, `reviews/`.** Live code and specs only
-   (paperwork excluded): `src/server/Boar/init.luau` (9: the four config rows), `Boar/Body.luau` (2),
+   (paperwork excluded): `src/server/Boar/init.luau` (8: the four config rows -- round 1 said 9, the Reviewer's count is right), `Boar/Body.luau` (2),
    `src/server/Weapon/init.luau` (2, both comments), `src/server/Weapon/Validator.luau` (2, both
    comments), `tests/server/boar_zones.spec.luau` (5, one of which asserts the exact child list
    `"ZoneChest,ZoneHead,ZoneLegs,ZoneRear"`), `boar_hit.spec.luau` (1), `boar_behaviour_live.spec.luau`
@@ -66,6 +79,6 @@ the box -- `ESCALATE.md`, 2026-10-27, says so with the arithmetic. Nothing in th
 - **Karen's own place.** The Forest Test reproduction was abandoned after the drive swapped the
   player to BEATER mid-measurement (`tool=Horn`); DEV holds the role steady, runs the same code, and
   the fault is geometry. **Every number above is `DEV ONLY`.**
-- **Legendary's complement** (claim 4).
+- Nothing else: legendary's complement is measured in this round.
 - The 2.35-stud "worst zone gap" the staging probe prints is `ZoneHead`'s own design offset
   (|(0, 1.00, -2.13)| = 2.353) and not drift: the four measured offsets equal the config's exactly.

@@ -85,8 +85,10 @@ end
 local aim = if chestPart then chestPart.Position else trunk.Position
 plr:SetAttribute("DH282_aim", aim)
 plr:SetAttribute("DH282_trunk", trunk.Position)
-local last = ServerStorage:FindFirstChild("DHLastHits")
-if last and last:IsA("StringValue") then last.Value = "" end
+-- THE RING IS AN ATTRIBUTE ON ServerStorage, NOT A CHILD (HitLog.writeTrace). Round 1 looked for a
+-- StringValue, cleared nothing, and two shots 75 s apart shared one ring (the Reviewer, round 1).
+ServerStorage:SetAttribute("DHLastHits", nil)
+local last = ServerStorage:GetAttribute("DHLastHits")
 -- the DRAWN animal's own extent, in the trunk's frame, by raycasting the mesh (280's instrument)
 for _, m in ipairs(meshes) do m.CanQuery = true end
 local mp = RaycastParams.new() mp.FilterType = Enum.RaycastFilterType.Include mp.FilterDescendantsInstances = meshes
@@ -121,4 +123,4 @@ if rr then
 end
 return losLine .. string.char(10) .. string.format("kind=%s trunk %.2f,%.2f,%.2f at %.1f studs\nzones:\n%s\nworst zone gap %.2f studs\nDRAWN flank extent: z %.2f..%.2f  y %.2f..%.2f  x %.2f..%.2f\naim(chest centre) %.2f,%.2f,%.2f\nmeshes=%d log cleared=%s",
 	KIND, trunk.Size.X, trunk.Size.Y, trunk.Size.Z, (trunk.Position - head.Position).Magnitude,
-	table.concat(out, "\n"), worst, minZ, maxZ, minY, maxY, minX, maxX, aim.X, aim.Y, aim.Z, #meshes, tostring(last ~= nil))
+	table.concat(out, "\n"), worst, minZ, maxZ, minY, maxY, minX, maxX, aim.X, aim.Y, aim.Z, #meshes, tostring(last == nil))
