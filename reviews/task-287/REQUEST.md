@@ -3,25 +3,38 @@
 Task: 287
 Round: 2
 Base: 5832342d (main)
-Code commit: 55a978fb85b10aac69c5f31b3e52e16dda1a7b66
+Code commit: 9d343ffaafd54fc836f33f9d02dfc42bf6ec9e51
 
 ```
-[harness] PASS: 34/34 checks @ 55a978fb85b10aac69c5f31b3e52e16dda1a7b66 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 9d343ffaafd54fc836f33f9d02dfc42bf6ec9e51 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 9d343ffaafd54fc836f33f9d02dfc42bf6ec9e51 (clean tree)
 ```
 
-Server 2408 passed / 0 failed / 0 errors; client 612 / 0 / 0. `[harness2]` is NOT pasted and the run
-was NOT made: it needs Karen's click, and the Director holds that call (`ESCALATE.md`). The merge
-gate still wants the pair.
+Both at the same commit, clean tree. One-player: server 2408/0/0, client 612/0/0. Two-player:
+server 2408/0/0, shooter 612/0/0, driver 606/0/0 (`<runs-dir>/test2-287b1.log`). **The SECOND
+`test2` run the dispatch asked for did not happen:** `run-test2.sh` twice reported
+`FAIL A 2-player local test appeared within 180 s (0 new studio(s) beside the editor)` -- the Start
+click did not land (Studio was in Edit with one instance; I opened and closed nothing). That is an
+instrument failure, recorded in `ESCALATE.md`, not a result.
 
 ## What changed since round 1
 
 Round 1's three findings are closed, and **the regression round 1's own fix caused is found,
 measured and fixed** (the Director: `weapon_shot.spec:476` failed on the branch and passed on main).
 
-* **Finding 1 — the live door was proven by nothing.** It is driven now, live, in a NEW spec file
-  `tests/server/zz_pad_restart.spec.luau`. Known-bad: with the restart block disabled
+* **Finding 1 — the live door was proven by nothing.** Both live doors are driven now, in a NEW
+  spec file `tests/server/zz_pad_restart.spec.luau`, and **the branch is the LIVE ROSTER'S, measured
+  after the withdrawal** -- so the one-player harness exercises the SOLO door and `test2` exercises
+  the MULTI-PLAYER door. Known-bad, solo: with the restart block disabled
   (`if false and Phase.mayRestart(...)`), `[harness] FAIL: 32/34 ... (DIRTY TREE (1 paths)) scope=all`
-  — `zz_pad_restart.spec:88`, which is `expect(Match.enrol(player)).to.equal(true)`.
+  — `zz_pad_restart.spec`, `expect(Match.enrol(player)).to.equal(true)`.
+* **The two-player refutation of the first cut, and it CONFIRMED the game.** The Director measured
+  `[harness2] FAIL: 34/36 @ 187c23cf`, `zz_pad_restart.spec:91`, *"Expected false, got true"*: with
+  two players the OTHER man is still a participant, so `Match.enrolRefused` is TRUE -- which is this
+  task's own multi-player rule. The spec was wrong, not the game, and that is the pre-fix failure of
+  the multi-player branch (L-028). At `247b493b` the branch then ran and asserted, and only its
+  lobby reading failed (`scans` 1, not 0: `Lobby.stats()` outlives `lobby_live.spec`'s start/stop),
+  which is why the reading is now the PLACE's data row.
 * **Finding 2 — the aborted drive was wiped unpaid.** `Economy.payDrive` now runs on the restart
   path, before the dispatch, while the board and the drive number are still drive N's.
 * **Finding 3 — the lobby held a second opinion.** `Match.mayRestart` became `Match.enrolRefused`
@@ -48,12 +61,18 @@ measured and fixed** (the Director: `weapon_shot.spec:476` failed on the branch 
 
 ## Claims
 
-1. **The live door, true side.** `tests/server/zz_pad_restart.spec.luau`: withdraw → `enrolRefused`
-   false → `enrol` true → `restarts` +1 → drive number +1 → phase `Assigning` → a second `enrol`
-   that restarts nothing. Measured in the PASS run:
-   `task287 live restart: drive 2 -> 3, team Drivers -> Drivers, held Horn -> Horn, restarts 0 -> 1,
-   economy true paid 1 -> 2`.
-   Verify: the known-bad line above, which is the same case failing with the block disabled.
+1. **The SOLO door, live** (one-player run): withdraw → `enrolRefused` false → `enrol` true →
+   `restarts` +1 → drive +1 → phase `Assigning` → a second `enrol` that restarts nothing. Measured:
+   `task287 SOLO branch (nobody else in the drive): drive 2 -> 3, phase Assigning -> Assigning,
+   team Drivers -> Drivers, held Horn -> Horn, restarts 0 -> 1, economy true paid 1 -> 2`.
+1b. **The MULTI-PLAYER door, live** (`test2`, with a REAL second participant in the roster):
+   `enrolRefused` TRUE, `enrol` false, NOT a participant, and the running drive untouched -- drive
+   number, phase, `restarts` and `drivesPaid` all unchanged, `rejoinsRefused` +1. Measured
+   (`<runs-dir>/test2-287b1.log`): `task287 MULTI-PLAYER branch (still in the drive: Player2):
+   refused=true enrolled=false drive 2 (unchanged), phase Assigning, restarts 0 (unchanged),
+   rejoinsRefused 0 -> 1, paid 1 (unchanged); ... this place has a lobby = false (world map:v1)`.
+   The `DHPadLate` notice and the next-party enrolment are the LOBBY's and this place has no lobby
+   row -- asserted as a reading in the case, and owned by `lobby_live.spec` (claims 8 and 9).
 2. **It cannot disturb what runs after it:** the `zz_` prefix puts it last of all spec files, and it
    waits for `ClientsFinished` before touching the drive. Verify: the PASS run's 34/34 with
    `weapon_shot` and `zz_drive_boundary` green, against the three FAIL runs quoted above.
@@ -89,9 +108,8 @@ measured and fixed** (the Director: `weapon_shot.spec:476` failed on the branch 
 
 ## What could not be verified
 
-* **The two-player run.** Not made: Karen's click. The multi-player path is proven in the pure
-  machine with a real second participant and against the lobby's fake doors — not with a second
-  client.
+* **The SECOND two-player run.** Not made: the Start click did not land, twice
+  (`FAIL A 2-player local test appeared within 180 s`). The first one PASSED 36/36 at this commit.
 * **On Karen's own screen.** No Forest Test session: the dispatch says the Director checks it there
   after the review.
 * The notice wording is the Builder's pick, as the dispatch allows.
