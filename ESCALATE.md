@@ -524,3 +524,8 @@ none of them is argued against:
 (`agents.needs_two_player` returns `[]`). The menu and the board are proven working in DEV on screen
 (`.screenshots/298b4-menu3.png`); the three findings above are correctness holes behind that screen.
 Nothing here is merged and nothing is in Karen's place: B6 is still what puts a range in it.
+
+**Director authorised round 3, 2026-10-27 23:35 UTC** (MAX_ROUNDS is 3; the B4 brief's cap of 2 is
+lifted for this one round). Item 1 above — the 11.3 live scenario with `RANGE` at its default — is
+**the Director's decision, not an open question**: the flag stays OFF by default until Karen OKs the
+flip (the feature-flag rule), and the scenario is queued in `TASKS.md` for that flip.
