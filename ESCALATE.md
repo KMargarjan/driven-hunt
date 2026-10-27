@@ -1,3 +1,12 @@
+# DIRECTOR DECISION, 2026-10-27 09:15 UTC -- task 287's round-3 findings
+
+Task 287 used its three rounds (MAX_ROUNDS 3). Its round-3 findings are code, not documentation, so no extra round is
+authorised. They are real (a pad restart pays the aborted drive every time -- a coin faucet; an Assigning->Assigning
+restart skips the per-drive work), and both come from the round-2 pay-out. DECISION: the Builder's own shortest fix is
+taken -- the restart ENTERS `Scoring`, so the loop's existing Scoring edge pays exactly once and runs the per-drive work.
+It is built as task 299 on branch `task-299-pad-restart-scoring`, stacked on `task-287-pad-fresh-hunt` (head a28bafbb),
+with its own review rounds. 287 is not merged on its own: it would ship the faucet.
+
 # ESCALATE -- task 287: round 3 returned FINDINGS, so I stop (the dispatch's rule). For the Director.
 
 **Builder, 2026-10-27 09:11 UTC.** Branch `task-287-pad-fresh-hunt`. Code commit `96d932c9`; the
