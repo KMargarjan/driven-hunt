@@ -276,12 +276,21 @@ return function()
 			-- every place. Measured at 70b2a718: where the server HAS published the folder the pieces
 			-- read Success, `waiting` is 0 and the hold never fires -- "2 mesh piece(s), 0 fabricated
 			-- ... waiting=0 held=0 holding=false visible=3", red on both clients of the two-player run.
-			-- `reset()` is needed because `arrived` short-circuits `readyId` ahead of the status; both
-			-- it and the two seams are restored below.
-			AssetFetch.reset()
-			AssetFetch.setAsk(function() end) -- no PreloadAsync: nothing is really downloading here
-			AssetFetch.setStatus(function()
-				return Enum.AssetFetchStatus.Loading
+			-- ONLY THIS GUN'S OWN IDS ARE HELD BACK and everything else is DELEGATED: a blanket
+			-- `Loading` would start a hold on any other gun from inside a test (the first describe's
+			-- `beforeEach` refuses it for the same reason).
+			local heldBack: { [string]: boolean } = {}
+			for _, part in ipairs((folder :: Instance):GetDescendants()) do
+				if part:IsA("MeshPart") and (part :: MeshPart).MeshId ~= "" then
+					heldBack[(part :: MeshPart).MeshId] = true
+				end
+			end
+			AssetFetch.reset() -- `arrived` short-circuits `readyId` ahead of the status; refilled below
+			AssetFetch.setStatus(function(id)
+				if heldBack[id] then
+					return Enum.AssetFetchStatus.Loading
+				end
+				return ContentProvider:GetAssetFetchStatus(id)
 			end)
 
 			local ok, why = pcall(function()
@@ -298,8 +307,8 @@ return function()
 					-- THE GUN IS BUILT -- every piece is there for everything downstream to read by
 					-- name (dropping them left `semiauto_client.spec` with no bolt)...
 					expect(#clone:GetDescendants() > 2).to.equal(true)
-					-- EVERY COUNTER THE VERDICT RESTS ON, printed BEFORE the first assertion that
-					-- can end the case, so a red run says WHY and not only that it was red.
+					-- EVERY COUNTER THE VERDICT RESTS ON, printed before the assertion that went red
+					-- at `70b2a718`, so a red run says WHY and not only that it was red.
 					TestKit.note(
 						string.format(
 							"task294 hold counters: waiting=%d held=%d holding=%s visible=%d",
@@ -332,9 +341,10 @@ return function()
 			-- what every later frame of this session draws.
 			AssetFetch.setStatus(nil)
 			AssetFetch.setAsk(nil)
-			-- AND PUT BACK WHAT `reset()` CLEARED, through the gate's own reader: `arrived` is the
-			-- one-way "this client has the bytes" fact, so a later spec that draws a gun must not be
-			-- pushed into the hold by this case's bookkeeping.
+			-- AND REFILL `arrived` FOR THIS FOLDER, through the gate's own reader: `reset()` cleared the
+			-- one-way "this client has the bytes" fact for every id, and `meshFor` reads the TEMPLATE
+			-- parked here (not a fresh clone), so this re-reads `Success` at once and a later spec that
+			-- draws a gun is not pushed into the hold by this case's bookkeeping.
 			for _, part in ipairs((folder :: Instance):GetDescendants()) do
 				if part:IsA("MeshPart") then
 					AssetFetch.ready(part)
@@ -475,44 +485,25 @@ return function()
 
 		it("IS REALLY STARTED by Weapon.start, so a cold client asks before anything draws", function()
 			-- NOTHING ASSERTED THE SWEEP IS EVER RUN (the Reviewer of 294): every case above calls
-			-- `warmWeapons()` itself, and `Weapon.start`'s `started` guard means it cannot be
-			-- re-entered. So the proof is the LIVE thread: a call to `AssetFetch.warm` from a
-			-- coroutine that is not this one can only come from that `task.spawn` block.
+			-- `warmWeapons()` itself, and `Weapon.start`'s `started` guard makes it un-re-enterable.
+			-- `WARM_SWEEPS` is the seam (task 294a) and it is MONOTONIC, so NO CLOCK decides this: round
+			-- 1 counted the sweep's own `warm` calls inside a 3 s wait, which goes red with `src/` intact
+			-- whenever the run lands in the sweep's last try (the Reviewer's blocking finding).
 			-- TO SEE IT FAIL: delete the `task.spawn` block in `Weapon.start`.
-			local window = WeaponClient.WARM_TRIES * WeaponClient.WARM_SECONDS
-			-- The observation is only possible while the sweep is still running, so say so as an
-			-- assertion rather than letting a late session read as a deleted sweep.
-			expect(time() < window).to.equal(true)
-
-			local realWarm = AssetFetch.warm
-			local mine = coroutine.running()
-			local fromTheSweep = 0
-			AssetFetch.warm = function(holders)
-				if coroutine.running() ~= mine then
-					fromTheSweep += 1
-				end
-				return realWarm(holders)
+			local deadline = os.clock() + WeaponClient.WARM_SECONDS * 3
+			while WeaponClient.WARM_SWEEPS == 0 and os.clock() < deadline do
+				task.wait(0.1) -- only for a spec that beats the FIRST sweep; the count never goes back
 			end
-			local waited = os.clock()
-			local ok, why = pcall(function()
-				local deadline = os.clock() + WeaponClient.WARM_SECONDS * 3
-				while fromTheSweep == 0 and os.clock() < deadline do
-					task.wait(0.1)
-				end
-			end)
-			AssetFetch.warm = realWarm
-			local took = os.clock() - waited
-			assert(ok, tostring(why))
 			TestKit.note(
 				string.format(
-					"task294 the sweep's own thread called warm %d time(s) in %.1fs, %.1fs into a %ds window",
-					fromTheSweep,
-					took,
-					time(),
-					window
+					"task294a sweeps run by Weapon.start: %d, %.1fs into the session",
+					WeaponClient.WARM_SWEEPS,
+					time()
 				)
 			)
-			expect(fromTheSweep > 0).to.equal(true)
+			expect(WeaponClient.WARM_SWEEPS > 0).to.equal(true)
+			expect(WeaponClient.WARM_TRIES > 1).to.equal(true)
+			expect(WeaponClient.WARM_SECONDS > 0).to.equal(true)
 		end)
 	end)
 end
