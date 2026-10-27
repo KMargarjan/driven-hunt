@@ -72,10 +72,11 @@ The non-blocking notes are not fixed in this round and are queued in `TASKS.md`.
    `report.zone` and only once per shot, and `RangeBoard.luau` draws what it is sent. Verify:
    `range.spec` → *"counts a shot, a hit in its own zone, a miss, and resets on the same door"*.
 
-5. **The zone columns are the animal's own.** Read through `boars.zonesFor` (wired in `RangeBoot`
-   from `Boar.speciesConfig`) — five for a boar, six for a red deer — plus MISS. Verify:
-   `range_panel.spec` → *"prints the animal's own zone columns…"* and *"prints a red deer's six
-   columns from the order it was sent"*.
+5. **The zone columns are the animal's own.** Read through `boars.zonesForKind(trial.kind)` (wired
+   in `RangeBoot` from `Boar.kindConfig`, which is the resolution `Runtime:spawn` does) — five for a
+   boar, six for a red deer — plus MISS. Verify: `range.spec` → *"keeps the kind with its species,
+   and reads the columns off the animal it spawns"* (the server case, through the seam);
+   `range_panel.spec`'s two rendering cases show what the board does with each order.
 
 6. **The signed miss gap, in metres, in Karen's words, through the repo's one conversion.**
    `Range.gapStuds` projects `endPoint` onto the target's travel; `RangeData.gapText` says
