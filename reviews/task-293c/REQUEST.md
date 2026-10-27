@@ -48,7 +48,7 @@ Nothing else: the pose, the freeze window, the paddle and the repair rule are un
    is the two cases against **main's** `Body.luau` (the src change stashed out of that commit):
    `[harness] FAIL: 30/34 checks @ 83273e4dc9bd8881190076c8fa836ae9d3c334ff (clean tree) scope=all`
    -- `boar_model.spec:1417`, `Expected value "0" (number), got "nil" (nil)`, which is claim 1's
-   first assertion. *(L-034.)*
+   SECOND assertion (the first, `...to.equal(nil)`, passes at main). *(L-034.)*
 4. **AFTER:** `[harness] PASS: 34/34 checks @ f482308f793dab3fa32ed88f96f9aefbb4d0cdcf (clean tree) scope=all`
    -- server 2419 passed / 0 failed (2417 before these two cases), client 623 / 0.
 5. **Not a per-frame writer.** The write is behind `part:GetAttribute("Reholds") ~= handle.reholds`.
