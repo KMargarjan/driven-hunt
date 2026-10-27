@@ -864,6 +864,25 @@ return function()
 			expect(Match.enrol(player)).to.equal(true)
 			expect(Match.stats().restarts).to.equal(hadRestarts + 1)
 			expect(Match.driveNumber()).to.equal(wasDrive + 1)
+			-- THE INSTRUMENT (Director, 2026-10-27): what this case leaves the SHARED test player as.
+			-- `weapon_shot.spec` runs after this file and its sight-line case needs a man with a gun.
+			local function toolIn(where: Instance?): string
+				if where == nil then
+					return "none"
+				end
+				local tool = where:FindFirstChildWhichIsA("Tool")
+				return if tool then tool.Name else "none"
+			end
+			TestKit.note(
+				string.format(
+					"task287 handover: team=%s mayCarry=%s char=%s pack=%s phase=%s",
+					tostring(Match.assignmentOf(player.UserId)),
+					tostring(Match.mayCarryWeapon(player)),
+					toolIn(player.Character),
+					toolIn(player:FindFirstChildOfClass("Backpack")),
+					Match.phase()
+				)
+			)
 		end)
 
 		it("refuses to enrol somebody it has never registered", function()
