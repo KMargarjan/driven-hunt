@@ -10,6 +10,7 @@
 -- `GuiButton.Modal` IS NOT USED: `src/client/Weapon/Input.luau` refuses it as a second writer of
 -- `MouseBehavior`. The mouse is freed by `Cursor.requestFree("range")` and nothing else.
 
+local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
@@ -23,6 +24,9 @@ RangePanel.LOOK = {
 	TEXT = Color3.fromRGB(232, 232, 224),
 	LABEL = Color3.fromRGB(168, 172, 160),
 	CONFIRM = Color3.fromRGB(120, 152, 88),
+	-- TALL ENOUGH TO SWALLOW THE INSET AND ANY ROUNDING: the measured miss was 58 px, so a bar of
+	-- 46 could not be positioned to contain the centre on every screen; 140 can, with margin.
+	CONFIRM_HEIGHT = 140,
 	WIDTH = 560,
 	HEIGHT = 440,
 	Z_INDEX = 14,
@@ -53,6 +57,21 @@ local picked: { [string]: any } = {}
 local buttons: { [string]: { any } } = {}
 local confirmButton: TextButton? = nil
 local stats = { opens = 0, closes = 0, sends = 0, prompts = 0, picks = 0 }
+
+-- THE CONFIRM BAR MUST CONTAIN THE VIEWPORT CENTRE, which is the one point the input replay can
+-- click (design 11.3) -- and MEASURED LIVE on 2026-10-27 it did not: the HUD's `ScreenGui` carries
+-- the top bar's inset, so a bar centred at scale 0.5 sat 58 px above the centre of the screen.
+-- `GuiService:GetGuiInset()` is that offset, read here and nowhere else.
+function RangePanel.confirmPosition(): UDim2
+	local inset = Vector2.zero
+	local ok, top = pcall(function()
+		return GuiService:GetGuiInset()
+	end)
+	if ok and top ~= nil then
+		inset = top
+	end
+	return UDim2.new(0.5, 0, 0.5, math.floor(inset.Y / 2 + 0.5))
+end
 
 function RangePanel.panelSize(): UDim2
 	return UDim2.fromOffset(RangePanel.LOOK.WIDTH, RangePanel.LOOK.HEIGHT)
@@ -230,8 +249,8 @@ function RangePanel.build(root: Frame)
 	local confirm = Instance.new("TextButton")
 	confirm.Name = "Confirm"
 	confirm.AnchorPoint = Vector2.new(0.5, 0.5)
-	confirm.Position = UDim2.fromScale(0.5, 0.5)
-	confirm.Size = UDim2.fromOffset(300, 46)
+	confirm.Position = RangePanel.confirmPosition()
+	confirm.Size = UDim2.fromOffset(300, RangePanel.LOOK.CONFIRM_HEIGHT)
 	confirm.BackgroundColor3 = RangePanel.LOOK.CONFIRM
 	confirm.BorderSizePixel = 0
 	confirm.Font = Enum.Font.GothamBold
@@ -249,7 +268,7 @@ function RangePanel.build(root: Frame)
 	hint.Name = "Hint"
 	hint.BackgroundTransparency = 1
 	hint.AnchorPoint = Vector2.new(0.5, 0)
-	hint.Position = UDim2.new(0.5, 0, 0.5, 32)
+	hint.Position = UDim2.new(0.5, 0, 0.5, RangePanel.LOOK.CONFIRM_HEIGHT / 2 + 8)
 	hint.Size = UDim2.new(1, -32, 0, 40)
 	hint.Font = Enum.Font.Gotham
 	hint.TextSize = 12

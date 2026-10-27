@@ -929,6 +929,72 @@ return function()
 			Range.stop()
 		end)
 
+		it("offers the boar as well as the deer, and the cartridge follows the gun", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			-- THE BOAR IS THE BASE CONFIG, NOT A ROW IN `SPECIES`: measured live on 2026-10-27, the
+			-- menu offered RED DEER and nothing else until `optionLists` seeded the default.
+			local offered = Range.optionLists()
+			local seen = {}
+			for _, name in ipairs(offered.species) do
+				seen[name] = true
+			end
+			expect(seen.boar).to.equal(true)
+			expect(seen.reddeer).to.equal(true)
+			expect(Boar.CONFIG.SPECIES.boar).to.equal(nil)
+
+			-- PICKING A GUN TAKES ITS OWN FIRST LOAD, because the old gun's load is not legal on it
+			-- -- which is what made `Ballistics.shotFor` return nil and the board print 0.00.
+			local man = manOn(RangeData.matPosition(ANCHOR, 1, LAYOUT), 107)
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, weapon = "lever" })).to.equal(true)
+			local trial = Range.trialOf(1) :: any
+			expect(trial.weapon).to.equal("lever")
+			expect(RangeData.optionAllowed("ammo", trial.ammo, { weapon = "lever" })).to.equal(true)
+			expect(Ballistics.shotFor(Weapons.row(trial.weapon), trial.ammo)).to.be.ok()
+			-- ...AND A LOAD NAMED IN THE SAME REQUEST WINS over the row's first.
+			local loads = Weapons.row("shotgun").AMMO_KINDS
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, weapon = "shotgun", ammo = loads[#loads] })).to.equal(true)
+			expect((Range.trialOf(1) :: any).ammo).to.equal(loads[#loads])
+
+			-- THE BOARD SHOWS A LEAD FROM THE MOMENT OF THE PICK, not only after a shot.
+			local record = Range.recordOf(man) :: any
+			expect(record.shots).to.equal(0)
+			expect(record.leadBallisticStuds > 0).to.equal(true)
+			expect(record.leadViewStuds > 0).to.equal(true)
+			expect(record.leadViewMeasured).to.equal(false)
+			Range.stop()
+		end)
+
+		it("publishes the speed it ISSUES, which at STAND is the walk it orders", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			local man = manOn(RangeData.matPosition(ANCHOR, 1, LAYOUT), 108)
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, pace = RangeData.WORD.STAND })).to.equal(true)
+			local trial = Range.trialOf(1) :: any
+			-- B2's QUEUED NOTE: the pace's own speed is 0 at STAND while the target WALKS to the
+			-- middle, so the board prints both and `issuedSpeedFor` is the one answer `order` uses.
+			expect(trial.speedStudsPerSecond).to.equal(speedOf(RangeData.WORD.STAND))
+			expect(Range.issuedSpeedFor(trial)).to.equal(speedOf(RangeData.WORD.WALK))
+			local record = Range.recordOf(man) :: any
+			expect(record.paceStudsPerSecond).to.equal(speedOf(RangeData.WORD.STAND))
+			expect(record.issuedStudsPerSecond).to.equal(speedOf(RangeData.WORD.WALK))
+			-- ...AND THE SPEED THE RUNTIME IS ACTUALLY ASKED FOR IS THAT SAME NUMBER.
+			advance(fake, clock, 1)
+			local last = fake.leads[#fake.leads]
+			expect(last).to.be.ok()
+			expect((last :: any).speed).to.equal(speedOf(RangeData.WORD.WALK))
+			-- A STANDING TARGET NEEDS NO LEAD, and the board says which.
+			expect((Range.recordOf(man) :: any).leadBallisticStuds).to.equal(0)
+			Range.stop()
+		end)
+
 		it("counts a shot, a hit in its own zone, a miss, and resets on the same door", function()
 			Range.stop()
 			local fake = newFakeBoars()

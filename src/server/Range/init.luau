@@ -491,7 +491,7 @@ local function order(trial: Trial, position: Vector3, dt: number)
 		-- stops it inside `LINE.ARRIVE_STUDS` -- the Brain's own idle, not a speed this module
 		-- invents and not a CFrame it writes.
 		point = RangeData.laneCentre(anchor, layout)
-		speed = paceSpeed(RangeData.WORD.WALK)
+		speed = Range.issuedSpeedFor(trial)
 		direction = "middle"
 		if
 			(Vector3.new(position.X, 0, position.Z) - Vector3.new(point.X, 0, point.Z)).Magnitude
@@ -643,6 +643,7 @@ local function leadsFor(trial: Trial, player: any): (number, number, boolean)
 end
 
 local function blankRecord(player: any, trial: Trial): any
+	local ballistic, view, measured = leadsFor(trial, player)
 	local columns = zoneOrder(trial.species)
 	local zones = {}
 	for _, zone in ipairs(columns) do
@@ -660,7 +661,7 @@ local function blankRecord(player: any, trial: Trial): any
 		-- The pace's own speed, and the one the runtime was ASKED for -- not the same number at
 		-- STAND, and the board labels both (B2's queued note).
 		paceStudsPerSecond = trial.speedStudsPerSecond,
-		issuedStudsPerSecond = trial.issuedStudsPerSecond,
+		issuedStudsPerSecond = Range.issuedSpeedFor(trial),
 		shots = 0,
 		hits = 0,
 		zoneOrder = columns,
@@ -668,12 +669,24 @@ local function blankRecord(player: any, trial: Trial): any
 		miss = 0,
 		lastDistanceStuds = nil,
 		crossingSeconds = trial.lastCrossingSeconds,
-		leadBallisticStuds = 0,
-		leadViewStuds = 0,
-		leadViewMeasured = false,
+		-- SHOWN FROM THE MOMENT OF THE PICK and not only after a shot: the lead this gun needs at
+		-- this pace is what the board exists to teach (design 9.2).
+		leadBallisticStuds = ballistic,
+		leadViewStuds = view,
+		leadViewMeasured = measured,
 		lastGapStuds = nil,
 		lastGapText = nil,
 	}
+end
+
+-- THE SPEED THE OWNER ISSUES FOR THIS TRIAL, AND IT IS `order`'s OWN LINE, so the board can never
+-- print a speed nobody asked for (B2's queued note: `paceSpeed("stand")` is 0 while the target
+-- walks to the middle). ONE function, read by the one that issues it and by the one that prints it.
+function Range.issuedSpeedFor(trial: Trial): number
+	if trial.pace == RangeData.WORD.STAND then
+		return paceSpeed(RangeData.WORD.WALK)
+	end
+	return trial.speedStudsPerSecond
 end
 
 -- THE RECORD FOR THIS PLAYER AT THIS TRIAL. A trial change starts a fresh one: the tally is per
@@ -853,19 +866,28 @@ function Range.optionLists(): any
 		local ok, got = pcall(boars.configOf)
 		config = if ok then got else nil
 	end
+	-- THE BOAR IS THE BASE CONFIG AND IS NOT A ROW IN `SPECIES` -- measured live, 2026-10-27: with
+	-- the keys alone the menu offered RED DEER and nothing else. `Boar.speciesConfig` says the same
+	-- thing in reverse (an unknown species gets `config` itself), so the default species is seeded
+	-- first and the rows are the animals that OVERRIDE it.
 	local species = {}
+	local seen = {}
+	if Range.CONFIG.SPECIES_ALLOWED[Range.CONFIG.DEFAULT_SPECIES] == true then
+		table.insert(species, Range.CONFIG.DEFAULT_SPECIES)
+		seen[Range.CONFIG.DEFAULT_SPECIES] = true
+	end
 	local rows = if type(config) == "table" then (config :: any).SPECIES else nil
 	if type(rows) == "table" then
 		for name in pairs(rows) do
-			if Range.CONFIG.SPECIES_ALLOWED[name] == true then
+			if Range.CONFIG.SPECIES_ALLOWED[name] == true and not seen[name] then
 				table.insert(species, name)
+				seen[name] = true
 			end
 		end
 	end
 	if #species == 0 then
 		table.insert(species, Range.CONFIG.DEFAULT_SPECIES)
 	end
-	table.sort(species)
 	-- THE KINDS ARE THE CHOSEN SPECIES' OWN (`Boar.CONFIG.KINDS.ORDER` through the injected view),
 	-- so a red deer offers stag / hind / calf and a boar male / female / cub.
 	local current = state.trials[1]
@@ -956,6 +978,17 @@ function Range.onRequest(player: any, request: any): boolean
 			else
 				(trial :: any)[option] = value
 				respawn = respawn or option == "species" or option == "kind"
+			end
+			-- A NEW GUN'S LOADS ARE NOT THE OLD GUN'S. Measured live, 2026-10-27: picking the lever
+			-- left the shotgun's `Slug` on the trial, `Ballistics.shotFor` returned nil for that
+			-- pair and the board's LEAD BALLISTIC read 0.00. The row's own first load follows it
+			-- unless this same request named one.
+			if option == "weapon" and request.ammo == nil then
+				local row = Weapons.row(value :: any)
+				local loads = if row ~= nil then row.AMMO_KINDS else nil
+				if type(loads) == "table" and not RangeData.optionAllowed("ammo", trial.ammo, { weapon = value }) then
+					trial.ammo = loads[1]
+				end
 			end
 			picked = true
 		end
