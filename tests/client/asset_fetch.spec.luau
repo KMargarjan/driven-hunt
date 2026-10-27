@@ -286,6 +286,17 @@ return function()
 					-- THE GUN IS BUILT -- every piece is there for everything downstream to read by
 					-- name (dropping them left `semiauto_client.spec` with no bolt)...
 					expect(#clone:GetDescendants() > 2).to.equal(true)
+					-- EVERY COUNTER THE VERDICT RESTS ON, printed BEFORE the first assertion that
+					-- can end the case, so a red run says WHY and not only that it was red.
+					TestKit.note(
+						string.format(
+							"task294 hold counters: waiting=%d held=%d holding=%s visible=%d",
+							Viewmodel.stats().meshesWaiting,
+							Viewmodel.stats().meshesHeld,
+							tostring(Viewmodel.holding()),
+							visiblePieces(clone)
+						)
+					)
 					expect(Viewmodel.holding()).to.equal(true)
 					expect(Viewmodel.stats().meshesHeld > 0).to.equal(true)
 					-- ...AND NOT ONE PIECE OF IT IS VISIBLE. This is Karen's sentence as a number.
