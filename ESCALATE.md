@@ -51,7 +51,15 @@ d. **The Forest Test's Rojo panel was switched from :34873 to :34874** to serve 
    `driven-hunt-294`, per the dispatch, and is **switched back to :34873 at the end of this
    session**. `driven-hunt-karen` was never touched. Panel shots:
    `<runs-dir>/305d-conn-crop.png` (34874) and `<runs-dir>/evidence/port-34873-*.png`.
-e. **`Range.gapStuds` still misleads and three sessions have now leaned on it.** It measures the
+e. **THE RULE IS CLOSE TO INERT ON THE DEER, and the Reviewer found why** (round-1 note, queued).
+   `centreX` is a tenth of the mesh's BOUNDING BOX, and a stag's bounding box is mostly ANTLER:
+   `KINDS.stag.drawnWidthStuds = 3.47` against the male's 1.40, so `centreX` is 0.347 on the stag
+   and every stag bone inside |x| < 0.347 still reads as a centre bone. The stag happens not to need
+   the rule (`carrier2.luau`: its trunk boxes are already on spine/neck bones), so nothing is broken
+   -- but the guard would not catch a deer box that DID land on a paired bone. `BODY_SIZE.X`, or a
+   measured torso half-width, is not a measurement of antlers. Karen shoots deer on Friday; this and
+   the deer-side probe in (b) belong in the same follow-up.
+f. **`Range.gapStuds` still misleads and three sessions have now leaned on it.** It measures the
    ray's END POINT against the target's present X, so a shot that passes a hair wide carries on to
    the berm and prints the berm's offset: that is where "19.3 m behind" and "2.8 m ahead" come from.
    305b queued it; it is still open and it is still the number the Playtester and Karen read.
