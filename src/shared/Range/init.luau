@@ -49,6 +49,19 @@ Range.WORD = {
 	TROT = "trot",
 	STAND = "stand",
 	RUN = "run",
+	-- ISSF's two running-target paces (design 6). They are TIMES across the window, not speeds:
+	-- <https://en.wikipedia.org/wiki/50_meter_running_target> and the `mixed` event beside it.
+	SLOW = "slow",
+	FAST = "fast",
+	MIXED = "mixed",
+}
+
+-- THE ONLY NUMBERS TYPED FOR THE TWO NEW PACES: the time the target takes to cross the window.
+-- The stud speed falls out of `WINDOW_STUDS`, so a later window keeps the real timing instead of
+-- silently changing it. ISSF 50 m running target: slow 5.0 s, fast 2.5 s.
+Range.CROSSING_SECONDS = {
+	slow = 5.0,
+	fast = 2.5,
 }
 
 -- Every dimension in ONE table, read by `Build`, which invents none (`TestArena.LAYOUT`'s rule).
@@ -189,7 +202,58 @@ end
 -- THE PACE ROWS THE MENU OFFERS, IN THE ORDER IT OFFERS THEM. Karen, 2026-10-27: *"animals and
 -- speed (walk trot stand run)"* -- four words, STAND among them (design 7.3 lists three).
 -- STAND is first because it isolates AIM from LEAD, which is what a man starts with.
-Range.PACE_ORDER = { Range.WORD.STAND, Range.WORD.WALK, Range.WORD.TROT, Range.WORD.RUN }
+-- Karen's four FIRST and unmoved (design 6); ISSF's two and `mixed` follow them.
+Range.PACE_ORDER = {
+	Range.WORD.STAND,
+	Range.WORD.WALK,
+	Range.WORD.TROT,
+	Range.WORD.RUN,
+	Range.WORD.SLOW,
+	Range.WORD.FAST,
+	Range.WORD.MIXED,
+}
+
+-- THE TIME A TIMED PACE IS SPECIFIED BY, and nil for a word that is not one of the two. That nil
+-- is what routes Karen's four to the injected animal owner.
+function Range.crossingTargetSeconds(word: any, layout): number?
+	layout = layout or Range.LAYOUT
+	local seconds = if type(word) == "string" then Range.CROSSING_SECONDS[word] else nil
+	if type(seconds) ~= "number" or seconds <= 0 then
+		return nil
+	end
+	return seconds
+end
+
+-- WHICH OF THE TWO A `mixed` LEG DRAWS. Pure when a roll is handed in, so a spec drives both arms;
+-- ISSF draws it per run and does NOT announce it, which is why the board prints the issued SPEED
+-- and never a second word.
+function Range.mixedWord(roll: number?): string
+	local value = if type(roll) == "number" then roll else math.random()
+	return if value < 0.5 then Range.WORD.SLOW else Range.WORD.FAST
+end
+
+-- THE ONE ANSWER TO "HOW FAST IS THIS PACE" (design 6). Karen's four delegate to the INJECTED
+-- `Boar.paceSpeed`, so the range still invents no animal speed; the two timed paces divide the
+-- window by their time; `mixed` draws one of those two.
+--
+-- HONEST, AND MEASURED (306a note (a)): both new speeds land inside the boar's ONE TROT band
+-- (`Body.gait` trots from 5.13 studs/s and runs from 21), so 7.20 and 14.40 are one trot clip
+-- played at two rates, not two gaits. No new gait, no new clip, no new config row.
+function Range.paceSpeedFor(word: string, layout, boarPaceSpeed: ((string) -> number)?): number
+	layout = layout or Range.LAYOUT
+	local asked = if word == Range.WORD.MIXED then Range.mixedWord() else word
+	-- 36 / 5.0 = 7.20 studs/s and 36 / 2.5 = 14.40 studs/s, so the crossing is EXACT by
+	-- construction (306a must-fix (b): the note's 7.14 / 14.29 came from the unrounded
+	-- 35.714-stud window, which the design's own column header never used).
+	local seconds = Range.crossingTargetSeconds(asked, layout)
+	if seconds ~= nil then
+		return layout.WINDOW_STUDS / seconds
+	end
+	if boarPaceSpeed == nil then
+		return 0
+	end
+	return boarPaceSpeed(asked) or 0
+end
 
 -- THE TWO FIRING POSITIONS, AND THE FIRING POSITION IS NOT A MENU PICK: it is where he is standing,
 -- measured off the character the SERVER can see (`Range.mayShoot`'s own discipline, design 7.3).
@@ -809,6 +873,7 @@ Range.deepFreeze(Range.LAYOUT)
 Range.deepFreeze(Range.ANCHORS)
 Range.deepFreeze(Range.WORD)
 Range.deepFreeze(Range.PACE_ORDER)
+Range.deepFreeze(Range.CROSSING_SECONDS)
 Range.deepFreeze(Range.DISTANCES_STUDS)
 
 return Range

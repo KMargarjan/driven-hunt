@@ -328,16 +328,16 @@ return function()
 			expect(RangeData.spotAt(nil, mat, LAYOUT)).to.equal(nil)
 		end)
 
-		it("whitelists exactly the four pace words and refuses everything else", function()
-			-- KAREN, 2026-10-27: *"walk trot stand run"*. The four words, from the table and not
-			-- from a literal in here.
+		it("whitelists exactly the seven pace words and refuses everything else", function()
+			-- KAREN'S FOUR, 2026-10-27: *"walk trot stand run"*, plus B4's `slow`, `fast` and
+			-- `mixed` -- from the table and not from a literal in here.
 			local words = 0
 			for _, word in pairs(RangeData.WORD) do
 				expect(RangeData.paceAllowed(word)).to.equal(true)
 				expect(RangeData.optionAllowed("pace", word)).to.equal(true)
 				words += 1
 			end
-			expect(words).to.equal(4)
+			expect(words).to.equal(7)
 			expect(RangeData.WORD.STAND).to.equal("stand")
 			for _, bad in ipairs({ "", "sprint", "WALK", "0" }) do
 				expect(RangeData.paceAllowed(bad)).to.equal(false)
@@ -1208,21 +1208,26 @@ return function()
 			expect(root:FindFirstChild(LAYOUT.folderName)).to.equal(nil)
 		end)
 
-		it("measures the crossing seconds at walk, trot and run within 10 % of lane / paceSpeed", function()
+		-- TARGET 5, MEASURED FOR ALL SIX MOVING PACES at the shipped 36-stud window: 8.00 / 5.00 /
+		-- 3.27 / 2.50 / 1.50 s for Karen's three and ISSF's two, and `mixed`, whose crossing must
+		-- be ONE of the two timed ones (it draws per leg and is never announced).
+		it("measures the crossing seconds at all six paces within 10 % of window / paceSpeedFor", function()
 			local rows = {}
-			for _, pace in ipairs({ "walk", "trot", "run" }) do
+			for _, pace in ipairs({ "walk", "slow", "trot", "fast", "run" }) do
 				local clock, now = newClock()
 				local fake = newFakeBoars()
 				expect(select(1, startRange(fake, now))).to.equal(true)
 				expect(Range.setPace(1, pace)).to.equal(true)
 				local trial = Range.trialOf(1) :: any
-				-- THE SPEED ASKED FOR IS `Boar.paceSpeed`'S AND NEVER A LITERAL.
-				expect(trial.speedStudsPerSecond).to.equal(speedOf(pace))
+				-- THE SPEED ASKED FOR IS `paceSpeedFor`'S AND NEVER A LITERAL: the boar's own for
+				-- Karen's three, the window divided by the time for ISSF's two.
+				local asked = RangeData.paceSpeedFor(pace, LAYOUT, speedOf)
+				expect(trial.speedStudsPerSecond).to.equal(asked)
 				-- Three full lane lengths' worth of time, whatever the pace.
-				advance(fake, clock, 3 * RangeData.laneLength(LAYOUT) / speedOf(pace) + 2)
+				advance(fake, clock, 3 * RangeData.laneLength(LAYOUT) / asked + 2)
 				trial = Range.trialOf(1) :: any
 				local measured = trial.crossingSecondsByPace[pace]
-				local predicted = RangeData.crossingSeconds(LAYOUT.WINDOW_STUDS, speedOf(pace))
+				local predicted = RangeData.crossingSeconds(LAYOUT.WINDOW_STUDS, asked)
 				expect(measured).to.be.ok()
 				-- TARGET 3: +-10 %. The measurement is quantised to one scan (1 / STEP_HZ = 0.1 s),
 				-- which is 6 % of the fastest crossing and inside the tolerance for all three.
@@ -1230,7 +1235,7 @@ return function()
 				expect(err <= Range.CONFIG.CROSSING_TOLERANCE).to.equal(true)
 				-- ...and every order carried that pace's speed, never another's.
 				for _, lead in ipairs(fake.leadsAt(1)) do
-					expect(lead.speed).to.equal(speedOf(pace))
+					expect(lead.speed).to.equal(asked)
 				end
 				table.insert(
 					rows,
@@ -1238,7 +1243,46 @@ return function()
 				)
 				Range.stop()
 			end
-			TestKit.note("range: measured crossings -- " .. table.concat(rows, " · "))
+			TestKit.note("range: measured crossings (T5) -- " .. table.concat(rows, " · "))
+		end)
+
+		-- `mixed` IS NOT A SIXTH SPEED: every leg is drawn as slow OR fast, so every crossing it
+		-- measures is 5.00 s or 2.50 s and never anything between them.
+		it("crosses at slow OR fast under `mixed`, redrawn per leg, and never between the two", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now))).to.equal(true)
+			expect(Range.setPace(1, RangeData.WORD.MIXED)).to.equal(true)
+			local slowSpeed = RangeData.paceSpeedFor("slow", LAYOUT, speedOf)
+			local fastSpeed = RangeData.paceSpeedFor("fast", LAYOUT, speedOf)
+			-- Long enough for several legs at the SLOWER of the two.
+			advance(fake, clock, 6 * RangeData.laneLength(LAYOUT) / slowSpeed)
+			local trial = Range.trialOf(1) :: any
+			expect(trial.crossings >= 2).to.equal(true)
+			-- EVERY ORDER THE OWNER ISSUED was one of exactly two speeds...
+			local seen = { [slowSpeed] = 0, [fastSpeed] = 0 }
+			for _, lead in ipairs(fake.leadsAt(1)) do
+				expect(seen[lead.speed]).to.be.ok()
+				seen[lead.speed] += 1
+			end
+			-- ...and it was DRAWN PER LEG, so over several legs both appear (the draw is uniform,
+			-- so the chance of one word over six legs is 2 / 2^6).
+			expect(seen[slowSpeed] + seen[fastSpeed] >= 1).to.equal(true)
+			local measured = trial.crossingSecondsByPace[RangeData.WORD.MIXED]
+			expect(measured).to.be.ok()
+			local nearSlow = math.abs(measured - 5.0) / 5.0 <= Range.CONFIG.CROSSING_TOLERANCE
+			local nearFast = math.abs(measured - 2.5) / 2.5 <= Range.CONFIG.CROSSING_TOLERANCE
+			expect(nearSlow or nearFast).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range: mixed -- %d slow orders, %d fast orders, %d crossings, last %.2f s (5.00 or 2.50)",
+					seen[slowSpeed],
+					seen[fastSpeed],
+					trial.crossings,
+					measured
+				)
+			)
+			Range.stop()
 		end)
 
 		-- THE DIRECTOR'S OWN SEQUENCE IN KAREN'S PLACE, 2026-10-28: the target was crossing at a
@@ -1331,6 +1375,51 @@ return function()
 					"range: STAND held %.1f s within %d studs of the middle",
 					trial.standSeconds,
 					Range.CONFIG.STAND_HOLD_STUDS
+				)
+			)
+			Range.stop()
+		end)
+
+		-- 306b's queued note (ii), and B4 is the step that owns it because B4 is where the crossing
+		-- times are measured: `onRequest` wrote a new lane onto a LIVE trial with no window reset,
+		-- so the target was led DIAGONALLY across to the new lane and that TRANSIT was timed as a
+		-- crossing. The timer is now cleared and disarmed exactly as a pace pick does.
+		it("does not time the transit when the LANE is changed under a target inside the window", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now))).to.equal(true)
+			expect(Range.setPace(1, RangeData.WORD.TROT)).to.equal(true)
+			-- Let it be released and then walk it until it is INSIDE the window, which is where the
+			-- defect lives. The condition is the owner's OWN entry time, not a position this spec
+			-- re-derives.
+			local waited = 0
+			local trial = Range.trialOf(1) :: any
+			while trial.windowEnteredAt == nil and waited < 4 * RangeData.laneLength(LAYOUT) do
+				advance(fake, clock, 0.1)
+				waited += 0.1
+				trial = Range.trialOf(1) :: any
+			end
+			expect(trial.windowEnteredAt).to.be.ok()
+			local before = trial.crossings
+			-- THE PICK, through the one inbound door and not by hand.
+			expect(Range.setDistance(1, 179)).to.equal(true)
+			trial = Range.trialOf(1) :: any
+			expect(trial.distanceStuds).to.equal(179)
+			expect(trial.windowEnteredAt).to.equal(nil)
+			expect(trial.windowArmed).to.equal(false)
+			-- The transit to the far lane crosses the old window's x span; nothing is timed for it,
+			-- and the next REAL crossing is timed over the whole window.
+			advance(fake, clock, 3 * RangeData.laneLength(LAYOUT) / speedOf("trot") + 2)
+			trial = Range.trialOf(1) :: any
+			expect(trial.crossings > before).to.equal(true)
+			local measured = trial.crossingSecondsByPace[RangeData.WORD.TROT]
+			local predicted = RangeData.crossingSeconds(LAYOUT.WINDOW_STUDS, speedOf("trot"))
+			expect(math.abs(measured - predicted) / predicted <= Range.CONFIG.CROSSING_TOLERANCE).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range: lane 125 -> 179 mid-window, next crossing %.2f s against %.2f predicted",
+					measured,
+					predicted
 				)
 			)
 			Range.stop()
@@ -1615,9 +1704,16 @@ return function()
 			expect(RangeData.optionAllowed("kind", "male")).to.equal(false)
 		end)
 
-		it("offers the four pace words with STAND, and one distance -- the lane that is built", function()
-			expect(#RangeData.PACE_ORDER).to.equal(4)
+		it("offers the seven pace words with STAND, and one distance -- the lane that is built", function()
+			expect(#RangeData.PACE_ORDER).to.equal(7)
 			expect(RangeData.PACE_ORDER[1]).to.equal(RangeData.WORD.STAND)
+			-- KAREN'S FOUR FIRST AND UNMOVED (design 6), then ISSF's two and `mixed`.
+			expect(RangeData.PACE_ORDER[2]).to.equal(RangeData.WORD.WALK)
+			expect(RangeData.PACE_ORDER[3]).to.equal(RangeData.WORD.TROT)
+			expect(RangeData.PACE_ORDER[4]).to.equal(RangeData.WORD.RUN)
+			expect(RangeData.PACE_ORDER[5]).to.equal(RangeData.WORD.SLOW)
+			expect(RangeData.PACE_ORDER[6]).to.equal(RangeData.WORD.FAST)
+			expect(RangeData.PACE_ORDER[7]).to.equal(RangeData.WORD.MIXED)
 			local seen = {}
 			for _, word in ipairs(RangeData.PACE_ORDER) do
 				seen[word] = true
@@ -1626,6 +1722,12 @@ return function()
 			expect(seen[RangeData.WORD.WALK]).to.equal(true)
 			expect(seen[RangeData.WORD.TROT]).to.equal(true)
 			expect(seen[RangeData.WORD.RUN]).to.equal(true)
+			expect(seen[RangeData.WORD.SLOW]).to.equal(true)
+			expect(seen[RangeData.WORD.FAST]).to.equal(true)
+			expect(seen[RangeData.WORD.MIXED]).to.equal(true)
+			-- A SECOND SPELLING IS A SILENT REFUSAL, so neither word is legal in any other form.
+			expect(RangeData.paceAllowed("SLOW")).to.equal(false)
+			expect(RangeData.paceAllowed("sprint")).to.equal(false)
 			-- THE THREE LANES (design 5.1): 30 m, 35 m and 50 m, and the menu opens on 125 (Karen).
 			expect(#RangeData.DISTANCES_STUDS).to.equal(3)
 			expect(RangeData.DISTANCES_STUDS).to.equal(LAYOUT.DISTANCES_STUDS)
@@ -1641,6 +1743,104 @@ return function()
 			expect(RangeData.distanceMax(LAYOUT)).to.equal(179)
 			expect(RangeData.optionAllowed("distanceStuds", 200)).to.equal(false)
 			expect(RangeData.optionAllowed("distanceStuds", 89)).to.equal(false)
+		end)
+
+		-- ---------------------------------------------------------- 5. THE PACES (design 6, 11.2)
+		it("derives ISSF's two paces from the WINDOW and its TIME, and delegates Karen's four", function()
+			local window = LAYOUT.WINDOW_STUDS
+			-- THE ONLY NUMBERS TYPED: 5.0 s and 2.5 s. 36 / 5.0 = 7.20, 36 / 2.5 = 14.40 (306a
+			-- must-fix (b): NOT the note's 7.14 / 14.29, which came from a 35.714-stud window).
+			expect(RangeData.CROSSING_SECONDS.slow).to.equal(5.0)
+			expect(RangeData.CROSSING_SECONDS.fast).to.equal(2.5)
+			expect(RangeData.paceSpeedFor(RangeData.WORD.SLOW, LAYOUT, speedOf)).to.equal(window / 5.0)
+			expect(RangeData.paceSpeedFor(RangeData.WORD.FAST, LAYOUT, speedOf)).to.equal(window / 2.5)
+			expect(RangeData.paceSpeedFor(RangeData.WORD.SLOW, LAYOUT, speedOf)).to.equal(7.2)
+			expect(RangeData.paceSpeedFor(RangeData.WORD.FAST, LAYOUT, speedOf)).to.equal(14.4)
+			-- ...AND THE CROSSING IS EXACT BY CONSTRUCTION, which is why the row is a TIME.
+			expect(RangeData.crossingSeconds(window, RangeData.paceSpeedFor("slow", LAYOUT, speedOf))).to.equal(5.0)
+			expect(RangeData.crossingSeconds(window, RangeData.paceSpeedFor("fast", LAYOUT, speedOf))).to.equal(2.5)
+			-- KAREN'S FOUR ARE THE BOAR'S OWN, through the injected function and never a literal.
+			for _, word in ipairs({ "stand", "walk", "trot", "run" }) do
+				expect(RangeData.paceSpeedFor(word, LAYOUT, speedOf)).to.equal(speedOf(word))
+			end
+			-- THE DERIVATION FOLLOWS THE WINDOW: a 72-stud window doubles both speeds and keeps
+			-- both TIMES -- the case the arm exists for, and it reddens a hard-coded 7.2 / 14.4.
+			local wide = layoutWith({ WINDOW_STUDS = 72 })
+			expect(RangeData.paceSpeedFor("slow", wide, speedOf)).to.equal(14.4)
+			expect(RangeData.crossingSeconds(wide.WINDOW_STUDS, RangeData.paceSpeedFor("fast", wide, speedOf))).to.equal(
+				2.5
+			)
+			-- WITH NO ANIMAL OWNER INJECTED, Karen's four are 0 and ISSF's two still answer: the
+			-- window and the clock are the range's own and need no boar.
+			expect(RangeData.paceSpeedFor("trot", LAYOUT, nil)).to.equal(0)
+			expect(RangeData.paceSpeedFor("slow", LAYOUT, nil)).to.equal(7.2)
+			-- `crossingTargetSeconds` ANSWERS NIL FOR A WORD THAT IS NOT TIMED, and that nil is
+			-- what routes Karen's four to the boar.
+			expect(RangeData.crossingTargetSeconds("trot", LAYOUT)).to.equal(nil)
+			expect(RangeData.crossingTargetSeconds(1 :: any, LAYOUT)).to.equal(nil)
+			expect(RangeData.crossingTargetSeconds("slow", LAYOUT)).to.equal(5.0)
+			expect(RangeData.crossingTargetSeconds("fast", LAYOUT)).to.equal(2.5)
+			TestKit.note(
+				string.format(
+					"range: paceSpeedFor at a %d-stud window -- stand %.2f, walk %.2f, slow %.2f, trot %.2f, fast %.2f, run %.2f studs/s",
+					window,
+					RangeData.paceSpeedFor("stand", LAYOUT, speedOf),
+					RangeData.paceSpeedFor("walk", LAYOUT, speedOf),
+					RangeData.paceSpeedFor("slow", LAYOUT, speedOf),
+					RangeData.paceSpeedFor("trot", LAYOUT, speedOf),
+					RangeData.paceSpeedFor("fast", LAYOUT, speedOf),
+					RangeData.paceSpeedFor("run", LAYOUT, speedOf)
+				)
+			)
+		end)
+
+		it("resolves `mixed` to one of the two timed paces and to nothing else", function()
+			-- BOTH ARMS BY PARAMETER, because the shipped draw is `math.random`.
+			expect(RangeData.mixedWord(0)).to.equal(RangeData.WORD.SLOW)
+			expect(RangeData.mixedWord(0.49)).to.equal(RangeData.WORD.SLOW)
+			expect(RangeData.mixedWord(0.5)).to.equal(RangeData.WORD.FAST)
+			expect(RangeData.mixedWord(1)).to.equal(RangeData.WORD.FAST)
+			-- ...AND THE DRAW IS ONLY EVER ONE OF THE TWO, over enough rolls to see both.
+			local slow, fast = 0, 0
+			for _ = 1, 400 do
+				local speed = RangeData.paceSpeedFor(RangeData.WORD.MIXED, LAYOUT, speedOf)
+				if speed == 7.2 then
+					slow += 1
+				elseif speed == 14.4 then
+					fast += 1
+				end
+			end
+			expect(slow + fast).to.equal(400)
+			expect(slow > 0).to.equal(true)
+			expect(fast > 0).to.equal(true)
+			TestKit.note(string.format("range: 400 mixed draws -- %d slow, %d fast, 0 other", slow, fast))
+		end)
+
+		-- THE HONEST SENTENCE, MEASURED (306a must-fix (a)): `Body.gait` trots from `TROT_FROM` and
+		-- runs from `RUN_FROM`, and BOTH new speeds land inside the boar's single TROT band. So
+		-- `slow` and `fast` are ONE trot clip played at two rates, not two gaits -- no new gait,
+		-- no new clip, no new config row. Whether that READS as two paces is Karen's look.
+		it("lands both new paces inside ONE trot band of the boar's own gait rule", function()
+			local model = Boar.CONFIG.MODEL or {}
+			local trotFrom = model.TROT_FROM
+			local runFrom = model.RUN_FROM
+			expect(type(trotFrom)).to.equal("number")
+			expect(type(runFrom)).to.equal("number")
+			local slow = RangeData.paceSpeedFor("slow", LAYOUT, speedOf)
+			local fast = RangeData.paceSpeedFor("fast", LAYOUT, speedOf)
+			expect(slow >= trotFrom).to.equal(true)
+			expect(slow < runFrom).to.equal(true)
+			expect(fast >= trotFrom).to.equal(true)
+			expect(fast < runFrom).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range: gait bands TROT_FROM %.2f RUN_FROM %.2f -- slow %.2f and fast %.2f are BOTH trot (one clip, two rates)",
+					trotFrom,
+					runFrom,
+					slow,
+					fast
+				)
+			)
 		end)
 
 		it("says the gap in metres through the repository's one conversion, with Karen's words", function()

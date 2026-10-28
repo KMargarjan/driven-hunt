@@ -251,21 +251,67 @@ return function()
 			expect(sent[1].kind).to.equal(nil)
 		end)
 
-		it("offers exactly the four pace words, STAND among them", function()
-			local _, _frame = freshPanel()
+		it("offers exactly the seven pace words, STAND first and ISSF's three last", function()
+			local _, frame = freshPanel()
 			RangePanel.setState({ lists = lists() })
 			local values = RangePanel.valuesFor("pace")
-			expect(#values).to.equal(4)
+			expect(#values).to.equal(7)
 			local seen = {}
 			for _, entry in ipairs(values) do
 				seen[entry.value] = true
 			end
 			-- KAREN, 2026-10-27: *"walk trot stand run"*. Asserted against `Range.WORD`, the shipped
-			-- table the words cross the wire as, not against four strings typed here.
+			-- table the words cross the wire as, not against strings typed here.
 			expect(seen[RangeData.WORD.STAND]).to.equal(true)
 			expect(seen[RangeData.WORD.WALK]).to.equal(true)
 			expect(seen[RangeData.WORD.TROT]).to.equal(true)
 			expect(seen[RangeData.WORD.RUN]).to.equal(true)
+			-- ...AND B4's THREE, in the order the menu shows them (design 6).
+			expect(seen[RangeData.WORD.SLOW]).to.equal(true)
+			expect(seen[RangeData.WORD.FAST]).to.equal(true)
+			expect(seen[RangeData.WORD.MIXED]).to.equal(true)
+			expect(values[5].value).to.equal(RangeData.WORD.SLOW)
+			expect(values[7].value).to.equal(RangeData.WORD.MIXED)
+			-- EVERY BUTTON IS ON THE PANEL. Seven at the shipped 94 px pitch would end 238 px off
+			-- the right edge of a 416 px strip, so the pitch is derived from the count. Measured
+			-- off the REAL buttons, which is what a player can click.
+			local strip = frame:FindFirstChild("pace") :: Frame
+			expect(strip).to.be.ok()
+			local widest = 0
+			for index = 1, #values do
+				local at, size = RangePanel.rowRect("pace", index)
+				expect(at).to.be.ok()
+				widest = math.max(widest, ((at :: Vector2).X - strip.AbsolutePosition.X) + (size :: Vector2).X)
+			end
+			expect(widest <= RangePanel.STRIP_WIDTH).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range menu: 7 pace buttons span %.0f px of a %d px strip",
+					widest,
+					RangePanel.STRIP_WIDTH
+				)
+			)
+		end)
+
+		-- THE PITCH ITSELF, AS ARITHMETIC, so both arms are entered by their own case: the shipped
+		-- 94 while it fits (every row that is four values or fewer is bit-for-bit today's), and the
+		-- strip divided by the count once it does not.
+		it("keeps the shipped 94 px pitch while it fits and shrinks it only when it cannot", function()
+			local pitch, width = RangePanel.buttonLayout(4)
+			expect(pitch).to.equal(94)
+			expect(width).to.equal(90)
+			expect(select(1, RangePanel.buttonLayout(1))).to.equal(94)
+			-- 416 / 7 = 59.4 -> 59, and 7 x 59 = 413 <= 416.
+			local sevenPitch, sevenWidth = RangePanel.buttonLayout(7)
+			expect(sevenPitch).to.equal(math.floor(RangePanel.STRIP_WIDTH / 7))
+			expect(sevenPitch * 7 <= RangePanel.STRIP_WIDTH).to.equal(true)
+			expect(sevenWidth).to.equal(sevenPitch - RangePanel.BUTTON_GAP)
+			-- The count where it turns over is the last one that fits at 94.
+			expect(select(1, RangePanel.buttonLayout(math.floor(RangePanel.STRIP_WIDTH / 94)))).to.equal(94)
+			expect(select(1, RangePanel.buttonLayout(math.floor(RangePanel.STRIP_WIDTH / 94) + 1)) < 94).to.equal(true)
+			-- A nonsense count cannot divide by zero or hand back a negative width.
+			expect(select(2, RangePanel.buttonLayout(0)) > 0).to.equal(true)
+			expect(select(2, RangePanel.buttonLayout(400)) > 0).to.equal(true)
 		end)
 
 		it("reads the gun rows and each gun's own cartridges from Weapons", function()

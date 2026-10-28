@@ -73,6 +73,22 @@ function RangePanel.confirmPosition(): UDim2
 	return UDim2.new(0.5, 0, 0.5, math.floor(inset.Y / 2 + 0.5))
 end
 
+-- THE STRIP IS 416 px WIDE (`WIDTH` 560 less the 128 label gutter and the 16 right margin) and
+-- B4's PACE row offers SEVEN values, which at the shipped 94 px pitch would run 238 px off the
+-- panel. The pitch is DERIVED from the count instead: the shipped 94 while it fits, then as wide as
+-- the strip allows. Four values still measure 94 / 90, so every shipped row is bit-for-bit today's.
+RangePanel.STRIP_WIDTH = RangePanel.LOOK.WIDTH - 144
+RangePanel.BUTTON_PITCH = 94
+RangePanel.BUTTON_GAP = 4
+
+function RangePanel.buttonLayout(count: number): (number, number)
+	if type(count) ~= "number" or count < 1 then
+		return RangePanel.BUTTON_PITCH, RangePanel.BUTTON_PITCH - RangePanel.BUTTON_GAP
+	end
+	local pitch = math.min(RangePanel.BUTTON_PITCH, math.floor(RangePanel.STRIP_WIDTH / count))
+	return pitch, math.max(1, pitch - RangePanel.BUTTON_GAP)
+end
+
 function RangePanel.panelSize(): UDim2
 	return UDim2.fromOffset(RangePanel.LOOK.WIDTH, RangePanel.LOOK.HEIGHT)
 end
@@ -315,11 +331,12 @@ function RangePanel.render()
 					button:Destroy()
 				end
 				existing = {}
+				local pitch, width = RangePanel.buttonLayout(#values)
 				for index, entry in ipairs(values) do
 					local button = Instance.new("TextButton")
 					button.Name = row.option .. tostring(index)
-					button.Position = UDim2.fromOffset((index - 1) * 94, 0)
-					button.Size = UDim2.fromOffset(90, 26)
+					button.Position = UDim2.fromOffset((index - 1) * pitch, 0)
+					button.Size = UDim2.fromOffset(width, 26)
 					button.BorderSizePixel = 0
 					button.Font = Enum.Font.Gotham
 					button.TextSize = 12

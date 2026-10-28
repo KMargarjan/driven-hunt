@@ -561,10 +561,28 @@ inside T5's 5 %.
 
 `Range.paceSpeedFor(word, layout, boarPaceSpeed)` is the one function: four words delegate to the
 injected `Boar.paceSpeed` (so the range still invents no animal speed), two divide the window by a
-time, and `mixed` resolves to one of those two per leg. **No new gait, no new clip, no new config
-row:** `Boar.Body` chooses the clip by SPEED, and `model.RUN_FROM = (TROT_SPEED + RUN_SPEED)/2`
-already bands 7.20 as a walk/trot and 14.40 as a trot/run. That the gait *looks* right at those two
-speeds is Karen's look (§14).
+time, and `mixed` resolves to one of those two per leg.
+
+**No new gait, no new clip, no new config row — AND BOTH NEW PACES ARE ONE TROT CLIP AT TWO RATES**
+(306a must-fix (a), measured against `Body.gait`'s own rule: run ≥ `MODEL.RUN_FROM`, trot ≥
+`MODEL.TROT_FROM`, else walk). For the boar `TROT_FROM` = `CLIPS.walk.groundStudsPerSecond` ×
+`WALK_MAX_RATE` = 2.852 × 1.8 = **5.13** and `RUN_FROM` = (`TROT_SPEED` 18 + `SPRINT_SPEED` 38)/2 =
+**28**, so **7.20 and 14.40 both land inside the single TROT band** — one clip, played at ~0.70 and
+~1.41 of its natural rate. The earlier sentence here (*"`model.RUN_FROM = (TROT_SPEED + RUN_SPEED)/2`
+already bands 7.20 as a walk/trot and 14.40 as a trot/run"*) was wrong on the repo's own numbers and
+also mixed `Boar.CONFIG.TROT_SPEED` 18 with `PACE.TROT_SPEED` 11. `range.spec` group 5 asserts the
+band containment off `Boar.CONFIG.MODEL` rather than the figures typed here. Whether two rates of one
+trot clip READ as two paces is Karen's look (§14 item 11).
+
+**The menu's PACE row then carries SEVEN values**, and seven buttons at the shipped 94 px pitch run
+238 px off a 416 px strip, so `RangePanel.buttonLayout(count)` derives the pitch: the shipped 94
+while it fits, the strip divided by the count once it does not. Every row of four values or fewer is
+bit-for-bit today's.
+
+**`Range.setDistance(spot, studs)` is the one writer of a live trial's lane** (306b's queued note
+(ii), owned by this step because this step measures the crossing): a lane changed while the target
+is INSIDE the window clears and disarms the window timer exactly as `setPace` does, because the
+diagonal transit to the new lane is not a crossing.
 
 `Range.setPace` keeps its shipped behaviour exactly, including the task-303 fix (`windowArmed =
 false`, so a pick taken mid-window cannot start a crossing). `mixed` draws its leg speed inside
@@ -778,6 +796,7 @@ Range.windowSpanFor(anchor: Vector3, spot: number, layout): (number, number)   -
 Range.inWindow(minX: number, maxX: number, x: number?): boolean
 Range.paceSpeedFor(word: string, layout, boarPaceSpeed: ((string) -> number)?): number
 Range.crossingTargetSeconds(word: string, layout): number?            -- 5.0 / 2.5 for the two new rows
+Range.mixedWord(roll: number?): string                                -- which of the two a `mixed` leg draws
 Range.distanceFor(trial: any, position: string?, layout): number       -- + STAND.backStuds on the deck
 Range.POSITION = { BENCH = "bench", TREESTAND = "treestand" }
 Range.CROSSING_SECONDS = { slow = 5.0, fast = 2.5 }
@@ -1134,6 +1153,8 @@ invisible down the lane) only at the first build. Every item below is a **docume
 10. **Does a station lend all four guns?** Unchanged default from §15 item 1 of the base design:
     **yes**, at a station only, never into a drive.
 11. **`mixed` on the menu** — slow or fast, not announced. Default: **offered, not the default pace**.
+    **And the honest question beside it (306a must-fix (a), closed in B4): both new paces are one
+    trot clip at two rates (§6), not two gaits — does that read as two paces?**
 12. **Which distance the menu opens on.** Default: **125**, the one she has been shooting.
 
 ---

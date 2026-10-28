@@ -104,6 +104,7 @@ type Trial = {
 	distanceStuds: number,
 	targetId: string?,
 	leg: number,
+	legDrawn: number?,
 	crossings: number,
 	lastCrossingSeconds: number?,
 	crossingSecondsByPace: { [string]: number },
@@ -188,10 +189,10 @@ local function paceSpeed(pace: string): number
 	-- requires no owner (design section 3). The root wires it as
 	-- `function(word) return Boar.paceSpeed(word, runtime:config()) end`, so the range invents no
 	-- speed and there is no second copy of the arithmetic.
-	if boars == nil or boars.paceSpeed == nil then
-		return 0
-	end
-	return boars.paceSpeed(pace) or 0
+	-- ...and since B4 the ROUTE is `RangeData.paceSpeedFor`, which delegates Karen's four to that
+	-- injected function and derives ISSF's two from `WINDOW_STUDS / CROSSING_SECONDS` (design 6).
+	local injected = if boars ~= nil then boars.paceSpeed else nil
+	return RangeData.paceSpeedFor(pace, RangeData.LAYOUT, injected)
 end
 
 local function newTrial(spot: number, pace: string): Trial
@@ -210,6 +211,8 @@ local function newTrial(spot: number, pace: string): Trial
 		distanceStuds = RangeData.LAYOUT.DISTANCE_STUDS,
 		targetId = nil,
 		leg = 1,
+		-- WHICH LEG `mixed` LAST DREW FOR: nil until `order` draws on this leg (design 6).
+		legDrawn = nil,
 		crossings = 0,
 		lastCrossingSeconds = nil,
 		crossingSecondsByPace = {},
@@ -448,6 +451,27 @@ function Range.setPace(spot: number, pace: string): boolean
 	-- window, at exactly the 4.5 studs/s it printed beside it. The timer is re-armed by LEAVING.
 	trial.windowArmed = false
 	trial.standSeconds = 0
+	-- `mixed` redraws on the leg it is running, not on the next flip.
+	trial.legDrawn = nil
+	return true
+end
+
+-- THE LANE, FOR ONE SPOT, AND IT IS THE ONE WRITER OF `distanceStuds` ON A LIVE TRIAL (306b's
+-- queued note (ii), owned by B4 because B4 is where the crossing is measured). A lane changed
+-- while the target is INSIDE the window is not a crossing: the target is led DIAGONALLY across to
+-- the new lane, and that transit used to be timed as one. Cleared and DISARMED exactly as
+-- `setPace` does -- the timer is re-armed by LEAVING.
+function Range.setDistance(spot: number, distanceStuds: number): boolean
+	local trial = state.trials[spot]
+	if trial == nil or not RangeData.optionAllowed("distanceStuds", distanceStuds) then
+		return false
+	end
+	if distanceStuds ~= trial.distanceStuds then
+		trial.windowEnteredAt = nil
+		trial.windowLeg = nil
+		trial.windowArmed = false
+	end
+	trial.distanceStuds = distanceStuds
 	return true
 end
 
@@ -656,6 +680,13 @@ local function order(trial: Trial, position: Vector3, dt: number)
 			trial.leg += 1
 			state.stats.flips += 1
 			point = RangeData.laneEnds(anchor, layout, trial.leg, state.downrange, trial.spot, trial.distanceStuds)
+		end
+		-- `mixed` DRAWS PER LEG (design 6), here, where the leg flips and nowhere else. The shooter
+		-- is never told which it drew -- ISSF does not announce it -- so the board prints the
+		-- ISSUED SPEED and never a second word.
+		if trial.pace == RangeData.WORD.MIXED and trial.legDrawn ~= trial.leg then
+			trial.speedStudsPerSecond = paceSpeed(RangeData.WORD.MIXED)
+			trial.legDrawn = trial.leg
 		end
 		speed = trial.speedStudsPerSecond
 		direction = if (trial.leg % 2) == 1 then "east" else "west"
@@ -1179,6 +1210,8 @@ function Range.onRequest(player: any, request: any): boolean
 		if value ~= nil then
 			if option == "pace" then
 				Range.setPace(trial.spot, value)
+			elseif option == "distanceStuds" then
+				Range.setDistance(trial.spot, value :: number)
 			else
 				(trial :: any)[option] = value
 				respawn = respawn or option == "species" or option == "kind"
