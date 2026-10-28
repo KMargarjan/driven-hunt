@@ -352,9 +352,11 @@ Lobby.CONFIG = {
 		-- HOW WIDE THE WALK TO AN OUTLYING PART OF THE LOBBY IS (task 302). The return rule's home is
 		-- the field PLUS each area the root hands in PLUS a corridor of this half-width along the
 		-- straight line between the anchor and that area's centre (`Join.walkwayTo`).
-		-- 24 either side = 48 studs across: a player walks at 16 studs/s (`Body.defaultWalkSpeed`), so
-		-- it is a second and a half of drift off the line -- wide enough that nobody walking to the
-		-- range is sent home, narrow enough that the forest beside the path is still not his place.
+		-- 24 either side: a player walks at 16 studs/s (`Body.defaultWalkSpeed`), so it is a second
+		-- and a half of drift. IT IS A BOUNDING BOX AND NOT A 48-STUD STRIP -- 48 across only for a
+		-- walk along one axis; for Karen's diagonal it is 248 x 382. The union is still smaller than
+		-- the bounding box of the lodge and the range, and -- the reason that matters -- every one
+		-- of its edges is a measured fact: this one is the two anchors plus a man's own stride.
 		WALKWAY_HALF_STUDS = 24,
 		-- THE GRASS BLOCK IS SOLID AND DEEP, so the downhill edge is a BANK and not a floating
 		-- shelf. The measured spread over this footprint is 16 studs and the worst of the fifteen

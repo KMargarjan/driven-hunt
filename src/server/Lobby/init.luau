@@ -817,8 +817,8 @@ local function stepPlayer(
 	-- place, a man on the range mat 268 studs out was respawned here 0.6 s later.
 	local here = rootOf(player)
 	local held = world.isHeld ~= nil and world.isHeld(userId) == true
-	local inField: boolean? = if here == nil then nil else Join.insideHome(here :: Vector3, homeAreas)
-	if Join.needsReturn(inDrive, held, inField) then
+	local inHome: boolean? = if here == nil then nil else Join.insideHome(here :: Vector3, homeAreas)
+	if Join.needsReturn(inDrive, held, inHome) then
 		local last = returnedAt[userId]
 		-- THROTTLED, because `Body.place` yields on `LoadCharacter` and this scan runs at 10 Hz. The
 		-- nil-position rule above already covers most of it (a respawning player has no root); this

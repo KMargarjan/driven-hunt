@@ -28,6 +28,10 @@ local Match = require(ServerScriptService:WaitForChild("Match"))
 local Phase = Match.Phase
 
 local Pads = Lobby.Pads
+-- TASK 302: the range's PURE DATA only, for the one rectangle the composition root hands
+-- `Lobby.start`. The lobby requires nothing of the range; this spec stands where `ForestTestBoot`
+-- does and composes the same value.
+local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
 
 local CFG = Data.CONFIG
 local ANCHOR = Data.anchorFor("forest-test") :: any
@@ -1001,6 +1005,87 @@ return function()
 			expect(#seen.placed).to.equal(1)
 			Lobby.step(1001 + CFG.RETURN_COOLDOWN_SECONDS, { player })
 			expect(#seen.placed).to.equal(2)
+		end)
+
+		-- ---------------------------------------------------------- the range (task 302)
+		--
+		-- KAREN COULD NOT USE THE RANGE AT ALL. Measured in her place 2026-10-28: a character on
+		-- the mat at (2650, 145, -3214) was respawned at the lodge 0.6 s later.
+		--
+		-- THIS IS THE SHIPPED PATH AND NOT THE ARITHMETIC (round 1, finding 1): the rectangle goes
+		-- in through `Lobby.start`'s `homeAreas` seam, exactly as `ForestTestBoot` hands it in, and
+		-- the proof is what `Lobby.step` DID -- `seen.placed`, written by the injected `place`.
+		-- THE ASYMMETRY IS THE PROOF AND IT DIES WITH THE CHANGE: the same three men, the same
+		-- scan, with the seam and without it.
+		it("leaves a man at the range and on the walk there alone -- and returns him without the seam", function()
+			local rangeAnchor = Vector3.new(
+				(RangeData.anchorFor("forest-test") :: any).x,
+				SHELF,
+				(RangeData.anchorFor("forest-test") :: any).z
+			)
+			local row = RangeData.anchorFor("forest-test") :: any
+			local footprint = RangeData.footprintFor(rangeAnchor, RangeData.LAYOUT, RangeData.downrangeOf(row))
+			local mat = RangeData.matPosition(rangeAnchor, 1, RangeData.LAYOUT)
+			local lodge = Vector3.new(ANCHOR.x, SHELF, ANCHOR.z)
+			-- Halfway along the walk, and a man 400 studs past the range who still does not belong.
+			local midway = lodge:Lerp(mat, 0.5)
+			local beyond = Vector3.new(footprint.minX - 400, SHELF, footprint.minZ - 400)
+
+			-- WITH THE SEAM, as Karen's place is wired.
+			local withSeam = fresh(bin, function(world)
+				world.homeAreas = { footprint }
+			end)
+			Lobby.step(1000, {})
+			local onMat = occupant(61, mat, bin)
+			local walking = occupant(62, midway, bin)
+			local lost = occupant(63, beyond, bin)
+			Lobby.step(1001, { onMat, walking, lost })
+			local placedWith = {}
+			for _, placedRow in ipairs(withSeam.placed) do
+				placedWith[placedRow.userId] = true
+			end
+			expect(placedWith[61]).to.equal(nil, "the man on the mat was sent back to the lodge")
+			expect(placedWith[62]).to.equal(nil, "the man halfway to the range was sent back to the lodge")
+			-- ...and the rule still works: the man 400 studs past the range IS returned.
+			expect(placedWith[63]).to.equal(true)
+			expect(#withSeam.placed).to.equal(1)
+
+			-- WITHOUT IT -- a world with no range row, which is the DEV place and the flag-off
+			-- rollback. The same two men are returned, which is the defect this task fixes.
+			local plain = fresh(bin, function(world)
+				world.homeAreas = nil
+			end)
+			Lobby.step(2000, {})
+			local onMat2 = occupant(61, mat, bin)
+			local walking2 = occupant(62, midway, bin)
+			local lost2 = occupant(63, beyond, bin)
+			Lobby.step(2001, { onMat2, walking2, lost2 })
+			local placedWithout = {}
+			for _, placedRow in ipairs(plain.placed) do
+				placedWithout[placedRow.userId] = true
+			end
+			expect(placedWithout[61]).to.equal(true, "the old rule did not return the man on the mat")
+			expect(placedWithout[62]).to.equal(true)
+			expect(placedWithout[63]).to.equal(true)
+			expect(#plain.placed).to.equal(3)
+		end)
+
+		it("still leaves a man at the range who is in the drive or held to the drive", function()
+			local row = RangeData.anchorFor("forest-test") :: any
+			local rangeAnchor = Vector3.new(row.x, SHELF, row.z)
+			local footprint = RangeData.footprintFor(rangeAnchor, RangeData.LAYOUT, RangeData.downrangeOf(row))
+			local beyond = Vector3.new(footprint.minX - 400, SHELF, footprint.minZ - 400)
+			local seen = fresh(bin, function(world)
+				world.homeAreas = { footprint }
+			end)
+			Lobby.step(1000, {})
+			local driving = occupant(64, beyond, bin)
+			local frozen = occupant(65, beyond, bin)
+			seen.inDrive[64] = true
+			seen.held[65] = true
+			Lobby.step(1001, { driving, frozen })
+			-- Neither arm is touched, at the range as anywhere else.
+			expect(#seen.placed).to.equal(0)
 		end)
 	end)
 
