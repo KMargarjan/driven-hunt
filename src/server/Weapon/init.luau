@@ -579,10 +579,9 @@ function Weapon.rewindFor(player: Player?, ping: number?, config: any?): number
 		local ok, measured = pcall(function()
 			return (player :: any):GetNetworkPing()
 		end)
-		-- DELIBERATELY BROKEN (round 3): a failed ping guesses 0.05 instead of contributing zero
-		seconds = if ok and type(measured) == "number" then measured else 0.05
+		seconds = if ok and type(measured) == "number" then measured else 0
 	end
-	if type(seconds) ~= "number" or seconds ~= seconds or seconds < 0 then
+	if type(seconds) ~= "number" or seconds ~= seconds or seconds <= 0 then
 		seconds = 0
 	end
 	return math.clamp(
