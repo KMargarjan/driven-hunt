@@ -3,7 +3,7 @@
 Task: 305b
 Round: 2
 Base: 2b77716e
-Code commit: PENDING
+Code commit: ea72ffc938871d573e660089625baac9fd043ce4
 
 ## PLAN
 
@@ -55,7 +55,7 @@ Reproduced above, in her place, on her build, at her range: RUN rifle 1/10 and t
 ## Harness
 
 ```
-[harness] PASS: 34/34 checks @ 14bbd363fa9e66b36ebfeb7d400d06592c52ed35 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ ea72ffc938871d573e660089625baac9fd043ce4 (clean tree) scope=all
 ```
 needs_two_player: **no**. The change touches `src/server/Weapon/Flight.luau`,
 `src/server/Weapon/init.luau` and `tests/server/weapon_rewind.spec.luau`; none is in
