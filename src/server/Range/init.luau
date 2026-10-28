@@ -105,6 +105,7 @@ type Trial = {
 	targetId: string?,
 	leg: number,
 	legDrawn: number?,
+	drewWord: string?,
 	crossings: number,
 	lastCrossingSeconds: number?,
 	crossingSecondsByPace: { [string]: number },
@@ -119,6 +120,7 @@ type Trial = {
 
 local state = {
 	started = false,
+	roll = nil :: (() -> number)?,
 	built = nil :: any,
 	anchor = nil :: Vector3?,
 	row = nil :: any,
@@ -192,6 +194,13 @@ local function paceSpeed(pace: string): number
 	-- ...and since B4 the ROUTE is `RangeData.paceSpeedFor`, which delegates Karen's four to that
 	-- injected function and derives ISSF's two from `WINDOW_STUDS / CROSSING_SECONDS` (design 6).
 	local injected = if boars ~= nil then boars.paceSpeed else nil
+	if pace == RangeData.WORD.MIXED then
+		-- `mixed` RESOLVES HERE, through the injected roll, so the WORD it drew is known to the
+		-- caller that issues the speed and the two legs are drivable by parameter.
+		local roll = state.roll
+		local word = RangeData.mixedWord(if roll ~= nil then roll() else nil)
+		return RangeData.paceSpeedFor(word, RangeData.LAYOUT, injected), word
+	end
 	return RangeData.paceSpeedFor(pace, RangeData.LAYOUT, injected)
 end
 
@@ -213,6 +222,7 @@ local function newTrial(spot: number, pace: string): Trial
 		leg = 1,
 		-- WHICH LEG `mixed` LAST DREW FOR: nil until `order` draws on this leg (design 6).
 		legDrawn = nil,
+		drewWord = nil,
 		crossings = 0,
 		lastCrossingSeconds = nil,
 		crossingSecondsByPace = {},
@@ -453,6 +463,7 @@ function Range.setPace(spot: number, pace: string): boolean
 	trial.standSeconds = 0
 	-- `mixed` redraws on the leg it is running, not on the next flip.
 	trial.legDrawn = nil
+	trial.drewWord = nil
 	return true
 end
 
@@ -520,6 +531,9 @@ function Range.start(seams): boolean
 	state.root = root
 	state.boars = seams.boars
 	state.now = seams.now
+	-- THE `mixed` DRAW, INJECTED like the clock, so a spec can run the two legs by parameter
+	-- instead of waiting on `math.random` (round 1, finding 1). Nil means the shipped draw.
+	state.roll = seams.roll
 	state.acc = 0
 	state.trials = {}
 	-- THE COUNTERS DESCRIBE ONE RUN, AND THAT IS NOT A TIDINESS POINT (review round 1, finding 2):
@@ -580,6 +594,7 @@ function Range.stop()
 	state.deckTops = {}
 	state.boars = nil
 	state.now = nil
+	state.roll = nil
 	state.trials = {}
 	state.acc = 0
 	-- THE RECORDS GO WITH THE RANGE: they describe trials that no longer exist (round 1, finding 2).
@@ -685,7 +700,9 @@ local function order(trial: Trial, position: Vector3, dt: number)
 		-- is never told which it drew -- ISSF does not announce it -- so the board prints the
 		-- ISSUED SPEED and never a second word.
 		if trial.pace == RangeData.WORD.MIXED and trial.legDrawn ~= trial.leg then
-			trial.speedStudsPerSecond = paceSpeed(RangeData.WORD.MIXED)
+			local drew, word = paceSpeed(RangeData.WORD.MIXED)
+			trial.speedStudsPerSecond = drew
+			trial.drewWord = word
 			trial.legDrawn = trial.leg
 		end
 		speed = trial.speedStudsPerSecond

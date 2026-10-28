@@ -795,7 +795,7 @@ Range.fieldFor(anchor: Vector3, layout, downrange: number?)           -- widened
 Range.windowSpanFor(anchor: Vector3, spot: number, layout): (number, number)   -- minX, maxX
 Range.inWindow(minX: number, maxX: number, x: number?): boolean
 Range.paceSpeedFor(word: string, layout, boarPaceSpeed: ((string) -> number)?): number
-Range.crossingTargetSeconds(word: string, layout): number?            -- 5.0 / 2.5 for the two new rows
+Range.crossingTargetSeconds(word: string): number?                    -- 5.0 / 2.5 for the two new rows
 Range.mixedWord(roll: number?): string                                -- which of the two a `mixed` leg draws
 Range.distanceFor(trial: any, position: string?, layout): number       -- + STAND.backStuds on the deck
 Range.POSITION = { BENCH = "bench", TREESTAND = "treestand" }

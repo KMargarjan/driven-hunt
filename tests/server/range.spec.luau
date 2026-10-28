@@ -187,7 +187,7 @@ return function()
 	end
 
 	-- One range, started into a folder of its own, with a fake clock and a fake runtime.
-	local function startRange(fake, now)
+	local function startRange(fake, now, roll)
 		local root = Instance.new("Folder")
 		local ok = Range.start({
 			enabled = true,
@@ -195,6 +195,7 @@ return function()
 			root = root,
 			boars = fake,
 			now = now,
+			roll = roll,
 		})
 		return ok, root
 	end
@@ -1208,10 +1209,12 @@ return function()
 			expect(root:FindFirstChild(LAYOUT.folderName)).to.equal(nil)
 		end)
 
-		-- TARGET 5, MEASURED FOR ALL SIX MOVING PACES at the shipped 36-stud window: 8.00 / 5.00 /
-		-- 3.27 / 2.50 / 1.50 s for Karen's three and ISSF's two, and `mixed`, whose crossing must
-		-- be ONE of the two timed ones (it draws per leg and is never announced).
-		it("measures the crossing seconds at all six paces within 10 % of window / paceSpeedFor", function()
+		-- TARGET 5, MEASURED FOR THE FIVE SINGLE-SPEED MOVING PACES at the shipped 36-stud window:
+		-- 8.00 / 5.00 / 3.27 / 2.50 / 1.50 s. `stand` never crosses and `mixed` has two answers, so
+		-- each has its own case. Asserted against TARGET 3's 10 %: walk, slow, trot and fast are
+		-- also inside T5's 5 %, and `run` is not -- 0.1 s of scan quantum is 6.7 % of 1.50 s, which
+		-- is the shipped sampling rate and not this step's.
+		it("measures the crossing seconds at the five moving paces within 10 % of window / paceSpeedFor", function()
 			local rows = {}
 			for _, pace in ipairs({ "walk", "slow", "trot", "fast", "run" }) do
 				local clock, now = newClock()
@@ -1246,12 +1249,25 @@ return function()
 			TestKit.note("range: measured crossings (T5) -- " .. table.concat(rows, " · "))
 		end)
 
-		-- `mixed` IS NOT A SIXTH SPEED: every leg is drawn as slow OR fast, so every crossing it
+		-- `mixed` IS NOT A SIXTH SPEED: every LEG is drawn as slow OR fast, so every crossing it
 		-- measures is 5.00 s or 2.50 s and never anything between them.
-		it("crosses at slow OR fast under `mixed`, redrawn per leg, and never between the two", function()
+		--
+		-- THE DRAW IS INJECTED (`seams.roll`), so this runs the two legs BY PARAMETER instead of
+		-- waiting on `math.random` -- and the assertion is that the speed CHANGED WITH THE LEG.
+		-- Round 1, finding 1: a case that only asked "every order was one of two speeds" stayed
+		-- green with the per-leg redraw deleted, because one fixed speed is also one of two.
+		it("redraws `mixed` on every leg, so the ordered speed CHANGES when the leg does", function()
 			local clock, now = newClock()
 			local fake = newFakeBoars()
-			expect(select(1, startRange(fake, now))).to.equal(true)
+			-- slow, fast, slow, fast, ... one draw per leg, in order.
+			local rolls, drawn = { 0.1, 0.9 }, 0
+			expect(select(
+				1,
+				startRange(fake, now, function()
+					drawn += 1
+					return rolls[((drawn - 1) % #rolls) + 1]
+				end)
+			)).to.equal(true)
 			expect(Range.setPace(1, RangeData.WORD.MIXED)).to.equal(true)
 			local slowSpeed = RangeData.paceSpeedFor("slow", LAYOUT, speedOf)
 			local fastSpeed = RangeData.paceSpeedFor("fast", LAYOUT, speedOf)
@@ -1259,15 +1275,27 @@ return function()
 			advance(fake, clock, 6 * RangeData.laneLength(LAYOUT) / slowSpeed)
 			local trial = Range.trialOf(1) :: any
 			expect(trial.crossings >= 2).to.equal(true)
-			-- EVERY ORDER THE OWNER ISSUED was one of exactly two speeds...
-			local seen = { [slowSpeed] = 0, [fastSpeed] = 0 }
+			-- THE REDRAW HAPPENED, AND ON THIS LEG: `legDrawn` is nil with the block deleted.
+			expect(trial.legDrawn).to.equal(trial.leg)
+			expect(trial.drewWord == RangeData.WORD.SLOW or trial.drewWord == RangeData.WORD.FAST).to.equal(true)
+			expect(drawn >= trial.leg).to.equal(true)
+			-- EVERY ORDER WAS ONE OF EXACTLY TWO SPEEDS, asked as membership and not as a count
+			-- (a count of 0 is truthy in Lua, which is how the old case passed)...
+			local slowOrders, fastOrders, other = 0, 0, 0
 			for _, lead in ipairs(fake.leadsAt(1)) do
-				expect(seen[lead.speed]).to.be.ok()
-				seen[lead.speed] += 1
+				if lead.speed == slowSpeed then
+					slowOrders += 1
+				elseif lead.speed == fastSpeed then
+					fastOrders += 1
+				else
+					other += 1
+				end
 			end
-			-- ...and it was DRAWN PER LEG, so over several legs both appear (the draw is uniform,
-			-- so the chance of one word over six legs is 2 / 2^6).
-			expect(seen[slowSpeed] + seen[fastSpeed] >= 1).to.equal(true)
+			expect(other).to.equal(0)
+			-- ...AND BOTH APPEARED, which one fixed draw cannot produce: the rolls alternate per
+			-- leg, so deleting the redraw leaves every order at the FIRST speed and this fails.
+			expect(slowOrders > 0).to.equal(true)
+			expect(fastOrders > 0).to.equal(true)
 			local measured = trial.crossingSecondsByPace[RangeData.WORD.MIXED]
 			expect(measured).to.be.ok()
 			local nearSlow = math.abs(measured - 5.0) / 5.0 <= Range.CONFIG.CROSSING_TOLERANCE
@@ -1275,9 +1303,10 @@ return function()
 			expect(nearSlow or nearFast).to.equal(true)
 			TestKit.note(
 				string.format(
-					"range: mixed -- %d slow orders, %d fast orders, %d crossings, last %.2f s (5.00 or 2.50)",
-					seen[slowSpeed],
-					seen[fastSpeed],
+					"range: mixed -- %d slow orders, %d fast orders over %d legs, %d crossings, last %.2f s (5.00 or 2.50)",
+					slowOrders,
+					fastOrders,
+					trial.leg,
 					trial.crossings,
 					measured
 				)
@@ -1375,51 +1404,6 @@ return function()
 					"range: STAND held %.1f s within %d studs of the middle",
 					trial.standSeconds,
 					Range.CONFIG.STAND_HOLD_STUDS
-				)
-			)
-			Range.stop()
-		end)
-
-		-- 306b's queued note (ii), and B4 is the step that owns it because B4 is where the crossing
-		-- times are measured: `onRequest` wrote a new lane onto a LIVE trial with no window reset,
-		-- so the target was led DIAGONALLY across to the new lane and that TRANSIT was timed as a
-		-- crossing. The timer is now cleared and disarmed exactly as a pace pick does.
-		it("does not time the transit when the LANE is changed under a target inside the window", function()
-			local clock, now = newClock()
-			local fake = newFakeBoars()
-			expect(select(1, startRange(fake, now))).to.equal(true)
-			expect(Range.setPace(1, RangeData.WORD.TROT)).to.equal(true)
-			-- Let it be released and then walk it until it is INSIDE the window, which is where the
-			-- defect lives. The condition is the owner's OWN entry time, not a position this spec
-			-- re-derives.
-			local waited = 0
-			local trial = Range.trialOf(1) :: any
-			while trial.windowEnteredAt == nil and waited < 4 * RangeData.laneLength(LAYOUT) do
-				advance(fake, clock, 0.1)
-				waited += 0.1
-				trial = Range.trialOf(1) :: any
-			end
-			expect(trial.windowEnteredAt).to.be.ok()
-			local before = trial.crossings
-			-- THE PICK, through the one inbound door and not by hand.
-			expect(Range.setDistance(1, 179)).to.equal(true)
-			trial = Range.trialOf(1) :: any
-			expect(trial.distanceStuds).to.equal(179)
-			expect(trial.windowEnteredAt).to.equal(nil)
-			expect(trial.windowArmed).to.equal(false)
-			-- The transit to the far lane crosses the old window's x span; nothing is timed for it,
-			-- and the next REAL crossing is timed over the whole window.
-			advance(fake, clock, 3 * RangeData.laneLength(LAYOUT) / speedOf("trot") + 2)
-			trial = Range.trialOf(1) :: any
-			expect(trial.crossings > before).to.equal(true)
-			local measured = trial.crossingSecondsByPace[RangeData.WORD.TROT]
-			local predicted = RangeData.crossingSeconds(LAYOUT.WINDOW_STUDS, speedOf("trot"))
-			expect(math.abs(measured - predicted) / predicted <= Range.CONFIG.CROSSING_TOLERANCE).to.equal(true)
-			TestKit.note(
-				string.format(
-					"range: lane 125 -> 179 mid-window, next crossing %.2f s against %.2f predicted",
-					measured,
-					predicted
 				)
 			)
 			Range.stop()
@@ -1776,10 +1760,10 @@ return function()
 			expect(RangeData.paceSpeedFor("slow", LAYOUT, nil)).to.equal(7.2)
 			-- `crossingTargetSeconds` ANSWERS NIL FOR A WORD THAT IS NOT TIMED, and that nil is
 			-- what routes Karen's four to the boar.
-			expect(RangeData.crossingTargetSeconds("trot", LAYOUT)).to.equal(nil)
-			expect(RangeData.crossingTargetSeconds(1 :: any, LAYOUT)).to.equal(nil)
-			expect(RangeData.crossingTargetSeconds("slow", LAYOUT)).to.equal(5.0)
-			expect(RangeData.crossingTargetSeconds("fast", LAYOUT)).to.equal(2.5)
+			expect(RangeData.crossingTargetSeconds("trot")).to.equal(nil)
+			expect(RangeData.crossingTargetSeconds(1 :: any)).to.equal(nil)
+			expect(RangeData.crossingTargetSeconds("slow")).to.equal(5.0)
+			expect(RangeData.crossingTargetSeconds("fast")).to.equal(2.5)
 			TestKit.note(
 				string.format(
 					"range: paceSpeedFor at a %d-stud window -- stand %.2f, walk %.2f, slow %.2f, trot %.2f, fast %.2f, run %.2f studs/s",
@@ -1943,6 +1927,56 @@ return function()
 			expect(Ballistics.shotFor(Weapons.row(Range.CONFIG.DEFAULT_WEAPON), Range.CONFIG.DEFAULT_AMMO)).to.be.ok()
 			-- THE ZONE COLUMNS ARE THE ANIMAL'S OWN, read through the seam and not typed here.
 			expect(#record.zoneOrder).to.equal(#Boar.CONFIG.ZONES.ORDER)
+			Range.stop()
+		end)
+
+		-- 306b's queued note (ii), and B4 is the step that owns it because B4 is where the crossing
+		-- times are measured. The defect is IN THE DOOR: `onRequest` wrote a new lane onto a LIVE
+		-- trial with no window reset, so the target was led DIAGONALLY across to the new lane and
+		-- that TRANSIT was timed as a crossing. Driven through `Range.onRequest`, which is where a
+		-- real menu confirm arrives (round 1, finding 2) -- `Range.setDistance` is the writer the
+		-- door now calls, not the door.
+		it("does not time the transit when a PICK changes the lane under a target inside the window", function()
+			Range.stop()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now))).to.equal(true)
+			local man = manOn(RangeData.matPosition(ANCHOR, 1, LAYOUT), 121)
+			expect(Range.onRequest(man, { spot = 1, pace = RangeData.WORD.TROT })).to.equal(true)
+			-- Walk it until it is INSIDE the window, which is where the defect lives. The condition
+			-- is the owner's OWN entry time, not a position this spec re-derives.
+			local waited = 0
+			local trial = Range.trialOf(1) :: any
+			while trial.windowEnteredAt == nil and waited < 4 * RangeData.laneLength(LAYOUT) do
+				advance(fake, clock, 0.1)
+				waited += 0.1
+				trial = Range.trialOf(1) :: any
+			end
+			expect(trial.windowEnteredAt).to.be.ok()
+			expect(trial.distanceStuds).to.equal(LAYOUT.DISTANCE_STUDS)
+			local before = trial.crossings
+			-- THE PICK, through the one inbound door, exactly as the menu's CONFIRM sends it.
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, distanceStuds = 179 })).to.equal(true)
+			trial = Range.trialOf(1) :: any
+			expect(trial.distanceStuds).to.equal(179)
+			expect(trial.windowEnteredAt).to.equal(nil)
+			expect(trial.windowArmed).to.equal(false)
+			-- The transit to the far lane crosses the old window's x span; nothing is timed for it,
+			-- and the next REAL crossing is timed over the whole window.
+			advance(fake, clock, 3 * RangeData.laneLength(LAYOUT) / speedOf("trot") + 2)
+			trial = Range.trialOf(1) :: any
+			expect(trial.crossings > before).to.equal(true)
+			local measured = trial.crossingSecondsByPace[RangeData.WORD.TROT]
+			local predicted = RangeData.crossingSeconds(LAYOUT.WINDOW_STUDS, speedOf("trot"))
+			expect(math.abs(measured - predicted) / predicted <= Range.CONFIG.CROSSING_TOLERANCE).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range: lane 125 -> 179 picked mid-window, next crossing %.2f s against %.2f predicted",
+					measured,
+					predicted
+				)
+			)
 			Range.stop()
 		end)
 

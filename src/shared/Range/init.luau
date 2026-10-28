@@ -215,8 +215,7 @@ Range.PACE_ORDER = {
 
 -- THE TIME A TIMED PACE IS SPECIFIED BY, and nil for a word that is not one of the two. That nil
 -- is what routes Karen's four to the injected animal owner.
-function Range.crossingTargetSeconds(word: any, layout): number?
-	layout = layout or Range.LAYOUT
+function Range.crossingTargetSeconds(word: any): number?
 	local seconds = if type(word) == "string" then Range.CROSSING_SECONDS[word] else nil
 	if type(seconds) ~= "number" or seconds <= 0 then
 		return nil
@@ -237,15 +236,15 @@ end
 -- window by their time; `mixed` draws one of those two.
 --
 -- HONEST, AND MEASURED (306a note (a)): both new speeds land inside the boar's ONE TROT band
--- (`Body.gait` trots from 5.13 studs/s and runs from 21), so 7.20 and 14.40 are one trot clip
--- played at two rates, not two gaits. No new gait, no new clip, no new config row.
+-- (`Body.gait` trots from `MODEL.TROT_FROM` 5.13 and runs from `RUN_FROM` -- 28 in the module,
+-- 21 where a world lowers it), so 7.20 and 14.40 are one trot clip at two rates, not two gaits.
 function Range.paceSpeedFor(word: string, layout, boarPaceSpeed: ((string) -> number)?): number
 	layout = layout or Range.LAYOUT
 	local asked = if word == Range.WORD.MIXED then Range.mixedWord() else word
 	-- 36 / 5.0 = 7.20 studs/s and 36 / 2.5 = 14.40 studs/s, so the crossing is EXACT by
 	-- construction (306a must-fix (b): the note's 7.14 / 14.29 came from the unrounded
 	-- 35.714-stud window, which the design's own column header never used).
-	local seconds = Range.crossingTargetSeconds(asked, layout)
+	local seconds = Range.crossingTargetSeconds(asked)
 	if seconds ~= nil then
 		return layout.WINDOW_STUDS / seconds
 	end
