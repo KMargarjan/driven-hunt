@@ -598,6 +598,29 @@ end
 --      `Weapon.Rewind`, which is pure and owns that arithmetic.
 -- With `rewind` 0, no provider, or no candidate near the segment it is `castFn(origin, dir, ignore)`
 -- and NOTHING ELSE RUNS: the flag's off state and today's game are one path.
+-- WHICH EXIT `castWithRewind` TOOK, out where a probe can read it (task 305b). Studio only and
+-- read by nothing in the game: `stats` is module state and an `execute_luau` probe gets a FRESH
+-- module, so the live server's own answer has to be published (`ServerStorage.DHBoarHistory`'s rule).
+local rewindTrail = { plain = 0, cast = 0, hit = 0 }
+local function trail(why: string, extra: string?)
+	if not RunService:IsStudio() then
+		return
+	end
+	pcall(function()
+		ServerStorage:SetAttribute(
+			"DH305Rewind",
+			string.format(
+				"plain=%d cast=%d hit=%d why=%s %s",
+				rewindTrail.plain,
+				rewindTrail.cast,
+				rewindTrail.hit,
+				why,
+				extra or ""
+			)
+		)
+	end)
+end
+
 function Weapon.castWithRewind(
 	origin: Vector3,
 	direction: Vector3,
@@ -605,6 +628,11 @@ function Weapon.castWithRewind(
 	rewind: number?
 ): Shotgun.Impact?
 	if type(rewind) ~= "number" or rewind <= 0 or (historyProvider == nil and #extraHistory == 0) then
+		rewindTrail.plain += 1
+		trail(
+			if type(rewind) ~= "number" or rewind <= 0 then "rewind-zero" else "no-provider",
+			string.format("rewind=%s extras=%d", tostring(rewind), #extraHistory)
+		)
 		return castFn(origin, direction, ignore)
 	end
 	local findCandidates = candidatesFn or Cast.candidates
@@ -616,6 +644,8 @@ function Weapon.castWithRewind(
 	-- arbitrary order would leave the 9th animal of a sounder neither rewound nor excluded.
 	local roots = findCandidates(origin, direction, pad, ignore, Hits.targetOf, CONFIG.CLAIM.MAX_TARGETS)
 	if #roots == 0 then
+		rewindTrail.plain += 1
+		trail("no-roots", string.format("rewind=%.3f pad=%.1f", rewind, pad))
 		return castFn(origin, direction, ignore)
 	end
 	local at = Workspace:GetServerTimeNow() - rewind
@@ -636,14 +666,28 @@ function Weapon.castWithRewind(
 		end
 	end
 	if #candidates == 0 then
+		rewindTrail.plain += 1
+		trail("no-history", string.format("rewind=%.3f roots=%d", rewind, #roots))
 		return castFn(origin, direction, ignore)
 	end
 	local static = castFn(origin, direction, staticIgnore)
 	local rewound = Rewind.impact(origin, direction, candidates, castOnly, CONFIG.CLAIM.MAX_TARGETS)
 	stats.rewindCasts += #candidates
+	rewindTrail.cast += 1
 	if rewound ~= nil then
 		stats.rewindHits += 1
+		rewindTrail.hit += 1
 	end
+	trail(
+		"rewound",
+		string.format(
+			"rewind=%.3f cands=%d back=%.2f hit=%s",
+			rewind,
+			#candidates,
+			(candidates[1].present.Position - candidates[1].past.Position).Magnitude,
+			tostring(rewound ~= nil)
+		)
+	)
 	return Rewind.nearer(static, rewound)
 end
 
