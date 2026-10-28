@@ -26,8 +26,9 @@ Reviewer: **PASS round 2** (`reviews/task-305b/RESULT.md`), one round-1 finding 
    Round 3 of task 305 already queued an Architect run on `docs/design/ballistics.md` section 1.3
    before it is lit; that precondition is unchanged and this task did not satisfy it.
 4. **The Forest Test worktree** (`<desktop>/driven-hunt-294`, Rojo :34874) was re-synced by this
-   Builder session five times to measure, and is left at `14bbd363` -- NOT at this branch's head
-   `ea72ffc9`. The Director owns that worktree; say if it should be moved or put back.
+   Builder session five times to measure, and is left at the reviewed **code commit `ea72ffc9`**, so the
+   Playtester can re-run on this build without a resync. The Director owns that worktree; say if it
+   should be put back to `main` instead.
 
 # ESCALATE -- Task 305 (a shot hits what the shooter sees)
 
