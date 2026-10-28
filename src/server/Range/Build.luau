@@ -103,7 +103,10 @@ function Build.build(opts)
 		table.insert(mats, mat)
 	end
 
-	local lane = RangeData.laneCentre(anchor, layout)
+	-- WHICH WAY IS DOWNRANGE, off the ROW and never off the world's name: +1 in DEV, -1 in Karen's
+	-- place, where the lane points south away from the lodge (design 4.2 item 5).
+	local dir = RangeData.downrangeOf(row)
+	local lane = RangeData.laneCentre(anchor, layout, dir)
 	local half = RangeData.laneLength(layout) / 2
 
 	-- THE GROUND PLATE, DEV only: the range's own shelf, so the harness needs no terrain and no
@@ -115,7 +118,7 @@ function Build.build(opts)
 		makePart(
 			"Plate",
 			Vector3.new(spanX, plate.thickness, spanZ),
-			Vector3.new(anchor.X, shelf - plate.thickness / 2, anchor.Z + layout.DISTANCE_STUDS / 2),
+			Vector3.new(anchor.X, shelf - plate.thickness / 2, anchor.Z + dir * layout.DISTANCE_STUDS / 2),
 			plate.color,
 			folder
 		)
@@ -125,7 +128,7 @@ function Build.build(opts)
 	-- visible 180-degree turn is not a crossing animal. `screenPosition` and not `laneEnds`: a
 	-- screen ON the end is a wall the target walks into (measured in DEV, section 4.1's row).
 	for leg = 1, 2 do
-		local at = RangeData.screenPosition(anchor, layout, leg)
+		local at = RangeData.screenPosition(anchor, layout, leg, dir)
 		makePart(
 			if leg == 1 then "ScreenEast" else "ScreenWest",
 			layout.SCREEN.size,
@@ -140,7 +143,7 @@ function Build.build(opts)
 	makePart(
 		"Berm",
 		layout.BERM.size,
-		Vector3.new(anchor.X, shelf + layout.BERM.size.Y / 2, lane.Z + layout.BERM.behindStuds),
+		Vector3.new(anchor.X, shelf + layout.BERM.size.Y / 2, lane.Z + dir * layout.BERM.behindStuds),
 		layout.BERM.color,
 		folder
 	)
@@ -163,6 +166,7 @@ function Build.build(opts)
 		parts = parts,
 		buildMs = math.floor((os.clock() - started) * 1000 + 0.5),
 		laneHalf = half,
+		downrange = dir,
 	}
 end
 

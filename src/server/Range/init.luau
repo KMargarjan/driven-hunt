@@ -118,6 +118,9 @@ local state = {
 	built = nil :: any,
 	anchor = nil :: Vector3?,
 	row = nil :: any,
+	-- WHICH WAY THE LANE RUNS, read ONCE off the row at `start` and passed inward -- the flag-at-a-
+	-- boundary shape, so every arithmetic below asks a value and never the world's name.
+	downrange = 1,
 	root = nil :: Instance?,
 	boars = nil :: any,
 	now = nil :: (() -> number)?,
@@ -407,6 +410,16 @@ function Range.setPace(spot: number, pace: string): boolean
 	return true
 end
 
+-- WHERE THE SHELF IS, FOR A COMPOSITION ROOT THAT NEEDS IT BEFORE THE BUILD (step B6). The boar
+-- runtime's field carries a `groundY`, and the root has to build that field before `Range.start`
+-- runs -- so it asks the owner, which asks `Build`, rather than keeping a second copy of the rule.
+function Range.shelfFor(row: any, groundAt: ((number, number) -> number?)?): number?
+	if row == nil then
+		return nil
+	end
+	return Build.shelfAt(row.x, row.z, row, groundAt)
+end
+
 function Range.start(seams): boolean
 	if state.started then
 		return false
@@ -438,6 +451,7 @@ function Range.start(seams): boolean
 	state.built = built
 	state.anchor = built.anchor
 	state.row = row
+	state.downrange = RangeData.downrangeOf(row)
 	state.root = root
 	state.boars = seams.boars
 	state.now = seams.now
@@ -500,7 +514,7 @@ local function release(trial: Trial)
 		return
 	end
 	-- Released at the end the next leg STARTS from, so the first thing it does is cross.
-	local from = RangeData.laneEnds(state.anchor :: Vector3, RangeData.LAYOUT, trial.leg + 1)
+	local from = RangeData.laneEnds(state.anchor :: Vector3, RangeData.LAYOUT, trial.leg + 1, state.downrange)
 	local handle = boars.spawn(from, trial.kind)
 	if handle == nil or handle.id == nil then
 		return
@@ -516,7 +530,7 @@ end
 -- THE WINDOW TIMER (TARGET 3). It times the target's passage through `WINDOW_STUDS` of OPEN lane,
 -- not the whole leg: the aprons exist for the turn-around and a crossing is what the shooter sees.
 local function timeWindow(trial: Trial, position: Vector3, now: number)
-	local centre = RangeData.laneCentre(state.anchor :: Vector3, RangeData.LAYOUT)
+	local centre = RangeData.laneCentre(state.anchor :: Vector3, RangeData.LAYOUT, state.downrange)
 	local inside = math.abs(position.X - centre.X) <= RangeData.LAYOUT.WINDOW_STUDS / 2
 	if inside then
 		if trial.windowEnteredAt == nil then
@@ -548,7 +562,7 @@ local function order(trial: Trial, position: Vector3, dt: number)
 		-- STAND: the lane's MIDDLE, through the same seam. The animal walks there and the Brain
 		-- stops it inside `LINE.ARRIVE_STUDS` -- the Brain's own idle, not a speed this module
 		-- invents and not a CFrame it writes.
-		point = RangeData.laneCentre(anchor, layout)
+		point = RangeData.laneCentre(anchor, layout, state.downrange)
 		speed = Range.issuedSpeedFor(trial)
 		direction = "middle"
 		if
@@ -558,7 +572,7 @@ local function order(trial: Trial, position: Vector3, dt: number)
 			trial.standSeconds += dt
 		end
 	else
-		point = RangeData.laneEnds(anchor, layout, trial.leg)
+		point = RangeData.laneEnds(anchor, layout, trial.leg, state.downrange)
 		-- THE FLIP, and it is the range's reason to exist in one line: ISSF's mandatory direction
 		-- change, so neither shoulder is favoured and no single lead is ever trained.
 		if
@@ -567,7 +581,7 @@ local function order(trial: Trial, position: Vector3, dt: number)
 		then
 			trial.leg += 1
 			state.stats.flips += 1
-			point = RangeData.laneEnds(anchor, layout, trial.leg)
+			point = RangeData.laneEnds(anchor, layout, trial.leg, state.downrange)
 		end
 		speed = trial.speedStudsPerSecond
 		direction = if (trial.leg % 2) == 1 then "east" else "west"

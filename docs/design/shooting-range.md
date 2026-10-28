@@ -77,12 +77,18 @@ found by sniffing `Workspace`, *"a predicate like that lies the moment a run hal
 ```lua
 Range.ANCHORS = {
     -- Karen's place. x/z are FILLED FROM A MEASUREMENT, not from this document (§4.2).
-    ["forest-test"] = { x = 0, z = 0, plate = false },
+    -- MEASURED in step B6 (section 4.2's instrument, run in Edit and in Play).
+    ["forest-test"] = { x = 2650, z = -3216, plate = false, downrange = -1, drawn = true },
     -- The DEV place, where the harness runs. Its own ground plate, clear of the generated map.
     ["map:v1"]      = { x = 1200, z = 0, y = 0, plate = true },
 }
 ```
 
+- **`downrange` is the lane's direction along z, as DATA on the row** (step B6): `+1` is the DEV
+  row's north, `-1` is Karen's south, through ONE arithmetic (`laneCentre`, `laneEnds`,
+  `screenPosition`, `fieldFor`, each taking the sign) and never a branch on the world's name.
+  Both arms are entered by parameter in `range.spec`. `drawn` is the same shape for the skin:
+  Karen's place draws the animal, DEV keeps the grey box with its real welded zones.
 - **`forest-test`** is where Karen plays, beside the lodge. `plate = false`: the shelf is read with
   the injected `groundAt` at build time and the range lays itself on the ground that is really
   there. The Y is deliberately absent — `Lobby.ANCHORS`' own words: *"a typed Y would be a guess
@@ -104,11 +110,11 @@ whole lodge into `Instance.new("Folder")`).
 
 ### Who starts it
 
-The two composition roots, each for its own world, exactly as they wire the boar runtime and the
-weapon today:
-
-- `src/server/ForestTestBoot.server.luau` — Karen's place.
-- `src/server/MatchBoot.server.luau` — DEV.
+**ONE root, `src/server/RangeBoot.server.luau`, for every world that has a row** (steps B2 and B6;
+this supersedes phase A's two roots, and the reason is in that file's header). It learns its world
+the way `Lobby` does — `Map.EXPECTED_WORLD` through `Range.anchorFor` — so a new world is a ROW and
+never a second wiring; it runs its own Heartbeat; and it keeps `MatchBoot` out of the diff, which is
+what keeps a range task off the two-player gate (`TWO_PLAYER_PATHS`).
 
 Neither root is a new concept and no owner requires another: `Range` requires neither `Match`,
 `Lobby`, `ForestTest` nor `Boar`. Every fact it needs is injected (§8.1).
@@ -326,7 +332,7 @@ a pick is **one pure function read by both sides** — `Lobby.roleAllowed`'s rul
 asks it of a payload and the client's sender asks it of its own argument, so 'which words are legal'
 has one answer."*
 
-### 7.4 Who holds a gun at a range, and the exactly two relaxations
+### 7.4 Who holds a gun at a range: the THREE relaxations and the loan, as shipped (step B6)
 
 In Karen's place a man standing in the lobby is not in the drive, so today he **carries no gun and
 his trigger is dead**. Measured from the shipped wiring in `src/server/ForestTestBoot.server.luau`:
@@ -335,14 +341,21 @@ his trigger is dead**. Measured from the shipped wiring in `src/server/ForestTes
 |---|---|---|
 | arming | `Weapon.setArmingPolicy(Match.mayCarryWeapon)` | **must relax.** Not a participant → no Tool at all |
 | drive open | `Weapon.setDriveOpenProvider(Match.driveOpen)` | **must relax.** `Rules.driveClosed` refuses the trigger between drives |
-| off-stand | `Weapon.setStandProvider(Match.standAreaFor)` | no change. No stand → *"NO AREA MEANS NO RULE"* (`Rules.outsideStand`) |
+| off-stand | `Weapon.setStandProvider(Match.standAreaFor)` | **must relax (MEASURED, step B3 round 3).** Phase A read `Rules.outsideStand`'s *"NO AREA MEANS NO RULE"* and said no change — but in Karen's world `Match.standAreaFor` hands back the DRIVE's stand, a real area far away, so it refused every shot on the mat. `Range.standOver` is the third relaxation |
 | the beater in the ray | `Weapon.setTargetProvider(Match.classifyTarget)` | no change. A boar is not a beater |
 | licence | not wired for a boar | no change |
 | the safety line | `Weapon.setSafetyLineProvider(Match.lineIsUnsafe)` | **no change, deliberately.** A man on the lane refuses the shot, as he should |
 
 So the range publishes **ONE predicate**, `Range.mayShoot(player): boolean` — true only for a player
 whose character the SERVER measures standing on a spot's mat, in a world where the range is built —
-and the composition root composes it into the two providers it affects:
+and **`Range.installOver(armFallback)` is the installer** (task 301): it builds the four wrappers
+`Range.armingOver`, `Range.driveOpenOver`, `Range.entitlementOver` and `Range.standOver`, installs
+each over whatever that world already wired, **keeps the base each setter hands back** —
+`Weapon.setStandProvider` hands one back since task 301 — and returns the uninstall that puts all
+four back. The body lives in the module and NOT in the composition root, so a spec drives the real
+composition instead of a copy, and a copy could not see that `setStandProvider` returned nothing
+(`reviews/task-298/RESULT.md` findings 1 and 2). **`RangeBoot` is the ONE caller**, once, on the
+first Heartbeat. The two providers phase A named are four:
 
 ```lua
 Weapon.setArmingPolicy(function(player)
@@ -351,6 +364,8 @@ end)
 Weapon.setDriveOpenProvider(function(player)
     return Range.mayShoot(player) or Match.driveOpen()
 end)
+Weapon.setEntitlementProvider(...)   -- the loan: all four guns, on the mat only
+Weapon.setStandProvider(...)         -- the THIRD relaxation
 ```
 
 `setDriveOpenProvider`'s provider is `(() -> boolean?)` today and its own comment says *"It takes no
@@ -368,7 +383,7 @@ a second thing that may answer.
 **Which guns the range lends** is one line, and the default stated here is: at a spot, all four,
 whatever the player owns — through `Weapon.setEntitlementProvider`'s existing composition at the
 root. The reason is the task: three of the seven dials cannot be judged at all with a gun Karen has
-not bought. It never follows him into a drive, because `Range.mayShoke` is false the moment he steps
+not bought. It never follows him into a drive, because `Range.mayShoot` is false the moment he steps
 off the mat and `Weapon.refreshArming` re-asks on its own 2 s sweep (`ARMING_SWEEP_SECONDS`). Karen's
 to overrule (§15, open decision 1).
 

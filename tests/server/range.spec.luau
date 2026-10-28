@@ -202,6 +202,10 @@ return function()
 			-- SHE SHOOTS SOUTH, AWAY FROM THE LODGE, and the direction is a DATA FIELD ON THE ROW
 			-- and never a branch on the world's name.
 			expect((forest :: any).downrange).to.equal(-1)
+			-- ...AND THE TARGET IS DRAWN THERE, which is also a row field and not a branch: in DEV
+			-- there is no such field and the target stays the grey box the weapon specs shoot at.
+			expect((forest :: any).drawn).to.equal(true)
+			expect((dev :: any).drawn).to.equal(nil)
 			expect(RangeData.downrangeOf(forest)).to.equal(-1)
 			expect(RangeData.downrangeOf(dev)).to.equal(1)
 			expect(RangeData.downrangeOf(nil)).to.equal(1)

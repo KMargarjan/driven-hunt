@@ -67,15 +67,34 @@ Range.LAYOUT = {
 -- verbatim, and for its stated reason: the answer is never found by sniffing `Workspace`, because
 -- *"a predicate like that lies the moment a run half-finishes"* (`ArenaBoot`).
 --
--- THERE IS NO `forest-test` ROW YET, AND THAT IS THIS STEP'S SCOPE rather than an omission: the
--- forest anchor is a MEASUREMENT over Karen's own ground (design section 4.2) and it belongs to
--- step B6. Until that row exists `Range.anchorFor("forest-test")` is nil and her place has no range.
+--
+-- `downrange` IS THE LANE'S DIRECTION ALONG Z, AS DATA ON THE ROW and never a branch on the world's
+-- name: one arithmetic, two signs, both reachable in a spec by parameter. +1 is the DEV row's north.
 Range.ANCHORS = {
+	-- KAREN'S PLACE, MEASURED (step B6, design 4.2's instrument): a raycast grid, 8-stud spacing,
+	-- 504 samples over the 160 x 185 footprint, run in Edit and again in Play. Best centre
+	-- (2650, -3300): 0 non-terrain hits, 0 misses, ground spread 11.6 studs (the lobby's own
+	-- chosen site had 16). The firing line stands at the footprint's NORTH end and the lane runs
+	-- SOUTH, 119 studs clear of the lobby's southernmost part, so the shooter's line points away
+	-- from the lodge, the pads and the gathering yard. `plate = false` and NO TYPED Y: the shelf is
+	-- the injected `groundAt`'s answer at build time, because a typed one would be a guess that
+	-- puts the range in the air or inside the hill. `drawn = true`: the target is the same animal
+	-- her drive draws, which in DEV (no row field) is the grey box with its real welded zones.
+	["forest-test"] = { x = 2650, z = -3216, plate = false, downrange = -1, drawn = true },
 	-- The DEV place, where the harness runs. Its own anchored ground plate (`plate = true`), clear
 	-- of the generated map: x = 1200 is outside `Map.FIELD.bounds` (maxX 620) and outside
 	-- `Map.SIZE_STUDS / 2` = 1024, so it touches neither the drive corridor nor one generated prop.
 	["map:v1"] = { x = 1200, z = 0, y = 0, plate = true },
 }
+
+-- WHICH WAY IS DOWNRANGE: +1 or -1 along z, read off the row and defaulted to +1 so every row
+-- written before step B6 keeps the lane it had.
+function Range.downrangeOf(row: any): number
+	if type(row) == "table" and row.downrange == -1 then
+		return -1
+	end
+	return 1
+end
 
 function Range.anchorFor(world: string?)
 	if type(world) ~= "string" then
@@ -270,14 +289,15 @@ function Range.laneLength(layout): number
 	return layout.WINDOW_STUDS + 2 * layout.APRON_STUDS
 end
 
-function Range.laneCentre(anchor: Vector3, layout): Vector3
+function Range.laneCentre(anchor: Vector3, layout, downrange: number?): Vector3
 	layout = layout or Range.LAYOUT
-	return Vector3.new(anchor.X, anchor.Y, anchor.Z + layout.DISTANCE_STUDS)
+	local dir = if downrange == -1 then -1 else 1
+	return Vector3.new(anchor.X, anchor.Y, anchor.Z + dir * layout.DISTANCE_STUDS)
 end
 
-function Range.laneEnds(anchor: Vector3, layout, leg: number): Vector3
+function Range.laneEnds(anchor: Vector3, layout, leg: number, downrange: number?): Vector3
 	layout = layout or Range.LAYOUT
-	local centre = Range.laneCentre(anchor, layout)
+	local centre = Range.laneCentre(anchor, layout, downrange)
 	local half = Range.laneLength(layout) / 2
 	local east = (leg % 2) == 1
 	return Vector3.new(centre.X + (if east then half else -half), centre.Y, centre.Z)
@@ -285,10 +305,10 @@ end
 
 -- WHERE A SCREEN STANDS: beyond the end of the lane by its own half-width plus the clearance, so
 -- nothing the range builds is ever inside the corridor the target walks (`range.spec` asserts it).
-function Range.screenPosition(anchor: Vector3, layout, leg: number): Vector3
+function Range.screenPosition(anchor: Vector3, layout, leg: number, downrange: number?): Vector3
 	layout = layout or Range.LAYOUT
-	local at = Range.laneEnds(anchor, layout, leg)
-	local centre = Range.laneCentre(anchor, layout)
+	local at = Range.laneEnds(anchor, layout, leg, downrange)
+	local centre = Range.laneCentre(anchor, layout, downrange)
 	local beyond = layout.SCREEN.size.X / 2 + layout.SCREEN.beyondStuds
 	local sign = if at.X >= centre.X then 1 else -1
 	return Vector3.new(at.X + sign * beyond, at.Y, at.Z)
@@ -336,19 +356,24 @@ end
 Range.FIELD_SLACK_STUDS = 60
 Range.FIELD_EXIT_BEHIND_STUDS = 400
 
-function Range.fieldFor(anchor: Vector3, layout)
+function Range.fieldFor(anchor: Vector3, layout, downrange: number?)
 	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
 	local slack = Range.FIELD_SLACK_STUDS
 	local half = Range.laneLength(layout) / 2
 	local spots = (layout.SPOT_COUNT - 1) * layout.SPOT_SPACING_STUDS
+	-- THE TWO ENDS OF THE RANGE IN Z, whichever way it faces: the firing line and the lane.
+	local nearZ = anchor.Z
+	local farZ = anchor.Z + dir * layout.DISTANCE_STUDS
 	return {
 		bounds = {
 			minX = anchor.X - half - slack,
 			maxX = anchor.X + half + slack + spots,
-			minZ = anchor.Z - slack,
-			maxZ = anchor.Z + layout.DISTANCE_STUDS + slack,
+			minZ = math.min(nearZ, farZ) - slack,
+			maxZ = math.max(nearZ, farZ) + slack,
 		},
-		exitZ = anchor.Z - Range.FIELD_EXIT_BEHIND_STUDS,
+		-- BEHIND THE FIRING LINE, which is the opposite of downrange.
+		exitZ = anchor.Z - dir * Range.FIELD_EXIT_BEHIND_STUDS,
 		groundY = anchor.Y,
 	}
 end

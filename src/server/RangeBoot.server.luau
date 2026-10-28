@@ -1,4 +1,4 @@
--- RangeBoot: the composition root of the lobby shooting range in the world the harness runs in.
+-- RangeBoot: THE ONE composition root of the lobby shooting range, in every world that has a row.
 -- It wires the range's own `Boar` runtime and hands `Range` everything it needs; it decides nothing.
 --
 -- Design: docs/design/shooting-range.md sections 3 and 5. Task 298, step B2.
@@ -11,7 +11,10 @@
 -- (tools/agents.py), so a line added there costs a two-player run and a human click on every round,
 -- for a range that one player evidences completely. `ArenaBoot` is the precedent in this repository:
 -- one boot line per world-geometry owner, declining to build when the world is not its world.
--- Step B6 wires Karen's place from `ForestTestBoot`, which has its own Heartbeat already.
+-- STEP B6 KEEPS THIS AS THE ONE ROOT and adds no second block in `ForestTestBoot`: this file
+-- already learns its world the way `Lobby` does -- `Map.EXPECTED_WORLD` through
+-- `RangeData.anchorFor` -- so Karen's place is a ROW and not a second wiring (design section 3's
+-- two roots, collapsed into one, stated for the Architect rather than slipped in).
 --
 -- IT CANNOT BE HALF-ON AND IT DOES NOT SNIFF `Workspace`: the world's row decides (`Range.ANCHORS`),
 -- exactly as `Lobby.anchorFor` and `ArenaBoot` decide, *"because a predicate like that lies the
@@ -45,10 +48,36 @@ end
 -- THE RANGE'S OWN RUNTIME, ITS OWN FIELD AND ITS OWN FOLDER (design section 5). It does not borrow
 -- the drive's: the lobby is outside the drive's field and an animal there is deleted on the first
 -- step, and `Runtime:setField`'s own header says *"THE FOREST IS THE ONLY CALLER"*.
-local anchor = Vector3.new(row.x, row.y or 0, row.z)
-local field = RangeData.fieldFor(anchor, RangeData.LAYOUT)
+-- WHERE THE GROUND IS, IN A WORLD THAT HAS ITS OWN (`row.plate ~= true`). `ForestTest.groundAt`
+-- is the ONE reader Karen's lobby, her markers, her boar world and her bots are all handed; a
+-- second copy of "where is the ground" would be two definitions of one fact.
+local groundAt: ((number, number) -> number?)? = nil
+if row.plate ~= true then
+	groundAt = (require(ReplicatedStorage:WaitForChild("ForestTest")) :: any).groundAt
+end
+
+-- THE SHELF, BEFORE THE FIELD. The runtime's field carries a `groundY`, so the root has to know
+-- the shelf before it builds one -- and it asks the owner (`Range.shelfFor`, which asks `Build`)
+-- rather than keeping a second copy of the `plate` rule. A typed Y is never used.
+local shelf = Range.shelfFor(row, groundAt)
+if shelf == nil then
+	warn(
+		string.format(
+			"[RangeBoot] no ground under the range at %s,%s: nothing is built",
+			tostring(row.x),
+			tostring(row.z)
+		)
+	)
+	return
+end
+
+local anchor = Vector3.new(row.x, shelf, row.z)
+local field = RangeData.fieldFor(anchor, RangeData.LAYOUT, RangeData.downrangeOf(row))
 local world = Boar.defaultWorld(field)
 world.folderName = "RangeTargets"
+-- ...AND THE SAME READER FOR THE BODIES: `field.groundY` is ONE number and Karen's terrain
+-- climbs, so without it a carcass on the lane hangs in the air (`ForestTestBoot`'s own line).
+world.groundAt = groundAt
 
 -- NOBODY IS A THREAT AT A RANGE. With the shipped `defaultWorld.threats` the target would see the
 -- shooter 125 studs away and flee the lane, so the threat list is empty and `SENSE` is off as well
@@ -70,6 +99,28 @@ world.config = {
 	maxBoars = Range.CONFIG.MAX_TARGETS,
 }
 
+-- IS THE TARGET DRAWN HERE? A DATA FIELD ON THE ROW (design section 5's last row), because what
+-- an animal looks like is the WORLD's answer and not the range's: in DEV it is the grey box with
+-- its real welded zones, which is what every weapon spec already shoots at, and in Karen's place
+-- it is the same drawn animal her drive uses. MODEL, CALM, PACE and MOVE are replaced WHOLESALE
+-- by `newRuntime` (only MODEL, SENSE and KINDS merge key by key), so each is a full clone with
+-- one value flipped -- `ForestTestBoot`'s stated rule, and the gait band follows that run speed.
+if row.drawn == true then
+	local model = table.clone(Boar.CONFIG.MODEL)
+	model.ENABLED = true
+	local calm = table.clone(Boar.CONFIG.CALM)
+	calm.ENABLED = true
+	local pace = table.clone(Boar.CONFIG.PACE)
+	pace.ENABLED = true
+	local move = table.clone(Boar.CONFIG.MOVE)
+	move.ENABLED = true
+	model.RUN_FROM = (Boar.CONFIG.TROT_SPEED + pace.RUN_SPEED) / 2
+	world.config.MODEL = model
+	world.config.CALM = calm
+	world.config.PACE = pace
+	world.config.MOVE = move
+end
+
 local runtime = Boar.newRuntime(world)
 runtime:run()
 
@@ -82,7 +133,8 @@ runtime:run()
 local started = Range.start({
 	enabled = true,
 	world = Map.EXPECTED_WORLD,
-	groundAt = nil, -- DEV lays its own plate (`row.plate`), so there is no ground to read.
+	-- nil in DEV, which lays its own plate (`row.plate`) and has no ground to read.
+	groundAt = groundAt,
 	boars = {
 		spawn = function(position: Vector3, kind: string?)
 			-- The capacity check is here and not in `Range`: how many animals a runtime holds is the
