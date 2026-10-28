@@ -1,11 +1,11 @@
 # Task 305c -- at a run, the nose aim must hit
 
 Task: 305c
-Round: 1
+Round: 2
 Base: a627663d
-Code commit: d375ba703a2889791db31beca9393d51b8d85723
+Code commit: c32004a4ea1400cf163dccb7a0d4d2b31f0b79d6
 
-`[harness] PASS: 34/34 checks @ d375ba703a2889791db31beca9393d51b8d85723 (clean tree) scope=all`
+`[harness] PASS: 34/34 checks @ c32004a4ea1400cf163dccb7a0d4d2b31f0b79d6 (clean tree) scope=all`
 
 Two players: **N/A** -- nothing under `TWO_PLAYER_PATHS`. The change is `src/server/Boar/`,
 `src/shared/Flags/` and `tests/server/boar_zones.spec.luau`.
@@ -95,6 +95,34 @@ A `WeldConstraint` has no writable offset, so the weld is a legacy `Weld` (same 
 7. **The spec reads its rows off the real parts**, because `Runtime:spawn` hands back a narrowed
    view and not the body handle (`src/server/Boar/init.luau`, the `local handle = {` inside
    `Runtime:spawn`). That is also why round 1's first spec draft read `nil`.
+
+## ROUND 1'S FINDING, FIXED
+
+The finding is right: the nearest-bone comparison -- the one line the rule is -- was held by no case,
+and the grey-box branch was silent. Two changes, `tests/server/boar_zones.spec.luau` only:
+
+8. **A case that bites the sign.** `picks the NEAR bone for each box and never the far one` builds a
+   hand-made carrier at the trunk's own CFrame with TWO bones at the male's real `nose` (0, 0.666,
+   -2.388) and `Spine_05` (0, 0.948, 1.486) rest places, and the real `CONFIG.ZONES.head.boxes[1]`
+   and `.rear.boxes[1]` offsets. It asserts the snout box took the snout bone and the rump box the
+   rump bone, and that `inBone` holds exactly `offset - bonePosition` (0, -0.066, +0.138) for the
+   snout. **Flip `distance < bestDistance` to `>` and both equality assertions go red.** It uses no
+   bought asset, so it runs the same in every environment -- which is the second half of the
+   finding. **Said plainly (V293b): the bite is argued by reading the one comparison, not by running
+   a flipped build; there was no time for a second 250 s harness pass before the deadline.**
+9. **The grey-box branch is no longer silent.** The first case now reads the mesh and the bone count
+   BEFORE deciding, and `TestKit.note`s the branch it took. This run printed
+   `boar_zones gait: mesh=nil bones=0 rows=15 wired=0 branch=grey-box` -- so the skinned branch is
+   NOT exercised in DEV, which is exactly what the finding said must not be hidden, and claim 8 is
+   what covers the rule instead.
+
+The rest of round 1's notes are untouched and belong in `TASKS.md` under 305c: the per-box clamp
+(2.5 studs applied to all fifteen, justified by the snout alone), `gaitRig` running in the dark
+build, the two stale comments in `Runtime:spawn`/`Runtime:step`, `Body.liftDrawn`'s header, the
+`hit-zones.md` section 4.3 wording (Architect's), no frame-time number, and -- the one that matters
+most -- **`AIM_REWIND` pairs a 0.18 s-old trunk position with a PRESENT-pose box, an error of the
+same order as the one this task fixes, and both flags are lit in Karen's place.** That is now the
+first thing to measure after the click control is restored, and `ESCALATE.md` says so.
 
 ## WHAT I COULD NOT VERIFY -- the dispatch's CLICK PROOF is NOT MET
 

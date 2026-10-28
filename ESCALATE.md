@@ -35,6 +35,11 @@ Numbers: `reviews/task-305c/MEASURED.md`.
    commits, and it reads exactly like a code defect. Stopping the other Studio's Play made the same
    commit read 34/34 at once. Worth a guard in the harness: refuse, or name the other Studio.
 
+6. **The Reviewer's biggest note, and I agree with it.** `AIM_REWIND` translates the ray and casts
+   it against PRESENT geometry, so with both flags lit the rewound test pairs a 0.18 s-old TRUNK
+   POSITION with a PRESENT-pose BOX -- an error of the same order (0.3-1.8 studs) as the one this
+   task fixes, and in Karen's place both flags are on. Measure that first, after the click control.
+
 ## 2026-10-28, Task 305b -- the premise is refuted, and four things are the Director's
 
 **The dispatch said "as if no rewind" in her place. It is not true, and the numbers are in
