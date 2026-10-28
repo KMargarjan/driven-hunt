@@ -1,3 +1,45 @@
+## 2026-10-28, Task 305c -- the cause is found and fixed; the CLICK INSTRUMENT disagrees with itself
+
+**The cause is measured and the fix is proved geometrically on the moving animal.** The zone boxes
+were welded at the offsets task 284 fitted to the mesh's REST pose, and a skinned MeshPart never
+raycasts its deformed pose -- so at a run the DRAWN boar sits 0.14-0.65 studs under its rig (the
+snout 0.28-0.64 in one run clip and **1.65-1.82** in the head-down one) and the drawn nose was
+inside a zone part on **0 of 83-99 frames**. With each box skinned to its nearest bone it is
+**86/94 server-side**, with no box resized, and air ahead of the animal still misses.
+Numbers: `reviews/task-305c/MEASURED.md`.
+
+**What is NOT proved, and why the Director has to decide:**
+
+1. **The click rig disagrees with its own earlier self.** `reviews/task-305b/MEASURED.md` reads
+   **9/10** for drawn chest + `Ballistics.leadStuds` at RUN. The same aim rule, in her place, in
+   this session, on the fixed build, reads **4/10**. And 305b's OWN rig
+   (`<runs-dir>/305c/z-run-rifle-nose.luau`, changed only in the aim point) reports
+   `testedAt-firedAt` **-0.078..-0.095** where 305b measured **-0.126** on the same shipped
+   constants. Until that control is restored, **no click count from this session is evidence of the
+   game's hit rate**, mine included: rifle RUN nose = 6/10 against the 8/10 asked, and I am not
+   claiming it as the game's number. Candidate (b) of the dispatch -- "the rewind over- or
+   under-shoots" -- is therefore **NOT ruled out**, and it is now the first thing to measure.
+2. **Slug, semi-auto, lever and the red deer at the nose were not fired at all.** The session went
+   on finding the cause and three geometry cycles.
+3. **`DHFlag_ZONES_FOLLOW_GAIT=true` IS STILL SET ON KAREN'S FOREST TEST**, on purpose, so the
+   Playtester can re-run the proof without a Director round trip. Her eleven other overrides were
+   read before and are untouched; `flags.py --place forest clear` was never run. If the Director
+   wants her place back at the shipped build: `python tools/flags.py --place forest set
+   ZONES_FOLLOW_GAIT off` in **Edit**, and nothing else.
+4. **The Forest Test worktree is left at the code commit.** `driven-hunt-karen` has `src/` and
+   `tests/` checked out from `d375ba70` path-wise (no branch switch, so `rojo serve` :34873 was never
+   at risk). `git -C driven-hunt-karen checkout a627663d -- src tests` puts it back.
+5. **A harness fault, per rule 6.** With a SECOND Studio in Play, `python tools/studio_mcp.py test`
+   fails its input replay with `UserMouseInputTool.SendUserInput ... Target is not reachable
+   (DMN_ID_PLAYCLIENT) ... Sender: DMN_ID_STANDALONE` -- four consecutive runs, three different
+   commits, and it reads exactly like a code defect. Stopping the other Studio's Play made the same
+   commit read 34/34 at once. Worth a guard in the harness: refuse, or name the other Studio.
+
+6. **The Reviewer's biggest note, and I agree with it.** `AIM_REWIND` translates the ray and casts
+   it against PRESENT geometry, so with both flags lit the rewound test pairs a 0.18 s-old TRUNK
+   POSITION with a PRESENT-pose BOX -- an error of the same order (0.3-1.8 studs) as the one this
+   task fixes, and in Karen's place both flags are on. Measure that first, after the click control.
+
 ## 2026-10-28, Task 305b -- the premise is refuted, and four things are the Director's
 
 **The dispatch said "as if no rewind" in her place. It is not true, and the numbers are in

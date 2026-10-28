@@ -1329,6 +1329,20 @@ Boar.CONFIG.HISTORY = {
 	ENABLED = true,
 }
 
+-- THE HIT BOXES FOLLOW THE GAIT (task 305c). Karen, 2026-10-28: *"with rifle when it trot or run I
+-- need to aim in free space to hit boar ... aiming in nose no hit"*. MEASURED in her place at RUN:
+-- the drawn nose was inside a zone part on 0 of 83 frames.
+-- Note: reviews/task-305c/REQUEST.md
+Boar.CONFIG.GAIT = {
+	-- The flag is read ONCE, here at the boundary, and passed inward as `config.GAIT.ENABLED`.
+	ENABLED = Flags.isOn("ZONES_FOLLOW_GAIT"),
+	-- THE WIDEST MEASURED DEFORMATION IS 1.822 STUDS -- the snout in the head-down run clip
+	-- (`<runs-dir>/305c/deform.luau`, Karen's range). 1.0 CLAMPED it and the snout box still missed
+	-- on 0/99 frames; 2.5 clears the measurement with margin and is only a guard against a broken
+	-- or mis-scaled clip flinging a box off the animal.
+	MAX_SHIFT_STUDS = 2.5,
+}
+
 -- WALKING WHERE YOU ARE TOLD (task 127). Karen, 2026-10-05: *"imagine they come from one side in one
 -- line and crossing road thats it"*.
 --
@@ -7437,12 +7451,18 @@ function Runtime:step(dt: number)
 	if history and history.ENABLED and history.SAMPLES > 0 then
 		historyAt = if self._world.serverTime then self._world.serverTime() else Workspace:GetServerTimeNow()
 	end
+	local gait = config.GAIT
 	for _, entry in ipairs(self._boars) do
 		snapshot[entry.id] = {
 			position = Body.position(entry.body),
 			velocity = Body.velocity(entry.body),
 			facing = entry.body.part.CFrame.LookVector,
 		}
+		-- THE HIT BOXES ARE PUT ON THE DRAWN ANIMAL (task 305c), in the loop that already holds the
+		-- trunk, so the rig can never be a frame behind the body it is welded to.
+		if gait ~= nil and gait.ENABLED then
+			Body.followGait(entry.body, gait.MAX_SHIFT_STUDS)
+		end
 		-- WHERE IT WAS, WRITTEN IN THE LOOP THAT ALREADY READ IT. The trunk's whole CFrame, because
 		-- the zone parts are welded in trunk space and an animal that turns moves its own chest.
 		-- The ring overwrites in place -- `historyCount % SAMPLES + 1` -- so an animal alive for an
