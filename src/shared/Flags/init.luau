@@ -172,6 +172,21 @@ Flags.DEFAULTS = {
 			.. "ballistic one. OFF is exactly the game before task 305: the animal is tested at the "
 			.. "present instant and the shooter must add 0.18 s x the animal's speed of his own.",
 	} :: FlagRow,
+	-- THE HIT BOXES FOLLOW THE GAIT (task 305c). Karen, 2026-10-28: *"with rifle when it trot or
+	-- run I need to aim in free space to hit boar ... aiming in nose no hit"*. MEASURED in her
+	-- place at RUN: the drawn nose is 0/83 frames inside any zone part (reviews/task-305c).
+	ZONES_FOLLOW_GAIT = {
+		default = false,
+		owner = "ServerScriptService.Boar",
+		born = "2026-10-28 task 305c",
+		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
+		expires = "2026-11-18",
+		why = "Each hit box is carried by the gait clip's own deformation of the bone nearest it, so "
+			.. "the boxes sit on the animal the shooter SEES: at a run the drawn body is 0.14-0.65 "
+			.. "studs below its rest pose and the snout box missed the drawn snout on every frame. "
+			.. "No box is grown, so air above, below or ahead of the drawn animal stays a miss. OFF "
+			.. "is exactly the game before task 305c: the rig is welded at the rest-pose offsets.",
+	} :: FlagRow,
 	-- THE LOBBY SHOOTING RANGE (task 298). KAREN, 2026-10-27: a place to *"test guns and shooting"*
 	-- against a real animal crossing a lane, so the seven shooting dials can be judged by eye.
 	RANGE = {

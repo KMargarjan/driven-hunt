@@ -244,8 +244,11 @@ end
 -- false, because an anchored part welded into an assembly anchors the whole boar. Damageable is NOT
 -- set on them: it belongs to the target root alone, and two damageable instances in one ancestor
 -- chain is an ambiguity, not a feature.
-local function buildZones(config, trunk: BasePart, geometry): { BasePart }
+local function buildZones(config, trunk: BasePart, geometry)
 	local parts = {}
+	-- ONE ROW PER BOX, kept so `Body.gaitRig` can pick each box's bone and `Body.followGait` can
+	-- write its `C0` without re-deriving which offset belonged to which part.
+	local rows = {}
 	for _, zone in ipairs(geometry.zoneOrder) do
 		-- THE KIND'S OWN BOXES. For every BOAR this is the male's table times this animal's scale,
 		-- and with `BOAR_MODEL` off it IS the male's table (task 119). For the hind and the calf it is
@@ -270,19 +273,26 @@ local function buildZones(config, trunk: BasePart, geometry): { BasePart }
 			zonePart.Anchored = false
 			zonePart.CFrame = trunk.CFrame * CFrame.new(box.offset)
 			zonePart:SetAttribute("HitZone", zone)
-			-- The trunk must already be in the DataModel: a WeldConstraint needs both parented.
+			-- The trunk must already be in the DataModel: a weld needs both parented.
 			zonePart.Parent = trunk
 
-			local weld = Instance.new("WeldConstraint")
+			-- A LEGACY `Weld` AND NOT A `WeldConstraint` (task 305c): it is just as rigid, but its
+			-- offset is a writable property -- `Part1.CFrame = Part0.CFrame * C0` -- so the gait can
+			-- carry the box without ever letting it drift from the trunk by a frame.
+			--   https://create.roblox.com/docs/reference/engine/classes/Weld
+			local weld = Instance.new("Weld")
 			weld.Name = "ZoneWeld"
 			weld.Part0 = trunk
 			weld.Part1 = zonePart
+			weld.C0 = CFrame.new(box.offset)
+			weld.C1 = CFrame.identity
 			weld.Parent = zonePart
 
 			table.insert(parts, zonePart)
+			table.insert(rows, { part = zonePart, weld = weld, offset = box.offset })
 		end
 	end
-	return parts
+	return parts, rows
 end
 
 -- REGISTERED ONCE, PER SERVER, and then every trunk joins it. `RegisterCollisionGroup` throws if the
@@ -419,7 +429,7 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 
 	part.Parent = folder
 
-	local zoneParts = buildZones(config, part, geometry)
+	local zoneParts, zoneRows = buildZones(config, part, geometry)
 
 	-- Only the server may own the boar: a client must not be able to push it. This errors on an
 	-- anchored part, which is why the body is unanchored. It is also server-only, so a Studio Play
@@ -447,6 +457,8 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 		mover = mover,
 		upright = upright,
 		zoneParts = zoneParts,
+		-- `{ part, weld, offset }` per box, plus `bone` and `rest` once `Body.gaitRig` has run.
+		zoneRows = zoneRows,
 		baseColor = baseColor,
 		flashFor = 0,
 		flashing = false,
@@ -821,6 +833,9 @@ function Body.attachVisual(handle, template: Instance, config): boolean
 	handle.tracks = {}
 	handle.clip = nil
 
+	-- WHICH BONE CARRIES WHICH HIT BOX (task 305c), decided now that the rig exists.
+	Body.gaitRig(handle)
+
 	-- ...and ask the clients for every clip and every sound NOW, silently, so the first shot does not
 	-- pay the fetch (see `Body.warmAssets`: measured at 364 ms of late cry and late flinch). AFTER
 	-- the four lines above, not before: `warmAssets` builds tracks through the handle's own animator,
@@ -886,6 +901,94 @@ end
 -- PURE and exported: it is the one number standing between a display lying on the grass and one
 -- sunk into it (task 120's cub, drawn 1.009 studs under the floor, is what that looks like).
 --
+
+-- A BONE'S REST PLACE IN THE MESH'S OWN SPACE: the product of the `CFrame`s up its chain, which is
+-- the pose the hit boxes were fitted to (task 284) and the one a skinned MeshPart still raycasts as.
+--   https://create.roblox.com/docs/reference/engine/classes/Bone
+local function restLocal(bone: Instance): CFrame
+	local at = (bone :: any).CFrame
+	local parent = bone.Parent
+	while parent ~= nil and parent:IsA("Bone") do
+		at = (parent :: any).CFrame * at
+		parent = parent.Parent
+	end
+	return at
+end
+
+-- WHICH BONE CARRIES EACH HIT BOX: the one whose REST position is nearest the box's own centre.
+-- A rule and not a table, so the deer's boxes and the next animal's are served by the same line.
+-- Returns how many boxes were wired; 0 before a visual is attached, which is the grey-box world.
+function Body.gaitRig(handle): number
+	local rows = handle.zoneRows
+	local mesh = handle.mesh
+	local trunk = handle.part
+	if rows == nil or mesh == nil or trunk == nil then
+		return 0
+	end
+	local bones: { Instance } = {}
+	for _, descendant in ipairs(mesh:GetDescendants()) do
+		if descendant:IsA("Bone") then
+			table.insert(bones, descendant)
+		end
+	end
+	if #bones == 0 then
+		return 0
+	end
+	local wired = 0
+	for _, row in ipairs(rows) do
+		local best, bestRest, bestDistance = nil, nil, math.huge
+		for _, bone in ipairs(bones) do
+			local rest = restLocal(bone)
+			-- In the TRUNK's frame, because the box offsets are and the mesh is welded to the trunk.
+			local at = trunk.CFrame:PointToObjectSpace((mesh.CFrame * rest).Position)
+			local distance = (at - row.offset).Magnitude
+			if distance < bestDistance then
+				best, bestRest, bestDistance = bone, rest, distance
+			end
+		end
+		row.bone = best
+		row.rest = bestRest
+		wired += 1
+	end
+	return wired
+end
+
+-- THE GAIT CARRIES THE BOXES (task 305c). Karen: *"aiming in nose no hit"* -- MEASURED at a run,
+-- the drawn boar sits 0.14-0.65 studs under its rest pose and the snout box missed the drawn snout
+-- on every one of 83 frames. Each box's weld `C0` becomes its rest offset plus its own bone's
+-- deformation, so the rig is on the animal the shooter sees. NO BOX CHANGES SIZE, and the shift is
+-- clamped, so air above, below or ahead of the drawn animal is still a miss.
+-- Note: reviews/task-305c/REQUEST.md
+function Body.followGait(handle, maxStuds: number?): number
+	local rows = handle.zoneRows
+	local mesh = handle.mesh
+	local trunk = handle.part
+	if rows == nil or mesh == nil or trunk == nil then
+		return 0
+	end
+	local cap = if type(maxStuds) == "number" and maxStuds > 0 then maxStuds else 1
+	local meshCFrame = mesh.CFrame
+	local trunkCFrame = trunk.CFrame
+	local moved = 0
+	for _, row in ipairs(rows) do
+		if row.bone ~= nil and row.rest ~= nil and row.weld ~= nil then
+			local drawn = (row.bone :: any).TransformedWorldCFrame.Position
+			local rest = (meshCFrame * row.rest).Position
+			local shift = trunkCFrame:VectorToObjectSpace(drawn - rest)
+			row.weld.C0 = CFrame.new(
+				row.offset
+					+ Vector3.new(
+						math.clamp(shift.X, -cap, cap),
+						math.clamp(shift.Y, -cap, cap),
+						math.clamp(shift.Z, -cap, cap)
+					)
+			)
+			moved += 1
+		end
+	end
+	return moved
+end
+
 -- A `BasePart`'s `CFrame` is its BOUNDING BOX'S CENTRE, so half the vertical extent is exactly
 -- "resting on the ground" for any kind and any asset that arrives later -- nothing here is a
 -- literal. Rolled a quarter turn the mesh's WIDTH is vertical, which for the male's 1.4011 x 3.2573

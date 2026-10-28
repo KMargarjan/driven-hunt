@@ -193,12 +193,78 @@ return function()
 					expect(part.CanCollide).to.equal(false) -- the collision body is still the plain box
 					expect(part.CanQuery).to.equal(true) -- being raycastable is its entire purpose
 					expect(part.Anchored).to.equal(false) -- an anchored weld would anchor the whole boar
-					local weld = part:FindFirstChildOfClass("WeldConstraint")
+					-- A LEGACY `Weld` SINCE TASK 305c: just as rigid, but `C0` is writable, which
+					-- is what lets the gait carry the box (`Body.followGait`).
+					local weld = part:FindFirstChildOfClass("Weld")
 					expect(weld).to.be.ok()
 					expect(weld.Part0).to.equal(trunk)
 					expect(weld.Part1).to.equal(part)
+					expect(part:FindFirstChildOfClass("WeldConstraint")).to.equal(nil)
 				end
 			end
+		end)
+
+		-- TASK 305c. MEASURED in Karen's place at a run: the drawn boar sits 0.14-0.65 studs under
+		-- the rest pose the boxes were fitted to, so the drawn nose was inside a zone part on 0 of
+		-- 83 frames. These two cases hold the two halves of the fix: every box gets a bone, and a
+		-- bone that has moved moves its box by EXACTLY that much and leaves its size alone.
+		it("gives every hit box the bone nearest it, or none at all without a visual", function()
+			local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
+			local rows = handle.zoneRows
+			expect(type(rows)).to.equal("table")
+			expect(#rows).to.equal(#handle.zoneParts)
+			for _, row in ipairs(rows) do
+				expect(row.weld).to.be.ok()
+				expect(typeof(row.offset)).to.equal("Vector3")
+			end
+			local wired = Body.gaitRig(handle)
+			if handle.mesh == nil then
+				-- The grey-box world: no rig, and `followGait` must be a no-op rather than an error.
+				expect(wired).to.equal(0)
+				expect(Body.followGait(handle, 1)).to.equal(0)
+			else
+				expect(wired).to.equal(#rows)
+				for _, row in ipairs(rows) do
+					expect(row.bone).to.be.ok()
+					expect(row.bone:IsA("Bone")).to.equal(true)
+				end
+			end
+		end)
+
+		it("moves a box by its bone's own deformation and never resizes it", function()
+			local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
+			local rows = handle.zoneRows
+			local row = rows[1]
+			-- A HAND-MADE BONE, so the case runs with or without the bought model: `followGait`
+			-- reads `row.bone.TransformedWorldCFrame` and `row.rest`, nothing else.
+			local mesh = handle.mesh
+			local carrier = mesh or trunk
+			local bone = Instance.new("Bone")
+			bone.Name = "SpecBone"
+			bone.CFrame = CFrame.new(0, 0, 0)
+			bone.Parent = carrier
+			row.bone = bone
+			row.rest = CFrame.new(0, 0, 0)
+			local size = row.part.Size
+			-- The bone sits where its rest says: no shift, so the box keeps its measured offset.
+			bone.CFrame = CFrame.new(0, 0, 0)
+			expect(Body.followGait(handle, 1)).to.be.ok()
+			expect((row.weld.C0.Position - row.offset).Magnitude < 1e-3).to.equal(true)
+			-- Drop the bone half a stud in the carrier's own frame: the box drops half a stud too.
+			bone.CFrame = CFrame.new(0, -0.5, 0)
+			Body.followGait(handle, 1)
+			local shift = row.weld.C0.Position - row.offset
+			expect(math.abs(shift.Y + 0.5) < 1e-2).to.equal(true)
+			expect(math.abs(shift.X) < 1e-2).to.equal(true)
+			-- ...and the CLAMP: 3 studs of bone asks for more than the cap allows.
+			bone.CFrame = CFrame.new(0, -3, 0)
+			Body.followGait(handle, 1)
+			expect(math.abs((row.weld.C0.Position - row.offset).Y + 1) < 1e-2).to.equal(true)
+			expect((row.part.Size - size).Magnitude).to.equal(0)
+			bone:Destroy()
+			row.bone = nil
+			row.rest = nil
+			row.weld.C0 = CFrame.new(row.offset)
 		end)
 
 		it("resolves through the ancestor walk to the trunk, which is what takeHit is given", function()
