@@ -24,6 +24,19 @@ the selection rule decides the assertion; and one line calls `Weapon.rewindFor(n
 The request says of each, on the line itself, that it was added after the round-2 verdict and is
 unreviewed. **Nothing is merged on that basis.**
 
+**AND MY OWN FIX FIRST SHIPPED A RED SUITE, which is worth more than the fix.** `cd23e2bb` read
+`[harness] FAIL: 32/34 checks @ cd23e2bbdff5e3d32cd3be01f6fe888c4d356093 (clean tree) scope=all` --
+`weapon_rewind.spec:67 Expected value to be near 5.000000 but got 6.000000`: `seen` is incremented
+before the answer is built, so `5 + seen` gives 6 then 7, not 5 then 6. **That is the second time in
+one task that a number I wrote into a case was not the number the case produces, and it is exactly
+the class of mistake round 2 found.** Corrected in `a502ccd1`, which is green:
+
+    [harness] PASS: 34/34 checks @ a502ccd1210879bb4144a867d6d38c706f89a010 (clean tree) scope=all
+
+So the tree the Director is deciding about is green and the two unreviewed changes are a test
+assertion and a sentence. `reviews/task-305/REQUEST.md` still names `29476a77` as its `Code commit:`,
+because that is the commit round 2 was run against; an authorised round 3 should name `a502ccd1`.
+
 **WHAT I AM ASKING THE DIRECTOR FOR: the single extra round CLAUDE.md already provides for.** Its
 condition is met exactly -- *"The Director may authorise a single extra round when the last round's
 findings were documentation-only"* -- and both findings are a test assertion and a sentence. The
