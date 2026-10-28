@@ -1,11 +1,11 @@
 # Task 303 -- the range on Karen's path: four defects from the Director's real-key proof
 
 Task: 303
-Round: 1
+Round: 2
 Base: 0d65e55c (task-302-range-walkway)
-Code commit: 2b8eab73a4acfe099bdd9766d04f8a1ccbf21704
+Code commit: 59e0b2c9b08d7556cf1456d97803d2d5037e8902
 
-[harness] PASS: 34/34 checks @ 2b8eab73a4acfe099bdd9766d04f8a1ccbf21704 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 59e0b2c9b08d7556cf1456d97803d2d5037e8902 (clean tree) scope=all
 
 `tools/agents.py` `needs_two_player` returns `[]` for this branch's eight changed files (asked with
 `git diff --name-only 0d65e55c..HEAD`): no match path, no drive, no tie, no team. The two-player
@@ -56,6 +56,26 @@ run is N/A, for the review round and for the PR to main.
 - The probe is in the branch's history on purpose: 7154289e reverts `src/` to the base and
   66a25d43 puts it back. `git diff 0c8773cd..HEAD -- src/` is empty.
 
+## Round 1's two blocking findings, both right
+
+1. **The "is he at the spot" signal.** `Hud.step` read `rangeMat.Parent` and expected the mat, so
+   the prompt's move onto an attachment silently killed it -- the board wiped itself every frame
+   and the door-closer never fired. `Range.promptPointOf` is now the ONE reader of a found prompt's
+   point (attachment or part), the Hud asks it, and `Range.atSpot` is asked about THAT point rather
+   than the mat's -- which also settles the reach: the engine offers E within 12 studs of the
+   prompt and the client now closes at the same 12 studs of the same point, so the shell where one
+   said yes and the other no is gone. `range.spec` "hangs the prompt on a POST" drives the real
+   built folder through it: `promptPointOf(promptFor(1, folder))`, `atSpot` true at the mat, true
+   one stud inside the reach, false one stud outside, plus the nil and part-parent shapes.
+2. **`stylua --check`.** The round-1 comment was glued onto the `elseif` line. `stylua --check src
+   tests` is clean at this commit.
+
+The notes I also took: the `LAYOUT.POST` sight-line arithmetic is rewritten with the right numbers
+(1.22 studs at the window's far end, 2.43 at the lane's, over a 4-stud post under a 5-stud eye),
+`promptPosition`'s sign is corrected, the client note now prints the FOV it used, and
+`docs/design/shooting-range.md` 7.2 says the prompt is on a post. The two notes I did not take are
+listed under "What I could not verify".
+
 ## What changed
 
 1. **The prompt is off the floor.** `src/shared/Range/init.luau` gains `LAYOUT.POST` and
@@ -93,7 +113,10 @@ run is N/A, for the review round and for the PR to main.
    OWN cartridge label".
 5. A WALK picked while the target is inside the window records 8.89 s +-10 % on the FIRST crossing
    after the pick -- `range.spec`, "times a WALK picked MID-WINDOW".
-6. Nothing else on the range moved: 34/34 checks, 2471 server and 637 client cases green, and the
+6. Walking off the spot still closes the menu and drops the board, now measured from the prompt's
+   own point -- `range.spec`, the `atSpot` assertions in the POST case, and `range_panel.spec`
+   "gives both doors back when he walks off the spot" (unchanged, still green).
+7. Nothing else on the range moved: 34/34 checks, 2471 server and 637 client cases green, and the
    known flake `weapon_shot.spec.luau:1490` did not fire in any of the three runs.
 
 ## What I could not verify
@@ -106,6 +129,9 @@ run is N/A, for the review round and for the PR to main.
 - The post's Y over her terrain is the shelf plus the post's height, less the ground spread under
   its own 1.2 x 1.2 footprint. The sloped-ground case bounds that; no measurement in her place
   confirms it.
+- Round 1's note that the POST case's position assertion compares `Build` against the same
+  `promptPosition` it built from: still true. The independent anchors are the reach, the footprint
+  box, and now the `atSpot` pair, which are bounds rather than a second derivation of the point.
 - Whether the lodge -> mat walkway segment was WALKED rather than spawned at the mat during the
   Director's 03:05-03:33 pass (task 302 item 1's open gap, L-095). `PROOF.md` records a walk from
   the lodge to the mat in 25.7 s with the same character, which reads as the walk, but the
