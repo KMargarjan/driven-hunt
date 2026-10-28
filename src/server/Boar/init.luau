@@ -1336,9 +1336,11 @@ Boar.CONFIG.HISTORY = {
 Boar.CONFIG.GAIT = {
 	-- The flag is read ONCE, here at the boundary, and passed inward as `config.GAIT.ENABLED`.
 	ENABLED = Flags.isOn("ZONES_FOLLOW_GAIT"),
-	-- The widest MEASURED deformation is 0.654 studs (the head at a run). 1.0 is the ceiling a
-	-- broken or mis-scaled clip is clamped to, so no box can be flung off the animal.
-	MAX_SHIFT_STUDS = 1.0,
+	-- THE WIDEST MEASURED DEFORMATION IS 1.822 STUDS -- the snout in the head-down run clip
+	-- (`<runs-dir>/305c/deform.luau`, Karen's range). 1.0 CLAMPED it and the snout box still missed
+	-- on 0/99 frames; 2.5 clears the measurement with margin and is only a guard against a broken
+	-- or mis-scaled clip flinging a box off the animal.
+	MAX_SHIFT_STUDS = 2.5,
 }
 
 -- WALKING WHERE YOU ARE TOLD (task 127). Karen, 2026-10-05: *"imagine they come from one side in one
