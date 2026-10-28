@@ -233,7 +233,27 @@ return function()
 			local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
 			local handleView, rows = gaitHandle()
 			expect(#rows > 0).to.equal(true)
+			local bones = 0
+			if handleView.mesh ~= nil then
+				for _, d in ipairs(handleView.mesh:GetDescendants()) do
+					if d:IsA("Bone") then
+						bones += 1
+					end
+				end
+			end
 			local wired = Body.gaitRig(handleView)
+			-- WHICH BRANCH THIS RUN TOOK, PRINTED (verdict 281): whether the bought model reached
+			-- this Studio session decides it, and a silent grey-box run must not read as proof.
+			TestKit.note(
+				string.format(
+					"boar_zones gait: mesh=%s bones=%d rows=%d wired=%d branch=%s",
+					tostring(handleView.mesh and handleView.mesh.Name),
+					bones,
+					#rows,
+					wired,
+					if handleView.mesh == nil then "grey-box" else "skinned"
+				)
+			)
 			if handleView.mesh == nil then
 				-- The grey-box world: no rig, and `followGait` must be a no-op rather than an error.
 				expect(wired).to.equal(0)
@@ -246,6 +266,43 @@ return function()
 					expect(typeof(row.inBone)).to.equal("CFrame")
 				end
 			end
+		end)
+
+		-- THE WHOLE RULE IS ONE COMPARISON (`distance < bestDistance`), and this is the case that
+		-- bites it: flip the sign and the snout box is carried by a hind hoof. Hand-made bones on a
+		-- hand-made carrier, so it runs identically whether or not the bought model reached Studio.
+		it("picks the NEAR bone for each box and never the far one", function()
+			local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
+			local carrier = Instance.new("Part")
+			carrier.Name = "GaitCarrier"
+			carrier.Size = Vector3.new(1, 1, 1)
+			carrier.Anchored = true
+			carrier.CanCollide = false
+			carrier.CanQuery = false
+			-- The carrier sits exactly on the trunk, so a bone's own `CFrame` IS its trunk-space
+			-- rest place and the two distances below are the ones the rule compares.
+			carrier.CFrame = trunk.CFrame
+			carrier.Parent = testRoot
+			local snoutBone = Instance.new("Bone")
+			snoutBone.Name = "AtTheSnout"
+			snoutBone.CFrame = CFrame.new(0, 0.666, -2.388) -- the male's own `nose` rest place
+			snoutBone.Parent = carrier
+			local rumpBone = Instance.new("Bone")
+			rumpBone.Name = "AtTheRump"
+			rumpBone.CFrame = CFrame.new(0, 0.948, 1.486) -- the male's own `Spine_05` rest place
+			rumpBone.Parent = carrier
+			-- The real `ZoneHead1` and `ZoneRear1` offsets out of `Boar.CONFIG.ZONES`.
+			local snoutBox = { offset = CONFIG.ZONES.head.boxes[1].offset }
+			local rumpBox = { offset = CONFIG.ZONES.rear.boxes[1].offset }
+			local view = { zoneRows = { snoutBox, rumpBox }, part = trunk, mesh = carrier }
+			expect(Body.gaitRig(view)).to.equal(2)
+			expect(snoutBox.bone).to.equal(snoutBone)
+			expect(rumpBox.bone).to.equal(rumpBone)
+			-- ...and the box really is stored in THAT bone's frame: the snout box is 0.066 under and
+			-- 0.138 behind the `nose` bone, so that is exactly what `inBone` must hold.
+			local want = snoutBox.offset - Vector3.new(0, 0.666, -2.388)
+			expect((snoutBox.inBone.Position - want).Magnitude < 1e-3).to.equal(true)
+			carrier:Destroy()
 		end)
 
 		it("moves a box by its bone's own deformation and never resizes it", function()
