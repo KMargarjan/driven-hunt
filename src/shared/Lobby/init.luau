@@ -349,6 +349,13 @@ Lobby.CONFIG = {
 	-- exists to stop ("Things measured correct and looked wrong").
 	FIELD = {
 		SPAN_STUDS = 220, -- 220 x 220, square, centred on the anchor
+		-- HOW WIDE THE WALK TO AN OUTLYING PART OF THE LOBBY IS (task 302). The return rule's home is
+		-- the field PLUS each area the root hands in PLUS a corridor of this half-width along the
+		-- straight line between the anchor and that area's centre (`Join.walkwayTo`).
+		-- 24 either side = 48 studs across: a player walks at 16 studs/s (`Body.defaultWalkSpeed`), so
+		-- it is a second and a half of drift off the line -- wide enough that nobody walking to the
+		-- range is sent home, narrow enough that the forest beside the path is still not his place.
+		WALKWAY_HALF_STUDS = 24,
 		-- THE GRASS BLOCK IS SOLID AND DEEP, so the downhill edge is a BANK and not a floating
 		-- shelf. The measured spread over this footprint is 16 studs and the worst of the fifteen
 		-- sampled footprints was 44, so 48 reaches below the lowest ground either way.

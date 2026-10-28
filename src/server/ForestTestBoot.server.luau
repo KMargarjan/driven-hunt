@@ -64,6 +64,10 @@ local Lobby = require(ServerScriptService:WaitForChild("Lobby"))
 -- `Lobby.counterPosition` is the one definition of where the counter is.
 local Shop = require(ServerScriptService:WaitForChild("Shop"))
 local ShopData = require(ReplicatedStorage:WaitForChild("Shop"))
+-- TASK 302: the range's own geometry (pure data) and its one flag boundary, for `Lobby.start`'s
+-- `homeAreas`. `RangeBoot` stays the range's only composition root; nothing is built here.
+local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
+local RangeOwner = require(ServerScriptService:WaitForChild("Range"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 -- WHAT THE LODGE HANGS ON ITS WALLS (task 196): the boar's own model and the two guns the player
 -- carries. Required HERE, in the composition root, because that is where a name in one owner's
@@ -666,9 +670,29 @@ end
 --                     boar world and `Bots.start` are given. A third copy of "where is the ground"
 --                     would be two definitions of one fact.
 --   terrain           an argument, so no spec can write a place's terrain by accident.
+--   homeAreas    WHERE ELSE A MAN BELONGS WHEN HE IS NOT IN A DRIVE (task 302). The range is 268
+--                studs from the lodge anchor and the field's half-span is 110, so until this the
+--                return rule respawned Karen at the lodge 0.6 s after she stepped on the mat.
+--                THE ROOT COMPOSES IT, so neither owner requires the other: the rectangle is the
+--                RANGE's own (`RangeData.footprintFor`, derived from the same `LAYOUT` `Build` lays
+--                its parts from) and the walk to it is the LOBBY's (`Join.walkwayTo`). A world with
+--                no range row, or the flag off, hands in nil and the lobby is the old 220 x 220.
+local rangeHomeAreas: { any }? = nil
+do
+	local row = RangeData.anchorFor(Map.EXPECTED_WORLD)
+	-- `Range.ENABLED` AND NOT A SECOND `Flags.isOn`: the range owner is the one boundary that reads
+	-- that flag (CLAUDE.md, feature flags), so with RANGE off nothing is built and nothing is home.
+	if row ~= nil and RangeOwner.ENABLED then
+		rangeHomeAreas = {
+			RangeData.footprintFor(Vector3.new(row.x, 0, row.z), RangeData.LAYOUT, RangeData.downrangeOf(row)),
+		}
+	end
+end
+
 local lobbyOn = Lobby.start({
 	enabled = true,
 	world = Map.EXPECTED_WORLD,
+	homeAreas = rangeHomeAreas,
 	enrol = Match.enrol,
 	dismissAll = Match.dismissAll,
 	inDrive = Match.isParticipant,

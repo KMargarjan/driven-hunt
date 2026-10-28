@@ -348,6 +348,32 @@ function Range.crossingSeconds(windowStuds: number, speed: number): number
 	return windowStuds / speed
 end
 
+-- THE GROUND THE RANGE OCCUPIES, as a flat rectangle, derived from the SAME `LAYOUT` numbers
+-- `Range.Build` lays its parts from -- so the box and the parts can never disagree.
+-- Read by the lobby's return rule (task 302) through the composition root: a man at the range is
+-- where he belongs, and `Lobby` requires nothing of this module.
+-- The margin is the mat prompt's own reach (`PROMPT.MaxActivationDistance`): anywhere a man can
+-- still press E on the firing line is AT the range.
+function Range.footprintFor(anchor: Vector3, layout, downrange: number?)
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local margin = layout.PROMPT.MaxActivationDistance
+	-- X: the berm is the widest thing; the screens stand beyond the lane's ends and the mats step
+	-- east by `SPOT_SPACING_STUDS`.
+	local screenOut = Range.laneLength(layout) / 2 + layout.SCREEN.beyondStuds + layout.SCREEN.size.X / 2
+	local halfX = math.max(layout.BERM.size.X / 2, screenOut, layout.MAT.size.X / 2)
+	local spots = (layout.SPOT_COUNT - 1) * layout.SPOT_SPACING_STUDS
+	-- Z: from the mat's back edge, behind the firing line, to the far face of the berm.
+	local nearZ = anchor.Z - dir * layout.MAT.size.Z / 2
+	local farZ = anchor.Z + dir * (layout.DISTANCE_STUDS + layout.BERM.behindStuds + layout.BERM.size.Z / 2)
+	return {
+		minX = anchor.X - halfX - margin,
+		maxX = anchor.X + halfX + spots + margin,
+		minZ = math.min(nearZ, farZ) - margin,
+		maxZ = math.max(nearZ, farZ) + margin,
+	}
+end
+
 -- THE RANGE RUNTIME'S FIELD (design section 5): the lane's rectangle plus slack, with an `exitZ`
 -- far BEHIND the firing line so `Brain:_outcome` can never report `escaped` or `outOfBounds` for a
 -- target doing exactly what it was told. The lobby sits outside the drive's field -- x 2230..3830,
