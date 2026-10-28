@@ -62,7 +62,7 @@ function Rewind.impact(
 			-- backwards is the same question with nothing moved.
 			local shift = candidate.past.Position - candidate.present.Position
 			local hit = castOnly(candidate.root, origin - shift, segment)
-			if hit ~= nil and (best == nil or hit.distance < best.distance) then
+			if hit ~= nil then -- DELIBERATELY BROKEN (round 3): last-wins instead of nearest-wins
 				best = {
 					instance = hit.instance,
 					-- REPORTED IN THE PAST FRAME: this is where the shooter saw the animal, so the
