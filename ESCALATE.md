@@ -167,7 +167,7 @@ will NOT arrive from it. It is reported to the Director by that session separate
 
 Written 2026-10-28 21:05 UTC (`date -u`, not an estimate). Builder session `28f109d2`.
 **This is not a disagreement and not a failed round.** The step is built, the harness passed
-(34/34 @ `5b7bcf43`) and the numbers are measured. One piece of the dispatch's CLICK PROOF could
+(34/34 @ `391d2ca8`, the round-2 code commit; round 1 was `5b7bcf43`) and the numbers are measured. One piece of the dispatch's CLICK PROOF could
 not be produced with the tools in this repo, and V280 says to write that AT the hard stop.
 
 ## What the dispatch asked
