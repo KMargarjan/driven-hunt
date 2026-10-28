@@ -1919,7 +1919,9 @@ return function()
 						end
 						local nominal = if part.Name == "Berm"
 							then LAYOUT.BERM.size.Y
-							elseif part.Name == "Mat" then LAYOUT.MAT.size.Y
+							elseif part.Name == "Mat" then LAYOUT.MAT.size.Y							-- The prompt's post (task 303): laid on the ground like every other part.
+
+							elseif part.Name == "Post" then LAYOUT.POST.size.Y
 							else LAYOUT.SCREEN.size.Y
 						expect(math.abs(bottom - lo) < 1e-2).to.equal(true)
 						expect(top >= hi + nominal - 1e-2).to.equal(true)
