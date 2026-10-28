@@ -145,11 +145,32 @@ return function()
 				end
 			end
 		end
+		-- SIX STATIONS MEANS SIX ANIMALS (design 5.1), so a case about ONE station's lane asks for
+		-- THAT station's own animal and THAT animal's own orders, through the owner's own trial.
+		-- `only` is kept for the cases that really are about there being one.
 		fake.only = function()
 			for _, animal in pairs(fake.animals) do
 				return animal
 			end
 			return nil
+		end
+		local function targetAt(spot: number): string?
+			local trial = Range.trialOf(spot) :: any
+			return if trial ~= nil then trial.targetId else nil
+		end
+		fake.at = function(spot: number)
+			local id = targetAt(spot)
+			return if id ~= nil then fake.animals[id] else nil
+		end
+		fake.leadsAt = function(spot: number)
+			local id = targetAt(spot)
+			local out = {}
+			for _, lead in ipairs(fake.leads) do
+				if lead.id == id then
+					table.insert(out, lead)
+				end
+			end
+			return out
 		end
 		return fake
 	end
@@ -800,7 +821,7 @@ return function()
 			-- ...AND THE ORDER IS RE-ISSUED, a count that rises with the scans (TARGET 7).
 			expect(Range.stats().leadTos >= Range.stats().scans - 2).to.equal(true)
 			-- The target stayed ON the lane: inside the apron in x, and within 2 studs of the lane in z.
-			local animal = fake.only() :: any
+			local animal = fake.at(1) :: any
 			local centre = RangeData.laneCentre(Vector3.new(DEV_ROW.x, 0, DEV_ROW.z), LAYOUT)
 			expect(math.abs(animal.position.X - centre.X) <= RangeData.laneLength(LAYOUT) / 2 + 4).to.equal(true)
 			expect(math.abs(animal.position.Z - centre.Z) <= 2).to.equal(true)
@@ -839,7 +860,7 @@ return function()
 				local err = math.abs(measured - predicted) / predicted
 				expect(err <= Range.CONFIG.CROSSING_TOLERANCE).to.equal(true)
 				-- ...and every order carried that pace's speed, never another's.
-				for _, lead in ipairs(fake.leads) do
+				for _, lead in ipairs(fake.leadsAt(1)) do
 					expect(lead.speed).to.equal(speedOf(pace))
 				end
 				table.insert(
@@ -864,7 +885,7 @@ return function()
 			-- Into the window at a trot: the apron is 20 studs, so 3 s puts it well inside.
 			advance(fake, clock, 3)
 			local centre = RangeData.laneCentre(Vector3.new(DEV_ROW.x, 0, DEV_ROW.z), LAYOUT)
-			local animal = fake.only() :: any
+			local animal = fake.at(1) :: any
 			local offset = math.abs(animal.position.X - centre.X)
 			expect(offset < LAYOUT.WINDOW_STUDS / 2).to.equal(true)
 			TestKit.note(string.format("range: picked WALK with the target %.1f studs inside the window", offset))
@@ -916,7 +937,7 @@ return function()
 				clock.t += 1 / 60
 				fake.advance(1 / 60)
 				Range.step(1 / 60)
-				local animal = fake.only() :: any
+				local animal = fake.at(1) :: any
 				samples += 1
 				if
 					(Vector3.new(animal.position.X - centre.X, 0, animal.position.Z - centre.Z)).Magnitude
@@ -933,7 +954,7 @@ return function()
 			-- IT ENTERED THE BRANCH: the orders went to the MIDDLE, not to an end of the lane.
 			expect((trial.directions.middle or 0) > 0).to.equal(true)
 			expect(trial.directions.east).to.equal(nil)
-			expect(fake.only().speed).to.equal(0)
+			expect(fake.at(1).speed).to.equal(0)
 			-- A STANDING TARGET DOES NOT CROSS, so nothing is timed while it stands.
 			expect(trial.crossings).to.equal(0)
 			TestKit.note(
@@ -951,8 +972,8 @@ return function()
 			local fake = newFakeBoars()
 			expect(select(1, startRange(fake, now))).to.equal(true)
 			advance(fake, clock, 2)
-			expect(fake.spawns).to.equal(1)
-			local dead = fake.only() :: any
+			expect(fake.spawns).to.equal(LAYOUT.SPOT_COUNT)
+			local dead = fake.at(1) :: any
 			dead.alive = false
 
 			-- Under the hold, nothing is cleared: the player is looking at what he did.
@@ -964,20 +985,21 @@ return function()
 			expect(fake.clears).to.equal(1)
 			expect(fake.lastClear).to.equal("range carcass")
 			expect(Range.stats().releases).to.equal(1)
-			-- ...and the fresh one is not released instantly either.
-			expect(fake.spawns).to.equal(1)
+			-- ...and the fresh one is not released instantly either. EXACTLY ONE more, for the
+			-- station whose target died, and never a second round of six.
+			expect(fake.spawns).to.equal(LAYOUT.SPOT_COUNT)
 			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 0.5)
-			expect(fake.spawns).to.equal(2)
-			expect((fake.only() :: any).alive).to.equal(true)
+			expect(fake.spawns).to.equal(LAYOUT.SPOT_COUNT + 1)
+			expect((fake.at(1) :: any).alive).to.equal(true)
 			-- THE NEW TARGET IS STEERED LIKE THE FIRST, measured as a RISE from a snapshot taken
 			-- after the release (review round 1, finding 2: a `flips >= 1` on a cumulative counter
 			-- passes with the whole re-release path deleted).
 			local flipsAfterRelease = Range.stats().flips
-			local leadsAfterRelease = #fake.leads
+			local leadsAfterRelease = #fake.leadsAt(1)
 			advance(fake, clock, 20)
 			expect(Range.stats().flips > flipsAfterRelease).to.equal(true)
-			expect(#fake.leads > leadsAfterRelease).to.equal(true)
-			expect((fake.only() :: any).position.X ~= nil).to.equal(true)
+			expect(#fake.leadsAt(1) > leadsAfterRelease).to.equal(true)
+			expect((fake.at(1) :: any).position.X ~= nil).to.equal(true)
 			TestKit.note(
 				string.format(
 					"range: carcass held %d s, cleared, fresh target after %d s",
@@ -993,19 +1015,19 @@ return function()
 			local fake = newFakeBoars()
 			expect(select(1, startRange(fake, now))).to.equal(true)
 			advance(fake, clock, 2)
-			local animal = fake.only() :: any
+			local animal = fake.at(1) :: any
 			fake.flyingIds[animal.id] = true
-			local leadsBefore = #fake.leads
+			local leadsBefore = #fake.leadsAt(1)
 			local skippedBefore = Range.stats().skippedFlying
 			advance(fake, clock, 3)
 			-- IT ENTERED THE BRANCH, and issued nothing: *"the drive must not order an animal the
 			-- Brain is flying"*.
 			expect(Range.stats().skippedFlying > skippedBefore).to.equal(true)
-			expect(#fake.leads).to.equal(leadsBefore)
+			expect(#fake.leadsAt(1)).to.equal(leadsBefore)
 			-- ...and it picks the lane up again when the flight ends.
 			fake.flyingIds[animal.id] = false
 			advance(fake, clock, 2)
-			expect(#fake.leads > leadsBefore).to.equal(true)
+			expect(#fake.leadsAt(1) > leadsBefore).to.equal(true)
 			Range.stop()
 		end)
 	end)
@@ -1406,7 +1428,8 @@ return function()
 			expect(record.issuedStudsPerSecond).to.equal(speedOf(RangeData.WORD.WALK))
 			-- ...AND THE SPEED THE RUNTIME IS ACTUALLY ASKED FOR IS THAT SAME NUMBER.
 			advance(fake, clock, 1)
-			local last = fake.leads[#fake.leads]
+			local ownLeads = fake.leadsAt(1)
+			local last = ownLeads[#ownLeads]
 			expect(last).to.be.ok()
 			expect((last :: any).speed).to.equal(speedOf(RangeData.WORD.WALK))
 			-- A STANDING TARGET NEEDS NO LEAD, and the board says which.
@@ -1764,7 +1787,7 @@ return function()
 			tick(clock, 1)
 			expect(Range.onRequest(man, { spot = 1, pace = RangeData.WORD.TROT })).to.equal(true)
 			advance(fake, clock, 2)
-			local animal = fake.only()
+			local animal = fake.at(1)
 			expect(animal).to.be.ok()
 			local target = (animal :: any).position
 			local trial = Range.trialOf(1) :: any
@@ -2437,7 +2460,7 @@ return function()
 			})
 			expect(ok).to.equal(true)
 			advance(fake, clock, 4)
-			local animal = fake.only()
+			local animal = fake.at(1)
 			expect(animal).to.be.ok()
 			-- RELEASED SOUTH OF THE MAT, by the whole distance of the lane.
 			expect((animal :: any).position.Z < row.z - LAYOUT.DISTANCE_STUDS + 1).to.equal(true)
