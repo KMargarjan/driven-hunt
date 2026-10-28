@@ -1,14 +1,76 @@
-1. `src/server/Lobby/init.luau` (`stepPlayer`, `Lobby.start`) + `src/server/ForestTestBoot.server.luau` (`rangeHomeAreas`) — the three lines that actually fix Karen's bug are proven by nothing: delete them and every case still passes. Evidence: all five new cases build their own union and ask `Join` directly — `local function union() ... return Join.homeAreas(anchor, CFG, { footprint }) end` and `local function nowAt(at, areas) return Join.needsReturn(false, false, Join.insideHome(at, areas)) end` — so not one assertion reads `Lobby`'s module-level `homeAreas`, `Lobby.start`'s `homeAreas = Join.homeAreas(anchor :: Vector3, cfg, world.homeAreas)`, or `stepPlayer`'s `local inField: boolean? = ... Join.insideHome(here :: Vector3, homeAreas)`. Revert `stepPlayer` to `Join.insideField(here, anchor, cfg)`, drop the `start`/`stop` plumbing and drop the whole `rangeHomeAreas` block in `ForestTestBoot`, and the surviving lines `expect(nowAt(at, areas)).to.equal(false, ...)`, `expect(#plain).to.equal(1)`, `expect(#rects).to.equal(3)` are all still green — the harness still reads 34/34 and a man on the mat is still respawned at the lodge every `RETURN_COOLDOWN_SECONDS`. The FAIL FIRST evidence says the same thing: the 5 errors at `3c7eca8d` are all missing-function errors through `union()`, i.e. they fire for `Range.footprintFor`/`Join.homeAreas` not existing and not for the return rule being wrong. `grep` over `tests/`: `homeAreas` appears only in `lobby.spec`, never as `world.homeAreas` into `Lobby.start`. Required: a case in `tests/server/lobby_live.spec.luau`, which already drives the shipped path in DEV (`fresh(bin, patch)` → `Lobby.start{ world = "forest-test", ... }`, `occupant(id, at, bin)`, `Lobby.step`, `seen.placed`): a man at `RangeData.matPosition(rangeAnchor, 1, LAYOUT)` with `world.homeAreas = { footprint }` is NOT placed, and the same man with `world.homeAreas = nil` IS placed. The asymmetry is the proof, it dies with the change, and it is the one claim Karen's bug report is about.
+PASS (item 1 NOT PROVEN)
+
+Rule 5, stated so this PASS is not read as rule 5 having been met: nothing in this change is a core
+item (no animal behaviour, no shooting), and NOTHING in it has been seen in Karen's place. The thing
+she will judge -- walking from the lodge to the range mat and standing there past
+`RETURN_COOLDOWN_SECONDS` -- is claim 1's subject and is unseen; `ForestTestBoot` returns at
+`if Map.EXPECTED_WORLD ~= "forest-test" then return`, so the harness (DEV) cannot run the wiring
+Karen's place runs, and `Lobby.ANCHORS` has no `map:v1` row. The request says the same. The
+parenthesis records that, not a core item. The harness line names the request's `Code commit:`
+`54093f57...` with "(clean tree) scope=all", and `paperwork-after-code-commit.txt` says OK (only
+`TASKS.md` and `REQUEST.md` followed it). `test2` N/A is correct: none of the seven code/test files
+is under `TWO_PLAYER_PATHS` (`src/server/Match/`, `MatchBoot`, `src/client/Match/`, `src/shared/Drive/`
+and the named match/tie/role specs).
+
+Delete-the-producer, by reading, on the cases the request offers:
+- `lobby_live.spec` *"leaves a man at the range and on the walk there alone"* -- revert `stepPlayer`
+  to `Join.insideField` and `:1047` (`expect(placedWith[61]).to.equal(nil)`) fails; delete
+  `Lobby.start`'s `homeAreas = Join.homeAreas(...)` and `homeAreas` stays `{}` from `Lobby.stop`, so
+  `insideHome` is false for all three men and `:1047` fails again; delete `Join.homeAreas` or
+  `Range.footprintFor` and the case errors. `fresh` returns `seen` first, `Lobby.step` reaches
+  `stepPlayer` with `inDrive`/`held` false, and `Lobby.start`/`stop` both `table.clear(returnedAt)`
+  so the two halves cannot contaminate each other. The asymmetry is real and dies with the change.
+- the five pure cases error at the base through `RangeData.footprintFor` (`lobby.spec:248` is the
+  drive-clearance case's own call; `union()` is at `:940`, called at `:954/:993/:1042/:1087` --
+  claim 3's five line numbers are exact).
+- the numbers check out independently: footprint x 2558..2742 z -3368..-3200 (halfX = max(BERM 80,
+  screenOut 51, MAT 4), nearZ -3212, farZ -3356, margin 12); walkway x 2626..2874 z -3308..-2926;
+  both intersections non-empty, and the lodge->mat segment lies wholly inside the walkway box, so
+  the walk has no gap. Claim 5's skip pattern gives exactly rect1:2, rect2:2, rect3:3 = 7. Claim 6's
+  second grid gives exactly 738 differing points (678 walkway-outside-field + 60 footprint-only).
+  Claim 8: the worst corridor gap is 180 (lodge vs `edge`, standSpan 3140..3660) and the worst
+  bounds gap 120 (lodge vs `edge` bounds minX 3080), against thresholds 100 and
+  `BOUNDS_SLACK` 10 + 40 = 50; the new rectangles' worst is 206, as claimed.
+- claim 9's substance holds: no `require` of `Range` anywhere under `src/server/Lobby/`, and
+  `Range.ENABLED = Flags.isOn("RANGE")` stays the single flag boundary -- `ForestTestBoot` reads
+  `RangeOwner.ENABLED`, not a second `Flags.isOn`, and uses the same
+  `anchorFor(Map.EXPECTED_WORLD)` row `RangeBoot` builds from.
 
 ## Notes (non-blocking)
-- `src/shared/Lobby/init.luau` `FIELD.WALKWAY_HALF_STUDS` — the comment the number is defended with is not what the code does: *"24 either side = 48 studs across ... narrow enough that the forest beside the path is still not his place"*. `Join.walkwayTo` returns the axis-aligned bounding box of the lodge→range segment widened by 24, which in Karen's place is 248 x 382 studs (≈95,000), not a 48-stud strip; the whole union is ≈144,000 against the 212,000 bounding box the request rejects *"because none of its edges is a fact about anything"*, so that argument applies to this rectangle too. Say what the box is (48 across only for an axis-aligned walk), or build a real stepped/oriented corridor.
-- `src/server/Lobby/init.luau` `stepPlayer` — the local is still `inField` while it now holds `insideHome`'s answer; `inHome` would stop the next reader believing the lodge square is still the question.
-- `docs/design/lobby.md` 8.1 — still states the rule as `Join.needsReturn(inDrive, held, inField)` over the 220 x 220 field, with no union, no `homeAreas` seam and no `WALKWAY_HALF_STUDS`; 16.1's case list likewise. Queue the design update (same shape as 301a (b)).
-- `reviews/task-302/REQUEST.md` claim 1 — *"each through `union()` at `:940`"* is wrong for one of the five: `lobby.spec:248` is the drive-clearance case, which calls `RangeData.footprintFor` and `Join.homeAreas` itself and never `union()`.
-- `src/server/Lobby/init.luau` `Lobby.start` — `world.homeAreas` is type-checked only as a table by `Join.homeAreas` (`if type(extras) ~= "table" then`); a row missing `minX` throws inside `Join.withinArea` on every scan, and `stepPlayer` is not guarded. Only the root produces it today, so this is one sentence or one `type(area.minX) == "number"` check, not a defect.
-- `tests/server/lobby.spec.luau` *"is clear of EVERY drive layout's ground"* — `RangeData.anchorFor("forest-test") :: any` then `row.x`, plus `expect(#rects).to.equal(3)`, means removing the forest-test range row makes this case ERROR instead of reporting the lodge's own clearance (verdict 280's lesson about probes that look a row up by name).
-- `src/server/ForestTestBoot.server.luau` — the range area is declared home from the ROW, while `RangeBoot` may still decline to build (`Range.shelfFor` nil → *"no ground under the range ... nothing is built"*). Then 30,912 studs² of forest is home with no range in it. Harmless; worth one sentence beside `rangeHomeAreas`.
-- Rule 5, stated so this round is not read as rule 5 having been met: nothing here is a core item (no animal behaviour, no shooting), and nothing in this change has been seen in Karen's place — the request says so itself (*"DEV has no lobby ... the live walk is the Director's"*). The live walk from the lodge to the mat and 30 s standing there is still unseen, and claim 1's harness line names the code commit `b351da70` with "(clean tree)" and `paperwork-after-code-commit.txt` says OK.
+- `reviews/task-302/REQUEST.md` claim 1 -- *"`ForestTestBoot`'s `rangeHomeAreas` [is] on that
+  path"* is not true. `lobby_live.spec` never requires `ForestTestBoot` and cannot (it returns at
+  line 25 outside `forest-test`, and the harness only runs DEV); the spec re-types the same
+  expression and writes `world.homeAreas` itself. Delete the entire `rangeHomeAreas` `do` block and
+  no case fails. The five lines are correct by reading -- same row key and same
+  `footprintFor(Vector3.new(row.x, 0, row.z), RangeData.LAYOUT, RangeData.downrangeOf(row))` as
+  `RangeBoot`'s own anchor -- which is why this is a note and not a finding, but the wiring Karen's
+  place actually executes is proven by reading only. If B6 wants it covered, the 301 shape applies:
+  move the row+flag+footprint composition into `Range.homeAreasFor(world)` and let both the root and
+  the spec call it.
+- `src/server/Lobby/Join.luau` `insideField` header -- *"IT IS THE ONLY QUESTION THE RETURN RULE
+  ASKS about where a man is standing"* is now false; the return rule asks `insideHome`. One line.
+- `src/server/Lobby/Join.luau` `needsReturn` -- the third parameter and its header paragraph are
+  still `inField` after round 1's note moved `stepPlayer`'s local to `inHome`; the same rename here
+  finishes it.
+- *"the mat is 268 studs from the anchor"* (`Join.luau` header, `Lobby/init.luau` `stepPlayer`,
+  `ForestTestBoot`, `lobby.spec`, the request) -- 268 is not any of the distances: anchor
+  (2850, -2950) to mat (2650, -3216) is dx 200, dz 266, 333 Euclidean; to the measured character
+  (2650, -3214) it is 264 / 331. The load-bearing part (outside the 110 half-span) is true either
+  way; one number, five copies.
+- `reviews/task-302/REQUEST.md` claim 9 -- *"`grep -n Range src/server/Lobby/*.luau` -> nothing"* is
+  not what that grep prints: `Join.luau`'s own new header names `Range.footprintFor`, and
+  `Build.luau` has `lamp.Range`, `light.Range`, `beam.Range`, `NumberRange.new`. The claim that
+  matters -- no `require` -- is true; say that instead.
+- `reviews/task-302/REQUEST.md` claim 7, live half -- *"still leaves a man at the range who is in
+  the drive or held"* survives the narrow mutation (reverting `stepPlayer`) untouched, because
+  `inDrive`/`held` short-circuit before the position is read. It is an invariance guard, which is
+  how the request labels it; it carries no weight for the fix.
+- `TASKS.md` row 302 -- *"`[]` for all six changed files"*; it is seven
+  (`ForestTestBoot.server.luau`, `Lobby/Join.luau`, `Lobby/init.luau`, `shared/Lobby/init.luau`,
+  `shared/Range/init.luau`, `lobby.spec.luau`, `lobby_live.spec.luau`), as the request says.
+- Round 1's notes (b), (c), (d) and the `docs/design/lobby.md` 8.1/16.1 update are queued as 302a
+  and not re-raised here; 8.1 and 16.1 still describe the rule as `insideField` over the 220 x 220
+  field, so a reader of the design will not find this change until 302a lands.
 
 ---
-REVIEWER verdict on commit `3fab0495902b001f840d93653b972a04bda4644a` (round 1) · 2026-10-28 02:58 UTC · session cost $2.50, 32 turns · written by tools/agents.py
+REVIEWER verdict on commit `bd4ee381318c5e58b69dc0dbf2ce55e5e6d653df` (round 2) · 2026-10-28 03:21 UTC · session cost $3.67, 39 turns · written by tools/agents.py
