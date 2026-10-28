@@ -5,6 +5,7 @@
 -- (`ShopPanel.setPrompt`), so the open is driven through the shipped `setPrompt` seam.
 
 return function()
+	local ContextActionService = game:GetService("ContextActionService")
 	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 	local StarterPlayer = game:GetService("StarterPlayer")
 
@@ -244,8 +245,16 @@ return function()
 		-- hidden prompt does not answer its key. So the panel binds `E` itself while he is there.
 		it("holds its own E while he is at the spot, and one press toggles once", function()
 			local _, frame = freshPanel()
+			-- THE ENGINE'S OWN BOOKKEEPING AND NOT THIS MODULE'S FLAG (round 1, finding 4):
+			-- `hasKey` would still read true with the `BindAction` call deleted, and E in Karen's
+			-- place would answer nothing -- which is the bug. `input_driving.spec`'s own check.
+			local function bound()
+				return ContextActionService:GetAllBoundActionInfo()[RangePanel.KEY_ACTION]
+			end
+			expect(bound()).to.equal(nil)
 			expect(RangePanel.hasKey()).to.equal(false)
 			RangePanel.setNear(true)
+			expect(bound()).to.be.ok()
 			expect(RangePanel.hasKey()).to.equal(true)
 
 			-- THE KEY OPENS IT WITH NO PROMPT AT ALL: there is none set in this case, which is
@@ -273,13 +282,18 @@ return function()
 
 			-- THE KEY GOES WITH HIM: off the spot it is unbound, so nothing answers E in the wood.
 			RangePanel.setNear(false)
+			expect(bound()).to.equal(nil)
 			expect(RangePanel.hasKey()).to.equal(false)
 			expect(RangePanel.isOpen()).to.equal(false)
 			RangePanel.setNear(true)
 			RangePanel.setEnabled(false)
-			expect(RangePanel.hasKey()).to.equal(false)
-			-- Left exactly as it was found, so nothing after this case inherits a freed cursor.
+			expect(bound()).to.equal(nil)
+			-- ...AND IT COMES BACK, or an enabled cycle at the post leaves E dead.
 			RangePanel.setEnabled(true)
+			expect(bound()).to.be.ok()
+			-- `start` owns nothing: the key goes with the old session.
+			freshPanel()
+			expect(bound()).to.equal(nil)
 			RangePanel.setNear(false)
 		end)
 

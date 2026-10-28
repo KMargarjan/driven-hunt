@@ -960,12 +960,14 @@ function Range.onShotResolved(shot: any)
 	record.leadViewMeasured = measured
 	-- THE MISS GAP, off `endPoint` (clamped) and the target's own position. A hit that follows this
 	-- shot clears it, because a hit is neither behind nor ahead of anything.
-	-- THE INSTANT THE SHOT WAS JUDGED AT: the resolve clock less this shooter's own view window,
-	-- which is the expression `Weapon.castWithRewind` uses to pick the animal's past CFrame.
+	-- THE INSTANT THE SHOT WAS JUDGED AT, and it is `Weapon.rewindFor`'s AMOUNT and never
+	-- `viewWindowFor`'s window (round 1, finding 1): the window is a BOUND a sweep searches, 0.30 s,
+	-- while this is how far back the cast actually went, 0.18 s -- and 0 while `AIM_REWIND` is dark,
+	-- which is the one value that keeps the board and the hit in the same tense in both states.
 	local drawnAt: number? = nil
 	if type(shot.resolvedAtServerTime) == "number" then
-		local okWindow, window = pcall(Weapon.viewWindowFor, player)
-		drawnAt = shot.resolvedAtServerTime - (if okWindow and type(window) == "number" then window else 0)
+		local okBack, back = pcall(Weapon.rewindFor, player, nil, nil)
+		drawnAt = shot.resolvedAtServerTime - (if okBack and type(back) == "number" then back else 0)
 	end
 	record.lastGapStuds = Range.gapStuds(trial, shot.muzzle, shot.endPoint, targetPositionOf(trial, drawnAt))
 	record.lastGapText = RangeData.gapText(record.lastGapStuds)

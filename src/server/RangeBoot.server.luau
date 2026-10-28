@@ -277,21 +277,6 @@ Weapon.ShotResolved:Connect(function(shot)
 	Range.onShotResolved(shot)
 end)
 
--- A RECORD LEAVES WITH ITS PLAYER (round 1, finding 2).
-Players.PlayerRemoving:Connect(function(player)
-	Range.forget(player)
-end)
-
--- ------------------------------------------------------------------ THE GUN, ON LOAN (7.4)
---
--- THE TWO RELAXATIONS AND THE LOAN, COMPOSED OVER WHATEVER THIS WORLD ALREADY WIRED. `Range` builds
--- the functions (`armingOver`, `driveOpenOver`, `entitlementOver`, `standOver`) and `installOver`
--- installs them, keeping the base each of the four setters hands back -- `setStandProvider` hands one
--- back since task 301 -- so `MatchBoot`'s own answer is never lost and no caller is edited.
---
--- ON THE FIRST HEARTBEAT, NOT AT REQUIRE TIME: boot Scripts run in no defined order, and composing
--- during the loading stage would capture a base `MatchBoot` had not installed yet -- and then be
--- overwritten by it. The first Heartbeat is after every server Script has run.
 -- HE IS ON THE MAT: SEND HIM THE LISTS (task 308 bug 1). MEASURED in Karen's place on 46cbd787 --
 -- standing on the mat, before any request, `boardPushes=0` and all six menu strips had zero
 -- children -- so the first real E drew six labels and no chips, and nothing but a blind click on
@@ -308,6 +293,23 @@ local function matEdges()
 	end
 end
 
+-- A RECORD LEAVES WITH ITS PLAYER (round 1, finding 2).
+Players.PlayerRemoving:Connect(function(player)
+	Range.forget(player)
+	-- ...and the mat edge goes with him, or a man who left standing on it leaves a `true` behind.
+	onMat[player.UserId] = nil
+end)
+
+-- ------------------------------------------------------------------ THE GUN, ON LOAN (7.4)
+--
+-- THE TWO RELAXATIONS AND THE LOAN, COMPOSED OVER WHATEVER THIS WORLD ALREADY WIRED. `Range` builds
+-- the functions (`armingOver`, `driveOpenOver`, `entitlementOver`, `standOver`) and `installOver`
+-- installs them, keeping the base each of the four setters hands back -- `setStandProvider` hands one
+-- back since task 301 -- so `MatchBoot`'s own answer is never lost and no caller is edited.
+--
+-- ON THE FIRST HEARTBEAT, NOT AT REQUIRE TIME: boot Scripts run in no defined order, and composing
+-- during the loading stage would capture a base `MatchBoot` had not installed yet -- and then be
+-- overwritten by it. The first Heartbeat is after every server Script has run.
 local composed = false
 local function compose()
 	-- THE BODY LIVES IN `Range.installOver` (task 301), so the spec drives THIS composition rather

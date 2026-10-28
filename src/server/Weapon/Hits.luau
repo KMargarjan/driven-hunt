@@ -112,10 +112,9 @@ function Hits.group(shooter: Player, impacts: { Impact }, ammo: string, now: num
 					-- the animal. `position` above is still the NEAREST impact and still the one the
 					-- drive report's single dot is made from.
 					points = {},
-					-- THE TENSE THE POINTS ARE IN (task 308): a rewound impact is expressed where
-					-- the shooter DREW the animal. Taken from the NEAREST impact below, beside the
-					-- position it belongs to, so the card never mixes one shot's point with
-					-- another frame.
+					-- THE TENSE (task 308): a rewound impact is expressed where the shooter DREW the
+					-- animal. It is the NEAREST impact's frame, which every pellet of a pattern
+					-- shares to within its own flight-time difference (round 1, note).
 					frame = impact.frame,
 				}
 				byTarget[target] = entry
@@ -158,8 +157,8 @@ function Hits.group(shooter: Player, impacts: { Impact }, ammo: string, now: num
 			nearest = entry.nearest,
 			position = entry.position,
 			normal = entry.normal,
-			-- THE CFRAME `position` AND EVERY `points` ENTRY ARE IN (task 308), or nil for a
-			-- present-tense impact. `HitLog` projects the card's dots through it.
+			-- THE CFRAME THE NEAREST IMPACT WAS MEASURED IN (task 308), or nil for a present-tense
+			-- impact. `HitLog` projects the card's dots through it.
 			targetCFrame = entry.frame,
 			ammo = ammo,
 			weapon = weapon,

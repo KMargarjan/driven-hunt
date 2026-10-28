@@ -43,6 +43,13 @@ return function()
 			-- ...and the answer came back in the PAST frame, 5 studs the other way
 			expect((hit :: any).position.X).to.be.near(0, 1e-4)
 			expect((hit :: any).distance).to.be.near(2, 1e-4)
+			-- ...AND IT SAYS WHICH FRAME THAT IS (task 308): the PAST POSITION with the PRESENT
+			-- ROTATION, because translation is all this does. `HitLog` divides the card's dots down
+			-- by it, so a stamp that is missing or present-tense puts a nose shot on the rump.
+			local frame = (hit :: any).frame
+			expect(typeof(frame)).to.equal("CFrame")
+			expect((frame :: CFrame).Position.X).to.be.near(-5, 1e-4)
+			expect((frame :: CFrame).LookVector.Z).to.be.near(-1, 1e-4)
 		end)
 
 		it("takes the NEAREST candidate and caps the list at maxTargets", function()

@@ -71,9 +71,12 @@ function Rewind.impact(
 					normal = hit.normal,
 					distance = hit.distance,
 					material = hit.material,
-					-- AND THE FRAME IT IS IN (task 308): `position` above is in the PAST, so the
-					-- card must divide it down by the PAST CFrame or a nose shot reads as a rump.
-					frame = candidate.past,
+					-- AND THE FRAME IT WAS MEASURED IN (task 308): the PAST POSITION with the
+					-- PRESENT ROTATION, because translation is all this does -- the animal is
+					-- tested at its present heading, which is this function's stated
+					-- approximation. `candidate.past` alone would re-apply a rotation the cast
+					-- never used (round 1, note).
+					frame = CFrame.new(candidate.past.Position) * (candidate.present - candidate.present.Position),
 				}
 			end
 		end

@@ -60,7 +60,7 @@ local buttons: { [string]: { any } } = {}
 local confirmButton: TextButton? = nil
 local stats = { opens = 0, closes = 0, sends = 0, prompts = 0, picks = 0, keys = 0, swallowed = 0 }
 -- THE KEY, BOUND WHILE HE IS AT THE SPOT (task 308 bug 2).
-RangePanel.KEY_ACTION = "DrivenHuntRangeKey"
+RangePanel.KEY_ACTION = "DrivenHunt.Range.Toggle"
 RangePanel.KEY = Enum.KeyCode.E
 local keyBound = false
 -- IS THE ENGINE OFFERING ITS OWN PROMPT RIGHT NOW? Told by `ProximityPromptService`, and the one
@@ -586,8 +586,10 @@ function RangePanel.setEnabled(on: boolean)
 	enabled = on == true
 	if not enabled then
 		RangePanel.setOpen(false)
-		RangePanel.bindKey(false)
 	end
+	-- SYMMETRIC, or an enabled false->true cycle at the post leaves E dead -- the same shape as
+	-- the bug this task fixes (round 1, note).
+	RangePanel.bindKey(enabled and near)
 end
 
 function RangePanel.isEnabled(): boolean

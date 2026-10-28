@@ -146,10 +146,6 @@ local function broadcast(event: Report.Event)
 	channel().ReportEvent:FireAllClients(event)
 end
 
--- THE HIT CARD GOES TO ONE PLAYER: the one who fired the shot (task 198). It is the only thing this
--- module sends to a single client rather than to everybody, and it is on `ReportEvent` beside the
--- kill line for the reason that line is there at all -- one writer, one remote, one client path in
--- both worlds (`recordDown`'s own comment).
 -- THE FRAME THE REPORT'S POINTS ARE IN (task 308 bug 3). `Weapon.Rewind` reports a rewound impact
 -- WHERE THE SHOOTER DREW THE ANIMAL and `Hits.group` carries that CFrame on the report, so dividing
 -- the point down by the trunk's CFrame as read HERE -- flight time plus replication later -- put a
@@ -160,6 +156,10 @@ local function frameOf(part: BasePart, report: any): CFrame
 	return if typeof(carried) == "CFrame" then carried :: CFrame else part.CFrame
 end
 
+-- THE HIT CARD GOES TO ONE PLAYER: the one who fired the shot (task 198). It is the only thing this
+-- module sends to a single client rather than to everybody, and it is on `ReportEvent` beside the
+-- kill line for the reason that line is there at all -- one writer, one remote, one client path in
+-- both worlds (`recordDown`'s own comment).
 local function toShooter(player: Player, event: Report.CardPayload)
 	channel().ReportEvent:FireClient(player, event)
 end
