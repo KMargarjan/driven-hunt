@@ -363,6 +363,24 @@ Boar.kindGeometry = Body.kindGeometry
 -- ...and the one review round 2 added: every gait edge and both rate rails for one animal, so "a cub
 -- is never asked for a rate its own ceiling refuses" is a sweep with no boar in the world.
 Boar.gaitBands = Body.gaitBands
+-- ...and WHICH PACE IS HOW MANY STUDS PER SECOND, which task 298 moved here from
+-- `ForestTest.paceSpeed` so that ONE answer serves two readers (the forest drive and the lobby
+-- shooting range) rather than the range requiring the forest world's owner. It is the function that
+-- was there, line for line, taking the config as its argument: the pace is in the BOAR's own
+-- numbers rather than new ones. `ForestTest.paceSpeed` is a one-line delegation to it.
+-- `"stand"` is zero: a standing target has no speed, which is the honest answer and not a trot.
+-- Design: docs/design/shooting-range.md section 6.
+function Boar.paceSpeed(pace: string, config): number
+	local boarPace = config.PACE
+	if pace == "run" then
+		return boarPace.RUN_SPEED
+	elseif pace == "walk" then
+		return boarPace.WALK_SPEED
+	elseif pace == "stand" then
+		return 0
+	end
+	return boarPace.TROT_SPEED
+end
 -- ...and task 117's three: which activity a roll draws, the row for a name, and the clip an activity
 -- draws. Pure, so every weight, every clip and every transition is a case with no boar in the world.
 Boar.calmActivity = Brain.calmActivity

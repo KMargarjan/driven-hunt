@@ -60,8 +60,8 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 --
 -- LIT (12): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
 --           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN, COINS and LOBBY (task 233), SHOP (233b).
--- DARK (5): QUICK_TEST, DRIVE_BOTS, LICENCE_POPUP (task 238), DEER_ROAD_LEAP (task 245b),
---           STAG_BOUND_ON_SPOOK (task 251 part 2).
+-- DARK (6): QUICK_TEST, DRIVE_BOTS, LICENCE_POPUP (task 238), DEER_ROAD_LEAP (task 245b),
+--           STAG_BOUND_ON_SPOOK (task 251 part 2), RANGE (task 298).
 --
 -- `SHOP` IS LIT SINCE TASK 233b, and what made that safe is NOT this row: it is that a world with
 -- no counter does not wire a shop at all (`Shop.start`'s own gate). Task 233's flip lit the shop in
@@ -108,7 +108,18 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- in the Forest Test for Karen's test)"*, and `docs/design/ballistics.md` section 3.4 wants exactly
 -- that. `HIT_CLAIM` is the eighteenth. The two ways out are still the two task 238 listed and the
 -- first of them is still queued as TASKS.md 82b.
-Flags.MAX_FLAGS = 18
+-- 18 -> 19 FOR TASK 298 (step B2), **AND THE SAME SENTENCE AGAIN, WORD FOR WORD**: the Builder is
+-- saying so rather than quietly retiring somebody else's row. `RANGE` is the nineteenth, the cap
+-- refused it exactly as it refused the seventeenth and the eighteenth (`flags.spec`'s rot
+-- tripwire, which is the cap doing its job), and the two ways out are still the two task 238
+-- listed -- retire the lit rows queued as TASKS.md 82b, which is the DIRECTOR's call and deletes a
+-- losing branch per retirement, or ship a new feel-critical path LIT, which
+-- `docs/design/feature-flags.md` section 11 step 1 forbids. The range is a new shooting path in the
+-- lobby and `docs/design/shooting-range.md` section 8.1 wants it behind a flag born OFF
+-- (`Range.ENABLED = Flags.isOn("RANGE")`, the one boundary that reads it), so the cap moves by one
+-- again and the retirements stay queued. **The Director may prefer to spend 82b instead**: this is
+-- one line either way.
+Flags.MAX_FLAGS = 19
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -131,6 +142,18 @@ Flags.DEFAULTS = {
 			.. "view and claims the hit, and the server validates it by rewinding the animal. OFF is "
 			.. "exactly the game before task 266 -- no claim is sent, none is accepted, and the shot "
 			.. "is resolved by the server's own flight alone.",
+	} :: FlagRow,
+	-- THE LOBBY SHOOTING RANGE (task 298). KAREN, 2026-10-27: a place to *"test guns and shooting"*
+	-- against a real animal crossing a lane, so the seven shooting dials can be judged by eye.
+	RANGE = {
+		default = false,
+		owner = "ServerScriptService.Range",
+		born = "2026-10-27 task 298",
+		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
+		expires = "2026-11-17",
+		why = "The lobby shooting range: a lane, a target crossing it and back, and later the menu, "
+			.. "the gun and the board. OFF is exactly the game before task 298 -- no world has a "
+			.. "range built, nothing is spawned and no provider is relaxed.",
 	} :: FlagRow,
 	TIE_UNTIL_DRIVE_END = {
 		default = true,

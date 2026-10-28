@@ -96,10 +96,14 @@ type Live = {
 	-- is checked against (design 5.2 check 5) -- measured by the flight the server already runs
 	-- rather than by a new cast.
 	reached: number,
+	-- WHERE THAT FARTHEST PROJECTILE ACTUALLY STOPPED (task 298): the impact point, or the last
+	-- position it stepped to. Measured here because a curved path's end is not `muzzle + dir * reached`.
+	endPoint: Vector3?,
 }
 
 -- `reachedStuds` IS NEW IN TASK 266 and every reader written before it simply does not look at it.
-export type Resolution = { shot: ShotRecord, impacts: { Impact }, reachedStuds: number }
+-- `endPoint` IS NEW IN TASK 298 and nil only for a shot the global cap refused (no projectile flew).
+export type Resolution = { shot: ShotRecord, impacts: { Impact }, reachedStuds: number, endPoint: Vector3? }
 
 local Flight = {}
 Flight.__index = Flight
@@ -200,6 +204,7 @@ function Flight.launch(
 		-- it resolves as a miss, and a claim against it is refused by check 5 rather than accepted
 		-- because a field defaulted generously.
 		reached = 0,
+		endPoint = nil,
 	}
 	self._pellets += #projectiles
 	self.launched += #projectiles
@@ -302,11 +307,13 @@ function Flight.advance(self: Flight, dt: number, cast: CastFn): { Resolution }
 				-- and no new cast: `Weapon.Cast` is still the only caller of `Workspace:Raycast`
 				-- under this folder.
 				local reached = pellet.travelled + length
+				local stoppedAt: Vector3? = nil
 
 				if length > 1e-6 then
 					self.casts += 1
 					local impact = cast(pellet.position, segment, shot.ignore)
 					if impact then
+						stoppedAt = impact.position
 						live.impacts[#live.impacts + 1] = {
 							instance = impact.instance,
 							position = impact.position,
@@ -321,7 +328,17 @@ function Flight.advance(self: Flight, dt: number, cast: CastFn): { Resolution }
 						alive = false
 					end
 				end
-				live.reached = math.max(live.reached, reached)
+				-- THE FARTHEST PROJECTILE'S END POINT TRAVELS WITH ITS DISTANCE, written in the same
+				-- place so the two can never describe different pellets. `>=` and not `>`: a single
+				-- -pellet shot's first sub-step must set it.
+				if reached >= live.reached then
+					live.reached = reached
+					-- `pellet.position + segment` AND NOT `nextPosition`: `Ballistics.segment` clamps
+					-- the SEGMENT to what was left of the range cap and hands back the unclamped
+					-- advance beside it, so `nextPosition` overshoots a capped shot (measured this
+					-- task: end 106.3 studs from the muzzle for a 100-stud cap).
+					live.endPoint = if stoppedAt ~= nil then stoppedAt else pellet.position + segment
+				end
 
 				if alive then
 					pellet.travelled += length
@@ -343,7 +360,8 @@ function Flight.advance(self: Flight, dt: number, cast: CastFn): { Resolution }
 		live.projectiles = stillFlying
 		if #stillFlying == 0 then
 			self.resolved += 1
-			finished[#finished + 1] = { shot = shot, impacts = live.impacts, reachedStuds = live.reached }
+			finished[#finished + 1] =
+				{ shot = shot, impacts = live.impacts, reachedStuds = live.reached, endPoint = live.endPoint }
 		else
 			keep[#keep + 1] = live
 		end

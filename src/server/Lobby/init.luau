@@ -95,6 +95,9 @@ local started = false
 local world: any = nil
 local cfg = Data.CONFIG
 local anchor: Vector3? = nil
+-- EVERY RECTANGLE A MAN MAY STAND IN AND NOT BE SENT HOME (task 302). Built ONCE in `Lobby.start`
+-- from the anchor plus whatever outlying areas the root handed in, read every scan.
+local homeAreas: { any } = {}
 local folder: Instance? = nil
 local spawnPart: BasePart? = nil
 local lastScan = -math.huge
@@ -809,10 +812,13 @@ local function stepPlayer(
 	-- BACK TO THE LODGE, BY A LEVEL RULE AND NOT BY AN EDGE (design section 8.1). `held` is
 	-- load-bearing: during the results scene a dismissed player is not a participant and is 570 studs
 	-- from the lodge, so without it this would respawn him out of Karen's results scene.
+	-- TASK 302: the question is `insideHome` and no longer `insideField`. The lobby is the lodge's
+	-- field PLUS every outlying area the root handed in PLUS the walk to each -- measured in Karen's
+	-- place, a man on the range mat 268 studs out was respawned here 0.6 s later.
 	local here = rootOf(player)
 	local held = world.isHeld ~= nil and world.isHeld(userId) == true
-	local inField: boolean? = if here == nil then nil else Join.insideField(here :: Vector3, anchor :: Vector3, cfg)
-	if Join.needsReturn(inDrive, held, inField) then
+	local inHome: boolean? = if here == nil then nil else Join.insideHome(here :: Vector3, homeAreas)
+	if Join.needsReturn(inDrive, held, inHome) then
 		local last = returnedAt[userId]
 		-- THROTTLED, because `Body.place` yields on `LoadCharacter` and this scan runs at 10 Hz. The
 		-- nil-position rule above already covers most of it (a respawning player has no root); this
@@ -1628,6 +1634,9 @@ function Lobby.start(injected: any?): boolean
 		return false
 	end
 	anchor = Vector3.new(row.x, 0, row.z)
+	-- WHERE A MAN BELONGS, ONCE (task 302). `world.homeAreas` is OPTIONAL: nil is a world whose lobby
+	-- is only the lodge's field, and then this list is the old 220 x 220 square and nothing else.
+	homeAreas = Join.homeAreas(anchor :: Vector3, cfg, world.homeAreas)
 	started = true
 	degraded = false
 	phase = nil
@@ -1774,6 +1783,7 @@ function Lobby.stop()
 	table.clear(spawnIndex)
 	world = nil
 	anchor = nil
+	homeAreas = {}
 	phase = nil
 	dismissPending = false
 	degraded = false

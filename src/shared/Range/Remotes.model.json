@@ -1,0 +1,7 @@
+{
+  "className": "Folder",
+  "children": [
+    { "name": "RangeRequest", "className": "RemoteEvent" },
+    { "name": "RangeBoard", "className": "RemoteEvent" }
+  ]
+}

@@ -233,35 +233,75 @@ return function()
 			return if dx > 0 and dz > 0 then math.sqrt(dx * dx + dz * dz) else math.max(dx, dz)
 		end
 
+		-- TASK 302: IT IS THE WHOLE UNION NOW, NOT THE LODGE'S SQUARE. `Join.homeAreas` added two
+		-- more rectangles in Karen's place -- the range's footprint and the walk to it -- and
+		-- "clear of the drive" is a claim about every one of them. Each gap is PRINTED, so a case
+		-- that silently checked an empty list could not read as a pass (L-128).
 		it("is clear of EVERY drive layout's ground, so it cannot interact with the drive", function()
 			local forest = Data.anchorFor("forest-test") :: any
 			local ForestTest = require(ReplicatedStorage:WaitForChild("ForestTest"))
 			local Boar = require(ServerScriptService:WaitForChild("Boar"))
-			local half = Data.CONFIG.FIELD.SPAN_STUDS / 2
-			local lodge = {
-				minX = forest.x - half,
-				maxX = forest.x + half,
-				minZ = forest.z - half,
-				maxZ = forest.z + half,
-			}
+			local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
+			local anchor = Vector3.new(forest.x, 0, forest.z)
+			local row = RangeData.anchorFor("forest-test") :: any
+			local footprint =
+				RangeData.footprintFor(Vector3.new(row.x, 0, row.z), RangeData.LAYOUT, RangeData.downrangeOf(row))
+			local rects = Join.homeAreas(anchor, Data.CONFIG, { footprint })
+			-- The field, the range and the walkway: three, and the count is asserted so a nil
+			-- `extras` could never make this case check one rectangle and still pass.
+			expect(#rects).to.equal(3)
 			expect(#ForestTest.LAYOUT_ORDER > 0).to.equal(true)
+			local checks = 0
+			local worstCorridor, worstBounds = math.huge, math.huge
+			local exits = {}
 			for _, name in ipairs(ForestTest.LAYOUT_ORDER) do
 				local layout = ForestTest.layoutNamed(name)
+				table.insert(exits, string.format("%s exitZ %.0f", name, ForestTest.exitZOf(layout)))
 				-- The ground a drive happens on: the stands' span, from the exit to the beaters'
 				-- start. Nobody stands, walks or is placed outside it.
 				local corridor = ForestTest.corridorOf(layout)
-				local corridorGap = gapStuds(corridor, lodge)
-				expect(corridorGap >= 100).to.equal(
-					true,
-					string.format("layout %s: corridor is only %.0f studs from the lodge", name, corridorGap)
-				)
-				-- ...and the rectangle a boar may be clamped into, which is wider than the corridor.
-				local boundsGap = gapStuds(ForestTest.boundsOf(layout), lodge)
-				expect(boundsGap >= Boar.CONFIG.BOUNDS_SLACK + 40).to.equal(
-					true,
-					string.format("layout %s: boar bounds are only %.0f studs from the lodge", name, boundsGap)
-				)
+				local bounds = ForestTest.boundsOf(layout)
+				for index, rect in ipairs(rects) do
+					local corridorGap = gapStuds(corridor, rect)
+					worstCorridor = math.min(worstCorridor, corridorGap)
+					expect(corridorGap >= 100).to.equal(
+						true,
+						string.format(
+							"layout %s: corridor is only %.0f studs from home rectangle %d",
+							name,
+							corridorGap,
+							index
+						)
+					)
+					-- ...and the rectangle a boar may be clamped into, which is wider than the
+					-- corridor.
+					local boundsGap = gapStuds(bounds, rect)
+					worstBounds = math.min(worstBounds, boundsGap)
+					expect(boundsGap >= Boar.CONFIG.BOUNDS_SLACK + 40).to.equal(
+						true,
+						string.format(
+							"layout %s: boar bounds are only %.0f studs from home rectangle %d",
+							name,
+							boundsGap,
+							index
+						)
+					)
+					checks += 1
+				end
 			end
+			-- Four layouts times three rectangles, and the number is asserted rather than assumed.
+			expect(checks).to.equal(#ForestTest.LAYOUT_ORDER * #rects)
+			TestKit.note(
+				string.format(
+					"home vs drive: %d pairs checked over %d layouts; worst corridor gap %.0f studs,"
+						.. " worst boar-bounds gap %.0f studs; %s",
+					checks,
+					#ForestTest.LAYOUT_ORDER,
+					worstCorridor,
+					worstBounds,
+					table.concat(exits, ", ")
+				)
+			)
 		end)
 	end)
 
@@ -872,6 +912,191 @@ return function()
 			expect(Join.insideField(anchor + Vector3.new(0, 0, -half - 1), anchor, CFG)).to.equal(false)
 			-- Height is not bounded: the field is a footprint.
 			expect(Join.insideField(anchor + Vector3.new(0, 400, 0), anchor, CFG)).to.equal(true)
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- the range (task 302)
+	--
+	-- MEASURED IN KAREN'S PLACE, 2026-10-28: a character placed on the range mat at (2650, 145,
+	-- -3214) was respawned at the lodge (2850, 153, -2934) 0.6 s later -- the mat is 268 studs from
+	-- the anchor and the field's half-span is 110, so she could not use the range at all.
+	--
+	-- EVERY NUMBER HERE IS READ, NOT TYPED: the lodge row out of `Lobby.ANCHORS`, the range row and
+	-- its footprint out of `Range`. The old predicate (`Join.insideField`) is evaluated BESIDE the
+	-- new one on the same points, so each case shows the flip it is claiming and cannot pass
+	-- against a reader that answers the same thing either way (L-093).
+	describe("the range and the walk to it are part of the lobby (task 302)", function()
+		local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
+		local LODGE = Data.anchorFor("forest-test") :: any
+		local ROW = RangeData.anchorFor("forest-test") :: any
+		local anchor = Vector3.new(LODGE.x, 0, LODGE.z)
+		local rangeAnchor = Vector3.new(ROW.x, 0, ROW.z)
+
+		-- THE UNION IS BUILT INSIDE EACH CASE, not once in this `describe`. At the base commit
+		-- neither `Range.footprintFor` nor `Join.homeAreas` exists, and a describe-level call would
+		-- take the whole FILE down as one error instead of failing the four cases that claim
+		-- something (V293b: a FAIL FIRST line names the case it covers).
+		local function union()
+			local footprint = RangeData.footprintFor(rangeAnchor, RangeData.LAYOUT, RangeData.downrangeOf(ROW))
+			return Join.homeAreas(anchor, CFG, { footprint }), footprint
+		end
+
+		-- THE TWO READERS, SIDE BY SIDE. `was` is the shipped rule before this task; `now` is the
+		-- one this task writes. Neither is a constant: both run over the same position.
+		local function was(at: Vector3): boolean
+			return Join.needsReturn(false, false, Join.insideField(at, anchor, CFG))
+		end
+		local function nowAt(at: Vector3, areas): boolean
+			return Join.needsReturn(false, false, Join.insideHome(at, areas))
+		end
+
+		it("leaves a man on the mat, on the firing line, and all the way there, where he is", function()
+			local areas = union()
+			local mat = RangeData.matPosition(rangeAnchor, 1, RangeData.LAYOUT)
+			local dir = RangeData.downrangeOf(ROW)
+			-- THE FIRING LINE: the mat's own downrange edge, where a man stands to shoot.
+			local line = mat + Vector3.new(0, 0, dir * RangeData.LAYOUT.MAT.size.Z / 2)
+			local points = { { "mat", mat }, { "firing line", line } }
+			-- THREE POINTS ALONG THE WALK, on the straight line from the lodge anchor to the mat.
+			for _, t in ipairs({ 0.25, 0.5, 0.75 }) do
+				table.insert(points, { string.format("walk t=%.2f", t), anchor:Lerp(mat, t) })
+			end
+			local flipped = {}
+			for _, row in ipairs(points) do
+				local name, at = row[1], row[2] :: Vector3
+				expect(nowAt(at, areas)).to.equal(false, string.format("%s: still sent back to the lodge", name))
+				if was(at) then
+					table.insert(flipped, name)
+				end
+			end
+			-- THE BITE: most of these points ARE returned by the shipped rule, so this case fails
+			-- at the base commit rather than passing for free (L-093).
+			expect(#flipped >= 3).to.equal(
+				true,
+				string.format("only %d of %d points changed answer", #flipped, #points)
+			)
+			TestKit.note(
+				string.format(
+					"task 302: %d of %d range points were returned by the old field rule and are home now (%s)",
+					#flipped,
+					#points,
+					table.concat(flipped, ", ")
+				)
+			)
+		end)
+
+		it("sends him back the moment he steps off ANY of the three rectangles", function()
+			-- ONE CASE PER SUB-BOUNDARY (L-093): the midpoint of each of the twelve edges, pushed
+			-- one stud out. A point that lands inside another rectangle is an interior seam and is
+			-- skipped -- and the number actually asserted is printed, so a run that skipped them
+			-- all could not read as a pass.
+			local areas = union()
+			local tested = 0
+			local perRect = {}
+			for index, rect in ipairs(areas) do
+				local midX = (rect.minX + rect.maxX) / 2
+				local midZ = (rect.minZ + rect.maxZ) / 2
+				local outs = {
+					Vector3.new(rect.minX - 1, 0, midZ),
+					Vector3.new(rect.maxX + 1, 0, midZ),
+					Vector3.new(midX, 0, rect.minZ - 1),
+					Vector3.new(midX, 0, rect.maxZ + 1),
+				}
+				local here = 0
+				for _, at in ipairs(outs) do
+					if not Join.insideHome(at, areas) then
+						expect(nowAt(at, areas)).to.equal(
+							true,
+							string.format(
+								"rectangle %d: %s is outside the lobby and was not returned",
+								index,
+								tostring(at)
+							)
+						)
+						here += 1
+						tested += 1
+					end
+				end
+				-- Every rectangle has at least one edge that is a real edge of the union.
+				expect(here > 0).to.equal(true, string.format("rectangle %d contributed no boundary case", index))
+				table.insert(perRect, string.format("rect %d: %d", index, here))
+				-- ...and ON the edge is IN, which is `withinRect`'s rule in min/max form.
+				expect(Join.withinArea(Vector3.new(rect.minX, 0, rect.minZ), rect)).to.equal(true)
+				expect(Join.withinArea(Vector3.new(rect.maxX, 0, rect.maxZ), rect)).to.equal(true)
+				-- FLAT: 400 studs up is still inside.
+				expect(Join.withinArea(Vector3.new(midX, 400, midZ), rect)).to.equal(true)
+			end
+			expect(tested >= 3).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task 302: %d outside-the-edge cases returned him (%s)",
+					tested,
+					table.concat(perRect, ", ")
+				)
+			)
+		end)
+
+		it("is EXACTLY the old 220 x 220 square in a world with no range row", function()
+			-- THE SWITCH-OFF CASE. `Lobby.start` hands `world.homeAreas` straight through, and a
+			-- world with no range row (the DEV place, or the RANGE flag off) hands nil.
+			local areas = union()
+			local plain = Join.homeAreas(anchor, CFG, nil)
+			expect(#plain).to.equal(1)
+			local half = CFG.FIELD.SPAN_STUDS / 2
+			expect(plain[1].minX).to.equal(anchor.X - half)
+			expect(plain[1].maxX).to.equal(anchor.X + half)
+			expect(plain[1].minZ).to.equal(anchor.Z - half)
+			expect(plain[1].maxZ).to.equal(anchor.Z + half)
+			-- ...and the two predicates agree on every point of a grid that straddles all four
+			-- edges, which is the claim "bit for bit" actually means (L-151). The count is printed.
+			local checked, disagreed = 0, 0
+			for dx = -200, 200, 10 do
+				for dz = -200, 200, 10 do
+					local at = anchor + Vector3.new(dx, 0, dz)
+					checked += 1
+					if Join.insideHome(at, plain) ~= Join.insideField(at, anchor, CFG) then
+						disagreed += 1
+					end
+				end
+			end
+			expect(disagreed).to.equal(0)
+			expect(checked).to.equal(41 * 41)
+			-- THE SAME GRID AGAINST THE RANGE LIST DOES NOT AGREE, so the grid is a real instrument
+			-- and not one that would report 0 whatever it was handed.
+			local differs = 0
+			for dx = -200, 200, 10 do
+				for dz = -600, 200, 10 do
+					local at = anchor + Vector3.new(dx, 0, dz)
+					if Join.insideHome(at, areas) ~= Join.insideField(at, anchor, CFG) then
+						differs += 1
+					end
+				end
+			end
+			expect(differs > 0).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task 302: no-range grid %d points, %d disagreements; with the range, %d points differ",
+					checked,
+					disagreed,
+					differs
+				)
+			)
+		end)
+
+		it("still never touches a man in the drive, a man held, or a man with no position", function()
+			local areas, footprint = union()
+			local mat = RangeData.matPosition(rangeAnchor, 1, RangeData.LAYOUT)
+			local far = Vector3.new(footprint.minX - 400, 0, footprint.minZ - 400)
+			-- The arm that proves `far` is a real outside point.
+			expect(nowAt(far, areas)).to.equal(true)
+			for _, at in ipairs({ mat, far }) do
+				local inside = Join.insideHome(at, areas)
+				expect(Join.needsReturn(true, false, inside)).to.equal(false)
+				expect(Join.needsReturn(true, true, inside)).to.equal(false)
+				expect(Join.needsReturn(false, true, inside)).to.equal(false)
+			end
+			-- Absent is not outside, at the range as anywhere else.
+			expect(Join.needsReturn(false, false, nil)).to.equal(false)
 		end)
 	end)
 

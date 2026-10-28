@@ -60,6 +60,72 @@ function Join.insideField(position: Vector3, anchor: Vector3, cfg): boolean
 	return math.abs(position.X - anchor.X) <= half and math.abs(position.Z - anchor.Z) <= half
 end
 
+-- ---------------------------------------------------------------- WHERE A MAN BELONGS (task 302)
+--
+-- THE LOBBY IS NOT ONLY THE LODGE'S FIELD ANY MORE. Measured in Karen's place, 2026-10-28: a
+-- character standing on the range mat at (2650, -3214) was respawned at the lodge 0.6 s later,
+-- because the mat is 268 studs from the anchor and the field's half-span is 110. She could not use
+-- the range at all.
+--
+-- A UNION OF RECTANGLES, NOT THE BOUNDING BOX OF THE LODGE AND THE RANGE. The bounding box
+-- (x 2558..2960, z -3368..-2840 in her place) is 212,000 studs square and NONE of its edges is a
+-- fact about anything: it swallows the forest south-east of the lodge and north-west of the range,
+-- where nobody walks, and it grows by the square when a third area is added. Each rectangle of the
+-- union has a reason of its own instead -- the lodge's own field, the range's own footprint, and
+-- the corridor along the line a man actually walks between them -- so every edge can be defended.
+--
+-- THE AREAS ARE DATA, HANDED IN BY THE COMPOSITION ROOT (`Range.footprintFor` through
+-- `ForestTestBoot`), so this owner requires nothing of the range (design section 3). A world with
+-- no range row hands in nothing and gets exactly the old 220 x 220 square, bit for bit.
+export type Area = { minX: number, maxX: number, minZ: number, maxZ: number }
+
+-- `withinRect`'s rule in min/max form: FLAT (the Y is ignored) and ON the edge is IN.
+function Join.withinArea(position: Vector3, area: Area): boolean
+	return position.X >= area.minX and position.X <= area.maxX and position.Z >= area.minZ and position.Z <= area.maxZ
+end
+
+-- THE CORRIDOR BETWEEN THE LODGE AND AN OUTLYING AREA: the bounding box of the straight line from
+-- the anchor to that area's centre, widened by `FIELD.WALKWAY_HALF_STUDS` on both axes. The whole
+-- segment is inside it by construction, so the walk cannot fall through a gap between the two ends.
+function Join.walkwayTo(anchor: Vector3, to: Vector3, cfg): Area
+	local half = cfg.FIELD.WALKWAY_HALF_STUDS
+	return {
+		minX = math.min(anchor.X, to.X) - half,
+		maxX = math.max(anchor.X, to.X) + half,
+		minZ = math.min(anchor.Z, to.Z) - half,
+		maxZ = math.max(anchor.Z, to.Z) + half,
+	}
+end
+
+-- EVERY RECTANGLE A MAN MAY STAND IN AND NOT BE SENT HOME: the field, then each extra area and the
+-- corridor that reaches it. Computed ONCE at `Lobby.start` and read every scan.
+function Join.homeAreas(anchor: Vector3, cfg, extras: { Area }?): { Area }
+	local half = cfg.FIELD.SPAN_STUDS / 2
+	local out: { Area } = {
+		{ minX = anchor.X - half, maxX = anchor.X + half, minZ = anchor.Z - half, maxZ = anchor.Z + half },
+	}
+	if type(extras) ~= "table" then
+		return out
+	end
+	for _, area in ipairs(extras) do
+		table.insert(out, area)
+		local centre = Vector3.new((area.minX + area.maxX) / 2, anchor.Y, (area.minZ + area.maxZ) / 2)
+		table.insert(out, Join.walkwayTo(anchor, centre, cfg))
+	end
+	return out
+end
+
+-- IS THIS POSITION ANYWHERE IN THE LOBBY? `insideField`'s replacement at the call site, and the
+-- same answer when the list is the field alone.
+function Join.insideHome(position: Vector3, areas: { Area }): boolean
+	for _, area in ipairs(areas) do
+		if Join.withinArea(position, area) then
+			return true
+		end
+	end
+	return false
+end
+
 -- THE PER-PLAYER COUNTDOWN IS GONE, AND IT WENT TO THE PAD (task 182). Task 177 gave every man his
 -- own five-second clock (`Join.Entry`, `Join.decide`, and the four verdicts
 -- `IDLE`/`COUNTING`/`CANCELLED`/`ENROL`); a party of four needs ONE clock for the four of them, and
