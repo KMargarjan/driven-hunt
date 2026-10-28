@@ -251,18 +251,17 @@ return function()
 			-- THE KEY OPENS IT WITH NO PROMPT AT ALL: there is none set in this case, which is
 			-- exactly the state a hidden prompt leaves the player in.
 			expect(RangePanel.hasPrompt()).to.equal(false)
-			RangePanel.onPromptTriggered(100)
+			RangePanel.onKeyPressed()
 			expect(RangePanel.isOpen()).to.equal(true)
 			expect(frame.Visible).to.equal(true)
 
-			-- ...AND ONE PRESS CANNOT TOGGLE TWICE. The binding and the engine's own prompt can both
-			-- answer one keystroke; without the debounce the menu opened and shut again.
+			-- ...AND ONE PRESS CANNOT TOGGLE TWICE. The engine's prompt answers the same keystroke
+			-- whenever it IS on screen; while the key is bound the key is the one door.
 			local swallowedBefore = RangePanel.stats().swallowed
-			RangePanel.onPromptTriggered(100.05)
+			RangePanel.onPromptTriggered()
 			expect(RangePanel.isOpen()).to.equal(true)
 			expect(RangePanel.stats().swallowed).to.equal(swallowedBefore + 1)
-			-- A LATER press is a real second press.
-			RangePanel.onPromptTriggered(100 + RangePanel.TRIGGER_DEBOUNCE + 0.01)
+			RangePanel.onKeyPressed()
 			expect(RangePanel.isOpen()).to.equal(false)
 
 			-- THE KEY GOES WITH HIM: off the spot it is unbound, so nothing answers E in the wood.

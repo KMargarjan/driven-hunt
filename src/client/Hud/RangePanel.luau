@@ -58,12 +58,9 @@ local picked: { [string]: any } = {}
 local buttons: { [string]: { any } } = {}
 local confirmButton: TextButton? = nil
 local stats = { opens = 0, closes = 0, sends = 0, prompts = 0, picks = 0, keys = 0, swallowed = 0 }
-local lastTriggerAt = -1
 -- THE KEY, BOUND WHILE HE IS AT THE SPOT (task 308 bug 2).
 RangePanel.KEY_ACTION = "DrivenHuntRangeKey"
 RangePanel.KEY = Enum.KeyCode.E
--- One press must not toggle twice: the engine's prompt and the binding below can both answer it.
-RangePanel.TRIGGER_DEBOUNCE = 0.2
 local keyBound = false
 
 -- THE CONFIRM BAR MUST CONTAIN THE VIEWPORT CENTRE, which is the one point the input replay can
@@ -470,33 +467,42 @@ function RangePanel.hasPrompt(): boolean
 	return promptConnection ~= nil
 end
 
--- THE ONE WAY IN, whoever asked (task 308 bug 2). MEASURED in Karen's place on 46cbd787: standing
--- 1.90 studs from the prompt with `Enabled=true` and `MaxActivationDistance=12`, turning the camera
--- off the post fired `ProximityPromptService.PromptHidden` and four real `E` presses then produced
--- `trig=0` -- the keys arrived (`InputBegan` counted 4, `gameProcessed=false`) and the engine
--- answered none of them, because a HIDDEN prompt does not answer its key and a prompt is hidden
--- whenever its own point is off screen. Walking right up to the post and looking down the lane is
--- exactly that. So the panel binds `E` itself while he is at the spot and the prompt stays as the
--- thing he can SEE; both arrive here, and the debounce is what stops one press toggling twice.
-function RangePanel.onPromptTriggered(nowClock: number?)
+-- THE WAY IN DOES NOT DEPEND ON WHERE SHE IS LOOKING (task 308 bug 2). MEASURED in Karen's place
+-- on 46cbd787: 1.90 studs from the prompt, `Enabled=true`, `MaxActivationDistance=12`, turning the
+-- camera off the post fired `ProximityPromptService.PromptHidden` and four real `E` presses then
+-- produced `trig=0` -- the keys arrived (`InputBegan` counted 4, `gameProcessed=false`) and the
+-- engine answered none, because a HIDDEN prompt does not answer its key and a prompt is hidden
+-- whenever its own point is off screen. Walking up to the post and looking down the lane is that.
+-- So the panel binds `E` itself while he is at the spot; the prompt stays as the thing he can SEE.
+local function toggle()
 	if not enabled then
 		return
 	end
-	local at = if type(nowClock) == "number" then nowClock else os.clock()
-	if at - lastTriggerAt < RangePanel.TRIGGER_DEBOUNCE then
+	RangePanel.setOpen(not open)
+end
+
+-- WHILE THE KEY IS BOUND, THE KEY IS THE ONE DOOR. Both answer the same keystroke, so honouring
+-- both would open the menu and shut it again on one press. It is the SOURCE that decides and not a
+-- clock: `setNear` binds the key over exactly the region the prompt is offered in
+-- (`Range.atSpot` is the prompt's own `MaxActivationDistance`).
+function RangePanel.onPromptTriggered()
+	if keyBound then
 		stats.swallowed += 1
 		return
 	end
-	lastTriggerAt = at
-	RangePanel.setOpen(not open)
+	toggle()
+end
+
+function RangePanel.onKeyPressed()
+	stats.keys += 1
+	toggle()
 end
 
 -- `Pass`, NEVER `Sink`: the lobby's shop prompt is on `E` too, and swallowing the key would break
 -- a door this module does not own.
 local function onKey(_name: string, inputState: Enum.UserInputState)
 	if inputState == Enum.UserInputState.Begin then
-		stats.keys += 1
-		RangePanel.onPromptTriggered()
+		RangePanel.onKeyPressed()
 	end
 	return Enum.ContextActionResult.Pass
 end
@@ -564,10 +570,8 @@ function RangePanel.start(root: Frame, collaborators: any)
 	state = nil
 	open = false
 	near = false
-	-- A FRESH START OWNS NOTHING -- the key, which `setNear` binds when he arrives, and no memory
-	-- of a press, so the debounce can never swallow the first trigger of a new session.
+	-- A FRESH START OWNS NOTHING: the key is bound by `setNear` when he arrives.
 	RangePanel.bindKey(false)
-	lastTriggerAt = -math.huge
 	RangePanel.build(root)
 	root.Visible = false
 end
