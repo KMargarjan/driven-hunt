@@ -581,9 +581,15 @@ already exists for exactly that honesty.
 — pure, deterministic, 14 pieces, and already the one answer to "what is a seat". `facing` is a
 **sign along Z**, defaulting to `+1`, which is the shipped `downrange` idiom exactly: it moves
 `LADDER_OFFSET_STUDS`, the ladder gap in the rail and the ladder's ground sample to the other face.
-`ForestTest.Seats` passes nothing and gets today's output bit for bit; the range passes **−1**, so
-the ladder and the rail's gap are on the **uprange** face, behind the shooter, and the solid rail
-board faces downrange as the shooting rest `high-seats.md` §5.3 designed it.
+`ForestTest.Seats` passes nothing and gets today's output bit for bit.
+
+**BUILT IN B3, AND THE SIGN IS TURNED WITH THE ROW.** "The range passes −1" is right for a lane that
+runs SOUTH (`downrange` −1, the frame §5.4's numbers are written in) and WRONG in DEV, where
+`downrange` is +1: a constant −1 puts the ladder and the gap DOWNRANGE, in front of the shooter.
+`LAYOUT.STAND.facing` stays −1 as data and `Range.standFacing(layout, downrange)` resolves it, so
+the ladder, the rail's gap and the ladder's ground sample are on the **uprange** face in BOTH
+worlds and the solid rail board faces downrange as the shooting rest `high-seats.md` §5.3 designed
+it. `range.spec` asserts it off the BUILT parts, for both signs (L-019).
 
 `HighSeats.footprint()` must take the same sign (its ladder sample is at `(0, −4)`), and
 `HighSeats.footprintRadiusStuds()` is unchanged at 5.1 (symmetric).
@@ -628,6 +634,23 @@ Range.spotAt(anchor: Vector3?, position: Vector3?, layout, deckTops: { [number]:
   for ground it cannot build on — `MAX_FOOT_SPREAD_STUDS` 4.0). That station has a bench only, as
   DATA, with no branch anywhere.
 
+**THREE THINGS B3 BUILT DIFFERENTLY FROM THE SIGNATURES ABOVE, each stated rather than silent:**
+
+1. **`spotAt` takes `downrange` as well** (`spotAt(anchor, position, layout, downrange, deckTops)`).
+   The station box is ASYMMETRIC along Z — the deck uprange, the mat's own edge downrange — so no
+   sign means no box. Every other geometry function in `Range` already takes it.
+2. **The deck stands UPRANGE of the mat**, at `mat.Z − downrange × STAND.backStuds`. §5.4's table
+   writes that as "mat + (0, ·, +14)" in the south-facing frame; the arithmetic is the row's sign,
+   which is also what makes §9.4's `distanceFor` ADD the 14 instead of subtracting it.
+3. **The stand's prompt hangs on an Attachment on the DECK, not on the rail board.** The deck is the
+   one piece whose NAME does not move when `facing` mirrors the rail, and `Range.promptPointOf`
+   reads the Attachment's `WorldPosition` — so the prompt's world point is this section's number
+   either way, which `range.spec` asserts against `promptPosition(…, "treestand")`.
+
+And `footprintFor`'s edges are now **whole studs, rounded OUTWARD**: the seat's footprint radius is
+5.1, and a fractional edge does not survive a `Vector3`'s float32 — `lobby.spec`'s own round-trip
+case read the rectangle's corner a ten-thousandth outside itself. Outward is the safe direction.
+
 Two prompts per station, both at chest height on a part, both found by name
 (`Lobby.Data.shopPrompt`'s shape):
 
@@ -639,7 +662,8 @@ Range.promptPosition(anchor, spot, layout, downrange, position): Vector3
 
 The bench prompt is the shipped post top. The stand prompt sits on an Attachment on the **uprange**
 rail board at `deckTop + STAND.promptRise` (2.4, the rail's own top). They cannot be confused for one
-reach: deck centre to post top is `sqrt(3² + 21²)` = **21.2 studs**, well outside
+reach: deck centre to post top is `sqrt(3² + 21² + 8.5²)` = **22.9 studs** (306a(m): the Y term was
+dropped, and the conclusion holds with more margin than stated), well outside
 `PROMPT.MaxActivationDistance` 12 — which is also why the stand needs its own prompt at all.
 `Range.atSpot(promptPoint, playerPoint, layout)` is unchanged and is asked about whichever prompt the
 client found, so the engine's reach and the menu's closer stay one measurement (task 303's rule).
@@ -1130,6 +1154,11 @@ only after this design PASSes.**
 | **B7** | **One animal per occupied station.** Release on arrival, clear on idle, `SOUND` off | `range.spec` group 12; **T10**, **T11** |
 | **B8** | **Her place.** The new row, the terrain (the two fills, the two materials, the berm, the three banks) through the injected seam, the old row and its spec assertions archived under `backups/` with a note (rule 7) | **T1** walked, **T6** swept, **T7** sampled every 8 studs, **T8**; the six screenshots of §11.5 items 1, 2, 3, 6 |
 | **B9** | **THE PROOF.** T4's twelve cases with rule L's control beside each, and Karen's playtest | **T4**, in full, with the four pieces of evidence per case; `PLAYTEST.md`; §11.5 items 4 and 5 |
+
+**B3 MEASURED A THIRD OVERFLOW OF THE OLD FOREST CLEARING** (design 2.3's family): the sampled
+rectangle was taken for a firing line with NOTHING behind it, and the treestand stands `standReach`
+(19.1 studs) UPRANGE of the mat -- so even ONE station no longer fits it, by 11.1 studs BEHIND the
+shooter. B8's census must cover the ground behind the firing line, not only the lane.
 
 B2 needs B1's census only for the row. B3, B4, B5 and B7 all need B2 and are otherwise independent of
 each other. B6 needs B5. B8 needs B2–B7. B9 needs B8.

@@ -2,7 +2,9 @@
 -- state, no clock -- so a server spec drives every line of it with no client and no world, which is
 -- the `ReplicatedStorage.Lobby` / `ReplicatedStorage.ForestTest` shape.
 --
--- Design: docs/design/shooting-range.md sections 3, 4.1 and 8.4. Task 298 phase B, step B2.
+-- Design: docs/design/shooting-range.md sections 3, 4.1 and 8.4, and its delta
+-- docs/design/shooting-range-lobby.md 5.1-5.4, 7.1-7.3 and 9.1 (where every number now comes from).
+-- Task 298 phase B; task 306 steps B2 and B3.
 --
 -- Owner (CLAUDE.md rule 3): the range's DATA -- names, words, the lane arithmetic, the whitelists --
 -- has NO run-time writer; it is edited by the Builder in git. The geometry is
@@ -12,12 +14,18 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
+-- THE SEAT IS THE HUNT'S OWN SEAT, not a second structure: `HighSeats` says what a seat is and how
+-- wide its feet stand, and this module only says WHERE one goes (design shooting-range-lobby 7.1).
+local HighSeats = require(ReplicatedStorage:WaitForChild("HighSeats"))
 
 local Range = {}
 
 Range.FOLDER_NAME = "Range"
 Range.MAT_NAME = "Mat"
 Range.PROMPT_NAME = "RangePrompt"
+-- THE SECOND PROMPT'S OWN STEM. Two prompts per station, both found by name (`Lobby.Data.shopPrompt`'s
+-- shape), so "which one did he press" is never a guess about a position.
+Range.STAND_PROMPT_NAME = "RangeStandPrompt"
 Range.REMOTES_NAME = "Remotes"
 -- THE FOLDER THE LANE'S ANIMALS LIVE IN (task 304). `RangeBoot` names its runtime's world with it
 -- and `ForestTestBoot` asks `Range.isTarget` with it, so "is this the hunt's animal or the range's"
@@ -96,6 +104,17 @@ Range.LAYOUT = {
 		sideStuds = 3,
 		color = Color3.fromRGB(88, 76, 58),
 	},
+	-- THE TREESTAND, AS DATA (Karen, 2026-10-28: *"we can make an option shoot from treestand so
+	-- they can shoot from ground or treestand"*). `backStuds` puts the deck UPRANGE of the mat, so
+	-- a shot off the deck is 14 studs LONGER and `Range.distanceFor` says so; `facing` is
+	-- `HighSeats.facingOf`'s sign for a lane that runs SOUTH (`downrange` -1, design 5.4's frame)
+	-- and `Range.standFacing` turns it with the row, so the ladder and the rail's gap are UPRANGE
+	-- in BOTH worlds and the solid rail board is the rest downrange; `promptRise` is the rail's own
+	-- top (`HighSeats.DIMS.RAIL_RISE_STUDS`). Nothing about the seat is re-derived here.
+	STAND = { backStuds = 14, facing = -1, promptRise = 2.4 },
+	-- THE GROUND POSITION'S REST: a 0.7-0.8 m bench top (ISSF/BSRC) is 2.5-2.9 studs, and
+	-- `aheadStuds` puts it between the man and his post, downrange of the mat.
+	BENCH = { size = Vector3.new(6, 2.7, 1.2), aheadStuds = 3.5, color = Color3.fromRGB(112, 92, 64) },
 	PLATE = { minSpan = 120, marginStuds = 80, thickness = 4, color = Color3.fromRGB(150, 150, 150) },
 	-- THE TERRAIN GRID. `Terrain:FillBlock` writes 4-stud voxels on a grid anchored at the world
 	-- origin, so every rectangle edge is a multiple of this or voxels stand at it (task 191's
@@ -171,6 +190,11 @@ end
 -- speed (walk trot stand run)"* -- four words, STAND among them (design 7.3 lists three).
 -- STAND is first because it isolates AIM from LEAD, which is what a man starts with.
 Range.PACE_ORDER = { Range.WORD.STAND, Range.WORD.WALK, Range.WORD.TROT, Range.WORD.RUN }
+
+-- THE TWO FIRING POSITIONS, AND THE FIRING POSITION IS NOT A MENU PICK: it is where he is standing,
+-- measured off the character the SERVER can see (`Range.mayShoot`'s own discipline, design 7.3).
+-- `RangeRequest` carries no position, so a client cannot claim one.
+Range.POSITION = { BENCH = "bench", TREESTAND = "treestand" }
 
 -- THE DISTANCES THE MENU OFFERS -- the layout's own list and never a second copy of it, because
 -- `Build` lays the banks and the berm at the LONGEST of them and the menu may only offer a lane
@@ -342,8 +366,20 @@ function Range.postName(spot: number): string
 	return "Post" .. tostring(spot)
 end
 
-function Range.promptName(spot: number): string
-	return Range.PROMPT_NAME .. tostring(spot)
+-- WHICH PROMPT: the bench's post or the stand's rail. One stem per POSITION and the spot appended,
+-- so `RangePrompt3` and `RangeStandPrompt3` are two names and never one with a flag on it. nil (and
+-- any other word) is the bench, which is the one-position answer this file shipped with.
+function Range.promptName(spot: number, position: string?): string
+	local stem = if position == Range.POSITION.TREESTAND then Range.STAND_PROMPT_NAME else Range.PROMPT_NAME
+	return stem .. tostring(spot)
+end
+
+function Range.standName(spot: number): string
+	return "Stand" .. tostring(spot)
+end
+
+function Range.benchName(spot: number): string
+	return "Bench" .. tostring(spot)
 end
 
 function Range.bankName(leg: number): string
@@ -352,12 +388,12 @@ end
 
 -- THE PROMPT, BY NAME ANYWHERE UNDER `Workspace.Range` (`Lobby.Data.shopPrompt`'s shape): the
 -- client finds it, `Hud.step` hands it to the panel. nil when the range is not built.
-function Range.promptFor(spot: number, root: Instance?): any
+function Range.promptFor(spot: number, position: string?, root: Instance?): any
 	local parent = root or (game:GetService("Workspace"):FindFirstChild(Range.FOLDER_NAME))
 	if parent == nil then
 		return nil
 	end
-	local wanted = Range.promptName(spot)
+	local wanted = Range.promptName(spot, position)
 	for _, child in ipairs(parent:GetDescendants()) do
 		if child.Name == wanted then
 			return child
@@ -493,15 +529,79 @@ end
 -- height, while the BUILT top is the HIGHEST ground under the post's own footprint plus that same
 -- height: over a plate (DEV) they are one point, and over terrain they differ by that ground
 -- against the shelf read at the row's own point.
-function Range.promptPosition(anchor: Vector3, spot: number, layout, downrange: number?): Vector3
+function Range.promptPosition(anchor: Vector3, spot: number, layout, downrange: number?, position: string?): Vector3
 	layout = layout or Range.LAYOUT
 	local dir = if downrange == -1 then -1 else 1
 	local mat = Range.matPosition(anchor, spot, layout)
+	-- THE STAND'S OWN PROMPT: on the rail's top on the UPRANGE face, which is the face the ladder
+	-- and the rail's gap are on -- so a man stepping off the ladder is already at it, and a man on
+	-- the mat 21 studs away is not (design 7.3).
+	if position == Range.POSITION.TREESTAND then
+		local deck = Range.standPosition(anchor, spot, layout, dir)
+		return Vector3.new(
+			deck.X,
+			anchor.Y + HighSeats.DIMS.DECK_RISE_STUDS + layout.STAND.promptRise,
+			deck.Z - dir * HighSeats.DIMS.RAIL_PLANE_STUDS
+		)
+	end
 	return Vector3.new(
 		mat.X + layout.POST.sideStuds,
 		anchor.Y + layout.POST.size.Y,
 		mat.Z + dir * layout.POST.aheadStuds
 	)
+end
+
+-- ----------------------------------------------------------- THE SECOND FIRING POSITION (7.1-7.3)
+
+-- WHICH WAY THE SEAT IS TURNED, as `HighSeats.facingOf`'s own sign. `STAND.facing` is written for a
+-- lane that runs SOUTH (`downrange` -1, design 5.4's frame), so it is turned WITH the row: the
+-- ladder and the rail's gap end up UPRANGE in both worlds and the solid rail board is the shooting
+-- rest downrange. A constant would put the ladder in front of the DEV shooter.
+function Range.standFacing(layout, downrange: number?): number
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	return if layout.STAND.facing == -1 then dir else -dir
+end
+
+-- WHERE THE DECK'S CENTRE COLUMN STANDS: `backStuds` UPRANGE of the mat, so the man on it is 14
+-- studs FURTHER from the target than the man on the ground and `distanceFor` says so. Y is the
+-- shelf, as every other arithmetic point here: the deck's own top is `HighSeats`' business.
+function Range.standPosition(anchor: Vector3, spot: number, layout, downrange: number?): Vector3
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local mat = Range.matPosition(anchor, spot, layout)
+	return Vector3.new(mat.X, anchor.Y, mat.Z - dir * layout.STAND.backStuds)
+end
+
+-- THE BENCH REST, downrange of the mat and uprange of the post. Y is the bench top's own centre.
+function Range.benchPosition(anchor: Vector3, spot: number, layout, downrange: number?): Vector3
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local mat = Range.matPosition(anchor, spot, layout)
+	return Vector3.new(mat.X, anchor.Y + layout.BENCH.size.Y / 2, mat.Z + dir * layout.BENCH.aheadStuds)
+end
+
+-- HOW FAR UPRANGE OF THE MAT THE STATION REACHES: the deck plus the seat's own feet, which is the
+-- ladder's outer corner (`HighSeats.footprintRadiusStuds`). The one number the station box, the
+-- footprint and her place's home area are all measured from.
+function Range.standReach(layout): number
+	layout = layout or Range.LAYOUT
+	return layout.STAND.backStuds + HighSeats.footprintRadiusStuds()
+end
+
+-- HOW FAR HE IS ACTUALLY SHOOTING FROM. The trial's lane is the ANIMAL's distance from the firing
+-- line; the deck stands `STAND.backStuds` behind it. 7.8 % at 179 studs -- small, exact, and the
+-- reason the board's two lead numbers are computed from THIS and not from the picked lane (9.4).
+function Range.distanceFor(trial: any, position: string?, layout): number
+	layout = layout or Range.LAYOUT
+	local picked = if type(trial) == "number"
+		then trial
+		else (if type(trial) == "table" then trial.distanceStuds else nil)
+	local base = Range.distanceStudsOr(layout, picked)
+	if position == Range.POSITION.TREESTAND then
+		return base + layout.STAND.backStuds
+	end
+	return base
 end
 
 -- WHERE A FOUND PROMPT ACTUALLY IS, whatever it is parented to. The prompt moved from the mat to
@@ -545,22 +645,68 @@ function Range.viewportPointOf(
 	return Vector2.new(x, y), true
 end
 
--- WHICH MAT A MAN IS STANDING ON, or nil. Pure, so `Range.mayShoot` (step B3) is one position read
--- and one lookup, and never a sniff of `Workspace`.
-function Range.spotAt(anchor: Vector3?, position: Vector3?, layout): number?
+-- WHICH STATION A MAN IS AT, AND WHICH OF ITS TWO FIRING POSITIONS. Pure, so `Range.mayShoot` is
+-- one position read and one lookup and never a sniff of `Workspace` -- and the POSITION is measured
+-- the same way, so it cannot disagree with reality (design 7.3).
+--
+-- THE STATION IS THE UNION BOX of the two positions: the mat's own X, and in Z from the mat's
+-- downrange edge back past the deck to the seat's own feet. At 24-stud spacing two boxes are 16
+-- studs apart, so a point belongs to at most one station -- and a man never loses his gun walking
+-- from the bench to the ladder.
+--
+-- THE SECOND RETURN MAY BE NIL: he is AT the station but on neither position (on the ground under
+-- the deck, or between the two), which is the honest answer and not a third word.
+-- `bench` is the shipped 8 x 8 mat rect, flat. `treestand` is the deck's 6 x 6 rect AND
+-- `position.Y >= HighSeats.minYFor(deckTops[spot])` -- the deck's own top face with no margin, the
+-- same comparison `Rules.belowPlatform` makes, so there is no sliver of height that is both or
+-- neither. `deckTops[spot]` is nil for a station whose seat was REFUSED: bench only, as DATA.
+--
+-- DEVIATION from design 9.1's signature, stated: it takes `downrange` as well, because the station
+-- box is ASYMMETRIC along Z (the deck uprange, the mat's own edge downrange) and no sign means no
+-- box. Every other geometry function in this file already takes it.
+function Range.spotAt(
+	anchor: Vector3?,
+	position: Vector3?,
+	layout,
+	downrange: number?,
+	deckTops: { [number]: number }?
+): (number?, string?)
 	if typeof(anchor) ~= "Vector3" or typeof(position) ~= "Vector3" then
-		return nil
+		return nil, nil
 	end
 	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local at = position :: Vector3
 	local halfX = layout.MAT.size.X / 2
 	local halfZ = layout.MAT.size.Z / 2
+	local deckHalf = HighSeats.DIMS.DECK_SIZE.X / 2
+	local reach = Range.standReach(layout)
 	for spot = 1, layout.SPOT_COUNT do
-		local mat = Range.matPosition(anchor, spot, layout)
-		if math.abs(position.X - mat.X) <= halfX and math.abs(position.Z - mat.Z) <= halfZ then
-			return spot
+		local mat = Range.matPosition(anchor :: Vector3, spot, layout)
+		-- The station's Z, as the two signed distances downrange of the mat: the mat's own edge
+		-- ahead, the seat's feet behind.
+		local ahead = (at.Z - mat.Z) * dir
+		if math.abs(at.X - mat.X) <= halfX and ahead <= halfZ and ahead >= -reach then
+			-- ON THE MAT?
+			if math.abs(at.Z - mat.Z) <= halfZ then
+				return spot, Range.POSITION.BENCH
+			end
+			-- ON THE DECK? Its own rect, and at or above its own top face.
+			local deckTop = if type(deckTops) == "table" then deckTops[spot] else nil
+			if type(deckTop) == "number" then
+				local deck = Range.standPosition(anchor :: Vector3, spot, layout, dir)
+				if
+					math.abs(at.X - deck.X) <= deckHalf
+					and math.abs(at.Z - deck.Z) <= deckHalf
+					and at.Y >= HighSeats.minYFor(deckTop :: number)
+				then
+					return spot, Range.POSITION.TREESTAND
+				end
+			end
+			return spot, nil
 		end
 	end
-	return nil
+	return nil, nil
 end
 
 -- HOW LONG A CROSSING OF THE WINDOW TAKES at a speed. `math.huge` for a standing target, which is
@@ -590,15 +736,22 @@ function Range.footprintFor(anchor: Vector3, layout, downrange: number?)
 	local bermMin, bermMax = Range.bermSpanFor(anchor, layout)
 	local minX = math.min(anchor.X + west - reach, bermMin)
 	local maxX = math.max(anchor.X + east + reach, bermMax)
-	-- Z: from the mat's back edge, behind the firing line, to the far face of the berm at the
-	-- LONGEST lane.
-	local nearZ = anchor.Z - dir * layout.MAT.size.Z / 2
+	-- Z: from the SEAT'S OWN FEET, uprange of the firing line (the deck stands `STAND.backStuds`
+	-- back and its ladder a footprint radius further), to the far face of the berm at the LONGEST
+	-- lane. The mat's back edge is no longer the uprange end: a man on the deck has to be INSIDE
+	-- this box, or her place's return rule respawns him off it (task 302).
+	local nearZ = anchor.Z - dir * Range.standReach(layout)
 	local farZ = anchor.Z + dir * (Range.distanceMax(layout) + layout.BERM.behindStuds + layout.BERM.depth / 2)
+	-- WHOLE STUDS, ROUNDED OUTWARD, AND THAT IS A MEASURED LESSON (step B3). The seat's own
+	-- footprint radius is 5.1, so the uprange edge was -3196.9 -- and a fractional edge does not
+	-- survive a `Vector3`'s float32: `lobby.spec`'s round-trip case asserts `withinArea` holds for
+	-- the rectangle's own corner, and -3184.9 came back a ten-thousandth outside itself. Outward is
+	-- the safe direction: home can only get bigger, never leave a man standing off it.
 	return {
-		minX = minX - margin,
-		maxX = maxX + margin,
-		minZ = math.min(nearZ, farZ) - margin,
-		maxZ = math.max(nearZ, farZ) + margin,
+		minX = math.floor(minX - margin),
+		maxX = math.ceil(maxX + margin),
+		minZ = math.floor(math.min(nearZ, farZ) - margin),
+		maxZ = math.ceil(math.max(nearZ, farZ) + margin),
 	}
 end
 

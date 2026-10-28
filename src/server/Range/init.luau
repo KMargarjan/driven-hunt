@@ -125,6 +125,10 @@ local state = {
 	-- boundary shape, so every arithmetic below asks a value and never the world's name.
 	downrange = 1,
 	root = nil :: Instance?,
+	-- WHAT `Build` MEASURED under each station's seat: its deck's own top face, and no entry for a
+	-- station whose seat was refused. `spotAt` reads it to answer "on the stand", so the measurement
+	-- and the rule are one number (design 7.3).
+	deckTops = {} :: { [number]: number },
 	boars = nil :: any,
 	now = nil :: (() -> number)?,
 	trials = {} :: { [number]: Trial },
@@ -153,6 +157,10 @@ local state = {
 		lostTargets = 0,
 		parts = 0,
 		buildMs = 0,
+		-- HOW MANY SEATS STAND, and how many `HighSeats.plan` refused for its own ground reason: a
+		-- refused station is a bench only, and the console says how many there are.
+		stands = 0,
+		refusedStands = 0,
 		shots = 0,
 		hits = 0,
 		boardPushes = 0,
@@ -244,23 +252,26 @@ function Range.trialOf(spot: number): Trial?
 	return copy
 end
 
--- WHICH MAT, against the anchor this range was actually built on. Step B3's `mayShoot` is this plus
--- one position read.
-function Range.spotAt(position: Vector3?): number?
+-- WHICH STATION AND WHICH FIRING POSITION, against the anchor this range was actually built on and
+-- the DECK TOPS `Build` measured. The second return is nil for a man at the station but on neither
+-- position (under the deck, or walking to the ladder) -- `mayShoot` asks only the first.
+function Range.spotAt(position: Vector3?): (number?, string?)
 	if state.anchor == nil then
-		return nil
+		return nil, nil
 	end
-	return RangeData.spotAt(state.anchor, position, RangeData.LAYOUT)
+	return RangeData.spotAt(state.anchor, position, RangeData.LAYOUT, state.downrange, state.deckTops)
 end
 
--- ------------------------------------------------------------------ THE ONE PREDICATE (7.4)
+-- WHAT `Build` MEASURED: the top face of each station's deck, and no entry at all for a station
+-- whose seat `HighSeats.plan` refused. The ONE source for "is he on the stand", so a refused
+-- station is bench-only as data and nothing branches on it.
+function Range.deckTops(): { [number]: number }
+	return table.clone(state.deckTops or {})
+end
 
--- MAY THIS MAN SHOOT HERE? Server-measured: his own character's root, on a mat, in a world where the
--- range is actually built. It answers; the WEAPON still decides and still refuses (design 7.4).
-function Range.mayShoot(player: any): boolean
-	if not state.started or state.anchor == nil or player == nil then
-		return false
-	end
+-- THE SERVER'S OWN MEASUREMENT OF WHERE HE IS STANDING, which is the only answer there is: nothing
+-- a client sends carries a firing position (design 7.3).
+function Range.positionOf(player: any): (number?, string?)
 	local ok, position = pcall(function(): Vector3?
 		local character = (player :: any).Character
 		if typeof(character) ~= "Instance" then
@@ -273,9 +284,22 @@ function Range.mayShoot(player: any): boolean
 		return root.Position
 	end)
 	if not ok or position == nil then
+		return nil, nil
+	end
+	return Range.spotAt(position)
+end
+
+-- ------------------------------------------------------------------ THE ONE PREDICATE (7.4)
+
+-- MAY THIS MAN SHOOT HERE? Server-measured: his own character's root, on a mat, in a world where the
+-- range is actually built. It answers; the WEAPON still decides and still refuses (design 7.4).
+function Range.mayShoot(player: any): boolean
+	if not state.started or state.anchor == nil or player == nil then
 		return false
 	end
-	return Range.spotAt(position) ~= nil
+	-- THE STATION, not the mat: `spotAt`'s box is the union of the bench and the deck, so a man
+	-- does not lose his gun on the ladder (design 7.3).
+	return (Range.positionOf(player)) ~= nil
 end
 
 -- WHAT IS ON LOAN AT A SPOT. KAREN, 2026-10-27: *"range is free and amunition is endless"*, all four
@@ -482,13 +506,27 @@ function Range.start(seams): boolean
 			state.stats[key] = 0
 		end
 	end
+	state.deckTops = built.deckTops or {}
 	state.stats.parts = built.parts
 	state.stats.buildMs = built.buildMs
+	state.stats.stands = built.stands or 0
+	state.stats.refusedStands = built.refusedStands or 0
 	state.stats.refusedBy = nil
 	for spot = 1, RangeData.LAYOUT.SPOT_COUNT do
 		state.trials[spot] = newTrial(spot, Range.CONFIG.DEFAULT_PACE)
 	end
-	print(string.format("[range] built in %d ms (%d parts)", built.buildMs, built.parts))
+	print(
+		string.format(
+			"[range] built in %d ms (%d parts, %d stands, %d refused)",
+			built.buildMs,
+			built.parts,
+			built.stands or 0,
+			built.refusedStands or 0
+		)
+	)
+	for _, refusal in ipairs(built.standRefusals or {}) do
+		print(string.format("[range] no stand at station %s", refusal))
+	end
 	return true
 end
 
@@ -515,6 +553,7 @@ function Range.stop()
 	state.anchor = nil
 	state.row = nil
 	state.root = nil
+	state.deckTops = {}
 	state.boars = nil
 	state.now = nil
 	state.trials = {}
@@ -734,14 +773,15 @@ end
 --
 -- `Weapon.HitReported` / `ShotResolved` carry no per-shot measured lag at this commit, so the bound
 -- is the only honest view number B4 can print (queued: the field pair of design 9.2).
-local function leadsFor(trial: Trial, player: any): (number, number, boolean)
+local function leadsFor(trial: Trial, player: any, distanceStuds: number?): (number, number, boolean)
 	local speed = trial.speedStudsPerSecond
 	local ballistic = 0
+	local far = distanceStuds or trial.distanceStuds
 	local row = Weapons.row(trial.weapon :: any)
 	if row ~= nil then
 		local shot = Ballistics.shotFor(row, trial.ammo)
 		if shot ~= nil then
-			ballistic = Ballistics.leadStuds(shot, trial.distanceStuds, speed)
+			ballistic = Ballistics.leadStuds(shot, far, speed)
 		end
 	end
 	local window = 0
@@ -752,8 +792,11 @@ local function leadsFor(trial: Trial, player: any): (number, number, boolean)
 	return ballistic, speed * window, false
 end
 
-local function blankRecord(player: any, trial: Trial): any
-	local ballistic, view, measured = leadsFor(trial, player)
+local function blankRecord(player: any, trial: Trial, position: string?): any
+	-- THE DISTANCE HE IS ACTUALLY SHOOTING FROM, and the two lead numbers computed at it: the deck
+	-- stands `STAND.backStuds` further back than the bench (design 9.4).
+	local far = RangeData.distanceFor(trial, position, RangeData.LAYOUT)
+	local ballistic, view, measured = leadsFor(trial, player, far)
 	local columns = zoneOrder(trial.kind)
 	local zones = {}
 	for _, zone in ipairs(columns) do
@@ -767,7 +810,10 @@ local function blankRecord(player: any, trial: Trial): any
 		pace = trial.pace,
 		weapon = trial.weapon,
 		ammo = trial.ammo,
-		distanceStuds = trial.distanceStuds,
+		distanceStuds = far,
+		-- THE SERVER'S OWN MEASUREMENT of which firing position he is on; nil means he is at the
+		-- station and on neither. The board prints it, and no client ever sends it.
+		position = position,
 		-- The pace's own speed, and the one the runtime was ASKED for -- not the same number at
 		-- STAND, and the board labels both (B2's queued note).
 		paceStudsPerSecond = trial.speedStudsPerSecond,
@@ -801,9 +847,11 @@ end
 
 -- THE RECORD FOR THIS PLAYER AT THIS TRIAL. A trial change starts a fresh one: the tally is per
 -- player, per trial, and is thrown away when the trial ends (design 9.3).
-local function recordFor(player: any, trial: Trial): any
+local function recordFor(player: any, trial: Trial, position: string?): any
 	local id = (player :: any).UserId
 	local existing = state.records[id]
+	-- A CHANGE OF FIRING POSITION STARTS A FRESH TALLY, for the same reason a change of lane does:
+	-- the distance, and therefore both lead numbers, are different numbers (design 9.4).
 	local fresh = existing == nil
 		or existing.spot ~= trial.spot
 		or existing.species ~= trial.species
@@ -811,9 +859,10 @@ local function recordFor(player: any, trial: Trial): any
 		or existing.pace ~= trial.pace
 		or existing.weapon ~= trial.weapon
 		or existing.ammo ~= trial.ammo
-		or existing.distanceStuds ~= trial.distanceStuds
+		or existing.position ~= position
+		or existing.distanceStuds ~= RangeData.distanceFor(trial, position, RangeData.LAYOUT)
 	if fresh then
-		existing = blankRecord(player, trial)
+		existing = blankRecord(player, trial, position)
 		state.records[id] = existing
 	end
 	return existing
@@ -886,24 +935,6 @@ local function targetPositionOf(trial: Trial): Vector3?
 	return (status :: any).position
 end
 
-local function playerSpot(player: any): number?
-	local ok, position = pcall(function(): Vector3?
-		local character = (player :: any).Character
-		if typeof(character) ~= "Instance" then
-			return nil
-		end
-		local root = character:FindFirstChild("HumanoidRootPart")
-		if root == nil or not root:IsA("BasePart") then
-			return nil
-		end
-		return root.Position
-	end)
-	if not ok or position == nil then
-		return nil
-	end
-	return Range.spotAt(position)
-end
-
 -- ONE ACCEPTED SHOT. `Weapon.ShotResolved`'s listener (wired at the composition root) calls this:
 -- the signal fires once per RESOLVED shot, hit or miss, which is why a miss is counted at all
 -- (design 8.3 -- a miss produces no `HitReported`).
@@ -915,16 +946,17 @@ function Range.onShotResolved(shot: any)
 	if player == nil or not Range.mayShoot(player) then
 		return
 	end
-	local spot = playerSpot(player)
+	-- WHICH STATION AND WHICH FIRING POSITION, measured at the moment of the shot.
+	local spot, position = Range.positionOf(player)
 	local trial = if spot ~= nil then state.trials[spot] else nil
 	if trial == nil then
 		return
 	end
-	local record = recordFor(player, trial)
+	local record = recordFor(player, trial, position)
 	record.shots += 1
 	record.crossingSeconds = trial.lastCrossingSeconds
 	record.issuedStudsPerSecond = trial.issuedStudsPerSecond
-	local ballistic, view, measured = leadsFor(trial, player)
+	local ballistic, view, measured = leadsFor(trial, player, record.distanceStuds)
 	record.leadBallisticStuds = ballistic
 	record.leadViewStuds = view
 	record.leadViewMeasured = measured
@@ -1103,7 +1135,7 @@ function Range.onRequest(player: any, request: any): boolean
 		state.records[id] = nil
 		state.pending[id] = nil
 		state.stats.resets += 1
-		recordFor(player, trial)
+		recordFor(player, trial, (select(2, Range.positionOf(player))))
 		publish(player)
 		return true
 	end
@@ -1192,7 +1224,7 @@ function Range.onRequest(player: any, request: any): boolean
 		end
 	end
 	-- A PICK STARTS A FRESH RECORD, because the trial it was tallying is over (design 9.3).
-	recordFor(player, trial)
+	recordFor(player, trial, (select(2, Range.positionOf(player))))
 	publish(player)
 	return true
 end
