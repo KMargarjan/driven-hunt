@@ -7013,6 +7013,19 @@ function Runtime:statusOf(id: string)
 	return nil
 end
 
+-- THE SAME ANSWER, ASKED BY ID (task 308). The range knows its target by the id `spawn` handed
+-- back and holds no Instance of its own, so it could not ask "where did the shooter see it" at all.
+-- It is `cframeAt` and not a second ring: the trunk is looked up, the one reader does the rest.
+function Runtime:cframeAtId(id: string, at: number): CFrame?
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			local trunk = entry.body and entry.body.part
+			return if trunk ~= nil then self:cframeAt(trunk, at) else nil
+		end
+	end
+	return nil
+end
+
 -- IS THIS ANIMAL IN FLIGHT? (task 126 round 2). The drive asks before it hands out an order: a
 -- frightened animal has dropped out of the file and must not be ordered back into it on the next
 -- Heartbeat, which is what kept a shot boar walking its trail at the ordered speed.

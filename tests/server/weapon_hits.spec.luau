@@ -1029,6 +1029,32 @@ return function()
 			}
 		end
 
+		-- TASK 308: WHICH TENSE THE REPORT'S POINTS ARE IN. `Weapon.Rewind` reports a rewound
+		-- impact where the SHOOTER DREW the animal, and `HitLog` divides the card's dots down by
+		-- this field -- so a report that drops it puts a nose shot on the rump.
+		it("carries the NEAREST impact's frame onto the report, and nil for a static impact", function()
+			local boar = Instance.new("Part")
+			boar:SetAttribute("Damageable", true)
+			boar:SetAttribute("HitZone", "body")
+			local past = CFrame.new(-7, 0, 3)
+			local far = impactOn(boar, 40)
+			far.frame = CFrame.new(-99, 0, 0)
+			local near_ = impactOn(boar, 12)
+			near_.frame = past
+			local reports = Hits.group(nil :: any, { far, near_ }, "Slug", 5, "rifle")
+			expect(#reports).to.equal(1)
+			expect(reports[1].nearest).to.equal(12)
+			-- THE NEAREST ONE'S, not the first one's: `position` is the nearest impact's, so the
+			-- frame beside it has to be the same impact's or the two disagree.
+			expect(reports[1].targetCFrame).to.equal(past)
+
+			-- A STATIC IMPACT CARRIES NONE, which is every cast written before task 305.
+			local plain = Hits.group(nil :: any, { impactOn(boar, 20) }, "Slug", 5, "rifle")
+			expect(#plain).to.equal(1)
+			expect(plain[1].targetCFrame).to.equal(nil)
+			boar:Destroy()
+		end)
+
 		it("makes one report per target, not one per pellet", function()
 			local boar = Instance.new("Part")
 			boar:SetAttribute("Damageable", true)

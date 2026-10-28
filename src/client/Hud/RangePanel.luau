@@ -10,7 +10,9 @@
 -- `GuiButton.Modal` IS NOT USED: `src/client/Weapon/Input.luau` refuses it as a second writer of
 -- `MouseBehavior`. The mouse is freed by `Cursor.requestFree("range")` and nothing else.
 
+local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
@@ -56,7 +58,15 @@ local state: any = nil
 local picked: { [string]: any } = {}
 local buttons: { [string]: { any } } = {}
 local confirmButton: TextButton? = nil
-local stats = { opens = 0, closes = 0, sends = 0, prompts = 0, picks = 0 }
+local stats = { opens = 0, closes = 0, sends = 0, prompts = 0, picks = 0, keys = 0, swallowed = 0 }
+-- THE KEY, BOUND WHILE HE IS AT THE SPOT (task 308 bug 2).
+RangePanel.KEY_ACTION = "DrivenHunt.Range.Toggle"
+RangePanel.KEY = Enum.KeyCode.E
+local keyBound = false
+-- IS THE ENGINE OFFERING ITS OWN PROMPT RIGHT NOW? Told by `ProximityPromptService`, and the one
+-- thing that decides which of the two doors answers a press (see `onKeyPressed`).
+local promptShown = false
+local shownConnections: { any } = {}
 
 -- THE CONFIRM BAR MUST CONTAIN THE VIEWPORT CENTRE, which is the one point the input replay can
 -- click (design 11.3) -- and MEASURED LIVE on 2026-10-27 it did not: the HUD's `ScreenGui` carries
@@ -423,6 +433,7 @@ function RangePanel.setNear(next_: boolean)
 		return
 	end
 	near = next_
+	RangePanel.bindKey(near)
 	if not near then
 		RangePanel.setOpen(false)
 	end
@@ -440,10 +451,36 @@ function RangePanel.setPrompt(next_: any)
 		end)
 		promptConnection = nil
 	end
+	for _, connection in ipairs(shownConnections) do
+		pcall(function()
+			connection:Disconnect()
+		end)
+	end
+	shownConnections = {}
+	promptShown = false
 	prompt = next_
 	if next_ == nil then
 		return
 	end
+	-- WHICH DOOR ANSWERS: the service says when the engine is offering this prompt.
+	pcall(function()
+		table.insert(
+			shownConnections,
+			ProximityPromptService.PromptShown:Connect(function(shown)
+				if shown == next_ then
+					RangePanel.setPromptShown(true)
+				end
+			end)
+		)
+		table.insert(
+			shownConnections,
+			ProximityPromptService.PromptHidden:Connect(function(hidden)
+				if hidden == next_ then
+					RangePanel.setPromptShown(false)
+				end
+			end)
+		)
+	end)
 	local ok, connection = pcall(function()
 		return next_.Triggered:Connect(function()
 			RangePanel.onPromptTriggered()
@@ -461,11 +498,73 @@ function RangePanel.hasPrompt(): boolean
 	return promptConnection ~= nil
 end
 
-function RangePanel.onPromptTriggered()
+-- THE WAY IN DOES NOT DEPEND ON WHERE SHE IS LOOKING (task 308 bug 2). MEASURED in Karen's place
+-- on 46cbd787: 1.90 studs from the prompt, `Enabled=true`, `MaxActivationDistance=12`, turning the
+-- camera off the post fired `ProximityPromptService.PromptHidden` and four real `E` presses then
+-- produced `trig=0` -- the keys arrived (`InputBegan` counted 4, `gameProcessed=false`) and the
+-- engine answered none, because a HIDDEN prompt does not answer its key and a prompt is hidden
+-- whenever its own point is off screen. Walking up to the post and looking down the lane is that.
+-- So the panel binds `E` itself while he is at the spot; the prompt stays as the thing he can SEE.
+local function toggle()
 	if not enabled then
 		return
 	end
 	RangePanel.setOpen(not open)
+end
+
+-- WHETHER THE ENGINE IS SHOWING ITS PROMPT, as a parameter as well as a signal (CLAUDE.md's rule
+-- for a two-state path). `setPrompt` wires `ProximityPromptService` to it.
+function RangePanel.setPromptShown(on: boolean)
+	promptShown = on == true
+end
+
+function RangePanel.isPromptShown(): boolean
+	return promptShown
+end
+
+function RangePanel.onPromptTriggered()
+	toggle()
+end
+
+-- ONE PRESS, ONE TOGGLE, AND THE SHOWN PROMPT HAS RIGHT OF WAY. MEASURED live on this build: while
+-- the prompt is shown the engine's own handler consumes `E` before a non-core `BindAction` ever
+-- runs, and it fires `Triggered` -- so the binding below is the door for exactly the case that was
+-- broken, the HIDDEN prompt, and stands down when the engine is already answering.
+function RangePanel.onKeyPressed()
+	stats.keys += 1
+	if promptShown then
+		stats.swallowed += 1
+		return
+	end
+	toggle()
+end
+
+-- `Pass`, NEVER `Sink`: the lobby's shop prompt is on `E` too, and swallowing the key would break
+-- a door this module does not own.
+local function onKey(_name: string, inputState: Enum.UserInputState)
+	if inputState == Enum.UserInputState.Begin then
+		RangePanel.onKeyPressed()
+	end
+	return Enum.ContextActionResult.Pass
+end
+
+function RangePanel.bindKey(on: boolean)
+	on = on == true
+	if on == keyBound then
+		return
+	end
+	keyBound = on
+	pcall(function()
+		if on then
+			ContextActionService:BindAction(RangePanel.KEY_ACTION, onKey, false, RangePanel.KEY)
+		else
+			ContextActionService:UnbindAction(RangePanel.KEY_ACTION)
+		end
+	end)
+end
+
+function RangePanel.hasKey(): boolean
+	return keyBound
 end
 
 -- THE SERVER'S LISTS AND ITS LIVE TRIAL (design 8.5). The panel holds no opinion about either.
@@ -488,6 +587,9 @@ function RangePanel.setEnabled(on: boolean)
 	if not enabled then
 		RangePanel.setOpen(false)
 	end
+	-- SYMMETRIC, or an enabled false->true cycle at the post leaves E dead -- the same shape as
+	-- the bug this task fixes (round 1, note).
+	RangePanel.bindKey(enabled and near)
 end
 
 function RangePanel.isEnabled(): boolean
@@ -511,12 +613,15 @@ function RangePanel.start(root: Frame, collaborators: any)
 	state = nil
 	open = false
 	near = false
+	-- A FRESH START OWNS NOTHING: the key is bound by `setNear` when he arrives.
+	RangePanel.bindKey(false)
 	RangePanel.build(root)
 	root.Visible = false
 end
 
 function RangePanel.stop()
 	RangePanel.setOpen(false)
+	RangePanel.bindKey(false)
 	RangePanel.setPrompt(nil)
 	panel = nil
 	state = nil

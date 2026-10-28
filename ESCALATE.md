@@ -300,3 +300,33 @@ will NOT arrive from it. It is reported to the Director by that session separate
   not the shipped `Weapon.addHistoryProvider` one. The suite is green over the new seam and the two
   answer the same question for a range shot, but the Playtester should re-run the run pace on the
   merged head.
+
+## 2026-10-28 -- Task 308, bug 3: the hit card's dot is still at the wrong end, and the reason is the CLAIM path
+
+**For the Director.** Task 308 fixed the tense of the card's projection for the REWOUND server
+impact (`Weapon.Rewind` now stamps `frame = candidate.past`, `Hits.group` carries it as
+`targetCFrame`, `HitLog` projects in it). The harness proves both sides of that case. **It does not
+fix the bug Karen's Playtester saw**, and I am not reporting it as fixed.
+
+**Measured on this build (9a6d8a35) in her Forest Test, real clicks, rifle `.416` at a RUN boar at
+~35 m:** a shot the board scored as **HEAD 1** drew its dot at **u = 0.794** of the drawn
+silhouette -- on the hindquarter. (`<runs-dir>/playtest/check308/03-card-zoom.png`, read off the
+picture's own pixels against that art's own `Silhouette` rectangle.) It is better than check305d,
+where the dot was in the white space OFF the animal entirely; it is still the wrong end.
+
+**The mechanism, named:** the range's hits arrive through the ACCEPTED CLIENT CLAIM, not the
+rewound server cast. `src/server/Weapon/Validator.luau`, `Validator.claimImpact`, builds that
+impact as `position = partCFrame * claim.offset` -- the LIVE part CFrame, deliberately, because the
+dust has to land where the animal IS. Such an impact carries no `frame`, so task 308's change never
+reaches it and `HitLog` falls back to `part.CFrame`, which is the old behaviour (no regression).
+
+**What the next task needs to decide**, and it is a design decision, not a fix I should take alone:
+a claim already carries `claim.offset`, the hit's local offset **in the claimed part's own frame**,
+which is exactly what the card wants and needs no tense at all. But `Shape.dot` divides by the
+TRUNK's CFrame and size while `claim.offset` is the ZONE part's, and with `ZONES_FOLLOW_GAIT` the
+zone parts move under the gait rig -- so "where on the drawn animal" has two candidate definitions
+and one owner has to choose. `docs/design/hit-zones.md` carries neither the gait rig nor the carrier
+rule (the Architect queued exactly this after task 305d), so the next task should get a design run
+before code.
+
+Nobody has seen the card put a head shot on the head. That is still unproven.

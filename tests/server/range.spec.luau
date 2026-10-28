@@ -95,6 +95,13 @@ return function()
 				kind = animal.kind,
 			}
 		end
+		-- TASK 308: WHERE THE ANIMAL WAS WHEN THE SHOOTER DREW IT. nil until a case sets it, so
+		-- every older case still takes the `statusOf` present-position fallback.
+		fake.pastOf = nil :: ((string, number) -> CFrame?)?
+		fake.cframeAt = function(id: string, at: number): CFrame?
+			local answer = fake.pastOf
+			return if answer ~= nil then answer(id, at) else nil
+		end
 		fake.leadTo = function(id: string, point: Vector3, speed: number)
 			local animal = fake.animals[id]
 			if animal == nil then
@@ -1023,6 +1030,52 @@ return function()
 			clock.t += seconds
 		end
 
+		-- TASK 308 BUG 1. MEASURED in Karen's place on 46cbd787: on the mat, before any request,
+		-- `boardPushes=0` and all six menu strips had zero children -- the first real E drew six
+		-- labels and NO chips, because the only things that published were a request, a shot and a
+		-- hit. `Range.look` is the publish a man who has picked nothing is owed.
+		it("sends the lists to a man standing on the mat who has asked for nothing", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			local sent = {}
+			Range.setRemotes({
+				RangeBoard = {
+					FireClient = function(_self, player: any, payload: any)
+						table.insert(sent, { player = player, payload = payload })
+					end,
+				},
+			})
+			local man = manOn(RangeData.matPosition(ANCHOR, 1, LAYOUT), 308)
+			tick(clock, 1)
+
+			expect(Range.look(man)).to.equal(true)
+			expect(#sent).to.equal(1)
+			local payload = sent[1].payload
+			expect(sent[1].player).to.equal(man)
+			expect(payload.record).to.be.ok()
+			-- EVERY ROW THE MENU DRAWS, non-empty, with no pick made: this is what the six strips
+			-- had none of.
+			expect(#payload.lists.species > 0).to.equal(true)
+			expect(#payload.lists.kinds > 0).to.equal(true)
+			expect(#payload.lists.pace > 0).to.equal(true)
+			expect(#payload.lists.weapons > 0).to.equal(true)
+			expect(#payload.lists.distances > 0).to.equal(true)
+
+			-- ...AND THE MAT IS STILL THE PERMISSION, pinned on `mayShoot` and not on `playerSpot`
+			-- (round 1, note): a man standing EXACTLY where this one stands, but with no character
+			-- for the server to measure, is refused and nothing goes out.
+			local ghost = { UserId = 309, Name = "Man309" } :: any
+			expect(Range.mayShoot(ghost)).to.equal(false)
+			expect(Range.look(ghost)).to.equal(false)
+			local away = manOn(RangeData.matPosition(ANCHOR, 1, LAYOUT) + Vector3.new(400, 0, 0), 311)
+			expect(Range.look(away)).to.equal(false)
+			expect(#sent).to.equal(1)
+			Range.setRemotes(nil)
+			Range.stop()
+		end)
+
 		it("refuses a forged payload and a pick from a man who is not on the mat", function()
 			Range.stop()
 			local fake = newFakeBoars()
@@ -1157,6 +1210,61 @@ return function()
 			expect((last :: any).speed).to.equal(speedOf(RangeData.WORD.WALK))
 			-- A STANDING TARGET NEEDS NO LEAD, and the board says which.
 			expect((Range.recordOf(man) :: any).leadBallisticStuds).to.equal(0)
+			Range.stop()
+		end)
+
+		-- TASK 308, ROUND 1 FINDING 2: `onShotResolved` ASKS FOR THE TENSE AND USES THE ANSWER.
+		-- The gap must be measured against the animal where the SHOOTER DREW it, not where the
+		-- server has it now. Delete the `at` branch in `targetPositionOf` and this case goes red:
+		-- the two readings below are the same shot against two positions 10 studs apart.
+		it("measures the miss gap against the animal where the shooter drew it", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			local man = manOn(RangeData.matPosition(ANCHOR, 1, LAYOUT), 310)
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, pace = RangeData.WORD.TROT })).to.equal(true)
+			advance(fake, clock, 2)
+			local animal = fake.only()
+			expect(animal).to.be.ok()
+			local here = (animal :: any).position
+			local trial = Range.trialOf(1) :: any
+			local heading = if (trial.leg % 2) == 1 then 1 else -1
+
+			-- A SHOT WHOSE SEGMENT ENDS EXACTLY WHERE THE SERVER HAS THE ANIMAL. Against the
+			-- present position the gap is 0; against the drawn one, 10 studs back along the lane,
+			-- it is the 10 studs the shooter actually missed by.
+			local muzzle = here - Vector3.new(0, 0, 120)
+			local asked: { number } = {}
+			fake.pastOf = function(id: string, at: number): CFrame?
+				table.insert(asked, at)
+				expect(id).to.equal(trial.targetId)
+				return CFrame.new(here - Vector3.new(10 * heading, 0, 0))
+			end
+			Range.onShotResolved({
+				shooter = man,
+				muzzle = muzzle,
+				endPoint = here,
+				resolvedAtServerTime = 1000,
+			})
+			expect(#asked).to.equal(1)
+			local drawn = (Range.recordOf(man) :: any).lastGapStuds
+			expect(drawn).to.be.near(10, 0.05)
+
+			-- ...AND WITH NO SEAM TO ASK, the present position is the fallback, which is what the
+			-- read was before this task: the same shot then reads 0.
+			fake.pastOf = nil
+			local kept = fake.cframeAt
+			fake.cframeAt = nil
+			Range.onShotResolved({
+				shooter = man,
+				muzzle = muzzle,
+				endPoint = here,
+				resolvedAtServerTime = 1000,
+			})
+			expect((Range.recordOf(man) :: any).lastGapStuds).to.be.near(0, 0.05)
+			fake.cframeAt = kept
 			Range.stop()
 		end)
 
@@ -1518,15 +1626,38 @@ return function()
 			-- A SHOT 4 STUDS BEHIND A TARGET RUNNING EAST (an odd leg, +X) IS NEGATIVE, and the same
 			-- 4 studs on a WEST leg is positive -- the gap is projected onto the target's travel, so
 			-- the two directions read OPPOSITE signs for the same world-space error.
-			local east = Range.gapStuds(trial, target - Vector3.new(4, 0, 0), target)
+			-- A SHOT THAT STOPPED 4 STUDS BEHIND THE TARGET, fired from straight behind it so the
+			-- whole segment lies along the lane and the closest approach IS its end.
+			local muzzle = target - Vector3.new(60, 0, 0)
+			local stop = target - Vector3.new(4, 0, 0)
+			local east = Range.gapStuds(trial, muzzle, stop, target)
 			expect(east).to.be.near(-4, 0.001)
 			local west = table.clone(trial)
 			west.leg = trial.leg + 1
-			expect(Range.gapStuds(west, target - Vector3.new(4, 0, 0), target)).to.be.near(4, 0.001)
+			expect(Range.gapStuds(west, muzzle, stop, target)).to.be.near(4, 0.001)
 			-- STAND HAS NO GAP: nothing is moving, so "behind" has no meaning.
 			local standing = table.clone(trial)
 			standing.pace = RangeData.WORD.STAND
-			expect(Range.gapStuds(standing, target - Vector3.new(4, 0, 0), target)).to.equal(nil)
+			expect(Range.gapStuds(standing, muzzle, stop, target)).to.equal(nil)
+
+			-- TASK 308 BUG 4. The board printed the same `19.3 m` at a WALK and at a RUN, in both
+			-- directions: `endPoint` alone is where the bullet came to REST, so a slug that passed a
+			-- hand in front of the nose and buried itself in the berm reported the berm. The gap is
+			-- the SEGMENT's closest approach to the animal.
+			--
+			-- Down the lane (+Z) from 125 studs out, 1 stud of X off: the bullet passes 1 stud ahead
+			-- of the animal and carries on past it, ending about 2 studs of X away. The old reading
+			-- was that end point; the gap is the 1.0 it actually missed by.
+			local shooter = target - Vector3.new(1, 0, 125)
+			local far = shooter + (target + Vector3.new(1, 0, 0) - shooter).Unit * 185
+			local near_ = Range.gapStuds(trial, shooter, far, target)
+			expect(near_).to.be.near(1, 0.02)
+			expect((far.X - target.X) > 1.4).to.equal(true)
+
+			-- AND A SHOT THAT STOPPED IN THE ANIMAL READS ~0: the closest approach is the animal.
+			expect(Range.gapStuds(trial, shooter, target, target)).to.be.near(0, 0.001)
+			-- A MUZZLE IS REQUIRED: no line, no gap.
+			expect(Range.gapStuds(trial, nil, stop, target)).to.equal(nil)
 			Range.stop()
 		end)
 	end)

@@ -169,6 +169,11 @@ local started = Range.start({
 		flying = function(id: string)
 			return runtime:flying(id)
 		end,
+		-- WHERE THE TARGET WAS WHEN THE SHOOTER DREW IT (task 308 bug 4): the SAME history ring the
+		-- rewound cast above is judged against, so the board's miss gap and the hit agree.
+		cframeAt = function(id: string, at: number)
+			return runtime:cframeAtId(id, at)
+		end,
 		configOf = function()
 			return runtime:config()
 		end,
@@ -272,9 +277,27 @@ Weapon.ShotResolved:Connect(function(shot)
 	Range.onShotResolved(shot)
 end)
 
+-- HE IS ON THE MAT: SEND HIM THE LISTS (task 308 bug 1). MEASURED in Karen's place on 46cbd787 --
+-- standing on the mat, before any request, `boardPushes=0` and all six menu strips had zero
+-- children -- so the first real E drew six labels and no chips, and nothing but a blind click on
+-- RELEASE THE TARGET or RESET filled them. The edge is read HERE because `Range` reaches no
+-- DataModel and holds no player list; `Range.look` decides whether it publishes.
+local onMat: { [number]: boolean } = {}
+local function matEdges()
+	for _, player in ipairs(Players:GetPlayers()) do
+		local here = Range.mayShoot(player)
+		if here and not onMat[player.UserId] then
+			Range.look(player)
+		end
+		onMat[player.UserId] = here or nil
+	end
+end
+
 -- A RECORD LEAVES WITH ITS PLAYER (round 1, finding 2).
 Players.PlayerRemoving:Connect(function(player)
 	Range.forget(player)
+	-- ...and the mat edge goes with him, or a man who left standing on it leaves a `true` behind.
+	onMat[player.UserId] = nil
 end)
 
 -- ------------------------------------------------------------------ THE GUN, ON LOAN (7.4)
@@ -304,4 +327,5 @@ RunService.Heartbeat:Connect(function(dt: number)
 		compose()
 	end
 	Range.step(dt)
+	matEdges()
 end)
