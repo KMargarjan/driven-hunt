@@ -328,10 +328,15 @@ function Flight.advance(self: Flight, dt: number, cast: CastFn, now: number?): {
 					-- time THIS PELLET has flown -- so the only lead he owes is the ballistic one.
 					-- MEASURED in Karen's place: the wall-clock anchor tested 0.019 s late, 0.46
 					-- studs of lead nobody can see at a 24 studs/s boar.
+					-- ...AND THE BULLET'S OWN CLOCK IS `Ballistics.timeToRange`, THE FUNCTION THE
+					-- BOARD PRINTS THE LEAD FROM -- not the stepped `elapsed`, which is quantised
+					-- to the sub-step and read 0.061 s where the closed form says 0.047 (measured,
+					-- Karen's range): one function, so the lead shown and the lead demanded agree.
 					local rewind = shot.rewindSeconds
 					if rewind ~= nil and rewind > 0 and shot.firedAtServer ~= nil and now ~= nil then
+						local flown = Ballistics.timeToRange(ballistic, pellet.travelled)
 						rewind = math.clamp(
-							rewind + (now - shot.firedAtServer - pellet.elapsed),
+							rewind + (now - shot.firedAtServer - flown),
 							0,
 							config.CLAIM.VIEW_LAG_MAX_SECONDS
 						)

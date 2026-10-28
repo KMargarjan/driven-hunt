@@ -154,7 +154,8 @@ return function()
 		end
 
 		it("adds the slip between the trigger and the cast", function()
-			-- 0.05 s of wall clock has passed and the pellet has flown none of it yet.
+			-- 0.05 s of wall clock has passed and the pellet has flown none of it yet, so the
+			-- whole 0.05 s is slip the shooter must not be charged for.
 			expect(fire(100.05)).to.be.near(0.23, 1e-6)
 		end)
 
