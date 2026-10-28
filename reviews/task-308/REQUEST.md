@@ -1,12 +1,12 @@
 # Task 308 -- four range bugs the Playtester hit in Karen's place
 
 Task: 308
-Round: 1
+Round: 2
 Base: 46cbd787
-Code commit: 9a6d8a35db918ea9e86e4500422795708727aead
+Code commit: 6559c88acc56553991fba9a3c3a95fd1cc62dbb1
 
 ```
-[harness] PASS: 34/34 checks @ 9a6d8a35db918ea9e86e4500422795708727aead (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 6559c88acc56553991fba9a3c3a95fd1cc62dbb1 (clean tree) scope=all
 ```
 
 `test2` is N/A: nothing here touches `TWO_PLAYER_PATHS` (no `src/*/Match/`, no `src/shared/Drive/`,
@@ -49,32 +49,60 @@ place (the 294 worktree on :34874, Rojo panel photographed connected both times:
 2. `RangeBoot` calls it on the mat-entry EDGE (`matEdges`, in the Heartbeat it already runs), so the
    menu is full before the first E. Verify: the live reading above (0,0,0,0,0,0 -> 2,4,4,4,2,1 after
    a real W, with no request sent).
-3. `RangePanel` binds `E` through `ContextActionService` while `near`, and unbinds off the spot, on
-   `setEnabled(false)` and on `start`. `tests/client/range_panel.spec.luau`, "holds its own E while
-   he is at the spot, and one press toggles once".
+3. `RangePanel` binds `E` through `ContextActionService` while `near`, unbinds off the spot, on
+   `setEnabled(false)` and on `start`, and re-binds on `setEnabled(true)` while he is still there.
+   `tests/client/range_panel.spec.luau`, "holds its own E while he is at the spot, and one press
+   toggles once" -- asserted through **`ContextActionService:GetAllBoundActionInfo()`** and not the
+   module's own flag (round 1, finding 4), which is the check `input_driving.spec` already names
+   falsifiable.
 4. One press can never toggle twice: while the engine is showing its prompt the prompt has right of
    way and `onKeyPressed` stands down (`stats.swallowed`); while it is hidden the key is the door.
    Same spec case, both directions. `ProximityPromptService.PromptShown/Hidden` drive
    `setPromptShown`, which is also a parameter.
-5. `Rewind.impact` stamps `frame = candidate.past` on the impact it returns, `Hits.group` carries
-   the nearest impact's frame onto the report as `targetCFrame`, and `HitLog` projects both the
-   card's dots and the trace line's local offset through it. `tests/server/hit_card.spec.luau`,
-   "puts a nose hit at the nose even though the animal has travelled since": with the frame, u < 0.1;
-   the same point with NO frame carried reads u > 0.9, which is the known-bad side of the case.
+5. `Rewind.impact` stamps the frame the impact was MEASURED in -- the past POSITION with the
+   PRESENT rotation, because translation is all the rewind does (round 1, note) -- `Hits.group`
+   carries the nearest impact's frame onto the report as `targetCFrame`, and `HitLog` projects both
+   the card's dots and the trace line's local offset through it. **Each link is asserted where it is
+   made** (round 1, finding 3): `tests/server/weapon_rewind.spec.luau` checks `hit.frame`'s position
+   and its look vector; `tests/server/weapon_hits.spec.luau`, "carries the NEAREST impact's frame
+   onto the report, and nil for a static impact", gives two impacts different frames and asserts the
+   nearer one's survives; `tests/server/hit_card.spec.luau` then proves what the card does with it
+   (u < 0.1 with the frame, u > 0.9 without -- the known-bad side).
 6. `Range.gapStuds` is the shot SEGMENT's closest approach to the animal, not `endPoint`'s X.
    `tests/server/range.spec.luau`: a shot whose line passes 1 stud ahead and ends 1.48 studs past
    reads 1.0, not 1.48; a shot that stopped in the animal reads 0; no muzzle, no gap. The two
    direction cases and the STAND case are unchanged.
-7. The gap is measured against the animal where the shooter DREW it: `Range.onShotResolved` asks
-   `boars.cframeAt(id, resolvedAtServerTime - viewWindowFor(player))`, wired in `RangeBoot` to the
-   new `Runtime:cframeAtId`, which is `Runtime:cframeAt` looked up by id -- the same ring
-   `Weapon.castWithRewind` judges against. It falls back to the present position when the ring
-   cannot answer, which is what the read was before.
+7. The gap is measured against the animal where the shooter DREW it, at **`Weapon.rewindFor`'s
+   AMOUNT** and never `viewWindowFor`'s window (round 1, finding 1): the window is a bound a sweep
+   searches, 0.30 s, while this is how far back the cast went, 0.18 s -- and **0 while `AIM_REWIND`
+   is dark**, which is what keeps the board and the hit in one tense in both flag states.
+   `tests/server/range.spec.luau`, "measures the miss gap against the animal where the shooter drew
+   it": `onShotResolved` is driven through a fake `cframeAt` seam, and the SAME shot reads **10
+   studs** against the drawn animal and **0** against the present one; the case also asserts the id
+   asked for and that the seam was asked exactly once. `tests/server/boar_history.spec.luau`,
+   "Runtime:cframeAtId": a live runtime, an id it owns (within 1 stud of `statusOf`), an id it does
+   not (nil), and after `clear` (nil).
 8. Nothing here touches the match, the drive, the tie or the teams.
 9. `python tools/studio_mcp.py selftest` and `python tools/agents.py selftest` both pass (rule G);
    no new spec file, so no `SCOPE_SPECS` entry is needed.
 10. Money did not change across the whole live session: `$13500` on the mat before the first shot
     and `$13500` on the shot frames (`01-menu-crop.png`, `02-E-crop.png`).
+
+## Round 1's findings
+
+1. Fixed: the dial is `Weapon.rewindFor` and both comments name it. Claim 7.
+2. Fixed: `onShotResolved` through a fake `cframeAt` seam, and `Runtime:cframeAtId` on a live
+   runtime. Claim 7.
+3. Fixed: the stamp and the carry are each asserted where they are made. Claim 5.
+4. Fixed: `GetAllBoundActionInfo`. Claim 3.
+
+Notes acted on: the frame is past position + present rotation; `Hits.group`'s comment no longer
+overstates; `setEnabled` re-binds; `onMat` is cleared on `PlayerRemoving`; the mat-permission half
+is pinned on `mayShoot` through a man with no character; the 1.48 prose is gone; `frameOf` and the
+`hit_card` banner are back under their own headings; `KEY_ACTION` is `DrivenHunt.Range.Toggle`.
+Not acted on, and queued for the Architect in `ESCALATE.md`: `docs/design/shooting-range.md` 7.2 /
+8.2 / 8.5 and 9.2's tense -- the Builder may not write designs. `setPrompt`'s connect-time
+visibility read is queued with them.
 
 ## What I could not verify
 
