@@ -680,6 +680,13 @@ function Weapon.castWithRewind(
 	end
 	-- THE EFFECTIVE LOOK-BACK IN SECONDS, which is the number that has to match the shooter's own
 	-- drawn lag: how far the ring carried the animal back, over its own speed.
+	-- THE INSTANT THE ANIMAL WAS TESTED AT, on the animal itself so the SHOOTER'S client can compare
+	-- it with the moment he pulled the trigger (task 305b). Studio only.
+	if RunService:IsStudio() then
+		pcall(function()
+			(candidates[1].root :: any):SetAttribute("DH305At", at)
+		end)
+	end
 	local back = (candidates[1].present.Position - candidates[1].past.Position).Magnitude
 	local spd = (candidates[1].root :: any).AssemblyLinearVelocity.Magnitude
 	trail(
