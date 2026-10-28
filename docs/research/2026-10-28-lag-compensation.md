@@ -91,13 +91,16 @@ prints `LEAD VIEW <= 7.21 studs`), fixes it for every weapon at once, and leaves
 **THE CAUSE HAS TWO HALVES AND THIS NOTE FIRST DESCRIBED ONE.** Session `9d5b3ff8`, measuring on the
 range mat in Karen's own place, read the opposite sign: the client draws the target **+4.18 studs
 AHEAD** of the server (0.174 s in the FUTURE), and `GetNetworkOwner()` reads the PLAYER once he is
-on the mat and `SERVER` at 134 studs. `Boar.Body.create` leaves `GetNetworkOwnershipAuto()` true, so
-**the engine hands a near animal to the nearest player and the server's own copy becomes the stale
-one**. The required lead therefore FLIPS SIGN with the shooter's distance, which is why it is
+on the mat and `SERVER` at 134 studs. `Boar.Body.create` DOES pin the trunk -- it calls `part:SetNetworkOwner(nil)` -- but
+`Body.attachVisual` then welds the drawn mesh into the assembly, the assembly is rebuilt, and
+ownership reverts to AUTO (`GetNetworkOwnershipAuto()` read true on every live animal in both
+places). **So the engine hands a near animal to the nearest player and the server's own copy becomes
+the stale one**. An earlier revision of this paragraph named `create` as the missing call; that was
+wrong and the call is already there. The required lead therefore FLIPS SIGN with the shooter's distance, which is why it is
 unlearnable.
 
-So the rewind above is right only where the SERVER simulates the animal. `part:SetNetworkOwner(nil)`
-in the animal's own owner makes that true at every distance (measured by that session: with it the
+So the rewind above is right only where the SERVER simulates the animal. **Re-pinning the trunk
+AFTER `attachVisual`'s weld loop** makes that true at every distance (measured by that session: with it the
 same target reads -4.74 studs, 0.213 s in the PAST, one-signed). **Both halves ship or neither
 works**, and `AIM_REWIND` is therefore born `default = false` rather than lit: the order is pin the
 ownership, re-measure `305lag.py` one-signed at both distances, then flip the flag.

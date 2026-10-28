@@ -53,17 +53,18 @@ return function()
 					instance = Instance.new("Part"),
 					position = origin,
 					normal = Vector3.new(0, 1, 0),
-					distance = 10 - seen,
+					-- **RISING**, so the nearest answer is the FIRST one asked and not the last
+					-- (round 2 finding 1). With a falling sequence the last call was also the
+					-- nearest, so last-wins and nearest-wins gave the same number and the
+					-- assertion could not fail. 5 then 6 under a cap of 2: nearest-wins is 5.
+					distance = 5 + seen,
 					material = Enum.Material.Plastic,
 				}
 			end
-			-- NEAREST FIRST, so last-wins and `<=` are both refused, not only first-wins
-			-- (round 1 note): the answers are 9 then 8 then 7, the cap is 2, so only a rule that
-			-- keeps the NEAREST of the two it saw gives 8 -- and the third was never asked.
 			local list = { candidate(1), candidate(2), candidate(3) }
 			local hit = Rewind.impact(Vector3.zero, Vector3.new(0, 0, 4), list, castOnly, 2)
 			expect(seen).to.equal(2)
-			expect((hit :: any).distance).to.be.near(8, 1e-4)
+			expect((hit :: any).distance).to.be.near(5, 1e-4)
 		end)
 
 		it("is nil for no candidate, and refuses a candidate with no history", function()
@@ -105,6 +106,10 @@ return function()
 			)
 			-- the ring's own span is the ceiling
 			expect(Weapon.rewindFor(nil, 10, CONFIG)).to.be.near(CONFIG.CLAIM.VIEW_LAG_MAX_SECONDS, 1e-6)
+			-- **THE nil-PING BRANCH, which is the one the game itself takes** (round 2 finding 2:
+			-- `onFireRequest` calls `Weapon.rewindFor(player, nil, CONFIG)`). A nil player makes
+			-- the `pcall` fail, and a failed ping must contribute ZERO rather than a guess.
+			expect(Weapon.rewindFor(nil, nil, CONFIG)).to.be.near(CONFIG.FLIGHT_REWIND_BASE_SECONDS, 1e-6)
 			Weapon.setRewindPolicy(was)
 		end)
 

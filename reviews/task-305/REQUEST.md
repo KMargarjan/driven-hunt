@@ -63,8 +63,11 @@ merging either.**
    ignore list** (finding 1, red first). Verify: revert `Weapon.castWithRewind`'s body to
    `castFn(origin, direction, ignore)` and the first case fails.
 4. **The tie case asserts IDENTITY, not the distance**, so `<` cannot silently become `<=`
-   (`expect(Rewind.nearer(tieStatic, tieRewound)).to.equal(tieStatic)`). The nearest-candidate case
-   now says why 9/8/7 under a cap of 2 also refuses last-wins.
+   (`expect(Rewind.nearer(tieStatic, tieRewound)).to.equal(tieStatic)`). **The nearest-candidate case
+   did NOT refuse last-wins, and round 2 finding 1 is right**: the injected answers FELL (9, 8, 7),
+   so under a cap of 2 the last call asked was also the nearest and the two rules gave one number.
+   They now RISE (5, 6), so nearest-wins gives 5 and last-wins gives 6 -- added after the round-2
+   verdict and NOT reviewed.
 
 Notes also taken: candidates are sorted nearest-the-muzzle **before** the cap, so `MAX_TARGETS` cuts
 the far animal and never leaves a near one neither rewound nor excluded; `MaxParts` 200 -> 800 with
@@ -126,8 +129,10 @@ plus `Ballistics.leadStuds` and nothing else.
 6. **Both states are reachable by parameter**, and both are driven: `setRewindPolicy` in the
    `rewindFor` cases, and `rewind = 0` versus `0.18` in the `castWithRewind` cases.
 7. **The amount is the measurement and is not `CLAIM.VIEW_LAG_BASE_SECONDS`**, capped at
-   `CLAIM.VIEW_LAG_MAX_SECONDS`, zero for a negative, a NaN or a missing ping. The `nil`-ping branch
-   (the one `onFireRequest` itself takes) is now covered too.
+   `CLAIM.VIEW_LAG_MAX_SECONDS`, zero for a negative, a NaN or a missing ping. **Round 2 finding 2: the
+   `nil`-ping branch, which is the one `onFireRequest` itself takes, was NOT covered when this
+   sentence first claimed it was.** One line now covers it
+   (`Weapon.rewindFor(nil, nil, CONFIG)`), added after the round-2 verdict and NOT reviewed.
 8. **The range gets the rewind.** `RangeBoot` ADDS its own runtime's `cframeAt` beside the drive's;
    without it the range had none, which was finding 1's live consequence (0/6, measured). A spec
    case proves the fall-through with no world: one provider wired, no rewind, no hit; add the

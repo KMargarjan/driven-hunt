@@ -1,64 +1,114 @@
-# ESCALATE -- Task 305, 2026-10-28 (written ~10:20 UTC, amended ~11:00 UTC; deadline 12:25 UTC)
+# ESCALATE -- Task 305 (a shot hits what the shooter sees)
 
-**CORRECTION TO THIS FILE'S OWN HEADER.** It first read "12:20 UTC", which was an estimate of
-elapsed time and not a reading -- `date -u` said 10:22 immediately after it was written. V283: never
-state a time from memory. The two amendments below are stamped from `date -u`.
+Written 2026-10-28; every time below is a `date -u` reading, not an estimate. Builder session
+`5296d523`. **CORRECTION TO THIS FILE'S FIRST REVISION**: its header read "12:20 UTC" when `date -u`
+said 10:22 immediately after it was written. V283: never state a time from memory.
 
-## 1. TWO BUILDERS WERE ON THIS BRANCH AND THEIR TWO MEASUREMENTS ARE BOTH RIGHT. THE DIRECTOR MUST COMBINE THEM.
+## 0. WHY THIS IS HERE: round 2 returned FINDINGS, and the dispatch caps this task at 2 rounds
 
-Session `5296d523` (this one) and session `9d5b3ff8` were both dispatched task 305 on
-`task-305-aim-what-you-see`. We measured the same defect from two distances and got **opposite
-signs**, which is itself the finding:
+Round 1 (`fe8b589e`, 10:40 UTC): FINDINGS, four, all fixed in `bbba8b40` / `6b0d2271`.
+Round 2 (`433cb7cd`, 11:21 UTC): **FINDINGS, two.** The dispatch says *"Review: max 2 rounds;
+FINDINGS on round 2 -> ESCALATE.md and stop."* So this is the stop.
 
-| who | place | shooter -> animal | reading |
+**BOTH ROUND-2 FINDINGS ARE TEST-STRENGTH AND PAPERWORK, NOT THE GAME. No `src/` line is named by
+either.**
+
+1. `weapon_rewind.spec` -- the nearest-candidate case could not fail: the injected answers FELL
+   (9, 8, 7), so under a cap of 2 the last call asked was also the nearest and nearest-wins and
+   last-wins gave one number. The Reviewer is right.
+2. `weapon_rewind.spec` + claim 7 -- the `nil`-ping branch, the one `onFireRequest` itself takes,
+   was still uncovered while the request asserted it closed. The Reviewer is right.
+
+**I have fixed both in the tree and have NOT reviewed the fix** (the answers now RISE, 5 then 6, so
+the selection rule decides the assertion; and one line calls `Weapon.rewindFor(nil, nil, CONFIG)`).
+The request says of each, on the line itself, that it was added after the round-2 verdict and is
+unreviewed. **Nothing is merged on that basis.**
+
+**WHAT I AM ASKING THE DIRECTOR FOR: the single extra round CLAUDE.md already provides for.** Its
+condition is met exactly -- *"The Director may authorise a single extra round when the last round's
+findings were documentation-only"* -- and both findings are a test assertion and a sentence. The
+mechanism is an `ESCALATE.md` entry for **this task and this round** plus
+`DIRECTOR_MAX_ROUNDS=3 powershell -ExecutionPolicy Bypass -File tools/review.ps1 305`, never
+committed. I have not set it and will not without that authorisation written here.
+
+## 1. THE FIX HAS TWO HALVES, BUILT BY TWO SESSIONS ON ONE BRANCH, AND BOTH ARE NEEDED
+
+Two Builder sessions were dispatched task 305 on `task-305-aim-what-you-see`: `5296d523` (this one)
+and `9d5b3ff8`. We measured the same defect from two distances and got **opposite signs**, which is
+itself the finding.
+
+| half | commit(s) | what it does |
+|---|---|---|
+| **the rewind** (`5296d523`) | `605e1f6d`, `bbba8b40`, `6b0d2271` | the server resolves a shot against each animal **where the shooter drew it**, 0.180 s back (measured), for every weapon. Behind `AIM_REWIND`, **dark** |
+| **the ownership** (`9d5b3ff8`) | `97d67896` | re-pins the trunk to the server in `Body.attachVisual`, after the weld loop that rebuilds the assembly and reverts it to AUTO. **No flag** |
+
+`Boar.Body.create` already calls `part:SetNetworkOwner(nil)`. `attachVisual`'s welds undo it, so the
+engine hands a NEAR animal to the nearest player, the client simulates it, and the server's copy --
+the one every shot is cast against -- is the stale one. **That is why the required lead flips sign
+with the shooter's distance and cannot be learnt.** Measured, `reviews/task-305/MEASURED.md`:
+
+| where | distance | pace | view lag |
 |---|---|---|---|
-| this session, `<runs-dir>/305lag.py` | DEV, boar at **115 studs** | far | client draws the animal **+0.180 s IN THE PAST** (residual 0.011 studs); own client-owned part **-0.170 s in the future** |
-| session `9d5b3ff8` | Karen's Forest Test range + DEV | **near / on the mat** | client draws the animal **AHEAD** of the server by 4.00 studs at 24.8 studs/s (0.159 s); `GetNetworkOwner()` reads `SERVER` at 134 studs and **the PLAYER once he is on the mat** |
+| Karen's Forest Test, her range, her build | 126 studs | run 23.5 | +4.18 studs = 0.174 s, client in the **FUTURE** |
+| DEV, the range, player on the mat | 123 studs | run 24.2 | -4.38 studs = 0.176 s, client in the **PAST** |
+| DEV, boar at 115 studs (`<runs-dir>/305lag.py`, this session) | 115 studs | walk 2.6 | +0.180 s, client in the **PAST**, residual 0.011 studs |
 
-**The cause of the unlearnable lead is that `Boar.Body.create` leaves the trunk unanchored with
-`GetNetworkOwnershipAuto()` true, so the engine hands the animal to the nearest player.** Near the
-animal the CLIENT simulates it and the server's copy trails; far from it the server owns it and the
-CLIENT's copy trails. **The sign of the required lead therefore flips with distance**, which is
-exactly Karen's *"aiming is off"*.
+The control for the last row is **moving and client-owned** (the player's own pushed
+`HumanoidRootPart`, -0.170 s): a clock skew biases both recordings the same way, so opposite signs
+of near-equal size cannot be skew. That is Learning Agent L-112's requirement, and it is what task
+265 round 3 lacked.
 
-**Neither fix alone is right, and they do not conflict:**
-- `9d5b3ff8`'s commit `97d67896` -- **re-pinning the trunk in `Boar.Body.attachVisual`**, not in
-  `Body.create`. **This file first named `create` and that was wrong**: `Body.create` already calls
-  `trunk:SetNetworkOwner(nil)` and has for some time; `attachVisual` then welds the drawn mesh into
-  the assembly, the assembly is rebuilt, and ownership reverts to AUTO
-  (`GetNetworkOwnershipAuto()` read true on every live animal in both places). That is why the
-  engine hands a near animal to the nearest player. It does **not** remove the lag; it makes it
-  one-signed.
-- this session's commit `605e1f6d` -- the server resolves the shot against the animal **where the
-  shooter drew it**, 0.180 s back, measured -- removes that remaining one-signed lag, for every
-  weapon, on the range and in the hunt. **With auto-ownership still on it is WRONG for a shooter
-  standing next to the animal**, because it would rewind a server copy that is already behind.
+**Neither half alone works, measured** (`MEASURED.md`, rifle, range run pace, 10 real `FireRequest`s
+aimed at the client's own rendered chest plus `Ballistics.leadStuds` alone):
 
-**Director decision needed: land `SetNetworkOwner(nil)` FIRST, then re-measure `305lag.py` at 115
-studs AND on the mat.** If both then read ~+0.18 s with one sign, `605e1f6d` is the second half and
-`FLIGHT_REWIND_BASE_SECONDS` is re-fitted to whatever that re-measurement says. If pinning ownership
-alone brings the required lead to the ballistic lead, this commit's flag `AIM_REWIND` is turned OFF
-and the row retired. **It is behind a flag precisely so this is one line either way.**
+- (a) both dark -- **0/10**
+- (b) ownership only -- **VOID**, 9 of 10 refused `no-ammo`
+- (c) rewind only -- **0/6** (and that was round 1's finding 1: the range's own runtime was not in
+  the provider seam, so the bullet went through the drawn animal, caught geometrically 0.05 studs
+  from the chest and carrying on to the berm)
+- (d) **both** -- **10 hits in 11 shots that flew**, chest x6 body x4, 6 for 6 at pace >= 15 studs/s,
+  impacts 0.02-0.15 studs from the aim point
 
-## 1b. AMENDMENT, 2026-10-28 ~11:00 UTC: BOTH HALVES ARE NOW MEASURED TOGETHER AND IT WORKS.
+## 2. DECISIONS THE DIRECTOR OWNS
 
-`reviews/task-305/MEASURED.md` (session `9d5b3ff8`) holds the four cases, rifle at the range's run
-pace, 10 real `FireRequest`s each aimed at the CLIENT'S OWN rendered chest plus the ballistic lead
-alone: **(a) both halves dark 0/10, (c) rewind alone 0/6, (d) both halves on 10 hits in 11 shots
-that flew** (chest x6, body x4; 6 for 6 at pace >= 15 studs/s; impacts 0.02-0.15 studs from the aim
-point). Case (b) is void -- 9 of 10 refused `no-ammo`. Case (c) is ALSO the live proof of round 1's
-finding 1, caught geometrically: the shot crossed 0.05 studs from the chest and carried on to the
-berm. **Still NOT PROVEN: walk and trot, the lever, the semi-auto, buckshot, and any hunt animal.**
+1. **The single extra review round** (section 0). Without it neither half can be merged: the gate
+   wants `RESULT.md` line 1 = `PASS`.
+2. **The order.** `97d67896` (ownership) is unflagged and ships lit; `AIM_REWIND` ships dark. **That
+   combination has no hit-rate measurement anywhere** -- case (b) is exactly that build and is void.
+   So merging the ownership half alone gives Karen a sign flip at close range that nobody has shot
+   at. Either measure (b) properly first, or merge both and light the flag together.
+3. **Whether `AIM_REWIND` is lit, and where.** The dispatch said *"born ON for the range"*; it ships
+   `default = false` because round 1 finding 2 was right that this half alone is wrong while
+   ownership is auto. With `97d67896` in, that objection is gone and lighting it is one line. Karen's
+   own place needs the override set, not the default, until a merge.
+4. **An Architect run on `docs/design/ballistics.md` BEFORE the flag is lit.** Section 1.3 says
+   *"No shot is resolved against a rewound world by raycast"*, which this change contradicts, and
+   the public-surface list omits `addHistoryProvider`, `setRewindWorld`, `setRewindPolicy`,
+   `rewindFor` and `castWithRewind`. The Builder may not write designs (CLAUDE.md roles table), so
+   this cannot be closed from here.
+5. **A frame-time number before the flag is lit.** With it on, each pellet sub-step costs one
+   `GetPartBoundsInRadius` (`MaxParts = 800`), one `table.clone` and a sort, plus up to
+   `MAX_TARGETS` rays -- up to `FLIGHT_MAX_SUBSTEPS` x 9 for buckshot. Nothing in the repo measures
+   it. The Reviewer asked for it as a note; it is a real question and it is not mine to answer with
+   the Studio held.
 
-## 2. NEEDS DIRECTOR: THE CLICK PROOF DID NOT RUN IN *THIS* SESSION. (Session `9d5b3ff8`'s did; see 1b.)
+## 3. NOT PROVEN, named rather than implied (rule 8)
 
-`<runs-dir>/305run.py` + `305-shoot.luau` (a real `FireRequest` aimed at the CLIENT'S OWN rendered
-chest plus `Ballistics.leadStuds` and nothing else) got as far as firing and `Weapon.stats().shots`
-stayed **0** -- the DEV arena refused every request, almost certainly because the drive is not open
-in the lobby phase (`driveOpenProvider`). Not diagnosed; the session ran out of clock.
-**So: `>= 8/10` per pace per gun is NOT PROVEN, the fail-first is NOT PROVEN, and no frame was
-taken.** Per V280 this is written at the stop, not worked around.
-
-## 3. Review rounds, as of ~11:00 UTC: round 1 returned FINDINGS (four, all fixed in `bbba8b40`);
-round 2 is being run. **The dispatch caps this task at 2 rounds** -- findings on round 2 means this
-file gets another entry and the Builder stops.
+- **Nothing of either half has been seen in KAREN's place.** Every proof row is DEV. Her own reading
+  is of her SHIPPED build, which has neither half. **Rule 5 is not met for this change**, and the
+  Playtester playing her place is what closes it.
+- **This session never landed a shot of its own.** In the DEV arena the request is refused before
+  anything is cast -- `REFUSED off-stand` (`Rules.OFF_STAND`), caught verbatim off `StateChanged`,
+  because no drive had assigned the man a stand. The range mat is the door and the other session had
+  the rig there. Written at the hard stop, per V280, not worked around.
+- **The shotgun slug is 4/6, BELOW the >= 8/10 target**, and two of its shots produced no impact at
+  all, unexplained.
+- **The walk and trot rows (6/6 and 4/4) do not discriminate**: both were read at low drawn speeds
+  where the whole demanded lead is under half a stud, so a build with no fix would pass them. RUN is
+  the only row that carries the claim. That caveat is the measuring session's own.
+- **NOT RUN at all**: the lever, the semi-auto, buckshot, and any HUNT animal (boar or deer in a
+  drive). Every row is the range's own target.
+- **The discriminating live row was taken at `97d67896`**, which carries the chained-provider shape,
+  not the shipped `Weapon.addHistoryProvider` one. The suite is green over the new seam and the two
+  answer the same question for a range shot, but the Playtester should re-run the run pace on the
+  merged head.
