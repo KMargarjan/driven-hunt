@@ -54,6 +54,11 @@ mesh's width (0.140 for the male) separates the two groups with room to spare.
 
 ### Before and after, same probe, same place, same pace
 
+**Which column came from which instrument** (Reviewer note, verdict 278): the **carrier** rows'
+BEFORE is `rig2.luau`, which RE-IMPLEMENTS the old rule on the live animal -- a transcription of the
+deleted code, not a reading taken on `5c444dbe`. The **pose travel** rows' before IS a reading of
+the base build, taken by `rig.luau` before the fix was written.
+
 | reading | `5c444dbe` | `472b8c68` |
 |---|---|---|
 | `ZoneBody1` carrier (`carrier.luau`, predicted vs live `C0`) | -- | **`Neck`, err 0.0284** (next `hip_1_f.R` 0.1550) |
@@ -65,6 +70,14 @@ mesh's width (0.140 for the male) separates the two groups with room to spare.
 | every other box's carrier | spine / tail / shin | unchanged |
 
 `ZoneBody1` is **0.12 studs tall**: 0.420 studs of travel is three and a half times its own height.
+
+**Travel is not fit, and the fit is a separate number.** `carrier.luau` compares the live `C0` with
+`Neck.TransformedWorldCFrame * inBone` frame by frame: **0.0284 studs** mean error, against 0.1550
+for `hip_1_f.R`. So the box now tracks the `Neck` bone's own deformation to three hundredths of a
+stud. What that does NOT say is that `Neck` is where the drawn SLAB is -- that is the mesh's skin
+WEIGHTS, which nothing in the engine exposes, and the nearest-bone rule is a proxy for them. The
+claim here is only the one the numbers carry: the box left a bone that moves with one ear and joined
+the bone the shoulder is built on.
 
 ### The known-bad input still fails (rule L)
 
