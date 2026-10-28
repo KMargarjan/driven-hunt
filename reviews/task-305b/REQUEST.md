@@ -1,9 +1,9 @@
 # Task 305b -- the aim fix works in DEV and not in Karen's place
 
 Task: 305b
-Round: 1
+Round: 2
 Base: 2b77716e
-Code commit: 14bbd363fa9e66b36ebfeb7d400d06592c52ed35
+Code commit: PENDING
 
 ## PLAN
 
@@ -90,16 +90,25 @@ The table is `reviews/task-305b/MEASURED.md` section 3: the same instrument
    the lead shown and the lead demanded are one number. Verify: `src/server/Weapon/Flight.luau`,
    the `rewind` block inside `Flight.advance`.
 5. **The new branch is entered by a case, not only by the shipped value.** `weapon_rewind.spec`,
-   `describe("Flight.advance's rewind anchor")`: 0.05 s of slip is added (0.18 -> 0.23), `now = nil`
-   is bit-for-bit the old flight (0.18), and a 900 s gap clamps at `CLAIM.VIEW_LAG_MAX_SECONDS`.
+   `describe("Flight.advance's rewind anchor")`: 0.05 s of slip is added (0.18 -> 0.23) and a 900 s
+   gap clamps at `CLAIM.VIEW_LAG_MAX_SECONDS` -- those two go red if the block is deleted. The
+   third, `now = nil`, is the NON-REGRESSION half and passes with the block deleted, by design.
 6. **The fix is not claimed to raise the hit rate.** 7/10 after against 9/10 before, n=10 each --
    the same number within one standard error. It is kept for the arithmetic, and `MEASURED.md` 3
    says so in those words.
-7. **The diagnostic is Studio-only and read by nothing in the game.** `trail` and the `DH305At`
-   attribute are both inside `if RunService:IsStudio()`, both in `pcall`, and nothing reads them.
+7. **The diagnostic costs a live server nothing (round 1 finding 1, fixed).** `STUDIO` is read once
+   at load and EVERY call site -- all four exits -- is wrapped in `if STUDIO then`, so on a live
+   server no `string.format` is built, no `AssemblyLinearVelocity`/`CFrame` is read for the probe
+   and no counter is bumped. Verify: grep `STUDIO` in `Weapon.castWithRewind`; the first exit (the
+   one the shipped game always takes, because `AIM_REWIND` ships OFF) now does nothing but cast.
 8. **The board's `MISS GAP` misleads and is NOT fixed here.** 1.3 m = 0.18 s x 24 studs/s is the
    view lag: the board measures against the server's present position. Queued for the Director.
 9. **Harness**: the PASS line above, full scope, at the code commit; only paperwork after it.
-10. **NOT PROVEN, named**: the real-click path (every number here is a client-VM `FireRequest`);
+10. **Known, not fixed here** (round 1 notes, queued): `castWithRewind` still reads its own
+    `GetServerTimeNow()` for `at`, so the slip inside the Heartbeat handler survives -- passing
+    `now` through the cast seam would close it; `DH305At` is written on the Boar's trunk by
+    `Weapon` and is kept there deliberately, because it is the instrument the next run reads from
+    a CLIENT and a client cannot read ServerStorage.
+11. **NOT PROVEN, named**: the real-click path (every number here is a client-VM `FireRequest`);
     the lever, the semi-auto and buckshot; any animal but the range's boar; shotgun SLUG at run
     (3/5, below the 4/5 asked); WALK and TROT on the fixed build. `MEASURED.md` 4.

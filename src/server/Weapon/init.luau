@@ -602,10 +602,10 @@ end
 -- read by nothing in the game: `stats` is module state and an `execute_luau` probe gets a FRESH
 -- module, so the live server's own answer has to be published (`ServerStorage.DHBoarHistory`'s rule).
 local rewindTrail = { plain = 0, cast = 0, hit = 0 }
+-- READ ONCE, AND EVERY CALL SITE IS WRAPPED IN `if STUDIO then` (round 1 finding 1): a live server
+-- formats no string and reads no part for a probe it cannot reach.
+local STUDIO = RunService:IsStudio()
 local function trail(why: string, extra: string?)
-	if not RunService:IsStudio() then
-		return
-	end
 	pcall(function()
 		ServerStorage:SetAttribute(
 			"DH305Rewind",
@@ -628,11 +628,13 @@ function Weapon.castWithRewind(
 	rewind: number?
 ): Shotgun.Impact?
 	if type(rewind) ~= "number" or rewind <= 0 or (historyProvider == nil and #extraHistory == 0) then
-		rewindTrail.plain += 1
-		trail(
-			if type(rewind) ~= "number" or rewind <= 0 then "rewind-zero" else "no-provider",
-			string.format("rewind=%s extras=%d", tostring(rewind), #extraHistory)
-		)
+		if STUDIO then
+			rewindTrail.plain += 1
+			trail(
+				if type(rewind) ~= "number" or rewind <= 0 then "rewind-zero" else "no-provider",
+				string.format("rewind=%s extras=%d", tostring(rewind), #extraHistory)
+			)
+		end
 		return castFn(origin, direction, ignore)
 	end
 	local findCandidates = candidatesFn or Cast.candidates
@@ -644,8 +646,10 @@ function Weapon.castWithRewind(
 	-- arbitrary order would leave the 9th animal of a sounder neither rewound nor excluded.
 	local roots = findCandidates(origin, direction, pad, ignore, Hits.targetOf, CONFIG.CLAIM.MAX_TARGETS)
 	if #roots == 0 then
-		rewindTrail.plain += 1
-		trail("no-roots", string.format("rewind=%.3f pad=%.1f", rewind, pad))
+		if STUDIO then
+			rewindTrail.plain += 1
+			trail("no-roots", string.format("rewind=%.3f pad=%.1f", rewind, pad))
+		end
 		return castFn(origin, direction, ignore)
 	end
 	local at = Workspace:GetServerTimeNow() - rewind
@@ -666,41 +670,44 @@ function Weapon.castWithRewind(
 		end
 	end
 	if #candidates == 0 then
-		rewindTrail.plain += 1
-		trail("no-history", string.format("rewind=%.3f roots=%d", rewind, #roots))
+		if STUDIO then
+			rewindTrail.plain += 1
+			trail("no-history", string.format("rewind=%.3f roots=%d", rewind, #roots))
+		end
 		return castFn(origin, direction, ignore)
 	end
 	local static = castFn(origin, direction, staticIgnore)
 	local rewound = Rewind.impact(origin, direction, candidates, castOnly, CONFIG.CLAIM.MAX_TARGETS)
 	stats.rewindCasts += #candidates
-	rewindTrail.cast += 1
 	if rewound ~= nil then
 		stats.rewindHits += 1
-		rewindTrail.hit += 1
 	end
-	-- THE EFFECTIVE LOOK-BACK IN SECONDS, which is the number that has to match the shooter's own
-	-- drawn lag: how far the ring carried the animal back, over its own speed.
-	-- THE INSTANT THE ANIMAL WAS TESTED AT, on the animal itself so the SHOOTER'S client can compare
-	-- it with the moment he pulled the trigger (task 305b). Studio only.
-	if RunService:IsStudio() then
+	-- THE WHOLE DIAGNOSTIC INSIDE ONE GUARD (round 1 finding 1): the instant the animal was tested
+	-- at, published on the animal so the SHOOTER'S client can compare it with his own trigger, and
+	-- the effective look-back in seconds. Nothing in the game reads either.
+	if STUDIO then
+		rewindTrail.cast += 1
+		if rewound ~= nil then
+			rewindTrail.hit += 1
+		end
 		pcall(function()
 			(candidates[1].root :: any):SetAttribute("DH305At", at)
 		end)
-	end
-	local back = (candidates[1].present.Position - candidates[1].past.Position).Magnitude
-	local spd = (candidates[1].root :: any).AssemblyLinearVelocity.Magnitude
-	trail(
-		"rewound",
-		string.format(
-			"rewind=%.3f cands=%d back=%.2f spd=%.2f eff=%.3f hit=%s",
-			rewind,
-			#candidates,
-			back,
-			spd,
-			if spd > 1 then back / spd else 0 / 0,
-			tostring(rewound ~= nil)
+		local back = (candidates[1].present.Position - candidates[1].past.Position).Magnitude
+		local spd = (candidates[1].root :: any).AssemblyLinearVelocity.Magnitude
+		trail(
+			"rewound",
+			string.format(
+				"rewind=%.3f cands=%d back=%.2f spd=%.2f eff=%.3f hit=%s",
+				rewind,
+				#candidates,
+				back,
+				spd,
+				if spd > 1 then back / spd else 0 / 0,
+				tostring(rewound ~= nil)
+			)
 		)
-	)
+	end
 	return Rewind.nearer(static, rewound)
 end
 

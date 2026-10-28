@@ -1,4 +1,9 @@
-# Task 305b -- the live measurements, all in KAREN'S place (Forest Test, Play, her flags untouched)
+# Task 305b -- the live measurements, all in KAREN'S place (Forest Test, Play)
+
+**Her overrides, left exactly as they were and NOT at the shipped defaults** (both rows are
+`default = false`): `DHFlag_AIM_REWIND=true` and `DHFlag_RANGE=true`, plus the eight others already
+on her ServerStorage. Nothing was set, cleared or restored by this session. Every number below is
+read with the rewind ON; at the shipped default it is off and none of this path runs.
 
 Instruments: `<runs-dir>/305b/cand.luau` (the live `Cast.candidates` over the flight's own step),
 `305b/hist.luau` and `305b/trail.luau` (`ServerStorage.DHBoarHistory` / `DH305Rewind`, both written
@@ -68,3 +73,16 @@ removes is real; it is NOT claimed as the cause of anything Karen saw.
 - **Any animal but the range's boar** -- no deer, no drive animal.
 - **Shotgun SLUG at run**: 3 of 5 (one line never fired, one produced no impact). Below the 4/5 asked.
 - **WALK and TROT on the fixed build**: not re-run.
+- **The task's own stud criterion** -- plan (c), "the impact lands within 1.0 stud of the chest the
+  client drew" -- is NOT measured on either build. What is reported is hit counts and
+  `testedAt - firedAt`. The rig's `impact-drawn` column reads the chest ~0.6 s after the shot and
+  is not that number.
+- **`DH305At` is overwritten per rewound cast**, so for a MISS the probe reads the range-cap cast
+  and not an impact cast. The cycle-3 row's n=10 mixes both; the seven hits are impact casts.
+- **`eff = back / spd` reproduces `rewind` by construction** for a steadily-moving animal: it is
+  evidence the ring can answer that far back, not an independent measurement of the look-back. The
+  real comparison in that row is the shipped `FLIGHT_REWIND_BASE_SECONDS = 0.18` against the
+  separately measured 0.185-0.205.
+- **Rule 5 / Karen**: nobody has played this. No screenshot, no real click, and the whole path is
+  behind `AIM_REWIND`, which ships OFF -- so this commit changes nothing she can judge until a
+  separate commit lights the flag.
