@@ -123,9 +123,6 @@ function Build.build(opts)
 	-- THE MAT FIRST, so it is the folder's first direct-child BasePart: the harness's stage block
 	-- puts the player at a folder's first BasePart plus an offset (design section 11.3), and that
 	-- has to be the firing position and not a screen 145 studs downrange.
-	-- WHICH WAY IS DOWNRANGE, off the ROW and never off the world's name: +1 in DEV, -1 in Karen's
-	-- place, where the lane points south away from the lodge (design 4.2 item 5).
-	local dir = RangeData.downrangeOf(row)
 	local mats = {}
 	for spot = 1, layout.SPOT_COUNT do
 		local at = RangeData.matPosition(anchor, spot, layout)
@@ -136,22 +133,6 @@ function Build.build(opts)
 			at.Z,
 			layout.MAT.color
 		)
-		-- THE POST, AND THE PROMPT ON TOP OF IT, NOT ON THE FLOOR. A prompt lying on the 8x8 mat is
-		-- off screen whenever she looks down the lane, and E then does nothing (Director's
-		-- real-key proof, 2026-10-28). `Lobby.Build.shopPrompt`'s shape: a part at chest height,
-		-- with the prompt on an attachment, found by NAME so nothing downstream changes.
-		local post = RangeData.promptPosition(anchor, spot, layout, dir)
-		local postPart = onGround(
-			layout.SPOT_COUNT == 1 and "Post" or string.format("Post%d", spot),
-			layout.POST.size,
-			post.X,
-			post.Z,
-			layout.POST.color
-		)
-		local at0 = Instance.new("Attachment")
-		at0.Name = "RangePromptAt"
-		at0.Position = Vector3.new(0, postPart.Size.Y / 2, 0)
-		at0.Parent = postPart
 		local prompt = Instance.new("ProximityPrompt")
 		prompt.Name = if layout.SPOT_COUNT == 1
 			then RangeData.PROMPT_NAME
@@ -161,10 +142,13 @@ function Build.build(opts)
 		prompt.MaxActivationDistance = layout.PROMPT.MaxActivationDistance
 		prompt.HoldDuration = layout.PROMPT.HoldDuration
 		prompt.RequiresLineOfSight = false
-		prompt.Parent = at0
+		prompt.Parent = mat
 		table.insert(mats, mat)
 	end
 
+	-- WHICH WAY IS DOWNRANGE, off the ROW and never off the world's name: +1 in DEV, -1 in Karen's
+	-- place, where the lane points south away from the lodge (design 4.2 item 5).
+	local dir = RangeData.downrangeOf(row)
 	local lane = RangeData.laneCentre(anchor, layout, dir)
 	local half = RangeData.laneLength(layout) / 2
 

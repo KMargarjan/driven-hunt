@@ -12,7 +12,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
-local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 local RangeBoard = {}
 
@@ -119,22 +118,9 @@ function RangeBoard.rowText(): { string }
 			tostring(record.weapon or "?")
 		)
 			.. " / "
-			.. RangeBoard.ammoText(record.weapon, record.ammo)
+			.. tostring(record.ammo or "?")
 	)
 	return out
-end
-
--- THE CARTRIDGE AS THE GUN NAMES IT. `record.ammo` is the WIRE word -- "Slug" for BOTH guns,
--- because `Boar.Wound.damageFor` branches on that string -- so the board read "rifle / Slug" with
--- a .416 chosen and the ammo chip reading .416 (Director's proof, frame 14-walk). The row's own
--- `AMMO_LABEL` is the chip's source and `RangePanel`'s, so all three now say one thing.
-function RangeBoard.ammoText(weapon: any, ammo: any): string
-	local row = Weapons.row(weapon)
-	local labels = if row ~= nil then row.AMMO_LABEL else nil
-	if type(labels) == "table" and type(ammo) == "string" and type(labels[ammo]) == "string" then
-		return labels[ammo]
-	end
-	return tostring(ammo or "?")
 end
 
 function RangeBoard.reset(): boolean
