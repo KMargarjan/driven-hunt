@@ -915,8 +915,9 @@ local function restLocal(bone: Instance): CFrame
 	return at
 end
 
--- WHICH BONE CARRIES EACH HIT BOX: the one whose REST position is nearest the box's own centre.
--- A rule and not a table, so the deer's boxes and the next animal's are served by the same line.
+-- WHICH BONE CARRIES EACH HIT BOX: the nearest bone by REST position, on the box's own side of the
+-- centre line (task 305d). A rule and not a table, so the deer's boxes and the next animal's are
+-- served by the same line.
 -- Returns how many boxes were wired; 0 before a visual is attached, which is the grey-box world.
 function Body.gaitRig(handle): number
 	local rows = handle.zoneRows
@@ -934,17 +935,39 @@ function Body.gaitRig(handle): number
 	if #bones == 0 then
 		return 0
 	end
+	-- A BOX ON THE CENTRE LINE IS CARRIED BY A BONE ON THE CENTRE LINE (task 305d). Nearest-bone
+	-- alone gave `ZoneBody1` (the slab over the shoulders) to `ear_1.L` and `ZoneBody2` to
+	-- `hip_1_f.R`: those boxes sit on the BACK, a stud above the spine, so a paired bone is nearer
+	-- in the air than the spine bone under them -- and a paired bone moves with one side only.
+	-- Measured: `reviews/task-305d/MEASURED.md` (centre bones |x| = 0.000, paired ones from 0.235).
+	local centreX = math.max(mesh.Size.X, 1e-3) * 0.1
+	local function sideOf(x: number): number
+		return if x > centreX then 1 elseif x < -centreX then -1 else 0
+	end
 	local wired = 0
 	for _, row in ipairs(rows) do
+		local boxSide = sideOf(row.offset.X)
 		local best, bestRest, bestDistance = nil, nil, math.huge
+		local anyBest, anyRest, anyDistance = nil, nil, math.huge
 		for _, bone in ipairs(bones) do
 			local rest = restLocal(bone)
 			-- In the TRUNK's frame, because the box offsets are and the mesh is welded to the trunk.
 			local at = trunk.CFrame:PointToObjectSpace((mesh.CFrame * rest).Position)
 			local distance = (at - row.offset).Magnitude
-			if distance < bestDistance then
+			if distance < anyDistance then
+				anyBest, anyRest, anyDistance = bone, rest, distance
+			end
+			-- A centre box takes a centre bone; a box on one side takes that side's bone or a
+			-- centre one. The nearest of the rest is still the rule, inside that pool.
+			local boneSide = sideOf(at.X)
+			if (boneSide == boxSide or boneSide == 0) and distance < bestDistance then
 				best, bestRest, bestDistance = bone, rest, distance
 			end
+		end
+		-- NO ANIMAL GOES UNWIRED: a rig with no bone on the box's own side keeps the plain nearest,
+		-- which is exactly what every kind had before this rule.
+		if best == nil then
+			best, bestRest = anyBest, anyRest
 		end
 		row.bone = best
 		row.rest = bestRest
