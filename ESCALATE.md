@@ -44,6 +44,21 @@ mechanism is an `ESCALATE.md` entry for **this task and this round** plus
 `DIRECTOR_MAX_ROUNDS=3 powershell -ExecutionPolicy Bypass -File tools/review.ps1 305`, never
 committed. I have not set it and will not without that authorisation written here.
 
+## Task 305 round 3: Director authorisation
+
+**Transcribed verbatim from the Director's dispatch of 2026-10-28 (the Director's words, not the
+Builder's):**
+
+> [DIRECTOR -> BUILDER] TASK 305 ROUND 3 -- AUTHORISED by the Director, 2026-10-28 11:50 UTC
+> (MAX_ROUNDS 3; this is round 3, not a 4th). Transcribe this paragraph verbatim into ESCALATE.md
+> under a heading "Task 305 round 3: Director authorisation", marked as the Director's, in your
+> first commit. Same branch task-305-aim-what-you-see, same reviews/task-305/ (Round: 3).
+
+So section 0's request is granted. This round does three things and nothing else: make each of the
+two round-2 cases FAIL when its producer is broken (red run, then green), MEASURE case (b) for real
+(ownership fix on, `AIM_REWIND` off, rifle at run then trot then walk, refilling ammo), and record it
+in `MEASURED.md`. The remaining notes stay queued as 305a.
+
 ## 1. THE FIX HAS TWO HALVES, BUILT BY TWO SESSIONS ON ONE BRANCH, AND BOTH ARE NEEDED
 
 Two Builder sessions were dispatched task 305 on `task-305-aim-what-you-see`: `5296d523` (this one)
