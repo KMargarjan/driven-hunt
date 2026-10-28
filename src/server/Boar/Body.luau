@@ -967,9 +967,10 @@ end
 -- Note: reviews/task-305c/REQUEST.md
 function Body.followGait(handle, maxStuds: number?): number
 	local rows = handle.zoneRows
-	local mesh = handle.mesh
 	local trunk = handle.part
-	if rows == nil or mesh == nil or trunk == nil then
+	-- NO MESH IS NEEDED HERE -- `Body.gaitRig` already turned it into `row.inBone`, so an animal
+	-- whose visual never attached simply has no wired row and this loop moves nothing.
+	if rows == nil or trunk == nil then
 		return 0
 	end
 	local cap = if type(maxStuds) == "number" and maxStuds > 0 then maxStuds else 1
