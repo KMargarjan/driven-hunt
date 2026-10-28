@@ -678,13 +678,19 @@ function Weapon.castWithRewind(
 		stats.rewindHits += 1
 		rewindTrail.hit += 1
 	end
+	-- THE EFFECTIVE LOOK-BACK IN SECONDS, which is the number that has to match the shooter's own
+	-- drawn lag: how far the ring carried the animal back, over its own speed.
+	local back = (candidates[1].present.Position - candidates[1].past.Position).Magnitude
+	local spd = (candidates[1].root :: any).AssemblyLinearVelocity.Magnitude
 	trail(
 		"rewound",
 		string.format(
-			"rewind=%.3f cands=%d back=%.2f hit=%s",
+			"rewind=%.3f cands=%d back=%.2f spd=%.2f eff=%.3f hit=%s",
 			rewind,
 			#candidates,
-			(candidates[1].present.Position - candidates[1].past.Position).Magnitude,
+			back,
+			spd,
+			if spd > 1 then back / spd else 0 / 0,
 			tostring(rewound ~= nil)
 		)
 	)
