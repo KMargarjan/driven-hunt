@@ -93,20 +93,41 @@ section 2's own files, driven by `<runs-dir>/305b.py`. **DEV ONLY.**
 The ownership fix is confirmed live in every one of the four runs below, off `ft-stand.luau`:
 `Boar1 root=Boar1 anchored=false auto=false owner=SERVER dist=117.8-123.9`.
 
-| run | pace | hits | impacts recorded | `impact-drawn` on the shots that landed |
-|---|---|---|---|---|
-| (b) ownership on, `AIM_REWIND` **off** | run | **0/10** | 7 of 10 | -0.39, -1.73, -2.25, -2.50, -2.61, +1.33, -21.24 |
-| (b) | trot | **1/10** (zone `rear`) | 6 of 10 | +0.52, +0.87, +1.27, -0.52, -3.66, -13.28 |
-| (b) | walk | **0/10** | **0 of 10** -- see the caveat | none |
-| **(d) control, same rig, same session, `AIM_REWIND` on** | run | **7/10** (chest x5, rear x2) | 7 of 10 | -0.83, -0.87, -0.93, -2.33, -2.60, +0.63, +0.98 |
+**Every run below was taken at code commit `71475766275fc7aa36da3232c324e7e780b6f403`'s `src/`** --
+that is, on the SHIPPED `Weapon.addHistoryProvider` seam, not section 2's superseded chained-provider
+shape. (b)'s three runs were taken from the Play session booted at `82730bce`'s parent and the (d)
+control from the next boot of the same build with one override changed; the `src/` tree is identical
+across all four, `git diff 71475766 a502ccd1 -- src` being empty.
+
+**BOTH COLUMNS ARE PUBLISHED**, because the verdict sentence is read off `impact-aim` and round 3's
+review was right that only `impact-drawn` had been printed. `impact-aim` is how far the impact landed
+from the point the shooter actually aimed at, along the animal's heading; `impact-drawn` is how far it
+landed from where this client DREW the chest at that moment. `nan` is a shot that produced no impact
+inside the probe's 0.6 s window.
+
+| run | pace | hits | impacts | `impact-aim` | `impact-drawn` |
+|---|---|---|---|---|---|
+| (b) ownership on, `AIM_REWIND` **off** | run | **0/10** | 7 of 10 | +3.76, -18.90, +1.71, -0.38, +0.26, -0.15, -0.57 | -0.39, -1.73, -2.25, -2.50, -2.61, +1.33, -21.24 |
+| (b) | trot | **1/10** (zone `rear`) | 6 of 10 | +4.31, -2.41, +2.20, -12.33, +1.62, +1.64, +0.12 | +0.52, +0.87, +1.27, -0.52, -3.66, -13.28 |
+| (b) | walk | **0/10** | **0 of 10** -- see the caveat | none | none |
+| **(d) control, same rig, same session, `AIM_REWIND` on** | run | **7/10** (chest x5, rear x2) | 7 of 10 | **+0.50, -0.42, -0.01, +1.38, -0.05, +1.00, +0.07** | -0.83, -0.87, -0.93, -2.33, -2.60, +0.63, +0.98 |
 
 **THE VERDICT IS THE RUN ROW, and it is 0/10 against the control's 7/10 taken minutes later on the
 same build with one override changed.** With the rewind off the impacts land BEHIND where the client
 DREW the animal -- mean -1.4 studs over the six non-outlier run shots, and the shooter must therefore
-aim further ahead than `Ballistics.leadStuds` asks. With it on, `impact-aim` collapses to **+-0.5
-studs on 5 of 7**: the bullet goes where he pointed.
+aim further ahead than `Ballistics.leadStuds` asks. With it on, `impact-aim` collapses to **+-0.5 studs on 5 of 7** -- the five being
++0.50, -0.42, -0.01, -0.05 and +0.07 out of the (d) row above, against +3.76, +1.71 and -18.90 in
+(b)'s: the bullet goes where he pointed.
 
 **So (b) is NOT >= 8/10 at any pace. `AIM_REWIND` must NOT stay dark.**
+
+**AND THE (d) CONTROL IS 7/10, WHICH IS ITSELF BELOW THIS TASK'S OWN >= 8/10 TARGET**
+(`docs/research/2026-10-28-lag-compensation.md`, "Numeric targets"). Section 2's 10-in-11 was a
+different session on a different commit and is not this number. Said here because it is the figure
+the Director is deciding the flag with: the rewind turns 0/10 into 7/10 at run, and 7/10 still misses
+the bar by one shot. All three of the (d) misses are the `nan` no-impact rows at 7.0, 9.9 and
+11.7 studs/s -- the same rig artefact as the walk row -- so **7 of the 7 shots that produced an
+impact hit**, but that is an explanation and not a measurement of the target being met.
 
 **CAVEATS, each a measurement and not a guess.**
 - **WALK IS NOT EVIDENCE ABOUT AIM.** All ten shots produced NO impact at all within the probe's

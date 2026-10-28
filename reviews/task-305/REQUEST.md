@@ -66,7 +66,10 @@ Ownership confirmed live in all four runs off `ft-stand.luau`:
 **The verdict row is RUN: 0/10 against the control's 7/10, taken minutes later on the same build
 with one override changed.** With the rewind off, impacts land BEHIND where the client DREW the
 animal -- mean **-1.4 studs** over the six non-outlier run shots -- so the shooter is still asked for
-lead he cannot see. With it on, `impact-aim` collapses to **+-0.5 studs on 5 of 7**.
+lead he cannot see. With it on, `impact-aim` collapses to **+-0.5 studs on 5 of 7** (both columns are now published in
+`MEASURED.md` section 4, after round 3's review found only one of them had been). **And 7/10 is
+itself below this task's own >= 8/10 target** -- said on the line, because it is the number the flag
+decision rests on.
 
 **So (b) is NOT >= 8/10 at any pace, and I say so plainly: `AIM_REWIND` must NOT stay dark.** The
 flag is the Director's call; this is the number he asked for.
