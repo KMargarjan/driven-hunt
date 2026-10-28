@@ -1212,6 +1212,61 @@ return function()
 			Range.stop()
 		end)
 
+		-- ---------------------------------------------------------- TASK 304: THE HIT CARD'S SEAM
+		--
+		-- KAREN, 2026-10-28: *"hit card will be usefull"*. THIS half is the range's: one call to the
+		-- card sender per hit it COUNTS, carrying the report it was given and nothing re-derived.
+		-- `HitLog.sendCard` -- the other half, and the card itself -- is proved in
+		-- `tests/server/hit_card.spec.luau`, which fails if that function sends nothing.
+		it("sends the hit card once per counted hit, and never for a miss or a hit it does not count", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			local sent = {}
+			Range.setCardSender(function(report: any): boolean
+				table.insert(sent, report)
+				return true
+			end)
+			local man = manOn(RangeData.matPosition(ANCHOR, 1, LAYOUT), 140)
+			tick(clock, 1)
+			expect(Range.onRequest(man, { spot = 1, pace = RangeData.WORD.TROT })).to.equal(true)
+			advance(fake, clock, 1)
+
+			-- A MISS: `ShotResolved` with no `HitReported`. No card -- the hunt's own rule.
+			Range.onShotResolved({ shooter = man, endPoint = Vector3.new(ANCHOR.X, ANCHOR.Y, ANCHOR.Z) })
+			expect(#sent).to.equal(0)
+			expect(Range.stats().cards).to.equal(0)
+
+			-- A HIT: ONE card, and it carries the REPORT ITSELF (identity), so nothing on the way to
+			-- `HitLog` is rebuilt here.
+			Range.onShotResolved({ shooter = man, endPoint = Vector3.new(ANCHOR.X, ANCHOR.Y, ANCHOR.Z) })
+			local fired = { shooter = man, zone = "chest", nearest = 125, pellets = 2 }
+			Range.onHitReported(fired)
+			expect(#sent).to.equal(1)
+			expect(sent[1]).to.equal(fired)
+			expect(Range.stats().cards).to.equal(1)
+
+			-- A SECOND REPORT OF THE SAME SHOT: the slot is consumed, the hit is not counted twice,
+			-- and neither is the card.
+			Range.onHitReported(fired)
+			expect(#sent).to.equal(1)
+			expect(Range.stats().cards).to.equal(1)
+
+			-- A SENDER THAT REFUSES is counted and never silent (`HitLog.sendCard` answers false for
+			-- a beater or a shot by nobody).
+			Range.setCardSender(function(): boolean
+				return false
+			end)
+			Range.onShotResolved({ shooter = man, endPoint = Vector3.new(ANCHOR.X, ANCHOR.Y, ANCHOR.Z) })
+			Range.onHitReported({ shooter = man, zone = "chest", nearest = 125 })
+			expect(Range.stats().cards).to.equal(1)
+			expect(Range.stats().cardlessHits).to.equal(1)
+
+			Range.setCardSender(nil)
+			Range.stop()
+		end)
+
 		it("keeps the kind with its species, and reads the columns off the animal it spawns", function()
 			Range.stop()
 			local fake = newFakeBoars()

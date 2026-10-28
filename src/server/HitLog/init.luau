@@ -28,6 +28,9 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+-- PURE DATA AND ONE PREDICATE (task 304): which folder the lobby range's own animals live in. The
+-- range is scored by nothing (docs/design/shooting-range.md section 1), so a hit on one is not a row.
+local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
 local Shape = require(script.Shape)
 
 local HitLog = {}
@@ -112,6 +115,11 @@ local stats = {
 	cards = 0,
 	cardlessHits = 0,
 	cardFatals = 0,
+	-- ...AND HOW MANY OF THEM WERE THE RANGE'S (task 304): a card with no row behind it, counted
+	-- separately so "the range wrote nothing" is a reading and not a belief.
+	rangeCards = 0,
+	-- ...AND HOW MANY HITS WERE REFUSED A ROW FOR BEING THE RANGE'S (task 304).
+	rangeHits = 0,
 	-- HOW MANY LINES THE HIT LOG HAS WRITTEN THIS DRIVE (task 278). It is also the `#n` in the line
 	-- itself, so the ring can be read for a gap: three clicks and two numbers means a shot that
 	-- never reached the server, which is exactly the confusion this log exists to end.
@@ -144,6 +152,36 @@ end
 -- both worlds (`recordDown`'s own comment).
 local function toShooter(player: Player, event: Report.CardPayload)
 	channel().ReportEvent:FireClient(player, event)
+end
+
+-- THE CARD ITSELF, BUILT ONCE (task 304). `recordHit` and `HitLog.sendCard` both go through this,
+-- so the hunt's card and the range's are the same payload off the same projection -- `Shape.cardDots`
+-- against the trunk's CFrame at the instant of the hit. Pure: no stat, no send, no record.
+local function buildCard(part: BasePart, report: any, drive: number, at: number): Report.CardPayload
+	local row = Weapons.row(report.weapon)
+	local fired = if row ~= nil and report.ammo ~= nil then row.PELLETS[report.ammo] else nil
+	local zone = tostring(report.zone or "unknown")
+	return {
+		kind = "hit",
+		drive = drive,
+		animal = part.Name,
+		animalKind = part:GetAttribute("Kind") :: string?,
+		weapon = report.weapon,
+		ammo = report.ammo,
+		hits = report.pellets or 1,
+		fired = fired,
+		distance = report.nearest or 0,
+		at = at,
+		dots = Shape.cardDots(part.CFrame, part.Size, report.points, report.position or part.Position, zone),
+	}
+end
+
+-- WHETHER A HIT EARNS A ROW (task 304). HERE AND NOT IN A ROOT, for `cardWorthy`'s own stated
+-- reason -- *"a guard spread over two call sites is two answers"*: `ForestTestBoot` and `MatchBoot`
+-- both feed this module, a third world would be a third place to forget it, and in Karen's place a
+-- lane hit with a drive open was written a drive row AND a hunt card.
+function HitLog.rowWorthy(part: BasePart?): boolean
+	return not RangeData.isTarget(part)
 end
 
 -- WHETHER A HIT EARNS A CARD. One line, one place, because the dispatch names two things it must
@@ -276,6 +314,12 @@ function HitLog.recordHit(report, now: number?)
 	if typeof(part) ~= "Instance" or not part:IsA("BasePart") then
 		return false
 	end
+	-- THE LOBBY RANGE IS NOT THE HUNT (task 304). Its card comes from `HitLog.sendCard`, which
+	-- writes nothing; this records no row, no dot and no kill for it.
+	if not HitLog.rowWorthy(part) then
+		stats.rangeHits += 1
+		return false
+	end
 	-- THE DOT'S CLOCK IS THE SHOT'S OWN (task 124 round 2, the Reviewer's blocking finding). It used
 	-- to be a fresh `os.clock()` taken on THIS side of the signal, while the wound the kill is joined
 	-- to carries `report.at` from `Weapon.Hits.group` -- two different samples of the same instant,
@@ -346,36 +390,42 @@ function HitLog.recordHit(report, now: number?)
 	-- the hit. A listener wired beside this one would read the CFrame a frame later, by which time
 	-- the animal has moved and every dot is a small lie.
 	if HitLog.cardWorthy(part, shooter) and shooter ~= nil then
-		local row = Weapons.row(report.weapon)
-		local fired = if row ~= nil and report.ammo ~= nil then row.PELLETS[report.ammo] else nil
-		local card: Report.CardPayload = {
-			kind = "hit",
-			drive = current.number,
-			animal = part.Name,
-			animalKind = part:GetAttribute("Kind") :: string?,
-			weapon = report.weapon,
-			ammo = report.ammo,
-			hits = dot.pellets,
-			fired = fired,
-			distance = dot.distance,
-			-- THE SHOT'S OWN CLOCK, THROUGH `sinceOpen` LIKE EVERY OTHER `at` THIS MODULE SENDS
-			-- (the Reviewer's blocking finding, round 1). It went out raw for one round, which is
-			-- the one thing `sinceOpen`'s own comment and `docs/design/drive-report.md` section 2
-			-- forbid by name: *"an `os.clock` from one machine means nothing on another"*.
-			--
-			-- IT IS ALSO WHAT KEEPS THE FATAL MARK JOINABLE. `recordDown` sends the same quantity
-			-- through the same function, and it only reaches that line when the animal is in THIS
-			-- drive -- so the two are always converted against one `openedAt` and
-			-- `HitCard.markFatal`'s match still holds.
-			at = sinceOpen(at),
-			dots = Shape.cardDots(part.CFrame, part.Size, report.points, report.position or part.Position, dot.zone),
-		}
+		-- THE SHOT'S OWN CLOCK, THROUGH `sinceOpen` LIKE EVERY OTHER `at` THIS MODULE SENDS (the
+		-- Reviewer's blocking finding, round 1): *"an `os.clock` from one machine means nothing on
+		-- another"*. It is also what keeps the fatal mark joinable -- `recordDown` sends the same
+		-- quantity through the same function, so `HitCard.markFatal`'s match still holds.
+		local card = buildCard(part, report, current.number, sinceOpen(at))
 		stats.cards += 1
 		lastCard = card
 		toShooter(shooter, card)
 	else
 		stats.cardlessHits += 1
 	end
+	return true
+end
+
+-- THE CARD WITHOUT A RECORD (task 304). Karen, 2026-10-28, shooting the lobby range: *"hit card will
+-- be usefull"*. THE RANGE IS FREE (docs/design/shooting-range.md section 1), so this writes no drive
+-- row, no money and no report entry -- it is `buildCard` plus `toShooter`, and nothing else.
+--
+-- `drive = 0` AND `at = 0` because there is no drive: `sinceOpen` would answer 0 with none open, and
+-- the card's own client reads neither field (`HitCard.show` / `HitCard.textFor` touch `animalKind`,
+-- `weapon`, `ammo`, `hits`, `fired`, `distance` and `dots`). No `hitFatal` ever follows one.
+function HitLog.sendCard(report: any): boolean
+	local part = if type(report) == "table" then report.target else nil
+	if typeof(part) ~= "Instance" or not (part :: Instance):IsA("BasePart") then
+		return false
+	end
+	local shooter = report.shooter
+	if shooter == nil or not HitLog.cardWorthy(part :: BasePart, shooter) then
+		stats.cardlessHits += 1
+		return false
+	end
+	local card = buildCard(part :: BasePart, report, 0, 0)
+	stats.cards += 1
+	stats.rangeCards += 1
+	lastCard = card
+	toShooter(shooter, card)
 	return true
 end
 

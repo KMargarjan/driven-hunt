@@ -616,6 +616,46 @@ from the same signal in the same frame; the range's tally is a derived view of t
 player, per trial, and is thrown away when the trial ends. `HitLog.openDrive` is never called and no
 drive row is written.
 
+### 9.4 The board is a PAGE OF THE MENU, and the hit card is what she reads while shooting (task 304)
+
+Karen, 2026-10-28, playing the range with the board over the left third of her view: *"if you remove
+this shit will be good I will see where I hit / and hit card will be usefull"*. Measured on `main`
+at `aed230ef`: `Hud.RangeBoard` was 380 x 300 at absolute (16, 188) of her 969 x 792 viewport and
+stayed `Visible` the whole time she stood on the mat.
+
+**The numbers are not deleted; they move into the E panel.** Two decisions, stated:
+
+1. **`RangeBoard.luau` STAYS THE ONE WRITER** of its own frame, its children and its `Visible`.
+   `RangePanel` gains nothing. The record arrives here, the columns, the two lead numbers, the miss
+   gap and RESET are already formatted here, and moving them would make two renderers of one
+   record — the thing 9.3 exists to prevent. What changed is only *when* and *where* it draws:
+   `RangeBoard.setMenuOpen(open)` is told by `Hud.step` (the "a panel that is TOLD" idiom `setNear`
+   and `ShopPanel.setNear` already follow), and `render` writes `Visible = menuOpen`. Not
+   `record ~= nil`: with the menu open and no shot fired `rowText` says *"no shots yet"*, which is
+   the honest page.
+2. **It is drawn inside the menu's own footprint.** `Hud` anchors the frame to the SAME screen
+   centre the 560 x 640 panel is anchored to, at the panel's interior (12, 444) — screen centre
+   plus (-268, +124) — 536 x 192, in the band the menu leaves free below its hint. A sibling and
+   not a child, because `RangePanel.build` destroys every child of its own frame; and at
+   `RangePanel.LOOK.Z_INDEX + 3`, because `ZIndexBehavior.Sibling` compares a child's ZIndex
+   globally and the menu's children draw at 15 and 16.
+
+**Every range hit shows the hunt's own hit card, and nothing is scored.** `HitLog.sendCard(report)`
+is `recordHit`'s own `buildCard` plus `toShooter` and nothing else: the same `Report.CardPayload`,
+the same `Shape.cardDots` projection off the trunk's CFrame at the instant of the hit, the same
+`ReportEvent` to that one player. It writes no drive row, no dot, no kill line, no hit-log line and
+no money. `Range` holds the sender as an injected seam (`Range.setCardSender`, `RangeBoot` wires
+`HitLog.sendCard`), so this module still requires no owner. `drive` and `at` go out as 0 because
+there is no drive, and the card's client reads neither.
+
+**And a lane hit is not a row, in any world.** `HitLog.rowWorthy(part)` — `not
+RangeData.isTarget(part)`, one ancestor read for `RangeData.TARGETS_FOLDER`, the folder `RangeBoot`
+names its runtime's world with — refuses one at the top of `recordHit`, and counts it as
+`stats.rangeHits`. It lives in `HitLog` and not in a root for `cardWorthy`'s own stated reason:
+*"a guard spread over two call sites is two answers"*. `ForestTestBoot` and `MatchBoot` both feed
+that module, and in Karen's place a drive is open while she stands at the lobby range — so before
+this task a lane hit WAS written a drive row and a hunt card the moment a drive was running.
+
 ---
 
 ## 10. The data file: one file both read, and "implement in game" is one commit

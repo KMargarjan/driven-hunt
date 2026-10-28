@@ -128,6 +128,9 @@ local state = {
 	trials = {} :: { [number]: Trial },
 	acc = 0,
 	remotes = nil :: any,
+	-- THE HIT CARD'S SENDER (task 304), TOLD to this module like the remotes are: `HitLog.sendCard`,
+	-- wired by `RangeBoot`. nil is legal -- a spec and a world without `HitLog` simply send no card.
+	card = nil :: ((any) -> boolean)?,
 	-- THE RECORD IS THE SERVER'S AND THE BOARD IS A RENDERER (design 9.3). One row per player, by
 	-- UserId, thrown away when his trial changes; no drive row is written and `HitLog` is not called.
 	records = {} :: { [number]: any },
@@ -156,6 +159,9 @@ local state = {
 		badRequests = 0,
 		rateLimited = 0,
 		offMat = 0,
+		-- HOW MANY HIT CARDS WENT OUT, and how many sends the seam refused (task 304).
+		cards = 0,
+		cardlessHits = 0,
 		refusedBy = nil :: string?,
 	},
 }
@@ -963,6 +969,19 @@ function Range.onHitReported(report: any)
 	record.lastGapText = nil
 	record.miss = math.max(0, record.shots - record.hits)
 	publish(player)
+	-- ...AND THE HUNT'S OWN HIT CARD, TO THE SHOOTER AND NOBODY ELSE (task 304). Karen, 2026-10-28:
+	-- *"hit card will be usefull"*. THE SENDER IS `HitLog.sendCard` and the range re-derives nothing:
+	-- same payload, same remote, same projection as a hit in the wood. It writes no row and no money
+	-- (design section 1) -- that is `sendCard`'s own guarantee, asserted in `tests/server/range.spec`.
+	local send = state.card
+	if send ~= nil then
+		local ok, sent = pcall(send, report)
+		if ok and sent == true then
+			state.stats.cards += 1
+		else
+			state.stats.cardlessHits += 1
+		end
+	end
 end
 
 -- ================================================================== THE MENU'S LISTS (7.3)
@@ -1172,6 +1191,12 @@ function Range.forget(player: any)
 	state.records[id] = nil
 	state.pending[id] = nil
 	state.seen[id] = nil
+end
+
+-- THE HIT CARD'S SENDER, told the same way (task 304): `HitLog.sendCard`, from `RangeBoot`. nil is
+-- legal and then no card goes out, which is what a spec that does not ask for one runs with.
+function Range.setCardSender(send: ((any) -> boolean)?)
+	state.card = send
 end
 
 -- The two remotes, told to this module by the root so no spec needs a DataModel. nil is legal and

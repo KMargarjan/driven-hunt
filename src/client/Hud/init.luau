@@ -922,6 +922,16 @@ function Hud.licenceCard(): Frame?
 	return licenceCardFrame
 end
 
+-- THE RANGE'S TWO FRAMES, the `Hud.hitCard()` shape (task 304): a spec reads what the RUNNING Hud
+-- built -- the frame Karen's board is actually drawn in -- instead of walking `PlayerGui` by name.
+function Hud.rangePanel(): Frame?
+	return rangeFrame
+end
+
+function Hud.rangeBoard(): Frame?
+	return rangeBoardFrame
+end
+
 -- The panel module itself, for the same reason: the Hud starts it, so the Hud is where it is found.
 Hud.Report = ReportPanel
 Hud.HitCard = HitCard
@@ -2178,17 +2188,23 @@ local function build(): ScreenGui
 	range.Visible = false
 	range.Parent = screen
 
-	-- THE BOARD stands beside the menu, on the right, and is shown by its own owner the moment the
-	-- server has a record for this player -- so it is still there while he shoots with the menu shut.
+	-- THE BOARD IS A PAGE OF THE MENU NOW (task 304). Karen, 2026-10-28, with it covering the left
+	-- third of her view while she shot: *"if you remove this shit will be good I will see where I
+	-- hit"*. So it is drawn INSIDE the menu's own footprint, in the band the menu leaves free below
+	-- its hint, and `RangeBoard` -- still its one writer -- shows it only while the menu is open.
+	--
+	-- OFF THE SAME SCREEN CENTRE THE MENU IS ANCHORED TO, so it tracks the panel on every viewport
+	-- without this file reading the panel's frame: the panel is 560 x 640 centred, so its interior
+	-- (12, 444) is screen centre + (-268, +124). A sibling and not a child, because
+	-- `RangePanel.build` destroys every child of its own frame.
 	local rangeBoard = Instance.new("Frame")
 	rangeBoard.Name = "RangeBoard"
 	rangeBoard.BackgroundColor3 = RangeBoard.LOOK.PANEL
 	rangeBoard.BackgroundTransparency = 0.1
 	rangeBoard.BorderSizePixel = 0
-	-- ON THE LEFT, because the RAIL owns the right edge: photographed in DEV on 2026-10-27 the
-	-- board sat under MAP / REPORT / RELOAD / AMMO and lost its last column.
-	rangeBoard.AnchorPoint = Vector2.new(0, 0.5)
-	rangeBoard.Position = UDim2.new(0, 16, 0.5, 0)
+	rangeBoard.AnchorPoint = Vector2.new(0, 0)
+	rangeBoard.Position =
+		UDim2.new(0.5, -RangePanel.LOOK.WIDTH / 2 + 12, 0.5, RangePanel.LOOK.HEIGHT / 2 - RangeBoard.LOOK.HEIGHT - 4)
 	rangeBoard.Size = RangeBoard.panelSize()
 	rangeBoard.ZIndex = RangeBoard.LOOK.Z_INDEX
 	rangeBoard.Visible = false
@@ -4976,6 +4992,10 @@ function Hud.renderObjective(CameraSystem, WeaponSystem)
 	local atSpot = promptAt ~= nil and RangeData.atSpot(promptAt, me, RangeData.LAYOUT)
 	RangePanel.setNear(atSpot)
 	RangeBoard.setNear(atSpot)
+	-- ...AND THE BOARD IS A PAGE OF THE MENU (task 304): it is on screen exactly while the menu is,
+	-- and nothing of it is there while she shoots. TOLD from here, the one evaluation that already
+	-- tells both panels where he is, so neither module reaches into the other's state.
+	RangeBoard.setMenuOpen(RangePanel.isOpen())
 	-- ...AND ONE STEP OF THE SHOP WINDOW'S TURNING PICTURE (task 196). HERE, and not in a
 	-- `RenderStepped` of its own, for this function's own stated reason: it is *"THE ONE EVALUATION"*
 	-- and a second per-frame loop on this client would be a second owner of the frame. It returns
