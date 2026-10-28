@@ -948,6 +948,12 @@ function Body.gaitRig(handle): number
 		end
 		row.bone = best
 		row.rest = bestRest
+		-- THE BOX IN ITS BONE'S OWN FRAME, so the live box is `bone.TransformedWorldCFrame * inBone`:
+		-- the box is skinned to the bone, turning with it and not only sliding. Both sides are read
+		-- off the SAME trunk CFrame, so the stored transform is independent of where the animal is.
+		if best ~= nil then
+			row.inBone = (mesh.CFrame * bestRest):ToObjectSpace(trunk.CFrame * CFrame.new(row.offset))
+		end
 		wired += 1
 	end
 	return wired
@@ -967,21 +973,22 @@ function Body.followGait(handle, maxStuds: number?): number
 		return 0
 	end
 	local cap = if type(maxStuds) == "number" and maxStuds > 0 then maxStuds else 1
-	local meshCFrame = mesh.CFrame
 	local trunkCFrame = trunk.CFrame
 	local moved = 0
 	for _, row in ipairs(rows) do
-		if row.bone ~= nil and row.rest ~= nil and row.weld ~= nil then
-			local drawn = (row.bone :: any).TransformedWorldCFrame.Position
-			local rest = (meshCFrame * row.rest).Position
-			local shift = trunkCFrame:VectorToObjectSpace(drawn - rest)
-			row.weld.C0 = CFrame.new(
+		if row.bone ~= nil and row.inBone ~= nil and row.weld ~= nil then
+			local want = trunkCFrame:ToObjectSpace((row.bone :: any).TransformedWorldCFrame * row.inBone)
+			local shift = want.Position - row.offset
+			row.weld.C0 = CFrame.fromMatrix(
 				row.offset
 					+ Vector3.new(
 						math.clamp(shift.X, -cap, cap),
 						math.clamp(shift.Y, -cap, cap),
 						math.clamp(shift.Z, -cap, cap)
-					)
+					),
+				want.XVector,
+				want.YVector,
+				want.ZVector
 			)
 			moved += 1
 		end

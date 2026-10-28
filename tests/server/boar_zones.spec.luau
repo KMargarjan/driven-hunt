@@ -227,6 +227,7 @@ return function()
 				for _, row in ipairs(rows) do
 					expect(row.bone).to.be.ok()
 					expect(row.bone:IsA("Bone")).to.equal(true)
+					expect(typeof(row.inBone)).to.equal("CFrame")
 				end
 			end
 		end)
@@ -235,35 +236,40 @@ return function()
 			local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
 			local rows = handle.zoneRows
 			local row = rows[1]
-			-- A HAND-MADE BONE, so the case runs with or without the bought model: `followGait`
-			-- reads `row.bone.TransformedWorldCFrame` and `row.rest`, nothing else.
-			local mesh = handle.mesh
-			local carrier = mesh or trunk
+			-- A HAND-MADE BONE ON THE TRUNK, so the case runs with or without the bought model:
+			-- `followGait` reads `row.bone.TransformedWorldCFrame * row.inBone` and nothing else.
 			local bone = Instance.new("Bone")
 			bone.Name = "SpecBone"
-			bone.CFrame = CFrame.new(0, 0, 0)
-			bone.Parent = carrier
+			bone.CFrame = CFrame.identity
+			bone.Parent = trunk
+			local wasBone, wasInBone = row.bone, row.inBone
 			row.bone = bone
-			row.rest = CFrame.new(0, 0, 0)
+			row.inBone = CFrame.new(row.offset)
 			local size = row.part.Size
-			-- The bone sits where its rest says: no shift, so the box keeps its measured offset.
-			bone.CFrame = CFrame.new(0, 0, 0)
-			expect(Body.followGait(handle, 1)).to.be.ok()
+			-- The bone at its rest place: no shift, so the box keeps its measured offset.
+			expect(Body.followGait(handle, 2.5) > 0).to.equal(true)
 			expect((row.weld.C0.Position - row.offset).Magnitude < 1e-3).to.equal(true)
-			-- Drop the bone half a stud in the carrier's own frame: the box drops half a stud too.
+			-- Drop the bone half a stud: the box drops half a stud too, and nothing else moves.
 			bone.CFrame = CFrame.new(0, -0.5, 0)
-			Body.followGait(handle, 1)
+			Body.followGait(handle, 2.5)
 			local shift = row.weld.C0.Position - row.offset
 			expect(math.abs(shift.Y + 0.5) < 1e-2).to.equal(true)
 			expect(math.abs(shift.X) < 1e-2).to.equal(true)
-			-- ...and the CLAMP: 3 studs of bone asks for more than the cap allows.
-			bone.CFrame = CFrame.new(0, -3, 0)
-			Body.followGait(handle, 1)
-			expect(math.abs((row.weld.C0.Position - row.offset).Y + 1) < 1e-2).to.equal(true)
+			expect(math.abs(shift.Z) < 1e-2).to.equal(true)
+			-- THE BOX TURNS WITH ITS BONE, which is what closes the hole the drawn neck opens when
+			-- the head goes down (task 305c): a bone rolled 90 degrees rolls its box 90 degrees.
+			bone.CFrame = CFrame.Angles(0, 0, math.rad(90))
+			Body.followGait(handle, 2.5)
+			expect((row.weld.C0.RightVector - Vector3.new(0, 1, 0)).Magnitude < 1e-2).to.equal(true)
+			-- ...AND THE CLAMP: 4 studs of bone asks for more than the cap allows.
+			bone.CFrame = CFrame.new(0, -4, 0)
+			Body.followGait(handle, 2.5)
+			expect(math.abs((row.weld.C0.Position - row.offset).Y + 2.5) < 1e-2).to.equal(true)
+			-- NO BOX IS EVER RESIZED: the whole fix is where the boxes are, never how big.
 			expect((row.part.Size - size).Magnitude).to.equal(0)
 			bone:Destroy()
-			row.bone = nil
-			row.rest = nil
+			row.bone = wasBone
+			row.inBone = wasInBone
 			row.weld.C0 = CFrame.new(row.offset)
 		end)
 
