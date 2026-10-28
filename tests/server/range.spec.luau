@@ -1726,7 +1726,9 @@ return function()
 		local FOREST_ROW = RangeData.anchorFor("forest-test")
 		-- THE MEASURED RECTANGLE, from the SUMMARY above. The range must fit inside what was sampled.
 		local MEASURED = { minX = 2570, maxX = 2730, minZ = -3392, maxZ = -3208 }
-		local FAKE_SHELF = 147.3
+		-- A SHELF THAT IS EXACT IN FLOAT32, because `Vector3` stores floats and 147.3 does not survive
+		-- the trip: the case is about where the parts are laid, not about rounding.
+		local FAKE_SHELF = 147.25
 
 		-- EVERY PART BUILD MAKES, BY NAME, so the Director can enumerate them under Workspace.Range
 		-- and read each one's LOWEST point against the terrain ray under it (L-086).
