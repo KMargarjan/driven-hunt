@@ -144,3 +144,30 @@ impact hit**, but that is an explanation and not a measurement of the target bei
 - Two outliers (-21.24 at run, -13.28 at trot) are shots taken as the target reversed at the lane
   end; they are left in the table rather than dropped, and the mean above is quoted without them
   with that said.
+
+
+## Section 4b -- the frame, TAKEN AFTER the round-3 verdict and therefore UNREVIEWED
+
+`REQUEST.md` round 3 said a shooter's-eye frame was `NOT OBTAINABLE`. **That was wrong, and V294 is
+why it was caught**: `<runs-dir>/devplay.py capture <out.png> <cam> <look>` does exactly this during
+Play, and naming the script is what the rule asks for before the claim. The frame is
+`.screenshots/305-shooter-eye.png` (git-ignored), camera at the shooter's own head position
+**1200.0, 5.7, 0.0**, looking at the target read live at **1159.8, 1.5, 118.9**, speed 24.1 studs/s,
+`auto=false owner=SERVER`, distance 132.6 studs. **DEV ONLY.**
+
+**WHAT IT ACTUALLY SHOWS, looked at:** the first-person view from the mat -- gun barrels across the
+bottom-left in a gloved hand, the range berm as a dark band across the middle of the screen, and the
+target as a small dark boar silhouette on the lane left of centre, about a third of the way along the
+berm. HUD: `stay on stand, animals coming`, `DRIVE 1`, `8:48`, `6 ANIMALS`, `HUNTER`, `$0`, the
+compass at NW-NE, and the ammo panel bottom-right.
+
+**TWO THINGS IT IS NOT, said plainly.**
+1. **The gun in that frame is the SHOTGUN with SLUG** -- the ammo panel reads `12 SLUG` and the
+   barrels are the double's -- **not the rifle every number in section 4 was shot with.** The
+   range's own `weapon = "rifle"` pick did not swap the held Tool in that boot.
+2. **It is not a proof of a hit.** It is a picture of what the shooter looks at, at the range and the
+   eye height the measurements were taken from (rule F). The hit evidence is section 4's tables.
+
+So the correction is: a frame IS obtainable and here is one; it supports the geometry of the setup
+and nothing about the fix. **Rule 5 is still NOT met for this change** -- nothing has been seen in
+Karen's place.
