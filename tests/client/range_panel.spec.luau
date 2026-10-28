@@ -14,9 +14,15 @@ return function()
 	local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 	local scripts = StarterPlayer:WaitForChild("StarterPlayerScripts")
 	local Hud = scripts:WaitForChild("Hud")
-	-- THE RUNNING HUD ITSELF (task 304), for `Hud.rangeBoard()` / `Hud.rangePanel()`: the frames the
-	-- client actually drew, the `hud_clarity.spec` shape. Nothing happens on require.
-	local HudModule = require(Hud)
+	-- THE RUNNING HUD (task 304), which is `player.PlayerScripts` and NOT `StarterPlayerScripts`:
+	-- the engine COPIES the starter scripts into the player, so the module required off the starter
+	-- copy is a second instance that never built a frame -- the first run of this case proved it,
+	-- `rangeBoard()` there answered nil. `hud_clarity.spec`'s shape. These two drew Karen's screen,
+	-- and the board is already bound to its frame by `Hud.start`.
+	local livePlayer = game:GetService("Players").LocalPlayer
+	local liveScripts = (livePlayer :: any):WaitForChild("PlayerScripts")
+	local LiveHud = require(liveScripts:WaitForChild("Hud"))
+	local LiveBoard = require((liveScripts :: any).Hud:WaitForChild("RangeBoard"))
 	local RangePanel = require(Hud:WaitForChild("RangePanel"))
 	local RangeBoard = require(Hud:WaitForChild("RangeBoard"))
 	local Cursor = require(scripts:WaitForChild("Camera"):WaitForChild("Cursor"))
@@ -442,20 +448,18 @@ return function()
 		it(
 			"puts NOTHING of the board on screen while the menu is shut, and the numbers in it when it is open",
 			function()
-				local board = HudModule.rangeBoard()
-				local menu = HudModule.rangePanel()
+				local board = LiveHud.rangeBoard()
+				local menu = LiveHud.rangePanel()
 				expect(board).to.be.ok()
 				expect(menu).to.be.ok()
-				local player = game:GetService("Players").LocalPlayer
-				expect((board :: Frame):IsDescendantOf((player :: any).PlayerGui)).to.equal(true)
+				expect((board :: Frame):IsDescendantOf((livePlayer :: any).PlayerGui)).to.equal(true)
 				-- AS THE HUD LEFT IT: hidden, before anything is told.
 				expect((board :: Frame).Visible).to.equal(false)
 
 				-- THE REAL PATH: the Hud hands this module that frame, the server pushes a record, and
 				-- `Hud.step` tells it what `RangePanel.isOpen()` says.
-				RangeBoard.start(board :: Frame, { send = function() end })
-				RangeBoard.setRecord(record({}))
-				RangeBoard.setMenuOpen(false)
+				LiveBoard.setRecord(record({}))
+				LiveBoard.setMenuOpen(false)
 				expect((board :: Frame).Visible).to.equal(false)
 				-- ...AND NOT ONE LABEL OF IT EITHER: a hidden frame hides its children, and the frame is
 				-- the only thing this module draws into.
@@ -469,7 +473,7 @@ return function()
 				expect(labels >= 9).to.equal(true)
 
 				-- SHE PRESSES E: the numbers are there, in the frame's own labels.
-				RangeBoard.setMenuOpen(true)
+				LiveBoard.setMenuOpen(true)
 				expect((board :: Frame).Visible).to.equal(true)
 				local shown = {}
 				for _, node in ipairs((board :: Frame):GetChildren()) do
@@ -482,13 +486,17 @@ return function()
 				expect(string.find(text, "CHEST 1", 1, true) ~= nil).to.equal(true)
 				expect(string.find(text, "LEAD BALLISTIC", 1, true) ~= nil).to.equal(true)
 				expect(string.find(text, "MISS GAP", 1, true) ~= nil).to.equal(true)
-				RangeBoard.stop()
+				-- PUT KAREN'S OWN SCREEN BACK. `Hud.step` would do it on the next frame anyway
+				-- (it tells a shut menu and an off-the-spot `setNear`); this does not leave it to luck.
+				LiveBoard.setMenuOpen(false)
+				LiveBoard.setNear(false)
+				expect((board :: Frame).Visible).to.equal(false)
 			end
 		)
 
 		it("sits INSIDE the menu's own rectangle, so it is a page of the menu and not a panel over the lane", function()
-			local board = HudModule.rangeBoard()
-			local menu = HudModule.rangePanel()
+			local board = LiveHud.rangeBoard()
+			local menu = LiveHud.rangePanel()
 			expect(board).to.be.ok()
 			expect(menu).to.be.ok()
 			-- BOTH ARE ANCHORED TO THE SCREEN CENTRE, so the containment is arithmetic on the
