@@ -36,7 +36,21 @@ that cannot hold a target. The fix: drive the existing exit case with BOTH rows,
 animal on the forest field through the real `Boar.newRuntime` (`range.spec` already builds one) and
 assert it is still alive after a step, so the field and the predicate are asserted together.
 
-## What I need from the Director
+## RESOLVED -- Director authorised round 3 (2026-10-28 01:50 UTC)
+
+**Director authorised round 3** ("MAX_ROUNDS is 3; my brief's cap of 2 is lifted for this one
+round"), and it PASSED: `reviews/task-298f/RESULT.md` line 1 is
+`PASS (items 1, 2, 3, 4, 5, 6, 7, 8, 9 NOT PROVEN)` at code commit `73037ba1`
+(`[harness] PASS: 34/34 checks @ 73037ba1 (clean tree) scope=all`). Both findings are fixed:
+`exitZ = math.min(nearZ, farZ) - FIELD_EXIT_BEHIND_STUDS` (-400 DEV bit-for-bit, -3741 forest), and
+the exit case now drives BOTH rows with an ORDERED target held alive on Karen's field through the
+real `Boar.newRuntime`. Red first at `14d1bf98` (`range.spec:274`, `range.spec:2028`).
+**Director's decision recorded in the code and in design 5:** a wounded target at a range flees
+DOWNRANGE into the berm, which is wanted -- nothing runs back over the firing line.
+**Still NOT PROVEN: nothing in Karen's place has been seen.** The live proof that the range HOLDS a
+target there is the Director's, after this PASS.
+
+## What was asked of the Director (now answered)
 One authorised round 3 (`DIRECTOR_MAX_ROUNDS=3` is the cap; a round 3 needs this entry plus the
 Director's word), or a new task. Both findings are small and the second is the one that matters:
 without it the first can come back.

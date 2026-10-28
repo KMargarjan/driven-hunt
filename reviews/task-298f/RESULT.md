@@ -1,17 +1,103 @@
-1. `src/shared/Range/init.luau` / `Range.fieldFor` — THE SIGNED `exitZ` PUTS KAREN'S EXIT LINE IN FRONT OF HER TARGET, so every target in her place is despawned as `escaped` on the first order and her range is permanently empty. `Brain:_outcome`'s despawn test is ONE-SIDED and hard-coded to "smaller z is out": `(self._state == "FLEE" or self._state == "WOUNDED" or self._state == "AVOID" or self:ordered()) and position.Z <= field.exitZ then return "escaped"`. This change makes `exitZ = anchor.Z - dir * Range.FIELD_EXIT_BEHIND_STUDS`. For the forest row (`downrange = -1`, `anchor.Z = -3216`, `FIELD_EXIT_BEHIND_STUDS = 400`) that is `exitZ = -2816` — 340 studs NORTH of the field's own `bounds.maxZ` (-3156) and 525 studs north of the lane, where `Range.release` puts the animal (`laneEnds` → z -3341). `-3341 <= -2816` is true, and `Range.order` calls `boars.leadTo` on the first scan tick, which sets `Brain._orderFor = line.ORDER_SECONDS` so `Brain:ordered()` is true (`LINE.ENABLED = true` is wired in `RangeBoot`); `_outcome` is checked every step with *"Despawn wins over everything else"*. Result: release → one order → `escaped` → `Range` sees `statusOf == nil`, counts `lostTargets`, releases again after `RELEASE_SECONDS`, for ever. This is the module's own stated invariant, broken by the line that was added two lines below it: *"an `exitZ` far BEHIND the firing line so `Brain:_outcome` can never report `escaped` or `outOfBounds` for a target doing exactly what it was told"*; and it is the defect `ForestTestBoot` already wrote down — *"`Brain:_outcome` despawns a boar at `position.Z <= exitZ` -- so with the map's exitZ an animal here would either never be gone or be gone the moment it spawned"*. `bounds` is correctly made direction-blind by the same diff (`math.min/math.max(nearZ, farZ)`); `exitZ` is not. Required: `exitZ` must be south of the whole field for BOTH rows, because the predicate's direction is not a parameter — e.g. `math.min(nearZ, farZ) - Range.FIELD_EXIT_BEHIND_STUDS`, which is bit-for-bit -400 for DEV and -3741 for the forest row — and state what that does to `Brain:_flee`'s heading (`Vector3.new(targetX, field.groundY, field.exitZ)`), which in Karen's place then points a wounded target downrange into the berm instead of back over the shooter.
+PASS (items 1, 2, 3, 4, 5, 6, 7, 8, 9 NOT PROVEN)
 
-2. `tests/server/range.spec.luau`, "gives the range a field whose exit is behind the firing line" — THE ONE CASE THAT ASSERTS THE INVARIANT FINDING 1 BREAKS IS NEVER DRIVEN WITH THE NEW SIGN, so deleting the whole `downrange` arm of `fieldFor` leaves 34/34 green. Evidence: the case reads `local field = RangeData.fieldFor(anchor, LAYOUT)` with `anchor = Vector3.new(DEV_ROW.x, 0, DEV_ROW.z)` and no fourth argument, then `expect(field.exitZ < field.bounds.minZ).to.equal(true)` — exactly the property that is false for the forest row (-2816 against -3401). No case in the tree calls `RangeData.fieldFor` with a `downrange` argument (grep of `tests/`: `range.spec` lines 259 and 750, both two-argument), so the request's claim 2, *"The direction is DATA, and both arms are entered"*, is not true of `fieldFor`: delete the `dir` handling from `fieldFor` entirely and every assertion in the suite still passes — which is also the only reason the harness is green over a range that cannot hold a target. The new case offered as the owner's proof, "leads the target SOUTH of the mat when the owner is started on Karen's row", cannot see this either: it runs on the file's own `newFakeBoars`, whose `statusOf`/`advance` have no `_outcome` and never despawn anything. Required: drive the existing exit case with both rows (`for _, row in ipairs({ DEV_ROW, FOREST_ROW })`, `fieldFor(anchor, LAYOUT, RangeData.downrangeOf(row))`), keeping `exitZ < bounds.minZ` and both lane ends inside `bounds`; and add a case that puts an ORDERED animal on the forest field through the real `Boar.newRuntime` (`range.spec` already builds one at line 750) and asserts it is still alive after a step, so the predicate and the field are asserted together and not separately.
+Rule 5, stated so this PASS is not read as rule 5 having been met: **nothing in Karen's place has been
+seen.** No Forest Test session was run, no screenshot of a range beside her lodge exists, and the
+forest arm of `RangeBoot` (`ForestTest.groundAt` → `Range.shelfFor` → the `drawn` clones) has never
+executed in any run that produced evidence — it cannot, because the harness world is `map:v1`. The
+request says so in its own words (*"Nothing in Karen's place was played... The drawn target in her
+place (`drawn = true`) is reasoned from `ForestTestBoot`'s own rule for MODEL/CALM/PACE/MOVE, not seen
+on screen."*). What IS proven is DEV plus arithmetic over her measured ground: the exit line, the
+field, the footprint, the lobby clearance and the owner's sign.
+
+Harness evidence is consistent: `[harness] PASS: 34/34 checks @ 73037ba1... (clean tree) scope=all`
+names the request's `Code commit:`, and `paperwork-after-code-commit.txt` says only
+`reviews/task-298f/REQUEST.md` changed after it. selene 0/0/0, stylua clean, rojo build exit 0.
+Round 3's FAIL FIRST is real and exactly placed: `14d1bf98` is the two cases alone (+73/-11 on
+`range.spec`, nothing else) and `73037ba1` is the fix (+10/-2 on `src/shared/Range/init.luau`).
+
+Round 2's two findings are closed, and I checked both by deleting the producer:
+- `Range.fieldFor` now writes `exitZ = math.min(nearZ, farZ) - Range.FIELD_EXIT_BEHIND_STUDS` —
+  -400 for DEV (bit-for-bit, asserted against the constant) and -3741 for the forest row.
+  `Brain:_outcome`'s test is still `position.Z <= field.exitZ` with no direction parameter
+  (`src/server/Boar/Brain.luau`), so direction-blind is the only correct shape. Revert the line to
+  the signed form and the forest arm of "gives the range a field whose exit is south of the whole
+  field -- BOTH rows" goes red at -2816 against -3401, which is the recorded red run.
+- "keeps an ORDERED target alive on Karen's field" bites three separate ways: with the signed `exitZ`
+  the target at z -3341 despawns `escaped` and `statusOf` is nil (recorded); with `exitZ` removed
+  `_outcome` errors; with `downrangeOf` forced to +1 the spawn at z -3341 is 55 studs past
+  `bounds.minZ - BOUNDS_SLACK` (-3286) and goes `outOfBounds`. It is the real `Boar.newRuntime`, not
+  the file's fake rail, and it steps 90 × 1/30 s.
+- Round 1's cases still bite: delete `onGround`/`groundUnder` and the forest arm's
+  `math.abs(bottom - lo) < 1e-2` fails on the berm by 11.25 studs (its own corner ground is 136.0
+  against a 147.25 anchor read), and `#asked >= 5 * 4` collapses to 1. Delete `state.downrange` and
+  the release lands at z -3091 against `position.Z < row.z - DISTANCE_STUDS + 1`.
+
+Also checked and correct: all five owner call sites and both `Build` call sites take the sign
+(`grep` of `src` finds no unthreaded caller); `Range.shelfFor` → `Build.shelfAt` gives DEV `row.y or 0`
+unchanged, so `field.groundY` is the shelf `Build` measured and B2's queued note (g) is closed;
+`world.groundAt = groundAt` is nil in DEV and `Boar.defaultWorld` sets no default, so DEV is
+byte-identical; `ForestTest.groundAt` really is on the SHARED module (`src/shared/ForestTest/init.luau`),
+so the forest arm would not warn-and-return; `Weapon.setStandProvider` does `return previous`, so
+design 7.4's claim about `installOver` holds; `RANGE` is `default = false` with `expires` 2026-11-17
+and `RangeBoot` reads it at its boundary, so none of this reaches Karen until the flag flips; and the
+568 lines removed from `ESCALATE.md` are in `backups/ESCALATE-293-2026-10-27.md` at the same blob hash
+(`7467511e`), which is rule 7 met exactly.
 
 ## Notes (non-blocking)
-- Rule 5, stated so nothing here is read as rule 5 having been met: nothing in Karen's place was seen. The request says so — *"Nothing in Karen's place was played... The drawn target in her place (`drawn = true`) is reasoned from `ForestTestBoot`'s own rule for MODEL/CALM/PACE/MOVE, not seen on screen."* No screenshot, no FT session. Had there been no blocking finding, line 1 would have been `PASS (items 1-9 NOT PROVEN)`.
-- `reviews/task-298f/REQUEST.md`, claim 4 — stale and now false against the shipped code: *"The ground is read once, at the anchor... the fake reader records its calls; `#asked == 1`, at `(2650, -3216)`"*. Round 2's own fix replaced that assertion with `expect(#asked >= 5 * 4).to.equal(true)` (21 reads: five per part plus `shelfAt`), and the request's round-1-findings section describes the correct behaviour. Request prose, so a note — but a reviewer who verified claim 4 as written would be verifying code that no longer exists.
-- `reviews/task-298f/REQUEST.md`, FAIL FIRST — `3f26cdf3` predates `765a1483`, so the two cases round 2 actually rests on (the rewritten 9 x 9 footprint scan and "leads the target SOUTH") have no recorded red run; the five named failures are round 1's spec. I checked both by reading: with `onGround`/`groundUnder` removed the forest arm's `expect(math.abs(bottom - lo) < 1e-2)` goes red (the berm's own corners are ~2.5 studs below the anchor read, 8.5 studs on z), and with `state.downrange` forced to 1 the release lands at z -3091 against `expect(position.Z < row.z - DISTANCE_STUDS + 1)`. Both bite.
-- `tests/server/range.spec.luau`, same case — `expect(lane.Z - anchor.Z).to.equal(case.dir * LAYOUT.DISTANCE_STUDS)` where `lane = RangeData.laneCentre(anchor, LAYOUT, case.dir)` is still a transcription of `laneCentre`'s body with the same `case.dir` fed in (round 1 note, unchanged; verdict 278). The berm assertion is the one that reads a built part.
-- `src/server/Range/Build.luau` / `groundUnder` — five samples (four corners and the centre) find the true low/high only for a PLANAR reader, which `slopedGround` is (`FAKE_SHELF + (z + 3216) * 0.0625 + (x - 2650) * 0.03125`), so the spec's 9 x 9 scan agrees with it by construction. On real terrain a dip inside the berm's 160 x 6 footprint that is not at a corner leaves that part floating over the dip. Queue a sweep count, or say in the header that the five points assume local planarity over the measured 11.6-stud spread.
-- `src/server/RangeBoot.server.luau` — `Workspace.Range`'s parts are not in `ForestTest.GROUND_IGNORE` (`table.freeze({ "OurForest", "Foliage", "Boars", "DrivePlaces" })`), so once the range is built the world's ONE ground reader can answer with the range's own mat or berm. Not a defect today: `Build` measures before `folder.Parent = parent`, and the spec's own note puts the nearest lobby rectangle 158 studs away, so nothing else reads at that footprint. Worth queueing beside the `Boars` entry.
-- `src/shared/Range/init.luau` footprint — the berm is 160 wide and centred on x 2650, so it spans `MEASURED.minX`..`MEASURED.maxX` exactly; `expect(box.minX >= MEASURED.minX)` passes with zero margin on both edges. Already queued by the Builder; repeated because one stud of x drift turns the case red.
-- `src/server/Range/init.luau` / `Range.stop` — still leaves `state.downrange` at the stopped range's sign. Harmless because `start` always assigns it first. Already queued.
-- `reviews/task-298f/REQUEST.md`, claim 1 — cites the case as *"has a row for the DEV place"*; the title is now "has a row for the DEV place and one for Karen's, and for nothing else".
+- `src/shared/Range/init.luau`, the paragraph above `FIELD_SLACK_STUDS` — now stale and contradicts
+  the `exitZ` line six lines below it: *"an `exitZ` far BEHIND the firing line"*. For the forest row
+  the exit is 400 studs DOWNRANGE of the lane. Rewrite it to the sentence the `exitZ` key carries.
+- `docs/design/shooting-range.md` §5, the `config.MODEL`, `KINDS`, `PACE`, `MOVE` row — *"the clones
+  the root already built. `ForestTestBoot` reuses its own `model`/`calm`/`pace`/`move` locals;
+  `MatchBoot` passes the DEV defaults"* is false against what shipped: `RangeBoot` builds its own
+  clones off `Boar.CONFIG` when `row.drawn == true`, and `MatchBoot` is no longer a root at all. This
+  is the one design row the `drawn` field should have changed and did not.
+- `src/server/RangeBoot.server.luau`, the `drawn` block's comment — self-contradictory: *"MODEL,
+  CALM, PACE and MOVE are replaced WHOLESALE by `newRuntime` (only MODEL, SENSE and KINDS merge key
+  by key)"*. Harmless, because a full clone is passed either way.
+- `tests/server/range.spec.luau`, the exit case — `ipairs({ DEV_ROW, FOREST_ROW })` TRUNCATES to one
+  element if `RangeData.anchorFor("forest-test")` ever returns nil, so deleting the row makes the
+  forest arm vanish silently rather than go red (the suite still catches it, in the row case). One
+  `expect(FOREST_ROW).to.be.ok()` at file scope, or loop over the world NAMES, closes it.
+- `tests/server/range.spec.luau`, "both worlds" case — `expect(lane.Z - anchor.Z).to.equal(case.dir *
+  LAYOUT.DISTANCE_STUDS)` where `lane = RangeData.laneCentre(anchor, LAYOUT, case.dir)` is still a
+  transcription of `laneCentre`'s body with the same `case.dir` fed in (round 1 and 2 note, verdict
+  278). The berm assertion beside it is the one that reads a built part, which is why the case is
+  sound; the transcription line adds nothing.
+- `src/server/Range/Build.luau` / `groundUnder` — five samples find the true low/high only for a
+  PLANAR reader, and `slopedGround` is planar, so the spec's 9 x 9 scan agrees with it by
+  construction. On real terrain a dip inside the berm's 160 x 6 footprint that is not at a corner
+  leaves that part floating over the dip. Still open from round 2: say so in the header or queue a
+  sweep count.
+- `ForestTest.GROUND_IGNORE` is `table.freeze({ "OurForest", "Foliage", "Boars", "DrivePlaces" })` and
+  does not name `Range.FOLDER_NAME`, so once the range is parented the world's ONE ground reader can
+  answer with the mat or the berm — which would lay a carcass on top of the berm, and would refuse a
+  stand outright if any marker column ever falls inside x 2570..2730 / z -3356..-3212
+  (`Markers.GROUND_TOLERANCE_STUDS` is 1). Not a defect today: `Build` measures before
+  `folder.Parent = parent`, and the b6-anchor measurement reports 0 non-terrain hits over that
+  footprint in Play. `places.spec`'s rule for `Places.FOLDER` is the shape to copy. Queue it.
+- `tests/server/range.spec.luau`, claim 7's case — the downrange half cannot fail on the SIGN: the
+  Gather pad is ~139 studs off the line, so `aim = Vector3.new(0, 0, dir)` answers false for either
+  value of `dir`. The Builder names this himself. The falsifiable half is "turn round and the same man
+  refuses the shot", which is a real assertion about `Match.lineUnsafeFor`.
+- `src/shared/Range/init.luau` footprint — the berm is 160 wide centred on x 2650, so it spans
+  `MEASURED.minX`..`MEASURED.maxX` exactly and `expect(box.minX >= MEASURED.minX)` passes with zero
+  margin on both edges. One stud of x drift reds it. Already queued; repeated because the sampled
+  rectangle, not the parts, is what should grow.
+- `reviews/task-298f/REQUEST.md` — *"Round 3 is authorised by the Director, 2026-10-28 01:50 UTC ...
+  Recorded in `ESCALATE.md` under this task's entry"* overstates what the file holds: `ESCALATE.md`'s
+  01:50 entry is the Builder ASKING (*"What I need from the Director: One authorised round 3"*); the
+  Director's word is not in the repo. The dispatch of this run says round 3 of max 3, so the round
+  stands either way.
+- `TASKS.md`, the 298 row — still ends *"ROUND 2 RETURNED FINDINGS -> `ESCALATE.md` 2026-10-28 01:50,
+  DO NOT MERGE"* and lists both round-2 findings as open. Stale as of `73037ba1`.
+- `docs/design/shooting-range.md` §5 — *"a wounded target at a range therefore flees DOWNRANGE into
+  the berm (`Brain:_flee` heads for `exitZ`)"* is the berm's COLLISION, not the exit line: `exitZ`
+  -3741 is 340 studs outside `bounds.minZ` -3401, so an animal that goes round the berm (the berm
+  spans x 2570..2730 inside bounds 2550..2750) is removed as `outOfBounds` rather than `escaped`.
+  Same shape DEV has always had; worth one honest sentence rather than a code change.
+- `src/server/Range/init.luau` / `Range.stop` — still leaves `state.downrange` at the stopped range's
+  sign; harmless because `start` always assigns it first. Already queued.
 
 ---
-REVIEWER verdict on commit `159c999c7b902efe5f466db7f219d88e3bfce51b` (round 2) · 2026-10-28 01:46 UTC · session cost $3.12, 37 turns · written by tools/agents.py
+REVIEWER verdict on commit `6e95b466b657516b78581af66ae47670ca14339c` (round 3) · 2026-10-28 02:12 UTC · session cost $4.23, 41 turns · written by tools/agents.py
