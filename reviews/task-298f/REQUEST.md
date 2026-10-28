@@ -1,11 +1,14 @@
 # Task 298-B6 (reviews folder task-298f: `agents.py` allows digits plus ONE lower-case letter) — the range in Karen's place: the forest row, the boot wiring, a range beside her lodge
 
 Task: 298f
-Round: 2
+Round: 3
 Base: task-301-stand-provider @ 7905ca17
-Code commit: b8e83b32931afb1b99543e3f577a76bbfa50afd5
+Code commit: 73037ba1ce3cb2c3fb39ead9f6d3d5dd06ce0d2e
 
-`[harness] PASS: 34/34 checks @ b8e83b32931afb1b99543e3f577a76bbfa50afd5 (clean tree) scope=all`
+`[harness] PASS: 34/34 checks @ 73037ba1ce3cb2c3fb39ead9f6d3d5dd06ce0d2e (clean tree) scope=all`
+
+**Round 3 is authorised by the Director, 2026-10-28 01:50 UTC** (`MAX_ROUNDS` is 3; the brief's
+cap of 2 is lifted for this one round). Recorded in `ESCALATE.md` under this task's entry.
 
 Two players: N/A. `agents.needs_two_player` returns `[]` for every file in the diff — no
 `TWO_PLAYER_PATHS` file is touched (Director 2026-10-03; the range is one player's).
@@ -49,8 +52,10 @@ measured rectangle, the lobby clearance, the gathering yard).
    injected shelf to 1e-3, except the plate, whose TOP is the shelf. Parts are named
    (`Mat`, `ScreenEast`, `ScreenWest`, `Berm`, and `Plate` in DEV) so the Director can enumerate
    them under `Workspace.Range` (L-086).
-4. **The ground is read once, at the anchor, and only where there is no plate.** Same case: the
-   fake reader records its calls; `#asked == 1`, at `(2650, -3216)`.
+4. **The ground is read under every part, and never outside the measured rectangle.** Same case:
+   the fake reader records its calls; `#asked >= 5 * 4` (five samples per part, plus the one
+   `shelfAt` takes at the anchor) and every recorded point is inside `MEASURED`. (Round 2's
+   wording, `#asked == 1`, described code that round 2's own fix replaced.)
 5. **The whole range is inside the rectangle that was measured.** `range.spec`, "keeps the whole
    range inside the rectangle that was measured". Harness note:
    `range forest footprint: x 2570.0..2730.0 z -3356.0..-3212.0 (measured x 2570..2730 z -3392..-3208)`.
@@ -105,8 +110,47 @@ rectangles (both clear by over 100 studs on x); the berm spans the measured rect
 `Range.stop` leaves `state.downrange` set (always reassigned by `start`); and the boot reads the
 ground twice at the anchor (`shelfFor`, then `Build.shelfAt`) for the same answer.
 
+## Round 2's two findings, and what each one changed
+
+**FAIL FIRST at `14d1bf98e69e652544951a8a102052338686932b`** (the two cases alone on top of the
+round-2 code commit `b8e83b32`): `[harness] FAIL: 32/34 checks @ 14d1bf98e69e652544951a8a102052338686932b
+(clean tree) scope=all`, server `2462 passed, 2 failed, 2 errors` — and nothing else in the suite.
+- `range.spec:274` — *Expected value "true", got "false"*: `expect(each.exitZ < each.bounds.minZ)`
+  for the forest row (`exitZ` −2816 against `bounds.minZ` −3401). Covers finding 1's arithmetic.
+- `range.spec:2028` — *Expected value "nil" to be non-nil*: `runtime:statusOf(id)` after 90 steps.
+  The ordered target was despawned as `escaped`. Covers finding 1's consequence, through the real
+  `Brain`.
+
+1. **`exitZ` is no longer signed.** `Range.fieldFor` now writes
+   `exitZ = math.min(nearZ, farZ) - Range.FIELD_EXIT_BEHIND_STUDS` — **−400 for DEV, bit-for-bit**
+   (asserted), **−3741 for the forest row**. `Brain:_outcome`'s test is `position.Z <= field.exitZ`
+   and its direction is not a parameter, so the exit must be south of the whole field for both rows.
+   **Director's decision, 2026-10-28**, written in the code comment and in design §5's field row: a
+   wounded target at a range therefore flees DOWNRANGE into the berm (`Brain:_flee` heads for
+   `exitZ`) — which is wanted, because nothing then runs back over the firing line.
+2. **Both rows, and the real runtime.** The exit case is now
+   "gives the range a field whose exit is south of the whole field -- BOTH rows": it loops
+   `{ DEV_ROW, FOREST_ROW }` through `fieldFor(anchor, LAYOUT, RangeData.downrangeOf(row))`, keeping
+   `exitZ < bounds.minZ` and both lane ends inside `bounds` for each. And a new case,
+   "keeps an ORDERED target alive on Karen's field -- the real runtime, not the rail", builds
+   `Boar.newRuntime` on the FOREST field (the idiom the deer case already uses), spawns, **orders**
+   (`leadTo`, the half of `_outcome`'s test the range always satisfies) and steps 90 × 1/30 s; the
+   target is still alive and `runtime:count()` is 1. Note:
+   `ordered target alive after 3 s at z -3341; exitZ -3741, bounds z -3401..-3156`.
+
+**L-093 sweep before reporting**, as the Learning Agent asked: every `downrange`/`dir` branching
+call site and the arm each case enters — `Build` (both rows, the "both worlds" case);
+`Range.release`/`order`/`timeWindow` through `state.downrange` (forest arm by "leads the target
+SOUTH", DEV arm by every existing lane case); `laneCentre`/`laneEnds`/`screenPosition` (both);
+`fieldFor` (both, as above). `Brain:_flee` reads `field.exitZ`, which this round makes
+direction-blind, so it gains no arm.
+
 ## What I could not verify
 
+- **NOT PROVEN in Karen's place: that the range now HOLDS a target.** Nothing in her place was
+  played — no FT session is mine (the dispatch reserves it). The exit-line fix is proved in DEV
+  against the real `Brain` on her field's own numbers, and nobody has seen a target released,
+  ordered and still alive on the lane beside her lodge.
 - **Nothing in Karen's place was played.** No FT session was mine (the dispatch reserves it). Every
   number above is DEV or arithmetic over her measured ground. The mat is at **x 2650, z −3216**,
   facing **south (−z)**; the lane's middle is at z −3341 and the berm at z −3353.
