@@ -1,11 +1,11 @@
 # Task 298-B6 (reviews folder task-298f: `agents.py` allows digits plus ONE lower-case letter) — the range in Karen's place: the forest row, the boot wiring, a range beside her lodge
 
 Task: 298f
-Round: 1
+Round: 2
 Base: task-301-stand-provider @ 7905ca17
-Code commit: 4b851d423917eb0c37d34e07d584ad731e81edd1
+Code commit: b8e83b32931afb1b99543e3f577a76bbfa50afd5
 
-`[harness] PASS: 34/34 checks @ 4b851d423917eb0c37d34e07d584ad731e81edd1 (clean tree) scope=all`
+`[harness] PASS: 34/34 checks @ b8e83b32931afb1b99543e3f577a76bbfa50afd5 (clean tree) scope=all`
 
 Two players: N/A. `agents.needs_two_player` returns `[]` for every file in the diff — no
 `TWO_PLAYER_PATHS` file is touched (Director 2026-10-03; the range is one player's).
@@ -72,6 +72,38 @@ measured rectangle, the lobby clearance, the gathering yard).
    cases still pass (34/34).
 10. **The design says what ships.** §7.4 now names the three relaxations and the loan,
     `Range.installOver` as the installer, and `Range.mayShoot` (the `mayShoke` typo is gone).
+
+
+## Round 1's three findings, and what each one changed
+
+1. **Every part was laid on ONE shelf read at the anchor.** Correct, and it was the real defect:
+   over a footprint with 11.6 studs of measured spread the berm sits 137 studs from that read.
+   `Build.build` now has `groundUnder(x, z, size, fallback, groundAt)` and `onGround(...)`: each
+   part is grown downward by the spread under **its own footprint** (four corners and the centre),
+   so its lowest face reaches the lowest ground under it and it keeps its full nominal height above
+   the highest. With a plate (DEV) no reader is passed and the spread is zero, which is the old
+   shape exactly.
+2. **The proof case could not fail, because its reader was a constant.** `slopedGround(x, z)` now
+   returns `147.25 + (z + 3216)/16 + (x - 2650)/32` — exact in binary, 13.75 studs of fall across
+   the footprint. The assertion is a **9 x 9 scan of each part's own footprint**, not the five
+   points `Build` reads, so it is not a transcription: `bottom == min(ground)` and
+   `top >= max(ground) + nominal height`. Deleting `onGround` makes it red.
+3. **The owner's `state.downrange` was never driven with −1.** New case, "leads the target SOUTH of
+   the mat when the owner is started on Karen's row": `Range.start({ anchor = FOREST_ROW, groundAt =
+   slopedGround, ... })` with the file's own fake runtime, then asserts the released animal is south
+   of the mat by a lane's length and that **every** order issued has `point.Z < row.z`. Note:
+   `target released at z -3341, 33 order(s), all south of the mat at z -3216`.
+
+Non-blocking notes acted on in the same commit: the `119 studs` comment (wrong; it is 158 to the
+Road pad's south edge, which is the spec's own note), the stale case title, and the two stale
+signatures in the design (§5 `fieldFor`, §9 `laneEnds`).
+
+Notes NOT acted on, queued for the Director: the gathering-yard case's direction clause (the lock
+radius is 6 studs and the site is 138 off the line, so the sign does not bite there — the lane's
+direction is covered by finding 3's case instead); the porch and the lodge are not among the seven
+rectangles (both clear by over 100 studs on x); the berm spans the measured rectangle exactly on x;
+`Range.stop` leaves `state.downrange` set (always reassigned by `start`); and the boot reads the
+ground twice at the anchor (`shelfFor`, then `Build.shelfAt`) for the same answer.
 
 ## What I could not verify
 
