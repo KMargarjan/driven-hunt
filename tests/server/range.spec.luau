@@ -40,6 +40,8 @@ local LAYOUT = RangeData.LAYOUT
 local DEV_ROW = { x = 1200, z = 0, y = 0, plate = true }
 -- THE LOBBY'S OWN RECTANGLES, read from the lobby's own data: step B6 holds the range clear of
 -- the seven pieces `lobby.spec` already holds to that rectangle (design 4.2 item 4).
+-- KAREN'S ROW, at file scope: the lane arithmetic and the B6 block read the same one.
+local FOREST_ROW = RangeData.anchorFor("forest-test")
 local Pads = Lobby.Pads
 local LOBBY_CFG = LobbyData.CONFIG
 local LOBBY_ANCHOR = LobbyData.anchorFor("forest-test")
@@ -254,19 +256,26 @@ return function()
 			)
 		end)
 
-		it("gives the range a field whose exit is behind the firing line", function()
+		it("gives the range a field whose exit is south of the whole field -- BOTH rows", function()
+			-- BOTH ROWS, because `Brain:_outcome`'s despawn test is `position.Z <= field.exitZ` and
+			-- ITS direction is not a parameter: an exit NORTH of the lane despawns every ordered
+			-- target the moment it is led (round 2, finding 1).
 			local anchor = Vector3.new(DEV_ROW.x, 0, DEV_ROW.z)
 			local field = RangeData.fieldFor(anchor, LAYOUT)
-			-- NOTHING DESPAWNS MID-CROSSING: both ends of the lane are inside the bounds, and the
-			-- exit line is 400 studs BEHIND the shooter, where a target that is doing what it was
-			-- told can never reach.
-			for leg = 1, 2 do
-				local at = RangeData.laneEnds(anchor, LAYOUT, leg)
-				expect(at.X > field.bounds.minX and at.X < field.bounds.maxX).to.equal(true)
-				expect(at.Z > field.bounds.minZ and at.Z < field.bounds.maxZ).to.equal(true)
+			for _, row in ipairs({ DEV_ROW, FOREST_ROW }) do
+				local at0 = Vector3.new((row :: any).x, 0, (row :: any).z)
+				local dir = RangeData.downrangeOf(row)
+				local each = RangeData.fieldFor(at0, LAYOUT, dir)
+				for leg = 1, 2 do
+					local at = RangeData.laneEnds(at0, LAYOUT, leg, dir)
+					expect(at.X > each.bounds.minX and at.X < each.bounds.maxX).to.equal(true)
+					expect(at.Z > each.bounds.minZ and at.Z < each.bounds.maxZ).to.equal(true)
+				end
+				expect(each.exitZ < each.bounds.minZ).to.equal(true)
+				expect(each.groundY).to.equal(at0.Y)
 			end
-			expect(field.exitZ < field.bounds.minZ).to.equal(true)
-			expect(field.groundY).to.equal(anchor.Y)
+			-- ...AND THE DEV ROW IS BIT-FOR-BIT WHAT IT ALWAYS WAS.
+			expect(field.exitZ).to.equal(-RangeData.FIELD_EXIT_BEHIND_STUDS)
 			-- The lobby anchor (2850, -2950) is OUTSIDE the drive's field (z -2477..-1197), which is
 			-- why the range has a field of its own at all.
 			expect(-2950 < -2477).to.equal(true)
@@ -1723,7 +1732,6 @@ return function()
 	-- the lodge, the pads and the gathering yard.
 	--   evidence: <runs-dir>/evidence/b6-anchor/SUMMARY.md (grid1.txt, grid2.txt, grid-play.txt)
 	describe("the forest row: a range beside Karen's lodge (step B6)", function()
-		local FOREST_ROW = RangeData.anchorFor("forest-test")
 		-- THE MEASURED RECTANGLE, from the SUMMARY above. The range must fit inside what was sampled.
 		local MEASURED = { minX = 2570, maxX = 2730, minZ = -3392, maxZ = -3208 }
 		-- A SHELF THAT IS EXACT IN FLOAT32, because `Vector3` stores floats and 147.3 does not survive
@@ -1977,6 +1985,60 @@ return function()
 			)
 			Range.stop()
 			root:Destroy()
+		end)
+
+		it("keeps an ORDERED target alive on Karen's field -- the real runtime, not the rail", function()
+			-- ROUND 2, FINDING 1, PROVED WITH THE REAL `Brain`: the fake rail never despawns, so only
+			-- `Boar.newRuntime` can see an exit line on the wrong side. At `b8e83b32` the forest
+			-- field's `exitZ` was -2816 and the lane is at z -3341, so the first order despawned the
+			-- target as `escaped` and `statusOf` went nil.
+			local parent = Instance.new("Folder")
+			parent.Name = "RangeForestFieldSpec"
+			parent.Parent = Workspace
+			local row = FOREST_ROW :: any
+			local dir = RangeData.downrangeOf(row)
+			local anchor = Vector3.new(row.x, 0, row.z)
+			local field = RangeData.fieldFor(anchor, LAYOUT, dir)
+			local world = Boar.defaultWorld(field)
+			world.parent = parent
+			world.folderName = "RangeTargets"
+			world.threats = function()
+				return {}
+			end
+			local line = table.clone(Boar.CONFIG.LINE)
+			line.ENABLED = true
+			world.config = {
+				LINE = line,
+				SENSE = { ENABLED = false },
+				KINDS = { ENABLED = true },
+				maxBoars = Range.CONFIG.MAX_TARGETS,
+			}
+			local runtime = Boar.newRuntime(world)
+			local from = RangeData.laneEnds(anchor, LAYOUT, 2, dir)
+			local handle = runtime:spawn(from, "male")
+			expect(handle).to.be.ok()
+			local id = (handle :: any).id
+			-- ORDERED, which is the half of `_outcome`'s test the range always satisfies.
+			expect(runtime:leadTo(id, RangeData.laneEnds(anchor, LAYOUT, 1, dir), speedOf("trot"))).to.equal(true)
+			local DT = 1 / 30
+			for _ = 1, 90 do
+				runtime:step(DT)
+			end
+			local status = runtime:statusOf(id)
+			expect(status).to.be.ok()
+			expect((status :: any).alive).to.equal(true)
+			expect(runtime:count()).to.equal(1)
+			TestKit.note(
+				string.format(
+					"range forest field: ordered target alive after 3 s at z %.0f; exitZ %.0f, bounds z %.0f..%.0f",
+					(status :: any).position.Z,
+					field.exitZ,
+					field.bounds.minZ,
+					field.bounds.maxZ
+				)
+			)
+			runtime:destroy()
+			parent:Destroy()
 		end)
 
 		it("refuses nothing a man in the gathering yard is doing (design 4.2 item 5)", function()
