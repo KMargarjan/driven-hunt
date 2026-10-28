@@ -1,60 +1,43 @@
-# ESCALATE -- task 298-B6: round 2 returned FINDINGS, so I stop (the dispatch's rule). For the Director.
+# ESCALATE -- Task 305, 2026-10-28 12:20 UTC (deadline 12:25)
 
-**Builder, 2026-10-28 01:50 UTC.** Branch `task-298b6-range-forest`, stacked on
-`task-301-stand-provider` at `7905ca17`. Code commit `b8e83b32931afb1b99543e3f577a76bbfa50afd5`
-(`[harness] PASS: 34/34 checks @ b8e83b32931afb1b99543e3f577a76bbfa50afd5 (clean tree) scope=all`).
-The dispatch gave max 2 rounds and said FINDINGS on round 2 -> escalate and stop. Round 2 returned
-two findings. **DO NOT MERGE AS IT STANDS: finding 1 is real, it is mine, and it makes the range in
-Karen's place permanently empty.** Reviewer verdict: `reviews/task-298f/RESULT.md` (round 2).
+## 1. TWO BUILDERS WERE ON THIS BRANCH AND THEIR TWO MEASUREMENTS ARE BOTH RIGHT. THE DIRECTOR MUST COMBINE THEM.
 
-## What is built and proven (DEV, 34/34, scope=all)
-The measured forest row (`x 2650, z -3216, plate = false, downrange = -1, drawn = true`), the lane
-direction as a DATA field threaded through one arithmetic (both arms entered by parameter), every
-part standing on the ground under its OWN footprint against a SLOPED reader, the whole range inside
-the measured rectangle, clear of the seven lobby rectangles, and `Match.lineUnsafeFor` refusing
-nothing down the lane while still refusing a shot at the man. One root (`RangeBoot`), no
-`ForestTestBoot` change, no second caller of `Range.installOver`.
+Session `5296d523` (this one) and session `9d5b3ff8` were both dispatched task 305 on
+`task-305-aim-what-you-see`. We measured the same defect from two distances and got **opposite
+signs**, which is itself the finding:
 
-## Finding 1, and it is correct
-`Range.fieldFor` now writes `exitZ = anchor.Z - dir * FIELD_EXIT_BEHIND_STUDS`. **`Brain:_outcome`'s
-despawn test is one-sided and not a parameter**: `position.Z <= field.exitZ` means "escaped". For the
-forest row that gives `exitZ = -2816`, which is NORTH of the whole field, so the first ordered target
-(the range orders on its first scan tick, and `LINE.ENABLED` is wired) is despawned as `escaped`
-immediately, for ever. I broke the module's own invariant two lines above the change I made.
+| who | place | shooter -> animal | reading |
+|---|---|---|---|
+| this session, `<runs-dir>/305lag.py` | DEV, boar at **115 studs** | far | client draws the animal **+0.180 s IN THE PAST** (residual 0.011 studs); own client-owned part **-0.170 s in the future** |
+| session `9d5b3ff8` | Karen's Forest Test range + DEV | **near / on the mat** | client draws the animal **AHEAD** of the server by 4.00 studs at 24.8 studs/s (0.159 s); `GetNetworkOwner()` reads `SERVER` at 134 studs and **the PLAYER once he is on the mat** |
 
-**The fix the Reviewer names, and I agree with it:** `exitZ = math.min(nearZ, farZ) -
-Range.FIELD_EXIT_BEHIND_STUDS` -- bit-for-bit `-400` for DEV and `-3741` for the forest row, so the
-exit is south of the whole field for BOTH rows because the predicate's direction is not a parameter.
-It must be stated what that does to `Brain:_flee`'s heading (`Vector3.new(targetX, groundY, exitZ)`),
-which in Karen's place then points a wounded target downrange into the berm rather than back over the
-shooter -- that may be wanted at a range, but it is a decision, not a side effect to slip in.
+**The cause of the unlearnable lead is that `Boar.Body.create` leaves the trunk unanchored with
+`GetNetworkOwnershipAuto()` true, so the engine hands the animal to the nearest player.** Near the
+animal the CLIENT simulates it and the server's copy trails; far from it the server owns it and the
+CLIENT's copy trails. **The sign of the required lead therefore flips with distance**, which is
+exactly Karen's *"aiming is off"*.
 
-## Finding 2, also correct
-No case drives `RangeData.fieldFor` with a `downrange` argument, so the whole `dir` arm of `fieldFor`
-could be deleted and the suite stays 34/34 -- which is exactly why the harness is green over a range
-that cannot hold a target. The fix: drive the existing exit case with BOTH rows, and put an ORDERED
-animal on the forest field through the real `Boar.newRuntime` (`range.spec` already builds one) and
-assert it is still alive after a step, so the field and the predicate are asserted together.
+**Neither fix alone is right, and they do not conflict:**
+- `9d5b3ff8`'s one line -- `part:SetNetworkOwner(nil)` in `Boar.Body.create` -- makes the server the
+  only simulator at every distance. It does **not** remove the lag; it makes it one-signed.
+- this session's commit `605e1f6d` -- the server resolves the shot against the animal **where the
+  shooter drew it**, 0.180 s back, measured -- removes that remaining one-signed lag, for every
+  weapon, on the range and in the hunt. **With auto-ownership still on it is WRONG for a shooter
+  standing next to the animal**, because it would rewind a server copy that is already behind.
 
-## RESOLVED -- Director authorised round 3 (2026-10-28 01:50 UTC)
+**Director decision needed: land `SetNetworkOwner(nil)` FIRST, then re-measure `305lag.py` at 115
+studs AND on the mat.** If both then read ~+0.18 s with one sign, `605e1f6d` is the second half and
+`FLIGHT_REWIND_BASE_SECONDS` is re-fitted to whatever that re-measurement says. If pinning ownership
+alone brings the required lead to the ballistic lead, this commit's flag `AIM_REWIND` is turned OFF
+and the row retired. **It is behind a flag precisely so this is one line either way.**
 
-**Director authorised round 3** ("MAX_ROUNDS is 3; my brief's cap of 2 is lifted for this one
-round"), and it PASSED: `reviews/task-298f/RESULT.md` line 1 is
-`PASS (items 1, 2, 3, 4, 5, 6, 7, 8, 9 NOT PROVEN)` at code commit `73037ba1`
-(`[harness] PASS: 34/34 checks @ 73037ba1 (clean tree) scope=all`). Both findings are fixed:
-`exitZ = math.min(nearZ, farZ) - FIELD_EXIT_BEHIND_STUDS` (-400 DEV bit-for-bit, -3741 forest), and
-the exit case now drives BOTH rows with an ORDERED target held alive on Karen's field through the
-real `Boar.newRuntime`. Red first at `14d1bf98` (`range.spec:274`, `range.spec:2028`).
-**Director's decision recorded in the code and in design 5:** a wounded target at a range flees
-DOWNRANGE into the berm, which is wanted -- nothing runs back over the firing line.
-**Still NOT PROVEN: nothing in Karen's place has been seen.** The live proof that the range HOLDS a
-target there is the Director's, after this PASS.
+## 2. NEEDS DIRECTOR: THE CLICK PROOF DID NOT RUN. The code is NOT proven on screen.
 
-## What was asked of the Director (now answered)
-One authorised round 3 (`DIRECTOR_MAX_ROUNDS=3` is the cap; a round 3 needs this entry plus the
-Director's word), or a new task. Both findings are small and the second is the one that matters:
-without it the first can come back.
+`<runs-dir>/305run.py` + `305-shoot.luau` (a real `FireRequest` aimed at the CLIENT'S OWN rendered
+chest plus `Ballistics.leadStuds` and nothing else) got as far as firing and `Weapon.stats().shots`
+stayed **0** -- the DEV arena refused every request, almost certainly because the drive is not open
+in the lobby phase (`driveOpenProvider`). Not diagnosed; the session ran out of clock.
+**So: `>= 8/10` per pace per gun is NOT PROVEN, the fail-first is NOT PROVEN, and no frame was
+taken.** Per V280 this is written at the stop, not worked around.
 
-**And the Forest Test proof is still unrun and is yours** (the dispatch reserves it): the mat is at
-**x 2650, z -3216**, facing **south (-z)**; the lane's middle is z -3341 and the berm z -3353. It is
-worth doing only after finding 1 is fixed -- today the lane would be empty.
+## 3. No review round was run. `reviews/task-305/` has no REQUEST.md and no verdict.
