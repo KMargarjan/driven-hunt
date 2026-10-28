@@ -603,10 +603,19 @@ return function()
 			expect(offset < LAYOUT.WINDOW_STUDS / 2).to.equal(true)
 			TestKit.note(string.format("range: picked WALK with the target %.1f studs inside the window", offset))
 			-- THE PICK, mid-window.
+			local before = (Range.trialOf(1) :: any).crossings
 			expect(Range.setPace(1, RangeData.WORD.WALK)).to.equal(true)
-			-- Two whole lane lengths at a walk: enough for the partial exit AND a real crossing.
-			advance(fake, clock, 2 * RangeData.laneLength(LAYOUT) / speedOf("walk") + 2)
+			-- THE *FIRST* CROSSING AFTER THE PICK IS THE ONE SHE READS, and it is the only one the
+			-- defect can be seen in: run on and a later whole crossing overwrites it with the right
+			-- number, which is why the board was wrong for one crossing and right afterwards.
 			local trial = Range.trialOf(1) :: any
+			local waited = 0
+			while trial.crossings == before and waited < 3 * RangeData.laneLength(LAYOUT) / speedOf("walk") do
+				advance(fake, clock, 0.1)
+				waited += 0.1
+				trial = Range.trialOf(1) :: any
+			end
+			expect(trial.crossings).to.equal(before + 1)
 			local measured = trial.crossingSecondsByPace[RangeData.WORD.WALK]
 			local predicted = RangeData.crossingSeconds(LAYOUT.WINDOW_STUDS, speedOf("walk"))
 			expect(measured).to.be.ok()
