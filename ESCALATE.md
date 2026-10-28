@@ -1,3 +1,69 @@
+## 2026-10-28, Task 305d -- two of the three dispatch items are refuted; a third defect was found
+
+Every time below is a `date -u` reading. Measurements: `reviews/task-305d/MEASURED.md`.
+
+**1. THE WALK DID NOT REGRESS.** `ray.luau` in Karen's place at 4.50 studs/s: a ray from the
+shooter's eye through the DRAWN chest centre, translated by the rewind shift exactly as
+`Weapon.Rewind` does, hits a zone part on **189 of 189 frames**. Real `FireRequest`s at that aim
+read **4/5 on `5c444dbe`** and **4/5 on the fix** -- which is 305b's own 4/5. The Playtester's 1/5
+is not reproducible on this build by geometry or by shots. **L-123 called this exactly** and it was
+right: the instrument, not the gait code, was the first suspect.
+
+**2. THE SEMI-AUTO IS NOT DIFFERENT FROM THE SHOTGUN.** `SemiAuto.CONFIG` holds `Shotgun.CONFIG`'s
+own ammunition tables by reference; both read `muzzle=1752, t(125)=0.0763 s, lead=1.83 studs`. Back
+to back, same rig, same session: on `5c444dbe` semiauto **1/5** and shotgun **4/5** at RUN, but at a
+STANDING boar **2/5** and **3/5**, and on the fix **3/5** and **3/5**. The nose TIP is a ~50% aim
+for every gun, because it is a point ON the box surface. The 0/3 on record is a five-shot sample of
+a coin flip, not a broken gun.
+
+**3. THE REWIND'S POSE PAIRING IS REAL AND SMALL.** The escalation assumed the client draws a
+0.18 s-old pose. It does not: the box pose is a replicated PROPERTY, and a server-stamped attribute
+read back on the client gives **0.0372-0.0797 s, mean 0.0556** over 234 samples. Only the trunk
+POSITION carries the 0.18 s interpolation buffer. So the mismatch is the pose travel over 0.056 s:
+**0.23-0.31 studs at RUN**, against boxes 0.32-1.76 studs across. Worth knowing, not worth a fix
+ahead of anything else.
+
+**4. WHAT WAS ACTUALLY WRONG, and is fixed in `472b8c68`:** `Body.gaitRig` picked each box's bone by
+plain nearest rest distance over all 40 bones, and two boxes sit on the boar's BACK a stud above the
+spine -- so **`ZoneBody1`, the slab over the shoulders, was skinned to `ear_1.L`** (d = 0.534, beating
+`Neck` at 0.693) and `ZoneBody2` to `hip_1_f.R`. A paired bone moves with one side only. That box is
+0.12 studs tall and was travelling **0.420 studs per replication lag at a run**, 3.5x its own height.
+Now `Neck` and `Spine_01`, and 0.268 / 0.141.
+
+**FOR THE DIRECTOR:**
+
+a. **The click thresholds in the dispatch cannot be met by a Builder rig and I have not claimed
+   them.** On the SAME build, the Playtester's real clicks read rifle RUN nose 9/10 where this
+   `FireRequest` rig reads 4/10 and 305c's rig read 6/10. The rig has no screen-centre gate. Every
+   count in `MEASURED.md` is used only as a before/after pair on one instrument. **The thresholds
+   need the Playtester**, as the dispatch says.
+b. **The red deer is NOT PROVEN.** `U8` reads 0/5 at the stag's nose with no before from this
+   instrument. `carrier2.luau` (instance facts only) says the stag's TRUNK boxes are all on
+   spine/neck bones, so the rule changes nothing there -- but its head cluster is inside that
+   detector's blind spot, and `rig2.luau` cannot help because a fresh module cache returns the
+   BOAR's zone table for `kind="stag"`. A deer-side reading needs a probe that can get the stag's
+   own geometry.
+c. **I cleared ONE flag override in DEV, and only DEV:** `DHFlag_RANGE=true` was set there and the
+   harness refuses to start with any override. `python tools/flags.py clear` (DEV), recorded here so
+   it can be put back. **Karen's Forest Test was never cleared** -- its thirteen rows were read
+   before and after and are identical.
+d. **The Forest Test's Rojo panel was switched from :34873 to :34874** to serve this build from
+   `driven-hunt-294`, per the dispatch, and is **switched back to :34873 at the end of this
+   session**. `driven-hunt-karen` was never touched. Panel shots:
+   `<runs-dir>/305d-conn-crop.png` (34874) and `<runs-dir>/evidence/port-34873-*.png`.
+e. **THE RULE IS CLOSE TO INERT ON THE DEER, and the Reviewer found why** (round-1 note, queued).
+   `centreX` is a tenth of the mesh's BOUNDING BOX, and a stag's bounding box is mostly ANTLER:
+   `KINDS.stag.drawnWidthStuds = 3.47` against the male's 1.40, so `centreX` is 0.347 on the stag
+   and every stag bone inside |x| < 0.347 still reads as a centre bone. The stag happens not to need
+   the rule (`carrier2.luau`: its trunk boxes are already on spine/neck bones), so nothing is broken
+   -- but the guard would not catch a deer box that DID land on a paired bone. `BODY_SIZE.X`, or a
+   measured torso half-width, is not a measurement of antlers. Karen shoots deer on Friday; this and
+   the deer-side probe in (b) belong in the same follow-up.
+f. **`Range.gapStuds` still misleads and three sessions have now leaned on it.** It measures the
+   ray's END POINT against the target's present X, so a shot that passes a hair wide carries on to
+   the berm and prints the berm's offset: that is where "19.3 m behind" and "2.8 m ahead" come from.
+   305b queued it; it is still open and it is still the number the Playtester and Karen read.
+
 ## 2026-10-28, Task 305c -- the cause is found and fixed; the CLICK INSTRUMENT disagrees with itself
 
 **The cause is measured and the fix is proved geometrically on the moving animal.** The zone boxes

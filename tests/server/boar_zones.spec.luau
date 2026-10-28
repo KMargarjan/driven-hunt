@@ -305,6 +305,50 @@ return function()
 			carrier:Destroy()
 		end)
 
+		-- THE CENTRE-LINE RULE (task 305d), and the case that bites it: a box ON the centre line
+		-- with a PAIRED bone nearer than the spine bone under it. In Karen's range that is exactly
+		-- `ZoneBody1` -- 0.534 studs from `ear_1.L`, 0.693 from `Neck` -- and the plain nearest rule
+		-- gave the slab over the shoulders to an ear. Delete the side filter and this fails.
+		it("never lets a paired bone carry a box on the animal's centre line", function()
+			local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
+			local carrier = Instance.new("Part")
+			carrier.Name = "GaitCarrierSides"
+			-- The male's own width, so `centreX` is the number the live animal uses.
+			carrier.Size = Vector3.new(1.4011, 1, 1)
+			carrier.Anchored = true
+			carrier.CanCollide = false
+			carrier.CanQuery = false
+			carrier.CFrame = trunk.CFrame
+			carrier.Parent = testRoot
+			-- The male's own `ear_1.L` and `Neck` rest places, measured in Karen's range.
+			local ear = Instance.new("Bone")
+			ear.Name = "ear_1.L"
+			ear.CFrame = CFrame.new(-0.359, 1.403, -1.313)
+			ear.Parent = carrier
+			local neck = Instance.new("Bone")
+			neck.Name = "Neck"
+			neck.CFrame = CFrame.new(0, 0.872, -0.866)
+			neck.Parent = carrier
+			-- A left-side bone for the left foreleg box, so the filter is shown to ALLOW its own
+			-- side as well as to refuse the other: one assertion each way.
+			local shin = Instance.new("Bone")
+			shin.Name = "shin_f.L"
+			shin.CFrame = CFrame.new(-0.322, -0.673, -0.699)
+			shin.Parent = carrier
+			-- `ZoneBody1` and `ZoneLegs1`, straight out of the live config.
+			local backBox = { offset = CONFIG.ZONES.body.boxes[1].offset }
+			local legBox = { offset = CONFIG.ZONES.legs.boxes[1].offset }
+			local view = { zoneRows = { backBox, legBox }, part = trunk, mesh = carrier }
+			-- The ear really is nearer: without the rule this test could not fail.
+			local toEar = (Vector3.new(-0.359, 1.403, -1.313) - backBox.offset).Magnitude
+			local toNeck = (Vector3.new(0, 0.872, -0.866) - backBox.offset).Magnitude
+			expect(toEar < toNeck).to.equal(true)
+			expect(Body.gaitRig(view)).to.equal(2)
+			expect(backBox.bone).to.equal(neck)
+			expect(legBox.bone).to.equal(shin)
+			carrier:Destroy()
+		end)
+
 		it("moves a box by its bone's own deformation and never resizes it", function()
 			local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
 			local handleView, rows = gaitHandle()
