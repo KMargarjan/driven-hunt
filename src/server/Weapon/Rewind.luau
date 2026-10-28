@@ -71,6 +71,9 @@ function Rewind.impact(
 					normal = hit.normal,
 					distance = hit.distance,
 					material = hit.material,
+					-- AND THE FRAME IT IS IN (task 308): `position` above is in the PAST, so the
+					-- card must divide it down by the PAST CFrame or a nose shot reads as a rump.
+					frame = candidate.past,
 				}
 			end
 		end

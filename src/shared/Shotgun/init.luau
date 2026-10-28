@@ -146,6 +146,11 @@ export type Impact = {
 	normal: Vector3,
 	distance: number,
 	material: Enum.Material?,
+	-- WHICH TENSE `position` IS IN (task 308). A rewound impact is reported where the SHOOTER DREW
+	-- the animal, not where the server has it now, so anything that projects the point into the
+	-- animal's own frame -- the hit card, the report's silhouette -- has to divide it down by the
+	-- CFrame it was measured against. nil means the present, which is every static impact.
+	frame: CFrame?,
 }
 -- `rewindSeconds` IS THE FOURTH AND IT IS OPTIONAL (task 305): how far back the shooter's own
 -- picture of a MOVING animal is, so the server can test the animal where he drew it. Every cast

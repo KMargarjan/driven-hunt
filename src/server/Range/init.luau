@@ -836,15 +836,29 @@ end
 --
 -- The lane runs along X and the heading is the leg's direction, which this module already holds --
 -- so there is no second reader of the animal's CFrame. STAND has no gap: nothing is moving.
-function Range.gapStuds(trial: Trial, endPoint: Vector3?, targetPosition: Vector3?): number?
-	if typeof(endPoint) ~= "Vector3" or typeof(targetPosition) ~= "Vector3" then
+--
+-- IT IS THE SHOT'S CLOSEST APPROACH AND NOT WHERE THE BULLET CAME TO REST (task 308 bug 4).
+-- `endPoint` alone is the flight's END -- the berm, the ground, or the ammo's range -- so a slug
+-- that passed a hand in front of the nose reported the berm's X and the board printed the same
+-- 19.3 m at two paces in two directions. The quantity Karen is owed is where the bullet crossed
+-- the animal's own lane: the point on the SEGMENT muzzle->endPoint nearest the animal, which for a
+-- shot that stopped in the animal is the animal.
+function Range.gapStuds(trial: Trial, muzzle: Vector3?, endPoint: Vector3?, targetPosition: Vector3?): number?
+	if typeof(muzzle) ~= "Vector3" or typeof(endPoint) ~= "Vector3" or typeof(targetPosition) ~= "Vector3" then
 		return nil
 	end
 	if trial.pace == RangeData.WORD.STAND then
 		return nil
 	end
+	local line = (endPoint :: Vector3) - (muzzle :: Vector3)
+	local far = line.Magnitude
+	local nearest = endPoint :: Vector3
+	if far > 1e-3 then
+		local along = math.clamp(((targetPosition :: Vector3) - (muzzle :: Vector3)):Dot(line / far), 0, far)
+		nearest = (muzzle :: Vector3) + (line / far) * along
+	end
 	local heading = if (trial.leg % 2) == 1 then 1 else -1
-	return ((endPoint :: Vector3).X - (targetPosition :: Vector3).X) * heading
+	return (nearest.X - (targetPosition :: Vector3).X) * heading
 end
 
 -- WHICH KINDS THIS SPECIES HAS, through the injected seam. The door asks it of the species of the
@@ -858,9 +872,22 @@ function Range.kindsFor(species: string?): { string }
 	return if ok and type(kinds) == "table" then table.clone(kinds) else {}
 end
 
-local function targetPositionOf(trial: Trial): Vector3?
+-- WHERE THE TARGET WAS WHEN THE SHOOTER DREW IT (task 308 bug 4), through the runtime's OWN
+-- history ring -- the same ring `Weapon.castWithRewind` judged the shot against, so the gap and the
+-- hit answer to one picture. `at` nil, no seam, or a ring that cannot answer falls back to the
+-- present position, which is what this read was before the fix.
+local function targetPositionOf(trial: Trial, at: number?): Vector3?
 	local boars = state.boars
-	if boars == nil or boars.statusOf == nil or trial.targetId == nil then
+	if boars == nil or trial.targetId == nil then
+		return nil
+	end
+	if type(at) == "number" and at == at and boars.cframeAt ~= nil then
+		local okThen, then_ = pcall(boars.cframeAt, trial.targetId :: string, at)
+		if okThen and typeof(then_) == "CFrame" then
+			return (then_ :: CFrame).Position
+		end
+	end
+	if boars.statusOf == nil then
 		return nil
 	end
 	local ok, status = pcall(boars.statusOf, trial.targetId :: string)
@@ -886,6 +913,25 @@ local function playerSpot(player: any): number?
 		return nil
 	end
 	return Range.spotAt(position)
+end
+
+-- THE LISTS AND THE BOARD, WITHOUT A PICK (task 308 bug 1). MEASURED in Karen's place on
+-- 46cbd787: on the mat, before any request, `boardPushes=0` and all six option strips had zero
+-- children -- the first real E drew the six labels and NO chips, because the ONLY things that
+-- published were a request, a shot and a hit. A player who has not picked anything yet cannot pick
+-- anything. Idempotent, and it refuses a man off the mat exactly as `onRequest` does.
+function Range.look(player: any): boolean
+	if not state.started or not Range.mayShoot(player) then
+		return false
+	end
+	local spot = playerSpot(player)
+	local trial = if spot ~= nil then state.trials[spot] else nil
+	if trial == nil then
+		return false
+	end
+	recordFor(player, trial)
+	publish(player)
+	return true
 end
 
 -- ONE ACCEPTED SHOT. `Weapon.ShotResolved`'s listener (wired at the composition root) calls this:
@@ -914,7 +960,14 @@ function Range.onShotResolved(shot: any)
 	record.leadViewMeasured = measured
 	-- THE MISS GAP, off `endPoint` (clamped) and the target's own position. A hit that follows this
 	-- shot clears it, because a hit is neither behind nor ahead of anything.
-	record.lastGapStuds = Range.gapStuds(trial, shot.endPoint, targetPositionOf(trial))
+	-- THE INSTANT THE SHOT WAS JUDGED AT: the resolve clock less this shooter's own view window,
+	-- which is the expression `Weapon.castWithRewind` uses to pick the animal's past CFrame.
+	local drawnAt: number? = nil
+	if type(shot.resolvedAtServerTime) == "number" then
+		local okWindow, window = pcall(Weapon.viewWindowFor, player)
+		drawnAt = shot.resolvedAtServerTime - (if okWindow and type(window) == "number" then window else 0)
+	end
+	record.lastGapStuds = Range.gapStuds(trial, shot.muzzle, shot.endPoint, targetPositionOf(trial, drawnAt))
 	record.lastGapText = RangeData.gapText(record.lastGapStuds)
 	-- THE SLOT CARRIES THE INSTANT IT WAS OPENED. `onShotLanded` fires `ShotResolved` and then the
 	-- hit reports in the SAME frame, so a second is generous -- and it is what stops a slot left

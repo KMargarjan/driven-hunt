@@ -10,6 +10,7 @@
 -- `GuiButton.Modal` IS NOT USED: `src/client/Weapon/Input.luau` refuses it as a second writer of
 -- `MouseBehavior`. The mouse is freed by `Cursor.requestFree("range")` and nothing else.
 
+local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -56,7 +57,14 @@ local state: any = nil
 local picked: { [string]: any } = {}
 local buttons: { [string]: { any } } = {}
 local confirmButton: TextButton? = nil
-local stats = { opens = 0, closes = 0, sends = 0, prompts = 0, picks = 0 }
+local stats = { opens = 0, closes = 0, sends = 0, prompts = 0, picks = 0, keys = 0, swallowed = 0 }
+local lastTriggerAt = -1
+-- THE KEY, BOUND WHILE HE IS AT THE SPOT (task 308 bug 2).
+RangePanel.KEY_ACTION = "DrivenHuntRangeKey"
+RangePanel.KEY = Enum.KeyCode.E
+-- One press must not toggle twice: the engine's prompt and the binding below can both answer it.
+RangePanel.TRIGGER_DEBOUNCE = 0.2
+local keyBound = false
 
 -- THE CONFIRM BAR MUST CONTAIN THE VIEWPORT CENTRE, which is the one point the input replay can
 -- click (design 11.3) -- and MEASURED LIVE on 2026-10-27 it did not: the HUD's `ScreenGui` carries
@@ -423,6 +431,7 @@ function RangePanel.setNear(next_: boolean)
 		return
 	end
 	near = next_
+	RangePanel.bindKey(near)
 	if not near then
 		RangePanel.setOpen(false)
 	end
@@ -461,11 +470,54 @@ function RangePanel.hasPrompt(): boolean
 	return promptConnection ~= nil
 end
 
-function RangePanel.onPromptTriggered()
+-- THE ONE WAY IN, whoever asked (task 308 bug 2). MEASURED in Karen's place on 46cbd787: standing
+-- 1.90 studs from the prompt with `Enabled=true` and `MaxActivationDistance=12`, turning the camera
+-- off the post fired `ProximityPromptService.PromptHidden` and four real `E` presses then produced
+-- `trig=0` -- the keys arrived (`InputBegan` counted 4, `gameProcessed=false`) and the engine
+-- answered none of them, because a HIDDEN prompt does not answer its key and a prompt is hidden
+-- whenever its own point is off screen. Walking right up to the post and looking down the lane is
+-- exactly that. So the panel binds `E` itself while he is at the spot and the prompt stays as the
+-- thing he can SEE; both arrive here, and the debounce is what stops one press toggling twice.
+function RangePanel.onPromptTriggered(nowClock: number?)
 	if not enabled then
 		return
 	end
+	local at = if type(nowClock) == "number" then nowClock else os.clock()
+	if at - lastTriggerAt < RangePanel.TRIGGER_DEBOUNCE then
+		stats.swallowed += 1
+		return
+	end
+	lastTriggerAt = at
 	RangePanel.setOpen(not open)
+end
+
+-- `Pass`, NEVER `Sink`: the lobby's shop prompt is on `E` too, and swallowing the key would break
+-- a door this module does not own.
+local function onKey(_name: string, inputState: Enum.UserInputState)
+	if inputState == Enum.UserInputState.Begin then
+		stats.keys += 1
+		RangePanel.onPromptTriggered()
+	end
+	return Enum.ContextActionResult.Pass
+end
+
+function RangePanel.bindKey(on: boolean)
+	on = on == true
+	if on == keyBound then
+		return
+	end
+	keyBound = on
+	pcall(function()
+		if on then
+			ContextActionService:BindAction(RangePanel.KEY_ACTION, onKey, false, RangePanel.KEY)
+		else
+			ContextActionService:UnbindAction(RangePanel.KEY_ACTION)
+		end
+	end)
+end
+
+function RangePanel.hasKey(): boolean
+	return keyBound
 end
 
 -- THE SERVER'S LISTS AND ITS LIVE TRIAL (design 8.5). The panel holds no opinion about either.
@@ -487,6 +539,7 @@ function RangePanel.setEnabled(on: boolean)
 	enabled = on == true
 	if not enabled then
 		RangePanel.setOpen(false)
+		RangePanel.bindKey(false)
 	end
 end
 
@@ -511,12 +564,15 @@ function RangePanel.start(root: Frame, collaborators: any)
 	state = nil
 	open = false
 	near = false
+	-- A FRESH START OWNS NOTHING, the key included: it is bound by `setNear` when he arrives.
+	RangePanel.bindKey(false)
 	RangePanel.build(root)
 	root.Visible = false
 end
 
 function RangePanel.stop()
 	RangePanel.setOpen(false)
+	RangePanel.bindKey(false)
 	RangePanel.setPrompt(nil)
 	panel = nil
 	state = nil

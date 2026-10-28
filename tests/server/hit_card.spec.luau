@@ -75,6 +75,9 @@ local function report(part: BasePart, shooter: any, points: { any }?, extra: any
 		weapon = (extra and extra.weapon) or "shotgun",
 		points = points,
 		at = (extra and extra.at) or 10.0,
+		-- TASK 308: the CFrame the position and the points are expressed in, or nil for a
+		-- present-tense impact (which is every case written before that task).
+		targetCFrame = extra and extra.targetCFrame,
 	}
 end
 
@@ -231,6 +234,51 @@ return function()
 
 	-- THE WHOLE SERVER PATH, with the real player this harness run has: a hit on an animal sends a
 	-- card and a hit on anything else does not.
+	-- TASK 308 BUG 3. Karen's Playtester, 2026-10-28: a nose shot at a RUNNING boar drew the dot in
+	-- the white space behind the rump. `Weapon.Rewind` reports a rewound impact WHERE THE SHOOTER
+	-- DREW the animal, and the card used to divide it down by the trunk's CFrame as read when the
+	-- report arrived -- flight time plus replication later. At 24 studs/s that is ~13 studs on a
+	-- 5.5-stud body, so u ran off the end.
+	describe("the card's dots are in the frame the shot was judged in (task 308)", function()
+		it("puts a nose hit at the nose even though the animal has travelled since", function()
+			local shooter = Players:GetPlayers()[1]
+			HitLog.clear()
+			HitLog.openDrive(11, 0)
+			local boar = fakeBoar("B308")
+			-- WHERE THE SHOOTER SAW IT, and the nose is the front tip: `Shape.dot` puts -Z forward.
+			local drawn = CFrame.new(0, 3, 0)
+			local nose = drawn.Position + Vector3.new(0, 0, -BODY.Z / 2)
+			-- ...AND WHERE THE SERVER HAS IT NOW: 13 studs further along its own travel.
+			boar.CFrame = drawn + Vector3.new(0, 0, -13)
+
+			expect(HitLog.recordHit(report(boar, shooter, { { position = nose, zone = "head" } }, {
+				zone = "head",
+				position = nose,
+				at = 3.0,
+				targetCFrame = drawn,
+			}))).to.equal(true)
+			local card = HitLog.lastCard() :: any
+			expect(card).to.be.ok()
+			expect(#card.dots).to.equal(1)
+			-- THE NOSE END OF THE SILHOUETTE. Without the frame this reads 1.0 -- clamped off the
+			-- tail -- which is the white space Karen's frame shows.
+			expect(card.dots[1].u < 0.1).to.equal(true)
+
+			-- THE KNOWN-BAD INPUT, from the same instrument: the same point with NO frame carried
+			-- is still divided down by the present CFrame, and it lands at the far end.
+			HitLog.clear()
+			HitLog.openDrive(12, 0)
+			expect(HitLog.recordHit(report(boar, shooter, { { position = nose, zone = "head" } }, {
+				zone = "head",
+				position = nose,
+				at = 4.0,
+			}))).to.equal(true)
+			local stale = HitLog.lastCard() :: any
+			expect(stale.dots[1].u > 0.9).to.equal(true)
+			HitLog.clear()
+		end)
+	end)
+
 	describe("HitLog.recordHit and the card", function()
 		it("sends one card per hit on an animal, and none for a beater or a miss", function()
 			local shooter = Players:GetPlayers()[1]

@@ -237,6 +237,42 @@ return function()
 			expect(RangePanel.isOpen()).to.equal(false)
 		end)
 
+		-- TASK 308 BUG 2. MEASURED in Karen's place on 46cbd787: standing 1.90 studs from the
+		-- prompt, `Enabled=true`, `MaxActivationDistance=12`, turning the camera off the post fired
+		-- `PromptHidden` and four real `E` presses produced `trig=0` -- the keys arrived
+		-- (`InputBegan` counted them, `gameProcessed=false`) and the engine answered none, because a
+		-- hidden prompt does not answer its key. So the panel binds `E` itself while he is there.
+		it("holds its own E while he is at the spot, and one press toggles once", function()
+			local _, frame = freshPanel()
+			expect(RangePanel.hasKey()).to.equal(false)
+			RangePanel.setNear(true)
+			expect(RangePanel.hasKey()).to.equal(true)
+
+			-- THE KEY OPENS IT WITH NO PROMPT AT ALL: there is none set in this case, which is
+			-- exactly the state a hidden prompt leaves the player in.
+			expect(RangePanel.hasPrompt()).to.equal(false)
+			RangePanel.onPromptTriggered(100)
+			expect(RangePanel.isOpen()).to.equal(true)
+			expect(frame.Visible).to.equal(true)
+
+			-- ...AND ONE PRESS CANNOT TOGGLE TWICE. The binding and the engine's own prompt can both
+			-- answer one keystroke; without the debounce the menu opened and shut again.
+			RangePanel.onPromptTriggered(100.05)
+			expect(RangePanel.isOpen()).to.equal(true)
+			expect(RangePanel.stats().swallowed).to.equal(1)
+			-- A LATER press is a real second press.
+			RangePanel.onPromptTriggered(100 + RangePanel.TRIGGER_DEBOUNCE + 0.01)
+			expect(RangePanel.isOpen()).to.equal(false)
+
+			-- THE KEY GOES WITH HIM: off the spot it is unbound, so nothing answers E in the wood.
+			RangePanel.setNear(false)
+			expect(RangePanel.hasKey()).to.equal(false)
+			RangePanel.setNear(true)
+			RangePanel.setEnabled(false)
+			expect(RangePanel.hasKey()).to.equal(false)
+			RangePanel.setEnabled(true)
+		end)
+
 		it("clears the kind when the animal changes, so a stale word cannot ride along", function()
 			local sent = freshPanel()
 			RangePanel.setState({ lists = lists() })
