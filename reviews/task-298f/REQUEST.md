@@ -1,6 +1,6 @@
-# Task 298-B6 — the range in Karen's place: the forest row, the boot wiring, a range beside her lodge
+# Task 298-B6 (reviews folder task-298f: `agents.py` allows digits plus ONE lower-case letter) — the range in Karen's place: the forest row, the boot wiring, a range beside her lodge
 
-Task: 298b6
+Task: 298f
 Round: 1
 Base: task-301-stand-provider @ 7905ca17
 Code commit: 4b851d423917eb0c37d34e07d584ad731e81edd1
