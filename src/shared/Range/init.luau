@@ -54,6 +54,19 @@ Range.LAYOUT = {
 	SCREEN = { size = Vector3.new(10, 8, 1), beyondStuds = 6, color = Color3.fromRGB(96, 88, 76) },
 	BERM = { size = Vector3.new(160, 10, 6), behindStuds = 12, color = Color3.fromRGB(104, 84, 62) },
 	MAT = { size = Vector3.new(8, 1, 8), color = Color3.fromRGB(70, 82, 70) },
+	-- THE WAY IN STANDS WHERE SHE IS LOOKING. A ProximityPrompt is drawn only while its own
+	-- position is on screen, so one hung on the 8x8 mat under her feet is invisible down the lane
+	-- and E does nothing (Director's real-key proof, 2026-10-28, frames 03/04/06).
+	-- `Lobby.Build.shopPrompt` already solved this: the prompt sits on a PART at chest height on the
+	-- customer's side. `aheadStuds` puts the post past the mat's front edge and `sideStuds` holds it
+	-- out of the lane of fire -- a target at the window's far end subtends 1.9 studs of X at this
+	-- post's Z, and the post stands at 3.
+	POST = {
+		size = Vector3.new(1.2, 4, 1.2),
+		aheadStuds = 7,
+		sideStuds = 3,
+		color = Color3.fromRGB(88, 76, 58),
+	},
 	PLATE = { minSpan = 120, marginStuds = 80, thickness = 4, color = Color3.fromRGB(150, 150, 150) },
 	PROMPT = {
 		ActionText = "RANGE",
@@ -319,6 +332,46 @@ function Range.matPosition(anchor: Vector3, spot: number, layout): Vector3
 	local index = math.max(1, math.floor(spot or 1))
 	local offset = (index - 1) * layout.SPOT_SPACING_STUDS
 	return Vector3.new(anchor.X + offset, anchor.Y, anchor.Z)
+end
+
+-- WHERE THE PROMPT HANGS: the top of the post at the mat's front edge, and the ONE arithmetic for
+-- it -- `Range.Build` lays the post from this and the client case projects this, so the screen's
+-- claim and the built world can never be about two different points. Y is the SHELF plus the post's
+-- height; the built post is grown down to the lowest ground under its own footprint, so over a
+-- plate (DEV) this is exact and over terrain it is high by that footprint's spread.
+function Range.promptPosition(anchor: Vector3, spot: number, layout, downrange: number?): Vector3
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local mat = Range.matPosition(anchor, spot, layout)
+	return Vector3.new(
+		mat.X + layout.POST.sideStuds,
+		anchor.Y + layout.POST.size.Y,
+		mat.Z + dir * layout.POST.aheadStuds
+	)
+end
+
+-- IS IT ON HER SCREEN? The pinhole projection `Camera:WorldToViewportPoint` performs, as ARITHMETIC
+-- -- so a case can ask it about a viewport that is not the one the test machine is running
+-- (Karen's is 969 x 792). Returns the pixel and whether the point is in front of the camera.
+--   https://create.roblox.com/docs/reference/engine/classes/Camera#WorldToViewportPoint
+-- `FieldOfView` is VERTICAL, so the horizontal half-angle follows the aspect ratio, which is why a
+-- prompt that fits a wide window can fall off a square one.
+function Range.viewportPointOf(
+	cameraCFrame: CFrame,
+	point: Vector3,
+	viewport: Vector2,
+	fovDeg: number
+): (Vector2, boolean)
+	local local_ = cameraCFrame:PointToObjectSpace(point)
+	local depth = -local_.Z
+	if depth <= 1e-6 then
+		return Vector2.zero, false
+	end
+	local halfHeight = math.tan(math.rad(fovDeg) / 2)
+	local halfWidth = halfHeight * (viewport.X / viewport.Y)
+	local x = (local_.X / (depth * halfWidth) * 0.5 + 0.5) * viewport.X
+	local y = (-local_.Y / (depth * halfHeight) * 0.5 + 0.5) * viewport.Y
+	return Vector2.new(x, y), true
 end
 
 -- WHICH MAT A MAN IS STANDING ON, or nil. Pure, so `Range.mayShoot` (step B3) is one position read

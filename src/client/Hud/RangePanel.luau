@@ -187,6 +187,10 @@ function RangePanel.confirm(): boolean
 	end
 	sender(out)
 	stats.sends += 1
+	-- AND THE MENU CLOSES ON THE CONFIRM EDGE (Director's default for Karen, 2026-10-27 night; the
+	-- proof found it still open behind the released target, frame 11). `setOpen(false)` is the one
+	-- door-closer: it hands back the cursor and the input hold under the same reason key.
+	RangePanel.setOpen(false)
 	return true
 end
 

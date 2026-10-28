@@ -109,6 +109,7 @@ type Trial = {
 	standSeconds: number,
 	windowEnteredAt: number?,
 	windowLeg: number?,
+	windowArmed: boolean,
 	carcassAt: number?,
 	releaseAt: number?,
 }
@@ -200,6 +201,8 @@ local function newTrial(spot: number, pace: string): Trial
 		standSeconds = 0,
 		windowEnteredAt = nil,
 		windowLeg = nil,
+		-- Released at a lane end, which is outside the window: the first entry is a real one.
+		windowArmed = true,
 		carcassAt = nil,
 		releaseAt = nil,
 	}
@@ -406,6 +409,12 @@ function Range.setPace(spot: number, pace: string): boolean
 	trial.issuedStudsPerSecond = 0
 	trial.windowEnteredAt = nil
 	trial.windowLeg = nil
+	-- A PACE PICKED WHILE THE TARGET IS INSIDE THE WINDOW MUST NOT START A CROSSING (task 303,
+	-- item 4). Clearing the entry alone made the next scan re-start the clock MID-window, so the
+	-- first crossing after any pick was timed over the studs that were left: the Director picked
+	-- WALK at a trot and the board read 4.75 s against 8.89 planned -- 21.4 studs of a 40-stud
+	-- window, at exactly the 4.5 studs/s it printed beside it. The timer is re-armed by LEAVING.
+	trial.windowArmed = false
 	trial.standSeconds = 0
 	return true
 end
@@ -524,6 +533,7 @@ local function release(trial: Trial)
 	trial.releaseAt = nil
 	trial.windowEnteredAt = nil
 	trial.windowLeg = nil
+	trial.windowArmed = true
 	state.stats.spawns += 1
 end
 
@@ -533,12 +543,15 @@ local function timeWindow(trial: Trial, position: Vector3, now: number)
 	local centre = RangeData.laneCentre(state.anchor :: Vector3, RangeData.LAYOUT, state.downrange)
 	local inside = math.abs(position.X - centre.X) <= RangeData.LAYOUT.WINDOW_STUDS / 2
 	if inside then
-		if trial.windowEnteredAt == nil then
+		-- ONLY A REAL ENTRY STARTS THE CLOCK: armed by being outside, spent on the way in.
+		if trial.windowEnteredAt == nil and trial.windowArmed then
 			trial.windowEnteredAt = now
 			trial.windowLeg = trial.leg
+			trial.windowArmed = false
 		end
 		return
 	end
+	trial.windowArmed = true
 	if trial.windowEnteredAt ~= nil then
 		if trial.windowLeg == trial.leg then
 			local seconds = now - (trial.windowEnteredAt :: number)
