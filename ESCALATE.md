@@ -54,6 +54,21 @@ Builder's):**
 > under a heading "Task 305 round 3: Director authorisation", marked as the Director's, in your
 > first commit. Same branch task-305-aim-what-you-see, same reviews/task-305/ (Round: 3).
 
+**OUTCOME, 2026-10-28 12:12 UTC: round 3 is a PASS.** `reviews/task-305/RESULT.md` line 1 reads
+`PASS (items 3, 4, 5, 6 NOT PROVEN)` at `5e08263a`, with twelve non-blocking notes queued as
+TASKS.md 305a. Both round-2 cases were shown RED against a broken producer
+(`[harness] FAIL: 32/34 @ 9a996b38`, naming `weapon_rewind.spec:68` and `:113` and nothing else)
+before being called fixed, and the restored commit is
+`[harness] PASS: 34/34 checks @ 71475766275fc7aa36da3232c324e7e780b6f403 (clean tree) scope=all`.
+
+**AND THE FLAG QUESTION THE DISPATCH ASKED IS ANSWERED: case (b) is 0/10 at run, 1/10 at trot and
+0/10 at walk, so it is NOT >= 8/10 at any pace and `AIM_REWIND` must NOT stay dark.** The same rig,
+the same session, one override changed, reads **7/10** with the rewind on. With it off the impacts
+land ~1.4 studs BEHIND where the client DREW the animal; with it on `impact-aim` is within +-0.5
+studs on 5 of 7. **7/10 is itself one shot below this task's own >= 8/10 target**, and the shotgun
+slug stands at 4/6 -- both said on the record rather than rounded up. Decisions 2, 3, 4 and 5 below
+are still the Director's.
+
 So section 0's request is granted. This round does three things and nothing else: make each of the
 two round-2 cases FAIL when its producer is broken (red run, then green), MEASURE case (b) for real
 (ownership fix on, `AIM_REWIND` off, rifle at run then trot then walk, refilling ammo), and record it
