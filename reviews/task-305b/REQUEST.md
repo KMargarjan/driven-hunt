@@ -3,7 +3,7 @@
 Task: 305b
 Round: 1
 Base: 2b77716e
-Code commit: TBD
+Code commit: 14bbd363fa9e66b36ebfeb7d400d06592c52ed35
 
 ## PLAN
 
@@ -52,6 +52,54 @@ tracker on the drawn chest, `Ballistics.leadStuds` only, real clicks) for the hi
 Reproduced above, in her place, on her build, at her range: RUN rifle 1/10 and the board's own
 `MISS GAP 1.3 m behind`. Not DEV.
 
+## Harness
+
+```
+[harness] PASS: 34/34 checks @ 14bbd363fa9e66b36ebfeb7d400d06592c52ed35 (clean tree) scope=all
+```
+needs_two_player: **no**. The change touches `src/server/Weapon/Flight.luau`,
+`src/server/Weapon/init.luau` and `tests/server/weapon_rewind.spec.luau`; none is in
+`TWO_PLAYER_PATHS`, and a second client renders a second copy of the same bullet.
+
+## STEP 2 -- the three cycles
+
+The table is `reviews/task-305b/MEASURED.md` section 3: the same instrument
+(`testedAt - firedAt`, published by the live code) read at three builds, moving -0.118 -> -0.119 ->
+-0.126 against an ideal of -0.133.
+
+## STEP 3 -- live proof, in HER place
+
+`MEASURED.md` section 2 and 3. Every number is from the Forest Test in Play, her flags untouched.
+
 ## Claims
 
-(filled in at the end of the round)
+1. **The dispatch's premise is refuted: the rewind DOES run in her place.** `DH305Rewind` (written
+   by the live `castWithRewind`, Studio only) reads `why=rewound rewind=0.181 cands=1 back=3.32
+   hit=true`, and its `eff=` -- the look-back the ring actually delivered -- reads 0.182 and 0.190
+   against a client-drawn lag of 0.185-0.205 measured the same session. Verify: `MEASURED.md` 1,
+   and `Weapon.castWithRewind`'s `trail(...)` calls.
+2. **The 1/10 is the zero-lead aim rule, not the rewind.** Same build 2b77716e, same rig, same
+   lane, back to back: drawn chest + `Ballistics.leadStuds` = **9/10**; drawn chest + zero lead =
+   **0/10**. Verify: `MEASURED.md` 2, runs `305b/p-run-rifle.luau` and `305b/z-run-rifle-nolead.luau`.
+3. **FAIL FIRST does not fail, and that is the finding.** The rig that is supposed to show the
+   defect on `2b77716e` scores 9/10 there. Claim 2 is what replaces it: the known-bad input is the
+   zero-lead rule, which scores 0/10 on the same build in the same minute.
+4. **One real defect, fixed: the rewind was anchored on the wall clock.** `Flight.advance` now
+   measures it from the trigger (`ShotRecord.firedAtServer`) plus `Ballistics.timeToRange` of the
+   pellet's own travelled distance -- the same function the range board prints the lead from, so
+   the lead shown and the lead demanded are one number. Verify: `src/server/Weapon/Flight.luau`,
+   the `rewind` block inside `Flight.advance`.
+5. **The new branch is entered by a case, not only by the shipped value.** `weapon_rewind.spec`,
+   `describe("Flight.advance's rewind anchor")`: 0.05 s of slip is added (0.18 -> 0.23), `now = nil`
+   is bit-for-bit the old flight (0.18), and a 900 s gap clamps at `CLAIM.VIEW_LAG_MAX_SECONDS`.
+6. **The fix is not claimed to raise the hit rate.** 7/10 after against 9/10 before, n=10 each --
+   the same number within one standard error. It is kept for the arithmetic, and `MEASURED.md` 3
+   says so in those words.
+7. **The diagnostic is Studio-only and read by nothing in the game.** `trail` and the `DH305At`
+   attribute are both inside `if RunService:IsStudio()`, both in `pcall`, and nothing reads them.
+8. **The board's `MISS GAP` misleads and is NOT fixed here.** 1.3 m = 0.18 s x 24 studs/s is the
+   view lag: the board measures against the server's present position. Queued for the Director.
+9. **Harness**: the PASS line above, full scope, at the code commit; only paperwork after it.
+10. **NOT PROVEN, named**: the real-click path (every number here is a client-VM `FireRequest`);
+    the lever, the semi-auto and buckshot; any animal but the range's boar; shotgun SLUG at run
+    (3/5, below the 4/5 asked); WALK and TROT on the fixed build. `MEASURED.md` 4.
