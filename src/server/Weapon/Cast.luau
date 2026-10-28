@@ -71,19 +71,31 @@ function Cast.candidates(
 	local params = OverlapParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = ignore
+	-- THE CAP IS THE WHOLE SPHERE'S, so trunks, leaves and ground in a thick wood could fill it
+	-- before an animal part came back. 800 and not 200 (round 1 note); the list below is cut to
+	-- `maxTargets` ANIMALS after sorting, so a wide answer here costs a sort and not a cast.
+	params.MaxParts = 800
 	-- The sphere around the segment's middle that contains the whole segment plus the pad.
-	params.MaxParts = 200
 	local parts = Workspace:GetPartBoundsInRadius(origin + segment * 0.5, segment.Magnitude * 0.5 + padStuds, params)
 	local seen: { [Instance]: boolean } = {}
+	local found: { { root: Instance, d: number } } = {}
 	for _, part in ipairs(parts) do
 		local root = rootOf(part)
 		if root ~= nil and not seen[root] then
 			seen[root] = true
-			table.insert(out, root)
-			if #out >= maxTargets then
-				break
-			end
+			table.insert(found, { root = root, d = ((part :: BasePart).Position - origin).Magnitude })
 		end
+	end
+	-- NEAREST THE MUZZLE FIRST, so `maxTargets` cuts the FAR animals and never leaves a near one
+	-- neither rewound nor excluded (round 1 note).
+	table.sort(found, function(a, b)
+		return a.d < b.d
+	end)
+	for index, row in ipairs(found) do
+		if index > maxTargets then
+			break
+		end
+		table.insert(out, row.root)
 	end
 	return out
 end

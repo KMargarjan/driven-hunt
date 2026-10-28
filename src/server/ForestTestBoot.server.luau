@@ -375,8 +375,16 @@ Weapon.setSafetyLineProvider(Match.lineIsUnsafe)
 -- convenience: `Boar` must not require `Weapon` and `Weapon` must not require `Boar`
 -- (`docs/design/shotgun.md` 6.3, *"neither owner depends on the other"*), so only a composition root
 -- can hand one to the other. Unwired, every claim is refused and the game is exactly what it was.
-Weapon.setHistoryProvider(function(instance, at)
-	return runtime:cframeAt(instance, at)
+-- CHAINED, NOT REPLACED (task 305): the lobby also has the range's own runtime, and an instance
+-- this one does not own must fall through to the other rather than answer nil, or the shot through
+-- the other runtime's animal is resolved with no rewind at all.
+local previousHistory
+previousHistory = Weapon.setHistoryProvider(function(instance, at)
+	local mine = runtime:cframeAt(instance, at)
+	if mine ~= nil then
+		return mine
+	end
+	return if previousHistory ~= nil then previousHistory(instance, at) else nil
 end)
 
 -- ---------------------------------------------------------------- the role, and the outfit

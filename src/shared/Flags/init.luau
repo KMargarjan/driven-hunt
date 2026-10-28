@@ -119,14 +119,13 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- (`Range.ENABLED = Flags.isOn("RANGE")`, the one boundary that reads it), so the cap moves by one
 -- again and the retirements stay queued. **The Director may prefer to spend 82b instead**: this is
 -- one line either way.
--- 19 -> 20 FOR TASK 305, **AND IT SHIPS LIT, BY THE DIRECTOR'S OWN SENTENCE**: the dispatch of
--- 2026-10-28 says *"If the fix needs a flag, it is born ON for the range (the range is a training
--- place) -- say so; for the hunt, a flag row is fine and the Director decides with Karen."* The
--- range and the hunt share `Weapon`'s one resolution, so ON-for-the-range and OFF-for-the-hunt
--- would mean a place test inside the weapon, which is a second owner of the shot. So the row is
--- born `default = true` and the Director turns it OFF for the hunt with one override if Karen wants
--- the old behaviour there. `docs/design/feature-flags.md` section 11 step 1 forbids shipping lit and
--- this is the exception the Director authorised in advance, in writing, for this task.
+-- 19 -> 20 FOR TASK 305. The dispatch of 2026-10-28 says *"If the fix needs a flag, it is born ON
+-- for the range (the range is a training place) -- say so; for the hunt, a flag row is fine and the
+-- Director decides with Karen."* **IT SHIPS DARK ANYWAY**, and the row below says why: this half of
+-- the fix is only right once the animal's network ownership is pinned to the server, which is
+-- another commit. `docs/design/feature-flags.md` section 11 step 1 is therefore obeyed rather than
+-- excepted. The two ways out of the cap are still the two task 238 listed and the first is still
+-- queued as TASKS.md 82b.
 Flags.MAX_FLAGS = 20
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
@@ -155,8 +154,15 @@ Flags.DEFAULTS = {
 	-- is off / when running or trot / with rifle when it trot or run I need to aim in free space to
 	-- hit boar correctly ... aiming in nose no hit and I think it with all weapons fix it"*.
 	AIM_REWIND = {
-		-- BORN LIT. See the paragraph above `Flags.MAX_FLAGS`: the Director's dispatch.
-		default = true,
+		-- BORN DARK, AND ROUND 1 FINDING 2 IS WHY, not a change of mind about the dispatch. The
+		-- Director's sentence authorised lit *for the range*; but this half alone is WRONG wherever
+		-- the CLIENT owns the animal (`GetNetworkOwnershipAuto` hands a near animal to the nearest
+		-- player, measured: the client draws it 0.174 s in the FUTURE on the range mat), and
+		-- rewinding a copy that is already ahead doubles the invisible lead. `SetNetworkOwner(nil)`
+		-- is the other half and is a different commit. So: dark until that has landed and
+		-- `<runs-dir>/305lag.py` reads one-signed at both distances -- the order `ESCALATE.md` asks
+		-- the Director for -- and then this is a one-line flip, which is what a flag is for.
+		default = false,
 		owner = "ServerScriptService.Weapon",
 		born = "2026-10-28 task 305",
 		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.

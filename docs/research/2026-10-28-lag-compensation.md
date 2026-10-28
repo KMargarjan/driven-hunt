@@ -83,5 +83,21 @@ prints `LEAD VIEW <= 7.21 studs`), fixes it for every weapon at once, and leaves
 |---|---|
 | extra lead a shooter must add beyond `Ballistics.leadStuds` | **0 studs**, +- 0.63 (one Heartbeat x 38 studs/s, the grid's own quantisation) |
 | chest-or-body hits, aiming at the CLIENT-rendered chest + ballistic lead only | **>= 8/10** per pace per gun |
-| rewind amount | `VIEW_LAG_BASE_SECONDS` 0.30 s + ping x 1.0, capped at `VIEW_LAG_MAX_SECONDS` 0.45 s |
+| rewind amount | `FLIGHT_REWIND_BASE_SECONDS` **0.18 s, the measurement above** + ping x `FLIGHT_CATCHUP_PING_FACTOR` 1.0, capped at `CLAIM.VIEW_LAG_MAX_SECONDS` 0.45 s. **NOT `CLAIM.VIEW_LAG_BASE_SECONDS` (0.30)**: that is a window a sweep searches, where over-estimating is free; this is an amount, and 0.30 would rewind 0.12 s too far -- 2.9 studs at a run, in the other direction |
 | cost | one bounded bounds-query + at most `CLAIM.MAX_TARGETS` extra casts per sub-step |
+
+## Amendment, 2026-10-28 (round 1 of the review, and a second Builder's measurement)
+
+**THE CAUSE HAS TWO HALVES AND THIS NOTE FIRST DESCRIBED ONE.** Session `9d5b3ff8`, measuring on the
+range mat in Karen's own place, read the opposite sign: the client draws the target **+4.18 studs
+AHEAD** of the server (0.174 s in the FUTURE), and `GetNetworkOwner()` reads the PLAYER once he is
+on the mat and `SERVER` at 134 studs. `Boar.Body.create` leaves `GetNetworkOwnershipAuto()` true, so
+**the engine hands a near animal to the nearest player and the server's own copy becomes the stale
+one**. The required lead therefore FLIPS SIGN with the shooter's distance, which is why it is
+unlearnable.
+
+So the rewind above is right only where the SERVER simulates the animal. `part:SetNetworkOwner(nil)`
+in the animal's own owner makes that true at every distance (measured by that session: with it the
+same target reads -4.74 studs, 0.213 s in the PAST, one-signed). **Both halves ship or neither
+works**, and `AIM_REWIND` is therefore born `default = false` rather than lit: the order is pin the
+ownership, re-measure `305lag.py` one-signed at both distances, then flip the flag.

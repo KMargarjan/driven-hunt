@@ -57,6 +57,9 @@ return function()
 					material = Enum.Material.Plastic,
 				}
 			end
+			-- NEAREST FIRST, so last-wins and `<=` are both refused, not only first-wins
+			-- (round 1 note): the answers are 9 then 8 then 7, the cap is 2, so only a rule that
+			-- keeps the NEAREST of the two it saw gives 8 -- and the third was never asked.
 			local list = { candidate(1), candidate(2), candidate(3) }
 			local hit = Rewind.impact(Vector3.zero, Vector3.new(0, 0, 4), list, castOnly, 2)
 			expect(seen).to.equal(2)
@@ -80,7 +83,10 @@ return function()
 		it("gives the nearer of the two, and cover wins a tie", function()
 			expect(Rewind.nearer(impact(5), impact(3)).distance).to.equal(3)
 			expect(Rewind.nearer(impact(3), impact(5)).distance).to.equal(3)
-			expect(Rewind.nearer(impact(4), impact(4)).distance).to.equal(4)
+			-- IDENTITY, not the distance: two impacts 4 studs out read 4 whichever side wins, so
+			-- `<` could become `<=` and the assertion would still pass (round 1 finding 4).
+			local tieStatic, tieRewound = impact(4), impact(4)
+			expect(Rewind.nearer(tieStatic, tieRewound)).to.equal(tieStatic)
 			expect(Rewind.nearer(nil, impact(7)).distance).to.equal(7)
 			expect(Rewind.nearer(impact(7), nil).distance).to.equal(7)
 			expect(Rewind.nearer(nil, nil)).to.equal(nil)
@@ -106,6 +112,105 @@ return function()
 			local was = Weapon.setRewindPolicy(false)
 			expect(Weapon.rewindFor(nil, 0.05, CONFIG)).to.equal(0)
 			Weapon.setRewindPolicy(was)
+		end)
+	end)
+
+	-- ============================================================ ROUND 1 FINDING 3
+	-- THE FUNCTION THAT CHANGES THE GAME, driven through its three seams with no world. Delete
+	-- `Weapon.castWithRewind` and these cases go red, which is what round 1 said this file could
+	-- not claim.
+	describe("Weapon.castWithRewind", function()
+		-- An animal 6 studs further along +X now than when the shooter drew it. Its body is a
+		-- 2-stud box, so a ray aimed at the DRAWN position misses the present one entirely.
+		local DRAWN = Vector3.new(0, 0, 0)
+		local PRESENT = Vector3.new(6, 0, 0)
+
+		local function wire(hasHistory: boolean)
+			local root = Instance.new("Part")
+			root.Name = "Trunk"
+			root.Size = Vector3.new(2, 2, 2)
+			root.CFrame = CFrame.new(PRESENT)
+			root:SetAttribute("Damageable", true)
+			local staticAsked = {}
+			Weapon.setRewindWorld(function(_origin, _segment, _pad, ignore, _rootOf, _max)
+				-- the candidate finder: this animal is always near the segment
+				local excluded = false
+				for _, inst in ipairs(ignore) do
+					if inst == root then
+						excluded = true
+					end
+				end
+				if excluded then
+					return {}
+				end
+				return { root }
+			end, function(asked, origin, segment)
+				-- the one-instance cast: the box sits at PRESENT, in the ray's own frame
+				if asked ~= root then
+					return nil
+				end
+				local toBox = PRESENT - origin
+				local along = toBox:Dot(segment.Unit)
+				if along < 0 or along > segment.Magnitude then
+					return nil
+				end
+				local miss = (origin + segment.Unit * along - PRESENT).Magnitude
+				if miss > 1 then
+					return nil
+				end
+				return {
+					instance = root,
+					position = origin + segment.Unit * along,
+					normal = Vector3.yAxis,
+					distance = along,
+				}
+			end)
+			Weapon.setCast(function(_origin, _direction, ignore)
+				table.insert(staticAsked, #ignore)
+				return nil -- nothing static on this line: no tree, no ground
+			end)
+			Weapon.setHistoryProvider(function(instance, _at)
+				if instance ~= root or not hasHistory then
+					return nil
+				end
+				return CFrame.new(DRAWN)
+			end)
+			return root, staticAsked
+		end
+
+		local function unwire()
+			Weapon.setRewindWorld(nil, nil)
+			Weapon.setCast(nil)
+			Weapon.setHistoryProvider(nil)
+		end
+
+		it("HITS the animal where the shooter DREW it, and MISSES the server's present copy", function()
+			local root = wire(true)
+			-- aimed at the DRAWN position
+			local drawnHit = Weapon.castWithRewind(Vector3.new(0, 0, -20), Vector3.new(0, 0, 40), {}, 0.18)
+			expect(drawnHit).to.be.ok()
+			expect((drawnHit :: any).instance).to.equal(root)
+			-- the SAME aim with no rewind finds nothing: that is the miss Karen reported
+			local noRewind = Weapon.castWithRewind(Vector3.new(0, 0, -20), Vector3.new(0, 0, 40), {}, 0)
+			expect(noRewind).to.equal(nil)
+			-- ...and aiming at the PRESENT copy with the rewind on is the miss, which is the
+			-- "extra lead" being gone rather than merely moved.
+			local presentAim = Weapon.castWithRewind(PRESENT + Vector3.new(0, 0, -20), Vector3.new(0, 0, 40), {}, 0.18)
+			expect(presentAim).to.equal(nil)
+			unwire()
+		end)
+
+		it("an animal the provider cannot answer for is STILL hittable by the static pass", function()
+			-- ROUND 1 FINDING 1. With no history the root must not be excluded from the static
+			-- pass: the static cast is asked with the caller's OWN ignore list, length 0.
+			local _, staticAsked = wire(false)
+			local hit = Weapon.castWithRewind(Vector3.new(0, 0, -20), Vector3.new(0, 0, 40), {}, 0.18)
+			expect(hit).to.equal(nil) -- this spec's static world answers nothing
+			expect(#staticAsked >= 1).to.equal(true)
+			for _, count in ipairs(staticAsked) do
+				expect(count).to.equal(0)
+			end
+			unwire()
 		end)
 	end)
 end

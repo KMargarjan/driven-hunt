@@ -489,8 +489,14 @@ end
 -- animal is dead/DOWN/GONE, the time is outside the ring's span, or no provider is wired at all.
 -- Every one of them REFUSES the claim -- which is the weapon's own default for every provider here:
 -- unwired means today's game.
-function Weapon.setHistoryProvider(provider: ((Instance, number) -> CFrame?)?)
+-- RETURNS THE ONE IT REPLACED (task 305), the shape `setClaimPolicy` already has, so a place with
+-- TWO runtimes can CHAIN rather than clobber: the lobby has the drive's and the range's own
+-- (`RangeBoot`'s `Boar.newRuntime`), and one `nil` answer must fall through to the other or the
+-- range gets no rewind at all (round 1 finding 1).
+function Weapon.setHistoryProvider(provider: ((Instance, number) -> CFrame?)?): ((Instance, number) -> CFrame?)?
+	local was = historyProvider
 	historyProvider = provider
+	return was
 end
 
 -- THE TWO WORLD CALLS THE REWIND MAKES, AS ONE SEAM (task 305). `Cast.candidates` asks what animal
@@ -559,7 +565,12 @@ end
 --      `Weapon.Rewind`, which is pure and owns that arithmetic.
 -- With `rewind` 0, no provider, or no candidate near the segment it is `castFn(origin, dir, ignore)`
 -- and NOTHING ELSE RUNS: the flag's off state and today's game are one path.
-local function resolvedCast(origin: Vector3, direction: Vector3, ignore: { Instance }, rewind: number?): Shotgun.Impact?
+function Weapon.castWithRewind(
+	origin: Vector3,
+	direction: Vector3,
+	ignore: { Instance },
+	rewind: number?
+): Shotgun.Impact?
 	if type(rewind) ~= "number" or rewind <= 0 or historyProvider == nil then
 		return castFn(origin, direction, ignore)
 	end
@@ -568,6 +579,8 @@ local function resolvedCast(origin: Vector3, direction: Vector3, ignore: { Insta
 	-- The pad is how far the fastest animal can travel over the rewind window, so one it has
 	-- already carried off the line is still a candidate.
 	local pad = rewind * CONFIG.CLAIM.MAX_TARGET_SPEED_STUDS
+	-- NEAREST TO THE MUZZLE FIRST (round 1 note): `MAX_TARGETS` cuts the list, and cutting an
+	-- arbitrary order would leave the 9th animal of a sounder neither rewound nor excluded.
 	local roots = findCandidates(origin, direction, pad, ignore, Hits.targetOf, CONFIG.CLAIM.MAX_TARGETS)
 	if #roots == 0 then
 		return castFn(origin, direction, ignore)
@@ -576,12 +589,21 @@ local function resolvedCast(origin: Vector3, direction: Vector3, ignore: { Insta
 	local candidates: { Rewind.Candidate } = {}
 	local staticIgnore = table.clone(ignore)
 	for _, root in ipairs(roots) do
-		table.insert(staticIgnore, root)
 		local present = (root :: any).CFrame
 		local past = (historyProvider :: any)(root, at)
+		-- **EXCLUDED FROM THE STATIC PASS ONLY IF IT IS IN THE REWOUND ONE** (round 1 finding 1).
+		-- The other order deleted an animal the provider cannot answer for from BOTH passes and the
+		-- bullet went straight through it -- and `cframeAt` answers nil for four ordinary states: an
+		-- animal no wired runtime owns, one that is DOWN, one younger than the rewind window, and
+		-- one whose trunk has gone. Those keep TODAY's behaviour instead: tested where the server
+		-- has them, which is a hit the shooter must lead for, not a miss he cannot explain.
 		if typeof(present) == "CFrame" and typeof(past) == "CFrame" then
+			table.insert(staticIgnore, root)
 			table.insert(candidates, { root = root, present = present, past = past })
 		end
+	end
+	if #candidates == 0 then
+		return castFn(origin, direction, ignore)
 	end
 	local static = castFn(origin, direction, staticIgnore)
 	local rewound = Rewind.impact(origin, direction, candidates, castOnly, CONFIG.CLAIM.MAX_TARGETS)
@@ -2871,11 +2893,11 @@ function Weapon.start()
 	-- server, made here and nowhere else: a grep for `flight:advance` under `src/` must find this
 	-- site alone (design 4.3, 6.2).
 	--
-	-- `resolvedCast` READS `castFn` PER CALL, not captured once, so the seam `Weapon.setCast` writes
+	-- `Weapon.castWithRewind` READS `castFn` PER CALL, not captured once, so the seam `Weapon.setCast` writes
 	-- is the one the flight uses too -- which is what lets a spec's injected cast answer the pellets
 	-- -- and it adds the task-305 rewound pass around it when the shot carries a `rewindSeconds`.
 	RunService.Heartbeat:Connect(function(dt)
-		local resolved = flight:advance(dt, resolvedCast)
+		local resolved = flight:advance(dt, Weapon.castWithRewind)
 		for _, res in ipairs(resolved) do
 			onShotLanded(res)
 		end

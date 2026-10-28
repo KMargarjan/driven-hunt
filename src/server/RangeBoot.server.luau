@@ -129,6 +129,19 @@ end
 local runtime = Boar.newRuntime(world)
 runtime:run()
 
+-- WHERE THIS RUNTIME'S TARGET WAS, for the task-305 rewind. CHAINED onto whatever the drive's boot
+-- already installed (`Weapon.setHistoryProvider` returns the one it replaced), so the lobby's two
+-- runtimes both answer and neither clobbers the other. Without it every shot on the range resolved
+-- with no rewind -- round 1 finding 1, and the range is the one place the flag is lit for.
+local previousHistory
+previousHistory = Weapon.setHistoryProvider(function(instance, at)
+	local mine = runtime:cframeAt(instance, at)
+	if mine ~= nil then
+		return mine
+	end
+	return if previousHistory ~= nil then previousHistory(instance, at) else nil
+end)
+
 -- A SHOT IS *NOT* A SOUND HERE, and not wiring `Weapon.ShotFired` to this runtime's `hearShot` is
 -- the whole mechanism -- no branch, no flag, no new state. In the drive every boar runs from a shot;
 -- at a range that would bolt the target off the lane on the first one.
