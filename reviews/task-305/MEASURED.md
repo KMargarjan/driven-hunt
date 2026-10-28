@@ -75,3 +75,51 @@ Both halves dark, run: **0 of 8 that flew**.
 The lever and the semi-auto; buckshot; any hunt animal (a boar or a deer in a drive, rather than the
 range's own target). The two halves share `Weapon`'s resolution and the one animal runtime, but
 nothing here has run them, and a label proven on one selection does not prove the class.
+
+
+---
+
+# Section 4 -- CASE (b) MEASURED FOR REAL (Builder session `5296d523`, round 3, 2026-10-28)
+
+The Director's round-3 dispatch: *"MEASURE CASE (b) for real: ownership fix ON, AIM_REWIND OFF,
+rifle, run pace then trot then walk, 10 real FireRequests each ... a no-ammo refusal is a harness
+fault, not a shot."*
+
+**THE VOID IS CLOSED.** `notice=` is EMPTY on all 30 lines -- not one `no-ammo` -- because
+`305/trial.luau.tpl` already asks for the reload after every shot and waits 3.2 s. Instruments:
+`305/ft-stand.luau`, `305/ft-pick-run-rifle.luau`, `305/lag-srv.luau` and `305/trial.luau.tpl`,
+section 2's own files, driven by `<runs-dir>/305b.py`. **DEV ONLY.**
+
+The ownership fix is confirmed live in every one of the four runs below, off `ft-stand.luau`:
+`Boar1 root=Boar1 anchored=false auto=false owner=SERVER dist=117.8-123.9`.
+
+| run | pace | hits | impacts recorded | `impact-drawn` on the shots that landed |
+|---|---|---|---|---|
+| (b) ownership on, `AIM_REWIND` **off** | run | **0/10** | 7 of 10 | -0.39, -1.73, -2.25, -2.50, -2.61, +1.33, -21.24 |
+| (b) | trot | **1/10** (zone `rear`) | 6 of 10 | +0.52, +0.87, +1.27, -0.52, -3.66, -13.28 |
+| (b) | walk | **0/10** | **0 of 10** -- see the caveat | none |
+| **(d) control, same rig, same session, `AIM_REWIND` on** | run | **7/10** (chest x5, rear x2) | 7 of 10 | -0.83, -0.87, -0.93, -2.33, -2.60, +0.63, +0.98 |
+
+**THE VERDICT IS THE RUN ROW, and it is 0/10 against the control's 7/10 taken minutes later on the
+same build with one override changed.** With the rewind off the impacts land BEHIND where the client
+DREW the animal -- mean -1.4 studs over the six non-outlier run shots, and the shooter must therefore
+aim further ahead than `Ballistics.leadStuds` asks. With it on, `impact-aim` collapses to **+-0.5
+studs on 5 of 7**: the bullet goes where he pointed.
+
+**So (b) is NOT >= 8/10 at any pace. `AIM_REWIND` must NOT stay dark.**
+
+**CAVEATS, each a measurement and not a guess.**
+- **WALK IS NOT EVIDENCE ABOUT AIM.** All ten shots produced NO impact at all within the probe's
+  0.6 s window. The same "no impact" rows appear in the (d) control at speeds 7.0, 9.9 and 11.7
+  studs/s -- so it is a RIG artefact that strikes slow targets in BOTH cases equally, not a property
+  of the fix. The walk row is reported as 0/10 because that is what it read, and it is **not** read
+  as the fix failing at walk.
+- L-141 stands: the walk and trot rows do not discriminate (the demanded lead is 0.21-0.63 studs
+  there against a ~2-stud error). **RUN is the verdict row.**
+- The `impact-srv` column reads `n/a` throughout: `lag-srv.luau`'s ring attribute did not reach the
+  client inside the shot window in these runs, so the server-side instant of each impact is NOT
+  measured here. `impact-drawn` -- what the client DREW -- is the column the claim rests on, and it
+  is this client's own read.
+- Two outliers (-21.24 at run, -13.28 at trot) are shots taken as the target reversed at the lane
+  end; they are left in the table rather than dropped, and the mean above is quoted without them
+  with that said.
