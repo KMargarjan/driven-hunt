@@ -157,8 +157,8 @@ function Build.build(opts)
 
 	-- THE GROUND PLATE, DEV only: the range's own shelf, so the harness needs no terrain and no
 	-- measured forest clearing to run a lane. It is sized to SIX stations and the LONGEST lane, and
-	-- centred on the stations like the berm -- centred on the anchor it would stop 60 studs short of
-	-- station 6's own bank (`range.spec` asserts every part is over it).
+	-- centred on the stations like the berm -- centred on the anchor it would span 1062..1338 and
+	-- stop 38 studs short of station 6's own bank (`range.spec` asserts every part is over it).
 	if row.plate == true then
 		local plate = layout.PLATE
 		local spanX = math.max(spots + RangeData.laneLength(layout), plate.minSpan) + plate.marginStuds

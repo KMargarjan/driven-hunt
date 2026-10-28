@@ -55,8 +55,9 @@ Range.LAYOUT = {
 	-- THE THREE LANES: 30 m (Vildsvinspasset), 35 m (shipped), 50 m (ISSF running boar, inside the
 	-- 48-62 m band a German driven-hunt shooter is tested in). Design 5.1.
 	DISTANCES_STUDS = { 107, 125, 179 },
-	-- 10.00 m of open lane at `Report.CONFIG.METRES_PER_STUD` 0.28 -- ISSF's running-boar window
-	-- (design 5.1, sources A and B), where 40 was a first pick.
+	-- ISSF's 10 m running-boar window at `Report.CONFIG.METRES_PER_STUD` 0.28 -- 10.08 m, because
+	-- 10.00 m is 35.714 studs and the lane is laid on whole studs (306a note (b)'s rounding, stated
+	-- rather than hidden). 40 was a first pick.
 	WINDOW_STUDS = 36,
 	-- Room to turn around behind a bank. A FIRST VALUE, confirmed by the measured crossing time.
 	APRON_STUDS = 20,
@@ -77,7 +78,10 @@ Range.LAYOUT = {
 	-- THE BERM HAS NO TYPED WIDTH: `Range.bermWidthFor` derives it so it spans every station's lane
 	-- AND both banks, which is the identity `range.spec` asserts (design 5.2). 10 studs = 2.8 m,
 	-- "not high" (Karen), inside the 6 m upper bound the note refused to treat as a requirement.
-	BERM = { height = 10, depth = 8, behindStuds = 12, color = Color3.fromRGB(104, 84, 62) },
+	-- `behindStuds` 13 AND NOT 12, so the berm's rectangle is on the terrain grid in all FOUR
+	-- edges: the centre sits `distanceMax + 13` = 192 from the anchor and `depth` 8 puts its faces
+	-- at 188 and 196, both multiples of `FILL.GRID_STUDS` (design 5.4). At 12 they were 187 and 195.
+	BERM = { height = 10, depth = 8, behindStuds = 13, color = Color3.fromRGB(104, 84, 62) },
 	MAT = { size = Vector3.new(8, 1, 8), color = Color3.fromRGB(70, 82, 70) },
 	-- THE WAY IN STANDS WHERE SHE IS LOOKING. A ProximityPrompt is drawn only while its own
 	-- position is on screen, so one hung on the 8x8 mat under her feet is invisible down the lane

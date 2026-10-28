@@ -60,6 +60,16 @@ return function()
 		end
 	end
 
+	-- A LAYOUT WITH ONE FIELD CHANGED, so a case can enter an arm the shipped data does not sit on.
+	-- `LAYOUT` is deep-frozen (there is no run-time writer), so this copies.
+	local function layoutWith(overrides)
+		local copy = table.clone(LAYOUT)
+		for key, value in pairs(overrides) do
+			copy[key] = value
+		end
+		return copy
+	end
+
 	local function newFakeBoars()
 		local fake = {
 			animals = {} :: { [string]: any },
@@ -641,11 +651,38 @@ return function()
 			expect(eastMax - oldMax).to.equal(LAYOUT.BANK.size.X / 2)
 			-- THE TERRAIN GRID (design 5.4): her place fills this rectangle, and `Terrain:FillBlock`
 			-- writes 4-stud voxels on a grid at the world origin, so a misaligned edge leaves voxels
-			-- standing (task 191). Both faces and the width are multiples of it.
+			-- standing (task 191). What is asserted is the rectangle's four edges as OFFSETS FROM
+			-- THE ANCHOR -- the world faces are on the grid when the anchor is, and that is a
+			-- property of the ANCHOR and not of this arithmetic (round 1, finding 1).
 			local grid = LAYOUT.FILL.GRID_STUDS
 			expect(RangeData.bermWidthFor(LAYOUT) % grid).to.equal(0)
-			expect(bermMin % grid).to.equal(0)
-			expect(bermMax % grid).to.equal(0)
+			expect((bermMin - DEV_AT.X) % grid).to.equal(0)
+			expect((bermMax - DEV_AT.X) % grid).to.equal(0)
+			-- ...AND BOTH Z FACES, which is why `behindStuds` is 13 and not 12: at 12 they were 187
+			-- and 195 (round 1, finding 2). Asserted for BOTH signs of `downrange`.
+			for _, dir in ipairs({ 1, -1 }) do
+				local at = RangeData.bermPosition(DEV_AT, LAYOUT, dir)
+				local near = math.abs(at.Z - DEV_AT.Z) - LAYOUT.BERM.depth / 2
+				local far = math.abs(at.Z - DEV_AT.Z) + LAYOUT.BERM.depth / 2
+				expect(near % grid).to.equal(0)
+				expect(far % grid).to.equal(0)
+			end
+			-- THE SNAP IS A NO-OP AT THE SHIPPED NUMBERS (232 is already 58 x 4), so every line
+			-- above survives deleting it. THIS is the arm that does not: a window two studs
+			-- narrower makes the raw width 230, and `bermWidthFor` must answer 232 -- rounding UP,
+			-- never down and never through (round 1, finding 1).
+			local offGrid = layoutWith({ WINDOW_STUDS = LAYOUT.WINDOW_STUDS - 2 })
+			local raw = RangeData.spotSpan(offGrid) + RangeData.laneLength(offGrid) + 2 * RangeData.bankReach(offGrid)
+			expect(raw % grid).to.equal(2)
+			expect(RangeData.bermWidthFor(offGrid)).to.equal(raw + 2)
+			expect(RangeData.bermWidthFor(offGrid) % grid).to.equal(0)
+			expect(RangeData.bermWidthFor(offGrid) > raw).to.equal(true)
+			-- ...and the snapped berm still spans both banks, which is what the snap must not break.
+			local offMin, offMax = RangeData.bermSpanFor(DEV_AT, offGrid)
+			local offWestMin = select(1, RangeData.bankSpanFor(DEV_AT, offGrid, 2))
+			local offEastMax = select(2, RangeData.bankSpanFor(DEV_AT, offGrid, 1))
+			expect(offMin <= offWestMin).to.equal(true)
+			expect(offMax >= offEastMax).to.equal(true)
 			TestKit.note(
 				string.format(
 					"range berm: %d studs wide, x %.0f..%.0f -- banks x %.0f..%.0f and %.0f..%.0f (the centre-based %d left %.0f out at each end)",
@@ -2321,16 +2358,6 @@ return function()
 				expect(at.Z >= box.minZ and at.Z <= box.maxZ).to.equal(true)
 			end
 		end)
-
-		-- A LAYOUT WITH ONE FIELD CHANGED, so a case can enter an arm the shipped data does not sit
-		-- on. `LAYOUT` is deep-frozen (there is no run-time writer), so this copies.
-		local function layoutWith(overrides)
-			local copy = table.clone(LAYOUT)
-			for key, value in pairs(overrides) do
-				copy[key] = value
-			end
-			return copy
-		end
 
 		it("OVERFLOWS the clearing that was measured for ONE station, which is design 2.3's finding", function()
 			local built, _, parent = buildWith(FOREST_ROW, function()
