@@ -160,3 +160,56 @@ will NOT arrive from it. It is reported to the Director by that session separate
   not the shipped `Weapon.addHistoryProvider` one. The suite is green over the new seam and the two
   answer the same question for a range shot, but the Playtester should re-run the run pace on the
   merged head.
+
+---
+
+# ESCALATE -- Task 306 step B4 (the paces): ONE PROOF ITEM BLOCKED BY TOOLING
+
+Written 2026-10-28 21:05 UTC (`date -u`, not an estimate). Builder session `28f109d2`.
+**This is not a disagreement and not a failed round.** The step is built, the harness passed
+(34/34 @ `5b7bcf43`) and the numbers are measured. One piece of the dispatch's CLICK PROOF could
+not be produced with the tools in this repo, and V280 says to write that AT the hard stop.
+
+## What the dispatch asked
+
+> CLICK PROOF: real menu clicks pick slow / fast / mixed in DEV and the board's measured crossing
+> reads 5.0 s / 2.5 s within design TARGET 3 (10 %).
+
+## What was produced
+
+- **`slow`, by a real OS mouse click**, at station 1's bench prompt (L-012's constraint: `Hud`
+  resolves `promptFor(1)` only). Real `E` on the prompt opened the menu, a real click moved the lit
+  row from `TROT` to `SLOW` (`pace5` background 42,46,40 -> 96,124,72, read off the live buttons),
+  a real click on `CONFIRM` sent it, and the board then printed
+  `PACE SLOW  pace 7.2 studs/s  issued 7.2 studs/s  crossing 5.05 s` -- **1.0 %** from 5.00 s.
+  Frames: `<runs-dir>/306b4-pacerow.png`, `306b4-check.png`.
+- **`fast` 2.52 s and `mixed` 2.52 s**, measured on the same board, but driven through the menu's
+  OWN remote (`ReplicatedStorage.Range.Remotes.RangeRequest:FireServer{ spot = 1, go = true,
+  pace = ... }`) rather than by a click. Same door, same server path, **not a real click**.
+
+## What blocks the real click for `fast` and `mixed`
+
+After the first Play session, **a synthetic mouse press stops being processed where the cursor is**
+and is processed at the VIEWPORT CENTRE instead. Measured, in this order:
+
+1. `UserInputService:GetMouseLocation()` and `PlayerGui:GetGuiObjectsAtPosition` both say the right
+   button is under the pointer: `mouse=655,143 under: pace6 < pace < RangePanel`.
+2. The press that follows never fires that button's `Activated`, while a press at the viewport
+   centre always reaches `Confirm` -- and `Confirm` is the one control deliberately built to CONTAIN
+   the viewport centre (design 11.3), so "Confirm worked" is exactly the symptom.
+3. Tried and refuted: `click.ps1` (Alt tap), a no-Alt variant, `clickfast.ps1`, a single process
+   that holds the cursor on the point for 600 ms before pressing (`b4click1.ps1`), and
+   `MOUSEEVENTF_ABSOLUTE` normalised input (`b4click3.ps1`). All five land on `Confirm`.
+4. A second measured trap on the way, now written into the scripts: **the DEV viewport origin moved
+   between two Play sessions** (`OY` 233 -> 175, a 58 px GUI inset), so a screen point computed from
+   an earlier calibration silently hits the row two below. Every press now verifies the button
+   against the engine's own reading first.
+
+`<runs-dir>/b4proof.py` performs it; the failure is step 2 above, not a missing script (V294).
+
+## What the Director decides
+
+Whether B9 (T4's twelve cases, which are all real clicks from both firing positions) needs an input
+route that does not depend on a synthetic press landing off-centre -- the harness's own scenario
+replay is the only proven one in this repo, and it clicks the centre by design. **`fast` and
+`mixed` have never been picked by a human hand in DEV; nobody has seen that.**
