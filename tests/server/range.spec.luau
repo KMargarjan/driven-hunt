@@ -337,8 +337,8 @@ return function()
 			expect(folder.Name).to.equal(LAYOUT.folderName)
 			expect(folder:FindFirstChild("Plate")).to.be.ok()
 			expect(folder:FindFirstChild("Berm")).to.be.ok()
-			expect(folder:FindFirstChild("ScreenEast")).to.be.ok()
-			expect(folder:FindFirstChild("ScreenWest")).to.be.ok()
+			expect(folder:FindFirstChild("BankEast")).to.be.ok()
+			expect(folder:FindFirstChild("BankWest")).to.be.ok()
 
 			-- THE MAT IS THE FIRST DIRECT-CHILD BASEPART: the harness's stage block puts the player
 			-- at a folder's first BasePart, and that has to be the firing position.
@@ -350,7 +350,7 @@ return function()
 				end
 			end
 			expect(first).to.be.ok()
-			expect((first :: any).Name).to.equal(RangeData.MAT_NAME)
+			expect((first :: any).Name).to.equal(RangeData.matName(1))
 
 			local parts, prompts = 0, 0
 			for _, child in ipairs(folder:GetDescendants()) do
@@ -363,6 +363,13 @@ return function()
 				end
 			end
 			expect(prompts).to.equal(LAYOUT.SPOT_COUNT)
+			expect(LAYOUT.SPOT_COUNT).to.equal(6)
+			-- SIX OF EACH, BY NAME: one mat, one post and one prompt per station (design 5.4).
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				expect(folder:FindFirstChild(RangeData.matName(spot))).to.be.ok()
+				expect(folder:FindFirstChild(RangeData.postName(spot))).to.be.ok()
+				expect(RangeData.promptFor(spot, folder)).to.be.ok()
+			end
 			expect(parts).to.equal((built :: any).parts)
 			expect(parts <= Range.CONFIG.MAX_PARTS).to.equal(true)
 
@@ -422,8 +429,11 @@ return function()
 			expect(built).to.be.ok()
 			local anchor = (built :: any).anchor
 			local shelf = (built :: any).shelf
-			local centre = RangeData.laneCentre(anchor, LAYOUT)
-			local half = RangeData.laneLength(LAYOUT) / 2
+			-- THE SHARED CORRIDOR (design 5.3): station 1's west apron edge to station 6's east one,
+			-- at the LONGEST lane -- the deepest Z anything walks. Six overlapping windows, one box.
+			local west, east = RangeData.corridorSpan(LAYOUT)
+			local centre = Vector3.new(anchor.X + (west + east) / 2, anchor.Y, anchor.Z + RangeData.distanceMax(LAYOUT))
+			local half = (east - west) / 2
 			-- The widest animal the lane can carry, with a stud of air each side.
 			local body = Boar.bodyAvoidRadius(Boar.CONFIG)
 			local blocking = {}
@@ -448,17 +458,18 @@ return function()
 			if #blocking > 0 then
 				error("in the corridor: " .. table.concat(blocking, " | "))
 			end
-			-- ...AND THE TWO SCREENS ARE STILL THERE, outside it, so this case cannot be satisfied by
-			-- building no screen at all.
+			-- ...AND THE TWO BANKS ARE STILL THERE, outside it, so this case cannot be satisfied by
+			-- building no bank at all. Each stands beyond the CORRIDOR's end -- station 6's apron
+			-- edge, not station 1's -- with `beyondStuds` of clearance to its NEAR face.
 			for leg = 1, 2 do
-				local screen = RangeData.screenPosition(anchor, LAYOUT, leg)
-				expect(math.abs(screen.X - centre.X) > half).to.equal(true)
-				expect(math.abs(screen.X - RangeData.laneEnds(anchor, LAYOUT, leg).X)).to.equal(
-					LAYOUT.SCREEN.size.X / 2 + LAYOUT.SCREEN.beyondStuds
-				)
+				local bank = RangeData.bankPosition(anchor, LAYOUT, leg)
+				expect(math.abs(bank.X - centre.X) > half).to.equal(true)
+				local from = if (leg % 2) == 1 then anchor.X + east else anchor.X + west
+				local near = math.abs(bank.X - from) - LAYOUT.BANK.size.X / 2
+				expect(math.abs(near - LAYOUT.BANK.beyondStuds) < 1e-9).to.equal(true)
 			end
-			expect((built :: any).folder:FindFirstChild("ScreenEast")).to.be.ok()
-			expect((built :: any).folder:FindFirstChild("ScreenWest")).to.be.ok()
+			expect((built :: any).folder:FindFirstChild("BankEast")).to.be.ok()
+			expect((built :: any).folder:FindFirstChild("BankWest")).to.be.ok()
 			TestKit.note(string.format("range: 0 parts inside the %d-stud corridor (body radius %.2f)", 2 * half, body))
 		end)
 
@@ -469,7 +480,7 @@ return function()
 			local built = Range.Build.build({ parent = parent, row = DEV_ROW, layout = LAYOUT })
 			expect(built).to.be.ok()
 			local folder = (built :: any).folder
-			local post = folder:FindFirstChild("Post")
+			local post = folder:FindFirstChild(RangeData.postName(1))
 			expect(post).to.be.ok()
 			expect((post :: any):IsA("BasePart")).to.equal(true)
 			-- THE PROMPT IS ON THE POST and nowhere near the mat.
@@ -477,7 +488,7 @@ return function()
 			expect(prompt).to.be.ok()
 			expect((prompt :: any):IsA("ProximityPrompt")).to.equal(true)
 			expect((prompt :: any).Parent.Parent).to.equal(post)
-			local mat = folder:FindFirstChild(RangeData.MAT_NAME)
+			local mat = folder:FindFirstChild(RangeData.matName(1))
 			expect(mat).to.be.ok()
 			expect((prompt :: any):IsDescendantOf(mat :: any)).to.equal(false)
 			-- ...AT THE POINT THE SHARED ARITHMETIC NAMES, which is what the client case projects.
@@ -523,6 +534,238 @@ return function()
 					LAYOUT.PROMPT.MaxActivationDistance
 				)
 			)
+		end)
+	end)
+
+	-- ------------------------------------------------- 3b. SIX STATIONS: THE GEOMETRY (step B2)
+	-- Design 5.1-5.4. Every number here is DERIVED from `LAYOUT` and never transcribed from the
+	-- document (verdict 278's rule, 306a note (k)): a case that retypes the formula's output cannot
+	-- fail when the formula is wrong.
+	describe("six stations: the geometry", function()
+		local DEV_AT = Vector3.new(DEV_ROW.x, 0, DEV_ROW.z)
+
+		-- ONE STATION PER CASE (L-093): station 1 is the arm this file shipped on, station 3 a
+		-- middle one and station 6 the last -- and each walks all three distances, because the
+		-- distance is the other new arm.
+		local function laneCases(spot: number)
+			local mat = RangeData.matPosition(DEV_AT, spot, LAYOUT)
+			for _, studs in ipairs(RangeData.DISTANCES_STUDS) do
+				local centre = RangeData.laneCentre(DEV_AT, LAYOUT, 1, spot, studs)
+				-- THE WINDOW IS CENTRED ON HIS OWN MAT, so the crossing stays perpendicular to the
+				-- range for all six (design 5.3).
+				expect(centre.X).to.equal(mat.X)
+				expect(centre.Z - DEV_AT.Z).to.equal(studs)
+				local east = RangeData.laneEnds(DEV_AT, LAYOUT, 1, 1, spot, studs)
+				local west = RangeData.laneEnds(DEV_AT, LAYOUT, 2, 1, spot, studs)
+				expect(east.X - centre.X).to.equal(RangeData.laneLength(LAYOUT) / 2)
+				expect(west.X - centre.X).to.equal(-RangeData.laneLength(LAYOUT) / 2)
+				expect(east.Z).to.equal(centre.Z)
+				expect(west.Z).to.equal(centre.Z)
+				-- ...AND THE OTHER WAY ROUND, through the row's own sign.
+				local south = RangeData.laneCentre(DEV_AT, LAYOUT, -1, spot, studs)
+				expect(south.Z - DEV_AT.Z).to.equal(-studs)
+				expect(south.X).to.equal(mat.X)
+			end
+		end
+
+		it("centres station 1's lane on mat 1, at each of the three distances", function()
+			laneCases(1)
+			-- THE ONE-STATION ANSWER IS UNCHANGED, which is what keeps the shipped cases meaningful.
+			expect(RangeData.laneCentre(DEV_AT, LAYOUT).X).to.equal(DEV_AT.X)
+			expect(RangeData.laneCentre(DEV_AT, LAYOUT).Z - DEV_AT.Z).to.equal(LAYOUT.DISTANCE_STUDS)
+		end)
+
+		it("centres a MIDDLE station's lane on its own mat, at each of the three distances", function()
+			laneCases(3)
+			local mat = RangeData.matPosition(DEV_AT, 3, LAYOUT)
+			expect(mat.X - DEV_AT.X).to.equal(2 * LAYOUT.SPOT_SPACING_STUDS)
+		end)
+
+		it("centres station 6's lane on its own mat, at each of the three distances", function()
+			laneCases(LAYOUT.SPOT_COUNT)
+			local mat = RangeData.matPosition(DEV_AT, LAYOUT.SPOT_COUNT, LAYOUT)
+			expect(mat.X - DEV_AT.X).to.equal(RangeData.spotSpan(LAYOUT))
+		end)
+
+		-- 306a(c): THE BERM MUST SPAN THE BANKS, AND IT DID NOT. The document derived its width from
+		-- the bank's CENTRE, which leaves half a bank outside each end. `bankReach` is the bank's
+		-- OUTER face, and the two faces then coincide exactly -- which is what this asserts.
+		it("derives a berm that spans every station's lane AND both banks, to the stud", function()
+			local bermMin, bermMax = RangeData.bermSpanFor(DEV_AT, LAYOUT)
+			local westMin, westMax = RangeData.bankSpanFor(DEV_AT, LAYOUT, 2)
+			local eastMin, eastMax = RangeData.bankSpanFor(DEV_AT, LAYOUT, 1)
+			expect(westMin < eastMin).to.equal(true)
+			-- THE IDENTITY: the berm's faces ARE the banks' outer faces.
+			expect(bermMin).to.equal(westMin)
+			expect(bermMax).to.equal(eastMax)
+			expect(bermMax - bermMin).to.equal(RangeData.bermWidthFor(LAYOUT))
+			-- EVERY STATION'S WHOLE LANE, at the longest distance, is inside it.
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				for leg = 1, 2 do
+					local at = RangeData.laneEnds(DEV_AT, LAYOUT, leg, 1, spot, RangeData.distanceMax(LAYOUT))
+					expect(at.X > bermMin and at.X < bermMax).to.equal(true)
+				end
+			end
+			-- AND THE OLD ARITHMETIC FAILS IT: a width derived from the bank's CENTRE is one whole
+			-- bank narrower, and leaves half a bank outside each end.
+			local centreBased = RangeData.spotSpan(LAYOUT)
+				+ RangeData.laneLength(LAYOUT)
+				+ 2 * (LAYOUT.BANK.beyondStuds + LAYOUT.BANK.size.X / 2)
+			expect(RangeData.bermWidthFor(LAYOUT) - centreBased).to.equal(LAYOUT.BANK.size.X)
+			local oldMin = (bermMin + bermMax) / 2 - centreBased / 2
+			local oldMax = (bermMin + bermMax) / 2 + centreBased / 2
+			expect(oldMin > westMin).to.equal(true)
+			expect(oldMax < eastMax).to.equal(true)
+			expect(oldMin - westMin).to.equal(LAYOUT.BANK.size.X / 2)
+			expect(eastMax - oldMax).to.equal(LAYOUT.BANK.size.X / 2)
+			-- THE TERRAIN GRID (design 5.4): her place fills this rectangle, and `Terrain:FillBlock`
+			-- writes 4-stud voxels on a grid at the world origin, so a misaligned edge leaves voxels
+			-- standing (task 191). Both faces and the width are multiples of it.
+			local grid = LAYOUT.FILL.GRID_STUDS
+			expect(RangeData.bermWidthFor(LAYOUT) % grid).to.equal(0)
+			expect(bermMin % grid).to.equal(0)
+			expect(bermMax % grid).to.equal(0)
+			TestKit.note(
+				string.format(
+					"range berm: %d studs wide, x %.0f..%.0f -- banks x %.0f..%.0f and %.0f..%.0f (the centre-based %d left %.0f out at each end)",
+					RangeData.bermWidthFor(LAYOUT),
+					bermMin,
+					bermMax,
+					westMin,
+					westMax,
+					eastMin,
+					eastMax,
+					centreBased,
+					LAYOUT.BANK.size.X / 2
+				)
+			)
+		end)
+
+		it("holds both banks, the berm and all six stations inside footprintFor, both ways", function()
+			for _, dir in ipairs({ 1, -1 }) do
+				local box = RangeData.footprintFor(DEV_AT, LAYOUT, dir)
+				local margin = LAYOUT.PROMPT.MaxActivationDistance
+				local bermMin, bermMax = RangeData.bermSpanFor(DEV_AT, LAYOUT)
+				-- X: the box is the banks and the berm, plus the prompt's own reach.
+				expect(box.minX).to.equal(bermMin - margin)
+				expect(box.maxX).to.equal(bermMax + margin)
+				for leg = 1, 2 do
+					local lo, hi = RangeData.bankSpanFor(DEV_AT, LAYOUT, leg)
+					expect(lo >= box.minX and hi <= box.maxX).to.equal(true)
+				end
+				-- ...AND IT REACHES THE BERM AT THE LONGEST LANE, not at the one the menu opens on.
+				local reach = (RangeData.distanceMax(LAYOUT) + LAYOUT.BERM.behindStuds + LAYOUT.BERM.depth / 2) + margin
+				local far = if dir == 1 then box.maxZ - DEV_AT.Z else DEV_AT.Z - box.minZ
+				expect(math.abs(far - reach) < 1e-6).to.equal(true)
+				expect(reach > LAYOUT.DISTANCE_STUDS).to.equal(true)
+				-- EVERY MAT AND EVERY PROMPT IS IN IT.
+				for spot = 1, LAYOUT.SPOT_COUNT do
+					local mat = RangeData.matPosition(DEV_AT, spot, LAYOUT)
+					local prompt = RangeData.promptPosition(DEV_AT, spot, LAYOUT, dir)
+					for _, at in ipairs({ mat, prompt }) do
+						expect(at.X >= box.minX and at.X <= box.maxX).to.equal(true)
+						expect(at.Z >= box.minZ and at.Z <= box.maxZ).to.equal(true)
+					end
+				end
+				-- THE FIELD THE RUNTIME USES carries the longest lane too, or an ordered target is
+				-- out of bounds the moment it is led down the 179.
+				local field = RangeData.fieldFor(DEV_AT, LAYOUT, dir)
+				for spot = 1, LAYOUT.SPOT_COUNT do
+					for leg = 1, 2 do
+						local at = RangeData.laneEnds(DEV_AT, LAYOUT, leg, dir, spot, RangeData.distanceMax(LAYOUT))
+						expect(at.X > field.bounds.minX and at.X < field.bounds.maxX).to.equal(true)
+						expect(at.Z > field.bounds.minZ and at.Z < field.bounds.maxZ).to.equal(true)
+					end
+				end
+			end
+		end)
+
+		it("stands every part it builds over the DEV plate, and inside the footprint", function()
+			local parent = Instance.new("Folder")
+			local built = Range.Build.build({ parent = parent, row = DEV_ROW, layout = LAYOUT })
+			expect(built).to.be.ok()
+			local b = built :: any
+			local plate = b.folder:FindFirstChild("Plate")
+			expect(plate).to.be.ok()
+			local box = RangeData.footprintFor(b.anchor, LAYOUT, b.downrange)
+			local overhang = {}
+			for _, part in ipairs(b.folder:GetDescendants()) do
+				if not part:IsA("BasePart") or part == plate then
+					continue
+				end
+				local loX = part.Position.X - part.Size.X / 2
+				local hiX = part.Position.X + part.Size.X / 2
+				local loZ = part.Position.Z - part.Size.Z / 2
+				local hiZ = part.Position.Z + part.Size.Z / 2
+				-- OVER THE PLATE: centred on the anchor instead of the stations, the plate stopped
+				-- short of station 6's own bank by 38 studs.
+				if
+					loX < plate.Position.X - plate.Size.X / 2
+					or hiX > plate.Position.X + plate.Size.X / 2
+					or loZ < plate.Position.Z - plate.Size.Z / 2
+					or hiZ > plate.Position.Z + plate.Size.Z / 2
+				then
+					table.insert(overhang, string.format("%s off the plate", part.Name))
+				end
+				if loX < box.minX or hiX > box.maxX or loZ < box.minZ or hiZ > box.maxZ then
+					table.insert(overhang, string.format("%s outside the footprint", part.Name))
+				end
+			end
+			if #overhang > 0 then
+				error(table.concat(overhang, " | "))
+			end
+			expect(#overhang).to.equal(0)
+			expect(b.parts).to.equal(1 + 2 * LAYOUT.SPOT_COUNT + 3)
+			expect(b.parts <= Range.CONFIG.MAX_PARTS).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range DEV: %d parts (plate %.0f x %.0f) all inside the footprint x %.0f..%.0f z %.0f..%.0f",
+					b.parts,
+					plate.Size.X,
+					plate.Size.Z,
+					box.minX,
+					box.maxX,
+					box.minZ,
+					box.maxZ
+				)
+			)
+			parent:Destroy()
+		end)
+
+		it("gives each of the six its own prompt, out of reach of its neighbour's", function()
+			local parent = Instance.new("Folder")
+			local built = Range.Build.build({ parent = parent, row = DEV_ROW, layout = LAYOUT })
+			local b = built :: any
+			local reach = LAYOUT.PROMPT.MaxActivationDistance
+			local points = {}
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				local prompt = RangeData.promptFor(spot, b.folder)
+				expect(prompt).to.be.ok()
+				local point = RangeData.promptPointOf(prompt)
+				expect(point).to.be.ok()
+				points[spot] = point :: Vector3
+			end
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				local mat = RangeData.matPosition(b.anchor, spot, LAYOUT)
+				-- HIS OWN IS IN REACH...
+				expect(RangeData.atSpot(points[spot], mat, LAYOUT)).to.equal(true)
+				-- ...AND NOBODY ELSE'S IS, which is what `SPOT_SPACING_STUDS` is for.
+				for other = 1, LAYOUT.SPOT_COUNT do
+					if other ~= spot then
+						expect(RangeData.atSpot(points[other], mat, LAYOUT)).to.equal(false)
+						expect((points[other] - points[spot]).Magnitude >= 2 * reach).to.equal(true)
+					end
+				end
+				-- ...AND THE MAN ON IT IS THE MAN THE SERVER SEES THERE.
+				expect(RangeData.spotAt(b.anchor, mat, LAYOUT)).to.equal(spot)
+			end
+			expect(LAYOUT.SPOT_SPACING_STUDS).to.equal(2 * reach)
+			-- EVERY SPOT IS A LEGAL PICK, and one past the last is not.
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				expect(RangeData.optionAllowed("spot", spot)).to.equal(true)
+			end
+			expect(RangeData.optionAllowed("spot", LAYOUT.SPOT_COUNT + 1)).to.equal(false)
+			parent:Destroy()
 		end)
 	end)
 
@@ -985,10 +1228,21 @@ return function()
 			expect(seen[RangeData.WORD.WALK]).to.equal(true)
 			expect(seen[RangeData.WORD.TROT]).to.equal(true)
 			expect(seen[RangeData.WORD.RUN]).to.equal(true)
-			expect(#RangeData.DISTANCES_STUDS).to.equal(1)
-			expect(RangeData.DISTANCES_STUDS[1]).to.equal(LAYOUT.DISTANCE_STUDS)
-			expect(RangeData.optionAllowed("distanceStuds", LAYOUT.DISTANCE_STUDS)).to.equal(true)
+			-- THE THREE LANES (design 5.1): 30 m, 35 m and 50 m, and the menu opens on 125 (Karen).
+			expect(#RangeData.DISTANCES_STUDS).to.equal(3)
+			expect(RangeData.DISTANCES_STUDS).to.equal(LAYOUT.DISTANCES_STUDS)
+			local offered = {}
+			for _, studs in ipairs(RangeData.DISTANCES_STUDS) do
+				offered[studs] = true
+				expect(RangeData.optionAllowed("distanceStuds", studs)).to.equal(true)
+			end
+			expect(offered[107]).to.equal(true)
+			expect(offered[125]).to.equal(true)
+			expect(offered[179]).to.equal(true)
+			expect(offered[LAYOUT.DISTANCE_STUDS]).to.equal(true)
+			expect(RangeData.distanceMax(LAYOUT)).to.equal(179)
 			expect(RangeData.optionAllowed("distanceStuds", 200)).to.equal(false)
+			expect(RangeData.optionAllowed("distanceStuds", 89)).to.equal(false)
 		end)
 
 		it("says the gap in metres through the repository's one conversion, with Karen's words", function()
@@ -1997,10 +2251,10 @@ return function()
 						end
 						-- `Post` is the prompt's own post (task 303), laid on the ground like the rest.
 						local nominal = if part.Name == "Berm"
-							then LAYOUT.BERM.size.Y
-							elseif part.Name == "Mat" then LAYOUT.MAT.size.Y
-							elseif part.Name == "Post" then LAYOUT.POST.size.Y
-							else LAYOUT.SCREEN.size.Y
+							then LAYOUT.BERM.height
+							elseif part.Name:match("^Mat%d") then LAYOUT.MAT.size.Y
+							elseif part.Name:match("^Post%d") then LAYOUT.POST.size.Y
+							else LAYOUT.BANK.size.Y
 						expect(math.abs(bottom - lo) < 1e-2).to.equal(true)
 						expect(top >= hi + nominal - 1e-2).to.equal(true)
 					end
@@ -2012,7 +2266,8 @@ return function()
 				expect(lane.Z - anchor.Z).to.equal(case.dir * LAYOUT.DISTANCE_STUDS)
 				local berm = (b.folder :: any):FindFirstChild("Berm")
 				expect(berm).to.be.ok()
-				expect((berm.Position.Z - anchor.Z) * case.dir > LAYOUT.DISTANCE_STUDS).to.equal(true)
+				-- BEHIND THE LONGEST LANE, not behind the one the menu opens on.
+				expect((berm.Position.Z - anchor.Z) * case.dir > RangeData.distanceMax(LAYOUT)).to.equal(true)
 				-- ...and NOTHING is built behind the shooter by more than his own mat.
 				for _, part in ipairs(parts) do
 					local behind = (anchor.Z - part.Position.Z) * case.dir
@@ -2020,16 +2275,34 @@ return function()
 				end
 				parent:Destroy()
 			end
-			-- THE GROUND WAS READ UNDER EVERY PART -- five samples each, four parts, plus the one
-			-- `shelfAt` takes at the anchor -- and never outside the rectangle that was measured.
-			expect(#asked >= 5 * 4).to.equal(true)
+			-- THE GROUND WAS READ UNDER EVERY PART -- five samples each, fifteen parts, plus the one
+			-- `shelfAt` takes at the anchor. It is NO LONGER inside `MEASURED`, and that is design
+			-- 2.3's own finding rather than a regression: the clearing was sampled for ONE station,
+			-- and six do not fit it (the case below measures the overflow). Step B8 moves the row and
+			-- re-samples; until then the assertion is that every read is inside the range's OWN box.
+			expect(#asked >= 5 * 15).to.equal(true)
+			local box = RangeData.footprintFor(
+				Vector3.new((FOREST_ROW :: any).x, 0, (FOREST_ROW :: any).z),
+				LAYOUT,
+				RangeData.downrangeOf(FOREST_ROW)
+			)
 			for _, at in ipairs(asked) do
-				expect(at.X >= MEASURED.minX and at.X <= MEASURED.maxX).to.equal(true)
-				expect(at.Z >= MEASURED.minZ and at.Z <= MEASURED.maxZ).to.equal(true)
+				expect(at.X >= box.minX and at.X <= box.maxX).to.equal(true)
+				expect(at.Z >= box.minZ and at.Z <= box.maxZ).to.equal(true)
 			end
 		end)
 
-		it("keeps the whole range inside the rectangle that was measured", function()
+		-- A LAYOUT WITH ONE FIELD CHANGED, so a case can enter an arm the shipped data does not sit
+		-- on. `LAYOUT` is deep-frozen (there is no run-time writer), so this copies.
+		local function layoutWith(overrides)
+			local copy = table.clone(LAYOUT)
+			for key, value in pairs(overrides) do
+				copy[key] = value
+			end
+			return copy
+		end
+
+		it("OVERFLOWS the clearing that was measured for ONE station, which is design 2.3's finding", function()
 			local built, _, parent = buildWith(FOREST_ROW, function()
 				return FAKE_SHELF
 			end)
@@ -2041,13 +2314,39 @@ return function()
 			end
 			table.sort(names)
 			local box = footprintOf(parts)
-			expect(box.minX >= MEASURED.minX).to.equal(true)
-			expect(box.maxX <= MEASURED.maxX).to.equal(true)
-			expect(box.minZ >= MEASURED.minZ).to.equal(true)
-			expect(box.maxZ <= MEASURED.maxZ).to.equal(true)
+			-- THE RECTANGLE WAS RIGHT FOR ONE STATION ON THE 125 LANE, and this arm proves the
+			-- measurement was not wrong -- the SHAPE changed under it (design 2.3).
+			local one = layoutWith({ SPOT_COUNT = 1, DISTANCES_STUDS = { LAYOUT.DISTANCE_STUDS } })
+			local oneParent = Instance.new("Folder")
+			local oneBuilt = Range.Build.build({
+				parent = oneParent,
+				row = FOREST_ROW,
+				layout = one,
+				groundAt = function()
+					return FAKE_SHELF
+				end,
+			})
+			local oneBox = footprintOf(partsOf((oneBuilt :: any).folder))
+			expect(oneBox.minX >= MEASURED.minX).to.equal(true)
+			expect(oneBox.maxX <= MEASURED.maxX).to.equal(true)
+			expect(oneBox.minZ >= MEASURED.minZ).to.equal(true)
+			expect(oneBox.maxZ <= MEASURED.maxZ).to.equal(true)
+			oneParent:Destroy()
+			-- ...AND SIX DO NOT FIT IT, east by the station span and south by the 179 lane. Step B8
+			-- moves the row to the site design 2.1 chose and re-samples it; nothing is built in her
+			-- place until it does, because `Range.ENABLED` is dark.
+			local overX = box.maxX - MEASURED.maxX
+			local overZ = MEASURED.minZ - box.minZ
+			expect(overX > 0).to.equal(true)
+			expect(overZ > 0).to.equal(true)
+			expect(math.abs(overX - (oneBox.maxX + RangeData.spotSpan(LAYOUT) - MEASURED.maxX)) < 1e-6).to.equal(true)
+			expect(
+				math.abs(overZ - (MEASURED.minZ - (oneBox.minZ - (RangeData.distanceMax(LAYOUT) - one.DISTANCE_STUDS))))
+					< 1e-6
+			).to.equal(true)
 			TestKit.note(
 				string.format(
-					"range forest footprint: x %.1f..%.1f z %.1f..%.1f (measured x %d..%d z %d..%d); parts %s",
+					"range forest footprint: x %.1f..%.1f z %.1f..%.1f -- OVERFLOWS the measured x %d..%d z %d..%d by %.1f east and %.1f south (one station fits: x %.1f..%.1f); parts %s",
 					box.minX,
 					box.maxX,
 					box.minZ,
@@ -2056,6 +2355,10 @@ return function()
 					MEASURED.maxX,
 					MEASURED.minZ,
 					MEASURED.maxZ,
+					overX,
+					overZ,
+					oneBox.minX,
+					oneBox.maxX,
 					table.concat(names, ", ")
 				)
 			)

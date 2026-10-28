@@ -49,23 +49,35 @@ Range.WORD = {
 -- lead and the measured crossing are perpendicular and neither contaminates the other.
 Range.LAYOUT = {
 	folderName = Range.FOLDER_NAME,
-	-- 35 m at `Report.CONFIG.METRES_PER_STUD` 0.28. 89 (25 m) and 179 (50 m) are rows for later.
+	-- 35 m at `Report.CONFIG.METRES_PER_STUD` 0.28: the distance the menu OPENS on (Karen's
+	-- default, design 15 item 12).
 	DISTANCE_STUDS = 125,
-	-- 11.2 m of open lane: 8.89 / 3.64 / 1.67 s at walk / trot / run (design section 13, TARGET 3).
-	WINDOW_STUDS = 40,
-	-- Room to turn around behind a screen. A FIRST VALUE, confirmed by the measured crossing time.
+	-- THE THREE LANES: 30 m (Vildsvinspasset), 35 m (shipped), 50 m (ISSF running boar, inside the
+	-- 48-62 m band a German driven-hunt shooter is tested in). Design 5.1.
+	DISTANCES_STUDS = { 107, 125, 179 },
+	-- 10.00 m of open lane at `Report.CONFIG.METRES_PER_STUD` 0.28 -- ISSF's running-boar window
+	-- (design 5.1, sources A and B), where 40 was a first pick.
+	WINDOW_STUDS = 36,
+	-- Room to turn around behind a bank. A FIRST VALUE, confirmed by the measured crossing time.
 	APRON_STUDS = 20,
-	SPOT_COUNT = 1,
+	-- SIX ISOLATED STATIONS (Karen, 2026-10-28: *"several places where they can click E"*). They
+	-- share ONE corridor, because each man is drawn only his own animal (design 5.3).
+	SPOT_COUNT = 6,
+	-- `2 * PROMPT.MaxActivationDistance`: the smallest spacing at which a man on mat n is out of
+	-- reach of mat n+-1's prompt.
 	SPOT_SPACING_STUDS = 24,
-	-- THE SCREENS STAND BEYOND THE ENDS OF THE LANE, NOT ON THEM, AND THIS IS A MEASUREMENT AND NOT
-	-- A PREFERENCE (task 298, step B2). Design section 4.1 puts them at `+-(WINDOW/2 + APRON)`, which
-	-- IS the turn-around point: built that way in DEV the target walked to the east end, hit the
-	-- screen's west face and STOPPED there -- measured at x = +32.2 for 30 s, 7.8 studs short of an
-	-- end it could never reach, so no leg ever finished and nothing ever crossed. `beyondStuds` is
-	-- the clearance that puts the turn in FRONT of the screen, where the design's own sentence wants
-	-- it: *"room to turn around behind a screen"*.
-	SCREEN = { size = Vector3.new(10, 8, 1), beyondStuds = 6, color = Color3.fromRGB(96, 88, 76) },
-	BERM = { size = Vector3.new(160, 10, 6), behindStuds = 12, color = Color3.fromRGB(104, 84, 62) },
+	-- THE BANKS STAND BEYOND THE ENDS OF THE LANE, NOT ON THEM, AND THAT IS A MEASUREMENT (task 298
+	-- step B2): built on the end, the target hit the bank's inner face and STOPPED 7.8 studs short
+	-- of an end it could never reach, so no leg ever finished.
+	-- A LOW COVER BANK, not a screen (Karen, 2026-10-28: *"behind animal could be a mountain not
+	-- high"*). `beyondStuds` is the clearance between the lane's end and the bank's NEAR face, so
+	-- the bank's OUTER face stands at `beyondStuds + size.X` past that end -- which is the number
+	-- the berm has to reach (306a(c)).
+	BANK = { size = Vector3.new(12, 8, 14), beyondStuds = 6, color = Color3.fromRGB(96, 88, 76) },
+	-- THE BERM HAS NO TYPED WIDTH: `Range.bermWidthFor` derives it so it spans every station's lane
+	-- AND both banks, which is the identity `range.spec` asserts (design 5.2). 10 studs = 2.8 m,
+	-- "not high" (Karen), inside the 6 m upper bound the note refused to treat as a requirement.
+	BERM = { height = 10, depth = 8, behindStuds = 12, color = Color3.fromRGB(104, 84, 62) },
 	MAT = { size = Vector3.new(8, 1, 8), color = Color3.fromRGB(70, 82, 70) },
 	-- THE WAY IN STANDS WHERE SHE IS LOOKING. A ProximityPrompt is drawn only while its own
 	-- position is on screen, so one hung on the 8x8 mat under her feet is invisible down the lane
@@ -81,6 +93,11 @@ Range.LAYOUT = {
 		color = Color3.fromRGB(88, 76, 58),
 	},
 	PLATE = { minSpan = 120, marginStuds = 80, thickness = 4, color = Color3.fromRGB(150, 150, 150) },
+	-- THE TERRAIN GRID. `Terrain:FillBlock` writes 4-stud voxels on a grid anchored at the world
+	-- origin, so every rectangle edge is a multiple of this or voxels stand at it (task 191's
+	-- measured lesson, `Lobby.CONFIG.FIELD.PADS`). `DEPTH_STUDS` and `CLEAR_STUDS` are read by the
+	-- terrain writer in her place (design 8).
+	FILL = { DEPTH_STUDS = 48, CLEAR_STUDS = 96, GRID_STUDS = 4 },
 	PROMPT = {
 		ActionText = "RANGE",
 		ObjectText = "SHOOTING RANGE",
@@ -151,10 +168,26 @@ end
 -- STAND is first because it isolates AIM from LEAD, which is what a man starts with.
 Range.PACE_ORDER = { Range.WORD.STAND, Range.WORD.WALK, Range.WORD.TROT, Range.WORD.RUN }
 
--- THE DISTANCES THE MENU OFFERS. One row today, and that is a MEASUREMENT and not a shortcut: the
--- lane's length is `LAYOUT.DISTANCE_STUDS`, frozen, and `Build` puts the mat there -- so a second
--- distance is a rebuilt lane (design 4.1: *"89 (25 m) and 179 (50 m) are rows for later"*).
-Range.DISTANCES_STUDS = { Range.LAYOUT.DISTANCE_STUDS }
+-- THE DISTANCES THE MENU OFFERS -- the layout's own list and never a second copy of it, because
+-- `Build` lays the banks and the berm at the LONGEST of them and the menu may only offer a lane
+-- that is built (design 5.1).
+Range.DISTANCES_STUDS = Range.LAYOUT.DISTANCES_STUDS
+
+-- THE LONGEST LANE: what the banks, the berm, the field and the plate are sized to.
+function Range.distanceMax(layout): number
+	layout = layout or Range.LAYOUT
+	local most = layout.DISTANCE_STUDS
+	for _, studs in ipairs(layout.DISTANCES_STUDS) do
+		most = math.max(most, studs)
+	end
+	return most
+end
+
+-- THE LANE A TRIAL RUNS, defaulted so a caller with no pick gets the distance the menu opens on.
+function Range.distanceStudsOr(layout, distanceStuds: number?): number
+	layout = layout or Range.LAYOUT
+	return if type(distanceStuds) == "number" then distanceStuds else layout.DISTANCE_STUDS
+end
 
 -- ...and the general door, so steps B3 and B4 have one place to ask. An unknown KIND is false and
 -- never true: a whitelist whose default is "yes" is not a whitelist.
@@ -294,6 +327,25 @@ function Range.remotes(): { RangeRequest: RemoteEvent, RangeBoard: RemoteEvent }
 	return built
 end
 
+-- EVERY STATION'S PART NAMES, IN ONE PLACE. Six stations means six of each, so the name carries the
+-- number -- and `Build` lays them from these, the Hud finds the prompt by `promptName`, and the
+-- spec asks for them the same way.
+function Range.matName(spot: number): string
+	return Range.MAT_NAME .. tostring(spot)
+end
+
+function Range.postName(spot: number): string
+	return "Post" .. tostring(spot)
+end
+
+function Range.promptName(spot: number): string
+	return Range.PROMPT_NAME .. tostring(spot)
+end
+
+function Range.bankName(leg: number): string
+	return if (leg % 2) == 1 then "BankEast" else "BankWest"
+end
+
 -- THE PROMPT, BY NAME ANYWHERE UNDER `Workspace.Range` (`Lobby.Data.shopPrompt`'s shape): the
 -- client finds it, `Hud.step` hands it to the panel. nil when the range is not built.
 function Range.promptFor(spot: number, root: Instance?): any
@@ -301,9 +353,9 @@ function Range.promptFor(spot: number, root: Instance?): any
 	if parent == nil then
 		return nil
 	end
-	local wanted = Range.PROMPT_NAME .. tostring(spot)
+	local wanted = Range.promptName(spot)
 	for _, child in ipairs(parent:GetDescendants()) do
-		if child.Name == wanted or (Range.LAYOUT.SPOT_COUNT == 1 and child.Name == Range.PROMPT_NAME) then
+		if child.Name == wanted then
 			return child
 		end
 	end
@@ -318,29 +370,110 @@ function Range.laneLength(layout): number
 	return layout.WINDOW_STUDS + 2 * layout.APRON_STUDS
 end
 
-function Range.laneCentre(anchor: Vector3, layout, downrange: number?): Vector3
+-- HOW FAR EAST THE SIXTH MAT STANDS FROM THE FIRST: the span the stations occupy along X, which
+-- every derived width below is measured from.
+function Range.spotSpan(layout): number
 	layout = layout or Range.LAYOUT
-	local dir = if downrange == -1 then -1 else 1
-	return Vector3.new(anchor.X, anchor.Y, anchor.Z + dir * layout.DISTANCE_STUDS)
+	return (layout.SPOT_COUNT - 1) * layout.SPOT_SPACING_STUDS
 end
 
-function Range.laneEnds(anchor: Vector3, layout, leg: number, downrange: number?): Vector3
+-- THE LANE IS PER STATION: each window is centred on its OWN mat, so for every one of the six the
+-- crossing is perpendicular to the range and the ballistic lead and the measured crossing stay
+-- about different axes (design 5.3). `spot` and `distanceStuds` default to station 1 and the
+-- opening distance, which is the one-station answer this file shipped with.
+function Range.laneCentre(anchor: Vector3, layout, downrange: number?, spot: number?, distanceStuds: number?): Vector3
 	layout = layout or Range.LAYOUT
-	local centre = Range.laneCentre(anchor, layout, downrange)
+	local dir = if downrange == -1 then -1 else 1
+	local mat = Range.matPosition(anchor, spot or 1, layout)
+	return Vector3.new(mat.X, anchor.Y, anchor.Z + dir * Range.distanceStudsOr(layout, distanceStuds))
+end
+
+function Range.laneEnds(
+	anchor: Vector3,
+	layout,
+	leg: number,
+	downrange: number?,
+	spot: number?,
+	distanceStuds: number?
+): Vector3
+	layout = layout or Range.LAYOUT
+	local centre = Range.laneCentre(anchor, layout, downrange, spot, distanceStuds)
 	local half = Range.laneLength(layout) / 2
 	local east = (leg % 2) == 1
 	return Vector3.new(centre.X + (if east then half else -half), centre.Y, centre.Z)
 end
 
--- WHERE A SCREEN STANDS: beyond the end of the lane by its own half-width plus the clearance, so
--- nothing the range builds is ever inside the corridor the target walks (`range.spec` asserts it).
-function Range.screenPosition(anchor: Vector3, layout, leg: number, downrange: number?): Vector3
+-- THE SIX WINDOWS SHARE ONE CORRIDOR (design 5.3), and this is its two ends in X, as offsets from
+-- the anchor: station 1's west apron edge and station 6's east one. The banks stand beyond THESE,
+-- not beyond any one station's lane.
+function Range.corridorSpan(layout): (number, number)
 	layout = layout or Range.LAYOUT
-	local at = Range.laneEnds(anchor, layout, leg, downrange)
-	local centre = Range.laneCentre(anchor, layout, downrange)
-	local beyond = layout.SCREEN.size.X / 2 + layout.SCREEN.beyondStuds
-	local sign = if at.X >= centre.X then 1 else -1
-	return Vector3.new(at.X + sign * beyond, at.Y, at.Z)
+	local half = Range.laneLength(layout) / 2
+	return -half, Range.spotSpan(layout) + half
+end
+
+-- HOW FAR PAST THE CORRIDOR'S END A BANK'S OUTER FACE STANDS. `beyondStuds` is the clearance to the
+-- bank's NEAR face (the measured turn-around), so the outer face is a whole bank further on. This
+-- is the number 306a(c) found the berm 4 studs short of: the old formula used the bank's CENTRE.
+function Range.bankReach(layout): number
+	layout = layout or Range.LAYOUT
+	return layout.BANK.beyondStuds + layout.BANK.size.X
+end
+
+-- WHERE A BANK STANDS. Leg 1 is the east bank and leg 2 the west, each beyond the CORRIDOR's end,
+-- at the LONGEST lane's Z -- so what they hide is the turn-around of the deepest trial, and the
+-- shorter lanes stand in front of them with no cover of their own (design 5.3, source D's 30 m).
+function Range.bankPosition(anchor: Vector3, layout, leg: number, downrange: number?): Vector3
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local west, east = Range.corridorSpan(layout)
+	local sign = if (leg % 2) == 1 then 1 else -1
+	local from = if sign == 1 then east else west
+	local offset = from + sign * (layout.BANK.beyondStuds + layout.BANK.size.X / 2)
+	return Vector3.new(anchor.X + offset, anchor.Y, anchor.Z + dir * Range.distanceMax(layout))
+end
+
+-- A BANK'S TWO FACES IN X, so the berm identity is asserted against the same arithmetic that
+-- places it and not against a typed pair of numbers.
+function Range.bankSpanFor(anchor: Vector3, layout, leg: number): (number, number)
+	layout = layout or Range.LAYOUT
+	local at = Range.bankPosition(anchor, layout, leg)
+	local half = layout.BANK.size.X / 2
+	return at.X - half, at.X + half
+end
+
+-- THE BERM'S WIDTH IS DERIVED, NEVER TYPED (design 5.2): the corridor plus both banks in full,
+-- rounded UP onto the terrain grid so her place's fill leaves no voxel standing at the edge.
+-- A typed 160 would have left stations 5 and 6 shooting past its east end.
+function Range.bermWidthFor(layout): number
+	layout = layout or Range.LAYOUT
+	local grid = layout.FILL.GRID_STUDS
+	local raw = Range.spotSpan(layout) + Range.laneLength(layout) + 2 * Range.bankReach(layout)
+	return math.ceil(raw / grid) * grid
+end
+
+function Range.bermSizeFor(layout): Vector3
+	layout = layout or Range.LAYOUT
+	return Vector3.new(Range.bermWidthFor(layout), layout.BERM.height, layout.BERM.depth)
+end
+
+-- THE BERM IS CENTRED ON THE STATIONS, not on the anchor: with six of them the anchor is the WEST
+-- end of the firing line, so a berm centred there would stop halfway along it.
+function Range.bermPosition(anchor: Vector3, layout, downrange: number?): Vector3
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	return Vector3.new(
+		anchor.X + Range.spotSpan(layout) / 2,
+		anchor.Y,
+		anchor.Z + dir * (Range.distanceMax(layout) + layout.BERM.behindStuds)
+	)
+end
+
+function Range.bermSpanFor(anchor: Vector3, layout): (number, number)
+	layout = layout or Range.LAYOUT
+	local at = Range.bermPosition(anchor, layout)
+	local half = Range.bermWidthFor(layout) / 2
+	return at.X - half, at.X + half
 end
 
 function Range.matPosition(anchor: Vector3, spot: number, layout): Vector3
@@ -445,17 +578,21 @@ function Range.footprintFor(anchor: Vector3, layout, downrange: number?)
 	layout = layout or Range.LAYOUT
 	local dir = if downrange == -1 then -1 else 1
 	local margin = layout.PROMPT.MaxActivationDistance
-	-- X: the berm is the widest thing; the screens stand beyond the lane's ends and the mats step
-	-- east by `SPOT_SPACING_STUDS`.
-	local screenOut = Range.laneLength(layout) / 2 + layout.SCREEN.beyondStuds + layout.SCREEN.size.X / 2
-	local halfX = math.max(layout.BERM.size.X / 2, screenOut, layout.MAT.size.X / 2)
-	local spots = (layout.SPOT_COUNT - 1) * layout.SPOT_SPACING_STUDS
-	-- Z: from the mat's back edge, behind the firing line, to the far face of the berm.
+	-- X: the two widest things are the BANKS' OUTER FACES and the BERM, and with the berm derived
+	-- (design 5.2) they coincide -- so this is `min`/`max` of both rather than of one, and a typed
+	-- berm could only ever widen the box, never leave a bank outside it (306a(c)).
+	local west, east = Range.corridorSpan(layout)
+	local reach = Range.bankReach(layout)
+	local bermMin, bermMax = Range.bermSpanFor(anchor, layout)
+	local minX = math.min(anchor.X + west - reach, bermMin)
+	local maxX = math.max(anchor.X + east + reach, bermMax)
+	-- Z: from the mat's back edge, behind the firing line, to the far face of the berm at the
+	-- LONGEST lane.
 	local nearZ = anchor.Z - dir * layout.MAT.size.Z / 2
-	local farZ = anchor.Z + dir * (layout.DISTANCE_STUDS + layout.BERM.behindStuds + layout.BERM.size.Z / 2)
+	local farZ = anchor.Z + dir * (Range.distanceMax(layout) + layout.BERM.behindStuds + layout.BERM.depth / 2)
 	return {
-		minX = anchor.X - halfX - margin,
-		maxX = anchor.X + halfX + spots + margin,
+		minX = minX - margin,
+		maxX = maxX + margin,
 		minZ = math.min(nearZ, farZ) - margin,
 		maxZ = math.max(nearZ, farZ) + margin,
 	}
@@ -473,15 +610,15 @@ function Range.fieldFor(anchor: Vector3, layout, downrange: number?)
 	layout = layout or Range.LAYOUT
 	local dir = if downrange == -1 then -1 else 1
 	local slack = Range.FIELD_SLACK_STUDS
-	local half = Range.laneLength(layout) / 2
-	local spots = (layout.SPOT_COUNT - 1) * layout.SPOT_SPACING_STUDS
-	-- THE TWO ENDS OF THE RANGE IN Z, whichever way it faces: the firing line and the lane.
+	local west, east = Range.corridorSpan(layout)
+	-- THE TWO ENDS OF THE RANGE IN Z, whichever way it faces: the firing line and the LONGEST lane
+	-- -- a target ordered down the 179 lane is inside the field, not out of bounds.
 	local nearZ = anchor.Z
-	local farZ = anchor.Z + dir * layout.DISTANCE_STUDS
+	local farZ = anchor.Z + dir * Range.distanceMax(layout)
 	return {
 		bounds = {
-			minX = anchor.X - half - slack,
-			maxX = anchor.X + half + slack + spots,
+			minX = anchor.X + west - slack,
+			maxX = anchor.X + east + slack,
 			minZ = math.min(nearZ, farZ) - slack,
 			maxZ = math.max(nearZ, farZ) + slack,
 		},

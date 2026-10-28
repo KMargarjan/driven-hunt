@@ -107,27 +107,35 @@ then adds the spots eastward, which is right for one station and wrong for six.
 
 ```
 laneHalf   = WINDOW/2 + APRON                       = 18 + 20      = 38
-bankOut    = laneHalf + BANK.beyondStuds + BANK.X/2 = 38 + 6 + 6    = 50
+bankOut    = laneHalf + BANK.beyondStuds + BANK.X   = 38 + 6 + 12   = 56   (the bank's OUTER face)
 spots      = (SPOT_COUNT - 1) * SPOT_SPACING        = 5 * 24        = 120
-bermHalf   = BERM.size.X / 2                        = 224/2         = 112   (centred at anchorX + 60)
+bermHalf   = bermWidthFor()/2                       = 232/2         = 116   (centred at anchorX + 60)
 margin     = PROMPT.MaxActivationDistance                           = 12
 
-minX = anchorX + min(-bankOut, 60 - bermHalf) - margin = 2600 - 52 - 12 = 2536
-maxX = anchorX + max(spots + bankOut, 60 + bermHalf) + margin = 2600 + 172 + 12 = 2784
+minX = anchorX + min(-bankOut, 60 - bermHalf) - margin = 2600 - 56 - 12 = 2532
+maxX = anchorX + max(spots + bankOut, 60 + bermHalf) + margin = 2600 + 176 + 12 = 2788
 uprange edge = anchorZ - dir*(STAND.backStuds + HighSeats.footprintRadiusStuds() + margin)
              = -3030 + 14 + 5.1 + 12                                          = -2998.9
 downrange edge = anchorZ + dir*(DISTANCE_MAX + BERM.behindStuds + BERM.size.Z/2 + margin)
              = -3030 - (179 + 12 + 4 + 12)                                    = -3237
 ```
 
-**Footprint: x 2536..2784, z −3237..−2998.9 — 248 × 238.1 studs.** Centre **(2660, −3118)**.
+**Footprint: x 2532..2788, z −3237..−2998.9 — 256 × 238.1 studs.** Centre **(2660, −3118)**.
+
+**ONE PLACEMENT CONVENTION, because this document carried two (306a(c), L-151).** `BANK.beyondStuds`
+is the clearance from the lane's end to the bank's **NEAR** face — that is what task 298 measured (a
+bank *on* the end stopped the target 7.8 studs short of it) and what the shipped `screenPosition`
+does — so the bank's **outer** face is `beyondStuds + BANK.X` past the end, and the berm must reach
+*that*. The earlier `bankOut = … + BANK.X/2` was the bank's CENTRE, which left half a bank outside
+each end of the derived berm. The §5.x coordinates below are corrected to this one convention;
+`range.spec` asserts the identity (berm faces == bank outer faces) rather than any of these numbers.
 
 ### 2.3 It does not fit the lodge's home field, and that is a number
 
 Lodge home field (`Lobby.ANCHORS["forest-test"]` = (2850, −2950), `Lobby.CONFIG.FIELD.SPAN_STUDS`
 220, half-span 110, through `Join.insideField`): **x 2740..2960, z −3060..−2840**.
 
-The footprint is 248 wide against a 220-wide field and its centre is 190 studs west and 168 south of
+The footprint is 256 wide against a 220-wide field and its centre is 190 studs west and 168 south of
 the anchor. **It cannot fit, on either axis** — exactly as the note's §4 measures. So the task-302
 mechanism is used as designed, with no new one:
 
@@ -179,7 +187,7 @@ about the lodge anchor, arc `FROM_RADIANS` 0.6 → `TO_RADIANS` 5.68, `JITTER_ST
 | Lodge plinth | x 2831..2870, z −2919..−2889 | mat 6 (2724, −3026) | **145 studs** |
 | Lodge door (z −2916, x 2846..2854) | — | mat 6 | **172.9 studs** (T1, §2.6) |
 | LodgeSpawn | 2844..2856, −2937..−2931 | mat 6 | **146 studs** |
-| Road lane + verges | 2857..2884, −3054..−2894 | east cover bank, outer face x 2772 | **85 studs** |
+| Road lane + verges | 2857..2884, −3054..−2894 | east cover bank, outer face x 2776 | **81 studs** |
 | `Yard` | 2883..2929, −2994..−2910 | east cover bank | **111 studs** |
 | Trucks 1–4 | 2906..2925, −2982..−2921 | east cover bank | **134 studs** |
 | **Truck PADS** (`Lobby.CONFIG.PADS`) | x 2916, z −2926..−2977 | east cover bank | **144 studs**; the home-area union's own maxX is 2874, **42 studs west of the nearest pad edge** |
@@ -419,7 +427,7 @@ part's position. It is worth nothing — the range scores nothing, pays nothing 
 | `DISTANCE_STUDS` | 125 | **125, kept** as the default | 35 m |
 | `DISTANCES_STUDS` | `{125}` | **`{107, 125, 179}`** | 30 m (source D), 35 m (shipped), 50 m (sources A, B; inside source C's 48–62 m hunting band) |
 | `SCREEN` | 10×8×1 part | **`BANK` = 12 × 8 × 14**, `beyondStuds` 6 | decision 5's "low cover bank"; `beyondStuds` is task 298 step B2's **measurement**, not a preference (a screen ON the lane end stopped the target 7.8 studs short and no leg ever finished) |
-| `BERM` | 160 × 10 × 6 at `behindStuds` 12 | **`size.X` DERIVED, 224 × 10 × 8**, `behindStuds` 12 **from the longest lane** | §5.2. 10 studs = 2.8 m, "not high" (Karen), inside the refused 6 m upper bound |
+| `BERM` | 160 × 10 × 6 at `behindStuds` 12 | **`size.X` DERIVED (232), `height` 10, `depth` 8**, `behindStuds` 12 **from the longest lane** | §5.2. 10 studs = 2.8 m, "not high" (Karen), inside the refused 6 m upper bound |
 | `PLATE` | span `max(lane,120)+80` | **span `max(spots + lane, 120) + 80`** | DEV must hold six stations |
 | `MAT`, `POST`, `PROMPT` | — | **unchanged** | task 303's measured post |
 | `STAND` | — | **new:** `{ backStuds = 14, facing = -1, promptRise = 2.4 }` | §7 |
@@ -433,10 +441,13 @@ part's position. It is worth nothing — the range scores nothing, pays nothing 
 ### 5.2 The berm's width is derived, not typed
 
 ```
-BERM.size.X = spots + WINDOW + 2*APRON + 2*(BANK.beyondStuds + BANK.size.X/2)
-            = 120  + 36     + 40       + 2*(6 + 6)              = 220  -> 224 on the 4-stud grid
+BERM.size.X = spots + WINDOW + 2*APRON + 2*(BANK.beyondStuds + BANK.size.X)
+            = 120  + 36     + 40       + 2*(6 + 12)             = 232  (already on the 4-stud grid)
             centred at anchorX + spots/2 = anchorX + 60 = 2660   (2660 = 4 x 665)
-            west face 2548, east face 2772   (both multiples of 4)
+            west face 2544, east face 2776   (both multiples of 4)
+
+The two banks' OUTER faces are 2544 and 2776 as well: the berm's width is derived so those four
+numbers are two numbers (306a(c)).
 ```
 
 A typed 160 would leave stations 5 and 6 shooting past the berm's east end. `range.spec` asserts the
@@ -467,7 +478,7 @@ answered:
    comment). No physics change, no `CanCollide` write.
 2. **Six bodies in one place cannot steal each other's bullets.** §4.3.
 3. **Six turn-arounds cannot each have their own pair of banks.** The two cover banks stand at the
-   extreme ends of the LONG lane (x 2548..2560 and 2760..2772, at z −3209), and what actually hides
+   extreme ends of the LONG lane (x 2544..2556 and 2764..2776, at z −3209), and what actually hides
    every station's turn-around at every distance is the **per-player window mask** (§4.4) — the same
    one predicate `RangeData.inWindow` that the shot's ignore list reads, so the animal is drawn
    exactly where it can be hit and hittable exactly where it is drawn. **This is a stated deviation
@@ -485,11 +496,11 @@ answered:
 | Post + `RangePromptAt` + prompt | 6 | `promptPosition(anchor, n, …, "bench")` | part |
 | Bench | 6 | mat + (0, ·, −3.5·dir), 6 × 2.7 × 1.2 | part |
 | Treestand (14 pieces, `HighSeats.plan`) + rail prompt | 6 | mat + (0, ·, +14) | parts |
-| Cover bank | 2 | outer faces x 2548 / 2772, z −3216..−3202 | **terrain** in her place, **parts** in DEV |
-| Berm | 1 | x 2548..2772, z −3228..−3220, crest +10 | **terrain** / part |
-| Side bank | 2 | x 2548..2560 and 2760..2772, z −3220..−3180 | **terrain** / part |
+| Cover bank | 2 | x 2544..2556 and 2764..2776 (outer faces 2544 / 2776), z −3216..−3202 | **terrain** in her place, **parts** in DEV |
+| Berm | 1 | x 2544..2776, z −3225..−3217, crest +10 | **terrain** / part |
+| Side bank | 2 | x 2544..2556 and 2764..2776, z −3217..−3177 | **terrain** / part |
 | Firing-line fill + gravel | 1 rectangle | x 2592..2728, z −3044..−2996 | **terrain** only (DEV uses the plate) |
-| Lane fill + mown grass | 1 rectangle | x 2536..2784, z −3216..−3132 | **terrain** only |
+| Lane fill + mown grass | 1 rectangle | x 2532..2788, z −3216..−3132 | **terrain** only |
 | Ground plate | 1 | DEV only (`plate = true`) | part |
 
 Every terrain edge above is a multiple of 4 (`FILL.GRID_STUDS`), which is `Lobby.CONFIG.FIELD.PADS`'
@@ -497,7 +508,7 @@ measured lesson: task 191 left two grass voxels standing at a misaligned edge, a
 writes 4-stud voxels on a grid anchored at the world origin.
 
 **Full-length side berms are refused, with the arithmetic:** a shot from mat 1 at the far edge of its
-own window is 18 studs off axis over 179 studs (5.7°) and ends inside the berm's 224-stud span, so a
+own window is 18 studs off axis over 179 studs (5.7°) and ends inside the berm's 232-stud span, so a
 200-stud wall down each side of the corridor buys nothing, costs the largest terrain write in the
 game, and walls the shooter in. The short side banks close the berm's ends so the back of the range
 reads as one earth bay.
@@ -1020,7 +1031,7 @@ invisible down the lane) only at the first build. Every item below is a **docume
 1. **The site's ground.** The firing line, the stands and the northern third of the footprint stand
    on natural ground that has never been measured. The old site's 504-sample grid (8-stud spacing,
    0 non-terrain hits, 11.6 studs of spread) covers x 2570..2730, z −3123..−3308 — **the lane and
-   the berm, not the firing line**. B1 measures x 2536..2784, z −2999..−3237.
+   the berm, not the firing line**. B1 measures x 2532..2788, z −2999..−3237.
 2. **Every clearance in §2.5**, which is computed from the note's measured bounding boxes and from
    `TREELINE`'s arithmetic, not from a part census over the new footprint.
 3. **"No tree need be removed"** (§2.5). Two readings agree; neither is a census.
@@ -1093,7 +1104,7 @@ only after this design PASSes.**
 
 | # | What | What closes it |
 |---|---|---|
-| **B1** | **The site, measured. No code.** A part census and a ground-spread grid (8-stud spacing, the task-177/298 instrument) over x 2536..2784, z −2999..−3237, in **Edit and in Play**; the walk probe from the lodge door to (2720, −3030) | §2.5's clearances confirmed against a real census; the spread reported; **T1** measured. If the spread across the firing line exceeds `MAX_FOOT_SPREAD_STUDS` where a stand goes, §8.4's fill is why that is survivable — report it, do not move the site without the Director |
+| **B1** | **The site, measured. No code.** A part census and a ground-spread grid (8-stud spacing, the task-177/298 instrument) over x 2532..2788, z −2999..−3237, in **Edit and in Play**; the walk probe from the lodge door to (2720, −3030) | §2.5's clearances confirmed against a real census; the spread reported; **T1** measured. If the spread across the firing line exceeds `MAX_FOOT_SPREAD_STUDS` where a stand goes, §8.4's fill is why that is survivable — report it, do not move the site without the Director |
 | **B2** | **Six stations, in DEV.** `SPOT_COUNT` 6, per-station lane arithmetic, the derived berm, the three distances, `BANK` for `SCREEN`, the `PLATE` span, `footprintFor`'s new X | `range.spec` groups 1, 3, 4, 10; harness; **T9**; screenshots down lane 1 and lane 6 from the plate |
 | **B3** | **The treestand as data.** `HighSeats.plan`'s `facing`, `LAYOUT.STAND`/`BENCH`, `spotAt`'s two positions, the second prompt, `distanceFor`, `deckTops` | `range.spec` group 2, `high_seats.spec`'s `facing` identity; **T2** in DEV; a DEV screenshot from a deck |
 | **B4** | **The paces.** `slow`, `fast`, `mixed` as times; `paceSpeedFor`; the menu rows | `range.spec` group 5; **T5** measured for all six at 36 studs |

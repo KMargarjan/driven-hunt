@@ -129,33 +129,19 @@ function Build.build(opts)
 	local mats = {}
 	for spot = 1, layout.SPOT_COUNT do
 		local at = RangeData.matPosition(anchor, spot, layout)
-		local mat = onGround(
-			layout.SPOT_COUNT == 1 and RangeData.MAT_NAME or string.format("%s%d", RangeData.MAT_NAME, spot),
-			layout.MAT.size,
-			at.X,
-			at.Z,
-			layout.MAT.color
-		)
+		local mat = onGround(RangeData.matName(spot), layout.MAT.size, at.X, at.Z, layout.MAT.color)
 		-- THE POST, AND THE PROMPT ON TOP OF IT, NOT ON THE FLOOR. A prompt lying on the 8x8 mat is
 		-- off screen whenever she looks down the lane, and E then does nothing (Director's
 		-- real-key proof, 2026-10-28). `Lobby.Build.shopPrompt`'s shape: a part at chest height,
 		-- with the prompt on an attachment, found by NAME so nothing downstream changes.
 		local post = RangeData.promptPosition(anchor, spot, layout, dir)
-		local postPart = onGround(
-			layout.SPOT_COUNT == 1 and "Post" or string.format("Post%d", spot),
-			layout.POST.size,
-			post.X,
-			post.Z,
-			layout.POST.color
-		)
+		local postPart = onGround(RangeData.postName(spot), layout.POST.size, post.X, post.Z, layout.POST.color)
 		local at0 = Instance.new("Attachment")
 		at0.Name = "RangePromptAt"
 		at0.Position = Vector3.new(0, postPart.Size.Y / 2, 0)
 		at0.Parent = postPart
 		local prompt = Instance.new("ProximityPrompt")
-		prompt.Name = if layout.SPOT_COUNT == 1
-			then RangeData.PROMPT_NAME
-			else string.format("%s%d", RangeData.PROMPT_NAME, spot)
+		prompt.Name = RangeData.promptName(spot)
 		prompt.ActionText = layout.PROMPT.ActionText
 		prompt.ObjectText = layout.PROMPT.ObjectText
 		prompt.MaxActivationDistance = layout.PROMPT.MaxActivationDistance
@@ -165,35 +151,39 @@ function Build.build(opts)
 		table.insert(mats, mat)
 	end
 
-	local lane = RangeData.laneCentre(anchor, layout, dir)
 	local half = RangeData.laneLength(layout) / 2
+	local spots = RangeData.spotSpan(layout)
+	local deepest = RangeData.distanceMax(layout)
 
 	-- THE GROUND PLATE, DEV only: the range's own shelf, so the harness needs no terrain and no
-	-- measured forest clearing to run a lane.
+	-- measured forest clearing to run a lane. It is sized to SIX stations and the LONGEST lane, and
+	-- centred on the stations like the berm -- centred on the anchor it would stop 60 studs short of
+	-- station 6's own bank (`range.spec` asserts every part is over it).
 	if row.plate == true then
 		local plate = layout.PLATE
-		local spanX = math.max(RangeData.laneLength(layout), plate.minSpan) + plate.marginStuds
-		local spanZ = layout.DISTANCE_STUDS + plate.marginStuds
+		local spanX = math.max(spots + RangeData.laneLength(layout), plate.minSpan) + plate.marginStuds
+		local spanZ = deepest + plate.marginStuds
 		makePart(
 			"Plate",
 			Vector3.new(spanX, plate.thickness, spanZ),
-			Vector3.new(anchor.X, shelf - plate.thickness / 2, anchor.Z + dir * layout.DISTANCE_STUDS / 2),
+			Vector3.new(anchor.X + spots / 2, shelf - plate.thickness / 2, anchor.Z + dir * deepest / 2),
 			plate.color,
 			folder
 		)
 	end
 
-	-- THE TWO SCREENS, one BEYOND each end of the lane: ISSF hides the turn-around, because a
-	-- visible 180-degree turn is not a crossing animal. `screenPosition` and not `laneEnds`: a
-	-- screen ON the end is a wall the target walks into (measured in DEV, section 4.1's row).
+	-- THE TWO COVER BANKS, one BEYOND each end of the SHARED corridor (design 5.3): ISSF hides the
+	-- turn-around, because a visible 180-degree turn is not a crossing animal. `bankPosition` and
+	-- not `laneEnds`: a bank ON the end is a wall the target walks into (measured in DEV).
 	for leg = 1, 2 do
-		local at = RangeData.screenPosition(anchor, layout, leg, dir)
-		onGround(if leg == 1 then "ScreenEast" else "ScreenWest", layout.SCREEN.size, at.X, at.Z, layout.SCREEN.color)
+		local at = RangeData.bankPosition(anchor, layout, leg, dir)
+		onGround(RangeData.bankName(leg), layout.BANK.size, at.X, at.Z, layout.BANK.color)
 	end
 
-	-- THE BACKSTOP, behind the lane: a real range's berm, and it stops a stray slug leaving the
-	-- lobby.
-	onGround("Berm", layout.BERM.size, anchor.X, lane.Z + dir * layout.BERM.behindStuds, layout.BERM.color)
+	-- THE BACKSTOP, behind the longest lane: its width is DERIVED so it spans every station's lane
+	-- AND both banks (design 5.2), and it stops a stray slug leaving the lobby.
+	local berm = RangeData.bermPosition(anchor, layout, dir)
+	onGround("Berm", RangeData.bermSizeFor(layout), berm.X, berm.Z, layout.BERM.color)
 
 	-- THE PARENT, LAST.
 	folder.Parent = parent

@@ -57,7 +57,9 @@ Range.CONFIG = {
 	STAND_HOLD_STUDS = 2,
 	-- One target per spot, never a sounder.
 	MAX_TARGETS = RangeData.LAYOUT.SPOT_COUNT,
-	MAX_PARTS = 150,
+	-- SIX STATIONS: 1 plate + 6 mats + 6 posts + 2 banks + 1 berm = 16 in DEV today, and the bound
+	-- carries the six treestands step B3 adds (design 12, T9).
+	MAX_PARTS = 160,
 	DEFAULT_SPECIES = "boar",
 	DEFAULT_KIND = "male",
 	DEFAULT_PACE = RangeData.WORD.TROT,
@@ -529,7 +531,15 @@ local function release(trial: Trial)
 		return
 	end
 	-- Released at the end the next leg STARTS from, so the first thing it does is cross.
-	local from = RangeData.laneEnds(state.anchor :: Vector3, RangeData.LAYOUT, trial.leg + 1, state.downrange)
+	-- HIS OWN STATION'S LANE, at the distance HE picked: the window is centred on his mat (design 5.3).
+	local from = RangeData.laneEnds(
+		state.anchor :: Vector3,
+		RangeData.LAYOUT,
+		trial.leg + 1,
+		state.downrange,
+		trial.spot,
+		trial.distanceStuds
+	)
 	local handle = boars.spawn(from, trial.kind)
 	if handle == nil or handle.id == nil then
 		return
@@ -546,7 +556,13 @@ end
 -- THE WINDOW TIMER (TARGET 3). It times the target's passage through `WINDOW_STUDS` of OPEN lane,
 -- not the whole leg: the aprons exist for the turn-around and a crossing is what the shooter sees.
 local function timeWindow(trial: Trial, position: Vector3, now: number)
-	local centre = RangeData.laneCentre(state.anchor :: Vector3, RangeData.LAYOUT, state.downrange)
+	local centre = RangeData.laneCentre(
+		state.anchor :: Vector3,
+		RangeData.LAYOUT,
+		state.downrange,
+		trial.spot,
+		trial.distanceStuds
+	)
 	local inside = math.abs(position.X - centre.X) <= RangeData.LAYOUT.WINDOW_STUDS / 2
 	if inside then
 		-- ONLY A REAL ENTRY STARTS THE CLOCK: armed by being outside, spent on the way in.
@@ -581,7 +597,7 @@ local function order(trial: Trial, position: Vector3, dt: number)
 		-- STAND: the lane's MIDDLE, through the same seam. The animal walks there and the Brain
 		-- stops it inside `LINE.ARRIVE_STUDS` -- the Brain's own idle, not a speed this module
 		-- invents and not a CFrame it writes.
-		point = RangeData.laneCentre(anchor, layout, state.downrange)
+		point = RangeData.laneCentre(anchor, layout, state.downrange, trial.spot, trial.distanceStuds)
 		speed = Range.issuedSpeedFor(trial)
 		direction = "middle"
 		if
@@ -591,7 +607,7 @@ local function order(trial: Trial, position: Vector3, dt: number)
 			trial.standSeconds += dt
 		end
 	else
-		point = RangeData.laneEnds(anchor, layout, trial.leg, state.downrange)
+		point = RangeData.laneEnds(anchor, layout, trial.leg, state.downrange, trial.spot, trial.distanceStuds)
 		-- THE FLIP, and it is the range's reason to exist in one line: ISSF's mandatory direction
 		-- change, so neither shoulder is favoured and no single lead is ever trained.
 		if
@@ -600,7 +616,7 @@ local function order(trial: Trial, position: Vector3, dt: number)
 		then
 			trial.leg += 1
 			state.stats.flips += 1
-			point = RangeData.laneEnds(anchor, layout, trial.leg, state.downrange)
+			point = RangeData.laneEnds(anchor, layout, trial.leg, state.downrange, trial.spot, trial.distanceStuds)
 		end
 		speed = trial.speedStudsPerSecond
 		direction = if (trial.leg % 2) == 1 then "east" else "west"
