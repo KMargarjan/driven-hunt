@@ -539,8 +539,9 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 		-- `Runtime:animationOf` hands it to a spec, the way `Runtime:woundOf` hands out a wound.
 		rateWrites = 0,
 		-- How many times the held death clip has been PUT BACK (task 293). A DIAGNOSTIC ONLY: it
-		-- gates nothing since task 293b removed the repair budget; `Runtime:animationOf` hands it
-		-- out so a spec can say the invariant was repaired.
+		-- gates nothing since task 293b removed the repair budget. `Runtime:animationOf` hands it out
+		-- to a spec, and `stepVisual` mirrors it onto the trunk part as the `Reholds` attribute so a
+		-- live probe can read it too (task 293c).
 		reholds = 0,
 		hitFor = 0, -- seconds of flinch left
 		hitFromBehind = false,
@@ -1464,6 +1465,16 @@ function Body.stepVisual(handle, dt: number, info, config)
 		handle.heldAt = at
 		handle.heldClip = deathName
 		handle.reholds += 1
+	end
+
+	-- SAY THE COUNT OUT LOUD, ON THE CARCASS ITSELF (task 293c). `reholds` lives in the handle, which
+	-- a live probe cannot read -- a probe gets a fresh module cache -- so the unbounded repair above
+	-- could not be measured in a running game. The trunk part is the instance a probe already finds
+	-- (it is the one carrying `Carcass`), and this is read-compare-write: the real count, every time
+	-- it changes, and no write at all on a step that changed nothing. nil = alive, 0 = a carcass that
+	-- never lost its pose, N = N repairs.
+	if handle.collapsed and handle.part ~= nil and handle.part:GetAttribute("Reholds") ~= handle.reholds then
+		handle.part:SetAttribute("Reholds", handle.reholds)
 	end
 
 	if handle.collapsed then
