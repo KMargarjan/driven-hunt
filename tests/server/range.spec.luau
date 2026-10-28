@@ -985,11 +985,18 @@ return function()
 			expect(fake.clears).to.equal(1)
 			expect(fake.lastClear).to.equal("range carcass")
 			expect(Range.stats().releases).to.equal(1)
-			-- ...and the fresh one is not released instantly either. EXACTLY ONE more, for the
-			-- station whose target died, and never a second round of six.
+			-- ...and the fresh one is not released instantly either.
 			expect(fake.spawns).to.equal(LAYOUT.SPOT_COUNT)
 			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 0.5)
-			expect(fake.spawns).to.equal(LAYOUT.SPOT_COUNT + 1)
+			-- ALL SIX ARE RE-RELEASED, NOT ONE, and that is MEASURED here rather than assumed:
+			-- `boars.clear` is range-WIDE (`Boar.Runtime:clear` is the only clear there is -- no
+			-- per-id despawn exists), so one man's carcass takes the other five stations' animals
+			-- with it and each trial then releases afresh. Design 16 step B7 (one animal per
+			-- OCCUPIED station) is where that closes, and `Range.ENABLED` is dark until it does.
+			-- This case is what will fail the moment the clear becomes per-station, which is the
+			-- point of writing the number down.
+			expect(fake.spawns).to.equal(2 * LAYOUT.SPOT_COUNT)
+			expect(Range.stats().lostTargets).to.equal(LAYOUT.SPOT_COUNT - 1)
 			expect((fake.at(1) :: any).alive).to.equal(true)
 			-- THE NEW TARGET IS STEERED LIKE THE FIRST, measured as a RISE from a snapshot taken
 			-- after the release (review round 1, finding 2: a `flips >= 1` on a cumulative counter
