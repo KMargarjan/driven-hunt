@@ -199,6 +199,10 @@ return function()
 			local handle = runtime:spawn(Vector3.new(0, 0, -20))
 			expect(handle).to.be.ok()
 			local id = (handle :: any).id
+			-- THE RING IS FILLED BY THE STEP, so the runtime has to have run once before anything
+			-- can be asked of it.
+			local stop = runtime:run()
+			task.wait(0.3)
 			local now = Workspace:GetServerTimeNow()
 			-- THE PRESENT IS PART OF THE ANSWER (`cframeAt`'s own rule), so `now` is answerable the
 			-- instant it is spawned.
@@ -210,6 +214,7 @@ return function()
 			expect(runtime:cframeAtId("no-such-animal", now)).to.equal(nil)
 			runtime:clear("spec")
 			expect(runtime:cframeAtId(id, now)).to.equal(nil)
+			stop()
 			root:Destroy()
 		end)
 	end)
