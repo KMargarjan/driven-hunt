@@ -68,6 +68,16 @@ export type ShotRecord = {
 	-- then the gun has moved on -- so it is taken at the trigger, like `muzzle` and `firedAt` beside
 	-- it. `nil` is every caller written before this task.
 	bore: Vector3?,
+	-- HOW FAR BACK THIS SHOOTER'S PICTURE IS, in seconds (task 305), taken at the trigger by
+	-- `Weapon.rewindFor` and handed to the cast as its fourth argument. CARRIED AND NEVER READ
+	-- HERE, like `claim` and `bore`: this module does not know what an animal is. nil is every
+	-- caller written before that task and is bit-for-bit the old flight.
+	rewindSeconds: number?,
+	-- `GetServerTimeNow()` AT THE TRIGGER (task 305b), the anchor the rewind above is measured
+	-- from. Without it the rewind is measured from the wall clock at each cast, so everything
+	-- between the trigger and that cast -- the upward trip, the wait for the next Heartbeat --
+	-- becomes invisible lead the shooter has to guess. nil is every caller before that task.
+	firedAtServer: number?,
 }
 
 -- One projectile. MUTATED IN PLACE on purpose: nine pellets stepped sixty times a second must not
@@ -253,7 +263,9 @@ end
 -- solid thing on the chord is found. What a long step costs is the chord instead of the arc
 -- (0.019 studs of sag at the cap) and time resolution against a moving animal (1.27 studs at the
 -- cap, a third of a boar's trunk).
-function Flight.advance(self: Flight, dt: number, cast: CastFn): { Resolution }
+-- `now` IS `GetServerTimeNow()` (task 305b), and nil keeps the old flight exactly: without it a
+-- shot's rewind is measured from the cast's own wall clock instead of from the trigger.
+function Flight.advance(self: Flight, dt: number, cast: CastFn, now: number?): { Resolution }
 	if #self._live == 0 then
 		return {}
 	end
@@ -311,7 +323,25 @@ function Flight.advance(self: Flight, dt: number, cast: CastFn): { Resolution }
 
 				if length > 1e-6 then
 					self.casts += 1
-					local impact = cast(pellet.position, segment, shot.ignore)
+					-- THE BULLET'S OWN CLOCK, NOT THE WALL CLOCK (task 305b). The animal must be
+					-- tested where the shooter drew it at the trigger, carried forward by the
+					-- time THIS PELLET has flown -- so the only lead he owes is the ballistic one.
+					-- MEASURED in Karen's place: the wall-clock anchor tested 0.019 s late, 0.46
+					-- studs of lead nobody can see at a 24 studs/s boar.
+					-- ...AND THE BULLET'S OWN CLOCK IS `Ballistics.timeToRange`, THE FUNCTION THE
+					-- BOARD PRINTS THE LEAD FROM -- not the stepped `elapsed`, which is quantised
+					-- to the sub-step and read 0.061 s where the closed form says 0.047 (measured,
+					-- Karen's range): one function, so the lead shown and the lead demanded agree.
+					local rewind = shot.rewindSeconds
+					if rewind ~= nil and rewind > 0 and shot.firedAtServer ~= nil and now ~= nil then
+						local flown = Ballistics.timeToRange(ballistic, pellet.travelled)
+						rewind = math.clamp(
+							rewind + (now - shot.firedAtServer - flown),
+							0,
+							config.CLAIM.VIEW_LAG_MAX_SECONDS
+						)
+					end
+					local impact = cast(pellet.position, segment, shot.ignore, rewind)
 					if impact then
 						stoppedAt = impact.position
 						live.impacts[#live.impacts + 1] = {

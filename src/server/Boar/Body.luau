@@ -754,6 +754,18 @@ function Body.attachVisual(handle, template: Instance, config): boolean
 		weld.Parent = drawn
 	end
 
+	-- THE SERVER OWNS THE ANIMAL AGAIN (task 305). `Body.create` already pins it, but welding the
+	-- drawn mesh in rebuilds the assembly and ownership went back to AUTO -- measured live:
+	-- `GetNetworkOwnershipAuto()` true and `GetNetworkOwner()` = the nearest player, whose client
+	-- then simulates the animal and leaves the SERVER's copy -- the one every shot is cast against --
+	-- 0.17 s stale, so the lead flips sign with range and cannot be learned.
+	--   https://create.roblox.com/docs/reference/engine/classes/BasePart#SetNetworkOwner
+	if RunService:IsServer() and not trunk.Anchored then
+		pcall(function()
+			trunk:SetNetworkOwner(nil)
+		end)
+	end
+
 	-- ONE RIG, ONE CONTROLLER, AND THE ASSET BRINGS ITS OWN (measured, 2026-10-03).
 	-- `InsertService:LoadAsset` hands back `Model > Model "Boar Male RedDeer v3" > { MeshPart,
 	-- InitialPoses, AnimationController }` -- Roblox's importer writes that controller, and it has no

@@ -1,60 +1,194 @@
-# ESCALATE -- task 298-B6: round 2 returned FINDINGS, so I stop (the dispatch's rule). For the Director.
+## 2026-10-28, Task 305b -- the premise is refuted, and four things are the Director's
 
-**Builder, 2026-10-28 01:50 UTC.** Branch `task-298b6-range-forest`, stacked on
-`task-301-stand-provider` at `7905ca17`. Code commit `b8e83b32931afb1b99543e3f577a76bbfa50afd5`
-(`[harness] PASS: 34/34 checks @ b8e83b32931afb1b99543e3f577a76bbfa50afd5 (clean tree) scope=all`).
-The dispatch gave max 2 rounds and said FINDINGS on round 2 -> escalate and stop. Round 2 returned
-two findings. **DO NOT MERGE AS IT STANDS: finding 1 is real, it is mine, and it makes the range in
-Karen's place permanently empty.** Reviewer verdict: `reviews/task-298f/RESULT.md` (round 2).
+**The dispatch said "as if no rewind" in her place. It is not true, and the numbers are in
+`reviews/task-305b/MEASURED.md`.** In Karen's Forest Test, on `2b77716e`, with her own overrides
+untouched: the rewind runs (`DH305Rewind` = `why=rewound rewind=0.181 cands=1 hit=true`), ownership
+is pinned to the server, the candidate is found, the ring has no misses, and the effective look-back
+(0.182-0.190) matches her client's drawn lag (0.185-0.205).
 
-## What is built and proven (DEV, 34/34, scope=all)
-The measured forest row (`x 2650, z -3216, plate = false, downrange = -1, drawn = true`), the lane
-direction as a DATA field threaded through one arithmetic (both arms entered by parameter), every
-part standing on the ground under its OWN footprint against a SLOPED reader, the whole range inside
-the measured rectangle, clear of the seven lobby rectangles, and `Match.lineUnsafeFor` refusing
-nothing down the lane while still refusing a shot at the man. One root (`RangeBoot`), no
-`ForestTestBoot` change, no second caller of `Range.installOver`.
+**The 1/10 was the aim rule, not the game.** Same build, same rig, same lane, back to back:
+drawn chest + `Ballistics.leadStuds` = **9/10** at RUN; drawn chest + **zero lead** = **0/10**.
+The Playtester's brief specified zero lead. `src/client/Weapon/Input.luau` sends the camera's own
+`LookVector`, so a real click and the rig send the same ray.
 
-## Finding 1, and it is correct
-`Range.fieldFor` now writes `exitZ = anchor.Z - dir * FIELD_EXIT_BEHIND_STUDS`. **`Brain:_outcome`'s
-despawn test is one-sided and not a parameter**: `position.Z <= field.exitZ` means "escaped". For the
-forest row that gives `exitZ = -2816`, which is NORTH of the whole field, so the first ordered target
-(the range orders on its first scan tick, and `LINE.ENABLED` is wired) is despawned as `escaped`
-immediately, for ever. I broke the module's own invariant two lines above the change I made.
+Reviewer: **PASS round 2** (`reviews/task-305b/RESULT.md`), one round-1 finding fixed.
 
-**The fix the Reviewer names, and I agree with it:** `exitZ = math.min(nearZ, farZ) -
-Range.FIELD_EXIT_BEHIND_STUDS` -- bit-for-bit `-400` for DEV and `-3741` for the forest row, so the
-exit is south of the whole field for BOTH rows because the predicate's direction is not a parameter.
-It must be stated what that does to `Brain:_flee`'s heading (`Vector3.new(targetX, groundY, exitZ)`),
-which in Karen's place then points a wounded target downrange into the berm rather than back over the
-shooter -- that may be wanted at a range, but it is a decision, not a side effect to slip in.
+**For the Director:**
+1. **Is the required lead right?** The game demands exactly `Ballistics.leadStuds` -- 1.2 studs at
+   125 studs on a 24 studs/s boar. Karen's *"I need to aim in free space"* is that lead. Real
+   ballistics is her own standing ask; whether a boar's CHEST zone should be wide enough that the
+   ballistic lead still lands in it is a FEEL decision and is hers.
+2. **The range board's `MISS GAP` misleads.** It reads `1.3 m behind` for a shot that missed by
+   1.2 studs, because it measures against the server's PRESENT position -- always one view lag
+   ahead of what the shooter drew. It is the instrument the Playtester and Karen both read. Queued
+   as 305c; worth its own small task.
+3. **The flag.** `AIM_REWIND` still ships OFF, so this commit changes nothing Karen can judge.
+   Round 3 of task 305 already queued an Architect run on `docs/design/ballistics.md` section 1.3
+   before it is lit; that precondition is unchanged and this task did not satisfy it.
+4. **The Forest Test worktree** (`<desktop>/driven-hunt-294`, Rojo :34874) was re-synced by this
+   Builder session five times to measure, and is left at the reviewed **code commit `ea72ffc9`**, so the
+   Playtester can re-run on this build without a resync. The Director owns that worktree; say if it
+   should be put back to `main` instead.
 
-## Finding 2, also correct
-No case drives `RangeData.fieldFor` with a `downrange` argument, so the whole `dir` arm of `fieldFor`
-could be deleted and the suite stays 34/34 -- which is exactly why the harness is green over a range
-that cannot hold a target. The fix: drive the existing exit case with BOTH rows, and put an ORDERED
-animal on the forest field through the real `Boar.newRuntime` (`range.spec` already builds one) and
-assert it is still alive after a step, so the field and the predicate are asserted together.
+# ESCALATE -- Task 305 (a shot hits what the shooter sees)
 
-## RESOLVED -- Director authorised round 3 (2026-10-28 01:50 UTC)
+Written 2026-10-28; every time below is a `date -u` reading, not an estimate. Builder session
+`5296d523`. **CORRECTION TO THIS FILE'S FIRST REVISION**: its header read "12:20 UTC" when `date -u`
+said 10:22 immediately after it was written. V283: never state a time from memory.
 
-**Director authorised round 3** ("MAX_ROUNDS is 3; my brief's cap of 2 is lifted for this one
-round"), and it PASSED: `reviews/task-298f/RESULT.md` line 1 is
-`PASS (items 1, 2, 3, 4, 5, 6, 7, 8, 9 NOT PROVEN)` at code commit `73037ba1`
-(`[harness] PASS: 34/34 checks @ 73037ba1 (clean tree) scope=all`). Both findings are fixed:
-`exitZ = math.min(nearZ, farZ) - FIELD_EXIT_BEHIND_STUDS` (-400 DEV bit-for-bit, -3741 forest), and
-the exit case now drives BOTH rows with an ORDERED target held alive on Karen's field through the
-real `Boar.newRuntime`. Red first at `14d1bf98` (`range.spec:274`, `range.spec:2028`).
-**Director's decision recorded in the code and in design 5:** a wounded target at a range flees
-DOWNRANGE into the berm, which is wanted -- nothing runs back over the firing line.
-**Still NOT PROVEN: nothing in Karen's place has been seen.** The live proof that the range HOLDS a
-target there is the Director's, after this PASS.
+## 0. WHY THIS IS HERE: round 2 returned FINDINGS, and the dispatch caps this task at 2 rounds
 
-## What was asked of the Director (now answered)
-One authorised round 3 (`DIRECTOR_MAX_ROUNDS=3` is the cap; a round 3 needs this entry plus the
-Director's word), or a new task. Both findings are small and the second is the one that matters:
-without it the first can come back.
+Round 1 (`fe8b589e`, 10:40 UTC): FINDINGS, four, all fixed in `bbba8b40` / `6b0d2271`.
+Round 2 (`433cb7cd`, 11:21 UTC): **FINDINGS, two.** The dispatch says *"Review: max 2 rounds;
+FINDINGS on round 2 -> ESCALATE.md and stop."* So this is the stop.
 
-**And the Forest Test proof is still unrun and is yours** (the dispatch reserves it): the mat is at
-**x 2650, z -3216**, facing **south (-z)**; the lane's middle is z -3341 and the berm z -3353. It is
-worth doing only after finding 1 is fixed -- today the lane would be empty.
+**BOTH ROUND-2 FINDINGS ARE TEST-STRENGTH AND PAPERWORK, NOT THE GAME. No `src/` line is named by
+either.**
+
+1. `weapon_rewind.spec` -- the nearest-candidate case could not fail: the injected answers FELL
+   (9, 8, 7), so under a cap of 2 the last call asked was also the nearest and nearest-wins and
+   last-wins gave one number. The Reviewer is right.
+2. `weapon_rewind.spec` + claim 7 -- the `nil`-ping branch, the one `onFireRequest` itself takes,
+   was still uncovered while the request asserted it closed. The Reviewer is right.
+
+**I have fixed both in the tree and have NOT reviewed the fix** (the answers now RISE, 6 then 7, so
+the selection rule decides the assertion; and one line calls `Weapon.rewindFor(nil, nil, CONFIG)`).
+The request says of each, on the line itself, that it was added after the round-2 verdict and is
+unreviewed. **Nothing is merged on that basis.**
+
+**AND MY OWN FIX FIRST SHIPPED A RED SUITE, which is worth more than the fix.** `cd23e2bb` read
+`[harness] FAIL: 32/34 checks @ cd23e2bbdff5e3d32cd3be01f6fe888c4d356093 (clean tree) scope=all` --
+`weapon_rewind.spec:67 Expected value to be near 5.000000 but got 6.000000`: `seen` is incremented
+before the answer is built, so `5 + seen` gives 6 then 7, not 5 then 6. **That is the second time in
+one task that a number I wrote into a case was not the number the case produces, and it is exactly
+the class of mistake round 2 found.** Corrected in `a502ccd1`, which is green:
+
+    [harness] PASS: 34/34 checks @ a502ccd1210879bb4144a867d6d38c706f89a010 (clean tree) scope=all
+
+So the tree the Director is deciding about is green and the two unreviewed changes are a test
+assertion and a sentence. `reviews/task-305/REQUEST.md` still names `29476a77` as its `Code commit:`,
+because that is the commit round 2 was run against; an authorised round 3 should name `a502ccd1`.
+
+**WHAT I AM ASKING THE DIRECTOR FOR: the single extra round CLAUDE.md already provides for.** Its
+condition is met exactly -- *"The Director may authorise a single extra round when the last round's
+findings were documentation-only"* -- and both findings are a test assertion and a sentence. The
+mechanism is an `ESCALATE.md` entry for **this task and this round** plus
+`DIRECTOR_MAX_ROUNDS=3 powershell -ExecutionPolicy Bypass -File tools/review.ps1 305`, never
+committed. I have not set it and will not without that authorisation written here.
+
+## Task 305 round 3: Director authorisation
+
+**Transcribed verbatim from the Director's dispatch of 2026-10-28 (the Director's words, not the
+Builder's):**
+
+> [DIRECTOR -> BUILDER] TASK 305 ROUND 3 -- AUTHORISED by the Director, 2026-10-28 11:50 UTC
+> (MAX_ROUNDS 3; this is round 3, not a 4th). Transcribe this paragraph verbatim into ESCALATE.md
+> under a heading "Task 305 round 3: Director authorisation", marked as the Director's, in your
+> first commit. Same branch task-305-aim-what-you-see, same reviews/task-305/ (Round: 3).
+
+**OUTCOME, 2026-10-28 12:12 UTC: round 3 is a PASS.** `reviews/task-305/RESULT.md` line 1 reads
+`PASS (items 3, 4, 5, 6 NOT PROVEN)` at `5e08263a`, with twelve non-blocking notes queued as
+TASKS.md 305a. Both round-2 cases were shown RED against a broken producer
+(`[harness] FAIL: 32/34 @ 9a996b38`, naming `weapon_rewind.spec:68` and `:113` and nothing else)
+before being called fixed, and the restored commit is
+`[harness] PASS: 34/34 checks @ 71475766275fc7aa36da3232c324e7e780b6f403 (clean tree) scope=all`.
+
+**AND THE FLAG QUESTION THE DISPATCH ASKED IS ANSWERED: case (b) is 0/10 at run, 1/10 at trot and
+0/10 at walk, so it is NOT >= 8/10 at any pace and `AIM_REWIND` must NOT stay dark.** The same rig,
+the same session, one override changed, reads **7/10** with the rewind on. With it off the impacts
+land ~1.4 studs BEHIND where the client DREW the animal; with it on `impact-aim` is within +-0.5
+studs on 5 of 7. **7/10 is itself one shot below this task's own >= 8/10 target**, and the shotgun
+slug stands at 4/6 -- both said on the record rather than rounded up. Decisions 2, 3, 4 and 5 below
+are still the Director's.
+
+So section 0's request is granted. This round does three things and nothing else: make each of the
+two round-2 cases FAIL when its producer is broken (red run, then green), MEASURE case (b) for real
+(ownership fix on, `AIM_REWIND` off, rifle at run then trot then walk, refilling ammo), and record it
+in `MEASURED.md`. The remaining notes stay queued as 305a.
+
+## 1. THE FIX HAS TWO HALVES, BUILT BY TWO SESSIONS ON ONE BRANCH, AND BOTH ARE NEEDED
+
+Two Builder sessions were dispatched task 305 on `task-305-aim-what-you-see`: `5296d523` (this one)
+and `9d5b3ff8`. We measured the same defect from two distances and got **opposite signs**, which is
+itself the finding.
+
+| half | commit(s) | what it does |
+|---|---|---|
+| **the rewind** (`5296d523`) | `605e1f6d`, `bbba8b40`, `6b0d2271` | the server resolves a shot against each animal **where the shooter drew it**, 0.180 s back (measured), for every weapon. Behind `AIM_REWIND`, **dark** |
+| **the ownership** (`9d5b3ff8`) | `97d67896` | re-pins the trunk to the server in `Body.attachVisual`, after the weld loop that rebuilds the assembly and reverts it to AUTO. **No flag** |
+
+`Boar.Body.create` already calls `part:SetNetworkOwner(nil)`. `attachVisual`'s welds undo it, so the
+engine hands a NEAR animal to the nearest player, the client simulates it, and the server's copy --
+the one every shot is cast against -- is the stale one. **That is why the required lead flips sign
+with the shooter's distance and cannot be learnt.** Measured, `reviews/task-305/MEASURED.md`:
+
+| where | distance | pace | view lag |
+|---|---|---|---|
+| Karen's Forest Test, her range, her build | 126 studs | run 23.5 | +4.18 studs = 0.174 s, client in the **FUTURE** |
+| DEV, the range, player on the mat | 123 studs | run 24.2 | -4.38 studs = 0.176 s, client in the **PAST** |
+| DEV, boar at 115 studs (`<runs-dir>/305lag.py`, this session) | 115 studs | walk 2.6 | +0.180 s, client in the **PAST**, residual 0.011 studs |
+
+The control for the last row is **moving and client-owned** (the player's own pushed
+`HumanoidRootPart`, -0.170 s): a clock skew biases both recordings the same way, so opposite signs
+of near-equal size cannot be skew. That is Learning Agent L-112's requirement, and it is what task
+265 round 3 lacked.
+
+**Neither half alone works, measured** (`MEASURED.md`, rifle, range run pace, 10 real `FireRequest`s
+aimed at the client's own rendered chest plus `Ballistics.leadStuds` alone):
+
+- (a) both dark -- **0/10**
+- (b) ownership only -- **VOID**, 9 of 10 refused `no-ammo`
+- (c) rewind only -- **0/6** (and that was round 1's finding 1: the range's own runtime was not in
+  the provider seam, so the bullet went through the drawn animal, caught geometrically 0.05 studs
+  from the chest and carrying on to the berm)
+- (d) **both** -- **10 hits in 11 shots that flew**, chest x6 body x4, 6 for 6 at pace >= 15 studs/s,
+  impacts 0.02-0.15 studs from the aim point
+
+## 2. DECISIONS THE DIRECTOR OWNS
+
+1. **The single extra review round** (section 0). Without it neither half can be merged: the gate
+   wants `RESULT.md` line 1 = `PASS`.
+2. **The order.** `97d67896` (ownership) is unflagged and ships lit; `AIM_REWIND` ships dark. **That
+   combination has no hit-rate measurement anywhere** -- case (b) is exactly that build and is void.
+   So merging the ownership half alone gives Karen a sign flip at close range that nobody has shot
+   at. Either measure (b) properly first, or merge both and light the flag together.
+3. **Whether `AIM_REWIND` is lit, and where.** The dispatch said *"born ON for the range"*; it ships
+   `default = false` because round 1 finding 2 was right that this half alone is wrong while
+   ownership is auto. With `97d67896` in, that objection is gone and lighting it is one line. Karen's
+   own place needs the override set, not the default, until a merge.
+4. **An Architect run on `docs/design/ballistics.md` BEFORE the flag is lit.** Section 1.3 says
+   *"No shot is resolved against a rewound world by raycast"*, which this change contradicts, and
+   the public-surface list omits `addHistoryProvider`, `setRewindWorld`, `setRewindPolicy`,
+   `rewindFor` and `castWithRewind`. The Builder may not write designs (CLAUDE.md roles table), so
+   this cannot be closed from here.
+5. **A frame-time number before the flag is lit.** With it on, each pellet sub-step costs one
+   `GetPartBoundsInRadius` (`MaxParts = 800`), one `table.clone` and a sort, plus up to
+   `MAX_TARGETS` rays -- up to `FLIGHT_MAX_SUBSTEPS` x 9 for buckshot. Nothing in the repo measures
+   it. The Reviewer asked for it as a note; it is a real question and it is not mine to answer with
+   the Studio held.
+
+## 2b. SESSION `9d5b3ff8` HAS ENDED (confirmed ~11:43 UTC: its inbox is gone, `ListAgents` no longer
+lists it). So decision 2's missing number -- a hit rate for the ownership-only build, case (b) --
+will NOT arrive from it. It is reported to the Director by that session separately; its evidence is
+`reviews/task-305/MEASURED.md`, committed on this branch.
+
+## 3. NOT PROVEN, named rather than implied (rule 8)
+
+- **Nothing of either half has been seen in KAREN's place.** Every proof row is DEV. Her own reading
+  is of her SHIPPED build, which has neither half. **Rule 5 is not met for this change**, and the
+  Playtester playing her place is what closes it.
+- **This session never landed a shot of its own.** In the DEV arena the request is refused before
+  anything is cast -- `REFUSED off-stand` (`Rules.OFF_STAND`), caught verbatim off `StateChanged`,
+  because no drive had assigned the man a stand. The range mat is the door and the other session had
+  the rig there. Written at the hard stop, per V280, not worked around.
+- **The shotgun slug is 4/6, BELOW the >= 8/10 target**, and two of its shots produced no impact at
+  all, unexplained.
+- **The walk and trot rows (6/6 and 4/4) do not discriminate**: both were read at low drawn speeds
+  where the whole demanded lead is under half a stud, so a build with no fix would pass them. RUN is
+  the only row that carries the claim. That caveat is the measuring session's own.
+- **NOT RUN at all**: the lever, the semi-auto, buckshot, and any HUNT animal (boar or deer in a
+  drive). Every row is the range's own target.
+- **The discriminating live row was taken at `97d67896`**, which carries the chained-provider shape,
+  not the shipped `Weapon.addHistoryProvider` one. The suite is green over the new seam and the two
+  answer the same question for a range shot, but the Playtester should re-run the run pace on the
+  merged head.

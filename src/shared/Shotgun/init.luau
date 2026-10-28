@@ -147,7 +147,10 @@ export type Impact = {
 	distance: number,
 	material: Enum.Material?,
 }
-export type CastFn = (origin: Vector3, direction: Vector3, ignore: { Instance }) -> Impact?
+-- `rewindSeconds` IS THE FOURTH AND IT IS OPTIONAL (task 305): how far back the shooter's own
+-- picture of a MOVING animal is, so the server can test the animal where he drew it. Every cast
+-- written before that task takes three parameters and simply does not look at it.
+export type CastFn = (origin: Vector3, direction: Vector3, ignore: { Instance }, rewindSeconds: number?) -> Impact?
 
 -- THE CLIENT'S HIT CLAIM (task 266): what the shooter's OWN simulation, against his OWN view of the
 -- world, says his bullet struck. KAREN, 2026-10-24/25: *"we need to aim in empty space to get hit in
@@ -648,6 +651,20 @@ Shotgun.CONFIG = {
 	-- hands out free lead, while under-correcting merely leaves some of today's error in place. 2.0
 	-- is the value if it turns out to be one way. Karen's dial, and the Director's to confirm live.
 	FLIGHT_CATCHUP_PING_FACTOR = 1.0,
+	-- HOW FAR BACK THE CLIENT DRAWS A SERVER-OWNED ANIMAL, in seconds (task 305). **MEASURED, not
+	-- invented**: in DEV on 2026-10-28 a boar's client-drawn position best-fits the server's own
+	-- 0.180 s in the past, residual 0.011 studs, while the player's own client-owned part reads
+	-- 0.170 s in the FUTURE -- opposite signs, so it is the engine's interpolation buffer and not
+	-- clock skew (<runs-dir>/305lag.py; docs/research/2026-10-28-lag-compensation.md). It agrees
+	-- with the 0.178 s task 271 read off a refused claim in Karen's place.
+	--
+	-- IT IS NOT `CLAIM.VIEW_LAG_BASE_SECONDS` (0.30) and must not be: that is the WINDOW a sweep
+	-- searches, where over-estimating is free, while this is the AMOUNT, where 0.30 would rewind
+	-- 0.12 s too far and hand back 2.9 studs of error at a run in the other direction.
+	--
+	-- The ping term is added on top (`FLIGHT_CATCHUP_PING_FACTOR`, the downward trip) and the whole
+	-- thing is capped by `CLAIM.VIEW_LAG_MAX_SECONDS`, which is the ring's own span.
+	FLIGHT_REWIND_BASE_SECONDS = 0.18,
 
 	-- ---------------------------------------------------------- THE HIT CLAIM (task 266)
 	--
@@ -700,6 +717,11 @@ Shotgun.CONFIG = {
 		-- flight inside one frame -- 16 x `FLIGHT_STEP_MAX_SECONDS` = 0.53 s, above the rifle's
 		-- longest 0.365 s.
 		MAX_TARGETS = 8,
+		-- THE FASTEST AN ANIMAL IS ASSUMED TO MOVE, for the rewind's candidate radius only (task
+		-- 305): `Boar.CONFIG.SPRINT_SPEED` is 38 studs/s and this is that with margin. It never
+		-- decides a hit -- it decides how wide the "what is near this segment" question is, so too
+		-- large costs a bigger bounds query and too small would miss an animal the shooter drew.
+		MAX_TARGET_SPEED_STUDS = 45,
 		MAX_SUBSTEPS = 16,
 
 		-- ============ HOW FAR BACK THE SERVER WILL LOOK FOR THE SHOOTER'S OWN PICTURE (task 271)

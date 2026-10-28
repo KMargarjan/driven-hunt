@@ -129,6 +129,14 @@ end
 local runtime = Boar.newRuntime(world)
 runtime:run()
 
+-- WHERE THIS RUNTIME'S TARGET WAS, for the task-305 rewind. **ADDED beside the drive's, not in
+-- place of it** (`Weapon.addHistoryProvider`): the lobby has two runtimes and the single
+-- replaceable slot belongs to `MatchBoot`. Without this the range had no rewind at all and every
+-- shot passed through the target -- measured 0/6, round 1 finding 1.
+Weapon.addHistoryProvider(function(instance, at)
+	return runtime:cframeAt(instance, at)
+end)
+
 -- A SHOT IS *NOT* A SOUND HERE, and not wiring `Weapon.ShotFired` to this runtime's `hearShot` is
 -- the whole mechanism -- no branch, no flag, no new state. In the drive every boar runs from a shot;
 -- at a range that would bolt the target off the lane on the first one.

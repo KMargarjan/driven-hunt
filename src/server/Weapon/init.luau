@@ -41,6 +41,7 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 local Cast = require(script.Cast)
+local Rewind = require(script.Rewind)
 -- THE SHOTS STILL IN THE AIR (task 185). It holds the list and steps it; it casts nothing itself
 -- (the cast is a parameter), builds no report and fires no signal -- this file does all of that,
 -- exactly as it did before, one frame or more later (docs/design/ballistics.md section 2).
@@ -136,6 +137,12 @@ local ORIGIN_TOLERANCE_STUDS = if Flags.isOn("FIRST_PERSON")
 -- `setArmingPolicy` and `setCast` already have.
 local CLAIMS_ON = Flags.isOn("HIT_CLAIM")
 local claimPolicy: boolean? = nil
+
+-- WHETHER THIS SERVER TESTS AN ANIMAL WHERE THE SHOOTER DREW IT (task 305). Read ONCE, here, at the
+-- boundary, and passed inward as a shot's `rewindSeconds` -- so `Flight` and `Rewind` never read a
+-- flag. `rewindPolicy` is the parameter beside it, the shape `setClaimPolicy` already has.
+local REWIND_ON = Flags.isOn("AIM_REWIND")
+local rewindPolicy: boolean? = nil
 
 local registry = Registry.new()
 -- ONE TOOL PER WEAPON PER PLAYER (task 140). Two Tools, because the engine's own hotbar is then the
@@ -268,6 +275,10 @@ local stats = {
 	-- WHY THE REWIND SAID NO, as a short string: "unwired", "no-sample", "ok", or the error a
 	-- throwing provider produced. `claim-history` alone is a riddle; this is the answer (task 266b).
 	claimHistoryWhy = "",
+	-- TASK 305. How many rewound animal casts this server has made, and how many found the animal
+	-- where the shooter drew it. Both 0 in any run with `AIM_REWIND` off or no animal in the air.
+	rewindCasts = 0,
+	rewindHits = 0,
 	-- THE FLIGHT'S OWN NUMBERS (task 185). `shots` keeps its meaning -- accepted trigger pulls --
 	-- so it now LEADS `shotsResolved` by up to 0.365 s, and that gap is the instrument for "a shot
 	-- that never landed". `flightTimeouts` must stay 0: nothing legitimate reaches
@@ -480,6 +491,224 @@ end
 -- unwired means today's game.
 function Weapon.setHistoryProvider(provider: ((Instance, number) -> CFrame?)?)
 	historyProvider = provider
+end
+
+-- A SECOND RUNTIME'S HISTORY, BESIDE THE FIRST (task 305, round 1 finding 1). **The lobby has TWO
+-- animal runtimes**: the drive's, wired by `MatchBoot`/`ForestTestBoot` through the seam above, and
+-- the range's own (`RangeBoot`'s `Boar.newRuntime`, which "does not borrow the drive's"). With one
+-- replaceable slot, whichever booted last won and every shot on the OTHER runtime's animal resolved
+-- with no rewind -- which was every shot on the range, measured 0/6 by session 9d5b3ff8.
+--
+-- APPENDED, NOT REPLACING, so the two boots above are untouched and the order they load in cannot
+-- decide the answer. `nil` CLEARS THE EXTRAS and `setHistoryProvider(nil)` clears the primary, so a
+-- spec restores exactly what it found. One list of at most a handful, walked in order, first
+-- non-nil wins -- `nil` from one runtime means "not mine", which is the seam's own documented
+-- meaning, so falling through is reading it correctly rather than guessing.
+local extraHistory: { (Instance, number) -> CFrame? } = {}
+
+function Weapon.addHistoryProvider(provider: ((Instance, number) -> CFrame?)?)
+	if provider == nil then
+		table.clear(extraHistory)
+		return
+	end
+	table.insert(extraHistory, provider)
+end
+
+-- WHERE WAS THIS INSTANCE THEN, asked of the primary and then of each extra. nil is still "nobody
+-- knows", and `Weapon.castWithRewind` keeps today's behaviour for exactly that answer.
+local function historyAt(instance: Instance, at: number): CFrame?
+	if historyProvider ~= nil then
+		local answer = historyProvider(instance, at)
+		if answer ~= nil then
+			return answer
+		end
+	end
+	for _, provider in ipairs(extraHistory) do
+		local answer = provider(instance, at)
+		if answer ~= nil then
+			return answer
+		end
+	end
+	return nil
+end
+
+-- THE TWO WORLD CALLS THE REWIND MAKES, AS ONE SEAM (task 305). `Cast.candidates` asks what animal
+-- is NEAR the segment and `Cast.only` casts at one of them; both touch Workspace, so both are
+-- injectable and `weapon_rewind.spec` drives the whole path with no world at all. nil restores the
+-- real ones, which is every caller in the game. The shape is `setCast`'s.
+local candidatesFn: ((Vector3, Vector3, number, { Instance }, (Instance?) -> (Instance?, string), number) -> { Instance })? =
+	nil
+local castOnlyFn: ((Instance, Vector3, Vector3) -> Shotgun.Impact?)? = nil
+
+function Weapon.setRewindWorld(
+	candidates: ((
+		Vector3,
+		Vector3,
+		number,
+		{ Instance },
+		(Instance?) -> (Instance?, string),
+		number
+	) -> { Instance })?,
+	castOnly: ((Instance, Vector3, Vector3) -> Shotgun.Impact?)?
+)
+	candidatesFn = candidates
+	castOnlyFn = castOnly
+end
+
+-- WHETHER THIS SERVER REWINDS, as a parameter beside the flag. `nil` restores the boundary's answer.
+function Weapon.setRewindPolicy(enabled: boolean?): boolean?
+	local was = rewindPolicy
+	rewindPolicy = enabled
+	return was
+end
+
+-- HOW FAR BACK THIS SHOOTER'S PICTURE OF A MOVING ANIMAL IS, in seconds.
+--
+-- `FLIGHT_REWIND_BASE_SECONDS` (0.18, MEASURED -- see its row) is the engine's own interpolation
+-- buffer, plus the ping's downward trip, capped by the animal ring's own span. THE SHAPE IS
+-- `Weapon.viewWindowFor`'s line for line: `ping` is a parameter with a `GetNetworkPing` fallback
+-- inside a `pcall`, and a negative, a NaN or a missing ping contributes ZERO rather than a guess --
+-- so the failure mode of this whole feature is "the game shoots as it did yesterday".
+function Weapon.rewindFor(player: Player?, ping: number?, config: any?): number
+	if rewindPolicy == false or (rewindPolicy == nil and not REWIND_ON) then
+		return 0
+	end
+	local cfg = config or CONFIG
+	local seconds = ping
+	if seconds == nil then
+		local ok, measured = pcall(function()
+			return (player :: any):GetNetworkPing()
+		end)
+		seconds = if ok and type(measured) == "number" then measured else 0
+	end
+	if type(seconds) ~= "number" or seconds ~= seconds or seconds <= 0 then
+		seconds = 0
+	end
+	return math.clamp(
+		cfg.FLIGHT_REWIND_BASE_SECONDS + seconds * cfg.FLIGHT_CATCHUP_PING_FACTOR,
+		0,
+		cfg.CLAIM.VIEW_LAG_MAX_SECONDS
+	)
+end
+
+-- THE CAST THE FLIGHT ACTUALLY USES (task 305). Two passes, nearest wins:
+--   1. the STATIC world, with every candidate animal EXCLUDED, so a present-position animal can
+--      never stop a bullet and be read as a tree;
+--   2. each candidate, cast with the segment moved by MINUS its own displacement over `rewind` --
+--      `Weapon.Rewind`, which is pure and owns that arithmetic.
+-- With `rewind` 0, no provider, or no candidate near the segment it is `castFn(origin, dir, ignore)`
+-- and NOTHING ELSE RUNS: the flag's off state and today's game are one path.
+-- WHICH EXIT `castWithRewind` TOOK, out where a probe can read it (task 305b). Studio only and
+-- read by nothing in the game: `stats` is module state and an `execute_luau` probe gets a FRESH
+-- module, so the live server's own answer has to be published (`ServerStorage.DHBoarHistory`'s rule).
+local rewindTrail = { plain = 0, cast = 0, hit = 0 }
+-- READ ONCE, AND EVERY CALL SITE IS WRAPPED IN `if STUDIO then` (round 1 finding 1): a live server
+-- formats no string and reads no part for a probe it cannot reach.
+local STUDIO = RunService:IsStudio()
+local function trail(why: string, extra: string?)
+	pcall(function()
+		ServerStorage:SetAttribute(
+			"DH305Rewind",
+			string.format(
+				"plain=%d cast=%d hit=%d why=%s %s",
+				rewindTrail.plain,
+				rewindTrail.cast,
+				rewindTrail.hit,
+				why,
+				extra or ""
+			)
+		)
+	end)
+end
+
+function Weapon.castWithRewind(
+	origin: Vector3,
+	direction: Vector3,
+	ignore: { Instance },
+	rewind: number?
+): Shotgun.Impact?
+	if type(rewind) ~= "number" or rewind <= 0 or (historyProvider == nil and #extraHistory == 0) then
+		if STUDIO then
+			rewindTrail.plain += 1
+			trail(
+				if type(rewind) ~= "number" or rewind <= 0 then "rewind-zero" else "no-provider",
+				string.format("rewind=%s extras=%d", tostring(rewind), #extraHistory)
+			)
+		end
+		return castFn(origin, direction, ignore)
+	end
+	local findCandidates = candidatesFn or Cast.candidates
+	local castOnly = castOnlyFn or Cast.only
+	-- The pad is how far the fastest animal can travel over the rewind window, so one it has
+	-- already carried off the line is still a candidate.
+	local pad = rewind * CONFIG.CLAIM.MAX_TARGET_SPEED_STUDS
+	-- NEAREST TO THE MUZZLE FIRST (round 1 note): `MAX_TARGETS` cuts the list, and cutting an
+	-- arbitrary order would leave the 9th animal of a sounder neither rewound nor excluded.
+	local roots = findCandidates(origin, direction, pad, ignore, Hits.targetOf, CONFIG.CLAIM.MAX_TARGETS)
+	if #roots == 0 then
+		if STUDIO then
+			rewindTrail.plain += 1
+			trail("no-roots", string.format("rewind=%.3f pad=%.1f", rewind, pad))
+		end
+		return castFn(origin, direction, ignore)
+	end
+	local at = Workspace:GetServerTimeNow() - rewind
+	local candidates: { Rewind.Candidate } = {}
+	local staticIgnore = table.clone(ignore)
+	for _, root in ipairs(roots) do
+		local present = (root :: any).CFrame
+		local past = historyAt(root, at)
+		-- **EXCLUDED FROM THE STATIC PASS ONLY IF IT IS IN THE REWOUND ONE** (round 1 finding 1).
+		-- The other order deleted an animal the provider cannot answer for from BOTH passes and the
+		-- bullet went straight through it -- and `cframeAt` answers nil for four ordinary states: an
+		-- animal no wired runtime owns, one that is DOWN, one younger than the rewind window, and
+		-- one whose trunk has gone. Those keep TODAY's behaviour instead: tested where the server
+		-- has them, which is a hit the shooter must lead for, not a miss he cannot explain.
+		if typeof(present) == "CFrame" and typeof(past) == "CFrame" then
+			table.insert(staticIgnore, root)
+			table.insert(candidates, { root = root, present = present, past = past })
+		end
+	end
+	if #candidates == 0 then
+		if STUDIO then
+			rewindTrail.plain += 1
+			trail("no-history", string.format("rewind=%.3f roots=%d", rewind, #roots))
+		end
+		return castFn(origin, direction, ignore)
+	end
+	local static = castFn(origin, direction, staticIgnore)
+	local rewound = Rewind.impact(origin, direction, candidates, castOnly, CONFIG.CLAIM.MAX_TARGETS)
+	stats.rewindCasts += #candidates
+	if rewound ~= nil then
+		stats.rewindHits += 1
+	end
+	-- THE WHOLE DIAGNOSTIC INSIDE ONE GUARD (round 1 finding 1): the instant the animal was tested
+	-- at, published on the animal so the SHOOTER'S client can compare it with his own trigger, and
+	-- the effective look-back in seconds. Nothing in the game reads either.
+	if STUDIO then
+		rewindTrail.cast += 1
+		if rewound ~= nil then
+			rewindTrail.hit += 1
+		end
+		pcall(function()
+			(candidates[1].root :: any):SetAttribute("DH305At", at)
+		end)
+		local back = (candidates[1].present.Position - candidates[1].past.Position).Magnitude
+		local spd = (candidates[1].root :: any).AssemblyLinearVelocity.Magnitude
+		trail(
+			"rewound",
+			string.format(
+				"rewind=%.3f cands=%d back=%.2f spd=%.2f eff=%.3f hit=%s",
+				rewind,
+				#candidates,
+				back,
+				spd,
+				if spd > 1 then back / spd else 0 / 0,
+				tostring(rewound ~= nil)
+			)
+		)
+	end
+	return Rewind.nearer(static, rewound)
 end
 
 -- WHETHER THIS SERVER ACCEPTS CLAIMS, as a parameter beside the flag (task 266).
@@ -2334,6 +2563,13 @@ local function onFireRequest(player: Player, req: any): string?
 		-- queue free; the bore is what lets the owner re-step its own trajectory when it lands.
 		claim = claim,
 		bore = bore,
+		-- HOW FAR BACK THIS SHOOTER'S PICTURE IS (task 305). Taken at the trigger, like `muzzle`
+		-- and `firedAt`, because by the time the bullet lands the ping has moved on; `Weapon.rewindFor`
+		-- is the one thing that computes it and returns 0 when the flag or the policy is off.
+		rewindSeconds = Weapon.rewindFor(player, nil, CONFIG),
+		-- THE ANCHOR THAT REWIND IS MEASURED FROM (task 305b), on the clock the animal's own ring
+		-- is stamped with, so the two are comparable without a conversion.
+		firedAtServer = Workspace:GetServerTimeNow(),
 		-- LAG COMPENSATION, THE FOURTH ARGUMENT (task 256). `Weapon.catchUpFor` is the one thing
 		-- that computes it and `Flight.launch` clamps it again; it is the shooter's own trip, so a
 		-- player on a good connection is given nothing and the lead he learns is the TRUE lead.
@@ -2757,10 +2993,11 @@ function Weapon.start()
 	-- server, made here and nowhere else: a grep for `flight:advance` under `src/` must find this
 	-- site alone (design 4.3, 6.2).
 	--
-	-- `castFn` IS READ PER FRAME, not captured once, so the seam `Weapon.setCast` writes is the one
-	-- the flight uses too -- which is what lets a spec's injected cast answer the pellets.
+	-- `Weapon.castWithRewind` READS `castFn` PER CALL, not captured once, so the seam `Weapon.setCast` writes
+	-- is the one the flight uses too -- which is what lets a spec's injected cast answer the pellets
+	-- -- and it adds the task-305 rewound pass around it when the shot carries a `rewindSeconds`.
 	RunService.Heartbeat:Connect(function(dt)
-		local resolved = flight:advance(dt, castFn)
+		local resolved = flight:advance(dt, Weapon.castWithRewind, Workspace:GetServerTimeNow())
 		for _, res in ipairs(resolved) do
 			onShotLanded(res)
 		end
