@@ -11,6 +11,7 @@ return function()
 	local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
 	local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 	local Report = require(ReplicatedStorage:WaitForChild("Report"))
+	local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 	local scripts = StarterPlayer:WaitForChild("StarterPlayerScripts")
 	local Hud = scripts:WaitForChild("Hud")
 	local RangePanel = require(Hud:WaitForChild("RangePanel"))
@@ -117,6 +118,89 @@ return function()
 			expect(hasTag(WeaponInput.holdTags(), "range")).to.equal(false)
 			expect(#WeaponInput.holdTags()).to.equal(heldBefore)
 			expect(Cursor.stats().reasserts).to.equal(reassertsBefore)
+		end)
+
+		-- THE MENU CLOSES ON THE CONFIRM EDGE (Director's default for Karen; the proof found it
+		-- still open over the released target, frame 11).
+		it("closes on RELEASE THE TARGET and gives both doors back on that edge", function()
+			local sent, frame = freshPanel()
+			local prompt = fakePrompt()
+			RangePanel.setPrompt(prompt)
+			local cursorBefore = #Cursor.stats().tags
+			local heldBefore = #WeaponInput.holdTags()
+			prompt.fire()
+			expect(RangePanel.isOpen()).to.equal(true)
+			expect(#Cursor.stats().tags).to.equal(cursorBefore + 1)
+			expect(#WeaponInput.holdTags()).to.equal(heldBefore + 1)
+
+			expect(RangePanel.confirm()).to.equal(true)
+			-- THE PICK STILL WENT, and then the menu went away.
+			expect(#sent).to.equal(1)
+			expect(sent[1].go).to.equal(true)
+			expect(RangePanel.isOpen()).to.equal(false)
+			expect(frame.Visible).to.equal(false)
+			-- BOTH DOORS BACK, by tag, with nothing else's tag touched.
+			expect(#Cursor.stats().tags).to.equal(cursorBefore)
+			expect(#WeaponInput.holdTags()).to.equal(heldBefore)
+			-- ...and the prompt still opens it again: closing is not disabling.
+			prompt.fire()
+			expect(RangePanel.isOpen()).to.equal(true)
+		end)
+
+		-- THE WAY IN IS ON HER SCREEN. A ProximityPrompt is drawn only while its own position is in
+		-- view, so the prompt that hung on the mat was invisible down the lane and E did nothing
+		-- (Director's proof, frames 03/04/06). The projection is `Range.viewportPointOf` -- the pinhole
+		-- arithmetic `Camera:WorldToViewportPoint` performs -- asked about KAREN'S viewport, 969 x 792
+		-- with a 58-pixel inset, and cross-checked against the engine on this machine's own camera.
+		it("puts the prompt inside Karen's 969 x 792 viewport, above the hotbar, from the firing line", function()
+			local KAREN_VIEWPORT = Vector2.new(969, 792)
+			-- The bottom band the backpack hotbar occupies at that height, measured off frame
+			-- 14-walk-crop.png (the row of gun slots runs from y ~= 735 to the bottom).
+			local HOTBAR_BAND = 792 - 735
+			local camera = workspace.CurrentCamera
+			local row = RangeData.anchorFor("forest-test")
+			expect(row).to.be.ok()
+			local anchor = Vector3.new((row :: any).x, 0, (row :: any).z)
+			local dir = RangeData.downrangeOf(row)
+			local mat = RangeData.matPosition(anchor, 1, RangeData.LAYOUT)
+			local promptAt = RangeData.promptPosition(anchor, 1, RangeData.LAYOUT, dir)
+			local lane = RangeData.laneCentre(anchor, RangeData.LAYOUT, dir)
+			-- A STANDING MAN'S EYE, and the claim is asserted over a BAND of eye heights rather than
+			-- one number, so it is not knife-edge on a character rig's exact head offset.
+			local rows = {}
+			for _, eye in ipairs({ 4.0, 4.5, 5.0, 5.5, 6.0 }) do
+				local from = mat + Vector3.new(0, eye, 0)
+				local look = CFrame.lookAt(from, lane)
+				local at, inFront = RangeData.viewportPointOf(look, promptAt, KAREN_VIEWPORT, camera.FieldOfView)
+				expect(inFront).to.equal(true)
+				expect(at.X > 0 and at.X < KAREN_VIEWPORT.X).to.equal(true)
+				expect(at.Y > 0 and at.Y < KAREN_VIEWPORT.Y - HOTBAR_BAND).to.equal(true)
+				table.insert(rows, string.format("eye %.1f -> (%.0f, %.0f)", eye, at.X, at.Y))
+			end
+			-- THE ARITHMETIC IS THE ENGINE'S, proved WITHOUT writing the camera (it has one owner):
+			-- points are placed in the live camera's own frame and both projections must agree.
+			for _, offset in ipairs({ Vector3.new(0, 0, -20), Vector3.new(3, -1, -7), Vector3.new(-6, 2, -40) }) do
+				local point = camera.CFrame * offset
+				local engine = camera:WorldToViewportPoint(point)
+				local mine = RangeData.viewportPointOf(camera.CFrame, point, camera.ViewportSize, camera.FieldOfView)
+				expect(math.abs(engine.X - mine.X) <= 1.5).to.equal(true)
+				expect(math.abs(engine.Y - mine.Y) <= 1.5).to.equal(true)
+			end
+			local from = mat + Vector3.new(0, 5, 0)
+			local look = CFrame.lookAt(from, lane)
+			-- ...AND THE MAT IS NOT: the defect itself, as a case. The old prompt point (the mat's
+			-- own top) falls below the hotbar band or off the bottom from the same eye.
+			local matTop = mat + Vector3.new(0, RangeData.LAYOUT.MAT.size.Y / 2, 0)
+			local floor = RangeData.viewportPointOf(look, matTop, KAREN_VIEWPORT, camera.FieldOfView)
+			expect(floor.Y > KAREN_VIEWPORT.Y - HOTBAR_BAND).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range: prompt on screen at 969x792 -- %s · the mat's own point was at y %.0f (hotbar from %d)",
+					table.concat(rows, ", "),
+					floor.Y,
+					792 - HOTBAR_BAND
+				)
+			)
 		end)
 
 		it("gives both doors back when he walks off the spot", function()
@@ -259,6 +343,35 @@ return function()
 			expect(string.find(text, "LEAD BALLISTIC 1.83") ~= nil).to.equal(true)
 			-- THE VIEW LEAD IS A BOUND, not a measurement, so it carries the marker.
 			expect(string.find(text, "LEAD VIEW <=") ~= nil).to.equal(true)
+			RangeBoard.stop()
+		end)
+
+		-- THE CARTRIDGE THE TRIAL REALLY HAS, not the wire word. The proof's board read
+		-- "BOAR male at rifle / Slug" with .416 picked and the ammo chip reading .416 (frame
+		-- 14-walk-crop.png): both guns send "Slug" because `Boar.Wound.damageFor` branches on it.
+		it("prints the gun's OWN cartridge label, which is not the wire word", function()
+			local frame = Instance.new("Frame")
+			RangeBoard.start(frame, { send = function() end })
+			for _, id in ipairs(Weapons.ORDER) do
+				local gun = Weapons.row(id)
+				for _, kind in ipairs(gun.AMMO_KINDS) do
+					RangeBoard.setRecord(record({ weapon = id, ammo = kind }))
+					local text = table.concat(RangeBoard.rowText(), "\n")
+					local wanted = gun.AMMO_LABEL[kind]
+					expect(type(wanted)).to.equal("string")
+					expect(string.find(text, wanted, 1, true) ~= nil).to.equal(true)
+					-- The wire word itself is NOT what the last line says, unless the row's own
+					-- label happens to be that word.
+					if wanted ~= kind then
+						expect(string.find(text, "/ " .. kind, 1, true)).to.equal(nil)
+					end
+				end
+			end
+			-- KAREN'S OWN CASE: the rifle with .416 chosen.
+			RangeBoard.setRecord(record({ weapon = "rifle", ammo = "Slug", kind = "male" }))
+			local line = RangeBoard.rowText()[8]
+			expect(string.find(line, Weapons.row("rifle").AMMO_LABEL.Slug, 1, true) ~= nil).to.equal(true)
+			TestKit.note("range board: last line -- " .. line)
 			RangeBoard.stop()
 		end)
 

@@ -461,6 +461,46 @@ return function()
 			expect((built :: any).folder:FindFirstChild("ScreenWest")).to.be.ok()
 			TestKit.note(string.format("range: 0 parts inside the %d-stud corridor (body radius %.2f)", 2 * half, body))
 		end)
+
+		-- THE WAY IN STANDS AT CHEST HEIGHT, NOT ON THE FLOOR. On the 8x8 mat the prompt was under
+		-- her feet and off screen down the lane, so E did nothing (Director's proof, frames 03/04/06).
+		it("hangs the prompt on a POST at the mat's front edge, at the one arithmetic's point", function()
+			local parent = Instance.new("Folder")
+			local built = Range.Build.build({ parent = parent, row = DEV_ROW, layout = LAYOUT })
+			expect(built).to.be.ok()
+			local folder = (built :: any).folder
+			local post = folder:FindFirstChild("Post")
+			expect(post).to.be.ok()
+			expect((post :: any):IsA("BasePart")).to.equal(true)
+			-- THE PROMPT IS ON THE POST and nowhere near the mat.
+			local prompt = RangeData.promptFor(1, folder)
+			expect(prompt).to.be.ok()
+			expect((prompt :: any):IsA("ProximityPrompt")).to.equal(true)
+			expect((prompt :: any).Parent.Parent).to.equal(post)
+			local mat = folder:FindFirstChild(RangeData.MAT_NAME)
+			expect(mat).to.be.ok()
+			expect((prompt :: any):IsDescendantOf(mat :: any)).to.equal(false)
+			-- ...AT THE POINT THE SHARED ARITHMETIC NAMES, which is what the client case projects.
+			-- Over the DEV plate the ground spread is zero, so this is exact.
+			local anchor = (built :: any).anchor
+			local want = RangeData.promptPosition(anchor, 1, LAYOUT, (built :: any).downrange)
+			local at = (post :: any).Position + Vector3.new(0, (post :: any).Size.Y / 2, 0)
+			expect((at - want).Magnitude < 1e-3).to.equal(true)
+			-- IT IS STILL IN REACH of a man on the mat, and still inside the range's own footprint.
+			local matAt = RangeData.matPosition(anchor, 1, LAYOUT)
+			local reach = (want - matAt).Magnitude
+			expect(reach < LAYOUT.PROMPT.MaxActivationDistance).to.equal(true)
+			local box = RangeData.footprintFor(anchor, LAYOUT, (built :: any).downrange)
+			expect(want.X >= box.minX and want.X <= box.maxX).to.equal(true)
+			expect(want.Z >= box.minZ and want.Z <= box.maxZ).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range: prompt on Post, %.2f studs from the mat (reach %d)",
+					reach,
+					LAYOUT.PROMPT.MaxActivationDistance
+				)
+			)
+		end)
 	end)
 
 	-- ------------------------------------------------------------------ 4. THE OWNER AND THE LANE
@@ -543,6 +583,45 @@ return function()
 				Range.stop()
 			end
 			TestKit.note("range: measured crossings -- " .. table.concat(rows, " · "))
+		end)
+
+		-- THE DIRECTOR'S OWN SEQUENCE IN KAREN'S PLACE, 2026-10-28: the target was crossing at a
+		-- TROT and he picked WALK through the menu while it was INSIDE the window. The board then
+		-- read `crossing 4.75 s` beside `issued 4.5 studs/s` -- 21.4 studs of a 40-stud window,
+		-- because `setPace` cleared the entry time and the next scan re-started the clock where the
+		-- target happened to be. The animal was never fast; the CLOCK was started late.
+		it("times a WALK picked MID-WINDOW over the whole window, not the studs that were left", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now))).to.equal(true)
+			expect(Range.setPace(1, RangeData.WORD.TROT)).to.equal(true)
+			-- Into the window at a trot: the apron is 20 studs, so 3 s puts it well inside.
+			advance(fake, clock, 3)
+			local centre = RangeData.laneCentre(Vector3.new(DEV_ROW.x, 0, DEV_ROW.z), LAYOUT)
+			local animal = fake.only() :: any
+			local offset = math.abs(animal.position.X - centre.X)
+			expect(offset < LAYOUT.WINDOW_STUDS / 2).to.equal(true)
+			TestKit.note(string.format("range: picked WALK with the target %.1f studs inside the window", offset))
+			-- THE PICK, mid-window.
+			expect(Range.setPace(1, RangeData.WORD.WALK)).to.equal(true)
+			-- Two whole lane lengths at a walk: enough for the partial exit AND a real crossing.
+			advance(fake, clock, 2 * RangeData.laneLength(LAYOUT) / speedOf("walk") + 2)
+			local trial = Range.trialOf(1) :: any
+			local measured = trial.crossingSecondsByPace[RangeData.WORD.WALK]
+			local predicted = RangeData.crossingSeconds(LAYOUT.WINDOW_STUDS, speedOf("walk"))
+			expect(measured).to.be.ok()
+			local err = math.abs(measured - predicted) / predicted
+			-- TARGET 3, +-10 %. BEFORE the arming field this recorded ~21 studs / 4.5 studs/s.
+			expect(err <= Range.CONFIG.CROSSING_TOLERANCE).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range: WALK picked mid-window measured %.2f s (predicted %.2f, %.1f %%)",
+					measured,
+					predicted,
+					err * 100
+				)
+			)
+			Range.stop()
 		end)
 
 		it("holds a STAND target within 2 studs of the lane middle for 3 seconds", function()
