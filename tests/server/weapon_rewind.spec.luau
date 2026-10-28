@@ -55,8 +55,9 @@ return function()
 					normal = Vector3.new(0, 1, 0),
 					-- **RISING**, so the nearest answer is the FIRST one asked and not the last
 					-- (round 2 finding 1). With a falling sequence the last call was also the
-					-- nearest, so last-wins and nearest-wins gave the same number and the
-					-- assertion could not fail. 5 then 6 under a cap of 2: nearest-wins is 5.
+					-- nearest, so last-wins and nearest-wins gave one number and the assertion
+					-- could not fail. `seen` is incremented ABOVE, so the answers are 6 then 7
+					-- under a cap of 2: nearest-wins gives 6 and last-wins gives 7.
 					distance = 5 + seen,
 					material = Enum.Material.Plastic,
 				}
@@ -64,7 +65,7 @@ return function()
 			local list = { candidate(1), candidate(2), candidate(3) }
 			local hit = Rewind.impact(Vector3.zero, Vector3.new(0, 0, 4), list, castOnly, 2)
 			expect(seen).to.equal(2)
-			expect((hit :: any).distance).to.be.near(5, 1e-4)
+			expect((hit :: any).distance).to.be.near(6, 1e-4)
 		end)
 
 		it("is nil for no candidate, and refuses a candidate with no history", function()
