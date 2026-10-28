@@ -105,6 +105,11 @@ aimed at the client's own rendered chest plus `Ballistics.leadStuds` alone):
    it. The Reviewer asked for it as a note; it is a real question and it is not mine to answer with
    the Studio held.
 
+## 2b. SESSION `9d5b3ff8` HAS ENDED (confirmed ~11:43 UTC: its inbox is gone, `ListAgents` no longer
+lists it). So decision 2's missing number -- a hit rate for the ownership-only build, case (b) --
+will NOT arrive from it. It is reported to the Director by that session separately; its evidence is
+`reviews/task-305/MEASURED.md`, committed on this branch.
+
 ## 3. NOT PROVEN, named rather than implied (rule 8)
 
 - **Nothing of either half has been seen in KAREN's place.** Every proof row is DEV. Her own reading
