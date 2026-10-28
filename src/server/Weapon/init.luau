@@ -2560,6 +2560,9 @@ local function onFireRequest(player: Player, req: any): string?
 		-- and `firedAt`, because by the time the bullet lands the ping has moved on; `Weapon.rewindFor`
 		-- is the one thing that computes it and returns 0 when the flag or the policy is off.
 		rewindSeconds = Weapon.rewindFor(player, nil, CONFIG),
+		-- THE ANCHOR THAT REWIND IS MEASURED FROM (task 305b), on the clock the animal's own ring
+		-- is stamped with, so the two are comparable without a conversion.
+		firedAtServer = Workspace:GetServerTimeNow(),
 		-- LAG COMPENSATION, THE FOURTH ARGUMENT (task 256). `Weapon.catchUpFor` is the one thing
 		-- that computes it and `Flight.launch` clamps it again; it is the shooter's own trip, so a
 		-- player on a good connection is given nothing and the lead he learns is the TRUE lead.
@@ -2987,7 +2990,7 @@ function Weapon.start()
 	-- is the one the flight uses too -- which is what lets a spec's injected cast answer the pellets
 	-- -- and it adds the task-305 rewound pass around it when the shot carries a `rewindSeconds`.
 	RunService.Heartbeat:Connect(function(dt)
-		local resolved = flight:advance(dt, Weapon.castWithRewind)
+		local resolved = flight:advance(dt, Weapon.castWithRewind, Workspace:GetServerTimeNow())
 		for _, res in ipairs(resolved) do
 			onShotLanded(res)
 		end

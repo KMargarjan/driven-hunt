@@ -125,6 +125,48 @@ return function()
 	-- THE FUNCTION THAT CHANGES THE GAME, driven through its three seams with no world. Delete
 	-- `Weapon.castWithRewind` and these cases go red, which is what round 1 said this file could
 	-- not claim.
+	-- TASK 305b: the rewind is measured from the TRIGGER, not from the cast's own wall clock.
+	describe("Flight.advance's rewind anchor", function()
+		local Flight = require(ServerScriptService:WaitForChild("Weapon"):WaitForChild("Flight"))
+
+		local function fire(now: number?): number?
+			local flight = Flight.new(CONFIG)
+			local ballistic = { v0 = 1000, k = 0, zeroStuds = 100, gravityScale = 0 }
+			local seen: number? = nil
+			local shot = {
+				shooter = nil :: any,
+				shooterUserId = 1,
+				ammo = "slug",
+				muzzle = Vector3.zero,
+				ignore = {},
+				rangeStuds = 500,
+				firedAt = 0,
+				rewindSeconds = 0.18,
+				-- the trigger, 0.05 s before the cast below
+				firedAtServer = 100.0,
+			}
+			flight:launch(shot :: any, { Vector3.new(0, 0, -1) }, ballistic :: any)
+			flight:advance(1 / 60, function(_o, _d, _i, rewind)
+				seen = seen or rewind
+				return nil
+			end, now)
+			return seen
+		end
+
+		it("adds the slip between the trigger and the cast", function()
+			-- 0.05 s of wall clock has passed and the pellet has flown none of it yet.
+			expect(fire(100.05)).to.be.near(0.23, 1e-6)
+		end)
+
+		it("is exactly today's flight with no clock", function()
+			expect(fire(nil)).to.be.near(0.18, 1e-6)
+		end)
+
+		it("cannot hand out more than the ring can answer", function()
+			expect(fire(1000)).to.be.near(CONFIG.CLAIM.VIEW_LAG_MAX_SECONDS, 1e-6)
+		end)
+	end)
+
 	describe("Weapon.castWithRewind", function()
 		-- An animal 6 studs further along +X now than when the shooter drew it. Its body is a
 		-- 2-stud box, so a ray aimed at the DRAWN position misses the present one entirely.
