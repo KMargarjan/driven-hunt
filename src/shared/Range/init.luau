@@ -222,12 +222,15 @@ end
 -- IS HE AT THE SPOT? PURE, and the distance is the PROMPT'S OWN REACH -- the same number the engine
 -- shows the prompt at, so the menu closes exactly where the way in disappears (`Shop.withinReach`'s
 -- rule: the client's closer and the server's refusal are the same measurement).
-function Range.atSpot(matPosition: Vector3?, playerPosition: Vector3?, layout): boolean
+--
+-- IT IS ASKED ABOUT THE PROMPT'S OWN POINT, not the mat's (task 303). Since the prompt stands on
+-- the post, measuring from the mat would leave a shell where the engine offers E and this says no.
+function Range.atSpot(promptPosition: Vector3?, playerPosition: Vector3?, layout): boolean
 	layout = layout or Range.LAYOUT
-	if typeof(matPosition) ~= "Vector3" or typeof(playerPosition) ~= "Vector3" then
+	if typeof(promptPosition) ~= "Vector3" or typeof(playerPosition) ~= "Vector3" then
 		return false
 	end
-	return (matPosition - playerPosition).Magnitude <= layout.PROMPT.MaxActivationDistance
+	return (promptPosition - playerPosition).Magnitude <= layout.PROMPT.MaxActivationDistance
 end
 
 -- A DISTANCE AS THE PLAYER READS IT: "125 studs (35 m)", through `Report.metres` -- the repo's one
@@ -337,8 +340,9 @@ end
 -- WHERE THE PROMPT HANGS: the top of the post at the mat's front edge, and the ONE arithmetic for
 -- it -- `Range.Build` lays the post from this and the client case projects this, so the screen's
 -- claim and the built world can never be about two different points. Y is the SHELF plus the post's
--- height; the built post is grown down to the lowest ground under its own footprint, so over a
--- plate (DEV) this is exact and over terrain it is high by that footprint's spread.
+-- height, while the BUILT top is the HIGHEST ground under the post's own footprint plus that same
+-- height: over a plate (DEV) they are one point, and over terrain they differ by that ground
+-- against the shelf read at the row's own point.
 function Range.promptPosition(anchor: Vector3, spot: number, layout, downrange: number?): Vector3
 	layout = layout or Range.LAYOUT
 	local dir = if downrange == -1 then -1 else 1
@@ -348,6 +352,23 @@ function Range.promptPosition(anchor: Vector3, spot: number, layout, downrange: 
 		anchor.Y + layout.POST.size.Y,
 		mat.Z + dir * layout.POST.aheadStuds
 	)
+end
+
+-- WHERE A FOUND PROMPT ACTUALLY IS, whatever it is parented to. The prompt moved from the mat to
+-- an attachment on the post (task 303), and the Hud's "is he at the spot" test used to read
+-- `prompt.Parent.Position` -- an Attachment has no `Position` in world terms, so the test went dead
+-- and with it the board and the door-closer (review round 1, finding 1).
+function Range.promptPointOf(prompt: any): Vector3?
+	local parent = if typeof(prompt) == "Instance" then prompt.Parent else nil
+	if parent == nil then
+		return nil
+	end
+	if parent:IsA("Attachment") then
+		return (parent :: Attachment).WorldPosition
+	elseif parent:IsA("BasePart") then
+		return (parent :: BasePart).Position
+	end
+	return nil
 end
 
 -- IS IT ON HER SCREEN? The pinhole projection `Camera:WorldToViewportPoint` performs, as ARITHMETIC

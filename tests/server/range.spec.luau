@@ -493,6 +493,29 @@ return function()
 			local box = RangeData.footprintFor(anchor, LAYOUT, (built :: any).downrange)
 			expect(want.X >= box.minX and want.X <= box.maxX).to.equal(true)
 			expect(want.Z >= box.minZ and want.Z <= box.maxZ).to.equal(true)
+			-- AND THE "IS HE AT THE SPOT" SIGNAL IS ALIVE ON THE BUILT FOLDER. The Hud reads the
+			-- prompt's own point through `Range.promptPointOf` and asks `atSpot` about THAT, which
+			-- is the number the engine offers E at. Reading `prompt.Parent.Position` instead went
+			-- silently dead when the prompt moved onto an attachment, and with it the board and the
+			-- door-closer (review round 1, finding 1) -- so this drives the real built shape.
+			local point = RangeData.promptPointOf(prompt)
+			expect(point).to.be.ok()
+			expect(((point :: Vector3) - want).Magnitude < 1e-3).to.equal(true)
+			local reachStuds = LAYOUT.PROMPT.MaxActivationDistance
+			expect(RangeData.atSpot(point, matAt, LAYOUT)).to.equal(true)
+			expect(RangeData.atSpot(point, (point :: Vector3) + Vector3.new(reachStuds - 1, 0, 0), LAYOUT)).to.equal(
+				true
+			)
+			expect(RangeData.atSpot(point, (point :: Vector3) + Vector3.new(reachStuds + 1, 0, 0), LAYOUT)).to.equal(
+				false
+			)
+			-- Both shapes answered by the one reader: a prompt on nothing, and a prompt on a part.
+			expect(RangeData.promptPointOf(Instance.new("ProximityPrompt"))).to.equal(nil)
+			local loose = Instance.new("Part")
+			loose.Position = Vector3.new(7, 8, 9)
+			local onPart = Instance.new("ProximityPrompt")
+			onPart.Parent = loose
+			expect(RangeData.promptPointOf(onPart)).to.equal(Vector3.new(7, 8, 9))
 			TestKit.note(
 				string.format(
 					"range: prompt on Post, %.2f studs from the mat (reach %d)",
@@ -1917,10 +1940,10 @@ return function()
 								hi = math.max(hi, g)
 							end
 						end
+						-- `Post` is the prompt's own post (task 303), laid on the ground like the rest.
 						local nominal = if part.Name == "Berm"
 							then LAYOUT.BERM.size.Y
-							elseif part.Name == "Mat" then LAYOUT.MAT.size.Y							-- The prompt's post (task 303): laid on the ground like every other part.
-
+							elseif part.Name == "Mat" then LAYOUT.MAT.size.Y
 							elseif part.Name == "Post" then LAYOUT.POST.size.Y
 							else LAYOUT.SCREEN.size.Y
 						expect(math.abs(bottom - lo) < 1e-2).to.equal(true)

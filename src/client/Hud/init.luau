@@ -4970,10 +4970,10 @@ function Hud.renderObjective(CameraSystem, WeaponSystem)
 	-- ...AND WHETHER HE IS STILL AT THE SPOT, which is what GIVES THE TWO DOORS BACK: `setNear`
 	-- only ever closes (`ShopPanel.setNear`'s rule), and without this caller the cursor stayed free
 	-- and the trigger held for ever once he walked away with the menu up (round 1, finding 3).
-	local matPart = if rangeMat ~= nil then rangeMat.Parent else nil
-	local atSpot = matPart ~= nil
-		and matPart:IsA("BasePart")
-		and RangeData.atSpot(matPart.Position, me, RangeData.LAYOUT)
+	-- THROUGH `Range.promptPointOf`, because the prompt hangs on an attachment on the post now and
+	-- reading `prompt.Parent.Position` went silently dead when it moved (task 303, round 1).
+	local promptAt = RangeData.promptPointOf(rangeMat)
+	local atSpot = promptAt ~= nil and RangeData.atSpot(promptAt, me, RangeData.LAYOUT)
 	RangePanel.setNear(atSpot)
 	RangeBoard.setNear(atSpot)
 	-- ...AND ONE STEP OF THE SHOP WINDOW'S TURNING PICTURE (task 196). HERE, and not in a

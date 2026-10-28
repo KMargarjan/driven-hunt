@@ -306,7 +306,13 @@ Both are already solved, in shipped code with a shipped caller, and the range us
 
 ### 7.2 The prompt
 
-`Range.Build` builds one `ProximityPrompt` per spot, on the mat, from `LAYOUT.PROMPT` — the shape
+`Range.Build` builds one `ProximityPrompt` per spot — **since task 303 on a `Post` at the mat's
+front edge, on a `RangePromptAt` attachment at its top, and no longer on the mat.** A prompt is
+drawn only while its own position is on screen, so one lying on the 8x8 mat was invisible whenever
+she looked down the lane and `E` did nothing (the Director's real-key proof, 2026-10-28).
+`Range.promptPosition` is the one arithmetic for that point, `Range.promptPointOf` reads it back off
+a built prompt, and `Range.atSpot` is asked about THAT point rather than the mat's, so the engine's
+reach and the client's "is he at the spot" are one measurement. From `LAYOUT.PROMPT` — the shape
 `Lobby.Build`'s `shopPrompt` already has, and for its measured reason: the prompt hangs on the
 **part**, not on a body, because *"the clip that stops a player jumping the counter cannot be made
 invisible to a ray (measured), so a prompt behind it is a shop nobody can open."*
