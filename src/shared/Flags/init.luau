@@ -126,7 +126,14 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- another commit. `docs/design/feature-flags.md` section 11 step 1 is therefore obeyed rather than
 -- excepted. The two ways out of the cap are still the two task 238 listed and the first is still
 -- queued as TASKS.md 82b.
-Flags.MAX_FLAGS = 20
+-- 20 -> 21 FOR TASK 305c, **AND THE SAME SENTENCE AGAIN**: the Builder is saying so rather than
+-- quietly retiring somebody else's row. `ZONES_FOLLOW_GAIT` is the twenty-first, it ships DARK, and
+-- the two ways out are still the two task 238 listed -- retire the lit rows queued as TASKS.md 82b,
+-- which is the DIRECTOR's call, or ship a new feel-critical path LIT, which
+-- `docs/design/feature-flags.md` section 11 step 1 forbids. This moves a hit box, which is as
+-- feel-critical as the game gets, so it is born off. The retirements stay queued; this is one line
+-- either way.
+Flags.MAX_FLAGS = 21
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"

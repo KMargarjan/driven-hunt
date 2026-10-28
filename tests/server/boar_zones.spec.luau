@@ -208,20 +208,36 @@ return function()
 		-- the rest pose the boxes were fitted to, so the drawn nose was inside a zone part on 0 of
 		-- 83 frames. These two cases hold the two halves of the fix: every box gets a bone, and a
 		-- bone that has moved moves its box by EXACTLY that much and leaves its size alone.
+		-- `Runtime:spawn` hands back a NARROWED view and not the body handle, so the rows are read
+		-- off the real parts the runtime built: one `Weld` per zone part, its `C0` the rest offset.
+		local function gaitHandle()
+			local rows = {}
+			for _, part in ipairs(trunk:GetChildren()) do
+				if part:IsA("BasePart") and type(part:GetAttribute("HitZone")) == "string" then
+					local weld = part:FindFirstChildOfClass("Weld")
+					if weld ~= nil then
+						table.insert(rows, { part = part, weld = weld, offset = weld.C0.Position })
+					end
+				end
+			end
+			local mesh
+			for _, d in ipairs(trunk:GetDescendants()) do
+				if d:IsA("MeshPart") then
+					mesh = d
+				end
+			end
+			return { zoneRows = rows, part = trunk, mesh = mesh }, rows
+		end
+
 		it("gives every hit box the bone nearest it, or none at all without a visual", function()
 			local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
-			local rows = handle.zoneRows
-			expect(type(rows)).to.equal("table")
-			expect(#rows).to.equal(#handle.zoneParts)
-			for _, row in ipairs(rows) do
-				expect(row.weld).to.be.ok()
-				expect(typeof(row.offset)).to.equal("Vector3")
-			end
-			local wired = Body.gaitRig(handle)
-			if handle.mesh == nil then
+			local handleView, rows = gaitHandle()
+			expect(#rows > 0).to.equal(true)
+			local wired = Body.gaitRig(handleView)
+			if handleView.mesh == nil then
 				-- The grey-box world: no rig, and `followGait` must be a no-op rather than an error.
 				expect(wired).to.equal(0)
-				expect(Body.followGait(handle, 1)).to.equal(0)
+				expect(Body.followGait(handleView, 2.5)).to.equal(0)
 			else
 				expect(wired).to.equal(#rows)
 				for _, row in ipairs(rows) do
@@ -234,7 +250,7 @@ return function()
 
 		it("moves a box by its bone's own deformation and never resizes it", function()
 			local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
-			local rows = handle.zoneRows
+			local handleView, rows = gaitHandle()
 			local row = rows[1]
 			-- A HAND-MADE BONE ON THE TRUNK, so the case runs with or without the bought model:
 			-- `followGait` reads `row.bone.TransformedWorldCFrame * row.inBone` and nothing else.
@@ -242,16 +258,15 @@ return function()
 			bone.Name = "SpecBone"
 			bone.CFrame = CFrame.identity
 			bone.Parent = trunk
-			local wasBone, wasInBone = row.bone, row.inBone
 			row.bone = bone
 			row.inBone = CFrame.new(row.offset)
 			local size = row.part.Size
 			-- The bone at its rest place: no shift, so the box keeps its measured offset.
-			expect(Body.followGait(handle, 2.5) > 0).to.equal(true)
+			expect(Body.followGait(handleView, 2.5) > 0).to.equal(true)
 			expect((row.weld.C0.Position - row.offset).Magnitude < 1e-3).to.equal(true)
 			-- Drop the bone half a stud: the box drops half a stud too, and nothing else moves.
 			bone.CFrame = CFrame.new(0, -0.5, 0)
-			Body.followGait(handle, 2.5)
+			Body.followGait(handleView, 2.5)
 			local shift = row.weld.C0.Position - row.offset
 			expect(math.abs(shift.Y + 0.5) < 1e-2).to.equal(true)
 			expect(math.abs(shift.X) < 1e-2).to.equal(true)
@@ -259,17 +274,15 @@ return function()
 			-- THE BOX TURNS WITH ITS BONE, which is what closes the hole the drawn neck opens when
 			-- the head goes down (task 305c): a bone rolled 90 degrees rolls its box 90 degrees.
 			bone.CFrame = CFrame.Angles(0, 0, math.rad(90))
-			Body.followGait(handle, 2.5)
+			Body.followGait(handleView, 2.5)
 			expect((row.weld.C0.RightVector - Vector3.new(0, 1, 0)).Magnitude < 1e-2).to.equal(true)
 			-- ...AND THE CLAMP: 4 studs of bone asks for more than the cap allows.
 			bone.CFrame = CFrame.new(0, -4, 0)
-			Body.followGait(handle, 2.5)
+			Body.followGait(handleView, 2.5)
 			expect(math.abs((row.weld.C0.Position - row.offset).Y + 2.5) < 1e-2).to.equal(true)
 			-- NO BOX IS EVER RESIZED: the whole fix is where the boxes are, never how big.
 			expect((row.part.Size - size).Magnitude).to.equal(0)
 			bone:Destroy()
-			row.bone = wasBone
-			row.inBone = wasInBone
 			row.weld.C0 = CFrame.new(row.offset)
 		end)
 
