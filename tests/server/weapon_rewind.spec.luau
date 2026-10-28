@@ -182,6 +182,7 @@ return function()
 			Weapon.setRewindWorld(nil, nil)
 			Weapon.setCast(nil)
 			Weapon.setHistoryProvider(nil)
+			Weapon.addHistoryProvider(nil)
 		end
 
 		it("HITS the animal where the shooter DREW it, and MISSES the server's present copy", function()
@@ -197,6 +198,22 @@ return function()
 			-- "extra lead" being gone rather than merely moved.
 			local presentAim = Weapon.castWithRewind(PRESENT + Vector3.new(0, 0, -20), Vector3.new(0, 0, 40), {}, 0.18)
 			expect(presentAim).to.equal(nil)
+			unwire()
+		end)
+
+		it("a SECOND runtime's history is asked when the first says 'not mine'", function()
+			-- THE LOBBY HAS TWO RUNTIMES (round 1 finding 1): the drive's in the one replaceable
+			-- slot, the range's added beside it. With only the first wired this animal has no
+			-- history and is not rewound; adding the second makes the same aim hit.
+			local root = wire(false)
+			local aimed = Vector3.new(0, 0, -20)
+			expect(Weapon.castWithRewind(aimed, Vector3.new(0, 0, 40), {}, 0.18)).to.equal(nil)
+			Weapon.addHistoryProvider(function(instance, _at)
+				return if instance == root then CFrame.new(DRAWN) else nil
+			end)
+			local hit = Weapon.castWithRewind(aimed, Vector3.new(0, 0, 40), {}, 0.18)
+			expect(hit).to.be.ok()
+			expect((hit :: any).instance).to.equal(root)
 			unwire()
 		end)
 

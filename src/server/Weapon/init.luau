@@ -489,14 +489,47 @@ end
 -- animal is dead/DOWN/GONE, the time is outside the ring's span, or no provider is wired at all.
 -- Every one of them REFUSES the claim -- which is the weapon's own default for every provider here:
 -- unwired means today's game.
--- RETURNS THE ONE IT REPLACED (task 305), the shape `setClaimPolicy` already has, so a place with
--- TWO runtimes can CHAIN rather than clobber: the lobby has the drive's and the range's own
--- (`RangeBoot`'s `Boar.newRuntime`), and one `nil` answer must fall through to the other or the
--- range gets no rewind at all (round 1 finding 1).
-function Weapon.setHistoryProvider(provider: ((Instance, number) -> CFrame?)?): ((Instance, number) -> CFrame?)?
-	local was = historyProvider
+function Weapon.setHistoryProvider(provider: ((Instance, number) -> CFrame?)?)
 	historyProvider = provider
-	return was
+end
+
+-- A SECOND RUNTIME'S HISTORY, BESIDE THE FIRST (task 305, round 1 finding 1). **The lobby has TWO
+-- animal runtimes**: the drive's, wired by `MatchBoot`/`ForestTestBoot` through the seam above, and
+-- the range's own (`RangeBoot`'s `Boar.newRuntime`, which "does not borrow the drive's"). With one
+-- replaceable slot, whichever booted last won and every shot on the OTHER runtime's animal resolved
+-- with no rewind -- which was every shot on the range, measured 0/6 by session 9d5b3ff8.
+--
+-- APPENDED, NOT REPLACING, so the two boots above are untouched and the order they load in cannot
+-- decide the answer. `nil` CLEARS THE EXTRAS and `setHistoryProvider(nil)` clears the primary, so a
+-- spec restores exactly what it found. One list of at most a handful, walked in order, first
+-- non-nil wins -- `nil` from one runtime means "not mine", which is the seam's own documented
+-- meaning, so falling through is reading it correctly rather than guessing.
+local extraHistory: { (Instance, number) -> CFrame? } = {}
+
+function Weapon.addHistoryProvider(provider: ((Instance, number) -> CFrame?)?)
+	if provider == nil then
+		table.clear(extraHistory)
+		return
+	end
+	table.insert(extraHistory, provider)
+end
+
+-- WHERE WAS THIS INSTANCE THEN, asked of the primary and then of each extra. nil is still "nobody
+-- knows", and `Weapon.castWithRewind` keeps today's behaviour for exactly that answer.
+local function historyAt(instance: Instance, at: number): CFrame?
+	if historyProvider ~= nil then
+		local answer = historyProvider(instance, at)
+		if answer ~= nil then
+			return answer
+		end
+	end
+	for _, provider in ipairs(extraHistory) do
+		local answer = provider(instance, at)
+		if answer ~= nil then
+			return answer
+		end
+	end
+	return nil
 end
 
 -- THE TWO WORLD CALLS THE REWIND MAKES, AS ONE SEAM (task 305). `Cast.candidates` asks what animal
@@ -571,7 +604,7 @@ function Weapon.castWithRewind(
 	ignore: { Instance },
 	rewind: number?
 ): Shotgun.Impact?
-	if type(rewind) ~= "number" or rewind <= 0 or historyProvider == nil then
+	if type(rewind) ~= "number" or rewind <= 0 or (historyProvider == nil and #extraHistory == 0) then
 		return castFn(origin, direction, ignore)
 	end
 	local findCandidates = candidatesFn or Cast.candidates
@@ -590,7 +623,7 @@ function Weapon.castWithRewind(
 	local staticIgnore = table.clone(ignore)
 	for _, root in ipairs(roots) do
 		local present = (root :: any).CFrame
-		local past = (historyProvider :: any)(root, at)
+		local past = historyAt(root, at)
 		-- **EXCLUDED FROM THE STATIC PASS ONLY IF IT IS IN THE REWOUND ONE** (round 1 finding 1).
 		-- The other order deleted an animal the provider cannot answer for from BOTH passes and the
 		-- bullet went straight through it -- and `cframeAt` answers nil for four ordinary states: an
