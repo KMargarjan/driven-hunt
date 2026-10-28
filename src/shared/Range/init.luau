@@ -19,6 +19,19 @@ Range.FOLDER_NAME = "Range"
 Range.MAT_NAME = "Mat"
 Range.PROMPT_NAME = "RangePrompt"
 Range.REMOTES_NAME = "Remotes"
+-- THE FOLDER THE LANE'S ANIMALS LIVE IN (task 304). `RangeBoot` names its runtime's world with it
+-- and `ForestTestBoot` asks `Range.isTarget` with it, so "is this the hunt's animal or the range's"
+-- has ONE answer and `HitLog` learns nothing about the range.
+Range.TARGETS_FOLDER = "RangeTargets"
+
+-- IS THIS PART A RANGE TARGET? `Boar.Body.create` parents the trunk into the runtime's folder and
+-- welds the zone parts under the trunk, so one ancestor read answers for both.
+function Range.isTarget(part: Instance?): boolean
+	if typeof(part) ~= "Instance" then
+		return false
+	end
+	return (part :: Instance):FindFirstAncestor(Range.TARGETS_FOLDER) ~= nil
+end
 
 -- THE WORDS, because they cross the wire in step B4 and a second spelling is a silent refusal
 -- (`Lobby.ROLE`'s rule). `STAND` is Karen's, 2026-10-27: *"walk trot stand run"* -- a target held

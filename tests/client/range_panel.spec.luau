@@ -14,6 +14,15 @@ return function()
 	local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 	local scripts = StarterPlayer:WaitForChild("StarterPlayerScripts")
 	local Hud = scripts:WaitForChild("Hud")
+	-- THE RUNNING HUD (task 304), which is `player.PlayerScripts` and NOT `StarterPlayerScripts`:
+	-- the engine COPIES the starter scripts into the player, so the module required off the starter
+	-- copy is a second instance that never built a frame -- the first run of this case proved it,
+	-- `rangeBoard()` there answered nil. `hud_clarity.spec`'s shape. These two drew Karen's screen,
+	-- and the board is already bound to its frame by `Hud.start`.
+	local livePlayer = game:GetService("Players").LocalPlayer
+	local liveScripts = (livePlayer :: any):WaitForChild("PlayerScripts")
+	local LiveHud = require(liveScripts:WaitForChild("Hud"))
+	local LiveBoard = require((liveScripts :: any).Hud:WaitForChild("RangeBoard"))
 	local RangePanel = require(Hud:WaitForChild("RangePanel"))
 	local RangeBoard = require(Hud:WaitForChild("RangeBoard"))
 	local Cursor = require(scripts:WaitForChild("Camera"):WaitForChild("Cursor"))
@@ -413,15 +422,108 @@ return function()
 		it("leaves the screen when he walks off the spot", function()
 			local frame = Instance.new("Frame")
 			RangeBoard.start(frame, { send = function() end })
+			RangeBoard.setMenuOpen(true)
 			RangeBoard.setRecord(record({}))
 			expect(RangeBoard.isVisible()).to.equal(true)
+			-- WALKING OFF DROPS THE COPY (round 1, finding 3) AND CLOSES THE MENU, which is what
+			-- takes the board off the screen since task 304: `RangePanel.setNear(false)` closes the
+			-- panel and `Hud.step` tells this module what the panel says.
 			RangeBoard.setNear(false)
-			expect(RangeBoard.isVisible()).to.equal(false)
 			expect(RangeBoard.lastRecord()).to.equal(nil)
-			-- THE NEXT PUSH BRINGS IT BACK: this drops the COPY, never the server's record.
+			RangeBoard.setMenuOpen(false)
+			expect(RangeBoard.isVisible()).to.equal(false)
+			-- THE NEXT PUSH BRINGS THE RECORD BACK, and the board with the menu.
 			RangeBoard.setRecord(record({}))
+			expect(RangeBoard.isVisible()).to.equal(false)
+			RangeBoard.setMenuOpen(true)
 			expect(RangeBoard.isVisible()).to.equal(true)
 			RangeBoard.stop()
+		end)
+
+		-- ---------------------------------------------------------------- TASK 304, KAREN'S CASE
+		--
+		-- KAREN, 2026-10-28, playing the range with the board over the left third of her view:
+		-- *"if you remove this shit will be good I will see where I hit"*. The frame is the one the
+		-- RUNNING Hud built (`Hud.rangeBoard()`), so this is her screen and not a frame this file made.
+		it(
+			"puts NOTHING of the board on screen while the menu is shut, and the numbers in it when it is open",
+			function()
+				local board = LiveHud.rangeBoard()
+				local menu = LiveHud.rangePanel()
+				expect(board).to.be.ok()
+				expect(menu).to.be.ok()
+				expect((board :: Frame):IsDescendantOf((livePlayer :: any).PlayerGui)).to.equal(true)
+				-- AS THE HUD LEFT IT: hidden, before anything is told.
+				expect((board :: Frame).Visible).to.equal(false)
+
+				-- THE REAL PATH: the Hud hands this module that frame, the server pushes a record, and
+				-- `Hud.step` tells it what `RangePanel.isOpen()` says.
+				LiveBoard.setRecord(record({}))
+				LiveBoard.setMenuOpen(false)
+				expect((board :: Frame).Visible).to.equal(false)
+				-- ...AND NOT ONE LABEL OF IT EITHER: a hidden frame hides its children, and the frame is
+				-- the only thing this module draws into.
+				local labels = 0
+				for _, node in ipairs((board :: Frame):GetDescendants()) do
+					if node:IsA("TextLabel") or node:IsA("TextButton") then
+						labels += 1
+						expect((node :: any):IsDescendantOf(board :: Frame)).to.equal(true)
+					end
+				end
+				expect(labels >= 9).to.equal(true)
+
+				-- SHE PRESSES E: the numbers are there, in the frame's own labels.
+				LiveBoard.setMenuOpen(true)
+				expect((board :: Frame).Visible).to.equal(true)
+				local shown = {}
+				for _, node in ipairs((board :: Frame):GetChildren()) do
+					if node:IsA("TextLabel") then
+						table.insert(shown, (node :: TextLabel).Text)
+					end
+				end
+				local text = table.concat(shown, " | ")
+				expect(string.find(text, "SHOTS 3", 1, true) ~= nil).to.equal(true)
+				expect(string.find(text, "CHEST 1", 1, true) ~= nil).to.equal(true)
+				expect(string.find(text, "LEAD BALLISTIC", 1, true) ~= nil).to.equal(true)
+				expect(string.find(text, "MISS GAP", 1, true) ~= nil).to.equal(true)
+				-- PUT KAREN'S OWN SCREEN BACK. `Hud.step` would do it on the next frame anyway
+				-- (it tells a shut menu and an off-the-spot `setNear`); this does not leave it to luck.
+				LiveBoard.setMenuOpen(false)
+				LiveBoard.setNear(false)
+				expect((board :: Frame).Visible).to.equal(false)
+			end
+		)
+
+		it("sits INSIDE the menu's own rectangle, so it is a page of the menu and not a panel over the lane", function()
+			local board = LiveHud.rangeBoard()
+			local menu = LiveHud.rangePanel()
+			expect(board).to.be.ok()
+			expect(menu).to.be.ok()
+			-- BOTH ARE ANCHORED TO THE SCREEN CENTRE, so the containment is arithmetic on the
+			-- offsets and holds at EVERY viewport -- which is the only way to answer for a phone
+			-- (`hud_clarity.spec`'s own stated reason: no tool here can resize a Studio viewport).
+			expect((board :: Frame).Position.X.Scale).to.equal(0.5)
+			expect((board :: Frame).Position.Y.Scale).to.equal(0.5)
+			expect((menu :: Frame).Position.X.Scale).to.equal(0.5)
+			expect((menu :: Frame).Position.Y.Scale).to.equal(0.5)
+			expect((board :: Frame).AnchorPoint).to.equal(Vector2.new(0, 0))
+			expect((menu :: Frame).AnchorPoint).to.equal(Vector2.new(0.5, 0.5))
+			local left = (board :: Frame).Position.X.Offset
+			local top = (board :: Frame).Position.Y.Offset
+			local right = left + (board :: Frame).Size.X.Offset
+			local bottom = top + (board :: Frame).Size.Y.Offset
+			local halfW = (menu :: Frame).Size.X.Offset / 2
+			local halfH = (menu :: Frame).Size.Y.Offset / 2
+			expect(left >= -halfW).to.equal(true)
+			expect(right <= halfW).to.equal(true)
+			expect(top >= -halfH).to.equal(true)
+			expect(bottom <= halfH).to.equal(true)
+			-- ...AND BELOW THE HINT, so it covers no row and not the CONFIRM bar: the bar is centred
+			-- on the panel with `CONFIRM_HEIGHT`, and the hint sits under it.
+			expect(top > RangePanel.LOOK.CONFIRM_HEIGHT / 2 + 48).to.equal(true)
+			-- ABOVE THE MENU'S OWN CHILDREN, or it would be invisible behind the panel
+			-- (`ZIndexBehavior.Sibling` compares a child's ZIndex globally).
+			expect((board :: Frame).ZIndex > (menu :: Frame).ZIndex + 2).to.equal(true)
 		end)
 
 		it("asks the server to reset, through the same door as a pick", function()

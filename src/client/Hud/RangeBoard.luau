@@ -7,12 +7,23 @@
 -- Owner (CLAUDE.md rule 3): the one writer of its own Frame's children and of its own `Visible`.
 -- It counts nothing. Every number on it arrived on `RangeBoard` (the remote), and the zone columns
 -- are the ANIMAL's own order, sent with the record -- a boar has five, a red deer six.
+--
+-- TASK 304: IT IS A PAGE OF THE MENU NOW, NOT A PANEL OVER THE LANE. Karen, 2026-10-28, with the
+-- board covering the left third of her view while she shot: *"if you remove this shit will be good
+-- I will see where I hit"*. So it is visible EXACTLY while the E panel is open (`setMenuOpen`,
+-- told by `Hud.step` the way `setNear` already is) and it is drawn inside the panel's own footprint,
+-- below the hint -- `Hud` positions the frame off the SAME screen centre the panel is anchored to.
+-- THIS MODULE STAYS THE WRITER and `RangePanel` gains nothing: the numbers, the columns and RESET
+-- are already here, the record arrives here, and moving them would make two renderers of one record.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+
+-- THE MENU'S OWN Z, read and not retyped: this board draws above it (see `LOOK.Z_INDEX`).
+local RangePanel_Z = require(script.Parent.RangePanel).LOOK.Z_INDEX
 
 local RangeBoard = {}
 
@@ -21,9 +32,15 @@ RangeBoard.LOOK = {
 	TEXT = Color3.fromRGB(232, 232, 224),
 	LABEL = Color3.fromRGB(160, 164, 152),
 	RESET = Color3.fromRGB(128, 72, 64),
-	WIDTH = 380,
-	HEIGHT = 300,
-	Z_INDEX = 13,
+	-- SIZED TO THE BAND THE MENU LEAVES FREE (task 304): the panel is 560 x 640, its hint ends at
+	-- local y 438 and its bottom is 640, so 536 x 192 at local (12, 444) fits with 4 px to spare.
+	WIDTH = 536,
+	HEIGHT = 192,
+	LINE_PITCH = 19,
+	-- ABOVE THE MENU'S OWN CHILDREN. `ZIndexBehavior.Sibling` compares a child's ZIndex globally
+	-- (`RangePanel.build`'s measured reason), and the menu draws at 14 with children at 15 and
+	-- buttons at 16 -- so a board at 13 inside the panel's footprint would be invisible behind it.
+	Z_INDEX = RangePanel_Z + 3,
 }
 
 local panel: Frame? = nil
@@ -31,7 +48,10 @@ local lines: { TextLabel } = {}
 local resetButton: TextButton? = nil
 local record: any = nil
 local send: ((any) -> ())? = nil
-local stats = { pushes = 0, resets = 0 }
+-- WHETHER THE E PANEL IS OPEN (task 304). The board shows with it and hides with it: nothing of it
+-- is on screen while she shoots.
+local menuOpen = false
+local stats = { pushes = 0, resets = 0, menuOpens = 0 }
 
 function RangeBoard.panelSize(): UDim2
 	return UDim2.fromOffset(RangeBoard.LOOK.WIDTH, RangeBoard.LOOK.HEIGHT)
@@ -175,8 +195,8 @@ function RangeBoard.build(root: Frame)
 		local line = Instance.new("TextLabel")
 		line.Name = "Line" .. tostring(index)
 		line.BackgroundTransparency = 1
-		line.Position = UDim2.fromOffset(12, 32 + (index - 1) * 24)
-		line.Size = UDim2.new(1, -24, 0, 22)
+		line.Position = UDim2.fromOffset(12, 30 + (index - 1) * RangeBoard.LOOK.LINE_PITCH)
+		line.Size = UDim2.new(1, -24, 0, RangeBoard.LOOK.LINE_PITCH - 1)
 		-- GOTHAM, NOT `Enum.Font.Code`: the house style bans it on any surface of the HUD
 		-- (`hud_style.spec`, task 201 part 1), which the first run of this spec caught.
 		line.Font = Enum.Font.Gotham
@@ -190,11 +210,13 @@ function RangeBoard.build(root: Frame)
 		table.insert(lines, line)
 	end
 
+	-- RESET ON THE TITLE ROW (task 304): the lines now fill the band the menu leaves, so the button
+	-- sits beside the heading instead of under them.
 	local reset = Instance.new("TextButton")
 	reset.Name = "Reset"
-	reset.AnchorPoint = Vector2.new(0.5, 1)
-	reset.Position = UDim2.new(0.5, 0, 1, -10)
-	reset.Size = UDim2.fromOffset(140, 30)
+	reset.AnchorPoint = Vector2.new(1, 0)
+	reset.Position = UDim2.new(1, -12, 0, 6)
+	reset.Size = UDim2.fromOffset(120, 22)
 	reset.BackgroundColor3 = RangeBoard.LOOK.RESET
 	reset.BorderSizePixel = 0
 	reset.Font = Enum.Font.GothamBold
@@ -229,7 +251,27 @@ function RangeBoard.render()
 	for index, line in ipairs(lines) do
 		line.Text = text[index] or ""
 	end
-	root.Visible = record ~= nil
+	-- THE MENU DECIDES, AND NOTHING ELSE (task 304). Not the record: with the panel open and no shot
+	-- fired `rowText` says "no shots yet", which is the honest page -- and with the panel shut there
+	-- is nothing of this board on screen, which is Karen's sentence.
+	root.Visible = menuOpen
+end
+
+-- THE E PANEL OPENED OR CLOSED (task 304), told by `Hud.step` -- the "a panel that is TOLD" idiom
+-- `setNear` and `ShopPanel.setNear` already follow, so no module reaches into another's state.
+function RangeBoard.setMenuOpen(next_: boolean)
+	if menuOpen == next_ then
+		return
+	end
+	menuOpen = next_
+	if next_ then
+		stats.menuOpens += 1
+	end
+	RangeBoard.render()
+end
+
+function RangeBoard.isMenuOpen(): boolean
+	return menuOpen
 end
 
 -- HE WALKED OFF THE SPOT: the board goes with the menu (round 1, finding 3). The record is the
@@ -271,6 +313,7 @@ function RangeBoard.start(root: Frame, collaborators: any)
 		end
 	end
 	record = nil
+	menuOpen = false
 	RangeBoard.build(root)
 	root.Visible = false
 	-- `RangeData` is required for the words only: the board prints no constant of its own.
@@ -279,6 +322,7 @@ end
 
 function RangeBoard.stop()
 	record = nil
+	menuOpen = false
 	lines = {}
 	resetButton = nil
 	panel = nil

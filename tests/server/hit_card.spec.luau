@@ -25,6 +25,9 @@ local HitLog = require(ServerScriptService:WaitForChild("HitLog"))
 local Shape = require(ServerScriptService:WaitForChild("HitLog"):WaitForChild("Shape"))
 local Hits = require(ServerScriptService:WaitForChild("Weapon"):WaitForChild("Hits"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
+local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
+-- TASK 304: the range is FREE, so the one case that could disprove it reads the real purse.
+local Economy = require(ServerScriptService:WaitForChild("Economy"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local BODY = Vector3.new(2, 3, 5.5)
@@ -476,6 +479,148 @@ return function()
 			HitLog.clear()
 			expect(#HitLog.lastHits()).to.equal(0)
 			boar:Destroy()
+		end)
+	end)
+	-- ---------------------------------------------------------------- TASK 304: THE RANGE'S CARD
+	--
+	-- KAREN, 2026-10-28, shooting the lobby range: *"hit card will be usefull"*. A range hit gets the
+	-- SAME card off the SAME builder, and the range is scored by NOTHING (shooting-range design
+	-- section 1), so it writes no drive row, no dot, no kill and no money.
+	--
+	-- EVERY CASE BITES. `sendCard` stubbed to send nothing leaves `HitLog.lastCard()` nil and
+	-- `stats.cards` at 0; the row guard removed puts the animal back in the drive's own record.
+	describe("HitLog.sendCard: the range's hit card, with no row behind it", function()
+		-- THE LANE'S ANIMAL: the same trunk, inside the folder `RangeBoot` names
+		-- (`RangeData.TARGETS_FOLDER`), which is the one thing that tells it from the drive's.
+		local function laneTarget(id: string, kind: string): (BasePart, Folder)
+			local folder = Instance.new("Folder")
+			folder.Name = RangeData.TARGETS_FOLDER
+			local part = fakeBoar(id)
+			part:SetAttribute("Kind", kind)
+			part.Parent = folder
+			return part, folder
+		end
+
+		it("sends ONE card for a boar and for a red deer, and writes no row, no dot and no money", function()
+			local shooter = Players:GetPlayers()[1]
+			expect(shooter ~= nil).to.equal(true)
+			for _, kind in ipairs({ "male", "hind" }) do
+				HitLog.clear()
+				-- A DRIVE IS OPEN, which is Karen's own case: her place runs drives while she stands
+				-- at the lobby range, and that is exactly when a lane hit used to be written a row.
+				HitLog.openDrive(304, 0)
+				local part, folder = laneTarget("R-" .. kind, kind)
+
+				-- BEFORE, OFF THE REAL STORES.
+				local before = HitLog.stats()
+				local coinsBefore = Economy.balanceOf((shooter :: any).UserId)
+				expect(before.cards).to.equal(0)
+				expect(before.hits).to.equal(0)
+				expect(HitLog.lastCard()).to.equal(nil)
+				expect((HitLog.currentDrive() :: any).animalCount).to.equal(0)
+
+				local points = {
+					{ position = part.Position + Vector3.new(-1, 0.4, -1.5), zone = "chest" },
+					{ position = part.Position + Vector3.new(-1, 0.0, 0.0), zone = "body" },
+				}
+				local fired = report(part, shooter, points, { at = 1.0, zone = "chest", nearest = 125 })
+				expect(HitLog.sendCard(fired)).to.equal(true)
+
+				-- AFTER: ONE CARD, and it is the card that WENT OUT (`lastCard`), not one rebuilt here.
+				local after = HitLog.stats()
+				expect(after.cards).to.equal(1)
+				expect(after.rangeCards).to.equal(1)
+				local card = HitLog.lastCard() :: any
+				expect(card).to.be.ok()
+				expect(card.kind).to.equal("hit")
+				expect(card.animal).to.equal(part.Name)
+				expect(card.animalKind).to.equal(kind)
+				expect(card.hits).to.equal(2)
+				expect(#card.dots).to.equal(2)
+				expect(card.distance).to.equal(125)
+				-- THE SAME PROJECTION THE HUNT USES, computed here off `Shape.dot` and found on the
+				-- card: the card re-derives nothing (`buildCard` is the one builder).
+				local u, v = Shape.dot(part.CFrame, part.Size, points[1].position)
+				local found = false
+				for _, dot in ipairs(card.dots) do
+					if math.abs(dot.u - u) < 1e-6 and math.abs(dot.v - v) < 1e-6 then
+						found = true
+					end
+				end
+				expect(found).to.equal(true)
+
+				-- ...AND NOTHING WAS SCORED. No row, no dot, no kill line, no hit-log line, no money.
+				expect(after.hits).to.equal(before.hits)
+				expect(after.downs).to.equal(before.downs)
+				expect(after.traced).to.equal(before.traced)
+				expect((HitLog.currentDrive() :: any).animalCount).to.equal(0)
+				expect(#HitLog.lastHits()).to.equal(0)
+				expect(Economy.balanceOf((shooter :: any).UserId)).to.equal(coinsBefore)
+
+				part:Destroy()
+				folder:Destroy()
+				HitLog.clear()
+			end
+		end)
+
+		it("sends NOTHING for a miss, for a shot by nobody and for a part that is not an animal", function()
+			local shooter = Players:GetPlayers()[1]
+			HitLog.clear()
+			HitLog.openDrive(304, 0)
+			local part, folder = laneTarget("R-miss", "male")
+			local coinsBefore = Economy.balanceOf((shooter :: any).UserId)
+
+			-- A MISS: `Weapon.Hits.group` makes no report at all, so nothing reaches this function.
+			-- `sendCard(nil)` is the nearest thing a spec can say, and it sends nothing.
+			expect(HitLog.sendCard(nil)).to.equal(false)
+			expect(HitLog.sendCard({ shooter = shooter })).to.equal(false)
+			expect(HitLog.lastCard()).to.equal(nil)
+			expect(HitLog.stats().cards).to.equal(0)
+			-- NOBODY FIRED IT, and a part with no `Damageable`: `cardWorthy` refuses both, counted.
+			expect(HitLog.sendCard(report(part, nil, nil, {}))).to.equal(false)
+			expect(HitLog.sendCard(report(fakeBeater(), shooter, nil, {}))).to.equal(false)
+			expect(HitLog.stats().cards).to.equal(0)
+			expect(HitLog.stats().cardlessHits).to.equal(2)
+			expect(HitLog.lastCard()).to.equal(nil)
+			-- THE MISS SIDE OF THE STORE READ (the same instrument as the hit case above).
+			expect(HitLog.stats().hits).to.equal(0)
+			expect((HitLog.currentDrive() :: any).animalCount).to.equal(0)
+			expect(#HitLog.lastHits()).to.equal(0)
+			expect(Economy.balanceOf((shooter :: any).UserId)).to.equal(coinsBefore)
+
+			part:Destroy()
+			folder:Destroy()
+			HitLog.clear()
+		end)
+
+		it("refuses a ROW for a lane target while writing one for the drive's own animal", function()
+			local shooter = Players:GetPlayers()[1]
+			HitLog.clear()
+			HitLog.openDrive(304, 0)
+			local lane, folder = laneTarget("R-row", "male")
+			local wild = fakeBoar("W-row")
+
+			-- THE LANE'S: refused, and COUNTED rather than silent.
+			expect(HitLog.rowWorthy(lane)).to.equal(false)
+			expect(HitLog.recordHit(report(lane, shooter, nil, { at = 1.0 }))).to.equal(false)
+			expect(HitLog.stats().rangeHits).to.equal(1)
+			expect(HitLog.stats().hits).to.equal(0)
+			expect(HitLog.stats().cards).to.equal(0)
+			expect((HitLog.currentDrive() :: any).animalCount).to.equal(0)
+
+			-- THE DRIVE'S OWN, THE SAME CALL, THE SAME FRAME: a row and a card. This is the half
+			-- that makes the case above a difference and not a tautology.
+			expect(HitLog.rowWorthy(wild)).to.equal(true)
+			expect(HitLog.recordHit(report(wild, shooter, nil, { at = 2.0 }))).to.equal(true)
+			expect(HitLog.stats().hits).to.equal(1)
+			expect(HitLog.stats().cards).to.equal(1)
+			expect((HitLog.currentDrive() :: any).animalCount).to.equal(1)
+			expect(HitLog.stats().rangeHits).to.equal(1)
+
+			lane:Destroy()
+			folder:Destroy()
+			wild:Destroy()
+			HitLog.clear()
 		end)
 	end)
 end

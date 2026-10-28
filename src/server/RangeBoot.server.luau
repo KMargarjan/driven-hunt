@@ -37,6 +37,9 @@ end
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Range = require(ServerScriptService:WaitForChild("Range"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
+-- ONLY FOR `HitLog.sendCard` (task 304): the hit card, built and sent by its own owner, so the
+-- range re-derives no projection and writes no row.
+local HitLog = require(ServerScriptService:WaitForChild("HitLog"))
 -- Only for `CONFIG.shouldArm`: the answer a server with no arming policy already gives.
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
@@ -74,7 +77,9 @@ end
 local anchor = Vector3.new(row.x, shelf, row.z)
 local field = RangeData.fieldFor(anchor, RangeData.LAYOUT, RangeData.downrangeOf(row))
 local world = Boar.defaultWorld(field)
-world.folderName = "RangeTargets"
+-- THE LANE'S ANIMALS, IN THEIR OWN FOLDER, NAMED ONCE (task 304): `Range.isTarget` reads this same
+-- constant, which is how `ForestTestBoot` tells a range target from the drive's.
+world.folderName = RangeData.TARGETS_FOLDER
 -- ...AND THE SAME READER FOR THE BODIES: `field.groundY` is ONE number and Karen's terrain
 -- climbs, so without it a carcass on the lane hangs in the air (`ForestTestBoot`'s own line).
 world.groundAt = groundAt
@@ -243,6 +248,12 @@ end)
 -- connected here: `Range.onRequest` measures every fact off the character the server can see.
 local remotes = RangeData.remotes()
 Range.setRemotes(remotes)
+-- ...AND THE HIT CARD'S SENDER (task 304). Karen, 2026-10-28: *"hit card will be usefull"*. It is
+-- `HitLog`'s own builder and `HitLog`'s own remote -- nothing here re-derives a dot -- and it writes
+-- no drive row, no money and no report entry: the range is free (design section 1).
+Range.setCardSender(function(report: any): boolean
+	return HitLog.sendCard(report)
+end)
 remotes.RangeRequest.OnServerEvent:Connect(function(player, request)
 	Range.onRequest(player, request)
 end)
