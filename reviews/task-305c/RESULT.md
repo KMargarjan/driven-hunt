@@ -1,16 +1,83 @@
-1. `tests/server/boar_zones.spec.luau` / `Body.gaitRig` — THE ONE LINE THE WHOLE FIX TURNS ON IS NOT HELD BY ANY CASE, AND THE CASE THAT CLAIMS TO HOLD IT CAN BE VACUOUS. The case is titled "gives every hit box the bone nearest it, or none at all without a visual" and branches on an environmental condition it never reads out: `if handleView.mesh == nil then expect(wired).to.equal(0); expect(Body.followGait(handleView, 2.5)).to.equal(0) else ... expect(row.bone).to.be.ok(); expect(row.bone:IsA("Bone")).to.equal(true); expect(typeof(row.inBone)).to.equal("CFrame") end`. (a) In the grey-box branch BOTH assertions pass with the feature deleted — replace the bodies of `Body.gaitRig` and `Body.followGait` with `return 0` and the case is green; `gaitHandle` reads the mesh off the live runtime (`for _, d in ipairs(trunk:GetDescendants()) do if d:IsA("MeshPart") then mesh = d end end`), the runtime is built with no model source, so which branch runs depends on whether the real asset reached `moduleTemplateFor` in that Studio session, and the spec prints nothing (no `TestKit.note`) and asserts nothing about which branch it took. That is the shape the learned rules forbid twice (verdict 281 "a check whose own log prints 'did not run' does not count"; night-1027 "reads the condition at the moment of the decision, prints it, and asserts which branch it took"). (b) Even the mesh branch survives deletion of the rule under test: the only comparison in `gaitRig` is `if distance < bestDistance then best, bestRest, bestDistance = bone, rest, distance end`. Flip it to `>` — every box wired to the FARTHEST bone, i.e. the snout box carried by a hind hoof — and `row.bone` is still a `Bone` and `row.inBone` is still a `CFrame`, so the case stays green, and the second case (`moves a box by its bone's own deformation`) hand-sets `row.bone = bone` / `row.inBone = CFrame.new(row.offset)` and so cannot see it either. The live evidence does not cover it: `nosegap` reads the SNOUT only, so fourteen of the fifteen boxes could be wired to the wrong bone with every number in `MEASURED.md` unchanged. Required: a case that fails on that sign — a hand-made rig with two bones at known distances from a known box, asserting the NEAR one is chosen — driven through the production path rather than a reconstructed view, and run in every environment. The seam for that already exists in-house: `boar_model.spec`'s `buildWorld` passes `config = { MODEL = ... }` into `Boar.newRuntime`, so `config = { GAIT = { ENABLED = true, MAX_SHIFT_STUDS = 2.5 }, MODEL = ... }` plus `makeTemplate()` drives `attachVisual` -> `gaitRig` and `Runtime:step` -> `followGait` deterministically, with no dependence on the bought asset. Failing that, the case must at minimum print the mesh and bone count and assert the branch it took, so a silent grey-box run cannot be read as proof.
+PASS (items 2, 4 NOT PROVEN)
+
+Rule 5, stated so this PASS is not read as rule 5 having been met: this task is a CORE item
+(shooting). NOTHING has been seen in Karen's place by Karen. The request says so itself -- "Nobody
+has played this. No real mouse click, no screenshot" -- and its own click proof is 6/10 against the
+8/10 the dispatch asked, with its control reading 4/10 where `reviews/task-305b/MEASURED.md` reads
+9/10. Claims 2 (86/94 frames inside `ZoneHead1` on the moving animal) and 4 (air ahead of the drawn
+animal is still a miss) rest entirely on `<runs-dir>/305c/` probes that are not in the repository
+and that I cannot run. The path ships behind `ZONES_FOLLOW_GAIT`, default false.
+
+Round 1's blocking finding is closed. `picks the NEAR bone for each box and never the far one`
+calls the real `Body.gaitRig` with two hand-made `Bone`s at (0, 0.666, -2.388) and
+(0, 0.948, 1.486) on a carrier at `trunk.CFrame`, against the real
+`CONFIG.ZONES.head.boxes[1].offset` = (0.000, 0.600, -2.250) and `.rear.boxes[1].offset` =
+(0.000, 0.440, 1.290). Checked by hand: snout box to snout bone 0.153 studs, to rump bone 3.752;
+rump box to rump bone 0.544, to snout bone 3.685. Flipping `distance < bestDistance` to `>` leaves
+`best` nil for every row (the first comparison against `math.huge` never passes), so both
+`expect(...bone).to.equal(...)` lines go red while `gaitRig` still returns 2 -- the case bites the
+one comparison the whole rule is, and it uses no bought asset. Deleting `Body.gaitRig`'s body for
+`return 0` turns `expect(Body.gaitRig(view)).to.equal(2)` red. Same for `followGait`:
+`expect(Body.followGait(handleView, 2.5) > 0).to.equal(true)` in the third case fails on deletion.
+Geometry re-derived and correct: `row.inBone = (mesh.CFrame * bestRest):ToObjectSpace(trunk.CFrame *
+CFrame.new(row.offset))` with `want = trunkCFrame:ToObjectSpace(bone.TransformedWorldCFrame *
+row.inBone)` is identity at rest, so flag-off geometry is byte-identical; `Weld.C0 =
+CFrame.new(box.offset)`, `C1 = identity` reproduces the old `zonePart.CFrame = trunk.CFrame *
+CFrame.new(box.offset)` exactly. 21 flag rows against `MAX_FLAGS = 21`; `expires = "2026-11-18"` is
+exactly 21 days from `born`; `Flags.isOn("ZONES_FOLLOW_GAIT")` appears once in `src/`, at
+`Boar.CONFIG.GAIT.ENABLED`, and is reachable by parameter through `world.config.GAIT`. Nothing in
+`src/`, `tests/` or `tools/` calls `BreakJoints` or looks for a `WeldConstraint` on a zone part, so
+the legacy-`Weld` swap breaks no reader. Harness line names `c32004a4`, "(clean tree)";
+`paperwork-after-code-commit.txt` says OK (only `ESCALATE.md` and `REQUEST.md` after it); selene,
+stylua and rojo are clean.
 
 ## Notes (non-blocking)
-
-- Rule 5, stated so nothing here is read as rule 5 having been met: this is a CORE item (shooting). Nothing has been seen in Karen's place by Karen — the request says so itself ("Nobody has played this. No real mouse click, no screenshot"), the click proof is 6/10 against the 8/10 asked, and its own control reads 4/10 where `reviews/task-305b/MEASURED.md` reads 9/10. Were the finding above fixed, line 1 would be `PASS (items 2, 4 NOT PROVEN)`. The harness line, the `Code commit:` and `paperwork-after-code-commit.txt` are consistent; selene, stylua and rojo are clean.
-- `Boar.CONFIG.GAIT.MAX_SHIFT_STUDS = 2.5` — the clamp is justified in the comment by ONE box ("THE WIDEST MEASURED DEFORMATION IS 1.822 STUDS -- the snout"), but it is applied to all fifteen, and 2.5 studs is larger than the animal's own box in two of three axes (the male mesh is 1.4011 x 3.2573). A box whose nearest REST bone is a leg bone — a belly or `ZoneLegs` box — is carried by that bone's full swing up to the cap, and nearest-bone is a heuristic, not the skin weights. `MEASURED.md` measures containment for the snout only; the `srv-window` row (`Head1 Head2 Chest1 Chest2 Body3`, continuous to +3.0) is one ray at one height on 8 frames. Point `nosegap` at every box and count, or scale the cap to each box's own size, before the flag is lit.
-- The production wiring is not held by the gate: delete the `if gait ~= nil and gait.ENABLED then Body.followGait(...)` branch in `Runtime:step`, or the `Body.gaitRig(handle)` line in `attachVisual`, and the harness still reads 34/34 — no spec ever sets the flag on, so the lit state of the production path is unexercised end to end. Same gap the Director already queued as 305d (c).
-- Claim 5's "OFF is the welded rest-pose rig, byte for byte" overstates: the `WeldConstraint` -> legacy `Weld` swap in `buildZones` is UNCONDITIONAL, not behind `ZONES_FOLLOW_GAIT`, and the spec's own new line `expect(part:FindFirstChildOfClass("WeldConstraint")).to.equal(nil)` is the proof. What is identical with the flag off is the geometry, not the instance tree. (Checked and clean: no other probe or production reader looks for a `WeldConstraint` on a zone part, and nothing in `src/` calls `BreakJoints`, which would break a legacy `Weld` where it would not break a `WeldConstraint`.)
-- `Body.liftDrawn`'s header is now false with the flag on: "IT TOUCHES NOTHING A SHOT READS. The trunk, its attributes, its zone parts ... the hit boxes stay exactly where the animal died". The lift moves the drawn parts and therefore the bones, so the next `followGait` carries every box up by the lift (clamped). No gameplay effect today — `Damageable` is already false by then, as that comment says — but the sentence should name the flag.
-- `Runtime:spawn`'s history comment ("every zone part is created at `trunk.CFrame * CFrame.new(spec.offset)` and WELDED to it ... so its offset in trunk space is constant and can be read live") and `Runtime:step`'s ("the zone parts are welded in trunk space") are both false with the flag on; the request names the first only. Beyond the wording: `AIM_REWIND` translates the RAY and casts it against PRESENT geometry, so with both flags lit the rewound test pairs a 0.18 s-old trunk position with a present-pose box — an error of the same order (0.3-1.8 studs) as the one being fixed, and in Karen's place both flags are on. This is wider than the "client/server PHASE" item the request lists. Worth queueing as the first measurement after the control is restored.
-- `Body.gaitRig` is called from `attachVisual` unconditionally, not behind `GAIT.ENABLED`, so the shipped dark build pays fifteen boxes x every bone x a parent-chain walk per animal spawned. It writes nothing to the world, so it is cost and not behaviour — but a flag-dark path should not do the work.
-- No frame-time number for fifteen `Weld.C0` writes per boar per `Runtime:step` (a joint property write wakes the assembly). Same gap as 305a note (e), and the Director should have one before flipping the flag.
-- `docs/design/hit-zones.md` section 4.3 still reads "joint | one `WeldConstraint` per zone part" and "The trunk keeps `Damageable = true` and `HitZone = "body"`"; the second was already stale before this task. Architect's file, not the Builder's (the precedent is 305a note (k)).
+- `tests/server/boar_zones.spec.luau`, `gives every hit box the bone nearest it, or none at all
+  without a visual` — the grey-box branch still survives deletion of the producer: replace both
+  function bodies with `return 0` and `expect(wired).to.equal(0)` /
+  `expect(Body.followGait(handleView, 2.5)).to.equal(0)` stay green. It now prints
+  `branch=grey-box` and the new near-bone case covers the rule in every environment, which is what
+  closed the finding, but this case is still a no-op guard and not a producer test. It prints the
+  branch; it does not assert it.
+- `reviews/task-305c/REQUEST.md` claim 2 / the ITERATION table — the headline `86/94` is attributed
+  by the table to **cycle 2** ("clamp 2.5", translation only), while the shipped code is cycle 3
+  ("box skinned to its bone, rotation too"), whose row reads only "91 %" with no denominator. The
+  shipped build's own server-side count is therefore never stated as n/N. Both clear the (c) target
+  of >= 90 %, so the substance stands; the attribution does not.
+- `reviews/task-305c/MEASURED.md` section 2 — claim 2's "FAIL FIRST, same build, flag off: 0/98" is
+  the **client** row; the server/flag-OFF cell in the same table is `--`. There is no server-side
+  before-number. The two sides were measured to agree on the envelope (0.003), so the proxy is
+  reasonable, but the claim should say which side it came from.
+- The production wiring is not held by the gate: no spec sets `GAIT.ENABLED`, so deleting the
+  `if gait ~= nil and gait.ENABLED then Body.followGait(...)` branch in `Runtime:step` or the
+  `Body.gaitRig(handle)` line in `attachVisual` leaves the harness at 34/34. The seam exists --
+  `Boar.newRuntime` copies `world.config` keys, so `config = { GAIT = { ENABLED = true,
+  MAX_SHIFT_STUDS = 2.5 } }` reaches `Runtime:step` -- so this is one case away. Same gap the
+  Director queued as 305d (c).
+- `Runtime:cframeAt` — this is production code and not only a stale comment: for a zone part it
+  returns `trunkThen * (trunk.CFrame:Inverse() * instance.CFrame)` under the line "THE WELD'S OWN
+  CONSTANT, READ NOW AND APPLIED THEN". With `ZONES_FOLLOW_GAIT` on that offset is no longer
+  constant, so the rewound test pairs a 0.18 s-old trunk CFrame with a PRESENT-pose box. Both flags
+  are lit in Karen's Forest Test. The request names this as the first thing to measure; it belongs
+  in `TASKS.md` as a measurement, not as wording.
+- `tests/server/boar_zones.spec.luau`, `moves a box by its bone's own deformation and never resizes
+  it` — `row.weld.C0 = CFrame.new(row.offset)` is the last statement of the `it`, not an
+  `afterEach`. A failed assertion leaves a real zone part displaced by up to 2.5 studs for the
+  real-ray cases that follow in the same file, so one red turns into several. Same shape as 305a
+  note (c).
+- `Boar.CONFIG.GAIT.MAX_SHIFT_STUDS = 2.5` is justified in its own comment by one box ("the snout")
+  and applied to all fifteen; `Body.gaitRig` runs from `attachVisual` unconditionally, so the dark
+  build pays fifteen boxes x every bone x a parent-chain walk per spawn; and there is still no
+  frame-time number for fifteen `Weld.C0` writes per boar per `Runtime:step`. All three are round
+  1's notes, unchanged, and the Director should have the last one before flipping the flag.
+- `docs/design/hit-zones.md` section 4.3 still reads "joint | one `WeldConstraint` per zone part",
+  and section 10 source A is the `WeldConstraint` reference; the code now makes a legacy `Weld`
+  unconditionally. Architect's file (precedent 305a note (k)) -- queue it, do not let the Builder
+  edit it.
+- `Body.liftDrawn`'s header ("IT TOUCHES NOTHING A SHOT READS ... the hit boxes stay exactly where
+  the animal died") is false with the flag on: the lift moves the bones, so the next `followGait`
+  carries every box up by the lift, clamped. No gameplay effect today -- `Damageable` is already
+  false by then -- but the sentence should name the flag.
 
 ---
-REVIEWER verdict on commit `d2e90c1bd71747cccac6fc284afa58957b8edaa5` (round 1) · 2026-10-28 17:32 UTC · session cost $3.27, 33 turns · written by tools/agents.py
+REVIEWER verdict on commit `edac1d2bd3706e9e3dc595400ed79119c5f6cee1` (round 2) · 2026-10-28 17:49 UTC · session cost $2.53, 32 turns · written by tools/agents.py
