@@ -255,14 +255,21 @@ return function()
 			expect(RangePanel.isOpen()).to.equal(true)
 			expect(frame.Visible).to.equal(true)
 
-			-- ...AND ONE PRESS CANNOT TOGGLE TWICE. The engine's prompt answers the same keystroke
-			-- whenever it IS on screen; while the key is bound the key is the one door.
-			local swallowedBefore = RangePanel.stats().swallowed
-			RangePanel.onPromptTriggered()
-			expect(RangePanel.isOpen()).to.equal(true)
-			expect(RangePanel.stats().swallowed).to.equal(swallowedBefore + 1)
+			-- ...AND ONE PRESS CANNOT TOGGLE TWICE. While the engine IS showing the prompt it
+			-- answers the keystroke itself, so the binding stands down.
 			RangePanel.onKeyPressed()
 			expect(RangePanel.isOpen()).to.equal(false)
+			RangePanel.setPromptShown(true)
+			local swallowedBefore = RangePanel.stats().swallowed
+			RangePanel.onKeyPressed()
+			expect(RangePanel.isOpen()).to.equal(false)
+			expect(RangePanel.stats().swallowed).to.equal(swallowedBefore + 1)
+			-- ...and the prompt's own trigger is what opens it in that state.
+			RangePanel.onPromptTriggered()
+			expect(RangePanel.isOpen()).to.equal(true)
+			RangePanel.onPromptTriggered()
+			expect(RangePanel.isOpen()).to.equal(false)
+			RangePanel.setPromptShown(false)
 
 			-- THE KEY GOES WITH HIM: off the spot it is unbound, so nothing answers E in the wood.
 			RangePanel.setNear(false)

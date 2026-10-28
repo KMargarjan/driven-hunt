@@ -12,6 +12,7 @@
 
 local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
@@ -62,6 +63,10 @@ local stats = { opens = 0, closes = 0, sends = 0, prompts = 0, picks = 0, keys =
 RangePanel.KEY_ACTION = "DrivenHuntRangeKey"
 RangePanel.KEY = Enum.KeyCode.E
 local keyBound = false
+-- IS THE ENGINE OFFERING ITS OWN PROMPT RIGHT NOW? Told by `ProximityPromptService`, and the one
+-- thing that decides which of the two doors answers a press (see `onKeyPressed`).
+local promptShown = false
+local shownConnections: { any } = {}
 
 -- THE CONFIRM BAR MUST CONTAIN THE VIEWPORT CENTRE, which is the one point the input replay can
 -- click (design 11.3) -- and MEASURED LIVE on 2026-10-27 it did not: the HUD's `ScreenGui` carries
@@ -446,10 +451,36 @@ function RangePanel.setPrompt(next_: any)
 		end)
 		promptConnection = nil
 	end
+	for _, connection in ipairs(shownConnections) do
+		pcall(function()
+			connection:Disconnect()
+		end)
+	end
+	shownConnections = {}
+	promptShown = false
 	prompt = next_
 	if next_ == nil then
 		return
 	end
+	-- WHICH DOOR ANSWERS: the service says when the engine is offering this prompt.
+	pcall(function()
+		table.insert(
+			shownConnections,
+			ProximityPromptService.PromptShown:Connect(function(shown)
+				if shown == next_ then
+					RangePanel.setPromptShown(true)
+				end
+			end)
+		)
+		table.insert(
+			shownConnections,
+			ProximityPromptService.PromptHidden:Connect(function(hidden)
+				if hidden == next_ then
+					RangePanel.setPromptShown(false)
+				end
+			end)
+		)
+	end)
 	local ok, connection = pcall(function()
 		return next_.Triggered:Connect(function()
 			RangePanel.onPromptTriggered()
@@ -481,20 +512,30 @@ local function toggle()
 	RangePanel.setOpen(not open)
 end
 
--- WHILE THE KEY IS BOUND, THE KEY IS THE ONE DOOR. Both answer the same keystroke, so honouring
--- both would open the menu and shut it again on one press. It is the SOURCE that decides and not a
--- clock: `setNear` binds the key over exactly the region the prompt is offered in
--- (`Range.atSpot` is the prompt's own `MaxActivationDistance`).
+-- WHETHER THE ENGINE IS SHOWING ITS PROMPT, as a parameter as well as a signal (CLAUDE.md's rule
+-- for a two-state path). `setPrompt` wires `ProximityPromptService` to it.
+function RangePanel.setPromptShown(on: boolean)
+	promptShown = on == true
+end
+
+function RangePanel.isPromptShown(): boolean
+	return promptShown
+end
+
 function RangePanel.onPromptTriggered()
-	if keyBound then
-		stats.swallowed += 1
-		return
-	end
 	toggle()
 end
 
+-- ONE PRESS, ONE TOGGLE, AND THE SHOWN PROMPT HAS RIGHT OF WAY. MEASURED live on this build: while
+-- the prompt is shown the engine's own handler consumes `E` before a non-core `BindAction` ever
+-- runs, and it fires `Triggered` -- so the binding below is the door for exactly the case that was
+-- broken, the HIDDEN prompt, and stands down when the engine is already answering.
 function RangePanel.onKeyPressed()
 	stats.keys += 1
+	if promptShown then
+		stats.swallowed += 1
+		return
+	end
 	toggle()
 end
 
