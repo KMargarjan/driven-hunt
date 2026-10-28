@@ -176,7 +176,7 @@ return function()
 
 	-- ------------------------------------------------------------------ 1. THE ROW DECIDES
 	describe("which worlds have a range", function()
-		it("has a row for the DEV place and for nothing else yet", function()
+		it("has a row for the DEV place and one for Karen's, and for nothing else", function()
 			local dev = RangeData.anchorFor("map:v1")
 			expect(dev).to.be.ok()
 			expect((dev :: any).plate).to.equal(true)
@@ -1729,6 +1729,14 @@ return function()
 		-- A SHELF THAT IS EXACT IN FLOAT32, because `Vector3` stores floats and 147.3 does not survive
 		-- the trip: the case is about where the parts are laid, not about rounding.
 		local FAKE_SHELF = 147.25
+		-- ...AND IT SLOPES, because Karen's does: the measured spread over this footprint is 11.6
+		-- studs, and a CONSTANT reader cannot tell a range that follows the ground from one that
+		-- lays everything on the single number it read at the anchor (round 1, findings 1 and 2).
+		-- The two gradients are exact in binary (1/16 and 1/32), so nothing here is about rounding,
+		-- and over the footprint they span 8.75 + 5.0 = 13.75 studs.
+		local function slopedGround(x: number, z: number): number
+			return FAKE_SHELF + (z + 3216) * 0.0625 + (x - 2650) * 0.03125
+		end
 
 		-- EVERY PART BUILD MAKES, BY NAME, so the Director can enumerate them under Workspace.Range
 		-- and read each one's LOWEST point against the terrain ray under it (L-086).
@@ -1766,13 +1774,20 @@ return function()
 			local asked = {}
 			local forestGround = function(x: number, z: number)
 				table.insert(asked, Vector3.new(x, 0, z))
-				return FAKE_SHELF
+				return slopedGround(x, z)
 			end
 			local cases = {
-				{ name = "forest-test", row = FOREST_ROW, ground = forestGround, shelf = FAKE_SHELF, dir = -1 },
+				{
+					name = "forest-test",
+					row = FOREST_ROW,
+					ground = forestGround,
+					shelf = FAKE_SHELF,
+					dir = -1,
+					sloped = true,
+				},
 				-- The DEV arm, RE-ENTERED and not assumed: its plate still lays its own shelf and it
 				-- never asks a ground reader (plate is data, not a branch in the caller).
-				{ name = "map:v1", row = DEV_ROW, ground = nil, shelf = 0, dir = 1 },
+				{ name = "map:v1", row = DEV_ROW, ground = nil, shelf = 0, dir = 1, sloped = false },
 			}
 			for _, case in ipairs(cases) do
 				local built, why, parent = buildWith(case.row, case.ground)
@@ -1783,15 +1798,35 @@ return function()
 				expect(b.anchor.Y).to.equal(case.shelf)
 				local parts = partsOf(b.folder)
 				expect(#parts >= 4).to.equal(true)
-				-- NO PART UNDER THE GROUND AND NONE FLOATING: every part's own LOWEST face sits on
-				-- the shelf, except the plate, whose TOP is the shelf (it IS the shelf).
+				-- NO PART UNDER THE GROUND AND NONE FLOATING, MEASURED THE WAY KAREN SEES IT (rule
+				-- E, L-086): the LOWEST face of each part against the ground under EVERY sample of
+				-- its own footprint -- a 9 x 9 scan, which is not the five points `Build` reads, so
+				-- the assertion is not a transcription of the code. The part must reach the lowest
+				-- of them (nothing floats) and keep its full height above the highest.
 				for _, part in ipairs(parts) do
 					local bottom = part.Position.Y - part.Size.Y / 2
 					local top = part.Position.Y + part.Size.Y / 2
 					if part.Name == "Plate" then
 						expect(math.abs(top - case.shelf) < 1e-3).to.equal(true)
-					else
+					elseif not case.sloped then
 						expect(math.abs(bottom - case.shelf) < 1e-3).to.equal(true)
+					else
+						local lo, hi = math.huge, -math.huge
+						for ix = 0, 8 do
+							for iz = 0, 8 do
+								local gx = part.Position.X + (ix / 8 - 0.5) * part.Size.X
+								local gz = part.Position.Z + (iz / 8 - 0.5) * part.Size.Z
+								local g = slopedGround(gx, gz)
+								lo = math.min(lo, g)
+								hi = math.max(hi, g)
+							end
+						end
+						local nominal = if part.Name == "Berm"
+							then LAYOUT.BERM.size.Y
+							elseif part.Name == "Mat" then LAYOUT.MAT.size.Y
+							else LAYOUT.SCREEN.size.Y
+						expect(math.abs(bottom - lo) < 1e-2).to.equal(true)
+						expect(top >= hi + nominal - 1e-2).to.equal(true)
 					end
 				end
 				-- THE LANE RUNS THE ROW'S OWN WAY. Downrange is a signed data field: the berm is the
@@ -1809,10 +1844,13 @@ return function()
 				end
 				parent:Destroy()
 			end
-			-- THE GROUND WAS READ, ONCE, AT THE ANCHOR, and only for the row with no plate.
-			expect(#asked).to.equal(1)
-			expect(asked[1].X).to.equal((FOREST_ROW :: any).x)
-			expect(asked[1].Z).to.equal((FOREST_ROW :: any).z)
+			-- THE GROUND WAS READ UNDER EVERY PART -- five samples each, four parts, plus the one
+			-- `shelfAt` takes at the anchor -- and never outside the rectangle that was measured.
+			expect(#asked >= 5 * 4).to.equal(true)
+			for _, at in ipairs(asked) do
+				expect(at.X >= MEASURED.minX and at.X <= MEASURED.maxX).to.equal(true)
+				expect(at.Z >= MEASURED.minZ and at.Z <= MEASURED.maxZ).to.equal(true)
+			end
 		end)
 
 		it("keeps the whole range inside the rectangle that was measured", function()
@@ -1898,6 +1936,47 @@ return function()
 				string.format("range forest: nearest lobby rectangle is %s, %.1f studs away", worstName, worst)
 			)
 			parent:Destroy()
+		end)
+
+		it("leads the target SOUTH of the mat when the owner is started on Karen's row", function()
+			-- FINDING 3, round 1: the owner's half of the direction -- `state.downrange`, fed to the
+			-- five lane calls that decide where a target is RELEASED and LED -- was only ever driven
+			-- with the DEV row, where the sign is the default. Here the owner is started on the
+			-- forest row: with the sign dropped the target would be released 125 studs NORTH of the
+			-- mat, behind the shooter.
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			local root = Instance.new("Folder")
+			local row = FOREST_ROW :: any
+			local ok = Range.start({
+				enabled = true,
+				anchor = row,
+				root = root,
+				groundAt = slopedGround,
+				boars = fake,
+				now = now,
+			})
+			expect(ok).to.equal(true)
+			advance(fake, clock, 4)
+			local animal = fake.only()
+			expect(animal).to.be.ok()
+			-- RELEASED SOUTH OF THE MAT, by the whole distance of the lane.
+			expect((animal :: any).position.Z < row.z - LAYOUT.DISTANCE_STUDS + 1).to.equal(true)
+			-- ...AND LED SOUTH as well: every order the owner issued is downrange, never behind him.
+			expect(#fake.leads >= 1).to.equal(true)
+			for _, lead in ipairs(fake.leads) do
+				expect(lead.point.Z < row.z).to.equal(true)
+			end
+			TestKit.note(
+				string.format(
+					"range forest owner: target released at z %.0f, %d order(s), all south of the mat at z %d",
+					(animal :: any).position.Z,
+					#fake.leads,
+					row.z
+				)
+			)
+			Range.stop()
+			root:Destroy()
 		end)
 
 		it("refuses nothing a man in the gathering yard is doing (design 4.2 item 5)", function()

@@ -75,8 +75,8 @@ Range.ANCHORS = {
 	-- 504 samples over the 160 x 185 footprint, run in Edit and again in Play. Best centre
 	-- (2650, -3300): 0 non-terrain hits, 0 misses, ground spread 11.6 studs (the lobby's own
 	-- chosen site had 16). The firing line stands at the footprint's NORTH end and the lane runs
-	-- SOUTH, 119 studs clear of the lobby's southernmost part, so the shooter's line points away
-	-- from the lodge, the pads and the gathering yard. `plate = false` and NO TYPED Y: the shelf is
+	-- SOUTH, 158 studs clear of the Road pad's south edge (`range.spec`'s own measurement), so the line
+	-- points away from the lodge, the pads and the gathering yard. `plate = false` and NO TYPED Y: the
 	-- the injected `groundAt`'s answer at build time, because a typed one would be a guess that
 	-- puts the range in the air or inside the hill. `drawn = true`: the target is the same animal
 	-- her drive draws, which in DEV (no row field) is the grey box with its real welded zones.

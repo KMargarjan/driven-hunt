@@ -19,6 +19,39 @@ local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
 
 local Build = {}
 
+-- THE GROUND UNDER ONE PART'S OWN FOOTPRINT, as a low/high pair: five samples (four corners and
+-- the centre) through the world's own reader. ONE read at the anchor is not enough -- the measured
+-- spread over this footprint is 11.6 studs, so a berm 137 studs downrange of that read would float
+-- or be buried (review round 1, finding 1).
+local function groundUnder(centreX: number, centreZ: number, size: Vector3, fallback: number, groundAt)
+	local lo, hi = fallback, fallback
+	if groundAt == nil then
+		return lo, hi
+	end
+	local halfX = size.X / 2
+	local halfZ = size.Z / 2
+	local first = true
+	for _, at in ipairs({
+		{ centreX, centreZ },
+		{ centreX - halfX, centreZ - halfZ },
+		{ centreX - halfX, centreZ + halfZ },
+		{ centreX + halfX, centreZ - halfZ },
+		{ centreX + halfX, centreZ + halfZ },
+	}) do
+		local y = groundAt(at[1], at[2])
+		if type(y) == "number" then
+			if first then
+				lo, hi = y, y
+				first = false
+			else
+				lo = math.min(lo, y)
+				hi = math.max(hi, y)
+			end
+		end
+	end
+	return lo, hi
+end
+
 local function makePart(name: string, size: Vector3, position: Vector3, color: Color3, parent: Instance)
 	local part = Instance.new("Part")
 	part.Name = name
@@ -77,18 +110,28 @@ function Build.build(opts)
 	local folder = Instance.new("Folder")
 	folder.Name = layout.folderName
 
+	-- EVERY PART STANDS FROM THE LOWEST GROUND UNDER ITSELF TO ITS FULL HEIGHT ABOVE THE HIGHEST
+	-- (review round 1, finding 1; CLAUDE.md rule E). It is grown downward by the spread under its
+	-- own footprint, so nothing floats at the low corner and nothing loses its height at the high
+	-- one. With a plate (DEV) the reader is absent and the spread is zero, which is the old shape.
+	local function onGround(name: string, size: Vector3, x: number, z: number, color: Color3)
+		local lo, hi = groundUnder(x, z, size, shelf :: number, if row.plate == true then nil else opts.groundAt)
+		local height = size.Y + (hi - lo)
+		return makePart(name, Vector3.new(size.X, height, size.Z), Vector3.new(x, lo + height / 2, z), color, folder)
+	end
+
 	-- THE MAT FIRST, so it is the folder's first direct-child BasePart: the harness's stage block
 	-- puts the player at a folder's first BasePart plus an offset (design section 11.3), and that
 	-- has to be the firing position and not a screen 145 studs downrange.
 	local mats = {}
 	for spot = 1, layout.SPOT_COUNT do
 		local at = RangeData.matPosition(anchor, spot, layout)
-		local mat = makePart(
+		local mat = onGround(
 			layout.SPOT_COUNT == 1 and RangeData.MAT_NAME or string.format("%s%d", RangeData.MAT_NAME, spot),
 			layout.MAT.size,
-			Vector3.new(at.X, shelf + layout.MAT.size.Y / 2, at.Z),
-			layout.MAT.color,
-			folder
+			at.X,
+			at.Z,
+			layout.MAT.color
 		)
 		local prompt = Instance.new("ProximityPrompt")
 		prompt.Name = if layout.SPOT_COUNT == 1
@@ -129,24 +172,12 @@ function Build.build(opts)
 	-- screen ON the end is a wall the target walks into (measured in DEV, section 4.1's row).
 	for leg = 1, 2 do
 		local at = RangeData.screenPosition(anchor, layout, leg, dir)
-		makePart(
-			if leg == 1 then "ScreenEast" else "ScreenWest",
-			layout.SCREEN.size,
-			Vector3.new(at.X, shelf + layout.SCREEN.size.Y / 2, at.Z),
-			layout.SCREEN.color,
-			folder
-		)
+		onGround(if leg == 1 then "ScreenEast" else "ScreenWest", layout.SCREEN.size, at.X, at.Z, layout.SCREEN.color)
 	end
 
 	-- THE BACKSTOP, behind the lane: a real range's berm, and it stops a stray slug leaving the
 	-- lobby.
-	makePart(
-		"Berm",
-		layout.BERM.size,
-		Vector3.new(anchor.X, shelf + layout.BERM.size.Y / 2, lane.Z + dir * layout.BERM.behindStuds),
-		layout.BERM.color,
-		folder
-	)
+	onGround("Berm", layout.BERM.size, anchor.X, lane.Z + dir * layout.BERM.behindStuds, layout.BERM.color)
 
 	-- THE PARENT, LAST.
 	folder.Parent = parent

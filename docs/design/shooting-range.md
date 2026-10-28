@@ -214,7 +214,7 @@ drive's.** Three measured reasons:
 | Field | Value | Why |
 |---|---|---|
 | `folderName` | `"RangeTargets"` | its own folder. `Workspace.Boars` keeps one writer |
-| `field` | `Range.fieldFor(anchor, LAYOUT)` — the lane's rectangle plus 60 studs of slack, `exitZ` 400 studs BEHIND the firing line, `groundY` = the shelf | an exit the target can never reach, so nothing despawns mid-crossing |
+| `field` | `Range.fieldFor(anchor, LAYOUT, downrange)` — the lane's rectangle plus 60 studs of slack, `exitZ` 400 studs BEHIND the firing line, `groundY` = the shelf | an exit the target can never reach, so nothing despawns mid-crossing |
 | `threats` | `function() return {} end` | **nobody is a threat at a range.** With the shipped `defaultWorld.threats`, `Brain.perceive` would see the shooter 125 studs away (`SENSE` notices a moving person at 60) and the target would flee the lane |
 | `config.LINE.ENABLED` | `true` | **required in both worlds:** `Brain:leadTo` returns false when `LINE.ENABLED ~= true` |
 | `config.SENSE.ENABLED` | `false` | belt to the `threats` brace: the lane is a route, not a reaction |
@@ -496,7 +496,7 @@ Range.WORD = { WALK = "walk", TROT = "trot", RUN = "run" }   -- they cross the w
 Range.paceAllowed(word: any): boolean          -- the ONE whitelist, both sides (Lobby.roleAllowed)
 Range.optionAllowed(kind: string, value: any): boolean
 Range.anchorFor(world: string?): Anchor?       -- pure, takes the world as a STRING, requires nothing
-Range.laneEnds(anchor: Vector3, layout, leg: number): Vector3   -- the ONE lane arithmetic
+Range.laneEnds(anchor: Vector3, layout, leg: number, downrange: number?): Vector3   -- the ONE lane arithmetic
 Range.matPosition(anchor: Vector3, spot: number, layout): Vector3
 Range.crossingSeconds(windowStuds: number, speed: number): number
 Range.promptFor(spot: number): ProximityPrompt?  -- found by NAME under Workspace.Range
