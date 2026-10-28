@@ -65,10 +65,13 @@ removes is real; it is NOT claimed as the cause of anything Karen saw.
 
 ## 4. NOT PROVEN
 
-- **The real-click path.** Every number here comes from a `FireRequest` sent by the client VM with
-  `origin` = the camera. The Playtester's 1/10 came from REAL CLICKS through the weapon's own input.
-  Whether a real click sends the same ray this rig sends is **not measured**, and it is the one
-  remaining way the two results could still disagree.
+- **The real-click path -- READ, NOT RUN, and it is the same ray.** `src/client/Weapon/Input.luau`,
+  `Input.fire` sends exactly `origin = cframe.Position, direction = cframe.LookVector.Unit` off
+  `Workspace.CurrentCamera`. The rig sends the same origin and a direction straight at the aim
+  point, and the Playtester's tracker held the camera ON the drawn chest (their own gate: within
+  12 px of the viewport centre). So the two rigs send the same ray and the 9/10-vs-1/10 gap is the
+  **zero-lead rule**, measured at 0/10 on that build. This is a code reading, not a live run with
+  a real click -- nobody has fired a real click on the FIXED build.
 - **The lever, the semi-auto and buckshot**: nobody has fired them at a moving animal.
 - **Any animal but the range's boar** -- no deer, no drive animal.
 - **Shotgun SLUG at run**: 3 of 5 (one line never fired, one produced no impact). Below the 4/5 asked.

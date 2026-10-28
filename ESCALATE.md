@@ -1,3 +1,34 @@
+## 2026-10-28, Task 305b -- the premise is refuted, and four things are the Director's
+
+**The dispatch said "as if no rewind" in her place. It is not true, and the numbers are in
+`reviews/task-305b/MEASURED.md`.** In Karen's Forest Test, on `2b77716e`, with her own overrides
+untouched: the rewind runs (`DH305Rewind` = `why=rewound rewind=0.181 cands=1 hit=true`), ownership
+is pinned to the server, the candidate is found, the ring has no misses, and the effective look-back
+(0.182-0.190) matches her client's drawn lag (0.185-0.205).
+
+**The 1/10 was the aim rule, not the game.** Same build, same rig, same lane, back to back:
+drawn chest + `Ballistics.leadStuds` = **9/10** at RUN; drawn chest + **zero lead** = **0/10**.
+The Playtester's brief specified zero lead. `src/client/Weapon/Input.luau` sends the camera's own
+`LookVector`, so a real click and the rig send the same ray.
+
+Reviewer: **PASS round 2** (`reviews/task-305b/RESULT.md`), one round-1 finding fixed.
+
+**For the Director:**
+1. **Is the required lead right?** The game demands exactly `Ballistics.leadStuds` -- 1.2 studs at
+   125 studs on a 24 studs/s boar. Karen's *"I need to aim in free space"* is that lead. Real
+   ballistics is her own standing ask; whether a boar's CHEST zone should be wide enough that the
+   ballistic lead still lands in it is a FEEL decision and is hers.
+2. **The range board's `MISS GAP` misleads.** It reads `1.3 m behind` for a shot that missed by
+   1.2 studs, because it measures against the server's PRESENT position -- always one view lag
+   ahead of what the shooter drew. It is the instrument the Playtester and Karen both read. Queued
+   as 305c; worth its own small task.
+3. **The flag.** `AIM_REWIND` still ships OFF, so this commit changes nothing Karen can judge.
+   Round 3 of task 305 already queued an Architect run on `docs/design/ballistics.md` section 1.3
+   before it is lit; that precondition is unchanged and this task did not satisfy it.
+4. **The Forest Test worktree** (`<desktop>/driven-hunt-294`, Rojo :34874) was re-synced by this
+   Builder session five times to measure, and is left at `14bbd363` -- NOT at this branch's head
+   `ea72ffc9`. The Director owns that worktree; say if it should be moved or put back.
+
 # ESCALATE -- Task 305 (a shot hits what the shooter sees)
 
 Written 2026-10-28; every time below is a `date -u` reading, not an estimate. Builder session
