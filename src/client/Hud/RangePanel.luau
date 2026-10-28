@@ -564,8 +564,10 @@ function RangePanel.start(root: Frame, collaborators: any)
 	state = nil
 	open = false
 	near = false
-	-- A FRESH START OWNS NOTHING, the key included: it is bound by `setNear` when he arrives.
+	-- A FRESH START OWNS NOTHING -- the key, which `setNear` binds when he arrives, and no memory
+	-- of a press, so the debounce can never swallow the first trigger of a new session.
 	RangePanel.bindKey(false)
+	lastTriggerAt = -math.huge
 	RangePanel.build(root)
 	root.Visible = false
 end
