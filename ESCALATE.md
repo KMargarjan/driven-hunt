@@ -19,7 +19,7 @@ either.**
 2. `weapon_rewind.spec` + claim 7 -- the `nil`-ping branch, the one `onFireRequest` itself takes,
    was still uncovered while the request asserted it closed. The Reviewer is right.
 
-**I have fixed both in the tree and have NOT reviewed the fix** (the answers now RISE, 5 then 6, so
+**I have fixed both in the tree and have NOT reviewed the fix** (the answers now RISE, 6 then 7, so
 the selection rule decides the assertion; and one line calls `Weapon.rewindFor(nil, nil, CONFIG)`).
 The request says of each, on the line itself, that it was added after the round-2 verdict and is
 unreviewed. **Nothing is merged on that basis.**
