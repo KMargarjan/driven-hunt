@@ -28,6 +28,8 @@ local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local Rules = require(ServerScriptService:WaitForChild("Weapon"):WaitForChild("Rules"))
 -- ONLY TO PUT THE PROVIDERS BACK (`weapon_shot.spec`'s reason): `MatchBoot` wired them.
 local Match = require(ServerScriptService:WaitForChild("Match"))
+local Lobby = require(ServerScriptService:WaitForChild("Lobby"))
+local LobbyData = require(ReplicatedStorage:WaitForChild("Lobby"))
 local Range = require(ServerScriptService:WaitForChild("Range"))
 local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
@@ -36,6 +38,11 @@ local StateMachine = Weapon.StateMachine
 
 local LAYOUT = RangeData.LAYOUT
 local DEV_ROW = { x = 1200, z = 0, y = 0, plate = true }
+-- THE LOBBY'S OWN RECTANGLES, read from the lobby's own data: step B6 holds the range clear of
+-- the seven pieces `lobby.spec` already holds to that rectangle (design 4.2 item 4).
+local Pads = Lobby.Pads
+local LOBBY_CFG = LobbyData.CONFIG
+local LOBBY_ANCHOR = LobbyData.anchorFor("forest-test")
 
 return function()
 	-- The one place the spec names a speed: it asks `Boar` and compares, so a changed `PACE` row
@@ -180,9 +187,24 @@ return function()
 			expect(RangeData.anchorFor("nowhere")).to.equal(nil)
 			expect(RangeData.anchorFor(nil)).to.equal(nil)
 			expect(RangeData.anchorFor(7 :: any)).to.equal(nil)
-			-- ...AND KAREN'S PLACE HAS NO ROW IN STEP B2: its anchor is a measurement over her own
-			-- ground (design section 4.2) and it belongs to step B6.
-			expect(RangeData.anchorFor("forest-test")).to.equal(nil)
+			-- ...AND KAREN'S PLACE NOW HAS ONE, MEASURED (step B6). Design 4.2's instrument, run by
+			-- the Director over her own ground in Edit AND in Play: a raycast grid, 8-stud spacing,
+			-- 504 samples over the 160 x 185 footprint. Best centre (2650, -3300): 0 non-terrain
+			-- hits, 0 misses, ground spread 11.6 studs (the lobby's own chosen site had 16).
+			local forest = RangeData.anchorFor("forest-test")
+			expect(forest).to.be.ok()
+			expect((forest :: any).x).to.equal(2650)
+			expect((forest :: any).z).to.equal(-3216)
+			-- NO TYPED Y: the shelf comes from the injected `groundAt` at build time, because a
+			-- typed one would put the range in the air or inside the hill (design section 3).
+			expect((forest :: any).plate).to.equal(false)
+			expect((forest :: any).y).to.equal(nil)
+			-- SHE SHOOTS SOUTH, AWAY FROM THE LODGE, and the direction is a DATA FIELD ON THE ROW
+			-- and never a branch on the world's name.
+			expect((forest :: any).downrange).to.equal(-1)
+			expect(RangeData.downrangeOf(forest)).to.equal(-1)
+			expect(RangeData.downrangeOf(dev)).to.equal(1)
+			expect(RangeData.downrangeOf(nil)).to.equal(1)
 		end)
 	end)
 
@@ -1684,6 +1706,237 @@ return function()
 					reach,
 					hit.hitParts[1].Name,
 					hit.reachedStuds
+				)
+			)
+		end)
+	end)
+	-- ------------------------------------------------- 9. KAREN'S PLACE: THE FOREST ROW (step B6)
+	--
+	-- The anchor is MEASURED, not chosen here: design 4.2's instrument (a raycast grid, 8-stud
+	-- spacing, 504 samples over the 160 x 185 footprint) run by the Director over Karen's own
+	-- ground in Edit and again in Play. Best centre (2650, -3300), spread 11.6 studs, 0 non-terrain
+	-- hits; the firing line stands at the footprint's NORTH end and the lane runs SOUTH, away from
+	-- the lodge, the pads and the gathering yard.
+	--   evidence: <runs-dir>/evidence/b6-anchor/SUMMARY.md (grid1.txt, grid2.txt, grid-play.txt)
+	describe("the forest row: a range beside Karen's lodge (step B6)", function()
+		local FOREST_ROW = RangeData.anchorFor("forest-test")
+		-- THE MEASURED RECTANGLE, from the SUMMARY above. The range must fit inside what was sampled.
+		local MEASURED = { minX = 2570, maxX = 2730, minZ = -3392, maxZ = -3208 }
+		local FAKE_SHELF = 147.3
+
+		-- EVERY PART BUILD MAKES, BY NAME, so the Director can enumerate them under Workspace.Range
+		-- and read each one's LOWEST point against the terrain ray under it (L-086).
+		local function partsOf(folder: Instance)
+			local out = {}
+			for _, child in ipairs(folder:GetDescendants()) do
+				if child:IsA("BasePart") then
+					table.insert(out, child)
+				end
+			end
+			return out
+		end
+
+		local function footprintOf(parts)
+			local box = { minX = math.huge, maxX = -math.huge, minZ = math.huge, maxZ = -math.huge }
+			for _, part in ipairs(parts) do
+				box.minX = math.min(box.minX, part.Position.X - part.Size.X / 2)
+				box.maxX = math.max(box.maxX, part.Position.X + part.Size.X / 2)
+				box.minZ = math.min(box.minZ, part.Position.Z - part.Size.Z / 2)
+				box.maxZ = math.max(box.maxZ, part.Position.Z + part.Size.Z / 2)
+			end
+			return box
+		end
+
+		-- ONE PATH, TWO DIRECTIONS (L-093). The DEV row runs the lane +z and Karen's runs it -z, and
+		-- the only difference between the two calls is the ROW: no second code path, and no branch
+		-- on a world's name. Both arms are entered here, by parameter.
+		local function buildWith(row, groundAt)
+			local parent = Instance.new("Folder")
+			local built, why = Range.Build.build({ parent = parent, row = row, layout = LAYOUT, groundAt = groundAt })
+			return built, why, parent
+		end
+
+		it("lays every part on the ground it is handed, both worlds, and never a typed Y", function()
+			local asked = {}
+			local forestGround = function(x: number, z: number)
+				table.insert(asked, Vector3.new(x, 0, z))
+				return FAKE_SHELF
+			end
+			local cases = {
+				{ name = "forest-test", row = FOREST_ROW, ground = forestGround, shelf = FAKE_SHELF, dir = -1 },
+				-- The DEV arm, RE-ENTERED and not assumed: its plate still lays its own shelf and it
+				-- never asks a ground reader (plate is data, not a branch in the caller).
+				{ name = "map:v1", row = DEV_ROW, ground = nil, shelf = 0, dir = 1 },
+			}
+			for _, case in ipairs(cases) do
+				local built, why, parent = buildWith(case.row, case.ground)
+				expect(why).to.equal(nil)
+				expect(built).to.be.ok()
+				local b = built :: any
+				expect(b.shelf).to.equal(case.shelf)
+				expect(b.anchor.Y).to.equal(case.shelf)
+				local parts = partsOf(b.folder)
+				expect(#parts >= 4).to.equal(true)
+				-- NO PART UNDER THE GROUND AND NONE FLOATING: every part's own LOWEST face sits on
+				-- the shelf, except the plate, whose TOP is the shelf (it IS the shelf).
+				for _, part in ipairs(parts) do
+					local bottom = part.Position.Y - part.Size.Y / 2
+					local top = part.Position.Y + part.Size.Y / 2
+					if part.Name == "Plate" then
+						expect(math.abs(top - case.shelf) < 1e-3).to.equal(true)
+					else
+						expect(math.abs(bottom - case.shelf) < 1e-3).to.equal(true)
+					end
+				end
+				-- THE LANE RUNS THE ROW'S OWN WAY. Downrange is a signed data field: the berm is the
+				-- furthest thing downrange of the mat, on the row's own side of the firing line.
+				local anchor = b.anchor
+				local lane = RangeData.laneCentre(anchor, LAYOUT, case.dir)
+				expect(lane.Z - anchor.Z).to.equal(case.dir * LAYOUT.DISTANCE_STUDS)
+				local berm = (b.folder :: any):FindFirstChild("Berm")
+				expect(berm).to.be.ok()
+				expect((berm.Position.Z - anchor.Z) * case.dir > LAYOUT.DISTANCE_STUDS).to.equal(true)
+				-- ...and NOTHING is built behind the shooter by more than his own mat.
+				for _, part in ipairs(parts) do
+					local behind = (anchor.Z - part.Position.Z) * case.dir
+					expect(behind <= LAYOUT.MAT.size.Z).to.equal(true)
+				end
+				parent:Destroy()
+			end
+			-- THE GROUND WAS READ, ONCE, AT THE ANCHOR, and only for the row with no plate.
+			expect(#asked).to.equal(1)
+			expect(asked[1].X).to.equal((FOREST_ROW :: any).x)
+			expect(asked[1].Z).to.equal((FOREST_ROW :: any).z)
+		end)
+
+		it("keeps the whole range inside the rectangle that was measured", function()
+			local built, _, parent = buildWith(FOREST_ROW, function()
+				return FAKE_SHELF
+			end)
+			local b = built :: any
+			local parts = partsOf(b.folder)
+			local names = {}
+			for _, part in ipairs(parts) do
+				table.insert(names, part.Name)
+			end
+			table.sort(names)
+			local box = footprintOf(parts)
+			expect(box.minX >= MEASURED.minX).to.equal(true)
+			expect(box.maxX <= MEASURED.maxX).to.equal(true)
+			expect(box.minZ >= MEASURED.minZ).to.equal(true)
+			expect(box.maxZ <= MEASURED.maxZ).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range forest footprint: x %.1f..%.1f z %.1f..%.1f (measured x %d..%d z %d..%d); parts %s",
+					box.minX,
+					box.maxX,
+					box.minZ,
+					box.maxZ,
+					MEASURED.minX,
+					MEASURED.maxX,
+					MEASURED.minZ,
+					MEASURED.maxZ,
+					table.concat(names, ", ")
+				)
+			)
+			parent:Destroy()
+		end)
+
+		it("stands clear of all seven lobby rectangles -- the range is the eighth", function()
+			local anchor = Vector3.new(LOBBY_ANCHOR.x, 0, LOBBY_ANCHOR.z)
+			local rects = {}
+			-- THE THREE GROUND PADS, read from Lobby.CONFIG.FIELD.PADS itself (the yard, the road
+			-- and the gathering yard) and never retyped: a second copy is two definitions of one fact.
+			for _, pad in ipairs(LOBBY_CFG.FIELD.PADS) do
+				table.insert(rects, {
+					name = pad.NAME,
+					minX = anchor.X + pad.OFFSET.X - pad.SIZE.X / 2,
+					maxX = anchor.X + pad.OFFSET.X + pad.SIZE.X / 2,
+					minZ = anchor.Z + pad.OFFSET.Z - pad.SIZE.Z / 2,
+					maxZ = anchor.Z + pad.OFFSET.Z + pad.SIZE.Z / 2,
+				})
+			end
+			-- ...AND THE FOUR TRUCK PADS, from Lobby.Pads.centreFor, the one writer of where they are.
+			for index = 1, LOBBY_CFG.TRUCK.COUNT do
+				local centre = Pads.centreFor(anchor, index, LOBBY_CFG)
+				table.insert(rects, {
+					name = "TruckPad" .. tostring(index),
+					minX = centre.X - LOBBY_CFG.PADS.SIZE.X / 2,
+					maxX = centre.X + LOBBY_CFG.PADS.SIZE.X / 2,
+					minZ = centre.Z - LOBBY_CFG.PADS.SIZE.Z / 2,
+					maxZ = centre.Z + LOBBY_CFG.PADS.SIZE.Z / 2,
+				})
+			end
+			expect(#rects).to.equal(7)
+
+			local built, _, parent = buildWith(FOREST_ROW, function()
+				return FAKE_SHELF
+			end)
+			local b = built :: any
+			-- THE FIRING LINE AND THE WHOLE DOWNRANGE CONE: the box that holds every part the range
+			-- builds, which is the mat, the two screens, the lane between them and the berm.
+			local box = footprintOf(partsOf(b.folder))
+			local worst = math.huge
+			local worstName = "--"
+			for _, rect in ipairs(rects) do
+				local gapX = math.max(rect.minX - box.maxX, box.minX - rect.maxX)
+				local gapZ = math.max(rect.minZ - box.maxZ, box.minZ - rect.maxZ)
+				local gap = math.max(gapX, gapZ)
+				expect(gap > 0).to.equal(true)
+				if gap < worst then
+					worst = gap
+					worstName = rect.name
+				end
+			end
+			TestKit.note(
+				string.format("range forest: nearest lobby rectangle is %s, %.1f studs away", worstName, worst)
+			)
+			parent:Destroy()
+		end)
+
+		it("refuses nothing a man in the gathering yard is doing (design 4.2 item 5)", function()
+			local anchor = Vector3.new(LOBBY_ANCHOR.x, 0, LOBBY_ANCHOR.z)
+			local gather = nil
+			for _, pad in ipairs(LOBBY_CFG.FIELD.PADS) do
+				if pad.NAME == "Gather" then
+					gather = Vector3.new(anchor.X + pad.OFFSET.X, 0, anchor.Z + pad.OFFSET.Z)
+				end
+			end
+			expect(gather).to.be.ok()
+
+			local row = FOREST_ROW :: any
+			local dir = RangeData.downrangeOf(row)
+			local mat = Vector3.new(row.x, 0, row.z)
+			local people = { { userId = 4242, position = gather :: Vector3 } }
+			local LOCK = {
+				SAFETY_LOCK_ENABLED = true,
+				SAFETY_LOCK_STUDS = Match.CONFIG.SAFETY_LOCK_STUDS,
+				SAFETY_MISS_STUDS = Match.CONFIG.SAFETY_MISS_STUDS,
+				SAFETY_RANGE_STUDS = Match.CONFIG.SAFETY_RANGE_STUDS,
+				SAFETY_BODY_STUDS = Match.CONFIG.SAFETY_BODY_STUDS,
+			}
+			local downrange = {
+				userId = 1,
+				muzzle = mat,
+				aim = Vector3.new(0, 0, dir),
+				stopAt = LOCK.SAFETY_RANGE_STUDS,
+				at = 0,
+			}
+			expect(Match.lineUnsafeFor(downrange, people, LOCK)).to.equal(false)
+			-- ...AND THE RULE IS LIVE, not switched off: turn round and the same man refuses the shot.
+			local atHim = {
+				userId = 1,
+				muzzle = mat,
+				aim = ((gather :: Vector3) - mat).Unit,
+				stopAt = LOCK.SAFETY_RANGE_STUDS,
+				at = 0,
+			}
+			expect(Match.lineUnsafeFor(atHim, people, LOCK)).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range forest: the gathering yard is %.0f studs from the mat, %.0f of it downrange",
+					((gather :: Vector3) - mat).Magnitude,
+					math.abs((gather :: Vector3).Z - mat.Z)
 				)
 			)
 		end)
