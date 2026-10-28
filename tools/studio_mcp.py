@@ -942,6 +942,8 @@ SCOPE_SPECS = {
                "tests/server/deer.spec.luau",
                "tests/server/weapon_hits.spec.luau", "tests/server/weapon_look.spec.luau",
                "tests/server/weapon_rearm.spec.luau", "tests/server/weapon_shot.spec.luau",
+               # Task 305: the rewind that makes a shot hit what the shooter SAW.
+               "tests/server/weapon_rewind.spec.luau",
                "tests/server/weapon_state.spec.luau", "tests/server/weapon_equip.spec.luau",
                "tests/server/boar_hit.spec.luau",
                "tests/server/boar_shot.spec.luau",

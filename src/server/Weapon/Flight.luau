@@ -68,6 +68,11 @@ export type ShotRecord = {
 	-- then the gun has moved on -- so it is taken at the trigger, like `muzzle` and `firedAt` beside
 	-- it. `nil` is every caller written before this task.
 	bore: Vector3?,
+	-- HOW FAR BACK THIS SHOOTER'S PICTURE IS, in seconds (task 305), taken at the trigger by
+	-- `Weapon.rewindFor` and handed to the cast as its fourth argument. CARRIED AND NEVER READ
+	-- HERE, like `claim` and `bore`: this module does not know what an animal is. nil is every
+	-- caller written before that task and is bit-for-bit the old flight.
+	rewindSeconds: number?,
 }
 
 -- One projectile. MUTATED IN PLACE on purpose: nine pellets stepped sixty times a second must not
@@ -311,7 +316,7 @@ function Flight.advance(self: Flight, dt: number, cast: CastFn): { Resolution }
 
 				if length > 1e-6 then
 					self.casts += 1
-					local impact = cast(pellet.position, segment, shot.ignore)
+					local impact = cast(pellet.position, segment, shot.ignore, shot.rewindSeconds)
 					if impact then
 						stoppedAt = impact.position
 						live.impacts[#live.impacts + 1] = {

@@ -119,7 +119,15 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- (`Range.ENABLED = Flags.isOn("RANGE")`, the one boundary that reads it), so the cap moves by one
 -- again and the retirements stay queued. **The Director may prefer to spend 82b instead**: this is
 -- one line either way.
-Flags.MAX_FLAGS = 19
+-- 19 -> 20 FOR TASK 305, **AND IT SHIPS LIT, BY THE DIRECTOR'S OWN SENTENCE**: the dispatch of
+-- 2026-10-28 says *"If the fix needs a flag, it is born ON for the range (the range is a training
+-- place) -- say so; for the hunt, a flag row is fine and the Director decides with Karen."* The
+-- range and the hunt share `Weapon`'s one resolution, so ON-for-the-range and OFF-for-the-hunt
+-- would mean a place test inside the weapon, which is a second owner of the shot. So the row is
+-- born `default = true` and the Director turns it OFF for the hunt with one override if Karen wants
+-- the old behaviour there. `docs/design/feature-flags.md` section 11 step 1 forbids shipping lit and
+-- this is the exception the Director authorised in advance, in writing, for this task.
+Flags.MAX_FLAGS = 20
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -142,6 +150,21 @@ Flags.DEFAULTS = {
 			.. "view and claims the hit, and the server validates it by rewinding the animal. OFF is "
 			.. "exactly the game before task 266 -- no claim is sent, none is accepted, and the shot "
 			.. "is resolved by the server's own flight alone.",
+	} :: FlagRow,
+	-- A SHOT HITS WHAT THE SHOOTER SEES (task 305). KAREN, 2026-10-28, shooting the range: *"aiming
+	-- is off / when running or trot / with rifle when it trot or run I need to aim in free space to
+	-- hit boar correctly ... aiming in nose no hit and I think it with all weapons fix it"*.
+	AIM_REWIND = {
+		-- BORN LIT. See the paragraph above `Flags.MAX_FLAGS`: the Director's dispatch.
+		default = true,
+		owner = "ServerScriptService.Weapon",
+		born = "2026-10-28 task 305",
+		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
+		expires = "2026-11-18",
+		why = "The server tests each animal where the SHOOTER DREW it -- 0.180 s back, measured -- "
+			.. "instead of where the server has it now, so the only lead a player needs is the real "
+			.. "ballistic one. OFF is exactly the game before task 305: the animal is tested at the "
+			.. "present instant and the shooter must add 0.18 s x the animal's speed of his own.",
 	} :: FlagRow,
 	-- THE LOBBY SHOOTING RANGE (task 298). KAREN, 2026-10-27: a place to *"test guns and shooting"*
 	-- against a real animal crossing a lane, so the seven shooting dials can be judged by eye.

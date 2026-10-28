@@ -41,6 +41,7 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 local Cast = require(script.Cast)
+local Rewind = require(script.Rewind)
 -- THE SHOTS STILL IN THE AIR (task 185). It holds the list and steps it; it casts nothing itself
 -- (the cast is a parameter), builds no report and fires no signal -- this file does all of that,
 -- exactly as it did before, one frame or more later (docs/design/ballistics.md section 2).
@@ -136,6 +137,12 @@ local ORIGIN_TOLERANCE_STUDS = if Flags.isOn("FIRST_PERSON")
 -- `setArmingPolicy` and `setCast` already have.
 local CLAIMS_ON = Flags.isOn("HIT_CLAIM")
 local claimPolicy: boolean? = nil
+
+-- WHETHER THIS SERVER TESTS AN ANIMAL WHERE THE SHOOTER DREW IT (task 305). Read ONCE, here, at the
+-- boundary, and passed inward as a shot's `rewindSeconds` -- so `Flight` and `Rewind` never read a
+-- flag. `rewindPolicy` is the parameter beside it, the shape `setClaimPolicy` already has.
+local REWIND_ON = Flags.isOn("AIM_REWIND")
+local rewindPolicy: boolean? = nil
 
 local registry = Registry.new()
 -- ONE TOOL PER WEAPON PER PLAYER (task 140). Two Tools, because the engine's own hotbar is then the
@@ -268,6 +275,10 @@ local stats = {
 	-- WHY THE REWIND SAID NO, as a short string: "unwired", "no-sample", "ok", or the error a
 	-- throwing provider produced. `claim-history` alone is a riddle; this is the answer (task 266b).
 	claimHistoryWhy = "",
+	-- TASK 305. How many rewound animal casts this server has made, and how many found the animal
+	-- where the shooter drew it. Both 0 in any run with `AIM_REWIND` off or no animal in the air.
+	rewindCasts = 0,
+	rewindHits = 0,
 	-- THE FLIGHT'S OWN NUMBERS (task 185). `shots` keeps its meaning -- accepted trigger pulls --
 	-- so it now LEADS `shotsResolved` by up to 0.365 s, and that gap is the instrument for "a shot
 	-- that never landed". `flightTimeouts` must stay 0: nothing legitimate reaches
@@ -480,6 +491,105 @@ end
 -- unwired means today's game.
 function Weapon.setHistoryProvider(provider: ((Instance, number) -> CFrame?)?)
 	historyProvider = provider
+end
+
+-- THE TWO WORLD CALLS THE REWIND MAKES, AS ONE SEAM (task 305). `Cast.candidates` asks what animal
+-- is NEAR the segment and `Cast.only` casts at one of them; both touch Workspace, so both are
+-- injectable and `weapon_rewind.spec` drives the whole path with no world at all. nil restores the
+-- real ones, which is every caller in the game. The shape is `setCast`'s.
+local candidatesFn: ((Vector3, Vector3, number, { Instance }, (Instance?) -> (Instance?, string), number) -> { Instance })? =
+	nil
+local castOnlyFn: ((Instance, Vector3, Vector3) -> Shotgun.Impact?)? = nil
+
+function Weapon.setRewindWorld(
+	candidates: ((
+		Vector3,
+		Vector3,
+		number,
+		{ Instance },
+		(Instance?) -> (Instance?, string),
+		number
+	) -> { Instance })?,
+	castOnly: ((Instance, Vector3, Vector3) -> Shotgun.Impact?)?
+)
+	candidatesFn = candidates
+	castOnlyFn = castOnly
+end
+
+-- WHETHER THIS SERVER REWINDS, as a parameter beside the flag. `nil` restores the boundary's answer.
+function Weapon.setRewindPolicy(enabled: boolean?): boolean?
+	local was = rewindPolicy
+	rewindPolicy = enabled
+	return was
+end
+
+-- HOW FAR BACK THIS SHOOTER'S PICTURE OF A MOVING ANIMAL IS, in seconds.
+--
+-- `FLIGHT_REWIND_BASE_SECONDS` (0.18, MEASURED -- see its row) is the engine's own interpolation
+-- buffer, plus the ping's downward trip, capped by the animal ring's own span. THE SHAPE IS
+-- `Weapon.viewWindowFor`'s line for line: `ping` is a parameter with a `GetNetworkPing` fallback
+-- inside a `pcall`, and a negative, a NaN or a missing ping contributes ZERO rather than a guess --
+-- so the failure mode of this whole feature is "the game shoots as it did yesterday".
+function Weapon.rewindFor(player: Player?, ping: number?, config: any?): number
+	if rewindPolicy == false or (rewindPolicy == nil and not REWIND_ON) then
+		return 0
+	end
+	local cfg = config or CONFIG
+	local seconds = ping
+	if seconds == nil then
+		local ok, measured = pcall(function()
+			return (player :: any):GetNetworkPing()
+		end)
+		seconds = if ok and type(measured) == "number" then measured else 0
+	end
+	if type(seconds) ~= "number" or seconds ~= seconds or seconds <= 0 then
+		seconds = 0
+	end
+	return math.clamp(
+		cfg.FLIGHT_REWIND_BASE_SECONDS + seconds * cfg.FLIGHT_CATCHUP_PING_FACTOR,
+		0,
+		cfg.CLAIM.VIEW_LAG_MAX_SECONDS
+	)
+end
+
+-- THE CAST THE FLIGHT ACTUALLY USES (task 305). Two passes, nearest wins:
+--   1. the STATIC world, with every candidate animal EXCLUDED, so a present-position animal can
+--      never stop a bullet and be read as a tree;
+--   2. each candidate, cast with the segment moved by MINUS its own displacement over `rewind` --
+--      `Weapon.Rewind`, which is pure and owns that arithmetic.
+-- With `rewind` 0, no provider, or no candidate near the segment it is `castFn(origin, dir, ignore)`
+-- and NOTHING ELSE RUNS: the flag's off state and today's game are one path.
+local function resolvedCast(origin: Vector3, direction: Vector3, ignore: { Instance }, rewind: number?): Shotgun.Impact?
+	if type(rewind) ~= "number" or rewind <= 0 or historyProvider == nil then
+		return castFn(origin, direction, ignore)
+	end
+	local findCandidates = candidatesFn or Cast.candidates
+	local castOnly = castOnlyFn or Cast.only
+	-- The pad is how far the fastest animal can travel over the rewind window, so one it has
+	-- already carried off the line is still a candidate.
+	local pad = rewind * CONFIG.CLAIM.MAX_TARGET_SPEED_STUDS
+	local roots = findCandidates(origin, direction, pad, ignore, Hits.targetOf, CONFIG.CLAIM.MAX_TARGETS)
+	if #roots == 0 then
+		return castFn(origin, direction, ignore)
+	end
+	local at = Workspace:GetServerTimeNow() - rewind
+	local candidates: { Rewind.Candidate } = {}
+	local staticIgnore = table.clone(ignore)
+	for _, root in ipairs(roots) do
+		table.insert(staticIgnore, root)
+		local present = (root :: any).CFrame
+		local past = (historyProvider :: any)(root, at)
+		if typeof(present) == "CFrame" and typeof(past) == "CFrame" then
+			table.insert(candidates, { root = root, present = present, past = past })
+		end
+	end
+	local static = castFn(origin, direction, staticIgnore)
+	local rewound = Rewind.impact(origin, direction, candidates, castOnly, CONFIG.CLAIM.MAX_TARGETS)
+	stats.rewindCasts += #candidates
+	if rewound ~= nil then
+		stats.rewindHits += 1
+	end
+	return Rewind.nearer(static, rewound)
 end
 
 -- WHETHER THIS SERVER ACCEPTS CLAIMS, as a parameter beside the flag (task 266).
@@ -2334,6 +2444,10 @@ local function onFireRequest(player: Player, req: any): string?
 		-- queue free; the bore is what lets the owner re-step its own trajectory when it lands.
 		claim = claim,
 		bore = bore,
+		-- HOW FAR BACK THIS SHOOTER'S PICTURE IS (task 305). Taken at the trigger, like `muzzle`
+		-- and `firedAt`, because by the time the bullet lands the ping has moved on; `Weapon.rewindFor`
+		-- is the one thing that computes it and returns 0 when the flag or the policy is off.
+		rewindSeconds = Weapon.rewindFor(player, nil, CONFIG),
 		-- LAG COMPENSATION, THE FOURTH ARGUMENT (task 256). `Weapon.catchUpFor` is the one thing
 		-- that computes it and `Flight.launch` clamps it again; it is the shooter's own trip, so a
 		-- player on a good connection is given nothing and the lead he learns is the TRUE lead.
@@ -2757,10 +2871,11 @@ function Weapon.start()
 	-- server, made here and nowhere else: a grep for `flight:advance` under `src/` must find this
 	-- site alone (design 4.3, 6.2).
 	--
-	-- `castFn` IS READ PER FRAME, not captured once, so the seam `Weapon.setCast` writes is the one
-	-- the flight uses too -- which is what lets a spec's injected cast answer the pellets.
+	-- `resolvedCast` READS `castFn` PER CALL, not captured once, so the seam `Weapon.setCast` writes
+	-- is the one the flight uses too -- which is what lets a spec's injected cast answer the pellets
+	-- -- and it adds the task-305 rewound pass around it when the shot carries a `rewindSeconds`.
 	RunService.Heartbeat:Connect(function(dt)
-		local resolved = flight:advance(dt, castFn)
+		local resolved = flight:advance(dt, resolvedCast)
 		for _, res in ipairs(resolved) do
 			onShotLanded(res)
 		end

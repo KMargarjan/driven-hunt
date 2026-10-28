@@ -18,6 +18,7 @@
 --
 -- Design: docs/design/shotgun.md (sections 5.3, 5.5)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local Pierce = require(ReplicatedStorage:WaitForChild("Shotgun"):WaitForChild("Pierce"))
 
@@ -42,6 +43,68 @@ function Cast.world(origin: Vector3, direction: Vector3, ignore: { Instance })
 		-- the surface's own material -- the terrain's where it hit terrain, the part's where it hit
 		-- a part -- and it is the only thing this returns that is not geometry.
 		--   https://create.roblox.com/docs/reference/engine/classes/RaycastResult#Material
+		material = hit.material,
+	}
+end
+
+-- EVERY ANIMAL ROOT WHOSE BODY COULD BE ON THIS SEGMENT, within `padStuds` of it (task 305).
+--
+-- The pad is how far an animal can have moved over the rewind window, so a boar the shooter DREW on
+-- the line is a candidate even though the server has already carried it off the line.
+-- `GetPartBoundsInRadius` and not a second raycast: the question is "what is NEAR", not "what is
+-- hit", and `Pierce.cast` above is still the only ray this folder casts.
+--   https://create.roblox.com/docs/reference/engine/classes/WorldRoot#GetPartBoundsInRadius
+--
+-- `rootOf` is `Weapon.Hits.targetOf`, injected: this file does not know what an animal is either.
+function Cast.candidates(
+	origin: Vector3,
+	segment: Vector3,
+	padStuds: number,
+	ignore: { Instance },
+	rootOf: (Instance?) -> (Instance?, string),
+	maxTargets: number
+): { Instance }
+	local out: { Instance } = {}
+	if segment.Magnitude <= 1e-6 or maxTargets <= 0 then
+		return out
+	end
+	local params = OverlapParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = ignore
+	-- The sphere around the segment's middle that contains the whole segment plus the pad.
+	params.MaxParts = 200
+	local parts = Workspace:GetPartBoundsInRadius(origin + segment * 0.5, segment.Magnitude * 0.5 + padStuds, params)
+	local seen: { [Instance]: boolean } = {}
+	for _, part in ipairs(parts) do
+		local root = rootOf(part)
+		if root ~= nil and not seen[root] then
+			seen[root] = true
+			table.insert(out, root)
+			if #out >= maxTargets then
+				break
+			end
+		end
+	end
+	return out
+end
+
+-- ONE INSTANCE AND ITS DESCENDANTS, nothing else. The mirror of `Weapon.Claim.only` on this side,
+-- and `Pierce` is not optional: an Include filter sees a `ZonesOnly` animal's trunk, which is
+-- NEARER than every zone welded inside it (task 280 round 1).
+function Cast.only(instance: Instance, origin: Vector3, direction: Vector3)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = { instance }
+	params.IgnoreWater = true
+	local hit = Pierce.cast(params, origin, direction)
+	if not hit then
+		return nil
+	end
+	return {
+		instance = hit.instance,
+		position = hit.position,
+		normal = hit.normal,
+		distance = hit.distance,
 		material = hit.material,
 	}
 end
