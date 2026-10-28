@@ -3,28 +3,36 @@
 Task: 305
 Round: 2
 Base: 4130114e (main)
-Code commit: bbba8b40
+Code commit: 6b0d2271
 
 Harness, full suite, clean tree:
 
-    PENDING -- see "What I could NOT verify". The DEV Studio is held by the other Builder session
-    for its live matrix; this line is run and pasted the moment it is handed back.
+    PENDING_HARNESS_LINE
 
 `agents.needs_two_player` returns **False**: none of the paths this diff touches is in
 `TWO_PLAYER_PATHS` (which holds only `src/server/Match/`, `src/server/MatchBoot.server.luau`,
 `src/client/Match/`, `src/client/MatchBoot.client.luau`, `src/shared/Drive/`, `tests/client/Role.luau`
-and eleven named specs). The diff touches `src/server/Weapon/`, `src/server/MatchBoot.server.luau`,
-`src/server/ForestTestBoot.server.luau`, `src/server/RangeBoot.server.luau`, `src/shared/Shotgun/`,
-`src/shared/Flags/`, `tests/server/` and `tools/studio_mcp.py`.
+and eleven named specs). The NET diff against `main` touches `src/server/Weapon/{Rewind,Cast,Flight,init}.luau`,
+`src/server/RangeBoot.server.luau`, `src/server/Boar/Body.luau` (the other session's),
+`src/shared/Shotgun/init.luau`, `src/shared/Flags/init.luau`,
+`tests/server/weapon_rewind.spec.luau` and `tools/studio_mcp.py`.
 
-**NOTE -- `src/server/MatchBoot.server.luau` IS in `TWO_PLAYER_PATHS` and round 2 touches it** (three
-lines: the history provider is chained instead of replaced). So this round DOES need the
-`[harness2]` line as well, and round 1 did not. Both are pending with the Studio.
+**ROUND 2 BRIEFLY TOUCHED A TWO-PLAYER PATH AND ROUND 2b UN-TOUCHED IT.** `bbba8b40` chained the
+history provider through all three composition roots, which put
+`src/server/MatchBoot.server.luau` in the diff for three lines of plumbing. `6b0d2271` replaces that
+with `Weapon.addHistoryProvider`: `setHistoryProvider` keeps its exact meaning, the drive's two
+boots are untouched, and only `RangeBoot` gains a call. Verify:
+`git diff --name-only origin/main..HEAD` lists no `TWO_PLAYER_PATHS` file.
 
-**TWO BUILDER SESSIONS ARE ON THIS BRANCH.** This request covers only this session's half
-(`5296d523`). Session `9d5b3ff8` lands `part:SetNetworkOwner(nil)` in `src/server/Boar/Body.luau`
-separately. `ESCALATE.md` says why both halves are needed and in what order; **the Director must
-read it before merging either.**
+**TWO BUILDER SESSIONS ARE ON THIS BRANCH AND THE FIX HAS TWO HALVES.** This request covers this
+session's (`5296d523`) -- everything but `src/server/Boar/Body.luau`. That file is session
+`9d5b3ff8`'s commit `97d67896`: it **re-pins the trunk to the server in `Body.attachVisual`**, after
+the weld loop that rebuilds the assembly and reverts ownership to AUTO. `Body.create` already calls
+`trunk:SetNetworkOwner(nil)`; the weld undoes it, which is why the engine was handing a near animal
+to the nearest player and the lead's SIGN flipped with distance. Its live evidence and mine are in
+`reviews/task-305/MEASURED.md` (that session's file, quoted by reference here and not re-typed).
+`ESCALATE.md` says why both halves are needed and in what order; **the Director must read it before
+merging either.**
 
 ## What round 2 changed, finding by finding
 
@@ -32,11 +40,15 @@ read it before merging either.**
    through it.** The root is now inserted into `staticIgnore` only inside the accepted branch, and an
    empty candidate list returns `castFn(origin, direction, ignore)` untouched. `cframeAt` answers
    nil for four ordinary states and one of them was **every shot on the range**: `RangeBoot` builds
-   its own `Boar.newRuntime` and the single provider seam held only the drive's. So
-   `Weapon.setHistoryProvider` now RETURNS the provider it replaced (the shape `setClaimPolicy`
-   has) and all three composition roots CHAIN -- `MatchBoot`, `ForestTestBoot`, `RangeBoot` -- which
-   is what a lobby with two runtimes needs. Verify:
-   `grep -n "previousHistory" src/server/*.luau` (three sites, same shape).
+   its own `Boar.newRuntime` and the single provider seam held only the drive's. **Session
+   `9d5b3ff8` measured that consequence: case (c), rewind on and ownership unpinned, 0/6, and the
+   geometry probe caught the shot crossing 0.05 studs from the chest and carrying on to the berm --
+   the bullet went THROUGH the drawn animal.** The seam is now `Weapon.addHistoryProvider`:
+   `setHistoryProvider` keeps its exact old meaning and the drive's two boots are untouched,
+   `RangeBoot` adds its own runtime beside the primary, and `historyAt` walks primary-then-extras
+   with first-non-nil winning (`nil` from one runtime means "not mine", the seam's own documented
+   meaning). Verify: `grep -n "addHistoryProvider\|historyAt" src/server/Weapon/init.luau
+   src/server/RangeBoot.server.luau`.
 2. **`AIM_REWIND` ships `default = false`.** The Director's sentence authorised lit for the range,
    but this half alone is wrong wherever the CLIENT owns the animal, and session `9d5b3ff8` measured
    exactly that on the mat (+0.174 s in the FUTURE). So the row is dark until the ownership commit
@@ -116,12 +128,49 @@ plus `Ballistics.leadStuds` and nothing else.
 7. **The amount is the measurement and is not `CLAIM.VIEW_LAG_BASE_SECONDS`**, capped at
    `CLAIM.VIEW_LAG_MAX_SECONDS`, zero for a negative, a NaN or a missing ping. The `nil`-ping branch
    (the one `onFireRequest` itself takes) is now covered too.
-8. **The range gets the rewind.** `RangeBoot` chains its own runtime's `cframeAt` onto whatever the
-   drive's boot installed; without it the range had none, which was finding 1's live consequence.
+8. **The range gets the rewind.** `RangeBoot` ADDS its own runtime's `cframeAt` beside the drive's;
+   without it the range had none, which was finding 1's live consequence (0/6, measured). A spec
+   case proves the fall-through with no world: one provider wired, no rewind, no hit; add the
+   second and the same aim hits.
 9. **The new spec is in a scope**, and both selftests pass (`tools/studio_mcp.py selftest`,
-   `tools/agents.py selftest`, run at this commit).
+   `tools/agents.py selftest`), run by this session at `6b0d2271` and by session `9d5b3ff8` at
+   10:54 UTC over both halves combined, where `agents.needs_two_player` also returns empty.
 10. **Lint, format and build are clean at the code commit**, and CI is green on it
     (run 40674420086, success).
+
+## THE LIVE PROOF (session `9d5b3ff8`, `reviews/task-305/MEASURED.md`, DEV range mat 1)
+
+Rifle at the range's RUN pace, 10 real `FireRequest`s per case aimed at **that client's own rendered
+`ZoneChest`** plus `Ballistics.leadStuds` alone (`LEAD_T` 0.0476 s = the board's 1.18 studs at
+24 studs/s), hits counted off `HitMarker.OnClientEvent` with the zone it names, `StateChanged` read
+so a refused trigger is never counted as a miss:
+
+| case | build | hits |
+|---|---|---|
+| (a) both halves dark -- **the fail-first** | pre-`605e1f6d` | **0/10** (8 flew, all missed) |
+| (b) ownership pinned live, no rewind | pre-`605e1f6d` | **VOID**: 9 of 10 refused `no-ammo` |
+| (c) rewind on, ownership unpinned | `605e1f6d` | **0/6** -- round 1 finding 1, caught geometrically |
+| (d) **both halves on** | `97d67896` + `AIM_REWIND` override on | **10 hits in 11 shots that flew** |
+
+(d)'s zones: chest x6, body x4. The one miss was at a measured 12.5 studs/s; at pace >= 15 studs/s
+it is **6 for 6**. Impacts land **0.02-0.15 studs from the aim point**, and the view lag on that
+build reads **+0.141 s** against +0.176 s before. Second gun family, **shotgun SLUG at run: 4/6**,
+both full-pace shots in the chest, two shots produced no impact at all.
+
+The other two paces, same rig (`MEASURED.md` section 3): **WALK 6/6** (chest x5, rear x1) at a drawn
+4.4-11.1 studs/s, **TROT 4/4 of the shots that flew** at 5.6-9.3 studs/s. Totals with both halves
+on: **20 hits in 21 shots that flew across the three paces**, against **0 of 8 that flew with both
+halves dark at run**.
+
+**AND THE CAVEAT THAT SESSION WROTE BESIDE ITS OWN NUMBERS, kept rather than dropped**: the walk and
+trot rows were read at LOW drawn speeds, because the probe fires as soon as the target exceeds
+4 studs/s and so catches it accelerating out of a respawn. At those speeds the whole demanded lead
+is under half a stud and **the hit rate stops discriminating** -- a build with no fix would pass
+them too. **RUN is the row that carries the claim**: lead 1.1-1.4 studs against a 4-stud error.
+
+**So the target (>= 8/10 chest-or-body per pace per gun) is MET for the rifle at run, met but NOT
+DISCRIMINATING at walk and trot, and NOT MET for the shotgun slug at 4/6.** The numbers are reported
+as they read.
 
 ## What I could NOT verify (rule 8)
 
@@ -129,18 +178,20 @@ plus `Ballistics.leadStuds` and nothing else.
   and `python tools/studio_mcp.py test` needs Edit mode and refuses to start while a flag override
   is set. Round 2 also touches `src/server/MatchBoot.server.luau`, which IS a two-player path, so it
   needs `[harness2]` as well -- a human click. Neither line is faked and neither is in this file.
-- **THE CLICK PROOF STILL DID NOT RUN IN THIS SESSION, so >= 8/10 per pace per gun is NOT PROVEN and
-  no frame was taken.** In the DEV arena the request is refused before anything is cast: the client
-  probe's `StateChanged` listener caught `REFUSED off-stand` verbatim (`Rules.OFF_STAND`) because no
-  drive had assigned the man a stand. The pace driver works (`<runs-dir>/305-pace.luau` reads back
-  `boarvel=24.00` against an asked 24 and crosses the lane) and the aim arithmetic works; no shot
-  flew. Session `9d5b3ff8` holds the rig on the range mat where the gates are relaxed.
-- **Nothing of this change has been seen on screen, in any place.** Round 1's note said so and it is
-  still true. The only live numbers quoted here are the two `305lag.py` recordings and session
-  `9d5b3ff8`'s mat readings of **her shipped build, which has no rewind**: auto-ownership = the
-  client draws the running target +4.18 studs ahead (0.174 s in the FUTURE), 0/10 hits with
-  ballistic lead only; with `SetNetworkOwner(nil)` live = -4.74 studs (0.213 s in the PAST), still
-  0/10. Attributed to that session, not re-measured here. **Every core item is NOT PROVEN until a
-  shot is seen to land on a running animal aimed at the drawn chest plus `Ballistics.leadStuds`.**
+- **THIS SESSION's own click case never fired a shot**, and the rows above are the other session's.
+  In the DEV ARENA the request is refused before anything is cast: my client probe's `StateChanged`
+  listener caught `REFUSED off-stand` verbatim (`Rules.OFF_STAND`), because no drive had assigned
+  the man a stand. The pace driver works (`<runs-dir>/305-pace.luau` reads back `boarvel=24.00`
+  against an asked 24 and crosses the lane) and the aim arithmetic works; the range mat, where the
+  gates are relaxed, is the door, and session `9d5b3ff8` had the rig there.
+- **STILL NOT PROVEN, named rather than implied**: the lever and the semi-auto;
+  buckshot; any HUNT animal (a boar or a deer in a drive) -- every row above is a range target.
+  **The shotgun slug is 4/6, which is BELOW the target**, and nothing explains the two shots that
+  produced no impact at all. **No frame of any of it has been looked at by this session.**
+- **NOTHING HAS BEEN SEEN IN KAREN'S OWN PLACE with both halves on.** Her Forest Test reading is of
+  her SHIPPED build, which has neither half: the client draws the running range target **+4.18
+  studs AHEAD** (0.174 s in the FUTURE, the ring-based instrument) and **0/10** hits with ballistic
+  lead only. Every row in the proof table above is DEV. The Playtester playing her place is what
+  closes this, and until then rule 5 is NOT met for this change.
 - **`Weapon.stats()` read through an MCP probe is worthless and is quoted nowhere.** `require` in
   that thread hands back a FRESH module whose counters are 0.
