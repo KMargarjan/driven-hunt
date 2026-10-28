@@ -384,8 +384,15 @@ end
 
 -- THIS PLAYER'S STAND CIRCLE, or nil for "he has none" -- a beater, a player between drives, a
 -- hunter whose 15 s pick has not locked.
-function Weapon.setStandProvider(provider: ((Player) -> Rules.StandArea?)?)
+--
+-- ...AND IT HANDS BACK THE ONE IT IS REPLACING (task 301), for `setDriveOpenProvider`'s reason. It
+-- was the one setter of the four that returned nothing, so `Range.installOver` captured a nil base
+-- and the composed provider answered "no stand" for everybody everywhere -- the drive's own rule
+-- gone server-wide (reviews/task-298/RESULT.md finding 1).
+function Weapon.setStandProvider(provider: ((Player) -> Rules.StandArea?)?): ((Player) -> Rules.StandArea?)?
+	local previous = standProvider
 	standProvider = provider
+	return previous
 end
 
 -- WHICH SPECIES HE IS LICENSED FOR. STILL UNWIRED AFTER THE SHOP (task 178), and the promise this
