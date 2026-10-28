@@ -1,7 +1,7 @@
 # Task 301 -- `Weapon.setStandProvider` hands back the provider it replaces
 
 Task: 301
-Round: 1
+Round: 2
 Base: task-298b4-range-menu @ 89e7068b
 Code commit: ec81b7681392addbc68d2faa9d720e285bc8399f
 
@@ -68,18 +68,32 @@ Both pass at `ec81b768`.
 7. The old weak case is gone, not left beside the new one (L-028). Verify: `grep -c "hands back NO
    STAND AREA" tests/server/range.spec.luau` is 0, and the surviving pure-function assertion
    (`Range.standOver(nil)(away) == nil`) lives inside the new case.
-8. LIVE in DEV, `RANGE` on, read off the gun's `StateChanged` wire
-   (`<runs-dir>/301-live.out`, probe `<runs-dir>/301-live.luau`, built from B4's saved
-   `298b4-zoneshot.luau`):
+8. LIVE in DEV, `RANGE` on, ON THE REAL MAT -- round 1's reading was taken at the spawn point, where
+   `Range.spotAt` answers nil for both positions, so the Reviewer was right that it survived the
+   change's deletion. Retaken at `x = 1200, z = 0` (`map:v1`'s own anchor row), probe
+   `<runs-dir>/301-live2.luau`, output `<runs-dir>/301-live2.out`, in a session whose log carries
+   both boot lines:
    ```
-   ON THE MAT at -560, 5.149998664855957, -700
-   OFF THE MAT at -520, 5.149998664855957, -660 (moved 56.6 studs)
-      tool in the character: Shotgun
+   [range] built in 0 ms (5 parts)
+   [RangeBoot] the range's three relaxations and the four guns on loan are composed
+   ```
+   ```
+   world anchor 1200, 0, 0  mat 1200, 0, 0
+   teleported to 1200, 4.149999141693115, 0
+   trunk Boar2  chest part ZoneChest1
+   attempt 1: aimed at 1200.03, 2.14, 125.00 (ZoneChest1) | my ray crossed Boar2 | server said nothing
+      SHOTS 1   HITS 1   MISS 0  //  HEAD 0  CHEST 1  BODY 0  REAR 0  LEGS 0  MISS 0
+   ON THE MAT at 1200, 4.149999141693115, 0 onMat=true
+      ON-MAT SHOT: server said nothing (allowed)
+   OFF THE MAT at 1240, 3.149998903274536, 40 onMat=false
       OFF-MAT SHOT: server said refused=off-stand notice=NOT IN YOUR STAND
-      BACK ON THE MAT: server said nothing (allowed)
    ```
-   The off-stand refusal is the gate finding 1 proved was DEAD server-wide: with the base lost it
-   could never fire for anybody. It fires now, from the composed provider, in a world with `RANGE` on.
+   `onMat` is `RangeData.spotAt(anchor, position, LAYOUT) ~= nil` read at each position, so the two
+   sides are the mat and off it by the owner's own measurement. THE ASYMMETRY IS THE PROOF AND IT
+   DIES WITH THE CHANGE: with the base lost (the state at `89e7068b`) the composed provider answers
+   nil for every player everywhere, `Rules.outsideStand` answers false by its own first line, and the
+   OFF-MAT shot would be ALLOWED like the on-mat one. It is refused. The mat shot also LANDS --
+   SHOTS 1, HITS 1, CHEST 1 off the board -- so the on-mat relaxation is intact.
 9. `tools/studio_mcp.py selftest` and `tools/agents.py selftest` both pass (rule G); no new spec file
    was added, so `SCOPE_SPECS` is unchanged.
 10. Lint and format clean: `selene src`, `selene --config tests/selene.toml tests`,
@@ -87,11 +101,12 @@ Both pass at `ec81b768`.
 
 ## What I could not verify
 
-**The mat half of the live proof is NOT OBTAINABLE in DEV this session, measured.** With `RANGE` on
-and Play running, `Workspace.Range` and `Workspace.RangeTargets` both had **0 children**
-(`<runs-dir>/301-mat.luau`), so no mat and no target existed: the probe's first half reported
-`trunk nil  chest part nil` and the board stayed `no shots yet`. So SHOTS/HITS could not be moved and
-the "one shot from the mat still lands" reading is not in this round. What IS in it is the half this
-task is about -- the off-stand refusal above, which is the rule finding 1 killed -- plus the on-mat
-`composedStand(onMat) == nil` path in the spec. Nothing in this step has been seen in Karen's place:
-`RANGE` is born OFF and nothing is merged.
+Nothing in this change has been seen in Karen's place: `RANGE` is born OFF, `Range.ANCHORS` has no
+`forest-test` row, and nothing is merged. Both live readings above are DEV ONLY.
+
+Round 1's non-blocking notes, answered: claim 3's wording is corrected here -- there is a SECOND
+difference from `89e7068b`'s `compose`, `armFallback(player) == true` where it had
+`Shotgun.CONFIG.shouldArm(player)` raw (behaviour-identical today, since that function is
+`return true`). The two notes about the spec case (the `uninstall` assertion leaning on the
+return-value case, and the span between `installOver` and `uninstall`) are queued in `TASKS.md`
+rather than fixed: the round cap is 2 and the code commit is already evidenced.
