@@ -3,11 +3,11 @@
 Task: 305
 Round: 2
 Base: 4130114e (main)
-Code commit: 6b0d2271
+Code commit: 29476a7712d76b8200bd2c5caf936707f2e72ef8
 
 Harness, full suite, clean tree:
 
-    PENDING_HARNESS_LINE
+    [harness] PASS: 34/34 checks @ 29476a7712d76b8200bd2c5caf936707f2e72ef8 (clean tree) scope=all
 
 `agents.needs_two_player` returns **False**: none of the paths this diff touches is in
 `TWO_PLAYER_PATHS` (which holds only `src/server/Match/`, `src/server/MatchBoot.server.luau`,
@@ -174,10 +174,13 @@ as they read.
 
 ## What I could NOT verify (rule 8)
 
-- **THE GATE LINES ARE PENDING.** The DEV Studio is held by session `9d5b3ff8` for its live matrix,
-  and `python tools/studio_mcp.py test` needs Edit mode and refuses to start while a flag override
-  is set. Round 2 also touches `src/server/MatchBoot.server.luau`, which IS a two-player path, so it
-  needs `[harness2]` as well -- a human click. Neither line is faked and neither is in this file.
+- **`[harness2]` WAS NOT RUN, and is N/A**: the net diff against `main` contains no
+  `TWO_PLAYER_PATHS` file (round 2b removed the only one), so `agents.needs_two_player` is empty for
+  this half and for both halves combined. The one-player line above is the gate, for the PR to
+  `main` as well.
+- **The harness line names `29476a77`, which is the commit holding this file's previous revision.**
+  That is the allowed shape (git workflow step 4: a later paperwork commit only tightens the bound)
+  and the only thing committed after it is this file.
 - **THIS SESSION's own click case never fired a shot**, and the rows above are the other session's.
   In the DEV ARENA the request is refused before anything is cast: my client probe's `StateChanged`
   listener caught `REFUSED off-stand` verbatim (`Rules.OFF_STAND`), because no drive had assigned
