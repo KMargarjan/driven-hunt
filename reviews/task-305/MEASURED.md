@@ -55,8 +55,23 @@ Case (c)'s mechanism was caught geometrically rather than inferred (`<runs-dir>/
 1 crossed (1233.92, 2.17) against a chest at (1233.90, 2.20) -- 0.05 studs -- and carried on to
 `Workspace.Range.Berm`. The bullet passed THROUGH the drawn animal.
 
-## 3. NOT PROVEN
+## 3. The other two paces, both halves on
 
-Walk and trot; the lever and the semi-auto; buckshot; any hunt animal (boar or deer in a drive).
-The two halves share `Weapon`'s resolution and the one animal runtime, but nothing here has run
-them, and a label proven on one selection does not prove the class.
+Same rig, same aim rule, rifle. WALK at `97d67896`: **6/6** (chest x5, rear x1), measured drawn speed
+4.4-11.1 studs/s. TROT at `6b0d2271`: **4/4 of the shots that flew** (two lines are "no live target at
+pace"), 5.6-9.3 studs/s.
+
+**Those two speeds are honest and they are low.** The range's own target is picked up as soon as it
+is moving (the probe fires at > 4 studs/s), so a walk and a trial that begins just after a respawn
+are read in the animal's acceleration, not at the pace's own speed -- which also means the whole
+demanded lead there is under half a stud, so the hit rate is a weak instrument at those paces. The
+discriminating row is RUN, where the lead is 1.1-1.4 studs and the error being cancelled is 4 studs.
+
+Both halves on, every pace: **20 hits in 21 shots that flew** (run 10/11, walk 6/6, trot 4/4).
+Both halves dark, run: **0 of 8 that flew**.
+
+## 4. NOT PROVEN
+
+The lever and the semi-auto; buckshot; any hunt animal (a boar or a deer in a drive, rather than the
+range's own target). The two halves share `Weapon`'s resolution and the one animal runtime, but
+nothing here has run them, and a label proven on one selection does not prove the class.
