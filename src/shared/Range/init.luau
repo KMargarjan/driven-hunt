@@ -372,8 +372,14 @@ function Range.fieldFor(anchor: Vector3, layout, downrange: number?)
 			minZ = math.min(nearZ, farZ) - slack,
 			maxZ = math.max(nearZ, farZ) + slack,
 		},
-		-- BEHIND THE FIRING LINE, which is the opposite of downrange.
-		exitZ = anchor.Z - dir * Range.FIELD_EXIT_BEHIND_STUDS,
+		-- SOUTH OF THE WHOLE FIELD, FOR BOTH ROWS, because `Brain:_outcome`'s despawn test is
+		-- `position.Z <= field.exitZ` and ITS direction is not a parameter: a signed exit put
+		-- Karen's line NORTH of her lane and despawned every ordered target as `escaped` on the
+		-- first order (round 2, finding 1). -400 for DEV, -3741 for the forest row.
+		-- Director's decision, 2026-10-28: a wounded target at a range therefore flees DOWNRANGE
+		-- into the berm (`Brain:_flee` heads for `exitZ`), which is wanted -- nothing ever runs
+		-- back over the firing line.
+		exitZ = math.min(nearZ, farZ) - Range.FIELD_EXIT_BEHIND_STUDS,
 		groundY = anchor.Y,
 	}
 end

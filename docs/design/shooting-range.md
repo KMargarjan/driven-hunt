@@ -84,6 +84,9 @@ Range.ANCHORS = {
 }
 ```
 
+- **The exit line is NOT signed.** `Range.fieldFor`'s `exitZ` is south of the whole field for
+  both rows, because `Brain:_outcome`'s despawn predicate is one-sided (section 5's field row,
+  and the Director's 2026-10-28 decision on which way a wounded target runs).
 - **`downrange` is the lane's direction along z, as DATA on the row** (step B6): `+1` is the DEV
   row's north, `-1` is Karen's south, through ONE arithmetic (`laneCentre`, `laneEnds`,
   `screenPosition`, `fieldFor`, each taking the sign) and never a branch on the world's name.
@@ -214,7 +217,7 @@ drive's.** Three measured reasons:
 | Field | Value | Why |
 |---|---|---|
 | `folderName` | `"RangeTargets"` | its own folder. `Workspace.Boars` keeps one writer |
-| `field` | `Range.fieldFor(anchor, LAYOUT, downrange)` — the lane's rectangle plus 60 studs of slack, `exitZ` 400 studs BEHIND the firing line, `groundY` = the shelf | an exit the target can never reach, so nothing despawns mid-crossing |
+| `field` | `Range.fieldFor(anchor, LAYOUT, downrange)` — the lane's rectangle plus 60 studs of slack, `exitZ` 400 studs SOUTH OF THE WHOLE FIELD (`math.min(nearZ, farZ) - 400`), `groundY` = the shelf | an exit the target can never reach, so nothing despawns mid-crossing. **It is NOT signed with `downrange`** (step B6, round 3): `Brain:_outcome`'s test is `position.Z <= field.exitZ` and its direction is not a parameter, so a signed exit put Karen's line north of her lane and despawned every ordered target on the first order. **Director's decision, 2026-10-28:** a wounded target at a range therefore flees DOWNRANGE into the berm (`Brain:_flee` heads for `exitZ`) — which is wanted: nothing ever runs back over the firing line |
 | `threats` | `function() return {} end` | **nobody is a threat at a range.** With the shipped `defaultWorld.threats`, `Brain.perceive` would see the shooter 125 studs away (`SENSE` notices a moving person at 60) and the target would flee the lane |
 | `config.LINE.ENABLED` | `true` | **required in both worlds:** `Brain:leadTo` returns false when `LINE.ENABLED ~= true` |
 | `config.SENSE.ENABLED` | `false` | belt to the `threats` brace: the lane is a route, not a reaction |
