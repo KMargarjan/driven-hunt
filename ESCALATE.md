@@ -529,3 +529,40 @@ Nothing here is merged and nothing is in Karen's place: B6 is still what puts a 
 lifted for this one round). Item 1 above — the 11.3 live scenario with `RANGE` at its default — is
 **the Director's decision, not an open question**: the flag stays OFF by default until Karen OKs the
 flip (the feature-flag rule), and the scenario is queued in `TASKS.md` for that flip.
+
+## 2026-10-28 00:12 UTC — Task 298 step B4: round 3 returned FINDINGS, so the step stops
+
+Round 3 was the Director's authorised last round, and its verdict
+(`reviews/task-298/RESULT.md`, commit `30e17201`) has 2 blocking findings. **Both are correct and
+both are mine, introduced by round 3's own fix.** I am not arguing against either.
+
+**The regression, stated plainly: with `RANGE` on, the drive's stand rule is dead server-wide.**
+`Weapon.setStandProvider` is the ONE setter of the four that returns nothing —
+`src/server/Weapon/init.luau:387` has no `local previous` and no `return`, while `setArmingPolicy`
+(line 631), `setDriveOpenProvider` and `setEntitlementProvider` all end `return previous`. So
+`RangeBoot`'s `baseStand` is nil for ever, `Range.standOver`'s composed provider answers nil for
+every player at every position, and `MatchBoot`'s `Weapon.setStandProvider(Match.standAreaFor)` is
+overwritten and unrecoverable. `Rules.outsideStand(position, nil)` is false by its first line, so
+"NOT IN YOUR STAND" refuses nobody anywhere from the first Heartbeat of such a world. My own case
+could not see it because it hand-built the base instead of installing one through the shipped setter.
+
+**It cannot reach Karen today**, and that is measured, not assumed: `RANGE` is born OFF, `RangeBoot`
+returns before `compose()` with the flag off, and the Director has just decided the flag stays OFF
+until Karen OKs the flip. Nothing is merged.
+
+**The fix, for whoever picks it up (three lines plus a case):**
+1. `Weapon.setStandProvider` returns the provider it replaces, the shape its three siblings already
+   have — and a `weapon_*.spec` case asserting that return value, since nothing asserts it today.
+2. `range.spec`'s *"hands back NO STAND AREA on the mat…"* must install a real base **through
+   `Weapon.setStandProvider`** and compose exactly as `RangeBoot` does, then assert the drive's area
+   survives for a man off the mat. The same spec file already drives that setter in the
+   `Weapon.ShotResolved` case, so the shipped path is reachable from there.
+3. Re-run the gate and review.
+
+**What round 3 DID establish, and it stands:** the range hit. The cause of "no resolved shot" was
+`refused=off-stand notice=NOT IN YOUR STAND` — design 7.4's *"no stand → no rule"* is false wherever
+a drive also runs. A real shot then landed: `SHOTS 5 HITS 2 MISS 3`, `CHEST 2`, the target died and
+was replaced, and a deliberate miss read `MISS GAP 3.4 m behind`
+(`<runs-dir>/298b4-zoneshot.luau`, outputs `298b4-kill3.out` / `298b4-kill2.out`, frame
+`.screenshots/298b4-board-hit.png`). The relaxation is the right idea; its WIRING is what finding 1
+refuses.
