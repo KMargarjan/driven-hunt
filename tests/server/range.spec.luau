@@ -1223,11 +1223,32 @@ return function()
 			Range.stop()
 		end)
 
-		it("hands back NO STAND AREA on the mat, so the drive's stand cannot refuse a range shot", function()
+		it("hands back the stand provider it is replacing", function()
+			-- THE PRODUCER THE COMPOSED BASE IS MADE OF (task 301): `setStandProvider` returned nothing,
+			-- so `installOver` captured a nil base and the composition answered nil everywhere
+			-- (reviews/task-298/RESULT.md finding 1). The other three setters have had this shape since
+			-- tasks 150 and 298.
+			local function first(_player)
+				return nil
+			end
+			local function second(_player)
+				return nil
+			end
+			local was = Weapon.setStandProvider(first)
+			expect(Weapon.setStandProvider(second)).to.equal(first)
+			expect(Weapon.setStandProvider(nil)).to.equal(second)
+			expect(Weapon.setStandProvider(was)).to.equal(nil)
+		end)
+
+		it("keeps the drive's stand off the mat and drops it on the mat, through the boot's own compose", function()
 			-- MEASURED IN DEV, 2026-10-27: a real `FireRequest` from the mat came back
 			-- `refused=off-stand notice=NOT IN YOUR STAND`, because the drive had dealt the lone
 			-- player a stand 1200 studs away. Design 7.4's *"no stand -> no rule"* is false whenever
 			-- a drive is also running, which is Karen's place.
+			--
+			-- IT INSTALLS A REAL BASE AND COMPOSES THROUGH `Range.installOver` -- the function
+			-- `RangeBoot.compose` calls -- rather than hand-building the base, which is how round 3's
+			-- own regression stayed green (reviews/task-298/RESULT.md finding 2).
 			Range.stop()
 			local fake = newFakeBoars()
 			local _, now = newClock()
@@ -1236,20 +1257,33 @@ return function()
 			local onMat = manOn(mat, 113)
 			local away = manOn(mat + Vector3.new(600, 0, 0), 114)
 			local driveArea = { centre = Vector3.new(0, 0, 0), radius = 24 }
-			local provider = Range.standOver(function(_player)
+			local function base(_player)
 				return driveArea
-			end)
+			end
 
-			-- ON THE MAT: no area, and `Rules.outsideStand` answers FALSE for a nil area by its own
-			-- first line -- which is the whole mechanism, asserted through the shipped function.
-			expect(provider(onMat)).to.equal(nil)
-			expect(Rules.outsideStand(mat, provider(onMat))).to.equal(false)
-			-- OFF THE MAT: the drive's own area, untouched, and the rule still bites.
-			expect(provider(away)).to.equal(driveArea)
-			expect(Rules.outsideStand(mat, provider(away))).to.equal(true)
-			expect(Rules.outsideStand(Vector3.new(0, 0, 0), provider(away))).to.equal(false)
+			local wasStand = Weapon.setStandProvider(base)
+			local uninstall = Range.installOver(nil)
+			-- THE COMPOSED PROVIDER, READ OUT OF THE OWNER THAT HOLDS IT, then put straight back.
+			local composedStand = Weapon.setStandProvider(nil)
+			Weapon.setStandProvider(composedStand)
+			expect(type(composedStand)).to.equal("function")
+			expect(composedStand).never.to.equal(base)
+
+			-- OFF THE MAT: the drive's own area survives, and the rule still refuses a shot outside it.
+			expect(composedStand(away)).to.equal(driveArea)
+			expect(Rules.outsideStand(mat, composedStand(away))).to.equal(true)
+			expect(Rules.outsideStand(Vector3.new(0, 0, 0), composedStand(away))).to.equal(false)
+			-- ON THE MAT: no area, so `Rules.outsideStand` answers false by its own first line and the
+			-- range shot is allowed.
+			expect(composedStand(onMat)).to.equal(nil)
+			expect(Rules.outsideStand(mat, composedStand(onMat))).to.equal(false)
+
+			-- UNINSTALL PUTS THE BASE BACK, the same identity that was installed.
+			uninstall()
+			expect(Weapon.setStandProvider(base)).to.equal(base)
 			-- WITH NO BASE PROVIDER nothing is invented: still no area.
 			expect(Range.standOver(nil)(away)).to.equal(nil)
+			Weapon.setStandProvider(wasStand)
 			Range.stop()
 		end)
 

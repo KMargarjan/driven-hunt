@@ -209,31 +209,19 @@ end)
 -- ------------------------------------------------------------------ THE GUN, ON LOAN (7.4)
 --
 -- THE TWO RELAXATIONS AND THE LOAN, COMPOSED OVER WHATEVER THIS WORLD ALREADY WIRED. `Range` builds
--- the functions (`armingOver`, `driveOpenOver`, `entitlementOver`); this line installs them and keeps
--- the base each setter hands back, so `MatchBoot`'s own answer is never lost and no caller is edited.
+-- the functions (`armingOver`, `driveOpenOver`, `entitlementOver`, `standOver`) and `installOver`
+-- installs them, keeping the base each of the four setters hands back -- `setStandProvider` hands one
+-- back since task 301 -- so `MatchBoot`'s own answer is never lost and no caller is edited.
 --
 -- ON THE FIRST HEARTBEAT, NOT AT REQUIRE TIME: boot Scripts run in no defined order, and composing
 -- during the loading stage would capture a base `MatchBoot` had not installed yet -- and then be
 -- overwritten by it. The first Heartbeat is after every server Script has run.
 local composed = false
 local function compose()
-	local baseArming: any = nil
-	local baseDriveOpen: any = nil
-	local baseOwned: any = nil
-	local baseStand: any = nil
-	baseArming = Weapon.setArmingPolicy(Range.armingOver(function(player)
-		return if baseArming ~= nil then baseArming(player) == true else Shotgun.CONFIG.shouldArm(player)
-	end))
-	baseDriveOpen = Weapon.setDriveOpenProvider(Range.driveOpenOver(function(player)
-		return if baseDriveOpen ~= nil then baseDriveOpen(player) else nil
-	end))
-	baseOwned = Weapon.setEntitlementProvider(Range.entitlementOver(function(player)
-		return if baseOwned ~= nil then baseOwned(player) else nil
-	end))
-	-- THE THIRD RELAXATION (round 3): without it the drive's stand refuses every shot on the mat.
-	baseStand = Weapon.setStandProvider(Range.standOver(function(player)
-		return if baseStand ~= nil then baseStand(player) else nil
-	end))
+	-- THE BODY LIVES IN `Range.installOver` (task 301), so the spec drives THIS composition rather
+	-- than a copy of it. This root passes the one thing the module must not require: the gun's own
+	-- "arm him anyway" answer.
+	Range.installOver(Shotgun.CONFIG.shouldArm)
 	print("[RangeBoot] the range's three relaxations and the four guns on loan are composed")
 end
 

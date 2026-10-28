@@ -357,6 +357,40 @@ function Range.entitlementOver(base: ((any) -> { [string]: boolean }?)?): (any) 
 	end
 end
 
+-- THE FOUR INSTALLS, AS ONE FUNCTION THE BOOT AND THE SPEC BOTH CALL (task 301). The body used to
+-- live inside `RangeBoot.compose`, where a spec could only COPY it -- and a copy could not see that
+-- `Weapon.setStandProvider` handed nothing back (reviews/task-298/RESULT.md findings 1 and 2).
+-- `armFallback` is the boot's own "arm him anyway" answer, passed in so this module gains no
+-- dependency on a weapon's config. It returns the UNINSTALL, which puts each base back.
+function Range.installOver(armFallback: ((any) -> boolean)?): () -> ()
+	local baseArming: any = nil
+	local baseDriveOpen: any = nil
+	local baseOwned: any = nil
+	local baseStand: any = nil
+	baseArming = Weapon.setArmingPolicy(Range.armingOver(function(player)
+		if baseArming ~= nil then
+			return baseArming(player) == true
+		end
+		return if armFallback ~= nil then armFallback(player) == true else false
+	end))
+	baseDriveOpen = Weapon.setDriveOpenProvider(Range.driveOpenOver(function(player)
+		return if baseDriveOpen ~= nil then baseDriveOpen(player) else nil
+	end))
+	baseOwned = Weapon.setEntitlementProvider(Range.entitlementOver(function(player)
+		return if baseOwned ~= nil then baseOwned(player) else nil
+	end))
+	-- THE THIRD RELAXATION (round 3): without it the drive's stand refuses every shot on the mat.
+	baseStand = Weapon.setStandProvider(Range.standOver(function(player)
+		return if baseStand ~= nil then baseStand(player) else nil
+	end))
+	return function()
+		Weapon.setArmingPolicy(baseArming)
+		Weapon.setDriveOpenProvider(baseDriveOpen)
+		Weapon.setEntitlementProvider(baseOwned)
+		Weapon.setStandProvider(baseStand)
+	end
+end
+
 -- THE PACE, FOR ONE SPOT. In step B2 the Director and the spec are the only callers; step B4's
 -- `Range.onRequest` validates a player's pick with `RangeData.optionAllowed` and then calls this.
 function Range.setPace(spot: number, pace: string): boolean
