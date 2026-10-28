@@ -14,6 +14,9 @@ return function()
 	local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 	local scripts = StarterPlayer:WaitForChild("StarterPlayerScripts")
 	local Hud = scripts:WaitForChild("Hud")
+	-- THE RUNNING HUD ITSELF (task 304), for `Hud.rangeBoard()` / `Hud.rangePanel()`: the frames the
+	-- client actually drew, the `hud_clarity.spec` shape. Nothing happens on require.
+	local HudModule = require(Hud)
 	local RangePanel = require(Hud:WaitForChild("RangePanel"))
 	local RangeBoard = require(Hud:WaitForChild("RangeBoard"))
 	local Cursor = require(scripts:WaitForChild("Camera"):WaitForChild("Cursor"))
@@ -439,8 +442,8 @@ return function()
 		it(
 			"puts NOTHING of the board on screen while the menu is shut, and the numbers in it when it is open",
 			function()
-				local board = Hud.rangeBoard()
-				local menu = Hud.rangePanel()
+				local board = HudModule.rangeBoard()
+				local menu = HudModule.rangePanel()
 				expect(board).to.be.ok()
 				expect(menu).to.be.ok()
 				local player = game:GetService("Players").LocalPlayer
@@ -484,8 +487,8 @@ return function()
 		)
 
 		it("sits INSIDE the menu's own rectangle, so it is a page of the menu and not a panel over the lane", function()
-			local board = Hud.rangeBoard()
-			local menu = Hud.rangePanel()
+			local board = HudModule.rangeBoard()
+			local menu = HudModule.rangePanel()
 			expect(board).to.be.ok()
 			expect(menu).to.be.ok()
 			-- BOTH ARE ANCHORED TO THE SCREEN CENTRE, so the containment is arithmetic on the
