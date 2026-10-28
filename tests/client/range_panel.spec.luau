@@ -257,9 +257,10 @@ return function()
 
 			-- ...AND ONE PRESS CANNOT TOGGLE TWICE. The binding and the engine's own prompt can both
 			-- answer one keystroke; without the debounce the menu opened and shut again.
+			local swallowedBefore = RangePanel.stats().swallowed
 			RangePanel.onPromptTriggered(100.05)
 			expect(RangePanel.isOpen()).to.equal(true)
-			expect(RangePanel.stats().swallowed).to.equal(1)
+			expect(RangePanel.stats().swallowed).to.equal(swallowedBefore + 1)
 			-- A LATER press is a real second press.
 			RangePanel.onPromptTriggered(100 + RangePanel.TRIGGER_DEBOUNCE + 0.01)
 			expect(RangePanel.isOpen()).to.equal(false)
@@ -267,10 +268,13 @@ return function()
 			-- THE KEY GOES WITH HIM: off the spot it is unbound, so nothing answers E in the wood.
 			RangePanel.setNear(false)
 			expect(RangePanel.hasKey()).to.equal(false)
+			expect(RangePanel.isOpen()).to.equal(false)
 			RangePanel.setNear(true)
 			RangePanel.setEnabled(false)
 			expect(RangePanel.hasKey()).to.equal(false)
+			-- Left exactly as it was found, so nothing after this case inherits a freed cursor.
 			RangePanel.setEnabled(true)
+			RangePanel.setNear(false)
 		end)
 
 		it("clears the kind when the animal changes, so a stale word cannot ride along", function()
