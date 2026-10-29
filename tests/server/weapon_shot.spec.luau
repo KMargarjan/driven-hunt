@@ -1925,15 +1925,35 @@ return function()
 	-- corridor at the range, and in the wood nothing is appended at all.
 	describe("Weapon.setIgnoreProvider", function()
 		it("appends the provider's instances for the aim ray AND for the trigger, and nothing when unwired", function()
+			-- READY, AND RELOADED IF IT HAS TO BE (`range.spec`'s `readyShooter`): the harness's
+			-- player has been shooting for the whole run by the time this file is reached, so a
+			-- case that only LOOKS for a Live barrel measures the replay's timing, not this seam.
 			local subject = nil
 			local roster = {}
-			for _, player in ipairs(Players:GetPlayers()) do
-				local state = Weapon.getSnapshot(player)
-				local live = state ~= nil and state.equipped == true and state.barrels[state.selected] == "Live"
-				table.insert(roster, player.Name .. (if live then "(armed)" else "(not armed)"))
-				if subject == nil and live then
-					subject = player
+			for _ = 1, 20 do
+				roster = {}
+				for _, player in ipairs(Players:GetPlayers()) do
+					local state = Weapon.getSnapshot(player)
+					if state ~= nil and state.equipped == true and state.barrels[state.selected] ~= "Live" then
+						Weapon.refillForDrive(player, 306306)
+						Weapon.onActionRequest(player, "Reload", nil, nil)
+						task.wait(0.3)
+						state = Weapon.getSnapshot(player)
+					end
+					local live = state ~= nil
+						and state.equipped == true
+						and state.open == false
+						and (state.busyFor or 0) <= 0
+						and state.barrels[state.selected] == "Live"
+					table.insert(roster, player.Name .. (if live then "(armed)" else "(not armed)"))
+					if subject == nil and live then
+						subject = player
+					end
 				end
+				if subject ~= nil then
+					break
+				end
+				task.wait(0.4)
 			end
 			if subject == nil then
 				TestKit.note(
