@@ -1043,9 +1043,10 @@ def run_cell(bench, cell, shots, log):
     for r in rows:
         log(
             "    #%s hit=%s answered=%s fired=%s frames=%s zone=%s spd=%s dist=%s along=%s up=%s "
-            "card=(%s,%s) notice=%s src=%s"
+            "across=%s aim=%s impact=%s card=(%s,%s) notice=%s src=%s"
             % (r.get("i"), r.get("hit"), r.get("answered"), r.get("fired"), r.get("frames"),
                r.get("zone"), r.get("spd"), r.get("dist"), r.get("along"), r.get("up"),
+               r.get("across"), r.get("aim"), r.get("impact"),
                r.get("cardu"), r.get("cardv"), r.get("notice"), r.get("src"))
         )
     return rows
