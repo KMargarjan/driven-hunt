@@ -374,3 +374,32 @@ finding 1 is a hole in the only gate that keeps the bench off the camera. Neithe
 Not asked for and not done: asserting the ray offset against `Ballistics.sightOffsetAt` (round 1's
 finding 3 suggested the stronger form). A wrong threshold is worse than none, so the offset is
 printed and labelled `NOT A CRITERION`. Queued.
+
+### Task 307 round 3: Director authorisation
+
+Transcribed verbatim by the Builder; **this paragraph is the DIRECTOR's**, not the Builder's:
+
+> [DIRECTOR -> BUILDER] TASK 307 ROUND 3 -- AUTHORISED by the Director, 2026-10-29 02:20 UTC
+> (MAX_ROUNDS 3; the dispatch's 2-round cap is lifted for this one round only). Transcribe this
+> paragraph verbatim into ESCALATE.md under "Task 307 round 3: Director authorisation", marked as
+> the Director's, in your first commit. Same branch task-307-aim-bench, reviews/task-307/
+> (Round: 3).
+> DEADLINE: 03:30 UTC
+> MEASURED NOW: reviews/task-307/RESULT.md round 2 = FINDINGS 1 (the camera-write guard in selftest
+> survives deletion of what it proves) and 2 (the N=30 justification is wrong arithmetic:
+> non-overlapping Wilson intervals for 70 % vs 40 % need N>=44; the defensible claim at 30 is the
+> two-proportion test).
+> DO: fix finding 1 so the guard FAILS when the camera write it guards is added (show red, then
+> green); fix finding 2's sentence (and the docstring/research note where it is repeated) to the
+> two-proportion test, and make the default N a stated choice. Nothing else -- no new bench runs,
+> no src/.
+> ALSO, in the report (no code): one line on the SEMI-AUTO 0/30 -- "the server answered none of
+> those clicks": what the live game wrote for those clicks (refusal reason, if any), so the
+> Director can route it.
+> CLICK PROOF: N/A this round (tools/ docs and a selftest guard only; the bench's real-click proof
+> stands from round 2).
+> GATE: tools/ change -> full one-player test scope=all at the code commit (stop Play in the Forest
+> Test first); needs_two_player result. Review round 3; FINDINGS on round 3 -> ESCALATE.md and stop.
+
+`DIRECTOR_MAX_ROUNDS=3` is therefore authorised for **task 307, round 3**, and for that round only.
+It is set in the environment of the one review call and is never committed.
