@@ -1,12 +1,12 @@
 # Task 307 -- the aim bench: one repeatable instrument for "does aiming at what she sees hit"
 
 Task: 307
-Round: 2
+Round: 3
 Base: 8b7ffb71
-Code commit: 81ca71d91b1efcedc2db17df5851942b24ee41a6
+Code commit: 3a362e9e8d4c0cacf59f90798dfbadd322e01cd7
 
 ```
-[harness] PASS: 34/34 checks @ 81ca71d91b1efcedc2db17df5851942b24ee41a6 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 3a362e9e8d4c0cacf59f90798dfbadd322e01cd7 (clean tree) scope=all
 ```
 
 `test2` is **N/A**: `python tools/agents.py` reads `needs_two_player([tools/aim_bench.py,
@@ -50,6 +50,79 @@ Three files plus an index row. **No `src/`, no `tests/`.**
 3. **`docs/research/2026-10-29-aim-bench.md`** + the `INDEX.md` row (rule 1).
 4. **`reviews/task-307/bench-A..D.txt`** -- the four runs' own output, verbatim, with every
    per-shot row.
+
+## Round 3: the two round-2 findings
+
+**Authorised by the Director, 2026-10-29 02:20 UTC**, transcribed verbatim in `ESCALATE.md` under
+"Task 307 round 3: Director authorisation". `DIRECTOR_MAX_ROUNDS=3` is set in the environment of
+this one review call and is not committed. **No new bench runs and no `src/` this round** -- the
+dispatch forbids both, and the click proof stands from round 2.
+
+### Finding 1 -- the camera-write guard now bites, shown RED then GREEN
+
+The old assertion was `"CurrentCamera.CFrame =" not in resident`. `RESIDENT`'s own idiom is
+`local cam = workspace.CurrentCamera`, so the realistic second writer is `cam.CFrame = ...`, which
+contains neither that substring nor that spacing. New `camera_write_free(src)` squashes **all**
+whitespace and looks for `.CFrame=`, so `cam.CFrame = x`, `cam.CFrame=x`,
+`workspace.CurrentCamera.CFrame = x` and a double-spaced `=` are all caught.
+
+**RED (the mutation the old guard let through).** `cam.CFrame = CFrame.lookAt(cam.CFrame.Position,
+aimPoint)` injected into `RESIDENT`'s shot watcher, beside its existing
+`local cam = workspace.CurrentCamera`:
+
+```
+MUTATION APPLIED: cam.CFrame = CFrame.lookAt(...) added to RESIDENT's shot watcher
+  assert camera_write_free(resident), "the bench must not write the camera"
+AssertionError: the bench must not write the camera
+exit=1 (non-zero = the guard bit)
+
+OLD guard ("CurrentCamera.CFrame =" not in resident) on the MUTATED text: True  <- it PASSED
+NEW guard (camera_write_free)      on the MUTATED text: False <- it CAUGHT it
+the mutated line, as sent: 'cam = workspace.CurrentCamera cam.CFrame = CFrame.lookAt(cam.CFrame.Position, aimPoint)'
+```
+
+**GREEN (mutation reverted).** `aim_bench selftest: OK`, `exit=0`.
+
+**And the bite is now permanent, not a one-off by hand** (duty (a) / verdict 281): `selftest` runs
+`camera_write_free` against the shipped `RESIDENT`, against `GATE`, and against **four** spellings
+of the forbidden write -- each both standalone and appended to the real resident -- plus two of them
+read back through `oneline`, which is the form `install()` actually sends. *Verify:* delete the
+`DHTestLook` steering and add any of those four lines; `selftest` fails.
+
+### Finding 2 -- the N = 30 justification was wrong arithmetic, corrected in both places
+
+I had the wrong statistic and the Reviewer is right. N = 30 is **not** "the smallest N at which a
+70 % cell and a 40 % cell stop overlapping", and **this task's own table disproves it**:
+`rifle/run/nose 21/30 = 70 % (52-83)` against `rifle/run/eye 12/30 = 40 % (25-58)` overlap over
+52-58, and `summarise`'s own test would call that overlapping.
+
+Measured with the tool's own `wilson`, iterating `round(0.7N)/N` against `round(0.4N)/N`:
+
+| | low | high |
+|---|---|---|
+| 21/30 (70 %) | 0.5212 | 0.8334 |
+| 12/30 (40 %) | 0.2459 | 0.5768 |
+| **smallest N with disjoint intervals** | **41** | 0.5552-0.8239 vs 0.2566-0.5427 |
+
+The Reviewer's `~44` is the same answer computed on the **idealised** proportions, which no
+realisable count of shots hits exactly; **41** is the first N at which the counts a run can actually
+produce separate. What DOES separate 70 % from 40 % at N = 30 is a **two-proportion z-test:
+z = 2.335, p = 0.0195**.
+
+**The default N is now a stated choice, in three places:** `tools/aim_bench.py`'s docstring
+("WHY THE DEFAULT IS 30, AND WHAT IT DOES NOT BUY"), the research note's "Numeric targets", and
+PLAN (c) above. The rule: **30 to compare two cells, `--shots 41` when the printed intervals
+themselves must be disjoint**, and the CONTROL/KNOWN-BAD pair (a 60-90 % against a 0-20 %) is
+disjoint at 30 anyway, which is why the self-check works at the default.
+
+**ROUTE / L-095, stated because the dispatch's DO line and the repo disagree:** the DO line says to
+fix "the docstring/research note where it is repeated", but `grep -rn "smallest N" tools/` is
+**empty** -- the tool's docstring never carried the sentence. The second place it lived is
+`reviews/task-307/REQUEST.md` PLAN (c), which is fixed above. The docstring instead gained the
+REASON for the default, which is the other half of the DO line.
+
+Also corrected (round 2 note): the research note called `Input.luau` the only writer of
+`DHClaimWhy`; the bench is a second writer and only ever writes `nil`.
 
 ## Round 2: the five round-1 findings
 
