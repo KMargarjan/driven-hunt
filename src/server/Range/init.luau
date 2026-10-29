@@ -740,7 +740,7 @@ local function release(trial: Trial)
 		RangeData.LAYOUT,
 		trial.leg + 1,
 		state.downrange,
-		1, -- FAIL-FIRST PROBE: station 1's lane for everybody
+		trial.spot,
 		trial.distanceStuds
 	)
 	local handle = boars.spawn(from, trial.kind)
