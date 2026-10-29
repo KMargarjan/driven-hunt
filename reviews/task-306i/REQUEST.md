@@ -1,9 +1,9 @@
 # Task 306 step B9 -- THE PROOF: T4's twelve cases in Karen's place
 
 Task: 306i
-Round: 1
+Round: 2
 Base: task-306b8-her-place @ 21c9d7bf
-Code commit: 6662ee816bcf71f22c4662f2b9102c01f2a4cae1
+Code commit: b3c3d10e2a578fe9df7179a464d3aaa1cc8481cb
 
 ## PLAN (core quality protocol step 0)
 
@@ -64,13 +64,17 @@ Each is verifiable from the named file in `<runs-dir>`.
    SERVER's `spot=` and `position=`; the bench claims neither.
 2. **Every shot is a real click through the live `Input.fire`** -- `aim_bench.py ray`, part 2
    (`306b9-ray.txt`): `DHClaimWhy` nil with no click, set after one.
-3. **Each case carries the four pieces of evidence**: the aim (`aim=`), the server's zone and local
-   offset (`zone=`, `ring[local=]`), the client's mark (the hit card, frame
-   `306b9-f-hitcard-treestand.png`), and the shooter's-eye frame.
+3. **Three of the four pieces of evidence are per case** -- the aim (`aim=`), the server's zone and
+   local offset (`zone=`, `ring[local=]`), and the shooter's-eye frame. **The client's mark is ONE
+   frame for all eighteen cells** (`306b9-f-hitcard-treestand.png`, the card's red chest dot);
+   per-case it is NOT OBTAINED, because the resident could not read the drawn dot as an instance
+   (`card=(None,None)` on every row). Round 1's note, corrected here.
 4. **Control and known-bad, in both sessions** (L-123): bench control 17/20 = 85 %, known-bad
    0/20 = 0 %.
-5. **`back` is printed on every row** (L-143) and the table names every row where `back` and
-   `-along` disagree by more than 0.5 studs.
+5. **`back` is a column of every CELL in the table** (L-143), beside the hit rate and never
+   instead of it, and each cell's `OFFSET DISAGREEMENT` line names how many of its rows have
+   `back` and `-along` more than 0.5 studs apart. The per-shot rows carry `along` and
+   `ring[local=]`.
 6. **Three targets are NOT MET and one of them is the known, unlanded 310b** -- see the table in
    the report. No claim of >= 90 % is made for RUN chest.
 7. `python tools/aim_bench.py selftest`, `python tools/studio_mcp.py selftest` and
@@ -132,7 +136,7 @@ firing from `Stand2.Deck`).
 ## Gate
 
 ```
-[harness] PASS: 34/34 checks @ 6662ee816bcf71f22c4662f2b9102c01f2a4cae1 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ b3c3d10e2a578fe9df7179a464d3aaa1cc8481cb (clean tree) scope=all
 ```
 `test2` N/A: `agents.needs_two_player(['tools/aim_bench.py'])` answers `[]` -- no changed path is in
 `TWO_PLAYER_PATHS`.
@@ -150,6 +154,20 @@ firing from `Stand2.Deck`).
   ... the climb itself is a Director ops step with a screenshot").
 - the hit card's own dot could not be read as an instance by the resident (`card=(None,None)` on
   every row); the drawn card shows it, and the frame is the evidence.
+
+## Round 2: both blocking findings fixed
+
+1. **`STAGE` stages `Players.LocalPlayer`**, not `GetPlayers()[1]` -- correct, and it would have
+   staged the wrong man in the two-client session design 11.6 schedules next.
+2. **The selftest case now bites.** Both arms of `STAGE`'s `if/else` are in BOTH substituted texts
+   (one script, the position is a literal), so the old `"Mat4" in bench_text` could not fail. It
+   now asserts the two assignments to `target` plus the literal the branch turns on. **FAIL
+   FIRST:** deleting the whole `if/else` and leaving the mat line makes `selftest` exit 1.
+
+The eight non-blocking notes are queued in `TASKS.md` under task 306i, not fixed here (rule 4);
+the two that bear on a number -- the nearest-in-X picker and the `vis` loop skipping a BasePart
+trunk -- were both inert in the session that produced the tables (one trunk in the folder, and the
+trunk IS a Part whose 16 zone parts the loop does read), which is why every cell fired.
 
 ## Answered flags
 
