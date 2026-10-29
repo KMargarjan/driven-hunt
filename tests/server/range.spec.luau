@@ -3982,7 +3982,9 @@ return function()
 			-- (b) A TERRAIN IS HANDED IN AND THE ROW STILL DECIDES. This is the case that bites: with
 			-- the `fillsTerrain(row)` guard dropped, the DEV arm writes a 232-stud terrace into the
 			-- place the harness itself runs in.
-			local devBuilt, devWhy, devParent, devTerrain = buildOnTerrain(DEV_ROW, nil)
+			-- THE SHIPPED ROW, not the local fixture: `DEV_ROW` carries no `berm` and no `fill`, so it
+			-- would only ever exercise the two readers' DEFAULTS (review round 1, note).
+			local devBuilt, devWhy, devParent, devTerrain = buildOnTerrain(RangeData.anchorFor("map:v1"), nil)
 			expect(devWhy).to.equal(nil)
 			expect(#devTerrain.fills).to.equal(0)
 			expect(#devTerrain.replaces).to.equal(0)
@@ -4025,9 +4027,9 @@ return function()
 				end
 				-- EVERY X AND Z FACE OF THE TERRACE ON THE 4-STUD GRID. A face inside a voxel writes
 				-- that voxel only partly, and for the AIR box that is exactly the mound task 311
-				-- photographed. THE HEAPS ARE DELIBERATELY NOT on it: a berm band is 2.5 studs tall
-				-- over a 3-stud run, and the partial voxels that leaves are what make a batter read as
-				-- a slope instead of a staircase. So the rule is asserted where it is a rule.
+				-- photographed. THE HEAPS ARE DELIBERATELY NOT on it: a berm band is 2 studs tall over
+				-- a 3-stud run, and the partial voxels that leaves are what make a batter read as a
+				-- slope instead of a staircase. So the rule is asserted where it is a rule.
 				local terrace = call.material == Enum.Material.Air
 					or math.abs((call.at.Position.Y - call.size.Y / 2) - (b.shelf - LAYOUT.FILL.DEPTH_STUDS)) < 1e-6
 				if not terrace then
@@ -4206,7 +4208,9 @@ return function()
 				expect(call.resolution).to.equal(LAYOUT.FILL.GRID_STUDS)
 			end
 			local last = terrain.replaces[#terrain.replaces]
-			-- THE LINE LAST, or the lane's own repaint would put the grass back over it.
+			-- THE LINE LAST. Not because the lane's repaint could undo it -- that one is AROUND -> LANE
+			-- and cannot touch `Limestone` -- but because the order is the one the owner states, and a
+			-- repaint aimed at LANE must run after everything that writes LANE (review round 1, note).
 			expect(last.from).to.equal(LAYOUT.SURFACE.LANE)
 			expect(last.to).to.equal(LAYOUT.SURFACE.LINE)
 			for index = 1, #terrain.replaces - 1 do

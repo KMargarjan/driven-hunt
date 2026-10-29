@@ -130,8 +130,9 @@ function Build.shelfAt(x: number, z: number, row, groundAt: ((number, number) ->
 	end
 	-- ONE TERRACE WITH THE LODGE, when the row says where to take the level from (step B8). Read
 	-- through the SAME ground reader, so there is no second definition of "where is the ground" and
-	-- no require edge to `Lobby`. Measured in her place: the range anchor reads 134.9 and the lobby
-	-- anchor 149.25, so a terrace at the first would put a 16-stud cliff across her walk.
+	-- no require edge to `Lobby`. MEASURED in her place 2026-10-29, one reading each: the range
+	-- anchor reads 134.87 and the lobby anchor 149.25. Snapped, that is a shelf of 132 against 148 --
+	-- a 16-stud step across her walk, which is why the level is taken from the lodge.
 	local from = row.shelfFrom
 	local measured = if type(from) == "table" then groundAt(from.x, from.z) else groundAt(x, z)
 	if measured == nil then
@@ -232,8 +233,9 @@ function Build.writeTerrain(terrain: any, anchor: Vector3, shelf: number, row, l
 	end
 	-- ...AND THE TWO MATERIALS LAST. `ReplaceMaterial` changes the material of a voxel and NOTHING
 	-- else -- no occupancy, no height, no part -- so it can only repaint what the fills shaped.
-	-- The lane first (the hill's long grass the fill could not reach), the firing line second, or
-	-- the line would be painted back to grass.
+	-- The lane first (the cover the fill could not reach), the firing line second. NOT because the
+	-- first could undo the second -- it is AROUND -> LANE and cannot touch `LINE` -- but because a
+	-- repaint whose target is LANE must run after everything that writes LANE (round 1, note).
 	--   Terrain:ReplaceMaterial https://create.roblox.com/docs/reference/engine/classes/Terrain#ReplaceMaterial
 	--   Region3:ExpandToGrid    https://create.roblox.com/docs/reference/engine/datatypes/Region3#ExpandToGrid
 	local skin = layout.FILL.GRID_STUDS

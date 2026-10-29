@@ -104,7 +104,8 @@ Range.LAYOUT = {
 	-- at 188 and 196, both multiples of `FILL.GRID_STUDS` (design 5.4). At 12 they were 187 and 195.
 	-- `slopeRun` and `slopeSteps` ARE THE UPRANGE FACE (step B8). A rectangular block of earth is
 	-- a wall; Karen asked for *"a mountain not high but like in real life"*, and a real berm is a
-	-- trapezoid. Four 2.5-stud bands over a 12-stud run is a 1:1.2 batter. Only the terrain arm
+	-- trapezoid. Four 2-stud bands (10 * k / 5) over a 12-stud run is a 1:1.2 batter, and 2 studs
+	-- per step is design 8.2's decided fallback for the unverified `FillWedge`. Only the terrain arm
 	-- reads them -- a part berm is one box, as it was.
 	BERM = {
 		height = 10,
@@ -210,7 +211,8 @@ Range.ANCHORS = {
 	-- same `groundAt` and snapped by the same floor-to-grid rule as `Lobby.Field.shelfFor`, it
 	-- resolves to the lobby's own shelf (148, measured) -- so the range terrace and the lodge yard
 	-- are ONE terrace and a man walks from the door to the mat without a step. The ground at the
-	-- range anchor instead gives 132: a 16-stud cliff across her path (evidence/306b8/profile.txt).
+	-- range anchor reads 134.87, which snaps to a shelf of 132 -- a 16-stud step across her path
+	-- (measured 2026-10-29, evidence/306b8/profile.txt).
 	-- `keepOut` IS THE LOBBY FIELD'S WEST AND SOUTH EDGES (x 2740, z -3060, from `Lobby.CONFIG.FIELD`):
 	-- north of that z the cut stops at that x, so the two terraces meet FLUSH on one voxel plane and
 	-- neither writes the other's ground. `range.spec` asserts the pair against `Lobby`'s own config.
