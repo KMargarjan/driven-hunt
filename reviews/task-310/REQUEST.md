@@ -94,8 +94,29 @@ Reproduced, in her place, on her build: rows 1 and 2 of the (b) table. Her sente
 rifle, RUN, chest centre, no lead, 103-138 studs: **43 shots, 42 on the animal, 6 in the chest,
 24 in the body, 11 in the rear, 1 in the head.** The mark lands behind the chest.
 
-## STEP 2 -- ITERATION
-See `## CYCLES` below.
+## STEP 2 -- ITERATION (three cycles, same probe before and after)
+
+| cycle | change | N | hits | zones | mean along | mean **back** | OFFSET DISAGREEMENT | distance to target |
+|---|---|---|---|---|---|---|---|---|
+| 1 (before) | none -- main 9bbfc71e | 22 | 22 | chest 5 body 11 **rear 5** head 1 | -0.48 | **not measurable** | not printed | the table could not say where the strike sat relative to the aim |
+| 2 (after) | `aimz` per row, `back`, the disagreement rule | 20 | 20 | chest 5 body 13 rear 2 | -0.83 | **+0.72** | **3 of 20** | target met: the column reads live and the rule fires |
+| 2 CONTROL (same table) | chest + `Ballistics.leadStuds` | 22 | 22 | **chest 20** body 2 | -1.01 | **+1.01** | 4 of 22 | the lead aim puts the strike at ring-z **-0.58**, deep inside the chest |
+| 3 (after, 2nd sample) | real `click.ps1` transport, no reload | 22 | **22** | body 19 rear 3 | -0.86 | `--` (this rig reads no ring) | 0 of 0 | repeatability confirmed; see the finding below |
+
+Files: cycle 1 `<runs-dir>/310/bench-A.txt`; cycle 2 `310/cycle2-back.txt`; cycle 3
+`310/cycle3-real-back.txt` (summarised from the resident's own rows by `310/summ.py`).
+
+**What the new column shows, in one line.** The aimed chest centre sits at ring-z **-0.41** and the
+strike lands **+0.72 studs** behind it, i.e. at ring-z **+0.31** -- and the chest's back edge is at
+**+0.36**. The no-lead chest shot lands **0.05 studs inside the chest's back edge**, so the zone it
+is credited to is a coin flip between chest and body. With the 1.18-stud lead the board already
+prints, the strike sits at ring-z -0.58, and 20 of 22 are credited chest.
+
+**Found in cycle 3, and it is why the coin flip is a coin flip:** `aimz` -- the drawn chest centre's
+own body-axis coordinate -- swings between **-0.52 and +0.78** across the 22 rows while the boar
+runs (`ZONES_FOLLOW_GAIT` is on). The chest zone's own centre moves ~1.3 studs along the body over
+a gait cycle, which is 75 % of the chest's whole length. Queued as a note, not fixed here: it is a
+`src/server/Boar/` zone question and this task is one task.
 
 ## CLAIMS
 

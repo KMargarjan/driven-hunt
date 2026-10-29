@@ -85,6 +85,14 @@ counters are 0):
   the card dot the `Dot` frames the live `Hud.HitCard` actually DREW, read off the instances
   the impact   `ShotLanded`'s own impact position, which is post-rewind -- the server's answer
   the trace    `ServerStorage.DHLastHits`, the `HitLog` ring (zone, local offset, uv, dist)
+  the offset   TWO WAYS, because one was not enough (task 310): `along`, the strike minus the aim
+               point along the SMOOTHED TRAVEL direction, and `back`, ring-z minus the aim point's
+               own body-axis coordinate -- both ends divided down by the trunk's CFrame, the frame
+               the zone itself was read in. They are the same quantity, so a cell where they differ
+               by more than `OFFSET_DISAGREEMENT_STUDS` on one shot prints OFFSET DISAGREEMENT
+               rather than averaging it away. That is how a RUN cell read "30/30, mean along -0.52"
+               while its own zone split said `rear 5`: a strike whose ring sat at z=+1.42 with the
+               aim at z=-0.41 is 1.83 studs back, not 0.78.
 The resident writes one row per shot into a LocalPlayer attribute, so the host reads instance facts.
 
 ------------------------------------------------------------------------------------------- USAGE
@@ -283,6 +291,42 @@ def _ring_z(row):
         return None
 
 
+# How far the two offset columns may disagree on one shot before the cell says so, in studs.
+# 0.5 BECAUSE THE CHEST'S HALF-SPAN IS 0.87 STUDS, measured on the running boar
+# (<runs-dir>/310/zonemap.luau: chest local z [-1.38 .. +0.36]): a disagreement above 0.5 can move
+# a shot's verdict from chest to body, which is the verdict Karen reads off the card.
+OFFSET_DISAGREEMENT_STUDS = 0.5
+
+
+def _back(row):
+    """The strike's rearward offset FROM THE AIM POINT, in the animal's own frame, or None.
+
+    `ringz - aimz`: both are body-axis coordinates divided down by the trunk's CFrame, so the
+    difference is directly comparable with `-along`. `along` alone cannot be: it is measured from
+    the aim point along the SMOOTHED TRAVEL direction, while the ring is measured from the trunk
+    centre along the trunk's own axis (task 310).
+    """
+    ringz = _ring_z(row)
+    aimz = row.get("aimz")
+    if ringz is None or not isinstance(aimz, float) or aimz != aimz:
+        return None
+    return ringz - aimz
+
+
+def offset_disagreement(row, limit=OFFSET_DISAGREEMENT_STUDS):
+    """Do this row's two offset columns disagree by more than `limit` studs? Pure.
+
+    `back` is positive toward the rump and `along` is positive down the heading, so the two agree
+    when `back == -along`. `None` for a row that carries only one of them -- an absent number is
+    not a disagreement.
+    """
+    back = _back(row)
+    along = row.get("along")
+    if back is None or not isinstance(along, float) or along != along:
+        return None
+    return abs(back - (-along)) > limit
+
+
 def summarise(results):
     """[{cell, rows}] -> the table rows plus the instrument verdict.
 
@@ -325,6 +369,12 @@ def summarise(results):
             # an empty ring is the instrument failing, not the animal missing.
             "pastgap": mean([r.get("pastgap") for r in rows]),
             "ringz": mean([_ring_z(r) for r in rows]),
+            # THE STRIKE'S REARWARD OFFSET FROM THE AIM POINT, in the ring's own frame (task 310),
+            # and how many rows' two offset columns disagree by more than
+            # `OFFSET_DISAGREEMENT_STUDS`. Never averaged away: the disagreement IS the finding.
+            "back": mean([_back(r) for r in rows]),
+            "backdisagree": sum(1 for r in rows if offset_disagreement(r) is True),
+            "backs": sum(1 for r in rows if _back(r) is not None),
             "rings": sum(1 for r in rows if r.get("ringlocal")),
             "ringdisagree": sum(
                 1
@@ -406,10 +456,11 @@ def render(table, notes, header=None):
         out.extend(header)
         out.append("")
     widths = [max(28, max([len(r["cell"]) for r in table] + [4]))]
-    fmt = "%-{0}s %4s %5s %7s %-15s %8s %8s %8s %8s %6s  %-9s".format(widths[0])
+    fmt = "%-{0}s %4s %5s %7s %-15s %8s %8s %8s %8s %8s %6s  %-9s".format(widths[0])
     out.append(
         fmt
-        % ("cell", "N", "hits", "rate", "95% interval", "along", "up", "pastgap", "ring-z", "ring", "role")
+        % ("cell", "N", "hits", "rate", "95% interval", "along", "back", "up", "pastgap",
+           "ring-z", "ring", "role")
     )
     out.append("-" * (widths[0] + 90))
     for r in table:
@@ -423,6 +474,7 @@ def render(table, notes, header=None):
                 "%.0f%%" % (100 * r["rate"]),
                 "%.0f%% - %.0f%%" % (100 * low, 100 * high),
                 "--" if r["along"] is None else "%+.2f" % r["along"],
+                "--" if r.get("back") is None else "%+.2f" % r["back"],
                 "--" if r["up"] is None else "%+.2f" % r["up"],
                 "--" if r.get("pastgap") is None else "%+.2f" % r["pastgap"],
                 "--" if r.get("ringz") is None else "%+.2f" % r["ringz"],
@@ -430,6 +482,16 @@ def render(table, notes, header=None):
                 r["role"],
             )
         )
+        if r.get("backdisagree"):
+            out.append(
+                " " * 4
+                + "OFFSET DISAGREEMENT on %d of %d row(s): `back` (the strike's rearward offset "
+                "from the aim point, in the ring's own frame) and `-along` differ by more than "
+                "%.1f studs. `along` is measured along the SMOOTHED TRAVEL direction from the aim "
+                "point; `back` is ring-z minus aim-z, both divided down by the trunk's CFrame. "
+                "Trust `back`: it is the frame the zone was read in."
+                % (r["backdisagree"], r.get("backs", 0), OFFSET_DISAGREEMENT_STUDS)
+            )
         if r.get("ringdisagree"):
             out.append(
                 " " * 4
@@ -447,6 +509,12 @@ def render(table, notes, header=None):
     out.append("animal's own frame, read on the frame `Input.fire` ran: +along is down its heading")
     out.append("(behind the aim point), +up is above. `--` means no shot in the cell produced an")
     out.append("impact, so there was nothing to measure against.")
+    out.append("")
+    out.append("back is THE SAME OFFSET IN THE RING'S OWN FRAME (task 310): ring-z minus the aim")
+    out.append("point's own body-axis coordinate, both divided down by the trunk's CFrame.")
+    out.append("+back is toward the rump, so back and -along are the same quantity measured two")
+    out.append("ways; where they differ by more than %.1f studs the cell says so, because along" % OFFSET_DISAGREEMENT_STUDS)
+    out.append("uses the smoothed travel direction and the zone was read in the trunk's.")
     out.append("")
     out.append("pastgap is DH305Past minus the drawn trunk, along travel: how far from what the")
     out.append("shooter saw the server tested the animal (+ = ahead of it). ring-z is the struck")
@@ -843,6 +911,13 @@ task.spawn(function()
       -- this one, and the part the bullet struck (`DHLastHits`, read host-side).
       local troot = animal()
       local drawn = if troot ~= nil then troot.Position else nil
+      -- THE AIM POINT'S OWN BODY-AXIS COORDINATE, in the animal's frame, on the fire frame (task
+      -- 310). `along` is measured from the AIM POINT and `ring-z` from the TRUNK CENTRE, so the two
+      -- were printed side by side with different origins; this is the one number that makes
+      -- `ringz - aimz` the strike's rearward offset from the aim in the ring's own frame.
+      -- Same frame the ring uses: `HitLog.frameOf` divides down by the trunk's CFrame.
+      local aimz = 0 / 0
+      if troot ~= nil and aim ~= nil then aimz = troot.CFrame:PointToObjectSpace(aim).Z end
       local before = markers
       lastImpact, lastNotice = nil, ""
       local t0 = os.clock()
@@ -884,13 +959,13 @@ task.spawn(function()
       local function f(x) return if x ~= x then "nan" else string.format("%.3f", x) end
       rows[#rows + 1] = string.format(
         "i=%d mode=%s src=%s hit=%s answered=%s fired=%s frames=%d zone=%s spd=%.2f dist=%.1f "
-          .. "along=%s up=%s across=%s aim=%.2f|%.2f|%.2f impact=%s cardu=%s cardv=%s "
+          .. "along=%s up=%s across=%s aimz=%s aim=%.2f|%.2f|%.2f impact=%s cardu=%s cardv=%s "
           .. "drawn=%s past=%s pres=%s pastat=%s pastgap=%s notice=%s",
         shotIndex, tostring(me:GetAttribute("DHBenchMode")), tostring(src), tostring(hit),
         tostring(answered), tostring(fired), waitFrames,
         if hit then lastZone else "-",
         spd, if aim then (aim - origin).Magnitude else 0 / 0,
-        f(along), f(up), f(across),
+        f(along), f(up), f(across), f(aimz),
         if aim then aim.X else 0 / 0, if aim then aim.Y else 0 / 0, if aim then aim.Z else 0 / 0,
         if impact then string.format("%.2f|%.2f|%.2f", impact.X, impact.Y, impact.Z) else "nil",
         if du then f(du) else "nil", if dv then f(dv) else "nil",
@@ -988,8 +1063,18 @@ class Bench:
         the id is resolved by place id AND the choice is confirmed by asking that id for its own
         `game.PlaceId` before anything else runs.
         """
-        entries = self.studio.studio_list()
-        candidates = [e["id"] for e in entries if self.place in (e.get("name") or "")]
+        # THE LISTING IS FLAKY and the flake costs a whole run (task 310): `list_roblox_studios`
+        # intermittently answers with the names blanked, so a single read sees no Forest Test even
+        # while it is in Play. Re-read before giving up -- `<runs-dir>/ftplay.py` has retried for
+        # this reason since 2026-10-19.
+        entries, candidates = [], []
+        for attempt in range(10):
+            entries = self.studio.studio_list()
+            candidates = [e["id"] for e in entries if self.place in (e.get("name") or "")]
+            if candidates:
+                break
+            if attempt < 9:
+                time.sleep(3)
         if not candidates:
             raise SystemExit(
                 "no Studio for place %s is connected (saw: %s)"
@@ -1514,6 +1599,43 @@ def selftest():
     assert "pastgap" in text and "ring-z" in text and "+0.60" in text and "+1.00" in text, text
     assert "2/2" in text and "0/30" in text, text
     assert "RING DISAGREES WITH THE MARKER on 1 row(s)" in text, text
+
+    # --- `back` AND ITS DISAGREEMENT RULE (task 310). `back` is ring-z minus aim-z and `-along` is
+    # the same quantity measured the other way, so a row where they differ by more than
+    # OFFSET_DISAGREEMENT_STUDS is the finding the old table averaged away: `along=-0.78` beside a
+    # ring at z=+1.42 with the aim at z=-0.41 is a strike 1.83 studs back, not 0.78.
+    agree = {"hit": True, "answered": True, "zone": "body", "along": -0.90, "aimz": -0.41,
+             "ringzone": "body", "ringlocal": "0.56|0.44|0.49"}
+    disagree = {"hit": True, "answered": True, "zone": "rear", "along": -0.78, "aimz": -0.41,
+                "ringzone": "rear", "ringlocal": "0.56|0.44|1.42"}
+    assert abs(_back(agree) - 0.90) < 1e-9, _back(agree)
+    assert abs(_back(disagree) - 1.83) < 1e-9, _back(disagree)
+    assert offset_disagreement(agree) is False
+    assert offset_disagreement(disagree) is True
+    # A ROW CARRYING ONLY ONE OF THE TWO IS NOT A DISAGREEMENT -- an absent number never accuses.
+    assert _back({"along": -0.78, "ringlocal": "0|0|1.42"}) is None
+    assert _back({"along": -0.78, "aimz": -0.41}) is None
+    assert offset_disagreement({"aimz": -0.41, "ringlocal": "0|0|1.42"}) is None
+    assert offset_disagreement({"along": float("nan"), "aimz": -0.41, "ringlocal": "0|0|1.42"}) is None
+    assert offset_disagreement({"along": -0.78, "aimz": float("nan"), "ringlocal": "0|0|1.42"}) is None
+    # ...and the limit BITES: the same pair under a wider limit is no longer a disagreement.
+    assert offset_disagreement(disagree, limit=2.0) is False
+    withback = entry_raw("rifle/run/chest", [agree, disagree])
+    table, notes = summarise([withback, entry("rifle/run/chest+lead", 28, 30),
+                              entry("rifle/run/ahead", 0, 30)])
+    assert abs(table[0]["back"] - 1.365) < 1e-9, table[0]
+    assert table[0]["backs"] == 2 and table[0]["backdisagree"] == 1, table[0]
+    assert table[1]["back"] is None and table[1]["backdisagree"] == 0, table[1]
+    text = render(table, notes, ["head"])
+    assert "back" in text and "+1.37" in text, text
+    assert "OFFSET DISAGREEMENT on 1 of 2 row(s)" in text, text
+    # the resident must actually write the column the rule reads, or the rule can never fire live
+    assert "aimz=%s" in RESIDENT and "PointToObjectSpace(aim).Z" in RESIDENT
+    livepair = parse_rows("i=1 hit=True answered=True zone=rear along=-0.780 up=0.0 across=0.5 "
+                          "aimz=-0.410 aim=1.00|2.00|3.00 impact=1.00|2.00|3.00 cardu=nil cardv=nil "
+                          "drawn=1.00|2.00|3.00 past=1.00|2.00|3.00 pres=1.00|2.00|3.00 "
+                          "pastat=1.0 pastgap=0.0 notice=-")
+    assert len(livepair) == 1 and abs(livepair[0]["aimz"] + 0.41) < 1e-9, livepair
 
     # --- the Luau goes down the wire as one line with its templates filled
     line = oneline(GATE, PX="12.0", MINSPD="15.00")
