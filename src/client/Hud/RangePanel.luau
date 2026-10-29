@@ -201,9 +201,23 @@ function RangePanel.select(option: string, value: any)
 	RangePanel.render()
 end
 
+-- WHICH STATION THIS MENU IS, TOLD by `Hud.step` -- the one evaluation that already resolves which
+-- prompt he is standing at (`setPrompt`'s own caller). It used to be the literal 1 in the two
+-- senders below, so every one of the six menus picked station 1's trial (306b note (i)).
+local station = { spot = 1, position = nil :: string? }
+
+function RangePanel.setStation(spot: number?, position: string?)
+	station.spot = if type(spot) == "number" then spot else 1
+	station.position = position
+end
+
+function RangePanel.stationOf(): (number, string?)
+	return station.spot, station.position
+end
+
 -- THE ONE SENDER. Nothing else in this file sends, and a request is only ever this shape.
 function RangePanel.confirm(): boolean
-	local out: any = { spot = 1, go = true }
+	local out: any = { spot = station.spot, go = true }
 	for _, row in ipairs(RangePanel.ROWS) do
 		out[row.option] = picked[row.option]
 	end
@@ -225,7 +239,7 @@ function RangePanel.reset(): boolean
 	if sender == nil then
 		return false
 	end
-	sender({ spot = 1, reset = true })
+	sender({ spot = station.spot, reset = true })
 	stats.sends += 1
 	return true
 end

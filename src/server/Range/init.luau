@@ -946,6 +946,38 @@ function Range.recordOf(player: any): any
 	return copy
 end
 
+-- WHAT THE CLIENT'S MASK IS TOLD (design 4.4, 9.4): THIS man's own trunk, and HIS station's own
+-- window. Two fields, both the SERVER's measurement -- the client never guesses which animal is
+-- his, which is what keeps one judge of the isolation.
+--
+-- IT IS THE SAME TWO FACTS `Range.ignoredFor` ANSWERS FOR THE SHOT, read from the same places:
+-- `boars.rootOf` for the trunk and `RangeData.windowSpanFor` for the window. The shot's door and
+-- the picture cannot disagree because neither derives its own copy.
+function Range.maskFor(player: any): (Instance?, { minX: number, maxX: number }?)
+	local anchor = state.anchor
+	local boars = state.boars
+	if not state.started or anchor == nil or player == nil then
+		return nil, nil
+	end
+	local spot = (Range.positionOf(player))
+	if spot == nil then
+		return nil, nil
+	end
+	local minX, maxX = RangeData.windowSpanFor(anchor :: Vector3, spot :: number, RangeData.LAYOUT)
+	local window = { minX = minX, maxX = maxX }
+	local trial = state.trials[spot]
+	if trial == nil or trial.targetId == nil or boars == nil or boars.rootOf == nil then
+		-- THE WINDOW IS STILL HIS, with no animal released yet: the mask then hides the other five
+		-- and has nothing of his own to show.
+		return nil, window
+	end
+	local ok, root = pcall(boars.rootOf, trial.targetId :: string)
+	if not ok or typeof(root) ~= "Instance" then
+		return nil, window
+	end
+	return root :: Instance, window
+end
+
 local function publish(player: any)
 	local record = Range.recordOf(player)
 	if record == nil then
@@ -955,6 +987,9 @@ local function publish(player: any)
 	if remotes == nil or remotes.RangeBoard == nil then
 		return
 	end
+	-- THE MASK'S TWO FIELDS RIDE ON THE RECORD and are NOT part of the tally: they are recomputed
+	-- at every push because the trunk changes with every release while the record survives it.
+	record.mine, record.window = Range.maskFor(player)
 	pcall(function()
 		remotes.RangeBoard:FireClient(player, { record = record, lists = Range.optionLists() })
 	end)
@@ -1303,11 +1338,16 @@ function Range.onRequest(player: any, request: any): boolean
 		state.stats.offMat += 1
 		return false
 	end
-	if not RangeData.optionAllowed("spot", request.spot) then
+	-- THE STATION IS MEASURED, NEVER CLAIMED (the must-fix of 306b note (i)). It used to be
+	-- `state.trials[request.spot]`, and the menu hard-coded `spot = 1`, so a man at station 3
+	-- picked station 1's trial -- the fault that made 11 of the 12 prompts open nothing useful.
+	-- `mayShoot` above has already proved he is ON a station, so this cannot be nil here.
+	local spot = (Range.positionOf(player))
+	if spot == nil or not RangeData.optionAllowed("spot", spot) then
 		state.stats.badRequests += 1
 		return false
 	end
-	local trial = state.trials[request.spot]
+	local trial = state.trials[spot]
 	if trial == nil then
 		state.stats.badRequests += 1
 		return false

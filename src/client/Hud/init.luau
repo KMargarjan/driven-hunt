@@ -245,8 +245,8 @@ local padFrame: Frame? = nil
 -- `Hud.RangeBoard`, and those modules -- not this one -- write their `Visible`. The shop's shape.
 local rangeFrame: Frame? = nil
 local rangeBoardFrame: Frame? = nil
--- `Range.promptFor` walks `Workspace.Range`'s descendants, so it is asked at most once a second and
--- only while the panel has no prompt (`ShopPanel.setPrompt`'s memoised field read, by hand).
+-- `Range.nearestPrompt` walks `Workspace.Range`'s descendants once for all twelve prompts, so it is
+-- asked at most once a second (`ShopPanel.setPrompt`'s memoised field read, by hand).
 local rangeLookAt = 0
 -- The prompt this client found, kept so the per-frame "is he still at the spot" costs one field
 -- read and no search.
@@ -4975,13 +4975,22 @@ function Hud.renderObjective(CameraSystem, WeaponSystem)
 	-- field read a frame and `ShopPanel.setPrompt` does nothing at all unless the prompt CHANGED.
 	ShopPanel.setPrompt(if lobbyData then lobbyData.shopPrompt() else nil)
 	-- ...AND THE RANGE'S PROMPT, the same way and for the same reason: one reader of the world's
-	-- parts on this client, and a panel that is TOLD. Resolved only while the panel has no prompt
-	-- and at most once a second, because `promptFor` walks `Workspace.Range`'s descendants.
+	-- parts on this client, and a panel that is TOLD. At most once a second, because the walk
+	-- below reads `Workspace.Range`'s descendants.
+	--
+	-- THE NEAREST OF ALL TWELVE, AND NOT STATION 1'S BY NAME (306b note (i)): six stations each
+	-- have a bench prompt and a deck prompt, so asking `promptFor(1)` left 11 of the 12 opening
+	-- nothing. AND IT IS RE-ASKED EVERY SECOND, not only while the panel has no prompt -- the old
+	-- `not hasPrompt()` gate meant the first prompt bound stayed bound, so walking from station 3
+	-- to station 5 kept station 3's menu. `setPrompt` and `setStation` are both edge-triggered on
+	-- what they are told, so a second in which he has not moved stations costs the one walk.
 	local nowClock = os.clock()
-	if not RangePanel.hasPrompt() and nowClock - rangeLookAt >= 1 then
+	if nowClock - rangeLookAt >= 1 then
 		rangeLookAt = nowClock
-		rangeMat = RangeData.promptFor(1)
-		RangePanel.setPrompt(rangeMat)
+		local prompt, spot, position = RangeData.nearestPrompt(me)
+		rangeMat = prompt
+		RangePanel.setStation(spot, position)
+		RangePanel.setPrompt(prompt)
 	end
 	-- ...AND WHETHER HE IS STILL AT THE SPOT, which is what GIVES THE TWO DOORS BACK: `setNear`
 	-- only ever closes (`ShopPanel.setNear`'s rule), and without this caller the cursor stayed free

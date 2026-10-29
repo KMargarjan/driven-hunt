@@ -1158,6 +1158,50 @@ return function()
 			parent:Destroy()
 		end)
 
+		-- THE MUST-FIX OF 306b NOTE (i) / 306c NOT PROVEN item 1 (step B6). The Hud asked
+		-- `promptFor(1)`, so 11 of the 12 prompts opened nothing. `nearestPrompt` answers which one
+		-- he is standing at, in ONE walk, and names the station AND the position.
+		it("nearestPrompt finds all TWELVE: the bench at a mat, the deck's at a deck", function()
+			local dir = 1
+			local row = { x = DEV_ROW.x, z = DEV_ROW.z, y = DEV_ROW.y, plate = true, downrange = dir }
+			local b, parent = buildInto(row, nil)
+			local found: { [string]: boolean } = {}
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				-- STANDING ON HIS MAT: his OWN bench prompt, and never a neighbour's and never the
+				-- deck's -- the two reaches the case above measured apart.
+				local mat = RangeData.matPosition(b.anchor, spot, LAYOUT)
+				local prompt, atSpot, position = RangeData.nearestPrompt(mat, b.folder, LAYOUT)
+				expect(prompt).to.be.ok()
+				expect(atSpot).to.equal(spot)
+				expect(position).to.equal(RangeData.POSITION.BENCH)
+				expect(prompt).to.equal(RangeData.promptFor(spot, RangeData.POSITION.BENCH, b.folder))
+				found[(prompt :: any).Name] = true
+
+				-- ...AND ON HIS DECK, HIS OWN STAND PROMPT. This is the half that opened nothing at
+				-- all: `promptFor(1)` cannot name a treestand prompt whatever the station.
+				local deckAt = RangeData.standPosition(b.anchor, spot, LAYOUT, dir)
+					+ Vector3.new(0, b.deckTops[spot] - b.anchor.Y, 0)
+				local high, highSpot, highPosition = RangeData.nearestPrompt(deckAt, b.folder, LAYOUT)
+				expect(highSpot).to.equal(spot)
+				expect(highPosition).to.equal(RangeData.POSITION.TREESTAND)
+				expect(high).to.equal(RangeData.promptFor(spot, RangeData.POSITION.TREESTAND, b.folder))
+				found[(high :: any).Name] = true
+			end
+			-- ALL TWELVE WERE REACHED, counted: the number the note said was 1 of 12.
+			local count = 0
+			for _ in pairs(found) do
+				count += 1
+			end
+			expect(count).to.equal(2 * LAYOUT.SPOT_COUNT)
+			-- NO MEASUREMENT MEANS NO ANSWER, and no range means no answer: a Hud with no character
+			-- yet must not bind an arbitrary station's prompt.
+			expect((RangeData.nearestPrompt(nil, b.folder, LAYOUT))).to.equal(nil)
+			local empty = Instance.new("Folder")
+			expect((RangeData.nearestPrompt(RangeData.matPosition(b.anchor, 1, LAYOUT), empty, LAYOUT))).to.equal(nil)
+			empty:Destroy()
+			parent:Destroy()
+		end)
+
 		it("leaves a station whose ground REFUSES a seat with five stands, six benches and no deck top", function()
 			local dir = 1
 			local row = { x = DEV_ROW.x, z = DEV_ROW.z, plate = false, downrange = dir }
@@ -3181,6 +3225,70 @@ return function()
 			-- ...AND A STOPPED RANGE ANSWERS NOTHING, so a world with no range never filters a shot.
 			Range.stop()
 			expect(#Range.ignoredFor(man)).to.equal(0)
+		end)
+
+		-- THE TWO FIELDS THE CLIENT'S MASK IS TOLD (step B6, design 4.4 / 9.4). They answer the same
+		-- two facts `ignoredFor` answers for the shot and are read from the same two places, which is
+		-- what makes the picture and the shot one question.
+		it("maskFor names HIS trunk and HIS window, and never another station's", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			advance(fake, clock, 1)
+			local man = manAtSpot(RangeData.matPosition(ANCHOR, 4, LAYOUT), 320)
+			expect((Range.positionOf(man))).to.equal(4)
+			local mine, window = Range.maskFor(man)
+			expect(mine).to.equal(fake.at(4).root)
+			-- THE SHIPPED SPAN, not a number typed here: his station's, and not station 1's.
+			local minX, maxX = RangeData.windowSpanFor(ANCHOR, 4, LAYOUT)
+			expect((window :: any).minX).to.equal(minX)
+			expect((window :: any).maxX).to.equal(maxX)
+			local oneMinX = RangeData.windowSpanFor(ANCHOR, 1, LAYOUT)
+			expect((window :: any).minX).never.to.equal(oneMinX)
+			-- AND IT IS THE TRUNK THE SHOT'S LIST LEAVES OUT: one animal, one answer.
+			expect(has(Range.ignoredFor(man), mine)).to.equal(false)
+
+			-- A MAN OFF EVERY STATION IS TOLD NOTHING AT ALL, so his mask hides every target.
+			local away = manAtSpot(RangeData.matPosition(ANCHOR, 1, LAYOUT) + Vector3.new(0, 0, -600), 321)
+			local noTrunk, noWindow = Range.maskFor(away)
+			expect(noTrunk).to.equal(nil)
+			expect(noWindow).to.equal(nil)
+
+			-- HIS WINDOW WITH NO ANIMAL RELEASED YET: the window still, and no trunk -- the other
+			-- five are hidden and he has nothing of his own to show.
+			local kept = fake.rootOf
+			fake.rootOf = function(): Instance?
+				return nil
+			end
+			local blind, stillWindow = Range.maskFor(man)
+			expect(blind).to.equal(nil)
+			expect((stillWindow :: any).minX).to.equal(minX)
+			fake.rootOf = kept
+
+			Range.stop()
+			local stoppedTrunk, stoppedWindow = Range.maskFor(man)
+			expect(stoppedTrunk).to.equal(nil)
+			expect(stoppedWindow).to.equal(nil)
+		end)
+
+		-- THE MUST-FIX OF 306b NOTE (i): the station is MEASURED, never claimed. The menu used to
+		-- send `spot = 1` from all six, so a man at station 3 picked station 1's trial.
+		it("onRequest lands on the station he is STANDING on, whatever the payload claims", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			advance(fake, clock, 1)
+			local man = manAtSpot(RangeData.matPosition(ANCHOR, 5, LAYOUT), 322)
+			expect((Range.positionOf(man))).to.equal(5)
+			local before = (Range.trialOf(1) :: any).pace
+			expect(Range.onRequest(man, { spot = 1, pace = RangeData.WORD.STAND })).to.equal(true)
+			-- STATION 5 TOOK IT, and station 1 -- the station the payload named -- did not move.
+			expect((Range.trialOf(5) :: any).pace).to.equal(RangeData.WORD.STAND)
+			expect((Range.trialOf(1) :: any).pace).to.equal(before)
+			-- AND THE RECORD IS STATION 5'S, which is what the board then prints.
+			expect((Range.recordOf(man) :: any).spot).to.equal(5)
 		end)
 
 		it("is counted, and costs under a tenth of a millisecond a call (T13)", function()

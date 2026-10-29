@@ -411,6 +411,29 @@ return function()
 			expect(sent[1].weapon).to.equal("lever")
 			expect(sent[1].ammo).to.equal(Weapons.row("lever").AMMO_KINDS[1])
 		end)
+
+		-- THE MUST-FIX OF 306b NOTE (i) (step B6): the two senders carried the literal `spot = 1`,
+		-- so all six menus named station 1. The station is TOLD by `Hud.step`, which is the one
+		-- evaluation that already resolves which of the twelve prompts he is standing at.
+		it("carries the station it was TOLD, in both senders, and defaults to 1", function()
+			local sent = freshPanel()
+			RangePanel.setState({ lists = lists() })
+			expect((RangePanel.stationOf())).to.equal(1)
+			RangePanel.setStation(5, RangeData.POSITION.TREESTAND)
+			local spot, position = RangePanel.stationOf()
+			expect(spot).to.equal(5)
+			expect(position).to.equal(RangeData.POSITION.TREESTAND)
+			expect(RangePanel.confirm()).to.equal(true)
+			expect(sent[1].spot).to.equal(5)
+			expect(RangePanel.reset()).to.equal(true)
+			expect(sent[2].spot).to.equal(5)
+			expect(sent[2].reset).to.equal(true)
+			-- TOLD NOTHING IS STATION 1, which is the one-station answer this file shipped with.
+			RangePanel.setStation(nil, nil)
+			expect((RangePanel.stationOf())).to.equal(1)
+			expect(RangePanel.confirm()).to.equal(true)
+			expect(sent[3].spot).to.equal(1)
+		end)
 	end)
 
 	describe("the board", function()

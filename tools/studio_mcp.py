@@ -726,6 +726,10 @@ BLAST_RADIUS = (
     # asserts them and they read `Range`'s own words (design 11.5).
     ("src/client/Hud/RangePanel.luau", "range"),
     ("src/client/Hud/RangeBoard.luau", "range"),
+    # Step B6's picture: the client mask and its boot. The same scope, because `range_mask.spec` is
+    # the only spec that asserts them and they read `Range`'s own window predicate (design 4.4).
+    ("src/client/Range/", "range"),
+    ("src/client/RangeBoot.client.luau", "range"),
     ("src/shared/Weapons/", "weapon"),
     # The flight (task 185): the pure ballistics maths. It resolves to `weapon`, not `gun` -- `gun`
     # is the DRAWN gun's geometry (`gun.spec`, `gun_client.spec`) and has nothing to do with
@@ -1088,6 +1092,8 @@ SCOPE_SPECS = {
     "range": ("tests/server/range.spec.luau", "tests/server/forest_stand.spec.luau",
               # Step B4: the menu and the board, on the client, where the two doors are.
               "tests/client/range_panel.spec.luau",
+              # Step B6: the picture, on the client, where the mask writes.
+              "tests/client/range_mask.spec.luau",
               "tests/server/flags.spec.luau"),
     "lobby": ("tests/server/lobby.spec.luau", "tests/server/lobby_live.spec.luau",
               # Task 287: the drive's door the pads ask (`Match.enrolRefused`), driven live.
