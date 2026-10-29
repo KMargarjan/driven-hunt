@@ -3270,10 +3270,57 @@ return function()
 			expect((stillWindow :: any).minX).to.equal(minX)
 			fake.rootOf = kept
 
+			-- ...AND THE `targetId == nil` ARM, which is the one the re-release case below lands in
+			-- and which the `rootOf` arm above does NOT reach (the Reviewer, round 1).
+			local held = (Range.trialOf(4) :: any).targetId;
+			(Range.trialOf(4) :: any).targetId = nil
+			local noAnimal, itsWindow = Range.maskFor(man)
+			expect(noAnimal).to.equal(nil)
+			expect((itsWindow :: any).minX).to.equal(minX);
+			(Range.trialOf(4) :: any).targetId = held
+
 			Range.stop()
 			local stoppedTrunk, stoppedWindow = Range.maskFor(man)
 			expect(stoppedTrunk).to.equal(nil)
 			expect(stoppedWindow).to.equal(nil)
+		end)
+
+		-- THE REVIEWER, ROUND 1, FINDING 1: `record.mine` is an INSTANCE, and a re-release makes a
+		-- new trunk while `boars.clear` destroys all six at once. Without a push on that edge the
+		-- man kept a reference to a destroyed trunk and his own NEW animal stayed hidden until his
+		-- next shot. The case re-releases and asserts the pushed record FOLLOWS.
+		it("pushes the new trunk on every re-release, to every man at the range", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			advance(fake, clock, 1)
+			local man = manAtSpot(RangeData.matPosition(ANCHOR, 2, LAYOUT), 330)
+			-- HE IS AT THE RANGE: one pick makes his record, which is the board's audience.
+			expect(Range.onRequest(man, { spot = 2, go = true })).to.equal(true)
+			local first = (Range.recordOf(man) :: any).mine
+			expect(first).to.equal(fake.at(2).root)
+			local pushes = Range.stats().boardPushes
+
+			-- EVERY TRUNK REPLACED AT ONCE, which is exactly what one man's carcass does to all six.
+			fake.clear("spec re-release")
+			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			local second = (Range.recordOf(man) :: any).mine
+			expect(second).to.be.ok()
+			expect(second).to.equal(fake.at(2).root)
+			-- A NEW INSTANCE, not the old one: a case that passed with the old trunk would prove
+			-- nothing about the push.
+			expect(second).never.to.equal(first)
+			-- AND HE WAS TOLD, without firing a shot.
+			expect(Range.stats().boardPushes > pushes).to.equal(true)
+
+			-- ...AND THE FLUSH IS ONCE A TICK, not once per release: six trials re-released, so an
+			-- unbatched push would be six per man.
+			local before = Range.stats().boardPushes
+			fake.clear("spec re-release 2")
+			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			expect((Range.recordOf(man) :: any).mine).to.equal(fake.at(2).root)
+			expect(Range.stats().boardPushes - before <= LAYOUT.SPOT_COUNT).to.equal(true)
 		end)
 
 		-- THE MUST-FIX OF 306b NOTE (i): the station is MEASURED, never claimed. The menu used to

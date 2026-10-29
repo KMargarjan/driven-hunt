@@ -468,7 +468,9 @@ end
 -- THE NEAREST WAY IN, AND WHICH STATION IT BELONGS TO. ONE walk of the folder for all twelve
 -- prompts -- six benches and six decks -- so the Hud asks "which prompt is he standing at" instead
 -- of asking for station 1's by name. nil position (no character yet) is no measurement and no
--- answer. Note: docs/design/shooting-range-lobby.md section 7.3
+-- answer, and NEITHER IS ONE OUT OF REACH: the cap is the prompt's own `MaxActivationDistance`, the
+-- same number `atSpot` measures with, so the panel is never told a station he is nowhere near.
+-- Note: docs/design/shooting-range-lobby.md section 7.3
 function Range.nearestPrompt(position: Vector3?, root: Instance?, layout): (any?, number?, string?)
 	layout = layout or Range.LAYOUT
 	local parent = root or (game:GetService("Workspace"):FindFirstChild(Range.FOLDER_NAME))
@@ -481,14 +483,14 @@ function Range.nearestPrompt(position: Vector3?, root: Instance?, layout): (any?
 			wanted[Range.promptName(spot, word)] = { spot = spot, position = word }
 		end
 	end
-	local best: any, bestSpot: number?, bestWord: string?, bestAt = nil, nil, nil, math.huge
+	local best: any, bestSpot: number?, bestWord: string?, bestAt = nil, nil, nil, layout.PROMPT.MaxActivationDistance
 	for _, child in ipairs(parent:GetDescendants()) do
 		local row = wanted[child.Name]
 		if row ~= nil then
 			local point = Range.promptPointOf(child)
 			if point ~= nil then
 				local far = ((point :: Vector3) - (position :: Vector3)).Magnitude
-				if far < bestAt then
+				if far <= bestAt then
 					best, bestSpot, bestWord, bestAt = child, row.spot, row.position, far
 				end
 			end

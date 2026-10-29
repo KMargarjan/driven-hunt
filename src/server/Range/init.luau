@@ -181,6 +181,11 @@ local state = {
 		ignoreCalls = 0,
 		refusedBy = nil :: string?,
 	},
+	-- EVERY MAN THE BOARD HAS EVER BEEN PUSHED TO, by UserId (step B6). The owner does not read
+	-- `Players`; it remembers the men its own seams handed it, which is the same set that has a
+	-- record. `maskDirty` says a trunk changed and every one of them must be told again.
+	watchers = {},
+	maskDirty = false,
 }
 
 local function clockNow(): number
@@ -606,6 +611,8 @@ function Range.stop()
 	state.started = false
 	state.built = nil
 	state.anchor = nil
+	state.watchers = {}
+	state.maskDirty = false
 	state.row = nil
 	state.root = nil
 	state.deckTops = {}
@@ -620,6 +627,10 @@ function Range.stop()
 	state.pending = {}
 	state.seen = {}
 end
+
+-- FORWARD-DECLARED: `scan` flushes it and it is defined down with `publish`, the one sender it
+-- uses. Declared here so the owner keeps one sender and not two.
+local flushMasks: () -> ()
 
 local function release(trial: Trial)
 	local boars = state.boars
@@ -641,6 +652,7 @@ local function release(trial: Trial)
 		return
 	end
 	trial.targetId = handle.id
+	state.maskDirty = true
 	trial.carcassAt = nil
 	trial.releaseAt = nil
 	trial.windowEnteredAt = nil
@@ -753,6 +765,7 @@ local function scan(dt: number)
 			-- Gone, and not by this module's hand: release another rather than steer a ghost.
 			state.stats.lostTargets += 1
 			trial.targetId = nil
+			state.maskDirty = true
 			trial.releaseAt = now + Range.CONFIG.RELEASE_SECONDS
 			continue
 		end
@@ -764,6 +777,7 @@ local function scan(dt: number)
 				boars.clear("range carcass")
 				state.stats.clears += 1
 				trial.targetId = nil
+				state.maskDirty = true
 				trial.carcassAt = nil
 				trial.releaseAt = now + Range.CONFIG.RELEASE_SECONDS
 				state.stats.releases += 1
@@ -779,6 +793,7 @@ local function scan(dt: number)
 		end
 		order(trial, status.position, dt)
 	end
+	flushMasks()
 end
 
 -- ONE MORE CALL IN THE HEARTBEAT THE ROOT ALREADY RUNS, throttled in here: a second clock would be
@@ -915,6 +930,9 @@ end
 -- player, per trial, and is thrown away when the trial ends (design 9.3).
 local function recordFor(player: any, trial: Trial, position: string?): any
 	local id = (player :: any).UserId
+	-- REMEMBERED HERE, where the record is made: the board's audience and the mask's audience are
+	-- the same men, so there is one list and no second definition of "who is at the range".
+	state.watchers[id] = player
 	local existing = state.records[id]
 	-- A CHANGE OF FIRING POSITION STARTS A FRESH TALLY, for the same reason a change of lane does:
 	-- the distance, and therefore both lead numbers, are different numbers (design 9.4).
@@ -943,6 +961,10 @@ function Range.recordOf(player: any): any
 	local copy = table.clone(record)
 	copy.zones = table.clone(record.zones)
 	copy.zoneOrder = table.clone(record.zoneOrder)
+	-- THE MASK'S TWO FIELDS RIDE ON THE RECORD AND ARE NOT PART OF THE TALLY: they are measured on
+	-- every read, because the trunk changes with every release while the tally survives it. Here and
+	-- not in `publish`, so the reader and the wire see one record (the Reviewer, round 1).
+	copy.mine, copy.window = Range.maskFor(player)
 	return copy
 end
 
@@ -987,13 +1009,29 @@ local function publish(player: any)
 	if remotes == nil or remotes.RangeBoard == nil then
 		return
 	end
-	-- THE MASK'S TWO FIELDS RIDE ON THE RECORD and are NOT part of the tally: they are recomputed
-	-- at every push because the trunk changes with every release while the record survives it.
-	record.mine, record.window = Range.maskFor(player)
 	pcall(function()
 		remotes.RangeBoard:FireClient(player, { record = record, lists = Range.optionLists() })
 	end)
 	state.stats.boardPushes += 1
+end
+
+-- A TRUNK CHANGED, SO EVERY MAN AT THE RANGE IS TOLD AGAIN (the Reviewer, round 1, finding 1).
+-- `record.mine` is an INSTANCE, and `release` makes a new one while `boars.clear` destroys all six
+-- at once -- so without this a man kept a reference to a destroyed trunk and his own new animal
+-- stayed hidden until his next shot. Flushed ONCE per scan tick (`STEP_HZ`, 10 Hz), not once per
+-- release, so a six-trial carcass clear costs one push per man and not six.
+function flushMasks()
+	if not state.maskDirty then
+		return
+	end
+	state.maskDirty = false
+	for id, player in pairs(state.watchers) do
+		if state.records[id] == nil then
+			state.watchers[id] = nil
+		else
+			publish(player)
+		end
+	end
 end
 
 -- THE SIGNED ALONG-TRACK GAP, in studs, projected onto the target's own travel (design 9.2).
