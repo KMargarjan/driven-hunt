@@ -66,11 +66,17 @@ end
 -- of a 0.31-occupancy layer. `Lobby.tryBuild` snaps the measured ground through this before it
 -- becomes the anchor, so every part in the lobby is laid on the same snapped number.
 --
--- NEAREST AND NOT FLOOR: at most two studs of movement either way, which is the smallest step this
--- can be, and the field is a CUT SHELF already -- it meets the hillside in a step by design.
+-- FLOOR AND NOT NEAREST, AND THAT IS A FIXED POINT RATHER THAN A TASTE (review round 1, finding 1).
+-- `tryBuild` can run more than once -- `Build.defaultRigSource` yields, a build can throw and is
+-- retried -- and the second run reads the ground the FIRST fill produced, which is two studs above
+-- the cut. With `math.round`, a cut of 148 produces 150, `round(150 / 4) = 38` cuts the second run
+-- at 152, the third at 156, and every retry lifts the whole lobby a voxel. Flooring is stable:
+-- `floor(150 / 4) * 4 = 148`, the cut it already made, however many times it runs. It is
+-- `Field.cutBottomY`'s own arithmetic, which is the point -- the cut and the air box's bottom are
+-- one number, and `lobby.spec` runs the snap twice to prove the second run does not move it.
 -- Note: docs/research/2026-10-29-lobby-flagpole-and-birch-avenue.md (sections 2, 3.1)
 function Field.shelfFor(measured: number): number
-	return math.round(measured / Field.RESOLUTION) * Field.RESOLUTION
+	return Field.cutBottomY(measured)
 end
 
 -- PURE. The AIR block that cuts the hill off. Its bottom is `cutBottomY(shelfY)` -- the voxel

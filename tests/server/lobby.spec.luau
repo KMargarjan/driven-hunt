@@ -1142,7 +1142,9 @@ return function()
 			for _, measured in ipairs({ 149.248, 150.36, 151.27, 148, 152, 0, -3.1 }) do
 				local snapped = Field.shelfFor(measured)
 				expect(snapped % Field.RESOLUTION).to.equal(0)
-				expect(math.abs(snapped - measured) <= Field.RESOLUTION / 2 + 1e-9).to.equal(true)
+				-- FLOOR: never above the measured ground, and never more than a voxel below it.
+				expect(snapped <= measured + 1e-9).to.equal(true)
+				expect(measured - snapped < Field.RESOLUTION).to.equal(true)
 				-- ...AND THEN THE CUT IS THE SHELF ITSELF: no voxel is split by any of the fills.
 				expect(Field.cutBottomY(snapped)).to.equal(snapped)
 				local at, size = Field.airBlock(anchor, snapped, CFG)
@@ -1153,6 +1155,25 @@ return function()
 			end
 			-- A SHELF ALREADY ON THE GRID DOES NOT MOVE.
 			expect(Field.shelfFor(148)).to.equal(148)
+		end)
+
+		it("snaps to the SAME cut on a second build, fed the surface the first one produced", function()
+			-- REVIEW ROUND 1, FINDING 1, AND IT IS A REAL RETRY PATH: `Build.defaultRigSource` yields
+			-- and a build that throws is retried by `Lobby.step`, so the second `tryBuild` reads the
+			-- ground the FIRST fill produced -- which this task measured at two studs above the cut.
+			-- With `math.round` a cut of 148 produced 150, `round(150 / 4) = 38` cut at 152, the next
+			-- at 156, and every retry lifted the whole lobby a voxel. The snap must be a FIXED POINT
+			-- under that feedback.
+			--
+			-- THE SURFACE IS THE INSTRUMENT'S OWN NUMBER: +2 is what `p311-after3.txt` read in her
+			-- place for a cut at 148, and the loop below also tries the neighbouring offsets so the
+			-- property does not rest on that one measurement.
+			for _, measured in ipairs({ 149.248, 150.36, 151.27, 147.5, 152.9 }) do
+				local first = Field.shelfFor(measured)
+				for _, produced in ipairs({ first + 2, first + 1, first + 3.9, first }) do
+					expect(Field.shelfFor(produced)).to.equal(first)
+				end
+			end
 		end)
 
 		it("cuts the band for a shelf anywhere in a voxel, and never cuts below one", function()
@@ -4523,13 +4544,13 @@ return function()
 				local dz = math.max(0, math.abs(foot.Z - pad.Z) - CFG.PADS.SIZE.Z / 2 - radius)
 				expect(math.max(dx, dz) > 0).to.equal(true)
 			end
-			-- CLEAR OF THE LODGE AND ITS PORCH, whose keep-out box this module already owns.
-			local keepMin, keepMax = Build.lodgeKeepOut(CFG)
-			local inside = foot.X >= anchor.X + keepMin.X
-				and foot.X <= anchor.X + keepMax.X
-				and foot.Z >= anchor.Z + keepMin.Z
-				and foot.Z <= anchor.Z + keepMax.Z
-			expect(inside).to.equal(false)
+			-- CLEAR OF THE LODGE AND ITS PORCH, whose keep-out box this module already owns. Through
+			-- `Build.insideLodgeBox`, because `lodgeKeepOut` returns a CENTRE and HALF-EXTENTS and
+			-- reading it as a min and a max answers "outside" for almost any point.
+			expect(Build.insideLodgeBox(Vector2.new(foot.X, foot.Z), anchor, CFG)).to.equal(false)
+			-- ...and the box really does bite: the lodge's own centre is inside it.
+			local door = anchor + CFG.LODGE.OFFSET
+			expect(Build.insideLodgeBox(Vector2.new(door.X, door.Z), anchor, CFG)).to.equal(true)
 			-- ...AND OFF THE SPAWN PAD, which is where a man materialises.
 			local spawn = anchor + CFG.SPAWN.OFFSET
 			expect(math.abs(foot.Z - spawn.Z) > CFG.SPAWN.SIZE.Z / 2 + radius).to.equal(true)
@@ -4613,15 +4634,104 @@ return function()
 					expect(string.format("avenue slot %d is inside the yard", index)).to.equal(false)
 				end
 				-- NOR IN THE LODGE OR ITS PORCH.
-				local keepMin, keepMax = Build.lodgeKeepOut(CFG)
-				local inside = at.X >= anchor.X + keepMin.X
-					and at.X <= anchor.X + keepMax.X
-					and at.Y >= anchor.Z + keepMin.Z
-					and at.Y <= anchor.Z + keepMax.Z
-				expect(inside).to.equal(false)
+				expect(Build.insideLodgeBox(at, anchor, CFG)).to.equal(false)
 			end
 			-- THE OFFSET ITSELF CLEARS THE FENCE LINE, so a birch never grows through a rail.
 			expect(spec.OFF_ROAD_STUDS > CFG.FENCE.OFF_ROAD_STUDS).to.equal(true)
+		end)
+
+		it("refuses a point in the road, and says so for the lane's own centre", function()
+			-- A NEGATIVE CONTROL (review round 1, note): every other assertion on `offRoad` expects
+			-- true, so a body of `return true` passed the whole file -- and `offRoad` is the road
+			-- guard inside the avenue's own keep-out.
+			local centre = anchor.X + CFG.ROAD.CENTRE_X
+			expect(Build.offRoad(centre, anchor, CFG)).to.equal(false)
+			local verge = centre + CFG.ROAD.WIDTH_STUDS / 2 + CFG.ROAD.VERGE_STUDS
+			expect(Build.offRoad(verge, anchor, CFG)).to.equal(false)
+			expect(Build.offRoad(verge + CFG.AVENUE.KEEP_OFF_STUDS, anchor, CFG)).to.equal(true)
+			-- ...AND THE SAME FOR THE WHOLE KEEP-OUT: the yard, a pad, a bay and the house are all
+			-- refused, which is what review round 1's finding 3 found nothing enforcing.
+			local midX, _halfX, midZ, _halfZ = Build.yardRect(anchor, CFG)
+			expect(Build.plantable(Vector2.new(midX, midZ), anchor, CFG)).to.equal(false)
+			local deck = Pads.centreFor(anchor, 4, CFG)
+			expect(Build.plantable(Vector2.new(deck.X, deck.Z), anchor, CFG)).to.equal(false)
+			local door = anchor + CFG.LODGE.OFFSET
+			expect(Build.plantable(Vector2.new(door.X, door.Z), anchor, CFG)).to.equal(false)
+			-- ...AND A REAL AVENUE SLOT IS PLANTABLE, so the rule is not simply "false": the first
+			-- non-gap row of the shipped table, which is where a birch is meant to stand.
+			local live = Build.avenueAt(anchor, CFG.AVENUE.SLOTS[1], CFG)
+			expect(Build.plantable(live, anchor, CFG)).to.equal(true)
+		end)
+
+		it("walks a fouled slot north, drops one it cannot clear, and never onto the yard", function()
+			-- REVIEW ROUND 1, FINDING 2: the old case passed with the whole shift-and-drop loop
+			-- deleted, because `avenueTrees + avenueDropped == slots - gaps` is a bookkeeping
+			-- identity over two counters in the same branchless pair. `Build.avenuePlan` is pure, so
+			-- this hands it a trunk standing ON a slot and asserts the tree MOVED -- which is false
+			-- the moment the loop goes.
+			local spec = CFG.AVENUE
+			local clear = Build.avenuePlan(anchor, CFG, {})
+			expect(#clear > 0).to.equal(true)
+			local first = clear[1]
+			expect(first.dropped).never.to.equal(true)
+			expect(first.shifted).to.equal(0)
+
+			-- ONE TRUNK JUST SOUTH OF THAT SLOT: 7 studs away, inside `KEEP_OFF_TREES_STUDS` (14),
+			-- and one 8-stud step north puts the tree 15 away -- so it must move EXACTLY once. A
+			-- trunk ON the slot would need two steps, which is the same proof with a worse number.
+			local near = Vector2.new(first.at.X, first.at.Y - 7)
+			local fouledPlan = Build.avenuePlan(anchor, CFG, { near })
+			local moved = nil
+			for _, row in ipairs(fouledPlan) do
+				if row.index == first.index then
+					moved = row
+				end
+			end
+			expect(moved).to.be.ok()
+			expect((moved :: any).dropped).never.to.equal(true)
+			expect((moved :: any).shifted).to.equal(1)
+			expect((moved :: any).at.Y - first.at.Y).to.equal(spec.SHIFT_STUDS)
+			expect((moved :: any).at.X).to.equal(first.at.X)
+
+			-- A WALL OF TRUNKS UP THE WHOLE SHIFT RANGE: no step can clear it, so it is DROPPED and
+			-- never planted on top of one of them.
+			local wall = {}
+			for step = 0, spec.MAX_SHIFTS do
+				table.insert(wall, Vector2.new(first.at.X, first.at.Y + step * spec.SHIFT_STUDS))
+			end
+			local blocked = nil
+			for _, row in ipairs(Build.avenuePlan(anchor, CFG, wall)) do
+				if row.index == first.index then
+					blocked = row
+				end
+			end
+			expect(blocked).to.be.ok()
+			expect((blocked :: any).dropped).to.equal(true)
+
+			-- AND THE WHOLE PLAN, SHIFTS INCLUDED, STAYS OUT OF THE YARD, THE PADS, THE BAYS, THE
+			-- ROAD AND THE HOUSE -- the research note's target 5, asserted on where a tree ENDS UP
+			-- and not on the slot table it started from (finding 3). Driven with a trunk on EVERY
+			-- nominal slot, so every surviving row in this plan is a shifted one.
+			local onEvery = {}
+			for _, row in ipairs(clear) do
+				table.insert(onEvery, row.at)
+			end
+			local shoved = Build.avenuePlan(anchor, CFG, onEvery)
+			local sawShift = false
+			for _, row in ipairs(shoved) do
+				if not row.dropped then
+					expect(row.shifted > 0).to.equal(true)
+					sawShift = true
+					expect(Build.plantable(row.at, anchor, CFG)).to.equal(true)
+				end
+			end
+			expect(sawShift).to.equal(true)
+			-- ...and two avenue trees never land on each other.
+			for i = 1, #clear do
+				for j = i + 1, #clear do
+					expect((clear[i].at - clear[j].at).Magnitude >= spec.KEEP_OFF_TREES_STUDS).to.equal(true)
+				end
+			end
 		end)
 
 		it("builds the pole on the ground it is given, with the flag hanging off the mast", function()
@@ -4650,7 +4760,9 @@ return function()
 			-- ITS FOOT IS ON THE GROUND THE READER GAVE, not on the anchor's own Y, and not centred
 			-- on it: this is task 186's rule for the trucks, said about a pole.
 			expect(math.abs((mast.Position.Y - CFG.FLAGPOLE.HEIGHT_STUDS / 2) - ground) < 1e-3).to.equal(true)
-			expect(math.abs((kerb.Position.Y - kerb.Size.Y / 2) - ground) < 1e-3).to.equal(true)
+			-- THE KERB IS A TURNED CYLINDER TOO, so its DRAWN height is `BASE_HEIGHT_STUDS` and its
+			-- `Size.Y` is the disc's width: the bound is the number the config states.
+			expect(math.abs((kerb.Position.Y - CFG.FLAGPOLE.BASE_HEIGHT_STUDS / 2) - ground) < 1e-3).to.equal(true)
 			-- THE BALL IS ON TOP OF THE MAST and the flag's top edge is just under it.
 			expect(finial.Position.Y > ground + CFG.FLAGPOLE.HEIGHT_STUDS).to.equal(true)
 			local flagTop = field.Position.Y + field.Size.Y / 2
@@ -4738,11 +4850,12 @@ return function()
 			expect(made.avenueTrees + made.avenueDropped).to.equal(#CFG.AVENUE.SLOTS - made.avenueGaps)
 			expect(made.avenueGaps >= 1).to.equal(true)
 			expect(#(planted :: Instance):GetChildren()).to.equal(made.avenueTrees)
-			-- EVERY TRUNK THAT WAS PLANTED IS OFF THE ROAD, measured where it ended up rather than
-			-- where its row said it would be.
+			-- EVERY TRUNK THAT WAS PLANTED IS SOMEWHERE A TREE MAY STAND -- off the road AND off the
+			-- yard, the pads, the bays and the house -- measured where it ENDED UP rather than where
+			-- its row said it would be (review round 1, finding 3).
 			for _, tree in ipairs((planted :: Instance):GetChildren()) do
 				local at = (tree :: Model):GetPivot().Position
-				expect(Build.offRoad(at.X, anchor, CFG)).to.equal(true)
+				expect(Build.plantable(Vector2.new(at.X, at.Z), anchor, CFG)).to.equal(true)
 			end
 			folder:Destroy()
 			templates:Destroy()

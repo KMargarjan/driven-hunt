@@ -4836,8 +4836,10 @@ local function flagpole(container: Instance, anchor: Vector3, cfg, groundAt: ((n
 	-- THE KERB FIRST, so the pole's own foot is inside it rather than on top of it.
 	local kerb = part(
 		"Kerb",
-		Vector3.new(spec.BASE_STUDS, spec.BASE_HEIGHT_STUDS, spec.BASE_STUDS),
-		CFrame.new(foot.X, foot.Y + spec.BASE_HEIGHT_STUDS / 2, foot.Z),
+		Vector3.new(spec.BASE_HEIGHT_STUDS, spec.BASE_STUDS, spec.BASE_STUDS),
+		-- TURNED LIKE THE MAST BELOW IT, for the same reason: a Roblox cylinder's LENGTH is its X,
+		-- so an unturned (3, 0.4, 3) is a 3-stud tube lying on its side and not a flat ring.
+		CFrame.new(foot.X, foot.Y + spec.BASE_HEIGHT_STUDS / 2, foot.Z) * CFrame.Angles(0, 0, math.rad(90)),
 		spec.BASE_COLOR,
 		spec.BASE_MATERIAL,
 		false,
@@ -4940,6 +4942,101 @@ function Build.offRoad(x: number, anchor: Vector3, cfg): boolean
 	return math.abs(x - (anchor.X + cfg.ROAD.CENTRE_X)) >= half
 end
 
+-- IS THIS POINT INSIDE THE LODGE'S KEEP-OUT BOX? PURE, and it exists because `Build.lodgeKeepOut`
+-- returns a CENTRE AND HALF-EXTENTS, not a min and a max -- read as min/max it answers "outside"
+-- for almost everything, which is a keep-out that keeps nothing out (review round 2 of my own
+-- writing: the first draft of `plantable` and of two spec cases all made that mistake, and passed).
+-- One reader, so the mistake cannot be made in four places again.
+function Build.insideLodgeBox(at: Vector2, anchor: Vector3, cfg): boolean
+	local centre, half = Build.lodgeKeepOut(cfg)
+	return math.abs(at.X - (anchor.X + centre.X)) <= half.X and math.abs(at.Y - (anchor.Z + centre.Z)) <= half.Z
+end
+
+-- IS THIS POINT SOMEWHERE A TREE MAY STAND AT ALL? PURE, and it is every rectangle `treeLine`
+-- already refuses, named once (review round 1, finding 3). The road guard above was the ONLY one
+-- `avenue` had, and a shifted slot can walk 24 studs north: slot 8 reaches z -2974, which is inside
+-- the gravel yard AND inside pad 4 -- a birch standing on a truck pad. The research note's own
+-- target 5 asks for all of these, so they are one function and both the builder and the spec use it.
+function Build.plantable(at: Vector2, anchor: Vector3, cfg): boolean
+	if not Build.offRoad(at.X, anchor, cfg) then
+		return false
+	end
+	-- THE GRAVEL YARD, which carries the bays, the pads and the turning space.
+	local midX, halfX, midZ, halfZ = Build.yardRect(anchor, cfg)
+	if math.abs(at.X - midX) <= halfX and math.abs(at.Y - midZ) <= halfZ then
+		return false
+	end
+	-- EACH PAD AND THE TRUCK PARKED AT ITS BAY, with the trunk's own crown allowance.
+	local margin = cfg.AVENUE.KEEP_OFF_STUDS
+	for index = 1, cfg.TRUCK.COUNT do
+		local deck = Pads.centreFor(anchor, index, cfg)
+		if
+			math.abs(at.X - deck.X) <= cfg.PADS.SIZE.X / 2 + margin
+			and math.abs(at.Y - deck.Z) <= cfg.PADS.SIZE.Z / 2 + margin
+		then
+			return false
+		end
+		local bay = anchor
+			+ cfg.TRUCK.OFFSET
+			+ Vector3.new(cfg.TRUCK.BACK_STUDS, 0, -(index - 1) * cfg.TRUCK.BAY_GAP_STUDS)
+		if
+			math.abs(at.X - bay.X) <= cfg.TRUCK.MODEL.LENGTH_STUDS / 2 + margin
+			and math.abs(at.Y - bay.Z) <= cfg.TRUCK.MODEL.WIDTH_STUDS / 2 + margin
+		then
+			return false
+		end
+	end
+	-- ...AND THE HOUSE.
+	if Build.insideLodgeBox(at, anchor, cfg) then
+		return false
+	end
+	return true
+end
+
+-- WHERE EVERY AVENUE TREE ENDS UP, AS A PURE FUNCTION OF THE SLOT TABLE AND WHAT IS ALREADY
+-- STANDING (review round 1, finding 2). It was a loop inside the builder, and the only case that
+-- covered it passed with the whole shift-and-drop machinery deleted -- `avenueTrees + avenueDropped
+-- == slots - gaps` is a bookkeeping identity over two counters in the same branchless pair, not a
+-- behaviour. Pulled out here, `lobby.spec` can hand it a trunk standing on a slot and assert the
+-- tree MOVED, which is a case that fails when the loop goes.
+--
+-- `standing` is every trunk already planted, in world x/z. Returns one row per non-gap slot:
+-- `at` where it ends up, `shifted` how many steps it took, `dropped` if no step could clear it.
+-- A planted row is appended to `standing` as it goes, so two avenue trees cannot land on each other.
+function Build.avenuePlan(anchor: Vector3, cfg, standing: { Vector2 }): { any }
+	local spec = cfg.AVENUE
+	local taken: { Vector2 } = table.clone(standing)
+	local plan = {}
+	local function fouled(at: Vector2): boolean
+		if not Build.plantable(at, anchor, cfg) then
+			return true
+		end
+		for _, other in ipairs(taken) do
+			if (other - at).Magnitude < spec.KEEP_OFF_TREES_STUDS then
+				return true
+			end
+		end
+		return false
+	end
+	for index, slot in ipairs(spec.SLOTS) do
+		if not slot.gap then
+			local at = Build.avenueAt(anchor, slot, cfg)
+			local steps = 0
+			while fouled(at) and steps < spec.MAX_SHIFTS do
+				at = Vector2.new(at.X, at.Y + spec.SHIFT_STUDS)
+				steps += 1
+			end
+			if fouled(at) then
+				table.insert(plan, { index = index, slot = slot, dropped = true })
+			else
+				table.insert(plan, { index = index, slot = slot, at = at, shifted = steps })
+				table.insert(taken, at)
+			end
+		end
+	end
+	return plan
+end
+
 -- THE BIRCHES DOWN BOTH SIDES OF THE APPROACH ROAD. Karen, 2026-10-28: *"forest road comming to
 -- lobby around trees on the side or road bjorke tree from both sides with spaces"*.
 --
@@ -4997,42 +5094,26 @@ local function avenue(
 			end
 		end
 	end
-	local function fouled(at: Vector2): boolean
-		if not Build.offRoad(at.X, anchor, cfg) then
-			return true
-		end
-		for _, other in ipairs(standing) do
-			if (other - at).Magnitude < spec.KEEP_OFF_TREES_STUDS then
-				return true
-			end
-		end
-		return false
-	end
-	for index, slot in ipairs(spec.SLOTS) do
+	for _, slot in ipairs(spec.SLOTS) do
 		if slot.gap then
 			stats.avenueGaps += 1
-			continue
 		end
-		local at = Build.avenueAt(anchor, slot, cfg)
-		local steps = 0
-		while fouled(at) and steps < spec.MAX_SHIFTS do
-			at = Vector2.new(at.X, at.Y + spec.SHIFT_STUDS)
-			steps += 1
-		end
-		if fouled(at) then
+	end
+	-- THE DECISION IS `Build.avenuePlan`'S AND THIS LOOP ONLY DRAWS IT: where a tree stands is a pure
+	-- function of the slot table and what is already planted, so `lobby.spec` can drive it with a
+	-- trunk of its own and assert the tree really moved (review round 1, finding 2).
+	for _, row in ipairs(Build.avenuePlan(anchor, cfg, standing)) do
+		if row.dropped then
 			stats.avenueDropped += 1
 			continue
 		end
-		if steps > 0 then
-			stats.avenueShifted += 1
-		end
-		local foot = Vector3.new(at.X, 0, at.Y)
+		local foot = Vector3.new(row.at.X, 0, row.at.Y)
 		local planted = cloneInstance(
 			template,
-			string.format("Avenue%02d", index),
-			slot.scale,
+			string.format("Avenue%02d", row.index),
+			row.slot.scale,
 			Vector3.new(foot.X, plantY(foot, anchor, cfg, groundAt), foot.Z),
-			math.rad(slot.yaw),
+			math.rad(row.slot.yaw),
 			folder,
 			true,
 			true
@@ -5040,8 +5121,10 @@ local function avenue(
 		if seatOnGround(planted :: Model, cfg, terrainAt or groundAt, species.CLAW_FRACTION or 0) then
 			stats.treesSeated += 1
 		end
+		if row.shifted > 0 then
+			stats.avenueShifted += 1
+		end
 		stats.avenueTrees += 1
-		table.insert(standing, at)
 	end
 	folder.Parent = container
 end
