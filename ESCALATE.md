@@ -1,3 +1,42 @@
+## 2026-10-29, Task 306 step B7 -- ROUND 2 RETURNED ONE FINDING, and the dispatch caps the step at two rounds
+
+The dispatch: *"Review: max 2 rounds; FINDINGS on round 2 -> ESCALATE.md and stop."* Round 2's verdict
+(`reviews/task-306g/RESULT.md`, commit `ec5410f7`, 43 turns, $3.67) is one blocking finding plus eight
+notes. **The branch is left exactly at the reviewed state: no code has been written since the harness
+line that covers it.** Branch `task-306b7-occupancy`, head `ec5410f7` plus this entry; no PR opened
+(the dispatch says the Director opens it).
+
+**THE FINDING IS CORRECT AND I AGREE WITH IT.** `Boar.Runtime:clearOne` -- the per-id despawn this
+step BUILT for must-fix 1 -- has no test anywhere against a real runtime. `range.spec`'s cases drive
+the spec's own nine-line fake (`fake.clearOne`), so replacing the production method's body with
+`return false` leaves the harness at **34/34** while the live consequence is the opposite of the
+must-fix: `clearTarget` returns false, `trial.targetId` is never released, and the idle arm
+`continue`s before the `statusOf` cleanup -- so the station keeps its animal for ever. That is
+exactly the core protocol's STEP 4 item 1 (*"a proof case that still passes when the producing code
+is deleted"*). The only live evidence is the DEV reading in claim 2 (at 34 s, one target, and it is
+station 4's `Boar2`), which no gate repeats.
+
+**WHAT CLOSES IT, in one round** (the Reviewer names the arrangement, and it already exists):
+one case in `tests/server/boar_history.spec.luau` or `boar_behaviour_live.spec.luau`, both of which
+build a real `Boar` runtime and already call `runtime:clear(...)` -- spawn two animals, assert
+`runtime:clearOne(idA, "spec") == true`, that `runtime:count()` fell by exactly one, that A's body
+Instance is gone from the world folder while B's handle and Instance are untouched, and that
+`runtime:clearOne("nope")` returns `false` and removes nothing. Shown red first by gutting the method.
+Round-2 note 2 belongs with it: when `clearTarget` returns false the idle arm should clear
+`trial.targetId` (or fall through to `statusOf`) rather than `continue`, or the trial holds a dead id.
+
+**THE DIRECTOR'S DECISION.** `MAX_ROUNDS` is 3, so `tools/review.ps1` would accept a round 3 with no
+`DIRECTOR_MAX_ROUNDS` at all -- it is this dispatch's own cap that stops here. Either (a) authorise
+round 3 on this branch and I write that case, re-run `test` and review once more, or (b) take it as a
+queued item for B8, which touches this code again. (a) is cheap and keeps must-fix 1 honest; (b)
+merges a verb whose only proof is a DEV reading nobody can re-run.
+
+**NOT PROVEN IN KAREN'S PLACE (the Reviewer's standing note, both rounds):** claims 1, 2 and 7 were
+seen live in DEV only; claims 3 and 4 -- the carcass and the pick cleared per station -- were seen in
+no live run at all, their only evidence being `range.spec`. Her place is B8 and the proof is B9.
+
+---
+
 ## 2026-10-29, Task 309 -- the rewind base was wrong in HER place and is fixed; FOUR of the dispatch's targets are still NOT met and the remaining cause is unnamed
 
 Every time below is a `date -u` reading. Tables and raw rows: `reviews/task-309/bench-*.txt`,
