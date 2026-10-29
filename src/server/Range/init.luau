@@ -880,8 +880,12 @@ local function scan(dt: number)
 			if clearTarget(trial, "range idle") then
 				state.stats.idleClears += 1
 				trial.releaseAt = nil
+				continue
 			end
-			continue -- FAIL-FIRST PROBE (reverted in the next commit): the dead-id arm, restored.
+			-- THE SEAM REFUSED, so DO NOT skip the rest (round 2, note 2): a `continue` here left the
+			-- trial holding a dead id for ever, over-counting `targets` and keeping it in the mask.
+			-- Falling through lets `statusOf` notice an animal that is already gone, and the clear is
+			-- retried on the next tick for one that is not.
 		end
 		local status = boars.statusOf(trial.targetId)
 		if status == nil then
