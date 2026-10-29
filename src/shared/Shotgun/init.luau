@@ -675,7 +675,18 @@ Shotgun.CONFIG = {
 	-- server's own 0.2057 s in the past (sd 0.018, p50 0.2048, 93 frames correlated, match
 	-- residual 0.23 studs) -- so 0.18 under-rewound by 0.47 studs mean, 0.95 at p90.
 	-- Probe: <runs-dir>/309/zcli.luau + zsrv-spawn.luau. Note: reviews/task-309/REQUEST.md
-	FLIGHT_REWIND_BASE_SECONDS = 0.205,
+	--
+	-- 0.205 -> 0.250 (task 309a). 0.2057 was a BEST FIT of the drawn chest to the ring; this is the
+	-- END-TO-END residual, measured by the instrument of this task -- `DH305Past` (the position the
+	-- server ACTUALLY tested) minus the trunk the client was drawing on the frame `Input.fire` ran,
+	-- along travel. At 0.205 that gap read +1.00, +1.19 and +0.90 studs on three run cells, always
+	-- the same sign; at 0.250 it reads +0.10, +0.27 and +0.01, and a boar aimed at with no lead at
+	-- all went 15/30 to 20/20 (<runs-dir>/309a/after-A.txt against cycle3.txt, same place, same rig).
+	-- THE BOUND, stated because the instrument has one: the bench reads the drawn trunk up to one
+	-- frame after the trigger (0.4 studs at a run), so the value that truly zeroes the gap lies in
+	-- 0.217..0.250 and 0.250 is its over-rewound end. It is not free lead: the KNOWN-BAD cell -- a
+	-- click one body length into clear air -- still read 0/20.
+	FLIGHT_REWIND_BASE_SECONDS = 0.250,
 
 	-- ---------------------------------------------------------- THE HIT CLAIM (task 266)
 	--

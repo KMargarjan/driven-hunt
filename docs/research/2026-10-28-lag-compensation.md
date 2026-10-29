@@ -120,7 +120,7 @@ prints `LEAD VIEW <= 7.21 studs`), fixes it for every weapon at once, and leaves
 |---|---|
 | extra lead a shooter must add beyond `Ballistics.leadStuds` | **0 studs**, +- 0.63 (one Heartbeat x 38 studs/s, the grid's own quantisation) |
 | chest-or-body hits, aiming at the CLIENT-rendered chest + ballistic lead only | **>= 8/10** per pace per gun |
-| rewind amount | `FLIGHT_REWIND_BASE_SECONDS` **0.205 s since task 309, re-measured in Karen's place (0.18 was the DEV measurement above)** + ping x `FLIGHT_CATCHUP_PING_FACTOR` 1.0, capped at `CLAIM.VIEW_LAG_MAX_SECONDS` 0.45 s. **NOT `CLAIM.VIEW_LAG_BASE_SECONDS` (0.30)**: that is a window a sweep searches, where over-estimating is free; this is an amount, and 0.30 would rewind 0.12 s too far -- 2.9 studs at a run, in the other direction |
+| rewind amount | `FLIGHT_REWIND_BASE_SECONDS` **0.250 s since task 309a** (0.18 was the DEV measurement above; 0.205 was task 309's best fit of the drawn chest to the ring; 0.250 is task 309a's END-TO-END residual -- `DH305Past` minus the drawn trunk on the trigger frame read +1.00/+1.19/+0.90 studs at 0.205 and +0.10/+0.27/+0.01 at 0.250, `<runs-dir>/309a/`. The bench reads the drawn trunk up to one frame late, so the true zero lies in 0.217..0.250) + ping x `FLIGHT_CATCHUP_PING_FACTOR` 1.0, capped at `CLAIM.VIEW_LAG_MAX_SECONDS` 0.45 s. **NOT `CLAIM.VIEW_LAG_BASE_SECONDS` (0.30)**: that is a window a sweep searches, where over-estimating is free; this is an amount, and 0.30 would rewind 0.12 s too far -- 2.9 studs at a run, in the other direction |
 | cost | one bounded bounds-query + at most `CLAIM.MAX_TARGETS` extra casts per sub-step |
 
 ## Amendment, 2026-10-28 (round 1 of the review, and a second Builder's measurement)
