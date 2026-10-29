@@ -491,6 +491,27 @@ function Range.laneCentre(anchor: Vector3, layout, downrange: number?, spot: num
 	return Vector3.new(mat.X, anchor.Y, anchor.Z + dir * Range.distanceStudsOr(layout, distanceStuds))
 end
 
+-- ONE STATION'S OWN WINDOW, IN X. The opening is centred on the mat, so it is the same span at all
+-- three distances -- the lane only moves in Z. ONE predicate for the two sides that must agree: the
+-- shot's ignore list (design 4.3) and the client mask's picture (4.4).
+-- Note: docs/design/shooting-range-lobby.md sections 4.3, 5.3
+function Range.windowSpanFor(anchor: Vector3, spot: number, layout): (number, number)
+	layout = layout or Range.LAYOUT
+	local mat = Range.matPosition(anchor, spot, layout)
+	local half = layout.WINDOW_STUDS / 2
+	return mat.X - half, mat.X + half
+end
+
+-- IS THIS X INSIDE THAT WINDOW? Both edges count (`<=`, the repo's rule), and a nil X -- no animal,
+-- or no history for the instant asked about -- is NOT in the window, which is the safe answer: the
+-- shot then cannot see it either.
+function Range.inWindow(minX: number, maxX: number, x: number?): boolean
+	if type(x) ~= "number" then
+		return false
+	end
+	return x >= minX and x <= maxX
+end
+
 function Range.laneEnds(
 	anchor: Vector3,
 	layout,

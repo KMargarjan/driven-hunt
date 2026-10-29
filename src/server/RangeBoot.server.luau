@@ -174,6 +174,11 @@ local started = Range.start({
 		cframeAt = function(id: string, at: number)
 			return runtime:cframeAtId(id, at)
 		end,
+		-- THE TRUNK, FOR THE SHOT'S IGNORE LIST (task 306 B5, design 4.3). The only reader is
+		-- `Range.ignoredFor`; one Instance per target, and its zone parts are welded under it.
+		rootOf = function(id: string)
+			return runtime:rootOf(id)
+		end,
 		configOf = function()
 			return runtime:config()
 		end,
@@ -222,6 +227,14 @@ if not started then
 	warn("[RangeBoot] the range refused to start: " .. tostring(Range.stats().refusedBy))
 	return
 end
+
+-- ONE ANIMAL IN ONE SHOT'S WORLD (task 306 B5, design 4.3). Six bodies share one corridor, and
+-- `Cast.candidates` returns the EIGHT nearest the muzzle while `Rewind.impact` takes the nearest
+-- rewound one -- so without this a body the shooter cannot see stops his bullet. Wired here and
+-- only here: unwired, `ignoreFor` is today's two-entry list.
+Weapon.setIgnoreProvider(function(player, rewindSeconds)
+	return Range.ignoredFor(player, rewindSeconds)
+end)
 
 -- A HIT ON A RANGE TARGET IS THE HUNT'S HIT (design section 12): the same `Weapon.HitReported`, the
 -- same `Runtime:takeHit`, so a shot that kills on the lane kills in the wood. `takeHit` matches the

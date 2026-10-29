@@ -7026,6 +7026,20 @@ function Runtime:cframeAtId(id: string, at: number): CFrame?
 	return nil
 end
 
+-- THE TRUNK OF AN ANIMAL KNOWN ONLY BY ITS ID (task 306 B5). The range's shot-isolation list needs
+-- ONE Instance per target to exclude -- excluding a trunk excludes the welded zone parts under it
+-- (`FilterDescendantsInstances`) -- and it holds no Instance of its own.
+-- Note: docs/design/shooting-range-lobby.md section 4.3
+function Runtime:rootOf(id: string): Instance?
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			local trunk = entry.body and entry.body.part
+			return if trunk ~= nil and trunk.Parent ~= nil then trunk else nil
+		end
+	end
+	return nil
+end
+
 -- IS THIS ANIMAL IN FLIGHT? (task 126 round 2). The drive asks before it hands out an order: a
 -- frightened animal has dropped out of the file and must not be ordered back into it on the next
 -- Heartbeat, which is what kept a shot boar walking its trail at the ordered speed.

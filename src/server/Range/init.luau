@@ -175,6 +175,9 @@ local state = {
 		-- HOW MANY HIT CARDS WENT OUT, and how many sends the seam refused (task 304).
 		cards = 0,
 		cardlessHits = 0,
+		-- HOW MANY TIMES A SHOT ASKED WHAT IT MAY NOT SEE (design 12, T13): at most twice per shot,
+		-- once for the aim ray and once for the trigger.
+		ignoreCalls = 0,
 		refusedBy = nil :: string?,
 	},
 }
@@ -1008,6 +1011,48 @@ local function targetPositionOf(trial: Trial, at: number?): Vector3?
 		return nil
 	end
 	return (status :: any).position
+end
+
+-- EVERY RANGE TARGET THIS SHOT MUST NOT SEE (design 4.3): the five that are not his, and his own
+-- while it is outside its station's own window. ONE predicate, `RangeData.inWindow`, read here and
+-- by the client's mask -- the server's door and the client's picture asking one question.
+-- NOBODY AT A STATION MEANS AN EMPTY LIST, so a shot in the wood is untouched; and his own target's
+-- position is read through `targetPositionOf`, the SAME history ring the rewound cast is judged
+-- against, so the animal is hittable exactly where it is drawn.
+-- Note: docs/design/shooting-range-lobby.md sections 4.3, 5.3
+function Range.ignoredFor(player: any, rewindSeconds: number?): { Instance }
+	state.stats.ignoreCalls += 1
+	local out: { Instance } = {}
+	local anchor = state.anchor
+	local boars = state.boars
+	if not state.started or anchor == nil or player == nil or boars == nil or boars.rootOf == nil then
+		return out
+	end
+	local mine = (Range.positionOf(player))
+	if mine == nil then
+		return out
+	end
+	local at: number? = nil
+	if type(rewindSeconds) == "number" and rewindSeconds == rewindSeconds and rewindSeconds > 0 then
+		at = clockNow() - rewindSeconds
+	end
+	for spot, trial in pairs(state.trials) do
+		if trial.targetId ~= nil then
+			local ok, root = pcall(boars.rootOf, trial.targetId :: string)
+			if ok and typeof(root) == "Instance" then
+				local hide = spot ~= mine
+				if not hide then
+					local minX, maxX = RangeData.windowSpanFor(anchor, spot, RangeData.LAYOUT)
+					local position = targetPositionOf(trial, at)
+					hide = not RangeData.inWindow(minX, maxX, if position ~= nil then position.X else nil)
+				end
+				if hide then
+					table.insert(out, root :: Instance)
+				end
+			end
+		end
+	end
+	return out
 end
 
 local function playerSpot(player: any): number?

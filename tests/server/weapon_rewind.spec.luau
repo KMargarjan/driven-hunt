@@ -331,5 +331,84 @@ return function()
 			end
 			unwire()
 		end)
+
+		-- TASK 306 B5. SIX BODIES SHARE ONE CORRIDOR at the range, `Cast.candidates` returns the
+		-- eight nearest the muzzle and `Rewind.impact` takes the NEAREST rewound one -- so a body
+		-- the shooter cannot see stops his bullet unless it never reaches the candidate list.
+		-- STATED DEVIATION from design 11.2 group 9 ("two candidates at the same place"): the
+		-- other man's trunk stands 4 studs NEARER the muzzle, because two boxes at one point make
+		-- "the nearest" a coin toss and the case could then pass either way.
+		it("takes the candidate that is NOT in the shot's ignore list", function()
+			local function trunk(name: string, at: Vector3): BasePart
+				local part = Instance.new("Part")
+				part.Name = name
+				part.Size = Vector3.new(2, 2, 2)
+				part.CFrame = CFrame.new(at)
+				part:SetAttribute("Damageable", true)
+				return part
+			end
+			-- HIS is nearer the muzzle; MINE is the one the shooter is looking at. Both are drawn
+			-- (rewound) onto the same line, which is what the shared corridor really looks like.
+			local his = trunk("TheirTrunk", Vector3.new(0, 0, -4))
+			local mine = trunk("MyTrunk", Vector3.new(0, 0, 0))
+			local drawn = { [his] = Vector3.new(0, 0, -4), [mine] = Vector3.new(0, 0, 0) }
+
+			Weapon.setRewindWorld(function(_origin, _segment, _pad, ignore, _rootOf, _max)
+				local out = {}
+				for _, root in ipairs({ his, mine }) do
+					local excluded = false
+					for _, instance in ipairs(ignore) do
+						if instance == root then
+							excluded = true
+						end
+					end
+					if not excluded then
+						table.insert(out, root)
+					end
+				end
+				return out
+			end, function(asked, origin, segment)
+				local at = drawn[asked]
+				if at == nil then
+					return nil
+				end
+				local along = (at - origin):Dot(segment.Unit)
+				if along < 0 or along > segment.Magnitude then
+					return nil
+				end
+				if (origin + segment.Unit * along - at).Magnitude > 1 then
+					return nil
+				end
+				return { instance = asked, position = at, normal = Vector3.yAxis, distance = along }
+			end)
+			Weapon.setCast(function()
+				return nil -- nothing static on this line
+			end)
+			Weapon.setHistoryProvider(function(instance, _at)
+				local at = drawn[instance]
+				return if at ~= nil then CFrame.new(at) else nil
+			end)
+
+			local from = Vector3.new(0, 0, -30)
+			local segment = Vector3.new(0, 0, 60)
+			-- NOTHING EXCLUDED: the other man's animal is nearer, so it takes the shot. That is the
+			-- defect this step exists to remove, asserted rather than described.
+			local loose = Weapon.castWithRewind(from, segment, {}, 0.18)
+			expect(loose).to.be.ok()
+			expect((loose :: any).instance).to.equal(his)
+
+			-- HIS TRUNK IN THE IGNORE LIST: the same aim, the same instant, and the impact is MINE.
+			local isolated = Weapon.castWithRewind(from, segment, { his }, 0.18)
+			expect(isolated).to.be.ok()
+			expect((isolated :: any).instance).to.equal(mine)
+
+			-- ...AND WITH BOTH EXCLUDED there is no rewound candidate at all, so the static pass
+			-- answers -- which here is nothing. A list that swallowed the shooter's own animal
+			-- would read exactly like this, which is why `Range.ignoredFor` keeps his.
+			expect(Weapon.castWithRewind(from, segment, { his, mine }, 0.18)).to.equal(nil)
+			unwire()
+			his:Destroy()
+			mine:Destroy()
+		end)
 	end)
 end

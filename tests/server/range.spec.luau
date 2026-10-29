@@ -81,12 +81,38 @@ return function()
 			lastClear = nil :: string?,
 			nextId = 0,
 		}
+		-- A REAL TRUNK PER ANIMAL (step B5), because the shot's ignore list holds INSTANCES and the
+		-- design's rule is that excluding a trunk excludes the zone parts welded under it. Each one
+		-- gets a `Zone` child so "the trunk and never a zone part" can be false.
+		fake.roots = Instance.new("Folder")
 		fake.spawn = function(position: Vector3, kind: string?)
 			fake.nextId += 1
 			local id = "fake" .. tostring(fake.nextId)
-			fake.animals[id] = { id = id, position = position, kind = kind, alive = true, want = 0, speed = 0 }
+			local trunk = Instance.new("Part")
+			trunk.Name = "FakeTrunk_" .. id
+			trunk.Anchored = true
+			local zone = Instance.new("Part")
+			zone.Name = "Zone"
+			zone.Anchored = true
+			zone.Parent = trunk
+			trunk.Parent = fake.roots
+			fake.animals[id] = {
+				id = id,
+				position = position,
+				kind = kind,
+				alive = true,
+				want = 0,
+				speed = 0,
+				root = trunk,
+				zone = zone,
+			}
 			fake.spawns += 1
 			return { id = id, kind = kind }
+		end
+		-- THE ONE READER STEP B5 ADDED, wired exactly as `RangeBoot` wires it.
+		fake.rootOf = function(id: string): Instance?
+			local animal = fake.animals[id]
+			return if animal ~= nil then animal.root else nil
 		end
 		fake.clear = function(reason: string?)
 			fake.clears += 1
@@ -2113,7 +2139,10 @@ return function()
 			tick(clock, 1)
 			expect(Range.onRequest(man, { spot = 1, pace = RangeData.WORD.TROT })).to.equal(true)
 			advance(fake, clock, 2)
-			local animal = fake.only()
+			-- STATION 1'S OWN ANIMAL. `fake.only()` (this case's shape before the six stations
+			-- landed) picks one of six by `pairs` order, so the reading below was a different
+			-- station's animal in five runs out of six.
+			local animal = fake.at(1)
 			expect(animal).to.be.ok()
 			local here = (animal :: any).position
 			local trial = Range.trialOf(1) :: any
@@ -2969,6 +2998,216 @@ return function()
 			)
 		end)
 	end)
+	-- --------------------------------- 8b. ISOLATION, THE SHOT (step B5, design 4.3 / 5.3 / 12 T13)
+	--
+	-- Six bodies share ONE corridor, `Cast.candidates` returns the eight nearest the muzzle and
+	-- `Rewind.impact` takes the nearest rewound one -- so without an ignore list a body the shooter
+	-- cannot see stops his bullet. Groups 6 and 7 of design 11.2.
+	describe("the window, the one predicate both sides read", function()
+		it("is centred on each station's own mat, the same span at all three distances", function()
+			local width = LAYOUT.WINDOW_STUDS
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				local mat = RangeData.matPosition(ANCHOR, spot, LAYOUT)
+				local minX, maxX = RangeData.windowSpanFor(ANCHOR, spot, LAYOUT)
+				-- THE IDENTITY, not a transcription: the opening is the mat's own X, and the lane
+				-- only ever moves in Z, so the three distances cannot widen or shift it.
+				expect(maxX - minX).to.be.near(width, 1e-4)
+				expect((minX + maxX) / 2).to.be.near(mat.X, 1e-4)
+				for _, distance in ipairs(RangeData.DISTANCES_STUDS) do
+					local centre = RangeData.laneCentre(ANCHOR, LAYOUT, 1, spot, distance)
+					expect(centre.X).to.be.near((minX + maxX) / 2, 1e-4)
+				end
+			end
+			-- ...AND TWO NEIGHBOURS' WINDOWS OVERLAP, which is the whole reason the shot needs a
+			-- list at all: 36 studs of opening at 24-stud spacing.
+			local aMin, aMax = RangeData.windowSpanFor(ANCHOR, 1, LAYOUT)
+			local bMin = RangeData.windowSpanFor(ANCHOR, 2, LAYOUT)
+			expect(bMin < aMax).to.equal(true)
+			expect(aMin < bMin).to.equal(true)
+		end)
+
+		it("counts both edges as inside, and a nil X as outside", function()
+			local minX, maxX = RangeData.windowSpanFor(ANCHOR, 3, LAYOUT)
+			expect(RangeData.inWindow(minX, maxX, (minX + maxX) / 2)).to.equal(true)
+			-- BOTH EDGES, the repo's `<=` rule.
+			expect(RangeData.inWindow(minX, maxX, minX)).to.equal(true)
+			expect(RangeData.inWindow(minX, maxX, maxX)).to.equal(true)
+			expect(RangeData.inWindow(minX, maxX, minX - 0.01)).to.equal(false)
+			expect(RangeData.inWindow(minX, maxX, maxX + 0.01)).to.equal(false)
+			-- NO ANSWER IS NOT "IN": no animal, or no history for the instant asked about, has to
+			-- read as outside, because the shot then cannot see it either.
+			expect(RangeData.inWindow(minX, maxX, nil)).to.equal(false)
+			expect(RangeData.inWindow(minX, maxX, "12" :: any)).to.equal(false)
+			expect(RangeData.inWindow(minX, maxX, 0 / 0)).to.equal(false)
+		end)
+	end)
+
+	describe("Range.ignoredFor", function()
+		local function manAtSpot(position: Vector3, id: number)
+			local man = Instance.new("Folder")
+			local character = Instance.new("Model")
+			local root = Instance.new("Part")
+			root.Name = "HumanoidRootPart"
+			root.Position = position
+			root.Parent = character
+			character.Parent = man
+			local any = man :: any
+			any.Character = character
+			any.UserId = id
+			any.Name = "Man" .. tostring(id)
+			return any
+		end
+
+		-- HIS OWN ANIMAL, PUT IN ITS OWN WINDOW. A released target sits at a lane END, which is
+		-- outside the opening by construction (`windowArmed`'s own comment), so a case about the
+		-- five that are not his has to move his into the middle first.
+		local function centreOn(fake, spot: number)
+			local animal = fake.at(spot)
+			expect(animal).to.be.ok()
+			local minX, maxX = RangeData.windowSpanFor(ANCHOR, spot, LAYOUT)
+			animal.position = Vector3.new((minX + maxX) / 2, animal.position.Y, animal.position.Z)
+			return animal
+		end
+
+		local function has(list, instance: Instance?): boolean
+			for _, entry in ipairs(list) do
+				if entry == instance then
+					return true
+				end
+			end
+			return false
+		end
+
+		it("hides the five that are not his, and his own only while it is out of its window", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			advance(fake, clock, 1)
+			expect(Range.stats().targets).to.equal(LAYOUT.SPOT_COUNT)
+			local man = manAtSpot(RangeData.matPosition(ANCHOR, 3, LAYOUT), 306)
+			expect((Range.positionOf(man))).to.equal(3)
+
+			-- HIS OWN IS IN THE OPENING: five roots, and not one of them is his.
+			local mine = centreOn(fake, 3)
+			local list = Range.ignoredFor(man)
+			expect(#list).to.equal(LAYOUT.SPOT_COUNT - 1)
+			expect(has(list, mine.root)).to.equal(false)
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				if spot ~= 3 then
+					expect(has(list, fake.at(spot).root)).to.equal(true)
+				end
+			end
+			-- THE TRUNK AND NEVER A ZONE PART: the zone is welded UNDER the trunk, so one instance
+			-- per animal is the whole exclusion and a list of zones would be the wrong shape.
+			for _, entry in ipairs(list) do
+				expect(entry:IsA("BasePart")).to.equal(true)
+				expect(string.sub(entry.Name, 1, 10)).to.equal("FakeTrunk_")
+			end
+			expect(has(list, fake.at(1).zone)).to.equal(false)
+
+			-- ...AND HIS OWN GOES IN THE LIST THE MOMENT IT LEAVES THE OPENING, which is what makes
+			-- the animal hittable exactly where the mask draws it.
+			local minX = RangeData.windowSpanFor(ANCHOR, 3, LAYOUT)
+			mine.position = Vector3.new(minX - 2, mine.position.Y, mine.position.Z)
+			local out = Range.ignoredFor(man)
+			expect(#out).to.equal(LAYOUT.SPOT_COUNT)
+			expect(has(out, mine.root)).to.equal(true)
+			Range.stop()
+		end)
+
+		it("asks where his animal was at the instant the rewind tests, not where it is now", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			advance(fake, clock, 1)
+			local man = manAtSpot(RangeData.matPosition(ANCHOR, 2, LAYOUT), 307)
+			local mine = centreOn(fake, 2)
+			local minX, maxX = RangeData.windowSpanFor(ANCHOR, 2, LAYOUT)
+
+			-- NOW it is in the opening; 0.2 s AGO it was two studs west of the west edge. One shot,
+			-- two answers, and the one the shot gets is the rewound one.
+			local asked: { number } = {}
+			fake.pastOf = function(_id: string, at: number): CFrame?
+				table.insert(asked, at)
+				return CFrame.new(Vector3.new(minX - 2, mine.position.Y, mine.position.Z))
+			end
+			expect(has(Range.ignoredFor(man), mine.root)).to.equal(false)
+			expect(#asked).to.equal(0)
+			expect(has(Range.ignoredFor(man, 0.2), mine.root)).to.equal(true)
+			expect(#asked).to.equal(1)
+			expect(asked[1]).to.be.near(clock.t - 0.2, 1e-6)
+
+			-- ...and the other way round: out of the window now, inside it then, and the shot sees it.
+			mine.position = Vector3.new(maxX + 5, mine.position.Y, mine.position.Z)
+			fake.pastOf = function(): CFrame?
+				return CFrame.new(Vector3.new((minX + maxX) / 2, mine.position.Y, mine.position.Z))
+			end
+			expect(has(Range.ignoredFor(man, 0.2), mine.root)).to.equal(false)
+			fake.pastOf = nil
+			Range.stop()
+		end)
+
+		it("hides nothing from a man who is not at a station, and nothing when it cannot ask", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			advance(fake, clock, 1)
+			-- A SHOT IN THE WOOD IS UNTOUCHED, which is the whole of "unwired means today's game"
+			-- on the range's side of the seam: no station, no list.
+			local away = manAtSpot(RangeData.matPosition(ANCHOR, 1, LAYOUT) + Vector3.new(0, 0, -600), 310)
+			expect((Range.positionOf(away))).to.equal(nil)
+			expect(#Range.ignoredFor(away)).to.equal(0)
+			local ghost = { UserId = 311, Name = "Man311" } :: any
+			expect(#Range.ignoredFor(ghost)).to.equal(0)
+			expect(#Range.ignoredFor(nil)).to.equal(0)
+
+			-- A VIEW WITH NO READER, AND A READER THAT THROWS: empty, and no error out of the owner.
+			local man = manAtSpot(RangeData.matPosition(ANCHOR, 1, LAYOUT), 312)
+			local kept = fake.rootOf
+			fake.rootOf = nil
+			expect(#Range.ignoredFor(man)).to.equal(0)
+			fake.rootOf = function(): Instance?
+				error("no trunk for you")
+			end
+			expect(#Range.ignoredFor(man)).to.equal(0)
+			fake.rootOf = kept
+
+			-- ...AND A STOPPED RANGE ANSWERS NOTHING, so a world with no range never filters a shot.
+			Range.stop()
+			expect(#Range.ignoredFor(man)).to.equal(0)
+		end)
+
+		it("is counted, and costs under a tenth of a millisecond a call (T13)", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			advance(fake, clock, 1)
+			local man = manAtSpot(RangeData.matPosition(ANCHOR, 4, LAYOUT), 313)
+			centreOn(fake, 4)
+			local before = Range.stats().ignoreCalls
+			Range.ignoredFor(man)
+			Range.ignoredFor(man, 0.1)
+			expect(Range.stats().ignoreCalls).to.equal(before + 2)
+
+			-- T13's BUDGET, measured over 200 calls so one scheduler hiccup cannot decide it. The
+			-- shot asks twice -- once for the aim ray, once for the trigger -- so 0.1 ms a call is
+			-- 0.2 ms of one frame with six animals on the lane.
+			local runs = 200
+			local started = os.clock()
+			for _ = 1, runs do
+				Range.ignoredFor(man, 0.1)
+			end
+			local perCall = (os.clock() - started) / runs
+			TestKit.note(string.format("range B5: Range.ignoredFor %.4f ms/call over %d calls", perCall * 1000, runs))
+			expect(perCall < 0.0001).to.equal(true)
+			Range.stop()
+		end)
+	end)
+
 	-- ------------------------------------------------- 9. KAREN'S PLACE: THE FOREST ROW (step B6)
 	--
 	-- The anchor is MEASURED, not chosen here: design 4.2's instrument (a raycast grid, 8-stud
