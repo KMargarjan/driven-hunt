@@ -978,16 +978,21 @@ function Range.turfRect(anchor: Vector3, layout, downrange: number?)
 	}
 end
 
--- THE FENCE'S TWO LINES, in Z: from the firing line's own BACK edge to the berm's near face, which
--- is exactly the lot. Returned as a rect so the posts and the rails read one span.
+-- THE FENCE'S TWO LINES, in Z: from the firing line's own BACK edge to the COVER BANKS' near face,
+-- which is exactly the lot. Returned as a rect so the posts and the rails read one span.
+--
+-- THE BANKS AND NOT THE BERM, AND THAT IS A MEASUREMENT (her place, census 2026-10-29): the two
+-- lines stand on the berm's own span in X, and a bank's X span IS the outer end of that -- so a run
+-- carried to the berm walked straight up the side of a bank and left a post 7.5 studs in the air.
+-- The lot ends where the cover begins.
 function Range.fenceSpan(anchor: Vector3, layout, downrange: number?)
 	layout = layout or Range.LAYOUT
 	local dir = if downrange == -1 then -1 else 1
 	local minX, maxX = Range.bermSpanFor(anchor, layout)
 	local line = Range.lineRect(anchor, layout, dir)
-	local berm = Range.bermPosition(anchor, layout, dir)
+	local bank = Range.bankPosition(anchor, layout, 1, dir)
 	local backZ = if dir == 1 then line.minZ else line.maxZ
-	local farZ = berm.Z - dir * layout.BERM.depth / 2
+	local farZ = bank.Z - dir * layout.BANK.size.Z / 2
 	local inset = layout.FENCE.insetStuds
 	return {
 		minX = minX + inset,
