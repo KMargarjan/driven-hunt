@@ -60,11 +60,13 @@ Range.CONFIG = {
 	STAND_HOLD_STUDS = 2,
 	-- One target per spot, never a sounder.
 	MAX_TARGETS = RangeData.LAYOUT.SPOT_COUNT,
-	-- SIX STATIONS, DRESSED (step B10). DEV: 1 plate + 6 x (mat, post, bench, 4 hut posts, roof,
-	-- board) + 6 x 14 seat pieces + 1 turf + 20 fence posts + 2 rails + 2 banks + 1 berm = 165.
-	-- Her place is 162 (the banks and the berm are earth there, and there is no plate). 220 is that
-	-- plus headroom; the bound is a CLAIM ABOUT COST and `range.spec` asserts the built count
-	-- against it, so dressing the range had to move it rather than quietly bust it.
+	-- SIX STATIONS, DRESSED (step B10), AND THIS COUNTS WHAT IS BUILT. DEV: 1 plate + 6 x (mat,
+	-- post, bench, 4 hut posts, roof, board) + 6 x 14 seat pieces + 1 turf + 2 banks + 1 berm = 143,
+	-- which is the number `range.spec` measures. NO fence post and NO rail: the lot's side line is
+	-- refused, with its reading, in `Range.Build`. Her place is 142 (the banks and the berm are
+	-- earth there and there is no plate, and her terrace is two rectangles so the turf is two slabs).
+	-- 220 is that plus headroom; the bound is a CLAIM ABOUT COST and the spec asserts the built
+	-- count against it, so dressing the range had to move it rather than quietly bust it.
 	MAX_PARTS = 220,
 	DEFAULT_SPECIES = "boar",
 	DEFAULT_KIND = "male",

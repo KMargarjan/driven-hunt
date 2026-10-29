@@ -309,6 +309,17 @@ return function()
 			menu.Name = RangeData.promptName(2, RangeData.POSITION.BENCH)
 			expect(RangePanel.isClimbPrompt(menu)).to.equal(false)
 			expect(RangePanel.isClimbPrompt(nil)).to.equal(false)
+			-- AND THE WATCH STANDS DOWN WITH THE PANEL: a climb prompt destroyed while shown fires no
+			-- `PromptHidden`, so a `climbShown` left true would swallow E for the rest of the session.
+			RangePanel.setClimbShown(true)
+			RangePanel.unwatchClimbPrompts()
+			expect(RangePanel.isClimbShown()).to.equal(false)
+			local afterUnwatch = RangePanel.stats().swallowed
+			RangePanel.onKeyPressed()
+			expect(RangePanel.isOpen()).to.equal(true)
+			expect(RangePanel.stats().swallowed).to.equal(afterUnwatch)
+			RangePanel.onKeyPressed()
+			expect(RangePanel.isOpen()).to.equal(false)
 
 			-- THE KEY GOES WITH HIM: off the spot it is unbound, so nothing answers E in the wood.
 			RangePanel.setNear(false)

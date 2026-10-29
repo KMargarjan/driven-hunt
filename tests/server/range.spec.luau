@@ -3860,11 +3860,7 @@ return function()
 							then LAYOUT.BERM.height
 							elseif part.Name:match("^Mat%d") then LAYOUT.MAT.size.Y
 							elseif part.Name:match("^Post%d") then LAYOUT.POST.size.Y
-							elseif
-								part.Name:match("^Bench%d")
-							then LAYOUT.BENCH.size.Y -- the fence's posts ARE laid by `onGround` (step B10), so they belong in							-- this rule -- with their OWN height and not the bank's.
-
-							elseif part.Name:match("^FencePost%d") then LAYOUT.FENCE.postRise
+							elseif part.Name:match("^Bench%d") then LAYOUT.BENCH.size.Y
 							else LAYOUT.BANK.size.Y
 						expect(math.abs(bottom - lo) < 1e-2).to.equal(true)
 						expect(top >= hi + nominal - 1e-2).to.equal(true)
@@ -4590,9 +4586,62 @@ return function()
 					expect(rayY > hut.roofRise + hut.roofSize.Y).to.equal(true)
 				end
 			end
-			-- the bound itself is real arithmetic and not a constant: 9.6 degrees at the short lane
+			-- the bound is 0 at the firing point and the window's own half at the shortest lane
 			expect(RangeData.sightHalfWidthAt(LAYOUT, 0)).to.equal(0)
-			expect(math.abs(RangeData.sightHalfWidthAt(LAYOUT, 107) - 18) < 1e-6).to.equal(true)
+			expect(math.abs(RangeData.sightHalfWidthAt(LAYOUT, 107) - LAYOUT.WINDOW_STUDS / 2) < 1e-6).to.equal(true)
+		end)
+
+		-- ...AND THE SAME BOUND AGAINST WHAT `Build` ACTUALLY WRITES (round 1, finding 2). The case
+		-- above is pure arithmetic and passes with the whole hut block deleted; this one reads every
+		-- post and roof OUT OF THE FOLDER by name, so deleting the producer fails it.
+		it("builds the hut where the sight bound says it may stand, and hangs the board on the roof", function()
+			local parent = Instance.new("Folder")
+			local built = Range.Build.build({ parent = parent, row = DEV_ROW, layout = LAYOUT })
+			expect(built).to.be.ok()
+			local folder = (built :: any).folder
+			local anchor = (built :: any).anchor
+			local dir = (built :: any).downrange
+			local hut = LAYOUT.HUT
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				local mat = RangeData.matPosition(anchor, spot, LAYOUT)
+				local roof = folder:FindFirstChild(RangeData.hutRoofName(spot))
+				expect(roof).to.be.ok()
+				local roofPure = RangeData.hutRoofPosition(anchor, spot, LAYOUT, dir)
+				expect(math.abs((roof :: any).Position.X - roofPure.X) < 1e-4).to.equal(true)
+				expect(math.abs((roof :: any).Position.Z - roofPure.Z) < 1e-4).to.equal(true)
+				local roofBottom = (roof :: any).Position.Y - (roof :: any).Size.Y / 2
+				-- THE BUILT roof's underside is `roofRise` over the ground it was measured on, which
+				-- over a plate is the shelf (`shelfAt`'s own rule).
+				expect(math.abs(roofBottom - ((built :: any).shelf + hut.roofRise)) < 1e-4).to.equal(true)
+				-- EVERY BUILT POST, out of the folder, against the widest sight ray at its own Z.
+				local posts = 0
+				for corner = 1, 4 do
+					local post = folder:FindFirstChild(RangeData.hutPostName(spot, corner))
+					expect(post).to.be.ok()
+					posts += 1
+					local ahead = ((post :: any).Position.Z - mat.Z) * dir
+					if ahead > 0 then
+						local clear = RangeData.sightHalfWidthAt(LAYOUT, ahead)
+						local off = math.abs((post :: any).Position.X - mat.X) - (post :: any).Size.X / 2
+						expect(off > clear).to.equal(true)
+					end
+					-- and it carries the roof: its top IS the roof's underside
+					local top = (post :: any).Position.Y + (post :: any).Size.Y / 2
+					expect(math.abs(top - roofBottom) < 1e-4).to.equal(true)
+				end
+				expect(posts).to.equal(4)
+				-- THE BOARD HANGS ON THE ROOF, and this is the case the floating sign failed
+				-- (round 1, finding 1): its TOP face is the roof's own underside, not 1.5 studs under it.
+				local board = folder:FindFirstChild(RangeData.boardName(spot))
+				expect(board).to.be.ok()
+				local boardTop = (board :: any).Position.Y + (board :: any).Size.Y / 2
+				expect(math.abs(boardTop - roofBottom) < 1e-4).to.equal(true)
+				-- ...and it is under the roof's own uprange edge, not out in the air beside it
+				local backEdge = roofPure.Z - dir * hut.roofSize.Z / 2
+				expect(math.abs((board :: any).Position.Z - (backEdge + dir * hut.boardSize.Z / 2)) < 1e-4).to.equal(
+					true
+				)
+			end
 		end)
 
 		-- L3/L4. THE MOWN LANE IS A PART NOTHING CAN MEET: a ray, a bullet, a boar's route and a
@@ -4617,7 +4666,8 @@ return function()
 			local rect = slabs[1]
 			local line = RangeData.lineRect(anchor, LAYOUT, dir)
 			local berm = RangeData.bermPosition(anchor, LAYOUT, dir)
-			expect(rect.minZ >= math.min(line.minZ, line.maxZ)).to.equal(true)
+			local lineFar = if dir == 1 then line.maxZ else line.minZ
+			expect(math.abs(rect.minZ - math.min(lineFar, berm.Z - dir * LAYOUT.BERM.depth / 2)) < 1e-6).to.equal(true)
 			expect(math.abs(rect.maxZ - (berm.Z - dir * LAYOUT.BERM.depth / 2)) < 1e-6).to.equal(true)
 			-- its TOP is just proud of the shelf, so no voxel shows through and nothing floats
 			local top = (turf :: any).Position.Y + (turf :: any).Size.Y / 2
@@ -4676,8 +4726,10 @@ return function()
 				end,
 			})
 			expect(ok).to.equal(true)
-			local anchor = Range.stats().parts and Vector3.new(0, shelf, 0) or nil
-			expect(anchor).to.be.ok()
+			-- THE RANGE'S OWN ANCHOR, and the plate row's Y IS the shelf (`Build.shelfAt`). Asserted
+			-- against what the owner measured, not inferred from a part COUNT used as a boolean.
+			expect(Range.stats().parts > 0).to.equal(true)
+			local anchor = Vector3.new(0, shelf, 0)
 
 			-- THE WAY UP: onto station 4's deck, `CLIMB.riseStuds` over its top face.
 			local deckTops = Range.deckTops()
@@ -4702,6 +4754,8 @@ return function()
 			expect(math.abs(down.Position.Y - (shelf + LAYOUT.CLIMB.riseStuds)) < 1e-4).to.equal(true)
 			local foot = RangeData.ladderFootPosition(anchor :: Vector3, 4, LAYOUT, 1)
 			expect(math.abs(down.Position.X - foot.X) < 1e-4).to.equal(true)
+			-- Z IS THE COORDINATE `footClearStuds` MOVES, so it is the one that must be asserted.
+			expect(math.abs(down.Position.Z - (foot.Z - LAYOUT.CLIMB.footClearStuds)) < 1e-4).to.equal(true)
 			local _spotDown, wordDown = Range.spotAt(down.Position)
 			expect(wordDown).never.to.equal(RangeData.POSITION.TREESTAND)
 

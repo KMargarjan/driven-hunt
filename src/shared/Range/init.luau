@@ -172,7 +172,11 @@ Range.LAYOUT = {
 		-- THE STATION'S NUMBER, on the UPRANGE fascia: the face a man walking down from the lodge
 		-- reads. A `SurfaceGui` draws the digit, so there is no decal id and nothing to upload.
 		boardSize = Vector3.new(3.2, 2.2, 0.25),
-		boardRise = 6.4,
+		-- THE BOARD HANGS FROM THE ROOF, so its rise is DERIVED and never typed: its TOP meets the
+		-- roof's underside. Typed at 6.4 it spanned shelf+5.3..shelf+7.5 against an underside at
+		-- shelf+9.0 -- six signs in 1.5 studs of air, which is the very defect the lot's side line
+		-- was refused over (review round 1, finding 1). `boardRiseFor` is the one answer, and there
+		-- is deliberately NO `boardRise` key here for it to drift from.
 		roofColor = Color3.fromRGB(96, 72, 52),
 		postColor = Color3.fromRGB(136, 110, 80),
 		boardColor = Color3.fromRGB(236, 232, 220),
@@ -196,15 +200,13 @@ Range.LAYOUT = {
 		postSection = 0.7,
 		postRise = 3.2,
 		spacingStuds = 24,
-		-- POSTS AND NO RAIL, and that is a MEASUREMENT (her place, census 2026-10-29). The lot's two
-		-- long sides stand 18 studs outside the corridor, which is OFF the cut terrace and on the
-		-- hill: the measured ground falls 150 -> 158 -> 154 along the east line. A post follows that;
-		-- one 155-stud board cannot, and `FenceRail3` stood 10 studs proud of the ground at one end.
-		-- The dispatch allows either -- *"a low wooden fence OR POSTS along the sides"*.
-		--
-		-- AND A POST ON A STEP IS REFUSED, which is `HighSeats.MAX_FOOT_SPREAD_STUDS`' own rule and
-		-- its own reason: the terrace's edge is a 9-stud step, and the one post whose five footprint
-		-- samples straddled it stood 7.5 studs in the air (`FencePost3_7`).
+		-- NOTHING ON THESE TWO LINES IS BUILT, AND IT IS REFUTED RATHER THAN DROPPED (census in her
+		-- place, 2026-10-29; `Range.Build` carries the full reading). They stand 18 studs outside the
+		-- corridor, which there is OFF the cut terrace and on the hill: a rail could not follow
+		-- ground falling 150 -> 158 -> 154, and a POST laid on the build's own ground reader stood
+		-- 7.5 studs in the air, because that reader and a terrain raycast disagree by that much at
+		-- (2775, -3061). This table is the arithmetic a later task needs; `range.spec` asserts the
+		-- build writes none of it.
 		maxSpreadStuds = 2.0,
 		-- PULLED INSIDE THE TERRACE BY A STUD, AND THAT IS A MEASURED REQUIREMENT, not a margin for
 		-- looks: `range.spec` asserts that EVERY part of the range stands inside the ground the cut
@@ -236,10 +238,12 @@ Range.LAYOUT = {
 		-- restated and not required: the lobby's range reaches into no hunt module (this file's head).
 		riseStuds = 3.5,
 		-- THREE STUDS UPRANGE OF THE LADDER'S CENTRE, and 3 and not 1 is a MEASUREMENT (her place,
-		-- real `F`, 2026-10-29): the ladder is 2 studs deep, so at 1 the step-off point was exactly
-		-- on its edge -- the place's ground reader raycast down, hit the LADDER'S OWN TOP at 163.2
-		-- and put the man back up in the air at 166.6. At 3 the point is 2 studs clear of the
-		-- ladder's face, and still inside `standReach`'s footprint box.
+		-- real `F`, 2026-10-29): at 1 the man came down at (2624, 166.6, -3011) -- 13 studs up, on
+		-- top of his own ladder. The GROUND READING is not what moved: `onClimbDown` reads it at the
+		-- ladder's own centre either way, and the live 153.1 says it answers 149.6 there. What moved
+		-- is where the BODY is PLACED: the ladder is 2 studs deep, so at 1 the man was set inside the
+		-- truss's own volume and the engine pushed him out onto its top. At 3 he is 2 studs clear of
+		-- its face, and still inside `standReach`'s footprint box.
 		footClearStuds = 3.0,
 	},
 	PLATE = { minSpan = 120, marginStuds = 80, thickness = 4, color = Color3.fromRGB(150, 150, 150) },
@@ -921,13 +925,26 @@ function Range.hutPostPositions(anchor: Vector3, spot: number, layout, downrange
 	return out
 end
 
--- THE NUMBER BOARD, on the hut's UPRANGE fascia, under the roof's own uprange edge.
+-- HOW HIGH THE BOARD'S CENTRE SITS over whatever the roof is measured from: the roof's own
+-- underside less half the board. DERIVED, so the board cannot drift off the roof it hangs on.
+function Range.boardRiseFor(layout): number
+	layout = layout or Range.LAYOUT
+	return layout.HUT.roofRise - layout.HUT.boardSize.Y / 2
+end
+
+-- THE NUMBER BOARD, on the hut's UPRANGE fascia, hanging from the roof's own uprange edge: its TOP
+-- face IS the roof's underside, which is what makes it a sign on a building rather than a sign in
+-- the air (round 1, finding 1).
 function Range.boardPosition(anchor: Vector3, spot: number, layout, downrange: number?): Vector3
 	layout = layout or Range.LAYOUT
 	local dir = if downrange == -1 then -1 else 1
 	local hut = layout.HUT
 	local at = Range.hutRoofPosition(anchor, spot, layout, dir)
-	return Vector3.new(at.X, anchor.Y + hut.boardRise, at.Z - dir * (hut.roofSize.Z / 2 - hut.boardSize.Z / 2))
+	return Vector3.new(
+		at.X,
+		anchor.Y + Range.boardRiseFor(layout),
+		at.Z - dir * (hut.roofSize.Z / 2 - hut.boardSize.Z / 2)
+	)
 end
 
 function Range.boardName(spot: number): string

@@ -363,6 +363,16 @@ its own two points and says so.
 **THE EDGES: a low rail fence** down both long sides of the lane corridor (ref-5), outside the
 corridor and outside the window, so nothing stands in a line of fire.
 
+> **REFUTED ON THE GROUND, 2026-10-29, and NOT SHIPPED.** Those two lines stand 18 studs outside the
+> corridor, which in Karen's place is OFF the cut terrace and on the hill. Measured there (the
+> census plus `<runs-dir>/306b10-post.luau`): along the east line the BUILD's own ground reader
+> answers 159.1 where a plain terrain raycast answers 150.0, at (2775, -3061) -- so a post laid on
+> the reader's answer stands 7.5 studs in the air in the picture. A rail was refuted first (one
+> 155-stud board cannot follow a hillside that falls 150 -> 158 -> 154), then the posts. Refusing a
+> post by footprint SPREAD did not catch it either: the two readers disagree about the SURFACE, not
+> about its slope. `Range.fenceRuns` / `fencePosts` survive as the arithmetic a later task needs and
+> `range.spec` asserts the build writes none of them. **Dispatch item 5 is NOT MET.**
+
 ### 8.3 Numeric targets for this step
 
 | # | Target | Why that number |

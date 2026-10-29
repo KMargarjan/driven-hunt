@@ -457,7 +457,7 @@ function Build.build(opts)
 		end
 		makePart(RangeData.hutRoofName(spot), hut.roofSize, roofAt, hut.roofColor, folder, Enum.Material.WoodPlanks)
 		local boardPure = RangeData.boardPosition(anchor, spot, layout, dir)
-		local boardAt = Vector3.new(boardPure.X, roofHi + hut.boardRise, boardPure.Z)
+		local boardAt = Vector3.new(boardPure.X, roofHi + RangeData.boardRiseFor(layout), boardPure.Z)
 		local board = makePart(
 			RangeData.boardName(spot),
 			hut.boardSize,

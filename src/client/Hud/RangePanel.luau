@@ -711,10 +711,24 @@ function RangePanel.start(root: Frame, collaborators: any)
 	root.Visible = false
 end
 
+-- THE CLIMB WATCH'S OWN STAND-DOWN, and it is not tidiness: a climb prompt DESTROYED while it is
+-- shown (`Range.stop` takes the whole folder) fires no `PromptHidden`, so `climbShown` would stay
+-- true and `onKeyPressed` would swallow `E` for the rest of the session (round 1, note).
+function RangePanel.unwatchClimbPrompts()
+	for _, connection in ipairs(climbConnections) do
+		pcall(function()
+			(connection :: any):Disconnect()
+		end)
+	end
+	climbConnections = {}
+	climbShown = false
+end
+
 function RangePanel.stop()
 	RangePanel.setOpen(false)
 	RangePanel.bindKey(false)
 	RangePanel.setPrompt(nil)
+	RangePanel.unwatchClimbPrompts()
 	panel = nil
 	state = nil
 	picked = {}
