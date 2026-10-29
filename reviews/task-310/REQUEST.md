@@ -3,7 +3,7 @@
 Task: 310
 Round: 2
 Base: 9bbfc71e
-Code commit: TBD2
+Code commit: 9a81fc8b40f1933323b2dfcfb2fd083c092ddd31
 
 ## THE ONE OUTCOME (L-155)
 
@@ -125,11 +125,11 @@ a gait cycle, which is 75 % of the chest's whole length. Queued as a note, not f
 ## THE GATE
 
 ```
-TBDHARNESS
+[harness] PASS: 34/34 checks @ 9a81fc8b40f1933323b2dfcfb2fd083c092ddd31 (clean tree) scope=all
 ```
 
 Two players: **N/A**. The only code file is `tools/aim_bench.py`, and `tools/` is not in
-`TWO_PLAYER_PATHS` (Director decision 2026-10-03). `python -c "agents.needs_two_player([...])"`
+`TWO_PLAYER_PATHS` (Director decision 2026-10-03). `agents.needs_two_player`
 answers `[]` for this change's paths.
 
 ## CLAIMS
