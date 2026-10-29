@@ -564,7 +564,7 @@ end
 
 -- HOW FAR BACK THIS SHOOTER'S PICTURE OF A MOVING ANIMAL IS, in seconds.
 --
--- `FLIGHT_REWIND_BASE_SECONDS` (0.18, MEASURED -- see its row) is the engine's own interpolation
+-- `FLIGHT_REWIND_BASE_SECONDS` (0.250 since task 309a, MEASURED -- see its row) is the engine's own interpolation
 -- buffer, plus the ping's downward trip, capped by the animal ring's own span. THE SHAPE IS
 -- `Weapon.viewWindowFor`'s line for line: `ping` is a parameter with a `GetNetworkPing` fallback
 -- inside a `pcall`, and a negative, a NaN or a missing ping contributes ZERO rather than a guess --
@@ -701,7 +701,34 @@ function Weapon.castWithRewind(
 			rewindTrail.hit += 1
 		end
 		pcall(function()
-			(candidates[1].root :: any):SetAttribute("DH305At", at)
+			local root = candidates[1].root :: any
+			root:SetAttribute("DH305At", at)
+			-- THE FRAME THE SERVER ACTUALLY TESTED, beside the instant it names (task 309a). `At`
+			-- alone cannot settle "the server tested the animal HERE, the client drew it THERE":
+			-- the two positions are the evidence, so both tenses are published as plain strings.
+			-- Studio only, read by nothing in the game -- an instrument, like `DHLastHits`.
+			-- ON `candidates[1]`, THE NEAREST CANDIDATE, and not necessarily the animal struck
+			-- (round 1, note): with one animal on the segment it is the right one, which is the
+			-- range bench's case; with a sounder in the pad these two name a different animal from
+			-- the one the ring's `id=` does, and the reader must check that they agree.
+			root:SetAttribute(
+				"DH305Past",
+				string.format(
+					"%.3f,%.3f,%.3f",
+					candidates[1].past.Position.X,
+					candidates[1].past.Position.Y,
+					candidates[1].past.Position.Z
+				)
+			)
+			root:SetAttribute(
+				"DH305Pres",
+				string.format(
+					"%.3f,%.3f,%.3f",
+					candidates[1].present.Position.X,
+					candidates[1].present.Position.Y,
+					candidates[1].present.Position.Z
+				)
+			)
 		end)
 		local back = (candidates[1].present.Position - candidates[1].past.Position).Magnitude
 		local spd = (candidates[1].root :: any).AssemblyLinearVelocity.Magnitude

@@ -353,6 +353,21 @@ function Flight.advance(self: Flight, dt: number, cast: CastFn, now: number?): {
 							-- `HitLog` prints it as the range of the shot, so the distance a player
 							-- reads must be the whole path and not the last 40 studs of it.
 							distance = pellet.travelled + impact.distance,
+							-- THE TENSE, CARRIED (task 309a). `Weapon.Rewind` reports a rewound
+							-- impact WHERE THE SHOOTER DREW the animal and names the frame it was
+							-- measured in; rebuilding the row without `frame` threw that away, so
+							-- `HitLog.frameOf` fell back to the animal's PRESENT CFrame and divided
+							-- the hit down by a trunk that had run on. MEASURED in placeId
+							-- 130094961655666 (the Forest Test place, test build `driven-hunt-294`):
+							-- `local=(-1.63,-0.08,5.62)` on a boar 5.5 studs long -- a body length
+							-- past its own rump, `uv` pinned at u=1.000
+							-- (<runs-dir>/309a/diag1.txt). Task 308 fixed the tense in `Hits.group`;
+							-- this step is EARLIER than that one, so it threw the tense away before
+							-- `Hits.group` could carry it. The condition is a REWOUND impact (a
+							-- moving animal with `AIM_REWIND` lit) and not a flying one -- every
+							-- gun's shot is stepped here -- which is why 308's spec, which drives
+							-- `Hits.group` with hand-made impacts, stayed green.
+							frame = impact.frame,
 						}
 						reached = pellet.travelled + impact.distance
 						alive = false

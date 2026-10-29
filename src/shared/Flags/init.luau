@@ -174,7 +174,7 @@ Flags.DEFAULTS = {
 		born = "2026-10-28 task 305",
 		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
 		expires = "2026-11-18",
-		why = "The server tests each animal where the SHOOTER DREW it -- 0.180 s back, measured -- "
+		why = "The server tests each animal where the SHOOTER DREW it -- 0.250 s back, measured -- "
 			.. "instead of where the server has it now, so the only lead a player needs is the real "
 			.. "ballistic one. OFF is exactly the game before task 305: the animal is tested at the "
 			.. "present instant and the shooter must add 0.18 s x the animal's speed of his own.",

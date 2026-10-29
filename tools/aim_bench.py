@@ -264,6 +264,25 @@ def mean(values):
     return sum(vals) / float(len(vals))
 
 
+def _ring_z(row):
+    """The body-axis (z) coordinate of the struck point in the animal's own frame, or None.
+
+    `HitLog`'s ring line carries `local=(x,y,z)` divided down by the report's OWN frame (task 308),
+    so z is where along the body the bullet struck: negative toward the snout, positive toward the
+    rump. It is the one number that says which PART was hit without trusting the zone word.
+    """
+    raw = row.get("ringlocal")
+    if not isinstance(raw, str):
+        return None
+    bits = raw.split("|")
+    if len(bits) != 3:
+        return None
+    try:
+        return float(bits[2])
+    except ValueError:
+        return None
+
+
 def summarise(results):
     """[{cell, rows}] -> the table rows plus the instrument verdict.
 
@@ -298,6 +317,20 @@ def summarise(results):
             "zones": zones,
             "along": mean([r.get("along") for r in rows]),
             "up": mean([r.get("up") for r in rows]),
+            # THE THREE INSTRUMENT COLUMNS (task 309a). `pastgap` is how far along travel the
+            # server tested the animal from where the client drew it (`DH305Past` minus the drawn
+            # trunk). `ringz` is the body-axis coordinate, in the animal's OWN frame, of the point
+            # the bullet struck -- read out of the `HitLog` ring, which is the part that was hit and
+            # not the zone word beside it (rule L). `rings` is how many rows had a ring line at all:
+            # an empty ring is the instrument failing, not the animal missing.
+            "pastgap": mean([r.get("pastgap") for r in rows]),
+            "ringz": mean([_ring_z(r) for r in rows]),
+            "rings": sum(1 for r in rows if r.get("ringlocal")),
+            "ringdisagree": sum(
+                1
+                for r in rows
+                if r.get("ringzone") and r.get("zone") and r.get("ringzone") != r.get("zone")
+            ),
             "unanswered": len(unanswered),
             "role": ("CONTROL" if getattr(cell, "is_control", False) else ("KNOWN-BAD" if getattr(cell, "is_known_bad", False) else "")),
         }
@@ -373,9 +406,12 @@ def render(table, notes, header=None):
         out.extend(header)
         out.append("")
     widths = [max(28, max([len(r["cell"]) for r in table] + [4]))]
-    fmt = "%-{0}s %4s %5s %7s %-15s %8s %8s  %-9s".format(widths[0])
-    out.append(fmt % ("cell", "N", "hits", "rate", "95% interval", "along", "up", "role"))
-    out.append("-" * (widths[0] + 64))
+    fmt = "%-{0}s %4s %5s %7s %-15s %8s %8s %8s %8s %6s  %-9s".format(widths[0])
+    out.append(
+        fmt
+        % ("cell", "N", "hits", "rate", "95% interval", "along", "up", "pastgap", "ring-z", "ring", "role")
+    )
+    out.append("-" * (widths[0] + 90))
     for r in table:
         low, high = r["ci"]
         out.append(
@@ -388,9 +424,18 @@ def render(table, notes, header=None):
                 "%.0f%% - %.0f%%" % (100 * low, 100 * high),
                 "--" if r["along"] is None else "%+.2f" % r["along"],
                 "--" if r["up"] is None else "%+.2f" % r["up"],
+                "--" if r.get("pastgap") is None else "%+.2f" % r["pastgap"],
+                "--" if r.get("ringz") is None else "%+.2f" % r["ringz"],
+                "%d/%d" % (r.get("rings", 0), r["n"]),
                 r["role"],
             )
         )
+        if r.get("ringdisagree"):
+            out.append(
+                " " * 4
+                + "RING DISAGREES WITH THE MARKER on %d row(s): the zone the HitMarker named is not "
+                "the zone the struck part carries." % r["ringdisagree"]
+            )
         if r["unanswered"]:
             out.append(" " * 4 + "NOT FIRED: %d click(s) the server never answered, excluded from N"
                        % r["unanswered"])
@@ -402,6 +447,12 @@ def render(table, notes, header=None):
     out.append("animal's own frame, read on the frame `Input.fire` ran: +along is down its heading")
     out.append("(behind the aim point), +up is above. `--` means no shot in the cell produced an")
     out.append("impact, so there was nothing to measure against.")
+    out.append("")
+    out.append("pastgap is DH305Past minus the drawn trunk, along travel: how far from what the")
+    out.append("shooter saw the server tested the animal (+ = ahead of it). ring-z is the struck")
+    out.append("point's body-axis coordinate in the animal's OWN frame, out of HitLog's ring")
+    out.append("(- = toward the snout, + = toward the rump). ring is how many rows had a ring line")
+    out.append("at all -- 0/N means the instrument wrote nothing, which is never a fact about aim.")
     for n in notes:
         out.append("")
         out.append("** " + n)
@@ -436,6 +487,61 @@ def parse_row(line):
         else:
             row[k] = v
     return row
+
+
+_TRACE = re.compile(
+    r"#(?P<n>\d+)\s+t=(?P<t>\S+?)s\s+(?P<kind>\S+)\s+id=(?P<id>\S+)\s+zone=(?P<zone>\S+)\s+"
+    r"local=\((?P<lx>[^,]+),(?P<ly>[^,]+),(?P<lz>[^,)]+)\)\s+uv=\((?P<u>[^,]+),(?P<v>[^,)]+)\)"
+)
+
+
+def parse_trace(line):
+    """One `HitLog` ring line -> the ring columns of a bench row (task 309a).
+
+    The line's shape is `HitLog.Shape.traceLine`'s own, and the parse is total: a line that does not
+    match leaves the columns None, so a shot with no ring line reads as "the instrument wrote
+    nothing" and never as a zero.
+    """
+    m = _TRACE.search(str(line or ""))
+    if m is None:
+        return {"ringzone": None, "ringlocal": None, "ringuv": None, "ringid": None, "ringn": None}
+    return {
+        "ringzone": m.group("zone"),
+        "ringlocal": "%s|%s|%s" % (m.group("lx"), m.group("ly"), m.group("lz")),
+        "ringuv": "%s|%s" % (m.group("u"), m.group("v")),
+        "ringid": m.group("id"),
+        # THE LINE'S OWN `#n` (round 1, finding 3). `HitLog` numbers every line it writes, so a
+        # shot is credited with a ring line only when that number is one this cell has not already
+        # seen -- which no comparison of the text can decide.
+        "ringn": int(m.group("n")),
+    }
+
+
+def ring_credit(line, seen):
+    """Should this ring tail be credited to the shot just fired? Pure (round 1, finding 3).
+
+    `ServerStorage.DHLastHits` PERSISTS -- across cells, across runs, and across any drive hit --
+    and the bench only ever reads it. So "the tail changed since the previous shot" is not enough:
+    the first shot of every cell after the first would be credited with the previous cell's last
+    line whenever it missed, which is exactly the unfailable reading the ring exists to kill.
+    A line counts only when its own `#n` is one `seen` has not already recorded; `seen` is seeded
+    from the ring as it stands BEFORE the cell's first shot.
+    """
+    trace = parse_trace(line)
+    n = trace.get("ringn")
+    if n is None or n in seen:
+        return None
+    return n
+
+
+def ring_indices(blob):
+    """Every `#n` in a ring blob, for seeding `seen`. Unreadable lines are skipped, not guessed."""
+    out = set()
+    for raw in str(blob or "").splitlines():
+        n = parse_trace(raw).get("ringn")
+        if n is not None:
+            out.add(n)
+    return out
 
 
 def parse_rows(blob):
@@ -732,6 +838,11 @@ task.spawn(function()
       me:SetAttribute("DHBenchRay", string.format("%.4f,%.4f,%.4f|%.5f,%.5f,%.5f",
         origin.X, origin.Y, origin.Z, direction.X, direction.Y, direction.Z))
       local aim, dir, spd, src = aimPoint, aimDir, aimSpeed, aimSource
+      -- WHERE THE CLIENT DREW THE ANIMAL ON THE FRAME THE TRIGGER WENT (task 309a). The third of
+      -- the three numbers the per-shot row must carry: the server's tested frame (`DH305Past`),
+      -- this one, and the part the bullet struck (`DHLastHits`, read host-side).
+      local troot = animal()
+      local drawn = if troot ~= nil then troot.Position else nil
       local before = markers
       lastImpact, lastNotice = nil, ""
       local t0 = os.clock()
@@ -751,12 +862,30 @@ task.spawn(function()
         up = gap.Y
         across = (gap - dir * along - Vector3.new(0, up, 0)).Magnitude
       end
+      -- THE TWO TENSES THE SERVER PUBLISHED FOR THIS CAST (task 309a, `Weapon.castWithRewind`).
+      -- Read AFTER the answer, so the attributes have replicated; `nil` when the cast never rewound.
+      local function vec3(raw)
+        if type(raw) ~= "string" then return nil end
+        local x, y, z = string.match(raw, "([^,]+),([^,]+),([^,]+)")
+        if x == nil then return nil end
+        return Vector3.new(tonumber(x), tonumber(y), tonumber(z))
+      end
+      local past, pres, pastAt = nil, nil, nil
+      if troot ~= nil then
+        past, pres = vec3(troot:GetAttribute("DH305Past")), vec3(troot:GetAttribute("DH305Pres"))
+        pastAt = tonumber(troot:GetAttribute("DH305At"))
+      end
+      -- THE GAP THAT SETTLES IT, along travel: the server tested the animal this far from where the
+      -- client drew it. Positive = the server tested it AHEAD of what the shooter saw.
+      local pastgap = 0 / 0
+      if past ~= nil and drawn ~= nil then pastgap = (past - drawn):Dot(dir) end
       local du, dv = cardDot()
       shotIndex += 1
       local function f(x) return if x ~= x then "nan" else string.format("%.3f", x) end
       rows[#rows + 1] = string.format(
         "i=%d mode=%s src=%s hit=%s answered=%s fired=%s frames=%d zone=%s spd=%.2f dist=%.1f "
-          .. "along=%s up=%s across=%s aim=%.2f|%.2f|%.2f impact=%s cardu=%s cardv=%s notice=%s",
+          .. "along=%s up=%s across=%s aim=%.2f|%.2f|%.2f impact=%s cardu=%s cardv=%s "
+          .. "drawn=%s past=%s pres=%s pastat=%s pastgap=%s notice=%s",
         shotIndex, tostring(me:GetAttribute("DHBenchMode")), tostring(src), tostring(hit),
         tostring(answered), tostring(fired), waitFrames,
         if hit then lastZone else "-",
@@ -765,6 +894,11 @@ task.spawn(function()
         if aim then aim.X else 0 / 0, if aim then aim.Y else 0 / 0, if aim then aim.Z else 0 / 0,
         if impact then string.format("%.2f|%.2f|%.2f", impact.X, impact.Y, impact.Z) else "nil",
         if du then f(du) else "nil", if dv then f(dv) else "nil",
+        if drawn then string.format("%.2f|%.2f|%.2f", drawn.X, drawn.Y, drawn.Z) else "nil",
+        if past then string.format("%.2f|%.2f|%.2f", past.X, past.Y, past.Z) else "nil",
+        if pres then string.format("%.2f|%.2f|%.2f", pres.X, pres.Y, pres.Z) else "nil",
+        if pastAt then string.format("%.3f", pastAt) else "nil",
+        f(pastgap),
         if lastNotice ~= "" then lastNotice else "-")
       me:SetAttribute("DHBenchRows", table.concat(rows, "\n"))
     end
@@ -1018,6 +1152,13 @@ def run_cell(bench, cell, shots, log):
     bench.set_mode(cell)
     floor = PACE_FLOOR.get(cell.pace, 0.0)
     fired, refused_gate = 0, 0
+    # THE RING LINE EACH SHOT WROTE (task 309a). `ServerStorage.DHLastHits` keeps only the last ten
+    # lines, so a 30-shot cell must be read PER SHOT or nine tenths of it is gone. A miss writes
+    # nothing, so the ring does not advance and that row keeps no ring columns -- and `seen` is
+    # SEEDED FROM THE RING AS IT STANDS (round 1, finding 3), because the attribute persists across
+    # cells and the first shot of a cell would otherwise inherit the previous cell's last line.
+    rings = {}
+    seen = ring_indices(bench.hitlog())
     while fired < shots:
         ready = ""
         for _ in range(60):
@@ -1036,18 +1177,29 @@ def run_cell(bench, cell, shots, log):
         bench.click()
         fired += 1
         time.sleep(1.5)
+        tail = [ln.strip() for ln in (bench.hitlog() or "").splitlines() if ln.strip()]
+        line = tail[-1] if tail else ""
+        n = ring_credit(line, seen)
+        if n is not None:
+            rings[fired] = line
+            seen.add(n)
         bench.reload()
         time.sleep(1.8)
     rows = parse_rows(bench.attr("DHBenchRows"))
-    log("  fired %d, rows %d" % (fired, len(rows)))
+    for r in rows:
+        r.update(parse_trace(rings.get(r.get("i"))))
+    log("  fired %d, rows %d, ring lines %d" % (fired, len(rows), len(rings)))
     for r in rows:
         log(
             "    #%s hit=%s answered=%s fired=%s frames=%s zone=%s spd=%s dist=%s along=%s up=%s "
-            "across=%s aim=%s impact=%s card=(%s,%s) notice=%s src=%s"
+            "across=%s aim=%s impact=%s card=(%s,%s) notice=%s src=%s | drawn=%s past=%s pres=%s "
+            "pastat=%s pastgap=%s ring[zone=%s local=%s uv=%s id=%s]"
             % (r.get("i"), r.get("hit"), r.get("answered"), r.get("fired"), r.get("frames"),
                r.get("zone"), r.get("spd"), r.get("dist"), r.get("along"), r.get("up"),
                r.get("across"), r.get("aim"), r.get("impact"),
-               r.get("cardu"), r.get("cardv"), r.get("notice"), r.get("src"))
+               r.get("cardu"), r.get("cardv"), r.get("notice"), r.get("src"),
+               r.get("drawn"), r.get("past"), r.get("pres"), r.get("pastat"), r.get("pastgap"),
+               r.get("ringzone"), r.get("ringlocal"), r.get("ringuv"), r.get("ringid"))
         )
     return rows
 
@@ -1244,6 +1396,43 @@ def selftest():
         {"i": 1, "hit": True}, {"i": 2, "hit": False}
     ]
     assert parse_rows(None) == [] and parse_rows("") == []
+    # the new per-shot columns parse like any other key, and `nil` stays None
+    row = parse_row("i=4 drawn=1.00|2.00|3.00 past=1.00|2.00|4.00 pastat=102.5 pastgap=-0.730")
+    assert row["drawn"] == "1.00|2.00|3.00" and row["pastat"] == 102.5 and row["pastgap"] == -0.73
+    assert parse_row("i=5 past=nil pastgap=nan")["past"] is None
+
+    # --- the ring parser (task 309a): a known-good line, and a known-bad one that must read NOTHING
+    good = parse_trace(
+        "#7 t=3.20s boar id=A1 zone=rear local=(0.05,0.44,1.29) uv=(0.733,0.381) dist=52.1 "
+        "rifle/FMJ pellets=1 fatal=no"
+    )
+    assert good["ringzone"] == "rear" and good["ringlocal"] == "0.05|0.44|1.29", good
+    assert good["ringuv"] == "0.733|0.381" and good["ringid"] == "A1", good
+    assert abs(_ring_z({"ringlocal": good["ringlocal"]}) - 1.29) < 1e-9
+    # L-141: the SAME parser pointed at something that is not a ring line must come back empty,
+    # or every row would read as "the server answered" whatever the game did.
+    for bad in (None, "", "no ring line here", "#3 t=1.0s boar id=A1 zone=rear"):
+        empty = parse_trace(bad)
+        assert empty == {"ringzone": None, "ringlocal": None, "ringuv": None, "ringid": None, "ringn": None}, bad
+        assert _ring_z(empty) is None
+    assert _ring_z({"ringlocal": "a|b|c"}) is None and _ring_z({}) is None
+    assert good["ringn"] == 7, good
+
+    # --- a ring line is credited ONCE, and never a line that was already there (finding 3)
+    def ring(n):
+        return "#%d t=1.00s boar id=A%d zone=rear local=(0.0,0.0,1.0) uv=(0.5,0.5) dist=50.0 r/S pellets=1 fatal=no" % (n, n)
+
+    seen = ring_indices(ring(4) + chr(10) + ring(5))
+    assert seen == {4, 5}, seen
+    # the cell's first shot MISSES: the tail is still #5, which `seen` already holds -> no credit
+    assert ring_credit(ring(5), seen) is None
+    # ...and a genuinely new line is credited exactly once
+    assert ring_credit(ring(6), seen) == 6
+    seen.add(6)
+    assert ring_credit(ring(6), seen) is None
+    # a tail that is not a ring line at all credits nothing
+    assert ring_credit("", seen) is None and ring_credit("garbage", seen) is None
+    assert ring_indices(None) == set() and ring_indices("garbage") == set()
 
     # --- the instrument verdict (L-141): the two self-check cells must read DIFFERENTLY
     def entry(spec, hits, n, along=None):
@@ -1307,6 +1496,24 @@ def selftest():
     text = render(table, notes, ["head"])
     assert "CONTROL" in text and "KNOWN-BAD" in text and "90%" in text and "-0.40" in text, text
     assert "Self-check: CONTROL and KNOWN-BAD both read as they must." in text
+
+    # --- EVERY ROW CARRIES THE THREE INSTRUMENT COLUMNS, control included (L-143), and a cell whose
+    # ring wrote nothing says `0/N` rather than reading as a clean zero.
+    withring = entry_raw("rifle/run/chest", [
+        {"hit": True, "answered": True, "zone": "rear", "along": -1.25, "pastgap": 0.62,
+         "ringzone": "rear", "ringlocal": "0.05|0.44|1.29"},
+        {"hit": True, "answered": True, "zone": "chest", "along": -0.20, "pastgap": 0.58,
+         "ringzone": "body", "ringlocal": "0.02|0.50|0.71"},
+    ])
+    table, notes = summarise([withring, entry("rifle/run/chest+lead", 28, 30),
+                              entry("rifle/run/ahead", 0, 30)])
+    assert abs(table[0]["pastgap"] - 0.60) < 1e-9 and abs(table[0]["ringz"] - 1.00) < 1e-9, table[0]
+    assert table[0]["rings"] == 2 and table[0]["ringdisagree"] == 1, table[0]
+    assert table[1]["rings"] == 0 and table[1]["pastgap"] is None, table[1]
+    text = render(table, notes, ["head"])
+    assert "pastgap" in text and "ring-z" in text and "+0.60" in text and "+1.00" in text, text
+    assert "2/2" in text and "0/30" in text, text
+    assert "RING DISAGREES WITH THE MARKER on 1 row(s)" in text, text
 
     # --- the Luau goes down the wire as one line with its templates filled
     line = oneline(GATE, PX="12.0", MINSPD="15.00")
