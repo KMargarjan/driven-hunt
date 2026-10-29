@@ -1018,15 +1018,17 @@ return function()
 					end
 				end
 				-- EVERY RECTANGLE EITHER HAS A REAL EDGE OF THE UNION, OR IS REDUNDANT -- and redundant
-				-- is proven against THE OTHER RECTANGLES, never against `insideHome` again. Re-asking
-				-- the same predicate of the same points would assert this loop's own exit condition and
-				-- could not fail (review round 1, finding 1).
+				-- means THE OTHER RECTANGLES ALREADY COVER ITS WHOLE AREA. Two weaker versions were
+				-- written and both were tautologies, so the trap is named here: re-asking
+				-- `Join.insideHome(at, areas)` for `at` in `outs` asserts this loop's own exit condition
+				-- (review round 1, finding 1), and asking it of `others` instead is the SAME question --
+				-- every point in `outs` lies outside rectangle `index` by construction, so rectangle
+				-- `index` can never be the one covering it. A grid over the rectangle's OWN area is the
+				-- test that can fail: it is false the moment this rectangle contributes any ground.
 				--
 				-- Since task 306 B8 moved the range next to the lodge, `Join.walkwayTo`'s corridor is
-				-- the rectangle with no edge of its own: the field and the range footprint it joins
-				-- already cover all four of its outward points. This says exactly that and nothing
-				-- weaker -- if the walkway ever becomes the ONLY cover for one of them it HAS an edge
-				-- and `here > 0`, and if it stops being covered at all this fails.
+				-- the rectangle with no edge: the field and the range footprint it joins cover all of
+				-- it. If that ever stops being true it has an edge and `here > 0` instead.
 				if here == 0 then
 					local others = {}
 					for otherIndex, other in ipairs(areas) do
@@ -1035,19 +1037,26 @@ return function()
 						end
 					end
 					expect(#others).to.equal(#areas - 1)
-					for _, at in ipairs(outs) do
-						expect(Join.insideHome(at, others)).to.equal(
-							true,
-							string.format(
-								"rectangle %d contributed no boundary case and %s is not covered by the others",
-								index,
-								tostring(at)
+					local covered = 0
+					for ix = 0, 4 do
+						for iz = 0, 4 do
+							local at = Vector3.new(
+								rect.minX + (rect.maxX - rect.minX) * ix / 4,
+								0,
+								rect.minZ + (rect.maxZ - rect.minZ) * iz / 4
 							)
-						)
+							expect(Join.insideHome(at, others)).to.equal(
+								true,
+								string.format(
+									"rectangle %d has no edge of the union, but %s is ground only IT covers",
+									index,
+									tostring(at)
+								)
+							)
+							covered += 1
+						end
 					end
-					-- ...AND THE UNION IS THE SAME WITHOUT IT, which is what redundant means. Its own
-					-- centre too, not only the four outward points.
-					expect(Join.insideHome(Vector3.new(midX, 0, midZ), others)).to.equal(true)
+					expect(covered).to.equal(25)
 				end
 				table.insert(perRect, string.format("rect %d: %d", index, here))
 				-- ...and ON the edge is IN, which is `withinRect`'s rule in min/max form.
