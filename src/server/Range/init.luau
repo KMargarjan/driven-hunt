@@ -134,6 +134,7 @@ local state = {
 	deckTops = {} :: { [number]: number },
 	boars = nil :: any,
 	now = nil :: (() -> number)?,
+	serverTime = nil :: (() -> number)?,
 	trials = {} :: { [number]: Trial },
 	acc = 0,
 	remotes = nil :: any,
@@ -185,6 +186,14 @@ local state = {
 local function clockNow(): number
 	local now = state.now
 	return if now then now() else os.clock()
+end
+
+-- THE CLOCK THE ANIMAL'S HISTORY RING IS STAMPED WITH (review round 1, finding 1), which is the
+-- ONLY clock a `cframeAt` instant may be measured on: `Boar.sampleAt` refuses anything older than
+-- its oldest stamp, and `os.clock()` is a different epoch entirely.
+local function serverNow(): number
+	local now = state.serverTime
+	return if now then now() else Workspace:GetServerTimeNow()
 end
 
 local function paceSpeed(pace: string): number
@@ -534,6 +543,11 @@ function Range.start(seams): boolean
 	state.root = root
 	state.boars = seams.boars
 	state.now = seams.now
+	-- THE RING'S OWN CLOCK, which is NOT `state.now` (review round 1, finding 1). `Runtime:cframeAt`
+	-- stamps its history with `GetServerTimeNow()`, so an instant taken off `os.clock()` -- process
+	-- time -- falls outside the ring's span and is refused every time. Injectable so a spec can run
+	-- the two clocks apart; nil is the shipped one.
+	state.serverTime = seams.serverTime
 	-- THE `mixed` DRAW, INJECTED like the clock, so a spec can run the two legs by parameter
 	-- instead of waiting on `math.random` (round 1, finding 1). Nil means the shipped draw.
 	state.roll = seams.roll
@@ -597,6 +611,7 @@ function Range.stop()
 	state.deckTops = {}
 	state.boars = nil
 	state.now = nil
+	state.serverTime = nil
 	state.roll = nil
 	state.trials = {}
 	state.acc = 0
@@ -1021,6 +1036,8 @@ end
 -- against, so the animal is hittable exactly where it is drawn.
 -- Note: docs/design/shooting-range-lobby.md sections 4.3, 5.3
 function Range.ignoredFor(player: any, rewindSeconds: number?): { Instance }
+	-- COUNTED BEFORE THE GUARDS, so T13's budget covers every ask including the ones that answer
+	-- nothing; it is a cost counter, not a count of filtered shots (the Reviewer's note).
 	state.stats.ignoreCalls += 1
 	local out: { Instance } = {}
 	local anchor = state.anchor
@@ -1034,7 +1051,7 @@ function Range.ignoredFor(player: any, rewindSeconds: number?): { Instance }
 	end
 	local at: number? = nil
 	if type(rewindSeconds) == "number" and rewindSeconds == rewindSeconds and rewindSeconds > 0 then
-		at = clockNow() - rewindSeconds
+		at = serverNow() - rewindSeconds
 	end
 	for spot, trial in pairs(state.trials) do
 		if trial.targetId ~= nil then

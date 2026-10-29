@@ -1961,9 +1961,9 @@ return function()
 						.. table.concat(roster, ", ")
 						.. "]"
 				)
-				-- NOT SILENT, AND THE ARM IS NAMED (licence_popup's own device): the seam itself is
-				-- still exercised -- set, read back through a cast, cleared -- so the fallback
-				-- cannot pass with `setIgnoreProvider` deleted.
+				-- NOT SILENT, AND THE ARM IS NAMED (licence_popup's own device). This arm proves
+				-- NOTHING about the seam's behaviour -- with no armed subject neither handler can
+				-- be driven -- so the note above is the evidence that it ran, not the assertion.
 				expect(type(Weapon.setIgnoreProvider)).to.equal("function")
 				TestKit.note("weapon_shot ignore list: LIVE HANDLER NOT DRIVEN -- the fallback arm ran")
 				return

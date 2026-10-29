@@ -220,7 +220,7 @@ return function()
 	end
 
 	-- One range, started into a folder of its own, with a fake clock and a fake runtime.
-	local function startRange(fake, now, roll)
+	local function startRange(fake, now, roll, serverTime)
 		local root = Instance.new("Folder")
 		local ok = Range.start({
 			enabled = true,
@@ -228,6 +228,9 @@ return function()
 			root = root,
 			boars = fake,
 			now = now,
+			-- THE RING'S OWN CLOCK, separate from the owner's step clock (review round 1, finding 1):
+			-- the shipped one is `GetServerTimeNow()` and the owner's is `os.clock()`, two epochs.
+			serverTime = serverTime,
 			roll = roll,
 		})
 		return ok, root
@@ -3112,7 +3115,13 @@ return function()
 			Range.stop()
 			local fake = newFakeBoars()
 			local clock, now = newClock()
-			expect(startRange(fake, now)).to.equal(true)
+			-- TWO CLOCKS, FAR APART (review round 1, finding 1). The history ring is stamped with
+			-- `GetServerTimeNow()` and the owner steps on `os.clock()`; with the instant taken off
+			-- the WRONG one the ring refuses every ask and the window is silently judged at the
+			-- present position. 50 000 s apart, so no tolerance can hide the mix-up.
+			local serverClock, serverTime = newClock()
+			serverClock.t = 50000
+			expect(startRange(fake, now, nil, serverTime)).to.equal(true)
 			advance(fake, clock, 1)
 			local man = manAtSpot(RangeData.matPosition(ANCHOR, 2, LAYOUT), 307)
 			local mine = centreOn(fake, 2)
@@ -3129,7 +3138,9 @@ return function()
 			expect(#asked).to.equal(0)
 			expect(has(Range.ignoredFor(man, 0.2), mine.root)).to.equal(true)
 			expect(#asked).to.equal(1)
-			expect(asked[1]).to.be.near(clock.t - 0.2, 1e-6)
+			expect(asked[1]).to.be.near(serverClock.t - 0.2, 1e-6)
+			-- ...AND NOT ON THE OWNER'S OWN CLOCK, which is the arm that shipped round 1.
+			expect(math.abs(asked[1] - (clock.t - 0.2)) > 1).to.equal(true)
 
 			-- ...and the other way round: out of the window now, inside it then, and the shot sees it.
 			mine.position = Vector3.new(maxX + 5, mine.position.Y, mine.position.Z)
