@@ -193,12 +193,198 @@ return function()
 					expect(part.CanCollide).to.equal(false) -- the collision body is still the plain box
 					expect(part.CanQuery).to.equal(true) -- being raycastable is its entire purpose
 					expect(part.Anchored).to.equal(false) -- an anchored weld would anchor the whole boar
-					local weld = part:FindFirstChildOfClass("WeldConstraint")
+					-- A LEGACY `Weld` SINCE TASK 305c: just as rigid, but `C0` is writable, which
+					-- is what lets the gait carry the box (`Body.followGait`).
+					local weld = part:FindFirstChildOfClass("Weld")
 					expect(weld).to.be.ok()
 					expect(weld.Part0).to.equal(trunk)
 					expect(weld.Part1).to.equal(part)
+					expect(part:FindFirstChildOfClass("WeldConstraint")).to.equal(nil)
 				end
 			end
+		end)
+
+		-- TASK 305c. MEASURED in Karen's place at a run: the drawn boar sits 0.14-0.65 studs under
+		-- the rest pose the boxes were fitted to, so the drawn nose was inside a zone part on 0 of
+		-- 83 frames. These two cases hold the two halves of the fix: every box gets a bone, and a
+		-- bone that has moved moves its box by EXACTLY that much and leaves its size alone.
+		-- `Runtime:spawn` hands back a NARROWED view and not the body handle, so the rows are read
+		-- off the real parts the runtime built: one `Weld` per zone part, its `C0` the rest offset.
+		local function gaitHandle()
+			local rows = {}
+			for _, part in ipairs(trunk:GetChildren()) do
+				if part:IsA("BasePart") and type(part:GetAttribute("HitZone")) == "string" then
+					local weld = part:FindFirstChildOfClass("Weld")
+					if weld ~= nil then
+						table.insert(rows, { part = part, weld = weld, offset = weld.C0.Position })
+					end
+				end
+			end
+			local mesh
+			for _, d in ipairs(trunk:GetDescendants()) do
+				if d:IsA("MeshPart") then
+					mesh = d
+				end
+			end
+			return { zoneRows = rows, part = trunk, mesh = mesh }, rows
+		end
+
+		it("gives every hit box the bone nearest it, or none at all without a visual", function()
+			local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
+			local handleView, rows = gaitHandle()
+			expect(#rows > 0).to.equal(true)
+			local bones = 0
+			if handleView.mesh ~= nil then
+				for _, d in ipairs(handleView.mesh:GetDescendants()) do
+					if d:IsA("Bone") then
+						bones += 1
+					end
+				end
+			end
+			local wired = Body.gaitRig(handleView)
+			-- WHICH BRANCH THIS RUN TOOK, PRINTED (verdict 281): whether the bought model reached
+			-- this Studio session decides it, and a silent grey-box run must not read as proof.
+			TestKit.note(
+				string.format(
+					"boar_zones gait: mesh=%s bones=%d rows=%d wired=%d branch=%s",
+					tostring(handleView.mesh and handleView.mesh.Name),
+					bones,
+					#rows,
+					wired,
+					if handleView.mesh == nil then "grey-box" else "skinned"
+				)
+			)
+			if handleView.mesh == nil then
+				-- The grey-box world: no rig, and `followGait` must be a no-op rather than an error.
+				expect(wired).to.equal(0)
+				expect(Body.followGait(handleView, 2.5)).to.equal(0)
+			else
+				expect(wired).to.equal(#rows)
+				for _, row in ipairs(rows) do
+					expect(row.bone).to.be.ok()
+					expect(row.bone:IsA("Bone")).to.equal(true)
+					expect(typeof(row.inBone)).to.equal("CFrame")
+				end
+			end
+		end)
+
+		-- THE WHOLE RULE IS ONE COMPARISON (`distance < bestDistance`), and this is the case that
+		-- bites it: flip the sign and the snout box is carried by a hind hoof. Hand-made bones on a
+		-- hand-made carrier, so it runs identically whether or not the bought model reached Studio.
+		it("picks the NEAR bone for each box and never the far one", function()
+			local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
+			local carrier = Instance.new("Part")
+			carrier.Name = "GaitCarrier"
+			carrier.Size = Vector3.new(1, 1, 1)
+			carrier.Anchored = true
+			carrier.CanCollide = false
+			carrier.CanQuery = false
+			-- The carrier sits exactly on the trunk, so a bone's own `CFrame` IS its trunk-space
+			-- rest place and the two distances below are the ones the rule compares.
+			carrier.CFrame = trunk.CFrame
+			carrier.Parent = testRoot
+			local snoutBone = Instance.new("Bone")
+			snoutBone.Name = "AtTheSnout"
+			snoutBone.CFrame = CFrame.new(0, 0.666, -2.388) -- the male's own `nose` rest place
+			snoutBone.Parent = carrier
+			local rumpBone = Instance.new("Bone")
+			rumpBone.Name = "AtTheRump"
+			rumpBone.CFrame = CFrame.new(0, 0.948, 1.486) -- the male's own `Spine_05` rest place
+			rumpBone.Parent = carrier
+			-- The real `ZoneHead1` and `ZoneRear1` offsets out of `Boar.CONFIG.ZONES`.
+			local snoutBox = { offset = CONFIG.ZONES.head.boxes[1].offset }
+			local rumpBox = { offset = CONFIG.ZONES.rear.boxes[1].offset }
+			local view = { zoneRows = { snoutBox, rumpBox }, part = trunk, mesh = carrier }
+			expect(Body.gaitRig(view)).to.equal(2)
+			expect(snoutBox.bone).to.equal(snoutBone)
+			expect(rumpBox.bone).to.equal(rumpBone)
+			-- ...and the box really is stored in THAT bone's frame: the snout box is 0.066 under and
+			-- 0.138 behind the `nose` bone, so that is exactly what `inBone` must hold.
+			local want = snoutBox.offset - Vector3.new(0, 0.666, -2.388)
+			expect((snoutBox.inBone.Position - want).Magnitude < 1e-3).to.equal(true)
+			carrier:Destroy()
+		end)
+
+		-- THE CENTRE-LINE RULE (task 305d), and the case that bites it: a box ON the centre line
+		-- with a PAIRED bone nearer than the spine bone under it. In Karen's range that is exactly
+		-- `ZoneBody1` -- 0.534 studs from `ear_1.L`, 0.693 from `Neck` -- and the plain nearest rule
+		-- gave the slab over the shoulders to an ear. Delete the side filter and this fails.
+		it("never lets a paired bone carry a box on the animal's centre line", function()
+			local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
+			local carrier = Instance.new("Part")
+			carrier.Name = "GaitCarrierSides"
+			-- The male's own width, so `centreX` is the number the live animal uses.
+			carrier.Size = Vector3.new(1.4011, 1, 1)
+			carrier.Anchored = true
+			carrier.CanCollide = false
+			carrier.CanQuery = false
+			carrier.CFrame = trunk.CFrame
+			carrier.Parent = testRoot
+			-- The male's own `ear_1.L` and `Neck` rest places, measured in Karen's range.
+			local ear = Instance.new("Bone")
+			ear.Name = "ear_1.L"
+			ear.CFrame = CFrame.new(-0.359, 1.403, -1.313)
+			ear.Parent = carrier
+			local neck = Instance.new("Bone")
+			neck.Name = "Neck"
+			neck.CFrame = CFrame.new(0, 0.872, -0.866)
+			neck.Parent = carrier
+			-- A left-side bone for the left foreleg box, so the filter is shown to ALLOW its own
+			-- side as well as to refuse the other: one assertion each way.
+			local shin = Instance.new("Bone")
+			shin.Name = "shin_f.L"
+			shin.CFrame = CFrame.new(-0.322, -0.673, -0.699)
+			shin.Parent = carrier
+			-- `ZoneBody1` and `ZoneLegs1`, straight out of the live config.
+			local backBox = { offset = CONFIG.ZONES.body.boxes[1].offset }
+			local legBox = { offset = CONFIG.ZONES.legs.boxes[1].offset }
+			local view = { zoneRows = { backBox, legBox }, part = trunk, mesh = carrier }
+			-- The ear really is nearer: without the rule this test could not fail.
+			local toEar = (Vector3.new(-0.359, 1.403, -1.313) - backBox.offset).Magnitude
+			local toNeck = (Vector3.new(0, 0.872, -0.866) - backBox.offset).Magnitude
+			expect(toEar < toNeck).to.equal(true)
+			expect(Body.gaitRig(view)).to.equal(2)
+			expect(backBox.bone).to.equal(neck)
+			expect(legBox.bone).to.equal(shin)
+			carrier:Destroy()
+		end)
+
+		it("moves a box by its bone's own deformation and never resizes it", function()
+			local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
+			local handleView, rows = gaitHandle()
+			local row = rows[1]
+			-- A HAND-MADE BONE ON THE TRUNK, so the case runs with or without the bought model:
+			-- `followGait` reads `row.bone.TransformedWorldCFrame * row.inBone` and nothing else.
+			local bone = Instance.new("Bone")
+			bone.Name = "SpecBone"
+			bone.CFrame = CFrame.identity
+			bone.Parent = trunk
+			row.bone = bone
+			row.inBone = CFrame.new(row.offset)
+			local size = row.part.Size
+			-- The bone at its rest place: no shift, so the box keeps its measured offset.
+			expect(Body.followGait(handleView, 2.5) > 0).to.equal(true)
+			expect((row.weld.C0.Position - row.offset).Magnitude < 1e-3).to.equal(true)
+			-- Drop the bone half a stud: the box drops half a stud too, and nothing else moves.
+			bone.CFrame = CFrame.new(0, -0.5, 0)
+			Body.followGait(handleView, 2.5)
+			local shift = row.weld.C0.Position - row.offset
+			expect(math.abs(shift.Y + 0.5) < 1e-2).to.equal(true)
+			expect(math.abs(shift.X) < 1e-2).to.equal(true)
+			expect(math.abs(shift.Z) < 1e-2).to.equal(true)
+			-- THE BOX TURNS WITH ITS BONE, which is what closes the hole the drawn neck opens when
+			-- the head goes down (task 305c): a bone rolled 90 degrees rolls its box 90 degrees.
+			bone.CFrame = CFrame.Angles(0, 0, math.rad(90))
+			Body.followGait(handleView, 2.5)
+			expect((row.weld.C0.RightVector - Vector3.new(0, 1, 0)).Magnitude < 1e-2).to.equal(true)
+			-- ...AND THE CLAMP: 4 studs of bone asks for more than the cap allows.
+			bone.CFrame = CFrame.new(0, -4, 0)
+			Body.followGait(handleView, 2.5)
+			expect(math.abs((row.weld.C0.Position - row.offset).Y + 2.5) < 1e-2).to.equal(true)
+			-- NO BOX IS EVER RESIZED: the whole fix is where the boxes are, never how big.
+			expect((row.part.Size - size).Magnitude).to.equal(0)
+			bone:Destroy()
+			row.weld.C0 = CFrame.new(row.offset)
 		end)
 
 		it("resolves through the ancestor walk to the trunk, which is what takeHit is given", function()

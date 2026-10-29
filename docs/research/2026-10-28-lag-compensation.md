@@ -31,6 +31,44 @@ interpolation, not ping.
 
 0.180 s x 24 studs/s (run) = **4.3 studs**, ~1.2 m: exactly the "free space" Karen aims into.
 
+## Re-measured in KAREN'S PLACE (Forest Test, 2026-10-29, task 309, `<runs-dir>/309/zcli.luau` + `zsrv-spawn.luau`)
+
+The 0.180 above is DEV: one boar at 2.55 studs/s, a quiet server. The place Karen plays is not that
+place -- the range target runs at 22.5 studs/s at 130 studs with **60 animals** in the world -- so the
+same two-sided correlation was run there, on the chest zone the shooter actually aims at and on the
+trunk beside it.
+
+| part | mean speed | distance | best-fit shift | sd | p10 / p50 / p90 | residual |
+|---|---|---|---|---|---|---|
+| `Boar53` trunk | 22.4 studs/s | 130 studs | **+0.2106 s** | 0.0124 | 0.192 / 0.212 / 0.225 | 0.154 studs |
+| its `ZoneChest*` centre | 22.5 studs/s | 130 studs | **+0.2057 s** | 0.0181 | 0.184 / 0.205 / 0.227 | 0.233 studs |
+
+93 client frames correlated against 238 server samples over one shared `GetServerTimeNow()`.
+**The zone parts lag no more than the trunk**, which refutes the guess that a welded zone replicates
+at its own slower rate.
+
+So `FLIGHT_REWIND_BASE_SECONDS` 0.18 under-rewound by 0.0257 s = **0.47 studs mean, 0.95 at p90** at
+a run in her place. It was **0.205** from task 309 (a best fit of the drawn chest to the ring) and
+is **0.250** since task 309a (the end-to-end residual the fit could not see -- the table row below).
+
+## What this does NOT explain (task 309)
+
+With the bench measuring a chest-centre shot at a RUNNING boar at 20 % and the same shot plus
+`Ballistics.leadStuds` at 47 %, the whole measured error budget at 22.5 studs/s is:
+
+| term | mean | worst | instrument |
+|---|---|---|---|
+| view-lag shortfall (0.2057 - 0.185) | 0.47 studs | 0.95 | the table above |
+| gait shift of `ZoneChest` over one window | 0.15 | 0.23 | `<runs-dir>/309/gait.luau` |
+| bench camera against its own aim point | 0.29 | 1.08 | `<runs-dir>/309/px2.luau` (1.24 px mean, 4.68 max) |
+| slug cone, 0.16 deg full at 130 studs | 0.18 | 0.18 | `Shotgun.CONFIG.SPREAD_FULL_DEG` |
+| trajectory over the line of sight, 109-140 studs | 0.03 | 0.04 | closed form, `ZERO_STUDS` 714 |
+
+That sums to ~1.5 studs worst case along a body whose zone boxes run continuously from z -2.53 to
++1.91 with no gap wider than 0.12 studs. **It cannot produce a clean miss, and clean misses are what
+the bench reads** -- every missed shot's impact is on the range wall at z = -3350.00. The cause is
+therefore NOT in this note's subject and is still unnamed; `ESCALATE.md` (task 309) carries it.
+
 ## Sources
 
 1. **Valve, *Source Multiplayer Networking* / Bernier, *Latency Compensating Methods* (GDC 2001)** --
@@ -83,7 +121,7 @@ prints `LEAD VIEW <= 7.21 studs`), fixes it for every weapon at once, and leaves
 |---|---|
 | extra lead a shooter must add beyond `Ballistics.leadStuds` | **0 studs**, +- 0.63 (one Heartbeat x 38 studs/s, the grid's own quantisation) |
 | chest-or-body hits, aiming at the CLIENT-rendered chest + ballistic lead only | **>= 8/10** per pace per gun |
-| rewind amount | `FLIGHT_REWIND_BASE_SECONDS` **0.18 s, the measurement above** + ping x `FLIGHT_CATCHUP_PING_FACTOR` 1.0, capped at `CLAIM.VIEW_LAG_MAX_SECONDS` 0.45 s. **NOT `CLAIM.VIEW_LAG_BASE_SECONDS` (0.30)**: that is a window a sweep searches, where over-estimating is free; this is an amount, and 0.30 would rewind 0.12 s too far -- 2.9 studs at a run, in the other direction |
+| rewind amount | `FLIGHT_REWIND_BASE_SECONDS` **0.250 s since task 309a** (0.18 was the DEV measurement above; 0.205 was task 309's best fit of the drawn chest to the ring; 0.250 is task 309a's END-TO-END residual -- `DH305Past` minus the drawn trunk on the trigger frame read +1.00/+1.19/+0.90 studs at 0.205 and +0.23/+0.13/+0.00 at 0.250, `<runs-dir>/309a/after-A.txt` against `after-B.txt`, placeId 130094961655666 synced from the test build `driven-hunt-294`, NOT from Karen's own copy. The bench reads the drawn trunk up to one frame LATE, so it UNDER-reports the gap by about 0.4 studs at a run: 0.250 is the UNDER-rewound end and the true zero lies ABOVE it, near 0.254..0.271) + ping x `FLIGHT_CATCHUP_PING_FACTOR` 1.0, capped at `CLAIM.VIEW_LAG_MAX_SECONDS` 0.45 s. **NOT `CLAIM.VIEW_LAG_BASE_SECONDS` (0.30)**: that is a window a sweep searches, where over-estimating is free; this is an amount, and 0.30 would rewind 0.12 s too far -- 2.9 studs at a run, in the other direction |
 | cost | one bounded bounds-query + at most `CLAIM.MAX_TARGETS` extra casts per sub-step |
 
 ## Amendment, 2026-10-28 (round 1 of the review, and a second Builder's measurement)

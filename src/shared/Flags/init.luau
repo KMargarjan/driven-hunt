@@ -126,7 +126,14 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- another commit. `docs/design/feature-flags.md` section 11 step 1 is therefore obeyed rather than
 -- excepted. The two ways out of the cap are still the two task 238 listed and the first is still
 -- queued as TASKS.md 82b.
-Flags.MAX_FLAGS = 20
+-- 20 -> 21 FOR TASK 305c, **AND THE SAME SENTENCE AGAIN**: the Builder is saying so rather than
+-- quietly retiring somebody else's row. `ZONES_FOLLOW_GAIT` is the twenty-first, it ships DARK, and
+-- the two ways out are still the two task 238 listed -- retire the lit rows queued as TASKS.md 82b,
+-- which is the DIRECTOR's call, or ship a new feel-critical path LIT, which
+-- `docs/design/feature-flags.md` section 11 step 1 forbids. This moves a hit box, which is as
+-- feel-critical as the game gets, so it is born off. The retirements stay queued; this is one line
+-- either way.
+Flags.MAX_FLAGS = 21
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -167,10 +174,25 @@ Flags.DEFAULTS = {
 		born = "2026-10-28 task 305",
 		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
 		expires = "2026-11-18",
-		why = "The server tests each animal where the SHOOTER DREW it -- 0.180 s back, measured -- "
+		why = "The server tests each animal where the SHOOTER DREW it -- 0.250 s back, measured -- "
 			.. "instead of where the server has it now, so the only lead a player needs is the real "
 			.. "ballistic one. OFF is exactly the game before task 305: the animal is tested at the "
 			.. "present instant and the shooter must add 0.18 s x the animal's speed of his own.",
+	} :: FlagRow,
+	-- THE HIT BOXES FOLLOW THE GAIT (task 305c). Karen, 2026-10-28: *"with rifle when it trot or
+	-- run I need to aim in free space to hit boar ... aiming in nose no hit"*. MEASURED in her
+	-- place at RUN: the drawn nose is 0/83 frames inside any zone part (reviews/task-305c).
+	ZONES_FOLLOW_GAIT = {
+		default = false,
+		owner = "ServerScriptService.Boar",
+		born = "2026-10-28 task 305c",
+		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
+		expires = "2026-11-18",
+		why = "Each hit box is carried by the gait clip's own deformation of the bone nearest it, so "
+			.. "the boxes sit on the animal the shooter SEES: at a run the drawn body is 0.14-0.65 "
+			.. "studs below its rest pose and the snout box missed the drawn snout on every frame. "
+			.. "No box is grown, so air above, below or ahead of the drawn animal stays a miss. OFF "
+			.. "is exactly the game before task 305c: the rig is welded at the rest-pose offsets.",
 	} :: FlagRow,
 	-- THE LOBBY SHOOTING RANGE (task 298). KAREN, 2026-10-27: a place to *"test guns and shooting"*
 	-- against a real animal crossing a lane, so the seven shooting dials can be judged by eye.

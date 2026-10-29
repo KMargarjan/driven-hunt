@@ -43,6 +43,13 @@ return function()
 			-- ...and the answer came back in the PAST frame, 5 studs the other way
 			expect((hit :: any).position.X).to.be.near(0, 1e-4)
 			expect((hit :: any).distance).to.be.near(2, 1e-4)
+			-- ...AND IT SAYS WHICH FRAME THAT IS (task 308): the PAST POSITION with the PRESENT
+			-- ROTATION, because translation is all this does. `HitLog` divides the card's dots down
+			-- by it, so a stamp that is missing or present-tense puts a nose shot on the rump.
+			local frame = (hit :: any).frame
+			expect(typeof(frame)).to.equal("CFrame")
+			expect((frame :: CFrame).Position.X).to.be.near(-5, 1e-4)
+			expect((frame :: CFrame).LookVector.Z).to.be.near(-1, 1e-4)
 		end)
 
 		it("takes the NEAREST candidate and caps the list at maxTargets", function()
@@ -125,6 +132,95 @@ return function()
 	-- THE FUNCTION THAT CHANGES THE GAME, driven through its three seams with no world. Delete
 	-- `Weapon.castWithRewind` and these cases go red, which is what round 1 said this file could
 	-- not claim.
+	-- TASK 305b: the rewind is measured from the TRIGGER, not from the cast's own wall clock.
+	describe("Flight.advance's rewind anchor", function()
+		local Flight = require(ServerScriptService:WaitForChild("Weapon"):WaitForChild("Flight"))
+
+		local function fire(now: number?): number?
+			local flight = Flight.new(CONFIG)
+			local ballistic = { v0 = 1000, k = 0, zeroStuds = 100, gravityScale = 0 }
+			local seen: number? = nil
+			local shot = {
+				shooter = nil :: any,
+				shooterUserId = 1,
+				ammo = "slug",
+				muzzle = Vector3.zero,
+				ignore = {},
+				rangeStuds = 500,
+				firedAt = 0,
+				rewindSeconds = 0.18,
+				-- the trigger, 0.05 s before the cast below
+				firedAtServer = 100.0,
+			}
+			flight:launch(shot :: any, { Vector3.new(0, 0, -1) }, ballistic :: any)
+			flight:advance(1 / 60, function(_o, _d, _i, rewind)
+				seen = seen or rewind
+				return nil
+			end, now)
+			return seen
+		end
+
+		it("adds the slip between the trigger and the cast", function()
+			-- 0.05 s of wall clock has passed and the pellet has flown none of it yet, so the
+			-- whole 0.05 s is slip the shooter must not be charged for.
+			expect(fire(100.05)).to.be.near(0.23, 1e-6)
+		end)
+
+		it("is exactly today's flight with no clock", function()
+			expect(fire(nil)).to.be.near(0.18, 1e-6)
+		end)
+
+		it("cannot hand out more than the ring can answer", function()
+			expect(fire(1000)).to.be.near(CONFIG.CLAIM.VIEW_LAG_MAX_SECONDS, 1e-6)
+		end)
+
+		-- TASK 309a: THE FLIGHT CARRIES THE TENSE. `Weapon.Rewind` names the frame a rewound impact
+		-- was measured in, and `advance` rebuilds the impact row -- so a row built without `frame`
+		-- threw it away and `HitLog.frameOf` fell back to the animal's PRESENT CFrame. MEASURED in
+		-- Karen's place before the fix (<runs-dir>/309a/diag1.txt): `local=(-1.63,-0.08,5.62)` on a
+		-- 5.5-stud boar, a body length past its own rump.
+		local function flown(frame: CFrame?): { any }
+			local flight = Flight.new(CONFIG)
+			local ballistic = { v0 = 1000, k = 0, zeroStuds = 100, gravityScale = 0 }
+			local shot = {
+				shooter = nil :: any,
+				shooterUserId = 1,
+				ammo = "slug",
+				muzzle = Vector3.zero,
+				ignore = {},
+				rangeStuds = 500,
+				firedAt = 0,
+				rewindSeconds = 0.18,
+				firedAtServer = 100.0,
+			}
+			flight:launch(shot :: any, { Vector3.new(0, 0, -1) }, ballistic :: any)
+			local resolved = flight:advance(1 / 60, function(origin, segment)
+				return {
+					instance = nil :: any,
+					position = origin + segment * 0.5,
+					normal = Vector3.new(0, 1, 0),
+					distance = segment.Magnitude * 0.5,
+					material = Enum.Material.Plastic,
+					frame = frame,
+				}
+			end, 100.0)
+			return resolved
+		end
+
+		it("carries the rewound frame out of the flight, and carries nothing when there is none", function()
+			local withFrame = CFrame.new(10, 2, -30)
+			local resolved = flown(withFrame)
+			expect(#resolved).to.equal(1)
+			expect(#resolved[1].impacts).to.equal(1)
+			expect(resolved[1].impacts[1].frame).to.equal(withFrame)
+			-- THE KNOWN-BAD HALF: a cast that names no frame must leave the row's `frame` nil, or
+			-- this case would pass with the field hard-coded and prove nothing (L-141).
+			local plain = flown(nil)
+			expect(#plain[1].impacts).to.equal(1)
+			expect(plain[1].impacts[1].frame).to.equal(nil)
+		end)
+	end)
+
 	describe("Weapon.castWithRewind", function()
 		-- An animal 6 studs further along +X now than when the shooter drew it. Its body is a
 		-- 2-stud box, so a ray aimed at the DRAWN position misses the present one entirely.

@@ -72,6 +72,10 @@ local lastCard: Report.CardPayload? = nil
 -- to start while one is set. This one is a reading, never an override, and nothing refuses it.
 local TRACE_KEEP = 10
 local trace: { string } = {}
+-- THE RANGE'S OWN CLOCK (task 309a). `sinceOpen` answers 0 with no drive open, which would stamp
+-- every range line `t=0.00s` and make a ring of thirty shots unreadable. So a range line's `t` is
+-- seconds since the FIRST range line, which is what a bench run needs to tell shot 7 from shot 8.
+local rangeEpoch: number? = nil
 
 local function traceOn(): boolean
 	return RunService:IsStudio()
@@ -146,6 +150,16 @@ local function broadcast(event: Report.Event)
 	channel().ReportEvent:FireAllClients(event)
 end
 
+-- THE FRAME THE REPORT'S POINTS ARE IN (task 308 bug 3). `Weapon.Rewind` reports a rewound impact
+-- WHERE THE SHOOTER DREW THE ANIMAL and `Hits.group` carries that CFrame on the report, so dividing
+-- the point down by the trunk's CFrame as read HERE -- flight time plus replication later -- put a
+-- nose shot on the rump at a walk and in the white space behind the rump at a run (measured in
+-- Karen's place, check305c/check305d). nil is the present, which is every static impact.
+local function frameOf(part: BasePart, report: any): CFrame
+	local carried = if type(report) == "table" then report.targetCFrame else nil
+	return if typeof(carried) == "CFrame" then carried :: CFrame else part.CFrame
+end
+
 -- THE HIT CARD GOES TO ONE PLAYER: the one who fired the shot (task 198). It is the only thing this
 -- module sends to a single client rather than to everybody, and it is on `ReportEvent` beside the
 -- kill line for the reason that line is there at all -- one writer, one remote, one client path in
@@ -172,7 +186,7 @@ local function buildCard(part: BasePart, report: any, drive: number, at: number)
 		fired = fired,
 		distance = report.nearest or 0,
 		at = at,
-		dots = Shape.cardDots(part.CFrame, part.Size, report.points, report.position or part.Position, zone),
+		dots = Shape.cardDots(frameOf(part, report), part.Size, report.points, report.position or part.Position, zone),
 	}
 end
 
@@ -259,6 +273,7 @@ function HitLog.clear()
 	lastRequestAt = {}
 	lastCard = nil
 	table.clear(trace)
+	rangeEpoch = nil
 	if traceOn() then
 		ServerStorage:SetAttribute("DHLastHits", nil)
 	end
@@ -332,7 +347,8 @@ function HitLog.recordHit(report, now: number?)
 	-- a part that is about to be destroyed.
 	local animal = animalFor(part.Name, part:GetAttribute("Kind") :: string?, at)
 	local shooter = report.shooter
-	local u, v, side = Shape.dot(part.CFrame, part.Size, report.position or part.Position)
+	local frame = frameOf(part, report)
+	local u, v, side = Shape.dot(frame, part.Size, report.position or part.Position)
 	local dot = {
 		userId = if shooter then shooter.UserId else nil,
 		name = if shooter then shooter.Name else nil,
@@ -351,11 +367,9 @@ function HitLog.recordHit(report, now: number?)
 	table.insert(animal.dots, dot)
 	animal.hits += 1
 	animal.lastAt = at
-	-- ...AND THE LOG LINE, HERE, WHERE EVERY NUMBER IN IT IS ALREADY IN HAND (task 278). The trunk's
-	-- CFrame at the instant of the shot is `part.CFrame` -- the same one `Shape.dot` just divided
-	-- down -- so the LOCAL OFFSET is the same reading as the `(u, v)` beside it, and not a second
-	-- one taken a frame later off a moving animal. That is the whole reason this is a line of
-	-- `recordHit` and not a listener wired next to it, which is also why the card is built here.
+	-- ...AND THE LOG LINE, HERE, WHERE EVERY NUMBER IN IT IS ALREADY IN HAND (task 278). It divides
+	-- down by `frame` -- the report's own tense (task 308), not `part.CFrame` -- so the LOCAL OFFSET
+	-- is the same reading as the `(u, v)` beside it.
 	stats.traced += 1
 	writeTrace(Shape.traceLine({
 		index = stats.traced,
@@ -363,7 +377,7 @@ function HitLog.recordHit(report, now: number?)
 		kind = part:GetAttribute("Kind") or animal.kind,
 		id = part.Name,
 		zone = dot.zone,
-		offset = part.CFrame:PointToObjectSpace(report.position or part.Position),
+		offset = frame:PointToObjectSpace(report.position or part.Position),
 		u = u,
 		v = v,
 		distance = dot.distance,
@@ -386,9 +400,8 @@ function HitLog.recordHit(report, now: number?)
 	-- several of them / so somewhere in corner after hit we indicate where it landed"*.
 	--
 	-- IT IS SENT HERE AND NOT FROM A SECOND LISTENER, because this is the one function that holds
-	-- both halves at once: the report's per-pellet points, and the trunk's CFrame at the instant of
-	-- the hit. A listener wired beside this one would read the CFrame a frame later, by which time
-	-- the animal has moved and every dot is a small lie.
+	-- both halves at once: the report's per-pellet points, and the frame they were measured in
+	-- (task 308). A listener wired beside this one would read the CFrame a frame later again.
 	if HitLog.cardWorthy(part, shooter) and shooter ~= nil then
 		-- THE SHOT'S OWN CLOCK, THROUGH `sinceOpen` LIKE EVERY OTHER `at` THIS MODULE SENDS (the
 		-- Reviewer's blocking finding, round 1): *"an `os.clock` from one machine means nothing on
@@ -426,6 +439,36 @@ function HitLog.sendCard(report: any): boolean
 	stats.rangeCards += 1
 	lastCard = card
 	toShooter(shooter, card)
+	-- ...AND THE RING, EXACTLY AS A DRIVE HIT WRITES IT (task 309a). The dispatch: the range's hit
+	-- path must say "the bullet struck THIS part at THIS offset" while still writing no row, no
+	-- money and no report entry -- `DHLastHits` read empty for every range shot, so `tools/aim_bench.py`
+	-- could print a zone and never the offset that zone was read out of (rule L).
+	-- The offset divides down by `frameOf`, the report's own tense (task 308), so it is the same
+	-- reading as the `(u, v)` beside it and as the card's dot.
+	local bp = part :: BasePart
+	local at = report.at or os.clock()
+	if rangeEpoch == nil then
+		rangeEpoch = at
+	end
+	local frame = frameOf(bp, report)
+	local position = report.position or bp.Position
+	local u, v = Shape.dot(frame, bp.Size, position)
+	stats.traced += 1
+	writeTrace(Shape.traceLine({
+		index = stats.traced,
+		at = at - (rangeEpoch :: number),
+		kind = bp:GetAttribute("Kind") or "range",
+		id = bp.Name,
+		zone = tostring(report.zone or "unknown"),
+		offset = frame:PointToObjectSpace(position),
+		u = u,
+		v = v,
+		distance = report.nearest or 0,
+		weapon = report.weapon,
+		ammo = report.ammo,
+		pellets = report.pellets or 1,
+		fatal = false,
+	}))
 	return true
 end
 

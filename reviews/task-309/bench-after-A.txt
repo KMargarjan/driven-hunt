@@ -1,0 +1,133 @@
+[harness] 2 Studios connected; unscoped calls default to Driven Hunt DEV (placeId: 136410205938347)
+[aim_bench] studio=8549abbd-9e46-4357-89e6-b0f89cff8338
+[aim_bench] placeId=130094961655666 DHFlag_AIM_REWIND=true DHFlag_BOAR_BEHAVIOUR=true DHFlag_BOAR_MODEL=true DHFlag_COINS=true DHFlag_DEER_ROAD_LEAP=true DHFlag_DRIVE_BOTS=true DHFlag_HIT_CLAIM=false DHFlag_HORN=true DHFlag_LICENCE_POPUP=true DHFlag_LOBBY=true DHFlag_RANGE=true DHFlag_SHOP=true DHFlag_ZONES_FOLLOW_GAIT=true
+[aim_bench] bench up gen=1
+
+CELL rifle/run/chest~boar
+  picked rifle/run/chest~boar -> RangeRequest sent | board: species=boar kind=male pace=run weapon=rifle ammo=Slug shots=0 hits=0
+  held=Rifle
+  fired 30, rows 30
+    #1 hit=True answered=True fired=True frames=28 zone=chest spd=5.71 dist=140.6 along=-0.393 up=-0.04 across=0.066 aim=2601.69|150.10|-3348.44 impact=2601.76|150.06|-3348.05 card=(None,None) notice=- src=chest
+    #2 hit=True answered=True fired=True frames=9 zone=rear spd=22.0 dist=129.0 along=-0.276 up=-0.009 across=0.649 aim=2625.15|149.53|-3342.99 impact=2624.90|149.52|-3342.33 card=(None,None) notice=- src=chest
+    #3 hit=True answered=True fired=True frames=10 zone=rear spd=24.15 dist=123.8 along=-0.29 up=0.049 across=0.487 aim=2619.72|149.01|-3336.47 impact=2619.32|149.06|-3336.07 card=(None,None) notice=- src=chest
+    #4 hit=False answered=True fired=True frames=9 zone=- spd=21.12 dist=138.3 along=-1.288 up=-0.04 across=2.168 aim=2593.27|149.66|-3342.56 impact=2594.72|149.62|-3340.50 card=(None,None) notice=- src=chest
+    #5 hit=True answered=True fired=True frames=9 zone=rear spd=22.92 dist=117.3 along=-1.216 up=-0.04 across=0.445 aim=2661.34|148.59|-3333.09 impact=2660.27|148.55|-3332.37 card=(None,None) notice=- src=chest
+    #6 hit=True answered=True fired=True frames=9 zone=rear spd=23.15 dist=123.7 along=-0.234 up=0.102 across=0.33 aim=2621.99|148.92|-3336.92 impact=2621.71|149.02|-3336.63 card=(None,None) notice=- src=chest
+    #7 hit=True answered=True fired=True frames=9 zone=rear spd=26.95 dist=133.7 along=-0.612 up=0.048 across=0.532 aim=2623.97|149.93|-3347.55 impact=2623.44|149.98|-3346.93 card=(None,None) notice=- src=chest
+    #8 hit=True answered=True fired=True frames=9 zone=rear spd=11.67 dist=136.4 along=0.004 up=-0.059 across=2.086 aim=2612.88|150.16|-3347.67 impact=2612.75|150.10|-3345.59 card=(None,None) notice=- src=chest
+    #9 hit=False answered=True fired=True frames=7 zone=- spd=21.49 dist=122.4 along=-14.111 up=0.337 across=9.974 aim=2614.89|149.05|-3333.61 impact=2609.41|149.39|-3350.00 card=(None,None) notice=- src=chest
+    #10 hit=True answered=True fired=True frames=8 zone=rear spd=22.15 dist=135.2 along=-0.358 up=0.006 across=1.455 aim=2683.55|149.78|-3347.38 impact=2683.98|149.79|-3345.95 card=(None,None) notice=- src=chest
+    #11 hit=True answered=True fired=True frames=8 zone=rear spd=26.4 dist=125.5 along=-1.468 up=-0.018 across=0.254 aim=2672.71|149.27|-3339.86 impact=2674.19|149.26|-3339.68 card=(None,None) notice=- src=chest
+    #12 hit=False answered=True fired=True frames=8 zone=- spd=25.4 dist=115.7 along=-13.226 up=0.281 across=18.903 aim=2679.83|148.17|-3328.23 impact=2687.48|148.45|-3350.00 card=(None,None) notice=- src=chest
+    #13 hit=False answered=True fired=True frames=7 zone=- spd=26.24 dist=134.6 along=-2.23 up=0.134 across=2.61 aim=2619.60|149.88|-3347.46 impact=2617.29|150.02|-3350.00 card=(None,None) notice=- src=chest
+    #14 hit=False answered=True fired=True frames=6 zone=- spd=21.54 dist=117.1 along=-16.203 up=0.081 across=6.664 aim=2695.13|147.83|-3324.45 impact=2702.17|147.91|-3340.50 card=(None,None) notice=- src=chest
+    #15 hit=True answered=True fired=True frames=8 zone=chest spd=26.58 dist=137.6 along=-0.281 up=-0.017 across=0.09 aim=2606.90|149.82|-3347.05 impact=2606.90|149.80|-3346.76 card=(None,None) notice=- src=chest
+    #16 hit=True answered=True fired=True frames=7 zone=chest spd=26.2 dist=123.1 along=2.244 up=0.122 across=0.835 aim=2605.01|148.76|-3330.97 impact=2606.01|148.88|-3328.80 card=(None,None) notice=- src=chest
+    #17 hit=False answered=True fired=True frames=8 zone=- spd=26.39 dist=121.5 along=-8.649 up=0.381 across=13.927 aim=2621.06|149.00|-3334.37 impact=2616.11|149.38|-3350.00 card=(None,None) notice=- src=chest
+    #18 hit=False answered=True fired=True frames=6 zone=- spd=22.9 dist=135.8 along=-2.501 up=-0.146 across=2.633 aim=2685.70|149.55|-3347.38 impact=2688.21|149.40|-3350.00 card=(None,None) notice=- src=chest
+    #19 hit=True answered=True fired=True frames=8 zone=body spd=24.8 dist=119.4 along=0.363 up=0.082 across=0.088 aim=2603.93|148.34|-3326.56 impact=2603.99|148.43|-3326.19 card=(None,None) notice=- src=chest
+    #20 hit=False answered=True fired=True frames=8 zone=- spd=16.12 dist=135.8 along=-1.53 up=0.125 across=2.429 aim=2615.00|150.09|-3347.60 impact=2613.43|150.22|-3350.00 card=(None,None) notice=- src=chest
+    #21 hit=True answered=True fired=True frames=7 zone=head spd=26.65 dist=120.5 along=2.596 up=0.056 across=0.275 aim=2697.54|147.63|-3327.16 impact=2696.47|147.68|-3324.78 card=(None,None) notice=- src=chest
+    #22 hit=False answered=True fired=True frames=8 zone=- spd=23.56 dist=124.5 along=-3.679 up=0.259 across=11.4 aim=2675.05|149.17|-3338.39 impact=2677.98|149.43|-3350.00 card=(None,None) notice=- src=chest
+    #23 hit=False answered=True fired=True frames=7 zone=- spd=24.13 dist=133.4 along=-1.754 up=0.171 across=2.736 aim=2624.29|149.88|-3347.30 impact=2622.47|150.05|-3350.00 card=(None,None) notice=- src=chest
+    #24 hit=False answered=True fired=True frames=8 zone=- spd=24.64 dist=112.5 along=-13.249 up=0.123 across=15.439 aim=2689.54|147.54|-3321.71 impact=2697.35|147.66|-3340.50 card=(None,None) notice=- src=chest
+    #25 hit=True answered=True fired=True frames=7 zone=rear spd=4.26 dist=138.2 along=-1.188 up=-0.004 across=1.71 aim=2607.55|149.98|-3347.92 impact=2608.10|149.97|-3345.91 card=(None,None) notice=- src=chest
+    #26 hit=False answered=True fired=True frames=7 zone=- spd=19.22 dist=123.6 along=-6.674 up=0.409 across=12.42 aim=2621.52|148.97|-3336.68 impact=2616.90|149.38|-3350.00 card=(None,None) notice=- src=chest
+    #27 hit=True answered=True fired=True frames=7 zone=rear spd=19.87 dist=137.0 along=-0.84 up=-0.097 across=1.228 aim=2689.76|149.41|-3347.51 impact=2690.62|149.32|-3346.29 card=(None,None) notice=- src=chest
+    #28 hit=True answered=True fired=True frames=8 zone=rear spd=21.91 dist=133.4 along=-0.668 up=-0.003 across=0.075 aim=2675.17|149.97|-3347.33 impact=2675.82|149.97|-3347.17 card=(None,None) notice=- src=chest
+    #29 hit=False answered=True fired=True frames=6 zone=- spd=26.64 dist=118.2 along=-9.899 up=0.46 across=16.978 aim=2678.73|148.46|-3331.07 impact=2684.02|148.92|-3350.00 card=(None,None) notice=- src=chest
+    #30 hit=True answered=True fired=True frames=8 zone=rear spd=21.62 dist=134.3 along=-0.681 up=0.059 across=1.349 aim=2619.72|149.86|-3347.21 impact=2619.02|149.92|-3345.87 card=(None,None) notice=- src=chest
+
+CELL rifle/run/chest+lead~boar
+  picked rifle/run/chest+lead~boar -> RangeRequest sent | board: species=boar kind=male pace=run weapon=rifle ammo=Slug shots=30 hits=17
+  held=Rifle
+  fired 30, rows 30
+    #1 hit=True answered=True fired=True frames=7 zone=body spd=23.83 dist=129.9 along=-0.521 up=-0.102 across=0.534 aim=2666.25|149.75|-3345.29 impact=2665.69|149.64|-3344.81 card=(None,None) notice=- src=chest+lead1.22
+    #2 hit=False answered=True fired=True frames=7 zone=- spd=27.93 dist=120.7 along=-16.54 up=0.308 across=9.665 aim=2684.72|148.61|-3331.95 impact=2691.14|148.92|-3350.00 card=(None,None) notice=- src=chest+lead1.34
+    #3 hit=True answered=True fired=True frames=9 zone=rear spd=3.18 dist=139.3 along=1.553 up=-0.01 across=1.592 aim=2604.79|150.08|-3348.15 impact=2605.28|150.07|-3345.99 card=(None,None) notice=- src=chest+lead0.18
+    #4 hit=True answered=True fired=True frames=7 zone=body spd=29.36 dist=118.3 along=-0.824 up=0.087 across=0.016 aim=2614.21|148.45|-3329.16 impact=2613.59|148.54|-3329.71 card=(None,None) notice=- src=chest+lead1.38
+    #5 hit=True answered=True fired=True frames=7 zone=body spd=28.28 dist=118.5 along=-0.885 up=0.196 across=0.232 aim=2617.09|148.44|-3330.24 impact=2616.21|148.64|-3330.51 card=(None,None) notice=- src=chest+lead1.33
+    #6 hit=True answered=True fired=True frames=7 zone=rear spd=11.3 dist=136.1 along=0.271 up=-0.065 across=1.72 aim=2613.90|150.11|-3347.58 impact=2613.86|150.04|-3345.84 card=(None,None) notice=- src=chest+lead0.61
+    #7 hit=True answered=True fired=True frames=8 zone=body spd=21.41 dist=120.8 along=-0.077 up=0.152 across=0.386 aim=2620.67|148.69|-3333.56 impact=2620.48|148.84|-3333.22 card=(None,None) notice=- src=chest+lead1.02
+    #8 hit=True answered=True fired=True frames=8 zone=body spd=25.03 dist=123.9 along=-0.449 up=-0.026 across=0.544 aim=2626.84|149.17|-3338.11 impact=2626.35|149.15|-3337.60 card=(None,None) notice=- src=chest+lead1.22
+    #9 hit=True answered=True fired=True frames=6 zone=body spd=27.74 dist=131.8 along=-1.88 up=0.018 across=0.751 aim=2624.09|149.80|-3345.60 impact=2622.35|149.82|-3344.56 card=(None,None) notice=- src=chest+lead1.44
+    #10 hit=True answered=True fired=True frames=8 zone=rear spd=25.27 dist=128.9 along=-0.944 up=-0.007 across=0.444 aim=2626.74|149.55|-3343.11 impact=2625.83|149.55|-3342.60 card=(None,None) notice=- src=chest+lead1.28
+    #11 hit=True answered=True fired=True frames=7 zone=rear spd=25.85 dist=134.0 along=-0.903 up=0.021 across=0.736 aim=2626.66|149.93|-3348.28 impact=2625.84|149.95|-3347.45 card=(None,None) notice=- src=chest+lead1.37
+    #12 hit=True answered=True fired=True frames=8 zone=rear spd=27.23 dist=130.7 along=-1.474 up=-0.067 across=0.665 aim=2628.50|149.68|-3345.29 impact=2627.08|149.61|-3344.51 card=(None,None) notice=- src=chest+lead1.40
+    #13 hit=True answered=True fired=True frames=8 zone=body spd=27.68 dist=127.7 along=-0.527 up=0.007 across=0.594 aim=2628.89|149.48|-3342.35 impact=2628.38|149.48|-3341.74 card=(None,None) notice=- src=chest+lead1.39
+    #14 hit=True answered=True fired=True frames=7 zone=rear spd=13.22 dist=136.2 along=-0.354 up=-0.031 across=2.089 aim=2613.86|150.12|-3347.68 impact=2613.61|150.09|-3345.58 card=(None,None) notice=- src=chest+lead0.71
+    #15 hit=True answered=True fired=True frames=8 zone=rear spd=26.69 dist=134.1 along=-1.512 up=0.014 across=0.856 aim=2626.01|150.02|-3348.26 impact=2624.60|150.03|-3347.26 card=(None,None) notice=- src=chest+lead1.41
+    #16 hit=True answered=True fired=True frames=8 zone=body spd=28.45 dist=119.5 along=-1.987 up=0.222 across=0.411 aim=2625.33|148.61|-3333.34 impact=2623.30|148.83|-3333.28 card=(None,None) notice=- src=chest+lead1.34
+    #17 hit=True answered=True fired=True frames=7 zone=rear spd=22.2 dist=133.7 along=-0.554 up=0.054 across=0.929 aim=2622.26|149.79|-3347.17 impact=2621.68|149.84|-3346.26 card=(None,None) notice=- src=chest+lead1.17
+    #18 hit=True answered=True fired=True frames=8 zone=body spd=24.03 dist=118.4 along=-0.186 up=0.089 across=0.115 aim=2616.83|148.41|-3330.03 impact=2616.61|148.50|-3330.03 card=(None,None) notice=- src=chest+lead1.13
+    #19 hit=False answered=True fired=True frames=7 zone=- spd=26.49 dist=117.1 along=-20.135 up=0.499 across=11.927 aim=2615.03|148.31|-3328.21 impact=2606.48|148.81|-3350.00 card=(None,None) notice=- src=chest+lead1.23
+    #20 hit=True answered=True fired=True frames=8 zone=chest spd=2.8 dist=139.4 along=0.007 up=0.014 across=0.618 aim=2694.66|149.23|-3348.48 impact=2694.52|149.24|-3347.88 card=(None,None) notice=- src=chest+lead0.15
+    #21 hit=True answered=True fired=True frames=8 zone=chest spd=25.9 dist=124.9 along=-0.551 up=0.126 across=0.474 aim=2675.95|149.10|-3338.52 impact=2676.55|149.23|-3338.11 card=(None,None) notice=- src=chest+lead1.28
+    #22 hit=True answered=True fired=True frames=7 zone=body spd=24.99 dist=125.8 along=-0.368 up=0.028 across=0.567 aim=2675.11|149.30|-3339.63 impact=2675.51|149.32|-3339.08 card=(None,None) notice=- src=chest+lead1.24
+    #23 hit=False answered=True fired=True frames=7 zone=- spd=21.57 dist=134.3 along=-0.417 up=0.116 across=3.067 aim=2680.25|149.81|-3347.24 impact=2681.64|149.93|-3350.00 card=(None,None) notice=- src=chest+lead1.14
+    #24 hit=True answered=True fired=True frames=8 zone=body spd=26.78 dist=114.0 along=-1.164 up=0.097 across=0.322 aim=2608.06|148.29|-3322.47 impact=2606.94|148.39|-3322.92 card=(None,None) notice=- src=chest+lead1.21
+    #25 hit=True answered=True fired=True frames=8 zone=chest spd=25.75 dist=132.1 along=-0.642 up=-0.006 across=0.617 aim=2625.47|149.79|-3346.14 impact=2624.92|149.78|-3345.44 card=(None,None) notice=- src=chest+lead1.34
+    #26 hit=True answered=True fired=True frames=8 zone=rear spd=15.15 dist=135.9 along=0.204 up=-0.031 across=1.975 aim=2614.67|150.12|-3347.63 impact=2614.76|150.08|-3345.64 card=(None,None) notice=- src=chest+lead0.81
+    #27 hit=True answered=True fired=True frames=8 zone=chest spd=19.07 dist=120.3 along=0.188 up=0.029 across=0.45 aim=2628.54|148.78|-3334.79 impact=2628.69|148.81|-3334.33 card=(None,None) notice=- src=chest+lead0.90
+    #28 hit=True answered=True fired=True frames=8 zone=rear spd=32.31 dist=129.6 along=-1.091 up=0.012 across=0.718 aim=2625.53|149.64|-3343.66 impact=2624.50|149.65|-3342.86 card=(None,None) notice=- src=chest+lead1.65
+    #29 hit=True answered=True fired=True frames=7 zone=body spd=26.08 dist=115.3 along=-0.622 up=0.012 across=0.068 aim=2618.33|148.38|-3327.26 impact=2617.73|148.39|-3327.44 card=(None,None) notice=- src=chest+lead1.19
+    #30 hit=True answered=True fired=True frames=7 zone=body spd=21.51 dist=131.5 along=-0.092 up=0.025 across=0.785 aim=2621.79|149.70|-3344.80 impact=2621.83|149.72|-3344.01 card=(None,None) notice=- src=chest+lead1.11
+
+CELL rifle/run/ahead~boar
+  picked rifle/run/ahead~boar -> RangeRequest sent | board: species=boar kind=male pace=run weapon=rifle ammo=Slug shots=60 hits=44
+  held=Rifle
+  fired 30, rows 30
+    #1 hit=False answered=True fired=True frames=8 zone=- spd=23.87 dist=129.7 along=0.094 up=0.289 across=7.189 aim=2678.97|149.56|-3342.82 impact=2679.38|149.85|-3350.00 card=(None,None) notice=- src=ahead:5.54
+    #2 hit=False answered=True fired=True frames=7 zone=- spd=23.83 dist=117.3 along=5.141 up=-0.276 across=15.343 aim=2635.44|148.33|-3332.76 impact=2634.78|148.06|-3348.93 card=(None,None) notice=- src=ahead:5.64
+    #3 hit=False answered=True fired=True frames=7 zone=- spd=23.07 dist=130.3 along=-1.026 up=0.196 across=3.402 aim=2655.20|149.74|-3346.53 impact=2654.42|149.93|-3350.00 card=(None,None) notice=- src=ahead:5.86
+    #4 hit=False answered=True fired=True frames=7 zone=- spd=21.65 dist=108.9 along=1.435 up=0.321 across=25.566 aim=2661.83|148.00|-3324.62 impact=2665.25|148.32|-3350.00 card=(None,None) notice=- src=ahead:5.66
+    #5 hit=False answered=True fired=True frames=8 zone=- spd=21.69 dist=135.0 along=-0.576 up=0.14 across=0.736 aim=2626.72|149.82|-3349.33 impact=2626.07|149.96|-3350.00 card=(None,None) notice=- src=ahead:5.83
+    #6 hit=False answered=True fired=True frames=7 zone=- spd=21.07 dist=108.5 along=-20.797 up=0.304 across=12.144 aim=2687.49|147.64|-3318.21 impact=2696.61|147.94|-3340.50 card=(None,None) notice=- src=ahead:5.76
+    #7 hit=True answered=True fired=True frames=8 zone=chest spd=14.5 dist=145.3 along=-6.89 up=-0.112 across=1.163 aim=2604.31|149.79|-3354.33 impact=2606.58|149.68|-3347.72 card=(None,None) notice=- src=ahead:5.34
+    #8 hit=False answered=True fired=True frames=8 zone=- spd=22.19 dist=125.0 along=-2.589 up=0.215 across=10.13 aim=2629.91|149.40|-3339.76 impact=2627.78|149.62|-3350.00 card=(None,None) notice=- src=ahead:5.58
+    #9 hit=False answered=True fired=True frames=7 zone=- spd=5.14 dist=135.3 along=-3.69 up=0.16 across=3.354 aim=2691.47|149.26|-3345.20 impact=2692.83|149.42|-3350.00 card=(None,None) notice=- src=ahead:5.69
+    #10 hit=False answered=True fired=True frames=8 zone=- spd=26.63 dist=129.0 along=-1.971 up=0.227 across=5.825 aim=2598.17|149.11|-3334.51 impact=2596.77|149.34|-3340.50 card=(None,None) notice=- src=ahead:5.87
+    #11 hit=False answered=True fired=True frames=8 zone=- spd=25.92 dist=128.5 along=6.046 up=0.192 across=9.06 aim=2686.97|148.91|-3339.45 impact=2689.68|149.10|-3350.00 card=(None,None) notice=- src=ahead:5.63
+    #12 hit=False answered=True fired=True frames=8 zone=- spd=26.08 dist=129.5 along=0.033 up=0.277 across=7.031 aim=2623.03|149.60|-3343.02 impact=2622.16|149.87|-3350.00 card=(None,None) notice=- src=ahead:5.55
+    #13 hit=False answered=True fired=True frames=7 zone=- spd=27.52 dist=116.2 along=6.371 up=0.24 across=17.036 aim=2662.47|148.41|-3331.87 impact=2663.95|148.65|-3350.00 card=(None,None) notice=- src=ahead:5.59
+    #14 hit=False answered=True fired=True frames=7 zone=- spd=26.93 dist=129.4 along=-0.748 up=0.028 across=4.19 aim=2647.83|149.88|-3345.77 impact=2648.33|149.91|-3350.00 card=(None,None) notice=- src=ahead:5.55
+    #15 hit=False answered=True fired=True frames=7 zone=- spd=21.36 dist=109.0 along=1.024 up=0.248 across=25.451 aim=2639.23|148.02|-3324.85 impact=2635.22|148.27|-3350.00 card=(None,None) notice=- src=ahead:5.66
+    #16 hit=False answered=True fired=True frames=8 zone=- spd=26.97 dist=134.7 along=-0.668 up=0.005 across=0.9 aim=2672.70|149.97|-3349.17 impact=2673.45|149.97|-3350.00 card=(None,None) notice=- src=ahead:5.95
+    #17 hit=True answered=True fired=True frames=8 zone=head spd=25.99 dist=108.3 along=-4.701 up=0.104 across=1.683 aim=2611.52|148.25|-3317.68 impact=2609.04|148.35|-3322.01 card=(None,None) notice=- src=ahead:5.71
+    #18 hit=False answered=True fired=True frames=7 zone=- spd=23.74 dist=120.7 along=-8.311 up=0.38 across=13.451 aim=2627.13|149.00|-3334.91 impact=2622.41|149.38|-3350.00 card=(None,None) notice=- src=ahead:5.60
+    #19 hit=False answered=True fired=True frames=8 zone=- spd=25.11 dist=134.4 along=-1.688 up=-0.394 across=1.543 aim=2674.43|149.67|-3348.52 impact=2676.17|149.28|-3350.00 card=(None,None) notice=- src=ahead:5.83
+    #20 hit=False answered=True fired=True frames=8 zone=- spd=24.9 dist=110.8 along=-24.151 up=0.414 across=3.276 aim=2606.76|148.15|-3318.45 impact=2596.39|148.56|-3340.50 card=(None,None) notice=- src=ahead:5.66
+    #21 hit=False answered=True fired=True frames=7 zone=- spd=20.79 dist=141.8 along=0.087 up=0.518 across=0.439 aim=2697.09|148.30|-3350.19 impact=2697.49|148.81|-3350.00 card=(None,None) notice=- src=ahead:5.86
+    #22 hit=False answered=True fired=True frames=8 zone=- spd=25.1 dist=131.9 along=0.391 up=0.349 across=10.085 aim=2604.29|149.38|-3340.16 impact=2602.04|149.73|-3350.00 card=(None,None) notice=- src=ahead:5.64
+    #23 hit=False answered=True fired=True frames=8 zone=- spd=25.61 dist=124.6 along=6.013 up=0.269 across=11.425 aim=2680.32|148.84|-3337.27 impact=2682.49|149.11|-3350.00 card=(None,None) notice=- src=ahead:5.64
+    #24 hit=False answered=True fired=True frames=6 zone=- spd=25.46 dist=129.1 along=-1.244 up=0.799 across=6.271 aim=2628.49|149.04|-3343.63 impact=2629.04|149.84|-3350.00 card=(None,None) notice=- src=ahead:5.55
+    #25 hit=False answered=True fired=True frames=9 zone=- spd=28.96 dist=114.0 along=4.435 up=0.13 across=15.682 aim=2657.58|147.75|-3330.17 impact=2658.04|147.88|-3346.46 card=(None,None) notice=- src=ahead:5.58
+    #26 hit=False answered=True fired=True frames=7 zone=- spd=25.04 dist=129.9 along=-1.399 up=0.621 across=3.714 aim=2652.07|149.26|-3346.22 impact=2653.27|149.88|-3350.00 card=(None,None) notice=- src=ahead:5.56
+    #27 hit=False answered=True fired=True frames=8 zone=- spd=23.59 dist=108.4 along=-0.87 up=0.294 across=21.163 aim=2633.91|147.41|-3323.59 impact=2629.66|147.70|-3344.34 card=(None,None) notice=- src=ahead:5.74
+    #28 hit=False answered=True fired=True frames=7 zone=- spd=22.65 dist=135.3 along=-1.616 up=-0.116 across=0.707 aim=2674.65|149.92|-3349.43 impact=2676.31|149.80|-3350.00 card=(None,None) notice=- src=ahead:5.57
+    #29 hit=False answered=True fired=True frames=7 zone=- spd=22.69 dist=111.1 along=-24.066 up=0.313 across=3.067 aim=2606.13|148.39|-3318.46 impact=2595.99|148.70|-3340.50 card=(None,None) notice=- src=ahead:5.62
+    #30 hit=False answered=True fired=True frames=7 zone=- spd=22.35 dist=142.2 along=-0.231 up=-0.075 across=0.387 aim=2697.70|148.79|-3350.42 impact=2697.87|148.72|-3350.00 card=(None,None) notice=- src=ahead:5.85
+
+[aim_bench] last server hit trace (ServerStorage.DHLastHits):
+    nil
+
+AIM BENCH -- 2026-10-29 03:46:40 UTC
+place 130094961655666, 30 shots asked per cell
+
+cell                            N  hits    rate 95% interval       along       up  role     
+--------------------------------------------------------------------------------------------
+rifle/run/chest~boar           30    17     57% 39% - 73%          -3.28    +0.09           
+    zones: rear 12  chest 3  body 1  head 1
+rifle/run/chest+lead~boar      30    27     90% 74% - 97%          -1.75    +0.06  CONTROL  
+    zones: body 13  rear 10  chest 4
+rifle/run/ahead~boar           30     2      7% 2% - 21%           -2.54    +0.20  KNOWN-BAD
+    zones: chest 1  head 1
+
+along / up are the SERVER's impact minus the point the CLIENT was drawing, in the
+animal's own frame, read on the frame `Input.fire` ran: +along is down its heading
+(behind the aim point), +up is above. `--` means no shot in the cell produced an
+impact, so there was nothing to measure against.
+
+Self-check: CONTROL and KNOWN-BAD both read as they must.
+
+written: <runs-dir>/309/after-A.json

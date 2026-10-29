@@ -146,6 +146,11 @@ export type Impact = {
 	normal: Vector3,
 	distance: number,
 	material: Enum.Material?,
+	-- WHICH TENSE `position` IS IN (task 308). A rewound impact is reported where the SHOOTER DREW
+	-- the animal, not where the server has it now, so anything that projects the point into the
+	-- animal's own frame -- the hit card, the report's silhouette -- has to divide it down by the
+	-- CFrame it was measured against. nil means the present, which is every static impact.
+	frame: CFrame?,
 }
 -- `rewindSeconds` IS THE FOURTH AND IT IS OPTIONAL (task 305): how far back the shooter's own
 -- picture of a MOVING animal is, so the server can test the animal where he drew it. Every cast
@@ -664,7 +669,36 @@ Shotgun.CONFIG = {
 	--
 	-- The ping term is added on top (`FLIGHT_CATCHUP_PING_FACTOR`, the downward trip) and the whole
 	-- thing is capped by `CLAIM.VIEW_LAG_MAX_SECONDS`, which is the ring's own span.
-	FLIGHT_REWIND_BASE_SECONDS = 0.18,
+	--
+	-- 0.18 -> 0.205 (task 309): 0.180 was DEV. RE-MEASURED IN KAREN'S FOREST TEST, at the range,
+	-- 130 studs, 60 animals, a boar at 22.5 studs/s: the client's drawn chest best-fits the
+	-- server's own 0.2057 s in the past (sd 0.018, p50 0.2048, 93 frames correlated, match
+	-- residual 0.23 studs) -- so 0.18 under-rewound by 0.47 studs mean, 0.95 at p90.
+	-- Probe: <runs-dir>/309/zcli.luau + zsrv-spawn.luau. Note: reviews/task-309/REQUEST.md
+	--
+	-- 0.205 -> 0.250 (task 309a). 0.2057 was a BEST FIT of the drawn chest to the ring; this is the
+	-- END-TO-END residual, measured by the instrument of this task -- `DH305Past` (the position the
+	-- server ACTUALLY tested) minus the trunk the client was drawing on the frame `Input.fire` ran,
+	-- along travel. At 0.205 that gap read +1.00, +1.19 and +0.90 studs on three run cells, always
+	-- the same sign; at 0.250 it reads +0.23, +0.13 and +0.00, and a boar aimed at with no lead at
+	-- all went 15/30 to 25/30.
+	--
+	-- WHERE: placeId 130094961655666, the Forest Test PLACE Karen plays, synced from the BUILD
+	-- `driven-hunt-294` at this commit -- NOT from her own `driven-hunt-karen` copy, which was not
+	-- touched. The place is hers; the build is the test checkout. Draw lag is a property of the
+	-- place and the client, which is why task 309 re-measured it out of DEV, but a different BUILD
+	-- of the same place has not been shown to give the same number.
+	-- Runs: <runs-dir>/309a/after-A.txt (0.205) against after-B.txt (0.250), N=30, same rig.
+	--
+	-- THE BOUND, and its SIGN (round 1, finding 1): the bench reads the drawn trunk up to one frame
+	-- AFTER the trigger, so `drawn` has moved further along travel and the measured gap is the true
+	-- one MINUS about 0.4 studs at a run. The measurement therefore UNDER-reports, a perfect rewind
+	-- would print about -0.4 rather than 0, and the true residual at 0.250 is still about +0.4..+0.6
+	-- studs AHEAD of the drawn animal. So 0.250 is the UNDER-rewound end and the zero lies above it,
+	-- near 0.254..0.271. Under-rewinding is the conservative side -- it leaves some of today's error
+	-- rather than handing out free lead -- which is also why the KNOWN-BAD cell, a click one drawn
+	-- body length into clear air, read 0/30.
+	FLIGHT_REWIND_BASE_SECONDS = 0.250,
 
 	-- ---------------------------------------------------------- THE HIT CLAIM (task 266)
 	--

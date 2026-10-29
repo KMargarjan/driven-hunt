@@ -75,6 +75,9 @@ local function report(part: BasePart, shooter: any, points: { any }?, extra: any
 		weapon = (extra and extra.weapon) or "shotgun",
 		points = points,
 		at = (extra and extra.at) or 10.0,
+		-- TASK 308: the CFrame the position and the points are expressed in, or nil for a
+		-- present-tense impact (which is every case written before that task).
+		targetCFrame = extra and extra.targetCFrame,
 	}
 end
 
@@ -231,6 +234,51 @@ return function()
 
 	-- THE WHOLE SERVER PATH, with the real player this harness run has: a hit on an animal sends a
 	-- card and a hit on anything else does not.
+	-- TASK 308 BUG 3. Karen's Playtester, 2026-10-28: a nose shot at a RUNNING boar drew the dot in
+	-- the white space behind the rump. `Weapon.Rewind` reports a rewound impact WHERE THE SHOOTER
+	-- DREW the animal, and the card used to divide it down by the trunk's CFrame as read when the
+	-- report arrived -- flight time plus replication later. At 24 studs/s that is ~13 studs on a
+	-- 5.5-stud body, so u ran off the end.
+	describe("the card's dots are in the frame the shot was judged in (task 308)", function()
+		it("puts a nose hit at the nose even though the animal has travelled since", function()
+			local shooter = Players:GetPlayers()[1]
+			HitLog.clear()
+			HitLog.openDrive(11, 0)
+			local boar = fakeBoar("B308")
+			-- WHERE THE SHOOTER SAW IT, and the nose is the front tip: `Shape.dot` puts -Z forward.
+			local drawn = CFrame.new(0, 3, 0)
+			local nose = drawn.Position + Vector3.new(0, 0, -BODY.Z / 2)
+			-- ...AND WHERE THE SERVER HAS IT NOW: 13 studs further along its own travel.
+			boar.CFrame = drawn + Vector3.new(0, 0, -13)
+
+			expect(HitLog.recordHit(report(boar, shooter, { { position = nose, zone = "head" } }, {
+				zone = "head",
+				position = nose,
+				at = 3.0,
+				targetCFrame = drawn,
+			}))).to.equal(true)
+			local card = HitLog.lastCard() :: any
+			expect(card).to.be.ok()
+			expect(#card.dots).to.equal(1)
+			-- THE NOSE END OF THE SILHOUETTE. Without the frame this reads 1.0 -- clamped off the
+			-- tail -- which is the white space Karen's frame shows.
+			expect(card.dots[1].u < 0.1).to.equal(true)
+
+			-- THE KNOWN-BAD INPUT, from the same instrument: the same point with NO frame carried
+			-- is still divided down by the present CFrame, and it lands at the far end.
+			HitLog.clear()
+			HitLog.openDrive(12, 0)
+			expect(HitLog.recordHit(report(boar, shooter, { { position = nose, zone = "head" } }, {
+				zone = "head",
+				position = nose,
+				at = 4.0,
+			}))).to.equal(true)
+			local stale = HitLog.lastCard() :: any
+			expect(stale.dots[1].u > 0.9).to.equal(true)
+			HitLog.clear()
+		end)
+	end)
+
 	describe("HitLog.recordHit and the card", function()
 		it("sends one card per hit on an animal, and none for a beater or a miss", function()
 			local shooter = Players:GetPlayers()[1]
@@ -549,13 +597,63 @@ return function()
 				end
 				expect(found).to.equal(true)
 
-				-- ...AND NOTHING WAS SCORED. No row, no dot, no kill line, no hit-log line, no money.
+				-- ...AND NOTHING WAS SCORED. No row, no dot, no kill line, no money.
 				expect(after.hits).to.equal(before.hits)
 				expect(after.downs).to.equal(before.downs)
-				expect(after.traced).to.equal(before.traced)
 				expect((HitLog.currentDrive() :: any).animalCount).to.equal(0)
-				expect(#HitLog.lastHits()).to.equal(0)
 				expect(Economy.balanceOf((shooter :: any).UserId)).to.equal(coinsBefore)
+
+				-- ...BUT IT DOES WRITE THE RING (task 309a). The range's hit path was the one hit
+				-- path with no `DHLastHits` line, so `tools/aim_bench.py` could print a zone word
+				-- and never the LOCAL OFFSET that zone was read out of (CLAUDE.md rule L).
+				expect(after.traced).to.equal(before.traced + 1)
+				local ring = HitLog.lastHits()
+				expect(#ring).to.equal(1)
+				-- THE OFFSET IS THE STRUCK POINT IN THE ANIMAL'S OWN FRAME, and it is checked against
+				-- the arithmetic rather than against a substring. It is the REPORT'S OWN `position`
+				-- -- the nearest impact of the pattern, which is what `recordHit` divides down too --
+				-- and not `points[1]`, which is one pellet of it.
+				local want = part.CFrame:PointToObjectSpace(fired.position)
+				expect(
+					string.find(ring[1], string.format("local=(%.2f,%.2f,%.2f)", want.X, want.Y, want.Z), 1, true)
+						~= nil
+				).to.equal(true)
+				expect(string.find(ring[1], "zone=chest", 1, true) ~= nil).to.equal(true)
+				expect(string.find(ring[1], "id=" .. part.Name, 1, true) ~= nil).to.equal(true)
+				expect(string.find(ring[1], "fatal=no", 1, true) ~= nil).to.equal(true)
+
+				-- ...AND IT IS THE REPORT'S OWN TENSE, which is the whole of task 309a (round 1,
+				-- note). The pass above leaves `targetCFrame` nil, so it reads the same whether the
+				-- line divides down by `frameOf` or by `part.CFrame`; this one hands in the frame
+				-- the shooter DREW the animal in -- 6 studs back, the distance a boar covers over
+				-- the rewind -- so the two answers differ by 6 studs and only the carried one is
+				-- inside the body.
+				HitLog.clear()
+				HitLog.openDrive(309, 0)
+				local drawnFrame = part.CFrame * CFrame.new(0, 0, 6)
+				local rewound = report(part, shooter, points, {
+					at = 2.0,
+					zone = "chest",
+					nearest = 125,
+					position = drawnFrame.Position + Vector3.new(-1, 0.4, 1),
+					targetCFrame = drawnFrame,
+				})
+				expect(HitLog.sendCard(rewound)).to.equal(true)
+				local tensed = HitLog.lastHits()
+				expect(#tensed).to.equal(1)
+				local wantTense = drawnFrame:PointToObjectSpace(rewound.position)
+				expect(
+					string.find(
+						tensed[1],
+						string.format("local=(%.2f,%.2f,%.2f)", wantTense.X, wantTense.Y, wantTense.Z),
+						1,
+						true
+					) ~= nil
+				).to.equal(true)
+				-- THE KNOWN-BAD HALF: the SAME point divided by the present trunk is 6 studs away,
+				-- so a line that had ignored `targetCFrame` could not pass the case above.
+				local wrongTense = part.CFrame:PointToObjectSpace(rewound.position)
+				expect(math.abs(wrongTense.Z - wantTense.Z)).to.be.near(6, 1e-3)
 
 				part:Destroy()
 				folder:Destroy()
@@ -582,6 +680,11 @@ return function()
 			expect(HitLog.stats().cards).to.equal(0)
 			expect(HitLog.stats().cardlessHits).to.equal(2)
 			expect(HitLog.lastCard()).to.equal(nil)
+			-- ...AND NO RING LINE EITHER (task 309a). The known-bad half of the new instrument: a
+			-- shot the range refuses a card for must leave `DHLastHits` empty, or every bench row
+			-- would read "the server answered" whatever the bullet did.
+			expect(HitLog.stats().traced).to.equal(0)
+			expect(#HitLog.lastHits()).to.equal(0)
 			-- THE MISS SIDE OF THE STORE READ (the same instrument as the hit case above).
 			expect(HitLog.stats().hits).to.equal(0)
 			expect((HitLog.currentDrive() :: any).animalCount).to.equal(0)

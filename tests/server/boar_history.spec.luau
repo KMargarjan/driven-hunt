@@ -20,6 +20,7 @@
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
+local Workspace = game:GetService("Workspace")
 
 return function()
 	local function near(actual: number, expected: number, tolerance: number)
@@ -168,6 +169,53 @@ return function()
 			near((at :: CFrame).Position.X, 7, 1e-6)
 			expect(Boar.sampleAt(ring, count, 50.001)).to.equal(nil)
 			expect(Boar.sampleAt(ring, count, 49.999)).to.equal(nil)
+		end)
+	end)
+
+	-- TASK 308: THE SAME ANSWER, ASKED BY ID. The range knows its target by the id `spawn` handed
+	-- back and holds no Instance of its own, so without this it could not ask where the shooter
+	-- saw it. Delete `Runtime:cframeAtId` and this case cannot even run.
+	describe("Runtime:cframeAtId", function()
+		it("answers for an id it owns, and nil for one it does not", function()
+			local root = Instance.new("Folder")
+			root.Name = "HistoryIdRoot"
+			root.Parent = Workspace
+			local runtime = Boar.newRuntime({
+				field = { centre = Vector3.new(0, 0, 0), halfX = 300, halfZ = 300, groundY = 0 },
+				parent = root,
+				folderName = "Boars",
+				rng = Random.new(308),
+				threats = function()
+					return {}
+				end,
+				probe = function()
+					return false
+				end,
+				requestPath = function(_id, _from, _to, done)
+					done(nil)
+				end,
+				releasePath = function() end,
+			})
+			local handle = runtime:spawn(Vector3.new(0, 0, -20))
+			expect(handle).to.be.ok()
+			local id = (handle :: any).id
+			-- THE RING IS FILLED BY THE STEP, so the runtime has to have run once before anything
+			-- can be asked of it.
+			local stop = runtime:run()
+			task.wait(0.3)
+			local now = Workspace:GetServerTimeNow()
+			-- THE PRESENT IS PART OF THE ANSWER (`cframeAt`'s own rule), so `now` is answerable the
+			-- instant it is spawned.
+			local here = runtime:cframeAtId(id, now)
+			expect(typeof(here)).to.equal("CFrame")
+			local status = runtime:statusOf(id) :: any
+			expect(((here :: CFrame).Position - status.position).Magnitude < 1).to.equal(true)
+			-- AN ID THIS RUNTIME DOES NOT OWN IS NOT SOMEBODY ELSE'S ANIMAL: it is nil.
+			expect(runtime:cframeAtId("no-such-animal", now)).to.equal(nil)
+			runtime:clear("spec")
+			expect(runtime:cframeAtId(id, now)).to.equal(nil)
+			stop()
+			root:Destroy()
 		end)
 	end)
 
