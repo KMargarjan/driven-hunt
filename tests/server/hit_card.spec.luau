@@ -610,9 +610,10 @@ return function()
 				local ring = HitLog.lastHits()
 				expect(#ring).to.equal(1)
 				-- THE OFFSET IS THE STRUCK POINT IN THE ANIMAL'S OWN FRAME, and it is checked against
-				-- the arithmetic rather than against a substring: `points[1]` is 1.5 studs toward the
-				-- snout and 0.4 up of the trunk's centre, so the line must carry exactly that.
-				local want = part.CFrame:PointToObjectSpace(points[1].position)
+				-- the arithmetic rather than against a substring. It is the REPORT'S OWN `position`
+				-- -- the nearest impact of the pattern, which is what `recordHit` divides down too --
+				-- and not `points[1]`, which is one pellet of it.
+				local want = part.CFrame:PointToObjectSpace(fired.position)
 				expect(
 					string.find(ring[1], string.format("local=(%.2f,%.2f,%.2f)", want.X, want.Y, want.Z), 1, true)
 						~= nil
