@@ -6,12 +6,20 @@ probes in `<runs-dir>/309/`.
 **WHAT MOVED, measured before and after on the same instrument in Karen's Forest Test** (bench,
 `--shots 30`, the range, rifle Slug, boar at ~22.5 studs/s, 130 studs, 60 animals in the world):
 
-| cell | BEFORE `8e5c0f76` | AFTER `eb4be65f` | z | dispatch target |
+| cell | BEFORE (admissible runs only) | AFTER `eb4be65f` | z | dispatch target |
 |---|---|---|---|---|
-| RUN chest centre | 11/66 = **17 %** | 17/30 = **57 %** | 4.00, p < 0.0001 | >= 80 % **NOT MET** |
-| RUN chest + lead (CONTROL) | 40/66 = **61 %** | 55/60 = **92 %** | 4.04, p < 0.0001 | >= 95 % **NOT MET** |
-| RUN one body length ahead (KNOWN-BAD) | 0/6 | 4/60 = **7 %** | -- | <= 5 % **NOT MET** |
-| STAND chest centre | 29/30 = **97 %** | 27/30 = **90 %** | 1.04, p = 0.30 | >= 97 % **NOT MET** |
+| RUN chest centre | 5/36 = **14 %** | 17/30 = **57 %** | 3.67, p = 0.0002 | >= 80 % **NOT MET** |
+| RUN chest + lead (CONTROL) | 26/36 = **72 %** | 55/60 = **92 %** | 2.54, p = 0.011 | >= 95 % **NOT MET** |
+| RUN one body length ahead (KNOWN-BAD) | 0/6 (d6 only) | 4/60 = **7 %** | -- | <= 5 % **NOT MET** |
+| STAND chest centre | **no admissible BEFORE** | 27/30 = **90 %** | -- | >= 97 % **NOT MET** |
+
+**ONE BEFORE RUN IS INADMISSIBLE AND IS DROPPED FROM EVERY FIGURE ABOVE** (review round 1, finding 1):
+`bench-before-A.txt`'s CONTROL read 14/30 = 47 %, under `aim_bench.CONTROL_MIN_RATE` (0.50), so by the
+bench's own rule that run is `INSTRUMENT SUSPECT`. It read chest 6/30 = 20 %, CONTROL 14/30 = 47 % and
+stand 29/30 = 97 %, and the stand cell is the ONLY place it was measured before -- so there is no
+admissible stand before/after pair at all. Dropping it makes the move look BIGGER, not smaller (with
+it: 11/66 = 17 % and z = 4.00). The strongest form that needs no pooling: `bench-d6.txt`, the only
+fully self-checked BEFORE run, reads chest **0/6**.
 
 The change is one number: `FLIGHT_REWIND_BASE_SECONDS` 0.18 -> **0.205**. 0.18 was DEV. In HER place
 the client draws the animal **0.2057 s** in the past (sd 0.0181, p50 0.2048, 93 client frames against

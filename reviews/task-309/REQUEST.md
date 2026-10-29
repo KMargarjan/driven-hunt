@@ -34,7 +34,7 @@ keeps the bound strict, which is what git workflow step 4 says to do.
 
       $ grep -rn "FLIGHT_REWIND_BASE_SECONDS" src/
       src/shared/Shotgun/init.luau:678:	FLIGHT_REWIND_BASE_SECONDS = 0.205,
-      src/server/Weapon/init.luau:581:		cfg.FLIGHT_REWIND_BASE_SECONDS + seconds * cfg.FLIGHT_CATCHUP_PING_FACTOR,
+      src/server/Weapon/init.luau:588:		cfg.FLIGHT_REWIND_BASE_SECONDS + seconds * cfg.FLIGHT_CATCHUP_PING_FACTOR,
 
 * **(e) HOW IT IS MEASURED AFTER.** The same instrument on the same cells in the same place:
   `python tools/aim_bench.py run <cell> --shots 30 --place 130094961655666`.
@@ -76,9 +76,14 @@ under-rewound by 0.0257 s = **0.47 studs mean, 0.95 at p90** at a run.
    | `rifle/stand/chest~boar` | 29/30 = **97 %** (before-A, SUSPECT RUN -- see below) | 27/30 = **90 %** | 1.04, p = 0.30 | >= 97 % **NOT MET** |
 
    **The dropped run, stated and not hidden:** `bench-before-A.txt` read chest 6/30 = 20 %, CONTROL
-   14/30 = 47 %, stand 29/30 = 97 %. Its chest figure agrees with the admissible runs and including
-   it would only make the BEFORE look worse (11/66 = 17 %), so dropping it is the conservative
-   direction for claim 1 and the direction of the move survives either way. **The one number that
+   14/30 = 47 %, stand 29/30 = 97 %. **Dropping it makes the move LOOK BIGGER, not smaller** (round 2
+   note): including it the BEFORE chest is 11/66 = 17 % and z = 4.00, dropping it 5/36 = 14 % and
+   z = 3.67 -- so the drop is right on admissibility and I should not dress it as the cautious
+   choice. The claim does not need either pool: `bench-d6.txt`, the ONLY fully self-checked BEFORE
+   run, reads chest **0/6** against after-A's 17/30, which is significant on its own.
+   **And `bench-diag-A.txt` is admissible only on its CONTROL:** it has no `rifle/run/ahead~boar`
+   rows at all, so `summarise` would have said *"NO KNOWN-BAD CELL RAN"* for it. The whole BEFORE
+   pool's negative control is d6's **0/6 at n = 6**, and nothing more. **The one number that
    has no admissible BEFORE at all is the STAND cell**, which only that run measured: so claim 2 now
    rests on the AFTER reading alone, and the request says so there.
 
@@ -153,4 +158,14 @@ under-rewound by 0.0257 s = **0.47 studs mean, 0.95 at p90** at a run.
   local offset, **is empty for range shots** (task 307 found the same).
 * **`cardu`/`cardv` read `nil` on every row**, as they have on all 900+ bench rows so far (307a(a)).
   So nothing here says anything about what Karen's HUD card draws; the proof is zone-and-ray only.
-* **No screenshot.** Nothing visual changed; the deliverable is a counted table.
+* **No screenshot.** Nothing visual changed; the deliverable is a counted table. **Rule 5 is NOT met
+  and is not claimed:** no human has fired at an animal on this build, and
+  `Flags.ROWS.AIM_REWIND.default` is `false`, so as merged this constant reaches nobody until that
+  flag flips -- it was ON as a place override in the Forest Test, which is why the bench could
+  measure it at all.
+* **TWO CAPTURED LOGS WERE EDITED AFTER CAPTURE, and here is exactly what changed** (round 2 note --
+  an unstated edit to a log is indistinguishable from fabrication). In `e01c7f6c`, one line in each
+  of `bench-after-A.txt` and `bench-after-B.txt`: the trailing `written: C:/Users/karen/...` path was
+  replaced with `written: <runs-dir>/309/after-*.json`, because `tools/privacy_scan.py` fails CI on a
+  local absolute user path. `git show e01c7f6c -- reviews/task-309/bench-after-A.txt` is the whole of
+  it: `2 +-` in each file, the `written:` line only. No row, count or table was touched.

@@ -1,19 +1,73 @@
-1. `reviews/task-309/REQUEST.md` claim 1 / `summarise` in `tools/aim_bench.py` — the claim that the measurement is self-checked is FALSE for the BEFORE run that supplies half the headline sample, and the file offered to verify it is cut off exactly where it would show that. Evidence: claim 1 says *"Every AFTER table's own `Self-check:` line reads 'CONTROL and KNOWN-BAD both read as they must', and no table is marked `INSTRUMENT SUSPECT`"*, citing `bench-before-A.txt` among the five. `bench-before-A.txt`'s CONTROL cell `rifle/run/chest+lead~boar` reads hit=True on rows #1,5,6,9,10,14,17,19,22,24,25,26,27,30 = **14/30 = 47 %**, independently confirmed by the next cell's own header (`CELL rifle/run/ahead~boar ... board: shots=60 hits=20` = 6 + 14) and by the builder's own research note (*"the same shot plus `Ballistics.leadStuds` at 47 %"*). `aim_bench.CONTROL_MIN_RATE = 0.50` and `summarise` emits *"INSTRUMENT SUSPECT: the CONTROL cell (chest + Ballistics.leadStuds) read %d/%d = %.0f %%, below %.0f %%. A textbook aim that misses means the rig, the pace or the build is wrong, not the cells under test."* — so the tool DID mark that table. The pasted `bench-before-A.txt` ends at `CELL rifle/run/ahead~boar` / `held=Rifle` with no KNOWN-BAD rows and **no summary table at all**; `bench-diag-A.txt` is cut at the same point. Of the three BEFORE runs pooled into `11/66` and `40/66`, only `bench-d6.txt` (N=6) has a complete, self-checked table. Required: paste before-A's and diag-A's own summary tables, say whether the `INSTRUMENT SUSPECT` note printed, and either drop the suspect run from the pooled BEFORE figure or state why a run the bench calls not-a-measurement is admissible (L-141, verdict 281). Note for the fix: dropping before-A moves the BEFORE chest cell to 5/36 = 14 %, so the direction of claim 1 survives — it is the claim about the self-check that does not.
-2. `reviews/task-309/REQUEST.md` claim 5 / `trail()` in `src/server/Weapon/init.luau` — the per-reason counters, one of the two instruments this task ships, have no evidence; the quoted proof survives their deletion byte for byte. Evidence: claim 5 is *"The per-reason counters work and prove the rewind runs"*, verified by *"the trail moved `plain +23 cast +25 hit +6`"* and the line *"`rewind=0.185 cands=1 back=4.48 spd=24.08 eff=0.186 hit=false`"*. `plain`, `cast` and `hit` are the pre-task counters (`rewindTrail.plain += 1`, unchanged by this diff), and that second string is the `extra` argument built in `castWithRewind`'s `"rewound"` call, also unchanged. The only new output is the `counts[%s]` field fed by `rewindTrail.why`; `counts[` appears nowhere in `reviews/task-309/` nor anywhere else in the repo. Delete `rewindTrail.why`, the `pairs`/`table.sort` loop and `counts[%s]` from the format string and every token quoted in claim 5 reads identically. Separately, `rewind=0.185` / `eff=0.186` is base 0.18 + 0.005 ping, i.e. the line predates the constant under test. Required: paste the `counts[...]` substring of `ServerStorage.DH305Rewind` from a run at the code commit (e.g. `counts[no-roots=N rewind-zero=N rewound=N]`), or withdraw the claim that the per-reason counters are proven and carry them as unverified.
+PASS (items 1, 2 NOT PROVEN)
+
+Rule 5, stated so this PASS is not read as rule 5 having been met: the core item is shooting. What has
+been seen in Karen's place is 180 scripted bench shots in her Forest Test (`placeId=130094961655666`,
+`DHFlag_AIM_REWIND=true` and the same thirteen `DHFlag_*` in all five bench files) counted by the
+server's own zone; what has NOT been seen is any human firing at an animal on this build, any frame
+(the request says "No screenshot", and nothing visual changed), or any of the four dispatch targets met
+-- claims 1 and 2 state all four as NOT MET. `src/shared/Flags/init.luau`'s `AIM_REWIND` row reads
+`default = false`, and its own comment says it must stay dark "until `SetNetworkOwner(nil)` ... has
+landed", so as merged this constant reaches nobody.
+
+Checked and true: harness line names `Code commit: ea709503` with "(clean tree)" and
+`paperwork-after-code-commit.txt` reads OK; `Weapon.rewindFor` returns 0 before `cfg` is read
+(`if rewindPolicy == false or (rewindPolicy == nil and not REWIND_ON) then return 0`), with a red-able
+case ("is 0 when the policy says off"); claim 4 -- `changed-files.txt` contains no `src/server/Boar/`
+path; the five `trail()` keys are literals (`rewind-zero`, `no-provider`, `no-roots`, `no-history`,
+`rewound`) and every call site is inside `if STUDIO then`; `run_cell`'s new format string is 17
+placeholders against 17 arguments in order; every per-cell rate in claim 1 is the `hit=True` count in
+its own rows (after-A 17/27/2, after-B 27/16/28/2, diag-A 5/21, d6 0/5/0), the pools 5/36, 26/36,
+55/60, 4/60 and the z of 3.67 and 2.54 all recompute; `summarise`'s empty-note branch (CONTROL >= 0.50,
+KNOWN-BAD <= 0.20, disjoint Wilson intervals) is what prints the `Self-check:` line in after-A,
+after-B and d6, and `bench-after-A.json`'s `"notes": []` corroborates after-A's.
+
+Producer deletion, duty (a): revert `FLIGHT_REWIND_BASE_SECONDS` to 0.18 and the AFTER cells read as the
+BEFORE ones -- the two sides are not the same engine identity (see note 1 for what separates them).
+`tests/server/weapon_rewind.spec.luau` asserts against `CONFIG.FLIGHT_REWIND_BASE_SECONDS`
+symbolically and so survives the revert, which is exactly what claim 6 says it does, so it is not
+offered as proof of the fix.
 
 ## Notes (non-blocking)
-- Rule 5, stated so nothing here is read as rule 5 having been met: the core item is shooting, and what Karen judges has NOT been seen in her place by anyone. What was seen is the bench firing 180 scripted shots in her Forest Test place (`placeId=130094961655666`, the same thirteen `DHFlag_*` in all five files, `AIM_REWIND=true` in all five) and counting server zones; what was NOT seen is Karen or any human shooting an animal, any frame, and any of the four dispatch targets met — the request states all four as NOT MET. `Flags.ROWS.AIM_REWIND.default = false`, so as shipped this change reaches no one until the flag flips; the request never says so.
-- `Shotgun.CONFIG.SPREAD_FULL_DEG` cited for a rifle cell — claim 3 and the research note's budget row attribute *"slug cone, 0.16 deg full at 130 studs | 0.18 studs"* to the measured runs, but every cell is `rifle/...` with `ammo=Slug` and `src/shared/Rifle/init.luau` has `SPREAD_FULL_DEG = { Slug = 0 }`. The refutation is right by luck and conservative (0 < 0.18); cite the rifle's row and drop the term from the budget.
-- `REQUEST.md` "What changed, and why" — *"0.18 under-rewound by 0.0257 s = 0.47 studs mean"* does not multiply out: 0.0257 x 22.5 = 0.58 studs. 0.47 is (0.2057 - 0.185) x 22.5, i.e. against the EFFECTIVE 0.185 with ping, which is what the research note's budget row says. Use one of the two bases.
-- `docs/research/2026-10-28-lag-compensation.md`, "What this does NOT explain" — says the BEFORE chest cell read *"20 %"* and the control *"47 %"* (before-A alone) while `REQUEST.md` claim 1 says 17 % and 61 % (pooled) for the same state. Name the run beside each number.
-- `REQUEST.md`, "The reported impact and the scored zone disagree" — *"the server scores `zone = rear` on most of those same shots"* overstates: `bench-after-B.txt`'s CONTROL zones are `body 14 rear 8 chest 6`, which is what `ESCALATE.md` states correctly as *"8 of 28"*.
-- `Weapon.rewindFor`'s header comment still reads *"`FLIGHT_REWIND_BASE_SECONDS` (0.18, MEASURED -- see its row)"*, and `src/server/Weapon/Rewind.luau`'s header still reads *"+0.180 s in the past ... 0.180 s x 24 studs/s = 4.3 studs"*. Both are the superseded DEV number, in the two files a reader of this path opens first.
-- `tests/server/weapon_rewind.spec.luau`, the `Flight.advance` fixture, hard-codes `rewindSeconds = 0.18`. Harmless (it tests the anchor, not the constant) but it now reads as the shipped base.
-- `aim_bench` KNOWN-BAD cell — the `ahead` offset collapses with measured speed, so some rows are not clear air: `bench-after-B.txt` ahead row #18 is `src=ahead:2.17 spd=9.03` and HIT, and #8/#20 read `ahead:3.58`/`ahead:4.89`. Half the 4/60 "known-bad" hits are shots aimed inside the body. Gate the cell on a minimum offset, or report it separately.
-- `aim_bench` run cells include non-running rows in both halves (`spd=5.71`, `11.67`, `4.26` in after-A's chest cell, all three hits; `spd=4.68`, `5.24`, `1.77`, `5.25`, `8.29` before). Restricted to spd >= 17 the move is still 6/58 = 10 % -> 14/27 = 52 %, so claim 1's direction holds, but the cell should reject a row whose measured speed is not the pace it asked for.
-- `FLIGHT_REWIND_BASE_SECONDS` is one global number now fitted to a 60-animal server; on a quiet one the same code over-rewinds by ~0.025 s (0.6 studs at a run), the error the note itself warns about for 0.30. Queue "measure the interpolation lag per client" rather than re-tuning the constant per place.
-- `trail()` — `rewindTrail.why[why] = (rewindTrail.why[why] or 0) + 1` is the one statement in the function outside the `pcall`. Safe today (all five call sites pass literals, so the table is bounded at five keys), but the comment above the `pcall` no longer covers the whole body.
-- The constant is shared by every weapon through `Shotgun.CONFIG`, and the request states the shotgun, lever and deer were not run. Correct in principle (view lag is replication, not the gun) and disclosed; queue those cells behind L-141 as the request says.
+- `reviews/task-309/REQUEST.md` claim 1, the BEFORE column label — "BEFORE `8e5c0f76`" is the
+  game-code commit only; the tool was already patched. `bench-diag-A.txt` and `bench-d6.txt` rows print
+  `across=... aim=... impact=...`, which only `run_cell`'s format changed in `eb4be65f` emits
+  (`tools/aim_bench.py`, the diff's one hunk), while `bench-before-A.txt` row #1 prints the old
+  `along=... up=... card=(...)` and so is the only before file consistent with `8e5c0f76`. What
+  separates the two sides of the comparison is the `gen` sequence -- before-A `gen=2`, diag-A `gen=3`,
+  d6 `gen=4`, then after-A `gen=1`, after-B `gen=2`, i.e. a session restart where a Rojo-synced module
+  change takes effect -- and nothing in any row, header or JSON names the build or the constant. Print
+  the live `FLIGHT_REWIND_BASE_SECONDS` in the header beside the thirteen `DHFlag_*` (the same
+  mechanism already reads those), and label the before column with the tree it actually ran on.
+- claim 1, "dropping it is the conservative direction" — it is the opposite. Including before-A gives
+  the BEFORE chest 11/66 = 17 %, a HIGHER before rate and a SMALLER move (z = 4.00, which is what
+  `ESCALATE.md`'s own table prints); dropping it gives 14 % and a bigger move. The drop is right on
+  admissibility and wrong on this justification. The strongest form of the claim is the one the request
+  does not use: `bench-d6.txt`, the only fully self-checked BEFORE run, reads chest 0/6 against
+  after-A's 17/30, which is significant on its own.
+- claim 1, `bench-diag-A.txt` called "admissible" on its CONTROL alone — it has no `rifle/run/ahead~boar`
+  rows at all (the file ends at `CELL rifle/run/ahead~boar` / `held=Rifle`), so `summarise` would have
+  printed "NO KNOWN-BAD CELL RAN -- nothing proves the rig can miss" for it. Say so: the entire BEFORE
+  pool's negative control is d6's `0/6` at n = 6.
+- `ESCALATE.md` 2026-10-29 and `TASKS.md` row 309 still carry the pre-drop pool that claim 1 rules
+  inadmissible — "RUN chest centre | 11/66 = **17 %**", "CONTROL | 40/66 = **61 %**", z 4.00/4.04, and
+  "STAND chest centre | 29/30 = **97 %**" as a BEFORE reading. `ESCALATE.md` is what the Director reads
+  to choose 309a's instrument; it should carry 5/36, 26/36 and "no admissible BEFORE for STAND".
+- `docs/research/2026-10-28-lag-compensation.md`, "What this does NOT explain" — the shipped budget is
+  built on the inadmissible run ("a chest-centre shot at a RUNNING boar at 20 % and the same shot plus
+  `Ballistics.leadStuds` at 47 %" is before-A alone), and its row "slug cone, 0.16 deg full at 130 studs
+  | 0.18 | `Shotgun.CONFIG.SPREAD_FULL_DEG`" cites the wrong gun: every cell in all five files is
+  `rifle/...` with `ammo=Slug`, and `src/shared/Rifle/init.luau` reads `SPREAD_FULL_DEG = { Slug = 0 }`.
+  Both are disclosed and queued as 309a(b); this is the one shipped deliverable document, so fix it
+  before the budget is read as measured.
+- `bench-after-A.txt` and `bench-after-B.txt` were edited after the tested code commit — `log.txt` shows
+  `bench-after-A.txt | 2 +-` and `bench-after-B.txt | 2 +-` in `e01c7f6c`, and those two are the only
+  bench files carrying a `written: <runs-dir>/309/after-*.json` line. Editing a captured log after
+  capture is indistinguishable from fabrication unless the edit is stated; say what was changed. (The
+  tables themselves hold up: both reproduce from their own rows, and after-A's from its JSON.)
+- claim 6 cites `Weapon.rewindFor` for two off-states but only one has a case: `weapon_rewind.spec`
+  covers `setRewindPolicy(false)`; the `rewindPolicy == nil and not REWIND_ON` half is module state and
+  is not reachable from a spec, so it is read-verified only.
+- claim (d)'s pasted grep cites `src/server/Weapon/init.luau:581`; the read site is at 588.
 
 ---
-REVIEWER verdict on commit `dc5adb04bf3fb779f8ad0b2f9c4478d908041c35` (round 1) · 2026-10-29 04:15 UTC · session cost $3.23, 32 turns · written by tools/agents.py
+REVIEWER verdict on commit `e01c7f6caa8172c0bdea7ac189f1963fc0f81f74` (round 2) · 2026-10-29 04:27 UTC · session cost $3.08, 34 turns · written by tools/agents.py
