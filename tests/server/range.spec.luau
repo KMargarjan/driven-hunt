@@ -894,7 +894,6 @@ return function()
 			local dressed = LAYOUT.SPOT_COUNT * 6
 				+ #RangeData.turfSlabs((b :: any).anchor, LAYOUT, (b :: any).downrange, DEV_ROW)
 				+ #RangeData.fencePosts((b :: any).anchor, LAYOUT, (b :: any).downrange, DEV_ROW)
-				+ #RangeData.fenceRuns((b :: any).anchor, LAYOUT, (b :: any).downrange, DEV_ROW)
 			expect(b.parts).to.equal(
 				1 + 3 * LAYOUT.SPOT_COUNT + LAYOUT.SPOT_COUNT * HighSeats.PARTS_PER_SEAT + 3 + dressed
 			)
@@ -3834,7 +3833,6 @@ return function()
 						part.Name:match("^Roof%d") ~= nil
 						or part.Name:match("^HutPost%d") ~= nil
 						or part.Name:match("^Board%d") ~= nil
-						or part.Name:match("^FenceRail%d") ~= nil
 						or part.Name:sub(1, #RangeData.TURF_NAME) == RangeData.TURF_NAME
 					then
 						-- the one thing that IS asserted about them: the part's top is above the
@@ -4803,7 +4801,9 @@ return function()
 			end
 			for run = 1, #runs do
 				expect(folder:FindFirstChild(RangeData.fencePostName(run, 1))).to.be.ok()
-				expect(folder:FindFirstChild(RangeData.fenceRailName(run))).to.be.ok()
+				-- POSTS AND NO RAIL: the census refuted a 155-stud board over a hillside, and this
+				-- is that decision as a case rather than as a comment.
+				expect(folder:FindFirstChild(RangeData.fenceRailName(run))).to.equal(nil)
 			end
 			-- HER PLACE'S TERRACE IS TWO RECTANGLES, and the far side has no ground to stand on in
 			-- the narrow one -- so the runs are NOT simply two there, and that arm is entered here

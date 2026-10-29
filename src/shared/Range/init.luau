@@ -196,9 +196,16 @@ Range.LAYOUT = {
 		postSection = 0.7,
 		postRise = 3.2,
 		spacingStuds = 24,
-		railTall = 0.45,
-		railThick = 0.25,
-		railRise = 2.7,
+		-- POSTS AND NO RAIL, and that is a MEASUREMENT (her place, census 2026-10-29). The lot's two
+		-- long sides stand 18 studs outside the corridor, which is OFF the cut terrace and on the
+		-- hill: the measured ground falls 150 -> 158 -> 154 along the east line. A post follows that;
+		-- one 155-stud board cannot, and `FenceRail3` stood 10 studs proud of the ground at one end.
+		-- The dispatch allows either -- *"a low wooden fence OR POSTS along the sides"*.
+		--
+		-- AND A POST ON A STEP IS REFUSED, which is `HighSeats.MAX_FOOT_SPREAD_STUDS`' own rule and
+		-- its own reason: the terrace's edge is a 9-stud step, and the one post whose five footprint
+		-- samples straddled it stood 7.5 studs in the air (`FencePost3_7`).
+		maxSpreadStuds = 2.0,
 		-- PULLED INSIDE THE TERRACE BY A STUD, AND THAT IS A MEASURED REQUIREMENT, not a margin for
 		-- looks: `range.spec` asserts that EVERY part of the range stands inside the ground the cut
 		-- wrote, and the cut's X edges ARE the berm's span -- so a post centred on that edge hangs
@@ -1096,6 +1103,8 @@ function Range.fencePostName(run: number, index: number): string
 	return string.format("FencePost%d_%d", run, index)
 end
 
+-- KEPT, AND UNUSED BY THE BUILD SINCE THE CENSUS (see `FENCE`): the lot's sides are posts, not a
+-- board. It is the name a rail WOULD carry, and `range.spec` asserts the build writes none.
 function Range.fenceRailName(run: number): string
 	return string.format("FenceRail%d", run)
 end

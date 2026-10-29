@@ -641,34 +641,33 @@ function Build.build(opts)
 		turf.CastShadow = false
 	end
 
-	-- TIDY EDGES (step B10, item 5; ref-5): a low rail fence down the lot's two long sides, on the
-	-- BERM'S OWN SPAN in X pulled a stud inside the terrace -- 18 studs outside the corridor, so
-	-- nothing on it is in a line of fire. Each post is grown off its own measured ground (rule E);
-	-- the RAIL is not, because it is a board `railRise` ABOVE the ground and `onGround` would grow a
-	-- 200-stud board into a wedge.
+	-- TIDY EDGES (step B10, item 5; ref-5): a line of low posts down the lot's two long sides, on
+	-- the BERM'S OWN SPAN in X pulled a stud inside the terrace -- 18 studs outside the corridor, so
+	-- nothing on it is in a line of fire. POSTS AND NO RAIL, and a post on a step is refused: both
+	-- are measurements, written in `FENCE`'s own comment.
 	local fence = layout.FENCE
 	local runCount: { [number]: number } = {}
+	local fenceRefused = 0
 	for _, post in ipairs(RangeData.fencePosts(anchor, layout, dir, row)) do
-		runCount[post.run] = (runCount[post.run] or 0) + 1
-		onGround(
-			RangeData.fencePostName(post.run, runCount[post.run]),
-			Vector3.new(fence.postSection, fence.postRise, fence.postSection),
-			post.x,
-			post.z,
-			fence.color,
-			fence.material
-		)
-	end
-	for run, line in ipairs(RangeData.fenceRuns(anchor, layout, dir, row)) do
-		local railZ = (line.minZ + line.maxZ) / 2
-		makePart(
-			RangeData.fenceRailName(run),
-			Vector3.new(fence.railThick, fence.railTall, line.maxZ - line.minZ),
-			Vector3.new(line.x, groundAtOr(line.x, railZ) + fence.railRise, railZ),
-			fence.color,
-			folder,
-			fence.material
-		)
+		local size = Vector3.new(fence.postSection, fence.postRise, fence.postSection)
+		local lo, hi =
+			groundUnder(post.x, post.z, size, shelf :: number, if row.plate == true then nil else opts.groundAt)
+		-- A POST ON A STEP IS REFUSED, `HighSeats.plan`'s own rule: the terrace's edge is a 9-stud
+		-- step and the one post whose samples straddled it stood 7.5 studs in the air (census,
+		-- 2026-10-29). A refused post is a gap in a fence; a floating one is a defect.
+		if hi - lo > fence.maxSpreadStuds then
+			fenceRefused += 1
+		else
+			runCount[post.run] = (runCount[post.run] or 0) + 1
+			onGround(
+				RangeData.fencePostName(post.run, runCount[post.run]),
+				size,
+				post.x,
+				post.z,
+				fence.color,
+				fence.material
+			)
+		end
 	end
 
 	-- THE PARENT, LAST.
@@ -694,6 +693,7 @@ function Build.build(opts)
 		refusedStands = refusedStands,
 		standRefusals = standRefusals,
 		parts = parts,
+		fenceRefused = fenceRefused,
 		terrainFills = terrainFills,
 		terrainReplaces = terrainReplaces,
 		buildMs = math.floor((os.clock() - started) * 1000 + 0.5),
