@@ -3867,7 +3867,6 @@ return function()
 								part.Name:match("^Bench%d")
 							then LAYOUT.BENCH.size.Y -- the fence's posts ARE laid by `onGround` (step B10), so they belong in							-- this rule -- with their OWN height and not the bank's.
 
-
 							elseif part.Name:match("^FencePost%d") then LAYOUT.FENCE.postRise
 							else LAYOUT.BANK.size.Y
 						expect(math.abs(bottom - lo) < 1e-2).to.equal(true)
@@ -4190,6 +4189,18 @@ return function()
 					then
 						covered = true
 					end
+				end
+				if not covered then
+					error(
+						string.format(
+							"%s at x %.2f..%.2f z %.2f..%.2f stands on neither terrace rectangle",
+							part.Name,
+							part.Position.X - part.Size.X / 2,
+							part.Position.X + part.Size.X / 2,
+							part.Position.Z - part.Size.Z / 2,
+							part.Position.Z + part.Size.Z / 2
+						)
+					)
 				end
 				expect(covered).to.equal(true)
 			end

@@ -1045,8 +1045,14 @@ function Range.fenceRuns(
 	for leg, x in ipairs({ span.minX, span.maxX }) do
 		for _, cut in ipairs(Range.cutRects(anchor, layout, dir, row)) do
 			if x - half >= cut.minX and x + half <= cut.maxX then
-				local minZ = math.max(span.minZ, cut.minZ)
-				local maxZ = math.min(span.maxZ, cut.maxZ)
+				-- THE RUN'S ENDS ARE PULLED IN BY A WHOLE POST SECTION, AND THAT IS A MEASUREMENT.
+				-- Her place's terrace is two rectangles meeting on one voxel plane at `keepOut.z`;
+				-- a post whose CENTRE sits on that plane hangs half its section into each and is
+				-- inside NEITHER -- which is exactly what `range.spec`'s "the terrace reaches
+				-- everything built on it" case reported (2026-10-29, gate run 3).
+				local pull = layout.FENCE.postSection
+				local minZ = math.max(span.minZ, cut.minZ) + pull
+				local maxZ = math.min(span.maxZ, cut.maxZ) - pull
 				-- A RUN SHORTER THAN ONE BAY IS NOT A FENCE, it is a post in a field.
 				if maxZ - minZ > layout.FENCE.spacingStuds then
 					table.insert(out, { leg = leg, x = x, minZ = minZ, maxZ = maxZ })
