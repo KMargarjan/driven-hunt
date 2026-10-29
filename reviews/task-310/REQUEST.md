@@ -3,7 +3,7 @@
 Task: 310
 Round: 1
 Base: 9bbfc71e
-Code commit: TBD
+Code commit: 068a6103a1eda6f964ba55dcaf277a66427944dd
 
 ## THE ONE OUTCOME (L-155)
 
@@ -117,6 +117,16 @@ own body-axis coordinate -- swings between **-0.52 and +0.78** across the 22 row
 runs (`ZONES_FOLLOW_GAIT` is on). The chest zone's own centre moves ~1.3 studs along the body over
 a gait cycle, which is 75 % of the chest's whole length. Queued as a note, not fixed here: it is a
 `src/server/Boar/` zone question and this task is one task.
+
+## THE GATE
+
+```
+[harness] PASS: 34/34 checks @ 068a6103a1eda6f964ba55dcaf277a66427944dd (clean tree) scope=all
+```
+
+Two players: **N/A**. The only code file is `tools/aim_bench.py`, and `tools/` is not in
+`TWO_PLAYER_PATHS` (Director decision 2026-10-03). `python -c "agents.needs_two_player([...])"`
+answers `[]` for this change's paths.
 
 ## CLAIMS
 
