@@ -881,7 +881,7 @@ local function scan(dt: number)
 				state.stats.idleClears += 1
 				trial.releaseAt = nil
 			end
-			continue
+			continue -- FAIL-FIRST PROBE (reverted in the next commit): the dead-id arm, restored.
 		end
 		local status = boars.statusOf(trial.targetId)
 		if status == nil then

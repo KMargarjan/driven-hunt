@@ -724,4 +724,48 @@ return function()
 			-- no verdict; the numbers go in the notes above, where a regression is still visible.
 		end)
 	end)
+
+	-- ONE ANIMAL OUT OF A LIVE RUNTIME, by id (task 306 B7, round 3). The lobby range holds six in
+	-- ONE runtime, so the range-wide `clear` took five bystanders with every carcass.
+	-- Note: docs/design/shooting-range-lobby.md section 7.4
+	describe("boar runtime, live: clearOne despawns ONE animal by id", function()
+		it("takes the named animal out and leaves the other one alone", function()
+			local a = runtime:spawn(Vector3.new(-20, GROUND_Y, 0))
+			local b = runtime:spawn(Vector3.new(20, GROUND_Y, 0))
+			expect(runtime:count()).to.equal(2)
+			local folder = (world :: any).folder
+			expect(folder).to.be.ok()
+			expect(a.part.Parent).to.equal(folder)
+			expect(b.part.Parent).to.equal(folder)
+
+			-- THE ONE CALL UNDER TEST. The REAL `Runtime:clearOne`, not a spec's stand-in.
+			expect(runtime:clearOne(a.id, "spec")).to.equal(true)
+
+			-- A's BODY IS GONE FROM THE WORLD, which is what `_despawn` is for -- asserted on the
+			-- Instance and on the runtime's own two readers, so a method that only bookkept fails.
+			expect(runtime:count()).to.equal(1)
+			expect(a.part.Parent).to.equal(nil)
+			expect(runtime:statusOf(a.id)).to.equal(nil)
+			expect(runtime:rootOf(a.id)).to.equal(nil)
+			-- ...AND B IS UNTOUCHED: still in the folder, still known, still the same Instance.
+			expect(b.part.Parent).to.equal(folder)
+			expect(runtime:statusOf(b.id)).to.be.ok()
+			expect(runtime:rootOf(b.id)).to.equal(b.part)
+
+			-- AN ID NOBODY HAS removes nothing and says so.
+			expect(runtime:clearOne("nope", "spec")).to.equal(false)
+			expect(runtime:count()).to.equal(1)
+			expect(b.part.Parent).to.equal(folder)
+
+			TestKit.note(
+				string.format(
+					"boar-behaviour-live: clearOne removed 1 of 2, count %d, unknown id -> false",
+					runtime:count()
+				)
+			)
+			stimuli = {}
+			runtime:clear("cleared")
+			expect(runtime:count()).to.equal(0)
+		end)
+	end)
 end

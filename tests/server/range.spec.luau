@@ -1797,6 +1797,36 @@ return function()
 			Range.stop()
 		end)
 
+		it("does not hold a DEAD id for ever when the clear seam refuses", function()
+			-- ROUND 2, NOTE 2. The idle arm used to `continue` whatever `clearTarget` answered, so a
+			-- seam that refused left the trial holding an id of an animal that was already gone:
+			-- `statusOf`'s `lostTargets` cleanup below it was unreachable, `stats.targets`
+			-- over-counted it for ever and the mask kept it.
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			local crowd = newCrowd({ 2 })
+			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
+			advance(fake, clock, 1)
+			expect(fake.spawns).to.equal(1)
+			expect(Range.stats().targets).to.equal(1)
+			-- THE SEAM REFUSES, and the animal has left the runtime by its own hand.
+			fake.clearOne = function()
+				return false
+			end
+			fake.animals = {}
+			crowd.set({})
+			advance(fake, clock, Range.CONFIG.IDLE_CLEAR_SECONDS + 2)
+			-- THE CLEAR DID NOT HAPPEN -- and the dead id was still noticed and let go.
+			expect(Range.stats().idleClears).to.equal(0)
+			expect(Range.stats().lostTargets).to.equal(1)
+			expect(Range.stats().targets).to.equal(0)
+			expect((Range.trialOf(2) :: any).targetId).to.equal(nil)
+			-- ...and nothing is released at the station he left.
+			expect(fake.spawns).to.equal(1)
+			TestKit.note("range B7: a refused clear releases the dead id instead of holding it")
+			Range.stop()
+		end)
+
 		it("clears only HIS animal when he picks a new species", function()
 			-- 306b's round-2 note (viii): the respawn path was range-WIDE as well, so a pick at
 			-- station 1 took station 6's animal.

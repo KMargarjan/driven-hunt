@@ -5690,14 +5690,8 @@ end
 -- (`Runtime:_step`'s `intent.despawn`). The lobby range holds six animals in ONE runtime, so a
 -- range-wide clear took the other five stations' targets with the one carcass.
 -- Note: docs/design/shooting-range-lobby.md section 7.4 (task 306 step B7)
-function Runtime:clearOne(id: string, reason: string?): boolean
-	for index = #self._boars, 1, -1 do
-		local entry = self._boars[index]
-		if entry.id == id then
-			self:_despawn(entry, index, reason or "cleared", Body.position(entry.body))
-			return true
-		end
-	end
+function Runtime:clearOne(_id: string, _reason: string?): boolean
+	-- FAIL-FIRST PROBE (reverted in the next commit): the producer, gutted.
 	return false
 end
 
