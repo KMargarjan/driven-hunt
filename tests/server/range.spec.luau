@@ -4003,12 +4003,17 @@ return function()
 			expect(b.terrainFills).to.equal(#terrain.fills)
 			expect(b.terrainReplaces).to.equal(#terrain.replaces)
 			local grid = LAYOUT.FILL.GRID_STUDS
-			local firstGrass, lastAir = nil, nil
+			-- AIR BEFORE GRASS, PER RECTANGLE: the terrace is cut in two pieces (the keep-out case
+			-- below), so a global "last air before first grass" would be false for a correct build and
+			-- true for one that cut the second piece after filling the first. Keyed on the piece's own
+			-- Z centre, which is what tells the two apart.
+			local airLast, grassFirst = {}, {}
 			for index, call in ipairs(terrain.fills) do
+				local key = string.format("%.3f", call.at.Position.Z)
 				if call.material == Enum.Material.Air then
-					lastAir = index
-				elseif firstGrass == nil then
-					firstGrass = index
+					airLast[key] = index
+				elseif grassFirst[key] == nil then
+					grassFirst[key] = index
 				end
 				-- EVERY X AND Z FACE OF THE TERRACE ON THE 4-STUD GRID. A face inside a voxel writes
 				-- that voxel only partly, and for the AIR box that is exactly the mound task 311
@@ -4032,9 +4037,20 @@ return function()
 			end
 			-- AIR FIRST, AND THAT IS ORDER AND NOT TIDINESS (task 311): the air box reaches BELOW the
 			-- shelf to the voxel boundary, so run after the grass it would eat the terrace it cut for.
-			expect(lastAir).to.be.ok()
-			expect(firstGrass).to.be.ok()
-			expect((lastAir :: number) < (firstGrass :: number)).to.equal(true)
+			local pieces = 0
+			for key, first in pairs(grassFirst) do
+				expect(airLast[key]).to.be.ok()
+				expect((airLast[key] :: number) < first).to.equal(true)
+				pieces += 1
+			end
+			expect(pieces).to.equal(
+				#RangeData.cutRects(
+					Vector3.new((FOREST_ROW :: any).x, b.shelf, (FOREST_ROW :: any).z),
+					LAYOUT,
+					-1,
+					FOREST_ROW
+				)
+			)
 			-- THE AIR'S BOTTOM IS THE VOXEL BOUNDARY AT OR BELOW THE SHELF, and the grass is a solid
 			-- bank DOWN to it -- never a floating slab (`Lobby.Field`'s two measured lessons).
 			local heaps = 0

@@ -1017,8 +1017,23 @@ return function()
 						tested += 1
 					end
 				end
-				-- Every rectangle has at least one edge that is a real edge of the union.
-				expect(here > 0).to.equal(true, string.format("rectangle %d contributed no boundary case", index))
+				-- EVERY RECTANGLE EITHER HAS A REAL EDGE OF THE UNION, OR IS WHOLLY INSIDE IT -- and
+				-- the second arm is PROVEN here rather than waved past. Since task 306 B8 moved the
+				-- range next to the lodge, `Join.walkwayTo`'s corridor is swallowed by the field and
+				-- the range footprint it joins: it adds no ground, which is a measurement about this
+				-- lobby's shape and not a licence for a rectangle that simply does nothing.
+				if here == 0 then
+					for _, at in ipairs(outs) do
+						expect(Join.insideHome(at, areas)).to.equal(
+							true,
+							string.format(
+								"rectangle %d: %s is neither an edge of the union nor inside it",
+								index,
+								tostring(at)
+							)
+						)
+					end
+				end
 				table.insert(perRect, string.format("rect %d: %d", index, here))
 				-- ...and ON the edge is IN, which is `withinRect`'s rule in min/max form.
 				expect(Join.withinArea(Vector3.new(rect.minX, 0, rect.minZ), rect)).to.equal(true)
