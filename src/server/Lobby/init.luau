@@ -203,6 +203,10 @@ local stats = {
 	buildAttempts = 0,
 	buildMs = 0,
 	shelfY = 0,
+	-- WHERE THE TERRAIN WAS CUT, as against `shelfY`, which is the surface the cut PRODUCED and the
+	-- height every part is laid on (task 311). Two numbers because the engine's own interpolation
+	-- puts them two studs apart, and a build that confused them buried the road.
+	cutY = 0,
 	parts = 0,
 	fillCalls = 0,
 	grassCalls = 0,
@@ -384,14 +388,43 @@ local function tryBuild(): boolean
 		return false
 	end
 	local began = os.clock()
-	local seat = Vector3.new((centre :: Vector3).X, shelf :: number, (centre :: Vector3).Z)
+	-- ---------------- WHERE THE TERRAIN IS CUT, AND WHERE THE PARTS ARE THEN LAID (task 311)
+	--
+	-- TWO DIFFERENT NUMBERS, AND THAT IS THE WHOLE OF THE FLAT-YARD FIX. Measured in Karen's place,
+	-- three times, with the same 49-sample probe under each truck footprint:
+	--   * cut at the measured 149.248 (before): relief 1.27 studs, Truck4 1.27 higher than Truck1;
+	--   * cut on the voxel boundary under it: relief 0.00 -- flat -- surface 151.27;
+	--   * cut ON the grid at 148: relief 0.00, surface 150.00.
+	-- So the fill IS flat once no voxel is split, and the surface the engine then draws is NOT the
+	-- height asked for. Predicting it is what buried the road slabs at 148.25 under 150.00 terrain,
+	-- which is task 180's invisible road coming back.
+	--
+	-- SO THE CUT IS SNAPPED AND THE SEAT IS RE-READ. `Field.shelfFor` puts the cut on the voxel grid
+	-- so the fill has no partial voxel to interpolate; then the world's own reader is asked AGAIN,
+	-- and what it answers is the ground every part in this lobby is laid on. It is this repository's
+	-- oldest rule about this ground, from task 186: *"THEY ARE LAID ON THE GROUND THAT IS MEASURED,
+	-- NOT ON THE SHELF THE ARITHMETIC PREDICTS"* -- said there about four truck wheels, and true of
+	-- the road, the fences, the woodpile and the spawn pad, which had no reader at all.
+	-- Note: docs/research/2026-10-29-lobby-flagpole-and-birch-avenue.md (sections 2, 3.1)
+	local cut = Field.shelfFor(shelf :: number)
+	local seat = Vector3.new((centre :: Vector3).X, cut, (centre :: Vector3).Z)
 	anchor = seat
-	stats.shelfY = shelf :: number
+	stats.cutY = cut
+	stats.shelfY = cut
 
 	-- THE TERRAIN FIRST, THEN THE PARTS: the shelf is what everything stands on, and a lodge placed
 	-- before the hill above it was cut would be built inside that hill for as long as the fill took.
 	if world.terrain ~= nil then
-		local calls, grassCalls, scrubbed = Field.fill(world.terrain, seat, shelf :: number, cfg)
+		local calls, grassCalls, scrubbed = Field.fill(world.terrain, seat, cut, cfg)
+		-- AND NOW THE SURFACE THAT FILL REALLY PRODUCED, read with the same instrument that found
+		-- the hill. nil keeps the cut, which is the old behaviour and is what every spec with no
+		-- terrain gets.
+		local produced = world.groundAt((centre :: Vector3).X, (centre :: Vector3).Z)
+		if type(produced) == "number" then
+			seat = Vector3.new((centre :: Vector3).X, produced, (centre :: Vector3).Z)
+			anchor = seat
+			stats.shelfY = produced
+		end
 		stats.fillCalls = calls
 		stats.grassCalls = grassCalls
 		-- HOW MANY PAD RECTANGLES WERE SCRUBBED BACK TO THEIR OWN MATERIAL (task 244): one per row

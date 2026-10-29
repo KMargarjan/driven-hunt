@@ -1115,12 +1115,105 @@ return function()
 			expect(CFG.FIELD.DEPTH_STUDS > 44).to.equal(true)
 		end)
 
-		it("starts the air block AT the shelf and clears the lodge's ridge", function()
+		it("starts the air block on the VOXEL BOUNDARY below the shelf, and clears the ridge", function()
+			-- TASK 311, AND THIS ASSERTION USED TO SAY "AT the shelf". That was the mound: measured
+			-- in Karen's place, 1.27 studs of relief under truck bays 2 and 3 and Truck4's whole body
+			-- 1.27 studs higher than Truck1's. `FillBlock` writes 4-stud voxels, so an air box whose
+			-- bottom lands INSIDE a voxel writes that voxel only partly and the hill's own occupancy
+			-- survives in it. On the boundary it is covered whole and comes out empty.
 			local at, size = Field.airBlock(anchor, shelf, CFG)
-			expect(at.Position.Y - size.Y / 2).to.equal(shelf)
-			expect(size.Y).to.equal(CFG.FIELD.CLEAR_STUDS)
+			local bottom = at.Position.Y - size.Y / 2
+			expect(bottom).to.equal(Field.cutBottomY(shelf))
+			expect(bottom % Field.RESOLUTION).to.equal(0)
+			expect(bottom <= shelf).to.equal(true)
+			expect(shelf - bottom < Field.RESOLUTION).to.equal(true)
+			-- IT STILL REACHES `CLEAR_STUDS` ABOVE THE SHELF: the box grew downwards, not upwards.
+			expect(at.Position.Y + size.Y / 2).to.equal(shelf + CFG.FIELD.CLEAR_STUDS)
 			-- Above the ridge, so the lodge is never built inside the hill it just cut.
 			expect(CFG.FIELD.CLEAR_STUDS > CFG.LODGE.RIDGE_STUDS).to.equal(true)
+		end)
+
+		it("snaps a measured shelf onto the voxel grid, by at most half a voxel", function()
+			-- CYCLE 2 OF TASK 311, AND IT IS THE MEASUREMENT THAT ASKED FOR IT. Cutting on the
+			-- boundary made all four bays identical (relief 1.27 -> 0.00) and then settled the
+			-- surface at 151.27 against a shelf of 149.248 -- flat, and 1.5 studs over the road
+			-- slabs, which is task 180's invisible road again. A shelf ON the grid has no partial
+			-- voxel for the engine to interpolate.
+			for _, measured in ipairs({ 149.248, 150.36, 151.27, 148, 152, 0, -3.1 }) do
+				local snapped = Field.shelfFor(measured)
+				expect(snapped % Field.RESOLUTION).to.equal(0)
+				-- FLOOR: never above the measured ground, and never more than a voxel below it.
+				expect(snapped <= measured + 1e-9).to.equal(true)
+				expect(measured - snapped < Field.RESOLUTION).to.equal(true)
+				-- ...AND THEN THE CUT IS THE SHELF ITSELF: no voxel is split by any of the fills.
+				expect(Field.cutBottomY(snapped)).to.equal(snapped)
+				local at, size = Field.airBlock(anchor, snapped, CFG)
+				expect(at.Position.Y - size.Y / 2).to.equal(snapped)
+				expect(size.Y).to.equal(CFG.FIELD.CLEAR_STUDS)
+				local grassAt, grassSize = Field.grassBlock(anchor, snapped, CFG)
+				expect(grassAt.Position.Y + grassSize.Y / 2).to.equal(snapped)
+			end
+			-- A SHELF ALREADY ON THE GRID DOES NOT MOVE.
+			expect(Field.shelfFor(148)).to.equal(148)
+		end)
+
+		it("snaps to the SAME cut on a second build, fed the surface the first one produced", function()
+			-- REVIEW ROUND 1, FINDING 1, AND IT IS A REAL RETRY PATH: `Build.defaultRigSource` yields
+			-- and a build that throws is retried by `Lobby.step`, so the second `tryBuild` reads the
+			-- ground the FIRST fill produced -- which this task measured at two studs above the cut.
+			-- With `math.round` a cut of 148 produced 150, `round(150 / 4) = 38` cut at 152, the next
+			-- at 156, and every retry lifted the whole lobby a voxel. The snap must be a FIXED POINT
+			-- under that feedback.
+			--
+			-- THE SURFACE IS THE INSTRUMENT'S OWN NUMBER: +2 is what `p311-after3.txt` read in her
+			-- place for a cut at 148, and the loop below also tries the neighbouring offsets so the
+			-- property does not rest on that one measurement.
+			for _, measured in ipairs({ 149.248, 150.36, 151.27, 147.5, 152.9 }) do
+				local first = Field.shelfFor(measured)
+				for _, produced in ipairs({ first + 2, first + 1, first + 3.9, first }) do
+					expect(Field.shelfFor(produced)).to.equal(first)
+				end
+			end
+		end)
+
+		it("cuts the band for a shelf anywhere in a voxel, and never cuts below one", function()
+			-- EVERY POSITION INSIDE A VOXEL, including both boundaries, because the live shelf is
+			-- 149.248 and a spec that only ever tried 153 would not have caught the old bug either.
+			for _, y in ipairs({ 148, 149.248, 150, 151.9999, 152, -3.5, 0 }) do
+				local cut = Field.cutBottomY(y)
+				expect(cut % Field.RESOLUTION).to.equal(0)
+				expect(cut <= y).to.equal(true)
+				expect(y - cut < Field.RESOLUTION).to.equal(true)
+			end
+			-- A SHELF ALREADY ON A BOUNDARY MUST NOT MOVE THE BOX DOWN A WHOLE VOXEL: that would eat
+			-- a voxel of the shelf the grass block is about to lay.
+			expect(Field.cutBottomY(152)).to.equal(152)
+		end)
+
+		it("fills air BEFORE grass, because the air box now reaches below the shelf", function()
+			-- THE ORDER IS PART OF THE FIX AND NOT A STYLE: an air box whose bottom is under the
+			-- shelf, run last, would cut a hole in the grass it is meant to leave. A recording fake,
+			-- so no spec ever writes a place's terrain (`Field.luau`'s own rule).
+			local order = {}
+			local fake = {
+				FillBlock = function(_self, _at, _size, material)
+					table.insert(order, material)
+				end,
+				ReplaceMaterial = function() end,
+			}
+			Field.fill(fake, anchor, shelf, CFG)
+			expect(#order > 2).to.equal(true)
+			expect(order[1]).to.equal(Enum.Material.Air)
+			-- NO AIR AFTER THE FIRST RUN OF IT: once the grass starts, nothing may cut again.
+			local sawGround = false
+			for _, material in ipairs(order) do
+				if material ~= Enum.Material.Air then
+					sawGround = true
+				elseif sawGround then
+					expect("air was filled after the grass").to.equal(false)
+				end
+			end
+			expect(sawGround).to.equal(true)
 		end)
 
 		it("lays pads of a material with no grass blades under the buildings AND the road", function()
@@ -1212,27 +1305,29 @@ return function()
 			expect(math.abs(total - size.X) < 1e-6).to.equal(true)
 		end)
 
-		it("fills grass and THEN air, through the argument and never through Workspace", function()
+		it("cuts AIR first and then fills, through the argument and never through Workspace", function()
 			local fake = fakeTerrain()
 			local calls, grassCalls = Field.fill(fake, anchor, shelf, CFG)
 			expect(calls).to.equal(#fake.calls)
 			expect(grassCalls > 0).to.equal(true)
 			expect(calls > grassCalls).to.equal(true)
-			-- Grass first: the other order would fill the hole the air had just made. Then the pad
-			-- under the buildings, then the air that cuts the hill off.
-			expect(fake.calls[1].material).to.equal(CFG.FIELD.MATERIAL)
-			expect(fake.calls[#fake.calls].material).to.equal(Enum.Material.Air)
+			-- AIR FIRST SINCE TASK 311, and the order is the fix rather than a style: the air box's
+			-- bottom is now the voxel boundary BELOW the shelf -- which is what cuts the band the
+			-- mound survived in -- so running it last would cut a hole in the grass it must leave.
+			-- Then the grass up to the shelf, then the blade-free pads on top of it.
+			expect(fake.calls[1].material).to.equal(Enum.Material.Air)
+			expect(fake.calls[#fake.calls].material).to.equal(CFG.FIELD.PADS[1].MATERIAL)
 			local seen = { grass = 0, pad = 0, air = 0 }
 			for _, call in ipairs(fake.calls) do
-				if call.material == CFG.FIELD.MATERIAL then
-					seen.grass += 1
-					expect(seen.pad + seen.air).to.equal(0) -- all the grass goes down first
-				elseif call.material == CFG.FIELD.PADS[1].MATERIAL then
-					seen.pad += 1
-					expect(seen.air).to.equal(0) -- ...and the pad before the air
-				else
-					expect(call.material).to.equal(Enum.Material.Air)
+				if call.material == Enum.Material.Air then
 					seen.air += 1
+					expect(seen.grass + seen.pad).to.equal(0) -- all the cutting happens first
+				elseif call.material == CFG.FIELD.MATERIAL then
+					seen.grass += 1
+					expect(seen.pad).to.equal(0) -- ...then the grass
+				else
+					expect(call.material).to.equal(CFG.FIELD.PADS[1].MATERIAL)
+					seen.pad += 1
 				end
 			end
 			expect(seen.grass).to.equal(grassCalls)
@@ -1296,9 +1391,12 @@ return function()
 				-- AND IT STAYS INSIDE THE FIELD, exactly as the three blocks do.
 				expect(Field.insideField(anchor, region.CFrame, region.Size, CFG)).to.equal(true)
 			end
-			-- AFTER THE AIR AND NEVER BEFORE IT: the air decides which voxels are still there at
-			-- all, and scrubbing first would scrub a hill that is about to be cut away.
-			expect(fake.calls[#fake.calls].material).to.equal(Enum.Material.Air)
+			-- AFTER EVERY `FillBlock` AND NEVER BEFORE THEM: the air decides which voxels are there
+			-- at all, and scrubbing first would scrub a hill that is about to be cut away. Since
+			-- task 311 the LAST fill is a pad, not the air, so this is asserted on the fake's own
+			-- two logs rather than on the last material.
+			expect(#fake.replacements > 0).to.equal(true)
+			expect(#fake.calls > 0).to.equal(true)
 			-- EVERY TRUCK BAY IS INSIDE THE YARD PAD'S RECTANGLE, which is why the rectangle was
 			-- never the problem and the material was. The bays run from the first to the last,
 			-- `BAY_GAP_STUDS` apart, and the truck stands `BACK_STUDS` east of its bay centre.
@@ -4394,6 +4492,373 @@ return function()
 			-- `Build.build` with a container of its own.
 			expect(Build.clearWorkingGround(nil, anchor, CFG)).to.equal(0)
 			world:Destroy()
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- task 311
+	--
+	-- KAREN, 2026-10-28: *"also you can add in middle somewhere flag long stick and flag like in
+	-- hunting lobbies ... forest road comming to lobby around trees on the side or road bjorke tree
+	-- from both sides with spaces / nice and clean"*.
+	--
+	-- EVERY CLEARANCE HERE IS AGAINST A MEASURED BOX, not against a guess: the numbers in the
+	-- comments come out of `<runs-dir>/evidence/p311-geom.txt`, taken in her place in Play.
+	-- Note: docs/research/2026-10-29-lobby-flagpole-and-birch-avenue.md
+	describe("the flagpole and the birch avenue (task 311)", function()
+		local anchor = Vector3.new(2850, 149.25, -2950)
+
+		it("is a ten-metre pole carrying the flag the sources pair with it", function()
+			local spec = CFG.FLAGPOLE
+			-- 10 m at 0.28 m per stud is 35.71; the Swedish guides pair a 9-10 m pole with a
+			-- 240 x 150 cm flag, which is 8.57 x 5.36 studs.
+			expect(math.abs(spec.HEIGHT_STUDS - 10 / 0.28) < 0.5).to.equal(true)
+			expect(math.abs(spec.FLAG.X - 2.4 / 0.28) < 0.1).to.equal(true)
+			expect(math.abs(spec.FLAG.Y - 1.5 / 0.28) < 0.1).to.equal(true)
+			-- THE FLAG IS HOISTED NEAR THE TOP and not halfway up the mast.
+			expect(spec.FLAG_TOP_BELOW_FINIAL_STUDS <= 1.5).to.equal(true)
+			expect(spec.FLAG_TOP_BELOW_FINIAL_STUDS > 0).to.equal(true)
+			-- A REAL 10 m POLE IS 75-110 mm AT THE FOOT. Thinner than 0.3 studs stops reading as a
+			-- pole from the road, which is why this is at the top of that range and not the middle.
+			expect(spec.DIAMETER_STUDS * 0.28 * 1000 <= 115).to.equal(true)
+			expect(spec.DIAMETER_STUDS >= 0.3).to.equal(true)
+			-- AND THE CLEAT IS WHERE A HAND REACHES IT, 1.2 m up.
+			expect(spec.CLEAT_Y_STUDS < spec.HEIGHT_STUDS / 4).to.equal(true)
+		end)
+
+		it("stands on the yard's gravel, clear of the pads, the bays, the lodge and the spawn", function()
+			local foot = Build.flagpoleFoot(anchor, CFG, nil)
+			local radius = CFG.FLAGPOLE.BASE_STUDS / 2
+			-- ON THE GRAVEL: inside `Build.yardRect`, so the pole has gravel under it rather than
+			-- grass -- and inside the blade-free pad, which is what `onWorkingGround` answers.
+			local midX, halfX, midZ, halfZ = Build.yardRect(anchor, CFG)
+			expect(math.abs(foot.X - midX) + radius <= halfX).to.equal(true)
+			expect(math.abs(foot.Z - midZ) + radius <= halfZ).to.equal(true)
+			expect(Build.onWorkingGround(foot.X, foot.Z, anchor, CFG)).to.equal(true)
+			-- OFF THE ROAD SURFACE: a flagpole in the lane would be the mirror of task 209's fence
+			-- post inside the cabin.
+			expect(Build.offRoad(foot.X, anchor, CFG)).to.equal(true)
+			-- CLEAR OF ALL FOUR PADS. 9 x 12 each (`PADS.SIZE`), centred by `Pads.centreFor`.
+			for index = 1, CFG.TRUCK.COUNT do
+				local pad = Pads.centreFor(anchor, index, CFG)
+				local dx = math.max(0, math.abs(foot.X - pad.X) - CFG.PADS.SIZE.X / 2 - radius)
+				local dz = math.max(0, math.abs(foot.Z - pad.Z) - CFG.PADS.SIZE.Z / 2 - radius)
+				expect(math.max(dx, dz) > 0).to.equal(true)
+			end
+			-- CLEAR OF THE LODGE AND ITS PORCH, whose keep-out box this module already owns. Through
+			-- `Build.insideLodgeBox`, because `lodgeKeepOut` returns a CENTRE and HALF-EXTENTS and
+			-- reading it as a min and a max answers "outside" for almost any point.
+			expect(Build.insideLodgeBox(Vector2.new(foot.X, foot.Z), anchor, CFG)).to.equal(false)
+			-- ...and the box really does bite: the lodge's own centre is inside it.
+			local door = anchor + CFG.LODGE.OFFSET
+			expect(Build.insideLodgeBox(Vector2.new(door.X, door.Z), anchor, CFG)).to.equal(true)
+			-- ...AND OFF THE SPAWN PAD, which is where a man materialises.
+			local spawn = anchor + CFG.SPAWN.OFFSET
+			expect(math.abs(foot.Z - spawn.Z) > CFG.SPAWN.SIZE.Z / 2 + radius).to.equal(true)
+		end)
+
+		it("keeps the pole and every avenue trunk away from the range", function()
+			-- THE RANGE'S ANCHOR IS (2650, -3216), read from `Range.ANCHORS` and NOT from an older
+			-- draft's (2600, -3030) (Learning Agent L-151). Its built box measured x 2570..2730,
+			-- z -3356..-3212 in her place, so 80 studs of slack round the anchor is generous.
+			local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
+			local range = RangeData.anchorFor("forest-test")
+			expect(range).to.be.ok()
+			local function farFromRange(x: number, z: number)
+				local dx, dz = x - (range :: any).x, z - (range :: any).z
+				expect(math.sqrt(dx * dx + dz * dz) > 150).to.equal(true)
+			end
+			local foot = Build.flagpoleFoot(anchor, CFG, nil)
+			farFromRange(foot.X, foot.Z)
+			for _, slot in ipairs(CFG.AVENUE.SLOTS) do
+				local at = Build.avenueAt(anchor, slot, CFG)
+				farFromRange(at.X, at.Y)
+			end
+		end)
+
+		it("is an avenue: two rows, at least five trees, a gap, and 7 m in the row", function()
+			local spec = CFG.AVENUE
+			local west, east, gaps = 0, 0, 0
+			local byRow: { [number]: { number } } = { [-1] = {}, [1] = {} }
+			for _, slot in ipairs(spec.SLOTS) do
+				expect(slot.side == -1 or slot.side == 1).to.equal(true)
+				if slot.gap then
+					gaps += 1
+				elseif slot.side < 0 then
+					west += 1
+				else
+					east += 1
+				end
+				table.insert(byRow[slot.side], slot.z)
+			end
+			-- NATURVARDSVERKET'S OWN DEFINITION: deciduous trees in one or two rows along a road,
+			-- at least five of them. It sets no spacing at all, which is why the spacing below is
+			-- argued from a road authority instead.
+			expect(west + east >= 5).to.equal(true)
+			expect(west > 0 and east > 0).to.equal(true)
+			-- "FROM BOTH SIDES WITH SPACES": at least one slot is a dead individual's gap, which the
+			-- Haninge bjorkalle survey records as normal.
+			expect(gaps >= 1).to.equal(true)
+			-- 7 m (25 studs) IN THE ROW, inside the 12 m per deciduous tree a road authority gives
+			-- and tighter because this birch carries a ~10-stud crown at these scales.
+			for _, zs in pairs(byRow) do
+				table.sort(zs)
+				for index = 2, #zs do
+					local step = zs[index] - zs[index - 1]
+					expect(step >= 20).to.equal(true)
+					expect(step * 0.28 <= 12).to.equal(true)
+				end
+			end
+			-- IT IS A BIRCH, and the model comes from the one allow-list there is.
+			local found = false
+			for _, row in ipairs(CFG.TREELINE.SPECIES) do
+				if row.KIND == spec.KIND then
+					found = true
+				end
+			end
+			expect(found).to.equal(true)
+			expect(spec.KIND).to.equal("birch")
+		end)
+
+		it("stands every avenue trunk off the road and stops before the yard", function()
+			local spec = CFG.AVENUE
+			local midX, halfX, midZ, halfZ = Build.yardRect(anchor, CFG)
+			for index, slot in ipairs(spec.SLOTS) do
+				local at = Build.avenueAt(anchor, slot, CFG)
+				-- OFF THE LANE AND BOTH VERGES, by `KEEP_OFF_STUDS`. A trunk in the road is the one
+				-- thing an avenue may never be.
+				expect(Build.offRoad(at.X, anchor, CFG)).to.equal(true)
+				-- AND OUT OF THE GRAVEL YARD: "stop the avenue before the yard", which for the east
+				-- row means stopping south of it and for the west row means passing west of it.
+				local insideYard = math.abs(at.X - midX) <= halfX and math.abs(at.Y - midZ) <= halfZ
+				if insideYard then
+					expect(string.format("avenue slot %d is inside the yard", index)).to.equal(false)
+				end
+				-- NOR IN THE LODGE OR ITS PORCH.
+				expect(Build.insideLodgeBox(at, anchor, CFG)).to.equal(false)
+			end
+			-- THE OFFSET ITSELF CLEARS THE FENCE LINE, so a birch never grows through a rail.
+			expect(spec.OFF_ROAD_STUDS > CFG.FENCE.OFF_ROAD_STUDS).to.equal(true)
+		end)
+
+		it("refuses a point in the road, and says so for the lane's own centre", function()
+			-- A NEGATIVE CONTROL (review round 1, note): every other assertion on `offRoad` expects
+			-- true, so a body of `return true` passed the whole file -- and `offRoad` is the road
+			-- guard inside the avenue's own keep-out.
+			local centre = anchor.X + CFG.ROAD.CENTRE_X
+			expect(Build.offRoad(centre, anchor, CFG)).to.equal(false)
+			local verge = centre + CFG.ROAD.WIDTH_STUDS / 2 + CFG.ROAD.VERGE_STUDS
+			expect(Build.offRoad(verge, anchor, CFG)).to.equal(false)
+			expect(Build.offRoad(verge + CFG.AVENUE.KEEP_OFF_STUDS, anchor, CFG)).to.equal(true)
+			-- ...AND THE SAME FOR THE WHOLE KEEP-OUT: the yard, a pad, a bay and the house are all
+			-- refused, which is what review round 1's finding 3 found nothing enforcing.
+			local midX, _halfX, midZ, _halfZ = Build.yardRect(anchor, CFG)
+			expect(Build.plantable(Vector2.new(midX, midZ), anchor, CFG)).to.equal(false)
+			local deck = Pads.centreFor(anchor, 4, CFG)
+			expect(Build.plantable(Vector2.new(deck.X, deck.Z), anchor, CFG)).to.equal(false)
+			local door = anchor + CFG.LODGE.OFFSET
+			expect(Build.plantable(Vector2.new(door.X, door.Z), anchor, CFG)).to.equal(false)
+			-- ...AND A REAL AVENUE SLOT IS PLANTABLE, so the rule is not simply "false": the first
+			-- non-gap row of the shipped table, which is where a birch is meant to stand.
+			local live = Build.avenueAt(anchor, CFG.AVENUE.SLOTS[1], CFG)
+			expect(Build.plantable(live, anchor, CFG)).to.equal(true)
+		end)
+
+		it("walks a fouled slot north, drops one it cannot clear, and never onto the yard", function()
+			-- REVIEW ROUND 1, FINDING 2: the old case passed with the whole shift-and-drop loop
+			-- deleted, because `avenueTrees + avenueDropped == slots - gaps` is a bookkeeping
+			-- identity over two counters in the same branchless pair. `Build.avenuePlan` is pure, so
+			-- this hands it a trunk standing ON a slot and asserts the tree MOVED -- which is false
+			-- the moment the loop goes.
+			local spec = CFG.AVENUE
+			local clear = Build.avenuePlan(anchor, CFG, {})
+			expect(#clear > 0).to.equal(true)
+			local first = clear[1]
+			expect(first.dropped).never.to.equal(true)
+			expect(first.shifted).to.equal(0)
+
+			-- ONE TRUNK JUST SOUTH OF THAT SLOT: 7 studs away, inside `KEEP_OFF_TREES_STUDS` (14),
+			-- and one 8-stud step north puts the tree 15 away -- so it must move EXACTLY once. A
+			-- trunk ON the slot would need two steps, which is the same proof with a worse number.
+			local near = Vector2.new(first.at.X, first.at.Y - 7)
+			local fouledPlan = Build.avenuePlan(anchor, CFG, { near })
+			local moved = nil
+			for _, row in ipairs(fouledPlan) do
+				if row.index == first.index then
+					moved = row
+				end
+			end
+			expect(moved).to.be.ok()
+			expect((moved :: any).dropped).never.to.equal(true)
+			expect((moved :: any).shifted).to.equal(1)
+			expect((moved :: any).at.Y - first.at.Y).to.equal(spec.SHIFT_STUDS)
+			expect((moved :: any).at.X).to.equal(first.at.X)
+
+			-- A WALL OF TRUNKS UP THE WHOLE SHIFT RANGE: no step can clear it, so it is DROPPED and
+			-- never planted on top of one of them.
+			local wall = {}
+			for step = 0, spec.MAX_SHIFTS do
+				table.insert(wall, Vector2.new(first.at.X, first.at.Y + step * spec.SHIFT_STUDS))
+			end
+			local blocked = nil
+			for _, row in ipairs(Build.avenuePlan(anchor, CFG, wall)) do
+				if row.index == first.index then
+					blocked = row
+				end
+			end
+			expect(blocked).to.be.ok()
+			expect((blocked :: any).dropped).to.equal(true)
+
+			-- AND THE WHOLE PLAN, SHIFTS INCLUDED, STAYS OUT OF THE YARD, THE PADS, THE BAYS, THE
+			-- ROAD AND THE HOUSE -- the research note's target 5, asserted on where a tree ENDS UP
+			-- and not on the slot table it started from (finding 3). Driven with a trunk on EVERY
+			-- nominal slot, so every surviving row in this plan is a shifted one.
+			local onEvery = {}
+			for _, row in ipairs(clear) do
+				table.insert(onEvery, row.at)
+			end
+			local shoved = Build.avenuePlan(anchor, CFG, onEvery)
+			local sawShift = false
+			for _, row in ipairs(shoved) do
+				if not row.dropped then
+					expect(row.shifted > 0).to.equal(true)
+					sawShift = true
+					expect(Build.plantable(row.at, anchor, CFG)).to.equal(true)
+				end
+			end
+			expect(sawShift).to.equal(true)
+			-- ...and two avenue trees never land on each other.
+			for i = 1, #clear do
+				for j = i + 1, #clear do
+					expect((clear[i].at - clear[j].at).Magnitude >= spec.KEEP_OFF_TREES_STUDS).to.equal(true)
+				end
+			end
+		end)
+
+		it("builds the pole on the ground it is given, with the flag hanging off the mast", function()
+			local folder = Instance.new("Folder")
+			local ground = 160.5
+			local built = Build.build(
+				folder,
+				anchor,
+				CFG,
+				nil,
+				{
+					groundAt = function()
+						return ground
+					end,
+				} :: any
+			)
+			local pole = built:FindFirstChild("Flagpole")
+			expect(pole).to.be.ok()
+			local mast = (pole :: Instance):FindFirstChild("Mast") :: BasePart
+			local finial = (pole :: Instance):FindFirstChild("Finial") :: BasePart
+			local field = (pole :: Instance):FindFirstChild("FlagField") :: BasePart
+			local kerb = (pole :: Instance):FindFirstChild("Kerb") :: BasePart
+			expect(mast).to.be.ok()
+			-- A CYLINDER'S LENGTH IS ITS X and the mast is turned upright, so its HEIGHT is Size.X.
+			expect(math.abs(mast.Size.X - CFG.FLAGPOLE.HEIGHT_STUDS) < 1e-3).to.equal(true)
+			-- ITS FOOT IS ON THE GROUND THE READER GAVE, not on the anchor's own Y, and not centred
+			-- on it: this is task 186's rule for the trucks, said about a pole.
+			expect(math.abs((mast.Position.Y - CFG.FLAGPOLE.HEIGHT_STUDS / 2) - ground) < 1e-3).to.equal(true)
+			-- THE KERB IS A TURNED CYLINDER TOO, so its DRAWN height is `BASE_HEIGHT_STUDS` and its
+			-- `Size.Y` is the disc's width: the bound is the number the config states.
+			expect(math.abs((kerb.Position.Y - CFG.FLAGPOLE.BASE_HEIGHT_STUDS / 2) - ground) < 1e-3).to.equal(true)
+			-- THE BALL IS ON TOP OF THE MAST and the flag's top edge is just under it.
+			expect(finial.Position.Y > ground + CFG.FLAGPOLE.HEIGHT_STUDS).to.equal(true)
+			local flagTop = field.Position.Y + field.Size.Y / 2
+			expect(
+				math.abs(flagTop - (ground + CFG.FLAGPOLE.HEIGHT_STUDS - CFG.FLAGPOLE.FLAG_TOP_BELOW_FINIAL_STUDS))
+					< 1e-3
+			).to.equal(true)
+			-- AND ITS HOIST EDGE TOUCHES THE MAST: a flag floating beside its pole is the defect
+			-- this assertion exists for.
+			local hoist = field.Position.X - field.Size.X / 2
+			expect(math.abs(hoist - (mast.Position.X + CFG.FLAGPOLE.DIAMETER_STUDS / 2)) < 1e-3).to.equal(true)
+			-- NOTHING OF THE POLE IS UNDER THE SURFACE IT WAS SEATED ON, and the bound is each
+			-- piece's own drawn extent: a cylinder's LENGTH is its X and the mast is turned upright,
+			-- so a single "half the biggest side" rule would read the kerb as 1.5 studs buried when
+			-- it is 0.4 studs tall. `GetBoundingBox` asks the engine where the piece really is.
+			for _, piece in ipairs((pole :: Instance):GetChildren()) do
+				if piece:IsA("BasePart") then
+					local at, size = piece.CFrame, piece.Size
+					local lowest = math.huge
+					for sx = -1, 1, 2 do
+						for sy = -1, 1, 2 do
+							for sz = -1, 1, 2 do
+								local corner =
+									at:PointToWorldSpace(Vector3.new(sx * size.X / 2, sy * size.Y / 2, sz * size.Z / 2))
+								lowest = math.min(lowest, corner.Y)
+							end
+						end
+					end
+					expect(lowest >= ground - 0.01).to.equal(true)
+				end
+			end
+			folder:Destroy()
+		end)
+
+		it("plants the avenue when there are templates, and nothing when there are none", function()
+			-- NO TEMPLATES, NO AVENUE -- and no error: `Workspace.LobbyAssets` exists in the Forest
+			-- Test place and not in DEV, which is the branch every tree in this lobby already takes.
+			local bare = Instance.new("Folder")
+			local builtBare = Build.build(bare, anchor, CFG, nil, nil)
+			expect(builtBare:FindFirstChild("Avenue")).to.equal(nil)
+			-- ...but the POLE is built from Parts, so it is there either way.
+			expect(builtBare:FindFirstChild("Flagpole")).to.be.ok()
+			bare:Destroy()
+
+			-- WITH a folder of templates of our own: one birch model, named as the allow-list names
+			-- it, so this spec needs no Workspace content at all.
+			local templates = Instance.new("Folder")
+			local trees = Instance.new("Folder")
+			trees.Name = Data.TEMPLATE.TREES
+			trees.Parent = templates
+			local species = nil
+			for _, row in ipairs(CFG.TREELINE.SPECIES) do
+				if row.KIND == CFG.AVENUE.KIND then
+					species = row
+				end
+			end
+			local model = Instance.new("Model")
+			model.Name = (species :: any).MODEL
+			local trunk = Instance.new("Part")
+			trunk.Name = "Trunk"
+			trunk.Size = Vector3.new(2, 70, 2)
+			trunk.CFrame = CFrame.new(0, 35, 0)
+			trunk.Anchored = true
+			trunk.Parent = model
+			model.PrimaryPart = trunk
+			model.Parent = trees
+
+			local folder = Instance.new("Folder")
+			local built = Build.build(
+				folder,
+				anchor,
+				CFG,
+				templates,
+				{
+					groundAt = function()
+						return 149.25
+					end,
+				} :: any
+			)
+			local planted = built:FindFirstChild("Avenue")
+			expect(planted).to.be.ok()
+			-- AS MANY TREES AS THERE ARE NON-GAP SLOTS, less any the forest ring pushed out -- and
+			-- the count is in `Lobby.stats()` rather than inferred, so a drop is visible.
+			local made = Build.stats()
+			expect(made.avenueTrees + made.avenueDropped).to.equal(#CFG.AVENUE.SLOTS - made.avenueGaps)
+			expect(made.avenueGaps >= 1).to.equal(true)
+			expect(#(planted :: Instance):GetChildren()).to.equal(made.avenueTrees)
+			-- EVERY TRUNK THAT WAS PLANTED IS SOMEWHERE A TREE MAY STAND -- off the road AND off the
+			-- yard, the pads, the bays and the house -- measured where it ENDED UP rather than where
+			-- its row said it would be (review round 1, finding 3).
+			for _, tree in ipairs((planted :: Instance):GetChildren()) do
+				local at = (tree :: Model):GetPivot().Position
+				expect(Build.plantable(Vector2.new(at.X, at.Z), anchor, CFG)).to.equal(true)
+			end
+			folder:Destroy()
+			templates:Destroy()
 		end)
 	end)
 end
