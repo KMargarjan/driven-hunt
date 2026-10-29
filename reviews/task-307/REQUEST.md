@@ -128,7 +128,7 @@ Also corrected (round 2 note): the research note called `Input.luau` the only wr
 
 | # | what it was | what changed | verify |
 |---|---|---|---|
-| 1 | `bench-B.txt` carried `@reddeer.stag`, which matches `privacy_scan`'s email rule and fails CI | the four tables rewritten to `~` (cell NAME only, header note in each), and the scan **re-run at HEAD** | `python tools/privacy_scan.py scan` -> `PASS: 0 findings in 1177 tracked text files` |
+| 1 | `bench-B.txt` carried `@reddeer.stag`, which matches `privacy_scan`'s email rule and fails CI | the four tables rewritten to `~` (cell NAME only, header note in each), and the scan **re-run at HEAD** | `python tools/privacy_scan.py scan` -> `PASS: 0 findings in 1180 tracked text files` at HEAD |
 | 2 | the ray and aim were sampled on the frame the HOST bumped, two StudioMCP round trips before the click | the resident clears `DHClaimWhy` and waits for `Input.fire`'s own write -- that IS the fire frame -- and the row carries the gap | `frames=8..27` in `bench-E.txt`; the `repeat ... until me:GetAttribute("DHClaimWhy") ~= nil` block in `RESIDENT` |
 | 3 | `cmd_ray` part 3 asserted nothing under a criterion the shipped ballistic cannot meet | the offset is printed as a reading, labelled `NOT A CRITERION` with `boreOrigin` / `launchDirection` named, and the verdict and exit code rest on part 2 | read `cmd_ray`; the verdict line now reads `VERDICT (parts 1 and 2 only)` |
 | 4 | a click the server never answered counted as a miss; `semiauto` 0/30 was clear air by construction | rows carry `answered`; unanswered rows are excluded from N; `run_cell` prints `notice`; `summarise` flags `NOT A MEASUREMENT` and `NO SHOT IN ... REACHED THE SERVER AT ALL` | `selftest` drives both (a 30/30-unanswered cell and a 7-answered/3-not cell) |
@@ -146,8 +146,10 @@ be worse than none, so the number is printed and the criterion removed. Queued.
 1. **The shot goes through the REAL client input path.** `Bench.click` sends a
    `mouseButtonClick` through `Studio.send_input` (`tools/studio_mcp.py`), the same
    VirtualInputManager route the Task-6 scenario replay uses; the tool never builds a `FireRequest`
-   payload. *Verify:* `grep -n "FireRequest" tools/aim_bench.py` -> no hit. Compare with
-   `<runs-dir>/305d/trial2.tpl` and `<runs-dir>/305-shoot.luau`, which both do `fire:FireServer`.
+   payload. *Verify:* `grep -n "FireRequest:FireServer\|fire:FireServer" tools/aim_bench.py` -> no
+   hit (plain `FireRequest` appears six times, all in prose explaining why the tool does NOT send
+   one). Compare with `<runs-dir>/305d/trial2.tpl` and `<runs-dir>/305-shoot.luau`, which both do
+   `fire:FireServer`.
 2. **CLICK PROOF, by negative control, run live in Karen's place.** `src/client/Weapon/Input.luau`
    is the ONE writer of a **VALUE** to `DHClaimWhy`, inside `Input.fire`. Cleared, with no click
    sent, it stayed `nil` for 2 s; one real click set it to `off`. **The bench is a second writer and
@@ -164,8 +166,10 @@ be worse than none, so the number is printed and the criterion removed. Queued.
    finding 3). *Verify:* the `DHClaimWhy` wait in `RESIDENT`'s shot watcher, then the `frames=`
    column in `reviews/task-307/bench-E.txt`.
 4. **The camera is steered only through the owner's hook.** `RESIDENT` writes `DHTestLook` and
-   never `workspace.CurrentCamera.CFrame`; `selftest` asserts that (`"CurrentCamera.CFrame =" not in
-   resident`). *Verify:* read the assertion, then `grep -n "CurrentCamera" tools/aim_bench.py`.
+   never assigns a `.CFrame`; `selftest` asserts `camera_write_free(resident)` and proves the guard
+   bites against four spellings of the write (see **Round 3, finding 1** above -- the round-1/2
+   assertion `"CurrentCamera.CFrame =" not in resident` could not fail and is gone). *Verify:* read
+   `camera_write_free` and the mutation loop in `selftest`.
 5. **The result is read from what the live game WROTE, never from a module.** The resident connects
    `HitMarker` / `ShotLanded` / `StateChanged` / `RangeBoard` once and publishes rows into a
    LocalPlayer attribute; the host only reads attributes. *Verify:* `grep -n "require(" ` in
@@ -191,7 +195,8 @@ be worse than none, so the number is printed and the criterion removed. Queued.
    reviews/task-307/bench-*.txt`.
 10. **CI covers the pure half** and the three gate selftests pass:
     `python tools/aim_bench.py selftest`, `tools/studio_mcp.py selftest`, `tools/agents.py selftest`,
-    `tools/privacy_scan.py scan` -> `PASS: 0 findings in 1171 tracked text files`.
+    `tools/privacy_scan.py scan` -> `PASS: 0 findings in 1180 tracked text files` **at HEAD**
+    (the 1171 and 1177 counts in earlier rounds were taken before the bench tables were tracked).
 
 ## The click proof, as the FIXED build printed it (Karen's Forest Test, in Play, on the mat)
 
@@ -270,8 +275,10 @@ tool records `answered` per row, **excludes** such rows from N, prints `notice`,
 existed and so cannot be re-rated without re-running. **That row must not be carried forward as a
 fact about the game** -- it is a reading about the trigger. Queued for the Director.
 
-Cells that got **fewer than 30**: `shotgun:Slug/run/nose` got **7** -- the gate closed three times
-in a row at 15 studs/s and the tool gave up on the cell, as it is written to. `bench-D` is the
+Cells that got **fewer than 30**: `shotgun:Slug/run/nose` got **7** -- the gate reported
+`NOTREADY notarget` at shots 3, 7 and 8 (`bench-B.txt`: the lane had no un-anchored target at those
+moments, not a pace failure) and the tool gave up on the cell after three closed gates, as it is
+written to. `refused_gate` is not reset between cells; queued as 307a(n). `bench-D` is the
 confirmation run at **N = 6**, not a measurement.
 
 ## What could not be verified
