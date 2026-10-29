@@ -4010,6 +4010,14 @@ return function()
 			local airLast, grassFirst = {}, {}
 			for index, call in ipairs(terrain.fills) do
 				local key = string.format("%.3f", call.at.Position.Z)
+				-- THE TERRACE ONLY. The berm and the banks are filled with the SAME material as the
+				-- lane, so a key taken off every call would ask which air box preceded the berm --
+				-- and there is none, because a heap is not a cut.
+				local isTerrace = call.material == Enum.Material.Air
+					or math.abs((call.at.Position.Y - call.size.Y / 2) - (b.shelf - LAYOUT.FILL.DEPTH_STUDS)) < 1e-6
+				if not isTerrace then
+					continue
+				end
 				if call.material == Enum.Material.Air then
 					airLast[key] = index
 				elseif grassFirst[key] == nil then
