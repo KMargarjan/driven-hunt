@@ -174,6 +174,10 @@ local state = {
 		-- `clearOne`. Counted rather than silent, because it is the defect B2 wrote down.
 		wideClears = 0,
 		parts = 0,
+		-- HOW MUCH GROUND THIS BUILD WROTE (step B8): 0 in DEV and in every spec, so "which arm
+		-- did it take" is a number a probe can read rather than a belief.
+		terrainFills = 0,
+		terrainReplaces = 0,
 		buildMs = 0,
 		-- HOW MANY SEATS STAND, and how many `HighSeats.plan` refused for its own ground reason: a
 		-- refused station is a bench only, and the console says how many there are.
@@ -575,6 +579,9 @@ function Range.start(seams): boolean
 		row = row,
 		layout = RangeData.LAYOUT,
 		groundAt = seams.groundAt,
+		-- THE PLACE'S OWN GROUND, AS AN ARGUMENT (design 8.2, step B8). nil is no write at all, which
+		-- is every spec and every DEV run -- so no spec can write a place's terrain, ever.
+		terrain = seams.terrain,
 	})
 	if built == nil then
 		state.stats.refusedBy = why or "build refused"
@@ -612,6 +619,8 @@ function Range.start(seams): boolean
 	end
 	state.deckTops = built.deckTops or {}
 	state.stats.parts = built.parts
+	state.stats.terrainFills = built.terrainFills or 0
+	state.stats.terrainReplaces = built.terrainReplaces or 0
 	state.stats.buildMs = built.buildMs
 	state.stats.stands = built.stands or 0
 	state.stats.refusedStands = built.refusedStands or 0

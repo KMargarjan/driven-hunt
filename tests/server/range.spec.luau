@@ -310,14 +310,24 @@ return function()
 			expect(RangeData.anchorFor("nowhere")).to.equal(nil)
 			expect(RangeData.anchorFor(nil)).to.equal(nil)
 			expect(RangeData.anchorFor(7 :: any)).to.equal(nil)
-			-- ...AND KAREN'S PLACE NOW HAS ONE, MEASURED (step B6). Design 4.2's instrument, run by
-			-- the Director over her own ground in Edit AND in Play: a raycast grid, 8-stud spacing,
-			-- 504 samples over the 160 x 185 footprint. Best centre (2650, -3300): 0 non-terrain
-			-- hits, 0 misses, ground spread 11.6 studs (the lobby's own chosen site had 16).
+			-- ...AND KAREN'S PLACE NOW HAS ONE, RE-MEASURED FOR SIX STATIONS (step B8, design 2.1).
+			-- The B6 anchor (2650, -3216) was chosen for ONE station over a 160 x 185 footprint and
+			-- the case below measured three ways in which six no longer fit it. The B8 census, run in
+			-- her own place 2026-10-29 over design 2.2's 256 x 239 box: 990 ground samples, 0 missed,
+			-- 0 non-terrain hits, 0 BaseParts inside it. The row it replaced is archived at
+			-- backups/task-306b8/ with its note (rule 7).
 			local forest = RangeData.anchorFor("forest-test")
 			expect(forest).to.be.ok()
-			expect((forest :: any).x).to.equal(2650)
-			expect((forest :: any).z).to.equal(-3216)
+			expect((forest :: any).x).to.equal(2600)
+			expect((forest :: any).z).to.equal(-3030)
+			-- THE TWO NEW DATA FIELDS (design 8.1), and the DEV row's opposite values: one arithmetic,
+			-- two rows, no branch anywhere on a world's name.
+			expect(RangeData.bermIsTerrain(forest)).to.equal(true)
+			expect(RangeData.fillsTerrain(forest)).to.equal(true)
+			expect(RangeData.bermIsTerrain(dev)).to.equal(false)
+			expect(RangeData.fillsTerrain(dev)).to.equal(false)
+			expect(RangeData.bermIsTerrain(nil)).to.equal(false)
+			expect(RangeData.fillsTerrain(nil)).to.equal(false)
 			-- NO TYPED Y: the shelf comes from the injected `groundAt` at build time, because a
 			-- typed one would put the range in the air or inside the hill (design section 3).
 			expect((forest :: any).plate).to.equal(false)
@@ -3680,17 +3690,20 @@ return function()
 		end)
 	end)
 
-	-- ------------------------------------------------- 9. KAREN'S PLACE: THE FOREST ROW (step B6)
+	-- ------------------------------------------------- 9. KAREN'S PLACE: THE FOREST ROW (step B8)
 	--
-	-- The anchor is MEASURED, not chosen here: design 4.2's instrument (a raycast grid, 8-stud
-	-- spacing, 504 samples over the 160 x 185 footprint) run by the Director over Karen's own
-	-- ground in Edit and again in Play. Best centre (2650, -3300), spread 11.6 studs, 0 non-terrain
-	-- hits; the firing line stands at the footprint's NORTH end and the lane runs SOUTH, away from
-	-- the lodge, the pads and the gathering yard.
-	--   evidence: <runs-dir>/evidence/b6-anchor/SUMMARY.md (grid1.txt, grid2.txt, grid-play.txt)
-	describe("the forest row: a range beside Karen's lodge (step B6)", function()
-		-- THE MEASURED RECTANGLE, from the SUMMARY above. The range must fit inside what was sampled.
-		local MEASURED = { minX = 2570, maxX = 2730, minZ = -3392, maxZ = -3208 }
+	-- The anchor is MEASURED, not chosen here. Step B6 sampled a 160 x 185 clearing for ONE station
+	-- at (2650, -3216); step B3 then measured a THIRD way in which six stations plus a treestand
+	-- overflow it, and design 2.1 moved the row into the lobby, where Karen asked for it. The B8
+	-- census, in her own place on 2026-10-29, covers design 2.2's whole 256 x 239 footprint:
+	-- 990 samples at 8 studs, 0 missed, 0 non-terrain hits, 0 BaseParts, ground spread 33.0 studs
+	-- and 23.5 across the firing line alone -- which is the measurement the terrace exists for.
+	-- The B6 case this replaced is archived at backups/task-306b8/ (rule 7).
+	--   evidence: <runs-dir>/evidence/306b8/census.txt, profile.txt
+	describe("the forest row: a range beside Karen's lodge (step B8)", function()
+		-- THE CENSUSED RECTANGLE: design 2.2's own footprint, which is what was sampled. The range
+		-- must fit inside what was measured, and now it does by construction rather than by luck.
+		local MEASURED = { minX = 2532, maxX = 2788, minZ = -3238, maxZ = -2998 }
 		-- A SHELF THAT IS EXACT IN FLOAT32, because `Vector3` stores floats and 147.3 does not survive
 		-- the trip: the case is about where the parts are laid, not about rounding.
 		local FAKE_SHELF = 147.25
@@ -3702,6 +3715,13 @@ return function()
 		local function slopedGround(x: number, z: number): number
 			return FAKE_SHELF + (z + 3216) * 0.0625 + (x - 2650) * 0.03125
 		end
+		-- THE SHELF THE FOREST ROW NOW TAKES, which is NOT the ground under the range (step B8): the
+		-- row's `shelfFrom` is the lobby's own anchor and the answer is snapped DOWN to the voxel
+		-- grid, so the range terrace and the lodge yard are one terrace. Computed from the row here,
+		-- never retyped -- moving `shelfFrom` must move this case, not break it.
+		local FOREST_FROM = (FOREST_ROW :: any).shelfFrom
+		local FOREST_SHELF = math.floor(slopedGround(FOREST_FROM.x, FOREST_FROM.z) / LAYOUT.FILL.GRID_STUDS)
+			* LAYOUT.FILL.GRID_STUDS
 
 		-- EVERY PART BUILD MAKES, BY NAME, so the Director can enumerate them under Workspace.Range
 		-- and read each one's LOWEST point against the terrain ray under it (L-086).
@@ -3746,7 +3766,7 @@ return function()
 					name = "forest-test",
 					row = FOREST_ROW,
 					ground = forestGround,
-					shelf = FAKE_SHELF,
+					shelf = FOREST_SHELF,
 					dir = -1,
 					sloped = true,
 				},
@@ -3814,10 +3834,21 @@ return function()
 				local anchor = b.anchor
 				local lane = RangeData.laneCentre(anchor, LAYOUT, case.dir)
 				expect(lane.Z - anchor.Z).to.equal(case.dir * LAYOUT.DISTANCE_STUDS)
-				local berm = (b.folder :: any):FindFirstChild("Berm")
-				expect(berm).to.be.ok()
-				-- BEHIND THE LONGEST LANE, not behind the one the menu opens on.
-				expect((berm.Position.Z - anchor.Z) * case.dir > RangeData.distanceMax(LAYOUT)).to.equal(true)
+				-- THE BACKSTOP, WHEREVER THE ROW PUTS IT. On Karen's row it is EARTH and there is no
+				-- part to find at all (step B8), so the same claim is read off the heap `Build` fills.
+				-- BEHIND THE LONGEST LANE, not behind the one the menu opens on, on both arms.
+				local bermPart = (b.folder :: any):FindFirstChild("Berm")
+				local bermZ
+				if RangeData.bermIsTerrain(case.row) then
+					expect(bermPart).to.equal(nil)
+					expect((b.folder :: any):FindFirstChild(RangeData.bankName(1))).to.equal(nil)
+					bermZ = Range.Build.bermBoxes(anchor, b.shelf, LAYOUT, case.dir)[1].at.Position.Z
+				else
+					expect(bermPart).to.be.ok()
+					expect((b.folder :: any):FindFirstChild(RangeData.bankName(1))).to.be.ok()
+					bermZ = bermPart.Position.Z
+				end
+				expect((bermZ - anchor.Z) * case.dir > RangeData.distanceMax(LAYOUT)).to.equal(true)
 				-- ...and NOTHING is built behind the shooter by more than the STATION'S OWN REACH --
 				-- the deck plus the seat's feet, which is the number the station box, the footprint
 				-- and her place's home area are all measured from (step B3). Before the treestand
@@ -3849,69 +3880,43 @@ return function()
 			end
 		end)
 
-		it("OVERFLOWS the clearing that was measured for ONE station, which is design 2.3's finding", function()
-			local built, _, parent = buildWith(FOREST_ROW, function()
-				return FAKE_SHELF
-			end)
+		it("FITS the rectangle the B8 census measured, where the B6 clearing could not", function()
+			-- THE CASE THIS REPLACES asserted the OPPOSITE and was right to: at (2650, -3216) six
+			-- stations overflowed the B6 clearing east, south and -- after the treestand -- uprange.
+			-- It is archived at backups/task-306b8/range-spec-overflow-case-before-b8.luau (rule 7),
+			-- and this is the same instrument pointed at the row that replaced it.
+			local built, _, parent = buildWith(FOREST_ROW, slopedGround)
 			local b = built :: any
-			local parts = partsOf(b.folder)
 			local names = {}
-			for _, part in ipairs(parts) do
+			for _, part in ipairs(partsOf(b.folder)) do
 				table.insert(names, part.Name)
 			end
 			table.sort(names)
-			local box = footprintOf(parts)
-			-- THE RECTANGLE WAS RIGHT FOR ONE STATION ON THE 125 LANE, and this arm proves the
-			-- measurement was not wrong -- the SHAPE changed under it (design 2.3).
-			local one = layoutWith({ SPOT_COUNT = 1, DISTANCES_STUDS = { LAYOUT.DISTANCE_STUDS } })
-			local oneParent = Instance.new("Folder")
-			local oneBuilt = Range.Build.build({
-				parent = oneParent,
-				row = FOREST_ROW,
-				layout = one,
-				groundAt = function()
-					return FAKE_SHELF
-				end,
-			})
-			local oneBox = footprintOf(partsOf((oneBuilt :: any).folder))
-			expect(oneBox.minX >= MEASURED.minX).to.equal(true)
-			expect(oneBox.maxX <= MEASURED.maxX).to.equal(true)
-			expect(oneBox.minZ >= MEASURED.minZ).to.equal(true)
-			-- A THIRD OVERFLOW, AND IT IS NEW IN STEP B3: the rectangle was sampled for a firing
-			-- line with NOTHING behind it, and the treestand stands `standReach` UPRANGE of the mat.
-			-- So one station no longer fits the measured clearing either -- not east or south, but
-			-- BEHIND the shooter. B8's census must cover it.
-			local overStand = oneBox.maxZ - MEASURED.maxZ
-			expect(overStand > 0).to.equal(true)
-			local ladderEdge = LAYOUT.STAND.backStuds
-				+ math.abs(HighSeats.DIMS.LADDER_OFFSET_STUDS)
-				+ HighSeats.DIMS.LADDER_SIZE_STUDS / 2
-			expect(math.abs(overStand - (((FOREST_ROW :: any).z + ladderEdge) - MEASURED.maxZ)) < 1e-6).to.equal(true)
-			expect(ladderEdge <= RangeData.standReach(LAYOUT)).to.equal(true)
+			local box = footprintOf(partsOf(b.folder))
+			expect(box.minX >= MEASURED.minX).to.equal(true)
+			expect(box.maxX <= MEASURED.maxX).to.equal(true)
+			expect(box.minZ >= MEASURED.minZ).to.equal(true)
+			expect(box.maxZ <= MEASURED.maxZ).to.equal(true)
+			-- ...AND SO DOES THE GROUND IT WRITES, which the parts' box does not cover: the terrace,
+			-- the berm's heap and the two banks are the things that would reach outside a censused
+			-- rectangle unnoticed, because nothing in `Workspace.Range` records them.
+			local anchor = Vector3.new((FOREST_ROW :: any).x, b.shelf, (FOREST_ROW :: any).z)
+			for _, rect in ipairs(RangeData.cutRects(anchor, LAYOUT, -1, FOREST_ROW)) do
+				expect(rect.minX >= MEASURED.minX).to.equal(true)
+				expect(rect.maxX <= MEASURED.maxX).to.equal(true)
+				expect(rect.minZ >= MEASURED.minZ).to.equal(true)
+				expect(rect.maxZ <= MEASURED.maxZ).to.equal(true)
+			end
+			for _, boxen in ipairs(Range.Build.bermBoxes(anchor, b.shelf, LAYOUT, -1)) do
+				local at, size = boxen.at.Position, boxen.size
+				expect(at.X - size.X / 2 >= MEASURED.minX).to.equal(true)
+				expect(at.X + size.X / 2 <= MEASURED.maxX).to.equal(true)
+				expect(at.Z - size.Z / 2 >= MEASURED.minZ).to.equal(true)
+				expect(at.Z + size.Z / 2 <= MEASURED.maxZ).to.equal(true)
+			end
 			TestKit.note(
 				string.format(
-					"range B3: the treestand overflows the clearing measured for one station by %.1f studs UPRANGE (z %.1f against %d)",
-					overStand,
-					oneBox.maxZ,
-					MEASURED.maxZ
-				)
-			)
-			oneParent:Destroy()
-			-- ...AND SIX DO NOT FIT IT, east by the station span and south by the 179 lane. Step B8
-			-- moves the row to the site design 2.1 chose and re-samples it; nothing is built in her
-			-- place until it does, because `Range.ENABLED` is dark.
-			local overX = box.maxX - MEASURED.maxX
-			local overZ = MEASURED.minZ - box.minZ
-			expect(overX > 0).to.equal(true)
-			expect(overZ > 0).to.equal(true)
-			expect(math.abs(overX - (oneBox.maxX + RangeData.spotSpan(LAYOUT) - MEASURED.maxX)) < 1e-6).to.equal(true)
-			expect(
-				math.abs(overZ - (MEASURED.minZ - (oneBox.minZ - (RangeData.distanceMax(LAYOUT) - one.DISTANCE_STUDS))))
-					< 1e-6
-			).to.equal(true)
-			TestKit.note(
-				string.format(
-					"range forest footprint: x %.1f..%.1f z %.1f..%.1f -- OVERFLOWS the measured x %d..%d z %d..%d by %.1f east and %.1f south (one station fits: x %.1f..%.1f); parts %s",
+					"range B8 site: parts x %.1f..%.1f z %.1f..%.1f inside the censused x %d..%d z %d..%d; shelf %.1f; parts %s",
 					box.minX,
 					box.maxX,
 					box.minZ,
@@ -3920,14 +3925,267 @@ return function()
 					MEASURED.maxX,
 					MEASURED.minZ,
 					MEASURED.maxZ,
-					overX,
-					overZ,
-					oneBox.minX,
-					oneBox.maxX,
+					b.shelf,
 					table.concat(names, ", ")
 				)
 			)
 			parent:Destroy()
+		end)
+
+		-- ------------------------------------------------- 13. THE TERRACE AND THE EARTH (step B8)
+		--
+		-- `terrain` IS AN ARGUMENT (design 8.2), so these cases hand in a fake that RECORDS its calls
+		-- and no spec can write the DEV place's ground -- `Lobby.Field`'s own discipline, borrowed
+		-- with its reason. Both arms are entered by parameter: the DEV row writes nothing even when a
+		-- terrain is handed to it, because `fill` is data and not a branch on a world's name.
+		local function fakeTerrain()
+			local rec = { fills = {}, replaces = {} }
+			function rec:FillBlock(at: CFrame, size: Vector3, material: Enum.Material)
+				table.insert(rec.fills, { at = at, size = size, material = material })
+			end
+			function rec:ReplaceMaterial(region: Region3, resolution: number, from: Enum.Material, to: Enum.Material)
+				table.insert(rec.replaces, { region = region, resolution = resolution, from = from, to = to })
+			end
+			return rec
+		end
+
+		local function buildOnTerrain(row, groundAt)
+			local terrain = fakeTerrain()
+			local parent = Instance.new("Folder")
+			local built, why = Range.Build.build({
+				parent = parent,
+				row = row,
+				layout = LAYOUT,
+				groundAt = groundAt,
+				terrain = terrain,
+			})
+			return built, why, parent, terrain
+		end
+
+		it("writes NOTHING without a terrain, and nothing at all on the DEV row that has one", function()
+			-- (a) the shape every other case in this file runs in: no terrain, no write, and the
+			-- counters say so rather than the absence of a crash saying it.
+			local built, _, parent = buildWith(FOREST_ROW, slopedGround)
+			expect((built :: any).terrainFills).to.equal(0)
+			expect((built :: any).terrainReplaces).to.equal(0)
+			parent:Destroy()
+			-- (b) A TERRAIN IS HANDED IN AND THE ROW STILL DECIDES. This is the case that bites: with
+			-- the `fillsTerrain(row)` guard dropped, the DEV arm writes a 232-stud terrace into the
+			-- place the harness itself runs in.
+			local devBuilt, devWhy, devParent, devTerrain = buildOnTerrain(DEV_ROW, nil)
+			expect(devWhy).to.equal(nil)
+			expect(#devTerrain.fills).to.equal(0)
+			expect(#devTerrain.replaces).to.equal(0)
+			expect((devBuilt :: any).terrainFills).to.equal(0)
+			-- ...and the DEV berm and banks are still PARTS, which is the other half of the row.
+			expect((devBuilt :: any).folder:FindFirstChild("Berm")).to.be.ok()
+			expect((devBuilt :: any).folder:FindFirstChild(RangeData.bankName(1))).to.be.ok()
+			expect((devBuilt :: any).folder:FindFirstChild(RangeData.bankName(2))).to.be.ok()
+			devParent:Destroy()
+		end)
+
+		it("cuts one level terrace, AIR before GRASS, every face on the voxel grid", function()
+			local built, why, parent, terrain = buildOnTerrain(FOREST_ROW, slopedGround)
+			expect(why).to.equal(nil)
+			local b = built :: any
+			expect(b.shelf).to.equal(FOREST_SHELF)
+			expect(#terrain.fills > 0).to.equal(true)
+			expect(b.terrainFills).to.equal(#terrain.fills)
+			expect(b.terrainReplaces).to.equal(#terrain.replaces)
+			local grid = LAYOUT.FILL.GRID_STUDS
+			local firstGrass, lastAir = nil, nil
+			for index, call in ipairs(terrain.fills) do
+				if call.material == Enum.Material.Air then
+					lastAir = index
+				elseif firstGrass == nil then
+					firstGrass = index
+				end
+				-- EVERY X AND Z FACE ON THE 4-STUD GRID. A face inside a voxel writes it only partly,
+				-- and for the AIR box that is exactly the mound task 311 photographed.
+				for _, pair in ipairs({
+					{ call.at.Position.X, call.size.X },
+					{ call.at.Position.Z, call.size.Z },
+				}) do
+					local low = pair[1] - pair[2] / 2
+					local high = pair[1] + pair[2] / 2
+					expect(math.abs(low / grid - math.floor(low / grid + 0.5)) < 1e-6).to.equal(true)
+					expect(math.abs(high / grid - math.floor(high / grid + 0.5)) < 1e-6).to.equal(true)
+				end
+			end
+			-- AIR FIRST, AND THAT IS ORDER AND NOT TIDINESS (task 311): the air box reaches BELOW the
+			-- shelf to the voxel boundary, so run after the grass it would eat the terrace it cut for.
+			expect(lastAir).to.be.ok()
+			expect(firstGrass).to.be.ok()
+			expect((lastAir :: number) < (firstGrass :: number)).to.equal(true)
+			-- THE AIR'S BOTTOM IS THE VOXEL BOUNDARY AT OR BELOW THE SHELF, and the grass is a solid
+			-- bank DOWN to it -- never a floating slab (`Lobby.Field`'s two measured lessons).
+			for _, call in ipairs(terrain.fills) do
+				local bottom = call.at.Position.Y - call.size.Y / 2
+				local top = call.at.Position.Y + call.size.Y / 2
+				if call.material == Enum.Material.Air then
+					expect(math.abs(bottom - math.floor(b.shelf / grid) * grid) < 1e-6).to.equal(true)
+					expect(top >= b.shelf + LAYOUT.FILL.CLEAR_STUDS - 1e-6).to.equal(true)
+				elseif top <= b.shelf + 1e-6 then
+					expect(math.abs(bottom - (b.shelf - LAYOUT.FILL.DEPTH_STUDS)) < 1e-6).to.equal(true)
+				end
+			end
+			parent:Destroy()
+		end)
+
+		it("stops the terrace at the lobby field's own edge, read off Lobby and not retyped", function()
+			-- THE SEAM, CHECKED RATHER THAN PROMISED. `keepOut` is two numbers on the row; this case
+			-- asserts they ARE the lobby field's west and south edges, computed from `Lobby.CONFIG`,
+			-- so moving the lobby breaks this case instead of silently cutting the lodge's ground.
+			local keepOut = (FOREST_ROW :: any).keepOut
+			local half = LOBBY_CFG.FIELD.SPAN_STUDS / 2
+			expect(keepOut.x).to.equal(LOBBY_ANCHOR.x - half)
+			expect(keepOut.z).to.equal(LOBBY_ANCHOR.z - half)
+			local anchor = Vector3.new((FOREST_ROW :: any).x, FOREST_SHELF, (FOREST_ROW :: any).z)
+			local rects = RangeData.cutRects(anchor, LAYOUT, -1, FOREST_ROW)
+			expect(#rects).to.equal(2)
+			local overlap = 0
+			for _, rect in ipairs(rects) do
+				local dx = math.min(rect.maxX, LOBBY_ANCHOR.x + half) - math.max(rect.minX, LOBBY_ANCHOR.x - half)
+				local dz = math.min(rect.maxZ, LOBBY_ANCHOR.z + half) - math.max(rect.minZ, LOBBY_ANCHOR.z - half)
+				if dx > 0 and dz > 0 then
+					overlap += dx * dz
+				end
+			end
+			expect(overlap).to.equal(0)
+			-- ...AND A ROW WITHOUT `keepOut` GETS ONE RECTANGLE and the same arithmetic: the split is
+			-- data, not a branch, and the one-rectangle arm is entered here rather than assumed.
+			local plain = table.clone(FOREST_ROW :: any)
+			plain.keepOut = nil
+			local one = RangeData.cutRects(anchor, LAYOUT, -1, plain)
+			expect(#one).to.equal(1)
+			expect(one[1].maxX > rects[2].maxX).to.equal(true)
+			-- THE TERRACE STILL REACHES EVERYTHING BUILT ON IT, which is what the keep-out could break.
+			local built, _, parent = buildWith(FOREST_ROW, slopedGround)
+			for _, part in ipairs(partsOf((built :: any).folder)) do
+				local covered = false
+				for _, rect in ipairs(rects) do
+					if
+						part.Position.X - part.Size.X / 2 >= rect.minX - 1e-6
+						and part.Position.X + part.Size.X / 2 <= rect.maxX + 1e-6
+						and part.Position.Z - part.Size.Z / 2 >= rect.minZ - 1e-6
+						and part.Position.Z + part.Size.Z / 2 <= rect.maxZ + 1e-6
+					then
+						covered = true
+					end
+				end
+				expect(covered).to.equal(true)
+			end
+			parent:Destroy()
+		end)
+
+		it("fills a berm with a battered uprange face and ONE level crest, and two banks on the flat", function()
+			local anchor = Vector3.new((FOREST_ROW :: any).x, FOREST_SHELF, (FOREST_ROW :: any).z)
+			local boxes = Range.Build.bermBoxes(anchor, FOREST_SHELF, LAYOUT, -1)
+			expect(#boxes).to.equal(1 + LAYOUT.BERM.slopeSteps)
+			-- EVERY BAND STANDS FROM THE TERRACE, so the heap is solid and nothing floats (rule E).
+			for _, box in ipairs(boxes) do
+				expect(math.abs((box.at.Position.Y - box.size.Y / 2) - FOREST_SHELF) < 1e-6).to.equal(true)
+			end
+			-- THE CREST IS THE CORE'S, one level line at the design's 10 studs, and no band reaches it.
+			expect(math.abs(boxes[1].size.Y - LAYOUT.BERM.height) < 1e-6).to.equal(true)
+			local nearFace = RangeData.bermPosition(anchor, LAYOUT, -1).Z + LAYOUT.BERM.depth / 2
+			local lastReach, lastTop = -math.huge, math.huge
+			for index = 2, #boxes do
+				local box = boxes[index]
+				local top = box.at.Position.Y + box.size.Y / 2
+				expect(top < FOREST_SHELF + LAYOUT.BERM.height - 1e-6).to.equal(true)
+				-- A BATTER AND NOT A WALL: each higher band reaches LESS far uprange than the one below.
+				local reach = (box.at.Position.Z + box.size.Z / 2) - nearFace
+				expect(reach > 0).to.equal(true)
+				if index > 2 then
+					expect(reach < lastReach).to.equal(true)
+					expect(top > lastTop).to.equal(true)
+				end
+				lastReach, lastTop = reach, top
+			end
+			-- ...AND THE SLOPE'S TOE IS THE DESIGNED RUN, so "1:1.2" is a number and not a word.
+			expect(math.abs(((boxes[2].at.Position.Z + boxes[2].size.Z / 2) - nearFace) - LAYOUT.BERM.slopeRun) < 1e-6).to.equal(
+				true
+			)
+			-- THE BANKS ARE FILLED WHERE THE PARTS WOULD HAVE STOOD -- one answer to "where is a bank".
+			local _, _, parent, terrain = buildOnTerrain(FOREST_ROW, slopedGround)
+			for leg = 1, 2 do
+				local at = RangeData.bankPosition(anchor, LAYOUT, leg, -1)
+				local found = false
+				for _, call in ipairs(terrain.fills) do
+					if
+						math.abs(call.at.Position.X - at.X) < 1e-6
+						and math.abs(call.at.Position.Z - at.Z) < 1e-6
+						and math.abs(call.size.Y - LAYOUT.BANK.size.Y) < 1e-6
+					then
+						found = true
+					end
+				end
+				expect(found).to.equal(true)
+			end
+			parent:Destroy()
+		end)
+
+		it("paints the mown lane, then the firing line over every mat, post and bench", function()
+			local built, _, parent, terrain = buildOnTerrain(FOREST_ROW, slopedGround)
+			local b = built :: any
+			expect(#terrain.replaces).to.equal(3) -- two terrace rectangles, then the line
+			for _, call in ipairs(terrain.replaces) do
+				-- `ReplaceMaterial` takes the voxel resolution and nothing else (task 244).
+				expect(call.resolution).to.equal(LAYOUT.FILL.GRID_STUDS)
+			end
+			local last = terrain.replaces[#terrain.replaces]
+			-- THE LINE LAST, or the lane's own repaint would put the grass back over it.
+			expect(last.from).to.equal(LAYOUT.SURFACE.LANE)
+			expect(last.to).to.equal(LAYOUT.SURFACE.LINE)
+			for index = 1, #terrain.replaces - 1 do
+				expect(terrain.replaces[index].from).to.equal(LAYOUT.SURFACE.AROUND)
+				expect(terrain.replaces[index].to).to.equal(LAYOUT.SURFACE.LANE)
+			end
+			-- THE STRIP COVERS WHAT A MAN STANDS ON AT ALL SIX STATIONS, and that is the claim the
+			-- three reaches exist for: every mat, every post and every bench, by its own footprint.
+			local anchor = Vector3.new((FOREST_ROW :: any).x, b.shelf, (FOREST_ROW :: any).z)
+			local line = RangeData.lineRect(anchor, LAYOUT, -1)
+			local covered = 0
+			for _, part in ipairs(partsOf(b.folder)) do
+				if part.Name:match("^Mat%d") or part.Name:match("^Post%d") or part.Name:match("^Bench%d") then
+					expect(part.Position.X - part.Size.X / 2 >= line.minX - 1e-6).to.equal(true)
+					expect(part.Position.X + part.Size.X / 2 <= line.maxX + 1e-6).to.equal(true)
+					expect(part.Position.Z - part.Size.Z / 2 >= line.minZ - 1e-6).to.equal(true)
+					expect(part.Position.Z + part.Size.Z / 2 <= line.maxZ + 1e-6).to.equal(true)
+					covered += 1
+				end
+			end
+			expect(covered).to.equal(LAYOUT.SPOT_COUNT * 3)
+			-- ...AND THE STRIP IS NOT THE WHOLE LANE: the gravel ends and the mown grass begins, or
+			-- there is one surface and the two materials mean nothing.
+			local rects = RangeData.cutRects(anchor, LAYOUT, -1, FOREST_ROW)
+			local terraceZ = math.huge
+			for _, rect in ipairs(rects) do
+				terraceZ = math.min(terraceZ, rect.minZ)
+			end
+			expect(line.minZ > terraceZ + RangeData.distanceMax(LAYOUT) / 2).to.equal(true)
+			parent:Destroy()
+		end)
+
+		it("takes its level from the LOBBY and lands on the same number a second time", function()
+			-- THE FIXED POINT (task 311, review round 1 finding 1). `tryBuild` can run more than once,
+			-- and the second run reads the ground the FIRST fill produced. Flooring is stable;
+			-- rounding lifts the whole range a voxel per retry.
+			local from = (FOREST_ROW :: any).shelfFrom
+			expect(from.x).to.equal(LOBBY_ANCHOR.x)
+			expect(from.z).to.equal(LOBBY_ANCHOR.z)
+			local first = Range.Build.shelfAt(2600, -3030, FOREST_ROW, slopedGround)
+			expect(first).to.equal(FOREST_SHELF)
+			-- ...and the range anchor's OWN ground is a different number, so this case cannot pass by
+			-- accident with `shelfFrom` ignored.
+			expect(math.abs(slopedGround(2600, -3030) - (first :: number)) > 1).to.equal(true)
+			local second = Range.Build.shelfAt(2600, -3030, FOREST_ROW, function()
+				return first
+			end)
+			expect(second).to.equal(first)
+			-- THE DEV ROW IS UNTOUCHED BY ALL OF IT: a plate is its own shelf, read from no ground.
+			expect(Range.Build.shelfAt(1200, 0, DEV_ROW, nil)).to.equal(0)
 		end)
 
 		it("stands clear of all seven lobby rectangles -- the range is the eighth", function()

@@ -102,7 +102,18 @@ Range.LAYOUT = {
 	-- `behindStuds` 13 AND NOT 12, so the berm's rectangle is on the terrain grid in all FOUR
 	-- edges: the centre sits `distanceMax + 13` = 192 from the anchor and `depth` 8 puts its faces
 	-- at 188 and 196, both multiples of `FILL.GRID_STUDS` (design 5.4). At 12 they were 187 and 195.
-	BERM = { height = 10, depth = 8, behindStuds = 13, color = Color3.fromRGB(104, 84, 62) },
+	-- `slopeRun` and `slopeSteps` ARE THE UPRANGE FACE (step B8). A rectangular block of earth is
+	-- a wall; Karen asked for *"a mountain not high but like in real life"*, and a real berm is a
+	-- trapezoid. Four 2.5-stud bands over a 12-stud run is a 1:1.2 batter. Only the terrain arm
+	-- reads them -- a part berm is one box, as it was.
+	BERM = {
+		height = 10,
+		depth = 8,
+		behindStuds = 13,
+		slopeRun = 12,
+		slopeSteps = 4,
+		color = Color3.fromRGB(104, 84, 62),
+	},
 	MAT = { size = Vector3.new(8, 1, 8), color = Color3.fromRGB(70, 82, 70) },
 	-- THE WAY IN STANDS WHERE SHE IS LOOKING. A ProximityPrompt is drawn only while its own
 	-- position is on screen, so one hung on the 8x8 mat under her feet is invisible down the lane
@@ -134,6 +145,28 @@ Range.LAYOUT = {
 	-- measured lesson, `Lobby.CONFIG.FIELD.PADS`). `DEPTH_STUDS` and `CLEAR_STUDS` are read by the
 	-- terrain writer in her place (design 8).
 	FILL = { DEPTH_STUDS = 48, CLEAR_STUDS = 96, GRID_STUDS = 4 },
+	-- THE TWO SURFACES (design 8.3), as Enum values rather than as a guess: `Places.Ground` paints
+	-- `Grass` and `LeafyGrass` as two different ground covers, so a SHORT grass lane beside the
+	-- hill's long grass is what reads as mown -- the same device `Lobby.CONFIG.FIELD` credits for
+	-- making a field read as a field. `Limestone` is pale crushed stone, in that same accepted list.
+	-- The strip's three reaches cover every part on the line: the post sits 7.6 studs downrange of
+	-- the anchor, the deck 14 uprange, and the mats span 2596..2724 for a six-station row.
+	SURFACE = {
+		LANE = Enum.Material.Grass,
+		AROUND = Enum.Material.LeafyGrass,
+		LINE = Enum.Material.Limestone,
+		LINE_AHEAD_STUDS = 10,
+		LINE_BACK_STUDS = 14,
+		LINE_SIDE_STUDS = 8,
+		-- `Lobby.CONFIG.FIELD.CHUNK_STUDS`' own value and its own reason: `MapGen.Ground` measured a
+		-- per-region voxel ceiling in this Studio version, so a fill is chunked whatever the
+		-- `FillBlock` ceiling turns out to be.
+		CHUNK_STUDS = 64,
+	},
+	-- THE FLAT TERRACE (design 8.4), as the two reaches past what stands on it: `uprangeStuds` past
+	-- the anchor behind the seat's feet, `downrangeStuds` past the berm's far face. Its X is the
+	-- berm's own derived span, so the cut can never be narrower than what is built on it.
+	CUT = { uprangeStuds = 34, downrangeStuds = 2 },
 	PROMPT = {
 		ActionText = "RANGE",
 		ObjectText = "SHOOTING RANGE",
@@ -150,21 +183,55 @@ Range.LAYOUT = {
 -- `downrange` IS THE LANE'S DIRECTION ALONG Z, AS DATA ON THE ROW and never a branch on the world's
 -- name: one arithmetic, two signs, both reachable in a spec by parameter. +1 is the DEV row's north.
 Range.ANCHORS = {
-	-- KAREN'S PLACE, MEASURED (step B6, design 4.2's instrument): a raycast grid, 8-stud spacing,
-	-- 504 samples over the 160 x 185 footprint, run in Edit and again in Play. Best centre
-	-- (2650, -3300): 0 non-terrain hits, 0 misses, ground spread 11.6 studs (the lobby's own
-	-- chosen site had 16). The firing line stands at the footprint's NORTH end and the lane runs
-	-- SOUTH, 158 studs clear of the Road pad's south edge (`range.spec`'s own measurement), so the line
-	-- points away from the lodge, the pads and the gathering yard. `plate = false` and NO TYPED Y: the
-	-- the injected `groundAt`'s answer at build time, because a typed one would be a guess that
-	-- puts the range in the air or inside the hill. `drawn = true`: the target is the same animal
-	-- her drive draws, which in DEV (no row field) is the grey box with its real welded zones.
-	["forest-test"] = { x = 2650, z = -3216, plate = false, downrange = -1, drawn = true },
+	-- KAREN'S PLACE, RE-MEASURED FOR SIX STATIONS (step B8, design 2.1). The B6 anchor (2650, -3216)
+	-- was chosen for ONE station over a 160 x 185 footprint; six stations plus the treestand need
+	-- 256 x 239, and Karen on 2026-10-28 wanted the range *"in lobby / people don't have to walk
+	-- far"*. (2600, -3030) is 186.7 walked studs from the lodge door and shoots SOUTH, away from the
+	-- lodge, the road, the yard, the trucks, the spawn, the gathering yard and the drive.
+	-- MEASURED IN HER PLACE 2026-10-29 (evidence/306b8/census.txt): 0 BaseParts in the footprint,
+	-- 990 ground samples, 0 missed, ground spread 33.0 studs and 23.5 across the firing line alone
+	-- -- which is why `fill = true` exists and why nothing here is laid on natural ground.
+	-- The row BEFORE this step is archived at backups/task-306b8/ (rule 7).
+	--
+	-- `berm = "terrain"` and `fill = true` ARE DATA, NEVER A BRANCH ON THE WORLD'S NAME (design 8.1):
+	-- both arms are reachable in `range.spec` by parameter.
+	-- `shelfFrom` IS THE LOBBY'S OWN ANCHOR, and it is the whole of the level walk. Read through the
+	-- same `groundAt` and snapped by the same floor-to-grid rule as `Lobby.Field.shelfFor`, it
+	-- resolves to the lobby's own shelf (148, measured) -- so the range terrace and the lodge yard
+	-- are ONE terrace and a man walks from the door to the mat without a step. The ground at the
+	-- range anchor instead gives 132: a 16-stud cliff across her path (evidence/306b8/profile.txt).
+	-- `keepOut` IS THE LOBBY FIELD'S WEST AND SOUTH EDGES (x 2740, z -3060, from `Lobby.CONFIG.FIELD`):
+	-- north of that z the cut stops at that x, so the two terraces meet FLUSH on one voxel plane and
+	-- neither writes the other's ground. `range.spec` asserts the pair against `Lobby`'s own config.
+	["forest-test"] = {
+		x = 2600,
+		z = -3030,
+		plate = false,
+		downrange = -1,
+		drawn = true,
+		berm = "terrain",
+		fill = true,
+		shelfFrom = { x = 2850, z = -2950 },
+		keepOut = { x = 2740, z = -3060 },
+	},
 	-- The DEV place, where the harness runs. Its own anchored ground plate (`plate = true`), clear
 	-- of the generated map: x = 1200 is outside `Map.FIELD.bounds` (maxX 620) and outside
 	-- `Map.SIZE_STUDS / 2` = 1024, so it touches neither the drive corridor nor one generated prop.
-	["map:v1"] = { x = 1200, z = 0, y = 0, plate = true },
+	-- `berm = "parts"` and `fill = false` SPELLED OUT and not defaulted, so the two arms read as one
+	-- table with two values rather than as a row with a hole in it.
+	["map:v1"] = { x = 1200, z = 0, y = 0, plate = true, berm = "parts", fill = false },
 }
+
+-- IS THE BERM EARTH OR A PART? DATA ON THE ROW (design 8.1), defaulted to parts so every row
+-- written before this step keeps the berm it had.
+function Range.bermIsTerrain(row: any): boolean
+	return type(row) == "table" and row.berm == "terrain"
+end
+
+-- DOES THIS WORLD'S RANGE CUT ITS OWN GROUND FLAT? Same shape, same default: no.
+function Range.fillsTerrain(row: any): boolean
+	return type(row) == "table" and row.fill == true
+end
 
 -- WHICH WAY IS DOWNRANGE: +1 or -1 along z, read off the row and defaulted to +1 so every row
 -- written before step B6 keeps the lane it had.
@@ -870,6 +937,80 @@ function Range.footprintFor(anchor: Vector3, layout, downrange: number?)
 		maxX = math.ceil(maxX + margin),
 		minZ = math.floor(math.min(nearZ, farZ) - margin),
 		maxZ = math.ceil(math.max(nearZ, farZ) + margin),
+	}
+end
+
+-- ------------------------------------------------------------------- THE TERRACE (step B8)
+--
+-- A NUMBER SNAPPED OUTWARD TO THE TERRAIN VOXEL GRID. `Terrain:FillBlock` writes 4-stud voxels on
+-- a grid anchored at the world origin, so a box face that lands INSIDE a voxel writes it only
+-- partly -- and for an AIR box that means the hill's own occupancy survives in it (task 311's
+-- measured mound). Outward is the only safe direction: the terrace can grow, never shrink below
+-- what stands on it.
+--   Terrain:FillBlock https://create.roblox.com/docs/reference/engine/classes/Terrain#FillBlock
+function Range.toGrid(value: number, up: boolean, layout): number
+	local grid = (layout or Range.LAYOUT).FILL.GRID_STUDS
+	if up then
+		return math.ceil(value / grid) * grid
+	end
+	return math.floor(value / grid) * grid
+end
+
+-- THE FLAT TERRACE THE WHOLE RANGE STANDS ON, as ONE or TWO rectangles, PURE (design 8.4).
+--
+-- WHY THE WHOLE LANE AND NOT ONLY THE FIRING LINE, which is a MEASUREMENT and not a preference
+-- (evidence/306b8/profile.txt, her place, 2026-10-29): the natural ground falls 22 studs across
+-- the firing line and the two outer lanes disagree by 20 studs at the berm. On that ground T6's
+-- arithmetic -- a level shot meeting the berm at 5 of its 10 studs -- is about a berm that is not
+-- there, and T5's crossing is run on a hillside.
+--
+-- WHY IT CAN BE TWO RECTANGLES: `keepOut` is the lobby field's west and south edge. North of that
+-- z the terrace stops at that x, so the lodge's terrace and the range's meet on one voxel plane
+-- and neither cuts the other's ground. A row without `keepOut` gets one rectangle and the same
+-- arithmetic -- no branch on a world's name.
+function Range.cutRects(anchor: Vector3, layout, downrange: number?, row: any)
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local minX, maxX = Range.bermSpanFor(anchor, layout)
+	local berm = Range.bermPosition(anchor, layout, dir)
+	local nearZ = anchor.Z - dir * layout.CUT.uprangeStuds
+	local farZ = berm.Z + dir * (layout.BERM.depth / 2 + layout.CUT.downrangeStuds)
+	local lowZ, highZ = math.min(nearZ, farZ), math.max(nearZ, farZ)
+	minX, maxX = Range.toGrid(minX, false, layout), Range.toGrid(maxX, true, layout)
+	lowZ, highZ = Range.toGrid(lowZ, false, layout), Range.toGrid(highZ, true, layout)
+	local keepOut = if type(row) == "table" then row.keepOut else nil
+	if type(keepOut) ~= "table" or keepOut.x == nil or keepOut.z == nil then
+		return { { minX = minX, maxX = maxX, minZ = lowZ, maxZ = highZ } }
+	end
+	local splitZ = Range.toGrid(keepOut.z, false, layout)
+	local nearMaxX = Range.toGrid(math.min(maxX, keepOut.x), true, layout)
+	-- The split can fall outside the terrace, and then there is one rectangle and no seam.
+	if splitZ <= lowZ then
+		return { { minX = minX, maxX = nearMaxX, minZ = lowZ, maxZ = highZ } }
+	end
+	if splitZ >= highZ then
+		return { { minX = minX, maxX = maxX, minZ = lowZ, maxZ = highZ } }
+	end
+	return {
+		{ minX = minX, maxX = maxX, minZ = lowZ, maxZ = splitZ },
+		{ minX = minX, maxX = nearMaxX, minZ = splitZ, maxZ = highZ },
+	}
+end
+
+-- THE FIRING LINE'S OWN STRIP, PURE: the pale crushed stone a man stands on, against the mown
+-- lane. Its three reaches come from `SURFACE` and its X from the station row, so it covers every
+-- mat, post and bench at six stations and nothing downrange of them.
+function Range.lineRect(anchor: Vector3, layout, downrange: number?)
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local side = layout.SURFACE.LINE_SIDE_STUDS
+	local aheadZ = anchor.Z + dir * layout.SURFACE.LINE_AHEAD_STUDS
+	local backZ = anchor.Z - dir * layout.SURFACE.LINE_BACK_STUDS
+	return {
+		minX = Range.toGrid(anchor.X - side, false, layout),
+		maxX = Range.toGrid(anchor.X + Range.spotSpan(layout) + side, true, layout),
+		minZ = Range.toGrid(math.min(aheadZ, backZ), false, layout),
+		maxZ = Range.toGrid(math.max(aheadZ, backZ), true, layout),
 	}
 end
 

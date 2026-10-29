@@ -23,6 +23,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
@@ -161,6 +162,11 @@ local started = Range.start({
 	end,
 	-- nil in DEV, which lays its own plate (`row.plate`) and has no ground to read.
 	groundAt = groundAt,
+	-- THE PLACE'S OWN TERRAIN, AND ONLY WHERE THE ROW ASKS FOR A CUT (design 8.2, step B8). Karen's
+	-- OK of 2026-10-28 is what makes this legal: her Forest Test's terrain may be edited. It is an
+	-- ARGUMENT and never a `GetService` inside the builder, which is what keeps every spec -- and
+	-- the DEV place the harness runs in -- out of it.
+	terrain = if RangeData.fillsTerrain(row) then Workspace.Terrain else nil,
 	boars = {
 		spawn = function(position: Vector3, kind: string?)
 			-- The capacity check is here and not in `Range`: how many animals a runtime holds is the

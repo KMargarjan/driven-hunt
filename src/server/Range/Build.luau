@@ -128,7 +128,133 @@ function Build.shelfAt(x: number, z: number, row, groundAt: ((number, number) ->
 	if groundAt == nil then
 		return nil
 	end
-	return groundAt(x, z)
+	-- ONE TERRACE WITH THE LODGE, when the row says where to take the level from (step B8). Read
+	-- through the SAME ground reader, so there is no second definition of "where is the ground" and
+	-- no require edge to `Lobby`. Measured in her place: the range anchor reads 134.9 and the lobby
+	-- anchor 149.25, so a terrace at the first would put a 16-stud cliff across her walk.
+	local from = row.shelfFrom
+	local measured = if type(from) == "table" then groundAt(from.x, from.z) else groundAt(x, z)
+	if measured == nil then
+		return nil
+	end
+	-- SNAPPED DOWN TO THE VOXEL GRID, which is `Lobby.Field.shelfFor` verbatim and for its reason:
+	-- a shelf inside a 4-stud band leaves a partial voxel the fill cannot flatten, and FLOORING is
+	-- the fixed point -- a second build reads the ground the first one made and lands on it again.
+	if row.fill ~= true then
+		return measured
+	end
+	local grid = RangeData.LAYOUT.FILL.GRID_STUDS
+	return math.floor((measured :: number) / grid) * grid
+end
+
+-- ------------------------------------------------------------- THE TERRACE AND THE EARTH (B8)
+--
+-- PURE. One rectangle's AIR box and GRASS box: `Lobby.Field`'s exact pair with its two measured
+-- lessons -- the air runs from the voxel boundary at or below the shelf (or the hill's own
+-- contour survives in that band, task 311's mound) and the grass is a SOLID bank down to
+-- `DEPTH_STUDS`, never a slab.
+--   Terrain:FillBlock https://create.roblox.com/docs/reference/engine/classes/Terrain#FillBlock
+function Build.cutBoxes(rect, shelf: number, layout): (CFrame, Vector3, CFrame, Vector3)
+	local grid = layout.FILL.GRID_STUDS
+	local bottom = math.floor(shelf / grid) * grid
+	local sizeX = rect.maxX - rect.minX
+	local sizeZ = rect.maxZ - rect.minZ
+	local cx = (rect.minX + rect.maxX) / 2
+	local cz = (rect.minZ + rect.maxZ) / 2
+	local airH = layout.FILL.CLEAR_STUDS + (shelf - bottom)
+	return CFrame.new(cx, bottom + airH / 2, cz),
+		Vector3.new(sizeX, airH, sizeZ),
+		CFrame.new(cx, shelf - layout.FILL.DEPTH_STUDS / 2, cz),
+		Vector3.new(sizeX, layout.FILL.DEPTH_STUDS, sizeZ)
+end
+
+-- PURE. THE BERM AS EARTH: a core block plus `slopeSteps` nested bands that batter its UPRANGE
+-- face, each band standing from the terrace up to its own top -- so the heap is solid from the
+-- ground and the crest is one level line. In the order they are filled.
+function Build.bermBoxes(anchor: Vector3, shelf: number, layout, dir: number): { { at: CFrame, size: Vector3 } }
+	local at = RangeData.bermPosition(anchor, layout, dir)
+	local size = RangeData.bermSizeFor(layout)
+	local out = { { at = CFrame.new(at.X, shelf + size.Y / 2, at.Z), size = size } }
+	local steps = math.max(0, math.floor(layout.BERM.slopeSteps or 0))
+	local run = layout.BERM.slopeRun or 0
+	for k = 1, steps do
+		local height = size.Y * k / (steps + 1)
+		local extra = run * (steps + 1 - k) / steps
+		-- THE EXTRA DEPTH IS ALL UPRANGE: the face the shooter sees is battered, the back stays sheer.
+		table.insert(out, {
+			at = CFrame.new(at.X, shelf + height / 2, at.Z - dir * extra / 2),
+			size = Vector3.new(size.X, height, size.Z + extra),
+		})
+	end
+	return out
+end
+
+-- THE ONE TERRAIN WRITE IN THIS SYSTEM, and `terrain` is an ARGUMENT so no spec can write a
+-- place's ground (design 8.2; `Lobby.Field.fill`'s own discipline). AIR first, then grass, then
+-- the earth that stands on it, then the two materials -- in any other order each step eats the
+-- one before it. Returns the fill count and the replace count, so which path a build took is a
+-- number in `Range.stats()` rather than a belief.
+function Build.writeTerrain(terrain: any, anchor: Vector3, shelf: number, row, layout, dir: number): (number, number)
+	local fills, replaces = 0, 0
+	local chunk = layout.SURFACE.CHUNK_STUDS
+	-- CHUNKED ALONG X, `Lobby.Field.chunks`' shape and its reason: `MapGen.Ground` measured a
+	-- per-region voxel ceiling in this Studio version, and `FillBlock`'s own is not measured here.
+	local function fill(at: CFrame, size: Vector3, material: Enum.Material)
+		local left = size.X
+		local x = at.Position.X - size.X / 2
+		while left > 1e-6 do
+			local take = math.min(chunk, left)
+			terrain:FillBlock(
+				CFrame.new(x + take / 2, at.Position.Y, at.Position.Z),
+				Vector3.new(take, size.Y, size.Z),
+				material
+			)
+			fills += 1
+			x += take
+			left -= take
+		end
+	end
+	local rects = RangeData.cutRects(anchor, layout, dir, row)
+	for _, rect in ipairs(rects) do
+		local airAt, airSize, grassAt, grassSize = Build.cutBoxes(rect, shelf, layout)
+		fill(airAt, airSize, Enum.Material.Air)
+		fill(grassAt, grassSize, layout.SURFACE.LANE)
+	end
+	-- THE EARTH, ON THE FLAT: the berm and the two cover banks. In DEV these are parts and this
+	-- whole function never runs.
+	for _, box in ipairs(Build.bermBoxes(anchor, shelf, layout, dir)) do
+		fill(box.at, box.size, layout.SURFACE.LANE)
+	end
+	for leg = 1, 2 do
+		local bank = RangeData.bankPosition(anchor, layout, leg, dir)
+		local size = layout.BANK.size
+		fill(CFrame.new(bank.X, shelf + size.Y / 2, bank.Z), size, layout.SURFACE.LANE)
+	end
+	-- ...AND THE TWO MATERIALS LAST. `ReplaceMaterial` changes the material of a voxel and NOTHING
+	-- else -- no occupancy, no height, no part -- so it can only repaint what the fills shaped.
+	-- The lane first (the hill's long grass the fill could not reach), the firing line second, or
+	-- the line would be painted back to grass.
+	--   Terrain:ReplaceMaterial https://create.roblox.com/docs/reference/engine/classes/Terrain#ReplaceMaterial
+	--   Region3:ExpandToGrid    https://create.roblox.com/docs/reference/engine/datatypes/Region3#ExpandToGrid
+	local skin = layout.FILL.GRID_STUDS
+	local function repaint(rect, from: Enum.Material, to: Enum.Material)
+		terrain:ReplaceMaterial(
+			Region3.new(
+				Vector3.new(rect.minX, shelf - skin, rect.minZ),
+				Vector3.new(rect.maxX, shelf + skin, rect.maxZ)
+			)
+				:ExpandToGrid(skin),
+			skin,
+			from,
+			to
+		)
+		replaces += 1
+	end
+	for _, rect in ipairs(rects) do
+		repaint(rect, layout.SURFACE.AROUND, layout.SURFACE.LANE)
+	end
+	repaint(RangeData.lineRect(anchor, layout, dir), layout.SURFACE.LANE, layout.SURFACE.LINE)
+	return fills, replaces
 end
 
 -- Builds the range under `parent` and returns the folder plus what it cost. Returns nil and a
@@ -155,6 +281,16 @@ function Build.build(opts)
 	end
 	local anchor = Vector3.new(row.x, shelf, row.z)
 
+	-- THE GROUND IS CUT BEFORE ANYTHING IS MEASURED ON IT (step B8). Every part below is laid by
+	-- reading `groundAt`, so a terrace written afterwards would move the ground out from under a
+	-- row of mats already placed. A nil `terrain`, or a row that asks for no fill, writes nothing --
+	-- which is every spec and every DEV run.
+	local dir = RangeData.downrangeOf(row)
+	local terrainFills, terrainReplaces = 0, 0
+	if RangeData.fillsTerrain(row) and opts.terrain ~= nil then
+		terrainFills, terrainReplaces = Build.writeTerrain(opts.terrain, anchor, shelf :: number, row, layout, dir)
+	end
+
 	local folder = Instance.new("Folder")
 	folder.Name = layout.folderName
 
@@ -173,7 +309,6 @@ function Build.build(opts)
 	-- has to be the firing position and not a screen 145 studs downrange.
 	-- WHICH WAY IS DOWNRANGE, off the ROW and never off the world's name: +1 in DEV, -1 in Karen's
 	-- place, where the lane points south away from the lodge (design 4.2 item 5).
-	local dir = RangeData.downrangeOf(row)
 	local mats = {}
 	for spot = 1, layout.SPOT_COUNT do
 		local at = RangeData.matPosition(anchor, spot, layout)
@@ -285,15 +420,23 @@ function Build.build(opts)
 	-- THE TWO COVER BANKS, one BEYOND each end of the SHARED corridor (design 5.3): ISSF hides the
 	-- turn-around, because a visible 180-degree turn is not a crossing animal. `bankPosition` and
 	-- not `laneEnds`: a bank ON the end is a wall the target walks into (measured in DEV).
-	for leg = 1, 2 do
-		local at = RangeData.bankPosition(anchor, layout, leg, dir)
-		onGround(RangeData.bankName(leg), layout.BANK.size, at.X, at.Z, layout.BANK.color)
+	-- ...AS PARTS OR AS EARTH, off the ROW and never off the world's name (design 8.1). Where
+	-- `berm = "terrain"` the two banks and the berm went into the ground above, and building them
+	-- again here would stand a grey box inside a heap of soil.
+	local asEarth = RangeData.bermIsTerrain(row)
+	if not asEarth then
+		for leg = 1, 2 do
+			local at = RangeData.bankPosition(anchor, layout, leg, dir)
+			onGround(RangeData.bankName(leg), layout.BANK.size, at.X, at.Z, layout.BANK.color)
+		end
 	end
 
 	-- THE BACKSTOP, behind the longest lane: its width is DERIVED so it spans every station's lane
 	-- AND both banks (design 5.2), and it stops a stray slug leaving the lobby.
-	local berm = RangeData.bermPosition(anchor, layout, dir)
-	onGround("Berm", RangeData.bermSizeFor(layout), berm.X, berm.Z, layout.BERM.color)
+	if not asEarth then
+		local berm = RangeData.bermPosition(anchor, layout, dir)
+		onGround("Berm", RangeData.bermSizeFor(layout), berm.X, berm.Z, layout.BERM.color)
+	end
 
 	-- THE PARENT, LAST.
 	folder.Parent = parent
@@ -318,6 +461,8 @@ function Build.build(opts)
 		refusedStands = refusedStands,
 		standRefusals = standRefusals,
 		parts = parts,
+		terrainFills = terrainFills,
+		terrainReplaces = terrainReplaces,
 		buildMs = math.floor((os.clock() - started) * 1000 + 0.5),
 		laneHalf = half,
 		downrange = dir,
