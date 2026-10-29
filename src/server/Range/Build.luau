@@ -594,37 +594,42 @@ function Build.build(opts)
 		onGround("Berm", RangeData.bermSizeFor(layout), berm.X, berm.Z, layout.BERM.color, Enum.Material.Grass)
 	end
 
-	-- THE MOWN LANE (step B10, item 2): ONE decorative slab of a BasePart's `Grass` -- a flat
-	-- texture with NO blades, because blades are the TERRAIN renderer's and that is the whole of
-	-- B8's measured objection. `CanCollide` and `CanQuery` are FALSE, so a ray, a bullet, a boar's
-	-- route and a man's feet all pass straight through it: nothing about the game moves (8.3 L3).
-	local turfRect = RangeData.turfRect(anchor, layout, dir)
-	local turf = makePart(
-		RangeData.TURF_NAME,
-		Vector3.new(turfRect.maxX - turfRect.minX, layout.TURF.thickness, turfRect.maxZ - turfRect.minZ),
-		Vector3.new(
-			(turfRect.minX + turfRect.maxX) / 2,
-			(shelf :: number) + layout.TURF.liftStuds - layout.TURF.thickness / 2,
-			(turfRect.minZ + turfRect.maxZ) / 2
-		),
-		layout.TURF.color,
-		folder,
-		layout.TURF.material
-	)
-	turf.CanCollide = false
-	turf.CanQuery = false
-	turf.CanTouch = false
-	turf.CastShadow = false
+	-- THE MOWN LANE (step B10, item 2): decorative slabs of a BasePart's `Grass` -- a flat texture
+	-- with NO blades, because blades are the TERRAIN renderer's and that is the whole of B8's
+	-- measured objection. `CanCollide` and `CanQuery` are FALSE, so a ray, a bullet, a boar's route
+	-- and a man's feet all pass straight through: nothing about the game moves (note 8.3 L3).
+	-- ONE SLAB PER TERRACE RECTANGLE: her place's terrace is two (`cutRects`' keep-out), and a
+	-- single slab across both would hang over the lodge terrace's edge.
+	for index, rect in ipairs(RangeData.turfSlabs(anchor, layout, dir, row)) do
+		local turf = makePart(
+			if index == 1 then RangeData.TURF_NAME else string.format("%s%d", RangeData.TURF_NAME, index),
+			Vector3.new(rect.maxX - rect.minX, layout.TURF.thickness, rect.maxZ - rect.minZ),
+			Vector3.new(
+				(rect.minX + rect.maxX) / 2,
+				(shelf :: number) + layout.TURF.liftStuds - layout.TURF.thickness / 2,
+				(rect.minZ + rect.maxZ) / 2
+			),
+			layout.TURF.color,
+			folder,
+			layout.TURF.material
+		)
+		turf.CanCollide = false
+		turf.CanQuery = false
+		turf.CanTouch = false
+		turf.CastShadow = false
+	end
 
-	-- TIDY EDGES (step B10, item 5; ref-5): a low rail fence down the lot's two long sides, laid on
-	-- the BERM'S OWN SPAN in X -- 18 studs outside the corridor, so nothing on it is in a line of
-	-- fire. Each post is grown off its own measured ground like every other part here (rule E).
+	-- TIDY EDGES (step B10, item 5; ref-5): a low rail fence down the lot's two long sides, on the
+	-- BERM'S OWN SPAN in X pulled a stud inside the terrace -- 18 studs outside the corridor, so
+	-- nothing on it is in a line of fire. Each post is grown off its own measured ground (rule E);
+	-- the RAIL is not, because it is a board `railRise` ABOVE the ground and `onGround` would grow a
+	-- 200-stud board into a wedge.
 	local fence = layout.FENCE
-	local legCount: { [number]: number } = {}
-	for _, post in ipairs(RangeData.fencePosts(anchor, layout, dir)) do
-		legCount[post.leg] = (legCount[post.leg] or 0) + 1
+	local runCount: { [number]: number } = {}
+	for _, post in ipairs(RangeData.fencePosts(anchor, layout, dir, row)) do
+		runCount[post.run] = (runCount[post.run] or 0) + 1
 		onGround(
-			RangeData.fencePostName(post.leg, legCount[post.leg]),
+			RangeData.fencePostName(post.run, runCount[post.run]),
 			Vector3.new(fence.postSection, fence.postRise, fence.postSection),
 			post.x,
 			post.z,
@@ -632,17 +637,12 @@ function Build.build(opts)
 			fence.material
 		)
 	end
-	-- THE RAIL IS NOT LAID ON THE GROUND, so `onGround` is the wrong tool for it: it is one long
-	-- board `railRise` ABOVE the ground, and `onGround` grows a part DOWNWARD by the spread under
-	-- its own footprint -- which over a 200-stud board would be a wedge. The level is taken at the
-	-- line's own middle, which is the whole terrace and flat by construction (`CUT`).
-	local fenceSpan = RangeData.fenceSpan(anchor, layout, dir)
-	local railZ = (fenceSpan.minZ + fenceSpan.maxZ) / 2
-	for leg, x in ipairs({ fenceSpan.minX, fenceSpan.maxX }) do
+	for run, line in ipairs(RangeData.fenceRuns(anchor, layout, dir, row)) do
+		local railZ = (line.minZ + line.maxZ) / 2
 		makePart(
-			RangeData.fenceRailName(leg),
-			Vector3.new(fence.railThick, fence.railTall, fenceSpan.maxZ - fenceSpan.minZ),
-			Vector3.new(x, groundAtOr(x, railZ) + fence.railRise, railZ),
+			RangeData.fenceRailName(run),
+			Vector3.new(fence.railThick, fence.railTall, line.maxZ - line.minZ),
+			Vector3.new(line.x, groundAtOr(line.x, railZ) + fence.railRise, railZ),
 			fence.color,
 			folder,
 			fence.material

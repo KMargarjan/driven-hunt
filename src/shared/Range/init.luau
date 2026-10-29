@@ -994,30 +994,96 @@ function Range.fenceSpan(anchor: Vector3, layout, downrange: number?)
 	}
 end
 
--- EVERY FENCE POST, as x/z pairs: `spacingStuds` apart along both lines, with a post ON each end so
--- no line finishes in mid air.
-function Range.fencePosts(anchor: Vector3, layout, downrange: number?): { { x: number, z: number, leg: number } }
+-- TWO RECTANGLES' OVERLAP, or nil when they do not touch. PURE, and the one place this file
+-- intersects anything: the terrace can be TWO rectangles (`cutRects`' keep-out), and everything laid
+-- on it has to stand inside one of them -- which is the identity `range.spec` already asserts for
+-- every part of the range.
+function Range.overlapOf(a, b)
+	if type(a) ~= "table" or type(b) ~= "table" then
+		return nil
+	end
+	local minX, maxX = math.max(a.minX, b.minX), math.min(a.maxX, b.maxX)
+	local minZ, maxZ = math.max(a.minZ, b.minZ), math.min(a.maxZ, b.maxZ)
+	if maxX - minX <= 0 or maxZ - minZ <= 0 then
+		return nil
+	end
+	return { minX = minX, maxX = maxX, minZ = minZ, maxZ = maxZ }
+end
+
+-- THE MOWN LANE, CLIPPED TO THE TERRACE: one slab per cut rectangle. A single slab across her
+-- place's TWO rectangles would hang over the lodge terrace's own edge, which is the rule
+-- "everything built stands inside the ground the cut wrote" -- and that rule is what caught it.
+function Range.turfSlabs(anchor: Vector3, layout, downrange: number?, row: any)
 	layout = layout or Range.LAYOUT
 	local dir = if downrange == -1 then -1 else 1
-	local span = Range.fenceSpan(anchor, layout, dir)
-	local length = span.maxZ - span.minZ
-	local spacing = math.max(1, layout.FENCE.spacingStuds)
-	local steps = math.max(1, math.ceil(length / spacing))
+	local want = Range.turfRect(anchor, layout, dir)
 	local out = {}
-	for leg, x in ipairs({ span.minX, span.maxX }) do
-		for k = 0, steps do
-			table.insert(out, { x = x, z = span.minZ + length * k / steps, leg = leg })
+	for _, cut in ipairs(Range.cutRects(anchor, layout, dir, row)) do
+		local piece = Range.overlapOf(want, cut)
+		if piece ~= nil then
+			table.insert(out, piece)
 		end
 	end
 	return out
 end
 
-function Range.fencePostName(leg: number, index: number): string
-	return string.format("FencePost%d_%d", leg, index)
+-- THE FENCE'S RUNS: one per (side, terrace rectangle) where that side's line actually stands ON
+-- that rectangle. Where the terrace narrows for the lodge's own yard (`keepOut`), the far side has
+-- no ground to stand on and simply has no run there -- a fence post over the lip of a terrace is
+-- the defect, not the missing post.
+function Range.fenceRuns(
+	anchor: Vector3,
+	layout,
+	downrange: number?,
+	row: any
+): { { leg: number, x: number, minZ: number, maxZ: number } }
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local span = Range.fenceSpan(anchor, layout, dir)
+	local half = layout.FENCE.postSection / 2
+	local out = {}
+	for leg, x in ipairs({ span.minX, span.maxX }) do
+		for _, cut in ipairs(Range.cutRects(anchor, layout, dir, row)) do
+			if x - half >= cut.minX and x + half <= cut.maxX then
+				local minZ = math.max(span.minZ, cut.minZ)
+				local maxZ = math.min(span.maxZ, cut.maxZ)
+				-- A RUN SHORTER THAN ONE BAY IS NOT A FENCE, it is a post in a field.
+				if maxZ - minZ > layout.FENCE.spacingStuds then
+					table.insert(out, { leg = leg, x = x, minZ = minZ, maxZ = maxZ })
+				end
+			end
+		end
+	end
+	return out
 end
 
-function Range.fenceRailName(leg: number): string
-	return string.format("FenceRail%d", leg)
+-- EVERY FENCE POST, as x/z pairs: `spacingStuds` apart along each run, with a post ON each end so
+-- no run finishes in mid air.
+function Range.fencePosts(
+	anchor: Vector3,
+	layout,
+	downrange: number?,
+	row: any
+): { { x: number, z: number, leg: number, run: number } }
+	layout = layout or Range.LAYOUT
+	local spacing = math.max(1, layout.FENCE.spacingStuds)
+	local out = {}
+	for run, line in ipairs(Range.fenceRuns(anchor, layout, downrange, row)) do
+		local length = line.maxZ - line.minZ
+		local steps = math.max(1, math.ceil(length / spacing))
+		for k = 0, steps do
+			table.insert(out, { x = line.x, z = line.minZ + length * k / steps, leg = line.leg, run = run })
+		end
+	end
+	return out
+end
+
+function Range.fencePostName(run: number, index: number): string
+	return string.format("FencePost%d_%d", run, index)
+end
+
+function Range.fenceRailName(run: number): string
+	return string.format("FenceRail%d", run)
 end
 
 -- ------------------------------------------------------------------ THE WAY UP (step B10, item 6)

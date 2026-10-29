@@ -582,7 +582,7 @@ return function()
 				-- (step B10): it is the slab of grass the target walks over, and it collides with
 				-- nothing and answers no ray. That pair is ASSERTED rather than assumed, so a turf
 				-- that quietly became solid lands in `blocking` like anything else.
-				if part.Name == RangeData.TURF_NAME then
+				if part.Name:sub(1, #RangeData.TURF_NAME) == RangeData.TURF_NAME then
 					expect(part.CanCollide).to.equal(false)
 					expect(part.CanQuery).to.equal(false)
 					expect(part.CanTouch).to.equal(false)
@@ -892,9 +892,9 @@ return function()
 			-- two rails. Written as the arithmetic and not as 165, so a part that appears or
 			-- disappears moves this number rather than passing under it.
 			local dressed = LAYOUT.SPOT_COUNT * 6
-				+ 1
-				+ #RangeData.fencePosts((b :: any).anchor, LAYOUT, (b :: any).downrange)
-				+ 2
+				+ #RangeData.turfSlabs((b :: any).anchor, LAYOUT, (b :: any).downrange, DEV_ROW)
+				+ #RangeData.fencePosts((b :: any).anchor, LAYOUT, (b :: any).downrange, DEV_ROW)
+				+ #RangeData.fenceRuns((b :: any).anchor, LAYOUT, (b :: any).downrange, DEV_ROW)
 			expect(b.parts).to.equal(
 				1 + 3 * LAYOUT.SPOT_COUNT + LAYOUT.SPOT_COUNT * HighSeats.PARTS_PER_SEAT + 3 + dressed
 			)
@@ -3835,7 +3835,7 @@ return function()
 						or part.Name:match("^HutPost%d") ~= nil
 						or part.Name:match("^Board%d") ~= nil
 						or part.Name:match("^FenceRail%d") ~= nil
-						or part.Name == RangeData.TURF_NAME
+						or part.Name:sub(1, #RangeData.TURF_NAME) == RangeData.TURF_NAME
 					then
 						-- the one thing that IS asserted about them: the part's top is above the
 						-- ground at its own point, so none of them is buried.
@@ -3863,8 +3863,10 @@ return function()
 							then LAYOUT.BERM.height
 							elseif part.Name:match("^Mat%d") then LAYOUT.MAT.size.Y
 							elseif part.Name:match("^Post%d") then LAYOUT.POST.size.Y
-							elseif part.Name:match("^Bench%d") then LAYOUT.BENCH.size.Y							-- the fence's posts ARE laid by `onGround` (step B10), so they belong in
-							-- this rule -- with their OWN height and not the bank's.
+							elseif
+								part.Name:match("^Bench%d")
+							then LAYOUT.BENCH.size.Y -- the fence's posts ARE laid by `onGround` (step B10), so they belong in							-- this rule -- with their OWN height and not the bank's.
+
 
 							elseif part.Name:match("^FencePost%d") then LAYOUT.FENCE.postRise
 							else LAYOUT.BANK.size.Y
@@ -4602,7 +4604,9 @@ return function()
 			-- edge, and its far edge is the berm's near face.
 			local anchor = (built :: any).anchor
 			local dir = (built :: any).downrange
-			local rect = RangeData.turfRect(anchor, LAYOUT, dir)
+			local slabs = RangeData.turfSlabs(anchor, LAYOUT, dir, DEV_ROW)
+			expect(#slabs).to.equal(1)
+			local rect = slabs[1]
 			local line = RangeData.lineRect(anchor, LAYOUT, dir)
 			local berm = RangeData.bermPosition(anchor, LAYOUT, dir)
 			expect(rect.minZ >= math.min(line.minZ, line.maxZ)).to.equal(true)
@@ -4774,24 +4778,53 @@ return function()
 			local anchor = (built :: any).anchor
 			local dir = (built :: any).downrange
 			local west, east = RangeData.corridorSpan(LAYOUT)
-			local posts = RangeData.fencePosts(anchor, LAYOUT, dir)
+			local posts = RangeData.fencePosts(anchor, LAYOUT, dir, DEV_ROW)
+			local runs = RangeData.fenceRuns(anchor, LAYOUT, dir, DEV_ROW)
 			expect(#posts >= 8).to.equal(true)
+			-- BOTH SIDES HAVE A RUN in a world whose terrace is one rectangle
+			expect(#runs).to.equal(2)
+			expect(runs[1].leg).never.to.equal(runs[2].leg)
 			for _, post in ipairs(posts) do
 				-- OUTSIDE THE CORRIDOR, by the bank's own reach, on both sides
 				local outside = post.x <= anchor.X + west - LAYOUT.BANK.beyondStuds
 					or post.x >= anchor.X + east + LAYOUT.BANK.beyondStuds
 				expect(outside).to.equal(true)
-				expect(folder:FindFirstChild(RangeData.fencePostName(post.leg, 1))).to.be.ok()
 			end
-			expect(folder:FindFirstChild(RangeData.fenceRailName(1))).to.be.ok()
-			expect(folder:FindFirstChild(RangeData.fenceRailName(2))).to.be.ok()
+			for run = 1, #runs do
+				expect(folder:FindFirstChild(RangeData.fencePostName(run, 1))).to.be.ok()
+				expect(folder:FindFirstChild(RangeData.fenceRailName(run))).to.be.ok()
+			end
+			-- HER PLACE'S TERRACE IS TWO RECTANGLES, and the far side has no ground to stand on in
+			-- the narrow one -- so the runs are NOT simply two there, and that arm is entered here
+			-- rather than assumed. A post over the lip of a terrace is the defect, not a short fence.
+			local forestAnchor = Vector3.new((FOREST_ROW :: any).x, 148, (FOREST_ROW :: any).z)
+			local forestCuts = RangeData.cutRects(forestAnchor, LAYOUT, -1, FOREST_ROW)
+			expect(#forestCuts).to.equal(2)
+			for _, run in ipairs(RangeData.fenceRuns(forestAnchor, LAYOUT, -1, FOREST_ROW)) do
+				local inside = false
+				for _, cut in ipairs(forestCuts) do
+					if
+						run.x - LAYOUT.FENCE.postSection / 2 >= cut.minX
+						and run.x + LAYOUT.FENCE.postSection / 2 <= cut.maxX
+						and run.minZ >= cut.minZ
+						and run.maxZ <= cut.maxZ
+					then
+						inside = true
+					end
+				end
+				expect(inside).to.equal(true)
+			end
 			-- NOTHING FLOATS AND NOTHING IS HALF BURIED (CLAUDE.md rule E, as a census): every
 			-- COLLIDING part's lowest face is at or above the shelf less one stud, and its highest is
 			-- above the shelf. The turf is the one exception and it is excluded by name.
 			local shelf = (built :: any).shelf
 			local worst = 0
 			for _, child in ipairs(folder:GetDescendants()) do
-				if child:IsA("BasePart") and child.Name ~= RangeData.TURF_NAME and child.Name ~= "Plate" then
+				if
+					child:IsA("BasePart")
+					and child.Name:sub(1, #RangeData.TURF_NAME) ~= RangeData.TURF_NAME
+					and child.Name ~= "Plate"
+				then
 					local low = child.Position.Y - child.Size.Y / 2
 					worst = math.min(worst, low - shelf)
 					expect(child.Position.Y + child.Size.Y / 2 > shelf).to.equal(true)
