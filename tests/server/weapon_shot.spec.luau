@@ -1918,4 +1918,171 @@ return function()
 			zone:Destroy()
 		end)
 	end)
+	-- ---------------------------------------- THE SHOT'S IGNORE LIST (task 306 B5, design 4.3 / 9.3)
+	--
+	-- Group 8 of `docs/design/shooting-range-lobby.md` 11.2. The EIGHTH injected provider on this
+	-- owner, and the whole point of the shape is that UNWIRED IS TODAY'S GAME: six bodies share one
+	-- corridor at the range, and in the wood nothing is appended at all.
+	describe("Weapon.setIgnoreProvider", function()
+		it("appends the provider's instances for the aim ray AND for the trigger, and nothing when unwired", function()
+			-- READY, AND RELOADED IF IT HAS TO BE (`range.spec`'s `readyShooter`): the harness's
+			-- player has been shooting for the whole run by the time this file is reached, so a
+			-- case that only LOOKS for a Live barrel measures the replay's timing, not this seam.
+			local subject = nil
+			local roster = {}
+			for _ = 1, 20 do
+				roster = {}
+				for _, player in ipairs(Players:GetPlayers()) do
+					local state = Weapon.getSnapshot(player)
+					if state ~= nil and state.equipped == true and state.barrels[state.selected] ~= "Live" then
+						Weapon.refillForDrive(player, 306306)
+						Weapon.onActionRequest(player, "Reload", nil, nil)
+						task.wait(0.3)
+						state = Weapon.getSnapshot(player)
+					end
+					local live = state ~= nil
+						and state.equipped == true
+						and state.open == false
+						and (state.busyFor or 0) <= 0
+						and state.barrels[state.selected] == "Live"
+					table.insert(roster, player.Name .. (if live then "(armed)" else "(not armed)"))
+					if subject == nil and live then
+						subject = player
+					end
+				end
+				if subject ~= nil then
+					break
+				end
+				task.wait(0.4)
+			end
+			if subject == nil then
+				TestKit.note(
+					"weapon_shot ignore list: nobody is holding a loaded gun, so the handler was not driven; roster ["
+						.. table.concat(roster, ", ")
+						.. "]"
+				)
+				-- NOT SILENT, AND THE ARM IS NAMED (licence_popup's own device). This arm proves
+				-- NOTHING about the seam's behaviour -- with no armed subject neither handler can
+				-- be driven -- so the note above is the evidence that it ran, not the assertion.
+				expect(type(Weapon.setIgnoreProvider)).to.equal("function")
+				TestKit.note("weapon_shot ignore list: LIVE HANDLER NOT DRIVEN -- the fallback arm ran")
+				return
+			end
+
+			local root = subject.Character and subject.Character:FindFirstChild("HumanoidRootPart")
+			expect(root).to.be.ok()
+			local origin = (root :: BasePart).Position + Vector3.new(0, 2, 0)
+			local ray = { origin = origin, direction = Vector3.new(0, 0, -1) }
+
+			-- THE MARKER THE PROVIDER HANDS BACK, and the lists every cast was actually asked with.
+			local marker = Instance.new("Part")
+			marker.Name = "IgnoreSpecMarker"
+			local lists: { { Instance } } = {}
+			Weapon.setCast(function(_castOrigin, _castVector, ignore)
+				table.insert(lists, ignore)
+				return nil
+			end)
+			-- THE TWO RULES THAT CAN REFUSE A SHOT HERE, out of the way exactly as this file's
+			-- sight-line case does it, and PUT BACK from what they answered (both setters return
+			-- the old value). The target and licence providers are left alone: the stub cast
+			-- answers nothing, so there is no target to be unlicensed about.
+			local keptStand = Weapon.setStandProvider(nil)
+			local keptOpen = Weapon.setDriveOpenProvider(function(): boolean
+				return true
+			end)
+
+			local function sawMarker(): boolean
+				for _, list in ipairs(lists) do
+					for _, instance in ipairs(list) do
+						if instance == marker then
+							return true
+						end
+					end
+				end
+				return false
+			end
+
+			-- UNWIRED: the shipped list and nothing else -- the shooter's character, plus the
+			-- `WeaponEffects` folder IF one exists server-side (normally it does not).
+			Weapon.setIgnoreProvider(nil)
+			expect(Weapon.onActionRequest(subject, "Aim", nil, ray)).to.equal(nil)
+			expect(#lists >= 1).to.equal(true)
+			local shipped = lists[1]
+			local effects = workspace:FindFirstChild("WeaponEffects")
+			expect(#shipped).to.equal(if effects ~= nil then 2 else 1)
+			expect(shipped[1]).to.equal(subject.Character)
+			expect(sawMarker()).to.equal(false)
+
+			-- WIRED: the same ray, and the marker is in the list the cast is asked with. The
+			-- arguments are recorded too, because WHICH INSTANT the answer is measured at is the
+			-- half of design 4.3 that a list of instances alone cannot show.
+			local asked: { { player: any, rewind: number? } } = {}
+			Weapon.setIgnoreProvider(function(player, rewindSeconds)
+				table.insert(asked, { player = player, rewind = rewindSeconds })
+				return { marker }
+			end)
+			lists = {}
+			expect(Weapon.onActionRequest(subject, "Aim", nil, ray)).to.equal(nil)
+			expect(sawMarker()).to.equal(true)
+			expect(#asked).to.equal(1)
+			expect(asked[1].player).to.equal(subject)
+			-- THE AIM RAY ASKS WITH NO REWIND: it is a question about now, not about a shot.
+			expect(asked[1].rewind).to.equal(nil)
+
+			-- THE TRIGGER ASKS WITH THE SHOT'S OWN REWIND, which is the number `Weapon.rewindFor`
+			-- computes once and the shot carries inward as `rewindSeconds`.
+			lists = {}
+			asked = {}
+			local why = Weapon.onFireRequest(subject, ray)
+			for _ = 1, 2 do
+				if why ~= "rate-limited" and why ~= "busy" then
+					break
+				end
+				task.wait(1.2)
+				lists = {}
+				asked = {}
+				why = Weapon.onFireRequest(subject, ray)
+			end
+			local fired = why == nil
+			if fired then
+				local drainBy = os.clock() + 1
+				while Weapon.flightCount() > 0 and os.clock() < drainBy do
+					task.wait()
+				end
+				expect(sawMarker()).to.equal(true)
+				-- TWICE AND NO MORE (design 12, T13): once for the aim ray inside the trigger, once
+				-- for the shot itself.
+				expect(#asked).to.equal(2)
+				expect(asked[1].rewind).to.equal(nil)
+				expect(type(asked[2].rewind)).to.equal("number")
+				TestKit.note(
+					string.format(
+						"weapon_shot ignore list: trigger asked %d time(s), rewind %.3f s",
+						#asked,
+						asked[2].rewind
+					)
+				)
+			else
+				TestKit.note(
+					"weapon_shot ignore list: the trigger answered '" .. tostring(why) .. "', so only the aim arm ran"
+				)
+			end
+
+			-- A PROVIDER THAT THROWS DOES NOT REFUSE THE SHOT: the list falls back to the shipped
+			-- two entries, which is today's game, and the aim question still answers.
+			Weapon.setIgnoreProvider(function()
+				error("the range exploded")
+			end)
+			lists = {}
+			expect(Weapon.onActionRequest(subject, "Aim", nil, ray)).to.equal(nil)
+			expect(#lists >= 1).to.equal(true)
+			expect(#lists[1]).to.equal(if effects ~= nil then 2 else 1)
+
+			Weapon.setIgnoreProvider(nil)
+			Weapon.setCast(nil)
+			Weapon.setStandProvider(keptStand)
+			Weapon.setDriveOpenProvider(keptOpen)
+			marker:Destroy()
+		end)
+	end)
 end

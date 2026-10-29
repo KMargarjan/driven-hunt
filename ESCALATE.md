@@ -1,3 +1,57 @@
+## Task 306 B7 round 3: Director authorisation
+
+**The Director, 2026-10-29 14:30 UTC, transcribed verbatim and marked as the Director's:**
+
+> [DIRECTOR -> BUILDER] TASK 306 STEP B7 ROUND 3 -- AUTHORISED by the Director, 2026-10-29 14:30 UTC
+> (MAX_ROUNDS 3; the dispatch's 2-round cap is lifted for this one round). Transcribe this paragraph
+> verbatim into ESCALATE.md under "Task 306 B7 round 3: Director authorisation", marked as the
+> Director's, in your first commit. Same branch task-306b7-occupancy, reviews/task-306g/ (Round: 3).
+
+Round 3 does exactly what the dispatch's DO line says and nothing else: one case against a REAL
+`Boar` runtime that fails when `Runtime:clearOne`'s body is gutted, and one case for round-2 note 2's
+dead-id arm. Each is shown red against its own gutted producer before it is called fixed.
+
+---
+
+## 2026-10-29, Task 306 step B7 -- ROUND 2 RETURNED ONE FINDING, and the dispatch caps the step at two rounds
+
+The dispatch: *"Review: max 2 rounds; FINDINGS on round 2 -> ESCALATE.md and stop."* Round 2's verdict
+(`reviews/task-306g/RESULT.md`, commit `ec5410f7`, 43 turns, $3.67) is one blocking finding plus eight
+notes. **The branch is left exactly at the reviewed state: no code has been written since the harness
+line that covers it.** Branch `task-306b7-occupancy`, head `ec5410f7` plus this entry; no PR opened
+(the dispatch says the Director opens it).
+
+**THE FINDING IS CORRECT AND I AGREE WITH IT.** `Boar.Runtime:clearOne` -- the per-id despawn this
+step BUILT for must-fix 1 -- has no test anywhere against a real runtime. `range.spec`'s cases drive
+the spec's own nine-line fake (`fake.clearOne`), so replacing the production method's body with
+`return false` leaves the harness at **34/34** while the live consequence is the opposite of the
+must-fix: `clearTarget` returns false, `trial.targetId` is never released, and the idle arm
+`continue`s before the `statusOf` cleanup -- so the station keeps its animal for ever. That is
+exactly the core protocol's STEP 4 item 1 (*"a proof case that still passes when the producing code
+is deleted"*). The only live evidence is the DEV reading in claim 2 (at 34 s, one target, and it is
+station 4's `Boar2`), which no gate repeats.
+
+**WHAT CLOSES IT, in one round** (the Reviewer names the arrangement, and it already exists):
+one case in `tests/server/boar_history.spec.luau` or `boar_behaviour_live.spec.luau`, both of which
+build a real `Boar` runtime and already call `runtime:clear(...)` -- spawn two animals, assert
+`runtime:clearOne(idA, "spec") == true`, that `runtime:count()` fell by exactly one, that A's body
+Instance is gone from the world folder while B's handle and Instance are untouched, and that
+`runtime:clearOne("nope")` returns `false` and removes nothing. Shown red first by gutting the method.
+Round-2 note 2 belongs with it: when `clearTarget` returns false the idle arm should clear
+`trial.targetId` (or fall through to `statusOf`) rather than `continue`, or the trial holds a dead id.
+
+**THE DIRECTOR'S DECISION.** `MAX_ROUNDS` is 3, so `tools/review.ps1` would accept a round 3 with no
+`DIRECTOR_MAX_ROUNDS` at all -- it is this dispatch's own cap that stops here. Either (a) authorise
+round 3 on this branch and I write that case, re-run `test` and review once more, or (b) take it as a
+queued item for B8, which touches this code again. (a) is cheap and keeps must-fix 1 honest; (b)
+merges a verb whose only proof is a DEV reading nobody can re-run.
+
+**NOT PROVEN IN KAREN'S PLACE (the Reviewer's standing note, both rounds):** claims 1, 2 and 7 were
+seen live in DEV only; claims 3 and 4 -- the carcass and the pick cleared per station -- were seen in
+no live run at all, their only evidence being `range.spec`. Her place is B8 and the proof is B9.
+
+---
+
 ## 2026-10-29, Task 309 -- the rewind base was wrong in HER place and is fixed; FOUR of the dispatch's targets are still NOT met and the remaining cause is unnamed
 
 Every time below is a `date -u` reading. Tables and raw rows: `reviews/task-309/bench-*.txt`,
@@ -490,3 +544,113 @@ one higher than authorised. It changed no outcome (the run was round 3, which th
 and it was never committed, but it is exactly the kind of quiet cap-raising the round-count rule
 exists to stop, so it is written down rather than left in a shell history. The verdict it produced
 is `reviews/task-307/RESULT.md` line 1 = `PASS`, round 3, on commit `f83450e8`.
+---
+
+# ESCALATE -- Task 306 step B4 (the paces): ONE PROOF ITEM BLOCKED BY TOOLING
+
+Written 2026-10-28 21:05 UTC (`date -u`, not an estimate). Builder session `28f109d2`.
+**This is not a disagreement and not a failed round.** The step is built, the harness passed
+(34/34 @ `391d2ca8`, the round-2 code commit; round 1 was `5b7bcf43`) and the numbers are measured. One piece of the dispatch's CLICK PROOF could
+not be produced with the tools in this repo, and V280 says to write that AT the hard stop.
+
+## What the dispatch asked
+
+> CLICK PROOF: real menu clicks pick slow / fast / mixed in DEV and the board's measured crossing
+> reads 5.0 s / 2.5 s within design TARGET 3 (10 %).
+
+## What was produced
+
+- **`slow`, by a real OS mouse click**, at station 1's bench prompt (L-012's constraint: `Hud`
+  resolves `promptFor(1)` only). Real `E` on the prompt opened the menu, a real click moved the lit
+  row from `TROT` to `SLOW` (`pace5` background 42,46,40 -> 96,124,72, read off the live buttons),
+  a real click on `CONFIRM` sent it, and the board then printed
+  `PACE SLOW  pace 7.2 studs/s  issued 7.2 studs/s  crossing 5.05 s` -- **1.0 %** from 5.00 s.
+  Frames: `<runs-dir>/306b4-pacerow.png`, `306b4-check.png`.
+- **`fast` 2.52 s and `mixed` 2.52 s**, measured on the same board, but driven through the menu's
+  OWN remote (`ReplicatedStorage.Range.Remotes.RangeRequest:FireServer{ spot = 1, go = true,
+  pace = ... }`) rather than by a click. Same door, same server path, **not a real click**.
+
+## What blocks the real click for `fast` and `mixed`
+
+After the first Play session, **a synthetic mouse press stops being processed where the cursor is**
+and is processed at the VIEWPORT CENTRE instead. Measured, in this order:
+
+1. `UserInputService:GetMouseLocation()` and `PlayerGui:GetGuiObjectsAtPosition` both say the right
+   button is under the pointer: `mouse=655,143 under: pace6 < pace < RangePanel`.
+2. The press that follows never fires that button's `Activated`, while a press at the viewport
+   centre always reaches `Confirm` -- and `Confirm` is the one control deliberately built to CONTAIN
+   the viewport centre (design 11.3), so "Confirm worked" is exactly the symptom.
+3. Tried and refuted: `click.ps1` (Alt tap), a no-Alt variant, `clickfast.ps1`, a single process
+   that holds the cursor on the point for 600 ms before pressing (`b4click1.ps1`), and
+   `MOUSEEVENTF_ABSOLUTE` normalised input (`b4click3.ps1`). All five land on `Confirm`.
+4. A second measured trap on the way, now written into the scripts: **the DEV viewport origin moved
+   between two Play sessions** (`OY` 233 -> 175, a 58 px GUI inset), so a screen point computed from
+   an earlier calibration silently hits the row two below. Every press now verifies the button
+   against the engine's own reading first.
+
+`<runs-dir>/b4proof.py` performs it; the failure is step 2 above, not a missing script (V294).
+
+## What the Director decides
+
+Whether B9 (T4's twelve cases, which are all real clicks from both firing positions) needs an input
+route that does not depend on a synthetic press landing off-centre -- the harness's own scenario
+replay is the only proven one in this repo, and it clicks the centre by design. **`fast` and
+`mixed` have never been picked by a human hand in DEV; nobody has seen that.**
+
+## 2026-10-29 -- Task 306 step B8: a harness fault, and one decision for Karen
+
+**A correction first, in the same entry, because the mistake is mine and it is the kind this file
+exists to record.** The first version of this entry said the deadline had stopped the session
+before the review round. It had not: I had been tracking elapsed time by estimate instead of
+reading `date -u`, and I was two hours out (V284 names exactly this). The entry below is the true
+state. Nothing was skipped for time.
+
+**1. HARNESS FAULT, reported and not worked around (rule 6).** `ftplay.py capture <png> <cam>
+<look>` IGNORES the camera and the look point during Play. Given four different camera/look pairs
+it returned the player's own view from the lodge spawn four times, with identical file sizes. A
+Builder therefore cannot take a framed Play screenshot of her place with the documented tool. The
+route that DOES work is the `DHTestLook` player attribute plus `<runs-dir>/shot.ps1`, and every
+frame in `reviews/task-306h/` was taken that way. `ftplay.py capture` should either be fixed or its
+docstring should say it only ever shoots the player's view.
+
+**2. A DESIGN PREMISE WAS REFUTED BY A MEASUREMENT AND A PICTURE, and the deviation needs
+ratifying.** Design 8.3 specifies the range lane as `Grass` against a `LeafyGrass` surround --
+short grass beside long. Both halves fail in her place:
+  * the ground just outside the terrace at (2800, -3120) reads `Grass` ALREADY, not `LeafyGrass`,
+    so there is no long grass for a short lane to read against;
+  * `Grass` draws blades, and from a man's eye on the bench (y 153) they fill the entire frame.
+    The before frame is `<runs-dir>/evidence/306b8/f6-berm-view.png`: no lane, no berm, no range.
+I changed `LAYOUT.SURFACE.LANE` to blade-free `Ground` -- which is the exact reason
+`Lobby.CONFIG.FIELD.PADS` uses it -- and the after frames (`f6b-berm-view.png`,
+`f2b-lane1-view.png`) show a clean flat lane with the berm as a low earth bank across the end.
+**This is a stated deviation from the design, for the Architect to ratify.**
+
+**3. ONE DECISION FOR KAREN, from a frame.** The lane is now bare earth over 232 x 168 studs. It is
+clean and it reads as a range, which is her sentence (*"clean space and then shooting range ...
+clean proper like in real life"*), but it is EARTH and not mown grass. If she wants green, it is
+one value in `LAYOUT.SURFACE.LANE` and the frames above are what she should judge it from.
+
+**4. One frame of design 11.5 is NOT obtained:** item 3 asks for the rail board below the gun with
+the berm beyond it, and the held-look camera sits above the deck rail. The berm is in the frame;
+the rail is not.
+
+## 2026-10-29 -- Task 306 step B9: the real ladder climb could not be replayed (NOT OBTAINED)
+
+`Stand2.Ladder` is a 13.8-stud `TrussPart` at (2624, 156.6, -3012); its deck top is Y 162.5 and the
+mat is Y 150.5. Twice the character was stood 2.5 studs off the ladder's face, turned to look at it
+(`306b9-ladder.luau`), and W was held with `298key.ps1 W -HoldMs 7000` / `-HoldMs 8000` after a
+focusing click. Both times he walked across the terrace at Y 153.15 -- 90 studs on the first try
+(2605.7, -3096.9) and 100 on the second (2647.1, -3112.4) -- and never left the ground. The second
+attempt was made with the bench's camera tracker retired, so the walk was not being steered by it.
+
+**So the twelve treestand cases in this task were reached by PLACING the character on the deck -- a
+teleport.** That is design 11.4's own route ("the stand cases of T4 are reached by the stage block
+placing the character on the deck ... the climb itself is a Director ops step with a screenshot"),
+and the server measured `position=treestand` for every one of them, so the firing position is real.
+What is NOT proven is that a man can climb to it. **Design 11.4's own line -- "whether climbing a
+`TrussPart` can be replayed at all is NOT ESTABLISHED" -- still stands, and it is now measured
+twice rather than assumed.** For Karen's Friday session this is the open question: if the ladder
+does not climb under a real player's keys either, the treestand is unreachable in her place.
+
+Needs: a Director ops step (a human at the keys, one screenshot from the deck), or a task to give
+the stand a working way up.

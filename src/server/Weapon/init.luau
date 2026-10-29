@@ -1773,7 +1773,18 @@ end
 -- The ignore list for one shot: the shooter's character (which contains the equipped Tool, so the
 -- gun's own Handle goes with it), plus the client effects folder IF one exists server-side, which
 -- normally it does not -- client-created Instances do not replicate up (design section 2.3 item 7).
-local function ignoreFor(player: Player): { Instance }
+--
+-- WHAT THIS SHOOTER'S SHOT MUST NOT SEE (task 306 B5). The EIGHTH injected provider on this owner,
+-- in the shape the seven have: UNWIRED MEANS NIL, AND NIL IS TODAY'S GAME -- nothing is appended and
+-- every `tests/server/weapon_*.spec.luau` is bit-for-bit unchanged.
+-- Note: docs/design/shooting-range-lobby.md section 4.3
+local ignoreProvider: ((Player, number?) -> { Instance }?)? = nil
+
+function Weapon.setIgnoreProvider(provider: ((Player, number?) -> { Instance }?)?)
+	ignoreProvider = provider
+end
+
+local function ignoreFor(player: Player, rewindSeconds: number?): { Instance }
 	local ignore: { Instance } = {}
 	if player.Character then
 		table.insert(ignore, player.Character)
@@ -1781,6 +1792,20 @@ local function ignoreFor(player: Player): { Instance }
 	local effects = Workspace:FindFirstChild("WeaponEffects")
 	if effects then
 		table.insert(ignore, effects)
+	end
+	-- `rewindSeconds` is the SAME number the shot carries, so the answer is measured at the instant
+	-- the rewind tests and not at one nobody shot at. A provider that throws does not refuse the
+	-- shot: the list is the shooter's own character and the effects folder, which is today's game.
+	local provider = ignoreProvider
+	if provider ~= nil then
+		local ok, extra = pcall(provider, player, rewindSeconds)
+		if ok and type(extra) == "table" then
+			for _, instance in ipairs(extra :: { Instance }) do
+				if typeof(instance) == "Instance" then
+					table.insert(ignore, instance)
+				end
+			end
+		end
 	end
 	return ignore
 end
@@ -2555,6 +2580,10 @@ local function onFireRequest(player: Player, req: any): string?
 		end
 	end
 
+	-- HOISTED (task 306 B5): the ignore list is now asked AT this rewind, so the one number has to
+	-- exist before the table that carries it. `Weapon.rewindFor` is still the only thing that
+	-- computes it and still returns 0 when the flag or the policy is off.
+	local rewindSeconds = Weapon.rewindFor(player, nil, CONFIG)
 	local launched = flight:launch({
 		shooter = player,
 		-- TAKEN AT THE TRIGGER, so a shooter who leaves before the bullet lands is still
@@ -2588,7 +2617,7 @@ local function onFireRequest(player: Player, req: any): string?
 		-- THE SAME LIST THE AIM CAST USED, asked again rather than kept in a local: `lookAhead` owns
 		-- the cast now (task 238) and `ignoreFor` is a pure build from the player's character, so
 		-- asking twice in one frame answers the same thing and nothing is passed around to go stale.
-		ignore = ignoreFor(player),
+		ignore = ignoreFor(player, rewindSeconds),
 		rangeStuds = range,
 		-- THE TIME OF THE SHOT, which becomes `HitReport.at`. Not the arrival's: `HitLog.recordHit`
 		-- asks "when in this drive was this shot taken", and a report with two clocks in it is worse
@@ -2603,7 +2632,7 @@ local function onFireRequest(player: Player, req: any): string?
 		-- HOW FAR BACK THIS SHOOTER'S PICTURE IS (task 305). Taken at the trigger, like `muzzle`
 		-- and `firedAt`, because by the time the bullet lands the ping has moved on; `Weapon.rewindFor`
 		-- is the one thing that computes it and returns 0 when the flag or the policy is off.
-		rewindSeconds = Weapon.rewindFor(player, nil, CONFIG),
+		rewindSeconds = rewindSeconds,
 		-- THE ANCHOR THAT REWIND IS MEASURED FROM (task 305b), on the clock the animal's own ring
 		-- is stamped with, so the two are comparable without a conversion.
 		firedAtServer = Workspace:GetServerTimeNow(),

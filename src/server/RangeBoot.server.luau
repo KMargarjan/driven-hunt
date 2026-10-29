@@ -23,6 +23,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
@@ -126,6 +127,14 @@ if row.drawn == true then
 	world.config.MOVE = move
 end
 
+-- THE RANGE IS SILENT (design 7.4, step B7). Six animals in one corridor would play six footstep
+-- loops and six snorts at one man's ear, and Roblox has no per-player sound for a server `Sound`.
+-- A FULL clone with one value flipped: `newRuntime` merges only MODEL, SENSE and KINDS key by key
+-- and assigns everything else wholesale (`ForestTestBoot`'s stated rule). Karen's to overrule.
+local sound = table.clone(Boar.CONFIG.SOUND)
+sound.ENABLED = false
+world.config.SOUND = sound
+
 local runtime = Boar.newRuntime(world)
 runtime:run()
 
@@ -146,8 +155,18 @@ end)
 local started = Range.start({
 	enabled = true,
 	world = Map.EXPECTED_WORLD,
+	-- WHO IS IN THE SERVER (design 7.4): the DataModel read is the root's, the rule -- which
+	-- station each man is at -- is the owner's. Without it the range releases nothing at all.
+	players = function()
+		return Players:GetPlayers()
+	end,
 	-- nil in DEV, which lays its own plate (`row.plate`) and has no ground to read.
 	groundAt = groundAt,
+	-- THE PLACE'S OWN TERRAIN, AND ONLY WHERE THE ROW ASKS FOR A CUT (design 8.2, step B8). Karen's
+	-- OK of 2026-10-28 is what makes this legal: her Forest Test's terrain may be edited. It is an
+	-- ARGUMENT and never a `GetService` inside the builder, which is what keeps every spec -- and
+	-- the DEV place the harness runs in -- out of it.
+	terrain = if RangeData.fillsTerrain(row) then Workspace.Terrain else nil,
 	boars = {
 		spawn = function(position: Vector3, kind: string?)
 			-- The capacity check is here and not in `Range`: how many animals a runtime holds is the
@@ -159,6 +178,11 @@ local started = Range.start({
 		end,
 		clear = function(reason: string?)
 			runtime:clear(reason)
+		end,
+		-- ONE STATION'S ANIMAL (task 306 B7): `clear` above is range-WIDE and this runtime holds
+		-- all six, so a carcass or a species pick at one station used to take the other five.
+		clearOne = function(id: string, reason: string?)
+			return runtime:clearOne(id, reason)
 		end,
 		statusOf = function(id: string)
 			return runtime:statusOf(id)
@@ -173,6 +197,11 @@ local started = Range.start({
 		-- rewound cast above is judged against, so the board's miss gap and the hit agree.
 		cframeAt = function(id: string, at: number)
 			return runtime:cframeAtId(id, at)
+		end,
+		-- THE TRUNK, FOR THE SHOT'S IGNORE LIST (task 306 B5, design 4.3). The only reader is
+		-- `Range.ignoredFor`; one Instance per target, and its zone parts are welded under it.
+		rootOf = function(id: string)
+			return runtime:rootOf(id)
 		end,
 		configOf = function()
 			return runtime:config()
@@ -222,6 +251,14 @@ if not started then
 	warn("[RangeBoot] the range refused to start: " .. tostring(Range.stats().refusedBy))
 	return
 end
+
+-- ONE ANIMAL IN ONE SHOT'S WORLD (task 306 B5, design 4.3). Six bodies share one corridor, and
+-- `Cast.candidates` returns the EIGHT nearest the muzzle while `Rewind.impact` takes the nearest
+-- rewound one -- so without this a body the shooter cannot see stops his bullet. Wired here and
+-- only here: unwired, `ignoreFor` is today's two-entry list.
+Weapon.setIgnoreProvider(function(player, rewindSeconds)
+	return Range.ignoredFor(player, rewindSeconds)
+end)
 
 -- A HIT ON A RANGE TARGET IS THE HUNT'S HIT (design section 12): the same `Weapon.HitReported`, the
 -- same `Runtime:takeHit`, so a shot that kills on the lane kills in the wood. `takeHit` matches the

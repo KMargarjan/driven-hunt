@@ -49,6 +49,9 @@ Range.CONFIG = {
 	-- Death is the hunt's, not the range's (design section 6).
 	CARCASS_SECONDS = 3,
 	RELEASE_SECONDS = 2,
+	-- HE LEFT: his animal goes this long after he did, and not before (design 7.4). 30 s is the
+	-- design's number and it is long enough that stepping off the mat is not losing your target.
+	IDLE_CLEAR_SECONDS = 30,
 	-- STAND (Karen, 2026-10-27): within this of the lane's middle counts as standing. The BRAIN
 	-- stops the animal itself inside `LINE.ARRIVE_STUDS` (1.0) -- *"ARRIVED: hold the heading and
 	-- stop, rather than jittering on top of the point"* -- so STAND is the same `leadTo` seam with
@@ -57,7 +60,14 @@ Range.CONFIG = {
 	STAND_HOLD_STUDS = 2,
 	-- One target per spot, never a sounder.
 	MAX_TARGETS = RangeData.LAYOUT.SPOT_COUNT,
-	MAX_PARTS = 150,
+	-- SIX STATIONS, DRESSED (step B10), AND THIS COUNTS WHAT IS BUILT. DEV: 1 plate + 6 x (mat,
+	-- post, bench, 4 hut posts, roof, board) + 6 x 14 seat pieces + 1 turf + 2 banks + 1 berm = 143,
+	-- which is the number `range.spec` measures. NO fence post and NO rail: the lot's side line is
+	-- refused, with its reading, in `Range.Build`. Her place is 142 (the banks and the berm are
+	-- earth there and there is no plate, and her terrace is two rectangles so the turf is two slabs).
+	-- 220 is that plus headroom; the bound is a CLAIM ABOUT COST and the spec asserts the built
+	-- count against it, so dressing the range had to move it rather than quietly bust it.
+	MAX_PARTS = 220,
 	DEFAULT_SPECIES = "boar",
 	DEFAULT_KIND = "male",
 	DEFAULT_PACE = RangeData.WORD.TROT,
@@ -102,6 +112,8 @@ type Trial = {
 	distanceStuds: number,
 	targetId: string?,
 	leg: number,
+	legDrawn: number?,
+	drewWord: string?,
 	crossings: number,
 	lastCrossingSeconds: number?,
 	crossingSecondsByPace: { [string]: number },
@@ -112,10 +124,14 @@ type Trial = {
 	windowArmed: boolean,
 	carcassAt: number?,
 	releaseAt: number?,
+	-- SINCE WHEN NOBODY HAS BEEN AT THIS STATION, on the owner's own clock. nil means somebody is
+	-- there now; `IDLE_CLEAR_SECONDS` is counted from it (design 7.4).
+	idleSince: number?,
 }
 
 local state = {
 	started = false,
+	roll = nil :: (() -> number)?,
 	built = nil :: any,
 	anchor = nil :: Vector3?,
 	row = nil :: any,
@@ -123,8 +139,13 @@ local state = {
 	-- boundary shape, so every arithmetic below asks a value and never the world's name.
 	downrange = 1,
 	root = nil :: Instance?,
+	-- WHAT `Build` MEASURED under each station's seat: its deck's own top face, and no entry for a
+	-- station whose seat was refused. `spotAt` reads it to answer "on the stand", so the measurement
+	-- and the rule are one number (design 7.3).
+	deckTops = {} :: { [number]: number },
 	boars = nil :: any,
 	now = nil :: (() -> number)?,
+	serverTime = nil :: (() -> number)?,
 	trials = {} :: { [number]: Trial },
 	acc = 0,
 	remotes = nil :: any,
@@ -149,8 +170,24 @@ local state = {
 		carcasses = 0,
 		releases = 0,
 		lostTargets = 0,
+		-- HOW MANY ANIMALS WENT BECAUSE THEIR MAN LEFT, and how many STATIONS have somebody on them
+		-- right now -- not how many men, since `occupancy` is a set keyed by spot and two men on one
+		-- mat are one occupied station, which is the number the design wants (11.2 group 12, T11).
+		idleClears = 0,
+		occupied = 0,
+		-- A CLEAR THAT TOOK THE WHOLE RANGE WITH IT: a root that wired only `boars.clear` and no
+		-- `clearOne`. Counted rather than silent, because it is the defect B2 wrote down.
+		wideClears = 0,
 		parts = 0,
+		-- HOW MUCH GROUND THIS BUILD WROTE (step B8): 0 in DEV and in every spec, so "which arm
+		-- did it take" is a number a probe can read rather than a belief.
+		terrainFills = 0,
+		terrainReplaces = 0,
 		buildMs = 0,
+		-- HOW MANY SEATS STAND, and how many `HighSeats.plan` refused for its own ground reason: a
+		-- refused station is a bench only, and the console says how many there are.
+		stands = 0,
+		refusedStands = 0,
 		shots = 0,
 		hits = 0,
 		boardPushes = 0,
@@ -162,13 +199,49 @@ local state = {
 		-- HOW MANY HIT CARDS WENT OUT, and how many sends the seam refused (task 304).
 		cards = 0,
 		cardlessHits = 0,
+		-- HOW MANY TIMES A SHOT ASKED WHAT IT MAY NOT SEE (design 12, T13): at most twice per shot,
+		-- once for the aim ray and once for the trigger.
+		ignoreCalls = 0,
+		-- THE WAY UP AND THE WAY DOWN (step B10, item 6): how many bodies this module has moved
+		-- onto a deck and back onto the ground, and how many presses it REFUSED (no character, no
+		-- seat at that station, no mover). Counted, because B9's two failed `W` climbs were silent.
+		climbsUp = 0,
+		climbsDown = 0,
+		climbsRefused = 0,
 		refusedBy = nil :: string?,
 	},
+	-- THE PLACE'S GROUND READER, kept from `start` -- the way DOWN needs a HEIGHT at the ladder's
+	-- foot, and the shelf is one reading at the row's own point (`Build.groundUnder`'s 11.6 studs).
+	groundAt = nil :: ((number, number) -> number?)?,
+	-- HOW A BODY IS MOVED, AS A SEAM. The shipped one is `character:PivotTo`, which is
+	-- `Match.Body.standCharacter`'s own call -- but NOT through `Body`: `standCharacter` snaps its
+	-- target onto the measured GROUND, which is exactly wrong for a deck 12.5 studs up. A spec
+	-- passes its own and drives both arms with no character (research note 8.2).
+	move = nil :: ((any, CFrame) -> boolean)?,
+	-- EVERY `Triggered` CONNECTION THIS MODULE MADE, so `stop` hands back exactly what it wired.
+	climbs = {} :: { any },
+	-- EVERY MAN THE BOARD HAS EVER BEEN PUSHED TO, by UserId (step B6). The owner does not read
+	-- `Players`; it remembers the men its own seams handed it, which is the same set that has a
+	-- record. `maskDirty` says a trunk changed and every one of them must be told again.
+	watchers = {},
+	maskDirty = false,
+	-- WHO IS IN THE SERVER, handed in by the composition root: this module reads no `Players`
+	-- service (it reaches no DataModel), and the RULE -- which station a man is at -- stays here.
+	-- nil means the range cannot measure occupancy, and then it releases NOTHING (design 7.4).
+	players = nil :: (() -> { any })?,
 }
 
 local function clockNow(): number
 	local now = state.now
 	return if now then now() else os.clock()
+end
+
+-- THE CLOCK THE ANIMAL'S HISTORY RING IS STAMPED WITH (review round 1, finding 1), which is the
+-- ONLY clock a `cframeAt` instant may be measured on: `Boar.sampleAt` refuses anything older than
+-- its oldest stamp, and `os.clock()` is a different epoch entirely.
+local function serverNow(): number
+	local now = state.serverTime
+	return if now then now() else Workspace:GetServerTimeNow()
 end
 
 local function paceSpeed(pace: string): number
@@ -178,10 +251,17 @@ local function paceSpeed(pace: string): number
 	-- requires no owner (design section 3). The root wires it as
 	-- `function(word) return Boar.paceSpeed(word, runtime:config()) end`, so the range invents no
 	-- speed and there is no second copy of the arithmetic.
-	if boars == nil or boars.paceSpeed == nil then
-		return 0
+	-- ...and since B4 the ROUTE is `RangeData.paceSpeedFor`, which delegates Karen's four to that
+	-- injected function and derives ISSF's two from `WINDOW_STUDS / CROSSING_SECONDS` (design 6).
+	local injected = if boars ~= nil then boars.paceSpeed else nil
+	if pace == RangeData.WORD.MIXED then
+		-- `mixed` RESOLVES HERE, through the injected roll, so the WORD it drew is known to the
+		-- caller that issues the speed and the two legs are drivable by parameter.
+		local roll = state.roll
+		local word = RangeData.mixedWord(if roll ~= nil then roll() else nil)
+		return RangeData.paceSpeedFor(word, RangeData.LAYOUT, injected), word
 	end
-	return boars.paceSpeed(pace) or 0
+	return RangeData.paceSpeedFor(pace, RangeData.LAYOUT, injected)
 end
 
 local function newTrial(spot: number, pace: string): Trial
@@ -200,6 +280,9 @@ local function newTrial(spot: number, pace: string): Trial
 		distanceStuds = RangeData.LAYOUT.DISTANCE_STUDS,
 		targetId = nil,
 		leg = 1,
+		-- WHICH LEG `mixed` LAST DREW FOR: nil until `order` draws on this leg (design 6).
+		legDrawn = nil,
+		drewWord = nil,
 		crossings = 0,
 		lastCrossingSeconds = nil,
 		crossingSecondsByPace = {},
@@ -211,6 +294,9 @@ local function newTrial(spot: number, pace: string): Trial
 		windowArmed = true,
 		carcassAt = nil,
 		releaseAt = nil,
+		-- NOBODY HAS BEEN HERE YET, so an untouched station never releases: the clock starts at the
+		-- first scan and the station stays empty until a man is measured at it.
+		idleSince = nil,
 	}
 end
 
@@ -242,23 +328,19 @@ function Range.trialOf(spot: number): Trial?
 	return copy
 end
 
--- WHICH MAT, against the anchor this range was actually built on. Step B3's `mayShoot` is this plus
--- one position read.
-function Range.spotAt(position: Vector3?): number?
+-- WHICH STATION AND WHICH FIRING POSITION, against the anchor this range was actually built on and
+-- the DECK TOPS `Build` measured. The second return is nil for a man at the station but on neither
+-- position (under the deck, or walking to the ladder) -- `mayShoot` asks only the first.
+function Range.spotAt(position: Vector3?): (number?, string?)
 	if state.anchor == nil then
-		return nil
+		return nil, nil
 	end
-	return RangeData.spotAt(state.anchor, position, RangeData.LAYOUT)
+	return RangeData.spotAt(state.anchor, position, RangeData.LAYOUT, state.downrange, state.deckTops)
 end
 
--- ------------------------------------------------------------------ THE ONE PREDICATE (7.4)
-
--- MAY THIS MAN SHOOT HERE? Server-measured: his own character's root, on a mat, in a world where the
--- range is actually built. It answers; the WEAPON still decides and still refuses (design 7.4).
-function Range.mayShoot(player: any): boolean
-	if not state.started or state.anchor == nil or player == nil then
-		return false
-	end
+-- WHICH STATION ONE MAN IS AT, measured off HIS OWN CHARACTER and nothing he sent (design 7.4,
+-- and design 1 item 9's rule). Moved above `scan` in step B7, which asks it per station per tick.
+local function playerSpot(player: any): number?
 	local ok, position = pcall(function(): Vector3?
 		local character = (player :: any).Character
 		if typeof(character) ~= "Instance" then
@@ -271,9 +353,163 @@ function Range.mayShoot(player: any): boolean
 		return root.Position
 	end)
 	if not ok or position == nil then
+		return nil
+	end
+	return Range.spotAt(position)
+end
+
+-- WHAT `Build` MEASURED: the top face of each station's deck, and no entry at all for a station
+-- whose seat `HighSeats.plan` refused. The ONE source for "is he on the stand", so a refused
+-- station is bench-only as data and nothing branches on it.
+function Range.deckTops(): { [number]: number }
+	return table.clone(state.deckTops or {})
+end
+
+-- THE SERVER'S OWN MEASUREMENT OF WHERE HE IS STANDING, which is the only answer there is: nothing
+-- a client sends carries a firing position (design 7.3).
+function Range.positionOf(player: any): (number?, string?)
+	local ok, position = pcall(function(): Vector3?
+		local character = (player :: any).Character
+		if typeof(character) ~= "Instance" then
+			return nil
+		end
+		local root = character:FindFirstChild("HumanoidRootPart")
+		if root == nil or not root:IsA("BasePart") then
+			return nil
+		end
+		return root.Position
+	end)
+	if not ok or position == nil then
+		return nil, nil
+	end
+	return Range.spotAt(position)
+end
+
+-- --------------------------------------------------------- THE WAY UP (step B10, dispatch item 6)
+--
+-- B9 MEASURED TWICE that a real `W` against the seat's `TrussPart` never climbs (`ESCALATE.md`, B9
+-- entry), so there is no way onto a deck for a real player. The pattern adopted is the common
+-- Roblox treestand one -- a `ProximityPrompt` that MOVES the character -- and these two functions
+-- are its whole rule. `Build` hangs `Climb` (E) at the ladder's foot and `Climb down` (F) over the
+-- deck's rail gap; the keys differ because a man on the deck is in reach of BOTH the down prompt
+-- and the station's RANGE prompt and `Exclusivity` is `OnePerButton`.
+-- Research note: docs/research/2026-10-28-the-range-in-the-lobby.md section 8.2.
+
+-- HOW A BODY IS MOVED. The seam, with the shipped `PivotTo` behind it, so a spec drives the whole
+-- rule with a table and no character. It returns whether it moved anything.
+local function moveBody(player: any, cframe: CFrame): boolean
+	local mover = state.move
+	if mover ~= nil then
+		return mover(player, cframe) == true
+	end
+	local ok, moved = pcall(function(): boolean
+		local character = (player :: any).Character
+		if typeof(character) ~= "Instance" or not character:IsA("Model") then
+			return false
+		end
+		(character :: Model):PivotTo(cframe)
+		return true
+	end)
+	return ok and moved == true
+end
+
+-- THE WAY UP: onto THAT station's deck, and only where a deck was built. A station whose seat
+-- `HighSeats.plan` refused has no `deckTops` entry, and then this refuses too rather than putting a
+-- man on the air where a stand is not.
+function Range.onClimb(player: any, spot: number?): boolean
+	local index = math.floor(spot or 0)
+	local deckTop = (state.deckTops or {})[index]
+	if not state.started or state.anchor == nil or player == nil or deckTop == nil then
+		state.stats.climbsRefused += 1
 		return false
 	end
-	return Range.spotAt(position) ~= nil
+	local target = RangeData.climbTargetFor(state.anchor :: Vector3, index, RangeData.LAYOUT, state.downrange, deckTop)
+	if not moveBody(player, target) then
+		state.stats.climbsRefused += 1
+		return false
+	end
+	state.stats.climbsUp += 1
+	return true
+end
+
+-- AND THE WAY DOWN: a stud uprange of the ladder's foot, on the ground MEASURED there. No `deckTops`
+-- test -- a man standing on a deck that is somehow not in the table still has to be able to get off
+-- it -- but the station has to exist.
+function Range.onClimbDown(player: any, spot: number?): boolean
+	local index = math.floor(spot or 0)
+	if
+		not state.started
+		or state.anchor == nil
+		or player == nil
+		or index < 1
+		or index > RangeData.LAYOUT.SPOT_COUNT
+	then
+		state.stats.climbsRefused += 1
+		return false
+	end
+	local anchor = state.anchor :: Vector3
+	local foot = RangeData.ladderFootPosition(anchor, index, RangeData.LAYOUT, state.downrange)
+	local ground = anchor.Y
+	if state.groundAt ~= nil then
+		local read = (state.groundAt :: any)(foot.X, foot.Z)
+		if type(read) == "number" then
+			ground = read :: number
+		end
+	end
+	local target = RangeData.climbDownTargetFor(anchor, index, RangeData.LAYOUT, state.downrange, ground)
+	if not moveBody(player, target) then
+		state.stats.climbsRefused += 1
+		return false
+	end
+	state.stats.climbsDown += 1
+	return true
+end
+
+-- EVERY CLIMB PROMPT IN THE BUILT FOLDER, WIRED ON THE **SERVER** -- where `Triggered` carries the
+-- player who pressed it, so there is no new remote and no new client owner. Returns how many it
+-- wired, which is the number `range.spec` asserts against twice the station count.
+function Range.wireClimbs(folder: Instance?): number
+	if folder == nil then
+		return 0
+	end
+	local wanted: { [string]: { spot: number, way: string } } = {}
+	for spot = 1, RangeData.LAYOUT.SPOT_COUNT do
+		wanted[RangeData.climbPromptName(spot, "up")] = { spot = spot, way = "up" }
+		wanted[RangeData.climbPromptName(spot, "down")] = { spot = spot, way = "down" }
+	end
+	local wired = 0
+	for _, child in ipairs((folder :: Instance):GetDescendants()) do
+		local row = wanted[child.Name]
+		if row ~= nil then
+			local ok, connection = pcall(function()
+				return (child :: any).Triggered:Connect(function(who: any)
+					if row.way == "up" then
+						Range.onClimb(who, row.spot)
+					else
+						Range.onClimbDown(who, row.spot)
+					end
+				end)
+			end)
+			if ok and connection ~= nil then
+				table.insert(state.climbs, connection)
+				wired += 1
+			end
+		end
+	end
+	return wired
+end
+
+-- ------------------------------------------------------------------ THE ONE PREDICATE (7.4)
+
+-- MAY THIS MAN SHOOT HERE? Server-measured: his own character's root, on a mat, in a world where the
+-- range is actually built. It answers; the WEAPON still decides and still refuses (design 7.4).
+function Range.mayShoot(player: any): boolean
+	if not state.started or state.anchor == nil or player == nil then
+		return false
+	end
+	-- THE STATION, not the mat: `spotAt`'s box is the union of the bench and the deck, so a man
+	-- does not lose his gun on the ladder (design 7.3).
+	return (Range.positionOf(player)) ~= nil
 end
 
 -- WHAT IS ON LOAN AT A SPOT. KAREN, 2026-10-27: *"range is free and amunition is endless"*, all four
@@ -422,6 +658,28 @@ function Range.setPace(spot: number, pace: string): boolean
 	-- window, at exactly the 4.5 studs/s it printed beside it. The timer is re-armed by LEAVING.
 	trial.windowArmed = false
 	trial.standSeconds = 0
+	-- `mixed` redraws on the leg it is running, not on the next flip.
+	trial.legDrawn = nil
+	trial.drewWord = nil
+	return true
+end
+
+-- THE LANE, FOR ONE SPOT, AND IT IS THE ONE WRITER OF `distanceStuds` ON A LIVE TRIAL (306b's
+-- queued note (ii), owned by B4 because B4 is where the crossing is measured). A lane changed
+-- while the target is INSIDE the window is not a crossing: the target is led DIAGONALLY across to
+-- the new lane, and that transit used to be timed as one. Cleared and DISARMED exactly as
+-- `setPace` does -- the timer is re-armed by LEAVING.
+function Range.setDistance(spot: number, distanceStuds: number): boolean
+	local trial = state.trials[spot]
+	if trial == nil or not RangeData.optionAllowed("distanceStuds", distanceStuds) then
+		return false
+	end
+	if distanceStuds ~= trial.distanceStuds then
+		trial.windowEnteredAt = nil
+		trial.windowLeg = nil
+		trial.windowArmed = false
+	end
+	trial.distanceStuds = distanceStuds
 	return true
 end
 
@@ -456,6 +714,9 @@ function Range.start(seams): boolean
 		row = row,
 		layout = RangeData.LAYOUT,
 		groundAt = seams.groundAt,
+		-- THE PLACE'S OWN GROUND, AS AN ARGUMENT (design 8.2, step B8). nil is no write at all, which
+		-- is every spec and every DEV run -- so no spec can write a place's terrain, ever.
+		terrain = seams.terrain,
 	})
 	if built == nil then
 		state.stats.refusedBy = why or "build refused"
@@ -469,7 +730,18 @@ function Range.start(seams): boolean
 	state.downrange = RangeData.downrangeOf(row)
 	state.root = root
 	state.boars = seams.boars
+	-- WHO IS HERE, from the root (design 7.4). nil means no occupancy measurement is possible, and
+	-- then nothing is ever released: a station with nobody measured at it has no animal.
+	state.players = seams.players
 	state.now = seams.now
+	-- THE RING'S OWN CLOCK, which is NOT `state.now` (review round 1, finding 1). `Runtime:cframeAt`
+	-- stamps its history with `GetServerTimeNow()`, so an instant taken off `os.clock()` -- process
+	-- time -- falls outside the ring's span and is refused every time. Injectable so a spec can run
+	-- the two clocks apart; nil is the shipped one.
+	state.serverTime = seams.serverTime
+	-- THE `mixed` DRAW, INJECTED like the clock, so a spec can run the two legs by parameter
+	-- instead of waiting on `math.random` (round 1, finding 1). Nil means the shipped draw.
+	state.roll = seams.roll
 	state.acc = 0
 	state.trials = {}
 	-- THE COUNTERS DESCRIBE ONE RUN, AND THAT IS NOT A TIDINESS POINT (review round 1, finding 2):
@@ -480,13 +752,37 @@ function Range.start(seams): boolean
 			state.stats[key] = 0
 		end
 	end
+	state.deckTops = built.deckTops or {}
+	-- THE GROUND READER AND THE MOVER, KEPT (step B10): the way down measures the ground at the
+	-- ladder's foot, and the body is moved through a seam a spec can replace.
+	state.groundAt = seams.groundAt
+	state.move = seams.move
+	state.climbs = {}
 	state.stats.parts = built.parts
+	state.stats.terrainFills = built.terrainFills or 0
+	state.stats.terrainReplaces = built.terrainReplaces or 0
 	state.stats.buildMs = built.buildMs
+	state.stats.stands = built.stands or 0
+	state.stats.refusedStands = built.refusedStands or 0
 	state.stats.refusedBy = nil
 	for spot = 1, RangeData.LAYOUT.SPOT_COUNT do
 		state.trials[spot] = newTrial(spot, Range.CONFIG.DEFAULT_PACE)
 	end
-	print(string.format("[range] built in %d ms (%d parts)", built.buildMs, built.parts))
+	-- THE WAY UP, WIRED LAST, after the folder is parented: two prompts per station that has a seat.
+	local climbs = Range.wireClimbs(built.folder)
+	print(
+		string.format(
+			"[range] built in %d ms (%d parts, %d stands, %d refused, %d climb prompts)",
+			built.buildMs,
+			built.parts,
+			built.stands or 0,
+			built.refusedStands or 0,
+			climbs
+		)
+	)
+	for _, refusal in ipairs(built.standRefusals or {}) do
+		print(string.format("[range] no stand at station %s", refusal))
+	end
 	return true
 end
 
@@ -505,16 +801,33 @@ function Range.stop()
 			state.stats.clears += 1
 		end
 	end
+	-- THE CLIMB CONNECTIONS GO BEFORE THE FOLDER THEY HANG IN (step B10): a `Triggered` handler on a
+	-- destroyed prompt is a handler that can still fire once, and it would move a body onto a deck
+	-- that no longer exists.
+	for _, connection in ipairs(state.climbs) do
+		pcall(function()
+			(connection :: any):Disconnect()
+		end)
+	end
+	state.climbs = {}
+	state.groundAt = nil
+	state.move = nil
 	if state.built ~= nil and state.built.folder ~= nil then
 		state.built.folder:Destroy()
 	end
 	state.started = false
 	state.built = nil
 	state.anchor = nil
+	state.watchers = {}
+	state.maskDirty = false
 	state.row = nil
 	state.root = nil
+	state.deckTops = {}
 	state.boars = nil
+	state.players = nil
 	state.now = nil
+	state.serverTime = nil
+	state.roll = nil
 	state.trials = {}
 	state.acc = 0
 	-- THE RECORDS GO WITH THE RANGE: they describe trials that no longer exist (round 1, finding 2).
@@ -523,18 +836,82 @@ function Range.stop()
 	state.seen = {}
 end
 
+-- FORWARD-DECLARED: `scan` flushes it and it is defined down with `publish`, the one sender it
+-- uses. Declared here so the owner keeps one sender and not two.
+local flushMasks: () -> ()
+
+-- ONE STATION'S ANIMAL, AND ONLY HIS (task 306 B7, must-fix 1). `Boar.Runtime:clearOne` despawns
+-- by id through the same path the range-wide `clear` uses; a root that wires only `clear` takes the
+-- other five stations' animals with this one, which is COUNTED (`wideClears`) and not silent.
+local function clearTarget(trial: Trial, reason: string): boolean
+	local boars = state.boars
+	local id = trial.targetId
+	if boars == nil or id == nil then
+		return false
+	end
+	if boars.clearOne ~= nil then
+		-- THE SEAM ANSWERS A BOOLEAN, and "did not raise" is not "despawned" (round 1, note): a
+		-- `false` for an id that is already gone must not bump the counters group 12 reads.
+		local ok, done = pcall(boars.clearOne, id :: string, reason)
+		if not ok or done == false then
+			return false
+		end
+	elseif boars.clear ~= nil then
+		boars.clear(reason)
+		state.stats.wideClears += 1
+	else
+		return false
+	end
+	state.stats.clears += 1
+	trial.targetId = nil
+	state.maskDirty = true
+	trial.carcassAt = nil
+	return true
+end
+
+-- WHO IS AT WHICH STATION, THIS TICK (design 7.4). The root hands in the player list, this module
+-- applies its own rule (`playerSpot` -> `Range.spotAt`), and a station nobody is measured at gets
+-- no animal. No payload is believed and no `Players` service is read here.
+local function occupancy(): { [number]: boolean }
+	local out = {}
+	local players = state.players
+	if players == nil then
+		return out
+	end
+	local ok, list = pcall(players)
+	if not ok or type(list) ~= "table" then
+		return out
+	end
+	for _, player in ipairs(list :: { any }) do
+		local spot = playerSpot(player)
+		if spot ~= nil then
+			out[spot :: number] = true
+		end
+	end
+	return out
+end
+
 local function release(trial: Trial)
 	local boars = state.boars
 	if boars == nil or boars.spawn == nil or state.anchor == nil then
 		return
 	end
 	-- Released at the end the next leg STARTS from, so the first thing it does is cross.
-	local from = RangeData.laneEnds(state.anchor :: Vector3, RangeData.LAYOUT, trial.leg + 1, state.downrange)
+	-- HIS OWN STATION'S LANE, at the distance HE picked: the window is centred on his mat (design 5.3).
+	local from = RangeData.laneEnds(
+		state.anchor :: Vector3,
+		RangeData.LAYOUT,
+		trial.leg + 1,
+		state.downrange,
+		trial.spot,
+		trial.distanceStuds
+	)
 	local handle = boars.spawn(from, trial.kind)
 	if handle == nil or handle.id == nil then
 		return
 	end
 	trial.targetId = handle.id
+	state.maskDirty = true
 	trial.carcassAt = nil
 	trial.releaseAt = nil
 	trial.windowEnteredAt = nil
@@ -546,7 +923,13 @@ end
 -- THE WINDOW TIMER (TARGET 3). It times the target's passage through `WINDOW_STUDS` of OPEN lane,
 -- not the whole leg: the aprons exist for the turn-around and a crossing is what the shooter sees.
 local function timeWindow(trial: Trial, position: Vector3, now: number)
-	local centre = RangeData.laneCentre(state.anchor :: Vector3, RangeData.LAYOUT, state.downrange)
+	local centre = RangeData.laneCentre(
+		state.anchor :: Vector3,
+		RangeData.LAYOUT,
+		state.downrange,
+		trial.spot,
+		trial.distanceStuds
+	)
 	local inside = math.abs(position.X - centre.X) <= RangeData.LAYOUT.WINDOW_STUDS / 2
 	if inside then
 		-- ONLY A REAL ENTRY STARTS THE CLOCK: armed by being outside, spent on the way in.
@@ -581,7 +964,7 @@ local function order(trial: Trial, position: Vector3, dt: number)
 		-- STAND: the lane's MIDDLE, through the same seam. The animal walks there and the Brain
 		-- stops it inside `LINE.ARRIVE_STUDS` -- the Brain's own idle, not a speed this module
 		-- invents and not a CFrame it writes.
-		point = RangeData.laneCentre(anchor, layout, state.downrange)
+		point = RangeData.laneCentre(anchor, layout, state.downrange, trial.spot, trial.distanceStuds)
 		speed = Range.issuedSpeedFor(trial)
 		direction = "middle"
 		if
@@ -591,7 +974,7 @@ local function order(trial: Trial, position: Vector3, dt: number)
 			trial.standSeconds += dt
 		end
 	else
-		point = RangeData.laneEnds(anchor, layout, trial.leg, state.downrange)
+		point = RangeData.laneEnds(anchor, layout, trial.leg, state.downrange, trial.spot, trial.distanceStuds)
 		-- THE FLIP, and it is the range's reason to exist in one line: ISSF's mandatory direction
 		-- change, so neither shoulder is favoured and no single lead is ever trained.
 		if
@@ -600,7 +983,16 @@ local function order(trial: Trial, position: Vector3, dt: number)
 		then
 			trial.leg += 1
 			state.stats.flips += 1
-			point = RangeData.laneEnds(anchor, layout, trial.leg, state.downrange)
+			point = RangeData.laneEnds(anchor, layout, trial.leg, state.downrange, trial.spot, trial.distanceStuds)
+		end
+		-- `mixed` DRAWS PER LEG (design 6), here, where the leg flips and nowhere else. The shooter
+		-- is never told which it drew -- ISSF does not announce it -- so the board prints the
+		-- ISSUED SPEED and never a second word.
+		if trial.pace == RangeData.WORD.MIXED and trial.legDrawn ~= trial.leg then
+			local drew, word = paceSpeed(RangeData.WORD.MIXED)
+			trial.speedStudsPerSecond = drew
+			trial.drewWord = word
+			trial.legDrawn = trial.leg
 		end
 		speed = trial.speedStudsPerSecond
 		direction = if (trial.leg % 2) == 1 then "east" else "west"
@@ -620,18 +1012,50 @@ local function scan(dt: number)
 	if boars == nil or state.anchor == nil then
 		return
 	end
-	for _, trial in pairs(state.trials) do
+	-- ONE ANIMAL PER *OCCUPIED* STATION (design 7.4): measured once per tick, for all six.
+	local here = occupancy()
+	local occupiedCount = 0
+	for _, occupied in pairs(here) do
+		if occupied then
+			occupiedCount += 1
+		end
+	end
+	state.stats.occupied = occupiedCount
+	for spot, trial in pairs(state.trials) do
+		local occupied = here[spot] == true
+		if occupied then
+			trial.idleSince = nil
+		elseif trial.idleSince == nil then
+			trial.idleSince = now
+		end
 		if trial.targetId == nil then
-			if trial.releaseAt == nil or now >= trial.releaseAt then
+			-- NO ANIMAL FOR AN EMPTY STATION: six drawn, animated animals for one shooter is six
+			-- animators and six sound sets for nothing (design 7.4). This is also T11's "an empty
+			-- range costs 0 spawns" -- and the ONLY arrival edge there is.
+			if occupied and (trial.releaseAt == nil or now >= trial.releaseAt) then
 				release(trial)
 			end
 			continue
+		end
+		-- HE LEFT: his own animal goes `IDLE_CLEAR_SECONDS` after he did, and nobody else's.
+		local idleSince = trial.idleSince
+		if idleSince ~= nil and now - (idleSince :: number) >= Range.CONFIG.IDLE_CLEAR_SECONDS then
+			if clearTarget(trial, "range idle") then
+				state.stats.idleClears += 1
+				trial.releaseAt = nil
+				continue
+			end
+			-- THE SEAM REFUSED, so DO NOT skip the rest (round 2, note 2): a `continue` here left the
+			-- trial holding a dead id for ever, over-counting `targets` and keeping it in the mask.
+			-- Falling through lets `statusOf` notice an animal that is already gone, and the clear is
+			-- retried on the next tick for one that is not.
 		end
 		local status = boars.statusOf(trial.targetId)
 		if status == nil then
 			-- Gone, and not by this module's hand: release another rather than steer a ghost.
 			state.stats.lostTargets += 1
 			trial.targetId = nil
+			state.maskDirty = true
 			trial.releaseAt = now + Range.CONFIG.RELEASE_SECONDS
 			continue
 		end
@@ -640,12 +1064,13 @@ local function scan(dt: number)
 				trial.carcassAt = now
 				state.stats.carcasses += 1
 			elseif now - (trial.carcassAt :: number) >= Range.CONFIG.CARCASS_SECONDS then
-				boars.clear("range carcass")
-				state.stats.clears += 1
-				trial.targetId = nil
-				trial.carcassAt = nil
-				trial.releaseAt = now + Range.CONFIG.RELEASE_SECONDS
-				state.stats.releases += 1
+				-- HIS CARCASS, AND ONLY HIS (must-fix 1): before step B7 this was the range-WIDE
+				-- `boars.clear`, so one man's kill took the other five stations' animals and all
+				-- six re-released (`range.spec` asserted the 12 spawns and 5 lost targets).
+				if clearTarget(trial, "range carcass") then
+					trial.releaseAt = now + Range.CONFIG.RELEASE_SECONDS
+					state.stats.releases += 1
+				end
 			end
 			continue
 		end
@@ -658,6 +1083,7 @@ local function scan(dt: number)
 		end
 		order(trial, status.position, dt)
 	end
+	flushMasks()
 end
 
 -- ONE MORE CALL IN THE HEARTBEAT THE ROOT ALREADY RUNS, throttled in here: a second clock would be
@@ -718,14 +1144,15 @@ end
 --
 -- `Weapon.HitReported` / `ShotResolved` carry no per-shot measured lag at this commit, so the bound
 -- is the only honest view number B4 can print (queued: the field pair of design 9.2).
-local function leadsFor(trial: Trial, player: any): (number, number, boolean)
+local function leadsFor(trial: Trial, player: any, distanceStuds: number?): (number, number, boolean)
 	local speed = trial.speedStudsPerSecond
 	local ballistic = 0
+	local far = distanceStuds or trial.distanceStuds
 	local row = Weapons.row(trial.weapon :: any)
 	if row ~= nil then
 		local shot = Ballistics.shotFor(row, trial.ammo)
 		if shot ~= nil then
-			ballistic = Ballistics.leadStuds(shot, trial.distanceStuds, speed)
+			ballistic = Ballistics.leadStuds(shot, far, speed)
 		end
 	end
 	local window = 0
@@ -736,8 +1163,11 @@ local function leadsFor(trial: Trial, player: any): (number, number, boolean)
 	return ballistic, speed * window, false
 end
 
-local function blankRecord(player: any, trial: Trial): any
-	local ballistic, view, measured = leadsFor(trial, player)
+local function blankRecord(player: any, trial: Trial, position: string?): any
+	-- THE DISTANCE HE IS ACTUALLY SHOOTING FROM, and the two lead numbers computed at it: the deck
+	-- stands `STAND.backStuds` further back than the bench (design 9.4).
+	local far = RangeData.distanceFor(trial, position, RangeData.LAYOUT)
+	local ballistic, view, measured = leadsFor(trial, player, far)
 	local columns = zoneOrder(trial.kind)
 	local zones = {}
 	for _, zone in ipairs(columns) do
@@ -751,7 +1181,10 @@ local function blankRecord(player: any, trial: Trial): any
 		pace = trial.pace,
 		weapon = trial.weapon,
 		ammo = trial.ammo,
-		distanceStuds = trial.distanceStuds,
+		distanceStuds = far,
+		-- THE SERVER'S OWN MEASUREMENT of which firing position he is on; nil means he is at the
+		-- station and on neither. The board prints it, and no client ever sends it.
+		position = position,
 		-- The pace's own speed, and the one the runtime was ASKED for -- not the same number at
 		-- STAND, and the board labels both (B2's queued note).
 		paceStudsPerSecond = trial.speedStudsPerSecond,
@@ -785,9 +1218,14 @@ end
 
 -- THE RECORD FOR THIS PLAYER AT THIS TRIAL. A trial change starts a fresh one: the tally is per
 -- player, per trial, and is thrown away when the trial ends (design 9.3).
-local function recordFor(player: any, trial: Trial): any
+local function recordFor(player: any, trial: Trial, position: string?): any
 	local id = (player :: any).UserId
+	-- REMEMBERED HERE, where the record is made: the board's audience and the mask's audience are
+	-- the same men, so there is one list and no second definition of "who is at the range".
+	state.watchers[id] = player
 	local existing = state.records[id]
+	-- A CHANGE OF FIRING POSITION STARTS A FRESH TALLY, for the same reason a change of lane does:
+	-- the distance, and therefore both lead numbers, are different numbers (design 9.4).
 	local fresh = existing == nil
 		or existing.spot ~= trial.spot
 		or existing.species ~= trial.species
@@ -795,9 +1233,10 @@ local function recordFor(player: any, trial: Trial): any
 		or existing.pace ~= trial.pace
 		or existing.weapon ~= trial.weapon
 		or existing.ammo ~= trial.ammo
-		or existing.distanceStuds ~= trial.distanceStuds
+		or existing.position ~= position
+		or existing.distanceStuds ~= RangeData.distanceFor(trial, position, RangeData.LAYOUT)
 	if fresh then
-		existing = blankRecord(player, trial)
+		existing = blankRecord(player, trial, position)
 		state.records[id] = existing
 	end
 	return existing
@@ -812,7 +1251,43 @@ function Range.recordOf(player: any): any
 	local copy = table.clone(record)
 	copy.zones = table.clone(record.zones)
 	copy.zoneOrder = table.clone(record.zoneOrder)
+	-- THE MASK'S TWO FIELDS RIDE ON THE RECORD AND ARE NOT PART OF THE TALLY: they are measured on
+	-- every read, because the trunk changes with every release while the tally survives it. Here and
+	-- not in `publish`, so the reader and the wire see one record (the Reviewer, round 1).
+	copy.mine, copy.window = Range.maskFor(player)
 	return copy
+end
+
+-- WHAT THE CLIENT'S MASK IS TOLD (design 4.4, 9.4): THIS man's own trunk, and HIS station's own
+-- window. Two fields, both the SERVER's measurement -- the client never guesses which animal is
+-- his, which is what keeps one judge of the isolation.
+--
+-- IT IS THE SAME TWO FACTS `Range.ignoredFor` ANSWERS FOR THE SHOT, read from the same places:
+-- `boars.rootOf` for the trunk and `RangeData.windowSpanFor` for the window. The shot's door and
+-- the picture cannot disagree because neither derives its own copy.
+function Range.maskFor(player: any): (Instance?, { minX: number, maxX: number }?)
+	local anchor = state.anchor
+	local boars = state.boars
+	if not state.started or anchor == nil or player == nil then
+		return nil, nil
+	end
+	local spot = (Range.positionOf(player))
+	if spot == nil then
+		return nil, nil
+	end
+	local minX, maxX = RangeData.windowSpanFor(anchor :: Vector3, spot :: number, RangeData.LAYOUT)
+	local window = { minX = minX, maxX = maxX }
+	local trial = state.trials[spot]
+	if trial == nil or trial.targetId == nil or boars == nil or boars.rootOf == nil then
+		-- THE WINDOW IS STILL HIS, with no animal released yet: the mask then hides the other five
+		-- and has nothing of his own to show.
+		return nil, window
+	end
+	local ok, root = pcall(boars.rootOf, trial.targetId :: string)
+	if not ok or typeof(root) ~= "Instance" then
+		return nil, window
+	end
+	return root :: Instance, window
 end
 
 local function publish(player: any)
@@ -828,6 +1303,25 @@ local function publish(player: any)
 		remotes.RangeBoard:FireClient(player, { record = record, lists = Range.optionLists() })
 	end)
 	state.stats.boardPushes += 1
+end
+
+-- A TRUNK CHANGED, SO EVERY MAN AT THE RANGE IS TOLD AGAIN (the Reviewer, round 1, finding 1).
+-- `record.mine` is an INSTANCE, and `release` makes a new one while `boars.clear` destroys all six
+-- at once -- so without this a man kept a reference to a destroyed trunk and his own new animal
+-- stayed hidden until his next shot. Flushed ONCE per scan tick (`STEP_HZ`, 10 Hz), not once per
+-- release, so a six-trial carcass clear costs one push per man and not six.
+function flushMasks()
+	if not state.maskDirty then
+		return
+	end
+	state.maskDirty = false
+	for id, player in pairs(state.watchers) do
+		if state.records[id] == nil then
+			state.watchers[id] = nil
+		else
+			publish(player)
+		end
+	end
 end
 
 -- THE SIGNED ALONG-TRACK GAP, in studs, projected onto the target's own travel (design 9.2).
@@ -897,22 +1391,48 @@ local function targetPositionOf(trial: Trial, at: number?): Vector3?
 	return (status :: any).position
 end
 
-local function playerSpot(player: any): number?
-	local ok, position = pcall(function(): Vector3?
-		local character = (player :: any).Character
-		if typeof(character) ~= "Instance" then
-			return nil
-		end
-		local root = character:FindFirstChild("HumanoidRootPart")
-		if root == nil or not root:IsA("BasePart") then
-			return nil
-		end
-		return root.Position
-	end)
-	if not ok or position == nil then
-		return nil
+-- EVERY RANGE TARGET THIS SHOT MUST NOT SEE (design 4.3): the five that are not his, and his own
+-- while it is outside its station's own window. ONE predicate, `RangeData.inWindow`, read here and
+-- by the client's mask -- the server's door and the client's picture asking one question.
+-- NOBODY AT A STATION MEANS AN EMPTY LIST, so a shot in the wood is untouched; and his own target's
+-- position is read through `targetPositionOf`, the SAME history ring the rewound cast is judged
+-- against, so the animal is hittable exactly where it is drawn.
+-- Note: docs/design/shooting-range-lobby.md sections 4.3, 5.3
+function Range.ignoredFor(player: any, rewindSeconds: number?): { Instance }
+	-- COUNTED BEFORE THE GUARDS, so T13's budget covers every ask including the ones that answer
+	-- nothing; it is a cost counter, not a count of filtered shots (the Reviewer's note).
+	state.stats.ignoreCalls += 1
+	local out: { Instance } = {}
+	local anchor = state.anchor
+	local boars = state.boars
+	if not state.started or anchor == nil or player == nil or boars == nil or boars.rootOf == nil then
+		return out
 	end
-	return Range.spotAt(position)
+	local mine = (Range.positionOf(player))
+	if mine == nil then
+		return out
+	end
+	local at: number? = nil
+	if type(rewindSeconds) == "number" and rewindSeconds == rewindSeconds and rewindSeconds > 0 then
+		at = serverNow() - rewindSeconds
+	end
+	for spot, trial in pairs(state.trials) do
+		if trial.targetId ~= nil then
+			local ok, root = pcall(boars.rootOf, trial.targetId :: string)
+			if ok and typeof(root) == "Instance" then
+				local hide = spot ~= mine
+				if not hide then
+					local minX, maxX = RangeData.windowSpanFor(anchor, spot, RangeData.LAYOUT)
+					local position = targetPositionOf(trial, at)
+					hide = not RangeData.inWindow(minX, maxX, if position ~= nil then position.X else nil)
+				end
+				if hide then
+					table.insert(out, root :: Instance)
+				end
+			end
+		end
+	end
+	return out
 end
 
 -- THE LISTS AND THE BOARD, WITHOUT A PICK (task 308 bug 1). MEASURED in Karen's place on
@@ -945,16 +1465,17 @@ function Range.onShotResolved(shot: any)
 	if player == nil or not Range.mayShoot(player) then
 		return
 	end
-	local spot = playerSpot(player)
+	-- WHICH STATION AND WHICH FIRING POSITION, measured at the moment of the shot.
+	local spot, position = Range.positionOf(player)
 	local trial = if spot ~= nil then state.trials[spot] else nil
 	if trial == nil then
 		return
 	end
-	local record = recordFor(player, trial)
+	local record = recordFor(player, trial, position)
 	record.shots += 1
 	record.crossingSeconds = trial.lastCrossingSeconds
 	record.issuedStudsPerSecond = trial.issuedStudsPerSecond
-	local ballistic, view, measured = leadsFor(trial, player)
+	local ballistic, view, measured = leadsFor(trial, player, record.distanceStuds)
 	record.leadBallisticStuds = ballistic
 	record.leadViewStuds = view
 	record.leadViewMeasured = measured
@@ -1127,11 +1648,25 @@ function Range.onRequest(player: any, request: any): boolean
 		state.stats.offMat += 1
 		return false
 	end
-	if not RangeData.optionAllowed("spot", request.spot) then
+	-- A MALFORMED PAYLOAD IS STILL MALFORMED: a `spot` field that is not a legal station is a bad
+	-- message whoever sent it, and is counted as one. What it is NOT any more is the thing that
+	-- chooses the trial.
+	if request.spot ~= nil and not RangeData.optionAllowed("spot", request.spot) then
 		state.stats.badRequests += 1
 		return false
 	end
-	local trial = state.trials[request.spot]
+	-- THE STATION IS MEASURED, NEVER CLAIMED (the must-fix of 306b note (i)). It used to be
+	-- `state.trials[request.spot]`, and the menu hard-coded `spot = 1`, so a man at station 3
+	-- picked station 1's trial -- the fault that made 11 of the 12 prompts open nothing useful.
+	-- A client walking between stations is stale, not hostile, so a legal spot that is not the one
+	-- he is standing on is IGNORED rather than refused. `mayShoot` above already proved he is on a
+	-- station, so this cannot be nil here.
+	local spot = (Range.positionOf(player))
+	if spot == nil then
+		state.stats.badRequests += 1
+		return false
+	end
+	local trial = state.trials[spot]
 	if trial == nil then
 		state.stats.badRequests += 1
 		return false
@@ -1142,7 +1677,7 @@ function Range.onRequest(player: any, request: any): boolean
 		state.records[id] = nil
 		state.pending[id] = nil
 		state.stats.resets += 1
-		recordFor(player, trial)
+		recordFor(player, trial, (select(2, Range.positionOf(player))))
 		publish(player)
 		return true
 	end
@@ -1186,6 +1721,8 @@ function Range.onRequest(player: any, request: any): boolean
 		if value ~= nil then
 			if option == "pace" then
 				Range.setPace(trial.spot, value)
+			elseif option == "distanceStuds" then
+				Range.setDistance(trial.spot, value :: number)
 			else
 				(trial :: any)[option] = value
 				respawn = respawn or option == "species" or option == "kind"
@@ -1219,11 +1756,9 @@ function Range.onRequest(player: any, request: any): boolean
 		if respawn then
 			-- A new animal is a new animal: the old one is cleared and the next scan releases the
 			-- picked species at the end of the lane. `Range` never writes a CFrame.
-			local boars = state.boars
-			if boars ~= nil and boars.clear ~= nil and trial.targetId ~= nil then
-				boars.clear("range pick")
-				state.stats.clears += 1
-			end
+			-- HIS OWN ANIMAL (must-fix 1, 306b note (viii)): the respawn path was range-WIDE too,
+			-- so a man picking a species at station 1 cleared station 6's animal as well.
+			clearTarget(trial, "range pick")
 			trial.targetId = nil
 			trial.releaseAt = nil
 			trial.crossings = 0
@@ -1231,7 +1766,7 @@ function Range.onRequest(player: any, request: any): boolean
 		end
 	end
 	-- A PICK STARTS A FRESH RECORD, because the trial it was tallying is over (design 9.3).
-	recordFor(player, trial)
+	recordFor(player, trial, (select(2, Range.positionOf(player))))
 	publish(player)
 	return true
 end

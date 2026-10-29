@@ -307,6 +307,86 @@ return function()
 			end
 		end)
 
+		-- TASK 306 STEP B3: the range's seat is the hunt's seat with ONE SIGN CHANGED, so what is
+		-- asserted is the MIRROR -- the ladder, the rail's gap and the ladder's ground sample move
+		-- to the other face, and NOTHING ELSE MOVES (design shooting-range-lobby 7.1). Read by
+		-- `Range.standFacing`, whose own cases live in `range.spec`.
+		it("builds the same 14 pieces for no facing and for +1", function()
+			local plain = HighSeats.plan(STAND, HILL)
+			local explicit = HighSeats.plan(STAND, HILL, 1)
+			expect(#explicit).to.equal(#plain)
+			for index, piece in ipairs(plain) do
+				local other = explicit[index]
+				expect(other.name).to.equal(piece.name)
+				expect(other.class).to.equal(piece.class)
+				expect((other.size - piece.size).Magnitude < 1e-6).to.equal(true)
+				expect((other.cframe.Position - piece.cframe.Position).Magnitude < 1e-6).to.equal(true)
+				expect(other.material).to.equal(piece.material)
+				expect(other.style).to.equal(piece.style)
+			end
+			-- AND SO IS THE GROUND IT ASKS FOR: `facing` nil and +1 read the same five points.
+			for index, offset in ipairs(HighSeats.footprint()) do
+				local same = HighSeats.footprint(1)[index]
+				expect(same.dx).to.equal(offset.dx)
+				expect(same.dz).to.equal(offset.dz)
+			end
+			expect(HighSeats.facingOf(nil)).to.equal(1)
+			expect(HighSeats.facingOf(1)).to.equal(1)
+			expect(HighSeats.facingOf(-1)).to.equal(-1)
+			expect(HighSeats.facingOf(0)).to.equal(1)
+		end)
+
+		it(
+			"mirrors the ladder, the rail's gap and the ladder's ground sample at facing -1, and nothing else",
+			function()
+				local plain = HighSeats.plan(STAND, HILL)
+				local flipped = HighSeats.plan(STAND, HILL, -1)
+				expect(#flipped).to.equal(#plain)
+				-- EXACTLY THESE FOUR PIECES MOVE: the ladder and the three boards of the two Z faces.
+				local mirrored = { Ladder = true, RailN = true, RailSE = true, RailSW = true }
+				local moved = {}
+				for index, piece in ipairs(plain) do
+					local other = flipped[index]
+					expect(other.name).to.equal(piece.name)
+					expect((other.size - piece.size).Magnitude < 1e-6).to.equal(true)
+					local from, to = piece.cframe.Position, other.cframe.Position
+					expect(math.abs(to.X - from.X) < 1e-6).to.equal(true)
+					expect(math.abs(to.Y - from.Y) < 1e-6).to.equal(true)
+					if math.abs(to.Z - from.Z) > 1e-6 then
+						table.insert(moved, piece.name)
+						expect(mirrored[piece.name]).to.equal(true)
+						-- MIRRORED ABOUT THE STAND'S OWN Z, not merely shifted.
+						expect(math.abs((to.Z - STAND.Z) + (from.Z - STAND.Z)) < 1e-6).to.equal(true)
+					else
+						expect(mirrored[piece.name]).to.equal(nil)
+					end
+				end
+				table.sort(moved)
+				expect(table.concat(moved, ",")).to.equal("Ladder,RailN,RailSE,RailSW")
+				-- THE GROUND SAMPLE MOVES WITH THE LADDER, and the four legs do not.
+				local flat = HighSeats.footprint()
+				local turned = HighSeats.footprint(-1)
+				for index = 1, 4 do
+					expect(turned[index].dx).to.equal(flat[index].dx)
+					expect(turned[index].dz).to.equal(flat[index].dz)
+				end
+				expect(turned[5].dx).to.equal(0)
+				expect(turned[5].dz).to.equal(-flat[5].dz)
+				expect(turned[5].dz).to.equal(-HighSeats.DIMS.LADDER_OFFSET_STUDS)
+				-- THE GAP IS STILL CLIMBABLE, on its new face.
+				local east = pieceNamed(flipped, "RailSE")
+				local west = pieceNamed(flipped, "RailSW")
+				local gap = (east.cframe.Position.X - east.size.X / 2) - (west.cframe.Position.X + west.size.X / 2)
+				expect(math.abs(gap - HighSeats.DIMS.LADDER_GAP_STUDS) < 1e-3).to.equal(true)
+				-- ...AND IT IS ON THE LADDER'S OWN FACE, which is the whole point of the sign.
+				local ladder = pieceNamed(flipped, "Ladder")
+				expect((ladder.cframe.Position.Z - STAND.Z) > 0).to.equal(true)
+				expect((east.cframe.Position.Z - STAND.Z) > 0).to.equal(true)
+				local solid = pieceNamed(flipped, "RailN")
+				expect((solid.cframe.Position.Z - STAND.Z) < 0).to.equal(true)
+			end
+		)
+
 		it("refuses rather than building a partial seat", function()
 			local pieces, reason = HighSeats.plan(STAND, { 140, 142, nil, 141, 143 })
 			expect(pieces).to.equal(nil)

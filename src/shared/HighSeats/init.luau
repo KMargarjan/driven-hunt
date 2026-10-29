@@ -299,17 +299,27 @@ function HighSeats.dealLine(
 	return out
 end
 
+-- WHICH WAY THE SEAT IS TURNED, as a SIGN along Z and never a branch on a caller's name: +1 is the
+-- shipped seat (the hunter faces +Z, the ladder and the rail's gap behind him at -Z) and -1 mirrors
+-- the ladder, the rail's gap and the ladder's own ground sample to the other face -- AND NOTHING
+-- ELSE. `Range.standFacing` is the one caller that passes -1 (design shooting-range-lobby 7.1):
+-- the range's ladder must be UPRANGE, so the solid rail board is the shooting rest downrange.
+function HighSeats.facingOf(facing: number?): number
+	return if facing == -1 then -1 else 1
+end
+
 -- WHERE THE FIVE FOOTPRINT SAMPLES ARE, as flat offsets from the stand point: the four leg centres
 -- and the ladder's own foot. PURE, so the reader loop has nothing to get wrong and the spec names
 -- the same five points the build does. ORDER IS PART OF THE INTERFACE: `plan`'s `grounds` is in it.
-function HighSeats.footprint(): { { dx: number, dz: number } }
+-- The four legs are symmetric, so `facing` moves the FIFTH sample only.
+function HighSeats.footprint(facing: number?): { { dx: number, dz: number } }
 	local inset = HighSeats.DIMS.LEG_INSET_STUDS
 	return {
 		{ dx = -inset, dz = -inset },
 		{ dx = -inset, dz = inset },
 		{ dx = inset, dz = -inset },
 		{ dx = inset, dz = inset },
-		{ dx = 0, dz = HighSeats.DIMS.LADDER_OFFSET_STUDS },
+		{ dx = 0, dz = HighSeats.facingOf(facing) * HighSeats.DIMS.LADDER_OFFSET_STUDS },
 	}
 end
 
@@ -487,7 +497,11 @@ end
 --
 -- DETERMINISTIC: the same arguments twice give the same pieces, so a frame Karen judges
 -- can be rebuilt from a commit and a defect can be bisected.
-function HighSeats.plan(stand: Vector3, grounds: { number? }): ({ Piece }?, string?)
+--
+-- `facing` is `facingOf`'s sign: -1 mirrors the ladder, the rail's gap and the ladder's ground
+-- sample, and nothing else. `grounds` is in `footprint(facing)` order, so the fifth reading is
+-- always the ladder's own foot.
+function HighSeats.plan(stand: Vector3, grounds: { number? }, facing: number?): ({ Piece }?, string?)
 	-- NO `#grounds` GUARD. `#` on a table with a hole is not defined to be either count in Luau, so
 	-- a list that is short and a list that is holed are the SAME question -- "is every one of the
 	-- five samples a number" -- and `deckTopFor` is the one place that asks it.
@@ -505,7 +519,8 @@ function HighSeats.plan(stand: Vector3, grounds: { number? }): ({ Piece }?, stri
 
 	local dims = HighSeats.DIMS
 	local deck = deckTopY :: number
-	local samples = HighSeats.footprint()
+	local sign = HighSeats.facingOf(facing)
+	local samples = HighSeats.footprint(facing)
 	local embed = dims.FOOT_EMBED_STUDS
 	-- The four legs are the rail posts as well, so they all end at ONE number and the deck is level
 	-- by construction rather than by a tolerance.
@@ -609,7 +624,7 @@ function HighSeats.plan(stand: Vector3, grounds: { number? }): ({ Piece }?, stri
 			"RailN",
 			"Part",
 			Vector3.new(width, tall, thick),
-			CFrame.new(stand.X, railCentreY, stand.Z + plane),
+			CFrame.new(stand.X, railCentreY, stand.Z + sign * plane),
 			Enum.Material.Wood,
 			HighSeats.COLORS.TIMBER
 		)
@@ -630,8 +645,10 @@ function HighSeats.plan(stand: Vector3, grounds: { number? }): ({ Piece }?, stri
 			)
 		)
 	end
-	-- The two south stubs, leaving `LADDER_GAP_STUDS` between them for a 2-stud character to climb
-	-- through: each runs from the gap's edge to the deck's own edge.
+	-- The two stubs of the LADDER'S OWN FACE, leaving `LADDER_GAP_STUDS` between them for a 2-stud
+	-- character to climb through: each runs from the gap's edge to the deck's own edge. The names
+	-- `RailN`/`RailS*` are the DEFAULT facing's compass; at `facing = -1` the pair swap faces with
+	-- the ladder and the names describe their ROLE -- solid board, gapped board (design 7.1).
 	local stubWidth = (width - dims.LADDER_GAP_STUDS) / 2
 	local stubCentre = dims.LADDER_GAP_STUDS / 2 + stubWidth / 2
 	for _, row in ipairs({
@@ -644,7 +661,7 @@ function HighSeats.plan(stand: Vector3, grounds: { number? }): ({ Piece }?, stri
 				row.name,
 				"Part",
 				Vector3.new(stubWidth, tall, thick),
-				CFrame.new(stand.X + row.dx, railCentreY, stand.Z - plane),
+				CFrame.new(stand.X + row.dx, railCentreY, stand.Z - sign * plane),
 				Enum.Material.Wood,
 				HighSeats.COLORS.TIMBER
 			)
@@ -667,7 +684,7 @@ function HighSeats.plan(stand: Vector3, grounds: { number? }): ({ Piece }?, stri
 		"Ladder",
 		"TrussPart",
 		Vector3.new(dims.LADDER_SIZE_STUDS, ladderTopY - ladderFootY, dims.LADDER_SIZE_STUDS),
-		CFrame.new(stand.X, (ladderFootY + ladderTopY) / 2, stand.Z + dims.LADDER_OFFSET_STUDS),
+		CFrame.new(stand.X, (ladderFootY + ladderTopY) / 2, stand.Z + sign * dims.LADDER_OFFSET_STUDS),
 		Enum.Material.Wood,
 		HighSeats.COLORS.TIMBER
 	)

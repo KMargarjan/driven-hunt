@@ -67,6 +67,14 @@ local keyBound = false
 -- thing that decides which of the two doors answers a press (see `onKeyPressed`).
 local promptShown = false
 local shownConnections: { any } = {}
+-- IS THE ENGINE OFFERING THE RANGE'S **CLIMB** PROMPT RIGHT NOW? (step B10, item 6.) That prompt is
+-- on `E` too, at the ladder's foot -- and MEASURED there, the station's own RANGE prompt is 11.95
+-- studs away, inside its `MaxActivationDistance` of 12. So `nearestPrompt` answers, this panel binds
+-- `E`, and one press would both climb AND open the menu. While the climb prompt is shown this
+-- panel's key stands down -- the same rule `onKeyPressed` already applies to its OWN prompt, and
+-- for the same reason: the engine is already answering that key.
+local climbShown = false
+local climbConnections: { any } = {}
 
 -- THE CONFIRM BAR MUST CONTAIN THE VIEWPORT CENTRE, which is the one point the input replay can
 -- click (design 11.3) -- and MEASURED LIVE on 2026-10-27 it did not: the HUD's `ScreenGui` carries
@@ -81,6 +89,22 @@ function RangePanel.confirmPosition(): UDim2
 		inset = top
 	end
 	return UDim2.new(0.5, 0, 0.5, math.floor(inset.Y / 2 + 0.5))
+end
+
+-- THE STRIP IS 416 px WIDE (`WIDTH` 560 less the 128 label gutter and the 16 right margin) and
+-- B4's PACE row offers SEVEN values, which at the shipped 94 px pitch would run 238 px off the
+-- panel. The pitch is DERIVED from the count instead: the shipped 94 while it fits, then as wide as
+-- the strip allows. Four values still measure 94 / 90, so every shipped row is bit-for-bit today's.
+RangePanel.STRIP_WIDTH = RangePanel.LOOK.WIDTH - 144
+RangePanel.BUTTON_PITCH = 94
+RangePanel.BUTTON_GAP = 4
+
+function RangePanel.buttonLayout(count: number): (number, number)
+	if type(count) ~= "number" or count < 1 then
+		return RangePanel.BUTTON_PITCH, RangePanel.BUTTON_PITCH - RangePanel.BUTTON_GAP
+	end
+	local pitch = math.min(RangePanel.BUTTON_PITCH, math.floor(RangePanel.STRIP_WIDTH / count))
+	return pitch, math.max(1, pitch - RangePanel.BUTTON_GAP)
 end
 
 function RangePanel.panelSize(): UDim2
@@ -185,9 +209,23 @@ function RangePanel.select(option: string, value: any)
 	RangePanel.render()
 end
 
+-- WHICH STATION THIS MENU IS, TOLD by `Hud.step` -- the one evaluation that already resolves which
+-- prompt he is standing at (`setPrompt`'s own caller). It used to be the literal 1 in the two
+-- senders below, so every one of the six menus picked station 1's trial (306b note (i)).
+local station = { spot = 1, position = nil :: string? }
+
+function RangePanel.setStation(spot: number?, position: string?)
+	station.spot = if type(spot) == "number" then spot else 1
+	station.position = position
+end
+
+function RangePanel.stationOf(): (number, string?)
+	return station.spot, station.position
+end
+
 -- THE ONE SENDER. Nothing else in this file sends, and a request is only ever this shape.
 function RangePanel.confirm(): boolean
-	local out: any = { spot = 1, go = true }
+	local out: any = { spot = station.spot, go = true }
 	for _, row in ipairs(RangePanel.ROWS) do
 		out[row.option] = picked[row.option]
 	end
@@ -209,7 +247,7 @@ function RangePanel.reset(): boolean
 	if sender == nil then
 		return false
 	end
-	sender({ spot = 1, reset = true })
+	sender({ spot = station.spot, reset = true })
 	stats.sends += 1
 	return true
 end
@@ -325,11 +363,12 @@ function RangePanel.render()
 					button:Destroy()
 				end
 				existing = {}
+				local pitch, width = RangePanel.buttonLayout(#values)
 				for index, entry in ipairs(values) do
 					local button = Instance.new("TextButton")
 					button.Name = row.option .. tostring(index)
-					button.Position = UDim2.fromOffset((index - 1) * 94, 0)
-					button.Size = UDim2.fromOffset(90, 26)
+					button.Position = UDim2.fromOffset((index - 1) * pitch, 0)
+					button.Size = UDim2.fromOffset(width, 26)
 					button.BorderSizePixel = 0
 					button.Font = Enum.Font.Gotham
 					button.TextSize = 12
@@ -522,6 +561,57 @@ function RangePanel.isPromptShown(): boolean
 	return promptShown
 end
 
+-- WHETHER A CLIMB PROMPT IS BEING OFFERED, as a parameter as well as a signal -- the two-arms rule,
+-- so a spec reaches both states while the live world sits at one of them.
+function RangePanel.setClimbShown(on: boolean)
+	climbShown = on == true
+end
+
+function RangePanel.isClimbShown(): boolean
+	return climbShown
+end
+
+-- IS THAT INSTANCE ONE OF THE RANGE'S CLIMB PROMPTS? By NAME, which is `Range.climbPromptName`'s own
+-- rule -- nothing here knows where either one hangs.
+function RangePanel.isClimbPrompt(instance: any): boolean
+	if typeof(instance) ~= "Instance" then
+		return false
+	end
+	local name = (instance :: Instance).Name
+	for spot = 1, RangeData.LAYOUT.SPOT_COUNT do
+		if name == RangeData.climbPromptName(spot, "up") or name == RangeData.climbPromptName(spot, "down") then
+			return true
+		end
+	end
+	return false
+end
+
+-- THE CLIMB PROMPTS' OWN WATCH, wired ONCE from the boot and not per station: the service says which
+-- prompt the engine is offering, and this panel only has to know whether it is a climb.
+function RangePanel.watchClimbPrompts()
+	if #climbConnections > 0 then
+		return
+	end
+	pcall(function()
+		table.insert(
+			climbConnections,
+			ProximityPromptService.PromptShown:Connect(function(shown)
+				if RangePanel.isClimbPrompt(shown) then
+					RangePanel.setClimbShown(true)
+				end
+			end)
+		)
+		table.insert(
+			climbConnections,
+			ProximityPromptService.PromptHidden:Connect(function(hidden)
+				if RangePanel.isClimbPrompt(hidden) then
+					RangePanel.setClimbShown(false)
+				end
+			end)
+		)
+	end)
+end
+
 function RangePanel.onPromptTriggered()
 	toggle()
 end
@@ -532,7 +622,9 @@ end
 -- broken, the HIDDEN prompt, and stands down when the engine is already answering.
 function RangePanel.onKeyPressed()
 	stats.keys += 1
-	if promptShown then
+	-- ...OR WHILE A CLIMB PROMPT IS SHOWN (step B10): that one is on `E` as well, and the engine is
+	-- answering it. Without this, one press at the ladder's foot climbs AND opens the menu.
+	if promptShown or climbShown then
 		stats.swallowed += 1
 		return
 	end
@@ -619,10 +711,24 @@ function RangePanel.start(root: Frame, collaborators: any)
 	root.Visible = false
 end
 
+-- THE CLIMB WATCH'S OWN STAND-DOWN, and it is not tidiness: a climb prompt DESTROYED while it is
+-- shown (`Range.stop` takes the whole folder) fires no `PromptHidden`, so `climbShown` would stay
+-- true and `onKeyPressed` would swallow `E` for the rest of the session (round 1, note).
+function RangePanel.unwatchClimbPrompts()
+	for _, connection in ipairs(climbConnections) do
+		pcall(function()
+			(connection :: any):Disconnect()
+		end)
+	end
+	climbConnections = {}
+	climbShown = false
+end
+
 function RangePanel.stop()
 	RangePanel.setOpen(false)
 	RangePanel.bindKey(false)
 	RangePanel.setPrompt(nil)
+	RangePanel.unwatchClimbPrompts()
 	panel = nil
 	state = nil
 	picked = {}
