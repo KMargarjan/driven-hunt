@@ -3044,18 +3044,10 @@ return function()
 
 	describe("Range.ignoredFor", function()
 		local function manAtSpot(position: Vector3, id: number)
-			local man = Instance.new("Folder")
-			local character = Instance.new("Model")
-			local root = Instance.new("Part")
-			root.Name = "HumanoidRootPart"
-			root.Position = position
-			root.Parent = character
-			character.Parent = man
-			local any = man :: any
-			any.Character = character
-			any.UserId = id
-			any.Name = "Man" .. tostring(id)
-			return any
+			local man = manAt(position) :: any
+			man.UserId = id
+			man.Name = "Man" .. tostring(id)
+			return man
 		end
 
 		-- HIS OWN ANIMAL, PUT IN ITS OWN WINDOW. A released target sits at a lane END, which is
