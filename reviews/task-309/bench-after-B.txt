@@ -167,4 +167,4 @@ impact, so there was nothing to measure against.
 
 Self-check: CONTROL and KNOWN-BAD both read as they must.
 
-written: C:/Users/karen/Desktop/driven-hunt-runs/309/after-B.json
+written: <runs-dir>/309/after-B.json

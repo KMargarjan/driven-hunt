@@ -1,7 +1,7 @@
 # Task 309 -- real-life hit rates, measured with the bench
 
 Task: 309
-Round: 1
+Round: 2
 Base: 8e5c0f76
 Code commit: ea7095033dffc9a77600eb5a61ef5dc491982118
 
@@ -57,26 +57,42 @@ under-rewound by 0.0257 s = **0.47 studs mean, 0.95 at p90** at a run.
 ## Claims
 
 1. **The fix is measured, not guessed, and the before and after are the same instrument in the same
-   place.** BEFORE at `8e5c0f76`, AFTER at the code commit, bench `--shots 30`, Karen's Forest Test:
+   place -- BUT ONE BEFORE RUN IS NOT ADMISSIBLE AND IS DROPPED** (round 1, finding 1; the Reviewer
+   was right and the fault was mine). `bench-before-A.txt`'s CONTROL cell reads **14/30 = 47 %**,
+   under `aim_bench.CONTROL_MIN_RATE` (0.50), so by the bench's own rule that whole run is
+   `INSTRUMENT SUSPECT` and no cell in it is a measurement. The note never printed only because my
+   595-second shell cap killed the process inside the KNOWN-BAD cell, before `summarise` ran --
+   which is also why `bench-before-A.txt` and `bench-diag-A.txt` carry **no summary table at all**.
+   Both facts are disclosed here rather than left to be found. The admissible BEFORE is therefore
+   `bench-diag-A.txt` (CONTROL 21/30 = 70 %, over the floor) plus `bench-d6.txt` (complete,
+   self-checked, CONTROL 5/6 = 83 %, KNOWN-BAD 0/6):
 
-   | cell | BEFORE (`8e5c0f76`) | AFTER (`eb4be65f`) | z | target |
+   | cell | BEFORE `8e5c0f76` (diag-A + d6) | AFTER `eb4be65f` (after-A + after-B) | z | dispatch target |
    |---|---|---|---|---|
-   | `rifle/run/chest~boar` | 11/66 = **17 %** | 17/30 = **57 %** | **4.00**, p < 0.0001 | >= 80 % **NOT MET** |
-   | `rifle/run/chest+lead~boar` (CONTROL) | 40/66 = **61 %** | 55/60 = **92 %** | **4.04**, p < 0.0001 | >= 95 % **NOT MET** |
+   | `rifle/run/chest~boar` | 5/36 = **14 %** | 17/30 = **57 %** | **3.67**, p = 0.0002 | >= 80 % **NOT MET** |
+   | `rifle/run/chest+lead~boar` (CONTROL) | 26/36 = **72 %** | 55/60 = **92 %** | **2.54**, p = 0.011 | >= 95 % **NOT MET** |
    | `rifle/run/ahead~boar` (KNOWN-BAD) | 0/6 = 0 % | 4/60 = **7 %** | -- | <= 5 % **NOT MET** |
    | `rifle/run/chestfront~boar` | not run before | 16/30 = **53 %** | -- | (not a dispatch target) |
-   | `rifle/stand/chest~boar` | 29/30 = **97 %** | 27/30 = **90 %** | 1.04, p = 0.30 | >= 97 % **NOT MET** |
+   | `rifle/stand/chest~boar` | 29/30 = **97 %** (before-A, SUSPECT RUN -- see below) | 27/30 = **90 %** | 1.04, p = 0.30 | >= 97 % **NOT MET** |
 
-   Every AFTER table's own `Self-check:` line reads *"CONTROL and KNOWN-BAD both read as they must"*,
-   and no table is marked `INSTRUMENT SUSPECT`. *Verify:* `reviews/task-309/bench-before-A.txt`,
-   `bench-diag-A.txt`, `bench-d6.txt` (before) and `bench-after-A.txt`, `bench-after-B.txt` (after);
-   each file's header prints its own `placeId=130094961655666` and the place's flags, which are the
-   same thirteen in all five.
-2. **The stand case is not proven to have regressed, and I am not claiming it improved.** 29/30 before
-   against 27/30 after is z = 1.04, p = 0.30 -- noise at this N, not a reading. What it does mean is
-   that **the >= 97 % stand target is not met by the AFTER measurement**, and that is stated as a
-   failure above rather than rounded away. *Verify:* `bench-after-B.txt`, cell
-   `rifle/stand/chest~boar`; `bench-before-A.txt` for the before.
+   **The dropped run, stated and not hidden:** `bench-before-A.txt` read chest 6/30 = 20 %, CONTROL
+   14/30 = 47 %, stand 29/30 = 97 %. Its chest figure agrees with the admissible runs and including
+   it would only make the BEFORE look worse (11/66 = 17 %), so dropping it is the conservative
+   direction for claim 1 and the direction of the move survives either way. **The one number that
+   has no admissible BEFORE at all is the STAND cell**, which only that run measured: so claim 2 now
+   rests on the AFTER reading alone, and the request says so there.
+
+   *Verify:* the five `reviews/task-309/bench-*.txt` files -- the per-cell rates above are the
+   `hit=True` counts in their own rows, and `bench-after-A.txt` / `bench-after-B.txt` / `bench-d6.txt`
+   each end in a summary table whose `Self-check:` line reads *"CONTROL and KNOWN-BAD both read as
+   they must"* with no `INSTRUMENT SUSPECT` line. Every file's header prints its own
+   `placeId=130094961655666` and the same thirteen `DHFlag_*`.
+2. **The stand case: the only BEFORE reading comes from the run claim 1 just ruled inadmissible, so
+   there is no admissible before/after pair for it.** The AFTER reading is **27/30 = 90 %**, which
+   does not meet the >= 97 % target, and that is stated as a failure. I am not claiming the stand
+   case improved and I cannot prove from admissible evidence that it did not regress -- 29/30
+   against 27/30 is z = 1.04 (p = 0.30) if the suspect run is admitted at all. *Verify:*
+   `bench-after-B.txt`, cell `rifle/stand/chest~boar`.
 3. **Four of the five causes the dispatch named are refuted in numbers, and each by its own probe.**
    Slug cone 0.16 deg FULL = **0.18 studs** at 130 (`Shotgun.CONFIG.SPREAD_FULL_DEG`, closed form);
    the bench's own aim error, camera against its own held point, **1.24 px mean / 4.68 max** = 0.29 /
@@ -89,11 +105,19 @@ under-rewound by 0.0257 s = **0.47 studs mean, 0.95 at p90** at a run.
 4. **No box was widened.** `git diff 8e5c0f76..HEAD -- src/server/Boar/` is empty: not one zone
    extent, offset or clamp changed. The rate moved by making the server test the animal WHERE THE
    CLIENT DREW IT, which is the opposite of widening a box into air (rule L).
-5. **The per-reason counters work and prove the rewind runs.** Over 18 bench shots the trail moved
-   `plain +23 cast +25 hit +6`, and one of its lines read
-   `rewind=0.185 cands=1 back=4.48 spd=24.08 eff=0.186 hit=false` -- the animal WAS translated 4.48
-   studs back and the cast still missed. *Verify:* `<runs-dir>/309/rw-before.txt` against the line
-   printed after the run; `trail()` in `src/server/Weapon/init.luau`.
+5. **WITHDRAWN (round 1, finding 2, and the Reviewer is right).** I claimed the per-reason counters
+   were proven; they are not. Every token I quoted -- `plain +23 cast +25 hit +6` and
+   `rewind=0.185 cands=1 back=4.48 spd=24.08 eff=0.186 hit=false` -- comes from counters and from an
+   `extra` string that this task did not touch, so the quoted evidence survives deleting
+   `rewindTrail.why` byte for byte, and that `rewind=0.185` line was read at base 0.18, BEFORE the
+   constant under test. **The new `counts[...]` field has never been read back**, and `counts[`
+   appears nowhere in this repo. So: the counters are shipped **UNVERIFIED**, carried as such here
+   and queued as 309a(a) with the exact reading needed to close it
+   (`counts[no-roots=N rewind-zero=N rewound=N]` out of `ServerStorage.DH305Rewind` on a run at this
+   commit). What claim 5 said about the REWIND itself still stands on untouched instrumentation: the
+   trail did move `cast +25 hit +6` over 18 bench shots and did print a line in which the animal was
+   translated 4.48 studs back and the cast still missed -- but that is the pre-task trail speaking,
+   not this task's addition.
 6. **The change is inert outside a rewinding server.** `Weapon.rewindFor` returns 0 when
    `rewindPolicy == false` or `AIM_REWIND` is off, before the constant is read at all.
    *Verify:* `Weapon.rewindFor`, and `tests/server/weapon_rewind.spec.luau`, which asserts against
@@ -104,6 +128,17 @@ under-rewound by 0.0257 s = **0.47 studs mean, 0.95 at p90** at a run.
 
 ## What I could NOT verify, and what is NOT done
 
+* **ROUND 1'S OTHER ELEVEN FINDINGS ARE NOTES AND ARE QUEUED, NOT FIXED HERE** (CLAUDE.md rule 10:
+  notes under a PASS go into `TASKS.md`). Three of them are factual corrections I would otherwise
+  have made, and they are written out verbatim in `TASKS.md` row 309a so the next task applies them
+  rather than rediscovering them: (i) the rifle's own `SPREAD_FULL_DEG` is `{ Slug = 0 }`, not
+  `Shotgun`'s 0.16 deg, so that row of the error budget should read **0 studs** and be dropped
+  (the refutation is unaffected and more conservative, not less); (ii) `0.0257 x 22.5 = 0.58` studs
+  against the bare 0.18, and **0.47** is against the effective 0.185 (base + 0.005 ping) -- the
+  request and the note should pick one base and say which; (iii) `Weapon.rewindFor`'s and
+  `Weapon/Rewind.luau`'s headers still name the superseded DEV 0.180. (iii) is a `src/` edit and
+  fixing it in this round would move the code commit and re-open the whole gate, which is exactly
+  what rule 10 says not to do for a note.
 * **Four of the dispatch's targets are not met** (claim 1) and the remaining cause is **unnamed**.
   The one thing the AFTER tables say about it: a chest-centre shot at a run now lands in `rear`
   12 times out of 17 hits, where the whole ballistic lead at 130 studs is 1.15 studs -- so roughly a
@@ -113,8 +148,8 @@ under-rewound by 0.0257 s = **0.47 studs mean, 0.95 at p90** at a run.
   cells' CONTROL and KNOWN-BAD rows must first be proved to use that weapon's own ballistics, and
   there was no sense measuring four more weapons against a cause nobody has named.
 * **The reported impact and the scored zone disagree.** On the CONTROL cell the bench reads
-  `along` within a stud of the chest while the server scores `zone = rear` on most of those same
-  shots. One of the two is wrong. `ServerStorage.DHLastHits`, the ring that would settle it with a
+  `along` within a stud of the chest while the server scores `zone = rear` on **8 of those 28
+  shots** (`bench-after-B.txt`: `body 14 rear 8 chest 6`). One of the two is wrong. `ServerStorage.DHLastHits`, the ring that would settle it with a
   local offset, **is empty for range shots** (task 307 found the same).
 * **`cardu`/`cardv` read `nil` on every row**, as they have on all 900+ bench rows so far (307a(a)).
   So nothing here says anything about what Karen's HUD card draws; the proof is zone-and-ray only.
