@@ -126,6 +126,14 @@ if row.drawn == true then
 	world.config.MOVE = move
 end
 
+-- THE RANGE IS SILENT (design 7.4, step B7). Six animals in one corridor would play six footstep
+-- loops and six snorts at one man's ear, and Roblox has no per-player sound for a server `Sound`.
+-- A FULL clone with one value flipped: `newRuntime` merges only MODEL, SENSE and KINDS key by key
+-- and assigns everything else wholesale (`ForestTestBoot`'s stated rule). Karen's to overrule.
+local sound = table.clone(Boar.CONFIG.SOUND)
+sound.ENABLED = false
+world.config.SOUND = sound
+
 local runtime = Boar.newRuntime(world)
 runtime:run()
 
@@ -146,6 +154,11 @@ end)
 local started = Range.start({
 	enabled = true,
 	world = Map.EXPECTED_WORLD,
+	-- WHO IS IN THE SERVER (design 7.4): the DataModel read is the root's, the rule -- which
+	-- station each man is at -- is the owner's. Without it the range releases nothing at all.
+	players = function()
+		return Players:GetPlayers()
+	end,
 	-- nil in DEV, which lays its own plate (`row.plate`) and has no ground to read.
 	groundAt = groundAt,
 	boars = {
@@ -159,6 +172,11 @@ local started = Range.start({
 		end,
 		clear = function(reason: string?)
 			runtime:clear(reason)
+		end,
+		-- ONE STATION'S ANIMAL (task 306 B7): `clear` above is range-WIDE and this runtime holds
+		-- all six, so a carcass or a species pick at one station used to take the other five.
+		clearOne = function(id: string, reason: string?)
+			return runtime:clearOne(id, reason)
 		end,
 		statusOf = function(id: string)
 			return runtime:statusOf(id)

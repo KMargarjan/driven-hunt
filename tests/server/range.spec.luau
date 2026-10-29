@@ -71,6 +71,37 @@ return function()
 		return copy
 	end
 
+	-- A MAN AT A STATION, AS THE OWNER MEASURES ONE (step B7): a Character with a
+	-- `HumanoidRootPart`, and nothing else. `Range`'s `playerSpot` reads that part's Position and
+	-- asks `Range.spotAt`, so a case that wants a man at station 2 stands him on station 2's mat.
+	local function manOnMat(spot: number, row: any?)
+		local at = row or DEV_ROW
+		local character = Instance.new("Model")
+		local root = Instance.new("Part")
+		root.Name = "HumanoidRootPart"
+		root.Anchored = true
+		root.Position = RangeData.matPosition(Vector3.new(at.x, 0, at.z), spot, LAYOUT)
+		root.Parent = character
+		return { UserId = 1000 + spot, Name = "Man" .. tostring(spot), Character = character }
+	end
+
+	-- WHO THE RANGE IS TOLD IS HERE. The list is the CASE'S, and `set` re-writes it mid-run: that
+	-- is how "he arrives" and "he leaves" are driven without starting a second range.
+	local function newCrowd(spots: { number }, row: any?)
+		local crowd = { men = {} :: { any } }
+		crowd.set = function(list: { number })
+			crowd.men = {}
+			for _, spot in ipairs(list) do
+				table.insert(crowd.men, manOnMat(spot, row))
+			end
+		end
+		crowd.players = function()
+			return crowd.men
+		end
+		crowd.set(spots)
+		return crowd
+	end
+
 	local function newFakeBoars()
 		local fake = {
 			animals = {} :: { [string]: any },
@@ -78,6 +109,7 @@ return function()
 			flyingIds = {} :: { [string]: boolean },
 			spawns = 0,
 			clears = 0,
+			clearOnes = 0,
 			lastClear = nil :: string?,
 			nextId = 0,
 		}
@@ -118,6 +150,19 @@ return function()
 			fake.clears += 1
 			fake.lastClear = reason
 			fake.animals = {}
+		end
+		-- THE PER-ID DESPAWN STEP B7 ADDED, wired exactly as `RangeBoot` wires it. A case that wants
+		-- the OLD range-wide behaviour back deletes this field (`newFakeBoars().clearOne = nil`),
+		-- which is how both arms of `clearTarget` are reachable by parameter.
+		fake.clearOne = function(id: string, reason: string?): boolean
+			if fake.animals[id] == nil then
+				return false
+			end
+			fake.clears += 1
+			fake.clearOnes += 1
+			fake.lastClear = reason
+			fake.animals[id] = nil
+			return true
 		end
 		fake.statusOf = function(id: string)
 			local animal = fake.animals[id]
@@ -220,13 +265,20 @@ return function()
 	end
 
 	-- One range, started into a folder of its own, with a fake clock and a fake runtime.
-	local function startRange(fake, now, roll, serverTime)
+	-- SIX MEN, ONE PER STATION, UNLESS THE CASE SAYS OTHERWISE (step B7). Every case written before
+	-- B7 is about what the six lanes DO, and since B7 a station nobody is measured at has no animal
+	-- at all -- so the default crowd is a full firing line and the occupancy cases pass their own.
+	local function startRange(fake, now, roll, serverTime, players)
 		local root = Instance.new("Folder")
+		if players == nil then
+			players = newCrowd({ 1, 2, 3, 4, 5, 6 }).players
+		end
 		local ok = Range.start({
 			enabled = true,
 			anchor = DEV_ROW,
 			root = root,
 			boars = fake,
+			players = players,
 			now = now,
 			-- THE RING'S OWN CLOCK, separate from the owner's step clock (review round 1, finding 1):
 			-- the shipped one is `GetServerTimeNow()` and the owner's is `os.clock()`, two epochs.
@@ -1503,6 +1555,12 @@ return function()
 			expect(fake.clears).to.equal(0)
 			expect(Range.stats().carcasses).to.equal(1)
 
+			-- WHOSE ANIMALS THE OTHER FIVE STATIONS HAVE, before the carcass is cleared: the
+			-- identities are compared after it, which is what "and only his" means.
+			local othersBefore = {}
+			for spot = 2, LAYOUT.SPOT_COUNT do
+				othersBefore[spot] = (fake.at(spot) :: any).id
+			end
 			advance(fake, clock, 1.5)
 			expect(fake.clears).to.equal(1)
 			expect(fake.lastClear).to.equal("range carcass")
@@ -1510,16 +1568,19 @@ return function()
 			-- ...and the fresh one is not released instantly either.
 			expect(fake.spawns).to.equal(LAYOUT.SPOT_COUNT)
 			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 0.5)
-			-- ALL SIX ARE RE-RELEASED, NOT ONE, and that is MEASURED here rather than assumed:
-			-- `boars.clear` is range-WIDE (`Boar.Runtime:clear` is the only clear there is -- no
-			-- per-id despawn exists), so one man's carcass takes the other five stations' animals
-			-- with it and each trial then releases afresh. Design 16 step B7 (one animal per
-			-- OCCUPIED station) is where that closes, and `Range.ENABLED` is dark until it does.
-			-- This case is what will fail the moment the clear becomes per-station, which is the
-			-- point of writing the number down.
-			expect(fake.spawns).to.equal(2 * LAYOUT.SPOT_COUNT)
-			expect(Range.stats().lostTargets).to.equal(LAYOUT.SPOT_COUNT - 1)
+			-- ONE ANIMAL WENT AND ONE CAME BACK -- STEP B7's MUST-FIX 1. Until B7 this read
+			-- `2 * SPOT_COUNT` spawns and `SPOT_COUNT - 1` lost targets, because `boars.clear` was
+			-- range-WIDE and one man's carcass took the other five stations' animals with it. The
+			-- lever is `Boar.Runtime:clearOne`, wired as `boars.clearOne`.
+			expect(fake.spawns).to.equal(LAYOUT.SPOT_COUNT + 1)
+			expect(fake.clearOnes).to.equal(1)
+			expect(Range.stats().lostTargets).to.equal(0)
+			expect(Range.stats().wideClears).to.equal(0)
 			expect((fake.at(1) :: any).alive).to.equal(true)
+			-- THE OTHER FIVE ARE THE SAME ANIMALS, not re-released copies.
+			for spot = 2, LAYOUT.SPOT_COUNT do
+				expect((fake.at(spot) :: any).id).to.equal(othersBefore[spot])
+			end
 			-- THE NEW TARGET IS STEERED LIKE THE FIRST, measured as a RISE from a snapshot taken
 			-- after the release (review round 1, finding 2: a `flips >= 1` on a cumulative counter
 			-- passes with the whole re-release path deleted).
@@ -1557,6 +1618,183 @@ return function()
 			fake.flyingIds[animal.id] = false
 			advance(fake, clock, 2)
 			expect(#fake.leadsAt(1) > leadsBefore).to.equal(true)
+			Range.stop()
+		end)
+	end)
+
+	-- ------------------------------------------------- 12. ONE ANIMAL PER *OCCUPIED* STATION (B7)
+	--
+	-- Design 7.4 and 11.2 group 12. THIS is the functional instrument for the sentence "release on
+	-- arrival, clear on idle": design 12's T10 and T11 are the COST targets (<= 2 ms a step,
+	-- <= 3 ms a frame), and only T11's trailing clause -- "an empty range costs 0 spawns" -- is
+	-- about occupancy at all.
+	describe("one animal per occupied station", function()
+		it("releases NOTHING with nobody at the range", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			local crowd = newCrowd({})
+			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
+			-- Two full minutes of scanning, which is 60 x `RELEASE_SECONDS`.
+			advance(fake, clock, 120)
+			expect(fake.spawns).to.equal(0)
+			expect(Range.stats().occupied).to.equal(0)
+			expect(Range.stats().targets).to.equal(0)
+			expect(Range.stats().scans > 0).to.equal(true)
+			TestKit.note(string.format("range B7: empty range, %d scans, %d spawns", Range.stats().scans, fake.spawns))
+			Range.stop()
+		end)
+
+		it("releases nothing at all when the root wired no player list", function()
+			-- THE UNMEASURED CASE: `players` nil means the range cannot measure who is where, and
+			-- then it releases nothing rather than guessing six men (design 7.4).
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			local root = Instance.new("Folder")
+			expect(Range.start({
+				enabled = true,
+				anchor = DEV_ROW,
+				root = root,
+				boars = fake,
+				now = now,
+			})).to.equal(true)
+			advance(fake, clock, 60)
+			expect(fake.spawns).to.equal(0)
+			expect(Range.stats().occupied).to.equal(0)
+			Range.stop()
+			root:Destroy()
+		end)
+
+		it("gives a man who arrives at station 2 exactly ONE animal, at station 2", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			local crowd = newCrowd({})
+			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
+			advance(fake, clock, 10)
+			expect(fake.spawns).to.equal(0)
+			-- HE ARRIVES.
+			crowd.set({ 2 })
+			advance(fake, clock, 1)
+			expect(fake.spawns).to.equal(1)
+			expect(Range.stats().targets).to.equal(1)
+			expect(Range.stats().occupied).to.equal(1)
+			expect(fake.at(2)).to.be.ok()
+			for _, spot in ipairs({ 1, 3, 4, 5, 6 }) do
+				expect(fake.at(spot)).to.equal(nil)
+			end
+			-- ...AND IT IS IN HIS OWN LANE: released at his station's lane end, not station 1's.
+			local mine = (fake.at(2) :: any).position
+			local lane = RangeData.laneCentre(Vector3.new(DEV_ROW.x, 0, DEV_ROW.z), LAYOUT, nil, 2)
+			local lane1 = RangeData.laneCentre(Vector3.new(DEV_ROW.x, 0, DEV_ROW.z), LAYOUT, nil, 1)
+			expect(math.abs(mine.Z - lane.Z) < 1).to.equal(true)
+			expect(math.abs(lane.Z - lane1.Z) < 1).to.equal(true)
+			expect(math.abs(mine.X - lane.X) <= RangeData.laneLength(LAYOUT)).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range B7: one man at station 2 -> %d spawn(s), station 2 has one and 1/3/4/5/6 have none",
+					fake.spawns
+				)
+			)
+			Range.stop()
+		end)
+
+		it("clears HIS animal IDLE_CLEAR_SECONDS after he leaves, not before, and leaves station 4 alone", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			local crowd = newCrowd({ 2, 4 })
+			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
+			advance(fake, clock, 1)
+			expect(fake.spawns).to.equal(2)
+			local his = (fake.at(2) :: any).id
+			local hers = (fake.at(4) :: any).id
+			-- HE LEAVES. Station 4's man does not.
+			crowd.set({ 4 })
+			advance(fake, clock, Range.CONFIG.IDLE_CLEAR_SECONDS - 2)
+			-- NOT BEFORE: his animal is still there two seconds short of the idle time.
+			expect(fake.at(2)).to.be.ok()
+			expect((fake.at(2) :: any).id).to.equal(his)
+			expect(Range.stats().idleClears).to.equal(0)
+			advance(fake, clock, 3)
+			-- ...AND THEN IT GOES, through the PER-ID despawn.
+			expect(fake.at(2)).to.equal(nil)
+			expect(Range.stats().idleClears).to.equal(1)
+			expect(fake.clearOnes).to.equal(1)
+			expect(fake.lastClear).to.equal("range idle")
+			expect(Range.stats().wideClears).to.equal(0)
+			-- STATION 4 IS UNAFFECTED: the same animal, still steered.
+			expect(fake.at(4)).to.be.ok()
+			expect((fake.at(4) :: any).id).to.equal(hers)
+			expect(Range.stats().targets).to.equal(1)
+			local leadsBefore = #fake.leadsAt(4)
+			advance(fake, clock, 5)
+			expect(#fake.leadsAt(4) > leadsBefore).to.equal(true)
+			-- AND NOTHING IS RE-RELEASED AT THE STATION HE LEFT.
+			expect(fake.spawns).to.equal(2)
+			TestKit.note(
+				string.format(
+					"range B7: station 2 cleared %d s after he left (not at %d s); station 4 untouched",
+					Range.CONFIG.IDLE_CLEAR_SECONDS,
+					Range.CONFIG.IDLE_CLEAR_SECONDS - 2
+				)
+			)
+			Range.stop()
+		end)
+
+		it("gives him his animal back when he comes back", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			local crowd = newCrowd({ 2 })
+			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
+			advance(fake, clock, 1)
+			expect(fake.spawns).to.equal(1)
+			crowd.set({})
+			advance(fake, clock, Range.CONFIG.IDLE_CLEAR_SECONDS + 1)
+			expect(fake.at(2)).to.equal(nil)
+			crowd.set({ 2 })
+			advance(fake, clock, 1)
+			expect(fake.spawns).to.equal(2)
+			expect(fake.at(2)).to.be.ok()
+			Range.stop()
+		end)
+
+		it("counts a range-WIDE clear when the root wired no clearOne", function()
+			-- BOTH ARMS OF `clearTarget` BY PARAMETER. A root that wires only the range-wide
+			-- `boars.clear` reproduces the B2 defect -- and the owner COUNTS it (`wideClears`)
+			-- instead of hiding it, which is the only way that mis-wiring is visible in a stats line.
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			fake.clearOne = nil
+			local crowd = newCrowd({ 1, 2 })
+			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
+			advance(fake, clock, 1)
+			expect(fake.spawns).to.equal(2)
+			crowd.set({ 1 })
+			advance(fake, clock, Range.CONFIG.IDLE_CLEAR_SECONDS + 1)
+			expect(Range.stats().idleClears).to.equal(1)
+			expect(Range.stats().wideClears).to.equal(1)
+			-- ...and station 1's animal went with it, which is the defect, measured.
+			expect(fake.at(1)).to.equal(nil)
+			expect(Range.stats().lostTargets >= 1).to.equal(true)
+			Range.stop()
+		end)
+
+		it("clears only HIS animal when he picks a new species", function()
+			-- 306b's round-2 note (viii): the respawn path was range-WIDE as well, so a pick at
+			-- station 1 took station 6's animal.
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			local crowd = newCrowd({ 1, 6 })
+			local player = crowd.men[1]
+			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
+			advance(fake, clock, 1)
+			expect(fake.spawns).to.equal(2)
+			local hers = (fake.at(6) :: any).id
+			expect(Range.onRequest(player, { spot = 1, species = "reddeer" })).to.equal(true)
+			expect(fake.clearOnes).to.equal(1)
+			expect(fake.lastClear).to.equal("range pick")
+			expect(Range.stats().wideClears).to.equal(0)
+			-- STATION 6 STILL HAS THE SAME ANIMAL.
+			expect(fake.at(6)).to.be.ok()
+			expect((fake.at(6) :: any).id).to.equal(hers)
 			Range.stop()
 		end)
 	end)
@@ -3703,6 +3941,9 @@ return function()
 				root = root,
 				groundAt = slopedGround,
 				boars = fake,
+				-- SIX MEN ON *HER* ROW'S MATS: since step B7 an empty station has no animal, so the
+				-- crowd is built from the row under test and not from the DEV one.
+				players = newCrowd({ 1, 2, 3, 4, 5, 6 }, row).players,
 				now = now,
 			})
 			expect(ok).to.equal(true)

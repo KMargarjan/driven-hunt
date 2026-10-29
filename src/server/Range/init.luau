@@ -49,6 +49,9 @@ Range.CONFIG = {
 	-- Death is the hunt's, not the range's (design section 6).
 	CARCASS_SECONDS = 3,
 	RELEASE_SECONDS = 2,
+	-- HE LEFT: his animal goes this long after he did, and not before (design 7.4). 30 s is the
+	-- design's number and it is long enough that stepping off the mat is not losing your target.
+	IDLE_CLEAR_SECONDS = 30,
 	-- STAND (Karen, 2026-10-27): within this of the lane's middle counts as standing. The BRAIN
 	-- stops the animal itself inside `LINE.ARRIVE_STUDS` (1.0) -- *"ARRIVED: hold the heading and
 	-- stop, rather than jittering on top of the point"* -- so STAND is the same `leadTo` seam with
@@ -116,6 +119,9 @@ type Trial = {
 	windowArmed: boolean,
 	carcassAt: number?,
 	releaseAt: number?,
+	-- SINCE WHEN NOBODY HAS BEEN AT THIS STATION, on the owner's own clock. nil means somebody is
+	-- there now; `IDLE_CLEAR_SECONDS` is counted from it (design 7.4).
+	idleSince: number?,
 }
 
 local state = {
@@ -159,6 +165,13 @@ local state = {
 		carcasses = 0,
 		releases = 0,
 		lostTargets = 0,
+		-- HOW MANY ANIMALS WENT BECAUSE THEIR MAN LEFT, and how many men are at a station right now
+		-- (design 7.4, the instrument for section 11.2 group 12 and for T11's "0 spawns").
+		idleClears = 0,
+		occupied = 0,
+		-- A CLEAR THAT TOOK THE WHOLE RANGE WITH IT: a root that wired only `boars.clear` and no
+		-- `clearOne`. Counted rather than silent, because it is the defect B2 wrote down.
+		wideClears = 0,
 		parts = 0,
 		buildMs = 0,
 		-- HOW MANY SEATS STAND, and how many `HighSeats.plan` refused for its own ground reason: a
@@ -186,6 +199,10 @@ local state = {
 	-- record. `maskDirty` says a trunk changed and every one of them must be told again.
 	watchers = {},
 	maskDirty = false,
+	-- WHO IS IN THE SERVER, handed in by the composition root: this module reads no `Players`
+	-- service (it reaches no DataModel), and the RULE -- which station a man is at -- stays here.
+	-- nil means the range cannot measure occupancy, and then it releases NOTHING (design 7.4).
+	players = nil :: (() -> { any })?,
 }
 
 local function clockNow(): number
@@ -251,6 +268,9 @@ local function newTrial(spot: number, pace: string): Trial
 		windowArmed = true,
 		carcassAt = nil,
 		releaseAt = nil,
+		-- NOBODY HAS BEEN HERE YET, so an untouched station never releases: the clock starts at the
+		-- first scan and the station stays empty until a man is measured at it.
+		idleSince = nil,
 	}
 end
 
@@ -290,6 +310,26 @@ function Range.spotAt(position: Vector3?): (number?, string?)
 		return nil, nil
 	end
 	return RangeData.spotAt(state.anchor, position, RangeData.LAYOUT, state.downrange, state.deckTops)
+end
+
+-- WHICH STATION ONE MAN IS AT, measured off HIS OWN CHARACTER and nothing he sent (design 7.4,
+-- and design 1 item 9's rule). Moved above `scan` in step B7, which asks it per station per tick.
+local function playerSpot(player: any): number?
+	local ok, position = pcall(function(): Vector3?
+		local character = (player :: any).Character
+		if typeof(character) ~= "Instance" then
+			return nil
+		end
+		local root = character:FindFirstChild("HumanoidRootPart")
+		if root == nil or not root:IsA("BasePart") then
+			return nil
+		end
+		return root.Position
+	end)
+	if not ok or position == nil then
+		return nil
+	end
+	return Range.spotAt(position)
 end
 
 -- WHAT `Build` MEASURED: the top face of each station's deck, and no entry at all for a station
@@ -547,6 +587,9 @@ function Range.start(seams): boolean
 	state.downrange = RangeData.downrangeOf(row)
 	state.root = root
 	state.boars = seams.boars
+	-- WHO IS HERE, from the root (design 7.4). nil means no occupancy measurement is possible, and
+	-- then nothing is ever released: a station with nobody measured at it has no animal.
+	state.players = seams.players
 	state.now = seams.now
 	-- THE RING'S OWN CLOCK, which is NOT `state.now` (review round 1, finding 1). `Runtime:cframeAt`
 	-- stamps its history with `GetServerTimeNow()`, so an instant taken off `os.clock()` -- process
@@ -617,6 +660,7 @@ function Range.stop()
 	state.root = nil
 	state.deckTops = {}
 	state.boars = nil
+	state.players = nil
 	state.now = nil
 	state.serverTime = nil
 	state.roll = nil
@@ -631,6 +675,55 @@ end
 -- FORWARD-DECLARED: `scan` flushes it and it is defined down with `publish`, the one sender it
 -- uses. Declared here so the owner keeps one sender and not two.
 local flushMasks: () -> ()
+
+-- ONE STATION'S ANIMAL, AND ONLY HIS (task 306 B7, must-fix 1). `Boar.Runtime:clearOne` despawns
+-- by id through the same path the range-wide `clear` uses; a root that wires only `clear` takes the
+-- other five stations' animals with this one, which is COUNTED (`wideClears`) and not silent.
+local function clearTarget(trial: Trial, reason: string): boolean
+	local boars = state.boars
+	local id = trial.targetId
+	if boars == nil or id == nil then
+		return false
+	end
+	if boars.clearOne ~= nil then
+		local ok = pcall(boars.clearOne, id :: string, reason)
+		if not ok then
+			return false
+		end
+	elseif boars.clear ~= nil then
+		boars.clear(reason)
+		state.stats.wideClears += 1
+	else
+		return false
+	end
+	state.stats.clears += 1
+	trial.targetId = nil
+	state.maskDirty = true
+	trial.carcassAt = nil
+	return true
+end
+
+-- WHO IS AT WHICH STATION, THIS TICK (design 7.4). The root hands in the player list, this module
+-- applies its own rule (`playerSpot` -> `Range.spotAt`), and a station nobody is measured at gets
+-- no animal. No payload is believed and no `Players` service is read here.
+local function occupancy(): { [number]: boolean }
+	local out = {}
+	local players = state.players
+	if players == nil then
+		return out
+	end
+	local ok, list = pcall(players)
+	if not ok or type(list) ~= "table" then
+		return out
+	end
+	for _, player in ipairs(list :: { any }) do
+		local spot = playerSpot(player)
+		if spot ~= nil then
+			out[spot :: number] = true
+		end
+	end
+	return out
+end
 
 local function release(trial: Trial)
 	local boars = state.boars
@@ -753,10 +846,37 @@ local function scan(dt: number)
 	if boars == nil or state.anchor == nil then
 		return
 	end
-	for _, trial in pairs(state.trials) do
+	-- ONE ANIMAL PER *OCCUPIED* STATION (design 7.4): measured once per tick, for all six.
+	local here = occupancy()
+	local occupiedCount = 0
+	for _, occupied in pairs(here) do
+		if occupied then
+			occupiedCount += 1
+		end
+	end
+	state.stats.occupied = occupiedCount
+	for spot, trial in pairs(state.trials) do
+		local occupied = here[spot] == true
+		if occupied then
+			trial.idleSince = nil
+		elseif trial.idleSince == nil then
+			trial.idleSince = now
+		end
 		if trial.targetId == nil then
-			if trial.releaseAt == nil or now >= trial.releaseAt then
+			-- NO ANIMAL FOR AN EMPTY STATION: six drawn, animated animals for one shooter is six
+			-- animators and six sound sets for nothing (design 7.4). This is also T11's "an empty
+			-- range costs 0 spawns" -- and the ONLY arrival edge there is.
+			if occupied and (trial.releaseAt == nil or now >= trial.releaseAt) then
 				release(trial)
+			end
+			continue
+		end
+		-- HE LEFT: his own animal goes `IDLE_CLEAR_SECONDS` after he did, and nobody else's.
+		local idleSince = trial.idleSince
+		if idleSince ~= nil and now - (idleSince :: number) >= Range.CONFIG.IDLE_CLEAR_SECONDS then
+			if clearTarget(trial, "range idle") then
+				state.stats.idleClears += 1
+				trial.releaseAt = nil
 			end
 			continue
 		end
@@ -774,13 +894,13 @@ local function scan(dt: number)
 				trial.carcassAt = now
 				state.stats.carcasses += 1
 			elseif now - (trial.carcassAt :: number) >= Range.CONFIG.CARCASS_SECONDS then
-				boars.clear("range carcass")
-				state.stats.clears += 1
-				trial.targetId = nil
-				state.maskDirty = true
-				trial.carcassAt = nil
-				trial.releaseAt = now + Range.CONFIG.RELEASE_SECONDS
-				state.stats.releases += 1
+				-- HIS CARCASS, AND ONLY HIS (must-fix 1): before step B7 this was the range-WIDE
+				-- `boars.clear`, so one man's kill took the other five stations' animals and all
+				-- six re-released (`range.spec` asserted the 12 spawns and 5 lost targets).
+				if clearTarget(trial, "range carcass") then
+					trial.releaseAt = now + Range.CONFIG.RELEASE_SECONDS
+					state.stats.releases += 1
+				end
 			end
 			continue
 		end
@@ -1145,24 +1265,6 @@ function Range.ignoredFor(player: any, rewindSeconds: number?): { Instance }
 	return out
 end
 
-local function playerSpot(player: any): number?
-	local ok, position = pcall(function(): Vector3?
-		local character = (player :: any).Character
-		if typeof(character) ~= "Instance" then
-			return nil
-		end
-		local root = character:FindFirstChild("HumanoidRootPart")
-		if root == nil or not root:IsA("BasePart") then
-			return nil
-		end
-		return root.Position
-	end)
-	if not ok or position == nil then
-		return nil
-	end
-	return Range.spotAt(position)
-end
-
 -- THE LISTS AND THE BOARD, WITHOUT A PICK (task 308 bug 1). MEASURED in Karen's place on
 -- 46cbd787: on the mat, before any request, `boardPushes=0` and all six option strips had zero
 -- children -- the first real E drew the six labels and NO chips, because the ONLY things that
@@ -1484,11 +1586,9 @@ function Range.onRequest(player: any, request: any): boolean
 		if respawn then
 			-- A new animal is a new animal: the old one is cleared and the next scan releases the
 			-- picked species at the end of the lane. `Range` never writes a CFrame.
-			local boars = state.boars
-			if boars ~= nil and boars.clear ~= nil and trial.targetId ~= nil then
-				boars.clear("range pick")
-				state.stats.clears += 1
-			end
+			-- HIS OWN ANIMAL (must-fix 1, 306b note (viii)): the respawn path was range-WIDE too,
+			-- so a man picking a species at station 1 cleared station 6's animal as well.
+			clearTarget(trial, "range pick")
 			trial.targetId = nil
 			trial.releaseAt = nil
 			trial.crossings = 0

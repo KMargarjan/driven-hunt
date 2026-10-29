@@ -5686,6 +5686,21 @@ function Runtime:clear(reason: string?)
 	self._legendaryDrawn = 0
 end
 
+-- ONE ANIMAL, BY ID, through the same `_despawn` path `clear` and the out-of-bounds step use
+-- (`Runtime:_step`'s `intent.despawn`). The lobby range holds six animals in ONE runtime, so a
+-- range-wide clear took the other five stations' targets with the one carcass.
+-- Note: docs/design/shooting-range-lobby.md section 7.4 (task 306 step B7)
+function Runtime:clearOne(id: string, reason: string?): boolean
+	for index = #self._boars, 1, -1 do
+		local entry = self._boars[index]
+		if entry.id == id then
+			self:_despawn(entry, index, reason or "cleared", Body.position(entry.body))
+			return true
+		end
+	end
+	return false
+end
+
 function Runtime:boars()
 	local out = {}
 	for _, entry in ipairs(self._boars) do
