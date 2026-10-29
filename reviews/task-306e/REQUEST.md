@@ -1,11 +1,11 @@
 # Task 306 step B5: ISOLATION, THE SHOT
 
 Task: 306e
-Round: 1
+Round: 2
 Base: `task-306b4-paces` at `5bbab673`, merged with `origin/main` at `9bbfc71e`
-Code commit: `5be1899970b0dd2b8f8bf28bf3e20911ffe18a8c`
+Code commit: `17100e4f20b6ebe1425d2f8d751f0122758bc9da`
 
-`[harness] PASS: 34/34 checks @ 5be1899970b0dd2b8f8bf28bf3e20911ffe18a8c (clean tree) scope=all`
+`[harness] PASS: 34/34 checks @ 17100e4f20b6ebe1425d2f8d751f0122758bc9da (clean tree) scope=all`
 `test2`: N/A — no `TWO_PLAYER_PATHS` path in the diff (`src/server/Range/`, `src/shared/Range/`,
 `src/server/Weapon/`, `src/server/Boar/`, `src/server/RangeBoot.server.luau`, three specs).
 
@@ -40,6 +40,11 @@ cannot see stops his bullet. No new cast and no second shot path: the 305/305b/3
    that are not his, plus his own while it is outside its window **at the instant the rewind tests**
    (`targetPositionOf`, the same ring the rewound cast is judged against). Nobody at a station →
    empty, so a shot in the wood is untouched. `stats().ignoreCalls` counts the asks.
+   **ROUND 1, FINDING 1 (fixed):** that instant is taken off `serverNow()` -- the clock
+   `Runtime:cframeAt` stamps its ring with -- and NOT off `clockNow()`, which is `os.clock()` in the
+   shipped wiring. A different epoch, so `Boar.sampleAt` refused every ask and the window was
+   silently judged at the PRESENT position. `serverTime` is a new optional `Range.start` seam (nil
+   is `Workspace:GetServerTimeNow()`), cleared on `stop`.
 3. **`Weapon.setIgnoreProvider`** (`src/server/Weapon/init.luau`) — the eighth injected provider, in
    the shape the seven have. Unwired is bit-for-bit today's list; a provider that throws does not
    refuse the shot. `rewindSeconds` is hoisted so the shot and the list are measured at one instant.
@@ -68,9 +73,13 @@ cannot see stops his bullet. No new cast and no second shot path: the 305/305b/3
    in-case control for `inWindow`.
 4. **The list holds a TRUNK and never a zone part.** Same case: the fake welds a `Zone` child under
    every trunk and the case asserts it is absent.
-5. **It asks where his animal WAS, at `now - rewindSeconds`.** `range.spec` → "asks where his animal
-   was at the instant the rewind tests…": inside now / outside then → ignored; outside now / inside
-   then → not. The asked instant is asserted against `clock.t - 0.2`.
+5. **It asks where his animal WAS, at `now - rewindSeconds`, ON THE RING'S OWN CLOCK.** `range.spec`
+   → "asks where his animal was at the instant the rewind tests…": the owner's clock and the ring's
+   are driven **50 000 s apart**; inside now / outside then → ignored; outside now / inside then →
+   not; and the asked instant is asserted against the SERVER clock and explicitly NOT against the
+   owner's. **FAIL FIRST (run):** with round 1's `clockNow()` back, `range.spec:3141` reads
+   `0.800000` for `49999.800000` — `[harness] FAIL: 32/34 checks @
+   c2d5acd740c93a984014fc7ce4be05c0fa468e7a (clean tree) scope=all`. Reverted; not in the branch.
 6. **Nobody at a station, no reader, a reader that throws, a stopped range → empty, no error.**
    `range.spec` → "hides nothing from a man who is not at a station…".
 7. **T13, measured.** `range.spec` → "is counted, and costs under a tenth of a millisecond a call":
@@ -127,7 +136,21 @@ Probes `<runs-dir>/306b5-stage.luau`, `306b5-fire3.luau`, `306b5-read.luau`. Ins
 - **306a..306d must-fix for this step: none.** 306a (a)(b)(c) were closed at B2/B4; 306b(i),
   306a(g)(h), 306d(d) are named for B6.
 
-## Notes
+## Round 1's notes
 
-- `Range.positionOf` and 308's new `playerSpot` are two readers of one fact (the character's root →
-  `spotAt`). Not touched here; worth one line somewhere.
+Taken in this round: `ignoreCalls`' comment now says it is a cost counter and not a count of
+filtered shots; `weapon_shot.spec`'s no-subject arm no longer claims to prove the seam (it cannot —
+the harness note is what says the live arm ran, and it did, at this commit).
+
+Queued, not fixed: the `fake.roots` Folder is never destroyed (outside Workspace, so no cast sees
+it); that arm is still not reported SKIPPED; `Range.positionOf` and 308's `playerSpot` are two
+readers of one fact. The two sequencing notes (B5 without B6's mask excludes his own target on 40 of
+76 lane studs while it is still drawn to him; nothing seen in Karen's place) are design section 16's
+own order and B8's row.
+
+## History, stated plainly
+
+A `git reset --hard` taken to drop a throwaway mutation commit also dropped the pushed round-1
+request commit and the Reviewer's round-1 `RESULT.md`. The request commit was **merged back**, not
+force-pushed — no commit on this branch has been rewritten — and `RESULT.md` is restored verbatim
+from the session transcript, trailer included (`85e757dc`, round 1, 57 turns, $4.57).
