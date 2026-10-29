@@ -1,6 +1,7 @@
 --!strict
 -- Lobby.Field: THE ONE WRITER OF THE LOBBY'S TERRAIN, and the only thing in this system that touches
--- `Terrain` at all. Two `FillBlock` calls inside one rectangle: grass up to the shelf, air above it.
+-- `Terrain` at all. Three kinds of `FillBlock` inside one rectangle, in this order: air from the
+-- voxel boundary below the shelf upwards, grass up to the shelf, then the blade-free pads.
 --
 --   Terrain:FillBlock https://create.roblox.com/docs/reference/engine/classes/Terrain#FillBlock
 --   Enum.Material     https://create.roblox.com/docs/reference/engine/enums/Material
@@ -45,13 +46,57 @@ function Field.grassBlock(anchor: Vector3, shelfY: number, cfg): (CFrame, Vector
 	return CFrame.new(anchor.X, shelfY - depth / 2, anchor.Z), Vector3.new(span, depth, span)
 end
 
--- PURE. The AIR block that cuts the hill off: it starts AT the shelf (so it never eats the grass
--- below it) and rises `CLEAR_STUDS`, which is well over the worst measured ground spread and well
--- above the lodge's own ridge.
+-- PURE. THE 4-STUD VOXEL BOUNDARY AT OR BELOW A HEIGHT, which is where the air block has to start
+-- (task 311). `FillBlock` writes 4-stud voxels; a box whose face lands INSIDE a voxel writes that
+-- voxel only partly, and for an AIR box that means the hill's own occupancy survives in it.
+--   Terrain:FillBlock https://create.roblox.com/docs/reference/engine/classes/Terrain#FillBlock
+function Field.cutBottomY(shelfY: number): number
+	return math.floor(shelfY / Field.RESOLUTION) * Field.RESOLUTION
+end
+
+-- PURE. THE SHELF ITSELF, SNAPPED TO THE VOXEL GRID -- and this is the whole of the flatness fix
+-- (task 311, cycle 2). Cutting on the boundary alone was MEASURED in Karen's place and it did make
+-- all four bays identical (relief 1.27 -> 0.00), but it settled the surface at 151.27 instead of at
+-- the shelf's 149.248 and buried the road slabs, which sit at shelfY + THICK/2 = 149.50: the yard
+-- came back flat and the road came back invisible, which is task 180's photographed defect again.
+--
+-- A SHELF ON THE GRID HAS NO PARTIAL VOXEL AT ALL. The grass block's top, the pads' tops and the
+-- air block's bottom then all land on a voxel face, every `FillBlock` covers whole voxels, and the
+-- surface the engine draws is the number we asked for rather than whatever its interpolation makes
+-- of a 0.31-occupancy layer. `Lobby.tryBuild` snaps the measured ground through this before it
+-- becomes the anchor, so every part in the lobby is laid on the same snapped number.
+--
+-- FLOOR AND NOT NEAREST, AND THAT IS A FIXED POINT RATHER THAN A TASTE (review round 1, finding 1).
+-- `tryBuild` can run more than once -- `Build.defaultRigSource` yields, a build can throw and is
+-- retried -- and the second run reads the ground the FIRST fill produced, which is two studs above
+-- the cut. With `math.round`, a cut of 148 produces 150, `round(150 / 4) = 38` cuts the second run
+-- at 152, the third at 156, and every retry lifts the whole lobby a voxel. Flooring is stable:
+-- `floor(150 / 4) * 4 = 148`, the cut it already made, however many times it runs. It is
+-- `Field.cutBottomY`'s own arithmetic, which is the point -- the cut and the air box's bottom are
+-- one number, and `lobby.spec` runs the snap twice to prove the second run does not move it.
+-- Note: docs/research/2026-10-29-lobby-flagpole-and-birch-avenue.md (sections 2, 3.1)
+function Field.shelfFor(measured: number): number
+	return Field.cutBottomY(measured)
+end
+
+-- PURE. The AIR block that cuts the hill off. Its bottom is `cutBottomY(shelfY)` -- the voxel
+-- boundary at or below the shelf -- so the band the shelf falls inside is covered WHOLE and comes
+-- out empty; the grass and pad blocks are then filled back up to the shelf over a flat, empty
+-- plane. It rises `CLEAR_STUDS` above the shelf, well over the worst measured ground spread and
+-- the lodge's own ridge.
+--
+-- IT USED TO START AT THE SHELF, AND THAT WAS THE MOUND (task 311, measured in Karen's place:
+-- relief 1.27 studs under bays 2 and 3, Truck4's body 1.27 studs higher than Truck1's). The shelf
+-- is 149.248 and the band is 148..152, so the old box wrote 0.688 of that voxel and left the hill's
+-- contour standing in it. Task 244 scrubbed the band's MATERIAL, which is all `ReplaceMaterial`
+-- does, so the grass went away and the height did not.
+-- Note: docs/research/2026-10-29-lobby-flagpole-and-birch-avenue.md (sections 2, 3.1)
 function Field.airBlock(anchor: Vector3, shelfY: number, cfg): (CFrame, Vector3)
 	local span = cfg.FIELD.SPAN_STUDS
 	local clear = cfg.FIELD.CLEAR_STUDS
-	return CFrame.new(anchor.X, shelfY + clear / 2, anchor.Z), Vector3.new(span, clear, span)
+	local bottom = Field.cutBottomY(shelfY)
+	local height = clear + (shelfY - bottom)
+	return CFrame.new(anchor.X, bottom + height / 2, anchor.Z), Vector3.new(span, height, span)
 end
 
 -- PURE. The YARD'S PAD: a block of a material with no grass blades, under the buildings, whose TOP
@@ -127,34 +172,39 @@ function Field.chunks(at: CFrame, size: Vector3, chunkStuds: number): { { at: CF
 	return out
 end
 
--- THE ONLY TERRAIN WRITE IN THIS SYSTEM. Grass FIRST and then air: the grass block's top IS the
--- shelf, and the air block removes whatever hill stood above it. The other order would fill the hole
--- the air had just made.
+-- THE ONLY TERRAIN WRITE IN THIS SYSTEM. AIR FIRST, then grass, then the pads (task 311): the air
+-- box now reaches BELOW the shelf, down to the voxel boundary, so it has to run before the grass it
+-- would otherwise eat. Grass and pads then fill that empty, boundary-aligned plane back up to the
+-- shelf, each writing one uniform partial voxel -- which is what makes the surface flat.
+--
+-- IT WAS GRASS -> PAD -> AIR UNTIL THIS TASK, with the air starting AT the shelf, and in that order
+-- the shelf's own voxel band was never cut: see `Field.airBlock` for the 1.27 studs that left under
+-- the trucks. Order and bottom are one change; either alone is wrong.
 --
 -- Returns how many `FillBlock` calls it made and how many of them were grass, so "which path it
 -- took" is a number in `Lobby.stats()` and not a belief (design section 18 item 1).
 function Field.fill(terrain: any, anchor: Vector3, shelfY: number, cfg): (number, number, number)
 	local chunk = cfg.FIELD.CHUNK_STUDS
 	local calls, grassCalls = 0, 0
+	local airAt, airSize = Field.airBlock(anchor, shelfY, cfg)
+	for _, piece in ipairs(Field.chunks(airAt, airSize, chunk)) do
+		terrain:FillBlock(piece.at, piece.size, Enum.Material.Air)
+		calls += 1
+	end
 	local grassAt, grassSize = Field.grassBlock(anchor, shelfY, cfg)
 	for _, piece in ipairs(Field.chunks(grassAt, grassSize, chunk)) do
 		terrain:FillBlock(piece.at, piece.size, cfg.FIELD.MATERIAL)
 		calls += 1
 		grassCalls += 1
 	end
-	-- THE PAD AFTER THE GRASS AND BEFORE THE AIR: it replaces the top of the grass shelf under the
-	-- buildings, and the air block above it then cuts the hill off exactly as before.
+	-- THE PAD LAST OF THE THREE FILLS: it replaces the top of the grass shelf under the buildings,
+	-- on the same boundary-aligned plane the grass was just laid on.
 	for _, pad in ipairs(cfg.FIELD.PADS) do
 		local padAt, padSize = Field.padBlock(anchor, shelfY, pad)
 		for _, piece in ipairs(Field.chunks(padAt, padSize, chunk)) do
 			terrain:FillBlock(piece.at, piece.size, pad.MATERIAL)
 			calls += 1
 		end
-	end
-	local airAt, airSize = Field.airBlock(anchor, shelfY, cfg)
-	for _, piece in ipairs(Field.chunks(airAt, airSize, chunk)) do
-		terrain:FillBlock(piece.at, piece.size, Enum.Material.Air)
-		calls += 1
 	end
 	-- ...AND LAST, THE MATERIAL THE FILL COULD NOT REACH (task 244, Karen: *"move all trucks to
 	-- right so it not going to be on grass"*). Every pad above declares itself blade-free, and
@@ -164,9 +214,10 @@ function Field.fill(terrain: any, anchor: Vector3, shelfY: number, cfg): (number
 	-- `PAD_SKIN_ABOVE_STUDS`' own comment carries the measurement and why filling higher is the
 	-- wrong fix (it lifts the yard and buries the road).
 	--
-	-- AFTER THE AIR AND NOT BEFORE IT, for the reason the pad is after the grass: the air is what
-	-- decides which voxels are still there at all, and scrubbing first would scrub a hill that is
-	-- about to be cut away and miss the one voxel that survives.
+	-- AFTER ALL THREE FILLS AND NOT BEFORE THEM: the air is what decides which voxels are there at
+	-- all, and scrubbing first would scrub a hill that is about to be cut away. Since task 311 the
+	-- air box cuts the shelf's own band too, so this call has little left to do -- it is KEPT, not
+	-- trusted, because a material is cheap to correct and `lobby.spec` counts the calls.
 	--
 	-- IT CHANGES A MATERIAL AND NOTHING ELSE -- no occupancy, no height, no part -- and only
 	-- `FIELD.MATERIAL` is replaced, so a rock or a path laid in this rectangle by anything else is
