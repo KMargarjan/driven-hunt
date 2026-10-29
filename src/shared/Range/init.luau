@@ -228,9 +228,12 @@ Range.LAYOUT = {
 		-- HOW HIGH A BODY SITS over what it stands on. `Match.CONFIG.STAND_HEIGHT_STUDS`' own 3.5,
 		-- restated and not required: the lobby's range reaches into no hunt module (this file's head).
 		riseStuds = 3.5,
-		-- One stud further uprange than the ladder's own centre, so the man who steps down is clear
-		-- of the seat's legs rather than inside one.
-		footClearStuds = 1.0,
+		-- THREE STUDS UPRANGE OF THE LADDER'S CENTRE, and 3 and not 1 is a MEASUREMENT (her place,
+		-- real `F`, 2026-10-29): the ladder is 2 studs deep, so at 1 the step-off point was exactly
+		-- on its edge -- the place's ground reader raycast down, hit the LADDER'S OWN TOP at 163.2
+		-- and put the man back up in the air at 166.6. At 3 the point is 2 studs clear of the
+		-- ladder's face, and still inside `standReach`'s footprint box.
+		footClearStuds = 3.0,
 	},
 	PLATE = { minSpan = 120, marginStuds = 80, thickness = 4, color = Color3.fromRGB(150, 150, 150) },
 	-- THE TERRAIN GRID. `Terrain:FillBlock` writes 4-stud voxels on a grid anchored at the world
