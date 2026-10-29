@@ -991,10 +991,6 @@ return function()
 			-- skipped -- and the number actually asserted is printed, so a run that skipped them
 			-- all could not read as a pass.
 			local areas = union()
-			-- FAIL FIRST PROBE (temporary): a rectangle far from the lobby, which has no edge of the
-			-- union (all four of its outward points are outside every rectangle, so `here` stays 0)
-			-- and whose own area NOTHING else covers. The redundancy arm must go red on it.
-			table.insert(areas, { minX = 9000, maxX = 9100, minZ = 9000, maxZ = 9100 })
 			local tested = 0
 			local perRect = {}
 			for index, rect in ipairs(areas) do
