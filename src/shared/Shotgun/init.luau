@@ -669,7 +669,13 @@ Shotgun.CONFIG = {
 	--
 	-- The ping term is added on top (`FLIGHT_CATCHUP_PING_FACTOR`, the downward trip) and the whole
 	-- thing is capped by `CLAIM.VIEW_LAG_MAX_SECONDS`, which is the ring's own span.
-	FLIGHT_REWIND_BASE_SECONDS = 0.18,
+	--
+	-- 0.18 -> 0.205 (task 309): 0.180 was DEV. RE-MEASURED IN KAREN'S FOREST TEST, at the range,
+	-- 130 studs, 60 animals, a boar at 22.5 studs/s: the client's drawn chest best-fits the
+	-- server's own 0.2057 s in the past (sd 0.018, p50 0.2048, 93 frames correlated, match
+	-- residual 0.23 studs) -- so 0.18 under-rewound by 0.47 studs mean, 0.95 at p90.
+	-- Probe: <runs-dir>/309/zcli.luau + zsrv-spawn.luau. Note: reviews/task-309/REQUEST.md
+	FLIGHT_REWIND_BASE_SECONDS = 0.205,
 
 	-- ---------------------------------------------------------- THE HIT CLAIM (task 266)
 	--

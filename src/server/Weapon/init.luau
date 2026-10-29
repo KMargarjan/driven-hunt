@@ -601,19 +601,29 @@ end
 -- WHICH EXIT `castWithRewind` TOOK, out where a probe can read it (task 305b). Studio only and
 -- read by nothing in the game: `stats` is module state and an `execute_luau` probe gets a FRESH
 -- module, so the live server's own answer has to be published (`ServerStorage.DHBoarHistory`'s rule).
-local rewindTrail = { plain = 0, cast = 0, hit = 0 }
+-- ...AND WHY, COUNTED PER REASON (task 309). "plain" was one number for five different exits, so a
+-- run that never rewound read the same as one that rewound every shot and missed.
+-- Note: reviews/task-309/REQUEST.md
+local rewindTrail = { plain = 0, cast = 0, hit = 0, why = {} :: { [string]: number } }
 -- READ ONCE, AND EVERY CALL SITE IS WRAPPED IN `if STUDIO then` (round 1 finding 1): a live server
 -- formats no string and reads no part for a probe it cannot reach.
 local STUDIO = RunService:IsStudio()
 local function trail(why: string, extra: string?)
+	rewindTrail.why[why] = (rewindTrail.why[why] or 0) + 1
 	pcall(function()
+		local reasons = {}
+		for name, count in pairs(rewindTrail.why) do
+			table.insert(reasons, string.format("%s=%d", name, count))
+		end
+		table.sort(reasons)
 		ServerStorage:SetAttribute(
 			"DH305Rewind",
 			string.format(
-				"plain=%d cast=%d hit=%d why=%s %s",
+				"plain=%d cast=%d hit=%d counts[%s] why=%s %s",
 				rewindTrail.plain,
 				rewindTrail.cast,
 				rewindTrail.hit,
+				table.concat(reasons, " "),
 				why,
 				extra or ""
 			)

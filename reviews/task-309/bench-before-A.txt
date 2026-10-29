@@ -1,0 +1,113 @@
+[harness] 2 Studios connected; unscoped calls default to Driven Hunt DEV (placeId: 136410205938347)
+[aim_bench] studio=8549abbd-9e46-4357-89e6-b0f89cff8338
+[aim_bench] placeId=130094961655666 DHFlag_AIM_REWIND=true DHFlag_BOAR_BEHAVIOUR=true DHFlag_BOAR_MODEL=true DHFlag_COINS=true DHFlag_DEER_ROAD_LEAP=true DHFlag_DRIVE_BOTS=true DHFlag_HIT_CLAIM=false DHFlag_HORN=true DHFlag_LICENCE_POPUP=true DHFlag_LOBBY=true DHFlag_RANGE=true DHFlag_SHOP=true DHFlag_ZONES_FOLLOW_GAIT=true
+[aim_bench] bench up gen=2
+
+CELL rifle/stand/chest~boar
+  picked rifle/stand/chest~boar -> RangeRequest sent | board: species=boar kind=male pace=stand weapon=rifle ammo=Slug shots=0 hits=0
+  held=Rifle
+  fired 30, rows 30
+    #1 hit=True answered=True fired=True frames=9 zone=chest spd=4.84 dist=127.2 along=0.053 up=0.025 card=(None,None) notice=- src=chest
+    #2 hit=True answered=True fired=True frames=8 zone=chest spd=4.88 dist=130.7 along=0.692 up=0.041 card=(None,None) notice=- src=chest
+    #3 hit=True answered=True fired=True frames=8 zone=body spd=4.87 dist=131.7 along=-0.727 up=0.011 card=(None,None) notice=- src=chest
+    #4 hit=True answered=True fired=True frames=8 zone=chest spd=2.97 dist=128.3 along=-0.027 up=0.031 card=(None,None) notice=- src=chest
+    #5 hit=True answered=True fired=True frames=8 zone=chest spd=4.9 dist=129.7 along=0.449 up=-0.025 card=(None,None) notice=- src=chest
+    #6 hit=True answered=True fired=True frames=9 zone=chest spd=0.36 dist=131.2 along=0.638 up=-0.004 card=(None,None) notice=- src=chest
+    #7 hit=True answered=True fired=True frames=9 zone=body spd=5.36 dist=132.5 along=-0.876 up=-0.03 card=(None,None) notice=- src=chest
+    #8 hit=True answered=True fired=True frames=8 zone=chest spd=3.05 dist=129.4 along=-0.005 up=0.043 card=(None,None) notice=- src=chest
+    #9 hit=True answered=True fired=True frames=8 zone=head spd=4.38 dist=129.8 along=1.662 up=0.047 card=(None,None) notice=- src=chest
+    #10 hit=True answered=True fired=True frames=8 zone=rear spd=6.4 dist=133.2 along=-1.573 up=-0.066 card=(None,None) notice=- src=chest
+    #11 hit=True answered=True fired=True frames=8 zone=chest spd=4.95 dist=134.6 along=0.625 up=0.04 card=(None,None) notice=- src=chest
+    #12 hit=True answered=True fired=True frames=9 zone=chest spd=4.57 dist=130.4 along=0.509 up=0.025 card=(None,None) notice=- src=chest
+    #13 hit=True answered=True fired=True frames=8 zone=chest spd=4.63 dist=130.5 along=0.615 up=0.007 card=(None,None) notice=- src=chest
+    #14 hit=True answered=True fired=True frames=8 zone=chest spd=3.11 dist=130.7 along=1.199 up=0.03 card=(None,None) notice=- src=chest
+    #15 hit=True answered=True fired=True frames=8 zone=rear spd=2.41 dist=131.5 along=-1.468 up=0.009 card=(None,None) notice=- src=chest
+    #16 hit=False answered=True fired=True frames=7 zone=- spd=0.47 dist=137.6 along=-1.6 up=-0.033 card=(None,None) notice=- src=chest
+    #17 hit=True answered=True fired=True frames=7 zone=rear spd=0.75 dist=137.2 along=0.362 up=-0.007 card=(None,None) notice=- src=chest
+    #18 hit=True answered=True fired=True frames=9 zone=head spd=4.29 dist=130.1 along=2.183 up=-0.029 card=(None,None) notice=- src=chest
+    #19 hit=True answered=True fired=True frames=8 zone=chest spd=4.57 dist=129.8 along=1.033 up=0.023 card=(None,None) notice=- src=chest
+    #20 hit=True answered=True fired=True frames=8 zone=chest spd=0.88 dist=131.0 along=1.149 up=0.011 card=(None,None) notice=- src=chest
+    #21 hit=True answered=True fired=True frames=8 zone=body spd=4.61 dist=132.3 along=-0.751 up=-0.02 card=(None,None) notice=- src=chest
+    #22 hit=True answered=True fired=True frames=9 zone=chest spd=3.02 dist=128.9 along=0.023 up=0.027 card=(None,None) notice=- src=chest
+    #23 hit=True answered=True fired=True frames=8 zone=body spd=4.91 dist=132.3 along=-1.008 up=-0.01 card=(None,None) notice=- src=chest
+    #24 hit=True answered=True fired=True frames=8 zone=chest spd=3.19 dist=129.3 along=0.066 up=0.003 card=(None,None) notice=- src=chest
+    #25 hit=True answered=True fired=True frames=7 zone=body spd=3.47 dist=131.6 along=-0.395 up=0.003 card=(None,None) notice=- src=chest
+    #26 hit=True answered=True fired=True frames=9 zone=chest spd=2.86 dist=128.2 along=-0.003 up=0.036 card=(None,None) notice=- src=chest
+    #27 hit=True answered=True fired=True frames=9 zone=chest spd=5.5 dist=129.5 along=0.317 up=-0.029 card=(None,None) notice=- src=chest
+    #28 hit=True answered=True fired=True frames=8 zone=chest spd=0.71 dist=131.1 along=0.679 up=0.032 card=(None,None) notice=- src=chest
+    #29 hit=True answered=True fired=True frames=7 zone=body spd=0.0 dist=131.3 along=0.439 up=0.233 card=(None,None) notice=- src=chest
+    #30 hit=True answered=True fired=True frames=9 zone=chest spd=3.64 dist=129.4 along=0.085 up=0.014 card=(None,None) notice=- src=chest
+
+CELL rifle/run/chest~boar
+  picked rifle/run/chest~boar -> RangeRequest sent | board: species=boar kind=male pace=run weapon=rifle ammo=Slug shots=0 hits=0
+  held=Rifle
+  fired 30, rows 30
+    #1 hit=False answered=True fired=True frames=7 zone=- spd=28.1 dist=124.5 along=1.082 up=0.135 card=(None,None) notice=- src=chest
+    #2 hit=False answered=True fired=True frames=8 zone=- spd=23.38 dist=130.0 along=-1.569 up=0.132 card=(None,None) notice=- src=chest
+    #3 hit=False answered=True fired=True frames=7 zone=- spd=23.69 dist=108.5 along=-1.499 up=0.351 card=(None,None) notice=- src=chest
+    #4 hit=False answered=True fired=True frames=9 zone=- spd=24.32 dist=133.9 along=-1.311 up=0.111 card=(None,None) notice=- src=chest
+    #5 hit=False answered=True fired=True frames=7 zone=- spd=20.49 dist=113.8 along=-15.324 up=0.264 card=(None,None) notice=- src=chest
+    #6 hit=True answered=True fired=True frames=9 zone=chest spd=16.77 dist=138.6 along=-0.407 up=0.042 card=(None,None) notice=- src=chest
+    #7 hit=False answered=True fired=True frames=8 zone=- spd=25.96 dist=129.0 along=-1.91 up=0.198 card=(None,None) notice=- src=chest
+    #8 hit=False answered=True fired=True frames=8 zone=- spd=26.22 dist=117.4 along=-16.874 up=-0.101 card=(None,None) notice=- src=chest
+    #9 hit=True answered=True fired=True frames=6 zone=chest spd=22.9 dist=137.1 along=0.616 up=-0.053 card=(None,None) notice=- src=chest
+    #10 hit=True answered=True fired=True frames=8 zone=chest spd=21.43 dist=124.5 along=2.447 up=-0.03 card=(None,None) notice=- src=chest
+    #11 hit=False answered=True fired=True frames=7 zone=- spd=25.68 dist=121.8 along=-6.096 up=0.28 card=(None,None) notice=- src=chest
+    #12 hit=False answered=True fired=True frames=7 zone=- spd=20.76 dist=136.6 along=-1.58 up=0.043 card=(None,None) notice=- src=chest
+    #13 hit=False answered=True fired=True frames=8 zone=- spd=21.4 dist=120.1 along=-14.671 up=0.28 card=(None,None) notice=- src=chest
+    #14 hit=True answered=True fired=True frames=8 zone=body spd=25.35 dist=134.5 along=0.904 up=0.059 card=(None,None) notice=- src=chest
+    #15 hit=False answered=True fired=True frames=7 zone=- spd=23.59 dist=134.2 along=-1.139 up=0.073 card=(None,None) notice=- src=chest
+    #16 hit=False answered=True fired=True frames=7 zone=- spd=25.49 dist=113.1 along=-13.021 up=0.278 card=(None,None) notice=- src=chest
+    #17 hit=True answered=True fired=True frames=8 zone=chest spd=5.24 dist=139.3 along=-0.263 up=0.011 card=(None,None) notice=- src=chest
+    #18 hit=False answered=True fired=True frames=7 zone=- spd=27.53 dist=122.6 along=-11.154 up=0.185 card=(None,None) notice=- src=chest
+    #19 hit=False answered=True fired=True frames=8 zone=- spd=24.01 dist=134.8 along=-1.721 up=0.211 card=(None,None) notice=- src=chest
+    #20 hit=False answered=True fired=True frames=7 zone=- spd=24.81 dist=118.5 along=-16.276 up=0.207 card=(None,None) notice=- src=chest
+    #21 hit=True answered=True fired=True frames=7 zone=chest spd=25.92 dist=135.8 along=1.176 up=-0.03 card=(None,None) notice=- src=chest
+    #22 hit=False answered=True fired=True frames=8 zone=- spd=24.35 dist=127.3 along=-3.186 up=0.218 card=(None,None) notice=- src=chest
+    #23 hit=False answered=True fired=True frames=7 zone=- spd=4.68 dist=139.3 along=-1.584 up=0.124 card=(None,None) notice=- src=chest
+    #24 hit=False answered=True fired=True frames=9 zone=- spd=25.0 dist=130.7 along=-1.66 up=0.217 card=(None,None) notice=- src=chest
+    #25 hit=False answered=True fired=True frames=9 zone=- spd=24.5 dist=121.8 along=6.856 up=0.298 card=(None,None) notice=- src=chest
+    #26 hit=False answered=True fired=True frames=9 zone=- spd=24.44 dist=129.5 along=-0.967 up=0.098 card=(None,None) notice=- src=chest
+    #27 hit=False answered=True fired=True frames=8 zone=- spd=26.66 dist=112.1 along=5.243 up=0.372 card=(None,None) notice=- src=chest
+    #28 hit=False answered=True fired=True frames=8 zone=- spd=25.57 dist=130.9 along=-1.693 up=0.157 card=(None,None) notice=- src=chest
+    #29 hit=False answered=True fired=True frames=8 zone=- spd=25.31 dist=108.7 along=-2.486 up=0.346 card=(None,None) notice=- src=chest
+    #30 hit=False answered=True fired=True frames=8 zone=- spd=20.53 dist=135.7 along=-1.182 up=-0.003 card=(None,None) notice=- src=chest
+
+CELL rifle/run/chest+lead~boar
+  picked rifle/run/chest+lead~boar -> RangeRequest sent | board: species=boar kind=male pace=run weapon=rifle ammo=Slug shots=30 hits=6
+  held=Rifle
+  fired 30, rows 30
+    #1 hit=True answered=True fired=True frames=7 zone=rear spd=25.09 dist=129.7 along=-0.99 up=0.114 card=(None,None) notice=- src=chest+lead1.28
+    #2 hit=False answered=True fired=True frames=7 zone=- spd=25.36 dist=120.1 along=-7.721 up=0.236 card=(None,None) notice=- src=chest+lead1.20
+    #3 hit=False answered=True fired=True frames=7 zone=- spd=26.27 dist=135.1 along=-1.66 up=-0.01 card=(None,None) notice=- src=chest+lead1.40
+    #4 hit=False answered=True fired=True frames=7 zone=- spd=23.42 dist=118.2 along=-16.786 up=0.304 card=(None,None) notice=- src=chest+lead1.10
+    #5 hit=True answered=True fired=True frames=8 zone=rear spd=25.13 dist=132.7 along=-0.299 up=-0.086 card=(None,None) notice=- src=chest+lead1.30
+    #6 hit=True answered=True fired=True frames=8 zone=head spd=25.21 dist=121.6 along=2.477 up=0.126 card=(None,None) notice=- src=chest+lead1.22
+    #7 hit=False answered=True fired=True frames=8 zone=- spd=28.28 dist=132.2 along=-2.611 up=0.101 card=(None,None) notice=- src=chest+lead1.47
+    #8 hit=False answered=True fired=True frames=8 zone=- spd=25.41 dist=111.8 along=-13.552 up=0.175 card=(None,None) notice=- src=chest+lead1.12
+    #9 hit=True answered=True fired=True frames=6 zone=rear spd=1.07 dist=138.6 along=-1.179 up=0.019 card=(None,None) notice=- src=chest+lead0.06
+    #10 hit=True answered=True fired=True frames=8 zone=body spd=25.7 dist=126.8 along=-0.418 up=0.001 card=(None,None) notice=- src=chest+lead1.28
+    #11 hit=False answered=True fired=True frames=7 zone=- spd=28.23 dist=129.1 along=-2.906 up=0.343 card=(None,None) notice=- src=chest+lead1.44
+    #12 hit=False answered=True fired=True frames=7 zone=- spd=26.29 dist=114.7 along=-14.954 up=0.368 card=(None,None) notice=- src=chest+lead1.19
+    #13 hit=False answered=True fired=True frames=7 zone=- spd=4.3 dist=138.9 along=0.661 up=-0.018 card=(None,None) notice=- src=chest+lead0.24
+    #14 hit=True answered=True fired=True frames=8 zone=rear spd=25.76 dist=129.1 along=-1.076 up=0.086 card=(None,None) notice=- src=chest+lead1.31
+    #15 hit=False answered=True fired=True frames=7 zone=- spd=26.0 dist=131.3 along=-1.446 up=0.153 card=(None,None) notice=- src=chest+lead1.34
+    #16 hit=False answered=True fired=True frames=7 zone=- spd=25.84 dist=112.7 along=-15.5 up=0.24 card=(None,None) notice=- src=chest+lead1.15
+    #17 hit=True answered=True fired=True frames=8 zone=rear spd=5.74 dist=138.5 along=-2.062 up=-0.031 card=(None,None) notice=- src=chest+lead0.31
+    #18 hit=False answered=True fired=True frames=6 zone=- spd=26.41 dist=117.8 along=-15.524 up=0.404 card=(None,None) notice=- src=chest+lead1.23
+    #19 hit=True answered=True fired=True frames=7 zone=rear spd=21.08 dist=133.7 along=-0.142 up=-0.024 card=(None,None) notice=- src=chest+lead1.11
+    #20 hit=False answered=True fired=True frames=7 zone=- spd=12.53 dist=135.6 along=-0.641 up=0.117 card=(None,None) notice=- src=chest+lead0.67
+    #21 hit=False answered=True fired=True frames=7 zone=- spd=24.83 dist=116.1 along=-17.019 up=0.33 card=(None,None) notice=- src=chest+lead1.14
+    #22 hit=True answered=True fired=True frames=7 zone=head spd=20.32 dist=138.6 along=1.28 up=-0.072 card=(None,None) notice=- src=chest+lead1.10
+    #23 hit=False answered=True fired=True frames=7 zone=- spd=22.72 dist=119.6 along=-6.986 up=0.235 card=(None,None) notice=- src=chest+lead1.07
+    #24 hit=True answered=True fired=True frames=8 zone=body spd=27.09 dist=134.7 along=-0.996 up=0.076 card=(None,None) notice=- src=chest+lead1.44
+    #25 hit=True answered=True fired=True frames=8 zone=rear spd=25.3 dist=134.6 along=-0.988 up=0.074 card=(None,None) notice=- src=chest+lead1.34
+    #26 hit=True answered=True fired=True frames=8 zone=rear spd=29.57 dist=124.5 along=-0.862 up=0.03 card=(None,None) notice=- src=chest+lead1.45
+    #27 hit=True answered=True fired=True frames=7 zone=rear spd=22.59 dist=117.8 along=-0.594 up=0.093 card=(None,None) notice=- src=chest+lead1.05
+    #28 hit=False answered=True fired=True frames=8 zone=- spd=28.96 dist=134.0 along=-1.248 up=0.079 card=(None,None) notice=- src=chest+lead1.53
+    #29 hit=False answered=True fired=True frames=8 zone=- spd=22.76 dist=111.7 along=-18.999 up=0.295 card=(None,None) notice=- src=chest+lead1.00
+    #30 hit=True answered=True fired=True frames=7 zone=head spd=10.23 dist=138.9 along=-0.698 up=-0.007 card=(None,None) notice=- src=chest+lead0.56
+
+CELL rifle/run/ahead~boar
+  picked rifle/run/ahead~boar -> RangeRequest sent | board: species=boar kind=male pace=run weapon=rifle ammo=Slug shots=60 hits=20
+  held=Rifle

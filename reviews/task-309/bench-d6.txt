@@ -1,0 +1,57 @@
+[harness] 2 Studios connected; unscoped calls default to Driven Hunt DEV (placeId: 136410205938347)
+[aim_bench] studio=8549abbd-9e46-4357-89e6-b0f89cff8338
+[aim_bench] placeId=130094961655666 DHFlag_AIM_REWIND=true DHFlag_BOAR_BEHAVIOUR=true DHFlag_BOAR_MODEL=true DHFlag_COINS=true DHFlag_DEER_ROAD_LEAP=true DHFlag_DRIVE_BOTS=true DHFlag_HIT_CLAIM=false DHFlag_HORN=true DHFlag_LICENCE_POPUP=true DHFlag_LOBBY=true DHFlag_RANGE=true DHFlag_SHOP=true DHFlag_ZONES_FOLLOW_GAIT=true
+[aim_bench] bench up gen=4
+
+CELL rifle/run/chest~boar
+  picked rifle/run/chest~boar -> RangeRequest sent | board: species=boar kind=male pace=run weapon=rifle ammo=Slug shots=149 hits=49
+  held=Rifle
+  fired 6, rows 6
+    #1 hit=False answered=True fired=True frames=8 zone=- spd=21.17 dist=128.2 along=0.636 up=0.224 across=7.611 aim=2626.82|149.45|-3342.41 impact=2625.93|149.67|-3350.00 card=(None,None) notice=- src=chest
+    #2 hit=False answered=True fired=True frames=7 zone=- spd=27.1 dist=114.6 along=5.25 up=0.396 across=18.615 aim=2658.16|148.35|-3330.66 impact=2658.06|148.75|-3350.00 card=(None,None) notice=- src=chest
+    #3 hit=False answered=True fired=True frames=7 zone=- spd=21.02 dist=129.8 along=-1.692 up=0.132 across=3.697 aim=2649.15|149.78|-3346.17 impact=2650.52|149.91|-3350.00 card=(None,None) notice=- src=chest
+    #4 hit=False answered=True fired=True frames=7 zone=- spd=20.28 dist=109.1 along=2.257 up=0.309 across=25.579 aim=2636.50|148.10|-3324.65 impact=2632.38|148.41|-3350.00 card=(None,None) notice=- src=chest
+    #5 hit=False answered=True fired=True frames=7 zone=- spd=22.26 dist=133.7 along=-2.133 up=0.047 across=2.427 aim=2675.60|149.95|-3347.58 impact=2677.74|150.00|-3350.00 card=(None,None) notice=- src=chest
+    #6 hit=False answered=True fired=True frames=7 zone=- spd=22.65 dist=112.5 along=-13.244 up=0.245 across=14.893 aim=2611.10|148.09|-3322.00 impact=2603.69|148.33|-3340.50 card=(None,None) notice=- src=chest
+
+CELL rifle/run/chest+lead~boar
+  picked rifle/run/chest+lead~boar -> RangeRequest sent | board: species=boar kind=male pace=run weapon=rifle ammo=Slug shots=155 hits=49
+  held=Rifle
+  fired 6, rows 6
+    #1 hit=True answered=True fired=True frames=7 zone=rear spd=23.9 dist=129.5 along=-0.553 up=0.036 across=0.611 aim=2634.86|149.69|-3344.95 impact=2635.48|149.73|-3344.42 card=(None,None) notice=- src=chest+lead1.22
+    #2 hit=True answered=True fired=True frames=7 zone=rear spd=2.96 dist=137.6 along=-1.116 up=0.01 across=1.781 aim=2691.14|149.28|-3347.65 impact=2690.60|149.29|-3345.62 card=(None,None) notice=- src=chest+lead0.16
+    #3 hit=True answered=True fired=True frames=7 zone=rear spd=27.01 dist=135.2 along=-1.028 up=-0.051 across=0.852 aim=2680.13|149.94|-3348.21 impact=2681.06|149.89|-3347.24 card=(None,None) notice=- src=chest+lead1.44
+    #4 hit=True answered=True fired=True frames=7 zone=rear spd=23.9 dist=134.0 along=-0.839 up=-0.056 across=0.671 aim=2674.03|149.95|-3348.23 impact=2674.80|149.89|-3347.48 card=(None,None) notice=- src=chest+lead1.26
+    #5 hit=False answered=True fired=True frames=7 zone=- spd=3.5 dist=140.2 along=0.454 up=-0.071 across=7.485 aim=2699.85|149.00|-3347.47 impact=2697.09|148.93|-3340.50 card=(None,None) notice=- src=chest+lead0.19
+    #6 hit=True answered=True fired=True frames=7 zone=body spd=23.01 dist=130.8 along=-0.496 up=-0.026 across=0.575 aim=2613.30|149.48|-3341.93 impact=2613.88|149.45|-3341.44 card=(None,None) notice=- src=chest+lead1.18
+
+CELL rifle/run/ahead~boar
+  picked rifle/run/ahead~boar -> RangeRequest sent | board: species=boar kind=male pace=run weapon=rifle ammo=Slug shots=161 hits=54
+  held=Rifle
+  fired 6, rows 6
+    #1 hit=False answered=True fired=True frames=8 zone=- spd=26.1 dist=130.0 along=-0.073 up=0.249 across=6.042 aim=2674.90|149.66|-3343.99 impact=2675.48|149.91|-3350.00 card=(None,None) notice=- src=ahead:5.55
+    #2 hit=False answered=True fired=True frames=8 zone=- spd=24.11 dist=116.0 along=5.977 up=0.239 across=17.402 aim=2636.93|148.40|-3331.66 impact=2635.46|148.64|-3350.00 card=(None,None) notice=- src=ahead:5.57
+    #3 hit=False answered=True fired=True frames=6 zone=- spd=22.99 dist=129.5 along=-0.991 up=0.163 across=4.072 aim=2651.95|149.87|-3345.88 impact=2651.18|150.03|-3350.00 card=(None,None) notice=- src=ahead:5.54
+    #4 hit=False answered=True fired=True frames=8 zone=- spd=22.69 dist=109.0 along=1.613 up=0.236 across=25.404 aim=2661.73|148.11|-3324.78 impact=2665.18|148.34|-3350.00 card=(None,None) notice=- src=ahead:5.70
+    #5 hit=False answered=True fired=True frames=7 zone=- spd=26.11 dist=133.5 along=-1.362 up=-0.371 across=1.451 aim=2632.10|149.80|-3348.62 impact=2630.66|149.43|-3350.00 card=(None,None) notice=- src=ahead:5.85
+    #6 hit=False answered=True fired=True frames=8 zone=- spd=26.8 dist=107.2 along=-19.478 up=0.122 across=26.429 aim=2681.51|147.28|-3318.87 impact=2691.92|147.40|-3350.00 card=(None,None) notice=- src=ahead:5.89
+
+[aim_bench] last server hit trace (ServerStorage.DHLastHits):
+    nil
+
+AIM BENCH -- 2026-10-29 03:23:19 UTC
+place 130094961655666, 6 shots asked per cell
+
+cell                            N  hits    rate 95% interval       along       up  role     
+--------------------------------------------------------------------------------------------
+rifle/run/chest~boar            6     0      0% 0% - 39%           -1.49    +0.23           
+rifle/run/chest+lead~boar       6     5     83% 44% - 97%          -0.60    -0.03  CONTROL  
+    zones: rear 4  body 1
+rifle/run/ahead~boar            6     0      0% 0% - 39%           -2.39    +0.11  KNOWN-BAD
+
+along / up are the SERVER's impact minus the point the CLIENT was drawing, in the
+animal's own frame, read on the frame `Input.fire` ran: +along is down its heading
+(behind the aim point), +up is above. `--` means no shot in the cell produced an
+impact, so there was nothing to measure against.
+
+Self-check: CONTROL and KNOWN-BAD both read as they must.
