@@ -199,6 +199,11 @@ Range.LAYOUT = {
 		railTall = 0.45,
 		railThick = 0.25,
 		railRise = 2.7,
+		-- PULLED INSIDE THE TERRACE BY A STUD, AND THAT IS A MEASURED REQUIREMENT, not a margin for
+		-- looks: `range.spec` asserts that EVERY part of the range stands inside the ground the cut
+		-- wrote, and the cut's X edges ARE the berm's span -- so a post centred on that edge hangs
+		-- half its section over the lip of the terrace.
+		insetStuds = 1.0,
 		color = Color3.fromRGB(128, 104, 76),
 		material = Enum.Material.Wood,
 	},
@@ -980,11 +985,12 @@ function Range.fenceSpan(anchor: Vector3, layout, downrange: number?)
 	local berm = Range.bermPosition(anchor, layout, dir)
 	local backZ = if dir == 1 then line.minZ else line.maxZ
 	local farZ = berm.Z - dir * layout.BERM.depth / 2
+	local inset = layout.FENCE.insetStuds
 	return {
-		minX = minX,
-		maxX = maxX,
-		minZ = math.min(backZ, farZ),
-		maxZ = math.max(backZ, farZ),
+		minX = minX + inset,
+		maxX = maxX - inset,
+		minZ = math.min(backZ, farZ) + inset,
+		maxZ = math.max(backZ, farZ) - inset,
 	}
 end
 

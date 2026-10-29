@@ -578,6 +578,16 @@ return function()
 				if part.Position.Y + part.Size.Y / 2 <= shelf + 1e-6 then
 					continue
 				end
+				-- THE MOWN LANE IS THE ONE PART IN THE CORRIDOR AND IT EARNS THE EXEMPTION HERE
+				-- (step B10): it is the slab of grass the target walks over, and it collides with
+				-- nothing and answers no ray. That pair is ASSERTED rather than assumed, so a turf
+				-- that quietly became solid lands in `blocking` like anything else.
+				if part.Name == RangeData.TURF_NAME then
+					expect(part.CanCollide).to.equal(false)
+					expect(part.CanQuery).to.equal(false)
+					expect(part.CanTouch).to.equal(false)
+					continue
+				end
 				local overlapX = math.abs(part.Position.X - centre.X) <= half + part.Size.X / 2 + body
 				local overlapZ = math.abs(part.Position.Z - centre.Z) <= part.Size.Z / 2 + body
 				if overlapX and overlapZ then
@@ -877,7 +887,17 @@ return function()
 			expect(#overhang).to.equal(0)
 			-- THE PLATE, THE SIX MATS, THE SIX POSTS, THE SIX BENCHES, THE SIX SEATS, THE TWO BANKS
 			-- AND THE BERM -- counted from the seat's own published size, never from 84.
-			expect(b.parts).to.equal(1 + 3 * LAYOUT.SPOT_COUNT + LAYOUT.SPOT_COUNT * HighSeats.PARTS_PER_SEAT + 3)
+			-- ...PLUS WHAT STEP B10 DRESSES IT WITH, counted the same way: per station four hut
+			-- posts, a roof and a number board; then ONE turf slab, the fence's own posts and its
+			-- two rails. Written as the arithmetic and not as 165, so a part that appears or
+			-- disappears moves this number rather than passing under it.
+			local dressed = LAYOUT.SPOT_COUNT * 6
+				+ 1
+				+ #RangeData.fencePosts((b :: any).anchor, LAYOUT, (b :: any).downrange)
+				+ 2
+			expect(b.parts).to.equal(
+				1 + 3 * LAYOUT.SPOT_COUNT + LAYOUT.SPOT_COUNT * HighSeats.PARTS_PER_SEAT + 3 + dressed
+			)
 			expect(b.parts <= Range.CONFIG.MAX_PARTS).to.equal(true)
 			TestKit.note(
 				string.format(
@@ -3804,6 +3824,25 @@ return function()
 						end
 						continue
 					end
+					-- WHAT STEP B10 ADDS IS NOT LAID BY `onGround`, AND THAT IS WHY IT IS NAMED HERE
+					-- RATHER THAN FALLING THROUGH: the hut's roof and the fence's rail stand ABOVE
+					-- the ground by design, the hut's posts are grown from ONE reading at their own
+					-- point up to the roof, the board hangs on the fascia, and the turf is a skin on
+					-- the shelf. The `else` arm below is the BANK's nominal height, so an unnamed
+					-- part would have been measured against a number that is not its own.
+					if
+						part.Name:match("^Roof%d") ~= nil
+						or part.Name:match("^HutPost%d") ~= nil
+						or part.Name:match("^Board%d") ~= nil
+						or part.Name:match("^FenceRail%d") ~= nil
+						or part.Name == RangeData.TURF_NAME
+					then
+						-- the one thing that IS asserted about them: the part's top is above the
+						-- ground at its own point, so none of them is buried.
+						local g = if case.sloped then slopedGround(part.Position.X, part.Position.Z) else case.shelf
+						expect(top > g - 1e-2).to.equal(true)
+						continue
+					end
 					if part.Name == "Plate" then
 						expect(math.abs(top - case.shelf) < 1e-3).to.equal(true)
 					elseif not case.sloped then
@@ -3824,7 +3863,10 @@ return function()
 							then LAYOUT.BERM.height
 							elseif part.Name:match("^Mat%d") then LAYOUT.MAT.size.Y
 							elseif part.Name:match("^Post%d") then LAYOUT.POST.size.Y
-							elseif part.Name:match("^Bench%d") then LAYOUT.BENCH.size.Y
+							elseif part.Name:match("^Bench%d") then LAYOUT.BENCH.size.Y							-- the fence's posts ARE laid by `onGround` (step B10), so they belong in
+							-- this rule -- with their OWN height and not the bank's.
+
+							elseif part.Name:match("^FencePost%d") then LAYOUT.FENCE.postRise
 							else LAYOUT.BANK.size.Y
 						expect(math.abs(bottom - lo) < 1e-2).to.equal(true)
 						expect(top >= hi + nominal - 1e-2).to.equal(true)
