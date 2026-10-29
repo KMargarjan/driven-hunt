@@ -1063,7 +1063,10 @@ return string.format("NOTREADY px=%.1f,%.1f spd=%.2f held=%s", dx, dy, spd, tost
 # measures off the character, so the parts the build actually laid are the only honest input.
 STAGE = r"""
 local Players = game:GetService("Players")
-local p = Players:GetPlayers()[1]
+-- THE LOCAL PLAYER, like every other probe here: `GetPlayers()[1]` is the shooter only in a
+-- one-client session, and with two clients it would stage the OTHER man's character -- which the
+-- engine does not replicate, so nobody moves and the board line describes somebody else's station.
+local p = Players.LocalPlayer
 if p == nil or p.Character == nil or p.Character.PrimaryPart == nil then return "no character" end
 local folder = workspace:FindFirstChild("Range")
 if folder == nil then return "no Range folder" end
@@ -1608,8 +1611,19 @@ def selftest():
         text = oneline(STAGE, STATION=4, POSITION=position)
         assert "%STATION%" not in text and "%POSITION%" not in text
         assert camera_write_free(text), position
-    assert "Mat4" in oneline(STAGE, STATION=4, POSITION="bench")
-    assert "Stand4" in oneline(STAGE, STATION=4, POSITION="treestand")
+    # THE CASE HAS TO DIE WHEN THE SELECTION DIES (round 1, finding 1). Both arms are in BOTH
+    # texts -- it is one script and the position is a literal in its `if` -- so "Mat4 is in the
+    # bench text" cannot bite. What bites is the pair of assignments to `target` plus the literal
+    # the branch turns on: delete the if/else and both assignments go with it.
+    bench_text = oneline(STAGE, STATION=4, POSITION="bench")
+    stand_text = oneline(STAGE, STATION=4, POSITION="treestand")
+    assert 'if "bench" == "treestand" then' in bench_text, bench_text
+    assert 'if "treestand" == "treestand" then' in stand_text, stand_text
+    for text in (bench_text, stand_text):
+        assert 'target = folder:FindFirstChild("Mat4", true)' in text, text
+        assert 'target = seat and seat:FindFirstChild("Deck", true)' in text, text
+    # ...and the staged character is the LOCAL one, never the player list's first (finding 2)
+    assert "Players.LocalPlayer" in bench_text and "GetPlayers()[1]" not in bench_text
     assert camera_write_free(oneline(GATE, PX="12.0", MINSPD="0.00"))
 
     # --- the self-check cells are never optional (L-123)
