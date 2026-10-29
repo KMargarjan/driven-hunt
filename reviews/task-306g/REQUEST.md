@@ -3,14 +3,15 @@
 Task: 306g
 Round: 3
 Base: task-306b6-isolation-picture @ b703f92d
-Code commit: 123e2256a7dfa0bd46a19d3e06a6d87b4f686728
+Code commit: fcba11b067b80c4c03e364614b9ca0cfba0b8703
 
 ```
-[harness] PASS: 34/34 checks @ 123e2256a7dfa0bd46a19d3e06a6d87b4f686728 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ fcba11b067b80c4c03e364614b9ca0cfba0b8703 (clean tree) scope=all
 ```
 
 `test2`: **N/A**. No changed path is in `TWO_PLAYER_PATHS` (`tools/agents.py`) -- `src/server/Range/`,
-`src/server/RangeBoot.server.luau`, `src/server/Boar/init.luau`, `tests/server/range.spec.luau`.
+`src/server/RangeBoot.server.luau`, `src/server/Boar/init.luau`, `tests/server/range.spec.luau`,
+`tests/server/boar_behaviour_live.spec.luau`.
 The range is "the weapon, the boar and the hud" (design 11.6, CLAUDE.md's explicit list).
 
 Design: `docs/design/shooting-range-lobby.md` 7.4, 16 row B7. DEV only; Karen's place is B8.
@@ -64,6 +65,37 @@ step cost (<= 2 ms/step) and T11 as draw cost (<= 3 ms) **plus** "an empty range
 Only that last clause is occupancy. The instrument for the sentence -- arrival releases, idle clears,
 station 4 unaffected -- is **11.2 group 12** plus the live `Workspace.RangeTargets` child count.
 T10 and T11 are reported below as the cost targets they are.
+
+## ROUND 3: WHAT THIS ROUND ADDED (the dispatch's DO line, and nothing else)
+
+**R1. `Runtime:clearOne` now has a case against a REAL runtime** (round 2, finding 1).
+`tests/server/boar_behaviour_live.spec.luau`, "boar runtime, live: clearOne despawns ONE animal by
+id", in the file that already builds its own live `Boar` runtime on an anchored plate: it spawns two
+animals, asserts `runtime:count() == 2` and both bodies are in `world.folder`, calls
+`runtime:clearOne(a.id, "spec")`, then asserts **A's Instance is unparented**, `statusOf(a.id)` and
+`rootOf(a.id)` are nil, `count() == 1`, and **B's part is still in the folder and `rootOf(b.id)` is
+still B's part**; an unknown id returns `false` and removes nothing.
+
+**R2. The idle arm no longer holds a dead id** (round 2, note 2). When `clearTarget` refuses, `scan`
+no longer `continue`s: it falls through to `statusOf`, so a target that has already left the runtime
+is noticed by the existing `lostTargets` cleanup, and the clear is retried next tick for one that has
+not. Case: `range.spec`, "does not hold a DEAD id for ever when the clear seam refuses".
+
+**BOTH SHOWN RED, RUN, IN THEIR OWN BRANCH** -- commit `b1403cca` (in this branch's history,
+reverted by `fcba11b0`) gutted both producers at once: `Runtime:clearOne` to `return false`, and the
+idle arm's `continue` restored.
+`[harness] FAIL: 32/34 checks @ b1403ccab90309854d322e4dabe9031348839b6f (clean tree) scope=all`
+- `failed [server] boar_behaviour_live.spec:742` -- `expect(runtime:clearOne(a.id, "spec")).to.equal(true)` (R1's arm)
+- `failed [server] range.spec:1828` -- `expect(Range.stats().lostTargets).to.equal(1)` got 0 (R2's arm)
+- 1844 / 1879 / 1921 are the cascade: the aborted case never reached its `Range.stop()`.
+Gutting `Runtime:clearOne` touches only R1's case (every other proof drives `range.spec`'s own fake),
+and restoring the `continue` touches only R2's -- so each arm is entered by its own case.
+
+**R2's CASE WAS WRONG TWICE BEFORE IT BIT, and both are written into it.** Dropping the animal from
+the fake at once (`6cbc0e6e`) and one second short of the threshold (`24710ac5`) both left the
+per-tick `statusOf` cleanup to catch the dead id on an ORDINARY tick, so the case was **green against
+the gutted producer** on both runs -- the exact fault round 2 found. It only bites with the seam
+refusing for a full `IDLE_CLEAR_SECONDS` first and the animal leaving INSIDE the idle arm's own tick.
 
 ## CLAIMS
 
