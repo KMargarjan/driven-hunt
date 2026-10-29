@@ -4677,8 +4677,10 @@ return function()
 			expect(math.abs(top - ((built :: any).shelf + LAYOUT.TURF.liftStuds)) < 1e-6).to.equal(true)
 			-- AND THE LANE'S OWN GROUND IS STILL BLADE-FREE: B8's measured reason stands.
 			expect(LAYOUT.SURFACE.LANE).to.equal(Enum.Material.Ground)
-			-- ...while the berm and the banks are GRASSED (Karen's "earth formed mountain").
-			expect(LAYOUT.SURFACE.BERM).to.equal(Enum.Material.Grass)
+			-- ...AND THE BERM AND THE BANKS ARE BARE EARTH SINCE 306k, which reverses B10's `Grass`
+			-- on the playtest's own reading: from the bench the blades made the heap read as "a thin
+			-- band of tall grass on the horizon" instead of as a backstop.
+			expect(LAYOUT.SURFACE.BERM).to.equal(Enum.Material.Ground)
 		end)
 
 		-- THE NUMBER BOARD SAYS THE STATION'S OWN NUMBER, read off the instance the player reads --
@@ -4865,10 +4867,15 @@ return function()
 		-- never released leaves a man anchored on the deck, and one released to `false` frees a man
 		-- the hunt has tied.
 		it("releases a climbed body's anchor after the settle, to the value it replaced", function()
+			-- PARENTED, because the release SKIPS a root whose character has gone -- which is the
+			-- last case below, and a parentless part would have made every case look like it.
+			local bin = Instance.new("Folder")
 			local free = Instance.new("Part")
 			free.Anchored = false
+			free.Parent = bin
 			local tied = Instance.new("Part")
 			tied.Anchored = true
+			tied.Parent = bin
 			-- DRIVEN THROUGH THE REAL QUEUE: `Range.start`'s own `move` seam is not used here,
 			-- because the anchor lives in the SHIPPED arm -- so the two roots are handed straight to
 			-- the step, which is the function `Range.step` calls every frame.
@@ -4890,6 +4897,7 @@ return function()
 			expect(tied.Anchored).to.equal(true)
 			-- A ROOT WHOSE CHARACTER WENT (a respawn mid-climb) is dropped and throws nothing.
 			local gone = Instance.new("Part")
+			gone.Parent = bin
 			Range.holdForSettle(gone)
 			gone:Destroy()
 			expect(Range.settleStep(1)).to.equal(1)
