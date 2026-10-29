@@ -1123,14 +1123,20 @@ function Range.climbPromptPosition(anchor: Vector3, spot: number, layout, downra
 	return Vector3.new(foot.X, anchor.Y + layout.CLIMB.footRise, foot.Z)
 end
 
--- THE WAY DOWN'S POINT: over the rail's GAP, which is the one place a man can step off, and
--- `deckRise` below the station's own RANGE prompt -- the reason the two are on different keys.
+-- THE WAY DOWN'S POINT: over the DOWNRANGE rail -- the board he rests on -- and NOT over the rail's
+-- gap he stepped through, which is where the design wanted it. MEASURED in her place 2026-10-29:
+-- with the point on the UPRANGE face a man looking down his own lane has it BEHIND him, the engine
+-- hides it, and a real `F` then does nothing -- the same defect task 308 measured for the RANGE
+-- prompt (*"a HIDDEN prompt does not answer its key"*). The downrange rail is in front of his eye
+-- whenever he is looking at the lane, which is the whole of when he wants to come down.
+-- It stays `deckRise` under the station's RANGE prompt in height and is now 5.8 studs from it in Z:
+-- still both in reach of a man on the deck, which is why the two keys differ.
 function Range.downPromptPosition(anchor: Vector3, spot: number, layout, downrange: number?, deckTop: number?): Vector3
 	layout = layout or Range.LAYOUT
 	local dir = if downrange == -1 then -1 else 1
 	local deck = Range.standPosition(anchor, spot, layout, dir)
 	local top = if type(deckTop) == "number" then deckTop :: number else anchor.Y + HighSeats.DIMS.DECK_RISE_STUDS
-	return Vector3.new(deck.X, top + layout.CLIMB.deckRise, deck.Z - dir * HighSeats.DIMS.RAIL_PLANE_STUDS)
+	return Vector3.new(deck.X, top + layout.CLIMB.deckRise, deck.Z + dir * HighSeats.DIMS.RAIL_PLANE_STUDS)
 end
 
 -- WHERE THE CLIMB PUTS HIM: on the deck's centre, `riseStuds` over its top, facing DOWNRANGE -- so
