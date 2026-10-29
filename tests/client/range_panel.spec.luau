@@ -363,6 +363,18 @@ return function()
 			menu.Name = RangeData.promptName(2, RangeData.POSITION.BENCH)
 			expect(RangePanel.isClimbPrompt(menu)).to.equal(false)
 			expect(RangePanel.isClimbPrompt(nil)).to.equal(false)
+			-- ...BUT ONLY THE ONE ON **THIS PANEL'S KEY** MAKES IT STAND DOWN (306k). The way up is
+			-- on E and the engine answers it; the way down is on F and the engine answers nothing of
+			-- this panel's. MEASURED in her place once the down prompt was finally drawn: a real E on
+			-- the deck opened NO menu, because the panel was standing down for an F prompt.
+			climbUp.KeyboardKeyCode = RangeData.LAYOUT.CLIMB.UP_KEY
+			climbDown.KeyboardKeyCode = RangeData.LAYOUT.CLIMB.DOWN_KEY
+			expect(RangePanel.climbTakesKey(climbUp)).to.equal(true)
+			expect(RangePanel.climbTakesKey(climbDown)).to.equal(false)
+			expect(RangePanel.climbTakesKey(menu)).to.equal(false)
+			expect(RangePanel.climbTakesKey(nil)).to.equal(false)
+			expect(RangeData.LAYOUT.CLIMB.UP_KEY).to.equal(RangePanel.KEY)
+			expect(RangeData.LAYOUT.CLIMB.DOWN_KEY).never.to.equal(RangePanel.KEY)
 			-- AND THE WATCH STANDS DOWN WITH THE PANEL: a climb prompt destroyed while shown fires no
 			-- `PromptHidden`, so a `climbShown` left true would swallow E for the rest of the session.
 			RangePanel.setClimbShown(true)

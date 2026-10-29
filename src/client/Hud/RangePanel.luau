@@ -580,6 +580,21 @@ function RangePanel.isClimbShown(): boolean
 	return climbShown
 end
 
+-- DOES THAT CLIMB PROMPT TAKE **THIS PANEL'S** KEY? Only then may the panel stand down for it
+-- (306k). The way UP is on `E` and the way DOWN is on `F`; the stand-down exists because the engine
+-- is already answering `E`, and it answers nothing of the sort for `F`. MEASURED in her place: with
+-- the down prompt finally DRAWN on the deck, a real `E` up there opened no menu at all -- the panel
+-- swallowed it for a prompt on another key (frame 306k-deckmenu).
+function RangePanel.climbTakesKey(instance: any): boolean
+	if not RangePanel.isClimbPrompt(instance) then
+		return false
+	end
+	local ok, key = pcall(function()
+		return (instance :: any).KeyboardKeyCode
+	end)
+	return ok and key == RangePanel.KEY
+end
+
 -- IS THAT INSTANCE ONE OF THE RANGE'S CLIMB PROMPTS? By NAME, which is `Range.climbPromptName`'s own
 -- rule -- nothing here knows where either one hangs.
 function RangePanel.isClimbPrompt(instance: any): boolean
@@ -605,7 +620,7 @@ function RangePanel.watchClimbPrompts()
 		table.insert(
 			climbConnections,
 			ProximityPromptService.PromptShown:Connect(function(shown)
-				if RangePanel.isClimbPrompt(shown) then
+				if RangePanel.climbTakesKey(shown) then
 					RangePanel.setClimbShown(true)
 				end
 			end)
@@ -613,7 +628,7 @@ function RangePanel.watchClimbPrompts()
 		table.insert(
 			climbConnections,
 			ProximityPromptService.PromptHidden:Connect(function(hidden)
-				if RangePanel.isClimbPrompt(hidden) then
+				if RangePanel.climbTakesKey(hidden) then
 					RangePanel.setClimbShown(false)
 				end
 			end)
