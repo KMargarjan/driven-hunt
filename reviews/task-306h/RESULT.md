@@ -1,20 +1,90 @@
-1. `tests/server/lobby.spec.luau` / "sends him back the moment he steps off ANY of the three rectangles" — the arm that replaced `expect(here > 0)` is a tautology and cannot fail, so the per-rectangle guard is gone with nothing in its place. Evidence: `here` is incremented inside `for _, at in ipairs(outs) do if not Join.insideHome(at, areas) then ... here += 1 end end`, so `here == 0` means exactly "`Join.insideHome(at, areas)` was true for every `at` in `outs`". The new block is `if here == 0 then for _, at in ipairs(outs) do expect(Join.insideHome(at, areas)).to.equal(true, "rectangle %d: %s is neither an edge of the union nor inside it") end end` — the same pure predicate (`Join.insideHome` loops `Join.withinArea` over `areas`; nothing mutates `areas` or `outs` between the two loops) re-asked of the same inputs. It asserts the loop's own exit condition. I checked which rectangle this was written for: with the B8 row, `Join.homeAreas` rectangle 3 (`Join.walkwayTo(anchor, footprint centre)`, x 2660−half..2850+half, z −3118−half..−2950+half) has all four of its outward points inside the field (x 2740..2960, z −3060..−2840) or inside the range footprint (x 2532..2788, z −3238..−2998), so `here == 0` for it and the old assertion genuinely failed — and the replacement proves nothing about it. REQUEST claim 4's "`lobby.spec`'s per-rectangle boundary case was taught to PROVE containment instead of demanding an edge" is therefore a claim the code does not support. Required: prove containment against something other than the loop's own predicate — e.g. assert each of rectangle *n*'s four outward points is inside the union of the OTHER rectangles (`areas` with index *n* removed), which fails if rectangle *n* ever becomes the only cover for one of them, and keep a real per-rectangle assertion for the rectangles that do contribute an edge.
+PASS (item 5 NOT PROVEN)
+
+Rule 5, stated so this PASS is not read as rule 5 having been met: what has been seen in Karen's
+place is the BUILT PICTURE and the WALK -- five described frames (`f1b-line-view`, `f2b-lane1-view`,
+`f3b-deck4-view`, `f6b-berm-view`, `f5-menu-view`), a real `E` opening the menu with its six option
+rows and the board, and two walks on a real held `W` (lodge door to mat 6, 169.65 studs in 13.57 s,
+ending at (2720.1, 154.1, -3030.0) = mat 6's own X/Z; mat 6 to mat 1, 115.24 studs in 10.43 s).
+**NO SHOT WAS FIRED BY ANYONE AT ANYTHING.** Claim 5 (T6, "no shot leaves the range") is 180 COMPUTED
+rays, and design 11.5 item 3's frame (the rail board under the gun with the berm beyond) was not
+obtained. No animal-behaviour claim is made. Item 5 is therefore named in the parenthesis.
+
+Round 1's blocking finding is closed, checked by arithmetic and not by the diff's word for it. With
+the shipped row, `Join.homeAreas` gives field x 2740..2960 z -3060..-2840, `Range.footprintFor`
+x 2532..2788 z -3238..-2998, and `Join.walkwayTo` x 2636..2874 z -3142..-2926. Rect 1 and 2 each have
+2 uncovered outward points (`tested` = 4 >= 3); rect 3 has 0, so the new arm fires, and its grid point
+(2636, -2926) is inside rect 3 alone -- x < 2740 so not the field, z > -2998 so not the footprint --
+so `expect(own > 0)` is TRUE for a geometric reason and FALSE the moment the corridor is swallowed by
+the other two. It is not a restatement of the loop's exit condition: `others` is a different list, and
+the loop's points are interior, not the outward ones. Deletion test on the rest: drop
+`Range.cutRects`' footprint clamp and "FITS the rectangle the B8 census measured" reddens (rect 2's
+`maxZ` becomes -2996 against `MEASURED.maxZ` -2998); ignore `row.shelfFrom` in `Build.shelfAt` and
+"takes its level from the LOBBY" reddens (168 against 156, and the `> 1` arm names the gap); drop the
+`fillsTerrain(row)` guard and "writes NOTHING without a terrain" reddens on the shipped `map:v1` row.
+The two terraces meet flush and cannot fight: rect 1 (2544..2776, -3228..-3060) touches the field only
+along z = -3060, rect 2 (2544..2740, -3060..-3000) only along x = 2740, every face a multiple of 4,
+and the walk from the door to mat 6 crosses x = 2740 at z = -3012.5, inside that 60-stud seam.
 
 ## Notes (non-blocking)
-
-- Rule 5, stated so nothing here is read as rule 5 having been met: what was seen in her place is the BUILT PICTURE — five described frames (`f1b-line-view`, `f2b-lane1-view`, `f3b-deck4-view`, `f6b-berm-view`, `f5-menu-view`) — plus a real `E` opening the menu. **No shot was fired by anyone at anything.** Claim 5 (T6, "no shot leaves the range") is 180 computed rays from `306b8-proof.luau`, not a trigger pull, and no animal-behaviour claim is made at all. On a round-2 PASS, item 5 is the one to name in the parenthesis.
-- `Range.cutRects` — the grid snapping is hard-coded for `downrange = -1` and is backwards for `+1`. `lowZ = toGrid(math.max(lowZ, box.minZ), false)` and `highZ = toGrid(math.min(highZ, box.maxZ), false)` both FLOOR, which is correct only while `lowZ` is the downrange edge and `highZ` the uprange one. At `dir = +1` the roles swap: the uprange edge floors up to 4 studs OUTSIDE `footprintFor`'s box (contradicting the function's own comment, *"this edge snaps INWARD while the others snap out"*) and the downrange edge floors up to 4 studs SHORT of the berm's far face, leaving the back of the berm on uncut hill. Latent today — no shipped row has `fill = true` with `downrange = +1` — and `range.spec` only ever calls `cutRects` with `-1`, so neither state is reachable by parameter in a case. Queue it, or snap each edge off `dir` rather than off min/max.
-- `Range.LAYOUT.BERM`'s comment *"Four 2.5-stud bands over a 12-stud run"*, and `range.spec`'s *"a berm band is 2.5 studs tall over a 3-stud run"* — the code makes four **2**-stud bands: `Build.bermBoxes` uses `height = size.Y * k / (steps + 1)` = `10 * k / 5`, giving 2/4/6/8 under a 10-stud core. That is what design 8.2's decided fallback asks for ("2 studs per step"); the two comments are the thing that is wrong.
-- `Build.writeTerrain` — *"The lane first ..., the firing line second, or the line would be painted back to grass"*, echoed by `range.spec`'s *"THE LINE LAST, or the lane's own repaint would put the grass back over it"*. The stated reason is false: the first repaint is `AROUND` (`Grass`) → `LANE` (`Ground`) and cannot touch `Limestone`, so the order is actually free. Keep the order, fix the reason, or the next person will preserve it for a property it does not have.
-- `Build.cutBoxes` — `bottom = math.floor(shelf / grid) * grid` and the `(shelf - bottom)` term in `airH` are dead on every reachable path: `Build.shelfAt` already floors to `FILL.GRID_STUDS` whenever `row.fill == true`, and `writeTerrain` runs only then. The spec's `expect(math.abs(bottom - math.floor(b.shelf / grid) * grid) < 1e-6)` consequently still passes with that floor deleted. Either drop the redundant snap or feed `cutBoxes` an off-grid shelf in one case so the line is load-bearing.
-- Two numbers for one measurement: `Build.shelfAt`'s header says *"the range anchor reads 134.9"* (REQUEST claim 3 repeats it) while `Range.ANCHORS`' comment says *"The ground at the range anchor instead gives 132"*. The derived "16-stud cliff" matches neither (148 − 134.9 = 13.1). Pick the measured one and use it in both places.
-- `Range.LAYOUT.SURFACE`'s *"The strip's three reaches cover every part on the line: ... the deck 14 uprange"* — `LINE_BACK_STUDS` 14 reaches the deck's CENTRE, not its edge: `Range.standPosition` is `mat.Z - dir * STAND.backStuds`, which is exactly `lineRect`'s `maxZ`. The uprange half of every deck stands off the gravel. The coverage case only matches `^Mat%d` / `^Post%d` / `^Bench%d`, so it does not see this.
-- `tests/server/range.spec.luau` `DEV_ROW` is the local fixture `{ x = 1200, z = 0, y = 0, plate = true }` with no `berm` and no `fill`, so "writes ... nothing at all on the DEV row that has one" exercises the DEFAULTS of `fillsTerrain`/`bermIsTerrain`, not the shipped `map:v1` row's `fill = false, berm = "parts"`. The shipped values are asserted separately in the anchors case, so the pair does cover it; passing `RangeData.anchorFor("map:v1")` would close it in one line.
-- `backups/task-306b8/` — REQUEST claim 10 says the two archives are held *"each with a note (rule 7)"*. Neither file carries one, and `backups/README.md`'s own rule (*"Archive here with a note instead ... add a line to the log below"*) has no row for them. The content is preserved, and the log has been un-updated since 2026-10-22, so this change does not make it worse — but the claim overstates. One row in that table fixes it.
-- `docs/design/shooting-range-lobby.md` §8 now contradicts the code in four places and needs its own task: §8.1's row has no `shelfFrom` and no `keepOut`; §8.3 specifies a `Grass` lane against a `LeafyGrass` surround (shipped: `LANE = Ground`, `AROUND = Grass` — the deviation is measured, photographed and escalated for the Architect, which is the right route, but the doc still says the old thing); §8.4 specifies ONE firing-line rectangle at x 2592..2728, z −3044..−2996 where the code cuts a 232 × 228 two-rectangle terrace; and §8.4's *"The shelf's height is `Build.shelfAt(row.x, row.z, row, groundAt)`, unchanged"* is no longer true.
-- REQUEST, "What I could not verify" — *"The lane is now bare earth over 232 x 168 studs"*. The terrace is two rectangles: 232 × 168 (x 2544..2776, z −3228..−3060) plus 196 × 60 (x 2544..2740, z −3060..−3000), 228 studs deep in total.
-- REQUEST claim 1 — *"re-censused in HER place before anything was laid, in Edit and in Play"*. The Play census counts 102 `Range` BaseParts inside the footprint, so it ran AFTER the build; only the Edit census (0 BaseParts) is a "before".
-- `Flags.ROWS.RANGE.default = false` (expires 2026-11-17), and `Range.ENABLED` gates the whole boot — as shipped this terrain write reaches nobody until the flag flips; her Forest Test has the override on. The request never says so (the same note 309a(h) made).
+- REQUEST, "FAIL FIRST, run" — the cited run does not exercise the arm that shipped. The probe
+  rectangle (x 9000..9100, z 9000..9100) has FOUR uncovered outward points, so under the shipped case
+  `here` = 4 and the `if here == 0 then` grid never runs for it; and `0ac23f15` predates `477e6765`,
+  so what reddened was the THIRD version's inverted assertion ("the others cover its whole area"),
+  which a rectangle with ground of its own is *supposed* to fail. The arm is load-bearing by the
+  reading above, so nothing is hidden -- but the paragraph is evidence for the opposite claim. The
+  probe that would redden `expect(own > 0)` is a rectangle wholly inside the field (e.g.
+  x 2800..2820, z -2900..-2880): no edge of its own, no ground of its own.
+- `tests/server/lobby.spec.luau`, the grid loop — `expect(Join.insideHome(at, areas)).to.equal(true)`
+  cannot fail: `at` runs from `rect.minX/minZ` to `rect.maxX/maxZ` inclusive, `rect` is `areas[index]`,
+  and the case itself asserts that ON the edge is IN. Harmless beside `own > 0`, but it reads as a
+  second assertion where there is one. Drop it or ask it of a point one stud outside the union.
+- REQUEST claim 5 — "180 stopped at or before the berm" does not isolate the berm. Every ray is aimed
+  down at a target on the lane, so a ray that stops on the flat terrace short of the berm counts the
+  same as one the berm stopped, and that outcome survives the berm's deletion. Count what each ray
+  HIT (the berm's own voxels) and add one level ray from the deck eye (shelf + 17.5 = 167.5 against a
+  crest at 160.02) -- which is the ray that would leave the range if anything does. B9's work.
+- `tests/server/range.spec.luau` "takes its level from the LOBBY and lands on the same number a
+  second time" — the fixed-point arm cannot tell FLOOR from ROUND: `second` is fed `first` (168),
+  already on the grid, and rounding is a fixed point there too. This task's own measurement says the
+  feedback is the DRAWN surface, shelf + 2; feed `first + 2` (and `+1`, `+3.9`) as task 311's
+  `Field.shelfFor` case does, and the arm bites for the reason its comment gives. The case as a whole
+  still reddens on floor -> round, via `expect(first).to.equal(FOREST_SHELF)`.
+- `tests/server/range.spec.luau` "stands clear of all seven lobby rectangles" — on the shipped forest
+  row `bermIsTerrain` is true, so `buildWith` builds neither `Berm` nor `Bank*` and `footprintOf` now
+  measures a box with the range's two WIDEST things missing (the berm spans x 2544..2776, the parts
+  2592..2728). The property still holds -- all seven rectangles are inside the field, the terrace
+  never overlaps the field, and the berm is 228 studs south of it -- but the case no longer proves it
+  for the ground the range writes. Add `cutRects`/`bermBoxes` to the gap loop.
+- `Build.writeTerrain` — the `AROUND -> LANE` repaint over the terrace rectangles has nothing to
+  repaint: the air box clears everything from the shelf up and the grass box writes `LANE` over the
+  whole rectangle 48 studs down, so no `Grass` voxel survives inside it. Harmless, but
+  `expect(#terrain.replaces).to.equal(3)` counts two calls that cannot change a voxel; the comment
+  "the cover the fill could not reach" names a case that `cutBoxes` already covers.
+- Citations the move made stale outside the changed code: `ForestTestBoot.server.luau`'s `homeAreas`
+  comment (*"The range is 268 studs from the lodge anchor"* -- it is now 186.7 walked, claim 6's own
+  number); `src/shared/Lobby/init.luau`'s `FLAGPOLE` comment (*"291 studs from the range's nearest
+  edge (`Range.ANCHORS["forest-test"]` is (2650, -3216), and its built box measures x 2570..2730,
+  z -3356..-3212)"* -- that box no longer exists; the real nearest edge is x 2788 / z -2998, about 144
+  studs, still clear); and the same sentence in TASKS.md's task 311 row. `rangeHomeAreas` itself
+  derives the rectangle from the row, so claim 4's "nothing was edited there" is true.
+- Counts: the footprint is 256 x 240 (x 2532..2788, z -3238..-2998), not the "256 x 239" in
+  `Range.ANCHORS` and in `range.spec`'s section 9 header; and 8-stud spacing over it is 33 x 31 =
+  1023 samples, which is the PLAY census's number -- so the Edit census's 990 is one row of samples
+  short of "design 2.2's footprint" (claim 1). Name the row that was not sampled.
+- The diff against `c2cb8437` also carries tasks 310 and 311 from `main` (`src/server/Lobby/*`,
+  `src/shared/Lobby/init.luau`'s `FLAGPOLE`/`AVENUE`, `tools/aim_bench.py`, the lobby.spec hunks at
+  the field blocks, `docs/research/2026-10-29-*`). Those have their own `reviews/task-31*/RESULT.md`
+  and are not re-reviewed here. One interaction checked: task 311's `tryBuild` cuts at 148 and then
+  re-reads the surface it produced (150), and `Build.shelfAt`'s floor gives 148 from either 149.25 or
+  150 -- so the two terraces agree whichever owner builds first.
+- Still queued and still real, as the request says: `Range.cutRects`' snapping is backwards at
+  `downrange = +1` and unreachable by parameter in any case; `Build.cutBoxes`' own floor and its
+  `(shelf - bottom)` term are dead on every reachable path; `SURFACE.LINE_BACK_STUDS` 14 reaches the
+  deck's CENTRE, so the uprange half of every deck stands off the gravel and the coverage case's
+  `^Mat%d`/`^Post%d`/`^Bench%d` filter cannot see it; and `docs/design/shooting-range-lobby.md` §8
+  contradicts the code in four places. `Flags.ROWS.RANGE.default` is false (expires 2026-11-17) and
+  `Range.ENABLED` gates `Range.start` before `Build.build`, so no terrain is written in any place
+  until the flag flips -- the request now says so.
 
 ---
-REVIEWER verdict on commit `9ac2216f9ab2e76d256715865e6e629e8916f356` (round 1) · 2026-10-29 16:48 UTC · session cost $5.27, 45 turns · written by tools/agents.py
+REVIEWER verdict on commit `90563c7b05f02b9f67feb5401a8b9cccdf5530ec` (round 2) · 2026-10-29 17:21 UTC · session cost $4.30, 38 turns · written by tools/agents.py
