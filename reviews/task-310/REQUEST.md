@@ -1,9 +1,9 @@
 # Task 310 -- the running chest shot: two rigs, one build, one answer
 
 Task: 310
-Round: 1
+Round: 2
 Base: 9bbfc71e
-Code commit: 068a6103a1eda6f964ba55dcaf277a66427944dd
+Code commit: TBD2
 
 ## THE ONE OUTCOME (L-155)
 
@@ -106,11 +106,15 @@ rifle, RUN, chest centre, no lead, 103-138 studs: **43 shots, 42 on the animal, 
 Files: cycle 1 `<runs-dir>/310/bench-A.txt`; cycle 2 `310/cycle2-back.txt`; cycle 3
 `310/cycle3-real-back.txt` (summarised from the resident's own rows by `310/summ.py`).
 
-**What the new column shows, in one line.** The aimed chest centre sits at ring-z **-0.41** and the
-strike lands **+0.72 studs** behind it, i.e. at ring-z **+0.31** -- and the chest's back edge is at
-**+0.36**. The no-lead chest shot lands **0.05 studs inside the chest's back edge**, so the zone it
-is credited to is a coin flip between chest and body. With the 1.18-stud lead the board already
-prints, the strike sits at ring-z -0.58, and 20 of 22 are credited chest.
+**What the new column shows, in one line -- as means, with the spread (round 1, note 7).** The drawn
+chest centre sits at ring-z **-0.41** on the frozen frame `310/zonemap.luau` read, and across 22
+running rows its own `aimz` swings **-0.52 .. +0.78** (mean +0.10). The strike lands **+0.72 studs**
+behind the aim (cycle 2's mean `back`). Taking the mean aim at -0.41 that is ring-z **+0.31**,
+against a chest back edge at **+0.36** -- and because the aim itself moves +-0.65 studs with the
+gait, the strike straddles that edge rather than sitting 0.05 studs inside it. Either way the zone
+credited is a coin flip between chest and body, which is what the split says: chest 5 / body 13 /
+rear 2. With the 1.18-stud lead the board already prints, the mean strike sits at ring-z **-0.58**,
+0.97 studs clear of the edge, and **20 of 22** are credited chest.
 
 **Found in cycle 3, and it is why the coin flip is a coin flip:** `aimz` -- the drawn chest centre's
 own body-axis coordinate -- swings between **-0.52 and +0.78** across the 22 rows while the boar
@@ -121,7 +125,7 @@ a gait cycle, which is 75 % of the chest's whole length. Queued as a note, not f
 ## THE GATE
 
 ```
-[harness] PASS: 34/34 checks @ 068a6103a1eda6f964ba55dcaf277a66427944dd (clean tree) scope=all
+TBDHARNESS
 ```
 
 Two players: **N/A**. The only code file is `tools/aim_bench.py`, and `tools/` is not in
@@ -142,9 +146,30 @@ answers `[]` for this change's paths.
 4. `tools/aim_bench.py` records `aimz` per row and prints `back` (= ringz - aimz) beside `along`,
    with an `OFFSET DISAGREEMENT` line above 0.5 studs. Verify: `tools/aim_bench.py`'s
    `RESIDENT` (the `aimz` write), `summarise` (`back`, `backdisagree`), `render` (the column and the
-   line), and `python tools/aim_bench.py selftest`.
+   line), and `python tools/aim_bench.py selftest` -> `aim_bench selftest: OK`, exit 0.
+   **Round 2:** the selftest's rendered assert no longer sits on a two-decimal rounding boundary --
+   the second fixture's ring z is 1.39, so the two backs are 0.90 and 1.80 and their mean is 1.35,
+   which has two decimals exactly (round 1, finding 1). The numeric assert is still
+   `abs(table[0]["back"] - 1.35) < 1e-9`, and the rendered clause is now `"+1.35" in text` alone:
+   `"back" in text` was dropped because the footer prose carries the word and the clause therefore
+   survived deleting the column (round 1, note 4).
 5. No `DHFlag_*` attribute was written or cleared, in any run (rule K). Verify: every rig prints the
    flag row it read; nothing under `310/` calls `flags.py`.
+
+## ROUND 2 -- what changed since round 1
+
+Finding 1 (blocking) fixed as claim 4 describes. Four non-blocking notes were cheap and factually
+wrong as written, so they are fixed in the same round rather than queued: the header rule's width
+(`widths[0] + 90` -> `+ 99`, the `back` column widened the row by 9), `_back`'s
+`isinstance(aimz, float)` -> `(int, float)` with `bool` excluded (`parse_row` returns an int for a
+token with no `.`), the weak `"back" in text` clause, and the two places that called the ring's frame
+and the aim's frame the same CFrame -- `_back`'s docstring and the module header now state that
+`ringz` divides down by the REWOUND trunk while `aimz` is the fire-frame trunk, and that `pastgap`
+bounds the position gap only.
+
+The remaining three notes are queued in `TASKS.md` as **310a** (the undeclared `studio_list` retry,
+which is kept because it cost this session two runs; the gait swing of the chest zone's own centre;
+the frame caveat) and **310b** (THE ONE OUTCOME, still not met and not phrased as a nicety).
 
 ## WHAT I COULD NOT VERIFY
 

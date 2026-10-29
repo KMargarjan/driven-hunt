@@ -88,7 +88,9 @@ counters are 0):
   the offset   TWO WAYS, because one was not enough (task 310): `along`, the strike minus the aim
                point along the SMOOTHED TRAVEL direction, and `back`, ring-z minus the aim point's
                own body-axis coordinate -- both ends divided down by the trunk's CFrame, the frame
-               the zone itself was read in. They are the same quantity, so a cell where they differ
+               the zone itself was read in -- the ring's frame is the REWOUND trunk and the aim's
+               is the fire frame, which `pastgap` bounds in position only. They are the same
+               quantity, so a cell where they differ
                by more than `OFFSET_DISAGREEMENT_STUDS` on one shot prints OFFSET DISAGREEMENT
                rather than averaging it away. That is how a RUN cell read "30/30, mean along -0.52"
                while its own zone split said `rear 5`: a strike whose ring sat at z=+1.42 with the
@@ -305,10 +307,18 @@ def _back(row):
     difference is directly comparable with `-along`. `along` alone cannot be: it is measured from
     the aim point along the SMOOTHED TRAVEL direction, while the ring is measured from the trunk
     centre along the trunk's own axis (task 310).
+
+    THE TWO FRAMES ARE NOT THE SAME CFRAME, and this is the bound (round 1, note 6): `ringz` is
+    divided down by `HitLog.frameOf`'s `report.targetCFrame`, the REWOUND trunk, while `aimz` is
+    read client-side off `troot.CFrame` on the fire frame. `pastgap` bounds the POSITION gap between
+    them (-0.02 in task 310's run) and says nothing about the rotation, so `back` carries whatever
+    yaw the trunk turned through inside the rewind.
     """
     ringz = _ring_z(row)
     aimz = row.get("aimz")
-    if ringz is None or not isinstance(aimz, float) or aimz != aimz:
+    # `(int, float)` AND NOT `float`: `parse_row` returns an int for a token with no `.`, so a row
+    # reading `aimz=0` would have produced `None` (round 1, note 5). `bool` is an int in Python.
+    if ringz is None or isinstance(aimz, bool) or not isinstance(aimz, (int, float)) or aimz != aimz:
         return None
     return ringz - aimz
 
@@ -462,7 +472,7 @@ def render(table, notes, header=None):
         % ("cell", "N", "hits", "rate", "95% interval", "along", "back", "up", "pastgap",
            "ring-z", "ring", "role")
     )
-    out.append("-" * (widths[0] + 90))
+    out.append("-" * (widths[0] + 99))
     for r in table:
         low, high = r["ci"]
         out.append(
@@ -1606,10 +1616,13 @@ def selftest():
     # ring at z=+1.42 with the aim at z=-0.41 is a strike 1.83 studs back, not 0.78.
     agree = {"hit": True, "answered": True, "zone": "body", "along": -0.90, "aimz": -0.41,
              "ringzone": "body", "ringlocal": "0.56|0.44|0.49"}
+    # ringlocal z 1.39 and NOT 1.42: the two backs are then 0.90 and 1.80 and their mean is 1.35,
+    # which has two decimals exactly. 1.42 made the mean 1.365 -- the `.xx5` boundary of
+    # `render`'s `"%+.2f"`, so which string came out was decided by float noise (round 1, finding 1).
     disagree = {"hit": True, "answered": True, "zone": "rear", "along": -0.78, "aimz": -0.41,
-                "ringzone": "rear", "ringlocal": "0.56|0.44|1.42"}
+                "ringzone": "rear", "ringlocal": "0.56|0.44|1.39"}
     assert abs(_back(agree) - 0.90) < 1e-9, _back(agree)
-    assert abs(_back(disagree) - 1.83) < 1e-9, _back(disagree)
+    assert abs(_back(disagree) - 1.80) < 1e-9, _back(disagree)
     assert offset_disagreement(agree) is False
     assert offset_disagreement(disagree) is True
     # A ROW CARRYING ONLY ONE OF THE TWO IS NOT A DISAGREEMENT -- an absent number never accuses.
@@ -1623,11 +1636,13 @@ def selftest():
     withback = entry_raw("rifle/run/chest", [agree, disagree])
     table, notes = summarise([withback, entry("rifle/run/chest+lead", 28, 30),
                               entry("rifle/run/ahead", 0, 30)])
-    assert abs(table[0]["back"] - 1.365) < 1e-9, table[0]
+    assert abs(table[0]["back"] - 1.35) < 1e-9, table[0]
     assert table[0]["backs"] == 2 and table[0]["backdisagree"] == 1, table[0]
     assert table[1]["back"] is None and table[1]["backdisagree"] == 0, table[1]
     text = render(table, notes, ["head"])
-    assert "back" in text and "+1.37" in text, text
+    # `"back" in text` ALONE WOULD SURVIVE DELETING THE COLUMN (round 1, note 4): the footer prose
+    # carries the word. The rendered VALUE is the clause that cannot.
+    assert "+1.35" in text, text
     assert "OFFSET DISAGREEMENT on 1 of 2 row(s)" in text, text
     # the resident must actually write the column the rule reads, or the rule can never fire live
     assert "aimz=%s" in RESIDENT and "PointToObjectSpace(aim).Z" in RESIDENT
