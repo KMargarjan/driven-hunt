@@ -1236,9 +1236,17 @@ end
 -- HOW FAR UPRANGE OF THE MAT THE STATION REACHES: the deck plus the seat's own feet, which is the
 -- ladder's outer corner (`HighSeats.footprintRadiusStuds`). The one number the station box, the
 -- footprint and her place's home area are all measured from.
+--
+-- ...OR AS FAR AS ITS OWN WAY DOWN, WHICHEVER IS FURTHER, AND THAT IS A READING (306k item 3, her
+-- place, 2026-10-29): a real `F` on Stand2's deck put the man at z -3009 with the box ending at
+-- -3010.9, so `mayShoot` answered false where his own ladder had just left him -- the loan was
+-- revoked and he landed with an EMPTY backpack, no Rifle, no Shotgun. 19.10 against the 21 the way
+-- down needs. A station that does not reach where it sets a man down is the bug, not the margin.
 function Range.standReach(layout): number
 	layout = layout or Range.LAYOUT
-	return layout.STAND.backStuds + HighSeats.footprintRadiusStuds()
+	local feet = layout.STAND.backStuds + HighSeats.footprintRadiusStuds()
+	local wayDown = layout.STAND.backStuds + math.abs(HighSeats.DIMS.LADDER_OFFSET_STUDS) + layout.CLIMB.footClearStuds
+	return math.max(feet, wayDown)
 end
 
 -- HOW FAR HE IS ACTUALLY SHOOTING FROM. The trial's lane is the ANIMAL's distance from the firing

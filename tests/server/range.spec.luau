@@ -1021,8 +1021,19 @@ return function()
 			end
 			local foot = Vector3.new(deck.X, DEV_AT.Y, deck.Z - dir * math.abs(HighSeats.DIMS.LADDER_OFFSET_STUDS))
 			expect(RangeData.spotAt(DEV_AT, foot, LAYOUT, dir, tops)).to.equal(2)
-			-- THE REACH IS THE SEAT'S OWN NUMBER, not a typed one.
-			expect(RangeData.standReach(LAYOUT)).to.equal(LAYOUT.STAND.backStuds + HighSeats.footprintRadiusStuds())
+			-- ...AND WHERE ITS OWN WAY DOWN SETS HIM (306k item 3). MEASURED in her place: a real `F`
+			-- landed the man 2.1 studs OUTSIDE the box, `mayShoot` answered false there, and he came
+			-- off his own ladder with an empty backpack. Delete the `wayDown` arm of `standReach` and
+			-- this line fails.
+			local down = RangeData.climbDownTargetFor(DEV_AT, 2, LAYOUT, dir, DEV_AT.Y).Position
+			expect(RangeData.spotAt(DEV_AT, down, LAYOUT, dir, tops)).to.equal(2)
+			-- THE REACH IS THE SEAT'S OWN NUMBER, not a typed one: the feet, or the way down.
+			local feet = LAYOUT.STAND.backStuds + HighSeats.footprintRadiusStuds()
+			local wayDown = LAYOUT.STAND.backStuds
+				+ math.abs(HighSeats.DIMS.LADDER_OFFSET_STUDS)
+				+ LAYOUT.CLIMB.footClearStuds
+			expect(RangeData.standReach(LAYOUT)).to.equal(math.max(feet, wayDown))
+			expect(RangeData.standReach(LAYOUT) > feet).to.equal(true)
 		end)
 
 		it("answers nil one stud outside the station box, on every face", function()
