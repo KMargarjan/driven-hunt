@@ -1513,7 +1513,11 @@ function Range.look(player: any): boolean
 	if trial == nil then
 		return false
 	end
-	recordFor(player, trial)
+	-- WITH THE FIRING POSITION HE IS ACTUALLY ON, which `onRequest` and `onShotResolved` already
+	-- pass and this one did not (306k item 4). Without it the record a man gets by WALKING UP
+	-- carries no position, so the menu he opens on the deck prints the BENCH's distances and lights
+	-- the bench's chip -- 125 where the board will say 139 the moment he fires.
+	recordFor(player, trial, (select(2, Range.positionOf(player))))
 	publish(player)
 	return true
 end

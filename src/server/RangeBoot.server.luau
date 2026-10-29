@@ -319,14 +319,21 @@ end)
 -- children -- so the first real E drew six labels and no chips, and nothing but a blind click on
 -- RELEASE THE TARGET or RESET filled them. The edge is read HERE because `Range` reaches no
 -- DataModel and holds no player list; `Range.look` decides whether it publishes.
-local onMat: { [number]: boolean } = {}
+--
+-- THE EDGE IS THE FIRING POSITION AND NOT ONLY "ON THE RANGE" (306k item 4). The bench and the deck
+-- are the SAME station, so a man climbing his own ladder crossed no edge and his record kept the
+-- bench's `position` -- and the menu he opened on the deck printed the bench's distances and lit the
+-- bench's chip, 125 where the board says 139. The word is read here for the same reason the boolean
+-- was: `Range` reaches no DataModel and holds no player list.
+local onMat: { [number]: string } = {}
 local function matEdges()
 	for _, player in ipairs(Players:GetPlayers()) do
-		local here = Range.mayShoot(player)
-		if here and not onMat[player.UserId] then
+		local spot, word = Range.positionOf(player)
+		local here = if spot ~= nil then tostring(spot) .. ":" .. tostring(word) else nil
+		if here ~= nil and here ~= onMat[player.UserId] then
 			Range.look(player)
 		end
-		onMat[player.UserId] = here or nil
+		onMat[player.UserId] = here
 	end
 end
 
