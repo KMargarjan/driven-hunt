@@ -1,11 +1,11 @@
 # Task 306 step B6 -- ISOLATION, THE PICTURE
 
 Task: 306f
-Round: 1
+Round: 2
 Base: task-306b5-isolation-shot @ 7683369c
-Code commit: 6d799595bb2931b724d631b7c73990b745f57023
+Code commit: e3fd345f0387ad3fe36975654fb29f1abc8c1153
 
-`[harness] PASS: 34/34 checks @ 6d799595bb2931b724d631b7c73990b745f57023 (clean tree) scope=all`
+`[harness] PASS: 34/34 checks @ e3fd345f0387ad3fe36975654fb29f1abc8c1153 (clean tree) scope=all`
 
 `test2` N/A: no `TWO_PLAYER_PATHS` path is touched. The Director ratified `src/client/Range/` OUT of
 that list on 2026-10-28, and `tools/studio_mcp.py` has been with the tools since 2026-10-03.
@@ -31,17 +31,20 @@ changes the PICTURE and the board payload, so steps 0(a)-(e) are stated as owner
 2. **`src/client/RangeBoot.client.luau` (new)** -- starts it, hands it the board payload's `mine`
    and `window`, steps it once a Heartbeat.
 3. **`Range.maskFor`** (server) measures those two fields from `boars.rootOf` and
-   `RangeData.windowSpanFor`; `publish` puts them on the record.
+   `RangeData.windowSpanFor`; `Range.recordOf` puts them on every record it hands out, so the
+   reader and the wire see one record. **`flushMasks`** pushes to every man at the range whenever a
+   trial's `targetId` changes, once per scan tick.
 4. **MUST-FIX, 306b note (i) / 306c NOT PROVEN item 1** -- `Range.nearestPrompt` (shared) answers
-   which of the TWELVE prompts he is standing at in one walk; `Hud.step` asks it every second
+   which of the TWELVE prompts he is standing at in one walk; `Hud.renderObjective` asks it every second
    instead of only while no prompt is bound; `RangePanel` is TOLD the station and both senders carry
    it; `Range.onRequest` takes the trial from the station it MEASURES.
 
 ## Claims, and how to verify each
 
 1. **The mask writes that property and nothing else.** `grep -n "LocalTransparencyModifier\|
-   \.Transparency\s*=" src/client/Range/Mask.luau` -- two writes, both in `apply`, the second only
-   under `state.alsoTransparency` (design 4.4's stated fallback, off by default).
+   \.Transparency\s*=" src/client/Range/Mask.luau` -- FOUR write sites: two in `apply` and two in
+   `stop`, and both `Transparency` ones are under `state.alsoTransparency` (design 4.4's stated
+   fallback, off by default, no production caller sets it). Round 1's "two" was a miscount.
 2. **Exactly one animal is drawn and five are hidden, every part of them.** `range_mask.spec`
    "shows exactly one and writes 1 on the other five" asserts the trunk AND the welded zone part.
    MEASURED IN DEV PLAY after a real click on RELEASE at station 3's bench: `Boar3 x=1235.4
@@ -67,13 +70,28 @@ changes the PICTURE and the board payload, so steps 0(a)-(e) are stated as owner
    finds all TWELVE": from each mat it returns that station's BENCH prompt, from each deck that
    station's TREESTAND prompt, and the set reached is counted `== 2 * SPOT_COUNT`.
    MEASURED IN DEV PLAY: on station 3's mat `nearestPrompt=RangePrompt3 spot=3 position=bench`; on
-   station 5's deck `nearestPrompt=RangeStandPrompt5 spot=5 position=treestand`.
-9. **MUST-FIX: the menu both senders fill names the station it was told.** `range_panel.spec`
-   "carries the station it was TOLD, in both senders, and defaults to 1".
-10. **MUST-FIX: the station is MEASURED, never claimed; a malformed `spot` is still refused.**
-    `range.spec` "onRequest lands on the station he is STANDING on, whatever the payload claims":
-    a man on station 5 sending `spot = 1` moves station 5's trial and NOT station 1's, and his
-    record reads `spot = 5`; `{ spot = 0, go = true }` still returns false and counts a badRequest.
+   station 5's deck `nearestPrompt=RangeStandPrompt5 spot=5 position=treestand`. It is CAPPED at
+   `layout.PROMPT.MaxActivationDistance` (round 1 note), the same number `atSpot` measures with, so
+   the panel is never told a station he is nowhere near; the twelve cases bound the cap from below.
+9. **MUST-FIX: the station is MEASURED, never claimed; the menu's senders carry what they were
+   told.** `range_panel.spec` "carries the station it was TOLD, in both senders, and defaults to 1";
+   `range.spec` "onRequest lands on the station he is STANDING on, whatever the payload claims":
+   a man on station 5 sending `spot = 1` moves station 5's trial and NOT station 1's, and his
+   record reads `spot = 5`; `{ spot = 0, go = true }` still returns false and counts a badRequest.
+10. **ROUND 1, FINDING 1 -- the picture does not go blank after a re-release.** `record.mine` is
+    an INSTANCE; `release` makes a new trunk and `boars.clear` destroys all six at once, so without
+    a push on that edge a man held a destroyed trunk and his own new animal stayed hidden until his
+    next shot. `Range` now remembers the men its own seams handed it (`state.watchers`, filled in
+    `recordFor`), marks `maskDirty` wherever a `targetId` changes, and `flushMasks` pushes ONCE per
+    scan tick. `range.spec` "pushes the new trunk on every re-release, to every man at the range"
+    asserts it **on the wire** through a fake `RangeBoard` injected with the shipped
+    `Range.setRemotes` seam: a payload after the pick naming his trunk, a NEW payload after a clear
+    and re-release naming a DIFFERENT instance **with no shot fired**, `#sent - before <=
+    SPOT_COUNT` for the batching, and the `targetId == nil` arm reached through a real species pick.
+    Reading `Range.recordOf` instead would measure `maskFor` again and pass with the push deleted.
+    **FAIL FIRST, run:** with `flushMasks()` commented out of `scan` at `e3fd345f`, the harness
+    reported `2536 passed, 1 failed, 1 errors` with the failure at `range.spec:3310`
+    (`expect(#sent > 1)` got false) -- that case and no other. Restored, then the clean 34/34 above.
 
 ## CLICK PROOF, in DEV Play (frames looked at and described)
 
@@ -106,5 +124,11 @@ changes the PICTURE and the board payload, so steps 0(a)-(e) are stated as owner
    `<runs-dir>/key.ps1`'s own Alt tap (the foreground-lock trick) toggling Studio's menu bar and
    swallowing every other `E`, not the game: at station 3 the first press opened it, and the panel's
    own toggle behaved as a clean toggle from press 2 on. Not reproduced through a second route.
-3. **The skinned-mesh fallback is UNTAKEN.** `alsoTransparency` is off; design section 14 item 8 is
+3. **Three round-1 notes are QUEUED, not fixed, and are named here so the verdict is not read as
+   their having been done:** (a) `Mask.step` has no throttle -- it walks every trunk's descendants
+   each Heartbeat, so "free when nothing changes" is about WRITES, not allocation; (b) design T14
+   and section 4.4 say `src/client/Range/` never writes `Transparency`, while 4.4's own fallback
+   bullet is exactly that write -- the design contradicts itself and needs restating as "none on
+   the shipped path"; (c) the alternating-`E` item below deserves its own task.
+4. **The skinned-mesh fallback is UNTAKEN.** `alsoTransparency` is off; design section 14 item 8 is
    still unverified. Both arms have their own case, and the DEV animals hid on the modifier alone.
