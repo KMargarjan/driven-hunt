@@ -641,34 +641,19 @@ function Build.build(opts)
 		turf.CastShadow = false
 	end
 
-	-- TIDY EDGES (step B10, item 5; ref-5): a line of low posts down the lot's two long sides, on
-	-- the BERM'S OWN SPAN in X pulled a stud inside the terrace -- 18 studs outside the corridor, so
-	-- nothing on it is in a line of fire. POSTS AND NO RAIL, and a post on a step is refused: both
-	-- are measurements, written in `FENCE`'s own comment.
-	local fence = layout.FENCE
-	local runCount: { [number]: number } = {}
-	local fenceRefused = 0
-	for _, post in ipairs(RangeData.fencePosts(anchor, layout, dir, row)) do
-		local size = Vector3.new(fence.postSection, fence.postRise, fence.postSection)
-		local lo, hi =
-			groundUnder(post.x, post.z, size, shelf :: number, if row.plate == true then nil else opts.groundAt)
-		-- A POST ON A STEP IS REFUSED, `HighSeats.plan`'s own rule: the terrace's edge is a 9-stud
-		-- step and the one post whose samples straddled it stood 7.5 studs in the air (census,
-		-- 2026-10-29). A refused post is a gap in a fence; a floating one is a defect.
-		if hi - lo > fence.maxSpreadStuds then
-			fenceRefused += 1
-		else
-			runCount[post.run] = (runCount[post.run] or 0) + 1
-			onGround(
-				RangeData.fencePostName(post.run, runCount[post.run]),
-				size,
-				post.x,
-				post.z,
-				fence.color,
-				fence.material
-			)
-		end
-	end
+	-- TIDY EDGES (step B10, item 5): NOT BUILT, AND THAT IS A MEASUREMENT, not an omission.
+	-- The lot's two long sides stand 18 studs outside the corridor, which in Karen's place is OFF
+	-- the cut terrace and on the hill. Measured there on 2026-10-29 (census, and
+	-- `<runs-dir>/306b10-post.luau`): along the east line the BUILD's own ground reader and a plain
+	-- terrain raycast DISAGREE by up to 7.5 studs -- reader 159.1, terrain 150.0 at (2775, -3061) --
+	-- so a post laid on the reader's answer stands 7.5 studs in the air in the picture. Refusing a
+	-- post by footprint SPREAD did not catch it: the two readers disagree about the SURFACE, not
+	-- about its slope, and a 0.7-stud footprint has no spread to measure.
+	-- A floating post is exactly the defect rule E exists for, so the lot's edge ships as the huts,
+	-- the number boards and the grassed banks, and the side line is queued with this measurement.
+	-- `Range.fenceRuns` / `fencePosts` / `fencePostName` stay as the arithmetic a later task needs;
+	-- `range.spec` asserts the build writes NONE of them, so this is a decision with a case on it.
+	local fenceRefused = #RangeData.fencePosts(anchor, layout, dir, row)
 
 	-- THE PARENT, LAST.
 	folder.Parent = parent

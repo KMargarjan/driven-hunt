@@ -893,7 +893,6 @@ return function()
 			-- disappears moves this number rather than passing under it.
 			local dressed = LAYOUT.SPOT_COUNT * 6
 				+ #RangeData.turfSlabs((b :: any).anchor, LAYOUT, (b :: any).downrange, DEV_ROW)
-				+ #RangeData.fencePosts((b :: any).anchor, LAYOUT, (b :: any).downrange, DEV_ROW)
 			expect(b.parts).to.equal(
 				1 + 3 * LAYOUT.SPOT_COUNT + LAYOUT.SPOT_COUNT * HighSeats.PARTS_PER_SEAT + 3 + dressed
 			)
@@ -4799,10 +4798,13 @@ return function()
 					or post.x >= anchor.X + east + LAYOUT.BANK.beyondStuds
 				expect(outside).to.equal(true)
 			end
+			-- AND THE BUILD WRITES NONE OF THEM. Measured in her place on 2026-10-29: along the lot's
+			-- east line the build's own ground reader and a terrain raycast disagree by 7.5 studs, so
+			-- a post laid there stands in the air (`Build`'s own comment carries the readings). The
+			-- arithmetic is kept for a later task; the DECISION that nothing is built on it is here,
+			-- as a case, rather than in a comment nobody runs.
 			for run = 1, #runs do
-				expect(folder:FindFirstChild(RangeData.fencePostName(run, 1))).to.be.ok()
-				-- POSTS AND NO RAIL: the census refuted a 155-stud board over a hillside, and this
-				-- is that decision as a case rather than as a comment.
+				expect(folder:FindFirstChild(RangeData.fencePostName(run, 1))).to.equal(nil)
 				expect(folder:FindFirstChild(RangeData.fenceRailName(run))).to.equal(nil)
 			end
 			-- HER PLACE'S TERRACE IS TWO RECTANGLES, and the far side has no ground to stand on in
@@ -4852,7 +4854,7 @@ return function()
 			expect(parts <= Range.CONFIG.MAX_PARTS).to.equal(true)
 			TestKit.note(
 				string.format(
-					"range B10: %d parts dressed (budget %d), %d fence posts, worst foot %.2f studs",
+					"range B10: %d parts dressed (budget %d), %d lot-edge posts REFUSED (measured, see Build), worst foot %.2f studs",
 					parts,
 					Range.CONFIG.MAX_PARTS,
 					#posts,
