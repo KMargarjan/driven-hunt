@@ -1,3 +1,18 @@
+## Task 306 B7 round 3: Director authorisation
+
+**The Director, 2026-10-29 14:30 UTC, transcribed verbatim and marked as the Director's:**
+
+> [DIRECTOR -> BUILDER] TASK 306 STEP B7 ROUND 3 -- AUTHORISED by the Director, 2026-10-29 14:30 UTC
+> (MAX_ROUNDS 3; the dispatch's 2-round cap is lifted for this one round). Transcribe this paragraph
+> verbatim into ESCALATE.md under "Task 306 B7 round 3: Director authorisation", marked as the
+> Director's, in your first commit. Same branch task-306b7-occupancy, reviews/task-306g/ (Round: 3).
+
+Round 3 does exactly what the dispatch's DO line says and nothing else: one case against a REAL
+`Boar` runtime that fails when `Runtime:clearOne`'s body is gutted, and one case for round-2 note 2's
+dead-id arm. Each is shown red against its own gutted producer before it is called fixed.
+
+---
+
 ## 2026-10-29, Task 306 step B7 -- ROUND 2 RETURNED ONE FINDING, and the dispatch caps the step at two rounds
 
 The dispatch: *"Review: max 2 rounds; FINDINGS on round 2 -> ESCALATE.md and stop."* Round 2's verdict

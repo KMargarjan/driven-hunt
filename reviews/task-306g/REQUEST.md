@@ -1,7 +1,7 @@
 # Task 306 step B7: one animal per OCCUPIED station
 
 Task: 306g
-Round: 2
+Round: 3
 Base: task-306b6-isolation-picture @ b703f92d
 Code commit: 123e2256a7dfa0bd46a19d3e06a6d87b4f686728
 
@@ -14,6 +14,27 @@ Code commit: 123e2256a7dfa0bd46a19d3e06a6d87b4f686728
 The range is "the weapon, the boar and the hud" (design 11.6, CLAUDE.md's explicit list).
 
 Design: `docs/design/shooting-range-lobby.md` 7.4, 16 row B7. DEV only; Karen's place is B8.
+
+## PLAN (round 3)
+
+Round 3's scope is the dispatch's DO line and nothing else. **CORE-NA still:** no shot rule, no
+motion rule, no kill zone; this is a test for a despawn verb plus one dead-id arm.
+
+(a) **REAL LIFE:** N/A -- nothing here is an animal behaviour. The verb under test is the engine
+despawn `Runtime:clearOne`, built in round 1 for must-fix 1.
+
+(b) **MEASURED NOW:** `reviews/task-306g/RESULT.md` round 2, finding 1 -- `grep clearOne` over the
+tree finds the definition, the wiring and `range.spec`'s own fake, and **no case against a real
+runtime**. The reading: gutting the method leaves the harness at **34/34**.
+
+(c) **TARGET:** that same gutting makes the harness **FAIL**, at a named line, in both arms.
+
+(d) **LEVER:** `src/server/Boar/init.luau` `function Runtime:clearOne(id: string, reason: string?)`
+(the writer -- it calls `self:_despawn`), and `src/server/Range/init.luau`'s idle arm, whose
+`continue` is what holds the dead id.
+
+(e) **MEASURED AFTER:** the same instrument -- a full `python tools/studio_mcp.py test`, once with
+both producers gutted (red, lines named) and once with them whole (green).
 
 ## PLAN
 
