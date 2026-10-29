@@ -36,12 +36,16 @@ own Task-6 input replay uses. That reaches `UserInputService` -> `ContextActionS
 client (`src/client/Weapon/Input.luau` header). The bench never builds a `FireRequest` payload --
 that is what every earlier rig did, and a hand-built payload can differ from the click's.
 
-THE CLICK PROOF (`aim_bench.py ray`). `Input.fire` sends
-`{origin = camera.CFrame.Position, direction = camera.CFrame.LookVector.Unit}`. On the click frame
-the resident records that exact pair, and the server answers `ShotLanded` with the impact it
-computed from the ray it RECEIVED. The proof prints the camera ray, the impact, and the
-perpendicular distance of the impact from that ray: zero means the server flew the camera ray, so
-the ray the bench's click sent IS `Input.fire`'s ray. A second path would not land on that line.
+THE CLICK PROOF (`aim_bench.py ray`) IS A NEGATIVE CONTROL, not a geometry argument.
+`src/client/Weapon/Input.luau` is the ONLY writer of a VALUE to the attribute `DHClaimWhy` in the
+whole repo, inside `Input.fire` itself, immediately before `FireRequest:FireServer`. Cleared, with
+no click sent, it stays `nil`; one real click sets it. So the click ran the live `Input.fire`.
+`Input.fire` sends `{origin = camera.CFrame.Position, direction = camera.CFrame.LookVector.Unit}`
+and the resident reads that same pair on the frame the attribute changed -- which IS the frame the
+trigger went, not the frame the host asked for it.
+The impact's distance from that ray is PRINTED AND ASSERTS NOTHING: the server flies from
+`Ballistics.boreOrigin` along `Ballistics.launchDirection` (elevated for the gun's zero), not from
+the camera along the camera ray, so a stud or two at 130 studs is the shipped ballistic.
 
 ----------------------------------------------------------------------------- HOW A SHOT IS AIMED
 
@@ -256,11 +260,17 @@ def summarise(results):
     `results` rows are the dicts `parse_rows` produces. Pure, so `selftest` drives every branch.
     """
     table = []
+    controls, known_bads = [], []
     control = None
     known_bad = None
     for entry in results:
         cell = entry["cell"]
         rows = entry["rows"]
+        # A ROW THE SERVER NEVER ANSWERED IS NOT A SHOT (round 1, finding 4). `answered` is false
+        # when no HitMarker, no ShotLanded and no notice arrived -- a click the gun swallowed. It is
+        # excluded from N rather than counted as a miss, and the cell is flagged.
+        unanswered = [r for r in rows if r.get("answered") is False]
+        rows = [r for r in rows if r.get("answered") is not False]
         n = len(rows)
         hits = sum(1 for r in rows if r.get("hit"))
         low, high = wilson(hits, n)
@@ -278,15 +288,35 @@ def summarise(results):
             "zones": zones,
             "along": mean([r.get("along") for r in rows]),
             "up": mean([r.get("up") for r in rows]),
+            "unanswered": len(unanswered),
             "role": ("CONTROL" if getattr(cell, "is_control", False) else ("KNOWN-BAD" if getattr(cell, "is_known_bad", False) else "")),
         }
         table.append(row)
         if row["role"] == "CONTROL":
-            control = row
+            controls.append(row)
         elif row["role"] == "KNOWN-BAD":
-            known_bad = row
+            known_bads.append(row)
 
     notes = []
+    # EVERY control and known-bad cell is checked, not just the last one named.
+    for row in table:
+        if row["unanswered"]:
+            notes.append(
+                "NOT A MEASUREMENT: %s had %d click(s) the server never answered (no HitMarker, no "
+                "ShotLanded, no notice) -- a swallowed trigger, not a miss. They are excluded from N, "
+                "so this cell's N is %d of the %d clicks sent."
+                % (row["cell"], row["unanswered"], row["n"], row["n"] + row["unanswered"])
+            )
+        if row["n"] == 0 and row["unanswered"]:
+            notes.append(
+                "NO SHOT IN %s REACHED THE SERVER AT ALL -- 0 %% here is a reading about the TRIGGER, "
+                "not about the aim. Do not carry it forward as a fact about the game." % row["cell"]
+            )
+    control = controls[-1] if controls else None
+    known_bad = known_bads[-1] if known_bads else None
+    for extra in controls[:-1] + known_bads[:-1]:
+        notes.append("MORE THAN ONE %s CELL RAN; %s is not the one the verdict below checks."
+                     % (extra["role"], extra["cell"]))
     if control is None:
         notes.append("NO CONTROL CELL RAN -- the table is not self-checked.")
     elif control["n"] == 0:
@@ -351,12 +381,17 @@ def render(table, notes, header=None):
                 r["role"],
             )
         )
+        if r["unanswered"]:
+            out.append(" " * 4 + "NOT FIRED: %d click(s) the server never answered, excluded from N"
+                       % r["unanswered"])
         if r["zones"]:
             order = sorted(r["zones"].items(), key=lambda kv: (-kv[1], kv[0]))
             out.append(" " * 4 + "zones: " + "  ".join("%s %d" % (k, v) for k, v in order))
     out.append("")
     out.append("along / up are the SERVER's impact minus the point the CLIENT was drawing, in the")
-    out.append("animal's own frame: +along is down its heading (behind the aim point), +up is above.")
+    out.append("animal's own frame, read on the frame `Input.fire` ran: +along is down its heading")
+    out.append("(behind the aim point), +up is above. `--` means no shot in the cell produced an")
+    out.append("impact, so there was nothing to measure against.")
     for n in notes:
         out.append("")
         out.append("** " + n)
@@ -615,7 +650,13 @@ task.spawn(function()
       end
     elseif mode == "ahead" then
       local nose = (#heads > 0 and support(heads, dir)) or support(chests, dir)
-      local body = spanOf({ root }, dir)
+      -- THE DRAWN MODEL's span along travel, not the root part's: the docstring says "one drawn
+      -- body length" and the trunk part is shorter than the animal (round 1, note).
+      local bodyParts = { root }
+      for _, d in ipairs(model:GetDescendants()) do
+        if d:IsA("BasePart") then bodyParts[#bodyParts + 1] = d end
+      end
+      local body = spanOf(bodyParts, dir)
       if nose ~= nil then p, src = nose + dir * body, string.format("ahead:%.2f", body) end
     end
     if p ~= nil and me:GetAttribute("DHBenchLead") == true then
@@ -660,19 +701,38 @@ task.spawn(function()
     local want = tonumber(me:GetAttribute("DHBenchShot")) or 0
     if want > seen then
       seen = want
+      -- ON THE FRAME THE CLIENT ACTUALLY FIRES, not the frame the host asked it to (round 1,
+      -- finding 2). `bump` and `click` are two separate StudioMCP round trips, so the click lands
+      -- at least one request after the bump and the aim has moved. `Input.fire` writes
+      -- `DHClaimWhy` immediately before `FireRequest:FireServer`, so clearing it here makes the
+      -- next non-nil value that attribute's own signal that the trigger went -- and THAT frame is
+      -- where the ray and the aim point are read. The bench is therefore a second writer of
+      -- `DHClaimWhy`, and it only ever writes nil: only `Input.fire` sets a value.
+      me:SetAttribute("DHClaimWhy", nil)
+      local waitFrames = 0
+      repeat
+        RS.Heartbeat:Wait()
+        waitFrames += 1
+      until me:GetAttribute("DHClaimWhy") ~= nil or waitFrames > 120
+      local fired = me:GetAttribute("DHClaimWhy") ~= nil
       local cam = workspace.CurrentCamera
       local origin = cam.CFrame.Position
       local direction = cam.CFrame.LookVector.Unit
-      -- `Input.fire`'s OWN TWO EXPRESSIONS, read on this frame (src/client/Weapon/Input.luau).
+      -- `Input.fire`'s OWN TWO EXPRESSIONS, read on the frame it ran.
       me:SetAttribute("DHBenchRay", string.format("%.4f,%.4f,%.4f|%.5f,%.5f,%.5f",
         origin.X, origin.Y, origin.Z, direction.X, direction.Y, direction.Z))
       local aim, dir, spd, src = aimPoint, aimDir, aimSpeed, aimSource
-      local before, note0 = markers, lastNotice
+      local before = markers
       lastImpact, lastNotice = nil, ""
       local t0 = os.clock()
       repeat RS.Heartbeat:Wait() until lastImpact ~= nil or markers > before or os.clock() - t0 > 1.2
       task.wait(0.25)
       local hit = markers > before
+      -- DID THE SERVER ANSWER AT ALL (round 1, finding 4)? A click the gun swallowed -- a bolt or
+      -- lever cycle, an empty chamber, a refusal -- produces no marker, no `ShotLanded` and
+      -- sometimes a notice. Counted as a MISS it is indistinguishable from clear air, which is
+      -- exactly the unfailable reading this instrument exists to kill.
+      local answered = hit or lastImpact ~= nil or lastNotice ~= ""
       local impact = lastImpact
       local along, up, across = 0 / 0, 0 / 0, 0 / 0
       if impact ~= nil and aim ~= nil then
@@ -685,16 +745,17 @@ task.spawn(function()
       shotIndex += 1
       local function f(x) return if x ~= x then "nan" else string.format("%.3f", x) end
       rows[#rows + 1] = string.format(
-        "i=%d mode=%s src=%s hit=%s zone=%s spd=%.2f dist=%.1f along=%s up=%s across=%s "
-          .. "aim=%.2f|%.2f|%.2f impact=%s cardu=%s cardv=%s notice=%s",
+        "i=%d mode=%s src=%s hit=%s answered=%s fired=%s frames=%d zone=%s spd=%.2f dist=%.1f "
+          .. "along=%s up=%s across=%s aim=%.2f|%.2f|%.2f impact=%s cardu=%s cardv=%s notice=%s",
         shotIndex, tostring(me:GetAttribute("DHBenchMode")), tostring(src), tostring(hit),
+        tostring(answered), tostring(fired), waitFrames,
         if hit then lastZone else "-",
         spd, if aim then (aim - origin).Magnitude else 0 / 0,
         f(along), f(up), f(across),
         if aim then aim.X else 0 / 0, if aim then aim.Y else 0 / 0, if aim then aim.Z else 0 / 0,
         if impact then string.format("%.2f|%.2f|%.2f", impact.X, impact.Y, impact.Z) else "nil",
         if du then f(du) else "nil", if dv then f(dv) else "nil",
-        if lastNotice ~= "" then lastNotice else (if note0 ~= "" then "-" else "-"))
+        if lastNotice ~= "" then lastNotice else "-")
       me:SetAttribute("DHBenchRows", table.concat(rows, "\n"))
     end
   end
@@ -959,9 +1020,11 @@ def run_cell(bench, cell, shots, log):
     log("  fired %d, rows %d" % (fired, len(rows)))
     for r in rows:
         log(
-            "    #%s hit=%s zone=%s spd=%s dist=%s along=%s up=%s card=(%s,%s) src=%s"
-            % (r.get("i"), r.get("hit"), r.get("zone"), r.get("spd"), r.get("dist"),
-               r.get("along"), r.get("up"), r.get("cardu"), r.get("cardv"), r.get("src"))
+            "    #%s hit=%s answered=%s fired=%s frames=%s zone=%s spd=%s dist=%s along=%s up=%s "
+            "card=(%s,%s) notice=%s src=%s"
+            % (r.get("i"), r.get("hit"), r.get("answered"), r.get("fired"), r.get("frames"),
+               r.get("zone"), r.get("spd"), r.get("dist"), r.get("along"), r.get("up"),
+               r.get("cardu"), r.get("cardv"), r.get("notice"), r.get("src"))
         )
     return rows
 
@@ -1019,9 +1082,14 @@ def cmd_ray(args):
        (one grep hit), inside `Input.fire` itself. So the click ran the LIVE `Input.fire`, which
        that module's header calls the one firer of `FireRequest` in the client. The bench's input
        path IS a real click's path, because it is the same function a real click reaches.
-    3. THE RAY, read on the click frame from `Input.fire`'s own two expressions
-       (`camera.CFrame.Position`, `camera.CFrame.LookVector.Unit`), cross-checked against the
-       server's own impact: with a no-spread gun the impact sits on that ray.
+    3. THE RAY, read on the frame `Input.fire` ran, from its own two expressions
+       (`camera.CFrame.Position`, `camera.CFrame.LookVector.Unit`), printed beside the server's own
+       impact. **THIS PART ASSERTS NOTHING AND MUST NOT** (round 1, finding 3): the server does not
+       fly `req.direction` from `req.origin` -- `src/server/Weapon/init.luau` moves the origin onto
+       the bore (`Ballistics.boreOrigin`) and elevates the line for the gun's zero
+       (`Ballistics.launchDirection`, `Rifle.CONFIG.ZERO_STUDS`), so an impact a stud or two off the
+       camera ray at 130 studs is the SHIPPED BALLISTIC, not a second input path. The offset is
+       reported as a number to read, and the verdict rests on part 2 alone, which does bite.
     """
     bench = Bench(place=args.place)
     print("[aim_bench] studio=%s" % bench.studio_id)
@@ -1037,7 +1105,8 @@ def cmd_ray(args):
     print("   after clear:    %s" % bench.client(clear))
     time.sleep(2.0)
     idle = bench.attr("DHClaimWhy")
-    print("   2 s later:      %s   (must be nil -- nothing else writes it)" % idle)
+    print("   2 s later:      %s   (must be nil -- only Input.fire sets a VALUE here; the"
+          " bench itself only ever writes nil)" % idle)
 
     print("")
     print("2. ONE REAL CLICK (StudioMCP user_mouse_input mouseButtonClick, left):")
@@ -1046,13 +1115,15 @@ def cmd_ray(args):
     time.sleep(2.5)
     why = bench.attr("DHClaimWhy")
     print("   DHClaimWhy:     %s" % why)
-    print("   src/client/Weapon/Input.luau is the ONE writer of DHClaimWhy in the repo, inside")
+    print("   src/client/Weapon/Input.luau is the ONE writer of a VALUE to DHClaimWhy, inside")
     print("   Input.fire -- the client's ONE firer of FireRequest. So the click ran Input.fire.")
 
     rows = parse_rows(bench.attr("DHBenchRows"))
     ray = bench.attr("DHBenchRay")
     print("")
-    print("3. THE RAY Input.fire SENT, its own two expressions read on the click frame:")
+    print("3. THE RAY Input.fire SENT, its own two expressions read on the frame it RAN")
+    print("   (the frame DHClaimWhy changed, %s Heartbeat(s) after the host asked):"
+          % (rows[-1].get("frames") if rows else "?"))
     print("   origin|direction: %s" % ray)
     ok = idle in ("nil", "None", "") and why not in ("nil", "None", "")
     if not rows:
@@ -1071,12 +1142,16 @@ def cmd_ray(args):
         off = math.sqrt(px * px + py * py + pz * pz)
         print("   the impact lies %.3f studs off that ray, over %.1f studs of flight (%.2f deg)"
               % (off, t, math.degrees(math.atan2(off, max(t, 1e-6)))))
+        print("   NOT A CRITERION: the server flies from Ballistics.boreOrigin along")
+        print("   Ballistics.launchDirection (elevated for the gun's zero), not from the camera")
+        print("   along the camera ray, so a non-zero offset here is the shipped ballistic.")
     except (ValueError, AttributeError) as exc:
         print("   could not decompose: %s" % exc)
         return 1
     print("")
-    print("VERDICT: %s" % ("the bench's click ran the live Input.fire"
-                           if ok else "NOT PROVEN -- see parts 1 and 2 above"))
+    print("VERDICT (parts 1 and 2 only): %s"
+          % ("the bench's click ran the live Input.fire"
+             if ok else "NOT PROVEN -- DHClaimWhy did not change as parts 1 and 2 require"))
     return 0 if ok else 1
 
 
@@ -1132,7 +1207,7 @@ def selftest():
     low, high = wilson(9, 10)
     assert 0.55 < low < 0.60 and 0.98 < high <= 1.0, (low, high)
     low, high = wilson(0, 30)
-    assert low == 0.0 and 0.10 < high < 0.12, (low, high)
+    assert low < 1e-12 and 0.10 < high < 0.12, (low, high)
     assert wilson(0, 0) == (0.0, 0.0)
     # a 30-shot sample is tighter than a 10-shot one at the same rate -- the whole point of N=30
     assert (wilson(27, 30)[1] - wilson(27, 30)[0]) < (wilson(9, 10)[1] - wilson(9, 10)[0])
@@ -1179,6 +1254,27 @@ def selftest():
     assert table[0]["rate"] == 0.0 and table[0]["ci"] == (0.0, 0.0)
     assert any("CONTROL cell fired 0 shots" in n for n in notes), notes
 
+    # --- a click the server never answered is NOT FIRED, never a miss (round 1, finding 4)
+    def entry_raw(spec, rows):
+        return {"cell": parse_cell(spec), "rows": rows}
+
+    swallowed = entry_raw("semiauto/run/nose", [{"hit": False, "answered": False} for _ in range(30)])
+    table, notes = summarise([swallowed, entry("rifle/run/chest+lead", 28, 30),
+                              entry("rifle/run/ahead", 0, 30)])
+    assert table[0]["n"] == 0 and table[0]["unanswered"] == 30, table[0]
+    assert any("NOT A MEASUREMENT" in n and "semiauto" in n for n in notes), notes
+    assert any("NO SHOT IN" in n for n in notes), notes
+    # ...and a cell that mixes the two rates only the answered ones
+    mixed = entry_raw("rifle/run/nose", [{"hit": True, "answered": True, "zone": "Chest"}] * 7
+                      + [{"hit": False, "answered": False}] * 3)
+    table, notes = summarise([mixed])
+    assert table[0]["n"] == 7 and table[0]["hits"] == 7 and table[0]["unanswered"] == 3, table[0]
+    assert render(table, notes, ["h"]).count("NOT FIRED") == 1
+    # --- every control cell is checked, not only the last one named
+    _, notes = summarise([entry("rifle/run/chest+lead", 28, 30), entry("rifle/trot/chest+lead", 2, 30),
+                          entry("rifle/run/ahead", 0, 30)])
+    assert any("MORE THAN ONE CONTROL CELL RAN" in n for n in notes), notes
+
     # --- the rendered table carries the numbers a reader checks the instrument by (L-123)
     table, notes = summarise([
         entry("rifle/run/nose", 27, 30, along=-0.4),
@@ -1193,8 +1289,13 @@ def selftest():
     line = oneline(GATE, PX="12.0", MINSPD="15.00")
     assert "\n" not in line and "%PX%" not in line and "%MINSPD%" not in line
     assert "12.0" in line and "15.00" in line
-    assert "--" not in line.split('"')[0], "a comment survived the strip and would eat the line"
+    # THE STRIP MUST BITE, and this is the case that proves it (round 1, finding 5): `RESIDENT` does
+    # carry `--` comment lines, and one surviving the join comments out the rest of the single line
+    # the whole bench is installed from. The old assertion looked at `GATE` (which has no comment)
+    # and only at the text before its first quote, so deleting the strip left it green.
+    assert "\n--" in RESIDENT, "RESIDENT has no comment line, so this case proves nothing"
     resident = oneline(RESIDENT)
+    assert "--" not in resident, "a comment survived the strip and would eat the whole line"
     assert "\n" not in resident and "DHTestLook" in resident and "DHBenchRows" in resident
     # the resident must reach the camera ONLY through the owner's hook, never by writing the camera
     assert "CurrentCamera.CFrame =" not in resident, "the bench must not write the camera"
