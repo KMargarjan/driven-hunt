@@ -1,3 +1,73 @@
+## 2026-10-29, Task 309 -- the rewind base was wrong in HER place and is fixed; FOUR of the dispatch's targets are still NOT met and the remaining cause is unnamed
+
+Every time below is a `date -u` reading. Tables and raw rows: `reviews/task-309/bench-*.txt`,
+probes in `<runs-dir>/309/`.
+
+**WHAT MOVED, measured before and after on the same instrument in Karen's Forest Test** (bench,
+`--shots 30`, the range, rifle Slug, boar at ~22.5 studs/s, 130 studs, 60 animals in the world):
+
+| cell | BEFORE `8e5c0f76` | AFTER `eb4be65f` | z | dispatch target |
+|---|---|---|---|---|
+| RUN chest centre | 11/66 = **17 %** | 17/30 = **57 %** | 4.00, p < 0.0001 | >= 80 % **NOT MET** |
+| RUN chest + lead (CONTROL) | 40/66 = **61 %** | 55/60 = **92 %** | 4.04, p < 0.0001 | >= 95 % **NOT MET** |
+| RUN one body length ahead (KNOWN-BAD) | 0/6 | 4/60 = **7 %** | -- | <= 5 % **NOT MET** |
+| STAND chest centre | 29/30 = **97 %** | 27/30 = **90 %** | 1.04, p = 0.30 | >= 97 % **NOT MET** |
+
+The change is one number: `FLIGHT_REWIND_BASE_SECONDS` 0.18 -> **0.205**. 0.18 was DEV. In HER place
+the client draws the animal **0.2057 s** in the past (sd 0.0181, p50 0.2048, 93 client frames against
+238 server samples, residual 0.233 studs) -- so the server was under-rewinding by 0.47 studs mean at a
+run. No zone box, offset or clamp was touched: `git diff 8e5c0f76..eb4be65f -- src/server/Boar/` is
+empty.
+
+**WHAT THE DISPATCH ASKED ME TO RULE IN OR OUT, each with its own probe:**
+
+| named cause | measured | instrument | verdict |
+|---|---|---|---|
+| the rifle's spread at the shot | 0.16 deg FULL cone = **0.18 studs** at 130 | `SPREAD_FULL_DEG`, closed form | REFUTED |
+| the bench's own aim error | camera against its own held point **1.24 px mean, 4.68 max** = 0.29 / 1.08 studs | `<runs-dir>/309/px2.luau` | REFUTED |
+| the zones' coverage / the gait clamp | `ZoneChest` moves **0.154 studs mean, 0.227 worst** in the trunk's frame over one rewind window; boxes run z -2.53..+1.91 with no gap over 0.12 studs | `<runs-dir>/309/gait.luau` | REFUTED |
+| the rewind's residual at each pace | **0.2057 s** against a 0.185 s rewind = 0.47 studs mean | `<runs-dir>/309/zcli.luau` + `zsrv-spawn.luau` | **RULED IN, fixed** |
+| (added) the gun's zero / drop | **+0.03 studs** over the line of sight across 109-140 studs | closed form, `ZERO_STUDS` 714 | REFUTED |
+
+**WHY IT IS STILL NOT RIGHT, as a number and not a theory.** After the fix a chest-centre shot at a
+run lands in `rear` on **12 of its 17 hits**, and 13 of 30 still miss the animal completely (every
+miss's impact is on the range wall at `z = -3350.00`). The whole ballistic lead at 130 studs is
+**1.15 studs**, which in real life puts a chest shot in the chest or just behind it. Landing in the
+rear means **roughly a stud of rearward displacement is still unaccounted for**, on top of the lead
+the shooter does owe -- and the refuted table above says it is not the spread, the gait, the zero, or
+the bench.
+
+**THE CONTRADICTION I COULD NOT SETTLE, and the reason.** For a rewound hit the server reports its
+impact in the PAST frame (`Weapon.Rewind.impact`, `position = hit.position + shift`), so
+`impact - aim` is a displacement on the animal as the shooter drew it. On the CONTROL cell the bench
+reads that displacement as **-1.25 studs** -- within a stud of the chest -- while the server scores
+those same shots **`zone = rear`** on 8 of 28. The reported position and the part actually struck
+disagree by most of a body length. One of the two is wrong, and **which one decides whether what is
+left is a reporting defect or a geometry defect.** The instrument that would settle it --
+`ServerStorage.DHLastHits`, the `HitLog` ring that carries each hit's LOCAL OFFSET inside the animal
+-- **is empty for every range shot**; it printed `nil` in all five bench runs today, and task 307
+found the same and named the cause (the range's card goes through `Range.setCardSender` ->
+`HitLog.sendCard`, which does not write the ring).
+
+**WHAT THE NEXT ROUND NEEDS (V280: written at the hard stop, not after a workaround).** One of these,
+and neither is a guess:
+1. make `Range`'s hit path write `ServerStorage.DHLastHits` as a drive hit does, so every bench row
+   prints the local offset inside the animal of the part that was struck; or
+2. publish, per cast, the rewound candidate's own frame (`DH305Past`, beside the `DH305At` already
+   published) so the bench prints "the server tested the animal HERE, the client drew it THERE" per
+   shot instead of over a 93-frame average.
+Until one exists, no remaining number can be attributed to a cause, and raising the rate by widening
+a box would be widening it into air -- which the dispatch forbids and rule L exists to stop.
+
+**NOT RUN AT ALL: the shotgun slug, the lever and the red deer.** L-141 says each of those cells'
+CONTROL and KNOWN-BAD rows must first be proved to use that weapon's own ballistics, and there was no
+sense measuring four more weapons against a cause nobody has named.
+
+**NEEDS THE DIRECTOR.** Which of the two instruments to build, as task 309a, before any further
+attempt at the rates. Karen's sentence (*"fix animal shooting hit at different speed and stand to be
+precise and like in real life"*) is **measurably less wrong than it was and still true as a complaint
+at a run**, and nobody should be told otherwise.
+
 ## 2026-10-28, Task 305d -- two of the three dispatch items are refuted; a third defect was found
 
 Every time below is a `date -u` reading. Measurements: `reviews/task-305d/MEASURED.md`.
