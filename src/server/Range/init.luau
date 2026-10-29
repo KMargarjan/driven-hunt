@@ -1338,12 +1338,21 @@ function Range.onRequest(player: any, request: any): boolean
 		state.stats.offMat += 1
 		return false
 	end
+	-- A MALFORMED PAYLOAD IS STILL MALFORMED: a `spot` field that is not a legal station is a bad
+	-- message whoever sent it, and is counted as one. What it is NOT any more is the thing that
+	-- chooses the trial.
+	if request.spot ~= nil and not RangeData.optionAllowed("spot", request.spot) then
+		state.stats.badRequests += 1
+		return false
+	end
 	-- THE STATION IS MEASURED, NEVER CLAIMED (the must-fix of 306b note (i)). It used to be
 	-- `state.trials[request.spot]`, and the menu hard-coded `spot = 1`, so a man at station 3
 	-- picked station 1's trial -- the fault that made 11 of the 12 prompts open nothing useful.
-	-- `mayShoot` above has already proved he is ON a station, so this cannot be nil here.
+	-- A client walking between stations is stale, not hostile, so a legal spot that is not the one
+	-- he is standing on is IGNORED rather than refused. `mayShoot` above already proved he is on a
+	-- station, so this cannot be nil here.
 	local spot = (Range.positionOf(player))
-	if spot == nil or not RangeData.optionAllowed("spot", spot) then
+	if spot == nil then
 		state.stats.badRequests += 1
 		return false
 	end

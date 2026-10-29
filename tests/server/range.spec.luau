@@ -3238,7 +3238,11 @@ return function()
 			advance(fake, clock, 1)
 			local man = manAtSpot(RangeData.matPosition(ANCHOR, 4, LAYOUT), 320)
 			expect((Range.positionOf(man))).to.equal(4)
+			-- HIS OWN ANIMAL, PUT IN ITS OWN WINDOW first: a released target sits at a lane END, so
+			-- the shot's list would legitimately hold his own trunk until it is in the opening.
+			local animal = centreOn(fake, 4)
 			local mine, window = Range.maskFor(man)
+			expect(mine).to.equal(animal.root)
 			expect(mine).to.equal(fake.at(4).root)
 			-- THE SHIPPED SPAN, not a number typed here: his station's, and not station 1's.
 			local minX, maxX = RangeData.windowSpanFor(ANCHOR, 4, LAYOUT)
@@ -3283,6 +3287,12 @@ return function()
 			local man = manAtSpot(RangeData.matPosition(ANCHOR, 5, LAYOUT), 322)
 			expect((Range.positionOf(man))).to.equal(5)
 			local before = (Range.trialOf(1) :: any).pace
+			-- A `spot` THAT IS NOT A STATION IS STILL A BAD MESSAGE, measured station or not.
+			local bad = Range.stats().badRequests
+			expect(Range.onRequest(man, { spot = 0 :: any, go = true })).to.equal(false)
+			expect(Range.stats().badRequests).to.equal(bad + 1)
+			-- PAST `REQUEST_MIN_INTERVAL`, on the injected clock, so the second ask is not rate-limited.
+			clock.t += 1
 			expect(Range.onRequest(man, { spot = 1, pace = RangeData.WORD.STAND })).to.equal(true)
 			-- STATION 5 TOOK IT, and station 1 -- the station the payload named -- did not move.
 			expect((Range.trialOf(5) :: any).pace).to.equal(RangeData.WORD.STAND)
