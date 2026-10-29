@@ -1671,27 +1671,47 @@ return function()
 			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
 			advance(fake, clock, 10)
 			expect(fake.spawns).to.equal(0)
-			-- HE ARRIVES.
+			-- HE ARRIVES. The position is read on the step that RELEASED it -- `fake.advance` has not
+			-- run since -- so it is the release point itself and not a point the animal walked to.
 			crowd.set({ 2 })
-			advance(fake, clock, 1)
+			local released = nil
+			for _ = 1, 120 do
+				clock.t += 1 / 60
+				fake.advance(1 / 60)
+				Range.step(1 / 60)
+				local animal = fake.at(2)
+				if animal ~= nil then
+					released = (animal :: any).position
+					break
+				end
+			end
+			expect(released).to.be.ok()
 			expect(fake.spawns).to.equal(1)
 			expect(Range.stats().targets).to.equal(1)
 			expect(Range.stats().occupied).to.equal(1)
-			expect(fake.at(2)).to.be.ok()
 			for _, spot in ipairs({ 1, 3, 4, 5, 6 }) do
 				expect(fake.at(spot)).to.equal(nil)
 			end
-			-- ...AND IT IS IN HIS OWN LANE: released at his station's lane end, not station 1's.
-			local mine = (fake.at(2) :: any).position
-			local lane = RangeData.laneCentre(Vector3.new(DEV_ROW.x, 0, DEV_ROW.z), LAYOUT, nil, 2)
-			local lane1 = RangeData.laneCentre(Vector3.new(DEV_ROW.x, 0, DEV_ROW.z), LAYOUT, nil, 1)
-			expect(math.abs(mine.Z - lane.Z) < 1).to.equal(true)
-			expect(math.abs(lane.Z - lane1.Z) < 1).to.equal(true)
-			expect(math.abs(mine.X - lane.X) <= RangeData.laneLength(LAYOUT)).to.equal(true)
+			-- ...AND IT IS IN *HIS* LANE, which is an assertion about X ALONE (round 1, finding 1):
+			-- `laneCentre`'s Z is `anchor.Z + DISTANCE_STUDS` for ALL SIX stations, so any Z pair is
+			-- the same number through two names and cannot fail. The discriminator is the release
+			-- point against station 2's own lane end and station 1's -- `SPOT_SPACING_STUDS` apart,
+			-- asserted here so the two sides are known to be different numbers.
+			local anchorXZ = Vector3.new(DEV_ROW.x, 0, DEV_ROW.z)
+			local end2 = RangeData.laneEnds(anchorXZ, LAYOUT, 2, nil, 2, LAYOUT.DISTANCE_STUDS)
+			local end1 = RangeData.laneEnds(anchorXZ, LAYOUT, 2, nil, 1, LAYOUT.DISTANCE_STUDS)
+			expect(math.abs(end2.X - end1.X)).to.equal(LAYOUT.SPOT_SPACING_STUDS)
+			expect(math.abs((released :: any).X - end2.X) < 0.001).to.equal(true)
+			expect(math.abs((released :: any).X - end1.X) >= LAYOUT.SPOT_SPACING_STUDS - 0.001).to.equal(true)
+			-- Z is the lane's, which every station shares: asserted as the DOWNRANGE fact it is.
+			expect(math.abs((released :: any).Z - (DEV_ROW.z + LAYOUT.DISTANCE_STUDS)) < 0.001).to.equal(true)
 			TestKit.note(
 				string.format(
-					"range B7: one man at station 2 -> %d spawn(s), station 2 has one and 1/3/4/5/6 have none",
-					fake.spawns
+					"range B7: one man at station 2 -> %d spawn(s) at x %.1f (station 2's end %.1f, station 1's %.1f)",
+					fake.spawns,
+					(released :: any).X,
+					end2.X,
+					end1.X
 				)
 			)
 			Range.stop()

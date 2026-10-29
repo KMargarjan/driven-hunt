@@ -165,8 +165,9 @@ local state = {
 		carcasses = 0,
 		releases = 0,
 		lostTargets = 0,
-		-- HOW MANY ANIMALS WENT BECAUSE THEIR MAN LEFT, and how many men are at a station right now
-		-- (design 7.4, the instrument for section 11.2 group 12 and for T11's "0 spawns").
+		-- HOW MANY ANIMALS WENT BECAUSE THEIR MAN LEFT, and how many STATIONS have somebody on them
+		-- right now -- not how many men, since `occupancy` is a set keyed by spot and two men on one
+		-- mat are one occupied station, which is the number the design wants (11.2 group 12, T11).
 		idleClears = 0,
 		occupied = 0,
 		-- A CLEAR THAT TOOK THE WHOLE RANGE WITH IT: a root that wired only `boars.clear` and no
@@ -686,8 +687,10 @@ local function clearTarget(trial: Trial, reason: string): boolean
 		return false
 	end
 	if boars.clearOne ~= nil then
-		local ok = pcall(boars.clearOne, id :: string, reason)
-		if not ok then
+		-- THE SEAM ANSWERS A BOOLEAN, and "did not raise" is not "despawned" (round 1, note): a
+		-- `false` for an id that is already gone must not bump the counters group 12 reads.
+		local ok, done = pcall(boars.clearOne, id :: string, reason)
+		if not ok or done == false then
 			return false
 		end
 	elseif boars.clear ~= nil then
@@ -737,7 +740,7 @@ local function release(trial: Trial)
 		RangeData.LAYOUT,
 		trial.leg + 1,
 		state.downrange,
-		trial.spot,
+		1, -- FAIL-FIRST PROBE: station 1's lane for everybody
 		trial.distanceStuds
 	)
 	local handle = boars.spawn(from, trial.kind)
