@@ -172,6 +172,14 @@ local stats = {
 	treesMoved = 0,
 	treesSeated = 0,
 	treesDropped = 0,
+	-- THE AVENUE AND THE FLAGPOLE (task 311). `avenueShifted` and `avenueDropped` are the forest
+	-- ring's dice showing up as numbers: a slot that had to walk north, and one that could not be
+	-- cleared at all. `flagpoleY` is the ground the pole was really seated on.
+	avenueTrees = 0,
+	avenueGaps = 0,
+	avenueShifted = 0,
+	avenueDropped = 0,
+	flagpoleY = 0,
 }
 
 function Build.stats()
@@ -4794,6 +4802,250 @@ local function lodgeTrees(
 	folder.Parent = container
 end
 
+-- ---------------------------------------------------------------- the flagpole (task 311)
+
+-- WHERE THE POLE STANDS. PURE and exported, so the one piece of arithmetic every reader needs --
+-- `Build.flagpole`, `lobby.spec`'s clearance assertions and any probe -- has one home. Y is the
+-- ground at that point when a reader is given, the anchor's shelf when it is not.
+-- Karen, 2026-10-28: *"you can add in middle somewhere flag long stick and flag like in hunting
+-- lobbies"*. Note: docs/research/2026-10-29-lobby-flagpole-and-birch-avenue.md (sections 3.2, 4)
+function Build.flagpoleFoot(anchor: Vector3, cfg, groundAt: ((number, number) -> number?)?): Vector3
+	local at = anchor + cfg.FLAGPOLE.OFFSET
+	-- A READER THAT THROWS IS THE SAME STATE AS NO READER, which is the rule `settleOnGround` already
+	-- states for the trucks: half a measurement is how a thing ends up standing in the air.
+	local ground = nil
+	if groundAt ~= nil then
+		local ok, answer = pcall(groundAt, at.X, at.Z)
+		if ok and type(answer) == "number" then
+			ground = answer
+		end
+	end
+	return Vector3.new(at.X, ground or anchor.Y, at.Z)
+end
+
+-- A TEN-METRE FLAGPOLE WITH THE FLAG HOISTED NEAR THE TOP: pole, brass truck ball, halyard, cleat,
+-- a stone kerb at the foot, and the flag as a field with a Nordic cross. Every piece is cosmetic
+-- (`solid = false`, so no ray and no touch) except the pole itself, which a player can walk into
+-- because a 35-stud mast you can stand inside reads as a decal.
+local function flagpole(container: Instance, anchor: Vector3, cfg, groundAt: ((number, number) -> number?)?)
+	local spec = cfg.FLAGPOLE
+	local folder = Instance.new("Folder")
+	folder.Name = "Flagpole"
+	local foot = Build.flagpoleFoot(anchor, cfg, groundAt)
+	local dia = spec.DIAMETER_STUDS
+	-- THE KERB FIRST, so the pole's own foot is inside it rather than on top of it.
+	local kerb = part(
+		"Kerb",
+		Vector3.new(spec.BASE_STUDS, spec.BASE_HEIGHT_STUDS, spec.BASE_STUDS),
+		CFrame.new(foot.X, foot.Y + spec.BASE_HEIGHT_STUDS / 2, foot.Z),
+		spec.BASE_COLOR,
+		spec.BASE_MATERIAL,
+		false,
+		folder
+	)
+	kerb.Shape = Enum.PartType.Cylinder
+	-- A ROBLOX CYLINDER'S LENGTH IS ITS **X**, and it is drawn along x unless it is turned: the pole
+	-- is therefore built rotated 90 degrees about z, which is the same trick `Build.road`'s log pile
+	-- uses lying down. Its bottom sits ON the ground, not centred on it.
+	local height = spec.HEIGHT_STUDS
+	local mast = part(
+		"Mast",
+		Vector3.new(height, dia, dia),
+		CFrame.new(foot.X, foot.Y + height / 2, foot.Z) * CFrame.Angles(0, 0, math.rad(90)),
+		spec.POLE_COLOR,
+		Enum.Material.Metal,
+		true,
+		folder
+	)
+	mast.Shape = Enum.PartType.Cylinder
+	local finial = part(
+		"Finial",
+		Vector3.new(spec.FINIAL_STUDS, spec.FINIAL_STUDS, spec.FINIAL_STUDS),
+		CFrame.new(foot.X, foot.Y + height + spec.FINIAL_STUDS / 2, foot.Z),
+		spec.FINIAL_COLOR,
+		Enum.Material.Metal,
+		false,
+		folder
+	)
+	finial.Shape = Enum.PartType.Ball
+	-- THE HALYARD down the pole's south face, and the cleat a hand reaches at 1.2 m.
+	part(
+		"Halyard",
+		Vector3.new(spec.HALYARD_STUDS, height - spec.CLEAT_Y_STUDS, spec.HALYARD_STUDS),
+		CFrame.new(
+			foot.X,
+			foot.Y + spec.CLEAT_Y_STUDS + (height - spec.CLEAT_Y_STUDS) / 2,
+			foot.Z - dia / 2 - spec.HALYARD_STUDS / 2
+		),
+		spec.HALYARD_COLOR,
+		Enum.Material.Fabric,
+		false,
+		folder
+	)
+	part(
+		"Cleat",
+		Vector3.new(0.3, 0.9, 0.3),
+		CFrame.new(foot.X, foot.Y + spec.CLEAT_Y_STUDS, foot.Z - dia / 2 - 0.15),
+		spec.FINIAL_COLOR,
+		Enum.Material.Metal,
+		false,
+		folder
+	)
+	-- THE FLAG, FLYING EAST OFF THE POLE (+x), its top edge `FLAG_TOP_BELOW_FINIAL_STUDS` under the
+	-- finial. The hoist edge touches the mast, so the flag hangs from the pole rather than beside it.
+	local flag = spec.FLAG
+	local topY = foot.Y + height - spec.FLAG_TOP_BELOW_FINIAL_STUDS
+	local midY = topY - flag.Y / 2
+	local hoistX = foot.X + dia / 2
+	local midX = hoistX + flag.X / 2
+	part("FlagField", flag, CFrame.new(midX, midY, foot.Z), spec.FIELD_COLOR, Enum.Material.Fabric, false, folder)
+	-- THE NORDIC CROSS: one bar across the middle, one upright nearer the hoist. Each stands a
+	-- hundredth of a stud in front of the field so the two never z-fight.
+	local front = foot.Z - flag.Z / 2 - 0.01
+	part(
+		"CrossBar",
+		Vector3.new(flag.X, spec.CROSS_THICK_STUDS, 0.02),
+		CFrame.new(midX, midY, front),
+		spec.CROSS_COLOR,
+		Enum.Material.Fabric,
+		false,
+		folder
+	)
+	part(
+		"CrossUpright",
+		Vector3.new(spec.CROSS_THICK_STUDS, flag.Y, 0.02),
+		CFrame.new(hoistX + flag.X * spec.CROSS_HOIST_FRACTION, midY, front),
+		spec.CROSS_COLOR,
+		Enum.Material.Fabric,
+		false,
+		folder
+	)
+	stats.flagpoleY = foot.Y
+	folder.Parent = container
+end
+
+-- ---------------------------------------------------------------- the birch avenue (task 311)
+
+-- WHERE AN AVENUE SLOT'S TRUNK STANDS, in world x/z. PURE and exported, so the slot table, the
+-- builder and `lobby.spec`'s clearance assertions read one arithmetic.
+function Build.avenueAt(anchor: Vector3, slot: any, cfg): Vector2
+	return Vector2.new(anchor.X + cfg.ROAD.CENTRE_X + slot.side * cfg.AVENUE.OFF_ROAD_STUDS, anchor.Z + slot.z)
+end
+
+-- IS THIS POINT CLEAR OF THE ROAD SURFACE? PURE. The lane plus both verges plus `KEEP_OFF_STUDS`,
+-- which is the rectangle a trunk may not enter -- the one thing that makes an avenue an avenue
+-- rather than a tree in the road.
+function Build.offRoad(x: number, anchor: Vector3, cfg): boolean
+	local half = cfg.ROAD.WIDTH_STUDS / 2 + cfg.ROAD.VERGE_STUDS + cfg.AVENUE.KEEP_OFF_STUDS
+	return math.abs(x - (anchor.X + cfg.ROAD.CENTRE_X)) >= half
+end
+
+-- THE BIRCHES DOWN BOTH SIDES OF THE APPROACH ROAD. Karen, 2026-10-28: *"forest road comming to
+-- lobby around trees on the side or road bjorke tree from both sides with spaces"*.
+--
+-- IT IS `lodgeTrees` WITH A DIFFERENT TABLE AND ONE EXTRA GUARD, deliberately: the same template
+-- lookup, the same `cloneInstance`, the same `plantY` and the same `seatOnGround`, so a tree in the
+-- avenue is seated exactly the way every other tree in this lobby is.
+--
+-- THE GUARD IS THE FOREST EDGE. `TREELINE` is a ring of radius 100 with 9 studs of jitter, and the
+-- road leaves the field THROUGH it, so a southern slot can land on a spruce that a different boot's
+-- dice put somewhere else. A fouled slot walks NORTH along the road and is dropped if that will not
+-- clear it -- `clearOfLodge`'s "move it out or drop it, and say which", with the counts in
+-- `Lobby.stats()`.
+-- Note: docs/research/2026-10-29-lobby-flagpole-and-birch-avenue.md (sections 3.3, 4)
+local function avenue(
+	container: Instance,
+	anchor: Vector3,
+	cfg,
+	templates: Instance?,
+	groundAt: ((number, number) -> number?)?,
+	terrainAt: ((number, number) -> number?)?
+)
+	if templates == nil then
+		return
+	end
+	local wood = (templates :: Instance):FindFirstChild(Data.TEMPLATE.TREES)
+	if wood == nil then
+		stats.fallbacks += 1
+		return
+	end
+	local spec = cfg.AVENUE
+	local species = nil
+	for _, row in ipairs(cfg.TREELINE.SPECIES) do
+		if row.KIND == spec.KIND then
+			species = row
+		end
+	end
+	local template = if species ~= nil then wood:FindFirstChild(species.MODEL) else nil
+	if template == nil then
+		stats.fallbacks += 1
+		return
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = "Avenue"
+	-- EVERY TRUNK ALREADY STANDING IN THIS LOBBY, read off the folder rather than recomputed: the
+	-- ring's jitter and yaw are dice and only the result is a fact.
+	local standing: { Vector2 } = {}
+	for _, name in ipairs({ "TreeLine", "LodgeTrees" }) do
+		local grove = container:FindFirstChild(name)
+		if grove ~= nil then
+			for _, tree in ipairs(grove:GetChildren()) do
+				local at = if tree:IsA("Model") then tree:GetPivot().Position else nil
+				if at ~= nil then
+					table.insert(standing, Vector2.new(at.X, at.Z))
+				end
+			end
+		end
+	end
+	local function fouled(at: Vector2): boolean
+		if not Build.offRoad(at.X, anchor, cfg) then
+			return true
+		end
+		for _, other in ipairs(standing) do
+			if (other - at).Magnitude < spec.KEEP_OFF_TREES_STUDS then
+				return true
+			end
+		end
+		return false
+	end
+	for index, slot in ipairs(spec.SLOTS) do
+		if slot.gap then
+			stats.avenueGaps += 1
+			continue
+		end
+		local at = Build.avenueAt(anchor, slot, cfg)
+		local steps = 0
+		while fouled(at) and steps < spec.MAX_SHIFTS do
+			at = Vector2.new(at.X, at.Y + spec.SHIFT_STUDS)
+			steps += 1
+		end
+		if fouled(at) then
+			stats.avenueDropped += 1
+			continue
+		end
+		if steps > 0 then
+			stats.avenueShifted += 1
+		end
+		local foot = Vector3.new(at.X, 0, at.Y)
+		local planted = cloneInstance(
+			template,
+			string.format("Avenue%02d", index),
+			slot.scale,
+			Vector3.new(foot.X, plantY(foot, anchor, cfg, groundAt), foot.Z),
+			math.rad(slot.yaw),
+			folder,
+			true,
+			true
+		)
+		if seatOnGround(planted :: Model, cfg, terrainAt or groundAt, species.CLAW_FRACTION or 0) then
+			stats.treesSeated += 1
+		end
+		stats.avenueTrees += 1
+		table.insert(standing, at)
+	end
+	folder.Parent = container
+end
+
 -- ---------------------------------------------------------------- the whole lobby
 
 -- EVERY PART, BUILT ONCE, INTO ITS OWN FOLDER. `container` is an argument, so a spec builds the whole
@@ -4833,6 +5085,11 @@ function Build.build(
 	stats.worldFoliageCleared = 0
 	stats.truckWrites = 0
 	stats.truckRigs = 0
+	stats.avenueTrees = 0
+	stats.avenueGaps = 0
+	stats.avenueShifted = 0
+	stats.avenueDropped = 0
+	stats.flagpoleY = 0
 	-- THE OLD KEEPER WENT WITH THE OLD FOLDER. Dropped here rather than relied on, so a rebuild can
 	-- never leave `Build.faceKeeper` turning a body that is no longer in the DataModel.
 	keeper = nil
@@ -4875,6 +5132,13 @@ function Build.build(
 	local treeGround = walkableReader(walkable, (seams or {}).terrainAt)
 	treeLine(folder, anchor, cfg, templates, (seams or {}).groundAt, treeGround)
 	lodgeTrees(folder, anchor, cfg, templates, (seams or {}).groundAt, treeGround)
+	-- THE FLAGPOLE AND THE AVENUE (task 311, Karen: *"flag long stick and flag like in hunting
+	-- lobbies"*, *"bjorke tree from both sides with spaces"*). AFTER both groves, because the avenue
+	-- keeps its trunks off whatever the `treeLine` dice just placed and reads the folder to find out;
+	-- BEFORE the trucks and the pads, because `lobby.spec` pins the pads' own ground probes as the
+	-- LAST ones the build makes, and a pole that read the ground after them would move that boundary.
+	flagpole(folder, anchor, cfg, (seams or {}).groundAt)
+	avenue(folder, anchor, cfg, templates, (seams or {}).groundAt, treeGround)
 	lodge(folder, anchor, cfg, seams)
 	-- THE WORLD'S GROUND READER REACHES THE TRUCKS TOO (task 186), for the reason it already reaches
 	-- the pads: the shelf the arithmetic predicts is not the surface the engine produced, and a truck

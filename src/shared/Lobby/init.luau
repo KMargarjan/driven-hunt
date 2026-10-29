@@ -2262,6 +2262,113 @@ Lobby.CONFIG = {
 			KEY_PX = 44,
 		},
 	},
+	-- ---------------- THE FLAGPOLE (task 311)
+	--
+	-- KAREN, 2026-10-28: *"also you can add in middle somewhere flag long stick and flag like in
+	-- hunting lobbies"*.
+	--
+	-- 10 METRES, WHICH IS 35.7 STUDS, AND THE FLAG IS THE PAIR THAT GOES WITH IT. Two independent
+	-- Swedish flagpole guides give the same table -- an 8 m pole takes a 200 x 125 cm flag and a
+	-- 9-10 m pole a 240 x 150 cm one -- and call 10 m "perfect for most villa gardens"; US domestic
+	-- practice brackets it from below at 20-25 ft. 10 m is taken rather than 8 because this lodge's
+	-- own ridge is 33 studs (9.4 m) above the shelf and the rule of thumb is that the pole clears the
+	-- ridge. At 0.28 m per stud: pole 35.7, flag 8.57 x 5.36.
+	-- Note: docs/research/2026-10-29-lobby-flagpole-and-birch-avenue.md (section 3.2)
+	FLAGPOLE = {
+		-- MEASURED, NOT CHOSEN (research note section 4). The open gravel at the head of the yard:
+		-- anchor (2850, -2950) + (56, 35) = (2906, -2915). 6 studs north of Pad1's north edge
+		-- (-2921), 7 south of Truck1 (-2922), 36 east of the lodge's east wall (2870), inside the
+		-- yard gravel (x 2883..2929, z -2994..-2909), off the spawn -> pad walking line (z ~ -2930),
+		-- and 291 studs from the range's nearest edge (`Range.ANCHORS["forest-test"]` is
+		-- (2650, -3216), and its built box measures x 2570..2730, z -3356..-3212).
+		OFFSET = Vector3.new(56, 0, 35),
+		HEIGHT_STUDS = 35.7,
+		-- 112 mm AT 0.28 m PER STUD. Domestic 10 m poles run 75-110 mm; this is the top of that
+		-- range, because under about 0.3 studs a cylinder stops reading as a pole from the road.
+		DIAMETER_STUDS = 0.4,
+		POLE_COLOR = Color3.fromRGB(226, 228, 230), -- white aluminium, which is what they are
+		FINIAL_COLOR = Color3.fromRGB(198, 164, 84), -- the brass truck ball on top
+		FINIAL_STUDS = 0.8,
+		-- THE HALYARD, down the pole's south face, with its cleat at 1.2 m (4.3 studs) -- where a
+		-- hand reaches it. Cosmetic, like every other part of this pole.
+		HALYARD_COLOR = Color3.fromRGB(42, 42, 44),
+		HALYARD_STUDS = 0.09,
+		CLEAT_Y_STUDS = 4.3,
+		-- THE STONE RING at the foot, so the pole meets the gravel in something rather than just
+		-- stopping. 3 studs across and 0.4 high, which is a kerb and not a step.
+		BASE_STUDS = 3,
+		BASE_HEIGHT_STUDS = 0.4,
+		BASE_COLOR = Color3.fromRGB(126, 124, 118),
+		BASE_MATERIAL = Enum.Material.Cobblestone,
+		-- THE FLAG: 240 x 150 cm = 8.57 x 5.36 studs, hoisted with its top edge one stud under the
+		-- finial, flying EAST off the pole (+x) so it faces the road and the arriving player.
+		FLAG = Vector3.new(8.57, 5.36, 0.12),
+		FLAG_TOP_BELOW_FINIAL_STUDS = 1,
+		-- A HUNTER-GREEN FIELD WITH AN OFF-WHITE NORDIC CROSS, the shape every Scandinavian estate
+		-- flag has, so it reads as a flag and not as a panel from sixty studs away. Styling is a
+		-- free choice here and never blocks (Karen's own standing note).
+		FIELD_COLOR = Color3.fromRGB(44, 68, 42),
+		CROSS_COLOR = Color3.fromRGB(232, 229, 216),
+		CROSS_THICK_STUDS = 1.1,
+		-- WHERE THE CROSS'S UPRIGHT SITS, as a fraction of the flag's length from the hoist. 0.36 is
+		-- the Nordic proportion: nearer the pole than the middle.
+		CROSS_HOIST_FRACTION = 0.36,
+	},
+	-- ---------------- THE BIRCH AVENUE ON THE APPROACH ROAD (task 311)
+	--
+	-- KAREN, 2026-10-28: *"forest road comming to lobby around trees on the side or road bjorke tree
+	-- from both sides with spaces / nice and clean"*.
+	--
+	-- ONE ROW OF SLOTS, IN ANCHOR-RELATIVE COORDINATES, AND A GAP IS A ROW WITH `gap = true` -- so
+	-- "where does a tree stand" has one answer that a spec can read, and the missing individual the
+	-- Swedish survey sources call normal is DATA rather than a hole in a loop.
+	--
+	-- WHY THE OFFSETS AND THE ENDS ARE THESE (research note section 4, measured in Karen's place):
+	--   * x +-24 from the lane's centre (anchor.X + ROAD.CENTRE_X = 2870) puts a trunk 13 studs clear
+	--     of the verge's edge (2883.5 / 2856.5) and 6 clear of the fence line at +-18.
+	--   * the north end is z -2998, four studs south of the yard gravel's own south edge (-2994):
+	--     "stop the avenue before the yard".
+	--   * the EAST row therefore has three slots -- north of -2994 are the yard, the pads
+	--     (x 2891..2903) and the trucks. The WEST row has five, because the lodge's south face is at
+	--     z -2930. Eight slots, one gap, SEVEN trees: Naturvardsverket's alle definition asks for at
+	--     least five in one or two rows, and sets no spacing at all.
+	--   * 25 studs (7 m) between slots in a row, inside the only road-authority figure found (12 m
+	--     per deciduous tree) and tighter because this birch carries a ~10-stud crown at the scales
+	--     below -- at 12 m it would read as scattered trees rather than as an avenue.
+	-- Note: docs/research/2026-10-29-lobby-flagpole-and-birch-avenue.md (section 3.3)
+	AVENUE = {
+		-- WHICH SPECIES, BY `TREELINE.SPECIES` KIND. Karen said bjorke -- birch -- so birch it is,
+		-- and the allow-list stays the one in `TREELINE.SPECIES` (no second table of models).
+		KIND = "birch",
+		-- HOW FAR EITHER SIDE OF THE LANE'S CENTRE a trunk stands.
+		OFF_ROAD_STUDS = 24,
+		-- HOW CLOSE TO THE ROAD SURFACE A TRUNK MAY COME, checked against the lane plus its verges
+		-- after the tree has been planted and MEASURED, the `clearOfLodge` discipline: a leaning
+		-- model's trunk is not where its row says it is.
+		KEEP_OFF_STUDS = 6,
+		-- HOW CLOSE AN AVENUE TRUNK MAY COME TO A TREE THAT IS ALREADY STANDING, and what to do
+		-- about it. The forest edge `TREELINE` plants is a ring of radius 100 with 9 studs of
+		-- JITTER and a random yaw, so it CROSSES this road where the road leaves the field -- and a
+		-- hand-tuned slot table would be right for one boot's dice and wrong for the next. A fouled
+		-- slot is therefore walked NORTH along the road in `SHIFT_STUDS` steps, at most
+		-- `MAX_SHIFTS` of them, and dropped if that will not clear it: `clearOfLodge`'s own
+		-- discipline (*"MOVE IT OUT OR DROP IT, and say which"*), counted in `Lobby.stats()`.
+		KEEP_OFF_TREES_STUDS = 14,
+		SHIFT_STUDS = 8,
+		MAX_SHIFTS = 3,
+		-- THE ROWS. `side` is -1 west, +1 east; `z` is anchor-relative; `gap` means the row is a
+		-- place where a tree died, which the Haninge bjorkalle survey records as normal.
+		SLOTS = {
+			{ side = -1, z = -98, scale = 0.72, yaw = 14 },
+			{ side = -1, z = -73, scale = 0.66, yaw = 203 },
+			{ side = -1, z = -48, scale = 0.75, yaw = 97 },
+			{ side = -1, z = -23, scale = 0.68, yaw = 311 },
+			{ side = -1, z = 2, scale = 0.7, yaw = 142 },
+			{ side = 1, z = -98, scale = 0.7, yaw = 256 },
+			{ side = 1, z = -73, gap = true },
+			{ side = 1, z = -48, scale = 0.74, yaw = 38 },
+		},
+	},
 	-- WHERE HE ARRIVES: in front of the porch, looking +Z (north) at the lodge with the forest
 	-- behind it, the truck and the ring to his right. Karen's *"house is in fields next to forrest"*
 	-- read as a camera angle.
