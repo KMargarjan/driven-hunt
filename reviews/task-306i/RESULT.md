@@ -1,16 +1,61 @@
-1. `tools/aim_bench.py` / `selftest`, the `STAGE` block — the only in-repo case for item 1 ("`STAGE` moves the character onto the BUILT `Mat<n>` or `Stand<n>.Deck`") cannot fail if that selection is deleted. Evidence: the case is `assert "Mat4" in oneline(STAGE, STATION=4, POSITION="bench")` and `assert "Stand4" in oneline(STAGE, STATION=4, POSITION="treestand")`, but `STAGE` names both parts UNCONDITIONALLY below the branch, in the downrange-sign lines `local mat = folder:FindFirstChild("Mat%STATION%", true)` and `local seatDeck = folder:FindFirstChild("Stand%STATION%", true)`. `oneline` drops only whole-line `--` comments, so BOTH substitutions contain both "Mat4" and "Stand4": delete the whole `if "%POSITION%" == "treestand" ... else ... end` target selection and both asserts still pass, as do `assert "%STATION%" not in text` and `assert camera_write_free(text)`. The two asserts are the same string membership through two names. CI runs this (`.github/workflows/ci.yml`: `python3 tools/aim_bench.py selftest`), so the one thing the task added has no gate. Required: assert the branch that chooses `target` — e.g. `'target = folder:FindFirstChild("Mat4", true)' in bench_text` and `'target = seat and seat:FindFirstChild("Deck", true)' in stand_text`, with each absent from the other — so deleting the Mat/Deck choice fails the selftest.
-2. `tools/aim_bench.py` / `STAGE` — a client script writes a character it may not own, and it is not necessarily the shooter's. Evidence: `local p = Players:GetPlayers()[1]` ... `p.Character:PivotTo(CFrame.lookAt(top, lane))`, while every other probe in the file reads `Players.LocalPlayer` (`attr`, `GATE`, `RESIDENT`). `GetPlayers()[1]` is the LocalPlayer only by accident of a one-client session; design 11.4/11.6 schedules the next range step as two clients at two stations (T3, §11.5 item 4), and in that session this stages the OTHER man's character from this client — the engine will not replicate it, so the local shooter is never moved, and the `[aim_bench] staged: ... -> character x,y,z` and `the server's own answer:` lines then describe somebody else's station. Required: `local p = Players.LocalPlayer`. (Inert for this round's numbers: the request states one Play client, so the two are the same player — no table above is invalidated.)
+PASS (item 3 NOT PROVEN)
+
+Rule 5, stated so this PASS is not read as rule 5 having been met: shooting in Karen's place WAS
+seen — 360 real clicks through `Input.fire` at the new six-station range, with the SERVER's own
+`zone=`, `ring[local=]` and `back` per shot, from both firing positions, and the deck half is
+independently corroborated by `Range.distanceFor`'s `base + STAND.backStuds` giving exactly the
+request's 179 -> 193. NOT seen: §11.1 item 3, the client's mark PER CASE (one hit-card frame for
+all eighteen cells; the request itself declares `card=(None,None)` on every row); §11.5 item 4, the
+two-client isolation frame (§11.4/§11.6 assign it to the Director as T3); and the real ladder climb
+(the deck was reached by the teleport §11.4's own last row names as T4's route). The frames f1–f5
+and the hit-card frame are described, not viewable here.
 
 ## Notes (non-blocking)
-- Rule 5, stated so this review is not read as rule 5 having been met: shooting in Karen's place WAS exercised — real clicks through `Input.fire`, the server's own `zone=` and ring offsets, at station 4's measured window (the request's visible band x 2654..2690 is exactly `windowSpanFor(4)` = mat4 2672 ± `WINDOW_STUDS/2` 18 off anchor x 2600, which only the live station-4 staging and the shipped `Range.Mask` can produce). NOT seen: §11.5 item 4, the two-client isolation frame (request: NOT OBTAINED; §11.6 already assigns T3 to the Director), and the real ladder climb (NOT OBTAINED; the deck was reached by the teleport §11.4's own last row names as the route). The frames (f1–f5, hitcard) are described, not viewable here.
-- `cmd_run` — `bench.where(...)` is logged BEFORE `bench.install()`, and the only writer of `DHBenchBoard` is the resident's `RangeBoard` listener, gated by `if not mine() then return end`. At that moment `DHBenchGen` has not been bumped, so a previous run's resident answers; in a fresh Play session nothing does and the line reads `nil`; and if the `{reset=true}` push is refused (off-station → `Range.onRequest`'s `offMat` arm, no `publish`) the line prints the PREVIOUS run's board as if it were this one's. Claim 1 rests on that line. Fix: install first, and have `RESIDENT` clear `DHBenchBoard` beside `DHBenchRows`, so a stale value cannot be read as fresh.
-- `animal()` / `GATE` — "the nearest root in X is his own" is not true of the shipped geometry: a lane is `WINDOW_STUDS` 36 + 2 × `APRON_STUDS` 20 = 76 studs long against `SPOT_SPACING_STUDS` 24, so adjacent lanes overlap by ~52 studs and a neighbour's trunk can be nearer in X than his own. It is inert with one man (`occupancy` gives an animal only to an occupied station, so the folder holds one trunk — which also means this change is a no-op in the session that produced the proof), and when it does mispick, `Range.Mask` has that trunk hidden so the gate stalls rather than mis-measures. The new `NOTREADY hidden` arm then fires a `reset` every ~5 s at a symptom it cannot fix. Better input: the server already names his own trunk on the board push (`Range.maskFor` → `record.mine`); read that instead of guessing.
-- `GATE` — the `vis` loop walks `model:GetDescendants()` only. When the folder's child is itself a BasePart (`local r = if m:IsA("BasePart") then m else m.PrimaryPart` admits that shape, and `Mask.partsOf` handles it explicitly) the trunk is not among its own descendants, `vis` stays 1 and the gate reads `hidden` for ever. Include `model` itself.
-- `GATE` / `RESIDENT` — the gate and the resident each pick nearest-in-X independently at different instants, so `DHTestLook`'s aim point and the gate's `vis=`/`x=` can be about two different animals. One picker, told to both, would remove it.
-- `selftest` — `assert PACE_FLOOR["slow"] < 7.2 and PACE_FLOOR["fast"] < 14.4` types 7.2/14.4 in Python; they are `WINDOW_STUDS / Range.CROSSING_SECONDS` in Luau and nothing ties the two, so a later change to the window or the two times leaves the floors silently wrong (verdict 278's shape).
-- `REQUEST.md` claim 3 overstates: `back`/`along`/`zone` are per case, but the client's mark is ONE frame for all eighteen cells — the request's own "What could not be verified" says `card=(None,None)` on every row. §11.1 item 3 asks for it per case; say "one frame, the rest NOT OBTAINED" rather than "each case carries the four pieces".
-- `REQUEST.md` claim 5 wording: `back` is a per-CELL table column (`render`'s `back` mean plus the `OFFSET DISAGREEMENT` line beneath the row), not a per-shot row column — the per-shot rows print `along` and `ring[local=]`.
-- To queue (rule 4, not this task): `docs/design/shooting-range-lobby.md` §11.4 still says the stage block "needs no harness change: it finds `Workspace.Range:FindFirstChildWhichIsA("BasePart")` ... which is why `Build` still parents mat 1 first". There are now two staging routes; one line in 11.4 should name the second, or "where does the harness put him" has two answers.
+- `selftest`, the `STAGE` block — the case now dies when the selection dies (verified: the three new
+  strings are absent from the downrange-sign lines `local mat = folder:FindFirstChild("Mat4", true)`
+  and `seatDeck = seatDeck and seatDeck:FindFirstChild("Deck", true)`), but it does not die when the
+  two arms are SWAPPED: `for text in (bench_text, stand_text): assert 'target = folder:...Mat4...'
+  and 'target = seat and...Deck...'` asserts both strings in both texts, so bench→Deck /
+  treestand→Mat passes. Not blocking because the live gate catches it — `run_cell`'s
+  `for want in (... "position=%s" % bench.position)` fires `MISMATCH` against the server's own
+  measured `position=`, and the server measures it (`Range.onRequest`: `local spot =
+  (Range.positionOf(player))`). What would close it in the selftest:
+  `stand_text.index('target = seat and') < stand_text.index('else target = folder:')`.
+- `with_self_checks` vs design §11.1 — the design says *"Beside each, rule L's known-bad control: a
+  click at the air beside the animal, AT THE SAME PACE"*. The known-bad is appended per RUN, not per
+  cell, so it exists only at `run` (0/20 in all three sessions). STAND 100 % — the one chest target
+  reported MET — therefore has no same-pace falsifier, and its gate's speed arm is vacuous
+  (`PACE_FLOOR["stand"] = 0.0`). The varying zone splits per cell (stand chest 20 · trot body 8
+  chest 8 · run rear 9 body 8) carry the aim→hit causality instead. One `rifle/stand/ahead` cell
+  would close it.
+- `cmd_run` / `Bench.where` — unchanged from round 1 and still the basis of claim 1's
+  `[aim_bench] the server's own answer:` line: `bench.where(...)` is logged BEFORE
+  `bench.install()`, and the only writer of `DHBenchBoard` is the resident's `RangeBoard` listener.
+  The line is fresh only because a PREVIOUS run's resident is still connected and its
+  `mine()` (`(DHBenchGen) == gen`) is still true at that instant; in a fresh Play session it reads
+  `nil`, and if the `{reset=true}` push is refused (`not Range.mayShoot(player)` → `offMat`, no
+  `publish`) it prints the previous run's board as if it were this one's. `RESIDENT` clears
+  `DHBenchRows` (`me:SetAttribute("DHBenchRows", "")`) but never `DHBenchBoard`. Install first and
+  clear both.
+- `cmd_run` — `--station` and `--position` are validated against `STATIONS`/`POSITIONS`;
+  `--distance` is validated against nothing. `Range.LAYOUT.DISTANCES_STUDS` is `{107, 125, 179}`,
+  so an off-list value makes `optionAllowed("distanceStuds", …)` refuse the WHOLE two-pass pick —
+  pace included — and the only thing that notices is the `pace=` arm of the `MISMATCH` loop, which
+  does not check `dist=`. Validate it beside the other two, and add `dist=` to the loop.
+- `selftest` / `PACE_FLOOR` — `assert PACE_FLOOR["slow"] < 7.2 and PACE_FLOOR["fast"] < 14.4` types
+  the two speeds in Python; they are `WINDOW_STUDS / Range.CROSSING_SECONDS` (36/5.0, 36/2.5 —
+  checked, they agree today) and nothing ties the two files, so a later window or crossing time
+  leaves the floors silently wrong (verdict 278's shape). The companion
+  `PACE_FLOOR["slow"] > PACE_FLOOR["trot"] * 0.8` passes on a 0.1 margin (5.7 > 5.6) and is an
+  arbitrary bound, not a derivation.
+- `REQUEST.md` claim 4 says *"Control and known-bad, in BOTH sessions"* and then names only the
+  bench pair (17/20, 0/20); the deck pair (90 %, 0 %) is in the prose below and the guns pair
+  (80 %, 0 %) in its own table. Name all three in the claim.
+- To queue (rule 4, not this task; raised in round 1 and still open): `docs/design/
+  shooting-range-lobby.md` §11.4 opens *"The shipped stage block needs no harness change: it finds
+  `Workspace.Range:FindFirstChildWhichIsA("BasePart")` … which is why `Build` still parents mat 1
+  first"*. `STAGE` is a second staging route that reads `Mat<n>` / `Stand<n>.Deck` by name, so
+  "where does the harness put him" now has two answers in one document.
 
 ---
-REVIEWER verdict on commit `ac0d8c63fc3dad2d824257df2983a25593a987e8` (round 1) · 2026-10-29 19:46 UTC · session cost $4.53, 51 turns · written by tools/agents.py
+REVIEWER verdict on commit `283cc482832ab57381b819c06249f900dec90ab6` (round 2) · 2026-10-29 20:02 UTC · session cost $2.24, 27 turns · written by tools/agents.py

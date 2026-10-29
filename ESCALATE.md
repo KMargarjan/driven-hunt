@@ -633,3 +633,24 @@ one value in `LAYOUT.SURFACE.LANE` and the frames above are what she should judg
 **4. One frame of design 11.5 is NOT obtained:** item 3 asks for the rail board below the gun with
 the berm beyond it, and the held-look camera sits above the deck rail. The berm is in the frame;
 the rail is not.
+
+## 2026-10-29 -- Task 306 step B9: the real ladder climb could not be replayed (NOT OBTAINED)
+
+`Stand2.Ladder` is a 13.8-stud `TrussPart` at (2624, 156.6, -3012); its deck top is Y 162.5 and the
+mat is Y 150.5. Twice the character was stood 2.5 studs off the ladder's face, turned to look at it
+(`306b9-ladder.luau`), and W was held with `298key.ps1 W -HoldMs 7000` / `-HoldMs 8000` after a
+focusing click. Both times he walked across the terrace at Y 153.15 -- 90 studs on the first try
+(2605.7, -3096.9) and 100 on the second (2647.1, -3112.4) -- and never left the ground. The second
+attempt was made with the bench's camera tracker retired, so the walk was not being steered by it.
+
+**So the twelve treestand cases in this task were reached by PLACING the character on the deck -- a
+teleport.** That is design 11.4's own route ("the stand cases of T4 are reached by the stage block
+placing the character on the deck ... the climb itself is a Director ops step with a screenshot"),
+and the server measured `position=treestand` for every one of them, so the firing position is real.
+What is NOT proven is that a man can climb to it. **Design 11.4's own line -- "whether climbing a
+`TrussPart` can be replayed at all is NOT ESTABLISHED" -- still stands, and it is now measured
+twice rather than assumed.** For Karen's Friday session this is the open question: if the ladder
+does not climb under a real player's keys either, the treestand is unreachable in her place.
+
+Needs: a Director ops step (a human at the keys, one screenshot from the deck), or a task to give
+the stand a working way up.
