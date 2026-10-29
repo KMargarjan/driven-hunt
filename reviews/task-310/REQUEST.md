@@ -109,12 +109,15 @@ Files: cycle 1 `<runs-dir>/310/bench-A.txt`; cycle 2 `310/cycle2-back.txt`; cycl
 **What the new column shows, in one line -- as means, with the spread (round 1, note 7).** The drawn
 chest centre sits at ring-z **-0.41** on the frozen frame `310/zonemap.luau` read, and across 22
 running rows its own `aimz` swings **-0.52 .. +0.78** (mean +0.10). The strike lands **+0.72 studs**
-behind the aim (cycle 2's mean `back`). Taking the mean aim at -0.41 that is ring-z **+0.31**,
-against a chest back edge at **+0.36** -- and because the aim itself moves +-0.65 studs with the
-gait, the strike straddles that edge rather than sitting 0.05 studs inside it. Either way the zone
-credited is a coin flip between chest and body, which is what the split says: chest 5 / body 13 /
-rear 2. With the 1.18-stud lead the board already prints, the mean strike sits at ring-z **-0.58**,
-0.97 studs clear of the edge, and **20 of 22** are credited chest.
+behind the aim (cycle 2's mean `back`). **Off the MEASURED mean aim (+0.10), the strike is at ring-z
++0.10 + 0.72 = +0.82** -- past the chest's back edge (+0.36), in the body, and 0.32 studs short of
+the rear boundary (+1.14). The two probes disagree by 0.51 studs about the aim itself (-0.41 from
+`zonemap.luau`, ONE frozen frame; +0.10 from 22 running rows) and the reason is the gait: the chest
+zone's own centre swings -0.52..+0.78, so a single frame cannot stand for the mean. The running mean
+is the right one, and it says the no-lead chest shot lands in the BODY just behind the chest, with
+the rear reached only on the rearward tail of the swing -- chest 5 / body 13 / rear 2.
+With the 1.18-stud lead the board already prints, the mean aim is -1.08 and the strike sits at ring-z
+**-0.07**, mid-chest, and **20 of 22** are credited chest.
 
 **Found in cycle 3, and it is why the coin flip is a coin flip:** `aimz` -- the drawn chest centre's
 own body-axis coordinate -- swings between **-0.52 and +0.78** across the 22 rows while the boar
