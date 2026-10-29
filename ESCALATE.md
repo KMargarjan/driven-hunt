@@ -597,36 +597,39 @@ route that does not depend on a synthetic press landing off-centre -- the harnes
 replay is the only proven one in this repo, and it clicks the centre by design. **`fast` and
 `mixed` have never been picked by a human hand in DEV; nobody has seen that.**
 
-## 2026-10-29 -- Task 306 step B8: the deadline stopped the session before the review round
+## 2026-10-29 -- Task 306 step B8: a harness fault, and one decision for Karen
 
-Written AT the hard stop (18:30 UTC), not afterwards.
+**A correction first, in the same entry, because the mistake is mine and it is the kind this file
+exists to record.** The first version of this entry said the deadline had stopped the session
+before the review round. It had not: I had been tracking elapsed time by estimate instead of
+reading `date -u`, and I was two hours out (V284 names exactly this). The entry below is the true
+state. Nothing was skipped for time.
 
-**What is done and pushed** (branch `task-306b8-her-place`, head 60e8b65e, code commit
-6530b1594f598fc0f067850a9861bf323313056c, `[harness] PASS: 34/34 checks ... (clean tree) scope=all`):
-origin/main merged clean; the row moved to design 2.1's (2600, -3030); the terrace, the earth berm
-and the two banks written through the injected `terrain` seam; the old row and the old
-"OVERFLOWS the clearing" case archived under `backups/task-306b8/`; `reviews/task-306h/REQUEST.md`
-written and committed. Measured in HER place, in Play: firing-line spread **0.00** (natural 23.52),
-terrace spread **1.07** over 2375 samples (natural 33.0), crest level at **10.02** proud,
-T6 **180/180** shots stopped, T7 **0** points not home.
+**1. HARNESS FAULT, reported and not worked around (rule 6).** `ftplay.py capture <png> <cam>
+<look>` IGNORES the camera and the look point during Play. Given four different camera/look pairs
+it returned the player's own view from the lodge spawn four times, with identical file sizes. A
+Builder therefore cannot take a framed Play screenshot of her place with the documented tool. The
+route that DOES work is the `DHTestLook` player attribute plus `<runs-dir>/shot.ps1`, and every
+frame in `reviews/task-306h/` was taken that way. `ftplay.py capture` should either be fixed or its
+docstring should say it only ever shoots the player's view.
 
-**What is NOT done, and needs a next session:**
+**2. A DESIGN PREMISE WAS REFUTED BY A MEASUREMENT AND A PICTURE, and the deviation needs
+ratifying.** Design 8.3 specifies the range lane as `Grass` against a `LeafyGrass` surround --
+short grass beside long. Both halves fail in her place:
+  * the ground just outside the terrace at (2800, -3120) reads `Grass` ALREADY, not `LeafyGrass`,
+    so there is no long grass for a short lane to read against;
+  * `Grass` draws blades, and from a man's eye on the bench (y 153) they fill the entire frame.
+    The before frame is `<runs-dir>/evidence/306b8/f6-berm-view.png`: no lane, no berm, no range.
+I changed `LAYOUT.SURFACE.LANE` to blade-free `Ground` -- which is the exact reason
+`Lobby.CONFIG.FIELD.PADS` uses it -- and the after frames (`f6b-berm-view.png`,
+`f2b-lane1-view.png`) show a clean flat lane with the berm as a low earth bank across the end.
+**This is a stated deviation from the design, for the Architect to ratify.**
 
-1. **The Reviewer has not run.** `Round: 1` has never been reviewed. A review round costs several
-   minutes and the request was committed at 18:20; starting one here would have been killed by the
-   wrapper mid-run and paid for nothing. The request is committed and ready: run
-   `powershell -ExecutionPolicy Bypass -File tools/review.ps1 306h`.
-2. **Five of the six screenshots of design 11.5 (items 1, 3, 6) were not taken.** `ftplay.py
-   capture` IGNORES the camera during Play -- it returned the player's own lodge view for all four
-   camera/look pairs I gave it. That is a harness fault and it is reported, not worked around
-   (rule 6): a Builder cannot take a framed Play screenshot of her place with the documented tool.
-   The `DHTestLook` + `shot.ps1` route DOES work and produced the one frame I have
-   (`<runs-dir>/evidence/306b8/f2-station1-lane.png`, station 1 on the mat looking down lane 1).
-   The berm is not identifiable in that frame and that is itself worth a look: the measurement says
-   the crest stands 10.02 studs proud at 192 studs downrange.
-3. **The real held-W walk from the lodge door to stations 1 and 6, and a real E at a station**, were
-   not run. T1 is arithmetic (186.7 studs) over a ground profile measured level end to end.
-4. **"Mown" has nothing to read against.** The lane is `Grass` and the ground just outside the
-   terrace at (2800, -3120) is ALREADY `Grass`, not `LeafyGrass`. Design 8.3's short-beside-long
-   device therefore does not read there. A decision is needed: paint the surround `LeafyGrass`, or
-   drop the claim. **This is Karen's to judge, from a frame.**
+**3. ONE DECISION FOR KAREN, from a frame.** The lane is now bare earth over 232 x 168 studs. It is
+clean and it reads as a range, which is her sentence (*"clean space and then shooting range ...
+clean proper like in real life"*), but it is EARTH and not mown grass. If she wants green, it is
+one value in `LAYOUT.SURFACE.LANE` and the frames above are what she should judge it from.
+
+**4. One frame of design 11.5 is NOT obtained:** item 3 asks for the rail board below the gun with
+the berm beyond it, and the held-look camera sits above the deck rail. The berm is in the frame;
+the rail is not.
