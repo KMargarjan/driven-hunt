@@ -425,8 +425,23 @@ function Build.build(opts)
 		-- roof's own bottom, the roof over them, and the station's NUMBER on the uprange fascia.
 		-- Nothing here is in a line of fire: `Range.sightHalfWidthAt` is the bound and `range.spec`
 		-- asserts every post against it.
+		-- THE HUT STANDS ON THE GROUND UNDER IT, NOT ON THE SHELF, and that is a MEASUREMENT
+		-- (frame `<runs-dir>/306b10-after-B.png`, her place, 2026-10-29): the shelf there is 148
+		-- and the ground the mats are laid on is 150, so a roof placed at `anchor.Y + roofRise`
+		-- hung 2 studs over the shooter's eye and filled half his frame. `promptPosition`'s header
+		-- already states the convention -- the pure point is the SHELF's, the BUILT one is the
+		-- measured ground's -- and this is that correction applied to the roof, the board and the
+		-- turf. The HIGHEST of the five samples, so no corner of the roof dips toward a head.
 		local hut = layout.HUT
-		local roofAt = RangeData.hutRoofPosition(anchor, spot, layout, dir)
+		local roofPure = RangeData.hutRoofPosition(anchor, spot, layout, dir)
+		local _roofLo, roofHi = groundUnder(
+			roofPure.X,
+			roofPure.Z,
+			hut.roofSize,
+			shelf :: number,
+			if row.plate == true then nil else opts.groundAt
+		)
+		local roofAt = Vector3.new(roofPure.X, roofHi + hut.roofRise + hut.roofSize.Y / 2, roofPure.Z)
 		for corner, hutAt in ipairs(RangeData.hutPostPositions(anchor, spot, layout, dir)) do
 			local footY = groundAtOr(hutAt.x, hutAt.z) - 0.3
 			local topY = roofAt.Y - hut.roofSize.Y / 2
@@ -441,7 +456,8 @@ function Build.build(opts)
 			)
 		end
 		makePart(RangeData.hutRoofName(spot), hut.roofSize, roofAt, hut.roofColor, folder, Enum.Material.WoodPlanks)
-		local boardAt = RangeData.boardPosition(anchor, spot, layout, dir)
+		local boardPure = RangeData.boardPosition(anchor, spot, layout, dir)
+		local boardAt = Vector3.new(boardPure.X, roofHi + hut.boardRise, boardPure.Z)
 		local board = makePart(
 			RangeData.boardName(spot),
 			hut.boardSize,
@@ -601,14 +617,16 @@ function Build.build(opts)
 	-- ONE SLAB PER TERRACE RECTANGLE: her place's terrace is two (`cutRects`' keep-out), and a
 	-- single slab across both would hang over the lodge terrace's edge.
 	for index, rect in ipairs(RangeData.turfSlabs(anchor, layout, dir, row)) do
+		local size = Vector3.new(rect.maxX - rect.minX, layout.TURF.thickness, rect.maxZ - rect.minZ)
+		local cx, cz = (rect.minX + rect.maxX) / 2, (rect.minZ + rect.maxZ) / 2
+		-- ON THE GROUND IT SKINS, not on the shelf: in her place those are 150 and 148, and laid on
+		-- the shelf the mown lane was 1.9 studs UNDER the terrain -- invisible, which is exactly
+		-- what the first frame from the bench showed (2026-10-29).
+		local _lo, hi = groundUnder(cx, cz, size, shelf :: number, if row.plate == true then nil else opts.groundAt)
 		local turf = makePart(
 			if index == 1 then RangeData.TURF_NAME else string.format("%s%d", RangeData.TURF_NAME, index),
-			Vector3.new(rect.maxX - rect.minX, layout.TURF.thickness, rect.maxZ - rect.minZ),
-			Vector3.new(
-				(rect.minX + rect.maxX) / 2,
-				(shelf :: number) + layout.TURF.liftStuds - layout.TURF.thickness / 2,
-				(rect.minZ + rect.maxZ) / 2
-			),
+			size,
+			Vector3.new(cx, hi + layout.TURF.liftStuds - layout.TURF.thickness / 2, cz),
 			layout.TURF.color,
 			folder,
 			layout.TURF.material
