@@ -21,6 +21,16 @@ fires N shots (default 30) and prints: N, hits, the zones the server scored, the
 95 % Wilson interval, and the mean ALONG / VERTICAL miss of the server's impact against the point
 the client was drawing when the trigger went.
 
+**WHY THE DEFAULT IS 30, AND WHAT IT DOES NOT BUY** (round 2, finding 2). It is a chosen cost: at a
+true 70 % it halves the 95 % Wilson half-width -- +-24.8 pp at N = 10 against +-15.6 pp at N = 30
+(`wilson(7, 10)` against `wilson(21, 30)`, below) -- for about two minutes of clicks per cell. It
+does NOT make a 70 % cell and a 40 % cell print disjoint intervals: this bench's own first table has
+`nose 21/30 = 70 % (52-83)` against `eye 12/30 = 40 % (25-58)`, which overlap over 52-58. Disjoint
+Wilson intervals there need **N = 41**. What separates 70 % from 40 % at N = 30 is a two-proportion
+z-test: **z = 2.335, p = 0.0195**. So use 30 to COMPARE two cells, and `--shots 41` when the printed
+intervals themselves must be disjoint. The CONTROL / KNOWN-BAD pair is a 60-90 % against a 0-20 %,
+which IS disjoint at 30 -- that is why the self-check works at the default.
+
 Two cells run in EVERY session and the table says so if either reads wrong:
   CONTROL   chest centre + Ballistics.leadStuds  -- the textbook aim. Must read HIGH.
   KNOWN-BAD nose + one drawn body length of air  -- clear air. Must read ~0.
@@ -794,6 +804,18 @@ return string.format("NOTREADY px=%.1f,%.1f spd=%.2f held=%s", dx, dy, spd, tost
 """
 
 
+def camera_write_free(src):
+    """Does this Luau text assign to a `.CFrame`? (round 2, finding 1.)
+
+    The bench must reach the camera ONLY through `Camera.TestLook`; `Camera.Rig` is the one writer
+    of `workspace.CurrentCamera` in the repo. The old guard looked for the literal
+    `"CurrentCamera.CFrame ="`, which the realistic write does not contain: `RESIDENT`'s own idiom
+    is `local cam = workspace.CurrentCamera`, so a second writer reads `cam.CFrame = ...`.
+    Whitespace is squashed first, so `cam.CFrame=cf` and a double-spaced `=` are caught too.
+    """
+    return ".CFrame=" not in "".join(str(src).split())
+
+
 def oneline(src, **kw):
     """Strip a Luau block to one line for execute_luau (`305run.py`'s own helper).
 
@@ -1297,8 +1319,22 @@ def selftest():
     resident = oneline(RESIDENT)
     assert "--" not in resident, "a comment survived the strip and would eat the whole line"
     assert "\n" not in resident and "DHTestLook" in resident and "DHBenchRows" in resident
-    # the resident must reach the camera ONLY through the owner's hook, never by writing the camera
-    assert "CurrentCamera.CFrame =" not in resident, "the bench must not write the camera"
+    # THE CAMERA-WRITE GUARD, AND THE PROOF THAT IT BITES (round 2, finding 1). The guard is run
+    # against the shipped text AND against four spellings of the write it forbids, so deleting the
+    # `DHTestLook` steering and aiming the camera directly cannot leave this selftest green.
+    assert camera_write_free(resident), "the bench must not write the camera"
+    assert camera_write_free(oneline(GATE))
+    for mutation in (
+        "local cam = workspace.CurrentCamera cam.CFrame = CFrame.lookAt(origin, p)",
+        "workspace.CurrentCamera.CFrame = cf",
+        "cam.CFrame=CFrame.new(p)",
+        "workspace.CurrentCamera.CFrame  =  cf",
+    ):
+        assert not camera_write_free(mutation), mutation
+        assert not camera_write_free(resident + " " + mutation), mutation
+    # ...and through `oneline`, which is the form `install` actually sends.
+    for mutation in ("cam.CFrame = CFrame.lookAt(a, b)", "workspace.CurrentCamera.CFrame = cf"):
+        assert not camera_write_free(oneline(RESIDENT + "\n" + mutation)), mutation
 
     # --- the Lua payload builder quotes what crosses the wire
     assert _lua_table({"pace": "run", "spot": 1}) == '{ pace = "run", spot = 1 }'

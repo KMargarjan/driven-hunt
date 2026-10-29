@@ -21,9 +21,17 @@ Director tool, CI and two docs files.
 * **(b) MEASURED NOW.** Five rigs, one build, three answers for rifle/RUN/nose: **9/10**
   (`<runs-dir>/playtest/check305c/report.md` item 1), **5/9** (`<runs-dir>/305d/U2`), **4/10**
   (`reviews/task-305b/MEASURED.md`, chest+lead, where its own nose read 9/10).
-* **(c) TARGET.** N = 30 per cell: +-17 pp at a true 70 %, against +-29 pp at N = 10 -- the smallest
-  N at which a 70 % cell and a 40 % cell stop overlapping. Plus a CONTROL cell >= 50 % and a
-  KNOWN-BAD cell <= 20 %, with **non-overlapping** 95 % intervals.
+* **(c) TARGET.** N = 30 per cell, **a chosen cost and not a threshold**: it halves the 95 % Wilson
+  half-width at a true 70 %, from **+-24.8 pp at N = 10 to +-15.6 pp** (`wilson(7, 10)` against
+  `wilson(21, 30)`), for ~2 min of clicks. **CORRECTED IN ROUND 3 (round 2, finding 2):** rounds 1
+  and 2 said N = 30 was *"the smallest N at which a 70 % cell and a 40 % cell stop overlapping"* --
+  **wrong arithmetic, disproved by this task's own table** (`rifle/run/nose` 70 % 52-83 against
+  `rifle/run/eye` 40 % 25-58, overlapping over 52-58). Disjoint Wilson intervals there need
+  **N = 41** (measured over `round(0.7N)/N` vs `round(0.4N)/N`; the Reviewer's `~44` is the
+  idealised-proportion answer). The defensible claim at N = 30 is the **two-proportion z-test,
+  z = 2.335, p = 0.0195**. Plus a CONTROL cell >= 50 % and a KNOWN-BAD cell <= 20 % whose 95 %
+  intervals must not overlap -- that pair is a 60-90 % against a 0-20 %, which IS disjoint at
+  N = 30, and is why the self-check works at the default.
 * **(d) LEVER.** There is no `src/` change in this task: the deliverable IS the instrument. The
   three things it drives already exist and each has one writer --
   `src/client/Camera/TestLook.luau:51` (`TestLook.ATTRIBUTE = "DHTestLook"`),
