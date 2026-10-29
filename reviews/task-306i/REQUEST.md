@@ -3,7 +3,7 @@
 Task: 306i
 Round: 1
 Base: task-306b8-her-place @ 21c9d7bf
-Code commit: <FILL>
+Code commit: 6662ee816bcf71f22c4662f2b9102c01f2a4cae1
 
 ## PLAN (core quality protocol step 0)
 
@@ -105,9 +105,66 @@ bench on every case.
 `9bbfc71e`, QUEUED). This task changed no game code, so it could not have moved: 17 of 20 rear-or-
 body here is the same defect at a longer lane. No claim is made that it is fixed.
 
+## THE OTHER GUNS AND THE RED DEER at RUN, front of chest (station 4, bench, lane 179, N = 20)
+
+```
+    shotgun:SLUG/run/chestfront~boar   20     6     30% 15% - 52%          -0.23    +1.87    -0.04    +1.34    +0.65   6/20           
+    lever/run/chestfront~boar          20    11     55% 34% - 74%          -0.74    +1.59    +0.02    +0.70    +0.52  11/20           
+    rifle/run/chestfront~reddeer       20    15     75% 53% - 89%          -0.73    +1.40    -0.08    +0.34    +0.68  15/20           
+    rifle/run/chest+lead~boar          20    16     80% 58% - 92%          -0.69    +1.10    +0.06    +0.33    -0.30  16/20  CONTROL  
+    rifle/run/ahead~boar               20     0      0% 0% - 16%           +0.20       --    -0.04    +0.43       --   0/20  KNOWN-BAD
+```
+zones: shotgun SLUG body 3 rear 2 chest 1 · lever body 8 chest 3 · reddeer chest 9 body 6.
+This session's own CONTROL read 16/20 = 80 % and its KNOWN-BAD 0/20 = 0 % (`306b9-guns.txt`).
+Same shape as the rifle: `back` +1.87 (slug), +1.59 (lever), +1.40 (red deer) -- the strike lands
+one and a half to two studs BEHIND the aim at a run. 310b, again, and worse for the slower bullets.
+
+## Frames, each opened and described in the report
+
+`306b9-f1-lane2-bench-crop.png` · `306b9-f2-lane2-deck-crop.png` ·
+`306b9-f5-deck-rail-crop.png` (design 11.5 item 3: the rail board under the gun, the lane and a
+boar on it, the berm beyond) · `306b9-f3-menu-station4-crop.png` and
+`306b9-f4-menu-station2-crop.png` (item 5: six paces + MIXED, three distances, and each station's
+OWN board -- 21 shots at station 4 against 1 at station 2) · `306b9-f-hitcard-treestand.png`
+(the hit card with its red chest dot, taken at 18:29:35 UTC while the 18:28:50 treestand batch was
+firing from `Stand2.Deck`).
+
+## Gate
+
+```
+[harness] PASS: 34/34 checks @ 6662ee816bcf71f22c4662f2b9102c01f2a4cae1 (clean tree) scope=all
+```
+`test2` N/A: `agents.needs_two_player(['tools/aim_bench.py'])` answers `[]` -- no changed path is in
+`TWO_PLAYER_PATHS`.
+
 ## What could not be verified
 
 - design 11.5 item 4 (the isolation frame from TWO clients at two stations): one Play client in
-  this session. NOT OBTAINED.
+  this session, and design 11.6 already makes T3 the Director's ops step. **NOT OBTAINED.**
+- **the real ladder climb: NOT OBTAINED.** `Stand2.Ladder` is a 13.8-stud `TrussPart` at
+  (2624, 156.6, -3012). Twice the character was stood 2.5 studs off its face looking at it and W
+  was held for 7 s and 8 s with `298key.ps1` after a focusing click: he walked 90 and 100 studs
+  across the terrace at Y 153.15 and never left the ground. **The treestand cases in this task were
+  reached by placing the character on the deck -- a teleport**, which is design 11.4's own stated
+  route ("the stand cases of T4 are reached by the stage block placing the character on the deck
+  ... the climb itself is a Director ops step with a screenshot").
 - the hit card's own dot could not be read as an instance by the resident (`card=(None,None)` on
   every row); the drawn card shows it, and the frame is the evidence.
+
+## Answered flags
+
+- **ANSWERED: L-136** no spec failed; the harness is 34/34 and no FAIL line is quoted, so the
+  named flake (`weapon_shot.spec.luau:1490`) never came up and nothing is called "known".
+- **ANSWERED: L-127** every dispatch item is MET / NOT MET / NOT PROVEN in the handover block.
+- **ANSWERED: L-123** the CONTROL and KNOWN-BAD cells are numbers in all three tables: bench
+  85 % / 0 %, treestand 90 % / 0 %, guns 80 % / 0 %.
+- **ANSWERED: verdict-298** the moving-target hit table from both firing positions IS the proof,
+  and it is above with its zone split, not a spec.
+- **ANSWERED: L-143** `back` is printed on every row and every cell whose `back` and `-along`
+  disagree by more than 0.5 studs says so by name.
+- **ANSWERED: the ROUTE note on 310b** `TASKS.md` row 310b is still QUEUED; no game code changed
+  here, so RUN chest could not have moved, and no >= 90 % is claimed for it.
+- **ANSWERED: the ROUTE note on T6 / item 3** T6 is now MET by fired shots, not computed rays
+  (280 of them), and design 11.5 item 3 IS obtained (`306b9-f5-deck-rail-crop.png`).
+- **ANSWERED: L-124** the ladder climb was the item that could not be made to work; it is an
+  `ESCALATE.md` entry and a NOT OBTAINED line, not a workaround reported as a pass.
