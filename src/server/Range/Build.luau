@@ -622,7 +622,11 @@ function Build.build(opts)
 		-- ON THE GROUND IT SKINS, not on the shelf: in her place those are 150 and 148, and laid on
 		-- the shelf the mown lane was 1.9 studs UNDER the terrain -- invisible, which is exactly
 		-- what the first frame from the bench showed (2026-10-29).
-		local _lo, hi = groundUnder(cx, cz, size, shelf :: number, if row.plate == true then nil else opts.groundAt)
+		-- ONE READING AT THE SLAB'S OWN CENTRE, and NOT `groundUnder`'s five: this slab is 232 x 158
+		-- and its corners sit on the BERM and the BANKS, so the five-sample rule -- written for a
+		-- 6-stud bench -- floated the lane 11.7 studs into the air on the next frame. The terrace it
+		-- skins is flat by construction (`CUT`), which is the whole reason one reading is enough here.
+		local hi = groundAtOr(cx, cz)
 		local turf = makePart(
 			if index == 1 then RangeData.TURF_NAME else string.format("%s%d", RangeData.TURF_NAME, index),
 			size,
