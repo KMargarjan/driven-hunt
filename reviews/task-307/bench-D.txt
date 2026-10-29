@@ -1,0 +1,55 @@
+[aim_bench] studio=8549abbd-9e46-4357-89e6-b0f89cff8338
+[aim_bench] placeId=130094961655666 DHFlag_AIM_REWIND=true DHFlag_BOAR_BEHAVIOUR=true DHFlag_BOAR_MODEL=true DHFlag_COINS=true DHFlag_DEER_ROAD_LEAP=true DHFlag_DRIVE_BOTS=true DHFlag_HIT_CLAIM=false DHFlag_HORN=true DHFlag_LICENCE_POPUP=true DHFlag_LOBBY=true DHFlag_RANGE=true DHFlag_SHOP=true DHFlag_ZONES_FOLLOW_GAIT=true
+[aim_bench] bench up gen=10
+
+CELL rifle/trot/nose~boar.male
+  picked rifle/trot/nose~boar.male -> RangeRequest sent | board: species=boar kind=male pace=trot weapon=rifle ammo=Slug shots=0 hits=0
+  held=Rifle
+  fired 6, rows 6
+    #1 hit=True zone=head spd=11.59 dist=132.1 along=2.056 up=0.129 card=(None,None) src=nose
+    #2 hit=True zone=chest spd=11.42 dist=132.8 along=1.626 up=0.099 card=(None,None) src=nose
+    #3 hit=True zone=chest spd=10.61 dist=135.9 along=1.418 up=-0.033 card=(None,None) src=nose
+    #4 hit=True zone=chest spd=13.8 dist=125.3 along=1.869 up=0.158 card=(None,None) src=nose
+    #5 hit=True zone=chest spd=11.91 dist=128.5 along=2.205 up=0.006 card=(None,None) src=nose
+    #6 hit=True zone=body spd=11.42 dist=124.6 along=1.224 up=-0.013 card=(None,None) src=nose
+
+CELL rifle/run/chest+lead~boar
+  picked rifle/run/chest+lead~boar -> RangeRequest sent | board: species=boar kind=male pace=run weapon=rifle ammo=Slug shots=0 hits=0
+  held=Rifle
+  fired 6, rows 6
+    #1 hit=True zone=rear spd=23.74 dist=130.1 along=3.394 up=0.074 card=(None,None) src=chest+lead1.22
+    #2 hit=True zone=rear spd=13.84 dist=136.2 along=2.468 up=0.223 card=(None,None) src=chest+lead0.74
+    #3 hit=True zone=rear spd=21.47 dist=135.8 along=2.139 up=0.422 card=(None,None) src=chest+lead1.15
+    #4 hit=False zone=- spd=20.37 dist=136.2 along=-0.521 up=-0.266 card=(None,None) src=chest+lead1.09
+    #5 hit=True zone=body spd=26.61 dist=130.8 along=4.016 up=0.052 card=(None,None) src=chest+lead1.37
+    #6 hit=True zone=head spd=22.74 dist=126.0 along=5.624 up=-0.315 card=(None,None) src=chest+lead1.13
+
+CELL rifle/run/ahead~boar
+  picked rifle/run/ahead~boar -> RangeRequest sent | board: species=boar kind=male pace=run weapon=rifle ammo=Slug shots=6 hits=5
+  held=Rifle
+  fired 6, rows 6
+    #1 hit=False zone=- spd=21.11 dist=129.3 along=3.83 up=0.737 card=(None,None) src=ahead:5.55
+    #2 hit=False zone=- spd=22.5 dist=115.3 along=10.719 up=0.925 card=(None,None) src=ahead:5.58
+    #3 hit=False zone=- spd=24.9 dist=129.3 along=4.018 up=-0.113 card=(None,None) src=ahead:5.55
+    #4 hit=False zone=- spd=24.43 dist=109.8 along=7.786 up=0.203 card=(None,None) src=ahead:5.65
+    #5 hit=False zone=- spd=19.94 dist=133.6 along=2.442 up=-0.011 card=(None,None) src=ahead:5.76
+    #6 hit=False zone=- spd=23.0 dist=107.4 along=-16.632 up=0.392 card=(None,None) src=ahead:5.78
+
+[aim_bench] last server hit trace (ServerStorage.DHLastHits):
+    nil
+
+AIM BENCH -- 2026-10-29 01:19:32 UTC
+place 130094961655666, 6 shots asked per cell
+
+cell                            N  hits    rate 95% interval       along       up  role     
+--------------------------------------------------------------------------------------------
+rifle/trot/nose~boar.male       6     6    100% 61% - 100%         +1.73    +0.06           
+    zones: chest 4  body 1  head 1
+rifle/run/chest+lead~boar       6     5     83% 44% - 97%          +2.85    +0.03  CONTROL  
+    zones: rear 3  body 1  head 1
+rifle/run/ahead~boar            6     0      0% 0% - 39%           +2.03    +0.36  KNOWN-BAD
+
+along / up are the SERVER's impact minus the point the CLIENT was drawing, in the
+animal's own frame: +along is down its heading (behind the aim point), +up is above.
+
+Self-check: CONTROL and KNOWN-BAD both read as they must.

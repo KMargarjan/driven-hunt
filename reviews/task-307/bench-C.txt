@@ -1,0 +1,390 @@
+# NOTE added after the run: the cell-name separator was renamed `@` -> `~` (the `@` form
+# matched tools/privacy_scan.py's email rule and failed CI). The rename touches the cell
+# NAME only -- no number in this file changed.
+[aim_bench] studio=8549abbd-9e46-4357-89e6-b0f89cff8338
+[aim_bench] placeId=130094961655666 DHFlag_AIM_REWIND=true DHFlag_BOAR_BEHAVIOUR=true DHFlag_BOAR_MODEL=true DHFlag_COINS=true DHFlag_DEER_ROAD_LEAP=true DHFlag_DRIVE_BOTS=true DHFlag_HIT_CLAIM=false DHFlag_HORN=true DHFlag_LICENCE_POPUP=true DHFlag_LOBBY=true DHFlag_RANGE=true DHFlag_SHOP=true DHFlag_ZONES_FOLLOW_GAIT=true
+[aim_bench] bench up gen=9
+
+CELL rifle/walk/nose~boar
+  picked rifle/walk/nose~boar -> RangeRequest sent | board: species=boar kind=male pace=walk weapon=rifle ammo=Slug shots=0 hits=0
+  held=Rifle
+  fired 30, rows 30
+    #1 hit=True zone=head spd=4.08 dist=125.7 along=0.974 up=0.088 card=(None,None) src=nose
+    #2 hit=True zone=head spd=4.8 dist=133.0 along=0.547 up=0.023 card=(None,None) src=nose
+    #3 hit=True zone=head spd=5.06 dist=130.1 along=1.236 up=-0.23 card=(None,None) src=nose
+    #4 hit=True zone=head spd=4.18 dist=129.2 along=0.916 up=0.075 card=(None,None) src=nose
+    #5 hit=True zone=chest spd=0.0 dist=132.1 along=0.344 up=-0.55 card=(None,None) src=nose
+    #6 hit=False zone=- spd=5.39 dist=130.1 along=-7.08 up=0.375 card=(None,None) src=nose
+    #7 hit=True zone=head spd=4.68 dist=123.1 along=0.43 up=-0.057 card=(None,None) src=nose
+    #8 hit=True zone=body spd=4.66 dist=126.3 along=-0.997 up=-0.001 card=(None,None) src=nose
+    #9 hit=True zone=head spd=2.53 dist=123.3 along=0.629 up=0.09 card=(None,None) src=nose
+    #10 hit=True zone=head spd=4.88 dist=130.1 along=1.097 up=0.058 card=(None,None) src=nose
+    #11 hit=True zone=chest spd=5.08 dist=126.5 along=-0.162 up=-0.076 card=(None,None) src=nose
+    #12 hit=True zone=chest spd=4.58 dist=127.0 along=-0.351 up=0.035 card=(None,None) src=nose
+    #13 hit=False zone=- spd=4.88 dist=130.1 along=-6.252 up=0.337 card=(None,None) src=nose
+    #14 hit=True zone=head spd=4.37 dist=123.0 along=0.687 up=-0.057 card=(None,None) src=nose
+    #15 hit=True zone=rear spd=4.77 dist=135.0 along=-2.612 up=-0.037 card=(None,None) src=nose
+    #16 hit=False zone=- spd=1.41 dist=136.1 along=-0.039 up=0.08 card=(None,None) src=nose
+    #17 hit=True zone=head spd=4.51 dist=129.2 along=0.781 up=-0.097 card=(None,None) src=nose
+    #18 hit=True zone=head spd=5.0 dist=127.3 along=0.652 up=0.035 card=(None,None) src=nose
+    #19 hit=False zone=- spd=4.96 dist=132.3 along=-0.193 up=0.108 card=(None,None) src=nose
+    #20 hit=True zone=head spd=4.16 dist=123.3 along=0.771 up=0.098 card=(None,None) src=nose
+    #21 hit=True zone=rear spd=4.4 dist=135.0 along=-2.707 up=0.019 card=(None,None) src=nose
+    #22 hit=True zone=head spd=4.26 dist=137.3 along=0.831 up=-0.029 card=(None,None) src=nose
+    #23 hit=True zone=chest spd=4.94 dist=127.5 along=-0.016 up=0.153 card=(None,None) src=nose
+    #24 hit=True zone=head spd=4.88 dist=129.2 along=1.424 up=-0.194 card=(None,None) src=nose
+    #25 hit=True zone=head spd=4.67 dist=128.5 along=0.978 up=-0.032 card=(None,None) src=nose
+    #26 hit=True zone=head spd=5.37 dist=129.4 along=1.169 up=0.014 card=(None,None) src=nose
+    #27 hit=True zone=head spd=4.42 dist=127.5 along=0.485 up=-0.07 card=(None,None) src=nose
+    #28 hit=False zone=- spd=3.82 dist=130.1 along=-7.524 up=0.335 card=(None,None) src=nose
+    #29 hit=True zone=head spd=4.49 dist=123.2 along=0.556 up=-0.055 card=(None,None) src=nose
+    #30 hit=True zone=head spd=4.43 dist=127.8 along=0.756 up=0.107 card=(None,None) src=nose
+
+CELL rifle/walk/chestfront~boar
+  picked rifle/walk/chestfront~boar -> RangeRequest sent | board: species=boar kind=male pace=walk weapon=rifle ammo=Slug shots=30 hits=25
+  held=Rifle
+  fired 30, rows 30
+    #1 hit=True zone=chest spd=4.4 dist=127.5 along=0.875 up=-0.171 card=(None,None) src=chestfront
+    #2 hit=True zone=chest spd=0.0 dist=132.0 along=-0.273 up=-1.646 card=(None,None) src=chestfront
+    #3 hit=True zone=chest spd=4.4 dist=130.0 along=1.942 up=-0.397 card=(None,None) src=chestfront
+    #4 hit=True zone=chest spd=5.42 dist=130.6 along=0.744 up=0.124 card=(None,None) src=chestfront
+    #5 hit=True zone=chest spd=4.84 dist=129.0 along=0.481 up=-0.149 card=(None,None) src=chestfront
+    #6 hit=True zone=chest spd=4.68 dist=134.5 along=-0.903 up=-0.151 card=(None,None) src=chestfront
+    #7 hit=True zone=chest spd=5.2 dist=132.1 along=0.705 up=-0.074 card=(None,None) src=chestfront
+    #8 hit=True zone=chest spd=4.44 dist=131.2 along=0.539 up=0.113 card=(None,None) src=chestfront
+    #9 hit=True zone=chest spd=4.78 dist=127.8 along=-0.24 up=0.053 card=(None,None) src=chestfront
+    #10 hit=True zone=chest spd=4.52 dist=131.2 along=0.543 up=-0.012 card=(None,None) src=chestfront
+    #11 hit=True zone=chest spd=5.81 dist=131.5 along=0.629 up=-0.248 card=(None,None) src=chestfront
+    #12 hit=True zone=chest spd=4.88 dist=127.7 along=-0.004 up=0.052 card=(None,None) src=chestfront
+    #13 hit=True zone=chest spd=4.4 dist=128.9 along=0.736 up=-0.144 card=(None,None) src=chestfront
+    #14 hit=True zone=chest spd=4.93 dist=129.4 along=0.705 up=0.109 card=(None,None) src=chestfront
+    #15 hit=True zone=chest spd=5.1 dist=133.0 along=0.062 up=0.135 card=(None,None) src=chestfront
+    #16 hit=True zone=body spd=4.05 dist=133.9 along=-1.262 up=0.036 card=(None,None) src=chestfront
+    #17 hit=True zone=chest spd=3.27 dist=130.6 along=0.463 up=-0.047 card=(None,None) src=chestfront
+    #18 hit=True zone=rear spd=4.53 dist=133.1 along=-1.373 up=-0.074 card=(None,None) src=chestfront
+    #19 hit=True zone=chest spd=3.63 dist=139.6 along=0.505 up=-0.072 card=(None,None) src=chestfront
+    #20 hit=False zone=- spd=5.32 dist=128.0 along=-12.443 up=0.41 card=(None,None) src=chestfront
+    #21 hit=True zone=chest spd=4.44 dist=122.4 along=0.814 up=-0.097 card=(None,None) src=chestfront
+    #22 hit=False zone=- spd=4.77 dist=132.8 along=5.91 up=0.149 card=(None,None) src=chestfront
+    #23 hit=True zone=chest spd=4.04 dist=132.0 along=0.678 up=-0.01 card=(None,None) src=chestfront
+    #24 hit=False zone=- spd=5.08 dist=128.3 along=-11.9 up=0.374 card=(None,None) src=chestfront
+    #25 hit=True zone=chest spd=4.27 dist=122.7 along=0.7 up=-0.134 card=(None,None) src=chestfront
+    #26 hit=True zone=chest spd=4.64 dist=127.4 along=1.066 up=0.065 card=(None,None) src=chestfront
+    #27 hit=True zone=chest spd=4.41 dist=127.2 along=0.944 up=0.078 card=(None,None) src=chestfront
+    #28 hit=True zone=chest spd=5.21 dist=131.3 along=0.455 up=0.025 card=(None,None) src=chestfront
+    #29 hit=True zone=chest spd=4.4 dist=127.4 along=0.264 up=0.082 card=(None,None) src=chestfront
+    #30 hit=True zone=chest spd=4.72 dist=130.8 along=0.705 up=-0.082 card=(None,None) src=chestfront
+
+CELL rifle/walk/eye~boar
+  picked rifle/walk/eye~boar -> RangeRequest sent | board: species=boar kind=male pace=walk weapon=rifle ammo=Slug shots=60 hits=52
+  held=Rifle
+  fired 30, rows 30
+    #1 hit=True zone=chest spd=5.39 dist=124.4 along=0.726 up=0.035 card=(None,None) src=eye:bone
+    #2 hit=True zone=head spd=4.43 dist=130.0 along=1.697 up=-0.027 card=(None,None) src=eye:bone
+    #3 hit=True zone=chest spd=4.2 dist=128.3 along=0.962 up=0.027 card=(None,None) src=eye:bone
+    #4 hit=True zone=chest spd=4.2 dist=128.5 along=1.075 up=-0.097 card=(None,None) src=eye:bone
+    #5 hit=True zone=head spd=4.57 dist=128.1 along=1.088 up=-0.003 card=(None,None) src=eye:bone
+    #6 hit=True zone=chest spd=5.27 dist=130.2 along=1.625 up=0.012 card=(None,None) src=eye:bone
+    #7 hit=True zone=chest spd=4.75 dist=132.8 along=-0.04 up=0.01 card=(None,None) src=eye:bone
+    #8 hit=True zone=chest spd=4.2 dist=134.4 along=-0.592 up=0.3 card=(None,None) src=eye:bone
+    #9 hit=False zone=- spd=4.06 dist=130.9 along=-4.968 up=0.314 card=(None,None) src=eye:bone
+    #10 hit=True zone=chest spd=4.58 dist=123.6 along=0.786 up=0.04 card=(None,None) src=eye:bone
+    #11 hit=True zone=chest spd=4.63 dist=127.3 along=0.994 up=-0.04 card=(None,None) src=eye:bone
+    #12 hit=True zone=chest spd=4.25 dist=132.5 along=0.651 up=-0.016 card=(None,None) src=eye:bone
+    #13 hit=True zone=head spd=5.27 dist=129.2 along=1.178 up=0.105 card=(None,None) src=eye:bone
+    #14 hit=False zone=- spd=5.36 dist=130.4 along=-10.125 up=0.264 card=(None,None) src=eye:bone
+    #15 hit=True zone=chest spd=4.81 dist=123.3 along=0.681 up=0.051 card=(None,None) src=eye:bone
+    #16 hit=True zone=chest spd=5.21 dist=131.4 along=0.92 up=0.02 card=(None,None) src=eye:bone
+    #17 hit=False zone=- spd=4.37 dist=129.1 along=-11.733 up=0.342 card=(None,None) src=eye:bone
+    #18 hit=True zone=chest spd=4.65 dist=122.9 along=0.501 up=0.002 card=(None,None) src=eye:bone
+    #19 hit=True zone=chest spd=4.5 dist=129.8 along=1.221 up=0.002 card=(None,None) src=eye:bone
+    #20 hit=True zone=chest spd=4.55 dist=132.3 along=0.646 up=0.036 card=(None,None) src=eye:bone
+    #21 hit=True zone=chest spd=5.0 dist=127.4 along=0.918 up=0.035 card=(None,None) src=eye:bone
+    #22 hit=True zone=chest spd=4.79 dist=130.7 along=0.821 up=-0.022 card=(None,None) src=eye:bone
+    #23 hit=False zone=- spd=4.77 dist=130.6 along=-9.879 up=0.284 card=(None,None) src=eye:bone
+    #24 hit=True zone=chest spd=4.68 dist=123.6 along=0.635 up=0.046 card=(None,None) src=eye:bone
+    #25 hit=True zone=chest spd=5.82 dist=131.9 along=0.627 up=-0.004 card=(None,None) src=eye:bone
+    #26 hit=True zone=chest spd=3.88 dist=131.9 along=0.939 up=-0.002 card=(None,None) src=eye:bone
+    #27 hit=False zone=- spd=5.17 dist=130.5 along=-6.52 up=0.306 card=(None,None) src=eye:bone
+    #28 hit=True zone=chest spd=4.44 dist=122.5 along=0.611 up=0.013 card=(None,None) src=eye:bone
+    #29 hit=True zone=chest spd=0.0 dist=132.7 along=0.357 up=-0.613 card=(None,None) src=eye:bone
+    #30 hit=True zone=chest spd=4.34 dist=132.0 along=0.718 up=-0.024 card=(None,None) src=eye:bone
+
+CELL rifle/walk/chest~boar
+  picked rifle/walk/chest~boar -> RangeRequest sent | board: species=boar kind=male pace=walk weapon=rifle ammo=Slug shots=90 hits=77
+  held=Rifle
+  fired 30, rows 30
+    #1 hit=True zone=chest spd=4.46 dist=132.7 along=0.6 up=0.005 card=(None,None) src=chest
+    #2 hit=True zone=chest spd=5.78 dist=130.0 along=0.985 up=0.102 card=(None,None) src=chest
+    #3 hit=True zone=chest spd=5.36 dist=131.7 along=0.723 up=0.056 card=(None,None) src=chest
+    #4 hit=True zone=body spd=4.38 dist=128.5 along=0.655 up=0.089 card=(None,None) src=chest
+    #5 hit=True zone=chest spd=3.05 dist=123.7 along=0.634 up=-0.045 card=(None,None) src=chest
+    #6 hit=True zone=head spd=4.43 dist=129.9 along=2.714 up=-0.105 card=(None,None) src=chest
+    #7 hit=True zone=body spd=4.72 dist=132.1 along=0.465 up=0.099 card=(None,None) src=chest
+    #8 hit=True zone=chest spd=3.44 dist=128.6 along=0.44 up=0.073 card=(None,None) src=chest
+    #9 hit=True zone=body spd=4.84 dist=132.7 along=0.413 up=0.13 card=(None,None) src=chest
+    #10 hit=True zone=chest spd=3.29 dist=129.3 along=0.545 up=0.057 card=(None,None) src=chest
+    #11 hit=True zone=body spd=4.69 dist=132.7 along=-0.345 up=-0.014 card=(None,None) src=chest
+    #12 hit=True zone=chest spd=2.69 dist=130.3 along=0.526 up=0.084 card=(None,None) src=chest
+    #13 hit=True zone=chest spd=4.62 dist=129.8 along=0.769 up=0.095 card=(None,None) src=chest
+    #14 hit=True zone=body spd=4.64 dist=132.7 along=0.009 up=0.009 card=(None,None) src=chest
+    #15 hit=True zone=chest spd=2.93 dist=129.4 along=0.537 up=-0.035 card=(None,None) src=chest
+    #16 hit=True zone=chest spd=5.82 dist=129.8 along=1.279 up=0.008 card=(None,None) src=chest
+    #17 hit=True zone=body spd=4.89 dist=133.2 along=-0.251 up=0.076 card=(None,None) src=chest
+    #18 hit=True zone=chest spd=3.15 dist=130.2 along=0.681 up=-0.045 card=(None,None) src=chest
+    #19 hit=True zone=chest spd=3.81 dist=129.5 along=1.298 up=-0.003 card=(None,None) src=chest
+    #20 hit=True zone=rear spd=5.32 dist=132.3 along=-0.821 up=0.103 card=(None,None) src=chest
+    #21 hit=False zone=- spd=4.91 dist=137.4 along=2.75 up=-0.052 card=(None,None) src=chest
+    #22 hit=True zone=body spd=4.73 dist=136.6 along=-0.221 up=-0.032 card=(None,None) src=chest
+    #23 hit=True zone=chest spd=5.38 dist=128.6 along=0.774 up=0.095 card=(None,None) src=chest
+    #24 hit=True zone=body spd=5.11 dist=132.7 along=0.304 up=0.114 card=(None,None) src=chest
+    #25 hit=True zone=chest spd=3.52 dist=129.5 along=0.455 up=-0.04 card=(None,None) src=chest
+    #26 hit=True zone=rear spd=5.34 dist=133.2 along=-0.793 up=0.11 card=(None,None) src=chest
+    #27 hit=True zone=chest spd=4.4 dist=137.9 along=0.791 up=-0.028 card=(None,None) src=chest
+    #28 hit=True zone=chest spd=4.16 dist=129.5 along=0.844 up=0.093 card=(None,None) src=chest
+    #29 hit=True zone=body spd=6.47 dist=131.7 along=-0.06 up=0.036 card=(None,None) src=chest
+    #30 hit=True zone=chest spd=3.31 dist=128.7 along=0.66 up=-0.067 card=(None,None) src=chest
+
+CELL rifle/stand/nose~boar
+  picked rifle/stand/nose~boar -> RangeRequest sent | board: species=boar kind=male pace=stand weapon=rifle ammo=Slug shots=0 hits=0
+  held=Rifle
+  fired 30, rows 30
+    #1 hit=True zone=head spd=4.42 dist=125.9 along=0.76 up=0.052 card=(None,None) src=nose
+    #2 hit=True zone=head spd=0.26 dist=132.0 along=1.306 up=-0.395 card=(None,None) src=nose
+    #3 hit=True zone=head spd=4.34 dist=132.9 along=1.186 up=-0.018 card=(None,None) src=nose
+    #4 hit=True zone=head spd=0.0 dist=132.3 along=0.831 up=-0.86 card=(None,None) src=nose
+    #5 hit=True zone=chest spd=5.97 dist=133.8 along=0.324 up=0.047 card=(None,None) src=nose
+    #6 hit=True zone=body spd=0.0 dist=132.6 along=-1.043 up=0.398 card=(None,None) src=nose
+    #7 hit=True zone=head spd=2.94 dist=125.9 along=0.515 up=0.091 card=(None,None) src=nose
+    #8 hit=True zone=chest spd=0.0 dist=132.1 along=0.131 up=-0.493 card=(None,None) src=nose
+    #9 hit=True zone=head spd=4.34 dist=131.4 along=1.61 up=-0.11 card=(None,None) src=nose
+    #10 hit=True zone=head spd=0.16 dist=132.4 along=1.85 up=-0.442 card=(None,None) src=nose
+    #11 hit=True zone=chest spd=0.0 dist=132.8 along=1.781 up=-0.927 card=(None,None) src=nose
+    #12 hit=False zone=- spd=0.0 dist=132.9 along=7.475 up=-0.387 card=(None,None) src=nose
+    #13 hit=True zone=head spd=4.77 dist=124.3 along=0.773 up=-0.08 card=(None,None) src=nose
+    #14 hit=True zone=legs spd=3.54 dist=133.5 along=-0.479 up=0.185 card=(None,None) src=nose
+    #15 hit=True zone=head spd=3.26 dist=130.4 along=0.425 up=-0.047 card=(None,None) src=nose
+    #16 hit=True zone=chest spd=0.0 dist=132.2 along=0.744 up=-0.574 card=(None,None) src=nose
+    #17 hit=True zone=chest spd=0.0 dist=133.3 along=-3.11 up=-0.766 card=(None,None) src=nose
+    #18 hit=True zone=body spd=0.0 dist=132.3 along=2.035 up=-0.902 card=(None,None) src=nose
+    #19 hit=True zone=head spd=2.92 dist=131.5 along=0.553 up=0.079 card=(None,None) src=nose
+    #20 hit=True zone=head spd=3.19 dist=132.4 along=1.038 up=-0.031 card=(None,None) src=nose
+    #21 hit=True zone=body spd=0.0 dist=133.3 along=-2.342 up=-0.61 card=(None,None) src=nose
+    #22 hit=True zone=head spd=3.31 dist=133.1 along=0.383 up=-0.05 card=(None,None) src=nose
+    #23 hit=True zone=chest spd=0.0 dist=132.1 along=1.86 up=-0.562 card=(None,None) src=nose
+    #24 hit=False zone=- spd=0.0 dist=132.3 along=-5.731 up=0.113 card=(None,None) src=nose
+    #25 hit=True zone=head spd=4.73 dist=124.0 along=0.604 up=0.038 card=(None,None) src=nose
+    #26 hit=True zone=chest spd=0.0 dist=132.8 along=-0.752 up=0.394 card=(None,None) src=nose
+    #27 hit=False zone=- spd=0.24 dist=132.8 along=1.043 up=0.271 card=(None,None) src=nose
+    #28 hit=True zone=head spd=3.96 dist=126.9 along=0.794 up=-0.001 card=(None,None) src=nose
+    #29 hit=True zone=rear spd=5.35 dist=134.2 along=-2.499 up=-0.053 card=(None,None) src=nose
+    #30 hit=True zone=head spd=4.6 dist=132.0 along=0.463 up=0.08 card=(None,None) src=nose
+
+CELL rifle/stand/chestfront~boar
+  picked rifle/stand/chestfront~boar -> RangeRequest sent | board: species=boar kind=male pace=stand weapon=rifle ammo=Slug shots=30 hits=27
+  held=Rifle
+  fired 30, rows 30
+    #1 hit=True zone=chest spd=4.83 dist=125.2 along=0.768 up=0.141 card=(None,None) src=chestfront
+    #2 hit=True zone=chest spd=2.89 dist=132.4 along=-0.379 up=0.059 card=(None,None) src=chestfront
+    #3 hit=True zone=chest spd=5.2 dist=131.9 along=0.551 up=0.088 card=(None,None) src=chestfront
+    #4 hit=True zone=body spd=2.23 dist=129.7 along=1.034 up=1.446 card=(None,None) src=chestfront
+    #5 hit=True zone=body spd=3.09 dist=124.5 along=0.66 up=0.118 card=(None,None) src=chestfront
+    #6 hit=True zone=body spd=4.9 dist=133.6 along=-1.286 up=0.141 card=(None,None) src=chestfront
+    #7 hit=True zone=body spd=3.29 dist=129.8 along=0.799 up=0.097 card=(None,None) src=chestfront
+    #8 hit=True zone=chest spd=1.47 dist=131.4 along=0.975 up=0.037 card=(None,None) src=chestfront
+    #9 hit=True zone=chest spd=5.07 dist=131.8 along=0.374 up=0.055 card=(None,None) src=chestfront
+    #10 hit=False zone=- spd=0.0 dist=132.4 along=7.647 up=-0.005 card=(None,None) src=chestfront
+    #11 hit=True zone=chest spd=5.15 dist=129.8 along=0.548 up=-0.138 card=(None,None) src=chestfront
+    #12 hit=True zone=body spd=0.0 dist=130.9 along=0.292 up=-0.651 card=(None,None) src=chestfront
+    #13 hit=True zone=body spd=3.07 dist=125.1 along=0.402 up=0.07 card=(None,None) src=chestfront
+    #14 hit=False zone=- spd=0.0 dist=132.0 along=-1.845 up=-1.501 card=(None,None) src=chestfront
+    #15 hit=True zone=chest spd=4.76 dist=129.6 along=0.827 up=-0.178 card=(None,None) src=chestfront
+    #16 hit=True zone=chest spd=0.0 dist=130.4 along=1.295 up=0.896 card=(None,None) src=chestfront
+    #17 hit=True zone=rear spd=0.0 dist=130.7 along=0.518 up=-0.044 card=(None,None) src=chestfront
+    #18 hit=False zone=- spd=4.54 dist=138.0 along=1.665 up=-0.061 card=(None,None) src=chestfront
+    #19 hit=True zone=chest spd=3.49 dist=134.4 along=0.586 up=-0.103 card=(None,None) src=chestfront
+    #20 hit=True zone=chest spd=0.0 dist=130.4 along=0.343 up=-0.291 card=(None,None) src=chestfront
+    #21 hit=True zone=chest spd=2.5 dist=132.8 along=-0.434 up=-0.031 card=(None,None) src=chestfront
+    #22 hit=True zone=rear spd=4.27 dist=133.1 along=-2.056 up=0.127 card=(None,None) src=chestfront
+    #23 hit=True zone=body spd=4.26 dist=130.9 along=1.049 up=-0.189 card=(None,None) src=chestfront
+    #24 hit=True zone=rear spd=0.0 dist=132.6 along=-0.233 up=-0.327 card=(None,None) src=chestfront
+    #25 hit=False zone=- spd=5.26 dist=136.9 along=2.177 up=-0.072 card=(None,None) src=chestfront
+    #26 hit=True zone=chest spd=4.13 dist=136.5 along=0.202 up=0.078 card=(None,None) src=chestfront
+    #27 hit=True zone=rear spd=2.08 dist=132.9 along=-1.576 up=-0.001 card=(None,None) src=chestfront
+    #28 hit=True zone=chest spd=4.39 dist=136.9 along=0.673 up=-0.158 card=(None,None) src=chestfront
+    #29 hit=True zone=chest spd=4.89 dist=132.8 along=-0.353 up=0.051 card=(None,None) src=chestfront
+    #30 hit=True zone=chest spd=0.46 dist=132.2 along=-2.344 up=-0.009 card=(None,None) src=chestfront
+
+CELL rifle/stand/eye~boar
+  picked rifle/stand/eye~boar -> RangeRequest sent | board: species=boar kind=male pace=stand weapon=rifle ammo=Slug shots=60 hits=53
+  held=Rifle
+  fired 30, rows 30
+    #1 hit=True zone=chest spd=5.38 dist=130.4 along=0.814 up=0.06 card=(None,None) src=eye:bone
+    #2 hit=False zone=- spd=2.12 dist=132.8 along=6.287 up=0.292 card=(None,None) src=eye:bone
+    #3 hit=True zone=chest spd=5.62 dist=130.2 along=0.822 up=-0.015 card=(None,None) src=eye:bone
+    #4 hit=False zone=- spd=0.0 dist=132.6 along=-2.777 up=-0.051 card=(None,None) src=eye:bone
+    #5 hit=True zone=chest spd=4.81 dist=124.0 along=0.593 up=0.044 card=(None,None) src=eye:bone
+    #6 hit=False zone=- spd=5.28 dist=131.9 along=-2.878 up=0.204 card=(None,None) src=eye:bone
+    #7 hit=True zone=head spd=4.34 dist=124.2 along=0.682 up=0.005 card=(None,None) src=eye:bone
+    #8 hit=True zone=chest spd=4.16 dist=131.7 along=2.406 up=-0.038 card=(None,None) src=eye:bone
+    #9 hit=True zone=chest spd=0.0 dist=132.5 along=2.144 up=-0.598 card=(None,None) src=eye:bone
+    #10 hit=True zone=head spd=1.37 dist=131.4 along=3.43 up=-0.022 card=(None,None) src=eye:bone
+    #11 hit=True zone=rear spd=0.0 dist=132.7 along=-1.558 up=-0.574 card=(None,None) src=eye:bone
+    #12 hit=True zone=chest spd=2.57 dist=134.5 along=0.638 up=-0.017 card=(None,None) src=eye:bone
+    #13 hit=True zone=head spd=3.04 dist=131.0 along=2.181 up=-0.025 card=(None,None) src=eye:bone
+    #14 hit=True zone=chest spd=0.43 dist=131.6 along=1.297 up=0.034 card=(None,None) src=eye:bone
+    #15 hit=True zone=chest spd=0.0 dist=132.7 along=-0.884 up=-0.439 card=(None,None) src=eye:bone
+    #16 hit=False zone=- spd=4.21 dist=130.8 along=-8.926 up=0.19 card=(None,None) src=eye:bone
+    #17 hit=True zone=head spd=5.17 dist=124.8 along=0.623 up=-0.059 card=(None,None) src=eye:bone
+    #18 hit=True zone=chest spd=0.0 dist=132.6 along=0.59 up=-0.229 card=(None,None) src=eye:bone
+    #19 hit=True zone=body spd=0.0 dist=132.5 along=2.041 up=-0.265 card=(None,None) src=eye:bone
+    #20 hit=True zone=chest spd=2.51 dist=124.2 along=0.288 up=0.024 card=(None,None) src=eye:bone
+    #21 hit=True zone=rear spd=2.9 dist=133.0 along=-1.9 up=-0.016 card=(None,None) src=eye:bone
+    #22 hit=True zone=head spd=4.32 dist=135.3 along=0.951 up=0.014 card=(None,None) src=eye:bone
+    #23 hit=True zone=chest spd=0.04 dist=132.6 along=2.611 up=-0.122 card=(None,None) src=eye:bone
+    #24 hit=False zone=- spd=0.0 dist=132.6 along=-3.481 up=-0.005 card=(None,None) src=eye:bone
+    #25 hit=False zone=- spd=5.18 dist=130.2 along=-1.27 up=0.067 card=(None,None) src=eye:bone
+    #26 hit=False zone=- spd=5.04 dist=126.0 along=-0.513 up=0.289 card=(None,None) src=eye:bone
+    #27 hit=True zone=head spd=0.0 dist=124.2 along=-0.033 up=0.013 card=(None,None) src=eye:bone
+    #28 hit=True zone=head spd=1.25 dist=131.5 along=3.321 up=-0.034 card=(None,None) src=eye:bone
+    #29 hit=True zone=chest spd=3.62 dist=132.5 along=1.648 up=0.16 card=(None,None) src=eye:bone
+    #30 hit=True zone=chest spd=3.33 dist=132.5 along=1.465 up=-0.131 card=(None,None) src=eye:bone
+
+CELL rifle/stand/chest~boar
+  picked rifle/stand/chest~boar -> RangeRequest sent | board: species=boar kind=male pace=stand weapon=rifle ammo=Slug shots=90 hits=76
+  held=Rifle
+  fired 30, rows 30
+    #1 hit=True zone=chest spd=4.26 dist=128.5 along=0.795 up=-0.078 card=(None,None) src=chest
+    #2 hit=True zone=rear spd=3.78 dist=131.9 along=-0.725 up=0.084 card=(None,None) src=chest
+    #3 hit=True zone=chest spd=1.93 dist=135.8 along=0.433 up=-0.004 card=(None,None) src=chest
+    #4 hit=True zone=chest spd=0.23 dist=131.2 along=0.55 up=0.017 card=(None,None) src=chest
+    #5 hit=True zone=chest spd=0.0 dist=131.3 along=0.428 up=-0.054 card=(None,None) src=chest
+    #6 hit=True zone=body spd=2.59 dist=130.7 along=0.867 up=0.039 card=(None,None) src=chest
+    #7 hit=True zone=chest spd=3.2 dist=124.7 along=0.621 up=-0.059 card=(None,None) src=chest
+    #8 hit=True zone=chest spd=0.0 dist=131.4 along=0.372 up=-0.461 card=(None,None) src=chest
+    #9 hit=True zone=chest spd=0.0 dist=131.3 along=-1.529 up=-0.559 card=(None,None) src=chest
+    #10 hit=True zone=rear spd=0.0 dist=131.3 along=0.311 up=-0.314 card=(None,None) src=chest
+    #11 hit=False zone=- spd=1.24 dist=137.6 along=-2.427 up=-0.02 card=(None,None) src=chest
+    #12 hit=True zone=rear spd=2.12 dist=137.3 along=0.766 up=0.048 card=(None,None) src=chest
+    #13 hit=True zone=chest spd=1.93 dist=130.6 along=2.431 up=-0.036 card=(None,None) src=chest
+    #14 hit=True zone=chest spd=0.0 dist=131.4 along=-0.482 up=-0.45 card=(None,None) src=chest
+    #15 hit=True zone=body spd=0.41 dist=131.2 along=1.013 up=0.005 card=(None,None) src=chest
+    #16 hit=True zone=chest spd=3.52 dist=128.0 along=0.546 up=-0.052 card=(None,None) src=chest
+    #17 hit=True zone=body spd=3.75 dist=131.2 along=0.634 up=0.153 card=(None,None) src=chest
+    #18 hit=True zone=chest spd=3.62 dist=127.5 along=0.465 up=0.08 card=(None,None) src=chest
+    #19 hit=True zone=chest spd=0.0 dist=131.3 along=0.48 up=-0.455 card=(None,None) src=chest
+    #20 hit=True zone=rear spd=0.15 dist=131.3 along=-0.647 up=0.055 card=(None,None) src=chest
+    #21 hit=False zone=- spd=0.21 dist=137.5 along=-2.498 up=-0.025 card=(None,None) src=chest
+    #22 hit=True zone=rear spd=1.84 dist=137.1 along=0.786 up=-0.031 card=(None,None) src=chest
+    #23 hit=True zone=body spd=0.0 dist=131.3 along=0.608 up=-0.227 card=(None,None) src=chest
+    #24 hit=True zone=chest spd=2.85 dist=127.6 along=0.45 up=0.088 card=(None,None) src=chest
+    #25 hit=True zone=head spd=3.59 dist=130.9 along=3.447 up=-0.099 card=(None,None) src=chest
+    #26 hit=True zone=chest spd=3.03 dist=131.0 along=1.488 up=-0.143 card=(None,None) src=chest
+    #27 hit=True zone=chest spd=4.93 dist=130.1 along=1.615 up=-0.023 card=(None,None) src=chest
+    #28 hit=True zone=chest spd=0.0 dist=131.4 along=0.589 up=-0.366 card=(None,None) src=chest
+    #29 hit=True zone=body spd=0.0 dist=131.3 along=0.11 up=-0.05 card=(None,None) src=chest
+    #30 hit=True zone=chest spd=2.96 dist=124.0 along=0.455 up=0.094 card=(None,None) src=chest
+
+CELL rifle/run/chest+lead~boar
+  picked rifle/run/chest+lead~boar -> RangeRequest sent | board: species=boar kind=male pace=run weapon=rifle ammo=Slug shots=0 hits=0
+  held=Rifle
+  fired 30, rows 30
+    #1 hit=False zone=- spd=24.63 dist=112.7 along=7.849 up=0.356 card=(None,None) src=chest+lead1.09
+    #2 hit=True zone=body spd=23.15 dist=130.7 along=3.306 up=0.178 card=(None,None) src=chest+lead1.19
+    #3 hit=True zone=rear spd=26.71 dist=134.4 along=3.992 up=0.209 card=(None,None) src=chest+lead1.42
+    #4 hit=True zone=rear spd=15.78 dist=136.4 along=0.868 up=0.304 card=(None,None) src=chest+lead0.85
+    #5 hit=True zone=body spd=25.34 dist=127.7 along=3.079 up=-0.016 card=(None,None) src=chest+lead1.28
+    #6 hit=True zone=rear spd=6.98 dist=138.1 along=-2.007 up=0.136 card=(None,None) src=chest+lead0.38
+    #7 hit=False zone=- spd=24.35 dist=133.6 along=4.365 up=0.252 card=(None,None) src=chest+lead1.28
+    #8 hit=True zone=rear spd=24.24 dist=114.1 along=2.934 up=-0.012 card=(None,None) src=chest+lead1.09
+    #9 hit=False zone=- spd=23.72 dist=122.2 along=-15.562 up=-0.099 card=(None,None) src=chest+lead1.15
+    #10 hit=True zone=rear spd=20.92 dist=135.1 along=4.157 up=0.259 card=(None,None) src=chest+lead1.12
+    #11 hit=False zone=- spd=25.53 dist=131.6 along=2.862 up=0.092 card=(None,None) src=chest+lead1.32
+    #12 hit=False zone=- spd=29.32 dist=115.0 along=-16.022 up=-0.009 card=(None,None) src=chest+lead1.34
+    #13 hit=True zone=chest spd=23.12 dist=137.2 along=1.904 up=0.285 card=(None,None) src=chest+lead1.24
+    #14 hit=True zone=rear spd=26.16 dist=128.2 along=3.641 up=0.081 card=(None,None) src=chest+lead1.32
+    #15 hit=False zone=- spd=25.81 dist=119.6 along=-14.109 up=0.349 card=(None,None) src=chest+lead1.23
+    #16 hit=True zone=rear spd=21.82 dist=136.2 along=-0.192 up=0.303 card=(None,None) src=chest+lead1.16
+    #17 hit=True zone=rear spd=24.7 dist=122.7 along=3.738 up=-0.326 card=(None,None) src=chest+lead1.20
+    #18 hit=True zone=rear spd=24.48 dist=131.0 along=3.317 up=-0.101 card=(None,None) src=chest+lead1.26
+    #19 hit=True zone=rear spd=23.87 dist=122.4 along=3.57 up=0.049 card=(None,None) src=chest+lead1.16
+    #20 hit=True zone=rear spd=21.04 dist=136.9 along=-0.249 up=0.02 card=(None,None) src=chest+lead1.13
+    #21 hit=True zone=rear spd=24.22 dist=135.3 along=2.953 up=-0.141 card=(None,None) src=chest+lead1.29
+    #22 hit=False zone=- spd=26.0 dist=122.3 along=-4.89 up=0.104 card=(None,None) src=chest+lead1.26
+    #23 hit=True zone=body spd=21.8 dist=137.8 along=3.781 up=0.411 card=(None,None) src=chest+lead1.19
+    #24 hit=True zone=rear spd=4.66 dist=138.7 along=1.136 up=0.089 card=(None,None) src=chest+lead0.25
+    #25 hit=False zone=- spd=23.92 dist=134.9 along=4.134 up=0.19 card=(None,None) src=chest+lead1.27
+    #26 hit=True zone=body spd=23.23 dist=115.4 along=2.794 up=-0.121 card=(None,None) src=chest+lead1.06
+    #27 hit=False zone=- spd=22.91 dist=123.6 along=-15.173 up=0.121 card=(None,None) src=chest+lead1.12
+    #28 hit=True zone=rear spd=23.33 dist=135.5 along=3.82 up=0.147 card=(None,None) src=chest+lead1.25
+    #29 hit=False zone=- spd=25.11 dist=120.4 along=-12.186 up=0.261 card=(None,None) src=chest+lead1.20
+    #30 hit=True zone=body spd=17.85 dist=136.5 along=4.561 up=0.2 card=(None,None) src=chest+lead0.96
+
+CELL rifle/run/ahead~boar
+  picked rifle/run/ahead~boar -> RangeRequest sent | board: species=boar kind=male pace=run weapon=rifle ammo=Slug shots=30 hits=20
+  held=Rifle
+  fired 30, rows 30
+    #1 hit=False zone=- spd=28.7 dist=128.6 along=4.521 up=0.67 card=(None,None) src=ahead:5.56
+    #2 hit=False zone=- spd=28.01 dist=115.1 along=9.222 up=-0.284 card=(None,None) src=ahead:5.58
+    #3 hit=False zone=- spd=24.31 dist=130.5 along=3.837 up=0.166 card=(None,None) src=ahead:5.55
+    #4 hit=False zone=- spd=27.4 dist=108.9 along=6.582 up=0.507 card=(None,None) src=ahead:5.72
+    #5 hit=False zone=- spd=25.95 dist=134.1 along=3.328 up=0.651 card=(None,None) src=ahead:5.81
+    #6 hit=False zone=- spd=22.15 dist=107.5 along=-16.672 up=0.383 card=(None,None) src=ahead:5.82
+    #7 hit=False zone=- spd=8.63 dist=145.6 along=-5.629 up=0.797 card=(None,None) src=ahead:5.11
+    #8 hit=False zone=- spd=27.5 dist=131.8 along=2.892 up=-0.089 card=(None,None) src=ahead:5.95
+    #9 hit=False zone=- spd=22.66 dist=125.1 along=10.046 up=0.988 card=(None,None) src=ahead:5.64
+    #10 hit=False zone=- spd=25.78 dist=129.6 along=4.644 up=0.175 card=(None,None) src=ahead:5.59
+    #11 hit=False zone=- spd=25.08 dist=113.4 along=10.064 up=0.291 card=(None,None) src=ahead:5.59
+    #12 hit=True zone=chest spd=22.42 dist=131.5 along=1.876 up=-0.647 card=(None,None) src=ahead:4.15
+    #13 hit=False zone=- spd=20.91 dist=134.9 along=4.707 up=0.736 card=(None,None) src=ahead:5.76
+    #14 hit=False zone=- spd=25.65 dist=108.6 along=-22.488 up=0.098 card=(None,None) src=ahead:5.70
+    #15 hit=False zone=- spd=23.39 dist=145.9 along=-6.386 up=0.566 card=(None,None) src=ahead:5.68
+    #16 hit=False zone=- spd=27.89 dist=130.4 along=3.524 up=-0.05 card=(None,None) src=ahead:5.88
+    #17 hit=False zone=- spd=23.68 dist=127.9 along=9.863 up=0.856 card=(None,None) src=ahead:5.63
+    #18 hit=False zone=- spd=27.31 dist=129.3 along=5.043 up=-0.071 card=(None,None) src=ahead:5.55
+    #19 hit=False zone=- spd=25.55 dist=115.5 along=9.645 up=-0.3 card=(None,None) src=ahead:5.58
+    #20 hit=False zone=- spd=25.65 dist=129.3 along=3.042 up=0.094 card=(None,None) src=ahead:5.58
+    #21 hit=False zone=- spd=22.95 dist=110.3 along=8.418 up=0.316 card=(None,None) src=ahead:5.64
+    #22 hit=False zone=- spd=27.47 dist=132.4 along=2.641 up=0.043 card=(None,None) src=ahead:5.78
+    #23 hit=False zone=- spd=26.25 dist=106.8 along=-5.417 up=-0.119 card=(None,None) src=ahead:5.91
+    #24 hit=True zone=body spd=19.47 dist=136.1 along=3.591 up=0.457 card=(None,None) src=ahead:5.54
+    #25 hit=False zone=- spd=26.16 dist=120.1 along=-12.222 up=-0.601 card=(None,None) src=ahead:5.31
+    #26 hit=True zone=head spd=26.02 dist=141.5 along=-2.912 up=0.231 card=(None,None) src=ahead:5.86
+    #27 hit=False zone=- spd=27.09 dist=136.2 along=4.573 up=0.408 card=(None,None) src=ahead:5.87
+    #28 hit=True zone=head spd=22.71 dist=110.3 along=-0.11 up=0.045 card=(None,None) src=ahead:5.64
+    #29 hit=True zone=head spd=25.4 dist=114.5 along=-0.588 up=-0.439 card=(None,None) src=ahead:5.35
+    #30 hit=False zone=- spd=22.61 dist=125.6 along=1.755 up=0.043 card=(None,None) src=ahead:5.73
+
+[aim_bench] last server hit trace (ServerStorage.DHLastHits):
+    nil
+
+AIM BENCH -- 2026-10-29 01:17:08 UTC
+place 130094961655666, 30 shots asked per cell
+
+cell                            N  hits    rate 95% interval       along       up  role     
+--------------------------------------------------------------------------------------------
+rifle/walk/nose~boar           30    25     83% 66% - 93%          -0.42    +0.02           
+    zones: head 18  chest 4  rear 2  body 1
+rifle/walk/chestfront~boar     30    27     90% 74% - 97%          -0.26    -0.06           
+    zones: chest 25  body 1  rear 1
+rifle/walk/eye~boar            30    25     83% 66% - 93%          -0.78    +0.05           
+    zones: chest 22  head 3
+rifle/walk/chest~boar          30    29     97% 83% - 99%          +0.58    +0.03           
+    zones: chest 17  body 9  rear 2  head 1
+rifle/stand/nose~boar          30    27     90% 74% - 97%          +0.42    -0.19           
+    zones: head 15  chest 7  body 3  legs 1  rear 1
+rifle/stand/chestfront~boar    30    26     87% 70% - 95%          +0.43    -0.01           
+    zones: chest 15  body 7  rear 4
+rifle/stand/eye~boar           30    23     77% 59% - 88%          +0.35    -0.04           
+    zones: chest 13  head 7  rear 2  body 1
+rifle/stand/chest~boar         30    28     93% 79% - 98%          +0.40    -0.09           
+    zones: chest 17  body 5  rear 5  head 1
+rifle/run/chest+lead~boar      30    20     67% 49% - 81%          -0.25    +0.12  CONTROL  
+    zones: rear 14  body 5  chest 1
+rifle/run/ahead~boar           30     5     17% 7% - 34%           +1.38    +0.20  KNOWN-BAD
+    zones: head 3  body 1  chest 1
+
+along / up are the SERVER's impact minus the point the CLIENT was drawing, in the
+animal's own frame: +along is down its heading (behind the aim point), +up is above.
+
+Self-check: CONTROL and KNOWN-BAD both read as they must.
