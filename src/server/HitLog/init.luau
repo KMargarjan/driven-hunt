@@ -72,6 +72,10 @@ local lastCard: Report.CardPayload? = nil
 -- to start while one is set. This one is a reading, never an override, and nothing refuses it.
 local TRACE_KEEP = 10
 local trace: { string } = {}
+-- THE RANGE'S OWN CLOCK (task 309a). `sinceOpen` answers 0 with no drive open, which would stamp
+-- every range line `t=0.00s` and make a ring of thirty shots unreadable. So a range line's `t` is
+-- seconds since the FIRST range line, which is what a bench run needs to tell shot 7 from shot 8.
+local rangeEpoch: number? = nil
 
 local function traceOn(): boolean
 	return RunService:IsStudio()
@@ -269,6 +273,7 @@ function HitLog.clear()
 	lastRequestAt = {}
 	lastCard = nil
 	table.clear(trace)
+	rangeEpoch = nil
 	if traceOn() then
 		ServerStorage:SetAttribute("DHLastHits", nil)
 	end
@@ -434,6 +439,36 @@ function HitLog.sendCard(report: any): boolean
 	stats.rangeCards += 1
 	lastCard = card
 	toShooter(shooter, card)
+	-- ...AND THE RING, EXACTLY AS A DRIVE HIT WRITES IT (task 309a). The dispatch: the range's hit
+	-- path must say "the bullet struck THIS part at THIS offset" while still writing no row, no
+	-- money and no report entry -- `DHLastHits` read empty for every range shot, so `tools/aim_bench.py`
+	-- could print a zone and never the offset that zone was read out of (rule L).
+	-- The offset divides down by `frameOf`, the report's own tense (task 308), so it is the same
+	-- reading as the `(u, v)` beside it and as the card's dot.
+	local bp = part :: BasePart
+	local at = report.at or os.clock()
+	if rangeEpoch == nil then
+		rangeEpoch = at
+	end
+	local frame = frameOf(bp, report)
+	local position = report.position or bp.Position
+	local u, v = Shape.dot(frame, bp.Size, position)
+	stats.traced += 1
+	writeTrace(Shape.traceLine({
+		index = stats.traced,
+		at = at - (rangeEpoch :: number),
+		kind = bp:GetAttribute("Kind") or "range",
+		id = bp.Name,
+		zone = tostring(report.zone or "unknown"),
+		offset = frame:PointToObjectSpace(position),
+		u = u,
+		v = v,
+		distance = report.nearest or 0,
+		weapon = report.weapon,
+		ammo = report.ammo,
+		pellets = report.pellets or 1,
+		fatal = false,
+	}))
 	return true
 end
 

@@ -597,13 +597,29 @@ return function()
 				end
 				expect(found).to.equal(true)
 
-				-- ...AND NOTHING WAS SCORED. No row, no dot, no kill line, no hit-log line, no money.
+				-- ...AND NOTHING WAS SCORED. No row, no dot, no kill line, no money.
 				expect(after.hits).to.equal(before.hits)
 				expect(after.downs).to.equal(before.downs)
-				expect(after.traced).to.equal(before.traced)
 				expect((HitLog.currentDrive() :: any).animalCount).to.equal(0)
-				expect(#HitLog.lastHits()).to.equal(0)
 				expect(Economy.balanceOf((shooter :: any).UserId)).to.equal(coinsBefore)
+
+				-- ...BUT IT DOES WRITE THE RING (task 309a). The range's hit path was the one hit
+				-- path with no `DHLastHits` line, so `tools/aim_bench.py` could print a zone word
+				-- and never the LOCAL OFFSET that zone was read out of (CLAUDE.md rule L).
+				expect(after.traced).to.equal(before.traced + 1)
+				local ring = HitLog.lastHits()
+				expect(#ring).to.equal(1)
+				-- THE OFFSET IS THE STRUCK POINT IN THE ANIMAL'S OWN FRAME, and it is checked against
+				-- the arithmetic rather than against a substring: `points[1]` is 1.5 studs toward the
+				-- snout and 0.4 up of the trunk's centre, so the line must carry exactly that.
+				local want = part.CFrame:PointToObjectSpace(points[1].position)
+				expect(
+					string.find(ring[1], string.format("local=(%.2f,%.2f,%.2f)", want.X, want.Y, want.Z), 1, true)
+						~= nil
+				).to.equal(true)
+				expect(string.find(ring[1], "zone=chest", 1, true) ~= nil).to.equal(true)
+				expect(string.find(ring[1], "id=" .. part.Name, 1, true) ~= nil).to.equal(true)
+				expect(string.find(ring[1], "fatal=no", 1, true) ~= nil).to.equal(true)
 
 				part:Destroy()
 				folder:Destroy()
@@ -630,6 +646,11 @@ return function()
 			expect(HitLog.stats().cards).to.equal(0)
 			expect(HitLog.stats().cardlessHits).to.equal(2)
 			expect(HitLog.lastCard()).to.equal(nil)
+			-- ...AND NO RING LINE EITHER (task 309a). The known-bad half of the new instrument: a
+			-- shot the range refuses a card for must leave `DHLastHits` empty, or every bench row
+			-- would read "the server answered" whatever the bullet did.
+			expect(HitLog.stats().traced).to.equal(0)
+			expect(#HitLog.lastHits()).to.equal(0)
 			-- THE MISS SIDE OF THE STORE READ (the same instrument as the hit case above).
 			expect(HitLog.stats().hits).to.equal(0)
 			expect((HitLog.currentDrive() :: any).animalCount).to.equal(0)

@@ -701,7 +701,30 @@ function Weapon.castWithRewind(
 			rewindTrail.hit += 1
 		end
 		pcall(function()
-			(candidates[1].root :: any):SetAttribute("DH305At", at)
+			local root = candidates[1].root :: any
+			root:SetAttribute("DH305At", at)
+			-- THE FRAME THE SERVER ACTUALLY TESTED, beside the instant it names (task 309a). `At`
+			-- alone cannot settle "the server tested the animal HERE, the client drew it THERE":
+			-- the two positions are the evidence, so both tenses are published as plain strings.
+			-- Studio only, read by nothing in the game -- an instrument, like `DHLastHits`.
+			root:SetAttribute(
+				"DH305Past",
+				string.format(
+					"%.3f,%.3f,%.3f",
+					candidates[1].past.Position.X,
+					candidates[1].past.Position.Y,
+					candidates[1].past.Position.Z
+				)
+			)
+			root:SetAttribute(
+				"DH305Pres",
+				string.format(
+					"%.3f,%.3f,%.3f",
+					candidates[1].present.Position.X,
+					candidates[1].present.Position.Y,
+					candidates[1].present.Position.Z
+				)
+			)
 		end)
 		local back = (candidates[1].present.Position - candidates[1].past.Position).Magnitude
 		local spd = (candidates[1].root :: any).AssemblyLinearVelocity.Magnitude
