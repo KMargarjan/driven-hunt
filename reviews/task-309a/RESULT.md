@@ -1,28 +1,107 @@
-1. `src/shared/Shotgun/init.luau` `FLIGHT_REWIND_BASE_SECONDS` row + `docs/research/2026-10-28-lag-compensation.md` (the rewind row) — **the stated bound has the sign of the instrument's own bias backwards**, so the row sends the next tuning step the wrong way. Evidence: the row says *"the bench reads the drawn trunk up to one frame after the trigger (0.4 studs at a run), so the value that truly zeroes the gap lies in 0.217..0.250 and 0.250 is its over-rewound end"*. The instrument is `tools/aim_bench.py`'s resident: `local pastgap = 0/0 ... pastgap = (past - drawn):Dot(dir)`, commented *"Positive = the server tested it AHEAD of what the shooter saw"*, with `dir` the animal's own travel direction (`smooth = Vector3.new(v.X,0,v.Z).Unit` in the tracker). `drawn` is read AFTER the trigger (`repeat RS.Heartbeat:Wait() ... until me:GetAttribute("DHClaimWhy") ~= nil`, then `local troot = animal() local drawn = troot.Position`), so `drawn` has moved **further along +dir** by `v*Δt`: measured = true − `v*Δt`. The late read therefore biases `pastgap` **LOW**, not high — a perfectly tuned rewind would print ≈ **−0.4** at a run, not 0. With the measured +0.10/+0.27/+0.01 at 0.250 the true residual is ≈ +0.5/+0.67/+0.41 studs *still ahead of the drawn animal*, and more rewind lowers `pastgap`, so the zero lies **above** 0.250 (≈0.254..0.271 at 24 studs/s): 0.250 is the **under**-rewound end of the bracket, and the bracket is 0.250..~0.27. Required: correct the direction in the `Shotgun.CONFIG` row, in the research-note row and in claim 5 / the "could not verify" bullet (or show, with the same definition, why the bias runs the other way). The shipped 0.250 may stand — under-rewound is the conservative side, which is also why the known-bad cell stayed at 0 — but the row's own bound must not say the opposite of what the instrument measured.
+PASS (item 3, 5 NOT PROVEN)
 
-2. `src/server/Weapon/Flight.luau` (`Flight.advance` comment), `src/shared/Shotgun/init.luau` (the 309a block), commit messages `7576fcd9`/`92917b17` — **"MEASURED in Karen's place" is contradicted by the request's own disclosure**, and this series' whole premise is that the quantity is place-dependent. Evidence: the Flight comment reads *"MEASURED in Karen's place (`<runs-dir>/309a/diag1.txt`)"*; the Shotgun row cites *"`<runs-dir>/309a/after-A.txt` against cycle3.txt, same place, same rig"*; the request's ANSWERED line reads *"Verdict-298 the proof is the bench's moving-target table in her place (after-B.txt)"*. The same request says *"**Karen's own Forest Test place** (`driven-hunt-karen`, port 34873) **was not touched**. The test build `driven-hunt-294` on 34874 **was used throughout** and the panel is being returned to 34873."* Both cannot be true, and the number being tuned is exactly the one task 309 re-measured because 0.18 (DEV) ≠ 0.2057 (hers) — a 0.205→0.250 fit taken in a different build may be that build's draw lag, not hers. The runs directory is outside the worktree, so I cannot settle it from the repo. Required: name the place and `placeId` of each cited run (the bench already prints `placeId=` in `bench.flags()`) in both code comments and in the claims, and if the fit was taken in `driven-hunt-294`, say so where the constant is read.
+Rule 5, stated so this PASS is not read as rule 5 having been met: the core item is shooting. What
+has been seen is **scripted bench shots** (`tools/aim_bench.py`, placeId 130094961655666 synced from
+the test build `driven-hunt-294`), counted by the server's own remotes and read out of `HitLog`'s
+ring. What has **NOT** been seen is any human firing at an animal on this build, and **no frame of
+the hit card or the report silhouette** — the fix's whole visible effect is that `buildCard` ->
+`Shape.cardDots(frameOf(part, report), ...)` now divides the dots down by the rewound frame instead
+of `part.CFrame`, moving the red dot off the clamped `u=1.000` tail into the body. The request says
+so itself (*"No frame of the card was taken ... NOT PROVEN, not claimed"*). Claim 5's shipped value
+(0.250) is likewise unjudged: the request's own *"needs Karen's eye, not another number"*. Also:
+`src/shared/Flags/init.luau` `AIM_REWIND` is still `default = false`, so as merged the constant
+reaches nobody who has not lit the flag.
 
-3. `tools/aim_bench.py` `run_cell` — **the first row of every cell can be credited with a ring line it did not write**, which is the one failure the new instrument exists to prevent. Evidence: `rings, last_ring = {}, None` is re-initialised per cell, while `ServerStorage.DHLastHits` persists across cells and the bench only ever reads it (`def hitlog(self): return self.server('... GetAttribute("DHLastHits") ...')` — nothing clears it, and `HitLog.clear` is never called by the bench). So on shot 1 of any cell after the first (and of cell 1, if the attribute held anything from an earlier run or drive hit), a shot that **missed** leaves `line` = the previous cell's last hit, `line != last_ring` is true, and `rings[1] = line` → that row gets `ringzone/ringlocal/ringuv/ringid` from another cell's animal, counting into `rings` ("ring N/N"), `ringz` and `ringdisagree`. The code's own comment claims the opposite: *"A line identical to the previous shot's is the previous shot's: a miss writes nothing, so the ring does not advance and that row keeps no ring columns."* This is the instrument claims 3, 4, 5 and 7 are read from, and the request's `ring ... 1/30 on clear air` cannot be distinguished from this artefact. Required: seed `last_ring` from the ring's current tail before the cell's first shot (or key `rings` by the line's own `#index`, which `_TRACE` already captures as `n`).
+Producer deletion, duty (a) — every case offered as proof bites, and none of the three compares a
+value with itself:
+- `tests/server/weapon_rewind.spec.luau` "carries the rewound frame out of the flight": delete
+  `frame = impact.frame` from `Flight.advance` and `expect(resolved[1].impacts[1].frame).to.equal(
+  withFrame)` goes red; `flown(nil)` kills a hard-coded field. `withFrame` is a `CFrame.new(10, 2,
+  -30)` the spec's own stub cast hands in, and the production step is in the path between.
+- `tests/server/hit_card.spec.luau` (the range's ring): delete the new block in `HitLog.sendCard` and
+  `expect(after.traced).to.equal(before.traced + 1)` and `expect(#ring).to.equal(1)` both go red;
+  replace `frameOf(bp, report)` with `bp.CFrame` and the SECOND pass goes red, because
+  `drawnFrame = part.CFrame * CFrame.new(0, 0, 6)` makes `wantTense` and `wrongTense` differ by
+  exactly 6 on Z whatever the part's rotation. Round 1's "the tense is not covered" note is closed.
+  The known-bad half (`traced` 0 and the ring empty for a refused card) goes red if `cardWorthy` is
+  removed.
+- `tools/aim_bench.py selftest`: delete `parse_trace`'s `if m is None` return and the four non-ring
+  inputs raise on `m.group`; delete the `ringn` key and `assert good["ringn"] == 7` goes red; make
+  `ring_credit` credit unconditionally and `assert ring_credit(ring(5), seen) is None` goes red;
+  delete the seeding in `run_cell` and the known-bad cell goes back to the `ring 1/30` claim 7 names.
+- The live chain is real, not asserted: `Rewind.impact` sets `frame` -> `Flight.advance` now carries
+  it -> `Hits.luau` `entry.frame` / `targetCFrame = entry.frame` -> `HitLog.frameOf`. With the flag
+  off `Cast.cast` and `Cast.only` set no `frame`, so the new line is a no-op and the off state is
+  bit-for-bit the old game. Claim 1 checks out against the code: at base, `recordHit` returns at
+  `if not HitLog.rowWorthy(part)` BEFORE `writeTrace`, so a range shot wrote no ring line at all.
+  Claim 4's zone edges are the repo's: `Boar.CONFIG.ZONES` chest spans z -1.29..+0.23, body's loin
+  +0.67..+1.11, rear's hips from +1.11.
+- Harness paperwork: the line names `Code commit: 7f0a45a8...` with "(clean tree)",
+  `paperwork-after-code-commit.txt` reads OK (only `reviews/task-309a/REQUEST.md` follows it), and
+  `log.txt` confirms claim 10 — `7f0a45a8` touches `reviews/task-309a/RESULT.md` alone, so no `src/`,
+  `tests/` or `tools/` line differs from the measured `83569069`. selene, stylua and the Rojo build
+  are exit 0.
 
 ## Notes (non-blocking)
 
-Rule 5, stated so this is not read as rule 5 having been met: the core item is shooting. What has been seen is **scripted bench shots driven by `tools/aim_bench.py`** — per the request, in the test build `driven-hunt-294` and not in Karen's own Forest Test — counted by the server's remotes and by `HitLog`'s ring. What has **NOT** been seen is any human firing at an animal on this build, and **no frame of the hit card**: carrying `frame` out of `Flight.advance` moves the card's red dots and the report silhouette's mark (`buildCard` → `Shape.cardDots(frameOf(part, report), ...)`) from the clamped `u=1.000` tail into the body, which is a change in what Karen sees, and there is no screenshot description in the request. `src/shared/Flags/init.luau` `AIM_REWIND` is still `default = false`, so as merged the constant reaches nobody who has not lit the flag.
-
-Producer deletion, duty (a) — every case offered as proof bites:
-- `tests/server/hit_card.spec.luau` (the range's ring): delete the new block in `HitLog.sendCard` and `expect(after.traced).to.equal(before.traced + 1)` and `expect(#ring).to.equal(1)` both go red; the known-bad half (the refused card) goes red if the `cardWorthy` guard is removed.
-- `tests/server/weapon_rewind.spec.luau` ("carries the rewound frame out of the flight"): delete `frame = impact.frame` from `Flight.advance` and `expect(resolved[1].impacts[1].frame).to.equal(withFrame)` goes red; `flown(nil)` kills a hard-coded field. The two sides are not the same identity — `withFrame` is a `CFrame.new(10, 2, -30)` the stub cast hands in.
-- `tools/aim_bench.py selftest`: deleting `parse_trace`'s `if m is None` early return makes the four non-ring inputs raise on `m.group`; deleting `_ring_z` or the three new `summarise` keys fails the `+0.60 / +1.00 / 2/2 / 0/30 / RING DISAGREES` asserts.
-
-- `tests/server/hit_card.spec.luau`, the new ring case — it drives `sendCard` with `targetCFrame = nil` (`report()`'s default), so `want = part.CFrame:PointToObjectSpace(fired.position)` is the same value whether the code reads `frameOf(bp, report)` or `bp.CFrame`. The one thing this task is about on this path — the tense — is not covered; one more pass with `targetCFrame = drawn` (as the task-308 case at `hit_card.spec` `recordHit` already does) closes it.
-- `src/server/Weapon/Flight.luau` comment / commit `7576fcd9` — *"the shotgun's instant pattern never flies, which is why task 308's own spec stayed green"* / *"which is why only the flying guns showed it"* is not what the code says: `Hits.resolve` is gone and **every** gun's shot goes through the stepper (`src/server/Weapon/Hits.luau`: *"`ServerScriptService.Weapon.Flight` replaces it: the shot is a projectile the server steps"*). The condition is a **rewound** impact (`AIM_REWIND` lit, moving animal), not a flying one; 308's spec stayed green because it drives `Hits.group` directly with hand-made impacts. As written the comment understates which paths were mis-projected.
-- `src/shared/Shotgun/init.luau`, the 309a block — it prints `+0.10, +0.27 and +0.01` (cycle3, N=20, the test build) while the shipped run reads `+0.23 / +0.13 / +0.00` (claim 5, after-B). The row that carries the constant should print the numbers of the build that ships it.
-- `docs/research/2026-10-28-lag-compensation.md` — the diff updated the rewind table row but left *"So `FLIGHT_REWIND_BASE_SECONDS` 0.18 under-rewound by 0.0257 s ... It is **0.205** since task 309"* above it, so the note now states two values.
-- `src/server/Weapon/init.luau` near `rewindFor` — *"`FLIGHT_REWIND_BASE_SECONDS` (0.18, MEASURED -- see its row)"*; stale since 309, now out by 0.07. `src/shared/Flags/init.luau` `AIM_REWIND.why` likewise still says *"0.180 s back, measured"*.
-- `src/server/Weapon/init.luau` `castWithRewind` — `DH305Past`/`DH305Pres` are written on `candidates[1].root`, the nearest candidate, which is not necessarily the animal the bullet struck. With one animal in the cell it is the right one; with two in the pad the bench's `pastgap` would be a tense for a different animal. Say so where the instrument is documented.
-- `src/server/HitLog/init.luau` — `stats.traced` is now also incremented by the range path, so the ring's `#n` sequence interleaves range and drive lines and the counter's own comment (*"three clicks and two numbers means a shot that never reached the server"*) no longer holds for a drive read while Karen shoots the lane. Range lines' `t=` is also a different time base (`at - rangeEpoch`) from drive lines' (`sinceOpen`), with nothing in the line distinguishing the two — a lane target carries `Kind` too, so `kind=male` prints either way.
-- `tools/aim_bench.py` `_TRACE` — the pattern is a hand-transcription of `HitLog.Shape.traceLine`'s format string with no repo-side tie to it. If that Luau format changes, `parse_trace` returns all-None, every cell prints `ring 0/N`, and `selftest` stays green because its `good` input is hand-written.
-- `tools/aim_bench.py` `ringdisagree` — both sides may be the same server quantity: the ring's `zone` is `report.zone`, and the row's `zone` is the `HitMarker` payload (`src/server/Weapon/init.luau`: `channel.HitMarker:FireClient(player, { kind = ..., zone = zone, ... })`). If the marker's zone is the report's zone, the column can never flag a live row and only the selftest's synthetic rows exercise it.
-- Harness paperwork checks out: the line names `Code commit: 63866ba5...` with "(clean tree)", `paperwork-after-code-commit.txt` reads OK (only `reviews/task-309a/REQUEST.md` follows it), and `log.txt` confirms claim 10 — `63866ba5` touches `tests/server/hit_card.spec.luau` alone. selene, stylua and the Rojo build are all exit 0.
+- `src/shared/Shotgun/init.luau`, the 309a block + `docs/research/2026-10-28-lag-compensation.md`
+  (the rewind row) — the row that carries the shipped constant states numbers the request itself
+  contradicts, and cites the baseline run as the shipped one. Evidence: the row says *"at 0.250 it
+  reads +0.23, +0.13 and +0.00, and a boar aimed at with no lead at all went 15/30 to 25/30"* and
+  *"Runs: <runs-dir>/309a/after-A.txt (0.205) against after-B.txt (0.250)"*; the request's claim 5
+  says *"+0.17 / +0.09 / +0.05 at 0.250 ... after-A.txt (0.205) against after-C.txt (0.250)"*, claim
+  6 lists the cycles as *"diag1 -> after-A -> cycle3 -> after-C"* with `pastgap` *"+1.47 -> +1.00 ->
+  +0.10 -> +0.17"*, claim 9 says RUN chest is *"30/30 = 100%"*, and claim 7 names after-B as the
+  **190b145d** run. So neither the numbers nor the file is the shipped build's. Round 1 asked for
+  this row to print the numbers of the build that ships it and it now prints a third set. What would
+  fix it: put after-C's `+0.17 / +0.09 / +0.05` and 15/30 -> 30/30 in the row and in the note, and
+  cite after-C. Same row: the bracket *"near 0.254..0.271"* does not follow from its own stated
+  residual (*"about +0.4..+0.6 studs AHEAD"* at 24 studs/s is 0.267..0.276); the low end is a
+  leftover. The DIRECTION is now right, which was round 1's finding, and I verified it against the
+  bench: `drawn` is read after `repeat ... until me:GetAttribute("DHClaimWhy") ~= nil`, so it has
+  moved further along `+dir` and `pastgap = (past - drawn):Dot(dir)` under-reports.
+- `src/server/Weapon/Flight.luau` `Flight.advance` — the impact rebuild the task just added `frame`
+  to still drops `material`, the identical defect class. Evidence: the row is `{ instance, position,
+  normal, distance, frame }` while `Shotgun.Impact` carries `material: Enum.Material?`, `Cast.cast`
+  and `Cast.only` both set `material = hit.material`, and `src/server/Weapon/init.luau` reads
+  `table.insert(materials, if impact.material ~= nil then impact.material.Name else "")` for
+  `ShotLanded`. So every pellet's dust on every client is drawn with `materials[i] = ""`.
+  Pre-existing and not made worse by this change, so a note — queue it as its own task.
+- `src/server/Weapon/init.luau` `castWithRewind` — `DH305Past` / `DH305Pres` are written only on the
+  rewound path and **never cleared**, and the bench reads them after the answer with no freshness
+  check. Evidence: the writes sit inside `if STUDIO then ... if rewound ~= nil`-adjacent block after
+  `rewindTrail.cast += 1`, while the five early exits (`rewind-zero`, `no-provider`, `no-roots`,
+  `no-history`) `return castFn(...)` without touching the attributes; the resident reads
+  `past, pres = vec3(troot:GetAttribute("DH305Past")), vec3(troot:GetAttribute("DH305Pres"))` and
+  computes `pastgap` from whatever is there. So a shot that did not rewind — a clear-air click, a
+  known-bad cell row — prints a `pastgap` belonging to an earlier shot, which is exactly round 1's
+  finding 3 in the other half of the instrument. The ring half was fixed by `#n`; this half already
+  publishes `DH305At` and `ServerStorage.DHLastHits`'s `DH305Rewind` counts the exits, and the bench
+  reads neither against the shot. What would fix it: stamp the two positions with the shot's own
+  instant (or clear them on every early exit) and have `run_cell` drop a row whose `pastat` did not
+  advance. Claims 5 and 6 are the ones read off `pastgap`.
+- `tools/aim_bench.py` `render` — the footer legend says *"pastgap is DH305Past minus the drawn
+  trunk, along travel ... (+ = ahead of it)"* and says nothing about the late read. The bias that was
+  round 1's blocking finding now lives in the `Shotgun.CONFIG` row and the research note but not in
+  the output the next person reads, so a printed `+0.00` still reads as "perfect". One line in the
+  legend ("a perfect rewind prints about -0.4 at a run; the trunk is read up to one frame late").
+- `src/shared/Flags/init.luau` `AIM_REWIND.why` — the first half was refreshed to 0.250 but the OFF
+  clause still reads *"the shooter must add 0.18 s x the animal's speed of his own"*.
+- `src/server/HitLog/init.luau` — `stats.traced` is now incremented by the range path too, so the
+  ring's `#n` sequence interleaves range and drive lines and the counter's own comment (*"three
+  clicks and two numbers means a shot that never reached the server"*) no longer holds for a drive
+  read while someone shoots the lane. Range lines' `t` is also a different base (`at - rangeEpoch`)
+  from drive lines' (`sinceOpen(at)`) with nothing in the line saying which — a lane target carries
+  `Kind`, so `kind=male` prints either way. Round 1's note, unchanged.
+- `tools/aim_bench.py` `ringdisagree` and `_TRACE` — round 1's two notes stand unaddressed. Both
+  sides of `ringdisagree` may be the same server quantity (`r["ringzone"]` is `report.zone` through
+  the ring; `r["zone"]` is the `HitMarker` payload's `zone`), so only the selftest's synthetic rows
+  exercise it; and `_TRACE` is a hand-transcription of `Shape.traceLine`'s format string with no
+  repo-side tie, so a change to that Luau format turns every cell into `ring 0/N` while `selftest`
+  stays green on its hand-written `good` input.
+- `tests/server/weapon_rewind.spec.luau`, the new case's header — *"MEASURED in Karen's place
+  (<runs-dir>/309a/diag1.txt)"* is the phrase round 1 objected to, left unqualified here while the
+  `Flight` comment and the `Shotgun` row both now name the build.
 
 ---
-REVIEWER verdict on commit `59bfed1923de46eb34b074011baa19bbd707b1cb` (round 1) · 2026-10-29 06:13 UTC · session cost $4.14, 44 turns · written by tools/agents.py
+REVIEWER verdict on commit `67ed8d4848c1c43c063e1201873115e9e13d113f` (round 2) · 2026-10-29 06:52 UTC · session cost $4.98, 48 turns · written by tools/agents.py
