@@ -280,6 +280,36 @@ return function()
 			expect(RangePanel.isOpen()).to.equal(false)
 			RangePanel.setPromptShown(false)
 
+			-- ...AND IT STANDS DOWN FOR THE **CLIMB** PROMPT TOO (task 306 step B10). That one is on
+			-- `E` as well, at the ladder's foot -- and the station's own RANGE prompt is 11.95 studs
+			-- from a man standing there, inside its reach of 12 -- so without this one press would
+			-- climb AND open the menu.
+			expect(RangePanel.isClimbShown()).to.equal(false)
+			RangePanel.setClimbShown(true)
+			expect(RangePanel.isClimbShown()).to.equal(true)
+			local beforeClimb = RangePanel.stats().swallowed
+			RangePanel.onKeyPressed()
+			expect(RangePanel.isOpen()).to.equal(false)
+			expect(RangePanel.stats().swallowed).to.equal(beforeClimb + 1)
+			-- ...and the OTHER arm: with it clear, the same press opens the menu again.
+			RangePanel.setClimbShown(false)
+			RangePanel.onKeyPressed()
+			expect(RangePanel.isOpen()).to.equal(true)
+			RangePanel.onKeyPressed()
+			expect(RangePanel.isOpen()).to.equal(false)
+			-- WHICH PROMPTS COUNT AS A CLIMB, by NAME and nothing else: a station's climb prompts do
+			-- and its menu prompt does not, so the stand-down cannot swallow E at the bench.
+			local climbUp = Instance.new("ProximityPrompt")
+			climbUp.Name = RangeData.climbPromptName(2, "up")
+			expect(RangePanel.isClimbPrompt(climbUp)).to.equal(true)
+			local climbDown = Instance.new("ProximityPrompt")
+			climbDown.Name = RangeData.climbPromptName(5, "down")
+			expect(RangePanel.isClimbPrompt(climbDown)).to.equal(true)
+			local menu = Instance.new("ProximityPrompt")
+			menu.Name = RangeData.promptName(2, RangeData.POSITION.BENCH)
+			expect(RangePanel.isClimbPrompt(menu)).to.equal(false)
+			expect(RangePanel.isClimbPrompt(nil)).to.equal(false)
+
 			-- THE KEY GOES WITH HIM: off the spot it is unbound, so nothing answers E in the wood.
 			RangePanel.setNear(false)
 			expect(bound()).to.equal(nil)

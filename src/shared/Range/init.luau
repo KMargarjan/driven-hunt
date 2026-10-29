@@ -26,6 +26,11 @@ Range.PROMPT_NAME = "RangePrompt"
 -- THE SECOND PROMPT'S OWN STEM. Two prompts per station, both found by name (`Lobby.Data.shopPrompt`'s
 -- shape), so "which one did he press" is never a guess about a position.
 Range.STAND_PROMPT_NAME = "RangeStandPrompt"
+-- THE TWO CLIMB PROMPTS' OWN STEMS (step B10, item 6), and the turf slab's name. Same rule as
+-- above: found by NAME, so nothing downstream guesses from a position.
+Range.CLIMB_UP = "RangeClimbPrompt"
+Range.CLIMB_DOWN = "RangeDownPrompt"
+Range.TURF_NAME = "Turf"
 Range.REMOTES_NAME = "Remotes"
 -- THE FOLDER THE LANE'S ANIMALS LIVE IN (task 304). `RangeBoot` names its runtime's world with it
 -- and `ForestTestBoot` asks `Range.isTarget` with it, so "is this the hunt's animal or the range's"
@@ -139,7 +144,89 @@ Range.LAYOUT = {
 	STAND = { backStuds = 14, facing = -1, promptRise = 2.4 },
 	-- THE GROUND POSITION'S REST: a 0.7-0.8 m bench top (ISSF/BSRC) is 2.5-2.9 studs, and
 	-- `aheadStuds` puts it between the man and his post, downrange of the mat.
-	BENCH = { size = Vector3.new(6, 2.7, 1.2), aheadStuds = 3.5, color = Color3.fromRGB(112, 92, 64) },
+	-- `color` AND `material` BOTH, SINCE STEP B10: the box read as a brown slab in her place
+	-- (evidence/306b8/f2b-lane1-view.png). Size and position are UNCHANGED -- a bench top is a
+	-- gameplay number (the 0.7-0.8 m rest) and B10 moves none of them (note 8.3 L1).
+	BENCH = {
+		size = Vector3.new(6, 2.7, 1.2),
+		aheadStuds = 3.5,
+		color = Color3.fromRGB(150, 118, 78),
+		material = Enum.Material.WoodPlanks,
+	},
+	-- ------------------------------------------------------------------- THE LOOK (step B10)
+	-- Karen, 2026-10-28: *"make nice shooting range clean proper like in real life"*. Research note
+	-- docs/research/2026-10-28-the-range-in-the-lobby.md section 8 (refs 1, 5, 7 and the deviations).
+	-- NOT ONE GAMEPLAY NUMBER IS IN HERE (8.3 L1): the mats, posts, benches, decks, prompts, window,
+	-- distances, banks and berm keep the values B2-B9 measured, and all of this is laid AROUND them.
+	--
+	-- THE ROOFED FIRING POINT: four corner posts and a flat roof over the mat, the bench and the
+	-- prompt post -- ref-1's firing hut, ref-5's roofed line. `roofRise` is the roof's BOTTOM above
+	-- the shelf; 8.3 L2 is the bound it answers.
+	HUT = {
+		roofSize = Vector3.new(13, 0.6, 15),
+		roofRise = 9,
+		-- the roof's centre DOWNRANGE of the mat, so its span covers the bench (3.5) and the prompt
+		-- post (7) and still stops 6.5 studs short of the treestand's deck 14 uprange.
+		roofAheadStuds = 3,
+		postSection = 0.9,
+		-- THE STATION'S NUMBER, on the UPRANGE fascia: the face a man walking down from the lodge
+		-- reads. A `SurfaceGui` draws the digit, so there is no decal id and nothing to upload.
+		boardSize = Vector3.new(3.2, 2.2, 0.25),
+		boardRise = 6.4,
+		roofColor = Color3.fromRGB(96, 72, 52),
+		postColor = Color3.fromRGB(136, 110, 80),
+		boardColor = Color3.fromRGB(236, 232, 220),
+		boardTextColor = Color3.fromRGB(32, 32, 32),
+	},
+	-- THE MOWN LANE, AS ONE DECORATIVE PART. A BasePart's `Grass` material is a flat texture with no
+	-- blades -- blades are the TERRAIN renderer's, which is the whole of B8's measured objection --
+	-- so this is green grass that cannot hide the target. `CanCollide` and `CanQuery` are both false
+	-- in `Build`: a ray and a body pass straight through, so no shot, no route and no walk moves.
+	TURF = {
+		thickness = 0.6,
+		-- the slab's TOP above the shelf: just proud of the voxel surface, so no terrain shows through
+		liftStuds = 0.12,
+		color = Color3.fromRGB(106, 140, 74),
+		material = Enum.Material.Grass,
+	},
+	-- THE LOT'S LOW RAIL FENCE (ref-5), ON THE BERM'S OWN SPAN IN X -- which is the corridor plus
+	-- both banks in full (`bermWidthFor`), so the line is 18 studs outside the corridor's end and
+	-- nothing on it is in any line of fire.
+	FENCE = {
+		postSection = 0.7,
+		postRise = 3.2,
+		spacingStuds = 24,
+		railTall = 0.45,
+		railThick = 0.25,
+		railRise = 2.7,
+		color = Color3.fromRGB(128, 104, 76),
+		material = Enum.Material.Wood,
+	},
+	-- THE WAY UP AND THE WAY DOWN (dispatch item 6; note 8.2). B9 measured twice that a real `W` at
+	-- the `TrussPart` never climbs, so the climb is a prompt that MOVES the character.
+	-- E UP, F DOWN, AND THE SECOND KEY IS A MEASUREMENT: a man on the deck is inside
+	-- `MaxActivationDistance` of this prompt AND of the station's existing RANGE prompt, and
+	-- `ProximityPrompt.Exclusivity` defaults to `OnePerButton` -- one prompt per key, the closest --
+	-- so two E prompts on one deck is a coin toss about which door the key opens.
+	--   https://create.roblox.com/docs/reference/engine/enums/ProximityPromptExclusivity
+	CLIMB = {
+		UP_ACTION = "Climb",
+		DOWN_ACTION = "Climb down",
+		OBJECT_TEXT = "TREESTAND",
+		UP_KEY = Enum.KeyCode.E,
+		DOWN_KEY = Enum.KeyCode.F,
+		MaxActivationDistance = 10,
+		HoldDuration = 0,
+		-- the prompt POINTS: chest height at the ladder's foot, and a stud and a half over the deck
+		footRise = 3.0,
+		deckRise = 1.6,
+		-- HOW HIGH A BODY SITS over what it stands on. `Match.CONFIG.STAND_HEIGHT_STUDS`' own 3.5,
+		-- restated and not required: the lobby's range reaches into no hunt module (this file's head).
+		riseStuds = 3.5,
+		-- One stud further uprange than the ladder's own centre, so the man who steps down is clear
+		-- of the seat's legs rather than inside one.
+		footClearStuds = 1.0,
+	},
 	PLATE = { minSpan = 120, marginStuds = 80, thickness = 4, color = Color3.fromRGB(150, 150, 150) },
 	-- THE TERRAIN GRID. `Terrain:FillBlock` writes 4-stud voxels on a grid anchored at the world
 	-- origin, so every rectangle edge is a multiple of this or voxels stand at it (task 191's
@@ -165,6 +252,12 @@ Range.LAYOUT = {
 	-- the anchor, the deck 14 uprange, and the mats span 2596..2724 for a six-station row.
 	SURFACE = {
 		LANE = Enum.Material.Ground,
+		-- THE BERM AND THE TWO BANKS ARE GRASSED EARTH (step B10, Karen: *"behind animal could be a
+		-- mountain ... or some earth formed mountain"*; refs 3 and 5). Terrain `Grass` DOES draw
+		-- blades and that is why the LANE is not grass -- but these stand 190 studs downrange, where
+		-- B8's measurement (blades filling the frame from the bench) does not apply, and blades are
+		-- what makes a heap of soil read as a hill rather than as a brown wall.
+		BERM = Enum.Material.Grass,
 		AROUND = Enum.Material.Grass,
 		LINE = Enum.Material.Limestone,
 		LINE_AHEAD_STUDS = 10,
@@ -777,6 +870,213 @@ function Range.benchPosition(anchor: Vector3, spot: number, layout, downrange: n
 	local dir = if downrange == -1 then -1 else 1
 	local mat = Range.matPosition(anchor, spot, layout)
 	return Vector3.new(mat.X, anchor.Y + layout.BENCH.size.Y / 2, mat.Z + dir * layout.BENCH.aheadStuds)
+end
+
+-- -------------------------------------------------------------------- THE LOOK, PURE (step B10)
+--
+-- Every one of these is derived from a point B2-B9 already measured, so no number below can move a
+-- mat, a bench, a window or a berm (note 8.3 L1). `range.spec` asserts that identity.
+
+-- THE ROOF'S CENTRE over one station: `roofAheadStuds` downrange of the mat, at `roofRise` plus half
+-- its own thickness above the shelf -- so the BOTTOM face is at `roofRise`, which is the number the
+-- sight bound in 8.3 L2 is about.
+function Range.hutRoofPosition(anchor: Vector3, spot: number, layout, downrange: number?): Vector3
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local mat = Range.matPosition(anchor, spot, layout)
+	local hut = layout.HUT
+	return Vector3.new(mat.X, anchor.Y + hut.roofRise + hut.roofSize.Y / 2, mat.Z + dir * hut.roofAheadStuds)
+end
+
+-- THE HUT'S FOUR CORNER POSTS, as x/z pairs: the roof's own corners pulled in by half a post, so no
+-- post overhangs the roof it carries.
+function Range.hutPostPositions(anchor: Vector3, spot: number, layout, downrange: number?): { { x: number, z: number } }
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local hut = layout.HUT
+	local at = Range.hutRoofPosition(anchor, spot, layout, dir)
+	local halfX = hut.roofSize.X / 2 - hut.postSection / 2
+	local halfZ = hut.roofSize.Z / 2 - hut.postSection / 2
+	local out = {}
+	for _, sx in ipairs({ -1, 1 }) do
+		for _, sz in ipairs({ -1, 1 }) do
+			table.insert(out, { x = at.X + sx * halfX, z = at.Z + sz * halfZ })
+		end
+	end
+	return out
+end
+
+-- THE NUMBER BOARD, on the hut's UPRANGE fascia, under the roof's own uprange edge.
+function Range.boardPosition(anchor: Vector3, spot: number, layout, downrange: number?): Vector3
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local hut = layout.HUT
+	local at = Range.hutRoofPosition(anchor, spot, layout, dir)
+	return Vector3.new(at.X, anchor.Y + hut.boardRise, at.Z - dir * (hut.roofSize.Z / 2 - hut.boardSize.Z / 2))
+end
+
+function Range.boardName(spot: number): string
+	return string.format("Board%d", math.max(1, math.floor(spot or 1)))
+end
+
+function Range.hutRoofName(spot: number): string
+	return string.format("Roof%d", math.max(1, math.floor(spot or 1)))
+end
+
+function Range.hutPostName(spot: number, corner: number): string
+	return string.format("HutPost%d_%d", math.max(1, math.floor(spot or 1)), corner)
+end
+
+-- WHAT THE BOARD SAYS. One place, so the spec reads the SAME answer the `SurfaceGui` is given and a
+-- board printing station 4's number at station 2 is a failing case rather than a look nobody checks.
+function Range.boardText(spot: number): string
+	return string.format("%d", math.max(1, math.floor(spot or 1)))
+end
+
+-- THE WORST OFF-AXIS X A SIGHT LINE REACHES at `aheadStuds` downrange of the mat: the line from the
+-- firing point to the far edge of the window at the SHORTEST lane, which is the widest angle this
+-- range can ever ask for. Anything standing further off axis than this, at that Z, is out of every
+-- line of fire at every distance (note 8.3 L2).
+function Range.sightHalfWidthAt(layout, aheadStuds: number): number
+	layout = layout or Range.LAYOUT
+	local nearest = nil
+	for _, value in ipairs(layout.DISTANCES_STUDS) do
+		if type(value) == "number" and (nearest == nil or value < nearest) then
+			nearest = value
+		end
+	end
+	if nearest == nil or nearest <= 0 then
+		return math.huge
+	end
+	return math.abs(aheadStuds) * (layout.WINDOW_STUDS / 2) / nearest
+end
+
+-- THE TURF SLAB: the mown lane, from the firing line's DOWNRANGE edge to the berm's NEAR face,
+-- across the berm's own span -- so it is the whole of what a man at the bench looks across and it
+-- never covers the pale firing line he stands on.
+function Range.turfRect(anchor: Vector3, layout, downrange: number?)
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local minX, maxX = Range.bermSpanFor(anchor, layout)
+	local line = Range.lineRect(anchor, layout, dir)
+	local berm = Range.bermPosition(anchor, layout, dir)
+	local nearZ = if dir == 1 then line.maxZ else line.minZ
+	local farZ = berm.Z - dir * layout.BERM.depth / 2
+	return {
+		minX = minX,
+		maxX = maxX,
+		minZ = math.min(nearZ, farZ),
+		maxZ = math.max(nearZ, farZ),
+	}
+end
+
+-- THE FENCE'S TWO LINES, in Z: from the firing line's own BACK edge to the berm's near face, which
+-- is exactly the lot. Returned as a rect so the posts and the rails read one span.
+function Range.fenceSpan(anchor: Vector3, layout, downrange: number?)
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local minX, maxX = Range.bermSpanFor(anchor, layout)
+	local line = Range.lineRect(anchor, layout, dir)
+	local berm = Range.bermPosition(anchor, layout, dir)
+	local backZ = if dir == 1 then line.minZ else line.maxZ
+	local farZ = berm.Z - dir * layout.BERM.depth / 2
+	return {
+		minX = minX,
+		maxX = maxX,
+		minZ = math.min(backZ, farZ),
+		maxZ = math.max(backZ, farZ),
+	}
+end
+
+-- EVERY FENCE POST, as x/z pairs: `spacingStuds` apart along both lines, with a post ON each end so
+-- no line finishes in mid air.
+function Range.fencePosts(anchor: Vector3, layout, downrange: number?): { { x: number, z: number, leg: number } }
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local span = Range.fenceSpan(anchor, layout, dir)
+	local length = span.maxZ - span.minZ
+	local spacing = math.max(1, layout.FENCE.spacingStuds)
+	local steps = math.max(1, math.ceil(length / spacing))
+	local out = {}
+	for leg, x in ipairs({ span.minX, span.maxX }) do
+		for k = 0, steps do
+			table.insert(out, { x = x, z = span.minZ + length * k / steps, leg = leg })
+		end
+	end
+	return out
+end
+
+function Range.fencePostName(leg: number, index: number): string
+	return string.format("FencePost%d_%d", leg, index)
+end
+
+function Range.fenceRailName(leg: number): string
+	return string.format("FenceRail%d", leg)
+end
+
+-- ------------------------------------------------------------------ THE WAY UP (step B10, item 6)
+
+-- THE LADDER'S FOOT, read off `HighSeats` own footprint rather than re-derived: the fifth sample is
+-- the ladder's, and `standFacing` turns it with the row -- so this is 18 studs UPRANGE of the mat in
+-- both worlds, which is the side a man walks in from.
+function Range.ladderFootPosition(anchor: Vector3, spot: number, layout, downrange: number?): Vector3
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local stand = Range.standPosition(anchor, spot, layout, dir)
+	local facing = HighSeats.facingOf(Range.standFacing(layout, dir))
+	return Vector3.new(stand.X, anchor.Y, stand.Z + facing * HighSeats.DIMS.LADDER_OFFSET_STUDS)
+end
+
+-- WHICH PROMPT IS WHICH, BY NAME (`Range.promptName`'s rule): nothing downstream knows where either
+-- hangs. `way` is "up" or "down" and anything else is the way up, which is the reachable default.
+function Range.climbPromptName(spot: number, way: string?): string
+	local index = math.max(1, math.floor(spot or 1))
+	local stem = if way == "down" then Range.CLIMB_DOWN else Range.CLIMB_UP
+	return string.format("%s%d", stem, index)
+end
+
+-- THE CLIMB PROMPT'S OWN POINT: chest height at the ladder's foot. Y is the SHELF plus the rise,
+-- exactly as `promptPosition` is -- the BUILT point reads the ground under the ladder, and over a
+-- plate the two are one point.
+function Range.climbPromptPosition(anchor: Vector3, spot: number, layout, downrange: number?): Vector3
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local foot = Range.ladderFootPosition(anchor, spot, layout, dir)
+	return Vector3.new(foot.X, anchor.Y + layout.CLIMB.footRise, foot.Z)
+end
+
+-- THE WAY DOWN'S POINT: over the rail's GAP, which is the one place a man can step off, and
+-- `deckRise` below the station's own RANGE prompt -- the reason the two are on different keys.
+function Range.downPromptPosition(anchor: Vector3, spot: number, layout, downrange: number?, deckTop: number?): Vector3
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local deck = Range.standPosition(anchor, spot, layout, dir)
+	local top = if type(deckTop) == "number" then deckTop :: number else anchor.Y + HighSeats.DIMS.DECK_RISE_STUDS
+	return Vector3.new(deck.X, top + layout.CLIMB.deckRise, deck.Z - dir * HighSeats.DIMS.RAIL_PLANE_STUDS)
+end
+
+-- WHERE THE CLIMB PUTS HIM: on the deck's centre, `riseStuds` over its top, facing DOWNRANGE -- so
+-- the man who presses E is looking at his own lane and `Range.spotAt` answers `treestand` for him.
+-- PURE: the spec drives both ends with no character and no world.
+function Range.climbTargetFor(anchor: Vector3, spot: number, layout, downrange: number?, deckTop: number?): CFrame
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local deck = Range.standPosition(anchor, spot, layout, dir)
+	local top = if type(deckTop) == "number" then deckTop :: number else anchor.Y + HighSeats.DIMS.DECK_RISE_STUDS
+	local at = Vector3.new(deck.X, top + layout.CLIMB.riseStuds, deck.Z)
+	return CFrame.lookAt(at, at + Vector3.new(0, 0, dir))
+end
+
+-- AND WHERE THE WAY DOWN PUTS HIM: a stud uprange of the ladder's foot, clear of the seat's legs,
+-- on the ground THE CALLER MEASURED -- never on the shelf, because the shelf is one reading at the
+-- row's own point and `Build.groundUnder` measured an 11.6-stud spread across this range.
+function Range.climbDownTargetFor(anchor: Vector3, spot: number, layout, downrange: number?, groundY: number?): CFrame
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local foot = Range.ladderFootPosition(anchor, spot, layout, dir)
+	local ground = if type(groundY) == "number" then groundY :: number else anchor.Y
+	local at = Vector3.new(foot.X, ground + layout.CLIMB.riseStuds, foot.Z - dir * layout.CLIMB.footClearStuds)
+	return CFrame.lookAt(at, at + Vector3.new(0, 0, dir))
 end
 
 -- HOW FAR UPRANGE OF THE MAT THE STATION REACHES: the deck plus the seat's own feet, which is the

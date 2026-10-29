@@ -282,3 +282,94 @@ tree line, and T6 -- is a document fact, not an engine fact. An Architect PASS p
 coherent, not that it fits the engine: task 298 step B2 found two placement errors (the screens
 stopping the target 7.8 studs short, and the prompt being invisible down the lane) only at the first
 build.
+
+---
+
+## 8. THE LOOK (step B10). Karen, 2026-10-28: *"make nice shooting range clean proper like in real life ... outsource and make it real"*
+
+The B8 range WORKS and reads PLAIN. The Director's own frames of her place
+(`<runs-dir>/evidence/306b8/f1b-line-view.png`, `f2b-lane1-view.png`, `f3b-deck4-view.png`,
+`f6b-berm-view.png`) show a bare brown dirt lane, a bare dirt berm, a brown box per bench, six bare
+ladder stands and dark slabs at the firing line. Nothing in the picture says "range".
+
+### 8.1 Photo-reference pages read for this step (text read; images to be checked by eye)
+
+| # | Page | What it shows, and what we take from it |
+|---|---|---|
+| 1 | [BSRC Time Limit Range](https://bsrc.co.uk/time-limit-range/) | The 50 m running-boar range at Bisley: a **firing hut** with two bays, a **red safety light over each bay**, a Line Officer's station, a **parapet** hiding the trolley rail, and the motor room in the right-hand **butt**. We take the ROOFED FIRING POINT and the per-bay identity (our number board). |
+| 2 | [BSRC Running Deer](https://bsrc.co.uk/running-deer/) | The 100 m running-deer range: firing point 4.0 m off the track centre line, target centre 1.66 m, and the **gap between two banks** the animal crosses. We take the two-bank window (already built, B2) and the GRASSED banks. |
+| 3 | [Rheinpfalz: Hubertus Kaiserslautern, Aschbacherhof "Laufender Keiler"](https://www.rheinpfalz.de/lokal/kaiserslautern_artikel,-sch%C3%BCtzengesellschaft-hubertus-weiht-neue-anlage-auf-aschbacherhof-ein-_arid,5040637.html) | A German hunters' club running-boar installation: cardboard boar at 50 m, runs either way, slow or fast, behind a **sand backstop with a protective mat**. We take: the backstop is an EARTH heap, not a wall, and it is the only thing behind the animal. |
+| 4 | [tips.at: Jagdschiesszentrum Desselbrunn](https://www.tips.at/nachrichten/voecklabruck/land-leute/725491-neues-jagdschiesszentrum-in-desselbrunn) | An Austrian hunting-range centre with a planned *Laufender Keiler* plus a 200 m stand: the lodge-plus-range layout we are copying (range in front of the house, not a walk away). |
+| 5 | [Thurgau: Jagdschiessstand Heckemos, Objektkredit documentation (PDF)](https://finanzverwaltung.tg.ch/public/upload/assets/149334/Jagdschiessstand_Heckemos%2C_Dokumentation_zum_Objektkredit_def._.pdf?fp=1) | A new Swiss hunting range's own plan set: a roofed firing line, **mown turf** between the line and the backstop, **grassed side banks**, and a low fence round the lot. The strongest single reference for the LOOK. |
+| 6 | [Geograph: "Hide or High Seat" (CC BY-SA 2.0)](https://www.geograph.org.uk/photo/86740) | A Scottish high seat: four weathered timber legs, a ladder, a platform rail you can see straight through. This is the look `HighSeats.COLORS` was already tuned to on 2026-10-20 (`<runs-dir>/218-edge-seat2.png`). |
+| 7 | [Target World Landscheid](https://target-world.de/en/shooting) | A commercial running-boar stand: numbered bays under one roof. Our 1-6 number boards. |
+
+### 8.2 What is adopted, and the deviations
+
+**BORROW BEFORE BUILDING (rule 2).** No asset is uploaded for this step, and that is a decision, not
+an omission:
+
+1. Every shape wanted here (post, roof, bench, board, rail fence, turf) is an axis-aligned box. A
+   downloaded mesh buys nothing a `Part` does not already give and costs a moderation wait, an
+   `uploads.json` row, and a **per-asset rendered-loaded proof** (L-094: a `Decal`-vs-`ImageLabel`
+   defect passed every automated check because no frame was taken of the asset itself).
+2. The dispatch allows it: *"they may be a free/CC0 model scaled to the measured deck, **or better
+   Parts**"*.
+3. The seat is NOT rebuilt. `HighSeats.plan` is already ref-6's shape -- four weathered timber legs,
+   a girt, two braces, a plank deck, a rail with a gap, and a `TrussPart` ladder at
+   `Style = NoSupports` -- and it is **shared with the hunt's own stands**, so a change here changes
+   the drive's look. Item 4 of the dispatch is therefore answered with a FRAME and no code.
+
+**THE LANE: a PART of `Enum.Material.Grass`, not terrain grass.** The measured fact from B8 stands:
+*terrain* `Grass` draws blades and from the bench they fill the frame. But a **BasePart**'s `Grass`
+material is a flat texture with NO blades -- the blade geometry is a terrain-renderer feature, not a
+material one. So the lane keeps its blade-free `Ground` terrain and a single anchored turf slab is
+laid on it, `CanCollide = false`, `CanQuery = false`: nothing a ray or a body can meet, so no shot,
+no boar route and no walk changes. `Terrain:SetMaterialColor` was REFUSED as the alternative: it is
+global per material, and `Ground` is also the lodge yard and the road (`Lobby.CONFIG.FIELD.PADS`),
+`Mud` the forest ruts and the bog (`Places.ruts`, `MapGen.Config.bog`) -- recolouring either would
+repaint half her world.
+
+**THE BERM AND THE BANKS: terrain `Grass`.** Blades 190 studs downrange are what ref-3 and ref-5
+show ("earth formed mountain", grassed). They are nowhere near the shooter's eye, so B8's measured
+objection does not apply at that distance. The two repaints therefore move AHEAD of the berm and
+bank fills in `Build.writeTerrain`: a repaint of `AROUND -> LANE` in a band at the shelf would
+otherwise eat the bottom 4 studs of a grassed heap and leave a brown skirt.
+
+**THE FIRING POINT: a roofed hut per station** (ref-1, ref-5, ref-7): four corner posts, a flat
+roof, a wooden bench in place of the brown box (same size, same position -- only colour and material
+move), and a number board 1-6 on the uprange fascia where a man walking from the lodge reads it. A
+`SurfaceGui` + `TextLabel` draws the digit: no upload, no decal id, and the text is read back off the
+instance in the spec.
+
+**THE WAY UP (dispatch item 6, the one input change).** B9 measured TWICE that a real `W` against the
+`TrussPart` never climbs (`ESCALATE.md`, B9 entry). The common Roblox treestand pattern is a
+`ProximityPrompt` that moves the character, and that is what is adopted:
+`Climb` on **E** at the ladder foot, `Climb down` on **F** on the deck. Both keys are stated, and
+**F and not E for the down prompt is a measurement, not a taste**: a man on the deck is inside
+`MaxActivationDistance` (12) of BOTH the down prompt and the station's existing `RANGE` menu prompt
+(the two points are 2.4 and 1.5 studs above the same deck), and `ProximityPrompt.Exclusivity`
+defaults to `OnePerButton` -- one prompt per key is shown, the closest -- so two E prompts on one
+deck is a coin toss about which door the key opens.
+  * ProximityPrompt https://create.roblox.com/docs/reference/engine/classes/ProximityPrompt
+  * Exclusivity https://create.roblox.com/docs/reference/engine/enums/ProximityPromptExclusivity
+
+`Triggered` is connected on the **SERVER**, where it carries the player who pressed it, so there is
+no new remote and no new client owner. The character is moved with `Model:PivotTo`, which is
+`Match.Body.standCharacter`'s own call -- but NOT through `Body`: `Body.standCharacter` snaps its
+target onto the measured GROUND, which is exactly wrong for a deck 12.5 studs up. The range writes
+its own two points and says so.
+
+**THE EDGES: a low rail fence** down both long sides of the lane corridor (ref-5), outside the
+corridor and outside the window, so nothing stands in a line of fire.
+
+### 8.3 Numeric targets for this step
+
+| # | Target | Why that number |
+|---|---|---|
+| L1 | **ZERO gameplay numbers move**: the six mat, post, bench, deck and prompt points, the window, the three distances, the berm's and banks' size and position, the firing line's strip | `range.spec` asserts each against `Range` own position arithmetic, which B2-B9 measured; the step is a look step |
+| L2 | Roof bottom at least 8.5 studs above the shelf, and no hut part inside the sight cone from either firing position to either end of any window | a level shot at a 5-stud-high target 107-179 studs away rises 0 studs; the worst off-axis ray is atan(18/107) = 9.6 deg, which is 1.3 studs of X at the roof's own downrange edge |
+| L3 | The turf slab covers the lane from the firing line's downrange edge to the berm's near face, and is `CanCollide = false`, `CanQuery = false` | a decorative part that a ray or a body can meet is a gameplay change |
+| L4 | The boar is **fully visible** from the bench: 0 % of its silhouette covered by anything this step adds | Karen's B8 complaint was a lane you cannot see over |
+| L5 | A real `E` at the ladder foot puts the player on the deck (server position = treestand), and a real `F` on the deck puts him on the ground | dispatch item 6; B9's two failed `W` climbs |
+| L6 | `Range.CONFIG.MAX_PARTS` raised to the new measured count plus headroom | the bound is a claim about cost, and it has to move when the build does |

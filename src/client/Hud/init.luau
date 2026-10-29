@@ -5678,6 +5678,10 @@ function Hud.start()
 			Input = Weapon.Input,
 			remotes = rangeRemotes,
 		})
+		-- THE CLIMB PROMPTS' WATCH (task 306 step B10): they are on `E` too, so this panel's own
+		-- `E` binding has to stand down while the engine is offering one. Wired once, here, by the
+		-- composition root -- one reader per fact.
+		RangePanel.watchClimbPrompts()
 		if rangeBoardFrame then
 			RangeBoard.start(rangeBoardFrame :: Frame, { remotes = rangeRemotes })
 		end

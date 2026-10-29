@@ -493,8 +493,9 @@ return function()
 					prompts += 1
 				end
 			end
-			-- TWO PER STATION SINCE STEP B3: the bench's post and the stand's rail (design 7.3).
-			expect(prompts).to.equal(2 * LAYOUT.SPOT_COUNT)
+			-- TWO PER STATION SINCE STEP B3 (the bench's post and the stand's rail, design 7.3) and
+			-- FOUR SINCE B10: the climb up at the ladder's foot and the climb down over the rail gap.
+			expect(prompts).to.equal(4 * LAYOUT.SPOT_COUNT)
 			expect(LAYOUT.SPOT_COUNT).to.equal(6)
 			-- SIX OF EACH, BY NAME: one mat, one post and one prompt per station (design 5.4).
 			for spot = 1, LAYOUT.SPOT_COUNT do
@@ -4456,6 +4457,320 @@ return function()
 					"range forest: the gathering yard is %.0f studs from the mat, %.0f of it downrange",
 					((gather :: Vector3) - mat).Magnitude,
 					math.abs((gather :: Vector3).Z - mat.Z)
+				)
+			)
+		end)
+	end)
+
+	-- ------------------------------------------------------------------- THE LOOK (task 306, B10)
+	--
+	-- Karen, 2026-10-28: *"make nice shooting range clean proper like in real life"*. Research note
+	-- docs/research/2026-10-28-the-range-in-the-lobby.md section 8, targets 8.3 L1-L6.
+	describe("the look, and that it moved no gameplay number", function()
+		-- L1. THE ONE CASE THAT WOULD HAVE CAUGHT A DRESSED RANGE BREAKING THE MEASURED ONE: every
+		-- number B2-B9 measured, against the LITERAL it had before this step. A derived assertion
+		-- (`== Range.matPosition(...)`) would pass with the arithmetic itself moved, which is exactly
+		-- the mistake a look step can make.
+		it("leaves every measured point and distance exactly where B2-B9 put it", function()
+			expect(LAYOUT.DISTANCE_STUDS).to.equal(125)
+			expect(LAYOUT.DISTANCES_STUDS[1]).to.equal(107)
+			expect(LAYOUT.DISTANCES_STUDS[2]).to.equal(125)
+			expect(LAYOUT.DISTANCES_STUDS[3]).to.equal(179)
+			expect(LAYOUT.WINDOW_STUDS).to.equal(36)
+			expect(LAYOUT.APRON_STUDS).to.equal(20)
+			expect(LAYOUT.SPOT_COUNT).to.equal(6)
+			expect(LAYOUT.SPOT_SPACING_STUDS).to.equal(24)
+			expect(LAYOUT.BERM.height).to.equal(10)
+			expect(LAYOUT.BERM.depth).to.equal(8)
+			expect(LAYOUT.BERM.behindStuds).to.equal(13)
+			expect(LAYOUT.BANK.size).to.equal(Vector3.new(12, 8, 14))
+			expect(LAYOUT.BANK.beyondStuds).to.equal(6)
+			expect(LAYOUT.MAT.size).to.equal(Vector3.new(8, 1, 8))
+			expect(LAYOUT.POST.aheadStuds).to.equal(7)
+			expect(LAYOUT.POST.sideStuds).to.equal(3)
+			expect(LAYOUT.STAND.backStuds).to.equal(14)
+			expect(LAYOUT.STAND.promptRise).to.equal(2.4)
+			expect(LAYOUT.PROMPT.MaxActivationDistance).to.equal(12)
+			-- THE BENCH'S SIZE AND ITS REACH, which are the 0.7-0.8 m rest: B10 changed the colour
+			-- and the material and nothing else.
+			expect(LAYOUT.BENCH.size).to.equal(Vector3.new(6, 2.7, 1.2))
+			expect(LAYOUT.BENCH.aheadStuds).to.equal(3.5)
+			-- ...and the points themselves, at an anchor with no plate and no reader at all.
+			local anchor = Vector3.new(0, 100, 0)
+			expect(RangeData.matPosition(anchor, 3, LAYOUT)).to.equal(Vector3.new(48, 100, 0))
+			expect(RangeData.benchPosition(anchor, 3, LAYOUT, 1)).to.equal(Vector3.new(48, 101.35, 3.5))
+			expect(RangeData.standPosition(anchor, 3, LAYOUT, 1)).to.equal(Vector3.new(48, 100, -14))
+			expect(RangeData.promptPosition(anchor, 3, LAYOUT, 1)).to.equal(Vector3.new(51, 104, 7))
+			expect(RangeData.bermSizeFor(LAYOUT)).to.equal(Vector3.new(232, 10, 8))
+			expect(RangeData.bermPosition(anchor, LAYOUT, 1)).to.equal(Vector3.new(60, 100, 192))
+		end)
+
+		-- L2. NOTHING THE HUT ADDS IS IN A LINE OF FIRE, and the bound is the arithmetic rather
+		-- than a belief: the worst sight ray reaches `sightHalfWidthAt` off axis at that Z, and the
+		-- post stands further out than that at EVERY station and EVERY corner.
+		it("keeps the roofed firing point out of every line of fire", function()
+			local anchor = Vector3.new(0, 100, 0)
+			local hut = LAYOUT.HUT
+			expect(hut.roofRise >= 8.5).to.equal(true)
+			for _, dir in ipairs({ 1, -1 }) do
+				for spot = 1, LAYOUT.SPOT_COUNT do
+					local mat = RangeData.matPosition(anchor, spot, LAYOUT)
+					for _, at in ipairs(RangeData.hutPostPositions(anchor, spot, LAYOUT, dir)) do
+						-- its own downrange offset from the mat, and the widest ray at that offset
+						local ahead = (at.z - mat.Z) * dir
+						local clear = RangeData.sightHalfWidthAt(LAYOUT, ahead)
+						-- an UPRANGE post is behind the shooter and cannot be in front of him
+						if ahead > 0 then
+							expect(math.abs(at.x - mat.X) > clear + hut.postSection / 2).to.equal(true)
+						end
+					end
+					-- AND THE ROOF CLEARS THE TREESTAND, which stands `backStuds` uprange: the roof's
+					-- uprange edge must stop short of the deck's own downrange edge.
+					local roof = RangeData.hutRoofPosition(anchor, spot, LAYOUT, dir)
+					local roofBack = (roof.Z - mat.Z) * dir - hut.roofSize.Z / 2
+					local deckFront = -LAYOUT.STAND.backStuds + HighSeats.DIMS.DECK_SIZE.X / 2
+					expect(roofBack > deckFront).to.equal(true)
+					-- ...and the ray from the DECK's eye to a target at the window passes OVER it.
+					local deckEye = HighSeats.DIMS.DECK_RISE_STUDS + HighSeats.AIM_RISE_STUDS
+					local far = LAYOUT.DISTANCES_STUDS[3] + LAYOUT.STAND.backStuds
+					local atRoofEdge = (roof.Z - mat.Z) * dir + hut.roofSize.Z / 2 + LAYOUT.STAND.backStuds
+					local rayY = deckEye - (deckEye - 5) * atRoofEdge / far
+					expect(rayY > hut.roofRise + hut.roofSize.Y).to.equal(true)
+				end
+			end
+			-- the bound itself is real arithmetic and not a constant: 9.6 degrees at the short lane
+			expect(RangeData.sightHalfWidthAt(LAYOUT, 0)).to.equal(0)
+			expect(math.abs(RangeData.sightHalfWidthAt(LAYOUT, 107) - 18) < 1e-6).to.equal(true)
+		end)
+
+		-- L3/L4. THE MOWN LANE IS A PART NOTHING CAN MEET: a ray, a bullet, a boar's route and a
+		-- man's feet all pass through it, so it cannot cover the target or change a shot.
+		it("lays the mown lane as one part that no ray and no body can meet", function()
+			local parent = Instance.new("Folder")
+			local built = Range.Build.build({ parent = parent, row = DEV_ROW, layout = LAYOUT })
+			expect(built).to.be.ok()
+			local folder = (built :: any).folder
+			local turf = folder:FindFirstChild(RangeData.TURF_NAME)
+			expect(turf).to.be.ok()
+			expect((turf :: any).CanCollide).to.equal(false)
+			expect((turf :: any).CanQuery).to.equal(false)
+			expect((turf :: any).CanTouch).to.equal(false)
+			expect((turf :: any).Material).to.equal(Enum.Material.Grass)
+			-- IT COVERS THE LANE AND NOT THE FIRING LINE: its near edge is the pale strip's own far
+			-- edge, and its far edge is the berm's near face.
+			local anchor = (built :: any).anchor
+			local dir = (built :: any).downrange
+			local rect = RangeData.turfRect(anchor, LAYOUT, dir)
+			local line = RangeData.lineRect(anchor, LAYOUT, dir)
+			local berm = RangeData.bermPosition(anchor, LAYOUT, dir)
+			expect(rect.minZ >= math.min(line.minZ, line.maxZ)).to.equal(true)
+			expect(math.abs(rect.maxZ - (berm.Z - dir * LAYOUT.BERM.depth / 2)) < 1e-6).to.equal(true)
+			-- its TOP is just proud of the shelf, so no voxel shows through and nothing floats
+			local top = (turf :: any).Position.Y + (turf :: any).Size.Y / 2
+			expect(math.abs(top - ((built :: any).shelf + LAYOUT.TURF.liftStuds)) < 1e-6).to.equal(true)
+			-- AND THE LANE'S OWN GROUND IS STILL BLADE-FREE: B8's measured reason stands.
+			expect(LAYOUT.SURFACE.LANE).to.equal(Enum.Material.Ground)
+			-- ...while the berm and the banks are GRASSED (Karen's "earth formed mountain").
+			expect(LAYOUT.SURFACE.BERM).to.equal(Enum.Material.Grass)
+		end)
+
+		-- THE NUMBER BOARD SAYS THE STATION'S OWN NUMBER, read off the instance the player reads --
+		-- and asserted at TWO different stations, because one pick cannot tell a real label from a
+		-- hard-coded word (V298).
+		it("prints each station's own number on its board", function()
+			local parent = Instance.new("Folder")
+			local built = Range.Build.build({ parent = parent, row = DEV_ROW, layout = LAYOUT })
+			local folder = (built :: any).folder
+			for _, spot in ipairs({ 1, 4, 6 }) do
+				local board = folder:FindFirstChild(RangeData.boardName(spot))
+				expect(board).to.be.ok()
+				local faces = 0
+				for _, gui in ipairs((board :: any):GetChildren()) do
+					if gui:IsA("SurfaceGui") then
+						faces += 1
+						local label = gui:FindFirstChild("Number")
+						expect(label).to.be.ok()
+						expect((label :: any).Text).to.equal(tostring(spot))
+						expect((label :: any).Text).to.equal(RangeData.boardText(spot))
+					end
+				end
+				-- BOTH FACES, so the digit reads walking in and standing at the bench
+				expect(faces).to.equal(2)
+			end
+			-- and the three are three different strings, so the case bites
+			expect(RangeData.boardText(1)).never.to.equal(RangeData.boardText(4))
+		end)
+
+		-- L5 (and L-093: a case that actually ENTERS each new arm). THE WAY UP AND THE WAY DOWN,
+		-- driven through the owner with a fake body -- both branches, and the refusals.
+		it("climbs a man onto the deck and back down again, by station", function()
+			local parent = Instance.new("Folder")
+			local clock, now = newClock()
+			local moved: { CFrame } = {}
+			local shelf = 140
+			local ok = Range.start({
+				enabled = true,
+				anchor = { x = 0, z = 0, y = shelf, plate = true },
+				root = parent,
+				now = now,
+				groundAt = function()
+					return shelf
+				end,
+				move = function(_who, cframe)
+					table.insert(moved, cframe)
+					return true
+				end,
+			})
+			expect(ok).to.equal(true)
+			local anchor = Range.stats().parts and Vector3.new(0, shelf, 0) or nil
+			expect(anchor).to.be.ok()
+
+			-- THE WAY UP: onto station 4's deck, `CLIMB.riseStuds` over its top face.
+			local deckTops = Range.deckTops()
+			expect(deckTops[4]).to.be.ok()
+			expect(Range.onClimb({ Name = "a" }, 4)).to.equal(true)
+			expect(#moved).to.equal(1)
+			local up = moved[1]
+			local deck = RangeData.standPosition(anchor :: Vector3, 4, LAYOUT, 1)
+			expect(math.abs(up.Position.X - deck.X) < 1e-4).to.equal(true)
+			expect(math.abs(up.Position.Z - deck.Z) < 1e-4).to.equal(true)
+			expect(math.abs(up.Position.Y - (deckTops[4] + LAYOUT.CLIMB.riseStuds)) < 1e-4).to.equal(true)
+			-- A MAN AT THAT POINT IS ON THE STAND, by the server's OWN rule -- which is what the
+			-- climb is for, and it would be false for a point one stud off the deck.
+			local spotUp, wordUp = Range.spotAt(up.Position)
+			expect(spotUp).to.equal(4)
+			expect(wordUp).to.equal(RangeData.POSITION.TREESTAND)
+
+			-- THE WAY DOWN: at the ladder's foot, on the measured ground, and NOT on the stand.
+			expect(Range.onClimbDown({ Name = "a" }, 4)).to.equal(true)
+			expect(#moved).to.equal(2)
+			local down = moved[2]
+			expect(math.abs(down.Position.Y - (shelf + LAYOUT.CLIMB.riseStuds)) < 1e-4).to.equal(true)
+			local foot = RangeData.ladderFootPosition(anchor :: Vector3, 4, LAYOUT, 1)
+			expect(math.abs(down.Position.X - foot.X) < 1e-4).to.equal(true)
+			local _spotDown, wordDown = Range.spotAt(down.Position)
+			expect(wordDown).never.to.equal(RangeData.POSITION.TREESTAND)
+
+			-- BOTH ARMS COUNTED, and a refusal is a refusal: no station 0, no station 9.
+			expect(Range.onClimb({ Name = "a" }, 99)).to.equal(false)
+			expect(Range.onClimbDown({ Name = "a" }, 0)).to.equal(false)
+			expect(Range.stats().climbsUp).to.equal(1)
+			expect(Range.stats().climbsDown).to.equal(1)
+			expect(Range.stats().climbsRefused).to.equal(2)
+			-- ...AND A MOVER THAT SAYS NO IS NOT A CLIMB. The seam's false must not be counted as
+			-- a success, which is the shape a "did not raise" counter gets wrong.
+			Range.stop()
+			local refused = Range.start({
+				enabled = true,
+				anchor = { x = 0, z = 0, y = shelf, plate = true },
+				root = Instance.new("Folder"),
+				now = now,
+				move = function()
+					return false
+				end,
+			})
+			expect(refused).to.equal(true)
+			expect(Range.onClimb({ Name = "a" }, 2)).to.equal(false)
+			expect(Range.stats().climbsUp).to.equal(0)
+			expect(Range.stats().climbsRefused).to.equal(1)
+			Range.stop()
+			clock.t = 0
+		end)
+
+		-- THE PROMPTS THEMSELVES: two per station, with the two KEYS that the deck's own crowding
+		-- forces apart, and `wireClimbs` finds all twelve.
+		it("hangs a Climb on E at the ladder foot and a Climb down on F on the deck", function()
+			local parent = Instance.new("Folder")
+			local built = Range.Build.build({ parent = parent, row = DEV_ROW, layout = LAYOUT })
+			local folder = (built :: any).folder
+			local anchor = (built :: any).anchor
+			local dir = (built :: any).downrange
+			local found: { [string]: any } = {}
+			for _, child in ipairs(folder:GetDescendants()) do
+				if child:IsA("ProximityPrompt") then
+					found[child.Name] = child
+				end
+			end
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				local upPrompt = found[RangeData.climbPromptName(spot, "up")]
+				local downPrompt = found[RangeData.climbPromptName(spot, "down")]
+				expect(upPrompt).to.be.ok()
+				expect(downPrompt).to.be.ok()
+				expect((upPrompt :: any).ActionText).to.equal(LAYOUT.CLIMB.UP_ACTION)
+				expect((downPrompt :: any).ActionText).to.equal(LAYOUT.CLIMB.DOWN_ACTION)
+				expect((upPrompt :: any).KeyboardKeyCode).to.equal(Enum.KeyCode.E)
+				expect((downPrompt :: any).KeyboardKeyCode).to.equal(Enum.KeyCode.F)
+				-- THE WAY UP IS AT THE LADDER'S FOOT: its world point is the arithmetic's, so the
+				-- screen's claim and the built world are about ONE point.
+				local point = RangeData.promptPointOf(upPrompt)
+				local want = RangeData.climbPromptPosition(anchor, spot, LAYOUT, dir)
+				expect(point).to.be.ok()
+				expect(((point :: Vector3) - want).Magnitude < 1e-3).to.equal(true)
+				-- AND THE TWO KEYS HAD TO DIFFER: the down prompt and the station's RANGE prompt are
+				-- BOTH within `MaxActivationDistance` of a man on the deck, and `Exclusivity` shows
+				-- one prompt per key. This is that measurement, as a case.
+				local downPoint = RangeData.promptPointOf(downPrompt)
+				local menuPoint =
+					RangeData.promptPointOf(found[RangeData.promptName(spot, RangeData.POSITION.TREESTAND)])
+				expect(downPoint).to.be.ok()
+				expect(menuPoint).to.be.ok()
+				local apart = ((downPoint :: Vector3) - (menuPoint :: Vector3)).Magnitude
+				expect(apart < LAYOUT.PROMPT.MaxActivationDistance).to.equal(true)
+				expect((downPrompt :: any).KeyboardKeyCode).never.to.equal((upPrompt :: any).KeyboardKeyCode)
+			end
+			-- `wireClimbs` FINDS ALL TWELVE, which is the number the console line prints.
+			expect(Range.wireClimbs(folder)).to.equal(2 * LAYOUT.SPOT_COUNT)
+			expect(Range.wireClimbs(nil)).to.equal(0)
+		end)
+
+		-- L6 AND THE EDGES: the fence stands outside the corridor, and nothing in the dressed range
+		-- stands in the lane the target walks.
+		it("fences the lot outside the corridor and inside the budget", function()
+			local parent = Instance.new("Folder")
+			local built = Range.Build.build({ parent = parent, row = DEV_ROW, layout = LAYOUT })
+			local folder = (built :: any).folder
+			local anchor = (built :: any).anchor
+			local dir = (built :: any).downrange
+			local west, east = RangeData.corridorSpan(LAYOUT)
+			local posts = RangeData.fencePosts(anchor, LAYOUT, dir)
+			expect(#posts >= 8).to.equal(true)
+			for _, post in ipairs(posts) do
+				-- OUTSIDE THE CORRIDOR, by the bank's own reach, on both sides
+				local outside = post.x <= anchor.X + west - LAYOUT.BANK.beyondStuds
+					or post.x >= anchor.X + east + LAYOUT.BANK.beyondStuds
+				expect(outside).to.equal(true)
+				expect(folder:FindFirstChild(RangeData.fencePostName(post.leg, 1))).to.be.ok()
+			end
+			expect(folder:FindFirstChild(RangeData.fenceRailName(1))).to.be.ok()
+			expect(folder:FindFirstChild(RangeData.fenceRailName(2))).to.be.ok()
+			-- NOTHING FLOATS AND NOTHING IS HALF BURIED (CLAUDE.md rule E, as a census): every
+			-- COLLIDING part's lowest face is at or above the shelf less one stud, and its highest is
+			-- above the shelf. The turf is the one exception and it is excluded by name.
+			local shelf = (built :: any).shelf
+			local worst = 0
+			for _, child in ipairs(folder:GetDescendants()) do
+				if child:IsA("BasePart") and child.Name ~= RangeData.TURF_NAME and child.Name ~= "Plate" then
+					local low = child.Position.Y - child.Size.Y / 2
+					worst = math.min(worst, low - shelf)
+					expect(child.Position.Y + child.Size.Y / 2 > shelf).to.equal(true)
+				end
+			end
+			-- the deepest foot is the seat's own `FOOT_EMBED_STUDS`, and nothing is deeper
+			expect(worst >= -(HighSeats.DIMS.FOOT_EMBED_STUDS + 0.35)).to.equal(true)
+			local parts = 0
+			for _, child in ipairs(folder:GetDescendants()) do
+				if child:IsA("BasePart") then
+					parts += 1
+				end
+			end
+			expect(parts <= Range.CONFIG.MAX_PARTS).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range B10: %d parts dressed (budget %d), %d fence posts, worst foot %.2f studs",
+					parts,
+					Range.CONFIG.MAX_PARTS,
+					#posts,
+					worst
 				)
 			)
 		end)

@@ -60,9 +60,12 @@ Range.CONFIG = {
 	STAND_HOLD_STUDS = 2,
 	-- One target per spot, never a sounder.
 	MAX_TARGETS = RangeData.LAYOUT.SPOT_COUNT,
-	-- SIX STATIONS: 1 plate + 6 mats + 6 posts + 2 banks + 1 berm = 16 in DEV today, and the bound
-	-- carries the six treestands step B3 adds (design 12, T9).
-	MAX_PARTS = 160,
+	-- SIX STATIONS, DRESSED (step B10). DEV: 1 plate + 6 x (mat, post, bench, 4 hut posts, roof,
+	-- board) + 6 x 14 seat pieces + 1 turf + 20 fence posts + 2 rails + 2 banks + 1 berm = 165.
+	-- Her place is 162 (the banks and the berm are earth there, and there is no plate). 220 is that
+	-- plus headroom; the bound is a CLAIM ABOUT COST and `range.spec` asserts the built count
+	-- against it, so dressing the range had to move it rather than quietly bust it.
+	MAX_PARTS = 220,
 	DEFAULT_SPECIES = "boar",
 	DEFAULT_KIND = "male",
 	DEFAULT_PACE = RangeData.WORD.TROT,
@@ -197,8 +200,24 @@ local state = {
 		-- HOW MANY TIMES A SHOT ASKED WHAT IT MAY NOT SEE (design 12, T13): at most twice per shot,
 		-- once for the aim ray and once for the trigger.
 		ignoreCalls = 0,
+		-- THE WAY UP AND THE WAY DOWN (step B10, item 6): how many bodies this module has moved
+		-- onto a deck and back onto the ground, and how many presses it REFUSED (no character, no
+		-- seat at that station, no mover). Counted, because B9's two failed `W` climbs were silent.
+		climbsUp = 0,
+		climbsDown = 0,
+		climbsRefused = 0,
 		refusedBy = nil :: string?,
 	},
+	-- THE PLACE'S GROUND READER, kept from `start` -- the way DOWN needs a HEIGHT at the ladder's
+	-- foot, and the shelf is one reading at the row's own point (`Build.groundUnder`'s 11.6 studs).
+	groundAt = nil :: ((number, number) -> number?)?,
+	-- HOW A BODY IS MOVED, AS A SEAM. The shipped one is `character:PivotTo`, which is
+	-- `Match.Body.standCharacter`'s own call -- but NOT through `Body`: `standCharacter` snaps its
+	-- target onto the measured GROUND, which is exactly wrong for a deck 12.5 studs up. A spec
+	-- passes its own and drives both arms with no character (research note 8.2).
+	move = nil :: ((any, CFrame) -> boolean)?,
+	-- EVERY `Triggered` CONNECTION THIS MODULE MADE, so `stop` hands back exactly what it wired.
+	climbs = {} :: { any },
 	-- EVERY MAN THE BOARD HAS EVER BEEN PUSHED TO, by UserId (step B6). The owner does not read
 	-- `Players`; it remembers the men its own seams handed it, which is the same set that has a
 	-- record. `maskDirty` says a trunk changed and every one of them must be told again.
@@ -362,6 +381,120 @@ function Range.positionOf(player: any): (number?, string?)
 		return nil, nil
 	end
 	return Range.spotAt(position)
+end
+
+-- --------------------------------------------------------- THE WAY UP (step B10, dispatch item 6)
+--
+-- B9 MEASURED TWICE that a real `W` against the seat's `TrussPart` never climbs (`ESCALATE.md`, B9
+-- entry), so there is no way onto a deck for a real player. The pattern adopted is the common
+-- Roblox treestand one -- a `ProximityPrompt` that MOVES the character -- and these two functions
+-- are its whole rule. `Build` hangs `Climb` (E) at the ladder's foot and `Climb down` (F) over the
+-- deck's rail gap; the keys differ because a man on the deck is in reach of BOTH the down prompt
+-- and the station's RANGE prompt and `Exclusivity` is `OnePerButton`.
+-- Research note: docs/research/2026-10-28-the-range-in-the-lobby.md section 8.2.
+
+-- HOW A BODY IS MOVED. The seam, with the shipped `PivotTo` behind it, so a spec drives the whole
+-- rule with a table and no character. It returns whether it moved anything.
+local function moveBody(player: any, cframe: CFrame): boolean
+	local mover = state.move
+	if mover ~= nil then
+		return mover(player, cframe) == true
+	end
+	local ok, moved = pcall(function(): boolean
+		local character = (player :: any).Character
+		if typeof(character) ~= "Instance" or not character:IsA("Model") then
+			return false
+		end
+		(character :: Model):PivotTo(cframe)
+		return true
+	end)
+	return ok and moved == true
+end
+
+-- THE WAY UP: onto THAT station's deck, and only where a deck was built. A station whose seat
+-- `HighSeats.plan` refused has no `deckTops` entry, and then this refuses too rather than putting a
+-- man on the air where a stand is not.
+function Range.onClimb(player: any, spot: number?): boolean
+	local index = math.floor(spot or 0)
+	local deckTop = (state.deckTops or {})[index]
+	if not state.started or state.anchor == nil or player == nil or deckTop == nil then
+		state.stats.climbsRefused += 1
+		return false
+	end
+	local target = RangeData.climbTargetFor(state.anchor :: Vector3, index, RangeData.LAYOUT, state.downrange, deckTop)
+	if not moveBody(player, target) then
+		state.stats.climbsRefused += 1
+		return false
+	end
+	state.stats.climbsUp += 1
+	return true
+end
+
+-- AND THE WAY DOWN: a stud uprange of the ladder's foot, on the ground MEASURED there. No `deckTops`
+-- test -- a man standing on a deck that is somehow not in the table still has to be able to get off
+-- it -- but the station has to exist.
+function Range.onClimbDown(player: any, spot: number?): boolean
+	local index = math.floor(spot or 0)
+	if
+		not state.started
+		or state.anchor == nil
+		or player == nil
+		or index < 1
+		or index > RangeData.LAYOUT.SPOT_COUNT
+	then
+		state.stats.climbsRefused += 1
+		return false
+	end
+	local anchor = state.anchor :: Vector3
+	local foot = RangeData.ladderFootPosition(anchor, index, RangeData.LAYOUT, state.downrange)
+	local ground = anchor.Y
+	if state.groundAt ~= nil then
+		local read = (state.groundAt :: any)(foot.X, foot.Z)
+		if type(read) == "number" then
+			ground = read :: number
+		end
+	end
+	local target = RangeData.climbDownTargetFor(anchor, index, RangeData.LAYOUT, state.downrange, ground)
+	if not moveBody(player, target) then
+		state.stats.climbsRefused += 1
+		return false
+	end
+	state.stats.climbsDown += 1
+	return true
+end
+
+-- EVERY CLIMB PROMPT IN THE BUILT FOLDER, WIRED ON THE **SERVER** -- where `Triggered` carries the
+-- player who pressed it, so there is no new remote and no new client owner. Returns how many it
+-- wired, which is the number `range.spec` asserts against twice the station count.
+function Range.wireClimbs(folder: Instance?): number
+	if folder == nil then
+		return 0
+	end
+	local wanted: { [string]: { spot: number, way: string } } = {}
+	for spot = 1, RangeData.LAYOUT.SPOT_COUNT do
+		wanted[RangeData.climbPromptName(spot, "up")] = { spot = spot, way = "up" }
+		wanted[RangeData.climbPromptName(spot, "down")] = { spot = spot, way = "down" }
+	end
+	local wired = 0
+	for _, child in ipairs((folder :: Instance):GetDescendants()) do
+		local row = wanted[child.Name]
+		if row ~= nil then
+			local ok, connection = pcall(function()
+				return (child :: any).Triggered:Connect(function(who: any)
+					if row.way == "up" then
+						Range.onClimb(who, row.spot)
+					else
+						Range.onClimbDown(who, row.spot)
+					end
+				end)
+			end)
+			if ok and connection ~= nil then
+				table.insert(state.climbs, connection)
+				wired += 1
+			end
+		end
+	end
+	return wired
 end
 
 -- ------------------------------------------------------------------ THE ONE PREDICATE (7.4)
@@ -618,6 +751,11 @@ function Range.start(seams): boolean
 		end
 	end
 	state.deckTops = built.deckTops or {}
+	-- THE GROUND READER AND THE MOVER, KEPT (step B10): the way down measures the ground at the
+	-- ladder's foot, and the body is moved through a seam a spec can replace.
+	state.groundAt = seams.groundAt
+	state.move = seams.move
+	state.climbs = {}
 	state.stats.parts = built.parts
 	state.stats.terrainFills = built.terrainFills or 0
 	state.stats.terrainReplaces = built.terrainReplaces or 0
@@ -628,13 +766,16 @@ function Range.start(seams): boolean
 	for spot = 1, RangeData.LAYOUT.SPOT_COUNT do
 		state.trials[spot] = newTrial(spot, Range.CONFIG.DEFAULT_PACE)
 	end
+	-- THE WAY UP, WIRED LAST, after the folder is parented: two prompts per station that has a seat.
+	local climbs = Range.wireClimbs(built.folder)
 	print(
 		string.format(
-			"[range] built in %d ms (%d parts, %d stands, %d refused)",
+			"[range] built in %d ms (%d parts, %d stands, %d refused, %d climb prompts)",
 			built.buildMs,
 			built.parts,
 			built.stands or 0,
-			built.refusedStands or 0
+			built.refusedStands or 0,
+			climbs
 		)
 	)
 	for _, refusal in ipairs(built.standRefusals or {}) do
@@ -658,6 +799,17 @@ function Range.stop()
 			state.stats.clears += 1
 		end
 	end
+	-- THE CLIMB CONNECTIONS GO BEFORE THE FOLDER THEY HANG IN (step B10): a `Triggered` handler on a
+	-- destroyed prompt is a handler that can still fire once, and it would move a body onto a deck
+	-- that no longer exists.
+	for _, connection in ipairs(state.climbs) do
+		pcall(function()
+			(connection :: any):Disconnect()
+		end)
+	end
+	state.climbs = {}
+	state.groundAt = nil
+	state.move = nil
 	if state.built ~= nil and state.built.folder ~= nil then
 		state.built.folder:Destroy()
 	end

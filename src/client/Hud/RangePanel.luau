@@ -67,6 +67,14 @@ local keyBound = false
 -- thing that decides which of the two doors answers a press (see `onKeyPressed`).
 local promptShown = false
 local shownConnections: { any } = {}
+-- IS THE ENGINE OFFERING THE RANGE'S **CLIMB** PROMPT RIGHT NOW? (step B10, item 6.) That prompt is
+-- on `E` too, at the ladder's foot -- and MEASURED there, the station's own RANGE prompt is 11.95
+-- studs away, inside its `MaxActivationDistance` of 12. So `nearestPrompt` answers, this panel binds
+-- `E`, and one press would both climb AND open the menu. While the climb prompt is shown this
+-- panel's key stands down -- the same rule `onKeyPressed` already applies to its OWN prompt, and
+-- for the same reason: the engine is already answering that key.
+local climbShown = false
+local climbConnections: { any } = {}
 
 -- THE CONFIRM BAR MUST CONTAIN THE VIEWPORT CENTRE, which is the one point the input replay can
 -- click (design 11.3) -- and MEASURED LIVE on 2026-10-27 it did not: the HUD's `ScreenGui` carries
@@ -553,6 +561,57 @@ function RangePanel.isPromptShown(): boolean
 	return promptShown
 end
 
+-- WHETHER A CLIMB PROMPT IS BEING OFFERED, as a parameter as well as a signal -- the two-arms rule,
+-- so a spec reaches both states while the live world sits at one of them.
+function RangePanel.setClimbShown(on: boolean)
+	climbShown = on == true
+end
+
+function RangePanel.isClimbShown(): boolean
+	return climbShown
+end
+
+-- IS THAT INSTANCE ONE OF THE RANGE'S CLIMB PROMPTS? By NAME, which is `Range.climbPromptName`'s own
+-- rule -- nothing here knows where either one hangs.
+function RangePanel.isClimbPrompt(instance: any): boolean
+	if typeof(instance) ~= "Instance" then
+		return false
+	end
+	local name = (instance :: Instance).Name
+	for spot = 1, RangeData.LAYOUT.SPOT_COUNT do
+		if name == RangeData.climbPromptName(spot, "up") or name == RangeData.climbPromptName(spot, "down") then
+			return true
+		end
+	end
+	return false
+end
+
+-- THE CLIMB PROMPTS' OWN WATCH, wired ONCE from the boot and not per station: the service says which
+-- prompt the engine is offering, and this panel only has to know whether it is a climb.
+function RangePanel.watchClimbPrompts()
+	if #climbConnections > 0 then
+		return
+	end
+	pcall(function()
+		table.insert(
+			climbConnections,
+			ProximityPromptService.PromptShown:Connect(function(shown)
+				if RangePanel.isClimbPrompt(shown) then
+					RangePanel.setClimbShown(true)
+				end
+			end)
+		)
+		table.insert(
+			climbConnections,
+			ProximityPromptService.PromptHidden:Connect(function(hidden)
+				if RangePanel.isClimbPrompt(hidden) then
+					RangePanel.setClimbShown(false)
+				end
+			end)
+		)
+	end)
+end
+
 function RangePanel.onPromptTriggered()
 	toggle()
 end
@@ -563,7 +622,9 @@ end
 -- broken, the HIDDEN prompt, and stands down when the engine is already answering.
 function RangePanel.onKeyPressed()
 	stats.keys += 1
-	if promptShown then
+	-- ...OR WHILE A CLIMB PROMPT IS SHOWN (step B10): that one is on `E` as well, and the engine is
+	-- answering it. Without this, one press at the ladder's foot climbs AND opens the menu.
+	if promptShown or climbShown then
 		stats.swallowed += 1
 		return
 	end
