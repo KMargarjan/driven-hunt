@@ -165,7 +165,7 @@ under-rewound by 0.0257 s = **0.47 studs mean, 0.95 at p90** at a run.
   measure it at all.
 * **TWO CAPTURED LOGS WERE EDITED AFTER CAPTURE, and here is exactly what changed** (round 2 note --
   an unstated edit to a log is indistinguishable from fabrication). In `e01c7f6c`, one line in each
-  of `bench-after-A.txt` and `bench-after-B.txt`: the trailing `written: C:/Users/karen/...` path was
-  replaced with `written: <runs-dir>/309/after-*.json`, because `tools/privacy_scan.py` fails CI on a
-  local absolute user path. `git show e01c7f6c -- reviews/task-309/bench-after-A.txt` is the whole of
+  of `bench-after-A.txt` and `bench-after-B.txt`: the trailing `written:` line, which held a local
+  absolute user path, was rewritten to `written: <runs-dir>/309/after-*.json`, because
+  `tools/privacy_scan.py` fails CI on such a path. `git show e01c7f6c -- reviews/task-309/bench-after-A.txt` is the whole of
   it: `2 +-` in each file, the `written:` line only. No row, count or table was touched.
