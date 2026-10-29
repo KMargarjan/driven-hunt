@@ -88,6 +88,13 @@ jobs:
         if: success() || failure()
         run: python3 tools/agents.py selftest
 
+      # The aim bench's pure half (Task 307): the cell grammar, the Wilson interval, the row
+      # parser and the instrument verdict that marks a table SUSPECT when its control and
+      # known-bad cells do not read differently. The live half needs the Forest Test in Play.
+      - name: Aim bench selftest (no Studio, no network)
+        if: success() || failure()
+        run: python3 tools/aim_bench.py selftest
+
       # The Meshy tool's validators, builders and parsers, with no key and no network (Task 55).
       # CI never gets a Meshy key, and this step must never need one.
       - name: Meshy tool selftest (no key, no network)
