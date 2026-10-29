@@ -976,8 +976,15 @@ function Range.cutRects(anchor: Vector3, layout, downrange: number?, row: any)
 	local nearZ = anchor.Z - dir * layout.CUT.uprangeStuds
 	local farZ = berm.Z + dir * (layout.BERM.depth / 2 + layout.CUT.downrangeStuds)
 	local lowZ, highZ = math.min(nearZ, farZ), math.max(nearZ, farZ)
-	minX, maxX = Range.toGrid(minX, false, layout), Range.toGrid(maxX, true, layout)
-	lowZ, highZ = Range.toGrid(lowZ, false, layout), Range.toGrid(highZ, true, layout)
+	-- CLAMPED TO THE RANGE'S OWN FOOTPRINT, which is the box her lobby's return rule calls home
+	-- (task 302). Ground written outside it is ground nobody is sent home from and nobody asked
+	-- for -- and the uprange edge is exactly where that bites: `CUT.uprangeStuds` reaches 2.9 studs
+	-- past the footprint, so this edge snaps INWARD while the others snap out.
+	local box = Range.footprintFor(anchor, layout, dir)
+	minX = Range.toGrid(math.max(minX, box.minX), false, layout)
+	maxX = Range.toGrid(math.min(maxX, box.maxX), true, layout)
+	lowZ = Range.toGrid(math.max(lowZ, box.minZ), false, layout)
+	highZ = Range.toGrid(math.min(highZ, box.maxZ), false, layout)
 	local keepOut = if type(row) == "table" then row.keepOut else nil
 	if type(keepOut) ~= "table" or keepOut.x == nil or keepOut.z == nil then
 		return { { minX = minX, maxX = maxX, minZ = lowZ, maxZ = highZ } }

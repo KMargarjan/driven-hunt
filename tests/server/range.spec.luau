@@ -3874,10 +3874,20 @@ return function()
 				LAYOUT,
 				RangeData.downrangeOf(FOREST_ROW)
 			)
+			-- ...WITH ONE READ OUTSIDE IT BY DESIGN (step B8): the row's `shelfFrom` is the LOBBY's
+			-- anchor, 250 studs north-east, because the range takes its level from the lodge's terrace
+			-- and not from the ground under itself. It is named here rather than tolerated, so a
+			-- second stray read outside the box still fails this case.
+			local from = (FOREST_ROW :: any).shelfFrom
+			local outside = 0
 			for _, at in ipairs(asked) do
-				expect(at.X >= box.minX and at.X <= box.maxX).to.equal(true)
-				expect(at.Z >= box.minZ and at.Z <= box.maxZ).to.equal(true)
+				if at.X < box.minX or at.X > box.maxX or at.Z < box.minZ or at.Z > box.maxZ then
+					expect(at.X).to.equal(from.x)
+					expect(at.Z).to.equal(from.z)
+					outside += 1
+				end
 			end
+			expect(outside).to.equal(1)
 		end)
 
 		it("FITS the rectangle the B8 census measured, where the B6 clearing could not", function()
@@ -4000,8 +4010,16 @@ return function()
 				elseif firstGrass == nil then
 					firstGrass = index
 				end
-				-- EVERY X AND Z FACE ON THE 4-STUD GRID. A face inside a voxel writes it only partly,
-				-- and for the AIR box that is exactly the mound task 311 photographed.
+				-- EVERY X AND Z FACE OF THE TERRACE ON THE 4-STUD GRID. A face inside a voxel writes
+				-- that voxel only partly, and for the AIR box that is exactly the mound task 311
+				-- photographed. THE HEAPS ARE DELIBERATELY NOT on it: a berm band is 2.5 studs tall
+				-- over a 3-stud run, and the partial voxels that leaves are what make a batter read as
+				-- a slope instead of a staircase. So the rule is asserted where it is a rule.
+				local terrace = call.material == Enum.Material.Air
+					or math.abs((call.at.Position.Y - call.size.Y / 2) - (b.shelf - LAYOUT.FILL.DEPTH_STUDS)) < 1e-6
+				if not terrace then
+					continue
+				end
 				for _, pair in ipairs({
 					{ call.at.Position.X, call.size.X },
 					{ call.at.Position.Z, call.size.Z },
@@ -4019,6 +4037,7 @@ return function()
 			expect((lastAir :: number) < (firstGrass :: number)).to.equal(true)
 			-- THE AIR'S BOTTOM IS THE VOXEL BOUNDARY AT OR BELOW THE SHELF, and the grass is a solid
 			-- bank DOWN to it -- never a floating slab (`Lobby.Field`'s two measured lessons).
+			local heaps = 0
 			for _, call in ipairs(terrain.fills) do
 				local bottom = call.at.Position.Y - call.size.Y / 2
 				local top = call.at.Position.Y + call.size.Y / 2
@@ -4027,8 +4046,14 @@ return function()
 					expect(top >= b.shelf + LAYOUT.FILL.CLEAR_STUDS - 1e-6).to.equal(true)
 				elseif top <= b.shelf + 1e-6 then
 					expect(math.abs(bottom - (b.shelf - LAYOUT.FILL.DEPTH_STUDS)) < 1e-6).to.equal(true)
+				else
+					-- A HEAP: it stands ON the terrace, never in a hole and never in the air (rule E).
+					expect(math.abs(bottom - b.shelf) < 1e-6).to.equal(true)
+					heaps += 1
 				end
 			end
+			-- the berm core, its four bands, and two banks
+			expect(heaps).to.equal(1 + LAYOUT.BERM.slopeSteps + 2)
 			parent:Destroy()
 		end)
 
