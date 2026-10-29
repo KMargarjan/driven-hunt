@@ -4528,10 +4528,13 @@ return function()
 			expect(LAYOUT.APRON_STUDS).to.equal(20)
 			expect(LAYOUT.SPOT_COUNT).to.equal(6)
 			expect(LAYOUT.SPOT_SPACING_STUDS).to.equal(24)
-			expect(LAYOUT.BERM.height).to.equal(10)
+			-- 306k item 2 RAISED THE HEAP AND MOVED NOTHING ELSE: the two numbers that place it in Z
+			-- -- `depth` and `behindStuds` -- are still B8's, which is what keeps the toe three studs
+			-- clear of the 179-stud target and the far face off her road.
+			expect(LAYOUT.BERM.height).to.equal(21)
 			expect(LAYOUT.BERM.depth).to.equal(8)
 			expect(LAYOUT.BERM.behindStuds).to.equal(13)
-			expect(LAYOUT.BANK.size).to.equal(Vector3.new(12, 8, 14))
+			expect(LAYOUT.BANK.size).to.equal(Vector3.new(12, 18, 14))
 			expect(LAYOUT.BANK.beyondStuds).to.equal(6)
 			expect(LAYOUT.MAT.size).to.equal(Vector3.new(8, 1, 8))
 			expect(LAYOUT.POST.aheadStuds).to.equal(7)
@@ -4549,7 +4552,7 @@ return function()
 			expect(RangeData.benchPosition(anchor, 3, LAYOUT, 1)).to.equal(Vector3.new(48, 101.35, 3.5))
 			expect(RangeData.standPosition(anchor, 3, LAYOUT, 1)).to.equal(Vector3.new(48, 100, -14))
 			expect(RangeData.promptPosition(anchor, 3, LAYOUT, 1)).to.equal(Vector3.new(51, 104, 7))
-			expect(RangeData.bermSizeFor(LAYOUT)).to.equal(Vector3.new(232, 10, 8))
+			expect(RangeData.bermSizeFor(LAYOUT)).to.equal(Vector3.new(232, 21, 8))
 			expect(RangeData.bermPosition(anchor, LAYOUT, 1)).to.equal(Vector3.new(60, 100, 192))
 		end)
 
@@ -4787,6 +4790,12 @@ return function()
 
 		-- THE PROMPTS THEMSELVES: two per station, with the two KEYS that the deck's own crowding
 		-- forces apart, and `wireClimbs` finds all twelve.
+		-- WHICH DECK TOP THE BUILD MEASURED for that station: the same table `Range.onClimb` reads,
+		-- so the case and the handler are about one deck.
+		local function deckTopOf(built: any, spot: number): number
+			return (built.deckTops or {})[spot]
+		end
+
 		it("hangs a Climb on E at the ladder foot and a Climb down on F on the deck", function()
 			local parent = Instance.new("Folder")
 			local built = Range.Build.build({ parent = parent, row = DEV_ROW, layout = LAYOUT })
@@ -4825,10 +4834,67 @@ return function()
 				local apart = ((downPoint :: Vector3) - (menuPoint :: Vector3)).Magnitude
 				expect(apart < LAYOUT.PROMPT.MaxActivationDistance).to.equal(true)
 				expect((downPrompt :: any).KeyboardKeyCode).never.to.equal((upPrompt :: any).KeyboardKeyCode)
+				-- THE WAY DOWN'S OWN POINT, PINNED (306j review note, 306k item 1). The up prompt
+				-- had this tie and the down one had none, so the regression its own header calls
+				-- MEASURED-BAD -- the point back under the view cone, where real `F` does nothing --
+				-- passed: prompt-to-prompt distance stayed well under the bound either way.
+				local wantDown = RangeData.downPromptPosition(anchor, spot, LAYOUT, dir, deckTopOf(built, spot))
+				expect(((downPoint :: Vector3) - wantDown).Magnitude < 1e-3).to.equal(true)
+				-- AND THE REACH IS MEASURED FROM THE MAN, not from the other prompt: the point the
+				-- climb actually puts him at. Both prompts must be inside their own bound from there.
+				local stood = RangeData.climbTargetFor(anchor, spot, LAYOUT, dir, deckTopOf(built, spot)).Position
+				local toDown = ((downPoint :: Vector3) - stood).Magnitude
+				local toMenu = ((menuPoint :: Vector3) - stood).Magnitude
+				expect(toDown < LAYOUT.CLIMB.MaxActivationDistance).to.equal(true)
+				expect(toMenu < LAYOUT.PROMPT.MaxActivationDistance).to.equal(true)
+				-- ...AND IT IS AT HIS EYE AND NOT UNDER HIS FEET, which is the 306k fix as a number:
+				-- the point is level with the eye the climb gives him (root + an R15 head), where the
+				-- shipped 1.6 sat 3.4 studs below it -- 49 degrees under a view held down the lane.
+				local eyeY = stood.Y + LAYOUT.CLIMB.eyeOverRootStuds
+				expect(math.abs((downPoint :: Vector3).Y - eyeY) < 1e-3).to.equal(true)
+				local wasY = deckTopOf(built, spot) + 1.6
+				expect(math.deg(math.atan2(eyeY - wasY, HighSeats.DIMS.RAIL_PLANE_STUDS)) > 45).to.equal(true)
 			end
 			-- `wireClimbs` FINDS ALL TWELVE, which is the number the console line prints.
 			expect(Range.wireClimbs(folder)).to.equal(2 * LAYOUT.SPOT_COUNT)
 			expect(Range.wireClimbs(nil)).to.equal(0)
+		end)
+
+		-- THE CLIMB'S ANCHOR COMES OFF, AND IT PUTS BACK WHAT IT FOUND (306k item 3). The hold is
+		-- what makes the server's pivot stick against the client that owns the body; a hold that is
+		-- never released leaves a man anchored on the deck, and one released to `false` frees a man
+		-- the hunt has tied.
+		it("releases a climbed body's anchor after the settle, to the value it replaced", function()
+			local free = Instance.new("Part")
+			free.Anchored = false
+			local tied = Instance.new("Part")
+			tied.Anchored = true
+			-- DRIVEN THROUGH THE REAL QUEUE: `Range.start`'s own `move` seam is not used here,
+			-- because the anchor lives in the SHIPPED arm -- so the two roots are handed straight to
+			-- the step, which is the function `Range.step` calls every frame.
+			Range.settleStep(math.huge)
+			expect(Range.settling()).to.equal(0)
+			Range.holdForSettle(free)
+			Range.holdForSettle(tied)
+			expect(Range.settling()).to.equal(2)
+			expect(free.Anchored).to.equal(true)
+			expect(tied.Anchored).to.equal(true)
+			-- HALFWAY THROUGH, NOTHING IS RELEASED: a shorter hold than this is the defect.
+			expect(Range.settleStep(0.1)).to.equal(0)
+			expect(Range.settling()).to.equal(2)
+			expect(free.Anchored).to.equal(true)
+			-- ...and past it, both go back to what they were and the queue empties.
+			expect(Range.settleStep(1)).to.equal(2)
+			expect(Range.settling()).to.equal(0)
+			expect(free.Anchored).to.equal(false)
+			expect(tied.Anchored).to.equal(true)
+			-- A ROOT WHOSE CHARACTER WENT (a respawn mid-climb) is dropped and throws nothing.
+			local gone = Instance.new("Part")
+			Range.holdForSettle(gone)
+			gone:Destroy()
+			expect(Range.settleStep(1)).to.equal(1)
+			expect(Range.settling()).to.equal(0)
+			TestKit.note("range: a climbed body is held 0.4 s and released to the Anchored it replaced")
 		end)
 
 		-- L6 AND THE EDGES: the fence stands outside the corridor, and nothing in the dressed range

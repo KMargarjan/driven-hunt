@@ -220,6 +220,9 @@ local state = {
 	move = nil :: ((any, CFrame) -> boolean)?,
 	-- EVERY `Triggered` CONNECTION THIS MODULE MADE, so `stop` hands back exactly what it wired.
 	climbs = {} :: { any },
+	-- EVERY BODY THIS MODULE IS STILL HOLDING AFTER A CLIMB, with the `Anchored` it found. See
+	-- `moveBody`: the anchor is what makes the server's pivot stick, and it has to come off again.
+	settling = {} :: { { root: any, was: boolean, left: number } },
 	-- EVERY MAN THE BOARD HAS EVER BEEN PUSHED TO, by UserId (step B6). The owner does not read
 	-- `Players`; it remembers the men its own seams handed it, which is the same set that has a
 	-- record. `maskDirty` says a trunk changed and every one of them must be told again.
@@ -395,8 +398,21 @@ end
 -- and the station's RANGE prompt and `Exclusivity` is `OnePerButton`.
 -- Research note: docs/research/2026-10-28-the-range-in-the-lobby.md section 8.2.
 
+-- HOW LONG THE ROOT STAYS ANCHORED AFTER A CLIMB. Long enough for the client that OWNS this
+-- character's physics to receive the new CFrame and stop simulating the old one, short enough that
+-- nobody feels it: 0.4 s is about 24 frames at 60.
+local SETTLE_SECONDS = 0.4
+
 -- HOW A BODY IS MOVED. The seam, with the shipped `PivotTo` behind it, so a spec drives the whole
 -- rule with a table and no character. It returns whether it moved anything.
+--
+-- ANCHOR FIRST, WHICH IS `Match.Body.standCharacter`'s PATTERN AND NOT A FLOURISH (306j review note
+-- 10, 306k item 3): a character's physics is owned by its own client, so a bare server `PivotTo` is
+-- a SUGGESTION -- the client keeps simulating the old position and replicates it back. That is what
+-- silently swapped the Rifle for the Shotgun on every climb: for the frames the body was back under
+-- the deck `Range.positionOf` answered nil, `mayShoot` went false, the loan was REVOKED, and the
+-- re-grant on the way back auto-equipped the primary (playtest/range-v2, "seen by accident").
+-- The anchor comes off in `Range.settleStep`, with whatever it found put back.
 local function moveBody(player: any, cframe: CFrame): boolean
 	local mover = state.move
 	if mover ~= nil then
@@ -407,10 +423,52 @@ local function moveBody(player: any, cframe: CFrame): boolean
 		if typeof(character) ~= "Instance" or not character:IsA("Model") then
 			return false
 		end
-		(character :: Model):PivotTo(cframe)
+		local model = character :: Model
+		Range.holdForSettle(model.PrimaryPart or model:FindFirstChild("HumanoidRootPart"))
+		model:PivotTo(cframe)
 		return true
 	end)
 	return ok and moved == true
+end
+
+-- THE HOLD ITSELF, as its own function so a spec drives the SHIPPED queue with a bare part and no
+-- character -- `moveBody`'s anchor arm is behind `state.move` and a copy of it would prove nothing.
+function Range.holdForSettle(root: any): boolean
+	if typeof(root) ~= "Instance" or not (root :: Instance):IsA("BasePart") then
+		return false
+	end
+	local part = root :: BasePart
+	table.insert(state.settling, { root = part, was = part.Anchored, left = SETTLE_SECONDS })
+	part.Anchored = true
+	return true
+end
+
+-- AND THE ANCHOR COMES OFF, with the value it REPLACED and not with `false`: a man the hunt has
+-- tied was already anchored, and this module must not free him. A root whose character has gone (a
+-- respawn mid-climb) is dropped. Returns how many it released, which is what the spec reads.
+function Range.settleStep(dt: number): number
+	local keep: { { root: any, was: boolean, left: number } } = {}
+	local released = 0
+	for _, row in ipairs(state.settling) do
+		row.left -= math.max(0, dt or 0)
+		if row.left > 0 then
+			table.insert(keep, row)
+		else
+			pcall(function()
+				if row.root ~= nil and (row.root :: any).Parent ~= nil then
+					(row.root :: any).Anchored = row.was
+				end
+			end)
+			released += 1
+		end
+	end
+	state.settling = keep
+	return released
+end
+
+-- HOW MANY BODIES ARE STILL HELD, for the spec and for `Range.stats`.
+function Range.settling(): number
+	return #state.settling
 end
 
 -- THE WAY UP: onto THAT station's deck, and only where a deck was built. A station whose seat
@@ -810,6 +868,9 @@ function Range.stop()
 		end)
 	end
 	state.climbs = {}
+	-- EVERY HELD ROOT GOES BACK TO WHAT IT WAS, or a man climbing when the range stopped stays
+	-- anchored for the rest of the session.
+	Range.settleStep(math.huge)
 	state.groundAt = nil
 	state.move = nil
 	if state.built ~= nil and state.built.folder ~= nil then
@@ -1092,6 +1153,9 @@ function Range.step(dt: number)
 	if not state.started then
 		return
 	end
+	-- THE CLIMB'S SETTLE IS ON THE FRAME CLOCK, not the 10 Hz scan: a body held 0.4 s must be
+	-- released 0.4 s later whatever the scan period is.
+	Range.settleStep(dt)
 	state.acc += math.max(0, dt or 0)
 	local period = 1 / Range.CONFIG.STEP_HZ
 	if state.acc < period then

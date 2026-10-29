@@ -163,8 +163,15 @@ function RangePanel.valuesFor(option: string): { { value: any, label: string } }
 			end
 		end
 	elseif option == "distanceStuds" and type(lists.distances) == "table" then
+		-- LABELLED FROM WHERE HE IS STANDING, so the lit chip and the board print the SAME number
+		-- (306k item 4): on the deck the shot is `STAND.backStuds` longer, the board said
+		-- `DISTANCE 139 studs` and the chips said 107 / 125 / 179. The VALUE stays the pick the
+		-- server's whitelist knows -- only the word changes.
+		local record = if type(state) == "table" then state.record else nil
+		local position = if type(record) == "table" then record.position else nil
 		for _, studs in ipairs(lists.distances) do
-			table.insert(out, { value = studs, label = RangeData.distanceText(studs) })
+			local shown = RangeData.distanceFor(studs, position, RangeData.LAYOUT)
+			table.insert(out, { value = studs, label = RangeData.distanceText(shown) })
 		end
 	end
 	return out
@@ -180,7 +187,9 @@ function RangePanel.selected(option: string): any
 	local record = if type(state) == "table" then state.record else nil
 	if type(record) == "table" then
 		if option == "distanceStuds" then
-			return record.distanceStuds
+			-- THE CHIP IT WAS PICKED FROM, not the effective distance: on the deck the record
+			-- carries 139 and no chip holds that value, so nothing lit (306k item 4).
+			return RangeData.distancePickOf(record, RangeData.LAYOUT)
 		end
 		return record[option]
 	end

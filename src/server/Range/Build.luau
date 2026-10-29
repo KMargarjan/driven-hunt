@@ -607,7 +607,9 @@ function Build.build(opts)
 	-- AND both banks (design 5.2), and it stops a stray slug leaving the lobby.
 	if not asEarth then
 		local berm = RangeData.bermPosition(anchor, layout, dir)
-		onGround("Berm", RangeData.bermSizeFor(layout), berm.X, berm.Z, layout.BERM.color, Enum.Material.Grass)
+		-- `SURFACE.BERM` AND NOT A SECOND MATERIAL: the part arm and the terrain arm must read as
+		-- the same heap, and 306k moved that material from grass to earth in one place.
+		onGround("Berm", RangeData.bermSizeFor(layout), berm.X, berm.Z, layout.BERM.color, layout.SURFACE.BERM)
 	end
 
 	-- THE MOWN LANE (step B10, item 2): decorative slabs of a BasePart's `Grass` -- a flat texture
