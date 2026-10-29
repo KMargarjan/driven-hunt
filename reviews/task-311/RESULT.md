@@ -1,15 +1,105 @@
-1. `src/server/Lobby/Field.luau` `Field.shelfFor` + `src/server/Lobby/init.luau` `tryBuild` — the build is no longer idempotent: every retry raises the whole lobby a full voxel. `shelfFor` is `math.round(measured / Field.RESOLUTION) * Field.RESOLUTION` and `tryBuild` feeds it the live reading (`local cut = Field.shelfFor(shelf :: number)`, `shelf = world.groundAt(...)`). The request's own measurement is that a cut at 148 produces a surface of **150.00** ("ITERATION" cycle 2/3, and claim 1 "every truck's lowest corner 150.00"). `math.round(150 / 4) = math.round(37.5) = 38`, so the SECOND attempt cuts at **152**, fills grass 104..152, and the yard comes up 4 studs; the third at 156, and so on. The retry is this function's own documented path, reached after `Field.fill` has already run: `warn(string.format("[lobby] build failed and will be retried: %s", tostring(made)))` / `return false`, and `Lobby.step` calls `tryBuild` again on the next scan (`if not Lobby.isBuilt() then if not tryBuild() then`). `Build.defaultRigSource` (`Players:CreateHumanoidModelFromDescription`) is the yield that path exists for. The comment chose the unstable direction on purpose — *"NEAREST AND NOT FLOOR"* — and `Field.cutBottomY`'s floor is the stable one: `floor(150/4)*4 = 148 = cut`. Required: make the cut independent of the surface the previous fill produced — reuse the recorded `stats.cutY` while the anchor's x/z are unchanged, or snap with the floor that `cutBottomY` already uses — and add a case that runs `tryBuild`'s snap twice, feeding the second run the surface the first produced, asserting the cut does not move.
-2. `tests/server/lobby.spec.luau` *"plants the avenue when there are templates, and nothing when there are none"* — the case the request offers as proof of claim 8 (*"A slot the forest ring fouls moves or is dropped, and it is counted"*) passes with the whole shift-and-drop machinery deleted. Delete `fouled`, the `while fouled(at) and steps < spec.MAX_SHIFTS` loop, the `stats.avenueDropped += 1` / `continue` and the `stats.avenueShifted += 1` from `avenue()` so that every non-gap slot is simply planted, and the two surviving lines still hold: `expect(made.avenueTrees + made.avenueDropped).to.equal(#CFG.AVENUE.SLOTS - made.avenueGaps)` reads 7 == 8 − 1, and `expect(#(planted :: Instance):GetChildren()).to.equal(made.avenueTrees)` reads 7 == 7. The first is a bookkeeping identity over two counters incremented in the same branchless pair, not a behavioural check. And `stats.avenueShifted`, which claim 8 names as the verification, is asserted **nowhere** in the repo and read nowhere — `grep avenueShifted` returns only its declaration, its reset in `Build.build`, and its single `+= 1`; `reportLobby`'s console line in `ForestTestBoot` prints `shelfY, parts, fillCalls, grassCalls` and none of the new counters. Required: a case that plants the avenue with a trunk placed deliberately inside `KEEP_OFF_TREES_STUDS` of a known slot and asserts `avenueShifted == 1` with the tree's measured pivot moved north by `SHIFT_STUDS`, and one with a trunk that cannot be cleared in `MAX_SHIFTS` asserting `avenueDropped == 1` — i.e. a case that fails when the loop is removed.
-3. `src/server/Lobby/Build.luau` `avenue()` / `fouled` — the shift can walk a trunk into the gravel yard and onto a truck pad, and nothing in the code or the spec stops it. `fouled` refuses exactly two things: `if not Build.offRoad(at.X, anchor, cfg) then return true end` and `(other - at).Magnitude < spec.KEEP_OFF_TREES_STUDS` over `TreeLine`/`LodgeTrees` pivots. `treeLine`, in the same file, refuses the road AND the yard (*"...NOR IN THE YARD (review round 2, note): the arc's eastern end swings past the fourth truck bay, and a spruce between the bays is the same mistake as a spruce in the road"*), the gathering pad and the lodge front, and both other planters then call `clearOfLodge`; `avenue` calls none of them. With `SHIFT_STUDS = 8` and `MAX_SHIFTS = 3` an east slot moves up to 24 studs north: slot 8 (`{ side = 1, z = -48 }`, absolute z −2998) reaches **−2974** at x 2894, which is inside `Build.yardRect` (z −2994..−2909, x 2883..2929) and inside Pad 4's rectangle (bay z −2977, `PADS.SIZE` 9 × 12 → z −2983..−2971, x 2892.5..2901.5) — a birch standing on a truck pad. It is reachable by cascade, each shifted tree fouling the next: `table.insert(standing, at)` adds the planted trunk, and the request's own claim 8 records ring trunks fouling both z −3048 and z −3023 in her place. This contradicts the task's own stated target: research note section 5 target 5, *"pole and every avenue trunk **clear of the lane + verges**, of the yard rect, of every pad and truck box, and of the lodge box"*. Nothing enforces the yard, the pads or the truck boxes for any trunk — the spec case titled *"stands every avenue trunk off the road and stops before the yard"* checks `CFG.AVENUE.SLOTS`, the nominal table, so it is blind to every shifted position, and the live case checks only `Build.offRoad` on the planted pivots. Required: `fouled` also refuses `Build.yardRect`, the four `Pads.centreFor` boxes, the truck boxes and `Build.lodgeKeepOut`, so a slot that cannot clear them is dropped rather than planted; and the live case asserts those boxes against the PLANTED pivots, not against the slot table.
+PASS
+
+Round 1's three blocking findings are closed, and each closure has a case that dies when the code
+under test is removed:
+
+- `Field.shelfFor` is now `Field.cutBottomY(measured)` -- `math.floor(shelfY / Field.RESOLUTION) *
+  Field.RESOLUTION`. The fixed-point case *"snaps to the SAME cut on a second build, fed the surface
+  the first one produced"* asserts `Field.shelfFor(produced) == first` for `produced` of `first + 0,
+  1, 2, 3.9` over five starting grounds. On the old body it fails at the first row:
+  `math.round(151.248 / 4) * 4 = 152` against `first = 148`. `tryBuild` is a fixed point with it:
+  the retry's `centre = anchor` keeps x/z, `shelf = world.groundAt(...)` reads the produced surface
+  and `Field.shelfFor` returns the cut it already made.
+- `Build.avenuePlan` is pure and exported, and the builder's loop only draws its rows. Delete the
+  `while fouled(at) and steps < spec.MAX_SHIFTS` loop and `expect((moved :: any).shifted).to.equal(1)`
+  reads 0 (or `dropped`, which the line above refuses); delete the `{ index, slot, dropped = true }`
+  branch and `expect((blocked :: any).dropped).to.equal(true)` reads nil.
+- `Build.plantable` refuses the road, `Build.yardRect`, the four `Pads.centreFor` decks, the four
+  parked bays and `Build.insideLodgeBox`. Checked against the live config (anchor 2850/-2950,
+  `ROAD.CENTRE_X` 20, `TRUCK.OFFSET` (58,0,24)): yard x 2883..2929.2, z -2994..-2909, so the east
+  slot `{ side = 1, z = -48 }` at z -2998 fouls on every one of its three 8-stud steps (-2990,
+  -2982, -2974 are all inside the yard) and comes back `dropped` instead of standing on pad 4 --
+  which is exactly what round 1 found nothing stopping. The negative control bites for three of the
+  rectangles: `plantable(yard centre)`, `plantable(Pads.centreFor(anchor, 4, CFG))` and
+  `plantable(lodge door)` all go `true` if the yard guard or the lodge guard is deleted, and
+  `plantable(Build.avenueAt(anchor, SLOTS[1], CFG))` is the positive control.
+- `Build.insideLodgeBox` reads `Build.lodgeKeepOut`'s centre-and-half-extents correctly, and
+  `expect(Build.insideLodgeBox(Vector2.new(door.X, door.Z), anchor, CFG)).to.equal(true)` is the
+  assertion the round-1 min/max misreading could not pass -- it is true for any porch depth, since
+  `(south - north) / 2 < (south + north) / 2`.
+
+Claim 7 (the avenue is unchanged by round 2) is consistent with the code: every nominal slot is
+`plantable` with nothing standing, the one live shift (east z -3023 -> -3015) is still `plantable`,
+and the one live drop is still dropped. Claim 1's live cut is unchanged too -- `round(149.248 / 4)`
+and `floor(149.248 / 4)` are both 148 -- so re-measuring round 1's numbers at `41d4a48d` is what the
+diff predicts. Harness line names the request's `Code commit:` with "(clean tree)" and `scope=all`;
+`paperwork-after-code-commit.txt` says OK. `needs_two_player` N/A checked against
+`changed-files.txt`, not against prose: no changed path is in `TWO_PLAYER_PATHS`. No file deleted,
+no script outside Rojo-owned paths, no `.rbxm`, no secret or local path, `Field` is still the only
+terrain writer and `Build` draws only into its own folder.
+
+Rule 5, stated so this PASS is not read as rule 5 having been met: no item in this task is animal
+behaviour or shooting, so no core item is at stake and the NOT PROVEN parenthesis does not apply.
+The round-2 visual delta -- the kerb turned from a 3-stud tube on its side into a 0.4-stud ring --
+has NO frame; the request says so itself (*"except the kerb, which I did not photograph"*). The
+frames it names (`311-road.png`, `311-pole.png`, `311-yard.png`, `311-flag.png`,
+`311-flag-zoom.png`) are round 1's, they are under `<runs-dir>` where I cannot open them, and the
+claim that every planted position in them is identical at this commit is consistent with the diff.
+The live numbers in claims 4-8 rest on `p311-*.txt` probe files I cannot read; the code could
+produce each of them.
 
 ## Notes (non-blocking)
-- Rule 5 / duty (b): no item in this request is animal behaviour or shooting, so no core item is at stake and the NOT PROVEN parenthesis does not apply. Claims 1, 4, 7 and 9 rest on probe files and frames under `<runs-dir>`, which are outside the worktree and which I cannot open; the harness line names the request's `Code commit:` with "(clean tree)" and `paperwork-after-code-commit.txt` says OK, and the code could produce the measurements as described.
-- `docs/design/lobby.md` now contradicts the code it is the contract for, in four places the change walked past: the file table — *"the one **writer of the lobby's terrain**: two `FillBlock` calls inside one rectangle"*; §9 — *"**Grass first, then air.** The grass block's top IS the shelf; the air block starts at the shelf"*; the acceptance list item 5 — *"the air block's bottom IS the shelf"*; item 6 — *"`Field.fill` against a **fake terrain** that records its calls: two calls, grass then air"*. The flagpole and the avenue have no design entry at all. Queue the doc update with the next lobby task.
-- The "dice" justification is false. `treeLine` seeds itself `local rng = Random.new(1804)` under the comment *"ONE SEED, SO THE WOOD IS THE SAME WOOD EVERY BOOT. A lobby that reshuffles its trees on each restart is a lobby nobody can photograph twice"*, so the ring is identical on every boot of the same place and the fouled slot is the same slot every time. Three places say otherwise: `CONFIG.AVENUE`'s comment (*"a hand-tuned slot table would be right for one boot's dice and wrong for the next"*), `avenue()`'s header (*"a spruce that a different boot's dice put somewhere else"*) and the request's "What I could not verify" (*"The ring is random per build"*). The drop of `Avenue06` is therefore tunable in the table, not luck, and Karen's east row is 2 trees where the table designs 3.
-- `Build.offRoad` has no negative control: all three assertions in the spec file expect `true` (`expect(Build.offRoad(foot.X, anchor, CFG)).to.equal(true)` twice over the slot table and the pole, once over the planted pivots). A body of `return true` passes the whole file, and `offRoad` is the only road guard inside `fouled`. Add a case asserting `false` for a point at the lane's centre and at the verge edge.
-- `it("plants the avenue when there are templates, ...")` passes with zero trees planted: the `Avenue` folder is created before the slot loop, so `expect(planted).to.be.ok()` holds, and `#GetChildren() == made.avenueTrees` reads 0 == 0. In that case `treeLine` also plants its 30 ring trees from the same one-model template folder, so the avenue really can be fouled out. Assert a floor (`made.avenueTrees >= 5`, the Naturvårdsverket minimum the sibling case already cites).
-- `stats.flagpoleY` and `stats.cutY` are write-only — set once each, read and asserted nowhere, and `reportLobby` prints neither. `cutY`'s own comment (*"Two numbers because the engine's own interpolation puts them two studs apart, and a build that confused them buried the road"*) describes a fact no reader can see; put both on the boot's `[lobby] built in ...` line, which is where design §18 item 2 put `shelfY`.
-- `flagpole`'s kerb is the shape its own neighbour warns about. `kerb.Shape = Enum.PartType.Cylinder` with `Vector3.new(spec.BASE_STUDS, spec.BASE_HEIGHT_STUDS, spec.BASE_STUDS)` = (3, 0.4, 3) and no rotation, while the mast two lines below is turned for the stated reason — *"A ROBLOX CYLINDER'S LENGTH IS ITS **X**, and it is drawn along x unless it is turned"*. So the "STONE RING at the foot ... 3 studs across and 0.4 high" is a 3-stud cylinder lying on its side with a 0.4 × 3 elliptical cross-section, not a flat disc. Cosmetic, 0.4 studs tall; `* CFrame.Angles(0, 0, math.rad(90))` on the kerb as well would make it the ring the comment describes.
+- `tests/server/lobby.spec.luau` *"scrubs every pad's own rectangle back to its own material (task
+  244)"* — the ordering claim is no longer asserted anywhere. The comment says *"AFTER EVERY
+  `FillBlock` AND NEVER BEFORE THEM ... so this is asserted on the fake's own two logs rather than on
+  the last material"*, and what replaced `fake.calls[#fake.calls].material == Enum.Material.Air` is
+  `expect(#fake.replacements > 0)` and `expect(#fake.calls > 0)` — neither can fail, and neither says
+  "after". `fakeTerrain` keeps `calls` and `replacements` as two independent lists, so order is not
+  expressible with it. Give the fake one shared sequence log (or record `#calls` at each
+  `ReplaceMaterial`) and assert the scrub's recorded fill count equals the total.
+- `src/server/Lobby/Build.luau` `Build.plantable` — the pad-box and truck-box branches have no case
+  that fails without them. `plantable(Pads.centreFor(anchor, 4, CFG))` is already refused by the yard
+  rectangle (pad 4 at x 2898.5, z -2977 is inside x 2883..2929.2, z -2994..-2909), and no assertion
+  anywhere names a truck box, whose only ground outside the yard is the ~2 studs east of
+  `yardRect`'s east edge. The guards are right; they are untested.
+- `tests/server/lobby.spec.luau` — `expect(Build.plantable(row.at, anchor, CFG)).to.equal(true)` in
+  *"walks a fouled slot north..."* and the same line over the planted pivots in *"plants the avenue
+  when there are templates..."* are identities over the predicate `fouled` itself uses: they fail
+  when the `Build.plantable` call is removed from `fouled` (I checked: with it gone, the `onEvery`
+  plan puts east slot 8 at z -2982, inside the yard, and the assertion goes red), but they cannot
+  fail when `plantable`'s own body is weakened. The one case that would bite both: drive
+  `avenuePlan` with a trunk on the east slot at `z = -48` and assert the row comes back `dropped` —
+  the known-bad input for finding 3, named as a number.
+- `tests/server/lobby.spec.luau` *"snaps a measured shelf onto the voxel grid, by at most half a
+  voxel"* — the title is the OLD `math.round` behaviour; the body asserts a floor
+  (`expect(measured - snapped < Field.RESOLUTION).to.equal(true)`, up to a whole voxel below), which
+  is the fix. The title contradicts the case's own assertion.
+- `docs/research/2026-10-29-lobby-flagpole-and-birch-avenue.md` target 5 — *"pole and every avenue
+  trunk clear of the lane + verges ..., of the yard rect, of every pad and truck box, and of the
+  lodge box"* contradicts section 4 (*"The flagpole stands at (2906, -2915), the open gravel at the
+  head of the yard"*) and the shipped code, where `lobby.spec` asserts the pole is INSIDE
+  `Build.yardRect`. The yard/pad/bay clause is the avenue trunk's rule only.
+- `src/server/Lobby/Build.luau` `avenue()` — it is the only planter that does not call
+  `clearOfLodge`, so the lodge is tested against the PIVOT (`Build.insideLodgeBox`) and not against
+  the planted model's real bounding box the way `treeLine` and `lodgeTrees` test it. Nothing is
+  wrong today: the northernmost west slot (`z = 2`, abs -2948) sits 21 studs south of the keep-out's
+  south edge and does not shift in her place. Two shifts would put a ~10-stud crown about 5 studs off
+  the porch box. Worth a line if that slot table ever moves north.
+- `src/server/Lobby/Build.luau` / `src/server/Lobby/init.luau` — `stats.avenueShifted`,
+  `stats.cutY` and `stats.flagpoleY` are still write-only: set, never read, never asserted, and
+  `reportLobby`'s boot line still prints `shelfY, parts, fillCalls, grassCalls`. The request queues
+  this; `cutY` is the one of the three that would have shown round 1's defect on the console.
+- `src/shared/Lobby/init.luau` `CONFIG.AVENUE` and `avenue()`'s header still justify the shift-and-
+  drop with dice (*"a hand-tuned slot table would be right for one boot's dice and wrong for the
+  next"*, *"a spruce that a different boot's dice put somewhere else"*) while `treeLine` seeds
+  `Random.new(1804)` under *"ONE SEED, SO THE WOOD IS THE SAME WOOD EVERY BOOT"*. The guard's shape
+  is right; the reason printed beside it is false, and the dropped `Avenue06` is a tunable fact
+  rather than luck. The request acknowledges this and queues it.
+- `tests/server/lobby.spec.luau` *"plants the avenue when there are templates..."* still passes with
+  zero trees planted: `made.avenueTrees + made.avenueDropped == #SLOTS - made.avenueGaps` reads
+  `0 + 7 == 7` and `#GetChildren() == made.avenueTrees` reads `0 == 0`. Assert the
+  Naturvardsverket floor the sibling case already cites on the PLANTED count
+  (`made.avenueTrees >= 5`), not only on the slot table.
 
 ---
-REVIEWER verdict on commit `1712a4b374246e63bde198f8a16587992daae8d7` (round 1) · 2026-10-29 12:45 UTC · session cost $3.93, 32 turns · written by tools/agents.py
+REVIEWER verdict on commit `ca02877e1bcda7e1306d822316fb8fe332928233` (round 2) · 2026-10-29 13:21 UTC · session cost $4.45, 40 turns · written by tools/agents.py
