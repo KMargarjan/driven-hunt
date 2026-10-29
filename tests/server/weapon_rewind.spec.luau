@@ -173,6 +173,52 @@ return function()
 		it("cannot hand out more than the ring can answer", function()
 			expect(fire(1000)).to.be.near(CONFIG.CLAIM.VIEW_LAG_MAX_SECONDS, 1e-6)
 		end)
+
+		-- TASK 309a: THE FLIGHT CARRIES THE TENSE. `Weapon.Rewind` names the frame a rewound impact
+		-- was measured in, and `advance` rebuilds the impact row -- so a row built without `frame`
+		-- threw it away and `HitLog.frameOf` fell back to the animal's PRESENT CFrame. MEASURED in
+		-- Karen's place before the fix (<runs-dir>/309a/diag1.txt): `local=(-1.63,-0.08,5.62)` on a
+		-- 5.5-stud boar, a body length past its own rump.
+		local function flown(frame: CFrame?): { any }
+			local flight = Flight.new(CONFIG)
+			local ballistic = { v0 = 1000, k = 0, zeroStuds = 100, gravityScale = 0 }
+			local shot = {
+				shooter = nil :: any,
+				shooterUserId = 1,
+				ammo = "slug",
+				muzzle = Vector3.zero,
+				ignore = {},
+				rangeStuds = 500,
+				firedAt = 0,
+				rewindSeconds = 0.18,
+				firedAtServer = 100.0,
+			}
+			flight:launch(shot :: any, { Vector3.new(0, 0, -1) }, ballistic :: any)
+			local resolved = flight:advance(1 / 60, function(origin, segment)
+				return {
+					instance = nil :: any,
+					position = origin + segment * 0.5,
+					normal = Vector3.new(0, 1, 0),
+					distance = segment.Magnitude * 0.5,
+					material = Enum.Material.Plastic,
+					frame = frame,
+				}
+			end, 100.0)
+			return resolved
+		end
+
+		it("carries the rewound frame out of the flight, and carries nothing when there is none", function()
+			local withFrame = CFrame.new(10, 2, -30)
+			local resolved = flown(withFrame)
+			expect(#resolved).to.equal(1)
+			expect(#resolved[1].impacts).to.equal(1)
+			expect(resolved[1].impacts[1].frame).to.equal(withFrame)
+			-- THE KNOWN-BAD HALF: a cast that names no frame must leave the row's `frame` nil, or
+			-- this case would pass with the field hard-coded and prove nothing (L-141).
+			local plain = flown(nil)
+			expect(#plain[1].impacts).to.equal(1)
+			expect(plain[1].impacts[1].frame).to.equal(nil)
+		end)
 	end)
 
 	describe("Weapon.castWithRewind", function()

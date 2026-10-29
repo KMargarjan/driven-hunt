@@ -353,6 +353,16 @@ function Flight.advance(self: Flight, dt: number, cast: CastFn, now: number?): {
 							-- `HitLog` prints it as the range of the shot, so the distance a player
 							-- reads must be the whole path and not the last 40 studs of it.
 							distance = pellet.travelled + impact.distance,
+							-- THE TENSE, CARRIED (task 309a). `Weapon.Rewind` reports a rewound
+							-- impact WHERE THE SHOOTER DREW the animal and names the frame it was
+							-- measured in; rebuilding the row without `frame` threw that away, so
+							-- `HitLog.frameOf` fell back to the animal's PRESENT CFrame and divided
+							-- the hit down by a trunk that had run on. MEASURED in Karen's place
+							-- (<runs-dir>/309a/diag1.txt): `local=(-1.63,-0.08,5.62)` on a boar
+							-- 5.5 studs long -- a body length past its own rump, `uv` pinned at
+							-- u=1.000. Task 308 fixed the tense in `Hits.group`; the flight dropped
+							-- it one step earlier, which is why only the flying guns showed it.
+							frame = impact.frame,
 						}
 						reached = pellet.travelled + impact.distance
 						alive = false
