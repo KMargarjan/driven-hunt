@@ -1809,13 +1809,21 @@ return function()
 			advance(fake, clock, 1)
 			expect(fake.spawns).to.equal(1)
 			expect(Range.stats().targets).to.equal(1)
-			-- THE SEAM REFUSES, and the animal has left the runtime by its own hand.
+			-- HE LEAVES, and the animal stays alive until the idle time is nearly up: the dead id
+			-- must appear INSIDE the idle arm's own tick, or the case passes through the `statusOf`
+			-- cleanup that runs every tick BEFORE the threshold and proves nothing (measured: with
+			-- the animal dropped at once, this case was green against the gutted producer).
+			crowd.set({})
+			advance(fake, clock, Range.CONFIG.IDLE_CLEAR_SECONDS - 1)
+			expect(Range.stats().lostTargets).to.equal(0)
+			expect(Range.stats().targets).to.equal(1)
+			-- THE SEAM REFUSES, and the animal leaves the runtime by its own hand, in the same
+			-- window as the threshold.
 			fake.clearOne = function()
 				return false
 			end
 			fake.animals = {}
-			crowd.set({})
-			advance(fake, clock, Range.CONFIG.IDLE_CLEAR_SECONDS + 2)
+			advance(fake, clock, 2)
 			-- THE CLEAR DID NOT HAPPEN -- and the dead id was still noticed and let go.
 			expect(Range.stats().idleClears).to.equal(0)
 			expect(Range.stats().lostTargets).to.equal(1)
