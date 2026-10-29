@@ -109,8 +109,18 @@ The resident writes one row per shot into a LocalPlayer attribute, so the host r
       The click proof: one real click, the camera ray and the server's impact on the same frame.
 
   python tools/aim_bench.py run <cell> [<cell> ...] [--shots N] [--out FILE] [--place PLACEID]
-      Run the cells in order. Needs the Forest Test in PLAY with the player standing on the range
-      mat. The CONTROL and KNOWN-BAD cells are appended automatically unless they are already named.
+                                  [--station 1..6] [--position bench|treestand] [--distance STUDS]
+      Run the cells in order. Needs the Forest Test in PLAY. The CONTROL and KNOWN-BAD cells are
+      appended automatically unless they are already named.
+
+      THE STATION AND THE FIRING POSITION (task 306 B9). `--station` moves the character onto that
+      station's built `Mat<n>` (bench) or `Stand<n>.Deck` (treestand) and then asks the SERVER which
+      pair it measured, through `RangeRequest {reset=true}` -> the board push, because the position
+      is never a payload field (`Range.spotAt` reads it off the character). `--distance` is the
+      lane: 107, 125 or 179. Six stations share one corridor, so the resident and the gate take the
+      animal NEAREST IN X to the camera -- his own lane's -- and the gate refuses a shot while the
+      SHIPPED mask has it hidden (`LocalTransparencyModifier` 1 outside the window), which is what
+      makes every row a shot at an animal the shooter could SEE.
 
 A CELL is  weapon[:ammo]/pace/point[+lead][~species[.kind]]  -- for example
   rifle/run/nose            shotgun:SLUG/run/nose         rifle/run/chest+lead
@@ -135,6 +145,12 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "tools"))
 
 FOREST_TEST_PLACE = "130094961655666"
+
+# THE TWO FIRING POSITIONS, by `Range.POSITION`'s own words, and the stations (`LAYOUT.SPOT_COUNT`).
+# The position is not a payload field: it is WHERE HE STANDS, which the server measures itself
+# (`Range.spotAt`), so the bench stages the character and then reads the server's own answer back.
+POSITIONS = ("bench", "treestand")
+STATIONS = (1, 2, 3, 4, 5, 6)
 
 # The aim points, in the order the table prints them. The value is the word the resident branches on.
 POINTS = ("chest", "chestfront", "nose", "eye", "ahead")
@@ -199,7 +215,7 @@ _CELL_RE = re.compile(
     r"(?:~(?P<species>[A-Za-z0-9_]+)(?:\.(?P<kind>[A-Za-z0-9_]+))?)?$"
 )
 
-PACES = ("stand", "walk", "trot", "run")
+PACES = ("stand", "walk", "trot", "run", "slow", "fast")
 
 
 def parse_cell(text, default_species="boar", default_kind=None):
@@ -670,14 +686,22 @@ local function mine() return (tonumber(me:GetAttribute("DHBenchGen")) or 0) == g
 
 -- ---------------------------------------------------------------- the drawn points (check305c)
 local function targetFolder() return workspace:FindFirstChild("RangeTargets") end
+-- HIS OWN STATION'S ANIMAL, not the folder's first child: six stations share one corridor and
+-- each lane sits at its own X (`SPOT_SPACING_STUDS`), so the nearest root in X is his own.
 local function animal()
   local f = targetFolder()
   if f == nil then return nil end
+  local cam = workspace.CurrentCamera
+  local fromX = if cam ~= nil then cam.CFrame.Position.X else 0
+  local best, model, bd = nil, nil, 1e9
   for _, m in ipairs(f:GetChildren()) do
     local r = if m:IsA("BasePart") then m else m.PrimaryPart
-    if r ~= nil and not r.Anchored then return r, m end
+    if r ~= nil and not r.Anchored then
+      local d = math.abs(r.Position.X - fromX)
+      if d < bd then bd, best, model = d, r, m end
+    end
   end
-  return nil
+  return best, model
 end
 local function partsNamed(root, pat)
   local t = {}
@@ -760,7 +784,10 @@ if rangeRemotes and rangeRemotes:FindFirstChild("RangeBoard") then
       me:SetAttribute("DHBenchBoard", string.format(
         "species=%s kind=%s pace=%s weapon=%s ammo=%s shots=%s hits=%s",
         tostring(rec.species), tostring(rec.kind), tostring(rec.pace),
-        tostring(rec.weapon), tostring(rec.ammo), tostring(rec.shots), tostring(rec.hits)))
+        tostring(rec.weapon), tostring(rec.ammo), tostring(rec.shots), tostring(rec.hits))
+        .. string.format(" spot=%s position=%s dist=%s spd=%s issued=%s",
+          tostring(rec.spot), tostring(rec.position), tostring(rec.distanceStuds),
+          tostring(rec.paceStudsPerSecond), tostring(rec.issuedStudsPerSecond)))
     end
   end)
 end
@@ -1006,20 +1033,64 @@ local sp = cam:WorldToViewportPoint(p)
 local cx, cy = cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2
 local dx, dy = math.abs(sp.X - cx), math.abs(sp.Y - cy)
 local f = workspace:FindFirstChild("RangeTargets")
-local root
+local root, model, bd = nil, nil, 1e9
 for _, m in ipairs(f and f:GetChildren() or {}) do
   local r = if m:IsA("BasePart") then m else m.PrimaryPart
-  if r ~= nil and not r.Anchored then root = r break end
+  if r ~= nil and not r.Anchored then
+    local d = math.abs(r.Position.X - cam.CFrame.Position.X)
+    if d < bd then bd, root, model = d, r, m end
+  end
 end
 if root == nil then return "NOTREADY notarget" end
+local vis = 1
+for _, d in ipairs(model:GetDescendants()) do
+  if d:IsA("BasePart") and d.LocalTransparencyModifier < vis then vis = d.LocalTransparencyModifier end
+end
+if vis >= 1 then return string.format("NOTREADY hidden x=%.1f", root.Position.X) end
 local spd = tonumber(me:GetAttribute("DHBenchSpd")) or 0
 local ch = me.Character
 local tool = ch and ch:FindFirstChildOfClass("Tool")
 if dx < %PX% and dy < %PX% and spd >= %MINSPD% and sp.Z > 0 then
-  return string.format("READY px=%.1f,%.1f spd=%.2f dist=%.0f held=%s centre=%.0f,%.0f",
-    dx, dy, spd, sp.Z, tostring(tool and tool.Name), cx, cy)
+  return string.format("READY px=%.1f,%.1f spd=%.2f dist=%.0f held=%s vis=%.2f x=%.1f",
+    dx, dy, spd, sp.Z, tostring(tool and tool.Name), vis, root.Position.X)
 end
 return string.format("NOTREADY px=%.1f,%.1f spd=%.2f held=%s", dx, dy, spd, tostring(tool and tool.Name))
+"""
+
+
+# WHERE HE STANDS, PUT THERE BY MOVING HIM TO THE BUILT PART (`Mat<n>` or `Stand<n>.Deck`) and
+# never by computing a coordinate: the station and the firing position are what `Range.spotAt`
+# measures off the character, so the parts the build actually laid are the only honest input.
+STAGE = r"""
+local Players = game:GetService("Players")
+local p = Players:GetPlayers()[1]
+if p == nil or p.Character == nil or p.Character.PrimaryPart == nil then return "no character" end
+local folder = workspace:FindFirstChild("Range")
+if folder == nil then return "no Range folder" end
+local target
+if "%POSITION%" == "treestand" then
+  local seat = folder:FindFirstChild("Stand%STATION%", true)
+  target = seat and seat:FindFirstChild("Deck", true)
+  if target == nil then return "no Stand%STATION%.Deck" end
+else
+  target = folder:FindFirstChild("Mat%STATION%", true)
+  if target == nil then return "no Mat%STATION%" end
+end
+-- WHICH WAY IS DOWNRANGE, MEASURED: the stand's deck stands `standReach` UPRANGE of the mat
+-- (`Range.spotAt`), so the sign of (mat.Z - deck.Z) is the lane's direction. No constant is typed.
+local mat = folder:FindFirstChild("Mat%STATION%", true)
+local seatDeck = folder:FindFirstChild("Stand%STATION%", true)
+seatDeck = seatDeck and seatDeck:FindFirstChild("Deck", true)
+local dir = 0
+if mat and seatDeck then dir = if mat.Position.Z < seatDeck.Position.Z then -1 else 1 end
+if dir == 0 then return "cannot read downrange: Mat%STATION% or Stand%STATION%.Deck missing" end
+local top = target.Position + Vector3.new(0, target.Size.Y / 2 + 3.0, 0)
+local lane = Vector3.new(top.X, top.Y, top.Z + 60 * dir)
+p.Character:PivotTo(CFrame.lookAt(top, lane))
+task.wait(0.6)
+local hrp = p.Character.PrimaryPart
+return string.format("%s at %.1f,%.1f,%.1f downrange=%d -> character %.1f,%.1f,%.1f",
+  target:GetFullName(), top.X, top.Y, top.Z, dir, hrp.Position.X, hrp.Position.Y, hrp.Position.Z)
 """
 
 
@@ -1057,12 +1128,16 @@ def oneline(src, **kw):
 
 
 class Bench:
-    def __init__(self, place=FOREST_TEST_PLACE, viewport_px=12.0):
+    def __init__(self, place=FOREST_TEST_PLACE, viewport_px=12.0, station=1, position="bench",
+                 distance=None):
         import studio_mcp
 
         self.studio = studio_mcp.Studio()
         self.place = place
         self.viewport_px = viewport_px
+        self.station = int(station)
+        self.position = position
+        self.distance = distance
         self.studio_id = self._find_play_client()
 
     def _find_play_client(self):
@@ -1120,6 +1195,25 @@ class Bench:
             'return "placeId=" .. tostring(game.PlaceId) .. " " .. table.concat(t, " ")'
         )
 
+    def stage(self, station, position):
+        """Put the character on station `station`'s bench mat or stand deck. Returns the report."""
+        return self.client(STAGE, STATION=int(station), POSITION=position)
+
+    def where(self, station):
+        """THE SERVER'S OWN ANSWER to "which station, which firing position" -- asked through the
+        shipped door (`RangeRequest {reset=true}` -> `recordFor` -> the board push), so the pair the
+        table prints is `Range.spotAt`'s measurement and not the bench's claim."""
+        lua = (
+            'local RSt = game:GetService("ReplicatedStorage") '
+            'local r = RSt:FindFirstChild("Range") r = r and r:FindFirstChild("Remotes") '
+            'r = r and r:FindFirstChild("RangeRequest") '
+            'if r == nil then return "no RangeRequest" end '
+            'r:FireServer({spot = %d, reset = true}) return "sent"' % int(station)
+        )
+        self.client(lua)
+        time.sleep(2.0)
+        return self.attr("DHBenchBoard")
+
     def pick(self, cell):
         """Choose the cell through the range's OWN remote -- the door the menu chips use.
 
@@ -1127,7 +1221,9 @@ class Bench:
         SAME line (V298). A pick the server refused leaves the board reading the old trial, and the
         mismatch is the finding.
         """
-        req = {"spot": 1, "pace": cell.pace, "weapon": cell.weapon, "species": cell.species}
+        req = {"spot": self.station, "pace": cell.pace, "weapon": cell.weapon, "species": cell.species}
+        if self.distance:
+            req["distanceStuds"] = self.distance
         if cell.ammo:
             req["ammo"] = cell.ammo
         if cell.kind:
@@ -1222,7 +1318,7 @@ HOTBAR = {"shotgun": "One", "rifle": "Two", "lever": "Three", "semiauto": "Four"
 TOOL_NAME = {"shotgun": "Shotgun", "rifle": "Rifle", "lever": "Lever", "semiauto": "SemiAuto"}
 
 # A pace reads "at pace" above this fraction of its issued speed; `stand` is exempt.
-PACE_FLOOR = {"stand": 0.0, "walk": 2.0, "trot": 7.0, "run": 15.0}
+PACE_FLOOR = {"stand": 0.0, "walk": 2.0, "trot": 7.0, "run": 15.0, "slow": 5.7, "fast": 11.5}
 
 
 def _lua_value(v):
@@ -1242,7 +1338,11 @@ def run_cell(bench, cell, shots, log):
     log("")
     log("CELL %s" % cell.key)
     sent, board = bench.pick(cell)
-    log("  picked %s -> RangeRequest %s | board: %s" % (cell.key, sent, board))
+    log("  picked %s spot=%d dist=%s -> RangeRequest %s | board: %s"
+        % (cell.key, bench.station, bench.distance, sent, board))
+    for want in ("pace=%s" % cell.pace, "spot=%d" % bench.station, "position=%s" % bench.position):
+        if want not in (board or ""):
+            log("  MISMATCH: asked %s, the board does not say it -- that is the finding (V298)" % want)
     log("  %s" % bench.equip(cell))
     bench.set_mode(cell)
     floor = PACE_FLOOR.get(cell.pace, 0.0)
@@ -1256,10 +1356,18 @@ def run_cell(bench, cell, shots, log):
     seen = ring_indices(bench.hitlog())
     while fired < shots:
         ready = ""
-        for _ in range(60):
+        for poll in range(60):
             ready = bench.gate(floor)
             if ready.startswith("READY"):
                 break
+            # THE MASK IS TOLD AT A BOARD PUSH, AND THE PICK RE-RELEASES THE TRUNK (measured
+            # here, 2026-10-29): the push that follows a pick can carry the trunk the pick
+            # destroyed, and his own new animal then stays hidden with nothing to re-tell him.
+            # `reset` republishes (`Range.maskFor`) and was measured to clear it; it empties this
+            # player's own tally and nothing else. Only while the gate says `hidden`, every ~5 s.
+            if ready.startswith("NOTREADY hidden") and poll > 0 and poll % 20 == 0:
+                bench.where(bench.station)
+                log("  (republished the mask by reset -- the gate read %s)" % ready)
             time.sleep(0.25)
         if not ready.startswith("READY"):
             refused_gate += 1
@@ -1302,7 +1410,12 @@ def run_cell(bench, cell, shots, log):
 def cmd_run(args):
     cells = parse_cells(args.cells)
     cells = with_self_checks(cells)
-    bench = Bench(place=args.place)
+    if args.station not in STATIONS:
+        raise CellError("station %r is not one of %s" % (args.station, STATIONS))
+    if args.position not in POSITIONS:
+        raise CellError("position %r is not one of %s" % (args.position, POSITIONS))
+    bench = Bench(place=args.place, station=args.station, position=args.position,
+                  distance=args.distance)
     lines = []
 
     def log(s):
@@ -1311,6 +1424,10 @@ def cmd_run(args):
 
     log("[aim_bench] studio=%s" % bench.studio_id)
     log("[aim_bench] %s" % bench.flags())
+    log("[aim_bench] station %d, firing position %s, lane %s studs"
+        % (bench.station, bench.position, bench.distance or "(as picked)"))
+    log("[aim_bench] staged: %s" % bench.stage(bench.station, bench.position))
+    log("[aim_bench] the server's own answer: %s" % bench.where(bench.station))
     log("[aim_bench] %s" % bench.install())
     results = []
     for cell in cells:
@@ -1323,6 +1440,8 @@ def cmd_run(args):
     header = [
         "AIM BENCH -- %s" % time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
         "place %s, %d shots asked per cell" % (args.place, args.shots),
+        "station %d, firing position %s, lane %s"
+        % (args.station, args.position, args.distance or "(as picked)"),
     ]
     text = render(table, notes, header)
     print("")
@@ -1464,6 +1583,34 @@ def selftest():
             pass
         else:
             raise AssertionError("parse_cell(%r) should have failed (%s)" % (bad, why))
+
+    # --- the range's two TIMED paces are cells like any other, and `mixed` is not one: it draws
+    # one of the two per run, so a cell named `mixed` would print two populations in one row.
+    assert parse_cell("rifle/slow/chest").pace == "slow"
+    assert parse_cell("rifle/fast/chest").pace == "fast"
+    for bad in ("rifle/mixed/chest", "rifle/sprint/chest"):
+        try:
+            parse_cell(bad)
+        except CellError:
+            pass
+        else:
+            raise AssertionError("parse_cell(%r) should have failed" % bad)
+
+    # --- EVERY pace has a floor, or the gate would let a cell fire at a target standing still
+    # and call it a run (the `spd >= MINSPD` arm would read `>= 0.0`).
+    for pace in PACES:
+        assert pace in PACE_FLOOR, pace
+    assert PACE_FLOOR["slow"] < 7.2 and PACE_FLOOR["fast"] < 14.4, PACE_FLOOR
+    assert PACE_FLOOR["slow"] > PACE_FLOOR["trot"] * 0.8, PACE_FLOOR
+
+    # --- the staging script: the two positions, and no second camera writer (round 2, finding 1)
+    for position in POSITIONS:
+        text = oneline(STAGE, STATION=4, POSITION=position)
+        assert "%STATION%" not in text and "%POSITION%" not in text
+        assert camera_write_free(text), position
+    assert "Mat4" in oneline(STAGE, STATION=4, POSITION="bench")
+    assert "Stand4" in oneline(STAGE, STATION=4, POSITION="treestand")
+    assert camera_write_free(oneline(GATE, PX="12.0", MINSPD="0.00"))
 
     # --- the self-check cells are never optional (L-123)
     got = with_self_checks(parse_cells(["rifle/run/nose"]))
@@ -1709,6 +1856,9 @@ def main(argv=None):
             p.add_argument("cells", nargs="+")
             p.add_argument("--shots", type=int, default=30)
             p.add_argument("--out")
+            p.add_argument("--station", type=int, default=1)
+            p.add_argument("--position", default="bench")
+            p.add_argument("--distance", type=int, default=None)
     args = ap.parse_args(argv)
     if args.cmd == "selftest":
         return selftest()
