@@ -1017,18 +1017,23 @@ return function()
 						tested += 1
 					end
 				end
-				-- EVERY RECTANGLE EITHER HAS A REAL EDGE OF THE UNION, OR IS REDUNDANT -- and redundant
-				-- means THE OTHER RECTANGLES ALREADY COVER ITS WHOLE AREA. Two weaker versions were
-				-- written and both were tautologies, so the trap is named here: re-asking
-				-- `Join.insideHome(at, areas)` for `at` in `outs` asserts this loop's own exit condition
-				-- (review round 1, finding 1), and asking it of `others` instead is the SAME question --
-				-- every point in `outs` lies outside rectangle `index` by construction, so rectangle
-				-- `index` can never be the one covering it. A grid over the rectangle's OWN area is the
-				-- test that can fail: it is false the moment this rectangle contributes any ground.
+				-- EVERY RECTANGLE DOES SOMETHING: it either contributes a BOUNDARY of the union (a
+				-- point one stud off one of its edges that no other rectangle covers), or it contributes
+				-- GROUND of its own. Round 1's `expect(here > 0)` asked only the first, and since task
+				-- 306 B8 put the range beside the lodge, `Join.walkwayTo`'s corridor answers no to it --
+				-- all four of its edge midpoints fall inside the field or the range footprint.
 				--
-				-- Since task 306 B8 moved the range next to the lodge, `Join.walkwayTo`'s corridor is
-				-- the rectangle with no edge: the field and the range footprint it joins cover all of
-				-- it. If that ever stops being true it has an edge and `here > 0` instead.
+				-- TWO WEAKER REPLACEMENTS WERE WRITTEN AND BOTH WERE TAUTOLOGIES, so the trap is named:
+				-- re-asking `Join.insideHome(at, areas)` for `at` in `outs` asserts this loop's own exit
+				-- condition (review round 1, finding 1), and asking it of `others` is the SAME question
+				-- -- every point in `outs` lies outside rectangle `index` by construction, so that
+				-- rectangle can never be the one covering it.
+				--
+				-- AND THE THIRD VERSION, "the others cover its whole area", was MEASURED FALSE on the
+				-- first run (`lobby.spec:1048`): the walkway is not redundant, it carries ground the
+				-- field and the footprint do not. So the rule below is the one that is both true and
+				-- able to fail -- a rectangle that contributed neither a boundary nor one stud of its
+				-- own ground would be a rectangle with no reason to exist, and this reddens on it.
 				if here == 0 then
 					local others = {}
 					for otherIndex, other in ipairs(areas) do
@@ -1037,7 +1042,7 @@ return function()
 						end
 					end
 					expect(#others).to.equal(#areas - 1)
-					local covered = 0
+					local own, first = 0, nil
 					for ix = 0, 4 do
 						for iz = 0, 4 do
 							local at = Vector3.new(
@@ -1045,18 +1050,29 @@ return function()
 								0,
 								rect.minZ + (rect.maxZ - rect.minZ) * iz / 4
 							)
-							expect(Join.insideHome(at, others)).to.equal(
-								true,
-								string.format(
-									"rectangle %d has no edge of the union, but %s is ground only IT covers",
-									index,
-									tostring(at)
-								)
-							)
-							covered += 1
+							expect(Join.insideHome(at, areas)).to.equal(true)
+							if not Join.insideHome(at, others) then
+								own += 1
+								first = first or at
+							end
 						end
 					end
-					expect(covered).to.equal(25)
+					expect(own > 0).to.equal(
+						true,
+						string.format(
+							"rectangle %d contributes neither a boundary case nor one point of its own ground",
+							index
+						)
+					)
+					table.insert(
+						perRect,
+						string.format(
+							"rect %d: no edge, but %d of 25 own points (first %s)",
+							index,
+							own,
+							tostring(first)
+						)
+					)
 				end
 				table.insert(perRect, string.format("rect %d: %d", index, here))
 				-- ...and ON the edge is IN, which is `withinRect`'s rule in min/max form.
