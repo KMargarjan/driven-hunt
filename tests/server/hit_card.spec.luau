@@ -622,6 +622,39 @@ return function()
 				expect(string.find(ring[1], "id=" .. part.Name, 1, true) ~= nil).to.equal(true)
 				expect(string.find(ring[1], "fatal=no", 1, true) ~= nil).to.equal(true)
 
+				-- ...AND IT IS THE REPORT'S OWN TENSE, which is the whole of task 309a (round 1,
+				-- note). The pass above leaves `targetCFrame` nil, so it reads the same whether the
+				-- line divides down by `frameOf` or by `part.CFrame`; this one hands in the frame
+				-- the shooter DREW the animal in -- 6 studs back, the distance a boar covers over
+				-- the rewind -- so the two answers differ by 6 studs and only the carried one is
+				-- inside the body.
+				HitLog.clear()
+				HitLog.openDrive(309, 0)
+				local drawnFrame = part.CFrame * CFrame.new(0, 0, 6)
+				local rewound = report(part, shooter, points, {
+					at = 2.0,
+					zone = "chest",
+					nearest = 125,
+					position = drawnFrame.Position + Vector3.new(-1, 0.4, 1),
+					targetCFrame = drawnFrame,
+				})
+				expect(HitLog.sendCard(rewound)).to.equal(true)
+				local tensed = HitLog.lastHits()
+				expect(#tensed).to.equal(1)
+				local wantTense = drawnFrame:PointToObjectSpace(rewound.position)
+				expect(
+					string.find(
+						tensed[1],
+						string.format("local=(%.2f,%.2f,%.2f)", wantTense.X, wantTense.Y, wantTense.Z),
+						1,
+						true
+					) ~= nil
+				).to.equal(true)
+				-- THE KNOWN-BAD HALF: the SAME point divided by the present trunk is 6 studs away,
+				-- so a line that had ignored `targetCFrame` could not pass the case above.
+				local wrongTense = part.CFrame:PointToObjectSpace(rewound.position)
+				expect(math.abs(wrongTense.Z - wantTense.Z)).to.be.near(6, 1e-3)
+
 				part:Destroy()
 				folder:Destroy()
 				HitLog.clear()

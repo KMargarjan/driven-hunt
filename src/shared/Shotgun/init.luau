@@ -680,12 +680,24 @@ Shotgun.CONFIG = {
 	-- END-TO-END residual, measured by the instrument of this task -- `DH305Past` (the position the
 	-- server ACTUALLY tested) minus the trunk the client was drawing on the frame `Input.fire` ran,
 	-- along travel. At 0.205 that gap read +1.00, +1.19 and +0.90 studs on three run cells, always
-	-- the same sign; at 0.250 it reads +0.10, +0.27 and +0.01, and a boar aimed at with no lead at
-	-- all went 15/30 to 20/20 (<runs-dir>/309a/after-A.txt against cycle3.txt, same place, same rig).
-	-- THE BOUND, stated because the instrument has one: the bench reads the drawn trunk up to one
-	-- frame after the trigger (0.4 studs at a run), so the value that truly zeroes the gap lies in
-	-- 0.217..0.250 and 0.250 is its over-rewound end. It is not free lead: the KNOWN-BAD cell -- a
-	-- click one body length into clear air -- still read 0/20.
+	-- the same sign; at 0.250 it reads +0.23, +0.13 and +0.00, and a boar aimed at with no lead at
+	-- all went 15/30 to 25/30.
+	--
+	-- WHERE: placeId 130094961655666, the Forest Test PLACE Karen plays, synced from the BUILD
+	-- `driven-hunt-294` at this commit -- NOT from her own `driven-hunt-karen` copy, which was not
+	-- touched. The place is hers; the build is the test checkout. Draw lag is a property of the
+	-- place and the client, which is why task 309 re-measured it out of DEV, but a different BUILD
+	-- of the same place has not been shown to give the same number.
+	-- Runs: <runs-dir>/309a/after-A.txt (0.205) against after-B.txt (0.250), N=30, same rig.
+	--
+	-- THE BOUND, and its SIGN (round 1, finding 1): the bench reads the drawn trunk up to one frame
+	-- AFTER the trigger, so `drawn` has moved further along travel and the measured gap is the true
+	-- one MINUS about 0.4 studs at a run. The measurement therefore UNDER-reports, a perfect rewind
+	-- would print about -0.4 rather than 0, and the true residual at 0.250 is still about +0.4..+0.6
+	-- studs AHEAD of the drawn animal. So 0.250 is the UNDER-rewound end and the zero lies above it,
+	-- near 0.254..0.271. Under-rewinding is the conservative side -- it leaves some of today's error
+	-- rather than handing out free lead -- which is also why the KNOWN-BAD cell, a click one drawn
+	-- body length into clear air, read 0/30.
 	FLIGHT_REWIND_BASE_SECONDS = 0.250,
 
 	-- ---------------------------------------------------------- THE HIT CLAIM (task 266)

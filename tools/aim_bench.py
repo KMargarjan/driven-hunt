@@ -504,13 +504,44 @@ def parse_trace(line):
     """
     m = _TRACE.search(str(line or ""))
     if m is None:
-        return {"ringzone": None, "ringlocal": None, "ringuv": None, "ringid": None}
+        return {"ringzone": None, "ringlocal": None, "ringuv": None, "ringid": None, "ringn": None}
     return {
         "ringzone": m.group("zone"),
         "ringlocal": "%s|%s|%s" % (m.group("lx"), m.group("ly"), m.group("lz")),
         "ringuv": "%s|%s" % (m.group("u"), m.group("v")),
         "ringid": m.group("id"),
+        # THE LINE'S OWN `#n` (round 1, finding 3). `HitLog` numbers every line it writes, so a
+        # shot is credited with a ring line only when that number is one this cell has not already
+        # seen -- which no comparison of the text can decide.
+        "ringn": int(m.group("n")),
     }
+
+
+def ring_credit(line, seen):
+    """Should this ring tail be credited to the shot just fired? Pure (round 1, finding 3).
+
+    `ServerStorage.DHLastHits` PERSISTS -- across cells, across runs, and across any drive hit --
+    and the bench only ever reads it. So "the tail changed since the previous shot" is not enough:
+    the first shot of every cell after the first would be credited with the previous cell's last
+    line whenever it missed, which is exactly the unfailable reading the ring exists to kill.
+    A line counts only when its own `#n` is one `seen` has not already recorded; `seen` is seeded
+    from the ring as it stands BEFORE the cell's first shot.
+    """
+    trace = parse_trace(line)
+    n = trace.get("ringn")
+    if n is None or n in seen:
+        return None
+    return n
+
+
+def ring_indices(blob):
+    """Every `#n` in a ring blob, for seeding `seen`. Unreadable lines are skipped, not guessed."""
+    out = set()
+    for raw in str(blob or "").splitlines():
+        n = parse_trace(raw).get("ringn")
+        if n is not None:
+            out.add(n)
+    return out
 
 
 def parse_rows(blob):
@@ -1122,10 +1153,12 @@ def run_cell(bench, cell, shots, log):
     floor = PACE_FLOOR.get(cell.pace, 0.0)
     fired, refused_gate = 0, 0
     # THE RING LINE EACH SHOT WROTE (task 309a). `ServerStorage.DHLastHits` keeps only the last ten
-    # lines, so a 30-shot cell must be read PER SHOT or nine tenths of it is gone. A line identical
-    # to the previous shot's is the previous shot's: a miss writes nothing, so the ring does not
-    # advance and that row keeps no ring columns.
-    rings, last_ring = {}, None
+    # lines, so a 30-shot cell must be read PER SHOT or nine tenths of it is gone. A miss writes
+    # nothing, so the ring does not advance and that row keeps no ring columns -- and `seen` is
+    # SEEDED FROM THE RING AS IT STANDS (round 1, finding 3), because the attribute persists across
+    # cells and the first shot of a cell would otherwise inherit the previous cell's last line.
+    rings = {}
+    seen = ring_indices(bench.hitlog())
     while fired < shots:
         ready = ""
         for _ in range(60):
@@ -1146,9 +1179,10 @@ def run_cell(bench, cell, shots, log):
         time.sleep(1.5)
         tail = [ln.strip() for ln in (bench.hitlog() or "").splitlines() if ln.strip()]
         line = tail[-1] if tail else ""
-        if line and line != last_ring:
+        n = ring_credit(line, seen)
+        if n is not None:
             rings[fired] = line
-            last_ring = line
+            seen.add(n)
         bench.reload()
         time.sleep(1.8)
     rows = parse_rows(bench.attr("DHBenchRows"))
@@ -1379,9 +1413,26 @@ def selftest():
     # or every row would read as "the server answered" whatever the game did.
     for bad in (None, "", "no ring line here", "#3 t=1.0s boar id=A1 zone=rear"):
         empty = parse_trace(bad)
-        assert empty == {"ringzone": None, "ringlocal": None, "ringuv": None, "ringid": None}, bad
+        assert empty == {"ringzone": None, "ringlocal": None, "ringuv": None, "ringid": None, "ringn": None}, bad
         assert _ring_z(empty) is None
     assert _ring_z({"ringlocal": "a|b|c"}) is None and _ring_z({}) is None
+    assert good["ringn"] == 7, good
+
+    # --- a ring line is credited ONCE, and never a line that was already there (finding 3)
+    def ring(n):
+        return "#%d t=1.00s boar id=A%d zone=rear local=(0.0,0.0,1.0) uv=(0.5,0.5) dist=50.0 r/S pellets=1 fatal=no" % (n, n)
+
+    seen = ring_indices(ring(4) + chr(10) + ring(5))
+    assert seen == {4, 5}, seen
+    # the cell's first shot MISSES: the tail is still #5, which `seen` already holds -> no credit
+    assert ring_credit(ring(5), seen) is None
+    # ...and a genuinely new line is credited exactly once
+    assert ring_credit(ring(6), seen) == 6
+    seen.add(6)
+    assert ring_credit(ring(6), seen) is None
+    # a tail that is not a ring line at all credits nothing
+    assert ring_credit("", seen) is None and ring_credit("garbage", seen) is None
+    assert ring_indices(None) == set() and ring_indices("garbage") == set()
 
     # --- the instrument verdict (L-141): the two self-check cells must read DIFFERENTLY
     def entry(spec, hits, n, along=None):
