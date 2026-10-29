@@ -145,15 +145,26 @@ Range.LAYOUT = {
 	-- measured lesson, `Lobby.CONFIG.FIELD.PADS`). `DEPTH_STUDS` and `CLEAR_STUDS` are read by the
 	-- terrain writer in her place (design 8).
 	FILL = { DEPTH_STUDS = 48, CLEAR_STUDS = 96, GRID_STUDS = 4 },
-	-- THE TWO SURFACES (design 8.3), as Enum values rather than as a guess: `Places.Ground` paints
-	-- `Grass` and `LeafyGrass` as two different ground covers, so a SHORT grass lane beside the
-	-- hill's long grass is what reads as mown -- the same device `Lobby.CONFIG.FIELD` credits for
-	-- making a field read as a field. `Limestone` is pale crushed stone, in that same accepted list.
+	-- THE TWO SURFACES, AND DESIGN 8.3's PAIR WAS REFUTED BY THE PICTURE (step B8, photographed in
+	-- her place: evidence/306b8/f6-berm-view.png). 8.3 chose `Grass` for the lane against the hill's
+	-- `LeafyGrass` -- short grass beside long. Two measurements say that pair cannot work here:
+	--   * the ground just outside the terrace at (2800, -3120) reads `Grass` ALREADY, not
+	--     `LeafyGrass`, so there is no long grass for a short lane to read against;
+	--   * `Grass` DRAWS BLADES, and from a man's eye on the bench (y 153) they fill the whole frame
+	--     -- no lane, no berm, no range. Karen asked for *"nice shooting range clean proper like in
+	--     real life"* and a lane you cannot see over is the opposite of it.
+	-- So the lane is `Ground`: blade-free, which is the EXACT reason `Lobby.CONFIG.FIELD.PADS` uses
+	-- it under the yard and the road (*"a block of a material with no grass blades"*), and in
+	-- `Places.Ground`'s accepted list like the rest. It reads as a groomed lane against her hill's
+	-- own grass, which is the contrast 8.3 wanted and a Grass-on-Grass pair could not give.
+	-- `AROUND` is now what her hill MEASURES as, not what the design assumed, so the repaint that
+	-- catches what the fill could not reach is aimed at a material that is actually there.
+	-- `Limestone` is pale crushed stone, in that same accepted list, and Karen's to overrule.
 	-- The strip's three reaches cover every part on the line: the post sits 7.6 studs downrange of
 	-- the anchor, the deck 14 uprange, and the mats span 2596..2724 for a six-station row.
 	SURFACE = {
-		LANE = Enum.Material.Grass,
-		AROUND = Enum.Material.LeafyGrass,
+		LANE = Enum.Material.Ground,
+		AROUND = Enum.Material.Grass,
 		LINE = Enum.Material.Limestone,
 		LINE_AHEAD_STUDS = 10,
 		LINE_BACK_STUDS = 14,
