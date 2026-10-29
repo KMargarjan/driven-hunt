@@ -4061,7 +4061,10 @@ return function()
 			)
 			-- THE AIR'S BOTTOM IS THE VOXEL BOUNDARY AT OR BELOW THE SHELF, and the grass is a solid
 			-- bank DOWN to it -- never a floating slab (`Lobby.Field`'s two measured lessons).
-			local heaps = 0
+			local heaps = {}
+			local function anchorOf(at)
+				return Vector3.new((FOREST_ROW :: any).x, at.shelf, (FOREST_ROW :: any).z)
+			end
 			for _, call in ipairs(terrain.fills) do
 				local bottom = call.at.Position.Y - call.size.Y / 2
 				local top = call.at.Position.Y + call.size.Y / 2
@@ -4073,11 +4076,30 @@ return function()
 				else
 					-- A HEAP: it stands ON the terrace, never in a hole and never in the air (rule E).
 					expect(math.abs(bottom - b.shelf) < 1e-6).to.equal(true)
-					heaps += 1
+					heaps[string.format("%.3f|%.3f", top, call.at.Position.Z)] = true
 				end
 			end
-			-- the berm core, its four bands, and two banks
-			expect(heaps).to.equal(1 + LAYOUT.BERM.slopeSteps + 2)
+			-- EVERY HEAP IS ONE THE OWNER PREDICTS, AND EVERY PREDICTED ONE WAS FILLED. Counting the
+			-- calls would count CHUNKS -- a 232-stud berm is four of them at `CHUNK_STUDS` 64 -- so the
+			-- set is keyed on what a heap IS: its top and where it stands. The two banks share both.
+			local wanted = {}
+			for _, box in ipairs(Range.Build.bermBoxes(anchorOf(b), b.shelf, LAYOUT, -1)) do
+				wanted[string.format("%.3f|%.3f", box.at.Position.Y + box.size.Y / 2, box.at.Position.Z)] = true
+			end
+			for leg = 1, 2 do
+				local bank = RangeData.bankPosition(anchorOf(b), LAYOUT, leg, -1)
+				wanted[string.format("%.3f|%.3f", b.shelf + LAYOUT.BANK.size.Y, bank.Z)] = true
+			end
+			local seen, want = 0, 0
+			for key in pairs(heaps) do
+				expect(wanted[key]).to.equal(true)
+				seen += 1
+			end
+			for _ in pairs(wanted) do
+				want += 1
+			end
+			expect(seen).to.equal(want)
+			expect(want).to.equal(1 + LAYOUT.BERM.slopeSteps + 1)
 			parent:Destroy()
 		end)
 
