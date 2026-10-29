@@ -3,11 +3,17 @@
 Task: 309
 Round: 1
 Base: 8e5c0f76
-Code commit: eb4be65f00512ba1e24542edd5f76c53533e50be
+Code commit: ea7095033dffc9a77600eb5a61ef5dc491982118
 
 Harness, full one-player run on the clean tree at that commit:
 
-    [harness] PASS: 34/34 checks @ eb4be65f00512ba1e24542edd5f76c53533e50be (clean tree) scope=all
+    [harness] PASS: 34/34 checks @ ea7095033dffc9a77600eb5a61ef5dc491982118 (clean tree) scope=all
+
+The last commit that changed `src/`, `tests/` or `tools/` is `eb4be65f`, and that one also ran clean
+(`[harness] PASS: 34/34 checks @ eb4be65f00512ba1e24542edd5f76c53533e50be (clean tree) scope=all`).
+`Code commit:` names the LATER one because `docs/research/2026-10-28-lag-compensation.md` changed in
+`ea709503` and a research note is not on the merge gate's paperwork list -- naming the later commit
+keeps the bound strict, which is what git workflow step 4 says to do.
 
 `test2` is **N/A**: the change touches `src/server/Weapon/init.luau`,
 `src/shared/Shotgun/init.luau` and `tools/aim_bench.py`, and none of them is in
@@ -53,7 +59,7 @@ under-rewound by 0.0257 s = **0.47 studs mean, 0.95 at p90** at a run.
 1. **The fix is measured, not guessed, and the before and after are the same instrument in the same
    place.** BEFORE at `8e5c0f76`, AFTER at the code commit, bench `--shots 30`, Karen's Forest Test:
 
-   | cell | BEFORE (`8e5c0f76`) | AFTER (code commit) | z | target |
+   | cell | BEFORE (`8e5c0f76`) | AFTER (`eb4be65f`) | z | target |
    |---|---|---|---|---|
    | `rifle/run/chest~boar` | 11/66 = **17 %** | 17/30 = **57 %** | **4.00**, p < 0.0001 | >= 80 % **NOT MET** |
    | `rifle/run/chest+lead~boar` (CONTROL) | 40/66 = **61 %** | 55/60 = **92 %** | **4.04**, p < 0.0001 | >= 95 % **NOT MET** |
