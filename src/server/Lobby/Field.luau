@@ -54,6 +54,25 @@ function Field.cutBottomY(shelfY: number): number
 	return math.floor(shelfY / Field.RESOLUTION) * Field.RESOLUTION
 end
 
+-- PURE. THE SHELF ITSELF, SNAPPED TO THE VOXEL GRID -- and this is the whole of the flatness fix
+-- (task 311, cycle 2). Cutting on the boundary alone was MEASURED in Karen's place and it did make
+-- all four bays identical (relief 1.27 -> 0.00), but it settled the surface at 151.27 instead of at
+-- the shelf's 149.248 and buried the road slabs, which sit at shelfY + THICK/2 = 149.50: the yard
+-- came back flat and the road came back invisible, which is task 180's photographed defect again.
+--
+-- A SHELF ON THE GRID HAS NO PARTIAL VOXEL AT ALL. The grass block's top, the pads' tops and the
+-- air block's bottom then all land on a voxel face, every `FillBlock` covers whole voxels, and the
+-- surface the engine draws is the number we asked for rather than whatever its interpolation makes
+-- of a 0.31-occupancy layer. `Lobby.tryBuild` snaps the measured ground through this before it
+-- becomes the anchor, so every part in the lobby is laid on the same snapped number.
+--
+-- NEAREST AND NOT FLOOR: at most two studs of movement either way, which is the smallest step this
+-- can be, and the field is a CUT SHELF already -- it meets the hillside in a step by design.
+-- Note: docs/research/2026-10-29-lobby-flagpole-and-birch-avenue.md (sections 2, 3.1)
+function Field.shelfFor(measured: number): number
+	return math.round(measured / Field.RESOLUTION) * Field.RESOLUTION
+end
+
 -- PURE. The AIR block that cuts the hill off. Its bottom is `cutBottomY(shelfY)` -- the voxel
 -- boundary at or below the shelf -- so the band the shelf falls inside is covered WHOLE and comes
 -- out empty; the grass and pad blocks are then filled back up to the shelf over a flat, empty

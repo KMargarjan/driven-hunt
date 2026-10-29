@@ -2330,8 +2330,12 @@ Lobby.CONFIG = {
 	--     "stop the avenue before the yard".
 	--   * the EAST row therefore has three slots -- north of -2994 are the yard, the pads
 	--     (x 2891..2903) and the trucks. The WEST row has five, because the lodge's south face is at
-	--     z -2930. Eight slots, one gap, SEVEN trees: Naturvardsverket's alle definition asks for at
-	--     least five in one or two rows, and sets no spacing at all.
+	--     z -2930. Eight slots and ONE DESIGNED GAP; MEASURED in her place, the forest ring takes one
+	--     more -- `TreeLine` put a trunk 3.6 studs from the south-east slot and three 8-stud steps
+	--     north could not clear the next one either -- so SIX birches stand, four west and two east.
+	--     Naturvardsverket's alle definition asks for at least five trees in one or two rows and sets
+	--     no spacing at all, so six in two rows is an alle, and the drop is the ring doing exactly
+	--     what `KEEP_OFF_TREES_STUDS`' own comment says it will.
 	--   * 25 studs (7 m) between slots in a row, inside the only road-authority figure found (12 m
 	--     per deciduous tree) and tighter because this birch carries a ~10-stud crown at the scales
 	--     below -- at 12 m it would read as scattered trees rather than as an avenue.
@@ -2362,10 +2366,12 @@ Lobby.CONFIG = {
 			{ side = -1, z = -98, scale = 0.72, yaw = 14 },
 			{ side = -1, z = -73, scale = 0.66, yaw = 203 },
 			{ side = -1, z = -48, scale = 0.75, yaw = 97 },
-			{ side = -1, z = -23, scale = 0.68, yaw = 311 },
+			-- THE DESIGNED GAP IS ON THE WEST ROW, because that is the long one: the dead individual
+			-- a bjorkalle survey calls normal, written as data rather than as a hole in a loop.
+			{ side = -1, z = -23, gap = true },
 			{ side = -1, z = 2, scale = 0.7, yaw = 142 },
 			{ side = 1, z = -98, scale = 0.7, yaw = 256 },
-			{ side = 1, z = -73, gap = true },
+			{ side = 1, z = -73, scale = 0.71, yaw = 162 },
 			{ side = 1, z = -48, scale = 0.74, yaw = 38 },
 		},
 	},

@@ -1133,6 +1133,28 @@ return function()
 			expect(CFG.FIELD.CLEAR_STUDS > CFG.LODGE.RIDGE_STUDS).to.equal(true)
 		end)
 
+		it("snaps a measured shelf onto the voxel grid, by at most half a voxel", function()
+			-- CYCLE 2 OF TASK 311, AND IT IS THE MEASUREMENT THAT ASKED FOR IT. Cutting on the
+			-- boundary made all four bays identical (relief 1.27 -> 0.00) and then settled the
+			-- surface at 151.27 against a shelf of 149.248 -- flat, and 1.5 studs over the road
+			-- slabs, which is task 180's invisible road again. A shelf ON the grid has no partial
+			-- voxel for the engine to interpolate.
+			for _, measured in ipairs({ 149.248, 150.36, 151.27, 148, 152, 0, -3.1 }) do
+				local snapped = Field.shelfFor(measured)
+				expect(snapped % Field.RESOLUTION).to.equal(0)
+				expect(math.abs(snapped - measured) <= Field.RESOLUTION / 2 + 1e-9).to.equal(true)
+				-- ...AND THEN THE CUT IS THE SHELF ITSELF: no voxel is split by any of the fills.
+				expect(Field.cutBottomY(snapped)).to.equal(snapped)
+				local at, size = Field.airBlock(anchor, snapped, CFG)
+				expect(at.Position.Y - size.Y / 2).to.equal(snapped)
+				expect(size.Y).to.equal(CFG.FIELD.CLEAR_STUDS)
+				local grassAt, grassSize = Field.grassBlock(anchor, snapped, CFG)
+				expect(grassAt.Position.Y + grassSize.Y / 2).to.equal(snapped)
+			end
+			-- A SHELF ALREADY ON THE GRID DOES NOT MOVE.
+			expect(Field.shelfFor(148)).to.equal(148)
+		end)
+
 		it("cuts the band for a shelf anywhere in a voxel, and never cuts below one", function()
 			-- EVERY POSITION INSIDE A VOXEL, including both boundaries, because the live shelf is
 			-- 149.248 and a spec that only ever tried 153 would not have caught the old bug either.
