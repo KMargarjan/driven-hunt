@@ -106,9 +106,9 @@ Range.LAYOUT = {
 	-- THE BERM HAS NO TYPED WIDTH: `Range.bermWidthFor` derives it so it spans every station's lane
 	-- AND both banks, which is the identity `range.spec` asserts (design 5.2). 10 studs = 2.8 m,
 	-- "not high" (Karen), inside the 6 m upper bound the note refused to treat as a requirement.
-	-- `behindStuds` 13 AND NOT 12, so the berm's rectangle is on the terrain grid in all FOUR
-	-- edges: the centre sits `distanceMax + 13` = 192 from the anchor and `depth` 8 puts its faces
-	-- at 188 and 196, both multiples of `FILL.GRID_STUDS` (design 5.4). At 12 they were 187 and 195.
+	-- `behindStuds` IS KEPT CONGRUENT TO 13 MOD 4, so the berm's rectangle stays on the terrain
+	-- grid in all four edges relative to the anchor (design 5.4). 306l moved it 13 -> 17: the
+	-- centre sits `distanceMax + 17` = 196 and `depth` 8 puts its faces at 192 and 200.
 	--
 	-- 21 STUDS AND NOT 10 (306k item 2). MEASURED from the bench: at 10 studs the crest subtended
 	-- 3.0 degrees at 190 studs and read as "a thin band of tall grass on the horizon"
@@ -118,24 +118,68 @@ Range.LAYOUT = {
 	-- It subtends 6.3 degrees, 4.5x the 1.4 degrees a boar's own 3 studs make at 125.
 	--   NRA Range Source Book, ch. 3 (impact berms)  https://www.nrahq.org/pdf/RangeSourceBook.pdf
 	--   US Army TC 25-8, Training Ranges, app. B    https://armypubs.army.mil/
-	-- `depth` and `behindStuds` DO NOT MOVE, and that is the measurement too: the toe of the
-	-- battered face already stands at 176, three studs clear of the farthest target at 179, and the
-	-- far face cannot go back because her ground DROPS to 141-144 at 200-275 studs where the asphalt
-	-- road crosses (same playtest). So the heap grows UP, not out, and the face is steeper than a
-	-- real 1:1.2 batter -- named, not hidden.
+	-- THAT "176 IS THREE STUDS CLEAR OF 179" WAS WRONG, and 306l measured it: the toe stood at 176
+	-- and the earth on the 179 lane itself was 7.28 studs deep. See the 306l paragraph below, which
+	-- is what `behindStuds` and `slopeRun` now say. The far face still cannot go back far, because
+	-- her ground DROPS to 141-144 where the asphalt road crosses -- so the face stays steeper than a
+	-- real 1:1.2 batter, named and not hidden.
 	-- `slopeRun` and `slopeSteps` ARE THE UPRANGE FACE (step B8). A rectangular block of earth is
 	-- a wall; Karen asked for *"a mountain not high but like in real life"*, and a real berm is a
 	-- trapezoid. Four 2-stud bands (10 * k / 5) over a 12-stud run is a 1:1.2 batter, and 2 studs
 	-- per step is design 8.2's decided fallback for the unverified `FillWedge`. Only the terrain arm
 	-- reads them -- a part berm is one box, as it was.
+	--
+	-- 306l: THE HEAP MOVED BACK OFF THE FAR LANE, AND THAT IS A MEASUREMENT, NOT A MARGIN.
+	-- With `behindStuds` 13 and `slopeRun` 12 the battered toe stood at 176 and a terrain raycast
+	-- down lane 2 read 7.28 studs of earth standing ON the 179 lane itself (306l first measure,
+	-- <runs-dir>/306l-profile.luau). A real `RangeRequest` for 179 then put the boar at d 171.9,
+	-- 1.5 studs up the batter and INVISIBLE from bench 2 (306l-BEFORE-boar-zoom.png). So:
+	--   behindStuds 13 -> 17  (the crest's near face goes 192 -> ... see `bermToeClearance`)
+	--   slopeRun    12 ->  8  (the toe comes back to 184)
+	-- and `bermToeClearance` is then 5 studs of clear ground past the farthest lane.
+	-- THE FAR FACE CANNOT GO FURTHER BACK THAN THIS: the same profile reads her ground at -6.0 at
+	-- d 200 and ASPHALT at d 204, so the terrace's own downrange edge (202) stands 2 studs clear
+	-- of the road. That bound is why the face is steeper than a 1:1 batter -- named, not hidden.
 	BERM = {
 		height = 21,
 		depth = 8,
-		behindStuds = 13,
-		slopeRun = 12,
-		-- SIX BANDS AND NOT FOUR: 21 studs over 7 levels is a 3-stud step, which is design 8.2's
-		-- 2-stud fallback kept to the same order on a heap twice as tall.
-		slopeSteps = 6,
+		behindStuds = 17,
+		slopeRun = 8,
+		-- FOUR BANDS AND NOT SIX: over an 8-stud run six bands are 1.3 studs deep, under the
+		-- 4-stud voxel, so two of them write nothing. Four gives a 2-stud step, design 8.2's own.
+		slopeSteps = 4,
+		-- HOW MUCH CLEAR GROUND THE FARTHEST LANE KEEPS BEHIND IT. The released boar's trunk
+		-- measures 2 x 3 x 5.5 (306l-fire, her place), so half its length is 2.75 and this leaves
+		-- 2.25 studs over it -- more than the half voxel a partial terrain fill can reach with.
+		-- `bermToeClearance` is the DERIVED number; this is the bound `range.spec` holds it to.
+		toeClearStuds = 5,
+		-- ------------------------------------------------- THE HILL'S SHAPE (306l item 2)
+		-- Karen: *"an earth formed mountain"*. A box with one level crest reads as a WALL from the
+		-- bench (306k-AFTER-bench2.png, 306l-BEFORE-boar-zoom.png -- a dead-straight top and a
+		-- dead-straight toe). A hill is built here as COLUMNS across the span, each with its own
+		-- crest height and its own batter run, so neither line is straight.
+		-- `crestStepStuds` is one column's width: 12 studs is three voxels, small enough that the
+		-- ripple survives the 4-stud grid and large enough that 232 studs is 19 fills, not 58.
+		crestStepStuds = 12,
+		-- how far under `height` the lowest point of the RIPPLE sits: the crest wanders 18..21, and
+		-- 3 AND NOT 4 IS A BOUND AND NOT A TASTE (review round 1, finding 1). A man on the deck
+		-- fires from `HighSeats.DIMS.DECK_RISE_STUDS + AIM_RISE_STUDS` = 17.5 studs over the shelf,
+		-- so a crest under that is a backstop he shoots over. `range.spec` asserts the floor.
+		crestDropStuds = 3,
+		-- ...and how far the heap's own SHOULDERS fall, over the outer `shoulderStuds` of the span,
+		-- so the ends die away into the ground instead of stopping square. 16 AND NOT 24, for the
+		-- same bound: the firing fan reaches `sightHalfWidthAt` past the outer mats at the crest
+		-- face, which is 23.7 studs in from the heap's end -- a taper any wider dips into it.
+		shoulderDropStuds = 5,
+		shoulderStuds = 16,
+		-- SCRUB ALONG THE CREST TOP (306l item 2), as TERRAIN and not as parts -- so there is no
+		-- pivot to float (rule E / L-086), no gap a shot could pass under, and nothing to upload.
+		-- Each clump stands from the terrace like every other band, so the heap invariant is
+		-- untouched; only its top shows, on the crest, BEHIND the bare lip.
+		scrubCount = 7,
+		scrubSize = Vector3.new(11, 5, 4),
+		-- the clump's own front face, uprange-clear of the crest's bare lip.
+		scrubBackStuds = 2,
 		color = Color3.fromRGB(104, 84, 62),
 	},
 	MAT = { size = Vector3.new(8, 1, 8), color = Color3.fromRGB(70, 82, 70) },
@@ -300,6 +344,14 @@ Range.LAYOUT = {
 		-- stands brown against the mown lane and the grass around it. Karen: *"earth formed
 		-- mountain"*.
 		BERM = Enum.Material.Ground,
+		-- THE HILL'S GRASSED HALF (306l item 2): the crest, the back, and the two side banks. Bare
+		-- earth is the IMPACT FACE only, which is what a live-fire berm looks like -- the face is
+		-- scoured and everything the rounds never reach keeps its sward.
+		HILL = Enum.Material.Grass,
+		-- the scrub along the crest top. `LeafyGrass` is the terrain renderer's own tall blade
+		-- material -- the very thing B8 refused for the LANE, which is exactly why it reads as a
+		-- bush on a ridge and not as a mown surface.
+		SCRUB = Enum.Material.LeafyGrass,
 		AROUND = Enum.Material.Grass,
 		LINE = Enum.Material.Limestone,
 		LINE_AHEAD_STUDS = 10,
@@ -840,6 +892,104 @@ function Range.bermPosition(anchor: Vector3, layout, downrange: number?): Vector
 		anchor.Y,
 		anchor.Z + dir * (Range.distanceMax(layout) + layout.BERM.behindStuds)
 	)
+end
+
+-- THE CREST'S NEAR FACE: the Z the battered face is measured back from, and the Z the grassed
+-- crest and back are measured forward from. One answer, so the two halves of the heap meet.
+function Range.bermCrestFaceZ(anchor: Vector3, layout, downrange: number?): number
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	return Range.bermPosition(anchor, layout, dir).Z - dir * layout.BERM.depth / 2
+end
+
+-- THE FORWARD-MOST EARTH OF THE WHOLE HEAP. Every column's batter is `slopeRun` or less, so the
+-- toe of the heap is the crest face less the full run -- the one number the far lane must clear.
+function Range.bermToeZ(anchor: Vector3, layout, downrange: number?): number
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	return Range.bermCrestFaceZ(anchor, layout, dir) - dir * layout.BERM.slopeRun
+end
+
+-- HOW MUCH CLEAR GROUND THE FARTHEST LANE KEEPS BEHIND IT, in studs, derived from the three dials
+-- that move the heap. 306l's whole first item is this number being positive and bigger than the
+-- animal's half length: at `behindStuds` 13 / `slopeRun` 12 it was -3, and a boar asked for at 179
+-- stood at 171.9 on the slope (306l first measure).
+function Range.bermToeClearance(layout): number
+	layout = layout or Range.LAYOUT
+	return layout.BERM.behindStuds - layout.BERM.depth / 2 - layout.BERM.slopeRun
+end
+
+-- THE HILL'S COLUMNS, PURE: the heap across its own span as `crestStepStuds`-wide columns, each
+-- with its OWN crest height and its OWN batter run, so neither the crest line nor the toe line is
+-- straight. Two incommensurate sines and NOT a random seed: a seeded `Random` would give her a
+-- different hill at every build and no spec could state what it asserts.
+--   top  = height - crestDrop * (1 - wave)   - shoulderDrop * (1 - taper)
+--   run  = slopeRun * (0.55 + 0.45 * wave2)  -- never MORE than `slopeRun`, so the toe holds
+function Range.bermColumns(anchor: Vector3, layout, downrange: number?)
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local berm = layout.BERM
+	local width = Range.bermWidthFor(layout)
+	local count = math.max(1, math.floor(width / math.max(1, berm.crestStepStuds) + 0.5))
+	local step = width / count
+	local minX = Range.bermPosition(anchor, layout, dir).X - width / 2
+	-- QUARTER STUDS, AND THAT IS NOT TIDINESS. A band's box is a `CFrame` and a `Vector3`, both
+	-- float32, so `(shelf + h/2) - h/2` comes back a ten-thousandth off the shelf for an arbitrary
+	-- `h` -- and "every box stands FROM the terrace" (rule E) is asserted to 1e-6. On a quarter
+	-- stud every height, half-height and `k/steps` share is a binary fraction and the identity is
+	-- exact. `range.spec`'s own float32 lesson, in `footprintFor`'s comment, one step further in.
+	local function quarter(value: number): number
+		return math.floor(value * 4 + 0.5) / 4
+	end
+	local out = {}
+	for i = 1, count do
+		local x = minX + (i - 0.5) * step
+		local wave = 0.5 + 0.32 * math.sin(2.7 * i + 0.6) + 0.18 * math.sin(0.83 * i + 2.1)
+		local wave2 = 0.5 + 0.30 * math.sin(1.9 * i + 2.4) + 0.20 * math.sin(0.47 * i)
+		local edge = math.min(x - minX, minX + width - x)
+		local taper = math.clamp(edge / math.max(1, berm.shoulderStuds), 0, 1)
+		local top = berm.height - berm.crestDropStuds * (1 - wave) - berm.shoulderDropStuds * (1 - taper)
+		out[#out + 1] = {
+			x = x,
+			width = step,
+			top = math.max(1, quarter(top)),
+			-- NEVER MORE THAN `slopeRun`: the toe is what the far lane clears, so it is a bound and
+			-- not an average. `quarter` rounds to nearest, so the factor's own ceiling is 1.
+			run = math.min(
+				layout.BERM.slopeRun,
+				quarter(layout.BERM.slopeRun * (0.55 + 0.45 * math.clamp(wave2, 0, 1)))
+			),
+		}
+	end
+	return out
+end
+
+-- WHERE THE SCRUB STANDS: `scrubCount` clumps spread across the columns INSIDE the shoulders, each
+-- on its own column's crest and BEHIND the bare lip by `scrubBackStuds` -- never on the face, which
+-- is the half a shot travels to.
+function Range.bermScrubPoints(anchor: Vector3, layout, downrange: number?)
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local columns = Range.bermColumns(anchor, layout, dir)
+	local wanted = math.max(0, math.floor(layout.BERM.scrubCount or 0))
+	local face = Range.bermCrestFaceZ(anchor, layout, dir)
+	local size = layout.BERM.scrubSize
+	local out = {}
+	if wanted == 0 or #columns < 3 then
+		return out
+	end
+	for n = 1, wanted do
+		-- inside the heap, never on a shoulder: the band 0.12..0.88 of the column row.
+		local index = math.floor(0.12 * #columns + (0.76 * #columns) * (n - 0.5) / wanted) + 1
+		local column = columns[math.clamp(index, 1, #columns)]
+		out[#out + 1] = {
+			x = column.x,
+			z = face + dir * (layout.BERM.scrubBackStuds + size.Z / 2),
+			top = column.top,
+			size = size,
+		}
+	end
+	return out
 end
 
 function Range.bermSpanFor(anchor: Vector3, layout): (number, number)

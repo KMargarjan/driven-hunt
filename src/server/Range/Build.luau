@@ -229,23 +229,46 @@ function Build.cutBoxes(rect, shelf: number, layout): (CFrame, Vector3, CFrame, 
 		Vector3.new(sizeX, layout.FILL.DEPTH_STUDS, sizeZ)
 end
 
--- PURE. THE BERM AS EARTH: a core block plus `slopeSteps` nested bands that batter its UPRANGE
--- face, each band standing from the terrace up to its own top -- so the heap is solid from the
--- ground and the crest is one level line. In the order they are filled.
-function Build.bermBoxes(anchor: Vector3, shelf: number, layout, dir: number): { { at: CFrame, size: Vector3 } }
+-- PURE. THE BERM AS AN EARTH HILL (306l item 2), in the order it is filled. One entry per box,
+-- each carrying the `SURFACE` KEY it is written with, so "what is grass and what is bare earth" is
+-- data on the box and never a second branch in the writer.
+--   * one GRASSED core per column, from the crest's near face to the back, at that column's top;
+--   * `slopeSteps` BARE EARTH bands on the uprange face of each column, the lowest reaching
+--     furthest -- the impact face, and the only half a shot ever travels to;
+--   * the SCRUB clumps along the crest, last, so nothing paints over them.
+-- Every box stands FROM the terrace (rule E): a heap, never a floating slab.
+function Build.bermBoxes(anchor: Vector3, shelf: number, layout, dir: number): { any }
 	local at = RangeData.bermPosition(anchor, layout, dir)
-	local size = RangeData.bermSizeFor(layout)
-	local out = { { at = CFrame.new(at.X, shelf + size.Y / 2, at.Z), size = size } }
-	local steps = math.max(0, math.floor(layout.BERM.slopeSteps or 0))
-	local run = layout.BERM.slopeRun or 0
-	for k = 1, steps do
-		local height = size.Y * k / (steps + 1)
-		local extra = run * (steps + 1 - k) / steps
-		-- THE EXTRA DEPTH IS ALL UPRANGE: the face the shooter sees is battered, the back stays sheer.
-		table.insert(out, {
-			at = CFrame.new(at.X, shelf + height / 2, at.Z - dir * extra / 2),
-			size = Vector3.new(size.X, height, size.Z + extra),
-		})
+	local depth = layout.BERM.depth
+	local face = RangeData.bermCrestFaceZ(anchor, layout, dir)
+	local steps = math.max(1, math.floor(layout.BERM.slopeSteps or 1))
+	local columns = RangeData.bermColumns(anchor, layout, dir)
+	local out = {}
+	for _, column in ipairs(columns) do
+		out[#out + 1] = {
+			at = CFrame.new(column.x, shelf + column.top / 2, at.Z),
+			size = Vector3.new(column.width, column.top, depth),
+			surface = "HILL",
+		}
+	end
+	for _, column in ipairs(columns) do
+		for k = 1, steps do
+			local height = column.top * k / steps
+			local reach = column.run * (steps + 1 - k) / steps
+			out[#out + 1] = {
+				at = CFrame.new(column.x, shelf + height / 2, face - dir * reach / 2),
+				size = Vector3.new(column.width, height, reach),
+				surface = "BERM",
+			}
+		end
+	end
+	for _, clump in ipairs(RangeData.bermScrubPoints(anchor, layout, dir)) do
+		local top = clump.top + clump.size.Y
+		out[#out + 1] = {
+			at = CFrame.new(clump.x, shelf + top / 2, clump.z),
+			size = Vector3.new(clump.size.X, top, clump.size.Z),
+			surface = "SCRUB",
+		}
 	end
 	return out
 end
@@ -313,12 +336,14 @@ function Build.writeTerrain(terrain: any, anchor: Vector3, shelf: number, row, l
 	-- so the reason the old order existed is satisfied by moving the fills rather than the repaints.
 	-- In DEV these are parts and this whole function never runs.
 	for _, box in ipairs(Build.bermBoxes(anchor, shelf, layout, dir)) do
-		fill(box.at, box.size, layout.SURFACE.BERM)
+		fill(box.at, box.size, layout.SURFACE[box.surface])
 	end
+	-- THE TWO SIDE BANKS ARE GRASSED (306l item 2), so they read as spurs of the same hill rather
+	-- than as two bare kerbs in front of it -- the heap's grassed half, like its crest and back.
 	for leg = 1, 2 do
 		local bank = RangeData.bankPosition(anchor, layout, leg, dir)
 		local size = layout.BANK.size
-		fill(CFrame.new(bank.X, shelf + size.Y / 2, bank.Z), size, layout.SURFACE.BERM)
+		fill(CFrame.new(bank.X, shelf + size.Y / 2, bank.Z), size, layout.SURFACE.HILL)
 	end
 	return fills, replaces
 end
@@ -599,9 +624,9 @@ function Build.build(opts)
 	if not asEarth then
 		for leg = 1, 2 do
 			local at = RangeData.bankPosition(anchor, layout, leg, dir)
-			-- `SURFACE.BERM` for the banks too (306k item 2, review round 1 note): the berm and its
-			-- two banks are ONE heap, and the part arm had them in two materials.
-			onGround(RangeData.bankName(leg), layout.BANK.size, at.X, at.Z, layout.BANK.color, layout.SURFACE.BERM)
+			-- `SURFACE.HILL` for the banks, as on the terrain arm (306l item 2): the heap's grassed
+			-- half is its crest, its back and its two side banks.
+			onGround(RangeData.bankName(leg), layout.BANK.size, at.X, at.Z, layout.BANK.color, layout.SURFACE.HILL)
 		end
 	end
 
@@ -609,8 +634,9 @@ function Build.build(opts)
 	-- AND both banks (design 5.2), and it stops a stray slug leaving the lobby.
 	if not asEarth then
 		local berm = RangeData.bermPosition(anchor, layout, dir)
-		-- `SURFACE.BERM` AND NOT A SECOND MATERIAL: the part arm and the terrain arm must read as
-		-- the same heap, and 306k moved that material from grass to earth in one place.
+		-- `SURFACE.BERM` HERE AND NOT A THIRD THING: in DEV the berm is ONE box and it is the
+		-- IMPACT FACE's material, which is the half of the heap a DEV lane ever meets. The terrain
+		-- arm writes three materials (306l item 2) and this arm cannot: it has one box.
 		onGround("Berm", RangeData.bermSizeFor(layout), berm.X, berm.Z, layout.BERM.color, layout.SURFACE.BERM)
 	end
 

@@ -383,3 +383,93 @@ corridor and outside the window, so nothing stands in a line of fire.
 | L4 | The boar is **fully visible** from the bench: 0 % of its silhouette covered by anything this step adds | Karen's B8 complaint was a lane you cannot see over |
 | L5 | A real `E` at the ladder foot puts the player on the deck (server position = treestand), and a real `F` on the deck puts him on the ground | dispatch item 6; B9's two failed `W` climbs |
 | L6 | `Range.CONFIG.MAX_PARTS` raised to the new measured count plus headroom | the bound is a claim about cost, and it has to move when the build does |
+
+---
+
+## 9. THE BACKSTOP AS AN EARTH HILL, AND THE FAR LANE OUT OF ITS TOE (task 306l)
+
+### 9.1 What the system must do
+
+1. The 179-stud lane must stand on **clear, flat ground**: a target released there is at 179, on the
+   shelf, and fully visible from the bench and from the deck.
+2. The backstop must still stop every shot from every station, at every pace, from both firing
+   positions, at all three distances.
+3. It must read as **"an earth formed mountain"** (Karen) from a man's eye on the bench -- not as a
+   wall. 306k raised it to 21 studs and that fixed the SIZE; the SHAPE was still a box.
+
+### 9.2 Measured first (her place, 2026-10-30, `<runs-dir>/306l-profile.luau`, `306l-fire-look.luau`)
+
+A terrain raycast down lane 2, every 4 studs from the bench to 260:
+
+| d (studs) | rise over the shelf | material |
+|---|---|---|
+| 0..172 | 0.00 | Limestone, then Ground |
+| **176** | **2.02** | Ground |
+| **180** | **9.18** | Ground |
+| 184 | 14.02 | Ground |
+| 188 | 20.61 | Ground |
+| **192** | **21.02 (the crest)** | Ground |
+| 196 | 20.61 | Ground |
+| 200 | -6.00 | Ground |
+| **204..260** | **-8.94 .. -6.77** | **Asphalt** |
+
+- **The crest is 21.02 studs over the shelf at d 192, and it is dead level** -- 20.61 / 21.02 / 20.61
+  across 188..196. That is the straight line the bench frame shows.
+- **`AT LANE 179: ground 7.28 over the shelf.`** The 306k Reviewer's note 1 is confirmed and is worse
+  than its arithmetic said (it predicted 6): the farthest lane is **inside the batter**.
+- A real `RangeRequest` for `distanceStuds = 179`, fired on the client through `Range.Remotes`, put
+  the boar at **d 171.9, 1.5 studs up the slope** -- 7 studs short of the lane it asked for -- and
+  **invisible from bench 2** (`306l-BEFORE-bench2-boar-crop.png`, zoomed 3x in
+  `306l-BEFORE-boar-zoom.png`: a flat band of earth with a straight top, a straight bottom, and no
+  animal anywhere in it). The answer to the dispatch's question is **HIDDEN**.
+- **The far face cannot go back indefinitely**: her ground falls to -6.0 at d 200 and the asphalt
+  road begins at d 204. Whatever the heap does, the terrace's downrange edge must stop short of it.
+
+### 9.3 Sources
+
+| # | Source | Licence / status | Good | Bad |
+|---|---|---|---|---|
+| 1 | **NRA Range Source Book**, ch. 3 -- impact berms <https://www.nrahq.org/pdf/RangeSourceBook.pdf> | published guidance, current | gives the stop-butt height band (15 ft minimum) 306k sized the heap from, and states the impact face is bare worked soil | says nothing about how a berm reads at 190 studs in a game camera |
+| 2 | **US Army TC 25-8**, Training Ranges, app. B <https://armypubs.army.mil/> | US Government work, public domain, current | the 6 m berm and the 1:1 .. 1:1.5 batter this project's face is named against | assumes land the lobby does not have |
+| 3 | **Roblox `Terrain:FillBlock`** <https://create.roblox.com/docs/reference/engine/classes/Terrain#FillBlock> | first-party docs, maintained | the only writer this system has; partial voxels at a box face are what make a stepped batter render as a slope | no sculpting primitive -- a hill has to be composed out of boxes |
+| 4 | **Roblox terrain materials** (`LeafyGrass`) <https://create.roblox.com/docs/parts/terrain> | first-party docs, maintained | tall bladed grass drawn by the terrain renderer: scrub with no mesh, no pivot and no upload | the very property B8 refused for the LANE, so it may never be used at ground level here |
+
+**Borrowed, not invented** (rule 2): the heap's section (a battered bare face, a rounded grassed
+crest and back) is sources 1 and 2's own berm section. What is this project's own is the COMPOSITION
+-- building that section as a row of columns, each with its own crest height and its own batter run
+-- and the reason is written down: `FillBlock` is the only tool, and one box is a wall.
+
+### 9.4 The pattern adopted
+
+**Columns, not a block.** `Range.bermColumns` cuts the heap's 232-stud span into `crestStepStuds`
+(12) wide columns and gives each one:
+
+- a **crest height** `height - crestDropStuds * (1 - wave) - shoulderDropStuds * (1 - taper)`, where
+  `wave` is two incommensurate sines (so no two neighbours agree) and `taper` falls over the outer
+  `shoulderStuds` (so the heap's ends die away instead of stopping square). The taper band is
+  narrower than the firing fan on purpose: M5 below;
+- a **batter run** `slopeRun * (0.55 + 0.45 * wave2)`, never more than `slopeRun`, so the toe line is
+  uneven **and** the forward-most earth is still one stated number.
+
+Sines and **not** a seeded `Random`: a seed would give Karen a different hill at every build and no
+spec could say what it asserts.
+
+`Build.bermBoxes` writes, per column, one **grassed** core from the crest's near face to the back at
+that column's top, then `slopeSteps` **bare earth** bands on its uprange face (the lowest reaching
+furthest), then `scrubCount` **`LeafyGrass`** clumps along the crest, behind the bare lip. Each box
+carries its own `SURFACE` key, so "what is grass and what is earth" is data on the box.
+
+**The scrub is terrain and not parts**, and that is the lesson of L-086 / rule E taken in advance:
+terrain has no pivot, so a clump cannot float, and it has no gap a shot could pass under. The two
+side banks are grassed for the same reason the crest is -- they read as spurs of one hill.
+
+### 9.5 The numeric targets
+
+| # | Target | Why that number |
+|---|---|---|
+| M1 | `bermToeClearance` **>= 5 studs** of clear ground past the 179 lane, for `dir` 1 and -1 | the released boar's trunk measures 2 x 3 x 5.5 in her place, so half its length is 2.75; 5 leaves 2.25 over it, more than the half voxel a partial fill can reach with. Was **-3** |
+| M2 | `behindStuds` 13 -> **17**, `slopeRun` 12 -> **8** | the only two dials that move the toe. 17 puts the crest's near face at 192 and the far face at 200, so the terrace's downrange edge is 202 -- **2 studs clear of the asphalt at 204** (9.2) |
+| M3 | `slopeSteps` 6 -> **4** | over an 8-stud run six bands are 1.3 studs deep, under the 4-stud voxel: two of them would write nothing |
+| M4 | The crest takes **>= 4 distinct heights** with a spread **>= 3 studs**, and the toe run likewise | "not one straight line" as a number. Measured on the shipped dials: 19 columns, crest **16.25..20.5, 11 distinct** (the tops are quantised to a quarter stud, so they repeat), run 4.5..8.0, 11 distinct |
+| M5 | Crest **>= `HighSeats.DIMS.DECK_RISE_STUDS + AIM_RISE_STUDS` = 17.5 studs** for every column the firing fan reaches at the crest face | 306k measured that 10 studs read as "a band of grass on the horizon" and 21 subtends 6.3 deg at 190; and 17.5 is where a man on the DECK fires from, so a crest under it is a backstop he shoots over. `range.spec` asserts it as a LOWER bound -- an upper bound alone (review round 1, finding 1) let every column be one stud tall. The dials that make it hold: `crestDropStuds` 3, `shoulderDropStuds` 5, `shoulderStuds` 16; measured 18.0..20.5 over the 17 columns inside the fan |
+| M6 | **T6 re-sweep: n shots stopped / n**, all six stations, both eye heights, all three lanes | item 2's own bound; the heap may not be made prettier at the cost of being a backstop |
