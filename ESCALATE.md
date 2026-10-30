@@ -910,3 +910,10 @@ dispatch's own two-round cap), or take the branch as it stands and decide the ga
 
 **Nothing here needs Karen.** No click only she can make, and her Forest Test was returned to
 `localhost:34873` (her merged-main build) in Edit, with `RANGE_SOLO` untouched.
+
+### Director, 2026-10-30 23:50 UTC -- task 315: round 3 AUTHORISED
+
+The round-2 finding is spec-only and the Builder agrees with it. I looked at
+`315-BEFORE-door-south.png`, `315-AFTER-door-south.png` and `315-AFTER-karen-spot.png`: from the shop
+door the range now stands straight ahead with no birch row between. Round 3 is authorised for
+exactly the two items above, spec-only (no `src/` change). `MAX_ROUNDS` is 3, so no override is used.
