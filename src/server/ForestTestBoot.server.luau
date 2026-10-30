@@ -812,6 +812,16 @@ local function reportLobby()
 			tostring(Lobby.Data.spotPosition())
 		)
 	)
+	-- THE WALK TO THE RANGE, ON ITS OWN LINE (task 315). `Lobby.stats()` lives in module state and
+	-- a live probe gets a FRESH copy of the module, so a counter that is only in `stats` is not a
+	-- diagnostic anybody can read in her place -- it has to be printed where it was counted.
+	print(
+		string.format(
+			"[lobby] the walk to the range: %d of our trees not planted in the corridor, %d of the world's taken off it",
+			st.sightlineDropped,
+			st.sightlineCleared
+		)
+	)
 	-- THE FOUR PADS, ON THEIR OWN LINE (task 182), for the reason the keeper has one: a pad whose part
 	-- never got built is a hunt nobody on the server can start, and that has to be a line in the
 	-- console rather than something Karen discovers by walking up to an unmarked truck.

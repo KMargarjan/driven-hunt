@@ -256,7 +256,13 @@ end
 -- is taken away by the LOBBY's sweep, so if the lobby does not build, a 105-stud spruce stands in
 -- the firing fan and nothing says so. This writes nothing and removes nothing -- it turns "the lane
 -- is clear" into a number instead of a belief. A print is not a second writer.
-do
+--
+-- IT IS DELAYED, AND THAT IS A MEASUREMENT RATHER THAN A PRECAUTION. `RangeBoot` and
+-- `ForestTestBoot` are two Scripts in no defined order; run inline it printed **3 foreign
+-- BaseParts** in Karen's place while the pine was in fact taken away a moment later (measured
+-- 2026-10-30, the first live run of this task). A census that beats the sweep is a census that
+-- lies, so it is taken once the server has settled. `task.delay` is not a writer either.
+task.delay(8, function()
 	local box = RangeData.footprintFor(Vector3.new(row.x, 0, row.z), RangeData.LAYOUT, RangeData.downrangeOf(row))
 	do
 		local count, nearestName, nearestAt = 0, "none", nil
@@ -289,7 +295,7 @@ do
 			)
 		)
 	end
-end
+end)
 
 -- ONE ANIMAL IN ONE SHOT'S WORLD (task 306 B5, design 4.3). Six bodies share one corridor, and
 -- `Cast.candidates` returns the EIGHT nearest the muzzle while `Rewind.impact` takes the nearest
