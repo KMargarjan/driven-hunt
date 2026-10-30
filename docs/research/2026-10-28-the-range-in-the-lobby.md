@@ -512,11 +512,13 @@ terrace's own edge keeps the road 2 studs). That envelope is **16 studs deep and
 | shape | steepest face | why |
 |---|---|---|
 | a box (306k) | 90 deg | a wall |
-| the cone, apex on the midpoint | **atan(21/8) = 69.1 deg** | the floor for *any* shape in this envelope |
+| the cone, apex on the midpoint | **atan(21/8) = 69.1 deg** | the floor for any RIDGE here -- a crest with ground falling away on both sides |
 | the frustum spheres can build | **77.2 deg** | the crest must be `2 * capRadius` = 6 studs wide for two caps to overlap |
 | 50 deg | needs **17.6 studs of run** | the toe would stand at **174** -- 4.6 studs *inside* the 179 lane |
 
-So no shape at all reaches 50 degrees here, and the 69.1-degree floor is not reachable with spheres.
+A one-sided ramp climbing the whole 16 studs would read 52.7 degrees (306m review round 1, note),
+but its crest would stand on the terrace's own downrange edge with nothing behind it -- a cliff, not
+a backstop -- so it is not a shape this envelope offers either. No ridge reaches 50 degrees here, and the 69.1-degree floor is not reachable with spheres.
 A sub-50-degree hill 21 studs tall needs **>= 35 studs** of depth, and the far lane and the road leave
 16. `BERM.faceMaxDegrees` = 79 is therefore a bound on a *measurement*, carrying this arithmetic, and
 `range.spec` samples the ball union's own surface against it rather than trusting the dials. What the
