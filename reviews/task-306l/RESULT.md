@@ -1,17 +1,93 @@
-1. `src/shared/Range/init.luau` / `Range.bermColumns` + `tests/server/range.spec.luau` / "fills an uneven earth hill" — the change lowers the backstop below the height a man on the treestand fires from, and deletes the only assertion that held the backstop's height at all. Evidence: `local top = berm.height - berm.crestDropStuds * (1 - wave) - berm.shoulderDropStuds * (1 - taper)` with `height = 21`, `crestDropStuds = 4`, `shoulderDropStuds = 9`, and the dial's own comment says so: *"how far under `height` the lowest point of the RIPPLE sits (the crest wanders 17..21)"*. The deck's aim origin is `HighSeats.DIMS.DECK_RISE_STUDS` 12.5 + `HighSeats.AIM_RISE_STUDS` 5.0 = **17.5** studs over the shelf — the number `range.spec`'s own hut case already uses (`local deckEye = HighSeats.DIMS.DECK_RISE_STUDS + HighSeats.AIM_RISE_STUDS`) and the number claim 5's T6 sweep fires from ("shelf+17.5 deck"). Working the shipped dials by hand: at `taper == 1` the crest floor is 17.0 (column 4 lands on 17.25, column 11 on 17.25 — column 11 sits directly downrange of mat 4), and inside the taper band, which reaches 6 studs into `corridorSpan`, column 2 and column 18 land on ~16.0, while the widest sight ray (`sightHalfWidthAt`, 192 * 18 / 107 = 32.3 studs off the mat at the crest face) reaches exactly that band. Before this change `Build.bermBoxes` emitted one core of `RangeData.bermSizeFor(layout)` and the case asserted `expect(math.abs(boxes[1].size.Y - LAYOUT.BERM.height) < 1e-6).to.equal(true)`; the diff deletes that and replaces it with `expect(hi <= LAYOUT.BERM.height + 1e-6).to.equal(true)` — an UPPER bound. `top = math.max(1, quarter(top))` is the only floor left, and `expect(hi - lo >= 3)` is satisfied by the shoulders, so `range.spec` now passes with every column 1 stud tall and one at 21. The task's own research note states the target and nothing holds it: M5, *"Crest still **>= 17 studs** over the shelf everywhere inside the station row ... the ripple may not undo that where a man actually looks"*. Required: assert a LOWER bound on the crest — for every column the firing fan reaches at the crest face, `column.top >= HighSeats.DIMS.DECK_RISE_STUDS + HighSeats.AIM_RISE_STUDS`, i.e. M5 as a case and not a table row — and move the dial that makes it hold (`crestDropStuds` 4 -> 3 gives a 18..21 crest at `taper == 1` and leaves `distinct >= 4` and `hi - lo >= 3` passing on the shoulders).
+PASS (item 1 NOT PROVEN)
 
-2. `tests/server/range.spec.luau` / "cuts one level terrace, AIR before GRASS, every face on the voxel grid" — the heap branch this request offers as proof of claim 7 survives deletion of the code it is meant to prove. Evidence: the diff replaces `expect(want).to.equal(1 + LAYOUT.BERM.slopeSteps + 1)` — the one number in that block not taken from the producer — with `expect(want).to.equal(distinct + 1)`, where `distinct` is counted from `Range.Build.bermBoxes(anchorOf(b), b.shelf, LAYOUT, -1)`, the same call that built `wanted`. Make `Build.bermBoxes` return `{}`: no heap fills are written, so `heaps` holds only the two banks' shared `(top, Z)` key, `wanted` holds only that key, `seen = 1`, `want = 1`, `distinct = 0`, and `want == distinct + 1` passes — as do `expect(wanted[key]).to.equal(true)` and `expect(seen).to.equal(want)`, both vacuously. Claim 7 says *"the terrace case's own heap branch asserts the same over the recorded fills"*; it asserts nothing once the producer is gone. The line that survives the deletion is `expect(want).to.equal(distinct + 1)`. Required: anchor that count outside `bermBoxes` — e.g. `expect(distinct >= #RangeData.bermColumns(anchorOf(b), LAYOUT, -1)).to.equal(true)`, or count the heap fills and assert the count is `#columns * (1 + LAYOUT.BERM.slopeSteps) + #scrub` chunked — so a heap that was never filled fails this case and not only the hill case.
+Rule 5, stated so this PASS is not read as rule 5 having been met: the hill's SHAPE was seen in her
+place — claim 9's three BEFORE/AFTER pairs at fixed camera points (bench 2, deck 2, lodge yard),
+described, Karen's verdict still outstanding under L-117 — and the backstop's stopping was COUNTED
+in her place (T6 180/180, a scripted sweep, not a frame). **Item 1's core subject was not seen**: the
+request's own "What I could NOT verify" says no frame of a GAME-RELEASED boar standing at 179 exists
+(`NO TARGET DRAWN` from `RangeRequest:FireServer` part-way through the session), so claim 2's frames
+are a staged 5.5 x 3 x 2 trunk box and the released boar at d 178.5 / 1.49 over the shelf is a
+reading. Whether Karen can SEE and SHOOT a released boar at 179 is still unproven by picture.
+
+Round 1's two findings are fixed, and I checked both by re-deriving the numbers rather than reading
+the claim:
+
+- Finding 1. `Range.bermColumns` with the shipped dials (`height` 21, `crestDropStuds` 3,
+  `shoulderDropStuds` 5, `shoulderStuds` 16, `crestStepStuds` 12) gives 19 columns of width
+  232/19 = 12.2105. Only columns 1 and 19 have `taper < 1` (edge 6.105 / 16 = 0.3816), so their tops
+  are 16.25 and 17.00; columns 2..18 are at `taper == 1` and run 19.00 / 19.50 / 18.25 / 20.50 /
+  19.00 / 20.50 / 19.75 / 19.25 / 19.75 / **18.00** / 20.25 / 18.75 / 20.50 / 19.75 / 19.50 / 19.75
+  / 18.25. `fan = sightHalfWidthAt(LAYOUT, 192)` = 192 * 18 / 107 = 32.299, `fanMin/fanMax` =
+  anchor.X - 32.299 .. anchor.X + 152.299, and the columns whose span meets it are exactly 2..18 —
+  17 of them, min 18.00, all `>= deckEye` 17.5. `inFan >= #columns - 4` is 17 >= 15 and
+  `deckEye >= 17.5` is 17.5. The request's "18.00 .. 20.50 over 17 columns" is right to the stud.
+  Deleting the producer kills it: `sightHalfWidthAt -> 0` leaves inFan 11 and fails `>= 15`;
+  `crestDropStuds` back to 4 puts column 11 on 17.25 and fails the floor.
+- Finding 2. `expect(distinct >= #RangeData.bermColumns(anchorOf(b), LAYOUT, -1))` with
+  `Build.bermBoxes` returning `{}` is 0 >= 19 and fails. Round 1's vacuous pass is closed.
+
+Rule 3(a) on the rest of the proof set: `#boxes == #columns * (1 + slopeSteps) + #scrub` = 19*5+7 =
+102 fails at 0 if `bermBoxes` is emptied, so claim 7's bottom-at-the-shelf loop is no longer
+vacuous; `expect(hill).to.equal(#columns)` fails at 0 if the cores are given `SURFACE.BERM`
+(claim 6); deleting the `wave` term leaves 2 distinct tops against `distinct >= 4` (claim 4).
+Claim 1's `|dir*(toe - at.Z) - (distanceMax + clear)| < 1e-6` IS a tautology — `bermToeZ` and
+`bermToeClearance` are the same arithmetic through two names — but it is not what the case rests on:
+`clear >= toeClearStuds` (5 >= 5, typed), `clear > 2.75` (the measured trunk) and the
+no-box-past-`laneCentre` loop all fail with `slopeRun` back at 12.
+
+Independently re-derived and consistent with the claims: `bermToeClearance` = 17 - 4 - 8 = 5;
+crest face 192, far face 200, toe 184, terrace edge 202 (`CUT.downrangeStuds` 2) inside
+`footprintFor`'s own 200 and `MEASURED.minZ` -3238; the BERM bands' far face is exactly the crest
+face and the k=4 band's height is `column.top`; the scrub sits at `face - 2 .. face - 6` against a
+rear face at `face - 8`. Claim 3's live profile checks out against the code: lane 2 falls on column
+7, whose top is 20.50 and whose run is 6.00, which is the 20.52 crest at d 196 and the clear ground
+at d 184 the probe reported, and column 7 carries no scrub (clumps land on columns 4, 6, 8, 10, 12,
+14, 16), which is why d 196 reads Grass and not LeafyGrass.
 
 ## Notes (non-blocking)
-- Rule 5, stated so this review is not read as rule 5 having been met: the hill's SHAPE was seen in her place (claim 9's three BEFORE/AFTER pairs at fixed camera points, described, verdict hers under L-117), but **item 1's core subject was not** — the request's own "What I could NOT verify" says *"A frame of a GAME-RELEASED boar standing at 179"* does not exist, the live release path returned `NO TARGET DRAWN`, and claim 2's frames are a staged `5.5 x 3 x 2` trunk box. Whether Karen can SEE and SHOOT a released boar at 179 is still a reading (d 178.5, 1.49 over the shelf), not a picture. Had there been no blocking finding, line 1 would have been `PASS (item 1 NOT PROVEN)`.
-- `src/shared/Range/init.luau` / `LAYOUT.BERM` comment block — the pre-306l paragraphs now contradict the code and the 306l paragraph under them: *"the centre sits `distanceMax + 13` = 192 from the anchor and `depth` 8 puts its faces at 188 and 196"* (now 196 / 192 and 200) and *"`depth` and `behindStuds` DO NOT MOVE ... the toe of the battered face already stands at 176, three studs clear of the farthest target at 179"* (the toe is 184, and that "three studs clear" was the very error 306l fixes). Fold them into the new paragraph.
-- `src/server/Range/Build.luau` / `Build.build` — *"`SURFACE.BERM` for the banks too (306k item 2, review round 1 note): the berm and its two banks are ONE heap, and the part arm had them in two materials"* sits directly above `onGround(RangeData.bankName(leg), ..., layout.SURFACE.HILL)`, and the next comment, *"`SURFACE.BERM` AND NOT A SECOND MATERIAL: the part arm and the terrain arm must read as"*, is false in both arms now — the terrain arm writes three materials and the two arms no longer agree.
-- `docs/research/.../section 9.5` M4 — *"Measured on the shipped dials: 19 columns, crest 12.2..20.5 (19 distinct)"* overstates it. Tops are quantised to a quarter stud over an 8.25-stud range, so they repeat: by hand, columns 3, 8 and 10 all land on 19.25 and columns 7 and 14 on 20.5. The spec asserts only `distinct >= 4`, so no code is wrong; the count is.
-- `reviews/task-306l/REQUEST.md` claim 4 — *"delete the `wave` term and the distinct-top assertion fails at 1"*. With `wave` gone the shoulder taper alone still gives three distinct tops (17 / 14.75 / 10.25), so it fails at 3. The case does die; the number does not.
-- `reviews/task-306l/REQUEST.md` claim 1 — *"fails at -3 (or 1)"*. Reverting `behindStuds` alone to 13 gives a clearance of 1, not -3; -3 needs both dials back.
-- `src/shared/Range/init.luau` / `Range.bermScrubPoints` with `Build.bermBoxes` — the clump box runs from the shelf to `column.top + size.Y` across the whole 6-stud `scrubSize.Z` slab, whose downrange face lands on `face - dir * depth`, the heap's own rear face. So the comment's *"only its top shows, on the crest, BEHIND the bare lip"* holds from the firing line but not from behind: seven full-height `LeafyGrass` columns reach the heap's back face. Cosmetic, on the side nobody stands on; shrinking `scrubSize.Z` or moving `z` one stud forward would close it.
-- The request's third "could NOT verify" item checks out in-repo and is not a defect: `CUT.downrangeStuds = 2` puts the terrace's downrange edge at `distanceMax + behindStuds + depth/2 + 2` = 202, which `Range.toGrid(..., false)` snaps to z -3232 at the forest row's anchor (2600, -3030) — still inside the B8 census rectangle `MEASURED.minZ = -3238`, which the "FITS the rectangle the B8 census measured" case holds over both `cutRects` and every box of `bermBoxes`. The 4 studs of road shoulder are the voxel containing -3234, as stated.
-- `docs/design/shooting-range.md` — the `BERM` row still reads *"160 x 10 x 6, 12 studs behind the lane"*, three tasks stale. Outside this change's job; queue it with whichever task next touches the design doc.
+- `src/shared/Range/init.luau` / `LAYOUT.BERM` comment — a THIRD pre-306l paragraph still contradicts
+  the code: *"Four 2-stud bands (10 * k / 5) over a 12-stud run is a 1:1.2 batter"*, eight lines
+  above `slopeSteps = 4`'s own *"over an 8-stud run six bands are 1.3 studs deep ... Four gives a
+  2-stud step"*. The two the request named (the 188/196 faces, the "176 is three studs clear of 179")
+  are fixed; fold this one in too.
+- `src/shared/Range/init.luau` / `crestDropStuds` comment — *"the crest wanders 18..21"*. On the
+  shipped dials it wanders 16.25..20.50 (18.00..20.50 inside the fan); 21 is never reached, because
+  `wave`'s ceiling is 0.5 + 0.32 + 0.18 = 1.0 only where both sines peak together and they never do.
+- `src/server/Range/Build.luau` / `writeTerrain` — *"The berm and the two banks are BARE EARTH
+  (`SURFACE.BERM`)"* is now false: the cores and both banks are `SURFACE.HILL` (Grass) and the scrub
+  is LeafyGrass. The ordering reason the paragraph gives (a grassed heap filled before the
+  `AROUND -> LANE` repaint loses the bottom 4 studs of its skin) is now MORE load-bearing, not less;
+  only the sentence is wrong. The request's "both `SURFACE.BERM` paragraphs in `Build.build`" did not
+  cover this one, which is in `writeTerrain`.
+- `tests/server/range.spec.luau` / "cuts one level terrace" — *"The berm and the banks are filled
+  with the SAME material as the lane"* is stale for the second time (noted at 306j): the heap now
+  writes three materials and only the impact bands share the lane's `Ground`. `isTerrace` keys off
+  the bottom face, so the case is still correct.
+- `reviews/task-306l/REQUEST.md` claim 1 — *"set `shoulderStuds` back to 24 and column 2 lands on
+  16.75 and it fails"*. Column 2 lands on 17.75 at `shoulderStuds` 24 and still passes; it is
+  **column 18** that lands on 17.00 and fails (same edge, lower `wave`). The case does die; the
+  column and the number do not match. The `crestDropStuds` half (column 11 on 17.25) is exact.
+- `reviews/task-306l/REQUEST.md` claim 4 — *"delete the `wave` term and the shoulder taper alone
+  leaves three distinct tops"*. With `shoulderStuds` now 16 only columns 1 and 19 taper, so it leaves
+  **two** (18.00 and 14.75). Round 1's "three" was computed on round 1's dials.
+- `docs/research/.../9.4` — *"232 studs is 19 fills, not 58"* counts columns, not fills: the row now
+  writes 19 cores + 76 bands + 7 clumps = 102 `FillBlock` calls (the old shape was ~28 after
+  chunking). Nothing in the repo bounds `terrainFills`, so no case is wrong and it is a one-time
+  build cost; the number in the note is what is off.
+- `Range.bermScrubPoints` with `Build.bermBoxes` — `scrubSize.Z` 6 -> 4 does keep the clump's far
+  face at `face - 6` clear of the rear face at `face - 8`, as claimed. But the clump box still runs
+  the FULL height from the shelf (`clump.top + clump.size.Y`), so each of the seven is a LeafyGrass
+  slab driven through the hill rather than a bush sitting on it. `scrubCount = 7`'s comment *"only
+  its top shows, on the crest, BEHIND the bare lip"* holds from the firing line, which is the side
+  that matters; round 1's note is reduced, not closed. Moving the box's bottom to `column.top`
+  would close it, at the cost of the rule-E identity the case asserts.
+- `tests/server/range.spec.luau` / the terrace case's new anchor — `distinct >= #bermColumns` is
+  exactly what round 1 required and it does kill `bermBoxes -> {}`. It does not kill `bermBoxes` and
+  `bermColumns` emptied TOGETHER (0 >= 0); what catches that is `expect(#columns > 8)` in the hill
+  case, a different `it`. Worth knowing before the next hand moves these two.
+- `docs/design/shooting-range.md` — the `BERM` row still reads *"160 x 10 x 6, 12 studs behind the
+  lane"*; every one of those four numbers is now wrong (derived 232, 21, 8, 17 behind). Outside this
+  change's job, and flagged in round 1; queue it with whichever task next opens the design doc.
 
 ---
-REVIEWER verdict on commit `0b3ca2bd96f672add391b60fc5d382f06646fd82` (round 1) · 2026-10-30 03:16 UTC · session cost $3.86, 36 turns · written by tools/agents.py
+REVIEWER verdict on commit `d190079132859d6ed6f5bb96cb7c4a20b0eb473a` (round 2) · 2026-10-30 03:40 UTC · session cost $3.28, 31 turns · written by tools/agents.py
