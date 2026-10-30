@@ -799,10 +799,44 @@ span's arithmetic is proved in `range.spec` (6 stations x 3 lanes, the three bou
 the dials, T6 swept over 36 combinations) and the picture's rules in `range_solo.spec`, and anything
 measured in DEV is labelled `DEV ONLY`. **Nobody has seen the wide crossing on a screen.**
 
+### 3. MEASURED SINCE: the click is now ONE thing, and the real blocker is the second Studio
+
+Both halves of block 1 were taken apart after it was written, so the ask is smaller and sharper:
+
+- **The player count is already set to 2.** It read `0`, which is why a bare `F7` produced one
+  process and not three; it was raised with two clicks on the quick-access spinner and Studio keeps
+  it. `Test > Start Test Session > Server and Clients` is **F7**, and a script can send it
+  (`<runs-dir>/313-f7.ps1`) -- a 2-player session was started that way twice in this session and
+  five Studios appeared each time. **So the Start click is NOT the blocker any more.**
+- **The blocker is the check `One Studio instance before the test starts`,** which `test2` FAILS
+  while Karen's `Driven Hunt Forest Test` Studio is open beside the DEV one. It counts toward the
+  verdict, so even a perfectly started 2-player run returns `FAIL: 12/13` and no `[harness2] PASS`
+  line exists to paste. **Her Studio was not closed:** it is the window she works in, closing it
+  risks whatever is unsaved in her Edit place, and that is her call and not the Builder's.
+
+`tools/review.ps1 313` was then run and refused, which is the expected and correct behaviour:
+
+```
+[agents] REFUSED: this change touches src/client/Range/Solo.luau, tests/client/range_solo.spec.luau,
+which a one-player run cannot evidence. Paste the TWO-PLAYER line for the code commit as well
+```
+
+### 4. What WAS proved, so nobody re-runs it
+
+A 2-player local test was run manually (not through `test2`, which is what the one-Studio check
+blocks) in DEV, with the flag on and then off, and the per-player picture was measured on each
+client as an instance fact. With `RANGE_SOLO` **on** each client reads the OTHER player's character
+at `mean 1.00` (hidden) and with it **off** at `mean 0.00` (visible), while each man's own body
+reads `1.00` in both states because `Camera.Rig` hides it in first person either way. The board's
+crossing at station 2, 125 studs, trot went from **3.25 s** (off) to **9.10 s** (on). Claims 11 and
+12 of `reviews/task-313/REQUEST.md` carry the numbers. **It is all DEV, and none of it is her
+place.**
+
 ### What is asked
 
-1. Karen: the three clicks in 1, once, in the DEV window -- that unblocks the review round and the
-   merge gate.
+1. Karen: close the `Driven Hunt Forest Test` Studio when she is done with it, then in the DEV
+   window press **F7** (the player count is already 2) and **Cleanup** when the harness says so --
+   that unblocks the review round and the merge gate.
 2. The Director: when her Forest Test is free, the live proofs in 2, with `RANGE_SOLO` switched on
    for that place (`python tools/flags.py --place forest set RANGE_SOLO on`; never `clear`, rule K).
    The flag is born OFF, so her build is unchanged until somebody turns it on.
