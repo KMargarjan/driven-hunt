@@ -1,5 +1,8 @@
 ## 2026-10-30, Task 312 -- THE FLIP IS DONE AND CORRECT; `main` IS RED, SO NO `PASS` LINE EXISTS
 
+**RESOLVED by task 314 (PR #294): `main` green.** The red was `Viewmodel.update`'s handle-cache
+throttle against a clock that went backwards; 312 merges `main` and runs its round unchanged.
+
 **FOR THE DIRECTOR. This is not a request for another round -- no round was run, because none can be.**
 
 The task itself is finished and proven: `src/shared/Flags/init.luau` has `AIM_REWIND` and
