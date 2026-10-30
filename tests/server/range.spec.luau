@@ -4379,6 +4379,20 @@ return function()
 				end
 			end
 			expect(step <= LAYOUT.BERM.crestStepMaxStuds).to.equal(true)
+			-- ...AND BETWEEN TWO CAPS, which is the one place a comb can appear and the place the
+			-- column sweep above cannot see (round 1, note). Two caps `crestStepStuds` apart dip
+			-- `capRadius - sqrt(capRadius^2 - (crestStepStuds/2)^2)` = 0.76 studs below the lower of
+			-- them; widen the columns past `2 * capRadius` and the caps stop touching and this is a
+			-- row of cusps instead.
+			local dip = LAYOUT.BERM.capRadius
+				- math.sqrt(math.max(0, LAYOUT.BERM.capRadius ^ 2 - (LAYOUT.BERM.crestStepStuds / 2) ^ 2))
+			local deepest = 0
+			for index = 2, #columns do
+				local left, right = columns[index - 1], columns[index]
+				local middle = surfaceAt((left.x + right.x) / 2, apex)
+				deepest = math.max(deepest, math.min(left.top, right.top) - middle)
+			end
+			expect(deepest <= dip + 0.1).to.equal(true)
 			expect(inner > 0).to.equal(true)
 			expect(inner <= LAYOUT.BERM.crestStepInnerMaxStuds).to.equal(true)
 			-- THE CREST IS STILL NOT ONE LINE, and the spread is studs and not noise.
@@ -4392,7 +4406,13 @@ return function()
 			-- is not free: this envelope is `slopeRun + depth` = 16 studs deep and `height` 21 tall, so
 			-- the shallowest possible steepest face is atan(21/8) = 69.1 degrees, and a 50-degree face
 			-- would need 17.6 studs of run -- a toe at 174, which is 4.6 studs INSIDE the 179 lane.
-			local sharpest, where = 0, 0
+			-- THE ONE-STUD RISE IS THE BOUND THAT DOES THE REJECTING (round 1, finding 1). A 4-stud
+			-- chord averages a jump with the slope under it, so it cannot see either shape this task
+			-- exists to kill: the pedestal's 8.7-stud jump reads about 75 deg over 4 studs, inside
+			-- `faceMaxDegrees`, and a box's face is a RISE, which the monotone pair alone allows.
+			-- Both fail `riseMaxStuds` -- 8.7 and the whole crest -- and the shipped frustum's worst
+			-- is 5.13. The 4-stud slope is kept beside it as the reported angle.
+			local sharpest, where, steepest = 0, 0, 0
 			for _, column in ipairs(columns) do
 				local profile = {}
 				for stud = 0, LAYOUT.BERM.slopeRun + LAYOUT.BERM.depth do
@@ -4406,10 +4426,16 @@ return function()
 					else
 						expect(climbed <= 1e-6).to.equal(true)
 					end
+					steepest = math.max(steepest, math.abs(climbed))
 				end
-				-- the crest is at the apex and nowhere else, so the walk's high point is sample
-				-- `slopeRun + 1` and it equals the column's own top.
-				expect(math.abs(profile[LAYOUT.BERM.slopeRun + 1] - column.top) < 1e-6).to.equal(true)
+				-- THE APEX IS A RIDGE AND NOT A PLATEAU: strictly above BOTH its neighbours, so a
+				-- flat top of any width fails here -- `climbed` of exactly 0 satisfies the monotone
+				-- pair on both sides and would otherwise pass (round 1, finding 1).
+				local crest = LAYOUT.BERM.slopeRun + 1
+				expect(profile[crest] - profile[crest - 1] > 1e-6).to.equal(true)
+				expect(profile[crest] - profile[crest + 1] > 1e-6).to.equal(true)
+				-- ...and the crest is the column's own top.
+				expect(math.abs(profile[crest] - column.top) < 1e-6).to.equal(true)
 				for index = 1, #profile - 4 do
 					local slope = math.abs(profile[index + 4] - profile[index]) / 4
 					if slope > sharpest then
@@ -4417,6 +4443,7 @@ return function()
 					end
 				end
 			end
+			expect(steepest <= LAYOUT.BERM.riseMaxStuds).to.equal(true)
 			local degrees = math.deg(math.atan(sharpest))
 			expect(degrees <= LAYOUT.BERM.faceMaxDegrees).to.equal(true)
 			-- NOT a target, a MEASUREMENT: the envelope cannot give 50 degrees, and a day when it can
@@ -4481,6 +4508,14 @@ return function()
 			for _, one in ipairs(balls) do
 				expect(one.surface).to.equal("BERM")
 			end
+			-- THE SCRUB IS NOT DOWN THE FACE (306l's own assertion, restored for a ball): a clump's
+			-- uprange edge reaches `scrubRadius - scrubBackStuds` past the apex at most, which is
+			-- the crest's top and not the face a round lands on.
+			for _, clump in ipairs(scrub) do
+				-- this row runs with `dir` -1, so UPRANGE is +Z and the clump's uprange edge is z + r.
+				local reach = (clump.z + clump.radius) - apex
+				expect(reach <= LAYOUT.BERM.scrubRadius - LAYOUT.BERM.scrubBackStuds + 1e-6).to.equal(true)
+			end
 			local grassed = nil
 			for _, call in ipairs(terrain.replaces) do
 				if call.from == LAYOUT.SURFACE.BERM and call.to == LAYOUT.SURFACE.HILL then
@@ -4489,7 +4524,18 @@ return function()
 			end
 			expect(grassed).to.be.ok()
 			local region = (grassed :: any).region
+			-- WHERE THE BAND STARTS IS THE WHOLE CLAIM (round 1, finding 2): started at the TOE it
+			-- would grass the impact face -- the half a shot travels to and the half Karen looks at
+			-- -- and a size-only check passes on that. So both faces are pinned to the apex-to-back
+			-- band within the one voxel `ExpandToGrid` may add on each side.
+			local grid = LAYOUT.FILL.GRID_STUDS
+			local bandLow, bandHigh = math.min(apex, back), math.max(apex, back)
+			local lowFace = region.CFrame.Position.Z - region.Size.Z / 2
+			local highFace = region.CFrame.Position.Z + region.Size.Z / 2
+			expect(lowFace <= bandLow + 1e-6 and lowFace >= bandLow - grid - 1e-6).to.equal(true)
+			expect(highFace >= bandHigh - 1e-6 and highFace <= bandHigh + grid + 1e-6).to.equal(true)
 			expect(region.Size.Z >= LAYOUT.BERM.depth).to.equal(true)
+			expect(region.Size.Z <= LAYOUT.BERM.depth + 2 * grid).to.equal(true)
 			expect(region.CFrame.Position.Y - region.Size.Y / 2 > shelf + 1e-6).to.equal(true)
 			expect(terrain.balls[#terrain.balls].material).to.equal(LAYOUT.SURFACE.SCRUB)
 			-- (8) THE TWO BANKS ARE ROUNDED MOUNDS THAT RUN INTO THE HEAP, not two square blocks (306m
@@ -4517,14 +4563,17 @@ return function()
 			end
 			TestKit.note(
 				string.format(
-					"range 306m hill: %d columns x %d balls, crest %.2f..%.2f, skyline step %.2f (inner %.2f), "
-						.. "steepest 4-stud slope %.1f deg at x %.0f (floor atan(21/8) = 69.1), runs %.2f..%.2f, %d scrub",
+					"range 306m hill: %d columns x %d balls, crest %.2f..%.2f, skyline step %.2f (inner %.2f, "
+						.. "cap dip %.2f), steepest one-stud rise %.2f studs, 4-stud slope %.1f deg at x %.0f "
+						.. "(floor atan(21/8) = 69.1), runs %.2f..%.2f, %d scrub",
 					#columns,
 					#balls,
 					lo,
 					hi,
 					step,
 					inner,
+					deepest,
+					steepest,
 					degrees,
 					where,
 					runLo,

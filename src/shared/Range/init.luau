@@ -192,6 +192,13 @@ Range.LAYOUT = {
 		-- the 179 lane -- so it is refused by the toe clearance, not by taste. `range.spec` samples
 		-- the union's own surface and holds it here.
 		faceMaxDegrees = 79,
+		-- ...AND THE STEEPEST RISE OVER ONE STUD, which is the bound that actually REJECTS the two
+		-- shapes this task exists to kill (round 1, finding 1): a 4-stud chord cannot see them,
+		-- because it averages the jump with the slope under it. Measured over all 58 columns the
+		-- frustum's worst one-stud rise is 5.13 studs; the pedestal the first 306m draft simulated
+		-- was 8.7, and a 306l box's face was its WHOLE crest in one sample, up to 21. 6.5 sits
+		-- between the shipped shape and both of them.
+		riseMaxStuds = 6.5,
 		-- how far under `height` the lowest point of the RIPPLE sits: the crest wanders 18..21, and
 		-- 3 AND NOT 4 IS A BOUND AND NOT A TASTE (review round 1, finding 1). A man on the deck
 		-- fires from `HighSeats.DIMS.DECK_RISE_STUDS + AIM_RISE_STUDS` = 17.5 studs over the shelf,
@@ -1040,6 +1047,8 @@ end
 -- `capRadius` at the crown: a trapezoid, which is also what a built berm is in life. It costs face
 -- angle -- 74.5 degrees at `run` 8 instead of 69.1 -- and it is monotone, which a pedestal is not.
 -- Returns the half-depth of the section at `rise` and the Z of its centre, measured from the apex.
+-- The taper never needs a floor: `base` is `(run + depth) / 2` >= 7.375, so `cap + (base - cap) *
+-- share` is already >= `cap` at every share (round 1, note).
 local function sectionAt(layout, column, rise: number): (number, number)
 	local cap = math.max(1, layout.BERM.capRadius)
 	local back = layout.BERM.depth
@@ -1117,8 +1126,10 @@ function Range.bankBalls(anchor: Vector3, layout, leg: number, downrange: number
 end
 
 -- WHERE THE SCRUB STANDS: `scrubCount` clumps spread across the columns INSIDE the shoulders, each
--- on its own column's crest and BEHIND the bare lip by `scrubBackStuds` -- never down the face,
--- which is the half a shot travels to.
+-- on its own column's crest and BEHIND the bare lip by `scrubBackStuds` -- never DOWN the face,
+-- which is the half a shot travels to. A ball is round, so a clump's own uprange edge does reach
+-- `scrubRadius - scrubBackStuds` = up to 1.5 studs past the apex line, at the very top of the
+-- crest and nowhere near where a round lands (round 1, note); `range.spec` holds it to that.
 -- 306m: ONE BALL PER CLUMP (`scrubRadius`), not a box. `rise` is set so the ball's TOP stands
 -- `scrubSize.Y` over the column's crest -- 306l's own number -- and its BOTTOM is under the crest's
 -- own surface, so a clump is embedded in the ridge and cannot float (rule E). Measured here, not

@@ -260,8 +260,9 @@ end
 
 -- THE ONE TERRAIN WRITE IN THIS SYSTEM, and `terrain` is an ARGUMENT so no spec can write a
 -- place's ground (design 8.2; `Lobby.Field.fill`'s own discipline). AIR first, then grass, then
--- the earth that stands on it, then the two materials -- in any other order each step eats the
--- one before it. Returns the fill count and the replace count, so which path a build took is a
+-- the terrace's own two repaints, then the banks and the earth that stand on it, then the hill's
+-- grass line -- in any other order each step eats the one before it (the order moved in B10 and
+-- again in 306m; round 1, note). Returns the fill count and the replace count, so which path a build took is a
 -- number in `Range.stats()` rather than a belief.
 function Build.writeTerrain(terrain: any, anchor: Vector3, shelf: number, row, layout, dir: number): (number, number)
 	local fills, replaces = 0, 0
@@ -340,7 +341,8 @@ function Build.writeTerrain(terrain: any, anchor: Vector3, shelf: number, row, l
 	-- so the reason the old order existed is satisfied by moving the fills rather than the repaints.
 	-- In DEV these are parts and this whole function never runs.
 	-- NO CHUNKING FOR A BALL: `CHUNK_STUDS` exists because a wide `FillBlock` met a per-region
-	-- voxel ceiling, and the widest ball here is `(slopeRun + depth)/2` = 8 studs across.
+	-- voxel ceiling, and the widest ball here is `(slopeRun + depth)/2` = 8 studs in RADIUS, so 16
+	-- across -- a quarter of the 64-stud chunk.
 	local function ball(at: Vector3, radius: number, material: Enum.Material)
 		terrain:FillBall(at, radius, material)
 		fills += 1
