@@ -5510,7 +5510,7 @@ return function()
 			local forestAnchor = Vector3.new(FOREST_ROW_SPLIT.x, 148, FOREST_ROW_SPLIT.z)
 			local forestCuts = RangeData.cutRects(forestAnchor, LAYOUT, -1, FOREST_ROW_SPLIT)
 			expect(#forestCuts).to.equal(2)
-			for _, run in ipairs(RangeData.fenceRuns(forestAnchor, LAYOUT, -1, FOREST_ROW)) do
+			for _, run in ipairs(RangeData.fenceRuns(forestAnchor, LAYOUT, -1, FOREST_ROW_SPLIT)) do
 				local inside = false
 				for _, cut in ipairs(forestCuts) do
 					if

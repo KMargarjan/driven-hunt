@@ -265,7 +265,7 @@ end
 task.delay(8, function()
 	local box = RangeData.footprintFor(Vector3.new(row.x, 0, row.z), RangeData.LAYOUT, RangeData.downrangeOf(row))
 	do
-		local count, nearestName, nearestAt = 0, "none", nil
+		local count, firstName, firstAt = 0, "none", nil
 		for _, folder in ipairs(Workspace:GetChildren()) do
 			if
 				folder:IsA("Folder")
@@ -277,8 +277,8 @@ task.delay(8, function()
 						local at = thing.Position
 						if at.X >= box.minX and at.X <= box.maxX and at.Z >= box.minZ and at.Z <= box.maxZ then
 							count += 1
-							if nearestAt == nil then
-								nearestName, nearestAt = thing:GetFullName(), at
+							if firstAt == nil then
+								firstName, firstAt = thing:GetFullName(), at
 							end
 						end
 					end
@@ -287,11 +287,11 @@ task.delay(8, function()
 		end
 		print(
 			string.format(
-				"[RangeBoot] footprint census: %d foreign BaseParts, nearest %s at (%s, %s)",
+				"[RangeBoot] footprint census: %d foreign BaseParts, first %s at (%s, %s)",
 				count,
-				nearestName,
-				if nearestAt then string.format("%.0f", nearestAt.X) else "-",
-				if nearestAt then string.format("%.0f", nearestAt.Z) else "-"
+				firstName,
+				if firstAt then string.format("%.0f", firstAt.X) else "-",
+				if firstAt then string.format("%.0f", firstAt.Z) else "-"
 			)
 		)
 	end

@@ -1068,30 +1068,25 @@ return function()
 							end
 						end
 					end
-					-- TASK 315 MEASURED THE THIRD VERSION TRUE AT LAST. With the range straight out
-					-- of the shop door the field and the footprint MEET on z -3060..-3057, so the
-					-- walkway between them carries no ground of its own any more. A redundant
-					-- rectangle is fine; a rectangle that is NEITHER redundant NOR contributing is
-					-- not, and that is what this now says. It still reddens on a rectangle with no
-					-- reason to exist, because such a rectangle would have points outside the union.
-					if own == 0 then
-						for ix = 0, 4 do
-							for iz = 0, 4 do
-								local at = Vector3.new(
-									rect.minX + (rect.maxX - rect.minX) * ix / 4,
-									0,
-									rect.minZ + (rect.maxZ - rect.minZ) * iz / 4
-								)
-								expect(Join.insideHome(at, others)).to.equal(
-									true,
-									string.format(
-										"rectangle %d contributes no ground of its own AND is not covered by the rest",
-										index
-									)
-								)
-							end
-						end
-					end
+					-- TASK 315 MEASURED THE THIRD VERSION TRUE AT LAST, and the assertion is the
+					-- OPPOSITE of the one that stood here. With the range straight out of the shop
+					-- door the field and the footprint MEET on z -3060..-3057, so the walkway
+					-- between them carries no ground of its own any more: a rectangle with no
+					-- boundary sample is now WHOLLY redundant, and this says so.
+					--
+					-- IT IS FALSIFIABLE AND IT WOULD HAVE REDDENED AT THE BASE COMMIT, which is the
+					-- whole reason it is written this way (round 1, finding 1): at d4b10eda the
+					-- walkway had `here == 0` AND `own > 0`, so `own == 0` was FALSE. Re-asserting
+					-- `insideHome(at, others)` under `if own == 0` -- the first draft -- restated
+					-- the guard it sat under and could not fail.
+					expect(own).to.equal(
+						0,
+						string.format(
+							"rectangle %d has no boundary sample yet carries %d of 25 points of its own ground -- it is neither an edge case nor redundant",
+							index,
+							own
+						)
+					)
 					table.insert(
 						perRect,
 						string.format("rect %d: no edge, %d of 25 own points (first %s)", index, own, tostring(first))
@@ -4765,6 +4760,177 @@ return function()
 					false
 				)
 			end
+		end)
+
+		-- THE LIVE BUILD, AND THE TWO COUNTERS THE TREE CLAIM RESTS ON (round 1, finding 3; design
+		-- 15.1 item 11, W5). Until this case `sightlineDropped` and `sightlineCleared` had no spec
+		-- at all: deleting every `+= 1` left the suite green and the boot line simply printed 0 --
+		-- which is the same class of defect as the counters living only in `Build`'s table, caught
+		-- live in her place in round 1.
+		it("plants nothing in the corridor, and BOTH counters carry the number through Lobby.stats", function()
+			local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
+			local range = RangeData.anchorFor("forest-test") :: any
+			local at = Vector3.new(range.x, 0, range.z)
+			local dir = RangeData.downrangeOf(range)
+			local lane = RangeData.sightlineFrom(at, RangeData.LAYOUT, dir)
+			local keep = { RangeData.footprintFor(at, RangeData.LAYOUT, dir) }
+			local rect = Build.sightlineRect(lane, anchor, CFG) :: any
+
+			local container = Instance.new("Folder")
+			container.Name = "LobbySpec315Corridor"
+			container.Parent = Workspace
+			-- THE WORLD'S OWN FOLIAGE, as a fixture this case plants itself: one trunk standing where
+			-- the pine stood, so `sightlineCleared` has something real to count.
+			local session = Instance.new("Folder")
+			session.Name = "Session"
+			session.Parent = container
+			local pine = Instance.new("Part")
+			pine.Name = "ThePine"
+			pine.Anchored = true
+			pine.Size = Vector3.new(2, 2, 2)
+			pine.Position = Vector3.new(2844, 0, -3188)
+			pine.Parent = session
+
+			local templates = fakeTemplates()
+			local folder = Build.build(
+				container,
+				anchor,
+				CFG,
+				templates,
+				{
+					keepClear = keep,
+					sightline = lane,
+				} :: any
+			)
+
+			-- NOT ONE TRUNK STANDS IN EITHER RECTANGLE, read off what was really planted.
+			local standing, inside = 0, {}
+			for _, grove in ipairs({ "TreeLine", "LodgeTrees", "Avenue" }) do
+				local f = folder:FindFirstChild(grove)
+				if f ~= nil then
+					for _, tree in ipairs((f :: Instance):GetChildren()) do
+						local q = if tree:IsA("BasePart")
+							then (tree :: BasePart).Position
+							else (tree :: Model):GetPivot().Position
+						standing += 1
+						if Build.keptClear(q.X, q.Z, anchor, CFG, keep, lane) then
+							table.insert(inside, string.format("%s at %.0f,%.0f", tree.Name, q.X, q.Z))
+						end
+					end
+				end
+			end
+			expect(#inside).to.equal(0, "planted in the corridor: " .. table.concat(inside, ", "))
+			expect(standing > 0).to.equal(true)
+
+			-- THE TWO COUNTERS, AND THEY ARE NOT ZERO. `sightlineDropped` is ours; `sightlineCleared`
+			-- is the world's own trunk the sweep took.
+			local built = Build.stats()
+			expect(built.sightlineDropped > 0).to.equal(
+				true,
+				string.format("sightlineDropped is %d -- nothing was counted", built.sightlineDropped)
+			)
+			expect(built.sightlineCleared).to.equal(1)
+			expect(pine.Parent).to.equal(nil)
+			-- ...AND THE AVENUE IS WHOLLY DROPPED, which is the number the backup note records.
+			local avenue = folder:FindFirstChild("Avenue")
+			expect(if avenue == nil then 0 else #(avenue :: Instance):GetChildren()).to.equal(0)
+			TestKit.note(
+				string.format(
+					"task 315: live build planted %d trees, 0 in the corridor; sightlineDropped=%d sightlineCleared=%d; corridor x %.1f..%.1f z %.1f..%.1f",
+					standing,
+					built.sightlineDropped,
+					built.sightlineCleared,
+					rect.minX,
+					rect.maxX,
+					rect.minZ,
+					rect.maxZ
+				)
+			)
+			local droppedWith = built.sightlineDropped
+
+			-- THE BITE: the SAME build with no rectangles handed in plants the avenue and counts
+			-- nothing, so neither the rule nor the counters can pass for free.
+			local plainContainer = Instance.new("Folder")
+			plainContainer.Name = "LobbySpec315NoRange"
+			plainContainer.Parent = Workspace
+			local plainTemplates = fakeTemplates()
+			local plainFolder = Build.build(plainContainer, anchor, CFG, plainTemplates)
+			local plainStats = Build.stats()
+			expect(plainStats.sightlineDropped).to.equal(0)
+			expect(plainStats.sightlineCleared).to.equal(0)
+			local plainAvenue = plainFolder:FindFirstChild("Avenue")
+			expect(if plainAvenue == nil then 0 else #(plainAvenue :: Instance):GetChildren() > 0).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task 315: with no range handed in, %d dropped (was %d)",
+					plainStats.sightlineDropped,
+					droppedWith
+				)
+			)
+
+			container:Destroy()
+			templates:Destroy()
+			plainContainer:Destroy()
+			plainTemplates:Destroy()
+		end)
+
+		-- W7, AT ONE-STUD STEPS AND ACROSS THE SEAM (round 1, finding 3; design 15.1 item 13). The
+		-- case above this one samples three points from the lodge ANCHOR; the walk Karen takes
+		-- starts at the DOOR, and the one place it could break is the 3 studs where the field and
+		-- the footprint overlap (z -3060..-3057). Every stud of it is asked here.
+		it("leaves a man home at every single stud of the walk from the shop door to every mat", function()
+			local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
+			local range = RangeData.anchorFor("forest-test") :: any
+			local rangeAt = Vector3.new(range.x, 0, range.z)
+			local footprint = RangeData.footprintFor(rangeAt, RangeData.LAYOUT, RangeData.downrangeOf(range))
+			local areas = Join.homeAreas(anchor, CFG, { footprint })
+			-- THE DOOR IS THE LODGE'S SOUTH FACE on its own centre line, off the lobby's config.
+			local door =
+				Vector3.new(anchor.X + CFG.LODGE.OFFSET.X, 0, anchor.Z + CFG.LODGE.OFFSET.Z - CFG.LODGE.SIZE.Z / 2)
+			local worst, steps, seam = nil, 0, 0
+			for spot = 1, RangeData.LAYOUT.SPOT_COUNT do
+				local mat = RangeData.matPosition(rangeAt, spot, RangeData.LAYOUT)
+				local span = Vector3.new(mat.X - door.X, 0, mat.Z - door.Z)
+				local length = math.floor(span.Magnitude)
+				for step = 0, length do
+					local at = door + span.Unit * step
+					steps += 1
+					if at.Z <= -3060 and at.Z >= -3057 then
+						seam += 1
+					end
+					if worst == nil and not Join.insideHome(at, areas) then
+						worst = at
+					end
+				end
+			end
+			expect(worst).to.equal(
+				nil,
+				if worst == nil
+					then ""
+					else string.format("off home at %.1f, %.1f", (worst :: Vector3).X, (worst :: Vector3).Z)
+			)
+			expect(steps > 1000).to.equal(true)
+			-- THE BITE: with no footprint handed in, the old field rule leaves most of that walk out.
+			local fieldOnly = Join.homeAreas(anchor, CFG, nil)
+			local offField = 0
+			for spot = 1, RangeData.LAYOUT.SPOT_COUNT do
+				local mat = RangeData.matPosition(rangeAt, spot, RangeData.LAYOUT)
+				local span = Vector3.new(mat.X - door.X, 0, mat.Z - door.Z)
+				for step = 0, math.floor(span.Magnitude) do
+					if not Join.insideHome(door + span.Unit * step, fieldOnly) then
+						offField += 1
+					end
+				end
+			end
+			expect(offField > 100).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task 315: %d one-stud samples on the six door-to-mat walks, all home; %d of them are in the field/footprint seam; %d would be sent back by the field alone",
+					steps,
+					seam,
+					offField
+				)
+			)
 		end)
 
 		-- THE SWEEP TAKES THE WORLD'S OWN FOLIAGE OUT OF BOTH RECTANGLES, and only out of them.
