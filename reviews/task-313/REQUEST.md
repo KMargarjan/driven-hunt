@@ -3,21 +3,25 @@
 Task: 313
 Round: 1
 Base: c818d374ce4a4be40a2997889b8c305ce1a6d30c (main)
-Code commit: 4118900997bfb0c02b97c5c78af1f8b9c35811b3
+Code commit: 02b9dfc402f334e3b2f9d774279e2da8c52bedeb
 
 ```
-[harness] PASS: 34/34 checks @ 4118900997bfb0c02b97c5c78af1f8b9c35811b3 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 02b9dfc402f334e3b2f9d774279e2da8c52bedeb (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 02b9dfc402f334e3b2f9d774279e2da8c52bedeb (clean tree)
 ```
 
-**The `[harness2]` line is MISSING and that is an open NEEDS KAREN, not an omission.** This change
-puts `src/client/Range/` into `TWO_PLAYER_PATHS` on purpose (L-158: a per-player PICTURE is exactly
-what one client cannot evidence), so `needs_two_player` answers
-`['src/client/Range/Solo.luau', 'tests/client/range_solo.spec.luau']`. `test2` was run twice and
-produced nothing both times: it needs a Studio click StudioMCP cannot make, and it also fails
-*"One Studio instance before the test starts"* while Karen's `Driven Hunt Forest Test` Studio is
-open, which is hers and was not closed. See `ESCALATE.md`, 2026-10-30. A `--scope auto` run does not
-get round it either: this change edits `tools/studio_mcp.py`, which resolves to `all`, so the run is
-tagged `scope=all` and the two-player line is asked for again (measured, not assumed).
+**Director, 2026-10-30 ~14:00 UTC:** both lines above were run by the Director at `02b9dfc4`, which
+differs from the Builder's tested commit `4118900` only in paperwork (`ESCALATE.md`, `TASKS.md`,
+this file). The Forest Test Studio was closed for the run (Karen away; preflight #81), so the
+`[harness2]` blocker in `ESCALATE.md` is cleared. The Builder's own line was
+`[harness] PASS: 34/34 checks @ 4118900997bfb0c02b97c5c78af1f8b9c35811b3 (clean tree) scope=all`.
+**Honest note: the first one-player run at `02b9dfc4` FAILED 32/34**, with one case:
+`deer_hitbox.spec:682 calf: legs box 1 is unreachable by a flank ray`. The rerun right after
+passed 34/34 (the line above). The Builder reported this same case failing 3/3 because of
+`range_solo.spec` staging parts in Workspace, fixed at `fd60936d`; one failure in two runs at the
+fixed head is therefore either a leftover of that interaction or a new intermittent. It is NOT
+called the known flake. Reviewer: please judge whether `range_solo.spec` (or anything in this change)
+can still put geometry in the deer hitbox spec's ray path.
 
 Karen, 2026-10-30: *"when I click E it will make that I am alone in all shooting range and then we
 can test all way running waling ect animal, now is to short for one specific stand"*.
