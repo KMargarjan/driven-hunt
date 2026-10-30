@@ -4108,7 +4108,8 @@ return function()
 			local b = built :: any
 			expect(b.shelf).to.equal(FOREST_SHELF)
 			expect(#terrain.fills > 0).to.equal(true)
-			expect(b.terrainFills).to.equal(#terrain.fills)
+			-- 306m: the counter covers BOTH primitives -- the terrace's boxes and the heap's balls.
+			expect(b.terrainFills).to.equal(#terrain.fills + #terrain.balls)
 			expect(b.terrainReplaces).to.equal(#terrain.replaces)
 			local grid = LAYOUT.FILL.GRID_STUDS
 			-- AIR BEFORE GRASS, PER RECTANGLE: the terrace is cut in two pieces (the keep-out case
@@ -4423,13 +4424,24 @@ return function()
 			expect(degrees > 50).to.equal(true)
 			-- (4) THE HEAP STAYS INSIDE 306l's ENVELOPE -- toe, back and span -- asserted against every
 			-- ball, cap and clump rather than against the dials that place them.
+			-- IN Z IT IS EXACT -- that is 306l item 1, the far lane's own clearance and the road's.
+			-- IN X THE END COLUMNS' EARTH ROLLS OUT BY THE BASE HALF-DEPTH, because a ball is round:
+			-- `bermWidthFor` is derived to COVER the corridor and both banks, and a rounded end dying
+			-- away `(slopeRun + depth) / 2` studs further out covers more, not less. The hard bound
+			-- in X is the censused rectangle of her own lot, which the terrace case asserts.
+			local roll = (LAYOUT.BERM.slopeRun + LAYOUT.BERM.depth) / 2
 			for _, group in ipairs({ balls, scrub }) do
 				for _, one in ipairs(group) do
 					expect(one.z - one.radius >= math.min(toe, back) - 1e-6).to.equal(true)
 					expect(one.z + one.radius <= math.max(toe, back) + 1e-6).to.equal(true)
-					expect(one.x - one.radius >= west - 1e-6).to.equal(true)
-					expect(one.x + one.radius <= east + 1e-6).to.equal(true)
+					expect(one.x - one.radius >= west - roll - 1e-6).to.equal(true)
+					expect(one.x + one.radius <= east + roll + 1e-6).to.equal(true)
 				end
+			end
+			-- ...and the crest itself -- every cap -- stays inside the derived width.
+			for _, column in ipairs(columns) do
+				expect(column.x >= west - 1e-6).to.equal(true)
+				expect(column.x <= east + 1e-6).to.equal(true)
 			end
 			-- (5) ...AND THE RIPPLE MAY NOT UNDO THE BACKSTOP (306l review round 1, finding 1). A man on
 			-- the deck fires from `DECK_RISE_STUDS + AIM_RISE_STUDS` over the shelf, so every column the
@@ -4581,9 +4593,16 @@ return function()
 			-- THE LINE LAST. Not because the lane's repaint could undo it -- that one is AROUND -> LANE
 			-- and cannot touch `Limestone` -- but because the order is the one the owner states, and a
 			-- repaint aimed at LANE must run after everything that writes LANE (review round 1, note).
-			expect(last.from).to.equal(LAYOUT.SURFACE.LANE)
-			expect(last.to).to.equal(LAYOUT.SURFACE.LINE)
-			for index = 1, #terrain.replaces - 1 do
+			-- 306m ADDED A FOURTH, AND IT IS LAST OF ALL: the hill's own grass line (BERM -> HILL).
+			-- It cannot undo the firing line either -- that one is `Limestone` and this reads
+			-- `Ground` -- and it runs in a band two voxels ABOVE the shelf, so it cannot reach the
+			-- terrace's own `Ground` surface, which shares the heap's material exactly.
+			expect(last.from).to.equal(LAYOUT.SURFACE.BERM)
+			expect(last.to).to.equal(LAYOUT.SURFACE.HILL)
+			local lineCall = terrain.replaces[#terrain.replaces - 1]
+			expect(lineCall.from).to.equal(LAYOUT.SURFACE.LANE)
+			expect(lineCall.to).to.equal(LAYOUT.SURFACE.LINE)
+			for index = 1, #terrain.replaces - 2 do
 				expect(terrain.replaces[index].from).to.equal(LAYOUT.SURFACE.AROUND)
 				expect(terrain.replaces[index].to).to.equal(LAYOUT.SURFACE.LANE)
 			end
