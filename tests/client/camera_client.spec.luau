@@ -2808,6 +2808,59 @@ return function()
 		end)
 	end)
 
+	-- THE SOURCE THROTTLE AND A CLOCK THAT WENT BACKWARDS (task 314). `main` went red in DEV with no
+	-- code change at all: `gun_client.spec` drives `update` on a fake clock of 4000.0, and in a Studio
+	-- restarted an hour ago `os.clock()` is BELOW that -- so `now - lastSourceCheck` stayed negative,
+	-- the cached handle froze on the shotgun, and `rifle_client` could not see an equip for 2 s.
+	describe("the source throttle against a clock that went backwards (task 314)", function()
+		it("re-asks the source on the frame the clock drops below the last check", function()
+			local liveSource = Camera.Viewmodel.getSource()
+			local function toolWith(id: string, name: string): (Tool, BasePart)
+				local tool = Instance.new("Tool")
+				tool.Name = name
+				tool:SetAttribute("DrivenHunt.Weapon", id)
+				local handle = Instance.new("Part")
+				handle.Name = "Handle"
+				handle.Size = Shotgun.CONFIG.HANDLE_SIZE
+				handle.Transparency = 1
+				handle.Parent = tool
+				return tool, handle
+			end
+			local first, firstHandle = toolWith("shotgun", "Shotgun")
+			local second, secondHandle = toolWith("rifle", "Rifle")
+			local wanted: BasePart = firstHandle
+			Camera.Viewmodel.setSource(function()
+				return wanted
+			end)
+			-- AHEAD OF THE LIVE CLOCK, which is exactly what a fake 4000.0 is in a fresh Studio.
+			local fake = os.clock() + 1000
+			Camera.Viewmodel.setClock(function()
+				return fake
+			end)
+			local ok, err = pcall(function()
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+				expect(Camera.Viewmodel.weaponId()).to.equal("shotgun")
+				-- THE CLOCK DROPS, AND `setClock` IS NOT CALLED IN BETWEEN, so this bites the throttle
+				-- itself rather than the seam's cache drop. No yield from here to the read: the live
+				-- camera loop must not get a frame in and answer for us.
+				fake = os.clock()
+				wanted = secondHandle
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+				-- TO SEE IT FAIL: drop `or sinceCheck < 0` from `Viewmodel.update`'s `sourceDue`.
+				expect(Camera.Viewmodel.weaponId()).to.equal("rifle")
+			end)
+			Camera.Viewmodel.setClock(nil)
+			Camera.Viewmodel.setSource(liveSource)
+			Camera.Viewmodel.clear()
+			first:Destroy()
+			second:Destroy()
+			if not ok then
+				error(err, 0)
+			end
+			TestKit.note("task314: the source was re-asked on the frame the clock dropped below the last check")
+		end)
+	end)
+
 	-- LAST IN THE FILE, and that is the point: it asserts that exactly one of the two live branch
 	-- blocks was built. Both would mean the flag is two things at once; neither would mean a build
 	-- whose camera nothing live tested -- and a guard that returns early inside an `it` would report
