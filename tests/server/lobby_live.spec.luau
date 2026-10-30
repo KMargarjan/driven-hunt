@@ -1027,8 +1027,16 @@ return function()
 			local footprint = RangeData.footprintFor(rangeAnchor, RangeData.LAYOUT, RangeData.downrangeOf(row))
 			local mat = RangeData.matPosition(rangeAnchor, 1, RangeData.LAYOUT)
 			local lodge = Vector3.new(ANCHOR.x, SHELF, ANCHOR.z)
-			-- Halfway along the walk, and a man 400 studs past the range who still does not belong.
-			local midway = lodge:Lerp(mat, 0.5)
+			-- ON THE WALK BUT OUTSIDE THE LOBBY'S OWN FIELD, and since task 315 that is no longer
+			-- the halfway point: the range moved straight out of the shop door, so the first 138
+			-- studs of the walk are inside the field's own 220 x 220 and the old rule never
+			-- returned a man standing there. A midway point would now prove nothing in the
+			-- "without the seam" half below. This is the walk's own line, taken 15 studs past the
+			-- field's south edge -- the first stud of the journey the seam exists for.
+			local southEdge = ANCHOR.z - Data.CONFIG.FIELD.SPAN_STUDS / 2
+			local walkT = (southEdge - 15 - lodge.Z) / (mat.Z - lodge.Z)
+			local midway = lodge:Lerp(mat, walkT)
+			-- A man 400 studs past the range who still does not belong.
 			local beyond = Vector3.new(footprint.minX - 400, SHELF, footprint.minZ - 400)
 
 			-- WITH THE SEAM, as Karen's place is wired.
