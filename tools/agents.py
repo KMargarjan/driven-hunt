@@ -148,6 +148,14 @@ TWO_PLAYER_PATHS = (
     "tests/client/match_client.spec.luau",
     "tests/client/outfit_client.spec.luau",
     "tests/client/zz_tie_to_a_tree.spec.luau",
+    # THE RANGE'S PER-PLAYER PICTURE (task 313). A second client is the ONLY thing that can
+    # evidence "each man sees his OWN animal and not the other man": one client renders one copy
+    # and answers nothing about who the OTHER player is. So the solo view's own files are here,
+    # beside the match -- and `src/client/Range/Mask.luau` with them, because the two pictures
+    # partition one property and a defect in either shows only with two men on the range.
+    "src/client/Range/",
+    "tests/client/range_mask.spec.luau",
+    "tests/client/range_solo.spec.luau",
 )
 
 # THE CONTENT LANE (CLAUDE.md "Content lane", Karen 2026-10-01: "too slow"; extended here in Task

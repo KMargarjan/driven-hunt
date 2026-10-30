@@ -1094,6 +1094,8 @@ SCOPE_SPECS = {
               "tests/client/range_panel.spec.luau",
               # Step B6: the picture, on the client, where the mask writes.
               "tests/client/range_mask.spec.luau",
+              # Task 313: the second picture, hiding other MEN. Same scope, same reason.
+              "tests/client/range_solo.spec.luau",
               "tests/server/flags.spec.luau"),
     "lobby": ("tests/server/lobby.spec.luau", "tests/server/lobby_live.spec.luau",
               # Task 287: the drive's door the pads ask (`Match.enrolRefused`), driven live.

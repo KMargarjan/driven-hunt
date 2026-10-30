@@ -61,8 +61,9 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- LIT (14): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
 --           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN, COINS and LOBBY (task 233), SHOP (233b),
 --           AIM_REWIND and ZONES_FOLLOW_GAIT (task 312).
--- DARK (7): QUICK_TEST, DRIVE_BOTS, LICENCE_POPUP (task 238), DEER_ROAD_LEAP (task 245b),
---           STAG_BOUND_ON_SPOOK (task 251 part 2), RANGE (task 298), HIT_CLAIM (task 266).
+-- DARK (8): QUICK_TEST, DRIVE_BOTS, LICENCE_POPUP (task 238), DEER_ROAD_LEAP (task 245b),
+--           STAG_BOUND_ON_SPOOK (task 251 part 2), RANGE (task 298), HIT_CLAIM (task 266),
+--           RANGE_SOLO (task 313).
 --
 -- `SHOP` IS LIT SINCE TASK 233b, and what made that safe is NOT this row: it is that a world with
 -- no counter does not wire a shop at all (`Shop.start`'s own gate). Task 233's flip lit the shop in
@@ -135,7 +136,11 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- `docs/design/feature-flags.md` section 11 step 1 forbids. This moves a hit box, which is as
 -- feel-critical as the game gets, so it is born off. The retirements stay queued; this is one line
 -- either way.
-Flags.MAX_FLAGS = 21
+--
+-- 21 -> 22 FOR TASK 313's `RANGE_SOLO`, and said out loud rather than paid for by quietly retiring
+-- somebody else's row: the table held exactly 21 and the tripwire refused the twenty-second, which
+-- is the cap doing its job (design 9).
+Flags.MAX_FLAGS = 22
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -215,6 +220,21 @@ Flags.DEFAULTS = {
 		why = "The lobby shooting range: a lane, a target crossing it and back, and later the menu, "
 			.. "the gun and the board. OFF is exactly the game before task 298 -- no world has a "
 			.. "range built, nothing is spawned and no provider is relaxed.",
+	} :: FlagRow,
+	-- SOLO ON THE WHOLE RANGE (task 313). KAREN, 2026-10-30, after playing: *"when I click E it
+	-- will make that I am alone in all shooting range and then we can test all way running waling
+	-- ect animal, now is to short for one specific stand"*.
+	RANGE_SOLO = {
+		default = false,
+		owner = "ServerScriptService.Range",
+		born = "2026-10-30 task 313",
+		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
+		expires = "2026-11-20",
+		why = "E at a station makes a man alone on the whole range: his animal crosses as much of "
+			.. "the lane as the built earth and his own bay allow (71-156 studs instead of 36, so "
+			.. "2.96-6.50 s at run instead of 1.50), and every other player's body is hidden for "
+			.. "him. OFF is exactly the game before task 313 -- the window is his own mat +- 18, "
+			.. "the leg is 76 studs, and nobody is hidden.",
 	} :: FlagRow,
 	TIE_UNTIL_DRIVE_END = {
 		default = true,
