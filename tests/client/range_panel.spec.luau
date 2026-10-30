@@ -157,6 +157,60 @@ return function()
 			expect(RangePanel.isOpen()).to.equal(true)
 		end)
 
+		-- AND SO IS THE WAY DOWN (306k item 1). THE SAME DEFECT, ONE STOREY UP: real `F` on Stand2's
+		-- deck did nothing four times and no "Climb down" was drawn anywhere on screen, while the
+		-- instance itself read healthy -- Enabled, reach 10, 3.29 studs away
+		-- (playtest/range-v2 item 4, frames 28/29/30). The cause is this projection, not the
+		-- instance: at `deckRise` 1.6 the point sat 49 degrees under a view held down the lane,
+		-- where a 70-degree FOV reaches 35.
+		it("puts the Climb down prompt inside Karen's viewport from the deck, looking down the lane", function()
+			local KAREN_VIEWPORT = Vector2.new(969, 792)
+			local HOTBAR_BAND = 792 - 735
+			local camera = workspace.CurrentCamera
+			local row = RangeData.anchorFor("forest-test")
+			expect(row).to.be.ok()
+			local anchor = Vector3.new((row :: any).x, 0, (row :: any).z)
+			local dir = RangeData.downrangeOf(row)
+			local deckTop = 12.5
+			local stood = RangeData.climbTargetFor(anchor, 2, RangeData.LAYOUT, dir, deckTop).Position
+			local promptAt = RangeData.downPromptPosition(anchor, 2, RangeData.LAYOUT, dir, deckTop)
+			-- DOWN HIS OWN LANE AND LEVEL, which is where a man on the deck is looking the whole
+			-- time he wants to come down -- and the exact hold the playtest's four `F` presses were
+			-- made under.
+			local function lookFrom(from: Vector3): CFrame
+				return CFrame.lookAt(from, Vector3.new(from.X, from.Y, from.Z + dir * 150))
+			end
+			-- OVER A BAND OF EYE HEIGHTS, as the mat's case is, so it is not knife-edge on one rig.
+			local rows = {}
+			for _, eye in ipairs({ 1.0, 1.5, 2.0 }) do
+				local from = stood + Vector3.new(0, eye, 0)
+				local look = lookFrom(from)
+				local at, inFront = RangeData.viewportPointOf(look, promptAt, KAREN_VIEWPORT, camera.FieldOfView)
+				expect(inFront).to.equal(true)
+				expect(at.X > 0 and at.X < KAREN_VIEWPORT.X).to.equal(true)
+				expect(at.Y > 0 and at.Y < KAREN_VIEWPORT.Y - HOTBAR_BAND).to.equal(true)
+				table.insert(rows, string.format("eye +%.1f -> (%.0f, %.0f)", eye, at.X, at.Y))
+			end
+			-- FAIL FIRST: THE SHIPPED POINT, AS A CASE. The same eye, the same look, the point the
+			-- playtest measured -- `deckRise` 1.6 over the deck -- falls under the hotbar or off the
+			-- bottom. Delete the derivation and this case fails.
+			local from = stood + Vector3.new(0, RangeData.LAYOUT.CLIMB.eyeOverRootStuds, 0)
+			local look = lookFrom(from)
+			local was = Vector3.new(promptAt.X, deckTop + 1.6, promptAt.Z)
+			local floor = RangeData.viewportPointOf(look, was, KAREN_VIEWPORT, camera.FieldOfView)
+			expect(floor.Y > KAREN_VIEWPORT.Y - HOTBAR_BAND).to.equal(true)
+			-- ...and it is still in REACH from where the climb puts him, which the height must not cost.
+			expect((promptAt - stood).Magnitude < RangeData.LAYOUT.CLIMB.MaxActivationDistance).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range: Climb down on screen at 969x792 -- %s · the shipped 1.6 point was at y %.0f (hotbar from %d)",
+					table.concat(rows, ", "),
+					floor.Y,
+					792 - HOTBAR_BAND
+				)
+			)
+		end)
+
 		-- THE WAY IN IS ON HER SCREEN. A ProximityPrompt is drawn only while its own position is in
 		-- view, so the prompt that hung on the mat was invisible down the lane and E did nothing
 		-- (Director's proof, frames 03/04/06). The projection is `Range.viewportPointOf` -- the pinhole
@@ -309,6 +363,18 @@ return function()
 			menu.Name = RangeData.promptName(2, RangeData.POSITION.BENCH)
 			expect(RangePanel.isClimbPrompt(menu)).to.equal(false)
 			expect(RangePanel.isClimbPrompt(nil)).to.equal(false)
+			-- ...BUT ONLY THE ONE ON **THIS PANEL'S KEY** MAKES IT STAND DOWN (306k). The way up is
+			-- on E and the engine answers it; the way down is on F and the engine answers nothing of
+			-- this panel's. MEASURED in her place once the down prompt was finally drawn: a real E on
+			-- the deck opened NO menu, because the panel was standing down for an F prompt.
+			climbUp.KeyboardKeyCode = RangeData.LAYOUT.CLIMB.UP_KEY
+			climbDown.KeyboardKeyCode = RangeData.LAYOUT.CLIMB.DOWN_KEY
+			expect(RangePanel.climbTakesKey(climbUp)).to.equal(true)
+			expect(RangePanel.climbTakesKey(climbDown)).to.equal(false)
+			expect(RangePanel.climbTakesKey(menu)).to.equal(false)
+			expect(RangePanel.climbTakesKey(nil)).to.equal(false)
+			expect(RangeData.LAYOUT.CLIMB.UP_KEY).to.equal(RangePanel.KEY)
+			expect(RangeData.LAYOUT.CLIMB.DOWN_KEY).never.to.equal(RangePanel.KEY)
 			-- AND THE WATCH STANDS DOWN WITH THE PANEL: a climb prompt destroyed while shown fires no
 			-- `PromptHidden`, so a `climbShown` left true would swallow E for the rest of the session.
 			RangePanel.setClimbShown(true)
@@ -350,6 +416,53 @@ return function()
 			expect(RangePanel.confirm()).to.equal(true)
 			expect(sent[1].species).to.equal("reddeer")
 			expect(sent[1].kind).to.equal(nil)
+		end)
+
+		-- THE DECK'S DISTANCE ROW LIGHTS, AND IT PRINTS THE BOARD'S OWN NUMBER (306k item 4). On the
+		-- deck the record carries `distanceFor` -- 125 + `STAND.backStuds` = 139 -- and the chips
+		-- held 107 / 125 / 179, so NOTHING was lit while the board read 139
+		-- (playtest/range-v2, "seen by accident", 23-deckmenu.png).
+		it("lights the DISTANCE chip on the deck and labels it the distance from there", function()
+			local _, frame = freshPanel()
+			local base = RangeData.DISTANCES_STUDS[2]
+			local back = RangeData.LAYOUT.STAND.backStuds
+			-- FAIL FIRST, FROM THE BENCH: the record's own number IS the chip there, which is the
+			-- case that stayed green while the deck was broken.
+			RangePanel.setState({
+				lists = lists(),
+				record = { distanceStuds = base, position = RangeData.POSITION.BENCH },
+			})
+			expect(RangePanel.selected("distanceStuds")).to.equal(base)
+			local bench = RangePanel.valuesFor("distanceStuds")
+			expect(bench[2].label).to.equal(RangeData.distanceText(base))
+			-- ...AND FROM THE DECK: the lit chip is still the PICK, and its word is the board's.
+			RangePanel.setState({
+				lists = lists(),
+				record = { distanceStuds = base + back, position = RangeData.POSITION.TREESTAND },
+			})
+			expect(RangePanel.selected("distanceStuds")).to.equal(base)
+			local deck = RangePanel.valuesFor("distanceStuds")
+			expect(#deck).to.equal(#RangeData.DISTANCES_STUDS)
+			local lit = 0
+			for _, entry in ipairs(deck) do
+				if entry.value == RangePanel.selected("distanceStuds") then
+					lit += 1
+					expect(entry.label).to.equal(RangeData.distanceText(base + back))
+				end
+			end
+			expect(lit).to.equal(1)
+			-- AND THE VALUE SENT IS STILL THE PICK THE SERVER'S WHITELIST KNOWS, not 139: only the
+			-- word changed, or a CONFIRM from the deck would be refused.
+			expect(RangeData.optionAllowed("distanceStuds", deck[2].value, lists())).to.equal(true)
+			expect(RangeData.optionAllowed("distanceStuds", base + back, lists())).to.equal(false)
+			expect(frame).to.be.ok()
+			TestKit.note(
+				string.format(
+					"range: on the deck the %d-stud chip reads %s and lights -- the board's own number",
+					base,
+					RangeData.distanceText(base + back)
+				)
+			)
 		end)
 
 		it("offers exactly the seven pace words, STAND first and ISSF's three last", function()

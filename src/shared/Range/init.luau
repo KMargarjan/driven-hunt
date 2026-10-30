@@ -100,24 +100,42 @@ Range.LAYOUT = {
 	-- high"*). `beyondStuds` is the clearance between the lane's end and the bank's NEAR face, so
 	-- the bank's OUTER face stands at `beyondStuds + size.X` past that end -- which is the number
 	-- the berm has to reach (306a(c)).
-	BANK = { size = Vector3.new(12, 8, 14), beyondStuds = 6, color = Color3.fromRGB(96, 88, 76) },
+	-- THE BANKS MATCH THE BERM (306k item 2): 18 studs, three under the crest, so the two side
+	-- banks read as spurs off the same heap rather than as two kerbs in front of a hill.
+	BANK = { size = Vector3.new(12, 18, 14), beyondStuds = 6, color = Color3.fromRGB(96, 88, 76) },
 	-- THE BERM HAS NO TYPED WIDTH: `Range.bermWidthFor` derives it so it spans every station's lane
 	-- AND both banks, which is the identity `range.spec` asserts (design 5.2). 10 studs = 2.8 m,
 	-- "not high" (Karen), inside the 6 m upper bound the note refused to treat as a requirement.
 	-- `behindStuds` 13 AND NOT 12, so the berm's rectangle is on the terrain grid in all FOUR
 	-- edges: the centre sits `distanceMax + 13` = 192 from the anchor and `depth` 8 puts its faces
 	-- at 188 and 196, both multiples of `FILL.GRID_STUDS` (design 5.4). At 12 they were 187 and 195.
+	--
+	-- 21 STUDS AND NOT 10 (306k item 2). MEASURED from the bench: at 10 studs the crest subtended
+	-- 3.0 degrees at 190 studs and read as "a thin band of tall grass on the horizon"
+	-- (playtest/range-v2 item 1, 06-downlane-ft.png, 11-boar-ft.png). REAL LIFE: a live-fire impact
+	-- berm is 4-6 m -- the NRA Range Source Book's 15 ft (4.6 m) minimum stop butt, and US Army
+	-- TC 25-8's own 6 m -- so 21 studs is 5.9 m at this project's 0.28 m/stud, the top of that band.
+	-- It subtends 6.3 degrees, 4.5x the 1.4 degrees a boar's own 3 studs make at 125.
+	--   NRA Range Source Book, ch. 3 (impact berms)  https://www.nrahq.org/pdf/RangeSourceBook.pdf
+	--   US Army TC 25-8, Training Ranges, app. B    https://armypubs.army.mil/
+	-- `depth` and `behindStuds` DO NOT MOVE, and that is the measurement too: the toe of the
+	-- battered face already stands at 176, three studs clear of the farthest target at 179, and the
+	-- far face cannot go back because her ground DROPS to 141-144 at 200-275 studs where the asphalt
+	-- road crosses (same playtest). So the heap grows UP, not out, and the face is steeper than a
+	-- real 1:1.2 batter -- named, not hidden.
 	-- `slopeRun` and `slopeSteps` ARE THE UPRANGE FACE (step B8). A rectangular block of earth is
 	-- a wall; Karen asked for *"a mountain not high but like in real life"*, and a real berm is a
 	-- trapezoid. Four 2-stud bands (10 * k / 5) over a 12-stud run is a 1:1.2 batter, and 2 studs
 	-- per step is design 8.2's decided fallback for the unverified `FillWedge`. Only the terrain arm
 	-- reads them -- a part berm is one box, as it was.
 	BERM = {
-		height = 10,
+		height = 21,
 		depth = 8,
 		behindStuds = 13,
 		slopeRun = 12,
-		slopeSteps = 4,
+		-- SIX BANDS AND NOT FOUR: 21 studs over 7 levels is a 3-stud step, which is design 8.2's
+		-- 2-stud fallback kept to the same order on a heap twice as tall.
+		slopeSteps = 6,
 		color = Color3.fromRGB(104, 84, 62),
 	},
 	MAT = { size = Vector3.new(8, 1, 8), color = Color3.fromRGB(70, 82, 70) },
@@ -231,9 +249,12 @@ Range.LAYOUT = {
 		DOWN_KEY = Enum.KeyCode.F,
 		MaxActivationDistance = 10,
 		HoldDuration = 0,
-		-- the prompt POINTS: chest height at the ladder's foot, and a stud and a half over the deck
+		-- the prompt POINT at the ladder's foot: chest height.
 		footRise = 3.0,
-		deckRise = 1.6,
+		-- HOW FAR A STANDING MAN'S EYE IS OVER HIS ROOT (an R15 head centre). The down prompt hangs
+		-- at his EYE, so `downPromptRiseFor` derives its height and there is deliberately NO
+		-- `deckRise` key for it to drift from -- `boardRiseFor`'s pattern.
+		eyeOverRootStuds = 1.5,
 		-- HOW HIGH A BODY SITS over what it stands on. `Match.CONFIG.STAND_HEIGHT_STUDS`' own 3.5,
 		-- restated and not required: the lobby's range reaches into no hunt module (this file's head).
 		riseStuds = 3.5,
@@ -271,12 +292,14 @@ Range.LAYOUT = {
 	-- the anchor, the deck 14 uprange, and the mats span 2596..2724 for a six-station row.
 	SURFACE = {
 		LANE = Enum.Material.Ground,
-		-- THE BERM AND THE TWO BANKS ARE GRASSED EARTH (step B10, Karen: *"behind animal could be a
-		-- mountain ... or some earth formed mountain"*; refs 3 and 5). Terrain `Grass` DOES draw
-		-- blades and that is why the LANE is not grass -- but these stand 190 studs downrange, where
-		-- B8's measurement (blades filling the frame from the bench) does not apply, and blades are
-		-- what makes a heap of soil read as a hill rather than as a brown wall.
-		BERM = Enum.Material.Grass,
+		-- THE BERM AND THE TWO BANKS ARE BARE EARTH (306k item 2), AND THAT REVERSES B10's GUESS ON
+		-- A MEASUREMENT. B10 chose `Grass` reasoning that blades "makes a heap of soil read as a
+		-- hill"; from the bench they instead made it read as "a thin band of tall grass on the
+		-- horizon" and not as a backstop at all (playtest/range-v2 item 1, 06-downlane-ft.png).
+		-- `Ground` is what a live-fire impact berm is in life -- worked soil, no sward -- and it
+		-- stands brown against the mown lane and the grass around it. Karen: *"earth formed
+		-- mountain"*.
+		BERM = Enum.Material.Ground,
 		AROUND = Enum.Material.Grass,
 		LINE = Enum.Material.Limestone,
 		LINE_AHEAD_STUDS = 10,
@@ -1157,20 +1180,33 @@ function Range.climbPromptPosition(anchor: Vector3, spot: number, layout, downra
 	return Vector3.new(foot.X, anchor.Y + layout.CLIMB.footRise, foot.Z)
 end
 
+-- HOW HIGH THE WAY DOWN'S POINT SITS over the deck's top: at the EYE of the man the climb put
+-- there -- his root (`riseStuds`) plus an R15 head. DERIVED, so the prompt cannot sink under the
+-- view cone again.
+function Range.downPromptRiseFor(layout): number
+	layout = layout or Range.LAYOUT
+	return layout.CLIMB.riseStuds + layout.CLIMB.eyeOverRootStuds
+end
+
 -- THE WAY DOWN'S POINT: over the DOWNRANGE rail -- the board he rests on -- and NOT over the rail's
 -- gap he stepped through, which is where the design wanted it. MEASURED in her place 2026-10-29:
 -- with the point on the UPRANGE face a man looking down his own lane has it BEHIND him, the engine
 -- hides it, and a real `F` then does nothing -- the same defect task 308 measured for the RANGE
 -- prompt (*"a HIDDEN prompt does not answer its key"*). The downrange rail is in front of his eye
 -- whenever he is looking at the lane, which is the whole of when he wants to come down.
--- It stays `deckRise` under the station's RANGE prompt in height and is now 5.8 studs from it in Z:
--- still both in reach of a man on the deck, which is why the two keys differ.
+-- AND AT HIS EYE AND NOT AT HIS KNEE, which is the 306k fix and was ARITHMETIC before it was a
+-- frame: at `deckRise` 1.6 the point sat 3.4 studs under the eye 2.9 studs in front of it -- 49
+-- degrees below a view held down the lane, where a 70-degree FOV reaches 35 -- so it was off the
+-- bottom of the screen, undrawn, and real `F` did nothing (playtest/range-v2 item 4, frames
+-- 28/29/30). `range_panel.spec` now projects it into Karen's own viewport.
+-- It is 5.8 studs from the station's RANGE prompt in Z: still both in reach of a man on the deck,
+-- which is why the two keys differ.
 function Range.downPromptPosition(anchor: Vector3, spot: number, layout, downrange: number?, deckTop: number?): Vector3
 	layout = layout or Range.LAYOUT
 	local dir = if downrange == -1 then -1 else 1
 	local deck = Range.standPosition(anchor, spot, layout, dir)
 	local top = if type(deckTop) == "number" then deckTop :: number else anchor.Y + HighSeats.DIMS.DECK_RISE_STUDS
-	return Vector3.new(deck.X, top + layout.CLIMB.deckRise, deck.Z + dir * HighSeats.DIMS.RAIL_PLANE_STUDS)
+	return Vector3.new(deck.X, top + Range.downPromptRiseFor(layout), deck.Z + dir * HighSeats.DIMS.RAIL_PLANE_STUDS)
 end
 
 -- WHERE THE CLIMB PUTS HIM: on the deck's centre, `riseStuds` over its top, facing DOWNRANGE -- so
@@ -1200,9 +1236,17 @@ end
 -- HOW FAR UPRANGE OF THE MAT THE STATION REACHES: the deck plus the seat's own feet, which is the
 -- ladder's outer corner (`HighSeats.footprintRadiusStuds`). The one number the station box, the
 -- footprint and her place's home area are all measured from.
+--
+-- ...OR AS FAR AS ITS OWN WAY DOWN, WHICHEVER IS FURTHER, AND THAT IS A READING (306k item 3, her
+-- place, 2026-10-29): a real `F` on Stand2's deck put the man at z -3009 with the box ending at
+-- -3010.9, so `mayShoot` answered false where his own ladder had just left him -- the loan was
+-- revoked and he landed with an EMPTY backpack, no Rifle, no Shotgun. 19.10 against the 21 the way
+-- down needs. A station that does not reach where it sets a man down is the bug, not the margin.
 function Range.standReach(layout): number
 	layout = layout or Range.LAYOUT
-	return layout.STAND.backStuds + HighSeats.footprintRadiusStuds()
+	local feet = layout.STAND.backStuds + HighSeats.footprintRadiusStuds()
+	local wayDown = layout.STAND.backStuds + math.abs(HighSeats.DIMS.LADDER_OFFSET_STUDS) + layout.CLIMB.footClearStuds
+	return math.max(feet, wayDown)
 end
 
 -- HOW FAR HE IS ACTUALLY SHOOTING FROM. The trial's lane is the ANIMAL's distance from the firing
@@ -1218,6 +1262,24 @@ function Range.distanceFor(trial: any, position: string?, layout): number
 		return base + layout.STAND.backStuds
 	end
 	return base
+end
+
+-- AND THE WAY BACK: WHICH CHIP AN EFFECTIVE DISTANCE WAS PICKED FROM. `distanceFor` adds
+-- `STAND.backStuds` on the deck, so a record made there carries 139 while the menu's chips are
+-- 107 / 125 / 179 -- and NONE of them lit (playtest/range-v2, "seen by accident": *"the DISTANCE
+-- row loses its selection on the deck"*, 23-deckmenu.png). This is that addition undone, so the
+-- menu and the board read one pick. PURE, and the inverse is exact because the term is a constant.
+function Range.distancePickOf(record: any, layout): number?
+	layout = layout or Range.LAYOUT
+	local studs = if type(record) == "table" then record.distanceStuds else record
+	if type(studs) ~= "number" then
+		return nil
+	end
+	local position = if type(record) == "table" then record.position else nil
+	if position == Range.POSITION.TREESTAND then
+		return (studs :: number) - layout.STAND.backStuds
+	end
+	return studs :: number
 end
 
 -- WHERE A FOUND PROMPT ACTUALLY IS, whatever it is parented to. The prompt moved from the mat to

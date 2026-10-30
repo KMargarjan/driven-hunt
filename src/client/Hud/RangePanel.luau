@@ -163,8 +163,15 @@ function RangePanel.valuesFor(option: string): { { value: any, label: string } }
 			end
 		end
 	elseif option == "distanceStuds" and type(lists.distances) == "table" then
+		-- LABELLED FROM WHERE HE IS STANDING, so the lit chip and the board print the SAME number
+		-- (306k item 4): on the deck the shot is `STAND.backStuds` longer, the board said
+		-- `DISTANCE 139 studs` and the chips said 107 / 125 / 179. The VALUE stays the pick the
+		-- server's whitelist knows -- only the word changes.
+		local record = if type(state) == "table" then state.record else nil
+		local position = if type(record) == "table" then record.position else nil
 		for _, studs in ipairs(lists.distances) do
-			table.insert(out, { value = studs, label = RangeData.distanceText(studs) })
+			local shown = RangeData.distanceFor(studs, position, RangeData.LAYOUT)
+			table.insert(out, { value = studs, label = RangeData.distanceText(shown) })
 		end
 	end
 	return out
@@ -180,7 +187,9 @@ function RangePanel.selected(option: string): any
 	local record = if type(state) == "table" then state.record else nil
 	if type(record) == "table" then
 		if option == "distanceStuds" then
-			return record.distanceStuds
+			-- THE CHIP IT WAS PICKED FROM, not the effective distance: on the deck the record
+			-- carries 139 and no chip holds that value, so nothing lit (306k item 4).
+			return RangeData.distancePickOf(record, RangeData.LAYOUT)
 		end
 		return record[option]
 	end
@@ -571,6 +580,21 @@ function RangePanel.isClimbShown(): boolean
 	return climbShown
 end
 
+-- DOES THAT CLIMB PROMPT TAKE **THIS PANEL'S** KEY? Only then may the panel stand down for it
+-- (306k). The way UP is on `E` and the way DOWN is on `F`; the stand-down exists because the engine
+-- is already answering `E`, and it answers nothing of the sort for `F`. MEASURED in her place: with
+-- the down prompt finally DRAWN on the deck, a real `E` up there opened no menu at all -- the panel
+-- swallowed it for a prompt on another key (frame 306k-deckmenu).
+function RangePanel.climbTakesKey(instance: any): boolean
+	if not RangePanel.isClimbPrompt(instance) then
+		return false
+	end
+	local ok, key = pcall(function()
+		return (instance :: any).KeyboardKeyCode
+	end)
+	return ok and key == RangePanel.KEY
+end
+
 -- IS THAT INSTANCE ONE OF THE RANGE'S CLIMB PROMPTS? By NAME, which is `Range.climbPromptName`'s own
 -- rule -- nothing here knows where either one hangs.
 function RangePanel.isClimbPrompt(instance: any): boolean
@@ -596,7 +620,7 @@ function RangePanel.watchClimbPrompts()
 		table.insert(
 			climbConnections,
 			ProximityPromptService.PromptShown:Connect(function(shown)
-				if RangePanel.isClimbPrompt(shown) then
+				if RangePanel.climbTakesKey(shown) then
 					RangePanel.setClimbShown(true)
 				end
 			end)
@@ -604,7 +628,7 @@ function RangePanel.watchClimbPrompts()
 		table.insert(
 			climbConnections,
 			ProximityPromptService.PromptHidden:Connect(function(hidden)
-				if RangePanel.isClimbPrompt(hidden) then
+				if RangePanel.climbTakesKey(hidden) then
 					RangePanel.setClimbShown(false)
 				end
 			end)
