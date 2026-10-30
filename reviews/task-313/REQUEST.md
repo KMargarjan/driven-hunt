@@ -3,18 +3,18 @@
 Task: 313
 Round: 2
 Base: c818d374ce4a4be40a2997889b8c305ce1a6d30c (main)
-Code commit: a5f46bbd77e30a5d51a2413be4b7b76aa67f3a29
+Code commit: cbb2f3d63d3918b0180a56ec2f4b65ee80ee1d54
 
 ```
-[harness] PASS: 34/34 checks @ a5f46bbd77e30a5d51a2413be4b7b76aa67f3a29 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ cbb2f3d63d3918b0180a56ec2f4b65ee80ee1d54 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ cbb2f3d63d3918b0180a56ec2f4b65ee80ee1d54 (clean tree)
 ```
 
-**NEEDS DIRECTOR for the `[harness2]` line.** Karen's Forest Test Studio is open and was NOT closed
-(dispatch). `test2` fails `One Studio instance before the test starts` while it is, so the Director
-runs `test2` and the full `test` at the branch head; this round's evidence is the FULL one-player
-run above (`scope=all`, not a scoped line). No spec failed in it -- the `deer_hitbox.spec:682` case
-the dispatch names as known did NOT fire at this commit, so this request contains no FAIL line and
-needs no merge-base control run (L-136).
+**Director, 2026-10-30 ~21:00 UTC:** both lines run by the Director at `cbb2f3d6`, which differs from
+the Builder's tested `a5f46bbd` only in paperwork (`TASKS.md`, this file); the Forest Test Studio was
+closed for the run (Karen asleep, FT in Edit). The Builder's own line was
+`[harness] PASS: 34/34 checks @ a5f46bbd77e30a5d51a2413be4b7b76aa67f3a29 (clean tree) scope=all`.
+No spec failed in either Director run.
 
 **ROUND 2 IS SPEC-ONLY.** The one changed file is `tests/server/range.spec.luau`; nothing under
 `src/`, `tools/` or `docs/` moved (`git diff --name-only c7c18ea3..a5f46bbd`). Round 1's verdict was
