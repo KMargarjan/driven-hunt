@@ -345,12 +345,9 @@ function Build.writeTerrain(terrain: any, anchor: Vector3, shelf: number, row, l
 		terrain:FillBall(at, radius, material)
 		fills += 1
 	end
-	-- THE HILL, ALL OF IT EARTH, THEN REPAINTED (below). A ball is one material, and the crest's
-	-- grass / face's earth split runs THROUGH the middle of the crown balls -- so the split is a
-	-- `ReplaceMaterial` over the back half and not a second chain of fills.
-	for _, one in ipairs(Build.bermFills(anchor, shelf, layout, dir)) do
-		ball(one.at, one.radius, layout.SURFACE[one.surface])
-	end
+	-- THE BANKS BEFORE THE HEAP, so the LAST ball written anywhere is a scrub clump and nothing can
+	-- paint over it. Where the bank's mound and the heap's toe overlap, the heap's earth wins, which
+	-- is the impact face and is right.
 	-- THE TWO SIDE BANKS ARE GRASSED (306l item 2), so they read as spurs of the same hill rather
 	-- than as two bare kerbs in front of it. 306m: ROUNDED, and in two chains that run into the
 	-- heap's own toe, so neither end is a square block (306m item 2).
@@ -358,6 +355,12 @@ function Build.writeTerrain(terrain: any, anchor: Vector3, shelf: number, row, l
 		for _, one in ipairs(RangeData.bankBalls(anchor, layout, leg, dir)) do
 			ball(Vector3.new(one.x, shelf + one.rise, one.z), one.radius, layout.SURFACE[one.surface])
 		end
+	end
+	-- THE HILL, ALL OF IT EARTH, THEN REPAINTED (below). A ball is one material, and the crest's
+	-- grass / face's earth split runs THROUGH the middle of the crown balls -- so the split is a
+	-- `ReplaceMaterial` over the back half and not a second chain of fills.
+	for _, one in ipairs(Build.bermFills(anchor, shelf, layout, dir)) do
+		ball(one.at, one.radius, layout.SURFACE[one.surface])
 	end
 	-- ...AND THE GRASSED HALF IS A REPAINT (306m). `ReplaceMaterial` changes a voxel's material and
 	-- NOTHING else, so it can split a ball the fills could not: earth uprange of the apex line
