@@ -1,3 +1,60 @@
+## 2026-10-30, Task 312 -- THE FLIP IS DONE AND CORRECT; `main` IS RED, SO NO `PASS` LINE EXISTS
+
+**FOR THE DIRECTOR. This is not a request for another round -- no round was run, because none can be.**
+
+The task itself is finished and proven: `src/shared/Flags/init.luau` has `AIM_REWIND` and
+`ZONES_FOLLOW_GAIT` at `default = true` (code commit `3feb648f`, branch `task-312-aim-on`, pushed),
+and `python tools/flags.py --place dev` reads both back from the DEV place as
+`default=on override=none effective=on`. That is Karen's OK carried into the shipped default, which
+is all the dispatch asked for.
+
+**What blocks it: the merge gate wants `[harness] PASS` for the code commit, and `main` cannot
+produce one either.**
+
+| run | commit | result |
+|---|---|---|
+| branch | `3feb648fa67d359e2303710deba2c432375af714` | `[harness] FAIL: 32/34 checks @ 3feb648fa67d359e2303710deba2c432375af714 (clean tree) scope=all` |
+| **CONTROL, merge-base** | `cc058bf49f6072553df07d7e33b282ca1ec72336` | `[harness] FAIL: 32/34 checks @ cc058bf49f6072553df07d7e33b282ca1ec72336 (clean tree) scope=all` |
+
+Same count, same single failure in both, 3 runs out of 3:
+
+> `failed [client] rifle_client.spec:747 Expected value "rifle" (string), got "shotgun" (string) instead`
+
+`rifle_client.spec` line 747 is `expect(drawn).to.equal("rifle")`: the spec equips the rifle, waits up
+to 60 frames for `Camera.Viewmodel.weaponId()` to become `"rifle"`, and the viewmodel is still drawing
+the shotgun. **It is NOT the flake the dispatch names** (`weapon_shot.spec.luau:1490`), and it is not
+this change: both flipped flags are read server-side (`src/server/Weapon/init.luau`,
+`src/server/Boar/init.luau`) and neither reaches the client viewmodel's drawn weapon. Per
+Vnight-1027 the control run above is pasted rather than the word "flake" being used -- and with 3/3
+across two commits, flake is NOT what this looks like. `main` looks genuinely red.
+
+**So `tools/review.sh` was not run.** `tools/agents.py` refuses a review request that cannot paste a
+`PASS` line for its code commit, and manufacturing one would be the exact thing rule 10 and the
+harness-before-review gate exist to stop. `reviews/task-312/REQUEST.md` is written, committed and
+accurate, so the round can be run unchanged the moment `main` is green.
+
+**THE DECISION IS THE DIRECTOR'S, and these are the options as the Builder sees them:**
+
+1. **Fix `main` first** (a task for whoever owns `rifle_client.spec` / the viewmodel draw path), then
+   rebase this one-file branch and run its single round. Cleanest, and it stops the next task hitting
+   the same wall.
+2. **Declare `rifle_client.spec:747` a known red on `main`** with a stated reason, and let 312 merge
+   on the control pair above plus CI. That is a gate exception and only the Director may make it.
+
+**ONE MORE THING THE DIRECTOR SHOULD KNOW -- the DEV Studio had to be recovered, and it was done
+without touching Karen's place.** At the start of the session the only DEV-ish Studio was a
+crash-recovery document, `136410205938347_AutoRecovery_0.rbxl`, whose `game.PlaceId` reads **0**, so
+the harness failed `Studio has the DEV place open` and `tools/flags.py` refused outright. The real
+DEV place was opened from the Studio start page's Recents, its *Auto Recovery File Found* prompt was
+answered **Ignore** (the autosave file is untouched on disk), and Rojo `:34872` was connected --
+its confirm dialog listed exactly one change, `ReplicatedStorage > Flags`, with no removals, and was
+accepted after being looked at. **Karen's Forest Test was never opened, stopped, focused or written,
+and `tools/flags.py` was never run against it** (standing rule K, L-056/L-101). The stale
+AutoRecovery window was left open and untouched rather than closed, because discarding a crash
+recovery of DEV is not the Builder's call (rule 7).
+
+---
+
 ## Task 306 B7 round 3: Director authorisation
 
 **The Director, 2026-10-29 14:30 UTC, transcribed verbatim and marked as the Director's:**
