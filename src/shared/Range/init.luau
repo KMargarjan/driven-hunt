@@ -928,6 +928,14 @@ function Range.bermColumns(anchor: Vector3, layout, downrange: number?)
 	local count = math.max(1, math.floor(width / math.max(1, berm.crestStepStuds) + 0.5))
 	local step = width / count
 	local minX = Range.bermPosition(anchor, layout, dir).X - width / 2
+	-- QUARTER STUDS, AND THAT IS NOT TIDINESS. A band's box is a `CFrame` and a `Vector3`, both
+	-- float32, so `(shelf + h/2) - h/2` comes back a ten-thousandth off the shelf for an arbitrary
+	-- `h` -- and "every box stands FROM the terrace" (rule E) is asserted to 1e-6. On a quarter
+	-- stud every height, half-height and `k/steps` share is a binary fraction and the identity is
+	-- exact. `range.spec`'s own float32 lesson, in `footprintFor`'s comment, one step further in.
+	local function quarter(value: number): number
+		return math.floor(value * 4 + 0.5) / 4
+	end
 	local out = {}
 	for i = 1, count do
 		local x = minX + (i - 0.5) * step
@@ -939,8 +947,13 @@ function Range.bermColumns(anchor: Vector3, layout, downrange: number?)
 		out[#out + 1] = {
 			x = x,
 			width = step,
-			top = math.max(1, top),
-			run = layout.BERM.slopeRun * (0.55 + 0.45 * math.clamp(wave2, 0, 1)),
+			top = math.max(1, quarter(top)),
+			-- NEVER MORE THAN `slopeRun`: the toe is what the far lane clears, so it is a bound and
+			-- not an average. `quarter` rounds to nearest, so the factor's own ceiling is 1.
+			run = math.min(
+				layout.BERM.slopeRun,
+				quarter(layout.BERM.slopeRun * (0.55 + 0.45 * math.clamp(wave2, 0, 1)))
+			),
 		}
 	end
 	return out

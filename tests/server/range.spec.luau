@@ -4362,12 +4362,13 @@ return function()
 				local tallest = bands[#bands]
 				local column = nil
 				for _, c in ipairs(columns) do
-					if math.abs(c.x - tallest.at.Position.X) < 1e-6 then
+					if math.abs(c.x - tallest.at.Position.X) < 1e-2 then
 						column = c
 					end
 				end
 				expect(column).to.be.ok()
-				expect(math.abs(tallest.size.Y - (column :: any).top) < 1e-6).to.equal(true)
+				-- 1e-2: the box's size is float32 and the column's top is a double (same lesson).
+				expect(math.abs(tallest.size.Y - (column :: any).top) < 1e-2).to.equal(true)
 			end
 			TestKit.note(
 				string.format(
@@ -4728,15 +4729,16 @@ return function()
 			expect(LAYOUT.APRON_STUDS).to.equal(20)
 			expect(LAYOUT.SPOT_COUNT).to.equal(6)
 			expect(LAYOUT.SPOT_SPACING_STUDS).to.equal(24)
-			-- 306k item 2 RAISED THE HEAP AND MOVED NOTHING ELSE: the two numbers that place it in Z
-			-- -- `depth` and `behindStuds` -- are still B8's, so the batter's toe is where B8 left it
-			-- (188 - `slopeRun` = 176) and the far face stays off the road her playtest measured at
-			-- 200-275 studs. The toe is 3 studs UPRANGE of the 179-stud lane and has been since B8,
-			-- which this raise DEEPENS rather than creates -- queued, not claimed fixed (review
-			-- round 1 note).
+			-- 306l MOVED THE HEAP BACK AND NOTHING ELSE: `behindStuds` 13 -> 17 and `slopeRun`
+			-- 12 -> 8 put the battered toe at 184, five studs clear of the 179 lane it used to
+			-- stand 7.28 studs of earth on (306l first measure). `height` and `depth` are B8's
+			-- still, and the far face at 200 keeps the terrace's own edge (202) two studs clear of
+			-- the asphalt the same profile read at 204.
 			expect(LAYOUT.BERM.height).to.equal(21)
 			expect(LAYOUT.BERM.depth).to.equal(8)
-			expect(LAYOUT.BERM.behindStuds).to.equal(13)
+			expect(LAYOUT.BERM.behindStuds).to.equal(17)
+			expect(LAYOUT.BERM.slopeRun).to.equal(8)
+			expect(RangeData.bermToeClearance(LAYOUT)).to.equal(5)
 			expect(LAYOUT.BANK.size).to.equal(Vector3.new(12, 18, 14))
 			expect(LAYOUT.BANK.beyondStuds).to.equal(6)
 			expect(LAYOUT.MAT.size).to.equal(Vector3.new(8, 1, 8))
