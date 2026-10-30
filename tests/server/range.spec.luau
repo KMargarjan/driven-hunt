@@ -268,7 +268,9 @@ return function()
 	-- SIX MEN, ONE PER STATION, UNLESS THE CASE SAYS OTHERWISE (step B7). Every case written before
 	-- B7 is about what the six lanes DO, and since B7 a station nobody is measured at has no animal
 	-- at all -- so the default crowd is a full firing line and the occupancy cases pass their own.
-	local function startRange(fake, now, roll, serverTime, players)
+	-- `solo` IS THE SHIPPED SEAM (task 313): nil leaves `Range.start` on `Range.SOLO_VIEW`, which is
+	-- what every case written before 313 passes, so a case can drive BOTH states of the flag.
+	local function startRange(fake, now, roll, serverTime, players, solo)
 		local root = Instance.new("Folder")
 		if players == nil then
 			players = newCrowd({ 1, 2, 3, 4, 5, 6 }).players
@@ -280,6 +282,7 @@ return function()
 			boars = fake,
 			players = players,
 			now = now,
+			solo = solo,
 			-- THE RING'S OWN CLOCK, separate from the owner's step clock (review round 1, finding 1):
 			-- the shipped one is `GetServerTimeNow()` and the owner's is `os.clock()`, two epochs.
 			serverTime = serverTime,
@@ -5495,24 +5498,35 @@ return function()
 			expect(math.abs(width(3, 179) / LAYOUT.WINDOW_STUDS - 4.333) < 0.01).to.equal(true)
 		end)
 
+		-- WRITTEN OUT, NOT DELEGATED (the Reviewer, round 1, finding 1): the OFF span is the mat
+		-- plus or minus half the shipped window, and the OFF leg is the lane's centre plus or minus
+		-- half `laneLength` -- the two arithmetics this file shipped with, typed from the dials and
+		-- not read back out of the functions the new code delegates to.
 		it("is bit-for-bit the shipped window with the flag off", function()
+			local half = LAYOUT.WINDOW_STUDS / 2
+			local legHalf = RangeData.laneLength(LAYOUT) / 2
 			for spot = 1, LAYOUT.SPOT_COUNT do
-				local wantMin, wantMax = RangeData.windowSpanFor(AT, spot, LAYOUT)
+				local matX = RangeData.matPosition(AT, spot, LAYOUT).X
 				for _, lane in ipairs(LAYOUT.DISTANCES_STUDS) do
 					local lo, hi = RangeData.sightSpanFor(AT, spot, LAYOUT, lane, false)
-					expect(lo).to.equal(wantMin)
-					expect(hi).to.equal(wantMax)
+					expect(lo).to.equal(matX - half)
+					expect(hi).to.equal(matX + half)
 					-- nil is OFF too: an unwired caller gets today's game, never the wide span
 					local nilLo, nilHi = RangeData.sightSpanFor(AT, spot, LAYOUT, lane, nil)
-					expect(nilLo).to.equal(wantMin)
-					expect(nilHi).to.equal(wantMax)
+					expect(nilLo).to.equal(matX - half)
+					expect(nilHi).to.equal(matX + half)
 				end
 				for leg = 1, 4 do
 					for _, dir in ipairs({ 1, -1 }) do
-						local was = RangeData.laneEnds(AT, LAYOUT, leg, dir, spot, LAYOUT.DISTANCE_STUDS)
-						local now = RangeData.laneEndsFor(AT, LAYOUT, leg, dir, spot, LAYOUT.DISTANCE_STUDS, false)
-						expect(was.X).to.equal(now.X)
-						expect(was.Z).to.equal(now.Z)
+						local centre = RangeData.laneCentre(AT, LAYOUT, dir, spot, LAYOUT.DISTANCE_STUDS)
+						-- an odd leg runs to the east end, an even one back west
+						local want = if (leg % 2) == 1 then centre.X + legHalf else centre.X - legHalf
+						local shipped = RangeData.laneEnds(AT, LAYOUT, leg, dir, spot, LAYOUT.DISTANCE_STUDS)
+						local off = RangeData.laneEndsFor(AT, LAYOUT, leg, dir, spot, LAYOUT.DISTANCE_STUDS, false)
+						expect(shipped.X).to.equal(want)
+						expect(off.X).to.equal(want)
+						expect(shipped.Z).to.equal(centre.Z)
+						expect(off.Z).to.equal(centre.Z)
 					end
 				end
 			end
@@ -5629,6 +5643,114 @@ return function()
 			expect(math.abs(RangeData.crossingSeconds(width(1, 107), run) - 2.96) < 0.01).to.equal(true)
 			expect(math.abs(RangeData.crossingSeconds(width(3, 179), run) - 6.50) < 0.01).to.equal(true)
 			expect(math.abs(RangeData.crossingSeconds(LAYOUT.WINDOW_STUDS, run) - 1.50) < 0.01).to.equal(true)
+		end)
+	end)
+
+	-- ====================== TASK 313: THE SERVER'S OWN DOOR CARRIES IT ========================
+	-- The Reviewer, round 1, finding 2: the whole server side had no case. These are design
+	-- 14.1 items 9 and 11, driven through `Range.start` and read on the wire.
+	-- Design: docs/design/shooting-range-lobby.md sections 7.3, 9.4, 14.1
+	describe("the span: the server's own door (task 313)", function()
+		local function manOn(spot: number, id: number)
+			local man = manOnMat(spot) :: any
+			man.UserId = id
+			man.Name = "Solo" .. tostring(id)
+			return man
+		end
+
+		local function rootOf(man): BasePart
+			return (man.Character :: Instance):FindFirstChild("HumanoidRootPart") :: BasePart
+		end
+
+		-- ITEM 11: `alone` and the window are the SERVER's measurement and they ride the record.
+		-- Both states of the flag are entered BY PARAMETER, so the case holds whichever way the
+		-- flag's default is set.
+		it("carries solo through Range.start onto the record: alone, and the wide window", function()
+			for _, solo in ipairs({ true, false }) do
+				Range.stop()
+				local fake = newFakeBoars()
+				local clock, now = newClock()
+				local man = manOn(4, 1340)
+				local players = function()
+					return { man }
+				end
+				expect(select(1, startRange(fake, now, nil, nil, players, solo))).to.equal(true)
+				advance(fake, clock, 1)
+				expect((Range.positionOf(man))).to.equal(4)
+				-- ONE PICK MAKES HIS RECORD, which is the board's audience.
+				expect(Range.onRequest(man, { spot = 4, go = true })).to.equal(true)
+				local record = Range.recordOf(man) :: any
+				expect(record).to.be.ok()
+				expect(record.alone).to.equal(solo)
+				local matX = RangeData.matPosition(ANCHOR, 4, LAYOUT).X
+				local width = record.window.maxX - record.window.minX
+				if solo then
+					-- THE WIDE SPAN REACHED THE WIRE: his own station's, at the lane his own trial
+					-- is running, and at the narrowest nearly twice the shipped window.
+					local lane = (Range.trialOf(4) :: any).distanceStuds
+					local lo, hi = RangeData.sightSpanFor(ANCHOR, 4, LAYOUT, lane, true)
+					expect(record.window.minX).to.equal(lo)
+					expect(record.window.maxX).to.equal(hi)
+					expect(width > LAYOUT.WINDOW_STUDS * 1.9).to.equal(true)
+				else
+					-- ...AND WITH IT OFF, TODAY'S GAME, written out from the dials and not read
+					-- back out of `windowSpanFor` (finding 1's rule, applied here too).
+					expect(record.window.minX).to.equal(matX - LAYOUT.WINDOW_STUDS / 2)
+					expect(record.window.maxX).to.equal(matX + LAYOUT.WINDOW_STUDS / 2)
+					expect(width).to.equal(LAYOUT.WINDOW_STUDS)
+				end
+				-- OFF THE MAT, `alone` IS FALSE AND THERE IS NO WINDOW -- with solo ON as well: a
+				-- man who walked away is not kept inside an isolated picture (item 11).
+				rootOf(man).Position = RangeData.matPosition(ANCHOR, 4, LAYOUT) + Vector3.new(0, 0, -600)
+				local away = Range.recordOf(man) :: any
+				expect(away.alone).to.equal(false)
+				expect(away.window).to.equal(nil)
+				expect(away.mine).to.equal(nil)
+				Range.stop()
+			end
+		end)
+
+		-- ITEM 9, and design 7.3's own sentence: the station EDGE. He walks from 2 to 4 and asks
+		-- for NOTHING; the push that follows names station 4's trunk and `spanPushes` counts it.
+		it("pushes station 4's trunk when he walks from 2 to 4, with no request", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			local man = manOn(2, 1341)
+			local players = function()
+				return { man }
+			end
+			-- SOLO OFF, so the window on the wire is today's arithmetic whatever the flag is set to.
+			expect(select(1, startRange(fake, now, nil, nil, players, false))).to.equal(true)
+			local sent = {}
+			Range.setRemotes({
+				RangeBoard = {
+					FireClient = function(_, _player, payload)
+						table.insert(sent, payload)
+					end,
+				},
+			})
+			advance(fake, clock, 1)
+			expect(Range.onRequest(man, { spot = 2, go = true })).to.equal(true)
+			expect(#sent).to.equal(1)
+			local twoTrunk = sent[1].record.mine
+			expect(twoTrunk).to.equal(fake.at(2).root)
+
+			local pushes = Range.stats().spanPushes
+			local before = #sent
+			rootOf(man).Position = RangeData.matPosition(ANCHOR, 4, LAYOUT)
+			advance(fake, clock, 1)
+			-- ONE EDGE, ONE COUNT, and he was told without asking for anything.
+			expect(Range.stats().spanPushes).to.equal(pushes + 1)
+			expect(#sent > before).to.equal(true)
+			local last = sent[#sent].record
+			expect(last.mine).to.equal(fake.at(4).root)
+			expect(last.mine).never.to.equal(twoTrunk)
+			local fourX = RangeData.matPosition(ANCHOR, 4, LAYOUT).X
+			expect(last.window.minX).to.equal(fourX - LAYOUT.WINDOW_STUDS / 2)
+			expect(last.window.maxX).to.equal(fourX + LAYOUT.WINDOW_STUDS / 2)
+			Range.setRemotes(nil)
+			Range.stop()
 		end)
 	end)
 end
