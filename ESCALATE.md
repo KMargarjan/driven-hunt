@@ -741,3 +741,74 @@ does not climb under a real player's keys either, the treestand is unreachable i
 
 Needs: a Director ops step (a human at the keys, one screenshot from the deck), or a task to give
 the stand a working way up.
+
+---
+
+## 2026-10-30 -- Task 313: NEEDS KAREN. The two-player click, and her Forest Test is in Play
+
+**Builder, task 313 (solo on the whole range). Two blocks, both human-only. Nothing is claimed that
+was not run.**
+
+### 1. NEEDS KAREN -- `test2`'s Start click, in the DEV Studio
+
+The change adds `src/client/Range/Solo.luau` and `tests/client/range_solo.spec.luau`, and this task
+put `src/client/Range/` into `TWO_PLAYER_PATHS` on purpose (a per-player PICTURE is exactly what one
+client cannot evidence -- learning flag L-158). So `tools/agents.py needs_two_player` answers
+
+```
+needs_two_player: ['src/client/Range/Solo.luau', 'tests/client/range_solo.spec.luau']
+```
+
+and `tools/review.sh` will refuse the review round until the `[harness2]` line for the code commit
+is pasted. `python tools/studio_mcp.py test2` printed its own NEEDS KAREN and ran nothing:
+
+```
+[harness2] NEEDS KAREN, once, in Studio -- StudioMCP CANNOT start this test itself
+[harness2] FAIL: 11/13 checks @ fd60936d05f053da72d26676866925e166453fb9 (clean tree)
+```
+
+**The exact clicks, in the `Driven Hunt DEV` Studio window (the LEFT one):**
+
+1. Test tab -> Clients and Servers -> Players: **2** -> **Start**.
+2. Leave the windows alone; the harness reads them.
+3. When it says so, press **Cleanup** in the Test tab.
+
+The one-player gate is GREEN at that same commit and needs nothing:
+`[harness] PASS: 34/34 checks @ fd60936d05f053da72d26676866925e166453fb9 (clean tree) scope=all`.
+
+**A `--scope auto` run does NOT get round this one**, and that is worth writing down rather than
+discovering twice: this change edits `tools/studio_mcp.py` (the new client spec has to join a
+`SCOPE_SPECS` scope or CI goes red), and the harness's own rule is that `tools/studio_mcp.py`
+resolves to `all` -- so `--scope auto` is tagged `scope=all`, which is full evidence and therefore
+asks for the `[harness2]` line again. The scoped-run exemption and this change cannot both apply.
+
+### 2. NEEDS KAREN / Director -- her Forest Test is IN PLAY, so the live proofs were not taken
+
+At 13:09 UTC the desktop shows `Driven Hunt Forest Test` **in a Play session** (a client with the
+ESC menu open, one player in the server list), and Karen typing in the Director's chat beside it.
+The dispatch's own instruction for this state is *"if the Forest Test is in Play, Karen may be
+playing: STOP and report, do not stop her session"*, so **her session was not touched** and
+
+- the **CLICK PROOF** (real `E` at station 2, a boar released at WALK then RUN, the frames of it
+  entering one side and leaving the other, the crossing time, one real hit at RUN on the far half),
+  and
+- the **FOREST TEST PROOF** (two clients at stations 2 and 4, one frame from each)
+
+were **NOT TAKEN IN HER PLACE**. What stands instead is named as such in the review request: the
+span's arithmetic is proved in `range.spec` (6 stations x 3 lanes, the three bounds recomputed from
+the dials, T6 swept over 36 combinations) and the picture's rules in `range_solo.spec`, and anything
+measured in DEV is labelled `DEV ONLY`. **Nobody has seen the wide crossing on a screen.**
+
+### What is asked
+
+1. Karen: the three clicks in 1, once, in the DEV window -- that unblocks the review round and the
+   merge gate.
+2. The Director: when her Forest Test is free, the live proofs in 2, with `RANGE_SOLO` switched on
+   for that place (`python tools/flags.py --place forest set RANGE_SOLO on`; never `clear`, rule K).
+   The flag is born OFF, so her build is unchanged until somebody turns it on.
+3. A correction to carry into the design, found while building and already in the spec's comment:
+   **the realised worst off-axis angle is 28.07 degrees, not the 39.81 that
+   `docs/design/shooting-range-lobby.md` section 3.3 tabulates.** 39.81 is the angle to the
+   backstop's corner; the hut-bay bound cuts station 1's span at 107 studs to +-53.07 before the
+   backstop ever binds, so the widest aim point is 57.07 off axis and not 89.17. The design is
+   conservative in the safe direction, and the fact is now asserted in `range.spec`.
