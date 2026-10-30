@@ -3936,7 +3936,7 @@ return function()
 				if RangeData.bermIsTerrain(case.row) then
 					expect(bermPart).to.equal(nil)
 					expect((b.folder :: any):FindFirstChild(RangeData.bankName(1))).to.equal(nil)
-					bermZ = Range.Build.bermBoxes(anchor, b.shelf, LAYOUT, case.dir)[1].at.Position.Z
+					bermZ = RangeData.bermBalls(anchor, LAYOUT, case.dir)[1].z
 				else
 					expect(bermPart).to.be.ok()
 					expect((b.folder :: any):FindFirstChild(RangeData.bankName(1))).to.be.ok()
@@ -4011,12 +4011,19 @@ return function()
 				expect(rect.minZ >= MEASURED.minZ).to.equal(true)
 				expect(rect.maxZ <= MEASURED.maxZ).to.equal(true)
 			end
-			for _, boxen in ipairs(Range.Build.bermBoxes(anchor, b.shelf, LAYOUT, -1)) do
-				local at, size = boxen.at.Position, boxen.size
-				expect(at.X - size.X / 2 >= MEASURED.minX).to.equal(true)
-				expect(at.X + size.X / 2 <= MEASURED.maxX).to.equal(true)
-				expect(at.Z - size.Z / 2 >= MEASURED.minZ).to.equal(true)
-				expect(at.Z + size.Z / 2 <= MEASURED.maxZ).to.equal(true)
+			for _, one in ipairs(Range.Build.bermFills(anchor, b.shelf, LAYOUT, -1)) do
+				expect(one.at.X - one.radius >= MEASURED.minX).to.equal(true)
+				expect(one.at.X + one.radius <= MEASURED.maxX).to.equal(true)
+				expect(one.at.Z - one.radius >= MEASURED.minZ).to.equal(true)
+				expect(one.at.Z + one.radius <= MEASURED.maxZ).to.equal(true)
+			end
+			for leg = 1, 2 do
+				for _, one in ipairs(RangeData.bankBalls(anchor, LAYOUT, leg, -1)) do
+					expect(one.x - one.radius >= MEASURED.minX).to.equal(true)
+					expect(one.x + one.radius <= MEASURED.maxX).to.equal(true)
+					expect(one.z - one.radius >= MEASURED.minZ).to.equal(true)
+					expect(one.z + one.radius <= MEASURED.maxZ).to.equal(true)
+				end
 			end
 			TestKit.note(
 				string.format(
@@ -4043,9 +4050,14 @@ return function()
 		-- with its reason. Both arms are entered by parameter: the DEV row writes nothing even when a
 		-- terrain is handed to it, because `fill` is data and not a branch on a world's name.
 		local function fakeTerrain()
-			local rec = { fills = {}, replaces = {} }
+			local rec = { fills = {}, balls = {}, replaces = {} }
 			function rec:FillBlock(at: CFrame, size: Vector3, material: Enum.Material)
 				table.insert(rec.fills, { at = at, size = size, material = material })
+			end
+			-- 306m: THE HILL IS `FillBall` NOW, recorded APART from the boxes -- so "every box the
+			-- terrace writer makes is a terrace box" stays a claim this file can make.
+			function rec:FillBall(at: Vector3, radius: number, material: Enum.Material)
+				table.insert(rec.balls, { at = at, radius = radius, material = material })
 			end
 			function rec:ReplaceMaterial(region: Region3, resolution: number, from: Enum.Material, to: Enum.Material)
 				table.insert(rec.replaces, { region = region, resolution = resolution, from = from, to = to })
@@ -4096,7 +4108,8 @@ return function()
 			local b = built :: any
 			expect(b.shelf).to.equal(FOREST_SHELF)
 			expect(#terrain.fills > 0).to.equal(true)
-			expect(b.terrainFills).to.equal(#terrain.fills)
+			-- 306m: the counter covers BOTH primitives -- the terrace's boxes and the heap's balls.
+			expect(b.terrainFills).to.equal(#terrain.fills + #terrain.balls)
 			expect(b.terrainReplaces).to.equal(#terrain.replaces)
 			local grid = LAYOUT.FILL.GRID_STUDS
 			-- AIR BEFORE GRASS, PER RECTANGLE: the terrace is cut in two pieces (the keep-out case
@@ -4157,59 +4170,79 @@ return function()
 			)
 			-- THE AIR'S BOTTOM IS THE VOXEL BOUNDARY AT OR BELOW THE SHELF, and the grass is a solid
 			-- bank DOWN to it -- never a floating slab (`Lobby.Field`'s two measured lessons).
-			local heaps = {}
 			local function anchorOf(at)
 				return Vector3.new((FOREST_ROW :: any).x, at.shelf, (FOREST_ROW :: any).z)
 			end
+			-- 306m: EVERY BOX IS A TERRACE BOX NOW. The heap is `FillBall` (recorded apart), so this
+			-- loop may state the stronger claim: a `FillBlock` is the air cut or the grass bank under
+			-- it, and nothing else writes a box at all.
 			for _, call in ipairs(terrain.fills) do
 				local bottom = call.at.Position.Y - call.size.Y / 2
 				local top = call.at.Position.Y + call.size.Y / 2
 				if call.material == Enum.Material.Air then
 					expect(math.abs(bottom - math.floor(b.shelf / grid) * grid) < 1e-6).to.equal(true)
 					expect(top >= b.shelf + LAYOUT.FILL.CLEAR_STUDS - 1e-6).to.equal(true)
-				elseif top <= b.shelf + 1e-6 then
-					expect(math.abs(bottom - (b.shelf - LAYOUT.FILL.DEPTH_STUDS)) < 1e-6).to.equal(true)
 				else
-					-- A HEAP: it stands ON the terrace, never in a hole and never in the air (rule E).
-					expect(math.abs(bottom - b.shelf) < 1e-6).to.equal(true)
-					heaps[string.format("%.3f|%.3f", top, call.at.Position.Z)] = true
+					expect(top <= b.shelf + 1e-6).to.equal(true)
+					expect(math.abs(bottom - (b.shelf - LAYOUT.FILL.DEPTH_STUDS)) < 1e-6).to.equal(true)
 				end
 			end
-			-- EVERY HEAP IS ONE THE OWNER PREDICTS, AND EVERY PREDICTED ONE WAS FILLED. Counting the
-			-- calls would count CHUNKS -- a 232-stud berm is four of them at `CHUNK_STUDS` 64 -- so the
-			-- set is keyed on what a heap IS: its top and where it stands. The two banks share both.
+			-- NOTHING FLOATS, AND FOR A CHAIN OF BALLS THAT IS NOT "its bottom is the shelf" (rule E).
+			-- Per column, sorted by rise: the LOWEST ball is buried (its bottom at or under the
+			-- terrace) and every ball above it OVERLAPS the one below -- centre distance strictly
+			-- under the two radii -- so the heap is one solid body standing from the ground and no
+			-- clump or cap hangs in the air.
+			local chains = {}
+			for _, one in ipairs(RangeData.bermBalls(anchorOf(b), LAYOUT, -1)) do
+				local key = string.format("%.3f", one.x)
+				chains[key] = chains[key] or {}
+				table.insert(chains[key], one)
+			end
+			local counted = 0
+			for _, chain in pairs(chains) do
+				table.sort(chain, function(left, right)
+					return left.rise < right.rise
+				end)
+				expect(chain[1].rise - chain[1].radius <= 1e-6).to.equal(true)
+				for index = 2, #chain do
+					local lower, upper = chain[index - 1], chain[index]
+					local gap =
+						math.sqrt((upper.rise - lower.rise) ^ 2 + (upper.z - lower.z) ^ 2 + (upper.x - lower.x) ^ 2)
+					expect(gap < lower.radius + upper.radius).to.equal(true)
+				end
+				counted += 1
+			end
+			expect(counted).to.equal(#RangeData.bermColumns(anchorOf(b), LAYOUT, -1))
+			-- ...AND THE SCRUB IS EMBEDDED IN THE CREST IT STANDS ON, by the same rule.
+			for _, clump in ipairs(RangeData.bermScrubPoints(anchorOf(b), LAYOUT, -1)) do
+				expect(clump.rise - clump.radius < clump.top).to.equal(true)
+				expect(clump.rise + clump.radius > clump.top).to.equal(true)
+			end
+			-- EVERY BALL THE OWNER PREDICTS WAS FILLED, AND NOTHING ELSE WAS -- keyed on what a ball
+			-- IS, where its centre stands and how wide it is. THE COUNT IS ANCHORED OUTSIDE the
+			-- producer (306l review round 1, finding 2): taken only from `bermFills`, this block
+			-- passed with the producer returning nothing at all.
 			local wanted = {}
-			for _, box in ipairs(Range.Build.bermBoxes(anchorOf(b), b.shelf, LAYOUT, -1)) do
-				wanted[string.format("%.3f|%.3f", box.at.Position.Y + box.size.Y / 2, box.at.Position.Z)] = true
+			local function ballKey(x, y, z, radius)
+				return string.format("%.3f|%.3f|%.3f|%.3f", x, y, z, radius)
+			end
+			for _, one in ipairs(Range.Build.bermFills(anchorOf(b), b.shelf, LAYOUT, -1)) do
+				wanted[ballKey(one.at.X, one.at.Y, one.at.Z, one.radius)] = true
 			end
 			for leg = 1, 2 do
-				local bank = RangeData.bankPosition(anchorOf(b), LAYOUT, leg, -1)
-				wanted[string.format("%.3f|%.3f", b.shelf + LAYOUT.BANK.size.Y, bank.Z)] = true
+				for _, one in ipairs(RangeData.bankBalls(anchorOf(b), LAYOUT, leg, -1)) do
+					wanted[ballKey(one.x, b.shelf + one.rise, one.z, one.radius)] = true
+				end
 			end
-			local seen, want = 0, 0
-			for key in pairs(heaps) do
-				expect(wanted[key]).to.equal(true)
-				seen += 1
-			end
+			local want = 0
 			for _ in pairs(wanted) do
 				want += 1
 			end
-			expect(seen).to.equal(want)
-			-- ONE HEAP PER PREDICTED BOX (the hill's columns, their bands and its scrub) PLUS the two
-			-- banks -- which share a (top, Z) key, so the banks add one.
-			local predicted = {}
-			for _, box in ipairs(Range.Build.bermBoxes(anchorOf(b), b.shelf, LAYOUT, -1)) do
-				predicted[string.format("%.3f|%.3f", box.at.Position.Y + box.size.Y / 2, box.at.Position.Z)] = true
+			for _, call in ipairs(terrain.balls) do
+				expect(wanted[ballKey(call.at.X, call.at.Y, call.at.Z, call.radius)]).to.equal(true)
 			end
-			local distinct = 0
-			for _ in pairs(predicted) do
-				distinct += 1
-			end
-			expect(want).to.equal(distinct + 1)
-			-- ...AND THE COUNT IS ANCHORED OUTSIDE `bermBoxes` (review round 1, finding 2): taken
-			-- only from the producer, this block passed with the producer returning nothing at all.
-			-- One heap per column at the very least, whatever shape the columns take.
-			expect(distinct >= #RangeData.bermColumns(anchorOf(b), LAYOUT, -1)).to.equal(true)
+			expect(#terrain.balls).to.equal(want)
+			expect(want > #RangeData.bermColumns(anchorOf(b), LAYOUT, -1)).to.equal(true)
 			parent:Destroy()
 		end)
 
@@ -4271,157 +4304,283 @@ return function()
 			parent:Destroy()
 		end)
 
-		-- 306l item 2: AN EARTH HILL, NOT A WALL. The shipped box had one level crest and one level
-		-- toe, and from bench 2 that is what it read as (306l-BEFORE-boar-zoom.png). This case
-		-- asserts the three things that make it a hill: the crest is not one line, the toe is not
-		-- one line, and only the IMPACT FACE is bare earth.
-		it("fills an uneven earth hill: a grassed crest and back, a bare battered face, scrub on top", function()
+		-- 306l item 2 AND 306m items 1, 2 AND 4: AN EARTH HILL, NOT A WALL AND NOT A BATTLEMENT.
+		-- 306l built the heap out of BOXES -- one grassed core and four bands per 12-stud column --
+		-- and from the bench that read as a row of square crenellations with vertical sides, with a
+		-- square block for each side bank (306l-R2-AFTER-marker-crop.png, 306l-R2-AFTER-deck2-crop.png;
+		-- Karen: "a mountain not high but like in real life ... earth formed mountain").
+		-- 306m keeps every number 306l measured -- the toe, the terrace edge, the crest heights -- and
+		-- changes only the SHAPE: `Terrain:FillBall`, which writes partial voxel occupancy and so draws
+		-- curved, where `FillBlock` draws a vertical face and a flat top.
+		it("fills a rolling earth hill out of balls: no box, no step in the skyline, no vertical face", function()
 			local anchor = Vector3.new((FOREST_ROW :: any).x, FOREST_SHELF, (FOREST_ROW :: any).z)
-			local boxes = Range.Build.bermBoxes(anchor, FOREST_SHELF, LAYOUT, -1)
+			local balls = RangeData.bermBalls(anchor, LAYOUT, -1)
 			local columns = RangeData.bermColumns(anchor, LAYOUT, -1)
 			local scrub = RangeData.bermScrubPoints(anchor, LAYOUT, -1)
-			expect(#columns > 8).to.equal(true)
-			expect(#boxes).to.equal(#columns * (1 + LAYOUT.BERM.slopeSteps) + #scrub)
-			-- EVERY BOX STANDS FROM THE TERRACE, so the heap is solid and nothing floats (rule E).
-			for _, box in ipairs(boxes) do
-				expect(math.abs((box.at.Position.Y - box.size.Y / 2) - FOREST_SHELF) < 1e-6).to.equal(true)
-			end
-			local face = RangeData.bermCrestFaceZ(anchor, LAYOUT, -1)
-			-- THE SURFACES SPLIT AT THE CREST'S NEAR FACE: bare earth is uprange of it and nothing
-			-- else is; grass and scrub are at or behind it and nothing else is.
-			local earth, hill, bush = 0, 0, 0
-			for _, box in ipairs(boxes) do
-				-- this row runs with `dir` -1, so UPRANGE (towards the shooter) is +Z.
-				local near = box.at.Position.Z + box.size.Z / 2
-				local far = box.at.Position.Z - box.size.Z / 2
-				if box.surface == "BERM" then
-					earth += 1
-					-- THE FACE AND ONLY THE FACE: from the crest's near face out to the designed run.
-					expect(math.abs(far - face) < 1e-6).to.equal(true)
-					expect(near <= face + LAYOUT.BERM.slopeRun + 1e-6).to.equal(true)
-					expect(near > face + 1e-6).to.equal(true)
-				elseif box.surface == "HILL" then
-					hill += 1
-					-- THE CREST AND THE BACK: it begins at the face and nothing of it is uprange of it.
-					expect(math.abs(near - face) < 1e-6).to.equal(true)
-					expect(math.abs(far - (face - LAYOUT.BERM.depth)) < 1e-6).to.equal(true)
-				else
-					bush += 1
-					expect(box.surface).to.equal("SCRUB")
-					-- NOT ON THE FACE: the clump's own uprange face is behind the bare lip.
-					expect(near <= face - LAYOUT.BERM.scrubBackStuds + 1e-6).to.equal(true)
-					expect(far >= face - LAYOUT.BERM.depth - 1e-6).to.equal(true)
+			expect(#columns > 40).to.equal(true)
+			expect(#balls > #columns).to.equal(true)
+			expect(#scrub).to.equal(LAYOUT.BERM.scrubCount)
+			-- THE UNION'S OWN SURFACE, which is the only thing a picture can show: the highest point any
+			-- ball reaches over (x, z). Every claim below is asserted against THIS and not against the
+			-- dials that made it.
+			local function surfaceAt(x: number, z: number): number
+				local best = 0
+				for _, one in ipairs(balls) do
+					local inside = one.radius * one.radius - (x - one.x) ^ 2 - (z - one.z) ^ 2
+					if inside > 0 then
+						best = math.max(best, one.rise + math.sqrt(inside))
+					end
 				end
+				return best
 			end
-			expect(hill).to.equal(#columns)
-			expect(earth).to.equal(#columns * LAYOUT.BERM.slopeSteps)
-			expect(bush).to.equal(#scrub)
-			expect(bush >= 3).to.equal(true)
-			-- THE CREST IS NOT ONE LINE. At least four distinct tops, and the spread is studs and
-			-- not noise -- the one thing a box could never have.
-			local tops, distinct, lo, hi = {}, 0, math.huge, -math.huge
+			-- this row runs with `dir` -1, so UPRANGE (towards the shooter) is +Z and the toe is the
+			-- heap's +Z-most earth.
+			local apex = RangeData.bermCrestFaceZ(anchor, LAYOUT, -1)
+			local toe = RangeData.bermToeZ(anchor, LAYOUT, -1)
+			local back = RangeData.bermPosition(anchor, LAYOUT, -1).Z - LAYOUT.BERM.depth / 2
+			local west, east = RangeData.bermSpanFor(anchor, LAYOUT)
+			-- (1) NOTHING THE HILL IS MADE OF IS A BOX, and the writer's own calls say so: every ball the
+			-- owner predicts was filled, and every `FillBlock` left is a terrace rectangle -- air above
+			-- the shelf, or the grass bank whose top IS the shelf.
+			local built, _, parent, terrain = buildOnTerrain(FOREST_ROW, slopedGround)
+			local shelf = (built :: any).shelf
+			expect(#terrain.balls).to.equal(#balls + #scrub + 2 * #RangeData.bankBalls(anchor, LAYOUT, 1, -1))
+			for _, call in ipairs(terrain.fills) do
+				local top = call.at.Position.Y + call.size.Y / 2
+				expect(call.material == Enum.Material.Air or top <= shelf + 1e-6).to.equal(true)
+			end
+			-- (2) THE SKYLINE ROLLS AND NEVER STEPS. Sampled along the crest at one column's width, no
+			-- two neighbours differ by more than `crestStepMaxStuds`, and inside the shoulders -- the
+			-- stretch a man down the lane actually sees -- by more than `crestStepInnerMaxStuds`. A 306l
+			-- column was a 12-stud BOX with a vertical side, so its step was its whole crest difference,
+			-- up to 3 studs, at a dead-regular 12-stud period: the crenellation itself.
+			local lo, hi, step, inner = math.huge, -math.huge, 0, 0
+			local previous, previousInner = nil, nil
 			for _, column in ipairs(columns) do
-				local key = string.format("%.2f", column.top)
-				if tops[key] == nil then
-					tops[key] = true
-					distinct += 1
+				local height = surfaceAt(column.x, apex)
+				-- the cap's top IS the column's crest, so the skyline is the crest line itself and not a
+				-- sample of something lower.
+				expect(math.abs(height - column.top) < 1e-6).to.equal(true)
+				lo, hi = math.min(lo, height), math.max(hi, height)
+				if previous ~= nil then
+					step = math.max(step, math.abs(height - previous))
 				end
-				lo, hi = math.min(lo, column.top), math.max(hi, column.top)
+				previous = height
+				if
+					math.min(column.x - west, east - column.x)
+					> LAYOUT.BERM.shoulderStuds + LAYOUT.BERM.crestStepStuds
+				then
+					if previousInner ~= nil then
+						inner = math.max(inner, math.abs(height - previousInner))
+					end
+					previousInner = height
+				else
+					previousInner = nil
+				end
 			end
-			expect(distinct >= 4).to.equal(true)
+			expect(step <= LAYOUT.BERM.crestStepMaxStuds).to.equal(true)
+			-- ...AND BETWEEN TWO CAPS, which is the one place a comb can appear and the place the
+			-- column sweep above cannot see (round 1, note). Two caps `crestStepStuds` apart dip
+			-- `capRadius - sqrt(capRadius^2 - (crestStepStuds/2)^2)` = 0.76 studs below the lower of
+			-- them; widen the columns past `2 * capRadius` and the caps stop touching and this is a
+			-- row of cusps instead.
+			local dip = LAYOUT.BERM.capRadius
+				- math.sqrt(math.max(0, LAYOUT.BERM.capRadius ^ 2 - (LAYOUT.BERM.crestStepStuds / 2) ^ 2))
+			local deepest = 0
+			for index = 2, #columns do
+				local left, right = columns[index - 1], columns[index]
+				local middle = surfaceAt((left.x + right.x) / 2, apex)
+				deepest = math.max(deepest, math.min(left.top, right.top) - middle)
+			end
+			expect(deepest <= dip + 0.1).to.equal(true)
+			expect(inner > 0).to.equal(true)
+			expect(inner <= LAYOUT.BERM.crestStepInnerMaxStuds).to.equal(true)
+			-- THE CREST IS STILL NOT ONE LINE, and the spread is studs and not noise.
 			expect(hi - lo >= 3).to.equal(true)
 			expect(hi <= LAYOUT.BERM.height + 1e-6).to.equal(true)
-			-- ...AND THE RIPPLE MAY NOT UNDO THE BACKSTOP (review round 1, finding 1; note 9.5 M5).
-			-- A man on the deck fires from `DECK_RISE_STUDS + AIM_RISE_STUDS` over the shelf, so
-			-- EVERY column the firing fan reaches at the crest face stands at least that tall. The
-			-- fan is `sightHalfWidthAt` past the outer mats, which is the same arithmetic the hut
-			-- case uses -- an UPPER bound alone let every column be one stud tall.
+			-- (3) NO VERTICAL FACE AND NO FLAT TOP: at every column the cross-section RISES all the way
+			-- from the toe to the apex and FALLS all the way to the back, sampled every stud. A box fails
+			-- this at its own face (0 to its full height in one sample); so does the pedestal the first
+			-- 306m draft simulated, which jumped 8.7 studs in one stud at 2.8 studs uprange of the apex.
+			-- The steepest 4-stud slope is MEASURED here and held to `faceMaxDegrees`, because the angle
+			-- is not free: this envelope is `slopeRun + depth` = 16 studs deep and `height` 21 tall, so
+			-- the shallowest possible steepest face is atan(21/8) = 69.1 degrees, and a 50-degree face
+			-- would need 17.6 studs of run -- a toe at 174, which is 4.6 studs INSIDE the 179 lane.
+			-- THE ONE-STUD RISE IS THE BOUND THAT DOES THE REJECTING (round 1, finding 1). A 4-stud
+			-- chord averages a jump with the slope under it, so it cannot see either shape this task
+			-- exists to kill: the pedestal's 8.7-stud jump reads about 75 deg over 4 studs, inside
+			-- `faceMaxDegrees`, and a box's face is a RISE, which the monotone pair alone allows.
+			-- Both fail `riseMaxStuds` -- 8.7 and the whole crest -- and the shipped frustum's worst
+			-- is 5.13. The 4-stud slope is kept beside it as the reported angle.
+			local sharpest, where, steepest = 0, 0, 0
+			for _, column in ipairs(columns) do
+				local profile = {}
+				for stud = 0, LAYOUT.BERM.slopeRun + LAYOUT.BERM.depth do
+					-- from the toe, walking downrange: uprange is +Z on this row, so downrange is -1 a stud.
+					profile[#profile + 1] = surfaceAt(column.x, toe - stud)
+				end
+				for index = 2, #profile do
+					local climbed = profile[index] - profile[index - 1]
+					if index - 1 <= LAYOUT.BERM.slopeRun then
+						expect(climbed >= -1e-6).to.equal(true)
+					else
+						expect(climbed <= 1e-6).to.equal(true)
+					end
+					steepest = math.max(steepest, math.abs(climbed))
+				end
+				-- THE APEX IS A RIDGE AND NOT A PLATEAU: strictly above BOTH its neighbours, so a
+				-- flat top of any width fails here -- `climbed` of exactly 0 satisfies the monotone
+				-- pair on both sides and would otherwise pass (round 1, finding 1).
+				local crest = LAYOUT.BERM.slopeRun + 1
+				expect(profile[crest] - profile[crest - 1] > 1e-6).to.equal(true)
+				expect(profile[crest] - profile[crest + 1] > 1e-6).to.equal(true)
+				-- ...and the crest is the column's own top.
+				expect(math.abs(profile[crest] - column.top) < 1e-6).to.equal(true)
+				for index = 1, #profile - 4 do
+					local slope = math.abs(profile[index + 4] - profile[index]) / 4
+					if slope > sharpest then
+						sharpest, where = slope, column.x
+					end
+				end
+			end
+			expect(steepest <= LAYOUT.BERM.riseMaxStuds).to.equal(true)
+			local degrees = math.deg(math.atan(sharpest))
+			expect(degrees <= LAYOUT.BERM.faceMaxDegrees).to.equal(true)
+			-- NOT a target, a MEASUREMENT: the envelope cannot give 50 degrees, and a day when it can
+			-- should break this line rather than pass quietly.
+			expect(degrees > 50).to.equal(true)
+			-- (4) THE HEAP STAYS INSIDE 306l's ENVELOPE -- toe, back and span -- asserted against every
+			-- ball, cap and clump rather than against the dials that place them.
+			-- IN Z IT IS EXACT -- that is 306l item 1, the far lane's own clearance and the road's.
+			-- IN X THE END COLUMNS' EARTH ROLLS OUT BY THE BASE HALF-DEPTH, because a ball is round:
+			-- `bermWidthFor` is derived to COVER the corridor and both banks, and a rounded end dying
+			-- away `(slopeRun + depth) / 2` studs further out covers more, not less. The hard bound
+			-- in X is the censused rectangle of her own lot, which the terrace case asserts.
+			local roll = (LAYOUT.BERM.slopeRun + LAYOUT.BERM.depth) / 2
+			for _, group in ipairs({ balls, scrub }) do
+				for _, one in ipairs(group) do
+					expect(one.z - one.radius >= math.min(toe, back) - 1e-6).to.equal(true)
+					expect(one.z + one.radius <= math.max(toe, back) + 1e-6).to.equal(true)
+					expect(one.x - one.radius >= west - roll - 1e-6).to.equal(true)
+					expect(one.x + one.radius <= east + roll + 1e-6).to.equal(true)
+				end
+			end
+			-- ...and the crest itself -- every cap -- stays inside the derived width.
+			for _, column in ipairs(columns) do
+				expect(column.x >= west - 1e-6).to.equal(true)
+				expect(column.x <= east + 1e-6).to.equal(true)
+			end
+			-- (5) ...AND THE RIPPLE MAY NOT UNDO THE BACKSTOP (306l review round 1, finding 1). A man on
+			-- the deck fires from `DECK_RISE_STUDS + AIM_RISE_STUDS` over the shelf, so every column the
+			-- firing fan reaches at the crest face stands at least that tall.
 			local deckEye = HighSeats.DIMS.DECK_RISE_STUDS + HighSeats.AIM_RISE_STUDS
-			local fan = RangeData.sightHalfWidthAt(LAYOUT, math.abs(face - anchor.Z))
+			local fan = RangeData.sightHalfWidthAt(LAYOUT, math.abs(apex - anchor.Z))
 			local fanMin = anchor.X - fan
 			local fanMax = anchor.X + RangeData.spotSpan(LAYOUT) + fan
 			local inFan = 0
 			for _, column in ipairs(columns) do
 				if column.x + column.width / 2 > fanMin and column.x - column.width / 2 < fanMax then
 					inFan += 1
-					expect(column.top >= deckEye).to.equal(true)
+					expect(surfaceAt(column.x, apex) >= deckEye).to.equal(true)
 				end
 			end
-			expect(inFan >= #columns - 4).to.equal(true)
+			-- THE FAN IS COVERED, which is the claim that matters: the columns standing at least
+			-- `deckEye` tall span the whole firing fan. The shoulders fall 32 studs outside each end
+			-- of it, which is why a count of columns is not the bound.
+			expect(inFan * LAYOUT.BERM.crestStepStuds >= (fanMax - fanMin) - 2 * LAYOUT.BERM.crestStepStuds).to.equal(
+				true
+			)
 			expect(deckEye >= 17.5).to.equal(true)
-			-- ...AND THE TOE IS NOT ONE LINE EITHER, and never reaches past the designed run.
-			local runs, runLo, runHi = 0, math.huge, -math.huge
-			local seenRun = {}
+			-- (6) THE TOE IS NOT ONE LINE EITHER, and never reaches past the designed run. The BATTER's
+			-- own run is what is left of it after the crest's half width, so it has to stay positive.
+			local runLo, runHi = math.huge, -math.huge
 			for _, column in ipairs(columns) do
 				expect(column.run <= LAYOUT.BERM.slopeRun + 1e-6).to.equal(true)
-				expect(column.run > 0).to.equal(true)
-				local key = string.format("%.2f", column.run)
-				if seenRun[key] == nil then
-					seenRun[key] = true
-					runs += 1
-				end
+				expect(column.run - LAYOUT.BERM.capRadius > 0).to.equal(true)
 				runLo, runHi = math.min(runLo, column.run), math.max(runHi, column.run)
 			end
-			expect(runs >= 4).to.equal(true)
 			expect(runHi - runLo >= 1).to.equal(true)
-			-- EACH COLUMN'S BANDS ARE A BATTER: the lower the band, the further uprange it reaches.
-			local byColumn = {}
-			for _, box in ipairs(boxes) do
-				if box.surface == "BERM" then
-					local key = string.format("%.3f", box.at.Position.X)
-					byColumn[key] = byColumn[key] or {}
-					table.insert(byColumn[key], box)
+			-- (7) THE SURFACES: every ball of the heap is written BARE EARTH and the crest and back are
+			-- REPAINTED grass by one `ReplaceMaterial` over the apex-to-back band -- the only way a split
+			-- can run through the middle of a ball. The band starts above the terrace skin, because
+			-- `SURFACE.BERM` and `SURFACE.LANE` are the same material and a band at the shelf would turn
+			-- the terrace's own downrange strip to grass. The scrub is written last, so nothing paints it.
+			for _, one in ipairs(balls) do
+				expect(one.surface).to.equal("BERM")
+			end
+			-- THE SCRUB IS NOT DOWN THE FACE (306l's own assertion, restored for a ball): a clump's
+			-- uprange edge reaches `scrubRadius - scrubBackStuds` past the apex at most, which is
+			-- the crest's top and not the face a round lands on.
+			for _, clump in ipairs(scrub) do
+				-- this row runs with `dir` -1, so UPRANGE is +Z and the clump's uprange edge is z + r.
+				local reach = (clump.z + clump.radius) - apex
+				expect(reach <= LAYOUT.BERM.scrubRadius - LAYOUT.BERM.scrubBackStuds + 1e-6).to.equal(true)
+			end
+			local grassed = nil
+			for _, call in ipairs(terrain.replaces) do
+				if call.from == LAYOUT.SURFACE.BERM and call.to == LAYOUT.SURFACE.HILL then
+					grassed = call
 				end
 			end
-			for _, bands in pairs(byColumn) do
-				expect(#bands).to.equal(LAYOUT.BERM.slopeSteps)
-				for index = 2, #bands do
-					local previous, band = bands[index - 1], bands[index]
-					expect(band.size.Y > previous.size.Y).to.equal(true)
-					expect(band.size.Z < previous.size.Z).to.equal(true)
+			expect(grassed).to.be.ok()
+			local region = (grassed :: any).region
+			-- WHERE THE BAND STARTS IS THE WHOLE CLAIM (round 1, finding 2): started at the TOE it
+			-- would grass the impact face -- the half a shot travels to and the half Karen looks at
+			-- -- and a size-only check passes on that. So both faces are pinned to the apex-to-back
+			-- band within the one voxel `ExpandToGrid` may add on each side.
+			local grid = LAYOUT.FILL.GRID_STUDS
+			local bandLow, bandHigh = math.min(apex, back), math.max(apex, back)
+			local lowFace = region.CFrame.Position.Z - region.Size.Z / 2
+			local highFace = region.CFrame.Position.Z + region.Size.Z / 2
+			expect(lowFace <= bandLow + 1e-6 and lowFace >= bandLow - grid - 1e-6).to.equal(true)
+			expect(highFace >= bandHigh - 1e-6 and highFace <= bandHigh + grid + 1e-6).to.equal(true)
+			expect(region.Size.Z >= LAYOUT.BERM.depth).to.equal(true)
+			expect(region.Size.Z <= LAYOUT.BERM.depth + 2 * grid).to.equal(true)
+			expect(region.CFrame.Position.Y - region.Size.Y / 2 > shelf + 1e-6).to.equal(true)
+			expect(terrain.balls[#terrain.balls].material).to.equal(LAYOUT.SURFACE.SCRUB)
+			-- (8) THE TWO BANKS ARE ROUNDED MOUNDS THAT RUN INTO THE HEAP, not two square blocks (306m
+			-- item 2): two chains each, the radius TAPERS to the cap, and the cap's own top is the bank's
+			-- designed height -- so the mound is as tall as the block was and has no face.
+			for leg = 1, 2 do
+				local chain = RangeData.bankBalls(anchor, LAYOUT, leg, -1)
+				expect(#chain >= 6).to.equal(true)
+				local zs = {}
+				for _, one in ipairs(chain) do
+					expect(one.surface).to.equal("HILL")
+					zs[string.format("%.3f", one.z)] = true
 				end
-				-- the tallest band meets the column's own crest, so face and crest are one surface.
-				local tallest = bands[#bands]
-				local column = nil
-				for _, c in ipairs(columns) do
-					if math.abs(c.x - tallest.at.Position.X) < 1e-2 then
-						column = c
-					end
+				local distinctZ = 0
+				for _ in pairs(zs) do
+					distinctZ += 1
 				end
-				expect(column).to.be.ok()
-				-- 1e-2: the box's size is float32 and the column's top is a double (same lesson).
-				expect(math.abs(tallest.size.Y - (column :: any).top) < 1e-2).to.equal(true)
+				expect(distinctZ).to.equal(2)
+				table.sort(chain, function(left, right)
+					return left.rise < right.rise
+				end)
+				expect(chain[1].radius > chain[#chain].radius).to.equal(true)
+				expect(math.abs(chain[#chain].radius - LAYOUT.BERM.capRadius) < 1e-6).to.equal(true)
+				expect(math.abs(chain[#chain].rise + chain[#chain].radius - LAYOUT.BANK.size.Y) < 1e-6).to.equal(true)
 			end
 			TestKit.note(
 				string.format(
-					"range 306l hill: %d columns, crest %.1f..%.1f studs (%d distinct), toe run %.1f..%.1f, %d scrub clumps",
+					"range 306m hill: %d columns x %d balls, crest %.2f..%.2f, skyline step %.2f (inner %.2f, "
+						.. "cap dip %.2f), steepest one-stud rise %.2f studs, 4-stud slope %.1f deg at x %.0f "
+						.. "(floor atan(21/8) = 69.1), runs %.2f..%.2f, %d scrub",
 					#columns,
+					#balls,
 					lo,
 					hi,
-					distinct,
+					step,
+					inner,
+					deepest,
+					steepest,
+					degrees,
+					where,
 					runLo,
 					runHi,
 					#scrub
 				)
 			)
-			-- THE BANKS ARE FILLED WHERE THE PARTS WOULD HAVE STOOD -- one answer to "where is a bank".
-			local _, _, parent, terrain = buildOnTerrain(FOREST_ROW, slopedGround)
-			for leg = 1, 2 do
-				local at = RangeData.bankPosition(anchor, LAYOUT, leg, -1)
-				local found = false
-				for _, call in ipairs(terrain.fills) do
-					if
-						math.abs(call.at.Position.X - at.X) < 1e-6
-						and math.abs(call.at.Position.Z - at.Z) < 1e-6
-						and math.abs(call.size.Y - LAYOUT.BANK.size.Y) < 1e-6
-					then
-						found = true
-						-- GRASSED, like the crest and the back (306l item 2).
-						expect(call.material).to.equal(LAYOUT.SURFACE.HILL)
-					end
-				end
-				expect(found).to.equal(true)
-			end
 			parent:Destroy()
 		end)
 
@@ -4447,9 +4606,9 @@ return function()
 					expect(dir * (toe - lane.Z) > 0).to.equal(true)
 					expect(math.abs(dir * (toe - lane.Z) - clear) < 1e-6).to.equal(true)
 					-- ...AND NO BOX OF THE HEAP REACHES PAST IT, which is what the lane actually meets.
-					for _, box in ipairs(Range.Build.bermBoxes(at, at.Y, LAYOUT, dir)) do
-						-- the box's UPRANGE-most face: the one the lane would meet.
-						local nearest = box.at.Position.Z - dir * box.size.Z / 2
+					for _, one in ipairs(Range.Build.bermFills(at, at.Y, LAYOUT, dir)) do
+						-- the ball's UPRANGE-most point: the one the lane would meet.
+						local nearest = one.at.Z - dir * one.radius
 						expect(dir * (nearest - lane.Z) > 0).to.equal(true)
 					end
 					-- every one of the three lanes stands on clear ground, not only the farthest.
@@ -4474,7 +4633,7 @@ return function()
 		it("paints the mown lane, then the firing line over every mat, post and bench", function()
 			local built, _, parent, terrain = buildOnTerrain(FOREST_ROW, slopedGround)
 			local b = built :: any
-			expect(#terrain.replaces).to.equal(3) -- two terrace rectangles, then the line
+			expect(#terrain.replaces).to.equal(4) -- two terrace rectangles, the line, then the hill's grass
 			for _, call in ipairs(terrain.replaces) do
 				-- `ReplaceMaterial` takes the voxel resolution and nothing else (task 244).
 				expect(call.resolution).to.equal(LAYOUT.FILL.GRID_STUDS)
@@ -4483,9 +4642,16 @@ return function()
 			-- THE LINE LAST. Not because the lane's repaint could undo it -- that one is AROUND -> LANE
 			-- and cannot touch `Limestone` -- but because the order is the one the owner states, and a
 			-- repaint aimed at LANE must run after everything that writes LANE (review round 1, note).
-			expect(last.from).to.equal(LAYOUT.SURFACE.LANE)
-			expect(last.to).to.equal(LAYOUT.SURFACE.LINE)
-			for index = 1, #terrain.replaces - 1 do
+			-- 306m ADDED A FOURTH, AND IT IS LAST OF ALL: the hill's own grass line (BERM -> HILL).
+			-- It cannot undo the firing line either -- that one is `Limestone` and this reads
+			-- `Ground` -- and it runs in a band two voxels ABOVE the shelf, so it cannot reach the
+			-- terrace's own `Ground` surface, which shares the heap's material exactly.
+			expect(last.from).to.equal(LAYOUT.SURFACE.BERM)
+			expect(last.to).to.equal(LAYOUT.SURFACE.HILL)
+			local lineCall = terrain.replaces[#terrain.replaces - 1]
+			expect(lineCall.from).to.equal(LAYOUT.SURFACE.LANE)
+			expect(lineCall.to).to.equal(LAYOUT.SURFACE.LINE)
+			for index = 1, #terrain.replaces - 2 do
 				expect(terrain.replaces[index].from).to.equal(LAYOUT.SURFACE.AROUND)
 				expect(terrain.replaces[index].to).to.equal(LAYOUT.SURFACE.LANE)
 			end

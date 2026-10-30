@@ -229,44 +229,29 @@ function Build.cutBoxes(rect, shelf: number, layout): (CFrame, Vector3, CFrame, 
 		Vector3.new(sizeX, layout.FILL.DEPTH_STUDS, sizeZ)
 end
 
--- PURE. THE BERM AS AN EARTH HILL (306l item 2), in the order it is filled. One entry per box,
--- each carrying the `SURFACE` KEY it is written with, so "what is grass and what is bare earth" is
--- data on the box and never a second branch in the writer.
---   * one GRASSED core per column, from the crest's near face to the back, at that column's top;
---   * `slopeSteps` BARE EARTH bands on the uprange face of each column, the lowest reaching
---     furthest -- the impact face, and the only half a shot ever travels to;
---   * the SCRUB clumps along the crest, last, so nothing paints over them.
--- Every box stands FROM the terrace (rule E): a heap, never a floating slab.
-function Build.bermBoxes(anchor: Vector3, shelf: number, layout, dir: number): { any }
-	local at = RangeData.bermPosition(anchor, layout, dir)
-	local depth = layout.BERM.depth
-	local face = RangeData.bermCrestFaceZ(anchor, layout, dir)
-	local steps = math.max(1, math.floor(layout.BERM.slopeSteps or 1))
-	local columns = RangeData.bermColumns(anchor, layout, dir)
+-- PURE. THE HILL AS BALLS (306m item 1), in the order it is filled: `RangeData.bermBalls`'s
+-- inscribed cone of earth, then the scrub clumps on the crest, each carrying the `SURFACE` KEY it
+-- is written with so "what is grass and what is bare earth" stays data on the fill.
+-- 306l built this from boxes -- one grassed core plus `slopeSteps` bands per column -- and from the
+-- bench that read as a castle battlement: square columns with vertical sides and flat tops
+-- (306l-R2-AFTER-marker-crop.png). A ball writes PARTIAL voxel occupancy, so the renderer's
+-- isosurface is curved; that is the whole reason the shape moved to balls.
+--   Terrain:FillBall https://create.roblox.com/docs/reference/engine/classes/Terrain#FillBall
+-- Research note: docs/research/2026-10-28-the-range-in-the-lobby.md section 10.
+function Build.bermFills(anchor: Vector3, shelf: number, layout, dir: number): { any }
 	local out = {}
-	for _, column in ipairs(columns) do
+	for _, ball in ipairs(RangeData.bermBalls(anchor, layout, dir)) do
 		out[#out + 1] = {
-			at = CFrame.new(column.x, shelf + column.top / 2, at.Z),
-			size = Vector3.new(column.width, column.top, depth),
-			surface = "HILL",
+			at = Vector3.new(ball.x, shelf + ball.rise, ball.z),
+			radius = ball.radius,
+			surface = ball.surface,
 		}
 	end
-	for _, column in ipairs(columns) do
-		for k = 1, steps do
-			local height = column.top * k / steps
-			local reach = column.run * (steps + 1 - k) / steps
-			out[#out + 1] = {
-				at = CFrame.new(column.x, shelf + height / 2, face - dir * reach / 2),
-				size = Vector3.new(column.width, height, reach),
-				surface = "BERM",
-			}
-		end
-	end
+	-- THE SCRUB LAST, so nothing paints over it.
 	for _, clump in ipairs(RangeData.bermScrubPoints(anchor, layout, dir)) do
-		local top = clump.top + clump.size.Y
 		out[#out + 1] = {
-			at = CFrame.new(clump.x, shelf + top / 2, clump.z),
-			size = Vector3.new(clump.size.X, top, clump.size.Z),
+			at = Vector3.new(clump.x, shelf + clump.rise, clump.z),
+			radius = clump.radius,
 			surface = "SCRUB",
 		}
 	end
@@ -275,8 +260,9 @@ end
 
 -- THE ONE TERRAIN WRITE IN THIS SYSTEM, and `terrain` is an ARGUMENT so no spec can write a
 -- place's ground (design 8.2; `Lobby.Field.fill`'s own discipline). AIR first, then grass, then
--- the earth that stands on it, then the two materials -- in any other order each step eats the
--- one before it. Returns the fill count and the replace count, so which path a build took is a
+-- the terrace's own two repaints, then the banks and the earth that stand on it, then the hill's
+-- grass line -- in any other order each step eats the one before it (the order moved in B10 and
+-- again in 306m; round 1, note). Returns the fill count and the replace count, so which path a build took is a
 -- number in `Range.stats()` rather than a belief.
 function Build.writeTerrain(terrain: any, anchor: Vector3, shelf: number, row, layout, dir: number): (number, number)
 	local fills, replaces = 0, 0
@@ -325,6 +311,25 @@ function Build.writeTerrain(terrain: any, anchor: Vector3, shelf: number, row, l
 		)
 		replaces += 1
 	end
+	-- ...and the same call over an arbitrary box, for the hill's own grass line.
+	local function repaintBox(
+		minZ: number,
+		maxZ: number,
+		minX: number,
+		maxX: number,
+		minY: number,
+		maxY: number,
+		from: Enum.Material,
+		to: Enum.Material
+	)
+		terrain:ReplaceMaterial(
+			Region3.new(Vector3.new(minX, minY, minZ), Vector3.new(maxX, maxY, maxZ)):ExpandToGrid(skin),
+			skin,
+			from,
+			to
+		)
+		replaces += 1
+	end
 	for _, rect in ipairs(rects) do
 		repaint(rect, layout.SURFACE.AROUND, layout.SURFACE.LANE)
 	end
@@ -335,16 +340,50 @@ function Build.writeTerrain(terrain: any, anchor: Vector3, shelf: number, row, l
 	-- `AROUND -> LANE` and stood in a brown skirt. Nothing in the repaints writes LANE after this,
 	-- so the reason the old order existed is satisfied by moving the fills rather than the repaints.
 	-- In DEV these are parts and this whole function never runs.
-	for _, box in ipairs(Build.bermBoxes(anchor, shelf, layout, dir)) do
-		fill(box.at, box.size, layout.SURFACE[box.surface])
+	-- NO CHUNKING FOR A BALL: `CHUNK_STUDS` exists because a wide `FillBlock` met a per-region
+	-- voxel ceiling, and the widest ball here is `(slopeRun + depth)/2` = 8 studs in RADIUS, so 16
+	-- across -- a quarter of the 64-stud chunk.
+	local function ball(at: Vector3, radius: number, material: Enum.Material)
+		terrain:FillBall(at, radius, material)
+		fills += 1
 	end
+	-- THE BANKS BEFORE THE HEAP, so the LAST ball written anywhere is a scrub clump and nothing can
+	-- paint over it. Where the bank's mound and the heap's toe overlap, the heap's earth wins, which
+	-- is the impact face and is right.
 	-- THE TWO SIDE BANKS ARE GRASSED (306l item 2), so they read as spurs of the same hill rather
-	-- than as two bare kerbs in front of it -- the heap's grassed half, like its crest and back.
+	-- than as two bare kerbs in front of it. 306m: ROUNDED, and in two chains that run into the
+	-- heap's own toe, so neither end is a square block (306m item 2).
 	for leg = 1, 2 do
-		local bank = RangeData.bankPosition(anchor, layout, leg, dir)
-		local size = layout.BANK.size
-		fill(CFrame.new(bank.X, shelf + size.Y / 2, bank.Z), size, layout.SURFACE.HILL)
+		for _, one in ipairs(RangeData.bankBalls(anchor, layout, leg, dir)) do
+			ball(Vector3.new(one.x, shelf + one.rise, one.z), one.radius, layout.SURFACE[one.surface])
+		end
 	end
+	-- THE HILL, ALL OF IT EARTH, THEN REPAINTED (below). A ball is one material, and the crest's
+	-- grass / face's earth split runs THROUGH the middle of the crown balls -- so the split is a
+	-- `ReplaceMaterial` over the back half and not a second chain of fills.
+	for _, one in ipairs(Build.bermFills(anchor, shelf, layout, dir)) do
+		ball(one.at, one.radius, layout.SURFACE[one.surface])
+	end
+	-- ...AND THE GRASSED HALF IS A REPAINT (306m). `ReplaceMaterial` changes a voxel's material and
+	-- NOTHING else, so it can split a ball the fills could not: earth uprange of the apex line
+	-- (`bermCrestFaceZ`, the impact face) and grass from it back over the crest and the back slope.
+	-- FROM `2 * GRID` UP, and that is measured, not tidy: `SURFACE.BERM` and `SURFACE.LANE` are the
+	-- SAME material (`Ground`), so a band that reached the shelf would turn the terrace's own
+	-- downrange strip to grass. Two voxels up, `ExpandToGrid` cannot reach the terrace skin, and
+	-- what stays earth is the bottom 8 studs of the BACK slope -- which no lane can see.
+	local apexZ = RangeData.bermCrestFaceZ(anchor, layout, dir)
+	local backZ = RangeData.bermPosition(anchor, layout, dir).Z + dir * layout.BERM.depth / 2
+	local westX, eastX = RangeData.bermSpanFor(anchor, layout)
+	repaintBox(
+		math.min(apexZ, backZ),
+		math.max(apexZ, backZ),
+		westX,
+		eastX,
+		shelf + 2 * skin,
+		shelf + layout.BERM.height + layout.BERM.capRadius + skin,
+		layout.SURFACE.BERM,
+		layout.SURFACE.HILL
+	)
 	return fills, replaces
 end
 
