@@ -169,7 +169,10 @@ Flags.DEFAULTS = {
 		-- is the other half and is a different commit. So: dark until that has landed and
 		-- `<runs-dir>/305lag.py` reads one-signed at both distances -- the order `ESCALATE.md` asks
 		-- the Director for -- and then this is a one-line flip, which is what a flag is for.
-		default = false,
+		-- LIT 2026-10-30 (task 312). Both conditions above hold: `Body.attachVisual` re-pins the
+		-- trunk (`Body.luau`, `SetNetworkOwner(nil)`) and `305lag.py` read one-signed (ESCALATE.md).
+		-- KAREN, having played both flags lit by attribute: *"I am now comfurtable with shooting results"*.
+		default = true,
 		owner = "ServerScriptService.Weapon",
 		born = "2026-10-28 task 305",
 		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
@@ -183,7 +186,10 @@ Flags.DEFAULTS = {
 	-- run I need to aim in free space to hit boar ... aiming in nose no hit"*. MEASURED in her
 	-- place at RUN: the drawn nose is 0/83 frames inside any zone part (reviews/task-305c).
 	ZONES_FOLLOW_GAIT = {
-		default = false,
+		-- LIT 2026-10-30 (task 312). KAREN, having played both this and `AIM_REWIND` lit by
+		-- attribute in her Forest Test: *"shooting is improved verry well"* / *"I am now
+		-- comfurtable with shooting results"*, then *"yes"* to turning the improved aiming on.
+		default = true,
 		owner = "ServerScriptService.Boar",
 		born = "2026-10-28 task 305c",
 		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
