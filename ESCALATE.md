@@ -846,3 +846,67 @@ place.**
    backstop's corner; the hut-bay bound cuts station 1's span at 107 studs to +-53.07 before the
    backstop ever binds, so the widest aim point is 57.07 off axis and not 89.17. The design is
    conservative in the safe direction, and the fact is now asserted in `range.spec`.
+
+---
+
+## 2026-10-30 23:41 UTC -- TASK 315: round 2 returned one finding, and the dispatch caps the task at two rounds
+
+**Builder, task 315 (move the shooting range straight out of the shop door).** The dispatch said:
+*"Review: max 2 rounds; FINDINGS on round 2 -> ESCALATE.md and stop."* Round 2 returned one blocking
+finding, so I stopped. **The finding is correct and I am not disputing it.**
+
+### Where the branch stands -- clean and fully evidenced
+
+* Branch `task-315-range-from-shop`, pushed. **Code commit `c9086a27`**, and only paperwork follows it.
+* `[harness] PASS: 34/34 checks @ c9086a27cc3b39aec17b1300cc5f78afc382645c (clean tree) scope=all`
+* `test2` N/A -- `agents.needs_two_player` returns `[]` for this branch.
+* CI green on the pushed head.
+* Architect design PASS (`reviews/task-315/ARCH_RESULT.md`).
+* Every live proof in Karen's place was taken AT the code commit, and ten frames are described in
+  `reviews/task-315/REQUEST.md`.
+* **The feature itself works and was seen working**: the row of trees and the pine are gone
+  (`[lobby] the walk to the range: 12 of our trees not planted in the corridor, 1 of the world's
+  taken off it`, `[RangeBoot] footprint census: 0 foreign BaseParts`), the walk is 174.3 studs at
+  3.95 degrees off the door's own facing and dead level at 150.00 over 151 one-stud samples, and a
+  real `E` + real clicks released a target and landed a real shot (board `SHOTS 2 / HITS 1 /
+  CHEST 1 at 119 studs`).
+
+### The finding, and why it matters
+
+`reviews/task-315/RESULT.md` round 2, finding 1. **The production wiring has no spec.**
+`tests/server/lobby.spec.luau` drives `Build.build(...)` directly, so:
+
+* deleting `keepClear = world.keepClear` and `sightline = world.sightline` from `Lobby.tryBuild`'s
+  seam table reddens **nothing** -- and that is the one line between Karen's cleared corridor and all
+  twelve trees coming back;
+* deleting the two mirror lines `stats.sightlineDropped = built.sightlineDropped` /
+  `.sightlineCleared` reddens nothing either, and the boot line claim 6 rests on would print `0, 0`.
+
+It also caught a false sentence of mine: my round-2 request said *"deleting any
+`stats.sightlineDropped += 1` ... now reddens it"*. There are THREE such sites and the assertion is
+`> 0`, so deleting `treeLine`'s alone leaves the avenue's six and the case green. **That sentence is
+wrong and the record should read this correction beside it.**
+
+### What the fix is, so round 3 is cheap if the Director authorises one
+
+Exactly what the Reviewer named, and nothing else:
+
+1. One `tests/server/lobby_live.spec.luau` case that hands `keepClear` / `sightline` in **through
+   `Lobby.start`** (the `fresh(bin, function(world) ... end)` shape that file already uses for
+   `homeAreas`) and asserts `Lobby.stats().sightlineDropped` / `.sightlineCleared` carry
+   `Build.stats()`'s numbers -- and are `0` when the two seams are nil.
+2. In `lobby.spec`'s live-build case, assert the BREAKDOWN design section 15.1 item 11 asked for
+   (5..7 ring drops and 6 avenue drops) instead of `> 0`, **or** strike the "deleting any `+= 1`"
+   sentence from the request.
+
+That is a spec-only change; `src/` need not move, so the existing harness line and every live proof
+still cover the code.
+
+### What I need
+
+**The Director's decision**: authorise a round 3 for task 315 (`DIRECTOR_MAX_ROUNDS=3` is not needed
+-- `MAX_ROUNDS` is 3, so round 3 needs no environment override, only the Director lifting the
+dispatch's own two-round cap), or take the branch as it stands and decide the gap separately.
+
+**Nothing here needs Karen.** No click only she can make, and her Forest Test was returned to
+`localhost:34873` (her merged-main build) in Edit, with `RANGE_SOLO` untouched.
