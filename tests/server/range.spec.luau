@@ -5489,8 +5489,10 @@ return function()
 			-- symmetric about the line: station 6 mirrors station 1, station 4 mirrors station 3
 			expect(math.abs(width(6, 179) - width(1, 179)) < 1e-9).to.equal(true)
 			expect(math.abs(width(4, 179) - width(3, 179)) < 1e-9).to.equal(true)
-			-- ...and EVERY station gains: the narrowest span is still twice the shipped window
-			expect(width(1, 107) > 2 * LAYOUT.WINDOW_STUDS).to.equal(true)
+			-- ...and EVERY station gains: the NARROWEST span is 71.07 studs, 1.97x the shipped
+			-- window, and the widest is 156, 4.33x.
+			expect(width(1, 107) / LAYOUT.WINDOW_STUDS > 1.9).to.equal(true)
+			expect(math.abs(width(3, 179) / LAYOUT.WINDOW_STUDS - 4.333) < 0.01).to.equal(true)
 		end)
 
 		it("is bit-for-bit the shipped window with the flag off", function()
@@ -5567,9 +5569,19 @@ return function()
 				end
 			end
 			expect(swept).to.equal(36)
-			-- THE WIDEST ANGLE THIS RANGE MAY EVER BE OFFERED: 39.81 degrees, the built earth own
-			-- corner from the outermost mat (design 3.3). It was 9.55 before this task.
-			expect(math.abs(worstAngle - 39.81) < 0.05).to.equal(true)
+			-- THE WIDEST ANGLE THIS RANGE IS ACTUALLY OFFERED IS THE BAY'S, 28.07 degrees, and
+			-- MEASURED rather than taken from the design: section 3.3's table reads 39.81 for
+			-- station 1 at 107, which is the angle to the BACKSTOP's corner -- but the bay bound
+			-- cuts that lane's span to +-53.07 before the backstop ever binds, so the widest aim
+			-- point is 57.07 off axis and not 89.17. 39.81 is the BOUND; 28.07 is the fact, and
+			-- the margin between them is the design being conservative in the safe direction.
+			-- It was 9.55 before this task.
+			local bay = math.deg(math.atan(RangeData.bayHalfSlope(LAYOUT)))
+			local backstop = math.deg(math.atan(RangeData.backstopSlope(LAYOUT)))
+			expect(math.abs(worstAngle - bay) < 1e-6).to.equal(true)
+			expect(math.abs(worstAngle - 28.07) < 0.01).to.equal(true)
+			expect(worstAngle < backstop).to.equal(true)
+			expect(math.abs(backstop - 39.81) < 0.01).to.equal(true)
 			TestKit.note(
 				string.format("range 313: T6 swept %d combinations, worst off-axis %.2f deg", swept, worstAngle)
 			)
@@ -5578,17 +5590,28 @@ return function()
 		-- THE BOUND IS LOAD-BEARING: remove the shoulder trim and a shot leaves the full-height
 		-- earth. This is the case that fails if `backstopSpanFor` ever becomes `bermSpanFor`.
 		it("fails the sweep when the backstop is not trimmed by the shoulders", function()
+			-- STATION 3 AT 107, LOW SIDE, which is where the backstop bound actually binds: its
+			-- `lo` is 2.96 and the bay's is -5.07, so the trim is the only thing holding it. (At
+			-- station 1 the bay binds at every lane, which is why a case there proves nothing.)
+			local matX = RangeData.matPosition(AT, 3, LAYOUT).X
+			local tightLo = (RangeData.sightSpanFor(AT, 3, LAYOUT, 107, true))
+			local bay = matX - RangeData.bayHalfSlope(LAYOUT) * 107 + LAYOUT.SIGHT.silhouetteStuds
+			expect(tightLo > bay + 1e-6).to.equal(true)
+
 			local berm = table.clone(LAYOUT.BERM)
 			berm.shoulderStuds = 0
 			local loose = layoutWith({ BERM = berm })
 			local crest = math.abs(RangeData.bermCrestFaceZ(Vector3.new(0, 0, 0), LAYOUT, 1))
-			local _, tightMax = RangeData.backstopSpanFor(AT, LAYOUT)
-			local matX = RangeData.matPosition(AT, 1, LAYOUT).X
-			local _, hi = RangeData.sightSpanFor(AT, 1, loose, 107, true)
-			local x = matX + (hi + LAYOUT.SIGHT.silhouetteStuds - matX) * crest / 107
-			-- the loose span widest ray lands on the SHOULDER, outside the full-height earth
-			expect(x > tightMax + 1e-6).to.equal(true)
-			expect(x <= tightMax + LAYOUT.BERM.shoulderStuds + 1e-6).to.equal(true)
+			local tightMin = (RangeData.backstopSpanFor(AT, LAYOUT))
+			local looseLo = (RangeData.sightSpanFor(AT, 3, loose, 107, true))
+			expect(looseLo < tightLo - 1e-6).to.equal(true)
+			-- the loose span's widest ray lands on the SHOULDER, outside the full-height earth
+			local x = matX + (looseLo - LAYOUT.SIGHT.silhouetteStuds - matX) * crest / 107
+			expect(x < tightMin - 1e-6).to.equal(true)
+			expect(x >= tightMin - LAYOUT.BERM.shoulderStuds - 1e-6).to.equal(true)
+			-- ...and the SHIPPED span's same ray does not
+			local tight = matX + (tightLo - LAYOUT.SIGHT.silhouetteStuds - matX) * crest / 107
+			expect(tight >= tightMin - 1e-6).to.equal(true)
 		end)
 
 		-- THE REGRESSION SECTION 2 EXISTS TO PREVENT: the ISSF paces are a TIME across the ISSF
