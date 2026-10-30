@@ -138,3 +138,27 @@ flare is eight or nine studs across, so beside a road cut the ground under the o
 to three studs lower than the ground under the trunk, and the tree stands on the high side with its
 other roots in the air. Every tree the lobby plants is now seated against the LOWEST ground anywhere
 under its own footprint, read from the terrain alone.
+
+## 2026-10-30 ~09:00 and ~09:30 UTC — Karen, after shooting in her Forest Test (task 312)
+
+Verbatim, ~09:00 UTC:
+
+> shooting is improved verry well
+
+> great work
+
+> I am now comfurtable with shooting results
+
+Asked whether to turn the improved aiming on by default, verbatim, ~09:30 UTC:
+
+> yes
+
+**What she was playing.** Her Forest Test, on the merged build `cc058bf4`, with `AIM_REWIND` and
+`ZONES_FOLLOW_GAIT` both LIT BY `ServerStorage` ATTRIBUTE — that is, as overrides, while both rows
+still shipped `default = false`. So this verdict is on the flags' ON state, which is NOT what the
+shipped default was when she gave it. Task 312 is what makes the shipped default match the game she
+just approved; it changes no behaviour she has not already played.
+
+**What was done.** The two rows in `src/shared/Flags/init.luau` go to `default = true`. The rows are
+NOT retired here — that is a later retirement, with the losing branch archived under `backups/` and a
+note (rule 7).

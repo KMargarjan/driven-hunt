@@ -1,3 +1,90 @@
+## 2026-10-30, Task 312 -- THE FLIP IS DONE AND CORRECT; `main` IS RED, SO NO `PASS` LINE EXISTS
+
+**RESOLVED by task 314 (PR #294): `main` green.** The red was `Viewmodel.update`'s handle-cache
+throttle against a clock that went backwards; 312 merges `main` and runs its round unchanged.
+
+**FOR THE DIRECTOR. This is not a request for another round -- no round was run, because none can be.**
+
+The task itself is finished and proven: `src/shared/Flags/init.luau` has `AIM_REWIND` and
+`ZONES_FOLLOW_GAIT` at `default = true` (code commit `3feb648f`, branch `task-312-aim-on`, pushed),
+and `python tools/flags.py --place dev` reads both back from the DEV place as
+`default=on override=none effective=on`. That is Karen's OK carried into the shipped default, which
+is all the dispatch asked for.
+
+**What blocks it: the merge gate wants `[harness] PASS` for the code commit, and `main` cannot
+produce one either.**
+
+| run | commit | environment | result |
+|---|---|---|---|
+| branch, run 1 | `3feb648f` | 3 Studios, DEV just reopened | `FAIL: 30/34` (this failure **plus** a server failure that never recurred) |
+| branch, run 2 | `3feb648f` | 3 Studios | `[harness] FAIL: 32/34 checks @ 3feb648fa67d359e2303710deba2c432375af714 (clean tree) scope=all` |
+| **CONTROL, merge-base** | `cc058bf4` | 3 Studios | `[harness] FAIL: 32/34 checks @ cc058bf49f6072553df07d7e33b282ca1ec72336 (clean tree) scope=all` |
+| branch head, run 4 | `9b86aa40` | 3 Studios | `[harness] FAIL: 32/34 checks @ 9b86aa403bfd0cddb30083f70797b552d7a336be (clean tree) scope=all` |
+| branch head, run 5 | `9b86aa40` | **2 Studios, DEV unambiguous** | `[harness] FAIL: 32/34 checks @ 9b86aa403bfd0cddb30083f70797b552d7a336be (clean tree) scope=all` |
+
+**Five runs, five times the same single failure**, including once at the merge-base and once in a
+clean environment the harness resolved straight to `Driven Hunt DEV (placeId: 136410205938347)`:
+
+> `failed [client] rifle_client.spec:747 Expected value "rifle" (string), got "shotgun" (string) instead`
+
+`rifle_client.spec` line 747 is `expect(drawn).to.equal("rifle")`: the spec calls
+`humanoid:EquipTool(rifle)` and waits up to 60 iterations of 2 frames for
+`Camera.Viewmodel.weaponId()` to become `"rifle"`; the viewmodel is still drawing the shotgun when
+the wait runs out. The same run's own notes say `character holds [Shotgun]; backpack [Rifle]`.
+
+**It is NOT the flake the dispatch names** (`weapon_shot.spec.luau:1490`), and per Vnight-1027 the
+word "flake" is NOT used for it: the control run above is pasted instead, and 5/5 across two commits
+and two environments is not flaky behaviour.
+
+**AND IT IS NOT A CODE REGRESSION SINCE THE LAST GREEN RUN.** `git diff --name-only d33c318e..cc058bf4 -- src tests`
+is **empty**: nothing under `src/` or `tests/` changed between `d33c318e` -- where task 306m recorded
+`[harness] PASS: 34/34 checks @ d33c318e8c616fb93bc49953532a833c28d81607 (clean tree) scope=all`
+(`TASKS.md` row 306m) -- and today's `main`. The five commits in that range are all paperwork. So the
+code that fails today is byte-identical to code that passed 34/34, and **whatever turned `main` red
+is outside `src/` and `tests/`** -- the DEV place's own state, or Studio itself, are what is left.
+This change flips two server-side flags (`src/server/Weapon/init.luau`,
+`src/server/Boar/init.luau`); neither reaches the client viewmodel's drawn weapon.
+
+**So `tools/review.sh` was not run.** `tools/agents.py` refuses a review request that cannot paste a
+`PASS` line for its code commit, and manufacturing one would be the exact thing rule 10 and the
+harness-before-review gate exist to stop. `reviews/task-312/REQUEST.md` is written, committed and
+accurate, so the round can be run unchanged the moment `main` is green.
+
+**THE DECISION IS THE DIRECTOR'S, and these are the options as the Builder sees them:**
+
+1. **Find out what turned `main` red and fix it first**, then run this branch's single round
+   unchanged. Since no `src/`/`tests/` change can explain it, the first thing to check is the DEV
+   PLACE's own saved state and the Studio version -- see the recovery note below; the DEV place in
+   use now is the one freshly opened from the cloud, which is NOT necessarily the place the 34/34
+   run used. Cleanest, and it stops the next task hitting the same wall.
+2. **Declare `rifle_client.spec:747` a known red on `main`** with a stated reason, and let 312 merge
+   on the control pair above plus CI. That is a gate exception and only the Director may make it.
+
+**ONE MORE THING THE DIRECTOR SHOULD KNOW -- the DEV Studio had to be recovered, and it was done
+without touching Karen's place.** At the start of the session the only DEV-ish Studio was a
+crash-recovery document, `136410205938347_AutoRecovery_0.rbxl`, whose `game.PlaceId` reads **0**, so
+the harness failed `Studio has the DEV place open` and `tools/flags.py` refused outright. The real
+DEV place was opened from the Studio start page's Recents, its *Auto Recovery File Found* prompt was
+answered **Ignore** (the autosave file is untouched on disk), and Rojo `:34872` was connected --
+its confirm dialog listed exactly one change, `ReplicatedStorage > Flags`, with no removals, and was
+accepted after being looked at. **Karen's Forest Test was never opened, stopped, focused or written,
+and `tools/flags.py` was never run against it** (standing rule K, L-056/L-101). The stale
+stale AutoRecovery instance was then ENDED, after it twice refused a clean close and its autosave
+collided with the real DEV window's: a modal *Save File Failure* ("Failed to obtain a file lock on
+... `136410205938347_AutoRecovery_0.rbxl`") kept reappearing OVER the very window the harness runs
+in, which is a live hazard for every run. **Nothing was deleted: that autosave file is still on disk
+at 3,676,754 bytes**, so Karen can still recover whatever that crashed session held. After it, the
+harness resolves cleanly to `Driven Hunt DEV (placeId: 136410205938347)` -- and the failure above
+still reproduced, which is how run 5 rules the Studio ambiguity out as its cause.
+
+**WHAT THE DIRECTOR SHOULD WEIGH:** the DEV place now in use was opened fresh from the cloud. If the
+crashed session held DEV place state that tasks 306l/306m had written and never published, then the
+34/34 that 306m recorded was measured against a DEV place that no longer exists on this PC, and the
+red is the difference. The Builder cannot tell from here, and reconciling the DEV place is well
+outside one flag flip.
+
+---
+
 ## Task 306 B7 round 3: Director authorisation
 
 **The Director, 2026-10-29 14:30 UTC, transcribed verbatim and marked as the Director's:**
