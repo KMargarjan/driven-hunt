@@ -9,13 +9,22 @@
 return function()
 	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 	local StarterPlayer = game:GetService("StarterPlayer")
-	local Workspace = game:GetService("Workspace")
 	local Players = game:GetService("Players")
 
 	local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
 	local scripts = StarterPlayer:WaitForChild("StarterPlayerScripts")
 	local Solo = require(scripts:WaitForChild("Range"):WaitForChild("Solo"))
 	local Mask = require(scripts:WaitForChild("Range"):WaitForChild("Mask"))
+
+	-- NOTHING THIS SPEC STAGES IS PARENTED TO `Workspace`, AND THAT IS A MEASUREMENT, NOT TIDINESS.
+	-- Studio's Play runs ONE DataModel, so the server specs' world raycasts see anything a client
+	-- spec leaves in `Workspace` -- and these fakes sit at the origin, which is where
+	-- `deer_hitbox.spec` stages its animal. Parented here, they took that spec's flank ray and it
+	-- failed three runs out of three. Neither `Solo` nor `Mask` reads an ancestor above the root it
+	-- is handed (`Mask.start`'s `root`, `Solo`'s injected `players`) and `RangeData.isTarget` is a
+	-- `FindFirstAncestor` that works on a detached tree, so a detached scene tests the same code.
+	local holder = Instance.new("Folder")
+	holder.Name = "RangeSoloSpecScene"
 
 	-- A FAKE PLAYER IS A TABLE WITH A `Character`, which is all either module reads of one. The
 	-- real `Players` service is never touched: both seams are injected.
@@ -31,7 +40,7 @@ return function()
 			part.Parent = character
 			table.insert(made, part)
 		end
-		character.Parent = parent or Workspace
+		character.Parent = parent or holder
 		return { Name = name, Character = character }, made
 	end
 
@@ -147,7 +156,7 @@ return function()
 			trunk.Name = "SoloSpecTrunk"
 			trunk.Anchored = true
 			trunk.Parent = folder
-			folder.Parent = Workspace
+			folder.Parent = holder
 
 			-- THE PATHOLOGICAL CASE `range_mask.spec` ALREADY STAGES: a character model parented
 			-- INTO the targets folder. The FOLDER WINS, so `Solo` refuses every part of it.
