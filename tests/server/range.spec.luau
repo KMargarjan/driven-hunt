@@ -2320,6 +2320,48 @@ return function()
 			Range.stop()
 		end)
 
+		-- REVIEW ROUND 1, FINDING 2: 306k made the board follow the FIRING POSITION, and the band
+		-- between the two positions -- at the station, on neither, which is every step of the walk to
+		-- his own ladder -- has no position word. Passing that nil on made `recordFor` see a changed
+		-- position and hand back a BLANK record, so a walk toward the ladder wiped the board.
+		it("keeps the tally when a man walks between the bench and his own ladder", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			local mat = RangeData.matPosition(ANCHOR, 1, LAYOUT)
+			local man = manOn(mat, 3061)
+			tick(clock, 1)
+			expect(Range.look(man)).to.equal(true)
+			expect((Range.recordOf(man) :: any).position).to.equal(RangeData.POSITION.BENCH)
+			-- ONE SHOT ON THE BOARD, so there is a tally to lose.
+			Range.onShotResolved({ shooter = man, endPoint = Vector3.new(ANCHOR.X, ANCHOR.Y, ANCHOR.Z) })
+			expect((Range.recordOf(man) :: any).shots).to.equal(1)
+			-- ...AND THE WALK. 8 studs uprange of the mat is past its own 8-stud square and short of
+			-- the deck's rect at `backStuds` -- the station, on neither position.
+			local dir = RangeData.downrangeOf(DEV_ROW)
+			local between = mat - Vector3.new(0, 0, dir * 8)
+			local tops: { [number]: number } = {}
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				tops[spot] = ANCHOR.Y + HighSeats.DIMS.DECK_RISE_STUDS
+			end
+			local atSpot, atWord = RangeData.spotAt(ANCHOR, between, LAYOUT, dir, tops)
+			expect(atSpot).to.equal(1)
+			expect(atWord).to.equal(nil)
+			man.Character:PivotTo(CFrame.new(between))
+			expect(Range.look(man)).to.equal(true)
+			expect((Range.recordOf(man) :: any).shots).to.equal(1)
+			expect((Range.recordOf(man) :: any).position).to.equal(RangeData.POSITION.BENCH)
+			-- ...and arriving at the DECK still starts the fresh tally it should, which is the other
+			-- arm: this must not have become "never change the position".
+			man.Character:PivotTo(CFrame.new(RangeData.standPosition(ANCHOR, 1, LAYOUT, dir)))
+			expect(Range.look(man)).to.equal(true)
+			expect((Range.recordOf(man) :: any).position).to.equal(RangeData.POSITION.TREESTAND)
+			expect((Range.recordOf(man) :: any).shots).to.equal(0)
+			TestKit.note("range: a walk to the ladder keeps the board; arriving on the deck starts a new one")
+			Range.stop()
+		end)
+
 		it("refuses a forged payload and a pick from a man who is not on the mat", function()
 			Range.stop()
 			local fake = newFakeBoars()
@@ -4540,8 +4582,11 @@ return function()
 			expect(LAYOUT.SPOT_COUNT).to.equal(6)
 			expect(LAYOUT.SPOT_SPACING_STUDS).to.equal(24)
 			-- 306k item 2 RAISED THE HEAP AND MOVED NOTHING ELSE: the two numbers that place it in Z
-			-- -- `depth` and `behindStuds` -- are still B8's, which is what keeps the toe three studs
-			-- clear of the 179-stud target and the far face off her road.
+			-- -- `depth` and `behindStuds` -- are still B8's, so the batter's toe is where B8 left it
+			-- (188 - `slopeRun` = 176) and the far face stays off the road her playtest measured at
+			-- 200-275 studs. The toe is 3 studs UPRANGE of the 179-stud lane and has been since B8,
+			-- which this raise DEEPENS rather than creates -- queued, not claimed fixed (review
+			-- round 1 note).
 			expect(LAYOUT.BERM.height).to.equal(21)
 			expect(LAYOUT.BERM.depth).to.equal(8)
 			expect(LAYOUT.BERM.behindStuds).to.equal(13)
@@ -4906,6 +4951,35 @@ return function()
 			expect(Range.settling()).to.equal(0)
 			expect(free.Anchored).to.equal(false)
 			expect(tied.Anchored).to.equal(true)
+			-- TWICE INSIDE THE WINDOW IS **ONE** HOLD, AND IT ENDS FREE (review round 1, finding 1).
+			-- Neither prompt has a hold duration and item 1 put the way DOWN 5.78 studs in front of
+			-- the man the way UP just placed, so a real E then a real F inside 0.4 s is one press
+			-- apart. Recording the second `was` would restore the `true` the FIRST hold wrote and
+			-- freeze him for the session.
+			local twice = Instance.new("Part")
+			twice.Anchored = false
+			twice.Parent = bin
+			Range.holdForSettle(twice)
+			expect(Range.settleStep(0.1)).to.equal(0)
+			Range.holdForSettle(twice)
+			expect(Range.settling()).to.equal(1)
+			expect(twice.Anchored).to.equal(true)
+			-- the window was REFRESHED by the second hold, so 0.2 s more is not yet enough...
+			expect(Range.settleStep(0.2)).to.equal(0)
+			expect(twice.Anchored).to.equal(true)
+			-- ...and past it he is FREE, which is the whole finding.
+			expect(Range.settleStep(0.3)).to.equal(1)
+			expect(twice.Anchored).to.equal(false)
+			expect(Range.settling()).to.equal(0)
+			-- ...and the same holds for a root that was ALREADY anchored: it goes back to anchored.
+			local tiedTwice = Instance.new("Part")
+			tiedTwice.Anchored = true
+			tiedTwice.Parent = bin
+			Range.holdForSettle(tiedTwice)
+			Range.holdForSettle(tiedTwice)
+			expect(Range.settleStep(1)).to.equal(1)
+			expect(tiedTwice.Anchored).to.equal(true)
+
 			-- A ROOT WHOSE CHARACTER WENT (a respawn mid-climb) is dropped and throws nothing.
 			local gone = Instance.new("Part")
 			gone.Parent = bin

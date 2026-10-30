@@ -438,6 +438,17 @@ function Range.holdForSettle(root: any): boolean
 		return false
 	end
 	local part = root :: BasePart
+	-- ONE ROW PER ROOT, AND THE **FIRST** `was` IS THE ONE THAT COUNTS (review round 1, finding 1).
+	-- A second hold inside the window would otherwise record the `true` the FIRST hold just wrote,
+	-- and the release would put that back for ever -- a real `E` then a real `F` inside 0.4 s (the
+	-- down prompt is 5.78 studs in front of the man the climb just placed) froze him permanently.
+	for _, row in ipairs(state.settling) do
+		if row.root == part then
+			row.left = SETTLE_SECONDS
+			part.Anchored = true
+			return true
+		end
+	end
 	table.insert(state.settling, { root = part, was = part.Anchored, left = SETTLE_SECONDS })
 	part.Anchored = true
 	return true
@@ -1517,7 +1528,17 @@ function Range.look(player: any): boolean
 	-- pass and this one did not (306k item 4). Without it the record a man gets by WALKING UP
 	-- carries no position, so the menu he opens on the deck prints the BENCH's distances and lights
 	-- the bench's chip -- 125 where the board will say 139 the moment he fires.
-	recordFor(player, trial, (select(2, Range.positionOf(player))))
+	--
+	-- ...AND A MAN BETWEEN THE TWO KEEPS THE ONE HE HAD (review round 1, finding 2). `spotAt`'s
+	-- second return is nil for a man AT the station but on neither position -- on the ground under
+	-- his own deck -- and handing that nil on makes `recordFor` see a changed position and blank the
+	-- board. A walk to his own ladder is not a new trial.
+	local _, word = Range.positionOf(player)
+	if word == nil then
+		local existing = state.records[(player :: any).UserId]
+		word = if type(existing) == "table" then existing.position else nil
+	end
+	recordFor(player, trial, word)
 	publish(player)
 	return true
 end

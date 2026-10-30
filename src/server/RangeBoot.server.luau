@@ -329,7 +329,10 @@ local onMat: { [number]: string } = {}
 local function matEdges()
 	for _, player in ipairs(Players:GetPlayers()) do
 		local spot, word = Range.positionOf(player)
-		local here = if spot ~= nil then tostring(spot) .. ":" .. tostring(word) else nil
+		-- A REAL FIRING POSITION, NEVER THE BAND BETWEEN THEM (review round 1, finding 2): `word` is
+		-- nil for a man at the station but on neither, and `"2:nil"` would be an edge of its own --
+		-- one every walk to the ladder crosses twice.
+		local here = if spot ~= nil and word ~= nil then tostring(spot) .. ":" .. tostring(word) else nil
 		if here ~= nil and here ~= onMat[player.UserId] then
 			Range.look(player)
 		end

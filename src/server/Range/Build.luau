@@ -306,7 +306,7 @@ function Build.writeTerrain(terrain: any, anchor: Vector3, shelf: number, row, l
 		repaint(rect, layout.SURFACE.AROUND, layout.SURFACE.LANE)
 	end
 	repaint(RangeData.lineRect(anchor, layout, dir), layout.SURFACE.LANE, layout.SURFACE.LINE)
-	-- THE EARTH LAST, AND THAT ORDER MOVED IN STEP B10. The berm and the two banks are now GRASSED
+	-- THE EARTH LAST, AND THAT ORDER MOVED IN STEP B10. The berm and the two banks are BARE EARTH
 	-- (`SURFACE.BERM`), and the repaint above runs in a band at the shelf over the whole terrace --
 	-- so filled BEFORE it, a grassed heap lost the bottom 4 studs of its own skin to
 	-- `AROUND -> LANE` and stood in a brown skirt. Nothing in the repaints writes LANE after this,
@@ -599,7 +599,9 @@ function Build.build(opts)
 	if not asEarth then
 		for leg = 1, 2 do
 			local at = RangeData.bankPosition(anchor, layout, leg, dir)
-			onGround(RangeData.bankName(leg), layout.BANK.size, at.X, at.Z, layout.BANK.color, Enum.Material.Grass)
+			-- `SURFACE.BERM` for the banks too (306k item 2, review round 1 note): the berm and its
+			-- two banks are ONE heap, and the part arm had them in two materials.
+			onGround(RangeData.bankName(leg), layout.BANK.size, at.X, at.Z, layout.BANK.color, layout.SURFACE.BERM)
 		end
 	end
 
