@@ -4206,6 +4206,10 @@ return function()
 				distinct += 1
 			end
 			expect(want).to.equal(distinct + 1)
+			-- ...AND THE COUNT IS ANCHORED OUTSIDE `bermBoxes` (review round 1, finding 2): taken
+			-- only from the producer, this block passed with the producer returning nothing at all.
+			-- One heap per column at the very least, whatever shape the columns take.
+			expect(distinct >= #RangeData.bermColumns(anchorOf(b), LAYOUT, -1)).to.equal(true)
 			parent:Destroy()
 		end)
 
@@ -4327,6 +4331,24 @@ return function()
 			expect(distinct >= 4).to.equal(true)
 			expect(hi - lo >= 3).to.equal(true)
 			expect(hi <= LAYOUT.BERM.height + 1e-6).to.equal(true)
+			-- ...AND THE RIPPLE MAY NOT UNDO THE BACKSTOP (review round 1, finding 1; note 9.5 M5).
+			-- A man on the deck fires from `DECK_RISE_STUDS + AIM_RISE_STUDS` over the shelf, so
+			-- EVERY column the firing fan reaches at the crest face stands at least that tall. The
+			-- fan is `sightHalfWidthAt` past the outer mats, which is the same arithmetic the hut
+			-- case uses -- an UPPER bound alone let every column be one stud tall.
+			local deckEye = HighSeats.DIMS.DECK_RISE_STUDS + HighSeats.AIM_RISE_STUDS
+			local fan = RangeData.sightHalfWidthAt(LAYOUT, math.abs(face - anchor.Z))
+			local fanMin = anchor.X - fan
+			local fanMax = anchor.X + RangeData.spotSpan(LAYOUT) + fan
+			local inFan = 0
+			for _, column in ipairs(columns) do
+				if column.x + column.width / 2 > fanMin and column.x - column.width / 2 < fanMax then
+					inFan += 1
+					expect(column.top >= deckEye).to.equal(true)
+				end
+			end
+			expect(inFan >= #columns - 4).to.equal(true)
+			expect(deckEye >= 17.5).to.equal(true)
 			-- ...AND THE TOE IS NOT ONE LINE EITHER, and never reaches past the designed run.
 			local runs, runLo, runHi = 0, math.huge, -math.huge
 			local seenRun = {}

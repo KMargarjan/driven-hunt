@@ -624,8 +624,8 @@ function Build.build(opts)
 	if not asEarth then
 		for leg = 1, 2 do
 			local at = RangeData.bankPosition(anchor, layout, leg, dir)
-			-- `SURFACE.BERM` for the banks too (306k item 2, review round 1 note): the berm and its
-			-- two banks are ONE heap, and the part arm had them in two materials.
+			-- `SURFACE.HILL` for the banks, as on the terrain arm (306l item 2): the heap's grassed
+			-- half is its crest, its back and its two side banks.
 			onGround(RangeData.bankName(leg), layout.BANK.size, at.X, at.Z, layout.BANK.color, layout.SURFACE.HILL)
 		end
 	end
@@ -634,8 +634,9 @@ function Build.build(opts)
 	-- AND both banks (design 5.2), and it stops a stray slug leaving the lobby.
 	if not asEarth then
 		local berm = RangeData.bermPosition(anchor, layout, dir)
-		-- `SURFACE.BERM` AND NOT A SECOND MATERIAL: the part arm and the terrain arm must read as
-		-- the same heap, and 306k moved that material from grass to earth in one place.
+		-- `SURFACE.BERM` HERE AND NOT A THIRD THING: in DEV the berm is ONE box and it is the
+		-- IMPACT FACE's material, which is the half of the heap a DEV lane ever meets. The terrain
+		-- arm writes three materials (306l item 2) and this arm cannot: it has one box.
 		onGround("Berm", RangeData.bermSizeFor(layout), berm.X, berm.Z, layout.BERM.color, layout.SURFACE.BERM)
 	end
 

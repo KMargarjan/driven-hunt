@@ -446,7 +446,8 @@ crest and back) is sources 1 and 2's own berm section. What is this project's ow
 
 - a **crest height** `height - crestDropStuds * (1 - wave) - shoulderDropStuds * (1 - taper)`, where
   `wave` is two incommensurate sines (so no two neighbours agree) and `taper` falls over the outer
-  `shoulderStuds` (so the heap's ends die away instead of stopping square);
+  `shoulderStuds` (so the heap's ends die away instead of stopping square). The taper band is
+  narrower than the firing fan on purpose: M5 below;
 - a **batter run** `slopeRun * (0.55 + 0.45 * wave2)`, never more than `slopeRun`, so the toe line is
   uneven **and** the forward-most earth is still one stated number.
 
@@ -469,6 +470,6 @@ side banks are grassed for the same reason the crest is -- they read as spurs of
 | M1 | `bermToeClearance` **>= 5 studs** of clear ground past the 179 lane, for `dir` 1 and -1 | the released boar's trunk measures 2 x 3 x 5.5 in her place, so half its length is 2.75; 5 leaves 2.25 over it, more than the half voxel a partial fill can reach with. Was **-3** |
 | M2 | `behindStuds` 13 -> **17**, `slopeRun` 12 -> **8** | the only two dials that move the toe. 17 puts the crest's near face at 192 and the far face at 200, so the terrace's downrange edge is 202 -- **2 studs clear of the asphalt at 204** (9.2) |
 | M3 | `slopeSteps` 6 -> **4** | over an 8-stud run six bands are 1.3 studs deep, under the 4-stud voxel: two of them would write nothing |
-| M4 | The crest takes **>= 4 distinct heights** with a spread **>= 3 studs**, and the toe run likewise | "not one straight line" as a number. Measured on the shipped dials: 19 columns, crest 12.2..20.5 (19 distinct), run 4.5..8.0 |
-| M5 | Crest still **>= 17 studs** over the shelf everywhere inside the station row | 306k measured that 10 studs read as "a band of grass on the horizon" and 21 subtends 6.3 deg at 190; the ripple may not undo that where a man actually looks |
+| M4 | The crest takes **>= 4 distinct heights** with a spread **>= 3 studs**, and the toe run likewise | "not one straight line" as a number. Measured on the shipped dials: 19 columns, crest **16.25..20.5, 11 distinct** (the tops are quantised to a quarter stud, so they repeat), run 4.5..8.0, 11 distinct |
+| M5 | Crest **>= `HighSeats.DIMS.DECK_RISE_STUDS + AIM_RISE_STUDS` = 17.5 studs** for every column the firing fan reaches at the crest face | 306k measured that 10 studs read as "a band of grass on the horizon" and 21 subtends 6.3 deg at 190; and 17.5 is where a man on the DECK fires from, so a crest under it is a backstop he shoots over. `range.spec` asserts it as a LOWER bound -- an upper bound alone (review round 1, finding 1) let every column be one stud tall. The dials that make it hold: `crestDropStuds` 3, `shoulderDropStuds` 5, `shoulderStuds` 16; measured 18.0..20.5 over the 17 columns inside the fan |
 | M6 | **T6 re-sweep: n shots stopped / n**, all six stations, both eye heights, all three lanes | item 2's own bound; the heap may not be made prettier at the cost of being a backstop |

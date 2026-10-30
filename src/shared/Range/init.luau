@@ -106,9 +106,9 @@ Range.LAYOUT = {
 	-- THE BERM HAS NO TYPED WIDTH: `Range.bermWidthFor` derives it so it spans every station's lane
 	-- AND both banks, which is the identity `range.spec` asserts (design 5.2). 10 studs = 2.8 m,
 	-- "not high" (Karen), inside the 6 m upper bound the note refused to treat as a requirement.
-	-- `behindStuds` 13 AND NOT 12, so the berm's rectangle is on the terrain grid in all FOUR
-	-- edges: the centre sits `distanceMax + 13` = 192 from the anchor and `depth` 8 puts its faces
-	-- at 188 and 196, both multiples of `FILL.GRID_STUDS` (design 5.4). At 12 they were 187 and 195.
+	-- `behindStuds` IS KEPT CONGRUENT TO 13 MOD 4, so the berm's rectangle stays on the terrain
+	-- grid in all four edges relative to the anchor (design 5.4). 306l moved it 13 -> 17: the
+	-- centre sits `distanceMax + 17` = 196 and `depth` 8 puts its faces at 192 and 200.
 	--
 	-- 21 STUDS AND NOT 10 (306k item 2). MEASURED from the bench: at 10 studs the crest subtended
 	-- 3.0 degrees at 190 studs and read as "a thin band of tall grass on the horizon"
@@ -118,11 +118,11 @@ Range.LAYOUT = {
 	-- It subtends 6.3 degrees, 4.5x the 1.4 degrees a boar's own 3 studs make at 125.
 	--   NRA Range Source Book, ch. 3 (impact berms)  https://www.nrahq.org/pdf/RangeSourceBook.pdf
 	--   US Army TC 25-8, Training Ranges, app. B    https://armypubs.army.mil/
-	-- `depth` and `behindStuds` DO NOT MOVE, and that is the measurement too: the toe of the
-	-- battered face already stands at 176, three studs clear of the farthest target at 179, and the
-	-- far face cannot go back because her ground DROPS to 141-144 at 200-275 studs where the asphalt
-	-- road crosses (same playtest). So the heap grows UP, not out, and the face is steeper than a
-	-- real 1:1.2 batter -- named, not hidden.
+	-- THAT "176 IS THREE STUDS CLEAR OF 179" WAS WRONG, and 306l measured it: the toe stood at 176
+	-- and the earth on the 179 lane itself was 7.28 studs deep. See the 306l paragraph below, which
+	-- is what `behindStuds` and `slopeRun` now say. The far face still cannot go back far, because
+	-- her ground DROPS to 141-144 where the asphalt road crosses -- so the face stays steeper than a
+	-- real 1:1.2 batter, named and not hidden.
 	-- `slopeRun` and `slopeSteps` ARE THE UPRANGE FACE (step B8). A rectangular block of earth is
 	-- a wall; Karen asked for *"a mountain not high but like in real life"*, and a real berm is a
 	-- trapezoid. Four 2-stud bands (10 * k / 5) over a 12-stud run is a 1:1.2 batter, and 2 studs
@@ -161,18 +161,23 @@ Range.LAYOUT = {
 		-- `crestStepStuds` is one column's width: 12 studs is three voxels, small enough that the
 		-- ripple survives the 4-stud grid and large enough that 232 studs is 19 fills, not 58.
 		crestStepStuds = 12,
-		-- how far under `height` the lowest point of the RIPPLE sits (the crest wanders 17..21)...
-		crestDropStuds = 4,
+		-- how far under `height` the lowest point of the RIPPLE sits: the crest wanders 18..21, and
+		-- 3 AND NOT 4 IS A BOUND AND NOT A TASTE (review round 1, finding 1). A man on the deck
+		-- fires from `HighSeats.DIMS.DECK_RISE_STUDS + AIM_RISE_STUDS` = 17.5 studs over the shelf,
+		-- so a crest under that is a backstop he shoots over. `range.spec` asserts the floor.
+		crestDropStuds = 3,
 		-- ...and how far the heap's own SHOULDERS fall, over the outer `shoulderStuds` of the span,
-		-- so the ends die away into the ground instead of stopping square.
-		shoulderDropStuds = 9,
-		shoulderStuds = 24,
+		-- so the ends die away into the ground instead of stopping square. 16 AND NOT 24, for the
+		-- same bound: the firing fan reaches `sightHalfWidthAt` past the outer mats at the crest
+		-- face, which is 23.7 studs in from the heap's end -- a taper any wider dips into it.
+		shoulderDropStuds = 5,
+		shoulderStuds = 16,
 		-- SCRUB ALONG THE CREST TOP (306l item 2), as TERRAIN and not as parts -- so there is no
 		-- pivot to float (rule E / L-086), no gap a shot could pass under, and nothing to upload.
 		-- Each clump stands from the terrace like every other band, so the heap invariant is
 		-- untouched; only its top shows, on the crest, BEHIND the bare lip.
 		scrubCount = 7,
-		scrubSize = Vector3.new(11, 5, 6),
+		scrubSize = Vector3.new(11, 5, 4),
 		-- the clump's own front face, uprange-clear of the crest's bare lip.
 		scrubBackStuds = 2,
 		color = Color3.fromRGB(104, 84, 62),
