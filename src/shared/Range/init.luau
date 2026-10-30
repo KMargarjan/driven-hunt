@@ -207,13 +207,26 @@ Range.LAYOUT = {
 		-- pivot to float (rule E / L-086), no gap a shot could pass under, and nothing to upload.
 		-- Each clump stands from the terrace like every other band, so the heap invariant is
 		-- untouched; only its top shows, on the crest, BEHIND the bare lip.
-		scrubCount = 7,
+		-- 13 CLUMPS, IRREGULAR, AND THAT IS A MEASUREMENT OFF THE FIRST 306m FRAME. With 7 clumps of
+		-- one radius at even spacing the crest photographed as a row of regular CONES -- the
+		-- battlement's rhythm with rounded tops (306m-cmp-crest.png, the first AFTER). The EARTH's
+		-- own roll cannot carry the skyline on its own: `crestDropStuds` is 3 and cannot grow,
+		-- because `height - crestDrop` = 18 is already within half a stud of the deck's own eye at
+		-- 17.5 and a crest under that is a backstop a man on the deck shoots over. So the scrub is
+		-- what makes the skyline roll, and it has to be scattered rather than combed.
+		scrubCount = 13,
+		-- `.Y` is how far a clump stands PROUD of its crest, and it is now the TOP of a range: each
+		-- clump takes its own share of it, correlated with its own radius so a tall clump is also a
+		-- wide one and every clump stays embedded in the ridge (rule E).
 		scrubSize = Vector3.new(11, 5, 4),
 		-- ONE BALL PER CLUMP, radius 3.5, so a clump is 7 studs of bush and not a 11 x 5 x 4 BOX
 		-- standing on the ridge (306m item 1: no flat tops anywhere on the hill). `scrubSize.Y` is
 		-- still how far it stands PROUD of the hill's own surface, and `.X` is unused by the ball
 		-- arm -- kept because the DEV parts arm reads the same row.
 		scrubRadius = 3.5,
+		-- how far a clump's own radius may fall under `scrubRadius`: 2.25..3.5 with the same wave
+		-- that sets its height, so no two neighbours read as the same bush.
+		scrubRadiusDropStuds = 1.25,
 		-- the clump's own front face, uprange-clear of the crest's bare lip.
 		scrubBackStuds = 2,
 		color = Color3.fromRGB(104, 84, 62),
@@ -1123,14 +1136,21 @@ function Range.bermScrubPoints(anchor: Vector3, layout, downrange: number?)
 		return out
 	end
 	for n = 1, wanted do
-		-- inside the heap, never on a shoulder: the band 0.12..0.88 of the column row.
-		local index = math.floor(0.12 * #columns + (0.76 * #columns) * (n - 0.5) / wanted) + 1
+		-- ONE WAVE PER CLUMP, carrying its place, its size and its height together: a tall clump is
+		-- a wide one, which is what keeps every clump embedded in the crest it stands on (rule E).
+		local wave = 0.5 + 0.5 * math.sin(2.3 * n + 1.1)
+		-- inside the heap, never on a shoulder: the band 0.12..0.88 of the column row, with the
+		-- clump's own share of it moved by up to 0.35 of a step so the spacing is not a comb.
+		local place = (n - 0.5 + (wave - 0.5) * 0.7) / wanted
+		local index = math.floor(0.12 * #columns + (0.76 * #columns) * place) + 1
 		local column = columns[math.clamp(index, 1, #columns)]
+		local size = radius - layout.BERM.scrubRadiusDropStuds * (1 - wave)
+		local proud = layout.BERM.scrubSize.Y * (0.5 + 0.5 * wave)
 		out[#out + 1] = {
 			x = column.x,
 			z = apex + dir * layout.BERM.scrubBackStuds,
-			rise = column.top + layout.BERM.scrubSize.Y - radius,
-			radius = radius,
+			rise = column.top + proud - size,
+			radius = size,
 			top = column.top,
 		}
 	end
