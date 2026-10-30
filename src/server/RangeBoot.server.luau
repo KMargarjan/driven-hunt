@@ -252,6 +252,45 @@ if not started then
 	return
 end
 
+-- A READ-ONLY CENSUS OF THE LANE (task 315, design 7.4). The pine that stood in the new footprint
+-- is taken away by the LOBBY's sweep, so if the lobby does not build, a 105-stud spruce stands in
+-- the firing fan and nothing says so. This writes nothing and removes nothing -- it turns "the lane
+-- is clear" into a number instead of a belief. A print is not a second writer.
+do
+	local box = RangeData.footprintFor(Vector3.new(row.x, 0, row.z), RangeData.LAYOUT, RangeData.downrangeOf(row))
+	do
+		local count, nearestName, nearestAt = 0, "none", nil
+		for _, folder in ipairs(Workspace:GetChildren()) do
+			if
+				folder:IsA("Folder")
+				and folder.Name ~= RangeData.FOLDER_NAME
+				and folder.Name ~= RangeData.TARGETS_FOLDER
+			then
+				for _, thing in ipairs(folder:GetDescendants()) do
+					if thing:IsA("BasePart") then
+						local at = thing.Position
+						if at.X >= box.minX and at.X <= box.maxX and at.Z >= box.minZ and at.Z <= box.maxZ then
+							count += 1
+							if nearestAt == nil then
+								nearestName, nearestAt = thing:GetFullName(), at
+							end
+						end
+					end
+				end
+			end
+		end
+		print(
+			string.format(
+				"[RangeBoot] footprint census: %d foreign BaseParts, nearest %s at (%s, %s)",
+				count,
+				nearestName,
+				if nearestAt then string.format("%.0f", nearestAt.X) else "-",
+				if nearestAt then string.format("%.0f", nearestAt.Z) else "-"
+			)
+		)
+	end
+end
+
 -- ONE ANIMAL IN ONE SHOT'S WORLD (task 306 B5, design 4.3). Six bodies share one corridor, and
 -- `Cast.candidates` returns the EIGHT nearest the muzzle while `Rewind.impact` takes the nearest
 -- rewound one -- so without this a body the shooter cannot see stops his bullet. Wired here and

@@ -476,6 +476,14 @@ local function tryBuild(): boolean
 			-- seats every tree against the LOWEST ground anywhere under its root flare, instead of
 			-- against the ground at the point it was planted. Karen: *"look at the trees wtf"*.
 			terrainAt = world.terrainAt,
+			-- THE GROUND THE RANGE NEEDS KEPT FREE OF TREES (task 315). Karen, 2026-10-30:
+			-- *"those trees can be removed and shooting range can be moved there"*. Two PLAIN
+			-- TABLES OF NUMBERS -- `keepClear` the range's own footprint rectangles, `sightline`
+			-- its three edges -- composed by the root exactly as `homeAreas` already is, so this
+			-- owner never learns the range exists and a world that injects nothing is unchanged in
+			-- every answer.
+			keepClear = world.keepClear,
+			sightline = world.sightline,
 		} :: any
 	)
 	building = false

@@ -313,16 +313,50 @@ return function()
 			expect(RangeData.anchorFor("nowhere")).to.equal(nil)
 			expect(RangeData.anchorFor(nil)).to.equal(nil)
 			expect(RangeData.anchorFor(7 :: any)).to.equal(nil)
-			-- ...AND KAREN'S PLACE NOW HAS ONE, RE-MEASURED FOR SIX STATIONS (step B8, design 2.1).
-			-- The B6 anchor (2650, -3216) was chosen for ONE station over a 160 x 185 footprint and
-			-- the case below measured three ways in which six no longer fit it. The B8 census, run in
-			-- her own place 2026-10-29 over design 2.2's 256 x 239 box: 990 ground samples, 0 missed,
-			-- 0 non-terrain hits, 0 BaseParts inside it. The row it replaced is archived at
-			-- backups/task-306b8/ with its note (rule 7).
+			-- ...AND KAREN'S PLACE NOW HAS ONE, STRAIGHT OUT OF THE SHOP DOOR (task 315, design 2).
+			-- Karen, 2026-10-30: *"shooting range can be moved there that I can directly from shop
+			-- walk to shooting range same distance but straight"*.
+			--
+			-- ASSERTED BY ITS DERIVED PROPERTIES AND NOT BY TWO LITERALS, which is the point: two
+			-- typed numbers say nothing about whether the row is still the right row. The station
+			-- row's CENTRE is the lodge's own centre line, the nearest mat is inside the Director's
+			-- +-15% band about today's 172.8 walked studs, and the bearing is within 10 degrees of
+			-- the door's own facing. The row it replaced is archived at
+			-- backups/2026-10-30_task-315_range-anchor.txt (rule 7).
 			local forest = RangeData.anchorFor("forest-test")
 			expect(forest).to.be.ok()
-			expect((forest :: any).x).to.equal(2600)
-			expect((forest :: any).z).to.equal(-3030)
+			local at = Vector3.new((forest :: any).x, 0, (forest :: any).z)
+			local rowCentre = RangeData.matPosition(at, 1, RangeData.LAYOUT).X
+				+ RangeData.spotSpan(RangeData.LAYOUT) / 2
+			expect(rowCentre).to.equal((LOBBY_ANCHOR :: any).x + LOBBY_CFG.LODGE.OFFSET.X)
+			-- THE DOOR IS THE LODGE'S SOUTH FACE ON THAT CENTRE LINE, read off the lobby's own
+			-- config so this case cannot drift from the building.
+			local doorX = (LOBBY_ANCHOR :: any).x + LOBBY_CFG.LODGE.OFFSET.X
+			local doorZ = (LOBBY_ANCHOR :: any).z + LOBBY_CFG.LODGE.OFFSET.Z - LOBBY_CFG.LODGE.SIZE.Z / 2
+			-- THE ANGLE OFF THE DOOR'S OWN FACING, as the angle between the walk and due south --
+			-- never a bearing arithmetic that has to wrap through 360, which is where the first
+			-- draft of this case was wrong by 356 degrees.
+			local function offSouthDeg(mat: Vector3): number
+				local dx, dz = mat.X - doorX, mat.Z - doorZ
+				local len = math.sqrt(dx * dx + dz * dz)
+				return math.deg(math.acos(math.clamp(-dz / len, -1, 1)))
+			end
+			local nearest, worst, best = math.huge, 0, math.huge
+			for spot = 1, RangeData.LAYOUT.SPOT_COUNT do
+				local mat = RangeData.matPosition(at, spot, RangeData.LAYOUT)
+				local dx, dz = mat.X - doorX, mat.Z - doorZ
+				local walk = math.sqrt(dx * dx + dz * dz)
+				nearest = math.min(nearest, walk)
+				worst = math.max(worst, walk)
+				best = math.min(best, offSouthDeg(mat))
+				-- EVERY station is reachable in a straight-ish line, not only the nearest.
+				expect(offSouthDeg(mat) < 25).to.equal(true)
+			end
+			expect(nearest > 147 and nearest < 199).to.equal(true)
+			expect(worst - nearest < 12).to.equal(true)
+			-- ...AND THE NEAREST MAT IS ALMOST DEAD AHEAD OUT OF THE DOOR. 4 degrees is half a mat's
+			-- own 24-stud spacing at 174 studs, so this fails the moment the row stops being centred.
+			expect(best < 4.0).to.equal(true)
 			-- THE TWO NEW DATA FIELDS (design 8.1), and the DEV row's opposite values: one arithmetic,
 			-- two rows, no branch anywhere on a world's name.
 			expect(RangeData.bermIsTerrain(forest)).to.equal(true)
@@ -4249,6 +4283,48 @@ return function()
 			parent:Destroy()
 		end)
 
+		-- THE RANGE'S HALF OF THE SIGHTLINE (task 315, design 7.1). PURE, derived from the anchor,
+		-- so it follows the row with no code change -- and the containment below is load-bearing
+		-- rather than decorative: a narrowed hut roof must make it FAIL.
+		it("hands out a sightline that contains every built part of every station", function()
+			local row = FOREST_ROW :: any
+			local anchor = Vector3.new(row.x, FOREST_SHELF, row.z)
+			local lane = RangeData.sightlineFrom(anchor, LAYOUT, -1)
+			local box = RangeData.footprintFor(anchor, LAYOUT, -1)
+			expect(lane.fromZ).to.equal(box.maxZ)
+			-- ...AND THE OTHER SIGN OF `downrange` TAKES THE OTHER EDGE, by parameter.
+			local up = RangeData.sightlineFrom(anchor, LAYOUT, 1)
+			expect(up.fromZ).to.equal(RangeData.footprintFor(anchor, LAYOUT, 1).minZ)
+			expect(up.minX).to.equal(lane.minX)
+			local function spans(laneRow, layout): boolean
+				for spot = 1, layout.SPOT_COUNT do
+					local parts = {
+						RangeData.matPosition(anchor, spot, layout),
+						RangeData.benchPosition(anchor, spot, layout, -1),
+						RangeData.standPosition(anchor, spot, layout, -1),
+						RangeData.hutRoofPosition(anchor, spot, layout, -1),
+					}
+					for _, post in ipairs(RangeData.hutPostPositions(anchor, spot, layout, -1)) do
+						table.insert(parts, Vector3.new(post.x, 0, post.z))
+					end
+					for _, at in ipairs(parts) do
+						if at.X < laneRow.minX or at.X > laneRow.maxX then
+							return false
+						end
+					end
+				end
+				return true
+			end
+			expect(spans(lane, LAYOUT)).to.equal(true)
+			-- THE BITE: narrow the hut's roof and the hut posts fall outside, so this bound is
+			-- measured rather than assumed.
+			local narrow = table.clone(LAYOUT)
+			local hut = table.clone(LAYOUT.HUT)
+			hut.roofSize = Vector3.new(1, LAYOUT.HUT.roofSize.Y, LAYOUT.HUT.roofSize.Z)
+			narrow.HUT = hut
+			expect(spans(RangeData.sightlineFrom(anchor, narrow, -1), narrow)).to.equal(false)
+		end)
+
 		it("stops the terrace at the lobby field's own edge, read off Lobby and not retyped", function()
 			-- THE SEAM, CHECKED RATHER THAN PROMISED. `keepOut` is two numbers on the row; this case
 			-- asserts they ARE the lobby field's west and south edges, computed from `Lobby.CONFIG`,
@@ -4259,7 +4335,13 @@ return function()
 			expect(keepOut.z).to.equal(LOBBY_ANCHOR.z - half)
 			local anchor = Vector3.new((FOREST_ROW :: any).x, FOREST_SHELF, (FOREST_ROW :: any).z)
 			local rects = RangeData.cutRects(anchor, LAYOUT, -1, FOREST_ROW)
-			expect(#rects).to.equal(2)
+			-- TASK 315: THE TWO TERRACES NOW MEET FLUSH ON ONE VOXEL PLANE. With the range straight
+			-- out of the shop door its uprange edge snaps to -3060, which IS the lobby field's own
+			-- south edge -- so the split has nothing to split and `cutRects` returns ONE rectangle.
+			-- That is a property to assert, not an accident: the two cuts must share a plane with
+			-- zero overlap and zero gap, or there is a step or a cliff across Karen's walk.
+			expect(#rects).to.equal(1)
+			expect(rects[1].maxZ).to.equal(LOBBY_ANCHOR.z - half)
 			local overlap = 0
 			for _, rect in ipairs(rects) do
 				local dx = math.min(rect.maxX, LOBBY_ANCHOR.x + half) - math.max(rect.minX, LOBBY_ANCHOR.x - half)
@@ -4269,13 +4351,30 @@ return function()
 				end
 			end
 			expect(overlap).to.equal(0)
-			-- ...AND A ROW WITHOUT `keepOut` GETS ONE RECTANGLE and the same arithmetic: the split is
-			-- data, not a branch, and the one-rectangle arm is entered here rather than assumed.
-			local plain = table.clone(FOREST_ROW :: any)
+			-- THE SPLIT ARM IS DRIVEN BY PARAMETER, because the live row no longer enters it (design
+			-- 4.2). Without this case the two-rectangle arm goes dark and a later anchor move north
+			-- would inherit an untested seam.
+			local northRow = table.clone(FOREST_ROW :: any)
+			northRow.z = LOBBY_ANCHOR.z - half + 40
+			local northAnchor = Vector3.new(northRow.x, FOREST_SHELF, northRow.z)
+			local split = RangeData.cutRects(northAnchor, LAYOUT, -1, northRow)
+			expect(#split).to.equal(2)
+			local splitOverlap = 0
+			for _, rect in ipairs(split) do
+				local dx = math.min(rect.maxX, LOBBY_ANCHOR.x + half) - math.max(rect.minX, LOBBY_ANCHOR.x - half)
+				local dz = math.min(rect.maxZ, LOBBY_ANCHOR.z + half) - math.max(rect.minZ, LOBBY_ANCHOR.z - half)
+				if dx > 0 and dz > 0 then
+					splitOverlap += dx * dz
+				end
+			end
+			expect(splitOverlap).to.equal(0)
+			-- ...AND THAT SAME NORTHERN ROW WITHOUT `keepOut` GETS ONE WIDER RECTANGLE: the split is
+			-- data, not a branch on a world's name.
+			local plain = table.clone(northRow)
 			plain.keepOut = nil
-			local one = RangeData.cutRects(anchor, LAYOUT, -1, plain)
+			local one = RangeData.cutRects(northAnchor, LAYOUT, -1, plain)
 			expect(#one).to.equal(1)
-			expect(one[1].maxX > rects[2].maxX).to.equal(true)
+			expect(one[1].maxX > split[2].maxX).to.equal(true)
 			-- THE TERRACE STILL REACHES EVERYTHING BUILT ON IT, which is what the keep-out could break.
 			local built, _, parent = buildWith(FOREST_ROW, slopedGround)
 			for _, part in ipairs(partsOf((built :: any).folder)) do

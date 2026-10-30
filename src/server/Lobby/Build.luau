@@ -180,6 +180,13 @@ local stats = {
 	avenueShifted = 0,
 	avenueDropped = 0,
 	flagpoleY = 0,
+	-- THE STRAIGHT WALK TO THE RANGE (task 315). `sightlineDropped` is OUR trees that were not
+	-- planted because they stood in the corridor between the shop door and the range;
+	-- `sightlineCleared` is the WORLD's foliage the sweep took for the same reason, counted apart
+	-- from `worldFoliageCleared`'s working ground so the two rules can never be confused. Karen,
+	-- 2026-10-30: *"those trees can be removed"*. Measured in her place: see the task report.
+	sightlineDropped = 0,
+	sightlineCleared = 0,
 }
 
 function Build.stats()
@@ -4078,9 +4085,45 @@ function Build.onWorkingGround(x: number, z: number, anchor: Vector3, cfg): bool
 		and z >= house.Z - front - clearing.FRONT_STUDS
 end
 
+-- THE SIGHTLINE RECTANGLE, CLOSED (task 315, design 7.2). The range hands in its own three edges
+-- (`Range.sightlineFrom`) and the LODGE closes the fourth with its south face, so neither owner
+-- learns the other exists -- the composition root puts them together, as it already does for
+-- `homeAreas`. nil when no lane was handed in, which is every world without a range.
+-- Design: docs/design/shooting-range-lobby.md 5.2 and 7.2.
+function Build.sightlineRect(lane: any?, anchor: Vector3, cfg): any?
+	if type(lane) ~= "table" then
+		return nil
+	end
+	local house = anchor + cfg.LODGE.OFFSET
+	local southFace = house.Z - cfg.LODGE.SIZE.Z / 2
+	local minZ = math.min(lane.fromZ, southFace)
+	local maxZ = math.max(lane.fromZ, southFace)
+	return { minX = lane.minX, maxX = lane.maxX, minZ = minZ, maxZ = maxZ }
+end
+
+-- IS THIS FOOT ON GROUND THE RANGE NEEDS? PURE -- two numbers in, a boolean out, no Instance and no
+-- world -- `Build.onWorkingGround`'s shape exactly, so `lobby.spec` asks it about a measured trunk
+-- with nothing built. `keepClear` is the range's own FOOTPRINT (where the pine stood); `lane` is its
+-- sightline. Both nil is the world with no range, and then this answers false for everything.
+function Build.keptClear(x: number, z: number, anchor: Vector3, cfg, keepClear: any?, lane: any?): boolean
+	local rect = Build.sightlineRect(lane, anchor, cfg)
+	if rect ~= nil and x >= rect.minX and x <= rect.maxX and z >= rect.minZ and z <= rect.maxZ then
+		return true
+	end
+	if type(keepClear) == "table" then
+		for _, area in ipairs(keepClear) do
+			if x >= area.minX and x <= area.maxX and z >= area.minZ and z <= area.maxZ then
+				return true
+			end
+		end
+	end
+	return false
+end
+
 -- ...AND THE SWEEP THAT APPLIES IT. The ONE place this repository removes an instance it did not
 -- make, and it is bounded three ways: only the folders `CLEARING.FOLDERS` names, only their direct
--- children, and only those standing on the working ground above.
+-- children, and only those standing on the working ground above -- or, since task 315, on the ground
+-- the range's sightline and footprint need.
 --
 -- `world` IS AN ARGUMENT, exactly like `container` and `templates`, so `lobby.spec` sweeps a folder
 -- it built itself and production passes `Workspace`. Returns how many it took, which is the number
@@ -4088,7 +4131,7 @@ end
 -- and a sweep that silently removed the forest would otherwise look the same.
 --
 -- BY NAME AND OVER EVERY MATCH, because this place has TWO folders called `Session`.
-function Build.clearWorkingGround(world: Instance?, anchor: Vector3, cfg): number
+function Build.clearWorkingGround(world: Instance?, anchor: Vector3, cfg, keepClear: any?, lane: any?): number
 	if world == nil then
 		return 0
 	end
@@ -4107,9 +4150,16 @@ function Build.clearWorkingGround(world: Instance?, anchor: Vector3, cfg): numbe
 					local box = thing:GetBoundingBox()
 					at = box.Position
 				end
-				if at ~= nil and Build.onWorkingGround(at.X, at.Z, anchor, cfg) then
-					thing:Destroy()
-					removed += 1
+				if at ~= nil then
+					local onWorking = Build.onWorkingGround(at.X, at.Z, anchor, cfg)
+					local forRange = Build.keptClear(at.X, at.Z, anchor, cfg, keepClear, lane)
+					if onWorking or forRange then
+						thing:Destroy()
+						removed += 1
+						if forRange and not onWorking then
+							stats.sightlineCleared += 1
+						end
+					end
 				end
 			end
 		end
@@ -4620,7 +4670,9 @@ local function treeLine(
 	cfg,
 	templates: Instance?,
 	groundAt: ((number, number) -> number?)?,
-	terrainAt: ((number, number) -> number?)?
+	terrainAt: ((number, number) -> number?)?,
+	keepClear: any?,
+	lane: any?
 )
 	if templates == nil then
 		return
@@ -4697,6 +4749,13 @@ local function treeLine(
 		if math.abs(at.X - frontX) < cfg.TREELINE.FRONT_HALF_WIDTH and at.Z < frontZ then
 			continue
 		end
+		-- ...NOR BETWEEN THE SHOP DOOR AND THE RANGE, the FIFTH exclusion (task 315). Karen,
+		-- 2026-10-30, with a frame of the row: *"those trees can be removed"*. The ring's southern
+		-- arc stands across the straight walk, which is the one thing the move exists to open.
+		if Build.keptClear(at.X, at.Z, anchor, cfg, keepClear, lane) then
+			stats.sightlineDropped += 1
+			continue
+		end
 		-- THROUGH `cloneInstance` AND NOT BY HAND (review round 1, note). The hand-rolled walk here
 		-- used `GetDescendants`, which never visits the instance itself, so a `Trees` child that was
 		-- a Part rather than a Model came out UNANCHORED AND QUERYABLE -- the one thing this
@@ -4751,7 +4810,9 @@ local function lodgeTrees(
 	cfg,
 	templates: Instance?,
 	groundAt: ((number, number) -> number?)?,
-	terrainAt: ((number, number) -> number?)?
+	terrainAt: ((number, number) -> number?)?,
+	keepClear: any?,
+	lane: any?
 )
 	if templates == nil then
 		return
@@ -4769,6 +4830,14 @@ local function lodgeTrees(
 		byKind[row.KIND] = row
 	end
 	for index, row in ipairs(cfg.LODGE_TREES) do
+		-- NOT INTO THE WALK TO THE RANGE (task 315). Zero of the twelve are there today -- the
+		-- table's own rule plants nothing south of the lodge -- and that is exactly why the guard
+		-- is here: a later row moved south cannot quietly stand in Karen's sightline.
+		local foot = anchor + cfg.LODGE.OFFSET + Vector3.new(row.x, 0, row.z)
+		if Build.keptClear(foot.X, foot.Z, anchor, cfg, keepClear, lane) then
+			stats.sightlineDropped += 1
+			continue
+		end
 		local species = byKind[row.kind]
 		local template = if species ~= nil then wood:FindFirstChild(species.MODEL) else nil
 		if template == nil then
@@ -5003,7 +5072,7 @@ end
 -- `standing` is every trunk already planted, in world x/z. Returns one row per non-gap slot:
 -- `at` where it ends up, `shifted` how many steps it took, `dropped` if no step could clear it.
 -- A planted row is appended to `standing` as it goes, so two avenue trees cannot land on each other.
-function Build.avenuePlan(anchor: Vector3, cfg, standing: { Vector2 }): { any }
+function Build.avenuePlan(anchor: Vector3, cfg, standing: { Vector2 }, keepClear: any?, lane: any?): { any }
 	local spec = cfg.AVENUE
 	local taken: { Vector2 } = table.clone(standing)
 	local plan = {}
@@ -5026,8 +5095,13 @@ function Build.avenuePlan(anchor: Vector3, cfg, standing: { Vector2 }): { any }
 				at = Vector2.new(at.X, at.Y + spec.SHIFT_STUDS)
 				steps += 1
 			end
+			-- THE CORRIDOR IS TESTED WHERE THE SLOT ENDS UP, NOT WHERE ITS ROW SAYS (task 315).
+			-- `SHIFT_STUDS` walks a fouled slot NORTH, which is further INTO the walk between the
+			-- shop door and the range, never out of it -- so this is after the loop, not inside it.
 			if fouled(at) then
 				table.insert(plan, { index = index, slot = slot, dropped = true })
+			elseif Build.keptClear(at.X, at.Y, anchor, cfg, keepClear, lane) then
+				table.insert(plan, { index = index, slot = slot, dropped = true, sightline = true })
 			else
 				table.insert(plan, { index = index, slot = slot, at = at, shifted = steps })
 				table.insert(taken, at)
@@ -5056,7 +5130,9 @@ local function avenue(
 	cfg,
 	templates: Instance?,
 	groundAt: ((number, number) -> number?)?,
-	terrainAt: ((number, number) -> number?)?
+	terrainAt: ((number, number) -> number?)?,
+	keepClear: any?,
+	lane: any?
 )
 	if templates == nil then
 		return
@@ -5102,9 +5178,12 @@ local function avenue(
 	-- THE DECISION IS `Build.avenuePlan`'S AND THIS LOOP ONLY DRAWS IT: where a tree stands is a pure
 	-- function of the slot table and what is already planted, so `lobby.spec` can drive it with a
 	-- trunk of its own and assert the tree really moved (review round 1, finding 2).
-	for _, row in ipairs(Build.avenuePlan(anchor, cfg, standing)) do
+	for _, row in ipairs(Build.avenuePlan(anchor, cfg, standing, keepClear, lane)) do
 		if row.dropped then
 			stats.avenueDropped += 1
+			if row.sightline then
+				stats.sightlineDropped += 1
+			end
 			continue
 		end
 		local foot = Vector3.new(row.at.X, 0, row.at.Y)
@@ -5173,6 +5252,8 @@ function Build.build(
 	stats.avenueShifted = 0
 	stats.avenueDropped = 0
 	stats.flagpoleY = 0
+	stats.sightlineDropped = 0
+	stats.sightlineCleared = 0
 	-- THE OLD KEEPER WENT WITH THE OLD FOLDER. Dropped here rather than relied on, so a rebuild can
 	-- never leave `Build.faceKeeper` turning a body that is no longer in the DataModel.
 	keeper = nil
@@ -5194,7 +5275,12 @@ function Build.build(
 	-- `container` IS THE WORLD HERE AND THAT IS THE SEAM: production passes `Workspace` into
 	-- `Build.build`, and a spec passes a Folder of its own -- whose children are its own fixtures,
 	-- in neither of this rule's three rectangles unless the spec put them there.
-	Build.clearWorkingGround(container, anchor, cfg)
+	-- ...AND, SINCE TASK 315, OFF THE GROUND THE RANGE NEEDS TOO. The two rectangles arrive as
+	-- DATA from the composition root (`keepClear` is the range's footprint, `sightline` its three
+	-- edges); nil is every world without a range and then this answers exactly what it always did.
+	local keepClear = (seams or {}).keepClear
+	local lane = (seams or {}).sightline
+	Build.clearWorkingGround(container, anchor, cfg, keepClear, lane)
 
 	road(folder, anchor, cfg)
 	fences(folder, anchor, cfg)
@@ -5213,15 +5299,15 @@ function Build.build(
 		end
 	end
 	local treeGround = walkableReader(walkable, (seams or {}).terrainAt)
-	treeLine(folder, anchor, cfg, templates, (seams or {}).groundAt, treeGround)
-	lodgeTrees(folder, anchor, cfg, templates, (seams or {}).groundAt, treeGround)
+	treeLine(folder, anchor, cfg, templates, (seams or {}).groundAt, treeGround, keepClear, lane)
+	lodgeTrees(folder, anchor, cfg, templates, (seams or {}).groundAt, treeGround, keepClear, lane)
 	-- THE FLAGPOLE AND THE AVENUE (task 311, Karen: *"flag long stick and flag like in hunting
 	-- lobbies"*, *"bjorke tree from both sides with spaces"*). AFTER both groves, because the avenue
 	-- keeps its trunks off whatever the `treeLine` dice just placed and reads the folder to find out;
 	-- BEFORE the trucks and the pads, because `lobby.spec` pins the pads' own ground probes as the
 	-- LAST ones the build makes, and a pole that read the ground after them would move that boundary.
 	flagpole(folder, anchor, cfg, (seams or {}).groundAt)
-	avenue(folder, anchor, cfg, templates, (seams or {}).groundAt, treeGround)
+	avenue(folder, anchor, cfg, templates, (seams or {}).groundAt, treeGround, keepClear, lane)
 	lodge(folder, anchor, cfg, seams)
 	-- THE WORLD'S GROUND READER REACHES THE TRUCKS TOO (task 186), for the reason it already reaches
 	-- the pads: the shelf the arithmetic predicts is not the surface the engine produced, and a truck

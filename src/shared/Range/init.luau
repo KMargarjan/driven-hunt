@@ -442,15 +442,18 @@ Range.LAYOUT = {
 -- `downrange` IS THE LANE'S DIRECTION ALONG Z, AS DATA ON THE ROW and never a branch on the world's
 -- name: one arithmetic, two signs, both reachable in a spec by parameter. +1 is the DEV row's north.
 Range.ANCHORS = {
-	-- KAREN'S PLACE, RE-MEASURED FOR SIX STATIONS (step B8, design 2.1). The B6 anchor (2650, -3216)
-	-- was chosen for ONE station over a 160 x 185 footprint; six stations plus the treestand need
-	-- 256 x 239, and Karen on 2026-10-28 wanted the range *"in lobby / people don't have to walk
-	-- far"*. (2600, -3030) is 186.7 walked studs from the lodge door and shoots SOUTH, away from the
-	-- lodge, the road, the yard, the trucks, the spawn, the gathering yard and the drive.
-	-- MEASURED IN HER PLACE 2026-10-29 (evidence/306b8/census.txt): 0 BaseParts in the footprint,
-	-- 990 ground samples, 0 missed, ground spread 33.0 studs and 23.5 across the firing line alone
-	-- -- which is why `fill = true` exists and why nothing here is laid on natural ground.
-	-- The row BEFORE this step is archived at backups/task-306b8/ (rule 7).
+	-- KAREN'S PLACE. STRAIGHT OUT OF THE SHOP DOOR (task 315, design 2). Karen, 2026-10-30:
+	-- *"those trees can be removed and shooting range can be moved there that I can directly from
+	-- shop walk to shooting range same distance but straight"*.
+	-- x 2790 puts the station row's CENTRE on the lodge's own centre line (`matPosition` 1 + half of
+	-- `spotSpan` = 2850), which is where `DoorThreshold` stands -- measured live at
+	-- (2850.0, 152.3, -2916.1), facing south. z -3090 is the one band in which the terrace's uprange
+	-- edge snaps to -3060, the lobby field's own south edge, so the two terraces meet FLUSH.
+	-- Nearest mat 174.3 walked studs at 3.95 degrees off the door's facing, against 172.8 at 48.8
+	-- degrees before -- +0.9%, inside the +-15% the Director set.
+	-- THE MOVE IS A TRANSLATION: `LAYOUT` is untouched, so the hill, the 107/125/179 lanes, T6, the
+	-- treestands and solo-on-the-whole-range are all unchanged relative to this origin.
+	-- The row BEFORE this task is archived at backups/2026-10-30_task-315_range-anchor.txt (rule 7).
 	--
 	-- `berm = "terrain"` and `fill = true` ARE DATA, NEVER A BRANCH ON THE WORLD'S NAME (design 8.1):
 	-- both arms are reachable in `range.spec` by parameter.
@@ -459,13 +462,14 @@ Range.ANCHORS = {
 	-- resolves to the lobby's own shelf (148, measured) -- so the range terrace and the lodge yard
 	-- are ONE terrace and a man walks from the door to the mat without a step. The ground at the
 	-- range anchor reads 134.87, which snaps to a shelf of 132 -- a 16-stud step across her path
-	-- (measured 2026-10-29, evidence/306b8/profile.txt).
+	-- (measured 2026-10-29, evidence/306b8/profile.txt). It does NOT move with the range: it is a
+	-- fact about the LODGE, and the level walk is the whole of Karen's request (design 3).
 	-- `keepOut` IS THE LOBBY FIELD'S WEST AND SOUTH EDGES (x 2740, z -3060, from `Lobby.CONFIG.FIELD`):
 	-- north of that z the cut stops at that x, so the two terraces meet FLUSH on one voxel plane and
 	-- neither writes the other's ground. `range.spec` asserts the pair against `Lobby`'s own config.
 	["forest-test"] = {
-		x = 2600,
-		z = -3030,
+		x = 2790,
+		z = -3090,
 		plate = false,
 		downrange = -1,
 		drawn = true,
@@ -1870,6 +1874,23 @@ function Range.footprintFor(anchor: Vector3, layout, downrange: number?)
 		maxX = math.ceil(maxX + margin),
 		minZ = math.floor(math.min(nearZ, farZ) - margin),
 		maxZ = math.ceil(math.max(nearZ, farZ) + margin),
+	}
+end
+
+-- THE RANGE'S HALF OF THE SIGHTLINE (task 315, design 7.1): the two X edges a tree may not stand
+-- between if every built station is to be visible from the shop door, and the uprange edge of the
+-- range itself. The caller closes the fourth edge with ITS OWN fact -- this module knows of no lodge.
+-- The span is the STATION ROW grown by half a hut roof, because the hut is the widest and tallest
+-- thing at a station, so a trunk outside it cannot hide one.
+function Range.sightlineFrom(anchor: Vector3, layout, downrange: number?)
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local half = layout.HUT.roofSize.X / 2
+	local box = Range.footprintFor(anchor, layout, dir)
+	return {
+		minX = anchor.X - half,
+		maxX = anchor.X + Range.spotSpan(layout) + half,
+		fromZ = if dir == -1 then box.maxZ else box.minZ,
 	}
 end
 
