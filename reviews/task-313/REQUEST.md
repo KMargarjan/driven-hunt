@@ -132,18 +132,54 @@ a station every other player's body is hidden for him. All of it behind `RANGE_S
 
     *Verify:* the frames `313-board-off.png` and `313-board-run.png` under `<runs-dir>`, and the two
     sampler runs printed in the task report. **I opened and read all four frames.**
+    One further board reading, from the two-player session at the same station and pace, said
+    `crossing 10.60 s` where this one said 9.10 -- both far above the 3.25 of the OFF state, but
+    10.60 is 16 % above the 9.12 the span predicts, outside `CROSSING_TOLERANCE` 10 %. Reported
+    because it was read, not averaged away: see the third bullet below.
+
+12. **TWO CLIENTS, TWO STATIONS, WITH THE KNOWN-BAD CONTROL. `DEV ONLY`.**
+    A real 2-player local test (Studio's own Server-and-Clients, player count 2, started by a real
+    `F7`), Player1 staged on station 2 and Player2 on station 4, a real `E` on each client window
+    (`313-clientkey.ps1`: focus that process, click its viewport, send `E` with its scan code), and
+    then the same probe run on EACH client. The probe reads `LocalTransparencyModifier` straight off
+    the parts -- an INSTANCE fact -- because this channel hands a probe a FRESH copy of
+    `Range.Mask`/`Range.Solo` and not the one `RangeBoot` steps, so a live `stats()` read would mean
+    nothing (`range_mask.spec`'s own live/starter distinction).
+
+    | with `RANGE_SOLO` | on Player1's client | on Player2's client |
+    |---|---|---|
+    | **ON** | his Boar1 **0.00 shown**; Boar2 1.00 hidden; **Player2: 21 parts, 21 at modifier 1, mean 1.00** | Boar1 1.00 hidden; his Boar2 1.00 (it was at x=1341, outside his span 1209.3..1325.3); **Player1: 20 parts, 20 at modifier 1, mean 1.00** |
+    | **OFF** (control) | his Boar1 **0.00 shown**; Boar2 1.00 hidden; **Player2: 21 parts, 0 at modifier 1, mean 0.00** | Boar1 1.00 hidden; his Boar2 **0.00 shown**; **Player1: 20 parts, 0 at modifier 1, mean 0.00** |
+
+    **The control is what makes this a proof rather than an observation.** The ONLY line that moves
+    between the two states is the OTHER player's: 1.00 -> 0.00. Each man's OWN body reads
+    `mean 1.00` in BOTH states, because `Camera.Rig` hides it in first person either way -- so the
+    control separates `Solo`'s set from `Rig`'s set live, which is exactly the partition claim 7
+    makes, and it fails if `Solo` is not the thing doing the hiding.
+
+    The per-animal mask is unchanged by the flag in both rows (each man sees his own and not the
+    other's), which is task 306's behaviour and is what should happen.
+
+    The server also printed Player1's span live as `1186.3..1286.7` -- the design's
+    [1186.33, 1286.67] for station 2 at the 125 lane, to 0.04 studs.
 
 ## What I could NOT verify
 
-- **THE TWO-CLIENT PICTURE HAS NOT BEEN SEEN, AND NEITHER HAS THE HIDING OF ANOTHER PLAYER.** The
-  live proof above is ONE player in DEV, which is why it is labelled `DEV ONLY`: it proves the SPAN
-  and the crossing, and it proves nothing at all about `Solo.luau`, because with one player there is
-  nobody to hide. Claim 7 stands on `range_solo.spec` alone. `docs/design/shooting-range-lobby.md`
-  section 15 item 3 -- that `LocalTransparencyModifier` hides another player's whole character, his
-  accessories and his held Tool -- has a shipped fallback and **no picture**.
-- **The CLICK PROOF and the FOREST TEST PROOF were not taken IN KAREN'S PLACE.** Her Forest Test was
-  in a Play session when this session reached them, and the dispatch's own rule is to stop rather
-  than disturb her. What stands instead is the DEV pair above, labelled as such.
+- **NOTHING WAS PROVED IN KAREN'S PLACE.** Both live proofs above are DEV. Her Forest Test was in a
+  Play session when this session reached that step and the dispatch's own rule is to stop rather
+  than disturb her, so the CLICK PROOF and the FOREST TEST PROOF as the dispatch specified them --
+  in HER place, with her terrain and her anchor -- **were not taken**.
+- **NO FRAME OF THE TWO-CLIENT PICTURE.** Claim 12 is numbers, not a picture: the frame I aimed for
+  was spoiled because DEV's own drive re-roled Player1 to BEATER and moved him off the mat
+  mid-capture, and I did not get a clean one before the session was cleaned up. The modifier
+  readings were taken while both men were measured at their stations; the frame was not.
+  `docs/design/shooting-range-lobby.md` section 15 item 3 -- that the property hides a character's
+  ACCESSORIES and his held Tool specifically -- is covered by claim 12's part counts (21 and 20
+  parts, all of them) but nobody has LOOKED at an invisible player, and item 4, the name tag over
+  one, is untouched and unseen.
+- **`Solo` was exercised only at `alone` true/false via the flag**, never at a man walking off the
+  mat mid-session, which is `setAlone(false)`'s own path. `range_solo.spec` covers it; live, nobody
+  has.
 - **ONE READING I CANNOT EXPLAIN, AND IT IS NOT BEING EXPLAINED AWAY.** With the flag ON at pace
   **RUN**, the board read `crossing 9.13 s` where the span arithmetic says 100.34 / 24 = **4.18 s**.
   The TROT pair above matches to 0.2 %, and the sampler measured a full RUN leg in 6.21 s, so the
@@ -173,5 +209,6 @@ ANSWERED: L-158 `src/client/Range/` and both range client specs were added to `T
 the same commit as the code, which is why this request has to ask for a run nobody could make.
 ANSWERED: L-154 the design names a concrete owner module, `src/client/Range/Solo.luau`, not "the
 Mask", and the partition is asserted in `range_solo.spec` rather than described.
-ANSWERED: L-033/L-034 no two-client run exists at all, so no single run is being offered as proof of
-a per-player claim.
+ANSWERED: L-033/L-034 the two-client reading in claim 12 is ONE run per state, not two consecutive
+clean ones, so it is offered as a measurement with a control and NOT as proof that the picture is
+free of races; the standing bar is not met and is not claimed to be.
