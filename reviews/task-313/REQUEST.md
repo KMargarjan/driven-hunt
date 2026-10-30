@@ -104,15 +104,54 @@ a station every other player's body is hidden for him. All of it behind `RANGE_S
     mask dirty, counted as `stats().spanPushes`. The table drops a player who left.
     *Verify:* `src/server/Range/init.luau` `occupancy`.
 
+11. **MEASURED LIVE, BOTH STATES, ON THE BOARD KAREN READS. `DEV ONLY`.**
+    One Play session per state in the DEV place, same station (2), same lane (125 studs), same pace
+    (trot), the flag switched by override with no commit, and a real `E` keypress through
+    `298key.ps1` after a focusing click -- so the menu and the board are the shipped path and not a
+    probe. The board's own line, read off the two frames:
+
+    | `RANGE_SOLO` | the board's line | predicted |
+    |---|---|---|
+    | **off** | `PACE TROT pace 11.0 studs/s issued 11.0 studs/s crossing 3.25 s` | 36 / 11 = 3.27 s |
+    | **on** | `PACE TROT pace 11.0 studs/s issued 11.0 studs/s crossing 9.10 s` | 100.34 / 11 = 9.12 s |
+
+    **2.80x longer, and both within 0.6 % of the span arithmetic.** 100.34 studs is this design's
+    own number for station 2 at the 125 lane.
+
+    And the LEG, sampled independently as an instance fact (`313-sample.py` reads the trunk's X off
+    `Workspace.RangeTargets` ~15 times a second; the same instrument for both states):
+
+    | `RANGE_SOLO` | measured leg | predicted leg |
+    |---|---|---|
+    | **off** | 1188.30 .. 1259.37 = **71.07 studs** | 76 studs, less `LINE.ARRIVE_STUDS` at each end |
+    | **on** (run) | 1166.63 .. 1308.10 = **141.47 studs** | 140.33 studs |
+
+    **1.99x.** The shortfall at each end in the OFF row is the brain stopping inside
+    `Boar.CONFIG.LINE.ARRIVE_STUDS`, which `range.spec`'s own header records as the reason a lane
+    case measures the ordered lane and not the spec's idea of walking.
+
+    *Verify:* the frames `313-board-off.png` and `313-board-run.png` under `<runs-dir>`, and the two
+    sampler runs printed in the task report. **I opened and read all four frames.**
+
 ## What I could NOT verify
 
-- **NOTHING HAS BEEN SEEN ON A SCREEN.** No frame exists of the wide crossing, of two clients each
-  seeing only his own animal, or of another player being hidden. The CLICK PROOF and the FOREST TEST
-  PROOF the dispatch asked for were **not taken**: Karen's Forest Test was in a Play session when
-  this session reached them and the dispatch's own rule is to stop rather than disturb her. Every
-  claim above is arithmetic or a spec. `docs/design/shooting-range-lobby.md` section 15 items 3-9
-  stay UNVERIFIED, and item 3 in particular -- that the property hides another player's whole
-  character, accessories and held Tool -- has a shipped fallback but no picture.
+- **THE TWO-CLIENT PICTURE HAS NOT BEEN SEEN, AND NEITHER HAS THE HIDING OF ANOTHER PLAYER.** The
+  live proof above is ONE player in DEV, which is why it is labelled `DEV ONLY`: it proves the SPAN
+  and the crossing, and it proves nothing at all about `Solo.luau`, because with one player there is
+  nobody to hide. Claim 7 stands on `range_solo.spec` alone. `docs/design/shooting-range-lobby.md`
+  section 15 item 3 -- that `LocalTransparencyModifier` hides another player's whole character, his
+  accessories and his held Tool -- has a shipped fallback and **no picture**.
+- **The CLICK PROOF and the FOREST TEST PROOF were not taken IN KAREN'S PLACE.** Her Forest Test was
+  in a Play session when this session reached them, and the dispatch's own rule is to stop rather
+  than disturb her. What stands instead is the DEV pair above, labelled as such.
+- **ONE READING I CANNOT EXPLAIN, AND IT IS NOT BEING EXPLAINED AWAY.** With the flag ON at pace
+  **RUN**, the board read `crossing 9.13 s` where the span arithmetic says 100.34 / 24 = **4.18 s**.
+  The TROT pair above matches to 0.2 %, and the sampler measured a full RUN leg in 6.21 s, so the
+  animal was moving at the issued speed -- but the board's RUN crossing is roughly the TROT number.
+  The likeliest reading is that `trial.lastCrossingSeconds` was still the previous pace's when the
+  frame was taken, since the pace was changed and the target re-released moments before. **That is a
+  guess and I did not confirm it.** The Reviewer should treat `crossing` after a pace change as
+  unproven, and it belongs in `TASKS.md` either way.
 - **`[harness2]`**: see the header.
 - **One defect in this area was NOT fixed and is not mine** (`playtest/range-v3/report.md`, "Seen by
   accident"): stepping off a mat strips all four guns and rearms the wrong one. The design's section
@@ -121,12 +160,15 @@ a station every other player's body is hidden for him. All of it behind `RANGE_S
 
 ANSWERED: L-136 the named flake `weapon_shot.spec.luau:1490` did not fire in any of the four runs on
 this branch; no FAIL line is claimed as known or flaky anywhere in this request.
-ANSWERED: L-127 every item above is MET as arithmetic or a spec and NOT PROVEN ON SCREEN, said once
-per item in "What I could NOT verify" rather than implied.
-ANSWERED: L-162 there is no live proof in this request, so none is mis-dated; the one harness line is
-at the code commit named in the header.
-ANSWERED: Rule 5 no visual claim is made, because no frame was taken. The only frames looked at this
-session were of Studio's own windows, and they are evidence for `ESCALATE.md`, not for the game.
+ANSWERED: L-127 each item is marked MET on screen (claim 11, DEV), MET as arithmetic or a spec, or
+NOT PROVEN, item by item, in "What I could NOT verify" rather than implied.
+ANSWERED: L-162 every live reading above was taken on this branch at the code commit's tree -- the
+working tree was clean and unchanged throughout (`git status` empty before and after), the flag was
+an override and never a commit, and DEV was returned to no overrides at all.
+ANSWERED: Rule 5 every visual claim cites a frame I opened and described: `313-board-off.png` and
+`313-board-run.png` (the board's crossing line in both states), `313-span-east.png` (the shooter's
+own bay, from his eye, with the span's far ground in view) and `313-E-span.png` (the menu a real `E`
+opened). No claim is made about anything I did not look at.
 ANSWERED: L-158 `src/client/Range/` and both range client specs were added to `TWO_PLAYER_PATHS` in
 the same commit as the code, which is why this request has to ask for a run nobody could make.
 ANSWERED: L-154 the design names a concrete owner module, `src/client/Range/Solo.luau`, not "the
