@@ -58,10 +58,11 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- without touching this line, and that is the Director's call (docs/design/shop.md section 16
 -- item 8), not this task's.
 --
--- LIT (12): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
---           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN, COINS and LOBBY (task 233), SHOP (233b).
--- DARK (6): QUICK_TEST, DRIVE_BOTS, LICENCE_POPUP (task 238), DEER_ROAD_LEAP (task 245b),
---           STAG_BOUND_ON_SPOOK (task 251 part 2), RANGE (task 298).
+-- LIT (14): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
+--           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN, COINS and LOBBY (task 233), SHOP (233b),
+--           AIM_REWIND and ZONES_FOLLOW_GAIT (task 312).
+-- DARK (7): QUICK_TEST, DRIVE_BOTS, LICENCE_POPUP (task 238), DEER_ROAD_LEAP (task 245b),
+--           STAG_BOUND_ON_SPOOK (task 251 part 2), RANGE (task 298), HIT_CLAIM (task 266).
 --
 -- `SHOP` IS LIT SINCE TASK 233b, and what made that safe is NOT this row: it is that a world with
 -- no counter does not wire a shop at all (`Shop.start`'s own gate). Task 233's flip lit the shop in
@@ -127,7 +128,8 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- excepted. The two ways out of the cap are still the two task 238 listed and the first is still
 -- queued as TASKS.md 82b.
 -- 20 -> 21 FOR TASK 305c, **AND THE SAME SENTENCE AGAIN**: the Builder is saying so rather than
--- quietly retiring somebody else's row. `ZONES_FOLLOW_GAIT` is the twenty-first, it ships DARK, and
+-- quietly retiring somebody else's row. `ZONES_FOLLOW_GAIT` is the twenty-first; it shipped DARK
+-- and task 312 LIT it with `AIM_REWIND` on Karen's OK, 2026-10-30, and
 -- the two ways out are still the two task 238 listed -- retire the lit rows queued as TASKS.md 82b,
 -- which is the DIRECTOR's call, or ship a new feel-critical path LIT, which
 -- `docs/design/feature-flags.md` section 11 step 1 forbids. This moves a hit box, which is as
@@ -175,8 +177,9 @@ Flags.DEFAULTS = {
 		default = true,
 		owner = "ServerScriptService.Weapon",
 		born = "2026-10-28 task 305",
-		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
-		expires = "2026-11-18",
+		-- ACCEPTED by Karen, so not a 21-day dark path any more (design section 11 step 6a): it
+		-- stays until the losing branch is archived and the row retired (TASKS.md row 82b).
+		expires = "2026-12-31",
 		why = "The server tests each animal where the SHOOTER DREW it -- 0.250 s back, measured -- "
 			.. "instead of where the server has it now, so the only lead a player needs is the real "
 			.. "ballistic one. OFF is exactly the game before task 305: the animal is tested at the "
@@ -192,8 +195,9 @@ Flags.DEFAULTS = {
 		default = true,
 		owner = "ServerScriptService.Boar",
 		born = "2026-10-28 task 305c",
-		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
-		expires = "2026-11-18",
+		-- ACCEPTED by Karen, so not a 21-day dark path any more (design section 11 step 6a): it
+		-- stays until the losing branch is archived and the row retired (TASKS.md row 82b).
+		expires = "2026-12-31",
 		why = "Each hit box is carried by the gait clip's own deformation of the bone nearest it, so "
 			.. "the boxes sit on the animal the shooter SEES: at a run the drawn body is 0.14-0.65 "
 			.. "studs below its rest pose and the snout box missed the drawn snout on every frame. "
