@@ -293,6 +293,13 @@ local stats = {
 	-- How many times his head was actually turned. One write per change and never one per scan, so
 	-- a number that climbs with the scan count is the bug this counter exists to show.
 	keeperTurns = 0,
+	-- THE WALK TO THE RANGE (task 315), mirrored here for `models`' stated reason: `Build.stats()`
+	-- is not reachable from the boot's log line, and a live probe gets a FRESH copy of this module
+	-- -- so a counter nobody can print is not a diagnostic. `sightlineDropped` is OUR trees that
+	-- were not planted in the corridor between the shop door and the range; `sightlineCleared` is
+	-- the WORLD's own foliage the sweep took off it.
+	sightlineDropped = 0,
+	sightlineCleared = 0,
 }
 
 function Lobby.stats()
@@ -500,6 +507,8 @@ local function tryBuild(): boolean
 	stats.trucksSettled = built.trucksSettled
 	stats.truckGroundStuds = built.truckGroundStuds
 	stats.truckPainted = built.truckPainted
+	stats.sightlineDropped = built.sightlineDropped
+	stats.sightlineCleared = built.sightlineCleared
 	folder = made
 	spawnPart = spawn
 	-- WHERE THE FOUR PADS ARE, COMPUTED ONCE, through the ONE function that knows (task 182).
