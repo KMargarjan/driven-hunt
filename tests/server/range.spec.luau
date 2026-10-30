@@ -4195,7 +4195,17 @@ return function()
 				want += 1
 			end
 			expect(seen).to.equal(want)
-			expect(want).to.equal(1 + LAYOUT.BERM.slopeSteps + 1)
+			-- ONE HEAP PER PREDICTED BOX (the hill's columns, their bands and its scrub) PLUS the two
+			-- banks -- which share a (top, Z) key, so the banks add one.
+			local predicted = {}
+			for _, box in ipairs(Range.Build.bermBoxes(anchorOf(b), b.shelf, LAYOUT, -1)) do
+				predicted[string.format("%.3f|%.3f", box.at.Position.Y + box.size.Y / 2, box.at.Position.Z)] = true
+			end
+			local distinct = 0
+			for _ in pairs(predicted) do
+				distinct += 1
+			end
+			expect(want).to.equal(distinct + 1)
 			parent:Destroy()
 		end)
 
@@ -4257,34 +4267,119 @@ return function()
 			parent:Destroy()
 		end)
 
-		it("fills a berm with a battered uprange face and ONE level crest, and two banks on the flat", function()
+		-- 306l item 2: AN EARTH HILL, NOT A WALL. The shipped box had one level crest and one level
+		-- toe, and from bench 2 that is what it read as (306l-BEFORE-boar-zoom.png). This case
+		-- asserts the three things that make it a hill: the crest is not one line, the toe is not
+		-- one line, and only the IMPACT FACE is bare earth.
+		it("fills an uneven earth hill: a grassed crest and back, a bare battered face, scrub on top", function()
 			local anchor = Vector3.new((FOREST_ROW :: any).x, FOREST_SHELF, (FOREST_ROW :: any).z)
 			local boxes = Range.Build.bermBoxes(anchor, FOREST_SHELF, LAYOUT, -1)
-			expect(#boxes).to.equal(1 + LAYOUT.BERM.slopeSteps)
-			-- EVERY BAND STANDS FROM THE TERRACE, so the heap is solid and nothing floats (rule E).
+			local columns = RangeData.bermColumns(anchor, LAYOUT, -1)
+			local scrub = RangeData.bermScrubPoints(anchor, LAYOUT, -1)
+			expect(#columns > 8).to.equal(true)
+			expect(#boxes).to.equal(#columns * (1 + LAYOUT.BERM.slopeSteps) + #scrub)
+			-- EVERY BOX STANDS FROM THE TERRACE, so the heap is solid and nothing floats (rule E).
 			for _, box in ipairs(boxes) do
 				expect(math.abs((box.at.Position.Y - box.size.Y / 2) - FOREST_SHELF) < 1e-6).to.equal(true)
 			end
-			-- THE CREST IS THE CORE'S, one level line at the design's 10 studs, and no band reaches it.
-			expect(math.abs(boxes[1].size.Y - LAYOUT.BERM.height) < 1e-6).to.equal(true)
-			local nearFace = RangeData.bermPosition(anchor, LAYOUT, -1).Z + LAYOUT.BERM.depth / 2
-			local lastReach, lastTop = -math.huge, math.huge
-			for index = 2, #boxes do
-				local box = boxes[index]
-				local top = box.at.Position.Y + box.size.Y / 2
-				expect(top < FOREST_SHELF + LAYOUT.BERM.height - 1e-6).to.equal(true)
-				-- A BATTER AND NOT A WALL: each higher band reaches LESS far uprange than the one below.
-				local reach = (box.at.Position.Z + box.size.Z / 2) - nearFace
-				expect(reach > 0).to.equal(true)
-				if index > 2 then
-					expect(reach < lastReach).to.equal(true)
-					expect(top > lastTop).to.equal(true)
+			local face = RangeData.bermCrestFaceZ(anchor, LAYOUT, -1)
+			-- THE SURFACES SPLIT AT THE CREST'S NEAR FACE: bare earth is uprange of it and nothing
+			-- else is; grass and scrub are at or behind it and nothing else is.
+			local earth, hill, bush = 0, 0, 0
+			for _, box in ipairs(boxes) do
+				-- this row runs with `dir` -1, so UPRANGE (towards the shooter) is +Z.
+				local near = box.at.Position.Z + box.size.Z / 2
+				local far = box.at.Position.Z - box.size.Z / 2
+				if box.surface == "BERM" then
+					earth += 1
+					-- THE FACE AND ONLY THE FACE: from the crest's near face out to the designed run.
+					expect(math.abs(far - face) < 1e-6).to.equal(true)
+					expect(near <= face + LAYOUT.BERM.slopeRun + 1e-6).to.equal(true)
+					expect(near > face + 1e-6).to.equal(true)
+				elseif box.surface == "HILL" then
+					hill += 1
+					-- THE CREST AND THE BACK: it begins at the face and nothing of it is uprange of it.
+					expect(math.abs(near - face) < 1e-6).to.equal(true)
+					expect(math.abs(far - (face - LAYOUT.BERM.depth)) < 1e-6).to.equal(true)
+				else
+					bush += 1
+					expect(box.surface).to.equal("SCRUB")
+					-- NOT ON THE FACE: the clump's own uprange face is behind the bare lip.
+					expect(near <= face - LAYOUT.BERM.scrubBackStuds + 1e-6).to.equal(true)
+					expect(far >= face - LAYOUT.BERM.depth - 1e-6).to.equal(true)
 				end
-				lastReach, lastTop = reach, top
 			end
-			-- ...AND THE SLOPE'S TOE IS THE DESIGNED RUN, so "1:1.2" is a number and not a word.
-			expect(math.abs(((boxes[2].at.Position.Z + boxes[2].size.Z / 2) - nearFace) - LAYOUT.BERM.slopeRun) < 1e-6).to.equal(
-				true
+			expect(hill).to.equal(#columns)
+			expect(earth).to.equal(#columns * LAYOUT.BERM.slopeSteps)
+			expect(bush).to.equal(#scrub)
+			expect(bush >= 3).to.equal(true)
+			-- THE CREST IS NOT ONE LINE. At least four distinct tops, and the spread is studs and
+			-- not noise -- the one thing a box could never have.
+			local tops, distinct, lo, hi = {}, 0, math.huge, -math.huge
+			for _, column in ipairs(columns) do
+				local key = string.format("%.2f", column.top)
+				if tops[key] == nil then
+					tops[key] = true
+					distinct += 1
+				end
+				lo, hi = math.min(lo, column.top), math.max(hi, column.top)
+			end
+			expect(distinct >= 4).to.equal(true)
+			expect(hi - lo >= 3).to.equal(true)
+			expect(hi <= LAYOUT.BERM.height + 1e-6).to.equal(true)
+			-- ...AND THE TOE IS NOT ONE LINE EITHER, and never reaches past the designed run.
+			local runs, runLo, runHi = 0, math.huge, -math.huge
+			local seenRun = {}
+			for _, column in ipairs(columns) do
+				expect(column.run <= LAYOUT.BERM.slopeRun + 1e-6).to.equal(true)
+				expect(column.run > 0).to.equal(true)
+				local key = string.format("%.2f", column.run)
+				if seenRun[key] == nil then
+					seenRun[key] = true
+					runs += 1
+				end
+				runLo, runHi = math.min(runLo, column.run), math.max(runHi, column.run)
+			end
+			expect(runs >= 4).to.equal(true)
+			expect(runHi - runLo >= 1).to.equal(true)
+			-- EACH COLUMN'S BANDS ARE A BATTER: the lower the band, the further uprange it reaches.
+			local byColumn = {}
+			for _, box in ipairs(boxes) do
+				if box.surface == "BERM" then
+					local key = string.format("%.3f", box.at.Position.X)
+					byColumn[key] = byColumn[key] or {}
+					table.insert(byColumn[key], box)
+				end
+			end
+			for _, bands in pairs(byColumn) do
+				expect(#bands).to.equal(LAYOUT.BERM.slopeSteps)
+				for index = 2, #bands do
+					local previous, band = bands[index - 1], bands[index]
+					expect(band.size.Y > previous.size.Y).to.equal(true)
+					expect(band.size.Z < previous.size.Z).to.equal(true)
+				end
+				-- the tallest band meets the column's own crest, so face and crest are one surface.
+				local tallest = bands[#bands]
+				local column = nil
+				for _, c in ipairs(columns) do
+					if math.abs(c.x - tallest.at.Position.X) < 1e-6 then
+						column = c
+					end
+				end
+				expect(column).to.be.ok()
+				expect(math.abs(tallest.size.Y - (column :: any).top) < 1e-6).to.equal(true)
+			end
+			TestKit.note(
+				string.format(
+					"range 306l hill: %d columns, crest %.1f..%.1f studs (%d distinct), toe run %.1f..%.1f, %d scrub clumps",
+					#columns,
+					lo,
+					hi,
+					distinct,
+					runLo,
+					runHi,
+					#scrub
+				)
 			)
 			-- THE BANKS ARE FILLED WHERE THE PARTS WOULD HAVE STOOD -- one answer to "where is a bank".
 			local _, _, parent, terrain = buildOnTerrain(FOREST_ROW, slopedGround)
@@ -4298,11 +4393,59 @@ return function()
 						and math.abs(call.size.Y - LAYOUT.BANK.size.Y) < 1e-6
 					then
 						found = true
+						-- GRASSED, like the crest and the back (306l item 2).
+						expect(call.material).to.equal(LAYOUT.SURFACE.HILL)
 					end
 				end
 				expect(found).to.equal(true)
 			end
 			parent:Destroy()
+		end)
+
+		-- 306l item 1, and the 306k Reviewer's note 1: THE FARTHEST LANE IS CLEAR OF THE HEAP.
+		-- MEASURED BEFORE: a terrain raycast down lane 2 read 7.28 studs of earth standing on the
+		-- 179 lane, and a real `RangeRequest` for 179 put the boar at d 171.9 and 1.5 studs up the
+		-- batter, hidden from bench 2 (306l-profile.luau, 306l-fire-look.luau, her place).
+		it("keeps the backstop's toe behind the farthest lane, both ways down the row", function()
+			local clear = RangeData.bermToeClearance(LAYOUT)
+			expect(clear >= LAYOUT.BERM.toeClearStuds).to.equal(true)
+			-- the released boar's trunk measures 2 x 3 x 5.5 in her place, so half its LENGTH is
+			-- 2.75 -- and the clearance has to carry that plus room a partial voxel cannot cross.
+			expect(clear > 5.5 / 2).to.equal(true)
+			for _, dir in ipairs({ 1, -1 }) do
+				local devAt = Vector3.new((DEV_ROW :: any).x, 0, (DEV_ROW :: any).z)
+				for _, at in ipairs({ devAt, Vector3.new(-410.5, 12, 880.25) }) do
+					local toe = RangeData.bermToeZ(at, LAYOUT, dir)
+					local lane = RangeData.laneCentre(at, LAYOUT, dir, 2, RangeData.distanceMax(LAYOUT))
+					-- THE TOE IS DOWNRANGE OF THE LANE, on the row's own side, by the clearance.
+					expect(math.abs((dir * (toe - at.Z)) - (RangeData.distanceMax(LAYOUT) + clear)) < 1e-6).to.equal(
+						true
+					)
+					expect(dir * (toe - lane.Z) > 0).to.equal(true)
+					expect(math.abs(dir * (toe - lane.Z) - clear) < 1e-6).to.equal(true)
+					-- ...AND NO BOX OF THE HEAP REACHES PAST IT, which is what the lane actually meets.
+					for _, box in ipairs(Range.Build.bermBoxes(at, at.Y, LAYOUT, dir)) do
+						-- the box's UPRANGE-most face: the one the lane would meet.
+						local nearest = box.at.Position.Z - dir * box.size.Z / 2
+						expect(dir * (nearest - lane.Z) > 0).to.equal(true)
+					end
+					-- every one of the three lanes stands on clear ground, not only the farthest.
+					for _, distance in ipairs(LAYOUT.DISTANCES_STUDS) do
+						local point = RangeData.laneCentre(at, LAYOUT, dir, 2, distance)
+						expect(dir * (toe - point.Z) >= clear - 1e-6).to.equal(true)
+					end
+				end
+			end
+			TestKit.note(
+				string.format(
+					"range 306l toe: crest face %d studs out, run %d, toe %d -- %.1f studs clear of the %d lane",
+					LAYOUT.BERM.behindStuds - LAYOUT.BERM.depth / 2 + RangeData.distanceMax(LAYOUT),
+					LAYOUT.BERM.slopeRun,
+					RangeData.distanceMax(LAYOUT) + clear,
+					clear,
+					RangeData.distanceMax(LAYOUT)
+				)
+			)
 		end)
 
 		it("paints the mown lane, then the firing line over every mat, post and bench", function()
