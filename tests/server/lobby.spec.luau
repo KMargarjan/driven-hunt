@@ -961,6 +961,17 @@ return function()
 			for _, t in ipairs({ 0.25, 0.5, 0.75 }) do
 				table.insert(points, { string.format("walk t=%.2f", t), anchor:Lerp(mat, t) })
 			end
+			-- ...AND EVERY OTHER STATION'S MAT (task 315). Since the range moved straight out of the
+			-- shop door the walk is SHORT and STRAIGHT, so all three `t` points above now fall
+			-- inside the lobby field's own 220 x 220 -- which is the move working, not the rule
+			-- failing, and it took the bite below from 3 of 5 to 2 of 5. The six mats are the
+			-- points that genuinely need the new rule, so they are the ones this case carries.
+			for spot = 2, RangeData.LAYOUT.SPOT_COUNT do
+				table.insert(points, {
+					string.format("mat %d", spot),
+					RangeData.matPosition(rangeAnchor, spot, RangeData.LAYOUT),
+				})
+			end
 			local flipped = {}
 			for _, row in ipairs(points) do
 				local name, at = row[1], row[2] :: Vector3
@@ -1057,21 +1068,33 @@ return function()
 							end
 						end
 					end
-					expect(own > 0).to.equal(
-						true,
-						string.format(
-							"rectangle %d contributes neither a boundary case nor one point of its own ground",
-							index
-						)
-					)
+					-- TASK 315 MEASURED THE THIRD VERSION TRUE AT LAST. With the range straight out
+					-- of the shop door the field and the footprint MEET on z -3060..-3057, so the
+					-- walkway between them carries no ground of its own any more. A redundant
+					-- rectangle is fine; a rectangle that is NEITHER redundant NOR contributing is
+					-- not, and that is what this now says. It still reddens on a rectangle with no
+					-- reason to exist, because such a rectangle would have points outside the union.
+					if own == 0 then
+						for ix = 0, 4 do
+							for iz = 0, 4 do
+								local at = Vector3.new(
+									rect.minX + (rect.maxX - rect.minX) * ix / 4,
+									0,
+									rect.minZ + (rect.maxZ - rect.minZ) * iz / 4
+								)
+								expect(Join.insideHome(at, others)).to.equal(
+									true,
+									string.format(
+										"rectangle %d contributes no ground of its own AND is not covered by the rest",
+										index
+									)
+								)
+							end
+						end
+					end
 					table.insert(
 						perRect,
-						string.format(
-							"rect %d: no edge, but %d of 25 own points (first %s)",
-							index,
-							own,
-							tostring(first)
-						)
+						string.format("rect %d: no edge, %d of 25 own points (first %s)", index, own, tostring(first))
 					)
 				end
 				table.insert(perRect, string.format("rect %d: %d", index, here))
@@ -4706,7 +4729,6 @@ return function()
 				{ "Tree20", 2779.0, -3025.7 },
 				{ "lodge centre, north of the corridor", 2850.0, -2904.0 },
 				{ "a trunk 50 studs out in the wood", 2948.8, -2964.4 },
-				{ "the gathering yard", 2788.0, -2940.0 },
 			}
 			for _, spot in ipairs(outside) do
 				expect(Build.keptClear(spot[2] :: number, spot[3] :: number, anchor, CFG, keep, lane)).to.equal(
@@ -4714,12 +4736,27 @@ return function()
 					string.format("%s must not be cleared", spot[1] :: string)
 				)
 			end
-			-- THE SPAWN PAD IS INSIDE THE CORRIDOR, and that is stated rather than hidden (design
-			-- 5.2): the rule reaches the lodge's own south face, so the porch strip and the spawn
-			-- are in it. It is harmless because the rule removes only TREES and nothing plants one
-			-- there -- `treeLine`'s fourth exclusion and `onWorkingGround`'s front rectangle both
-			-- keep that strip clear already.
+			-- TWO THINGS ARE INSIDE THE CORRIDOR THAT ARE NOT TREES, AND THEY ARE STATED RATHER
+			-- THAN HIDDEN (design 5.2), because a reader who found them later would be right to ask:
+			--   * THE SPAWN PAD (2850, -2934). The rule reaches the lodge's own south face, so the
+			--     porch strip and the spawn are in it.
+			--   * THE GATHERING YARD'S EASTERN EDGE. Its centre is 4.5 studs inside the corridor's
+			--     west edge -- MEASURED here off both configs rather than typed.
+			-- Both are harmless because the rule removes only TREES, and both rectangles are already
+			-- kept clear of trees by `treeLine`'s own exclusions and by `onWorkingGround`.
 			expect(Build.keptClear(2850.0, -2934.0, anchor, CFG, keep, lane)).to.equal(true)
+			local gatherPad = Data.gatherPad(CFG)
+			expect(gatherPad).to.be.ok()
+			local gatherAt = anchor + (gatherPad :: any).OFFSET
+			expect(Build.keptClear(gatherAt.X, gatherAt.Z, anchor, CFG, keep, lane)).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task 315: the corridor's west edge %.1f cuts %.1f studs into the gathering yard (centre x %.1f); it removes only trees, and treeLine already excludes that rectangle",
+					(Build.sightlineRect(lane, anchor, CFG) :: any).minX,
+					gatherAt.X + (gatherPad :: any).SIZE.X / 2 - (Build.sightlineRect(lane, anchor, CFG) :: any).minX,
+					gatherAt.X
+				)
+			)
 			-- EVERY LODGE_TREES TRUNK SURVIVES, in the lodge's own frame: zero of the twelve are in
 			-- the corridor today, which is what the guard in `lodgeTrees` is there to keep true.
 			local origin = anchor + CFG.LODGE.OFFSET

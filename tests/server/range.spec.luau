@@ -3816,7 +3816,18 @@ return function()
 	describe("the forest row: a range beside Karen's lodge (step B8)", function()
 		-- THE CENSUSED RECTANGLE: design 2.2's own footprint, which is what was sampled. The range
 		-- must fit inside what was measured, and now it does by construction rather than by luck.
-		local MEASURED = { minX = 2532, maxX = 2788, minZ = -3238, maxZ = -2998 }
+		-- THE B8 CENSUS BOX, AS OFFSETS FROM THE ANCHOR AND NOT AS FOUR WORLD NUMBERS (task 315).
+		-- It was typed as x 2532..2788, z -3238..-2998 about the old anchor (2600, -3030); what the
+		-- census actually established is that six stations plus the treestand FIT a 256 x 239 box
+		-- about the anchor, and that is a property of `LAYOUT`, not of a site -- so it survives a
+		-- translation and these offsets are the same four numbers. The NEW site's own census is a
+		-- live reading, not this: `[RangeBoot] footprint census` and the task report.
+		local MEASURED = {
+			minX = (FOREST_ROW :: any).x - 68,
+			maxX = (FOREST_ROW :: any).x + 188,
+			minZ = (FOREST_ROW :: any).z - 208,
+			maxZ = (FOREST_ROW :: any).z + 32,
+		}
 		-- A SHELF THAT IS EXACT IN FLOAT32, because `Vector3` stores floats and 147.3 does not survive
 		-- the trip: the case is about where the parts are laid, not about rounding.
 		local FAKE_SHELF = 147.25
@@ -4316,13 +4327,15 @@ return function()
 				return true
 			end
 			expect(spans(lane, LAYOUT)).to.equal(true)
-			-- THE BITE: narrow the hut's roof and the hut posts fall outside, so this bound is
-			-- measured rather than assumed.
+			-- THE BITE: hand out a sightline computed from a NARROWER hut and hold the REAL hut's
+			-- parts to it -- the posts of stations 1 and 6 then fall outside. Narrowing both halves
+			-- together proves nothing, which is the mistake the first draft of this case made: the
+			-- claim is that the bound is at least half a hut roof, so only one half may move.
 			local narrow = table.clone(LAYOUT)
 			local hut = table.clone(LAYOUT.HUT)
 			hut.roofSize = Vector3.new(1, LAYOUT.HUT.roofSize.Y, LAYOUT.HUT.roofSize.Z)
 			narrow.HUT = hut
-			expect(spans(RangeData.sightlineFrom(anchor, narrow, -1), narrow)).to.equal(false)
+			expect(spans(RangeData.sightlineFrom(anchor, narrow, -1), LAYOUT)).to.equal(false)
 		end)
 
 		it("stops the terrace at the lobby field's own edge, read off Lobby and not retyped", function()
@@ -4739,7 +4752,10 @@ return function()
 		it("paints the mown lane, then the firing line over every mat, post and bench", function()
 			local built, _, parent, terrain = buildOnTerrain(FOREST_ROW, slopedGround)
 			local b = built :: any
-			expect(#terrain.replaces).to.equal(4) -- two terrace rectangles, the line, then the hill's grass
+			-- ONE REPLACE PER TERRACE RECTANGLE, then the line, then the hill's grass -- DERIVED
+			-- from `cutRects` rather than typed as 4 (task 315): the live row's terrace is one
+			-- rectangle now that the range meets the lobby field on one voxel plane.
+			expect(#terrain.replaces).to.equal(#RangeData.cutRects(b.anchor, LAYOUT, -1, FOREST_ROW) + 2)
 			for _, call in ipairs(terrain.replaces) do
 				-- `ReplaceMaterial` takes the voxel resolution and nothing else (task 244).
 				expect(call.resolution).to.equal(LAYOUT.FILL.GRID_STUDS)
@@ -5483,11 +5499,16 @@ return function()
 				expect(folder:FindFirstChild(RangeData.fencePostName(run, 1))).to.equal(nil)
 				expect(folder:FindFirstChild(RangeData.fenceRailName(run))).to.equal(nil)
 			end
-			-- HER PLACE'S TERRACE IS TWO RECTANGLES, and the far side has no ground to stand on in
-			-- the narrow one -- so the runs are NOT simply two there, and that arm is entered here
-			-- rather than assumed. A post over the lip of a terrace is the defect, not a short fence.
-			local forestAnchor = Vector3.new((FOREST_ROW :: any).x, 148, (FOREST_ROW :: any).z)
-			local forestCuts = RangeData.cutRects(forestAnchor, LAYOUT, -1, FOREST_ROW)
+			-- A TWO-RECTANGLE TERRACE, AND IT IS NOW DRIVEN BY PARAMETER (task 315). Her live row
+			-- meets the lobby field on one voxel plane, so `cutRects` returns ONE rectangle for it
+			-- and this arm would go dark; a synthetic row 40 studs north of the field's south edge
+			-- still splits, and that is the shape this case exists to cover. A post over the lip of
+			-- a terrace is the defect, not a short fence.
+			local half = LOBBY_CFG.FIELD.SPAN_STUDS / 2
+			local FOREST_ROW_SPLIT = table.clone(FOREST_ROW :: any)
+			FOREST_ROW_SPLIT.z = LOBBY_ANCHOR.z - half + 40
+			local forestAnchor = Vector3.new(FOREST_ROW_SPLIT.x, 148, FOREST_ROW_SPLIT.z)
+			local forestCuts = RangeData.cutRects(forestAnchor, LAYOUT, -1, FOREST_ROW_SPLIT)
 			expect(#forestCuts).to.equal(2)
 			for _, run in ipairs(RangeData.fenceRuns(forestAnchor, LAYOUT, -1, FOREST_ROW)) do
 				local inside = false
