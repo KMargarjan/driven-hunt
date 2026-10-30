@@ -4758,7 +4758,11 @@ return function()
 			expect(RangeData.standPosition(anchor, 3, LAYOUT, 1)).to.equal(Vector3.new(48, 100, -14))
 			expect(RangeData.promptPosition(anchor, 3, LAYOUT, 1)).to.equal(Vector3.new(51, 104, 7))
 			expect(RangeData.bermSizeFor(LAYOUT)).to.equal(Vector3.new(232, 21, 8))
-			expect(RangeData.bermPosition(anchor, LAYOUT, 1)).to.equal(Vector3.new(60, 100, 192))
+			expect(RangeData.bermPosition(anchor, LAYOUT, 1)).to.equal(Vector3.new(60, 100, 196))
+			-- 306l: the crest's near face, the toe, and the clear ground the farthest lane keeps.
+			expect(RangeData.bermCrestFaceZ(anchor, LAYOUT, 1)).to.equal(192)
+			expect(RangeData.bermToeZ(anchor, LAYOUT, 1)).to.equal(184)
+			expect(RangeData.bermToeZ(anchor, LAYOUT, -1)).to.equal(-184)
 		end)
 
 		-- L2. NOTHING THE HUT ADDS IS IN A LINE OF FIRE, and the bound is the arithmetic rather
