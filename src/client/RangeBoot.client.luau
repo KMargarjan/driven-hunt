@@ -2,11 +2,14 @@
 -- both the board remote and the mask, so neither owner requires the other -- the mask never reads
 -- a remote and the board's drawer never reads a part.
 --
--- Three jobs and nothing else: start `Range.Mask` when the targets folder exists, hand it the
--- board payload's `mine` and `window` (the SERVER's measurement, design 9.4), and step it once a
--- Heartbeat. The shape of src/client/AmbienceBoot.client.luau, with one connection added.
+-- Three jobs and nothing else: start the two pictures when the targets folder exists, hand them the
+-- board payload's `mine`, `window` and `alone` (the SERVER's measurement, design 9.4, 10.3), and
+-- step them once a Heartbeat. The shape of src/client/AmbienceBoot.client.luau.
 --
--- Design: docs/design/shooting-range-lobby.md sections 4.4, 9.4, 9.5
+-- TWO PICTURES, TWO OWNERS (task 313, design 7.4): `Mask` hides other men's ANIMALS, `Solo` hides
+-- other men. Two owners so a defect in the character sweep cannot hide an animal.
+--
+-- Design: docs/design/shooting-range-lobby.md sections 4.4, 7, 9.4, 9.5
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -15,7 +18,9 @@ local Workspace = game:GetService("Workspace")
 local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
 
 local scripts = Players.LocalPlayer:WaitForChild("PlayerScripts")
-local Mask = require(scripts:WaitForChild("Range"):WaitForChild("Mask"))
+local rangeScripts = scripts:WaitForChild("Range")
+local Mask = require(rangeScripts:WaitForChild("Mask"))
+local Solo = require(rangeScripts:WaitForChild("Solo"))
 
 -- THE FOLDER MAY NOT BE THERE YET, AND IN A PLACE WITH NO RANGE IT NEVER IS. So this is a start
 -- that can be asked more than once and does nothing until the folder replicates: `Mask.start`
@@ -30,6 +35,11 @@ local function tryStart(): boolean
 		return false
 	end
 	started = Mask.start({ root = folder, player = Players.LocalPlayer, now = os.clock })
+	if started then
+		-- IT WRITES NOTHING UNTIL THE SERVER SAYS `alone`, and in a place with no range it never
+		-- starts at all, so nobody is ever hidden outside the range.
+		Solo.start({ me = Players.LocalPlayer })
+	end
 	return started
 end
 
@@ -51,6 +61,7 @@ remotes.RangeBoard.OnClientEvent:Connect(function(payload)
 	-- The payload can beat the folder's replication, so ask again here rather than on every frame.
 	tryStart()
 	Mask.setMine((record :: any).mine)
+	Solo.setAlone((record :: any).alone == true)
 	local window = (record :: any).window
 	if type(window) == "table" then
 		Mask.setWindow(window.minX, window.maxX)
@@ -61,4 +72,5 @@ end)
 
 RunService.Heartbeat:Connect(function(dt)
 	Mask.step(dt)
+	Solo.step(dt)
 end)

@@ -87,6 +87,10 @@ Range.LAYOUT = {
 	WINDOW_STUDS = 36,
 	-- Room to turn around behind a bank. A FIRST VALUE, confirmed by the measured crossing time.
 	APRON_STUDS = 20,
+	-- THE SPAN'S ONE TYPED ROW (task 313, design 3.1). The aim point may be anywhere on the animal,
+	-- so each bound is pulled in by half the longest body: `Boar.CONFIG.BODY_SIZE` is 2 x 3 x 5.5
+	-- and the stag's `KINDS` row 1.8 x 4.8 x 7.05, so half a length is 3.525 -- 4 on whole studs.
+	SIGHT = { silhouetteStuds = 4 },
 	-- SIX ISOLATED STATIONS (Karen, 2026-10-28: *"several places where they can click E"*). They
 	-- share ONE corridor, because each man is drawn only his own animal (design 5.3).
 	SPOT_COUNT = 6,
@@ -554,6 +558,15 @@ function Range.mixedWord(roll: number?): string
 	return if value < 0.5 then Range.WORD.SLOW else Range.WORD.FAST
 end
 
+-- THE ISSF PACE WINDOW, 10 m. The ONLY reader is `paceSpeedFor`: a pace is a TIME across the ISSF
+-- window, so this number must not move with what a man can SEE (design 2) -- that is
+-- `Range.sightSpanFor`. Were the two one number, `slow` would become 39.2 studs/s on the wide span.
+-- Note: docs/design/shooting-range-lobby.md section 2
+function Range.paceWindowStuds(layout): number
+	layout = layout or Range.LAYOUT
+	return layout.WINDOW_STUDS
+end
+
 -- THE ONE ANSWER TO "HOW FAST IS THIS PACE" (design 6). Karen's four delegate to the INJECTED
 -- `Boar.paceSpeed`, so the range still invents no animal speed; the two timed paces divide the
 -- window by their time; `mixed` draws one of those two.
@@ -569,7 +582,7 @@ function Range.paceSpeedFor(word: string, layout, boarPaceSpeed: ((string) -> nu
 	-- 35.714-stud window, which the design's own column header never used).
 	local seconds = Range.crossingTargetSeconds(asked)
 	if seconds ~= nil then
-		return layout.WINDOW_STUDS / seconds
+		return Range.paceWindowStuds(layout) / seconds
 	end
 	if boarPaceSpeed == nil then
 		return 0
@@ -869,6 +882,117 @@ function Range.inWindow(minX: number, maxX: number, x: number?): boolean
 	return x >= minX and x <= maxX
 end
 
+-- ============================ THE SPAN: WHERE HIS ANIMAL MAY BE =============================
+-- Task 313, Karen 2026-10-30: *"when I click E it will make that I am alone in all shooting range
+-- ... now is to short for one specific stand"*. The 36-stud window is 1.5 s at run; the span below
+-- is 71-156 studs, 3.0-6.5 s. It is the INTERSECTION of three bounds, each off `LAYOUT` and each
+-- load-bearing -- the built earth behind, his own bay's opening, and the corridor's apron.
+-- Note: docs/design/shooting-range-lobby.md sections 3, 10.1
+
+-- THE EARTH THAT IS AT FULL HEIGHT: the berm's span less its two tapered shoulders, which are the
+-- only part of the crest `bermColumns` does NOT carry to `height`. The banks and the shoulders are
+-- margin; the bound may not lean on them.
+function Range.backstopSpanFor(anchor: Vector3, layout): (number, number)
+	layout = layout or Range.LAYOUT
+	local minX, maxX = Range.bermSpanFor(anchor, layout)
+	local shoulder = math.max(0, layout.BERM.shoulderStuds)
+	return minX + shoulder, maxX - shoulder
+end
+
+-- THE WIDEST ANGLE THE BUILT EARTH SUBTENDS, as a slope: the reach from the outermost mat to the
+-- opposite backstop corner, over the crest face's Z. 160/192 = 0.8333 (39.81 degrees). It is the
+-- same both ways because the backstop spans the mats symmetrically.
+function Range.backstopSlope(layout): number
+	layout = layout or Range.LAYOUT
+	local origin = Vector3.new(0, 0, 0)
+	local minX, maxX = Range.backstopSpanFor(origin, layout)
+	local reach = math.max(maxX, Range.spotSpan(layout) - minX)
+	local ahead = math.abs(Range.bermCrestFaceZ(origin, layout, 1))
+	if ahead <= 0 then
+		return 0
+	end
+	return reach / ahead
+end
+
+-- HIS OWN BAY'S OPENING, as a slope. The two downrange hut posts are the ONLY furniture of his own
+-- station in the bore's plane (design 3.1 bound 2), so the ray must stay inboard of their inner
+-- face through the roof's whole Z extent: (roofSize.X/2 - postSection) / (roofAheadStuds +
+-- roofSize.Z/2) = 5.6/10.5.
+function Range.bayHalfSlope(layout): number
+	layout = layout or Range.LAYOUT
+	local hut = layout.HUT
+	local ahead = hut.roofAheadStuds + hut.roofSize.Z / 2
+	if ahead <= 0 then
+		return math.huge
+	end
+	return math.max(0, hut.roofSize.X / 2 - hut.postSection) / ahead
+end
+
+-- WHERE HIS ANIMAL MAY BE, AND THEREFORE WHAT HE SEES AND WHAT HIS SHOT MAY HIT. THE ONE PREDICATE:
+-- `Range.maskFor` (the picture), `Range.ignoredFor` (the shot's door) and `timeWindow` (the
+-- crossing) all read this and derive no copy of their own.
+-- `wide = false` IS `windowSpanFor`'s body, so the flag-off branch is bit-for-bit today's game.
+function Range.sightSpanFor(
+	anchor: Vector3,
+	spot: number,
+	layout,
+	distanceStuds: number?,
+	wide: boolean?
+): (number, number)
+	layout = layout or Range.LAYOUT
+	if wide ~= true then
+		return Range.windowSpanFor(anchor, spot, layout)
+	end
+	local matX = Range.matPosition(anchor, spot, layout).X
+	local lane = Range.distanceStudsOr(layout, distanceStuds)
+	local silhouette = math.max(0, (layout.SIGHT and layout.SIGHT.silhouetteStuds) or 0)
+
+	-- BOUND 1, THE BACKSTOP: the aim point whose ray crosses the crest face on the full-height
+	-- earth. `x(Zcrest) = matX + (x - matX) * Zcrest/lane`, inverted.
+	local ahead = math.abs(Range.bermCrestFaceZ(Vector3.new(0, 0, 0), layout, 1))
+	local backMin, backMax = Range.backstopSpanFor(anchor, layout)
+	local scale = if ahead > 0 then lane / ahead else 0
+	local lo = matX + (backMin - matX) * scale + silhouette
+	local hi = matX + (backMax - matX) * scale - silhouette
+
+	-- BOUND 2, HIS OWN BAY: what he can see out of his own firing hut.
+	local bay = Range.bayHalfSlope(layout) * lane
+	lo = math.max(lo, matX - bay + silhouette)
+	hi = math.min(hi, matX + bay - silhouette)
+
+	-- BOUND 3, THE APRON: the leg is the span plus one apron at each end and may not leave the
+	-- corridor, or the turn-around walks into the built cover.
+	local west, east = Range.corridorSpan(layout)
+	lo = math.max(lo, anchor.X + west + layout.APRON_STUDS)
+	hi = math.min(hi, anchor.X + east - layout.APRON_STUDS)
+
+	if hi < lo then
+		-- A layout whose bounds do not intersect gets the shipped window, never an inverted span.
+		return Range.windowSpanFor(anchor, spot, layout)
+	end
+	return lo, hi
+end
+
+-- THE LEG: the span plus ONE APRON at each end. The apron is what keeps `timeWindow` alive -- an
+-- animal released inside the span never enters it, so no crossing is ever recorded -- and it is the
+-- turn-around out of sight. A SUBSET of `corridorSpan` by bound 3 above.
+function Range.laneEndsFor(
+	anchor: Vector3,
+	layout,
+	leg: number,
+	downrange: number?,
+	spot: number?,
+	distanceStuds: number?,
+	wide: boolean?
+): Vector3
+	layout = layout or Range.LAYOUT
+	local centre = Range.laneCentre(anchor, layout, downrange, spot, distanceStuds)
+	local lo, hi = Range.sightSpanFor(anchor, spot or 1, layout, distanceStuds, wide)
+	local east = (leg % 2) == 1
+	local x = if east then hi + layout.APRON_STUDS else lo - layout.APRON_STUDS
+	return Vector3.new(x, centre.Y, centre.Z)
+end
+
 function Range.laneEnds(
 	anchor: Vector3,
 	layout,
@@ -877,11 +1001,9 @@ function Range.laneEnds(
 	spot: number?,
 	distanceStuds: number?
 ): Vector3
-	layout = layout or Range.LAYOUT
-	local centre = Range.laneCentre(anchor, layout, downrange, spot, distanceStuds)
-	local half = Range.laneLength(layout) / 2
-	local east = (leg % 2) == 1
-	return Vector3.new(centre.X + (if east then half else -half), centre.Y, centre.Z)
+	-- THE OFF BRANCH, AND ONE ARITHMETIC: `laneEndsFor(..., false)` is the span `mat +- 18` grown
+	-- by one apron, which IS `centre.X +- laneLength/2`. Kept as the shipped name.
+	return Range.laneEndsFor(anchor, layout, leg, downrange, spot, distanceStuds, false)
 end
 
 -- THE SIX WINDOWS SHARE ONE CORRIDOR (design 5.3), and this is its two ends in X, as offsets from
@@ -1314,22 +1436,14 @@ function Range.boardText(spot: number): string
 	return string.format("%d", math.max(1, math.floor(spot or 1)))
 end
 
--- THE WORST OFF-AXIS X A SIGHT LINE REACHES at `aheadStuds` downrange of the mat: the line from the
--- firing point to the far edge of the window at the SHORTEST lane, which is the widest angle this
--- range can ever ask for. Anything standing further off axis than this, at that Z, is out of every
--- line of fire at every distance (note 8.3 L2).
+-- THE WORST OFF-AXIS X A SIGHT LINE REACHES at `aheadStuds` downrange of the mat. TASK 313: the
+-- widest angle is no longer the window's edge at the shortest lane (9.55 deg) but the BUILT EARTH's
+-- own corner from the outermost mat, `Range.backstopSlope` -- 0.8333, 39.81 deg -- because that is
+-- the widest ray the span may ever offer. Anything further off axis at that Z is out of every line
+-- of fire, at every lane and every station.
 function Range.sightHalfWidthAt(layout, aheadStuds: number): number
 	layout = layout or Range.LAYOUT
-	local nearest = nil
-	for _, value in ipairs(layout.DISTANCES_STUDS) do
-		if type(value) == "number" and (nearest == nil or value < nearest) then
-			nearest = value
-		end
-	end
-	if nearest == nil or nearest <= 0 then
-		return math.huge
-	end
-	return math.abs(aheadStuds) * (layout.WINDOW_STUDS / 2) / nearest
+	return math.abs(aheadStuds) * Range.backstopSlope(layout)
 end
 
 -- THE TURF SLAB: the mown lane, from the firing line's DOWNRANGE edge to the berm's NEAR face,

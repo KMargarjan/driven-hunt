@@ -268,7 +268,9 @@ return function()
 	-- SIX MEN, ONE PER STATION, UNLESS THE CASE SAYS OTHERWISE (step B7). Every case written before
 	-- B7 is about what the six lanes DO, and since B7 a station nobody is measured at has no animal
 	-- at all -- so the default crowd is a full firing line and the occupancy cases pass their own.
-	local function startRange(fake, now, roll, serverTime, players)
+	-- `solo` IS THE SHIPPED SEAM (task 313): nil leaves `Range.start` on `Range.SOLO_VIEW`, which is
+	-- what every case written before 313 passes, so a case can drive BOTH states of the flag.
+	local function startRange(fake, now, roll, serverTime, players, solo)
 		local root = Instance.new("Folder")
 		if players == nil then
 			players = newCrowd({ 1, 2, 3, 4, 5, 6 }).players
@@ -280,6 +282,7 @@ return function()
 			boars = fake,
 			players = players,
 			now = now,
+			solo = solo,
 			-- THE RING'S OWN CLOCK, separate from the owner's step clock (review round 1, finding 1):
 			-- the shipped one is `GetServerTimeNow()` and the owner's is `os.clock()`, two epochs.
 			serverTime = serverTime,
@@ -4473,13 +4476,17 @@ return function()
 			-- (5) ...AND THE RIPPLE MAY NOT UNDO THE BACKSTOP (306l review round 1, finding 1). A man on
 			-- the deck fires from `DECK_RISE_STUDS + AIM_RISE_STUDS` over the shelf, so every column the
 			-- firing fan reaches at the crest face stands at least that tall.
+			-- TASK 313: the bound is now the BACKSTOP INTERVAL -- the berm's span less its two
+			-- tapered shoulders -- because that is the earth `RangeData.sightSpanFor` leans on and
+			-- the only earth that reaches `height`. The shoulders are margin and are excluded by
+			-- construction, not by a tolerance.
 			local deckEye = HighSeats.DIMS.DECK_RISE_STUDS + HighSeats.AIM_RISE_STUDS
-			local fan = RangeData.sightHalfWidthAt(LAYOUT, math.abs(apex - anchor.Z))
-			local fanMin = anchor.X - fan
-			local fanMax = anchor.X + RangeData.spotSpan(LAYOUT) + fan
+			local fanMin, fanMax = RangeData.backstopSpanFor(anchor, LAYOUT)
 			local inFan = 0
 			for _, column in ipairs(columns) do
-				if column.x + column.width / 2 > fanMin and column.x - column.width / 2 < fanMax then
+				-- FULLY INSIDE, not merely overlapping: a column straddling the backstop's edge is
+				-- already on the shoulder's taper, and the shoulder is margin (design 3.1).
+				if column.x - column.width / 2 >= fanMin - 1e-6 and column.x + column.width / 2 <= fanMax + 1e-6 then
 					inFan += 1
 					expect(surfaceAt(column.x, apex) >= deckEye).to.equal(true)
 				end
@@ -4487,7 +4494,7 @@ return function()
 			-- THE FAN IS COVERED, which is the claim that matters: the columns standing at least
 			-- `deckEye` tall span the whole firing fan. The shoulders fall 32 studs outside each end
 			-- of it, which is why a count of columns is not the bound.
-			expect(inFan * LAYOUT.BERM.crestStepStuds >= (fanMax - fanMin) - 2 * LAYOUT.BERM.crestStepStuds).to.equal(
+			expect(inFan * LAYOUT.BERM.crestStepStuds >= (fanMax - fanMin) - 3 * LAYOUT.BERM.crestStepStuds).to.equal(
 				true
 			)
 			expect(deckEye >= 17.5).to.equal(true)
@@ -4963,13 +4970,20 @@ return function()
 			for _, dir in ipairs({ 1, -1 }) do
 				for spot = 1, LAYOUT.SPOT_COUNT do
 					local mat = RangeData.matPosition(anchor, spot, LAYOUT)
+					-- TASK 313: the two downrange hut posts are the ONE piece of his own furniture
+					-- in the bore's plane, so they no longer stand outside the fan -- they BOUND
+					-- it. `RangeData.bayHalfSlope` is that bound, and the ray to the widest aim
+					-- point the span allows stays inboard of the post's inner face at its own Z.
 					for _, at in ipairs(RangeData.hutPostPositions(anchor, spot, LAYOUT, dir)) do
-						-- its own downrange offset from the mat, and the widest ray at that offset
 						local ahead = (at.z - mat.Z) * dir
-						local clear = RangeData.sightHalfWidthAt(LAYOUT, ahead)
-						-- an UPRANGE post is behind the shooter and cannot be in front of him
 						if ahead > 0 then
-							expect(math.abs(at.x - mat.X) > clear + hut.postSection / 2).to.equal(true)
+							local inner = math.abs(at.x - mat.X) - hut.postSection / 2
+							for _, lane in ipairs(LAYOUT.DISTANCES_STUDS) do
+								local lo, hi = RangeData.sightSpanFor(anchor, spot, LAYOUT, lane, true)
+								local sil = LAYOUT.SIGHT.silhouetteStuds
+								local worst = math.max(math.abs(hi + sil - mat.X), math.abs(mat.X - (lo - sil)))
+								expect(worst * ahead / lane <= inner + 1e-6).to.equal(true)
+							end
 						end
 					end
 					-- AND THE ROOF CLEARS THE TREESTAND, which stands `backStuds` uprange: the roof's
@@ -4986,9 +5000,13 @@ return function()
 					expect(rayY > hut.roofRise + hut.roofSize.Y).to.equal(true)
 				end
 			end
-			-- the bound is 0 at the firing point and the window's own half at the shortest lane
+			-- the bound is 0 at the firing point, and at the crest face it is the backstop's own
+			-- corner from the outermost mat -- 160 studs at 192 ahead, 39.81 degrees (design 3.1).
 			expect(RangeData.sightHalfWidthAt(LAYOUT, 0)).to.equal(0)
-			expect(math.abs(RangeData.sightHalfWidthAt(LAYOUT, 107) - LAYOUT.WINDOW_STUDS / 2) < 1e-6).to.equal(true)
+			local crest = RangeData.bermCrestFaceZ(Vector3.new(0, 0, 0), LAYOUT, 1)
+			local backMin, backMax = RangeData.backstopSpanFor(Vector3.new(0, 0, 0), LAYOUT)
+			expect(math.abs(RangeData.sightHalfWidthAt(LAYOUT, crest) - backMax) < 1e-6).to.equal(true)
+			expect(math.abs(backMax - (RangeData.spotSpan(LAYOUT) - backMin)) < 1e-6).to.equal(true)
 		end)
 
 		-- ...AND THE SAME BOUND AGAINST WHAT `Build` ACTUALLY WRITES (round 1, finding 2). The case
@@ -5021,9 +5039,14 @@ return function()
 					posts += 1
 					local ahead = ((post :: any).Position.Z - mat.Z) * dir
 					if ahead > 0 then
-						local clear = RangeData.sightHalfWidthAt(LAYOUT, ahead)
-						local off = math.abs((post :: any).Position.X - mat.X) - (post :: any).Size.X / 2
-						expect(off > clear).to.equal(true)
+						-- TASK 313: against the SPAN's widest ray, not against the backstop fan.
+						local inner = math.abs((post :: any).Position.X - mat.X) - (post :: any).Size.X / 2
+						for _, lane in ipairs(LAYOUT.DISTANCES_STUDS) do
+							local lo, hi = RangeData.sightSpanFor(anchor, spot, LAYOUT, lane, true)
+							local sil = LAYOUT.SIGHT.silhouetteStuds
+							local worst = math.max(math.abs(hi + sil - mat.X), math.abs(mat.X - (lo - sil)))
+							expect(worst * ahead / lane <= inner + 1e-6).to.equal(true)
+						end
 					end
 					-- and it carries the roof: its top IS the roof's underside
 					local top = (post :: any).Position.Y + (post :: any).Size.Y / 2
@@ -5415,6 +5438,319 @@ return function()
 					worst
 				)
 			)
+		end)
+	end)
+
+	-- ============================= TASK 313: SOLO ON THE WHOLE RANGE =============================
+	-- Karen, 2026-10-30: *"when I click E it will make that I am alone in all shooting range ...
+	-- now is to short for one specific stand"*. The span is the INTERSECTION of three bounds, and
+	-- each case below fails if any one of them is deleted.
+	-- Design: docs/design/shooting-range-lobby.md sections 2, 3, 4, 9
+	describe("the span: solo on the whole range (task 313)", function()
+		local AT = Vector3.new(0, 100, 0)
+
+		-- THE SPAN RECOMPUTED FROM THE SAME DIALS, NOT TYPED: deleting any bound changes it.
+		local function expected(spot: number, lane: number): (number, number)
+			local matX = RangeData.matPosition(AT, spot, LAYOUT).X
+			local crest = math.abs(RangeData.bermCrestFaceZ(Vector3.new(0, 0, 0), LAYOUT, 1))
+			local backMin, backMax = RangeData.backstopSpanFor(AT, LAYOUT)
+			local scale = lane / crest
+			local sil = LAYOUT.SIGHT.silhouetteStuds
+			local lo = matX + (backMin - matX) * scale + sil
+			local hi = matX + (backMax - matX) * scale - sil
+			local bay = RangeData.bayHalfSlope(LAYOUT) * lane
+			lo = math.max(lo, matX - bay + sil)
+			hi = math.min(hi, matX + bay - sil)
+			local west, east = RangeData.corridorSpan(LAYOUT)
+			lo = math.max(lo, AT.X + west + LAYOUT.APRON_STUDS)
+			hi = math.min(hi, AT.X + east - LAYOUT.APRON_STUDS)
+			return lo, hi
+		end
+
+		local function width(spot: number, lane: number): number
+			local lo, hi = RangeData.sightSpanFor(AT, spot, LAYOUT, lane, true)
+			return hi - lo
+		end
+
+		it("derives the span from the built earth, his own bay and the apron", function()
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				for _, lane in ipairs(LAYOUT.DISTANCES_STUDS) do
+					local lo, hi = RangeData.sightSpanFor(AT, spot, LAYOUT, lane, true)
+					local wantLo, wantHi = expected(spot, lane)
+					expect(math.abs(lo - wantLo) < 1e-9).to.equal(true)
+					expect(math.abs(hi - wantHi) < 1e-9).to.equal(true)
+				end
+			end
+			-- ...AND THE DESIGN NUMBERS (section 3.2), to 0.01 studs: the three floors at the outer
+			-- stations and the three ceilings in the middle.
+			expect(math.abs(width(1, 107) - 71.07) < 0.01).to.equal(true)
+			expect(math.abs(width(1, 125) - 80.67) < 0.01).to.equal(true)
+			expect(math.abs(width(1, 179) - 109.47) < 0.01).to.equal(true)
+			expect(math.abs(width(3, 107) - 98.11) < 0.01).to.equal(true)
+			expect(math.abs(width(3, 125) - 115.96) < 0.01).to.equal(true)
+			expect(math.abs(width(3, 179) - 156) < 0.01).to.equal(true)
+			-- symmetric about the line: station 6 mirrors station 1, station 4 mirrors station 3
+			expect(math.abs(width(6, 179) - width(1, 179)) < 1e-9).to.equal(true)
+			expect(math.abs(width(4, 179) - width(3, 179)) < 1e-9).to.equal(true)
+			-- ...and EVERY station gains: the NARROWEST span is 71.07 studs, 1.97x the shipped
+			-- window, and the widest is 156, 4.33x.
+			expect(width(1, 107) / LAYOUT.WINDOW_STUDS > 1.9).to.equal(true)
+			expect(math.abs(width(3, 179) / LAYOUT.WINDOW_STUDS - 4.333) < 0.01).to.equal(true)
+		end)
+
+		-- WRITTEN OUT, NOT DELEGATED (the Reviewer, round 1, finding 1): the OFF span is the mat
+		-- plus or minus half the shipped window, and the OFF leg is the lane's centre plus or minus
+		-- half `laneLength` -- the two arithmetics this file shipped with, typed from the dials and
+		-- not read back out of the functions the new code delegates to.
+		it("is bit-for-bit the shipped window with the flag off", function()
+			local half = LAYOUT.WINDOW_STUDS / 2
+			local legHalf = RangeData.laneLength(LAYOUT) / 2
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				local matX = RangeData.matPosition(AT, spot, LAYOUT).X
+				for _, lane in ipairs(LAYOUT.DISTANCES_STUDS) do
+					local lo, hi = RangeData.sightSpanFor(AT, spot, LAYOUT, lane, false)
+					expect(lo).to.equal(matX - half)
+					expect(hi).to.equal(matX + half)
+					-- nil is OFF too: an unwired caller gets today's game, never the wide span
+					local nilLo, nilHi = RangeData.sightSpanFor(AT, spot, LAYOUT, lane, nil)
+					expect(nilLo).to.equal(matX - half)
+					expect(nilHi).to.equal(matX + half)
+				end
+				for leg = 1, 4 do
+					for _, dir in ipairs({ 1, -1 }) do
+						local centre = RangeData.laneCentre(AT, LAYOUT, dir, spot, LAYOUT.DISTANCE_STUDS)
+						-- an odd leg runs to the east end, an even one back west
+						local want = if (leg % 2) == 1 then centre.X + legHalf else centre.X - legHalf
+						local shipped = RangeData.laneEnds(AT, LAYOUT, leg, dir, spot, LAYOUT.DISTANCE_STUDS)
+						local off = RangeData.laneEndsFor(AT, LAYOUT, leg, dir, spot, LAYOUT.DISTANCE_STUDS, false)
+						expect(shipped.X).to.equal(want)
+						expect(off.X).to.equal(want)
+						expect(shipped.Z).to.equal(centre.Z)
+						expect(off.Z).to.equal(centre.Z)
+					end
+				end
+			end
+		end)
+
+		-- T18: the span, the leg and the corridor NEST, always and at every station.
+		it("nests the span inside the leg inside the corridor, and releases outside the span", function()
+			local west, east = RangeData.corridorSpan(LAYOUT)
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				for _, lane in ipairs(LAYOUT.DISTANCES_STUDS) do
+					for _, wide in ipairs({ true, false }) do
+						local lo, hi = RangeData.sightSpanFor(AT, spot, LAYOUT, lane, wide)
+						expect(hi > lo).to.equal(true)
+						for _, dir in ipairs({ 1, -1 }) do
+							local legEast = RangeData.laneEndsFor(AT, LAYOUT, 1, dir, spot, lane, wide)
+							local legWest = RangeData.laneEndsFor(AT, LAYOUT, 2, dir, spot, lane, wide)
+							expect(legEast.X >= hi).to.equal(true)
+							expect(legWest.X <= lo).to.equal(true)
+							expect(legEast.X <= AT.X + east + 1e-9).to.equal(true)
+							expect(legWest.X >= AT.X + west - 1e-9).to.equal(true)
+							-- RELEASED OUTSIDE THE SPAN, so `windowArmed` is right and the first
+							-- entry is a real crossing (design 4).
+							expect(RangeData.inWindow(lo, hi, legEast.X)).to.equal(false)
+							expect(RangeData.inWindow(lo, hi, legWest.X)).to.equal(false)
+						end
+					end
+				end
+			end
+		end)
+
+		-- T6, RE-SWEPT: 36 combinations (6 stations x 3 lanes x 2 firing positions).
+		it("lands every widest shot inside the backstop, from both firing positions", function()
+			local crest = math.abs(RangeData.bermCrestFaceZ(Vector3.new(0, 0, 0), LAYOUT, 1))
+			local backMin, backMax = RangeData.backstopSpanFor(AT, LAYOUT)
+			local sil = LAYOUT.SIGHT.silhouetteStuds
+			local swept = 0
+			local worstAngle = 0
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				local matX = RangeData.matPosition(AT, spot, LAYOUT).X
+				for _, lane in ipairs(LAYOUT.DISTANCES_STUDS) do
+					local lo, hi = RangeData.sightSpanFor(AT, spot, LAYOUT, lane, true)
+					-- BENCH: the firing point is the mat. DECK: `STAND.backStuds` further back, so
+					-- both the lane and the crest are that much further away.
+					for _, back in ipairs({ 0, LAYOUT.STAND.backStuds }) do
+						swept += 1
+						for _, aim in ipairs({ lo - sil, hi + sil }) do
+							local x = matX + (aim - matX) * (crest + back) / (lane + back)
+							expect(x >= backMin - 1e-6).to.equal(true)
+							expect(x <= backMax + 1e-6).to.equal(true)
+							local angle = math.deg(math.atan(math.abs(aim - matX) / lane))
+							worstAngle = math.max(worstAngle, angle)
+						end
+					end
+				end
+			end
+			expect(swept).to.equal(36)
+			-- THE WIDEST ANGLE THIS RANGE IS ACTUALLY OFFERED IS THE BAY'S, 28.07 degrees, and
+			-- MEASURED rather than taken from the design: section 3.3's table reads 39.81 for
+			-- station 1 at 107, which is the angle to the BACKSTOP's corner -- but the bay bound
+			-- cuts that lane's span to +-53.07 before the backstop ever binds, so the widest aim
+			-- point is 57.07 off axis and not 89.17. 39.81 is the BOUND; 28.07 is the fact, and
+			-- the margin between them is the design being conservative in the safe direction.
+			-- It was 9.55 before this task.
+			local bay = math.deg(math.atan(RangeData.bayHalfSlope(LAYOUT)))
+			local backstop = math.deg(math.atan(RangeData.backstopSlope(LAYOUT)))
+			expect(math.abs(worstAngle - bay) < 1e-6).to.equal(true)
+			expect(math.abs(worstAngle - 28.07) < 0.01).to.equal(true)
+			expect(worstAngle < backstop).to.equal(true)
+			expect(math.abs(backstop - 39.81) < 0.01).to.equal(true)
+			TestKit.note(
+				string.format("range 313: T6 swept %d combinations, worst off-axis %.2f deg", swept, worstAngle)
+			)
+		end)
+
+		-- THE BOUND IS LOAD-BEARING: remove the shoulder trim and a shot leaves the full-height
+		-- earth. This is the case that fails if `backstopSpanFor` ever becomes `bermSpanFor`.
+		it("fails the sweep when the backstop is not trimmed by the shoulders", function()
+			-- STATION 3 AT 107, LOW SIDE, which is where the backstop bound actually binds: its
+			-- `lo` is 2.96 and the bay's is -5.07, so the trim is the only thing holding it. (At
+			-- station 1 the bay binds at every lane, which is why a case there proves nothing.)
+			local matX = RangeData.matPosition(AT, 3, LAYOUT).X
+			local tightLo = (RangeData.sightSpanFor(AT, 3, LAYOUT, 107, true))
+			local bay = matX - RangeData.bayHalfSlope(LAYOUT) * 107 + LAYOUT.SIGHT.silhouetteStuds
+			expect(tightLo > bay + 1e-6).to.equal(true)
+
+			local berm = table.clone(LAYOUT.BERM)
+			berm.shoulderStuds = 0
+			local loose = layoutWith({ BERM = berm })
+			local crest = math.abs(RangeData.bermCrestFaceZ(Vector3.new(0, 0, 0), LAYOUT, 1))
+			local tightMin = (RangeData.backstopSpanFor(AT, LAYOUT))
+			local looseLo = (RangeData.sightSpanFor(AT, 3, loose, 107, true))
+			expect(looseLo < tightLo - 1e-6).to.equal(true)
+			-- the loose span's widest ray lands on the SHOULDER, outside the full-height earth
+			local x = matX + (looseLo - LAYOUT.SIGHT.silhouetteStuds - matX) * crest / 107
+			expect(x < tightMin - 1e-6).to.equal(true)
+			expect(x >= tightMin - LAYOUT.BERM.shoulderStuds - 1e-6).to.equal(true)
+			-- ...and the SHIPPED span's same ray does not
+			local tight = matX + (tightLo - LAYOUT.SIGHT.silhouetteStuds - matX) * crest / 107
+			expect(tight >= tightMin - 1e-6).to.equal(true)
+		end)
+
+		-- THE REGRESSION SECTION 2 EXISTS TO PREVENT: the ISSF paces are a TIME across the ISSF
+		-- window and must not move with what a man can see.
+		it("keeps the ISSF paces on the ISSF window while the span is wide", function()
+			expect(RangeData.paceWindowStuds(LAYOUT)).to.equal(36)
+			expect(RangeData.paceSpeedFor("slow", LAYOUT, speedOf)).to.equal(36 / 5.0)
+			expect(RangeData.paceSpeedFor("fast", LAYOUT, speedOf)).to.equal(36 / 2.5)
+			local slow = RangeData.paceSpeedFor("slow", LAYOUT, speedOf)
+			local fast = RangeData.paceSpeedFor("fast", LAYOUT, speedOf)
+			expect(RangeData.crossingSeconds(RangeData.paceWindowStuds(LAYOUT), slow)).to.equal(5.0)
+			expect(RangeData.crossingSeconds(RangeData.paceWindowStuds(LAYOUT), fast)).to.equal(2.5)
+			-- and the SPAN is 2.0x to 4.3x the shipped window at run, which is Karen complaint
+			local run = speedOf("run")
+			expect(math.abs(RangeData.crossingSeconds(width(1, 107), run) - 2.96) < 0.01).to.equal(true)
+			expect(math.abs(RangeData.crossingSeconds(width(3, 179), run) - 6.50) < 0.01).to.equal(true)
+			expect(math.abs(RangeData.crossingSeconds(LAYOUT.WINDOW_STUDS, run) - 1.50) < 0.01).to.equal(true)
+		end)
+	end)
+
+	-- ====================== TASK 313: THE SERVER'S OWN DOOR CARRIES IT ========================
+	-- The Reviewer, round 1, finding 2: the whole server side had no case. These are design
+	-- 14.1 items 9 and 11, driven through `Range.start` and read on the wire.
+	-- Design: docs/design/shooting-range-lobby.md sections 7.3, 9.4, 14.1
+	describe("the span: the server's own door (task 313)", function()
+		local function manOn(spot: number, id: number)
+			local man = manOnMat(spot) :: any
+			man.UserId = id
+			man.Name = "Solo" .. tostring(id)
+			return man
+		end
+
+		local function rootOf(man): BasePart
+			return (man.Character :: Instance):FindFirstChild("HumanoidRootPart") :: BasePart
+		end
+
+		-- ITEM 11: `alone` and the window are the SERVER's measurement and they ride the record.
+		-- Both states of the flag are entered BY PARAMETER, so the case holds whichever way the
+		-- flag's default is set.
+		it("carries solo through Range.start onto the record: alone, and the wide window", function()
+			for _, solo in ipairs({ true, false }) do
+				Range.stop()
+				local fake = newFakeBoars()
+				local clock, now = newClock()
+				local man = manOn(4, 1340)
+				local players = function()
+					return { man }
+				end
+				expect(select(1, startRange(fake, now, nil, nil, players, solo))).to.equal(true)
+				advance(fake, clock, 1)
+				expect((Range.positionOf(man))).to.equal(4)
+				-- ONE PICK MAKES HIS RECORD, which is the board's audience.
+				expect(Range.onRequest(man, { spot = 4, go = true })).to.equal(true)
+				local record = Range.recordOf(man) :: any
+				expect(record).to.be.ok()
+				expect(record.alone).to.equal(solo)
+				local matX = RangeData.matPosition(ANCHOR, 4, LAYOUT).X
+				local width = record.window.maxX - record.window.minX
+				if solo then
+					-- THE WIDE SPAN REACHED THE WIRE: his own station's, at the lane his own trial
+					-- is running, and at the narrowest nearly twice the shipped window.
+					local lane = (Range.trialOf(4) :: any).distanceStuds
+					local lo, hi = RangeData.sightSpanFor(ANCHOR, 4, LAYOUT, lane, true)
+					expect(record.window.minX).to.equal(lo)
+					expect(record.window.maxX).to.equal(hi)
+					expect(width > LAYOUT.WINDOW_STUDS * 1.9).to.equal(true)
+				else
+					-- ...AND WITH IT OFF, TODAY'S GAME, written out from the dials and not read
+					-- back out of `windowSpanFor` (finding 1's rule, applied here too).
+					expect(record.window.minX).to.equal(matX - LAYOUT.WINDOW_STUDS / 2)
+					expect(record.window.maxX).to.equal(matX + LAYOUT.WINDOW_STUDS / 2)
+					expect(width).to.equal(LAYOUT.WINDOW_STUDS)
+				end
+				-- OFF THE MAT, `alone` IS FALSE AND THERE IS NO WINDOW -- with solo ON as well: a
+				-- man who walked away is not kept inside an isolated picture (item 11).
+				rootOf(man).Position = RangeData.matPosition(ANCHOR, 4, LAYOUT) + Vector3.new(0, 0, -600)
+				local away = Range.recordOf(man) :: any
+				expect(away.alone).to.equal(false)
+				expect(away.window).to.equal(nil)
+				expect(away.mine).to.equal(nil)
+				Range.stop()
+			end
+		end)
+
+		-- ITEM 9, and design 7.3's own sentence: the station EDGE. He walks from 2 to 4 and asks
+		-- for NOTHING; the push that follows names station 4's trunk and `spanPushes` counts it.
+		it("pushes station 4's trunk when he walks from 2 to 4, with no request", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			local man = manOn(2, 1341)
+			local players = function()
+				return { man }
+			end
+			-- SOLO OFF, so the window on the wire is today's arithmetic whatever the flag is set to.
+			expect(select(1, startRange(fake, now, nil, nil, players, false))).to.equal(true)
+			local sent = {}
+			Range.setRemotes({
+				RangeBoard = {
+					FireClient = function(_, _player, payload)
+						table.insert(sent, payload)
+					end,
+				},
+			})
+			advance(fake, clock, 1)
+			expect(Range.onRequest(man, { spot = 2, go = true })).to.equal(true)
+			expect(#sent).to.equal(1)
+			local twoTrunk = sent[1].record.mine
+			expect(twoTrunk).to.equal(fake.at(2).root)
+
+			local pushes = Range.stats().spanPushes
+			local before = #sent
+			rootOf(man).Position = RangeData.matPosition(ANCHOR, 4, LAYOUT)
+			advance(fake, clock, 1)
+			-- ONE EDGE, ONE COUNT, and he was told without asking for anything.
+			expect(Range.stats().spanPushes).to.equal(pushes + 1)
+			expect(#sent > before).to.equal(true)
+			local last = sent[#sent].record
+			expect(last.mine).to.equal(fake.at(4).root)
+			expect(last.mine).never.to.equal(twoTrunk)
+			local fourX = RangeData.matPosition(ANCHOR, 4, LAYOUT).X
+			expect(last.window.minX).to.equal(fourX - LAYOUT.WINDOW_STUDS / 2)
+			expect(last.window.maxX).to.equal(fourX + LAYOUT.WINDOW_STUDS / 2)
+			Range.setRemotes(nil)
+			Range.stop()
 		end)
 	end)
 end

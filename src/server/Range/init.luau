@@ -38,6 +38,12 @@ Range.LAYOUT = RangeData.LAYOUT
 -- THE ONE BOUNDARY THAT READS THE FLAG (CLAUDE.md "Feature flags"), passed inward as
 -- `seams.enabled` so both states are reachable by parameter while the flag sits at one of them.
 Range.ENABLED = Flags.isOn("RANGE")
+-- SOLO ON THE WHOLE RANGE (task 313, Karen 2026-10-30: *"when I click E it will make that I am
+-- alone in all shooting range ... now is to short"*). READ ONCE, here, and passed inward as
+-- `seams.solo` -> `state.solo` -> the `wide` argument of the two pure span functions, so both
+-- states are reachable by parameter while the row sits at one of them.
+-- Note: docs/design/shooting-range-lobby.md section 9
+Range.SOLO_VIEW = Flags.isOn("RANGE_SOLO")
 
 Range.CONFIG = {
 	-- One scan in ten, not one per frame: `Lobby`'s rule, and the range has nothing to say at 60 Hz.
@@ -191,6 +197,9 @@ local state = {
 		shots = 0,
 		hits = 0,
 		boardPushes = 0,
+		-- ...and the ones a STATION EDGE caused (design 7.3): a man who walked from one mat to
+		-- another with no request. It is a cost counter and a liveness one at once.
+		spanPushes = 0,
 		picks = 0,
 		resets = 0,
 		badRequests = 0,
@@ -228,6 +237,10 @@ local state = {
 	-- record. `maskDirty` says a trunk changed and every one of them must be told again.
 	watchers = {},
 	maskDirty = false,
+	-- THE SOLO VIEW's resolved value, and the station each watcher was measured at on the previous
+	-- scan tick -- the edge that makes `mine`, `window` and `alone` at most 0.1 s stale (design 7.3).
+	solo = false,
+	spotOf = {},
 	-- WHO IS IN THE SERVER, handed in by the composition root: this module reads no `Players`
 	-- service (it reaches no DataModel), and the RULE -- which station a man is at -- stays here.
 	-- nil means the range cannot measure occupancy, and then it releases NOTHING (design 7.4).
@@ -768,6 +781,7 @@ function Range.start(seams): boolean
 	end
 	seams = seams or {}
 	local enabled = if seams.enabled == nil then Range.ENABLED else seams.enabled == true
+	local solo = if seams.solo == nil then Range.SOLO_VIEW else seams.solo == true
 	if not enabled then
 		state.stats.refusedBy = "flag"
 		return false
@@ -793,6 +807,8 @@ function Range.start(seams): boolean
 	end
 
 	state.started = true
+	state.solo = solo
+	state.spotOf = {}
 	state.built = built
 	state.anchor = built.anchor
 	state.row = row
@@ -892,6 +908,7 @@ function Range.stop()
 	state.anchor = nil
 	state.watchers = {}
 	state.maskDirty = false
+	state.spotOf = {}
 	state.row = nil
 	state.root = nil
 	state.deckTops = {}
@@ -954,10 +971,30 @@ local function occupancy(): { [number]: boolean }
 	if not ok or type(list) ~= "table" then
 		return out
 	end
+	-- ...AND THE STATION EDGE (design 7.3). `mine`, `window` and `alone` are measured on every
+	-- record read, but a read only happens on a PUBLISH, and nothing published when a man changed
+	-- station -- so he walked from 2 to 4 and kept station 2's animal and station 2's span. One
+	-- comparison per watcher per tick makes them at most one scan tick (0.1 s) stale.
+	local seen = {}
 	for _, player in ipairs(list :: { any }) do
 		local spot = playerSpot(player)
+		local key = if player ~= nil then (player :: any).UserId else nil
+		if key ~= nil then
+			seen[key] = true
+			if state.spotOf[key] ~= spot then
+				state.spotOf[key] = spot
+				state.maskDirty = true
+				state.stats.spanPushes += 1
+			end
+		end
 		if spot ~= nil then
 			out[spot :: number] = true
+		end
+	end
+	-- A MAN WHO LEFT THE SERVER LEAVES NO ROW: the table cannot grow without bound.
+	for key in pairs(state.spotOf) do
+		if seen[key] ~= true then
+			state.spotOf[key] = nil
 		end
 	end
 	return out
@@ -970,13 +1007,14 @@ local function release(trial: Trial)
 	end
 	-- Released at the end the next leg STARTS from, so the first thing it does is cross.
 	-- HIS OWN STATION'S LANE, at the distance HE picked: the window is centred on his mat (design 5.3).
-	local from = RangeData.laneEnds(
+	local from = RangeData.laneEndsFor(
 		state.anchor :: Vector3,
 		RangeData.LAYOUT,
 		trial.leg + 1,
 		state.downrange,
 		trial.spot,
-		trial.distanceStuds
+		trial.distanceStuds,
+		state.solo
 	)
 	local handle = boars.spawn(from, trial.kind)
 	if handle == nil or handle.id == nil then
@@ -992,17 +1030,14 @@ local function release(trial: Trial)
 	state.stats.spawns += 1
 end
 
--- THE WINDOW TIMER (TARGET 3). It times the target's passage through `WINDOW_STUDS` of OPEN lane,
--- not the whole leg: the aprons exist for the turn-around and a crossing is what the shooter sees.
+-- THE WINDOW TIMER (TARGET 3). It times the target's passage through the SPAN of open lane, not
+-- the whole leg: the aprons exist for the turn-around and a crossing is what the shooter sees.
+-- ONE PREDICATE with the picture and the shot's door (`RangeData.sightSpanFor`), so the crossing
+-- the board prints is the passage the man actually watched.
 local function timeWindow(trial: Trial, position: Vector3, now: number)
-	local centre = RangeData.laneCentre(
-		state.anchor :: Vector3,
-		RangeData.LAYOUT,
-		state.downrange,
-		trial.spot,
-		trial.distanceStuds
-	)
-	local inside = math.abs(position.X - centre.X) <= RangeData.LAYOUT.WINDOW_STUDS / 2
+	local minX, maxX =
+		RangeData.sightSpanFor(state.anchor :: Vector3, trial.spot, RangeData.LAYOUT, trial.distanceStuds, state.solo)
+	local inside = RangeData.inWindow(minX, maxX, position.X)
 	if inside then
 		-- ONLY A REAL ENTRY STARTS THE CLOCK: armed by being outside, spent on the way in.
 		if trial.windowEnteredAt == nil and trial.windowArmed then
@@ -1046,7 +1081,15 @@ local function order(trial: Trial, position: Vector3, dt: number)
 			trial.standSeconds += dt
 		end
 	else
-		point = RangeData.laneEnds(anchor, layout, trial.leg, state.downrange, trial.spot, trial.distanceStuds)
+		point = RangeData.laneEndsFor(
+			anchor,
+			layout,
+			trial.leg,
+			state.downrange,
+			trial.spot,
+			trial.distanceStuds,
+			state.solo
+		)
 		-- THE FLIP, and it is the range's reason to exist in one line: ISSF's mandatory direction
 		-- change, so neither shoulder is favoured and no single lead is ever trained.
 		if
@@ -1055,7 +1098,15 @@ local function order(trial: Trial, position: Vector3, dt: number)
 		then
 			trial.leg += 1
 			state.stats.flips += 1
-			point = RangeData.laneEnds(anchor, layout, trial.leg, state.downrange, trial.spot, trial.distanceStuds)
+			point = RangeData.laneEndsFor(
+				anchor,
+				layout,
+				trial.leg,
+				state.downrange,
+				trial.spot,
+				trial.distanceStuds,
+				state.solo
+			)
 		end
 		-- `mixed` DRAWS PER LEG (design 6), here, where the leg flips and nowhere else. The shooter
 		-- is never told which it drew -- ISSF does not announce it -- so the board prints the
@@ -1329,7 +1380,7 @@ function Range.recordOf(player: any): any
 	-- THE MASK'S TWO FIELDS RIDE ON THE RECORD AND ARE NOT PART OF THE TALLY: they are measured on
 	-- every read, because the trunk changes with every release while the tally survives it. Here and
 	-- not in `publish`, so the reader and the wire see one record (the Reviewer, round 1).
-	copy.mine, copy.window = Range.maskFor(player)
+	copy.mine, copy.window, copy.alone = Range.maskFor(player)
 	return copy
 end
 
@@ -1340,29 +1391,50 @@ end
 -- IT IS THE SAME TWO FACTS `Range.ignoredFor` ANSWERS FOR THE SHOT, read from the same places:
 -- `boars.rootOf` for the trunk and `RangeData.windowSpanFor` for the window. The shot's door and
 -- the picture cannot disagree because neither derives its own copy.
-function Range.maskFor(player: any): (Instance?, { minX: number, maxX: number }?)
+function Range.maskFor(player: any): (Instance?, { minX: number, maxX: number }?, boolean)
 	local anchor = state.anchor
 	local boars = state.boars
 	if not state.started or anchor == nil or player == nil then
-		return nil, nil
+		return nil, nil, false
 	end
 	local spot = (Range.positionOf(player))
 	if spot == nil then
-		return nil, nil
+		return nil, nil, false
 	end
-	local minX, maxX = RangeData.windowSpanFor(anchor :: Vector3, spot :: number, RangeData.LAYOUT)
-	local window = { minX = minX, maxX = maxX }
 	local trial = state.trials[spot]
+	-- HIS OWN SPAN, at the lane HE picked: the span is per station AND per distance (design 3.2),
+	-- so the window the client masks by is the one his own trial is running.
+	local minX, maxX = RangeData.sightSpanFor(
+		anchor :: Vector3,
+		spot :: number,
+		RangeData.LAYOUT,
+		if trial ~= nil then trial.distanceStuds else nil,
+		state.solo
+	)
+	local window = { minX = minX, maxX = maxX }
+	-- ALONE IS THE SERVER'S MEASUREMENT: he is at a station AND the solo view is on. The client
+	-- reads no flag and claims no isolation.
+	local alone = state.solo == true
 	if trial == nil or trial.targetId == nil or boars == nil or boars.rootOf == nil then
 		-- THE WINDOW IS STILL HIS, with no animal released yet: the mask then hides the other five
 		-- and has nothing of his own to show.
-		return nil, window
+		return nil, window, alone
 	end
 	local ok, root = pcall(boars.rootOf, trial.targetId :: string)
 	if not ok or typeof(root) ~= "Instance" then
-		return nil, window
+		return nil, window, alone
 	end
-	return root :: Instance, window
+	return root :: Instance, window, alone
+end
+
+-- WHAT THIS MAN'S SPAN IS, for the board and for the spec. Nil off the mat, which is the same
+-- answer `maskFor` gives and from the same measurement.
+function Range.spanFor(player: any): (number?, number?)
+	local _, window = Range.maskFor(player)
+	if window == nil then
+		return nil, nil
+	end
+	return window.minX, window.maxX
 end
 
 local function publish(player: any)
@@ -1497,7 +1569,8 @@ function Range.ignoredFor(player: any, rewindSeconds: number?): { Instance }
 			if ok and typeof(root) == "Instance" then
 				local hide = spot ~= mine
 				if not hide then
-					local minX, maxX = RangeData.windowSpanFor(anchor, spot, RangeData.LAYOUT)
+					local minX, maxX =
+						RangeData.sightSpanFor(anchor, spot, RangeData.LAYOUT, trial.distanceStuds, state.solo)
 					local position = targetPositionOf(trial, at)
 					hide = not RangeData.inWindow(minX, maxX, if position ~= nil then position.X else nil)
 				end
