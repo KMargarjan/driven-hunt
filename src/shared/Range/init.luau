@@ -158,9 +158,40 @@ Range.LAYOUT = {
 		-- bench (306k-AFTER-bench2.png, 306l-BEFORE-boar-zoom.png -- a dead-straight top and a
 		-- dead-straight toe). A hill is built here as COLUMNS across the span, each with its own
 		-- crest height and its own batter run, so neither line is straight.
-		-- `crestStepStuds` is one column's width: 12 studs is three voxels, small enough that the
-		-- ripple survives the 4-stud grid and large enough that 232 studs is 19 fills, not 58.
-		crestStepStuds = 12,
+		-- `crestStepStuds` is one column's width. 306m MOVED IT 12 -> 4 (one voxel): at 12 studs
+		-- each column was a BOX with its own top and the skyline was a row of square crenellations
+		-- (306l-R2-AFTER-marker-crop.png -- Karen's "castle battlement"). The wave below is now a
+		-- function of STUDS and not of the column index, so sampling finer rolls the same hill
+		-- rather than combing it.
+		crestStepStuds = 4,
+		-- ------------------------------------------------- THE HILL IS BALLS NOW (306m)
+		-- `Terrain:FillBall` is the smoothing instrument: it writes PARTIAL voxel occupancy, so the
+		-- renderer's isosurface comes out curved, where `FillBlock` writes a box with a vertical
+		-- face and a flat top. `FillWedge`'s orientation inside its CFrame is NOT documented
+		-- (create.roblox.com lists the signature only), so it is not used -- an undocumented
+		-- orientation cannot be asserted.
+		--   Terrain:FillBall https://create.roblox.com/docs/reference/engine/classes/Terrain#FillBall
+		-- One ball per (column, level): the ball INSCRIBED in the hill's own cross-section at that
+		-- level, so the union is a cone of earth rounded over at the top and at the toe.
+		levelStuds = 4,
+		-- ...and the crest's own cap radius. 3 AND NOT 1: two caps `crestStepStuds` apart must
+		-- OVERLAP or the skyline is a comb of cusps -- at radius 3 and step 4 the dip between two
+		-- caps is 0.76 studs (3 - sqrt(9-4)), which is 0.23 degrees at the bench's 190.
+		capRadius = 3,
+		-- HOW MUCH THE CREST MAY RISE OR FALL OVER ONE `crestStepStuds` -- the battlement bound
+		-- (306m item 4). The outer bound carries the shoulder's own taper (shoulderDrop /
+		-- shoulderStuds = 5/16 per stud); the inner one is what a man down the lane actually sees,
+		-- inside the shoulders, where only the wave moves the crest.
+		crestStepMaxStuds = 2.5,
+		crestStepInnerMaxStuds = 1.5,
+		-- THE STEEPEST SLOPE THE HILL IS ALLOWED, MEASURED OVER ONE VOXEL (4 studs) -- and it is a
+		-- BOUND ON A MEASUREMENT, not a target. The envelope 306l fixed is `slopeRun + depth` = 16
+		-- studs deep and `height` 21 tall, so the shallowest possible steepest face here is
+		-- atan(21/8) = 69.1 degrees; the frustum that spheres can actually build reads 77.2. A
+		-- 50-degree face would need 17.6 studs of run and put the toe at 174 -- 4.6 studs INSIDE
+		-- the 179 lane -- so it is refused by the toe clearance, not by taste. `range.spec` samples
+		-- the union's own surface and holds it here.
+		faceMaxDegrees = 79,
 		-- how far under `height` the lowest point of the RIPPLE sits: the crest wanders 18..21, and
 		-- 3 AND NOT 4 IS A BOUND AND NOT A TASTE (review round 1, finding 1). A man on the deck
 		-- fires from `HighSeats.DIMS.DECK_RISE_STUDS + AIM_RISE_STUDS` = 17.5 studs over the shelf,
@@ -178,6 +209,11 @@ Range.LAYOUT = {
 		-- untouched; only its top shows, on the crest, BEHIND the bare lip.
 		scrubCount = 7,
 		scrubSize = Vector3.new(11, 5, 4),
+		-- ONE BALL PER CLUMP, radius 3.5, so a clump is 7 studs of bush and not a 11 x 5 x 4 BOX
+		-- standing on the ridge (306m item 1: no flat tops anywhere on the hill). `scrubSize.Y` is
+		-- still how far it stands PROUD of the hill's own surface, and `.X` is unused by the ball
+		-- arm -- kept because the DEV parts arm reads the same row.
+		scrubRadius = 3.5,
 		-- the clump's own front face, uprange-clear of the crest's bare lip.
 		scrubBackStuds = 2,
 		color = Color3.fromRGB(104, 84, 62),
@@ -925,6 +961,12 @@ end
 -- different hill at every build and no spec could state what it asserts.
 --   top  = height - crestDrop * (1 - wave)   - shoulderDrop * (1 - taper)
 --   run  = slopeRun * (0.55 + 0.45 * wave2)  -- never MORE than `slopeRun`, so the toe holds
+--
+-- 306m: THE WAVE IS A FUNCTION OF STUDS, NOT OF THE COLUMN INDEX. 306l's `sin(2.7 * i)` carried a
+-- wavelength of 2.7 rad per COLUMN, so halving the column width halved the wavelength and a finer
+-- sample came out as a comb. The four rates below are 306l's own divided by its 12-stud column, so
+-- the hill KEEPS ITS SHAPE (27.9 and 90.8 stud rolls on the crest) and may now be sampled as
+-- finely as the voxel grid allows.
 function Range.bermColumns(anchor: Vector3, layout, downrange: number?)
 	layout = layout or Range.LAYOUT
 	local dir = if downrange == -1 then -1 else 1
@@ -944,8 +986,9 @@ function Range.bermColumns(anchor: Vector3, layout, downrange: number?)
 	local out = {}
 	for i = 1, count do
 		local x = minX + (i - 0.5) * step
-		local wave = 0.5 + 0.32 * math.sin(2.7 * i + 0.6) + 0.18 * math.sin(0.83 * i + 2.1)
-		local wave2 = 0.5 + 0.30 * math.sin(1.9 * i + 2.4) + 0.20 * math.sin(0.47 * i)
+		local u = x - minX
+		local wave = 0.5 + 0.32 * math.sin(0.225 * u + 0.6) + 0.18 * math.sin(0.069166667 * u + 2.1)
+		local wave2 = 0.5 + 0.30 * math.sin(0.158333333 * u + 2.4) + 0.20 * math.sin(0.039166667 * u)
 		local edge = math.min(x - minX, minX + width - x)
 		local taper = math.clamp(edge / math.max(1, berm.shoulderStuds), 0, 1)
 		local top = berm.height - berm.crestDropStuds * (1 - wave) - berm.shoulderDropStuds * (1 - taper)
@@ -955,25 +998,126 @@ function Range.bermColumns(anchor: Vector3, layout, downrange: number?)
 			top = math.max(1, quarter(top)),
 			-- NEVER MORE THAN `slopeRun`: the toe is what the far lane clears, so it is a bound and
 			-- not an average. `quarter` rounds to nearest, so the factor's own ceiling is 1.
+			-- 306m MOVED THE FACTOR 0.55 -> 0.85, and that is arithmetic. The crest must be
+			-- `2 * capRadius` wide for two caps to overlap, so the BATTER's own run is
+			-- `run - capRadius`: at 0.55 the narrowest column had 4.5 - 3 = 1.5 studs of run under
+			-- 18 studs of crest, an 85-degree face. At 0.85 it is 3.75..5, and the toe line still
+			-- wanders 1.25 studs, which is what "the toe is not one line" asserts.
 			run = math.min(
 				layout.BERM.slopeRun,
-				quarter(layout.BERM.slopeRun * (0.55 + 0.45 * math.clamp(wave2, 0, 1)))
+				quarter(layout.BERM.slopeRun * (0.85 + 0.15 * math.clamp(wave2, 0, 1)))
 			),
 		}
 	end
 	return out
 end
 
+-- THE HILL'S OWN CROSS-SECTION, PURE (306m). The apex line is `bermCrestFaceZ` -- the MIDPOINT of
+-- the envelope 306l measured and fixed: the toe at `crestFace - slopeRun` (the farthest lane keeps
+-- `bermToeClearance`) and the back at `bermPosition + depth/2` (the terrace's own edge keeps the
+-- road 2 studs). So the front run is the column's own `run` and the back run is `depth`.
+--
+-- A FRUSTUM AND NOT A CONE, AND THAT IS MEASURED, NOT CHOSEN. A cone -- half-depth falling to ZERO
+-- at the crest -- is the shape with the shallowest possible steepest face here (atan(21/8) = 69.1
+-- degrees), but it CANNOT BE BUILT OUT OF SPHERES: at the crest the inscribed ball's radius goes to
+-- nothing, so two neighbouring crest balls stop overlapping and the skyline comes out a comb of
+-- cusps. Hold the radius at `capRadius` instead and the crown becomes a CYLINDER standing on the
+-- cone -- a pedestal with a vertical face (simulated before it was built: the surface jumped 8.7
+-- studs in one stud at z = -2.8). So the section tapers LINEARLY from its base half-depth to
+-- `capRadius` at the crown: a trapezoid, which is also what a built berm is in life. It costs face
+-- angle -- 74.5 degrees at `run` 8 instead of 69.1 -- and it is monotone, which a pedestal is not.
+-- Returns the half-depth of the section at `rise` and the Z of its centre, measured from the apex.
+local function sectionAt(layout, column, rise: number): (number, number)
+	local cap = math.max(1, layout.BERM.capRadius)
+	local back = layout.BERM.depth
+	local crown = math.max(cap, column.top - cap)
+	local share = math.clamp(1 - rise / crown, 0, 1)
+	local base = (column.run + back) / 2
+	return cap + (base - cap) * share, (back - column.run) / 2 * share
+end
+
+-- THE HILL AS BALLS (306m item 1), PURE. One `Terrain:FillBall` per (column, level): the ball
+-- INSCRIBED in `sectionAt`'s interval, so the union is a cone of earth with a rounded crest and a
+-- rounded toe and NO vertical face and NO flat top anywhere. A ball writes partial voxel
+-- occupancy, which is why the renderer draws it curved.
+-- The radius never falls below `capRadius`: two caps `crestStepStuds` apart must overlap or the
+-- crest is a comb, and the topmost ball's top IS the column's crest (rise = top - capRadius).
+-- A clamped ball stands PROUD of the ideal cone -- `capRadius - section` studs, at most 2.5 at the
+-- crown -- which rounds the ridge; it never reaches the toe or the back, and the spec asserts that
+-- against `bermToeZ` and the terrace edge rather than trusting it.
+function Range.bermBalls(anchor: Vector3, layout, downrange: number?)
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local berm = layout.BERM
+	local apex = Range.bermCrestFaceZ(anchor, layout, dir)
+	local cap = math.max(1, berm.capRadius)
+	local step = math.max(1, berm.levelStuds)
+	local out = {}
+	for _, column in ipairs(Range.bermColumns(anchor, layout, dir)) do
+		local rises = {}
+		local rise = 0
+		local crown = math.max(cap, column.top - cap)
+		while rise < crown - 1e-6 do
+			rises[#rises + 1] = rise
+			rise += step
+		end
+		rises[#rises + 1] = crown
+		for _, at in ipairs(rises) do
+			local half, centre = sectionAt(layout, column, at)
+			out[#out + 1] = {
+				x = column.x,
+				z = apex + dir * centre,
+				rise = at,
+				radius = math.max(cap, half),
+				surface = "BERM",
+			}
+		end
+	end
+	return out
+end
+
+-- THE TWO SIDE BANKS, THE SAME WAY (306m item 2). 306l filled each as ONE 12 x 18 x 14 BLOCK and
+-- that is the "square block with a vertical face" on the left of 306l-R2-AFTER-marker-crop.png.
+-- Here each is a rounded mound on the same level/inscribed-ball rule, in TWO chains -- one on the
+-- bank's own centre and one `levelStuds` downrange of it -- so the mound runs INTO the heap's toe
+-- instead of standing in front of it as a separate block.
+function Range.bankBalls(anchor: Vector3, layout, leg: number, downrange: number?)
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local at = Range.bankPosition(anchor, layout, leg, dir)
+	local size = layout.BANK.size
+	local cap = math.max(1, layout.BERM.capRadius)
+	local step = math.max(1, layout.BERM.levelStuds)
+	local base = math.min(size.X, size.Z) / 2
+	local out = {}
+	for _, z in ipairs({ at.Z, at.Z + dir * step }) do
+		local rise = 0
+		local crown = math.max(cap, size.Y - cap)
+		while rise < crown - 1e-6 do
+			local share = math.clamp(1 - rise / crown, 0, 1)
+			out[#out + 1] = { x = at.X, z = z, rise = rise, radius = cap + (base - cap) * share, surface = "HILL" }
+			rise += step
+		end
+		out[#out + 1] = { x = at.X, z = z, rise = crown, radius = cap, surface = "HILL" }
+	end
+	return out
+end
+
 -- WHERE THE SCRUB STANDS: `scrubCount` clumps spread across the columns INSIDE the shoulders, each
--- on its own column's crest and BEHIND the bare lip by `scrubBackStuds` -- never on the face, which
--- is the half a shot travels to.
+-- on its own column's crest and BEHIND the bare lip by `scrubBackStuds` -- never down the face,
+-- which is the half a shot travels to.
+-- 306m: ONE BALL PER CLUMP (`scrubRadius`), not a box. `rise` is set so the ball's TOP stands
+-- `scrubSize.Y` over the column's crest -- 306l's own number -- and its BOTTOM is under the crest's
+-- own surface, so a clump is embedded in the ridge and cannot float (rule E). Measured here, not
+-- assumed: at `scrubBackStuds` 2 the crown ball of radius `capRadius` reaches
+-- `top - capRadius + sqrt(capRadius^2 - 4)` = top - 0.76, and the clump's bottom is top - 2.
 function Range.bermScrubPoints(anchor: Vector3, layout, downrange: number?)
 	layout = layout or Range.LAYOUT
 	local dir = if downrange == -1 then -1 else 1
 	local columns = Range.bermColumns(anchor, layout, dir)
 	local wanted = math.max(0, math.floor(layout.BERM.scrubCount or 0))
-	local face = Range.bermCrestFaceZ(anchor, layout, dir)
-	local size = layout.BERM.scrubSize
+	local apex = Range.bermCrestFaceZ(anchor, layout, dir)
+	local radius = layout.BERM.scrubRadius
 	local out = {}
 	if wanted == 0 or #columns < 3 then
 		return out
@@ -984,9 +1128,10 @@ function Range.bermScrubPoints(anchor: Vector3, layout, downrange: number?)
 		local column = columns[math.clamp(index, 1, #columns)]
 		out[#out + 1] = {
 			x = column.x,
-			z = face + dir * (layout.BERM.scrubBackStuds + size.Z / 2),
+			z = apex + dir * layout.BERM.scrubBackStuds,
+			rise = column.top + layout.BERM.scrubSize.Y - radius,
+			radius = radius,
 			top = column.top,
-			size = size,
 		}
 	end
 	return out

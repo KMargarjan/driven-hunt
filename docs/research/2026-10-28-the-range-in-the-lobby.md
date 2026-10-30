@@ -473,3 +473,60 @@ side banks are grassed for the same reason the crest is -- they read as spurs of
 | M4 | The crest takes **>= 4 distinct heights** with a spread **>= 3 studs**, and the toe run likewise | "not one straight line" as a number. Measured on the shipped dials: 19 columns, crest **16.25..20.5, 11 distinct** (the tops are quantised to a quarter stud, so they repeat), run 4.5..8.0, 11 distinct |
 | M5 | Crest **>= `HighSeats.DIMS.DECK_RISE_STUDS + AIM_RISE_STUDS` = 17.5 studs** for every column the firing fan reaches at the crest face | 306k measured that 10 studs read as "a band of grass on the horizon" and 21 subtends 6.3 deg at 190; and 17.5 is where a man on the DECK fires from, so a crest under it is a backstop he shoots over. `range.spec` asserts it as a LOWER bound -- an upper bound alone (review round 1, finding 1) let every column be one stud tall. The dials that make it hold: `crestDropStuds` 3, `shoulderDropStuds` 5, `shoulderStuds` 16; measured 18.0..20.5 over the 17 columns inside the fan |
 | M6 | **T6 re-sweep: n shots stopped / n**, all six stations, both eye heights, all three lanes | item 2's own bound; the heap may not be made prettier at the cost of being a backstop |
+
+## 10. WHY THE SHAPES: BALLS, A FRUSTUM, AND THE ANGLE THE ENVELOPE REFUSES (task 306m)
+
+Section 9's hill shipped and was photographed. Karen's own words were *"a mountain not high but like in
+real life ... earth formed mountain"*, and what the frames showed was the opposite: in
+`306l-R2-AFTER-marker-crop.png` and `306l-R2-AFTER-deck2-crop.png` the crest is a row of regular square
+bumps with vertical sides -- **a castle battlement** -- and the left side bank is a square block with a
+vertical face. Nothing is wrong with section 9's *numbers*; the defect is entirely in the primitive.
+
+**Why `FillBlock` can only ever make a battlement.** Terrain is a 4-stud voxel grid storing an
+*occupancy* per voxel, and the renderer draws the isosurface of that field. `FillBlock` writes full
+occupancy inside a box and nothing outside, so its boundary is a plane: a vertical side and a flat top,
+at every size. 306l's hill was one box per 12-stud column, each with its own crest height, so every
+column boundary was a vertical step of up to 3 studs at a dead-regular 12-stud period -- which is what a
+crenellation *is*. `FillBall` writes **partial** occupancy at its rim, so its isosurface is curved; it is
+the only smoothing instrument in the API that this project can verify. `FillWedge` was considered and
+**rejected**: `create.roblox.com/docs/reference/engine/classes/Terrain` gives its signature
+(`FillWedge(cframe, size, material)`) and says nothing about where the right-angle face sits or which way
+the slope descends, and an orientation that cannot be read cannot be asserted.
+
+**Why a frustum and not a cone.** The cone -- half-depth falling to zero at the crest -- is the shape
+whose steepest face is shallowest for a fixed envelope. It **cannot be built out of spheres**: at the
+crest the inscribed ball's radius goes to zero, so neighbouring crest balls stop overlapping and the
+skyline becomes a comb of cusps. Holding the radius at a floor instead makes the crown a *cylinder*
+standing on a cone -- a pedestal with a vertical face; simulated before it was built, the surface jumped
+**8.7 studs in one stud** 2.8 studs uprange of the apex, which is worse than the battlement it replaced.
+So the cross-section tapers **linearly** from its base half-depth to `capRadius` at the crown: a
+trapezoid, which is also what a built berm is in life. Measured over all 58 columns of the shipped
+dials: monotone from toe to apex and apex to back at every column, skyline step **1.25 studs** over a
+4-stud column (1.00 inside the shoulders), steepest 4-stud slope **77.2 degrees**.
+
+**THE ANGLE IS REFUSED BY THE TOE CLEARANCE, NOT BY TASTE.** The dispatch asked for every slope under
+~50 degrees. Section 9 fixed the envelope and 306m keeps it: the toe at `crestFace - slopeRun` = 184
+(the farthest lane keeps `bermToeClearance` 5) and the back at `bermPosition + depth/2` = 200 (the
+terrace's own edge keeps the road 2 studs). That envelope is **16 studs deep and 21 studs tall**:
+
+| shape | steepest face | why |
+|---|---|---|
+| a box (306k) | 90 deg | a wall |
+| the cone, apex on the midpoint | **atan(21/8) = 69.1 deg** | the floor for *any* shape in this envelope |
+| the frustum spheres can build | **77.2 deg** | the crest must be `2 * capRadius` = 6 studs wide for two caps to overlap |
+| 50 deg | needs **17.6 studs of run** | the toe would stand at **174** -- 4.6 studs *inside* the 179 lane |
+
+So no shape at all reaches 50 degrees here, and the 69.1-degree floor is not reachable with spheres.
+A sub-50-degree hill 21 studs tall needs **>= 35 studs** of depth, and the far lane and the road leave
+16. `BERM.faceMaxDegrees` = 79 is therefore a bound on a *measurement*, carrying this arithmetic, and
+`range.spec` samples the ball union's own surface against it rather than trusting the dials. What the
+task actually removes -- and what Karen's two frames actually showed -- is the battlement, the vertical
+faces and the square bank ends.
+
+| # | target (306m) | how it is held |
+|---|---|---|
+| M7 | **no `FillBlock` in the heap**: every hill, bank and scrub fill is a `FillBall` | `range.spec` reads the writer's own recorded calls; every box left is a terrace rectangle |
+| M8 | **no step in the skyline**: adjacent crest samples differ by <= `crestStepMaxStuds` 2.5, and <= `crestStepInnerMaxStuds` 1.5 inside the shoulders | sampled off the ball union's surface, not off the dials. Measured 1.25 / 1.00 |
+| M9 | **no vertical face and no flat top**: the cross-section rises from the toe to the apex and falls to the back, every stud, every column | 0 violations over 58 columns; steepest 4-stud slope 77.2 deg <= `faceMaxDegrees` |
+| M10 | **nothing floats** (rule E) for a chain of balls: the lowest ball is buried and every ball above overlaps the one below | centre distance < the two radii, per column; the scrub's own ball straddles its crest |
+| M11 | section 9's envelope is untouched: toe, back, span, crest heights, T6 | every ball, cap and clump asserted inside `bermToeZ`..`bermPosition + depth/2` and `bermSpanFor` |
