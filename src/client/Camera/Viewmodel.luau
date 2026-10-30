@@ -293,6 +293,9 @@ local clock: () -> number = os.clock
 
 function Viewmodel.setClock(fn: (() -> number)?)
 	clock = fn or os.clock
+	-- ...AND THE TIMESTAMP THE OLD CLOCK WROTE GOES WITH IT (task 314): the same medicine `setSource`
+	-- takes for `cachedHandle`. A throttle measured on one clock cannot gate reads from another.
+	lastSourceCheck = -math.huge
 end
 
 function Viewmodel.getClock(): () -> number
@@ -1842,7 +1845,13 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: 
 	-- lookup is one `FindFirstChildOfClass` on the local character, so paying for it per frame while
 	-- the player has nothing to hold is the cheap half of the trade; once the handle is cached the
 	-- cadence is exactly what it was.
-	if source and (cachedHandle == nil or not cachedHandle.Parent or now - lastSourceCheck > 0.25) then
+	-- A CLOCK THAT WENT BACKWARDS IS A DUE THROTTLE, NOT A FROZEN ONE (task 314). `lastSourceCheck`
+	-- can hold a timestamp from a clock that is no longer the one being read -- a spec's fake 4000.0
+	-- against a live `os.clock()` of 3512 -- and `now - last` then stays NEGATIVE for ever, so the
+	-- cached handle never re-resolved and `weaponId()` answered the old gun for the whole session.
+	local sinceCheck = now - lastSourceCheck
+	local sourceDue = sinceCheck > 0.25 or sinceCheck < 0
+	if source and (cachedHandle == nil or not cachedHandle.Parent or sourceDue) then
 		cachedHandle = source()
 	elseif not source then
 		cachedHandle = nil
@@ -1852,7 +1861,7 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: 
 	-- piece, which is a container lookup and not something a frame needs -- only the source lookup
 	-- above got cheap enough to run per frame. `builtMeshes` is -1 until a gun has been built, so
 	-- this never fires before the first build.
-	if now - lastSourceCheck > 0.25 then
+	if sourceDue then
 		lastSourceCheck = now
 		if builtMeshes >= 0 then
 			local folderName = geometryNow().FOLDER_NAME
