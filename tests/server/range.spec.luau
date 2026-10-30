@@ -2354,7 +2354,11 @@ return function()
 			expect((Range.recordOf(man) :: any).position).to.equal(RangeData.POSITION.BENCH)
 			-- ...and arriving at the DECK still starts the fresh tally it should, which is the other
 			-- arm: this must not have become "never change the position".
-			man.Character:PivotTo(CFrame.new(RangeData.standPosition(ANCHOR, 1, LAYOUT, dir)))
+			-- ON the deck, not under it: `spotAt` answers TREESTAND only above `HighSeats.minYFor`.
+			local deck = RangeData.standPosition(ANCHOR, 1, LAYOUT, dir)
+			man.Character:PivotTo(
+				CFrame.new(deck + Vector3.new(0, HighSeats.DIMS.DECK_RISE_STUDS + LAYOUT.CLIMB.riseStuds, 0))
+			)
 			expect(Range.look(man)).to.equal(true)
 			expect((Range.recordOf(man) :: any).position).to.equal(RangeData.POSITION.TREESTAND)
 			expect((Range.recordOf(man) :: any).shots).to.equal(0)
