@@ -1122,7 +1122,8 @@ local function release(trial: Trial)
 	end
 	trial.targetId = handle.id
 	state.maskDirty = true
-	trial.carcassAt = nil
+	-- `carcassAt` IS NOT TOUCHED HERE (task 321 (c)): the carcass has its own slot and its own clock
+	-- now, and the animal released after a kill must not wipe the clock that clears it.
 	trial.releaseAt = nil
 	trial.windowEnteredAt = nil
 	trial.windowLeg = nil

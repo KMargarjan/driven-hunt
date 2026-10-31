@@ -1551,19 +1551,28 @@ return function()
 			-- BY PARAMETER since task 321: a pass now ends at the span's edge, a whole apron short of
 			-- the lane end, so the live loop no longer walks the animal up to it. Put the animal
 			-- inside one lookahead of the end and the clamp is the only thing that holds the point.
-			local here = animalAt(fake, clock, 1) :: any
+			-- A PASS THAT HAS NOT REACHED THE SPAN YET, so being out by the lane end is not the END of
+			-- it: that is `passEntered`, and a fresh release is the one state in which the clamp can
+			-- still be convicted. One tick of a new range is exactly that animal.
+			Range.stop()
+			local fake2 = newFakeBoars()
+			local clock2, now2 = newClock()
+			expect(select(1, startRange(fake2, now2, nil, nil, nil, true))).to.equal(true)
+			expect(Range.setPace(1, "run")).to.equal(true)
+			advance(fake2, clock2, 1 / Range.CONFIG.STEP_HZ + 2 / 60)
+			local here = fake2.at(1) :: any
 			expect(here).to.be.ok()
 			local legNow = (Range.trialOf(1) :: any).leg
 			local endX = RangeData.laneEndsFor(anchor, LAYOUT, legNow, down, 1, trial.distanceStuds, true).X
 			local lookahead = math.max(Range.CONFIG.AIM_MIN_STUDS, asked * Range.CONFIG.AIM_SECONDS)
 			local heading = if (legNow % 2) == 1 then 1 else -1
 			here.position = Vector3.new(endX - heading * (lookahead / 2), here.position.Y, here.position.Z)
-			local before = #fake.leads
+			local before = #fake2.leads
 			local mineNow = (Range.trialOf(1) :: any).targetId
-			advance(fake, clock, 0.2)
+			advance(fake2, clock2, 0.2)
 			local atEnd = 0
-			for i = before + 1, #fake.leads do
-				if fake.leads[i].id == mineNow and math.abs(fake.leads[i].point.X - endX) < 1e-6 then
+			for i = before + 1, #fake2.leads do
+				if fake2.leads[i].id == mineNow and math.abs(fake2.leads[i].point.X - endX) < 1e-6 then
 					atEnd += 1
 				end
 			end
