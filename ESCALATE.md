@@ -42,7 +42,10 @@ with `<runs-dir>/press-f7.ps1` making the Start click, so no human was needed fo
    `powershell -ExecutionPolicy Bypass -File tools/review.ps1 321`. **Round 1 has not been used:**
    no `reviews/task-321/RESULT.md` exists, so the round count is untouched.
 6. If `camera_client.spec:376` fails again on a clean single-editor machine, that is a finding
-   against the camera and not against this task; a control `test2` at `d7ae1929` settles it.
+   against the camera and not against this task; a control `test2` at `d7ae1929` settles it. One data
+   point already: **the ONE-player run at this same code commit is `666 passed, 0 failed` on the
+   client, and `camera_client.spec` is one of its 31 files** -- so the spec is green at `e407f6af`
+   when the machine is not running five Studio processes.
 
 The request (`reviews/task-321/REQUEST.md`) is written, committed and pushed, with the measurements
 and the frames. Nothing else is waiting on me.
