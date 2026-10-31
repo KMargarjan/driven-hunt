@@ -58,7 +58,8 @@ local state: any = nil
 local picked: { [string]: any } = {}
 local buttons: { [string]: { any } } = {}
 local confirmButton: TextButton? = nil
-local stats = { opens = 0, closes = 0, sends = 0, prompts = 0, picks = 0, keys = 0, swallowed = 0 }
+local leaveButton: TextButton? = nil
+local stats = { opens = 0, closes = 0, sends = 0, prompts = 0, picks = 0, keys = 0, swallowed = 0, leaves = 0 }
 -- THE KEY, BOUND WHILE HE IS AT THE SPOT (task 308 bug 2).
 RangePanel.KEY_ACTION = "DrivenHunt.Range.Toggle"
 RangePanel.KEY = Enum.KeyCode.E
@@ -251,6 +252,21 @@ function RangePanel.confirm(): boolean
 	return true
 end
 
+-- HE LEAVES AND IT ENDS (task 319; Karen, 2026-10-31: *"I also can leave then end"*). One word to
+-- the SAME door the confirm bar uses -- the server clears his animal and releases no more until he
+-- asks -- and the menu closes on this edge for the reason the confirm bar does.
+function RangePanel.leave(): boolean
+	local sender = send
+	if sender == nil then
+		return false
+	end
+	sender({ spot = station.spot, leave = true })
+	stats.sends += 1
+	stats.leaves += 1
+	RangePanel.setOpen(false)
+	return true
+end
+
 function RangePanel.reset(): boolean
 	local sender = send
 	if sender == nil then
@@ -352,6 +368,29 @@ function RangePanel.build(root: Frame)
 	hint.Text = "The range is free: every gun, endless cartridges, no licence. Nothing here is scored."
 	hint.Parent = root
 
+	-- THE WAY OUT (task 319), IN THE PANEL'S TOP-RIGHT CORNER. Two places it may not be, both
+	-- MEASURED on screen in her place: over the viewport centre, which belongs to the confirm bar
+	-- (design 11.3), and under the BOARD, which draws over the panel's bottom strip -- the first
+	-- frame of this button, 56 px below the bar, came out greyed behind "THE BOARD".
+	local leave = Instance.new("TextButton")
+	leave.Name = "Leave"
+	leave.AnchorPoint = Vector2.new(1, 0)
+	leave.Position = UDim2.new(1, -16, 0, 8)
+	leave.Size = UDim2.fromOffset(180, 28)
+	leave.BackgroundColor3 = RangePanel.LOOK.ROW
+	leave.BorderSizePixel = 0
+	leave.Font = Enum.Font.GothamBold
+	leave.TextSize = 14
+	leave.TextColor3 = RangePanel.LOOK.LABEL
+	leave.ZIndex = RangePanel.LOOK.Z_INDEX + 2
+	leave.Text = "LEAVE THE RANGE"
+	leave.AutoButtonColor = true
+	leave.Parent = root
+	leave.Activated:Connect(function()
+		RangePanel.leave()
+	end)
+	leaveButton = leave
+
 	RangePanel.render()
 end
 
@@ -424,8 +463,8 @@ end
 -- THE BUTTON'S REAL RECTANGLE, for the live scenario's own assertion (design 11.3): the spec checks
 -- that the point the replay clicked lies INSIDE this before it asserts the click arrived.
 function RangePanel.rowRect(option: string, index: number): (Vector2?, Vector2?)
-	if option == "confirm" then
-		local button = confirmButton
+	if option == "confirm" or option == "leave" then
+		local button = if option == "confirm" then confirmButton else leaveButton
 		if button == nil then
 			return nil, nil
 		end
@@ -758,6 +797,7 @@ function RangePanel.stop()
 	picked = {}
 	buttons = {}
 	confirmButton = nil
+	leaveButton = nil
 end
 
 return RangePanel

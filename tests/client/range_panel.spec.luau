@@ -157,6 +157,41 @@ return function()
 			expect(RangePanel.isOpen()).to.equal(true)
 		end)
 
+		-- TASK 319. KAREN, 2026-10-31: *"I also can leave then end"*. The button is the ONE way to
+		-- end a session on purpose, and it must not sit where the input replay clicks: the viewport
+		-- centre belongs to the confirm bar (design 11.3).
+		it("sends one leave word on LEAVE THE RANGE, closes, and keeps the centre for the release", function()
+			local sent, frame = freshPanel()
+			local prompt = fakePrompt()
+			RangePanel.setPrompt(prompt)
+			local cursorBefore = #Cursor.stats().tags
+			local heldBefore = #WeaponInput.holdTags()
+			prompt.fire()
+			expect(RangePanel.isOpen()).to.equal(true)
+
+			local button = frame:FindFirstChild("Leave") :: TextButton
+			expect(button).to.be.ok()
+			expect(button.Text).to.equal("LEAVE THE RANGE")
+			expect(RangePanel.leave()).to.equal(true)
+			-- ONE WORD, AND NOT A PICK: the server reads `leave` and nothing else off this message.
+			expect(#sent).to.equal(1)
+			expect(sent[1].leave).to.equal(true)
+			expect(sent[1].go).to.equal(nil)
+			expect(sent[1].spot).to.be.ok()
+			-- ...AND THE MENU CLOSES ON THIS EDGE, both doors back, like the confirm bar.
+			expect(RangePanel.isOpen()).to.equal(false)
+			expect(frame.Visible).to.equal(false)
+			expect(#Cursor.stats().tags).to.equal(cursorBefore)
+			expect(#WeaponInput.holdTags()).to.equal(heldBefore)
+			-- THE CENTRE IS STILL THE RELEASE'S, and the board's strip is not this button's: it sits
+			-- in the panel's top-right corner, which is neither (both measured on screen, round 1).
+			expect(button.AnchorPoint).to.equal(Vector2.new(1, 0))
+			expect(button.Position.X.Scale).to.equal(1)
+			expect(button.Position.Y.Scale).to.equal(0)
+			expect(button.Position.Y.Offset < RangePanel.LOOK.HEIGHT / 4).to.equal(true)
+			TestKit.note("range: LEAVE THE RANGE sends one leave word and closes the menu")
+		end)
+
 		-- AND SO IS THE WAY DOWN (306k item 1). THE SAME DEFECT, ONE STOREY UP: real `F` on Stand2's
 		-- deck did nothing four times and no "Climb down" was drawn anywhere on screen, while the
 		-- instance itself read healthy -- Enabled, reach 10, 3.29 studs away
