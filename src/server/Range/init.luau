@@ -64,6 +64,23 @@ Range.CONFIG = {
 	-- the lane's MIDDLE as its point and no second writer anywhere. 2 studs is that 1.0 plus one
 	-- 10 Hz step of walk (0.45).
 	STAND_HOLD_STUDS = 2,
+	-- THE REVERSAL IS SPENT IN THE APRON, NOT IN THE SPAN (task 317). MEASURED on main in Karen's
+	-- place: at RUN the animal was 19.7 studs off its own lane line INSIDE the span -- 144.7 studs
+	-- from a shooter who picked 125 (+15.8 %) -- because a 180-degree reversal at 24 studs/s has a
+	-- turning radius the 20-stud apron cannot hold, so the arc spilled over the span edge.
+	-- An animal that slows to turn has a radius of `TURN_STUDS_PER_SECOND / (gait turn rate)` ~ 1.8
+	-- studs, which the apron holds with room to re-accelerate (`Boar.CONFIG.ACCEL` 60: 4.5 -> 24
+	-- studs/s in 0.33 s, ~4.6 studs). It is the WALK speed, so it is a gait the animal already has.
+	TURN_STUDS_PER_SECOND = 4.5,
+	-- BACK ON THE LANE LINE: within this of the lane's Z the reversal is over. 1 stud is inside the
+	-- +-2 the task asks for, with the whole apron still ahead to straighten in.
+	TURN_ALIGN_STUDS = 1,
+	-- ...AND ACTUALLY GOING THE NEW WAY. At 10 Hz and 4.5 studs/s one step is 0.45 studs, so this is
+	-- progress and not sampling noise.
+	TURN_PROGRESS_STUDS = 0.1,
+	-- A REVERSAL THAT NEVER FINISHES IS A STUCK ANIMAL, not a slow one: after this the pace is
+	-- restored whatever the geometry says, so a wedged target crawls for 4 s and never for ever.
+	TURN_MAX_SECONDS = 4,
 	-- One target per spot, never a sounder.
 	MAX_TARGETS = RangeData.LAYOUT.SPOT_COUNT,
 	-- SIX STATIONS, DRESSED (step B10), AND THIS COUNTS WHAT IS BUILT. DEV: 1 plate + 6 x (mat,
@@ -128,6 +145,11 @@ type Trial = {
 	windowEnteredAt: number?,
 	windowLeg: number?,
 	windowArmed: boolean,
+	-- THE REVERSAL (task 317): true from the leg flip until the animal is travelling the new leg's
+	-- way AND back on the lane line. Only ever honoured OUTSIDE the span.
+	turning: boolean,
+	turningSince: number?,
+	turnLastX: number?,
 	carcassAt: number?,
 	releaseAt: number?,
 	-- SINCE WHEN NOBODY HAS BEEN AT THIS STATION, on the owner's own clock. nil means somebody is
@@ -308,6 +330,10 @@ local function newTrial(spot: number, pace: string): Trial
 		windowLeg = nil,
 		-- Released at a lane end, which is outside the window: the first entry is a real one.
 		windowArmed = true,
+		-- Released AT a lane end facing into the span, so there is no reversal to spend first.
+		turning = false,
+		turningSince = nil,
+		turnLastX = nil,
 		carcassAt = nil,
 		releaseAt = nil,
 		-- NOBODY HAS BEEN HERE YET, so an untouched station never releases: the clock starts at the
@@ -1036,6 +1062,11 @@ local function release(trial: Trial)
 	trial.windowEnteredAt = nil
 	trial.windowLeg = nil
 	trial.windowArmed = true
+	-- A FRESH TARGET IS RELEASED AT A LANE END FACING IN (task 317), so it has no reversal to spend:
+	-- the previous animal's unfinished one must not slow this one down.
+	trial.turning = false
+	trial.turningSince = nil
+	trial.turnLastX = nil
 	state.stats.spawns += 1
 end
 
@@ -1068,6 +1099,45 @@ local function timeWindow(trial: Trial, position: Vector3, now: number)
 		trial.windowEnteredAt = nil
 		trial.windowLeg = nil
 	end
+end
+
+-- IS THE REVERSAL OVER? (task 317) Karen, 2026-10-30: she tests walk/trot/run across the whole
+-- span, so the distance she picked has to be the distance she shoots at -- MEASURED on main: 19.7
+-- studs out at RUN, worst at the span edge the animal had just entered.
+--
+-- THREE WAYS OUT, and the FIRST is the guard that matters: a turn is never honoured INSIDE the span,
+-- so the crossing the board teaches can never be slowed by this and the worst case of a bug here is
+-- exactly today's game. Then: the animal is travelling the new leg's way AND is back on the lane
+-- line. Then: `TURN_MAX_SECONDS`, so a wedged target crawls for 4 s and not for ever.
+local function turnDone(trial: Trial, position: Vector3): boolean
+	if not trial.turning then
+		return true
+	end
+	local minX, maxX =
+		RangeData.sightSpanFor(state.anchor :: Vector3, trial.spot, RangeData.LAYOUT, trial.distanceStuds, state.solo)
+	if RangeData.inWindow(minX, maxX, position.X) then
+		return true
+	end
+	local since = trial.turningSince
+	if since ~= nil and clockNow() - (since :: number) >= Range.CONFIG.TURN_MAX_SECONDS then
+		return true
+	end
+	local laneZ = RangeData.laneCentre(
+		state.anchor :: Vector3,
+		RangeData.LAYOUT,
+		state.downrange,
+		trial.spot,
+		trial.distanceStuds
+	).Z
+	if math.abs(position.Z - laneZ) > Range.CONFIG.TURN_ALIGN_STUDS then
+		return false
+	end
+	local lastX = trial.turnLastX
+	if lastX == nil then
+		return false
+	end
+	local heading = if (trial.leg % 2) == 1 then 1 else -1
+	return (position.X - (lastX :: number)) * heading >= Range.CONFIG.TURN_PROGRESS_STUDS
 end
 
 local function order(trial: Trial, position: Vector3, dt: number)
@@ -1107,6 +1177,10 @@ local function order(trial: Trial, position: Vector3, dt: number)
 		then
 			trial.leg += 1
 			state.stats.flips += 1
+			-- THE REVERSAL STARTS HERE AND NOWHERE ELSE (task 317), at the one place the direction
+			-- changes. It ends in `turnDone` below.
+			trial.turning = true
+			trial.turningSince = clockNow()
 			point = RangeData.laneEndsFor(
 				anchor,
 				layout,
@@ -1128,6 +1202,16 @@ local function order(trial: Trial, position: Vector3, dt: number)
 		end
 		speed = trial.speedStudsPerSecond
 		direction = if (trial.leg % 2) == 1 then "east" else "west"
+		-- ...AND THE REVERSAL IS SPENT AT A WALK, IN THE APRON (task 317). The point is unchanged --
+		-- the far lane end, on the lane line -- so this is one number on the existing seam and not a
+		-- second route. `turnDone` is the only thing that ends it.
+		if turnDone(trial, position) then
+			trial.turning = false
+			trial.turningSince = nil
+		elseif trial.turning then
+			speed = Range.CONFIG.TURN_STUDS_PER_SECOND
+		end
+		trial.turnLastX = position.X
 	end
 
 	trial.directions[direction] = (trial.directions[direction] or 0) + 1
