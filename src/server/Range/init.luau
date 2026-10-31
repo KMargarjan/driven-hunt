@@ -1728,13 +1728,15 @@ end
 -- history ring -- the same ring `Weapon.castWithRewind` judged the shot against, so the gap and the
 -- hit answer to one picture. `at` nil, no seam, or a ring that cannot answer falls back to the
 -- present position, which is what this read was before the fix.
-local function targetPositionOf(trial: Trial, at: number?): Vector3?
+-- WHERE ONE ANIMAL IS, by its id: the live target and the carcass are read the same way, so the
+-- carcass's door is judged against the same history ring as the live one (task 321 round 2).
+local function positionOfId(id: string?, at: number?): Vector3?
 	local boars = state.boars
-	if boars == nil or trial.targetId == nil then
+	if boars == nil or id == nil then
 		return nil
 	end
 	if type(at) == "number" and at == at and boars.cframeAt ~= nil then
-		local okThen, then_ = pcall(boars.cframeAt, trial.targetId :: string, at)
+		local okThen, then_ = pcall(boars.cframeAt, id :: string, at)
 		if okThen and typeof(then_) == "CFrame" then
 			return (then_ :: CFrame).Position
 		end
@@ -1742,15 +1744,19 @@ local function targetPositionOf(trial: Trial, at: number?): Vector3?
 	if boars.statusOf == nil then
 		return nil
 	end
-	local ok, status = pcall(boars.statusOf, trial.targetId :: string)
+	local ok, status = pcall(boars.statusOf, id :: string)
 	if not ok or type(status) ~= "table" then
 		return nil
 	end
 	return (status :: any).position
 end
 
--- EVERY RANGE TARGET THIS SHOT MUST NOT SEE (design 4.3): the five that are not his, and his own
--- while it is outside its station's own window. ONE predicate, `RangeData.inWindow`, read here and
+local function targetPositionOf(trial: Trial, at: number?): Vector3?
+	return positionOfId(trial.targetId, at)
+end
+
+-- EVERY RANGE BODY THIS SHOT MUST NOT SEE (design 4.3): the five that are not his, and his own
+-- while it is outside its station's own window -- LIVE TARGET AND CARCASS ALIKE (round 2). ONE predicate, `RangeData.inWindow`, read here and
 -- by the client's mask -- the server's door and the client's picture asking one question.
 -- NOBODY AT A STATION MEANS AN EMPTY LIST, so a shot in the wood is untouched; and his own target's
 -- position is read through `targetPositionOf`, the SAME history ring the rewound cast is judged
@@ -1774,22 +1780,33 @@ function Range.ignoredFor(player: any, rewindSeconds: number?): { Instance }
 	if type(rewindSeconds) == "number" and rewindSeconds == rewindSeconds and rewindSeconds > 0 then
 		at = serverNow() - rewindSeconds
 	end
-	for spot, trial in pairs(state.trials) do
-		if trial.targetId ~= nil then
-			local ok, root = pcall(boars.rootOf, trial.targetId :: string)
-			if ok and typeof(root) == "Instance" then
-				local hide = spot ~= mine
-				if not hide then
-					local minX, maxX =
-						RangeData.sightSpanFor(anchor, spot, RangeData.LAYOUT, trial.distanceStuds, state.solo)
-					local position = targetPositionOf(trial, at)
-					hide = not RangeData.inWindow(minX, maxX, if position ~= nil then position.X else nil)
-				end
-				if hide then
-					table.insert(out, root :: Instance)
-				end
-			end
+	-- ONE RULE FOR ONE BODY, whether it is still running or lying dead: another station's is always
+	-- hidden, and HIS OWN is hidden exactly while it is outside his own window -- which is the test
+	-- `Mask.wantedFor` draws it by, and `mineIds` puts his carcass in that picture too.
+	local function door(spot: number, trial: Trial, id: string?)
+		if id == nil then
+			return
 		end
+		local ok, root = pcall(boars.rootOf, id :: string)
+		if not ok or typeof(root) ~= "Instance" then
+			return
+		end
+		local hide = spot ~= mine
+		if not hide then
+			local minX, maxX = RangeData.sightSpanFor(anchor, spot, RangeData.LAYOUT, trial.distanceStuds, state.solo)
+			local position = positionOfId(id, at)
+			hide = not RangeData.inWindow(minX, maxX, if position ~= nil then position.X else nil)
+		end
+		if hide then
+			table.insert(out, root :: Instance)
+		end
+	end
+	for spot, trial in pairs(state.trials) do
+		door(spot, trial, trial.targetId)
+		-- THE CARCASS IS A BODY AND STOPS A BULLET (round 2 finding 1). `Boar.Body` anchoring leaves
+		-- `CanQuery` alone, and for `CARCASS_SECONDS` the dead animal is off `targetId` -- so without
+		-- this line a neighbour's corpse, invisible to him, caught his pellet and scored as his hit.
+		door(spot, trial, trial.carcassId)
 	end
 	return out
 end

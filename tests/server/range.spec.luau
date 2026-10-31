@@ -4109,6 +4109,60 @@ return function()
 			Range.stop()
 		end)
 
+		-- ROUND 2, FINDING 1: A CARCASS IS A BODY. Task 321 moves the dead animal off `targetId` onto
+		-- `carcassId` for `CARCASS_SECONDS`, and `ignoredFor` looped `targetId` only -- so for three
+		-- seconds a neighbour's corpse, HIDDEN from him by `Mask`, stopped his bullet and
+		-- `onHitReported` scored it as his hit. Red at the round-1 code commit.
+		it("hides a carcass exactly as it hides a live target, his own one included", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			advance(fake, clock, 2)
+			local man = manAtSpot(RangeData.matPosition(ANCHOR, 3, LAYOUT), 331)
+			expect((Range.positionOf(man))).to.equal(3)
+			local hisMinX, hisMaxX =
+				RangeData.sightSpanFor(ANCHOR, 3, LAYOUT, (Range.trialOf(3) :: any).distanceStuds, false)
+			local hisCentre = (hisMinX + hisMaxX) / 2
+
+			-- STATION 2's ANIMAL IS KILLED, and a tick later it is station 2's CARCASS.
+			local dead2 = animalAt(fake, clock, 2) :: any
+			expect(dead2).to.be.ok()
+			local deadId2 = dead2.id
+			local carcass2 = dead2.root
+			dead2.alive = false
+			advance(fake, clock, 1 / Range.CONFIG.STEP_HZ + 2 / 60)
+			expect((Range.trialOf(2) :: any).carcassId).to.equal(deadId2)
+			expect((Range.trialOf(2) :: any).targetId ~= deadId2).to.equal(true)
+			expect(fake.animals[deadId2]).to.be.ok()
+
+			-- ...AND IT IS LYING INSIDE HIS OWN SPAN: neighbouring windows overlap by
+			-- WINDOW_STUDS - SPOT_SPACING_STUDS, so this is where a real corpse ends up.
+			fake.animals[deadId2].position = Vector3.new(hisCentre, dead2.position.Y, dead2.position.Z)
+			expect(RangeData.inWindow(hisMinX, hisMaxX, hisCentre)).to.equal(true)
+			-- THE CARCASS AND NOT MERELY STATION 2's NEW TARGET: two different instances.
+			expect(carcass2 ~= (fake.at(2) :: any).root).to.equal(true)
+			expect(has(Range.ignoredFor(man), carcass2)).to.equal(true)
+			expect(has(Range.ignoredFor(man, 0.2), carcass2)).to.equal(true)
+
+			-- HIS OWN CARCASS IS WHAT HE IS LOOKING AT, so the door says what the picture says:
+			-- `mineIds` puts it in `Mask`'s "mine", and `Mask.wantedFor` then draws it exactly while
+			-- it is inside his window -- so it is SHOOTABLE there and ignored once it leaves.
+			local dead3 = animalAt(fake, clock, 3) :: any
+			expect(dead3).to.be.ok()
+			local deadId3 = dead3.id
+			local mineCarcass = dead3.root
+			dead3.alive = false
+			advance(fake, clock, 1 / Range.CONFIG.STEP_HZ + 2 / 60)
+			expect((Range.trialOf(3) :: any).carcassId).to.equal(deadId3)
+			fake.animals[deadId3].position = Vector3.new(hisCentre, dead3.position.Y, dead3.position.Z)
+			expect(has(Range.ignoredFor(man), mineCarcass)).to.equal(false)
+			-- ...and out of his window it goes in the list, the live target's own rule.
+			fake.animals[deadId3].position = Vector3.new(hisMinX - 2, dead3.position.Y, dead3.position.Z)
+			expect(has(Range.ignoredFor(man), mineCarcass)).to.equal(true)
+			Range.stop()
+		end)
+
 		it("asks where his animal was at the instant the rewind tests, not where it is now", function()
 			Range.stop()
 			local fake = newFakeBoars()
@@ -4290,6 +4344,94 @@ return function()
 			expect(cleared.mine).to.equal(nil)
 			expect(cleared.window.minX).to.equal((RangeData.windowSpanFor(ANCHOR, 2, LAYOUT)))
 			Range.setRemotes(nil)
+		end)
+
+		-- ROUND 2, FINDING 2: THE SERVER HALF OF THE MASK FIX, ON THE WIRE. `range_mask.spec` hands
+		-- the ids to `Mask.setMine` by hand, so `Range.mineIdsFor` and `copy.mineIds` could both be
+		-- deleted and every spec stayed green. This reads the ids OFF THE PAYLOAD: red with either
+		-- the producer or its call in `Range.recordOf` deleted.
+		it("names his animal's id on the wire, and after a kill both ids", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			local sent = {}
+			Range.setRemotes({
+				RangeBoard = {
+					FireClient = function(_, _player, payload)
+						table.insert(sent, payload)
+					end,
+				},
+			})
+			advance(fake, clock, 2)
+			local man = manAtSpot(RangeData.matPosition(ANCHOR, 2, LAYOUT), 332)
+			expect(Range.onRequest(man, { spot = 2, go = true })).to.equal(true)
+			expect(#sent >= 1).to.equal(true)
+
+			local function idsOf(payload): { [string]: boolean }
+				local ids = (payload.record :: any).mineIds
+				expect(type(ids)).to.equal("table")
+				local set = {}
+				for _, id in ipairs(ids :: { string }) do
+					set[id] = true
+				end
+				return set
+			end
+
+			-- HIS LIVE ANIMAL'S ID, and the id is the trunk's NAME on the client's own sweep.
+			local live = fake.at(2) :: any
+			local first = idsOf(sent[#sent])
+			expect(first[live.id]).to.equal(true)
+			expect((live.root :: any).Name).to.equal("FakeTrunk_" .. live.id)
+			-- ...AND NOT ANOTHER STATION'S: the ids are the isolation too, not only the Instance.
+			expect(first[(fake.at(1) :: any).id]).to.equal(nil)
+
+			-- A KILL NAMES BOTH: the carcass he is looking at AND the fresh animal, or one of the
+			-- two is hidden for the rest of the pass (319a(a)).
+			local deadId = live.id
+			live.alive = false
+			advance(fake, clock, 1 / Range.CONFIG.STEP_HZ + 2 / 60)
+			expect((Range.trialOf(2) :: any).carcassId).to.equal(deadId)
+			local fresh = fake.at(2) :: any
+			expect(fresh.id ~= deadId).to.equal(true)
+			local both = idsOf(sent[#sent])
+			expect(both[deadId]).to.equal(true)
+			expect(both[fresh.id]).to.equal(true)
+			Range.setRemotes(nil)
+			Range.stop()
+		end)
+
+		-- ROUND 2, FINDING 3: PUBLISHED TO WITH NO REQUEST AT ALL. The round-1 cases asserted
+		-- `#sent >= 1` AFTER an `onRequest`, which publishes by itself -- so both halves of (e)
+		-- could be deleted and they stayed green. ONE man, NO request, one scan tick: red with
+		-- `state.watchers[key] = player` in `occupancy` deleted, and red with `publish`'s
+		-- record-making arm deleted.
+		it("tells a man standing at a station which animal is his before he asks anything", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			local crowd = newCrowd({ 4 })
+			local sent = {}
+			expect(startRange(fake, now, nil, nil, crowd.players)).to.equal(true)
+			Range.setRemotes({
+				RangeBoard = {
+					FireClient = function(_, player, payload)
+						table.insert(sent, { player = player, payload = payload })
+					end,
+				},
+			})
+			-- NOTHING ASKED FOR, and nothing published yet.
+			expect(#sent).to.equal(0)
+			expect(Range.recordOf(crowd.men[1])).to.equal(nil)
+
+			advance(fake, clock, 2 / Range.CONFIG.STEP_HZ)
+			expect(#sent >= 1).to.equal(true)
+			expect(sent[1].player).to.equal(crowd.men[1])
+			expect((sent[1].payload.record :: any).spot).to.equal(4)
+			-- ...AND IT IS HIS STATION'S WINDOW, not station 1's default.
+			expect((sent[1].payload.record :: any).window.minX).to.equal((RangeData.windowSpanFor(ANCHOR, 4, LAYOUT)))
+			Range.setRemotes(nil)
+			Range.stop()
 		end)
 
 		-- THE MUST-FIX OF 306b NOTE (i): the station is MEASURED, never claimed. The menu used to
