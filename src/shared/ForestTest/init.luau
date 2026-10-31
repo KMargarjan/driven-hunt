@@ -2947,9 +2947,16 @@ ForestTest.MAX_BODIES_IN_A_COLUMN = 8
 -- `WAITING forest:stands (0 of 6)` for ever. A tree we planted must not be allowed to answer the
 -- question "where is the ground".
 --
--- `places.spec` asserts that `Places.FOLDER` is in this list, so the name exists once and the list
--- cannot drift from the folder it is about.
-ForestTest.GROUND_IGNORE = table.freeze({ "OurForest", "Foliage", "Boars", "DrivePlaces" })
+-- `RangeTargets` IS `Boars`' RULE FOR THE RANGE'S OWN ANIMALS (task 318), and leaving it out is why
+-- a range carcass ENDED UP IN THE AIR. MEASURED at d817d1b3 in the Forest Test: `stepCarcass` reads
+-- the ground from just above the dead body, the ray hit THAT BODY'S OWN BOX, and the grounding write
+-- lifted it by exactly the box's height -- root Y 151.477 -> 154.477, +3.000 studs, then anchored
+-- there for `CARCASS_SECONDS` (<runs-dir>/318-trace-main-walk.txt). An animal must not be allowed to
+-- answer the question "where is the ground" whichever folder it was spawned into.
+--
+-- `places.spec` asserts that `Places.FOLDER` is in this list and `range.spec` that
+-- `Range.TARGETS_FOLDER` is, so each name exists once and the list cannot drift from its folder.
+ForestTest.GROUND_IGNORE = table.freeze({ "OurForest", "Foliage", "Boars", "DrivePlaces", "RangeTargets" })
 
 -- IT IGNORES THE FOREST, THE ANIMALS AND THE PEOPLE. A boar must be put on the GROUND, not on a
 -- fern, not on the back of the boar spawned a moment earlier -- and not on a player's head.
