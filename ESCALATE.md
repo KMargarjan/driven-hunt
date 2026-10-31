@@ -19,6 +19,12 @@ costs the one-player line.
    **The correlation, offered as a lead and not as a verdict:** `deer_hitbox` PASSED in the three
    earlier runs of this session, all of them while DEV was the only Studio, and has FAILED in both
    runs since Karen's Forest Test editor appeared at ~23:31 UTC (`state` read ONE Studio at 23:15).
+   **A THIRD run, at `7923cc7a`, failed the same way**: `:659` *"calf: the skull at (0.01, 1.50,
+   -1.02) answered nil, wanted head"*. All three failures are the CALF and all three are a ray that
+   answered `nil` -- it hit nothing. `deer_hitbox.spec` names `Range` ZERO times and loads its models
+   at runtime through `ServerStorage.Assets.Loader`, so a ray hitting nothing is the signature of a
+   model that has not finished loading -- which asset-load contention from a second editor would
+   explain. A mechanism, not a proof.
    The dispatch names `deer_hitbox.spec:659/:682` as a known intermittent, but a dispatch naming a
    flake is not a control run (Vnight-1027), so **the request reports it as a live FAIL** and no
    claim in it leans on the word. The control run at the merge-base is the Director's: it needs a

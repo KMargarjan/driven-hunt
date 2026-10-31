@@ -13,12 +13,19 @@ appeared at ~23:31 UTC, mid-session (`state` read ONE Studio at 23:15), and the 
 her window. See `ESCALATE.md`, 2026-10-31, **NEEDS DIRECTOR**. The three fixes below are committed and
 each one's FAIL-FIRST run is quoted; what is missing is the two gate lines, which need one Studio.
 
-- **one-player:** FAIL 32/34 twice at this commit, both times on `deer_hitbox.spec` and nothing else
-  (`:659`, then `:682` reading *"calf: legs box 1 is unreachable by a flank ray"*). It is a real
-  raycast against the calf model; this branch touches no deer, boar or hitbox file. It PASSED in the
-  three earlier runs of this session, all of which ran while DEV was the only Studio, and has failed
-  in both runs since the second editor appeared. That is a CORRELATION, not a control run -- the
-  control at the merge-base is the Director's to run, and no claim here rests on calling it a flake.
+- **one-player:** FAIL 32/34 **three times**, on `deer_hitbox.spec` and nothing else. Every one of the
+  three is the **calf**, and every one is a flank ray that **answered `nil`** -- it hit nothing:
+  `:659` *"calf: legs box 1 is unreachable by a flank ray"* (run 2), `:682` the same (run 1, as
+  quoted), `:659` *"calf: the skull at (0.01, 1.50, -1.02) answered nil, wanted head"* (run 3, at
+  `7923cc7a`). This branch touches no deer, boar or hitbox file, and `deer_hitbox.spec` names `Range`
+  **zero times**; it loads its models at runtime through `ServerStorage.Assets.Loader`, and a ray that
+  hits nothing is the signature of a model that has not finished loading.
+  It PASSED in the three earlier runs of this session, all of which ran while DEV was the only
+  Studio, and has failed in all three runs since Karen's second editor appeared. That is a
+  CORRELATION plus a plausible mechanism, **not a control run** -- the control at the merge-base is
+  the Director's to run, and no claim here rests on calling it a flake.
+  (Run 3's line names `7923cc7a`, the paperwork commit: at-or-after the last code change with only
+  paperwork after it, so if the Director uses that line, `Code commit:` above reads `7923cc7a`.)
 - **two-player:** required (`src/client/Range/` and `tests/client/range_mask.spec.luau` are in
   `TWO_PLAYER_PATHS`). `test2` at this commit reached the click and timed out:
   `FAIL A 2-player local test appeared within 180 s (0 new studio(s) beside the editor)` then
