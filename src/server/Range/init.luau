@@ -59,7 +59,14 @@ Range.CONFIG = {
 	-- 24 studs/s would ask for 12 studs of the 20 there are). MEASURED on main in Karen's place
 	-- (`<runs-dir>/321-pass.luau`, d7ae1929): ONE animal, FOUR crossings, 7.12 s out of sight between
 	-- them -- the whole of what she is complaining about.
-	NEXT_PASS_SECONDS = 0.5,
+	--
+	-- 0.5 -> 0.35, MEASURED (cycle 2, `<runs-dir>/321-pass.luau` in her place): at 0.5 the run-up is
+	-- 12 studs at a run and the animal took 0.97-2.36 s to cover them, because it is spawned AT REST
+	-- and has to turn onto the lane -- `Boar.Body.create(config, folder, id, position, kind)` takes
+	-- no heading and no speed, so the start-up is not a dial this module has. 0.35 is 8.4 studs,
+	-- still more than the 4.8 the boar's `ACCEL` 60 needs to reach 24 studs/s, so it is at pace when
+	-- it enters and the crossing the board teaches is unchanged.
+	NEXT_PASS_SECONDS = 0.35,
 	-- A PASS THAT NEVER REACHES THE SPAN IS STILL OVER after this (the guard `TURN_MAX_SECONDS` used
 	-- to be): a wedged animal is cleared and a fresh one released, because *"no matter killed or no
 	-- it comes to end new animal comes"*. Longer than the slowest legal pass (a walk at 4.5 studs/s
