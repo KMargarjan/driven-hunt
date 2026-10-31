@@ -186,6 +186,10 @@ type Trial = {
 	turnLastZ: number?,
 	carcassAt: number?,
 	releaseAt: number?,
+	-- HE ENDED HIS SESSION AT THIS STATION (task 319): no animal is released while this is true,
+	-- and it is spent the moment he asks for one again or walks away. Karen, 2026-10-31: *"I also
+	-- can leave then end"*.
+	ended: boolean,
 	-- SINCE WHEN NOBODY HAS BEEN AT THIS STATION, on the owner's own clock. nil means somebody is
 	-- there now; `IDLE_CLEAR_SECONDS` is counted from it (design 7.4).
 	idleSince: number?,
@@ -237,6 +241,9 @@ local state = {
 		-- mat are one occupied station, which is the number the design wants (11.2 group 12, T11).
 		idleClears = 0,
 		occupied = 0,
+		-- HOW MANY SESSIONS WERE ENDED FROM THE PANEL (task 319): his animal cleared, his board
+		-- blanked, and nothing released again until he asks.
+		leaves = 0,
 		-- A CLEAR THAT TOOK THE WHOLE RANGE WITH IT: a root that wired only `boars.clear` and no
 		-- `clearOne`. Counted rather than silent, because it is the defect B2 wrote down.
 		wideClears = 0,
@@ -371,6 +378,8 @@ local function newTrial(spot: number, pace: string): Trial
 		turnLastZ = nil,
 		carcassAt = nil,
 		releaseAt = nil,
+		-- A FRESH STATION IS NOT AN ENDED ONE: the first man measured at it gets an animal.
+		ended = false,
 		-- NOBODY HAS BEEN HERE YET, so an untouched station never releases: the clock starts at the
 		-- first scan and the station stays empty until a man is measured at it.
 		idleSince = nil,
@@ -1307,14 +1316,21 @@ local function scan(dt: number)
 		local occupied = here[spot] == true
 		if occupied then
 			trial.idleSince = nil
-		elseif trial.idleSince == nil then
-			trial.idleSince = now
+		else
+			-- HE WENT, SO THE END HE ASKED FOR IS SPENT (task 319): the next man measured at this
+			-- station gets an animal without pressing anything.
+			trial.ended = false
+			if trial.idleSince == nil then
+				trial.idleSince = now
+			end
 		end
 		if trial.targetId == nil then
 			-- NO ANIMAL FOR AN EMPTY STATION: six drawn, animated animals for one shooter is six
 			-- animators and six sound sets for nothing (design 7.4). This is also T11's "an empty
 			-- range costs 0 spawns" -- and the ONLY arrival edge there is.
-			if occupied and (trial.releaseAt == nil or now >= trial.releaseAt) then
+			-- ...AND AN ENDED STATION RELEASES NOTHING (task 319), which is the whole of "he can
+			-- leave and end": he is still standing there, and the lane stays empty.
+			if occupied and not trial.ended and (trial.releaseAt == nil or now >= trial.releaseAt) then
 				release(trial)
 			end
 			continue
@@ -2002,6 +2018,25 @@ function Range.onRequest(player: any, request: any): boolean
 		publish(player)
 		return true
 	end
+	-- HE LEAVES AND IT ENDS (task 319; Karen, 2026-10-31: *"I also can leave then end"*). His own
+	-- animal goes, his own board blanks, and this station releases nothing more until he asks for
+	-- another animal or walks away -- the two re-arms, in `scan` and below. Through the same door
+	-- and whitelisted exactly like a reset, because a leave is not a second remote.
+	if request.leave == true then
+		clearTarget(trial, "range leave")
+		trial.targetId = nil
+		trial.releaseAt = nil
+		trial.carcassAt = nil
+		trial.ended = true
+		trial.crossings = 0
+		trial.lastCrossingSeconds = nil
+		state.records[id] = nil
+		state.pending[id] = nil
+		state.stats.leaves += 1
+		recordFor(player, trial, (select(2, Range.positionOf(player))))
+		publish(player)
+		return true
+	end
 	-- TWO PASSES: NOTHING IS WRITTEN UNTIL EVERY WORD HAS PASSED (round 2, finding 1). Writing as
 	-- the loop walked left a refused request HALF APPLIED -- species written, kind refused -- which
 	-- is the disagreement round 1 required to be impossible.
@@ -2036,6 +2071,9 @@ function Range.onRequest(player: any, request: any): boolean
 	end
 
 	-- ...AND ONLY NOW IS THE TRIAL TOUCHED.
+	-- HE ASKED FOR AN ANIMAL, so an ended station is live again (task 319): the `go` the confirm
+	-- bar sends, or any pick, is that ask. This is the second re-arm; `scan`'s is the first.
+	trial.ended = false
 	local respawn = false
 	for _, option in ipairs(Range.OPTIONS) do
 		local value = request[option]

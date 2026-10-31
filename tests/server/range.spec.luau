@@ -1944,6 +1944,102 @@ return function()
 			Range.stop()
 		end)
 
+		-- TASK 319. KAREN, 2026-10-31: *"i don't need each time click e to have new animal, I killed,
+		-- then new comes after few seconds I can click e and change settings I also can leave then
+		-- end"*. The first half is a GUARD -- it passes on main, and it is here because the auto-next
+		-- is what the leave must not break. MEASURED in her place at a659b5f9: a new live animal
+		-- 4.3 s after the kill with no E pressed.
+		it("brings the next animal by itself after a kill, with the settings he last picked", function()
+			Range.stop()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			local crowd = newCrowd({ 2 })
+			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
+			local man = crowd.men[1]
+			advance(fake, clock, 1)
+			-- HE PICKS ONCE, and never asks again in this case.
+			expect(Range.onRequest(man, { spot = 2, species = "reddeer", pace = RangeData.WORD.RUN })).to.equal(true)
+			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			local before = Range.trialOf(2) :: any
+			local firstId = before.targetId
+			expect(firstId).to.be.ok()
+			expect(before.species).to.equal("reddeer")
+			local spawnsBefore = fake.spawns;
+			(fake.at(2) :: any).alive = false
+			-- NOTHING IS SENT: the gap is the two CONFIG numbers and nothing else.
+			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + Range.CONFIG.RELEASE_SECONDS + 1)
+			local after = Range.trialOf(2) :: any
+			expect(after.targetId).to.be.ok()
+			expect(after.targetId ~= firstId).to.equal(true)
+			expect(fake.spawns).to.equal(spawnsBefore + 1)
+			expect((fake.at(2) :: any).alive).to.equal(true)
+			-- ...WITH THE SAME SETTINGS HE PICKED: species, kind, pace and lane all carried over.
+			expect(after.species).to.equal("reddeer")
+			expect(after.kind).to.equal(before.kind)
+			expect(after.pace).to.equal(RangeData.WORD.RUN)
+			expect(after.distanceStuds).to.equal(before.distanceStuds)
+			expect(after.spot).to.equal(2)
+			TestKit.note(
+				string.format(
+					"range: next animal by itself %d s after the kill, same settings",
+					Range.CONFIG.CARCASS_SECONDS + Range.CONFIG.RELEASE_SECONDS
+				)
+			)
+			Range.stop()
+		end)
+
+		-- TASK 319, THE HALF THAT FAILS ON MAIN: `leave` is not a word the door knows there, so the
+		-- first assertion below reads `false`. *"I also can leave then end"*.
+		it("ends the session on a leave request, and re-arms when he asks again or walks away", function()
+			Range.stop()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			local crowd = newCrowd({ 2 })
+			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
+			local man = crowd.men[1]
+			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			expect((Range.trialOf(2) :: any).targetId).to.be.ok()
+			local clearOnesBefore = fake.clearOnes
+			local leavesBefore = Range.stats().leaves
+
+			-- HE LEAVES: his own animal goes, through `clearOne` and not a range-wide clear.
+			expect(Range.onRequest(man, { spot = 2, leave = true })).to.equal(true)
+			expect((Range.trialOf(2) :: any).targetId).to.equal(nil)
+			expect((Range.trialOf(2) :: any).ended).to.equal(true)
+			expect(fake.clearOnes).to.equal(clearOnesBefore + 1)
+			expect(Range.stats().leaves).to.equal(leavesBefore + 1)
+			expect(Range.stats().wideClears).to.equal(0)
+
+			-- ...AND NOTHING COMES WHILE HE STANDS THERE, which is what "end" means.
+			local spawnsBefore = fake.spawns
+			advance(fake, clock, 10)
+			expect(fake.spawns).to.equal(spawnsBefore)
+			expect((Range.trialOf(2) :: any).targetId).to.equal(nil)
+
+			-- RE-ARM 1: HE ASKS AGAIN. One `go` -- the confirm bar's own word -- and the lane is live.
+			expect(Range.onRequest(man, { spot = 2, go = true })).to.equal(true)
+			expect((Range.trialOf(2) :: any).ended).to.equal(false)
+			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			expect((Range.trialOf(2) :: any).targetId).to.be.ok()
+			expect(fake.spawns).to.equal(spawnsBefore + 1)
+
+			-- RE-ARM 2: HE ENDS AND WALKS OFF, and the station the next man finds is a live one.
+			expect(Range.onRequest(man, { spot = 2, leave = true })).to.equal(true)
+			expect((Range.trialOf(2) :: any).ended).to.equal(true)
+			crowd.set({})
+			advance(fake, clock, 1)
+			expect((Range.trialOf(2) :: any).ended).to.equal(false)
+			local spawnsAway = fake.spawns
+			-- NOBODY THERE IS STILL NOBODY'S ANIMAL (design 7.4): the re-arm is not a release.
+			expect(spawnsAway).to.equal(spawnsBefore + 1)
+			crowd.set({ 2 })
+			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			expect(fake.spawns).to.equal(spawnsAway + 1)
+			expect((Range.trialOf(2) :: any).targetId).to.be.ok()
+			TestKit.note("range: leave ends the session, and an ask or a walk-off re-arms the station")
+			Range.stop()
+		end)
+
 		it("never orders an animal the Brain is flying", function()
 			local clock, now = newClock()
 			local fake = newFakeBoars()
