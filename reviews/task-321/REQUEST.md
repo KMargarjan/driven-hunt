@@ -3,19 +3,13 @@
 Task: 321
 Round: 1
 Base: d7ae1929 (main)
-Code commit: e407f6af0ecda552d8a39860c47a50f84133ce20
+Code commit: 492292bbdcc0cefdaade6722749370565f27541d
 
-`[harness] PASS: 34/34 checks @ e407f6af0ecda552d8a39860c47a50f84133ce20 (clean tree) scope=all`
+`[harness] PASS: 34/34 checks @ 492292bbdcc0cefdaade6722749370565f27541d (clean tree) scope=all`
 
-`test2`: **REQUIRED AND NOT OBTAINED -- see `ESCALATE.md`, 2026-10-31.** `tools/agents.py` refuses the
-round without it, because `src/client/Range/Mask.luau` and `tests/client/range_mask.spec.luau` are in
-`TWO_PLAYER_PATHS` (task 313 put the range's per-player picture there). I ran it rather than assume:
-`[harness2] FAIL: 33/36 checks @ ab5265c7 (clean tree)` -- it fails `One Studio instance before the
-test starts` because Karen's Forest Test editor is open, which the Builder may not close, and
-`[driver] camera_client.spec:376` (`expect(stats.maxUpdateMs < 5)`, the camera's worst frame) on a
-machine running five Studio processes. **I am not calling that one a flake: there is no control run
-at the merge base.** The Director closes the Forest Test, re-runs `test2` (`<runs-dir>/press-f7.ps1`
-makes the Start click), pastes the line here, and runs the review. Round 1 is unused.
+`[harness2] PASS: 36/36 checks @ 492292bbdcc0cefdaade6722749370565f27541d (clean tree)`
+
+Both run by the Director, 2026-10-31 ~23:00 UTC, with DEV the only Studio open (the Forest Test closed in Edit). The code commit is the branch head; after the Builder's last code commit e407f6af only `ESCALATE.md`, `TASKS.md` and this request changed. The Builder's earlier `[harness2] FAIL: 33/36 @ ab5265c7` was the Forest Test being open (`One Studio instance`) plus `camera_client.spec:376` on a five-Studio machine; neither fired with one Studio.
 
 ## PLAN (core-quality step 0)
 
