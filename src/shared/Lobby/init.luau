@@ -2279,8 +2279,11 @@ Lobby.CONFIG = {
 		-- anchor (2850, -2950) + (56, 35) = (2906, -2915). 6 studs north of Pad1's north edge
 		-- (-2921), 7 south of Truck1 (-2922), 36 east of the lodge's east wall (2870), inside the
 		-- yard gravel (x 2883..2929, z -2994..-2909), off the spawn -> pad walking line (z ~ -2930),
-		-- and 291 studs from the range's nearest edge (`Range.ANCHORS["forest-test"]` is
-		-- (2650, -3216), and its built box measures x 2570..2730, z -3356..-3212).
+		-- and clear of the range. THAT LAST CLAUSE WAS RE-MEASURED IN TASK 315, because the range
+		-- moved straight out of the shop door and the old reading (291 studs, against an anchor of
+		-- (2650, -3216) that two tasks had already replaced) was stale: the pole's foot now stands
+		-- **2 studs north of the range corridor's own north edge** and ~140 from its footprint.
+		-- Two studs is a margin, so `lobby.spec` asserts it rather than leaving it to be noticed.
 		OFFSET = Vector3.new(56, 0, 35),
 		HEIGHT_STUDS = 35.7,
 		-- 112 mm AT 0.28 m PER STUD. Domestic 10 m poles run 75-110 mm; this is the top of that

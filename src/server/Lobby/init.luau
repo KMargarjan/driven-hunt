@@ -293,6 +293,13 @@ local stats = {
 	-- How many times his head was actually turned. One write per change and never one per scan, so
 	-- a number that climbs with the scan count is the bug this counter exists to show.
 	keeperTurns = 0,
+	-- THE WALK TO THE RANGE (task 315), mirrored here for `models`' stated reason: `Build.stats()`
+	-- is not reachable from the boot's log line, and a live probe gets a FRESH copy of this module
+	-- -- so a counter nobody can print is not a diagnostic. `sightlineDropped` is OUR trees that
+	-- were not planted in the corridor between the shop door and the range; `sightlineCleared` is
+	-- the WORLD's own foliage the sweep took off it.
+	sightlineDropped = 0,
+	sightlineCleared = 0,
 }
 
 function Lobby.stats()
@@ -476,6 +483,14 @@ local function tryBuild(): boolean
 			-- seats every tree against the LOWEST ground anywhere under its root flare, instead of
 			-- against the ground at the point it was planted. Karen: *"look at the trees wtf"*.
 			terrainAt = world.terrainAt,
+			-- THE GROUND THE RANGE NEEDS KEPT FREE OF TREES (task 315). Karen, 2026-10-30:
+			-- *"those trees can be removed and shooting range can be moved there"*. Two PLAIN
+			-- TABLES OF NUMBERS -- `keepClear` the range's own footprint rectangles, `sightline`
+			-- its three edges -- composed by the root exactly as `homeAreas` already is, so this
+			-- owner never learns the range exists and a world that injects nothing is unchanged in
+			-- every answer.
+			keepClear = world.keepClear,
+			sightline = world.sightline,
 		} :: any
 	)
 	building = false
@@ -492,6 +507,8 @@ local function tryBuild(): boolean
 	stats.trucksSettled = built.trucksSettled
 	stats.truckGroundStuds = built.truckGroundStuds
 	stats.truckPainted = built.truckPainted
+	stats.sightlineDropped = built.sightlineDropped
+	stats.sightlineCleared = built.sightlineCleared
 	folder = made
 	spawnPart = spawn
 	-- WHERE THE FOUR PADS ARE, COMPUTED ONCE, through the ONE function that knows (task 182).

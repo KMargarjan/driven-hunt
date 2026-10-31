@@ -1,0 +1,76 @@
+ARCHIVED 2026-10-30, task 315 (CLAUDE.md rule 7: NEVER DELETE).
+
+WHY. Karen, 2026-10-30 ~13:00 UTC, with a frame of the tree row in front of the shop:
+"those trees can be removed and shooting range can be moved there that I can directly from
+shop walk to shooting range same distance but straight".
+
+----------------------------------------------------------------------------------
+1. THE RANGE ANCHOR ROW, as `src/shared/Range/init.luau` `Range.ANCHORS` held it before
+   this task (task 306 step B8). Only `x` and `z` changed; every other field is still live.
+
+	["forest-test"] = {
+		x = 2600,
+		z = -3030,
+		plate = false,
+		downrange = -1,
+		drawn = true,
+		berm = "terrain",
+		fill = true,
+		shelfFrom = { x = 2850, z = -2950 },
+		keepOut = { x = 2740, z = -3060 },
+	},
+
+   Replaced by x = 2790, z = -3090. Nothing else moved: `LAYOUT` is untouched, so the move
+   is a pure translation of the range frame (design shooting-range-lobby.md section 2.3).
+
+----------------------------------------------------------------------------------
+2. THE TREES THAT STOP BEING PLANTED, and the one the sweep takes away. Nothing is deleted
+   from any table: `TREELINE`, `LODGE_TREES` and `AVENUE.SLOTS` are unchanged in git, and
+   the trees below are dropped by the corridor RULE
+   (`Build.keptClear`, design section 5.2). Deleting the rule puts every one of them back.
+
+   Measured in Karen's place at main d4b10eda, 2026-10-30 (reviews/task-315/BRIEF.md s.2):
+
+	Avenue05   (2846.9, -2948.0)   Lobby.Avenue      task 311
+	Avenue03   (2846.7, -2997.3)   Lobby.Avenue      task 311
+	Avenue08   (2893.8, -2997.1)   Lobby.Avenue      task 311
+	Avenue07   (2894.8, -3015.3)   Lobby.Avenue      task 311
+	Avenue02   (2846.4, -3023.7)   Lobby.Avenue      task 311
+	Avenue01   (2845.5, -3047.3)   Lobby.Avenue      task 311
+	Tree12     (2901.7, -3028.0)   Lobby.TreeLine
+	Tree18     (2812.3, -3032.0)   Lobby.TreeLine
+	Tree19     (2792.8, -3033.3)   Lobby.TreeLine
+	Tree17     (2827.0, -3040.4)   Lobby.TreeLine
+	Tree13     (2892.1, -3044.8)   Lobby.TreeLine
+	Session.Tree8 (2844.0, -3188.0), 104.7 studs tall -- PLACE CONTENT, the bought forest's
+	   own conifer, standing inside the new footprint 6 studs off the door's line. Removed at
+	   RUN TIME by `Lobby.Build.clearWorkingGround`, exactly as task 249's bush was
+	   (backups/2026-10-23_task249_lobby-clearing.txt). THE PLACE FILE IS NOT EDITED: delete
+	   the rule and the next server puts the pine back.
+
+   THE BIRCH AVENUE OF TASK 311 THEREFORE STANDS NO TREES. Karen asked for it on 2026-10-28
+   and for these trees gone on 2026-10-30; the later word is the current one. The slot table
+   is kept so a re-plant flanking the new walk is one commit, and that is queued for Karen's
+   eye rather than guessed at here.
+
+----------------------------------------------------------------------------------
+3. THE SPEC CASE THAT WAS REPLACED, in tests/server/lobby.spec.luau. It asserted that every
+   avenue slot stood more than 150 studs from the range anchor; the range now stands straight
+   out of the shop door and the southernmost slot is 70.0 studs from it, so the case fails by
+   arithmetic rather than by a defect. Its replacement asserts the rule that took its place.
+
+	it("keeps the pole and every avenue trunk away from the range", function()
+		local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
+		local range = RangeData.anchorFor("forest-test")
+		expect(range).to.be.ok()
+		local function farFromRange(x: number, z: number)
+			local dx, dz = x - (range :: any).x, z - (range :: any).z
+			expect(math.sqrt(dx * dx + dz * dz) > 150).to.equal(true)
+		end
+		local foot = Build.flagpoleFoot(anchor, CFG, nil)
+		farFromRange(foot.X, foot.Z)
+		for _, slot in ipairs(CFG.AVENUE.SLOTS) do
+			local at = Build.avenueAt(anchor, slot, CFG)
+			farFromRange(at.X, at.Y)
+		end
+	end)

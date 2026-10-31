@@ -1,926 +1,912 @@
-# Solo on the whole range: one span, three bounds, two pictures, one owner each
+# The range moves straight out of the shop door: one row, one corridor, one remover
 
-Task 313. Design to `reviews/task-313/BRIEF.md`, which overrides anything older in `docs/`,
-`TASKS.md` and the earlier design. **This is a DELTA to `docs/design/shooting-range-lobby.md`
-(task 306), which stays in force for everything it does not replace**, and that document is itself a
-delta to `docs/design/shooting-range.md` (task 298).
+Task 315. Design to `reviews/task-315/BRIEF.md`, which overrides anything older in `docs/`,
+`TASKS.md` and the earlier designs. **This is a DELTA to `docs/design/shooting-range.md` (task 298)
+and to `docs/design/shooting-range-lobby.md` as task 313 left it** — both stay in force for
+everything this document does not replace. What changes is **two numbers on one row** and **who keeps
+the ground between the lodge and the range clear**. No tuned number of the range changes.
 
-Nothing below is measured in a running game. Every spatial claim is arithmetic off shipped symbols,
-cited by file and symbol; every engine fact is cited to a shipped caller or to the Roblox
-documentation; everything that needs an eye or a frame is in §15.
+Nothing below is measured by me. Every spatial claim is arithmetic off shipped symbols, cited by file
+and symbol; the brief's own live measurements are marked **(brief)**; everything that needs an eye is
+in §16 and §17.
 
 ---
 
 ## 0. The delta map
 
-| `shooting-range-lobby.md` | This document |
+| Where | What this document does |
 |---|---|
-| §4.3 the shot's ignore list | **extended** (§8): unchanged code, with the proof that it still holds at six animals in one wide span, and the exclusion-before-cap order read off `Cast.candidates` |
-| §4.4 the picture (`Mask`) | **extended** (§7): `Mask` keeps its rule and its folder and gains a wider window; a **second owner** is added for the second picture, by file |
-| §5.3 six windows in one corridor | **replaced** (§2–§4): the window is no longer `mat ± 18`. It is derived per station and per lane from three bounds, and the leg becomes the span plus one apron |
-| §6 the paces | **extended** (§5): the two ISSF paces keep the ISSF definition; the crossing TIMES are re-expressed over the new span. No speed moves |
-| §9 interfaces | **extended** (§10) |
-| §12 numeric targets | **T3 and T6 replaced, T5 re-expressed, T12 extended, T15–T18 new** (§13) |
-| §15 item 7 (*"does the animal vanish at the window's edge? default yes"*) | **closed by Karen and the Director** (§1). It vanishes only in the apron now |
-| everything else (§1, §2, §3 owners, §5.1–5.2, §5.4, §7, §8, §10, §11, §13, §14, §16) | **unchanged** |
+| `Range.ANCHORS["forest-test"]` `x`/`z` (`src/shared/Range/init.luau`) | **replaced**: (2600, −3030) → **(2790, −3090)**, with the comment rewritten (§2) |
+| `shelfFrom`, `keepOut`, `plate`, `downrange`, `berm`, `fill`, and every row of `Range.LAYOUT` | **unchanged, deliberately** (§2.3, §3). The whole move is a translation of the range frame |
+| the lodge, the yard, the road, the pads, the trucks, the spawn, the gathering | **unchanged** (§5.5) |
+| which trees stand in the lobby | **one new rectangle, one new predicate, four call sites, one owner** (§5) |
+| `Workspace.Session.Tree8` (place content, inside the new footprint) | **removed at run time by the lobby's existing sweep**, given the range's footprint as data (§5.4) |
+| `Lobby.CONFIG.AVENUE.SLOTS` | **not edited.** The avenue is dropped by the corridor rule, counted, and its table stays in git (§5.3) |
+| `shooting-range-lobby.md` §13 T1–T18 (task 313) | **unchanged and translation-invariant** (§9.1). This document adds W1–W9 (§14) |
+| `tests/server/range.spec.luau`'s typed anchor pair, `tests/server/lobby.spec.luau`'s *"keeps the pole and every avenue trunk away from the range"* | **replaced** (§15.1). The second one FAILS at the new anchor by arithmetic and is a must-fix of this task, not a surprise |
 
 ---
 
 ## 1. What this system must do, and what it must not do
 
-Karen, 2026-10-30 ~09:30 UTC: *"hill is perfect, we will need to improve isolated view where when I
-click E it will make that I am alone in all shooting range and then we can test all way running
-waling ect animal, now is to short for one specific stand"*.
+Karen, 2026-10-30 ~13:00 UTC, with a frame **(brief §1)**: *"those trees can be removed and shooting
+range can be moved there that I can directly from shop walk to shooting range same distance but
+straight / still shooting range changes is not there? / add and improve"*.
 
 ### Must do
 
-1. **E at a station starts that man's solo view, and his animal crosses as much of the range as the
-   built earth and his own bay allow** — not his station's 36-stud opening. §2–§4 derive the span;
-   §5 re-expresses the times.
-2. **While solo, his client draws his own animal and nothing else alive**: the other five animals
-   stay hidden (shipped `src/client/Range/Mask.luau`), and **other players' characters are hidden
-   too**, so "I am alone" is literal (§7).
-3. **Many men still play at once, and each may hit only his own animal** (§8). Unchanged mechanism.
-4. **The safety envelope holds at the new widest angle**: every shot whose aim point is on his
-   animal's silhouette still ends in earth, from both firing positions and at all three distances
-   (§3, §13 T6).
-5. **Ground and treestand both keep working; the three distances stay 107 / 125 / 179**
-   (`Range.LAYOUT.DISTANCES_STUDS`).
-6. **Both states are testable**: the whole change is behind one flag, born off, and the new span is
-   reachable by parameter as well as by flag (§9).
+1. **One range, moved.** Its origin goes on the straight line out of the shop door; the walk stays
+   within ±15 % of today's 172.8 studs (147..199). §2 puts all six stations in 174.3..184.0.
+2. **The walk is straight and DEAD LEVEL** — no step anywhere between the door and a mat (§3).
+3. **The birch row and the pine in front of the shop go**, by a RULE and not a list, at run time,
+   never by a Studio click and never by an edit to the place (§5).
+4. **Everything proven on the range stays exactly as it is relative to its own origin**: the hill, the
+   107/125/179 lanes, the T6 envelope, solo on the whole range, the treestands, the climb, the
+   isolation. A pure translation (§2.3).
+5. **The berm still faces away from the lodge, the shop and every walk path**, and no shot from any
+   station can end anywhere a player stands — re-swept against the NEW surroundings (§9).
+6. **A man on the new range is still home** — `Join.insideHome` true along the whole straight walk
+   and at every station (§10).
+7. **The old site is left clean**, and that is stated as a fact to be verified, not assumed (§11).
 
 ### Must NOT do
 
-- **No second window predicate.** One function answers "where may his animal be, and therefore what
-  does he see and what may he hit", and the server's door (`Range.ignoredFor`), the client's picture
-  (`Range.maskFor` → `Mask.setWindow`) and the crossing timer (`timeWindow`) all read **that one
-  function**. Today they already read one (`RangeData.windowSpanFor`); that stays true.
-- **No new cast, no new ray, no second renderer of an animal, no client-authored hit.** Unchanged
-  from §1 of the base delta.
-- **No change to `Shotgun.CONFIG.CLAIM.*`, `Rules.unsafeLine` or the safety-arc penalty.**
-- **No change to the three distances, no new asset, no new LAYOUT geometry row that moves a built
-  part.** The hut, the mats, the posts, the benches, the decks, the banks and the heap are all built
-  exactly where step B10 left them (§3.4 names the one thing a later LOOK task may widen).
-- **No second reader of the new flag.** One module reads it (§9); the client is TOLD.
-- **No write by the range to any instance the range did not create, except the client-local
-  transparency of (a) the range's own targets and (b) other players' characters** — and those are
-  two disjoint sets with one owner each (§7).
+- **No second remover of trees.** `Lobby.Build.clearWorkingGround` is, in its own words, *"The ONE
+  place this repository removes an instance it did not make"*. The range must not remove a tree, a
+  bush or a model it did not create. It hands over a RECTANGLE and nothing else (§5.4, §6).
+- **No second definition of the corridor.** One predicate answers *"is this foot on ground the range's
+  sightline needs"*, and the three planting loops and the sweep all read **that one function** (§5.2).
+- **No require edge between `Lobby` and `Range`.** Neither owner learns the other exists; the
+  composition root composes them, exactly as it already composes `homeAreas`
+  (`src/server/ForestTestBoot.server.luau`, `rangeHomeAreas`; `src/server/Lobby/Join.luau`: *"THE
+  AREAS ARE DATA, HANDED IN BY THE COMPOSITION ROOT"*).
+- **No change to `Range.LAYOUT`.** Not one row, not one built edge. The move is `x` and `z` on the
+  anchor row (§2.3).
+- **No flag.** The world lives in the place; this switches by COMMIT, like the map (§12).
+- **No new asset, no new part, no `.rbxm`, no Studio-made instance, no terrain edit saved into the
+  place.** Every write in this design is a run-time write (§12).
+- **No edit to the shooting path, the span arithmetic, the paces, the masks, the solo view, the claim
+  path or `Shotgun.CONFIG.CLAIM.*`.**
+- **No re-plant of the avenue and no batter on the new cut faces in this task** (§5.3, §4.3): both are
+  LOOK decisions with Karen's eye and a frame, and both are queued (§17).
 
 ---
 
-## 2. The three numbers that used to be one
+## 2. The anchor
 
-`LAYOUT.WINDOW_STUDS` = 36 is read by **four** places in `src/shared/Range/init.luau` today, for
-three unrelated purposes. The brief's first requirement is to separate them by name.
+### 2.1 The row
 
-| # | What the number means | Who reads it today | What it becomes |
-|---|---|---|---|
-| 1 | **The ISSF pace definition.** `slow` is 10 m in 5.0 s and `fast` 10 m in 2.5 s, so a pace's stud speed is `WINDOW_STUDS / CROSSING_SECONDS` | `Range.paceSpeedFor` (`layout.WINDOW_STUDS / seconds`) | **unchanged, 36.** Read through the new named accessor `Range.paceWindowStuds(layout)` and by **nothing else**. `slow` stays 7.20 studs/s and `fast` 14.40 |
-| 2 | **The apron geometry.** `laneLength = WINDOW + 2*APRON` = 76 is what the corridor, the derived berm width, the footprint, the terrace and the plate span are all measured from | `Range.laneLength`, and through it `corridorSpan`, `bermWidthFor`, `footprintFor`, `fieldFor`, `Build`'s plate | **unchanged, 36 + 40 = 76.** Not one built edge moves. This is the whole reason the span is NOT implemented by growing `WINDOW_STUDS` |
-| 3 | **What a man SEES and what his shot may HIT** | `Range.windowSpanFor` (`mat.X ± 18`), and `sightHalfWidthAt` (`ahead × 18 / 107`) | **replaced by `Range.sightSpanFor`** (§3), derived per station and per lane, and by `Range.backstopSlope` (§3.1) |
-
-**This is exactly the trap the brief named.** Had the masking window simply become 196 and kept
-feeding `paceSpeedFor`, `slow` would have become 39.2 studs/s and `fast` 78.4 — faster than
-`Boar.CONFIG.PACE.SPRINT_SPEED` 38 and no longer ISSF. Separating (1) from (3) by name is what makes
-that impossible rather than merely unintended, and `range.spec` asserts it: `paceSpeedFor` is driven
-with a layout whose `sightSpanFor` is wide and must still answer 7.20 / 14.40.
-
-**`LAYOUT.WINDOW_STUDS` is not renamed in this task.** Renaming a frozen row touches `Build`, the
-server owner, `range.spec` in nineteen places and `range_mask.spec`; the comment on the row and the
-new accessor carry the meaning instead, and `range.spec` asserts the accessor is the only reader in
-`src/` (a grep case, the shape `range.spec` already uses for "no `.CFrame =` under `src/server/Range/`").
-
----
-
-## 3. The span, as arithmetic
-
-### 3.1 Three bounds, intersected. Every number off `LAYOUT`.
-
-Anchor-relative X (+x east), downrange taken out by sign as every other function in the module does.
-All six values below are computed by shipped functions:
-
-```
-spotSpan            = (SPOT_COUNT-1) * SPOT_SPACING = 5 * 24          = 120   Range.spotSpan
-laneLength          = WINDOW + 2*APRON = 36 + 40                      = 76    Range.laneLength
-corridorSpan        = [-38, 158]                            width      196    Range.corridorSpan
-bankReach           = BANK.beyondStuds + BANK.size.X = 6 + 12         = 18    Range.bankReach
-bermWidthFor        = 120 + 76 + 2*18 = 232 (already on the 4-grid)   = 232   Range.bermWidthFor
-bermSpanFor         = 60 +- 116                        = [-56, 176]           Range.bermSpanFor
-bermCrestFaceZ      = distanceMax + behindStuds - depth/2 = 179+17-4  = 192   Range.bermCrestFaceZ
-bermToeZ            = 192 - slopeRun 8                                = 184   Range.bermToeZ
+```lua
+["forest-test"] = {
+    x = 2790,        -- was 2600
+    z = -3090,       -- was -3030
+    plate = false, downrange = -1, drawn = true, berm = "terrain", fill = true,
+    shelfFrom = { x = 2850, z = -2950 },   -- UNCHANGED: the lobby's own anchor
+    keepOut  = { x = 2740, z = -3060 },    -- UNCHANGED: the lobby field's west and south edges
+}
 ```
 
-**Bound 1 — THE BACKSTOP.** The shot must reach earth that is at FULL height, not the toe's edge.
-`Range.bermColumns` tapers the crest by `shoulderDropStuds` 5 over the outer `shoulderStuds` 16 of
-the span (`taper = clamp(edge / shoulderStuds, 0, 1)`), and `range.spec`'s shipped case *"fills an
-uneven earth hill"* holds `column.top >= deckEye` (17.5) only for the columns at `taper == 1`. So the
-load-bearing backstop is the berm's span less the two shoulders, tested at the crest face:
+`Range.matPosition` lays mat *n* at `anchor.X + (n − 1) * SPOT_SPACING_STUDS`, so the six mats are
+**2790 / 2814 / 2838 / 2862 / 2886 / 2910** at z −3090, and the row's centre is
+`anchor.X + spotSpan/2` = **2850**.
 
-```
-backstop interval  E = [-56 + 16, 176 - 16] = [-40, 160]     at  Zcrest = 192
-```
+### 2.2 Why 2790 and −3090 are not free numbers
 
-The two 18-stud side banks (`Range.bankBalls`, x [164,176] and [-56,-44], z 172..186) and the
-tapered shoulders are then **margin, not load-bearing** — which is deliberate: the bound must not
-depend on a bank's 12-stud width or on the toe's edge, both of which a later look task could move.
+**x = 2790 is forced by the door.** The lodge stands at `anchor + LODGE.OFFSET` with
+`LODGE.OFFSET.X = 0` (`src/shared/Lobby/init.luau`, `CONFIG.LODGE`), so the lodge's centre line, its
+door and `Build.lodge`'s `DoorThreshold` are all at **x 2850** — measured live at
+(2850.0, 152.3, −2916.1), 9.6 wide, facing south **(brief §2)**. Centring the station row on the
+door needs `anchor.X = 2850 − spotSpan/2 = 2790`, and that is the Builder's proposal, accepted.
 
-For a firing point at `x_s` on the firing line and a lane distance `d`, the ray through an aim point
-`x_a` at the lane crosses `Zcrest` at `x_s + (x_a - x_s) * Zcrest/d`. Inverting:
+Three reasons it is accepted rather than, say, centred on the road at x 2870 (`ROAD.CENTRE_X` = 20 →
+2870, lane 2860..2880 **(brief §2)**):
 
-```
-B(s, d) = [ x_s + (-40 - x_s) * d/192 ,  x_s + (160 - x_s) * d/192 ]
-width of B = 200 * d / 192 = 1.04167 * d      -- the same at every station
-```
+1. Karen's words are *"directly from shop"*. The door is the thing she named, and the lodge's own
+   symmetry axis is the same number — the range reads as centred on the house.
+2. **The hill rises to the EAST (brief §2)**, so every stud of eastward shift buys cut depth: at
+   x 2966 the place's ground is 183.8 against 146.0 at x 2734. A road-centred row would push the
+   terrace's east edge to 2988 and the cut past 40 studs for no gain in the walk (the nearest mat
+   would be 174.08 instead of 174.31 — 0.23 studs).
+3. The walk's difference is cosmetic: at x 2850 she walks 10 studs west of the road lane, on the
+   lobby's own flat field, for the first 138 studs.
 
-**The widest ray this range may ever be offered is one angle, and it is a constant of the built
-earth:** from mat 1 to the backstop's east corner, `atan(160/192)` = **39.806°** (and from mat 6 to
-the west corner, the same). Today's worst is `atan(18/107)` = 9.55°. `Range.backstopSlope(layout)`
-returns `0.8333`, and `Range.sightHalfWidthAt(layout, ahead)` becomes `ahead * backstopSlope` — one
-number, read by the span, by the hut bound and by the berm's own in-fan spec case.
+**z = −3090 is forced by the voxel plane the two terraces have to meet on.** `Range.cutRects` takes
+the terrace's uprange edge as `min(anchor.Z + CUT.uprangeStuds, footprint.maxZ)` snapped INWARD by
+`Range.toGrid(…, false)`. With `CUT.uprangeStuds` 34, `Range.standReach` 21 and
+`PROMPT.MaxActivationDistance` 12 that is `min(−3056, −3057) = −3057`, floored to the 4-stud grid =
+**−3060** — which is exactly the lobby field's own south edge (`FIELD.SPAN_STUDS` 220 centred on
+−2950). The two terraces therefore meet **flush on one voxel plane, with zero overlap and zero gap**.
+That holds only for `anchor.Z ∈ [−3093, −3089)`; at −3088 the range would start writing ground inside
+the lobby field's rectangle (the thing `keepOut` exists to prevent), and at −3094 a 4-stud strip of
+un-terraced hill would stand across the walk. −3090 is in the middle of that window.
 
-**The deck is always safer, by one line of algebra.** From the deck the ray starts
-`STAND.backStuds` = 14 further back, so both legs grow: the ratio is `(192+14)/(d+14)` against
-`192/d`, and `(Z+b)/(d+b) < Z/d` exactly when `d < Z`, which holds for every lane
-(179 < 192). So **one span per station and lane, computed for the BENCH, is safe for both firing
-positions** — and it does not move when a man climbs his own ladder, which is what keeps the picture
-still while he climbs.
+### 2.3 The move is a translation, and that is checkable rather than claimed
 
-**Bound 2 — THE CLEAR FAN (his own bay's opening).** Only one piece of a station's furniture reaches
-the bore's own height. The bench bore is `shelf + HighSeats.AIM_RISE_STUDS` = **shelf + 5** (the
-number `range.spec`'s `deckEye` is built from):
+Every spatial function in `src/shared/Range/init.luau` takes `anchor` and derives: `matPosition`,
+`laneCentre`, `windowSpanFor`, `sightSpanFor`, `laneEndsFor`, `corridorSpan`, `bankPosition`,
+`bermPosition`, `bermSpanFor`, `bermCrestFaceZ`, `backstopSpanFor`, `bermColumns`, `turfRect`,
+`lineRect`, `footprintFor`, `cutRects`, `fieldFor`, `standPosition`, `hutPostPositions`,
+`climbTargetFor`. **The only world coordinates in the module are in `Range.ANCHORS`**, and of that
+row's six spatial fields exactly two are the range's own position (`x`, `z`); the other two,
+`shelfFrom` and `keepOut`, are facts about the LODGE and must NOT move with the range — which is why
+they are untouched. `range.spec` already pins both against `Lobby`'s own config
+(`shelfFrom == Lobby.ANCHORS["forest-test"]`, `keepOut == lobby anchor ± SPAN/2`), and both
+assertions stay true after the move with no edit.
 
-| His own furniture | Top, over the shelf | Off axis | Ahead of the mat | In the bore's plane? |
+So decision (c) of the brief is satisfied **by construction**: T6 and the whole task-313 span
+arithmetic are invariant under translation, and the only thing left to re-answer is (d) — what is now
+AROUND the range (§9).
+
+### 2.4 The walk, worked through
+
+From the door (2850, −2916.1) to each mat (z −3090, dz = 173.9):
+
+| station | mat x | distance | bearing | off the door's own facing (180) |
 |---|---|---|---|---|
-| Bench (`LAYOUT.BENCH`) | 2.7 | ±3 | 2.9 .. 4.1 | no — the shot passes 2.3 studs over it |
-| Prompt post (`LAYOUT.POST`) | 4.0 | +2.4 .. +3.6 | 6.4 .. 7.6 | no — 1.0 stud over it |
-| Hut roof (`LAYOUT.HUT`) | 9.0 .. 9.6 (bottom .. top) | ±6.5 | −4.5 .. 10.5 | no — 4 studs above it |
-| **Hut corner posts** (`Range.hutPostPositions`) | **9.0** (to the roof's underside) | **±6.05 ± 0.45** | **9.6 .. 10.5** | **YES** |
+| 1 | 2790 | **183.97** | 199.03 | 19.03° |
+| 2 | 2814 | **177.59** | 191.70 | 11.70° |
+| 3 | 2838 | **174.31** | 183.95 | **3.95°** |
+| 4 | 2862 | **174.31** | 176.05 | **3.95°** |
+| 5 | 2886 | **177.59** | 168.30 | 11.70° |
+| 6 | 2910 | **183.97** | 160.97 | 19.03° |
 
-So the two downrange hut posts frame his bay, and the ray must stay inboard of them through their
-whole Z extent — `x(10.5) <= 5.6`, the post's inner face:
+**Today, for comparison:** mat 6 is 172.84 studs at bearing 228.76 (48.8° off the door's facing) and
+mat 1 is 274.72 at 245.5 **(brief §2 measured the same two numbers live)**.
 
-```
-f = (HUT.roofSize.X/2 - HUT.postSection) / (HUT.roofAheadStuds + HUT.roofSize.Z/2)
-  = (6.5 - 0.9) / (3 + 7.5) = 5.6/10.5 = 0.53333
-C(s, d) = [ x_s - f*d , x_s + f*d ]
-```
+So the move does two things, not one:
 
-This is not an arbitrary cap. It is **what he can see out of his own firing hut** — source 1's bay —
-and it is visible to Karen as the frame it is. From the **deck** nothing of his own station is in the
-bore's plane at all: the ray falls from 17.5 to 5 over 121 studs, so at the hut's downrange edge
-(24.5 studs ahead of the deck) it is at 15.0, above the roof's 9.6. The deck shoots over his own hut,
-which is the point of a deck.
-
-**Bound 3 — THE APRON.** The leg is the span plus one apron at each end (§4), and the leg may not
-leave the corridor or the animal walks into the built cover:
-
-```
-A = [ corridorWest + APRON , corridorEast - APRON ] = [-18, 138]      width 156
-```
-
-**The silhouette.** The aim point may be anywhere on the animal, so the bounds on the aim point are
-bounds on the animal's CENTRE shifted by its half length. `Boar.CONFIG.BODY_SIZE` is
-`Vector3.new(2, 3, 5.5)` (width, height, length) and the stag's `KINDS` row is
-`Vector3.new(1.8, 4.8, 7.05)`; on the range the body lies along X, so the worst half length is
-3.525. **One new LAYOUT row, `SIGHT.silhouetteStuds = 4`**, with that provenance written on it (and
-it is the same measurement `BERM.toeClearStuds`' comment already records: *"the released boar's trunk
-measures 2 x 3 x 5.5 ... so half its length is 2.75"*).
-
-```
-sightSpanFor(s, d) = ( shrink(B(s,d), 4) INTERSECT shrink(C(s,d), 4) ) INTERSECT A
-laneEndsFor(s, d)  = sightSpanFor(s, d) grown by APRON at each end        (subset of the corridor)
-```
-
-### 3.2 The spans, worked through
-
-`d/192` = 0.557292 (107), 0.651042 (125), 0.932292 (179). `f*d` = 57.07, 66.67, 95.47.
-
-**107 studs:**
-
-| spot | B shrunk | C shrunk | ∩ A | **span** |
-|---|---|---|---|---|
-| 1 (0) | [−18.29, 85.17] | [−53.07, 53.07] | [−18, 53.07] | **71.07** |
-| 2 (24) | [−7.66, 95.79] | [−29.07, 77.07] | [−7.66, 77.07] | **84.73** |
-| 3 (48) | [2.96, 106.42] | [−5.07, 101.07] | [2.96, 101.07] | **98.11** |
-| 4 (72) | [13.58, 117.04] | [18.93, 125.07] | [18.93, 117.04] | **98.11** |
-| 5 (96) | [24.21, 127.66] | [42.93, 149.07] | [42.93, 127.66] | **84.73** |
-| 6 (120) | [34.83, 138.29] | [66.93, 173.07] | [66.93, 138] | **71.07** |
-
-**125 studs:** 80.67 / 100.34 / 115.96 / 115.96 / 100.34 / 80.67
-(spot 1: B [−22.04, 100.17] ∩ C [−62.67, 62.67] ∩ A → [−18, 62.67])
-
-**179 studs:** 109.47 / 133.47 / **156** / **156** / 133.47 / 109.47
-(spot 3: B [−30.04, 148.42] ∩ C [−43.47, 139.47] ∩ A → [−18, 138] — **the apron cap binds, which
-means the middle four stations get every stud of corridor the turn-around leaves**)
-
-### 3.3 T6 re-swept: the widest shot at the chosen span, and where it ends
-
-The widest aim point is `span.max + 4` (or `span.min - 4`). By construction the backstop bound is
-tight where it binds, so the worst ray lands exactly on the backstop's corner:
-
-| spot, lane, position | aim point | x at Zcrest | inside [−40, 160]? | angle |
-|---|---|---|---|---|
-| 1, 107, bench | +89.17 | 89.17 × 192/107 = **160.0** | yes, on the corner | **39.81°** |
-| 1, 107, deck | +89.17 | 89.17 × 206/121 = **151.8** | yes, 8.2 studs clear | 36.39° |
-| 1, 125, bench | +104.17 | 104.17 × 192/125 = **160.0** | yes, on the corner | 39.81° |
-| 1, 179, bench | +99.47 | 99.47 × 192/179 = **106.7** | yes, 53 studs clear (the hut cap binds first) | 29.07° |
-| 3, 179, bench | +142.0 | 142.0 × 192/179 = **152.3** | yes, 7.7 studs clear (the apron cap binds first) | 38.43° |
-| 6, 179, bench (west) | −22.0 | 120 + (−142) × 1.0726 = **−32.3** | yes, 7.7 studs clear | 38.43° |
-
-**The maximum off-axis angle anywhere on this range becomes 39.81°, from 9.55° today, and it is the
-angle the built earth subtends from the outermost mat.** The brief's 58.7 / 54.6 / 44.6° are the
-angles to the bank's OUTER face at 176; they are refused, with this arithmetic, because at 107 a ray
-to 176 crosses `Zcrest` at 316 studs — 156 studs past the end of the heap and out of her place
-altogether.
-
-Vertical clearance is unchanged in kind: a level shot from the bench bore (shelf + 5) at the chest
-meets the heap at 5 of its 21 studs, and from the deck at 3.9 — the base design's own T6 numbers. The
-only change is the slant range, 192/cos(39.81°) = 250 studs instead of 192, which drops the bullet
-slightly further and therefore lower into the same earth.
-
-### 3.4 The one thing that could widen the span, and why it is not this task
-
-If the hut's bay were opened to the full backstop fan, the clear-fan bound would vanish and every
-station would get **103.17 / 118.17 / 156** (the backstop-and-apron numbers), run crossings
-4.30 / 4.92 / 6.50 s at every station. The arithmetic for it is one row:
-
-```
-HUT.roofSize.X >= 2 * ( backstopSlope * (roofAheadStuds + roofSize.Z/2) + postSection )
-               =  2 * ( 0.8333 * 10.5 + 0.9 ) = 19.3   ->  20 on even studs (today 13)
-```
-
-At 24-stud spacing that leaves 4 studs between neighbouring huts. It moves a BUILT part, so it needs
-a rebuild of her place and a frame Karen looks at — which is the LOOK lane (step B10), not this one.
-**Director decision asked for, §16 item 2. It blocks nothing: the span is a derived function and
-widening the hut changes its answer with no code change at all.**
+- the nearest mat goes 172.8 → **174.3 studs, +0.87 %**, inside (a)'s 147..199 band;
+- **the spread across the six stations collapses from 101.9 studs to 9.66**, and the worst bearing
+  from 65.5° off the door to 19.0°. Every station is now "straight out of the shop", not just one.
 
 ---
 
-## 4. The leg, the turn-around, and the banks — confirmed, not assumed
+## 3. The shelf and the level walk (the brief's open decision 1)
 
-**`laneEnds` becomes the span plus one apron, for EVERY station, and not only for a solo occupant.**
-There is no non-solo occupant: a station's animal exists only while someone is measured at it
-(`occupancy()` → `release`, design 7.4), and with the flag on every occupied station runs the wide
-leg. Conditioning the leg per player would make two animals on one station's lane, which cannot
-happen (`Range.CONFIG.MAX_TARGETS = SPOT_COUNT`, one trial per spot).
+**Decision: `shelfFrom` stays the lobby's own anchor. The walk is dead level for all 174 studs and the
+cut is paid for.** The alternative (taking the shelf from the new site, ~163) is refused.
 
-**Why the leg keeps an apron at all.** `timeWindow` arms on LEAVING the span and records on exit
-(`trial.windowArmed`, `trial.windowEnteredAt`). If the leg equalled the span, the animal would be
-released inside the span and never leave it: `windowEnteredAt` would stay nil, **no crossing would
-ever be recorded**, and T3/T5's instrument and the board's `crossing %.2f s` would both die quietly.
-The apron is what keeps the instrument alive, and it is also the turn-around out of sight, which is
-its shipped purpose (`LAYOUT.APRON_STUDS`' own comment).
+Four reasons, in order of weight:
 
-**The brief's claim about the banks is wrong by 6 studs, and the correction is in this design's
-favour.** The brief says *"`bankReach` ... so the two bank NEAR faces sit at −38 and +158"*. Read off
-`Range.bankPosition` and `Range.bankSpanFor`:
+1. **It is what Karen asked for.** *"directly from shop walk to shooting range"*. Taking the level
+   from the new site puts a **13-stud climb at z −3060, in the middle of her walk** — and nothing in
+   this repository builds a ramp.
+2. **The flush voxel plane of §2.2 only exists if the two terraces share a shelf.** Otherwise the
+   plane at z −3060 is a 13-stud cliff across the corridor, 174 studs from the door.
+3. **It is the shipped arrangement and Karen called the result perfect.** `Range.Build.shelfAt`'s own
+   comment records the measurement that put it there: the range anchor reads 134.87 and the lobby
+   anchor 149.25, *"a 16-stud step across her walk, which is why the level is taken from the lodge"*.
+4. **The deeper cut costs nothing in code.** `LAYOUT.FILL` is `{ DEPTH_STUDS = 48, CLEAR_STUDS = 96,
+   GRID_STUDS = 4 }`. The air box runs from the grid boundary at or below the shelf up by
+   `CLEAR_STUDS` (`Range.Build.cutBoxes`): 148 → **244**, against a worst natural 183.8 — **60 studs
+   of headroom**. The grass box runs 48 studs below the shelf: 100 → 148, against a worst natural
+   146.0 — **46 studs of margin**. Not one number moves.
 
-```
-bankPosition(leg 1).X = corridorEast + (beyondStuds + size.X/2) = 158 + (6 + 6) = 170
-bankSpanFor(leg 1)    = [164, 176]      -- NEAR face 164, OUTER face 176
-bankSpanFor(leg 2)    = [-56, -44]      -- NEAR face -44, OUTER face -56
-```
+**The cut, against the two datums, because the brief and the code use different ones.** The fill is
+laid to the SHELF; the surface the renderer draws sits ~2 studs proud of it (measured: the lobby
+anchor reads 149.25 natural, snaps to a shelf of 148, and the built surface reads flat **150.0** —
+**brief §2**, and the same offset the existing row's comment records).
 
-−38 and +158 are the **corridor's** ends. The banks' near faces stand **`BANK.beyondStuds` = 6 studs
-beyond them**, which is task 298 step B2's MEASUREMENT: *"built on the end, the target hit the bank's
-inner face and STOPPED 7.8 studs short of an end it could never reach, so no leg ever finished"*. So:
+| | against the shelf 148 | against the rendered 150 **(brief's numbers)** |
+|---|---|---|
+| deepest cut, at the south-east corner (2966, −3281) | **35.8** | 33.8 |
+| deepest fill, at the south-west corner (2734, −3281) | **2.0** | 4.0 |
+| today's site, for comparison | ~21 | 21 |
 
-- the turn-around at the corridor's end is **6 studs clear of the cover**, which is why it can happen
-  at all;
-- the banks' OUTER faces are 176 and −56, which are the berm's own faces — the identity
-  `range.spec` already asserts (`bermSpanFor` == `bankSpanFor` outer);
-- **no new geometry is needed, and none is built.** The leg at the 179 lane is the corridor exactly,
-  −38 .. 158, for every station.
-
-At the 179 lane all six animals therefore share one leg and turn at the same two points. They cannot
-collide (`Boar.Body.useCollisionGroup` gives each animal its own collision group —
-*"so animals do not touch each other"*), cannot take each other's bullets (§8), and five of the six
-are invisible (§7).
-
-**The animal is released outside the span, by construction.** `release` spawns at
-`laneEnds(..., trial.leg + 1, ...)`, which is one apron outside the span, so `windowArmed = true` at
-release is correct and the first entry is a real one. `range.spec` asserts the release point is never
-inside `sightSpanFor`, for all six stations and all three lanes.
+**Boot order cannot change the shelf, and that is already proved.** `Range.Build.shelfAt` floors the
+reading to the 4-stud grid when `fill = true`, and `Lobby.Field.shelfFor` is the same arithmetic for
+the same stated reason (*"FLOORING IS THE FIXED POINT"*). `RangeBoot` and `ForestTestBoot` are two
+Scripts in no defined order, so `groundAt(2850, −2950)` may read 149.25 (natural) or 150.0 (filled) —
+and `floor(149.25/4)*4 = floor(150.0/4)*4 = 148`. The two boots cannot disagree about the shelf.
+*(Log only, pre-existing: the fixed point holds while the rendered surface stays under 152. There are
+2 studs of margin and no instrument watching it. §14 W3 makes it a number.)*
 
 ---
 
-## 5. The crossing times, re-expressed (the arithmetic the brief asked for)
+## 4. The ground at the new site
 
-Speeds are unchanged and still come from one place each: Karen's four from the injected
-`Boar.paceSpeed` (`PACE.WALK_SPEED` 4.5, `TROT_SPEED` 11, `RUN_SPEED` 24) and ISSF's two from
-`paceWindowStuds / CROSSING_SECONDS` = 36/5.0 = **7.20** and 36/2.5 = **14.40**.
+### 4.1 The two terraces, as rectangles
 
-**Seconds across the span = span / speed.** At the narrowest station of each lane (spots 1 and 6):
+All of these are computed by shipped functions at `anchor = (2790, 148, −3090)`, `downrange = −1`:
 
-| lane | span | walk 4.5 | slow 7.2 | trot 11 | fast 14.4 | run 24 |
-|---|---|---|---|---|---|---|
-| 107 | 71.07 | 15.79 | 9.87 | 6.46 | 4.94 | **2.96** |
-| 125 | 80.67 | 17.93 | 11.20 | 7.33 | 5.60 | **3.36** |
-| 179 | 109.47 | 24.33 | 15.20 | 9.95 | 7.60 | **4.56** |
+```
+bermSpanFor        = [2734, 2966]        (anchor.X + 60 ± 116)
+corridorSpan       = [2752, 2948]        (anchor.X − 38 .. + 158)
+bermCrestFaceZ     = −3282               (anchor.Z − 192)
+footprintFor       = x 2722 .. 2978, z −3302 .. −3057
+cutRects           = ONE rect: x 2732 .. 2968, z −3292 .. −3060
+lineRect           = x 2780 .. 2920, z −3100 .. −3076
+fieldFor.bounds    = x 2692 .. 3008, z −3329 .. −3030,  exitZ −3669
+lobby FIELD        = x 2740 .. 2960, z −3060 .. −2840
+```
 
-At the widest (spots 3 and 4):
+| Fact | Value | Why it matters |
+|---|---|---|
+| range terrace ∩ lobby field | **zero area** (they share the line z = −3060) | the range writes no ground the lobby owns; `keepOut`'s purpose is met |
+| range footprint ∩ lobby field | **x 2740..2960, z −3060..−3057** (3 studs) | the two HOME areas overlap, so the walk has no gap (§10) |
+| lobby road's own built end | z −3054 **(brief §2)** | 6 studs north of the terrace; the road is not crossed |
+| lobby road pad (`FIELD.PADS` "Road") | z −3054 | ditto |
+| terrace north edge vs the deck's feet | −3060 vs −3069 (`standReach` 21) | the treestand and the ladder foot stand ON the terrace |
+| the 10 × 20 asphalt scrap at (2850..2860, −3070..−3090) **(brief §2)** | inside the terrace | overwritten by the terrace's own `SURFACE.LANE` fill; nothing to do, and the frame confirms no grey patch (§15.4) |
+| the real asphalt road (x 2600..2665, z −3240..−3260) **(brief §2)** | 67 studs west of the terrace | not touched, unlike at the old site where it bounded the berm |
 
-| lane | span | walk | slow | trot | fast | run |
-|---|---|---|---|---|---|---|
-| 107 | 98.11 | 21.80 | 13.63 | 8.92 | 6.81 | **4.09** |
-| 125 | 115.96 | 25.77 | 16.11 | 10.54 | 8.05 | **4.83** |
-| 179 | **156** | 34.67 | 21.67 | 14.18 | 10.83 | **6.50** |
+### 4.2 The `keepOut` seam goes inert, and that is a hole if nobody says so
 
-Spots 2 and 5 sit between: at 179, span 133.47 → run **5.56 s**.
+With the terrace's north edge AT `keepOut.z`, `Range.cutRects` takes its `splitZ >= highZ` branch and
+returns **one** rectangle — the same answer a row with no `keepOut` gets. So the two-rectangle arm
+that task 306 step B8 built and `range.spec` covers **stops being exercised by the live row**.
 
-**Today, for comparison** (`windowSpanFor` = 36 studs, every station, every lane): walk 8.00, slow
-5.00, trot 3.27, fast 2.50, run **1.50 s**. So the run crossing Karen called *"to short"* grows by
-**2.0× to 4.3×**, and at her long lane in the middle of the line she gets 6.50 s across 156 studs.
+- The row keeps `keepOut`. It costs nothing, it is still the correct statement of where the lobby's
+  ground begins, and an anchor that later moves north needs it.
+- **`range.spec` must drive the split arm BY PARAMETER** (a synthetic anchor north of −3060), or a
+  later anchor move inherits an untested seam. Named here so it is a requirement and not a
+  regression (§15.1 case 6).
 
-**The brief's 196-stud figures (run 8.2 s) are not reachable under the unchanged envelope rule**, and
-§3.3 is the arithmetic: 196 studs needs earth out to x 277 at the 107 lane, a heap 433 studs wide
-instead of 232, on ground her census never covered (`Range.ANCHORS["forest-test"]`'s own comment:
-*"MEASURED IN HER PLACE 2026-10-29 ... 990 ground samples"* over the footprint x 2532..2788 only) and
-falling to 141–144 where the asphalt road crosses. §16 item 1 puts the trade in front of the
-Director in one line.
+### 4.3 The new cut faces, and how they are finished
 
-**The ISSF paces keep the ISSF definition, and it stays checkable.** The live timer now measures the
-span, not 36 studs, so the 5.0 s / 2.5 s figures become a pure-arithmetic case rather than a measured
-one: `crossingSeconds(paceWindowStuds(LAYOUT), paceSpeedFor("slow", LAYOUT, speedOf))` == 5.00
-exactly, and the measured span crossing scaled by `36 / span` must land on it within T5's tolerance.
-Both are in `range.spec` (the first is already there, at the `WINDOW_STUDS = 72` case).
+The air box removes everything above the shelf inside x 2732..2968, z −3292..−3060. Because the
+lobby field is already flat at the same shelf to the north, **the only new faces are three**:
+
+| Face | Depth | Who can see it |
+|---|---|---|
+| **east**, x 2968, deepest at its south end | up to 35.8 | from the firing line, 58 studs east of station 6's mat, behind the east bank (`bankSpanFor(1)` = [2954, 2966], outer face ON the terrace edge). Perpendicular to every lane |
+| **south**, z −3292 | up to 35.8 | nobody: it is 2 studs behind the berm's own back face (−3290) |
+| **west**, x 2732 | mostly fill (2.0) | from the firing line, 58 studs west of station 1 |
+| north, z −3060 | **none** | it is the lobby field's own edge, already flat |
+
+**Decision: the faces are left as the fill makes them, exactly as at today's site, and the two frames
+that can refute it are required** (§15.4 items 4 and 3). Reasons: today's site cuts 21 studs with the
+same arithmetic and Karen called the result perfect; the deep corner is behind a 21-stud heap; and a
+batter is a new `CUT` row, new terrain volume and a rebuild of her place — a LOOK task with its own
+number, queued (§17 D4). **What is NOT claimed:** that a 36-stud earth wall standing 2 studs beyond
+the east bank reads acceptably. Nobody has looked (§16 item 3).
+
+**One thing the move gives for free, and one risk with it.** The place's own hill rises to 183.8
+behind the berm **(brief §2)** — 15 studs ABOVE the berm's 169 crest. As a backstop that is margin on
+top of margin (§9.2). As a picture, the heap now dies into a taller natural hillside instead of into
+flat ground, and its tapered shoulders (`shoulderDropStuds` 5 over `shoulderStuds` 16) end 5 studs
+lower still. That could read as "an earth formed mountain" with a real hill behind it, which is what
+Karen asked for — or as a lump in front of a cliff. One frame decides (§15.4 item 3).
+
+### 4.4 The cost of the fill does not move
+
+`bermWidthFor` is 232 at either anchor and the terrace is 236 × 232 against today's 232 × 226, so the
+filled volume changes by ~4 % and the chunking (`FILL.CHUNK_STUDS` 64, `Field.chunks`' shape) is
+identical. W6 (§14) holds the build's own counters to ±10 %.
+
+---
+
+## 5. The trees: one rectangle, one predicate, one owner
+
+### 5.1 What is actually in the way, measured
+
+**(brief §2, measured live at main d4b10eda.)** Over x 2700..3000, z −3320..−2960 there are **18
+lobby trees and exactly ONE place-content tree**. Ten lobby trunks plus that one pine stand between
+the lodge's south front and the new range, which reproduces Karen's own count — *"a row of ~10
+birches plus one tall pine"* — and that reproduction is the evidence that this is the row she pointed
+at. The pine is `Workspace.Session.Tree8` at (2844, −3188), **104.7 studs tall, inside the new
+footprint, 6 studs off the door's own line**, and 9 studs uprange of the 107-stud lane: it is in the
+firing fan of every station.
+
+### 5.2 The corridor, as a rule
+
+**Decision: the corridor is the STATION ROW's own span, grown by half a hut roof, projected from the
+range's uprange edge to the lodge's south face.**
+
+```
+X:  [ anchor.X − HUT.roofSize.X/2 , anchor.X + spotSpan + HUT.roofSize.X/2 ]
+      = [2783.5, 2916.5]                         width 133
+Z:  [ footprintFor(...).maxZ , lodge south face ]
+      = [−3057, −2917]                           depth 140
+```
+
+- **Why the station row and not the lane corridor or the berm.** The question the rule answers is
+  *"can she see the whole range and walk straight at it"*. `Range.corridorSpan` (196 studs) is where
+  the ANIMALS run, and `bermSpanFor` (232) is the heap — clearing either would strip the entire south
+  arc of the forest edge for no gain in the view. The station row grown by half a hut roof is the
+  **smallest rule under which every built part of every station is unobstructed**: the hut is the
+  widest and tallest thing at a station (`HUT.roofSize` 13 × 0.6 × 15 at `roofRise` 9), so a trunk
+  outside its span cannot hide one. (`SURFACE.LINE_SIDE_STUDS` 8 gives almost the same span, 2782 ..
+  2918; the hut is chosen because the hut is what a tree can hide.)
+- **Why a rectangle and not the sightline FAN from the door.** The fan is narrower — at the
+  northernmost avenue slot its half-width is 12.2 studs — but its edges would depend on the door's
+  measured position, i.e. on a lodge detail, and its margins at the avenue are **3 studs** against a
+  birch crown of about 10. A rule decided by 3 studs against a crown nobody measured is a rule that
+  photographs wrong. The rectangle is also the WALK, which Karen asked for by name.
+- **Why the lodge's south face (−2917) and not the porch's (−2925).** The door is in that face and
+  the door is what she looks out of. The corridor therefore also contains the porch strip and the
+  spawn pad (`SPAWN.OFFSET` → (2850, −2934)) — which holds no trees and never will, because
+  `treeLine`'s fourth exclusion and `onWorkingGround`'s front rectangle already keep it clear.
+  **Margin to watch: the flagpole's foot is at (2906, −2915) (`FLAGPOLE.OFFSET` (56, 0, 35)) — inside
+  the corridor's X span and 2 studs NORTH of its north edge.** It survives by 2 studs and by the fact
+  that the rule removes only trees. `lobby.spec` asserts it (§15.1 case 9) so a later change to
+  `LODGE.SIZE.Z` or to that offset cannot quietly swallow the pole.
+
+### 5.3 What the rule removes, derived, and the one discrepancy with the brief
+
+| Planter | Removed | Derivation |
+|---|---|---|
+| `Lobby.Build.treeLine` (the 30-tree ring) | **5, possibly up to 7** | the ring is radius 100 ± `JITTER_STUDS` 9 over `FROM_RADIANS` 0.6 .. `TO_RADIANS` 5.68 with `angle_i = 0.6 + 5.08·(i−0.5)/30`. z ≤ −2917 and \|x − 2850\| ≤ 66.5 select indices 12..19; 14, 15 and 16 are already not planted (the road exclusion), so **5 stand** — and that is exactly the five the brief measured (Tree12, Tree13, Tree17, Tree18, Tree19). Indices 11 and 20 enter or miss depending on their own jittered radius, so the live count is 5..7 |
+| `Lobby.Build.avenue` (task 311's birch avenue) | **6 — all of them** | every slot is at `anchor.X + ROAD.CENTRE_X ± OFF_ROAD_STUDS` = x **2846** or **2894**, both inside [2783.5, 2916.5], at anchor-relative z −98..+2 = world **−3048..−2948**, all inside [−3057, −2917]. Seven slots are plantable (one is `gap = true`), six stand today |
+| `Lobby.Build.lodgeTrees` (the grove) | **0** | the table's own rule is *"Nothing is planted south of z = −20"* in the lodge's frame; its southernmost trunk is world z −2906, north of −2917 |
+| `Lobby.Build.clearWorkingGround` (the world's foliage) | **1** | `Workspace.Session.Tree8`, by the footprint (§5.4) |
+
+**Total 12: eleven of our own and one of the world's.** Karen's count was ten plus a pine.
+
+**The discrepancy, named rather than smoothed over.** The brief's own table lists **five** Avenue
+trunks in the corridor and says *"five of the six standing birches"*; the arithmetic above says **six
+of six**, because all eight slots lie inside the rectangle and `AVENUE.SHIFT_STUDS` walks a fouled
+slot NORTH, which is further INTO the corridor, never out of it. The sixth standing birch (the west
+row's z −3048) is absent from the brief's table. **The build reports the live count and that settles
+it** (§14 W5); either number satisfies Karen's request, and the design must not pretend to know which.
+
+**Decision on the avenue: it is dropped by the rule, the slot table is NOT edited, and it is not
+re-sited in this task.**
+
+- Karen asked for the avenue on 2026-10-28 and for these trees gone on 2026-10-30. **The later word
+  is the current one**, and the reversal is named here rather than hidden — the brief's own discipline.
+- **The two cannot both exist on this road.** The avenue lines the approach road (centre x 2870); the
+  corridor is x 2783.5..2916.5 over the same z range; and north of the corridor the road is already
+  inside the yard gravel (south edge −2994, which is why `AVENUE`'s own comment stops the rows at
+  −2998). There is no stretch of this road left for an avenue.
+- **Dropping by RULE rather than by deleting rows** keeps rule 7 (`NEVER DELETE`), keeps the reversal
+  one commit away, and makes *"why is there no avenue"* a number in `Lobby.stats()` plus this
+  paragraph instead of a mystery. `Naturvårdsverket`'s allé definition (≥5 trees) is also why the
+  avenue is not simply thinned to four and still called one (§13 source 5).
+- A re-plant flanking the new corridor (x ≤ 2783.5 or ≥ 2916.5) is possible and is **Karen's call with
+  a frame** (§17 K1, D4).
+
+**The forest edge gains a second designed gap.** The ring already leaves a gap due NORTH, and its own
+comment says why (*"what the gap protects is the view straight out of the back of the lodge into the
+forest that is really there"*). It now also has one due SOUTH, protecting the view out of the FRONT
+to the range. Same rule, same shape, Karen's two words.
+
+### 5.4 Who removes the pine (the brief's open decision 4)
+
+**Decision: `Lobby.Build.clearWorkingGround`, given the range's own footprint as data. The range
+removes nothing.**
+
+- The lobby's sweep is already *"The ONE place this repository removes an instance it did not make"*,
+  and it is already bounded three ways: only the folders `CLEARING.FOLDERS` names
+  (`Session`/`OurForest`/`Foliage`), only their DIRECT children, and only feet on the rule's own
+  rectangles. A second remover inside `Range.Build` would be a second writer of one fact — *"which of
+  the world's trees are standing"* — which is the failure `docs/PROJECT_CONTEXT.md` records
+  (*"Two systems wrote the creature's position"*).
+- The rectangle is the RANGE's (`Range.footprintFor`, the same box `Join` is already handed), so no
+  owner reaches into the other and nothing is re-derived.
+- `Tree8` is a direct child of `Workspace.Session` **(brief §2)** ✔, and the sweep locates a Model by
+  `GetBoundingBox().Position` — a bbox centre, not a foot. The pine's trunk is ≥ 110 studs from every
+  footprint edge, so a leaning bbox cannot move it out. Both bounds are stated because both are real:
+  a nested model or a trunk near an edge would be missed.
+- **The accepted dependency, named:** if the lobby does not build (no anchor row, a missing seam,
+  `Lobby.start` returning false), the pine stays standing in the lane and the range builds anyway.
+  That is made VISIBLE rather than silent: the removal is counted in `Lobby.stats()`, the boot prints
+  it, and `RangeBoot` prints a one-line **read-only census** of foreign BaseParts inside the footprint
+  (§7.4). A print is not a second writer.
+- Rule 7: the removals are appended to a `backups/` note the way task 249's are
+  (`backups/2026-10-23_task249_lobby-clearing.txt`) — names and coordinates of the pine and of the
+  eleven trunks that stop being planted.
+
+### 5.5 Nothing else in the lobby moves
+
+Checked against `Lobby.CONFIG`: `FIELD.PADS` (Yard, Road, Gather), `SPAWN`, `TRUCK`/`PADS`,
+`GATHER`, `LODGE`, `TREELINE`'s own four exclusions, `FLAGPOLE` and `Build.yardRect` are all north of
+z −2994 or inside it, and the footprint's northernmost edge is −3057. **Not one lobby rectangle is
+touched by the footprint or the terrace**, and the corridor removes only trees. `Places`
+(`Workspace.DrivePlaces`) plants along each drive layout's road, which lies inside the drive's field
+(x 2230..3830, z −2477..−1197, per `Range.fieldFor`'s own comment) — 580 studs north of the terrace.
 
 ---
 
 ## 6. Owners — one writer each, named
 
-Only the rows that change. Everything else in §3 of the base delta stands.
-
 | System | THE one writer | On disk | Changed? |
 |---|---|---|---|
-| Where this station's animal may be (the span), the leg, the crossing timer | `ServerScriptService.Range` (`state.trials`), through the pure `ReplicatedStorage.Range` | `src/server/Range/init.luau`, `src/shared/Range/init.luau` | **unchanged owner**, new arithmetic |
-| Which range animals this ONE PLAYER can SEE (`LocalTransparencyModifier` on parts under `Workspace.RangeTargets`) | `StarterPlayerScripts.Range.Mask` | `src/client/Range/Mask.luau` | **unchanged owner**, wider window told to it. No behaviour change in the module |
-| **Which OTHER PLAYERS this one can see** (`LocalTransparencyModifier` on parts under another player's `Character`) | **`StarterPlayerScripts.Range.Solo`** | **`src/client/Range/Solo.luau` (new)** | **NEW owner.** Disjoint from `Mask`, from `Camera.Rig` and from `Camera.Viewmodel` by construction and by refusal (§7) |
-| `LocalTransparencyModifier` on the LOCAL character | `StarterPlayerScripts.Camera.Rig` | `src/client/Camera/Rig.luau` | **unchanged, and never touched by the range** |
-| `LocalTransparencyModifier` on the viewmodel's own clone | `StarterPlayerScripts.Camera.Viewmodel` | `src/client/Camera/Viewmodel.luau` | **unchanged** |
-| Which instances one shot may not see | `ServerScriptService.Weapon` (`ignoreFor` builds and filters); `Range.ignoredFor` answers | `src/server/Weapon/init.luau` | **unchanged** — no new seam, no new provider |
-| The solo flag's value | `ServerScriptService.Range` (`Range.SOLO_VIEW`), **once** | `src/server/Range/init.luau` | **new, one reader** (§9) |
-| The client root that wires both pictures | `StarterPlayerScripts.RangeBoot` | `src/client/RangeBoot.client.luau` | one more `start` and one more `step` |
+| **The range's position** (the anchor row) | **nobody at run time.** Frozen data (`Range.deepFreeze`), edited by the Builder in git | `src/shared/Range/init.luau`, `Range.ANCHORS` | **two numbers** |
+| The range's geometry — every Instance under `Workspace.Range` | `ServerScriptService.Range.Build` | `src/server/Range/Build.luau` | unchanged |
+| The range's own GROUND (terrace, heap, lane surface) | `ServerScriptService.Range.Build`, through `RangeData.cutRects` and `Build.cutBoxes`, **only inside `footprintFor`** | `src/server/Range/Build.luau` | unchanged |
+| The lobby's own GROUND (the 220 × 220 shelf) | `ServerScriptService.Lobby`, through `Lobby.Field` | `src/server/Lobby/Field.luau` | unchanged |
+| **WHICH TREES STAND IN THE LOBBY** — the one planter (`treeLine`, `lodgeTrees`, `avenue`) and the one remover of the world's foliage (`clearWorkingGround`) | **`ServerScriptService.Lobby.Build`** | `src/server/Lobby/Build.luau` | **unchanged owner.** It gains one predicate and two optional arguments |
+| **The corridor's two X edges and its range-side edge** | **`ReplicatedStorage.Range`** (pure, derived from the anchor and `LAYOUT`) | `src/shared/Range/init.luau`, `Range.sightlineFrom` | **new, pure, no writer** |
+| **The corridor's lodge-side edge** | **`ServerScriptService.Lobby.Build`** (the lodge's own south face) | `src/server/Lobby/Build.luau`, `Build.sightlineRect` | **new** |
+| **Composing the two, and handing the footprint over** | **`ServerScriptService.ForestTestBoot`** — the same `do` block that already composes `rangeHomeAreas` | `src/server/ForestTestBoot.server.luau` | **two more fields** |
+| Where a man belongs | `ServerScriptService.Lobby.Join` (areas handed in as data) | `src/server/Lobby/Join.luau` | unchanged, not one line |
+| The range's STATE, the span, the masks, the solo view, the loan | `ServerScriptService.Range` / `StarterPlayerScripts.Range.*` | `src/server/Range/`, `src/client/Range/` | **unchanged, not one line** |
 
-Mirror these rows into `GAME_DESIGN.md` "System owners" in the same commit as the first code.
+Mirror the three new/changed rows into `GAME_DESIGN.md` "System owners" in the same commit as the
+first code.
 
 ---
 
-## 7. The second picture: `src/client/Range/Solo.luau`
+## 7. Interfaces, with types
 
-### 7.1 What it is, and what it is told
+### 7.1 `ReplicatedStorage.Range` — one new pure function
 
 ```lua
--- Range.Solo: THE ONE WRITER of `LocalTransparencyModifier` on parts under ANOTHER PLAYER'S
--- Character. Borrowed whole from `src/client/Range/Mask.luau` -- the same sweep, the same
--- level-triggered/edge-written apply, the same restore -- with ONE predicate changed: membership is
--- "under a remote player's character", not "under the range's targets folder".
-Solo.start(seams: {
-    players: (() -> { any })?,      -- nil = Players:GetPlayers
-    me: any?,                       -- nil = Players.LocalPlayer
-    isTarget: ((Instance) -> boolean)?,   -- nil = RangeData.isTarget
-}?): boolean
-Solo.setAlone(alone: boolean)       -- TOLD by the server, on the board payload (`record.alone`)
-Solo.step(dt: number?)
-Solo.stats(): { others: number, hidden: number, shown: number, writes: number,
-                refused: number, sweeps: number }
-Solo.stop()
+-- THE RANGE'S HALF OF THE SIGHTLINE: the two X edges a tree may not stand between if every built
+-- station is to be visible, and the edge of the range nearest the firing line's uprange side.
+-- PURE, derived from the anchor and LAYOUT, so it follows the row with no code change. The caller
+-- closes the fourth edge with ITS OWN fact; this module knows of no lodge.
+function Range.sightlineFrom(
+    anchor: Vector3, layout, downrange: number?
+): { minX: number, maxX: number, fromZ: number }
+--   minX = anchor.X - HUT.roofSize.X/2
+--   maxX = anchor.X + spotSpan(layout) + HUT.roofSize.X/2
+--   fromZ = the uprange edge of footprintFor(anchor, layout, downrange)
+--           (its maxZ when downrange == -1, its minZ when +1)
 ```
 
-- **It writes `BasePart.LocalTransparencyModifier` and nothing else.** The property is client-local
-  and not replicated, which is why `Camera.Rig` can use it on the local body with no round trip
-  (<https://create.roblox.com/docs/reference/engine/classes/BasePart>).
-- **In scope:** every `BasePart` under `player.Character` for every player in `players()` that is not
-  `me`. That is the character model, its accessories, its outfit plates (`Match.Body`'s OUTFITS) and
-  **the Tool in his hand**, because an equipped Tool is parented to the character.
-- **Out of scope, and stated rather than discovered:** the engine's own name/health display over
-  another player's head. The only levers are `Humanoid.DisplayDistanceType` /
-  `NameDisplayDistance` / `HealthDisplayType`, which are ordinary replicated properties and not
-  client-local by design. Whether a floating name over an invisible body is tolerable is Karen's
-  (§16 item 6); **the fallback is pre-decided**: a client-local write of
-  `DisplayDistanceType = None` on those same remote `Humanoid`s, by **this module and nothing else**,
-  which is disjoint from the only two writers of that property in `src/` — `Bots.Rig.dress`
-  (`src/server/Bots/Rig.luau`) and `Lobby.Build`'s shopkeeper (`src/server/Lobby/Build.luau`), both
-  server-side and both on NPC Humanoids that are no `Player.Character`.
-- **Sound is not hidden.** "Alone" is a picture. Other players' footsteps and horns still carry; the
-  range's own animals are already silent (`SOUND.ENABLED = false`, base delta §7.4).
-- **A late character is handled by the sweep, not by a signal** — the same rule and the same reason
-  as `Mask`: `Players:GetPlayers()` is read every step, so a player who joins, respawns or streams in
-  is hidden on the next frame. No `PlayerAdded`/`CharacterAdded` connection exists to leak or to miss
-  a respawn between frames.
-- **He leaves the mat → everything comes back.** `setAlone(false)` restores exactly the values the
-  module recorded, part by part, on the next step; `stop()` does the same and is the door out.
+`Range.LAYOUT` gains **no row**. `Range.footprintFor`, `cutRects`, `fieldFor`, `sightSpanFor`,
+`laneEndsFor` and every other function are **untouched**.
 
-### 7.2 The disjointness argument, as a partition and not as a promise
-
-Four writers of this one property exist in `src/` after this task. Membership is decided by
-ANCESTOR, and the order is total, so no instance is in two sets:
-
-| Owner | Its set | Evidence |
-|---|---|---|
-| `Camera.Rig` | parts of `Players.LocalPlayer.Character` | `Rig.luau` header: *"the only writer of LocalTransparencyModifier on the local character"*; `hiddenParts` is filled from the local character only, and `setLocalBodyHidden` is the only writer |
-| `Camera.Viewmodel` | parts of the model IT created, parented to `workspace.CurrentCamera` | `buildNewGun` sets `LocalTransparencyModifier = 0` on parts it has just cloned and inserts them into `clearParts`; `Viewmodel.clear` destroys the model and clears the list |
-| `Range.Mask` | `BasePart`s under `Workspace.<Range.TARGETS_FOLDER>` | `Mask.start`'s `root`, `partsOf`, and `isLocalBody`'s refusal |
-| **`Range.Solo`** | `BasePart`s under a remote `player.Character` that are **not** `RangeData.isTarget` and **not** under `me.Character` | this design; the two refusals are code, not comment |
-
-**Rule, written once: the folder wins over the character.** `Solo` refuses anything
-`RangeData.isTarget` answers true for — which is one `FindFirstAncestor(TARGETS_FOLDER)` read
-(`Range.isTarget`) — so even the pathological case `range_mask.spec` already stages (a character
-model parented INTO the targets folder, in *"never writes a part under the local character"*) has
-exactly one writer: `Mask`. `Mask` needs no change for this, because its root is the folder and it
-never looks outside it.
-
-**The spec asserts the partition rather than describing it** (§14.2): one staged scene holding all
-four sets, both modules stepped, and then — for every part — the assertion that exactly one of
-`Mask.stats().writes` and `Solo.stats().writes` accounts for it, with `refused` rising on the other.
-A case that deletes `Solo`'s `isTarget` refusal fails it.
-
-### 7.3 One staleness defect this closes, because the feature needs it closed
-
-`record.alone`, `record.mine` and `record.window` are all measured on every `Range.recordOf` read
-(`copy.mine, copy.window = Range.maskFor(player)`), but a read only happens on a **publish**, and
-`publish` is reached from `onRequest`, `Range.look`, a shot, a hit, and `flushMasks` — which runs
-only when `state.maskDirty` is set, and that is set only by `release`, `clearTarget` and the
-lost-target path. **Nothing publishes when a man changes station.** So today a man who walks from
-station 2 to station 4 without pressing E keeps station 2's `mine` and window: he sees station 2's
-animal and his own shot ignores his own new one. With a 156-stud span and other players hidden, that
-becomes "I am alone looking at somebody else's boar".
-
-**Fix, in the owner that already measures it, at the rate it already measures it:** `scan` compares
-each watcher's measured station (`playerSpot`) with the previous tick's (`state.spotOf[userId]`, one
-new table) and sets `state.maskDirty` on any change. Cost: one comparison per watcher per scan tick
-(`STEP_HZ` 10), and the push itself is the one `flushMasks` already does. **So `alone`, `mine` and
-`window` can never be more than 0.1 s stale.** `range.spec` asserts it: a fake player moved from
-station 2 to station 4 with no request gets a push whose `mine` is station 4's trunk.
-
-### 7.4 Why the picture is two modules and not one
-
-One module writing both sets would also be "one writer". It is two because the brief requires the
-second picture's owner to be a NAMED file disjoint from `Mask`'s writes, and because two owners can
-be asserted independently: a defect in the character sweep cannot then hide an animal, which is
-exactly the failure `docs/PROJECT_CONTEXT.md` records (*"one predicate answered two unrelated
-questions, so mounting hid both the crosshair and the weapon"*). The cost is ~70 lines of borrowed
-bookkeeping. **`Mask.luau` is NOT refactored into a shared helper in this task** — it is shipped,
-reviewed, and the only thing holding T12 — and the extraction is queued as a fix-before-release note.
-
----
-
-## 8. The hit side at six animals in one wide span (decision c)
-
-**No code changes here. The design's job is to show the shipped rule still holds, with evidence.**
-
-**(a) The five that are not his are excluded unconditionally, so the span's width cannot matter to
-them.** `Range.ignoredFor`:
+### 7.2 `ServerScriptService.Lobby.Build` — one new predicate, four call sites
 
 ```lua
-local hide = spot ~= mine
-if not hide then  -- only HIS OWN is window-tested
-    local minX, maxX = RangeData.windowSpanFor(anchor, spot, RangeData.LAYOUT)
-    hide = not RangeData.inWindow(minX, maxX, ...)
+-- THE RECTANGLE, CLOSED. nil when no lane was handed in, which is every world without a range and
+-- every spec that passes nothing -- and then nothing below changes one answer.
+function Build.sightlineRect(lane: any?, anchor: Vector3, cfg): { minX, maxX, minZ, maxZ }?
+--   X from the lane; Z between lane.fromZ and the lodge's south face
+--   (anchor.Z + cfg.LODGE.OFFSET.Z - cfg.LODGE.SIZE.Z/2)
+
+-- IS THIS FOOT ON GROUND THE RANGE NEEDS? PURE -- two numbers in, a boolean out, no Instance and no
+-- world -- `Build.onWorkingGround`'s shape exactly, so `lobby.spec` asks it about the measured
+-- trunks, about the pine and about the flagpole with nothing built.
+function Build.keptClear(
+    x: number, z: number, anchor: Vector3, cfg,
+    keepClear: { Join.Area }?, lane: any?
+): boolean
+--   true when (x, z) is in sightlineRect(lane, ...) or in any rectangle of keepClear
+```
+
+Read by **exactly four call sites**, and by nothing else:
+
+| Call site | Change | Counter |
+|---|---|---|
+| `treeLine`'s loop | one `continue`, after the four shipped exclusions | `stats.sightlineDropped += 1` |
+| `Build.avenuePlan` | a slot whose FINAL position is kept clear is marked dropped (so a `SHIFT_STUDS` walk is tested where it ends up, not where its row says) | `stats.sightlineDropped` |
+| `lodgeTrees`' loop | one `continue` — zero today, and that is the point: a future table cannot re-plant into the corridor | `stats.sightlineDropped` |
+| `clearWorkingGround` | `or Build.keptClear(...)` inside the one existing `if` | `stats.sightlineCleared += 1` |
+
+`Build.onWorkingGround` and its four rectangles are **not touched**: that predicate answers a
+different question (*"is this the lobby's working ground"*) and changing it would drop ring trees
+nobody asked about. Two boundaries with two reasons stay two functions; the NEW one has exactly one
+definition, which is the rule that matters (`Join`'s own words: *"a boundary asked twice is two
+boundaries"*).
+
+### 7.3 The seams — `Lobby.start` and `Build.build`
+
+```lua
+Lobby.start({
+    ...,
+    homeAreas = { Join.Area }?,        -- shipped, unchanged
+    keepClear = { Join.Area }?,        -- NEW, optional: complete rectangles the lobby keeps free of
+                                       -- trees. The range's footprint. nil = today's game, bit for bit
+    sightline = { minX: number, maxX: number, fromZ: number }?,  -- NEW, optional: the range's three
+                                       -- edges. The lobby closes the fourth
+})
+```
+Both are passed straight into `Build.build`'s existing `seams` table (`rig`, `dress`, `assets`,
+`groundAt`, `terrainAt` — the same shape), and both are **plain tables of numbers**: no Instance, no
+function, no module. A world that injects nothing is unchanged in every answer, which is what keeps
+the DEV place and every spec out of this.
+
+### 7.4 `ForestTestBoot` — the composition, beside the one it already does
+
+```lua
+local rangeHomeAreas, rangeKeepClear, rangeSightline = nil, nil, nil
+do
+    local row = RangeData.anchorFor(Map.EXPECTED_WORLD)
+    if row ~= nil and RangeOwner.ENABLED then         -- the SAME guard, not a second Flags.isOn
+        local at = Vector3.new(row.x, 0, row.z)
+        local dir = RangeData.downrangeOf(row)
+        local box = RangeData.footprintFor(at, RangeData.LAYOUT, dir)
+        rangeHomeAreas = { box }                      -- shipped
+        rangeKeepClear = { box }                      -- the pine's rectangle
+        rangeSightline = RangeData.sightlineFrom(at, RangeData.LAYOUT, dir)
+    end
 end
 ```
 
-Widening the span can therefore only make **his own** target hittable more of the time. It can never
-add a foreign body to his shot's world. The one line that changes in this function is the span's
-source (`sightSpanFor` instead of `windowSpanFor`), read from the same place `Range.maskFor` reads it
-— which is what keeps the shot's door and the picture one question.
+**One read-only census line, in the range's own root** (`RangeBoot`, after `Range.start`):
+`[RangeBoot] footprint census: n foreign BaseParts, nearest <name> at (x, z)`. It writes nothing and
+removes nothing — it turns *"the lane is clear"* into a number instead of a belief, which is the one
+thing §5.4's dependency needs. `Lobby.stats()` gains `sightlineDropped` and `sightlineCleared`.
 
-**(b) `CLAIM.MAX_TARGETS` (8) cannot cut a body before the ignore list excludes it, and that is the
-engine's own order, not a convention.** `Weapon.castWithRewind` passes the list built by `ignoreFor`
-(the shooter's character, the `WeaponEffects` folder, and the provider's answer) straight into
-`findCandidates`. In `src/server/Weapon/Cast.luau`, `Cast.candidates`:
+### 7.5 Remotes, client, flags
 
-1. sets `params.FilterType = Enum.RaycastFilterType.Exclude` and
-   `params.FilterDescendantsInstances = ignore`;
-2. runs `Workspace:GetPartBoundsInRadius(...)` with those params — so the excluded trunks and
-   everything welded under them are **never returned at all**
-   (<https://create.roblox.com/docs/reference/engine/classes/WorldRoot#GetPartBoundsInRadius>);
-3. only then sorts the surviving roots by distance to the muzzle and cuts: `if index > maxTargets
-   then break`.
-
-The exclusion is applied by the engine query; the cap is applied to what survived it. Excluding a
-trunk excludes its descendants (`FilterDescendantsInstances`), and `Range.isTarget`'s own comment
-records that the zone parts are welded **under** the trunk, so one instance per animal is the whole
-exclusion. **Worst case arithmetic:** `Range.CONFIG.MAX_TARGETS = SPOT_COUNT` = 6 animals exist, 5
-are excluded, 1 candidate reaches a cap of 8. There is no reachable state in which the cap bites on
-the range.
-
-**(c) Both call sites keep their meaning.** `ignoreFor` is asked twice per shot at most:
-`lookAhead` (the aim ray and the target popup) with no rewind, and the fire path with
-`Weapon.rewindFor(...)` — the same number the shot carries. `Range.ignoredFor` reads his own
-target's past position through `targetPositionOf`, which is the SAME history ring
-`Weapon.castWithRewind` judges the shot against, so the animal stays hittable exactly where it is
-drawn even in the apron's last stud.
-
-**(d) The one hole, named and out of scope.** The CLIENT's own claim path has no ignore provider:
-`src/client/Weapon/Claim.luau`'s `Claim.targets` collects every `Damageable` root within reach,
-bounded by the same `CLAIM.MAX_TARGETS`, and `LocalTransparencyModifier` changes nothing a bounds
-query can see. With `HIT_CLAIM` lit, a client at station 1 could claim a hit on station 2's animal.
-It is unreachable today — `Flags.DEFAULTS.HIT_CLAIM.default = false` — and the brief forbids touching
-`CLAIM.*` or the claim path in this task. **Queued as a named task**, not left to be discovered:
-*"the claim path needs the range's ignore list before `HIT_CLAIM` is lit"* (§16 item 4).
+**None.** `RangeRequest` and `RangeBoard` are untouched; no client module changes; no flag row is
+added or read (§12).
 
 ---
 
-## 9. The feature flag
-
-This is a feel-critical path, so CLAUDE.md's rule applies in full.
-
-```lua
-RANGE_SOLO = {
-    default = false,
-    owner = "ServerScriptService.Range",
-    born = "2026-10-30 task 313",
-    expires = "2026-11-20",        -- 21 days, the ceiling in feature-flags.md section 12
-    why = "E at a station makes a man alone on the whole range: his animal crosses as much of the "
-       .. "lane as the built earth and his own bay allow (71-156 studs instead of 36), and every "
-       .. "other player's body is hidden for him. OFF is exactly the game before task 313 -- the "
-       .. "window is his own mat +- 18, the leg is 76 studs, and nobody is hidden.",
-} :: FlagRow
-```
-
-- **`Flags.MAX_FLAGS` 21 -> 22, and the Builder says so rather than quietly retiring somebody else's
-  row.** The table holds exactly 21 rows today, so `flags.spec`'s rot tripwire refuses the
-  twenty-second — the cap doing its job. The two ways out are the two task 238 listed and the first
-  is still queued as TASKS.md 82b, which is the Director's call. This is one line either way
-  (§16 item 3).
-- **One boundary reads it**, beside the row that already does: `Range.SOLO_VIEW = Flags.isOn("RANGE_SOLO")`
-  in `src/server/Range/init.luau`, next to `Range.ENABLED = Flags.isOn("RANGE")`.
-- **Passed inward as a parameter**, in the shape `enabled` already uses:
-  `Range.start`'s `seams.solo` (`if seams.solo == nil then Range.SOLO_VIEW else seams.solo == true`)
-  → `state.solo` → the `wide` argument of `RangeData.sightSpanFor` and `RangeData.laneEndsFor`, which
-  are pure and take it explicitly. **Both states are therefore reachable by parameter while the row
-  sits at one of them**, which is what `range.spec` drives.
-- **`wide = false` is bit-for-bit today's game**: `sightSpanFor(..., false)` returns `mat.X ± 18`
-  exactly (it *is* `windowSpanFor`'s body) and `laneEndsFor(..., false)` returns
-  `laneCentre ± laneLength/2`. `range.spec` asserts the OFF branch against the shipped functions,
-  not against numbers typed in the spec.
-- **The client reads no flag.** The server resolves it and the board payload carries the decision
-  (`record.alone`), so there is one judge of "am I alone" and one reader of the row.
-
----
-
-## 10. Interfaces, with types
-
-### 10.1 `ReplicatedStorage.Range` — pure, new and changed
-
-```lua
--- (1) THE ISSF PACE WINDOW. The ONLY reader is `paceSpeedFor`. 36 studs, and it never moves with
--- what a man can see.
-function Range.paceWindowStuds(layout): number
-
--- (2) THE BUILT EARTH, as the two bounds a shot has to end inside. PURE.
-function Range.backstopSpanFor(anchor: Vector3, layout): (number, number)   -- bermSpan less the shoulders
-function Range.backstopSlope(layout): number                                -- 160/192 = 0.83333
-function Range.sightHalfWidthAt(layout, aheadStuds: number): number         -- CHANGED: ahead * backstopSlope
-function Range.bayHalfSlope(layout): number                                 -- the hut's own opening, 0.53333
-
--- (3) WHERE HIS ANIMAL MAY BE, AND THEREFORE WHAT HE SEES AND WHAT HE MAY HIT.
--- THE ONE PREDICATE, read by `Range.maskFor` (the picture), `Range.ignoredFor` (the shot's door)
--- and `timeWindow` (the crossing). `wide = false` IS `windowSpanFor` exactly.
-function Range.sightSpanFor(
-    anchor: Vector3, spot: number, layout, distanceStuds: number?, wide: boolean?
-): (number, number)
-
--- ...and the leg: the span plus one apron at each end, which is a SUBSET of `corridorSpan` by
--- construction, so the turn-around is always 6 studs clear of the built cover.
-function Range.laneEndsFor(
-    anchor: Vector3, layout, leg: number, downrange: number?, spot: number?,
-    distanceStuds: number?, wide: boolean?
-): Vector3
-
--- KEPT, UNCHANGED, AND STILL THE OFF BRANCH: `windowSpanFor(anchor, spot, layout)` ==
--- `sightSpanFor(anchor, spot, layout, nil, false)`. `laneEnds(...)` == `laneEndsFor(..., false)`.
-Range.inWindow(minX, maxX, x: number?)            -- unchanged, both edges count
-Range.LAYOUT.SIGHT = { silhouetteStuds = 4 }      -- the one new row (section 3.1)
-```
-
-`Range.LAYOUT` gains **one row** (`SIGHT`) and changes **none**. No built part moves.
-
-### 10.2 `ServerScriptService.Range`
-
-```lua
-Range.SOLO_VIEW: boolean                 -- the ONE read of the flag
-Range.start(seams)                       -- `seams.solo` added, defaulting to Range.SOLO_VIEW
-Range.spanFor(player: any): (number?, number?)   -- what this man's span is, for the board and the spec
-Range.maskFor(player: any): (Instance?, { minX: number, maxX: number }?, boolean)
-                                         -- THIRD RETURN: `alone` -- the server measured him at a
-                                         -- station AND the solo view is on
-Range.ignoredFor(player, rewindSeconds)  -- unchanged signature; reads `sightSpanFor`
-Range.stats()                            -- `.spanPushes` added beside `.boardPushes`
-```
-
-`Range.mayShoot`, `Range.spotAt`, `Range.positionOf`, `Range.standReach`, `Range.installOver` and the
-four composed providers are **untouched** — which is also why this task does not touch the
-gun-stripping defect (§14.5).
-
-### 10.3 The remotes
-
-`RangeRequest` (client → server) **gains nothing**: no span, no instance, no "make me alone".
-`RangeBoard` (server → client) gains one field on the per-player record:
-
-```lua
-record.alone : boolean     -- the SERVER's measurement: he is at a station and the solo view is on
-record.window: { minX: number, maxX: number }   -- unchanged field, now the derived span
-record.mine  : Instance?                        -- unchanged
-```
-
-### 10.4 `StarterPlayerScripts.Range.Solo`
-
-§7.1. Started and stepped by `src/client/RangeBoot.client.luau`, which is already the only thing that
-knows both the board remote and a picture; it gains `Solo.start(...)`, one
-`Solo.setAlone(record.alone == true)` in the existing `OnClientEvent` handler, and one `Solo.step(dt)`
-in the existing Heartbeat. **`Mask` is not modified at all.**
-
----
-
-## 11. What it reads and writes, and who owns each
+## 8. What it reads and writes, and who owns each
 
 | Fact | Direction | Owner | How |
 |---|---|---|---|
-| the built earth's span and crest face | read, pure | `ReplicatedStorage.Range` (frozen data, no run-time writer) | `bermSpanFor`, `bermCrestFaceZ`, `BERM.shoulderStuds` |
-| the hut's own opening | read, pure | same | `HUT.roofSize`, `HUT.postSection`, `HUT.roofAheadStuds` |
-| the animal's longest body | read, as DATA | `ServerScriptService.Boar` owns the real number (`CONFIG.BODY_SIZE`, `KINDS.stag`); `LAYOUT.SIGHT.silhouetteStuds` carries it with its provenance | the shared module reaches no server module |
-| which station a man is at | measured | `ServerScriptService.Range` (`spotAt` → `positionOf`) | unchanged; never claimed by a payload |
-| which instances a shot may not see | the range answers; the WEAPON decides and filters | `ServerScriptService.Weapon` | `Weapon.setIgnoreProvider` ← `Range.ignoredFor` (shipped) |
-| where an animal was at a past instant | read | `ServerScriptService.Boar` (`Runtime:cframeAt`, *"THE ONE READER of the ring"*) | `boars.cframeAt` |
-| which range animals I can see | **write**, client-local | `StarterPlayerScripts.Range.Mask` | `LocalTransparencyModifier` under `Workspace.RangeTargets` |
-| **which other players I can see** | **write**, client-local | **`StarterPlayerScripts.Range.Solo`** | `LocalTransparencyModifier` under a remote `player.Character` |
-| `LocalTransparencyModifier` on MY character | **never touched by the range** | `StarterPlayerScripts.Camera.Rig` | — |
-| the name tag over another player | **not written** (§7.1) | the engine | fallback pre-decided and owned by `Solo` |
-| the flag's value | read **once** | `ServerScriptService.Range` | `Flags.isOn("RANGE_SOLO")` |
-| money, points, penalties, licences, the roster, a drive row | not read, not written | `Economy`, `Match`, `HitLog` | — |
-| any terrain, any built part, any CFrame | **not written by this task** | `ServerScriptService.Range.Build` | — |
+| where the range is | read, as frozen data | `ReplicatedStorage.Range` (no run-time writer) | `Range.ANCHORS["forest-test"]` |
+| the shelf to build on | read, once, at build | `ReplicatedStorage.ForestTest` (`groundAt`, the world's ONE ground reader) | `Range.shelfFor` → `Build.shelfAt(row.shelfFrom)` |
+| the range's own ground | **write**, terrain, inside `footprintFor` only | `ServerScriptService.Range.Build` | `Terrain:FillBlock` / `FillBall` / `ReplaceMaterial` |
+| the lobby's ground | **write**, terrain, inside `FIELD` only | `ServerScriptService.Lobby` (`Field`) | ditto |
+| which trees stand, and which of the world's foliage goes | **write** (create / `Destroy`) | `ServerScriptService.Lobby.Build` | `treeLine`, `lodgeTrees`, `avenue`, `clearWorkingGround` |
+| the corridor and the footprint rectangles | read, pure | `ReplicatedStorage.Range` | `sightlineFrom`, `footprintFor` |
+| the lodge's south face | read, pure | `ServerScriptService.Lobby.Build` | `cfg.LODGE.OFFSET`, `cfg.LODGE.SIZE` |
+| where a man belongs | read | `ServerScriptService.Lobby.Join` | `homeAreas` ← the root |
+| the span, the masks, the solo view, the shot's ignore list, the loan, the board | untouched | `ServerScriptService.Range`, `StarterPlayerScripts.Range.*`, `ServerScriptService.Weapon` | — |
+| money, points, penalties, the roster, a drive row | not read, not written | `Economy`, `Match`, `HitLog` | — |
+| the saved place file | **never written** | Karen, in Studio | every write above is a run-time write (§12) |
 
 ---
 
-## 12. External sources (rules 1 and 2)
+## 9. Safety, re-swept against the new surroundings (the brief's decision (d))
 
-1. **BSRC 50 m Running Boar / Time Limit Range** — <https://bsrc.co.uk/time-limit-range/> ·
-   <https://bsrc.co.uk/wp-content/uploads/2023/01/50m-Running-Boar-Normal-Runs.pdf>
-   Club pages, text © BSRC, **reference only, nothing copied**; live (2023 PDF).
-   *Well:* the 10.00 m opening, 5.0 s and 2.5 s, and **the firing hut of BAYS** — a shooter looks out
-   of his own bay and the bay frames what he can see. *Badly:* second-hand for the ISSF rulebook,
-   which could not be retrieved; a sport range, so nothing about a backstop.
-   **Taken:** the pace definition stays 36 studs / 5.0 s / 2.5 s (§2 row 1), and **the bay's opening
-   as the clear-fan bound** (§3.1 bound 2) rather than an invented cap.
-2. **Wikipedia, 50 metre running target** — <https://en.wikipedia.org/wiki/50_meter_running_target>
-   · CC BY-SA 4.0, current. *Well:* confirms the opening and both times independently, and the
-   `mixed` event. *Badly:* no construction detail, nothing about safety.
-   **Taken:** the independent confirmation that the pace times are a SPECIFICATION and must not move
-   with the picture — which is the whole of §2.
-3. **US Army TC 25-8, *Training Ranges*, appendix B (surface danger zones)** —
-   <https://armypubs.army.mil/> · **US Government work, public domain**, current series; already
-   cited in `Range.LAYOUT.BERM`'s own comment for the 6 m berm. And **NRA Range Source Book, ch. 3
-   (impact berms)** — <https://www.nrahq.org/pdf/RangeSourceBook.pdf> · © NRA, reference only, the
-   standing edition. *Well:* both define the danger area from the **widest firing angle the range
-   permits**, and both solve it the same way round: a range **limits the firing angle to the
-   backstop** and does not chase the angle with more earth. *Badly:* live-fire documents, so their
-   absolute figures (ricochet fans, 5° lateral dispersion) are about a real bullet and are not
-   transferable to this engine's ballistics.
-   **Taken: the pattern of decision (d)** — the span is derived FROM the backstop (§3.1 bound 1), and
-   growing the heap is refused with arithmetic (§3.4, §5). This is borrowed, not invented, and it is
-   why the cap is a bound and not a taste.
-4. **Roblox Creator Documentation** — `BasePart.LocalTransparencyModifier`, `Players:GetPlayers`,
-   `Player.Character`, `OverlapParams.FilterDescendantsInstances`, `WorldRoot:GetPartBoundsInRadius`,
-   `Humanoid.DisplayDistanceType`. <https://create.roblox.com/docs/reference/engine/classes/BasePart>
-   · <https://create.roblox.com/docs/reference/engine/classes/WorldRoot#GetPartBoundsInRadius> ·
+### 9.1 The envelope is translation-invariant, and that is the whole of T6
+
+Every term of task 313's §3 is anchor-derived: `backstopSpanFor` = `bermSpanFor` ± `shoulderStuds`,
+`backstopSlope` = `reach / |bermCrestFaceZ|`, `bayHalfSlope` = a pure `LAYOUT` ratio, and the apron
+bound = `corridorSpan ± APRON_STUDS`. **T6's 36 combinations therefore hold at the new anchor with no
+new arithmetic**, worst off-axis angle still 39.81°, and every worst ray still crosses
+`bermCrestFaceZ` (now z −3282) inside `backstopSpanFor` (now x 2750..2950). `range.spec` already
+drives all 36 from `anchor` as a parameter, so the existing cases cover the new row the moment it
+changes.
+
+### 9.2 What is now around the range
+
+| What a player occupies | Where | Relative to the firing line (z −3090) |
+|---|---|---|
+| the lobby field (the whole 220 × 220) | z −3060 .. −2840 | **≥ 30 studs UPRANGE** |
+| the yard, the four bays, the four pads, the turning ground | z ≥ −2994 | ≥ 96 uprange |
+| the spawn pad | (2850, −2934) | 156 uprange |
+| the lodge, the shop counter, the keeper | z ≥ −2917 / (2857, −2899) | ≥ 173 uprange |
+| the gathering yard | (2788, −2940) ± 40 | ≥ 110 uprange |
+| the drive's own field | z −2477 .. −1197 | ≥ 613 uprange |
+
+**Nothing a player stands on is downrange of any station, at any distance, in any lane.** The whole
+surface danger area of this range lies between z −3090 and the crest face at −3282, inside x
+2750..2950, on ground the terrace cut flat and the heap closes — and the place's own hill rises to
+183.8 behind it, 15 studs above the crest, as unclaimed margin. This is the US Army TC 25-8 / NRA
+pattern (§13 sources 1 and 2): the danger area is bounded downrange and occupied ground is kept out
+of it, rather than the angle being chased with more earth.
+
+### 9.3 The one new exposure, named and not built against
+
+The firing line is now **174 studs due south of the shop door, with the lodge directly behind every
+shooter**. A man on a mat who turns round is pointing at the door. Three facts bound it:
+
+- there is no player damage anywhere in this game's shooting path: `Weapon.HitReported` →
+  `runtime:takeHit` matches the part against **its own animals** (`RangeBoot`'s listener), so a shot
+  at the lodge reports nothing and hurts nobody;
+- the safety-arc penalty is the drive's (`Match.Penalty`, `Rules.unsafeLine`) and no drive is open in
+  the lobby, so nothing fires and nothing is tied to a tree — unchanged by this move;
+- it existed before, at a worse angle and a longer range (the lodge was 40–65° off the old back
+  azimuth at 170–280 studs); the move makes it exactly 180° and 174 studs.
+
+**Decision: nothing is built for it.** A facing gate on firing is a feel change, it is Karen's, and
+it has a cheap shape if she wants it (`Range.mayShoot` already gates on `spotAt`). §17 K6.
+
+---
+
+## 10. Where a man belongs (Learning Agent L-154, the brief's §5)
+
+The gap that put a player back at the lodge in tasks 298/302 is closed here **by arithmetic, before
+any build**:
+
+```
+lobby field        x 2740 .. 2960,  z −3060 .. −2840     Join.homeAreas' first rectangle
+range footprint    x 2722 .. 2978,  z −3302 .. −3057     RangeData.footprintFor, handed in by the root
+walkway corridor   x 2826 .. 2874,  z −3203.5 .. −2926   Join.walkwayTo(lobby anchor, footprint centre),
+                                                          FIELD.WALKWAY_HALF_STUDS 24
+```
+
+- **The field and the footprint OVERLAP by 3 studs in z (−3060 .. −3057).** There is therefore no gap
+  anywhere along the straight walk at x 2850, with or without the corridor — the corridor is belt to
+  that brace. (The brief's §5 feared an 11-stud hole; it was computing with the range's PARTS bbox
+  (z −3071) rather than with `footprintFor`, whose margin is `PROMPT.MaxActivationDistance` 12 and
+  whose uprange reach is `standReach` 21.)
+- Every mat (x 2790..2910, z −3090) and every deck (z −3076) is inside the footprint, with 112 studs
+  of X margin at the ends.
+- `FIELD.PADS`, the spawn, the gather rectangle and the truck bays are all north of −2994 and are not
+  touched.
+- **It is still VERIFIED live, not assumed** (§14 W7, §15.3): a sampled walk, and
+  `Lobby.stats().returns` staying at 0 while a man stands on each of the six mats and each of the six
+  decks.
+
+---
+
+## 11. The old site (the brief's decision (e))
+
+Clean **by construction**, and each clause is a fact with a source:
+
+| Claim | Why | Verify |
+|---|---|---|
+| no orphan mat, post, bench, hut, deck, ladder, bank or prompt | every part the range makes is parented under `Workspace.Range` by `Range.Build.build`, which builds the whole folder at the row's anchor | EDIT: `Workspace:FindFirstChild("Range") == nil` in the saved place |
+| no orphan fence | `FENCE` is refuted and nothing on those two lines is built (`LAYOUT.FENCE`'s own comment; `range.spec` asserts it) | — |
+| no orphan terrace | the terrace is a run-time `FillBlock`; the place's EDIT terrain at the old site still reads 134.9 / 148.3 / 155.1 **(brief §2)**, i.e. the natural hill. The 150 terrace is not in the place | EDIT probe at the old anchor after the move |
+| no orphan animal | `Workspace.RangeTargets` is created by the range's own runtime and lives at its field | — |
+
+**The one way this goes wrong, named because it is a false-PASS path.** If a `Workspace.Range` folder
+was ever SAVED into the place, `Build.build` returns **"already built"**, the range never appears at
+the new anchor, and the only symptom is one warn line
+(`[RangeBoot] the range refused to start: already built`, from `Range.stats().refusedBy`).
+**Pre-flight check, in EDIT, before the move is merged: `Workspace.Range` and `Workspace.RangeTargets`
+must both be absent from the saved place.** §17 D3.
+
+---
+
+## 12. Reversibility: by commit, not by flag
+
+**Decision: no feature flag.** CLAUDE.md's own exception applies verbatim — *"A flag lives in code and
+the WORLD LIVES IN THE PLACE"* — and this is the same class of change as the map switch
+(`Map.EXPECTED_WORLD`, `docs/design/map-generator.md` §17). A flag would need two anchor rows and
+would double every derived rectangle (terrace, footprint, home area, corridor), and a flag-off boot
+after a flag-on session would leave two terraces cut and six trees already gone.
+
+**What makes a commit enough here, and it is stronger than the map's case: every write in this design
+is a run-time write.**
+
+- the range's parts: built into `Workspace` at boot, not Rojo-owned, not saved;
+- the terrace and the heap: `FillBlock`/`FillBall` in a Play session, discarded with it;
+- the trees: `treeLine`/`avenue` plant them each boot, so a revert re-plants them;
+- the pine: `CLEARING`'s own comment — *"deleting this table puts the bush back on the next server"*.
+
+So the rollback is **one revert of the row plus `Build.keptClear`'s two arguments**, and the next
+server is the old game. The one standing instruction that makes it true: **nobody saves the place from
+a Play session.** §17 D1.
+
+---
+
+## 13. External sources (rules 1 and 2)
+
+1. **US Army TC 25-8, *Training Ranges*, appendix B (surface danger zones)** —
+   <https://armypubs.army.mil/> · **US Government work, public domain**, current series; already cited
+   in `Range.LAYOUT.BERM`'s own comment for the 6 m berm.
+   *Well:* the danger area is defined entirely DOWNRANGE of the firing line, and no occupied structure
+   or route may lie inside it; a range limits the firing angle to its backstop rather than chasing the
+   angle with earth. *Badly:* live-fire absolutes (ricochet fans, 5° lateral dispersion) are about a
+   real bullet and do not transfer to this engine.
+   **Taken:** §9's decision rule — occupied ground is proved UPRANGE by rectangle arithmetic, and the
+   envelope stays the derived one (T6), unchanged by the move.
+2. **NRA Range Source Book, ch. 2 (site selection) and ch. 3 (impact berms)** —
+   <https://www.nrahq.org/pdf/RangeSourceBook.pdf> · © NRA, reference only, the standing edition.
+   *Well:* site selection treats the APPROACH and the firing line's own clear line of sight to the
+   targets as part of the range, not as landscaping, and it uses natural terrain behind the berm as
+   additional stop. *Badly:* assumes real earthmoving; nothing about voxels or a 4-stud grid.
+   **Taken:** the corridor is a RULE belonging to the range's geometry (§5.2), and the place's own hill
+   behind the berm is kept as margin and never leaned on (§4.3, §9.2).
+3. **BSRC 50 m Running Boar / Time Limit Range** — <https://bsrc.co.uk/time-limit-range/> ·
+   <https://bsrc.co.uk/wp-content/uploads/2023/01/50m-Running-Boar-Normal-Runs.pdf> — club pages,
+   © BSRC, reference only, live (2023 PDF).
+   *Well:* the firing hut of BAYS, the walk-up approach behind the line, and the paces (10 m in 5.0 s
+   and 2.5 s). *Badly:* second-hand for the ISSF rulebook; a sport range, nothing about a backstop.
+   **Taken:** nothing new. It is named because this design CHANGES none of it — the bays, the row, the
+   paces and the window are translated untouched, which is decision (c).
+4. **Roblox Creator Documentation** — `Terrain:FillBlock`, `Terrain:ReplaceMaterial`,
+   `Region3:ExpandToGrid`, `Model:GetBoundingBox`, `Instance:Destroy`.
+   <https://create.roblox.com/docs/reference/engine/classes/Terrain#FillBlock> ·
    <https://github.com/Roblox/creator-docs> — the docs repository is **CC BY 4.0** and continuously
-   maintained. *Well:* the client-local, non-replicated nature of the transparency modifier, and that
-   an Exclude filter is applied by the query itself. *Badly:* silent on whether the modifier hides a
-   SKINNED MeshPart, which is why that is still §15 item 2 with a shipped fallback.
-5. **This repository, which outranks all of the above for the mechanism.**
-   `src/client/Range/Mask.luau` (the sweep, the level-triggered desired state with an edge-triggered
-   write, the recorded original, the restore, the refusal counter — `Solo` is this module with one
-   predicate changed, and its header says so, rule 9); `src/client/Camera/Rig.luau` (one writer per
-   property per set, plus the foreign-write detector that turns rule 3 into a number);
-   `src/server/Weapon/Cast.luau` (`Cast.candidates`: exclude in the query, cap after the sort);
-   `src/server/Range/init.luau` (`timeWindow`'s armed/entered state machine, which is why the leg
-   keeps an apron).
-6. **Valve, *Latency Compensating Methods*** —
-   <https://developer.valvesoftware.com/wiki/Latency_Compensating_Methods_in_Client/Server_In-game_Protocol_Design_and_Optimization>
-   Already adopted and shipped as `Weapon.Rewind` (task 305). Named because **this design adds
-   nothing to it**: the animal is the server's own, the shot is judged where the shooter drew it, and
-   widening what he can see changes no instant and no lag model.
+   maintained.
+   *Well:* the 4-stud voxel grid anchored at the world origin, and that a box face landing inside a
+   voxel writes it only partly — the whole reason the terrace's edges are snapped outward and the
+   reason the two terraces can meet flush (§2.2, §4.1). *Badly:* silent on where the rendered
+   isosurface sits over a filled voxel, which is why the shelf-to-surface 2-stud offset is a
+   MEASUREMENT and not a derivation (§3).
+   **Taken:** snap outward, floor the shelf (the fixed point), treat the drawn surface as measured.
+5. **Naturvårdsverket, *allé* / biotope protection guidance** — <https://www.naturvardsverket.se/> ·
+   Swedish public-authority guidance, current; already the source for `Lobby.CONFIG.AVENUE` through
+   `docs/research/2026-10-29-lobby-flagpole-and-birch-avenue.md`.
+   *Well:* an allé is ≥5 deciduous trees in one or two rows along a road, with no spacing requirement.
+   *Badly:* says nothing at all about removing one.
+   **Taken:** the avenue is not thinned to four and still called an avenue; it is dropped whole by the
+   rule, with its table kept, so a re-plant is a decision rather than a repair (§5.3).
+6. **This repository, which outranks all of the above for the mechanism.**
+   `src/server/Lobby/Build.luau` — `clearWorkingGround` (*"The ONE place this repository removes an
+   instance it did not make"*, bounded by folder, by direct child and by rectangle) and
+   `onWorkingGround` (a pure two-number predicate a spec drives with nothing built): **`keptClear` is
+   that function with a different set of rectangles, and its header says so** (rule 9).
+   `src/server/Lobby/Join.luau` — `homeAreas` / `walkwayTo` (*"THE AREAS ARE DATA, HANDED IN BY THE
+   COMPOSITION ROOT"*): **the seam of §7.3 and §7.4 is that arrangement, a second time.**
+   `src/server/Lobby/Field.luau` — `shelfFor` (floor-to-grid as a fixed point).
+   `src/shared/Range/init.luau` — `cutRects`' `keepOut` seam and `footprintFor`'s outward rounding
+   (*"a fractional edge does not survive a Vector3's float32"*).
 
 ---
 
-## 13. Numeric targets
+## 14. Numeric targets
 
 | # | Target | Instrument |
 |---|---|---|
-| **T3** (replaced) | **A man at station *n* has exactly ONE animal drawn for him AND no other player's body drawn**, whatever the other five are doing. `Mask.stats().shown == 1`, `Mask.stats().hidden == targets - 1`, `Solo.stats().hidden == others` | two clients, one screenshot each (Director ops step, §14.4), plus the two `stats()` |
-| **T5** (re-expressed) | Measured crossing within **`CROFFING_TOLERANCE` 10 %** of `span / speed` for the station and lane he is on — at station 3, 125 studs: 25.77 / 16.11 / 10.54 / 8.05 / 4.83 s. **And the ISSF identity exactly**: `crossingSeconds(paceWindowStuds, paceSpeedFor("slow"))` == 5.00, `("fast")` == 2.50 | `Range.step`'s own window timer, published as `record.crossingSeconds`; the identity is a pure case. (The base design wrote 5 %; the shipped `Range.CONFIG.CROSSING_TOLERANCE` is 0.10 and this row states the code's number) |
-| **T6** (re-swept) | **No shot leaves the range at the new widest angle. Maximum off-axis angle 39.81°** (was 9.55°). Every shot whose aim point is on the animal's silhouette, from both positions, at all three distances, at all six stations, crosses `bermCrestFaceZ` inside `backstopSpanFor` — §3.3's table, worst margin 0.0 studs where the backstop bound binds (by construction) and 7.7 studs where the apron cap binds | a ray sweep from each station across the full span, both positions, three distances: **36 combinations**, in `range.spec` as arithmetic AND once in her place as a real sweep |
-| **T12** (extended) | **Both pictures are free when nothing changes.** `Mask.stats().writes` does not climb across 60 idle steps; `Solo.stats().writes` does not either; `Cursor.stats().reasserts` stays 0 | `range_mask.spec`, `range_solo.spec` |
-| **T15** (new) | **The mask's write budget at six animals in one wide span.** `writes` settles at `Σ (1 trunk + #ZONES.ORDER + drawn parts)` = 6 × (1 + 5 + 1) = **42** for six boars, then 0 while nothing changes. **Per second it is CHEAPER than today**: writes happen on span edges only, so at run the 196-stud leg costs 2 × 7 = 14 writes every 8.17 s (103 /min) against today's 76-stud leg at 14 every 3.17 s (265 /min) | `Mask.stats().writes` against `.sweeps`, in `range_mask.spec` and live |
-| **T16** (new) | **`Solo`'s sweep costs ≤ 0.1 ms per frame at 16 players**: one `GetPlayers`, 15 `Character` reads, ≤ 15 × ~20 `BasePart`s visited, no write | `Solo.stats().sweeps`, the Studio microprofiler (ops step) |
-| **T17** (new) | **Nothing of his own station stands in his own fan.** For every station, lane and position, no part of that station's mat, bench, prompt post, hut post, hut roof, deck or ladder intersects the solid angle from the firing point to the span — §3.1's table is the arithmetic (only the hut posts reach the bore's plane, and the span is bounded by them) | `range.spec`, reading the BUILT parts out of the folder by name, not the pure points |
-| **T18** (new) | **The span, the leg and the corridor nest, always**: `sightSpanFor ⊆ [corridorWest+APRON, corridorEast−APRON] ⊆ ...`, `laneEndsFor ⊆ corridorSpan`, and the release point is never inside `sightSpanFor` — for 6 stations × 3 lanes × 2 signs of `downrange` × both flag states | `range.spec`, pure |
-| T1, T2, T4, T7–T11, T13, T14 | **unchanged** from the base delta. T14 gains one clause: **no write under `src/client/Range/` to any part that is neither under `Workspace.RangeTargets` nor under a remote player's character** | the specs plus the Reviewer's read |
+| **W1** | **The walk: door → nearest mat 174.31 studs, inside 147..199 (±15 % of today's 172.8), and within 4.0° of the door's own facing.** All six stations 174.31..183.97, spread ≤ 10 studs, worst bearing ≤ 19.1° off (§2.4) | `range.spec`, read off `matPosition` and the lodge's own config; once live from the `DoorThreshold` part |
+| **W2** | **The walk is LEVEL: no step over 1.0 stud anywhere between the door and any mat**, and the ground along x 2850 from z −2916 to −3090 stays within 0.5 studs of one value | the Director's ground-profile probe at 1-stud steps (today: flat 150.0 to −3056, then **up to 160.3 and 164.6** — brief §2), plus §15.4 frame 2 |
+| **W3** | **The two terraces meet flush:** `cutRects(...)[1].maxZ` == the lobby field's south edge == −3060; terrace ∩ field area **0**; both shelves resolve to the SAME number from either boot order | `range.spec` (reading `Lobby.CONFIG`, the shipped `keepOut` case's shape); live, `floor(groundAt(2850,−2950)/4)*4` before and after the lobby builds |
+| **W4** | **The cut and the fill stay inside the shipped envelope:** worst cut **35.8** ≤ `FILL.CLEAR_STUDS` 96 (60 studs spare), worst fill **2.0** ≤ `FILL.DEPTH_STUDS` 48 (46 spare). No `LAYOUT` number changes | arithmetic in `range.spec`; live terrain probe over the brief's own 9 × 11 grid |
+| **W5** | **The trees: 12 removed — 5..7 ring, 6 avenue, 0 grove, 1 world pine — and ZERO trees left standing inside the corridor or the footprint** | `Lobby.stats().sightlineDropped` / `.sightlineCleared`; a live census over the corridor and the footprint; `[RangeBoot] footprint census: 0 foreign BaseParts` |
+| **W6** | **The build costs no more than today:** terrain fills/replaces within ±10 % and `Range.Build`'s own elapsed time within +20 % of the old site's; `Lobby.stats().parts` ≤ `MAX_PARTS` 1500 still, and lower by eleven trees | the `[RangeBoot]` and `[lobby]` boot lines |
+| **W7** | **Home is continuous:** `Join.insideHome` true at every 1-stud sample of the straight walk from the door to each of the six mats, at all six mats, at all six decks and at both ladder feet; field ∩ footprint = 3 studs of z | `lobby.spec` (pure, the footprint handed in as data); live, `Lobby.stats().returns` == 0 while standing on each |
+| **W8** | **Safety: every lobby rectangle is ≥ 30 studs UPRANGE of the firing line**, and T6's 36 combinations still land inside `backstopSpanFor` at the new anchor (worst margin 0.0 where the backstop bound binds, by construction) | `range.spec` + `lobby.spec`; one live ray sweep (§15.3) |
+| **W9** | **The old site is empty:** 0 parts under any `Workspace.Range` near (2600, −3030), EDIT terrain there unchanged at 134.9 / 148.3 / 155.1, and **no `Workspace.Range` in the saved place** (§11) | EDIT probe, before and after |
+
+T1–T18 of `shooting-range-lobby.md` (task 313) are **unchanged and re-asserted at the new anchor by
+the same spec cases**, because every one of them is anchor-parameterised (§9.1).
 
 ---
 
-## 14. How it is tested
+## 15. How it is tested
 
-### 14.1 Server spec — `tests/server/range.spec.luau`, new groups
+### 15.1 Server specs
 
-1. **The span, as arithmetic and not as a typed table.** For all 6 stations × 3 lanes:
-   `sightSpanFor` equals the intersection recomputed in the spec from `bermSpanFor`,
-   `BERM.shoulderStuds`, `bermCrestFaceZ`, `HUT.*` and `corridorSpan` — so deleting any one of the
-   three bounds changes the answer and fails. Plus §3.2's three floors (71.07 / 80.67 / 109.47) and
-   the two ceilings (98.11 / 115.96 / 156) to 0.01 studs.
-2. **The OFF branch is bit-for-bit today's**: `sightSpanFor(anchor, spot, LAYOUT, d, false)` ==
-   `windowSpanFor(anchor, spot, LAYOUT)` for every station and every lane, and
-   `laneEndsFor(..., false)` == `laneEnds(...)`.
-3. **T18's nesting**, as above, both signs of `downrange`.
-4. **T6's 36 combinations**, as arithmetic: the worst ray per (station, lane, position) crosses
-   `bermCrestFaceZ` inside `backstopSpanFor`. A case that widens `LAYOUT.SIGHT.silhouetteStuds` to 0
-   must still pass; a case that removes the `shoulderStuds` trim must FAIL (the bound is load-bearing).
-5. **T17 against the BUILT parts**: build the range, read every `Mat`, `Bench`, `Post`,
-   `HutPost<spot>_<corner>`, `Roof<spot>`, `Board<spot>` and `Stand<spot>` piece out of the folder by
-   name, and assert each is outside the fan or below/above the bore plane, with the height test
-   explicit. Deleting the hut block must not make it vacuous.
-6. **The paces did not move**: `paceSpeedFor` == 7.20 / 14.40 against `paceWindowStuds`, driven with
-   a layout whose span is wide — the regression §2 exists to prevent.
-7. **`ignoredFor` at six animals in one wide span**: a man at station 3, all six released and all six
-   inside every span → exactly five roots, every one a TRUNK and never a zone part; his own added
-   when it is in the apron; nobody at a station → empty; nil `boars` → empty, no error.
-8. **The cap order**: a fake `candidatesFn` that records the `ignore` list it was handed proves the
-   provider's instances reach `Cast.candidates` BEFORE any cut, and
-   `weapon_rewind.spec`'s shipped two-candidates case still answers the un-ignored one.
-9. **The staleness fix** (§7.3): a fake player moved from station 2 to station 4 with no request gets
-   a push within one scan tick whose `mine`, `window` and `alone` are station 4's.
-10. **The crossing timer on the wide span**: released at a leg end → outside the span → `windowArmed`
-    true; one entry and one exit per leg; the recorded seconds match `span / issuedSpeed` within T5.
-11. **`alone`**: true only when the server measured a station AND `state.solo`; false off the mat;
-    false with the flag off, at every station.
+**`tests/server/range.spec.luau`**
 
-### 14.2 Client specs
+1. **The row, by its DERIVED properties and not only by two typed numbers.** The shipped case asserts
+   `x == 2600` and `z == -3030` and must be replaced — but it is replaced with facts, not with two new
+   literals: the station row's centre equals the lodge's centre line
+   (`matPosition(anchor,1).X + spotSpan/2 == Lobby.ANCHORS["forest-test"].x + LODGE.OFFSET.X`), the
+   door-to-nearest-mat distance is inside 147..199, and the bearing is within 10° of 180. The row's
+   other fields (`plate`, `downrange`, `drawn`, `berm`, `fill`, no `y`) keep their shipped assertions.
+2. **`shelfFrom` and `keepOut` did NOT move**: the two shipped cases pass unedited, which is the
+   machine-checkable half of "this is a translation".
+3. **The flush plane (W3)**: `cutRects(...)` returns ONE rectangle whose `maxZ` equals
+   `Lobby.CONFIG.FIELD`'s south edge, read from `Lobby`'s own config, and the terrace ∩ field area is 0.
+4. **The terrace still contains everything built on it**: the shipped *"every part of the range stands
+   inside the ground the cut wrote"* case, unedited, at the new anchor.
+5. **W4's cut/fill envelope**, as arithmetic against `FILL.CLEAR_STUDS` and `DEPTH_STUDS`, driven with
+   the brief's measured ground grid as a fake `groundAt`.
+6. **The `keepOut` SPLIT arm, by parameter** (§4.2): a synthetic anchor north of −3060 must still
+   return two rectangles with the seam at `keepOut.z`. Without this case the arm goes dark.
+7. **`sightlineFrom`**: both signs of `downrange`; `fromZ` equals the footprint's uprange edge; the X
+   span contains every `hutPostPositions`, `hutRoofPosition`, `matPosition`, `benchPosition` and
+   `standPosition` for all six stations, and a deliberately narrowed `HUT.roofSize.X` must make the
+   containment case FAIL (the bound is load-bearing, not decorative).
+8. **T6 and T18 at the new anchor** — the shipped 36-combination sweep, unedited.
 
-- **`tests/client/range_solo.spec.luau` (new).** Fake `players` and `me` seams; three remote
-  characters plus the local one plus six fake trunks in a fake targets folder, all in one staged
-  scene. Asserted: every remote character's parts go to 1 and come back to the value they had;
-  the LOCAL character is never written and `refused` rises; a part under the targets folder is never
-  written and `refused` rises; a character that appears after `start` is hidden on the next step;
-  `setAlone(false)` restores everything; `stop()` restores everything; **T12** — `writes` does not
-  climb across 60 idle steps; and the live-copy case `range_mask.spec` already uses, proving the
-  spec measures the starter copy and not the one `RangeBoot` steps.
-- **`tests/client/range_mask.spec.luau` (extended).** The windows come from `sightSpanFor` instead of
-  `windowSpanFor` (same call shape, two more arguments); T15's settled write count; **and the
-  PARTITION case**: `Mask` and `Solo` both stepped over one staged scene holding all four sets, and
-  for every part exactly one of them accounts for the write while the other counts a refusal.
-- `tests/client/range_panel.spec.luau` (extended): the board still prints `crossing` and the two lead
-  numbers with the span it was told.
+**`tests/server/lobby.spec.luau`**
 
-### 14.3 The harness, on the player's path
+9. ***"keeps the pole and every avenue trunk away from the range"* is REPLACED.** It asserts every
+   avenue slot is >150 studs from the range anchor; at the new anchor the slot at (2846, −3048) is
+   **70.0 studs away** and the case **fails by arithmetic**. Its replacement is the rule itself: the
+   flagpole's foot is **outside** `sightlineRect` and outside the footprint (true by 2 studs — §5.2,
+   and that margin is the point of the assertion), and **no avenue trunk is planted at all**, read
+   off `Build.avenuePlan`.
+10. **`Build.keptClear` bites exactly where it must, as a pure predicate with nothing built**: true for
+    each of the eleven measured trunks **(brief §2's table)** and for the pine at (2844, −3188); false
+    for the flagpole foot, the four pads, the spawn, the gather rectangle, each `LODGE_TREES` trunk in
+    the lodge's own frame, and a trunk 50 studs out in the wood. `keepClear = nil` and `lane = nil`
+    answer **false** for every one of them — the no-range world, bit for bit.
+11. **The live build plants nothing in either rectangle**, and reports the count — the `gather`
+    exclusion's own shape: *"counts what the live build plants and asserts that none of it is inside
+    this rectangle — which is the half that must never change — and reports the count, which is the
+    half Karen judges"*. Expect 5..7 ring drops and 6 avenue drops.
+12. **The sweep removes a fixture the spec puts in the footprint and in the corridor**, into a
+    `Session` folder the spec builds itself, and returns the count; a fixture 1 stud outside each
+    rectangle survives.
+13. **W7's walk**: `Join.insideHome` at 1-stud samples along the door-to-mat segments, with the
+    footprint handed in as data exactly as the root hands it.
+14. **W8**: every lobby rectangle (field, yard, road, gather, pads, spawn, truck bays, lodge box,
+    flagpole) is north of the firing line by ≥ 30 studs, computed from both configs.
 
-The shipped stage block needs **no harness change**: it finds
-`Workspace.Range:FindFirstChildWhichIsA("BasePart")` and places the character on it, which is why
-`Build` still parents mat 1 first. One scenario is reused (`the-range`, station 1, bench).
+### 15.2 Client specs
 
-Four limits, with the fallback for each (rule 6 — a harness fault is a bug and is reported):
+**None, and that is a claim.** No client module, remote, panel or picture changes: the client learns
+the range's position only through the Instances the server builds and through `RangeBoard`'s existing
+payload, and `MapUi.geometryFor` draws the DRIVE's geometry, never the range's. `range_panel.spec`,
+`range_mask.spec` and `range_solo.spec` are untouched.
 
-| Limit | Evidence | What is done |
+### 15.3 The harness, and what it cannot see
+
+**The one-player run cannot see this change at all, and that must be said plainly.** The harness runs
+in the DEV place, where `Lobby.ANCHORS` has no row (no lobby, no trees, no sweep) and the range row is
+`{ x = 1200, z = 0, plate = true }` — its own anchored plate, no terrain, no terrace. So:
+
+- what the harness PROVES: every pure rule above, the DEV range still building, and that nothing else
+  in `src/` broke (scope resolves to **`all`**, because `src/server/Lobby/` maps to no `BLAST_RADIUS`
+  entry and *"an unmapped code path can only ever mean the whole suite"*);
+- what it CANNOT prove: the walk, the level, the terrace, the trees, the pine, the frames. **Those are
+  the Director's live step in Karen's place** (§15.4, §18 M2), measured with the probe instrument the
+  brief's own numbers came from.
+
+| Harness limit | Evidence | What is done instead |
 |---|---|---|
-| **The harness cannot run two clients' cameras.** `test2` starts a second player but the scenario file and the stage are the first client's | `tools/studio_mcp.py`'s docstring; `TWO_PLAYER_PATHS` | **T3 is a Director ops step**: two clients, two men at two stations, one screenshot from each. The specs prove both pictures' RULES; they cannot prove two real screens disagree |
-| The replay **cannot aim input at an instance**, and no shipped scenario has ever clicked a GUI row | TASKS.md task 6: *"Cannot express: touch, gamepad, `textInput`, frame-counted holds, input aimed at an instance"* | unchanged: the panel is anchored at the screen centre, the scenario clicks that point, and the spec asserts the button's real `AbsolutePosition`/`AbsoluteSize` contains it before asserting the click arrived |
-| Whether a replayed `E` reaches the engine's own `ProximityPrompt` handling is **NOT ESTABLISHED** | `ShopPanel.setPrompt`: *"a spec cannot fire a real `ProximityPrompt`"* | the spec opens through the shipped `setPrompt` seam; the real `E` at a station is a Director ops step with a screenshot |
-| A client spec cannot assert what the SCREEN shows, only what a property says | rule 5, and `docs/PROJECT_CONTEXT.md`'s *"a marker wandering the screen ... certified a blank screen twice"* | every claim about invisibility is paired with a frame somebody looked at (§14.4) |
+| no lobby and no terrain in DEV | `Lobby.ANCHORS`' one row; `Range.ANCHORS["map:v1"].plate` | every forest-test number is a PURE spec case; the world is the Director's live run |
+| the stage places the character on `Workspace.Range`'s first `BasePart` (mat 1), not at the shop door | `tools/studio_mcp.py` docstring; `Build` parents mat 1 first | the 174-stud walk is a ground profile plus a frame, not a replayed `W` |
+| the replay cannot aim input at an instance, and a spec cannot fire a real `ProximityPrompt` | TASKS.md tasks 6–7; `ShopPanel.setPrompt`'s own comment | unchanged: no prompt behaviour is in this task |
+| a spec cannot assert what the SCREEN shows | rule 5; `docs/PROJECT_CONTEXT.md` (*"certified a blank screen twice"*) | every claim about the view is paired with a frame somebody looked at (§15.4) |
 
-### 14.4 Screenshots (rule 5) — required, looked at before any claim
+**`test2` is N/A**, and that is CLAUDE.md's explicit list rather than an opinion: `src/shared/Range/`,
+`src/server/Lobby/`, `src/server/ForestTestBoot.server.luau`, `tests/server/range.spec.luau` and
+`tests/server/lobby.spec.luau` are none of them in `TWO_PLAYER_PATHS`. The one-player line is required,
+always, and the PR to `main` needs the FULL `scope=all` run.
 
-1. **The isolation frame, from two clients at the same instant**: two men at stations 2 and 5, each
-   frame showing one animal and no other man (T3).
-2. Down lane 3 from the bench at 179 with the animal at the span's **far end** — is 156 studs of run
-   what Karen asked for.
-3. The same at the span's **near end**, and one frame of the **turn-around in the apron**, to show
-   what vanishes and where.
-4. Station 1 at 107 looking east at the span's far end, with his own hut post in frame — the bay's
-   opening (§3.1 bound 2), the one thing Karen can see the cap in.
-5. The board after a run of shots at 179: the crossing seconds Karen reads.
+### 15.4 Screenshots (rule 5) — required, looked at before any claim
 
-### 14.5 The known defect in this area, NOT fixed here
-
-`playtest/range-v3/report.md`, *"Seen by accident"*: stepping off a mat or walking the firing line
-between stations strips all four guns and rearms the wrong one, with nothing on screen.
-
-**Does anything this design adds touch that path? No, and here is the path.** The loan is
-`Range.entitlementOver` → `loanSet()`, gated by `Range.mayShoot(player)` → `playerSpot` →
-`RangeData.spotAt`, bounded by `Range.standReach`. **This task changes none of those six symbols**:
-not the station box, not `spotAt`, not `standReach`, not `mayShoot`, not the loan, not the arming or
-drive-open providers.
-
-**But it makes the defect more likely to be met**, exactly as the brief says: a man tracking an
-animal across 156 studs turns his body and walks. So the design records it as a Director scheduling
-item (§16 item 5) and recommends the fix lands **before** this flag is lit for a playtest — otherwise
-Karen's first solo run is likely to end with an empty backpack, and the report will be about the gun
-and not about the span.
-
-### 14.6 Blast radius and the gate
-
-Changed paths: `src/shared/Range/init.luau`, `src/server/Range/init.luau`,
-`src/client/Range/Solo.luau` (new), `src/client/RangeBoot.client.luau`, `src/shared/Flags/init.luau`,
-`tests/server/range.spec.luau`, `tests/client/range_mask.spec.luau`,
-`tests/client/range_solo.spec.luau` (new), `tools/studio_mcp.py`.
-
-- `BLAST_RADIUS` already maps `src/client/Range/` → `range` and `src/shared/Range/`,
-  `src/server/Range/` → `range`; `src/shared/Flags` → `flags`. **`SCOPE_SPECS["range"]` must gain
-  `tests/client/range_solo.spec.luau` in the same commit**, because `selftest` fails if a spec file
-  belongs to no scope.
-- **`test2` is N/A for every one of these paths, and that is CLAUDE.md's explicit list, not an
-  opinion**: none is in `TWO_PLAYER_PATHS`, and the Director's 2026-10-03 decision puts
-  `tools/studio_mcp.py` with the tools. The one-player line is required, always. **T3 still needs two
-  clients and is an ops step** (§14.3), which is the arrangement the base delta §11.6 already chose
-  as its default.
+1. **Karen's own frame, reproduced.** From the yard gravel at (2850, −2960) on her heading ~196°
+   **(brief §1)**: the birches gone, the pine gone, the range in the frame. This is the before/after of
+   the picture she sent, and it is the one frame that answers her request.
+2. **The walk.** From (2850, −3000) looking south at eye height: level ground, no step at z −3060, the
+   six numbered huts ahead.
+3. **The heap against the hill.** From station 3's bench down the 179 lane: the berm's crest against
+   the place's natural hill 15 studs above it (§4.3).
+4. **The east cut face.** From station 6's mat looking east: the terrace's east edge, the east bank in
+   front of it, and how deep the wall reads.
+5. **From the spawn pad**, looking south: all six huts visible, no trunk between (W5's picture).
+6. **The old site**, from the lobby: natural hill, nothing standing, no mat, no post.
 
 ---
 
-## 15. UNVERIFIED UNTIL BUILT
+## 16. UNVERIFIED UNTIL BUILT
 
-An Architect PASS proves this document is coherent. It does **not** prove it fits the engine. Every
-item below is a document fact.
+An Architect PASS proves this document is coherent. It does not prove it fits the engine or the eye.
 
-1. **T6 in all 36 combinations**, as a real sweep in her place. The arithmetic says the worst ray
-   lands on the backstop's corner **with zero margin** where the backstop bound binds — that is the
-   definition of the bound, and it means a measured sweep is the only thing that can confirm the
-   heap's actual surface catches it. If it does not, the fix is one number: trim the backstop
-   interval by more than `shoulderStuds`.
-2. **That `LocalTransparencyModifier` hides a skinned MeshPart** (carried over, still unverified).
-   Fallback shipped and off by default: `Mask.start`'s `alsoTransparency`.
-3. **That the same property hides another player's whole character**, including accessories, the
-   outfit plates and an equipped Tool. The parts are ordinary `BasePart`s, so the mechanism is the
-   same; nobody has looked.
-4. **The name tag over an invisible player** (§7.1). Fallback pre-decided; needs one frame.
-5. **That 71–156 studs reads as "all the way"** to Karen, and that a span bounded by her own hut post
-   reads as a bay and not as a bug (§16 item 6).
-6. **That the per-station and per-lane spans do not read as inconsistency.** Station 1 at 107 gets
-   71 studs and station 3 at 179 gets 156; the reason is visible (the heap and his own bay) but
-   nobody has seen it.
-7. **That six animals on ONE leg at the 179 lane do not bunch visibly.** They cannot collide
-   (collision groups) and five are invisible, but the sixth passes through the other five's volumes
-   and nobody has looked at that from a station.
-8. **Six drawn animals' frame cost** at the wider sweep (T11, T15, T16).
-9. **That the measured crossing lands inside T5 on the wide span.** The span is 4.3× today's, so any
-   systematic error in `timeWindow`'s entry/exit instants is 4.3× smaller as a fraction — the easy
-   direction — but it has not been measured once.
-10. **That the staleness fix (§7.3) actually fires on the station edge in a live session**, and that
-    one push per edge per watcher at 10 Hz costs nothing noticeable.
+1. **That the saved place holds no `Workspace.Range`.** If it does, the range never moves and the only
+   symptom is one warn line (§11). One EDIT read settles it, and it is a pre-flight (§17 D3).
+2. **That 35.8 studs of cut at the south-east corner leaves a surface worth looking at**, and that the
+   `FillBlock` air box really clears the hill there rather than leaving task 311's mound in a partial
+   voxel. The arithmetic says the box covers 148..244 whole; nobody has probed it.
+3. **That the east cut face does not read as a quarry wall** from station 6 (§4.3). This is the single
+   biggest LOOK risk of the move.
+4. **That the heap against a taller natural hill reads as "an earth formed mountain"** and not as a
+   lump in front of a cliff (§4.3).
+5. **The live tree count: 5..7 ring, and 6 avenue against the brief's measured 5** (§5.3). The
+   arithmetic and the brief's table disagree by one trunk and the census decides.
+6. **That `floor(groundAt(2850,−2950)/4)*4` answers 148 in a live session after the lobby has built.**
+   Measured 149.25 natural and 150.0 built, so it does — with 2 studs of margin and no instrument
+   watching it (§3).
+7. **That six drawn animals on the new terrace behave as they did on the old one.** The ground is the
+   same shelf and the same material; nothing has run there.
+8. **That the 6-stud band of bladed grass between the lobby's road pad (−3054) and the terrace (−3060)
+   does not read as a seam** across the walk (§4.1).
+
+### Carried forward from task 313, open and NOT closed by this move (the brief's §6)
+
+9. **TASKS.md 313a(o):** the boar does not hold RUN pace across the wide span — the board read 9.13 s
+   against the 4.18 s setpoint. **Pre-existing, not caused by the move**, and the report must say so
+   when the click proof asks for a RUN crossing.
+10. **TASKS.md 313a(a):** nobody has looked at an invisible player (solo) in Karen's place. The move
+    does not re-close it, and if the translation changes who counts as "on the range" that is still
+    open, not settled by this geometry.
 
 ---
 
-## 16. Open decisions
+## 17. Open decisions
+
+### For Karen (feel) — each has a stated default; none blocks building
+
+- **K1. The birch avenue is gone.** Default: **gone, and not re-planted in this task.** Its slot table
+  stays in git, so a re-plant flanking the new corridor (x ≤ 2783.5 or ≥ 2916.5) is one commit when she
+  wants it. The alternative she might prefer — the avenue back and the range somewhere else — is
+  refused by her own later word and by §5.3's geometry.
+- **K2. The walk runs 10 studs west of the road lane rather than down it.** Default: **as designed**
+  (door-centred, §2.2). Centring on the road costs cut depth and 0.23 studs of walk.
+- **K3. The forest edge now has a gap due SOUTH as well as due north.** Default: **yes** — it is the
+  same rule and the same reason the north gap exists.
+- **K4. The heap now stands against a natural hill 15 studs taller than its crest.** Default:
+  **keep it** — free backstop, and plausibly the picture she asked for. One frame (§15.4 item 3).
+- **K5. The new cut faces are left as the fill makes them** (§4.3). Default: **leave them**; a battered
+  skirt is one new `CUT` row and a LOOK task if the frame reads badly.
+- **K6. A man on a mat can turn round and fire at the shop door, 174 studs away.** Default:
+  **nothing is built**: no player damage exists on this path and no drive is open in the lobby (§9.3).
+  If she dislikes the picture, a facing gate is a feel change and hers to ask for.
 
 ### For the Director (scope) — none blocks building
 
-1. **Ratify the cap, or buy the heap.** This design caps the span at the built earth and the built
-   bay: 71–156 studs, run 2.96–6.50 s, against the brief's hoped 196 studs / 8.17 s. The alternative
-   is a heap **433 studs wide instead of 232** (§5), on ground her 990-sample census never covered,
-   with a new census, a new terrace, a new footprint and a new home-area rectangle. **Default: the
-   cap.** Nothing is blocked either way — the span is a derived function of the earth's own width, so
-   a wider heap widens it with no code change.
-2. **Open the bay?** `HUT.roofSize.X` 13 → 20 removes the clear-fan bound and gives every station
-   **103 / 118 / 156** at run 4.30 / 4.92 / 6.50 s (§3.4). It moves a BUILT part, so it is a LOOK
-   task with a rebuild and a frame. **Default: not in this task.**
-3. **`Flags.MAX_FLAGS` 21 → 22** (§9). One line, and the real fix (TASKS.md 82b, retiring three
-   accepted rows) stays queued and is the Director's call.
-4. **The claim path's missing ignore list** (§8d). `HIT_CLAIM` is dark, so it is unreachable; it must
-   be a named task before that row is ever lit. **Default: queue it.**
-5. **Schedule the gun-stripping fix before this flag is lit for a playtest** (§14.5). It is a
-   separate task and this design does not touch its path, but a wide span makes a man walk.
-6. **Does `src/client/Range/` join `TWO_PLAYER_PATHS`?** Unchanged question, unchanged default: **no**
-   — T3 is an ops step with two clients and two screenshots.
-
-### For Karen (feel) — each has a stated default, none blocks building
-
-7. **Does the animal still vanish, and where?** It now vanishes only in the **apron**, 20 studs at
-   each end, where it turns around. Default: **yes, in the apron only** — the apron is what keeps the
-   crossing clock honest (§4), so the alternative costs the board's crossing number.
-8. **A floating name over an invisible player** (§7.1, §15 item 4). Default: **leave it**; the
-   fallback is one line if she says it spoils "alone".
-9. **Other players can still be HEARD.** Default: **yes** — "alone" is a picture, and per-player
-   sound does not exist in this engine.
-10. **The span differs by station and by lane** (§3.2). Default: **yes, and visibly so** — the two
-    reasons are the heap she can see and her own hut post she can see. The alternative is one span for
-    all six, which is the intersection, which is 11 studs at the 125 lane and therefore not an
-    alternative.
-11. **Which lane the solo view is most worth having on.** The design's answer is **179 in the middle
-    four bays** (156 studs, run 6.50 s); the menu still opens on 125 (`DISTANCE_STUDS`), her shipped
-    default.
+- **D1. No flag; the move switches by COMMIT** (§12), with the standing instruction that nobody saves
+  the place from a Play session. Default: **by commit.**
+- **D2. The row move and the clearing are ONE task** (§18 M1). They are one change — moving the range
+  into a row of birches and a 104-stud pine and merging that as an intermediate state would put a tree
+  in the lane in Karen's place for a round. Default: **one task.**
+- **D3. The EDIT pre-flight of §11 and §16 item 1** — `Workspace.Range` and `Workspace.RangeTargets`
+  absent from the saved place — **before** the move is merged. Default: **do it, it is two reads.**
+- **D4. Queued, not done:** the avenue's re-plant (K1) and the cut-face batter (K5), both LOOK tasks
+  with a frame.
+- **D5. 313a(o) and 313a(a) stay open** and are not re-closed by this move (§16 items 9–10); the task
+  report says so rather than letting a RUN-pace discrepancy be read as a defect of the move.
 
 ---
 
-## 17. The build steps
-
-Each is one task, small, provable, in the order it can be proved. Rule 4 holds.
+## 18. The build steps
 
 | # | What | What closes it |
 |---|---|---|
-| **C1** | **The three names, no behaviour change.** `paceWindowStuds`, `backstopSpanFor`, `backstopSlope`, `bayHalfSlope`, `LAYOUT.SIGHT`, and `sightHalfWidthAt` re-expressed as `ahead × backstopSlope` — with the span itself still `mat ± 18`. Nothing moves | `range.spec` groups 1 (off branch), 6 (the paces), and the shipped hut/berm fan cases re-pointed at the new bound. Harness. **Zero visual change, so no screenshot** |
-| **C2** | **The span and the leg, behind the flag, off.** `sightSpanFor`, `laneEndsFor`, the `RANGE_SOLO` row, `Range.SOLO_VIEW`, `seams.solo`, `timeWindow`'s predicate, `release`'s leg end | `range.spec` groups 1–4, 7, 10, 11; **T6** as arithmetic; **T18**; harness. Flag off, so the shipped game is unchanged |
-| **C3** | **The second picture.** `src/client/Range/Solo.luau`, `record.alone`, the client root's two lines | `range_solo.spec`, the PARTITION case in `range_mask.spec`; **T12**, **T16** |
-| **C4** | **The staleness fix.** `state.spotOf` and the station edge in `scan` | `range.spec` group 9 |
-| **C5** | **Her place, flag ON by override** (`tools/flags.py set RANGE_SOLO on`, no commit). The sweep, the frames, the playtest | **T3** (two clients, two screenshots), **T5** measured at three lanes, **T6** swept for real, **T15**, §14.4's five frames, `PLAYTEST.md` |
-| **C6** | **Karen's OK flips the default**, or her no retires the row and archives the losing branch under `backups/` with a note (rule 7) | a three-line commit with the one-player gate |
+| **M1** | **The move and the clearing, one task.** `Range.ANCHORS["forest-test"]` x/z and its comment rewritten with §2–§4's numbers; `Range.sightlineFrom`; `Build.sightlineRect` + `Build.keptClear` and its four call sites; `Lobby.start`'s two optional seams through to `Build.build`; `ForestTestBoot`'s composition; `RangeBoot`'s census print; `Lobby.stats()`' two counters; the `backups/` note (rule 7); **and the stale comments fixed in the same commit** — `Lobby.CONFIG.FLAGPOLE`'s *"291 studs from the range's nearest edge (`Range.ANCHORS["forest-test"]` is (2650, −3216)…)"*, which is already wrong by two anchors and becomes **142 studs** to `footprintFor`'s own edge, and `lobby.spec`'s matching comment | §15.1's fourteen cases; one-player harness, `scope=all`; `test2` N/A with the `TWO_PLAYER_PATHS` reason. **No screenshot: nothing in the DEV place changes visually** |
+| **M2** | **Her place, live (the Director).** The EDIT pre-flight (D3); the boot lines; the ground profile along the walk (W2); the terrain grid over the terrace (W4); the tree census (W5); `insideHome` on every mat and deck (W7); one real T6 ray sweep (W8); the old-site probe (W9); **the six frames of §15.4, looked at**; `PLAYTEST.md` | W1–W9 measured, the frames inspected, Karen's word |
+| **M3** | **Only what M2's frames ask for**: the cut-face batter, the avenue's re-plant, or nothing. Each its own task with its own number | Karen's OK |
 
-C2 needs C1. C3 and C4 are independent of each other and both need C2. C5 needs C2–C4. C6 needs C5.
+M2 needs M1. M3 needs M2 and Karen. Nothing here needs two players, a new asset, a flag or a Studio
+click except the Rojo **Connect** and the Play session M2 already costs.

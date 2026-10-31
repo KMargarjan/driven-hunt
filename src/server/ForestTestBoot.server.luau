@@ -677,15 +677,27 @@ end
 --                RANGE's own (`RangeData.footprintFor`, derived from the same `LAYOUT` `Build` lays
 --                its parts from) and the walk to it is the LOBBY's (`Join.walkwayTo`). A world with
 --                no range row, or the flag off, hands in nil and the lobby is the old 220 x 220.
+--   keepClear/sightline  WHICH GROUND THE LOBBY KEEPS FREE OF TREES (task 315). Karen, 2026-10-30,
+--                with a frame of the row in front of the shop: *"those trees can be removed and
+--                shooting range can be moved there that I can directly from shop walk to shooting
+--                range same distance but straight"*. Composed HERE for `homeAreas`' own reason: the
+--                footprint and the sightline are the RANGE's (`footprintFor`, `sightlineFrom`), the
+--                lodge's south face that closes the fourth edge is the LOBBY's
+--                (`Build.sightlineRect`), and neither owner requires the other.
 local rangeHomeAreas: { any }? = nil
+local rangeKeepClear: { any }? = nil
+local rangeSightline: any? = nil
 do
 	local row = RangeData.anchorFor(Map.EXPECTED_WORLD)
 	-- `Range.ENABLED` AND NOT A SECOND `Flags.isOn`: the range owner is the one boundary that reads
 	-- that flag (CLAUDE.md, feature flags), so with RANGE off nothing is built and nothing is home.
 	if row ~= nil and RangeOwner.ENABLED then
-		rangeHomeAreas = {
-			RangeData.footprintFor(Vector3.new(row.x, 0, row.z), RangeData.LAYOUT, RangeData.downrangeOf(row)),
-		}
+		local at = Vector3.new(row.x, 0, row.z)
+		local dir = RangeData.downrangeOf(row)
+		local box = RangeData.footprintFor(at, RangeData.LAYOUT, dir)
+		rangeHomeAreas = { box }
+		rangeKeepClear = { box }
+		rangeSightline = RangeData.sightlineFrom(at, RangeData.LAYOUT, dir)
 	end
 end
 
@@ -693,6 +705,8 @@ local lobbyOn = Lobby.start({
 	enabled = true,
 	world = Map.EXPECTED_WORLD,
 	homeAreas = rangeHomeAreas,
+	keepClear = rangeKeepClear,
+	sightline = rangeSightline,
 	enrol = Match.enrol,
 	dismissAll = Match.dismissAll,
 	inDrive = Match.isParticipant,
@@ -796,6 +810,16 @@ local function reportLobby()
 			st.fillCalls,
 			st.grassCalls,
 			tostring(Lobby.Data.spotPosition())
+		)
+	)
+	-- THE WALK TO THE RANGE, ON ITS OWN LINE (task 315). `Lobby.stats()` lives in module state and
+	-- a live probe gets a FRESH copy of the module, so a counter that is only in `stats` is not a
+	-- diagnostic anybody can read in her place -- it has to be printed where it was counted.
+	print(
+		string.format(
+			"[lobby] the walk to the range: %d of our trees not planted in the corridor, %d of the world's taken off it",
+			st.sightlineDropped,
+			st.sightlineCleared
 		)
 	)
 	-- THE FOUR PADS, ON THEIR OWN LINE (task 182), for the reason the keeper has one: a pad whose part
