@@ -71,16 +71,48 @@ Range.CONFIG = {
 	-- An animal that slows to turn has a radius of `TURN_STUDS_PER_SECOND / (gait turn rate)` ~ 1.8
 	-- studs, which the apron holds with room to re-accelerate (`Boar.CONFIG.ACCEL` 60: 4.5 -> 24
 	-- studs/s in 0.33 s, ~4.6 studs). It is the WALK speed, so it is a gait the animal already has.
-	TURN_STUDS_PER_SECOND = 4.5,
+	-- Cycle 6: 4.5 left a ~2.1-stud pivot radius and the realign ate so much apron that the animal
+	-- was still accelerating at the span edge (98 % of samples at pace). 2.5 studs/s halves the
+	-- radius, so the pivot and the realign are over sooner and the whole run-up is inside the apron.
+	TURN_STUDS_PER_SECOND = 2.5,
 	-- BACK ON THE LANE LINE: within this of the lane's Z the reversal is over. 1 stud is inside the
 	-- +-2 the task asks for, with the whole apron still ahead to straighten in.
-	TURN_ALIGN_STUDS = 1,
+	TURN_ALIGN_STUDS = 0.3,
 	-- ...AND ACTUALLY GOING THE NEW WAY. At 10 Hz and 4.5 studs/s one step is 0.45 studs, so this is
 	-- progress and not sampling noise.
 	TURN_PROGRESS_STUDS = 0.1,
+	-- ...AND GOING IT STRAIGHT. Cycle 1 measured 5.01 studs still out with position alone: an animal
+	-- let go ON the line but still ANGLED to it accelerates to 24 studs/s and swings across. Z moved
+	-- per 10 Hz step, so 0.1 against a 0.45-stud step is a heading within ~13 degrees of the lane.
+	-- ...AND GOING IT STRAIGHT, AS AN ANGLE AND NOT AS A DISTANCE (cycle 7). A residual angle is not
+	-- corrected either -- the same deadband -- so it drifts the whole length of the leg. Measured as
+	-- |dZ| / |dX| of one step, it is independent of the turn speed and of `STEP_HZ`; as a distance
+	-- (cycles 2-6) it was 13 degrees at 4.5 studs/s and 9 at 2.5, which left TROT 2.20 studs out.
+	-- 0.02 is 1.1 degrees: under 2 studs across the 100-stud span.
+	TURN_STRAIGHT_RATIO = 0.02,
+	-- IT BRAKES BEFORE IT TURNS, AND THAT IS THE OTHER HALF (task 317, cycle 3). Cycles 1 and 2 slowed
+	-- the animal only AFTER the leg flipped, so the first ~70 degrees of the reversal were still
+	-- turned at 24 studs/s and threw it 4 studs off the line with apron left to spend. Braking
+	-- 24 -> 4.5 studs/s costs (24^2 - 4.5^2) / (2 * 60) = 4.6 studs, so the outer half of the apron
+	-- is the brake and the animal reaches the lane end already walking.
+	TURN_SLOW_STUDS = 10,
+	-- AND IT IS STEERED BACK ONTO THE LINE WHILE IT IS STILL IN THE APRON (task 317, cycle 4) --
+	-- the root cause the raw trace found. A pivot of radius ~2 studs leaves the animal ~3.8 studs
+	-- off the lane; aimed at the far lane end 120 studs away that is a heading error of 1.8 degrees,
+	-- INSIDE `Boar.CONFIG.PACE.TURN_DEADBAND_DEG` (4), so the animal never turns and carries the
+	-- offset the length of the leg. A lane-line point this far AHEAD makes the same 3.8 studs a
+	-- 32-degree error, which it does correct, and it corrects it inside the apron.
+	TURN_AIM_STUDS = 6,
+	-- ...AND IT FOLLOWS ITS LANE LINE FOR THE WHOLE LEG, NOT JUST THE TURN (cycle 8). Steering at a
+	-- lane END 120 studs away hides several studs of offset under the 4-degree deadband -- cycles 4
+	-- to 7 chased the exit angle instead and still drifted 2.2 studs by mid-span. A lane-line point
+	-- this many SECONDS ahead keeps the same offset at a correctable angle at every pace (14.4 studs
+	-- at run, 6.6 at trot), and is longer than `PACE.HEADING_SMOOTH_SECONDS` (0.35), so it steers
+	-- rather than oscillates. Pure pursuit: the lookahead is a time, not a distance.
+	AIM_SECONDS = 0.6,
 	-- A REVERSAL THAT NEVER FINISHES IS A STUCK ANIMAL, not a slow one: after this the pace is
-	-- restored whatever the geometry says, so a wedged target crawls for 4 s and never for ever.
-	TURN_MAX_SECONDS = 4,
+	-- restored whatever the geometry says, so a wedged target crawls for 6 s and never for ever.
+	TURN_MAX_SECONDS = 6,
 	-- One target per spot, never a sounder.
 	MAX_TARGETS = RangeData.LAYOUT.SPOT_COUNT,
 	-- SIX STATIONS, DRESSED (step B10), AND THIS COUNTS WHAT IS BUILT. DEV: 1 plate + 6 x (mat,
@@ -150,6 +182,7 @@ type Trial = {
 	turning: boolean,
 	turningSince: number?,
 	turnLastX: number?,
+	turnLastZ: number?,
 	carcassAt: number?,
 	releaseAt: number?,
 	-- SINCE WHEN NOBODY HAS BEEN AT THIS STATION, on the owner's own clock. nil means somebody is
@@ -334,6 +367,7 @@ local function newTrial(spot: number, pace: string): Trial
 		turning = false,
 		turningSince = nil,
 		turnLastX = nil,
+		turnLastZ = nil,
 		carcassAt = nil,
 		releaseAt = nil,
 		-- NOBODY HAS BEEN HERE YET, so an untouched station never releases: the clock starts at the
@@ -1067,6 +1101,7 @@ local function release(trial: Trial)
 	trial.turning = false
 	trial.turningSince = nil
 	trial.turnLastX = nil
+	trial.turnLastZ = nil
 	state.stats.spawns += 1
 end
 
@@ -1108,14 +1143,18 @@ end
 -- THREE WAYS OUT, and the FIRST is the guard that matters: a turn is never honoured INSIDE the span,
 -- so the crossing the board teaches can never be slowed by this and the worst case of a bug here is
 -- exactly today's game. Then: the animal is travelling the new leg's way AND is back on the lane
--- line. Then: `TURN_MAX_SECONDS`, so a wedged target crawls for 4 s and not for ever.
+-- line. Then: `TURN_MAX_SECONDS`, so a wedged target crawls for 6 s and not for ever.
+local function inSpan(trial: Trial, position: Vector3): boolean
+	local minX, maxX =
+		RangeData.sightSpanFor(state.anchor :: Vector3, trial.spot, RangeData.LAYOUT, trial.distanceStuds, state.solo)
+	return RangeData.inWindow(minX, maxX, position.X)
+end
+
 local function turnDone(trial: Trial, position: Vector3): boolean
 	if not trial.turning then
 		return true
 	end
-	local minX, maxX =
-		RangeData.sightSpanFor(state.anchor :: Vector3, trial.spot, RangeData.LAYOUT, trial.distanceStuds, state.solo)
-	if RangeData.inWindow(minX, maxX, position.X) then
+	if inSpan(trial, position) then
 		return true
 	end
 	local since = trial.turningSince
@@ -1132,12 +1171,18 @@ local function turnDone(trial: Trial, position: Vector3): boolean
 	if math.abs(position.Z - laneZ) > Range.CONFIG.TURN_ALIGN_STUDS then
 		return false
 	end
-	local lastX = trial.turnLastX
-	if lastX == nil then
+	local lastX, lastZ = trial.turnLastX, trial.turnLastZ
+	if lastX == nil or lastZ == nil then
 		return false
 	end
 	local heading = if (trial.leg % 2) == 1 then 1 else -1
-	return (position.X - (lastX :: number)) * heading >= Range.CONFIG.TURN_PROGRESS_STUDS
+	local alongX = (position.X - (lastX :: number)) * heading
+	if alongX < Range.CONFIG.TURN_PROGRESS_STUDS then
+		return false
+	end
+	-- STRAIGHT, not merely on the line: the step's Z against its X IS the heading, and an animal let
+	-- go angled swings across the lane as it accelerates back to pace (cycle 1: 5.01 studs out).
+	return math.abs(position.Z - (lastZ :: number)) <= Range.CONFIG.TURN_STRAIGHT_RATIO * alongX
 end
 
 local function order(trial: Trial, position: Vector3, dt: number)
@@ -1169,6 +1214,10 @@ local function order(trial: Trial, position: Vector3, dt: number)
 			trial.distanceStuds,
 			state.solo
 		)
+		-- BRAKING: the last stretch of the leg, before the end it is about to turn at. Measured on the
+		-- CURRENT leg's end, so it must be read before the flip below moves `point` to the far one.
+		local braking = (Vector3.new(position.X, 0, position.Z) - Vector3.new(point.X, 0, point.Z)).Magnitude
+			<= Range.CONFIG.TURN_SLOW_STUDS
 		-- THE FLIP, and it is the range's reason to exist in one line: ISSF's mandatory direction
 		-- change, so neither shoulder is favoured and no single lead is ever trained.
 		if
@@ -1202,16 +1251,28 @@ local function order(trial: Trial, position: Vector3, dt: number)
 		end
 		speed = trial.speedStudsPerSecond
 		direction = if (trial.leg % 2) == 1 then "east" else "west"
+		local legEnd = point
 		-- ...AND THE REVERSAL IS SPENT AT A WALK, IN THE APRON (task 317). The point is unchanged --
 		-- the far lane end, on the lane line -- so this is one number on the existing seam and not a
 		-- second route. `turnDone` is the only thing that ends it.
 		if turnDone(trial, position) then
 			trial.turning = false
 			trial.turningSince = nil
-		elseif trial.turning then
+		end
+		-- ONE GUARD FOR BOTH HALVES: neither the brake nor the pivot is ever honoured INSIDE the
+		-- span, so the crossing the board teaches cannot be slowed by this.
+		if (trial.turning or braking) and not inSpan(trial, position) then
 			speed = Range.CONFIG.TURN_STUDS_PER_SECOND
 		end
+		-- THE POINT IS ON THE LANE LINE, A LOOKAHEAD AHEAD -- never off it, and never the far end.
+		-- CLAMPED AT THE LEG'S END so the animal still arrives there and the flip above still fires.
+		local heading = if (trial.leg % 2) == 1 then 1 else -1
+		local lookahead = math.max(Range.CONFIG.TURN_AIM_STUDS, speed * Range.CONFIG.AIM_SECONDS)
+		local aimX = position.X + heading * lookahead
+		aimX = if heading > 0 then math.min(aimX, legEnd.X) else math.max(aimX, legEnd.X)
+		point = Vector3.new(aimX, legEnd.Y, legEnd.Z)
 		trial.turnLastX = position.X
+		trial.turnLastZ = position.Z
 	end
 
 	trial.directions[direction] = (trial.directions[direction] or 0) + 1

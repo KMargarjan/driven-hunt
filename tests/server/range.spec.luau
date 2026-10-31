@@ -1445,10 +1445,21 @@ return function()
 				-- which is 6 % of the fastest crossing and inside the tolerance for all three.
 				local err = math.abs(measured - predicted) / predicted
 				expect(err <= Range.CONFIG.CROSSING_TOLERANCE).to.equal(true)
-				-- ...and every order carried that pace's speed, never another's.
+				-- ...and every order carried that pace's speed, never another's -- OR task 317's
+				-- reversal walk, which is only ever issued OUTSIDE the span. Asked as membership
+				-- AND as a count of each, so "all of them were the turn speed" cannot pass.
+				local atPace, atTurn, other = 0, 0, 0
 				for _, lead in ipairs(fake.leadsAt(1)) do
-					expect(lead.speed).to.equal(asked)
+					if lead.speed == asked then
+						atPace += 1
+					elseif lead.speed == Range.CONFIG.TURN_STUDS_PER_SECOND then
+						atTurn += 1
+					else
+						other += 1
+					end
 				end
+				expect(other).to.equal(0)
+				expect(atPace > 0).to.equal(true)
 				table.insert(
 					rows,
 					string.format("%s %.2f s (predicted %.2f, %.1f %%)", pace, measured, predicted, err * 100)
@@ -1456,6 +1467,131 @@ return function()
 				Range.stop()
 			end
 			TestKit.note("range: measured crossings (T5) -- " .. table.concat(rows, " · "))
+		end)
+
+		-- ---------------------------------------------------------- TASK 317: THE LANE IS A LINE
+		-- Karen, 2026-10-30: she tests walk/trot/run across the whole span, so the distance she
+		-- PICKED has to be the distance she SHOOTS. MEASURED on main in her place: at RUN the animal
+		-- was 19.72 studs off its own lane line INSIDE the span -- 144.7 studs from a shooter who
+		-- picked 125 -- because the 180-degree reversal was arced across the span edge and, aimed at
+		-- a lane end 120 studs away, a 2-stud offset is 1 degree, inside the Brain's 4-degree
+		-- TURN_DEADBAND_DEG, so it was never corrected.
+		--
+		-- THE FAKE RUNTIME CANNOT REPRODUCE THE ARC -- it walks straight at whatever point it is
+		-- given -- so these cases assert the LEVER, the order this module issues, and the live
+		-- per-leg measurement in Karen's place is what asserts the result.
+		it("issues a point ON the lane line a lookahead ahead, never the lane end 120 studs away", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
+			expect(Range.setPace(1, "run")).to.equal(true)
+			advance(fake, clock, 1.0)
+			local trial = Range.trialOf(1) :: any
+			local anchor = Vector3.new(DEV_ROW.x, 0, DEV_ROW.z)
+			local legEnd = RangeData.laneEndsFor(
+				anchor,
+				LAYOUT,
+				trial.leg,
+				RangeData.downrangeOf(DEV_ROW),
+				1,
+				trial.distanceStuds,
+				true
+			)
+			local animal = fake.at(1)
+			expect(animal).to.be.ok()
+			local leads = fake.leadsAt(1)
+			local last = leads[#leads]
+			expect(last).to.be.ok()
+			-- ON THE LANE LINE: the issued Z is the lane's, to the stud.
+			expect(math.abs(last.point.Z - legEnd.Z) < 1e-6).to.equal(true)
+			-- ...AND A LOOKAHEAD AHEAD OF THE ANIMAL, not the end of the leg. With the task-317
+			-- block deleted this is the lane end, which is the whole leg away.
+			local ahead = math.abs(last.point.X - animal.position.X)
+			local toEnd = math.abs(legEnd.X - animal.position.X)
+			expect(toEnd > Range.CONFIG.TURN_AIM_STUDS).to.equal(true)
+			expect(ahead <= math.max(Range.CONFIG.TURN_AIM_STUDS, last.speed * Range.CONFIG.AIM_SECONDS) + 1e-6).to.equal(
+				true
+			)
+			expect(ahead < toEnd).to.equal(true)
+			TestKit.note(
+				string.format("range 317: aim point %.1f studs ahead on the lane line, leg end %.1f away", ahead, toEnd)
+			)
+			Range.stop()
+		end)
+
+		-- THE CLAMP IS WHAT KEEPS THE FLIP ALIVE: a lookahead that never reaches the end is an
+		-- animal that never turns around, so the leg still has to flip and the crossing still has
+		-- to be measured. This is the case that would catch a lookahead with no clamp.
+		it("still reaches the lane end and flips, and still measures a crossing, with the lookahead", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
+			expect(Range.setPace(1, "run")).to.equal(true)
+			local trial = Range.trialOf(1) :: any
+			local asked = trial.speedStudsPerSecond
+			advance(fake, clock, 6 * RangeData.laneLength(LAYOUT) / asked + 4)
+			expect(Range.stats().flips >= 2).to.equal(true)
+			trial = Range.trialOf(1) :: any
+			expect(trial.crossings >= 1).to.equal(true)
+			Range.stop()
+		end)
+
+		-- THE REVERSAL IS SPENT OUTSIDE THE SPAN, AND THE GUARD IS THE POINT OF THE CASE: the turn
+		-- walk may never be issued INSIDE the span, or the crossing the board teaches would be
+		-- slowed by it. Both halves, in one case: it IS issued out there, and it is NEVER issued in.
+		it("walks the reversal only OUTSIDE the span, never inside it", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
+			expect(Range.setPace(1, "run")).to.equal(true)
+			local trial = Range.trialOf(1) :: any
+			local asked = trial.speedStudsPerSecond
+			local anchor = Vector3.new(DEV_ROW.x, 0, DEV_ROW.z)
+			local lo, hi = RangeData.sightSpanFor(anchor, 1, LAYOUT, trial.distanceStuds, true)
+			-- A TARGET IS RELEASED `RELEASE_SECONDS` AFTER THE STATION IS OCCUPIED, so there is no
+			-- animal to watch until that has been spent.
+			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 2)
+			expect(fake.at(1)).to.be.ok()
+			local insideAtTurn, outsideAtTurn, insideAtPace = 0, 0, 0
+			local dt = 1 / 60
+			for _ = 1, math.floor((6 * RangeData.laneLength(LAYOUT) / asked + 4) / dt) do
+				clock.t += dt
+				fake.advance(dt)
+				Range.step(dt)
+				local leads = fake.leadsAt(1)
+				local last = leads[#leads]
+				local here = fake.at(1) :: any
+				if last ~= nil and here ~= nil then
+					local x = here.position.X
+					local inside = x >= lo and x <= hi
+					if last.speed == Range.CONFIG.TURN_STUDS_PER_SECOND then
+						if inside then
+							insideAtTurn += 1
+						else
+							outsideAtTurn += 1
+						end
+					elseif inside and last.speed == asked then
+						insideAtPace += 1
+					end
+				end
+			end
+			-- NEVER INSIDE. This is the guard; it is 0 on main too, which is why the next two lines
+			-- are what make the case fail there.
+			expect(insideAtTurn).to.equal(0)
+			-- ...AND IT REALLY HAPPENED OUT THERE. On main every order is the pace speed, so this
+			-- is 0 and the case is red.
+			expect(outsideAtTurn > 0).to.equal(true)
+			-- ...and the span itself is still run at the pace that was asked for.
+			expect(insideAtPace > 0).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range 317: reversal walk issued on %d steps outside the span, %d inside; %d at-pace steps inside",
+					outsideAtTurn,
+					insideAtTurn,
+					insideAtPace
+				)
+			)
+			Range.stop()
 		end)
 
 		-- `mixed` IS NOT A SIXTH SPEED: every LEG is drawn as slow OR fast, so every crossing it
