@@ -1765,8 +1765,20 @@ return function()
 			expect(Range.setPace(1, RangeData.WORD.MIXED)).to.equal(true)
 			local slowSpeed = RangeData.paceSpeedFor("slow", LAYOUT, speedOf)
 			local fastSpeed = RangeData.paceSpeedFor("fast", LAYOUT, speedOf)
-			-- Long enough for several legs at the SLOWER of the two.
-			advance(fake, clock, 6 * RangeData.laneLength(LAYOUT) / slowSpeed)
+			-- Long enough for several legs at the SLOWER of the two. STATION 1's OWN ANIMALS, kept as
+			-- they come: a pass retires its animal (task 321), so the orders of the leg BEFORE this
+			-- one belong to an id `leadsAt(1)` no longer answers for.
+			local mine: { [string]: boolean } = {}
+			local dt = 1 / 60
+			for _ = 1, math.floor((6 * RangeData.laneLength(LAYOUT) / slowSpeed) / dt) do
+				clock.t += dt
+				fake.advance(dt)
+				Range.step(dt)
+				local id = (Range.trialOf(1) :: any).targetId
+				if id ~= nil then
+					mine[id :: string] = true
+				end
+			end
 			local trial = Range.trialOf(1) :: any
 			expect(trial.crossings >= 2).to.equal(true)
 			-- THE REDRAW HAPPENED, AND ON THIS LEG: `legDrawn` is nil with the block deleted.
@@ -1776,7 +1788,10 @@ return function()
 			-- EVERY ORDER WAS ONE OF EXACTLY TWO SPEEDS, asked as membership and not as a count
 			-- (a count of 0 is truthy in Lua, which is how the old case passed)...
 			local slowOrders, fastOrders, other = 0, 0, 0
-			for _, lead in ipairs(fake.leadsAt(1)) do
+			for _, lead in ipairs(fake.leads) do
+				if not mine[lead.id] then
+					continue
+				end
 				if lead.speed == slowSpeed then
 					slowOrders += 1
 				elseif lead.speed == fastSpeed then
@@ -2383,12 +2398,15 @@ return function()
 			-- and the idle clock would find nothing left to clear.
 			expect(Range.setPace(1, RangeData.WORD.STAND)).to.equal(true)
 			expect(Range.setPace(2, RangeData.WORD.STAND)).to.equal(true)
+			local hisBefore = (fake.at(1) :: any).id
 			crowd.set({ 1 })
 			advance(fake, clock, Range.CONFIG.IDLE_CLEAR_SECONDS + 1)
 			expect(Range.stats().idleClears).to.equal(1)
 			expect(Range.stats().wideClears >= 1).to.equal(true)
-			-- ...and station 1's animal went with it, which is the defect, measured.
-			expect(fake.at(1)).to.equal(nil)
+			-- ...AND STATION 1'S ANIMAL WENT WITH IT, which is the defect, measured by ITS id: since
+			-- task 321 a target the owner finds gone is re-released on the next tick, so the station
+			-- is not empty 1 s later -- the animal that was taken is still the animal that was taken.
+			expect(fake.animals[hisBefore]).to.equal(nil)
 			expect(Range.stats().lostTargets >= 1).to.equal(true)
 			Range.stop()
 		end)
