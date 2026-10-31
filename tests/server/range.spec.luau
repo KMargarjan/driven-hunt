@@ -1617,9 +1617,11 @@ return function()
 					seen[id :: string] = true
 					table.insert(ids, id :: string)
 				end
+				-- STATION 1's OWN, and not the firing line's: the default crowd is six men, so six
+				-- animals are alive at any moment and only this station's are this case's business.
 				local alive = 0
 				for _, animal in pairs(fake.animals) do
-					if animal.alive then
+					if animal.alive and seen[animal.id] == true then
 						alive += 1
 					end
 				end
@@ -2376,7 +2378,10 @@ return function()
 			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
 			advance(fake, clock, 1)
 			expect(fake.spawns).to.equal(2)
-			-- STANDING, so the IDLE arm is what clears it and not the end of a pass (task 321).
+			-- BOTH STANDING, so the IDLE arm is the only clear there is (task 321): the seam here is
+			-- the range-WIDE one, so a pass ending at EITHER station would take both animals first
+			-- and the idle clock would find nothing left to clear.
+			expect(Range.setPace(1, RangeData.WORD.STAND)).to.equal(true)
 			expect(Range.setPace(2, RangeData.WORD.STAND)).to.equal(true)
 			crowd.set({ 1 })
 			advance(fake, clock, Range.CONFIG.IDLE_CLEAR_SECONDS + 1)
