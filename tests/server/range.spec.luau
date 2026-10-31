@@ -1519,20 +1519,54 @@ return function()
 			Range.stop()
 		end)
 
-		-- THE CLAMP IS WHAT KEEPS THE FLIP ALIVE: a lookahead that never reaches the end is an
-		-- animal that never turns around, so the leg still has to flip and the crossing still has
-		-- to be measured. This is the case that would catch a lookahead with no clamp.
-		it("still reaches the lane end and flips, and still measures a crossing, with the lookahead", function()
+		-- THE CLAMP, ASSERTED WHERE IT BINDS (round 1, the blocking finding, which was right). The
+		-- first version of this case asked for flips and a crossing, and BOTH are true with the whole
+		-- lookahead deleted -- the flip is tested against `laneEndsFor`, recomputed each scan, and
+		-- never against the issued point, so an unclamped carrot sails past the end and the animal
+		-- flips anyway. What only the clamp can give is this: no issued point is ever BEYOND the
+		-- leg's end for that leg's heading, and at least one IS the end. Delete the clamp and the
+		-- carrot runs a lookahead past it -- into the bank, in the live world.
+		it("never orders the animal PAST the lane end, and does order it TO the end", function()
 			local clock, now = newClock()
 			local fake = newFakeBoars()
 			expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
 			expect(Range.setPace(1, "run")).to.equal(true)
 			local trial = Range.trialOf(1) :: any
 			local asked = trial.speedStudsPerSecond
+			local anchor = Vector3.new(DEV_ROW.x, 0, DEV_ROW.z)
+			local down = RangeData.downrangeOf(DEV_ROW)
+			-- The two ends the legs alternate between: odd legs run east, even legs west.
+			local eastX = RangeData.laneEndsFor(anchor, LAYOUT, 1, down, 1, trial.distanceStuds, true).X
+			local westX = RangeData.laneEndsFor(anchor, LAYOUT, 2, down, 1, trial.distanceStuds, true).X
+			expect(eastX > westX).to.equal(true)
 			advance(fake, clock, 6 * RangeData.laneLength(LAYOUT) / asked + 4)
 			expect(Range.stats().flips >= 2).to.equal(true)
-			trial = Range.trialOf(1) :: any
-			expect(trial.crossings >= 1).to.equal(true)
+			expect((Range.trialOf(1) :: any).crossings >= 1).to.equal(true)
+			local past, atEnd, total = 0, 0, 0
+			for _, lead in ipairs(fake.leadsAt(1)) do
+				total += 1
+				if lead.point.X > eastX + 1e-6 or lead.point.X < westX - 1e-6 then
+					past += 1
+				end
+				if math.abs(lead.point.X - eastX) < 1e-6 or math.abs(lead.point.X - westX) < 1e-6 then
+					atEnd += 1
+				end
+			end
+			expect(total > 0).to.equal(true)
+			-- NEVER BEYOND. Without the clamp the carrot is `AIM_SECONDS` of run past the end.
+			expect(past).to.equal(0)
+			-- ...AND THE END IS REALLY ISSUED, so `past == 0` is not just "it never got near it".
+			expect(atEnd > 0).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range 317: %d orders, %d at a lane end, %d beyond one (ends %.1f / %.1f)",
+					total,
+					atEnd,
+					past,
+					westX,
+					eastX
+				)
+			)
 			Range.stop()
 		end)
 
@@ -1548,9 +1582,9 @@ return function()
 			local asked = trial.speedStudsPerSecond
 			local anchor = Vector3.new(DEV_ROW.x, 0, DEV_ROW.z)
 			local lo, hi = RangeData.sightSpanFor(anchor, 1, LAYOUT, trial.distanceStuds, true)
-			-- A TARGET IS RELEASED `RELEASE_SECONDS` AFTER THE STATION IS OCCUPIED, so there is no
-			-- animal to watch until that has been spent.
-			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 2)
+			-- A FEW SECONDS OF LANE before the counting starts, so the animal is under way rather
+			-- than sitting at the end it was released from.
+			advance(fake, clock, 4)
 			expect(fake.at(1)).to.be.ok()
 			local insideAtTurn, outsideAtTurn, insideAtPace = 0, 0, 0
 			local dt = 1 / 60

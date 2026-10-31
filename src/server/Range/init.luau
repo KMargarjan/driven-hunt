@@ -68,18 +68,18 @@ Range.CONFIG = {
 	-- place: at RUN the animal was 19.7 studs off its own lane line INSIDE the span -- 144.7 studs
 	-- from a shooter who picked 125 (+15.8 %) -- because a 180-degree reversal at 24 studs/s has a
 	-- turning radius the 20-stud apron cannot hold, so the arc spilled over the span edge.
-	-- An animal that slows to turn has a radius of `TURN_STUDS_PER_SECOND / (gait turn rate)` ~ 1.8
-	-- studs, which the apron holds with room to re-accelerate (`Boar.CONFIG.ACCEL` 60: 4.5 -> 24
-	-- studs/s in 0.33 s, ~4.6 studs). It is the WALK speed, so it is a gait the animal already has.
-	-- Cycle 6: 4.5 left a ~2.1-stud pivot radius and the realign ate so much apron that the animal
-	-- was still accelerating at the span edge (98 % of samples at pace). 2.5 studs/s halves the
-	-- radius, so the pivot and the realign are over sooner and the whole run-up is inside the apron.
+	-- An animal that slows to turn has a radius of `TURN_STUDS_PER_SECOND / (gait turn rate)`, and
+	-- the apron has to hold the pivot AND the re-acceleration (`Boar.CONFIG.ACCEL` 60: 2.5 -> 24
+	-- studs/s in 0.36 s, ~4.8 studs). Cycle 1 used 4.5, the walk: a ~2.1-stud radius whose realign
+	-- ate so much apron that the animal was still accelerating at the span edge (98 % of samples at
+	-- pace). 2.5 halves the radius, and it is inside the WALK gait band, so it is a gait and a clip
+	-- the animal already has.
 	TURN_STUDS_PER_SECOND = 2.5,
-	-- BACK ON THE LANE LINE: within this of the lane's Z the reversal is over. 1 stud is inside the
-	-- +-2 the task asks for, with the whole apron still ahead to straighten in.
+	-- BACK ON THE LANE LINE: within this of the lane's Z the reversal is over. Cycle 5 brought it
+	-- from 1 stud to 0.3 -- well inside the +-2 the task asks for, with apron left to straighten in.
 	TURN_ALIGN_STUDS = 0.3,
-	-- ...AND ACTUALLY GOING THE NEW WAY. At 10 Hz and 4.5 studs/s one step is 0.45 studs, so this is
-	-- progress and not sampling noise.
+	-- ...AND ACTUALLY GOING THE NEW WAY. At `STEP_HZ` 10 and the turn speed above one step is 0.25
+	-- studs, so this is progress and not sampling noise.
 	TURN_PROGRESS_STUDS = 0.1,
 	-- ...AND GOING IT STRAIGHT. Cycle 1 measured 5.01 studs still out with position alone: an animal
 	-- let go ON the line but still ANGLED to it accelerates to 24 studs/s and swings across. Z moved
@@ -88,13 +88,14 @@ Range.CONFIG = {
 	-- corrected either -- the same deadband -- so it drifts the whole length of the leg. Measured as
 	-- |dZ| / |dX| of one step, it is independent of the turn speed and of `STEP_HZ`; as a distance
 	-- (cycles 2-6) it was 13 degrees at 4.5 studs/s and 9 at 2.5, which left TROT 2.20 studs out.
-	-- 0.02 is 1.1 degrees: under 2 studs across the 100-stud span.
+	-- 0.02 is 1.1 degrees. It is the TIGHTEST of the three exits below, so on a physics animal the
+	-- reversal often ends on `inSpan` or `TURN_MAX_SECONDS` instead; all three leave it on the line.
 	TURN_STRAIGHT_RATIO = 0.02,
 	-- IT BRAKES BEFORE IT TURNS, AND THAT IS THE OTHER HALF (task 317, cycle 3). Cycles 1 and 2 slowed
 	-- the animal only AFTER the leg flipped, so the first ~70 degrees of the reversal were still
 	-- turned at 24 studs/s and threw it 4 studs off the line with apron left to spend. Braking
-	-- 24 -> 4.5 studs/s costs (24^2 - 4.5^2) / (2 * 60) = 4.6 studs, so the outer half of the apron
-	-- is the brake and the animal reaches the lane end already walking.
+	-- 24 -> 2.5 studs/s costs (24^2 - 2.5^2) / (2 * `Boar.CONFIG.ACCEL` 60) = 4.7 studs, so the
+	-- outer half of the apron is the brake and the animal reaches the lane end already walking.
 	TURN_SLOW_STUDS = 10,
 	-- AND IT IS STEERED BACK ONTO THE LINE WHILE IT IS STILL IN THE APRON (task 317, cycle 4) --
 	-- the root cause the raw trace found. A pivot of radius ~2 studs leaves the animal ~3.8 studs
@@ -1260,7 +1261,11 @@ local function order(trial: Trial, position: Vector3, dt: number)
 			trial.turningSince = nil
 		end
 		-- ONE GUARD FOR BOTH HALVES: neither the brake nor the pivot is ever honoured INSIDE the
-		-- span, so the crossing the board teaches cannot be slowed by this.
+		-- span, so the crossing the board teaches cannot be slowed by this. THE GUARD IS `turnDone`'s
+		-- own `inSpan` branch -- this one is redundant today and is kept deliberately: `braking` is
+		-- measured to a lane end one whole `APRON_STUDS` (20) outside the span against
+		-- `TURN_SLOW_STUDS` (10), so it cannot be true in there either, and both of those are
+		-- numbers a later task could move. No case can convict this line; it is a belt, not a rule.
 		if (trial.turning or braking) and not inSpan(trial, position) then
 			speed = Range.CONFIG.TURN_STUDS_PER_SECOND
 		end
