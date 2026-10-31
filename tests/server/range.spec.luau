@@ -530,9 +530,9 @@ return function()
 					prompts += 1
 				end
 			end
-			-- TWO PER STATION SINCE STEP B3 (the bench's post and the stand's rail, design 7.3) and
-			-- FOUR SINCE B10: the climb up at the ladder's foot and the climb down over the rail gap.
-			expect(prompts).to.equal(4 * LAYOUT.SPOT_COUNT)
+			-- ONE PER STATION SINCE TASK 320: the bench's own post. It was FOUR (the stand's rail
+			-- and the two climbs went with the towers).
+			expect(prompts).to.equal(LAYOUT.SPOT_COUNT)
 			expect(LAYOUT.SPOT_COUNT).to.equal(6)
 			-- SIX OF EACH, BY NAME: one mat, one post and one prompt per station (design 5.4).
 			for spot = 1, LAYOUT.SPOT_COUNT do
@@ -922,17 +922,16 @@ return function()
 				error(table.concat(overhang, " | "))
 			end
 			expect(#overhang).to.equal(0)
-			-- THE PLATE, THE SIX MATS, THE SIX POSTS, THE SIX BENCHES, THE SIX SEATS, THE TWO BANKS
-			-- AND THE BERM -- counted from the seat's own published size, never from 84.
+			-- THE PLATE, THE SIX MATS, THE SIX POSTS, THE SIX BENCHES, THE TWO BANKS AND THE BERM.
+			-- NO SEATS SINCE TASK 320 (no towers): the term was
+			-- `SPOT_COUNT * HighSeats.PARTS_PER_SEAT` and it is gone, which is 84 fewer parts.
 			-- ...PLUS WHAT STEP B10 DRESSES IT WITH, counted the same way: per station four hut
 			-- posts, a roof and a number board; then ONE turf slab, the fence's own posts and its
 			-- two rails. Written as the arithmetic and not as 165, so a part that appears or
 			-- disappears moves this number rather than passing under it.
 			local dressed = LAYOUT.SPOT_COUNT * 6
 				+ #RangeData.turfSlabs((b :: any).anchor, LAYOUT, (b :: any).downrange, DEV_ROW)
-			expect(b.parts).to.equal(
-				1 + 3 * LAYOUT.SPOT_COUNT + LAYOUT.SPOT_COUNT * HighSeats.PARTS_PER_SEAT + 3 + dressed
-			)
+			expect(b.parts).to.equal(1 + 3 * LAYOUT.SPOT_COUNT + 3 + dressed)
 			expect(b.parts <= Range.CONFIG.MAX_PARTS).to.equal(true)
 			TestKit.note(
 				string.format(
@@ -1166,77 +1165,77 @@ return function()
 	end)
 
 	-- ------------------------------------------ 3c. WHAT `Build` LAYS FOR THE SECOND POSITION (B3)
-	describe("Build: the bench and the treestand", function()
+	-- TASK 320: NO TOWERS. Karen, 2026-10-31: *"and remove towers we dont need them in shooting
+	-- range"*. This block asserted the six seats B3 built; it now asserts they are NOT built, case
+	-- for case (the bench half of each is unchanged). `backups/task-320/` holds the removed code.
+	describe("Build: the bench, and NO treestand (task 320)", function()
 		local function buildInto(row, groundAt)
 			local parent = Instance.new("Folder")
 			local built = Range.Build.build({ parent = parent, row = row, layout = LAYOUT, groundAt = groundAt })
 			return built :: any, parent
 		end
 
-		it("lays a bench and a 14-piece seat at every station, with the ladder and the gap UPRANGE", function()
-			-- BOTH SIGNS OF THE LANE, because the whole of `facing` is that the seat turns WITH the
-			-- row: a constant would put the ladder in front of the DEV shooter (design 7.1, L-019).
+		it("lays a bench at every station and NOT ONE seat part: no deck, no ladder, no rail", function()
+			-- BOTH SIGNS OF THE LANE, as the seat case did: nothing may build a tower either way.
 			for _, dir in ipairs({ 1, -1 }) do
 				local row = { x = DEV_ROW.x, z = DEV_ROW.z, y = DEV_ROW.y, plate = true, downrange = dir }
 				local b, parent = buildInto(row, nil)
 				expect(b).to.be.ok()
 				expect(b.downrange).to.equal(dir)
-				expect(b.stands).to.equal(LAYOUT.SPOT_COUNT)
+				expect(b.stands).to.equal(0)
 				expect(b.refusedStands).to.equal(0)
+				expect(next(b.deckTops)).to.equal(nil)
 				for spot = 1, LAYOUT.SPOT_COUNT do
-					-- THE BENCH, at its own arithmetic point.
+					-- THE BENCH, at its own arithmetic point: unchanged by this task.
 					local bench = b.folder:FindFirstChild(RangeData.benchName(spot))
 					expect(bench).to.be.ok()
 					local wantedBench = RangeData.benchPosition(b.anchor, spot, LAYOUT, dir)
 					expect(((bench :: BasePart).Position - wantedBench).Magnitude < 1e-3).to.equal(true)
-					-- THE SEAT, in a folder of its own, with the seat's own part count.
-					local seat = b.folder:FindFirstChild(RangeData.standName(spot))
-					expect(seat).to.be.ok()
-					local pieces = 0
-					for _, child in ipairs((seat :: Instance):GetDescendants()) do
-						if child:IsA("BasePart") then
-							pieces += 1
+					-- ...AND NO SEAT FOLDER AND NO DECK TOP AT THAT STATION.
+					expect(b.folder:FindFirstChild(RangeData.standName(spot))).to.equal(nil)
+					expect(b.deckTops[spot]).to.equal(nil)
+				end
+				-- NOT ONE PIECE OF A SEAT ANYWHERE UNDER THE FOLDER, by NAME and by CLASS: the
+				-- ladder is the one TrussPart the range ever built, so a count of zero of them is
+				-- a second, independent reading of the same removal.
+				local seatNames = { Deck = true, Ladder = true, Leg1 = true, Girt = true, RailN = true }
+				local trusses = 0
+				for _, child in ipairs(b.folder:GetDescendants()) do
+					if child:IsA("BasePart") then
+						expect(seatNames[child.Name]).to.equal(nil)
+						if child:IsA("TrussPart") then
+							trusses += 1
 						end
 					end
-					expect(pieces).to.equal(HighSeats.PARTS_PER_SEAT)
-					-- THE DECK IS WHERE THE ARITHMETIC SAYS, and its top is what `deckTops` reports.
-					local deck = (seat :: Instance):FindFirstChild("Deck") :: BasePart
-					local at = RangeData.standPosition(b.anchor, spot, LAYOUT, dir)
-					expect(math.abs(deck.Position.X - at.X) < 1e-3).to.equal(true)
-					expect(math.abs(deck.Position.Z - at.Z) < 1e-3).to.equal(true)
-					expect(math.abs(b.deckTops[spot] - (deck.Position.Y + deck.Size.Y / 2)) < 1e-3).to.equal(true)
-					expect(math.abs(b.deckTops[spot] - (b.shelf + HighSeats.DIMS.DECK_RISE_STUDS)) < 1e-3).to.equal(
-						true
-					)
-					-- THE MIRROR, READ OFF THE BUILT PARTS: the ladder and the rail's GAP stand on
-					-- the UPRANGE face, behind the shooter, and the solid board faces downrange as
-					-- the shooting rest `high-seats.md` 5.3 designed it.
-					local ladder = (seat :: Instance):FindFirstChild("Ladder") :: BasePart
-					expect((ladder.Position.Z - deck.Position.Z) * dir < 0).to.equal(true)
-					for _, name in ipairs({ "RailSE", "RailSW" }) do
-						local stub = (seat :: Instance):FindFirstChild(name) :: BasePart
-						expect((stub.Position.Z - deck.Position.Z) * dir < 0).to.equal(true)
-					end
-					local solid = (seat :: Instance):FindFirstChild("RailN") :: BasePart
-					expect((solid.Position.Z - deck.Position.Z) * dir > 0).to.equal(true)
-					-- AND THE LADDER IS CLIMBED BY THE ENGINE, with no script and no key.
-					expect(ladder:IsA("TrussPart")).to.equal(true)
 				end
-				-- THE MAT IS STILL THE FOLDER'S FIRST DIRECT-CHILD BasePart: the harness's stage
-				-- block puts the player on it, and 84 seat parts must not get in front of it.
+				expect(trusses).to.equal(0)
+				-- AND NOTHING THE SHOOTER STANDS AMONG RISES OVER THE HUT'S OWN ROOF: the deck's
+				-- rail top was shelf+14.9 against a roof at shelf+9.6, so the tallest thing left
+				-- on the firing line is the hut (her place at main: 320-census-main.txt in the
+				-- runs dir read the same two numbers). The EARTH is not in this count -- the berm
+				-- and the two banks are the backstop, downrange, and task 320 moved neither.
+				local earth = { Berm = true, BankEast = true, BankWest = true }
+				local tallest, tallestName = 0, "nothing"
+				for _, child in ipairs(b.folder:GetDescendants()) do
+					if child:IsA("BasePart") and earth[child.Name] == nil then
+						local top = child.Position.Y + child.Size.Y / 2 - b.shelf
+						if top > tallest then
+							tallest, tallestName = top, child.Name
+						end
+					end
+				end
+				expect(tallest < LAYOUT.HUT.roofRise + LAYOUT.HUT.roofSize.Y + 0.5).to.equal(true)
 				local first = b.folder:FindFirstChildWhichIsA("BasePart")
 				expect(first.Name).to.equal(RangeData.matName(1))
 				expect(b.parts <= Range.CONFIG.MAX_PARTS).to.equal(true)
 				if dir == 1 then
 					TestKit.note(
 						string.format(
-							"range B3: %d parts, %d stands, deck tops %.1f (shelf %.1f + %.1f), bench %.1f tall",
+							"range 320: %d parts, %d stands, tallest %s at +%.1f over the shelf",
 							b.parts,
 							b.stands,
-							b.deckTops[1],
-							b.shelf,
-							HighSeats.DIMS.DECK_RISE_STUDS,
-							LAYOUT.BENCH.size.Y
+							tallestName,
+							tallest
 						)
 					)
 				end
@@ -1244,60 +1243,42 @@ return function()
 			end
 		end)
 
-		it("gives every station TWO prompts, each found by name, and neither in the other's reach", function()
+		it("gives every station ONE prompt -- its bench's -- and no stand prompt and no climb prompt", function()
 			local dir = 1
 			local row = { x = DEV_ROW.x, z = DEV_ROW.z, y = DEV_ROW.y, plate = true, downrange = dir }
 			local b, parent = buildInto(row, nil)
-			local reach = LAYOUT.PROMPT.MaxActivationDistance
-			local stand = {}
-			for spot = 1, LAYOUT.SPOT_COUNT do
-				local bench = RangeData.promptFor(spot, RangeData.POSITION.BENCH, b.folder)
-				local high = RangeData.promptFor(spot, RangeData.POSITION.TREESTAND, b.folder)
-				expect(bench).to.be.ok()
-				expect(high).to.be.ok()
-				expect(high.Name).to.equal(RangeData.promptName(spot, RangeData.POSITION.TREESTAND))
-				expect(high.Name ~= bench.Name).to.equal(true)
-				local benchAt = RangeData.promptPointOf(bench) :: Vector3
-				local highAt = RangeData.promptPointOf(high) :: Vector3
-				stand[spot] = highAt
-				-- THE BUILT PROMPT IS WHERE THE ARITHMETIC SAYS (over a plate the shelf and the
-				-- measured ground are one point), so the screen's claim and the world agree.
-				local wanted = RangeData.promptPosition(b.anchor, spot, LAYOUT, dir, RangeData.POSITION.TREESTAND)
-				expect((highAt - wanted).Magnitude < 1e-3).to.equal(true)
-				-- THEY CANNOT BE CONFUSED FOR ONE REACH, which is why the stand needs its own at
-				-- all: deck centre to post top is 22.9 studs against a 12-stud reach.
-				local deckAt = RangeData.standPosition(b.anchor, spot, LAYOUT, dir)
-					+ Vector3.new(0, b.deckTops[spot] - b.anchor.Y, 0)
-				expect((deckAt - highAt).Magnitude <= reach).to.equal(true)
-				expect((deckAt - benchAt).Magnitude > reach).to.equal(true)
-				expect(RangeData.atSpot(highAt, deckAt, LAYOUT)).to.equal(true)
-				expect(RangeData.atSpot(benchAt, deckAt, LAYOUT)).to.equal(false)
-				-- ...AND A MAN ON THE MAT CANNOT PRESS THE STAND'S ONE.
-				local mat = RangeData.matPosition(b.anchor, spot, LAYOUT)
-				expect(RangeData.atSpot(highAt, mat, LAYOUT)).to.equal(false)
+			local prompts = 0
+			for _, child in ipairs(b.folder:GetDescendants()) do
+				if child:IsA("ProximityPrompt") then
+					prompts += 1
+					-- EVERY PROMPT THE RANGE BUILDS IS A BENCH PROMPT, by name.
+					expect(string.match(child.Name, "^" .. RangeData.PROMPT_NAME .. "%d+$") ~= nil).to.equal(true)
+					expect(child.ObjectText).to.equal(LAYOUT.PROMPT.ObjectText)
+					expect(child.ObjectText ~= LAYOUT.CLIMB.OBJECT_TEXT).to.equal(true)
+				end
 			end
-			-- NOR HIS NEIGHBOUR'S, which is what `SPOT_SPACING_STUDS` buys for the second prompt too.
+			expect(prompts).to.equal(LAYOUT.SPOT_COUNT)
 			for spot = 1, LAYOUT.SPOT_COUNT do
-				for other = 1, LAYOUT.SPOT_COUNT do
-					if other ~= spot then
-						expect((stand[other] - stand[spot]).Magnitude >= 2 * reach).to.equal(true)
+				expect(RangeData.promptFor(spot, RangeData.POSITION.BENCH, b.folder)).to.be.ok()
+				expect(RangeData.promptFor(spot, RangeData.POSITION.TREESTAND, b.folder)).to.equal(nil)
+				for _, way in ipairs({ "up", "down" }) do
+					local wanted = RangeData.climbPromptName(spot, way)
+					for _, child in ipairs(b.folder:GetDescendants()) do
+						expect(child.Name ~= wanted).to.equal(true)
 					end
 				end
 			end
 			parent:Destroy()
 		end)
 
-		-- THE MUST-FIX OF 306b NOTE (i) / 306c NOT PROVEN item 1 (step B6). The Hud asked
-		-- `promptFor(1)`, so 11 of the 12 prompts opened nothing. `nearestPrompt` answers which one
-		-- he is standing at, in ONE walk, and names the station AND the position.
-		it("nearestPrompt finds all TWELVE: the bench at a mat, the deck's at a deck", function()
+		-- WAS "nearestPrompt finds all TWELVE" (step B6): there are SIX now, and the deck's point
+		-- answers nothing, which is how the panel can never be told `treestand`.
+		it("nearestPrompt finds the SIX benches, and answers NOTHING where the deck used to be", function()
 			local dir = 1
 			local row = { x = DEV_ROW.x, z = DEV_ROW.z, y = DEV_ROW.y, plate = true, downrange = dir }
 			local b, parent = buildInto(row, nil)
 			local found: { [string]: boolean } = {}
 			for spot = 1, LAYOUT.SPOT_COUNT do
-				-- STANDING ON HIS MAT: his OWN bench prompt, and never a neighbour's and never the
-				-- deck's -- the two reaches the case above measured apart.
 				local mat = RangeData.matPosition(b.anchor, spot, LAYOUT)
 				local prompt, atSpot, position = RangeData.nearestPrompt(mat, b.folder, LAYOUT)
 				expect(prompt).to.be.ok()
@@ -1306,24 +1287,20 @@ return function()
 				expect(prompt).to.equal(RangeData.promptFor(spot, RangeData.POSITION.BENCH, b.folder))
 				found[(prompt :: any).Name] = true
 
-				-- ...AND ON HIS DECK, HIS OWN STAND PROMPT. This is the half that opened nothing at
-				-- all: `promptFor(1)` cannot name a treestand prompt whatever the station.
+				-- THE AIR WHERE THE DECK STOOD: 15 studs up and 14 studs uprange is out of every
+				-- bench prompt's reach, so the answer is nothing at all -- never a position word.
 				local deckAt = RangeData.standPosition(b.anchor, spot, LAYOUT, dir)
-					+ Vector3.new(0, b.deckTops[spot] - b.anchor.Y, 0)
+					+ Vector3.new(0, HighSeats.DIMS.DECK_RISE_STUDS, 0)
 				local high, highSpot, highPosition = RangeData.nearestPrompt(deckAt, b.folder, LAYOUT)
-				expect(highSpot).to.equal(spot)
-				expect(highPosition).to.equal(RangeData.POSITION.TREESTAND)
-				expect(high).to.equal(RangeData.promptFor(spot, RangeData.POSITION.TREESTAND, b.folder))
-				found[(high :: any).Name] = true
+				expect(high).to.equal(nil)
+				expect(highSpot).to.equal(nil)
+				expect(highPosition).to.equal(nil)
 			end
-			-- ALL TWELVE WERE REACHED, counted: the number the note said was 1 of 12.
 			local count = 0
 			for _ in pairs(found) do
 				count += 1
 			end
-			expect(count).to.equal(2 * LAYOUT.SPOT_COUNT)
-			-- NO MEASUREMENT MEANS NO ANSWER, and no range means no answer: a Hud with no character
-			-- yet must not bind an arbitrary station's prompt.
+			expect(count).to.equal(LAYOUT.SPOT_COUNT)
 			expect((RangeData.nearestPrompt(nil, b.folder, LAYOUT))).to.equal(nil)
 			local empty = Instance.new("Folder")
 			expect((RangeData.nearestPrompt(RangeData.matPosition(b.anchor, 1, LAYOUT), empty, LAYOUT))).to.equal(nil)
@@ -1331,12 +1308,11 @@ return function()
 			parent:Destroy()
 		end)
 
-		it("leaves a station whose ground REFUSES a seat with five stands, six benches and no deck top", function()
+		-- WAS "a station whose ground REFUSES a seat": there is no seat to refuse now, so the
+		-- ground that broke station 3's footprint costs the range NOTHING. Same injected seam.
+		it("builds the same six benches over ground that used to REFUSE a seat", function()
 			local dir = 1
 			local row = { x = DEV_ROW.x, z = DEV_ROW.z, plate = false, downrange = dir }
-			-- STATION 3'S LADDER FOOT STANDS 5 STUDS HIGH, over `MAX_FOOT_SPREAD_STUDS` 4.0: the
-			-- one ground `HighSeats.plan` refuses, read through the SAME injected seam her place
-			-- uses. Everything else is flat.
 			local badX = RangeData.standPosition(Vector3.new(DEV_ROW.x, 0, DEV_ROW.z), 3, LAYOUT, dir).X
 			local b, parent = buildInto(row, function(x: number, z: number): number?
 				if math.abs(x - badX) < 1 and z < DEV_ROW.z - LAYOUT.STAND.backStuds - 2 then
@@ -1345,26 +1321,16 @@ return function()
 				return 0
 			end)
 			expect(b).to.be.ok()
-			expect(b.stands).to.equal(LAYOUT.SPOT_COUNT - 1)
-			expect(b.refusedStands).to.equal(1)
-			expect(#b.standRefusals).to.equal(1)
-			expect(string.match(b.standRefusals[1], "^3: spread") ~= nil).to.equal(true)
-			expect(b.folder:FindFirstChild(RangeData.standName(3))).to.equal(nil)
-			expect(b.deckTops[3]).to.equal(nil)
-			expect(RangeData.promptFor(3, RangeData.POSITION.TREESTAND, b.folder)).to.equal(nil)
-			-- ...AND HIS BENCH, HIS MAT AND HIS OWN PROMPT ARE ALL STILL THERE: a refused seat
-			-- costs the station nothing but the second position.
-			expect(b.folder:FindFirstChild(RangeData.benchName(3))).to.be.ok()
-			expect(b.folder:FindFirstChild(RangeData.matName(3))).to.be.ok()
-			expect(RangeData.promptFor(3, RangeData.POSITION.BENCH, b.folder)).to.be.ok()
+			expect(b.stands).to.equal(0)
+			expect(b.refusedStands).to.equal(0)
+			expect(#b.standRefusals).to.equal(0)
 			for spot = 1, LAYOUT.SPOT_COUNT do
 				expect(b.folder:FindFirstChild(RangeData.benchName(spot))).to.be.ok()
-				if spot ~= 3 then
-					expect(b.deckTops[spot]).to.be.ok()
-					expect(b.folder:FindFirstChild(RangeData.standName(spot))).to.be.ok()
-				end
+				expect(b.folder:FindFirstChild(RangeData.matName(spot))).to.be.ok()
+				expect(RangeData.promptFor(spot, RangeData.POSITION.BENCH, b.folder)).to.be.ok()
+				expect(b.folder:FindFirstChild(RangeData.standName(spot))).to.equal(nil)
+				expect(b.deckTops[spot]).to.equal(nil)
 			end
-			TestKit.note(string.format("range B3 refusal: %s", b.standRefusals[1]))
 			parent:Destroy()
 		end)
 	end)
@@ -2752,17 +2718,17 @@ return function()
 			expect(Range.look(man)).to.equal(true)
 			expect((Range.recordOf(man) :: any).shots).to.equal(1)
 			expect((Range.recordOf(man) :: any).position).to.equal(RangeData.POSITION.BENCH)
-			-- ...and arriving at the DECK still starts the fresh tally it should, which is the other
-			-- arm: this must not have become "never change the position".
-			-- ON the deck, not under it: `spotAt` answers TREESTAND only above `HighSeats.minYFor`.
+			-- ...AND SINCE TASK 320 THERE IS NOWHERE ELSE TO ARRIVE. The other arm used to climb him
+			-- onto the deck and assert a FRESH tally at `TREESTAND`; the runtime has no `deckTops`
+			-- now, so the same point in the air is the bench's own station and the board stands.
 			local deck = RangeData.standPosition(ANCHOR, 1, LAYOUT, dir)
-			man.Character:PivotTo(
-				CFrame.new(deck + Vector3.new(0, HighSeats.DIMS.DECK_RISE_STUDS + LAYOUT.CLIMB.riseStuds, 0))
-			)
+			local wasDeck = deck + Vector3.new(0, HighSeats.DIMS.DECK_RISE_STUDS + LAYOUT.CLIMB.riseStuds, 0)
+			expect((select(2, RangeData.spotAt(ANCHOR, wasDeck, LAYOUT, dir, Range.deckTops())))).to.equal(nil)
+			man.Character:PivotTo(CFrame.new(wasDeck))
 			expect(Range.look(man)).to.equal(true)
-			expect((Range.recordOf(man) :: any).position).to.equal(RangeData.POSITION.TREESTAND)
-			expect((Range.recordOf(man) :: any).shots).to.equal(0)
-			TestKit.note("range: a walk to the ladder keeps the board; arriving on the deck starts a new one")
+			expect((Range.recordOf(man) :: any).position).to.equal(RangeData.POSITION.BENCH)
+			expect((Range.recordOf(man) :: any).shots).to.equal(1)
+			TestKit.note("range 320: the walk keeps the board, and the air where the deck stood is no position")
 			Range.stop()
 		end)
 
@@ -3436,30 +3402,27 @@ return function()
 	-- THE SERVER'S OWN MEASUREMENT OF THE FIRING POSITION (step B3, design 7.3 and 9.4). Nothing a
 	-- client sends carries one: these cases move the CHARACTER and read what the owner answers.
 	describe("Range.positionOf and the board's distance", function()
-		it("is TRUE on the deck, measures TREESTAND there, and tallies the longer distance", function()
+		-- WAS "is TRUE on the deck, measures TREESTAND there": since task 320 there is no deck, so
+		-- the owner can only ever answer BENCH, and the air where the deck stood is no position.
+		it("has NO deck top at all, answers BENCH on the mat and nothing where the deck stood", function()
 			Range.stop()
 			local _, now = newClock()
 			expect(startRange(newFakeBoars(), now)).to.equal(true)
-			-- WHAT THE BUILD MEASURED, not a number this spec types.
+			-- THE BUILD MEASURED NO DECK: the table the owner publishes is empty.
 			local tops = Range.deckTops()
-			expect(tops[1]).to.be.ok()
+			expect(next(tops)).to.equal(nil)
 			local deck = RangeData.standPosition(ANCHOR, 1, LAYOUT, 1)
-			local up = manAt(Vector3.new(deck.X, tops[1] + 3.5, deck.Z))
+			local wasDeck = ANCHOR.Y + 15
+			local up = manAt(Vector3.new(deck.X, wasDeck, deck.Z))
 			up.UserId = 306306
-			expect(Range.mayShoot(up)).to.equal(true)
 			local spot, position = Range.positionOf(up)
 			expect(spot).to.equal(1)
-			expect(position).to.equal(RangeData.POSITION.TREESTAND)
-			Range.onShotResolved({ shooter = up })
-			local onStand = Range.recordOf(up)
-			expect(onStand.position).to.equal(RangeData.POSITION.TREESTAND)
-			expect(onStand.distanceStuds).to.equal(LAYOUT.DISTANCE_STUDS + LAYOUT.STAND.backStuds)
-			expect(onStand.shots).to.equal(1)
+			expect(position).to.equal(nil)
 
-			-- HE CLIMBS DOWN: the SAME station and the SAME trial, but the bench's own distance and
-			-- a FRESH tally, because both lead numbers are different numbers (design 9.4).
+			-- ON THE MAT: the one firing position, its own distance, its own tally.
 			local down = manAt(RangeData.matPosition(ANCHOR, 1, LAYOUT))
 			down.UserId = 306306
+			expect(Range.mayShoot(down)).to.equal(true)
 			expect(select(2, Range.positionOf(down))).to.equal(RangeData.POSITION.BENCH)
 			Range.onShotResolved({ shooter = down })
 			local onBench = Range.recordOf(down)
@@ -3468,9 +3431,9 @@ return function()
 			expect(onBench.shots).to.equal(1)
 			expect(onBench.spot).to.equal(1)
 
-			-- UNDER THE DECK: at the station, so he keeps his gun, on NEITHER position -- and the
-			-- board prints no position rather than guessing one.
-			local below = manAt(Vector3.new(deck.X, tops[1] - 1, deck.Z))
+			-- UNDER WHERE THE DECK WAS: still at the station, so he keeps his gun, and still on
+			-- NEITHER position -- the arm that was already true before the towers went.
+			local below = manAt(Vector3.new(deck.X, ANCHOR.Y + 1, deck.Z))
 			below.UserId = 306306
 			expect(Range.mayShoot(below)).to.equal(true)
 			local atSpot, noPosition = Range.positionOf(below)
@@ -3482,15 +3445,12 @@ return function()
 			expect(under.distanceStuds).to.equal(LAYOUT.DISTANCE_STUDS)
 			TestKit.note(
 				string.format(
-					"range B3 server: deck top %.1f, stand %d studs vs bench %d studs",
-					tops[1],
-					onStand.distanceStuds,
+					"range 320 server: no deck tops, bench %d studs, nothing answers on the old deck point",
 					onBench.distanceStuds
 				)
 			)
 			Range.forget(up)
 			Range.stop()
-			-- AND THE DECK TOPS GO WITH THE RANGE: nothing stale answers "on the stand".
 			expect(next(Range.deckTops())).to.equal(nil)
 		end)
 	end)
@@ -5608,156 +5568,62 @@ return function()
 			expect(RangeData.boardText(1)).never.to.equal(RangeData.boardText(4))
 		end)
 
-		-- L5 (and L-093: a case that actually ENTERS each new arm). THE WAY UP AND THE WAY DOWN,
-		-- driven through the owner with a fake body -- both branches, and the refusals.
-		it("climbs a man onto the deck and back down again, by station", function()
+		-- WAS "climbs a man onto the deck and back down again" and "hangs a Climb on E ... and a
+		-- Climb down on F": task 320 took the towers out, so there is nothing to climb. The two
+		-- cases are replaced by this one, which asserts the climb is UNREACHABLE from both ends --
+		-- no prompt to press, and the handler refuses every station because no deck was measured.
+		it("has no climb at all: no prompt, nothing wired, and every station refused", function()
 			local parent = Instance.new("Folder")
+			local built = Range.Build.build({ parent = parent, row = DEV_ROW, layout = LAYOUT })
+			local folder = (built :: any).folder
+			-- NOT ONE CLIMB PROMPT, by name and by count.
+			for _, child in ipairs(folder:GetDescendants()) do
+				if child:IsA("ProximityPrompt") then
+					expect(child.KeyboardKeyCode ~= LAYOUT.CLIMB.UP_KEY or child.ActionText ~= LAYOUT.CLIMB.UP_ACTION).to.equal(
+						true
+					)
+					expect(child.ActionText ~= LAYOUT.CLIMB.DOWN_ACTION).to.equal(true)
+				end
+			end
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				for _, way in ipairs({ "up", "down" }) do
+					expect(folder:FindFirstChild(RangeData.climbPromptName(spot, way), true)).to.equal(nil)
+				end
+			end
+			-- ...SO THERE IS NOTHING TO WIRE: the number the console line prints is 0.
+			expect(Range.wireClimbs(folder)).to.equal(0)
+			expect(Range.wireClimbs(nil)).to.equal(0)
+			parent:Destroy()
+
+			-- AND THE HANDLER ITSELF REFUSES, at every station, because the build measured no deck
+			-- top -- the same rule it already applied to a station whose seat was refused.
+			local runtime = Instance.new("Folder")
 			local clock, now = newClock()
-			local moved: { CFrame } = {}
+			local moved = 0
 			local shelf = 140
-			local ok = Range.start({
+			expect(Range.start({
 				enabled = true,
 				anchor = { x = 0, z = 0, y = shelf, plate = true },
-				root = parent,
+				root = runtime,
 				now = now,
 				groundAt = function()
 					return shelf
 				end,
-				move = function(_who, cframe)
-					table.insert(moved, cframe)
+				move = function()
+					moved += 1
 					return true
 				end,
-			})
-			expect(ok).to.equal(true)
-			-- THE RANGE'S OWN ANCHOR, and the plate row's Y IS the shelf (`Build.shelfAt`). Asserted
-			-- against what the owner measured, not inferred from a part COUNT used as a boolean.
-			expect(Range.stats().parts > 0).to.equal(true)
-			local anchor = Vector3.new(0, shelf, 0)
-
-			-- THE WAY UP: onto station 4's deck, `CLIMB.riseStuds` over its top face.
-			local deckTops = Range.deckTops()
-			expect(deckTops[4]).to.be.ok()
-			expect(Range.onClimb({ Name = "a" }, 4)).to.equal(true)
-			expect(#moved).to.equal(1)
-			local up = moved[1]
-			local deck = RangeData.standPosition(anchor :: Vector3, 4, LAYOUT, 1)
-			expect(math.abs(up.Position.X - deck.X) < 1e-4).to.equal(true)
-			expect(math.abs(up.Position.Z - deck.Z) < 1e-4).to.equal(true)
-			expect(math.abs(up.Position.Y - (deckTops[4] + LAYOUT.CLIMB.riseStuds)) < 1e-4).to.equal(true)
-			-- A MAN AT THAT POINT IS ON THE STAND, by the server's OWN rule -- which is what the
-			-- climb is for, and it would be false for a point one stud off the deck.
-			local spotUp, wordUp = Range.spotAt(up.Position)
-			expect(spotUp).to.equal(4)
-			expect(wordUp).to.equal(RangeData.POSITION.TREESTAND)
-
-			-- THE WAY DOWN: at the ladder's foot, on the measured ground, and NOT on the stand.
-			expect(Range.onClimbDown({ Name = "a" }, 4)).to.equal(true)
-			expect(#moved).to.equal(2)
-			local down = moved[2]
-			expect(math.abs(down.Position.Y - (shelf + LAYOUT.CLIMB.riseStuds)) < 1e-4).to.equal(true)
-			local foot = RangeData.ladderFootPosition(anchor :: Vector3, 4, LAYOUT, 1)
-			expect(math.abs(down.Position.X - foot.X) < 1e-4).to.equal(true)
-			-- Z IS THE COORDINATE `footClearStuds` MOVES, so it is the one that must be asserted.
-			expect(math.abs(down.Position.Z - (foot.Z - LAYOUT.CLIMB.footClearStuds)) < 1e-4).to.equal(true)
-			local _spotDown, wordDown = Range.spotAt(down.Position)
-			expect(wordDown).never.to.equal(RangeData.POSITION.TREESTAND)
-
-			-- BOTH ARMS COUNTED, and a refusal is a refusal: no station 0, no station 9.
-			expect(Range.onClimb({ Name = "a" }, 99)).to.equal(false)
-			expect(Range.onClimbDown({ Name = "a" }, 0)).to.equal(false)
-			expect(Range.stats().climbsUp).to.equal(1)
-			expect(Range.stats().climbsDown).to.equal(1)
-			expect(Range.stats().climbsRefused).to.equal(2)
-			-- ...AND A MOVER THAT SAYS NO IS NOT A CLIMB. The seam's false must not be counted as
-			-- a success, which is the shape a "did not raise" counter gets wrong.
-			Range.stop()
-			local refused = Range.start({
-				enabled = true,
-				anchor = { x = 0, z = 0, y = shelf, plate = true },
-				root = Instance.new("Folder"),
-				now = now,
-				move = function()
-					return false
-				end,
-			})
-			expect(refused).to.equal(true)
-			expect(Range.onClimb({ Name = "a" }, 2)).to.equal(false)
+			})).to.equal(true)
+			expect(next(Range.deckTops())).to.equal(nil)
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				expect(Range.onClimb({ Name = "a" }, spot)).to.equal(false)
+			end
+			expect(moved).to.equal(0)
 			expect(Range.stats().climbsUp).to.equal(0)
-			expect(Range.stats().climbsRefused).to.equal(1)
+			expect(Range.stats().climbsRefused).to.equal(LAYOUT.SPOT_COUNT)
+			TestKit.note("range 320: 0 climb prompts, 0 wired, 6 stations refused -- the towers are gone")
 			Range.stop()
 			clock.t = 0
-		end)
-
-		-- THE PROMPTS THEMSELVES: two per station, with the two KEYS that the deck's own crowding
-		-- forces apart, and `wireClimbs` finds all twelve.
-		-- WHICH DECK TOP THE BUILD MEASURED for that station: the same table `Range.onClimb` reads,
-		-- so the case and the handler are about one deck.
-		local function deckTopOf(built: any, spot: number): number
-			return (built.deckTops or {})[spot]
-		end
-
-		it("hangs a Climb on E at the ladder foot and a Climb down on F on the deck", function()
-			local parent = Instance.new("Folder")
-			local built = Range.Build.build({ parent = parent, row = DEV_ROW, layout = LAYOUT })
-			local folder = (built :: any).folder
-			local anchor = (built :: any).anchor
-			local dir = (built :: any).downrange
-			local found: { [string]: any } = {}
-			for _, child in ipairs(folder:GetDescendants()) do
-				if child:IsA("ProximityPrompt") then
-					found[child.Name] = child
-				end
-			end
-			for spot = 1, LAYOUT.SPOT_COUNT do
-				local upPrompt = found[RangeData.climbPromptName(spot, "up")]
-				local downPrompt = found[RangeData.climbPromptName(spot, "down")]
-				expect(upPrompt).to.be.ok()
-				expect(downPrompt).to.be.ok()
-				expect((upPrompt :: any).ActionText).to.equal(LAYOUT.CLIMB.UP_ACTION)
-				expect((downPrompt :: any).ActionText).to.equal(LAYOUT.CLIMB.DOWN_ACTION)
-				expect((upPrompt :: any).KeyboardKeyCode).to.equal(Enum.KeyCode.E)
-				expect((downPrompt :: any).KeyboardKeyCode).to.equal(Enum.KeyCode.F)
-				-- THE WAY UP IS AT THE LADDER'S FOOT: its world point is the arithmetic's, so the
-				-- screen's claim and the built world are about ONE point.
-				local point = RangeData.promptPointOf(upPrompt)
-				local want = RangeData.climbPromptPosition(anchor, spot, LAYOUT, dir)
-				expect(point).to.be.ok()
-				expect(((point :: Vector3) - want).Magnitude < 1e-3).to.equal(true)
-				-- AND THE TWO KEYS HAD TO DIFFER: the down prompt and the station's RANGE prompt are
-				-- BOTH within `MaxActivationDistance` of a man on the deck, and `Exclusivity` shows
-				-- one prompt per key. This is that measurement, as a case.
-				local downPoint = RangeData.promptPointOf(downPrompt)
-				local menuPoint =
-					RangeData.promptPointOf(found[RangeData.promptName(spot, RangeData.POSITION.TREESTAND)])
-				expect(downPoint).to.be.ok()
-				expect(menuPoint).to.be.ok()
-				local apart = ((downPoint :: Vector3) - (menuPoint :: Vector3)).Magnitude
-				expect(apart < LAYOUT.PROMPT.MaxActivationDistance).to.equal(true)
-				expect((downPrompt :: any).KeyboardKeyCode).never.to.equal((upPrompt :: any).KeyboardKeyCode)
-				-- THE WAY DOWN'S OWN POINT, PINNED (306j review note, 306k item 1). The up prompt
-				-- had this tie and the down one had none, so the regression its own header calls
-				-- MEASURED-BAD -- the point back under the view cone, where real `F` does nothing --
-				-- passed: prompt-to-prompt distance stayed well under the bound either way.
-				local wantDown = RangeData.downPromptPosition(anchor, spot, LAYOUT, dir, deckTopOf(built, spot))
-				expect(((downPoint :: Vector3) - wantDown).Magnitude < 1e-3).to.equal(true)
-				-- AND THE REACH IS MEASURED FROM THE MAN, not from the other prompt: the point the
-				-- climb actually puts him at. Both prompts must be inside their own bound from there.
-				local stood = RangeData.climbTargetFor(anchor, spot, LAYOUT, dir, deckTopOf(built, spot)).Position
-				local toDown = ((downPoint :: Vector3) - stood).Magnitude
-				local toMenu = ((menuPoint :: Vector3) - stood).Magnitude
-				expect(toDown < LAYOUT.CLIMB.MaxActivationDistance).to.equal(true)
-				expect(toMenu < LAYOUT.PROMPT.MaxActivationDistance).to.equal(true)
-				-- ...AND IT IS AT HIS EYE AND NOT UNDER HIS FEET, which is the 306k fix as a number:
-				-- the point is level with the eye the climb gives him (root + an R15 head), where the
-				-- shipped 1.6 sat 3.4 studs below it -- 49 degrees under a view held down the lane.
-				local eyeY = stood.Y + LAYOUT.CLIMB.eyeOverRootStuds
-				expect(math.abs((downPoint :: Vector3).Y - eyeY) < 1e-3).to.equal(true)
-				local wasY = deckTopOf(built, spot) + 1.6
-				expect(math.deg(math.atan2(eyeY - wasY, HighSeats.DIMS.RAIL_PLANE_STUDS)) > 45).to.equal(true)
-			end
-			-- `wireClimbs` FINDS ALL TWELVE, which is the number the console line prints.
-			expect(Range.wireClimbs(folder)).to.equal(2 * LAYOUT.SPOT_COUNT)
-			expect(Range.wireClimbs(nil)).to.equal(0)
 		end)
 
 		-- THE CLIMB'S ANCHOR COMES OFF, AND IT PUTS BACK WHAT IT FOUND (306k item 3). The hold is

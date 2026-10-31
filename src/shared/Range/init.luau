@@ -256,7 +256,10 @@ Range.LAYOUT = {
 		sideStuds = 3,
 		color = Color3.fromRGB(88, 76, 58),
 	},
-	-- THE TREESTAND, AS DATA (Karen, 2026-10-28: *"we can make an option shoot from treestand so
+	-- THE TREESTAND, AS DATA NOBODY BUILDS SINCE TASK 320 (Karen, 2026-10-31: *"and remove towers
+	-- we dont need them in shooting range"*). It is kept because the safety envelope, the station
+	-- box and the banks are measured off `backStuds`; see `Range.POSITION`'s header.
+	-- It was Karen's own, 2026-10-28: *"we can make an option shoot from treestand so
 	-- they can shoot from ground or treestand"*). `backStuds` puts the deck UPRANGE of the mat, so
 	-- a shot off the deck is 14 studs LONGER and `Range.distanceFor` says so; `facing` is
 	-- `HighSeats.facingOf`'s sign for a lane that runs SOUTH (`downrange` -1, design 5.4's frame)
@@ -594,9 +597,16 @@ function Range.paceSpeedFor(word: string, layout, boarPaceSpeed: ((string) -> nu
 	return boarPaceSpeed(asked) or 0
 end
 
--- THE TWO FIRING POSITIONS, AND THE FIRING POSITION IS NOT A MENU PICK: it is where he is standing,
--- measured off the character the SERVER can see (`Range.mayShoot`'s own discipline, design 7.3).
--- `RangeRequest` carries no position, so a client cannot claim one.
+-- THE FIRING POSITION IS NOT A MENU PICK: it is where he is standing, measured off the character
+-- the SERVER can see (`Range.mayShoot`'s own discipline, design 7.3). `RangeRequest` carries no
+-- position, so a client cannot claim one.
+--
+-- SINCE TASK 320 THE BENCH IS THE ONLY ONE THE RANGE CAN ANSWER. Karen, 2026-10-31: *"and remove
+-- towers we dont need them in shooting range"*. `TREESTAND` and every number under it below stay
+-- here as DATA NO READER BUILDS -- `Build` lays no deck and no `RangeStandPrompt`, `nearestPrompt`
+-- offers only the bench, and `spotAt` has no `deckTops` to answer with. It is NOT deleted because
+-- the T6 safety envelope, the station box (`standReach`) and the banks are measured off
+-- `LAYOUT.STAND.backStuds`: removing it would MOVE them. `backups/task-320/`.
 Range.POSITION = { BENCH = "bench", TREESTAND = "treestand" }
 
 -- THE DISTANCES THE MENU OFFERS -- the layout's own list and never a second copy of it, because
@@ -805,9 +815,10 @@ function Range.promptFor(spot: number, position: string?, root: Instance?): any
 	return nil
 end
 
--- THE NEAREST WAY IN, AND WHICH STATION IT BELONGS TO. ONE walk of the folder for all twelve
--- prompts -- six benches and six decks -- so the Hud asks "which prompt is he standing at" instead
--- of asking for station 1's by name. nil position (no character yet) is no measurement and no
+-- THE NEAREST WAY IN, AND WHICH STATION IT BELONGS TO. ONE walk of the folder for all SIX bench
+-- prompts -- so the Hud asks "which prompt is he standing at" instead of asking for station 1's by
+-- name. BENCH ONLY SINCE TASK 320 (no towers): this is the one evaluation that tells the panel its
+-- position, so with the treestand word off this list the panel can never be told `treestand`. nil position (no character yet) is no measurement and no
 -- answer, and NEITHER IS ONE OUT OF REACH: the cap is the prompt's own `MaxActivationDistance`, the
 -- same number `atSpot` measures with, so the panel is never told a station he is nowhere near.
 -- Note: docs/design/shooting-range-lobby.md section 7.3
@@ -819,7 +830,7 @@ function Range.nearestPrompt(position: Vector3?, root: Instance?, layout): (any?
 	end
 	local wanted: { [string]: { spot: number, position: string } } = {}
 	for spot = 1, layout.SPOT_COUNT do
-		for _, word in ipairs({ Range.POSITION.BENCH, Range.POSITION.TREESTAND }) do
+		for _, word in ipairs({ Range.POSITION.BENCH }) do
 			wanted[Range.promptName(spot, word)] = { spot = spot, position = word }
 		end
 	end

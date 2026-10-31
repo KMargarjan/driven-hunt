@@ -453,6 +453,10 @@ return function()
 			expect(sent[1].kind).to.equal(nil)
 		end)
 
+		-- TASK 320 (no towers): the panel is NEVER TOLD `treestand` any more -- `Range.nearestPrompt`
+		-- offers only the bench prompt, and the range builds no deck -- so the two cases below now
+		-- read as what they always were: `distanceFor`'s own data branch, exercised directly. The
+		-- branch is kept with the rest of the treestand arithmetic (`Range.POSITION`'s header).
 		-- THE DECK'S DISTANCE ROW LIGHTS, AND IT PRINTS THE BOARD'S OWN NUMBER (306k item 4). On the
 		-- deck the record carries `distanceFor` -- 125 + `STAND.backStuds` = 139 -- and the chips
 		-- held 107 / 125 / 179, so NOTHING was lit while the board read 139
@@ -604,6 +608,8 @@ return function()
 		-- THE MUST-FIX OF 306b NOTE (i) (step B6): the two senders carried the literal `spot = 1`,
 		-- so all six menus named station 1. The station is TOLD by `Hud.step`, which is the one
 		-- evaluation that already resolves which of the twelve prompts he is standing at.
+		-- `TREESTAND` HERE IS THE DATA WORD, NOT A STATE THE GAME CAN REACH (task 320): it proves
+		-- the station and the word travel together, whatever the word is.
 		it("carries the station it was TOLD, in both senders, and defaults to 1", function()
 			local sent = freshPanel()
 			RangePanel.setState({ lists = lists() })

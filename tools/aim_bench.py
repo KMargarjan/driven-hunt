@@ -109,12 +109,13 @@ The resident writes one row per shot into a LocalPlayer attribute, so the host r
       The click proof: one real click, the camera ray and the server's impact on the same frame.
 
   python tools/aim_bench.py run <cell> [<cell> ...] [--shots N] [--out FILE] [--place PLACEID]
-                                  [--station 1..6] [--position bench|treestand] [--distance STUDS]
+                                  [--station 1..6] [--position bench] [--distance STUDS]
       Run the cells in order. Needs the Forest Test in PLAY. The CONTROL and KNOWN-BAD cells are
       appended automatically unless they are already named.
 
-      THE STATION AND THE FIRING POSITION (task 306 B9). `--station` moves the character onto that
-      station's built `Mat<n>` (bench) or `Stand<n>.Deck` (treestand) and then asks the SERVER which
+      THE STATION AND THE FIRING POSITION (task 306 B9; task 320 took the treestands out, so
+      `bench` is the only position left). `--station` moves the character onto that
+      station's built `Mat<n>` and then asks the SERVER which
       pair it measured, through `RangeRequest {reset=true}` -> the board push, because the position
       is never a payload field (`Range.spotAt` reads it off the character). `--distance` is the
       lane: 107, 125 or 179. Six stations share one corridor, so the resident and the gate take the
@@ -146,10 +147,12 @@ sys.path.insert(0, os.path.join(REPO, "tools"))
 
 FOREST_TEST_PLACE = "130094961655666"
 
-# THE TWO FIRING POSITIONS, by `Range.POSITION`'s own words, and the stations (`LAYOUT.SPOT_COUNT`).
+# THE FIRING POSITION, by `Range.POSITION`'s own word, and the stations (`LAYOUT.SPOT_COUNT`).
+# ONE OF THEM SINCE TASK 320 (Karen: *"and remove towers we dont need them in shooting range"*):
+# the range builds no `Stand<n>`, so staging a character on a deck would stage him on nothing.
 # The position is not a payload field: it is WHERE HE STANDS, which the server measures itself
 # (`Range.spotAt`), so the bench stages the character and then reads the server's own answer back.
-POSITIONS = ("bench", "treestand")
+POSITIONS = ("bench",)
 STATIONS = (1, 2, 3, 4, 5, 6)
 
 # The aim points, in the order the table prints them. The value is the word the resident branches on.
@@ -1070,23 +1073,16 @@ local p = Players.LocalPlayer
 if p == nil or p.Character == nil or p.Character.PrimaryPart == nil then return "no character" end
 local folder = workspace:FindFirstChild("Range")
 if folder == nil then return "no Range folder" end
-local target
-if "%POSITION%" == "treestand" then
-  local seat = folder:FindFirstChild("Stand%STATION%", true)
-  target = seat and seat:FindFirstChild("Deck", true)
-  if target == nil then return "no Stand%STATION%.Deck" end
-else
-  target = folder:FindFirstChild("Mat%STATION%", true)
-  if target == nil then return "no Mat%STATION%" end
-end
--- WHICH WAY IS DOWNRANGE, MEASURED: the stand's deck stands `standReach` UPRANGE of the mat
--- (`Range.spotAt`), so the sign of (mat.Z - deck.Z) is the lane's direction. No constant is typed.
+local target = folder:FindFirstChild("Mat%STATION%", true)
+if target == nil then return "no Mat%STATION%" end
+-- WHICH WAY IS DOWNRANGE, MEASURED. It used to be read off the deck UPRANGE of the mat; task 320
+-- removed the decks, so it is read off the PROMPT POST, which `POST.aheadStuds` puts DOWNRANGE of
+-- the mat (`Range.promptPosition`). Still measured, still no constant typed.
 local mat = folder:FindFirstChild("Mat%STATION%", true)
-local seatDeck = folder:FindFirstChild("Stand%STATION%", true)
-seatDeck = seatDeck and seatDeck:FindFirstChild("Deck", true)
+local post = folder:FindFirstChild("Post%STATION%", true)
 local dir = 0
-if mat and seatDeck then dir = if mat.Position.Z < seatDeck.Position.Z then -1 else 1 end
-if dir == 0 then return "cannot read downrange: Mat%STATION% or Stand%STATION%.Deck missing" end
+if mat and post then dir = if post.Position.Z < mat.Position.Z then -1 else 1 end
+if dir == 0 then return "cannot read downrange: Mat%STATION% or Post%STATION% missing" end
 local top = target.Position + Vector3.new(0, target.Size.Y / 2 + 3.0, 0)
 local lane = Vector3.new(top.X, top.Y, top.Z + 60 * dir)
 p.Character:PivotTo(CFrame.lookAt(top, lane))
@@ -1611,17 +1607,13 @@ def selftest():
         text = oneline(STAGE, STATION=4, POSITION=position)
         assert "%STATION%" not in text and "%POSITION%" not in text
         assert camera_write_free(text), position
-    # THE CASE HAS TO DIE WHEN THE SELECTION DIES (round 1, finding 1). Both arms are in BOTH
-    # texts -- it is one script and the position is a literal in its `if` -- so "Mat4 is in the
-    # bench text" cannot bite. What bites is the pair of assignments to `target` plus the literal
-    # the branch turns on: delete the if/else and both assignments go with it.
+    # TASK 320: there is one position and no deck to stage on, so what the case asserts is that
+    # the staged part is the station's MAT and that no seat part is named anywhere in the script.
+    # It dies with the staging line, which is the point of it.
     bench_text = oneline(STAGE, STATION=4, POSITION="bench")
-    stand_text = oneline(STAGE, STATION=4, POSITION="treestand")
-    assert 'if "bench" == "treestand" then' in bench_text, bench_text
-    assert 'if "treestand" == "treestand" then' in stand_text, stand_text
-    for text in (bench_text, stand_text):
-        assert 'target = folder:FindFirstChild("Mat4", true)' in text, text
-        assert 'target = seat and seat:FindFirstChild("Deck", true)' in text, text
+    assert 'target = folder:FindFirstChild("Mat4", true)' in bench_text, bench_text
+    assert "Stand" not in bench_text and "Deck" not in bench_text, bench_text
+    assert 'post = folder:FindFirstChild("Post4", true)' in bench_text, bench_text
     # ...and the staged character is the LOCAL one, never the player list's first (finding 2)
     assert "Players.LocalPlayer" in bench_text and "GetPlayers()[1]" not in bench_text
     assert camera_write_free(oneline(GATE, PX="12.0", MINSPD="0.00"))
