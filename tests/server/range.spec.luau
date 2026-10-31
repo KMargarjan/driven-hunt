@@ -530,9 +530,9 @@ return function()
 					prompts += 1
 				end
 			end
-			-- TWO PER STATION SINCE STEP B3 (the bench's post and the stand's rail, design 7.3) and
-			-- FOUR SINCE B10: the climb up at the ladder's foot and the climb down over the rail gap.
-			expect(prompts).to.equal(4 * LAYOUT.SPOT_COUNT)
+			-- ONE PER STATION SINCE TASK 320: the bench's own post. It was FOUR (the stand's rail
+			-- and the two climbs went with the towers).
+			expect(prompts).to.equal(LAYOUT.SPOT_COUNT)
 			expect(LAYOUT.SPOT_COUNT).to.equal(6)
 			-- SIX OF EACH, BY NAME: one mat, one post and one prompt per station (design 5.4).
 			for spot = 1, LAYOUT.SPOT_COUNT do
@@ -1209,12 +1209,15 @@ return function()
 					end
 				end
 				expect(trusses).to.equal(0)
-				-- AND NOTHING STANDS OVER THE HUT'S OWN ROOF: the deck's rail top was shelf+14.9
-				-- against a roof at shelf+9.6, so the tallest thing left is the hut (measured in
-				-- her place at main, 320-census-main.txt in the runs dir).
+				-- AND NOTHING THE SHOOTER STANDS AMONG RISES OVER THE HUT'S OWN ROOF: the deck's
+				-- rail top was shelf+14.9 against a roof at shelf+9.6, so the tallest thing left
+				-- on the firing line is the hut (her place at main: 320-census-main.txt in the
+				-- runs dir read the same two numbers). The EARTH is not in this count -- the berm
+				-- and the two banks are the backstop, downrange, and task 320 moved neither.
+				local earth = { Berm = true, BankEast = true, BankWest = true }
 				local tallest, tallestName = 0, "nothing"
 				for _, child in ipairs(b.folder:GetDescendants()) do
-					if child:IsA("BasePart") then
+					if child:IsA("BasePart") and earth[child.Name] == nil then
 						local top = child.Position.Y + child.Size.Y / 2 - b.shelf
 						if top > tallest then
 							tallest, tallestName = top, child.Name
