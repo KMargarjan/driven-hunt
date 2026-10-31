@@ -1411,15 +1411,13 @@ return function()
 				-- which is 6 % of the fastest crossing and inside the tolerance for all three.
 				local err = math.abs(measured - predicted) / predicted
 				expect(err <= Range.CONFIG.CROSSING_TOLERANCE).to.equal(true)
-				-- ...and every order carried that pace's speed, never another's -- OR task 317's
-				-- reversal walk, which is only ever issued OUTSIDE the span. Asked as membership
-				-- AND as a count of each, so "all of them were the turn speed" cannot pass.
-				local atPace, atTurn, other = 0, 0, 0
+				-- ...and every order carried that pace's speed and never another's. Since task 321
+				-- there is no second speed to be had: the reversal walk that used to be issued out
+				-- in the apron went with the reversal.
+				local atPace, other = 0, 0
 				for _, lead in ipairs(fake.leadsAt(1)) do
 					if lead.speed == asked then
 						atPace += 1
-					elseif lead.speed == Range.CONFIG.TURN_STUDS_PER_SECOND then
-						atTurn += 1
 					else
 						other += 1
 					end
@@ -1474,8 +1472,8 @@ return function()
 			-- block deleted this is the lane end, which is the whole leg away.
 			local ahead = math.abs(last.point.X - animal.position.X)
 			local toEnd = math.abs(legEnd.X - animal.position.X)
-			expect(toEnd > Range.CONFIG.TURN_AIM_STUDS).to.equal(true)
-			expect(ahead <= math.max(Range.CONFIG.TURN_AIM_STUDS, last.speed * Range.CONFIG.AIM_SECONDS) + 1e-6).to.equal(
+			expect(toEnd > Range.CONFIG.AIM_MIN_STUDS).to.equal(true)
+			expect(ahead <= math.max(Range.CONFIG.AIM_MIN_STUDS, last.speed * Range.CONFIG.AIM_SECONDS) + 1e-6).to.equal(
 				true
 			)
 			expect(ahead < toEnd).to.equal(true)
@@ -1508,27 +1506,42 @@ return function()
 			advance(fake, clock, 6 * RangeData.laneLength(LAYOUT) / asked + 4)
 			expect(Range.stats().flips >= 2).to.equal(true)
 			expect((Range.trialOf(1) :: any).crossings >= 1).to.equal(true)
-			local past, atEnd, total = 0, 0, 0
-			for _, lead in ipairs(fake.leadsAt(1)) do
+			local past, total = 0, 0
+			for _, lead in ipairs(fake.leads) do
 				total += 1
 				if lead.point.X > eastX + 1e-6 or lead.point.X < westX - 1e-6 then
 					past += 1
-				end
-				if math.abs(lead.point.X - eastX) < 1e-6 or math.abs(lead.point.X - westX) < 1e-6 then
-					atEnd += 1
 				end
 			end
 			expect(total > 0).to.equal(true)
 			-- NEVER BEYOND. Without the clamp the carrot is `AIM_SECONDS` of run past the end.
 			expect(past).to.equal(0)
 			-- ...AND THE END IS REALLY ISSUED, so `past == 0` is not just "it never got near it".
+			-- BY PARAMETER since task 321: a pass now ends at the span's edge, a whole apron short of
+			-- the lane end, so the live loop no longer walks the animal up to it. Put the animal
+			-- inside one lookahead of the end and the clamp is the only thing that holds the point.
+			local here = fake.at(1) :: any
+			expect(here).to.be.ok()
+			local legNow = (Range.trialOf(1) :: any).leg
+			local endX = RangeData.laneEndsFor(anchor, LAYOUT, legNow, down, 1, trial.distanceStuds, true).X
+			local lookahead = math.max(Range.CONFIG.AIM_MIN_STUDS, asked * Range.CONFIG.AIM_SECONDS)
+			local heading = if (legNow % 2) == 1 then 1 else -1
+			here.position = Vector3.new(endX - heading * (lookahead / 2), here.position.Y, here.position.Z)
+			local before = #fake.leads
+			advance(fake, clock, 0.2)
+			local atEnd = 0
+			for i = before + 1, #fake.leads do
+				if math.abs(fake.leads[i].point.X - endX) < 1e-6 then
+					atEnd += 1
+				end
+			end
 			expect(atEnd > 0).to.equal(true)
 			TestKit.note(
 				string.format(
-					"range 317: %d orders, %d at a lane end, %d beyond one (ends %.1f / %.1f)",
+					"range 321: %d orders, %d beyond a lane end, %d clamped TO the end from half a lookahead out (ends %.1f / %.1f)",
 					total,
-					atEnd,
 					past,
+					atEnd,
 					westX,
 					eastX
 				)
@@ -1536,59 +1549,152 @@ return function()
 			Range.stop()
 		end)
 
-		-- THE REVERSAL IS SPENT OUTSIDE THE SPAN, AND THE GUARD IS THE POINT OF THE CASE: the turn
-		-- walk may never be issued INSIDE the span, or the crossing the board teaches would be
-		-- slowed by it. Both halves, in one case: it IS issued out there, and it is NEVER issued in.
-		it("walks the reversal only OUTSIDE the span, never inside it", function()
+		-- ---------------------------------------------------- TASK 321: ONE PASS, ONE ANIMAL
+		-- KAREN, 2026-10-31, after playing 319: *"it's the same animal running we need each time it
+		-- run on one side new one comes ... it runs or walks no matter killed or no it comes to end
+		-- new animal comes old gone ... and it has to be new one imediatly not neet to wait to long"*.
+		-- MEASURED on main in her place (`<runs-dir>/321-pass.luau`, d7ae1929): ONE animal, FOUR
+		-- crossings, 7.12 s out of sight between them. The apron reversal that cost those seconds is
+		-- archived (`backups/2026-10-31-range-apron-reversal.md`).
+		it("runs ONE animal per pass: a NEW id each crossing, the old one gone, both directions", function()
 			local clock, now = newClock()
 			local fake = newFakeBoars()
 			expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
-			expect(Range.setPace(1, "run")).to.equal(true)
-			local trial = Range.trialOf(1) :: any
-			local asked = trial.speedStudsPerSecond
-			local anchor = Vector3.new(DEV_ROW.x, 0, DEV_ROW.z)
-			local lo, hi = RangeData.sightSpanFor(anchor, 1, LAYOUT, trial.distanceStuds, true)
-			-- A FEW SECONDS OF LANE before the counting starts, so the animal is under way rather
-			-- than sitting at the end it was released from.
-			advance(fake, clock, 4)
-			expect(fake.at(1)).to.be.ok()
-			local insideAtTurn, outsideAtTurn, insideAtPace = 0, 0, 0
+			expect(Range.setPace(1, "trot")).to.equal(true)
+			local ids: { string } = {}
+			local seen: { [string]: boolean } = {}
+			local live = 0
 			local dt = 1 / 60
-			for _ = 1, math.floor((6 * RangeData.laneLength(LAYOUT) / asked + 4) / dt) do
+			for _ = 1, math.floor(40 / dt) do
 				clock.t += dt
 				fake.advance(dt)
 				Range.step(dt)
-				local leads = fake.leadsAt(1)
-				local last = leads[#leads]
-				local here = fake.at(1) :: any
-				if last ~= nil and here ~= nil then
-					local x = here.position.X
-					local inside = x >= lo and x <= hi
-					if last.speed == Range.CONFIG.TURN_STUDS_PER_SECOND then
-						if inside then
-							insideAtTurn += 1
-						else
-							outsideAtTurn += 1
-						end
-					elseif inside and last.speed == asked then
-						insideAtPace += 1
+				local id = (Range.trialOf(1) :: any).targetId
+				if id ~= nil and ids[#ids] ~= id then
+					-- A PASS NEVER GETS ITS OWN ANIMAL BACK: the id is retired with the pass.
+					expect(seen[id :: string]).to.equal(nil)
+					seen[id :: string] = true
+					table.insert(ids, id :: string)
+				end
+				local alive = 0
+				for _, animal in pairs(fake.animals) do
+					if animal.alive then
+						alive += 1
 					end
 				end
+				if alive > live then
+					live = alive
+				end
 			end
-			-- NEVER INSIDE. This is the guard; it is 0 on main too, which is why the next two lines
-			-- are what make the case fail there.
-			expect(insideAtTurn).to.equal(0)
-			-- ...AND IT REALLY HAPPENED OUT THERE. On main every order is the pace speed, so this
-			-- is 0 and the case is red.
-			expect(outsideAtTurn > 0).to.equal(true)
-			-- ...and the span itself is still run at the pace that was asked for.
-			expect(insideAtPace > 0).to.equal(true)
+			local trial = Range.trialOf(1) :: any
+			-- SEVERAL PASSES, each by a different animal, in 40 s at a trot.
+			expect(#ids >= 4).to.equal(true)
+			expect(trial.passes).to.equal(#ids)
+			-- ...AND ONE CROSSING PER PASS, which is the whole of (a): no animal crosses twice.
+			expect(trial.crossings >= #ids - 1).to.equal(true)
+			expect(trial.crossings <= trial.passes).to.equal(true)
+			-- ...AND THE OLD ONE IS GONE: one live animal at a time, never two on the lane.
+			expect(live).to.equal(1)
+			-- ...AND THE DIRECTION ALTERNATES (b): the leg changes with every pass.
+			expect((trial.directions.east or 0) > 0).to.equal(true)
+			expect((trial.directions.west or 0) > 0).to.equal(true)
 			TestKit.note(
 				string.format(
-					"range 317: reversal walk issued on %d steps outside the span, %d inside; %d at-pace steps inside",
-					outsideAtTurn,
-					insideAtTurn,
-					insideAtPace
+					"range 321: %d passes by %d animals in 40 s at a trot, %d crossings, at most %d alive at once",
+					trial.passes,
+					#ids,
+					trial.crossings,
+					live
+				)
+			)
+			Range.stop()
+		end)
+
+		-- (b) THE GAP, AS A TIME AND AT EVERY PACE. The run-up is `pace speed * NEXT_PASS_SECONDS`
+		-- of apron, so the next animal reaches the span's near edge that long after the last one left
+		-- it, whatever the pace. On main the gap is a whole reversal: 7.12 s, measured.
+		it("starts the next pass within NEXT_PASS_SECONDS of the last one leaving the span", function()
+			local rows = {}
+			for _, pace in ipairs({ "walk", "trot", "run" }) do
+				local clock, now = newClock()
+				local fake = newFakeBoars()
+				expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
+				expect(Range.setPace(1, pace)).to.equal(true)
+				local trial = Range.trialOf(1) :: any
+				local anchor = Vector3.new(DEV_ROW.x, 0, DEV_ROW.z)
+				local lo, hi = RangeData.sightSpanFor(anchor, 1, LAYOUT, trial.distanceStuds, true)
+				local dt = 1 / 60
+				local lastOut: number? = nil
+				local worst, gaps = 0, 0
+				local inside = false
+				for _ = 1, math.floor(60 / dt) do
+					clock.t += dt
+					fake.advance(dt)
+					Range.step(dt)
+					local here = fake.at(1) :: any
+					local isIn = here ~= nil and RangeData.inWindow(lo, hi, here.position.X)
+					if isIn and not inside then
+						inside = true
+						if lastOut ~= nil then
+							local gap = clock.t - (lastOut :: number)
+							gaps += 1
+							if gap > worst then
+								worst = gap
+							end
+						end
+					elseif inside and not isIn then
+						inside = false
+						lastOut = clock.t
+					end
+				end
+				expect(gaps >= 2).to.equal(true)
+				-- THE CLAIM, AND IT IS THE ONE KAREN MADE: at most a second with nothing to look at.
+				expect(worst <= 1.0).to.equal(true)
+				table.insert(rows, string.format("%s %.2f s over %d gaps", pace, worst, gaps))
+				Range.stop()
+			end
+			TestKit.note("range 321: worst out-of-sight gap between passes -- " .. table.concat(rows, " · "))
+		end)
+
+		-- (c) A KILL. The carcass stays where it fell (task 318) and the next animal does NOT wait for
+		-- it: on main the next live target is `CARCASS_SECONDS` + the old `RELEASE_SECONDS` away,
+		-- which 319 measured at +4.37 s in Karen's place.
+		it("releases the next animal within a tick of a kill, with the carcass still lying there", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
+			expect(Range.setPace(1, "trot")).to.equal(true)
+			advance(fake, clock, 4)
+			local trial = Range.trialOf(1) :: any
+			local killedId = trial.targetId :: string
+			expect(killedId).to.be.ok()
+			local carcass = fake.animals[killedId]
+			expect(carcass).to.be.ok()
+			carcass.alive = false
+			local fellAt = carcass.position
+			local killedAtT = clock.t
+			-- ONE SCAN TICK is all it may take.
+			advance(fake, clock, 1 / Range.CONFIG.STEP_HZ + 2 / 60)
+			trial = Range.trialOf(1) :: any
+			local nextId = trial.targetId
+			expect(nextId).to.be.ok()
+			expect(nextId ~= killedId).to.equal(true)
+			expect(clock.t - killedAtT <= 1.0).to.equal(true)
+			-- THE CARCASS IS STILL THERE, AND WHERE IT FELL.
+			expect(trial.carcassId).to.equal(killedId)
+			expect(fake.animals[killedId]).to.be.ok()
+			expect((fake.animals[killedId].position - fellAt).Magnitude <= 1e-6).to.equal(true)
+			-- ...AND CARCASS_SECONDS LATER IT IS GONE, with the pass after it still running.
+			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + 0.3)
+			trial = Range.trialOf(1) :: any
+			expect(fake.animals[killedId]).to.equal(nil)
+			expect(trial.carcassId).to.equal(nil)
+			expect(trial.targetId).to.be.ok()
+			TestKit.note(
+				string.format(
+					"range 321: next animal one %.1f Hz tick after the kill; carcass held its own %.0f s",
+					Range.CONFIG.STEP_HZ,
+					Range.CONFIG.CARCASS_SECONDS
 				)
 			)
 			Range.stop()
@@ -1626,16 +1732,12 @@ return function()
 			expect(drawn >= trial.leg).to.equal(true)
 			-- EVERY ORDER WAS ONE OF EXACTLY TWO SPEEDS, asked as membership and not as a count
 			-- (a count of 0 is truthy in Lua, which is how the old case passed)...
-			local slowOrders, fastOrders, turnOrders, other = 0, 0, 0, 0
+			local slowOrders, fastOrders, other = 0, 0, 0
 			for _, lead in ipairs(fake.leadsAt(1)) do
 				if lead.speed == slowSpeed then
 					slowOrders += 1
 				elseif lead.speed == fastSpeed then
 					fastOrders += 1
-				elseif lead.speed == Range.CONFIG.TURN_STUDS_PER_SECOND then
-					-- Task 317's reversal walk, which is a THIRD speed and not a third draw: it is
-					-- issued only outside the span and `mixed` never draws it.
-					turnOrders += 1
 				else
 					other += 1
 				end
@@ -1851,42 +1953,50 @@ return function()
 			Range.stop()
 		end)
 
-		it("clears a killed target after CARCASS_SECONDS and releases a fresh one after RELEASE_SECONDS", function()
+		-- TASK 321 REWROTE THE TIMING HALF OF THIS CASE: the fresh target no longer waits for the
+		-- carcass (c), so a kill releases on the next tick and the carcass is cleared on its own
+		-- clock. What is unchanged, and is still the point of the case, is step B7's must-fix 1:
+		-- the clear is HIS animal, through `clearOne`, and the other five stations keep theirs.
+		it("clears a killed target after CARCASS_SECONDS and releases a fresh one AT ONCE", function()
 			local clock, now = newClock()
 			local fake = newFakeBoars()
 			expect(select(1, startRange(fake, now))).to.equal(true)
 			advance(fake, clock, 2)
 			expect(fake.spawns).to.equal(LAYOUT.SPOT_COUNT)
 			local dead = fake.at(1) :: any
+			local deadId = dead.id
 			dead.alive = false
 
-			-- Under the hold, nothing is cleared: the player is looking at what he did.
-			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS - 1)
-			expect(fake.clears).to.equal(0)
-			expect(Range.stats().carcasses).to.equal(1)
-
-			-- WHOSE ANIMALS THE OTHER FIVE STATIONS HAVE, before the carcass is cleared: the
-			-- identities are compared after it, which is what "and only his" means.
+			-- WHOSE ANIMALS THE OTHER FIVE STATIONS HAVE, before the kill: the identities are
+			-- compared after it, which is what "and only his" means.
 			local othersBefore = {}
 			for spot = 2, LAYOUT.SPOT_COUNT do
 				othersBefore[spot] = (fake.at(spot) :: any).id
 			end
-			advance(fake, clock, 1.5)
+
+			-- ONE TICK: the next animal is out, and the carcass is still lying there untouched.
+			advance(fake, clock, 1 / Range.CONFIG.STEP_HZ + 2 / 60)
+			expect(fake.spawns).to.equal(LAYOUT.SPOT_COUNT + 1)
+			expect(Range.stats().carcasses).to.equal(1)
+			expect(Range.stats().releases).to.equal(1)
+			expect(fake.clears).to.equal(0)
+			expect(fake.animals[deadId]).to.be.ok()
+			expect((Range.trialOf(1) :: any).carcassId).to.equal(deadId)
+			expect((fake.at(1) :: any).alive).to.equal(true)
+			expect((fake.at(1) :: any).id ~= deadId).to.equal(true)
+
+			-- ...AND CARCASS_SECONDS AFTER THE KILL IT GOES, as HIS animal and only his.
+			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + 0.5)
 			expect(fake.clears).to.equal(1)
 			expect(fake.lastClear).to.equal("range carcass")
-			expect(Range.stats().releases).to.equal(1)
-			-- ...and the fresh one is not released instantly either.
-			expect(fake.spawns).to.equal(LAYOUT.SPOT_COUNT)
-			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 0.5)
+			expect(fake.clearOnes).to.equal(1)
+			expect(fake.animals[deadId]).to.equal(nil)
 			-- ONE ANIMAL WENT AND ONE CAME BACK -- STEP B7's MUST-FIX 1. Until B7 this read
 			-- `2 * SPOT_COUNT` spawns and `SPOT_COUNT - 1` lost targets, because `boars.clear` was
 			-- range-WIDE and one man's carcass took the other five stations' animals with it. The
 			-- lever is `Boar.Runtime:clearOne`, wired as `boars.clearOne`.
-			expect(fake.spawns).to.equal(LAYOUT.SPOT_COUNT + 1)
-			expect(fake.clearOnes).to.equal(1)
 			expect(Range.stats().lostTargets).to.equal(0)
 			expect(Range.stats().wideClears).to.equal(0)
-			expect((fake.at(1) :: any).alive).to.equal(true)
 			-- THE OTHER FIVE ARE THE SAME ANIMALS, not re-released copies.
 			for spot = 2, LAYOUT.SPOT_COUNT do
 				expect((fake.at(spot) :: any).id).to.equal(othersBefore[spot])
@@ -1902,9 +2012,8 @@ return function()
 			expect((fake.at(1) :: any).position.X ~= nil).to.equal(true)
 			TestKit.note(
 				string.format(
-					"range: carcass held %d s, cleared, fresh target after %d s",
-					Range.CONFIG.CARCASS_SECONDS,
-					Range.CONFIG.RELEASE_SECONDS
+					"range 321: fresh target one tick after the kill, carcass cleared %d s later",
+					Range.CONFIG.CARCASS_SECONDS
 				)
 			)
 			Range.stop()
@@ -1925,7 +2034,7 @@ return function()
 			advance(fake, clock, 1)
 			-- HE PICKS ONCE, and never asks again in this case.
 			expect(Range.onRequest(man, { spot = 2, species = "reddeer", pace = RangeData.WORD.RUN })).to.equal(true)
-			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			advance(fake, clock, 1)
 			local before = Range.trialOf(2) :: any
 			local firstId = before.targetId
 			expect(firstId).to.be.ok()
@@ -1933,7 +2042,7 @@ return function()
 			local spawnsBefore = fake.spawns;
 			(fake.at(2) :: any).alive = false
 			-- NOTHING IS SENT: the gap is the two CONFIG numbers and nothing else.
-			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + Range.CONFIG.RELEASE_SECONDS + 1)
+			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + 1)
 			local after = Range.trialOf(2) :: any
 			expect(after.targetId).to.be.ok()
 			expect(after.targetId ~= firstId).to.equal(true)
@@ -1947,8 +2056,8 @@ return function()
 			expect(after.spot).to.equal(2)
 			TestKit.note(
 				string.format(
-					"range: next animal by itself %d s after the kill, same settings",
-					Range.CONFIG.CARCASS_SECONDS + Range.CONFIG.RELEASE_SECONDS
+					"range: next animal by itself %.1f s after the kill, same settings",
+					Range.CONFIG.CARCASS_SECONDS
 				)
 			)
 			Range.stop()
@@ -1963,7 +2072,7 @@ return function()
 			local crowd = newCrowd({ 2 })
 			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
 			local man = crowd.men[1]
-			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			advance(fake, clock, 1)
 			expect((Range.trialOf(2) :: any).targetId).to.be.ok()
 			local clearOnesBefore = fake.clearOnes
 			local leavesBefore = Range.stats().leaves
@@ -1985,7 +2094,7 @@ return function()
 			-- RE-ARM 1: HE ASKS AGAIN. One `go` -- the confirm bar's own word -- and the lane is live.
 			expect(Range.onRequest(man, { spot = 2, go = true })).to.equal(true)
 			expect((Range.trialOf(2) :: any).ended).to.equal(false)
-			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			advance(fake, clock, 1)
 			expect((Range.trialOf(2) :: any).targetId).to.be.ok()
 			expect(fake.spawns).to.equal(spawnsBefore + 1)
 
@@ -1999,7 +2108,7 @@ return function()
 			-- NOBODY THERE IS STILL NOBODY'S ANIMAL (design 7.4): the re-arm is not a release.
 			expect(spawnsAway).to.equal(spawnsBefore + 1)
 			crowd.set({ 2 })
-			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			advance(fake, clock, 1)
 			expect(fake.spawns).to.equal(spawnsAway + 1)
 			expect((Range.trialOf(2) :: any).targetId).to.be.ok()
 			TestKit.note("range: leave ends the session, and an ask or a walk-off re-arms the station")
@@ -2040,7 +2149,7 @@ return function()
 			local fake = newFakeBoars()
 			local crowd = newCrowd({})
 			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
-			-- Two full minutes of scanning, which is 60 x `RELEASE_SECONDS`.
+			-- Two full minutes of scanning.
 			advance(fake, clock, 120)
 			expect(fake.spawns).to.equal(0)
 			expect(Range.stats().occupied).to.equal(0)
@@ -4046,7 +4155,7 @@ return function()
 
 			-- EVERY TRUNK REPLACED AT ONCE, which is exactly what one man's carcass does to all six.
 			fake.clear("spec re-release")
-			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			advance(fake, clock, 1)
 			-- HE WAS TOLD, without firing a shot: a payload arrived after the pick...
 			expect(#sent > 1).to.equal(true)
 			local last = sent[#sent].record.mine
@@ -4059,7 +4168,7 @@ return function()
 			-- so an unbatched push would be six per man per edge.
 			local before = #sent
 			fake.clear("spec re-release 2")
-			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			advance(fake, clock, 1)
 			expect(sent[#sent].record.mine).to.equal(fake.at(2).root)
 			expect(#sent - before <= LAYOUT.SPOT_COUNT).to.equal(true)
 

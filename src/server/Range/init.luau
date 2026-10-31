@@ -48,13 +48,28 @@ Range.SOLO_VIEW = Flags.isOn("RANGE_SOLO")
 Range.CONFIG = {
 	-- One scan in ten, not one per frame: `Lobby`'s rule, and the range has nothing to say at 60 Hz.
 	STEP_HZ = 10,
-	-- The drive's own arrival number (`ForestTest.CONFIG.LINE.WAYPOINT_STUDS`'s 6): inside this of
-	-- the end of the lane, the leg is done and the direction flips.
-	WAYPOINT_STUDS = 6,
-	-- Hold the carcass so the player sees what he did, then clear it and release a fresh target.
+	-- ONE PASS, ONE ANIMAL, AND THE NEXT ONE AT ONCE (task 321). Karen, 2026-10-31, after playing
+	-- 319: *"it's the same animal running we need each time it run on one side new one comes ... it
+	-- runs or walks no matter killed or no it comes to end new animal comes old gone ... and it has
+	-- to be new one imediatly not neet to wait to long"*.
+	--
+	-- THE ONE NUMBER: the next animal reaches the span's near edge this long after the last one left
+	-- it. It is a TIME and not a distance, so it is the same gap at every pace: the run-up handed to
+	-- `RangeData.passEntryFor` is `pace speed * NEXT_PASS_SECONDS`, clamped into the apron (a run at
+	-- 24 studs/s would ask for 12 studs of the 20 there are). MEASURED on main in Karen's place
+	-- (`<runs-dir>/321-pass.luau`, d7ae1929): ONE animal, FOUR crossings, 7.12 s out of sight between
+	-- them -- the whole of what she is complaining about.
+	NEXT_PASS_SECONDS = 0.5,
+	-- A PASS THAT NEVER REACHES THE SPAN IS STILL OVER after this (the guard `TURN_MAX_SECONDS` used
+	-- to be): a wedged animal is cleared and a fresh one released, because *"no matter killed or no
+	-- it comes to end new animal comes"*. Longer than the slowest legal pass (a walk at 4.5 studs/s
+	-- across the widest span, 156 studs, is 35 s)... so it is counted from the RELEASE to the span
+	-- ENTRY only, which is the run-up: 20 studs of apron at a walk is 4.4 s.
+	PASS_MAX_SECONDS = 20,
+	-- Hold the carcass so the player sees what he did, then clear it. The NEXT animal does not wait
+	-- for it (task 321 (c)): death ends the pass, and the pass after it starts at once.
 	-- Death is the hunt's, not the range's (design section 6).
 	CARCASS_SECONDS = 3,
-	RELEASE_SECONDS = 2,
 	-- HE LEFT: his animal goes this long after he did, and not before (design 7.4). 30 s is the
 	-- design's number and it is long enough that stepping off the mat is not losing your target.
 	IDLE_CLEAR_SECONDS = 30,
@@ -64,46 +79,11 @@ Range.CONFIG = {
 	-- the lane's MIDDLE as its point and no second writer anywhere. 2 studs is that 1.0 plus one
 	-- 10 Hz step of walk (0.45).
 	STAND_HOLD_STUDS = 2,
-	-- THE REVERSAL IS SPENT IN THE APRON, NOT IN THE SPAN (task 317). MEASURED on main in Karen's
-	-- place: at RUN the animal was 19.7 studs off its own lane line INSIDE the span -- 144.7 studs
-	-- from a shooter who picked 125 (+15.8 %) -- because a 180-degree reversal at 24 studs/s has a
-	-- turning radius the 20-stud apron cannot hold, so the arc spilled over the span edge.
-	-- An animal that slows to turn has a radius of `TURN_STUDS_PER_SECOND / (gait turn rate)`, and
-	-- the apron has to hold the pivot AND the re-acceleration (`Boar.CONFIG.ACCEL` 60: 2.5 -> 24
-	-- studs/s in 0.36 s, ~4.8 studs). Cycle 1 used 4.5, the walk: a ~2.1-stud radius whose realign
-	-- ate so much apron that the animal was still accelerating at the span edge (98 % of samples at
-	-- pace). 2.5 halves the radius, and it is inside the WALK gait band, so it is a gait and a clip
-	-- the animal already has.
-	TURN_STUDS_PER_SECOND = 2.5,
-	-- BACK ON THE LANE LINE: within this of the lane's Z the reversal is over. Cycle 5 brought it
-	-- from 1 stud to 0.3 -- well inside the +-2 the task asks for, with apron left to straighten in.
-	TURN_ALIGN_STUDS = 0.3,
-	-- ...AND ACTUALLY GOING THE NEW WAY. At `STEP_HZ` 10 and the turn speed above one step is 0.25
-	-- studs, so this is progress and not sampling noise.
-	TURN_PROGRESS_STUDS = 0.1,
-	-- ...AND GOING IT STRAIGHT. Cycle 1 measured 5.01 studs still out with position alone: an animal
-	-- let go ON the line but still ANGLED to it accelerates to 24 studs/s and swings across. Z moved
-	-- per 10 Hz step, so 0.1 against a 0.45-stud step is a heading within ~13 degrees of the lane.
-	-- ...AND GOING IT STRAIGHT, AS AN ANGLE AND NOT AS A DISTANCE (cycle 7). A residual angle is not
-	-- corrected either -- the same deadband -- so it drifts the whole length of the leg. Measured as
-	-- |dZ| / |dX| of one step, it is independent of the turn speed and of `STEP_HZ`; as a distance
-	-- (cycles 2-6) it was 13 degrees at 4.5 studs/s and 9 at 2.5, which left TROT 2.20 studs out.
-	-- 0.02 is 1.1 degrees. It is the TIGHTEST of the three exits below, so on a physics animal the
-	-- reversal often ends on `inSpan` or `TURN_MAX_SECONDS` instead; all three leave it on the line.
-	TURN_STRAIGHT_RATIO = 0.02,
-	-- IT BRAKES BEFORE IT TURNS, AND THAT IS THE OTHER HALF (task 317, cycle 3). Cycles 1 and 2 slowed
-	-- the animal only AFTER the leg flipped, so the first ~70 degrees of the reversal were still
-	-- turned at 24 studs/s and threw it 4 studs off the line with apron left to spend. Braking
-	-- 24 -> 2.5 studs/s costs (24^2 - 2.5^2) / (2 * `Boar.CONFIG.ACCEL` 60) = 4.7 studs, so the
-	-- outer half of the apron is the brake and the animal reaches the lane end already walking.
-	TURN_SLOW_STUDS = 10,
-	-- AND IT IS STEERED BACK ONTO THE LINE WHILE IT IS STILL IN THE APRON (task 317, cycle 4) --
-	-- the root cause the raw trace found. A pivot of radius ~2 studs leaves the animal ~3.8 studs
-	-- off the lane; aimed at the far lane end 120 studs away that is a heading error of 1.8 degrees,
-	-- INSIDE `Boar.CONFIG.PACE.TURN_DEADBAND_DEG` (4), so the animal never turns and carries the
-	-- offset the length of the leg. A lane-line point this far AHEAD makes the same 3.8 studs a
-	-- 32-degree error, which it does correct, and it corrects it inside the apron.
-	TURN_AIM_STUDS = 6,
+	-- THE LOOKAHEAD'S FLOOR, in studs: the aim point is never nearer than this, whatever the pace.
+	-- Task 317 sized it to pull an animal back onto its lane line inside the apron; task 321 removed
+	-- the reversal that needed it and the floor stays, because a pure-pursuit point must not collapse
+	-- onto the animal at a walk.
+	AIM_MIN_STUDS = 6,
 	-- ...AND IT FOLLOWS ITS LANE LINE FOR THE WHOLE LEG, NOT JUST THE TURN (cycle 8). Steering at a
 	-- lane END 120 studs away hides several studs of offset under the 4-degree deadband -- cycles 4
 	-- to 7 chased the exit angle instead and still drifted 2.2 studs by mid-span. A lane-line point
@@ -111,11 +91,11 @@ Range.CONFIG = {
 	-- at run, 6.6 at trot), and is longer than `PACE.HEADING_SMOOTH_SECONDS` (0.35), so it steers
 	-- rather than oscillates. Pure pursuit: the lookahead is a time, not a distance.
 	AIM_SECONDS = 0.6,
-	-- A REVERSAL THAT NEVER FINISHES IS A STUCK ANIMAL, not a slow one: after this the pace is
-	-- restored whatever the geometry says, so a wedged target crawls for 6 s and never for ever.
-	TURN_MAX_SECONDS = 6,
-	-- One target per spot, never a sounder.
-	MAX_TARGETS = RangeData.LAYOUT.SPOT_COUNT,
+	-- ONE LIVE TARGET AND ONE CARCASS PER SPOT, never a sounder. Task 321 (c) doubled it: the next
+	-- animal is released without waiting for the carcass to clear, so a station holds both for
+	-- `CARCASS_SECONDS`. `Runtime:count()` counts carcasses, so the old `SPOT_COUNT` refused the
+	-- very spawn that makes the kill feel immediate.
+	MAX_TARGETS = RangeData.LAYOUT.SPOT_COUNT * 2,
 	-- SIX STATIONS, DRESSED (step B10), AND THIS COUNTS WHAT IS BUILT. DEV: 1 plate + 6 x (mat,
 	-- post, bench, 4 hut posts, roof, board) + 6 x 14 seat pieces + 1 turf + 2 banks + 1 berm = 143,
 	-- which is the number `range.spec` measures. NO fence post and NO rail: the lot's side line is
@@ -178,12 +158,16 @@ type Trial = {
 	windowEnteredAt: number?,
 	windowLeg: number?,
 	windowArmed: boolean,
-	-- THE REVERSAL (task 317): true from the leg flip until the animal is travelling the new leg's
-	-- way AND back on the lane line. Only ever honoured OUTSIDE the span.
-	turning: boolean,
-	turningSince: number?,
-	turnLastX: number?,
-	turnLastZ: number?,
+	-- ONE PASS (task 321). `passId` is the animal this pass is being run by, `passFrom` when it was
+	-- released, `passEntered` whether it has reached the span yet, and `passes` how many have run.
+	-- A pass ends when its animal LEAVES the span, or dies, and the next starts at once.
+	passes: number,
+	passFrom: number?,
+	passEntered: boolean,
+	passOver: boolean,
+	-- HIS CARCASS, held apart from his live target: it stays where it fell for `CARCASS_SECONDS`
+	-- while the next animal is already crossing (task 321 (c)).
+	carcassId: string?,
 	carcassAt: number?,
 	releaseAt: number?,
 	-- HE ENDED HIS SESSION AT THIS STATION (task 319): no animal is released while this is true,
@@ -232,6 +216,9 @@ local state = {
 		clears = 0,
 		crossings = 0,
 		flips = 0,
+		-- HOW MANY PASSES ENDED BECAUSE THEIR ANIMAL CROSSED AND LEFT (task 321), which is the
+		-- number a kill does NOT raise -- that one is `carcasses`.
+		passes = 0,
 		skippedFlying = 0,
 		carcasses = 0,
 		releases = 0,
@@ -371,11 +358,12 @@ local function newTrial(spot: number, pace: string): Trial
 		windowLeg = nil,
 		-- Released at a lane end, which is outside the window: the first entry is a real one.
 		windowArmed = true,
-		-- Released AT a lane end facing into the span, so there is no reversal to spend first.
-		turning = false,
-		turningSince = nil,
-		turnLastX = nil,
-		turnLastZ = nil,
+		-- NOTHING HAS CROSSED YET (task 321): the first release is the first pass.
+		passes = 0,
+		passFrom = nil,
+		passEntered = false,
+		passOver = false,
+		carcassId = nil,
 		carcassAt = nil,
 		releaseAt = nil,
 		-- A FRESH STATION IS NOT AN ENDED ONE: the first man measured at it gets an animal.
@@ -1011,9 +999,10 @@ local flushMasks: () -> ()
 -- ONE STATION'S ANIMAL, AND ONLY HIS (task 306 B7, must-fix 1). `Boar.Runtime:clearOne` despawns
 -- by id through the same path the range-wide `clear` uses; a root that wires only `clear` takes the
 -- other five stations' animals with this one, which is COUNTED (`wideClears`) and not silent.
-local function clearTarget(trial: Trial, reason: string): boolean
+-- ONE ANIMAL OF THIS TRIAL'S, BY ID. Task 321 gave a trial two of them -- the live target and the
+-- carcass it is no longer waiting for -- so the id is an argument and the counters are shared.
+local function clearId(trial: Trial, id: string?, reason: string): boolean
 	local boars = state.boars
-	local id = trial.targetId
 	if boars == nil or id == nil then
 		return false
 	end
@@ -1031,10 +1020,20 @@ local function clearTarget(trial: Trial, reason: string): boolean
 		return false
 	end
 	state.stats.clears += 1
-	trial.targetId = nil
 	state.maskDirty = true
-	trial.carcassAt = nil
+	if trial.targetId == id then
+		trial.targetId = nil
+	end
+	if trial.carcassId == id then
+		trial.carcassId = nil
+		trial.carcassAt = nil
+	end
 	return true
+end
+
+-- THE LIVE TARGET, which is what every caller before task 321 meant by "the target".
+local function clearTarget(trial: Trial, reason: string): boolean
+	return clearId(trial, trial.targetId, reason)
 end
 
 -- WHO IS AT WHICH STATION, THIS TICK (design 7.4). The root hands in the player list, this module
@@ -1068,6 +1067,14 @@ local function occupancy(): { [number]: boolean }
 		end
 		if spot ~= nil then
 			out[spot :: number] = true
+			-- HE IS AT THE RANGE, SO HE IS TOLD (task 321 (e)). Before this a man became part of the
+			-- mask's audience only when he ASKED for something -- `recordFor` is reached from
+			-- `onRequest` and from a shot -- so his FIRST animal was released to a client that had
+			-- never been told which trunk was his, and `Mask` hid it. The audience is the men the
+			-- owner measures at a station, which is this list, and it is measured here already.
+			if key ~= nil then
+				state.watchers[key] = player
+			end
 		end
 	end
 	-- A MAN WHO LEFT THE SERVER LEAVES NO ROW: the table cannot grow without bound.
@@ -1084,17 +1091,31 @@ local function release(trial: Trial)
 	if boars == nil or boars.spawn == nil or state.anchor == nil then
 		return
 	end
-	-- Released at the end the next leg STARTS from, so the first thing it does is cross.
+	-- RELEASED INTO THE RUN-UP OF ITS OWN PASS (task 321): outside the span, far enough out that it
+	-- is not in his sight and near enough that it is in it `NEXT_PASS_SECONDS` later. A STAND has no
+	-- pass, so it is released at the lane end it always was and walks to the middle from there.
 	-- HIS OWN STATION'S LANE, at the distance HE picked: the window is centred on his mat (design 5.3).
-	local from = RangeData.laneEndsFor(
-		state.anchor :: Vector3,
-		RangeData.LAYOUT,
-		trial.leg + 1,
-		state.downrange,
-		trial.spot,
-		trial.distanceStuds,
-		state.solo
-	)
+	local runUp = Range.CONFIG.NEXT_PASS_SECONDS * math.max(0, Range.issuedSpeedFor(trial))
+	local from = if trial.pace == RangeData.WORD.STAND
+		then RangeData.laneEndsFor(
+			state.anchor :: Vector3,
+			RangeData.LAYOUT,
+			trial.leg + 1,
+			state.downrange,
+			trial.spot,
+			trial.distanceStuds,
+			state.solo
+		)
+		else RangeData.passEntryFor(
+			state.anchor :: Vector3,
+			RangeData.LAYOUT,
+			trial.leg,
+			state.downrange,
+			trial.spot,
+			trial.distanceStuds,
+			state.solo,
+			runUp
+		)
 	local handle = boars.spawn(from, trial.kind)
 	if handle == nil or handle.id == nil then
 		return
@@ -1106,12 +1127,11 @@ local function release(trial: Trial)
 	trial.windowEnteredAt = nil
 	trial.windowLeg = nil
 	trial.windowArmed = true
-	-- A FRESH TARGET IS RELEASED AT A LANE END FACING IN (task 317), so it has no reversal to spend:
-	-- the previous animal's unfinished one must not slow this one down.
-	trial.turning = false
-	trial.turningSince = nil
-	trial.turnLastX = nil
-	trial.turnLastZ = nil
+	-- A FRESH PASS, with its own animal and its own clock (task 321).
+	trial.passes += 1
+	trial.passFrom = clockNow()
+	trial.passEntered = false
+	trial.passOver = false
 	state.stats.spawns += 1
 end
 
@@ -1130,9 +1150,18 @@ local function timeWindow(trial: Trial, position: Vector3, now: number)
 			trial.windowLeg = trial.leg
 			trial.windowArmed = false
 		end
+		-- THE PASS HAS REACHED THE SPAN (task 321), which is what makes leaving it the END of the
+		-- pass and not the animal having never arrived.
+		trial.passEntered = true
 		return
 	end
 	trial.windowArmed = true
+	-- IT CROSSED AND IT IS OUT THE OTHER SIDE, so the pass is over and the next one starts (task
+	-- 321 (a)). The span is also what `Range.Mask` shows him by, so an animal out here is ALREADY
+	-- invisible to the man at the station: nothing is removed in his sight.
+	if trial.passEntered and trial.pace ~= RangeData.WORD.STAND then
+		trial.passOver = true
+	end
 	if trial.windowEnteredAt ~= nil then
 		if trial.windowLeg == trial.leg then
 			local seconds = now - (trial.windowEnteredAt :: number)
@@ -1144,55 +1173,6 @@ local function timeWindow(trial: Trial, position: Vector3, now: number)
 		trial.windowEnteredAt = nil
 		trial.windowLeg = nil
 	end
-end
-
--- IS THE REVERSAL OVER? (task 317) Karen, 2026-10-30: she tests walk/trot/run across the whole
--- span, so the distance she picked has to be the distance she shoots at -- MEASURED on main: 19.7
--- studs out at RUN, worst at the span edge the animal had just entered.
---
--- THREE WAYS OUT, and the FIRST is the guard that matters: a turn is never honoured INSIDE the span,
--- so the crossing the board teaches can never be slowed by this and the worst case of a bug here is
--- exactly today's game. Then: the animal is travelling the new leg's way AND is back on the lane
--- line. Then: `TURN_MAX_SECONDS`, so a wedged target crawls for 6 s and not for ever.
-local function inSpan(trial: Trial, position: Vector3): boolean
-	local minX, maxX =
-		RangeData.sightSpanFor(state.anchor :: Vector3, trial.spot, RangeData.LAYOUT, trial.distanceStuds, state.solo)
-	return RangeData.inWindow(minX, maxX, position.X)
-end
-
-local function turnDone(trial: Trial, position: Vector3): boolean
-	if not trial.turning then
-		return true
-	end
-	if inSpan(trial, position) then
-		return true
-	end
-	local since = trial.turningSince
-	if since ~= nil and clockNow() - (since :: number) >= Range.CONFIG.TURN_MAX_SECONDS then
-		return true
-	end
-	local laneZ = RangeData.laneCentre(
-		state.anchor :: Vector3,
-		RangeData.LAYOUT,
-		state.downrange,
-		trial.spot,
-		trial.distanceStuds
-	).Z
-	if math.abs(position.Z - laneZ) > Range.CONFIG.TURN_ALIGN_STUDS then
-		return false
-	end
-	local lastX, lastZ = trial.turnLastX, trial.turnLastZ
-	if lastX == nil or lastZ == nil then
-		return false
-	end
-	local heading = if (trial.leg % 2) == 1 then 1 else -1
-	local alongX = (position.X - (lastX :: number)) * heading
-	if alongX < Range.CONFIG.TURN_PROGRESS_STUDS then
-		return false
-	end
-	-- STRAIGHT, not merely on the line: the step's Z against its X IS the heading, and an animal let
-	-- go angled swings across the lane as it accelerates back to pace (cycle 1: 5.01 studs out).
-	return math.abs(position.Z - (lastZ :: number)) <= Range.CONFIG.TURN_STRAIGHT_RATIO * alongX
 end
 
 local function order(trial: Trial, position: Vector3, dt: number)
@@ -1224,34 +1204,8 @@ local function order(trial: Trial, position: Vector3, dt: number)
 			trial.distanceStuds,
 			state.solo
 		)
-		-- BRAKING: the last stretch of the leg, before the end it is about to turn at. Measured on the
-		-- CURRENT leg's end, so it must be read before the flip below moves `point` to the far one.
-		local braking = (Vector3.new(position.X, 0, position.Z) - Vector3.new(point.X, 0, point.Z)).Magnitude
-			<= Range.CONFIG.TURN_SLOW_STUDS
-		-- THE FLIP, and it is the range's reason to exist in one line: ISSF's mandatory direction
-		-- change, so neither shoulder is favoured and no single lead is ever trained.
-		if
-			(Vector3.new(position.X, 0, position.Z) - Vector3.new(point.X, 0, point.Z)).Magnitude
-			<= Range.CONFIG.WAYPOINT_STUDS
-		then
-			trial.leg += 1
-			state.stats.flips += 1
-			-- THE REVERSAL STARTS HERE AND NOWHERE ELSE (task 317), at the one place the direction
-			-- changes. It ends in `turnDone` below.
-			trial.turning = true
-			trial.turningSince = clockNow()
-			point = RangeData.laneEndsFor(
-				anchor,
-				layout,
-				trial.leg,
-				state.downrange,
-				trial.spot,
-				trial.distanceStuds,
-				state.solo
-			)
-		end
-		-- `mixed` DRAWS PER LEG (design 6), here, where the leg flips and nowhere else. The shooter
-		-- is never told which it drew -- ISSF does not announce it -- so the board prints the
+		-- `mixed` DRAWS PER PASS (design 6), here, where the leg changes and nowhere else. The
+		-- shooter is never told which it drew -- ISSF does not announce it -- so the board prints the
 		-- ISSUED SPEED and never a second word.
 		if trial.pace == RangeData.WORD.MIXED and trial.legDrawn ~= trial.leg then
 			local drew, word = paceSpeed(RangeData.WORD.MIXED)
@@ -1262,31 +1216,18 @@ local function order(trial: Trial, position: Vector3, dt: number)
 		speed = trial.speedStudsPerSecond
 		direction = if (trial.leg % 2) == 1 then "east" else "west"
 		local legEnd = point
-		-- ...AND THE REVERSAL IS SPENT AT A WALK, IN THE APRON (task 317). The point is unchanged --
-		-- the far lane end, on the lane line -- so this is one number on the existing seam and not a
-		-- second route. `turnDone` is the only thing that ends it.
-		if turnDone(trial, position) then
-			trial.turning = false
-			trial.turningSince = nil
-		end
-		-- ONE GUARD FOR BOTH HALVES: neither the brake nor the pivot is ever honoured INSIDE the
-		-- span, so the crossing the board teaches cannot be slowed by this. THE GUARD IS `turnDone`'s
-		-- own `inSpan` branch -- this one is redundant today and is kept deliberately: `braking` is
-		-- measured to a lane end one whole `APRON_STUDS` (20) outside the span against
-		-- `TURN_SLOW_STUDS` (10), so it cannot be true in there either, and both of those are
-		-- numbers a later task could move. No case can convict this line; it is a belt, not a rule.
-		if (trial.turning or braking) and not inSpan(trial, position) then
-			speed = Range.CONFIG.TURN_STUDS_PER_SECOND
-		end
 		-- THE POINT IS ON THE LANE LINE, A LOOKAHEAD AHEAD -- never off it, and never the far end.
-		-- CLAMPED AT THE LEG'S END so the animal still arrives there and the flip above still fires.
+		-- Pure pursuit: the lookahead is a TIME, with a floor (`AIM_MIN_STUDS`), and it is CLAMPED at
+		-- the leg's end so no order ever points past the corridor and into the bank.
+		--
+		-- ONE PASS, ONE WAY (task 321): there is no flip and no reversal here any more. The animal
+		-- crosses the span once and `scan` ends the pass at the span's far edge, where the man can no
+		-- longer see it; the leg -- and so the direction -- changes with the NEXT release.
 		local heading = if (trial.leg % 2) == 1 then 1 else -1
-		local lookahead = math.max(Range.CONFIG.TURN_AIM_STUDS, speed * Range.CONFIG.AIM_SECONDS)
+		local lookahead = math.max(Range.CONFIG.AIM_MIN_STUDS, speed * Range.CONFIG.AIM_SECONDS)
 		local aimX = position.X + heading * lookahead
 		aimX = if heading > 0 then math.min(aimX, legEnd.X) else math.max(aimX, legEnd.X)
 		point = Vector3.new(aimX, legEnd.Y, legEnd.Z)
-		trial.turnLastX = position.X
-		trial.turnLastZ = position.Z
 	end
 
 	trial.directions[direction] = (trial.directions[direction] or 0) + 1
@@ -1324,6 +1265,16 @@ local function scan(dt: number)
 				trial.idleSince = now
 			end
 		end
+		-- HIS CARCASS, ON ITS OWN CLOCK (task 321 (c)): held where it fell for `CARCASS_SECONDS`
+		-- while the pass after it is already crossing, and then cleared. Nothing waits for this.
+		local carcassAt = trial.carcassAt
+		if
+			trial.carcassId ~= nil
+			and carcassAt ~= nil
+			and now - (carcassAt :: number) >= Range.CONFIG.CARCASS_SECONDS
+		then
+			clearId(trial, trial.carcassId, "range carcass")
+		end
 		if trial.targetId == nil then
 			-- NO ANIMAL FOR AN EMPTY STATION: six drawn, animated animals for one shooter is six
 			-- animators and six sound sets for nothing (design 7.4). This is also T11's "an empty
@@ -1341,6 +1292,8 @@ local function scan(dt: number)
 			if clearTarget(trial, "range idle") then
 				state.stats.idleClears += 1
 				trial.releaseAt = nil
+				-- HIS CARCASS GOES WITH HIM: it was kept for a man who is no longer there.
+				clearId(trial, trial.carcassId, "range idle")
 				continue
 			end
 			-- THE SEAM REFUSED, so DO NOT skip the rest (round 2, note 2): a `continue` here left the
@@ -1354,25 +1307,58 @@ local function scan(dt: number)
 			state.stats.lostTargets += 1
 			trial.targetId = nil
 			state.maskDirty = true
-			trial.releaseAt = now + Range.CONFIG.RELEASE_SECONDS
+			-- AND THE NEXT ONE COMES AT ONCE (task 321 (b)): a target that vanished is still a pass
+			-- that ended, and Karen's answer to a lane with nothing on it is the same either way.
+			trial.releaseAt = nil
 			continue
 		end
 		if status.alive ~= true then
-			if trial.carcassAt == nil then
-				trial.carcassAt = now
-				state.stats.carcasses += 1
-			elseif now - (trial.carcassAt :: number) >= Range.CONFIG.CARCASS_SECONDS then
-				-- HIS CARCASS, AND ONLY HIS (must-fix 1): before step B7 this was the range-WIDE
-				-- `boars.clear`, so one man's kill took the other five stations' animals and all
-				-- six re-released (`range.spec` asserted the 12 spawns and 5 lost targets).
-				if clearTarget(trial, "range carcass") then
-					trial.releaseAt = now + Range.CONFIG.RELEASE_SECONDS
-					state.stats.releases += 1
-				end
+			-- A KILL ENDS THE PASS, AND THE NEXT ONE DOES NOT WAIT FOR THE CARCASS (task 321 (c)).
+			-- Karen, 2026-10-31: *"it;s like you got you change didnt kill done new one and it has
+			-- to be new one imediatly"*. The carcass stays exactly where it fell for
+			-- `CARCASS_SECONDS` (task 318) -- it is moved to `carcassId` and cleared by the block
+			-- above, while `targetId` is free for the animal released on this same tick.
+			-- HIS CARCASS, AND ONLY HIS (must-fix 1): before step B7 this was the range-WIDE
+			-- `boars.clear`, so one man's kill took the other five stations' animals.
+			trial.carcassAt = now
+			state.stats.carcasses += 1
+			-- The carcass of a pass before this one has had its chance; one slot, never a queue.
+			if trial.carcassId ~= nil and trial.carcassId ~= trial.targetId then
+				clearId(trial, trial.carcassId, "range carcass")
+			end
+			trial.carcassId = trial.targetId
+			trial.targetId = nil
+			trial.leg += 1
+			state.stats.flips += 1
+			state.stats.releases += 1
+			state.maskDirty = true
+			trial.releaseAt = nil
+			if occupied and not trial.ended then
+				release(trial)
 			end
 			continue
 		end
 		timeWindow(trial, status.position, now)
+		-- THE PASS IS OVER AND THE NEXT ONE STARTS ON THIS TICK (task 321 (a), (b)): the animal has
+		-- crossed the whole span and is out the far side, where the mask already hides it from him,
+		-- or it never reached the span at all and `PASS_MAX_SECONDS` has run out. Either way its
+		-- animal goes, the leg -- the direction -- changes, and a NEW one is released at once.
+		local from = trial.passFrom
+		local stalled = not trial.passEntered
+			and from ~= nil
+			and now - (from :: number) >= Range.CONFIG.PASS_MAX_SECONDS
+		if trial.passOver or stalled then
+			if clearTarget(trial, if stalled then "range pass stalled" else "range pass over") then
+				trial.leg += 1
+				state.stats.flips += 1
+				state.stats.passes += 1
+				trial.releaseAt = nil
+				if occupied and not trial.ended then
+					release(trial)
+				end
+			end
+			continue
+		end
 		-- THE GUARD `leadIfFree` EXISTS FOR, kept here for its stated reason: *"the drive must not
 		-- order an animal the Brain is flying"*.
 		if boars.flying ~= nil and boars.flying(trial.targetId) then
@@ -1556,6 +1542,7 @@ function Range.recordOf(player: any): any
 	-- every read, because the trunk changes with every release while the tally survives it. Here and
 	-- not in `publish`, so the reader and the wire see one record (the Reviewer, round 1).
 	copy.mine, copy.window, copy.alone = Range.maskFor(player)
+	copy.mineIds = Range.mineIdsFor(player)
 	return copy
 end
 
@@ -1566,6 +1553,32 @@ end
 -- IT IS THE SAME TWO FACTS `Range.ignoredFor` ANSWERS FOR THE SHOT, read from the same places:
 -- `boars.rootOf` for the trunk and `RangeData.windowSpanFor` for the window. The shot's door and
 -- the picture cannot disagree because neither derives its own copy.
+-- THE IDS OF THE ANIMALS THAT ARE HIS (task 321 (e)). An Instance on the wire is only as good as
+-- the client's copy of it: a trunk created on the server THIS tick may not have replicated when the
+-- payload arrives, and `mine` then reads nil -- so the mask hid the man's own fresh animal until the
+-- next publish named it, which with one animal a pass is every pass (319a(a), the Reviewer's trace).
+-- A NAME IS A STRING AND ALWAYS ARRIVES. `Body.create` names the trunk after the animal's own id, so
+-- the client resolves it on its own sweep, the frame it appears, with nothing more from the server.
+-- The CARCASS is his too, so a kill he is looking at does not vanish when the next pass is released.
+function Range.mineIdsFor(player: any): { string }
+	local out = {}
+	local spot = (Range.positionOf(player))
+	if not state.started or spot == nil then
+		return out
+	end
+	local trial = state.trials[spot]
+	if trial == nil then
+		return out
+	end
+	if trial.targetId ~= nil then
+		table.insert(out, trial.targetId :: string)
+	end
+	if trial.carcassId ~= nil then
+		table.insert(out, trial.carcassId :: string)
+	end
+	return out
+end
+
 function Range.maskFor(player: any): (Instance?, { minX: number, maxX: number }?, boolean)
 	local anchor = state.anchor
 	local boars = state.boars
@@ -1615,7 +1628,19 @@ end
 local function publish(player: any)
 	local record = Range.recordOf(player)
 	if record == nil then
-		return
+		-- HE IS AT A STATION AND HAS ASKED FOR NOTHING YET (task 321 (e)): make his record here, the
+		-- one way `onRequest` makes it, so the man who just walked on is TOLD which animal is his
+		-- before it is released. Off the mat there is no trial and nothing to say.
+		local spot, position = Range.positionOf(player)
+		local trial = if spot ~= nil then state.trials[spot] else nil
+		if trial == nil then
+			return
+		end
+		recordFor(player, trial, position)
+		record = Range.recordOf(player)
+		if record == nil then
+			return
+		end
 	end
 	local remotes = state.remotes
 	if remotes == nil or remotes.RangeBoard == nil then
@@ -1638,7 +1663,10 @@ function flushMasks()
 	end
 	state.maskDirty = false
 	for id, player in pairs(state.watchers) do
-		if state.records[id] == nil then
+		-- A MAN AT A STATION IS PUBLISHED TO WHETHER OR NOT HE HAS A RECORD YET (task 321 (e)):
+		-- `publish` -> `Range.recordOf` makes one on the first read. Only a man the owner no longer
+		-- measures at a station AND who has no record is dropped.
+		if state.records[id] == nil and state.spotOf[id] == nil then
 			state.watchers[id] = nil
 		else
 			publish(player)

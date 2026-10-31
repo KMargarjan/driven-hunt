@@ -55,6 +55,47 @@ return function()
 	end
 
 	describe("the mask hides every animal but his own", function()
+		-- TASK 321 (e): A FRESH ANIMAL IS SHOWN THE MOMENT IT APPEARS, with no Instance on the wire.
+		-- `Range.mineIdsFor` publishes the ids and `Body.create` names the trunk after the animal's
+		-- own id, so a payload that arrived BEFORE the trunk replicated -- `mine` nil, which is what
+		-- 319a(a) traced and `<runs-dir>/321-pass.luau` measured on main in Karen's place as
+		-- `LocalTransparencyModifier` 1.00 on two of four entries -- no longer hides his own animal.
+		-- With the id arm deleted this case is red: a nil `mine` hides every trunk.
+		it("shows the animal the server named by ID even when the Instance never arrived", function()
+			local folder, trunks, zones = stage()
+			expect(Mask.start({ root = folder })).to.equal(true)
+			local minX, maxX = RangeData.windowSpanFor(ANCHOR, 3, LAYOUT)
+			Mask.setWindow(minX, maxX)
+			-- NOTHING BUT THE NAME: this is the payload whose Instance beat its own replication.
+			Mask.setMine(nil, { trunks[3].Name })
+			Mask.step(1 / 60)
+			expect(Mask.stats().shown).to.equal(1)
+			expect(trunks[3].LocalTransparencyModifier).to.equal(0)
+			expect(zones[3].LocalTransparencyModifier).to.equal(0)
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				if spot ~= 3 then
+					expect(trunks[spot].LocalTransparencyModifier).to.equal(Mask.HIDDEN)
+				end
+			end
+			-- HIS CARCASS IS HIS TOO (task 321 (c)): two ids, both shown inside his own window, so a
+			-- kill he is still looking at does not vanish when the next pass is released.
+			local carcass = Instance.new("Part")
+			carcass.Name = "Boar99"
+			carcass.Anchored = true
+			carcass.Position = trunks[3].Position
+			carcass.Parent = folder
+			Mask.setMine(nil, { trunks[3].Name, "Boar99" })
+			Mask.step(1 / 60)
+			expect(Mask.stats().shown).to.equal(2)
+			expect(carcass.LocalTransparencyModifier).to.equal(0)
+			-- ...AND AN ID THE SERVER NO LONGER NAMES IS HIDDEN AGAIN, on the next sweep.
+			Mask.setMine(nil, { trunks[3].Name })
+			Mask.step(1 / 60)
+			expect(carcass.LocalTransparencyModifier).to.equal(Mask.HIDDEN)
+			expect(Mask.stats().shown).to.equal(1)
+			teardown(folder)
+		end)
+
 		it("shows exactly one and writes 1 on the other five", function()
 			local folder, trunks, zones = stage()
 			expect(Mask.start({ root = folder })).to.equal(true)

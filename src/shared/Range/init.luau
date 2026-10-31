@@ -1008,6 +1008,37 @@ function Range.laneEndsFor(
 	return Vector3.new(x, centre.Y, centre.Z)
 end
 
+-- THE SHORTEST RUN-UP A PASS MAY BE GIVEN (task 321). A pass is RELEASED outside the span and is
+-- only ever seen inside it (`Range.Mask` hides his own animal out there by this same predicate), so
+-- the run-up may be short -- but never zero, or `timeWindow` sees no ENTRY and records no crossing.
+Range.PASS_RUN_MIN_STUDS = 2
+
+-- WHERE A PASS BEGINS (task 321, Karen 2026-10-31: *"it comes to end new animal comes old gone ...
+-- and it has to be new one imediatly"*). The run-up is the stretch of APRON the animal covers before
+-- it reaches the span's near edge, so `runUpStuds = pace speed * NEXT_PASS_SECONDS` is what makes the
+-- gap between one pass leaving and the next entering a TIME the owner picks. Clamped into the apron:
+-- nothing ever starts inside the span, and nothing ever starts beyond the lane's own end.
+function Range.passEntryFor(
+	anchor: Vector3,
+	layout,
+	leg: number,
+	downrange: number?,
+	spot: number?,
+	distanceStuds: number?,
+	wide: boolean?,
+	runUpStuds: number?
+): Vector3
+	layout = layout or Range.LAYOUT
+	local centre = Range.laneCentre(anchor, layout, downrange, spot, distanceStuds)
+	local lo, hi = Range.sightSpanFor(anchor, spot or 1, layout, distanceStuds, wide)
+	local apron = layout.APRON_STUDS
+	local run = math.clamp(if type(runUpStuds) == "number" then runUpStuds else apron, Range.PASS_RUN_MIN_STUDS, apron)
+	-- AN ODD LEG RUNS EAST, so it is released in the WEST apron and crosses the whole span.
+	local east = (leg % 2) == 1
+	local x = if east then lo - run else hi + run
+	return Vector3.new(x, centre.Y, centre.Z)
+end
+
 function Range.laneEnds(
 	anchor: Vector3,
 	layout,
