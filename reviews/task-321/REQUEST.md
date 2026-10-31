@@ -95,9 +95,14 @@ Code commit: e407f6af0ecda552d8a39860c47a50f84133ce20
   writer for it, so the target is refuted at that lever rather than dialled. Shortening the run-up
   further would put it in the span below pace and break the crossing the board teaches.
   Cycle 1 -> cycle 2 is the measurement that shows the distance is not the dominant term.
-- **Flag-off (L-083).** `RANGE`/`RANGE_SOLO` are on in her place and off by default; the flag-off
-  branch is proven by parameter only (`startRange(..., solo)` runs both in `range.spec`), not on
-  screen. No frame of the range with `RANGE` off exists in this round.
+- **Flag-off (L-083).** Two halves, and one of them IS evidenced. `RANGE` gates the whole module at
+  `Range.start` (`Range.ENABLED = Flags.isOn("RANGE")`), and the DEV place the harness runs in has
+  **no override set and the default `false`** -- the run refuses to start if any override is set, and
+  it did start -- so the `34/34 scope=all` line IS the flag-off world: nothing in this diff runs
+  there, and the place builds and boots unchanged. `RANGE_SOLO` (the span this loop measures against)
+  is exercised in BOTH states by parameter: every `range.spec` case passes `solo` explicitly, and
+  `RangeData.sightSpanFor`'s `wide ~= true` arm is `windowSpanFor`'s body. **What has no frame is the
+  range drawn with `RANGE_SOLO` off**, which is the narrow window: not photographed this round.
 - 319a's other open items (leave is per station; step off and back) are untouched and unproven here.
 
 ANSWERED: L-136 the named flake `weapon_shot.spec.luau:1490` did not fire in any of the seven runs;
