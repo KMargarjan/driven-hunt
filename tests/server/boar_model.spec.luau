@@ -1734,6 +1734,50 @@ return function()
 			expect(w.CARCASS_GROUND_FROM_STUDS > 0).to.equal(true)
 		end)
 
+		it("never lets a RANGE carcass be its own ground (task 318)", function()
+			-- KAREN, 2026-10-31: *"when hitting in range animal ir go up and then fall seems like it
+			-- go on air when died"*. MEASURED at d817d1b3 in her Forest Test: the grounding write in
+			-- `stepCarcass` asks `groundAt` from just above the dead body, the ray hit THAT BODY'S OWN
+			-- BOX, and the carcass was lifted by exactly the box's height -- +3.000 studs -- and
+			-- anchored in the air (<runs-dir>/318-trace-main-walk.txt).
+			--
+			-- `Boars` was already in `GROUND_IGNORE`, which is why a forest kill never did this; the
+			-- range spawns into a folder of its own and it was not. FAIL FIRST: on main this reads the
+			-- box's top (153) and `groundDrop` answers +3.
+			local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
+			local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
+			expect(table.find(Forest.GROUND_IGNORE, RangeData.TARGETS_FOLDER) ~= nil).to.equal(true)
+
+			local holder = Instance.new("Folder")
+			holder.Name = "T318Ground"
+			local floor = Instance.new("Part")
+			floor.Name = "T318Floor"
+			floor.Anchored = true
+			floor.Size = Vector3.new(40, 2, 40)
+			floor.CFrame = CFrame.new(9318, 149, 9318)
+			floor.Parent = holder
+			local targets = Instance.new("Folder")
+			targets.Name = RangeData.TARGETS_FOLDER
+			local carcass = Instance.new("Part")
+			carcass.Name = "T318Carcass"
+			carcass.Anchored = true
+			carcass.Size = Vector3.new(2, 3, 5.5)
+			carcass.CFrame = CFrame.new(9318, 151.5, 9318)
+			carcass.Parent = targets
+			targets.Parent = Workspace
+			holder.Parent = Workspace
+
+			local w = CONFIG.WOUND
+			local top = carcass.Position.Y + carcass.Size.Y / 2 + w.CARCASS_GROUND_FROM_STUDS
+			local read = Forest.groundAt(carcass.Position.X, carcass.Position.Z, top)
+			holder:Destroy()
+			targets:Destroy()
+
+			-- THE FLOOR'S TOP, NOT THE CARCASS'S. 150, and never 153.
+			expect(read).to.be.near(150, 1e-3)
+			expect(Boar.groundDrop(carcass.Position.Y - carcass.Size.Y / 2, read, w)).to.be.near(0, 1e-3)
+		end)
+
 		it("measures a carcass's bottom at the angle it is lying at (task 261, round 1 finding 1)", function()
 			-- `Size.Y / 2` IS THE BOTTOM ONLY WHILE THE BOX STANDS UP, and a carcass does not: the
 			-- stag's own box is 1.8 x 4.8 x 7.05, so a quarter turn puts 0.900 under its centre
