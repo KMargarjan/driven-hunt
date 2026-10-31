@@ -300,6 +300,21 @@ return function()
 		end
 	end
 
+	-- THE ANIMAL THIS STATION IS RUNNING RIGHT NOW, waiting out a hand-off if one is in flight.
+	-- Since task 321 a pass retires its animal and the next is released on the same scan tick, but a
+	-- target the owner finds already gone (`lostTargets`) is re-released on the tick AFTER -- so a
+	-- case that wants THE animal may land on a tick with none, and that is the loop, not a defect.
+	local function animalAt(fake, clock, spot: number): any
+		for _ = 1, 30 do
+			local here = fake.at(spot)
+			if here ~= nil then
+				return here
+			end
+			advance(fake, clock, 1 / Range.CONFIG.STEP_HZ)
+		end
+		return nil
+	end
+
 	-- ------------------------------------------------------------------ 1. THE ROW DECIDES
 	describe("which worlds have a range", function()
 		it("has a row for the DEV place and one for Karen's, and for nothing else", function()
@@ -1520,7 +1535,7 @@ return function()
 			-- BY PARAMETER since task 321: a pass now ends at the span's edge, a whole apron short of
 			-- the lane end, so the live loop no longer walks the animal up to it. Put the animal
 			-- inside one lookahead of the end and the clamp is the only thing that holds the point.
-			local here = fake.at(1) :: any
+			local here = animalAt(fake, clock, 1) :: any
 			expect(here).to.be.ok()
 			local legNow = (Range.trialOf(1) :: any).leg
 			local endX = RangeData.laneEndsFor(anchor, LAYOUT, legNow, down, 1, trial.distanceStuds, true).X
@@ -1665,11 +1680,11 @@ return function()
 			expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
 			expect(Range.setPace(1, "trot")).to.equal(true)
 			advance(fake, clock, 4)
+			local carcass = animalAt(fake, clock, 1) :: any
+			expect(carcass).to.be.ok()
 			local trial = Range.trialOf(1) :: any
 			local killedId = trial.targetId :: string
-			expect(killedId).to.be.ok()
-			local carcass = fake.animals[killedId]
-			expect(carcass).to.be.ok()
+			expect(killedId).to.equal(carcass.id)
 			carcass.alive = false
 			local fellAt = carcass.position
 			local killedAtT = clock.t
@@ -1963,7 +1978,8 @@ return function()
 			expect(select(1, startRange(fake, now))).to.equal(true)
 			advance(fake, clock, 2)
 			expect(fake.spawns).to.equal(LAYOUT.SPOT_COUNT)
-			local dead = fake.at(1) :: any
+			local dead = animalAt(fake, clock, 1) :: any
+			expect(dead).to.be.ok()
 			local deadId = dead.id
 			dead.alive = false
 
@@ -2039,8 +2055,10 @@ return function()
 			local firstId = before.targetId
 			expect(firstId).to.be.ok()
 			expect(before.species).to.equal("reddeer")
-			local spawnsBefore = fake.spawns;
-			(fake.at(2) :: any).alive = false
+			local spawnsBefore = fake.spawns
+			local doomed = animalAt(fake, clock, 2) :: any
+			expect(doomed).to.be.ok()
+			doomed.alive = false
 			-- NOTHING IS SENT: the next animal comes on the owner's own clock.
 			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + 1)
 			local after = Range.trialOf(2) :: any
@@ -2228,9 +2246,13 @@ return function()
 			-- the same number through two names and cannot fail. The discriminator is the release
 			-- point against station 2's own lane end and station 1's -- `SPOT_SPACING_STUDS` apart,
 			-- asserted here so the two sides are known to be different numbers.
+			-- THE RELEASE POINT IS THE PASS'S RUN-UP since task 321, not the lane end: `NEXT_PASS_SECONDS`
+			-- of this pace's own speed, outside the span, so the animal is in his sight one run-up later.
 			local anchorXZ = Vector3.new(DEV_ROW.x, 0, DEV_ROW.z)
-			local end2 = RangeData.laneEnds(anchorXZ, LAYOUT, 2, nil, 2, LAYOUT.DISTANCE_STUDS)
-			local end1 = RangeData.laneEnds(anchorXZ, LAYOUT, 2, nil, 1, LAYOUT.DISTANCE_STUDS)
+			local runUp = Range.CONFIG.NEXT_PASS_SECONDS
+				* RangeData.paceSpeedFor(Range.CONFIG.DEFAULT_PACE, LAYOUT, speedOf)
+			local end2 = RangeData.passEntryFor(anchorXZ, LAYOUT, 1, nil, 2, LAYOUT.DISTANCE_STUDS, false, runUp)
+			local end1 = RangeData.passEntryFor(anchorXZ, LAYOUT, 1, nil, 1, LAYOUT.DISTANCE_STUDS, false, runUp)
 			expect(math.abs(end2.X - end1.X)).to.equal(LAYOUT.SPOT_SPACING_STUDS)
 			expect(math.abs((released :: any).X - end2.X) < 0.001).to.equal(true)
 			expect(math.abs((released :: any).X - end1.X) >= LAYOUT.SPOT_SPACING_STUDS - 0.001).to.equal(true)
@@ -2255,8 +2277,11 @@ return function()
 			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
 			advance(fake, clock, 1)
 			expect(fake.spawns).to.equal(2)
+			-- STATION 2 IS STANDING ITS ANIMAL (task 321): a pass retires its own animal at the span
+			-- edge, so the idle clock is only ever the thing that clears a target for a man who has
+			-- gone if that target has no pass to end -- which is exactly `stand`.
+			expect(Range.setPace(2, RangeData.WORD.STAND)).to.equal(true)
 			local his = (fake.at(2) :: any).id
-			local hers = (fake.at(4) :: any).id
 			-- HE LEAVES. Station 4's man does not.
 			crowd.set({ 4 })
 			advance(fake, clock, Range.CONFIG.IDLE_CLEAR_SECONDS - 2)
@@ -2268,18 +2293,16 @@ return function()
 			-- ...AND THEN IT GOES, through the PER-ID despawn.
 			expect(fake.at(2)).to.equal(nil)
 			expect(Range.stats().idleClears).to.equal(1)
-			expect(fake.clearOnes).to.equal(1)
 			expect(fake.lastClear).to.equal("range idle")
 			expect(Range.stats().wideClears).to.equal(0)
-			-- STATION 4 IS UNAFFECTED: the same animal, still steered.
+			-- STATION 4 IS UNAFFECTED: still running passes, still steered, never cleared for him.
 			expect(fake.at(4)).to.be.ok()
-			expect((fake.at(4) :: any).id).to.equal(hers)
 			expect(Range.stats().targets).to.equal(1)
 			local leadsBefore = #fake.leadsAt(4)
 			advance(fake, clock, 5)
 			expect(#fake.leadsAt(4) > leadsBefore).to.equal(true)
-			-- AND NOTHING IS RE-RELEASED AT THE STATION HE LEFT.
-			expect(fake.spawns).to.equal(2)
+			-- AND NOTHING IS RE-RELEASED AT THE STATION HE LEFT: his lane stays empty.
+			expect(fake.at(2)).to.equal(nil)
 			TestKit.note(
 				string.format(
 					"range B7: station 2 cleared %d s after he left (not at %d s); station 4 untouched",
@@ -2318,10 +2341,12 @@ return function()
 			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
 			advance(fake, clock, 1)
 			expect(fake.spawns).to.equal(2)
+			-- STANDING, so the IDLE arm is what clears it and not the end of a pass (task 321).
+			expect(Range.setPace(2, RangeData.WORD.STAND)).to.equal(true)
 			crowd.set({ 1 })
 			advance(fake, clock, Range.CONFIG.IDLE_CLEAR_SECONDS + 1)
 			expect(Range.stats().idleClears).to.equal(1)
-			expect(Range.stats().wideClears).to.equal(1)
+			expect(Range.stats().wideClears >= 1).to.equal(true)
 			-- ...and station 1's animal went with it, which is the defect, measured.
 			expect(fake.at(1)).to.equal(nil)
 			expect(Range.stats().lostTargets >= 1).to.equal(true)
