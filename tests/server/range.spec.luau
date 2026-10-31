@@ -1626,12 +1626,16 @@ return function()
 			expect(drawn >= trial.leg).to.equal(true)
 			-- EVERY ORDER WAS ONE OF EXACTLY TWO SPEEDS, asked as membership and not as a count
 			-- (a count of 0 is truthy in Lua, which is how the old case passed)...
-			local slowOrders, fastOrders, other = 0, 0, 0
+			local slowOrders, fastOrders, turnOrders, other = 0, 0, 0, 0
 			for _, lead in ipairs(fake.leadsAt(1)) do
 				if lead.speed == slowSpeed then
 					slowOrders += 1
 				elseif lead.speed == fastSpeed then
 					fastOrders += 1
+				elseif lead.speed == Range.CONFIG.TURN_STUDS_PER_SECOND then
+					-- Task 317's reversal walk, which is a THIRD speed and not a third draw: it is
+					-- issued only outside the span and `mixed` never draws it.
+					turnOrders += 1
 				else
 					other += 1
 				end
