@@ -4805,6 +4805,10 @@ return function()
 
 			-- NOT ONE TRUNK STANDS IN EITHER RECTANGLE, read off what was really planted.
 			local standing, inside = 0, {}
+			-- ...AND WHERE THE RING AND THE GROVE REALLY STAND, in the shape `avenue` reads them in
+			-- (Models only, by pivot), so the avenue's own decision can be replayed below through
+			-- the one function that makes it, on the same input it was made on.
+			local trunks: { Vector2 } = {}
 			for _, grove in ipairs({ "TreeLine", "LodgeTrees", "Avenue" }) do
 				local f = folder:FindFirstChild(grove)
 				if f ~= nil then
@@ -4813,6 +4817,9 @@ return function()
 							then (tree :: BasePart).Position
 							else (tree :: Model):GetPivot().Position
 						standing += 1
+						if grove ~= "Avenue" and tree:IsA("Model") then
+							table.insert(trunks, Vector2.new(q.X, q.Z))
+						end
 						if Build.keptClear(q.X, q.Z, anchor, CFG, keep, lane) then
 							table.insert(inside, string.format("%s at %.0f,%.0f", tree.Name, q.X, q.Z))
 						end
@@ -4825,10 +4832,28 @@ return function()
 			-- THE TWO COUNTERS, AND THEY ARE NOT ZERO. `sightlineDropped` is ours; `sightlineCleared`
 			-- is the world's own trunk the sweep took.
 			local built = Build.stats()
-			expect(built.sightlineDropped > 0).to.equal(
-				true,
-				string.format("sightlineDropped is %d -- nothing was counted", built.sightlineDropped)
-			)
+			-- THE BREAKDOWN DESIGN 15.1 ITEM 11 AND W5 ASK FOR, AND NOT `> 0` (round 2, finding 1):
+			-- `> 0` stayed green with two of the three `+= 1` sites deleted. The avenue's share is
+			-- replayed through `Build.avenuePlan` -- the one function that decides it -- on the
+			-- trunks really standing; the ring's share is what is left of the total, and the
+			-- twelve-row loop above has already shown the grove drops none of its own.
+			--
+			-- IT IS AN EXACT NUMBER BECAUSE THE RING IS NOT DICE: `treeLine` seeds `Random.new(1804)`
+			-- and draws its jitter once per index before every guard, so the count is the same every
+			-- build. Design 15.1 predicts 5..7 ring and 6 avenue BY HAND; measured here: ring 5 --
+			-- the bottom of the band, and exactly the five trunks the brief measured -- and avenue
+			-- 7, which is every non-gap slot and one more than the design's arithmetic said.
+			local avenueDrops = 0
+			for _, planRow in ipairs(Build.avenuePlan(anchor, CFG, trunks, keep, lane)) do
+				if planRow.sightline then
+					avenueDrops += 1
+				end
+			end
+			local ringDrops = built.sightlineDropped - avenueDrops
+			expect(avenueDrops).to.equal(7, string.format("avenue drops: %d", avenueDrops))
+			expect(ringDrops).to.equal(5, string.format("ring drops: %d of %d", ringDrops, built.sightlineDropped))
+			-- ...AND THE TOTAL IS THE TWELVE THE BOOT LINE PRINTS IN HER PLACE (W5).
+			expect(built.sightlineDropped).to.equal(12)
 			expect(built.sightlineCleared).to.equal(1)
 			expect(pine.Parent).to.equal(nil)
 			-- ...AND THE AVENUE IS WHOLLY DROPPED, which is the number the backup note records.
@@ -4836,9 +4861,11 @@ return function()
 			expect(if avenue == nil then 0 else #(avenue :: Instance):GetChildren()).to.equal(0)
 			TestKit.note(
 				string.format(
-					"task 315: live build planted %d trees, 0 in the corridor; sightlineDropped=%d sightlineCleared=%d; corridor x %.1f..%.1f z %.1f..%.1f",
+					"task 315: live build planted %d trees, 0 in the corridor; sightlineDropped=%d (ring %d + avenue %d) sightlineCleared=%d; corridor x %.1f..%.1f z %.1f..%.1f",
 					standing,
 					built.sightlineDropped,
+					ringDrops,
+					avenueDrops,
 					built.sightlineCleared,
 					rect.minX,
 					rect.maxX,

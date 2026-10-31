@@ -28,10 +28,15 @@ local Match = require(ServerScriptService:WaitForChild("Match"))
 local Phase = Match.Phase
 
 local Pads = Lobby.Pads
+-- TASK 315 round 3: the builder's own counter table, read beside `Lobby.stats()` so the mirror in
+-- `tryBuild` is proved to CARRY a number rather than to hold one of its own.
+local Build = Lobby.Build
 -- TASK 302: the range's PURE DATA only, for the one rectangle the composition root hands
 -- `Lobby.start`. The lobby requires nothing of the range; this spec stands where `ForestTestBoot`
 -- does and composes the same value.
 local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
+-- `TestKit.note` only, for the measured corridor counts the case below prints.
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local CFG = Data.CONFIG
 local ANCHOR = Data.anchorFor("forest-test") :: any
@@ -202,6 +207,48 @@ local function fakes(bin: Instance)
 			},
 			now = os.clock,
 		}
+end
+
+-- ------------------------------------------------- the wood, and one of the world's own trunks
+--
+-- TASK 315 round 3. `tryBuild` plants nothing at all when it is handed no templates, so a corridor
+-- counter read off a lobby with no wood is 0 for the wrong reason. This is the smallest folder
+-- `Build` accepts: the two ring species by NAME (it picks out of `TREELINE.SPECIES`), which is also
+-- the avenue's `KIND = "birch"`.
+local function fakeTrees(parent: Instance): Instance
+	local folder = Instance.new("Folder")
+	folder.Name = Data.TEMPLATES_NAME
+	local trees = Instance.new("Folder")
+	trees.Name = Data.TEMPLATE.TREES
+	trees.Parent = folder
+	for _, row in ipairs(CFG.TREELINE.SPECIES) do
+		local made = Instance.new("Model")
+		made.Name = row.MODEL
+		local body = Instance.new("Part")
+		body.Name = "Body"
+		body.Size = Vector3.new(4, 30, 4)
+		body.Parent = made
+		made.PrimaryPart = body
+		made.Parent = trees
+	end
+	folder.Parent = parent
+	return folder
+end
+
+-- THE WORLD'S OWN TRUNK, where the pine really stood (the same fixture position `lobby.spec` uses,
+-- measured in backups/2026-10-30_task-315_range-anchor.txt): inside the corridor and NOT on the
+-- lobby's working ground, which is what makes `sightlineCleared` a number of its own.
+local function worldPine(parent: Instance): BasePart
+	local session = Instance.new("Folder")
+	session.Name = "Session"
+	local pine = Instance.new("Part")
+	pine.Name = "ThePine"
+	pine.Anchored = true
+	pine.Size = Vector3.new(2, 2, 2)
+	pine.Position = Vector3.new(2844, 0, -3188)
+	pine.Parent = session
+	session.Parent = parent
+	return pine
 end
 
 return function()
@@ -1094,6 +1141,67 @@ return function()
 			Lobby.step(1001, { driving, frozen })
 			-- Neither arm is touched, at the range as anywhere else.
 			expect(#seen.placed).to.equal(0)
+		end)
+
+		-- ------------------------------------------- the walk to the range, WIRED (task 315)
+		--
+		-- THE PRODUCTION WIRING, WHICH `lobby.spec` CANNOT REACH (round 2, finding 1): that file
+		-- hands the two rectangles to `Build.build` itself, so deleting `keepClear = world.keepClear`
+		-- from `Lobby.tryBuild`'s seam table -- the one line between Karen's cleared corridor and all
+		-- twelve trees coming back -- reddened nothing, and nor did deleting the two mirror lines
+		-- that carry the counts into `Lobby.stats()`.
+		--
+		-- SO BOTH GO IN THROUGH `Lobby.start`, exactly as `ForestTestBoot` composes them, and the
+		-- numbers are read back out of the OWNER. The pair is the proof: `Lobby.stats()` must equal
+		-- `Build.stats()` and must not be 0, and the same build with the seams nil must be 0.
+		it("carries the corridor's two counters through Lobby.stats, and reads 0 with no range", function()
+			local row = RangeData.anchorFor("forest-test") :: any
+			local at = Vector3.new(row.x, 0, row.z)
+			local dir = RangeData.downrangeOf(row)
+			local lane = RangeData.sightlineFrom(at, RangeData.LAYOUT, dir)
+			local keep = { RangeData.footprintFor(at, RangeData.LAYOUT, dir) }
+
+			-- WITH THE SEAMS, as her place is wired.
+			fresh(bin, function(world)
+				world.templates = fakeTrees(bin)
+				world.keepClear = keep
+				world.sightline = lane
+			end)
+			local pine = worldPine(bin)
+			Lobby.step(1000, {})
+			local built = Build.stats()
+			local owner = Lobby.stats()
+			expect(built.sightlineDropped > 0).to.equal(
+				true,
+				string.format("Build counted %d trees out of the corridor", built.sightlineDropped)
+			)
+			expect(owner.sightlineDropped).to.equal(built.sightlineDropped)
+			expect(owner.sightlineCleared).to.equal(built.sightlineCleared)
+			expect(owner.sightlineCleared).to.equal(1)
+			expect(pine.Parent).to.equal(nil)
+			TestKit.note(
+				string.format(
+					"task 315: through Lobby.start -- stats.sightlineDropped=%d sightlineCleared=%d (Build: %d / %d)",
+					owner.sightlineDropped,
+					owner.sightlineCleared,
+					built.sightlineDropped,
+					built.sightlineCleared
+				)
+			)
+
+			-- WITHOUT THEM -- the DEV place, and the rollback: nothing is kept clear, both counters
+			-- are 0, and the same trunk in the same place is still standing afterwards.
+			fresh(bin, function(world)
+				world.templates = fakeTrees(bin)
+				world.keepClear = nil
+				world.sightline = nil
+			end)
+			local pine2 = worldPine(bin)
+			Lobby.step(2000, {})
+			local plain = Lobby.stats()
+			expect(plain.sightlineDropped).to.equal(0)
+			expect(plain.sightlineCleared).to.equal(0)
+			expect(pine2.Parent ~= nil).to.equal(true)
 		end)
 	end)
 
