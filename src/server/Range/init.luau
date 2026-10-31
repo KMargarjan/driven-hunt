@@ -739,6 +739,12 @@ function Range.setPace(spot: number, pace: string): boolean
 	-- WALK at a trot and the board read 4.75 s against 8.89 planned -- 21.4 studs of a 40-stud
 	-- window, at exactly the 4.5 studs/s it printed beside it. The timer is re-armed by LEAVING.
 	trial.windowArmed = false
+	-- ...AND THE CROSSING THE OLD PACE MEASURED GOES WITH IT (task 316). `blankRecord` copies this
+	-- into the fresh record a pick makes, so without the line the board printed the PREVIOUS pace's
+	-- seconds beside the new pace's word -- measured live in Karen's place: `pace=walk issued=4.5
+	-- crossing=4.15 s`, where 4.15 s is a RUN crossing of that span. That reading IS task 313's
+	-- unexplained `RUN ... 9.13 s`: 100.33 studs / 11 studs/s is a TROT, measured 9.14 s.
+	trial.lastCrossingSeconds = nil
 	trial.standSeconds = 0
 	-- `mixed` redraws on the leg it is running, not on the next flip.
 	trial.legDrawn = nil
@@ -760,6 +766,9 @@ function Range.setDistance(spot: number, distanceStuds: number): boolean
 		trial.windowEnteredAt = nil
 		trial.windowLeg = nil
 		trial.windowArmed = false
+		-- ...and the old lane's crossing with it (task 316): the span is per distance, so seconds
+		-- measured over 100.33 studs are not the 133.47-stud lane's crossing.
+		trial.lastCrossingSeconds = nil
 	end
 	trial.distanceStuds = distanceStuds
 	return true
