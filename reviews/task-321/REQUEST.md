@@ -7,8 +7,15 @@ Code commit: e407f6af0ecda552d8a39860c47a50f84133ce20
 
 `[harness] PASS: 34/34 checks @ e407f6af0ecda552d8a39860c47a50f84133ce20 (clean tree) scope=all`
 
-`test2`: **N/A** -- `python tools/agents.py needs_two_player` answers `[]`. No path in this diff is in
-`TWO_PLAYER_PATHS`; the range is one man at one station (solo, 313).
+`test2`: **REQUIRED AND NOT OBTAINED -- see `ESCALATE.md`, 2026-10-31.** `tools/agents.py` refuses the
+round without it, because `src/client/Range/Mask.luau` and `tests/client/range_mask.spec.luau` are in
+`TWO_PLAYER_PATHS` (task 313 put the range's per-player picture there). I ran it rather than assume:
+`[harness2] FAIL: 33/36 checks @ ab5265c7 (clean tree)` -- it fails `One Studio instance before the
+test starts` because Karen's Forest Test editor is open, which the Builder may not close, and
+`[driver] camera_client.spec:376` (`expect(stats.maxUpdateMs < 5)`, the camera's worst frame) on a
+machine running five Studio processes. **I am not calling that one a flake: there is no control run
+at the merge base.** The Director closes the Forest Test, re-runs `test2` (`<runs-dir>/press-f7.ps1`
+makes the Start click), pastes the line here, and runs the review. Round 1 is unused.
 
 ## PLAN (core-quality step 0)
 
