@@ -368,13 +368,15 @@ function RangePanel.build(root: Frame)
 	hint.Text = "The range is free: every gun, endless cartridges, no licence. Nothing here is scored."
 	hint.Parent = root
 
-	-- THE WAY OUT (task 319). BELOW the hint and never over the viewport centre, which belongs to
-	-- the confirm bar: the input replay's one clickable point must stay the release (design 11.3).
+	-- THE WAY OUT (task 319), IN THE PANEL'S TOP-RIGHT CORNER. Two places it may not be, both
+	-- MEASURED on screen in her place: over the viewport centre, which belongs to the confirm bar
+	-- (design 11.3), and under the BOARD, which draws over the panel's bottom strip -- the first
+	-- frame of this button, 56 px below the bar, came out greyed behind "THE BOARD".
 	local leave = Instance.new("TextButton")
 	leave.Name = "Leave"
-	leave.AnchorPoint = Vector2.new(0.5, 0)
-	leave.Position = UDim2.new(0.5, 0, 0.5, RangePanel.LOOK.CONFIRM_HEIGHT / 2 + 56)
-	leave.Size = UDim2.fromOffset(300, 34)
+	leave.AnchorPoint = Vector2.new(1, 0)
+	leave.Position = UDim2.new(1, -16, 0, 8)
+	leave.Size = UDim2.fromOffset(180, 28)
 	leave.BackgroundColor3 = RangePanel.LOOK.ROW
 	leave.BorderSizePixel = 0
 	leave.Font = Enum.Font.GothamBold

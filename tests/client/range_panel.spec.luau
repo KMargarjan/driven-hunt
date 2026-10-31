@@ -183,11 +183,12 @@ return function()
 			expect(frame.Visible).to.equal(false)
 			expect(#Cursor.stats().tags).to.equal(cursorBefore)
 			expect(#WeaponInput.holdTags()).to.equal(heldBefore)
-			-- THE CENTRE IS STILL THE RELEASE'S: the leave button is BELOW the confirm bar's bottom.
-			local leaveTop = RangePanel.LOOK.CONFIRM_HEIGHT / 2 + 56
-			expect(leaveTop > RangePanel.LOOK.CONFIRM_HEIGHT / 2).to.equal(true)
-			expect(button.AnchorPoint.Y).to.equal(0)
-			expect(button.Position.Y.Offset).to.equal(leaveTop)
+			-- THE CENTRE IS STILL THE RELEASE'S, and the board's strip is not this button's: it sits
+			-- in the panel's top-right corner, which is neither (both measured on screen, round 1).
+			expect(button.AnchorPoint).to.equal(Vector2.new(1, 0))
+			expect(button.Position.X.Scale).to.equal(1)
+			expect(button.Position.Y.Scale).to.equal(0)
+			expect(button.Position.Y.Offset < RangePanel.LOOK.HEIGHT / 4).to.equal(true)
 			TestKit.note("range: LEAVE THE RANGE sends one leave word and closes the menu")
 		end)
 
