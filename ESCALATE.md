@@ -1,3 +1,69 @@
+## 2026-10-31, Task 321 ROUND 2 -- NEEDS DIRECTOR: both gate lines need Karen's Forest Test closed
+
+**The three blocking findings of `reviews/task-321/RESULT.md` are fixed, each with its FAIL-FIRST run
+pasted in the request. What is missing is BOTH gate lines, and the one thing they fail on is a Studio
+I am not allowed to close.** This is the same block as round 1, with one thing added: it now also
+costs the one-player line.
+
+- Code commit: `0fcb2929fcd1a11a18da6de69b8aa0bf9c53718c`, branch `task-321-range-pass-loop`, pushed.
+- `reviews/task-321/REQUEST.md` is written at `Round: 2` and committed. Round 2 is NOT used: no
+  `tools/review.sh` call was made, because `tools/agents.py` would refuse it (no harness PASS line).
+
+**What I ran, and what each said.**
+
+1. `python tools/studio_mcp.py test` at the code commit, TWICE:
+   `[harness] FAIL: 32/34 checks @ 0fcb2929fcd1a11a18da6de69b8aa0bf9c53718c (clean tree) scope=all`
+   Both failures are `deer_hitbox.spec` and nothing else -- `:659`, then `:682` reading
+   *"calf: legs box 1 is unreachable by a flank ray"*. A real raycast against the calf model. This
+   branch touches no deer, boar or hitbox file.
+   **The correlation, offered as a lead and not as a verdict:** `deer_hitbox` PASSED in the three
+   earlier runs of this session, all of them while DEV was the only Studio, and has FAILED in both
+   runs since Karen's Forest Test editor appeared at ~23:31 UTC (`state` read ONE Studio at 23:15).
+   The dispatch names `deer_hitbox.spec:659/:682` as a known intermittent, but a dispatch naming a
+   flake is not a control run (Vnight-1027), so **the request reports it as a live FAIL** and no
+   claim in it leans on the word. The control run at the merge-base is the Director's: it needs a
+   branch switch, which is the Rojo-crash route and would then need a Connect click.
+2. `python tools/studio_mcp.py test2` at the code commit. It got PAST the Studio checks, waited its
+   180 s and nobody pressed Start:
+   `FAIL A 2-player local test appeared within 180 s  (0 new studio(s) beside the editor)`
+   `[harness2] NEEDS KAREN: nobody pressed Start. Nothing was run and nothing is claimed.`
+   `[harness2] FAIL: 11/13 checks @ 0fcb2929fcd1a11a18da6de69b8aa0bf9c53718c (clean tree)`
+3. The no-human route, `<runs-dir>/run-test2.sh`, **refuses at its own first line** while more than
+   one Studio is open: `[ "$n0" -eq 1 ] || { echo "REFUSED: $n0 studios open before the run"; exit 5; }`.
+   So the F7 press is not available to me either. I did NOT improvise around it (V280), and the
+   player-count spinner was never reached, so nothing is claimed about it (L-054).
+
+**Why I did not close her window.** Two Studio processes are open: `Driven Hunt DEV` and
+`Driven Hunt Forest Test`. Hers was NOT a leftover from my own session -- it appeared while I was
+working, so she opened it deliberately. The dispatch is explicit for exactly this case: *"if Karen's
+Forest Test is open, write NEEDS DIRECTOR in ESCALATE.md with the request written and STOP -- the
+Director runs test2 and the review."*
+
+**NEEDS DIRECTOR -- the exact steps, in order.**
+
+1. Close the `Driven Hunt Forest Test` Studio window (or ask Karen to), leaving only `Driven Hunt DEV`
+   open in **Edit**. Confirm with `python tools/studio_mcp.py state` reading `1 Studio connected`.
+2. `python tools/studio_mcp.py test` at `0fcb2929`. This also settles `deer_hitbox`: if it passes with
+   one Studio, the correlation above is the answer and nothing in this branch is implicated. If it
+   fails again, it is a real defect in `deer_hitbox.spec`/the calf geometry and belongs to its own
+   task, not to 321 -- in which case the merge-base control run is the thing that proves it.
+3. `cd <runs-dir> && ./run-test2.sh t321r2` -- it checks the one-Studio precondition itself, presses
+   F7, and ends the session afterwards. **Before it, confirm the player-count spinner reads 2**
+   (L-054 recurred on this exact check in `test2-t191.log`).
+4. `powershell -ExecutionPolicy Bypass -File tools/review.ps1 321` once both PASS lines exist for
+   `0fcb2929`. Paste both into `reviews/task-321/REQUEST.md` first -- it is written and committed with
+   the FAIL lines in it precisely so nothing is claimed that was not run; replacing them with the
+   PASS lines is the only edit it needs.
+5. **This is round 2, the last.** If the Reviewer returns findings, that is an `ESCALATE.md` entry and
+   not another round (the dispatch).
+
+**What is NOT proven, and is not phrased as a nicety.** Finding 1 changes what a real shot does in
+Karen's place: before the fix a neighbour's carcass, invisible to the shooter, stopped his bullet and
+was scored as his hit. **Nobody has seen the fix on screen.** The spec proves it (red at the round-1
+code commit, `range.spec:4145` got false), and that is all this round proves. The live shot past a
+carcass in her place was not attempted: her Studio is in use and `<runs-dir>/ft-open.sh` would restart
+her session.
+
 ## 2026-10-31, Task 321 -- NEEDS DIRECTOR: the two-player line needs Karen's Forest Test closed
 
 **The work is done, committed, pushed and gated on one player. What is missing is `test2`, and the
