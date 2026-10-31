@@ -2041,12 +2041,14 @@ return function()
 			expect(before.species).to.equal("reddeer")
 			local spawnsBefore = fake.spawns;
 			(fake.at(2) :: any).alive = false
-			-- NOTHING IS SENT: the gap is the two CONFIG numbers and nothing else.
+			-- NOTHING IS SENT: the next animal comes on the owner's own clock.
 			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + 1)
 			local after = Range.trialOf(2) :: any
 			expect(after.targetId).to.be.ok()
 			expect(after.targetId ~= firstId).to.equal(true)
-			expect(fake.spawns).to.equal(spawnsBefore + 1)
+			-- AT LEAST ONE MORE, and since task 321 possibly several: a pass that finishes is
+			-- followed by the next one, so this count rises on its own and is not an equality.
+			expect(fake.spawns >= spawnsBefore + 1).to.equal(true)
 			expect((fake.at(2) :: any).alive).to.equal(true)
 			-- ...WITH THE SAME SETTINGS HE PICKED: species, kind, pace and lane all carried over.
 			expect(after.species).to.equal("reddeer")
@@ -2115,24 +2117,38 @@ return function()
 			Range.stop()
 		end)
 
+		-- COUNTED BY THE ANIMAL'S OWN ID, and AT A WALK so its pass cannot finish mid-case (task
+		-- 321): `leadsAt(spot)` answers for whichever animal the station holds NOW, and since a pass
+		-- retires its animal that is not necessarily the one the flight was about.
 		it("never orders an animal the Brain is flying", function()
 			local clock, now = newClock()
 			local fake = newFakeBoars()
 			expect(select(1, startRange(fake, now))).to.equal(true)
+			expect(Range.setPace(1, "walk")).to.equal(true)
 			advance(fake, clock, 2)
 			local animal = fake.at(1) :: any
+			expect(animal).to.be.ok()
+			local function leadsOf(id: string): number
+				local count = 0
+				for _, lead in ipairs(fake.leads) do
+					if lead.id == id then
+						count += 1
+					end
+				end
+				return count
+			end
 			fake.flyingIds[animal.id] = true
-			local leadsBefore = #fake.leadsAt(1)
+			local leadsBefore = leadsOf(animal.id)
 			local skippedBefore = Range.stats().skippedFlying
-			advance(fake, clock, 3)
+			advance(fake, clock, 2)
 			-- IT ENTERED THE BRANCH, and issued nothing: *"the drive must not order an animal the
 			-- Brain is flying"*.
 			expect(Range.stats().skippedFlying > skippedBefore).to.equal(true)
-			expect(#fake.leadsAt(1)).to.equal(leadsBefore)
+			expect(leadsOf(animal.id)).to.equal(leadsBefore)
 			-- ...and it picks the lane up again when the flight ends.
 			fake.flyingIds[animal.id] = false
-			advance(fake, clock, 2)
-			expect(#fake.leadsAt(1) > leadsBefore).to.equal(true)
+			advance(fake, clock, 1)
+			expect(leadsOf(animal.id) > leadsBefore).to.equal(true)
 			Range.stop()
 		end)
 	end)
@@ -4146,12 +4162,13 @@ return function()
 			})
 			advance(fake, clock, 1)
 			local man = manAtSpot(RangeData.matPosition(ANCHOR, 2, LAYOUT), 330)
-			-- HE IS AT THE RANGE: one pick makes his record, which is the board's audience.
+			-- HE IS AT THE RANGE, SO HE IS TOLD -- and since task 321 (e) he is told whether or not
+			-- he ever asks, so the payload under test is the LAST one and not the only one.
 			expect(Range.onRequest(man, { spot = 2, go = true })).to.equal(true)
-			expect(#sent).to.equal(1)
-			local first = sent[1].record.mine
+			expect(#sent >= 1).to.equal(true)
+			local first = sent[#sent].record.mine
 			expect(first).to.equal(fake.at(2).root)
-			expect(sent[1].record.window.minX).to.equal((RangeData.windowSpanFor(ANCHOR, 2, LAYOUT)))
+			expect(sent[#sent].record.window.minX).to.equal((RangeData.windowSpanFor(ANCHOR, 2, LAYOUT)))
 
 			-- EVERY TRUNK REPLACED AT ONCE, which is exactly what one man's carcass does to all six.
 			fake.clear("spec re-release")
@@ -4166,11 +4183,16 @@ return function()
 
 			-- ...AND THE FLUSH IS ONCE A TICK, not once per release: six trials re-release together,
 			-- so an unbatched push would be six per man per edge.
+			-- BOUNDED IN TICKS since task 321 (e): a man at a station is published to on every tick
+			-- that dirties the mask, and a pass dirties one every few seconds -- so the bound is one
+			-- push per man per TICK. Unbatched it would be one per RELEASE: six trials re-releasing
+			-- together is 36 payloads in the one tick they do it in, which this still refuses.
 			local before = #sent
+			local ticks = 3
 			fake.clear("spec re-release 2")
-			advance(fake, clock, 1)
+			advance(fake, clock, ticks / Range.CONFIG.STEP_HZ)
 			expect(sent[#sent].record.mine).to.equal(fake.at(2).root)
-			expect(#sent - before <= LAYOUT.SPOT_COUNT).to.equal(true)
+			expect(#sent - before <= LAYOUT.SPOT_COUNT * ticks).to.equal(true)
 
 			-- ...AND THE `targetId == nil` ARM OF `maskFor`, reached through the shipped door: a
 			-- species pick clears his animal, and the push that follows names the window and no
@@ -6190,8 +6212,9 @@ return function()
 			})
 			advance(fake, clock, 1)
 			expect(Range.onRequest(man, { spot = 2, go = true })).to.equal(true)
-			expect(#sent).to.equal(1)
-			local twoTrunk = sent[1].record.mine
+			-- TOLD WITHOUT ASKING since task 321 (e), so the pick's payload is the last one.
+			expect(#sent >= 1).to.equal(true)
+			local twoTrunk = sent[#sent].record.mine
 			expect(twoTrunk).to.equal(fake.at(2).root)
 
 			local pushes = Range.stats().spanPushes
