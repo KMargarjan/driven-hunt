@@ -1,12 +1,12 @@
 # Task 315 -- the shooting range moves straight out of the shop door
 
 Task: 315
-Round: 2
+Round: 3
 Base: d4b10eda (origin/main)
-Code commit: c9086a27cc3b39aec17b1300cc5f78afc382645c
+Code commit: e8895a55a8111827e0aa945597ee95647f016ac4
 
 ```
-[harness] PASS: 34/34 checks @ c9086a27cc3b39aec17b1300cc5f78afc382645c (clean tree) scope=all
+[harness] PASS: 34/34 checks @ e8895a55a8111827e0aa945597ee95647f016ac4 (clean tree) scope=auto:light,lobby,match,range
 ```
 
 `test2` is **N/A** and that is the tool's answer, not an opinion: `agents.needs_two_player` over this
@@ -15,132 +15,99 @@ branch's changed files returns `[]`.
 **Karen, 2026-10-30, with a frame:** *"those trees can be removed and shooting range can be moved
 there that I can directly from shop walk to shooting range same distance but straight"*.
 
-Design: `docs/design/shooting-range-lobby.md` (task 315, ARCH_RESULT PASS).
-Measurements taken at main before a line of code: `reviews/task-315/BRIEF.md`.
+Design: `docs/design/shooting-range-lobby.md` (task 315, ARCH_RESULT PASS). Measurements before any
+code: `reviews/task-315/BRIEF.md`. Round-3 authorisation: `ESCALATE.md`, Director 2026-10-30 23:50.
 
 ---
 
-## The three round-1 findings
+## This round is SPEC-ONLY, and that is why round 2's evidence still stands
 
-**F1 -- the redundancy assertion was a tautology.** Correct, and it is now the falsifiable form the
-finding named. `own == 0` IS "all 25 points are inside the others", so re-asserting
-`insideHome(at, others)` under `if own == 0` restated its own guard. `lobby.spec`
-*"sends him back the moment he steps off ANY of the three rectangles"* now reads
-`expect(own).to.equal(0, ...)` under the existing `if here == 0` guard -- which is
-`here > 0 or own == 0` -- and it **would have reddened at d4b10eda**, where the walkway had
-`here == 0` and `own > 0`. *Verify:* set the range anchor back to (2600, -3030) and that case fails.
-
-**F2 -- no frame was described.** Fixed below: every frame is named, opened and described. The
-request no longer claims a look it did not record.
-
-**F3 -- the counters had no spec, and design items 11 and 13 were missing.** Both written, in
-`lobby.spec`:
-* *"plants nothing in the corridor, and BOTH counters carry the number through Lobby.stats"* drives
-  the real `Build.build` with the two seams and a `Session` fixture where the pine stood; it asserts
-  0 trees planted in either rectangle, `sightlineDropped > 0`, `sightlineCleared == 1`, the fixture
-  destroyed, and the avenue empty. **Its bite is the same build with no rectangles handed in**:
-  both counters 0 and the avenue planted. Deleting any `stats.sightlineDropped += 1`, or the two
-  mirror lines in `Lobby.tryBuild`, now reddens it.
-* *"leaves a man home at every single stud of the walk from the shop door to every mat"* is item 13:
-  every one-stud sample of all six door-to-mat walks is `insideHome`, the z -3060..-3057 seam
-  included, with the field-alone count (>100 samples off home) as its bite.
-
-Three notes taken while cheap: the census prints the **first** foreign part, not the nearest, and now
-says so; the fence case reads `fenceRuns` off the split row it built; the flagpole's *"291 studs from
-the range"* comment was stale two tasks before this one and now records the measured 2-stud margin.
-The remaining notes are for `TASKS.md`.
+Round 2 returned one blocking finding and I agreed with it. The Director authorised exactly its two
+items, spec-only. **`src/` does not move**, so every live proof in Karen's place and every frame
+described in round 2 still covers the shipped code -- the full round-2 record is
+`reviews/task-315/RESULT.md` and the branch's round-2 request commit `03bc9012`.
 
 ## Claims
 
-**1. The move is TWO NUMBERS and a translation.** `Range.ANCHORS["forest-test"]` is `x = 2790,
-z = -3090`; `plate`, `downrange`, `drawn`, `berm`, `fill`, `shelfFrom`, `keepOut` and **every row of
-`Range.LAYOUT`** are untouched. *Verify:* `git diff d4b10eda..c9086a27 -- src/shared/Range/init.luau`.
+**1. Nothing but two spec files changed since the reviewed commit.**
+*Verify:* `git diff --name-only c9086a27..e8895a55` -> `tests/server/lobby.spec.luau`,
+`tests/server/lobby_live.spec.luau` and the paperwork of round 2; `git diff c9086a27..e8895a55 -- src`
+is empty.
 
-**2. The walk is straight and +0.9% of today's.** Live, off the built `DoorThreshold`: nearest mat
-**174.31 studs at 3.95 deg** off the door's facing, against **172.84 at 48.76 deg**. *Verify:*
-`range.spec`'s anchor-row case, which asserts the station row's centre IS the lodge's centre line and
-the distance and angle, derived rather than typed.
+**2. The production wiring has a case now (round 2, finding 1, half one).**
+`tests/server/lobby_live.spec.luau`, *"carries the corridor's two counters through Lobby.stats, and
+reads 0 with no range"*: `keepClear` / `sightline` go in **through `Lobby.start`** in the
+`fresh(bin, function(world) ... end)` shape that file already uses for `homeAreas`, with the wood
+handed in through `world.templates` (no templates, no trees, and then a counter reads 0 for the wrong
+reason) and the world's own trunk planted where the pine stood. It asserts
+`Lobby.stats().sightlineDropped == Build.stats().sightlineDropped`,
+`.sightlineCleared == Build.stats().sightlineCleared`, that neither is 0, and the fixture destroyed.
+*Verify:* the harness note `task 315: through Lobby.start -- stats.sightlineDropped=12
+sightlineCleared=1 (Build: 12 / 1)`.
 
-**3. The walk is DEAD LEVEL.** 151 samples at 1-stud steps on each of x 2838 / 2850 / 2862 from
-z -2940 to -3090: **150.00 everywhere, spread 0.00, worst step 0.00**; the seam at z -3060 reads
-150.00 both sides. *Verify:* `range.spec`'s keep-out case -- `cutRects` returns ONE rectangle whose
-`maxZ` is the lobby field's south edge read from `Lobby.CONFIG`, overlap 0.
+**3. ...and 0 with the seams nil.** The second half of the same case starts the owner again with
+`keepClear = nil`, `sightline = nil`: both counters 0, and the same trunk in the same place is
+**still standing** afterwards.
 
-**4. The split-terrace arm did not go dark**: driven by a synthetic row 40 studs north of the
-field's edge in both `range.spec` cases that relied on the live row.
+**4. FAIL FIRST, the seam itself.** With `keepClear = world.keepClear` and `sightline =
+world.sightline` deleted from `Lobby.tryBuild`'s seam table -- the one line between Karen's cleared
+corridor and all twelve trees coming back -- the suite reddened:
+`failed [server] lobby_live.spec:1174 Expected value "true" (boolean), got "false" (boolean)`.
+Restored, and the gate line above is the restored tree. (Deleting `keepClear` **alone** would not
+bite, because `keptClear` also answers true inside the sightline rectangle; the finding named both
+lines and both are covered.)
 
-**5. The trees go by a RULE with one owner.** `Range.sightlineFrom` is pure with no writer;
-`Build.sightlineRect` closes the fourth edge with the LODGE's south face; `Build.keptClear` has
-exactly four readers. **The range removes nothing it did not create.** The rectangles reach the lobby
-as plain tables through OPTIONAL `keepClear` / `sightline` seams composed by `ForestTestBoot` beside
-`rangeHomeAreas`. *Verify:* `grep -n keptClear src/server/Lobby/Build.luau`; `lobby.spec`
-*"keptClear bites on every measured trunk and on nothing a player uses"*, where every one of the
-eleven measured trunks answers **false** when no range is handed in.
+**5. FAIL FIRST, the mirror.** With the two lines `stats.sightlineDropped = built.sightlineDropped` /
+`.sightlineCleared` deleted from `tryBuild`:
+`failed [server] lobby_live.spec:1178 Expected value "12" (number), got "0" (number)` -- the owner
+read 0 while `Build` read 12, which is exactly the boot line printing `0, 0`.
 
-**6. It removed what Karen pointed at, counted.** `[lobby] the walk to the range: 12 of our trees not
-planted in the corridor, 1 of the world's taken off it` and `[RangeBoot] footprint census: 0 foreign
-BaseParts`, both at this code commit. Live census: 0 trees in the corridor, 0 in the footprint. The
-pine (`Workspace.Session.Tree8`, place content, 104.7 studs) is gone, **at run time, never by a
-Studio click and never by an edit to the place**.
+**6. The breakdown, not `> 0` (round 2, finding 1, half two).** `lobby.spec`'s live-build case now
+asserts **ring 5, avenue 7, total 12** and `sightlineCleared == 1`. The avenue's share is read
+through `Build.avenuePlan` -- the one function that decides it -- handed the trunks really standing,
+in the shape `avenue` itself reads them (Models only, by pivot); the ring's share is the remainder,
+and the twelve-row `LODGE_TREES` loop above it already shows the grove drops none.
+*Verify:* the note `task 315: live build planted 28 trees, 0 in the corridor; sightlineDropped=12
+(ring 5 + avenue 7) sightlineCleared=1`.
 
-**7. Task 311's avenue stands no trees, named not hidden.** `AVENUE.SLOTS` is not edited (rule 7).
-*Verify:* `Build.avenuePlan` plants 0 with the range handed in and **>= 5 without it**.
+**7. FAIL FIRST, the hole the finding named.** Round 2: *"deleting `treeLine`'s `+= 1` alone leaves
+the avenue's six and the case green"*. With only `treeLine`'s `stats.sightlineDropped += 1` deleted:
+`failed [server] lobby.spec:4854 Expected value "5" (number), got "0" (number)`. All three `+= 1`
+sites are now separable: `treeLine`'s reddens the ring row, the avenue's reddens the avenue row.
 
-**8. The range still works where it stands** -- real keys and clicks, in HER place, at this commit.
-Real `W` from the door: **174.8 studs in 10.9 s, X unchanged at 2850.0, no turn.** Real `E` at
-station 2 opened the menu, lanes still 107 / 125 / 179. A real click chose RUN; the boar swept
-**153.5 studs, 153% of that station's own 100.3-stud span**. A real click chose STAND; a real shot
-landed -- board **SHOTS 2, HITS 1, MISS 1, CHEST 1 at 119 studs**. The treestand's F prompt and its
-15.1-stud deck work.
+**8. The exact numbers are measurements, and they are exact because the ring is not dice.**
+`treeLine` seeds `Random.new(1804)` and draws its jitter once per index **before** every guard, so
+the count is the same every build. Design 15.1 predicts the ring by hand at **5..7**; measured 5 --
+the bottom of the band, and exactly the five trunks `reviews/task-315/BRIEF.md` measured.
 
-## The frames (rule 5) -- each opened and described
+**9. The design's "6 avenue drops" reads 7, and I changed the design in no way.** Every non-gap
+`AVENUE.SLOT` is dropped by the corridor, which the pre-existing note *"avenue slots dropped by the
+corridor: 7"* has been printing since round 1. The spec asserts the measurement; the design's
+one-short arithmetic is a `TASKS.md` row, not an edit this round.
 
-In `<runs-dir>/playtest/range-move/`. Viewport 948 x 795 of the full-screen grab.
-
-1. **`karen-2026-10-30-trees.png` (hers, BEFORE)** -- yard gravel, compass needle 15.6 deg past S; a
-   row of leafy birches fills the frame with one tall narrow conifer behind; the range's numbered
-   canopies are small at the far left behind a grass bank.
-2. **`315-AFTER-karen-spot.png`** -- her spot and heading reproduced. The row of birches is gone, the
-   conifer is gone, and **all six station huts stand in the open straight ahead** with the berm
-   behind them. One birch survives at the far left, outside the corridor.
-3. **`315-BEFORE-door-south.png`** -- from the shop door looking due S (compass S centred). A birch
-   trunk stands squarely in the middle of the frame; **no part of the range is visible**.
-4. **`315-AFTER-door-south.png`** -- same spot, same heading, after. The birch is gone and **all six
-   numbered huts are visible across the frame** over level ground. This is the answer to her
-   sentence.
-5. **`315-walk-seam.png`** -- mid-walk at (2850, -3000), eye height, due S. Stations **1 2 3 4 5 6**
-   in one unbroken row; the ground runs flat and continuous to them with **no step or bank at
-   z -3060**; a lobby fence post in the foreground; no trunk between the viewer and any station.
-6. **`315-walk-arrival.png`** -- where the real `W` walk ended, on the mown lane looking downrange:
-   the berm across the far end with the natural hill rising above and behind it. The berm faces
-   away from the lodge, which is behind the camera.
-7. **`315-E-menu.png` / `315-E-run-selected.png` / `315-stand-selected.png`** -- the SHOOTING RANGE
-   panel open from a real `E`; RUN, then STAND, highlighted green by a real click, with the cursor
-   on the button.
-8. **`315-board4.png`** -- the hit card: `SHOTS 2 HITS 1 MISS 1`, `CHEST 1`, `DISTANCE 119 studs`.
-9. **`315-deck-top.png`** -- the treestand deck, 15.1 studs up, "TREESTAND / Climb down" prompt live,
-   plank deck underfoot, the whole berm in view.
-10. **`315-AFTER-old-site.png`** -- the old site from the yard on the same bearing as the before
-    frame: open green hillside and distant hills. No mat, no post, no fence, no earth heap. The one
-    hut at the right edge is the NEW range's station 1.
+**10. Round 2 caught a false sentence of mine, and here is the correction.** My round-2 request said
+*"Deleting any `stats.sightlineDropped += 1`, or the two mirror lines in `Lobby.tryBuild`, now
+reddens it"*. **That was wrong in both halves** -- there are three `+= 1` sites against a `> 0`
+assertion, and the mirror lines were not read by any case. Claims 4, 5 and 7 above are the same
+sentence re-made as three runs.
 
 ## What I could not verify
 
-* **A real hit on a RUNNING target.** The click transport's aim-to-fire latency measured **~2.5 s**;
-  at 24 studs/s that is 60 studs of lead and the target reverses at the span ends. The hit is on a
-  **STAND** target -- the pace whose own purpose is to isolate aim from lead -- and the RUN crossing
-  is proven as a measurement instead.
-* **How the new cut faces LOOK.** The terrace cuts up to 35.8 studs at its south-east corner against
-  ~21 at the old site. No frame was taken of the east face from close up; **nobody has looked at
-  it**, and Karen's eye decides it. Queued, not claimed.
-* **`TASKS.md` 313a(o)** is open and is NOT a defect of this move: the board read `crossing 9.07 s`
-  against the 4.18 s setpoint, the same discrepancy 313 recorded at the OLD anchor (9.13 s).
-* **`TASKS.md` 313a(a)** is open: nobody has looked at an invisible (solo) player in her place.
-* **`weapon_client.spec:1211` and `:1263` are intermittent, and I am not calling them anything
-  else.** At THIS code commit two consecutive full runs disagreed: the first reported 662 passed /
-  2 failed (`Expected 12, got 14`; `Expected 2, got 0` -- replayed ammo counts), the second reported
-  `664 passed, 0 failed` and 34/34, which is the line pasted above. Same sha, same tree, both runs
-  mine. They are not the spec the dispatch names, and nothing in this branch touches the weapon path.
-* **The board first read `SHOTS 0` on this branch.** A control at `d4b10eda` in the same place with
-  the same sequence read `SHOTS 1`; re-running the control's exact sequence on this branch then read
-  `SHOTS 1` too. The cause was my own no-cursor-move firing script, not the move.
+* **`deer_hitbox.spec:659`** (*"calf: the skull at (0.01, 1.50, -1.02) answered nil, wanted head"*)
+  failed in **3 of the 5 full-suite runs this session** and passed in the other two, including the
+  gate run above. It is not a spec this dispatch names, no deer file is in this branch's diff against
+  `origin/main`, and this round touches two lobby spec files only -- so I am not calling it anything
+  about this change; it needs a `TASKS.md` row and a control run at the merge-base, which I could not
+  take without a branch switch under a live `rojo serve`.
+* Everything round 2 listed as unverified is **unchanged and still unverified**: nobody has looked at
+  the new east cut face, and there is no hit on a RUNNING target. `TASKS.md` 313a(a) and 313a(o) stay
+  open and are not defects of this move.
+* `weapon_client.spec:1211` / `:1263` did not fire in any of this round's five runs.
+
+ANSWERED: L-136 -- the ring's exactness was checked before it was asserted (claim 8: fixed seed 1804,
+jitter drawn once per index before every guard), and the measured 5 was taken from a run, not from
+the design's 5..7 band; the avenue's 7 replaced the design's predicted 6 for the same reason.
+ANSWERED: L-127 -- no screen or live-input claim is made this round; round 2's frames are cited as
+round 2's, at `c9086a27`, and `src/` has not moved since.
+ANSWERED: L-162 -- the three FAIL FIRST lines are quoted from the run that produced them, each naming
+the file, line and the two values, and each one break was taken and restored on its own.
