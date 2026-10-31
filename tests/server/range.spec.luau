@@ -1518,14 +1518,30 @@ return function()
 			local eastX = RangeData.laneEndsFor(anchor, LAYOUT, 1, down, 1, trial.distanceStuds, true).X
 			local westX = RangeData.laneEndsFor(anchor, LAYOUT, 2, down, 1, trial.distanceStuds, true).X
 			expect(eastX > westX).to.equal(true)
-			advance(fake, clock, 6 * RangeData.laneLength(LAYOUT) / asked + 4)
+			-- STATION 1's OWN ANIMALS, COLLECTED AS THEY COME (task 321): a pass retires its animal,
+			-- so `leadsAt(1)` answers for the current one only and the history has to be kept. The
+			-- other five stations' lanes are `SPOT_SPACING_STUDS` away in X and would read as 345
+			-- orders "past" station 1's ends, which is the arithmetic and not a defect.
+			local mine: { [string]: boolean } = {}
+			local dt = 1 / 60
+			for _ = 1, math.floor((6 * RangeData.laneLength(LAYOUT) / asked + 4) / dt) do
+				clock.t += dt
+				fake.advance(dt)
+				Range.step(dt)
+				local id = (Range.trialOf(1) :: any).targetId
+				if id ~= nil then
+					mine[id :: string] = true
+				end
+			end
 			expect(Range.stats().flips >= 2).to.equal(true)
 			expect((Range.trialOf(1) :: any).crossings >= 1).to.equal(true)
 			local past, total = 0, 0
 			for _, lead in ipairs(fake.leads) do
-				total += 1
-				if lead.point.X > eastX + 1e-6 or lead.point.X < westX - 1e-6 then
-					past += 1
+				if mine[lead.id] then
+					total += 1
+					if lead.point.X > eastX + 1e-6 or lead.point.X < westX - 1e-6 then
+						past += 1
+					end
 				end
 			end
 			expect(total > 0).to.equal(true)
@@ -1543,10 +1559,11 @@ return function()
 			local heading = if (legNow % 2) == 1 then 1 else -1
 			here.position = Vector3.new(endX - heading * (lookahead / 2), here.position.Y, here.position.Z)
 			local before = #fake.leads
+			local mineNow = (Range.trialOf(1) :: any).targetId
 			advance(fake, clock, 0.2)
 			local atEnd = 0
 			for i = before + 1, #fake.leads do
-				if math.abs(fake.leads[i].point.X - endX) < 1e-6 then
+				if fake.leads[i].id == mineNow and math.abs(fake.leads[i].point.X - endX) < 1e-6 then
 					atEnd += 1
 				end
 			end
@@ -2000,22 +2017,30 @@ return function()
 			expect((Range.trialOf(1) :: any).carcassId).to.equal(deadId)
 			expect((fake.at(1) :: any).alive).to.equal(true)
 			expect((fake.at(1) :: any).id ~= deadId).to.equal(true)
+			-- ONE TICK LATER THE OTHER FIVE ARE THE SAME ANIMALS, which is what "and only his" means:
+			-- no pass of theirs can have finished in a tenth of a second.
+			for spot = 2, LAYOUT.SPOT_COUNT do
+				expect((fake.at(spot) :: any).id).to.equal(othersBefore[spot])
+			end
 
-			-- ...AND CARCASS_SECONDS AFTER THE KILL IT GOES, as HIS animal and only his.
+			-- ...AND CARCASS_SECONDS AFTER THE KILL IT GOES, as HIS animal and only his. The counters
+			-- read here are HIS: `fake.clears` is the whole range's, and since task 321 the other
+			-- five stations finish passes of their own inside these three seconds.
 			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + 0.5)
-			expect(fake.clears).to.equal(1)
-			expect(fake.lastClear).to.equal("range carcass")
-			expect(fake.clearOnes).to.equal(1)
 			expect(fake.animals[deadId]).to.equal(nil)
+			expect((Range.trialOf(1) :: any).carcassId).to.equal(nil)
+			expect(fake.clearOnes >= 1).to.equal(true)
 			-- ONE ANIMAL WENT AND ONE CAME BACK -- STEP B7's MUST-FIX 1. Until B7 this read
 			-- `2 * SPOT_COUNT` spawns and `SPOT_COUNT - 1` lost targets, because `boars.clear` was
 			-- range-WIDE and one man's carcass took the other five stations' animals with it. The
 			-- lever is `Boar.Runtime:clearOne`, wired as `boars.clearOne`.
 			expect(Range.stats().lostTargets).to.equal(0)
 			expect(Range.stats().wideClears).to.equal(0)
-			-- THE OTHER FIVE ARE THE SAME ANIMALS, not re-released copies.
+			-- THE OTHER FIVE STILL HAVE ANIMALS, and none of them was cleared by HIS kill: the
+			-- identities are compared ONE TICK after it (above), because over `CARCASS_SECONDS` they
+			-- retire animals of their own -- that is the pass loop, not a wide clear.
 			for spot = 2, LAYOUT.SPOT_COUNT do
-				expect((fake.at(spot) :: any).id).to.equal(othersBefore[spot])
+				expect(fake.at(spot)).to.be.ok()
 			end
 			-- THE NEW TARGET IS STEERED LIKE THE FIRST, measured as a RISE from a snapshot taken
 			-- after the release (review round 1, finding 2: a `flips >= 1` on a cumulative counter
@@ -2292,8 +2317,9 @@ return function()
 			advance(fake, clock, 3)
 			-- ...AND THEN IT GOES, through the PER-ID despawn.
 			expect(fake.at(2)).to.equal(nil)
+			-- `fake.lastClear` IS THE RANGE'S LAST WRITER, not his: station 4 ends passes of its own
+			-- on these same ticks, so the station-scoped counter is what this asserts.
 			expect(Range.stats().idleClears).to.equal(1)
-			expect(fake.lastClear).to.equal("range idle")
 			expect(Range.stats().wideClears).to.equal(0)
 			-- STATION 4 IS UNAFFECTED: still running passes, still steered, never cleared for him.
 			expect(fake.at(4)).to.be.ok()
