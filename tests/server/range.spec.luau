@@ -2071,11 +2071,16 @@ return function()
 			-- THE NEW TARGET IS STEERED LIKE THE FIRST, measured as a RISE from a snapshot taken
 			-- after the release (review round 1, finding 2: a `flips >= 1` on a cumulative counter
 			-- passes with the whole re-release path deleted).
+			-- COUNTED ON THE WHOLE LOG AND NOT ON `leadsAt(1)` (task 321): that one answers for the
+			-- animal the station holds NOW, and twenty seconds is four passes -- so the snapshot and
+			-- the reading would be about two different animals and the comparison means nothing.
 			local flipsAfterRelease = Range.stats().flips
-			local leadsAfterRelease = #fake.leadsAt(1)
+			local leadsAfterRelease = #fake.leads
 			advance(fake, clock, 20)
 			expect(Range.stats().flips > flipsAfterRelease).to.equal(true)
-			expect(#fake.leadsAt(1) > leadsAfterRelease).to.equal(true)
+			expect(#fake.leads > leadsAfterRelease).to.equal(true)
+			-- ...AND THE ONE OUT THERE NOW IS BEING STEERED, which is what "like the first" means.
+			expect(#fake.leadsAt(1) > 0).to.equal(true)
 			expect((fake.at(1) :: any).position.X ~= nil).to.equal(true)
 			TestKit.note(
 				string.format(
