@@ -1571,6 +1571,86 @@ return function()
 			Range.stop()
 		end)
 
+		-- TASK 316. The Director read `RUN ... crossing 9.13 s` on the wide span against 4.18 s of
+		-- arithmetic and took it for a boar that could not hold its pace. MEASURED in Karen's place at
+		-- `f06f9358`: the boar holds 24.00 studs/s for 100 % of the samples inside the span and crosses
+		-- it in 4.24 s. 9.13 s is `100.33 / 11` -- a TROT, measured 9.14 s -- and this is how a trot's
+		-- seconds come to be printed under RUN: `setPace` disarmed the timer but left
+		-- `lastCrossingSeconds`, and `blankRecord` copies that into the fresh record a pick makes.
+		-- Reproduced live through the real remote: `pace=walk issued=4.5 crossing=4.15 s`.
+		it("drops the crossing the OLD pace measured, and the old lane's, when the pick changes it", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now))).to.equal(true)
+			local man = manOnMat(1) :: any
+			expect(Range.setPace(1, RangeData.WORD.TROT)).to.equal(true)
+
+			-- ONE WHOLE CROSSING AT A TROT, so there is a real measurement to carry or to drop.
+			local function crossOnce()
+				local before = (Range.trialOf(1) :: any).crossings
+				local waited = 0
+				while (Range.trialOf(1) :: any).crossings == before and waited < 120 do
+					advance(fake, clock, 0.1)
+					waited += 0.1
+				end
+				expect((Range.trialOf(1) :: any).crossings).to.equal(before + 1)
+				return (Range.trialOf(1) :: any).lastCrossingSeconds
+			end
+			local trot = crossOnce()
+			expect(trot).to.be.ok()
+
+			-- THE CONTROL, AND IT IS WHAT MAKES THE CASE BITE: a pick that changes neither the pace nor
+			-- the lane still makes a fresh record, and that record DOES carry the crossing -- so the
+			-- mechanism is live and the assertion below is about WHICH pick drops it, not about a field
+			-- nobody fills.
+			expect(Range.onRequest(man, { weapon = "rifle" })).to.equal(true)
+			expect((Range.recordOf(man) :: any).crossingSeconds).to.equal(trot)
+			expect((Range.recordOf(man) :: any).pace).to.equal(RangeData.WORD.TROT)
+
+			-- THE PACE PICK. Before this task the fresh record carried the TROT seconds beside RUN's
+			-- 24 studs/s, which is exactly the board the Director read.
+			advance(fake, clock, 0.2)
+			expect(Range.onRequest(man, { pace = RangeData.WORD.RUN })).to.equal(true)
+			local picked = Range.recordOf(man) :: any
+			expect(picked.pace).to.equal(RangeData.WORD.RUN)
+			expect(picked.issuedStudsPerSecond).to.equal(speedOf("run"))
+			expect(picked.crossingSeconds).to.equal(nil)
+
+			-- ...AND IT COMES BACK, measured under the pace it is now labelled with.
+			local run = crossOnce()
+			expect(run).to.be.ok()
+			local predicted = RangeData.crossingSeconds(LAYOUT.WINDOW_STUDS, speedOf("run"))
+			local err = math.abs(run - predicted) / predicted
+			expect(err <= Range.CONFIG.CROSSING_TOLERANCE).to.equal(true)
+			advance(fake, clock, 0.2)
+			expect(Range.onRequest(man, { weapon = "shotgun" })).to.equal(true)
+			expect((Range.recordOf(man) :: any).crossingSeconds).to.equal(run)
+			TestKit.note(
+				string.format(
+					"range: trot crossing %.2f s dropped by the RUN pick; run measured %.2f s (predicted %.2f, %.1f %%)",
+					trot,
+					run,
+					predicted,
+					err * 100
+				)
+			)
+
+			-- THE LANE PICK, the same rule: the span is per distance, so seconds measured over one lane
+			-- are not the next lane's crossing.
+			advance(fake, clock, 0.2)
+			local other = LAYOUT.DISTANCES_STUDS[1]
+			for _, studs in ipairs(LAYOUT.DISTANCES_STUDS) do
+				if studs ~= (Range.trialOf(1) :: any).distanceStuds then
+					other = studs
+					break
+				end
+			end
+			expect(Range.onRequest(man, { distanceStuds = other })).to.equal(true)
+			expect((Range.trialOf(1) :: any).distanceStuds).to.equal(other)
+			expect((Range.recordOf(man) :: any).crossingSeconds).to.equal(nil)
+			Range.stop()
+		end)
+
 		it("holds a STAND target within 2 studs of the lane middle for 3 seconds", function()
 			local clock, now = newClock()
 			local fake = newFakeBoars()
