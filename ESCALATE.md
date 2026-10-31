@@ -1,3 +1,54 @@
+## 2026-10-31, Task 321 -- NEEDS DIRECTOR: the two-player line needs Karen's Forest Test closed
+
+**The work is done, committed, pushed and gated on one player. What is missing is `test2`, and the
+one thing it fails on is a Studio I am not allowed to close.**
+
+- Code commit: `e407f6af0ecda552d8a39860c47a50f84133ce20`, branch `task-321-range-pass-loop`.
+- `[harness] PASS: 34/34 checks @ e407f6af0ecda552d8a39860c47a50f84133ce20 (clean tree) scope=all`
+- `python tools/agents.py` REFUSES the review round without a `[harness2]` line, because this change
+  touches `src/client/Range/Mask.luau` and `tests/client/range_mask.spec.luau`, and both are in
+  `TWO_PLAYER_PATHS` (task 313 put the range's per-player picture there: *"a second client is the
+  ONLY thing that can evidence each man sees his OWN animal"*). **The dispatch's own list of what
+  needs two players did not mention the range; `tools/agents.py` is the authority and it does.**
+
+**I ran it anyway, to measure the block rather than assume it** (`python tools/studio_mcp.py test2`,
+with `<runs-dir>/press-f7.ps1` making the Start click, so no human was needed for that part):
+
+```
+[harness2] FAIL: 33/36 checks @ ab5265c79b259ebf616ce692f0240f9d3d78af98 (clean tree)
+  FAIL One Studio instance before the test starts  (Driven Hunt DEV (placeId: 136410205938347);
+                                                    Driven Hunt Forest Test (placeId: 130094961655666))
+  FAIL [driver] camera_client.spec:376  -- expect(stats.maxUpdateMs < 5)
+```
+
+1. **The one-Studio check fails because Karen's Forest Test editor is open.** I may not close it
+   (dispatch: *"never close it yourself"*), so this cannot pass from here.
+2. **`camera_client.spec:376` is `expect(stats.maxUpdateMs < 5).to.equal(true)`** -- the camera's
+   WORST frame on the driver client, a hitch check. It ran with five Studio processes on the machine
+   at once (two editors plus the three test instances). Nothing in this diff touches the camera, the
+   viewmodel or any render path. **I am NOT calling it a flake:** it is not one of the intermittents
+   the dispatch names and I have no control run at the merge base. It has the same plausible cause as
+   finding 1 -- a loaded machine -- which is what the one-Studio check exists to prevent.
+
+**What the Director needs to do** (in this order):
+
+1. Press **Cleanup** in the DEV Studio's Test tab if any test instances are still open.
+2. Close the **Driven Hunt Forest Test** Studio (only you/Karen may).
+3. `cd <repo> && git switch task-321-range-pass-loop && git pull`
+4. `python tools/studio_mcp.py test2` and press **F7** in the DEV Studio within 180 s, or run
+   `<runs-dir>/press-f7.ps1` (it posts F7 itself, verified working this session).
+5. If it passes, paste the `[harness2] PASS ... @ e407f6af...` line into
+   `reviews/task-321/REQUEST.md` under the harness line and run
+   `powershell -ExecutionPolicy Bypass -File tools/review.ps1 321`. **Round 1 has not been used:**
+   no `reviews/task-321/RESULT.md` exists, so the round count is untouched.
+6. If `camera_client.spec:376` fails again on a clean single-editor machine, that is a finding
+   against the camera and not against this task; a control `test2` at `d7ae1929` settles it.
+
+The request (`reviews/task-321/REQUEST.md`) is written, committed and pushed, with the measurements
+and the frames. Nothing else is waiting on me.
+
+---
+
 ## 2026-10-30, Task 312 -- THE FLIP IS DONE AND CORRECT; `main` IS RED, SO NO `PASS` LINE EXISTS
 
 **RESOLVED by task 314 (PR #294): `main` green.** The red was `Viewmodel.update`'s handle-cache
