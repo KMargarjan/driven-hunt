@@ -3,15 +3,15 @@
 Task: 321
 Round: 2
 Base: d7ae1929 (main)
-Code commit: 0fcb2929fcd1a11a18da6de69b8aa0bf9c53718c
+Code commit: 5bdf5a37c128c8d270ad8fa6d79f3705350af3a0
 
-`[harness] FAIL: 32/34 checks @ 0fcb2929fcd1a11a18da6de69b8aa0bf9c53718c (clean tree) scope=all`
+`[harness] PASS: 34/34 checks @ 5bdf5a37c128c8d270ad8fa6d79f3705350af3a0 (clean tree) scope=all`
 
-**THIS ROUND CANNOT BE REVIEWED FROM HERE AND IS NOT CLAIMED TO BE.** Both halves of the gate are
-blocked by one thing, the same one as round 1: Karen's Forest Test editor is open beside DEV. It
-appeared at ~23:31 UTC, mid-session (`state` read ONE Studio at 23:15), and the Builder may not close
-her window. See `ESCALATE.md`, 2026-10-31, **NEEDS DIRECTOR**. The three fixes below are committed and
-each one's FAIL-FIRST run is quoted; what is missing is the two gate lines, which need one Studio.
+`[harness2] PASS: 36/36 checks @ 5bdf5a37c128c8d270ad8fa6d79f3705350af3a0 (clean tree)`
+
+**Director, 2026-11-01 ~00:05 UTC:** both lines run with DEV the only Studio (Karen's Forest Test closed in Edit). The code commit is the branch head; after the Builder's code commit 0fcb2929 only `ESCALATE.md`, `TASKS.md` and this request changed. `deer_hitbox.spec` passed in this run. The Builder's three one-player FAILs below were all taken with the Forest Test open beside DEV, and are kept as its record.
+
+The Builder's runs, with the Forest Test open:
 
 - **one-player:** FAIL 32/34 **three times**, on `deer_hitbox.spec` and nothing else. Every one of the
   three is the **calf**, and every one is a flank ray that **answered `nil`** -- it hit nothing:
