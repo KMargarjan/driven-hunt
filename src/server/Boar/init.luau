@@ -3504,23 +3504,22 @@ Boar.CONFIG.MODEL = {
 		-- (`docs/design/feature-flags.md` section 11). Everything below is passed inward as a
 		-- parameter from here, so both states are reachable with the row at false.
 		ENABLED = Flags.isOn("DEER_ROAD_LEAP"),
-		-- HOW MUCH OF THE CLIP IS PLAYED. The asset is 2.0000 s and its last 1.25 s is a landing and
-		-- a recovery at a ground speed of nothing while the animal is travelling at 28 studs/s --
-		-- which is a second of sliding feet, the exact complaint task 240 fixed. MEASURED on the
-		-- published id in Play: the hooves are below the rig's own floor only from t = 0.458 to
-		-- t = 0.708, so by t = 0.75 the bound is over and the animal is down. 0.75 is that instant.
-		SECONDS = 0.75,
+		-- THE OUTER BOUND THE BRAIN HOLDS `leaping` TRUE FOR, and no longer the played window
+		-- (task 325). `Body` knows which animal this is and ends the bound on that kind's own
+		-- airtime; the Brain does not, so it holds the longest of the three (the stag's 0.49 s) with
+		-- a little headroom. A number BELOW a kind's window would drop the animal back into its gait
+		-- in mid-air.
+		SECONDS = 0.55,
 		-- HOW FAST IT HAS TO BE GOING. Karen's sentence is about an animal CROSSING, and a deer
 		-- ambling over the lane does not bound. `MODEL.RUN_FROM` is the speed this world already
 		-- calls running -- the band edge where the run clip takes over -- so the leap and the gait
 		-- under it agree by construction instead of by a second number that could drift.
 		FROM_RUN_FROM = true,
-		-- WHAT THE CLIP TAKES OFF EACH RIG, IN STUDS, and it is DATA THE DRAWING LAYER DOES NOT READ
-		-- YET. MEASURED 2026-10-23 in a PLAY session on the real published id (126500539626404),
-		-- loaded onto each kind's own published model, reading every `Bone.WorldPosition` in the
-		-- mesh's object space against the rig's bottom plane (`-meshSize.Y / 2`, the plane
-		-- `Body.visualOffset` stands the mesh on) at 49 samples across the clip, with the rest
-		-- pose's own gap subtracted:
+		-- WHAT THE CLIP TAKES OFF EACH RIG, IN STUDS. MEASURED 2026-10-23 in a PLAY session on the
+		-- real published id (126500539626404), loaded onto each kind's own published model, reading
+		-- every `Bone.WorldPosition` in the mesh's object space against the rig's bottom plane
+		-- (`-meshSize.Y / 2`, the plane `Body.visualOffset` stands the mesh on) at 49 samples across
+		-- the clip, with the rest pose's own gap subtracted:
 		--
 		--              rest gap   worst sink   at t      bone
 		--     stag      0.0110      1.1863     0.5417    hoof_b.L
@@ -3531,18 +3530,45 @@ Boar.CONFIG.MODEL = {
 		-- / 1.325): all three play the STAG's clip and a KeyframeSequence's bone translations are
 		-- absolute studs. It is non-zero only over samples 12-18 of 49, which is t 0.458..0.708.
 		--
-		-- **WHY NOTHING READS IT YET, and this is the honest part.** Cancelling the sink means
-		-- moving the drawn mesh every frame of the bound, and `docs/design/boar-ai.md` section 6
-		-- forbids per-frame CFrame writing on the boar -- `Body.liftDrawn`, the one writer of that
-		-- offset, works by toggling welds off and on and is called ONCE, at the moment of death.
-		-- A single lift held across the bound would pop the animal 0.9 studs at t = 0.458 instead.
-		-- So the first cut draws the clip as it is, the measured cost is **up to 1.19 studs of hind
-		-- hoof below the road for 0.25 s** at the peak of the bound (and nothing at all outside that
-		-- window), and the numbers are here so that the follow-up is a drawing change rather than
-		-- another measurement session. Queued in TASKS.md as 245c.
+		-- SINCE TASK 325 IT IS READ, as the FLOOR under `APEX_STUDS` below. An in-place clip reaches
+		-- its legs down because the animal it was authored from was IN THE AIR; give the body that
+		-- air and the reach lands on the road instead of through it. Nothing lifts the drawn mesh,
+		-- so `Body.liftDrawn` is still called once a life, at the moment of death.
 		LIFT_STUDS = { stag = 1.1863, hind = 1.2563, calf = 1.3358 },
-		LIFT_FROM_SECONDS = 0.458,
-		LIFT_TO_SECONDS = 0.708,
+		-- THE CLIP'S OWN AIRBORNE WINDOW, which is the same measurement read the other way round:
+		-- the hooves are below the rig's floor from t = 0.458 to t = 0.708 and nowhere else, so
+		-- those two instants are the frames the animal LEAVES the ground and lands on it. The leap
+		-- clip is started AT `TAKEOFF_SECONDS` (`Body.leapStartAt`) rather than at 0 -- its first
+		-- 0.458 s is a running approach the run clip has already been drawing -- and the body is
+		-- given its upward velocity on the same frame.
+		TAKEOFF_SECONDS = 0.458,
+		LAND_SECONDS = 0.708,
+		-- A LITTLE OF THE CLIP AFTER TOUCHDOWN, so the animal reaches and takes the landing instead
+		-- of cutting to the gait the instant its hooves are back. More than this is the recovery
+		-- that task 245b measured as a second of sliding feet.
+		TAIL_SECONDS = 0.10,
+		-- HOW HIGH EACH KIND'S BODY RISES, IN STUDS, AND THIS IS THE WHOLE OF THE JUMP.
+		--
+		-- REAL LIFE: a red deer clears a 1.8 m fence routinely and 2.4 m is the fence height that
+		-- excludes one (sources in `docs/research/2026-10-23-deer-road-leap.md` section 8); a bound
+		-- is the gait where all four feet leave the ground together, used to clear an obstacle
+		-- (Lingle 1993). A deer crossing a road is not clearing a fence: 0.84 m of body rise is a
+		-- cruising bound, well inside what an animal that can clear 1.8 m does without trying.
+		-- 0.84 m is 3.00 studs at `Report.CONFIG.METRES_PER_STUD` 0.28.
+		--
+		-- PER KIND, OFF EACH KIND'S OWN SIZE: the stag's 3.00 taken to `KINDS.<kind>.scale`
+		-- (1.0 / 0.8553 / 0.495), so a calf bounds a calf's height and not a stag's.
+		--
+		-- ...AND NEVER BELOW `LIFT_STUDS` PLUS `CLEARANCE_STUDS`, which is why the calf's 1.49 is
+		-- not 3.00 x 0.495 = 1.485: an arc lower than the sink would put the hooves back through the
+		-- road, which is the defect this task exists to fix. The floor binds on the calf alone.
+		APEX_STUDS = { stag = 3.0, hind = 2.566, calf = 1.485 },
+		CLEARANCE_STUDS = 0.15,
+		-- THE GRAVITY THE ARC AND THE CLIP RATE ARE BOTH SOLVED AGAINST. Roblox's default, and this
+		-- place's own: read live in the Forest Test on 2026-11-01 as 196.1999969482422.
+		-- `boar_model.spec` asserts it still matches `workspace.Gravity`, so the two halves of a
+		-- bound -- how high the body goes and how fast the legs move -- can never drift apart.
+		GRAVITY = 196.2,
 	},
 }
 

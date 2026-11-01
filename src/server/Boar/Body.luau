@@ -558,6 +558,10 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 		lastFacing = nil :: Vector3?, -- for the yaw rate, which nothing else measures
 		yawRate = 0, -- degrees per second, signed, SMOOTHED. + is a turn to the boar's left
 		clipHeldFor = 0, -- seconds the current clip has been playing; the dwell reads it
+		-- SECONDS LEFT OF THIS ANIMAL'S BOUND (task 325). The Brain publishes `leaping` for one
+		-- window for every kind because it does not know which animal this is; `Body` does, and a
+		-- calf is airborne for 0.25 s where a stag is for 0.35. Counted down in `stepVisual`.
+		leapFor = 0,
 		-- WHICH CLIP IS FROZEN ON ITS LAST FRAME, or nil. A held clip's speed is deliberately NOT the
 		-- clip's rate, so `play` must know not to "correct" it (review round 1, finding 1).
 		heldClip = nil :: string?,
@@ -1377,8 +1381,14 @@ function Body.clipFor(info, config): (string?, number)
 	-- published leap -- every boar, and every deer before 2026-10-23 -- drawing exactly what it drew
 	-- before: the Brain publishes `leaping` whatever happens, and this line is the only thing that
 	-- turns it into a clip.
+	--
+	-- THE RATE IS THIS KIND'S OWN SINCE TASK 325, and no longer the literal 1. The body now really
+	-- leaves the ground, so the legs have to be airborne for exactly as long as the body is -- see
+	-- `Body.leapPlan`. A kind with no row, and any world whose `LEAP` table has none, gets 1 back
+	-- and draws precisely what task 245b drew.
 	if info.leaping == true and Body.hasClip("leap", config) then
-		return "leap", 1
+		local _, rate = Body.leapPlan(info.kind, model.LEAP)
+		return "leap", rate
 	end
 
 	-- A CALM BOAR DRAWS WHAT IT IS DOING (task 117), and only a calm one: the Brain publishes
@@ -1527,6 +1537,95 @@ function Body.shouldAdjustRate(
 	return math.abs(currentSpeed - wantedRate) > epsilon
 end
 
+-- ======================================== THE BOUND OVER THE ROAD (task 325)
+--
+-- KAREN, 2026-11-01: *"red stag male when jumping it has to jump not like now broken and famale and
+-- kid doesnt jump"*. MEASURED in her place at main the same morning: all three kinds DO play the
+-- leap clip, at rate 1, for its whole window -- and the body's y never moves. The stag held 134.42
+-- to 134.52 across the bound, the hind 134.04 to 134.21, the calf 133.12 to 133.25. The clip is an
+-- `_IP` export: it lifts the chest and REACHES THE LEGS DOWN, so with the root pinned to the ground
+-- the animal ploughs through the road in the pose of a jumping deer. Nothing was ever lifting it.
+--
+-- THE FIX IS THAT THE ANIMAL ACTUALLY LEAVES THE GROUND. One write of `AssemblyLinearVelocity.Y` at
+-- the frame the clip leaves it, and gravity owns the rest. This is NOT a second writer of the
+-- animal's position: the mover is a `LinearVelocity` in Plane mode on X and Z (`Body.create`), so Y
+-- has always been gravity's alone, and `Body.collapseVelocity` already writes this same property
+-- once at the moment of death.
+--
+-- Pattern: ballistic launch, v = sqrt(2 g h), the textbook projectile.
+-- https://create.roblox.com/docs/reference/engine/classes/BasePart#AssemblyLinearVelocity
+-- Note: docs/research/2026-10-23-deer-road-leap.md section 8.
+
+-- HOW HIGH THIS KIND BOUNDS, in studs. Pure: a kind and the leap table in, one number out, so every
+-- rule is a spec case with no animal in the world. Never below what the clip takes off this rig --
+-- an arc lower than the sink is the defect, not a smaller jump.
+function Body.leapApex(kind: string?, leap): number
+	if type(leap) ~= "table" or type(leap.APEX_STUDS) ~= "table" then
+		return 0
+	end
+	local apex = leap.APEX_STUDS[kind or ""]
+	if type(apex) ~= "number" or apex <= 0 then
+		return 0
+	end
+	local sink = type(leap.LIFT_STUDS) == "table" and leap.LIFT_STUDS[kind or ""] or nil
+	local clearance = if type(leap.CLEARANCE_STUDS) == "number" then leap.CLEARANCE_STUDS else 0
+	if type(sink) == "number" then
+		apex = math.max(apex, sink + clearance)
+	end
+	return apex
+end
+
+-- THE TAKEOFF SPEED FOR AN APEX, AND THE AIRTIME IT IMPLIES. Pure, two numbers in, two out.
+-- v = sqrt(2 g h) and the whole flight is 2 v / g.
+function Body.leapTakeoff(apexStuds: number, gravity: number): (number, number)
+	if type(apexStuds) ~= "number" or type(gravity) ~= "number" or apexStuds <= 0 or gravity <= 0 then
+		return 0, 0
+	end
+	local up = math.sqrt(2 * gravity * apexStuds)
+	return up, 2 * up / gravity
+end
+
+-- THE RATE THE LEAP CLIP IS PLAYED AT, and the wall-clock window that implies. Pure.
+--
+-- THE LEGS AND THE ARC MUST AGREE, which is the whole reason this is not the literal 1 task 245b
+-- used: the clip is airborne for `LAND - TAKEOFF` of its own seconds, the body is airborne for
+-- `airSeconds`, and a clip played at any other rate would plant a hoof in mid-air or drag it after
+-- the landing. The window played is that airborne span plus `TAIL_SECONDS` of the landing.
+function Body.leapRate(airSeconds: number, leap): (number, number)
+	if type(leap) ~= "table" or type(airSeconds) ~= "number" or airSeconds <= 0 then
+		return 1, 0
+	end
+	local from, to = leap.TAKEOFF_SECONDS, leap.LAND_SECONDS
+	if type(from) ~= "number" or type(to) ~= "number" or to <= from then
+		return 1, 0
+	end
+	local tail = if type(leap.TAIL_SECONDS) == "number" then math.max(0, leap.TAIL_SECONDS) else 0
+	local rate = (to - from) / airSeconds
+	return rate, (to - from + tail) / rate
+end
+
+-- EVERYTHING ONE KIND'S BOUND IS, from the two tables above: the upward speed, the clip rate and
+-- how long the bound lasts. Pure, and the one place the three are solved together.
+function Body.leapPlan(kind: string?, leap): (number, number, number)
+	local apex = Body.leapApex(kind, leap)
+	local gravity = if type(leap) == "table" and type(leap.GRAVITY) == "number" then leap.GRAVITY else 0
+	local up, air = Body.leapTakeoff(apex, gravity)
+	if up <= 0 then
+		return 0, 1, 0
+	end
+	local rate, window = Body.leapRate(air, leap)
+	return up, rate, window
+end
+
+-- WHERE IN THE CLIP A BOUND STARTS. Pure. The clip's first 0.458 s is a running approach the run
+-- clip has already been drawing, and starting there would run it twice.
+function Body.leapStartAt(leap): number
+	if type(leap) ~= "table" or type(leap.TAKEOFF_SECONDS) ~= "number" then
+		return 0
+	end
+	return math.max(0, leap.TAKEOFF_SECONDS)
+end
+
 -- How long THIS clip takes to blend in. Pure and exported for the same reason every rule here is.
 function Body.fadeFor(name: string, config): number
 	local model = config.MODEL
@@ -1580,6 +1679,12 @@ local function play(handle, name: string, rate: number, config)
 	-- of the animal not yet reacting (task 116 fix round -- it was a third of the measured lateness
 	-- that was not asset loading).
 	track:Play(Body.fadeFor(name, config), 1, rate)
+	-- A BOUND STARTS AT THE FRAME THE ANIMAL LEAVES THE GROUND (task 325), not at frame zero: the
+	-- clip's first 0.458 s is a running approach the run clip was already drawing. One write, on the
+	-- frame the track starts, exactly as the death's re-assert above sets `TimePosition` once.
+	if name == "leap" then
+		track.TimePosition = Body.leapStartAt(config.MODEL and config.MODEL.LEAP)
+	end
 	handle.clip = name
 	handle.clipHeldFor = 0
 	handle.heldClip = nil -- a new clip is running, not held
@@ -1754,6 +1859,15 @@ function Body.stepVisual(handle, dt: number, info, config)
 		return
 	end
 
+	-- THIS ANIMAL'S OWN BOUND, COUNTED DOWN (task 325). The Brain holds `leaping` for the longest
+	-- kind's window; `handle.leapFor` is the window THIS kind's airtime actually needs, set on the
+	-- frame the bound started. While it has not started yet (`handle.clip ~= "leap"`) the Brain's
+	-- answer is the whole truth -- that is what begins the bound.
+	if handle.leapFor > 0 then
+		handle.leapFor = math.max(0, handle.leapFor - dt)
+	end
+	local leaping = info.leaping == true and (handle.clip ~= "leap" or handle.leapFor > 0)
+
 	local name, rate = Body.clipFor({
 		collapsed = handle.collapsed,
 		deadFor = handle.deadFor,
@@ -1768,7 +1882,12 @@ function Body.stepVisual(handle, dt: number, info, config)
 		-- MID-BOUND OVER THE ROAD (task 245b). The Brain owns "is it crossing", `Body` owns "what
 		-- does that look like", and this is the one wire between them -- the same shape `crippled`
 		-- and `alert` above already have.
-		leaping = info.leaping == true,
+		-- ...AND IT IS THIS KIND'S OWN WINDOW THAT ENDS IT (task 325). `handle.leapFor` is counted
+		-- down just above; once a kind's airtime is spent the bound is over for THIS animal even
+		-- though the Brain is still publishing the longest kind's window, so a calf is not held on
+		-- the clip's last frame for the 0.15 s a stag is still in the air.
+		leaping = leaping,
+		kind = handle.kind,
 		speed = info.speed,
 		-- THIS ANIMAL'S OWN STRIDE, AND IT WAS NEVER PASSED (task 139 round 3). `Body.clipFor` has
 		-- asked for `info.clipScale` since task 119 -- `gaitBands` divides every rate by it, because
@@ -1791,7 +1910,21 @@ function Body.stepVisual(handle, dt: number, info, config)
 		heldFor = handle.clipHeldFor,
 	}, config)
 	if name then
+		local was = handle.clip
 		play(handle, name, rate, config)
+		-- THE BODY LEAVES THE GROUND ON THE FRAME THE CLIP DOES (task 325). One write, on the
+		-- transition into the bound and never while it runs, which is why it is here and not in a
+		-- step: `play` has just set the track to its take-off frame, so the legs and the arc start
+		-- together. `leapPlan` answers 0 for every animal with no row (every boar), so this is dead
+		-- code in the world task 245b shipped.
+		if name == "leap" and was ~= "leap" then
+			local up, _, window = Body.leapPlan(handle.kind, config.MODEL and config.MODEL.LEAP)
+			if up > 0 and handle.part ~= nil then
+				local now = handle.part.AssemblyLinearVelocity
+				handle.part.AssemblyLinearVelocity = Vector3.new(now.X, up, now.Z)
+				handle.leapFor = window
+			end
+		end
 	end
 
 	-- A DEATH HOLDS ITS LAST FRAME. Letting the track stop would snap the animal back to its rest

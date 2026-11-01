@@ -35,6 +35,7 @@ local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 
 local Brain = Boar.Brain
+local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
 
 local Rules = Weapon.Rules
 local Score = Match.Score
@@ -1477,9 +1478,56 @@ return function()
 				-- three play the STAG's clip and bone translations are absolute studs.
 				expect(leap.LIFT_STUDS.stag < leap.LIFT_STUDS.hind).to.equal(true)
 				expect(leap.LIFT_STUDS.hind < leap.LIFT_STUDS.calf).to.equal(true)
-				-- The bound is inside the window that is played.
-				expect(leap.LIFT_FROM_SECONDS < leap.LIFT_TO_SECONDS).to.equal(true)
-				expect(leap.LIFT_TO_SECONDS <= leap.SECONDS).to.equal(true)
+				-- The airborne window is inside the clip, and the Brain's outer bound covers the
+				-- longest kind's bound (task 325).
+				expect(leap.TAKEOFF_SECONDS < leap.LAND_SECONDS).to.equal(true)
+				expect(leap.LAND_SECONDS < CONFIG.SPECIES.reddeer.MODEL.CLIPS.leap.seconds).to.equal(true)
+			end)
+
+			it("bounds every kind over its own sink, and the arc and the legs agree (task 325)", function()
+				-- KAREN, 2026-11-01: *"red stag male when jumping it has to jump not like now
+				-- broken and famale and kid doesnt jump"*. The defect was that NOTHING lifted the
+				-- animal: measured in her place at main, the stag's y held 134.42..134.52 across
+				-- the whole bound and the hind's 134.04..134.21.
+				local leap = CONFIG.MODEL.LEAP
+				local longest = 0
+				for _, kind in ipairs(DEER_KINDS) do
+					local up, rate, window = Body.leapPlan(kind, leap)
+					-- IT ACTUALLY LEAVES THE GROUND, and by more than the clip takes off its rig --
+					-- an arc lower than the sink puts the hooves back through the road.
+					expect(up > 0).to.equal(true)
+					local apex = up * up / (2 * leap.GRAVITY)
+					expect(apex >= leap.LIFT_STUDS[kind] + leap.CLEARANCE_STUDS - EPSILON).to.equal(true)
+					-- THE LEGS ARE AIRBORNE FOR EXACTLY AS LONG AS THE BODY IS: the clip's own
+					-- airborne span, played at `rate`, is the flight time 2v/g.
+					local air = 2 * up / leap.GRAVITY
+					expect(math.abs((leap.LAND_SECONDS - leap.TAKEOFF_SECONDS) / rate - air) < 1e-6).to.equal(true)
+					expect(window > air).to.equal(true)
+					longest = math.max(longest, window)
+				end
+				-- A CALF BOUNDS A CALF'S HEIGHT. Its apex is its own, not the stag's.
+				expect(Body.leapApex("calf", leap) < Body.leapApex("hind", leap)).to.equal(true)
+				expect(Body.leapApex("hind", leap) < Body.leapApex("stag", leap)).to.equal(true)
+				-- THE BRAIN'S WINDOW COVERS THE LONGEST OF THEM, or an animal would be dropped back
+				-- into its gait in mid-air.
+				expect(leap.SECONDS >= longest).to.equal(true)
+				-- A BOAR HAS NO ROW AND NO BOUND: the whole branch is dead in the world task 245b
+				-- shipped, which is what keeps every boar drawing what it drew.
+				local boarUp = Body.leapPlan("male", leap)
+				expect(boarUp).to.equal(0)
+				-- ...AND THE GRAVITY THE ARC IS SOLVED AGAINST IS THE WORLD'S OWN.
+				expect(math.abs(leap.GRAVITY - workspace.Gravity) < 0.01).to.equal(true)
+			end)
+
+			it("starts the bound at the clip's own take-off frame (task 325)", function()
+				local leap = CONFIG.MODEL.LEAP
+				expect(Body.leapStartAt(leap)).to.equal(leap.TAKEOFF_SECONDS)
+				-- Nothing to start, nothing to play: a world with no leap table answers 0 and 1.
+				expect(Body.leapStartAt(nil)).to.equal(0)
+				local up, rate, window = Body.leapPlan("stag", nil)
+				expect(up).to.equal(0)
+				expect(rate).to.equal(1)
+				expect(window).to.equal(0)
 			end)
 
 			it("gives the Forest Test's field a road that IS ForestTest.roadZ", function()
