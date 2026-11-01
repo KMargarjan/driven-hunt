@@ -79,6 +79,8 @@ local Loader = require(ServerStorage.Assets:WaitForChild("Loader"))
 -- `Places` requires no owner and no owner requires it. It is the ONE writer of
 -- `Workspace.DrivePlaces` and it reads a layout from `ForestTest.Data` -- never the other way round.
 local Places = require(ServerScriptService:WaitForChild("Places"))
+-- THE GRID'S EIGHT CELLS (task 327a). The preview below asks it for one cell's layout row.
+local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
 local Data = ForestTest.Data
 
 print(
@@ -111,7 +113,11 @@ print(
 -- THE GRID PREVIEW (task 327a) IS THE FOURTH AND FIFTH ARGUMENTS: nil lets `Places` read its own
 -- flag at its own boundary, and `task.wait` is the slice -- a boot that paints 270 terrain
 -- regions in one frame is a boot Karen sees as a freeze.
-local planted = Places.build(ForestTest.terrainYAt, nil, workspace.Terrain, nil, function()
+-- THE PREVIEW FLAG IS READ ONCE, HERE, AND THE SAME BOOLEAN IS USED THREE TIMES: by the planter, by
+-- the line that reports it and by the preview cell below (327a review note (g) -- the line used to
+-- print a second read, so a flag flipped between them would have been invisible).
+local gridPreviewOn = Places.gridPreviewEnabled()
+local planted = Places.build(ForestTest.terrainYAt, nil, workspace.Terrain, gridPreviewOn, function()
 	task.wait()
 end)
 print(string.format(
@@ -136,13 +142,56 @@ print(string.format(
 print(
 	string.format(
 		"[ForestTestBoot] grid: preview=%s, %d road paint call(s), %d corner stake(s), %d without ground, %.2fs",
-		tostring(Places.gridPreviewEnabled()),
+		tostring(gridPreviewOn),
 		planted.gridPaints,
 		planted.gridStakes,
 		planted.gridMissing,
 		planted.gridSeconds
 	)
 )
+
+-- ONE CELL'S STANDS AND TOWERS, UNDER THE PREVIEW (task 327b, design 17's 327b). Karen's own line
+-- for this task is *"she stands on all 15 stands of one cell and climbs its towers"*, and nothing
+-- else in this world is touched: these are the live drive's own two folders. THERE ARE THEREFORE
+-- TWO BUILDERS OF `ForestMarkers` WHILE THE PREVIEW IS ON -- this block and the drive's `markers`
+-- closure -- and that is safe only because `Markers.build` clears the folder first and
+-- `Seats.ensure` is level-triggered on the layout's name, so the second build is the same cell.
+-- The flag forces the cell below, so the two agree about WHICH cell; they differ only in the
+-- beater pad's x.
+--
+-- SEATS BEFORE MARKERS, WHICH IS THE WHOLE OF TASK 218 (design 9.3): `Markers.build` then asks the
+-- seat where its deck is instead of reading that column from the sky and refusing the stand.
+--
+-- `Places.gridPreviewEnabled()` IS READ ONCE HERE and the value is printed, so the line says what
+-- was used rather than a second read of the flag (327a review note (g)).
+if gridPreviewOn then
+	local cellLayout = Grid.layoutFor(Grid.PREVIEW_CELL)
+	local seats = ForestTest.Seats.ensure(cellLayout)
+	-- THE MIDDLE OF THE MAIN LINE, which since round 3 IS what `hunterStandX` answers with nobody
+	-- playing (`ForestTest.defaultPickIndex` is the walk's first stand). The drive's own closure
+	-- rebuilds this set a second later anyway, and the only thing derived from it here is the beater
+	-- pad in the console line below.
+	local middleX = Data.standX(math.ceil(Grid.CONFIG.mainStandCount / 2), cellLayout)
+	local set = ForestTest.Markers.build(middleX, cellLayout)
+	print(
+		string.format(
+			"[ForestTestBoot] grid preview cell %s: %d of %d post(s) (%d line), %d tower(s) at {%s}, line=%s, complete=%s%s",
+			Grid.PREVIEW_CELL,
+			#set.posts,
+			cellLayout.standCount,
+			#set.linePosts,
+			seats,
+			table.concat(HighSeats.standsFor(Grid.PREVIEW_CELL), ","),
+			tostring(set.line ~= nil),
+			tostring(set.complete),
+			if #set.missing > 0 then " missing=" .. table.concat(set.missing, ",") else ""
+		)
+	)
+	local seatLine = ForestTest.Seats.takeLine()
+	if seatLine then
+		print(seatLine)
+	end
+end
 
 -- ---------------------------------------------------------------- the boars
 
@@ -444,8 +493,9 @@ Weapon.Horn.start()
 --
 -- A HUNTER GOES THROUGH `Body.placementFor`, so `STAND_HEIGHT_STUDS`, the post's own half-height and
 -- the facing (+Z, north, up the drive) are one rule in both worlds. What this adds is WHICH post:
--- `ForestTest.standIndexFor` is centre-out, so a solo hunter gets stand 5 -- the stand
--- `hunterStandX()` aims every wave at -- instead of `posts[1]`, 600 studs west of the push.
+-- `ForestTest.standIndexFor` is centre-out, so a solo hunter gets the middle of the line -- stand 5
+-- on the road, a cell's main stand 4 -- which is the stand `hunterStandX()` aims every wave at,
+-- instead of `posts[1]`, 600 studs west of the push.
 --
 -- WHY A BEATER DOES NOT GO THROUGH IT: `placementFor` faces a driver straight -Z, and this road is a
 -- sine whose tangent swings +-23 degrees (`atan(30/70)`), so the generic look would be up to 23
@@ -1015,7 +1065,18 @@ Match.start({
 		-- `ServerStorage` (`Data.START_ROLE_ATTRIBUTE` is read exactly here too). The DECISION stays
 		-- in `ForestTest`; the composition root only hands it the two things it cannot reach --
 		-- `Match`'s drive number and the Director's override.
-		ForestTest.layoutForDrive(Match.driveNumber(), ServerStorage:GetAttribute(Data.LAYOUT_OVERRIDE_ATTRIBUTE))
+		--
+		-- **THE GRID PREVIEW FORCES THE CELL** (task 327b). Without it the drive's own level-trigger
+		-- rebuilds `ForestMarkers` and `HighSeats` for the ROAD a second after the boot built the
+		-- cell -- MEASURED in Karen's place: the proof probe read `Stand1 at (2430, -2120)`, the
+		-- road's own post, and stands 10-15 missing. The preview's whole job is that Karen can walk
+		-- the cell, so while the flag is on the cell IS the live place and ONE owner builds it.
+		-- The Director's `DHForestLayout` is ignored while the preview is on, which is said here
+		-- rather than discovered: a preview that could be overridden would be two answers.
+		ForestTest.layoutForDrive(
+			Match.driveNumber(),
+			if gridPreviewOn then Grid.PREVIEW_CELL else ServerStorage:GetAttribute(Data.LAYOUT_OVERRIDE_ATTRIBUTE)
+		)
 		-- THE HIGH SEATS, BEFORE THE MARKERS, AND THE ORDER IS THE WHOLE OF TASK 218 (design
 		-- section 9.3). `Seats.ensure` is LEVEL-TRIGGERED on the layout's name: a folder already
 		-- stamped with this layout costs a `FindFirstChild` and casts no ray, so the once-a-second

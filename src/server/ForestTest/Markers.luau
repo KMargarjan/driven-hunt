@@ -63,6 +63,12 @@ export type Set = {
 	-- assuming there is only one.
 	layout: string,
 	posts: { BasePart },
+	-- THE MAIN LINE'S POSTS, AND ONLY THEM (task 327b, design 6.4). `posts` is every stand of the
+	-- cell in index order, which is what the map, the pick and the placement want. THIS is what
+	-- answers "where is the hunters' LINE" -- a question about the drive's AXIS -- and a flank post
+	-- is 340 studs up the cell, so it would answer it wrong by exactly that much and end the drive
+	-- at ~90 s. nil-safe: with no `sides` it IS `posts`.
+	linePosts: { BasePart },
 	line: { position: Vector3, normal: Vector3 }?,
 	lineParts: number,
 	driverStart: BasePart?,
@@ -464,6 +470,10 @@ function Markers.build(
 	-- WHERE A SEAT STANDS, collected as it goes. The LINE's own reading has to know (`seatCovers`
 	-- below), and this loop is the one place that already asks the seat source.
 	local seated: { Vector3 } = {}
+	-- HOW MANY OF THE FIRST INDICES ARE THE MAIN LINE (design 6.2: main first, 1..7). With no
+	-- `sides` every stand is on the line, so `linePosts` IS `posts` and nothing downstream moves.
+	local mainCount = if layout.sides ~= nil then layout.sides.main.count else layout.standCount
+	local linePosts: { BasePart } = {}
 	for index = 1, layout.standCount do
 		local stand = Data.standPosition(index, layout)
 		local y, delta
@@ -494,15 +504,16 @@ function Markers.build(
 			stats.refused += 1
 		else
 			folder = folder or ensureFolder()
-			table.insert(
-				posts,
-				marker(
-					string.format("Stand%d", index),
-					Vector3.new(stand.X, y, stand.Z),
-					Markers.POST_SIZE,
-					folder :: Folder
-				)
+			local post = marker(
+				string.format("Stand%d", index),
+				Vector3.new(stand.X, y, stand.Z),
+				Markers.POST_SIZE,
+				folder :: Folder
 			)
+			table.insert(posts, post)
+			if index <= mainCount then
+				table.insert(linePosts, post)
+			end
 		end
 	end
 	stats.posts = #posts
@@ -563,6 +574,12 @@ function Markers.build(
 	if #posts == 0 then
 		table.insert(missing, string.format("forest:stands (0 of %d)", layout.standCount))
 	end
+	-- NO MAIN-LINE POST IS NOT A LINE (task 327b round 3, round-2 note). On a cell `posts` can hold
+	-- flank posts only, and `ForestTest.linePostsOf` would then hand `lineReferenceFor` an empty
+	-- list, so the drive would measure every crossing against the line PLANE instead of the stands.
+	if #linePosts == 0 then
+		table.insert(missing, string.format("forest:line-posts (0 of %d)", #posts))
+	end
 	if line == nil then
 		table.insert(missing, "forest:line")
 	end
@@ -573,6 +590,7 @@ function Markers.build(
 	return table.freeze({
 		layout = layout.name,
 		posts = table.freeze(posts),
+		linePosts = table.freeze(linePosts),
 		line = line,
 		lineParts = if line ~= nil then 1 else 0,
 		driverStart = driverStart,
@@ -587,7 +605,9 @@ function Markers.build(
 		-- roped to her own stand. `Markers.read` does not require trees either. The deviation from
 		-- Karen's *"tied to a tree"* is named in the design (section 6.3) and is one line to change.
 		trees = table.freeze({}),
-		complete = #posts >= 1 and line ~= nil and driverStart ~= nil,
+		-- `#linePosts >= 1` IS PART OF IT, or the `missing` entry above would be a string nobody
+		-- acts on: `Phase.waitingFor` reads `missing` only while `markersComplete` is false.
+		complete = #posts >= 1 and #linePosts >= 1 and line ~= nil and driverStart ~= nil,
 		missing = table.freeze(missing),
 	})
 end

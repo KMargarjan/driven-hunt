@@ -37,6 +37,10 @@ local TweenService = game:GetService("TweenService")
 -- `ReplicatedStorage` -- `Flags.state`'s rule, for the reason that file writes down.
 local DataModule = ReplicatedStorage:WaitForChild("ForestTest")
 local Data = require(DataModule)
+-- THE GRID'S EIGHT CELLS (task 327b). A cell IS a layout (design 3.2), so this file resolves a name
+-- through both tables -- see `layoutByName`. 327d puts the cells into `Data.LAYOUTS` and the second
+-- lookup collapses into the first.
+local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
 -- READ, NEVER WIRED: this module asks `Boar` for ONE number -- how far a boar notices a moving
 -- stimulus -- so "was a driver already pushing here" uses the animal's own radius rather than a
 -- second copy of it. `Boar` does not require this module, so there is no cycle.
@@ -891,6 +895,14 @@ end
 -- stand he LOCKED; the default stand's x until he has locked one, which is also the answer with
 -- nobody playing at all.
 function ForestTest.hunterStandX(): number
+	-- ...AND IT IS CLAMPED INTO THE MAIN LINE'S OWN SPAN (task 327b, design 6.4). A west-flank
+	-- hunter's x is `centre - 556`, OUTSIDE the +-450 the waves have ground on, so aiming there
+	-- would push the animals out of the cell through the flank road. `standSpan` is the main line's
+	-- on a cell, which is the one answer to "how wide is this line".
+	local span = Data.standSpan(chosen.layout)
+	local function onLine(x: number): number
+		return math.clamp(x, span.minX, span.maxX)
+	end
 	-- The LOCKED pick wins: an OPEN one is a hunter still choosing, and aiming a wave at a stand he
 	-- is about to walk away from is worse than aiming at the default.
 	for _, pick in pairs(state.picks) do
@@ -898,13 +910,13 @@ function ForestTest.hunterStandX(): number
 		-- 7 left over from a nine-stand road would aim every wave of a five-stand ride at a point
 		-- past the end of the line.
 		if pick.lockedAt ~= nil and pick.index <= chosen.layout.standCount then
-			return Data.standX(pick.index, chosen.layout)
+			return onLine(Data.standX(pick.index, chosen.layout))
 		end
 	end
-	-- CLAMPED INTO THE LIVE LAYOUT (task 179): `defaultIndex` is 5 and every shipped layout has
-	-- at least five stands, so this changes no answer today -- it is here so adding a shorter
-	-- layout cannot aim every wave past the end of its line.
-	return Data.standX(math.min(Data.PICK.defaultIndex, chosen.layout.standCount), chosen.layout)
+	-- CLAMPED INTO THE LIVE LAYOUT (task 179), and the index is `ForestTest.defaultPickIndex` --
+	-- the first stand of the DEAL, so with nobody playing the waves are aimed at the stand the one
+	-- hunter is actually put on (task 327b round 3). On the road that is `defaultIndex` 5, unchanged.
+	return onLine(Data.standX(ForestTest.defaultPickIndex(), chosen.layout))
 end
 
 -- RELEASES ONE WAVE. Returns how many animals it actually put on the ground, which is never assumed
@@ -1100,7 +1112,9 @@ end
 -- `lockedAt` and ignore an open pick on purpose -- "no rule during the pick window" -- so what this
 -- argument moves is the thing that is DRAWN and nothing that is enforced.
 function ForestTest.openPick(userId: number, now: number, standIndex: number?)
-	local index = math.min(standIndex or Data.PICK.defaultIndex, chosen.layout.standCount)
+	-- The default is `ForestTest.defaultPickIndex` (task 327b round 3), so the ring an unmoved hunter
+	-- sees is drawn round the stand he was dealt rather than round the road's stand 5.
+	local index = math.min(standIndex or ForestTest.defaultPickIndex(), chosen.layout.standCount)
 	state.picks[userId] = { index = index, lockedAt = nil, openedAt = now } :: any
 end
 
@@ -2287,7 +2301,14 @@ function ForestTest.forcedLayout(value: any): string?
 	if string.sub(word, 1, 1) == "/" then
 		word = string.sub(word, 2)
 	end
-	return if Data.layoutNamed(word) ~= nil then word else nil
+	if Data.layoutNamed(word) ~= nil then
+		return word
+	end
+	-- A CELL ID IS A LAYOUT NAME TOO (task 327b), and it comes back in its OWN spelling: ids are
+	-- "A1".."D2" and this function lower-cases, so returning `word` would hand `promote` a name no
+	-- table has and the preview would silently deal the road instead.
+	local id = string.upper(word)
+	return if Grid.cellOf(id) ~= nil then id else nil
 end
 
 -- PUBLISHES THE LIVE NAME FOR THE CLIENTS. The ONE writer of that attribute.
@@ -2331,8 +2352,22 @@ end
 -- EVERYTHING THAT HAS TO HAPPEN WHEN THE GROUND MOVES, in one place and in this order (design 6.5
 -- steps 1 and 2). Steps 3 to 8 are already per-drive and are listed there; nothing here repeats
 -- them.
+-- A LAYOUT BY NAME, THE GRID'S CELLS INCLUDED (task 327b). `Data.layoutNamed` answers the four
+-- shipped rows and nil for anything else; `Grid.layoutFor` answers the eight cells. One lookup, so
+-- `promote` cannot deal a name `forcedLayout` accepted.
+local function layoutByName(name: string?): any
+	local row = Data.layoutNamed(name)
+	if row ~= nil then
+		return row
+	end
+	if type(name) == "string" and Grid.cellOf(name) ~= nil then
+		return Grid.layoutFor(name)
+	end
+	return nil
+end
+
 local function promote(name: string, source: string)
-	local layout = Data.layoutNamed(name)
+	local layout = layoutByName(name)
 	if layout == nil then
 		return
 	end
@@ -4064,6 +4099,14 @@ end
 -- Pattern: Quake III's `SelectSpawnPoint` family -- the mode chooses AMONG the points the world
 -- placed (docs/design/forest-drive.md section 11.5).
 function ForestTest.standIndexFor(index: number): number
+	-- A CELL'S WALK IS THE GRID'S, AND THIS READS IT (task 327b round 3, design 6.3): fifteen stands
+	-- on three sides are not one line, so the centre-out arithmetic below answers 8 -- a west flank
+	-- post 556 studs off centre -- for the first hunter of a cell.
+	-- It wraps on `#walk`, as the arithmetic below wraps on `count`.
+	if chosen.layout.sides ~= nil then
+		local walk = ForestTest.standWalk()
+		return walk[(math.max(1, math.floor(index)) - 1) % #walk + 1]
+	end
 	local count = chosen.layout.standCount
 	local zero = (math.max(1, math.floor(index)) - 1) % count -- 0, 1, 2, ...
 	-- THE MIDDLE, AND IT IS `floor + 1` SO THE WALK CLOSES ON AN EVEN COUNT TOO (round 3's note).
@@ -4094,12 +4137,30 @@ end
 -- centre-out arithmetic would be exactly the two-pieces-of-code-disagreeing failure this project is
 -- named after. `forest_stand.spec` already pins the permutation `standIndexFor` produces, so this
 -- is pinned with it.
+-- ON A CELL IT IS `Grid.standWalk`, WHOLE (task 327b round 3): the main line centre-out, then the
+-- flanks alternating, which is design 6.3's own answer for `HighSeats.dealLine`'s `walk`. The
+-- derivation below is the road's, and `standIndexFor` reads THIS list on a cell, so there is still
+-- exactly one walk per layout and the deal, the boot's fallback and `Match`'s bot order share it.
 function ForestTest.standWalk(): { number }
+	if chosen.layout.sides ~= nil then
+		return Grid.standWalk(chosen.layout.name)
+	end
 	local out: { number } = {}
 	for index = 1, chosen.layout.standCount do
 		table.insert(out, ForestTest.standIndexFor(index))
 	end
 	return out
+end
+
+-- THE STAND NOBODY HAS PICKED YET, and IT IS THE FIRST STAND OF THE DEAL (task 327b round 3): the
+-- walk's first entry, which on a cell is the MAIN line's middle and on the road is
+-- `Data.PICK.defaultIndex` 5 unchanged. One number, so `hunterStandX` cannot aim every wave at a
+-- stand `HighSeats.dealLine` never deals (the round-2 finding: stand 5 aimed at, stand 8 dealt).
+function ForestTest.defaultPickIndex(): number
+	if chosen.layout.sides ~= nil then
+		return ForestTest.standIndexFor(1)
+	end
+	return math.min(Data.PICK.defaultIndex, chosen.layout.standCount)
 end
 
 -- WHICH OF THIS LAYOUT'S STANDS CARRY A HIGH SEAT, as a SET keyed by stand index (task 221).

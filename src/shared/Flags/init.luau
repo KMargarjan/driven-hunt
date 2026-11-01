@@ -804,10 +804,13 @@ Flags.DEFAULTS = {
 		owner = "ServerScriptService.Places (and ReplicatedStorage.Grid, data)",
 		born = "2026-11-01 task 327a",
 		expires = "2026-11-22", -- 21 days: the ceiling in feature-flags.md section 12
-		why = "The grid world's eight drive cells: their roads painted and their corners staked, "
-			.. "beside the four places, so Karen can walk the shape before the world switches. It "
-			.. "tags nothing, builds no Stand%d and no high seat, and ForestTest.LAYOUTS has no cell "
-			.. "row yet, so with it OFF the four places are the world bit for bit.",
+		why = "The grid world's eight drive cells: their roads painted, their corners staked, and "
+			.. "ONE cell (Grid.PREVIEW_CELL) built and made the live layout, with its fifteen Stand "
+			.. "markers and its three high seats, so Karen can WALK a cell and climb its towers "
+			.. "before the world switches. It is for walking, not for driving: a cell's beaters "
+			.. "still walk at Bots.CONFIG.WALK_SPEED 3.1 rather than the 5.2 its 1430 studs need, so "
+			.. "a drive in the cell is not judged until task 327d. With it OFF the four places are "
+			.. "the world bit for bit.",
 	} :: FlagRow,
 }
 

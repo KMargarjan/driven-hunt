@@ -35,6 +35,9 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
+-- THE GRID'S EIGHT CELLS (task 327b). `Grid` requires neither this file nor `ForestTest`, so this is
+-- the same one-way seam `ForestTest` itself has (design 4.6).
+local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
 
 local HighSeats = {}
 
@@ -162,17 +165,36 @@ HighSeats.AIM_RISE_STUDS = 5.0
 -- that line satisfies the relief test at all, so design section 6.2 rule 4 applies -- every place
 -- gets a seat -- and `edge 3` is taken on its gain alone. `Seats.takeLine` prints that fact every
 -- time it builds, rather than leaving it in this comment only.
-HighSeats.STANDS = table.freeze({
+--
+-- THE EIGHT GRID CELLS ARE THE SAME MEASUREMENT AT A NEW WORLD (task 327b), taken in Karen's place
+-- with the same instrument over all 120 stands. Their rows live in `Grid.CELLS[*].towers` -- one
+-- writer for the grid's data, and `Grid.towerStands` is read here so this table and that one cannot
+-- drift apart. They are keyed by CELL ID, so `Seats.ensure(Grid.layoutFor("A1"))` finds them by the
+-- layout's own name exactly as the four shipped rows are found.
+local STANDS: { [string]: { number } } = {
 	road = table.freeze({ 1, 4, 7 }), -- gains +173, +138, +76 (relief 0.22, 0.32, 1.42)
 	edge = table.freeze({ 3 }), -- gain +72; relief 7.91 -- the declared exception, see above
 	ride = table.freeze({ 2 }), -- gain +87 (relief 1.22)
 	track = table.freeze({ 1 }), -- gain +66 (relief 0.97)
-})
+}
+for _, id in ipairs(Grid.cellIds()) do
+	STANDS[id] = table.freeze(Grid.towerStands(id))
+end
+HighSeats.STANDS = table.freeze(STANDS)
 
 -- THE LAYOUTS WHOSE SEAT WAS TAKEN WITH THE RELIEF TEST RELAXED (design section 6.2 rule 4). Named
 -- as data so the console line and this table cannot drift apart, and so a later measurement that
 -- finds a better stand on that line can empty it.
-HighSeats.RELIEF_RELAXED = table.freeze({ edge = true })
+local RELAXED: { [string]: boolean } = { edge = true }
+for _, id in ipairs(Grid.cellIds()) do
+	-- THE WHOLE OF THE GRID'S ROW 2 (task 327b): 98-173 studs of spread per cell, and not one stand
+	-- rolls less than `JUMP_RELIEF_STUDS` inside its own circle. `Grid.CELLS[*].towersRelaxed` is
+	-- where the measurement says so; this table cannot drift from it.
+	if Grid.towersRelaxed(id) then
+		RELAXED[id] = true
+	end
+end
+HighSeats.RELIEF_RELAXED = table.freeze(RELAXED)
 
 -- HOW MUCH THE TERRAIN MAY RISE INSIDE THE STAND CIRCLE before a jump from the high side could read
 -- as being on the platform (section 5.2). It is `DECK_RISE_STUDS - STAND_HEIGHT - MAX_JUMP`, which

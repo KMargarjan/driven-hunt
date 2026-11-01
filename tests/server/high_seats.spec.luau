@@ -21,6 +21,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
 local HighSeats = require(ReplicatedStorage:WaitForChild("HighSeats"))
+local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
 local Places = require(ReplicatedStorage:WaitForChild("Places"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
 
@@ -54,11 +55,44 @@ return function()
 				names[name] = true
 				expect(type((HighSeats.STANDS :: any)[name])).to.equal("table")
 			end
+			-- ...AND A ROW FOR EVERY GRID CELL (task 327b), keyed by cell id, so
+			-- `Seats.ensure(Grid.layoutFor("A1"))` finds its towers by the layout's own name exactly
+			-- as the four shipped rows are found.
+			for _, id in ipairs(Grid.cellIds()) do
+				names[id] = true
+				expect(type((HighSeats.STANDS :: any)[id])).to.equal("table")
+			end
 			for name in pairs(HighSeats.STANDS) do
 				-- A row for a layout that does not exist would build seats nobody can stand on and
 				-- would never be noticed: `Seats.ensure` simply asks for a name the world has not
 				-- got.
 				expect(names[name]).to.equal(true)
+			end
+		end)
+
+		it("takes a measured tower set in every grid cell too, under the same three rules", function()
+			-- THE SAME SELECTION RULE AS THE FOUR SHIPPED LAYOUTS (design 6.1): at least one, never
+			-- more than `capFor`, strictly ascending, never two adjacent, and every index a stand
+			-- the cell actually has. The GAINS are not asserted -- they are a measurement, and
+			-- `grid.spec` case 4 is where the geometry is pinned.
+			for _, id in ipairs(Grid.cellIds()) do
+				local row = HighSeats.standsFor(id)
+				expect(table.isfrozen((HighSeats.STANDS :: any)[id])).to.equal(true)
+				expect(#row >= 1).to.equal(true)
+				expect(#row <= HighSeats.capFor(Grid.standCount(id))).to.equal(true)
+				for index = 1, #row do
+					expect(row[index] >= 1).to.equal(true)
+					expect(row[index] <= Grid.standCount(id)).to.equal(true)
+					if index > 1 then
+						expect(row[index] - row[index - 1] >= 2).to.equal(true)
+					end
+				end
+				-- AND IT IS `Grid.towerStands` AND NOT A SECOND COPY, so the two tables cannot drift.
+				local fromGrid = Grid.towerStands(id)
+				expect(#fromGrid).to.equal(#row)
+				for index, value in ipairs(fromGrid) do
+					expect(row[index]).to.equal(value)
+				end
 			end
 		end)
 

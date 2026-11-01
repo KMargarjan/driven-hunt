@@ -5,8 +5,8 @@
 -- driven through an INJECTED terrain with a recording `ReplaceMaterial`, which is `places.spec`'s own
 -- discipline and the reason no spec in the DEV place can write DEV's terrain.
 --
--- This file holds design section 13.1's cases 1, 3, 5, 6, 9, 11, 19 and 22 -- the eight that belong
--- to 327a. Cases 2, 4, 7, 8, 10 are 327b's, 12-18 and 20 are 327c's, 21 is 327d's.
+-- This file holds design section 13.1's cases 1-11, 19 and 22: 1, 3, 5, 6, 9, 11, 19 and 22 are
+-- 327a's; 2, 4, 7, 8 and 10 are 327b's. Cases 12-18 and 20 are 327c's, 21 is 327d's.
 --
 -- Design: docs/design/grid-map.md
 -- Note:   docs/research/2026-11-01-the-grid-map.md
@@ -18,9 +18,19 @@ return function()
 	local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
 	local Plan = require(ReplicatedStorage:WaitForChild("Places"))
 	local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+	local HighSeats = require(ReplicatedStorage:WaitForChild("HighSeats"))
 	local Planter = require(ServerScriptService:WaitForChild("Places"))
 	local Ground = require(ServerScriptService.Places:WaitForChild("Ground"))
 	local Match = require(ServerScriptService:WaitForChild("Match"))
+	local Bots = require(ServerScriptService:WaitForChild("Bots"))
+	local ForestTest = require(ServerScriptService:WaitForChild("ForestTest"))
+	local Markers = ForestTest.Markers
+
+	-- A FLAT WORLD AT A KNOWN HEIGHT, so the cases about the POST LIST are not cases about DEV's
+	-- terrain (`forest_markers.spec`'s own fixture).
+	local function flatGround(_x: number, _z: number): number?
+		return 140
+	end
 
 	-- ---------------------------------------------------------------- 1. eight cells
 
@@ -326,6 +336,404 @@ return function()
 		end)
 	end)
 
+	-- ---------------------------------------------------------------- 2. the four old places
+
+	describe("the four shipped places", function()
+		it("carry none of the four new fields and answer value for value", function()
+			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+				local layout = Forest.layoutNamed(name) :: any
+				-- ALL FOUR OPTIONAL FIELDS ABSENT. This is boundary 7: a shipped row that grew one of
+				-- them would take the cell code path through the world Karen plays today.
+				expect(layout.sides).to.equal(nil)
+				expect(layout.beaterNorthStuds).to.equal(nil)
+				expect(layout.fieldNorthStuds).to.equal(nil)
+				expect(layout.cellOf).to.equal(nil)
+				expect(Grid.cellOf(name)).to.equal(nil)
+				-- ...AND EVERY FUNCTION 327b TOUCHED STILL DOES ITS PRE-327b ARITHMETIC, written out
+				-- here rather than cited: `standX` is the offset along one line, `standPosition` is
+				-- that x on `roadZ`, `standSpan` is stand 1 to stand `standCount`, `beaterNorthStuds`
+				-- is the one 580 for every layout, and the field's north edge is the old formula.
+				local middle = (layout.standCount + 1) / 2
+				for index = 1, layout.standCount do
+					local x = layout.centre.X + (index - middle) * layout.standSpacing
+					expect(math.abs(Forest.standX(index, layout) - x) < 1e-9).to.equal(true)
+					-- 1e-3 AND NOT 1e-9 ON THE POINT, and it is the float32 reason `forest_stand.spec`
+					-- gives for the same comparison: `standX` answers a DOUBLE, but a `Vector3`
+					-- stores float32, so at a road z of -2097 one ulp is 2.4e-4. MEASURED: this
+					-- case failed at 1e-9 on `road` in the first gate run of this task.
+					local at = Forest.standPosition(index, layout)
+					expect(math.abs(at.X - x) < 1e-3).to.equal(true)
+					expect(at.Y).to.equal(layout.centre.Y)
+					expect(math.abs(at.Z - Forest.roadZ(x, layout)) < 1e-3).to.equal(true)
+				end
+				local span = Forest.standSpan(layout)
+				expect(span.minX).to.equal(layout.centre.X + (1 - middle) * layout.standSpacing)
+				expect(span.maxX).to.equal(layout.centre.X + (layout.standCount - middle) * layout.standSpacing)
+				expect(Forest.beaterNorthStuds(layout)).to.equal(Forest.beaterNorthStuds())
+				expect(Forest.beaterNorthStuds(layout)).to.equal(
+					Forest.LINE.spawnNorthStuds + Forest.BEATER.behindLineStuds
+				)
+				expect(Forest.exitZOf(layout)).to.equal(
+					layout.centre.Z - layout.amplitudeStuds - Forest.EXIT_SOUTH_STUDS
+				)
+				local box = Forest.boundsOf(layout)
+				expect(box.minX).to.equal(layout.centre.X - layout.halfSpanStuds)
+				expect(box.maxX).to.equal(layout.centre.X + layout.halfSpanStuds)
+				expect(box.minZ).to.equal(Forest.exitZOf(layout) - 100)
+				expect(box.maxZ).to.equal(layout.centre.Z + Forest.DRIVERS.startNorthStuds + 200)
+				local field = Forest.fieldFor(layout)
+				expect(field.bounds.maxZ).to.equal(box.maxZ)
+				expect(field.exitZ).to.equal(Forest.exitZOf(layout))
+				local corridor = Forest.corridorOf(layout)
+				expect(corridor.minX).to.equal(span.minX)
+				expect(corridor.maxX).to.equal(span.maxX)
+				expect(corridor.maxZ).to.equal(layout.centre.Z + Forest.beaterNorthStuds())
+				-- AND `linePosts` IS THE POST LIST ITSELF where there are no sides, so every reader
+				-- of it in `Match` answers exactly what it answered before this task.
+				local set = Markers.build(Forest.standX(1, layout), layout, flatGround, flatGround)
+				expect(#set.linePosts).to.equal(#set.posts)
+				expect(#set.linePosts).to.equal(layout.standCount)
+				for index, post in ipairs(set.posts) do
+					expect(set.linePosts[index]).to.equal(post)
+				end
+			end
+			-- THE ROAD'S OWN FIVE NUMBERS, PINNED AS LITERALS (`forest_stand.spec`'s own anchor), so
+			-- a change to the formula above cannot move them unnoticed.
+			local road = Forest.fieldFor(Forest.layoutNamed("road"))
+			expect(road.bounds.minX).to.equal(2230)
+			expect(road.bounds.maxX).to.equal(3830)
+			expect(road.bounds.minZ).to.equal(-2477)
+			expect(road.bounds.maxZ).to.equal(-1197)
+			expect(road.exitZ).to.equal(-2377)
+			expect(Forest.beaterNorthStuds()).to.equal(580)
+			Markers.clear()
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- 4. a cell IS a layout
+
+	describe("a cell as a layout", function()
+		it("agrees with ForestTest.standPosition on every main index, and names every side", function()
+			local c = Grid.CONFIG
+			for _, id in ipairs(Grid.cellIds()) do
+				local layout = Grid.layoutFor(id)
+				-- THE ROW `ForestTest.LAYOUTS` TAKES: fifteen stands, the main line's spacing, the
+				-- cell's own half width, and all four new fields present.
+				expect(layout.name).to.equal(id)
+				expect(layout.standCount).to.equal(15)
+				expect(layout.standSpacing).to.equal(c.mainSpacingStuds)
+				expect(layout.amplitudeStuds).to.equal(0)
+				expect(layout.halfSpanStuds).to.equal(c.cellWidthStuds / 2)
+				expect(layout.sides.main.count).to.equal(c.mainStandCount)
+				expect(layout.sides.flanks.count).to.equal(c.flankStandCount)
+				expect(layout.sides.flanks.firstStuds).to.equal(Grid.flankFirstStuds())
+				expect(layout.beaterNorthStuds).to.equal(c.cellDepthStuds)
+				expect(layout.fieldNorthStuds).to.equal(c.cellDepthStuds + c.roadClearStuds)
+				expect(layout.cellOf.row).to.equal((Grid.cellOf(id) :: any).row)
+				expect(layout.cellOf.column).to.equal((Grid.cellOf(id) :: any).column)
+				-- MEMOISED: the boot compares a promoted layout by identity, so a fresh table per
+				-- call would be a layout that never stops changing.
+				expect(Grid.layoutFor(id)).to.equal(layout)
+				-- THE TWO ARITHMETICS AGREE EXACTLY ON A MAIN INDEX, which is the whole of 6.2, and
+				-- they can only do it through the delegation: `(15 + 1) / 2` is 8, so the old
+				-- formula would put stand 1 at `centre.X - 1050`.
+				for index = 1, c.mainStandCount do
+					local a = Forest.standPosition(index, layout)
+					local b = Grid.standPosition(id, index)
+					expect((a - b).Magnitude < 1e-9).to.equal(true)
+					expect(math.abs(Forest.standX(index, layout) - b.X) < 1e-9).to.equal(true)
+					expect(Grid.sideOf(id, index)).to.equal("main")
+				end
+				for index = c.mainStandCount + 1, c.mainStandCount + c.flankStandCount do
+					expect(Grid.sideOf(id, index)).to.equal("west")
+				end
+				for index = c.mainStandCount + c.flankStandCount + 1, Grid.standCount(id) do
+					expect(Grid.sideOf(id, index)).to.equal("east")
+				end
+				-- A FLANK STAND IS NOT ON THE MAIN ROAD, so the delegation is doing work rather than
+				-- reproducing one line.
+				local roads = Grid.roadsOf(id)
+				for index = c.mainStandCount + 1, Grid.standCount(id) do
+					local at = Forest.standPosition(index, layout)
+					expect(at.Z > roads.main.at + 1).to.equal(true)
+					local onFlank = math.abs(at.X - roads.west.at) < 1e-6 or math.abs(at.X - roads.east.at) < 1e-6
+					expect(onFlank).to.equal(true)
+				end
+				-- AN INDEX NOBODY HAS IS AN ERROR AND NOT A POINT OUTSIDE THE WORLD (327a note (d)):
+				-- 327b wires a client-supplied index into this seam.
+				expect(pcall(Grid.standPosition, id, 16)).to.equal(false)
+				expect(pcall(Grid.standPosition, id, 0)).to.equal(false)
+				expect(pcall(Grid.standPosition, id, 7.5)).to.equal(false)
+				expect(pcall(Grid.sideOf, id, 99)).to.equal(false)
+			end
+			TestKit.note(
+				string.format(
+					"cell A1: %d stands, main %d at %d, flanks %d at %d from %d",
+					Grid.standCount("A1"),
+					Grid.CONFIG.mainStandCount,
+					Grid.CONFIG.mainSpacingStuds,
+					Grid.CONFIG.flankStandCount,
+					Grid.CONFIG.flankSpacingStuds,
+					Grid.flankFirstStuds()
+				)
+			)
+		end)
+
+		it("gives a cell fifteen posts of which seven answer a line question", function()
+			local layout = Grid.layoutFor("A1")
+			local set = Markers.build(Forest.standX(4, layout), layout, flatGround, flatGround)
+			expect(#set.posts).to.equal(15)
+			expect(#set.linePosts).to.equal(Grid.CONFIG.mainStandCount)
+			for index = 1, Grid.CONFIG.mainStandCount do
+				expect(set.linePosts[index]).to.equal(set.posts[index])
+			end
+			-- NOT ONE FLANK POST IS IN IT, read off the names rather than off the count.
+			for _, post in ipairs(set.linePosts) do
+				local index = tonumber(string.match(post.Name, "^Stand(%d+)$"))
+				expect(index ~= nil).to.equal(true)
+				expect(Grid.sideOf("A1", index :: number)).to.equal("main")
+			end
+			Markers.clear()
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- 7. a flank post never answers
+
+	describe("the line question", function()
+		it("is answered by a main post even where a flank post is nearer laterally", function()
+			local id = "A1"
+			local layout = Grid.layoutFor(id)
+			local roads = Grid.roadsOf(id)
+			local line = { position = Vector3.new(layout.centre.X, 0, roads.main.at), normal = Vector3.zAxis }
+			local function fake(count: number): { any }
+				local out = {}
+				for index = 1, count do
+					table.insert(out, { Position = Grid.standPosition(id, index) })
+				end
+				return out
+			end
+			-- DESIGN 6.4's OWN x: the beater walks south 510 studs east of the cell's centre, where
+			-- the east flank's first post is laterally NEARER than the main line's end post...
+			local mainEnd = Grid.standPosition(id, Grid.CONFIG.mainStandCount)
+			local flankFirst = Grid.standPosition(id, Grid.CONFIG.mainStandCount + Grid.CONFIG.flankStandCount + 1)
+			-- ...AND 200 STUDS NORTH OF THE MAIN ROAD, which is SOUTH of the flank post at +340 and
+			-- NORTH of the road itself: the one band where the two answers disagree about whether
+			-- this beater is through. MEASURED: the first run of this case put him at +700, north of
+			-- BOTH posts, where neither answer is "crossed" and the case proved nothing.
+			local beaterX = layout.centre.X + 510
+			local at = Vector3.new(beaterX, 0, roads.main.at + 200)
+			expect(math.abs(flankFirst.X - beaterX) < math.abs(mainEnd.X - beaterX)).to.equal(true)
+			-- THE DEFECT, SHOWN FIRST so this case cannot pass with the fix deleted: handed every
+			-- post, the reference IS the flank post, 340 studs up the cell.
+			local wrong = Match.lineReferenceFor(at, line, fake(Grid.standCount(id)))
+			expect(math.abs((wrong :: Vector3).Z - flankFirst.Z) < 1e-6).to.equal(true)
+			expect((wrong :: Vector3).Z - roads.main.at >= Grid.flankFirstStuds() - 1e-6).to.equal(true)
+			-- ...AND HANDED THE MAIN LINE'S POSTS IT IS THE MAIN POST, ON THE ROAD.
+			local right = Match.lineReferenceFor(at, line, fake(Grid.CONFIG.mainStandCount))
+			expect(math.abs((right :: Vector3).Z - roads.main.at) < 1e-6).to.equal(true)
+			expect(math.abs((right :: Vector3).X - mainEnd.X) < 1e-6).to.equal(true)
+			-- AND THE DRIVE IS NOT OVER: a beater 200 studs north of the road has not crossed it,
+			-- where against the flank post he had.
+			expect(Match.crossedLine(at, line, fake(Grid.CONFIG.mainStandCount), 0)).to.equal(false)
+			expect(Match.crossedLine(at, line, fake(Grid.standCount(id)), 0)).to.equal(true)
+			TestKit.note(
+				string.format(
+					"beater at x %+.0f, z %+.0f of the road: main post %.0f studs laterally, flank post %.0f -- the flank wins by %.0f, and its z is %+.0f, so every post calls him THROUGH and the line's posts do not",
+					beaterX - layout.centre.X,
+					at.Z - roads.main.at,
+					math.abs(mainEnd.X - beaterX),
+					math.abs(flankFirst.X - beaterX),
+					math.abs(mainEnd.X - beaterX) - math.abs(flankFirst.X - beaterX),
+					flankFirst.Z - roads.main.at
+				)
+			)
+		end)
+
+		it("is answered off the REAL marker set, at the two call sites that read its middle", function()
+			-- ROUND 1 FINDING 1: the case above drives `lineReferenceFor` with hand-built lists, so
+			-- it passes unchanged with `Match`'s `linePostsOf` reverted to `markers.posts`. This one
+			-- builds a real `Markers.Set` for a cell and drives two of the five call sites, so it
+			-- FLIPS the moment that revert happens.
+			local id = "A1"
+			local layout = Grid.layoutFor(id)
+			local roads = Grid.roadsOf(id)
+			local set = Markers.build(Forest.standX(4, layout), layout, flatGround, flatGround)
+			expect(#set.posts).to.equal(15)
+			expect(#set.linePosts).to.equal(Grid.CONFIG.mainStandCount)
+			-- WHAT THE DEFECT WOULD ANSWER: `posts[ceil(15 / 2)]` is index 8, the west flank's first
+			-- stand, `flankFirstStuds` up the cell and a flank road's width off the line.
+			local wrongMiddle = set.posts[math.ceil(#set.posts / 2)]
+			expect(math.abs(wrongMiddle.Position.Z - (roads.main.at + Grid.flankFirstStuds())) < 1e-3).to.equal(true)
+			-- WHERE THE DEAD ANIMALS ARE LAID OUT (`Match.gatherSpotFor`): behind the middle of the
+			-- LINE, on the road, not 340 studs up a flank.
+			local behind = Match.CONFIG.SCENE.GATHER_BEHIND_STUDS
+			local gather, normal = Match.gatherSpotFor(set, Match.CONFIG)
+			expect(gather).to.be.ok()
+			expect(math.abs((normal :: Vector3).Z - 1) < 1e-6).to.equal(true)
+			expect(math.abs((gather :: Vector3).Z - (roads.main.at - behind)) < 1e-3).to.equal(true)
+			expect(math.abs((gather :: Vector3).X - layout.centre.X) < 1e-3).to.equal(true)
+			-- ...and it is NOT the flank answer, said as its own assertion so the number that would
+			-- have been wrong is named rather than implied.
+			expect(math.abs((gather :: Vector3).Z - (wrongMiddle.Position.Z - behind)) > 1).to.equal(true)
+			-- WHERE A BEATER WHO IS THROUGH WAITS (`Match.throughSpotFor`), the fifth call site and
+			-- the same shape.
+			local through = Match.throughSpotFor(set, Match.CONFIG, 0)
+			expect(through).to.be.ok()
+			local throughBehind = Match.CONFIG.BEATER_THROUGH.BEHIND_STUDS
+			expect(math.abs((through :: CFrame).Position.Z - (roads.main.at - throughBehind)) < 1e-3).to.equal(true)
+			expect(math.abs((through :: CFrame).Position.X - layout.centre.X) < 1e-3).to.equal(true)
+			-- AND ON A SHIPPED LAYOUT NOTHING MOVED: `linePosts` IS `posts` there, so the middle of
+			-- the road's nine is the road's stand 5 exactly as before this task.
+			local road = Forest.layoutNamed("road") :: any
+			local roadSet = Markers.build(Forest.standX(5, road), road, flatGround, flatGround)
+			expect(#roadSet.linePosts).to.equal(#roadSet.posts)
+			local roadGather = Match.gatherSpotFor(roadSet, Match.CONFIG)
+			local roadMiddle = roadSet.posts[math.ceil(#roadSet.posts / 2)]
+			expect(math.abs((roadGather :: Vector3).X - roadMiddle.Position.X) < 1e-6).to.equal(true)
+			Markers.clear()
+			TestKit.note(
+				string.format(
+					"cell %s: gather at z %+.0f of the road (the flank middle would have been %+.0f); through at %+.0f",
+					id,
+					(gather :: Vector3).Z - roads.main.at,
+					wrongMiddle.Position.Z - behind - roads.main.at,
+					(through :: CFrame).Position.Z - roads.main.at
+				)
+			)
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- 8. the waves stay on the line
+
+	describe("the wave's aim", function()
+		it("is clamped to the main line's span on both flanks", function()
+			local id = "A1"
+			local layout = Grid.layoutFor(id)
+			local span = Forest.standSpan(layout)
+			local c = Grid.CONFIG
+			-- THE SPAN IS THE MAIN LINE'S, not the fifteen stands': `standX(15)` is an east flank
+			-- stand 556 studs out, and `corridorOf` and `hunterStandX` both read this rectangle.
+			local half = ((c.mainStandCount - 1) / 2) * c.mainSpacingStuds
+			expect(math.abs(span.minX - (layout.centre.X - half)) < 1e-9).to.equal(true)
+			expect(math.abs(span.maxX - (layout.centre.X + half)) < 1e-9).to.equal(true)
+			local west = Grid.standPosition(id, c.mainStandCount + 1)
+			local east = Grid.standPosition(id, c.mainStandCount + c.flankStandCount + 1)
+			expect(west.X < span.minX).to.equal(true)
+			expect(east.X > span.maxX).to.equal(true)
+			-- AND THE CORRIDOR IS THE CELL AND NOT THE FLANK ROADS.
+			local corridor = Forest.corridorOf(layout)
+			expect(corridor.minX).to.equal(span.minX)
+			expect(corridor.maxX).to.equal(span.maxX)
+			expect(corridor.maxZ).to.equal(layout.centre.Z + c.cellDepthStuds)
+			TestKit.note(
+				string.format(
+					"main span %.0f..%.0f (%.0f wide); west flank at %.0f, east at %.0f",
+					span.minX,
+					span.maxX,
+					span.maxX - span.minX,
+					west.X,
+					east.X
+				)
+			)
+		end)
+
+		it("is clamped by ForestTest.hunterStandX itself, on a locked flank pick", function()
+			-- ROUND 1 FINDING 2: the case above did the clamp with `math.clamp` of its own, so it
+			-- survived deleting `onLine` from `hunterStandX`. This one promotes the cell and locks a
+			-- pick, which is the live path (`forest_stand.spec`'s own shape), and FAILS without the
+			-- clamp -- a west-flank pick would answer `centre.X - 556`.
+			local id = "A1"
+			local userId = -3270
+			ForestTest.layoutForDrive(3271, id)
+			expect(ForestTest.layoutName()).to.equal(id)
+			local layout = ForestTest.layout()
+			local span = Forest.standSpan(layout)
+			local c = Grid.CONFIG
+			local function aimAt(standIndex: number): number
+				ForestTest.clearPick(userId)
+				ForestTest.openPick(userId, 0, standIndex)
+				ForestTest.lockPick(userId, Grid.standPosition(id, standIndex), 0, standIndex)
+				expect(ForestTest.standIndexOf(userId)).to.equal(standIndex)
+				return ForestTest.hunterStandX()
+			end
+			-- A WEST-FLANK HUNTER PINS THE WAVES TO THE WEST END OF THE LINE, not to his own x 556
+			-- studs out, which is outside the ground the waves have.
+			local westIndex = c.mainStandCount + 1
+			expect(Grid.standPosition(id, westIndex).X < span.minX).to.equal(true)
+			expect(aimAt(westIndex)).to.be.near(span.minX, 1e-6)
+			-- ...AND AN EAST-FLANK HUNTER TO THE EAST END.
+			local eastIndex = c.mainStandCount + c.flankStandCount + 1
+			expect(Grid.standPosition(id, eastIndex).X > span.maxX).to.equal(true)
+			expect(aimAt(eastIndex)).to.be.near(span.maxX, 1e-6)
+			-- A MAIN STAND IS NOT MOVED BY THE CLAMP, every one of the seven.
+			for index = 1, c.mainStandCount do
+				expect(aimAt(index)).to.be.near(Grid.standPosition(id, index).X, 1e-6)
+			end
+			ForestTest.clearPick(userId)
+			-- Put the world back where the rest of the suite expects it.
+			ForestTest.layoutForDrive(3272, Forest.DEFAULT_LAYOUT)
+			expect(ForestTest.layoutName()).to.equal(Forest.DEFAULT_LAYOUT)
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- 10. the release clamp
+
+	describe("the release clamp", function()
+		it("does not bite on a cell, where on today's road it pins the last slots to the floor", function()
+			local layout = Grid.layoutFor("A1")
+			local schedule = Forest.SCHEDULE
+			local walk = Grid.CONFIG.beaterWalkStudsPerSecond
+			local slots = 0
+			for _, row in ipairs(schedule.drive) do
+				slots = math.max(slots, row.slot)
+			end
+			local lastSlotAt = Forest.slotSeconds(slots, schedule)
+			-- WHERE THE LINE IS WHEN THE LAST SLOT IS DUE: the cell's whole depth less the walk.
+			local lineNorth = Forest.beaterNorthStuds(layout) - walk * lastSlotAt
+			expect(lineNorth > 0).to.equal(true)
+			local worst, worstSlot = math.huge, 0
+			for _, row in ipairs(schedule.drive) do
+				local at = Forest.slotSeconds(row.slot, schedule)
+				local line = Forest.beaterNorthStuds(layout) - walk * at
+				local depth = Forest.releaseDepth(row.northStuds, line, Forest.routeFloor(row, schedule), schedule)
+				-- NEVER THE FLOOR: a row pinned to `minNorthStuds` is a sounder put down 25 studs in
+				-- front of the hunter, which is what task 251c had to accept on the 580-stud road.
+				expect(depth > schedule.minNorthStuds).to.equal(true)
+				-- AND ALWAYS AT LEAST `leadStuds` OF ROOM IN FRONT OF THE MEN.
+				expect(line - depth >= schedule.leadStuds - 1e-9).to.equal(true)
+				if line - depth < worst then
+					worst, worstSlot = line - depth, row.slot
+				end
+			end
+			-- THE SAME ARITHMETIC ON TODAY'S ROAD DOES BITE, which is what makes this a measurement
+			-- of the deeper cell and not of `releaseDepth`.
+			local road = Forest.layoutNamed("road") :: any
+			local bitten = 0
+			for _, row in ipairs(schedule.drive) do
+				local at = Forest.slotSeconds(row.slot, schedule)
+				local line = Forest.beaterNorthStuds(road) - Bots.CONFIG.WALK_SPEED * at
+				local depth = Forest.releaseDepth(row.northStuds, line, Forest.routeFloor(row, schedule), schedule)
+				if depth <= schedule.minNorthStuds then
+					bitten += 1
+				end
+			end
+			expect(bitten > 0).to.equal(true)
+			TestKit.note(
+				string.format(
+					"cell: slot %d is the tightest at %.0f studs of lead (asked %d); line at %.0f when slot %d is due; today's road pins %d of %d rows to the %d-stud floor",
+					worstSlot,
+					worst,
+					schedule.leadStuds,
+					lineNorth,
+					slots,
+					bitten,
+					#schedule.drive,
+					schedule.minNorthStuds
+				)
+			)
+		end)
+	end)
+
 	-- ---------------------------------------------------------------- 11. the walk
 
 	describe("the stand walk", function()
@@ -361,6 +769,60 @@ return function()
 				end
 				expect(math.abs(west - east) <= 1).to.equal(true)
 			end
+		end)
+
+		it("deals the first hunter of a cell the MAIN stand hunterStandX aims at", function()
+			-- ROUND 2'S FINDING. With the cell live, the deal was still the ROAD's arithmetic
+			-- (`standIndexFor`'s `floor(15/2) + 1` = stand 8, a west flank post 556 studs off
+			-- centre) while `hunterStandX` aimed every wave at stand 5. This drives the LIVE path:
+			-- the promoted cell, `ForestTest.standWalk()` as `ForestTestBoot`'s `placement` passes
+			-- it, and `hunterStandX()` with nobody having picked.
+			local id = Grid.PREVIEW_CELL
+			ForestTest.layoutForDrive(3273, id)
+			expect(ForestTest.layoutName()).to.equal(id)
+			local layout = ForestTest.layout()
+			expect(layout.sides).never.to.equal(nil)
+			-- THE WALK IS THE GRID'S, by call and value for value.
+			local walk = ForestTest.standWalk()
+			local grid = Grid.standWalk(id)
+			expect(#walk).to.equal(#grid)
+			for index, value in ipairs(grid) do
+				expect(walk[index]).to.equal(value)
+			end
+			-- THE DEAL, EXACTLY AS THE BOOT MAKES IT for a one-hunter line, both ways round: with
+			-- nobody answering the entitlement (today's world) and with the one hunter UNENTITLED
+			-- (every seated stand barred), because C1's three seats are flank posts.
+			local seated = ForestTest.seatedStands()
+			for _, deal in ipairs({
+				HighSeats.dealLine(walk, seated, nil, 1, nil),
+				HighSeats.dealLine(walk, seated, { false }, 1, nil),
+			}) do
+				local stand = deal[1]
+				expect(stand).to.equal(ForestTest.standIndexFor(1))
+				expect(Grid.sideOf(id, stand)).to.equal("main")
+				-- AND IT IS THE STAND THE WAVES ARE AIMED AT. `hunterStandX` with no pick is
+				-- `defaultPickIndex`, which is the walk's first stand.
+				expect(ForestTest.hunterStandX()).to.be.near(Forest.standX(stand, layout), 1e-6)
+				expect(ForestTest.defaultPickIndex()).to.equal(ForestTest.standIndexFor(1))
+			end
+			TestKit.note(
+				string.format(
+					"%s: walk[1] = stand %d (%s) at x %.0f; hunterStandX %.0f; the road still deals %d",
+					id,
+					walk[1],
+					Grid.sideOf(id, walk[1]),
+					Forest.standX(walk[1], layout),
+					ForestTest.hunterStandX(),
+					math.floor(#walk / 2) + 1
+				)
+			)
+			-- Put the world back where the rest of the suite expects it.
+			ForestTest.layoutForDrive(3274, Forest.DEFAULT_LAYOUT)
+			expect(ForestTest.layoutName()).to.equal(Forest.DEFAULT_LAYOUT)
+			-- THE ROAD'S OWN BRANCH IS UNMOVED (L-093): `forest_stand.spec` pins the centre-out
+			-- permutation, and the default stand is still 5 here.
+			expect(ForestTest.standIndexFor(1)).to.equal(Forest.PICK.defaultIndex)
+			expect(ForestTest.defaultPickIndex()).to.equal(Forest.PICK.defaultIndex)
 		end)
 	end)
 

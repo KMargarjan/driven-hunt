@@ -1374,6 +1374,22 @@ local function boarsAlive(): number
 	return alive
 end
 
+-- WHICH POSTS ANSWER A LINE QUESTION, and it is ONE definition (task 327b, design 6.4). A cell's
+-- post list is all fifteen stands on three sides; a flank post sits 340 studs up the cell, so
+-- letting one answer "where is the hunters' line" would call a beater through 340 studs early, walk
+-- a bot to a point 340 studs short of the road, lay the carcasses out on a flank and hire 15 - n bot
+-- hunters instead of 7 - n.
+--
+-- NIL-SAFE, AND THAT IS NOT TIDINESS: `Match.Markers.read` (the DEV arena) and any older injected
+-- set carry no `linePosts` at all, and a nil post list makes `lineReferenceFor` fall back to the
+-- line plane -- a different answer in DEV. A set without the field IS its own posts.
+local function linePostsOf(set): { BasePart }?
+	if not set then
+		return nil
+	end
+	return set.linePosts or set.posts
+end
+
 -- HOW MANY STANDS THIS DRIVE PLACE STATES (task 323). THE WORLD'S ANSWER, not `#markerSet.posts`: a
 -- post whose ground was refused is absent from the post list (measured in the forest: `8/9 stands
 -- (1 refused)`), so validating a claim against the posts would refuse a stand the player can see on
@@ -2276,7 +2292,9 @@ local function syncBots()
 	stats.botSyncs += 1
 	local counts = Roster.counts(state.assignment)
 	local real = { hunters = counts.Shooters or 0, beaters = counts.Drivers or 0 }
-	local posts = if markerSet then markerSet.posts else nil
+	-- THE MAIN LINE'S POSTS (design 6.4): a cell has 15 posts and 7 of them are the line, so `#posts`
+	-- here would hire 15 - n bot hunters for a seven-stand line.
+	local posts = linePostsOf(markerSet)
 	-- HOW MANY STANDS NO REAL HUNTER IS ON. `nil` means "this caller did not measure the stands"
 	-- (the pure specs and any world with no post list), which is NOT the same fact as "there are no
 	-- stands" -- so only a real number clamps. The subtraction is `Bots.Fill.standsFree`'s and is
@@ -2697,7 +2715,9 @@ function Match.gatherSpotFor(markers, cfg): (Vector3?, Vector3?)
 	if not markers then
 		return nil, nil
 	end
-	local posts = markers.posts
+	-- THE MAIN LINE'S POSTS (design 6.4): the MIDDLE of fifteen posts on three sides is a flank
+	-- stand 340 studs up the cell, so the dead animals would be laid out off the road.
+	local posts = linePostsOf(markers)
 	if not posts or #posts == 0 then
 		return nil, nil
 	end
@@ -2733,7 +2753,11 @@ function Match.throughSpotFor(markers, cfg, slot: number): CFrame?
 	if not markers then
 		return nil
 	end
-	local posts = markers.posts
+	-- THE MAIN LINE'S POSTS, FOR `gatherSpotFor`'S OWN REASON (design 6.4). A FIFTH CALL SITE where
+	-- the design names four: this function is `gatherSpotFor`'s arithmetic with its own number, so
+	-- the middle of fifteen posts would stand a beater who is through on a flank road 340 studs up
+	-- the cell. Named in the request as a deviation rather than left as a known teleport.
+	local posts = linePostsOf(markers)
 	if not posts or #posts == 0 then
 		return nil
 	end
@@ -3379,7 +3403,9 @@ function Match.beaterCrossing(): (number, number)
 		end
 	end
 	local line = if markerSet then markerSet.line else nil
-	local posts = if markerSet then markerSet.posts else nil
+	-- THE MAIN LINE'S POSTS: `END_ON_BEATERS_CROSS` is one of the two ways a drive ends, and a flank
+	-- post would end it a third of the way down the cell (design 6.4).
+	local posts = linePostsOf(markerSet)
 	local across = 0
 	table.clear(throughLine)
 	for _, beater in ipairs(beaters) do
@@ -3584,7 +3610,9 @@ function Match.botSlotsFor(markers, place, real, want, cfg, hunterLine): { any }
 	end
 	local wantBeaters = want.beaters or 0
 	local line = if markers then markers.line else nil
-	local posts = if markers then markers.posts else nil
+	-- THE MAIN LINE'S POSTS (design 6.4): `beaterGoalFor` is where a bot beater WALKS TO, and a
+	-- flank post would stop him 340 studs short of the road.
+	local posts = linePostsOf(markers)
 	for lane = 1, wantBeaters do
 		-- ITS OWN LANE, MEASURED BY THE WORLD, AND ITS OWN GOAL ON THE ROAD IN FRONT OF IT.
 		--
