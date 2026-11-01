@@ -2822,4 +2822,63 @@ return function()
 			expect(WOUND.DEATH_BACKSTOP_SECONDS < WOUND.CARCASS_SECONDS / 10).to.equal(true)
 		end)
 	end)
+	describe("the living walk through the dead (task 324)", function()
+		-- KAREN, 2026-11-01, after playing the range: *"when animal died in shooting range another one
+		-- can go tru now it stuck until dead is gone"*. MEASURED in her place at main
+		-- (`<runs-dir>/324-pass.luau`, a39e41dd): both bodies `CanCollide = true` in `Default`, so the
+		-- animal released after the kill stood 1.02 s at a 5.2-stud gap and crossed in 5.23 s against
+		-- an unblocked 4.05 s. The fix is the engine's own answer, one group per state.
+		local PhysicsService = game:GetService("PhysicsService")
+		local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
+		local RULE = CONFIG.BOAR_COLLISION
+
+		it("the rule puts a carcass in its own group, and both dials are reachable by parameter", function()
+			-- SHIPPED: live-vs-live off, carcass on. Two different groups is the whole of the fix.
+			expect(Body.collisionGroupFor(RULE, false)).to.equal(RULE.GROUP)
+			expect(Body.collisionGroupFor(RULE, true)).to.equal(RULE.CARCASS_GROUP)
+			expect(RULE.CARCASS_GROUP ~= RULE.GROUP).to.equal(true)
+			-- ...AND THE OTHER THREE STATES, so neither dial is proven by the one it ships at.
+			local bothOff = { ENABLED = false, CARCASS_PASSES = false, GROUP = "G", CARCASS_GROUP = "C" }
+			expect(Body.collisionGroupFor(bothOff, false)).to.equal(nil) -- every body stays in Default
+			expect(Body.collisionGroupFor(bothOff, true)).to.equal(nil)
+			local liveOnly = { ENABLED = true, CARCASS_PASSES = false, GROUP = "G", CARCASS_GROUP = "C" }
+			expect(Body.collisionGroupFor(liveOnly, true)).to.equal("G") -- task 127's own behaviour
+			local carcassOnly = { ENABLED = false, CARCASS_PASSES = true, GROUP = "G", CARCASS_GROUP = "C" }
+			expect(Body.collisionGroupFor(carcassOnly, false)).to.equal("G")
+			expect(Body.collisionGroupFor(carcassOnly, true)).to.equal("C")
+			expect(Body.collisionGroupFor(nil, true)).to.equal(nil)
+		end)
+
+		it("a real carcass is in the carcass group, and that group does not collide with the live one", function()
+			local runtime = newRuntime(true, makeTemplate(), FAKE_IDS)
+			local handle = runtime:spawn(Vector3.new(20, GROUND_Y, 40))
+			step(runtime, 1 / 60, 3)
+			-- ALIVE: the live group, which is what every other animal is in.
+			expect(handle.part.CollisionGroup).to.equal(RULE.GROUP)
+			expect(runtime:takeHit(handle.part, { zone = "head", ammo = "Slug", pellets = 1, at = 0 })).to.equal(true)
+			local deadline = os.clock() + 5
+			while os.clock() < deadline and handle.part:GetAttribute("Carcass") ~= true do
+				step(runtime, 1 / 60)
+				RunService.Heartbeat:Wait()
+			end
+			expect(handle.part:GetAttribute("Carcass")).to.equal(true)
+			-- DEAD: the carcass group. At main this read "Default" -- the group did not exist.
+			expect(handle.part.CollisionGroup).to.equal(RULE.CARCASS_GROUP)
+			-- THE PAIR THE ANIMAL ACTUALLY WALKS THROUGH, asked of the engine itself.
+			expect(PhysicsService:CollisionGroupsAreCollidable(RULE.GROUP, RULE.CARCASS_GROUP)).to.equal(false)
+			-- ...AND WHAT MUST NOT CHANGE: it still lies on the ground and still stops the player.
+			expect(handle.part.CanCollide).to.equal(true)
+			expect(PhysicsService:CollisionGroupsAreCollidable(RULE.CARCASS_GROUP, "Default")).to.equal(true)
+			expect(PhysicsService:CollisionGroupsAreCollidable(RULE.GROUP, "Default")).to.equal(true)
+			TestKit.note(
+				string.format(
+					"boar-model: carcass group %s, live %s, collidable %s",
+					handle.part.CollisionGroup,
+					RULE.GROUP,
+					tostring(PhysicsService:CollisionGroupsAreCollidable(RULE.GROUP, RULE.CARCASS_GROUP))
+				)
+			)
+			runtime:destroy()
+		end)
+	end)
 end
