@@ -121,7 +121,10 @@ return function()
 			fake.nextId += 1
 			local id = "fake" .. tostring(fake.nextId)
 			local trunk = Instance.new("Part")
-			trunk.Name = "FakeTrunk_" .. id
+			-- THE NAME IS THE ID, exactly as `Boar.Body.create` writes it (`part.Name = id`), which
+			-- is what the client's `Mask.isMine` resolves (`state.mineIds[trunk.Name]`). Round 2,
+			-- finding 3: a `FakeTrunk_<id>` name asserted the fake's own convention, not the game's.
+			trunk.Name = id
 			trunk.Anchored = true
 			local zone = Instance.new("Part")
 			zone.Name = "Zone"
@@ -298,6 +301,21 @@ return function()
 			fake.advance(dt)
 			Range.step(dt)
 		end
+	end
+
+	-- THE ANIMAL THIS STATION IS RUNNING RIGHT NOW, waiting out a hand-off if one is in flight.
+	-- Since task 321 a pass retires its animal and the next is released on the same scan tick, but a
+	-- target the owner finds already gone (`lostTargets`) is re-released on the tick AFTER -- so a
+	-- case that wants THE animal may land on a tick with none, and that is the loop, not a defect.
+	local function animalAt(fake, clock, spot: number): any
+		for _ = 1, 30 do
+			local here = fake.at(spot)
+			if here ~= nil then
+				return here
+			end
+			advance(fake, clock, 1 / Range.CONFIG.STEP_HZ)
+		end
+		return nil
 	end
 
 	-- ------------------------------------------------------------------ 1. THE ROW DECIDES
@@ -566,7 +584,14 @@ return function()
 			expect((laid :: any).shelf).to.equal(137.5)
 			expect((laid :: any).folder:FindFirstChild("Plate")).to.equal(nil)
 			local mat = (laid :: any).mats[1]
-			expect(math.abs(mat.Position.Y - (137.5 + LAYOUT.MAT.size.Y / 2)) < 1e-6).to.equal(true)
+			-- FLUSH SINCE TASK 322: the rectangle's TOP is `liftStuds` over the ground it was read
+			-- on, so its centre is half a slab BELOW that. On main this read ground + size.Y / 2 --
+			-- a full stud of kerb to step up -- and the SECOND line is what fails there. The first
+			-- is held to 1e-3 and not 1e-6 because a `Vector3` component is SINGLE precision: 137.62
+			-- carries about 8e-6 of its own, which is nothing beside the 1-stud claim being made.
+			local matTop = mat.Position.Y + mat.Size.Y / 2
+			expect(math.abs(matTop - (137.5 + LAYOUT.MAT.liftStuds)) < 1e-3).to.equal(true)
+			expect(matTop - 137.5 < 0.5).to.equal(true)
 
 			-- ...and with no plate AND no ground reader there is no range, rather than one in the air.
 			local nothing, reason = Range.Build.build({
@@ -925,13 +950,13 @@ return function()
 			-- THE PLATE, THE SIX MATS, THE SIX POSTS, THE SIX BENCHES, THE TWO BANKS AND THE BERM.
 			-- NO SEATS SINCE TASK 320 (no towers): the term was
 			-- `SPOT_COUNT * HighSeats.PARTS_PER_SEAT` and it is gone, which is 84 fewer parts.
-			-- ...PLUS WHAT STEP B10 DRESSES IT WITH, counted the same way: per station four hut
-			-- posts, a roof and a number board; then ONE turf slab, the fence's own posts and its
-			-- two rails. Written as the arithmetic and not as 165, so a part that appears or
-			-- disappears moves this number rather than passing under it.
-			local dressed = LAYOUT.SPOT_COUNT * 6
-				+ #RangeData.turfSlabs((b :: any).anchor, LAYOUT, (b :: any).downrange, DEV_ROW)
-			expect(b.parts).to.equal(1 + 3 * LAYOUT.SPOT_COUNT + 3 + dressed)
+			-- NO BENCH AND NO HUT SINCE TASK 322: the term was `SPOT_COUNT * 6` for four hut posts,
+			-- a roof and a number board, plus one bench per station, and all 42 are gone. A STATION
+			-- IS A MAT AND A POST. The turf slab, the two banks and the berm stay. Written as the
+			-- arithmetic and not as 28, so a part that appears or disappears moves this number
+			-- rather than passing under it -- and on main this reads 59 and fails.
+			local dressed = #RangeData.turfSlabs((b :: any).anchor, LAYOUT, (b :: any).downrange, DEV_ROW)
+			expect(b.parts).to.equal(1 + 2 * LAYOUT.SPOT_COUNT + 3 + dressed)
 			expect(b.parts <= Range.CONFIG.MAX_PARTS).to.equal(true)
 			TestKit.note(
 				string.format(
@@ -1175,7 +1200,7 @@ return function()
 			return built :: any, parent
 		end
 
-		it("lays a bench at every station and NOT ONE seat part: no deck, no ladder, no rail", function()
+		it("lays NOTHING at a station but its mat and its post: no bench, no hut, no seat", function()
 			-- BOTH SIGNS OF THE LANE, as the seat case did: nothing may build a tower either way.
 			for _, dir in ipairs({ 1, -1 }) do
 				local row = { x = DEV_ROW.x, z = DEV_ROW.z, y = DEV_ROW.y, plate = true, downrange = dir }
@@ -1186,11 +1211,17 @@ return function()
 				expect(b.refusedStands).to.equal(0)
 				expect(next(b.deckTops)).to.equal(nil)
 				for spot = 1, LAYOUT.SPOT_COUNT do
-					-- THE BENCH, at its own arithmetic point: unchanged by this task.
-					local bench = b.folder:FindFirstChild(RangeData.benchName(spot))
-					expect(bench).to.be.ok()
-					local wantedBench = RangeData.benchPosition(b.anchor, spot, LAYOUT, dir)
-					expect(((bench :: BasePart).Position - wantedBench).Magnitude < 1e-3).to.equal(true)
+					-- THE BENCH REST AND THE WHOLE HUT ARE GONE (task 322), BY NAME: each of these
+					-- six names is a part main builds, so every line here fails on main.
+					expect(b.folder:FindFirstChild("Bench" .. tostring(spot))).to.equal(nil)
+					expect(b.folder:FindFirstChild("Roof" .. tostring(spot))).to.equal(nil)
+					expect(b.folder:FindFirstChild("Board" .. tostring(spot))).to.equal(nil)
+					for corner = 1, 4 do
+						expect(b.folder:FindFirstChild(string.format("HutPost%d_%d", spot, corner))).to.equal(nil)
+					end
+					-- ...and the two that remain ARE there.
+					expect(b.folder:FindFirstChild(RangeData.matName(spot))).to.be.ok()
+					expect(b.folder:FindFirstChild(RangeData.postName(spot))).to.be.ok()
 					-- ...AND NO SEAT FOLDER AND NO DECK TOP AT THAT STATION.
 					expect(b.folder:FindFirstChild(RangeData.standName(spot))).to.equal(nil)
 					expect(b.deckTops[spot]).to.equal(nil)
@@ -1209,11 +1240,11 @@ return function()
 					end
 				end
 				expect(trusses).to.equal(0)
-				-- AND NOTHING THE SHOOTER STANDS AMONG RISES OVER THE HUT'S OWN ROOF: the deck's
-				-- rail top was shelf+14.9 against a roof at shelf+9.6, so the tallest thing left
-				-- on the firing line is the hut (her place at main: 320-census-main.txt in the
-				-- runs dir read the same two numbers). The EARTH is not in this count -- the berm
-				-- and the two banks are the backstop, downrange, and task 320 moved neither.
+				-- AND NOTHING THE SHOOTER STANDS AMONG RISES OVER HIS OWN POST: task 320 took the
+				-- deck's rail (shelf+14.9) and task 322 the hut's roof (shelf+9.6), so the tallest
+				-- thing left on the firing line is the 4-stud prompt post he presses E on. The
+				-- EARTH is not in this count -- the berm and the two banks are the backstop,
+				-- downrange, and neither task moved them.
 				local earth = { Berm = true, BankEast = true, BankWest = true }
 				local tallest, tallestName = 0, "nothing"
 				for _, child in ipairs(b.folder:GetDescendants()) do
@@ -1224,7 +1255,11 @@ return function()
 						end
 					end
 				end
-				expect(tallest < LAYOUT.HUT.roofRise + LAYOUT.HUT.roofSize.Y + 0.5).to.equal(true)
+				if tallest >= LAYOUT.POST.size.Y + 0.5 then
+					error(string.format("%s stands %.2f over the shelf", tallestName, tallest))
+				end
+				expect(tallest < LAYOUT.POST.size.Y + 0.5).to.equal(true)
+				expect(tallestName).to.equal(RangeData.postName(1))
 				local first = b.folder:FindFirstChildWhichIsA("BasePart")
 				expect(first.Name).to.equal(RangeData.matName(1))
 				expect(b.parts <= Range.CONFIG.MAX_PARTS).to.equal(true)
@@ -1325,7 +1360,7 @@ return function()
 			expect(b.refusedStands).to.equal(0)
 			expect(#b.standRefusals).to.equal(0)
 			for spot = 1, LAYOUT.SPOT_COUNT do
-				expect(b.folder:FindFirstChild(RangeData.benchName(spot))).to.be.ok()
+				expect(b.folder:FindFirstChild("Bench" .. tostring(spot))).to.equal(nil)
 				expect(b.folder:FindFirstChild(RangeData.matName(spot))).to.be.ok()
 				expect(RangeData.promptFor(spot, RangeData.POSITION.BENCH, b.folder)).to.be.ok()
 				expect(b.folder:FindFirstChild(RangeData.standName(spot))).to.equal(nil)
@@ -1411,15 +1446,13 @@ return function()
 				-- which is 6 % of the fastest crossing and inside the tolerance for all three.
 				local err = math.abs(measured - predicted) / predicted
 				expect(err <= Range.CONFIG.CROSSING_TOLERANCE).to.equal(true)
-				-- ...and every order carried that pace's speed, never another's -- OR task 317's
-				-- reversal walk, which is only ever issued OUTSIDE the span. Asked as membership
-				-- AND as a count of each, so "all of them were the turn speed" cannot pass.
-				local atPace, atTurn, other = 0, 0, 0
+				-- ...and every order carried that pace's speed and never another's. Since task 321
+				-- there is no second speed to be had: the reversal walk that used to be issued out
+				-- in the apron went with the reversal.
+				local atPace, other = 0, 0
 				for _, lead in ipairs(fake.leadsAt(1)) do
 					if lead.speed == asked then
 						atPace += 1
-					elseif lead.speed == Range.CONFIG.TURN_STUDS_PER_SECOND then
-						atTurn += 1
 					else
 						other += 1
 					end
@@ -1474,8 +1507,8 @@ return function()
 			-- block deleted this is the lane end, which is the whole leg away.
 			local ahead = math.abs(last.point.X - animal.position.X)
 			local toEnd = math.abs(legEnd.X - animal.position.X)
-			expect(toEnd > Range.CONFIG.TURN_AIM_STUDS).to.equal(true)
-			expect(ahead <= math.max(Range.CONFIG.TURN_AIM_STUDS, last.speed * Range.CONFIG.AIM_SECONDS) + 1e-6).to.equal(
+			expect(toEnd > Range.CONFIG.AIM_MIN_STUDS).to.equal(true)
+			expect(ahead <= math.max(Range.CONFIG.AIM_MIN_STUDS, last.speed * Range.CONFIG.AIM_SECONDS) + 1e-6).to.equal(
 				true
 			)
 			expect(ahead < toEnd).to.equal(true)
@@ -1505,30 +1538,71 @@ return function()
 			local eastX = RangeData.laneEndsFor(anchor, LAYOUT, 1, down, 1, trial.distanceStuds, true).X
 			local westX = RangeData.laneEndsFor(anchor, LAYOUT, 2, down, 1, trial.distanceStuds, true).X
 			expect(eastX > westX).to.equal(true)
-			advance(fake, clock, 6 * RangeData.laneLength(LAYOUT) / asked + 4)
+			-- STATION 1's OWN ANIMALS, COLLECTED AS THEY COME (task 321): a pass retires its animal,
+			-- so `leadsAt(1)` answers for the current one only and the history has to be kept. The
+			-- other five stations' lanes are `SPOT_SPACING_STUDS` away in X and would read as 345
+			-- orders "past" station 1's ends, which is the arithmetic and not a defect.
+			local mine: { [string]: boolean } = {}
+			local dt = 1 / 60
+			for _ = 1, math.floor((6 * RangeData.laneLength(LAYOUT) / asked + 4) / dt) do
+				clock.t += dt
+				fake.advance(dt)
+				Range.step(dt)
+				local id = (Range.trialOf(1) :: any).targetId
+				if id ~= nil then
+					mine[id :: string] = true
+				end
+			end
 			expect(Range.stats().flips >= 2).to.equal(true)
 			expect((Range.trialOf(1) :: any).crossings >= 1).to.equal(true)
-			local past, atEnd, total = 0, 0, 0
-			for _, lead in ipairs(fake.leadsAt(1)) do
-				total += 1
-				if lead.point.X > eastX + 1e-6 or lead.point.X < westX - 1e-6 then
-					past += 1
-				end
-				if math.abs(lead.point.X - eastX) < 1e-6 or math.abs(lead.point.X - westX) < 1e-6 then
-					atEnd += 1
+			local past, total = 0, 0
+			for _, lead in ipairs(fake.leads) do
+				if mine[lead.id] then
+					total += 1
+					if lead.point.X > eastX + 1e-6 or lead.point.X < westX - 1e-6 then
+						past += 1
+					end
 				end
 			end
 			expect(total > 0).to.equal(true)
 			-- NEVER BEYOND. Without the clamp the carrot is `AIM_SECONDS` of run past the end.
 			expect(past).to.equal(0)
 			-- ...AND THE END IS REALLY ISSUED, so `past == 0` is not just "it never got near it".
+			-- BY PARAMETER since task 321: a pass now ends at the span's edge, a whole apron short of
+			-- the lane end, so the live loop no longer walks the animal up to it. Put the animal
+			-- inside one lookahead of the end and the clamp is the only thing that holds the point.
+			-- A PASS THAT HAS NOT REACHED THE SPAN YET, so being out by the lane end is not the END of
+			-- it: that is `passEntered`, and a fresh release is the one state in which the clamp can
+			-- still be convicted. One tick of a new range is exactly that animal.
+			Range.stop()
+			local fake2 = newFakeBoars()
+			local clock2, now2 = newClock()
+			expect(select(1, startRange(fake2, now2, nil, nil, nil, true))).to.equal(true)
+			expect(Range.setPace(1, "run")).to.equal(true)
+			advance(fake2, clock2, 1 / Range.CONFIG.STEP_HZ + 2 / 60)
+			local here = fake2.at(1) :: any
+			expect(here).to.be.ok()
+			local legNow = (Range.trialOf(1) :: any).leg
+			local endX = RangeData.laneEndsFor(anchor, LAYOUT, legNow, down, 1, trial.distanceStuds, true).X
+			local lookahead = math.max(Range.CONFIG.AIM_MIN_STUDS, asked * Range.CONFIG.AIM_SECONDS)
+			local heading = if (legNow % 2) == 1 then 1 else -1
+			here.position = Vector3.new(endX - heading * (lookahead / 2), here.position.Y, here.position.Z)
+			local before = #fake2.leads
+			local mineNow = (Range.trialOf(1) :: any).targetId
+			advance(fake2, clock2, 0.2)
+			local atEnd = 0
+			for i = before + 1, #fake2.leads do
+				if fake2.leads[i].id == mineNow and math.abs(fake2.leads[i].point.X - endX) < 1e-6 then
+					atEnd += 1
+				end
+			end
 			expect(atEnd > 0).to.equal(true)
 			TestKit.note(
 				string.format(
-					"range 317: %d orders, %d at a lane end, %d beyond one (ends %.1f / %.1f)",
+					"range 321: %d orders, %d beyond a lane end, %d clamped TO the end from half a lookahead out (ends %.1f / %.1f)",
 					total,
-					atEnd,
 					past,
+					atEnd,
 					westX,
 					eastX
 				)
@@ -1536,59 +1610,340 @@ return function()
 			Range.stop()
 		end)
 
-		-- THE REVERSAL IS SPENT OUTSIDE THE SPAN, AND THE GUARD IS THE POINT OF THE CASE: the turn
-		-- walk may never be issued INSIDE the span, or the crossing the board teaches would be
-		-- slowed by it. Both halves, in one case: it IS issued out there, and it is NEVER issued in.
-		it("walks the reversal only OUTSIDE the span, never inside it", function()
+		-- ---------------------------------------------------- TASK 321: ONE PASS, ONE ANIMAL
+		-- KAREN, 2026-10-31, after playing 319: *"it's the same animal running we need each time it
+		-- run on one side new one comes ... it runs or walks no matter killed or no it comes to end
+		-- new animal comes old gone ... and it has to be new one imediatly not neet to wait to long"*.
+		-- MEASURED on main in her place (`<runs-dir>/321-pass.luau`, d7ae1929): ONE animal, FOUR
+		-- crossings, 7.12 s out of sight between them. The apron reversal that cost those seconds is
+		-- archived (`backups/2026-10-31-range-apron-reversal.md`).
+		it("runs ONE animal per pass: a NEW id each crossing, the old one gone, both directions", function()
 			local clock, now = newClock()
 			local fake = newFakeBoars()
 			expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
-			expect(Range.setPace(1, "run")).to.equal(true)
-			local trial = Range.trialOf(1) :: any
-			local asked = trial.speedStudsPerSecond
-			local anchor = Vector3.new(DEV_ROW.x, 0, DEV_ROW.z)
-			local lo, hi = RangeData.sightSpanFor(anchor, 1, LAYOUT, trial.distanceStuds, true)
-			-- A FEW SECONDS OF LANE before the counting starts, so the animal is under way rather
-			-- than sitting at the end it was released from.
-			advance(fake, clock, 4)
-			expect(fake.at(1)).to.be.ok()
-			local insideAtTurn, outsideAtTurn, insideAtPace = 0, 0, 0
+			expect(Range.setPace(1, "trot")).to.equal(true)
+			local ids: { string } = {}
+			local seen: { [string]: boolean } = {}
+			local live = 0
 			local dt = 1 / 60
-			for _ = 1, math.floor((6 * RangeData.laneLength(LAYOUT) / asked + 4) / dt) do
+			for _ = 1, math.floor(40 / dt) do
 				clock.t += dt
 				fake.advance(dt)
 				Range.step(dt)
-				local leads = fake.leadsAt(1)
-				local last = leads[#leads]
-				local here = fake.at(1) :: any
-				if last ~= nil and here ~= nil then
-					local x = here.position.X
-					local inside = x >= lo and x <= hi
-					if last.speed == Range.CONFIG.TURN_STUDS_PER_SECOND then
-						if inside then
-							insideAtTurn += 1
-						else
-							outsideAtTurn += 1
+				local id = (Range.trialOf(1) :: any).targetId
+				if id ~= nil and ids[#ids] ~= id then
+					-- A PASS NEVER GETS ITS OWN ANIMAL BACK: the id is retired with the pass.
+					expect(seen[id :: string]).to.equal(nil)
+					seen[id :: string] = true
+					table.insert(ids, id :: string)
+				end
+				-- STATION 1's OWN, and not the firing line's: the default crowd is six men, so six
+				-- animals are alive at any moment and only this station's are this case's business.
+				local alive = 0
+				for _, animal in pairs(fake.animals) do
+					if animal.alive and seen[animal.id] == true then
+						alive += 1
+					end
+				end
+				if alive > live then
+					live = alive
+				end
+			end
+			local trial = Range.trialOf(1) :: any
+			-- SEVERAL PASSES, each by a different animal, in 40 s at a trot.
+			expect(#ids >= 4).to.equal(true)
+			expect(trial.passes).to.equal(#ids)
+			-- ...AND ONE CROSSING PER PASS, which is the whole of (a): no animal crosses twice.
+			expect(trial.crossings >= #ids - 1).to.equal(true)
+			expect(trial.crossings <= trial.passes).to.equal(true)
+			-- ...AND THE OLD ONE IS GONE: one live animal at a time, never two on the lane.
+			expect(live).to.equal(1)
+			-- ...AND THE DIRECTION ALTERNATES (b): the leg changes with every pass.
+			expect((trial.directions.east or 0) > 0).to.equal(true)
+			expect((trial.directions.west or 0) > 0).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range 321: %d passes by %d animals in 40 s at a trot, %d crossings, at most %d alive at once",
+					trial.passes,
+					#ids,
+					trial.crossings,
+					live
+				)
+			)
+			Range.stop()
+		end)
+
+		-- (b) THE GAP, AS A TIME AND AT EVERY PACE. The run-up is `pace speed * NEXT_PASS_SECONDS`
+		-- of apron, so the next animal reaches the span's near edge that long after the last one left
+		-- it, whatever the pace. On main the gap is a whole reversal: 7.12 s, measured.
+		it("starts the next pass within NEXT_PASS_SECONDS of the last one leaving the span", function()
+			local rows = {}
+			for _, pace in ipairs({ "walk", "trot", "run" }) do
+				local clock, now = newClock()
+				local fake = newFakeBoars()
+				expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
+				expect(Range.setPace(1, pace)).to.equal(true)
+				local trial = Range.trialOf(1) :: any
+				local anchor = Vector3.new(DEV_ROW.x, 0, DEV_ROW.z)
+				local lo, hi = RangeData.sightSpanFor(anchor, 1, LAYOUT, trial.distanceStuds, true)
+				local dt = 1 / 60
+				local lastOut: number? = nil
+				local worst, gaps = 0, 0
+				local inside = false
+				for _ = 1, math.floor(60 / dt) do
+					clock.t += dt
+					fake.advance(dt)
+					Range.step(dt)
+					local here = fake.at(1) :: any
+					local isIn = here ~= nil and RangeData.inWindow(lo, hi, here.position.X)
+					if isIn and not inside then
+						inside = true
+						if lastOut ~= nil then
+							local gap = clock.t - (lastOut :: number)
+							gaps += 1
+							if gap > worst then
+								worst = gap
+							end
 						end
-					elseif inside and last.speed == asked then
-						insideAtPace += 1
+					elseif inside and not isIn then
+						inside = false
+						lastOut = clock.t
+					end
+				end
+				expect(gaps >= 2).to.equal(true)
+				-- THE CLAIM, AND IT IS THE ONE KAREN MADE: at most a second with nothing to look at.
+				expect(worst <= 1.0).to.equal(true)
+				table.insert(rows, string.format("%s %.2f s over %d gaps", pace, worst, gaps))
+				Range.stop()
+			end
+			TestKit.note("range 321: worst out-of-sight gap between passes -- " .. table.concat(rows, " · "))
+		end)
+
+		-- (c) A KILL. The carcass stays where it fell (task 318) and the next animal does NOT wait for
+		-- it: on main the next live target is `CARCASS_SECONDS` + the old `RELEASE_SECONDS` away,
+		-- which 319 measured at +4.37 s in Karen's place.
+		it("releases the next animal within a tick of a kill, with the carcass still lying there", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
+			expect(Range.setPace(1, "trot")).to.equal(true)
+			advance(fake, clock, 4)
+			local carcass = animalAt(fake, clock, 1) :: any
+			expect(carcass).to.be.ok()
+			local trial = Range.trialOf(1) :: any
+			local killedId = trial.targetId :: string
+			expect(killedId).to.equal(carcass.id)
+			carcass.alive = false
+			local fellAt = carcass.position
+			local killedAtT = clock.t
+			-- ONE SCAN TICK is all it may take.
+			advance(fake, clock, 1 / Range.CONFIG.STEP_HZ + 2 / 60)
+			trial = Range.trialOf(1) :: any
+			local nextId = trial.targetId
+			expect(nextId).to.be.ok()
+			expect(nextId ~= killedId).to.equal(true)
+			expect(clock.t - killedAtT <= 1.0).to.equal(true)
+			-- THE CARCASS IS STILL THERE, AND WHERE IT FELL.
+			expect(trial.carcassId).to.equal(killedId)
+			expect(fake.animals[killedId]).to.be.ok()
+			expect((fake.animals[killedId].position - fellAt).Magnitude <= 1e-6).to.equal(true)
+			-- ...AND CARCASS_SECONDS LATER IT IS GONE, with the pass after it still running.
+			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + 0.3)
+			trial = Range.trialOf(1) :: any
+			expect(fake.animals[killedId]).to.equal(nil)
+			expect(trial.carcassId).to.equal(nil)
+			expect(trial.targetId).to.be.ok()
+			TestKit.note(
+				string.format(
+					"range 321: next animal one %.1f Hz tick after the kill; carcass held its own %.0f s",
+					Range.CONFIG.STEP_HZ,
+					Range.CONFIG.CARCASS_SECONDS
+				)
+			)
+			Range.stop()
+		end)
+
+		-- ROUND 2, FINDING 1: A SECOND KILL AT ONE STATION INSIDE `CARCASS_SECONDS`. The kill branch
+		-- wrote `carcassAt = now` and THEN cleared the previous corpse through `clearId`, which nils
+		-- that same clock -- so body B was installed with no clock and the retire block, which
+		-- needed one, never fired. RED at 64edb761: `trial.carcassId` stays `secondId` for ever.
+		it("clears the previous corpse on a second kill and keeps the NEW one's own clock", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
+			advance(fake, clock, 4)
+			expect(animalAt(fake, clock, 1)).to.be.ok()
+
+			local function killHere(): string
+				local trial = Range.trialOf(1) :: any
+				local id = trial.targetId :: string
+				expect(fake.animals[id]).to.be.ok()
+				fake.animals[id].alive = false
+				advance(fake, clock, 1 / Range.CONFIG.STEP_HZ + 2 / 60)
+				return id
+			end
+
+			local firstId = killHere()
+			expect((Range.trialOf(1) :: any).carcassId).to.equal(firstId)
+			-- WELL INSIDE `CARCASS_SECONDS`: the next animal is out on the kill tick, so a two-barrel
+			-- gun reaches this in the apron. Half the hold, so corpse A is still owed time.
+			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS / 2)
+			expect(fake.animals[firstId]).to.be.ok()
+			local secondId = killHere()
+			expect(secondId ~= firstId).to.equal(true)
+
+			-- CORPSE A IS GONE AT ONCE -- one slot, never a queue -- and B HAS A CLOCK.
+			local trial = Range.trialOf(1) :: any
+			expect(fake.animals[firstId]).to.equal(nil)
+			expect(trial.carcassId).to.equal(secondId)
+			expect(trial.carcassAt).to.be.ok()
+			-- ...AND B IS RETIRED `CARCASS_SECONDS` AFTER ITS OWN KILL, not never.
+			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + 0.3)
+			trial = Range.trialOf(1) :: any
+			expect(fake.animals[secondId]).to.equal(nil)
+			expect(trial.carcassId).to.equal(nil)
+			expect(trial.carcassAt).to.equal(nil)
+			-- The lane is still running: a kill never stops the pass loop.
+			expect(trial.targetId).to.be.ok()
+			Range.stop()
+		end)
+
+		-- ROUND 2, FINDING 2: LEAVE WITH A FRESH KILL ON THE LANE. Task 319's leave took the dead
+		-- animal because it WAS `targetId`; task 321 moved it to its own slot and the arm nilled only
+		-- the CLOCK, so the body stayed drawn on his lane for the life of the server. RED at
+		-- 64edb761. Task 319's own leave case never kills, so nothing covered it.
+		it("takes his carcass with him when he leaves on a kill", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
+			advance(fake, clock, 4)
+			expect(animalAt(fake, clock, 1)).to.be.ok()
+			-- `manAt`/`manAtSpot` live in later blocks; one man, standing where the mat is.
+			local function newMan(spot: number, id: number)
+				local character = Instance.new("Model")
+				local root = Instance.new("Part")
+				root.Name = "HumanoidRootPart"
+				root.Size = Vector3.one
+				root.Anchored = true
+				root.Position = RangeData.matPosition(Vector3.new(DEV_ROW.x, DEV_ROW.y, DEV_ROW.z), spot, LAYOUT)
+				root.Parent = character
+				return { Character = character, UserId = id, Name = "Man" .. tostring(id) } :: any
+			end
+			local man = newMan(1, 931)
+			expect(Range.positionOf(man)).to.equal(1)
+
+			local deadId = (Range.trialOf(1) :: any).targetId :: string
+			fake.animals[deadId].alive = false
+			advance(fake, clock, 1 / Range.CONFIG.STEP_HZ + 2 / 60)
+			expect((Range.trialOf(1) :: any).carcassId).to.equal(deadId)
+			expect(fake.animals[deadId]).to.be.ok()
+
+			-- HE PRESSES LEAVE RANGE ON HIS KILL.
+			expect(Range.onRequest(man, { spot = 1, leave = true })).to.equal(true)
+			local trial = Range.trialOf(1) :: any
+			expect(trial.ended).to.equal(true)
+			-- 319'S LEAVE: NO ANIMAL AND NO CARCASS LEFT, and not one tick later -- in the arm.
+			expect(trial.targetId).to.equal(nil)
+			expect(trial.carcassId).to.equal(nil)
+			expect(trial.carcassAt).to.equal(nil)
+			expect(fake.animals[deadId]).to.equal(nil)
+			-- ...and his board no longer names it, which is what he would otherwise still SEE.
+			expect(#Range.mineIdsFor(man)).to.equal(0)
+			-- An ended station stays empty: the leave is not a reset.
+			advance(fake, clock, 2)
+			trial = Range.trialOf(1) :: any
+			expect(trial.targetId).to.equal(nil)
+			expect(trial.carcassId).to.equal(nil)
+			Range.stop()
+		end)
+
+		-- THE INVARIANT BOTH FIXES SERVE, over a SEQUENCE rather than one path: after any mix of
+		-- kills and leaves, no trial holds a corpse older than `CARCASS_SECONDS` + one tick. This is
+		-- what makes a third call site that loses the clock cost a tick instead of the session --
+		-- `scan`'s retire block reads a missing `carcassAt` as expired.
+		it("holds no carcass older than CARCASS_SECONDS + a tick, after any sequence of kills and leaves", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
+			advance(fake, clock, 4)
+			local tick = 1 / Range.CONFIG.STEP_HZ
+			-- `manAt`/`manAtSpot` live in later blocks; one man, standing where the mat is.
+			local function newMan(spot: number, id: number)
+				local character = Instance.new("Model")
+				local root = Instance.new("Part")
+				root.Name = "HumanoidRootPart"
+				root.Size = Vector3.one
+				root.Anchored = true
+				root.Position = RangeData.matPosition(Vector3.new(DEV_ROW.x, DEV_ROW.y, DEV_ROW.z), spot, LAYOUT)
+				root.Parent = character
+				return { Character = character, UserId = id, Name = "Man" .. tostring(id) } :: any
+			end
+			local men = {}
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				men[spot] = newMan(spot, 940 + spot)
+			end
+			local worst, worstSpot = 0, 0
+			local kills, leaves = 0, 0
+
+			local function sweep()
+				for spot = 1, LAYOUT.SPOT_COUNT do
+					local trial = Range.trialOf(spot) :: any
+					if trial ~= nil and trial.carcassId ~= nil then
+						local at = trial.carcassAt
+						-- A corpse with no clock is a corpse of unknown age: counted as the failure
+						-- it is, not skipped.
+						local age = if at == nil then math.huge else clock.t - (at :: number)
+						if age > worst then
+							worst, worstSpot = age, spot
+						end
 					end
 				end
 			end
-			-- NEVER INSIDE. This is the guard; it is 0 on main too, which is why the next two lines
-			-- are what make the case fail there.
-			expect(insideAtTurn).to.equal(0)
-			-- ...AND IT REALLY HAPPENED OUT THERE. On main every order is the pace speed, so this
-			-- is 0 and the case is red.
-			expect(outsideAtTurn > 0).to.equal(true)
-			-- ...and the span itself is still run at the pace that was asked for.
-			expect(insideAtPace > 0).to.equal(true)
+
+			-- A MIXED SEQUENCE: kill, kill-inside-the-hold, leave-on-a-kill, re-enter, kill again.
+			for round = 1, 3 do
+				for spot = 1, LAYOUT.SPOT_COUNT do
+					local trial = Range.trialOf(spot) :: any
+					local id = trial ~= nil and trial.targetId or nil
+					if id ~= nil and fake.animals[id] ~= nil then
+						fake.animals[id].alive = false
+						kills += 1
+					end
+				end
+				advance(fake, clock, tick + 2 / 60)
+				sweep()
+				-- Half the hold: every corpse is still owed time when the next kill lands.
+				advance(fake, clock, Range.CONFIG.CARCASS_SECONDS / 2)
+				sweep()
+				if round == 2 then
+					-- ONE MAN LEAVES ON HIS KILL, and another re-enters afterwards.
+					expect(Range.onRequest(men[2], { spot = 2, leave = true })).to.equal(true)
+					leaves += 1
+					sweep()
+					-- PAST `REQUEST_MIN_INTERVAL` before the second request, or the re-enter is
+					-- rate-limited (0.15 s) and refused -- one tick is 0.10 s.
+					advance(fake, clock, Range.CONFIG.REQUEST_MIN_INTERVAL + tick)
+					sweep()
+					expect(Range.onRequest(men[2], { spot = 2, go = true })).to.equal(true)
+				end
+				advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + 0.3)
+				sweep()
+			end
+			-- Settle, then sweep once more: nothing may be left standing.
+			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + 1)
+			sweep()
+
+			expect(kills >= 6).to.equal(true)
+			expect(leaves).to.equal(1)
+			expect(worst <= Range.CONFIG.CARCASS_SECONDS + tick).to.equal(true)
 			TestKit.note(
 				string.format(
-					"range 317: reversal walk issued on %d steps outside the span, %d inside; %d at-pace steps inside",
-					outsideAtTurn,
-					insideAtTurn,
-					insideAtPace
+					"range 321 r3: %d kills, %d leaves, oldest carcass %.2f s (bound %.2f s)%s",
+					kills,
+					leaves,
+					worst,
+					Range.CONFIG.CARCASS_SECONDS + tick,
+					if worstSpot > 0 then string.format(" at spot %d", worstSpot) else ""
 				)
 			)
 			Range.stop()
@@ -1616,8 +1971,20 @@ return function()
 			expect(Range.setPace(1, RangeData.WORD.MIXED)).to.equal(true)
 			local slowSpeed = RangeData.paceSpeedFor("slow", LAYOUT, speedOf)
 			local fastSpeed = RangeData.paceSpeedFor("fast", LAYOUT, speedOf)
-			-- Long enough for several legs at the SLOWER of the two.
-			advance(fake, clock, 6 * RangeData.laneLength(LAYOUT) / slowSpeed)
+			-- Long enough for several legs at the SLOWER of the two. STATION 1's OWN ANIMALS, kept as
+			-- they come: a pass retires its animal (task 321), so the orders of the leg BEFORE this
+			-- one belong to an id `leadsAt(1)` no longer answers for.
+			local mine: { [string]: boolean } = {}
+			local dt = 1 / 60
+			for _ = 1, math.floor((6 * RangeData.laneLength(LAYOUT) / slowSpeed) / dt) do
+				clock.t += dt
+				fake.advance(dt)
+				Range.step(dt)
+				local id = (Range.trialOf(1) :: any).targetId
+				if id ~= nil then
+					mine[id :: string] = true
+				end
+			end
 			local trial = Range.trialOf(1) :: any
 			expect(trial.crossings >= 2).to.equal(true)
 			-- THE REDRAW HAPPENED, AND ON THIS LEG: `legDrawn` is nil with the block deleted.
@@ -1626,16 +1993,15 @@ return function()
 			expect(drawn >= trial.leg).to.equal(true)
 			-- EVERY ORDER WAS ONE OF EXACTLY TWO SPEEDS, asked as membership and not as a count
 			-- (a count of 0 is truthy in Lua, which is how the old case passed)...
-			local slowOrders, fastOrders, turnOrders, other = 0, 0, 0, 0
-			for _, lead in ipairs(fake.leadsAt(1)) do
+			local slowOrders, fastOrders, other = 0, 0, 0
+			for _, lead in ipairs(fake.leads) do
+				if not mine[lead.id] then
+					continue
+				end
 				if lead.speed == slowSpeed then
 					slowOrders += 1
 				elseif lead.speed == fastSpeed then
 					fastOrders += 1
-				elseif lead.speed == Range.CONFIG.TURN_STUDS_PER_SECOND then
-					-- Task 317's reversal walk, which is a THIRD speed and not a third draw: it is
-					-- issued only outside the span and `mixed` never draws it.
-					turnOrders += 1
 				else
 					other += 1
 				end
@@ -1851,60 +2217,81 @@ return function()
 			Range.stop()
 		end)
 
-		it("clears a killed target after CARCASS_SECONDS and releases a fresh one after RELEASE_SECONDS", function()
+		-- TASK 321 REWROTE THE TIMING HALF OF THIS CASE: the fresh target no longer waits for the
+		-- carcass (c), so a kill releases on the next tick and the carcass is cleared on its own
+		-- clock. What is unchanged, and is still the point of the case, is step B7's must-fix 1:
+		-- the clear is HIS animal, through `clearOne`, and the other five stations keep theirs.
+		it("clears a killed target after CARCASS_SECONDS and releases a fresh one AT ONCE", function()
 			local clock, now = newClock()
 			local fake = newFakeBoars()
 			expect(select(1, startRange(fake, now))).to.equal(true)
 			advance(fake, clock, 2)
 			expect(fake.spawns).to.equal(LAYOUT.SPOT_COUNT)
-			local dead = fake.at(1) :: any
+			local dead = animalAt(fake, clock, 1) :: any
+			expect(dead).to.be.ok()
+			local deadId = dead.id
 			dead.alive = false
 
-			-- Under the hold, nothing is cleared: the player is looking at what he did.
-			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS - 1)
-			expect(fake.clears).to.equal(0)
-			expect(Range.stats().carcasses).to.equal(1)
-
-			-- WHOSE ANIMALS THE OTHER FIVE STATIONS HAVE, before the carcass is cleared: the
-			-- identities are compared after it, which is what "and only his" means.
+			-- WHOSE ANIMALS THE OTHER FIVE STATIONS HAVE, before the kill: the identities are
+			-- compared after it, which is what "and only his" means.
 			local othersBefore = {}
 			for spot = 2, LAYOUT.SPOT_COUNT do
 				othersBefore[spot] = (fake.at(spot) :: any).id
 			end
-			advance(fake, clock, 1.5)
-			expect(fake.clears).to.equal(1)
-			expect(fake.lastClear).to.equal("range carcass")
+
+			-- ONE TICK: the next animal is out, and the carcass is still lying there untouched.
+			advance(fake, clock, 1 / Range.CONFIG.STEP_HZ + 2 / 60)
+			expect(fake.spawns).to.equal(LAYOUT.SPOT_COUNT + 1)
+			expect(Range.stats().carcasses).to.equal(1)
 			expect(Range.stats().releases).to.equal(1)
-			-- ...and the fresh one is not released instantly either.
-			expect(fake.spawns).to.equal(LAYOUT.SPOT_COUNT)
-			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 0.5)
+			expect(fake.clears).to.equal(0)
+			expect(fake.animals[deadId]).to.be.ok()
+			expect((Range.trialOf(1) :: any).carcassId).to.equal(deadId)
+			expect((fake.at(1) :: any).alive).to.equal(true)
+			expect((fake.at(1) :: any).id ~= deadId).to.equal(true)
+			-- ONE TICK LATER THE OTHER FIVE ARE THE SAME ANIMALS, which is what "and only his" means:
+			-- no pass of theirs can have finished in a tenth of a second.
+			for spot = 2, LAYOUT.SPOT_COUNT do
+				expect((fake.at(spot) :: any).id).to.equal(othersBefore[spot])
+			end
+
+			-- ...AND CARCASS_SECONDS AFTER THE KILL IT GOES, as HIS animal and only his. The counters
+			-- read here are HIS: `fake.clears` is the whole range's, and since task 321 the other
+			-- five stations finish passes of their own inside these three seconds.
+			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + 0.5)
+			expect(fake.animals[deadId]).to.equal(nil)
+			expect((Range.trialOf(1) :: any).carcassId).to.equal(nil)
+			expect(fake.clearOnes >= 1).to.equal(true)
 			-- ONE ANIMAL WENT AND ONE CAME BACK -- STEP B7's MUST-FIX 1. Until B7 this read
 			-- `2 * SPOT_COUNT` spawns and `SPOT_COUNT - 1` lost targets, because `boars.clear` was
 			-- range-WIDE and one man's carcass took the other five stations' animals with it. The
 			-- lever is `Boar.Runtime:clearOne`, wired as `boars.clearOne`.
-			expect(fake.spawns).to.equal(LAYOUT.SPOT_COUNT + 1)
-			expect(fake.clearOnes).to.equal(1)
 			expect(Range.stats().lostTargets).to.equal(0)
 			expect(Range.stats().wideClears).to.equal(0)
-			expect((fake.at(1) :: any).alive).to.equal(true)
-			-- THE OTHER FIVE ARE THE SAME ANIMALS, not re-released copies.
+			-- THE OTHER FIVE STILL HAVE ANIMALS, and none of them was cleared by HIS kill: the
+			-- identities are compared ONE TICK after it (above), because over `CARCASS_SECONDS` they
+			-- retire animals of their own -- that is the pass loop, not a wide clear.
 			for spot = 2, LAYOUT.SPOT_COUNT do
-				expect((fake.at(spot) :: any).id).to.equal(othersBefore[spot])
+				expect(fake.at(spot)).to.be.ok()
 			end
 			-- THE NEW TARGET IS STEERED LIKE THE FIRST, measured as a RISE from a snapshot taken
 			-- after the release (review round 1, finding 2: a `flips >= 1` on a cumulative counter
 			-- passes with the whole re-release path deleted).
+			-- COUNTED ON THE WHOLE LOG AND NOT ON `leadsAt(1)` (task 321): that one answers for the
+			-- animal the station holds NOW, and twenty seconds is four passes -- so the snapshot and
+			-- the reading would be about two different animals and the comparison means nothing.
 			local flipsAfterRelease = Range.stats().flips
-			local leadsAfterRelease = #fake.leadsAt(1)
+			local leadsAfterRelease = #fake.leads
 			advance(fake, clock, 20)
 			expect(Range.stats().flips > flipsAfterRelease).to.equal(true)
-			expect(#fake.leadsAt(1) > leadsAfterRelease).to.equal(true)
+			expect(#fake.leads > leadsAfterRelease).to.equal(true)
+			-- ...AND THE ONE OUT THERE NOW IS BEING STEERED, which is what "like the first" means.
+			expect(#fake.leadsAt(1) > 0).to.equal(true)
 			expect((fake.at(1) :: any).position.X ~= nil).to.equal(true)
 			TestKit.note(
 				string.format(
-					"range: carcass held %d s, cleared, fresh target after %d s",
-					Range.CONFIG.CARCASS_SECONDS,
-					Range.CONFIG.RELEASE_SECONDS
+					"range 321: fresh target one tick after the kill, carcass cleared %d s later",
+					Range.CONFIG.CARCASS_SECONDS
 				)
 			)
 			Range.stop()
@@ -1925,19 +2312,23 @@ return function()
 			advance(fake, clock, 1)
 			-- HE PICKS ONCE, and never asks again in this case.
 			expect(Range.onRequest(man, { spot = 2, species = "reddeer", pace = RangeData.WORD.RUN })).to.equal(true)
-			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			advance(fake, clock, 1)
 			local before = Range.trialOf(2) :: any
 			local firstId = before.targetId
 			expect(firstId).to.be.ok()
 			expect(before.species).to.equal("reddeer")
-			local spawnsBefore = fake.spawns;
-			(fake.at(2) :: any).alive = false
-			-- NOTHING IS SENT: the gap is the two CONFIG numbers and nothing else.
-			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + Range.CONFIG.RELEASE_SECONDS + 1)
+			local spawnsBefore = fake.spawns
+			local doomed = animalAt(fake, clock, 2) :: any
+			expect(doomed).to.be.ok()
+			doomed.alive = false
+			-- NOTHING IS SENT: the next animal comes on the owner's own clock.
+			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + 1)
 			local after = Range.trialOf(2) :: any
 			expect(after.targetId).to.be.ok()
 			expect(after.targetId ~= firstId).to.equal(true)
-			expect(fake.spawns).to.equal(spawnsBefore + 1)
+			-- AT LEAST ONE MORE, and since task 321 possibly several: a pass that finishes is
+			-- followed by the next one, so this count rises on its own and is not an equality.
+			expect(fake.spawns >= spawnsBefore + 1).to.equal(true)
 			expect((fake.at(2) :: any).alive).to.equal(true)
 			-- ...WITH THE SAME SETTINGS HE PICKED: species, kind, pace and lane all carried over.
 			expect(after.species).to.equal("reddeer")
@@ -1947,8 +2338,8 @@ return function()
 			expect(after.spot).to.equal(2)
 			TestKit.note(
 				string.format(
-					"range: next animal by itself %d s after the kill, same settings",
-					Range.CONFIG.CARCASS_SECONDS + Range.CONFIG.RELEASE_SECONDS
+					"range: next animal by itself %.1f s after the kill, same settings",
+					Range.CONFIG.CARCASS_SECONDS
 				)
 			)
 			Range.stop()
@@ -1963,7 +2354,7 @@ return function()
 			local crowd = newCrowd({ 2 })
 			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
 			local man = crowd.men[1]
-			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			advance(fake, clock, 1)
 			expect((Range.trialOf(2) :: any).targetId).to.be.ok()
 			local clearOnesBefore = fake.clearOnes
 			local leavesBefore = Range.stats().leaves
@@ -1985,7 +2376,7 @@ return function()
 			-- RE-ARM 1: HE ASKS AGAIN. One `go` -- the confirm bar's own word -- and the lane is live.
 			expect(Range.onRequest(man, { spot = 2, go = true })).to.equal(true)
 			expect((Range.trialOf(2) :: any).ended).to.equal(false)
-			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			advance(fake, clock, 1)
 			expect((Range.trialOf(2) :: any).targetId).to.be.ok()
 			expect(fake.spawns).to.equal(spawnsBefore + 1)
 
@@ -1999,31 +2390,45 @@ return function()
 			-- NOBODY THERE IS STILL NOBODY'S ANIMAL (design 7.4): the re-arm is not a release.
 			expect(spawnsAway).to.equal(spawnsBefore + 1)
 			crowd.set({ 2 })
-			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			advance(fake, clock, 1)
 			expect(fake.spawns).to.equal(spawnsAway + 1)
 			expect((Range.trialOf(2) :: any).targetId).to.be.ok()
 			TestKit.note("range: leave ends the session, and an ask or a walk-off re-arms the station")
 			Range.stop()
 		end)
 
+		-- COUNTED BY THE ANIMAL'S OWN ID, and AT A WALK so its pass cannot finish mid-case (task
+		-- 321): `leadsAt(spot)` answers for whichever animal the station holds NOW, and since a pass
+		-- retires its animal that is not necessarily the one the flight was about.
 		it("never orders an animal the Brain is flying", function()
 			local clock, now = newClock()
 			local fake = newFakeBoars()
 			expect(select(1, startRange(fake, now))).to.equal(true)
+			expect(Range.setPace(1, "walk")).to.equal(true)
 			advance(fake, clock, 2)
 			local animal = fake.at(1) :: any
+			expect(animal).to.be.ok()
+			local function leadsOf(id: string): number
+				local count = 0
+				for _, lead in ipairs(fake.leads) do
+					if lead.id == id then
+						count += 1
+					end
+				end
+				return count
+			end
 			fake.flyingIds[animal.id] = true
-			local leadsBefore = #fake.leadsAt(1)
+			local leadsBefore = leadsOf(animal.id)
 			local skippedBefore = Range.stats().skippedFlying
-			advance(fake, clock, 3)
+			advance(fake, clock, 2)
 			-- IT ENTERED THE BRANCH, and issued nothing: *"the drive must not order an animal the
 			-- Brain is flying"*.
 			expect(Range.stats().skippedFlying > skippedBefore).to.equal(true)
-			expect(#fake.leadsAt(1)).to.equal(leadsBefore)
+			expect(leadsOf(animal.id)).to.equal(leadsBefore)
 			-- ...and it picks the lane up again when the flight ends.
 			fake.flyingIds[animal.id] = false
-			advance(fake, clock, 2)
-			expect(#fake.leadsAt(1) > leadsBefore).to.equal(true)
+			advance(fake, clock, 1)
+			expect(leadsOf(animal.id) > leadsBefore).to.equal(true)
 			Range.stop()
 		end)
 	end)
@@ -2040,7 +2445,7 @@ return function()
 			local fake = newFakeBoars()
 			local crowd = newCrowd({})
 			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
-			-- Two full minutes of scanning, which is 60 x `RELEASE_SECONDS`.
+			-- Two full minutes of scanning.
 			advance(fake, clock, 120)
 			expect(fake.spawns).to.equal(0)
 			expect(Range.stats().occupied).to.equal(0)
@@ -2103,9 +2508,13 @@ return function()
 			-- the same number through two names and cannot fail. The discriminator is the release
 			-- point against station 2's own lane end and station 1's -- `SPOT_SPACING_STUDS` apart,
 			-- asserted here so the two sides are known to be different numbers.
+			-- THE RELEASE POINT IS THE PASS'S RUN-UP since task 321, not the lane end: `NEXT_PASS_SECONDS`
+			-- of this pace's own speed, outside the span, so the animal is in his sight one run-up later.
 			local anchorXZ = Vector3.new(DEV_ROW.x, 0, DEV_ROW.z)
-			local end2 = RangeData.laneEnds(anchorXZ, LAYOUT, 2, nil, 2, LAYOUT.DISTANCE_STUDS)
-			local end1 = RangeData.laneEnds(anchorXZ, LAYOUT, 2, nil, 1, LAYOUT.DISTANCE_STUDS)
+			local runUp = Range.CONFIG.NEXT_PASS_SECONDS
+				* RangeData.paceSpeedFor(Range.CONFIG.DEFAULT_PACE, LAYOUT, speedOf)
+			local end2 = RangeData.passEntryFor(anchorXZ, LAYOUT, 1, nil, 2, LAYOUT.DISTANCE_STUDS, false, runUp)
+			local end1 = RangeData.passEntryFor(anchorXZ, LAYOUT, 1, nil, 1, LAYOUT.DISTANCE_STUDS, false, runUp)
 			expect(math.abs(end2.X - end1.X)).to.equal(LAYOUT.SPOT_SPACING_STUDS)
 			expect(math.abs((released :: any).X - end2.X) < 0.001).to.equal(true)
 			expect(math.abs((released :: any).X - end1.X) >= LAYOUT.SPOT_SPACING_STUDS - 0.001).to.equal(true)
@@ -2130,8 +2539,11 @@ return function()
 			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
 			advance(fake, clock, 1)
 			expect(fake.spawns).to.equal(2)
+			-- STATION 2 IS STANDING ITS ANIMAL (task 321): a pass retires its own animal at the span
+			-- edge, so the idle clock is only ever the thing that clears a target for a man who has
+			-- gone if that target has no pass to end -- which is exactly `stand`.
+			expect(Range.setPace(2, RangeData.WORD.STAND)).to.equal(true)
 			local his = (fake.at(2) :: any).id
-			local hers = (fake.at(4) :: any).id
 			-- HE LEAVES. Station 4's man does not.
 			crowd.set({ 4 })
 			advance(fake, clock, Range.CONFIG.IDLE_CLEAR_SECONDS - 2)
@@ -2142,19 +2554,18 @@ return function()
 			advance(fake, clock, 3)
 			-- ...AND THEN IT GOES, through the PER-ID despawn.
 			expect(fake.at(2)).to.equal(nil)
+			-- `fake.lastClear` IS THE RANGE'S LAST WRITER, not his: station 4 ends passes of its own
+			-- on these same ticks, so the station-scoped counter is what this asserts.
 			expect(Range.stats().idleClears).to.equal(1)
-			expect(fake.clearOnes).to.equal(1)
-			expect(fake.lastClear).to.equal("range idle")
 			expect(Range.stats().wideClears).to.equal(0)
-			-- STATION 4 IS UNAFFECTED: the same animal, still steered.
+			-- STATION 4 IS UNAFFECTED: still running passes, still steered, never cleared for him.
 			expect(fake.at(4)).to.be.ok()
-			expect((fake.at(4) :: any).id).to.equal(hers)
 			expect(Range.stats().targets).to.equal(1)
 			local leadsBefore = #fake.leadsAt(4)
 			advance(fake, clock, 5)
 			expect(#fake.leadsAt(4) > leadsBefore).to.equal(true)
-			-- AND NOTHING IS RE-RELEASED AT THE STATION HE LEFT.
-			expect(fake.spawns).to.equal(2)
+			-- AND NOTHING IS RE-RELEASED AT THE STATION HE LEFT: his lane stays empty.
+			expect(fake.at(2)).to.equal(nil)
 			TestKit.note(
 				string.format(
 					"range B7: station 2 cleared %d s after he left (not at %d s); station 4 untouched",
@@ -2193,12 +2604,20 @@ return function()
 			expect(select(1, startRange(fake, now, nil, nil, crowd.players))).to.equal(true)
 			advance(fake, clock, 1)
 			expect(fake.spawns).to.equal(2)
+			-- BOTH STANDING, so the IDLE arm is the only clear there is (task 321): the seam here is
+			-- the range-WIDE one, so a pass ending at EITHER station would take both animals first
+			-- and the idle clock would find nothing left to clear.
+			expect(Range.setPace(1, RangeData.WORD.STAND)).to.equal(true)
+			expect(Range.setPace(2, RangeData.WORD.STAND)).to.equal(true)
+			local hisBefore = (fake.at(1) :: any).id
 			crowd.set({ 1 })
 			advance(fake, clock, Range.CONFIG.IDLE_CLEAR_SECONDS + 1)
 			expect(Range.stats().idleClears).to.equal(1)
-			expect(Range.stats().wideClears).to.equal(1)
-			-- ...and station 1's animal went with it, which is the defect, measured.
-			expect(fake.at(1)).to.equal(nil)
+			expect(Range.stats().wideClears >= 1).to.equal(true)
+			-- ...AND STATION 1'S ANIMAL WENT WITH IT, which is the defect, measured by ITS id: since
+			-- task 321 a target the owner finds gone is re-released on the next tick, so the station
+			-- is not empty 1 s later -- the animal that was taken is still the animal that was taken.
+			expect(fake.animals[hisBefore]).to.equal(nil)
 			expect(Range.stats().lostTargets >= 1).to.equal(true)
 			Range.stop()
 		end)
@@ -3882,7 +4301,9 @@ return function()
 			-- per animal is the whole exclusion and a list of zones would be the wrong shape.
 			for _, entry in ipairs(list) do
 				expect(entry:IsA("BasePart")).to.equal(true)
-				expect(string.sub(entry.Name, 1, 10)).to.equal("FakeTrunk_")
+				-- A TRUNK IS NAMED ITS ANIMAL'S ID (`Body.create`), so this is also "it is one of
+				-- the animals", which a `Zone` child could never satisfy.
+				expect(fake.animals[entry.Name] ~= nil).to.equal(true)
 			end
 			expect(has(list, fake.at(1).zone)).to.equal(false)
 
@@ -3893,6 +4314,60 @@ return function()
 			local out = Range.ignoredFor(man)
 			expect(#out).to.equal(LAYOUT.SPOT_COUNT)
 			expect(has(out, mine.root)).to.equal(true)
+			Range.stop()
+		end)
+
+		-- ROUND 2, FINDING 1: A CARCASS IS A BODY. Task 321 moves the dead animal off `targetId` onto
+		-- `carcassId` for `CARCASS_SECONDS`, and `ignoredFor` looped `targetId` only -- so for three
+		-- seconds a neighbour's corpse, HIDDEN from him by `Mask`, stopped his bullet and
+		-- `onHitReported` scored it as his hit. Red at the round-1 code commit.
+		it("hides a carcass exactly as it hides a live target, his own one included", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			advance(fake, clock, 2)
+			local man = manAtSpot(RangeData.matPosition(ANCHOR, 3, LAYOUT), 331)
+			expect((Range.positionOf(man))).to.equal(3)
+			local hisMinX, hisMaxX =
+				RangeData.sightSpanFor(ANCHOR, 3, LAYOUT, (Range.trialOf(3) :: any).distanceStuds, false)
+			local hisCentre = (hisMinX + hisMaxX) / 2
+
+			-- STATION 2's ANIMAL IS KILLED, and a tick later it is station 2's CARCASS.
+			local dead2 = animalAt(fake, clock, 2) :: any
+			expect(dead2).to.be.ok()
+			local deadId2 = dead2.id
+			local carcass2 = dead2.root
+			dead2.alive = false
+			advance(fake, clock, 1 / Range.CONFIG.STEP_HZ + 2 / 60)
+			expect((Range.trialOf(2) :: any).carcassId).to.equal(deadId2)
+			expect((Range.trialOf(2) :: any).targetId ~= deadId2).to.equal(true)
+			expect(fake.animals[deadId2]).to.be.ok()
+
+			-- ...AND IT IS LYING INSIDE HIS OWN SPAN: neighbouring windows overlap by
+			-- WINDOW_STUDS - SPOT_SPACING_STUDS, so this is where a real corpse ends up.
+			fake.animals[deadId2].position = Vector3.new(hisCentre, dead2.position.Y, dead2.position.Z)
+			expect(RangeData.inWindow(hisMinX, hisMaxX, hisCentre)).to.equal(true)
+			-- THE CARCASS AND NOT MERELY STATION 2's NEW TARGET: two different instances.
+			expect(carcass2 ~= (fake.at(2) :: any).root).to.equal(true)
+			expect(has(Range.ignoredFor(man), carcass2)).to.equal(true)
+			expect(has(Range.ignoredFor(man, 0.2), carcass2)).to.equal(true)
+
+			-- HIS OWN CARCASS IS WHAT HE IS LOOKING AT, so the door says what the picture says:
+			-- `mineIds` puts it in `Mask`'s "mine", and `Mask.wantedFor` then draws it exactly while
+			-- it is inside his window -- so it is SHOOTABLE there and ignored once it leaves.
+			local dead3 = animalAt(fake, clock, 3) :: any
+			expect(dead3).to.be.ok()
+			local deadId3 = dead3.id
+			local mineCarcass = dead3.root
+			dead3.alive = false
+			advance(fake, clock, 1 / Range.CONFIG.STEP_HZ + 2 / 60)
+			expect((Range.trialOf(3) :: any).carcassId).to.equal(deadId3)
+			fake.animals[deadId3].position = Vector3.new(hisCentre, dead3.position.Y, dead3.position.Z)
+			expect(has(Range.ignoredFor(man), mineCarcass)).to.equal(false)
+			-- ...and out of his window it goes in the list, the live target's own rule.
+			fake.animals[deadId3].position = Vector3.new(hisMinX - 2, dead3.position.Y, dead3.position.Z)
+			expect(has(Range.ignoredFor(man), mineCarcass)).to.equal(true)
 			Range.stop()
 		end)
 
@@ -4037,16 +4512,17 @@ return function()
 			})
 			advance(fake, clock, 1)
 			local man = manAtSpot(RangeData.matPosition(ANCHOR, 2, LAYOUT), 330)
-			-- HE IS AT THE RANGE: one pick makes his record, which is the board's audience.
+			-- HE IS AT THE RANGE, SO HE IS TOLD -- and since task 321 (e) he is told whether or not
+			-- he ever asks, so the payload under test is the LAST one and not the only one.
 			expect(Range.onRequest(man, { spot = 2, go = true })).to.equal(true)
-			expect(#sent).to.equal(1)
-			local first = sent[1].record.mine
+			expect(#sent >= 1).to.equal(true)
+			local first = sent[#sent].record.mine
 			expect(first).to.equal(fake.at(2).root)
-			expect(sent[1].record.window.minX).to.equal((RangeData.windowSpanFor(ANCHOR, 2, LAYOUT)))
+			expect(sent[#sent].record.window.minX).to.equal((RangeData.windowSpanFor(ANCHOR, 2, LAYOUT)))
 
 			-- EVERY TRUNK REPLACED AT ONCE, which is exactly what one man's carcass does to all six.
 			fake.clear("spec re-release")
-			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			advance(fake, clock, 1)
 			-- HE WAS TOLD, without firing a shot: a payload arrived after the pick...
 			expect(#sent > 1).to.equal(true)
 			local last = sent[#sent].record.mine
@@ -4057,11 +4533,16 @@ return function()
 
 			-- ...AND THE FLUSH IS ONCE A TICK, not once per release: six trials re-release together,
 			-- so an unbatched push would be six per man per edge.
+			-- BOUNDED IN TICKS since task 321 (e): a man at a station is published to on every tick
+			-- that dirties the mask, and a pass dirties one every few seconds -- so the bound is one
+			-- push per man per TICK. Unbatched it would be one per RELEASE: six trials re-releasing
+			-- together is 36 payloads in the one tick they do it in, which this still refuses.
 			local before = #sent
+			local ticks = 3
 			fake.clear("spec re-release 2")
-			advance(fake, clock, Range.CONFIG.RELEASE_SECONDS + 1)
+			advance(fake, clock, ticks / Range.CONFIG.STEP_HZ)
 			expect(sent[#sent].record.mine).to.equal(fake.at(2).root)
-			expect(#sent - before <= LAYOUT.SPOT_COUNT).to.equal(true)
+			expect(#sent - before <= LAYOUT.SPOT_COUNT * ticks).to.equal(true)
 
 			-- ...AND THE `targetId == nil` ARM OF `maskFor`, reached through the shipped door: a
 			-- species pick clears his animal, and the push that follows names the window and no
@@ -4071,6 +4552,110 @@ return function()
 			expect(cleared.mine).to.equal(nil)
 			expect(cleared.window.minX).to.equal((RangeData.windowSpanFor(ANCHOR, 2, LAYOUT)))
 			Range.setRemotes(nil)
+		end)
+
+		-- ROUND 2, FINDING 2: THE SERVER HALF OF THE MASK FIX, ON THE WIRE. `range_mask.spec` hands
+		-- the ids to `Mask.setMine` by hand, so `Range.mineIdsFor` and `copy.mineIds` could both be
+		-- deleted and every spec stayed green. This reads the ids OFF THE PAYLOAD: red with either
+		-- the producer or its call in `Range.recordOf` deleted.
+		it("names his animal's id on the wire, and after a kill both ids", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			expect(startRange(fake, now)).to.equal(true)
+			local sent = {}
+			Range.setRemotes({
+				RangeBoard = {
+					FireClient = function(_, _player, payload)
+						table.insert(sent, payload)
+					end,
+				},
+			})
+			advance(fake, clock, 2)
+			local man = manAtSpot(RangeData.matPosition(ANCHOR, 2, LAYOUT), 332)
+			expect(Range.onRequest(man, { spot = 2, go = true })).to.equal(true)
+			expect(#sent >= 1).to.equal(true)
+
+			local function idsOf(payload): { [string]: boolean }
+				local ids = (payload.record :: any).mineIds
+				expect(type(ids)).to.equal("table")
+				local set = {}
+				for _, id in ipairs(ids :: { string }) do
+					set[id] = true
+				end
+				return set
+			end
+
+			-- HIS LIVE ANIMAL'S ID, and the id is the trunk's NAME on the client's own sweep.
+			local live = fake.at(2) :: any
+			local first = idsOf(sent[#sent])
+			expect(first[live.id]).to.equal(true)
+			expect((live.root :: any).Name).to.equal(live.id)
+			-- AND THE SHIPPED INVARIANT THAT CARRIES IT, pinned where it lives (round 2, finding 3):
+			-- `Boar.Body.create` names the trunk the id, so the id on the wire IS what the client
+			-- sweeps for. Delete `part.Name = id` in `src/server/Boar/Body.luau` and this goes red.
+			local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
+			local realRoot = Instance.new("Folder")
+			realRoot.Parent = Workspace
+			local realId = "range321_name"
+			local made = Body.create(
+				Boar.kindConfig("male", Boar.CONFIG),
+				realRoot,
+				realId,
+				Vector3.new(4000, 200, 4000),
+				"male"
+			)
+			expect((made.part :: BasePart).Name).to.equal(realId)
+			realRoot:Destroy()
+			-- ...AND NOT ANOTHER STATION'S: the ids are the isolation too, not only the Instance.
+			expect(first[(fake.at(1) :: any).id]).to.equal(nil)
+
+			-- A KILL NAMES BOTH: the carcass he is looking at AND the fresh animal, or one of the
+			-- two is hidden for the rest of the pass (319a(a)).
+			local deadId = live.id
+			live.alive = false
+			advance(fake, clock, 1 / Range.CONFIG.STEP_HZ + 2 / 60)
+			expect((Range.trialOf(2) :: any).carcassId).to.equal(deadId)
+			local fresh = fake.at(2) :: any
+			expect(fresh.id ~= deadId).to.equal(true)
+			local both = idsOf(sent[#sent])
+			expect(both[deadId]).to.equal(true)
+			expect(both[fresh.id]).to.equal(true)
+			Range.setRemotes(nil)
+			Range.stop()
+		end)
+
+		-- ROUND 2, FINDING 3: PUBLISHED TO WITH NO REQUEST AT ALL. The round-1 cases asserted
+		-- `#sent >= 1` AFTER an `onRequest`, which publishes by itself -- so both halves of (e)
+		-- could be deleted and they stayed green. ONE man, NO request, one scan tick: red with
+		-- `state.watchers[key] = player` in `occupancy` deleted, and red with `publish`'s
+		-- record-making arm deleted.
+		it("tells a man standing at a station which animal is his before he asks anything", function()
+			Range.stop()
+			local fake = newFakeBoars()
+			local clock, now = newClock()
+			local crowd = newCrowd({ 4 })
+			local sent = {}
+			expect(startRange(fake, now, nil, nil, crowd.players)).to.equal(true)
+			Range.setRemotes({
+				RangeBoard = {
+					FireClient = function(_, player, payload)
+						table.insert(sent, { player = player, payload = payload })
+					end,
+				},
+			})
+			-- NOTHING ASKED FOR, and nothing published yet.
+			expect(#sent).to.equal(0)
+			expect(Range.recordOf(crowd.men[1])).to.equal(nil)
+
+			advance(fake, clock, 2 / Range.CONFIG.STEP_HZ)
+			expect(#sent >= 1).to.equal(true)
+			expect(sent[1].player).to.equal(crowd.men[1])
+			expect((sent[1].payload.record :: any).spot).to.equal(4)
+			-- ...AND IT IS HIS STATION'S WINDOW, not station 1's default.
+			expect((sent[1].payload.record :: any).window.minX).to.equal((RangeData.windowSpanFor(ANCHOR, 4, LAYOUT)))
+			Range.setRemotes(nil)
+			Range.stop()
 		end)
 
 		-- THE MUST-FIX OF 306b NOTE (i): the station is MEASURED, never claimed. The menu used to
@@ -4250,22 +4835,33 @@ return function()
 						end
 						continue
 					end
-					-- WHAT STEP B10 ADDS IS NOT LAID BY `onGround`, AND THAT IS WHY IT IS NAMED HERE
-					-- RATHER THAN FALLING THROUGH: the hut's roof and the fence's rail stand ABOVE
-					-- the ground by design, the hut's posts are grown from ONE reading at their own
-					-- point up to the roof, the board hangs on the fascia, and the turf is a skin on
-					-- the shelf. The `else` arm below is the BANK's nominal height, so an unnamed
-					-- part would have been measured against a number that is not its own.
-					if
-						part.Name:match("^Roof%d") ~= nil
-						or part.Name:match("^HutPost%d") ~= nil
-						or part.Name:match("^Board%d") ~= nil
-						or part.Name:sub(1, #RangeData.TURF_NAME) == RangeData.TURF_NAME
-					then
-						-- the one thing that IS asserted about them: the part's top is above the
-						-- ground at its own point, so none of them is buried.
+					-- THE TURF IS A SKIN ON THE SHELF AND NOT LAID BY `onGround`, so it is named here
+					-- rather than falling through. The `else` arm below is the BANK's nominal
+					-- height, so an unnamed part would have been measured against a number that is
+					-- not its own. (The hut's roof, posts and board were named here too until task
+					-- 322 stopped building them.)
+					if part.Name:sub(1, #RangeData.TURF_NAME) == RangeData.TURF_NAME then
 						local g = if case.sloped then slopedGround(part.Position.X, part.Position.Z) else case.shelf
 						expect(top > g - 1e-2).to.equal(true)
+						continue
+					end
+					-- THE STATION'S RECTANGLE IS FLUSH, ON FLAT GROUND AND ON SLOPED (task 322): its
+					-- TOP is `liftStuds` over the HIGHEST ground under its own footprint, so there
+					-- is no kerb to step up and no corner buried. On main the mat went through
+					-- `onGround` and its top stood a full stud proud, which fails the first line.
+					if part.Name:match("^Mat%d") ~= nil then
+						local hi = -math.huge
+						for ix = 0, 8 do
+							for iz = 0, 8 do
+								local gx = part.Position.X + (ix / 8 - 0.5) * part.Size.X
+								local gz = part.Position.Z + (iz / 8 - 0.5) * part.Size.Z
+								hi = math.max(hi, if case.sloped then slopedGround(gx, gz) else case.shelf)
+							end
+						end
+						-- 1e-3, not 1e-6: a `Vector3` component is single precision (see the no-plate
+						-- case above). The 0.5 line is the one that fails on main, at a full stud.
+						expect(math.abs(top - (hi + LAYOUT.MAT.liftStuds)) < 1e-3).to.equal(true)
+						expect(top - hi < 0.5).to.equal(true)
 						continue
 					end
 					if part.Name == "Plate" then
@@ -4286,9 +4882,7 @@ return function()
 						-- `Post` is the prompt's own post (task 303), laid on the ground like the rest.
 						local nominal = if part.Name == "Berm"
 							then LAYOUT.BERM.height
-							elseif part.Name:match("^Mat%d") then LAYOUT.MAT.size.Y
 							elseif part.Name:match("^Post%d") then LAYOUT.POST.size.Y
-							elseif part.Name:match("^Bench%d") then LAYOUT.BENCH.size.Y
 							else LAYOUT.BANK.size.Y
 						expect(math.abs(bottom - lo) < 1e-2).to.equal(true)
 						expect(top >= hi + nominal - 1e-2).to.equal(true)
@@ -4328,12 +4922,15 @@ return function()
 				end
 				parent:Destroy()
 			end
-			-- THE GROUND WAS READ UNDER EVERY PART -- five samples each, fifteen parts, plus the one
-			-- `shelfAt` takes at the anchor. It is NO LONGER inside `MEASURED`, and that is design
-			-- 2.3's own finding rather than a regression: the clearing was sampled for ONE station,
-			-- and six do not fit it (the case below measures the overflow). Step B8 moves the row and
-			-- re-samples; until then the assertion is that every read is inside the range's OWN box.
-			expect(#asked >= 5 * 15).to.equal(true)
+			-- THE GROUND WAS READ UNDER EVERY PART -- `groundUnder` takes FIVE samples (centre plus
+			-- four corners) per part, and since task 322 a station is TWO parts, the mat and the
+			-- post, so the floor is 5 x 2 x SPOT_COUNT = 60 and not the 5 x 15 the bench and the hut
+			-- used to make. Written as the arithmetic so a part that stops being measured moves this
+			-- number rather than passing under it. It is NO LONGER inside `MEASURED`, and that is
+			-- design 2.3's own finding rather than a regression: the clearing was sampled for ONE
+			-- station, and six do not fit it (the case below measures the overflow). Step B8 moves
+			-- the row and re-samples; until then every read must be inside the range's OWN box.
+			expect(#asked >= 5 * 2 * LAYOUT.SPOT_COUNT).to.equal(true)
 			local box = RangeData.footprintFor(
 				Vector3.new((FOREST_ROW :: any).x, 0, (FOREST_ROW :: any).z),
 				LAYOUT,
@@ -4632,15 +5229,13 @@ return function()
 			expect(up.minX).to.equal(lane.minX)
 			local function spans(laneRow, layout): boolean
 				for spot = 1, layout.SPOT_COUNT do
+					-- THE TWO PARTS A STATION IS SINCE TASK 322, plus the stand's own point, which
+					-- `STAND` still carries as the envelope's uprange bound.
 					local parts = {
 						RangeData.matPosition(anchor, spot, layout),
-						RangeData.benchPosition(anchor, spot, layout, -1),
+						RangeData.promptPosition(anchor, spot, layout, -1, RangeData.POSITION.BENCH),
 						RangeData.standPosition(anchor, spot, layout, -1),
-						RangeData.hutRoofPosition(anchor, spot, layout, -1),
 					}
-					for _, post in ipairs(RangeData.hutPostPositions(anchor, spot, layout, -1)) do
-						table.insert(parts, Vector3.new(post.x, 0, post.z))
-					end
 					for _, at in ipairs(parts) do
 						if at.X < laneRow.minX or at.X > laneRow.maxX then
 							return false
@@ -4650,10 +5245,12 @@ return function()
 				return true
 			end
 			expect(spans(lane, LAYOUT)).to.equal(true)
-			-- THE BITE: hand out a sightline computed from a NARROWER hut and hold the REAL hut's
-			-- parts to it -- the posts of stations 1 and 6 then fall outside. Narrowing both halves
-			-- together proves nothing, which is the mistake the first draft of this case made: the
-			-- claim is that the bound is at least half a hut roof, so only one half may move.
+			-- THE BITE: hand out a sightline computed from a NARROWER roof span and hold the real
+			-- stations to it -- the PROMPT POSTS of stations 1 and 6 (`sideStuds` out in X) then
+			-- fall outside. Narrowing both halves together proves nothing, which is the mistake the
+			-- first draft of this case made: the claim is that the bound is at least half a roof
+			-- span, so only one half may move. `HUT` is unbuilt data since task 322 and this is one
+			-- of the two readers that keep it (`Range.bayHalfSlope` is the other).
 			local narrow = table.clone(LAYOUT)
 			local hut = table.clone(LAYOUT.HUT)
 			hut.roofSize = Vector3.new(1, LAYOUT.HUT.roofSize.Y, LAYOUT.HUT.roofSize.Z)
@@ -5101,12 +5698,13 @@ return function()
 				expect(terrain.replaces[index].to).to.equal(LAYOUT.SURFACE.LANE)
 			end
 			-- THE STRIP COVERS WHAT A MAN STANDS ON AT ALL SIX STATIONS, and that is the claim the
-			-- three reaches exist for: every mat, every post and every bench, by its own footprint.
+			-- reaches exist for: every mat and every post, by its own footprint. It was every BENCH
+			-- too until task 322 removed them, so the count is 2 per station and not 3.
 			local anchor = Vector3.new((FOREST_ROW :: any).x, b.shelf, (FOREST_ROW :: any).z)
 			local line = RangeData.lineRect(anchor, LAYOUT, -1)
 			local covered = 0
 			for _, part in ipairs(partsOf(b.folder)) do
-				if part.Name:match("^Mat%d") or part.Name:match("^Post%d") or part.Name:match("^Bench%d") then
+				if part.Name:match("^Mat%d") or part.Name:match("^Post%d") then
 					expect(part.Position.X - part.Size.X / 2 >= line.minX - 1e-6).to.equal(true)
 					expect(part.Position.X + part.Size.X / 2 <= line.maxX + 1e-6).to.equal(true)
 					expect(part.Position.Z - part.Size.Z / 2 >= line.minZ - 1e-6).to.equal(true)
@@ -5114,7 +5712,7 @@ return function()
 					covered += 1
 				end
 			end
-			expect(covered).to.equal(LAYOUT.SPOT_COUNT * 3)
+			expect(covered).to.equal(LAYOUT.SPOT_COUNT * 2)
 			-- ...AND THE STRIP IS NOT THE WHOLE LANE: the gravel ends and the mown grass begins, or
 			-- there is one surface and the two materials mean nothing.
 			local rects = RangeData.cutRects(anchor, LAYOUT, -1, FOREST_ROW)
@@ -5374,20 +5972,31 @@ return function()
 			expect(RangeData.bermToeClearance(LAYOUT)).to.equal(5)
 			expect(LAYOUT.BANK.size).to.equal(Vector3.new(12, 18, 14))
 			expect(LAYOUT.BANK.beyondStuds).to.equal(6)
+			-- THE STATION BOX IS UNMOVED BY TASK 322 -- only the slab's LAY changed -- and `liftStuds`
+			-- is the flush rectangle's one number.
 			expect(LAYOUT.MAT.size).to.equal(Vector3.new(8, 1, 8))
+			expect(LAYOUT.MAT.liftStuds).to.equal(0.12)
 			expect(LAYOUT.POST.aheadStuds).to.equal(7)
 			expect(LAYOUT.POST.sideStuds).to.equal(3)
 			expect(LAYOUT.STAND.backStuds).to.equal(14)
 			expect(LAYOUT.STAND.promptRise).to.equal(2.4)
 			expect(LAYOUT.PROMPT.MaxActivationDistance).to.equal(12)
-			-- THE BENCH'S SIZE AND ITS REACH, which are the 0.7-0.8 m rest: B10 changed the colour
-			-- and the material and nothing else.
-			expect(LAYOUT.BENCH.size).to.equal(Vector3.new(6, 2.7, 1.2))
-			expect(LAYOUT.BENCH.aheadStuds).to.equal(3.5)
+			-- NO BENCH TABLE AT ALL SINCE TASK 322: it was a PROP, and that is the reader -- nothing
+			-- but `Range.Build` ever read `benchPosition`, `distanceFor` adds nothing for
+			-- `POSITION.BENCH`, and `spotAt` answers `bench` off the MAT's box, not off the part.
+			expect((LAYOUT :: any).BENCH).to.equal(nil)
+			expect((RangeData :: any).benchPosition).to.equal(nil)
+			expect((RangeData :: any).benchName).to.equal(nil)
+			-- ...AND NO HUT READER EITHER, though the three keys the T6 envelope measures stay.
+			expect((RangeData :: any).hutRoofPosition).to.equal(nil)
+			expect((RangeData :: any).hutPostPositions).to.equal(nil)
+			expect((RangeData :: any).boardPosition).to.equal(nil)
+			expect(LAYOUT.HUT.roofSize).to.equal(Vector3.new(13, 0.6, 15))
+			expect(LAYOUT.HUT.roofAheadStuds).to.equal(3)
+			expect(LAYOUT.HUT.postSection).to.equal(0.9)
 			-- ...and the points themselves, at an anchor with no plate and no reader at all.
 			local anchor = Vector3.new(0, 100, 0)
 			expect(RangeData.matPosition(anchor, 3, LAYOUT)).to.equal(Vector3.new(48, 100, 0))
-			expect(RangeData.benchPosition(anchor, 3, LAYOUT, 1)).to.equal(Vector3.new(48, 101.35, 3.5))
 			expect(RangeData.standPosition(anchor, 3, LAYOUT, 1)).to.equal(Vector3.new(48, 100, -14))
 			expect(RangeData.promptPosition(anchor, 3, LAYOUT, 1)).to.equal(Vector3.new(51, 104, 7))
 			expect(RangeData.bermSizeFor(LAYOUT)).to.equal(Vector3.new(232, 21, 8))
@@ -5398,111 +6007,78 @@ return function()
 			expect(RangeData.bermToeZ(anchor, LAYOUT, -1)).to.equal(-184)
 		end)
 
-		-- L2. NOTHING THE HUT ADDS IS IN A LINE OF FIRE, and the bound is the arithmetic rather
-		-- than a belief: the worst sight ray reaches `sightHalfWidthAt` off axis at that Z, and the
-		-- post stands further out than that at EVERY station and EVERY corner.
-		it("keeps the roofed firing point out of every line of fire", function()
+		-- L2. THE ONE PIECE OF FURNITURE LEFT AT A STATION IS INSIDE THAT STATION'S OWN BAY, so it
+		-- can never stand in a NEIGHBOUR's line of fire. `Range.bayHalfSlope` IS the bay's opening
+		-- (the hut's two downrange columns bounded it, and task 322 keeps those three keys as
+		-- unbuilt data for exactly this), and the post's OUTER face must be inboard of it at the
+		-- post's own Z: 3 + 0.6 against 0.5333 x 7 = 3.733, so the margin is 0.13 of a stud and the
+		-- bound bites. NOTE, HONESTLY: the post is NOT claimed to be outside his OWN bore fan -- it
+		-- never was, on main either, because the fan at Z 7 reaches 3.73 off axis and the post spans
+		-- 2.4..3.6. What task 322 may not do is MOVE that, and this case is what holds it.
+		it("keeps the prompt post inside its own station's bay", function()
 			local anchor = Vector3.new(0, 100, 0)
-			local hut = LAYOUT.HUT
-			expect(hut.roofRise >= 8.5).to.equal(true)
+			local bay = RangeData.bayHalfSlope(LAYOUT)
 			for _, dir in ipairs({ 1, -1 }) do
 				for spot = 1, LAYOUT.SPOT_COUNT do
 					local mat = RangeData.matPosition(anchor, spot, LAYOUT)
-					-- TASK 313: the two downrange hut posts are the ONE piece of his own furniture
-					-- in the bore's plane, so they no longer stand outside the fan -- they BOUND
-					-- it. `RangeData.bayHalfSlope` is that bound, and the ray to the widest aim
-					-- point the span allows stays inboard of the post's inner face at its own Z.
-					for _, at in ipairs(RangeData.hutPostPositions(anchor, spot, LAYOUT, dir)) do
-						local ahead = (at.z - mat.Z) * dir
-						if ahead > 0 then
-							local inner = math.abs(at.x - mat.X) - hut.postSection / 2
-							for _, lane in ipairs(LAYOUT.DISTANCES_STUDS) do
-								local lo, hi = RangeData.sightSpanFor(anchor, spot, LAYOUT, lane, true)
-								local sil = LAYOUT.SIGHT.silhouetteStuds
-								local worst = math.max(math.abs(hi + sil - mat.X), math.abs(mat.X - (lo - sil)))
-								expect(worst * ahead / lane <= inner + 1e-6).to.equal(true)
-							end
-						end
-					end
-					-- AND THE ROOF CLEARS THE TREESTAND, which stands `backStuds` uprange: the roof's
-					-- uprange edge must stop short of the deck's own downrange edge.
-					local roof = RangeData.hutRoofPosition(anchor, spot, LAYOUT, dir)
-					local roofBack = (roof.Z - mat.Z) * dir - hut.roofSize.Z / 2
-					local deckFront = -LAYOUT.STAND.backStuds + HighSeats.DIMS.DECK_SIZE.X / 2
-					expect(roofBack > deckFront).to.equal(true)
-					-- ...and the ray from the DECK's eye to a target at the window passes OVER it.
-					local deckEye = HighSeats.DIMS.DECK_RISE_STUDS + HighSeats.AIM_RISE_STUDS
-					local far = LAYOUT.DISTANCES_STUDS[3] + LAYOUT.STAND.backStuds
-					local atRoofEdge = (roof.Z - mat.Z) * dir + hut.roofSize.Z / 2 + LAYOUT.STAND.backStuds
-					local rayY = deckEye - (deckEye - 5) * atRoofEdge / far
-					expect(rayY > hut.roofRise + hut.roofSize.Y).to.equal(true)
+					local at = RangeData.promptPosition(anchor, spot, LAYOUT, dir, RangeData.POSITION.BENCH)
+					local ahead = (at.Z - mat.Z) * dir
+					expect(ahead > 0).to.equal(true)
+					local outer = math.abs(at.X - mat.X) + LAYOUT.POST.size.X / 2
+					expect(outer <= bay * ahead + 1e-9).to.equal(true)
+					-- ...AND SO CLEAR OF HIS NEIGHBOUR, whose mat is a whole `SPOT_SPACING` away.
+					expect(outer < LAYOUT.SPOT_SPACING_STUDS / 2).to.equal(true)
 				end
 			end
-			-- the bound is 0 at the firing point, and at the crest face it is the backstop's own
-			-- corner from the outermost mat -- 160 studs at 192 ahead, 39.81 degrees (design 3.1).
+			-- THE T6 ENVELOPE IS UNCHANGED BY TASK 322, re-asserted here: the bound is 0 at the firing
+			-- point, and at the crest face it is the backstop's own corner from the outermost mat --
+			-- 160 studs at 192 ahead, 39.81 degrees (design 3.1). `bayHalfSlope` still reads the HUT's
+			-- three surviving keys, which is why they are kept as unbuilt data.
 			expect(RangeData.sightHalfWidthAt(LAYOUT, 0)).to.equal(0)
 			local crest = RangeData.bermCrestFaceZ(Vector3.new(0, 0, 0), LAYOUT, 1)
 			local backMin, backMax = RangeData.backstopSpanFor(Vector3.new(0, 0, 0), LAYOUT)
 			expect(math.abs(RangeData.sightHalfWidthAt(LAYOUT, crest) - backMax) < 1e-6).to.equal(true)
 			expect(math.abs(backMax - (RangeData.spotSpan(LAYOUT) - backMin)) < 1e-6).to.equal(true)
+			expect(math.abs(RangeData.bayHalfSlope(LAYOUT) - 5.6 / 10.5) < 1e-9).to.equal(true)
 		end)
 
 		-- ...AND THE SAME BOUND AGAINST WHAT `Build` ACTUALLY WRITES (round 1, finding 2). The case
-		-- above is pure arithmetic and passes with the whole hut block deleted; this one reads every
-		-- post and roof OUT OF THE FOLDER by name, so deleting the producer fails it.
-		it("builds the hut where the sight bound says it may stand, and hangs the board on the roof", function()
+		-- above is pure arithmetic and passes with the whole station block deleted; this one reads
+		-- every POST out of the folder by name, so deleting the producer fails it -- and it asserts
+		-- that the hut's seven parts per station are NOT there, which is what fails on main.
+		it("builds a bare station: the post inside the sight bound, and not one hut part", function()
 			local parent = Instance.new("Folder")
 			local built = Range.Build.build({ parent = parent, row = DEV_ROW, layout = LAYOUT })
 			expect(built).to.be.ok()
 			local folder = (built :: any).folder
 			local anchor = (built :: any).anchor
 			local dir = (built :: any).downrange
-			local hut = LAYOUT.HUT
+			local gone = 0
 			for spot = 1, LAYOUT.SPOT_COUNT do
 				local mat = RangeData.matPosition(anchor, spot, LAYOUT)
-				local roof = folder:FindFirstChild(RangeData.hutRoofName(spot))
-				expect(roof).to.be.ok()
-				local roofPure = RangeData.hutRoofPosition(anchor, spot, LAYOUT, dir)
-				expect(math.abs((roof :: any).Position.X - roofPure.X) < 1e-4).to.equal(true)
-				expect(math.abs((roof :: any).Position.Z - roofPure.Z) < 1e-4).to.equal(true)
-				local roofBottom = (roof :: any).Position.Y - (roof :: any).Size.Y / 2
-				-- THE BUILT roof's underside is `roofRise` over the ground it was measured on, which
-				-- over a plate is the shelf (`shelfAt`'s own rule).
-				expect(math.abs(roofBottom - ((built :: any).shelf + hut.roofRise)) < 1e-4).to.equal(true)
-				-- EVERY BUILT POST, out of the folder, against the widest sight ray at its own Z.
-				local posts = 0
+				-- NOT ONE PART OF THE HUT, BY NAME: four columns, a roof, a fascia board and the bench.
+				local names = {
+					"Roof" .. tostring(spot),
+					"Board" .. tostring(spot),
+					"Bench" .. tostring(spot),
+				}
 				for corner = 1, 4 do
-					local post = folder:FindFirstChild(RangeData.hutPostName(spot, corner))
-					expect(post).to.be.ok()
-					posts += 1
-					local ahead = ((post :: any).Position.Z - mat.Z) * dir
-					if ahead > 0 then
-						-- TASK 313: against the SPAN's widest ray, not against the backstop fan.
-						local inner = math.abs((post :: any).Position.X - mat.X) - (post :: any).Size.X / 2
-						for _, lane in ipairs(LAYOUT.DISTANCES_STUDS) do
-							local lo, hi = RangeData.sightSpanFor(anchor, spot, LAYOUT, lane, true)
-							local sil = LAYOUT.SIGHT.silhouetteStuds
-							local worst = math.max(math.abs(hi + sil - mat.X), math.abs(mat.X - (lo - sil)))
-							expect(worst * ahead / lane <= inner + 1e-6).to.equal(true)
-						end
-					end
-					-- and it carries the roof: its top IS the roof's underside
-					local top = (post :: any).Position.Y + (post :: any).Size.Y / 2
-					expect(math.abs(top - roofBottom) < 1e-4).to.equal(true)
+					table.insert(names, string.format("HutPost%d_%d", spot, corner))
 				end
-				expect(posts).to.equal(4)
-				-- THE BOARD HANGS ON THE ROOF, and this is the case the floating sign failed
-				-- (round 1, finding 1): its TOP face is the roof's own underside, not 1.5 studs under it.
-				local board = folder:FindFirstChild(RangeData.boardName(spot))
-				expect(board).to.be.ok()
-				local boardTop = (board :: any).Position.Y + (board :: any).Size.Y / 2
-				expect(math.abs(boardTop - roofBottom) < 1e-4).to.equal(true)
-				-- ...and it is under the roof's own uprange edge, not out in the air beside it
-				local backEdge = roofPure.Z - dir * hut.roofSize.Z / 2
-				expect(math.abs((board :: any).Position.Z - (backEdge + dir * hut.boardSize.Z / 2)) < 1e-4).to.equal(
-					true
-				)
+				for _, name in ipairs(names) do
+					expect(folder:FindFirstChild(name)).to.equal(nil)
+					gone += 1
+				end
+				-- THE BUILT POST IS INSIDE ITS OWN STATION'S BAY, read out of the folder rather than
+				-- off the arithmetic -- the case above is pure and passes with the producer deleted.
+				local post = folder:FindFirstChild(RangeData.postName(spot))
+				expect(post).to.be.ok()
+				local ahead = ((post :: any).Position.Z - mat.Z) * dir
+				expect(ahead > 0).to.equal(true)
+				local outer = math.abs((post :: any).Position.X - mat.X) + (post :: any).Size.X / 2
+				expect(outer <= RangeData.bayHalfSlope(LAYOUT) * ahead + 1e-4).to.equal(true)
 			end
+			expect(gone).to.equal(7 * LAYOUT.SPOT_COUNT)
 		end)
 
 		-- L3/L4. THE MOWN LANE IS A PART NOTHING CAN MEET: a ray, a bullet, a boar's route and a
@@ -5541,31 +6117,40 @@ return function()
 			expect(LAYOUT.SURFACE.BERM).to.equal(Enum.Material.Ground)
 		end)
 
-		-- THE NUMBER BOARD SAYS THE STATION'S OWN NUMBER, read off the instance the player reads --
-		-- and asserted at TWO different stations, because one pick cannot tell a real label from a
-		-- hard-coded word (V298).
-		it("prints each station's own number on its board", function()
+		-- THE STATION'S NUMBER SAYS ITS OWN NUMBER, read off the instance the player reads -- and
+		-- asserted at THREE different stations, because one pick cannot tell a real label from a
+		-- hard-coded word (V298). SINCE TASK 322 IT IS ON THE PROMPT POST, not on the hut's fascia
+		-- board: the board does not exist, so looking for it by name is the line that fails on main.
+		it("prints each station's own number on its post, on both faces, and no board at all", function()
 			local parent = Instance.new("Folder")
 			local built = Range.Build.build({ parent = parent, row = DEV_ROW, layout = LAYOUT })
 			local folder = (built :: any).folder
 			for _, spot in ipairs({ 1, 4, 6 }) do
-				local board = folder:FindFirstChild(RangeData.boardName(spot))
-				expect(board).to.be.ok()
-				local faces = 0
-				for _, gui in ipairs((board :: any):GetChildren()) do
+				expect(folder:FindFirstChild("Board" .. tostring(spot))).to.equal(nil)
+				local post = folder:FindFirstChild(RangeData.postName(spot))
+				expect(post).to.be.ok()
+				local faces, seen = 0, {}
+				for _, gui in ipairs((post :: any):GetChildren()) do
 					if gui:IsA("SurfaceGui") then
+						expect(gui.Name).to.equal(RangeData.NUMBER_GUI_NAME)
 						faces += 1
-						local label = gui:FindFirstChild("Number")
+						seen[(gui :: any).Face] = true
+						local label = gui:FindFirstChild(RangeData.NUMBER_LABEL_NAME)
 						expect(label).to.be.ok()
 						expect((label :: any).Text).to.equal(tostring(spot))
-						expect((label :: any).Text).to.equal(RangeData.boardText(spot))
+						expect((label :: any).Text).to.equal(RangeData.stationNumberText(spot))
+						expect((label :: any).TextColor3).to.equal(LAYOUT.POST.numberColor)
 					end
 				end
-				-- BOTH FACES, so the digit reads walking in and standing at the bench
+				-- BOTH +-Z FACES, so the digit reads walking in from the lodge whichever way the ROW
+				-- points -- and they are the two DIFFERENT faces, not one gui written twice.
 				expect(faces).to.equal(2)
+				expect(seen[Enum.NormalId.Front]).to.equal(true)
+				expect(seen[Enum.NormalId.Back]).to.equal(true)
 			end
 			-- and the three are three different strings, so the case bites
-			expect(RangeData.boardText(1)).never.to.equal(RangeData.boardText(4))
+			expect(RangeData.stationNumberText(1)).never.to.equal(RangeData.stationNumberText(4))
+			expect(RangeData.stationNumberText(4)).never.to.equal(RangeData.stationNumberText(6))
 		end)
 
 		-- WAS "climbs a man onto the deck and back down again" and "hangs a Climb on E ... and a
@@ -5769,8 +6354,15 @@ return function()
 					expect(child.Position.Y + child.Size.Y / 2 > shelf).to.equal(true)
 				end
 			end
-			-- the deepest foot is the seat's own `FOOT_EMBED_STUDS`, and nothing is deeper
-			expect(worst >= -(HighSeats.DIMS.FOOT_EMBED_STUDS + 0.35)).to.equal(true)
+			-- THE DEEPEST THING IS THE FLUSH RECTANGLE'S OWN UNDERSIDE SINCE TASK 322: the slab is
+			-- `size.Y` thick with `liftStuds` of it proud, so 0.88 studs of it are under the ground
+			-- by construction, and nothing else reaches even the seat's old `FOOT_EMBED_STUDS`.
+			local deepest = LAYOUT.MAT.size.Y - LAYOUT.MAT.liftStuds
+			expect(deepest > HighSeats.DIMS.FOOT_EMBED_STUDS).to.equal(true)
+			if worst < -(deepest + 0.35) then
+				error(string.format("something sits %.2f studs under the shelf", worst))
+			end
+			expect(worst >= -(deepest + 0.35)).to.equal(true)
 			local parts = 0
 			for _, child in ipairs(folder:GetDescendants()) do
 				if child:IsA("BasePart") then
@@ -6081,8 +6673,9 @@ return function()
 			})
 			advance(fake, clock, 1)
 			expect(Range.onRequest(man, { spot = 2, go = true })).to.equal(true)
-			expect(#sent).to.equal(1)
-			local twoTrunk = sent[1].record.mine
+			-- TOLD WITHOUT ASKING since task 321 (e), so the pick's payload is the last one.
+			expect(#sent >= 1).to.equal(true)
+			local twoTrunk = sent[#sent].record.mine
 			expect(twoTrunk).to.equal(fake.at(2).root)
 
 			local pushes = Range.stats().spanPushes

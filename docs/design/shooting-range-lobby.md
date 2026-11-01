@@ -304,6 +304,12 @@ Z:  [ footprintFor(...).maxZ , lodge south face ]
   *"can she see the whole range and walk straight at it"*. `Range.corridorSpan` (196 studs) is where
   the ANIMALS run, and `bermSpanFor` (232) is the heap — clearing either would strip the entire south
   arc of the forest edge for no gain in the view. The station row grown by half a hut roof is the
+  **NOTE, TASK 322:** the hut itself is NOT BUILT any more (Karen, 2026-10-31: *"also remove this
+  roof in shooting range we dont need that eather"*). `HUT.roofSize` / `roofAheadStuds` /
+  `postSection` survive in `Range.LAYOUT` as UNBUILT DATA for exactly two readers --
+  `Range.sightlineFrom` here and `Range.bayHalfSlope` in §9 -- so this corridor and the T6
+  envelope keep the numbers they were measured at. A station is now the prompt POST (which
+  carries the station's number on both its +-Z faces) and a FLUSH 8x8 rectangle on the ground.
   **smallest rule under which every built part of every station is unobstructed**: the hut is the
   widest and tallest thing at a station (`HUT.roofSize` 13 × 0.6 × 15 at `roofRise` 9), so a trunk
   outside its span cannot hide one. (`SURFACE.LINE_SIDE_STUDS` 8 gives almost the same span, 2782 ..
@@ -618,7 +624,7 @@ Clean **by construction**, and each clause is a fact with a source:
 
 | Claim | Why | Verify |
 |---|---|---|
-| no orphan mat, post, bench, hut, deck, ladder, bank or prompt | every part the range makes is parented under `Workspace.Range` by `Range.Build.build`, which builds the whole folder at the row's anchor | EDIT: `Workspace:FindFirstChild("Range") == nil` in the saved place |
+| no orphan mat, post, bank or prompt (no bench, hut, deck or ladder is built at all since tasks 320 and 322) | every part the range makes is parented under `Workspace.Range` by `Range.Build.build`, which builds the whole folder at the row's anchor | EDIT: `Workspace:FindFirstChild("Range") == nil` in the saved place |
 | no orphan fence | `FENCE` is refuted and nothing on those two lines is built (`LAYOUT.FENCE`'s own comment; `range.spec` asserts it) | — |
 | no orphan terrace | the terrace is a run-time `FillBlock`; the place's EDIT terrain at the old site still reads 134.9 / 148.3 / 155.1 **(brief §2)**, i.e. the natural hill. The 150 terrace is not in the place | EDIT probe at the old anchor after the move |
 | no orphan animal | `Workspace.RangeTargets` is created by the range's own runtime and lives at its field | — |
@@ -675,7 +681,7 @@ a Play session.** §17 D1.
 3. **BSRC 50 m Running Boar / Time Limit Range** — <https://bsrc.co.uk/time-limit-range/> ·
    <https://bsrc.co.uk/wp-content/uploads/2023/01/50m-Running-Boar-Normal-Runs.pdf> — club pages,
    © BSRC, reference only, live (2023 PDF).
-   *Well:* the firing hut of BAYS, the walk-up approach behind the line, and the paces (10 m in 5.0 s
+   *Well:* the walk-up approach behind the line, and the paces (10 m in 5.0 s
    and 2.5 s). *Badly:* second-hand for the ISSF rulebook; a sport range, nothing about a backstop.
    **Taken:** nothing new. It is named because this design CHANGES none of it — the bays, the row, the
    paces and the window are translated untouched, which is decision (c).
@@ -753,7 +759,8 @@ the same spec cases**, because every one of them is anchor-parameterised (§9.1)
    return two rectangles with the seam at `keepOut.z`. Without this case the arm goes dark.
 7. **`sightlineFrom`**: both signs of `downrange`; `fromZ` equals the footprint's uprange edge; the X
    span contains every `hutPostPositions`, `hutRoofPosition`, `matPosition`, `benchPosition` and
-   `standPosition` for all six stations, and a deliberately narrowed `HUT.roofSize.X` must make the
+   `standPosition` and the PROMPT POST for all six stations (the hut's own parts are unbuilt since
+   task 322), and a deliberately narrowed `HUT.roofSize.X` must make the
    containment case FAIL (the bound is load-bearing, not decorative).
 8. **T6 and T18 at the new anchor** — the shipped 36-combination sweep, unedited.
 
@@ -821,7 +828,7 @@ always, and the PR to `main` needs the FULL `scope=all` run.
    the picture she sent, and it is the one frame that answers her request.
 2. **The walk.** From (2850, −3000) looking south at eye height: level ground, no step at z −3060, the
    six numbered huts ahead.
-3. **The heap against the hill.** From station 3's bench down the 179 lane: the berm's crest against
+3. **The heap against the hill.** From station 3's firing point down the 179 lane: the berm's crest against
    the place's natural hill 15 studs above it (§4.3).
 4. **The east cut face.** From station 6's mat looking east: the terrace's east edge, the east bank in
    front of it, and how deep the wall reads.

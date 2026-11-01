@@ -1,3 +1,129 @@
+## 2026-10-31, Task 321 ROUND 2 -- NEEDS DIRECTOR: both gate lines need Karen's Forest Test closed
+
+**The three blocking findings of `reviews/task-321/RESULT.md` are fixed, each with its FAIL-FIRST run
+pasted in the request. What is missing is BOTH gate lines, and the one thing they fail on is a Studio
+I am not allowed to close.** This is the same block as round 1, with one thing added: it now also
+costs the one-player line.
+
+- Code commit: `0fcb2929fcd1a11a18da6de69b8aa0bf9c53718c`, branch `task-321-range-pass-loop`, pushed.
+- `reviews/task-321/REQUEST.md` is written at `Round: 2` and committed. Round 2 is NOT used: no
+  `tools/review.sh` call was made, because `tools/agents.py` would refuse it (no harness PASS line).
+
+**What I ran, and what each said.**
+
+1. `python tools/studio_mcp.py test` at the code commit, TWICE:
+   `[harness] FAIL: 32/34 checks @ 0fcb2929fcd1a11a18da6de69b8aa0bf9c53718c (clean tree) scope=all`
+   Both failures are `deer_hitbox.spec` and nothing else -- `:659`, then `:682` reading
+   *"calf: legs box 1 is unreachable by a flank ray"*. A real raycast against the calf model. This
+   branch touches no deer, boar or hitbox file.
+   **The correlation, offered as a lead and not as a verdict:** `deer_hitbox` PASSED in the three
+   earlier runs of this session, all of them while DEV was the only Studio, and has FAILED in both
+   runs since Karen's Forest Test editor appeared at ~23:31 UTC (`state` read ONE Studio at 23:15).
+   **A THIRD run, at `7923cc7a`, failed the same way**: `:659` *"calf: the skull at (0.01, 1.50,
+   -1.02) answered nil, wanted head"*. All three failures are the CALF and all three are a ray that
+   answered `nil` -- it hit nothing. `deer_hitbox.spec` names `Range` ZERO times and loads its models
+   at runtime through `ServerStorage.Assets.Loader`, so a ray hitting nothing is the signature of a
+   model that has not finished loading -- which asset-load contention from a second editor would
+   explain. A mechanism, not a proof.
+   The dispatch names `deer_hitbox.spec:659/:682` as a known intermittent, but a dispatch naming a
+   flake is not a control run (Vnight-1027), so **the request reports it as a live FAIL** and no
+   claim in it leans on the word. The control run at the merge-base is the Director's: it needs a
+   branch switch, which is the Rojo-crash route and would then need a Connect click.
+2. `python tools/studio_mcp.py test2` at the code commit. It got PAST the Studio checks, waited its
+   180 s and nobody pressed Start:
+   `FAIL A 2-player local test appeared within 180 s  (0 new studio(s) beside the editor)`
+   `[harness2] NEEDS KAREN: nobody pressed Start. Nothing was run and nothing is claimed.`
+   `[harness2] FAIL: 11/13 checks @ 0fcb2929fcd1a11a18da6de69b8aa0bf9c53718c (clean tree)`
+3. The no-human route, `<runs-dir>/run-test2.sh`, **refuses at its own first line** while more than
+   one Studio is open: `[ "$n0" -eq 1 ] || { echo "REFUSED: $n0 studios open before the run"; exit 5; }`.
+   So the F7 press is not available to me either. I did NOT improvise around it (V280), and the
+   player-count spinner was never reached, so nothing is claimed about it (L-054).
+
+**Why I did not close her window.** Two Studio processes are open: `Driven Hunt DEV` and
+`Driven Hunt Forest Test`. Hers was NOT a leftover from my own session -- it appeared while I was
+working, so she opened it deliberately. The dispatch is explicit for exactly this case: *"if Karen's
+Forest Test is open, write NEEDS DIRECTOR in ESCALATE.md with the request written and STOP -- the
+Director runs test2 and the review."*
+
+**NEEDS DIRECTOR -- the exact steps, in order.**
+
+1. Close the `Driven Hunt Forest Test` Studio window (or ask Karen to), leaving only `Driven Hunt DEV`
+   open in **Edit**. Confirm with `python tools/studio_mcp.py state` reading `1 Studio connected`.
+2. `python tools/studio_mcp.py test` at `0fcb2929`. This also settles `deer_hitbox`: if it passes with
+   one Studio, the correlation above is the answer and nothing in this branch is implicated. If it
+   fails again, it is a real defect in `deer_hitbox.spec`/the calf geometry and belongs to its own
+   task, not to 321 -- in which case the merge-base control run is the thing that proves it.
+3. `cd <runs-dir> && ./run-test2.sh t321r2` -- it checks the one-Studio precondition itself, presses
+   F7, and ends the session afterwards. **Before it, confirm the player-count spinner reads 2**
+   (L-054 recurred on this exact check in `test2-t191.log`).
+4. `powershell -ExecutionPolicy Bypass -File tools/review.ps1 321` once both PASS lines exist for
+   `0fcb2929`. Paste both into `reviews/task-321/REQUEST.md` first -- it is written and committed with
+   the FAIL lines in it precisely so nothing is claimed that was not run; replacing them with the
+   PASS lines is the only edit it needs.
+5. **This is round 2, the last.** If the Reviewer returns findings, that is an `ESCALATE.md` entry and
+   not another round (the dispatch).
+
+**What is NOT proven, and is not phrased as a nicety.** Finding 1 changes what a real shot does in
+Karen's place: before the fix a neighbour's carcass, invisible to the shooter, stopped his bullet and
+was scored as his hit. **Nobody has seen the fix on screen.** The spec proves it (red at the round-1
+code commit, `range.spec:4145` got false), and that is all this round proves. The live shot past a
+carcass in her place was not attempted: her Studio is in use and `<runs-dir>/ft-open.sh` would restart
+her session.
+
+## 2026-10-31, Task 321 -- NEEDS DIRECTOR: the two-player line needs Karen's Forest Test closed
+
+**The work is done, committed, pushed and gated on one player. What is missing is `test2`, and the
+one thing it fails on is a Studio I am not allowed to close.**
+
+- Code commit: `e407f6af0ecda552d8a39860c47a50f84133ce20`, branch `task-321-range-pass-loop`.
+- `[harness] PASS: 34/34 checks @ e407f6af0ecda552d8a39860c47a50f84133ce20 (clean tree) scope=all`
+- `python tools/agents.py` REFUSES the review round without a `[harness2]` line, because this change
+  touches `src/client/Range/Mask.luau` and `tests/client/range_mask.spec.luau`, and both are in
+  `TWO_PLAYER_PATHS` (task 313 put the range's per-player picture there: *"a second client is the
+  ONLY thing that can evidence each man sees his OWN animal"*). **The dispatch's own list of what
+  needs two players did not mention the range; `tools/agents.py` is the authority and it does.**
+
+**I ran it anyway, to measure the block rather than assume it** (`python tools/studio_mcp.py test2`,
+with `<runs-dir>/press-f7.ps1` making the Start click, so no human was needed for that part):
+
+```
+[harness2] FAIL: 33/36 checks @ ab5265c79b259ebf616ce692f0240f9d3d78af98 (clean tree)
+  FAIL One Studio instance before the test starts  (Driven Hunt DEV (placeId: 136410205938347);
+                                                    Driven Hunt Forest Test (placeId: 130094961655666))
+  FAIL [driver] camera_client.spec:376  -- expect(stats.maxUpdateMs < 5)
+```
+
+1. **The one-Studio check fails because Karen's Forest Test editor is open.** I may not close it
+   (dispatch: *"never close it yourself"*), so this cannot pass from here.
+2. **`camera_client.spec:376` is `expect(stats.maxUpdateMs < 5).to.equal(true)`** -- the camera's
+   WORST frame on the driver client, a hitch check. It ran with five Studio processes on the machine
+   at once (two editors plus the three test instances). Nothing in this diff touches the camera, the
+   viewmodel or any render path. **I am NOT calling it a flake:** it is not one of the intermittents
+   the dispatch names and I have no control run at the merge base. It has the same plausible cause as
+   finding 1 -- a loaded machine -- which is what the one-Studio check exists to prevent.
+
+**What the Director needs to do** (in this order):
+
+1. Press **Cleanup** in the DEV Studio's Test tab if any test instances are still open.
+2. Close the **Driven Hunt Forest Test** Studio (only you/Karen may).
+3. `cd <repo> && git switch task-321-range-pass-loop && git pull`
+4. `python tools/studio_mcp.py test2` and press **F7** in the DEV Studio within 180 s, or run
+   `<runs-dir>/press-f7.ps1` (it posts F7 itself, verified working this session).
+5. If it passes, paste the `[harness2] PASS ... @ e407f6af...` line into
+   `reviews/task-321/REQUEST.md` under the harness line and run
+   `powershell -ExecutionPolicy Bypass -File tools/review.ps1 321`. **Round 1 has not been used:**
+   no `reviews/task-321/RESULT.md` exists, so the round count is untouched.
+6. If `camera_client.spec:376` fails again on a clean single-editor machine, that is a finding
+   against the camera and not against this task; a control `test2` at `d7ae1929` settles it. One data
+   point already: **the ONE-player run at this same code commit is `666 passed, 0 failed` on the
+   client, and `camera_client.spec` is one of its 31 files** -- so the spec is green at `e407f6af`
+   when the machine is not running five Studio processes.
+
+The request (`reviews/task-321/REQUEST.md`) is written, committed and pushed, with the measurements
+and the frames. Nothing else is waiting on me.
+
+---
+
 ## 2026-10-30, Task 312 -- THE FLIP IS DONE AND CORRECT; `main` IS RED, SO NO `PASS` LINE EXISTS
 
 **RESOLVED by task 314 (PR #294): `main` green.** The red was `Viewmodel.update`'s handle-cache
@@ -917,3 +1043,12 @@ The round-2 finding is spec-only and the Builder agrees with it. I looked at
 `315-BEFORE-door-south.png`, `315-AFTER-door-south.png` and `315-AFTER-karen-spot.png`: from the shop
 door the range now stands straight ahead with no birch row between. Round 3 is authorised for
 exactly the two items above, spec-only (no `src/` change). `MAX_ROUNDS` is 3, so no override is used.
+
+## Director, 2026-11-01 00:15 UTC -- task 321: round 3 AUTHORISED
+
+Round 2 (`reviews/task-321/RESULT.md`) has two blocking findings, both real and both the same
+defect class: a corpse orphaned for the rest of the session (a second kill at one station inside
+`CARCASS_SECONDS`, and LEAVE with a fresh kill on the lane -- the latter a regression of 319). Both
+are narrow and in one function family. The dispatch's own cap was 2 rounds; the Director lifts it to
+`MAX_ROUNDS` 3 for this task. Round 3 fixes exactly those two findings. FINDINGS on round 3 ->
+ESCALATE.md and stop; no round 4.

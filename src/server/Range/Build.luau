@@ -79,26 +79,29 @@ local function makePart(
 	return part
 end
 
--- THE STATION'S NUMBER, DRAWN AND NOT UPLOADED. A `SurfaceGui` on the board's uprange face with one
--- `TextLabel`; `Range.boardText` is the one answer to what it says, so the spec reads the SAME
--- string the player does (note 8.2; L-094's lesson is that an uploaded id needs its own frame).
+-- THE STATION'S NUMBER, DRAWN AND NOT UPLOADED. A `SurfaceGui` on one face of the prompt POST with
+-- one `TextLabel`; `Range.stationNumberText` is the one answer to what it says, so the spec reads
+-- the SAME string the player does (note 8.2; L-094: an uploaded id needs its own frame).
 --   SurfaceGui https://create.roblox.com/docs/reference/engine/classes/SurfaceGui
-local function makeBoardFace(host: BasePart, text: string, face: Enum.NormalId, layout)
+local function makeNumberFace(host: BasePart, text: string, face: Enum.NormalId, layout)
 	local gui = Instance.new("SurfaceGui")
-	gui.Name = "BoardFace"
+	gui.Name = RangeData.NUMBER_GUI_NAME
 	gui.Face = face
 	gui.AlwaysOnTop = false
 	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
 	gui.PixelsPerStud = 64
 	gui.Parent = host
 	local label = Instance.new("TextLabel")
-	label.Name = "Number"
+	label.Name = RangeData.NUMBER_LABEL_NAME
 	label.Size = UDim2.fromScale(1, 1)
 	label.BackgroundTransparency = 1
 	label.Font = Enum.Font.GothamBold
 	label.TextScaled = true
 	label.Text = text
-	label.TextColor3 = layout.HUT.boardTextColor
+	label.TextColor3 = layout.POST.numberColor
+	-- A STROKE, because the post it is drawn on is dark wood and the digit is near-white.
+	label.TextStrokeColor3 = layout.POST.numberStroke
+	label.TextStrokeTransparency = 0.2
 	label.Parent = gui
 	return gui
 end
@@ -407,7 +410,21 @@ function Build.build(opts)
 	local mats = {}
 	for spot = 1, layout.SPOT_COUNT do
 		local at = RangeData.matPosition(anchor, spot, layout)
-		local mat = onGround(RangeData.matName(spot), layout.MAT.size, at.X, at.Z, layout.MAT.color)
+		-- THE RECTANGLE IS FLUSH, NOT A STEP (task 322). `onGround` grows a part DOWNWARD from its
+		-- own top, so the mat's top stood a full stud over the ground and he stepped up onto it.
+		-- Laid like the `TURF` slab instead: the top is `liftStuds` proud of the HIGHEST ground under
+		-- its footprint, so no corner is buried and nothing is a kerb. It is still the folder's first
+		-- BasePart and still the full 8x8 station box `Range.spotAt` measures.
+		local _matLo, matHi =
+			groundUnder(at.X, at.Z, layout.MAT.size, shelf :: number, if row.plate == true then nil else opts.groundAt)
+		local mat = makePart(
+			RangeData.matName(spot),
+			layout.MAT.size,
+			Vector3.new(at.X, matHi + layout.MAT.liftStuds - layout.MAT.size.Y / 2, at.Z),
+			layout.MAT.color,
+			folder,
+			layout.MAT.material
+		)
 		-- THE POST, AND THE PROMPT ON TOP OF IT, NOT ON THE FLOOR. A prompt lying on the 8x8 mat is
 		-- off screen whenever she looks down the lane, and E then does nothing (Director's
 		-- real-key proof, 2026-10-28). `Lobby.Build.shopPrompt`'s shape: a part at chest height,
@@ -420,76 +437,21 @@ function Build.build(opts)
 			Vector3.new(0, postPart.Size.Y / 2, 0),
 			layout
 		)
-		-- THE BENCH REST, downrange of the mat: the ground firing position's own 0.7-0.8 m top.
-		-- PLANKED AND LIGHTER SINCE B10 -- same size, same point, only the skin (note 8.3 L1).
-		local bench = RangeData.benchPosition(anchor, spot, layout, dir)
-		onGround(
-			RangeData.benchName(spot),
-			layout.BENCH.size,
-			bench.X,
-			bench.Z,
-			layout.BENCH.color,
-			layout.BENCH.material
-		)
-
-		-- THE ROOFED FIRING POINT (step B10, item 3; refs 1, 5, 7). Four corner posts up to the
-		-- roof's own bottom, the roof over them, and the station's NUMBER on the uprange fascia.
-		-- Nothing here is in a line of fire: `Range.sightHalfWidthAt` is the bound and `range.spec`
-		-- asserts every post against it.
-		-- THE HUT STANDS ON THE GROUND UNDER IT, NOT ON THE SHELF, and that is a MEASUREMENT
-		-- (frame `<runs-dir>/306b10-after-B.png`, her place, 2026-10-29): the shelf there is 148
-		-- and the ground the mats are laid on is 150, so a roof placed at `anchor.Y + roofRise`
-		-- hung 2 studs over the shooter's eye and filled half his frame. `promptPosition`'s header
-		-- already states the convention -- the pure point is the SHELF's, the BUILT one is the
-		-- measured ground's -- and this is that correction applied to the roof, the board and the
-		-- turf. The HIGHEST of the five samples, so no corner of the roof dips toward a head.
-		local hut = layout.HUT
-		local roofPure = RangeData.hutRoofPosition(anchor, spot, layout, dir)
-		local _roofLo, roofHi = groundUnder(
-			roofPure.X,
-			roofPure.Z,
-			hut.roofSize,
-			shelf :: number,
-			if row.plate == true then nil else opts.groundAt
-		)
-		local roofAt = Vector3.new(roofPure.X, roofHi + hut.roofRise + hut.roofSize.Y / 2, roofPure.Z)
-		for corner, hutAt in ipairs(RangeData.hutPostPositions(anchor, spot, layout, dir)) do
-			local footY = groundAtOr(hutAt.x, hutAt.z) - 0.3
-			local topY = roofAt.Y - hut.roofSize.Y / 2
-			local height = math.max(topY - footY, 1)
-			makePart(
-				RangeData.hutPostName(spot, corner),
-				Vector3.new(hut.postSection, height, hut.postSection),
-				Vector3.new(hutAt.x, footY + height / 2, hutAt.z),
-				hut.postColor,
-				folder,
-				Enum.Material.Wood
-			)
-		end
-		makePart(RangeData.hutRoofName(spot), hut.roofSize, roofAt, hut.roofColor, folder, Enum.Material.WoodPlanks)
-		local boardPure = RangeData.boardPosition(anchor, spot, layout, dir)
-		local boardAt = Vector3.new(boardPure.X, roofHi + RangeData.boardRiseFor(layout), boardPure.Z)
-		local board = makePart(
-			RangeData.boardName(spot),
-			hut.boardSize,
-			boardAt,
-			hut.boardColor,
-			folder,
-			Enum.Material.SmoothPlastic
-		)
-		-- BOTH FACES, so the number reads walking in AND standing at the bench. `Front` is -Z and
-		-- `Back` is +Z, so which one points uprange is the ROW's business -- and writing both means
-		-- no branch on the world's name at all.
-		makeBoardFace(board, RangeData.boardText(spot), Enum.NormalId.Front, layout)
-		makeBoardFace(board, RangeData.boardText(spot), Enum.NormalId.Back, layout)
+		-- THE STATION'S NUMBER, ON THE POST'S TWO +-Z FACES. The hut's fascia board carried it until
+		-- task 322; `Front` is -Z and `Back` is +Z, so writing BOTH means the digit reads walking in
+		-- from the lodge whichever way the ROW points and there is no branch on the world's name.
+		makeNumberFace(postPart, RangeData.stationNumberText(spot), Enum.NormalId.Front, layout)
+		makeNumberFace(postPart, RangeData.stationNumberText(spot), Enum.NormalId.Back, layout)
 		table.insert(mats, mat)
 	end
 
 	-- NO TREESTANDS ON THE RANGE (task 320). Karen, 2026-10-31: *"and remove towers we dont need
 	-- them in shooting range"*. The six decks, their ladders, their `RangeStandPrompt` and the two
-	-- climb prompts are gone -- archived in `backups/task-320/`. The bench is the one firing
-	-- position. `deckTops` stays an EMPTY table and not a removed field: `Range.onClimb` already
-	-- refuses a station with no entry and `Range.spotAt` already answers `bench` without one, so
+	-- climb prompts are gone -- archived in `backups/task-320/`. The ground is the one firing
+	-- position, and since task 322 the BENCH REST is gone too (`backups/task-322/`): nothing read
+	-- `benchPosition` but the build itself, so it was a prop. `deckTops` stays an EMPTY table and
+	-- not a removed field: `Range.onClimb` already refuses a station with no entry and
+	-- `Range.spotAt` already answers `bench` -- the POSITION's word, not the part -- without one, so
 	-- nothing downstream branches on the removal (design shooting-range-lobby 7.1-7.3, now unbuilt).
 	local deckTops: { [number]: number } = {}
 	local stands, refusedStands = 0, 0
@@ -581,8 +543,8 @@ function Build.build(opts)
 	-- so a post laid on the reader's answer stands 7.5 studs in the air in the picture. Refusing a
 	-- post by footprint SPREAD did not catch it: the two readers disagree about the SURFACE, not
 	-- about its slope, and a 0.7-stud footprint has no spread to measure.
-	-- A floating post is exactly the defect rule E exists for, so the lot's edge ships as the huts,
-	-- the number boards and the grassed banks, and the side line is queued with this measurement.
+	-- A floating post is exactly the defect rule E exists for, so the lot's edge ships as the banks
+	-- and the berm alone, and the side line is queued with this measurement.
 	-- `Range.fenceRuns` / `fencePosts` / `fencePostName` stay as the arithmetic a later task needs;
 	-- `range.spec` asserts the build writes NONE of them, so this is a decision with a case on it.
 	local fenceRefused = #RangeData.fencePosts(anchor, layout, dir, row)
