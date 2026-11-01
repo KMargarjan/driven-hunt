@@ -1,3 +1,56 @@
+## 2026-11-02, Task 327b ROUND 2 -- NEEDS DIRECTOR: the preview cell as the LIVE drive layout pulls 327d forward
+
+The dispatch's rule is `max 2 rounds; FINDINGS on round 2 -> ESCALATE.md and stop`.
+`reviews/task-327b/RESULT.md` round 2 is **one** finding, and it is correct. Everything else in the
+task passed: round 1's three findings are closed and the Reviewer checked finding 3's answer against
+the repo's own arithmetic rather than against my prose.
+
+**The finding.** Round 1's fix made the cell the LIVE layout while `GRID_PREVIEW` is on
+(`ForestTestBoot`'s `if gridPreviewOn then Grid.PREVIEW_CELL`, plus `layoutByName` in
+`src/server/ForestTest/init.luau`). The hunter DEAL was left on the road's arithmetic:
+`ForestTest.standIndexFor` reads `chosen.layout.standCount`, which is 15 on a cell, so
+`math.floor(15/2)+1` = **8** -- a WEST FLANK post, 340 studs up the cell and 556 off centre -- while
+`hunterStandX()` aims every wave at main stand 5. That is exactly the invariant `standIndexFor`'s own
+header states, and task 123 round 8 measured it. `Grid.standWalk` is the right list, exists, is
+design section 6.3's own answer, and is called by nothing outside `Grid` and `grid.spec`.
+
+**WHY ROUND 1 DID IT, measured and not guessed.** The design's 327b asks for "one cell's markers and
+towers built under the preview" and Karen's line is *"she stands on all 15 stands of one cell and
+climbs its towers"*. The boot built them; a probe a minute later read the ROAD's nine posts at
+(2430, -2120) with stands 10-15 gone. `Match`'s own `markers` closure rebuilds `ForestMarkers` and
+`HighSeats` once a second for the LIVE layout, so there is no way to leave a walkable cell standing
+without the cell being that layout. Forcing it was the only shape that kept one owner.
+
+**THE DECISION. Three ways, and I recommend C.**
+
+**A. Revert the forcing.** The preview then paints the roads, stakes the corners and builds C1's
+posts and towers at the boot -- and the drive's closure overwrites both folders a second later.
+Smallest diff, nothing of 327d pulled forward, **and Karen cannot walk the cell until 327d**: this
+task's "Karen sees" line moves there with it.
+
+**B. Keep the forcing and finish the wiring here.** That is `Bots.CONFIG.WALK_SPEED`, `MapUi`'s
+geometry and the deal -- 327d's and 327f's scope arriving unplanned in 327b.
+
+**C. Keep the forcing and close ONLY the deal (two seams that already exist).** Hand
+`HighSeats.dealLine` the cell's own walk (`Grid.standWalk(chosen.name)` on a layout with `sides`,
+the branch `standX` and `standPosition` already use) and take the default pick index from the main
+line's middle, with a case asserting the first hunter of a cell is dealt a MAIN stand and that it is
+the stand `hunterStandX()` aims at. Karen keeps her walkable cell; the Reviewer's own first
+"Required" clause is satisfied; nothing else of 327d moves.
+
+**What C still leaves, and it must be queued either way** (Reviewer note 6, and it is already
+declared in `Grid.CONFIG`): the live walk is `Bots.CONFIG.WALK_SPEED` **3.1**, so a cell's 1430-stud
+`beaterNorthStuds` is ~461 s against `DRIVE.seconds` 300. **With the cell live, `END_ON_BEATERS_CROSS`
+can never fire and a wave is released 500+ studs north of the hunters.** Nobody can judge a DRIVE in
+the cell until 327d gives `Bots` the 5.2. The preview is for WALKING the cell, and that is what the
+flag's `why` should say.
+
+**The gate is green and is not what this is about.** `[harness] PASS: 34/34 @ 357efc85 (clean tree)
+scope=all` and `[harness2] PASS: 36/36 @ 357efc85 (clean tree)`; branch `task-327b-stands`, pushed,
+PR not opened.
+
+---
+
 ## 2026-11-01, Task 326 ROUND 1 -- NEEDS DIRECTOR: who may put Karen's own standing trees back on the ground
 
 Karen, 2026-11-01: *"also fix broken trees all terai some trees is high in air"*. The dispatch asked
