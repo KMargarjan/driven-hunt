@@ -124,6 +124,27 @@ that justifies the window being **before** the drive rather than Karen's existin
 | a public `on<X>Request` a spec drives by parameter, behind a guarded `Connect` | `Lobby.onRoleRequest`, `Lobby.onPadRequest` |
 | `tostring(userId)` / `tostring(index)` keys on the wire | `MatchSnapshot.stands`, `Horn.keyFor` |
 
+### H. Borrowed from inside this repo for 323b -- THE MAP (rule 2)
+
+`docs/design/map-ui.md` (sections 2, 7.2, 8.4, 12) · `docs/design/mobile-controls.md` (the 44 px
+thumb minimum) · `src/client/Hud/ReportPanel.luau` (`ask` + the two tagged doors) ·
+`src/client/Hud/Rail.luau` and `Touch.luau` (`Activated` as the one gesture) ·
+`src/client/Hud/Objective.luau` (`CONFIG.TEXT`: *"one word table per DRAWER"*).
+**Licence: this repository. Maintenance: live.**
+**Well:** every piece 323b needs already exists and is already reviewed. `map-ui.md` section 8.4
+REFUSED a clickable map and wrote down the condition on which it would change its mind (*"it asks
+`Camera.Cursor` ... with the tag"*), so the amendment is that file's own stated terms rather than a
+new argument. `ReportPanel` is the precedent for all three of: a panel that owns no remote and asks
+one collaborator, a tagged `Cursor.requestFree`, and a tagged `Input.requestHold` -- with its own
+comment naming the identical failure (*"clicking a row in the report would also fire the gun"*).
+**Badly:** `mobile-controls.md`'s 44 px minimum cannot be met by a pad on this canvas at a phone's
+0.32 scale -- 23 px, and a bigger pad cannot fix it because the stands themselves are 30.7 px apart.
+That is measured, not waved through, and it is why the touch answer is a LIST (task 323c) and why
+the flag stays off until it lands.
+**Adopted:** the three amendments A-323-1..3; the one-collaborator tap; both tagged doors under the
+tag `"map-pick"` so a map opened for any other reason keeps section 8.4's refusal; the words moved
+to the drawer that draws them (`backups/2026-11-01_standpick-words.md`).
+
 ## 3. What was invented, and why it had to be (rule 2)
 
 **Sweep A** -- honouring every claim before anybody takes anything by fallback -- is this design's one

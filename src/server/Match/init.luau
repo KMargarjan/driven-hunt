@@ -1083,6 +1083,10 @@ local stats = {
 	-- moved. 0 with the flag off is the strongest form of "today's drive bit for bit".
 	standsSettled = 0,
 	standSettleStuds = 0,
+	-- ...AND HOW MANY `Match.standSettlePlan` NAMED (323b-notes (b)). It counts the plan and not the
+	-- carry, so a settle whose moves the world refused is still visible as a settle that planned
+	-- them -- and 0 across a session is the flag-off path measured rather than asserted.
+	standSettlePlanned = 0,
 	kills = 0,
 	escapes = 0,
 	releases = 0,
@@ -2093,9 +2097,14 @@ local function applyClearScene()
 end
 
 -- THE WINDOW CLOSES AND EVERY CLAIM IS SETTLED (task 323), on the `Running` edge and before any
--- client is told the drive is on. **ONLY CLAIMANTS ARE MOVED**, so a drive in which nobody picked
--- makes ZERO `Body` calls and is today's drive by identity -- which is what makes the flag-off claim
--- a measurement (`stats.standsSettled`) rather than an assertion.
+-- client is told the drive is on. **EVERY HUNTER THE PICK MOVED IS CARRIED, CLAIMANT OR NOT**
+-- (Reviewer round 1, finding 1; the sentence that stood here said "only claimants" and was the
+-- source of the collision -- 323b-notes (a)). A drive in which nobody picked still makes ZERO
+-- `Body` calls, because the two deals are then equal value for value, which is what makes the
+-- flag-off claim a measurement (`stats.standsSettled`) rather than an assertion.
+--
+-- WHO MOVES IS DECIDED BY ONE PURE FUNCTION, `Match.standSettlePlan` (323b-notes (b)): this loop
+-- carries exactly the line indices it names and holds no second rule of its own.
 --
 -- `Body.carry` and not `Body.place`: the man keeps the character he is in, and his gun with it.
 local function applyStandSettle()
@@ -2125,12 +2134,14 @@ local function applyStandSettle()
 	local settled = placementLine("Shooters")
 	local provisional = { count = settled.count, entitled = settled.entitled }
 	local place = if world and world.placement then world.placement else Body.placementFor
-	for index, userId in ipairs(ids) do
-		local was = place(markerSet, "Shooters", index, config, provisional)
+	-- THE PLAN DECIDES WHO MOVES; this loop only moves them. `stats.standSettlePlanned` is what it
+	-- planned, so the flag-off claim is read off production rather than argued.
+	local plan = Match.standSettlePlan(place, markerSet, config, provisional, settled, #ids)
+	stats.standSettlePlanned += #plan
+	for _, index in ipairs(plan) do
+		local userId = ids[index]
 		local target = place(markerSet, "Shooters", index, config, settled)
-		-- A DEAL THE WORLD COULD NOT ANSWER IS NOT A MOVE: nowhere to put him is a fact about the
-		-- world, which is the shape `applyPlace` already has.
-		if target ~= nil and was ~= nil and Match.standMoved(was, target) then
+		if userId ~= nil and target ~= nil then
 			local player = playersService():GetPlayerByUserId(userId)
 			if player then
 				local moved, studs = Body.carry(player, target, config)
@@ -3064,6 +3075,39 @@ function Match.standMoved(was: CFrame?, target: CFrame?): boolean
 		return false
 	end
 	return ((target :: CFrame).Position - (was :: CFrame).Position).Magnitude > 0.001
+end
+
+-- WHICH LINE INDICES THE PICK MOVED. PURE, exported, and the ONE rule `applyStandSettle` carries a
+-- hunter by (323b-notes (b): the round-1 fix had no case of its own, because every surviving
+-- assertion named `dealLine` and none named the settle).
+--
+-- IT COMPARES TWO DEALS AND NEVER A CLAIM TABLE, which is the whole of finding 1: with `walk =
+-- {5, 4, ...}` the provisional deal is h1 -> 5, h2 -> 4; h2 claims 5; the settled deal swaps them,
+-- so BOTH men have moved and carrying only the claimant puts two men on one stand. With no claim
+-- the two deals are equal value for value, so the list is empty -- the flag-off cost, by the same
+-- arithmetic rather than by a second branch.
+--
+-- `place` IS THE WORLD'S PLACEMENT SEAM, handed in exactly as `applyPlace` and `syncBots` hand it
+-- in, so a spec states the world instead of building one.
+function Match.standSettlePlan(
+	place: (any, string, number, any, any) -> CFrame?,
+	markerSet_: any,
+	config_: any,
+	provisional: any,
+	settled: any,
+	count: number
+): { number }
+	local plan: { number } = {}
+	for index = 1, count do
+		local was = place(markerSet_, "Shooters", index, config_, provisional)
+		local target = place(markerSet_, "Shooters", index, config_, settled)
+		-- A DEAL THE WORLD COULD NOT ANSWER IS NOT A MOVE: nowhere to put him is a fact about the
+		-- world, which is the shape `applyPlace` already has.
+		if Match.standMoved(was, target) then
+			table.insert(plan, index)
+		end
+	end
+	return plan
 end
 
 -- WHAT THE WORLD SAYS WHEN A STAND IS ASKED FOR, as ONE substitutable measurement (Reviewer round 1,

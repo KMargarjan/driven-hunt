@@ -172,6 +172,14 @@ Objective.CONFIG = {
 			Running = "stay on stand, animals coming",
 			Scoring = "drive over",
 		},
+		-- THE HUNTER'S PICK LINE (task 323b). KAREN, 2026-10-31: *"choose shooting place on map
+		-- before hunt"*. It REPLACES the `Assigning` row while the window is open and carries the
+		-- SAME countdown the beater's does, so there is one message on screen and no second surface
+		-- -- the task 197 part 2 rule, and `DriverCountdown`'s own shape.
+		--
+		-- 31 CHARACTERS AT A TWO-DIGIT COUNT, against this table's measured bound of 33
+		-- (`hud_clarity.spec`, `TextFits` at a 400 px frame). The words are Karen's to rewrite.
+		ShooterPick = "pick your stand on map - %d",
 		Drivers = {
 			Assigning = "wait for the horn",
 			-- ...and the beater's, by the same rule and the same arithmetic: `push the animals` is 34
@@ -300,6 +308,10 @@ export type DriveNow = {
 	-- HIS BOUGHT HUNTER'S PLACE WAS OVERRULED BY THE BALANCE (task 221). Optional, like every other
 	-- field here, so two arguments still answer exactly what they answered before.
 	roleOverruled: boolean?,
+	-- IS THE STAND PICK OPEN FOR HIM (task 323b)? Optional like every other field here, so two
+	-- arguments still answer exactly what they answered before -- and with `STAND_PICK` off the
+	-- server never sends `pickWindow`, so this is nil in every build today.
+	pickWindow: boolean?,
 }
 
 -- WHAT THE LOBBY IS DOING RIGHT NOW (task 177), and both fields are optional for the same reason
@@ -387,6 +399,12 @@ function Objective.text(phase: string?, team: string?, drive: DriveNow?, lobby: 
 	end
 	if phase == "Waiting" then
 		return words.Waiting
+	end
+	-- THE HUNTER'S ONE TASK-323b MOMENT, and it is the countdown reworded rather than a second line
+	-- (the `DriverOverruled` precedent): while the window is open he is not walking to a stand, he
+	-- is choosing one. A beater reaches this never, and with the flag off `pickWindow` is nil.
+	if team == "Shooters" and phase == "Assigning" and drive ~= nil and drive.pickWindow == true then
+		return string.format(words.ShooterPick, math.max(0, math.ceil(drive.secondsLeft or 0)))
 	end
 	local byPhase = words[team]
 	if byPhase == nil or phase == nil then

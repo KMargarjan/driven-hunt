@@ -1052,3 +1052,46 @@ defect class: a corpse orphaned for the rest of the session (a second kill at on
 are narrow and in one function family. The dispatch's own cap was 2 rounds; the Director lifts it to
 `MAX_ROUNDS` 3 for this task. Round 3 fixes exactly those two findings. FINDINGS on round 3 ->
 ESCALATE.md and stop; no round 4.
+
+---
+
+## 2026-11-01, Task 323b -- NEEDS DIRECTOR: the stand-pick picture cannot be photographed in DEV
+
+**Written at the hard stop, before any workaround was designed (V280).**
+
+The dispatch asks for two live proofs "in DEV with STAND_PICK forced on": a screenshot of *"the
+numbered stand squares on the road line, his one an orange diamond, a taken one dimmed with a name,
+seated ones ringed, the countdown"*, and a REAL MOUSE CLICK on a free stand square. It also closed
+Karen's Forest Test for this task, leaving DEV as the only Studio.
+
+**Neither is reachable in DEV, and it is a world fact rather than a flag or a bug.**
+
+1. `MapUi.geometryFromMap` -- the DEV world's geometry -- returns `stands = {}`, literally. DEV's
+   full map draws the road, the bounds and the players and **no stands**, deliberately: the post
+   line is only stated in `src/server/Match/Markers.luau` and in ServerStorage, which does not
+   replicate, and `GAME_DESIGN.md`'s owners row for the map says so in those words. A pure `Map.LINE`
+   is queued as task 155a and does not exist.
+2. The client's forest-geometry door (`Hud.whenReady(ReplicatedStorage, "ForestTest", ...)`) is
+   inside `if Map.EXPECTED_WORLD == "forest-test" then`, so a DEV client is never handed the nine
+   stands even though `ReplicatedStorage.ForestTest` replicates there.
+3. So with the flag on in DEV the server opens the window (its `standCount()` reads the
+   `DrivenHunt.ShooterPost` tags and is > 0) and the client correctly draws an **empty** states list:
+   `#geometry.stands == 0`, no `Stand%d` nodes, no `Hit` pads. There is nothing on screen to
+   photograph and nothing for a mouse to hit.
+4. The MCP thread cannot `require` (the harness docstring, 2026-10-02), so no probe can hand
+   `MapUi` the forest geometry from outside. Only a client script or a client spec can, and both are
+   `src/`/`tests/` changes rather than a proof.
+
+**What was done instead, and it is labelled as such in the report:** the pads and the five states are
+measured on the REAL panel in the REAL client in DEV by the gate's own new cases -- `map_ui.spec`
+case 28 draws all four forest layouts, opens the window for a hunter and reads the pads'
+`AbsolutePosition`/`AbsoluteSize` off the engine (72 px, 0 overlapping pairs over all four layouts),
+and case 24 reads the colour, transparency, stroke and name off the drawn nodes. A frame of DEV's
+own full map with the flag on and the window open was taken and is described in the report. **The
+photograph of the nine numbered squares, the orange diamond, the dimmed name and the brass rings,
+and the real mouse click on a pad, are NOT PROVEN. Nobody has seen them.**
+
+**The request:** open "Driven Hunt Forest Test" (the world that states the stands) for one pass of
+this proof, or authorise it for 323c, which needs a pinned 400x800 frame of the same panel anyway.
+`<runs-dir>/ft-open.sh` is the cold-restart route and exists; the Builder did not use it because the
+dispatch says plainly *"do NOT open the Forest Test"*.

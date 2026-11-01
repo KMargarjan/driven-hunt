@@ -465,14 +465,17 @@ return function()
 				{ name = "go", drive = { holdLeft = 0, goAge = 0 } },
 				{ name = "through", drive = { through = true } },
 			}
+			-- ...AND THE HUNTER'S ONE TASK-323b SENTENCE (case 31), at the same 400 px and with a
+			-- two-digit count, which is the longest it can be: `STAND_PICK_SECONDS` is 15.
+			table.insert(cases, { name = "pick", drive = { secondsLeft = 15, pickWindow = true }, team = "Shooters" })
 			for _, case in ipairs(cases) do
 				local phase = if case.drive.secondsLeft ~= nil then "Assigning" else "Running"
-				local line = Objective.text(phase, "Drivers", case.drive)
+				local line = Objective.text(phase, case.team or "Drivers", case.drive)
 				longest = math.max(longest, #line)
 				node.Text = line
 				task.wait()
 				if not node.TextFits then
-					table.insert(tooLong, string.format("Drivers/%s (%d chars)", case.name, #line))
+					table.insert(tooLong, string.format("%s/%s (%d chars)", case.team or "Drivers", case.name, #line))
 				end
 			end
 			-- ...AND THE LOBBY'S TWO (task 177, the first retuned by task 182), measured at the same
@@ -514,6 +517,19 @@ return function()
 			-- `TextFits` at 400 x 800 above -- which is what the sweep over every row proves and what
 			-- the bound is a proxy for. Shortening the Director's sentence by one character to protect
 			-- a proxy would be the proxy deciding the words.
+			-- CASE 31: THE PICK LINE REPLACES `Assigning` AND CARRIES THE SAME NUMBER, so one
+			-- message is on screen at a time (the task 197 part 2 rule, and `DriverOverruled`'s
+			-- shape). A beater never reads it and neither does a hunter with the flag off.
+			local words31 = Objective.CONFIG.TEXT
+			local pick = Objective.text("Assigning", "Shooters", { secondsLeft = 15, pickWindow = true })
+			expect(pick).to.equal(string.format(words31.ShooterPick, 15))
+			expect(pick).never.to.equal(words31.Shooters.Assigning)
+			expect(Objective.text("Assigning", "Shooters", { secondsLeft = 15 })).to.equal(words31.Shooters.Assigning)
+			expect(Objective.text("Assigning", "Shooters", nil)).to.equal(words31.Shooters.Assigning)
+			expect(Objective.text("Assigning", "Drivers", { secondsLeft = 15, pickWindow = true })).to.equal(
+				string.format(words31.DriverCountdown, 15)
+			)
+			expect(Objective.text("Running", "Shooters", { pickWindow = true })).to.equal(words31.Shooters.Running)
 			expect(longest <= 33).to.equal(true)
 			TestKit.note(
 				string.format(

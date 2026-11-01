@@ -64,16 +64,12 @@ StandPick.ORDER = table.freeze({
 	StandPick.REASON.TAKEN,
 })
 
--- WHAT HIS SCREEN SAYS, or nil for a refusal that draws nothing. `rate`, `flood` and `same` are
--- silent: he did nothing wrong, and drawing "too fast" teaches a forger the limit. Every word is
--- <= 25 ASCII, inside `Objective.CONFIG.TEXT`'s measured bound of 33 (design section 5.1).
-StandPick.WORDS = table.freeze({
-	closed = "too late",
-	role = "beaters have no stand",
-	range = "no such stand",
-	seat = "you need tree-stand access",
-	taken = "taken",
-})
+-- THE WORDS A REFUSAL DRAWS ARE **NOT HERE** ANY MORE (task 323b). They were, from task 323a, and
+-- nothing on this side ever read them: the server never draws, and a client cannot require this
+-- module. They live with the one thing that draws them, `MapUi.CONFIG.PICK_WORDS`, which is
+-- `Objective.CONFIG.TEXT`'s own stated rule -- *"one word table per DRAWER"*. This file keeps the
+-- VOCABULARY (`REASON`, which is what goes on the wire) and the screen keeps the sentences.
+-- Archived with that reason in `backups/2026-11-01_standpick-words.md` (rule 7).
 
 -- IS IT A STAND NUMBER AT ALL? A client's `"4"` is a client's TYPE, and `tonumber` on it would be
 -- the server believing one (Roblox docs: never trust the client).

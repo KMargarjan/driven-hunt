@@ -168,16 +168,18 @@ return function()
 			expect((StandPick.judge(ask({ asks = 21 })))).to.equal(false)
 		end)
 
-		it("case 1: every word a refusal draws is inside Objective's 33-character bound", function()
-			for reason, word in pairs(StandPick.WORDS) do
-				expect(#word <= 33).to.equal(true)
-				expect(StandPick.REASON[string.upper(reason)]).to.equal(reason)
+		it("case 1: the eight reasons ARE the vocabulary, and it is all this side owns", function()
+			-- THE WORDS MOVED TO THE SCREEN IN TASK 323b (`MapUi.CONFIG.PICK_WORDS`), because the
+			-- server never draws and a client cannot require this module -- so what is asserted
+			-- here is the WIRE's vocabulary, and `map_ui.spec` asserts the sentences against it.
+			expect(StandPick.WORDS).to.equal(nil)
+			local seen = 0
+			for key, reason in pairs(StandPick.REASON) do
+				expect(string.upper(reason)).to.equal(key)
+				seen += 1
 			end
-			-- `rate`, `flood` and `same` draw NOTHING: he did nothing wrong, and drawing "too fast"
-			-- teaches a forger the limit.
-			expect(StandPick.WORDS.rate).to.equal(nil)
-			expect(StandPick.WORDS.flood).to.equal(nil)
-			expect(StandPick.WORDS.same).to.equal(nil)
+			expect(seen).to.equal(8)
+			expect(#StandPick.ORDER).to.equal(8)
 		end)
 	end)
 
@@ -654,6 +656,184 @@ return function()
 					end
 				end
 			end
+		end)
+
+		-- ------------------------------------- 323b-notes (b): the PLAN, and the rows with no case
+		--
+		-- THE ROUND-2 REVIEWER'S QUEUED NOTE, as cases. Round 1's fix (carry every hunter the pick
+		-- moved, not only the claimants) was asserted by NOTHING: every surviving assertion named
+		-- `dealLine`, so reverting the settle's loop left both cases passing. The seam the note
+		-- prescribes is this one -- the pure PLAN, exported -- plus the five rows below it.
+		describe("the settle PLAN, and the rows the round-2 note found had no case", function()
+			-- THE WORLD'S PLACEMENT SEAM, STATED: `place(markerSet, team, index, config, line)` is
+			-- what `applyPlace`, `syncBots` and `applyStandSettle` all hand in, so this is the real
+			-- shape with a stated answer -- 150 studs per stand on one axis, which makes the plan's
+			-- arithmetic a number a reader can check.
+			local function placeOn(layoutName: string)
+				local walk, seated = walkOf(layoutName), seatedOf(layoutName)
+				return function(_markerSet: any, _team: string, index: number, _config: any, line: any)
+					local deal = HighSeats.dealLine(walk, seated, line.entitled or {}, line.count, line.picks)
+					local stand = deal[index]
+					return if stand ~= nil then CFrame.new(stand * 150, 0, 0) else nil
+				end
+			end
+
+			it("names BOTH men on the road swap -- the collision finding 1 found", function()
+				local place = placeOn("road")
+				StandPick.reset(1)
+				local provisional = { count = 2, entitled = {} }
+				local firstStand = HighSeats.dealLine(walkOf("road"), seatedOf("road"), {}, 2)[1]
+				expect((StandPick.claim(2002, firstStand, 100))).to.equal(true)
+				local settled = { count = 2, entitled = {}, picks = StandPick.picksFor({ 1001, 2002 }) }
+				local plan = Match.standSettlePlan(place, nil, Match.CONFIG, provisional, settled, 2)
+				-- BOTH LINE INDICES, and in order: the claimant AND the man he displaced. A plan
+				-- that named only the claimant would put two men on one stand and leave one empty,
+				-- which is exactly what round 1 shipped.
+				expect(#plan).to.equal(2)
+				expect(plan[1]).to.equal(1)
+				expect(plan[2]).to.equal(2)
+				TestKit.note(
+					string.format(
+						"match_stand_pick: settle plan over one claim of stand %d names %d line(s): {%d,%d}",
+						firstStand,
+						#plan,
+						plan[1],
+						plan[2]
+					)
+				)
+			end)
+
+			it("names NOBODY with an empty claim table, in every layout at every count", function()
+				StandPick.reset(1)
+				local empty = StandPick.picksFor({})
+				local named = 0
+				for _, layoutName in ipairs(Forest.LAYOUT_ORDER) do
+					local place = placeOn(layoutName)
+					for count = 1, 8 do
+						local provisional = { count = count, entitled = {} }
+						local settled = { count = count, entitled = {}, picks = empty }
+						named += #Match.standSettlePlan(place, nil, Match.CONFIG, provisional, settled, count)
+					end
+				end
+				-- ZERO `Body` CALLS WITH THE FLAG OFF, as the plan rather than as a promise: the two
+				-- deals are equal value for value when nothing is claimed.
+				expect(named).to.equal(0)
+				-- ...AND PRODUCTION HAS PLANNED NONE EITHER. `MatchBoot` has been running this
+				-- place's drives with `STAND_PICK` off, so this is the flag-off path measured.
+				expect(Match.stats().standSettlePlanned).to.equal(0)
+			end)
+
+			it("a deal the world cannot answer is not a move", function()
+				-- `nil` FROM THE PLACEMENT SEAM is a fact about the world (`applyPlace`'s own rule),
+				-- so no hunter is carried for it -- in either direction.
+				local function nowhere()
+					return nil
+				end
+				local line = { count = 3, entitled = {} }
+				expect(#Match.standSettlePlan(nowhere, nil, Match.CONFIG, line, line, 3)).to.equal(0)
+				local once = 0
+				local function sometimes(_m: any, _t: string, index: number)
+					once += 1
+					return if index == 2 and once % 2 == 0 then CFrame.new(900, 0, 0) else nil
+				end
+				expect(#Match.standSettlePlan(sometimes, nil, Match.CONFIG, line, line, 3)).to.equal(0)
+			end)
+
+			it("release site 1: a hunter who becomes a beater loses his stand", function()
+				-- `applyAssignTeams` CALLS EXACTLY THIS for `team ~= "Shooters"` (E3), at the one
+				-- place a team is decided. The call site is a local of `src/server/Match/init.luau`
+				-- and no spec may reach it, so what is RUN here is the rule it calls and the SITE is
+				-- argued by reading -- said on this line rather than left implied.
+				StandPick.reset(1)
+				expect((StandPick.claim(1001, 4, 100))).to.equal(true)
+				expect(StandPick.release(1001)).to.equal(4)
+				expect(StandPick.standOf(1001)).to.equal(nil)
+				expect(StandPick.holderOf(4)).to.equal(nil)
+				expect(StandPick.lastChangeAt(1001)).to.equal(nil)
+				-- IT IS FREE AT ONCE (D4): the next man may have it, in the same frame.
+				expect((StandPick.claim(2002, 4, 100))).to.equal(true)
+				expect(StandPick.holderOf(4)).to.equal(2002)
+				StandPick.reset(1)
+			end)
+
+			it("release site 2: Match.forget frees the stand and answers which, through production", function()
+				-- THE REAL EXPORTED PATH (E2), not the rule underneath it: `Match.forget` is what
+				-- the player-leaving connection calls, and it is what the forced broadcast reads.
+				StandPick.reset(1)
+				expect((StandPick.claim(323501, 7, 100))).to.equal(true)
+				Match.forget({ UserId = 323501 } :: any)
+				expect(StandPick.standOf(323501)).to.equal(nil)
+				expect(StandPick.holderOf(7)).to.equal(nil)
+				-- ...AND NO TABLE HERE IS KEYED BY HIM: his ask budget went too, so a rejoin is a
+				-- new arrival rather than a man with 20 asks spent.
+				expect(StandPick.asksBy(323501)).to.equal(0)
+				StandPick.reset(1)
+			end)
+
+			it("release site 3: the Assigning edge drops every claim, for THIS drive", function()
+				-- E5: the stand set for drive N is fixed before any client can ask, so a claim of
+				-- stand 7 from a nine-stand `road` cannot survive into a five-stand `ride`.
+				StandPick.reset(4)
+				expect((StandPick.claim(1001, 2, 100))).to.equal(true)
+				expect((StandPick.claim(2002, 3, 100))).to.equal(true)
+				expect(StandPick.claimCount()).to.equal(2)
+				StandPick.reset(5)
+				expect(StandPick.claimCount()).to.equal(0)
+				expect(StandPick.standOf(1001)).to.equal(nil)
+				expect(StandPick.standOf(2002)).to.equal(nil)
+				expect(StandPick.driveOf()).to.equal(5)
+				expect(StandPick.isOpen()).to.equal(true)
+			end)
+
+			it("placementLine's picks line, and the two snapshot fields", function()
+				-- `placementLine` IS A LOCAL, so what is asserted is its OUTPUT where the game puts
+				-- it: `picksFor` indexed by line index, in the same sorted-userId order `entitled`
+				-- is built in, and then the wire.
+				StandPick.reset(1)
+				local ids = { 1001, 2002, 3003 }
+				expect((StandPick.claim(ids[3], 6, 100))).to.equal(true)
+				local picks = StandPick.picksFor(ids)
+				expect(picks[1]).to.equal(nil)
+				expect(picks[2]).to.equal(nil)
+				expect(picks[3]).to.equal(6)
+				-- THE TWO LISTS CANNOT DRIFT: the table is sparse by LINE index and never by userId.
+				expect(#StandPick.picksFor({})).to.equal(0)
+
+				-- THE SNAPSHOT'S `picks` FIELD, off `Match.snapshot()` -- the real wire payload.
+				--
+				-- THE CLAIM GOES THROUGH THE DOOR AND NOT THROUGH `StandPick.claim`, and that is the
+				-- point rather than ceremony: `Match.onStandRequest` is the one thing that INVALIDATES
+				-- the snapshot cache and forces the broadcast (design section 4.4), so a claim written
+				-- straight into the table leaves the wire showing the drive before it -- which is
+				-- exactly what this case is for.
+				StandPick.reset(1)
+				Match.setStandAskReader(function(measured)
+					measured.open = true
+					measured.isHunter = true
+					measured.standCount = 9
+					return measured
+				end)
+				local doorman = { Name = "PicksLine", UserId = 323601 }
+				expect((Match.onStandRequest(doorman, 6, 5000) :: any).ok).to.equal(true)
+				local snapshot = Match.snapshot()
+				expect((snapshot :: any).picks).to.be.ok()
+				expect(((snapshot :: any).picks :: any)["6"]).to.equal(doorman.UserId)
+				-- ...AND IT IS ABSENT WHEN NOTHING IS CLAIMED, which is every build with the flag
+				-- off: a client that never heard of the field reads exactly what it always read.
+				-- `Match.forget` is the other production path that clears that cache (E2), so this
+				-- half is measured off the wire too and not off a reset nobody told the wire about.
+				Match.forget({ UserId = doorman.UserId } :: any)
+				expect(StandPick.anyClaim()).to.equal(false)
+				local empty = Match.snapshot()
+				expect((empty :: any).picks).to.equal(nil)
+				-- `pickWindow` IS ABSENT TOO, and with `STAND_PICK_SECONDS` 0 it cannot be anything
+				-- else here -- the TRUE arm is `Phase.pickWindow`'s own case 3, by parameter, which
+				-- is the only lever a spec has while the flag sits off (CLAUDE.md's flag rule).
+				expect((empty :: any).pickWindow).to.equal(nil)
+				Match.setStandAskReader(nil)
+				expect(Match.standAskReader()).to.equal(nil)
+				expect(Match.pickWindowOpen()).to.equal(false)
+			end)
 		end)
 
 		it("case 17: with no claim the settle is a no-op, and production has made ZERO moves", function()

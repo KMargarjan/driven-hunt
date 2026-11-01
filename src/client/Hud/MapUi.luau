@@ -213,6 +213,53 @@ MapUi.CONFIG = {
 	-- EACH HUNTER STAND. A SQUARE, so a stand is not a player.
 	STAND_PX = 6,
 
+	-- ---------------- THE STAND PICK (task 323b, docs/design/stand-pick.md sections 9.4, 9.5, 12)
+	--
+	-- HOW BIG THE INVISIBLE PAD OVER EACH STAND IS, in CANVAS px. The forest's nine stands at
+	-- `standSpacing` 150 over a 1,720-stud span are 96 canvas px apart, so 72 < 96 means two
+	-- adjacent pads never overlap -- the arithmetic, not an eye (`map_ui.spec` asserts it by
+	-- rectangle).
+	STAND_HIT_PX = 72,
+	-- A FREE HIGH SEAT WEARS THE MAP'S OWN RIM, 2 px, which is `RIM_THICKNESS`'s own number -- so
+	-- the ring round a seat reads as this map's edge and not as a new mark.
+	STAND_SEAT_STROKE_PX = 2,
+	-- SOMEBODY ELSE HAS IT: `PINNED_TRANSPARENCY`, so "not available to you" reads the same
+	-- everywhere on this map.
+	STAND_TAKEN_TRANSPARENCY = 0.45,
+	-- A SEAT HE HAS NOT BOUGHT IS DIMMER STILL, because an unpaid seat is not somebody else's -- it
+	-- is nobody's.
+	STAND_BARRED_TRANSPARENCY = 0.7,
+	-- THE TOUCH LIST'S ROW HEIGHT (`mobile-controls.md`'s thumb minimum). It is stated here with the
+	-- rest of the pick's numbers and the list itself is TASK 323c: at a phone's 0.32 scale the pads
+	-- are 23 px, which fails that minimum, and a bigger pad cannot fix it (the stands are 30.7 px
+	-- apart). Design section 9.5.
+	STAND_LIST_ROW_PX = 44,
+	-- HOW MANY CHARACTERS OF A HOLDER'S NAME GO UNDER THE INDEX. A Roblox name is up to 20 and the
+	-- label is 18 canvas px wide at `LABEL_SIZE`, so it is cut rather than drawn over its neighbour.
+	STAND_NAME_CHARS = 8,
+
+	-- WHAT THE FOOTER SAYS WHEN AN ASK WAS REFUSED, keyed by `Drive.StandVerdict.reason` --
+	-- `StandPick.REASON`'s own eight words, which is the WIRE's vocabulary and the server's.
+	--
+	-- THE WORDS THEMSELVES ARE THIS DRAWER'S, and that is `Objective.CONFIG.TEXT`'s own stated rule:
+	-- *"the repo's real rule is one word table per DRAWER"*. They were written in task 323a as
+	-- `StandPick.WORDS` on the SERVER, where nothing draws and nothing could read them from here;
+	-- archived with that reason in `backups/2026-11-01_standpick-words.md` (rule 7).
+	--
+	-- `rate`, `flood` AND `same` ARE ABSENT ON PURPOSE (design section 5.1): a refusal for a thing
+	-- the player did not do wrong draws nothing, and "too fast" teaches a forger the limit.
+	PICK_WORDS = {
+		closed = "too late",
+		role = "beaters have no stand",
+		range = "no such stand",
+		seat = "you need tree-stand access",
+		taken = "taken",
+	},
+	-- THE STANDING INSTRUCTION while the window is open and he has not been refused anything.
+	PICK_PROMPT = "click a stand",
+	-- ...AND WHAT IT SAYS ONCE HE HOLDS ONE. Short, because the diamond on the map says where.
+	PICK_HELD = "stand %d is yours",
+
 	-- THE PLAYERS.
 	MARKER_PX = 8,
 	OWN_MARKER_PX = 10,
@@ -303,6 +350,23 @@ export type MapGeometry = {
 	bounds: Bounds,
 	road: { Vector2 }, -- the hunters' line as a polyline of (x, z), in x order
 	stands: { Vector2 }, -- one point per stand, in index order. MAY BE EMPTY.
+}
+
+-- ONE STAND'S STATE, AS DRAWN (task 323b, design section 9.4). `name` is set only for `taken` --
+-- whose stand it is -- and nil for every other state.
+export type StandState = { state: string, name: string? }
+
+-- EVERYTHING `standStateFor` IS ALLOWED TO KNOW, and every field of it is a fact the SERVER
+-- measured: who holds which stand, which one is mine, which stands carry a seat and whether I may
+-- use one. The map derives none of them (design section 2.2) -- it is handed the snapshot's own
+-- `picks` table and the world's own seat list.
+export type StandView = {
+	localUserId: number?,
+	mine: number?, -- `Match.myStand()`
+	picks: { [string]: number }?, -- `Match.standPickTable()`, keyed by `tostring(index)`
+	names: { [string]: string }?, -- userId -> display name, for the `taken` label
+	seated: { [number]: boolean }?, -- which indices carry a high seat
+	entitled: boolean?, -- may he use one. nil is "nobody answered", which is YES
 }
 
 export type MarkerSource = { userId: number, team: string?, position: Vector3? }
@@ -571,6 +635,46 @@ end
 -- IT NAMES NO LOBBY, and that is the whole point of writing it this way: *"you are outside the map's
 -- own frame"* is a fact about the world's stated geometry. It stays true if the lobby moves, it needs
 -- no lobby concept in the Hud, and it answers for any world.
+-- WHICH OF THE FIVE STATES ONE STAND IS IN. PURE, so every state is a case with no world, no
+-- server and no drive (design section 9.4, case 23).
+--
+-- THE ORDER IS `StandPick.ORDER`'S READ FORWARDS: mine first (it is the one thing on this map that
+-- is yours), then somebody else's, then a seat he may not use, then a free seat, then a free stand.
+-- A holder who IS this player answers `mine` too, so the two fields the server sends cannot draw two
+-- different pictures of one stand.
+function MapUi.standStateFor(index: number, view: StandView): StandState
+	local me = view.localUserId
+	local holder = if view.picks ~= nil then (view.picks :: { [string]: number })[tostring(index)] else nil
+	if view.mine == index or (holder ~= nil and me ~= nil and holder == me) then
+		return { state = "mine" }
+	end
+	if holder ~= nil then
+		local names = view.names
+		return { state = "taken", name = if names ~= nil then names[tostring(holder)] else nil }
+	end
+	local seated = view.seated ~= nil and (view.seated :: { [number]: boolean })[index] == true
+	if seated then
+		-- `entitled == false` AND NOT `not entitled`: nil is "nobody answered", which is YES --
+		-- `Shop.grantsHighSeat`'s own nil rule and `StandPick.judge`'s, so a build with no economy
+		-- draws exactly what it drew before this task.
+		return { state = if view.entitled == false then "seat" else "high" }
+	end
+	return { state = "free" }
+end
+
+-- MAY HE TAP A STAND RIGHT NOW? PURE, and it is the ONE predicate both the mouse grab and its
+-- release are driven off (design section 9.2, case 25) -- a missed release costs a free mouse in a
+-- drive, which is why there is one rule and not two.
+function MapUi.pickable(
+	open_: boolean,
+	suppressed_: boolean,
+	reportOpen: boolean,
+	window: boolean,
+	isHunter: boolean
+): boolean
+	return MapUi.fullMapVisible(open_, suppressed_, reportOpen) and window == true and isHunter == true
+end
+
 function MapUi.withinBounds(bounds: Bounds, me: Vector3): boolean
 	return me.X >= bounds.minX and me.X <= bounds.maxX and me.Z >= bounds.minZ and me.Z <= bounds.maxZ
 end
@@ -774,12 +878,41 @@ local pushLabel: string? = nil
 -- and `Objective.targetFor`'s: a world that has stated nothing gets no mark rather than a guess.
 local targetPoint: Vector2? = nil
 local targetWord: string? = nil
+-- ---------------- the stand pick (task 323b)
+--
+-- THE FULL MAP'S NINE STAND NODES, held from the build so `setStandStates` never does a
+-- `FindFirstChild` -- the `drawers` discipline. The MINIMAP's stands are not in this list and are
+-- not clickable: the pick is a panel gesture, and a 23 px pad on a disc is not one (section 9.5).
+type StandNode = { frame: Frame, index: TextLabel, holder: TextLabel, stroke: UIStroke, hit: TextButton }
+local standNodes: { StandNode } = {}
+-- WHAT WAS LAST WRITTEN, so a per-frame caller costs one comparison and no property write at all
+-- (section 9.7's edge trigger). `standVersion` is the Hud's own integer; `standDrawn` is what this
+-- module actually put on screen, which is the half a stale version cannot fake.
+local standVersion: number? = nil
+local standDrawn: { StandState } = {}
+-- WHICH STAND IS HIS, lifted out of the states so `renderDrawer` can hang the `Target` diamond on it
+-- -- "mine" IS the target mark (section 9.4), so this map still carries exactly one orange mark.
+local standMine: number? = nil
+-- IS THE WINDOW OPEN FOR A HUNTER, told by the Hud's one evaluation and never derived here.
+local pickWindow = false
+local pickIsHunter = false
+local pickReason: string? = nil
+local pickOpenedByWindow = false
+local footerLabel: TextLabel? = nil
+local PICK_TAG = "map-pick"
 local started = false
 local built = false
 local tooSmallWarned = false
 
 local CameraSystem: any = nil
 local ReportSystem: any = nil
+-- THE THREE DOORS THE PICK BORROWS, every one of them optional and every one of them a tagged NEED
+-- rather than a write (task 323b): `Cursor` and `Input` are `ReportPanel`'s own two, and `Pick` is
+-- `PlayerScripts.Match` -- the one owner of the drive wire on this client, so the map fires no
+-- remote (amendment A-323-1). With none of them the map is exactly the map it was before this task.
+local Cursor: any = nil
+local WeaponInput: any = nil
+local PickSystem: any = nil
 local localUserId = 0
 
 -- The nodes, held in locals from the build so the tick never does a `FindFirstChild`.
@@ -855,6 +988,12 @@ local stats = {
 	keyToggles = 0,
 	pinned = 0,
 	overflow = 0,
+	-- HOW MANY TIMES THE NINE STAND MARKS WERE WRITTEN AGAIN (task 323b), and how many taps this
+	-- map has asked the drive wire for. `standWrites` is the edge trigger measured rather than
+	-- promised: section 9.7's budget is 36 property writes per change, so a caller handing the same
+	-- states in at 20 Hz must leave this number alone.
+	standWrites = 0,
+	taps = 0,
 	builtAt = nil :: number?,
 	elapsed = 0,
 }
@@ -983,8 +1122,9 @@ end
 
 -- THE ROAD AND THE STANDS, drawn once into `holder` in the coordinates of `view`. The minimap's
 -- holder then SLIDES under the player; the full map's never moves.
-local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView, standLabels: boolean)
+local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView, standLabels: boolean): { StandNode }
 	local config = MapUi.CONFIG
+	local nodes: { StandNode } = {}
 	local previousU: number? = nil
 	local previousV: number? = nil
 	for _, point in ipairs(model.road) do
@@ -1006,13 +1146,58 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 		node.BorderSizePixel = 0
 		node.ZIndex = config.Z_INDEX + 1
 		node.Parent = holder
-		if standLabels then
-			local text = label(node, "Index", config.LABEL_SIZE, tostring(index))
-			text.AnchorPoint = Vector2.new(0.5, 0)
-			text.Position = UDim2.new(0.5, 0, 1, 1)
-			text.Size = UDim2.fromOffset(18, config.LABEL_SIZE + 2)
+		if not standLabels then
+			-- THE MINIMAP: a 6 px square and nothing else, exactly as before this task.
+			continue
 		end
+		local text = label(node, "Index", config.LABEL_SIZE, tostring(index))
+		text.AnchorPoint = Vector2.new(0.5, 0)
+		text.Position = UDim2.new(0.5, 0, 1, 1)
+		text.Size = UDim2.fromOffset(18, config.LABEL_SIZE + 2)
+
+		-- THE FOUR THINGS THE PICK WRITES, BUILT HERE AND NEVER IN THE TICK (section 9.7:
+		-- `Instance.new` per change is 0). A stroke that is off, a name that is empty and a
+		-- transparent button that is not `Active`: with the flag off none of them is ever switched
+		-- on, and the full map is the map it was.
+		local stroke = Instance.new("UIStroke")
+		stroke.Name = "Seat"
+		stroke.Thickness = config.STAND_SEAT_STROKE_PX
+		stroke.Color = config.RIM_COLOR
+		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		stroke.Enabled = false
+		stroke.Parent = node
+
+		local holderName = label(node, "Holder", config.LABEL_SIZE, "")
+		holderName.AnchorPoint = Vector2.new(0.5, 0)
+		holderName.Position = UDim2.new(0.5, 0, 1, 1 + config.LABEL_SIZE + 2)
+		holderName.Size = UDim2.fromOffset(44, config.LABEL_SIZE + 2)
+		holderName.TextColor3 = MapUi.COLORS.Shooters
+		holderName.Visible = false
+
+		-- `GuiButton.Activated` IS THE WHOLE OF "MOUSE AND TOUCH" (amendment A-323-3, source D): it
+		-- fires for a click, a tap and a gamepad A on one handler, which is why `Hud.Rail` and
+		-- `Hud.Touch` already use it. No new input owner, no new key, no `UserInputService` reader.
+		local hit = Instance.new("TextButton")
+		hit.Name = "Hit"
+		hit.Text = ""
+		hit.BackgroundTransparency = 1
+		hit.BorderSizePixel = 0
+		hit.AutoButtonColor = false
+		hit.AnchorPoint = Vector2.new(0.5, 0.5)
+		hit.Position = UDim2.fromScale(0.5, 0.5)
+		hit.Size = UDim2.fromOffset(config.STAND_HIT_PX, config.STAND_HIT_PX)
+		hit.ZIndex = config.Z_INDEX + 4
+		hit.Active = false
+		hit.Visible = false
+		hit.Parent = node
+		local at = index
+		hit.Activated:Connect(function()
+			MapUi.tapStand(at)
+		end)
+
+		table.insert(nodes, { frame = node, index = text, holder = holderName, stroke = stroke, hit = hit })
 	end
+	return nodes
 end
 
 -- THE MARKERS, THE OWN MARKER, ITS WEDGE AND THE PUSH ARROW: built once per drawer, hidden until
@@ -1248,6 +1433,220 @@ function MapUi.pinnedViewport(): Vector2?
 	return viewportOverride
 end
 
+-- ---------------------------------------------------------------- the stand pick (task 323b)
+--
+-- `docs/design/stand-pick.md` sections 9.1-9.7. THREE SETTERS, ONE EVALUATION: `Hud.renderObjective`
+-- is already *"THE ONE EVALUATION"* (see `setTarget`) and it hands this module the states, the
+-- window and the footer's word. Nothing here reads the snapshot, the team, the economy or a clock.
+
+-- WHO IS TO BE TOLD A TAP, set by the composition root once `PlayerScripts.Match` exists -- which
+-- may be after `MapUi.start` (task 134's late-arrival door). The map fires NO remote: it asks the
+-- one owner of the drive wire on this client (amendment A-323-1), exactly as `ReportPanel.ask` asks
+-- `ReportSystem`.
+function MapUi.setPickSystem(system: any?)
+	PickSystem = system
+end
+
+-- MAY HE TAP RIGHT NOW, off the one pure predicate (section 9.2). `ReportSystem` is READ here, never
+-- written, exactly as `applyVisibility` reads it.
+local function pickableNow(): boolean
+	local reportOpen = ReportSystem ~= nil and ReportSystem.isOpen() == true
+	return MapUi.pickable(open, suppressed, reportOpen, pickWindow, pickIsHunter)
+end
+
+function MapUi.isPickable(): boolean
+	return pickableNow()
+end
+
+-- THE FOOTER'S SENTENCE: the last refusal's word, or the standing instruction, or nothing at all
+-- when the window is shut. PURE over what this module has been told, so a case reads it with no
+-- frame at all.
+function MapUi.pickFooterText(): string
+	if not pickWindow or not pickIsHunter then
+		return ""
+	end
+	local word = if pickReason ~= nil then MapUi.CONFIG.PICK_WORDS[pickReason :: string] else nil
+	if word ~= nil then
+		return word :: string
+	end
+	if standMine ~= nil then
+		return string.format(MapUi.CONFIG.PICK_HELD, standMine :: number)
+	end
+	return MapUi.CONFIG.PICK_PROMPT
+end
+
+-- THE MOUSE AND THE TRIGGER, BOTH TAGGED AND BOTH REFERENCE-COUNTED BY THEIR OWNERS (amendment
+-- A-323-2). The grab and the release are driven off the SAME pure predicate, which is what makes a
+-- missed release impossible to write: there is one rule, read in one place, on every exit -- the
+-- window closing, the map closing, the scope coming in, the report opening, the team changing and
+-- `teardown`.
+--
+-- AND THE TRIGGER HOLD IS NOT OPTIONAL: `Weapon.Input` binds `MouseButton1`, so without it tapping
+-- a stand fires a shell. `ReportPanel` names the identical case in its own header.
+local function applyPick()
+	local on = pickableNow()
+	if Cursor ~= nil then
+		if on then
+			Cursor.requestFree(PICK_TAG)
+		else
+			Cursor.release(PICK_TAG)
+		end
+	end
+	if WeaponInput ~= nil then
+		if on then
+			WeaponInput.requestHold(PICK_TAG)
+		else
+			WeaponInput.releaseHold(PICK_TAG)
+		end
+	end
+	-- THE PADS ARE ONLY ALIVE WHILE HE MAY TAP, `Active` AND `Visible` both: an invisible button
+	-- still takes a click in Roblox, and a 72 px pad that swallowed a click on a closed map would be
+	-- a map that eats the mouse (section 9.3).
+	for _, node in ipairs(standNodes) do
+		node.hit.Active = on
+		node.hit.Visible = on
+	end
+	local footer = footerLabel
+	if footer ~= nil then
+		local text = MapUi.pickFooterText()
+		local node = footer :: TextLabel
+		if node.Text ~= text then
+			node.Text = text
+		end
+		node.Visible = text ~= ""
+	end
+end
+
+-- THE FIVE MARKS, EDGE-TRIGGERED (section 9.7). A caller may hand this in every frame: a matching
+-- `version` returns at once, and so does a states list equal to the one on screen -- so the worst
+-- case is 36 property writes per real change and zero otherwise.
+--
+-- THE VERSION IS THE HUD'S AND THE COMPARISON IS THIS MODULE'S, both on purpose: the integer is the
+-- cheap path and the element-by-element compare is the honest one, because a version that forgot to
+-- move would otherwise freeze the picture.
+function MapUi.setStandStates(states: { StandState }?, version: number?)
+	if version ~= nil and version == standVersion then
+		return
+	end
+	standVersion = version
+	local next_: { StandState } = states or {}
+	local same = #next_ == #standDrawn
+	if same then
+		for index, state in ipairs(next_) do
+			local was = standDrawn[index]
+			if was.state ~= state.state or was.name ~= state.name then
+				same = false
+				break
+			end
+		end
+	end
+	if same then
+		return
+	end
+	standDrawn = {}
+	standMine = nil
+	for index, state in ipairs(next_) do
+		standDrawn[index] = { state = state.state, name = state.name }
+		if state.state == "mine" then
+			standMine = index
+		end
+	end
+	stats.standWrites += 1
+
+	local config = MapUi.CONFIG
+	for index, node in ipairs(standNodes) do
+		local state = standDrawn[index]
+		local word = if state then state.state else "free"
+		-- "MINE" IS THE `Target` DIAMOND AND NOT A SIXTH MARK (section 9.4), so the square and its
+		-- own index step aside for it: the full map still carries EXACTLY ONE orange mark and it is
+		-- still where you are going (`buildDrawer`'s stated rule). `renderDrawer` hangs the diamond
+		-- on `standMine` and gives it the index as its word.
+		node.frame.Visible = word ~= "mine"
+		node.index.Visible = word ~= "mine"
+		node.frame.BackgroundColor3 = MapUi.COLORS.stand
+		if word == "taken" then
+			node.frame.BackgroundTransparency = config.STAND_TAKEN_TRANSPARENCY
+		elseif word == "seat" then
+			node.frame.BackgroundTransparency = config.STAND_BARRED_TRANSPARENCY
+		else
+			node.frame.BackgroundTransparency = 0
+		end
+		-- A FREE SEAT IS RINGED IN THE MAP'S OWN BRASS; a barred one is NOT (it is nobody's, so it
+		-- gets no rim at all) and a taken one is dimmed with its holder's name under it.
+		node.stroke.Enabled = word == "high"
+		local name = if state then state.name else nil
+		if word == "taken" and name ~= nil then
+			local cut = string.sub(name :: string, 1, config.STAND_NAME_CHARS)
+			if node.holder.Text ~= cut then
+				node.holder.Text = cut
+			end
+			node.holder.Visible = true
+		else
+			node.holder.Visible = false
+		end
+	end
+	applyPick()
+end
+
+-- WHETHER THE WINDOW IS OPEN FOR THIS PLAYER, AND WHAT THE FOOTER SAYS. One call, because the three
+-- facts are one evaluation's: a map told the window had opened but not whether he is a hunter would
+-- grab the mouse off a beater.
+--
+-- THE AUTO-OPEN IS EDGE-TRIGGERED AND IT GIVES THE MAP BACK (section 9.6, D3: *"the map opens by
+-- itself"*). It opens only on the edge into a pickable window, and closes only a map IT opened: a
+-- player who pressed M himself during the window keeps his map when the horn goes.
+--
+-- `enoughLeft` IS THE CALLER'S MEASUREMENT (section 3.3): with fewer than
+-- `STAND_PICK_MIN_SECONDS` left a late joiner's map does not open over his face for one tap he
+-- cannot finish. The clock is the Hud's -- nothing here reads one.
+function MapUi.setPickWindow(window: boolean, isHunter: boolean, enoughLeft: boolean?, reason: string?)
+	local was = pickWindow and pickIsHunter
+	pickWindow = window == true
+	pickIsHunter = isHunter == true
+	pickReason = reason
+	local now_ = pickWindow and pickIsHunter
+	if now_ and not was then
+		if enoughLeft ~= false and not open then
+			pickOpenedByWindow = true
+			MapUi.setOpen(true)
+		end
+	elseif was and not now_ then
+		pickReason = nil
+		if pickOpenedByWindow and open then
+			MapUi.setOpen(false)
+		end
+		pickOpenedByWindow = false
+	end
+	applyPick()
+end
+
+-- A TAP ON ONE STAND. It writes nothing and draws nothing: it asks the one collaborator and the
+-- SERVER decides (section 9.1). A tap on a dead map is dead -- `pickable` is the same predicate the
+-- mouse grab uses, so a pad that somehow survived a close still cannot ask for anything.
+function MapUi.tapStand(index: number)
+	if not pickableNow() or type(index) ~= "number" then
+		return
+	end
+	stats.taps += 1
+	if PickSystem ~= nil and type(PickSystem.requestStand) == "function" then
+		PickSystem.requestStand(index)
+	end
+end
+
+-- WHAT IS ON SCREEN RIGHT NOW, read off what was written rather than recomputed -- the
+-- `markerPoints` shape, and the only honest answer to "is the picture right".
+function MapUi.standStates(): { StandState }
+	local out = {}
+	for index, state in ipairs(standDrawn) do
+		out[index] = { state = state.state, name = state.name }
+	end
+	return out
+end
+
+function MapUi.myStandMark(): number?
+	return standMine
+end
+
 -- ---------------------------------------------------------------- visibility: the one writer
 
 -- THE ONE WRITER OF BOTH FRAMES' `Visible`, AND THE ONE PLACE THE COMPASS'S PRECEDENT IS REFUSED.
@@ -1276,6 +1675,12 @@ function MapUi.applyVisibility()
 	-- found a position, because ABSENT IS NOT OUTSIDE -- a map that hid itself while a player was
 	-- respawning would flicker once per death.
 	mini.Visible = MapUi.minimapVisible(open, suppressed, reportOpen, hasGeometry, outside)
+	-- ...AND THE PICK'S TWO TAGGED NEEDS GO WITH IT (task 323b, section 9.2). This function already
+	-- runs on every one of the six exits -- `setOpen`, `setSuppressed`, `setPickWindow`,
+	-- `setGeometry` and each 20 Hz tick, which is what catches the REPORT opening (nothing else
+	-- tells this module about that) -- so the grab and the release have one caller and the free
+	-- mouse in a drive cannot be left behind.
+	applyPick()
 end
 
 -- ---------------------------------------------------------------- drawing
@@ -1349,18 +1754,36 @@ local function renderDrawer(drawer: Drawer, sources: { MarkerSource }, me: Vecto
 	-- character yet -- and a map that forgot to draw the one place you are going because you were
 	-- mid-respawn is the kind of hole `docs/PROJECT_CONTEXT.md` records being certified twice.
 	local goal, goalWord = drawer.target, drawer.targetWord
-	if targetPoint == nil then
+	-- THE STAND HE HAS TAKEN IS THE MARK (task 323b, section 9.4): "mine" reuses this node rather
+	-- than adding a sixth kind of mark, so the full map still carries EXACTLY ONE orange mark and it
+	-- is still where you are going.
+	--
+	-- TWO INPUTS, ONE WRITER, AND THE PRECEDENCE IS THIS LINE. `targetPoint` is the Hud's
+	-- (`setTarget`) and `standMine` is `setStandStates`', so neither is written twice; while the
+	-- window has given him a stand, the claim wins, because it is the place he CHOSE over the place
+	-- the deal offered him. The word is the stand's own index, so the number and the diamond are one
+	-- mark.
+	local markPoint = targetPoint
+	local markWord = targetWord
+	if standMine ~= nil and geometry ~= nil then
+		local stand = (geometry :: MapGeometry).stands[standMine :: number]
+		if stand ~= nil then
+			markPoint = stand
+			markWord = tostring(standMine)
+		end
+	end
+	if markPoint == nil then
 		goal.Visible = false
 		goalWord.Visible = false
 	else
-		local at = targetPoint :: Vector2
+		local at = markPoint :: Vector2
 		local gu, gv, inView = MapUi.project(at.X, at.Y, view)
 		local transparency = if inView then 0 else config.PINNED_TRANSPARENCY
 		goal.Position = UDim2.new(0.5, math.round(gu), 0.5, math.round(gv))
 		goal.BackgroundTransparency = transparency
 		goal.Visible = true
 		goalWord.Position = UDim2.new(0.5, math.round(gu), 0.5, math.round(gv) + config.STAND_PX)
-		local text = targetWord or "GO"
+		local text = markWord or "GO"
 		if goalWord.Text ~= text then
 			goalWord.Text = text
 		end
@@ -1627,6 +2050,19 @@ end
 -- next instance added to `buildDrawer` and not claimed fails a case rather than passing a comment.
 -- Round 3 missed `TargetWord` exactly that way, one instance after missing six.
 local function teardown()
+	-- THE SIXTH EXIT (task 323b, section 9.2). The nodes are about to be destroyed, so the mouse and
+	-- the trigger are handed back FIRST and off the same rule as every other exit: a rebuild that
+	-- left `map-pick` held would leave a free mouse in the drive with no button left to release it.
+	pickWindow = false
+	pickIsHunter = false
+	pickReason = nil
+	pickOpenedByWindow = false
+	applyPick()
+	table.clear(standNodes)
+	table.clear(standDrawn)
+	standVersion = nil
+	standMine = nil
+	footerLabel = nil
 	for index = #claimed, 1, -1 do
 		claimed[index]:Destroy()
 	end
@@ -1691,6 +2127,8 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	inner.Position = UDim2.fromScale(0.5, 0.5)
 	inner.ZIndex = config.Z_INDEX + 1
 	claim(inner).Parent = mini
+	-- THE MINIMAP HAS NO PADS AND NO STATES (section 9.5): its stands are 23 px apart on a phone,
+	-- and the pick is a panel gesture. The return is dropped on purpose.
 	drawGeometry(inner, model, layerView, false)
 
 	-- ---------------- the full map: a fixed-size panel, scaled to fit
@@ -1741,7 +2179,9 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	canvas.ClipsDescendants = true
 	canvas.ZIndex = config.Z_INDEX + 1
 	claim(canvas).Parent = full
-	drawGeometry(canvas, model, fullView, true)
+	-- THE NINE PADS, THE NINE SEAT RINGS AND THE NINE NAME LABELS COME BACK HERE (task 323b), held
+	-- for the life of this picture so `setStandStates` writes properties and never builds.
+	standNodes = drawGeometry(canvas, model, fullView, true)
 
 	-- NORTH UP, SAID ON THE PICTURE. A map with no north is a map you have to be told about.
 	local north = label(canvas, "North", config.TITLE_SIZE, "N")
@@ -1766,6 +2206,19 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	barLabel.Position = UDim2.new(0, config.FULL_PADDING, 1, -3)
 	barLabel.Size = UDim2.fromOffset(80, config.LABEL_SIZE + 2)
 	barLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+	-- THE PICK'S FOOTER LINE (task 323b): the standing instruction, or the word the server's last
+	-- refusal earned. In the footer the panel already has, to the RIGHT of the scale bar -- the
+	-- scale is a measurement and this is the only sentence on this panel, so they do not compete for
+	-- a pixel. Empty and hidden whenever the window is shut, which is every build with the flag off.
+	local reason = claim(label(full, "PickReason", config.LEGEND_TEXT_PX, ""))
+	reason.TextColor3 = MapUi.COLORS.arrow
+	reason.AnchorPoint = Vector2.new(1, 1)
+	reason.Position = UDim2.new(1, -config.FULL_PADDING, 1, -3)
+	reason.Size = UDim2.fromOffset(260, config.LEGEND_TEXT_PX + 2)
+	reason.TextXAlignment = Enum.TextXAlignment.Right
+	reason.Visible = false
+	footerLabel = reason
 
 	-- THE LEGEND'S ROWS (task 165), built once with the rest of the picture into the frame
 	-- `Hud.build` created. `layoutFor` decides whether the block is `Visible` (`legendVisible`); this
@@ -1873,6 +2326,11 @@ function MapUi.start(frames: { miniMap: Frame, fullMap: Frame, legend: Frame?, s
 	scrimFrame = frames.scrim
 	CameraSystem = collaborators and collaborators.Camera
 	ReportSystem = collaborators and collaborators.Report
+	-- THE TWO DOORS THE PICK BORROWS, by the tag "map-pick" (task 323b, amendment A-323-2) -- the
+	-- `ShopPanel` / `PadPanel` / `RangePanel` shape, and both may be nil: with no camera there is no
+	-- `Cursor`, and then the mouse is the player's own problem.
+	Cursor = collaborators and collaborators.Cursor
+	WeaponInput = collaborators and collaborators.Input
 	localUserId = (collaborators and collaborators.userId) or 0
 
 	MapUi.setGeometry(collaborators and collaborators.geometry)
