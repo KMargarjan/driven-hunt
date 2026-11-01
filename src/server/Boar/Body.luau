@@ -1863,9 +1863,9 @@ function Body.stepVisual(handle, dt: number, info, config)
 	-- kind's window; `handle.leapFor` is the window THIS kind's airtime actually needs, set on the
 	-- frame the bound started. While it has not started yet (`handle.clip ~= "leap"`) the Brain's
 	-- answer is the whole truth -- that is what begins the bound.
-	if handle.leapFor > 0 then
-		handle.leapFor = math.max(0, handle.leapFor - dt)
-	end
+	-- `or 0` BECAUSE A HANDLE IS NOT ALWAYS `Body.create`'S: a spec drives `stepVisual` on a table
+	-- it wrote itself (`boar_model.spec`), and a field added to the real handle is nil on those.
+	handle.leapFor = math.max(0, (handle.leapFor or 0) - dt)
 	local leaping = info.leaping == true and (handle.clip ~= "leap" or handle.leapFor > 0)
 
 	local name, rate = Body.clipFor({
