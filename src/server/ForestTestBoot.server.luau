@@ -796,10 +796,6 @@ local lobbyOn = Lobby.start({
 	end,
 })
 
--- THE SECOND SWEEP, HERE AND NOT INSIDE `Lobby`: the lobby owns its yard, this file owns the order.
-if lobbyOn then
-	reseatAfterLobby()
-end
 print(
 	string.format(
 		"[lobby] %s",
@@ -823,6 +819,11 @@ local function reportLobby()
 		return
 	end
 	lobbyReported = true
+	-- THE SECOND SWEEP, ON THE SAME EDGE THIS PRINT USES (task 326). The lobby's build is LAZY, so a
+	-- sweep placed right after `Lobby.start` runs BEFORE the yard is levelled and catches nothing:
+	-- measured in Karen's place, it moved 1 and left two ferns 106 studs west of the lodge 3.48 and
+	-- 2.42 studs up, and a sweep run by hand afterwards moved exactly those two.
+	reseatAfterLobby()
 	local st = Lobby.stats()
 	print(
 		string.format(
