@@ -3446,7 +3446,19 @@ function Match.botsNeedRebuild(phase: string, driveNumber: number, lastRebuilt: 
 	if pickOpen == true then
 		return false
 	end
-	return (phase == "Assigning" or phase == "Running") and lastRebuilt ~= driveNumber
+	if phase == "Assigning" then
+		return lastRebuilt ~= driveNumber
+	end
+	-- THE `Running` ARM IS REACHABLE ONLY WHEN A WINDOW WAS ACTUALLY MEASURED -- `pickOpen == false`,
+	-- not `nil`. nil is "this caller did not measure the pick" (every pure spec written before task
+	-- 323, and any caller that never heard of the argument), and that is NOT the same fact as "the
+	-- window is shut": answering `true` there would change the pure answer for a question nobody
+	-- asked. `bots_live.spec`'s own case at `("Running", 2, 1)` is the one that measured it.
+	--
+	-- IN PRODUCTION `syncBots` always passes a real boolean, so the rebuild the window deferred does
+	-- happen on the first `Running` tick -- and with the flag off the first `Assigning` tick has
+	-- already rebuilt and moved `lastRebuilt`, so this line is false. Today's behaviour, by identity.
+	return phase == "Running" and pickOpen == false and lastRebuilt ~= driveNumber
 end
 
 --

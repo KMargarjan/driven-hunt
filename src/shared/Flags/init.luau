@@ -140,7 +140,18 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- 21 -> 22 FOR TASK 313's `RANGE_SOLO`, and said out loud rather than paid for by quietly retiring
 -- somebody else's row: the table held exactly 21 and the tripwire refused the twenty-second, which
 -- is the cap doing its job (design 9).
-Flags.MAX_FLAGS = 22
+--
+-- 22 -> 23 FOR TASK 323a's `STAND_PICK`, and the same sentence again, said out loud rather than paid
+-- for by quietly retiring somebody else's row: the table held exactly 22 and the tripwire refused
+-- the twenty-third, which is the cap doing its job (`flags.spec`'s rot tripwire, MEASURED at this
+-- commit). `docs/design/stand-pick.md` section 10.1 asks for the row and D8 asks for it born OFF, so
+-- the two ways out of the cap are still the two task 238 listed -- retire the lit rows queued as
+-- TASKS.md 82b, which is the DIRECTOR's call and deletes a losing branch per retirement, or ship a
+-- new feel-critical path LIT, which `docs/design/feature-flags.md` section 11 step 1 forbids. This
+-- one changes who stands where in a drive and lengthens the intermission 5 s -> 15 s, which is a
+-- feel change and Karen's, so it is born off. **The Director may prefer to spend 82b instead**: this
+-- is one line either way.
+Flags.MAX_FLAGS = 23
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"

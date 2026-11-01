@@ -432,9 +432,17 @@ return function()
 			expect(Match.botsNeedRebuild("Running", 1, 1, false)).to.equal(false)
 			expect(Match.botsNeedRebuild("Scoring", 1, nil, false)).to.equal(false)
 			expect(Match.botsNeedRebuild("Waiting", 1, nil, false)).to.equal(false)
-			-- A caller that never heard of the argument is today's answer.
+			-- A CALLER THAT NEVER HEARD OF THE ARGUMENT IS TODAY'S ANSWER, EVERY ANSWER. nil is "this
+			-- caller did not measure the pick", which is not the same fact as "the window is shut" --
+			-- so the `Running` arm is unreachable without a measurement, and `bots_live.spec`'s own
+			-- case at ("Running", 2, 1) keeps the value it had before task 323.
 			expect(Match.botsNeedRebuild("Assigning", 1, nil)).to.equal(true)
 			expect(Match.botsNeedRebuild("Assigning", 1, 1)).to.equal(false)
+			expect(Match.botsNeedRebuild("Assigning", 2, 1)).to.equal(true)
+			expect(Match.botsNeedRebuild("Running", 2, 1)).to.equal(false)
+			expect(Match.botsNeedRebuild("Running", 1, nil)).to.equal(false)
+			expect(Match.botsNeedRebuild("Scoring", 2, 1)).to.equal(false)
+			expect(Match.botsNeedRebuild("Waiting", 2, 1)).to.equal(false)
 		end)
 	end)
 

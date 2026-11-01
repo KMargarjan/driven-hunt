@@ -61,11 +61,12 @@ return function()
 
 		-- ------------------------------------------------------ task 323, cases 21 and 22
 		it("case 21: reads picks, pickWindow and myStand off the snapshot and derives nothing", function()
-			-- A HAND-BUILT SNAPSHOT, pushed through the real remote, so the replica is read exactly
-			-- as production writes it. `Role` says which client this is, and the pick table names
-			-- THIS player on stand 7.
+			-- A HAND-WRITTEN SNAPSHOT, PASSED IN. The module has no setter and a client cannot
+			-- `FireClient` one to itself (`FireClient can only be called from the server`, MEASURED
+			-- at 1d27c22), so the three readers take the snapshot as an optional argument -- the
+			-- `Phase.pickWindow(state, ...)` discipline. Nothing here is derived: the fields ARE the
+			-- answers.
 			local me = player.UserId
-			local before = Match.get()
 			local staged = Drive.deepFreeze({
 				phase = "Assigning",
 				phaseEndsAt = Workspace:GetServerTimeNow() + 15,
@@ -81,19 +82,17 @@ return function()
 				picks = { ["7"] = me, ["3"] = me + 1 },
 				pickWindow = true,
 			})
-			Drive.remotes().MatchState:FireClient(player, staged)
-			expect(waitUntil(3, function()
-				local now = Match.get()
-				return now ~= nil and now.driveNumber == 99
-			end)).to.equal(true)
-			local table_ = Match.standPickTable()
-			expect(table_ ~= nil).to.equal(true)
-			expect((table_ :: any)["7"]).to.equal(me)
-			expect((table_ :: any)["3"]).to.equal(me + 1)
-			expect(Match.standPickOpen()).to.equal(true)
-			expect(Match.myStand()).to.equal(7)
-			-- ...AND ABSENT FIELDS ARE nil AND false, which is every build before this task: the
-			-- client draws exactly what it drew then.
+			local picks = Match.standPickTable(staged)
+			expect(picks ~= nil).to.equal(true)
+			expect((picks :: any)["7"]).to.equal(me)
+			expect((picks :: any)["3"]).to.equal(me + 1)
+			expect(Match.standPickOpen(staged)).to.equal(true)
+			expect(Match.myStand(staged)).to.equal(7)
+			expect(Match.myStand(staged, me + 1)).to.equal(3)
+			expect(Match.myStand(staged, me + 99)).to.equal(nil)
+
+			-- ...AND ABSENT FIELDS ARE nil AND false, which is every build before this task and every
+			-- build with the flag off: the client draws exactly what it drew then.
 			local bare = Drive.deepFreeze({
 				phase = "Assigning",
 				phaseEndsAt = Workspace:GetServerTimeNow() + 5,
@@ -107,18 +106,21 @@ return function()
 				holdUntil = 0,
 				through = {},
 			})
-			Drive.remotes().MatchState:FireClient(player, bare)
-			expect(waitUntil(3, function()
-				local now = Match.get()
-				return now ~= nil and now.driveNumber == 98
-			end)).to.equal(true)
-			expect(Match.standPickTable()).to.equal(nil)
+			expect(Match.standPickTable(bare)).to.equal(nil)
+			expect(Match.standPickOpen(bare)).to.equal(false)
+			expect(Match.myStand(bare)).to.equal(nil)
+
+			-- ...AND THE LIVE DRIVE IN THIS SESSION HAS THE FLAG OFF, so the live reads are the
+			-- absent case too -- which is the measurement, not the staging.
 			expect(Match.standPickOpen()).to.equal(false)
+			expect(Match.standPickTable()).to.equal(nil)
 			expect(Match.myStand()).to.equal(nil)
 			TestKit.note(
 				string.format(
-					"match_client: stand pick -- staged picks read back as mine=7, absent fields read nil/false (was drive %s)",
-					tostring(if before then before.driveNumber else nil)
+					"match_client: stand pick -- staged picks read mine=%s; live (flag off) reads table=%s open=%s",
+					tostring(Match.myStand(staged)),
+					tostring(Match.standPickTable()),
+					tostring(Match.standPickOpen())
 				)
 			)
 		end)

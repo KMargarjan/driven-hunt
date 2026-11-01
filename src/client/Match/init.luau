@@ -136,26 +136,32 @@ end
 -- off it: whether the window is open, who holds which stand, and which one is his. A client that
 -- computed "free" for itself would be a second opinion about a thing the server decides.
 
+-- ALL THREE TAKE THE SNAPSHOT AS AN OPTIONAL ARGUMENT, defaulting to the live one -- the
+-- `Phase.pickWindow(state, ...)` discipline, and it is what makes them assertable: this module still
+-- has NO setter (nothing here can write the live snapshot), and a client cannot `FireClient` one to
+-- itself, so a hand-written snapshot passed in is the only honest way to state these rules.
+
 -- WHO HOLDS WHICH STAND, keyed by `tostring(standIndex)`, or nil for "no pick in this build" --
 -- which is the flag off, a world with no stands, and every build before task 323.
-function Match.standPickTable(): { [string]: number }?
-	local current = snapshot
+function Match.standPickTable(from: Drive.MatchSnapshot?): { [string]: number }?
+	local current = from or snapshot
 	return if current then current.picks else nil
 end
 
-function Match.standPickOpen(): boolean
-	local current = snapshot
+function Match.standPickOpen(from: Drive.MatchSnapshot?): boolean
+	local current = from or snapshot
 	return if current then current.pickWindow == true else false
 end
 
 -- WHICH STAND IS MINE, or nil for "I have not taken one". Read out of the same table the map draws,
--- so his own mark and everybody else's cannot disagree.
-function Match.myStand(): number?
-	local current = snapshot
+-- so his own mark and everybody else's cannot disagree. `who` is this player unless a spec says
+-- otherwise.
+function Match.myStand(from: Drive.MatchSnapshot?, who: number?): number?
+	local current = from or snapshot
 	if not current or current.picks == nil then
 		return nil
 	end
-	local me = Players.LocalPlayer.UserId
+	local me = who or Players.LocalPlayer.UserId
 	for key, userId in pairs(current.picks :: { [string]: number }) do
 		if userId == me then
 			return tonumber(key)
