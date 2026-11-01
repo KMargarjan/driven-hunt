@@ -59,6 +59,13 @@ Places.FOLDER = "DrivePlaces"
 -- destroyed (rule 7).
 Places.TEMPLATE_SOURCES = table.freeze({ "OurForest", "LobbyAssets.Trees", "Session" })
 
+-- THE FOLDERS THAT HOLD THE WORLD'S OWN FOLIAGE AND NOTHING ELSE -- what `Places.reseat` is allowed
+-- to move (task 326). It is NOT `TEMPLATE_SOURCES`: `LobbyAssets` is a templates folder that also
+-- holds the lodge, the trucks and the two wall heads, and a sweep that lowers a BUILDING onto the
+-- lowest ground under it is a worse bug than the one this fixes. `places.spec` asserts this list is
+-- the same three names the lobby's own clearing uses, so the two cannot drift.
+Places.STANDING_WOOD = table.freeze({ "OurForest", "Session", "Foliage" })
+
 -- THE CLAW FRACTIONS THAT ARE NOT ZERO, measured by `tools/forest_ground.py species` on 2026-10-16
 -- and recorded in `tools/forest_claws.json`. Of this world's 61 models it accepted 25 and only these
 -- five carry a non-zero fraction; every other model is ZERO by the tool's own rule -- a measurement
@@ -294,8 +301,15 @@ end
 -- `LobbyAssets` -- sweeping the whole of that folder rather than just its `Trees` child, which is
 -- what the rule wants anyway: a leaf stops nothing wherever it stands.
 function Places.foliageRoots(root: Instance): { Instance }
+	return Places.rootsNamed(root, Places.TEMPLATE_SOURCES)
+end
+
+-- EVERY DIRECT CHILD OF `root` WHOSE NAME IS IN THE LIST, and every one of them: `Workspace` has TWO
+-- folders called `Session` in Karen's Forest Test (771 and 60 children), so a `FindFirstChild` here
+-- would sweep one of them and miss the other.
+function Places.rootsNamed(root: Instance, paths: { string }): { Instance }
 	local wanted: { [string]: boolean } = {}
-	for _, path in ipairs(Places.TEMPLATE_SOURCES) do
+	for _, path in ipairs(paths) do
 		wanted[string.split(path, ".")[1]] = true
 	end
 	local found: { Instance } = {}
@@ -320,6 +334,63 @@ function Places.quieten(model: Model): number
 	return changed
 end
 
+-- IS THIS MODEL'S JUNCTION ON THE GROUND? Measured off the model as it stands now, never off the
+-- number that was meant to put it there (lessons L-028 and L-086: the setter echoed back is not a
+-- measurement). `nil` ground is "cannot tell", and cannot tell is not seated.
+function Places.isSeated(model: Model, groundAt: (number, number) -> number?): boolean
+	local gap = Places.junctionGap(model, groundAt)
+	return gap ~= nil and gap <= TreeGround.TOLERANCE_STUDS
+end
+
+-- HOW FAR THE JUNCTION STANDS ABOVE THE LOWEST GROUND UNDER THE TRUNK'S OWN FOOTPRINT. Positive is
+-- daylight. `nil` when the model has no geometry or the world cannot answer under it.
+function Places.junctionGap(model: Model, groundAt: (number, number) -> number?): number?
+	local trunk, whole = Places.trunkBox(model)
+	if trunk == nil or whole == nil then
+		return nil
+	end
+	local grounds = Places.groundsUnder(trunk, groundAt)
+	if #grounds == 0 then
+		return nil
+	end
+	local lowest = math.huge
+	for _, y in ipairs(grounds) do
+		lowest = math.min(lowest, y)
+	end
+	return TreeGround.junctionY(trunk.minY, whole.maxY, Places.clawFor(model.Name)) - lowest
+end
+
+-- THE STANDING WOOD GETS THE RULE TOO, AT RUN TIME (task 326). Karen, 2026-11-01: *"also fix broken
+-- trees all terai some trees is high in air"*. Four models in `Workspace.Session` -- the bought map's
+-- own foliage, saved place content no commit can move -- hang 29 to 65 studs above the terrain.
+-- `tools/forest_ground.py` can re-seat that content in Edit, but a tool run is not a fix that ships;
+-- this is the same arithmetic (`TreeGround.decide`), run by the module that already sweeps these
+-- folders at boot, so the place file is untouched and deleting this function puts the trees back.
+--
+-- IT ONLY EVER LOWERS A TREE: `decide` answers `seated` for anything already in the ground and
+-- `cliff` for a footprint across a step, and neither moves. Returns how many it lowered.
+function Places.reseat(root: Instance, groundAt: (number, number) -> number?): number
+	local moved = 0
+	for _, model in ipairs(root:GetDescendants()) do
+		-- ONE MOVE PER TREE: a `Model` nested inside another `Model` is part of that tree, and moving
+		-- both would move it twice.
+		if model:IsA("Model") and model.Parent ~= nil and not model.Parent:IsA("Model") then
+			local trunk, whole = Places.trunkBox(model)
+			if trunk ~= nil and whole ~= nil then
+				local grounds = Places.groundsUnder(trunk, groundAt)
+				if #grounds > 0 then
+					local verdict = TreeGround.decide(trunk.minY, whole.maxY, Places.clawFor(model.Name), grounds)
+					if verdict.move and verdict.lift ~= nil then
+						model:PivotTo(model:GetPivot() + Vector3.new(0, verdict.lift, 0))
+						moved += 1
+					end
+				end
+			end
+		end
+	end
+	return moved
+end
+
 -- PLANT ONE. Returns the model, or nil with a reason.
 --
 -- THE ORDER MATTERS AND IS NOT COSMETIC: scale FIRST, then yaw and the provisional position, then
@@ -338,7 +409,11 @@ function Places.plantOne(
 	end
 	local made = template:Clone()
 	if item.scale ~= 1 then
-		made:ScaleTo(item.scale)
+		-- `Model:ScaleTo` IS ABSOLUTE AND `item.scale` IS RELATIVE ("1 is the template's own size").
+		-- 52 of this world's 61 templates stand at a `Scale` that is not 1 (the birches at 0.032-0.054,
+		-- the larches at 1.4-2.1), so `ScaleTo(0.95)` grew a birch by 25x: task 326 measured 125 trees
+		-- spanning over 300 studs, worst 1394, and their trunks 1800 studs above the ground.
+		made:ScaleTo(made:GetScale() * item.scale)
 	end
 	-- HIGH ENOUGH THAT THE SETTLE IS ALWAYS A DROP. `TreeGround.decide` only ever sinks a tree (its
 	-- own header: *"A tree that is already deep in the ground is left exactly where it is"*), so a
@@ -359,13 +434,28 @@ function Places.plantOne(
 	-- tree, because sinking it to the lowest reading would bury it to the crown on the high side.
 	-- For a tree nobody has planted yet the honest answer is to plant it somewhere else -- so it is
 	-- skipped and counted, never left standing in the air (standing rule E).
-	if TreeGround.spread(grounds) > Places.stepAllowance(whole.maxY - trunk.minY) then
+	--
+	-- ONE ALLOWANCE, ASKED ONCE AND HANDED TO THE VERDICT. Until task 326 the pre-check used
+	-- `stepAllowance` and `TreeGround.decide` re-checked with its own `CLIFF_STUDS` (4): a footprint
+	-- between the two answered "cliff" from the verdict, `move` was false, and the clone stayed exactly
+	-- where `PivotTo` had put it -- one whole tree-height above the ground. 536 of the 646 floating
+	-- trees task 326 counted in her place were that case.
+	local allowance = Places.stepAllowance(whole.maxY - trunk.minY)
+	if TreeGround.spread(grounds) > allowance then
 		made:Destroy()
 		return nil, "cliff"
 	end
-	local verdict = TreeGround.decide(trunk.minY, whole.maxY, Places.clawFor(item.model), grounds)
+	local verdict = TreeGround.decide(trunk.minY, whole.maxY, Places.clawFor(item.model), grounds, allowance)
 	if verdict.move and verdict.lift ~= nil then
 		made:PivotTo(made:GetPivot() + Vector3.new(0, verdict.lift, 0))
+	end
+	-- ...AND THEN IT IS MEASURED AGAIN, OFF THE MOVED MODEL (standing rule E). The planter's promise is
+	-- that nothing it leaves behind stands in the air, and the only way to keep it is to re-read the
+	-- settled tree rather than trust the lift that was just applied. A tree that is still up there is
+	-- destroyed and counted, which is a hole in the forest instead of a tree in the sky.
+	if not Places.isSeated(made, groundAt) then
+		made:Destroy()
+		return nil, "air"
 	end
 	Places.quieten(made)
 	made.Name = item.model
@@ -411,7 +501,17 @@ function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?
 	-- definition of where the ground is. The two plots hold zero non-terrain parts (BRIEF M8) and
 	-- terrain answered every sample over this ground (M4), so terrain IS the ground here.
 	if groundAt == nil then
-		return { places = 0, planted = 0, skipped = 0, missing = 0, cliff = 0, seconds = 0, reason = "no-ground-reader" }
+		return {
+			places = 0,
+			planted = 0,
+			skipped = 0,
+			missing = 0,
+			cliff = 0,
+			air = 0,
+			reseated = 0,
+			seconds = 0,
+			reason = "no-ground-reader",
+		}
 	end
 	local reader = groundAt
 	local sources = Places.templates(root)
@@ -427,6 +527,10 @@ function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?
 		skipped = 0,
 		missing = 0,
 		cliff = 0,
+		-- REFUSED BECAUSE IT WAS STILL IN THE AIR AFTER THE SETTLE, counted apart from `cliff` so a
+		-- report can say WHICH promise was the one that could not be kept (task 326).
+		air = 0,
+		reseated = 0,
 		parts = 0,
 		paints = 0,
 		unblocked = 0,
@@ -449,6 +553,13 @@ function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?
 	-- this is a no-op there and `report.unblocked` reads 0.
 	for _, source in ipairs(Places.foliageRoots(root)) do
 		report.unblocked += Places.unblockFoliage(source)
+	end
+	-- ...AND THE FLOATING ONES ARE PUT BACK ON THE GROUND (task 326). A SEPARATE LOOP OVER A SEPARATE
+	-- LIST, because the two sweeps are allowed to touch different things: `unblockFoliage` only clears
+	-- `CanQuery` on leaves and may run over the lodge's templates harmlessly, while this one MOVES what
+	-- it touches and must never see a building.
+	for _, source in ipairs(Places.rootsNamed(root, Places.STANDING_WOOD)) do
+		report.reseated += Places.reseat(source, reader)
 	end
 	local folder = Instance.new("Folder")
 	folder.Name = Places.FOLDER
@@ -498,6 +609,8 @@ function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?
 						report.planted += 1
 					elseif reason == "cliff" then
 						report.cliff += 1
+					elseif reason == "air" then
+						report.air += 1
 					else
 						report.skipped += 1
 					end

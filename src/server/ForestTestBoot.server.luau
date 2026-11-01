@@ -113,15 +113,20 @@ print(string.format(
 	-- `%d leaf part(s) unblocked` IS TASK 260's COUNT, printed because it is the number the
 	-- Director asked for before and after: how many parts in Karen's own wood stopped a bullet
 	-- and no longer do. 0 in DEV, which has neither `OurForest` nor `Session`.
-	"[ForestTestBoot] places: %d dressed, %d planted (%d parts), %d skipped, %d on a step, %d missing, %d paint call(s), %d leaf part(s) unblocked, %.2fs%s",
+	-- `%d left in the air` AND `%d re-seated` ARE TASK 326's TWO COUNTS, and they are the ones to read
+	-- first: the first must be small and the second is how many of Karen's own standing trees the boot
+	-- had to put back on the ground.
+	"[ForestTestBoot] places: %d dressed, %d planted (%d parts), %d skipped, %d on a step, %d left in the air, %d missing, %d paint call(s), %d leaf part(s) unblocked, %d re-seated, %.2fs%s",
 	planted.places,
 	planted.planted,
 	planted.parts,
 	planted.skipped,
 	planted.cliff,
+	planted.air,
 	planted.missing,
 	planted.paints,
 	planted.unblocked,
+	planted.reseated,
 	planted.seconds,
 	if planted.reason then " (" .. tostring(planted.reason) .. ")" else ""
 ))

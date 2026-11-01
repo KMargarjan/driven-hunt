@@ -242,7 +242,17 @@ export type Verdict = {
 -- claws show; it never moves a tree sideways, never deletes one"*). A tree that is already deep in
 -- the ground is left exactly where it is and reported as `seated` -- raising it is a different
 -- question and nobody has asked it.
-function TreeGround.decide(minY: number, maxY: number, clawFraction: number, grounds: { number }): Verdict
+-- `cliffStuds` IS THE CALLER'S OWN ALLOWANCE, because the two callers are asking different
+-- questions. `CLIFF_STUDS` (4) answers *"would sinking this EXISTING tree bury it?"*; a planter that
+-- has already accepted the spot has its own, wider number (`Places.stepAllowance`) and must pass it
+-- in, or the pre-check and the verdict disagree and the tree is left hanging (task 326).
+function TreeGround.decide(
+	minY: number,
+	maxY: number,
+	clawFraction: number,
+	grounds: { number },
+	cliffStuds: number?
+): Verdict
 	if #grounds == 0 then
 		return { move = false, lift = nil, clawGap = 0, bottomGap = 0, spread = 0, reason = "no-ground" }
 	end
@@ -263,7 +273,7 @@ function TreeGround.decide(minY: number, maxY: number, clawFraction: number, gro
 			reason = "seated",
 		}
 	end
-	if spread > TreeGround.CLIFF_STUDS then
+	if spread > (cliffStuds or TreeGround.CLIFF_STUDS) then
 		return { move = false, lift = nil, clawGap = clawGap, bottomGap = bottomGap, spread = spread, reason = "cliff" }
 	end
 	local contacts: { Contact } = {}

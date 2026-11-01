@@ -16,6 +16,7 @@ return function()
 	local Planter = require(ServerScriptService:WaitForChild("Places"))
 	local Ground = require(ServerScriptService.Places:WaitForChild("Ground"))
 	local TreeGround = require(ReplicatedStorage:WaitForChild("TreeGround"))
+	local LobbyCfg = require(ReplicatedStorage:WaitForChild("Lobby"))
 
 	-- ---------------------------------------------------------------- the four places exist
 
@@ -772,6 +773,194 @@ return function()
 
 			template:Destroy()
 			parent:Destroy()
+		end)
+
+		it("plants a template at the size it stands, not at the size the number names", function()
+			-- TASK 326. KAREN, 2026-11-01: *"also fix broken trees all terai some trees is high in air"*.
+			-- `item.scale` is RELATIVE ("1 is the template's own size") and `Model:ScaleTo` is ABSOLUTE.
+			-- 52 of the Forest Test's 61 templates stand at a `Scale` that is not 1 -- the birches at
+			-- 0.032-0.054 -- so `ScaleTo(0.95)` grew one 25x. FAILS BEFORE THE FIX by a factor of 4.75.
+			local function fakeTree(trunkHeight: number)
+				local model = Instance.new("Model")
+				local trunk = Instance.new("Part")
+				trunk.Name = "Trunk"
+				trunk.Size = Vector3.new(6, trunkHeight, 6)
+				trunk.CFrame = CFrame.new(0, trunkHeight / 2, 0)
+				trunk.Parent = model
+				local leaves = Instance.new("Part")
+				leaves.Name = "Leaves"
+				leaves.CanCollide = false
+				leaves.Size = Vector3.new(20, 20, 20)
+				leaves.CFrame = CFrame.new(0, trunkHeight, 0)
+				leaves.Parent = model
+				model.PrimaryPart = trunk
+				return model
+			end
+
+			local parent = Instance.new("Folder")
+			local template = fakeTree(60)
+			-- THE TEMPLATE DOES NOT STAND AT 1, which is the whole case.
+			template:ScaleTo(0.2)
+			local standingTrunk = (template:FindFirstChild("Trunk") :: Part).Size.Y
+			expect(math.abs(standingTrunk - 12) < 0.01).to.equal(true)
+
+			local item = { model = "Trunk", x = 500, z = -500, scale = 0.95, yaw = 0, band = "wood", side = -1 }
+			local made = Planter.plantOne(item, template, parent, function()
+				return 100
+			end)
+			expect(made).never.to.equal(nil)
+			local plantedTrunk = ((made :: Model):FindFirstChild("Trunk") :: Part).Size.Y
+			TestKit.note(
+				string.format(
+					"plantOne scale: template trunk %.2f, planted %.2f, wanted %.2f",
+					standingTrunk,
+					plantedTrunk,
+					standingTrunk * item.scale
+				)
+			)
+			expect(math.abs(plantedTrunk - standingTrunk * item.scale) < 0.01).to.equal(true)
+			expect(math.abs((made :: Model):GetScale() - 0.2 * item.scale) < 1e-4).to.equal(true)
+
+			template:Destroy()
+			parent:Destroy()
+		end)
+
+		it("leaves nothing in the air on a step its own allowance accepted", function()
+			-- TASK 326, AND IT IS THE HOLE THAT PUT 536 TREES IN THE SKY. The pre-check uses
+			-- `stepAllowance` (7 for this tree) and `TreeGround.decide` used to re-check with its own
+			-- `CLIFF_STUDS` (4). A 5-stud step is between the two: the spot was accepted, the verdict
+			-- said "cliff", `move` was false, and the clone stayed where `PivotTo` had put it -- one
+			-- tree-height up. FAILS BEFORE THE FIX with the junction 40 studs above the ground.
+			local function fakeTree(trunkHeight: number)
+				local model = Instance.new("Model")
+				local trunk = Instance.new("Part")
+				trunk.Name = "Trunk"
+				trunk.Size = Vector3.new(6, trunkHeight, 6)
+				trunk.CFrame = CFrame.new(0, trunkHeight / 2, 0)
+				trunk.Parent = model
+				local leaves = Instance.new("Part")
+				leaves.Name = "Leaves"
+				leaves.CanCollide = false
+				leaves.Size = Vector3.new(20, 20, 20)
+				leaves.CFrame = CFrame.new(0, trunkHeight, 0)
+				leaves.Parent = model
+				model.PrimaryPart = trunk
+				return model
+			end
+			-- A FIVE-STUD STEP ACROSS THE MIDDLE OF THE FOOTPRINT: more than `CLIFF_STUDS`, less than
+			-- this tree's own allowance.
+			local function step(x: number, _z: number): number?
+				return if x > 500 then 105 else 100
+			end
+
+			local parent = Instance.new("Folder")
+			local template = fakeTree(60)
+			local item = { model = "Trunk", x = 500, z = -500, scale = 1, yaw = 0, band = "wood", side = -1 }
+			expect(Planter.stepAllowance(70)).to.equal(7)
+			expect(TreeGround.CLIFF_STUDS < 5).to.equal(true)
+
+			local made, reason = Planter.plantOne(item, template, parent, step)
+			expect(made).never.to.equal(nil)
+			-- THE GEOMETRY FIRST, MEASURED WITH THE HELPERS THAT ALREADY EXISTED, so this case fails on
+			-- the DEFECT (junction 40 studs up) and not on a helper this task added.
+			local trunk, whole = Planter.trunkBox(made :: Model)
+			local grounds = Planter.groundsUnder(trunk :: any, step)
+			local lowest = math.huge
+			for _, y in ipairs(grounds) do
+				lowest = math.min(lowest, y)
+			end
+			local junction = (trunk :: any).minY
+				+ ((whole :: any).maxY - (trunk :: any).minY) * Planter.clawFor(item.model)
+			TestKit.note(string.format("plantOne on a 5-stud step: junction %.3f above the ground", junction - lowest))
+			expect(junction - lowest <= TreeGround.TOLERANCE_STUDS).to.equal(true)
+			expect(reason).to.equal("ok")
+			expect(Planter.isSeated(made :: Model, step)).to.equal(true)
+
+			template:Destroy()
+			parent:Destroy()
+		end)
+
+		it("only ever re-seats the world's own foliage, never a building", function()
+			-- TASK 326. `STANDING_WOOD` IS NOT `TEMPLATE_SOURCES`: `LobbyAssets` holds the lodge, the
+			-- trucks and the two wall heads as well as a tree folder, and lowering a BUILDING onto the
+			-- lowest ground under it is a worse bug than the one this task fixes. The three names are
+			-- the lobby's own clearing list, asserted rather than described.
+			expect(#Planter.STANDING_WOOD).to.equal(3)
+			for _, name in ipairs(LobbyCfg.CONFIG.CLEARING.FOLDERS) do
+				expect(table.find(Planter.STANDING_WOOD, name) ~= nil).to.equal(true)
+			end
+			expect(#LobbyCfg.CONFIG.CLEARING.FOLDERS).to.equal(#Planter.STANDING_WOOD)
+			expect(table.find(Planter.STANDING_WOOD, "LobbyAssets")).to.equal(nil)
+
+			-- AND THE SWEEP READS THAT LIST, not the templates: a lodge in a `LobbyAssets` folder is
+			-- left exactly where it stands even though it is floating.
+			local root = Instance.new("Folder")
+			local assets = Instance.new("Folder")
+			assets.Name = "LobbyAssets"
+			assets.Parent = root
+			local lodge = Instance.new("Model")
+			lodge.Name = "Lodge"
+			local wall = Instance.new("Part")
+			wall.Name = "Wall"
+			wall.Size = Vector3.new(40, 20, 30)
+			wall.CFrame = CFrame.new(0, 130, 0)
+			wall.Parent = lodge
+			lodge.PrimaryPart = wall
+			lodge.Parent = assets
+			local wood = Instance.new("Folder")
+			wood.Name = "OurForest"
+			wood.Parent = root
+			local flat = function(): number?
+				return 100
+			end
+			local before = wall.Position.Y
+			local moved = 0
+			for _, source in ipairs(Planter.rootsNamed(root, Planter.STANDING_WOOD)) do
+				moved += Planter.reseat(source, flat)
+			end
+			expect(moved).to.equal(0)
+			expect(wall.Position.Y).to.equal(before)
+			root:Destroy()
+		end)
+
+		it("re-seats a standing tree that hangs in the air and leaves a buried one alone", function()
+			-- TASK 326. Four models in `Workspace.Session` -- the bought map's own foliage, saved place
+			-- content -- hang 29 to 65 studs above the terrain, and no commit can move saved content.
+			-- `Places.reseat` is the run-time sweep that does, and it must only ever LOWER.
+			local function treeAt(y: number): Model
+				local model = Instance.new("Model")
+				local trunk = Instance.new("Part")
+				trunk.Name = "Trunk"
+				trunk.Size = Vector3.new(6, 60, 6)
+				trunk.CFrame = CFrame.new(0, y + 30, 0)
+				trunk.Parent = model
+				model.PrimaryPart = trunk
+				return model
+			end
+			local flat = function(): number?
+				return 100
+			end
+
+			local root = Instance.new("Folder")
+			local floating = treeAt(140)
+			floating.Name = "Floater"
+			floating.Parent = root
+			local buried = treeAt(96)
+			buried.Name = "Buried"
+			buried.Parent = root
+			local buriedBefore = (buried:FindFirstChild("Trunk") :: Part).Position.Y
+
+			local moved = Planter.reseat(root, flat)
+			expect(moved).to.equal(1)
+			local gap = Planter.junctionGap(floating, flat)
+			TestKit.note(string.format("reseat: floater was +40, now %.3f", gap or -999))
+			expect((gap :: number) <= TreeGround.TOLERANCE_STUDS).to.equal(true)
+			expect((gap :: number) < 0).to.equal(true)
+			-- THE BURIED ONE IS NOT RAISED: `decide` only ever sinks, and raising saved content is a
+			-- question nobody has asked.
+			expect((buried:FindFirstChild("Trunk") :: Part).Position.Y).to.equal(buriedBefore)
+
+			root:Destroy()
 		end)
 
 		it("allows a bigger step for a bigger tree, with the tool's number as the floor", function()
