@@ -1058,7 +1058,18 @@ Match.start({
 		-- `ServerStorage` (`Data.START_ROLE_ATTRIBUTE` is read exactly here too). The DECISION stays
 		-- in `ForestTest`; the composition root only hands it the two things it cannot reach --
 		-- `Match`'s drive number and the Director's override.
-		ForestTest.layoutForDrive(Match.driveNumber(), ServerStorage:GetAttribute(Data.LAYOUT_OVERRIDE_ATTRIBUTE))
+		--
+		-- **THE GRID PREVIEW FORCES THE CELL** (task 327b). Without it the drive's own level-trigger
+		-- rebuilds `ForestMarkers` and `HighSeats` for the ROAD a second after the boot built the
+		-- cell -- MEASURED in Karen's place: the proof probe read `Stand1 at (2430, -2120)`, the
+		-- road's own post, and stands 10-15 missing. The preview's whole job is that Karen can walk
+		-- the cell, so while the flag is on the cell IS the live place and ONE owner builds it.
+		-- The Director's `DHForestLayout` is ignored while the preview is on, which is said here
+		-- rather than discovered: a preview that could be overridden would be two answers.
+		ForestTest.layoutForDrive(
+			Match.driveNumber(),
+			if gridPreviewOn then Grid.PREVIEW_CELL else ServerStorage:GetAttribute(Data.LAYOUT_OVERRIDE_ATTRIBUTE)
+		)
 		-- THE HIGH SEATS, BEFORE THE MARKERS, AND THE ORDER IS THE WHOLE OF TASK 218 (design
 		-- section 9.3). `Seats.ensure` is LEVEL-TRIGGERED on the layout's name: a folder already
 		-- stamped with this layout costs a `FindFirstChild` and casts no ray, so the once-a-second

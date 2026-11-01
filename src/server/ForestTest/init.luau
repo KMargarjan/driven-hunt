@@ -37,6 +37,10 @@ local TweenService = game:GetService("TweenService")
 -- `ReplicatedStorage` -- `Flags.state`'s rule, for the reason that file writes down.
 local DataModule = ReplicatedStorage:WaitForChild("ForestTest")
 local Data = require(DataModule)
+-- THE GRID'S EIGHT CELLS (task 327b). A cell IS a layout (design 3.2), so this file resolves a name
+-- through both tables -- see `layoutByName`. 327d puts the cells into `Data.LAYOUTS` and the second
+-- lookup collapses into the first.
+local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
 -- READ, NEVER WIRED: this module asks `Boar` for ONE number -- how far a boar notices a moving
 -- stimulus -- so "was a driver already pushing here" uses the animal's own radius rather than a
 -- second copy of it. `Boar` does not require this module, so there is no cycle.
@@ -2295,7 +2299,14 @@ function ForestTest.forcedLayout(value: any): string?
 	if string.sub(word, 1, 1) == "/" then
 		word = string.sub(word, 2)
 	end
-	return if Data.layoutNamed(word) ~= nil then word else nil
+	if Data.layoutNamed(word) ~= nil then
+		return word
+	end
+	-- A CELL ID IS A LAYOUT NAME TOO (task 327b), and it comes back in its OWN spelling: ids are
+	-- "A1".."D2" and this function lower-cases, so returning `word` would hand `promote` a name no
+	-- table has and the preview would silently deal the road instead.
+	local id = string.upper(word)
+	return if Grid.cellOf(id) ~= nil then id else nil
 end
 
 -- PUBLISHES THE LIVE NAME FOR THE CLIENTS. The ONE writer of that attribute.
@@ -2339,8 +2350,22 @@ end
 -- EVERYTHING THAT HAS TO HAPPEN WHEN THE GROUND MOVES, in one place and in this order (design 6.5
 -- steps 1 and 2). Steps 3 to 8 are already per-drive and are listed there; nothing here repeats
 -- them.
+-- A LAYOUT BY NAME, THE GRID'S CELLS INCLUDED (task 327b). `Data.layoutNamed` answers the four
+-- shipped rows and nil for anything else; `Grid.layoutFor` answers the eight cells. One lookup, so
+-- `promote` cannot deal a name `forcedLayout` accepted.
+local function layoutByName(name: string?): any
+	local row = Data.layoutNamed(name)
+	if row ~= nil then
+		return row
+	end
+	if type(name) == "string" and Grid.cellOf(name) ~= nil then
+		return Grid.layoutFor(name)
+	end
+	return nil
+end
+
 local function promote(name: string, source: string)
-	local layout = Data.layoutNamed(name)
+	local layout = layoutByName(name)
 	if layout == nil then
 		return
 	end
