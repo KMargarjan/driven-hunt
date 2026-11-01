@@ -320,6 +320,35 @@ function Places.quieten(model: Model): number
 	return changed
 end
 
+-- HOW FAR THE JUNCTION STANDS ABOVE THE LOWEST GROUND UNDER THE TRUNK'S OWN FOOTPRINT. Positive is
+-- daylight. `nil` when the model has no geometry or the world cannot answer under it. It exists so a
+-- SPEC can re-measure a settled tree off the model instead of off the lift that was applied to it
+-- (lessons L-028 and L-086); nothing in `src/` reads it.
+function Places.junctionGap(model: Model, groundAt: (number, number) -> number?): number?
+	local trunk, whole = Places.trunkBox(model)
+	if trunk == nil or whole == nil then
+		return nil
+	end
+	local grounds = Places.groundsUnder(trunk, groundAt)
+	if #grounds == 0 then
+		return nil
+	end
+	local lowest = math.huge
+	for _, y in ipairs(grounds) do
+		lowest = math.min(lowest, y)
+	end
+	return TreeGround.junctionY(trunk.minY, whole.maxY, Places.clawFor(model.Name)) - lowest
+end
+
+-- THE STANDING WOOD GETS THE RULE TOO, AT RUN TIME (task 326). Karen, 2026-11-01: *"also fix broken
+-- trees all terai some trees is high in air"*. Four models in `Workspace.Session` -- the bought map's
+-- own foliage, saved place content no commit can move -- hang 29 to 65 studs above the terrain.
+-- `tools/forest_ground.py` can re-seat that content in Edit, but a tool run is not a fix that ships;
+-- this is the same arithmetic (`TreeGround.decide`), run by the module that already sweeps these
+-- folders at boot, so the place file is untouched and deleting this function puts the trees back.
+--
+-- IT ONLY EVER LOWERS A TREE: `decide` answers `seated` for anything already in the ground and
+-- `cliff` for a footprint across a step, and neither moves. Returns how many it lowered.
 -- PLANT ONE. Returns the model, or nil with a reason.
 --
 -- THE ORDER MATTERS AND IS NOT COSMETIC: scale FIRST, then yaw and the provisional position, then
@@ -338,7 +367,12 @@ function Places.plantOne(
 	end
 	local made = template:Clone()
 	if item.scale ~= 1 then
-		made:ScaleTo(item.scale)
+		-- `Model:ScaleTo` IS ABSOLUTE AND `item.scale` IS RELATIVE ("1 is the template's own size").
+		-- 52 of this world's 61 templates stand at a `Scale` that is not 1 (the birches at 0.032-0.054,
+		-- the larches at 1.4-2.1), so `ScaleTo(0.95)` grew a birch by 25x: task 326 measured 125 models
+		-- whose PART CENTRES span over 300 studs (worst 1394) -- 329 by the census's oriented boxes,
+		-- worst 2260 -- and their trunks 1800 studs above the ground.
+		made:ScaleTo(made:GetScale() * item.scale)
 	end
 	-- HIGH ENOUGH THAT THE SETTLE IS ALWAYS A DROP. `TreeGround.decide` only ever sinks a tree (its
 	-- own header: *"A tree that is already deep in the ground is left exactly where it is"*), so a
@@ -359,11 +393,18 @@ function Places.plantOne(
 	-- tree, because sinking it to the lowest reading would bury it to the crown on the high side.
 	-- For a tree nobody has planted yet the honest answer is to plant it somewhere else -- so it is
 	-- skipped and counted, never left standing in the air (standing rule E).
-	if TreeGround.spread(grounds) > Places.stepAllowance(whole.maxY - trunk.minY) then
+	--
+	-- ONE ALLOWANCE, ASKED ONCE AND HANDED TO THE VERDICT. Until task 326 the pre-check used
+	-- `stepAllowance` and `TreeGround.decide` re-checked with its own `CLIFF_STUDS` (4): a footprint
+	-- between the two answered "cliff" from the verdict, `move` was false, and the clone stayed exactly
+	-- where `PivotTo` had put it -- one whole tree-height above the ground. 536 of the 646 floating
+	-- trees task 326 counted in her place were that case.
+	local allowance = Places.stepAllowance(whole.maxY - trunk.minY)
+	if TreeGround.spread(grounds) > allowance then
 		made:Destroy()
 		return nil, "cliff"
 	end
-	local verdict = TreeGround.decide(trunk.minY, whole.maxY, Places.clawFor(item.model), grounds)
+	local verdict = TreeGround.decide(trunk.minY, whole.maxY, Places.clawFor(item.model), grounds, allowance)
 	if verdict.move and verdict.lift ~= nil then
 		made:PivotTo(made:GetPivot() + Vector3.new(0, verdict.lift, 0))
 	end
@@ -411,7 +452,15 @@ function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?
 	-- definition of where the ground is. The two plots hold zero non-terrain parts (BRIEF M8) and
 	-- terrain answered every sample over this ground (M4), so terrain IS the ground here.
 	if groundAt == nil then
-		return { places = 0, planted = 0, skipped = 0, missing = 0, cliff = 0, seconds = 0, reason = "no-ground-reader" }
+		return {
+			places = 0,
+			planted = 0,
+			skipped = 0,
+			missing = 0,
+			cliff = 0,
+			seconds = 0,
+			reason = "no-ground-reader",
+		}
 	end
 	local reader = groundAt
 	local sources = Places.templates(root)
@@ -450,6 +499,10 @@ function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?
 	for _, source in ipairs(Places.foliageRoots(root)) do
 		report.unblocked += Places.unblockFoliage(source)
 	end
+	-- ...AND THE FLOATING ONES ARE PUT BACK ON THE GROUND (task 326). A SEPARATE LOOP OVER A SEPARATE
+	-- LIST, because the two sweeps are allowed to touch different things: `unblockFoliage` only clears
+	-- `CanQuery` on leaves and may run over the lodge's templates harmlessly, while this one MOVES what
+	-- it touches and must never see a building.
 	local folder = Instance.new("Folder")
 	folder.Name = Places.FOLDER
 	local lookup: { [string]: Model } = {}

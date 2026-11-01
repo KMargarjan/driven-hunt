@@ -1,3 +1,60 @@
+## 2026-11-01, Task 326 ROUND 1 -- NEEDS DIRECTOR: who may put Karen's own standing trees back on the ground
+
+Karen, 2026-11-01: *"also fix broken trees all terai some trees is high in air"*. The dispatch asked
+for a run-time ground snap on saved place content, *"owned by the code that already owns that
+folder ... or if that is wrong, write NEEDS DIRECTOR"*. **It is wrong as the design stands, so this
+is that note.**
+
+**What round 1 shipped and the Reviewer refused.** `Places.reseat` / `Places.reseatAll` swept
+`OurForest`, `Session` and `Foliage` at boot and lowered 413 + 2 models onto the ground.
+`reviews/task-326/RESULT.md` finding 1: `docs/design/drive-places.md` §1.2 item 2 says `Places`
+**"Must not move, re-parent, scale, re-colour or destroy anything in `Workspace.OurForest`,
+`Workspace.Session` or `Workspace.LobbyAssets`"**, and §6's table repeats it. The Reviewer is right
+and the Builder may not amend a design, so **the whole sweep is removed from this task.** Finding 2
+(the sweep moved ~409 models that showed no daylight, down by the whole relief under their
+footprint, unmeasured) and finding 3 (the `air` arm was unreachable) are removed with it and by
+deleting the dead arm.
+
+**What this leaves unfixed, measured:** **4 models in `Workspace.Session` hang 29.0, 34.4, 53.5 and
+65.2 studs above the terrain** (`<runs-dir>/326-census-edit-main.json`; the 53.5 one is a 104.7-stud
+`Tree8` at -620, 3503). They are saved Studio content spread over the whole terrain, which is the
+"all terai" half of Karen's sentence. Everything this repo's code plants is fixed: `DrivePlaces`
+went **646 floating of 3028 (worst 1812.81 studs) to 0 of 3253**, and **329 models spanning over
+300 studs to 0**.
+
+**THE DECISION, and three ways to take it:**
+1. **Amend the design** -- `tools/architect.sh design drive-places --task 326` with a BRIEF saying
+   `Places` may move the world's standing foliage VERTICALLY ONLY and under what bound, then
+   restore the sweep (it is in the branch's history at `889ea95c`). Note §1.2 is already not quite
+   true today: `Places.unblockFoliage` writes `CanQuery` on those same folders (task 260).
+2. **Give the sweep to another owner** the Architect names.
+3. **Use the tool the project already built for exactly this** -- `tools/forest_ground.py`, which
+   re-seats saved content in Edit with a backup and a dry run. It is hard-coded to
+   `Workspace.OurForest`; the `Session` folders would need adding. It changes Karen's place, so it
+   needs her (or the Director) to accept the Rojo/Studio dialog and save.
+
+## 2026-11-01, Task 326 -- NEEDS KAREN: no frame can be taken of the Forest Test (rule 5 unmet)
+
+`screen_capture` against the Forest Test Studio returns the SAME cached image (the lodge porch) for
+six different camera/look pairs AND for a confirmed character move to the measured spot. Both routes
+were tried and both report success in Luau while yielding that one frame: `<runs-dir>/326frame.py`
+(parks the client camera, `CameraType = Scriptable`) and `<runs-dir>/326shot.py` (stands the player
+there; the probe answers `player at -3836, 105.15, 3264`). Frames: `326-before-A-eye.png` ...
+`326-before-S1.png`, `326-test-cam.png`.
+
+**The clicks:** bring the **Driven Hunt Forest Test** window to the front and move or resize it so
+its viewport is actually drawn, then re-run `python 326shot.py <out.png> "<x>,<y>,<z>" "<x>,<y>,<z>"`
+from `<runs-dir>`. If the frame still repeats, `screen_capture` is broken for that window and that
+is a harness fault to report (rule 6).
+
+**Also: the Rojo panel is closed in that window**, so the port cannot be switched by script
+(`<runs-dir>/326-screen6.png`; `rojo-port.sh` and `reconnect34874.sh` click fixed coordinates and
+would have clicked into Karen's viewport; **Plugins -> Rojo** clicked three times gave only the
+tooltip). The live proof was therefore taken on `:34873`: `driven-hunt-karen` was checked out at the
+code commit, the place was Played and measured, and that copy was **restored to `main` (cf2e6955)**
+-- verified, with `rojo :34873` still holding its original session id. Her place was never saved,
+published or committed.
+
 ## 2026-10-31, Task 321 ROUND 2 -- NEEDS DIRECTOR: both gate lines need Karen's Forest Test closed
 
 **The three blocking findings of `reviews/task-321/RESULT.md` are fixed, each with its FAIL-FIRST run

@@ -774,6 +774,111 @@ return function()
 			parent:Destroy()
 		end)
 
+		it("plants a template at the size it stands, not at the size the number names", function()
+			-- TASK 326. KAREN, 2026-11-01: *"also fix broken trees all terai some trees is high in air"*.
+			-- `item.scale` is RELATIVE ("1 is the template's own size") and `Model:ScaleTo` is ABSOLUTE.
+			-- 52 of the Forest Test's 61 templates stand at a `Scale` that is not 1 -- the birches at
+			-- 0.032-0.054 -- so `ScaleTo(0.95)` grew one 25x. FAILS BEFORE THE FIX by a factor of 4.75.
+			local function fakeTree(trunkHeight: number)
+				local model = Instance.new("Model")
+				local trunk = Instance.new("Part")
+				trunk.Name = "Trunk"
+				trunk.Size = Vector3.new(6, trunkHeight, 6)
+				trunk.CFrame = CFrame.new(0, trunkHeight / 2, 0)
+				trunk.Parent = model
+				local leaves = Instance.new("Part")
+				leaves.Name = "Leaves"
+				leaves.CanCollide = false
+				leaves.Size = Vector3.new(20, 20, 20)
+				leaves.CFrame = CFrame.new(0, trunkHeight, 0)
+				leaves.Parent = model
+				model.PrimaryPart = trunk
+				return model
+			end
+
+			local parent = Instance.new("Folder")
+			local template = fakeTree(60)
+			-- THE TEMPLATE DOES NOT STAND AT 1, which is the whole case.
+			template:ScaleTo(0.2)
+			local standingTrunk = (template:FindFirstChild("Trunk") :: Part).Size.Y
+			expect(math.abs(standingTrunk - 12) < 0.01).to.equal(true)
+
+			local item = { model = "Trunk", x = 500, z = -500, scale = 0.95, yaw = 0, band = "wood", side = -1 }
+			local made = Planter.plantOne(item, template, parent, function()
+				return 100
+			end)
+			expect(made).never.to.equal(nil)
+			local plantedTrunk = ((made :: Model):FindFirstChild("Trunk") :: Part).Size.Y
+			TestKit.note(
+				string.format(
+					"plantOne scale: template trunk %.2f, planted %.2f, wanted %.2f",
+					standingTrunk,
+					plantedTrunk,
+					standingTrunk * item.scale
+				)
+			)
+			expect(math.abs(plantedTrunk - standingTrunk * item.scale) < 0.01).to.equal(true)
+			expect(math.abs((made :: Model):GetScale() - 0.2 * item.scale) < 1e-4).to.equal(true)
+
+			template:Destroy()
+			parent:Destroy()
+		end)
+
+		it("leaves nothing in the air on a step its own allowance accepted", function()
+			-- TASK 326, AND IT IS THE HOLE THAT PUT 536 TREES IN THE SKY. The pre-check uses
+			-- `stepAllowance` (7 for this tree) and `TreeGround.decide` used to re-check with its own
+			-- `CLIFF_STUDS` (4). A 5-stud step is between the two: the spot was accepted, the verdict
+			-- said "cliff", `move` was false, and the clone stayed where `PivotTo` had put it -- one
+			-- tree-height up. FAILS BEFORE THE FIX with the junction 40 studs above the ground.
+			local function fakeTree(trunkHeight: number)
+				local model = Instance.new("Model")
+				local trunk = Instance.new("Part")
+				trunk.Name = "Trunk"
+				trunk.Size = Vector3.new(6, trunkHeight, 6)
+				trunk.CFrame = CFrame.new(0, trunkHeight / 2, 0)
+				trunk.Parent = model
+				local leaves = Instance.new("Part")
+				leaves.Name = "Leaves"
+				leaves.CanCollide = false
+				leaves.Size = Vector3.new(20, 20, 20)
+				leaves.CFrame = CFrame.new(0, trunkHeight, 0)
+				leaves.Parent = model
+				model.PrimaryPart = trunk
+				return model
+			end
+			-- A FIVE-STUD STEP ACROSS THE MIDDLE OF THE FOOTPRINT: more than `CLIFF_STUDS`, less than
+			-- this tree's own allowance.
+			local function step(x: number, _z: number): number?
+				return if x > 500 then 105 else 100
+			end
+
+			local parent = Instance.new("Folder")
+			local template = fakeTree(60)
+			local item = { model = "Trunk", x = 500, z = -500, scale = 1, yaw = 0, band = "wood", side = -1 }
+			expect(Planter.stepAllowance(70)).to.equal(7)
+			expect(TreeGround.CLIFF_STUDS < 5).to.equal(true)
+
+			local made, reason = Planter.plantOne(item, template, parent, step)
+			expect(made).never.to.equal(nil)
+			-- THE GEOMETRY FIRST, MEASURED WITH THE HELPERS THAT ALREADY EXISTED, so this case fails on
+			-- the DEFECT (junction 40 studs up) and not on a helper this task added.
+			local trunk, whole = Planter.trunkBox(made :: Model)
+			local grounds = Planter.groundsUnder(trunk :: any, step)
+			local lowest = math.huge
+			for _, y in ipairs(grounds) do
+				lowest = math.min(lowest, y)
+			end
+			local junction = (trunk :: any).minY
+				+ ((whole :: any).maxY - (trunk :: any).minY) * Planter.clawFor(item.model)
+			TestKit.note(string.format("plantOne on a 5-stud step: junction %.3f above the ground", junction - lowest))
+			expect(junction - lowest <= TreeGround.TOLERANCE_STUDS).to.equal(true)
+			expect(reason).to.equal("ok")
+			expect((Planter.junctionGap(made :: Model, step) :: number) <= TreeGround.TOLERANCE_STUDS).to.equal(true)
+
+			template:Destroy()
+			parent:Destroy()
+		end)
+
 		it("allows a bigger step for a bigger tree, with the tool's number as the floor", function()
 			-- `Places.stepAllowance` IS NEW IN THIS TASK and nothing asserted either branch (Reviewer,
 			-- round 1, finding 2). `TreeGround.CLIFF_STUDS` is the RE-SEATING tool's number -- *"would

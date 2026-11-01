@@ -200,4 +200,24 @@ return function()
 			expect(after.clawGap).to.be.near(-0.6, 0.01) -- exactly the sink, under the surface
 		end)
 	end)
+
+	describe("the caller's own cliff allowance", function()
+		it("uses the number it is given, and its own only when it is given none", function()
+			-- TASK 326. `CLIFF_STUDS` (4) answers *"would sinking this EXISTING tree bury it?"*. A
+			-- PLANTER that has already accepted the spot has a wider number, and until this parameter
+			-- existed the two disagreed and `Places.plantOne` left the tree hanging.
+			-- THE TREE IS IN THE AIR TO BEGIN WITH (junction 110, lowest ground 100), or `decide` answers
+			-- `seated` before it ever reaches the cliff check and the case asserts nothing.
+			local grounds = { 100, 101, 102, 103, 105 } -- spread 5
+			expect(TreeGround.spread(grounds)).to.equal(5)
+			expect(TreeGround.CLIFF_STUDS < 5).to.equal(true)
+			expect(TreeGround.decide(110, 180, 0, grounds).reason).to.equal("cliff")
+			expect(TreeGround.decide(110, 180, 0, grounds, 7).reason).to.equal("ok")
+			expect(TreeGround.decide(110, 180, 0, grounds, 7).move).to.equal(true)
+			-- ...AND A NUMBER TIGHTER THAN ITS OWN IS HONOURED TOO, so the parameter is a threshold and
+			-- not a way to switch the guard off.
+			expect(TreeGround.decide(110, 180, 0, { 100, 102 }, 1).reason).to.equal("cliff")
+			expect(TreeGround.decide(110, 180, 0, { 100, 102 }).reason).to.equal("ok")
+		end)
+	end)
 end
