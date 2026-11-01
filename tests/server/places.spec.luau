@@ -914,10 +914,7 @@ return function()
 				return 100
 			end
 			local before = wall.Position.Y
-			local moved = 0
-			for _, source in ipairs(Planter.rootsNamed(root, Planter.STANDING_WOOD)) do
-				moved += Planter.reseat(source, flat)
-			end
+			local moved = Planter.reseatAll(flat, root)
 			expect(moved).to.equal(0)
 			expect(wall.Position.Y).to.equal(before)
 			root:Destroy()
@@ -959,6 +956,57 @@ return function()
 			-- THE BURIED ONE IS NOT RAISED: `decide` only ever sinks, and raising saved content is a
 			-- question nobody has asked.
 			expect((buried:FindFirstChild("Trunk") :: Part).Position.Y).to.equal(buriedBefore)
+
+			root:Destroy()
+		end)
+
+		it("sweeps BOTH folders called Session, and sweeps again after the lobby levels its yard", function()
+			-- TASK 326. Karen's Workspace has TWO folders called `Session` (771 and 60 children), so a
+			-- `FindFirstChild` would sweep one and miss the other -- and `Lobby.start` LEVELS ITS OWN
+			-- YARD after `Places.build` has run, which left two ferns 106 studs west of the lodge
+			-- hanging 2.42 and 3.48 studs up with every other plant already down. `reseatAll` is the
+			-- loop both calls share, so the boot cannot sweep one list and then a different one.
+			local function plantAt(y: number, name: string): Model
+				local model = Instance.new("Model")
+				local trunk = Instance.new("Part")
+				trunk.Name = "Trunk"
+				trunk.Size = Vector3.new(4, 20, 4)
+				trunk.CFrame = CFrame.new(0, y + 10, 0)
+				trunk.Parent = model
+				model.Name = name
+				model.PrimaryPart = trunk
+				return model
+			end
+			local root = Instance.new("Folder")
+			local hits = {}
+			for _, name in ipairs({ "Session", "Session", "OurForest", "Foliage", "LobbyAssets" }) do
+				local folder = Instance.new("Folder")
+				folder.Name = name
+				folder.Parent = root
+				local tree = plantAt(140, name)
+				tree.Parent = folder
+				table.insert(hits, tree)
+			end
+			local ground = 100
+			local reader = function(): number?
+				return ground
+			end
+
+			-- FIVE FOLDERS, FOUR OF THEM STANDING WOOD: both `Session`s, `OurForest` and `Foliage`.
+			expect(Planter.reseatAll(reader, root)).to.equal(4)
+			expect(Planter.junctionGap(hits[5], reader) :: number > 1).to.equal(true) -- LobbyAssets, untouched
+			for i = 1, 4 do
+				expect((Planter.junctionGap(hits[i], reader) :: number) <= TreeGround.TOLERANCE_STUDS).to.equal(true)
+			end
+
+			-- ...AND WHEN THE GROUND DROPS UNDER THEM AFTERWARDS -- which is what levelling the yard
+			-- does -- a SECOND sweep puts them back down, and sweeping twice never raises anything.
+			ground = 90
+			expect(Planter.reseatAll(reader, root)).to.equal(4)
+			for i = 1, 4 do
+				expect((Planter.junctionGap(hits[i], reader) :: number) <= TreeGround.TOLERANCE_STUDS).to.equal(true)
+			end
+			expect(Planter.reseatAll(reader, root)).to.equal(0)
 
 			root:Destroy()
 		end)

@@ -369,6 +369,16 @@ end
 --
 -- IT ONLY EVER LOWERS A TREE: `decide` answers `seated` for anything already in the ground and
 -- `cliff` for a footprint across a step, and neither moves. Returns how many it lowered.
+-- EVERY STANDING-WOOD FOLDER, SWEPT. The loop lives here and not at the two call sites, so the
+-- boot cannot sweep one list the first time and another list the second.
+function Places.reseatAll(groundAt: (number, number) -> number?, world: Instance?): number
+	local moved = 0
+	for _, source in ipairs(Places.rootsNamed(world or Workspace, Places.STANDING_WOOD)) do
+		moved += Places.reseat(source, groundAt)
+	end
+	return moved
+end
+
 function Places.reseat(root: Instance, groundAt: (number, number) -> number?): number
 	local moved = 0
 	for _, model in ipairs(root:GetDescendants()) do
@@ -558,9 +568,7 @@ function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?
 	-- LIST, because the two sweeps are allowed to touch different things: `unblockFoliage` only clears
 	-- `CanQuery` on leaves and may run over the lodge's templates harmlessly, while this one MOVES what
 	-- it touches and must never see a building.
-	for _, source in ipairs(Places.rootsNamed(root, Places.STANDING_WOOD)) do
-		report.reseated += Places.reseat(source, reader)
-	end
+	report.reseated += Places.reseatAll(reader, root)
 	local folder = Instance.new("Folder")
 	folder.Name = Places.FOLDER
 	local lookup: { [string]: Model } = {}

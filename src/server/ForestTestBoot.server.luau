@@ -709,6 +709,16 @@ do
 	end
 end
 
+-- ...AND THE WOOD IS SWEPT A SECOND TIME, AFTER THE LOBBY (task 326). `Lobby.start` LEVELS ITS OWN
+-- YARD, so foliage that was standing on the old ground is left hanging by the flattening -- measured
+-- in Karen's place: two ferns 106 studs west of the lodge, 2.42 and 3.48 studs up, after the first
+-- sweep had already put every other plant down. The sweep only ever lowers, so running it twice
+-- cannot undo the first run; it can only catch what moved the ground underneath.
+local function reseatAfterLobby()
+	local again = Places.reseatAll(ForestTest.terrainYAt)
+	print(string.format("[ForestTestBoot] wood re-seated after the lobby: %d", again))
+end
+
 local lobbyOn = Lobby.start({
 	enabled = true,
 	world = Map.EXPECTED_WORLD,
@@ -785,6 +795,11 @@ local lobbyOn = Lobby.start({
 		return os.clock()
 	end,
 })
+
+-- THE SECOND SWEEP, HERE AND NOT INSIDE `Lobby`: the lobby owns its yard, this file owns the order.
+if lobbyOn then
+	reseatAfterLobby()
+end
 print(
 	string.format(
 		"[lobby] %s",
