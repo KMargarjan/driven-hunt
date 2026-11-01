@@ -140,7 +140,18 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- 21 -> 22 FOR TASK 313's `RANGE_SOLO`, and said out loud rather than paid for by quietly retiring
 -- somebody else's row: the table held exactly 21 and the tripwire refused the twenty-second, which
 -- is the cap doing its job (design 9).
-Flags.MAX_FLAGS = 22
+--
+-- 22 -> 23 FOR TASK 323a's `STAND_PICK`, and the same sentence again, said out loud rather than paid
+-- for by quietly retiring somebody else's row: the table held exactly 22 and the tripwire refused
+-- the twenty-third, which is the cap doing its job (`flags.spec`'s rot tripwire, MEASURED at this
+-- commit). `docs/design/stand-pick.md` section 10.1 asks for the row and D8 asks for it born OFF, so
+-- the two ways out of the cap are still the two task 238 listed -- retire the lit rows queued as
+-- TASKS.md 82b, which is the DIRECTOR's call and deletes a losing branch per retirement, or ship a
+-- new feel-critical path LIT, which `docs/design/feature-flags.md` section 11 step 1 forbids. This
+-- one changes who stands where in a drive and lengthens the intermission 5 s -> 15 s, which is a
+-- feel change and Karen's, so it is born off. **The Director may prefer to spend 82b instead**: this
+-- is one line either way.
+Flags.MAX_FLAGS = 23
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -235,6 +246,16 @@ Flags.DEFAULTS = {
 			.. "2.96-6.50 s at run instead of 1.50), and every other player's body is hidden for "
 			.. "him. OFF is exactly the game before task 313 -- the window is his own mat +- 18, "
 			.. "the leg is 76 studs, and nobody is hidden.",
+	} :: FlagRow,
+	STAND_PICK = {
+		default = false,
+		owner = "ServerScriptService.Match (and ServerScriptService.Match.StandPick)",
+		born = "2026-10-31 task 323",
+		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
+		expires = "2026-11-21",
+		why = "A hunter takes his own stand on the map in the countdown before the drive, instead "
+			.. "of being dealt one. Karen, 2026-10-31: 'choose shooting place on map before hunt'. "
+			.. "OFF deals every stand exactly as before task 323 and the intermission stays 5 s.",
 	} :: FlagRow,
 	TIE_UNTIL_DRIVE_END = {
 		default = true,

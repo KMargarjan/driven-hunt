@@ -1061,6 +1061,10 @@ SCOPE_SPECS = {
               # the floor net that puts a body back. `Match.Body` is where both live, so a
               # `src/server/Match/` edit plays them.
               "tests/server/match_place.spec.luau",
+              # Task 323: the stand pick -- the claim table, the judge, the window, the deal's sweep
+              # A and `Body.carry`. All of it `src/server/Match/`'s, and the `match_*` name is also
+              # what keeps it inside `TWO_PLAYER_PATHS` with no new entry.
+              "tests/server/match_stand_pick.spec.luau",
               # Task 161: the drive calls `world.bots` at its own phase boundaries and
               # `Match.beaterCrossing` counts the bot beaters into the line, so a `src/server/Match/`
               # edit plays the bots' specs too. The dual membership `zz_horn`, `boar_hit` and

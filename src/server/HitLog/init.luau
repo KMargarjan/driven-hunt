@@ -558,8 +558,9 @@ function HitLog.recordDown(record, now: number?)
 	end
 
 	-- THE KILL LINE, FOR EVERYBODY, OVER THIS SYSTEM'S OWN REMOTE IN BOTH WORLDS. It cannot go over
-	-- `Match`'s feed: `Drive.remotes()` is documented as having no inbound remote and exactly two
-	-- outbound ones (a client spec asserts the count), `Match.publishFeed` is the only writer of
+	-- `Match`'s feed: `Drive.remotes()` carries exactly three remotes and exactly ONE of them is
+	-- inbound (`StandRequest`, task 323 -- a client spec asserts the count), `MatchState` and
+	-- `MatchEvent` are both outbound, `Match.publishFeed` is the only writer of
 	-- `MatchEvent`, and in the Forest Test `Match.start` is never called so nobody owns it there at
 	-- all. One writer, one remote, one client path in both worlds.
 	broadcast({

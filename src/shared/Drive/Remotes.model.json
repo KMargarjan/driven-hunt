@@ -2,6 +2,7 @@
 	"className": "Folder",
 	"children": [
 		{ "name": "MatchState", "className": "RemoteEvent" },
-		{ "name": "MatchEvent", "className": "RemoteEvent" }
+		{ "name": "MatchEvent", "className": "RemoteEvent" },
+		{ "name": "StandRequest", "className": "RemoteEvent" }
 	]
 }

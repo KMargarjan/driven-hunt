@@ -255,9 +255,35 @@ end
 -- `QUICK_TEST` off they answer exactly what this drive has always answered (task 83).
 function Phase.intermissionSeconds(config): number
 	if config.QUICK_TEST then
+		-- IT STILL WINS, AND THAT IS DELIBERATE (task 323). The quick test exists to get Karen to a
+		-- crossing fast; a Studio switch that made the intermission five times longer would be the
+		-- opposite of the thing. Three seconds is still a usable pick window.
 		return config.QUICK_TEST_INTERMISSION_SECONDS
 	end
-	return config.INTERMISSION_SECONDS
+	-- THE PICK WINDOW **IS** THIS PHASE (task 323), lengthened to it. `STAND_PICK_SECONDS` is 0 with
+	-- the flag off, so this line is `INTERMISSION_SECONDS` by identity -- no second clock and nothing
+	-- to keep in step (`phaseEndsAt` is the only clock, this file's header).
+	return math.max(config.INTERMISSION_SECONDS, tonumber(config.STAND_PICK_SECONDS) or 0)
+end
+
+-- MAY A HUNTER TAKE A STAND RIGHT NOW? (task 323.) PURE, so the spec states the rule with eight
+-- calls and no drive -- the shape `Phase.driveOpen`, `lineHeld` and `insideDrive` already have.
+--
+-- THREE FACTS, AND IT IS NOT DERIVABLE FROM THE PHASE ALONE: the countdown is the window, but the
+-- flag may be off and the world may state no stands. A map that opened itself and then refused every
+-- tap is the worst of the three states, which is why this answer rides the wire as `pickWindow`
+-- rather than being recomputed on the client.
+--
+-- NO NEW PHASE AND NO NEW CLOCK: how long is left is `state.phaseEndsAt`, which every client already
+-- counts down (`Match.secondsLeft`).
+function Phase.pickWindow(state: State?, config, standCount: number?): boolean
+	if state == nil or state.phase ~= "Assigning" then
+		return false
+	end
+	if (tonumber(config and config.STAND_PICK_SECONDS) or 0) <= 0 then
+		return false
+	end
+	return (tonumber(standCount) or 0) > 0
 end
 
 function Phase.firstReleaseSeconds(config): number
@@ -787,6 +813,14 @@ end
 
 local function enterRunning(state: State, effects: { Effect }, now: number, config)
 	state.phase = "Running"
+	-- THE PICK WINDOW CLOSES AND EVERY CLAIM IS SETTLED (task 323), **FIRST**, before any client is
+	-- told the drive is on -- the reason task 159 paid for twice. It carries nothing, the shape
+	-- `scene` and `clearScene` have: who claimed what is the owner's own table to read.
+	--
+	-- IT CANNOT YIELD: the owner passes `attempts = 1` to `Body.onGround`, because the ground under
+	-- each stand was measured by the placement 15 seconds earlier. With the flag off no claim exists
+	-- and the handler returns on its first line -- zero `Body` calls, today's drive by identity.
+	table.insert(effects, { kind = "settleStands" })
 	state.phaseEndsAt = now + config.DRIVE_SECONDS
 	-- GO, AND SINCE TASK 168 GO IS THE END OF THE FANFARE. Karen: *"you can't move as a beater
 	-- before horn made signal"*. The signal is emitted below, at this instant; the beaters are let

@@ -246,11 +246,15 @@ end
 --            answered", which is entitled -- `Shop.grantsHighSeat`'s own nil rule, and what keeps
 --            an un-wired world dealing exactly as it does today.
 -- `count`    how many hunters to deal for.
+-- `picks` IS WHAT EACH HUNTER TOOK ON THE MAP, BY LINE INDEX (task 323). nil at an index is "he took
+-- nothing", which takes the three passes below exactly as they are. nil ENTIRELY -- the DEV place, a
+-- spec, any caller written before this argument -- is today's deal, value for value.
 function HighSeats.dealLine(
 	walk: { number },
 	seated: { [number]: boolean },
 	entitled: { boolean? }?,
-	count: number
+	count: number,
+	picks: { number? }?
 ): { number }
 	local taken: { [number]: boolean } = {}
 	local out: { number } = {}
@@ -262,7 +266,39 @@ function HighSeats.dealLine(
 		return out
 	end
 	local total = math.max(0, math.floor(count))
+	-- WHICH STANDS THE WALK ACTUALLY STATES, so a claim of a stand this layout does not have cannot
+	-- enter the deal (the server refuses it at the request too; this is the belt `high-seats.md`
+	-- section 5.2 already wears for the entitlement).
+	local inWalk: { [number]: boolean } = {}
+	for _, stand in ipairs(walk) do
+		inWalk[stand] = true
+	end
+	-- SWEEP A: EVERY VALID PICK, IN LINE-INDEX ORDER, BEFORE ANYBODY TAKES ANYTHING BY FALLBACK
+	-- (task 323, D4). Two sweeps and not one pass: with one pass, hunter 1 (no pick) takes `walk[1]`
+	-- on his turn and hunter 3's claim of `walk[1]` is then refused by the fallback -- a claim losing
+	-- to a man who claimed nothing, which is the inverse of the rule. Two sweeps make a pick
+	-- STRICTLY STRONGER than the fallback, which is what "first request wins and the rest fill what
+	-- is left" means.
+	--
+	-- THE ENTITLEMENT IS CHECKED HERE AS WELL AS AT THE REQUEST, on purpose: the request check is the
+	-- one the player sees, this one is the one a forged `FireServer` meets.
+	if picks ~= nil then
+		for index = 1, total do
+			local wanted = (picks :: { number? })[index]
+			if wanted ~= nil and inWalk[wanted] and not taken[wanted] then
+				local allowSeat = entitled == nil or entitled[index] ~= false
+				if allowSeat or not seated[wanted] then
+					taken[wanted] = true
+					out[index] = wanted
+				end
+			end
+		end
+	end
+	-- SWEEP B: TODAY'S THREE PASSES, over the indices sweep A did not fill. Unchanged, line for line.
 	for index = 1, total do
+		if out[index] ~= nil then
+			continue
+		end
 		local allowSeat = entitled == nil or entitled[index] ~= false
 		local got: number? = nil
 		-- PASS 1: the first free stand he is ALLOWED on. With everybody entitled this is always

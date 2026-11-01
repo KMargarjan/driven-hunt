@@ -143,6 +143,28 @@ export type MatchSnapshot = {
 	-- the shooter's post and the off-stand rule correctly refused it. A client that wants to DRAW the
 	-- ring -- task 166 draws one in the Forest Test only -- now has the circle to draw.
 	stands: { [string]: { centre: Vector3, radius: number } }?,
+	-- WHO HOLDS WHICH STAND IN THIS DRIVE (task 323), keyed by `tostring(standIndex)` -- the `stands`
+	-- and `Horn.keyFor` keying, because a table on the wire has string keys. THE WHOLE TABLE AS ONE
+	-- SNAPSHOT: a per-stand delta would be a second representation of a fact that fits in nine rows,
+	-- and a client that missed one delta would draw a taken stand as free.
+	--
+	-- ABSENT means "no pick in this build" -- the flag off, or a world that states no stands -- which
+	-- is the `stands` / `coinsOn` / `roleOverruled` idiom, and the client then draws exactly what it
+	-- drew before this task.
+	picks: { [string]: number }?,
+	-- IS THE WINDOW OPEN RIGHT NOW (task 323). It is NOT derivable from `phase == "Assigning"` alone:
+	-- the flag may be off and the world may state no stands, and a map that opened itself and refused
+	-- every tap is the worst of the three states.
+	pickWindow: boolean?,
+}
+
+-- THE ANSWER TO ONE ASK, addressed to one player (task 323). `stand` is the stand he asked for,
+-- ECHOED, so a late reply cannot be read as the reply to a later ask; `reason` is nil when `ok` and
+-- one of `StandPick.REASON` otherwise.
+export type StandVerdict = {
+	ok: boolean,
+	stand: number,
+	reason: string?,
 }
 
 export type FeedEntry = {
@@ -176,10 +198,17 @@ Drive.deepFreeze = Shotgun.deepFreeze
 function Drive.remotes()
 	local folder = ReplicatedStorage:WaitForChild("Drive"):WaitForChild("Remotes")
 	return {
-		-- Both are server -> client. There is NO inbound remote in this system, so its inbound
-		-- exploit surface is zero, and that is worth keeping (design section 9.1).
+		-- These two are server -> client. The inbound surface of this system is ONE remote carrying
+		-- ONE NUMBER (`StandRequest`, task 323), validated by `Match.StandPick.judge` against the
+		-- server's own measurement of the world -- which is the whole of design section 9.1's rule
+		-- now that the system has an inbound remote at all.
 		MatchState = folder:WaitForChild("MatchState") :: RemoteEvent,
 		MatchEvent = folder:WaitForChild("MatchEvent") :: RemoteEvent,
+		-- THE ONE INBOUND REMOTE IN THIS SYSTEM (task 323), and it carries BOTH directions: client ->
+		-- server is one number (which stand), server -> that client is one `StandVerdict`. The STATE
+		-- rides `MatchState` beside `stands`, `tied` and `through`, because the claim is a property of
+		-- the drive; a verdict is addressed to one player and cannot ride a `FireAllClients` channel.
+		StandRequest = folder:WaitForChild("StandRequest") :: RemoteEvent,
 	}
 end
 

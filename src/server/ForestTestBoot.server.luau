@@ -448,7 +448,10 @@ local function placement(markers, team, index, cfg, line)
 			ForestTest.standWalk(),
 			ForestTest.seatedStands(),
 			if line then line.entitled else nil,
-			math.max(index, if line then line.count else index)
+			math.max(index, if line then line.count else index),
+			-- WHAT EACH OF THEM TOOK ON THE MAP (task 323). nil with the flag off, which is
+			-- `dealLine`'s own nil case and today's deal value for value.
+			if line then line.picks else nil
 		)
 		-- THROUGH THE POST'S NAME AND NOT ITS PLACE IN THE LIST: a stand whose ground was refused is
 		-- not in `markers.posts` at all (MEASURED: one run came back `8/9 stands (1 refused)`), and
@@ -1023,6 +1026,18 @@ Match.start({
 	-- so where he may SHOOT and where he may WALK are one circle asked twice, and nil until his pick
 	-- locks -- which is the whole of "no rule during the pick window".
 	standArea = ForestTest.standArea,
+	-- HOW MANY STANDS THIS DRIVE PLACE STATES (task 323). The LAYOUT's count and not `#markers.posts`:
+	-- a post whose ground was refused is absent from the post list (measured: `8/9 stands (1
+	-- refused)`), so validating a claim against the posts would refuse a stand the player can see on
+	-- the map. `ForestTest.postIndexFor`'s name lookup then handles the refused post as it does today.
+	standCount = function()
+		return ForestTest.layout().standCount
+	end,
+	-- WHICH OF THEM CARRY A HIGH SEAT (task 323), so the drive can refuse a claim on a seat he has
+	-- not bought at the REQUEST as well as in the deal. Which stands have seats is this world's
+	-- geometry (`high-seats.md`), exactly as `standCount` above is -- `Match` learns one boolean per
+	-- stand and nothing about what a seat is.
+	seatedStands = ForestTest.seatedStands,
 	-- WHERE THIS WORLD GATHERS AT THE END OF A DRIVE (task 191). KAREN, 2026-10-15 ~17:20: *"next is
 	-- when hunt over everyone is in clean ground no grass firstable / second it could be next to
 	-- cabin"*.
@@ -1253,7 +1268,13 @@ local function openPickFor(player: Player)
 			Data.PICK.standRadiusStuds
 		)
 	)
-	task.delay(Data.PICK.seconds, function()
+	-- WITH THE MAP PICK ON, THE WINDOW HAS ALREADY CLOSED (task 323). It closed at the end of
+	-- `Assigning` and the claim is final, so waiting `Data.PICK.seconds` into the drive would leave
+	-- ten seconds of `Running` with no circle and no rule -- the gap task 175 closed from the other
+	-- end. One ternary at the composition root; 0 is "lock on the next frame", not "lock now", so
+	-- this stays one code path.
+	local lockIn = if (tonumber(Match.CONFIG.STAND_PICK_SECONDS) or 0) > 0 then 0 else Data.PICK.seconds
+	task.delay(lockIn, function()
 		local now = player.Character
 		local nowRoot = now and now:FindFirstChild("HumanoidRootPart")
 		if player.Parent == nil or nowRoot == nil then
@@ -1264,7 +1285,11 @@ local function openPickFor(player: Player)
 		if ForestTest.roleOfPlayer(player) ~= "hunter" then
 			return
 		end
-		local index = ForestTest.lockPick(player.UserId, (nowRoot :: BasePart).Position, os.clock())
+		-- THE CLAIM DECIDES, THE WALK DOES NOT (task 323). `Match.standOf` is nil with the flag off
+		-- and for a hunter who claimed nothing, and `lockPick` then falls back to `nearestStand` --
+		-- which is this line before the task.
+		local index =
+			ForestTest.lockPick(player.UserId, (nowRoot :: BasePart).Position, os.clock(), Match.standOf(player.UserId))
 		-- HIS EDGE, REDRAWN (task 166, one writer since 175). The boundary opens the moment the pick
 		-- locks; if he walked to another stand in the window, `showRing` takes the old circle down.
 		local _, segments = showRing(player)
