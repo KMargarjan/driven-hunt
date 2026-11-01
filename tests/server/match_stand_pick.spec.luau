@@ -800,12 +800,29 @@ return function()
 				expect(#StandPick.picksFor({})).to.equal(0)
 
 				-- THE SNAPSHOT'S `picks` FIELD, off `Match.snapshot()` -- the real wire payload.
+				--
+				-- THE CLAIM GOES THROUGH THE DOOR AND NOT THROUGH `StandPick.claim`, and that is the
+				-- point rather than ceremony: `Match.onStandRequest` is the one thing that INVALIDATES
+				-- the snapshot cache and forces the broadcast (design section 4.4), so a claim written
+				-- straight into the table leaves the wire showing the drive before it -- which is
+				-- exactly what this case is for.
+				StandPick.reset(1)
+				Match.setStandAskReader(function(measured)
+					measured.open = true
+					measured.isHunter = true
+					measured.standCount = 9
+					return measured
+				end)
+				local doorman = { Name = "PicksLine", UserId = 323601 }
+				expect((Match.onStandRequest(doorman, 6, 5000) :: any).ok).to.equal(true)
 				local snapshot = Match.snapshot()
 				expect((snapshot :: any).picks).to.be.ok()
-				expect(((snapshot :: any).picks :: any)["6"]).to.equal(ids[3])
+				expect(((snapshot :: any).picks :: any)["6"]).to.equal(doorman.UserId)
 				-- ...AND IT IS ABSENT WHEN NOTHING IS CLAIMED, which is every build with the flag
 				-- off: a client that never heard of the field reads exactly what it always read.
-				StandPick.reset(1)
+				-- `Match.forget` is the other production path that clears that cache (E2), so this
+				-- half is measured off the wire too and not off a reset nobody told the wire about.
+				Match.forget({ UserId = doorman.UserId } :: any)
 				expect(StandPick.anyClaim()).to.equal(false)
 				local empty = Match.snapshot()
 				expect((empty :: any).picks).to.equal(nil)
@@ -813,6 +830,8 @@ return function()
 				-- else here -- the TRUE arm is `Phase.pickWindow`'s own case 3, by parameter, which
 				-- is the only lever a spec has while the flag sits off (CLAUDE.md's flag rule).
 				expect((empty :: any).pickWindow).to.equal(nil)
+				Match.setStandAskReader(nil)
+				expect(Match.standAskReader()).to.equal(nil)
 				expect(Match.pickWindowOpen()).to.equal(false)
 			end)
 		end)

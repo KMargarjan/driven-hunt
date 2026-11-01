@@ -1406,8 +1406,14 @@ return function()
 			expect(MapUi.stats().standWrites).to.equal(before + 1)
 
 			-- THE FOUR PROPERTIES, READ OFF THE DRAWN NODES and not off the states table.
+			-- A TOLERANCE AND NOT AN EQUALITY, and it is an engine fact: `BackgroundTransparency` is
+			-- a float32 property, so 0.45 written and read back is 0.44999998807907104. MEASURED in
+			-- this spec's first gate run.
+			local function near(got: number, want: number): boolean
+				return math.abs(got - want) < 1e-5
+			end
 			local taken = stands[2]
-			expect(taken.BackgroundTransparency).to.equal(CONFIG.STAND_TAKEN_TRANSPARENCY)
+			expect(near(taken.BackgroundTransparency, CONFIG.STAND_TAKEN_TRANSPARENCY)).to.equal(true)
 			local name = taken:FindFirstChild("Holder") :: TextLabel
 			expect(name.Visible).to.equal(true)
 			expect(name.Text).to.equal("Rival")
@@ -1421,7 +1427,7 @@ return function()
 			expect((stands[6]:FindFirstChild("Seat") :: UIStroke).Enabled).to.equal(true)
 			expect(stands[6].BackgroundTransparency).to.equal(0)
 			expect((stands[7]:FindFirstChild("Seat") :: UIStroke).Enabled).to.equal(false)
-			expect(stands[7].BackgroundTransparency).to.equal(CONFIG.STAND_BARRED_TRANSPARENCY)
+			expect(near(stands[7].BackgroundTransparency, CONFIG.STAND_BARRED_TRANSPARENCY)).to.equal(true)
 			expect(stands[7].BackgroundTransparency > CONFIG.STAND_TAKEN_TRANSPARENCY).to.equal(true)
 			-- A FREE STAND IS WHAT IT ALWAYS WAS.
 			expect(stands[1].Visible).to.equal(true)
@@ -1487,20 +1493,31 @@ return function()
 			-- BOTH owners are read -- their own reference counts, not this module's opinion.
 			local data = forest()
 			local restore = MapUi.geometry()
+			-- THE **TAG** AND NOT THE OWNER'S TOTAL, and the difference is the whole of what the
+			-- report exit measures: `ReportPanel` frees the cursor under its OWN tag `"report"`, so
+			-- `Cursor.isFree()` is correctly TRUE while the report is up. What must be gone is this
+			-- module's claim on it -- which is what a reference-counted door means. MEASURED in this
+			-- spec's first gate run, where `isFree() == false` failed for the right reason.
+			local function freed(): boolean
+				return table.find(Camera.Cursor.stats().tags, "map-pick") ~= nil
+			end
 			local function held(): boolean
 				return table.find(Weapon.Input.holdTags(), "map-pick") ~= nil
 			end
+			-- COLLECTED, NEVER THROWN: a case that errors half way through leaves the report open
+			-- and the next spec file reading it (MEASURED -- it took `report_panel.spec` with it).
+			local survived = {}
 			local function grab()
 				MapUi.setOpen(true)
 				MapUi.setPickWindow(true, true)
 				expect(MapUi.isPickable()).to.equal(true)
-				expect(Camera.Cursor.isFree()).to.equal(true)
+				expect(freed()).to.equal(true)
 				expect(held()).to.equal(true)
 			end
 			local function gone(what: string)
 				expect(MapUi.isPickable()).to.equal(false)
-				if Camera.Cursor.isFree() ~= false or held() ~= false then
-					error(string.format("map-pick survived the exit: %s", what))
+				if freed() or held() then
+					table.insert(survived, what)
 				end
 			end
 
@@ -1549,6 +1566,7 @@ return function()
 			expect(MapUi.stats().rebuilds).to.equal(rebuilds + 1)
 			gone("teardown")
 			MapUi.setGeometry(restore)
+			expect(table.concat(survived, ", ")).to.equal("")
 			TestKit.note("map_ui: map-pick released on all six exits (cursor + trigger, both owners read)")
 		end)
 
