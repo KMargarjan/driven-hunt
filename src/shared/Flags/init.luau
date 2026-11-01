@@ -151,7 +151,10 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- one changes who stands where in a drive and lengthens the intermission 5 s -> 15 s, which is a
 -- feel change and Karen's, so it is born off. **The Director may prefer to spend 82b instead**: this
 -- is one line either way.
-Flags.MAX_FLAGS = 23
+-- 23 -> 24: `GRID_PREVIEW` (task 327a). The Director approved the one row rather than retiring
+-- two; `docs/design/grid-map.md` section 11.1 asks for 25 because it counts `CELL_VOTE` too,
+-- and that row is task 327e's.
+Flags.MAX_FLAGS = 24
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -795,6 +798,16 @@ Flags.DEFAULTS = {
 		why = "A red stag bounds once when he is spooked from a stand-still, instead of simply "
 			.. "running. OFF until TASKS.md 245c fixes the leap clip's measured hoof sink, which this "
 			.. "reuses and which a bound on flat ground is the case that shows.",
+	} :: FlagRow,
+	GRID_PREVIEW = {
+		default = false,
+		owner = "ServerScriptService.Places (and ReplicatedStorage.Grid, data)",
+		born = "2026-11-01 task 327a",
+		expires = "2026-11-22", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "The grid world's eight drive cells: their roads painted and their corners staked, "
+			.. "beside the four places, so Karen can walk the shape before the world switches. It "
+			.. "tags nothing, builds no Stand%d and no high seat, and ForestTest.LAYOUTS has no cell "
+			.. "row yet, so with it OFF the four places are the world bit for bit.",
 	} :: FlagRow,
 }
 

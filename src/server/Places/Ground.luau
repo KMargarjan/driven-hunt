@@ -243,4 +243,151 @@ function Ground.band(
 	return calls
 end
 
+-- ---------------------------------------------------------------- THE GRID'S ROADS (task 327a)
+
+-- HOW LONG ONE ROAD CHUNK MAY BE, AND IT IS DERIVED FROM THE CALL BUDGET rather than chosen.
+--
+-- `Ground.band` makes ONE `ReplaceMaterial` call PER SOURCE MATERIAL, and `SOURCE_MATERIALS` holds
+-- ten -- so a band whose own material is in that list costs NINE calls, not the two
+-- `docs/design/grid-map.md` section 8.3 assumed when it set the 300-call budget. The grid's eight
+-- roads are 3 x 4490 + 5 x 2986 = 28,400 studs, so the budget fixes the chunk:
+--
+--   chunk >= 28,400 x 9 / 300 = 852   ->  1000, which gives 3 x 5 + 5 x 3 = 30 bands = 270 calls
+--
+-- AND THE GRID'S ROADS CARRY NO WHEEL RUTS, for the same arithmetic: two rut bands per chunk would
+-- treble that to 810. A `track` rut is karen-ref-1's NEAR view; 1.26 km of forest road seen from a
+-- stand is the 18-stud `Ground` strip, which is what section 4.1 asks for.
+Ground.ROAD_CHUNK_STUDS = 1000
+
+-- THE BUDGET SECTION 8.3 SETS, asserted by `grid.spec` rather than trusted.
+Ground.ROAD_CALL_BUDGET = 300
+
+-- HOW MANY CALLS MAY LAND IN ONE FRAME. The paint runs once at boot, and a boot that stalls is a
+-- boot Karen sees as a freeze.
+Ground.ROAD_CALLS_PER_STEP = 2
+
+-- ONE ROAD'S CHUNKS, AS EVEN SPANS. PURE. A road is STRAIGHT, so a chunk never wanders off its own
+-- centre line and `Ground.chunkFor`'s curve arithmetic has nothing to do here.
+function Ground.roadChunks(road: any): { { from: number, to: number } }
+	local length = road.to - road.from
+	local pieces = math.max(1, math.ceil(length / Ground.ROAD_CHUNK_STUDS))
+	local each = length / pieces
+	local out: { { from: number, to: number } } = {}
+	for index = 1, pieces do
+		table.insert(out, { from = road.from + (index - 1) * each, to = road.from + index * each })
+	end
+	return out
+end
+
+-- THE Y BAND ONE CHUNK OCCUPIES: the terrain sampled every 20 studs along the chunk's own centre
+-- line, lowest and highest, padded. PURE given the reader. It is PER CHUNK and not per road, because
+-- this footprint rolls 241 studs end to end (task 327a's survey) and one band over all of it would
+-- paint a region sixty voxels taller than the ground it is re-surfacing.
+function Ground.roadYBand(
+	road: any,
+	from: number,
+	to: number,
+	terrainYAt: (number, number) -> number?
+): (number?, number?)
+	local low, high = math.huge, -math.huge
+	for at = from, to, 20 do
+		local y = if road.axis == "x" then terrainYAt(at, road.at) else terrainYAt(road.at, at)
+		if y ~= nil then
+			low, high = math.min(low, y), math.max(high, y)
+		end
+	end
+	if low == math.huge then
+		return nil, nil
+	end
+	return low - Ground.Y_PAD_STUDS, high + Ground.Y_PAD_STUDS
+end
+
+-- ONE BAND OF ONE MATERIAL OVER ONE CHUNK OF ONE ROAD, either axis. `Ground.band` is x-ranged with a
+-- centre z and so can only paint an east-west line; this is its twin for both.
+--
+-- THE CROSS-AXIS BOUNDS ARE SNAPPED BY `Ground.bandBounds`, exactly as `Ground.band` does it, so the
+-- painted width is `ceil(2 * half / RESOLUTION) * RESOLUTION` whatever the road's own parity is --
+-- the defect the Reviewer measured on the ride's ruts (that function's header).
+function Ground.roadBand(
+	terrain: any,
+	road: any,
+	from: number,
+	to: number,
+	low: number,
+	high: number,
+	half: number,
+	material: Enum.Material,
+	-- CALLED AFTER EVERY `ReplaceMaterial`, so the slice is per CALL and not per band: a band is nine
+	-- calls over one region, and nine in a frame is four and a half times the budget section 8.3 set.
+	onCall: (() -> ())?
+): number
+	local nearSide, farSide = Ground.bandBounds(road.at, half)
+	local region = if road.axis == "x"
+		then Region3.new(Vector3.new(from, low, nearSide), Vector3.new(to, high, farSide))
+		else Region3.new(Vector3.new(nearSide, low, from), Vector3.new(farSide, high, to))
+	region = region:ExpandToGrid(Ground.RESOLUTION)
+	local calls = 0
+	for _, source in ipairs(Ground.SOURCE_MATERIALS) do
+		if source ~= material then
+			terrain:ReplaceMaterial(region, Ground.RESOLUTION, source, material)
+			calls += 1
+			if onCall ~= nil then
+				onCall()
+			end
+		end
+	end
+	return calls
+end
+
+-- PAINT THE GRID'S EIGHT ROADS. Returns the call count.
+--
+-- `enabled` IS A PARAMETER AND NOT A FLAG READ, which is `docs/design/feature-flags.md`'s own rule
+-- and the only shape that lets a spec drive both states while `GRID_PREVIEW` sits at one of them:
+-- false makes ZERO calls and touches nothing.
+--
+-- `terrain` IS AN ARGUMENT AND NEVER `Workspace.Terrain`, so no spec in the DEV place can write
+-- DEV's terrain (this file's own header). `breathe` is the slice: the boot hands `task.wait`, a spec
+-- hands nil or a counter.
+function Ground.paintRoads(
+	terrain: any,
+	roads: { any },
+	surface: any,
+	terrainYAt: (number, number) -> number?,
+	enabled: boolean,
+	breathe: (() -> ())?
+): number
+	if not enabled or terrain == nil or surface == nil then
+		return 0
+	end
+	local calls, sinceBreath = 0, 0
+	local onCall = if breathe == nil
+		then nil
+		else function()
+			sinceBreath += 1
+			if sinceBreath >= Ground.ROAD_CALLS_PER_STEP then
+				sinceBreath = 0
+				(breathe :: any)()
+			end
+		end
+	for _, road in ipairs(roads) do
+		for _, chunk in ipairs(Ground.roadChunks(road)) do
+			local low, high = Ground.roadYBand(road, chunk.from, chunk.to, terrainYAt)
+			if low ~= nil and high ~= nil then
+				calls += Ground.roadBand(
+					terrain,
+					road,
+					chunk.from,
+					chunk.to,
+					low,
+					high,
+					surface.halfWidthStuds,
+					surface.material,
+					onCall
+				)
+			end
+		end
+	end
+	return calls
+end
+
 return Ground

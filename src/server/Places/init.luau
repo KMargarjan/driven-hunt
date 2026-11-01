@@ -43,6 +43,10 @@ local Plan = require(ReplicatedStorage:WaitForChild("Places"))
 local Ground = require(script:WaitForChild("Ground"))
 local TreeGround = require(ReplicatedStorage:WaitForChild("TreeGround"))
 local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
+-- THE GRID (task 327a): the eight drive cells' arithmetic. PURE data -- this module is the one that
+-- draws it, and `Grid` knows nothing about Workspace.
+local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 
 local Places = {}
 
@@ -53,6 +57,33 @@ local Places = {}
 -- own trees (design 10.1). `places.spec` asserts the two agree, so the list cannot drift from the
 -- folder it is about.
 Places.FOLDER = "DrivePlaces"
+
+-- ---------------------------------------------------------------- the grid preview (task 327a)
+
+-- WHERE THE GRID'S OWN OUTPUT LIVES, and it is a SECOND folder rather than a child of the first: the
+-- four places and the eight cells are two worlds, only one of them is ever live, and
+-- `docs/design/grid-map.md` section 11.3 step 2 wants the one that is NOT this world's destroyed at
+-- every boot. It is also the name `ForestTest.GROUND_IGNORE` carries, so a corner stake can never be
+-- mistaken for the ground.
+Places.GRID_FOLDER = "GridPlaces"
+
+-- THE FLAG THAT SHOWS IT. Born OFF (`src/shared/Flags/init.luau`); read ONCE here, at this module's
+-- boundary, and passed inward as a boolean -- the only permitted shape (CLAUDE.md, "Feature flags").
+Places.GRID_FLAG = "GRID_PREVIEW"
+
+-- A CORNER STAKE: a tall thin orange pillar at each of the eight cells' four corners, 32 in all.
+--
+-- `CanCollide` AND `CanQuery` ARE BOTH FALSE, and that is not tidiness: a queryable stake standing
+-- inside the footprint would answer `ForestTest.groundAt` as "the ground" and would stop a bullet.
+-- `Neon` so it reads from the far end of a 1070-stud cell.
+Places.STAKE = table.freeze({
+	sizeStuds = Vector3.new(3, 60, 3),
+	colour = Color3.fromRGB(255, 132, 0),
+	material = Enum.Material.Neon,
+	-- HOW MANY GO IN BEFORE THE FRAME IS GIVEN BACK. 32 parts is nothing, but the slice is the
+	-- pattern this system uses everywhere and a later task plants 2,400 models through it.
+	perStep = 8,
+})
 
 -- WHERE THE TEMPLATES COME FROM, in order of preference. Both are Studio content in Karen's Forest
 -- Test and both are read-only here: a template is CLONED, never moved, re-parented, scaled or
@@ -432,12 +463,94 @@ function Places.templates(world: Instance?): { Instance }
 	return out
 end
 
+-- ---------------------------------------------------------------- the grid preview, drawn
+
+-- IS THE PREVIEW ON? **THE ONE PLACE THE FLAG IS READ**, so every other function here takes a
+-- boolean and both of its states are reachable from a pure spec.
+function Places.gridPreviewEnabled(): boolean
+	return Flags.isOn(Places.GRID_FLAG)
+end
+
+-- THE FOUR CORNERS OF EVERY CELL, as a flat list. PURE -- no world, no terrain. The name carries the
+-- cell id and the corner, so a frame of a stake says which cell it belongs to.
+function Places.gridStakes(): { { name: string, x: number, z: number } }
+	local out: { { name: string, x: number, z: number } } = {}
+	for _, id in ipairs(Grid.cellIds()) do
+		local box = Grid.boundsOf(id)
+		-- NORTH IS THE LARGER z in this world (`ForestTest.EXIT_SOUTH_STUDS`: a boar is gone to the
+		-- south), so NW/NE are at maxZ.
+		for _, corner in ipairs({
+			{ "SW", box.minX, box.minZ },
+			{ "SE", box.maxX, box.minZ },
+			{ "NW", box.minX, box.maxZ },
+			{ "NE", box.maxX, box.maxZ },
+		}) do
+			table.insert(out, {
+				name = string.format("Stake_%s_%s", id, corner[1] :: string),
+				x = corner[2] :: number,
+				z = corner[3] :: number,
+			})
+		end
+	end
+	return out
+end
+
+-- STAKE THE EIGHT CELLS' CORNERS. Returns how many went in and how many had no ground under them.
+--
+-- `enabled`, `folder` AND `terrainYAt` ARE ALL ARGUMENTS: a spec drives this into a fake folder with
+-- a fake hillside, and `enabled = false` parents nothing at all. `breathe` is the slice.
+function Places.stakeGrid(
+	folder: Instance?,
+	terrainYAt: (number, number) -> number?,
+	enabled: boolean,
+	breathe: (() -> ())?
+): (number, number)
+	if not enabled or folder == nil then
+		return 0, 0
+	end
+	local made, missing, since = 0, 0, 0
+	for _, stake in ipairs(Places.gridStakes()) do
+		local y = terrainYAt(stake.x, stake.z)
+		if y == nil then
+			missing += 1
+		else
+			local part = Instance.new("Part")
+			part.Name = stake.name
+			part.Size = Places.STAKE.sizeStuds
+			part.Anchored = true
+			part.CanCollide = false
+			part.CanQuery = false
+			part.CanTouch = false
+			part.Material = Places.STAKE.material
+			part.Color = Places.STAKE.colour
+			part.Position = Vector3.new(stake.x, y + Places.STAKE.sizeStuds.Y / 2, stake.z)
+			part.Parent = folder
+			made += 1
+			since += 1
+			if breathe ~= nil and since >= Places.STAKE.perStep then
+				since = 0
+				breathe()
+			end
+		end
+	end
+	return made, missing
+end
+
 -- BUILD EVERY DRESSED PLACE. Returns one report line's worth of counts.
 --
 -- `groundAt` AND `world` ARE ARGUMENTS AND NEVER `Workspace` BY DEFAULT inside a spec's reach, which
 -- is `Lobby.Field`'s discipline: *"a spec hands in a fake with a recording FillBlock, so no spec in
 -- the DEV place can write DEV's terrain, ever"*.
-function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?, terrain: any?): { [string]: any }
+function Places.build(
+	groundAt: ((number, number) -> number?)?,
+	world: Instance?,
+	terrain: any?,
+	-- THE GRID PREVIEW, BY PARAMETER. nil reads the flag at this module's boundary
+	-- (`Places.gridPreviewEnabled`); a spec passes true or false and never touches the flag.
+	gridPreview: boolean?,
+	-- THE SLICE. The boot hands `task.wait`; a spec hands nil, and nothing yields.
+	breathe: (() -> ())?
+): { [string]: any }
 	local root = world or Workspace
 	-- THE GROUND READER IS HANDED IN AND THERE IS NO DEFAULT, AND THAT IS DESIGN 10.1 RATHER THAN
 	-- strictness. The obvious default -- `ForestTest.groundAt` -- CAN SEE THIS MODULE'S OWN TREES: a
@@ -459,6 +572,10 @@ function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?
 			missing = 0,
 			cliff = 0,
 			seconds = 0,
+			gridPaints = 0,
+			gridStakes = 0,
+			gridMissing = 0,
+			gridSeconds = 0,
 			reason = "no-ground-reader",
 		}
 	end
@@ -480,7 +597,40 @@ function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?
 		paints = 0,
 		unblocked = 0,
 		seconds = 0,
+		gridPaints = 0,
+		gridStakes = 0,
+		gridMissing = 0,
+		gridSeconds = 0,
 	}
+
+	-- ------------------------------------------------ THE GRID PREVIEW (task 327a), FIRST
+	--
+	-- **BEFORE THE TEMPLATE CHECK, AND THAT IS THE POINT:** the grid's roads and corner stakes need
+	-- no tree template at all, so they must not be skipped in a world that has none -- which is
+	-- every DEV spec run.
+	--
+	-- **THE OTHER WORLD'S FOLDER IS DESTROYED WHATEVER THE FLAG SAYS** (design 11.3 step 2): the
+	-- grid's parts must not be left standing in a world that has never heard of them, and task 79
+	-- measured what that costs in the other direction (both worlds tag with the same strings).
+	local previewOn = if gridPreview == nil then Places.gridPreviewEnabled() else gridPreview
+	local priorGrid = root:FindFirstChild(Places.GRID_FOLDER)
+	if priorGrid then
+		priorGrid:Destroy()
+	end
+	local gridStarted = os.clock()
+	-- THE SURFACE IS THE `track` PLACE'S, which is the one Karen's reference frames demand: an
+	-- 18-stud `Ground` strip (design 4.1). The ruts are NOT painted on a grid road -- see
+	-- `Ground.ROAD_CHUNK_STUDS` for the call arithmetic that decides it.
+	report.gridPaints = Ground.paintRoads(terrain, Grid.roads(), Plan.surfaceFor("track"), reader, previewOn, breathe)
+	if previewOn then
+		local folder = Instance.new("Folder")
+		folder.Name = Places.GRID_FOLDER
+		local made, missing = Places.stakeGrid(folder, reader, true, breathe)
+		report.gridStakes, report.gridMissing = made, missing
+		folder.Parent = root
+	end
+	report.gridSeconds = os.clock() - gridStarted
+
 	if #sources == 0 then
 		report.reason = "no-templates"
 		return report
