@@ -355,10 +355,14 @@ return function()
 				for index = 1, layout.standCount do
 					local x = layout.centre.X + (index - middle) * layout.standSpacing
 					expect(math.abs(Forest.standX(index, layout) - x) < 1e-9).to.equal(true)
+					-- 1e-3 AND NOT 1e-9 ON THE POINT, and it is the float32 reason `forest_stand.spec`
+					-- gives for the same comparison: `standX` answers a DOUBLE, but a `Vector3`
+					-- stores float32, so at a road z of -2097 one ulp is 2.4e-4. MEASURED: this
+					-- case failed at 1e-9 on `road` in the first gate run of this task.
 					local at = Forest.standPosition(index, layout)
-					expect(math.abs(at.X - x) < 1e-9).to.equal(true)
+					expect(math.abs(at.X - x) < 1e-3).to.equal(true)
 					expect(at.Y).to.equal(layout.centre.Y)
-					expect(math.abs(at.Z - Forest.roadZ(x, layout)) < 1e-9).to.equal(true)
+					expect(math.abs(at.Z - Forest.roadZ(x, layout)) < 1e-3).to.equal(true)
 				end
 				local span = Forest.standSpan(layout)
 				expect(span.minX).to.equal(layout.centre.X + (1 - middle) * layout.standSpacing)
@@ -510,8 +514,12 @@ return function()
 			-- the east flank's first post is laterally NEARER than the main line's end post.
 			local mainEnd = Grid.standPosition(id, Grid.CONFIG.mainStandCount)
 			local flankFirst = Grid.standPosition(id, Grid.CONFIG.mainStandCount + Grid.CONFIG.flankStandCount + 1)
+			-- ...AND 200 STUDS NORTH OF THE MAIN ROAD, which is SOUTH of the flank post at +340 and
+			-- NORTH of the road itself: the one band where the two answers disagree about whether
+			-- this beater is through. MEASURED: the first run of this case put him at +700, north of
+			-- BOTH posts, where neither answer is "crossed" and the case proved nothing.
 			local beaterX = layout.centre.X + 510
-			local at = Vector3.new(beaterX, 0, roads.main.at + 700)
+			local at = Vector3.new(beaterX, 0, roads.main.at + 200)
 			expect(math.abs(flankFirst.X - beaterX) < math.abs(mainEnd.X - beaterX)).to.equal(true)
 			-- THE DEFECT, SHOWN FIRST so this case cannot pass with the fix deleted: handed every
 			-- post, the reference IS the flank post, 340 studs up the cell.
@@ -528,8 +536,9 @@ return function()
 			expect(Match.crossedLine(at, line, fake(Grid.standCount(id)), 0)).to.equal(true)
 			TestKit.note(
 				string.format(
-					"beater at x %+.0f: main post %.0f studs laterally, flank post %.0f -- the flank wins by %.0f, and its z is %+.0f",
+					"beater at x %+.0f, z %+.0f of the road: main post %.0f studs laterally, flank post %.0f -- the flank wins by %.0f, and its z is %+.0f, so every post calls him THROUGH and the line's posts do not",
 					beaterX - layout.centre.X,
+					at.Z - roads.main.at,
 					math.abs(mainEnd.X - beaterX),
 					math.abs(flankFirst.X - beaterX),
 					math.abs(mainEnd.X - beaterX) - math.abs(flankFirst.X - beaterX),
