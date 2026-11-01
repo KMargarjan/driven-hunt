@@ -1,9 +1,9 @@
 # Task 325 — the deer's road leap: it now really leaves the ground
 
 Task: 325
-Round: 1
+Round: 2
 Base: 4840e1df (main)
-Code commit: 124eafd7c493d189c4d07056ac2668ebd198ea7c
+Code commit: b0fda024004297e818e405b1ae8bab02f91353e7
 
 KAREN, 2026-11-01: *"you need to fix red stag male when jumping it has to jump not like now broken
 and famale and kid doesnt jump / work on it"*.
@@ -11,28 +11,76 @@ and famale and kid doesnt jump / work on it"*.
 Harness, clean tree, full scope, at the code commit:
 
 ```
-[harness] PASS: 34/34 checks @ 124eafd7c493d189c4d07056ac2668ebd198ea7c (clean tree) scope=all
+[harness] PASS: 34/34 checks @ b0fda024004297e818e405b1ae8bab02f91353e7 (clean tree) scope=all
 ```
 
 `test2` is N/A: nothing here touches `TWO_PLAYER_PATHS` (the change is `src/server/Boar/`, which the
 Director's 2026-10-03 list puts with the one-player gate). The last commit that changed `src/` or
-`tests/` is `da10165d`; everything after it is this request and the research note, so the line above
-covers the head.
+`tests/` is `24edde61`; `b0fda024` adds only the round-1 verdict file, so the line above covers the
+head.
 
-**An intermittent, named and then cleared.** An earlier run of the same commit reported
-`deer_hitbox.spec:682` (2653 passed, 1 failed) — the intermittent the dispatch names, and the Forest
-Test was in Play at the time, which the dispatch says makes it worse. Stopping that Play session and
-re-running the same commit gave the clean 34/34 above. Two runs, same commit: `FAIL: 32/34` then
-`PASS: 34/34 @ 124eafd7`.
+**An intermittent, named and then cleared.** Two earlier runs reported `deer_hitbox.spec:682` and
+`:659` (2653 passed, 1 failed) — the intermittent the dispatch names, and the Forest Test was in
+Play at the time, which the dispatch says makes it worse. Stopping that Play session and re-running
+cleared it: `FAIL: 32/34 @ 124eafd7`, then `PASS: 34/34 @ 124eafd7`, and now `PASS: 34/34 @
+b0fda024`. Three runs, two commits, and the pasted line is a clean one at the code commit.
 
-ANSWERED: L-136 — the only FAIL seen was `deer_hitbox.spec:682`, which the dispatch names as a known
-intermittent; it is reported above with both runs rather than waved away, and the pasted evidence is
-the clean one. `weapon_shot.spec.luau:1490` never fired.
+## Round 2: what the round-1 findings changed
+
+**Finding 1 and finding 2 were both right: nothing in the suite called the new write sites.** The
+case `"bounds ONCE per crossing…"` is replaced by
+`"drives stepVisual: ONE take-off per crossing, the body really launched (task 325)"`, which builds
+a handle with a real `Part` and a full track table — the `boar_model.spec` `carcass293` idiom the
+finding names — runs `Boar.stepVisual` for the Brain's whole 0.55 s window with `leaping` never
+dropping, and asserts, for each of the three kinds:
+
+* `handle.clip == "leap"` on the first step, and `AssemblyLinearVelocity.Y` equal to
+  `Body.leapPlan`'s `up` with **X and Z untouched** (7 and 11, the values it went in with);
+* `track.TimePosition == TAKEOFF_SECONDS` and `track.Speed ==` this kind's rate;
+* `handle.leapFor ==` this kind's window;
+* **exactly one take-off across the whole window** (counted as "Y rose by more than 1 studs/s");
+* `leapSpent` latched, the clip off `"leap"`, and **no upward velocity left**;
+* and the latch re-arming only when the Brain drops `leaping`.
+
+Delete any one of the four write sites the finding lists and this case fails. The per-kind rate from
+`clipFor` is now asserted for all three kinds in the pre-existing leap case, and the `rate == 1`
+line there says in its comment that it is the **kindless fallback**, which is what it tests.
+
+**Three notes were taken in the same round rather than queued,** because two of them are defects:
+
+* `Body.leapApex` floored the apex at `sink + clearance`, but the worst sink is at t 0.5417 and the
+  apex at t 0.583. `Body.leapSinkShare` (new, pure) gives the fraction of its apex a parabola is at
+  the clip's own sink instant — `4 f (1 - f)` = 0.891 — and the floor is divided by it. **The calf's
+  bound goes 1.485 → 1.668 studs**; the stag's 3.000 and the hind's 2.566 are unchanged (their
+  floors are 1.500 and 1.577). The spec now asserts the clearance at the sink instant, not the apex.
+* the take-off block also requires `handle.clip == "leap"` after `play`, so a failed
+  `LoadAnimation` cannot make it fire every frame.
+* every stale comment the Reviewer named: the `GRAVITY` row said `boar_model.spec` where it is
+  `deer.spec`; *"only `MODEL.LEAP.SECONDS` of it is ever played"* in `DEER_CLIPS.leap` and in
+  `deer.spec`; *"DATA the drawing layer does not read yet"* in `deer.spec` and in the `deerLeap`
+  manifest row; the block-local `ON`/`OFF` leap tables still at `SECONDS = 0.75`; and the two
+  different before-ranges for the stag (the header now says what the research note says, and says
+  which of the two is terrain).
+
+**Re-measured live in her place at this code commit** (`b0fda024` served to her Forest Test on its
+own Rojo port, Play restarted, `<runs-dir>/325-after4.txt`): **11 crossings, 9 bounds, 3 of each
+kind, one take-off each.** Peak upward speed stag 27.8 / 29.4 / 30.2, hind 26.8 / 26.8 / 25.2, calf
+**19.0 / 20.7 / 20.7** — the calf's is up from cycle 3's 15.2-20.1, which is the raised floor
+(`v0` 24.15 → 25.58). The two walking crossings still do not bound. Frame
+`<runs-dir>/325-r2-calf-zoom.png` is a calf at THIS commit, held mid-bound over the road: airborne,
+forelegs reaching forward for the landing, hind legs trailing, every hoof clear of the ground.
+
+ANSWERED: L-136 — the only FAILs seen were `deer_hitbox.spec:682` and `:659`, which the dispatch
+names as a known intermittent; both are reported above with the runs that cleared them rather than
+waved away, and the pasted evidence is a clean run at the code commit. `weapon_shot.spec.luau:1490`
+never fired.
 ANSWERED: L-127 — every claim below is MET or carries its own "could not be verified" line; the
 handover block in the report marks each dispatch item MET / NOT PROVEN by name.
 ANSWERED: L-162 — every live reading in this request was taken in her place at a commit on this
-branch: the "before" at `main` 4840e1df, cycles 1–3 at `6dbd7a6a`, `14266be1` and `da10165d`, each
-served to her place on its own Rojo port and each with a Play restart.
+branch: the "before" at `main` 4840e1df, cycles 1–3 at `6dbd7a6a`, `14266be1` and `da10165d`, and
+the round-2 re-measurement at the code commit `b0fda024` — each served to her place on its own Rojo
+port and each with a Play restart. Her place is back on :34873 and the panel was photographed
+(`<runs-dir>/325-back873-crop.png`).
 ANSWERED: L-111 (route) — task 255's finding ("nothing in `src/server/Boar/` ever writes a vertical
 velocity") is exactly right and is the root cause this task fixes; `b245b-result.json`'s hoof sink
 and its "a real fix needs per-frame CFrame writes the design forbids" is answered without any such
