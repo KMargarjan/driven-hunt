@@ -1292,9 +1292,19 @@ Boar.CONFIG.PACE = {
 -- each other -- and the picture did not change, which means the loose gaps come from the FOLLOWING
 -- RULE and from flight, not from contact. Kept, off, with the numbers, so nobody spends another
 -- round on the same idea; flip `ENABLED` to try it again against a changed follower.
+-- ...AND THE LIVING WALK THROUGH THE DEAD, WHICH IS A DIFFERENT QUESTION AND IS ON (task 324).
+-- KAREN, 2026-11-01, after playing the range: *"when animal died in shooting range another one can
+-- go tru now it stuck until dead is gone"*. MEASURED in her place at main (`<runs-dir>/324-pass.luau`,
+-- a39e41dd): both bodies are `CanCollide = true` in `Default`, so the animal released after a kill
+-- ran into the carcass, stood still for 1.02 s at a 5.2-stud gap (the two half-lengths), was shoved
+-- 4 studs off its lane, and crossed the span in 5.23 s against an unblocked 4.05 s.
+-- It is the SAME engine answer as the row above, on its own dial, because the carcass rule must not
+-- be switched off by a live-vs-live experiment that was measured as a no-op.
 Boar.CONFIG.BOAR_COLLISION = {
 	ENABLED = false,
 	GROUP = "DrivenHuntBoars",
+	CARCASS_PASSES = true,
+	CARCASS_GROUP = "DrivenHuntCarcass",
 }
 
 -- WHERE EVERY ANIMAL HAS BEEN, FOR HALF A SECOND (task 266). KAREN, 2026-10-24/25: *"we need to aim

@@ -295,29 +295,71 @@ local function buildZones(config, trunk: BasePart, geometry)
 	return parts, rows
 end
 
--- REGISTERED ONCE, PER SERVER, and then every trunk joins it. `RegisterCollisionGroup` throws if the
--- name is already taken, which is why this is wrapped and latched: `Body.create` runs once per
--- animal and the registration must not.
+-- REGISTERED ONCE, PER SERVER, and then every trunk joins one of the two groups.
+-- `RegisterCollisionGroup` throws if the name is already taken, which is why this is wrapped and
+-- latched: `Body.create` runs once per animal and the registration must not.
+--   https://create.roblox.com/docs/reference/engine/classes/PhysicsService#RegisterCollisionGroup
 local collisionGroupReady = false
 
-function Body.useCollisionGroup(part: BasePart, config)
-	local rule = config.BOAR_COLLISION
-	if rule == nil or rule.ENABLED ~= true then
+-- THE THREE PAIRS, set once. `LIVE x CARCASS` is task 324: a living animal walks THROUGH a body,
+-- and everything else -- either group against `Default`, which is the terrain, the trees and the
+-- players -- is untouched, so the carcass still lies on the ground and still stops the player.
+local function registerGroups(rule): boolean
+	if collisionGroupReady then
+		return true
+	end
+	collisionGroupReady = true
+	pcall(function()
+		PhysicsService:RegisterCollisionGroup(rule.GROUP)
+	end)
+	pcall(function()
+		PhysicsService:RegisterCollisionGroup(rule.CARCASS_GROUP)
+	end)
+	-- LIVE x LIVE is the `ENABLED` experiment and nothing else now (it used to be the whole of this
+	-- function): off -- the shipped state -- means animals shove each other exactly as before.
+	pcall(function()
+		PhysicsService:CollisionGroupSetCollidable(rule.GROUP, rule.GROUP, rule.ENABLED ~= true)
+	end)
+	pcall(function()
+		PhysicsService:CollisionGroupSetCollidable(rule.GROUP, rule.CARCASS_GROUP, rule.CARCASS_PASSES ~= true)
+	end)
+	-- ...AND TWO BODIES DO NOT SHOVE EACH OTHER EITHER: a carcass stays where it fell (task 318).
+	pcall(function()
+		PhysicsService:CollisionGroupSetCollidable(rule.CARCASS_GROUP, rule.CARCASS_GROUP, rule.CARCASS_PASSES ~= true)
+	end)
+	return true
+end
+
+-- WHICH GROUP A BODY BELONGS IN, as a pure rule (task 324), so both states of both dials are
+-- reachable by parameter while the config sits at one of them. nil means "leave it in `Default`",
+-- which is every world before task 127 and every world with both dials off.
+function Body.collisionGroupFor(rule, dead: boolean?): string?
+	if rule == nil then
+		return nil
+	end
+	-- THE CARCASS ONE IS ON ITS OWN DIAL, so switching the live-vs-live experiment off does not take
+	-- the carcass rule with it.
+	if dead == true and rule.CARCASS_PASSES == true then
+		return rule.CARCASS_GROUP
+	end
+	if rule.ENABLED ~= true and rule.CARCASS_PASSES ~= true then
+		return nil
+	end
+	return rule.GROUP
+end
+
+-- THE ONE WRITER OF A BODY'S COLLISION GROUP, live or dead (task 324; L-031: one guard, not a patch
+-- per call site). `dead` is the only difference between the two call sites -- `Body.create` and
+-- `Body.collapse` -- so the group a body is in is decided above and written here, and nowhere else.
+function Body.useCollisionGroup(part: BasePart, config, dead: boolean?): boolean
+	local rule = if config ~= nil then config.BOAR_COLLISION else nil
+	local group = Body.collisionGroupFor(rule, dead)
+	if group == nil then
 		return false
 	end
-	if not collisionGroupReady then
-		collisionGroupReady = true
-		pcall(function()
-			PhysicsService:RegisterCollisionGroup(rule.GROUP)
-		end)
-		-- THE WHOLE POINT, in one line: the group does not collide with ITSELF. Every other pair --
-		-- boar against Default, which is the terrain, the trees and the players -- is untouched.
-		pcall(function()
-			PhysicsService:CollisionGroupSetCollidable(rule.GROUP, rule.GROUP, false)
-		end)
-	end
+	registerGroups(rule)
 	local ok = pcall(function()
-		part.CollisionGroup = rule.GROUP
+		part.CollisionGroup = group
 	end)
 	return ok
 end
@@ -384,10 +426,9 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 	part:SetAttribute(Licences.SPECIES_ATTRIBUTE, (speciesRow and speciesRow.species) or Licences.ROWS.boar.species)
 	part.Anchored = false
 	part.CanCollide = true
-	-- ...AND IT DOES NOT SHOVE ITS OWN KIND (task 127 round 3). See `Boar.CONFIG.BOAR_COLLISION`:
-	-- the group is registered once and told not to collide with itself, so a file can close up nose
-	-- to tail the way a real sounder does. Everything else -- terrain, trunks, the player -- is in
-	-- `Default` and still collides exactly as before.
+	-- THE LIVE GROUP. It does not collide with the CARCASS group (task 324), so the animal after a
+	-- kill walks through the body instead of pinning itself against it; `BOAR_COLLISION.ENABLED`
+	-- still decides live-vs-live (task 127 round 3). Terrain, trunks and the player are untouched.
 	Body.useCollisionGroup(part, config)
 	part.CFrame = CFrame.new(position)
 
@@ -2811,6 +2852,12 @@ function Body.collapse(handle, config, full)
 	part:SetAttribute("Damageable", false)
 	part:SetAttribute("Carcass", true)
 	-- CanCollide stays true, so the carcass lies on the ground instead of falling through it.
+	-- ...AND IT STOPS BLOCKING THE LIVING (task 324). Karen, 2026-11-01: *"when animal died in
+	-- shooting range another one can go tru now it stuck until dead is gone"*. MEASURED in her
+	-- place: the next animal stood 1.02 s at a 5.2-stud gap and was shoved 4 studs off its lane.
+	-- `full` AND NOT `config`: in this function `config` is the WOUND table (see the caller,
+	-- `Boar.Runtime`), and the first live run read no `BOAR_COLLISION` off it and changed nothing.
+	Body.useCollisionGroup(part, full, true)
 	--
 	-- THE TOPPLE, AND WHO DOES IT. ONE CFrame write, at the moment of death -- not the per-frame
 	-- CFrame writing the design forbids (boar-ai design section 6), and not the design's
