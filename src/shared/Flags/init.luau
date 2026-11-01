@@ -236,6 +236,16 @@ Flags.DEFAULTS = {
 			.. "him. OFF is exactly the game before task 313 -- the window is his own mat +- 18, "
 			.. "the leg is 76 studs, and nobody is hidden.",
 	} :: FlagRow,
+	STAND_PICK = {
+		default = false,
+		owner = "ServerScriptService.Match (and ServerScriptService.Match.StandPick)",
+		born = "2026-10-31 task 323",
+		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
+		expires = "2026-11-21",
+		why = "A hunter takes his own stand on the map in the countdown before the drive, instead "
+			.. "of being dealt one. Karen, 2026-10-31: 'choose shooting place on map before hunt'. "
+			.. "OFF deals every stand exactly as before task 323 and the intermission stays 5 s.",
+	} :: FlagRow,
 	TIE_UNTIL_DRIVE_END = {
 		default = true,
 		owner = "ServerScriptService.Match",

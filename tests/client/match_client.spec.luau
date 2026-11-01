@@ -1,5 +1,6 @@
 -- match_client.spec: the drive from the player's side -- the replica, the drive bar, and the one
--- property this system claims that a grep alone cannot prove: it has NO inbound remote at all.
+-- property this system claims that a grep alone cannot prove: its inbound surface is EXACTLY ONE
+-- remote carrying EXACTLY ONE NUMBER (`StandRequest`, task 323) and nothing else.
 --
 -- It reaches the modules through Players.LocalPlayer.PlayerScripts, never through
 -- StarterPlayerScripts, which is a template.
@@ -39,20 +40,114 @@ end
 
 return function()
 	describe("the wire", function()
-		it("has exactly two remotes, and both are server to client", function()
+		it("has exactly three remotes, and exactly one of them is inbound", function()
 			local folder = ReplicatedStorage:WaitForChild("Drive"):WaitForChild("Remotes")
 			local remotes = Drive.remotes()
 			expect(remotes.MatchState:IsA("RemoteEvent")).to.equal(true)
 			expect(remotes.MatchEvent:IsA("RemoteEvent")).to.equal(true)
+			-- THE ONE INBOUND REMOTE (task 323), and it carries ONE NUMBER. Before this task the
+			-- count was 2 and the claim was "zero inbound surface"; the claim is now "one remote, one
+			-- number, every other fact measured by the server" (docs/design/stand-pick.md 4.1).
+			expect(remotes.StandRequest:IsA("RemoteEvent")).to.equal(true)
 
-			-- No RemoteFunction, and no third RemoteEvent: this system takes no client input at all,
-			-- so its inbound exploit surface is zero, and that is worth keeping (design section 9.1).
+			-- No RemoteFunction, and no FOURTH RemoteEvent.
 			local count = 0
 			for _, child in ipairs(folder:GetChildren()) do
 				expect(child:IsA("RemoteEvent")).to.equal(true)
 				count += 1
 			end
-			expect(count).to.equal(2)
+			expect(count).to.equal(3)
+		end)
+
+		-- ------------------------------------------------------ task 323, cases 21 and 22
+		it("case 21: reads picks, pickWindow and myStand off the snapshot and derives nothing", function()
+			-- A HAND-BUILT SNAPSHOT, pushed through the real remote, so the replica is read exactly
+			-- as production writes it. `Role` says which client this is, and the pick table names
+			-- THIS player on stand 7.
+			local me = player.UserId
+			local before = Match.get()
+			local staged = Drive.deepFreeze({
+				phase = "Assigning",
+				phaseEndsAt = Workspace:GetServerTimeNow() + 15,
+				driveNumber = 99,
+				boarsReleased = 0,
+				boarsLeft = 0,
+				waitingFor = {},
+				quarry = {},
+				rows = {},
+				tied = {},
+				holdUntil = 0,
+				through = {},
+				picks = { ["7"] = me, ["3"] = me + 1 },
+				pickWindow = true,
+			})
+			Drive.remotes().MatchState:FireClient(player, staged)
+			expect(waitUntil(3, function()
+				local now = Match.get()
+				return now ~= nil and now.driveNumber == 99
+			end)).to.equal(true)
+			local table_ = Match.standPickTable()
+			expect(table_ ~= nil).to.equal(true)
+			expect((table_ :: any)["7"]).to.equal(me)
+			expect((table_ :: any)["3"]).to.equal(me + 1)
+			expect(Match.standPickOpen()).to.equal(true)
+			expect(Match.myStand()).to.equal(7)
+			-- ...AND ABSENT FIELDS ARE nil AND false, which is every build before this task: the
+			-- client draws exactly what it drew then.
+			local bare = Drive.deepFreeze({
+				phase = "Assigning",
+				phaseEndsAt = Workspace:GetServerTimeNow() + 5,
+				driveNumber = 98,
+				boarsReleased = 0,
+				boarsLeft = 0,
+				waitingFor = {},
+				quarry = {},
+				rows = {},
+				tied = {},
+				holdUntil = 0,
+				through = {},
+			})
+			Drive.remotes().MatchState:FireClient(player, bare)
+			expect(waitUntil(3, function()
+				local now = Match.get()
+				return now ~= nil and now.driveNumber == 98
+			end)).to.equal(true)
+			expect(Match.standPickTable()).to.equal(nil)
+			expect(Match.standPickOpen()).to.equal(false)
+			expect(Match.myStand()).to.equal(nil)
+			TestKit.note(
+				string.format(
+					"match_client: stand pick -- staged picks read back as mine=7, absent fields read nil/false (was drive %s)",
+					tostring(if before then before.driveNumber else nil)
+				)
+			)
+		end)
+
+		it("case 22: requestStand fires the channel ONCE with the number and nothing else", function()
+			-- THE ONE OUTBOUND DOOR. The channel is INJECTED because a client cannot observe its own
+			-- `FireServer` (`OnServerEvent` may only be connected on the server), so the argument
+			-- list -- which is the design's claim, "one number" -- is otherwise unassertable from
+			-- either side. The real remote is put back at the end of the case.
+			local real = Match.standChannel()
+			expect(real ~= nil).to.equal(true)
+			expect((real :: Instance):IsA("RemoteEvent")).to.equal(true)
+			expect(real).to.equal(Drive.remotes().StandRequest)
+			local seen: { { any } } = {}
+			Match.setStandChannel({
+				FireServer = function(_self, ...)
+					table.insert(seen, { ... })
+				end,
+			})
+			expect(Match.requestStand(4)).to.equal(true)
+			expect(#seen).to.equal(1)
+			expect(#seen[1]).to.equal(1) -- ONE argument, and it is the number
+			expect(seen[1][1]).to.equal(4)
+			-- ...and a non-number never leaves the client at all.
+			expect(Match.requestStand("4" :: any)).to.equal(false)
+			expect(Match.requestStand(nil :: any)).to.equal(false)
+			expect(#seen).to.equal(1)
+			Match.setStandChannel(real)
+			expect(Match.standChannel()).to.equal(real)
 		end)
 
 		it("keeps the shared config frozen to its nested tables", function()

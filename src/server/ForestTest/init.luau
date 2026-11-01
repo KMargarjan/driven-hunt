@@ -1105,14 +1105,29 @@ function ForestTest.openPick(userId: number, now: number, standIndex: number?)
 end
 
 -- Locks whatever he is nearest to. Called by the timer, or early when he confirms.
-function ForestTest.lockPick(userId: number, position: Vector3, now: number): number
+-- `standIndex` IS THE STAND THE DRIVE SAYS IS HIS (task 323), and it is OPTIONAL so every caller
+-- written before it keeps `nearestStand` -- which is the walk pick, and is this function unchanged.
+-- WITH IT, WALKING NO LONGER RE-CHOOSES: he chose on the map, and the circle closes round what he
+-- chose. A stand this layout does not state is ignored, not clamped, which is the same guard
+-- `ForestTest.pickOf` already applies to a stale pick.
+function ForestTest.lockPick(userId: number, position: Vector3, now: number, standIndex: number?): number
 	local pick = state.picks[userId]
 	if pick == nil then
 		ForestTest.openPick(userId, now)
 		pick = state.picks[userId]
 	end
 	if (pick :: any).lockedAt == nil then
-		pick.index = ForestTest.nearestStand(position);
+		local claimed = tonumber(standIndex)
+		if
+			claimed ~= nil
+			and claimed == math.floor(claimed)
+			and claimed >= 1
+			and claimed <= ForestTest.layout().standCount
+		then
+			pick.index = claimed
+		else
+			pick.index = ForestTest.nearestStand(position)
+		end
 		(pick :: any).lockedAt = now
 	end
 	return pick.index

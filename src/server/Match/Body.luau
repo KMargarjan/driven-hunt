@@ -2145,6 +2145,11 @@ local rescued = 0
 -- How many characters have been stood somewhere by `Body.standCharacter` (task 159).
 local stood = 0
 
+-- How many have been MOVED in the character they were already in (`Body.carry`, task 323), and how
+-- many times that refused because something else was holding them. The second must stay 0.
+local carried = 0
+local carriesRefused = 0
+
 function Body.rescued(): number
 	return rescued
 end
@@ -2272,6 +2277,54 @@ end
 -- The player wrapper, for the same reason `Body.tie` and `Body.hold` have one.
 function Body.stand(player: Player, cframe: CFrame, config): boolean
 	return Body.standCharacter(player.Character, player.UserId, cframe, config)
+end
+
+-- MOVE A CHARACTER THE PLAYER IS ALREADY IN, AND HAND BACK WHAT WAS HELD (task 323). It is
+-- `Body.stand` plus the restore: hold (which ANCHORS, which is why the pivot sticks -- this module's
+-- header), ground-snap at the target's own x,z (task 192's one placement rule), pivot, untie.
+--
+-- NOT `Body.place`: that calls `LoadCharacter`, which is a new character, a dropped Tool and a reset
+-- camera at the instant the start fanfare sounds. `Body.standCharacter` refused it for the results
+-- scene for the same reason, and this is that refusal reused.
+--
+-- `attempts = 1` SO IT CANNOT YIELD (design section 3.2): the ground at this stand was measured by
+-- the placement 15 seconds ago, and a yield here would hold the drive's forced broadcast open.
+--
+-- IT REFUSES A CHARACTER SOMEBODY ELSE IS HOLDING. A tie or a hold saved his WalkSpeed first, and
+-- the restore below would hand it back and free a man who is meant to be frozen. In `Assigning` a
+-- hunter is neither (`Phase.heldUserIds` is the Drivers; ties only exist in `Running`), so this is a
+-- belt -- and a counted one, `Body.carriesRefused()`.
+--
+-- Returns whether it moved him, and HOW FAR, so the owner's number is the engine's own measurement.
+function Body.carry(player: Player, cframe: CFrame, config): (boolean, number)
+	local userId = player.UserId
+	if Body.isHolding(userId) then
+		carriesRefused += 1
+		return false, 0
+	end
+	local character = player.Character
+	local root = Body.holdCharacter(character, userId)
+	if root == nil or character == nil then
+		carriesRefused += 1
+		return false, 0
+	end
+	local from = (character :: Model):GetPivot().Position
+	local target, measured = Body.onGround(cframe, Body.clearanceFor(config), 1);
+	(character :: Model):PivotTo(target :: CFrame)
+	reportPlacement("carry", (character :: Model).Name, cframe, target, measured)
+	-- THE HOLD GOES STRAIGHT BACK OFF: this is a move, not a freeze, and a hunter in the countdown
+	-- must be able to walk away from the stand he just took.
+	Body.untieCharacter(character, userId, nil)
+	carried += 1
+	return true, ((target :: CFrame).Position - from).Magnitude
+end
+
+function Body.carried(): number
+	return carried
+end
+
+function Body.carriesRefused(): number
+	return carriesRefused
 end
 
 -- How many characters this module has stood somewhere (the results scene's own number).

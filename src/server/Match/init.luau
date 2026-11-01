@@ -92,6 +92,7 @@ local Markers = require(script.Markers)
 local Penalty = require(script.Penalty)
 local Phase = require(script.Phase)
 local Roster = require(script.Roster)
+local StandPick = require(script.StandPick)
 local Scene = require(script.Scene)
 local Score = require(script.Score)
 
@@ -100,6 +101,9 @@ local Match = {}
 -- Exported for specs only, exactly as Boar.Brain and Weapon.StateMachine are.
 Match.Phase = Phase
 Match.Roster = Roster
+-- Exported for `match_stand_pick.spec`, exactly as `Phase` and `Roster` above are: the rule is pure
+-- and the spec states it with no drive (task 323). `ForestTestBoot` still goes through `Match.standOf`.
+Match.StandPick = StandPick
 Match.Score = Score
 Match.Markers = Markers
 Match.Penalty = Penalty
@@ -849,6 +853,26 @@ Match.CONFIG = {
 	MATCH_STEP_HZ = 4,
 
 	SEED = 1,
+
+	-- --------------------------------------------------- task 323: THE STAND PICK (docs/design/stand-pick.md)
+	--
+	-- HOW LONG THE WINDOW IS, AND IT **IS** THE `Assigning` PHASE lengthened to it
+	-- (`Phase.intermissionSeconds`), so there is no second number and nothing to keep in step.
+	--
+	-- THE ONE BOUNDARY READ OF THE FLAG (CLAUDE.md, feature flags: *"The owner reads it once, at its
+	-- boundary, and passes the value inward"*). 0 is OFF, and 0 makes both states reachable BY
+	-- PARAMETER from a pure spec while the flag sits at one of them.
+	STAND_PICK_SECONDS = if Flags.isOn("STAND_PICK") then 15 else 0,
+	-- Below this the map does not auto-open for a late joiner (323b): about one read and one tap. A
+	-- map that appears and vanishes is worse than no map.
+	STAND_PICK_MIN_SECONDS = 3,
+	-- The floor between one player's ACCEPTED changes. It is `STATE_MIN_INTERVAL` exactly, so an
+	-- accepted change forces at most one broadcast per throttle slot and the forced push can never
+	-- outrun the throttle it is bypassing.
+	STAND_PICK_MIN_INTERVAL = 0.25,
+	-- Per player per drive. A human changes his mind two or three times in 15 s; 20 is seven times
+	-- that and a hard ceiling on a forged client's cost.
+	STAND_PICK_MAX_REQUESTS = 20,
 }
 
 Drive.deepFreeze(Match.CONFIG)
@@ -1055,6 +1079,10 @@ local snapshotCache: any = nil
 
 local stats = {
 	drives = 0,
+	-- HOW MANY HUNTERS WERE MOVED ONTO THE STAND THEY TOOK (task 323), and the WORST distance one was
+	-- moved. 0 with the flag off is the strongest form of "today's drive bit for bit".
+	standsSettled = 0,
+	standSettleStuds = 0,
 	kills = 0,
 	escapes = 0,
 	releases = 0,
@@ -1342,6 +1370,17 @@ local function boarsAlive(): number
 	return alive
 end
 
+-- HOW MANY STANDS THIS DRIVE PLACE STATES (task 323). THE WORLD'S ANSWER, not `#markerSet.posts`: a
+-- post whose ground was refused is absent from the post list (measured in the forest: `8/9 stands
+-- (1 refused)`), so validating a claim against the posts would refuse a stand the player can see on
+-- the map. With no injection the posts ARE the stands, which is the DEV place.
+local function standCount(): number
+	if world and world.standCount then
+		return tonumber(world.standCount()) or 0
+	end
+	return if markerSet then #markerSet.posts else 0
+end
+
 function Match.snapshot()
 	if snapshotCache then
 		return snapshotCache
@@ -1429,6 +1468,14 @@ function Match.snapshot()
 		-- which is every build before this task -- so a client that never heard of the field reads
 		-- exactly what it always did.
 		stands = stands,
+		-- WHO HOLDS WHICH STAND IN THIS DRIVE (task 323), and WHETHER THE WINDOW IS OPEN. Both
+		-- ABSENT when nothing is claimed and the window is shut -- the `stands` / `coinsOn` idiom --
+		-- so with the flag off a client reads exactly what it read before this task.
+		--
+		-- THE WHOLE TABLE, as one snapshot: nine rows, and a delta a client could miss would draw a
+		-- taken stand as free.
+		picks = if StandPick.anyClaim() then StandPick.wireTable() else nil,
+		pickWindow = if Phase.pickWindow(state, config, standCount()) then true else nil,
 		rows = rows,
 		tied = tiedList,
 		-- THE TWO TASK-168 FACTS, both of them things a beater's own screen says and neither of them
@@ -1529,6 +1576,13 @@ local function applyAssignTeams(assignment)
 			-- CONFIG GOES WITH THE TEAM so the outfit follows it in the same call (M2.8d): an
 			-- assignment that swaps two players does not always come with a respawn.
 			Body.setTeam(player, team, config)
+		end
+		-- A HUNTER WHO BECOMES A BEATER LOSES HIS STAND, **WHERE THE TEAM IS DECIDED** (task 323,
+		-- E3) and not at remembered moments -- which is the shape task 214's root cause in this very
+		-- path was missing. The reverse gives him a hunter's line index and an empty claim, so he may
+		-- pick what is left.
+		if team ~= "Shooters" then
+			StandPick.release(userId)
 		end
 		board = Score.setTeam(board, userId, team)
 	end
@@ -1644,7 +1698,11 @@ local function placementLine(team: TeamName): any
 			entitled[index] = Shop.grantsHighSeat(ownedOf(userId))
 		end
 	end
-	return { count = #ids, entitled = entitled }
+	-- WHAT EACH OF THEM TOOK (task 323), by the same line index `indexWithinTeam` answers and in the
+	-- same sorted-userId order `entitled` is built in -- so the two lists cannot be out of step.
+	-- Empty with the flag off, which is `dealLine`'s nil case.
+	local picks = StandPick.picksFor(ids)
+	return { count = #ids, entitled = entitled, picks = picks }
 end
 
 local function indexWithinTeam(userId: number, team: TeamName): number
@@ -2034,6 +2092,42 @@ local function applyClearScene()
 	end
 end
 
+-- THE WINDOW CLOSES AND EVERY CLAIM IS SETTLED (task 323), on the `Running` edge and before any
+-- client is told the drive is on. **ONLY CLAIMANTS ARE MOVED**, so a drive in which nobody picked
+-- makes ZERO `Body` calls and is today's drive by identity -- which is what makes the flag-off claim
+-- a measurement (`stats.standsSettled`) rather than an assertion.
+--
+-- `Body.carry` and not `Body.place`: the man keeps the character he is in, and his gun with it.
+local function applyStandSettle()
+	StandPick.close()
+	if markerSet == nil or not StandPick.anyClaim() then
+		return
+	end
+	local ids = {}
+	for userId, team in pairs(state.assignment) do
+		if team == "Shooters" then
+			table.insert(ids, userId)
+		end
+	end
+	table.sort(ids)
+	local line = placementLine("Shooters")
+	local place = if world and world.placement then world.placement else Body.placementFor
+	for index, userId in ipairs(ids) do
+		if StandPick.standOf(userId) ~= nil then
+			local player = playersService():GetPlayerByUserId(userId)
+			local cframe = place(markerSet, "Shooters", index, config, line)
+			if player and cframe then
+				local moved, studs = Body.carry(player, cframe, config)
+				if moved then
+					stats.standsSettled += 1
+					stats.standSettleStuds = math.max(stats.standSettleStuds, studs)
+					StandPick.noteMove(studs)
+				end
+			end
+		end
+	end
+end
+
 local function applyEffects(effects)
 	for _, effect in ipairs(effects) do
 		local kind = effect.kind
@@ -2061,6 +2155,8 @@ local function applyEffects(effects)
 			applyScene()
 		elseif kind == "clearScene" then
 			applyClearScene()
+		elseif kind == "settleStands" then
+			applyStandSettle()
 		elseif kind == "feed" then
 			publishFeed(effect.entry)
 		elseif kind == "broadcast" then
@@ -2145,7 +2241,7 @@ local function syncBots()
 	-- on every dispatch -- clearing on the level would destroy and rebuild eight bodies four times a
 	-- second. `Match.botsNeedRebuild` is that edge, pure and exported so a spec can state it.
 	local drive = state.driveNumber
-	if Match.botsNeedRebuild(phase, drive, botsRebuiltForDrive) then
+	if Match.botsNeedRebuild(phase, drive, botsRebuiltForDrive, Phase.pickWindow(state, config, standCount())) then
 		bots.clear()
 		botsRebuiltForDrive = drive
 		stats.botRebuilds += 1
@@ -2178,6 +2274,10 @@ local function syncBots()
 		local botLine = {
 			count = (real.hunters or 0) + (want.hunters or 0),
 			entitled = hunterLine.entitled,
+			-- ...AND THE CLAIMS, COPIED THE SAME WAY (task 323). Bots occupy line indices n+1 upward,
+			-- where `picks` is nil, so A BOT CAN NEVER HOLD A CLAIM -- D6 by construction and not by
+			-- a check.
+			picks = hunterLine.picks,
 		}
 		local slots = Match.botSlotsFor(markerSet, place, real, want, config, botLine)
 		local made = bots.fill(slots, nil)
@@ -2346,6 +2446,10 @@ local function dispatch(event)
 		-- Studio-built map that does not change between drives -- so the value is identical and the
 		-- only difference anywhere is WHEN it was taken.
 		measureMarkers()
+		-- AND THE PICK WINDOW OPENS, ON THE SAME EDGE AND AFTER THE MEASUREMENT (task 323, E5). The
+		-- stand set for drive N is therefore fixed before any client can ask about it, so a claim of
+		-- stand 7 from a nine-stand `road` cannot survive into a five-stand `ride`.
+		StandPick.reset(state.driveNumber)
 		stats.drives += 1
 		table.clear(driveKills) -- the record is per drive, exactly as the board is (task 159)
 		board = Score.new() -- scores are per drive
@@ -2918,6 +3022,88 @@ function Match.standAreaFor(player: Player): any?
 	return Match.standAreaOf(player.UserId)
 end
 
+-- WHICH STAND HE TOOK ON THE MAP, or nil for "he took none" (task 323) -- which is every build with
+-- the flag off. RE-EXPORTED ON `Match` because `ForestTestBoot` already talks to this owner and must
+-- not require `Match.StandPick`: the owner's internals are not a public surface. `Match.standAreaOf`,
+-- `Match.isHeld` and `Match.driveLine` are the precedents.
+function Match.standOf(userId: number): number?
+	return StandPick.standOf(userId)
+end
+
+-- WHETHER A HUNTER MAY TAKE A STAND RIGHT NOW, for a screen and for a spec. The window is the phase
+-- (`Phase.pickWindow`), measured against the world's own stand count.
+function Match.pickWindowOpen(): boolean
+	return Phase.pickWindow(state, config, standCount())
+end
+
+function Match.standPickStats()
+	return StandPick.stats()
+end
+
+-- THE ONE INBOUND DOOR OF THIS SYSTEM (task 323). PUBLIC for `Lobby.onRoleRequest`'s own stated
+-- reason: `OnServerEvent` can only be raised by a client, so a spec must be able to drive it by
+-- parameter -- and it returns its own verdict, so a spec gets a per-call answer instead of inferring
+-- one from a counter.
+--
+-- EVERY FACT IS MEASURED HERE AND NOTHING IS TAKEN FROM THE PAYLOAD BUT THE NUMBER. Whether the
+-- window is open is `Phase`'s, whether he is a hunter is the assignment's, how many stands there are
+-- is the world's, whether the stand carries a seat is the world's, and whether he may use one is the
+-- economy's. A client that could decide any of them could put itself on any stand (Roblox docs:
+-- *"never trust the client"*).
+--
+-- IT YIELDS NOWHERE on the accepting path, which is what makes "first request wins" a property of
+-- the code: `StandPick.claim` writes the table before anything here can yield (design section 7.1).
+function Match.onStandRequest(player: any, standIndex: any, asked: number?): Drive.StandVerdict?
+	if not started or player == nil then
+		return nil
+	end
+	local userId = player.UserId
+	-- A PAYLOAD THAT IS NOT A NUMBER AT ALL IS DROPPED AND COUNTED, never coerced: `tonumber("4")`
+	-- on a client's string is the server believing a client's TYPE.
+	if type(standIndex) ~= "number" then
+		StandPick.noteMalformed()
+		return nil
+	end
+	local at = asked or now()
+	local asks = StandPick.noteAsk(userId)
+	local stand = standIndex :: number
+	local seatedStands = if world and world.seatedStands then world.seatedStands() else nil
+	local economy = if world then world.economy else nil
+	local ownedOf = if economy then economy.ownedOf else nil
+	local ok, reason = StandPick.judge({
+		userId = userId,
+		stand = stand,
+		now = at,
+		open = Phase.pickWindow(state, config, standCount()),
+		standCount = standCount(),
+		isHunter = state.assignment[userId] == "Shooters",
+		seated = seatedStands ~= nil and seatedStands[stand] == true,
+		entitled = if ownedOf ~= nil then Shop.grantsHighSeat(ownedOf(userId)) else nil,
+		heldBy = StandPick.holderOf(stand),
+		mine = StandPick.standOf(userId),
+		lastAt = StandPick.lastChangeAt(userId),
+		asks = asks,
+		config = config,
+	})
+	if ok then
+		ok, reason = StandPick.claim(userId, stand, at)
+	end
+	if not ok then
+		StandPick.noteRefusal(reason)
+	else
+		-- FORCED, PAST THE THROTTLE (design section 4.4): a client that learns 1.2 s late that stand
+		-- 4 went is a client that taps a stand that is gone. A REFUSED ask broadcasts nothing,
+		-- because the state did not move.
+		snapshotCache = nil
+		broadcast(true)
+	end
+	local verdict = { ok = ok, stand = stand, reason = reason }
+	if remotes and remotes.StandRequest and typeof(player) == "Instance" then
+		remotes.StandRequest:FireClient(player, Drive.deepFreeze(table.clone(verdict)))
+	end
+	return verdict
+end
+
 -- A WORLD ASKS FOR ONE PLAYER TO CHANGE SIDES, AND THIS OWNER STILL DECIDES (task 157, design
 -- section 5.2). It exists for exactly one caller: the Forest Test's `/beater` command and its start
 -- switch, which used to write `Player.Team` at its own composition root -- and that did not merely
@@ -3249,8 +3435,18 @@ end
 -- TRUE EXACTLY ONCE PER DRIVE. `Running` never rebuilds (a bot mid-walk must not be teleported back
 -- to the line four times a second), and a second `Assigning` tick of the same drive never rebuilds
 -- (the countdown is ten seconds long and this runs on every dispatch).
-function Match.botsNeedRebuild(phase: string, driveNumber: number, lastRebuilt: number?): boolean
-	return phase == "Assigning" and lastRebuilt ~= driveNumber
+-- `pickOpen` DEFERS THE REBUILD UNTIL THE WINDOW HAS CLOSED (task 323, D6). The bots' stands come
+-- out of the same `dealLine`, so a line dealt while a human could still claim would hand a rig the
+-- stand he was about to take -- and this answer is TRUE EXACTLY ONCE PER DRIVE, so moving the edge
+-- costs no rebuild and adds no state. `"Running"` joins the edge ONLY so the deferred rebuild
+-- actually happens; with the flag off `pickOpen` is false in `Assigning`, the first `Assigning` tick
+-- rebuilds, `lastRebuilt` moves, and the `Running` arm is unreachable -- today's behaviour by
+-- identity.
+function Match.botsNeedRebuild(phase: string, driveNumber: number, lastRebuilt: number?, pickOpen: boolean?): boolean
+	if pickOpen == true then
+		return false
+	end
+	return (phase == "Assigning" or phase == "Running") and lastRebuilt ~= driveNumber
 end
 
 --
@@ -4095,6 +4291,10 @@ function Match.forget(player: Player)
 	-- ...AND WHETHER HE HAD BEEN WALKED BEHIND THE LINE (task 261, item 2), for the same rule: no
 	-- table in this owner is keyed by a man who has gone.
 	throughPlaced[userId] = nil
+	-- ...AND THE STAND HE HAD TAKEN (task 323, E2), which is the one row whose removal somebody ELSE
+	-- can see: the stand is free again at once (D4) and the forced broadcast below carries it.
+	local freed = StandPick.release(userId)
+	StandPick.forget(userId)
 	if tied[userId] then
 		-- The rope outlives nobody: the Instance goes with the player (design section 4.4).
 		untie(userId)
@@ -4110,6 +4310,12 @@ function Match.forget(player: Player)
 		credit[userId] = nil
 	end
 	dispatch({ kind = "leave", userId = userId, name = player.Name })
+	-- PAST THE THROTTLE (task 323, E2): a client that learns a quarter of a second late that stand 4
+	-- is free is a client that taps a stand it still believes is taken. Only when he held one.
+	if freed ~= nil then
+		snapshotCache = nil
+		broadcast(true)
+	end
 end
 
 function Match.start(injected)
@@ -4147,6 +4353,18 @@ function Match.start(injected)
 
 	if world.remotes ~= false then
 		remotes = world.remotes or Drive.remotes()
+	end
+
+	-- THE ONE INBOUND DOOR (task 323), and it is GUARDED for `Lobby.start`'s own measured reason: a
+	-- `RemoteEvent` double whose `Connect` returns nil is a legal stand-in -- every spec drives
+	-- `Match.onStandRequest` by parameter -- and `table.insert(t, nil)` throws.
+	if remotes ~= nil and remotes.StandRequest ~= nil then
+		local connection = remotes.StandRequest.OnServerEvent:Connect(function(player: Player, payload: any)
+			Match.onStandRequest(player, payload)
+		end)
+		if connection ~= nil then
+			table.insert(connections, connection)
+		end
 	end
 
 	Body.ensureTeams()
@@ -4209,6 +4427,9 @@ function Match.stop()
 		world.bots.clear()
 	end
 	botsRebuiltForDrive = nil
+	-- ...AND NO CLAIM OUTLIVES THE SESSION (task 323): a spec that staged a pick must not leave the
+	-- next require of this singleton believing stand 4 is somebody's.
+	StandPick.clear()
 	-- ...AND THE WORLD'S NUMBERS GO WITH THE WORLD. A spec that started a 300-second drive must not
 	-- leave the next require of this singleton reading 300.
 	config = Match.CONFIG
