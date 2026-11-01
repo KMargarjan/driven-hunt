@@ -1,18 +1,67 @@
-1. `src/server/Range/init.luau` / `scan`'s kill branch + `clearId` — A SECOND KILL AT ONE STATION INSIDE `CARCASS_SECONDS` ORPHANS THE CORPSE FOR THE REST OF THE SESSION. The kill branch sets the clock first and then clears the previous corpse through the function that nils that same clock. Evidence, in order, from `scan`: `trial.carcassAt = now` / `state.stats.carcasses += 1` / `if trial.carcassId ~= nil and trial.carcassId ~= trial.targetId then clearId(trial, trial.carcassId, "range carcass") end` / `trial.carcassId = trial.targetId`. And `clearId`: `if trial.carcassId == id then trial.carcassId = nil; trial.carcassAt = nil end`. So on the second kill the just-written `carcassAt` is wiped by the clear of corpse A, and corpse B is then installed with `carcassAt == nil`. The only reader that retires a carcass requires it: `if trial.carcassId ~= nil and carcassAt ~= nil and now - (carcassAt :: number) >= Range.CONFIG.CARCASS_SECONDS`. Nothing else ever sets `carcassAt` (`release`: *"`carcassAt` IS NOT TOUCHED HERE"*; `newTrial`: nil), so corpse B is never cleared. It is reachable with a two-barrel gun — the next animal is released on the same tick as the kill and enters the span in `NEXT_PASS_SECONDS` (0.35 s of apron), well inside the 3 s. The consequences are not cosmetic: `Range.mineIdsFor` keeps publishing the dead id, so `Mask` DRAWS the corpse on his lane for ever; `Range.ignoredFor`'s `door` does not hide his own body inside his own window, so it stops his pellets at the live animal crossing behind it and `Range.onHitReported` scores them; and it holds a slot against `MAX_TARGETS` (now `SPOT_COUNT * 2`, exactly the 6 live + 6 carcasses the loop can hold), so six stuck corpses refuse every further release. Required: write `trial.carcassAt = now` AFTER the previous-carcass clear (or keep the clock out of `clearId`'s reach), plus a case that kills twice at one station inside `CARCASS_SECONDS` and asserts the SECOND body is gone `CARCASS_SECONDS` after its own kill and `trial.carcassId == nil` — red today.
+PASS (item 1, 3, 4, 5, 6, 7 NOT PROVEN)
 
-2. `src/server/Range/init.luau` / `Range.onRequest`'s `leave` arm — LEAVE WITH A FRESH KILL ON THE LANE ORPHANS THE CORPSE THE SAME WAY, and this one is a regression of task 319's own feature. The arm reads `clearTarget(trial, "range leave")` / `trial.targetId = nil` / `trial.releaseAt = nil` / `trial.carcassAt = nil` / `trial.ended = true` — it nils the carcass CLOCK and leaves `trial.carcassId` set. Before task 321 that was harmless because the dead animal WAS `trial.targetId` and `clearTarget` took it; task 321 moved it to its own slot and this arm was not updated. The two recovery paths both miss it: `scan`'s carcass block needs `carcassAt ~= nil`, and the idle clear (`clearId(trial, trial.carcassId, "range idle")`) sits BELOW `if trial.targetId == nil then ... continue end`, which fires every tick after a leave (`ended` blocks the release), so the idle arm is never reached. The man presses LEAVE RANGE on his kill and the body stays on his lane, visible to him through `mineIds`, for the life of the server. Required: `clearId(trial, trial.carcassId, "range leave")` in that arm, with a case — a kill, a `leave` on the next tick, and the body asserted gone — red today. Task 319's existing leave case never kills, so nothing covers it.
+Rule 5, stated so this PASS is not read as rule 5 having been met: NOTHING in round 3 was seen in
+Karen's place. The request says so itself ("RULE 5 / STEP 3: NOTHING IN THIS ROUND WAS SEEN IN
+KAREN'S PLACE ... the dispatch did not require a Forest Test proof this round"), and
+`.agent-evidence/` carries no frame and no live reading at `814cb8ca`. So: a second kill inside
+`CARCASS_SECONDS` clearing corpse A and keeping B's clock (claim 1), LEAVE taking the corpse
+(claim 3), the missing-clock guard (claim 4), the sequence invariant (claim 5) and the trunk being
+named its id -- which is what decides whether she can SEE a fresh range animal at all (claims 6, 7)
+-- are proven by specs and by reading only. The pass loop's one live measurement is round 1's, at
+`160c25ae`, not at this code commit, and no frame of a range CARCASS exists at any commit
+(318a(f) still stands). What I verified by reading, and would stake my name on: the three numbered
+round-2 findings are fixed, each with a case that is red at `64edb761`.
 
-3. `tests/server/range.spec.luau` / `it("names his animal's id on the wire, and after a kill both ids")` — THE ONE LINE THAT IS OFFERED AS THE BRIDGE FROM THE SERVER'S IDS TO KAREN'S SCREEN TESTS THE HARNESS, AND THE REQUEST'S DESCRIPTION OF IT IS FALSE. The request (item 2) says *"the trunk's `Name` is asserted to BE that id (which is what the client resolves on its own sweep)"*. The assertion is `expect((live.root :: any).Name).to.equal("FakeTrunk_" .. live.id)`, and `newFakeBoars().spawn` writes `trunk.Name = "FakeTrunk_" .. id` — a name the client's `Mask.isMine` (`state.mineIds[trunk.Name] == true`) would NOT resolve. So the line asserts the fake's own convention and the opposite of its stated purpose. The shipped invariant it stands in for is `src/server/Boar/Body.luau` `Body.create`: `part.Name = id`. Delete that one line and the whole of (e) is dead in her place — a fresh animal stays `HIDDEN` for its entire pass, which is 319a(a), the defect this change exists to close — while every spec stays green: the server half asserts `FakeTrunk_<id>`, and the client half (`range_mask.spec`, *"shows the animal the server named by ID..."*) stages its own `Mask.setMine(nil, { trunks[3].Name })` with trunks named `Trunk<n>`. Nothing in `tests/` asserts a real body's Name against its id (`grep` for `.Name).to.equal(` over `tests/` returns only this new line). Required: pin the invariant where it lives — one assertion on a real `runtime:spawn`/`Body.create` handle that `rootOf(handle.id).Name == handle.id` — and either rename the fake's trunk to the id or drop the `FakeTrunk_` line, which proves nothing it is offered as proving.
+Harness/paperwork consistency checked: both `[harness] PASS: 34/34 ... @ 814cb8ca... (clean tree)
+scope=all` and `[harness2] PASS: 36/36 ... @ 814cb8ca... (clean tree)` name the request's
+`Code commit:`; `paperwork-after-code-commit.txt` reads OK (only `TASKS.md` and
+`reviews/task-321/REQUEST.md` after it); selene, stylua and the Rojo build are clean; no secret,
+local path or non-noreply address anywhere in the diff.
 
 ## Notes (non-blocking)
 
-- Rule 5, stated so nothing here is read as rule 5 having been met: NOTHING in this round was seen in Karen's place. The request says so (*"No live Forest Test proof this round ... Not attempted"*). Finding 1 of round 1 — the carcass in the shot's door — changes what a real shot does and has no frame and no live run; the mask fix (items 2/3) has no frame of a drawn range animal at this commit either (round 1's own note: *"no frame shows a range animal at all"*); the pass loop's live measurement is round 1's, at `160c25ae`, not at the code commit. Were the three findings above fixed, line 1 would be `PASS (item 1, 2, 3 NOT PROVEN)`.
-- `tests/server/range.spec.luau` / `it("starts the next pass within NEXT_PASS_SECONDS of the last one leaving the span")` — `expect(worst <= 1.0).to.equal(true)`, commented *"THE CLAIM, AND IT IS THE ONE KAREN MADE"*, is green only because the harness has no acceleration: `fake.advance` moves an animal at `animal.want` on the first step. In her place the same gap measured **0.83–2.12 s** (`TASKS.md` row 321: *"NOT MET: the <= 1.0 s gap at the WORST case (2.12 s) -- the animal is spawned at rest"*). So the case cannot fail for the reason the game fails. Disclosed, and round 1 took it as a note, so it stays one — but the spec should carry the real bound or say in the case why its own number is not the game's.
-- `src/server/Range/init.luau` / `MAX_TARGETS` and `docs/design/shooting-range.md` — the runtime table row still reads `` `config.maxBoars` | `Range.CONFIG.MAX_TARGETS` = `SPOT_COUNT` | one target per spot, never a sounder``; it is now `SPOT_COUNT * 2`. New staleness, not in 321a's queued list.
-- `tests/server/range.spec.luau` / the new carcass case — `expect(has(Range.ignoredFor(man, 0.2), carcass2)).to.equal(true)` does not exercise the rewind it names: `door` short-circuits on `local hide = spot ~= mine` for a NEIGHBOUR's body, so `positionOfId(id, at)` is never called on a carcass by any case. `positionOfId` itself is covered through the live target (the task-308 rewind case); the carcass arm is not.
-- `tests/server/range.spec.luau` / the same case — it computes `sightSpanFor(ANCHOR, 3, LAYOUT, ..., false)` by hand while `startRange(fake, now)` leaves `state.solo` on `Range.SOLO_VIEW`. The two agree only while `RANGE_SOLO` is dark; a flip makes `hisMinX - 2` land INSIDE the wide span and turns the last assertion red. Other cases in the file pass `solo` explicitly for this reason.
-- `src/server/Range/init.luau` / `scan`'s pass-over arm — `if clearTarget(...) then ... end` then `continue`: a refused clear leaves `passOver` true and skips `order`, so an animal that cannot be despawned also stops being steered and the clear is retried every tick. Companion to round-1 note (g) on the carcass slot; same shape, different arm.
-- `ESCALATE.md` and `TASKS.md` row 321 still read **NEEDS DIRECTOR / round 2 not used / "this cannot pass from here"**, which the two PASS lines now at the head of the request have settled. Prose only.
+- `src/server/Range/init.luau` / `scan`'s retire block — claim 4's new disjunct is convicted by no
+  case. Restore it to `trial.carcassId ~= nil and carcassAt ~= nil and now - carcassAt >=
+  CARCASS_SECONDS` and the whole suite stays green: nothing in `tests/` ever produces a `carcassId`
+  with `carcassAt == nil` (grep `carcassAt` over `tests/` answers only `expect(trial.carcassAt)
+  .to.be.ok()`, two `.to.equal(nil)`, and the invariant sweep's own read), so that case's
+  `local age = if at == nil then math.huge else clock.t - (at :: number)` line is unreachable in a
+  green run and, in a red one, trips on the leave instead. One case closes it: make the fake refuse
+  `clearOne` ONCE for the carcass id, then assert the slot is empty on the tick after -- green here,
+  stuck for ever at `64edb761`.
+- `src/server/Range/init.luau` / `clearId` — claim 4's *"AT ANY CALL SITE PRESENT OR FUTURE"* and
+  *"costs one tick instead of the session"* hold for a lost CLOCK, not for a refused DESPAWN:
+  `if not ok or done == false then return false end` returns without nilling `carcassId`, so a body
+  removed by another hand leaves the slot set for the life of the server, retried every tick, with
+  `Range.mineIdsFor` still publishing the dead id. That is round-1 note (g), queued as 321a(g) and
+  deliberately not fixed; the claim reads as if it were.
+- `tests/server/range.spec.luau` / `it("holds no carcass older than CARCASS_SECONDS + a tick, after
+  any sequence of kills and leaves")` — the case does not stage what claim 5 says it stages. Every
+  round of its loop ends with `advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + 0.3)`, which
+  retires every corpse, so the next round's kill wave lands on an EMPTY carcass slot and there is no
+  "kills again inside the hold" anywhere in it. Revert ONLY the kill-branch ordering (claim 1) and
+  this case stays green; it is red at `64edb761` through the `leave` arm alone. The second-kill half
+  is carried by `it("clears the previous corpse on a second kill and keeps the NEW one's own
+  clock")`, whose `expect(trial.carcassAt).to.be.ok()` is genuinely red there.
+- `tests/server/range.spec.luau` / `it("names his animal's id on the wire, and after a kill both
+  ids")` — `expect((live.root :: any).Name).to.equal(live.id)` is still the FAKE's own convention
+  (`newFakeBoars().spawn` now writes `trunk.Name = id`) and would pass with every line of
+  `src/server/Boar/Body.luau` deleted. The line that bites is the one below it,
+  `expect((made.part :: BasePart).Name).to.equal(realId)` against `Body.create` (`part.Name = id`,
+  handle `part = part`) -- which is what makes claim 7 true. Keep the fake line as documentation,
+  but it is not evidence.
+- same case — `realRoot:Destroy()` is unprotected and `Body.create` ends with `part.Anchored =
+  false` / `part.CanCollide = true` / `part.Parent = folder`: if any assertion between the create
+  and the destroy throws, an unnamed `Folder` with a falling boar body is left in `Workspace` for
+  the rest of the run. Same shape as 318a(c); a `pcall` closes it.
+- `reviews/task-321/REQUEST.md` claims 2 and 3 — no FAIL-FIRST run is pasted for round 3, where
+  round 2 pasted one per case. Both rednesses are derivable from the round-2 code the verdict quotes
+  verbatim and I checked them that way, so nothing is unsupported; a pasted run would have made them
+  evidence rather than inference.
+- `ESCALATE.md` and `TASKS.md` row 321 — the round-2 entry still reads *"NEEDS DIRECTOR"* / *"this
+  cannot pass from here"* / *"round 2 is the LAST"*, all settled by the two PASS lines and the
+  Director's round-3 authorisation at the foot of the same file; the TASKS row is now ~40 lines of
+  three rounds' history in one cell. Prose only, and round 2 noted the first half already.
 
 ---
-REVIEWER verdict on commit `64edb7619027844ee0b2fc63e867ba76d7d70e66` (round 2) · 2026-11-01 00:14 UTC · session cost $4.46, 43 turns · written by tools/agents.py
+REVIEWER verdict on commit `47f9793e54926236748ab7900186d1d1715b6d62` (round 3) · 2026-11-01 00:51 UTC · session cost $3.77, 36 turns · written by tools/agents.py
