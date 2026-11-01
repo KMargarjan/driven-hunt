@@ -610,9 +610,12 @@ return function()
 			local settledDeal = HighSeats.dealLine(walk, seated, {}, 2, picks)
 			-- h2 got what he claimed...
 			expect(settledDeal[2]).to.equal(provisional[1])
-			-- ...AND h1 WAS DISPLACED: his stand changed, which is the whole finding.
+			-- ...AND h1 WAS DISPLACED: his stand CHANGED, which is the whole finding. On the `road`
+			-- the two men SWAP (h1 1->2, h2 2->1), which makes it stronger rather than weaker: BOTH
+			-- have to be carried, and moving only the claimant would have left both of them on
+			-- stand 1 with stand 2 empty.
 			expect(settledDeal[1]).never.to.equal(provisional[1])
-			expect(settledDeal[1]).never.to.equal(provisional[2]) -- it is not where he was standing
+			expect(settledDeal[1]).to.equal(provisional[2])
 			-- ...and nobody shares a stand in the settled deal.
 			expect(settledDeal[1]).never.to.equal(settledDeal[2])
 			-- `Match.standMoved` IS THE PREDICATE `applyStandSettle` NOW CARRIES EVERY HUNTER BY, and
@@ -626,7 +629,7 @@ return function()
 			expect(Match.standMoved(a, nil)).to.equal(false)
 			TestKit.note(
 				string.format(
-					"match_stand_pick: finding 1 -- provisional {%d,%d} + one claim of %d settles to {%d,%d}; the non-claimant MOVES",
+					"match_stand_pick: finding 1 -- provisional {%d,%d} + one claim of %d settles to {%d,%d}; BOTH men move (a swap)",
 					provisional[1],
 					provisional[2],
 					provisional[1],
