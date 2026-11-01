@@ -2956,7 +2956,11 @@ ForestTest.MAX_BODIES_IN_A_COLUMN = 8
 --
 -- `places.spec` asserts that `Places.FOLDER` is in this list and `range.spec` that
 -- `Range.TARGETS_FOLDER` is, so each name exists once and the list cannot drift from its folder.
-ForestTest.GROUND_IGNORE = table.freeze({ "OurForest", "Foliage", "Boars", "DrivePlaces", "RangeTargets" })
+-- `GridPlaces` IS THE GRID'S OWN FOLDER (task 327a, `Places.GRID_FOLDER`): a corner stake standing
+-- inside the footprint must never be the answer to "where is the ground". Its parts are already
+-- `CanQuery = false`, so this is the second of two locks rather than the only one.
+ForestTest.GROUND_IGNORE =
+	table.freeze({ "OurForest", "Foliage", "Boars", "DrivePlaces", "GridPlaces", "RangeTargets" })
 
 -- IT IGNORES THE FOREST, THE ANIMALS AND THE PEOPLE. A boar must be put on the GROUND, not on a
 -- fern, not on the back of the boar spawned a moment earlier -- and not on a player's head.

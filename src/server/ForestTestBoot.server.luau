@@ -108,7 +108,12 @@ print(
 -- THE READER IS TERRAIN ONLY AND IT IS HANDED IN HERE (design 10.1). `ForestTest.terrainYAt` lives on
 -- the SERVER owner of this world, which is why the composition root is where the two meet: the
 -- planter learns nothing about `Workspace.Terrain` and `ForestTest` learns nothing about planting.
-local planted = Places.build(ForestTest.terrainYAt, nil, workspace.Terrain)
+-- THE GRID PREVIEW (task 327a) IS THE FOURTH AND FIFTH ARGUMENTS: nil lets `Places` read its own
+-- flag at its own boundary, and `task.wait` is the slice -- a boot that paints 270 terrain
+-- regions in one frame is a boot Karen sees as a freeze.
+local planted = Places.build(ForestTest.terrainYAt, nil, workspace.Terrain, nil, function()
+	task.wait()
+end)
 print(string.format(
 	-- `%d leaf part(s) unblocked` IS TASK 260's COUNT, printed because it is the number the
 	-- Director asked for before and after: how many parts in Karen's own wood stopped a bullet
@@ -125,6 +130,19 @@ print(string.format(
 	planted.seconds,
 	if planted.reason then " (" .. tostring(planted.reason) .. ")" else ""
 ))
+-- THE GRID'S OWN LINE (task 327a), so the preview's three numbers are read and never assumed: how
+-- many terrain regions were painted, how many corner stakes went in, and how long it took. All
+-- zeroes with `GRID_PREVIEW` off, which is the flag-off proof on the boot's own face.
+print(
+	string.format(
+		"[ForestTestBoot] grid: preview=%s, %d road paint call(s), %d corner stake(s), %d without ground, %.2fs",
+		tostring(Places.gridPreviewEnabled()),
+		planted.gridPaints,
+		planted.gridStakes,
+		planted.gridMissing,
+		planted.gridSeconds
+	)
+)
 
 -- ---------------------------------------------------------------- the boars
 

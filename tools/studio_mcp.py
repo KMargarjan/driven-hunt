@@ -812,6 +812,13 @@ BLAST_RADIUS = (
     ("src/server/BoarAssetsBoot.server.luau", "boar"),
     ("src/shared/Map/", "map"),
     ("src/serverstorage/MapGen/", "map"),
+    # THE GRID (task 327a): one world cut into eight drive cells by forest roads. It resolves to
+    # `map` and not to a scope of its own (Director decision D-6): it IS the map's shape, and
+    # `Map.WORLD_BY_PLACE` is what will switch to it. `grid.spec` is in `places` as well -- the dual
+    # membership this table already uses -- because the thing that DRAWS the grid is
+    # `src/server/Places/`, and a change to `Ground.paintRoads` has to play the spec that asserts
+    # the call budget.
+    ("src/shared/Grid/", "map"),
     ("src/serverstorage/Assets/", "assets"),
     ("src/shared/Flags/", "flags"),
     # THE GAME'S LIGHT (task 215): the one owner of `Lighting`, its `Atmosphere` and its post
@@ -1030,7 +1037,11 @@ SCOPE_SPECS = {
                # Task 218: the lane rule is what keeps a high seat's footprint clear, and this spec
                # asserts `Places.LANE_STUDS >= HighSeats.footprintRadiusStuds()` rather than
                # describing it -- so moving either number plays it.
-               "tests/server/high_seats.spec.luau"),
+               "tests/server/high_seats.spec.luau",
+               # Task 327a: `Ground.paintRoads`, the corner stakes and the GRID_PREVIEW-off proof
+               # all live in `src/server/Places/`, which resolves here -- so a change to the paint
+               # plays the spec that asserts its 300-call budget. Dual membership with `map`.
+               "tests/server/grid.spec.luau"),
     "match": ("tests/server/match_config.spec.luau", "tests/server/forest_markers.spec.luau",
               # Task 287: the LIVE door a pad step goes through, last in the suite because a restart
               # is a drive boundary. DUAL MEMBERSHIP with `lobby`, which reads that door.
@@ -1139,7 +1150,10 @@ SCOPE_SPECS = {
                 # `Economy.purchase` with `atCounter = false`, which is what the licence popup's BUY
                 # does. Both are this owner's, so an Economy-only change must play them.
                 "tests/server/licence_popup.spec.luau"),
-    "map": ("tests/server/map_contract.spec.luau", "tests/server/test_arena.spec.luau"),
+    "map": ("tests/server/map_contract.spec.luau", "tests/server/test_arena.spec.luau",
+            # Task 327a: the eight cells, the footprint arithmetic, the cross-side separation and
+            # the road paint. Dual membership with `places` (below), which draws it.
+            "tests/server/grid.spec.luau"),
     # `boar_model.spec` reads the manifest's `boar.male` rows and the `BOAR_MODEL` row, so a change
     # to either reaches it (task 115).
     "assets": ("tests/server/assets_seam.spec.luau", "tests/server/boar_model.spec.luau",
