@@ -3,7 +3,7 @@
 Task: 325
 Round: 1
 Base: 4840e1df (main)
-Code commit: da10165d347a0e3ba8e1a0c2a9f1dcda3a5dfbd4
+Code commit: 124eafd7c493d189c4d07056ac2668ebd198ea7c
 
 KAREN, 2026-11-01: *"you need to fix red stag male when jumping it has to jump not like now broken
 and famale and kid doesnt jump / work on it"*.
@@ -11,11 +11,36 @@ and famale and kid doesnt jump / work on it"*.
 Harness, clean tree, full scope, at the code commit:
 
 ```
-[harness] PASS: 34/34 checks @ da10165d347a0e3ba8e1a0c2a9f1dcda3a5dfbd4 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 124eafd7c493d189c4d07056ac2668ebd198ea7c (clean tree) scope=all
 ```
 
 `test2` is N/A: nothing here touches `TWO_PLAYER_PATHS` (the change is `src/server/Boar/`, which the
-Director's 2026-10-03 list puts with the one-player gate).
+Director's 2026-10-03 list puts with the one-player gate). The last commit that changed `src/` or
+`tests/` is `da10165d`; everything after it is this request and the research note, so the line above
+covers the head.
+
+**An intermittent, named and then cleared.** An earlier run of the same commit reported
+`deer_hitbox.spec:682` (2653 passed, 1 failed) — the intermittent the dispatch names, and the Forest
+Test was in Play at the time, which the dispatch says makes it worse. Stopping that Play session and
+re-running the same commit gave the clean 34/34 above. Two runs, same commit: `FAIL: 32/34` then
+`PASS: 34/34 @ 124eafd7`.
+
+ANSWERED: L-136 — the only FAIL seen was `deer_hitbox.spec:682`, which the dispatch names as a known
+intermittent; it is reported above with both runs rather than waved away, and the pasted evidence is
+the clean one. `weapon_shot.spec.luau:1490` never fired.
+ANSWERED: L-127 — every claim below is MET or carries its own "could not be verified" line; the
+handover block in the report marks each dispatch item MET / NOT PROVEN by name.
+ANSWERED: L-162 — every live reading in this request was taken in her place at a commit on this
+branch: the "before" at `main` 4840e1df, cycles 1–3 at `6dbd7a6a`, `14266be1` and `da10165d`, each
+served to her place on its own Rojo port and each with a Play restart.
+ANSWERED: L-111 (route) — task 255's finding ("nothing in `src/server/Boar/` ever writes a vertical
+velocity") is exactly right and is the root cause this task fixes; `b245b-result.json`'s hoof sink
+and its "a real fix needs per-frame CFrame writes the design forbids" is answered without any such
+write — the body rises, the drawn mesh never moves, and 245c is closed. Written up in §8.3.
+ANSWERED: L-020 (route) — measured rather than assumed: there is NO per-kind gate anywhere, all
+three kinds already entered the bound at `main`, and the premise "the hind and the calf do not jump"
+is corrected in claim 1. The per-kind apex is taken off each kind's own `scale` with the floor from
+each kind's own measured sink.
 
 ## PLAN (core quality protocol step 0)
 
