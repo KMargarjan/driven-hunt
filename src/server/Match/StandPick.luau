@@ -210,6 +210,13 @@ end
 -- IT DOES NOT JUDGE. The owner judges with the world it measured and calls this only on an accept,
 -- which is the `Weapon.Rules` split: one function decides, another writes.
 function StandPick.claim(userId: number, stand: number, now: number): (boolean, string?)
+	-- THE WINDOW IS SHUT HERE TOO, AND NOT ONLY IN `judge` (Reviewer round 1, note: `close()` was
+	-- writing a flag nothing consulted). `judge` is the answer the PLAYER gets; this is the one the
+	-- TABLE gets, so a claim cannot land after `settleStands` has dealt the line even if some later
+	-- caller forgets to judge first. The two readings cannot disagree: both are "the window".
+	if not open then
+		return false, StandPick.REASON.CLOSED
+	end
 	local holder = byStand[stand]
 	if holder ~= nil and holder ~= userId then
 		return false, StandPick.REASON.TAKEN
@@ -312,9 +319,13 @@ function StandPick.clear()
 	end
 end
 
-function StandPick.forget(userId: number)
-	StandPick.release(userId)
+-- AFTER THIS, NO TABLE HERE IS KEYED BY THAT USER, and it answers WHICH stand it freed so the owner
+-- knows whether to force a broadcast (`Match.forget`'s one caller; it used to call `release` and then
+-- this, which released twice -- Reviewer round 1, note).
+function StandPick.forget(userId: number): number?
+	local freed = StandPick.release(userId)
 	askCount[userId] = nil
+	return freed
 end
 
 return StandPick

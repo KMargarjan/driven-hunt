@@ -2110,14 +2110,30 @@ local function applyStandSettle()
 		end
 	end
 	table.sort(ids)
-	local line = placementLine("Shooters")
+	-- EVERY HUNTER THE PICK MOVED, AND NOT ONLY THE CLAIMANTS (Reviewer round 1, finding 1 -- a real
+	-- collision, and the design's section 5.2 sentence "Only claimants are moved" is where it came
+	-- from). Sweep A moves a NON-claimant too: with `walk = {5, 4, ...}` the provisional deal is
+	-- h1 -> 5, h2 -> 4; h2 claims 5; the settled deal is h2 -> 5 and h1 -> 4. Carrying only h2 puts
+	-- two men on stand 5 and leaves stand 4 empty -- and in the forest `nearestStand` then binds both
+	-- of them to one circle.
+	--
+	-- THE TEST IS THE TWO DEALS, NOT THE CLAIM: `provisional` is `placementLine`'s answer with the
+	-- picks taken out, which is exactly what `applyPlace` used at `enterAssigning`, so a hunter is
+	-- carried precisely when the pick changed where he belongs. With NO claim the two deals are the
+	-- same table value for value (`dealLine`'s nil case), so zero carries -- and the line above has
+	-- already returned anyway. Flag off is untouched, twice over.
+	local settled = placementLine("Shooters")
+	local provisional = { count = settled.count, entitled = settled.entitled }
 	local place = if world and world.placement then world.placement else Body.placementFor
 	for index, userId in ipairs(ids) do
-		if StandPick.standOf(userId) ~= nil then
+		local was = place(markerSet, "Shooters", index, config, provisional)
+		local target = place(markerSet, "Shooters", index, config, settled)
+		-- A DEAL THE WORLD COULD NOT ANSWER IS NOT A MOVE: nowhere to put him is a fact about the
+		-- world, which is the shape `applyPlace` already has.
+		if target ~= nil and was ~= nil and Match.standMoved(was, target) then
 			local player = playersService():GetPlayerByUserId(userId)
-			local cframe = place(markerSet, "Shooters", index, config, line)
-			if player and cframe then
-				local moved, studs = Body.carry(player, cframe, config)
+			if player then
+				local moved, studs = Body.carry(player, target, config)
 				if moved then
 					stats.standsSettled += 1
 					stats.standSettleStuds = math.max(stats.standSettleStuds, studs)
@@ -3040,6 +3056,37 @@ function Match.standPickStats()
 	return StandPick.stats()
 end
 
+-- DID THE PICK CHANGE WHERE THIS HUNTER BELONGS? PURE and exported, so the collision the Reviewer
+-- found has a case of its own with no drive: two CFrames, one tolerance, and the tolerance is
+-- `Body`'s own snap tolerance in spirit -- a deal that answers the same point is not a move.
+function Match.standMoved(was: CFrame?, target: CFrame?): boolean
+	if was == nil or target == nil then
+		return false
+	end
+	return ((target :: CFrame).Position - (was :: CFrame).Position).Magnitude > 0.001
+end
+
+-- WHAT THE WORLD SAYS WHEN A STAND IS ASKED FOR, as ONE substitutable measurement (Reviewer round 1,
+-- finding 2, and CLAUDE.md's flag rule: "A flagged path must be reachable BY PARAMETER as well as by
+-- flag, or its two states cannot be tested while the flag sits at one of them"). The flag's two
+-- states are reachable no other way: no spec may call `Match.start` (`match_live.spec`'s own rule,
+-- and `Match.start` asserts "called twice"), so with `STAND_PICK` off the door's ACCEPTING path has
+-- no lever at all.
+--
+-- A SPEC MAY SUBSTITUTE THE MEASUREMENT AND NEVER THE RULE: `StandPick.judge` and `StandPick.claim`
+-- are untouched by it, so what a case drives is the real door over a stated world. It is the
+-- `Body.setGroundReader` / `Weapon.setEntitlementProvider` idiom -- nil is "measure it", which is
+-- production and the only thing the game ever runs -- and `Match.stop` puts it back.
+local standAskReader: ((any) -> any)? = nil
+
+function Match.setStandAskReader(fn: ((any) -> any)?)
+	standAskReader = fn
+end
+
+function Match.standAskReader(): ((any) -> any)?
+	return standAskReader
+end
+
 -- THE ONE INBOUND DOOR OF THIS SYSTEM (task 323). PUBLIC for `Lobby.onRoleRequest`'s own stated
 -- reason: `OnServerEvent` can only be raised by a client, so a spec must be able to drive it by
 -- parameter -- and it returns its own verdict, so a spec gets a per-call answer instead of inferring
@@ -3058,19 +3105,22 @@ function Match.onStandRequest(player: any, standIndex: any, asked: number?): Dri
 		return nil
 	end
 	local userId = player.UserId
-	-- A PAYLOAD THAT IS NOT A NUMBER AT ALL IS DROPPED AND COUNTED, never coerced: `tonumber("4")`
-	-- on a client's string is the server believing a client's TYPE.
+	-- COUNTED FIRST, SO A MALFORMED PAYLOAD SPENDS THE BUDGET TOO (Reviewer round 1, note).
+	-- `STAND_PICK_MAX_REQUESTS` is a ceiling on a forged client's COST, and a client that spams
+	-- tables costs the server exactly what one that spams numbers costs.
+	local asks = StandPick.noteAsk(userId)
+	-- A PAYLOAD THAT IS NOT A NUMBER AT ALL IS DROPPED AND COUNTED, never coerced: `tonumber` on a
+	-- client's string is the server believing a client's TYPE.
 	if type(standIndex) ~= "number" then
 		StandPick.noteMalformed()
 		return nil
 	end
 	local at = asked or now()
-	local asks = StandPick.noteAsk(userId)
 	local stand = standIndex :: number
 	local seatedStands = if world and world.seatedStands then world.seatedStands() else nil
 	local economy = if world then world.economy else nil
 	local ownedOf = if economy then economy.ownedOf else nil
-	local ok, reason = StandPick.judge({
+	local measured = {
 		userId = userId,
 		stand = stand,
 		now = at,
@@ -3084,7 +3134,11 @@ function Match.onStandRequest(player: any, standIndex: any, asked: number?): Dri
 		lastAt = StandPick.lastChangeAt(userId),
 		asks = asks,
 		config = config,
-	})
+	}
+	if standAskReader ~= nil then
+		measured = (standAskReader :: (any) -> any)(measured) or measured
+	end
+	local ok, reason = StandPick.judge(measured)
 	if ok then
 		ok, reason = StandPick.claim(userId, stand, at)
 	end
@@ -4305,8 +4359,7 @@ function Match.forget(player: Player)
 	throughPlaced[userId] = nil
 	-- ...AND THE STAND HE HAD TAKEN (task 323, E2), which is the one row whose removal somebody ELSE
 	-- can see: the stand is free again at once (D4) and the forced broadcast below carries it.
-	local freed = StandPick.release(userId)
-	StandPick.forget(userId)
+	local freed = StandPick.forget(userId)
 	if tied[userId] then
 		-- The rope outlives nobody: the Instance goes with the player (design section 4.4).
 		untie(userId)
@@ -4442,6 +4495,9 @@ function Match.stop()
 	-- ...AND NO CLAIM OUTLIVES THE SESSION (task 323): a spec that staged a pick must not leave the
 	-- next require of this singleton believing stand 4 is somebody's.
 	StandPick.clear()
+	-- ...AND NO SUBSTITUTED MEASUREMENT (task 323): a spec that stated a world must not leave the
+	-- next require of this singleton reading the door's facts out of its closure.
+	standAskReader = nil
 	-- ...AND THE WORLD'S NUMBERS GO WITH THE WORLD. A spec that started a 300-second drive must not
 	-- leave the next require of this singleton reading 300.
 	config = Match.CONFIG

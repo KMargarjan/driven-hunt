@@ -230,21 +230,22 @@ return function()
 						entitled[index] = index % 3 ~= 0 -- a mixed line, so the seat passes bite
 					end
 					local today = HighSeats.dealLine(walk, seated, entitled, count)
-					local withNil = HighSeats.dealLine(walk, seated, entitled, count, nil)
+					-- `{}` IS THE ONLY NON-VACUOUS COMPARISON, and the Reviewer's round-1 note is why
+					-- this says 64 and not 128: `dealLine(w, s, e, c)` and `dealLine(w, s, e, c, nil)`
+					-- are the SAME argument list in Luau, so comparing them is one pure function
+					-- against itself. `{}` is the one that enters sweep A's `if picks ~= nil` branch.
 					local withEmpty = HighSeats.dealLine(walk, seated, entitled, count, {})
-					expect(#withNil).to.equal(#today)
 					expect(#withEmpty).to.equal(#today)
 					for index = 1, #today do
-						expect(withNil[index]).to.equal(today[index])
 						expect(withEmpty[index]).to.equal(today[index])
 					end
-					asserted += 2
+					asserted += 1
 				end
 			end
-			expect(asserted).to.equal(128)
+			expect(asserted).to.equal(64)
 			TestKit.note(
 				string.format(
-					"match_stand_pick: flag off is bit for bit -- %d equal-by-value deals over %d layouts x 16 counts",
+					"match_stand_pick: flag off is bit for bit -- %d equal-by-value deals over %d layouts x 16 counts (`{}` only; `nil` is the same argument list)",
 					asserted,
 					#Forest.LAYOUT_ORDER
 				)
@@ -410,11 +411,32 @@ return function()
 			expect(StandPick.stats().asks).to.equal(3)
 		end)
 
-		it("case 3: close() shuts the window and reset() opens it", function()
+		it("case 3: close() SHUTS THE TABLE, not just a flag -- a late claim is refused", function()
+			-- The Reviewer's round-1 note: `open` had no production reader, so `close()` wrote a flag
+			-- nothing consulted. `claim` now reads it, so the window is shut for the TABLE as well as
+			-- for the player -- a claim cannot land after `settleStands` has dealt the line even if a
+			-- later caller forgot to judge first.
 			StandPick.reset(1)
 			expect(StandPick.isOpen()).to.equal(true)
+			expect((StandPick.claim(1001, 5, 100))).to.equal(true)
 			StandPick.close()
 			expect(StandPick.isOpen()).to.equal(false)
+			local ok, reason = StandPick.claim(1002, 6, 101)
+			expect(ok).to.equal(false)
+			expect(reason).to.equal(REASON.CLOSED)
+			expect(StandPick.holderOf(6)).to.equal(nil)
+			-- ...and the claim made while it was open is untouched.
+			expect(StandPick.standOf(1001)).to.equal(5)
+		end)
+
+		it("case 9: forget answers the stand it freed, and frees it once", function()
+			StandPick.reset(1)
+			StandPick.noteAsk(1001)
+			expect((StandPick.claim(1001, 5, 100))).to.equal(true)
+			expect(StandPick.forget(1001)).to.equal(5)
+			expect(StandPick.forget(1001)).to.equal(nil)
+			expect(StandPick.holderOf(5)).to.equal(nil)
+			expect(StandPick.asksBy(1001)).to.equal(0)
 		end)
 	end)
 
@@ -446,6 +468,116 @@ return function()
 		end)
 	end)
 
+	-- ------------------------------------------------- FINDING 2: the one inbound door, driven
+	describe("Match.onStandRequest: the real door, by parameter", function()
+		local HUNTER = { Name = "DoorHunter", UserId = 323101 }
+
+		afterEach(function()
+			Match.setStandAskReader(nil)
+		end)
+
+		it("(a) drops a payload that is not a number, counts it, and judges nothing", function()
+			local before = Match.standPickStats()
+			expect(Match.onStandRequest(HUNTER, "4")).to.equal(nil)
+			expect(Match.onStandRequest(HUNTER, {})).to.equal(nil)
+			expect(Match.onStandRequest(HUNTER, nil)).to.equal(nil)
+			expect(Match.onStandRequest(HUNTER, true)).to.equal(nil)
+			local after = Match.standPickStats()
+			expect(after.malformed).to.equal(before.malformed + 4)
+			-- COUNTED AGAINST HIS BUDGET TOO, which is the Reviewer round-1 note: a client that spams
+			-- tables costs the server what one that spams numbers costs.
+			expect(after.asks).to.equal(before.asks + 4)
+			-- ...and nothing was judged: no refusal reason moved.
+			for reason, count in pairs(after.refused) do
+				expect(count).to.equal(before.refused[reason])
+			end
+		end)
+
+		it("(b) answers a numeric ask with an ECHOED stand and `closed` while the flag is off", function()
+			-- PRODUCTION'S OWN STATE: `STAND_PICK` is off, so `Phase.pickWindow` is false and the door
+			-- measures `open = false`. `closed` and not `role` is `ORDER`'s outermost fact first.
+			expect(Match.CONFIG.STAND_PICK_SECONDS).to.equal(0)
+			local before = Match.standPickStats()
+			local verdict = Match.onStandRequest(HUNTER, 4)
+			expect(verdict ~= nil).to.equal(true)
+			expect((verdict :: any).ok).to.equal(false)
+			expect((verdict :: any).stand).to.equal(4) -- ECHOED, so a late reply cannot be misread
+			expect((verdict :: any).reason).to.equal(REASON.CLOSED)
+			-- THE DOOR REACHED `judge`: the refusal counter it owns moved, and nothing else did.
+			local after = Match.standPickStats()
+			expect(after.refused.closed).to.equal(before.refused.closed + 1)
+			expect(after.accepted).to.equal(before.accepted)
+			expect(after.malformed).to.equal(before.malformed)
+			expect(Match.standOf(HUNTER.UserId)).to.equal(nil)
+		end)
+
+		it("(b) a stand out of range is refused through the door, with its own reason", function()
+			-- OVER THE WORLD'S OWN COUNT, so this is `standCount()` being measured and not a constant.
+			Match.setStandAskReader(function(measured)
+				measured.open = true
+				measured.isHunter = true
+				return measured
+			end)
+			local bad = Match.onStandRequest(HUNTER, 10000)
+			expect((bad :: any).ok).to.equal(false)
+			expect((bad :: any).reason).to.equal(REASON.RANGE)
+			expect(Match.standOf(HUNTER.UserId)).to.equal(nil)
+		end)
+
+		it("(c) the ACCEPTING path writes the claim table THROUGH the door", function()
+			-- THE MEASUREMENT IS SUBSTITUTED, THE RULE IS NOT. No spec may call `Match.start`, so with
+			-- the flag off the door's accepting path has no other lever (CLAUDE.md: a flagged path
+			-- must be reachable by parameter as well as by flag). `judge` and `claim` are the real
+			-- ones; what is stated is only what the world said.
+			StandPick.reset(1)
+			Match.setStandAskReader(function(measured)
+				measured.open = true
+				measured.isHunter = true
+				measured.standCount = 9
+				return measured
+			end)
+			local before = Match.standPickStats()
+			local verdict = Match.onStandRequest(HUNTER, 5, 1000)
+			expect(verdict ~= nil).to.equal(true)
+			expect((verdict :: any).ok).to.equal(true)
+			expect((verdict :: any).stand).to.equal(5)
+			expect((verdict :: any).reason).to.equal(nil)
+			-- THE TABLE WAS ACTUALLY WRITTEN, which is the half a direct `judge` call cannot show.
+			expect(StandPick.holderOf(5)).to.equal(HUNTER.UserId)
+			expect(StandPick.standOf(HUNTER.UserId)).to.equal(5)
+			expect(Match.standOf(HUNTER.UserId)).to.equal(5)
+			expect(Match.standPickStats().accepted).to.equal(before.accepted + 1)
+
+			-- ...AND A SECOND MAN IS REFUSED `taken` BY THE SAME DOOR -- the race, through the wire's
+			-- own handler rather than through `claim` alone.
+			local other = { Name = "DoorRival", UserId = 323102 }
+			local refused = Match.onStandRequest(other, 5, 1001)
+			expect((refused :: any).ok).to.equal(false)
+			expect((refused :: any).reason).to.equal(REASON.TAKEN)
+			expect(StandPick.holderOf(5)).to.equal(HUNTER.UserId)
+
+			-- ...AND THE RATE LIMITER BITES THROUGH THE DOOR TOO.
+			local tooSoon = Match.onStandRequest(HUNTER, 6, 1000.1)
+			expect((tooSoon :: any).reason).to.equal(REASON.RATE)
+			expect(StandPick.standOf(HUNTER.UserId)).to.equal(5)
+			-- ...and a change past the floor is accepted, and frees stand 5 at once.
+			local changed = Match.onStandRequest(HUNTER, 6, 1001)
+			expect((changed :: any).ok).to.equal(true)
+			expect(StandPick.holderOf(5)).to.equal(nil)
+			expect(StandPick.standOf(HUNTER.UserId)).to.equal(6)
+			TestKit.note("match_stand_pick: the door accepted, refused `taken`, refused `rate` and honoured a change")
+			StandPick.forget(HUNTER.UserId)
+			StandPick.forget(other.UserId)
+		end)
+
+		it("the reader is nil in production, and `Match.setStandAskReader(nil)` is the default", function()
+			-- A SEAM THAT COULD BE LEFT ON IS A SECOND DECIDER. This asserts the state the game runs
+			-- in, so a case that forgot its `afterEach` fails here.
+			expect(Match.standAskReader()).to.equal(nil)
+			expect(Match.pickWindowOpen()).to.equal(false)
+		end)
+	end)
+
 	-- ------------------------------------- cases 16-20: the seam, the move, and the flag-off cost
 	describe("the seam into placement, and the one move", function()
 		it("case 16: the composition placementLine builds puts hunter 2 on the stand he claimed", function()
@@ -461,6 +593,64 @@ return function()
 			expect(deal[2]).to.equal(1)
 			expect(deal[1]).never.to.equal(1)
 			expect(deal[3]).never.to.equal(1)
+		end)
+
+		it("FINDING 1: one claim displaces a NON-claimant, so the settle must move him too", function()
+			-- THE REVIEWER'S ROUND-1 FINDING 1, AS ARITHMETIC. Two hunters; the walk puts h1 on
+			-- `walk[1]` and h2 on `walk[2]`; h2 then claims `walk[1]`. Sweep A gives it to h2 and
+			-- sweep B gives h1 "the first free stand", which is NOT the one he was provisionally
+			-- placed on -- so a settle that moved only the claimant would leave two men on `walk[1]`
+			-- and `walk[2]` empty.
+			local walk = walkOf("road")
+			local seated = seatedOf("road")
+			local provisional = HighSeats.dealLine(walk, seated, {}, 2)
+			StandPick.reset(1)
+			expect((StandPick.claim(2002, provisional[1], 100))).to.equal(true)
+			local picks = StandPick.picksFor({ 1001, 2002 })
+			local settledDeal = HighSeats.dealLine(walk, seated, {}, 2, picks)
+			-- h2 got what he claimed...
+			expect(settledDeal[2]).to.equal(provisional[1])
+			-- ...AND h1 WAS DISPLACED: his stand changed, which is the whole finding.
+			expect(settledDeal[1]).never.to.equal(provisional[1])
+			expect(settledDeal[1]).never.to.equal(provisional[2]) -- it is not where he was standing
+			-- ...and nobody shares a stand in the settled deal.
+			expect(settledDeal[1]).never.to.equal(settledDeal[2])
+			-- `Match.standMoved` IS THE PREDICATE `applyStandSettle` NOW CARRIES EVERY HUNTER BY, and
+			-- it answers TRUE for the displaced non-claimant -- which is what stops the collision.
+			local a = CFrame.new(0, 0, 0)
+			local b = CFrame.new(150, 0, 0)
+			expect(Match.standMoved(a, b)).to.equal(true)
+			expect(Match.standMoved(a, a)).to.equal(false)
+			expect(Match.standMoved(a, CFrame.new(0, 0, 0.0005))).to.equal(false)
+			expect(Match.standMoved(nil, b)).to.equal(false)
+			expect(Match.standMoved(a, nil)).to.equal(false)
+			TestKit.note(
+				string.format(
+					"match_stand_pick: finding 1 -- provisional {%d,%d} + one claim of %d settles to {%d,%d}; the non-claimant MOVES",
+					provisional[1],
+					provisional[2],
+					provisional[1],
+					settledDeal[1],
+					settledDeal[2]
+				)
+			)
+		end)
+
+		it("FINDING 1: with NO claim the two deals are equal, so zero hunters are carried", function()
+			-- THE OTHER HALF, AND IT IS WHY THE FIX COSTS THE FLAG-OFF PATH NOTHING: the settled deal
+			-- and the provisional deal are the same values when nothing is claimed, so
+			-- `Match.standMoved` is false for every index even before `anyClaim()` returns early.
+			for _, layoutName in ipairs(Forest.LAYOUT_ORDER) do
+				local walk = walkOf(layoutName)
+				local seated = seatedOf(layoutName)
+				for count = 1, 8 do
+					local provisional = HighSeats.dealLine(walk, seated, {}, count)
+					local settledDeal = HighSeats.dealLine(walk, seated, {}, count, StandPick.picksFor({}))
+					for index = 1, count do
+						expect(settledDeal[index]).to.equal(provisional[index])
+					end
+				end
+			end
 		end)
 
 		it("case 17: with no claim the settle is a no-op, and production has made ZERO moves", function()
