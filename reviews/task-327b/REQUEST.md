@@ -1,14 +1,20 @@
 # Task 327b: THE STANDS AND THE TOWERS
 
 Task: 327b
-Round: 1
+Round: 2
 Base: e7131a94 (main, with 327a merged as #310)
-Code commit: 287026dd86975e179527b1284a32c2fbf6bb2cf5
+Code commit: 357efc85a49fcb55f2e52681be9022ac3d5a179c
 
 ```
-[harness] PASS: 34/34 checks @ 287026dd86975e179527b1284a32c2fbf6bb2cf5 (clean tree) scope=all
-[harness2] PASS: 36/36 checks @ 287026dd86975e179527b1284a32c2fbf6bb2cf5 (clean tree)
+[harness] PASS: 34/34 checks @ 357efc85a49fcb55f2e52681be9022ac3d5a179c (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 357efc85a49fcb55f2e52681be9022ac3d5a179c (clean tree)
 ```
+
+**THE KNOWN INTERMITTENT FIRED TWICE AND IS NAMED**: `deer_hitbox.spec:659`
+(`calf: the skull at (0.01, 1.50, -1.02) answered nil, wanted head`) failed at `acc913b4` (dirty, a
+stray RESULT.md) and again at `357efc85`, both with Karen's Forest Test Studio open -- the condition
+the dispatch names as making it worse. The third run of the SAME commit `357efc85`, with that Studio
+closed, is the PASS above. Nothing this task touches is near the deer's hit boxes.
 
 `test2` is required and was run: `src/server/Match/init.luau` is inside `TWO_PLAYER_PATHS`.
 
@@ -31,13 +37,22 @@ Built to `docs/design/grid-map.md` section 17's **327b**. `GRID_PREVIEW` stays O
    are off the main road and on a flank road, and case 8 that the span is `centre.X +- 450`.
 4. **A flank post never answers a line question** (design 6.4): `Markers.Set.linePosts` in
    `src/server/ForestTest/Markers.luau`, read through ONE `linePostsOf` in `src/server/Match/init.luau`
-   at **five** call sites. Verify: `grid.spec` case 7 shows the DEFECT first -- handed all fifteen
-   posts, `Match.lineReferenceFor` answers the flank post 340 studs up the cell and `crossedLine`
-   says the beater is through -- then the fix. **DEVIATION:** the design names four sites;
+   at **five** call sites. Verify: `grid.spec`'s SECOND case under "the line question" (round 1
+   finding 1) builds a REAL `Markers.Set` for cell A1 and drives two of the five sites --
+   `Match.gatherSpotFor` and `throughSpotFor`, the two that read a middle post -- asserting the
+   answer is at the MAIN road's z and naming the flank z it is not; revert `linePostsOf` to
+   `markers.posts` and both flip. The shipped `road` layout is asserted unmoved in the same case.
+   The first case still shows the DEFECT with hand-built lists: handed all fifteen posts,
+   `Match.lineReferenceFor` answers the flank post 340 studs up the cell and `crossedLine` calls the
+   beater through at z +200. **DEVIATION:** the design names four sites;
    `Match.throughSpotFor` is `gatherSpotFor`'s arithmetic with its own number and had the same
    `posts[ceil(#posts/2)]` defect, so it is the fifth, named in its own comment.
 5. **`hunterStandX` is clamped into the main line's span** (`src/server/ForestTest/init.luau`).
-   Verify: case 8 asserts both flank ends clamp to the span's ends and no main stand moves.
+   Verify: case 8's SECOND case (round 1 finding 2) promotes the cell with
+   `ForestTest.layoutForDrive(n, "A1")`, locks a flank pick and asserts `ForestTest.hunterStandX()`
+   itself -- the live path, reachable because `forcedLayout` now takes a cell id -- against
+   `span.minX` / `span.maxX`, and that all seven main stands are unmoved. Delete `onLine` and it
+   answers `centre.X - 556`. The first case keeps the span's own geometry.
 6. **The release clamp stops biting on a cell** -- case 10 walks every `SCHEDULE.drive` row at the
    cell's own `beaterNorthStuds` (1430) and asserts no row is pinned to `minNorthStuds` and every row
    keeps `leadStuds` of lead, AND that today's road at `Bots.CONFIG.WALK_SPEED` still pins rows.
@@ -53,14 +68,32 @@ Built to `docs/design/grid-map.md` section 17's **327b**. `GRID_PREVIEW` stays O
    declared `edge`): no stand in A2/B2/C2/D2 rolls under `JUMP_RELIEF_STUDS` inside its own circle.
    **DEVIATION:** a relaxed cell takes the LOWEST-RELIEF candidate, not the highest-gain one (D2
    stand 3 is +160 at relief 9.88 against stand 12's +155 at 2.79).
+   **ROUND 1 FINDING 3 -- the three repeated triplets are ONE piece of ground quoted twice.**
+   Neighbouring cells share a flank ROAD, so these pairs are the SAME world point, and the probe's
+   own output says so: `B1 12 east x=-4455 z=-4767 ... gain=+80 spread=0.00 relief=0.00` and
+   `C1 8 west x=-4455 z=-4767 ... gain=+80 spread=0.00 relief=0.00`; `C1 13 east x=-3343 z=-4547
+   gain=+244 spread=0.00 relief=0.02` and `D1 9 west x=-3343 z=-4547 gain=+244 spread=0.00
+   relief=0.02`; `C1 15 east x=-3343 z=-4107 gain=+95 spread=0.30 relief=1.42` and `D1 11 west
+   x=-3343 z=-4107 gain=+95 spread=0.30 relief=1.42`. The SELECTION is each cell's own: B1's only
+   candidate clearing all three thresholds is 12; C1's are 8, 13, 15 (its 10 and 11 are refused at
+   relief 5.04 and 1.94); D1's are 9 and 11 (its 12 and 14 refused at 3.67 and 2.38). Said at the
+   rows in `Grid.CELLS`. **Every cell's eight rows, from the same output:** A1 `8 west +125/0.20/1.67`;
+   B1 `12 east +80/0.00/0.00`; C1 `8 west +80/0.00/0.00, 13 east +244/0.00/0.02, 15 east +95/0.30/1.42`;
+   D1 `9 west +244/0.00/0.02, 11 west +95/0.30/1.42`; A2 `7 main +88/1.01/3.57`; B2 `2 main
+   +163/1.08/2.13`; C2 `14 east +141/1.66/6.70`; D2 `12 east +155/0.87/2.79`.
+   **A THIRD DEVIATION, now declared** (round 1 note): design 6.1 asks for "at least one per side"
+   and NOT ONE cell has it. The selection rule the design states has no per-side term, so it cannot
+   produce one; the design correction is queued, not invented here.
 9. **The preview cell IS the live place while the flag is on** (`src/server/ForestTestBoot.server.luau`,
    `layoutByName` in `src/server/ForestTest/init.luau`). **This was MEASURED, not reasoned about:**
    the boot built C1's posts and towers and a probe a minute later read the ROAD's nine posts at
    (2430, -2120) with stands 10-15 missing -- the drive's own level-triggered `markers` closure
    rebuilds both folders once a second for the LIVE layout. A second builder of those folders is a
    preview nobody can walk, so the composition root forces the cell and the one owner builds it.
-10. **Live in her place at the code commit** (`driven-hunt-294` on rojo :34874; the panel read
-    `localhost:34874`, and the boot printed a 327b-only line). Zero console errors.
+10. **Live in her place** (`driven-hunt-294` on rojo :34874; the panel read `localhost:34874`, and
+    the boot printed a 327b-only line). Zero console errors. It ran at `287026dd`, and **round 2's
+    `src/` changes are COMMENTS ONLY** -- `git diff -w 287026dd..357efc85 -- src/` with comment lines
+    excluded is EMPTY -- so this evidence covers the code commit's executable code exactly.
     `[ForestTestBoot] grid preview cell C1: 15 of 15 post(s) (7 line), 3 tower(s) at {8,13,15},
     line=true, complete=true` / `[seats] C1: 3 built, 0 refused, worst foot gap -0.30 studs` /
     `[ForestTest] layout=C1 (override): 15 stands 150 apart, centre (-3899, -5107), exit -5357`.
@@ -82,12 +115,15 @@ Built to `docs/design/grid-map.md` section 17's **327b**. `GRID_PREVIEW` stays O
 - **With `GRID_PREVIEW` on, the drive's animals follow the cell** (`promote` swaps the field): the
   stand-5 frame has a sounder on cell C1's road. Correct behaviour, not asked for by this task.
 
-ANSWERED: L-136 -- no spec failed as a flake; the two FAILs in the first gate run were MY OWN cases
-(`grid.spec:361`, `:528`), fixed in `287026dd` and named in its message. No `weapon_shot.spec:1490`,
-no `deer_hitbox`, no `weapon_client`, no `camera_client` failure fired. Both final runs are clean.
+ANSWERED: L-136 -- `weapon_shot.spec:1490` never fired. The two FAILs in round 1's first gate run
+were MY OWN cases (`grid.spec:361`, `:528`), fixed in `287026dd` and named in its message. The known
+INTERMITTENT `deer_hitbox.spec:659` fired twice in round 2 and is named in full at the top of this
+request, with the third run of the same commit as the PASS.
 ANSWERED: L-127 -- every claim above is MET or carries its own NOT PROVEN line; see the report.
 ANSWERED: L-162 -- the first live proof ran at `44292a4d`; the code commit moved to `287026dd`
-(tests only), so **the whole live proof was re-run at `287026dd`** and the numbers are that run's.
+(tests only), so **the whole live proof was re-run at `287026dd`** and every number above is that
+run's. Round 2 moved it to `357efc85`, whose `src/` diff against `287026dd` is comments only
+(pasted in claim 10), so no executable line of the proven code changed after it.
 ANSWERED: L-014 -- `driven-hunt-karen` was never checked out; only `driven-hunt-294` moved, and it
 is back at `e7131a94`.
 ANSWERED: L-139 -- the switch back was verified **two ways**: the Rojo panel reads `localhost:34873`,
