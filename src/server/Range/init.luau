@@ -1043,6 +1043,25 @@ local function clearTarget(trial: Trial, reason: string): boolean
 	return clearId(trial, trial.targetId, reason)
 end
 
+-- THE CARCASS SLOT HAS ONE WRITER PAIR (round 2, findings 1 and 2). `clearId` nils `carcassAt`
+-- whenever it takes the carcass, so a caller that wrote the clock FIRST lost it and the corpse was
+-- orphaned; every call site goes through these two, which keep `carcassId ~= nil` paired with a
+-- clock. `scan`'s retire block treats a missing clock as expired, so a refused despawn is retried.
+local function dropCarcass(trial: Trial, reason: string): boolean
+	local done = clearId(trial, trial.carcassId, reason)
+	trial.carcassAt = nil
+	return done
+end
+
+-- HIS NEW CORPSE. The previous one goes FIRST, because the clear nils the clock this then writes.
+local function setCarcass(trial: Trial, id: string?, now: number)
+	if trial.carcassId ~= nil and trial.carcassId ~= id then
+		dropCarcass(trial, "range carcass")
+	end
+	trial.carcassId = id
+	trial.carcassAt = if id ~= nil then now else nil
+end
+
 -- WHO IS AT WHICH STATION, THIS TICK (design 7.4). The root hands in the player list, this module
 -- applies its own rule (`playerSpot` -> `Range.spotAt`), and a station nobody is measured at gets
 -- no animal. No payload is believed and no `Players` service is read here.
@@ -1275,13 +1294,15 @@ local function scan(dt: number)
 		end
 		-- HIS CARCASS, ON ITS OWN CLOCK (task 321 (c)): held where it fell for `CARCASS_SECONDS`
 		-- while the pass after it is already crossing, and then cleared. Nothing waits for this.
+		-- NO CORPSE OUTLIVES ITS CLOCK (round 2, findings 1 and 2): a `carcassId` with no
+		-- `carcassAt` is retired on this tick rather than held for ever, so a slot that loses its
+		-- clock -- here, or at any future call site -- costs one tick and not the session.
 		local carcassAt = trial.carcassAt
 		if
 			trial.carcassId ~= nil
-			and carcassAt ~= nil
-			and now - (carcassAt :: number) >= Range.CONFIG.CARCASS_SECONDS
+			and (carcassAt == nil or now - (carcassAt :: number) >= Range.CONFIG.CARCASS_SECONDS)
 		then
-			clearId(trial, trial.carcassId, "range carcass")
+			dropCarcass(trial, "range carcass")
 		end
 		if trial.targetId == nil then
 			-- NO ANIMAL FOR AN EMPTY STATION: six drawn, animated animals for one shooter is six
@@ -1301,7 +1322,7 @@ local function scan(dt: number)
 				state.stats.idleClears += 1
 				trial.releaseAt = nil
 				-- HIS CARCASS GOES WITH HIM: it was kept for a man who is no longer there.
-				clearId(trial, trial.carcassId, "range idle")
+				dropCarcass(trial, "range idle")
 				continue
 			end
 			-- THE SEAM REFUSED, so DO NOT skip the rest (round 2, note 2): a `continue` here left the
@@ -1328,13 +1349,11 @@ local function scan(dt: number)
 			-- above, while `targetId` is free for the animal released on this same tick.
 			-- HIS CARCASS, AND ONLY HIS (must-fix 1): before step B7 this was the range-WIDE
 			-- `boars.clear`, so one man's kill took the other five stations' animals.
-			trial.carcassAt = now
-			state.stats.carcasses += 1
 			-- The carcass of a pass before this one has had its chance; one slot, never a queue.
-			if trial.carcassId ~= nil and trial.carcassId ~= trial.targetId then
-				clearId(trial, trial.carcassId, "range carcass")
-			end
-			trial.carcassId = trial.targetId
+			-- `setCarcass` clears it BEFORE installing this body's clock (round 2, finding 1): the
+			-- old order wrote `carcassAt = now` and the clear then nilled it, orphaning this corpse.
+			setCarcass(trial, trial.targetId, now)
+			state.stats.carcasses += 1
 			trial.targetId = nil
 			trial.leg += 1
 			state.stats.flips += 1
@@ -2079,7 +2098,10 @@ function Range.onRequest(player: any, request: any): boolean
 		clearTarget(trial, "range leave")
 		trial.targetId = nil
 		trial.releaseAt = nil
-		trial.carcassAt = nil
+		-- HIS BODY GOES TOO (round 2, finding 2): task 319's leave took the dead animal because it
+		-- WAS `targetId`; task 321 moved it to its own slot, so nilling the clock alone left the
+		-- corpse drawn on his lane for the life of the server.
+		dropCarcass(trial, "range leave")
 		trial.ended = true
 		trial.crossings = 0
 		trial.lastCrossingSeconds = nil

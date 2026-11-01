@@ -121,7 +121,10 @@ return function()
 			fake.nextId += 1
 			local id = "fake" .. tostring(fake.nextId)
 			local trunk = Instance.new("Part")
-			trunk.Name = "FakeTrunk_" .. id
+			-- THE NAME IS THE ID, exactly as `Boar.Body.create` writes it (`part.Name = id`), which
+			-- is what the client's `Mask.isMine` resolves (`state.mineIds[trunk.Name]`). Round 2,
+			-- finding 3: a `FakeTrunk_<id>` name asserted the fake's own convention, not the game's.
+			trunk.Name = id
 			trunk.Anchored = true
 			local zone = Instance.new("Part")
 			zone.Name = "Zone"
@@ -1738,6 +1741,190 @@ return function()
 					"range 321: next animal one %.1f Hz tick after the kill; carcass held its own %.0f s",
 					Range.CONFIG.STEP_HZ,
 					Range.CONFIG.CARCASS_SECONDS
+				)
+			)
+			Range.stop()
+		end)
+
+		-- ROUND 2, FINDING 1: A SECOND KILL AT ONE STATION INSIDE `CARCASS_SECONDS`. The kill branch
+		-- wrote `carcassAt = now` and THEN cleared the previous corpse through `clearId`, which nils
+		-- that same clock -- so body B was installed with no clock and the retire block, which
+		-- needed one, never fired. RED at 64edb761: `trial.carcassId` stays `secondId` for ever.
+		it("clears the previous corpse on a second kill and keeps the NEW one's own clock", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
+			advance(fake, clock, 4)
+			expect(animalAt(fake, clock, 1)).to.be.ok()
+
+			local function killHere(): string
+				local trial = Range.trialOf(1) :: any
+				local id = trial.targetId :: string
+				expect(fake.animals[id]).to.be.ok()
+				fake.animals[id].alive = false
+				advance(fake, clock, 1 / Range.CONFIG.STEP_HZ + 2 / 60)
+				return id
+			end
+
+			local firstId = killHere()
+			expect((Range.trialOf(1) :: any).carcassId).to.equal(firstId)
+			-- WELL INSIDE `CARCASS_SECONDS`: the next animal is out on the kill tick, so a two-barrel
+			-- gun reaches this in the apron. Half the hold, so corpse A is still owed time.
+			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS / 2)
+			expect(fake.animals[firstId]).to.be.ok()
+			local secondId = killHere()
+			expect(secondId ~= firstId).to.equal(true)
+
+			-- CORPSE A IS GONE AT ONCE -- one slot, never a queue -- and B HAS A CLOCK.
+			local trial = Range.trialOf(1) :: any
+			expect(fake.animals[firstId]).to.equal(nil)
+			expect(trial.carcassId).to.equal(secondId)
+			expect(trial.carcassAt).to.be.ok()
+			-- ...AND B IS RETIRED `CARCASS_SECONDS` AFTER ITS OWN KILL, not never.
+			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + 0.3)
+			trial = Range.trialOf(1) :: any
+			expect(fake.animals[secondId]).to.equal(nil)
+			expect(trial.carcassId).to.equal(nil)
+			expect(trial.carcassAt).to.equal(nil)
+			-- The lane is still running: a kill never stops the pass loop.
+			expect(trial.targetId).to.be.ok()
+			Range.stop()
+		end)
+
+		-- ROUND 2, FINDING 2: LEAVE WITH A FRESH KILL ON THE LANE. Task 319's leave took the dead
+		-- animal because it WAS `targetId`; task 321 moved it to its own slot and the arm nilled only
+		-- the CLOCK, so the body stayed drawn on his lane for the life of the server. RED at
+		-- 64edb761. Task 319's own leave case never kills, so nothing covered it.
+		it("takes his carcass with him when he leaves on a kill", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
+			advance(fake, clock, 4)
+			expect(animalAt(fake, clock, 1)).to.be.ok()
+			-- `manAt`/`manAtSpot` live in later blocks; one man, standing where the mat is.
+			local function newMan(spot: number, id: number)
+				local character = Instance.new("Model")
+				local root = Instance.new("Part")
+				root.Name = "HumanoidRootPart"
+				root.Size = Vector3.one
+				root.Anchored = true
+				root.Position = RangeData.matPosition(Vector3.new(DEV_ROW.x, DEV_ROW.y, DEV_ROW.z), spot, LAYOUT)
+				root.Parent = character
+				return { Character = character, UserId = id, Name = "Man" .. tostring(id) } :: any
+			end
+			local man = newMan(1, 931)
+			expect(Range.positionOf(man)).to.equal(1)
+
+			local deadId = (Range.trialOf(1) :: any).targetId :: string
+			fake.animals[deadId].alive = false
+			advance(fake, clock, 1 / Range.CONFIG.STEP_HZ + 2 / 60)
+			expect((Range.trialOf(1) :: any).carcassId).to.equal(deadId)
+			expect(fake.animals[deadId]).to.be.ok()
+
+			-- HE PRESSES LEAVE RANGE ON HIS KILL.
+			expect(Range.onRequest(man, { spot = 1, leave = true })).to.equal(true)
+			local trial = Range.trialOf(1) :: any
+			expect(trial.ended).to.equal(true)
+			-- 319'S LEAVE: NO ANIMAL AND NO CARCASS LEFT, and not one tick later -- in the arm.
+			expect(trial.targetId).to.equal(nil)
+			expect(trial.carcassId).to.equal(nil)
+			expect(trial.carcassAt).to.equal(nil)
+			expect(fake.animals[deadId]).to.equal(nil)
+			-- ...and his board no longer names it, which is what he would otherwise still SEE.
+			expect(#Range.mineIdsFor(man)).to.equal(0)
+			-- An ended station stays empty: the leave is not a reset.
+			advance(fake, clock, 2)
+			trial = Range.trialOf(1) :: any
+			expect(trial.targetId).to.equal(nil)
+			expect(trial.carcassId).to.equal(nil)
+			Range.stop()
+		end)
+
+		-- THE INVARIANT BOTH FIXES SERVE, over a SEQUENCE rather than one path: after any mix of
+		-- kills and leaves, no trial holds a corpse older than `CARCASS_SECONDS` + one tick. This is
+		-- what makes a third call site that loses the clock cost a tick instead of the session --
+		-- `scan`'s retire block reads a missing `carcassAt` as expired.
+		it("holds no carcass older than CARCASS_SECONDS + a tick, after any sequence of kills and leaves", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
+			advance(fake, clock, 4)
+			local tick = 1 / Range.CONFIG.STEP_HZ
+			-- `manAt`/`manAtSpot` live in later blocks; one man, standing where the mat is.
+			local function newMan(spot: number, id: number)
+				local character = Instance.new("Model")
+				local root = Instance.new("Part")
+				root.Name = "HumanoidRootPart"
+				root.Size = Vector3.one
+				root.Anchored = true
+				root.Position = RangeData.matPosition(Vector3.new(DEV_ROW.x, DEV_ROW.y, DEV_ROW.z), spot, LAYOUT)
+				root.Parent = character
+				return { Character = character, UserId = id, Name = "Man" .. tostring(id) } :: any
+			end
+			local men = {}
+			for spot = 1, LAYOUT.SPOT_COUNT do
+				men[spot] = newMan(spot, 940 + spot)
+			end
+			local worst, worstSpot = 0, 0
+			local kills, leaves = 0, 0
+
+			local function sweep()
+				for spot = 1, LAYOUT.SPOT_COUNT do
+					local trial = Range.trialOf(spot) :: any
+					if trial ~= nil and trial.carcassId ~= nil then
+						local at = trial.carcassAt
+						-- A corpse with no clock is a corpse of unknown age: counted as the failure
+						-- it is, not skipped.
+						local age = if at == nil then math.huge else clock.t - (at :: number)
+						if age > worst then
+							worst, worstSpot = age, spot
+						end
+					end
+				end
+			end
+
+			-- A MIXED SEQUENCE: kill, kill-inside-the-hold, leave-on-a-kill, re-enter, kill again.
+			for round = 1, 3 do
+				for spot = 1, LAYOUT.SPOT_COUNT do
+					local trial = Range.trialOf(spot) :: any
+					local id = trial ~= nil and trial.targetId or nil
+					if id ~= nil and fake.animals[id] ~= nil then
+						fake.animals[id].alive = false
+						kills += 1
+					end
+				end
+				advance(fake, clock, tick + 2 / 60)
+				sweep()
+				-- Half the hold: every corpse is still owed time when the next kill lands.
+				advance(fake, clock, Range.CONFIG.CARCASS_SECONDS / 2)
+				sweep()
+				if round == 2 then
+					-- ONE MAN LEAVES ON HIS KILL, and another re-enters afterwards.
+					expect(Range.onRequest(men[2], { spot = 2, leave = true })).to.equal(true)
+					leaves += 1
+					sweep()
+					advance(fake, clock, tick + 2 / 60)
+					sweep()
+					expect(Range.onRequest(men[2], { spot = 2, go = true })).to.equal(true)
+				end
+				advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + 0.3)
+				sweep()
+			end
+			-- Settle, then sweep once more: nothing may be left standing.
+			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + 1)
+			sweep()
+
+			expect(kills >= 6).to.equal(true)
+			expect(leaves).to.equal(1)
+			expect(worst <= Range.CONFIG.CARCASS_SECONDS + tick).to.equal(true)
+			TestKit.note(
+				string.format(
+					"range 321 r3: %d kills, %d leaves, oldest carcass %.2f s (bound %.2f s)%s",
+					kills,
+					leaves,
+					worst,
+					Range.CONFIG.CARCASS_SECONDS + tick,
+					if worstSpot > 0 then string.format(" at spot %d", worstSpot) else ""
 				)
 			)
 			Range.stop()
@@ -4095,7 +4282,9 @@ return function()
 			-- per animal is the whole exclusion and a list of zones would be the wrong shape.
 			for _, entry in ipairs(list) do
 				expect(entry:IsA("BasePart")).to.equal(true)
-				expect(string.sub(entry.Name, 1, 10)).to.equal("FakeTrunk_")
+				-- A TRUNK IS NAMED ITS ANIMAL'S ID (`Body.create`), so this is also "it is one of
+				-- the animals", which a `Zone` child could never satisfy.
+				expect(fake.animals[entry.Name] ~= nil).to.equal(true)
 			end
 			expect(has(list, fake.at(1).zone)).to.equal(false)
 
@@ -4382,7 +4571,23 @@ return function()
 			local live = fake.at(2) :: any
 			local first = idsOf(sent[#sent])
 			expect(first[live.id]).to.equal(true)
-			expect((live.root :: any).Name).to.equal("FakeTrunk_" .. live.id)
+			expect((live.root :: any).Name).to.equal(live.id)
+			-- AND THE SHIPPED INVARIANT THAT CARRIES IT, pinned where it lives (round 2, finding 3):
+			-- `Boar.Body.create` names the trunk the id, so the id on the wire IS what the client
+			-- sweeps for. Delete `part.Name = id` in `src/server/Boar/Body.luau` and this goes red.
+			local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
+			local realRoot = Instance.new("Folder")
+			realRoot.Parent = Workspace
+			local realId = "range321_name"
+			local made = Body.create(
+				Boar.kindConfig("male", Boar.CONFIG),
+				realRoot,
+				realId,
+				Vector3.new(4000, 200, 4000),
+				"male"
+			)
+			expect((made.part :: BasePart).Name).to.equal(realId)
+			realRoot:Destroy()
 			-- ...AND NOT ANOTHER STATION'S: the ids are the isolation too, not only the Instance.
 			expect(first[(fake.at(1) :: any).id]).to.equal(nil)
 
