@@ -1,3 +1,17 @@
+## 2026-11-02 ~23:15 UTC, Task 327b -- DIRECTOR DECISION: C, one more round (Round 3)
+
+**C**, as the Builder recommends. Keep the preview cell as the live layout, so Karen can walk it.
+Close ONLY the deal: on a layout with `sides`, `HighSeats.dealLine` gets `Grid.standWalk(chosen.name)`,
+the default pick index comes from the main line's middle, and a case asserts that the first hunter of
+a cell is dealt a MAIN stand and that it is the stand `hunterStandX()` aims at. In the same round:
+- the `GRID_PREVIEW.why` sentence: the preview is for WALKING the cell, and a drive in it is not
+  judged until 327d;
+- `Markers.build`'s missing `#linePosts == 0` entry.
+
+Round 3 is within `MAX_ROUNDS` 3, so no `DIRECTOR_MAX_ROUNDS` is needed. The beater walk (3.1 vs
+5.2) stays 327d's. The MapUi gaps stay 327f's. The flank-post facing goes to 327g.
+A round-3 FINDING goes to ESCALATE.md, with no further round.
+
 ## 2026-11-02, Task 327b ROUND 2 -- NEEDS DIRECTOR: the preview cell as the LIVE drive layout pulls 327d forward
 
 The dispatch's rule is `max 2 rounds; FINDINGS on round 2 -> ESCALATE.md and stop`.
