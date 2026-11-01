@@ -3559,14 +3559,22 @@ Boar.CONFIG.MODEL = {
 		-- PER KIND, OFF EACH KIND'S OWN SIZE: the stag's 3.00 taken to `KINDS.<kind>.scale`
 		-- (1.0 / 0.8553 / 0.495), so a calf bounds a calf's height and not a stag's.
 		--
-		-- ...AND NEVER BELOW `LIFT_STUDS` PLUS `CLEARANCE_STUDS`, which is why the calf's 1.49 is
-		-- not 3.00 x 0.495 = 1.485: an arc lower than the sink would put the hooves back through the
-		-- road, which is the defect this task exists to fix. The floor binds on the calf alone.
+		-- ...AND NEVER BELOW THE FLOOR `Body.leapApex` puts under it -- the sink at the instant the
+		-- hooves reach deepest, plus `CLEARANCE_STUDS`. An arc lower than that would put the hooves
+		-- back through the road, which is the defect this task exists to fix. It binds on the calf
+		-- alone, lifting its 1.485 to 1.668; see `SINK_AT_SECONDS`.
 		APEX_STUDS = { stag = 3.0, hind = 2.566, calf = 1.485 },
 		CLEARANCE_STUDS = 0.15,
+		-- WHEN THE HOOVES REACH DEEPEST, which is NOT the middle of the flight: 0.5417 against a
+		-- mid-point of 0.583 (`LIFT_STUDS`' own measurement). `Body.leapSinkShare` turns the gap
+		-- into the fraction of its apex the body is at then -- 0.891 -- and the floor is divided by
+		-- it, so the clearance is real where it is needed. It lifts the calf's bound from 1.485 to
+		-- (1.3358 + 0.15) / 0.891 = 1.668 and leaves the stag's 3.000 and the hind's 2.566 alone
+		-- (their floors are 1.500 and 1.577).
+		SINK_AT_SECONDS = 0.5417,
 		-- THE GRAVITY THE ARC AND THE CLIP RATE ARE BOTH SOLVED AGAINST. Roblox's default, and this
 		-- place's own: read live in the Forest Test on 2026-11-01 as 196.1999969482422.
-		-- `boar_model.spec` asserts it still matches `workspace.Gravity`, so the two halves of a
+		-- `deer.spec` asserts it still matches `workspace.Gravity`, so the two halves of a
 		-- bound -- how high the body goes and how fast the legs move -- can never drift apart.
 		GRAVITY = 196.2,
 	},
@@ -3621,7 +3629,9 @@ local DEER_CLIPS = {
 	-- gait nor a reaction: it is asked for by WHERE the animal is.
 	--
 	-- `seconds` IS THE WHOLE ASSET, 2.0000, measured two ways in Play and recorded on its `Assets`
-	-- row. Only the first `MODEL.LEAP.SECONDS` of it is ever played -- see that table.
+	-- row. What is PLAYED is t 0.458..0.808 of it (task 325): the clip is started at its own
+	-- take-off frame and runs through the landing. `MODEL.LEAP.SECONDS` is no longer that window --
+	-- it is the outer bound the Brain holds `leaping` for.
 	--
 	-- `groundStudsPerSecond = 0`, LIKE THE DEATHS AND THE FLINCHES AND FOR THE SAME REASON: the rate
 	-- is 1 and `Body.clipFor` returns it as a literal, so nothing divides by this. The Blender prep

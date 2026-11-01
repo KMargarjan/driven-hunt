@@ -1544,8 +1544,9 @@ end
 --
 -- KAREN, 2026-11-01: *"red stag male when jumping it has to jump not like now broken and famale and
 -- kid doesnt jump"*. MEASURED in her place at main the same morning: all three kinds DO play the
--- leap clip, at rate 1, for its whole window -- and the body's y never moves. The stag held 134.42
--- to 134.52 across the bound, the hind 134.04 to 134.21, the calf 133.12 to 133.25. The clip is an
+-- leap clip, at rate 1, for its whole window -- and the body's y never moves. The hind held 134.04
+-- to 134.21 across the bound and the calf 133.12 to 133.25; the stag drifted 133.55 to 134.52 and
+-- stayed there, which is the terrain under him and not an arc. The clip is an
 -- `_IP` export: it lifts the chest and REACHES THE LEGS DOWN, so with the root pinned to the ground
 -- the animal ploughs through the road in the pose of a jumping deer. Nothing was ever lifting it.
 --
@@ -1573,9 +1574,32 @@ function Body.leapApex(kind: string?, leap): number
 	local sink = type(leap.LIFT_STUDS) == "table" and leap.LIFT_STUDS[kind or ""] or nil
 	local clearance = if type(leap.CLEARANCE_STUDS) == "number" then leap.CLEARANCE_STUDS else 0
 	if type(sink) == "number" then
-		apex = math.max(apex, sink + clearance)
+		-- THE CLEARANCE IS WANTED AT THE WORST SINK, NOT AT THE APEX, and the two are not the same
+		-- instant: the hooves reach deepest at t 0.5417 and the body is highest in the middle of the
+		-- flight, t 0.583 (review round 1, note). A parabola is `4 h f (1 - f)` of its apex at
+		-- fraction `f` of the flight, and `f` is the CLIP's -- which makes this independent of the
+		-- rate, and so not circular with the apex it is solving for.
+		apex = math.max(apex, (sink + clearance) / Body.leapSinkShare(leap))
 	end
 	return apex
+end
+
+-- WHAT FRACTION OF ITS APEX THE BODY IS AT WHEN THE CLIP'S HOOVES REACH DEEPEST. Pure, and 1 for a
+-- world that names no sink instant -- which makes the floor above the plain `sink + clearance` it
+-- was before this.
+function Body.leapSinkShare(leap): number
+	if type(leap) ~= "table" then
+		return 1
+	end
+	local from, to, at = leap.TAKEOFF_SECONDS, leap.LAND_SECONDS, leap.SINK_AT_SECONDS
+	if type(from) ~= "number" or type(to) ~= "number" or type(at) ~= "number" or to <= from then
+		return 1
+	end
+	local f = (at - from) / (to - from)
+	if f <= 0 or f >= 1 then
+		return 1
+	end
+	return 4 * f * (1 - f)
 end
 
 -- THE TAKEOFF SPEED FOR AN APEX, AND THE AIRTIME IT IMPLIES. Pure, two numbers in, two out.
@@ -1947,7 +1971,11 @@ function Body.stepVisual(handle, dt: number, info, config)
 		-- step: `play` has just set the track to its take-off frame, so the legs and the arc start
 		-- together. `leapPlan` answers 0 for every animal with no row (every boar), so this is dead
 		-- code in the world task 245b shipped.
-		if name == "leap" and was ~= "leap" then
+		-- `handle.clip == "leap"` AS WELL AS `was ~= "leap"` (review round 1, note): `play` leaves
+		-- `handle.clip` alone when it cannot build a track, so without this the block would fire
+		-- every frame of the Brain's window, re-launching the animal and resetting `leapFor` so it
+		-- never counted down.
+		if name == "leap" and was ~= "leap" and handle.clip == "leap" then
 			local up, _, window = Body.leapPlan(handle.kind, config.MODEL and config.MODEL.LEAP)
 			if up > 0 and handle.part ~= nil then
 				local now = handle.part.AssemblyLinearVelocity
