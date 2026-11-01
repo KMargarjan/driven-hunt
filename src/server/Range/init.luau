@@ -103,13 +103,13 @@ Range.CONFIG = {
 	-- `CARCASS_SECONDS`. `Runtime:count()` counts carcasses, so the old `SPOT_COUNT` refused the
 	-- very spawn that makes the kill feel immediate.
 	MAX_TARGETS = RangeData.LAYOUT.SPOT_COUNT * 2,
-	-- SIX STATIONS, DRESSED (step B10), AND THIS COUNTS WHAT IS BUILT. DEV: 1 plate + 6 x (mat,
-	-- post, bench, 4 hut posts, roof, board) + 6 x 14 seat pieces + 1 turf + 2 banks + 1 berm = 143,
-	-- which is the number `range.spec` measures. NO fence post and NO rail: the lot's side line is
-	-- refused, with its reading, in `Range.Build`. Her place is 142 (the banks and the berm are
-	-- earth there and there is no plate, and her terrace is two rectangles so the turf is two slabs).
-	-- 220 is that plus headroom; the bound is a CLAIM ABOUT COST and the spec asserts the built
-	-- count against it, so dressing the range had to move it rather than quietly bust it.
+	-- SIX BARE STATIONS, AND THIS COUNTS WHAT IS BUILT. TASK 322 took the hut out (Karen,
+	-- 2026-10-31: *"also remove this roof in shooting range"*), so a station is a mat and a post:
+	-- DEV is 1 plate + 6 x (mat, post) + 1 turf + 2 banks + 1 berm = 28, which is the number
+	-- `range.spec` measures as arithmetic. It was 59 with the bench, the four columns, the roof and
+	-- the board. NO seat (task 320), NO fence post and NO rail: the lot's side line is refused, with
+	-- its reading, in `Range.Build`. 220 is kept as the headroom bound -- it is a CLAIM ABOUT COST
+	-- the spec asserts the built count against, and nothing is gained by lowering it this task.
 	MAX_PARTS = 220,
 	DEFAULT_SPECIES = "boar",
 	DEFAULT_KIND = "male",

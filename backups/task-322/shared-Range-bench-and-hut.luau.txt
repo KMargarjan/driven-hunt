@@ -1,0 +1,108 @@
+-- ===== src/shared/Range/init.luau 270-280: the BENCH table (REMOVED, task 322) =====
+	-- THE GROUND POSITION'S REST: a 0.7-0.8 m bench top (ISSF/BSRC) is 2.5-2.9 studs, and
+	-- `aheadStuds` puts it between the man and his post, downrange of the mat.
+	-- `color` AND `material` BOTH, SINCE STEP B10: the box read as a brown slab in her place
+	-- (evidence/306b8/f2b-lane1-view.png). Size and position are UNCHANGED -- a bench top is a
+	-- gameplay number (the 0.7-0.8 m rest) and B10 moves none of them (note 8.3 L1).
+	BENCH = {
+		size = Vector3.new(6, 2.7, 1.2),
+		aheadStuds = 3.5,
+		color = Color3.fromRGB(150, 118, 78),
+		material = Enum.Material.WoodPlanks,
+	},
+
+-- ===== src/shared/Range/init.luau 297-308: the HUT table's BOARD and COLOUR keys (REMOVED) =====
+-- The table itself STAYS as unreached data: `Range.bayHalfSlope` and `Range.sightlineFrom`
+-- measure the T6 envelope and the tree-clearance span off roofSize/roofAheadStuds/postSection.
+		-- THE STATION'S NUMBER, on the UPRANGE fascia: the face a man walking down from the lodge
+		-- reads. A `SurfaceGui` draws the digit, so there is no decal id and nothing to upload.
+		boardSize = Vector3.new(3.2, 2.2, 0.25),
+		-- THE BOARD HANGS FROM THE ROOF, so its rise is DERIVED and never typed: its TOP meets the
+		-- roof's underside. Typed at 6.4 it spanned shelf+5.3..shelf+7.5 against an underside at
+		-- shelf+9.0 -- six signs in 1.5 studs of air, which is the very defect the lot's side line
+		-- was refused over (review round 1, finding 1). `boardRiseFor` is the one answer, and there
+		-- is deliberately NO `boardRise` key here for it to drift from.
+		roofColor = Color3.fromRGB(96, 72, 52),
+		postColor = Color3.fromRGB(136, 110, 80),
+		boardColor = Color3.fromRGB(236, 232, 220),
+		boardTextColor = Color3.fromRGB(32, 32, 32),
+
+-- ===== src/shared/Range/init.luau 1403-1409: Range.benchPosition (REMOVED) =====
+-- THE BENCH REST, downrange of the mat and uprange of the post. Y is the bench top's own centre.
+function Range.benchPosition(anchor: Vector3, spot: number, layout, downrange: number?): Vector3
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local mat = Range.matPosition(anchor, spot, layout)
+	return Vector3.new(mat.X, anchor.Y + layout.BENCH.size.Y / 2, mat.Z + dir * layout.BENCH.aheadStuds)
+end
+
+-- ===== src/shared/Range/init.luau 1416-1477: the hut's BUILD readers (REMOVED) =====
+-- THE ROOF'S CENTRE over one station: `roofAheadStuds` downrange of the mat, at `roofRise` plus half
+-- its own thickness above the shelf -- so the BOTTOM face is at `roofRise`, which is the number the
+-- sight bound in 8.3 L2 is about.
+function Range.hutRoofPosition(anchor: Vector3, spot: number, layout, downrange: number?): Vector3
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local mat = Range.matPosition(anchor, spot, layout)
+	local hut = layout.HUT
+	return Vector3.new(mat.X, anchor.Y + hut.roofRise + hut.roofSize.Y / 2, mat.Z + dir * hut.roofAheadStuds)
+end
+
+-- THE HUT'S FOUR CORNER POSTS, as x/z pairs: the roof's own corners pulled in by half a post, so no
+-- post overhangs the roof it carries.
+function Range.hutPostPositions(anchor: Vector3, spot: number, layout, downrange: number?): { { x: number, z: number } }
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local hut = layout.HUT
+	local at = Range.hutRoofPosition(anchor, spot, layout, dir)
+	local halfX = hut.roofSize.X / 2 - hut.postSection / 2
+	local halfZ = hut.roofSize.Z / 2 - hut.postSection / 2
+	local out = {}
+	for _, sx in ipairs({ -1, 1 }) do
+		for _, sz in ipairs({ -1, 1 }) do
+			table.insert(out, { x = at.X + sx * halfX, z = at.Z + sz * halfZ })
+		end
+	end
+	return out
+end
+
+-- HOW HIGH THE BOARD'S CENTRE SITS over whatever the roof is measured from: the roof's own
+-- underside less half the board. DERIVED, so the board cannot drift off the roof it hangs on.
+function Range.boardRiseFor(layout): number
+	layout = layout or Range.LAYOUT
+	return layout.HUT.roofRise - layout.HUT.boardSize.Y / 2
+end
+
+-- THE NUMBER BOARD, on the hut's UPRANGE fascia, hanging from the roof's own uprange edge: its TOP
+-- face IS the roof's underside, which is what makes it a sign on a building rather than a sign in
+-- the air (round 1, finding 1).
+function Range.boardPosition(anchor: Vector3, spot: number, layout, downrange: number?): Vector3
+	layout = layout or Range.LAYOUT
+	local dir = if downrange == -1 then -1 else 1
+	local hut = layout.HUT
+	local at = Range.hutRoofPosition(anchor, spot, layout, dir)
+	return Vector3.new(
+		at.X,
+		anchor.Y + Range.boardRiseFor(layout),
+		at.Z - dir * (hut.roofSize.Z / 2 - hut.boardSize.Z / 2)
+	)
+end
+
+function Range.boardName(spot: number): string
+	return string.format("Board%d", math.max(1, math.floor(spot or 1)))
+end
+
+function Range.hutRoofName(spot: number): string
+	return string.format("Roof%d", math.max(1, math.floor(spot or 1)))
+end
+
+function Range.hutPostName(spot: number, corner: number): string
+	return string.format("HutPost%d_%d", math.max(1, math.floor(spot or 1)), corner)
+end
+
+
+-- ===== src/shared/Range/init.luau 771-774: Range.benchName (REMOVED, task 322) =====
+
+function Range.benchName(spot: number): string
+	return "Bench" .. tostring(spot)
+end
