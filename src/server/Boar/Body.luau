@@ -352,7 +352,7 @@ end
 -- per call site). `dead` is the only difference between the two call sites -- `Body.create` and
 -- `Body.collapse` -- so the group a body is in is decided above and written here, and nowhere else.
 function Body.useCollisionGroup(part: BasePart, config, dead: boolean?): boolean
-	local rule = config.BOAR_COLLISION
+	local rule = if config ~= nil then config.BOAR_COLLISION else nil
 	local group = Body.collisionGroupFor(rule, dead)
 	if group == nil then
 		return false
@@ -2855,7 +2855,9 @@ function Body.collapse(handle, config, full)
 	-- ...AND IT STOPS BLOCKING THE LIVING (task 324). Karen, 2026-11-01: *"when animal died in
 	-- shooting range another one can go tru now it stuck until dead is gone"*. MEASURED in her
 	-- place: the next animal stood 1.02 s at a 5.2-stud gap and was shoved 4 studs off its lane.
-	Body.useCollisionGroup(part, config, true)
+	-- `full` AND NOT `config`: in this function `config` is the WOUND table (see the caller,
+	-- `Boar.Runtime`), and the first live run read no `BOAR_COLLISION` off it and changed nothing.
+	Body.useCollisionGroup(part, full, true)
 	--
 	-- THE TOPPLE, AND WHO DOES IT. ONE CFrame write, at the moment of death -- not the per-frame
 	-- CFrame writing the design forbids (boar-ai design section 6), and not the design's
