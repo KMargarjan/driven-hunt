@@ -1903,7 +1903,9 @@ return function()
 					expect(Range.onRequest(men[2], { spot = 2, leave = true })).to.equal(true)
 					leaves += 1
 					sweep()
-					advance(fake, clock, tick + 2 / 60)
+					-- PAST `REQUEST_MIN_INTERVAL` before the second request, or the re-enter is
+					-- rate-limited (0.15 s) and refused -- one tick is 0.10 s.
+					advance(fake, clock, Range.CONFIG.REQUEST_MIN_INTERVAL + tick)
 					sweep()
 					expect(Range.onRequest(men[2], { spot = 2, go = true })).to.equal(true)
 				end
