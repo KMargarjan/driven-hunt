@@ -30,6 +30,10 @@ type State = {
 	now: (() -> number)?,
 	alsoTransparency: boolean,
 	mine: Instance?,
+	-- THE IDS THE SERVER NAMED (task 321 (e)): `Body.create` names a trunk after the animal's id, so
+	-- a NAME resolves on this client's own sweep whether or not the Instance had replicated when the
+	-- payload arrived. The live target and his carcass are both in it.
+	mineIds: { [string]: boolean },
 	minX: number?,
 	maxX: number?,
 	written: { [BasePart]: number },
@@ -51,6 +55,7 @@ local state: State = {
 	now = nil,
 	alsoTransparency = false,
 	mine = nil,
+	mineIds = {},
 	minX = nil,
 	maxX = nil,
 	written = {},
@@ -99,6 +104,7 @@ function Mask.start(seams: {
 	state.now = given.now
 	state.alsoTransparency = given.alsoTransparency == true
 	state.mine = nil
+	state.mineIds = {}
 	state.minX = nil
 	state.maxX = nil
 	state.written = {}
@@ -116,8 +122,21 @@ end
 
 -- TOLD, never derived: the server measures which station he is on and names his own trunk on the
 -- board payload (design 9.4). A client that guessed would be a second judge of the isolation.
-function Mask.setMine(target: Instance?)
+-- ...AND BY NAME AS WELL AS BY REFERENCE (task 321 (e)). An Instance that had not replicated when
+-- the payload arrived reads nil here, and with a NEW animal every pass that hid the man's own target
+-- for the whole pass (319a(a)). The ids are the server's too -- the client still guesses nothing --
+-- but a string survives the wire, so the trunk is resolved on the sweep that first sees it.
+function Mask.setMine(target: Instance?, ids: { string }?)
 	state.mine = if typeof(target) == "Instance" then target else nil
+	local set = {}
+	if type(ids) == "table" then
+		for _, id in ipairs(ids :: { string }) do
+			if type(id) == "string" and id ~= "" then
+				set[id] = true
+			end
+		end
+	end
+	state.mineIds = set
 end
 
 function Mask.setWindow(minX: number?, maxX: number?)
@@ -179,8 +198,15 @@ end
 -- WHAT THIS TRUNK SHOULD LOOK LIKE: 0 for his own inside his own window, `HIDDEN` for every other
 -- station's and for his own outside it. PURE given the told state, which is what makes T12's
 -- "nothing changed, nothing written" a property of `apply` alone.
+local function isMine(trunk: Instance): boolean
+	if trunk == state.mine then
+		return true
+	end
+	return state.mineIds[trunk.Name] == true
+end
+
 local function wantedFor(trunk: Instance): number
-	if trunk ~= state.mine then
+	if not isMine(trunk) then
 		return Mask.HIDDEN
 	end
 	local minX, maxX = state.minX, state.maxX
@@ -283,6 +309,7 @@ function Mask.stop()
 	state.started = false
 	state.root = nil
 	state.mine = nil
+	state.mineIds = {}
 	state.minX = nil
 	state.maxX = nil
 	state.written = {}

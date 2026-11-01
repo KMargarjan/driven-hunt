@@ -60,7 +60,9 @@ remotes.RangeBoard.OnClientEvent:Connect(function(payload)
 	end
 	-- The payload can beat the folder's replication, so ask again here rather than on every frame.
 	tryStart()
-	Mask.setMine((record :: any).mine)
+	-- THE IDS AS WELL AS THE INSTANCE (task 321 (e)): the Instance can beat its own replication and
+	-- arrive nil, and then only the names tell the mask which animal is his.
+	Mask.setMine((record :: any).mine, (record :: any).mineIds)
 	Solo.setAlone((record :: any).alone == true)
 	local window = (record :: any).window
 	if type(window) == "table" then
