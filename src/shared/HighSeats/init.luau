@@ -185,7 +185,16 @@ HighSeats.STANDS = table.freeze(STANDS)
 -- THE LAYOUTS WHOSE SEAT WAS TAKEN WITH THE RELIEF TEST RELAXED (design section 6.2 rule 4). Named
 -- as data so the console line and this table cannot drift apart, and so a later measurement that
 -- finds a better stand on that line can empty it.
-HighSeats.RELIEF_RELAXED = table.freeze({ edge = true })
+local RELAXED: { [string]: boolean } = { edge = true }
+for _, id in ipairs(Grid.cellIds()) do
+	-- THE WHOLE OF THE GRID'S ROW 2 (task 327b): 98-173 studs of spread per cell, and not one stand
+	-- rolls less than `JUMP_RELIEF_STUDS` inside its own circle. `Grid.CELLS[*].towersRelaxed` is
+	-- where the measurement says so; this table cannot drift from it.
+	if Grid.towersRelaxed(id) then
+		RELAXED[id] = true
+	end
+end
+HighSeats.RELIEF_RELAXED = table.freeze(RELAXED)
 
 -- HOW MUCH THE TERRAIN MAY RISE INSIDE THE STAND CIRCLE before a jump from the high side could read
 -- as being on the platform (section 5.2). It is `DECK_RISE_STUDS - STAND_HEIGHT - MAX_JUMP`, which

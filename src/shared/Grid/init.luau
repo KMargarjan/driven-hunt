@@ -76,9 +76,10 @@ Grid.COLUMN_LETTERS = table.freeze({ "A", "B", "C", "D" })
 Grid.CELL_ORDER = table.freeze({ "A1", "B1", "C1", "D1", "A2", "B2", "C2", "D2" })
 
 -- WHICH CELL `GRID_PREVIEW` DRESSES, so Karen walks ONE cell's stands and towers rather than eight
--- cells' worth of posts (task 327b). It is the north-west cell, which is where 327a's road frame was
--- taken from. Task 327d retires the preview and this row with it.
-Grid.PREVIEW_CELL = "A1"
+-- cells' worth of posts (task 327b). **C1 BECAUSE IT HAS THE MOST TO SHOW**, which is a reading and
+-- not a preference: it is the only cell whose tower measurement takes THREE stands, it takes them on
+-- BOTH flanks, and it needs no relief relaxation. Task 327d retires the preview and this row with it.
+Grid.PREVIEW_CELL = "C1"
 
 -- THE EIGHT CELLS. **`relief` IS MEASURED AND NOT WRITTEN** (design 4.4): no terrain height is
 -- generated anywhere, because 13.41 M sq studs is ~750 `MapGen` tiles and ~50 minutes of Edit-time
@@ -92,6 +93,23 @@ Grid.PREVIEW_CELL = "A1"
 -- is what task 327b hands to `Layout.centre.Y`, which that record documents as a FALLBACK ground
 -- reached only in a column with no terrain in it -- so it has to be this line's own mean and not the
 -- cell's midpoint.
+--
+-- `towers` IS THE SAME KIND OF THING -- MEASURED, NOT CHOSEN (task 327b, design 6.1). All 120
+-- stands were measured in a PLAY session in Karen's place with task 218's own instrument
+-- (`driven-hunt-runs/327b-towers.luau`, which is `218-sight2.luau` reading `Grid.standPosition`):
+-- `gain` is how much further a fan of seven rays reaches north from a deck eye 12.5 studs up than
+-- from a ground eye, `spread` the spread of the five footprint grounds, `relief` the roll of the
+-- terrain in the stand's own 12-stud circle. Ranked by gain, taken while under `HighSeats.capFor`
+-- (5), never two adjacent, `gain >= 60`, `spread <= 4.0`, `relief <= 1.8`.
+--
+-- **THE WHOLE OF ROW 2 NEEDED THE RELIEF TEST RELAXED, AND IT IS DECLARED RATHER THAN HIDDEN**
+-- (`towersRelaxed`, design 6.2 rule 4, exactly as task 218 declared it for `edge`): the four
+-- southern cells carry 98-173 studs of spread, and NOT ONE of their stands rolls less than 1.8
+-- studs inside its own circle. Each takes ONE tower, and the platform rule is defeatable at a jump
+-- apex from the high side of it. **One deviation from 218's rule, named:** a relaxed cell takes the
+-- LOWEST-RELIEF candidate rather than the highest-gain one, because the relaxation exists only
+-- because relief fails, so the tie-break is the one that breaks it least -- D2 stand 3 scores +160
+-- at relief 9.88 against stand 12's +155 at 2.79.
 --
 -- A later task that GENERATES the relief writes the same fields from its own heightfield and no
 -- assertion in `grid.spec` moves. `recipe` (327c) and `animals` (327h) are not here yet.
@@ -108,7 +126,7 @@ Grid.CELLS = table.freeze({
 			lineSpreadStuds = 14.1,
 			lineMeanY = 61.76,
 		}),
-		towers = table.freeze({}),
+		towers = table.freeze({ 8 }), -- 8 west gain +125, spread 0.20, relief 1.67
 	}),
 	table.freeze({
 		id = "B1",
@@ -122,7 +140,7 @@ Grid.CELLS = table.freeze({
 			lineSpreadStuds = 21.8,
 			lineMeanY = 80.50,
 		}),
-		towers = table.freeze({}),
+		towers = table.freeze({ 12 }), -- 12 east gain +80, spread 0.00, relief 0.00
 	}),
 	table.freeze({
 		id = "C1",
@@ -136,7 +154,7 @@ Grid.CELLS = table.freeze({
 			lineSpreadStuds = 21.0,
 			lineMeanY = 106.98,
 		}),
-		towers = table.freeze({}),
+		towers = table.freeze({ 8, 13, 15 }), -- 8 west +80/0.00/0.00; 13 east +244/0.00/0.02; 15 east +95/0.30/1.42
 	}),
 	table.freeze({
 		id = "D1",
@@ -150,7 +168,7 @@ Grid.CELLS = table.freeze({
 			lineSpreadStuds = 36.8,
 			lineMeanY = 134.35,
 		}),
-		towers = table.freeze({}),
+		towers = table.freeze({ 9, 11 }), -- 9 west +244/0.00/0.02; 11 west +95/0.30/1.42
 	}),
 	table.freeze({
 		id = "A2",
@@ -164,7 +182,8 @@ Grid.CELLS = table.freeze({
 			lineSpreadStuds = 42.2,
 			lineMeanY = 115.44,
 		}),
-		towers = table.freeze({}),
+		towers = table.freeze({ 7 }), -- 7 main gain +88, spread 1.01, relief 3.57 -- RELAXED (best relief of 1 candidate)
+		towersRelaxed = true,
 	}),
 	table.freeze({
 		id = "B2",
@@ -178,7 +197,8 @@ Grid.CELLS = table.freeze({
 			lineSpreadStuds = 61.3,
 			lineMeanY = 181.83,
 		}),
-		towers = table.freeze({}),
+		towers = table.freeze({ 2 }), -- 2 main gain +163, spread 1.08, relief 2.13 -- RELAXED (best relief of 2 candidates)
+		towersRelaxed = true,
 	}),
 	table.freeze({
 		id = "C2",
@@ -192,7 +212,8 @@ Grid.CELLS = table.freeze({
 			lineSpreadStuds = 53.6,
 			lineMeanY = 211.22,
 		}),
-		towers = table.freeze({}),
+		towers = table.freeze({ 14 }), -- 14 east gain +141, spread 1.66, relief 6.70 -- RELAXED (only candidate)
+		towersRelaxed = true,
 	}),
 	table.freeze({
 		id = "D2",
@@ -208,7 +229,8 @@ Grid.CELLS = table.freeze({
 			lineSpreadStuds = 70.2,
 			lineMeanY = 252.01,
 		}),
-		towers = table.freeze({}),
+		towers = table.freeze({ 12 }), -- 12 east gain +155, spread 0.87, relief 2.79 -- RELAXED (best relief of 4; stand 3 scores +160 at relief 9.88)
+		towersRelaxed = true,
 	}),
 })
 
@@ -448,6 +470,14 @@ function Grid.towerStands(id: string): { number }
 	local cell = Grid.cellOf(id)
 	assert(cell ~= nil, "Grid.towerStands: no such cell")
 	return table.clone(cell.towers)
+end
+
+-- WHETHER THIS CELL'S TOWER WAS TAKEN WITH THE RELIEF TEST RELAXED. `HighSeats.RELIEF_RELAXED`
+-- takes it, and `Seats.takeLine` prints the fact every time it builds.
+function Grid.towersRelaxed(id: string): boolean
+	local cell = Grid.cellOf(id)
+	assert(cell ~= nil, "Grid.towersRelaxed: no such cell")
+	return cell.towersRelaxed == true
 end
 
 -- THE ROW `ForestTest.LAYOUTS` TAKES FOR THIS CELL (design 3.2), and it is the ONE place a cell

@@ -165,7 +165,7 @@ if gridPreviewOn then
 	local seats = ForestTest.Seats.ensure(cellLayout)
 	-- THE MIDDLE OF THE MAIN LINE, which is where `hunterStandX` aims with nobody playing: the
 	-- beater pad is derived from it, and this cell has no pick to read.
-	local middleX = ForestTest.standX(math.ceil(Grid.CONFIG.mainStandCount / 2), cellLayout)
+	local middleX = Data.standX(math.ceil(Grid.CONFIG.mainStandCount / 2), cellLayout)
 	local set = ForestTest.Markers.build(middleX, cellLayout)
 	print(
 		string.format(
