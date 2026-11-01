@@ -28,6 +28,11 @@ local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
 local Hud = require(scripts:WaitForChild("Hud"))
+-- THE TWO DOORS THE STAND PICK BORROWS (task 323b), required the way `report_panel.spec` and
+-- `camera_client.spec` require them: the REAL ones, so case 26's six exits are asserted against the
+-- live reference counts and not against a stub.
+local Camera = require(scripts:WaitForChild("Camera"))
+local Weapon = require(scripts:WaitForChild("Weapon"))
 
 local MapUi = Hud.MapUi
 -- THE RAIL IS READ FOR ONE NUMBER ONLY (task 231): `Rail.columnPx`, so the column this spec hands to
@@ -1228,6 +1233,379 @@ return function()
 			MapUi.render()
 			expect(MapUi.isOpen()).to.equal(false)
 			expect((Hud.fullMap() :: Frame).Visible).to.equal(false)
+		end)
+	end)
+
+	-- ------------------------------------------------- task 323b: the stand pick, cases 23-28, 30
+	--
+	-- docs/design/stand-pick.md sections 9.1-9.7. WHAT THESE PROVE AND WHAT THEY CANNOT: the two
+	-- rules are PURE, so every state and every combination is a case with no world, no server and no
+	-- drive; the pads' geometry is asserted off the ENGINE's own `AbsolutePosition`; and the GESTURE
+	-- is `GuiButton.Activated`, which the harness cannot synthesise (TASKS rows 6-7). Case 27 drives
+	-- `tapStand` directly and the real click is in the task's report, with a frame.
+	describe("the stand pick (task 323b)", function()
+		local function forest()
+			return require(ReplicatedStorage:WaitForChild("ForestTest"))
+		end
+
+		local function canvasStands(): { Frame }
+			local full = Hud.fullMap()
+			local canvas = if full then (full :: Frame):FindFirstChild("Canvas") else nil
+			local out: { Frame } = {}
+			if canvas == nil then
+				return out
+			end
+			-- IN INDEX ORDER, because two pads overlapping is a claim about ADJACENT ones and
+			-- `GetChildren` gives no order at all.
+			for index = 1, 64 do
+				local node = (canvas :: Frame):FindFirstChild(string.format("Stand%d", index))
+				if node == nil then
+					break
+				end
+				table.insert(out, node :: Frame)
+			end
+			return out
+		end
+
+		-- EVERY EXIT PUTS THE MAP BACK, so no case leaves the next one a free mouse.
+		local function quiet()
+			MapUi.setPickWindow(false, false)
+			MapUi.setPickSystem(nil)
+			MapUi.setStandStates(nil, nil)
+			MapUi.setOpen(false)
+			MapUi.setSuppressed(false)
+		end
+
+		afterEach(quiet)
+
+		it("case 23: standStateFor answers each of the five states, PURE", function()
+			local base = { localUserId = 7, picks = { ["3"] = 99, ["5"] = 7 }, names = { ["99"] = "Rival" } }
+			-- MINE, from either field: `mine` is `Match.myStand()` and the table says the same, so
+			-- the two cannot draw two pictures of one stand.
+			expect(MapUi.standStateFor(5, base).state).to.equal("mine")
+			local byMine = { localUserId = 7, mine = 2 }
+			expect(MapUi.standStateFor(2, byMine).state).to.equal("mine")
+			-- TAKEN, with his name.
+			local taken = MapUi.standStateFor(3, base)
+			expect(taken.state).to.equal("taken")
+			expect(taken.name).to.equal("Rival")
+			-- FREE GROUND.
+			expect(MapUi.standStateFor(4, base).state).to.equal("free")
+			expect(MapUi.standStateFor(4, base).name).to.equal(nil)
+			-- A FREE HIGH SEAT: `entitled` nil is "nobody answered", which is YES --
+			-- `Shop.grantsHighSeat`'s own rule and `StandPick.judge`'s.
+			local seatView = { localUserId = 7, seated = { [4] = true } }
+			expect(MapUi.standStateFor(4, seatView).state).to.equal("high")
+			seatView.entitled = true
+			expect(MapUi.standStateFor(4, seatView).state).to.equal("high")
+			-- ...AND ONE HE MAY NOT USE.
+			seatView.entitled = false
+			expect(MapUi.standStateFor(4, seatView).state).to.equal("seat")
+			-- A SEAT SOMEBODY ELSE HOLDS IS TAKEN AND NOT BARRED: who has it beats whether he could.
+			expect(MapUi.standStateFor(3, { localUserId = 7, picks = base.picks, seated = { [3] = true } }).state).to.equal(
+				"taken"
+			)
+			-- NOTHING STATED AT ALL is a free stand, which is every build with the flag off.
+			expect(MapUi.standStateFor(1, {}).state).to.equal("free")
+		end)
+
+		it("case 25: pickable is one predicate over all 32 combinations", function()
+			local wrong = {}
+			for mask = 0, 31 do
+				local open_ = bit32.band(mask, 1) == 1
+				local suppressed = bit32.band(mask, 2) == 2
+				local reportOpen = bit32.band(mask, 4) == 4
+				local window = bit32.band(mask, 8) == 8
+				local isHunter = bit32.band(mask, 16) == 16
+				local want = open_ and not suppressed and not reportOpen and window and isHunter
+				if MapUi.pickable(open_, suppressed, reportOpen, window, isHunter) ~= want then
+					table.insert(wrong, mask)
+				end
+				-- ...AND IT IS `fullMapVisible`'S OWN ANSWER AND NOT A SECOND COPY OF IT: a map that
+				-- is not on screen is never pickable, whatever the window says.
+				if not MapUi.fullMapVisible(open_, suppressed, reportOpen) then
+					expect(MapUi.pickable(open_, suppressed, reportOpen, window, isHunter)).to.equal(false)
+				end
+			end
+			expect(#wrong).to.equal(0)
+		end)
+
+		it("case 28: every stand carries exactly one Hit pad, and no two pads overlap", function()
+			local data = forest()
+			local restore = MapUi.geometry()
+			local worst = 0
+			for _, name in ipairs(data.LAYOUT_ORDER) do
+				MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, name))
+				-- THE PADS ARE ONLY MEASURABLE WHILE THEY ARE ON SCREEN: `AbsoluteSize` is zero for
+				-- a descendant of a hidden frame, so the window is opened for a hunter first --
+				-- which is also what makes them `Active`.
+				MapUi.setOpen(true)
+				MapUi.setPickWindow(true, true)
+				task.wait()
+				local stands = canvasStands()
+				expect(#stands).to.equal(data.layoutNamed(name).standCount)
+				local pads: { TextButton } = {}
+				for _, node in ipairs(stands) do
+					local hits = 0
+					for _, child in ipairs(node:GetChildren()) do
+						if child:IsA("TextButton") then
+							hits += 1
+							expect(child.Name).to.equal("Hit")
+							expect(child.Size.X.Offset).to.equal(CONFIG.STAND_HIT_PX)
+							expect(child.Size.Y.Offset).to.equal(CONFIG.STAND_HIT_PX)
+							expect(child.Text).to.equal("")
+							table.insert(pads, child :: TextButton)
+						end
+					end
+					expect(hits).to.equal(1)
+				end
+				-- THE ARITHMETIC, BY THE ENGINE'S OWN NUMBERS (section 9.5): 72 canvas px against the
+				-- forest's 96 px stand spacing, so two ADJACENT pads never share a pixel. Every pair
+				-- is checked rather than only the neighbours -- a layout could put two stands near
+				-- each other without them being adjacent in index.
+				for i = 1, #pads do
+					for j = i + 1, #pads do
+						if overlaps(pads[i], pads[j]) then
+							worst += 1
+						end
+					end
+				end
+				MapUi.setPickWindow(false, false)
+				MapUi.setOpen(false)
+			end
+			expect(worst).to.equal(0)
+			MapUi.setGeometry(restore)
+			TestKit.note(
+				string.format(
+					"map_ui: %d px pads over %d layouts, 0 overlapping pairs",
+					CONFIG.STAND_HIT_PX,
+					#data.LAYOUT_ORDER
+				)
+			)
+		end)
+
+		it("case 24: setStandStates writes all nine and a repeat version writes NOTHING", function()
+			local data = forest()
+			local restore = MapUi.geometry()
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, "road"))
+			MapUi.setOpen(true)
+			MapUi.setPickWindow(true, true)
+			task.wait()
+			local stands = canvasStands()
+			expect(#stands >= 9).to.equal(true)
+			local states = {}
+			for index = 1, #stands do
+				states[index] = { state = "free" }
+			end
+			states[2] = { state = "taken", name = "Rival" }
+			states[4] = { state = "mine" }
+			states[6] = { state = "high" }
+			states[7] = { state = "seat" }
+			local before = MapUi.stats().standWrites
+			MapUi.setStandStates(states, 1)
+			expect(MapUi.stats().standWrites).to.equal(before + 1)
+
+			-- THE FOUR PROPERTIES, READ OFF THE DRAWN NODES and not off the states table.
+			local taken = stands[2]
+			expect(taken.BackgroundTransparency).to.equal(CONFIG.STAND_TAKEN_TRANSPARENCY)
+			local name = taken:FindFirstChild("Holder") :: TextLabel
+			expect(name.Visible).to.equal(true)
+			expect(name.Text).to.equal("Rival")
+			expect((taken:FindFirstChild("Seat") :: UIStroke).Enabled).to.equal(false)
+			-- MINE IS THE `Target` DIAMOND, so the square and its index step aside for it and the
+			-- full map still carries exactly ONE orange mark.
+			expect(stands[4].Visible).to.equal(false)
+			expect((stands[4]:FindFirstChild("Index") :: TextLabel).Visible).to.equal(false)
+			expect(MapUi.myStandMark()).to.equal(4)
+			-- A FREE SEAT IS RINGED; A BARRED ONE IS NOT, and it is dimmer than taken.
+			expect((stands[6]:FindFirstChild("Seat") :: UIStroke).Enabled).to.equal(true)
+			expect(stands[6].BackgroundTransparency).to.equal(0)
+			expect((stands[7]:FindFirstChild("Seat") :: UIStroke).Enabled).to.equal(false)
+			expect(stands[7].BackgroundTransparency).to.equal(CONFIG.STAND_BARRED_TRANSPARENCY)
+			expect(stands[7].BackgroundTransparency > CONFIG.STAND_TAKEN_TRANSPARENCY).to.equal(true)
+			-- A FREE STAND IS WHAT IT ALWAYS WAS.
+			expect(stands[1].Visible).to.equal(true)
+			expect(stands[1].BackgroundTransparency).to.equal(0)
+			expect((stands[1]:FindFirstChild("Holder") :: TextLabel).Visible).to.equal(false)
+
+			-- THE EDGE TRIGGER, MEASURED (section 9.7): the same version twice, and the same STATES
+			-- under a new version, both write nothing at all.
+			local after = MapUi.stats().standWrites
+			MapUi.setStandStates(states, 1)
+			expect(MapUi.stats().standWrites).to.equal(after)
+			MapUi.setStandStates(states, 2)
+			expect(MapUi.stats().standWrites).to.equal(after)
+			-- ...and a real change does write.
+			states[4] = { state = "free" }
+			MapUi.setStandStates(states, 3)
+			expect(MapUi.stats().standWrites).to.equal(after + 1)
+			expect(MapUi.myStandMark()).to.equal(nil)
+			expect(stands[4].Visible).to.equal(true)
+			MapUi.setGeometry(restore)
+		end)
+
+		it("case 27: a tap asks the one collaborator once, and a dead map asks nothing", function()
+			local asked = {}
+			MapUi.setPickSystem({
+				requestStand = function(index: number)
+					table.insert(asked, index)
+				end,
+			})
+			-- THE MAP MUST BE PICKABLE: open, unsuppressed, a window and a hunter.
+			MapUi.setOpen(true)
+			MapUi.setPickWindow(true, true)
+			expect(MapUi.isPickable()).to.equal(true)
+			local taps = MapUi.stats().taps
+			MapUi.tapStand(4)
+			expect(#asked).to.equal(1)
+			expect(asked[1]).to.equal(4)
+			expect(MapUi.stats().taps).to.equal(taps + 1)
+
+			-- A TAP ON A DEAD MAP IS DEAD, by each of the four ways it can be dead.
+			MapUi.setPickWindow(false, true)
+			MapUi.tapStand(5)
+			MapUi.setPickWindow(true, false) -- a beater
+			MapUi.tapStand(5)
+			MapUi.setPickWindow(true, true)
+			MapUi.setSuppressed(true) -- the sight picture
+			MapUi.tapStand(5)
+			MapUi.setSuppressed(false)
+			MapUi.setOpen(false) -- the map closed
+			MapUi.tapStand(5)
+			expect(#asked).to.equal(1)
+			-- ...AND SO IS A TAP WITH NO COLLABORATOR AT ALL, which is a client whose
+			-- `PlayerScripts.Match` never arrived (task 134).
+			MapUi.setOpen(true)
+			MapUi.setPickWindow(true, true)
+			MapUi.setPickSystem(nil)
+			MapUi.tapStand(6)
+			expect(#asked).to.equal(1)
+		end)
+
+		it("case 26: after EACH of the six exits the mouse and the trigger are handed back", function()
+			-- A FREE MOUSE IN A DRIVE IS THE FAILURE (section 9.2), so each exit is driven and then
+			-- BOTH owners are read -- their own reference counts, not this module's opinion.
+			local data = forest()
+			local restore = MapUi.geometry()
+			local function held(): boolean
+				return table.find(Weapon.Input.holdTags(), "map-pick") ~= nil
+			end
+			local function grab()
+				MapUi.setOpen(true)
+				MapUi.setPickWindow(true, true)
+				expect(MapUi.isPickable()).to.equal(true)
+				expect(Camera.Cursor.isFree()).to.equal(true)
+				expect(held()).to.equal(true)
+			end
+			local function gone(what: string)
+				expect(MapUi.isPickable()).to.equal(false)
+				if Camera.Cursor.isFree() ~= false or held() ~= false then
+					error(string.format("map-pick survived the exit: %s", what))
+				end
+			end
+
+			-- 1. the window closes (the horn)
+			grab()
+			MapUi.setPickWindow(false, true)
+			gone("window closed")
+			-- 2. the map closes (M)
+			grab()
+			MapUi.setOpen(false)
+			gone("map closed")
+			-- 3. the scope comes in
+			grab()
+			MapUi.setSuppressed(true)
+			gone("scope in")
+			MapUi.setSuppressed(false)
+			-- 4. the report opens. NOTHING TELLS THIS MODULE: it is read inside `applyVisibility`,
+			-- which is why that is where the pick's needs are re-applied.
+			grab()
+			Hud.Report.setOpen(true)
+			MapUi.render()
+			gone("report open")
+			Hud.Report.setOpen(false)
+			-- 5. the team changes (he is a beater now)
+			grab()
+			MapUi.setPickWindow(true, false)
+			gone("beater")
+			-- 6. `teardown` -- the world hands the map a DIFFERENT layout, which destroys the nodes
+			-- the pads live on. Two layouts with different stand counts, so the rebuild is real
+			-- (`sameGeometry` returns early for the same one).
+			local wide, narrow = nil, nil
+			for _, name in ipairs(data.LAYOUT_ORDER) do
+				local layout = data.layoutNamed(name)
+				if wide == nil or layout.standCount > data.layoutNamed(wide).standCount then
+					wide = name
+				end
+				if narrow == nil or layout.standCount < data.layoutNamed(narrow).standCount then
+					narrow = name
+				end
+			end
+			expect(wide).never.to.equal(narrow)
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, wide))
+			local rebuilds = MapUi.stats().rebuilds
+			grab()
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, narrow))
+			expect(MapUi.stats().rebuilds).to.equal(rebuilds + 1)
+			gone("teardown")
+			MapUi.setGeometry(restore)
+			TestKit.note("map_ui: map-pick released on all six exits (cursor + trigger, both owners read)")
+		end)
+
+		it("case 30: the window opens the map by itself, and not in its last two seconds", function()
+			-- D3: *"the map opens by itself"*. EDGE-TRIGGERED, and it gives the map back.
+			MapUi.setOpen(false)
+			MapUi.setPickWindow(true, true, true)
+			expect(MapUi.isOpen()).to.equal(true)
+			MapUi.setPickWindow(false, true)
+			expect(MapUi.isOpen()).to.equal(false)
+
+			-- ...AND A LATE JOINER WITH TWO SECONDS LEFT GETS NO PANEL OVER HIS FACE (section 3.3).
+			MapUi.setPickWindow(true, true, false)
+			expect(MapUi.isOpen()).to.equal(false)
+			-- He may still open it himself, and the window closing does NOT take it off him: only a
+			-- map the window opened is closed by the window.
+			MapUi.setOpen(true)
+			MapUi.setPickWindow(false, true)
+			expect(MapUi.isOpen()).to.equal(true)
+			MapUi.setOpen(false)
+			-- A BEATER'S MAP NEVER OPENS: nothing happens at all.
+			MapUi.setPickWindow(true, false, true)
+			expect(MapUi.isOpen()).to.equal(false)
+		end)
+
+		it("the footer says the server's word, and the words are inside Objective's bound", function()
+			-- THE WORDS ARE THIS DRAWER'S SINCE TASK 323b (`backups/2026-11-01_standpick-words.md`),
+			-- so they are measured where they are drawn. The KEYS are the wire's vocabulary.
+			for reason, word in pairs(CONFIG.PICK_WORDS) do
+				expect(#word <= 33).to.equal(true)
+				expect(string.match(word, "^[%w%s%-,.!?']+$")).to.be.ok()
+				expect(string.lower(reason)).to.equal(reason)
+			end
+			-- `rate`, `flood` AND `same` DRAW NOTHING (design section 5.1).
+			expect(CONFIG.PICK_WORDS.rate).to.equal(nil)
+			expect(CONFIG.PICK_WORDS.flood).to.equal(nil)
+			expect(CONFIG.PICK_WORDS.same).to.equal(nil)
+			expect(#CONFIG.PICK_PROMPT <= 33).to.equal(true)
+
+			-- THE LINE ITSELF: nothing with the window shut, the instruction while it is open, the
+			-- refusal's word when there was one, and what he holds once he holds it.
+			MapUi.setPickWindow(false, true)
+			expect(MapUi.pickFooterText()).to.equal("")
+			MapUi.setOpen(true)
+			MapUi.setPickWindow(true, true)
+			expect(MapUi.pickFooterText()).to.equal(CONFIG.PICK_PROMPT)
+			MapUi.setPickWindow(true, true, true, "taken")
+			expect(MapUi.pickFooterText()).to.equal(CONFIG.PICK_WORDS.taken)
+			-- A SILENT REFUSAL DRAWS THE INSTRUCTION, not a blank and not "too fast".
+			MapUi.setPickWindow(true, true, true, "rate")
+			expect(MapUi.pickFooterText()).to.equal(CONFIG.PICK_PROMPT)
+			-- ...and once he holds one, the footer says which.
+			MapUi.setStandStates({ { state = "free" }, { state = "free" }, { state = "mine" } }, 11)
+			expect(MapUi.pickFooterText()).to.equal(string.format(CONFIG.PICK_HELD, 3))
+			-- A BEATER READS NOTHING AT ALL.
+			MapUi.setPickWindow(true, false)
+			expect(MapUi.pickFooterText()).to.equal("")
 		end)
 	end)
 end

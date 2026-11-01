@@ -51,6 +51,10 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
 local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+-- THE FROZEN SEAT DATA (task 323b), read for ONE question: which of this drive layout's stands carry
+-- a high seat, so the map can ring them. It is the same table `ForestTest.seatedStands` applies the
+-- live layout's name to on the server, so there is one record with two readers.
+local HighSeats = require(ReplicatedStorage:WaitForChild("HighSeats"))
 
 -- THE ONE SOURCE for every colour, face, size, radius and duration this screen draws with (task
 -- 201). The Designer's design system, 2026-10-17 is the spec: Karen, ~12:30, *"all menus all
@@ -295,6 +299,25 @@ local cornerViewport: Vector2? = nil
 -- WHERE THE WORLD SAYS THE DRIVE IS, resolved once by the closure in `Hud.start` and read every
 -- frame by `Hud.renderObjective`. Module-level because the per-frame pass is now the ONE writer of
 -- the compass's bearing and the map's push arrow -- see `Hud.renderObjective`.
+--
+-- ---------------- the stand pick (task 323b)
+--
+-- WHICH DRIVE LAYOUT THE SERVER PUBLISHED, written by the ONE closure that already reads it (the
+-- `ForestTest` `whenReady` door) and read once a frame for the seat ring. nil in DEV, which has one
+-- world and no published layout.
+--
+-- `pickStateKey` AND `pickStateVersion` ARE THE EDGE TRIGGER (design section 9.7): the key is what
+-- is drawn, the version is a COUNTER over it, and `MapUi.setStandStates` is handed both -- so a
+-- stale integer cannot freeze the picture and two pictures cannot collide onto one number.
+--
+-- BELOW `PICK_MIN_SECONDS` THE MAP DOES NOT OPEN ITSELF (section 3.3): a late joiner with two
+-- seconds left gets a panel over his face for a tap he cannot finish. It is the SCREEN's number and
+-- it mirrors the server's `STAND_PICK_MIN_SECONDS` -- `Match.CONFIG` is the server's and no client
+-- can read it, so the two are stated to be the same number rather than shared.
+local driveLayoutName: string? = nil
+local pickStateKey = ""
+local pickStateVersion = 0
+local PICK_MIN_SECONDS = 3
 local worldBearing: number? = nil
 local worldBearingLabel: string? = nil
 -- Has this player reached the place the objective sends them? Latched, so the chevron cannot
@@ -5204,6 +5227,9 @@ function Hud.renderObjective(CameraSystem, WeaponSystem)
 			-- userId list exactly as `through` is, so only the man it happened to reads the
 			-- sentence.
 			roleOverruled = matchSystem.isRoleOverruled and matchSystem.isRoleOverruled(),
+			-- ...AND WHETHER HE IS CHOOSING A STAND RIGHT NOW (task 323b), read off the same
+			-- replica as the four above it. nil in every build with the flag off.
+			pickWindow = matchSystem.standPickOpen and matchSystem.standPickOpen(),
 		}
 		else nil
 	Objective.render({
@@ -5216,9 +5242,92 @@ function Hud.renderObjective(CameraSystem, WeaponSystem)
 		lineVisible = Objective.lineVisible(phase, team, reportOpen, mapOpen, scoped, cardUp, lobby),
 		markVisible = Objective.markVisible(target, reportOpen, mapOpen, scoped, view ~= nil),
 	})
+	-- ---------------- THE STAND PICK (task 323b), AND IT IS ONE EVALUATION
+	--
+	-- KAREN, 2026-10-31: *"choose shooting place on map before hunt"*. Every fact below is the
+	-- SERVER's, read once here and handed to the map: whether the window is open, who holds which
+	-- stand, which one is his, and their names. The map derives none of them and this function is
+	-- already *"THE ONE EVALUATION"* (see `MapUi.setTarget` below and `setAsk` above).
+	--
+	-- WITH `STAND_PICK` OFF the server sends neither field, so `pickOpen` is false, the states list
+	-- is empty and every call below is one comparison that writes nothing (section 9.7).
+	local pickOpen = matchSystem ~= nil and matchSystem.standPickOpen() == true
+	local isHunter = team == "Shooters"
+	local myStand = if matchSystem then matchSystem.myStand() else nil
+	if pickOpen and isHunter then
+		local picks = matchSystem.standPickTable()
+		-- WHO THEY ARE, off the snapshot's own roster rows -- the one place a name reaches this
+		-- client, so the map's label and the score board's cannot be two different names.
+		local names: { [string]: string }? = nil
+		if snapshot ~= nil then
+			for _, row in ipairs((snapshot :: any).rows or {}) do
+				names = names or {}
+				(names :: any)[tostring(row.userId)] = row.name
+			end
+		end
+		-- WHICH STANDS CARRY A SEAT: `ReplicatedStorage.HighSeats` is the FROZEN DATA the server's
+		-- own seat deal reads (`ForestTest.seatedStands` applies the live layout's name to exactly
+		-- this table), so this is one record with two readers and not a second record.
+		--
+		-- `entitled` IS NOT ASKED AND THAT IS `Shop.grantsHighSeat`'S OWN NIL RULE: nil is "nobody
+		-- answered", which is YES, so a free seat draws its brass ring and the BARRED state is
+		-- reachable by parameter (`map_ui.spec` case 23) and not from a drive. What is missing is a
+		-- client-side ownership read, which is a wire question and not a map one -- reported.
+		local seated: { [number]: boolean }? = nil
+		if driveLayoutName ~= nil then
+			seated = {}
+			for _, index in ipairs(HighSeats.standsFor(driveLayoutName :: string)) do
+				(seated :: any)[index] = true
+			end
+		end
+		local standView = {
+			localUserId = Players.LocalPlayer.UserId,
+			mine = myStand,
+			picks = picks,
+			names = names,
+			seated = seated,
+		}
+		local geometry = MapUi.geometry()
+		local count = if geometry then #geometry.stands else 0
+		local states = {}
+		local key = {}
+		for index = 1, count do
+			local state = MapUi.standStateFor(index, standView)
+			states[index] = state
+			table.insert(key, state.state .. (state.name or ""))
+		end
+		-- THE VERSION IS A COUNTER AND NOT A HASH: it moves exactly when the drawn key changes, so
+		-- `setStandStates` cannot be handed a stale integer over new states, and two different
+		-- pictures cannot collide onto one number.
+		local joined = table.concat(key, "|")
+		if joined ~= pickStateKey then
+			pickStateKey = joined
+			pickStateVersion += 1
+		end
+		MapUi.setStandStates(states, pickStateVersion)
+	else
+		pickStateKey = ""
+		pickStateVersion += 1
+		MapUi.setStandStates(nil, pickStateVersion)
+	end
+	-- ...AND THE WINDOW ITSELF, with the countdown turned into the one boolean the map needs
+	-- (section 3.3: with fewer than `STAND_PICK_MIN_SECONDS` left a late joiner's map does not open
+	-- over his face) and the last verdict's reason for the footer. The SECONDS are this function's,
+	-- off the same `matchSystem.secondsLeft()` the drive bar and the objective line read.
+	local verdict = if matchSystem and matchSystem.lastStandVerdict then matchSystem.lastStandVerdict() else nil
+	MapUi.setPickWindow(
+		pickOpen,
+		isHunter,
+		(if drive then drive.secondsLeft or 0 else 0) >= PICK_MIN_SECONDS,
+		if verdict ~= nil and (verdict :: any).ok ~= true then (verdict :: any).reason else nil
+	)
 	-- THE MAP GETS THE POINT, FLAT: it draws in x/z and has no use for the height.
+	--
+	-- ...AND NOT THE HUNTER'S STAND WHILE THE WINDOW IS OPEN (task 323b, section 9.4): "mine" is
+	-- that same `Target` mark, so handing the deal's stand in as well would be two answers to "where
+	-- are you going" during the fifteen seconds he is choosing between them.
 	MapUi.setTarget(
-		if target then Vector2.new(target.point.X, target.point.Z) else nil,
+		if target and not (pickOpen and isHunter) then Vector2.new(target.point.X, target.point.Z) else nil,
 		if target then target.word else nil
 	)
 	local deg, word = Hud.markerFor(target, me, worldBearing, worldBearingLabel)
@@ -5285,6 +5394,10 @@ function Hud.useMatch(MatchSystem): boolean
 	-- built with nothing. One setter, so a late match reaches it too rather than leaving the report
 	-- without points for the session.
 	ReportPanel.setMatch(MatchSystem)
+	-- THE MAP ASKS THIS MODULE FOR A STAND (task 323b, amendment A-323-1): it is the one owner of
+	-- the drive wire on this client, so the map fires no remote of its own. Wired HERE and not in
+	-- `MapUi.start`, because `PlayerScripts.Match` may land after the Hud has built (task 134).
+	MapUi.setPickSystem(MatchSystem)
 	MatchSystem.Changed:Connect(function()
 		renderDrive(MatchSystem)
 	end)
@@ -5443,6 +5556,11 @@ function Hud.start()
 			-- READ, NEVER WRITTEN: `ReportPanel.isOpen()`, so two full-screen panels are never up at
 			-- once -- the reason `Hud.scorePanelVisible` already takes `reportOpen`.
 			Report = ReportPanel,
+			-- THE TWO DOORS THE STAND PICK BORROWS (task 323b), by the tag "map-pick" -- the
+			-- `ShopPanel` / `PadPanel` / `RangePanel` shape, and the trigger hold is not optional:
+			-- `Weapon.Input` binds `MouseButton1`, so without it clicking a stand fires a shell.
+			Cursor = if CameraSystem then CameraSystem.Cursor else nil,
+			Input = Weapon.Input,
 			geometry = if Map.EXPECTED_WORLD == "forest-test"
 				then nil
 				else MapUi.geometryFor(Map.EXPECTED_WORLD, nil, Map),
@@ -5508,14 +5626,12 @@ function Hud.start()
 			-- the warn below.
 			local live = module:WaitForChild(data.LIVE_NAME, 10)
 			local function drawMap()
-				MapUi.setGeometry(
-					MapUi.geometryFor(
-						Map.EXPECTED_WORLD,
-						data,
-						Map,
-						if live then live:GetAttribute(data.LAYOUT_ATTRIBUTE) else nil
-					)
-				)
+				-- WHICH LAYOUT THIS DRIVE IS ON, kept so `renderObjective` can ask
+				-- `HighSeats.standsFor` which of its stands carry a seat (task 323b). ONE writer,
+				-- and it is this closure -- the same one that is already the only place the
+				-- server's published layout name is read.
+				driveLayoutName = if live then live:GetAttribute(data.LAYOUT_ATTRIBUTE) else nil
+				MapUi.setGeometry(MapUi.geometryFor(Map.EXPECTED_WORLD, data, Map, driveLayoutName))
 			end
 			drawMap()
 			if live then
