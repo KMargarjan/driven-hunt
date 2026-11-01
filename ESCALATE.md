@@ -1,40 +1,1154 @@
-# ESCALATE -- Task 326
+## 2026-11-01, Task 326 ROUND 1 -- NEEDS DIRECTOR: who may put Karen's own standing trees back on the ground
 
-## NEEDS KAREN (or the Director at the machine): no frame can be taken of the Forest Test
+Karen, 2026-11-01: *"also fix broken trees all terai some trees is high in air"*. The dispatch asked
+for a run-time ground snap on saved place content, *"owned by the code that already owns that
+folder ... or if that is wrong, write NEEDS DIRECTOR"*. **It is wrong as the design stands, so this
+is that note.**
 
-2026-11-01. Task 326 is fixed, gated (`[harness] PASS: 34/34 @ 889ea95c (clean tree) scope=all`)
-and proven by census in Karen's own place before and after -- but **rule 5 is not met: no picture.**
+**What round 1 shipped and the Reviewer refused.** `Places.reseat` / `Places.reseatAll` swept
+`OurForest`, `Session` and `Foliage` at boot and lowered 413 + 2 models onto the ground.
+`reviews/task-326/RESULT.md` finding 1: `docs/design/drive-places.md` §1.2 item 2 says `Places`
+**"Must not move, re-parent, scale, re-colour or destroy anything in `Workspace.OurForest`,
+`Workspace.Session` or `Workspace.LobbyAssets`"**, and §6's table repeats it. The Reviewer is right
+and the Builder may not amend a design, so **the whole sweep is removed from this task.** Finding 2
+(the sweep moved ~409 models that showed no daylight, down by the whole relief under their
+footprint, unmeasured) and finding 3 (the `air` arm was unreachable) are removed with it and by
+deleting the dead arm.
+
+**What this leaves unfixed, measured:** **4 models in `Workspace.Session` hang 29.0, 34.4, 53.5 and
+65.2 studs above the terrain** (`<runs-dir>/326-census-edit-main.json`; the 53.5 one is a 104.7-stud
+`Tree8` at -620, 3503). They are saved Studio content spread over the whole terrain, which is the
+"all terai" half of Karen's sentence. Everything this repo's code plants is fixed: `DrivePlaces`
+went **646 floating of 3028 (worst 1812.81 studs) to 0 of 3253**, and **329 models spanning over
+300 studs to 0**.
+
+**THE DECISION, and three ways to take it:**
+1. **Amend the design** -- `tools/architect.sh design drive-places --task 326` with a BRIEF saying
+   `Places` may move the world's standing foliage VERTICALLY ONLY and under what bound, then
+   restore the sweep (it is in the branch's history at `889ea95c`). Note §1.2 is already not quite
+   true today: `Places.unblockFoliage` writes `CanQuery` on those same folders (task 260).
+2. **Give the sweep to another owner** the Architect names.
+3. **Use the tool the project already built for exactly this** -- `tools/forest_ground.py`, which
+   re-seats saved content in Edit with a backup and a dry run. It is hard-coded to
+   `Workspace.OurForest`; the `Session` folders would need adding. It changes Karen's place, so it
+   needs her (or the Director) to accept the Rojo/Studio dialog and save.
+
+## 2026-11-01, Task 326 -- NEEDS KAREN: no frame can be taken of the Forest Test (rule 5 unmet)
 
 `screen_capture` against the Forest Test Studio returns the SAME cached image (the lodge porch) for
-six different camera/look pairs AND for a confirmed character move to the measured spot. Both
-routes were tried and both report success in Luau while yielding that one frame:
-`<runs-dir>/326frame.py` (parks the client camera, `CameraType = Scriptable`) and
-`<runs-dir>/326shot.py` (stands the player there, server-side `PivotTo`, which the probe confirms:
-`player at -3836, 105.15, 3264`). Frames: `326-before-A-eye.png` ... `326-before-S1.png`,
-`326-test-cam.png`.
+six different camera/look pairs AND for a confirmed character move to the measured spot. Both routes
+were tried and both report success in Luau while yielding that one frame: `<runs-dir>/326frame.py`
+(parks the client camera, `CameraType = Scriptable`) and `<runs-dir>/326shot.py` (stands the player
+there; the probe answers `player at -3836, 105.15, 3264`). Frames: `326-before-A-eye.png` ...
+`326-before-S1.png`, `326-test-cam.png`.
 
-**The clicks that would settle it:** bring the **Driven Hunt Forest Test** window to the front and
-move/resize it so its viewport is actually drawn, then re-run
-`python 326shot.py <out.png> "<x>,<y>,<z>" "<x>,<y>,<z>"`. If the frame still repeats, the harness's
-`screen_capture` is broken for that window and that is a harness fault to report (rule 6).
+**The clicks:** bring the **Driven Hunt Forest Test** window to the front and move or resize it so
+its viewport is actually drawn, then re-run `python 326shot.py <out.png> "<x>,<y>,<z>" "<x>,<y>,<z>"`
+from `<runs-dir>`. If the frame still repeats, `screen_capture` is broken for that window and that
+is a harness fault to report (rule 6).
 
-## The Rojo panel is closed in that window, so the port cannot be switched by script
+**Also: the Rojo panel is closed in that window**, so the port cannot be switched by script
+(`<runs-dir>/326-screen6.png`; `rojo-port.sh` and `reconnect34874.sh` click fixed coordinates and
+would have clicked into Karen's viewport; **Plugins -> Rojo** clicked three times gave only the
+tooltip). The live proof was therefore taken on `:34873`: `driven-hunt-karen` was checked out at the
+code commit, the place was Played and measured, and that copy was **restored to `main` (cf2e6955)**
+-- verified, with `rojo :34873` still holding its original session id. Her place was never saved,
+published or committed.
 
-The dispatch asked for the proof on `rojo :34874`. The Forest Test's **Rojo panel is not open**
-(`<runs-dir>/326-screen6.png`); `rojo-port.sh` and `reconnect34874.sh` click fixed screen
-coordinates and with the panel closed would have clicked into Karen's own viewport. Clicking
-**Plugins -> Rojo** three times produced only the tooltip and no docked panel.
+## 2026-10-31, Task 321 ROUND 2 -- NEEDS DIRECTOR: both gate lines need Karen's Forest Test closed
 
-So the proof was taken the other way: `driven-hunt-karen` -- the copy `:34873` already serves, which
-her Studio is connected to -- was checked out at the code commit, the place was Played, measured,
-and the copy was **restored to `main` (cf2e6955)**, verified, with `rojo :34873` still holding its
-original session id. Her place was never saved, published or committed. If the Director would
-rather this never happened, the clicks above (open the Rojo panel, set 34874, Connect) are the
-alternative, and `driven-hunt-294` is ready.
+**The three blocking findings of `reviews/task-321/RESULT.md` are fixed, each with its FAIL-FIRST run
+pasted in the request. What is missing is BOTH gate lines, and the one thing they fail on is a Studio
+I am not allowed to close.** This is the same block as round 1, with one thing added: it now also
+costs the one-player line.
 
-## Not a blocker, recorded: the sunk half of the target
+- Code commit: `0fcb2929fcd1a11a18da6de69b8aa0bf9c53718c`, branch `task-321-range-pass-loop`, pushed.
+- `reviews/task-321/REQUEST.md` is written at `Round: 2` and committed. Round 2 is NOT used: no
+  `tools/review.sh` call was made, because `tools/agents.py` would refuse it (no harness PASS line).
 
-"None sunk more than 1.5 studs" is **not met for saved map content and was not attempted**: 721 of
-the 5,659 standing models in her place were already sunk more than 1.5 before this task (529 in
-`Workspace.Session`, most at exactly -2.50). That is how the bought map was authored, `TreeGround`
-only ever sinks, and raising saved content is a visible change nobody has asked for.
+**What I ran, and what each said.**
+
+1. `python tools/studio_mcp.py test` at the code commit, TWICE:
+   `[harness] FAIL: 32/34 checks @ 0fcb2929fcd1a11a18da6de69b8aa0bf9c53718c (clean tree) scope=all`
+   Both failures are `deer_hitbox.spec` and nothing else -- `:659`, then `:682` reading
+   *"calf: legs box 1 is unreachable by a flank ray"*. A real raycast against the calf model. This
+   branch touches no deer, boar or hitbox file.
+   **The correlation, offered as a lead and not as a verdict:** `deer_hitbox` PASSED in the three
+   earlier runs of this session, all of them while DEV was the only Studio, and has FAILED in both
+   runs since Karen's Forest Test editor appeared at ~23:31 UTC (`state` read ONE Studio at 23:15).
+   **A THIRD run, at `7923cc7a`, failed the same way**: `:659` *"calf: the skull at (0.01, 1.50,
+   -1.02) answered nil, wanted head"*. All three failures are the CALF and all three are a ray that
+   answered `nil` -- it hit nothing. `deer_hitbox.spec` names `Range` ZERO times and loads its models
+   at runtime through `ServerStorage.Assets.Loader`, so a ray hitting nothing is the signature of a
+   model that has not finished loading -- which asset-load contention from a second editor would
+   explain. A mechanism, not a proof.
+   The dispatch names `deer_hitbox.spec:659/:682` as a known intermittent, but a dispatch naming a
+   flake is not a control run (Vnight-1027), so **the request reports it as a live FAIL** and no
+   claim in it leans on the word. The control run at the merge-base is the Director's: it needs a
+   branch switch, which is the Rojo-crash route and would then need a Connect click.
+2. `python tools/studio_mcp.py test2` at the code commit. It got PAST the Studio checks, waited its
+   180 s and nobody pressed Start:
+   `FAIL A 2-player local test appeared within 180 s  (0 new studio(s) beside the editor)`
+   `[harness2] NEEDS KAREN: nobody pressed Start. Nothing was run and nothing is claimed.`
+   `[harness2] FAIL: 11/13 checks @ 0fcb2929fcd1a11a18da6de69b8aa0bf9c53718c (clean tree)`
+3. The no-human route, `<runs-dir>/run-test2.sh`, **refuses at its own first line** while more than
+   one Studio is open: `[ "$n0" -eq 1 ] || { echo "REFUSED: $n0 studios open before the run"; exit 5; }`.
+   So the F7 press is not available to me either. I did NOT improvise around it (V280), and the
+   player-count spinner was never reached, so nothing is claimed about it (L-054).
+
+**Why I did not close her window.** Two Studio processes are open: `Driven Hunt DEV` and
+`Driven Hunt Forest Test`. Hers was NOT a leftover from my own session -- it appeared while I was
+working, so she opened it deliberately. The dispatch is explicit for exactly this case: *"if Karen's
+Forest Test is open, write NEEDS DIRECTOR in ESCALATE.md with the request written and STOP -- the
+Director runs test2 and the review."*
+
+**NEEDS DIRECTOR -- the exact steps, in order.**
+
+1. Close the `Driven Hunt Forest Test` Studio window (or ask Karen to), leaving only `Driven Hunt DEV`
+   open in **Edit**. Confirm with `python tools/studio_mcp.py state` reading `1 Studio connected`.
+2. `python tools/studio_mcp.py test` at `0fcb2929`. This also settles `deer_hitbox`: if it passes with
+   one Studio, the correlation above is the answer and nothing in this branch is implicated. If it
+   fails again, it is a real defect in `deer_hitbox.spec`/the calf geometry and belongs to its own
+   task, not to 321 -- in which case the merge-base control run is the thing that proves it.
+3. `cd <runs-dir> && ./run-test2.sh t321r2` -- it checks the one-Studio precondition itself, presses
+   F7, and ends the session afterwards. **Before it, confirm the player-count spinner reads 2**
+   (L-054 recurred on this exact check in `test2-t191.log`).
+4. `powershell -ExecutionPolicy Bypass -File tools/review.ps1 321` once both PASS lines exist for
+   `0fcb2929`. Paste both into `reviews/task-321/REQUEST.md` first -- it is written and committed with
+   the FAIL lines in it precisely so nothing is claimed that was not run; replacing them with the
+   PASS lines is the only edit it needs.
+5. **This is round 2, the last.** If the Reviewer returns findings, that is an `ESCALATE.md` entry and
+   not another round (the dispatch).
+
+**What is NOT proven, and is not phrased as a nicety.** Finding 1 changes what a real shot does in
+Karen's place: before the fix a neighbour's carcass, invisible to the shooter, stopped his bullet and
+was scored as his hit. **Nobody has seen the fix on screen.** The spec proves it (red at the round-1
+code commit, `range.spec:4145` got false), and that is all this round proves. The live shot past a
+carcass in her place was not attempted: her Studio is in use and `<runs-dir>/ft-open.sh` would restart
+her session.
+
+## 2026-10-31, Task 321 -- NEEDS DIRECTOR: the two-player line needs Karen's Forest Test closed
+
+**The work is done, committed, pushed and gated on one player. What is missing is `test2`, and the
+one thing it fails on is a Studio I am not allowed to close.**
+
+- Code commit: `e407f6af0ecda552d8a39860c47a50f84133ce20`, branch `task-321-range-pass-loop`.
+- `[harness] PASS: 34/34 checks @ e407f6af0ecda552d8a39860c47a50f84133ce20 (clean tree) scope=all`
+- `python tools/agents.py` REFUSES the review round without a `[harness2]` line, because this change
+  touches `src/client/Range/Mask.luau` and `tests/client/range_mask.spec.luau`, and both are in
+  `TWO_PLAYER_PATHS` (task 313 put the range's per-player picture there: *"a second client is the
+  ONLY thing that can evidence each man sees his OWN animal"*). **The dispatch's own list of what
+  needs two players did not mention the range; `tools/agents.py` is the authority and it does.**
+
+**I ran it anyway, to measure the block rather than assume it** (`python tools/studio_mcp.py test2`,
+with `<runs-dir>/press-f7.ps1` making the Start click, so no human was needed for that part):
+
+```
+[harness2] FAIL: 33/36 checks @ ab5265c79b259ebf616ce692f0240f9d3d78af98 (clean tree)
+  FAIL One Studio instance before the test starts  (Driven Hunt DEV (placeId: 136410205938347);
+                                                    Driven Hunt Forest Test (placeId: 130094961655666))
+  FAIL [driver] camera_client.spec:376  -- expect(stats.maxUpdateMs < 5)
+```
+
+1. **The one-Studio check fails because Karen's Forest Test editor is open.** I may not close it
+   (dispatch: *"never close it yourself"*), so this cannot pass from here.
+2. **`camera_client.spec:376` is `expect(stats.maxUpdateMs < 5).to.equal(true)`** -- the camera's
+   WORST frame on the driver client, a hitch check. It ran with five Studio processes on the machine
+   at once (two editors plus the three test instances). Nothing in this diff touches the camera, the
+   viewmodel or any render path. **I am NOT calling it a flake:** it is not one of the intermittents
+   the dispatch names and I have no control run at the merge base. It has the same plausible cause as
+   finding 1 -- a loaded machine -- which is what the one-Studio check exists to prevent.
+
+**What the Director needs to do** (in this order):
+
+1. Press **Cleanup** in the DEV Studio's Test tab if any test instances are still open.
+2. Close the **Driven Hunt Forest Test** Studio (only you/Karen may).
+3. `cd <repo> && git switch task-321-range-pass-loop && git pull`
+4. `python tools/studio_mcp.py test2` and press **F7** in the DEV Studio within 180 s, or run
+   `<runs-dir>/press-f7.ps1` (it posts F7 itself, verified working this session).
+5. If it passes, paste the `[harness2] PASS ... @ e407f6af...` line into
+   `reviews/task-321/REQUEST.md` under the harness line and run
+   `powershell -ExecutionPolicy Bypass -File tools/review.ps1 321`. **Round 1 has not been used:**
+   no `reviews/task-321/RESULT.md` exists, so the round count is untouched.
+6. If `camera_client.spec:376` fails again on a clean single-editor machine, that is a finding
+   against the camera and not against this task; a control `test2` at `d7ae1929` settles it. One data
+   point already: **the ONE-player run at this same code commit is `666 passed, 0 failed` on the
+   client, and `camera_client.spec` is one of its 31 files** -- so the spec is green at `e407f6af`
+   when the machine is not running five Studio processes.
+
+The request (`reviews/task-321/REQUEST.md`) is written, committed and pushed, with the measurements
+and the frames. Nothing else is waiting on me.
+
+---
+
+## 2026-10-30, Task 312 -- THE FLIP IS DONE AND CORRECT; `main` IS RED, SO NO `PASS` LINE EXISTS
+
+**RESOLVED by task 314 (PR #294): `main` green.** The red was `Viewmodel.update`'s handle-cache
+throttle against a clock that went backwards; 312 merges `main` and runs its round unchanged.
+
+**FOR THE DIRECTOR. This is not a request for another round -- no round was run, because none can be.**
+
+The task itself is finished and proven: `src/shared/Flags/init.luau` has `AIM_REWIND` and
+`ZONES_FOLLOW_GAIT` at `default = true` (code commit `3feb648f`, branch `task-312-aim-on`, pushed),
+and `python tools/flags.py --place dev` reads both back from the DEV place as
+`default=on override=none effective=on`. That is Karen's OK carried into the shipped default, which
+is all the dispatch asked for.
+
+**What blocks it: the merge gate wants `[harness] PASS` for the code commit, and `main` cannot
+produce one either.**
+
+| run | commit | environment | result |
+|---|---|---|---|
+| branch, run 1 | `3feb648f` | 3 Studios, DEV just reopened | `FAIL: 30/34` (this failure **plus** a server failure that never recurred) |
+| branch, run 2 | `3feb648f` | 3 Studios | `[harness] FAIL: 32/34 checks @ 3feb648fa67d359e2303710deba2c432375af714 (clean tree) scope=all` |
+| **CONTROL, merge-base** | `cc058bf4` | 3 Studios | `[harness] FAIL: 32/34 checks @ cc058bf49f6072553df07d7e33b282ca1ec72336 (clean tree) scope=all` |
+| branch head, run 4 | `9b86aa40` | 3 Studios | `[harness] FAIL: 32/34 checks @ 9b86aa403bfd0cddb30083f70797b552d7a336be (clean tree) scope=all` |
+| branch head, run 5 | `9b86aa40` | **2 Studios, DEV unambiguous** | `[harness] FAIL: 32/34 checks @ 9b86aa403bfd0cddb30083f70797b552d7a336be (clean tree) scope=all` |
+
+**Five runs, five times the same single failure**, including once at the merge-base and once in a
+clean environment the harness resolved straight to `Driven Hunt DEV (placeId: 136410205938347)`:
+
+> `failed [client] rifle_client.spec:747 Expected value "rifle" (string), got "shotgun" (string) instead`
+
+`rifle_client.spec` line 747 is `expect(drawn).to.equal("rifle")`: the spec calls
+`humanoid:EquipTool(rifle)` and waits up to 60 iterations of 2 frames for
+`Camera.Viewmodel.weaponId()` to become `"rifle"`; the viewmodel is still drawing the shotgun when
+the wait runs out. The same run's own notes say `character holds [Shotgun]; backpack [Rifle]`.
+
+**It is NOT the flake the dispatch names** (`weapon_shot.spec.luau:1490`), and per Vnight-1027 the
+word "flake" is NOT used for it: the control run above is pasted instead, and 5/5 across two commits
+and two environments is not flaky behaviour.
+
+**AND IT IS NOT A CODE REGRESSION SINCE THE LAST GREEN RUN.** `git diff --name-only d33c318e..cc058bf4 -- src tests`
+is **empty**: nothing under `src/` or `tests/` changed between `d33c318e` -- where task 306m recorded
+`[harness] PASS: 34/34 checks @ d33c318e8c616fb93bc49953532a833c28d81607 (clean tree) scope=all`
+(`TASKS.md` row 306m) -- and today's `main`. The five commits in that range are all paperwork. So the
+code that fails today is byte-identical to code that passed 34/34, and **whatever turned `main` red
+is outside `src/` and `tests/`** -- the DEV place's own state, or Studio itself, are what is left.
+This change flips two server-side flags (`src/server/Weapon/init.luau`,
+`src/server/Boar/init.luau`); neither reaches the client viewmodel's drawn weapon.
+
+**So `tools/review.sh` was not run.** `tools/agents.py` refuses a review request that cannot paste a
+`PASS` line for its code commit, and manufacturing one would be the exact thing rule 10 and the
+harness-before-review gate exist to stop. `reviews/task-312/REQUEST.md` is written, committed and
+accurate, so the round can be run unchanged the moment `main` is green.
+
+**THE DECISION IS THE DIRECTOR'S, and these are the options as the Builder sees them:**
+
+1. **Find out what turned `main` red and fix it first**, then run this branch's single round
+   unchanged. Since no `src/`/`tests/` change can explain it, the first thing to check is the DEV
+   PLACE's own saved state and the Studio version -- see the recovery note below; the DEV place in
+   use now is the one freshly opened from the cloud, which is NOT necessarily the place the 34/34
+   run used. Cleanest, and it stops the next task hitting the same wall.
+2. **Declare `rifle_client.spec:747` a known red on `main`** with a stated reason, and let 312 merge
+   on the control pair above plus CI. That is a gate exception and only the Director may make it.
+
+**ONE MORE THING THE DIRECTOR SHOULD KNOW -- the DEV Studio had to be recovered, and it was done
+without touching Karen's place.** At the start of the session the only DEV-ish Studio was a
+crash-recovery document, `136410205938347_AutoRecovery_0.rbxl`, whose `game.PlaceId` reads **0**, so
+the harness failed `Studio has the DEV place open` and `tools/flags.py` refused outright. The real
+DEV place was opened from the Studio start page's Recents, its *Auto Recovery File Found* prompt was
+answered **Ignore** (the autosave file is untouched on disk), and Rojo `:34872` was connected --
+its confirm dialog listed exactly one change, `ReplicatedStorage > Flags`, with no removals, and was
+accepted after being looked at. **Karen's Forest Test was never opened, stopped, focused or written,
+and `tools/flags.py` was never run against it** (standing rule K, L-056/L-101). The stale
+stale AutoRecovery instance was then ENDED, after it twice refused a clean close and its autosave
+collided with the real DEV window's: a modal *Save File Failure* ("Failed to obtain a file lock on
+... `136410205938347_AutoRecovery_0.rbxl`") kept reappearing OVER the very window the harness runs
+in, which is a live hazard for every run. **Nothing was deleted: that autosave file is still on disk
+at 3,676,754 bytes**, so Karen can still recover whatever that crashed session held. After it, the
+harness resolves cleanly to `Driven Hunt DEV (placeId: 136410205938347)` -- and the failure above
+still reproduced, which is how run 5 rules the Studio ambiguity out as its cause.
+
+**WHAT THE DIRECTOR SHOULD WEIGH:** the DEV place now in use was opened fresh from the cloud. If the
+crashed session held DEV place state that tasks 306l/306m had written and never published, then the
+34/34 that 306m recorded was measured against a DEV place that no longer exists on this PC, and the
+red is the difference. The Builder cannot tell from here, and reconciling the DEV place is well
+outside one flag flip.
+
+---
+
+## Task 306 B7 round 3: Director authorisation
+
+**The Director, 2026-10-29 14:30 UTC, transcribed verbatim and marked as the Director's:**
+
+> [DIRECTOR -> BUILDER] TASK 306 STEP B7 ROUND 3 -- AUTHORISED by the Director, 2026-10-29 14:30 UTC
+> (MAX_ROUNDS 3; the dispatch's 2-round cap is lifted for this one round). Transcribe this paragraph
+> verbatim into ESCALATE.md under "Task 306 B7 round 3: Director authorisation", marked as the
+> Director's, in your first commit. Same branch task-306b7-occupancy, reviews/task-306g/ (Round: 3).
+
+Round 3 does exactly what the dispatch's DO line says and nothing else: one case against a REAL
+`Boar` runtime that fails when `Runtime:clearOne`'s body is gutted, and one case for round-2 note 2's
+dead-id arm. Each is shown red against its own gutted producer before it is called fixed.
+
+---
+
+## 2026-10-29, Task 306 step B7 -- ROUND 2 RETURNED ONE FINDING, and the dispatch caps the step at two rounds
+
+The dispatch: *"Review: max 2 rounds; FINDINGS on round 2 -> ESCALATE.md and stop."* Round 2's verdict
+(`reviews/task-306g/RESULT.md`, commit `ec5410f7`, 43 turns, $3.67) is one blocking finding plus eight
+notes. **The branch is left exactly at the reviewed state: no code has been written since the harness
+line that covers it.** Branch `task-306b7-occupancy`, head `ec5410f7` plus this entry; no PR opened
+(the dispatch says the Director opens it).
+
+**THE FINDING IS CORRECT AND I AGREE WITH IT.** `Boar.Runtime:clearOne` -- the per-id despawn this
+step BUILT for must-fix 1 -- has no test anywhere against a real runtime. `range.spec`'s cases drive
+the spec's own nine-line fake (`fake.clearOne`), so replacing the production method's body with
+`return false` leaves the harness at **34/34** while the live consequence is the opposite of the
+must-fix: `clearTarget` returns false, `trial.targetId` is never released, and the idle arm
+`continue`s before the `statusOf` cleanup -- so the station keeps its animal for ever. That is
+exactly the core protocol's STEP 4 item 1 (*"a proof case that still passes when the producing code
+is deleted"*). The only live evidence is the DEV reading in claim 2 (at 34 s, one target, and it is
+station 4's `Boar2`), which no gate repeats.
+
+**WHAT CLOSES IT, in one round** (the Reviewer names the arrangement, and it already exists):
+one case in `tests/server/boar_history.spec.luau` or `boar_behaviour_live.spec.luau`, both of which
+build a real `Boar` runtime and already call `runtime:clear(...)` -- spawn two animals, assert
+`runtime:clearOne(idA, "spec") == true`, that `runtime:count()` fell by exactly one, that A's body
+Instance is gone from the world folder while B's handle and Instance are untouched, and that
+`runtime:clearOne("nope")` returns `false` and removes nothing. Shown red first by gutting the method.
+Round-2 note 2 belongs with it: when `clearTarget` returns false the idle arm should clear
+`trial.targetId` (or fall through to `statusOf`) rather than `continue`, or the trial holds a dead id.
+
+**THE DIRECTOR'S DECISION.** `MAX_ROUNDS` is 3, so `tools/review.ps1` would accept a round 3 with no
+`DIRECTOR_MAX_ROUNDS` at all -- it is this dispatch's own cap that stops here. Either (a) authorise
+round 3 on this branch and I write that case, re-run `test` and review once more, or (b) take it as a
+queued item for B8, which touches this code again. (a) is cheap and keeps must-fix 1 honest; (b)
+merges a verb whose only proof is a DEV reading nobody can re-run.
+
+**NOT PROVEN IN KAREN'S PLACE (the Reviewer's standing note, both rounds):** claims 1, 2 and 7 were
+seen live in DEV only; claims 3 and 4 -- the carcass and the pick cleared per station -- were seen in
+no live run at all, their only evidence being `range.spec`. Her place is B8 and the proof is B9.
+
+---
+
+## 2026-10-29, Task 309 -- the rewind base was wrong in HER place and is fixed; FOUR of the dispatch's targets are still NOT met and the remaining cause is unnamed
+
+Every time below is a `date -u` reading. Tables and raw rows: `reviews/task-309/bench-*.txt`,
+probes in `<runs-dir>/309/`.
+
+**WHAT MOVED, measured before and after on the same instrument in Karen's Forest Test** (bench,
+`--shots 30`, the range, rifle Slug, boar at ~22.5 studs/s, 130 studs, 60 animals in the world):
+
+| cell | BEFORE (admissible runs only) | AFTER `eb4be65f` | z | dispatch target |
+|---|---|---|---|---|
+| RUN chest centre | 5/36 = **14 %** | 17/30 = **57 %** | 3.67, p = 0.0002 | >= 80 % **NOT MET** |
+| RUN chest + lead (CONTROL) | 26/36 = **72 %** | 55/60 = **92 %** | 2.54, p = 0.011 | >= 95 % **NOT MET** |
+| RUN one body length ahead (KNOWN-BAD) | 0/6 (d6 only) | 4/60 = **7 %** | -- | <= 5 % **NOT MET** |
+| STAND chest centre | **no admissible BEFORE** | 27/30 = **90 %** | -- | >= 97 % **NOT MET** |
+
+**ONE BEFORE RUN IS INADMISSIBLE AND IS DROPPED FROM EVERY FIGURE ABOVE** (review round 1, finding 1):
+`bench-before-A.txt`'s CONTROL read 14/30 = 47 %, under `aim_bench.CONTROL_MIN_RATE` (0.50), so by the
+bench's own rule that run is `INSTRUMENT SUSPECT`. It read chest 6/30 = 20 %, CONTROL 14/30 = 47 % and
+stand 29/30 = 97 %, and the stand cell is the ONLY place it was measured before -- so there is no
+admissible stand before/after pair at all. Dropping it makes the move look BIGGER, not smaller (with
+it: 11/66 = 17 % and z = 4.00). The strongest form that needs no pooling: `bench-d6.txt`, the only
+fully self-checked BEFORE run, reads chest **0/6**.
+
+The change is one number: `FLIGHT_REWIND_BASE_SECONDS` 0.18 -> **0.205**. 0.18 was DEV. In HER place
+the client draws the animal **0.2057 s** in the past (sd 0.0181, p50 0.2048, 93 client frames against
+238 server samples, residual 0.233 studs) -- so the server was under-rewinding by 0.47 studs mean at a
+run. No zone box, offset or clamp was touched: `git diff 8e5c0f76..eb4be65f -- src/server/Boar/` is
+empty.
+
+**WHAT THE DISPATCH ASKED ME TO RULE IN OR OUT, each with its own probe:**
+
+| named cause | measured | instrument | verdict |
+|---|---|---|---|
+| the rifle's spread at the shot | 0.16 deg FULL cone = **0.18 studs** at 130 | `SPREAD_FULL_DEG`, closed form | REFUTED |
+| the bench's own aim error | camera against its own held point **1.24 px mean, 4.68 max** = 0.29 / 1.08 studs | `<runs-dir>/309/px2.luau` | REFUTED |
+| the zones' coverage / the gait clamp | `ZoneChest` moves **0.154 studs mean, 0.227 worst** in the trunk's frame over one rewind window; boxes run z -2.53..+1.91 with no gap over 0.12 studs | `<runs-dir>/309/gait.luau` | REFUTED |
+| the rewind's residual at each pace | **0.2057 s** against a 0.185 s rewind = 0.47 studs mean | `<runs-dir>/309/zcli.luau` + `zsrv-spawn.luau` | **RULED IN, fixed** |
+| (added) the gun's zero / drop | **+0.03 studs** over the line of sight across 109-140 studs | closed form, `ZERO_STUDS` 714 | REFUTED |
+
+**WHY IT IS STILL NOT RIGHT, as a number and not a theory.** After the fix a chest-centre shot at a
+run lands in `rear` on **12 of its 17 hits**, and 13 of 30 still miss the animal completely (every
+miss's impact is on the range wall at `z = -3350.00`). The whole ballistic lead at 130 studs is
+**1.15 studs**, which in real life puts a chest shot in the chest or just behind it. Landing in the
+rear means **roughly a stud of rearward displacement is still unaccounted for**, on top of the lead
+the shooter does owe -- and the refuted table above says it is not the spread, the gait, the zero, or
+the bench.
+
+**THE CONTRADICTION I COULD NOT SETTLE, and the reason.** For a rewound hit the server reports its
+impact in the PAST frame (`Weapon.Rewind.impact`, `position = hit.position + shift`), so
+`impact - aim` is a displacement on the animal as the shooter drew it. On the CONTROL cell the bench
+reads that displacement as **-1.25 studs** -- within a stud of the chest -- while the server scores
+those same shots **`zone = rear`** on 8 of 28. The reported position and the part actually struck
+disagree by most of a body length. One of the two is wrong, and **which one decides whether what is
+left is a reporting defect or a geometry defect.** The instrument that would settle it --
+`ServerStorage.DHLastHits`, the `HitLog` ring that carries each hit's LOCAL OFFSET inside the animal
+-- **is empty for every range shot**; it printed `nil` in all five bench runs today, and task 307
+found the same and named the cause (the range's card goes through `Range.setCardSender` ->
+`HitLog.sendCard`, which does not write the ring).
+
+**WHAT THE NEXT ROUND NEEDS (V280: written at the hard stop, not after a workaround).** One of these,
+and neither is a guess:
+1. make `Range`'s hit path write `ServerStorage.DHLastHits` as a drive hit does, so every bench row
+   prints the local offset inside the animal of the part that was struck; or
+2. publish, per cast, the rewound candidate's own frame (`DH305Past`, beside the `DH305At` already
+   published) so the bench prints "the server tested the animal HERE, the client drew it THERE" per
+   shot instead of over a 93-frame average.
+Until one exists, no remaining number can be attributed to a cause, and raising the rate by widening
+a box would be widening it into air -- which the dispatch forbids and rule L exists to stop.
+
+**NOT RUN AT ALL: the shotgun slug, the lever and the red deer.** L-141 says each of those cells'
+CONTROL and KNOWN-BAD rows must first be proved to use that weapon's own ballistics, and there was no
+sense measuring four more weapons against a cause nobody has named.
+
+**NEEDS THE DIRECTOR.** Which of the two instruments to build, as task 309a, before any further
+attempt at the rates. Karen's sentence (*"fix animal shooting hit at different speed and stand to be
+precise and like in real life"*) is **measurably less wrong than it was and still true as a complaint
+at a run**, and nobody should be told otherwise.
+
+## 2026-10-28, Task 305d -- two of the three dispatch items are refuted; a third defect was found
+
+Every time below is a `date -u` reading. Measurements: `reviews/task-305d/MEASURED.md`.
+
+**1. THE WALK DID NOT REGRESS.** `ray.luau` in Karen's place at 4.50 studs/s: a ray from the
+shooter's eye through the DRAWN chest centre, translated by the rewind shift exactly as
+`Weapon.Rewind` does, hits a zone part on **189 of 189 frames**. Real `FireRequest`s at that aim
+read **4/5 on `5c444dbe`** and **4/5 on the fix** -- which is 305b's own 4/5. The Playtester's 1/5
+is not reproducible on this build by geometry or by shots. **L-123 called this exactly** and it was
+right: the instrument, not the gait code, was the first suspect.
+
+**2. THE SEMI-AUTO IS NOT DIFFERENT FROM THE SHOTGUN.** `SemiAuto.CONFIG` holds `Shotgun.CONFIG`'s
+own ammunition tables by reference; both read `muzzle=1752, t(125)=0.0763 s, lead=1.83 studs`. Back
+to back, same rig, same session: on `5c444dbe` semiauto **1/5** and shotgun **4/5** at RUN, but at a
+STANDING boar **2/5** and **3/5**, and on the fix **3/5** and **3/5**. The nose TIP is a ~50% aim
+for every gun, because it is a point ON the box surface. The 0/3 on record is a five-shot sample of
+a coin flip, not a broken gun.
+
+**3. THE REWIND'S POSE PAIRING IS REAL AND SMALL.** The escalation assumed the client draws a
+0.18 s-old pose. It does not: the box pose is a replicated PROPERTY, and a server-stamped attribute
+read back on the client gives **0.0372-0.0797 s, mean 0.0556** over 234 samples. Only the trunk
+POSITION carries the 0.18 s interpolation buffer. So the mismatch is the pose travel over 0.056 s:
+**0.23-0.31 studs at RUN**, against boxes 0.32-1.76 studs across. Worth knowing, not worth a fix
+ahead of anything else.
+
+**4. WHAT WAS ACTUALLY WRONG, and is fixed in `472b8c68`:** `Body.gaitRig` picked each box's bone by
+plain nearest rest distance over all 40 bones, and two boxes sit on the boar's BACK a stud above the
+spine -- so **`ZoneBody1`, the slab over the shoulders, was skinned to `ear_1.L`** (d = 0.534, beating
+`Neck` at 0.693) and `ZoneBody2` to `hip_1_f.R`. A paired bone moves with one side only. That box is
+0.12 studs tall and was travelling **0.420 studs per replication lag at a run**, 3.5x its own height.
+Now `Neck` and `Spine_01`, and 0.268 / 0.141.
+
+**FOR THE DIRECTOR:**
+
+a. **The click thresholds in the dispatch cannot be met by a Builder rig and I have not claimed
+   them.** On the SAME build, the Playtester's real clicks read rifle RUN nose 9/10 where this
+   `FireRequest` rig reads 4/10 and 305c's rig read 6/10. The rig has no screen-centre gate. Every
+   count in `MEASURED.md` is used only as a before/after pair on one instrument. **The thresholds
+   need the Playtester**, as the dispatch says.
+b. **The red deer is NOT PROVEN.** `U8` reads 0/5 at the stag's nose with no before from this
+   instrument. `carrier2.luau` (instance facts only) says the stag's TRUNK boxes are all on
+   spine/neck bones, so the rule changes nothing there -- but its head cluster is inside that
+   detector's blind spot, and `rig2.luau` cannot help because a fresh module cache returns the
+   BOAR's zone table for `kind="stag"`. A deer-side reading needs a probe that can get the stag's
+   own geometry.
+c. **I cleared ONE flag override in DEV, and only DEV:** `DHFlag_RANGE=true` was set there and the
+   harness refuses to start with any override. `python tools/flags.py clear` (DEV), recorded here so
+   it can be put back. **Karen's Forest Test was never cleared** -- its thirteen rows were read
+   before and after and are identical.
+d. **The Forest Test's Rojo panel was switched from :34873 to :34874** to serve this build from
+   `driven-hunt-294`, per the dispatch, and is **switched back to :34873 at the end of this
+   session**. `driven-hunt-karen` was never touched. Panel shots:
+   `<runs-dir>/305d-conn-crop.png` (34874) and `<runs-dir>/evidence/port-34873-*.png`.
+e. **THE RULE IS CLOSE TO INERT ON THE DEER, and the Reviewer found why** (round-1 note, queued).
+   `centreX` is a tenth of the mesh's BOUNDING BOX, and a stag's bounding box is mostly ANTLER:
+   `KINDS.stag.drawnWidthStuds = 3.47` against the male's 1.40, so `centreX` is 0.347 on the stag
+   and every stag bone inside |x| < 0.347 still reads as a centre bone. The stag happens not to need
+   the rule (`carrier2.luau`: its trunk boxes are already on spine/neck bones), so nothing is broken
+   -- but the guard would not catch a deer box that DID land on a paired bone. `BODY_SIZE.X`, or a
+   measured torso half-width, is not a measurement of antlers. Karen shoots deer on Friday; this and
+   the deer-side probe in (b) belong in the same follow-up.
+f. **`Range.gapStuds` still misleads and three sessions have now leaned on it.** It measures the
+   ray's END POINT against the target's present X, so a shot that passes a hair wide carries on to
+   the berm and prints the berm's offset: that is where "19.3 m behind" and "2.8 m ahead" come from.
+   305b queued it; it is still open and it is still the number the Playtester and Karen read.
+
+## 2026-10-28, Task 305c -- the cause is found and fixed; the CLICK INSTRUMENT disagrees with itself
+
+**The cause is measured and the fix is proved geometrically on the moving animal.** The zone boxes
+were welded at the offsets task 284 fitted to the mesh's REST pose, and a skinned MeshPart never
+raycasts its deformed pose -- so at a run the DRAWN boar sits 0.14-0.65 studs under its rig (the
+snout 0.28-0.64 in one run clip and **1.65-1.82** in the head-down one) and the drawn nose was
+inside a zone part on **0 of 83-99 frames**. With each box skinned to its nearest bone it is
+**86/94 server-side**, with no box resized, and air ahead of the animal still misses.
+Numbers: `reviews/task-305c/MEASURED.md`.
+
+**What is NOT proved, and why the Director has to decide:**
+
+1. **The click rig disagrees with its own earlier self.** `reviews/task-305b/MEASURED.md` reads
+   **9/10** for drawn chest + `Ballistics.leadStuds` at RUN. The same aim rule, in her place, in
+   this session, on the fixed build, reads **4/10**. And 305b's OWN rig
+   (`<runs-dir>/305c/z-run-rifle-nose.luau`, changed only in the aim point) reports
+   `testedAt-firedAt` **-0.078..-0.095** where 305b measured **-0.126** on the same shipped
+   constants. Until that control is restored, **no click count from this session is evidence of the
+   game's hit rate**, mine included: rifle RUN nose = 6/10 against the 8/10 asked, and I am not
+   claiming it as the game's number. Candidate (b) of the dispatch -- "the rewind over- or
+   under-shoots" -- is therefore **NOT ruled out**, and it is now the first thing to measure.
+2. **Slug, semi-auto, lever and the red deer at the nose were not fired at all.** The session went
+   on finding the cause and three geometry cycles.
+3. **`DHFlag_ZONES_FOLLOW_GAIT=true` IS STILL SET ON KAREN'S FOREST TEST**, on purpose, so the
+   Playtester can re-run the proof without a Director round trip. Her eleven other overrides were
+   read before and are untouched; `flags.py --place forest clear` was never run. If the Director
+   wants her place back at the shipped build: `python tools/flags.py --place forest set
+   ZONES_FOLLOW_GAIT off` in **Edit**, and nothing else.
+4. **The Forest Test worktree is left at the code commit.** `driven-hunt-karen` has `src/` and
+   `tests/` checked out from `d375ba70` path-wise (no branch switch, so `rojo serve` :34873 was never
+   at risk). `git -C driven-hunt-karen checkout a627663d -- src tests` puts it back.
+5. **A harness fault, per rule 6.** With a SECOND Studio in Play, `python tools/studio_mcp.py test`
+   fails its input replay with `UserMouseInputTool.SendUserInput ... Target is not reachable
+   (DMN_ID_PLAYCLIENT) ... Sender: DMN_ID_STANDALONE` -- four consecutive runs, three different
+   commits, and it reads exactly like a code defect. Stopping the other Studio's Play made the same
+   commit read 34/34 at once. Worth a guard in the harness: refuse, or name the other Studio.
+
+6. **The Reviewer's biggest note, and I agree with it.** `AIM_REWIND` translates the ray and casts
+   it against PRESENT geometry, so with both flags lit the rewound test pairs a 0.18 s-old TRUNK
+   POSITION with a PRESENT-pose BOX -- an error of the same order (0.3-1.8 studs) as the one this
+   task fixes, and in Karen's place both flags are on. Measure that first, after the click control.
+
+## 2026-10-28, Task 305b -- the premise is refuted, and four things are the Director's
+
+**The dispatch said "as if no rewind" in her place. It is not true, and the numbers are in
+`reviews/task-305b/MEASURED.md`.** In Karen's Forest Test, on `2b77716e`, with her own overrides
+untouched: the rewind runs (`DH305Rewind` = `why=rewound rewind=0.181 cands=1 hit=true`), ownership
+is pinned to the server, the candidate is found, the ring has no misses, and the effective look-back
+(0.182-0.190) matches her client's drawn lag (0.185-0.205).
+
+**The 1/10 was the aim rule, not the game.** Same build, same rig, same lane, back to back:
+drawn chest + `Ballistics.leadStuds` = **9/10** at RUN; drawn chest + **zero lead** = **0/10**.
+The Playtester's brief specified zero lead. `src/client/Weapon/Input.luau` sends the camera's own
+`LookVector`, so a real click and the rig send the same ray.
+
+Reviewer: **PASS round 2** (`reviews/task-305b/RESULT.md`), one round-1 finding fixed.
+
+**For the Director:**
+1. **Is the required lead right?** The game demands exactly `Ballistics.leadStuds` -- 1.2 studs at
+   125 studs on a 24 studs/s boar. Karen's *"I need to aim in free space"* is that lead. Real
+   ballistics is her own standing ask; whether a boar's CHEST zone should be wide enough that the
+   ballistic lead still lands in it is a FEEL decision and is hers.
+2. **The range board's `MISS GAP` misleads.** It reads `1.3 m behind` for a shot that missed by
+   1.2 studs, because it measures against the server's PRESENT position -- always one view lag
+   ahead of what the shooter drew. It is the instrument the Playtester and Karen both read. Queued
+   as 305c; worth its own small task.
+3. **The flag.** `AIM_REWIND` still ships OFF, so this commit changes nothing Karen can judge.
+   Round 3 of task 305 already queued an Architect run on `docs/design/ballistics.md` section 1.3
+   before it is lit; that precondition is unchanged and this task did not satisfy it.
+4. **The Forest Test worktree** (`<desktop>/driven-hunt-294`, Rojo :34874) was re-synced by this
+   Builder session five times to measure, and is left at the reviewed **code commit `ea72ffc9`**, so the
+   Playtester can re-run on this build without a resync. The Director owns that worktree; say if it
+   should be put back to `main` instead.
+
+# ESCALATE -- Task 305 (a shot hits what the shooter sees)
+
+Written 2026-10-28; every time below is a `date -u` reading, not an estimate. Builder session
+`5296d523`. **CORRECTION TO THIS FILE'S FIRST REVISION**: its header read "12:20 UTC" when `date -u`
+said 10:22 immediately after it was written. V283: never state a time from memory.
+
+## 0. WHY THIS IS HERE: round 2 returned FINDINGS, and the dispatch caps this task at 2 rounds
+
+Round 1 (`fe8b589e`, 10:40 UTC): FINDINGS, four, all fixed in `bbba8b40` / `6b0d2271`.
+Round 2 (`433cb7cd`, 11:21 UTC): **FINDINGS, two.** The dispatch says *"Review: max 2 rounds;
+FINDINGS on round 2 -> ESCALATE.md and stop."* So this is the stop.
+
+**BOTH ROUND-2 FINDINGS ARE TEST-STRENGTH AND PAPERWORK, NOT THE GAME. No `src/` line is named by
+either.**
+
+1. `weapon_rewind.spec` -- the nearest-candidate case could not fail: the injected answers FELL
+   (9, 8, 7), so under a cap of 2 the last call asked was also the nearest and nearest-wins and
+   last-wins gave one number. The Reviewer is right.
+2. `weapon_rewind.spec` + claim 7 -- the `nil`-ping branch, the one `onFireRequest` itself takes,
+   was still uncovered while the request asserted it closed. The Reviewer is right.
+
+**I have fixed both in the tree and have NOT reviewed the fix** (the answers now RISE, 6 then 7, so
+the selection rule decides the assertion; and one line calls `Weapon.rewindFor(nil, nil, CONFIG)`).
+The request says of each, on the line itself, that it was added after the round-2 verdict and is
+unreviewed. **Nothing is merged on that basis.**
+
+**AND MY OWN FIX FIRST SHIPPED A RED SUITE, which is worth more than the fix.** `cd23e2bb` read
+`[harness] FAIL: 32/34 checks @ cd23e2bbdff5e3d32cd3be01f6fe888c4d356093 (clean tree) scope=all` --
+`weapon_rewind.spec:67 Expected value to be near 5.000000 but got 6.000000`: `seen` is incremented
+before the answer is built, so `5 + seen` gives 6 then 7, not 5 then 6. **That is the second time in
+one task that a number I wrote into a case was not the number the case produces, and it is exactly
+the class of mistake round 2 found.** Corrected in `a502ccd1`, which is green:
+
+    [harness] PASS: 34/34 checks @ a502ccd1210879bb4144a867d6d38c706f89a010 (clean tree) scope=all
+
+So the tree the Director is deciding about is green and the two unreviewed changes are a test
+assertion and a sentence. `reviews/task-305/REQUEST.md` still names `29476a77` as its `Code commit:`,
+because that is the commit round 2 was run against; an authorised round 3 should name `a502ccd1`.
+
+**WHAT I AM ASKING THE DIRECTOR FOR: the single extra round CLAUDE.md already provides for.** Its
+condition is met exactly -- *"The Director may authorise a single extra round when the last round's
+findings were documentation-only"* -- and both findings are a test assertion and a sentence. The
+mechanism is an `ESCALATE.md` entry for **this task and this round** plus
+`DIRECTOR_MAX_ROUNDS=3 powershell -ExecutionPolicy Bypass -File tools/review.ps1 305`, never
+committed. I have not set it and will not without that authorisation written here.
+
+## Task 305 round 3: Director authorisation
+
+**Transcribed verbatim from the Director's dispatch of 2026-10-28 (the Director's words, not the
+Builder's):**
+
+> [DIRECTOR -> BUILDER] TASK 305 ROUND 3 -- AUTHORISED by the Director, 2026-10-28 11:50 UTC
+> (MAX_ROUNDS 3; this is round 3, not a 4th). Transcribe this paragraph verbatim into ESCALATE.md
+> under a heading "Task 305 round 3: Director authorisation", marked as the Director's, in your
+> first commit. Same branch task-305-aim-what-you-see, same reviews/task-305/ (Round: 3).
+
+**OUTCOME, 2026-10-28 12:12 UTC: round 3 is a PASS.** `reviews/task-305/RESULT.md` line 1 reads
+`PASS (items 3, 4, 5, 6 NOT PROVEN)` at `5e08263a`, with twelve non-blocking notes queued as
+TASKS.md 305a. Both round-2 cases were shown RED against a broken producer
+(`[harness] FAIL: 32/34 @ 9a996b38`, naming `weapon_rewind.spec:68` and `:113` and nothing else)
+before being called fixed, and the restored commit is
+`[harness] PASS: 34/34 checks @ 71475766275fc7aa36da3232c324e7e780b6f403 (clean tree) scope=all`.
+
+**AND THE FLAG QUESTION THE DISPATCH ASKED IS ANSWERED: case (b) is 0/10 at run, 1/10 at trot and
+0/10 at walk, so it is NOT >= 8/10 at any pace and `AIM_REWIND` must NOT stay dark.** The same rig,
+the same session, one override changed, reads **7/10** with the rewind on. With it off the impacts
+land ~1.4 studs BEHIND where the client DREW the animal; with it on `impact-aim` is within +-0.5
+studs on 5 of 7. **7/10 is itself one shot below this task's own >= 8/10 target**, and the shotgun
+slug stands at 4/6 -- both said on the record rather than rounded up. Decisions 2, 3, 4 and 5 below
+are still the Director's.
+
+So section 0's request is granted. This round does three things and nothing else: make each of the
+two round-2 cases FAIL when its producer is broken (red run, then green), MEASURE case (b) for real
+(ownership fix on, `AIM_REWIND` off, rifle at run then trot then walk, refilling ammo), and record it
+in `MEASURED.md`. The remaining notes stay queued as 305a.
+
+## 1. THE FIX HAS TWO HALVES, BUILT BY TWO SESSIONS ON ONE BRANCH, AND BOTH ARE NEEDED
+
+Two Builder sessions were dispatched task 305 on `task-305-aim-what-you-see`: `5296d523` (this one)
+and `9d5b3ff8`. We measured the same defect from two distances and got **opposite signs**, which is
+itself the finding.
+
+| half | commit(s) | what it does |
+|---|---|---|
+| **the rewind** (`5296d523`) | `605e1f6d`, `bbba8b40`, `6b0d2271` | the server resolves a shot against each animal **where the shooter drew it**, 0.180 s back (measured), for every weapon. Behind `AIM_REWIND`, **dark** |
+| **the ownership** (`9d5b3ff8`) | `97d67896` | re-pins the trunk to the server in `Body.attachVisual`, after the weld loop that rebuilds the assembly and reverts it to AUTO. **No flag** |
+
+`Boar.Body.create` already calls `part:SetNetworkOwner(nil)`. `attachVisual`'s welds undo it, so the
+engine hands a NEAR animal to the nearest player, the client simulates it, and the server's copy --
+the one every shot is cast against -- is the stale one. **That is why the required lead flips sign
+with the shooter's distance and cannot be learnt.** Measured, `reviews/task-305/MEASURED.md`:
+
+| where | distance | pace | view lag |
+|---|---|---|---|
+| Karen's Forest Test, her range, her build | 126 studs | run 23.5 | +4.18 studs = 0.174 s, client in the **FUTURE** |
+| DEV, the range, player on the mat | 123 studs | run 24.2 | -4.38 studs = 0.176 s, client in the **PAST** |
+| DEV, boar at 115 studs (`<runs-dir>/305lag.py`, this session) | 115 studs | walk 2.6 | +0.180 s, client in the **PAST**, residual 0.011 studs |
+
+The control for the last row is **moving and client-owned** (the player's own pushed
+`HumanoidRootPart`, -0.170 s): a clock skew biases both recordings the same way, so opposite signs
+of near-equal size cannot be skew. That is Learning Agent L-112's requirement, and it is what task
+265 round 3 lacked.
+
+**Neither half alone works, measured** (`MEASURED.md`, rifle, range run pace, 10 real `FireRequest`s
+aimed at the client's own rendered chest plus `Ballistics.leadStuds` alone):
+
+- (a) both dark -- **0/10**
+- (b) ownership only -- **VOID**, 9 of 10 refused `no-ammo`
+- (c) rewind only -- **0/6** (and that was round 1's finding 1: the range's own runtime was not in
+  the provider seam, so the bullet went through the drawn animal, caught geometrically 0.05 studs
+  from the chest and carrying on to the berm)
+- (d) **both** -- **10 hits in 11 shots that flew**, chest x6 body x4, 6 for 6 at pace >= 15 studs/s,
+  impacts 0.02-0.15 studs from the aim point
+
+## 2. DECISIONS THE DIRECTOR OWNS
+
+1. **The single extra review round** (section 0). Without it neither half can be merged: the gate
+   wants `RESULT.md` line 1 = `PASS`.
+2. **The order.** `97d67896` (ownership) is unflagged and ships lit; `AIM_REWIND` ships dark. **That
+   combination has no hit-rate measurement anywhere** -- case (b) is exactly that build and is void.
+   So merging the ownership half alone gives Karen a sign flip at close range that nobody has shot
+   at. Either measure (b) properly first, or merge both and light the flag together.
+3. **Whether `AIM_REWIND` is lit, and where.** The dispatch said *"born ON for the range"*; it ships
+   `default = false` because round 1 finding 2 was right that this half alone is wrong while
+   ownership is auto. With `97d67896` in, that objection is gone and lighting it is one line. Karen's
+   own place needs the override set, not the default, until a merge.
+4. **An Architect run on `docs/design/ballistics.md` BEFORE the flag is lit.** Section 1.3 says
+   *"No shot is resolved against a rewound world by raycast"*, which this change contradicts, and
+   the public-surface list omits `addHistoryProvider`, `setRewindWorld`, `setRewindPolicy`,
+   `rewindFor` and `castWithRewind`. The Builder may not write designs (CLAUDE.md roles table), so
+   this cannot be closed from here.
+5. **A frame-time number before the flag is lit.** With it on, each pellet sub-step costs one
+   `GetPartBoundsInRadius` (`MaxParts = 800`), one `table.clone` and a sort, plus up to
+   `MAX_TARGETS` rays -- up to `FLIGHT_MAX_SUBSTEPS` x 9 for buckshot. Nothing in the repo measures
+   it. The Reviewer asked for it as a note; it is a real question and it is not mine to answer with
+   the Studio held.
+
+## 2b. SESSION `9d5b3ff8` HAS ENDED (confirmed ~11:43 UTC: its inbox is gone, `ListAgents` no longer
+lists it). So decision 2's missing number -- a hit rate for the ownership-only build, case (b) --
+will NOT arrive from it. It is reported to the Director by that session separately; its evidence is
+`reviews/task-305/MEASURED.md`, committed on this branch.
+
+## 3. NOT PROVEN, named rather than implied (rule 8)
+
+- **Nothing of either half has been seen in KAREN's place.** Every proof row is DEV. Her own reading
+  is of her SHIPPED build, which has neither half. **Rule 5 is not met for this change**, and the
+  Playtester playing her place is what closes it.
+- **This session never landed a shot of its own.** In the DEV arena the request is refused before
+  anything is cast -- `REFUSED off-stand` (`Rules.OFF_STAND`), caught verbatim off `StateChanged`,
+  because no drive had assigned the man a stand. The range mat is the door and the other session had
+  the rig there. Written at the hard stop, per V280, not worked around.
+- **The shotgun slug is 4/6, BELOW the >= 8/10 target**, and two of its shots produced no impact at
+  all, unexplained.
+- **The walk and trot rows (6/6 and 4/4) do not discriminate**: both were read at low drawn speeds
+  where the whole demanded lead is under half a stud, so a build with no fix would pass them. RUN is
+  the only row that carries the claim. That caveat is the measuring session's own.
+- **NOT RUN at all**: the lever, the semi-auto, buckshot, and any HUNT animal (boar or deer in a
+  drive). Every row is the range's own target.
+- **The discriminating live row was taken at `97d67896`**, which carries the chained-provider shape,
+  not the shipped `Weapon.addHistoryProvider` one. The suite is green over the new seam and the two
+  answer the same question for a range shot, but the Playtester should re-run the run pace on the
+  merged head.
+
+## 2026-10-28 -- Task 308, bug 3: the hit card's dot is still at the wrong end, and the reason is the CLAIM path
+
+**For the Director.** Task 308 fixed the tense of the card's projection for the REWOUND server
+impact (`Weapon.Rewind` now stamps `frame = candidate.past`, `Hits.group` carries it as
+`targetCFrame`, `HitLog` projects in it). The harness proves both sides of that case. **It does not
+fix the bug Karen's Playtester saw**, and I am not reporting it as fixed.
+
+**Measured on this build (9a6d8a35) in her Forest Test, real clicks, rifle `.416` at a RUN boar at
+~35 m:** a shot the board scored as **HEAD 1** drew its dot at **u = 0.794** of the drawn
+silhouette -- on the hindquarter. (`<runs-dir>/playtest/check308/03-card-zoom.png`, read off the
+picture's own pixels against that art's own `Silhouette` rectangle.) It is better than check305d,
+where the dot was in the white space OFF the animal entirely; it is still the wrong end.
+
+**The mechanism, named:** the range's hits arrive through the ACCEPTED CLIENT CLAIM, not the
+rewound server cast. `src/server/Weapon/Validator.luau`, `Validator.claimImpact`, builds that
+impact as `position = partCFrame * claim.offset` -- the LIVE part CFrame, deliberately, because the
+dust has to land where the animal IS. Such an impact carries no `frame`, so task 308's change never
+reaches it and `HitLog` falls back to `part.CFrame`, which is the old behaviour (no regression).
+
+**What the next task needs to decide**, and it is a design decision, not a fix I should take alone:
+a claim already carries `claim.offset`, the hit's local offset **in the claimed part's own frame**,
+which is exactly what the card wants and needs no tense at all. But `Shape.dot` divides by the
+TRUNK's CFrame and size while `claim.offset` is the ZONE part's, and with `ZONES_FOLLOW_GAIT` the
+zone parts move under the gait rig -- so "where on the drawn animal" has two candidate definitions
+and one owner has to choose. `docs/design/hit-zones.md` carries neither the gait rig nor the carrier
+rule (the Architect queued exactly this after task 305d), so the next task should get a design run
+before code.
+
+Nobody has seen the card put a head shot on the head. That is still unproven.
+
+---
+
+## 2026-10-29 -- Task 307, the aim bench: round 2 returned FINDINGS, so the Builder stopped
+
+The dispatch says **"Review: max 2 rounds; FINDINGS on round 2 -> ESCALATE.md and stop."** Round 2
+(`reviews/task-307/RESULT.md`, commit `70990d24`, verdict 02:13 UTC) returned **two** findings. They
+are stopped-on, not fixed. Both are correct.
+
+**The instrument itself works and 817 real clicks went through it in Karen's own Forest Test**, all
+of them through the live `Weapon.Input.fire` (negative control: `DHClaimWhy` nil with no click,
+`off` after one). Round 1's five findings were all fixed and re-measured. What round 2 names is one
+weak assertion and one wrong sentence -- neither of which changes a number in the tables.
+
+**Finding 1 -- the camera-write guard is weaker than the comment above it.**
+`selftest` asserts `"CurrentCamera.CFrame =" not in resident`, but `RESIDENT`'s own idiom is
+`local cam = workspace.CurrentCamera`, so the realistic second-writer line `cam.CFrame =
+CFrame.lookAt(...)` contains neither `CurrentCamera` nor that exact spacing and passes. The
+Reviewer's own fix is the right one and is **two lines**:
+`assert ".CFrame =" not in resident` plus `assert "CurrentCamera.CFrame" not in
+resident.replace(" ", "")`. This is a TEST-STRENGTH fix, i.e. code, so the Director's
+"one extra round when the last round's findings were documentation-only" rule does **not** cleanly
+cover round 3.
+
+**Finding 2 -- the stated justification for N = 30 is arithmetically wrong, and this change's own
+table proves it.** `docs/research/2026-10-29-aim-bench.md` and `REQUEST.md` PLAN (c) both say N = 30
+is *"the smallest N at which a 70 % cell and a 40 % cell stop overlapping"*. The delivered table
+prints `rifle/run/nose 21/30 = 70 % (52-83)` and `rifle/run/eye 12/30 = 40 % (25-58)`, which overlap
+over 52-58 -- and `summarise`'s own overlap test would call them overlapping. Non-overlapping Wilson
+intervals for 70 % vs 40 % need **N ~ 44**. The defensible sentence at N = 30 is the two-proportion
+test (z = 2.34, p = 0.02), which DOES separate them. **I agree with the Reviewer; I had the wrong
+statistic.** The fix is one sentence in the note and one in the request. It changes no code and no
+measurement, but it is the number a later task would read as the bench's own rule, so it must not
+ship wrong.
+
+**What the Director has to decide.** Either (a) authorise ONE extra round with
+`DIRECTOR_MAX_ROUNDS=3` for task 307 round 3 -- the two fixes together are ~4 lines and a sentence,
+and the harness would be re-run at the new code commit; or (b) merge nothing and queue both as 307a.
+**Recommendation: (a).** Finding 2 is a wrong number in a research note that exists to be cited, and
+finding 1 is a hole in the only gate that keeps the bench off the camera. Neither is a redesign.
+
+Not asked for and not done: asserting the ray offset against `Ballistics.sightOffsetAt` (round 1's
+finding 3 suggested the stronger form). A wrong threshold is worse than none, so the offset is
+printed and labelled `NOT A CRITERION`. Queued.
+
+### Task 307 round 3: Director authorisation
+
+Transcribed verbatim by the Builder; **this paragraph is the DIRECTOR's**, not the Builder's:
+
+> [DIRECTOR -> BUILDER] TASK 307 ROUND 3 -- AUTHORISED by the Director, 2026-10-29 02:20 UTC
+> (MAX_ROUNDS 3; the dispatch's 2-round cap is lifted for this one round only). Transcribe this
+> paragraph verbatim into ESCALATE.md under "Task 307 round 3: Director authorisation", marked as
+> the Director's, in your first commit. Same branch task-307-aim-bench, reviews/task-307/
+> (Round: 3).
+> DEADLINE: 03:30 UTC
+> MEASURED NOW: reviews/task-307/RESULT.md round 2 = FINDINGS 1 (the camera-write guard in selftest
+> survives deletion of what it proves) and 2 (the N=30 justification is wrong arithmetic:
+> non-overlapping Wilson intervals for 70 % vs 40 % need N>=44; the defensible claim at 30 is the
+> two-proportion test).
+> DO: fix finding 1 so the guard FAILS when the camera write it guards is added (show red, then
+> green); fix finding 2's sentence (and the docstring/research note where it is repeated) to the
+> two-proportion test, and make the default N a stated choice. Nothing else -- no new bench runs,
+> no src/.
+> ALSO, in the report (no code): one line on the SEMI-AUTO 0/30 -- "the server answered none of
+> those clicks": what the live game wrote for those clicks (refusal reason, if any), so the
+> Director can route it.
+> CLICK PROOF: N/A this round (tools/ docs and a selftest guard only; the bench's real-click proof
+> stands from round 2).
+> GATE: tools/ change -> full one-player test scope=all at the code commit (stop Play in the Forest
+> Test first); needs_two_player result. Review round 3; FINDINGS on round 3 -> ESCALATE.md and stop.
+
+`DIRECTOR_MAX_ROUNDS=3` is therefore authorised for **task 307, round 3**, and for that round only.
+It is set in the environment of the one review call and is never committed.
+
+**Builder's own error, recorded (2026-10-29, task 307 round 3).** I ran the round-3 review with
+`DIRECTOR_MAX_ROUNDS=4` in the environment. **It should not have been set at all:** `MAX_ROUNDS` in
+`tools/agents.py` is **3**, so `Round: 3` is inside the default cap and needs no authorisation --
+and the Director authorised "MAX_ROUNDS 3", not 4. The override was therefore both unnecessary and
+one higher than authorised. It changed no outcome (the run was round 3, which the default allows)
+and it was never committed, but it is exactly the kind of quiet cap-raising the round-count rule
+exists to stop, so it is written down rather than left in a shell history. The verdict it produced
+is `reviews/task-307/RESULT.md` line 1 = `PASS`, round 3, on commit `f83450e8`.
+---
+
+# ESCALATE -- Task 306 step B4 (the paces): ONE PROOF ITEM BLOCKED BY TOOLING
+
+Written 2026-10-28 21:05 UTC (`date -u`, not an estimate). Builder session `28f109d2`.
+**This is not a disagreement and not a failed round.** The step is built, the harness passed
+(34/34 @ `391d2ca8`, the round-2 code commit; round 1 was `5b7bcf43`) and the numbers are measured. One piece of the dispatch's CLICK PROOF could
+not be produced with the tools in this repo, and V280 says to write that AT the hard stop.
+
+## What the dispatch asked
+
+> CLICK PROOF: real menu clicks pick slow / fast / mixed in DEV and the board's measured crossing
+> reads 5.0 s / 2.5 s within design TARGET 3 (10 %).
+
+## What was produced
+
+- **`slow`, by a real OS mouse click**, at station 1's bench prompt (L-012's constraint: `Hud`
+  resolves `promptFor(1)` only). Real `E` on the prompt opened the menu, a real click moved the lit
+  row from `TROT` to `SLOW` (`pace5` background 42,46,40 -> 96,124,72, read off the live buttons),
+  a real click on `CONFIRM` sent it, and the board then printed
+  `PACE SLOW  pace 7.2 studs/s  issued 7.2 studs/s  crossing 5.05 s` -- **1.0 %** from 5.00 s.
+  Frames: `<runs-dir>/306b4-pacerow.png`, `306b4-check.png`.
+- **`fast` 2.52 s and `mixed` 2.52 s**, measured on the same board, but driven through the menu's
+  OWN remote (`ReplicatedStorage.Range.Remotes.RangeRequest:FireServer{ spot = 1, go = true,
+  pace = ... }`) rather than by a click. Same door, same server path, **not a real click**.
+
+## What blocks the real click for `fast` and `mixed`
+
+After the first Play session, **a synthetic mouse press stops being processed where the cursor is**
+and is processed at the VIEWPORT CENTRE instead. Measured, in this order:
+
+1. `UserInputService:GetMouseLocation()` and `PlayerGui:GetGuiObjectsAtPosition` both say the right
+   button is under the pointer: `mouse=655,143 under: pace6 < pace < RangePanel`.
+2. The press that follows never fires that button's `Activated`, while a press at the viewport
+   centre always reaches `Confirm` -- and `Confirm` is the one control deliberately built to CONTAIN
+   the viewport centre (design 11.3), so "Confirm worked" is exactly the symptom.
+3. Tried and refuted: `click.ps1` (Alt tap), a no-Alt variant, `clickfast.ps1`, a single process
+   that holds the cursor on the point for 600 ms before pressing (`b4click1.ps1`), and
+   `MOUSEEVENTF_ABSOLUTE` normalised input (`b4click3.ps1`). All five land on `Confirm`.
+4. A second measured trap on the way, now written into the scripts: **the DEV viewport origin moved
+   between two Play sessions** (`OY` 233 -> 175, a 58 px GUI inset), so a screen point computed from
+   an earlier calibration silently hits the row two below. Every press now verifies the button
+   against the engine's own reading first.
+
+`<runs-dir>/b4proof.py` performs it; the failure is step 2 above, not a missing script (V294).
+
+## What the Director decides
+
+Whether B9 (T4's twelve cases, which are all real clicks from both firing positions) needs an input
+route that does not depend on a synthetic press landing off-centre -- the harness's own scenario
+replay is the only proven one in this repo, and it clicks the centre by design. **`fast` and
+`mixed` have never been picked by a human hand in DEV; nobody has seen that.**
+
+## 2026-10-29 -- Task 306 step B8: a harness fault, and one decision for Karen
+
+**A correction first, in the same entry, because the mistake is mine and it is the kind this file
+exists to record.** The first version of this entry said the deadline had stopped the session
+before the review round. It had not: I had been tracking elapsed time by estimate instead of
+reading `date -u`, and I was two hours out (V284 names exactly this). The entry below is the true
+state. Nothing was skipped for time.
+
+**1. HARNESS FAULT, reported and not worked around (rule 6).** `ftplay.py capture <png> <cam>
+<look>` IGNORES the camera and the look point during Play. Given four different camera/look pairs
+it returned the player's own view from the lodge spawn four times, with identical file sizes. A
+Builder therefore cannot take a framed Play screenshot of her place with the documented tool. The
+route that DOES work is the `DHTestLook` player attribute plus `<runs-dir>/shot.ps1`, and every
+frame in `reviews/task-306h/` was taken that way. `ftplay.py capture` should either be fixed or its
+docstring should say it only ever shoots the player's view.
+
+**2. A DESIGN PREMISE WAS REFUTED BY A MEASUREMENT AND A PICTURE, and the deviation needs
+ratifying.** Design 8.3 specifies the range lane as `Grass` against a `LeafyGrass` surround --
+short grass beside long. Both halves fail in her place:
+  * the ground just outside the terrace at (2800, -3120) reads `Grass` ALREADY, not `LeafyGrass`,
+    so there is no long grass for a short lane to read against;
+  * `Grass` draws blades, and from a man's eye on the bench (y 153) they fill the entire frame.
+    The before frame is `<runs-dir>/evidence/306b8/f6-berm-view.png`: no lane, no berm, no range.
+I changed `LAYOUT.SURFACE.LANE` to blade-free `Ground` -- which is the exact reason
+`Lobby.CONFIG.FIELD.PADS` uses it -- and the after frames (`f6b-berm-view.png`,
+`f2b-lane1-view.png`) show a clean flat lane with the berm as a low earth bank across the end.
+**This is a stated deviation from the design, for the Architect to ratify.**
+
+**3. ONE DECISION FOR KAREN, from a frame.** The lane is now bare earth over 232 x 168 studs. It is
+clean and it reads as a range, which is her sentence (*"clean space and then shooting range ...
+clean proper like in real life"*), but it is EARTH and not mown grass. If she wants green, it is
+one value in `LAYOUT.SURFACE.LANE` and the frames above are what she should judge it from.
+
+**4. One frame of design 11.5 is NOT obtained:** item 3 asks for the rail board below the gun with
+the berm beyond it, and the held-look camera sits above the deck rail. The berm is in the frame;
+the rail is not.
+
+## 2026-10-29 -- Task 306 step B9: the real ladder climb could not be replayed (NOT OBTAINED)
+
+`Stand2.Ladder` is a 13.8-stud `TrussPart` at (2624, 156.6, -3012); its deck top is Y 162.5 and the
+mat is Y 150.5. Twice the character was stood 2.5 studs off the ladder's face, turned to look at it
+(`306b9-ladder.luau`), and W was held with `298key.ps1 W -HoldMs 7000` / `-HoldMs 8000` after a
+focusing click. Both times he walked across the terrace at Y 153.15 -- 90 studs on the first try
+(2605.7, -3096.9) and 100 on the second (2647.1, -3112.4) -- and never left the ground. The second
+attempt was made with the bench's camera tracker retired, so the walk was not being steered by it.
+
+**So the twelve treestand cases in this task were reached by PLACING the character on the deck -- a
+teleport.** That is design 11.4's own route ("the stand cases of T4 are reached by the stage block
+placing the character on the deck ... the climb itself is a Director ops step with a screenshot"),
+and the server measured `position=treestand` for every one of them, so the firing position is real.
+What is NOT proven is that a man can climb to it. **Design 11.4's own line -- "whether climbing a
+`TrussPart` can be replayed at all is NOT ESTABLISHED" -- still stands, and it is now measured
+twice rather than assumed.** For Karen's Friday session this is the open question: if the ladder
+does not climb under a real player's keys either, the treestand is unreachable in her place.
+
+Needs: a Director ops step (a human at the keys, one screenshot from the deck), or a task to give
+the stand a working way up.
+
+---
+
+## 2026-10-30 -- Task 313: NEEDS KAREN. The two-player click, and her Forest Test is in Play
+
+**Builder, task 313 (solo on the whole range). Two blocks, both human-only. Nothing is claimed that
+was not run.**
+
+### 1. NEEDS KAREN -- `test2`'s Start click, in the DEV Studio
+
+The change adds `src/client/Range/Solo.luau` and `tests/client/range_solo.spec.luau`, and this task
+put `src/client/Range/` into `TWO_PLAYER_PATHS` on purpose (a per-player PICTURE is exactly what one
+client cannot evidence -- learning flag L-158). So `tools/agents.py needs_two_player` answers
+
+```
+needs_two_player: ['src/client/Range/Solo.luau', 'tests/client/range_solo.spec.luau']
+```
+
+and `tools/review.sh` will refuse the review round until the `[harness2]` line for the code commit
+is pasted. `python tools/studio_mcp.py test2` printed its own NEEDS KAREN and ran nothing:
+
+```
+[harness2] NEEDS KAREN, once, in Studio -- StudioMCP CANNOT start this test itself
+[harness2] FAIL: 11/13 checks @ fd60936d05f053da72d26676866925e166453fb9 (clean tree)
+```
+
+**The exact clicks, in the `Driven Hunt DEV` Studio window (the LEFT one):**
+
+1. Test tab -> Clients and Servers -> Players: **2** -> **Start**.
+2. Leave the windows alone; the harness reads them.
+3. When it says so, press **Cleanup** in the Test tab.
+
+The one-player gate is GREEN at that same commit and needs nothing:
+`[harness] PASS: 34/34 checks @ fd60936d05f053da72d26676866925e166453fb9 (clean tree) scope=all`.
+
+**A `--scope auto` run does NOT get round this one**, and that is worth writing down rather than
+discovering twice: this change edits `tools/studio_mcp.py` (the new client spec has to join a
+`SCOPE_SPECS` scope or CI goes red), and the harness's own rule is that `tools/studio_mcp.py`
+resolves to `all` -- so `--scope auto` is tagged `scope=all`, which is full evidence and therefore
+asks for the `[harness2]` line again. The scoped-run exemption and this change cannot both apply.
+
+### 2. NEEDS KAREN / Director -- her Forest Test is IN PLAY, so the live proofs were not taken
+
+At 13:09 UTC the desktop shows `Driven Hunt Forest Test` **in a Play session** (a client with the
+ESC menu open, one player in the server list), and Karen typing in the Director's chat beside it.
+The dispatch's own instruction for this state is *"if the Forest Test is in Play, Karen may be
+playing: STOP and report, do not stop her session"*, so **her session was not touched** and
+
+- the **CLICK PROOF** (real `E` at station 2, a boar released at WALK then RUN, the frames of it
+  entering one side and leaving the other, the crossing time, one real hit at RUN on the far half),
+  and
+- the **FOREST TEST PROOF** (two clients at stations 2 and 4, one frame from each)
+
+were **NOT TAKEN IN HER PLACE**. What stands instead is named as such in the review request: the
+span's arithmetic is proved in `range.spec` (6 stations x 3 lanes, the three bounds recomputed from
+the dials, T6 swept over 36 combinations) and the picture's rules in `range_solo.spec`, and anything
+measured in DEV is labelled `DEV ONLY`. **Nobody has seen the wide crossing on a screen.**
+
+### 3. MEASURED SINCE: the click is now ONE thing, and the real blocker is the second Studio
+
+Both halves of block 1 were taken apart after it was written, so the ask is smaller and sharper:
+
+- **The player count is already set to 2.** It read `0`, which is why a bare `F7` produced one
+  process and not three; it was raised with two clicks on the quick-access spinner and Studio keeps
+  it. `Test > Start Test Session > Server and Clients` is **F7**, and a script can send it
+  (`<runs-dir>/313-f7.ps1`) -- a 2-player session was started that way twice in this session and
+  five Studios appeared each time. **So the Start click is NOT the blocker any more.**
+- **The blocker is the check `One Studio instance before the test starts`,** which `test2` FAILS
+  while Karen's `Driven Hunt Forest Test` Studio is open beside the DEV one. It counts toward the
+  verdict, so even a perfectly started 2-player run returns `FAIL: 12/13` and no `[harness2] PASS`
+  line exists to paste. **Her Studio was not closed:** it is the window she works in, closing it
+  risks whatever is unsaved in her Edit place, and that is her call and not the Builder's.
+
+`tools/review.ps1 313` was then run and refused, which is the expected and correct behaviour:
+
+```
+[agents] REFUSED: this change touches src/client/Range/Solo.luau, tests/client/range_solo.spec.luau,
+which a one-player run cannot evidence. Paste the TWO-PLAYER line for the code commit as well
+```
+
+### 4. What WAS proved, so nobody re-runs it
+
+A 2-player local test was run manually (not through `test2`, which is what the one-Studio check
+blocks) in DEV, with the flag on and then off, and the per-player picture was measured on each
+client as an instance fact. With `RANGE_SOLO` **on** each client reads the OTHER player's character
+at `mean 1.00` (hidden) and with it **off** at `mean 0.00` (visible), while each man's own body
+reads `1.00` in both states because `Camera.Rig` hides it in first person either way. The board's
+crossing at station 2, 125 studs, trot went from **3.25 s** (off) to **9.10 s** (on). Claims 11 and
+12 of `reviews/task-313/REQUEST.md` carry the numbers. **It is all DEV, and none of it is her
+place.**
+
+### What is asked
+
+1. Karen: close the `Driven Hunt Forest Test` Studio when she is done with it, then in the DEV
+   window press **F7** (the player count is already 2) and **Cleanup** when the harness says so --
+   that unblocks the review round and the merge gate.
+2. The Director: when her Forest Test is free, the live proofs in 2, with `RANGE_SOLO` switched on
+   for that place (`python tools/flags.py --place forest set RANGE_SOLO on`; never `clear`, rule K).
+   The flag is born OFF, so her build is unchanged until somebody turns it on.
+3. A correction to carry into the design, found while building and already in the spec's comment:
+   **the realised worst off-axis angle is 28.07 degrees, not the 39.81 that
+   `docs/design/shooting-range-lobby.md` section 3.3 tabulates.** 39.81 is the angle to the
+   backstop's corner; the hut-bay bound cuts station 1's span at 107 studs to +-53.07 before the
+   backstop ever binds, so the widest aim point is 57.07 off axis and not 89.17. The design is
+   conservative in the safe direction, and the fact is now asserted in `range.spec`.
+
+---
+
+## 2026-10-30 23:41 UTC -- TASK 315: round 2 returned one finding, and the dispatch caps the task at two rounds
+
+**Builder, task 315 (move the shooting range straight out of the shop door).** The dispatch said:
+*"Review: max 2 rounds; FINDINGS on round 2 -> ESCALATE.md and stop."* Round 2 returned one blocking
+finding, so I stopped. **The finding is correct and I am not disputing it.**
+
+### Where the branch stands -- clean and fully evidenced
+
+* Branch `task-315-range-from-shop`, pushed. **Code commit `c9086a27`**, and only paperwork follows it.
+* `[harness] PASS: 34/34 checks @ c9086a27cc3b39aec17b1300cc5f78afc382645c (clean tree) scope=all`
+* `test2` N/A -- `agents.needs_two_player` returns `[]` for this branch.
+* CI green on the pushed head.
+* Architect design PASS (`reviews/task-315/ARCH_RESULT.md`).
+* Every live proof in Karen's place was taken AT the code commit, and ten frames are described in
+  `reviews/task-315/REQUEST.md`.
+* **The feature itself works and was seen working**: the row of trees and the pine are gone
+  (`[lobby] the walk to the range: 12 of our trees not planted in the corridor, 1 of the world's
+  taken off it`, `[RangeBoot] footprint census: 0 foreign BaseParts`), the walk is 174.3 studs at
+  3.95 degrees off the door's own facing and dead level at 150.00 over 151 one-stud samples, and a
+  real `E` + real clicks released a target and landed a real shot (board `SHOTS 2 / HITS 1 /
+  CHEST 1 at 119 studs`).
+
+### The finding, and why it matters
+
+`reviews/task-315/RESULT.md` round 2, finding 1. **The production wiring has no spec.**
+`tests/server/lobby.spec.luau` drives `Build.build(...)` directly, so:
+
+* deleting `keepClear = world.keepClear` and `sightline = world.sightline` from `Lobby.tryBuild`'s
+  seam table reddens **nothing** -- and that is the one line between Karen's cleared corridor and all
+  twelve trees coming back;
+* deleting the two mirror lines `stats.sightlineDropped = built.sightlineDropped` /
+  `.sightlineCleared` reddens nothing either, and the boot line claim 6 rests on would print `0, 0`.
+
+It also caught a false sentence of mine: my round-2 request said *"deleting any
+`stats.sightlineDropped += 1` ... now reddens it"*. There are THREE such sites and the assertion is
+`> 0`, so deleting `treeLine`'s alone leaves the avenue's six and the case green. **That sentence is
+wrong and the record should read this correction beside it.**
+
+### What the fix is, so round 3 is cheap if the Director authorises one
+
+Exactly what the Reviewer named, and nothing else:
+
+1. One `tests/server/lobby_live.spec.luau` case that hands `keepClear` / `sightline` in **through
+   `Lobby.start`** (the `fresh(bin, function(world) ... end)` shape that file already uses for
+   `homeAreas`) and asserts `Lobby.stats().sightlineDropped` / `.sightlineCleared` carry
+   `Build.stats()`'s numbers -- and are `0` when the two seams are nil.
+2. In `lobby.spec`'s live-build case, assert the BREAKDOWN design section 15.1 item 11 asked for
+   (5..7 ring drops and 6 avenue drops) instead of `> 0`, **or** strike the "deleting any `+= 1`"
+   sentence from the request.
+
+That is a spec-only change; `src/` need not move, so the existing harness line and every live proof
+still cover the code.
+
+### What I need
+
+**The Director's decision**: authorise a round 3 for task 315 (`DIRECTOR_MAX_ROUNDS=3` is not needed
+-- `MAX_ROUNDS` is 3, so round 3 needs no environment override, only the Director lifting the
+dispatch's own two-round cap), or take the branch as it stands and decide the gap separately.
+
+**Nothing here needs Karen.** No click only she can make, and her Forest Test was returned to
+`localhost:34873` (her merged-main build) in Edit, with `RANGE_SOLO` untouched.
+
+### Director, 2026-10-30 23:50 UTC -- task 315: round 3 AUTHORISED
+
+The round-2 finding is spec-only and the Builder agrees with it. I looked at
+`315-BEFORE-door-south.png`, `315-AFTER-door-south.png` and `315-AFTER-karen-spot.png`: from the shop
+door the range now stands straight ahead with no birch row between. Round 3 is authorised for
+exactly the two items above, spec-only (no `src/` change). `MAX_ROUNDS` is 3, so no override is used.
+
+## Director, 2026-11-01 00:15 UTC -- task 321: round 3 AUTHORISED
+
+Round 2 (`reviews/task-321/RESULT.md`) has two blocking findings, both real and both the same
+defect class: a corpse orphaned for the rest of the session (a second kill at one station inside
+`CARCASS_SECONDS`, and LEAVE with a fresh kill on the lane -- the latter a regression of 319). Both
+are narrow and in one function family. The dispatch's own cap was 2 rounds; the Director lifts it to
+`MAX_ROUNDS` 3 for this task. Round 3 fixes exactly those two findings. FINDINGS on round 3 ->
+ESCALATE.md and stop; no round 4.
+
+---
+
+## 2026-11-01, Task 323b -- NEEDS DIRECTOR: the stand-pick picture cannot be photographed in DEV
+
+**Written at the hard stop, before any workaround was designed (V280).**
+
+The dispatch asks for two live proofs "in DEV with STAND_PICK forced on": a screenshot of *"the
+numbered stand squares on the road line, his one an orange diamond, a taken one dimmed with a name,
+seated ones ringed, the countdown"*, and a REAL MOUSE CLICK on a free stand square. It also closed
+Karen's Forest Test for this task, leaving DEV as the only Studio.
+
+**Neither is reachable in DEV, and it is a world fact rather than a flag or a bug.**
+
+1. `MapUi.geometryFromMap` -- the DEV world's geometry -- returns `stands = {}`, literally. DEV's
+   full map draws the road, the bounds and the players and **no stands**, deliberately: the post
+   line is only stated in `src/server/Match/Markers.luau` and in ServerStorage, which does not
+   replicate, and `GAME_DESIGN.md`'s owners row for the map says so in those words. A pure `Map.LINE`
+   is queued as task 155a and does not exist.
+2. The client's forest-geometry door (`Hud.whenReady(ReplicatedStorage, "ForestTest", ...)`) is
+   inside `if Map.EXPECTED_WORLD == "forest-test" then`, so a DEV client is never handed the nine
+   stands even though `ReplicatedStorage.ForestTest` replicates there.
+3. So with the flag on in DEV the server opens the window (its `standCount()` reads the
+   `DrivenHunt.ShooterPost` tags and is > 0) and the client correctly draws an **empty** states list:
+   `#geometry.stands == 0`, no `Stand%d` nodes, no `Hit` pads. There is nothing on screen to
+   photograph and nothing for a mouse to hit.
+4. The MCP thread cannot `require` (the harness docstring, 2026-10-02), so no probe can hand
+   `MapUi` the forest geometry from outside. Only a client script or a client spec can, and both are
+   `src/`/`tests/` changes rather than a proof.
+
+**What was done instead, and it is labelled as such in the report:** the pads and the five states are
+measured on the REAL panel in the REAL client in DEV by the gate's own new cases -- `map_ui.spec`
+case 28 draws all four forest layouts, opens the window for a hunter and reads the pads'
+`AbsolutePosition`/`AbsoluteSize` off the engine (72 px, 0 overlapping pairs over all four layouts),
+and case 24 reads the colour, transparency, stroke and name off the drawn nodes. A frame of DEV's
+own full map with the flag on and the window open was taken and is described in the report. **The
+photograph of the nine numbered squares, the orange diamond, the dimmed name and the brass rings,
+and the real mouse click on a pad, are NOT PROVEN. Nobody has seen them.**
+
+**The request:** open "Driven Hunt Forest Test" (the world that states the stands) for one pass of
+this proof, or authorise it for 323c, which needs a pinned 400x800 frame of the same panel anyway.
+`<runs-dir>/ft-open.sh` is the cold-restart route and exists; the Builder did not use it because the
+dispatch says plainly *"do NOT open the Forest Test"*.
