@@ -23,6 +23,9 @@ local Range = {}
 Range.FOLDER_NAME = "Range"
 Range.MAT_NAME = "Mat"
 Range.PROMPT_NAME = "RangePrompt"
+-- THE `SurfaceGui` THAT DRAWS A STATION'S NUMBER, on its prompt post's two faces (task 322).
+Range.NUMBER_GUI_NAME = "StationNumber"
+Range.NUMBER_LABEL_NAME = "Number"
 -- THE SECOND PROMPT'S OWN STEM. Two prompts per station, both found by name (`Lobby.Data.shopPrompt`'s
 -- shape), so "which one did he press" is never a guess about a position.
 Range.STAND_PROMPT_NAME = "RangeStandPrompt"
@@ -242,7 +245,18 @@ Range.LAYOUT = {
 		scrubBackStuds = 2,
 		color = Color3.fromRGB(104, 84, 62),
 	},
-	MAT = { size = Vector3.new(8, 1, 8), color = Color3.fromRGB(70, 82, 70) },
+	-- THE STATION'S FLOOR: A FLAT RECTANGLE MARKED ON THE GROUND, FLUSH, NO STEP UP (task 322).
+	-- Karen, 2026-10-31: *"keep just this e and one line or row where it can go or recatange"*.
+	-- `size.X`/`size.Z` ARE the station box `Range.spotAt` measures and do not move; only the lay
+	-- changed -- `liftStuds` is the slab's TOP above the ground it is read on, the `TURF` slab's own
+	-- trick, so he walks on instead of up a 1-stud kerb. Pale concrete against the mown lane is the
+	-- contrast that marks it out; the station's number is on the POST, not painted on this.
+	MAT = {
+		size = Vector3.new(8, 1, 8),
+		liftStuds = 0.12,
+		color = Color3.fromRGB(214, 210, 198),
+		material = Enum.Material.Concrete,
+	},
 	-- THE WAY IN STANDS WHERE SHE IS LOOKING. A ProximityPrompt is drawn only while its own
 	-- position is on screen, so one hung on the 8x8 mat under her feet is invisible down the lane
 	-- and E does nothing (Director's real-key proof, 2026-10-28, frames 03/04/06).
@@ -255,6 +269,12 @@ Range.LAYOUT = {
 		aheadStuds = 7,
 		sideStuds = 3,
 		color = Color3.fromRGB(88, 76, 58),
+		-- THE STATION'S NUMBER, ON THIS POST'S TWO UPRANGE/DOWNRANGE FACES (task 322, replacing the
+		-- hut's fascia board). A vertical face he walks toward reads at a distance where a digit
+		-- painted on the 8x8 rectangle is foreshortened to nothing; a `SurfaceGui` draws it, so
+		-- there is no decal id to upload. `Range.NUMBER_GUI_NAME` is how the spec finds it.
+		numberColor = Color3.fromRGB(250, 248, 240),
+		numberStroke = Color3.fromRGB(26, 24, 20),
 	},
 	-- THE TREESTAND, AS DATA NOBODY BUILDS SINCE TASK 320 (Karen, 2026-10-31: *"and remove towers
 	-- we dont need them in shooting range"*). It is kept because the safety envelope, the station
@@ -267,45 +287,23 @@ Range.LAYOUT = {
 	-- in BOTH worlds and the solid rail board is the rest downrange; `promptRise` is the rail's own
 	-- top (`HighSeats.DIMS.RAIL_RISE_STUDS`). Nothing about the seat is re-derived here.
 	STAND = { backStuds = 14, facing = -1, promptRise = 2.4 },
-	-- THE GROUND POSITION'S REST: a 0.7-0.8 m bench top (ISSF/BSRC) is 2.5-2.9 studs, and
-	-- `aheadStuds` puts it between the man and his post, downrange of the mat.
-	-- `color` AND `material` BOTH, SINCE STEP B10: the box read as a brown slab in her place
-	-- (evidence/306b8/f2b-lane1-view.png). Size and position are UNCHANGED -- a bench top is a
-	-- gameplay number (the 0.7-0.8 m rest) and B10 moves none of them (note 8.3 L1).
-	BENCH = {
-		size = Vector3.new(6, 2.7, 1.2),
-		aheadStuds = 3.5,
-		color = Color3.fromRGB(150, 118, 78),
-		material = Enum.Material.WoodPlanks,
-	},
 	-- ------------------------------------------------------------------- THE LOOK (step B10)
 	-- Karen, 2026-10-28: *"make nice shooting range clean proper like in real life"*. Research note
 	-- docs/research/2026-10-28-the-range-in-the-lobby.md section 8 (refs 1, 5, 7 and the deviations).
-	-- NOT ONE GAMEPLAY NUMBER IS IN HERE (8.3 L1): the mats, posts, benches, decks, prompts, window,
-	-- distances, banks and berm keep the values B2-B9 measured, and all of this is laid AROUND them.
-	--
-	-- THE ROOFED FIRING POINT: four corner posts and a flat roof over the mat, the bench and the
-	-- prompt post -- ref-1's firing hut, ref-5's roofed line. `roofRise` is the roof's BOTTOM above
-	-- the shelf; 8.3 L2 is the bound it answers.
+	-- NOT ONE GAMEPLAY NUMBER IS IN HERE (8.3 L1): the mats, posts, prompts, window, distances,
+	-- banks and berm keep the values B2-B9 measured, and all of this is laid AROUND them.
+	-- THE ROOFED FIRING POINT, AS DATA NOBODY BUILDS SINCE TASK 322. Karen, 2026-10-31: *"also
+	-- remove this roof in shooting range we dont need that eather"*. The four columns, the roof and
+	-- the fascia board are gone from `Range.Build`; the board's size and every colour are archived
+	-- in `backups/task-322/`. THESE THREE KEYS STAY because the T6 envelope is measured off them:
+	-- `Range.bayHalfSlope` (his bay's opening, which `sightSpanFor` and so the mask and the shot's
+	-- door read) and `Range.sightlineFrom` (the span a tree may not stand in). Removing them would
+	-- move the animal's window, which this task does not touch -- the `STAND` table above is the
+	-- same precedent from task 320.
 	HUT = {
 		roofSize = Vector3.new(13, 0.6, 15),
-		roofRise = 9,
-		-- the roof's centre DOWNRANGE of the mat, so its span covers the bench (3.5) and the prompt
-		-- post (7) and still stops 6.5 studs short of the treestand's deck 14 uprange.
 		roofAheadStuds = 3,
 		postSection = 0.9,
-		-- THE STATION'S NUMBER, on the UPRANGE fascia: the face a man walking down from the lodge
-		-- reads. A `SurfaceGui` draws the digit, so there is no decal id and nothing to upload.
-		boardSize = Vector3.new(3.2, 2.2, 0.25),
-		-- THE BOARD HANGS FROM THE ROOF, so its rise is DERIVED and never typed: its TOP meets the
-		-- roof's underside. Typed at 6.4 it spanned shelf+5.3..shelf+7.5 against an underside at
-		-- shelf+9.0 -- six signs in 1.5 studs of air, which is the very defect the lot's side line
-		-- was refused over (review round 1, finding 1). `boardRiseFor` is the one answer, and there
-		-- is deliberately NO `boardRise` key here for it to drift from.
-		roofColor = Color3.fromRGB(96, 72, 52),
-		postColor = Color3.fromRGB(136, 110, 80),
-		boardColor = Color3.fromRGB(236, 232, 220),
-		boardTextColor = Color3.fromRGB(32, 32, 32),
 	},
 	-- THE MOWN LANE, AS ONE DECORATIVE PART. A BasePart's `Grass` material is a flat texture with no
 	-- blades -- blades are the TERRAIN renderer's, which is the whole of B8's measured objection --
@@ -360,7 +358,7 @@ Range.LAYOUT = {
 		footRise = 3.0,
 		-- HOW FAR A STANDING MAN'S EYE IS OVER HIS ROOT (an R15 head centre). The down prompt hangs
 		-- at his EYE, so `downPromptRiseFor` derives its height and there is deliberately NO
-		-- `deckRise` key for it to drift from -- `boardRiseFor`'s pattern.
+		-- `deckRise` key for it to drift from (the `boardRiseFor` it named went with the hut, task 322).
 		eyeOverRootStuds = 1.5,
 		-- HOW HIGH A BODY SITS over what it stands on. `Match.CONFIG.STAND_HEIGHT_STUDS`' own 3.5,
 		-- restated and not required: the lobby's range reaches into no hunt module (this file's head).
@@ -789,10 +787,6 @@ end
 
 function Range.standName(spot: number): string
 	return "Stand" .. tostring(spot)
-end
-
-function Range.benchName(spot: number): string
-	return "Bench" .. tostring(spot)
 end
 
 function Range.bankName(leg: number): string
@@ -1400,85 +1394,15 @@ function Range.standPosition(anchor: Vector3, spot: number, layout, downrange: n
 	return Vector3.new(mat.X, anchor.Y, mat.Z - dir * layout.STAND.backStuds)
 end
 
--- THE BENCH REST, downrange of the mat and uprange of the post. Y is the bench top's own centre.
-function Range.benchPosition(anchor: Vector3, spot: number, layout, downrange: number?): Vector3
-	layout = layout or Range.LAYOUT
-	local dir = if downrange == -1 then -1 else 1
-	local mat = Range.matPosition(anchor, spot, layout)
-	return Vector3.new(mat.X, anchor.Y + layout.BENCH.size.Y / 2, mat.Z + dir * layout.BENCH.aheadStuds)
-end
-
 -- -------------------------------------------------------------------- THE LOOK, PURE (step B10)
 --
 -- Every one of these is derived from a point B2-B9 already measured, so no number below can move a
--- mat, a bench, a window or a berm (note 8.3 L1). `range.spec` asserts that identity.
+-- mat, a window or a berm (note 8.3 L1). `range.spec` asserts that identity.
 
--- THE ROOF'S CENTRE over one station: `roofAheadStuds` downrange of the mat, at `roofRise` plus half
--- its own thickness above the shelf -- so the BOTTOM face is at `roofRise`, which is the number the
--- sight bound in 8.3 L2 is about.
-function Range.hutRoofPosition(anchor: Vector3, spot: number, layout, downrange: number?): Vector3
-	layout = layout or Range.LAYOUT
-	local dir = if downrange == -1 then -1 else 1
-	local mat = Range.matPosition(anchor, spot, layout)
-	local hut = layout.HUT
-	return Vector3.new(mat.X, anchor.Y + hut.roofRise + hut.roofSize.Y / 2, mat.Z + dir * hut.roofAheadStuds)
-end
-
--- THE HUT'S FOUR CORNER POSTS, as x/z pairs: the roof's own corners pulled in by half a post, so no
--- post overhangs the roof it carries.
-function Range.hutPostPositions(anchor: Vector3, spot: number, layout, downrange: number?): { { x: number, z: number } }
-	layout = layout or Range.LAYOUT
-	local dir = if downrange == -1 then -1 else 1
-	local hut = layout.HUT
-	local at = Range.hutRoofPosition(anchor, spot, layout, dir)
-	local halfX = hut.roofSize.X / 2 - hut.postSection / 2
-	local halfZ = hut.roofSize.Z / 2 - hut.postSection / 2
-	local out = {}
-	for _, sx in ipairs({ -1, 1 }) do
-		for _, sz in ipairs({ -1, 1 }) do
-			table.insert(out, { x = at.X + sx * halfX, z = at.Z + sz * halfZ })
-		end
-	end
-	return out
-end
-
--- HOW HIGH THE BOARD'S CENTRE SITS over whatever the roof is measured from: the roof's own
--- underside less half the board. DERIVED, so the board cannot drift off the roof it hangs on.
-function Range.boardRiseFor(layout): number
-	layout = layout or Range.LAYOUT
-	return layout.HUT.roofRise - layout.HUT.boardSize.Y / 2
-end
-
--- THE NUMBER BOARD, on the hut's UPRANGE fascia, hanging from the roof's own uprange edge: its TOP
--- face IS the roof's underside, which is what makes it a sign on a building rather than a sign in
--- the air (round 1, finding 1).
-function Range.boardPosition(anchor: Vector3, spot: number, layout, downrange: number?): Vector3
-	layout = layout or Range.LAYOUT
-	local dir = if downrange == -1 then -1 else 1
-	local hut = layout.HUT
-	local at = Range.hutRoofPosition(anchor, spot, layout, dir)
-	return Vector3.new(
-		at.X,
-		anchor.Y + Range.boardRiseFor(layout),
-		at.Z - dir * (hut.roofSize.Z / 2 - hut.boardSize.Z / 2)
-	)
-end
-
-function Range.boardName(spot: number): string
-	return string.format("Board%d", math.max(1, math.floor(spot or 1)))
-end
-
-function Range.hutRoofName(spot: number): string
-	return string.format("Roof%d", math.max(1, math.floor(spot or 1)))
-end
-
-function Range.hutPostName(spot: number, corner: number): string
-	return string.format("HutPost%d_%d", math.max(1, math.floor(spot or 1)), corner)
-end
-
--- WHAT THE BOARD SAYS. One place, so the spec reads the SAME answer the `SurfaceGui` is given and a
--- board printing station 4's number at station 2 is a failing case rather than a look nobody checks.
-function Range.boardText(spot: number): string
+-- WHAT THE STATION'S NUMBER SAYS. One place, so the spec reads the SAME string the player does and
+-- a post printing station 4's number at station 2 is a failing case. WAS `boardText` until task
+-- 322 took the hut's fascia board out and put the digit on the prompt post.
+function Range.stationNumberText(spot: number): string
 	return string.format("%d", math.max(1, math.floor(spot or 1)))
 end
 

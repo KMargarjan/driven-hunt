@@ -1,0 +1,66 @@
+-- ===== src/server/Range/Build.luau 423-485 (task 322): the BENCH REST and the whole
+-- ROOFED FIRING POINT block -- four corner posts, the roof, the number board and its two
+-- SurfaceGui faces -- as they stood at commit 2615879a. =====
+		-- THE BENCH REST, downrange of the mat: the ground firing position's own 0.7-0.8 m top.
+		-- PLANKED AND LIGHTER SINCE B10 -- same size, same point, only the skin (note 8.3 L1).
+		local bench = RangeData.benchPosition(anchor, spot, layout, dir)
+		onGround(
+			RangeData.benchName(spot),
+			layout.BENCH.size,
+			bench.X,
+			bench.Z,
+			layout.BENCH.color,
+			layout.BENCH.material
+		)
+
+		-- THE ROOFED FIRING POINT (step B10, item 3; refs 1, 5, 7). Four corner posts up to the
+		-- roof's own bottom, the roof over them, and the station's NUMBER on the uprange fascia.
+		-- Nothing here is in a line of fire: `Range.sightHalfWidthAt` is the bound and `range.spec`
+		-- asserts every post against it.
+		-- THE HUT STANDS ON THE GROUND UNDER IT, NOT ON THE SHELF, and that is a MEASUREMENT
+		-- (frame `<runs-dir>/306b10-after-B.png`, her place, 2026-10-29): the shelf there is 148
+		-- and the ground the mats are laid on is 150, so a roof placed at `anchor.Y + roofRise`
+		-- hung 2 studs over the shooter's eye and filled half his frame. `promptPosition`'s header
+		-- already states the convention -- the pure point is the SHELF's, the BUILT one is the
+		-- measured ground's -- and this is that correction applied to the roof, the board and the
+		-- turf. The HIGHEST of the five samples, so no corner of the roof dips toward a head.
+		local hut = layout.HUT
+		local roofPure = RangeData.hutRoofPosition(anchor, spot, layout, dir)
+		local _roofLo, roofHi = groundUnder(
+			roofPure.X,
+			roofPure.Z,
+			hut.roofSize,
+			shelf :: number,
+			if row.plate == true then nil else opts.groundAt
+		)
+		local roofAt = Vector3.new(roofPure.X, roofHi + hut.roofRise + hut.roofSize.Y / 2, roofPure.Z)
+		for corner, hutAt in ipairs(RangeData.hutPostPositions(anchor, spot, layout, dir)) do
+			local footY = groundAtOr(hutAt.x, hutAt.z) - 0.3
+			local topY = roofAt.Y - hut.roofSize.Y / 2
+			local height = math.max(topY - footY, 1)
+			makePart(
+				RangeData.hutPostName(spot, corner),
+				Vector3.new(hut.postSection, height, hut.postSection),
+				Vector3.new(hutAt.x, footY + height / 2, hutAt.z),
+				hut.postColor,
+				folder,
+				Enum.Material.Wood
+			)
+		end
+		makePart(RangeData.hutRoofName(spot), hut.roofSize, roofAt, hut.roofColor, folder, Enum.Material.WoodPlanks)
+		local boardPure = RangeData.boardPosition(anchor, spot, layout, dir)
+		local boardAt = Vector3.new(boardPure.X, roofHi + RangeData.boardRiseFor(layout), boardPure.Z)
+		local board = makePart(
+			RangeData.boardName(spot),
+			hut.boardSize,
+			boardAt,
+			hut.boardColor,
+			folder,
+			Enum.Material.SmoothPlastic
+		)
+		-- BOTH FACES, so the number reads walking in AND standing at the bench. `Front` is -Z and
+		-- `Back` is +Z, so which one points uprange is the ROW's business -- and writing both means
+		-- no branch on the world's name at all.
+		makeBoardFace(board, RangeData.boardText(spot), Enum.NormalId.Front, layout)
+		makeBoardFace(board, RangeData.boardText(spot), Enum.NormalId.Back, layout)
+		table.insert(mats, mat)

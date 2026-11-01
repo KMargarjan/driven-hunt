@@ -584,7 +584,12 @@ return function()
 			expect((laid :: any).shelf).to.equal(137.5)
 			expect((laid :: any).folder:FindFirstChild("Plate")).to.equal(nil)
 			local mat = (laid :: any).mats[1]
-			expect(math.abs(mat.Position.Y - (137.5 + LAYOUT.MAT.size.Y / 2)) < 1e-6).to.equal(true)
+			-- FLUSH SINCE TASK 322: the rectangle's TOP is `liftStuds` over the ground it was read
+			-- on, so its centre is half a slab BELOW that. On main this read ground + size.Y / 2 --
+			-- a full stud of kerb to step up -- and this line is what fails there.
+			local matTop = mat.Position.Y + mat.Size.Y / 2
+			expect(math.abs(matTop - (137.5 + LAYOUT.MAT.liftStuds)) < 1e-6).to.equal(true)
+			expect(matTop - 137.5 < 0.5).to.equal(true)
 
 			-- ...and with no plate AND no ground reader there is no range, rather than one in the air.
 			local nothing, reason = Range.Build.build({
@@ -943,13 +948,13 @@ return function()
 			-- THE PLATE, THE SIX MATS, THE SIX POSTS, THE SIX BENCHES, THE TWO BANKS AND THE BERM.
 			-- NO SEATS SINCE TASK 320 (no towers): the term was
 			-- `SPOT_COUNT * HighSeats.PARTS_PER_SEAT` and it is gone, which is 84 fewer parts.
-			-- ...PLUS WHAT STEP B10 DRESSES IT WITH, counted the same way: per station four hut
-			-- posts, a roof and a number board; then ONE turf slab, the fence's own posts and its
-			-- two rails. Written as the arithmetic and not as 165, so a part that appears or
-			-- disappears moves this number rather than passing under it.
-			local dressed = LAYOUT.SPOT_COUNT * 6
-				+ #RangeData.turfSlabs((b :: any).anchor, LAYOUT, (b :: any).downrange, DEV_ROW)
-			expect(b.parts).to.equal(1 + 3 * LAYOUT.SPOT_COUNT + 3 + dressed)
+			-- NO BENCH AND NO HUT SINCE TASK 322: the term was `SPOT_COUNT * 6` for four hut posts,
+			-- a roof and a number board, plus one bench per station, and all 42 are gone. A STATION
+			-- IS A MAT AND A POST. The turf slab, the two banks and the berm stay. Written as the
+			-- arithmetic and not as 28, so a part that appears or disappears moves this number
+			-- rather than passing under it -- and on main this reads 59 and fails.
+			local dressed = #RangeData.turfSlabs((b :: any).anchor, LAYOUT, (b :: any).downrange, DEV_ROW)
+			expect(b.parts).to.equal(1 + 2 * LAYOUT.SPOT_COUNT + 3 + dressed)
 			expect(b.parts <= Range.CONFIG.MAX_PARTS).to.equal(true)
 			TestKit.note(
 				string.format(
@@ -1193,7 +1198,7 @@ return function()
 			return built :: any, parent
 		end
 
-		it("lays a bench at every station and NOT ONE seat part: no deck, no ladder, no rail", function()
+		it("lays NOTHING at a station but its mat and its post: no bench, no hut, no seat", function()
 			-- BOTH SIGNS OF THE LANE, as the seat case did: nothing may build a tower either way.
 			for _, dir in ipairs({ 1, -1 }) do
 				local row = { x = DEV_ROW.x, z = DEV_ROW.z, y = DEV_ROW.y, plate = true, downrange = dir }
@@ -1204,11 +1209,17 @@ return function()
 				expect(b.refusedStands).to.equal(0)
 				expect(next(b.deckTops)).to.equal(nil)
 				for spot = 1, LAYOUT.SPOT_COUNT do
-					-- THE BENCH, at its own arithmetic point: unchanged by this task.
-					local bench = b.folder:FindFirstChild(RangeData.benchName(spot))
-					expect(bench).to.be.ok()
-					local wantedBench = RangeData.benchPosition(b.anchor, spot, LAYOUT, dir)
-					expect(((bench :: BasePart).Position - wantedBench).Magnitude < 1e-3).to.equal(true)
+					-- THE BENCH REST AND THE WHOLE HUT ARE GONE (task 322), BY NAME: each of these
+					-- six names is a part main builds, so every line here fails on main.
+					expect(b.folder:FindFirstChild("Bench" .. tostring(spot))).to.equal(nil)
+					expect(b.folder:FindFirstChild("Roof" .. tostring(spot))).to.equal(nil)
+					expect(b.folder:FindFirstChild("Board" .. tostring(spot))).to.equal(nil)
+					for corner = 1, 4 do
+						expect(b.folder:FindFirstChild(string.format("HutPost%d_%d", spot, corner))).to.equal(nil)
+					end
+					-- ...and the two that remain ARE there.
+					expect(b.folder:FindFirstChild(RangeData.matName(spot))).to.be.ok()
+					expect(b.folder:FindFirstChild(RangeData.postName(spot))).to.be.ok()
 					-- ...AND NO SEAT FOLDER AND NO DECK TOP AT THAT STATION.
 					expect(b.folder:FindFirstChild(RangeData.standName(spot))).to.equal(nil)
 					expect(b.deckTops[spot]).to.equal(nil)
@@ -1227,11 +1238,11 @@ return function()
 					end
 				end
 				expect(trusses).to.equal(0)
-				-- AND NOTHING THE SHOOTER STANDS AMONG RISES OVER THE HUT'S OWN ROOF: the deck's
-				-- rail top was shelf+14.9 against a roof at shelf+9.6, so the tallest thing left
-				-- on the firing line is the hut (her place at main: 320-census-main.txt in the
-				-- runs dir read the same two numbers). The EARTH is not in this count -- the berm
-				-- and the two banks are the backstop, downrange, and task 320 moved neither.
+				-- AND NOTHING THE SHOOTER STANDS AMONG RISES OVER HIS OWN POST: task 320 took the
+				-- deck's rail (shelf+14.9) and task 322 the hut's roof (shelf+9.6), so the tallest
+				-- thing left on the firing line is the 4-stud prompt post he presses E on. The
+				-- EARTH is not in this count -- the berm and the two banks are the backstop,
+				-- downrange, and neither task moved them.
 				local earth = { Berm = true, BankEast = true, BankWest = true }
 				local tallest, tallestName = 0, "nothing"
 				for _, child in ipairs(b.folder:GetDescendants()) do
@@ -1242,7 +1253,11 @@ return function()
 						end
 					end
 				end
-				expect(tallest < LAYOUT.HUT.roofRise + LAYOUT.HUT.roofSize.Y + 0.5).to.equal(true)
+				if tallest >= LAYOUT.POST.size.Y + 0.5 then
+					error(string.format("%s stands %.2f over the shelf", tallestName, tallest))
+				end
+				expect(tallest < LAYOUT.POST.size.Y + 0.5).to.equal(true)
+				expect(tallestName).to.equal(RangeData.postName(1))
 				local first = b.folder:FindFirstChildWhichIsA("BasePart")
 				expect(first.Name).to.equal(RangeData.matName(1))
 				expect(b.parts <= Range.CONFIG.MAX_PARTS).to.equal(true)
@@ -1343,7 +1358,7 @@ return function()
 			expect(b.refusedStands).to.equal(0)
 			expect(#b.standRefusals).to.equal(0)
 			for spot = 1, LAYOUT.SPOT_COUNT do
-				expect(b.folder:FindFirstChild(RangeData.benchName(spot))).to.be.ok()
+				expect(b.folder:FindFirstChild("Bench" .. tostring(spot))).to.equal(nil)
 				expect(b.folder:FindFirstChild(RangeData.matName(spot))).to.be.ok()
 				expect(RangeData.promptFor(spot, RangeData.POSITION.BENCH, b.folder)).to.be.ok()
 				expect(b.folder:FindFirstChild(RangeData.standName(spot))).to.equal(nil)
@@ -4818,22 +4833,31 @@ return function()
 						end
 						continue
 					end
-					-- WHAT STEP B10 ADDS IS NOT LAID BY `onGround`, AND THAT IS WHY IT IS NAMED HERE
-					-- RATHER THAN FALLING THROUGH: the hut's roof and the fence's rail stand ABOVE
-					-- the ground by design, the hut's posts are grown from ONE reading at their own
-					-- point up to the roof, the board hangs on the fascia, and the turf is a skin on
-					-- the shelf. The `else` arm below is the BANK's nominal height, so an unnamed
-					-- part would have been measured against a number that is not its own.
-					if
-						part.Name:match("^Roof%d") ~= nil
-						or part.Name:match("^HutPost%d") ~= nil
-						or part.Name:match("^Board%d") ~= nil
-						or part.Name:sub(1, #RangeData.TURF_NAME) == RangeData.TURF_NAME
-					then
-						-- the one thing that IS asserted about them: the part's top is above the
-						-- ground at its own point, so none of them is buried.
+					-- THE TURF IS A SKIN ON THE SHELF AND NOT LAID BY `onGround`, so it is named here
+					-- rather than falling through. The `else` arm below is the BANK's nominal
+					-- height, so an unnamed part would have been measured against a number that is
+					-- not its own. (The hut's roof, posts and board were named here too until task
+					-- 322 stopped building them.)
+					if part.Name:sub(1, #RangeData.TURF_NAME) == RangeData.TURF_NAME then
 						local g = if case.sloped then slopedGround(part.Position.X, part.Position.Z) else case.shelf
 						expect(top > g - 1e-2).to.equal(true)
+						continue
+					end
+					-- THE STATION'S RECTANGLE IS FLUSH, ON FLAT GROUND AND ON SLOPED (task 322): its
+					-- TOP is `liftStuds` over the HIGHEST ground under its own footprint, so there
+					-- is no kerb to step up and no corner buried. On main the mat went through
+					-- `onGround` and its top stood a full stud proud, which fails the first line.
+					if part.Name:match("^Mat%d") ~= nil then
+						local hi = -math.huge
+						for ix = 0, 8 do
+							for iz = 0, 8 do
+								local gx = part.Position.X + (ix / 8 - 0.5) * part.Size.X
+								local gz = part.Position.Z + (iz / 8 - 0.5) * part.Size.Z
+								hi = math.max(hi, if case.sloped then slopedGround(gx, gz) else case.shelf)
+							end
+						end
+						expect(math.abs(top - (hi + LAYOUT.MAT.liftStuds)) < 1e-6).to.equal(true)
+						expect(top - hi < 0.5).to.equal(true)
 						continue
 					end
 					if part.Name == "Plate" then
@@ -4854,9 +4878,7 @@ return function()
 						-- `Post` is the prompt's own post (task 303), laid on the ground like the rest.
 						local nominal = if part.Name == "Berm"
 							then LAYOUT.BERM.height
-							elseif part.Name:match("^Mat%d") then LAYOUT.MAT.size.Y
 							elseif part.Name:match("^Post%d") then LAYOUT.POST.size.Y
-							elseif part.Name:match("^Bench%d") then LAYOUT.BENCH.size.Y
 							else LAYOUT.BANK.size.Y
 						expect(math.abs(bottom - lo) < 1e-2).to.equal(true)
 						expect(top >= hi + nominal - 1e-2).to.equal(true)
@@ -5200,15 +5222,13 @@ return function()
 			expect(up.minX).to.equal(lane.minX)
 			local function spans(laneRow, layout): boolean
 				for spot = 1, layout.SPOT_COUNT do
+					-- THE TWO PARTS A STATION IS SINCE TASK 322, plus the stand's own point, which
+					-- `STAND` still carries as the envelope's uprange bound.
 					local parts = {
 						RangeData.matPosition(anchor, spot, layout),
-						RangeData.benchPosition(anchor, spot, layout, -1),
+						RangeData.promptPosition(anchor, spot, layout, -1, RangeData.POSITION.BENCH),
 						RangeData.standPosition(anchor, spot, layout, -1),
-						RangeData.hutRoofPosition(anchor, spot, layout, -1),
 					}
-					for _, post in ipairs(RangeData.hutPostPositions(anchor, spot, layout, -1)) do
-						table.insert(parts, Vector3.new(post.x, 0, post.z))
-					end
 					for _, at in ipairs(parts) do
 						if at.X < laneRow.minX or at.X > laneRow.maxX then
 							return false
@@ -5218,10 +5238,12 @@ return function()
 				return true
 			end
 			expect(spans(lane, LAYOUT)).to.equal(true)
-			-- THE BITE: hand out a sightline computed from a NARROWER hut and hold the REAL hut's
-			-- parts to it -- the posts of stations 1 and 6 then fall outside. Narrowing both halves
-			-- together proves nothing, which is the mistake the first draft of this case made: the
-			-- claim is that the bound is at least half a hut roof, so only one half may move.
+			-- THE BITE: hand out a sightline computed from a NARROWER roof span and hold the real
+			-- stations to it -- the PROMPT POSTS of stations 1 and 6 (`sideStuds` out in X) then
+			-- fall outside. Narrowing both halves together proves nothing, which is the mistake the
+			-- first draft of this case made: the claim is that the bound is at least half a roof
+			-- span, so only one half may move. `HUT` is unbuilt data since task 322 and this is one
+			-- of the two readers that keep it (`Range.bayHalfSlope` is the other).
 			local narrow = table.clone(LAYOUT)
 			local hut = table.clone(LAYOUT.HUT)
 			hut.roofSize = Vector3.new(1, LAYOUT.HUT.roofSize.Y, LAYOUT.HUT.roofSize.Z)
@@ -5942,20 +5964,31 @@ return function()
 			expect(RangeData.bermToeClearance(LAYOUT)).to.equal(5)
 			expect(LAYOUT.BANK.size).to.equal(Vector3.new(12, 18, 14))
 			expect(LAYOUT.BANK.beyondStuds).to.equal(6)
+			-- THE STATION BOX IS UNMOVED BY TASK 322 -- only the slab's LAY changed -- and `liftStuds`
+			-- is the flush rectangle's one number.
 			expect(LAYOUT.MAT.size).to.equal(Vector3.new(8, 1, 8))
+			expect(LAYOUT.MAT.liftStuds).to.equal(0.12)
 			expect(LAYOUT.POST.aheadStuds).to.equal(7)
 			expect(LAYOUT.POST.sideStuds).to.equal(3)
 			expect(LAYOUT.STAND.backStuds).to.equal(14)
 			expect(LAYOUT.STAND.promptRise).to.equal(2.4)
 			expect(LAYOUT.PROMPT.MaxActivationDistance).to.equal(12)
-			-- THE BENCH'S SIZE AND ITS REACH, which are the 0.7-0.8 m rest: B10 changed the colour
-			-- and the material and nothing else.
-			expect(LAYOUT.BENCH.size).to.equal(Vector3.new(6, 2.7, 1.2))
-			expect(LAYOUT.BENCH.aheadStuds).to.equal(3.5)
+			-- NO BENCH TABLE AT ALL SINCE TASK 322: it was a PROP, and that is the reader -- nothing
+			-- but `Range.Build` ever read `benchPosition`, `distanceFor` adds nothing for
+			-- `POSITION.BENCH`, and `spotAt` answers `bench` off the MAT's box, not off the part.
+			expect((LAYOUT :: any).BENCH).to.equal(nil)
+			expect((RangeData :: any).benchPosition).to.equal(nil)
+			expect((RangeData :: any).benchName).to.equal(nil)
+			-- ...AND NO HUT READER EITHER, though the three keys the T6 envelope measures stay.
+			expect((RangeData :: any).hutRoofPosition).to.equal(nil)
+			expect((RangeData :: any).hutPostPositions).to.equal(nil)
+			expect((RangeData :: any).boardPosition).to.equal(nil)
+			expect(LAYOUT.HUT.roofSize).to.equal(Vector3.new(13, 0.6, 15))
+			expect(LAYOUT.HUT.roofAheadStuds).to.equal(3)
+			expect(LAYOUT.HUT.postSection).to.equal(0.9)
 			-- ...and the points themselves, at an anchor with no plate and no reader at all.
 			local anchor = Vector3.new(0, 100, 0)
 			expect(RangeData.matPosition(anchor, 3, LAYOUT)).to.equal(Vector3.new(48, 100, 0))
-			expect(RangeData.benchPosition(anchor, 3, LAYOUT, 1)).to.equal(Vector3.new(48, 101.35, 3.5))
 			expect(RangeData.standPosition(anchor, 3, LAYOUT, 1)).to.equal(Vector3.new(48, 100, -14))
 			expect(RangeData.promptPosition(anchor, 3, LAYOUT, 1)).to.equal(Vector3.new(51, 104, 7))
 			expect(RangeData.bermSizeFor(LAYOUT)).to.equal(Vector3.new(232, 21, 8))
@@ -5966,111 +5999,82 @@ return function()
 			expect(RangeData.bermToeZ(anchor, LAYOUT, -1)).to.equal(-184)
 		end)
 
-		-- L2. NOTHING THE HUT ADDS IS IN A LINE OF FIRE, and the bound is the arithmetic rather
+		-- L2. NOTHING A STATION ADDS IS IN A LINE OF FIRE, and the bound is the arithmetic rather
 		-- than a belief: the worst sight ray reaches `sightHalfWidthAt` off axis at that Z, and the
-		-- post stands further out than that at EVERY station and EVERY corner.
-		it("keeps the roofed firing point out of every line of fire", function()
+		-- prompt post stands further out than that at EVERY station and EVERY lane. THE HUT'S FOUR
+		-- COLUMNS WERE THE OTHER HALF OF THIS CASE until task 322 stopped building them; the post is
+		-- now the only furniture of his own station in the bore's plane, so it carries the bound.
+		it("keeps the prompt post out of every line of fire", function()
 			local anchor = Vector3.new(0, 100, 0)
-			local hut = LAYOUT.HUT
-			expect(hut.roofRise >= 8.5).to.equal(true)
 			for _, dir in ipairs({ 1, -1 }) do
 				for spot = 1, LAYOUT.SPOT_COUNT do
 					local mat = RangeData.matPosition(anchor, spot, LAYOUT)
-					-- TASK 313: the two downrange hut posts are the ONE piece of his own furniture
-					-- in the bore's plane, so they no longer stand outside the fan -- they BOUND
-					-- it. `RangeData.bayHalfSlope` is that bound, and the ray to the widest aim
-					-- point the span allows stays inboard of the post's inner face at its own Z.
-					for _, at in ipairs(RangeData.hutPostPositions(anchor, spot, LAYOUT, dir)) do
-						local ahead = (at.z - mat.Z) * dir
-						if ahead > 0 then
-							local inner = math.abs(at.x - mat.X) - hut.postSection / 2
-							for _, lane in ipairs(LAYOUT.DISTANCES_STUDS) do
-								local lo, hi = RangeData.sightSpanFor(anchor, spot, LAYOUT, lane, true)
-								local sil = LAYOUT.SIGHT.silhouetteStuds
-								local worst = math.max(math.abs(hi + sil - mat.X), math.abs(mat.X - (lo - sil)))
-								expect(worst * ahead / lane <= inner + 1e-6).to.equal(true)
-							end
-						end
+					local at = RangeData.promptPosition(anchor, spot, LAYOUT, dir, RangeData.POSITION.BENCH)
+					local ahead = (at.Z - mat.Z) * dir
+					expect(ahead > 0).to.equal(true)
+					local inner = math.abs(at.X - mat.X) - LAYOUT.POST.size.X / 2
+					for _, lane in ipairs(LAYOUT.DISTANCES_STUDS) do
+						local lo, hi = RangeData.sightSpanFor(anchor, spot, LAYOUT, lane, true)
+						local sil = LAYOUT.SIGHT.silhouetteStuds
+						local worst = math.max(math.abs(hi + sil - mat.X), math.abs(mat.X - (lo - sil)))
+						expect(worst * ahead / lane <= inner + 1e-6).to.equal(true)
 					end
-					-- AND THE ROOF CLEARS THE TREESTAND, which stands `backStuds` uprange: the roof's
-					-- uprange edge must stop short of the deck's own downrange edge.
-					local roof = RangeData.hutRoofPosition(anchor, spot, LAYOUT, dir)
-					local roofBack = (roof.Z - mat.Z) * dir - hut.roofSize.Z / 2
-					local deckFront = -LAYOUT.STAND.backStuds + HighSeats.DIMS.DECK_SIZE.X / 2
-					expect(roofBack > deckFront).to.equal(true)
-					-- ...and the ray from the DECK's eye to a target at the window passes OVER it.
-					local deckEye = HighSeats.DIMS.DECK_RISE_STUDS + HighSeats.AIM_RISE_STUDS
-					local far = LAYOUT.DISTANCES_STUDS[3] + LAYOUT.STAND.backStuds
-					local atRoofEdge = (roof.Z - mat.Z) * dir + hut.roofSize.Z / 2 + LAYOUT.STAND.backStuds
-					local rayY = deckEye - (deckEye - 5) * atRoofEdge / far
-					expect(rayY > hut.roofRise + hut.roofSize.Y).to.equal(true)
 				end
 			end
-			-- the bound is 0 at the firing point, and at the crest face it is the backstop's own
-			-- corner from the outermost mat -- 160 studs at 192 ahead, 39.81 degrees (design 3.1).
+			-- THE T6 ENVELOPE IS UNCHANGED BY TASK 322, re-asserted here: the bound is 0 at the firing
+			-- point, and at the crest face it is the backstop's own corner from the outermost mat --
+			-- 160 studs at 192 ahead, 39.81 degrees (design 3.1). `bayHalfSlope` still reads the HUT's
+			-- three surviving keys, which is why they are kept as unbuilt data.
 			expect(RangeData.sightHalfWidthAt(LAYOUT, 0)).to.equal(0)
 			local crest = RangeData.bermCrestFaceZ(Vector3.new(0, 0, 0), LAYOUT, 1)
 			local backMin, backMax = RangeData.backstopSpanFor(Vector3.new(0, 0, 0), LAYOUT)
 			expect(math.abs(RangeData.sightHalfWidthAt(LAYOUT, crest) - backMax) < 1e-6).to.equal(true)
 			expect(math.abs(backMax - (RangeData.spotSpan(LAYOUT) - backMin)) < 1e-6).to.equal(true)
+			expect(math.abs(RangeData.bayHalfSlope(LAYOUT) - 5.6 / 10.5) < 1e-9).to.equal(true)
 		end)
 
 		-- ...AND THE SAME BOUND AGAINST WHAT `Build` ACTUALLY WRITES (round 1, finding 2). The case
-		-- above is pure arithmetic and passes with the whole hut block deleted; this one reads every
-		-- post and roof OUT OF THE FOLDER by name, so deleting the producer fails it.
-		it("builds the hut where the sight bound says it may stand, and hangs the board on the roof", function()
+		-- above is pure arithmetic and passes with the whole station block deleted; this one reads
+		-- every POST out of the folder by name, so deleting the producer fails it -- and it asserts
+		-- that the hut's seven parts per station are NOT there, which is what fails on main.
+		it("builds a bare station: the post inside the sight bound, and not one hut part", function()
 			local parent = Instance.new("Folder")
 			local built = Range.Build.build({ parent = parent, row = DEV_ROW, layout = LAYOUT })
 			expect(built).to.be.ok()
 			local folder = (built :: any).folder
 			local anchor = (built :: any).anchor
 			local dir = (built :: any).downrange
-			local hut = LAYOUT.HUT
+			local gone = 0
 			for spot = 1, LAYOUT.SPOT_COUNT do
 				local mat = RangeData.matPosition(anchor, spot, LAYOUT)
-				local roof = folder:FindFirstChild(RangeData.hutRoofName(spot))
-				expect(roof).to.be.ok()
-				local roofPure = RangeData.hutRoofPosition(anchor, spot, LAYOUT, dir)
-				expect(math.abs((roof :: any).Position.X - roofPure.X) < 1e-4).to.equal(true)
-				expect(math.abs((roof :: any).Position.Z - roofPure.Z) < 1e-4).to.equal(true)
-				local roofBottom = (roof :: any).Position.Y - (roof :: any).Size.Y / 2
-				-- THE BUILT roof's underside is `roofRise` over the ground it was measured on, which
-				-- over a plate is the shelf (`shelfAt`'s own rule).
-				expect(math.abs(roofBottom - ((built :: any).shelf + hut.roofRise)) < 1e-4).to.equal(true)
-				-- EVERY BUILT POST, out of the folder, against the widest sight ray at its own Z.
-				local posts = 0
+				-- NOT ONE PART OF THE HUT, BY NAME: four columns, a roof, a fascia board and the bench.
+				local names = {
+					"Roof" .. tostring(spot),
+					"Board" .. tostring(spot),
+					"Bench" .. tostring(spot),
+				}
 				for corner = 1, 4 do
-					local post = folder:FindFirstChild(RangeData.hutPostName(spot, corner))
-					expect(post).to.be.ok()
-					posts += 1
-					local ahead = ((post :: any).Position.Z - mat.Z) * dir
-					if ahead > 0 then
-						-- TASK 313: against the SPAN's widest ray, not against the backstop fan.
-						local inner = math.abs((post :: any).Position.X - mat.X) - (post :: any).Size.X / 2
-						for _, lane in ipairs(LAYOUT.DISTANCES_STUDS) do
-							local lo, hi = RangeData.sightSpanFor(anchor, spot, LAYOUT, lane, true)
-							local sil = LAYOUT.SIGHT.silhouetteStuds
-							local worst = math.max(math.abs(hi + sil - mat.X), math.abs(mat.X - (lo - sil)))
-							expect(worst * ahead / lane <= inner + 1e-6).to.equal(true)
-						end
-					end
-					-- and it carries the roof: its top IS the roof's underside
-					local top = (post :: any).Position.Y + (post :: any).Size.Y / 2
-					expect(math.abs(top - roofBottom) < 1e-4).to.equal(true)
+					table.insert(names, string.format("HutPost%d_%d", spot, corner))
 				end
-				expect(posts).to.equal(4)
-				-- THE BOARD HANGS ON THE ROOF, and this is the case the floating sign failed
-				-- (round 1, finding 1): its TOP face is the roof's own underside, not 1.5 studs under it.
-				local board = folder:FindFirstChild(RangeData.boardName(spot))
-				expect(board).to.be.ok()
-				local boardTop = (board :: any).Position.Y + (board :: any).Size.Y / 2
-				expect(math.abs(boardTop - roofBottom) < 1e-4).to.equal(true)
-				-- ...and it is under the roof's own uprange edge, not out in the air beside it
-				local backEdge = roofPure.Z - dir * hut.roofSize.Z / 2
-				expect(math.abs((board :: any).Position.Z - (backEdge + dir * hut.boardSize.Z / 2)) < 1e-4).to.equal(
-					true
-				)
+				for _, name in ipairs(names) do
+					expect(folder:FindFirstChild(name)).to.equal(nil)
+					gone += 1
+				end
+				-- THE ONE PIECE OF HIS OWN FURNITURE LEFT IN THE BORE'S PLANE IS THE PROMPT POST, and
+				-- it is held to the SAME span bound the hut's downrange columns were (task 313).
+				local post = folder:FindFirstChild(RangeData.postName(spot))
+				expect(post).to.be.ok()
+				local ahead = ((post :: any).Position.Z - mat.Z) * dir
+				expect(ahead > 0).to.equal(true)
+				local inner = math.abs((post :: any).Position.X - mat.X) - (post :: any).Size.X / 2
+				for _, lane in ipairs(LAYOUT.DISTANCES_STUDS) do
+					local lo, hi = RangeData.sightSpanFor(anchor, spot, LAYOUT, lane, true)
+					local sil = LAYOUT.SIGHT.silhouetteStuds
+					local worst = math.max(math.abs(hi + sil - mat.X), math.abs(mat.X - (lo - sil)))
+					expect(worst * ahead / lane <= inner + 1e-6).to.equal(true)
+				end
 			end
+			expect(gone).to.equal(7 * LAYOUT.SPOT_COUNT)
 		end)
 
 		-- L3/L4. THE MOWN LANE IS A PART NOTHING CAN MEET: a ray, a bullet, a boar's route and a
@@ -6109,31 +6113,40 @@ return function()
 			expect(LAYOUT.SURFACE.BERM).to.equal(Enum.Material.Ground)
 		end)
 
-		-- THE NUMBER BOARD SAYS THE STATION'S OWN NUMBER, read off the instance the player reads --
-		-- and asserted at TWO different stations, because one pick cannot tell a real label from a
-		-- hard-coded word (V298).
-		it("prints each station's own number on its board", function()
+		-- THE STATION'S NUMBER SAYS ITS OWN NUMBER, read off the instance the player reads -- and
+		-- asserted at THREE different stations, because one pick cannot tell a real label from a
+		-- hard-coded word (V298). SINCE TASK 322 IT IS ON THE PROMPT POST, not on the hut's fascia
+		-- board: the board does not exist, so looking for it by name is the line that fails on main.
+		it("prints each station's own number on its post, on both faces, and no board at all", function()
 			local parent = Instance.new("Folder")
 			local built = Range.Build.build({ parent = parent, row = DEV_ROW, layout = LAYOUT })
 			local folder = (built :: any).folder
 			for _, spot in ipairs({ 1, 4, 6 }) do
-				local board = folder:FindFirstChild(RangeData.boardName(spot))
-				expect(board).to.be.ok()
-				local faces = 0
-				for _, gui in ipairs((board :: any):GetChildren()) do
+				expect(folder:FindFirstChild("Board" .. tostring(spot))).to.equal(nil)
+				local post = folder:FindFirstChild(RangeData.postName(spot))
+				expect(post).to.be.ok()
+				local faces, seen = 0, {}
+				for _, gui in ipairs((post :: any):GetChildren()) do
 					if gui:IsA("SurfaceGui") then
+						expect(gui.Name).to.equal(RangeData.NUMBER_GUI_NAME)
 						faces += 1
-						local label = gui:FindFirstChild("Number")
+						seen[(gui :: any).Face] = true
+						local label = gui:FindFirstChild(RangeData.NUMBER_LABEL_NAME)
 						expect(label).to.be.ok()
 						expect((label :: any).Text).to.equal(tostring(spot))
-						expect((label :: any).Text).to.equal(RangeData.boardText(spot))
+						expect((label :: any).Text).to.equal(RangeData.stationNumberText(spot))
+						expect((label :: any).TextColor3).to.equal(LAYOUT.POST.numberColor)
 					end
 				end
-				-- BOTH FACES, so the digit reads walking in and standing at the bench
+				-- BOTH +-Z FACES, so the digit reads walking in from the lodge whichever way the ROW
+				-- points -- and they are the two DIFFERENT faces, not one gui written twice.
 				expect(faces).to.equal(2)
+				expect(seen[Enum.NormalId.Front]).to.equal(true)
+				expect(seen[Enum.NormalId.Back]).to.equal(true)
 			end
 			-- and the three are three different strings, so the case bites
-			expect(RangeData.boardText(1)).never.to.equal(RangeData.boardText(4))
+			expect(RangeData.stationNumberText(1)).never.to.equal(RangeData.stationNumberText(4))
+			expect(RangeData.stationNumberText(4)).never.to.equal(RangeData.stationNumberText(6))
 		end)
 
 		-- WAS "climbs a man onto the deck and back down again" and "hangs a Climb on E ... and a
