@@ -111,6 +111,17 @@ Grid.PREVIEW_CELL = "C1"
 -- because relief fails, so the tie-break is the one that breaks it least -- D2 stand 3 scores +160
 -- at relief 9.88 against stand 12's +155 at 2.79.
 --
+-- **A FLANK ROW IS SHARED GROUND AND ITS NUMBERS REPEAT ON PURPOSE** (round 1 finding 3). Two
+-- neighbouring cells have ONE road between them, so B1's east flank stand 12 and C1's west flank
+-- stand 8 are THE SAME WORLD POINT (-4455, -4767), and so are C1 13 / D1 9 (-3343, -4547) and
+-- C1 15 / D1 11 (-3343, -4107). Three triplets therefore read identically across three cells: that
+-- is one measurement of one piece of ground quoted twice, not a copied row.
+--
+-- **AND NOT ONE CELL HAS A TOWER ON EVERY SIDE**, which design 6.1 asks for ("at least one per
+-- side"). DECLARED, not hidden: the selection rule the design itself states -- rank by gain, take
+-- while under the cap, no two adjacent, three thresholds -- has no per-side term, so it cannot
+-- produce one, and the ground is what it is. The design correction is queued, not invented here.
+--
 -- A later task that GENERATES the relief writes the same fields from its own heightfield and no
 -- assertion in `grid.spec` moves. `recipe` (327c) and `animals` (327h) are not here yet.
 Grid.CELLS = table.freeze({

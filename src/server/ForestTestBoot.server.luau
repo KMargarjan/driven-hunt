@@ -152,8 +152,12 @@ print(
 
 -- ONE CELL'S STANDS AND TOWERS, UNDER THE PREVIEW (task 327b, design 17's 327b). Karen's own line
 -- for this task is *"she stands on all 15 stands of one cell and climbs its towers"*, and nothing
--- else in this world is touched: these are the live drive's own two folders, both level-triggered,
--- so the first drive of the session rebuilds them for the layout it promotes.
+-- else in this world is touched: these are the live drive's own two folders. THERE ARE THEREFORE
+-- TWO BUILDERS OF `ForestMarkers` WHILE THE PREVIEW IS ON -- this block and the drive's `markers`
+-- closure -- and that is safe only because `Markers.build` clears the folder first and
+-- `Seats.ensure` is level-triggered on the layout's name, so the second build is the same cell.
+-- The flag forces the cell below, so the two agree about WHICH cell; they differ only in the
+-- beater pad's x.
 --
 -- SEATS BEFORE MARKERS, WHICH IS THE WHOLE OF TASK 218 (design 9.3): `Markers.build` then asks the
 -- seat where its deck is instead of reading that column from the sky and refusing the stand.
@@ -163,8 +167,10 @@ print(
 if gridPreviewOn then
 	local cellLayout = Grid.layoutFor(Grid.PREVIEW_CELL)
 	local seats = ForestTest.Seats.ensure(cellLayout)
-	-- THE MIDDLE OF THE MAIN LINE, which is where `hunterStandX` aims with nobody playing: the
-	-- beater pad is derived from it, and this cell has no pick to read.
+	-- THE MIDDLE OF THE MAIN LINE. It is NOT what `hunterStandX` answers with nobody playing --
+	-- that is `PICK.defaultIndex` 5, 150 studs east (round 1 note) -- and it does not need to be:
+	-- the drive's own closure rebuilds this set a second later with the number it wants, and the
+	-- only thing derived from it here is the beater pad in the console line below.
 	local middleX = Data.standX(math.ceil(Grid.CONFIG.mainStandCount / 2), cellLayout)
 	local set = ForestTest.Markers.build(middleX, cellLayout)
 	print(

@@ -1374,10 +1374,6 @@ local function boarsAlive(): number
 	return alive
 end
 
--- HOW MANY STANDS THIS DRIVE PLACE STATES (task 323). THE WORLD'S ANSWER, not `#markerSet.posts`: a
--- post whose ground was refused is absent from the post list (measured in the forest: `8/9 stands
--- (1 refused)`), so validating a claim against the posts would refuse a stand the player can see on
--- the map. With no injection the posts ARE the stands, which is the DEV place.
 -- WHICH POSTS ANSWER A LINE QUESTION, and it is ONE definition (task 327b, design 6.4). A cell's
 -- post list is all fifteen stands on three sides; a flank post sits 340 studs up the cell, so
 -- letting one answer "where is the hunters' line" would call a beater through 340 studs early, walk
@@ -1394,6 +1390,10 @@ local function linePostsOf(set): { BasePart }?
 	return set.linePosts or set.posts
 end
 
+-- HOW MANY STANDS THIS DRIVE PLACE STATES (task 323). THE WORLD'S ANSWER, not `#markerSet.posts`: a
+-- post whose ground was refused is absent from the post list (measured in the forest: `8/9 stands
+-- (1 refused)`), so validating a claim against the posts would refuse a stand the player can see on
+-- the map. With no injection the posts ARE the stands, which is the DEV place.
 local function standCount(): number
 	if world and world.standCount then
 		return tonumber(world.standCount()) or 0
