@@ -1519,6 +1519,20 @@ return function()
 				expect(math.abs(leap.GRAVITY - workspace.Gravity) < 0.01).to.equal(true)
 			end)
 
+			it("bounds ONCE per crossing even though the Brain's window is longer (task 325)", function()
+				-- MEASURED at the first cut in her place: a stag bounded at t 44.66, landed, took
+				-- two frames of the run clip and bounded AGAIN at t 45.21 off the same crossing --
+				-- the Brain holds one window for every kind (0.55 s) and the stag's own is 0.49.
+				local leap = CONFIG.MODEL.LEAP
+				local longest = 0
+				for _, kind in ipairs(DEER_KINDS) do
+					local _, _, window = Body.leapPlan(kind, leap)
+					longest = math.max(longest, window)
+				end
+				-- The slack that made the second bound possible is real and is why the latch exists.
+				expect(leap.SECONDS > longest).to.equal(true)
+			end)
+
 			it("starts the bound at the clip's own take-off frame (task 325)", function()
 				local leap = CONFIG.MODEL.LEAP
 				expect(Body.leapStartAt(leap)).to.equal(leap.TAKEOFF_SECONDS)

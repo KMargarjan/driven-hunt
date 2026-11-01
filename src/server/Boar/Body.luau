@@ -562,6 +562,9 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 		-- window for every kind because it does not know which animal this is; `Body` does, and a
 		-- calf is airborne for 0.25 s where a stag is for 0.35. Counted down in `stepVisual`.
 		leapFor = 0,
+		-- ...AND WHETHER THIS CROSSING'S BOUND IS ALREADY SPENT. One bound per crossing is Karen's
+		-- rule; the Brain's `_leapArmed` is its other half.
+		leapSpent = false,
 		-- WHICH CLIP IS FROZEN ON ITS LAST FRAME, or nil. A held clip's speed is deliberately NOT the
 		-- clip's rate, so `play` must know not to "correct" it (review round 1, finding 1).
 		heldClip = nil :: string?,
@@ -1863,10 +1866,24 @@ function Body.stepVisual(handle, dt: number, info, config)
 	-- kind's window; `handle.leapFor` is the window THIS kind's airtime actually needs, set on the
 	-- frame the bound started. While it has not started yet (`handle.clip ~= "leap"`) the Brain's
 	-- answer is the whole truth -- that is what begins the bound.
+	-- ...AND ONCE SPENT IT STAYS SPENT UNTIL THE BRAIN DROPS `leaping`. MEASURED in her place at the
+	-- first cut: a stag bounded, landed, took two frames of the run clip and BOUNDED AGAIN off the
+	-- same crossing (t 44.66 then t 45.21), because the Brain holds its one window 0.06 s longer
+	-- than the stag's own and a gate that only asked "is the leap clip playing" re-opened the
+	-- instant it stopped. Karen's rule is one bound per crossing, and `_leapArmed` is the Brain's
+	-- half of it; this is Body's.
+	--
 	-- `or 0` BECAUSE A HANDLE IS NOT ALWAYS `Body.create`'S: a spec drives `stepVisual` on a table
 	-- it wrote itself (`boar_model.spec`), and a field added to the real handle is nil on those.
-	handle.leapFor = math.max(0, (handle.leapFor or 0) - dt)
-	local leaping = info.leaping == true and (handle.clip ~= "leap" or handle.leapFor > 0)
+	if info.leaping ~= true then
+		handle.leapSpent = false
+	elseif (handle.leapFor or 0) > 0 then
+		handle.leapFor = math.max(0, handle.leapFor - dt)
+		if handle.leapFor <= 0 then
+			handle.leapSpent = true
+		end
+	end
+	local leaping = info.leaping == true and handle.leapSpent ~= true
 
 	local name, rate = Body.clipFor({
 		collapsed = handle.collapsed,
