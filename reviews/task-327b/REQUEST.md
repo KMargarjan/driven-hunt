@@ -1,131 +1,118 @@
 # Task 327b: THE STANDS AND THE TOWERS
 
 Task: 327b
-Round: 2
+Round: 3
 Base: e7131a94 (main, with 327a merged as #310)
-Code commit: 357efc85a49fcb55f2e52681be9022ac3d5a179c
+Code commit: 2b2a55d16a23065cb4efc1e0f532f737e56cde4f
 
 ```
-[harness] PASS: 34/34 checks @ 357efc85a49fcb55f2e52681be9022ac3d5a179c (clean tree) scope=all
-[harness2] PASS: 36/36 checks @ 357efc85a49fcb55f2e52681be9022ac3d5a179c (clean tree)
+[harness] PASS: 34/34 checks @ 2b2a55d16a23065cb4efc1e0f532f737e56cde4f (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 2b2a55d16a23065cb4efc1e0f532f737e56cde4f (clean tree)
 ```
 
-**THE KNOWN INTERMITTENT FIRED TWICE AND IS NAMED**: `deer_hitbox.spec:659`
-(`calf: the skull at (0.01, 1.50, -1.02) answered nil, wanted head`) failed at `acc913b4` (dirty, a
-stray RESULT.md) and again at `357efc85`, both with Karen's Forest Test Studio open -- the condition
-the dispatch names as making it worse. The third run of the SAME commit `357efc85`, with that Studio
-closed, is the PASS above. Nothing this task touches is near the deer's hit boxes.
+Both ran ONCE and passed; no known flake and no known intermittent fired. `test2` is required because
+the BRANCH touches `src/server/Match/` (round 1); round 3's own files do not.
 
-`test2` is required and was run: `src/server/Match/init.luau` is inside `TWO_PLAYER_PATHS`.
-
-Built to `docs/design/grid-map.md` section 17's **327b**. `GRID_PREVIEW` stays OFF in git.
+This round is the Director's decision **C** on round 2's single finding (`ESCALATE.md`, top entry,
+commit e3dbf0f1): keep the preview cell as the live layout and close ONLY the deal, plus the flag's
+`why` sentence and `Markers.build`'s missing entry. Everything else in round 2's notes is queued as
+**327b-notes**: the beater walk is 327d, `MapUi` is 327f, the flank facing is 327g.
 
 ## Claims
 
-1. **`ForestTest.Layout` gains four OPTIONAL fields and no shipped row grows one** (design 3.2) --
-   `sides`, `beaterNorthStuds`, `fieldNorthStuds`, `cellOf`, plus the `Sides` type, in
-   `src/shared/ForestTest/init.luau`. Verify: `grid.spec` case 2 ("the four shipped places") asserts
-   all four are nil on `road`/`edge`/`ride`/`track` AND re-derives `standX`, `standPosition`,
-   `standSpan`, `beaterNorthStuds`, `exitZOf`, `boundsOf`, `fieldFor`, `corridorOf` from the record's
-   own pre-327b arithmetic, with the road's five field numbers pinned as literals.
-2. **`Grid.layoutFor` is the one place a cell becomes a layout**, memoised, `standCount` 15,
-   `standSpacing` the MAIN line's, `halfSpanStuds` = `cellWidth / 2` (`src/shared/Grid/init.luau`).
-   Verify: `grid.spec` case 4.
-3. **`ForestTest.standX` / `standPosition` delegate to `Grid` when a layout has `sides`; `standSpan`
-   is then the MAIN line's.** Verify: case 4 asserts the two agree to 1e-9 on indices 1..7 of all
-   eight cells (the old `(15+1)/2` middle would put stand 1 at `centre.X - 1050`), that flank stands
-   are off the main road and on a flank road, and case 8 that the span is `centre.X +- 450`.
-4. **A flank post never answers a line question** (design 6.4): `Markers.Set.linePosts` in
-   `src/server/ForestTest/Markers.luau`, read through ONE `linePostsOf` in `src/server/Match/init.luau`
-   at **five** call sites. Verify: `grid.spec`'s SECOND case under "the line question" (round 1
-   finding 1) builds a REAL `Markers.Set` for cell A1 and drives two of the five sites --
-   `Match.gatherSpotFor` and `throughSpotFor`, the two that read a middle post -- asserting the
-   answer is at the MAIN road's z and naming the flank z it is not; revert `linePostsOf` to
-   `markers.posts` and both flip. The shipped `road` layout is asserted unmoved in the same case.
-   The first case still shows the DEFECT with hand-built lists: handed all fifteen posts,
-   `Match.lineReferenceFor` answers the flank post 340 studs up the cell and `crossedLine` calls the
-   beater through at z +200. **DEVIATION:** the design names four sites;
-   `Match.throughSpotFor` is `gatherSpotFor`'s arithmetic with its own number and had the same
-   `posts[ceil(#posts/2)]` defect, so it is the fifth, named in its own comment.
-5. **`hunterStandX` is clamped into the main line's span** (`src/server/ForestTest/init.luau`).
-   Verify: case 8's SECOND case (round 1 finding 2) promotes the cell with
-   `ForestTest.layoutForDrive(n, "A1")`, locks a flank pick and asserts `ForestTest.hunterStandX()`
-   itself -- the live path, reachable because `forcedLayout` now takes a cell id -- against
-   `span.minX` / `span.maxX`, and that all seven main stands are unmoved. Delete `onLine` and it
-   answers `centre.X - 556`. The first case keeps the span's own geometry.
-6. **The release clamp stops biting on a cell** -- case 10 walks every `SCHEDULE.drive` row at the
-   cell's own `beaterNorthStuds` (1430) and asserts no row is pinned to `minNorthStuds` and every row
-   keeps `leadStuds` of lead, AND that today's road at `Bots.CONFIG.WALK_SPEED` still pins rows.
-7. **`Grid.standPosition` / `sideOf` range-check the index** (327a note (d), because 327b wires a
-   client index into this seam). Verify: case 4's four `pcall`s (16, 0, 7.5, 99) all answer false.
-8. **THE TOWER MEASUREMENT IS THE MEASUREMENT** (design 6.1, task 218's rule and instrument): all
-   120 stands measured in a **Play** session in Karen's place (`DrivePlaces=3`) with
-   `driven-hunt-runs/327b-towers.luau` -- `218-sight2.luau` fed `Grid.standPosition`'s own values.
-   `Grid.CELLS[*].towers` carries the result with each tower's gain/spread/relief in the row;
-   `HighSeats.STANDS` takes the eight rows from `Grid.towerStands`, not a second copy. Verify:
-   `high_seats.spec` "takes a measured tower set in every grid cell too".
-   **ROW 2 IS ALL RELIEF-RELAXED and declared** (`towersRelaxed`, design 6.2 rule 4, as task 218
-   declared `edge`): no stand in A2/B2/C2/D2 rolls under `JUMP_RELIEF_STUDS` inside its own circle.
-   **DEVIATION:** a relaxed cell takes the LOWEST-RELIEF candidate, not the highest-gain one (D2
-   stand 3 is +160 at relief 9.88 against stand 12's +155 at 2.79).
-   **ROUND 1 FINDING 3 -- the three repeated triplets are ONE piece of ground quoted twice.**
-   Neighbouring cells share a flank ROAD, so these pairs are the SAME world point, and the probe's
-   own output says so: `B1 12 east x=-4455 z=-4767 ... gain=+80 spread=0.00 relief=0.00` and
-   `C1 8 west x=-4455 z=-4767 ... gain=+80 spread=0.00 relief=0.00`; `C1 13 east x=-3343 z=-4547
-   gain=+244 spread=0.00 relief=0.02` and `D1 9 west x=-3343 z=-4547 gain=+244 spread=0.00
-   relief=0.02`; `C1 15 east x=-3343 z=-4107 gain=+95 spread=0.30 relief=1.42` and `D1 11 west
-   x=-3343 z=-4107 gain=+95 spread=0.30 relief=1.42`. The SELECTION is each cell's own: B1's only
-   candidate clearing all three thresholds is 12; C1's are 8, 13, 15 (its 10 and 11 are refused at
-   relief 5.04 and 1.94); D1's are 9 and 11 (its 12 and 14 refused at 3.67 and 2.38). Said at the
-   rows in `Grid.CELLS`. **Every cell's eight rows, from the same output:** A1 `8 west +125/0.20/1.67`;
-   B1 `12 east +80/0.00/0.00`; C1 `8 west +80/0.00/0.00, 13 east +244/0.00/0.02, 15 east +95/0.30/1.42`;
-   D1 `9 west +244/0.00/0.02, 11 west +95/0.30/1.42`; A2 `7 main +88/1.01/3.57`; B2 `2 main
-   +163/1.08/2.13`; C2 `14 east +141/1.66/6.70`; D2 `12 east +155/0.87/2.79`.
-   **A THIRD DEVIATION, now declared** (round 1 note): design 6.1 asks for "at least one per side"
-   and NOT ONE cell has it. The selection rule the design states has no per-side term, so it cannot
-   produce one; the design correction is queued, not invented here.
-9. **The preview cell IS the live place while the flag is on** (`src/server/ForestTestBoot.server.luau`,
-   `layoutByName` in `src/server/ForestTest/init.luau`). **This was MEASURED, not reasoned about:**
-   the boot built C1's posts and towers and a probe a minute later read the ROAD's nine posts at
-   (2430, -2120) with stands 10-15 missing -- the drive's own level-triggered `markers` closure
-   rebuilds both folders once a second for the LIVE layout. A second builder of those folders is a
-   preview nobody can walk, so the composition root forces the cell and the one owner builds it.
-10. **Live in her place** (`driven-hunt-294` on rojo :34874; the panel read `localhost:34874`, and
-    the boot printed a 327b-only line). Zero console errors. It ran at `287026dd`, and **round 2's
-    `src/` changes are COMMENTS ONLY** -- `git diff -w 287026dd..357efc85 -- src/` with comment lines
-    excluded is EMPTY -- so this evidence covers the code commit's executable code exactly.
-    `[ForestTestBoot] grid preview cell C1: 15 of 15 post(s) (7 line), 3 tower(s) at {8,13,15},
-    line=true, complete=true` / `[seats] C1: 3 built, 0 refused, worst foot gap -0.30 studs` /
-    `[ForestTest] layout=C1 (override): 15 stands 150 apart, centre (-3899, -5107), exit -5357`.
-    **Rule E / L-086, worst case over every item:** each of the 12 ground stands' post bottoms is
-    -0.50..+0.65 studs against the terrain under its worst footprint sample; the 3 tower stands read
-    +12.00..+12.33 because their post sits ON THE DECK by design; every leg and ladder of all three
-    towers is **0.25..0.30 studs INTO the ground** (two instruments agreeing: `Seats`' own
-    `worst foot gap -0.30` and `327b-seatlow.luau`). Nothing is within 8 studs of any of the 120
-    stands in any cell (`partsNear=0`).
+1. **On a layout with `sides`, the walk IS `Grid.standWalk`** -- `ForestTest.standWalk`
+   (`src/server/ForestTest/init.luau`) returns `Grid.standWalk(chosen.layout.name)` when
+   `chosen.layout.sides ~= nil`, and that is the list `ForestTestBoot`'s `placement` hands
+   `HighSeats.dealLine`. Verify: `grid.spec` / "the stand walk" / "deals the first hunter of a cell
+   the MAIN stand hunterStandX aims at" promotes `Grid.PREVIEW_CELL` and asserts
+   `ForestTest.standWalk()` equals `Grid.standWalk(id)` entry for entry.
+2. **`standIndexFor` reads that same walk, so there is still ONE walk per layout** --
+   `ForestTest.standIndexFor` indexes `ForestTest.standWalk()` modulo `#walk` on a cell. That is what
+   keeps `ForestTestBoot`'s fallback (`deal[index] or ForestTest.standIndexFor(index)`) and
+   `Match`'s bot order from disagreeing with the deal. Verify: the same case asserts
+   `deal[1] == ForestTest.standIndexFor(1)`.
+3. **The first hunter of a cell is dealt a MAIN stand** -- `Grid.sideOf(id, deal[1])` is `"main"`,
+   asserted for BOTH entitlement shapes: `entitled = nil` (today's world) and `entitled = {false}`
+   (the hunter barred from every seated stand), because C1's three seats are flank posts. Round 2's
+   finding named stand 8 (west flank) and stand 7 respectively.
+4. **...and it is the stand `hunterStandX()` aims at** -- `ForestTest.defaultPickIndex` is the walk's
+   first stand, and `ForestTest.hunterStandX` and `ForestTest.openPick` both read it. Verify: the
+   same case asserts `ForestTest.hunterStandX()` is `Data.standX(deal[1], layout)` within 1e-6.
+5. **FAIL FIRST, for claims 1-4.** With `ForestTest.standWalk`'s `sides` arm removed, the cell's walk
+   is the derived centre-out over 15 and `deal[1]` is **8**, so claim 1's entry-for-entry comparison,
+   claim 3's `"main"` and claim 2's equality all fail; with `defaultPickIndex`'s `sides` arm removed,
+   `hunterStandX()` is `standX(5)` = `centre.X + 150` and claim 4's `near` fails by 150 studs.
+   Argued by READING, not by a reverted run: the case was written against the round-2 verdict's own
+   arithmetic, and its live counterpart (claim 7) is the measurement.
+6. **The ROAD's branch is unmoved (L-093)** -- neither function's `else` arm changed, and
+   `defaultPickIndex` on a layout without `sides` is `math.min(Data.PICK.defaultIndex,
+   standCount)`, which is what every caller got before. Verify: `forest_stand.spec` still pins
+   `standIndexFor(1) == Data.PICK.defaultIndex == 5`, 2 -> 4, 3 -> 6 and the wrap; and the new case
+   re-asserts `standIndexFor(1)` and `defaultPickIndex()` are both 5 after it restores the default
+   layout. The full suite is green (34/34).
+7. **LIVE PROOF, in Karen's Forest Test at this code commit** (driven-hunt-294 on rojo :34874,
+   `DHFlag_GRID_PREVIEW` set as a place attribute for the proof and removed after; her other 14
+   `DHFlag_*` read identical before and after). One Play session, one human hunter:
+   - boot: `grid preview cell C1: 15 of 15 post(s) (7 line), 3 tower(s) at {8,13,15}, line=true,
+     complete=true` and `layout=C1 (override)`;
+   - the server's own lines: *"is walking to stand 4 this intermission"* and *"has the pick window
+     open on stand 4"*;
+   - the hunter's real `HumanoidRootPart` at **(-3899.0, 111.7, -5107.0)**, which is the live
+     `ForestMarkers.Stand4` part at **(-3899.0, -5107.0)** -- cell C1's main-road centre;
+   - the three DriveBots at **-4049 / -3749 / -4199**, all at z = -5107, i.e. main stands **3, 5, 2**
+     -- `Grid.standWalk("C1")` = 4,3,5,2,... exactly;
+   - a probe of the synced code in her place: `dealt=4 side=main default=4 hunterStandX=-3899.0
+     standPos=(-3899.0,-5107.0) Stand4Marker=(-3899.0,-5107.0) deal4=4,3,5,2`.
+   The dealt stand and `hunterStandX()` are the same main stand. Whole console: 0 "Stack Begin",
+   0 "attempt to", 0 "invalid argument".
+8. **`GRID_PREVIEW.why` now says what the flag does** (`src/shared/Flags/init.luau`): one cell built
+   and made the LIVE layout with its fifteen Stand markers and three high seats, it is for WALKING
+   the cell, and a drive in it is not judged until 327d because the beaters still walk
+   `Bots.CONFIG.WALK_SPEED` 3.1 rather than the 5.2 a 1430-stud cell needs. Verify: read the row.
+9. **`Markers.build` refuses a set with no main-line post** (`src/server/ForestTest/Markers.luau`):
+   `#linePosts == 0` adds a `forest:line-posts (0 of %d)` entry to `missing` AND is a term of
+   `complete`. The second half is not decoration -- `Phase.waitingFor` reads `missing` only while
+   `markersComplete` is false, so the entry alone would be a string nobody acts on. Round 2's note
+   asked for the entry; this is the entry plus the thing that makes it bite. Verify: read
+   `Markers.build`'s tail; the live C1 set has 7 line posts and is `complete=true` (claim 7).
+10. **Two comments the change made false were rewritten, not left** -- `ForestTestBoot`'s `middleX`
+    comment (*"It is NOT what `hunterStandX` answers"*) and `placement`'s header (*"a solo hunter
+    gets stand 5"*). Verify: read both in `src/server/ForestTestBoot.server.luau`.
 
 ## What I could not verify
 
-- **Karen has not walked it.** Rule 5 frames are mine, not hers.
-- **No "ring of 15 stands" aerial.** A post is a 6x1x6 pad at the ground, and at 250-420 studs the
-  roads themselves wash out (streaming + Atmosphere) -- 327a recorded the same gap. The ring is
-  proven by number (15 of 15 posts, each measured) and by three ground frames, not by an aerial.
-- **The road paint is still slow**: 5.82-6.37 s against the design's `< 4.0 s` (327a note (e)).
-  Unchanged by this task and still queued.
-- **With `GRID_PREVIEW` on, the drive's animals follow the cell** (`promote` swaps the field): the
-  stand-5 frame has a sounder on cell C1's road. Correct behaviour, not asked for by this task.
+- **Rule 5 is MINE, not Karen's.** She has not walked the cell. The frame I took is the hunter's own
+  eye at stand 4 (`<runs-dir>/327b-r3-aerial.png`, the client view, camera at the character's eye
+  height): he stands on the bare dirt of the main road with the yellow pick-edge ring round him and
+  open grass running north into the cell, HUD `DRIVE 1 / 2:20 / HUNTER`, no error banner.
+  `ftplay.py capture` returns the PLAYER's view and ignores its camera arguments in Play, so there is
+  **no aerial of the ring of 15** this round either.
+- **`hunterStandX()` could not be read off the LIVE module instance.** The StudioMCP probe thread
+  gets a FRESH `ForestTest` (it answered `layout=road` on the first attempt), so claim 7's
+  `hunterStandX=-3899.0` is the synced code in her place computing it with C1 promoted in the
+  probe's own copy and no picks -- not a read of the running server's own variable. The instance
+  facts beside it (the hunter's root part, the Stand4 marker, the three bots) are the running
+  world's, and they agree with it.
+- The `#linePosts == 0` path was not reached live: every C1 stand built (15 of 15, 7 line).
 
-ANSWERED: L-136 -- `weapon_shot.spec:1490` never fired. The two FAILs in round 1's first gate run
-were MY OWN cases (`grid.spec:361`, `:528`), fixed in `287026dd` and named in its message. The known
-INTERMITTENT `deer_hitbox.spec:659` fired twice in round 2 and is named in full at the top of this
-request, with the third run of the same commit as the PASS.
-ANSWERED: L-127 -- every claim above is MET or carries its own NOT PROVEN line; see the report.
-ANSWERED: L-162 -- the first live proof ran at `44292a4d`; the code commit moved to `287026dd`
-(tests only), so **the whole live proof was re-run at `287026dd`** and every number above is that
-run's. Round 2 moved it to `357efc85`, whose `src/` diff against `287026dd` is comments only
-(pasted in claim 10), so no executable line of the proven code changed after it.
-ANSWERED: L-014 -- `driven-hunt-karen` was never checked out; only `driven-hunt-294` moved, and it
-is back at `e7131a94`.
-ANSWERED: L-139 -- the switch back was verified **two ways**: the Rojo panel reads `localhost:34873`,
-AND with `GRID_PREVIEW` still ON a boot there printed no `grid preview cell` line, `layout=road
-(rotation)`, and `ForestMarkers` held the ROAD's nine posts at (2430, -2120).
+## Answers to the dispatch's learning flags
+
+- ANSWERED: L-136 -- no flake fired. `weapon_shot.spec.luau:1490` passed; `test` and `test2` each
+  ran once and passed at the code commit, so there is no FAIL line to call known.
+- ANSWERED: L-127 -- MET / NOT PROVEN is per item in the report's handover block; the two NOT PROVEN
+  items are named under "What I could not verify" above.
+- ANSWERED: L-162 -- every live reading in claim 7 is at `2b2a55d1`, checked out in
+  `driven-hunt-294` and served on :34874 before the Play session started.
+- ANSWERED: L-014 -- `driven-hunt-karen` was never checked out, touched or served; the port switch
+  was in the Studio panel only.
+- ANSWERED: L-139 -- the switch back to :34873 is verified two ways: the Rojo panel reads
+  `localhost:34873`, connected; and `Get-NetTCPConnection` on the Forest Test Studio process shows
+  two ESTABLISHED connections to 127.0.0.1:34873 and none to :34874.
+- ANSWERED: L-095 -- round 1's prompt was re-read in full and its route followed, including the
+  port-script fallback and `shot.ps1`. `rojo-port.sh`'s baked click points are STALE (Disconnect is
+  at y=862, not 900); the blind run missed every button and only changed the Explorer selection, so
+  every click after it was computed off a fresh frame.
+- ANSWERED: L-093 -- claim 6: the road branch keeps `forest_stand.spec`'s cases and the new case
+  re-asserts it after restoring the default layout, so the `if sides` fork has both arms tested.
+- ANSWERED: L-028 -- the FAIL-FIRST argument is claim 5, and it says on its own line that it is
+  argued by reading rather than by a reverted run.
