@@ -16,7 +16,12 @@
 -- THIS IS A PLAYTEST WORLD, NOT THE GAME'S MAP. The real map is `Map` + `MapGen` and still builds
 -- in the DEV place. This describes a hand-built place the Director made from a bought terrain, and
 -- its whole job is to let one person stand on a road and shoot things that cross it.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+
+-- THE GRID'S EIGHT CELLS (task 327b). ONE DIRECTION ONLY: this file requires `Grid`, `Grid` never
+-- requires this one -- `drive-places.md` 1.2 item 1's rule applied to the new seam (design 4.6).
+local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
 
 local ForestTest = {}
 
@@ -68,6 +73,30 @@ export type Layout = {
 	-- How far the line's ground runs either side of `centre.X`: half the stand span plus a run-out,
 	-- so a boar fleeing past the end stand has ground to do it on.
 	halfSpanStuds: number,
+
+	-- FOUR NEW FIELDS, ALL OPTIONAL, AND `nil` ON ALL FOUR SHIPPED ROWS (task 327b, design 3.2).
+	-- `drive-places.md` 1.2 item 1 forbade adding a field here; `reviews/task-327/BRIEF.md`
+	-- overrides it, and the reason the old rule existed is honoured instead -- the record stays the
+	-- one world-GEOMETRY seam and nothing about dressing, seats or picks enters it.
+	-- `grid.spec` case 2 asserts all four are nil on `road`/`edge`/`ride`/`track` and that every
+	-- function below still answers value for value for them.
+
+	-- WHICH SIDES CARRY STANDS. nil means "one side, `standCount` stands", which is today.
+	sides: Sides?,
+	-- WHERE THE BEATERS MUSTER. nil = `LINE.spawnNorthStuds + BEATER.behindLineStuds` (580).
+	beaterNorthStuds: number?,
+	-- THE BOAR FIELD'S NORTH EDGE. nil = `DRIVERS.startNorthStuds + 200` (900).
+	fieldNorthStuds: number?,
+	-- WHERE IN THE GRID, for `Grid.seedFor` and the map. nil = this layout is not a cell.
+	cellOf: { row: number, column: number }?,
+}
+
+-- THE STAND SIDES OF A CELL (design 3.2). `main` is the downwind road -- the hunters' line, and the
+-- drive's axis -- and the two `flanks` are the cell's east and west roads. The upwind road carries
+-- NO stand: that is where the beaters muster (Karen's open call K-1).
+export type Sides = {
+	main: { count: number, spacingStuds: number },
+	flanks: { count: number, spacingStuds: number, firstStuds: number, offsetStuds: number },
 }
 
 -- THE SHAPE EVERY LAYOUT SHARES. The wavelength and the lane width are the same in all three, so
@@ -380,6 +409,12 @@ end
 -- line, so every one of them is on it.
 function ForestTest.standX(index: number, layout: Layout?): number
 	local resolved = layout or ForestTest.ROAD_LAYOUT
+	if resolved.sides ~= nil then
+		-- A CELL'S STANDS ARE ON THREE SIDES, so an index is not an offset along one line any more
+		-- and this arithmetic would answer `centre.X + (index - 8) * 150` for all fifteen of them --
+		-- 1,050 studs out at the ends, and the wrong side for eight of them (design 6.2).
+		return Grid.standPosition(resolved.name, index).X
+	end
 	local middle = (resolved.standCount + 1) / 2
 	return resolved.centre.X + (index - middle) * resolved.standSpacing
 end
@@ -387,6 +422,12 @@ end
 -- WHERE A HUNTER STANDS, as a world position on the line.
 function ForestTest.standPosition(index: number, layout: Layout?): Vector3
 	local resolved = layout or ForestTest.ROAD_LAYOUT
+	if resolved.sides ~= nil then
+		-- DELEGATED WHOLE (design 6.2), because a flank stand's z is NOT the road's: it is the main
+		-- road plus the set-back plus the spacing. For a MAIN index the two agree exactly, by
+		-- construction and by assertion (`grid.spec` case 4).
+		return Grid.standPosition(resolved.name, index)
+	end
 	local x = ForestTest.standX(index, resolved)
 	return Vector3.new(x, resolved.centre.Y, ForestTest.roadZ(x, resolved))
 end
@@ -395,9 +436,13 @@ end
 -- line", so no caller re-derives it from the count and the spacing.
 function ForestTest.standSpan(layout: Layout?): { minX: number, maxX: number }
 	local resolved = layout or ForestTest.ROAD_LAYOUT
+	-- THE MAIN LINE'S SPAN, AND ONLY IT, ON A CELL (design 6.4): the last index is 15, which is an
+	-- EAST FLANK stand 556 studs off the centre -- so `standX(standCount)` would widen this
+	-- rectangle onto the flank roads, and `corridorOf` and `hunterStandX` both read it.
+	local last = if resolved.sides ~= nil then resolved.sides.main.count else resolved.standCount
 	return {
 		minX = ForestTest.standX(1, resolved),
-		maxX = ForestTest.standX(resolved.standCount, resolved),
+		maxX = ForestTest.standX(last, resolved),
 	}
 end
 
@@ -987,7 +1032,7 @@ end
 function ForestTest.beaterStart(standX: number, sideOffset: number?, layout: Layout?): Vector3
 	local resolved = layout or ForestTest.ROAD_LAYOUT
 	local x = standX + (sideOffset or 0)
-	return Vector3.new(x, resolved.centre.Y, ForestTest.roadZ(x, resolved) + ForestTest.beaterNorthStuds())
+	return Vector3.new(x, resolved.centre.Y, ForestTest.roadZ(x, resolved) + ForestTest.beaterNorthStuds(resolved))
 end
 
 -- HOW FAR NORTH OF THE LINE A BEATER STARTS, AND IT IS THE SAME IN EVERY LAYOUT (task 179). That is
@@ -1001,7 +1046,14 @@ end
 -- a drive's LENGTH a property of which layout was dealt, which is a thing nobody asked for and
 -- which Karen would feel as a drive that is sometimes short. `forest_stand.spec` asserts the 120 s
 -- for every layout, which holds by construction because no layout carries the number.
-function ForestTest.beaterNorthStuds(): number
+-- ...AND A CELL CARRIES ITS OWN, WHICH IS ITS DEPTH (task 327b, design 4.3). The trailing optional
+-- layout is the idiom this file already uses; every pre-327 caller passes nothing and gets the 580
+-- it got before, which is what makes `forest_stand.spec`'s 120 s assertion hold unmoved.
+function ForestTest.beaterNorthStuds(layout: Layout?): number
+	local resolved = layout or ForestTest.ROAD_LAYOUT
+	if resolved.beaterNorthStuds ~= nil then
+		return resolved.beaterNorthStuds :: number
+	end
 	return ForestTest.LINE.spawnNorthStuds + ForestTest.BEATER.behindLineStuds
 end
 
@@ -1023,7 +1075,7 @@ function ForestTest.corridorOf(layout: Layout?): { minX: number, maxX: number, m
 		minX = span.minX,
 		maxX = span.maxX,
 		minZ = ForestTest.exitZOf(resolved),
-		maxZ = resolved.centre.Z + ForestTest.beaterNorthStuds(),
+		maxZ = resolved.centre.Z + ForestTest.beaterNorthStuds(resolved),
 	}
 end
 
@@ -1043,7 +1095,12 @@ function ForestTest.boundsOf(layout: Layout?): { minX: number, maxX: number, min
 		minX = resolved.centre.X - resolved.halfSpanStuds,
 		maxX = resolved.centre.X + resolved.halfSpanStuds,
 		minZ = ForestTest.exitZOf(resolved) - 100,
-		maxZ = resolved.centre.Z + ForestTest.DRIVERS.startNorthStuds + 200,
+		-- THE FIELD'S NORTH EDGE IS THE LAYOUT'S WHEN IT STATES ONE (task 327b): a cell's field has
+		-- to reach its muster road, 1,472 studs north, or `Brain.insideField` clamps every animal
+		-- 572 studs short of where the beaters start.
+		maxZ = resolved.centre.Z + (if resolved.fieldNorthStuds ~= nil
+			then resolved.fieldNorthStuds :: number
+			else ForestTest.DRIVERS.startNorthStuds + 200),
 	}
 end
 

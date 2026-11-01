@@ -891,6 +891,14 @@ end
 -- stand he LOCKED; the default stand's x until he has locked one, which is also the answer with
 -- nobody playing at all.
 function ForestTest.hunterStandX(): number
+	-- ...AND IT IS CLAMPED INTO THE MAIN LINE'S OWN SPAN (task 327b, design 6.4). A west-flank
+	-- hunter's x is `centre - 556`, OUTSIDE the +-450 the waves have ground on, so aiming there
+	-- would push the animals out of the cell through the flank road. `standSpan` is the main line's
+	-- on a cell, which is the one answer to "how wide is this line".
+	local span = Data.standSpan(chosen.layout)
+	local function onLine(x: number): number
+		return math.clamp(x, span.minX, span.maxX)
+	end
 	-- The LOCKED pick wins: an OPEN one is a hunter still choosing, and aiming a wave at a stand he
 	-- is about to walk away from is worse than aiming at the default.
 	for _, pick in pairs(state.picks) do
@@ -898,13 +906,13 @@ function ForestTest.hunterStandX(): number
 		-- 7 left over from a nine-stand road would aim every wave of a five-stand ride at a point
 		-- past the end of the line.
 		if pick.lockedAt ~= nil and pick.index <= chosen.layout.standCount then
-			return Data.standX(pick.index, chosen.layout)
+			return onLine(Data.standX(pick.index, chosen.layout))
 		end
 	end
 	-- CLAMPED INTO THE LIVE LAYOUT (task 179): `defaultIndex` is 5 and every shipped layout has
 	-- at least five stands, so this changes no answer today -- it is here so adding a shorter
 	-- layout cannot aim every wave past the end of its line.
-	return Data.standX(math.min(Data.PICK.defaultIndex, chosen.layout.standCount), chosen.layout)
+	return onLine(Data.standX(math.min(Data.PICK.defaultIndex, chosen.layout.standCount), chosen.layout))
 end
 
 -- RELEASES ONE WAVE. Returns how many animals it actually put on the ground, which is never assumed

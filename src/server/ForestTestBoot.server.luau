@@ -79,6 +79,8 @@ local Loader = require(ServerStorage.Assets:WaitForChild("Loader"))
 -- `Places` requires no owner and no owner requires it. It is the ONE writer of
 -- `Workspace.DrivePlaces` and it reads a layout from `ForestTest.Data` -- never the other way round.
 local Places = require(ServerScriptService:WaitForChild("Places"))
+-- THE GRID'S EIGHT CELLS (task 327a). The preview below asks it for one cell's layout row.
+local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
 local Data = ForestTest.Data
 
 print(
@@ -111,7 +113,11 @@ print(
 -- THE GRID PREVIEW (task 327a) IS THE FOURTH AND FIFTH ARGUMENTS: nil lets `Places` read its own
 -- flag at its own boundary, and `task.wait` is the slice -- a boot that paints 270 terrain
 -- regions in one frame is a boot Karen sees as a freeze.
-local planted = Places.build(ForestTest.terrainYAt, nil, workspace.Terrain, nil, function()
+-- THE PREVIEW FLAG IS READ ONCE, HERE, AND THE SAME BOOLEAN IS USED THREE TIMES: by the planter, by
+-- the line that reports it and by the preview cell below (327a review note (g) -- the line used to
+-- print a second read, so a flag flipped between them would have been invisible).
+local gridPreviewOn = Places.gridPreviewEnabled()
+local planted = Places.build(ForestTest.terrainYAt, nil, workspace.Terrain, gridPreviewOn, function()
 	task.wait()
 end)
 print(string.format(
@@ -136,13 +142,50 @@ print(string.format(
 print(
 	string.format(
 		"[ForestTestBoot] grid: preview=%s, %d road paint call(s), %d corner stake(s), %d without ground, %.2fs",
-		tostring(Places.gridPreviewEnabled()),
+		tostring(gridPreviewOn),
 		planted.gridPaints,
 		planted.gridStakes,
 		planted.gridMissing,
 		planted.gridSeconds
 	)
 )
+
+-- ONE CELL'S STANDS AND TOWERS, UNDER THE PREVIEW (task 327b, design 17's 327b). Karen's own line
+-- for this task is *"she stands on all 15 stands of one cell and climbs its towers"*, and nothing
+-- else in this world is touched: these are the live drive's own two folders, both level-triggered,
+-- so the first drive of the session rebuilds them for the layout it promotes.
+--
+-- SEATS BEFORE MARKERS, WHICH IS THE WHOLE OF TASK 218 (design 9.3): `Markers.build` then asks the
+-- seat where its deck is instead of reading that column from the sky and refusing the stand.
+--
+-- `Places.gridPreviewEnabled()` IS READ ONCE HERE and the value is printed, so the line says what
+-- was used rather than a second read of the flag (327a review note (g)).
+if gridPreviewOn then
+	local cellLayout = Grid.layoutFor(Grid.PREVIEW_CELL)
+	local seats = ForestTest.Seats.ensure(cellLayout)
+	-- THE MIDDLE OF THE MAIN LINE, which is where `hunterStandX` aims with nobody playing: the
+	-- beater pad is derived from it, and this cell has no pick to read.
+	local middleX = ForestTest.standX(math.ceil(Grid.CONFIG.mainStandCount / 2), cellLayout)
+	local set = ForestTest.Markers.build(middleX, cellLayout)
+	print(
+		string.format(
+			"[ForestTestBoot] grid preview cell %s: %d of %d post(s) (%d line), %d tower(s) at {%s}, line=%s, complete=%s%s",
+			Grid.PREVIEW_CELL,
+			#set.posts,
+			cellLayout.standCount,
+			#set.linePosts,
+			seats,
+			table.concat(HighSeats.standsFor(Grid.PREVIEW_CELL), ","),
+			tostring(set.line ~= nil),
+			tostring(set.complete),
+			if #set.missing > 0 then " missing=" .. table.concat(set.missing, ",") else ""
+		)
+	)
+	local seatLine = ForestTest.Seats.takeLine()
+	if seatLine then
+		print(seatLine)
+	end
+end
 
 -- ---------------------------------------------------------------- the boars
 
