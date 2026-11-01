@@ -4922,12 +4922,15 @@ return function()
 				end
 				parent:Destroy()
 			end
-			-- THE GROUND WAS READ UNDER EVERY PART -- five samples each, fifteen parts, plus the one
-			-- `shelfAt` takes at the anchor. It is NO LONGER inside `MEASURED`, and that is design
-			-- 2.3's own finding rather than a regression: the clearing was sampled for ONE station,
-			-- and six do not fit it (the case below measures the overflow). Step B8 moves the row and
-			-- re-samples; until then the assertion is that every read is inside the range's OWN box.
-			expect(#asked >= 5 * 15).to.equal(true)
+			-- THE GROUND WAS READ UNDER EVERY PART -- `groundUnder` takes FIVE samples (centre plus
+			-- four corners) per part, and since task 322 a station is TWO parts, the mat and the
+			-- post, so the floor is 5 x 2 x SPOT_COUNT = 60 and not the 5 x 15 the bench and the hut
+			-- used to make. Written as the arithmetic so a part that stops being measured moves this
+			-- number rather than passing under it. It is NO LONGER inside `MEASURED`, and that is
+			-- design 2.3's own finding rather than a regression: the clearing was sampled for ONE
+			-- station, and six do not fit it (the case below measures the overflow). Step B8 moves
+			-- the row and re-samples; until then every read must be inside the range's OWN box.
+			expect(#asked >= 5 * 2 * LAYOUT.SPOT_COUNT).to.equal(true)
 			local box = RangeData.footprintFor(
 				Vector3.new((FOREST_ROW :: any).x, 0, (FOREST_ROW :: any).z),
 				LAYOUT,
