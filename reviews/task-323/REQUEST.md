@@ -1,125 +1,132 @@
 # REQUEST -- Task 323a: stand pick, the owner and the wire
 
 Task: 323
-Round: 1
+Round: 2
 Base: `origin/main` (merged into this branch at `81946956`, carrying 313-322)
-Code commit: `a0db684d61d3671913659b0b6c6b44215e471cf2`
+Code commit: `25981ef518970a56950af6a65299f499b853948e`
 
 ```
-[harness]  PASS: 34/34 checks @ a0db684d61d3671913659b0b6c6b44215e471cf2 (clean tree) scope=all
-[harness2] PASS: 36/36 checks @ a0db684d61d3671913659b0b6c6b44215e471cf2 (clean tree)
+[harness]  PASS: 34/34 checks @ 25981ef518970a56950af6a65299f499b853948e (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 25981ef518970a56950af6a65299f499b853948e (clean tree)
 ```
 
-`git diff --name-only a0db684d..HEAD` is **empty**: the code commit IS the head, so the harness
-lines cover every line under review. `test2` was run **twice**, both clean, at that same commit.
+`git diff --name-only 25981ef5..HEAD` is **empty**: the code commit IS the head. `test2` was run
+**twice** at this commit, both clean.
 
-## What changed
+## The two round-1 findings
 
-Built to `docs/design/stand-pick.md` section 15's **323a**, with the research note first (rule 1):
-`docs/research/2026-11-01-stand-pick.md`, indexed. The server decides which hunter has which stand.
-**Born OFF behind `STAND_PICK`**; no pixel is drawn (that is 323b). No design file was edited --
-two doc deltas the Architect owns are listed under *Not verified / for the Architect* below.
+### Finding 1 -- the collision. FIXED, and it was real.
 
-## Claims, and how to verify each
+`applyStandSettle` moved only claimants, and sweep A displaces a **non**-claimant. On the `road`
+walk the two men **swap**: provisional h1 -> 1, h2 -> 2; h2 claims 1; the settled deal is h2 -> 1 and
+h1 -> 2. Carrying only h2 left **both men on stand 1 with stand 2 empty**, and the forest's
+`nearestStand` then bound both to one circle. (The Reviewer's `{5,4,…}` example and this one are the
+same defect; `ForestTest.standWalk()` on the `road` happens to be in index order, so it reads as a
+swap.)
 
-1. **`StandPick` is the one writer of the claim, and `judge` is pure.** `src/server/Match/StandPick.luau`
-   has `judge`, `claim`, `release`, `reset`, `close`, `standOf`, `holderOf`, `wireTable`, `picksFor`
-   and `stats`. `judge` takes no service, no `Player` and no clock; `claim` contains no `task.wait`,
-   no `pcall` and no provider call, which is what makes "first request wins" a property of the code.
-   *Verify:* read the module; grep it for `task.`, `Players`, `pcall`, `os.clock` -- none appear.
-   Cases 1, 2, 7, 12, 13 in `tests/server/match_stand_pick.spec.luau`.
+**The fix:** the settle now carries every hunter whose **settled** deal differs from his
+**provisional** one, which is exactly *the pick changed where he belongs*. `provisional` is
+`placementLine("Shooters")` with the picks taken out -- the same table `applyPlace` used at
+`enterAssigning` -- and `Match.standMoved(was, target)` is the pure, exported predicate.
 
-2. **The window IS the `Assigning` phase: no new phase, no new clock.** `Phase.pickWindow` is a new
-   pure predicate beside `driveOpen`/`lineHeld`/`insideDrive`; `Phase.intermissionSeconds` returns
-   `max(INTERMISSION_SECONDS, STAND_PICK_SECONDS)` with `QUICK_TEST` still winning; `settleStands` is
-   emitted **first** in `enterRunning`. No `PhaseName` was added and no timestamp was added.
-   *Verify:* `Phase.luau`; `grep -n "Picking" src/` is empty; cases 3 and 4.
+*Verify:* `applyStandSettle` in `src/server/Match/init.luau`; `Match.standMoved`; case
+**"FINDING 1: one claim displaces a NON-claimant"** (the swap, by value, plus the five `standMoved`
+branches) and **"FINDING 1: with NO claim the two deals are equal"** (all four layouts x counts 1..8,
+so the flag-off path provably carries nobody). The `not StandPick.anyClaim()` early return is still
+the first thing the settle does, so flag off is untouched twice over.
 
-3. **Flag off is today's placement bit for bit, and it is a measurement.** Case 5 compares
-   `dealLine(walk, seated, entitled, count)` against the same call with `picks = nil` and with
-   `picks = {}`, element by element, for all four `LAYOUT_ORDER` layouts at every count 1..16 --
-   **128 equal-by-value assertions**, and the case asserts the count is 128. Case 17 reads
-   PRODUCTION: `Match.CONFIG.STAND_PICK_SECONDS == 0`, `stats().standsSettled == 0`,
-   `standSettleStuds == 0`, `pickWindowOpen() == false`.
-   *Verify:* case 5 and case 17; the `Flags` row's `default = false`.
+### Finding 2 -- the door was driven by no case. FIXED, all three parts.
 
-4. **Sweep A makes a claim strictly stronger than the fallback.** `HighSeats.dealLine` gained a 5th
-   parameter and one sweep before its three unchanged passes. Case 6 is the case one pass gets
-   wrong: hunter 3 claims `walk[1]`, hunter 1 claims nothing, and **3 gets it**.
-   *Verify:* case 6, plus the all-claim case beside it; sweep B's loop is unchanged line for line.
+`Match.onStandRequest` is now driven **by parameter** in `tests/server/match_stand_pick.spec.luau`,
+in a describe of its own. Delete the handler and all four cases fail.
 
-5. **The entitlement is checked twice, and a bad claim is ignored rather than clamped.** `judge`'s
-   `seat` reason is what the player sees; sweep A's `allowSeat` is what a forged `FireServer` meets,
-   and it gives him a stand he may stand on -- never nothing, never the seat. A claim of a stand the
-   layout does not state takes today's deal. *Verify:* case 11 (both directions) and its sibling.
+* **(a)** a non-number (`"4"`, `{}`, `nil`, `true`) returns `nil`, moves `standPickStats().malformed`
+  by 4, moves his **ask budget** by 4, and **judges nothing** -- asserted by every refusal counter
+  being unmoved.
+* **(b)** a numeric ask returns a verdict whose `stand` is **echoed** (4) and whose `reason` is
+  `closed` while the flag is off, and `refused.closed` moved by exactly 1 -- which is how the case
+  proves `judge` was *reached* rather than merely *callable*. A second case drives `range` over the
+  world's own `standCount`.
+* **(c)** the **accepting** path: the verdict is `ok`, and `StandPick.holderOf(5)`,
+  `StandPick.standOf`, `Match.standOf` and `stats.accepted` all show **the table was written through
+  the door**. The same case then drives a second man to `taken`, the rate floor to `rate`, and a
+  change past the floor that frees the old stand at once.
 
-6. **The one inbound remote carries one number, and nothing is coerced.** `StandRequest` is the third
-   remote in `src/shared/Drive/Remotes.model.json`. `Match.onStandRequest` drops a non-number before
-   `judge` and counts it (`stats.malformed`); `judge`'s `range` refuses `2.5`, `"4"`, `0`,
-   `standCount+1`, `±math.huge` and `0/0`. *Verify:* case 12; the client spec's remote-count case now
-   asserts **3 remotes, exactly one inbound** (it asserted 2 and "zero inbound" before this task).
+**(c) needed a lever, and the lever is the MEASUREMENT, never the rule.** With `STAND_PICK` off
+`Phase.pickWindow` is false, and **no spec may call `Match.start`** (`match_live.spec`'s own rule;
+`Match.start` asserts *"called twice"*), so the accepting path had no lever at all.
+`Match.setStandAskReader(fn?)` substitutes **what the world said** -- `nil` is "measure it", which is
+production and the only thing the game ever runs; `Match.stop` clears it and so does the spec's
+`afterEach`, and a case asserts `Match.standAskReader() == nil` in production. `StandPick.judge` and
+`StandPick.claim` are the real ones throughout. This is CLAUDE.md's own flag rule --
+*"A flagged path must be reachable BY PARAMETER as well as by flag, or its two states cannot be
+tested while the flag sits at one of them"* -- and the `Body.setGroundReader` /
+`Weapon.setEntitlementProvider` idiom it already uses.
 
-7. **The client derives nothing and has one outbound door.** `src/client/Match` gained
-   `standPickTable`, `standPickOpen`, `myStand` (all three read snapshot fields, and all three take
-   the snapshot as an optional argument -- the `Phase.pickWindow(state, ...)` discipline) and
-   `requestStand`, which fires one number. *Verify:* cases 21 and 22 in
-   `tests/client/match_client.spec.luau`.
+## Four of the notes, also fixed
 
-8. **`Body` stays the one writer of where a character stands.** `Body.carry` is `holdCharacter` ->
-   `onGround(attempts = 1)` -> `PivotTo` -> `untieCharacter`: four pieces already in that file. It
-   calls no `LoadCharacter` (so his gun survives), refuses a character something else is holding, and
-   cannot yield. *Verify:* cases 18, 19, 20; `Body.carried()` / `Body.carriesRefused()`.
+* **case 5's count is 64, not 128.** `dealLine(w,s,e,c)` and `(w,s,e,c,nil)` are the same argument
+  list in Luau, so half the comparisons were a pure function against itself. The case now compares
+  only `{}` (which enters sweep A's branch) and asserts 64. The note says why.
+* **`close()` is load-bearing.** `StandPick.claim` now reads `open`, so the window is shut for the
+  **table** as well as for the player and a late claim is refused `closed` -- `open` has a production
+  reader and `close()` is not a flag nobody consults.
+* **`StandPick.forget` returns the stand it freed**; `Match.forget` no longer releases twice.
+* **the ask is counted BEFORE the type check**, so a client spamming tables spends the same budget as
+  one spamming numbers -- which is what `STAND_PICK_MAX_REQUESTS` claims to bound.
+* **`src/server/HitLog/init.luau`** no longer says `Drive.remotes()` has no inbound remote.
 
-9. **A stand freed by a change, a leave or a role switch is free at once.** `claim` clears the old
-   stand in the same call; `Match.forget` releases and forces a broadcast past the throttle;
-   `applyAssignTeams` -- *the ONE place a team is written* -- releases on `team ~= "Shooters"`.
-   *Verify:* case 8; the three call sites in `src/server/Match/init.luau`.
+## Notes left alone, each with its reason
 
-10. **Zero new `TWO_PLAYER_PATHS` entries, and nothing is left on an old arity.** The new spec is
-    named `match_stand_pick` so `tests/server/match_*.spec.luau` already covers it; it was added to
-    `SCOPE_SPECS["match"]` in `tools/studio_mcp.py`. Every `lockPick` and `dealLine` call site was
-    grepped: one production `lockPick` caller (`ForestTestBoot`, now passing `Match.standOf`), four
-    spec callers on three arguments (unchanged by the optional 4th), one `dealLine` caller
-    (`ForestTestBoot`, now passing `line.picks`). *Verify:* `grep -rn "lockPick\|dealLine" src/ tests/`;
-    both `selftest`s pass and ran in these two gate runs.
+* **REQUEST claim 6's wording** ("3 remotes, exactly one inbound") -- the Reviewer is right that
+  direction is not a property of a `RemoteEvent`. The case counts three children and names
+  `StandRequest`; the direction claim is carried by the code (`FireServer` appears in exactly one
+  place in `src/client/Match`, `OnServerEvent` in exactly one place in `src/server/Match`), not by
+  that case. Stated here rather than overclaimed again.
+* **The three `StandPick.release` call sites, `placementLine`'s `picks` line and the two snapshot
+  fields have no case of their own.** True. They are one line each at a composition point, and with
+  the flag off every one of them is a no-op, so a case would assert nothing a reading does not. They
+  are 323b's first dependency and the Director may queue them.
+* **`Flags.MAX_FLAGS` 22 -> 23** is the Director's call, as the Reviewer says.
 
-## Three things I changed beyond the design's list, each with its reason
+## Claims from round 1 that are unchanged
 
-* **`Flags.MAX_FLAGS` 22 -> 23.** The rot tripwire refused the twenty-third flag -- the cap doing its
-  job, MEASURED as `flags.spec:124` in the first harness run at `1d27c22`. Said out loud in the
-  comment rather than paid for by quietly retiring somebody else's row, which is the sentence tasks
-  266, 298, 305, 305c and 313 each wrote. **The Director may prefer to spend TASKS.md 82b instead:
-  this is one line either way.**
-* **`botsNeedRebuild`'s `Running` arm is reachable only on a real `false`, not on `nil`.** The design's
-  §8 form changed a PURE answer that `bots_live.spec:887` already measured
-  (`("Running", 2, 1)`: false -> true). `nil` means *this caller did not measure the pick*, which is
-  not *the window is shut*. Production always passes a boolean, so the deferred rebuild still happens.
-* **Two new world fields, `world.standCount` and `world.seatedStands`** (`ForestTestBoot`). §5.1's
-  `Ask` needs both measured by the owner, and §7.5 requires the count to be the **layout's**, not
-  `#markerSet.posts` (a refused post is absent from that list). `Match` learns one number and one
-  boolean per stand and nothing about what a seat is.
+1. `StandPick` is the one writer of the claim; `judge` is pure (no service, no `Player`, no clock);
+   `claim` yields nowhere. *Verify:* grep the module for `task.`, `Players`, `pcall`, `os.clock`.
+2. The window **is** the `Assigning` phase: no new `PhaseName`, no new clock, no new timestamp.
+   `grep -n "Picking" src/` is empty. Cases 3, 4.
+3. Flag off is today's placement bit for bit -- 64 equal-by-value deals, plus production's own
+   `STAND_PICK_SECONDS == 0`, `standsSettled == 0`, `standSettleStuds == 0`.
+4. Sweep A is strictly stronger than the fallback (case 6, the case one pass gets wrong).
+5. The entitlement is checked twice; a claim of a stand the layout does not state is ignored, not
+   clamped (case 11 and its sibling).
+6. One inbound remote carrying one number; nothing coerced (cases 12 and the door's (a)).
+7. The client derives nothing; one outbound door (cases 21, 22).
+8. `Body` stays the one writer of where a character stands -- `Body.carry` calls no `LoadCharacter`,
+   refuses a character something else holds, and cannot yield (cases 18, 19, 20).
+9. A stand freed by a change, a leave or a role switch is free at once (case 8, three call sites).
+10. Zero new `TWO_PLAYER_PATHS` entries; no call site left on an old arity.
 
 ## What could NOT be verified
 
-* **NOT PROVEN LIVE.** The Director closed Karen's Forest Test for this task, so nothing was taken in
-  her place: no `stats.movedStuds` from a real drive, no live `Body.snapMisses()` after a settle, and
-  no frame. Said plainly: **nobody has seen this run in her place.**
-* **The two-player race is NOT provable live at this commit, and the reason is the flag.** With
-  `STAND_PICK` off, `Phase.pickWindow` is false, so every ask is refused `closed` -- there is no race
-  to run. The property is case 7 (two `claim` calls, same stand, same `now`: first `true`, second
-  `(false, "taken")`), which holds because `claim` yields nowhere. `test2` ran twice, clean, and what
-  it proves here is that **nothing in the match, the drive, the tie or the teams moved**.
-* **A real tap / `GuiButton.Activated`** is 323b's and the harness cannot synthesise it.
-* **`placementLine` and `applyStandSettle` are locals** of `src/server/Match/init.luau`. Case 16
-  asserts the **composition they build** -- `dealLine(walk, seated, entitled, count,
-  StandPick.picksFor(ids))` -- not the locals themselves. Design case 20 (`standAreaOf` after a
-  settle) is **not** asserted: it needs a started `Match`, which `match_live.spec`'s own rule
-  forbids; what stands in its place is case 20's snap-miss check on `Body.carry`.
+* **NOT PROVEN LIVE -- nobody has seen this run in Karen's place.** The Director closed her Forest
+  Test for this task, so there is no `stats.movedStuds` from a real drive, no live
+  `Body.snapMisses()` after a settle, and no frame. 323a draws no pixel (screenshot N/A, design §15).
+* **The two-player race is not runnable at this commit, and the flag is why.** With `STAND_PICK` off
+  `Phase.pickWindow` is false, so every ask is `closed` -- there is no race to run. What stands in
+  its place: case 7 (`claim` twice, same stand, same `now`) and the door's own `taken` refusal in
+  (c). `test2` ran twice, clean, and what it proves here is that **nothing in the match, the drive,
+  the tie or the teams moved**.
+* **A real tap / `GuiButton.Activated`** is 323b's; the harness cannot synthesise one.
+* **`placementLine` and `applyStandSettle` are locals.** Case 16 and the finding-1 cases assert the
+  **composition they build**, not the locals. Design case 20 (`standAreaOf` after a settle) is not
+  asserted: it needs a started `Match`.
 
 ## Not verified / for the Architect (no design file was edited)
 
-* `docs/design/drive.md` §9.1 and line 117 still say this system takes **no** client remote. §4.1 of
-  `stand-pick.md` deliberately departs from that, and §14's delta table does not list the amendment.
-  The code comments in `src/shared/Drive` and `src/client/Match` name the departure; the design text
-  is the Architect's to correct.
+* `docs/design/stand-pick.md` §5.2's *"Only claimants are moved"* is the sentence finding 1 came
+  from, and §12's *"`stats.standsSettled == <how many hunters claimed>`"* follows from it. Both are
+  now wrong: the number is **how many hunters the pick moved**, which is >= the claimants.
+* `docs/design/drive.md` §9.1 and line 117 still say this system takes no client remote;
+  `stand-pick.md` §14's delta table does not list that amendment.
 * `stand-pick.md` §10.1 does not mention `Flags.MAX_FLAGS`, which the row cannot be added without.
