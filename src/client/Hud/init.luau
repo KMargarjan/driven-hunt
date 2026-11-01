@@ -3454,8 +3454,35 @@ end
 -- NOT WHILE THE REPORT IS OPEN, the same clause the score panel has: two panels at once is two
 -- panels nobody reads. Since task 159 the report opens on `Tab` and nowhere else, so this is the
 -- player's own choice rather than something that happened to him seconds before the drive started.
-function Hud.startCardVisible(snapshot, reportOpen: boolean?): boolean
-	return snapshot ~= nil and snapshot.phase == "Assigning" and reportOpen ~= true
+-- ...AND IT STANDS DOWN FOR THE STAND PICK TOO (task 323b, MEASURED in `.screenshots/t323-pick.png`
+-- with `STAND_PICK` forced on in DEV). The card is up for the WHOLE of `Assigning`, and the pick
+-- window IS `Assigning` -- so with the flag on the map opens itself underneath a card that covers
+-- it, and the hunter is asked to click a stand he cannot see. The frame is the only reason this
+-- line exists: every arithmetic claim about the map was already true of it.
+--
+-- IT IS `reportOpen`'S OWN PRECEDENT AND NOT A NEW RULE: a full-screen thing the player is being
+-- asked to use beats the card, which is what the second argument has always meant. The INSTRUCTION
+-- is not lost with it -- `Objective.text`'s pick row takes the top line and carries the same
+-- countdown, and the chevron carries on, which is design section 5.4's own arrangement.
+--
+-- IT IS THE WINDOW AND NOT "THE MAP IS OPEN", deliberately: the card's one writer is
+-- `renderStartCard`, which runs on `Match.Changed` rather than every frame, so a condition that
+-- read `MapUi.isOpen()` would be answered before this frame's auto-open and leave the card up until
+-- the next broadcast. The window is on the snapshot that woke it.
+--
+-- FLAG OFF IS IDENTICAL: the server sends no `pickWindow`, so the third argument is false in every
+-- build today and this function answers exactly what it answered before.
+function Hud.startCardVisible(snapshot, reportOpen: boolean?, pickOpen: boolean?): boolean
+	return snapshot ~= nil and snapshot.phase == "Assigning" and reportOpen ~= true and pickOpen ~= true
+end
+
+-- IS THIS PLAYER BEING ASKED TO PICK A STAND RIGHT NOW? One rule, called by both of
+-- `startCardVisible`'s callers, so the card and the objective line cannot disagree about it.
+function Hud.pickingStand(MatchSystem): boolean
+	if MatchSystem == nil or MatchSystem.standPickOpen == nil then
+		return false
+	end
+	return MatchSystem.standPickOpen() == true and MatchSystem.myTeam() == "Shooters"
 end
 
 -- ---------------------------------------------------------------- the card's body, pure
@@ -3600,7 +3627,7 @@ function Hud.renderStartCard(snapshot, team: string?, secondsLeft: number?)
 	if not cardFrame then
 		return
 	end
-	local show = Hud.startCardVisible(snapshot, ReportPanel.isOpen())
+	local show = Hud.startCardVisible(snapshot, ReportPanel.isOpen(), Hud.pickingStand(matchSystem))
 	cardFrame.Visible = show
 	if not show then
 		-- Cleared, not just hidden: the next drive must not flash the last one's card for a frame.
@@ -5213,7 +5240,7 @@ function Hud.renderObjective(CameraSystem, WeaponSystem)
 	local reportOpen = ReportPanel.isOpen()
 	local mapOpen = MapUi.isOpen()
 	local scoped = Objective.isSuppressed()
-	local cardUp = Hud.startCardVisible(snapshot, reportOpen)
+	local cardUp = Hud.startCardVisible(snapshot, reportOpen, Hud.pickingStand(matchSystem))
 	-- WHAT THE DRIVE IS DOING RIGHT NOW, read from the one replica and handed to the one pure rule
 	-- (task 168). All three are local subtractions off server timestamps the snapshot already
 	-- carries, so a beater's countdown ticks at render rate and costs no push.

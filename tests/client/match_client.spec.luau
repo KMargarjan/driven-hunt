@@ -1303,6 +1303,43 @@ return function()
 			expect(Hud.startCardVisible(starting(), false)).to.equal(true)
 			-- ...and not while the report is open: two panels at once is two panels nobody reads.
 			expect(Hud.startCardVisible(starting(), true)).to.equal(false)
+			-- ...AND IT STANDS DOWN FOR THE STAND PICK (task 323b), which is the same rule: a
+			-- full-screen thing the player is being ASKED to use beats the card. MEASURED in
+			-- `.screenshots/t323-pick.png`, where the card covered the map the window had just
+			-- opened for him.
+			expect(Hud.startCardVisible(starting(), false, true)).to.equal(false)
+			expect(Hud.startCardVisible(starting(), false, false)).to.equal(true)
+			-- FLAG OFF IS IDENTICAL: nothing sends `pickWindow`, so the argument is absent and this
+			-- function answers what it always answered.
+			expect(Hud.startCardVisible(starting(), false, nil)).to.equal(true)
+			-- `Hud.pickingStand` IS THE ONE RULE BOTH CALLERS USE, and it is false for everything
+			-- that is not a hunter in an open window -- including a client with no match at all.
+			expect(Hud.pickingStand(nil)).to.equal(false)
+			expect(Hud.pickingStand({})).to.equal(false)
+			expect(Hud.pickingStand({
+				standPickOpen = function()
+					return true
+				end,
+				myTeam = function()
+					return "Drivers"
+				end,
+			})).to.equal(false)
+			expect(Hud.pickingStand({
+				standPickOpen = function()
+					return false
+				end,
+				myTeam = function()
+					return "Shooters"
+				end,
+			})).to.equal(false)
+			expect(Hud.pickingStand({
+				standPickOpen = function()
+					return true
+				end,
+				myTeam = function()
+					return "Shooters"
+				end,
+			})).to.equal(true)
 		end)
 
 		it("carries what the SERVER said may be shot, with no second copy on this side", function()
