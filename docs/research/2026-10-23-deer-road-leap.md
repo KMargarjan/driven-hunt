@@ -175,3 +175,106 @@ session. Queued as TASKS.md 245c.
 `deer.anim.leap = 126500539626404`, one id for all three kinds exactly as the measurement said, and
 task 245b wired it. What is open now is the SINK (section 6b) and Karen's own look, which is what
 the `DEER_ROAD_LEAP` flag exists for.
+
+## 8. Addendum, 2026-11-01 (task 325): nothing was ever lifting the animal
+
+**KAREN, 2026-11-01, verbatim:** *"you need to fix red stag male when jumping it has to jump not like
+now broken and famale and kid doesnt jump / work on it"*.
+
+### 8.1 What was measured, in her place, at `main`
+
+Her Forest Test at `4840e1df`, `DEER_ROAD_LEAP` on, crossings staged with `DHTestRelease`, every
+deer near the road sampled every frame off INSTANCES (`325-log2.luau`, `<runs-dir>/325-before2.txt`).
+
+**The dispatch's premise is half right and the correction matters.** All three kinds DO reach the
+leap: `LEAP=true` on the stag, the hind and the calf, the published clip at weight 1.00, at rate 1,
+for the whole 0.75 s window, cross-fading back to the run. The hind and the calf are not gated out
+of anything -- `Brain.leapStarts`, `Body.clipFor` and `MODEL.LEAP` have no per-kind branch, and the
+Forest Test's own schedule line says *"she stops at the verge, then they leap"*.
+
+**What is broken is the same thing on all three: the body never leaves the ground.**
+
+| | root y across the whole bound | peak upward speed |
+|---|---|---|
+| stag (Boar66) | 133.55 -> 134.52 -> 134.43, and it never comes back down (terrain) | 4.3 - 7.0 studs/s |
+| hind (Boar67) | 134.04 -> 134.21, a range of **0.17 studs** | 6.4 - 10.9 |
+| calf (Boar68) | 133.12 -> 133.25, a range of **0.13 studs** | 6.1 - 15.7 |
+
+Those peak figures are the wobble of a box running over uneven ground, not an arc: a real launch
+reads one large positive value decaying linearly at `g`. Section 3 said why -- the clip lifts the
+BODY and reaches the LEGS DOWN -- and section 6b chose to draw it as it arrives. With the root
+pinned, a leaping deer is a deer ploughing through the road in the pose of a jumping deer, and the
+smaller the rig the deeper the legs go (1.19 / 1.26 / 1.34 studs). The frame
+`<runs-dir>/325-before-stag-zoom.png` is a stag held at the bound's peak in her place: the pose is a
+true bound -- neck up, chest lifted, forelegs tucked -- and both forelegs and both hind hooves are
+**inside the road surface**, with no daylight under the animal anywhere. That is Karen's
+*"broken"*, and on the hind and the calf the same sink swallows the whole motion, which is her
+*"doesnt jump"*.
+
+### 8.2 Real life: how high and how far
+
+| # | Source | Licence / status | Good for | Not |
+|---|---|---|---|---|
+| 7 | [County Fencing -- deer fence height guide](https://www.countyfencing.co.uk/blog/deer-fence-height-guide/) | Trade guidance, maintained | Red deer clear **1.8 m** routinely and a confined one will take **2.1 m**; the exclusion standard is **2.4 m**. The ceiling a road bound sits far below | Fence clearance, not a cruising bound: a jump AT an obstacle, not a stride |
+| 8 | [NC Wildlife -- fencing to exclude deer](https://www.ncwildlife.gov/connect/have-wildlife-problem/tips-coexisting-wildlife/fencing-exclude-deer) | State agency, maintained | The same number from an independent authority: a deer fence is 8 ft / 2.4 m | White-tailed deer, not red |
+| 9 | Lingle, S. (1993), [*Escape gaits of white-tailed deer, mule deer, and their hybrids*](https://cdnsciencepub.com/doi/pdf/10.1139/z93-095), Can. J. Zool. 71 | Peer-reviewed, archival | The **bound** as a named gait: all four feet leave the ground together, with measured take-off and landing angles and limb flexion, used to gain height and clear an obstacle -- which is the shape of the clip we have | Mule and white-tailed deer, and it gives angles rather than a metre of apex |
+
+**The number taken: 0.84 m of body rise (3.00 studs at `METRES_PER_STUD` 0.28) for the stag.** A
+road is not a fence; an animal that clears 1.8 m when it must does not spend that on a cut lane, and
+a cruising bound is a fraction of the maximum. 0.84 m is visibly a jump and sits well inside every
+figure above. Per kind it is `3.00 x KINDS.<kind>.scale` -- 3.000 / 2.566 / 1.485 -- **floored at
+the clip's own sink plus 0.15 studs of clearance**, which binds on the calf alone
+(1.3358 + 0.15 = 1.4858 > 1.485). An arc lower than the sink would put the hooves back through the
+road, which is the defect itself.
+
+At Roblox's gravity (196.2 studs/s^2, read live in her place as 196.1999969482422, about 5.6x
+Earth's) an apex and an airtime cannot be chosen separately: `h = g T^2 / 8`. 3.00 studs is
+**0.350 s** in the air and **10 studs = 2.8 m** of ground at a bolting 28.3 studs/s. A real red
+deer's bound is longer than that, and this is the honest cost of the engine's gravity: the height is
+right, the length is short. Lengthening it means slowing the clip further, and at rate 0.715 the
+legs are already as slow as they can be and still read as a bound rather than as slow motion.
+
+### 8.3 The pattern adopted, and why section 6b's "nothing reads it yet" is now wrong
+
+**One write of `AssemblyLinearVelocity.Y` at the frame the clip leaves the ground, and gravity owns
+the rest.** `v = sqrt(2 g h)`, the textbook projectile.
+
+Section 5 rejected "a ballistic arc computed in code" as *"a SECOND WRITER of the animal's
+position"*. **That reading was wrong, and this is the correction.** The mover is a `LinearVelocity`
+with `VelocityConstraintMode = Plane` on the X and Z axes (`docs/design/boar-ai.md` section 6, and
+`Body.create`), written as `PlaneVelocity` and nothing else. The design's own words for that choice
+are *"Plane mode leaves the plane normal (Y) free, so gravity -- not the constraint -- owns falling
+and resting on the ground"*. **Y has never had a writer.** Giving it one value, once, adds no second
+owner of the planar path: the heading, the speed and the route stay the mover's for the whole
+flight. `Body.collapseVelocity` already writes this exact property, once, at the moment of death.
+
+The second half of section 5 holds exactly as written: *"the arc would not match the clip, so the
+hooves would plant in mid-air"*. So the arc is not chosen freely -- **the clip's own airborne window
+is the arc's airborne window**. The hooves are below the rig's floor from t = 0.458 to t = 0.708 and
+nowhere else (section 6b), which is the signature of an in-place export's airborne phase: those two
+instants ARE take-off and touchdown. The clip is started at 0.458 -- its first 0.458 s is a running
+approach the run clip was already drawing -- and played at the rate that makes that 0.250 s span
+last exactly `2 v / g`, plus 0.10 s of its landing. So `MODEL.LEAP.LIFT_STUDS` is read at last, as
+the floor under the apex rather than as a per-frame lift, and **TASKS.md 245c is closed by this
+task**: `docs/design/boar-ai.md`'s ban on per-frame CFrame writing is not approached, because
+nothing moves the drawn mesh at all. `Body.liftDrawn` is still called once a life, at the death.
+
+### 8.4 Three cycles, measured in her place
+
+| cycle | change | measured |
+|---|---|---|
+| 1 | the arc, at the clip's take-off frame | stag Boar10 rose 147.02 -> 149.15 and came down; **and bounded a SECOND time off the same crossing** (clip back to 0.491, vy +25.3, 0.55 s after the first). The Brain holds one `leaping` window for every kind (0.55 s) and the stag's own is 0.49, so a gate that asked only "is the leap clip playing" re-opened the instant it stopped |
+| 2 | `handle.leapSpent`: Body's half of *"once per crossing"* | one take-off per animal, all three kinds. Landing rebound (largest upward speed in the 3 frames after touchdown): stag **10.50**, hind **8.39**, calf **18.35** studs/s -- a second little hop on top of the bound. Forward speed dipped to 10.7 / 7.6 / 22.6 at touchdown |
+| 3 | zero a still-rising `AssemblyLinearVelocity.Y` at the end of the bound | **9 bounds in one drive, 1 take-off each, 3 of each kind.** Rebound: stag -0.50 / 4.55 / -5.33, hind 2.64 / 6.76 / -0.70, calf 4.13 / 3.94 / 5.37 (the residual positives are animals climbing the bank the road crosses). Forward speed at touchdown 12.9-23.9 / 13.0-17.3 / 24.0 |
+
+Peak upward speed of the body during the bound, the same instrument on both runs:
+
+| | before (`main`) | after (cycle 3) |
+|---|---|---|
+| stag | 4.3, 5.8, 6.8, 7.0 | **27.8, 28.6, 30.2** |
+| hind | 9.2, 8.7, 6.4, 10.9 | **26.8, 26.0, 25.2** |
+| calf | 8.2, 6.1, 10.6, 15.7 | **18.4, 20.1, 15.2** |
+
+The first sampled frame is already past the launch, so the figures sit under `v0` = 34.3 / 31.7 /
+24.2 as they must. A walking hind crossing still does not bound (`speed 1.9..4.5, LEAP=false`),
+which is `MODEL.RUN_FROM` and Karen's *"when is cross road"* at a run.

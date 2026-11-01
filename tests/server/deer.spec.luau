@@ -35,6 +35,7 @@ local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 
 local Brain = Boar.Brain
+local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
 
 local Rules = Weapon.Rules
 local Score = Match.Score
@@ -1350,8 +1351,8 @@ return function()
 					return 30 * math.sin(x / 70)
 				end,
 			}
-			local ON = { ENABLED = true, SECONDS = 0.75 }
-			local OFF = { ENABLED = false, SECONDS = 0.75 }
+			local ON = { ENABLED = true, SECONDS = 0.55 }
+			local OFF = { ENABLED = false, SECONDS = 0.55 }
 
 			it("is BORN OFF, with an owner, a birthday and an expiry inside 21 days", function()
 				local row = Flags.DEFAULTS.DEER_ROAD_LEAP
@@ -1422,12 +1423,29 @@ return function()
 					info.deadFor = info.deadFor or 0
 					return (Boar.clipFor(info, config))
 				end
-				-- A running deer on the road bounds instead of galloping, at rate 1.
+				-- A running deer on the road bounds instead of galloping.
 				expect(clip({ leaping = true })).to.equal("leap")
+				-- ...AND WITH NO KIND NAMED THE RATE IS 1 (task 325), which is the FALLBACK and not
+				-- the game: `Body.leapPlan` answers `(0, 1, 0)` for a kind with no `APEX_STUDS` row,
+				-- so a caller that does not say which animal this is draws exactly what task 245b
+				-- drew. The per-kind rate a real deer gets is the case below this one.
 				local name, rate =
 					Boar.clipFor({ leaping = true, speed = 28, clipScale = 1, hitFor = 0, deadFor = 0 }, config)
 				expect(name).to.equal("leap")
 				expect(rate).to.equal(1)
+				for _, kind in ipairs(DEER_KINDS) do
+					local planned = select(2, Body.leapPlan(kind, config.MODEL.LEAP))
+					local _, kindRate = Boar.clipFor({
+						leaping = true,
+						kind = kind,
+						speed = 28,
+						clipScale = 1,
+						hitFor = 0,
+						deadFor = 0,
+					}, config)
+					expect(kindRate).to.be.near(planned, 1e-9)
+					expect(kindRate).never.to.equal(1)
+				end
 				-- ...and without the Brain's fact it gallops, which is the game as it shipped.
 				expect(clip({ leaping = false })).to.equal("run")
 				-- A DEATH AND A FLINCH BOTH BEAT IT: a deer shot mid-bound flinches, and one that
@@ -1459,15 +1477,16 @@ return function()
 				-- A bound is played at rate 1, so the field every gait divides by is 0 here and
 				-- nothing can quietly start rating it.
 				expect(clip.groundStudsPerSecond).to.equal(0)
-				-- 2.0000 s, measured two ways in Play and recorded on the manifest row; only
-				-- `LEAP.SECONDS` of it is played.
+				-- 2.0000 s, measured two ways in Play and recorded on the manifest row. What is
+				-- PLAYED is t 0.458..0.808 (task 325); `LEAP.SECONDS` is the Brain's outer window,
+				-- and this line checks only that the window cannot outlast the asset.
 				expect(math.abs(clip.seconds - 2.0) < EPSILON).to.equal(true)
 				expect(CONFIG.MODEL.LEAP.SECONDS < clip.seconds).to.equal(true)
 			end)
 
 			it("carries the measured sink for all three kinds, inside the clip", function()
-				-- The numbers nothing reads yet (see `MODEL.LEAP.LIFT_STUDS`), pinned so the
-				-- follow-up cannot start from a different measurement.
+				-- The sink each rig takes off the clip, read since task 325 as the floor under that
+				-- kind's bound (`Body.leapApex`), and pinned here so the floor cannot move under it.
 				local leap = CONFIG.MODEL.LEAP
 				for _, kind in ipairs(DEER_KINDS) do
 					expect(leap.LIFT_STUDS[kind] > 1).to.equal(true)
@@ -1477,9 +1496,179 @@ return function()
 				-- three play the STAG's clip and bone translations are absolute studs.
 				expect(leap.LIFT_STUDS.stag < leap.LIFT_STUDS.hind).to.equal(true)
 				expect(leap.LIFT_STUDS.hind < leap.LIFT_STUDS.calf).to.equal(true)
-				-- The bound is inside the window that is played.
-				expect(leap.LIFT_FROM_SECONDS < leap.LIFT_TO_SECONDS).to.equal(true)
-				expect(leap.LIFT_TO_SECONDS <= leap.SECONDS).to.equal(true)
+				-- The airborne window is inside the clip, and the Brain's outer bound covers the
+				-- longest kind's bound (task 325).
+				expect(leap.TAKEOFF_SECONDS < leap.LAND_SECONDS).to.equal(true)
+				expect(leap.LAND_SECONDS < CONFIG.SPECIES.reddeer.MODEL.CLIPS.leap.seconds).to.equal(true)
+			end)
+
+			it("bounds every kind over its own sink, and the arc and the legs agree (task 325)", function()
+				-- KAREN, 2026-11-01: *"red stag male when jumping it has to jump not like now
+				-- broken and famale and kid doesnt jump"*. The defect was that NOTHING lifted the
+				-- animal: measured in her place at main, the stag's y held 134.42..134.52 across
+				-- the whole bound and the hind's 134.04..134.21.
+				local leap = CONFIG.MODEL.LEAP
+				local longest = 0
+				for _, kind in ipairs(DEER_KINDS) do
+					local up, rate, window = Body.leapPlan(kind, leap)
+					-- IT ACTUALLY LEAVES THE GROUND, and by more than the clip takes off its rig --
+					-- an arc lower than the sink puts the hooves back through the road.
+					expect(up > 0).to.equal(true)
+					local apex = up * up / (2 * leap.GRAVITY)
+					-- AT THE INSTANT THE HOOVES REACH DEEPEST, not at the apex: the two are 0.04 s
+					-- apart and the apex is the later one (review round 1, note).
+					local atSink = apex * Body.leapSinkShare(leap)
+					expect(atSink >= leap.LIFT_STUDS[kind] + leap.CLEARANCE_STUDS - EPSILON).to.equal(true)
+					-- THE LEGS ARE AIRBORNE FOR EXACTLY AS LONG AS THE BODY IS: the clip's own
+					-- airborne span, played at `rate`, is the flight time 2v/g.
+					local air = 2 * up / leap.GRAVITY
+					expect(math.abs((leap.LAND_SECONDS - leap.TAKEOFF_SECONDS) / rate - air) < 1e-6).to.equal(true)
+					expect(window > air).to.equal(true)
+					longest = math.max(longest, window)
+				end
+				-- A CALF BOUNDS A CALF'S HEIGHT. Its apex is its own, not the stag's.
+				expect(Body.leapApex("calf", leap) < Body.leapApex("hind", leap)).to.equal(true)
+				expect(Body.leapApex("hind", leap) < Body.leapApex("stag", leap)).to.equal(true)
+				-- THE BRAIN'S WINDOW COVERS THE LONGEST OF THEM, or an animal would be dropped back
+				-- into its gait in mid-air.
+				expect(leap.SECONDS >= longest).to.equal(true)
+				-- A BOAR HAS NO ROW AND NO BOUND: the whole branch is dead in the world task 245b
+				-- shipped, which is what keeps every boar drawing what it drew.
+				local boarUp = Body.leapPlan("male", leap)
+				expect(boarUp).to.equal(0)
+				-- ...AND THE GRAVITY THE ARC IS SOLVED AGAINST IS THE WORLD'S OWN.
+				expect(math.abs(leap.GRAVITY - workspace.Gravity) < 0.01).to.equal(true)
+			end)
+
+			it("drives stepVisual: ONE take-off per crossing, the body really launched (task 325)", function()
+				-- FAILS WHEN THE `stepVisual` BLOCKS ARE DELETED, and at main (they do not exist
+				-- there). MEASURED at the first cut in her place: a stag bounded at t 44.66, landed,
+				-- took two frames of the run clip and bounded AGAIN at t 45.21 off the same
+				-- crossing -- the Brain holds one window for every kind (0.55 s) and the stag's own
+				-- is 0.49, so a gate that asked only "is the leap clip playing" re-opened.
+				--
+				-- IT DRIVES THE REAL WRITER, not the pure functions: the trunk is a real `Part`, so
+				-- the upward velocity this asserts is the one the game writes.
+				local deer = Boar.speciesConfig("reddeer", CONFIG)
+				local model = table.clone(deer.MODEL)
+				-- EVERY clip gets an id and a track, so `play` can always reach the one `clipFor`
+				-- asks for: a missing track leaves `handle.clip` alone, which would read as the
+				-- bound never ending.
+				model.ANIMATION_IDS = table.clone(deer.MODEL.ANIMATION_IDS)
+				for name in pairs(model.CLIPS) do
+					model.ANIMATION_IDS[name] = 1
+				end
+				local config = table.clone(deer)
+				config.MODEL = model
+				local leap = model.LEAP
+				for _, kind in ipairs(DEER_KINDS) do
+					local up, rate, window = Body.leapPlan(kind, leap)
+					local plays, track = 0, nil :: any
+					local function newTrack(name: string)
+						local t: any = {
+							Name = name,
+							Length = model.CLIPS[name].seconds,
+							TimePosition = 0,
+							Speed = 1,
+							WeightCurrent = 1,
+							IsPlaying = false,
+							Looped = false,
+						}
+						function t:Play(_fade, weight, speed)
+							plays += 1
+							self.IsPlaying = true
+							self.WeightCurrent = weight or 1
+							self.Speed = speed or 1
+							self.TimePosition = 0
+						end
+						function t:AdjustSpeed(speed)
+							self.Speed = speed
+						end
+						function t:Stop() end
+						return t
+					end
+					local tracks: any = {}
+					for name in pairs(model.CLIPS) do
+						tracks[name] = newTrack(name)
+					end
+					track = tracks.leap
+					local handle: any = {
+						part = Instance.new("Part"),
+						kind = kind,
+						collapsed = false,
+						toppled = false,
+						reasserted = true,
+						deadFor = 0,
+						clip = nil,
+						reholds = 0,
+						tracks = tracks,
+						hitFor = 0,
+						hitFromBehind = false,
+						clipHeldFor = 0,
+						exitFor = 0,
+						activityFor = 0,
+						paddleFor = 0,
+						warmFor = 0,
+						yawRate = 0,
+						rateWrites = 0,
+						leapFor = 0,
+						leapSpent = false,
+						visual = Instance.new("Model"),
+					}
+					-- NOT anchored and not parented: an anchored part ignores a velocity write, and
+					-- an unparented one is never stepped, so what this reads back is exactly what
+					-- the code wrote.
+					handle.part.AssemblyLinearVelocity = Vector3.new(7, 0, 11)
+					local dt = 1 / 60
+					local info = { leaping = true, speed = 40, clipScale = 1, hitFor = 0, deadFor = 0 }
+					Boar.stepVisual(handle, dt, info, config)
+					-- THE BODY LEAVES THE GROUND, with its planar velocity untouched.
+					expect(handle.clip).to.equal("leap")
+					expect(handle.part.AssemblyLinearVelocity.Y).to.be.near(up, 1e-3)
+					expect(handle.part.AssemblyLinearVelocity.X).to.be.near(7, 1e-3)
+					expect(handle.part.AssemblyLinearVelocity.Z).to.be.near(11, 1e-3)
+					-- ...AT THE CLIP'S OWN TAKE-OFF FRAME, and at this kind's own rate.
+					expect(track.TimePosition).to.be.near(leap.TAKEOFF_SECONDS, 1e-9)
+					expect(track.Speed).to.be.near(rate, 1e-9)
+					expect(handle.leapFor).to.be.near(window, 1e-9)
+					local takeOffs = 1
+					-- NOW RUN THE BRAIN'S WHOLE WINDOW OUT with `leaping` never dropping, which is
+					-- exactly the state the second bound happened in.
+					local elapsed = 0
+					while elapsed < leap.SECONDS do
+						local before = handle.part.AssemblyLinearVelocity.Y
+						Boar.stepVisual(handle, dt, info, config)
+						elapsed += dt
+						if handle.part.AssemblyLinearVelocity.Y > before + 1 then
+							takeOffs += 1
+						end
+					end
+					expect(takeOffs).to.equal(1)
+					-- ...AND THE BOUND IS OVER: latched, off the leap clip, back on the gait, with
+					-- no upward velocity left to float on.
+					expect(handle.leapSpent).to.equal(true)
+					expect(handle.clip).never.to.equal("leap")
+					expect(handle.part.AssemblyLinearVelocity.Y <= 0).to.equal(true)
+					-- ...AND IT RE-ARMS ONLY WHEN THE BRAIN SAYS THE CROSSING IS OVER.
+					Boar.stepVisual(
+						handle,
+						dt,
+						{ leaping = false, speed = 28, clipScale = 1, hitFor = 0, deadFor = 0 },
+						config
+					)
+					expect(handle.leapSpent).to.equal(false)
+				end
+			end)
+
+			it("starts the bound at the clip's own take-off frame (task 325)", function()
+				local leap = CONFIG.MODEL.LEAP
+				expect(Body.leapStartAt(leap)).to.equal(leap.TAKEOFF_SECONDS)
+				-- Nothing to start, nothing to play: a world with no leap table answers 0 and 1.
+				expect(Body.leapStartAt(nil)).to.equal(0)
+				local up, rate, window = Body.leapPlan("stag", nil)
+				expect(up).to.equal(0)
+				expect(rate).to.equal(1)
+				expect(window).to.equal(0)
 			end)
 
 			it("gives the Forest Test's field a road that IS ForestTest.roadZ", function()
@@ -1931,8 +2120,8 @@ return function()
 			end
 			-- THE RULE, each condition on its own. `ON`/`OFF` are the leap tables this block already
 			-- defines for the road leap, because the bound IS that clip.
-			local LEAP_ON = { ENABLED = true, SECONDS = 0.75 }
-			local LEAP_OFF = { ENABLED = false, SECONDS = 0.75 }
+			local LEAP_ON = { ENABLED = true, SECONDS = 0.55 }
+			local LEAP_OFF = { ENABLED = false, SECONDS = 0.55 }
 			local from = CONFIG.MOVE.BOUND_FROM_SPEED
 			expect(from).to.equal(6)
 			expect(Brain.boundStarts(true, 0, from, LEAP_ON)).to.equal(true)

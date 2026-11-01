@@ -3236,8 +3236,8 @@ Assets.ROWS = {
 		-- and its LEGS REACH DOWN: at the peak of the bound (t = 0.5417) the lowest hind hoof is
 		-- below the rig's own floor by **1.197 studs on the stag, 1.259 on the hind and 1.340 on the
 		-- calf**, and it is below it at all only from t = 0.458 to t = 0.708. Those numbers live in
-		-- `Boar.CONFIG.MODEL.LEAP.LIFT_STUDS`, which is DATA the drawing layer does not read yet --
-		-- see that table for why.
+		-- `Boar.CONFIG.MODEL.LEAP.LIFT_STUDS`. Task 325 reads them: they are the floor under each
+		-- kind's bound, so the body is given the air the clip's legs reach down into.
 		key = Assets.KEYS.deerLeap,
 		version = 1,
 		kind = "animation" :: Kind,
