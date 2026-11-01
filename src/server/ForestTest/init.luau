@@ -913,10 +913,10 @@ function ForestTest.hunterStandX(): number
 			return onLine(Data.standX(pick.index, chosen.layout))
 		end
 	end
-	-- CLAMPED INTO THE LIVE LAYOUT (task 179): `defaultIndex` is 5 and every shipped layout has
-	-- at least five stands, so this changes no answer today -- it is here so adding a shorter
-	-- layout cannot aim every wave past the end of its line.
-	return onLine(Data.standX(math.min(Data.PICK.defaultIndex, chosen.layout.standCount), chosen.layout))
+	-- CLAMPED INTO THE LIVE LAYOUT (task 179), and the index is `ForestTest.defaultPickIndex` --
+	-- the first stand of the DEAL, so with nobody playing the waves are aimed at the stand the one
+	-- hunter is actually put on (task 327b round 3). On the road that is `defaultIndex` 5, unchanged.
+	return onLine(Data.standX(ForestTest.defaultPickIndex(), chosen.layout))
 end
 
 -- RELEASES ONE WAVE. Returns how many animals it actually put on the ground, which is never assumed
@@ -1112,7 +1112,9 @@ end
 -- `lockedAt` and ignore an open pick on purpose -- "no rule during the pick window" -- so what this
 -- argument moves is the thing that is DRAWN and nothing that is enforced.
 function ForestTest.openPick(userId: number, now: number, standIndex: number?)
-	local index = math.min(standIndex or Data.PICK.defaultIndex, chosen.layout.standCount)
+	-- The default is `ForestTest.defaultPickIndex` (task 327b round 3), so the ring an unmoved hunter
+	-- sees is drawn round the stand he was dealt rather than round the road's stand 5.
+	local index = math.min(standIndex or ForestTest.defaultPickIndex(), chosen.layout.standCount)
 	state.picks[userId] = { index = index, lockedAt = nil, openedAt = now } :: any
 end
 
@@ -4097,6 +4099,14 @@ end
 -- Pattern: Quake III's `SelectSpawnPoint` family -- the mode chooses AMONG the points the world
 -- placed (docs/design/forest-drive.md section 11.5).
 function ForestTest.standIndexFor(index: number): number
+	-- A CELL'S WALK IS THE GRID'S, AND THIS READS IT (task 327b round 3, design 6.3): fifteen stands
+	-- on three sides are not one line, so the centre-out arithmetic below answers 8 -- a west flank
+	-- post 556 studs off centre -- for the first hunter of a cell.
+	-- It wraps on `#walk`, as the arithmetic below wraps on `count`.
+	if chosen.layout.sides ~= nil then
+		local walk = ForestTest.standWalk()
+		return walk[(math.max(1, math.floor(index)) - 1) % #walk + 1]
+	end
 	local count = chosen.layout.standCount
 	local zero = (math.max(1, math.floor(index)) - 1) % count -- 0, 1, 2, ...
 	-- THE MIDDLE, AND IT IS `floor + 1` SO THE WALK CLOSES ON AN EVEN COUNT TOO (round 3's note).
@@ -4127,12 +4137,30 @@ end
 -- centre-out arithmetic would be exactly the two-pieces-of-code-disagreeing failure this project is
 -- named after. `forest_stand.spec` already pins the permutation `standIndexFor` produces, so this
 -- is pinned with it.
+-- ON A CELL IT IS `Grid.standWalk`, WHOLE (task 327b round 3): the main line centre-out, then the
+-- flanks alternating, which is design 6.3's own answer for `HighSeats.dealLine`'s `walk`. The
+-- derivation below is the road's, and `standIndexFor` reads THIS list on a cell, so there is still
+-- exactly one walk per layout and the deal, the boot's fallback and `Match`'s bot order share it.
 function ForestTest.standWalk(): { number }
+	if chosen.layout.sides ~= nil then
+		return Grid.standWalk(chosen.layout.name)
+	end
 	local out: { number } = {}
 	for index = 1, chosen.layout.standCount do
 		table.insert(out, ForestTest.standIndexFor(index))
 	end
 	return out
+end
+
+-- THE STAND NOBODY HAS PICKED YET, and IT IS THE FIRST STAND OF THE DEAL (task 327b round 3): the
+-- walk's first entry, which on a cell is the MAIN line's middle and on the road is
+-- `Data.PICK.defaultIndex` 5 unchanged. One number, so `hunterStandX` cannot aim every wave at a
+-- stand `HighSeats.dealLine` never deals (the round-2 finding: stand 5 aimed at, stand 8 dealt).
+function ForestTest.defaultPickIndex(): number
+	if chosen.layout.sides ~= nil then
+		return ForestTest.standIndexFor(1)
+	end
+	return math.min(Data.PICK.defaultIndex, chosen.layout.standCount)
 end
 
 -- WHICH OF THIS LAYOUT'S STANDS CARRY A HIGH SEAT, as a SET keyed by stand index (task 221).

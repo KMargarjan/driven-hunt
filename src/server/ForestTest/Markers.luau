@@ -574,6 +574,12 @@ function Markers.build(
 	if #posts == 0 then
 		table.insert(missing, string.format("forest:stands (0 of %d)", layout.standCount))
 	end
+	-- NO MAIN-LINE POST IS NOT A LINE (task 327b round 3, round-2 note). On a cell `posts` can hold
+	-- flank posts only, and `ForestTest.linePostsOf` would then hand `lineReferenceFor` an empty
+	-- list, so the drive would measure every crossing against the line PLANE instead of the stands.
+	if #linePosts == 0 then
+		table.insert(missing, string.format("forest:line-posts (0 of %d)", #posts))
+	end
 	if line == nil then
 		table.insert(missing, "forest:line")
 	end
@@ -599,7 +605,9 @@ function Markers.build(
 		-- roped to her own stand. `Markers.read` does not require trees either. The deviation from
 		-- Karen's *"tied to a tree"* is named in the design (section 6.3) and is one line to change.
 		trees = table.freeze({}),
-		complete = #posts >= 1 and line ~= nil and driverStart ~= nil,
+		-- `#linePosts >= 1` IS PART OF IT, or the `missing` entry above would be a string nobody
+		-- acts on: `Phase.waitingFor` reads `missing` only while `markersComplete` is false.
+		complete = #posts >= 1 and #linePosts >= 1 and line ~= nil and driverStart ~= nil,
 		missing = table.freeze(missing),
 	})
 end

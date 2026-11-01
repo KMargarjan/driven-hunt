@@ -18,6 +18,7 @@ return function()
 	local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
 	local Plan = require(ReplicatedStorage:WaitForChild("Places"))
 	local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+	local HighSeats = require(ReplicatedStorage:WaitForChild("HighSeats"))
 	local Planter = require(ServerScriptService:WaitForChild("Places"))
 	local Ground = require(ServerScriptService.Places:WaitForChild("Ground"))
 	local Match = require(ServerScriptService:WaitForChild("Match"))
@@ -768,6 +769,60 @@ return function()
 				end
 				expect(math.abs(west - east) <= 1).to.equal(true)
 			end
+		end)
+
+		it("deals the first hunter of a cell the MAIN stand hunterStandX aims at", function()
+			-- ROUND 2'S FINDING. With the cell live, the deal was still the ROAD's arithmetic
+			-- (`standIndexFor`'s `floor(15/2) + 1` = stand 8, a west flank post 556 studs off
+			-- centre) while `hunterStandX` aimed every wave at stand 5. This drives the LIVE path:
+			-- the promoted cell, `ForestTest.standWalk()` as `ForestTestBoot`'s `placement` passes
+			-- it, and `hunterStandX()` with nobody having picked.
+			local id = Grid.PREVIEW_CELL
+			ForestTest.layoutForDrive(3273, id)
+			expect(ForestTest.layoutName()).to.equal(id)
+			local layout = ForestTest.layout()
+			expect(layout.sides).never.to.equal(nil)
+			-- THE WALK IS THE GRID'S, by call and value for value.
+			local walk = ForestTest.standWalk()
+			local grid = Grid.standWalk(id)
+			expect(#walk).to.equal(#grid)
+			for index, value in ipairs(grid) do
+				expect(walk[index]).to.equal(value)
+			end
+			-- THE DEAL, EXACTLY AS THE BOOT MAKES IT for a one-hunter line, both ways round: with
+			-- nobody answering the entitlement (today's world) and with the one hunter UNENTITLED
+			-- (every seated stand barred), because C1's three seats are flank posts.
+			local seated = ForestTest.seatedStands()
+			for _, deal in ipairs({
+				HighSeats.dealLine(walk, seated, nil, 1, nil),
+				HighSeats.dealLine(walk, seated, { false }, 1, nil),
+			}) do
+				local stand = deal[1]
+				expect(stand).to.equal(ForestTest.standIndexFor(1))
+				expect(Grid.sideOf(id, stand)).to.equal("main")
+				-- AND IT IS THE STAND THE WAVES ARE AIMED AT. `hunterStandX` with no pick is
+				-- `defaultPickIndex`, which is the walk's first stand.
+				expect(ForestTest.hunterStandX()).to.be.near(Forest.standX(stand, layout), 1e-6)
+				expect(ForestTest.defaultPickIndex()).to.equal(ForestTest.standIndexFor(1))
+			end
+			TestKit.note(
+				string.format(
+					"%s: walk[1] = stand %d (%s) at x %.0f; hunterStandX %.0f; the road still deals %d",
+					id,
+					walk[1],
+					Grid.sideOf(id, walk[1]),
+					Forest.standX(walk[1], layout),
+					ForestTest.hunterStandX(),
+					math.floor(#walk / 2) + 1
+				)
+			)
+			-- Put the world back where the rest of the suite expects it.
+			ForestTest.layoutForDrive(3274, Forest.DEFAULT_LAYOUT)
+			expect(ForestTest.layoutName()).to.equal(Forest.DEFAULT_LAYOUT)
+			-- THE ROAD'S OWN BRANCH IS UNMOVED (L-093): `forest_stand.spec` pins the centre-out
+			-- permutation, and the default stand is still 5 here.
+			expect(ForestTest.standIndexFor(1)).to.equal(Forest.PICK.defaultIndex)
+			expect(ForestTest.defaultPickIndex()).to.equal(Forest.PICK.defaultIndex)
 		end)
 	end)
 

@@ -167,10 +167,10 @@ print(
 if gridPreviewOn then
 	local cellLayout = Grid.layoutFor(Grid.PREVIEW_CELL)
 	local seats = ForestTest.Seats.ensure(cellLayout)
-	-- THE MIDDLE OF THE MAIN LINE. It is NOT what `hunterStandX` answers with nobody playing --
-	-- that is `PICK.defaultIndex` 5, 150 studs east (round 1 note) -- and it does not need to be:
-	-- the drive's own closure rebuilds this set a second later with the number it wants, and the
-	-- only thing derived from it here is the beater pad in the console line below.
+	-- THE MIDDLE OF THE MAIN LINE, which since round 3 IS what `hunterStandX` answers with nobody
+	-- playing (`ForestTest.defaultPickIndex` is the walk's first stand). The drive's own closure
+	-- rebuilds this set a second later anyway, and the only thing derived from it here is the beater
+	-- pad in the console line below.
 	local middleX = Data.standX(math.ceil(Grid.CONFIG.mainStandCount / 2), cellLayout)
 	local set = ForestTest.Markers.build(middleX, cellLayout)
 	print(
@@ -493,8 +493,9 @@ Weapon.Horn.start()
 --
 -- A HUNTER GOES THROUGH `Body.placementFor`, so `STAND_HEIGHT_STUDS`, the post's own half-height and
 -- the facing (+Z, north, up the drive) are one rule in both worlds. What this adds is WHICH post:
--- `ForestTest.standIndexFor` is centre-out, so a solo hunter gets stand 5 -- the stand
--- `hunterStandX()` aims every wave at -- instead of `posts[1]`, 600 studs west of the push.
+-- `ForestTest.standIndexFor` is centre-out, so a solo hunter gets the middle of the line -- stand 5
+-- on the road, a cell's main stand 4 -- which is the stand `hunterStandX()` aims every wave at,
+-- instead of `posts[1]`, 600 studs west of the push.
 --
 -- WHY A BEATER DOES NOT GO THROUGH IT: `placementFor` faces a driver straight -Z, and this road is a
 -- sine whose tangent swings +-23 degrees (`atan(30/70)`), so the generic look would be up to 23
