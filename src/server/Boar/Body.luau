@@ -1881,6 +1881,19 @@ function Body.stepVisual(handle, dt: number, info, config)
 		handle.leapFor = math.max(0, handle.leapFor - dt)
 		if handle.leapFor <= 0 then
 			handle.leapSpent = true
+			-- NO FLOAT AFTER THE LANDING. MEASURED at cycle 2: a hind came down at -17.3 studs/s and
+			-- the ground threw her back up at +8.4, a second little hop on top of the bound. One
+			-- write, once, at the end of the bound and only where the body is still rising -- the
+			-- same shape and the same owner as the take-off write above. A body on its way DOWN is
+			-- left alone: that is gravity finishing the arc, and cancelling it would hang the
+			-- animal in the air.
+			local part = handle.part
+			if part ~= nil then
+				local v = part.AssemblyLinearVelocity
+				if v.Y > 0 then
+					part.AssemblyLinearVelocity = Vector3.new(v.X, 0, v.Z)
+				end
+			end
 		end
 	end
 	local leaping = info.leaping == true and handle.leapSpent ~= true
