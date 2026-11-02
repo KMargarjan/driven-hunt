@@ -1,3 +1,82 @@
+## 2026-11-02 ~16:55 UTC, Task 328d -- ROUND 3 FOUND TWO, BOTH ARE RIGHT, AND I STOPPED AS THE DISPATCH SAYS
+
+The dispatch: *"Review: this is round 3, the last. A finding on round 3 goes to ESCALATE.md and
+stops."* `reviews/task-328d/RESULT.md` (commit `d7e4beeb`, $5.50, 46 turns) lists two blocking
+findings. **I checked both against the code myself and reproduced each one rather than taking it on
+trust. Both are correct, and the first is mine from this round.**
+
+### 1. THE CI STEP THIS TASK ADDS DIES ON EVERY PUSH. Confirmed by running it.
+
+My round-3 selftest case `main(["plan", "--cells", "A1"]) == 0` constructs `Studio()`.
+`Studio.__init__` calls `find_exe`, whose miss path is `sys.exit(...)` -- and **`SystemExit` is not a
+subclass of `Exception`**, so `command_plan`'s `except Exception` does not catch it. On CI's ubuntu
+runner `os.path.expandvars` leaves `%LOCALAPPDATA%` unexpanded, the glob matches nothing, and the
+selftest aborts.
+
+**Reproduced on this machine, with CI's own condition:**
+
+```
+$ LOCALAPPDATA=/nonexistent python tools/terrainbake.py selftest
+  PASS A1 is 224, NOT C1's 208 -- equal cells do not tile equally
+StudioMCP.exe not found under %LOCALAPPDATA%\Roblox\Versions
+EXIT: 1
+```
+
+It dies there and **~45 later checks never run** -- including every refusal case, the injection
+cases and the epoch cases. The step is named "no Studio, no network" and is the only gate the design
+gives this tool (D-5). It passed for me only because Studio was open, where the case is not even
+testing what it claims: `command_plan` then makes a live `execute_luau` call.
+
+**The fix is two lines** and I have not made it: call `command_plan(args, luau_facts(), None, None)`
+directly so the case proves the committed count with no transport at all.
+
+### 2. DESIGN 7.1'S TWO JUNCTION RULES ARE NOT BUILT. Confirmed, and measured at 60 studs.
+
+Section 7.1: *"sample every 20 st, **pin the 15 junctions**, clamp the grade"* and *"**Junctions:**
+the E-W profile wins inside the junction square."* `longProfile` takes no junction argument and pins
+nothing; `roadAt` picks the **nearest centreline** with no axis precedence. So the two roads'
+profiles are under no constraint to agree where they cross, and inside the square the surface
+switches from one crown to the other along the diagonal.
+
+**Measured** (`DEV ONLY`, a synthetic base, so no terrain is read: the east-west line at 100 and
+everything else at 160, which NS3 must smooth and EW2 need not):
+
+```
+E-W crown at the crossing 100.00, N-S crown 160.00            ->  STEP 60.00 studs
+inside the junction square: (+5,+10) -> 159.95, (+10,+5) -> 99.95  ->  60.00 studs across the diagonal
+```
+
+Nothing softens it: `shapeTile` marks the whole carriageway `exempt`, so `limitGrid` may not move it.
+**C1's own bake writes four such crossings** (EW2/EW3 x NS3/NS4). On Karen's real ground the two
+axes' cut-or-fill differ by 13 studs (EW2 1.02, NS3 14.07 at `f30854ff`), so the real step is not
+knowable without measuring it in her place -- which I could not do, see below. This gap is not new in
+round 3; it was in rounds 1 and 2 and nobody named it, including me.
+
+**It is not a two-line fix.** It needs the 15 crossings pinned to one shared height in both axes'
+profiles, E-W precedence inside the square, and a case for each -- the kind of change that should not
+be written in the last minutes of a round that is already over its cap.
+
+### NEEDS DIRECTOR -- and the round count is the point
+
+`MAX_ROUNDS` is 3 and round 3 is spent. The repo's one extra round is for findings that are
+**documentation-only**; these are not. So this is the Director's call: authorise a round 4 for
+`DIRECTOR_MAX_ROUNDS=4` naming this task and round, or redispatch 328d with the two fixes as its
+scope. **Nothing merges as it stands**: finding 1 reddens CI on every push, and finding 2 would bake
+four cliffs into C1's crossings.
+
+### WHAT IS DONE, AND WHAT CLOSED UNDER ME
+
+The four round-2 findings are fixed and the Reviewer re-derived all four independently and confirmed
+them (its own non-blocking note). The gate is `[harness] PASS: 34/34 @ f30854ff (clean tree)
+scope=all`. **The injection route works in Karen's Edit session** -- `survey C1` answered from her
+place, which rounds 1 and 2 could not do, so Director decision 2 is proven, not merely adopted.
+
+**Her Forest Test Studio window closed between 16:34 and 16:53 UTC.** It was open and responding at
+16:34 (the ditch measurements) and the process is gone at 16:53; I did not close it, and nothing was
+written to her place at any point. **Any further live work needs it reopened** -- that is a click
+only Karen or the Director can make -- and the two NEEDS KAREN items of the 16:40 entry still stand:
+the backup file `FT-before-328d.rbxl` does not exist, and `StreamingMinRadius` is still 64.
+
 ## 2026-11-02 ~16:40 UTC, Task 328d round 3 -- NEEDS KAREN (the backup), and one measured thing for the Director
 
 **The four round-2 findings are fixed, the gate is green (34/34 @ `f30854ff`, clean tree, scope=all),
