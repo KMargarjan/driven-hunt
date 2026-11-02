@@ -319,13 +319,14 @@ return function()
 			expect(lying.tilted).to.equal(1)
 			expect(lying.broken).to.equal(1)
 			expect(lying.brokenBy["trunk-axis-not-Y"]).to.equal(1)
-			-- LEANING 7 DEGREES is a lean and not a fall: the tilt reads, the audit does not.
+			-- LEANING 3.5 DEGREES is a lean and not a fall -- past the census's 2 and short of the
+			-- audit's 5 -- so the tilt reads and the audit does not.
 			local leaning = one(function(model)
-				model:PivotTo(model:GetPivot() * CFrame.Angles(0, 0, math.rad(7)))
+				model:PivotTo(model:GetPivot() * CFrame.Angles(0, 0, math.rad(3.5)))
 			end)
 			expect(leaning.tilted).to.equal(1)
 			expect(leaning.broken).to.equal(0)
-			expect(string.find(Census.line(lifted, "spec"), "floating=1") ~= nil).to.equal(true)
+			expect(string.find(Census.line(lifted, "spec"), "floating=1", 1, true) ~= nil).to.equal(true)
 			TestKit.note(Census.line(lifted, "spec:lifted"))
 			source:Destroy()
 		end)
@@ -341,7 +342,7 @@ return function()
 			expect(target:GetAttribute("Census_trees")).to.equal(0)
 			expect(target:GetAttribute("Census_refusedCliff")).to.equal(11)
 			expect(target:GetAttribute("Census_epoch")).to.equal("deadbeef")
-			expect(string.find(target:GetAttribute("Census_line"), "refused=11+4/300") ~= nil).to.equal(true)
+			expect(string.find(target:GetAttribute("Census_line"), "refused=11+4/300", 1, true) ~= nil).to.equal(true)
 			-- THE ROWS NO TASK HAS MEASURED READ `UNMEASURED` AND NEVER 0 (design 12.2).
 			for key in pairs(Census.UNMEASURED) do
 				expect(string.sub(tostring(report[key]), 1, 10)).to.equal("UNMEASURED")
@@ -352,16 +353,20 @@ return function()
 		end)
 
 		it("the crown rule is by parameter: a wide crown over a road counts, a trunk does not", function()
-			local roads = Grid.roads()
-			local road = roads[1]
-			-- A POINT JUST CLEAR OF THE FIRST ROAD'S TRUNK RULE, by one stud.
+			local road = Grid.roads()[1]
+			-- A POINT ONE STUD CLEAR OF THE FIRST ROAD'S TRUNK RULE, FOUND rather than assumed: the
+			-- roads cross, so a midpoint can sit inside the one that crosses it.
 			local half = Grid.CONFIG.roadClearStuds / 2
-			local x, z
-			if road.axis == "x" then
-				x, z = (road.from + road.to) / 2, road.at + half + 1
-			else
-				x, z = road.at + half + 1, (road.from + road.to) / 2
+			local x, z = 0, 0
+			for along = road.from + 40, road.to - 40, 20 do
+				local tryX = if road.axis == "x" then along else road.at + half + 1
+				local tryZ = if road.axis == "x" then road.at + half + 1 else along
+				if Plan.clearOfEveryRoad(tryX, tryZ) then
+					x, z = tryX, tryZ
+					break
+				end
 			end
+			expect(x ~= 0 or z ~= 0).to.equal(true)
 			expect(Plan.clearOfEveryRoad(x, z)).to.equal(true)
 			expect(Plan.clearOfEveryRoad(x, z, 0)).to.equal(true)
 			-- ...AND A 12-STUD CROWN HANGS OVER IT.
