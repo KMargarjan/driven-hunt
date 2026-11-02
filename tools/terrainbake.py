@@ -396,18 +396,26 @@ def parse_json(body):
     """The JSON value inside StudioMCP's reply text, which may carry a line of its own around it.
 
     A reply can be a STRING as well as an object or an array -- `epochInputFor` answers one -- and a
-    string that holds a brace cannot be found by looking for the brace. So each of `{`, `[` and `"`
-    is tried in the order it appears and the first that DECODES wins. Measured: the first wet bake in
-    Karen's place wrote all 208 tiles and then died here, because the epoch input string carries the
-    landform digest's own braces (2026-11-02 18:12 UTC).
+    string that holds a brace cannot be found by looking for the brace. So `{`, `[` and `"` are all
+    tried, in the order they appear, and the one that CONSUMES THE WHOLE REPLY wins -- neither
+    ordering alone is right. By position only, a preamble holding a quote decodes to that quoted word
+    instead of the JSON behind it; by type only, `[{"a": 1}]` decodes to its first element. Falling
+    back to the earliest that decodes at all keeps a reply with a trailing line readable.
+    Measured: the first wet bake in Karen's place wrote all 208 tiles and then died here, because the
+    epoch input string carries the landform digest's own braces (2026-11-02 18:12 UTC).
     """
-    seen = sorted(i for i in (body.find("{"), body.find("["), body.find('"')) if i >= 0)
-    for start in seen:
+    decoded = []
+    for start in sorted(i for i in (body.find("{"), body.find("["), body.find('"')) if i >= 0):
         try:
-            value, _ = json.JSONDecoder().raw_decode(body[start:])
-            return value
+            value, end = json.JSONDecoder().raw_decode(body[start:])
         except ValueError:
             continue
+        decoded.append((value, body[start + end:].strip() == ""))
+    for value, whole in decoded:
+        if whole:
+            return value
+    if decoded:
+        return decoded[0][0]
     raise RuntimeError("no JSON in Studio's reply: %s" % body[:400])
 
 
@@ -575,12 +583,20 @@ def check_overrides(studio, studio_id, keep=()):
 
 # ---------------------------------------------------------------- the run log
 
-def log_run(cells, entries):
+def log_run(cells, entries, keep=None, live=None):
+    """`keep` and `live` are refusal 7's record: what the operator DECLARED with --keep-flags and
+    what was actually set. Round 1's review caught the claim that the run log held them when only
+    stdout did, and the declaration is the whole reason refusal 7 was narrowed instead of deleted."""
     os.makedirs(RUN_LOG_DIR, exist_ok=True)
     name = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + ",".join(cells) + ".json"
     path = os.path.join(RUN_LOG_DIR, name)
+    body = entries if keep is None and live is None else {
+        "keepFlags": list(keep or []),
+        "liveOverrides": list(live or []),
+        "tiles": entries,
+    }
     with open(path, "w", encoding="utf-8") as handle:
-        json.dump(entries, handle, indent=2)
+        json.dump(body, handle, indent=2)
     print("[bake] run log: %s" % os.path.relpath(path, REPO))
     return path
 
@@ -749,7 +765,7 @@ def profiles_once(studio, studio_id, cells, injected):
     return payload, digest
 
 
-def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=None):
+def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=None, keep=None, live=None):
     """The tile loop, shared by `measure` (dry) and `bake` (wet). One MCP call per tile."""
     cells = args.cells
     region = region_for(cells, facts)
@@ -780,10 +796,10 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
                  report["bandMin"], report["bandMax"], report["elapsedMs"],
                  "  " + report["message"] if report.get("message") else ""))
         if report.get("message"):
-            log_run(cells, entries)
+            log_run(cells, entries, keep, live)
             print("[bake] FAILED at tile %d: %s" % (index, report["message"]))
             return 1, entries
-    log_run(cells, entries)
+    log_run(cells, entries, keep, live)
     # THE EPOCH IS STAMPED AT THE END OF A WET RUN, through TerrainBake.stamp, which design 2 names
     # as its only writer -- and it is printed, because design 6.3 puts it in this line.
     epoch = "dry"
@@ -870,6 +886,7 @@ def main(argv):
         problem = check_echo(studio, studio_id, facts, injected, shas)  # refusal 4
         if problem:
             return refuse(problem)
+        keep, live = [], []
         if mutating:
             keep = [f.strip().upper() for f in (args.keep_flags or "").split(",") if f.strip()]
             if keep:
@@ -878,7 +895,8 @@ def main(argv):
             problem = check_overrides(studio, studio_id, keep)  # refusal 7
             if problem:
                 return refuse(problem)
-            print("  flags  live overrides: %s" % (",".join(override_names(studio, studio_id)) or "none"))
+            live = override_names(studio, studio_id)
+            print("  flags  live overrides: %s" % (",".join(live) or "none"))
         if args.command == "survey":
             return command_survey(studio, studio_id, args, injected)
         if args.command == "census":
@@ -912,7 +930,8 @@ def main(argv):
                 return refuse("--cells is missing")
             profiles, _ = profiles_once(studio, studio_id, args.cells, injected)
             code, _ = tile_pass(studio, studio_id, args, facts, sha,
-                                dry=args.command == "measure", injected=injected, profiles=profiles)
+                                dry=args.command == "measure", injected=injected, profiles=profiles,
+                                keep=keep, live=live)
             return code
     finally:
         studio.close()
@@ -1007,6 +1026,8 @@ def selftest():
     braced = json.dumps(chr(123) + chr(34) + "x" + chr(34) + ": 1" + chr(125))
     ok("a STRING reply parses, even when the string itself holds a brace",
        parse_json(braced) == chr(123) + chr(34) + "x" + chr(34) + ": 1" + chr(125))
+    ok("a quote in Studio's own preamble does not win over the JSON behind it",
+       parse_json('[bake] ' + chr(34) + 'x' + chr(34) + chr(10) + '{"a": 1}') == {"a": 1})
     ok("an object reply still parses, and a line of Studio's own text in front of it is ignored",
        parse_json('Executed: {"a": [1, 2]}') == {"a": [1, 2]}
        and parse_json('[1, "{"]') == [1, "{"])
@@ -1089,12 +1110,21 @@ def selftest():
         ok("refusal 2 rejects the DEV place",
            "not the Forest Test" in (check_place(FakeStudio(place="136410205938347"), "x") or ""))
         ok("refusals 1 and 2 ACCEPT Edit on the Forest Test", check_place(FakeStudio(), "x") is None)
-        ok("refusal 7 rejects a stray flag override",
-           "GRID_HILLSHADE" in (check_overrides(FakeStudio(flags={"GRID_HILLSHADE": True}), "x") or ""))
-        ok("refusal 7 LEAVES Karen's own two alone (lesson K)",
-           check_overrides(FakeStudio(flags={"GRID_PREVIEW": True, "RANGE_SOLO": True}), "x") is None)
+        # ROUND-1 FINDING 1: these four fed the fake transport BARE names, which is not the shape
+        # `flag_overrides` answers, so reverting `override_names` left every one of them green --
+        # the gate testing its own harness instead of the tool's input, which is how a bug visible
+        # on the first real call shipped. Every case below now carries the real shape,
+        # `DHFlag_<NAME>=<value>`, exactly as `QUERY_FLAG_OVERRIDES` builds it.
+        ok("refusal 7 rejects a stray flag override, in the shape the transport answers",
+           "GRID_HILLSHADE" in (check_overrides(FakeStudio(flags=["DHFlag_GRID_HILLSHADE=true"]), "x") or ""))
+        ok("refusal 7 LEAVES Karen's own two alone (lesson K), in that same shape",
+           check_overrides(FakeStudio(flags=["DHFlag_GRID_PREVIEW=true", "DHFlag_RANGE_SOLO=true"]), "x")
+           is None)
+        ok("refusal 7 accepts an override the operator DECLARES with --keep-flags, and only that one",
+           check_overrides(FakeStudio(flags=["DHFlag_LOBBY=true"]), "x", ("LOBBY",)) is None
+           and "SHOP" in (check_overrides(FakeStudio(flags=["DHFlag_SHOP=true"]), "x", ("LOBBY",)) or ""))
         ok("refusal 7 names `set <NAME> off` and never `clear`",
-           "never `clear`" in (check_overrides(FakeStudio(flags={"X": 1}), "x") or ""))
+           "never `clear`" in (check_overrides(FakeStudio(flags=["DHFlag_X=true"]), "x") or ""))
         ok("refusal 7 rejects a live pose override",
            "pose override" in (check_overrides(FakeStudio(pose="hip"), "x") or ""))
     finally:
@@ -1214,7 +1244,7 @@ def selftest():
                     "elapsedMs": 5}
 
         globals()["call"] = record
-        globals()["log_run"] = lambda cells, entries: "<log>"
+        globals()["log_run"] = lambda cells, entries, keep=None, live=None: "<log>"
         code, entries = tile_pass(None, "x", Args(), echo_facts, "abc", True,
                                   injected="<PRELUDE>", profiles='[{"road":{"id":"EW2"}}]')
         ok("the tile pass runs every tile it was asked for", code == 0 and len(entries) == 2)
