@@ -1362,7 +1362,9 @@ return function()
 		end
 
 		it("spends a budget, finishes, and destroys before it plants", function()
-			local clock, spend = fakeClock(0.0009) -- 0.9 ms a model: twice design 8.3's measurement
+			-- 0.9 ms A MODEL: twice design 8.3's own measurement (M9, 200 models in 0.09 s).
+			local COST_MS = 0.9
+			local clock, spend = fakeClock(COST_MS / 1000)
 			local plantItems, destroyItems = {}, {}
 			for index = 1, 2400 do
 				table.insert(plantItems, { kind = "plant", index = index })
@@ -1397,9 +1399,13 @@ return function()
 				steps += 1
 				-- NO STEP TOUCHES MORE THAN `MAX_PER_STEP` ITEMS...
 				expect(spent <= Slice.MAX_PER_STEP).to.equal(true)
-				-- ...AND NO STEP SPENDS MORE THAN `BUDGET_MS`.
+				-- ...AND NO STEP RUNS PAST `BUDGET_MS` BY MORE THAN THE ONE ITEM IT WAS ALREADY
+				-- DOING. That is the contract `Slice.step`'s header states, and not a weaker one: the
+				-- budget is checked BEFORE each item, so a step stops as soon as it is spent and can
+				-- only ever overrun by the cost of the item in hand. `overBudgetStarts` below is the
+				-- other half -- no item is ever BEGUN past the budget.
 				local took = (clock() - before) * 1000
-				expect(took <= Slice.BUDGET_MS).to.equal(true)
+				expect(took <= Slice.BUDGET_MS + COST_MS + 1e-6).to.equal(true)
 				worstStep = math.max(worstStep, spent)
 			end
 			expect(done).to.equal(true)
@@ -1410,7 +1416,7 @@ return function()
 			expect(stats.destroyed).to.equal(600)
 			expect(#order).to.equal(3000)
 			expect(stats.overBudgetStarts).to.equal(0)
-			expect(stats.stepMsMax <= Slice.BUDGET_MS).to.equal(true)
+			expect(stats.stepMsMax <= Slice.BUDGET_MS + COST_MS + 1e-6).to.equal(true)
 			-- DESTROY RAN BEFORE PLANT: the first 600 work calls are all destroys and no destroy
 			-- comes after a plant.
 			for index = 1, 600 do
@@ -1444,11 +1450,12 @@ return function()
 			expect(finished).to.equal(true)
 			TestKit.note(
 				string.format(
-					"slice: 3000 items in %d steps, worst %d/step, stepMsMax %.2f of %.1f ms; 0.1 ms/model -> %d/step in %d steps",
+					"slice: 3000 items in %d steps, worst %d/step, stepMsMax %.3f ms (budget %.1f + one %.1f ms item); 0.1 ms/model -> %d/step in %d steps",
 					steps,
 					worstStep,
 					stats.stepMsMax,
 					Slice.BUDGET_MS,
+					COST_MS,
 					fastWorst,
 					fastSteps
 				)
