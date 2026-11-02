@@ -1,3 +1,12 @@
+## 2026-11-02 ~09:15 UTC, Task 328a -- DIRECTOR DECISIONS on the six scope items
+
+1. **The Architect's exact text** in `grid-terrain.md` section 16 is pasted VERBATIM by the Builder in 328b's first commit, one commit of its own, marked "the Architect's text, grid-terrain.md section 16". Nothing is reworded. It covers `grid-map.md` section 18, the `drive-places.md` and `map-generator.md` appends, and the `forest_ground.py` header.
+2. **D-1, frames.** Use the OS capture (`<runs-dir>/shot.ps1`, Forest Test window to the front, cropped by `winrect.ps1`), as 327a, 327b and 327c did; it works. `screen_capture` is not used for the Forest Test. Karen's eye remains the final check.
+3. **D-2, Team Create.** 328d step 0 reports it, and the bake does not run until the Director decides.
+4. **D-3, `forest_ground.py`.** Queued as a task of its own (before release). It stays as is.
+5. **D-4, the ride at 54 studs.** Ratified. Karen judges the 328f frame, and widening is a data change.
+6. **D-5/D-6.** In 328d, `terrainbake.py` gets a `BLAST_RADIUS` row (the `map` scope) and `plan` ASSERTS the tile count against the design's arithmetic.
+
 ## 2026-11-02, Task 328a -- NEEDS KAREN (one question) and NEEDS DIRECTOR (six scope decisions)
 
 `reviews/task-328/ARCH_RESULT.md` line 1 is **PASS**: the design is complete and buildable as
