@@ -136,14 +136,15 @@ print(string.format(
 	planted.seconds,
 	if planted.reason then " (" .. tostring(planted.reason) .. ")" else ""
 ))
--- THE GRID'S OWN LINE (task 327a), so the preview's three numbers are read and never assumed: how
--- many terrain regions were painted, how many corner stakes went in, and how long it took. All
--- zeroes with `GRID_PREVIEW` off, which is the flag-off proof on the boot's own face.
+-- THE GRID'S OWN LINE (task 327a), so the preview's numbers are read and never assumed: how many
+-- corner stakes went in, how many had no ground, and how long it took. All zeroes with
+-- `GRID_PREVIEW` off, which is the flag-off proof on the boot's own face. The road paint count left
+-- this line in task 328e with `Ground.paintRoads` (rule 7): the roads' material is the Edit-time
+-- bake's now, so there is nothing for a boot to count.
 print(
 	string.format(
-		"[ForestTestBoot] grid: preview=%s, %d road paint call(s), %d corner stake(s), %d without ground, %.2fs",
+		"[ForestTestBoot] grid: preview=%s, %d corner stake(s), %d without ground, %.2fs",
 		tostring(gridPreviewOn),
-		planted.gridPaints,
 		planted.gridStakes,
 		planted.gridMissing,
 		planted.gridSeconds

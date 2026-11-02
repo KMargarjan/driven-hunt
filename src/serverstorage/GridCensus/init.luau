@@ -46,14 +46,20 @@ GridCensus.FOLIAGE_SINK_STUDS = 0.5
 GridCensus.STAND_CLEAR_STUDS = 8
 
 -- THE ROWS THIS TASK CANNOT MEASURE, each named with the task that builds the thing it is about.
+-- THE VERGE, THE DITCH AND THE SURFACE SHARES NO LONGER SAY "not cut" (task 328e). MEASURED in
+-- Karen's place on 2026-11-02 (`<runs-dir>/328e-xsec-BEFORE.json`): the ditch is Mud 1.98 studs
+-- below the crown at |d| 21..25 and the verge is Grass out to |d| 34, on all four of C1's roads. So
+-- what these four rows are still waiting for is not the GEOMETRY but a reader: this module takes a
+-- ground reader and no material reader, and the three counts about where a TREE stands need a
+-- planted forest to count. Both arrive with the planting tasks, so the reasons name those.
 GridCensus.UNMEASURED = table.freeze({
-	inVerge = "328e (the verge is not cut)",
-	inDitch = "328e (the ditch is not dug)",
+	inVerge = "328f (the zones are cut; this module has no planted forest to count yet)",
+	inDitch = "328f (the ditch is cut; this module has no planted forest to count yet)",
 	inRide = "328f (the rides are not cut)",
 	inTower = "328h (the tower decks are not built)",
 	inBeaterPath = "328h (the beater paths are not cut)",
-	rockPct = "328d (the bake paints no material yet)",
-	mudPct = "328d (the bake paints no material yet)",
+	rockPct = "328f (the bake paints material; `survey` takes no material reader)",
+	mudPct = "328f (the bake paints material; `survey` takes no material reader)",
 })
 
 export type Box = {

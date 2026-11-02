@@ -46,6 +46,21 @@ TerrainBake.LIMIT_MARGIN_STUDS = 128
 -- answers Rock for the whole band; this is the 30 % of columns that keep it.
 TerrainBake.SCREE_ROCK_SHARE = 0.3
 
+-- THE STAND PAD (design 7.4): "the pad is level to +-0.25 st and the census measures relief
+-- <= 1.8 st". 1.8 is `HighSeats.JUMP_RELIEF_STUDS` and 327b's instrument reads that roll over a
+-- RING AT 12 STUDS, so the level core covers that ring plus one voxel column.
+--   docs/design/grid-terrain.md section 7.4
+TerrainBake.STAND_PAD = table.freeze({
+	-- 12 is 327b's ring; +2 so the outermost ring sample is inside the level core, not on its lip.
+	levelRadiusStuds = 14,
+	-- OUT TO 22, THE DITCH LIP, AND NO FURTHER. A pad that reached the ditch band (realised d 19..27,
+	-- design 7.1) would fill the ditch it is standing next to. 8 studs is also enough to rejoin a
+	-- 10 % road: 14 st of held grade is 1.4 st, and smoothstep's worst gradient is 1.5*1.4/8 = 0.26,
+	-- which is 14.7 degrees -- under `Relief.LIMIT_DEG.tree` 20, so the blend is never a cliff.
+	blendStuds = 8,
+	toleranceStuds = 0.25,
+})
+
 export type Bounds = Relief.Bounds
 
 -- A SNAPSHOT IS THE BASE AND NOTHING ELSE. `heightAt` never reads live terrain, which is what makes
@@ -63,6 +78,9 @@ export type Snapshot = {
 }
 
 export type Tile = { minX: number, minZ: number }
+
+-- ONE STAND'S LEVEL LANDING: where it is, and the height the ground is held at there.
+export type StandPad = { x: number, z: number, y: number, cell: string, index: number }
 
 export type TileReport = {
 	minX: number,
@@ -257,6 +275,12 @@ end
 -- snaps, never the centre, because all eight centres sit at = 1 mod 4).
 TerrainBake.ROAD = table.freeze({
 	carriagewayStuds = 20, -- 0 to +-20, level
+	-- WHERE `mid` ENDS AND `outer` BEGINS, and it is design 7.1's table row and not a choice: "0 to
+	-- +-6 ... Ground / Grass" then "+-10 to +-20 ... Grass". 328d wrote this boundary as d < 10, so
+	-- the realised columns at |d| 10..13 came out `mid` where the table asks for `outer` -- MEASURED
+	-- on EW2 in Karen's place 2026-11-02, `<runs-dir>/328e-xsec-BEFORE.json`, 4 studs of Ground
+	-- either side of the carriageway edge. The rut band still overrides whatever this answers.
+	midStuds = 6,
 	-- "crossfall <= 0.5 st over 44 st": 0.2 st from the crown to each edge is 0.4 over 44, under it.
 	crownFallStuds = 0.2,
 	rut = table.freeze({ nearStuds = 6, farStuds = 10 }), -- F-3: +-6..+-10, never +-4 (they merged)
@@ -672,7 +696,7 @@ function TerrainBake.roadAt(profiles: { Profile }, naturalY: number, x: number, 
 		-- Design 7.1: `mid` 0..+-6, the rut +-6..+-10 as ONE whole column, `outer` +-10..+-20. The
 		-- realised column is 4 st wide, so what is left of the nominal rut band keeps the
 		-- carriageway's own material. Round 2 wrote this as three arms whose first and last agreed.
-		local name = if d < 10 then material.mid else material.outer
+		local name = if d < spec.midStuds then material.mid else material.outer
 		if d >= lo and d <= hi then
 			name = material.rut
 		end
@@ -698,6 +722,69 @@ function TerrainBake.roadAt(profiles: { Profile }, naturalY: number, x: number, 
 	end
 	local smooth = t * t * (3 - 2 * t)
 	return vergeY + (naturalY - vergeY) * smooth, nil, 1 - smooth
+end
+
+-- ---------------------------------------------------------------- the stand pads (design 7.4)
+
+-- EVERY STAND AND TOWER OF THE CELLS A RUN TOUCHES, with the height its pad is held at. PURE given
+-- the profiles, and computed once per tile from them, so two tiles that share a pad agree by
+-- construction (`profilesFor`' own reason).
+--
+-- THE PAD'S HEIGHT IS THE ROAD'S OWN CROWN AT THE STAND, NEVER `Grid.standPosition`'s Y. That Y is
+-- the cell's single `relief.lineMeanY` for all fifteen stands (106.98 for C1), and C1's west flank
+-- road rises 35.4 studs between stands 8 and 11 -- MEASURED 2026-11-02 in Karen's place
+-- (`<runs-dir>/328e-ground-BEFORE.json`): ground 93.41 and 128.82, which is the road's own clamped
+-- 5.4 % grade over 660 studs. Levelling those two pads to 106.98 would mean a 21.84-stud pit and a
+-- 13.57-stud mound, and a 21.84-stud wall at `Relief.LIMIT_DEG.tree` 20 degrees needs 60 studs of
+-- ring -- a 134-stud crater at every stand, overlapping its neighbour 220 studs away. The gap
+-- against that Y is `standPosition`'s to close (the post-bake re-survey, 328h), not the ground's.
+-- Second returned value: the stands no road reaches, which the caller reports rather than hides.
+function TerrainBake.standPadsFor(cellIds: { string }, profiles: { Profile }): ({ StandPad }, { string })
+	local out: { StandPad } = {}
+	local missed: { string } = {}
+	for _, id in cellIds do
+		if Grid.cellOf(id) ~= nil then
+			for standIndex = 1, Grid.standCount(id) do
+				local at = Grid.standPosition(id, standIndex)
+				local y, _, weight = TerrainBake.roadAt(profiles, at.Y, at.X, at.Z)
+				if y ~= nil and weight >= 1 then
+					table.insert(out, { x = at.X, z = at.Z, y = y, cell = id, index = standIndex })
+				else
+					table.insert(missed, string.format("%s/%d", id, standIndex))
+				end
+			end
+		end
+	end
+	return out, missed
+end
+
+-- THE PAD AT ONE POINT: the height the nearest pad wants there, and how strongly it owns the ground
+-- (1 inside the level core, falling to 0 across the blend). Nil outside every pad's reach, which is
+-- almost all of a cell. `naturalY` is the height the road and the landform have already produced at
+-- this point, so the blend ends ON the road rather than on raw ground -- the same shape `roadAt`'s
+-- bank uses, and the reason the join is continuous with a zero gradient at the outer edge.
+function TerrainBake.standPadAt(pads: { StandPad }, naturalY: number, x: number, z: number): (number?, number)
+	local spec = TerrainBake.STAND_PAD
+	local reach = spec.levelRadiusStuds + spec.blendStuds
+	local best: StandPad? = nil
+	local bestD = math.huge
+	for _, pad in pads do
+		local dx, dz = x - pad.x, z - pad.z
+		local d = math.sqrt(dx * dx + dz * dz)
+		if d < reach and d < bestD then
+			best, bestD = pad, d
+		end
+	end
+	if best == nil then
+		return nil, 0
+	end
+	local pad = best :: StandPad
+	if bestD <= spec.levelRadiusStuds then
+		return pad.y, 1
+	end
+	local t = (bestD - spec.levelRadiusStuds) / spec.blendStuds
+	local smooth = t * t * (3 - 2 * t)
+	return pad.y + (naturalY - pad.y) * smooth, 1 - smooth
 end
 
 -- ---------------------------------------------------------------- the slope limiter, BOTH axes
@@ -786,6 +873,9 @@ function TerrainBake.shapeTile(
 	local names: { string } = table.create(wide * wide, "")
 	local depth = table.create(wide * wide, 0)
 	local roads = Grid.roads()
+	-- THE STAND PADS, from the profiles this tile was handed -- so every tile of a run builds the
+	-- same pads from the same bytes (design 7.4).
+	local pads: { StandPad } = if profiles ~= nil then (TerrainBake.standPadsFor(cellIds, profiles)) else {}
 	-- THE BLUR, ONCE, SEPARABLY, over the whole shaping grid (328c note (c)). Per point it is
 	-- 1,369 base reads; over the grid it is 2 x 37, and `grid_relief.spec` measures that the two
 	-- agree. With the per-point kernel this task's own spec run passed the harness 300-s cap.
@@ -827,6 +917,19 @@ function TerrainBake.shapeTile(
 						names[at] = roadName
 					end
 					if weight >= 1 then
+						exempt[at] = true
+					end
+				end
+			end
+			-- THE PAD WINS OVER THE ROAD AND THE LANDFORM inside its own radius (design 7.4): a
+			-- stand is a level landing, and every grid stand sits on a road centreline, so this is
+			-- the last word on that column. Its core is EXEMPT for the road's reason -- a limiter
+			-- free to tilt a pad has not levelled one.
+			if #pads > 0 then
+				local padY, padWeight = TerrainBake.standPadAt(pads, shaped[at], x, z)
+				if padY ~= nil then
+					shaped[at] = padY
+					if padWeight >= 1 then
 						exempt[at] = true
 					end
 				end
