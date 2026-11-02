@@ -1,3 +1,88 @@
+## 2026-11-02 ~20:35 UTC, Task 328e -- A BAKE OVER BAKED GROUND WOULD HAVE BUILT C1 A SECOND RIDGE, measured before the write
+
+**NOT a stop: a decision taken in code, with the measurement, and put here so the Director sees it
+either way.** The pads and the paint are in Karen's Forest Test; nothing was hand-repaired and the
+backup was never needed.
+
+### What was measured, BEFORE anything was written
+
+`<runs-dir>/328e-drift-BEFORE.json`, 19:52 UTC, read-only, through the bake's own injected modules.
+For 90 points of C1 it asked `Relief.heightAt(current ground)` and compared it with the current
+ground -- that is exactly what a fresh bake would write:
+
+| | |
+|---|---|
+| mean the ground would MOVE | **+3.67 studs** |
+| points that would rise > 0.5 st | **27 of 90** |
+| points that would fall | **0** |
+| worst | **+24.04 studs**, at (-3542, -4657), ON THE RIDGE LINE |
+
+`C1.ops[1].dyStuds` is **24**. So the worst case is the ridge, added again, to the stud.
+
+### Why
+
+`Relief.deltaAt` ADDS its ops (`h += weightOf(op) * dyStuds`) and `Relief.heightAt` returns
+`base + k * ((h0 - base) + roadFade * delta)`. The bake has no way to know whether its base is raw
+ground or ground it has already shaped. 328d wrote all 208 tiles (it died afterwards, in
+`epoch_for`) and 328j wrote them again, so tonight's run would have been C1's **third** ridge.
+`bakeTile`'s own header claims idempotence, and it is true only against the SAME snapshot.
+
+### What was done instead
+
+`TerrainBake.reshapeWanted` -- the landform goes into the ground ONCE. `TerrainEpoch` is written
+only at the end of a wet run and a wet run shapes the whole region, so its presence IS the record
+that the landform is in. `TerrainShape_<id>` then says WHICH shape, hashed from `baseKeep` and `ops`
+and **not** `floor` (a floor change moves no ground). `bakeTileAt` asks once per cell and PRINTS the
+answer; `shapeTile` and `bakeTile` take it as a parameter, so `grid_relief.spec`'s 328e-6 drives all
+four arms and the two tile states with a FAIL FIRST on the old behaviour.
+
+The live run printed it: `[reshape] C1 reshape=false (TerrainEpoch is set and this cell carries no
+shape stamp: its landform is already in the ground)`.
+
+**It held.** `TerrainBake.survey` over C1, before and after the THREE full bakes this task ran
+(two at `9946c7da`, one at the final `c7d97625`): meanY 115.655 -> **116.43**, **+0.78 studs in
+all**, against +3.67 PER BAKE the drift probe predicted for the old path.
+
+**But the ROAD half is still not idempotent, and it is measured on those same three runs.**
+`profilesFor` reads the long profile off LIVE ground, which after a bake already holds the road, so
+the cut-or-fill clamp lets the crown creep: `lineMeanY` went 108.88 -> 112.83 (two bakes) ->
+**114.81** (the third), about **+2 studs a bake**, and the fifteen stands moved up to **3.42 studs**
+between the last two. Same root cause -- nothing stores the original base -- and the same answer,
+design 5.3 step 2's whole-cell snapshot. **NEEDS DIRECTOR: C1 should not be re-baked again until
+that exists.** C1's main line is ~6 studs higher than when this task started; three of those are
+mine, for re-running the bake at the final code commit.
+
+### What this does NOT fix, and it is the Director's to schedule
+
+**It cannot UN-apply a landform.** Changing a cell's `ops` after a bake needs the original base
+back: restore the backup `.rbxl` and bake again. The proper answer is to store the base snapshot so
+a re-shape needs no backup -- that is design 5.3 step 2's whole-cell route, and it is not built.
+Said in `reshapeWanted`'s header as well as here.
+
+### Also measured tonight, and it is why the archive matters
+
+`Ground.paintRoads` is archived in this task's commit, but **Karen's Forest Test still syncs
+`main`**, so it runs at every Play boot there (`270 road paint call(s)` on the boot line). Measured
+in her PLAY session at 20:50 UTC (`<runs-dir>/328e-repaint.luau`) against the Edit ground the bake
+wrote minutes earlier:
+
+| | |d| 0..14 |
+|---|---|
+| the bake wrote (Edit) | `Mud[-10..-7] Ground[-6..+4] Mud[+5..+8]` |
+| after one Play boot | `Ground[-14..+8]` -- **both ruts gone** |
+
+**NEEDS DIRECTOR:** merge this branch and refresh `driven-hunt-karen`, or Karen's Play session
+tomorrow shows a flat 18-stud `Ground` strip where the ruts are. The cell floor and the pads are
+**not** affected -- `paintRoads` only touches the road strip.
+
+### Still NEEDS KAREN, unchanged from 328j
+
+`StreamingMinRadius` 64 -> 384. Re-confirmed tonight that no tool can read it, let alone set it:
+`Workspace.StreamingMinRadius` answers *"not a valid member of Workspace"* from `execute_luau`
+(`<runs-dir>/328e-attrs-BEFORE.json` carries the error text in that field).
+
+---
+
 ## 2026-11-02 ~18:55 UTC, Task 328j -- C1 IS BAKED IN KAREN'S FOREST TEST, and one NEEDS KAREN is left
 
 **Reviewer PASS** (`reviews/task-328j/RESULT.md`, round 2, `777cd5e5`, $2.62). Code commit

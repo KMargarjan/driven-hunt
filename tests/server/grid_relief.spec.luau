@@ -1634,5 +1634,399 @@ return function()
 			-- AND THE PROFILE IS BACK ON THE GROUND it was read off, which the forced one was not.
 			expect(profile.worstCutFill <= spec.cutFillStuds.z + 1e-6).to.equal(true)
 		end)
+		-- ------------------------------------------------------------ 328e: the pads and the paint
+
+		it("328e-1 levels a pad at every stand, to the ROAD's crown and not to lineMeanY", function()
+			-- DESIGN 7.4: "the pad is level to +-0.25 st and the census measures relief <= 1.8 st".
+			local spec = TerrainBake.STAND_PAD
+			local profiles = TerrainBake.profilesFor({ "C1" }, flat)
+			local pads, missed = TerrainBake.standPadsFor({ "C1" }, profiles)
+			-- EVERY STAND GETS ONE, and none is missed: all fifteen sit on a road centreline.
+			expect(#pads).to.equal(Grid.standCount("C1"))
+			expect(#missed).to.equal(0)
+			-- THE CORE COVERS 327b's RING, which is the instrument `JUMP_RELIEF_STUDS` 1.8 is read
+			-- with, plus a voxel column so the outermost ring sample is inside the core.
+			expect(spec.levelRadiusStuds >= 12 + Relief.VOXEL / 2).to.equal(true)
+			-- ...AND WHAT IT COSTS THE DITCH, measured rather than asserted away. The pad's reach
+			-- is 22 studs and the realised ditch band starts at 19, so it DOES overlap by 3 -- but
+			-- the ditch's first sampled column centre is at d 21, where the blend is nearly spent.
+			local ditchLo, ditchHi = TerrainBake.bandFor(
+				Grid.roadsOf("C1").main.at,
+				TerrainBake.ROAD.ditch.nearStuds,
+				TerrainBake.ROAD.ditch.farStuds,
+				1
+			)
+			local reach = spec.levelRadiusStuds + spec.blendStuds
+			expect(reach > ditchLo).to.equal(true) -- it overlaps, and the next line says by how much
+			expect(reach - ditchLo).to.equal(3)
+			-- THE FILL AT THE NEAREST SAMPLED DITCH COLUMN, in studs: smoothstep is spent there.
+			local centreAt = Grid.standPosition("C1", 4)
+			local atDitch =
+				TerrainBake.standPadAt(pads, pads[1].y - TerrainBake.ROAD.ditch.depthStuds, centreAt.X, centreAt.Z + 21)
+			local fill = (atDitch or (pads[1].y - TerrainBake.ROAD.ditch.depthStuds))
+				- (pads[1].y - TerrainBake.ROAD.ditch.depthStuds)
+			expect(fill < 0.15).to.equal(true)
+			expect(ditchHi > ditchLo).to.equal(true)
+			-- THE HEIGHT IS THE ROAD'S CROWN THERE. On a flat base every crown is the base, so the
+			-- claim that bites is the SHAPE of the dependency: ask the same stand on a base 40 studs
+			-- higher and the pad follows the road, where `lineMeanY` would not move at all.
+			local function higher(_x: number, _z: number): number?
+				return 140
+			end
+			local lifted = TerrainBake.standPadsFor({ "C1" }, TerrainBake.profilesFor({ "C1" }, higher))
+			local lineMeanY = Grid.standPosition("C1", 1).Y
+			for index, pad in pads do
+				expect(math.abs(pad.y - 100) < 1.0).to.equal(true)
+				expect(math.abs(lifted[index].y - 140) < 1.0).to.equal(true)
+				expect(math.abs(lifted[index].y - pad.y) > 35).to.equal(true)
+			end
+			-- FAIL FIRST, AND IT IS THE WHOLE POINT OF THE CHOICE: `lineMeanY` is ONE number for all
+			-- fifteen stands and it is 106.98 for C1, so a pad at that height is 6.98 studs off a
+			-- 100-stud base at EVERY stand, and in Karen's baked place it was 13.57 above the ground
+			-- at stand 8 and 21.84 below it at stand 11 (`<runs-dir>/328e-ground-BEFORE.json`).
+			expect(math.abs(lineMeanY - 100) > 5).to.equal(true)
+			TestKit.note(
+				string.format(
+					"C1: %d pads, 0 missed; pad y %.2f on a 100 base and %.2f on a 140 base; lineMeanY %.2f",
+					#pads,
+					pads[1].y,
+					lifted[1].y,
+					lineMeanY
+				)
+			)
+		end)
+
+		it("328e-2 enters every arm of the pad: core, blend, out of reach, and no road", function()
+			-- L-093: a case that proves nothing for the arms it does not enter is how a defect ships.
+			local spec = TerrainBake.STAND_PAD
+			local profiles = TerrainBake.profilesFor({ "C1" }, flat)
+			local pads = TerrainBake.standPadsFor({ "C1" }, profiles)
+			local at = Grid.standPosition("C1", 4)
+			local pad = nil
+			for _, row in pads do
+				if row.index == 4 then
+					pad = row
+				end
+			end
+			expect(pad).never.to.equal(nil)
+			-- ARM 1: THE LEVEL CORE. Every point inside it is the pad's own height, to the design's
+			-- +-0.25 -- measured out to the core's own edge, where the road's crossfall and its
+			-- grade would both show if the pad were not holding the ground.
+			local worst = 0
+			for k = 0, 23 do
+				local a = math.rad(k * 15)
+				for _, r in { 0, 6, 12, spec.levelRadiusStuds } do
+					local y = TerrainBake.standPadAt(pads, 0, at.X + math.cos(a) * r, at.Z + math.sin(a) * r)
+					expect(y).never.to.equal(nil)
+					worst = math.max(worst, math.abs((y :: number) - pad.y))
+				end
+			end
+			expect(worst <= spec.toleranceStuds).to.equal(true)
+			-- ARM 2: THE BLEND. Strictly between the two heights, weight strictly between 0 and 1,
+			-- and MONOTONE out -- so there is no lip inside the ring.
+			local previous = pad.y
+			for step = 1, spec.blendStuds - 1 do
+				local y, weight = TerrainBake.standPadAt(pads, 60, at.X + spec.levelRadiusStuds + step, at.Z)
+				expect(y).never.to.equal(nil)
+				expect(weight > 0 and weight < 1).to.equal(true)
+				expect((y :: number) < previous + 1e-9).to.equal(true)
+				expect((y :: number) > 60).to.equal(true)
+				previous = y :: number
+			end
+			-- ...AND THE JOIN IS CONTINUOUS AT BOTH ENDS: the pad's height at the core's edge and the
+			-- natural height at the outer edge, with no step a voxel could show.
+			local inner = TerrainBake.standPadAt(pads, 60, at.X + spec.levelRadiusStuds, at.Z)
+			expect(math.abs((inner :: number) - pad.y) < 1e-9).to.equal(true)
+			local outer, outerWeight =
+				TerrainBake.standPadAt(pads, 60, at.X + spec.levelRadiusStuds + spec.blendStuds - 1e-6, at.Z)
+			expect(math.abs((outer :: number) - 60) < 1e-3).to.equal(true)
+			expect(outerWeight < 1e-3).to.equal(true)
+			-- THE BLEND IS NEVER A CLIFF: smoothstep's worst gradient is 1.5 * drop / width, and a
+			-- pad on a 10 % road holds at most `levelRadiusStuds` * 0.10 studs of grade.
+			local drop = spec.levelRadiusStuds * TerrainBake.ROAD.gradePercent.z / 100
+			local steepest = math.deg(math.atan(1.5 * drop / spec.blendStuds))
+			expect(steepest < Relief.LIMIT_DEG.tree).to.equal(true)
+			-- ARM 3: OUT OF REACH -- nil and weight 0, which is almost all of a cell.
+			local gone, goneWeight =
+				TerrainBake.standPadAt(pads, 60, at.X + spec.levelRadiusStuds + spec.blendStuds + 1, at.Z)
+			expect(gone).to.equal(nil)
+			expect(goneWeight).to.equal(0)
+			expect(TerrainBake.standPadAt({}, 60, at.X, at.Z)).to.equal(nil)
+			-- ARM 4: NO ROAD UNDER THE STAND. Hand `standPadsFor` an empty profile set and every
+			-- stand is REPORTED as missed rather than given a pad at a height nothing measured.
+			local none, allMissed = TerrainBake.standPadsFor({ "C1" }, {})
+			expect(#none).to.equal(0)
+			expect(#allMissed).to.equal(Grid.standCount("C1"))
+			expect(allMissed[1]).to.equal("C1/1")
+			TestKit.note(
+				string.format(
+					"pad arms: core worst %.4f st (<= %.2f), blend %d st, steepest %.1f deg (< %d), out of reach nil",
+					worst,
+					spec.toleranceStuds,
+					spec.blendStuds,
+					steepest,
+					Relief.LIMIT_DEG.tree
+				)
+			)
+		end)
+
+		it("328e-3 writes the pad into the tile, level, and the limiter cannot tilt it", function()
+			-- THE TILE THAT HOLDS C1's STAND 4 (x = -3899 on EW2's centreline, z = -5107).
+			local at = Grid.standPosition("C1", 4)
+			local tile = {
+				minX = TerrainBake.TILE_STUDS * math.floor(at.X / TerrainBake.TILE_STUDS),
+				minZ = TerrainBake.TILE_STUDS * math.floor(at.Z / TerrainBake.TILE_STUDS),
+			}
+			-- A BASE THAT RISES 10 % ALONG THE ROAD, so the road has a grade for the pad to flatten
+			-- and the limiter has something to clamp. Flat ground could not tell the two apart.
+			local function slope(x: number, _z: number): number?
+				return 100 + 0.10 * (x - tile.minX)
+			end
+			local profiles = TerrainBake.profilesFor({ "C1" }, slope)
+			local heights, _, n = TerrainBake.shapeTile(tile, sliceFor(tile, slope), { "C1" }, {}, profiles)
+			local v = Relief.VOXEL
+			local function h(x: number, z: number): number
+				local i = math.floor((x - tile.minX) / v) + 1
+				local k = math.floor((z - tile.minZ) / v) + 1
+				return heights[(k - 1) * n + i]
+			end
+			-- THE PAD IS LEVEL over 327b's own ring, to the design's +-0.25.
+			local centre = h(at.X, at.Z)
+			local lo, hi = centre, centre
+			for k = 0, 7 do
+				local a = math.rad(k * 45)
+				local y = h(at.X + math.cos(a) * 12, at.Z + math.sin(a) * 12)
+				lo, hi = math.min(lo, y), math.max(hi, y)
+			end
+			TestKit.note(
+				string.format(
+					"tile (%d,%d) on a 10 %% slope: pad relief %.4f st over the 12-stud ring, tolerance %.2f, JUMP_RELIEF 1.8",
+					tile.minX,
+					tile.minZ,
+					hi - lo,
+					TerrainBake.STAND_PAD.toleranceStuds
+				)
+			)
+			expect(hi - lo <= TerrainBake.STAND_PAD.toleranceStuds).to.equal(true)
+			-- FAIL FIRST: with the pads taken away the same ring rolls more than the design allows,
+			-- so this case does not pass on ground it would have met anyway.
+			local real = TerrainBake.standPadsFor
+			TerrainBake.standPadsFor = function()
+				return {}, {}
+			end
+			local without = TerrainBake.shapeTile(tile, sliceFor(tile, slope), { "C1" }, {}, profiles)
+			TerrainBake.standPadsFor = real
+			local blo, bhi = math.huge, -math.huge
+			for k = 0, 7 do
+				local a = math.rad(k * 45)
+				local i = math.floor((at.X + math.cos(a) * 12 - tile.minX) / v) + 1
+				local kk = math.floor((at.Z + math.sin(a) * 12 - tile.minZ) / v) + 1
+				local y = without[(kk - 1) * n + i]
+				blo, bhi = math.min(blo, y), math.max(bhi, y)
+			end
+			TestKit.note(string.format("the same ring with NO pad: %.4f st of roll", bhi - blo))
+			expect(bhi - blo > TerrainBake.STAND_PAD.toleranceStuds).to.equal(true)
+			expect(bhi - blo > hi - lo).to.equal(true)
+		end)
+
+		it("328e-4 paints design 7.1's table: `mid` ends at 6 studs, not at 10", function()
+			local road = Grid.roadsOf("C1").main
+			local spec = TerrainBake.ROAD
+			local profiles = TerrainBake.profilesFor({ "C1" }, flat)
+			-- OFF THE STANDS AND OFF EVERY JUNCTION, so this is the plain cross-section.
+			local along = Grid.standPosition("C1", 4).X + 75
+			local function nameAt(d: number): string
+				local _, name = TerrainBake.roadAt(profiles, 100, along, road.at + d)
+				return name
+			end
+			expect(spec.midStuds).to.equal(6)
+			-- THE REALISED COLUMN CENTRES on this road sit at d = 1 (mod 4), which is what F-2's
+			-- "every centre is = 1 (mod 4)" makes them. `mid` for d < 6, `outer` above it, and the
+			-- rut band overrides whichever it lands in.
+			local rutLo, rutHi = TerrainBake.bandFor(road.at, spec.rut.nearStuds, spec.rut.farStuds, 1)
+			for _, d in { 1, 5, 9, 13, 17 } do
+				local want
+				if d >= rutLo and d <= rutHi then
+					want = spec.material.x.rut
+				elseif d < spec.midStuds then
+					want = spec.material.x.mid
+				else
+					want = spec.material.x.outer
+				end
+				expect(nameAt(d)).to.equal(want)
+			end
+			-- FAIL FIRST, AND IT IS **d 9 ALONE** that does it: under `d < 10` that column answered
+			-- `mid` (Ground) where the design's table asks for `outer` (Grass). d 13 and 17 are
+			-- already >= 10 and answered `outer` before this change too, so they are a guard and not
+			-- the bite -- said here because round 1 claimed all three.
+			expect(nameAt(9)).to.equal("Grass")
+			expect(9 >= spec.midStuds and 9 < 10).to.equal(true)
+			expect(nameAt(13)).to.equal("Grass")
+			expect(nameAt(17)).to.equal("Grass")
+			expect(spec.material.x.mid).never.to.equal(spec.material.x.outer)
+			-- AND THE RUTS ARE STILL AT +-8 IN THE DESIGN'S OWN TERMS (F-3): 8 is the NOMINAL band's
+			-- midpoint. The realised column is d 3..7 on this parity and does NOT contain 8 -- the
+			-- MEASURED Mud on the ground does (|d| 5..9 on EW2, 328e-xsec2-AFTER.json), because the
+			-- written voxel lands about 2 studs out from where it was computed (TASKS.md 328e (a)).
+			-- Both halves said, so neither can be read as the other.
+			expect((spec.rut.nearStuds + spec.rut.farStuds) / 2).to.equal(8)
+			expect(rutLo).to.equal(3)
+			expect(rutHi).to.equal(7)
+			expect(nameAt((rutLo + rutHi) / 2)).to.equal("Mud")
+			TestKit.note(
+				string.format(
+					"EW2 cross-section: d 1 %s, 5 %s, 9 %s, 13 %s, 17 %s; rut column d %.0f..%.0f, nominal midpoint 8",
+					nameAt(1),
+					nameAt(5),
+					nameAt(9),
+					nameAt(13),
+					nameAt(17),
+					rutLo,
+					rutHi
+				)
+			)
+		end)
+
+		it("328e-5 gives C1 a litter floor, and `src/` still paints no grid road", function()
+			-- MEASURED in Karen's place after the 328d bake: the cell floor was `Ground` on 5504 of
+			-- 5504 lattice samples -- bare brown from every stand (`<runs-dir>/328e-ground-BEFORE.json`).
+			expect(Relief.LANDFORMS.C1.floor.default).to.equal("LeafyGrass")
+			-- IT REACHES THE GROUND through the one reader, with no mud or scree rule to divert it.
+			expect(Relief.LANDFORMS.C1.floor.mudDepthStuds).to.equal(nil)
+			expect(Relief.LANDFORMS.C1.floor.screeDegFrom).to.equal(nil)
+			expect(Relief.materialAt(Relief.LANDFORMS.C1, Grid.boundsOf("C1"), nil, 0, 0, 0, 0)).to.equal("LeafyGrass")
+			expect(Relief.materialAt(Relief.LANDFORMS.C1, Grid.boundsOf("C1"), nil, 35, 40, 0, 0)).to.equal(
+				"LeafyGrass"
+			)
+			-- AND THE EPOCH MOVES WITH IT, because the landforms are hashed into it: the ground this
+			-- commit makes cannot be confused with the ground 328d made.
+			local before = {} :: any
+			for id, form in Relief.LANDFORMS do
+				before[id] = form
+			end
+			before.C1 = table.freeze({
+				baseKeep = Relief.LANDFORMS.C1.baseKeep,
+				ops = Relief.LANDFORMS.C1.ops,
+				floor = table.freeze({ default = "Ground" }),
+			})
+			expect(Relief.epochInput(Relief.LANDFORMS, Grid.CONFIG)).never.to.equal(
+				Relief.epochInput(before, Grid.CONFIG)
+			)
+			-- `Ground.paintRoads` IS ARCHIVED (task 328e, design 16), and so is `grid.spec` case 19.
+			local Planter = require(ServerScriptService:WaitForChild("Places"))
+			local Soil = require(ServerScriptService:WaitForChild("Places"):WaitForChild("Ground"))
+			expect((Soil :: any).paintRoads).to.equal(nil)
+			expect((Soil :: any).roadChunks).to.equal(nil)
+			expect((Soil :: any).roadYBand).to.equal(nil)
+			expect((Soil :: any).roadBand).to.equal(nil)
+			expect((Soil :: any).ROAD_CALL_BUDGET).to.equal(nil)
+			-- ...AND THE LANE PAINT THE FOUR LINE PLACES USE IS UNTOUCHED.
+			expect(type((Soil :: any).band)).to.equal("function")
+			expect(type((Soil :: any).bandBounds)).to.equal("function")
+			expect(#(Soil :: any).SOURCE_MATERIALS > 0).to.equal(true)
+			expect(type((Planter :: any).build)).to.equal("function")
+			TestKit.note(
+				string.format(
+					"C1 floor %s; Ground.paintRoads archived, Ground.band kept; epoch input %d bytes",
+					Relief.LANDFORMS.C1.floor.default,
+					#Relief.epochInput(Relief.LANDFORMS, Grid.CONFIG)
+				)
+			)
+		end)
+		it("328e-6 puts the landform in ONCE: a bake over baked ground does not add it again", function()
+			-- MEASURED IN KAREN'S PLACE BEFORE THIS TASK WROTE ANYTHING
+			-- (`<runs-dir>/328e-drift-BEFORE.json`): over 90 points of C1 a fresh bake would have
+			-- raised the ground a mean of 3.67 studs, 27 points by over half a stud, NONE lowered,
+			-- worst **+24.04 studs on the ridge line** -- which is `C1.ops[1].dyStuds` 24 exactly.
+			-- `Relief.deltaAt` adds its ops, so a base that is already baked gets a second ridge.
+			local mark = Instance.new("Folder")
+			-- ARM 1: NO STAMP -- a cell whose landform has never gone in. It is applied.
+			local wanted, why, kind = TerrainBake.reshapeWanted("C1", mark)
+			expect(wanted).to.equal(true)
+			expect(kind).to.equal("virgin")
+			expect(string.find(why, "not in its ground", 1, true) ~= nil).to.equal(true)
+			-- ...AND A GLOBAL EPOCH DOES NOT CHANGE THAT. **FAIL FIRST, and it is round 1 finding 1**:
+			-- `TerrainEpoch` is ONE attribute for the whole Terrain while a run covers only its own
+			-- `--cells`, so reading it told a never-baked cell its landform was already in the
+			-- ground -- roads and pads onto raw relief. The stamped cell and the unstamped one must
+			-- answer DIFFERENTLY with the same epoch set.
+			TerrainBake.stamp("deadbeefdeadbeef", mark)
+			expect(TerrainBake.stampShape({ "C1" }, mark)).to.equal(1)
+			local bakedWanted, _, bakedKind = TerrainBake.reshapeWanted("C1", mark)
+			local freshWanted, _, freshKind = TerrainBake.reshapeWanted("A1", mark)
+			expect(bakedWanted).to.equal(false)
+			expect(bakedKind).to.equal("stamped")
+			expect(freshWanted).to.equal(true)
+			expect(freshKind).to.equal("virgin")
+			expect(bakedWanted).never.to.equal(freshWanted)
+			-- ARM 2: THE STAMPED SHAPE IS THIS LANDFORM. Already in the ground, and the stamp is
+			-- per cell -- `stampShape` writes only the cells it is given.
+			expect(mark:GetAttribute("TerrainShape_C1")).to.equal(TerrainBake.shapeInputFor("C1"))
+			expect(mark:GetAttribute("TerrainShape_A1")).to.equal(nil)
+			-- ARM 3: A DIFFERENT SHAPE -- someone moved the ops. Apply, and `terrainbake.py` refuses
+			-- the wet run on this word rather than on the prose.
+			mark:SetAttribute("TerrainShape_C1", "a landform that is not this one")
+			wanted, why, kind = TerrainBake.reshapeWanted("C1", mark)
+			expect(wanted).to.equal(true)
+			expect(kind).to.equal("changed")
+			expect(string.find(why, "shape has changed", 1, true) ~= nil).to.equal(true)
+			-- ARM 4: EVERY CELL OF THE WORLD IS VIRGIN ON A BARE MARKER, which is what makes the
+			-- round-1 defect impossible to reach for ANY cell and not only A1.
+			local bare = Instance.new("Folder")
+			TerrainBake.stamp("deadbeefdeadbeef", bare)
+			for _, id in Grid.cellIds() do
+				local w, _, k = TerrainBake.reshapeWanted(id, bare)
+				expect(w).to.equal(true)
+				expect(k).to.equal("virgin")
+			end
+			bare:Destroy()
+			-- THE STAMP IS THE SHAPE AND NOT THE FLOOR: this task moved C1's floor from `Ground` to
+			-- `LeafyGrass`, which moves no ground, so it may not force a re-shape.
+			local painted = Relief.epochInput({
+				C1 = {
+					baseKeep = Relief.LANDFORMS.C1.baseKeep,
+					ops = Relief.LANDFORMS.C1.ops,
+					floor = { default = "Rock" },
+				},
+			}, Grid.CONFIG)
+			expect(TerrainBake.shapeInputFor("C1")).never.to.equal(painted)
+			expect(string.find(TerrainBake.shapeInputFor("C1"), "floor", 1, true)).to.equal(nil)
+			mark:Destroy()
+
+			-- AND IT REACHES THE GROUND: the same tile, shaped both ways over a base that already
+			-- carries C1's ridge. With `reshape` off the heights ARE the base; with it on they are
+			-- the base plus the landform again, and the difference is the ridge.
+			local tile = { minX = -4096, minZ = -4736 } -- inside C1, off every road
+			local function base(_x: number, _z: number): number?
+				return 120
+			end
+			local profiles = TerrainBake.profilesFor({ "C1" }, base)
+			local slice = sliceFor(tile, base)
+			local again = TerrainBake.shapeTile(tile, slice, { "C1" }, {}, profiles, { C1 = true })
+			local once = TerrainBake.shapeTile(tile, slice, { "C1" }, {}, profiles, { C1 = false })
+			local worstAgain, worstOnce = 0, 0
+			for index = 1, #once do
+				worstAgain = math.max(worstAgain, math.abs(again[index] - 120))
+				worstOnce = math.max(worstOnce, math.abs(once[index] - 120))
+			end
+			TestKit.note(
+				string.format(
+					"tile (%d,%d) over a flat 120 base: reshape=true moves it %.2f st, reshape=false %.2f st",
+					tile.minX,
+					tile.minZ,
+					worstAgain,
+					worstOnce
+				)
+			)
+			-- FAIL FIRST: `reshape=true` is the old behaviour and it MOVES this ground; the whole
+			-- claim is that `reshape=false` leaves it where it is.
+			expect(worstAgain > 5).to.equal(true)
+			expect(worstOnce < 0.01).to.equal(true)
+			-- ...AND `nil` IS THE VIRGIN DEFAULT, identical to asking for every cell.
+			local byDefault = TerrainBake.shapeTile(tile, slice, { "C1" }, {}, profiles, nil)
+			for index = 1, #byDefault do
+				expect(math.abs(byDefault[index] - again[index]) < 1e-9).to.equal(true)
+			end
+		end)
 	end)
 end

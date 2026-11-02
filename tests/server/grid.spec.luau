@@ -20,7 +20,8 @@ return function()
 	local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 	local HighSeats = require(ReplicatedStorage:WaitForChild("HighSeats"))
 	local Planter = require(ServerScriptService:WaitForChild("Places"))
-	local Ground = require(ServerScriptService.Places:WaitForChild("Ground"))
+	-- `Places.Ground` LEFT THIS FILE WITH CASE 19 (task 328e): nothing here reads it now.
+	-- `grid_relief.spec`'s 328e-5 is what asserts the archived names are gone.
 	local Match = require(ServerScriptService:WaitForChild("Match"))
 	local Bots = require(ServerScriptService:WaitForChild("Bots"))
 	local ForestTest = require(ServerScriptService:WaitForChild("ForestTest"))
@@ -826,137 +827,14 @@ return function()
 		end)
 	end)
 
-	-- ---------------------------------------------------------------- 19. the roads are painted
+	-- ---------------------------------------------------------------- 19. ARCHIVED (task 328e)
 
-	describe("the road paint", function()
-		local function recorder()
-			local calls = {}
-			return {
-				regions = calls,
-				ReplaceMaterial = function(_self, region, resolution, source, target)
-					table.insert(calls, {
-						region = region,
-						resolution = resolution,
-						source = source,
-						target = target,
-					})
-				end,
-			}
-		end
-
-		it("paints through an injected terrain, inside every road, under the call budget", function()
-			-- THE TERRAIN IS A FAKE WITH A RECORDING `ReplaceMaterial`, so no spec in the DEV place
-			-- can write DEV's terrain -- `Places.Ground`'s own discipline.
-			local terrain = recorder()
-			local surface = Plan.surfaceFor("track")
-			expect(surface ~= nil).to.equal(true)
-			expect(surface.halfWidthStuds * 2).to.equal(Grid.CONFIG.roadPaintStuds)
-			local roads = Grid.roads()
-			-- A FLAT FAKE HILLSIDE at a known height, so the y band is arithmetic.
-			local reader = function(_x: number, _z: number)
-				return 100
-			end
-			local calls = Ground.paintRoads(terrain, roads, surface, reader, true)
-			expect(calls).to.equal(#terrain.regions)
-			expect(calls > 0).to.equal(true)
-			expect(calls <= Ground.ROAD_CALL_BUDGET).to.equal(true)
-			-- 30 BANDS x 9 SOURCE MATERIALS (ten, less the one being painted) = 270.
-			local sources = 0
-			for _, material in ipairs(Ground.SOURCE_MATERIALS) do
-				if material ~= surface.material then
-					sources += 1
-				end
-			end
-			local bands = 0
-			for _, road in ipairs(roads) do
-				bands += #Ground.roadChunks(road)
-			end
-			expect(calls).to.equal(bands * sources)
-			-- EVERY REGION IS INSIDE ITS ROAD'S OWN CLEAR WIDTH -- the 21 studs either side of the
-			-- centre line that no tree may stand in. The snap widens a band by up to a voxel column
-			-- either side (`Ground.bandBounds`), and 9 + 4 is still well inside 21.
-			local slack = Grid.CONFIG.roadClearStuds / 2
-			for _, call in ipairs(terrain.regions) do
-				expect(call.resolution).to.equal(Ground.RESOLUTION)
-				expect(call.target).to.equal(surface.material)
-				expect(call.source ~= surface.material).to.equal(true)
-				local min = call.region.CFrame.Position - call.region.Size / 2
-				local max = call.region.CFrame.Position + call.region.Size / 2
-				local inside = false
-				for _, road in ipairs(roads) do
-					if road.axis == "x" then
-						if
-							min.Z >= road.at - slack
-							and max.Z <= road.at + slack
-							and min.X >= road.from - Ground.RESOLUTION
-							and max.X <= road.to + Ground.RESOLUTION
-						then
-							inside = true
-						end
-					else
-						if
-							min.X >= road.at - slack
-							and max.X <= road.at + slack
-							and min.Z >= road.from - Ground.RESOLUTION
-							and max.Z <= road.to + Ground.RESOLUTION
-						then
-							inside = true
-						end
-					end
-				end
-				expect(inside).to.equal(true)
-			end
-			-- ...AND ZERO CALLS WHEN IT IS OFF. The flag's own state, reachable by parameter.
-			local quiet = recorder()
-			expect(Ground.paintRoads(quiet, roads, surface, reader, false)).to.equal(0)
-			expect(#quiet.regions).to.equal(0)
-			-- A CHUNK IS DERIVED FROM THE BUDGET, not chosen: nine calls a band over 28,400 studs of
-			-- road cannot fit in 300 at any shorter chunk.
-			local roadStuds = 0
-			for _, road in ipairs(roads) do
-				roadStuds += road.to - road.from
-			end
-			expect(roadStuds).to.equal(3 * 4490 + 5 * 2986)
-			expect(Ground.ROAD_CHUNK_STUDS >= roadStuds * sources / Ground.ROAD_CALL_BUDGET).to.equal(true)
-			-- THE SLICE SPENDS THE FRAME IT PROMISED: `breathe` is called, and never with more than
-			-- `ROAD_CALLS_PER_STEP` calls between two of them.
-			local breaths = 0
-			local sliced = recorder()
-			Ground.paintRoads(sliced, roads, surface, reader, true, function()
-				breaths += 1
-			end)
-			-- ONE BREATH EVERY `ROAD_CALLS_PER_STEP` CALLS, so a 270-call paint is spread over ~135
-			-- frames and not one.
-			expect(breaths).to.equal(math.floor(calls / Ground.ROAD_CALLS_PER_STEP))
-			TestKit.note(
-				string.format(
-					"road paint: %d calls (budget %d), %d bands x %d materials, %d studs of road, %d breaths",
-					calls,
-					Ground.ROAD_CALL_BUDGET,
-					bands,
-					sources,
-					roadStuds,
-					breaths
-				)
-			)
-		end)
-
-		it("skips a chunk with no ground under it rather than painting the sky", function()
-			local terrain = recorder()
-			local surface = Plan.surfaceFor("track")
-			local none = function(_x: number, _z: number)
-				return nil
-			end
-			expect(Ground.paintRoads(terrain, Grid.roads(), surface, none, true)).to.equal(0)
-			-- AND THE Y BAND IS THE MEASURED GROUND, PADDED -- not `centre.Y` and not a constant.
-			local road = Grid.roads()[1]
-			local low, high = Ground.roadYBand(road, road.from, road.from + 100, function(x: number, _z: number)
-				return 100 + x * 0
-			end)
-			expect(low).to.equal(100 - Ground.Y_PAD_STUDS)
-			expect(high).to.equal(100 + Ground.Y_PAD_STUDS)
-		end)
-	end)
+	-- CASE 19 WAS `Ground.paintRoads` THROUGH AN INJECTED TERRAIN, and it is archived WITH that
+	-- function, in this commit (design 16: *a case asserting an archived function is a false-PASS
+	-- path*). The grid's roads get their material from `ServerStorage.TerrainBake`, in the same
+	-- `WriteVoxels` call that cuts their shape; `grid_relief.spec`'s 328d-15, 328d-16 and 328e-2 are
+	-- what assert it. Rollback:
+	-- `backups/2026-11-02_task-328e_Ground-paintRoads-and-grid-case-19.md`.
 
 	-- ---------------------------------------------------------------- 22. the preview tags nothing
 
@@ -1008,7 +886,9 @@ return function()
 			local quiet = Instance.new("Folder")
 			local off = Planter.build(reader, quiet, terrain, false)
 			expect(off.gridStakes).to.equal(0)
-			expect(off.gridPaints).to.equal(0)
+			-- `off.gridPaints` WENT WITH `Ground.paintRoads` (task 328e): the report has no such
+			-- field now, because nothing in `src/` paints a grid road.
+			expect((off :: any).gridPaints).to.equal(nil)
 			expect(quiet:FindFirstChild(Planter.GRID_FOLDER)).to.equal(nil)
 			-- THE FOLDER NAME IS ONE FACT with the ground-ignore list, so a stake can never answer
 			-- "where is the ground" even though its parts are already unqueryable.

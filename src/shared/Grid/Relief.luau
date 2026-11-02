@@ -674,7 +674,13 @@ Relief.LANDFORMS = table.freeze({
 			table.freeze({ kind = "knoll", u = 0.28, v = 0.30, rStuds = 70, dyStuds = -12 }),
 			table.freeze({ kind = "knoll", u = 0.72, v = 0.30, rStuds = 70, dyStuds = -12 }),
 		}),
-		floor = table.freeze({ default = "Ground" }),
+		-- LEAF LITTER, NOT BARE EARTH (task 328e). MEASURED in Karen's place after the 328d bake:
+		-- the cell floor read `Ground` on 5504 of 5504 lattice samples -- bare brown from every one
+		-- of the fifteen stands (`<runs-dir>/328e-ground-BEFORE.json`). `Ground` here was the
+		-- PLACEHOLDER this function's header names, and `LeafyGrass` is the litter floor A1, B1 and
+		-- B2 already carry. The per-ZONE floor (needles under the conifer, mud in a wet hollow) is
+		-- `CELL_PLANS` v2's and task 328f's; this is the cell default only.
+		floor = table.freeze({ default = "LeafyGrass" }),
 	}),
 	-- D1 FIELD IN A DISH: an elliptical 10-stud dish with a flat floor and NO RIM.
 	D1 = table.freeze({

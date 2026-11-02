@@ -837,7 +837,6 @@ function Places.build(
 			missing = 0,
 			cliff = 0,
 			seconds = 0,
-			gridPaints = 0,
 			gridStakes = 0,
 			gridMissing = 0,
 			gridSeconds = 0,
@@ -862,7 +861,6 @@ function Places.build(
 		paints = 0,
 		unblocked = 0,
 		seconds = 0,
-		gridPaints = 0,
 		gridStakes = 0,
 		gridMissing = 0,
 		gridSeconds = 0,
@@ -883,10 +881,10 @@ function Places.build(
 		priorGrid:Destroy()
 	end
 	local gridStarted = os.clock()
-	-- THE SURFACE IS THE `track` PLACE'S, which is the one Karen's reference frames demand: an
-	-- 18-stud `Ground` strip (design 4.1). The ruts are NOT painted on a grid road -- see
-	-- `Ground.ROAD_CHUNK_STUDS` for the call arithmetic that decides it.
-	report.gridPaints = Ground.paintRoads(terrain, Grid.roads(), Plan.surfaceFor("track"), reader, previewOn, breathe)
+	-- THE ROADS' MATERIAL IS NOT PAINTED HERE ANY MORE (task 328e, rule 7): `Ground.paintRoads` is
+	-- archived and `ServerStorage.TerrainBake` writes the grid's shape and material together at
+	-- EDIT time (docs/design/grid-terrain.md sections 3.1 and 16). Nothing under `src/` writes the
+	-- grid's terrain. The rollback is `backups/2026-11-02_task-328e_Ground-paintRoads-and-grid-case-19.md`.
 	local gridFolder: Instance? = nil
 	if previewOn then
 		local folder = Instance.new("Folder")

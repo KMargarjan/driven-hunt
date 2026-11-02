@@ -62,6 +62,8 @@ WHAT IT REFUSES, BEFORE IT TOUCHES ANYTHING (design section 6.2):
      BACKUP_MAX_AGE_HOURS. `--backup census` is NOT accepted, because Karen's place is full of
      hand-made content a census cannot stand in for.
   6. --cells missing on bake/archive. There is no default: an unnamed cell is an unbounded run.
+  7b. A named cell's ground already carries a DIFFERENT landform (`TerrainBake.reshapeWanted`
+     answers "changed"). A bake ADDS its ops, so the fix is the backup, not another bake.
   7. A flag or pose override is live -- the rule `test` and `test2` already enforce. EXCEPT the two
      Karen has set on purpose in the Forest Test (GRID_PREVIEW, RANGE_SOLO): the dispatch says leave
      them, and clearing them would destroy her setup (lesson K).
@@ -404,8 +406,14 @@ def parse_json(body):
     Measured: the first wet bake in Karen's place wrote all 208 tiles and then died here, because the
     epoch input string carries the landform digest's own braces (2026-11-02 18:12 UTC).
     """
+    starts = [i for i in (body.find("{"), body.find("["), body.find('"')) if i >= 0]
+    # A BARE SCALAR IS A JSON VALUE TOO. `stampShape` answers a NUMBER and this looked only for the
+    # three container openers, so a reply of "1" raised "no JSON in Studio's reply" AFTER all 208
+    # tiles had been written -- the same shape, in the same function, that cost 328j its epoch line
+    # (TASKS.md 328j-notes (d)). Measured 2026-11-02 20:16 UTC in Karen's Forest Test.
+    starts += [m.start() for m in re.finditer(r"(?m)^[ \t]*(-?\d|true\b|false\b|null\b)", body)]
     decoded = []
-    for start in sorted(i for i in (body.find("{"), body.find("["), body.find('"')) if i >= 0):
+    for start in sorted(set(starts)):
         try:
             value, end = json.JSONDecoder().raw_decode(body[start:])
         except ValueError:
@@ -413,6 +421,11 @@ def parse_json(body):
         decoded.append((value, body[start + end:].strip() == ""))
     for value, whole in decoded:
         if whole:
+            return value
+    # THE FALLBACK PREFERS A CONTAINER. With bare scalars among the candidates, a preamble line that
+    # starts with a digit would otherwise win over the object behind it (Reviewer, round 1, note 6).
+    for value, _ in decoded:
+        if isinstance(value, (dict, list)):
             return value
     if decoded:
         return decoded[0][0]
@@ -773,6 +786,7 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
     limit = min(args.tiles or count, count)
     y_min, y_max = args.y_min, args.y_max
     entries, worst = [], 0
+    reshape_said = [None]
     print("[bake] %s: %d of %d tiles, cells=%s" % ("measure (DRY)" if dry else "bake", limit, count, ",".join(cells)))
     for index in range(1, limit + 1):
         # REFUSAL 2 AGAIN, before every mutating call (B1): the operator can open another place
@@ -791,6 +805,12 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
         report = call(studio, studio_id, expression, injected=injected)
         entries.append(report)
         worst = max(worst, report.get("elapsedMs", 0))
+        # THE LANDFORM GOES IN ONCE, and which way the tile went is PRINTED on the first tile and
+        # whenever it changes -- a run that skipped the landform must not look like one that
+        # applied it (`TerrainBake.reshapeWanted`; measured +24.04 st of double ridge on C1).
+        if report.get("reshape") and report["reshape"] != reshape_said[0]:
+            reshape_said[0] = report["reshape"]
+            print("  [reshape] %s" % report["reshape"])
         print("  tile %3d/%-3d (%6d,%6d) calls=%d voxels=%-6d band %.0f..%.0f  %d ms%s"
               % (index, limit, report["minX"], report["minZ"], report["calls"], report["voxels"],
                  report["bandMin"], report["bandMax"], report["elapsedMs"],
@@ -807,6 +827,11 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
         epoch = epoch_for(studio, studio_id, args.base_sha or sha, injected)
         call(studio, studio_id, 'TerrainBake.stamp("%s") or "stamped"' % epoch, timeout=60,
              injected=injected)
+        # ...AND THE PER-CELL SHAPE STAMP, so a later run can tell whether this cell's landform is
+        # the one already in the ground (`TerrainBake.reshapeWanted`).
+        stamped = call(studio, studio_id, "TerrainBake.stampShape({%s})"
+                       % ",".join('"%s"' % c for c in cells), timeout=60, injected=injected)
+        print("[bake] shape stamp written on %s cell(s): %s" % (stamped, ",".join(cells)))
     print("[bake] %s: %d/%d tiles @ %s cells=%s epoch=%s worstTileMs=%d (clean tree)"
           % ("DRY OK" if dry else "OK", limit, limit, sha, ",".join(cells), epoch, worst))
     return 0, entries
@@ -928,6 +953,27 @@ def main(argv):
         if args.command in ("measure", "bake"):
             if not args.cells:
                 return refuse("--cells is missing")
+            # REFUSAL 8: A LANDFORM MAY NOT GO INTO THE SAME GROUND TWICE. `reshapeWanted` answers
+            # "changed" when a cell's stamp names a landform that is not the one on disk; re-baking
+            # then ADDS the new ops on top of the old ones, which is the +24.04-stud double ridge
+            # this task measured in Karen's place before writing (ESCALATE.md 2026-11-02 ~20:35).
+            # The fix is the backup, not another bake, so the tool says so instead of printing it.
+            if args.command == "bake":
+                blocked = []
+                for cell in args.cells:
+                    answer = call(studio, studio_id,
+                                  "(function() local wanted, why, kind = TerrainBake.reshapeWanted(\"%s\") "
+                                  "return { wanted = wanted, why = why, kind = kind } end)()" % cell,
+                                  timeout=60, injected=injected)
+                    print("  reshape %-3s %-7s %s" % (cell, answer["kind"], answer["why"]))
+                    if answer["kind"] == "changed":
+                        blocked.append(cell)
+                if blocked:
+                    return refuse(
+                        "%s already carr%s a DIFFERENT landform in the ground, and a bake ADDS its ops "
+                        "rather than replacing them (measured: +24.04 studs of second ridge on C1, "
+                        "2026-11-02). Restore the backup .rbxl and bake again."
+                        % (", ".join(blocked), "ies" if len(blocked) == 1 else "y"))
             profiles, _ = profiles_once(studio, studio_id, args.cells, injected)
             code, _ = tile_pass(studio, studio_id, args, facts, sha,
                                 dry=args.command == "measure", injected=injected, profiles=profiles,
@@ -1135,6 +1181,12 @@ def selftest():
        parse_json('some note\n{"a": 1}')["a"] == 1)
     ok("the reply parser reads an ARRAY, not the first brace inside it",
        parse_json('note\n[{"a": 1}]')[0]["a"] == 1)
+    # THE BARE SCALAR, which killed the first 328e bake's report line AFTER all 208 tiles had been
+    # written: `stampShape` answers a number and the parser looked only for the three containers.
+    ok("the reply parser reads a bare number, which stampShape answers",
+       parse_json("1") == 1 and parse_json("[bake] note\n17") == 17 and parse_json("0") == 0)
+    ok("the reply parser reads a bare boolean and still prefers JSON that consumes the reply",
+       parse_json("true") is True and parse_json('1\n{"a": 2}')["a"] == 2)
     try:
         parse_json("no json here")
         ok("the reply parser refuses a reply with no JSON", False)

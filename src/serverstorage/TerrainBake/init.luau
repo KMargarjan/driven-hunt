@@ -46,6 +46,21 @@ TerrainBake.LIMIT_MARGIN_STUDS = 128
 -- answers Rock for the whole band; this is the 30 % of columns that keep it.
 TerrainBake.SCREE_ROCK_SHARE = 0.3
 
+-- THE STAND PAD (design 7.4): "the pad is level to +-0.25 st and the census measures relief
+-- <= 1.8 st". 1.8 is `HighSeats.JUMP_RELIEF_STUDS` and 327b's instrument reads that roll over a
+-- RING AT 12 STUDS, so the level core covers that ring plus one voxel column.
+--   docs/design/grid-terrain.md section 7.4
+TerrainBake.STAND_PAD = table.freeze({
+	-- 12 is 327b's ring; +2 so the outermost ring sample is inside the level core, not on its lip.
+	levelRadiusStuds = 14,
+	-- OUT TO 22, THE DITCH LIP, AND NO FURTHER. A pad that reached the ditch band (realised d 19..27,
+	-- design 7.1) would fill the ditch it is standing next to. 8 studs is also enough to rejoin a
+	-- 10 % road: 14 st of held grade is 1.4 st, and smoothstep's worst gradient is 1.5*1.4/8 = 0.26,
+	-- which is 14.7 degrees -- under `Relief.LIMIT_DEG.tree` 20, so the blend is never a cliff.
+	blendStuds = 8,
+	toleranceStuds = 0.25,
+})
+
 export type Bounds = Relief.Bounds
 
 -- A SNAPSHOT IS THE BASE AND NOTHING ELSE. `heightAt` never reads live terrain, which is what makes
@@ -64,6 +79,9 @@ export type Snapshot = {
 
 export type Tile = { minX: number, minZ: number }
 
+-- ONE STAND'S LEVEL LANDING: where it is, and the height the ground is held at there.
+export type StandPad = { x: number, z: number, y: number, cell: string, index: number }
+
 export type TileReport = {
 	minX: number,
 	minZ: number,
@@ -73,6 +91,11 @@ export type TileReport = {
 	bandMax: number,
 	elapsedMs: number,
 	message: string?,
+	-- WHICH CELLS THIS TILE RE-SHAPED AND WHY, printed by the tool and kept in the run log, so a
+	-- run that silently skipped the landform cannot look like one that applied it.
+	reshape: string?,
+	-- THE STANDS `standPadsFor` COULD NOT PLACE A PAD UNDER, comma-separated and "" for none.
+	padsMissed: string?,
 }
 
 -- ---------------------------------------------------------------- the region
@@ -257,6 +280,12 @@ end
 -- snaps, never the centre, because all eight centres sit at = 1 mod 4).
 TerrainBake.ROAD = table.freeze({
 	carriagewayStuds = 20, -- 0 to +-20, level
+	-- WHERE `mid` ENDS AND `outer` BEGINS, and it is design 7.1's table row and not a choice: "0 to
+	-- +-6 ... Ground / Grass" then "+-10 to +-20 ... Grass". 328d wrote this boundary as d < 10, so
+	-- the realised columns at |d| 10..13 came out `mid` where the table asks for `outer` -- MEASURED
+	-- on EW2 in Karen's place 2026-11-02, `<runs-dir>/328e-xsec-BEFORE.json`, 4 studs of Ground
+	-- either side of the carriageway edge. The rut band still overrides whatever this answers.
+	midStuds = 6,
 	-- "crossfall <= 0.5 st over 44 st": 0.2 st from the crown to each edge is 0.4 over 44, under it.
 	crownFallStuds = 0.2,
 	rut = table.freeze({ nearStuds = 6, farStuds = 10 }), -- F-3: +-6..+-10, never +-4 (they merged)
@@ -672,7 +701,7 @@ function TerrainBake.roadAt(profiles: { Profile }, naturalY: number, x: number, 
 		-- Design 7.1: `mid` 0..+-6, the rut +-6..+-10 as ONE whole column, `outer` +-10..+-20. The
 		-- realised column is 4 st wide, so what is left of the nominal rut band keeps the
 		-- carriageway's own material. Round 2 wrote this as three arms whose first and last agreed.
-		local name = if d < 10 then material.mid else material.outer
+		local name = if d < spec.midStuds then material.mid else material.outer
 		if d >= lo and d <= hi then
 			name = material.rut
 		end
@@ -698,6 +727,69 @@ function TerrainBake.roadAt(profiles: { Profile }, naturalY: number, x: number, 
 	end
 	local smooth = t * t * (3 - 2 * t)
 	return vergeY + (naturalY - vergeY) * smooth, nil, 1 - smooth
+end
+
+-- ---------------------------------------------------------------- the stand pads (design 7.4)
+
+-- EVERY STAND AND TOWER OF THE CELLS A RUN TOUCHES, with the height its pad is held at. PURE given
+-- the profiles, and computed once per tile from them, so two tiles that share a pad agree by
+-- construction (`profilesFor`' own reason).
+--
+-- THE PAD'S HEIGHT IS THE ROAD'S OWN CROWN AT THE STAND, NEVER `Grid.standPosition`'s Y. That Y is
+-- the cell's single `relief.lineMeanY` for all fifteen stands (106.98 for C1), and C1's west flank
+-- road rises 35.4 studs between stands 8 and 11 -- MEASURED 2026-11-02 in Karen's place
+-- (`<runs-dir>/328e-ground-BEFORE.json`): ground 93.41 and 128.82, which is the road's own clamped
+-- 5.4 % grade over 660 studs. Levelling those two pads to 106.98 would mean a 21.84-stud pit and a
+-- 13.57-stud mound, and a 21.84-stud wall at `Relief.LIMIT_DEG.tree` 20 degrees needs 60 studs of
+-- ring -- a 134-stud crater at every stand, overlapping its neighbour 220 studs away. The gap
+-- against that Y is `standPosition`'s to close (the post-bake re-survey, 328h), not the ground's.
+-- Second returned value: the stands no road reaches, which the caller reports rather than hides.
+function TerrainBake.standPadsFor(cellIds: { string }, profiles: { Profile }): ({ StandPad }, { string })
+	local out: { StandPad } = {}
+	local missed: { string } = {}
+	for _, id in cellIds do
+		if Grid.cellOf(id) ~= nil then
+			for standIndex = 1, Grid.standCount(id) do
+				local at = Grid.standPosition(id, standIndex)
+				local y, _, weight = TerrainBake.roadAt(profiles, at.Y, at.X, at.Z)
+				if y ~= nil and weight >= 1 then
+					table.insert(out, { x = at.X, z = at.Z, y = y, cell = id, index = standIndex })
+				else
+					table.insert(missed, string.format("%s/%d", id, standIndex))
+				end
+			end
+		end
+	end
+	return out, missed
+end
+
+-- THE PAD AT ONE POINT: the height the nearest pad wants there, and how strongly it owns the ground
+-- (1 inside the level core, falling to 0 across the blend). Nil outside every pad's reach, which is
+-- almost all of a cell. `naturalY` is the height the road and the landform have already produced at
+-- this point, so the blend ends ON the road rather than on raw ground -- the same shape `roadAt`'s
+-- bank uses, and the reason the join is continuous with a zero gradient at the outer edge.
+function TerrainBake.standPadAt(pads: { StandPad }, naturalY: number, x: number, z: number): (number?, number)
+	local spec = TerrainBake.STAND_PAD
+	local reach = spec.levelRadiusStuds + spec.blendStuds
+	local best: StandPad? = nil
+	local bestD = math.huge
+	for _, pad in pads do
+		local dx, dz = x - pad.x, z - pad.z
+		local d = math.sqrt(dx * dx + dz * dz)
+		if d < reach and d < bestD then
+			best, bestD = pad, d
+		end
+	end
+	if best == nil then
+		return nil, 0
+	end
+	local pad = best :: StandPad
+	if bestD <= spec.levelRadiusStuds then
+		return pad.y, 1
+	end
+	local t = (bestD - spec.levelRadiusStuds) / spec.blendStuds
+	local smooth = t * t * (3 - 2 * t)
+	return pad.y + (naturalY - pad.y) * smooth, 1 - smooth
 end
 
 -- ---------------------------------------------------------------- the slope limiter, BOTH axes
@@ -772,7 +864,11 @@ function TerrainBake.shapeTile(
 	snapshot: Snapshot,
 	cellIds: { string },
 	plans: { [string]: any },
-	profiles: { Profile }?
+	profiles: { Profile }?,
+	-- WHICH CELLS' LANDFORM THIS TILE MAY APPLY. Nil means all of them, which is a virgin base.
+	-- `bakeTileAt` fills it from `reshapeWanted`; a spec drives both states by parameter, because a
+	-- bake over already-baked ground must not add the landform twice (see `reshapeWanted`).
+	reshape: { [string]: boolean }?
 ): ({ number }, { string }, number)
 	local v = Relief.VOXEL
 	local side = TerrainBake.TILE_STUDS
@@ -786,6 +882,9 @@ function TerrainBake.shapeTile(
 	local names: { string } = table.create(wide * wide, "")
 	local depth = table.create(wide * wide, 0)
 	local roads = Grid.roads()
+	-- THE STAND PADS, from the profiles this tile was handed -- so every tile of a run builds the
+	-- same pads from the same bytes (design 7.4).
+	local pads: { StandPad } = if profiles ~= nil then (TerrainBake.standPadsFor(cellIds, profiles)) else {}
 	-- THE BLUR, ONCE, SEPARABLY, over the whole shaping grid (328c note (c)). Per point it is
 	-- 1,369 base reads; over the grid it is 2 x 37, and `grid_relief.spec` measures that the two
 	-- agree. With the per-point kernel this task's own spec run passed the harness 300-s cap.
@@ -804,8 +903,15 @@ function TerrainBake.shapeTile(
 				-- would cut a hole from the band floor up to y = 0 (round-1 note).
 				shaped[at] = snapshot.minY
 				exempt[at] = true
-			elseif form == nil then
+			elseif form == nil or (reshape ~= nil and reshape[id] ~= true) then
+				-- EITHER NO LANDFORM, OR ITS LANDFORM IS ALREADY IN THIS GROUND: the base IS the
+				-- shaped height, and the road, the pad and the material are written onto it.
+				-- `depth` STAYS 0 HERE, and that is a real consequence: `Relief.materialAt`'s
+				-- `mudDepthStuds` rule reads the cut below the landform's own base, and a re-bake
+				-- cuts nothing. C1 has no such rule (328e-5 asserts it); A1's gully Mud and D1's
+				-- dish Mud would not be re-painted by a re-bake of those cells.
 				shaped[at] = base
+				exempt[at] = form ~= nil and Relief.isExempt(form, Grid.boundsOf(id), x, z)
 			else
 				local bounds = Grid.boundsOf(id)
 				-- ONE FADE, handed to the arithmetic that owns it (round-1 finding 7). Multiplying
@@ -827,6 +933,19 @@ function TerrainBake.shapeTile(
 						names[at] = roadName
 					end
 					if weight >= 1 then
+						exempt[at] = true
+					end
+				end
+			end
+			-- THE PAD WINS OVER THE ROAD AND THE LANDFORM inside its own radius (design 7.4): a
+			-- stand is a level landing, and every grid stand sits on a road centreline, so this is
+			-- the last word on that column. Its core is EXEMPT for the road's reason -- a limiter
+			-- free to tilt a pad has not levelled one.
+			if #pads > 0 then
+				local padY, padWeight = TerrainBake.standPadAt(pads, shaped[at], x, z)
+				if padY ~= nil then
+					shaped[at] = padY
+					if padWeight >= 1 then
 						exempt[at] = true
 					end
 				end
@@ -878,12 +997,13 @@ function TerrainBake.bakeTile(
 	cellIds: { string },
 	plans: { [string]: any },
 	dryRun: boolean?,
-	profiles: { Profile }?
+	profiles: { Profile }?,
+	reshape: { [string]: boolean }?
 ): TileReport
 	local started = os.clock()
 	local v = Relief.VOXEL
 	local side = TerrainBake.TILE_STUDS
-	local inner, innerNames, n = TerrainBake.shapeTile(tile, snapshot, cellIds, plans, profiles)
+	local inner, innerNames, n = TerrainBake.shapeTile(tile, snapshot, cellIds, plans, profiles, reshape)
 	local lo, hi = math.huge, -math.huge
 	for _, h in inner do
 		lo = math.min(lo, h)
@@ -1203,7 +1323,22 @@ function TerrainBake.bakeTileAt(
 				.. "to every tile; a profile read here would be read off half-baked ground.",
 		}
 	end
-	return TerrainBake.bakeTile(tile, slice, cellIds, {}, dryRun, profiles)
+	-- THE LANDFORM GOES IN ONCE (`reshapeWanted`): a bake whose base is already baked ground would
+	-- otherwise add it again -- measured at +24.04 studs on C1's ridge, 2026-11-02.
+	local reshape: { [string]: boolean } = {}
+	local why: { string } = {}
+	for _, id in cellIds do
+		local wanted, reason = TerrainBake.reshapeWanted(id)
+		reshape[id] = wanted
+		table.insert(why, string.format("%s reshape=%s (%s)", id, tostring(wanted), reason))
+	end
+	local report = TerrainBake.bakeTile(tile, slice, cellIds, {}, dryRun, profiles, reshape)
+	report.reshape = table.concat(why, "; ")
+	-- THE STANDS NO ROAD REACHES, ON THE REPORT and not only in a header's promise (Reviewer, round
+	-- 1, note 1): the caller said it reported them and nothing carried them out of `shapeTile`.
+	local _, missed = TerrainBake.standPadsFor(cellIds, profiles)
+	report.padsMissed = table.concat(missed, ",")
+	return report
 end
 
 -- A STABLE 0..1 PER COLUMN, from its own coordinates: the scree mix has to come out the same on
@@ -1295,6 +1430,68 @@ end
 function TerrainBake.stamp(epoch: string, where: Instance?): ()
 	local target = where or Workspace.Terrain
 	target:SetAttribute("TerrainEpoch", epoch)
+end
+
+-- ---------------------------------------------------------------- the landform is written ONCE
+
+-- A CELL'S LANDFORM SHAPE, as a string: `baseKeep` and `ops`, and NOT `floor`, which is material and
+-- moves no ground. `Relief.epochInput`'s own canonical encoder, so there is one definition of "the
+-- same landform".
+function TerrainBake.shapeInputFor(cellId: string): string
+	local form = Relief.LANDFORMS[cellId]
+	if form == nil then
+		return ""
+	end
+	return Relief.epochInput({ [cellId] = { baseKeep = form.baseKeep, ops = form.ops } }, Grid.CONFIG)
+end
+
+-- MAY THIS RUN APPLY THE LANDFORM TO THIS CELL, OR IS IT ALREADY IN THE GROUND?
+--
+-- `Relief.deltaAt`'s ops are ADDITIVE (`h += weightOf(op) * dyStuds`), and `heightAt` returns
+-- `base + k * ((h0 - base) + roadFade * delta)`. So a bake whose BASE IS ALREADY BAKED GROUND adds
+-- the landform a second time. MEASURED in Karen's Forest Test on 2026-11-02 before this task wrote
+-- anything (`<runs-dir>/328e-drift-BEFORE.json`): over 90 points of C1 a fresh bake would have
+-- raised the ground by a mean of 3.67 studs, 27 points by more than half a stud, NONE lowered, and
+-- the worst was **+24.04 studs on the ridge line** -- which is `C1.ops[1].dyStuds` 24, exactly. The
+-- cell would have grown a second ridge on top of the one 328d and 328j already put there.
+--
+-- THE RULE: the landform goes in ONCE, AND IT IS ASKED PER CELL. `TerrainShape_<id>` is written at
+-- the end of a WET run, for the cells THAT RUN covered, and a run covers only its own `--cells`
+-- (`regionFor`). `TerrainEpoch` is ONE attribute for the whole Terrain, so it cannot answer this
+-- question: round 1 read it and would have told a never-baked A1 that its landform was already in
+-- the ground, painting roads and pads onto raw relief -- the one thing this series exists to build
+-- (Reviewer, task 328e round 1, finding 1). Only the per-cell stamp is evidence about a cell.
+--
+-- WHAT THIS DOES NOT DO, said plainly: it cannot UN-apply a landform. Changing a cell's `ops` after
+-- a bake needs the original base back -- restore the backup `.rbxl` and bake again, and
+-- `tools/terrainbake.py` REFUSES a wet run in that state rather than quietly adding the ops twice.
+-- Storing the base snapshot so a re-shape needs no backup is design 5.3 step 2's whole-cell route
+-- and is not built.
+--
+-- The third return is the reason as a WORD, so the tool branches on it and not on prose.
+function TerrainBake.reshapeWanted(cellId: string, where: Instance?): (boolean, string, string)
+	local target = where or Workspace.Terrain
+	local stamped = target:GetAttribute("TerrainShape_" .. cellId)
+	if stamped == nil then
+		return true, string.format("no TerrainShape_%s: this cell's landform is not in its ground", cellId), "virgin"
+	end
+	if tostring(stamped) ~= TerrainBake.shapeInputFor(cellId) then
+		return true, "the landform's shape has changed since the stamp: the base must be restored first", "changed"
+	end
+	return false, "the stamped shape is this landform: it is already in the ground", "stamped"
+end
+
+-- THE ONE WRITER of `TerrainShape_<id>`, called at the end of a wet run beside `stamp`.
+function TerrainBake.stampShape(cellIds: { string }, where: Instance?): number
+	local target = where or Workspace.Terrain
+	local written = 0
+	for _, id in cellIds do
+		if Relief.LANDFORMS[id] ~= nil then
+			target:SetAttribute("TerrainShape_" .. id, TerrainBake.shapeInputFor(id))
+			written += 1
+		end
+	end
+	return written
 end
 
 -- ---------------------------------------------------------------- the archive, and the census
