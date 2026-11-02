@@ -393,12 +393,22 @@ PLACE_QUERY = 'return tostring(game.PlaceId)'
 
 
 def parse_json(body):
-    """The JSON value inside StudioMCP's reply text, which may carry a line of its own around it."""
-    candidates = [i for i in (body.find("{"), body.find("[")) if i >= 0]
-    if not candidates:
-        raise RuntimeError("no JSON in Studio's reply: %s" % body[:400])
-    value, _ = json.JSONDecoder().raw_decode(body[min(candidates):])
-    return value
+    """The JSON value inside StudioMCP's reply text, which may carry a line of its own around it.
+
+    A reply can be a STRING as well as an object or an array -- `epochInputFor` answers one -- and a
+    string that holds a brace cannot be found by looking for the brace. So each of `{`, `[` and `"`
+    is tried in the order it appears and the first that DECODES wins. Measured: the first wet bake in
+    Karen's place wrote all 208 tiles and then died here, because the epoch input string carries the
+    landform digest's own braces (2026-11-02 18:12 UTC).
+    """
+    seen = sorted(i for i in (body.find("{"), body.find("["), body.find('"')) if i >= 0)
+    for start in seen:
+        try:
+            value, _ = json.JSONDecoder().raw_decode(body[start:])
+            return value
+        except ValueError:
+            continue
+    raise RuntimeError("no JSON in Studio's reply: %s" % body[:400])
 
 
 def call(studio, studio_id, expression, timeout=BAKE_CALL_TIMEOUT, injected=None):
@@ -991,6 +1001,15 @@ def selftest():
     # REFUSAL 7's whitelist never matched: `flag_overrides` answers `DHFlag_<NAME>=<value>` and the
     # check compared the WHOLE string with bare names, so the bake was refused in Karen's place over
     # the two flags the list exists to allow (measured 2026-11-02 18:00 UTC, 15 of 15 refused).
+    # THE FIRST WET BAKE wrote all 208 tiles and then died in `parse_json`: `epochInputFor` answers a
+    # STRING, and the landform digest inside it carries braces, so looking for the first `{` decoded
+    # from the middle of the string. Each opener is tried in order now and the first that DECODES wins.
+    braced = json.dumps(chr(123) + chr(34) + "x" + chr(34) + ": 1" + chr(125))
+    ok("a STRING reply parses, even when the string itself holds a brace",
+       parse_json(braced) == chr(123) + chr(34) + "x" + chr(34) + ": 1" + chr(125))
+    ok("an object reply still parses, and a line of Studio's own text in front of it is ignored",
+       parse_json('Executed: {"a": [1, 2]}') == {"a": [1, 2]}
+       and parse_json('[1, "{"]') == [1, "{"])
     ok("refusal 7 reads the NAME out of a DHFlag_<NAME>=<value> override, which its whitelist needs",
        override_name_of("DHFlag_GRID_PREVIEW=true") == "GRID_PREVIEW"
        and override_name_of("DHFlag_GRID_PREVIEW=true") in KARENS_FLAGS
