@@ -262,11 +262,11 @@ return function()
 			expect(Planter.auditTemplate(model, victim)).to.equal(nil)
 			local beforeNames = Plan.namesOf(group)
 			expect(table.find(beforeNames, victim) ~= nil).to.equal(true)
-			local function buildWith(): any
+			local function buildWith(make: (() -> Model)?): any
 				local world = Instance.new("Folder")
 				local forest = Instance.new("Folder")
 				forest.Name = "OurForest"
-				local source = fern()
+				local source = if make ~= nil then make() else fern()
 				source.Parent = forest
 				forest.Parent = world
 				local report = Planter.build(function()
@@ -313,12 +313,13 @@ return function()
 						expect(item.model).never.to.equal(victim)
 					end
 				end
-				-- (c) `Places.build`'s own audit closure refuses the template and plants NONE of it,
-				-- counting it once in the report.
+				-- (c) ...so `Places.build` plants NONE of it, and `report.quarantined` stays 0:
+				-- the LIST door shut first and the planter never asked for the template at all.
+				-- That is the stronger of the two statements, and the build's own audit arm is
+				-- driven by the broken-template case below.
 				local refused = buildWith()
 				expect(refused.drawn).to.equal(0)
-				expect(refused.report.quarantined).to.equal(1)
-				expect(refused.report.quarantinedBy["quarantined"]).to.equal(1)
+				expect(refused.report.quarantined).to.equal(0)
 			end)
 			restore()
 			if not ok then
@@ -328,6 +329,66 @@ return function()
 			expect(Planter.auditTemplate(model, victim)).to.equal(nil)
 			expect(table.find(Plan.namesOf(group), victim) ~= nil).to.equal(true)
 			model:Destroy()
+		end)
+
+		it("build refuses a template that has DRIFTED from its row, and plants none of it", function()
+			-- THE OTHER HALF OF THE QUARANTINE: a name nobody quarantined whose TEMPLATE no longer
+			-- matches `TEMPLATE_DIMS`. The list still carries it, so `Places.build`'s own audit
+			-- closure is what must refuse it -- `refusedTemplates`, `report.quarantined` and
+			-- `report.quarantinedBy` (round 1, finding 1).
+			local victim = "SM_Forest_Fern_Var01"
+			local function fernWith(parts: number): Model
+				local made = Instance.new("Model")
+				made.Name = victim
+				for index = 1, parts do
+					local part = Instance.new("Part")
+					part.Name = "Trunk" .. tostring(index)
+					part.Size = Vector3.new(9.6, 2.2, 9.6)
+					part.Anchored = true
+					part.CFrame = CFrame.new(0, 1.1, 0)
+					part.Parent = made
+					if index == 1 then
+						made.PrimaryPart = part
+					end
+				end
+				return made
+			end
+			local function buildWith(make: () -> Model): any
+				local world = Instance.new("Folder")
+				local forest = Instance.new("Folder")
+				forest.Name = "OurForest"
+				local source = make()
+				source.Parent = forest
+				forest.Parent = world
+				local report = Planter.build(function()
+					return 120
+				end, world, { ReplaceMaterial = function() end }, false)
+				local drawn = 0
+				local folder = world:FindFirstChild(Planter.FOLDER)
+				if folder ~= nil then
+					for _, place in ipairs(folder:GetChildren()) do
+						for _, child in ipairs(place:GetChildren()) do
+							if child.Name == victim then
+								drawn += 1
+							end
+						end
+					end
+				end
+				world:Destroy()
+				return { report = report, drawn = drawn }
+			end
+			local sound = buildWith(function()
+				return fernWith(1)
+			end)
+			expect(sound.drawn > 0).to.equal(true)
+			expect(sound.report.quarantined).to.equal(0)
+			local drifted = buildWith(function()
+				return fernWith(2)
+			end)
+			expect(drifted.drawn).to.equal(0)
+			expect(drifted.report.quarantined).to.equal(1)
+			expect(drifted.report.quarantinedBy["part-count"]).to.equal(1)
+			TestKit.note(string.format("quarantine: a drifted template planted %d of %d", drifted.drawn, sound.drawn))
 		end)
 
 		it("a real template passes its own measured row", function()
