@@ -397,6 +397,40 @@ return function()
 			expect(listed[Planter.GRID_FOLDER]).to.equal(true)
 		end)
 
+		it("a template whose PIVOT is rotated is planted UPRIGHT, and the old line laid it down", function()
+			-- THE DEFECT, AS A FIXTURE. A Model with no `PrimaryPart` carries its bounding box's
+			-- rotation in its pivot; 10 of this world's 35 templates do, and theirs is not upright.
+			local source = template("PivotTree", Vector3.new(2, 40, 2), Vector3.new(16, 10, 16))
+			source.PrimaryPart = nil
+			source.WorldPivot = CFrame.new(0, 20, 0) * CFrame.Angles(0, 0, math.rad(80))
+			local folder = Instance.new("Folder")
+			local box = Grid.boundsOf("C1")
+			local x, z = box.minX + 400, (box.minZ + box.maxZ) / 2
+			local made = Planter.plantOne(plantingAt("PivotTree", x, z), source, folder, flat)
+			expect(made ~= nil).to.equal(true)
+			local trunk = made:FindFirstChild("Trunk") :: BasePart
+			-- UPRIGHT: the trunk the template drew is still the trunk the player sees.
+			expect(trunk.CFrame.UpVector:Dot(Vector3.yAxis) > math.cos(math.rad(2))).to.equal(true)
+			local report = Census.survey(folder, "C1", flat, function()
+				return 0
+			end)
+			expect(report.tilted).to.equal(0)
+			expect(report.broken).to.equal(0)
+			expect(report.floating).to.equal(0)
+
+			-- FAIL FIRST, with the producing line deleted: this is EXACTLY what `plantOne` did
+			-- before task 328b -- the pivot forced upright, no `* spin` -- and it lays the tree over.
+			local control = source:Clone()
+			control.Parent = folder
+			control:PivotTo(CFrame.new(x, 200, z) * CFrame.Angles(0, 0, 0))
+			local controlTrunk = control:FindFirstChild("Trunk") :: BasePart
+			local off = math.deg(math.acos(math.clamp(controlTrunk.CFrame.UpVector:Dot(Vector3.yAxis), -1, 1)))
+			expect(off > 70).to.equal(true)
+			TestKit.note(string.format("pivot: planted upright; the pre-328b line leaves it %.0f deg over", off))
+			folder:Destroy()
+			source:Destroy()
+		end)
+
 		it("a planted clone streams Atomic AND keeps the foliage flags quieten set (lesson L-060)", function()
 			local source = template("FlagTree", Vector3.new(2, 40, 2), Vector3.new(16, 10, 16))
 			local folder = Instance.new("Folder")

@@ -502,7 +502,21 @@ function Places.plantOne(
 	-- HIGH ENOUGH THAT THE SETTLE IS ALWAYS A DROP. `TreeGround.decide` only ever sinks a tree (its
 	-- own header: *"A tree that is already deep in the ground is left exactly where it is"*), so a
 	-- freshly cloned tree is offered to it from above and never from below.
-	made:PivotTo(CFrame.new(item.x, rough + made:GetExtentsSize().Y, item.z) * CFrame.Angles(0, item.yaw, 0))
+	--
+	-- **THE TEMPLATE'S OWN ORIENTATION IS KEPT AND ONLY THE YAW IS OURS** (task 328b), and that one
+	-- `* spin` is what stops a tree being planted lying down. A Model with NO `PrimaryPart` has a
+	-- pivot carrying the BOUNDING BOX's rotation, which for these meshes is not upright --
+	-- `Forest_OakTree_Var03_LOD_0`'s pivot up vector is (-0.97, 0.00, -0.22) -- so
+	-- `PivotTo(CFrame.new(...) * CFrame.Angles(0, yaw, 0))` FORCED that pivot upright and rotated
+	-- the whole tree by the inverse. MEASURED in Karen's Forest Test on 2026-11-02
+	-- (`driven-hunt-runs/328b-pivot.luau`): the planted `Forest_OakTree_Var03_LOD_0`'s trunk part
+	-- stood at 90.0 degrees off vertical, its trunk box 8.2 x 1.4 x 53.0 studs and the model 18.8
+	-- studs tall against the template's 53.9 -- a 53-stud trunk flat on the ground. The census
+	-- counted **571 of C1's 2,019 trees** like that, across the 10 templates with no `PrimaryPart`.
+	-- For the 25 templates that do have one the pivot rotation is the identity and this changes
+	-- nothing, which is why the defect hid: most of the wood stood up.
+	local spin = made:GetPivot().Rotation
+	made:PivotTo(CFrame.new(item.x, rough + made:GetExtentsSize().Y, item.z) * CFrame.Angles(0, item.yaw, 0) * spin)
 	local trunk, whole = Places.trunkBox(made)
 	if trunk == nil or whole == nil then
 		made:Destroy()
