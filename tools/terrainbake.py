@@ -404,8 +404,14 @@ def parse_json(body):
     Measured: the first wet bake in Karen's place wrote all 208 tiles and then died here, because the
     epoch input string carries the landform digest's own braces (2026-11-02 18:12 UTC).
     """
+    starts = [i for i in (body.find("{"), body.find("["), body.find('"')) if i >= 0]
+    # A BARE SCALAR IS A JSON VALUE TOO. `stampShape` answers a NUMBER and this looked only for the
+    # three container openers, so a reply of "1" raised "no JSON in Studio's reply" AFTER all 208
+    # tiles had been written -- the same shape, in the same function, that cost 328j its epoch line
+    # (TASKS.md 328j-notes (d)). Measured 2026-11-02 20:16 UTC in Karen's Forest Test.
+    starts += [m.start() for m in re.finditer(r"(?m)^[ \t]*(-?\d|true\b|false\b|null\b)", body)]
     decoded = []
-    for start in sorted(i for i in (body.find("{"), body.find("["), body.find('"')) if i >= 0):
+    for start in sorted(set(starts)):
         try:
             value, end = json.JSONDecoder().raw_decode(body[start:])
         except ValueError:
@@ -1147,6 +1153,12 @@ def selftest():
        parse_json('some note\n{"a": 1}')["a"] == 1)
     ok("the reply parser reads an ARRAY, not the first brace inside it",
        parse_json('note\n[{"a": 1}]')[0]["a"] == 1)
+    # THE BARE SCALAR, which killed the first 328e bake's report line AFTER all 208 tiles had been
+    # written: `stampShape` answers a number and the parser looked only for the three containers.
+    ok("the reply parser reads a bare number, which stampShape answers",
+       parse_json("1") == 1 and parse_json("[bake] note\n17") == 17 and parse_json("0") == 0)
+    ok("the reply parser reads a bare boolean and still prefers JSON that consumes the reply",
+       parse_json("true") is True and parse_json('1\n{"a": 2}')["a"] == 2)
     try:
         parse_json("no json here")
         ok("the reply parser refuses a reply with no JSON", False)
