@@ -62,6 +62,8 @@ WHAT IT REFUSES, BEFORE IT TOUCHES ANYTHING (design section 6.2):
      BACKUP_MAX_AGE_HOURS. `--backup census` is NOT accepted, because Karen's place is full of
      hand-made content a census cannot stand in for.
   6. --cells missing on bake/archive. There is no default: an unnamed cell is an unbounded run.
+  7b. A named cell's ground already carries a DIFFERENT landform (`TerrainBake.reshapeWanted`
+     answers "changed"). A bake ADDS its ops, so the fix is the backup, not another bake.
   7. A flag or pose override is live -- the rule `test` and `test2` already enforce. EXCEPT the two
      Karen has set on purpose in the Forest Test (GRID_PREVIEW, RANGE_SOLO): the dispatch says leave
      them, and clearing them would destroy her setup (lesson K).
@@ -419,6 +421,11 @@ def parse_json(body):
         decoded.append((value, body[start + end:].strip() == ""))
     for value, whole in decoded:
         if whole:
+            return value
+    # THE FALLBACK PREFERS A CONTAINER. With bare scalars among the candidates, a preamble line that
+    # starts with a digit would otherwise win over the object behind it (Reviewer, round 1, note 6).
+    for value, _ in decoded:
+        if isinstance(value, (dict, list)):
             return value
     if decoded:
         return decoded[0][0]
@@ -946,6 +953,27 @@ def main(argv):
         if args.command in ("measure", "bake"):
             if not args.cells:
                 return refuse("--cells is missing")
+            # REFUSAL 8: A LANDFORM MAY NOT GO INTO THE SAME GROUND TWICE. `reshapeWanted` answers
+            # "changed" when a cell's stamp names a landform that is not the one on disk; re-baking
+            # then ADDS the new ops on top of the old ones, which is the +24.04-stud double ridge
+            # this task measured in Karen's place before writing (ESCALATE.md 2026-11-02 ~20:35).
+            # The fix is the backup, not another bake, so the tool says so instead of printing it.
+            if args.command == "bake":
+                blocked = []
+                for cell in args.cells:
+                    answer = call(studio, studio_id,
+                                  "(function() local wanted, why, kind = TerrainBake.reshapeWanted(\"%s\") "
+                                  "return { wanted = wanted, why = why, kind = kind } end)()" % cell,
+                                  timeout=60, injected=injected)
+                    print("  reshape %-3s %-7s %s" % (cell, answer["kind"], answer["why"]))
+                    if answer["kind"] == "changed":
+                        blocked.append(cell)
+                if blocked:
+                    return refuse(
+                        "%s already carr%s a DIFFERENT landform in the ground, and a bake ADDS its ops "
+                        "rather than replacing them (measured: +24.04 studs of second ridge on C1, "
+                        "2026-11-02). Restore the backup .rbxl and bake again."
+                        % (", ".join(blocked), "ies" if len(blocked) == 1 else "y"))
             profiles, _ = profiles_once(studio, studio_id, args.cells, injected)
             code, _ = tile_pass(studio, studio_id, args, facts, sha,
                                 dry=args.command == "measure", injected=injected, profiles=profiles,

@@ -1647,14 +1647,26 @@ return function()
 			-- THE CORE COVERS 327b's RING, which is the instrument `JUMP_RELIEF_STUDS` 1.8 is read
 			-- with, plus a voxel column so the outermost ring sample is inside the core.
 			expect(spec.levelRadiusStuds >= 12 + Relief.VOXEL / 2).to.equal(true)
-			-- ...AND IT STOPS SHORT OF THE DITCH LIP, so a pad can never fill the ditch beside it.
-			local ditchLo = TerrainBake.bandFor(
+			-- ...AND WHAT IT COSTS THE DITCH, measured rather than asserted away. The pad's reach
+			-- is 22 studs and the realised ditch band starts at 19, so it DOES overlap by 3 -- but
+			-- the ditch's first sampled column centre is at d 21, where the blend is nearly spent.
+			local ditchLo, ditchHi = TerrainBake.bandFor(
 				Grid.roadsOf("C1").main.at,
 				TerrainBake.ROAD.ditch.nearStuds,
 				TerrainBake.ROAD.ditch.farStuds,
 				1
 			)
-			expect(spec.levelRadiusStuds + spec.blendStuds <= ditchLo + 3).to.equal(true)
+			local reach = spec.levelRadiusStuds + spec.blendStuds
+			expect(reach > ditchLo).to.equal(true) -- it overlaps, and the next line says by how much
+			expect(reach - ditchLo).to.equal(3)
+			-- THE FILL AT THE NEAREST SAMPLED DITCH COLUMN, in studs: smoothstep is spent there.
+			local centreAt = Grid.standPosition("C1", 4)
+			local atDitch =
+				TerrainBake.standPadAt(pads, pads[1].y - TerrainBake.ROAD.ditch.depthStuds, centreAt.X, centreAt.Z + 21)
+			local fill = (atDitch or (pads[1].y - TerrainBake.ROAD.ditch.depthStuds))
+				- (pads[1].y - TerrainBake.ROAD.ditch.depthStuds)
+			expect(fill < 0.15).to.equal(true)
+			expect(ditchHi > ditchLo).to.equal(true)
 			-- THE HEIGHT IS THE ROAD'S CROWN THERE. On a flat base every crown is the base, so the
 			-- claim that bites is the SHAPE of the dependency: ask the same stand on a base 40 studs
 			-- higher and the pad follows the road, where `lineMeanY` would not move at all.
@@ -1843,16 +1855,23 @@ return function()
 				end
 				expect(nameAt(d)).to.equal(want)
 			end
-			-- FAIL FIRST, AND IT IS THE DEFECT MEASURED IN KAREN'S PLACE: at d 9, 13 and 17 the
-			-- `d < 10` rule answered `mid` (Ground) where the design's table asks for `outer`
-			-- (Grass). `<runs-dir>/328e-xsec-BEFORE.json` read Ground at d 10..13 on EW2 after 328d.
+			-- FAIL FIRST, AND IT IS **d 9 ALONE** that does it: under `d < 10` that column answered
+			-- `mid` (Ground) where the design's table asks for `outer` (Grass). d 13 and 17 are
+			-- already >= 10 and answered `outer` before this change too, so they are a guard and not
+			-- the bite -- said here because round 1 claimed all three.
+			expect(nameAt(9)).to.equal("Grass")
+			expect(9 >= spec.midStuds and 9 < 10).to.equal(true)
 			expect(nameAt(13)).to.equal("Grass")
 			expect(nameAt(17)).to.equal("Grass")
 			expect(spec.material.x.mid).never.to.equal(spec.material.x.outer)
-			-- AND THE RUTS ARE STILL AT +-8 (design F-3), which is the nominal band's own midpoint
-			-- and what the realised column brackets: 328d already moved them off +-4.
+			-- AND THE RUTS ARE STILL AT +-8 IN THE DESIGN'S OWN TERMS (F-3): 8 is the NOMINAL band's
+			-- midpoint. The realised column is d 3..7 on this parity and does NOT contain 8 -- the
+			-- MEASURED Mud on the ground does (|d| 5..9 on EW2, 328e-xsec2-AFTER.json), because the
+			-- written voxel lands about 2 studs out from where it was computed (TASKS.md 328e (a)).
+			-- Both halves said, so neither can be read as the other.
 			expect((spec.rut.nearStuds + spec.rut.farStuds) / 2).to.equal(8)
-			expect(rutLo <= 8 and 8 <= rutHi + Relief.VOXEL).to.equal(true)
+			expect(rutLo).to.equal(3)
+			expect(rutHi).to.equal(7)
 			expect(nameAt((rutLo + rutHi) / 2)).to.equal("Mud")
 			TestKit.note(
 				string.format(
@@ -1921,26 +1940,46 @@ return function()
 			-- worst **+24.04 studs on the ridge line** -- which is `C1.ops[1].dyStuds` 24 exactly.
 			-- `Relief.deltaAt` adds its ops, so a base that is already baked gets a second ridge.
 			local mark = Instance.new("Folder")
-			-- ARM 1: NO EPOCH -- a virgin base. The landform is applied.
-			local wanted, why = TerrainBake.reshapeWanted("C1", mark)
+			-- ARM 1: NO STAMP -- a cell whose landform has never gone in. It is applied.
+			local wanted, why, kind = TerrainBake.reshapeWanted("C1", mark)
 			expect(wanted).to.equal(true)
-			expect(string.find(why, "never been baked", 1, true) ~= nil).to.equal(true)
-			-- ARM 2: AN EPOCH AND NO SHAPE STAMP -- the ground 328d and 328j left. Already shaped.
+			expect(kind).to.equal("virgin")
+			expect(string.find(why, "not in its ground", 1, true) ~= nil).to.equal(true)
+			-- ...AND A GLOBAL EPOCH DOES NOT CHANGE THAT. **FAIL FIRST, and it is round 1 finding 1**:
+			-- `TerrainEpoch` is ONE attribute for the whole Terrain while a run covers only its own
+			-- `--cells`, so reading it told a never-baked cell its landform was already in the
+			-- ground -- roads and pads onto raw relief. The stamped cell and the unstamped one must
+			-- answer DIFFERENTLY with the same epoch set.
 			TerrainBake.stamp("deadbeefdeadbeef", mark)
-			wanted, why = TerrainBake.reshapeWanted("C1", mark)
-			expect(wanted).to.equal(false)
-			expect(string.find(why, "already in the ground", 1, true) ~= nil).to.equal(true)
-			-- ARM 3: THE STAMPED SHAPE IS THIS LANDFORM. Still already shaped.
 			expect(TerrainBake.stampShape({ "C1" }, mark)).to.equal(1)
+			local bakedWanted, _, bakedKind = TerrainBake.reshapeWanted("C1", mark)
+			local freshWanted, _, freshKind = TerrainBake.reshapeWanted("A1", mark)
+			expect(bakedWanted).to.equal(false)
+			expect(bakedKind).to.equal("stamped")
+			expect(freshWanted).to.equal(true)
+			expect(freshKind).to.equal("virgin")
+			expect(bakedWanted).never.to.equal(freshWanted)
+			-- ARM 2: THE STAMPED SHAPE IS THIS LANDFORM. Already in the ground, and the stamp is
+			-- per cell -- `stampShape` writes only the cells it is given.
 			expect(mark:GetAttribute("TerrainShape_C1")).to.equal(TerrainBake.shapeInputFor("C1"))
-			wanted = TerrainBake.reshapeWanted("C1", mark)
-			expect(wanted).to.equal(false)
-			-- ARM 4: A DIFFERENT SHAPE -- someone moved the ops. Apply, and the header says the base
-			-- has to be restored first.
+			expect(mark:GetAttribute("TerrainShape_A1")).to.equal(nil)
+			-- ARM 3: A DIFFERENT SHAPE -- someone moved the ops. Apply, and `terrainbake.py` refuses
+			-- the wet run on this word rather than on the prose.
 			mark:SetAttribute("TerrainShape_C1", "a landform that is not this one")
-			wanted, why = TerrainBake.reshapeWanted("C1", mark)
+			wanted, why, kind = TerrainBake.reshapeWanted("C1", mark)
 			expect(wanted).to.equal(true)
+			expect(kind).to.equal("changed")
 			expect(string.find(why, "shape has changed", 1, true) ~= nil).to.equal(true)
+			-- ARM 4: EVERY CELL OF THE WORLD IS VIRGIN ON A BARE MARKER, which is what makes the
+			-- round-1 defect impossible to reach for ANY cell and not only A1.
+			local bare = Instance.new("Folder")
+			TerrainBake.stamp("deadbeefdeadbeef", bare)
+			for _, id in Grid.cellIds() do
+				local w, _, k = TerrainBake.reshapeWanted(id, bare)
+				expect(w).to.equal(true)
+				expect(k).to.equal("virgin")
+			end
+			bare:Destroy()
 			-- THE STAMP IS THE SHAPE AND NOT THE FLOOR: this task moved C1's floor from `Ground` to
 			-- `LeafyGrass`, which moves no ground, so it may not force a re-shape.
 			local painted = Relief.epochInput({

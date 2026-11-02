@@ -816,8 +816,9 @@ BLAST_RADIUS = (
     # `map` and not to a scope of its own (Director decision D-6): it IS the map's shape, and
     # `Map.WORLD_BY_PLACE` is what will switch to it. `grid.spec` is in `places` as well -- the dual
     # membership this table already uses -- because the thing that DRAWS the grid is
-    # `src/server/Places/`, and a change to `Ground.paintRoads` has to play the spec that asserts
-    # the call budget.
+    # `src/server/Places/`, and its corner stakes and `GRID_PREVIEW`-off proof live there.
+    # (`Ground.paintRoads` and the call-budget case were archived in task 328e: the grid's roads get
+    # their material from the Edit-time bake now.)
     ("src/shared/Grid/", "map"),
     # THE CENSUS (task 328b): `ServerStorage.GridCensus` certifies what `src/server/Places/` planted,
     # and `grid_ground.spec` is the only spec that asserts it -- which is in `places` as well as in
@@ -1049,9 +1050,10 @@ SCOPE_SPECS = {
                # asserts `Places.LANE_STUDS >= HighSeats.footprintRadiusStuds()` rather than
                # describing it -- so moving either number plays it.
                "tests/server/high_seats.spec.luau",
-               # Task 327a: `Ground.paintRoads`, the corner stakes and the GRID_PREVIEW-off proof
-               # all live in `src/server/Places/`, which resolves here -- so a change to the paint
-               # plays the spec that asserts its 300-call budget. Dual membership with `map`.
+               # Task 327a: the corner stakes and the GRID_PREVIEW-off proof live in
+               # `src/server/Places/`, which resolves here, so a change there plays them. Dual
+               # membership with `map`. (`Ground.paintRoads` and its 300-call case were archived in
+               # task 328e -- the Edit-time bake writes the roads' material now.)
                "tests/server/grid.spec.luau",
                # Task 328b: the template audit, the quarantine, `TEMPLATE_DIMS` and the census.
                # `src/shared/Places/`, `src/server/Places/` and `src/serverstorage/GridCensus/` all

@@ -94,6 +94,8 @@ export type TileReport = {
 	-- WHICH CELLS THIS TILE RE-SHAPED AND WHY, printed by the tool and kept in the run log, so a
 	-- run that silently skipped the landform cannot look like one that applied it.
 	reshape: string?,
+	-- THE STANDS `standPadsFor` COULD NOT PLACE A PAD UNDER, comma-separated and "" for none.
+	padsMissed: string?,
 }
 
 -- ---------------------------------------------------------------- the region
@@ -904,6 +906,10 @@ function TerrainBake.shapeTile(
 			elseif form == nil or (reshape ~= nil and reshape[id] ~= true) then
 				-- EITHER NO LANDFORM, OR ITS LANDFORM IS ALREADY IN THIS GROUND: the base IS the
 				-- shaped height, and the road, the pad and the material are written onto it.
+				-- `depth` STAYS 0 HERE, and that is a real consequence: `Relief.materialAt`'s
+				-- `mudDepthStuds` rule reads the cut below the landform's own base, and a re-bake
+				-- cuts nothing. C1 has no such rule (328e-5 asserts it); A1's gully Mud and D1's
+				-- dish Mud would not be re-painted by a re-bake of those cells.
 				shaped[at] = base
 				exempt[at] = form ~= nil and Relief.isExempt(form, Grid.boundsOf(id), x, z)
 			else
@@ -1328,6 +1334,10 @@ function TerrainBake.bakeTileAt(
 	end
 	local report = TerrainBake.bakeTile(tile, slice, cellIds, {}, dryRun, profiles, reshape)
 	report.reshape = table.concat(why, "; ")
+	-- THE STANDS NO ROAD REACHES, ON THE REPORT and not only in a header's promise (Reviewer, round
+	-- 1, note 1): the caller said it reported them and nothing carried them out of `shapeTile`.
+	local _, missed = TerrainBake.standPadsFor(cellIds, profiles)
+	report.padsMissed = table.concat(missed, ",")
 	return report
 end
 
@@ -1445,28 +1455,30 @@ end
 -- the worst was **+24.04 studs on the ridge line** -- which is `C1.ops[1].dyStuds` 24, exactly. The
 -- cell would have grown a second ridge on top of the one 328d and 328j already put there.
 --
--- THE RULE: the landform goes in ONCE. `TerrainEpoch` is written only at the end of a WET run
--- (`stamp`, called by `tools/terrainbake.py`), and a wet run shapes the whole region -- so its
--- presence IS the record that the landform is in the ground. `TerrainShape_<id>` then says WHICH
--- shape, so a later task that changes a cell's `ops` can tell.
+-- THE RULE: the landform goes in ONCE, AND IT IS ASKED PER CELL. `TerrainShape_<id>` is written at
+-- the end of a WET run, for the cells THAT RUN covered, and a run covers only its own `--cells`
+-- (`regionFor`). `TerrainEpoch` is ONE attribute for the whole Terrain, so it cannot answer this
+-- question: round 1 read it and would have told a never-baked A1 that its landform was already in
+-- the ground, painting roads and pads onto raw relief -- the one thing this series exists to build
+-- (Reviewer, task 328e round 1, finding 1). Only the per-cell stamp is evidence about a cell.
 --
 -- WHAT THIS DOES NOT DO, said plainly: it cannot UN-apply a landform. Changing a cell's `ops` after
--- a bake needs the original base back -- restore the backup `.rbxl` and bake again. Storing the base
--- snapshot so a re-shape needs no backup is design 5.3 step 2's whole-cell route and is not built.
-function TerrainBake.reshapeWanted(cellId: string, where: Instance?): (boolean, string)
+-- a bake needs the original base back -- restore the backup `.rbxl` and bake again, and
+-- `tools/terrainbake.py` REFUSES a wet run in that state rather than quietly adding the ops twice.
+-- Storing the base snapshot so a re-shape needs no backup is design 5.3 step 2's whole-cell route
+-- and is not built.
+--
+-- The third return is the reason as a WORD, so the tool branches on it and not on prose.
+function TerrainBake.reshapeWanted(cellId: string, where: Instance?): (boolean, string, string)
 	local target = where or Workspace.Terrain
-	if target:GetAttribute("TerrainEpoch") == nil then
-		return true, "no TerrainEpoch: this ground has never been baked"
-	end
 	local stamped = target:GetAttribute("TerrainShape_" .. cellId)
 	if stamped == nil then
-		return false, "TerrainEpoch is set and this cell carries no shape stamp: its landform is already in the ground"
+		return true, string.format("no TerrainShape_%s: this cell's landform is not in its ground", cellId), "virgin"
 	end
 	if tostring(stamped) ~= TerrainBake.shapeInputFor(cellId) then
-		return true,
-			"the landform's shape has changed since the stamp -- see this function's header: the base must be restored first"
+		return true, "the landform's shape has changed since the stamp: the base must be restored first", "changed"
 	end
-	return false, "the stamped shape is this landform: it is already in the ground"
+	return false, "the stamped shape is this landform: it is already in the ground", "stamped"
 end
 
 -- THE ONE WRITER of `TerrainShape_<id>`, called at the end of a wet run beside `stamp`.
