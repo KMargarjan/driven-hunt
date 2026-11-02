@@ -1074,6 +1074,15 @@ return function()
 			expect(math.abs((ditchLo + ditchHi) / 2 - (mDitchLo + mDitchHi) / 2) <= Relief.VOXEL / 2).to.equal(true)
 			local _, rutName = at((rutLo + rutHi) / 2)
 			expect(rutName).to.equal("Mud")
+			-- THE HEIGHT IS SYMMETRIC EXACTLY wherever the two sides' bands agree: the carriageway
+			-- and the verge depend on |d| alone, and the two ditches overlap over d 21..27.
+			for _, d in { 1, 7, 13, 17, 23, 25, 31 } do
+				expect(math.abs((at(d) or 0) - (at(-d) or 0)) < 1e-9).to.equal(true)
+			end
+			-- AND WHERE THEY CANNOT: the bands are half a voxel apart (a centre at = 1 mod 4 admits
+			-- no better), so d 19 is ditch on the plus side and still shoulder on the minus side.
+			-- Said here rather than left for someone to find in the ground.
+			expect(math.abs((at(19) or 0) - (at(-19) or 0)) > 1).to.equal(true)
 			-- FAIL FIRST, THE MINUS SIDE: before the fix `at(-d)` answered Grass at the verge
 			-- height for every one of these, because the band bounds there were negative.
 			local _, mRutName = at(-(mRutLo + mRutHi) / 2)
@@ -1175,20 +1184,52 @@ return function()
 			expect(name(crownZ)).to.equal("Ground")
 			expect(math.abs(h(ditchZ) - (h(crownZ) - spec.ditch.depthStuds)) < 0.05).to.equal(true)
 			expect(name(ditchZ)).to.equal("Mud")
-			-- AND ON THE OTHER SIDE OF THE CENTRELINE, in the same written tile. FAIL FIRST: before
-			-- round 3 this read 99.80 and "Grass" -- the verge height, with no ditch at all.
+			-- THE OTHER SIDE OF THE CENTRELINE. The road sits 13 studs above this tile's floor, so
+			-- the minus RUT is in this tile and the minus DITCH is in the one below -- which is also
+			-- what proves the two tiles agree: the ditch in the SOUTH tile is 2 studs under the
+			-- crown THIS tile wrote, at the same x, because both were handed the same profiles.
+			local mRutLo, mRutHi = TerrainBake.bandFor(road.at, spec.rut.nearStuds, spec.rut.farStuds, -1)
+			local mRutZ = road.at - (mRutLo + mRutHi) / 2
+			-- FAIL FIRST, BOTH OF THESE: before round 3 the minus side had no rut and no ditch, so
+			-- this read "Ground" at the carriageway height and "Grass" at the verge height.
+			expect(name(mRutZ)).to.equal("Mud")
+			-- SYMMETRIC IN HEIGHT, to within the sample lattice: the voxel centres fall at odd |d|
+			-- on each side and the two sides' odd numbers differ by 2, so the nearest pair to +-12 is
+			-- d 13 and d 11 -- 0.02 st of crossfall apart. The exact claim is 328d-15's, on `roadAt`.
+			expect(math.abs(h(road.at + 12) - h(road.at - 12)) < 0.05).to.equal(true)
+			local south = { minX = tile.minX, minZ = tile.minZ - TerrainBake.TILE_STUDS }
+			local southHeights, southNames = TerrainBake.shapeTile(south, sliceFor(south, flat), { "C1" }, {}, profiles)
+			local function southAt(z: number): (number, string)
+				local k = math.floor((z - south.minZ) / Relief.VOXEL) + 1
+				return southHeights[(k - 1) * n + 16], southNames[(k - 1) * n + 16]
+			end
+			local mDitchY, mDitchName = southAt(mDitchZ)
 			TestKit.note(
 				string.format(
-					"same tile, MINUS side at z=%.0f (d=%.0f): %.3f (%s), crown %.3f",
+					"MINUS side: rut z=%.0f (d=%.0f) %s in tile (%d,%d); ditch z=%.0f (d=%.0f) %.3f (%s) in tile (%d,%d), crown %.3f",
+					mRutZ,
+					road.at - mRutZ,
+					name(mRutZ),
+					tile.minX,
+					tile.minZ,
 					mDitchZ,
 					road.at - mDitchZ,
-					h(mDitchZ),
-					name(mDitchZ),
+					mDitchY,
+					mDitchName,
+					south.minX,
+					south.minZ,
 					h(crownZ)
 				)
 			)
-			expect(name(mDitchZ)).to.equal("Mud")
-			expect(math.abs(h(mDitchZ) - (h(crownZ) - spec.ditch.depthStuds)) < 0.05).to.equal(true)
+			expect(mDitchName).to.equal("Mud")
+			expect(math.abs(mDitchY - (h(crownZ) - spec.ditch.depthStuds)) < 0.05).to.equal(true)
+			-- THE TWO TILES SHARE THE ROAD at the seam: the last column of the south tile and the
+			-- first of this one are 4 studs apart and the road is continuous across them (round-2
+			-- finding 2 -- with a profile read per tile, off half-baked ground, it would not be).
+			-- d 15 and d 11, so 0.04 st of crossfall is expected and anything more is a step.
+			local seamSouth = southAt(tile.minZ - 2)
+			local seamHere = h(tile.minZ + 2)
+			expect(math.abs(seamSouth - seamHere) < 0.1).to.equal(true)
 			-- FAIL FIRST: with no profiles handed in there is no road, and the ditch is not there.
 			local bare = TerrainBake.shapeTile(tile, slice, { "C1" }, {}, nil)
 			expect(math.abs(bare[(kFor(ditchZ) - 1) * n + 16] - 100) < 0.05).to.equal(true)
