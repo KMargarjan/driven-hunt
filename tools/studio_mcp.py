@@ -819,6 +819,10 @@ BLAST_RADIUS = (
     # `src/server/Places/`, and a change to `Ground.paintRoads` has to play the spec that asserts
     # the call budget.
     ("src/shared/Grid/", "map"),
+    # THE CENSUS (task 328b): `ServerStorage.GridCensus` certifies what `src/server/Places/` planted,
+    # and `grid_ground.spec` is the only spec that asserts it -- which is in `places` as well as in
+    # `lobby` and `map` (the dual membership this table already uses).
+    ("src/serverstorage/GridCensus/", "places"),
     ("src/serverstorage/Assets/", "assets"),
     ("src/shared/Flags/", "flags"),
     # THE GAME'S LIGHT (task 215): the one owner of `Lighting`, its `Atmosphere` and its post
@@ -1041,7 +1045,11 @@ SCOPE_SPECS = {
                # Task 327a: `Ground.paintRoads`, the corner stakes and the GRID_PREVIEW-off proof
                # all live in `src/server/Places/`, which resolves here -- so a change to the paint
                # plays the spec that asserts its 300-call budget. Dual membership with `map`.
-               "tests/server/grid.spec.luau"),
+               "tests/server/grid.spec.luau",
+               # Task 328b: the template audit, the quarantine, `TEMPLATE_DIMS` and the census.
+               # `src/shared/Places/`, `src/server/Places/` and `src/serverstorage/GridCensus/` all
+               # resolve here. Triple membership with `lobby` and `map` (design 13.2).
+               "tests/server/grid_ground.spec.luau"),
     "match": ("tests/server/match_config.spec.luau", "tests/server/forest_markers.spec.luau",
               # Task 287: the LIVE door a pad step goes through, last in the suite because a restart
               # is a drive boundary. DUAL MEMBERSHIP with `lobby`, which reads that door.
@@ -1124,6 +1132,11 @@ SCOPE_SPECS = {
               "tests/server/light.spec.luau",
               # The planting rule itself, pure and worldless (task 199).
               "tests/server/tree_ground.spec.luau",
+              # Task 328b: the contact rule's IDENTITY -- `TreeGround.sinkFor`, `TOLERANCE_STUDS` and
+              # `Places.stepAllowanceStuds` read from the modules that own them and compared with the
+              # census's own constants, so a fork reddens a case. `src/shared/TreeGround/` resolves
+              # here, so a change to the rule plays the spec that asserts nobody forked it.
+              "tests/server/grid_ground.spec.luau",
               # DUAL MEMBERSHIP, the idiom `zz_horn`, `boar_hit` and `shoot_boar` already use: the
               # lobby enrols through `Match.enrol` and empties the roster through `Match.dismissAll`,
               # so a lobby change plays the drive's own phase and live specs.
@@ -1153,7 +1166,10 @@ SCOPE_SPECS = {
     "map": ("tests/server/map_contract.spec.luau", "tests/server/test_arena.spec.luau",
             # Task 327a: the eight cells, the footprint arithmetic, the cross-side separation and
             # the road paint. Dual membership with `places` (below), which draws it.
-            "tests/server/grid.spec.luau"),
+            "tests/server/grid.spec.luau",
+            # Task 328b: the census asks `Grid` where the roads and the stands are, so a change to
+            # the grid's geometry plays the spec that asserts what stands clear of them.
+            "tests/server/grid_ground.spec.luau"),
     # `boar_model.spec` reads the manifest's `boar.male` rows and the `BOAR_MODEL` row, so a change
     # to either reaches it (task 115).
     "assets": ("tests/server/assets_seam.spec.luau", "tests/server/boar_model.spec.luau",
