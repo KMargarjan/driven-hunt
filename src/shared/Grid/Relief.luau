@@ -447,9 +447,9 @@ end
 
 -- ---------------------------------------------------------------- the floor material
 
--- THE ZONE FLOOR AT ONE POINT. Only the rules SWARM section 2.2 states: Mud where a dish or gully is
--- deep enough, scree on a named slope band, else the cell's own floor. The 70/30 scree MIX is the
--- bake's, not this function's (design 5.3 step 3).
+-- THE ZONE FLOOR AT ONE POINT. Only the rules SWARM section 2.2 states -- four cells state one, and
+-- the other four get the placeholder `Ground` until `CELL_PLANS` v2 carries the zone floor (328f).
+-- The 70/30 scree MIX is the bake's, not this function's (design 5.3 step 3).
 function Relief.materialAt(
 	form: Landform,
 	_bounds: Bounds,
@@ -560,6 +560,9 @@ Relief.LANDFORMS = table.freeze({
 			}),
 			table.freeze({ kind = "bench", v0 = 0.55, v1 = 0.74, weight = 0.8, gradePercent = 2 }),
 		}),
+		-- SWARM 2.2: "leaf litter ... and Mud in the gully floor". The gully is 14 studs deep and the
+		-- recipe names no depth; 10 is chosen, so Mud is its deepest 4 studs. The west side's needle
+		-- floor is the ZONE's, not this function's (328f).
 		floor = table.freeze({ default = "LeafyGrass", mudDepthStuds = 10 }),
 	}),
 	-- B1 HILLTOP CLEARING: a dome off centre, and dead ground at 88 m.
@@ -576,7 +579,8 @@ Relief.LANDFORMS = table.freeze({
 				halfWidthStuds = 50,
 			}),
 		}),
-		floor = table.freeze({ default = "LeafyGrass", mudDepthStuds = 7 }),
+		-- SWARM 2.2: "birch floor. The clearing is meadow." No mud rule, so none here.
+		floor = table.freeze({ default = "LeafyGrass" }),
 	}),
 	-- C1 THE RIDGE ACROSS THE DRIVE (the preview cell): animals crest at 120 m.
 	C1 = table.freeze({
@@ -609,6 +613,7 @@ Relief.LANDFORMS = table.freeze({
 				flatFraction = 0.45,
 			}),
 		}),
+		-- SWARM 2.2: "a Grass headland ... Mud only where the dish is at least 6 st deep."
 		floor = table.freeze({ default = "Grass", mudDepthStuds = 6 }),
 	}),
 	-- A2 VALLEY AND GREEN RIDE: flat at the hunter line, 26 studs deep at the muster.
@@ -624,7 +629,7 @@ Relief.LANDFORMS = table.freeze({
 				halfWidthStuds = 180,
 			}),
 		}),
-		floor = table.freeze({ default = "Ground", mudDepthStuds = 12 }),
+		floor = table.freeze({ default = "Ground" }),
 	}),
 	-- B2 PLATEAU AND THE EDGE: a 2 % bench to the lip, a 24-degree scarp, and THREE ramps up it.
 	-- SWARM section 2.2 gives B2's bench no weight; 0.9 is chosen so the plateau reads as a plateau.
@@ -639,6 +644,7 @@ Relief.LANDFORMS = table.freeze({
 		}),
 		-- The scarp +- 8 studs carries no trunk (design 3.0): v 0.24 +- 40 studs of 1430.
 		noTrees = table.freeze({ table.freeze({ v0 = 0.212, v1 = 0.268 }) }),
+		-- SWARM 2.2: "leaf litter. Scree (Ground 70 / Rock 30) where the slope is 30-40 degrees."
 		floor = table.freeze({ default = "LeafyGrass", screeDegFrom = 30, screeDegTo = 40 }),
 	}),
 	-- C2 SADDLE FUNNEL: two knolls with a light gap between two dark walls.
@@ -656,7 +662,7 @@ Relief.LANDFORMS = table.freeze({
 		ops = table.freeze({
 			table.freeze({ kind = "bench", v0 = 0.50, v1 = 0.74, weight = 0.7, gradePercent = 4 }),
 		}),
-		floor = table.freeze({ default = "LeafyGrass" }),
+		floor = table.freeze({ default = "Ground" }),
 	}),
 })
 

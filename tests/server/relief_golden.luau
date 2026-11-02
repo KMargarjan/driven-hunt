@@ -3,9 +3,10 @@
 -- fixture `tests/server/grid_relief.spec.luau` reads. If `Relief`'s ARITHMETIC moves, these samples
 -- stop matching, and the fix is to re-measure them AND bump `Relief.BAKE_VERSION` in the same commit.
 --
--- MEASURED 2026-11-02 by `tests/server/zz_relief_probe.spec.luau` (task 328c), driving the real
--- `ReplicatedStorage.Grid.Relief` inside a harness Play run -- the MCP thread may not `require`, so a
--- spec is the only instrument that can read this module's own numbers.
+-- MEASURED 2026-11-02 (task 328c) by driving the real `ReplicatedStorage.Grid.Relief` inside a
+-- harness Play run; the MCP thread may not `require`, so a spec is the only instrument that can read
+-- this module's own numbers. To RE-DERIVE them: the golden case in `grid_relief.spec.luau` prints
+-- every mismatch as `got` to nine decimals, which is this table one line at a time.
 local Golden = {}
 
 -- Must equal `Relief.BAKE_VERSION`, so the samples cannot be refreshed without touching the version.

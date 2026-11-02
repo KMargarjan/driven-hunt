@@ -250,6 +250,66 @@ return function()
 			end
 		end)
 
+		it("makes every bench a PLANE at its own weight times its own grade", function()
+			-- Design 13.1 case 4's bench half, over a flat base: inside the band where the bench's own
+			-- weight is 1 AND the road fade is 1, `heightAt` must rise at exactly
+			-- weight * gradePercent / 100 studs a stud, and that gradient must not vary -- which is what
+			-- makes it a plane rather than a bulge.
+			local benches = 0
+			for _, id in Grid.CELL_ORDER do
+				local form, bounds = Relief.LANDFORMS[id], Grid.boundsOf(id)
+				for _, op in form.ops do
+					if op.kind == "bench" then
+						benches += 1
+						-- u .64 is clear of A1's gully and of all three of B2's ramps, so what is
+						-- measured here is the bench and nothing else sharing the column.
+						local x = bounds.minX + 0.64 * (bounds.maxX - bounds.minX)
+						local want = op.weight * op.gradePercent / 100
+						local lo, hi, slopes = nil, nil, {}
+						for z = bounds.minZ, bounds.maxZ, 4 do
+							if
+								Relief.weightOf(op, bounds, x, z) == 1
+								and Relief.weightOf(op, bounds, x, z + 4) == 1
+								and Relief.roadFadeAt(ROADS, x, z) == 1
+								and Relief.roadFadeAt(ROADS, x, z + 4) == 1
+							then
+								local here = Relief.heightAt(form, bounds, ROADS, flat, x, z)
+								local next4 = Relief.heightAt(form, bounds, ROADS, flat, x, z + 4)
+								lo = lo or z
+								hi = z + 4
+								table.insert(slopes, (next4 - here) / 4)
+							end
+						end
+						expect(#slopes >= 8).to.equal(true)
+						local first = slopes[1]
+						for _, slope in slopes do
+							-- A PLANE: one gradient, not a family of them.
+							expect(math.abs(slope - first) < 1e-9).to.equal(true)
+							-- ...and it is the recipe's own grade, to a hundredth of a per cent.
+							expect(math.abs(slope - want) < 0.0001).to.equal(true)
+						end
+						-- Crest minus floor across the measured span, within 3 studs of the recipe.
+						local rise = Relief.heightAt(form, bounds, ROADS, flat, x, hi)
+							- Relief.heightAt(form, bounds, ROADS, flat, x, lo)
+						expect(math.abs(rise - want * (hi - lo)) < 3).to.equal(true)
+						TestKit.note(
+							string.format(
+								"grid_relief bench: %s v %.2f-%.2f rises %.3f studs over %d, %.4f st/st against %.4f",
+								id,
+								op.v0,
+								op.v1,
+								rise,
+								hi - lo,
+								first,
+								want
+							)
+						)
+					end
+				end
+			end
+			expect(benches).to.equal(3)
+		end)
+
 		it("is the base again outside the footprint, past BLEND_STUDS", function()
 			for id, form in Relief.LANDFORMS do
 				local bounds = Grid.boundsOf(id)
@@ -286,7 +346,7 @@ return function()
 			return math.deg(math.atan(most / 16))
 		end
 
-		it("brings every 16-stud window under the ceiling in 8 passes, at both ceilings", function()
+		it("brings every 16-stud window onto the ceiling, at both ceilings", function()
 			expect(worst(cliff()) > 50).to.equal(true)
 			for _, ceilingDeg in { Relief.LIMIT_DEG.tree, Relief.LIMIT_DEG.open } do
 				local once = Relief.limitPass(cliff(), 4, ceilingDeg)
@@ -299,8 +359,9 @@ return function()
 						ceilingDeg
 					)
 				)
-				-- 0.5 degrees of slack: 8 passes is the design's number, and relaxation converges
-				-- to the ceiling rather than landing exactly on it (MEASURED, task 328c).
+				-- The eight relaxation passes alone leave this cliff at 22.92 degrees; the finishing
+				-- min-cone clamp is what lands it ON the ceiling. The 0.5 is slack for the float, not
+				-- for convergence (MEASURED, task 328c).
 				expect(worst(once) <= ceilingDeg + 0.5).to.equal(true)
 			end
 		end)
@@ -426,17 +487,25 @@ return function()
 			TestKit.note(string.format("grid_relief: the bake's region is %d tiles of 128 studs", #tiles))
 		end)
 
-		it("keeps a tile inside the MEASURED 24,576-voxel ceiling, and says when it must split", function()
-			-- 128 studs is 32 columns; the Y band is the tile's own relief plus 16 below and 32 above.
-			local function layersFor(reliefStuds: number): number
-				return math.ceil((reliefStuds + 16 + 32) / Relief.VOXEL)
+		it("emits tiles the MEASURED voxel ceiling can carry, from MapGen.Config's own numbers", function()
+			-- EVERY NUMBER HERE COMES FROM A SHIPPED MODULE. `MapGen.Config.VOXEL`'s header carries the
+			-- measurement (2026-09-26): WriteVoxels takes a 128 x 128 x 96-stud region at resolution 4,
+			-- which is 32 x 32 x 24 = 24,576 voxels, and refuses any other resolution.
+			local Config = require(ServerStorage:WaitForChild("MapGen"):WaitForChild("Config"))
+			local tiles = Relief.tiles(Grid.footprint(), Config.TILE_STUDS)
+			expect(#tiles > 0).to.equal(true)
+			local columns = Config.TILE_STUDS / Config.VOXEL
+			local layers = (Config.BAND_Y.max - Config.BAND_Y.min) / Config.VOXEL
+			expect(columns).to.equal(32)
+			expect(columns * columns * layers).to.equal(24576)
+			-- So a tile of this stride carries at most this many studs of Y band in ONE call.
+			expect(layers * Config.VOXEL).to.equal(96)
+			-- And every tile `Relief.tiles` emits sits on that stride, so none is wider than the call.
+			for _, tile in tiles do
+				expect((tile.minX - tiles[1].minX) % Config.TILE_STUDS).to.equal(0)
+				expect((tile.minZ - tiles[1].minZ) % Config.TILE_STUDS).to.equal(0)
 			end
-			expect(32 * 32 * layersFor(0) <= 24576).to.equal(true)
-			-- 24 layers is 96 studs, the measured ceiling: a 48-stud band fits exactly.
-			expect(layersFor(48)).to.equal(24)
-			expect(32 * 32 * layersFor(48)).to.equal(24576)
-			-- One stud more and the tile MUST split -- the bake never assumes one call is enough.
-			expect(32 * 32 * layersFor(49) > 24576).to.equal(true)
+			expect(Relief.VOXEL).to.equal(Config.VOXEL)
 		end)
 
 		it("turns every nominal band into whole voxel columns, whatever the centre's parity", function()
@@ -467,7 +536,14 @@ return function()
 			expect(string.sub(once, 1, 14)).to.equal('{"bakeVersion"')
 			expect(string.find(once, '"config"', 1, true) < string.find(once, '"landforms"', 1, true)).to.equal(true)
 			-- A changed landform number changes it; a differently ORDERED config does not.
-			local moved = table.clone(Grid.CONFIG)
+			-- A table built key by key in a DIFFERENT order encodes the same, which is what
+			-- `table.sort(keys)` in `canonical` is for.
+			local moved = {}
+			for _, key in
+				{ "columns", "rows", "roadClearStuds", "cellDepthStuds", "cellWidthStuds", "originZ", "originX" }
+			do
+				moved[key] = Grid.CONFIG[key]
+			end
 			expect(Relief.epochInput(Relief.LANDFORMS, moved)).to.equal(once)
 			moved.originX = Grid.CONFIG.originX + 4
 			expect(Relief.epochInput(Relief.LANDFORMS, moved)).never.to.equal(once)
@@ -537,7 +613,13 @@ return function()
 				return
 			end
 			-- The two the design names as untouched: the lobby field and the four line places' strips.
-			local ALLOWED = { ["ServerScriptService.Lobby.Field"] = true, ["ServerScriptService.Places.Ground"] = true }
+			-- The three real terrain writers under src/, each one design 1.2 item 1 leaves alone: the
+			-- lobby field, the four line places, and the range ground.
+			local ALLOWED = {
+				["ServerScriptService.Lobby.Field"] = true,
+				["ServerScriptService.Places.Ground"] = true,
+				["ServerScriptService.Range.Build"] = true,
+			}
 			local offenders = {}
 			for _, root in
 				{ ServerScriptService, ReplicatedStorage, StarterPlayer:WaitForChild("StarterPlayerScripts") }
@@ -551,9 +633,11 @@ return function()
 							end)
 						)
 						if type(got) == "string" then
-							local writes = string.find(got, "WriteVoxels", 1, true)
-								or string.find(got, ":FillBlock", 1, true)
-								or string.find(got, ":ReplaceMaterial", 1, true)
+							-- THE CALL SHAPE, not the name: each of these appears in a comment
+							-- somewhere, and a comment is not a writer.
+							local writes = string.find(got, ":WriteVoxels(", 1, true)
+								or string.find(got, ":FillBlock(", 1, true)
+								or string.find(got, ":ReplaceMaterial(", 1, true)
 							if writes and not ALLOWED[inst:GetFullName()] then
 								table.insert(offenders, inst:GetFullName())
 							end
