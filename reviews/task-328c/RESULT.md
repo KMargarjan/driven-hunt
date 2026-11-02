@@ -1,19 +1,83 @@
-1. `tests/server/grid_relief.spec.luau` / "keeps a tile inside the MEASURED 24,576-voxel ceiling, and says when it must split" — the case asserts arithmetic it defines itself, and nothing this change ships. Evidence: the whole producer is inside the case — `local function layersFor(reliefStuds: number): number return math.ceil((reliefStuds + 16 + 32) / Relief.VOXEL) end`, then `expect(32 * 32 * layersFor(0) <= 24576)`, `expect(layersFor(48)).to.equal(24)`, `expect(32 * 32 * layersFor(48)).to.equal(24576)`, `expect(32 * 32 * layersFor(49) > 24576)`. Delete `Relief.luau` down to `Relief.VOXEL = 4` and every line of this case still passes: the 32 columns, the 16/32 band pad, the 24,576 ceiling and the split rule are all literals in the test, and the code that owns them (`TerrainBake.MAX_VOXELS`, `TerrainBake.BAND_PAD`, design 5.1) does not exist until 328d. `REQUEST.md` claim 7 nevertheless offers it as covering design 13.1 case 9 ("the voxel ceiling"). Required: bind it to a shipped producer — read the tile from `Relief.tiles`' own emitted tile and the voxel and tile size from `MapGen.Config` (`Config.TILE_STUDS`, `Config.VOXEL`, whose header carries the measurement) rather than re-typing 32 and 128 — or drop the case and say in **Deviations** that 13.1 case 9 waits for 328d, instead of claiming it covered.
-2. `tests/server/grid_relief.spec.luau` / the bench — design 13.1 case 4 is claimed covered and the bench half of it is asserted nowhere. Evidence: design 13.1 case 4 is "**the bench, the scarp and the ramps meet their recipe** — crest and floor within ±3 st, and the ramp's grade within 1 % of 15", and `REQUEST.md` claim 7 lists "4 scarp/bench/ramps" as covered. Every bench assertion in the spec is a data-range check (`if op.kind == "bench" then expect(op.v1 > op.v0).to.equal(true) ... expect(op.weight > 0 and op.weight <= 1)`) or a falloff walk (`support = 40`, weight only). The one height case names only the scarp and the ramps ("gives B2 a 28-stud scarp over 64 studs and three ramps at 15 per cent"), and `REQUEST.md`'s own "Each op's own peak against its recipe" list has a row for every op EXCEPT a bench. So nothing — not a spec case, not a probe line — shows that a bench moves the ground at all, let alone at its grade: `D2`'s landform is a bench and nothing else (`ops = { { kind = "bench", v0 = 0.50, v1 = 0.74, weight = 0.7, gradePercent = 4 } }`), and A1 and B2 each carry one. The golden case cannot stand in: its expected numbers are a transcription of `heightAt`'s own output (verdict 278), so it locks the bench against change, not against being wrong. Required: one case over a flat base asserting a bench's realised plane — D2 rising 4 % and A1/B2 2 % across the band, and the plateau flat where `weightOf` is 1 — or a declared deviation saying the bench's recipe is unasserted and why.
+PASS
+
+Round 1's two blocking findings are fixed, and both fixes have teeth:
+- Finding 1: "emits tiles the MEASURED voxel ceiling can carry" now takes its tiles from
+  `Relief.tiles(Grid.footprint(), Config.TILE_STUDS)` and its 32 / 24 / 24,576 from
+  `MapGen.Config` (`TILE_STUDS` 128, `VOXEL` 4, `BAND_Y` {-48,48} -> 32*32*24 = 24576, header
+  "MEASURED, 2026-09-26"). Delete `Relief.tiles` and the case errors. The SPLIT half is now
+  Deviation 7, not a claim.
+- Finding 2: "makes every bench a PLANE at its own weight times its own grade" asserts the
+  realised gradient inside the band where `weightOf == 1` and `roadFadeAt == 1`. Checked by hand
+  against the shipped recipes and `Grid.CONFIG` (1070 x 1430, roads at originX+21+k*1112 /
+  originZ+21+k*1472): A1 0.8*0.02 = 0.0160 over 188 st = 3.008; B2 0.9*0.02 = 0.0180 over 172 =
+  3.096; D2 0.7*0.04 = 0.0280 over 260 = 7.280 -- the three printed gate lines exactly. Delete the
+  bench branch of `applyOps` and the slope is 0 against `want`, so it fails. `grid_relief: the
+  bake's region is 1333 tiles` also reproduces exactly from `Relief.tiles` over the footprint +-430
+  (43 x 31), which is independent evidence the pasted gate run played this spec at this code.
+Deletion check on the rest: the falloff walk, the road fade, the B2 scarp/ramp heights, the
+limiter's three cases, `columnsFor`'s parity case, `materialAt` and the no-voxel behavioural case
+all fail with their producer removed (worked through below where it was close). Harness line names
+the `Code commit:` 291f68cb, "(clean tree)", scope=all, and
+`paperwork-after-code-commit.txt` says OK. `[harness2] N/A` is right against the real diff:
+`TWO_PLAYER_PATHS` in `tools/agents.py` holds no `src/shared/Grid/`, no `tests/server/grid_*`, and
+excludes `tools/studio_mcp.py` by name.
 
 ## Notes (non-blocking)
-- Rule 5, stated so this verdict is not read as rule 5 having been met: nothing in this change reaches Karen's place, and nothing was seen there. No core item (animal behaviour, shooting) is in the request; the ground's shape — the thing she will eventually judge — exists only as `Relief.heightAt`'s numbers and as the hillshade PNGs described at `<runs-dir>/328c-relief-<cell>.png`, which I cannot see. The request says this plainly under "Not verified", and no claim here depends on a frame.
-- `Relief.blurredAt` — the Gaussian is applied as a full 2-D kernel per point (`for iz = -taps, taps do ... for ix = -taps, taps do`, 18 taps each way = 1,369 `baseAt` reads a point), and the bench branch of `applyOps` re-runs it for each of its six anchor samples (~9,600 reads a point for A1/B2/D2). A separable pass (blur rows, then columns) is ~38 reads a point, ~36x cheaper, and the bake's dominant loop is ~1.08 M columns. Nothing here cites a budget, so it breaks no rule — but 328d is the task that pays for it, and it is cheaper to cache the row pass per tile than to discover this against a 70-minute bake.
-- `REQUEST.md` Deviation 3's parenthetical allow-list is incomplete, and so is the spec's `ALLOWED` table. `src/server/Range/Build.luau` really writes terrain (`terrain:FillBlock(`, `terrain:ReplaceMaterial(`), and `src/shared/Range/init.luau`, `src/shared/Lobby/init.luau` and `src/shared/Grid/Relief.luau` itself all carry the substrings the scan matches on in comments. The day `Script.Source` becomes readable, `ALLOWED = { ["ServerScriptService.Lobby.Field"], ["ServerScriptService.Places.Ground"] }` reports five false offenders.
-- `tests/server/grid_relief.spec.luau` / the scan arm — `expect(readable).to.equal(false)` passes by asserting its own instrument is broken, and the gate counts it as a check that ran. Verdict 281's rule is that a check whose own log says it did not run should not read as a pass; the note it prints is `"grid_relief source scan: Script.Source is UNREADABLE"`, which is honest but does not say "this case proved nothing this run". Put that sentence in the note text.
-- `tests/server/relief_golden.luau` header — "MEASURED 2026-11-02 by `tests/server/zz_relief_probe.spec.luau` (task 328c)" names an instrument that is not in the repo (`git ls-files` under `tests/server/` holds only `grid_relief.spec.luau` and `relief_golden.luau`). The thing that actually re-derives the 48 numbers is the mismatch note in the golden case, which prints `got` to nine decimals; say that in the header instead.
-- `Relief.columnsFor` on an OFF-CENTRE band shifts the realised band up to one voxel INWARD, not outward: `columnsFor(-6700, 6, 10)` returns `-6696, -6692`, i.e. d 4-8 for the nominal d 6-10 rut. That is `Ground.bandBounds`' documented asymmetry ("the band reaches at least `half` BELOW the chunk's centre line but only `half - RESOLUTION` above it", `Ground.chunkFor`) and design 15 item 2 accepts a parity-dependent position — but F-3 says "the rut takes the **outer** carriageway column", so 328e must read the realised bounds and not assume the outer side. The spec asserts the width and not the side, which is the right thing to assert; this is a note for the task that paints.
-- The limiter is asserted along z only — `for z = bounds.minZ, bounds.maxZ, 4 do ... column[n] = Relief.heightAt(...)` at a fixed `x`. `roadFadeAt` zeroes every op within 51 studs of the N-S flank roads too, so on a flat base B2's 28-stud scarp climbs back to the base over the fade's 69 studs in the **x** direction near each flank (~22 deg, above the tree ceiling of 20), and `isExempt` does not pin it (it pins a z band). Nothing in this task applies the limiter, so nothing is broken; queue the axes `limitPass` runs on for 328d.
-- `Relief.LANDFORMS` floors — SWARM 2.2 states one mud depth, D1's ("Mud only where the dish is at least 6 st deep"), and `A1 = 10`, `B1 = 7`, `A2 = 12` are chosen numbers, while `materialAt`'s header says "Only the rules SWARM section 2.2 states". B2's bench weight 0.9 is invented and carries its reason in the code; these three do not.
-- `REQUEST.md` Deviation 2 — "Design 4's API is otherwise present in full" is not quite true: design 4's sketch is `Relief.deltaAt(form, bounds, x, z)` and the shipped one is `deltaAt(form, bounds, baseAt, h0, x, z)` (the bench anchor needs the reader), and `Landform` gains a `floor` field the sketch has no row for. Both are reasonable; neither is declared.
-- `REQUEST.md` claim 7 says "Three deviations are listed under **Deviations**"; six are.
-- `tests/server/grid_relief.spec.luau` / the limiter case — the name says "in 8 passes" and the comment says relaxation "converges to the ceiling rather than landing exactly on it", but `limitPass` now ends with the exact forward-then-backward min-cone clamp of Deviation 5, so the result lands on the ceiling and the 0.5-degree slack is no longer the reason it is there.
-- `tests/server/grid_relief.spec.luau` / `epochInput` — `local moved = table.clone(Grid.CONFIG); expect(Relief.epochInput(Relief.LANDFORMS, moved)).to.equal(once)` is commented "a differently ORDERED config does not" change it. A clone is not a reordering; the `table.sort(keys)` in `canonical` is never exercised against a different insertion order. The two `never.to.equal` assertions that follow are the ones with teeth.
+- Rule 5, stated so this PASS is not read as rule 5 having been met: nothing in this change reaches
+  Karen's place and nothing was seen there. No core item (animal behaviour, shooting) is in the
+  request -- `Relief` is required by nothing, writes no terrain, and has no caller until 328d. The
+  ground's shape, the thing she will eventually judge, exists only as `heightAt`'s numbers and as
+  the hillshade PNGs described at `<runs-dir>/328c-relief-<cell>.png`, which I cannot see. The
+  request says this plainly under "Not verified", and no claim here depends on a frame.
+- `REQUEST.md` "Round 2" bullet -- "the scan's note now says plainly that it **proved nothing** on a
+  run where `Source` is unreadable" is false. The shipped note text is unchanged:
+  `TestKit.note("grid_relief source scan: Script.Source is " .. (if readable then "readable" else
+  "UNREADABLE"))`. The "NOT a silent pass" sentence is a code COMMENT, which the gate log never
+  shows. Round 1's note stands as written; the fix is one string.
+- `TASKS.md` holds no `328c-notes` row -- the string "328c" does not occur in the file at all -- so
+  the four notes the request says are "queued in `TASKS.md` under 328c-notes" (the separable blur,
+  `columnsFor`'s inward shift on an off-centre band, the axes `limitPass` runs on, B2's bench weight
+  0.9) are queued nowhere in the tree; they exist only in `reviews/task-328c/RESULT.md`. `328a-notes`
+  and `328b-notes` rows do exist, so if the Director files this one at merge, say that instead.
+- `blurKernel`'s normalisation is asserted by nothing. No case calls `Relief.blurKernel`, and a
+  kernel whose taps did not sum to 1 would survive every case: on a flat base `h0 - base` is a
+  CONSTANT along the column, so the bench case's gradients, the "every cell's own column" limiter
+  case and the outside-the-footprint case all read the same; only the golden would move, and its
+  expected numbers came from the same code. The normalisation is correct as written (`sum += if i ==
+  0 then w else 2 * w`, then `out[i] /= sum`, applied separably), it is just unpinned. One line
+  fixes it: `blurredAt` over a constant base returns that constant.
+- `tests/server/grid_relief.spec.luau` / "is the base again outside the footprint" -- all three
+  sample points are at or past `BLEND_STUDS` (the first two at a diagonal 283 st), so every one of
+  them hits `heightAt`'s `if outside >= Relief.BLEND_STUDS then return base` and the `k = 1 -
+  smoothstep(outside / BLEND_STUDS)` branch is never exercised. The case does have teeth -- B2's
+  `weightOf` for a scarp returns 1 at every x and `scarpProfile` saturates at -28 past the face, so
+  with no blend at all the third point reads 72 against 100 -- but a wrong `k` at 50 or 100 studs out
+  would pass. One point mid-blend would close it.
+- `Relief.heightAt` -- `k` fades from the CELL's bounds, not the footprint's, so each cell's delta
+  bleeds up to 200 studs into its neighbours. Worked example: B2's bench depends only on z, so ~120
+  studs east of B2 (inside C2) `k` is ~0.35 and `roadFadeAt` has recovered to ~0.57, which is ~1
+  stud of B2's plateau standing in C2 on top of C2's own landform. Nothing composes two cells in
+  this change, so nothing is broken -- but 328d's tile pass has to decide what happens in the
+  overlap, and the design (section 3.0 "outside the footprint", 5.2's footprint+430 region) reads as
+  one blend at the footprint edge rather than eight at the cell edges.
+- `tests/server/grid_relief.spec.luau` / "leaves a pinned band exactly where it was" --
+  `expect(Relief.isExempt(Relief.LANDFORMS.C1, Grid.boundsOf("C1"), xOff, zc)).to.equal(false)`
+  passes `xOff` and `zc` computed from B2's bounds, and C1 has no `scarp` op, so `isExempt` returns
+  false at the first guard for any point whatever. The assertion says nothing about C1's geometry.
+- `REQUEST.md` claim 3 calls the `SCARP B2 ...` / `RAMPPURE B2 ...` rows "the gate's measured
+  `SCARP`/`RAMP` rows", and the Measured section labels those same rows "probe run, 2026-11-02". The
+  gate case that does cover the claim is "gives B2 a 28-stud scarp over 64 studs and three ramps at
+  15 per cent"; cite that. Same class: the probe that produced `faceMaxDeg`, the per-op peaks and
+  `at51` is not in the tree, so those rows cannot be re-derived from the repo (each is corroborated
+  by a gate case or by arithmetic off the recipe, and nothing blocking rests on them).
+- `REQUEST.md` claim 7 says "**Seven deviations** are listed"; eight are. Round 1's note was
+  "three/six"; the count has been wrong both rounds.
+- `tests/server/grid_relief.spec.luau` -- `local depth = 1430` in the `noTrees` assertion types in
+  `Grid.CONFIG.cellDepthStuds`. Read it from `Grid.CONFIG`, like the rest of the file reads
+  `Grid.boundsOf`.
+- `Relief.uvOf` ships with no caller and no case (blast radius: "no reference outside the changed
+  files"; the spec defines its own local `xzOf` instead). Fine as 328d's API surface, worth one
+  assertion when something calls it.
 
 ---
-REVIEWER verdict on commit `54dee67e7785caa4dd1aae11db045722cefebbb3` (round 1) · 2026-11-02 12:54 UTC · session cost $4.84, 48 turns · written by tools/agents.py
+REVIEWER verdict on commit `a2c327b99600d08a32a31a6b8e55b437a76fef7f` (round 2) · 2026-11-02 13:39 UTC · session cost $4.71, 44 turns · written by tools/agents.py
