@@ -56,9 +56,24 @@ calls stale (`servePlaceIds` does hold the Forest Test) -- but the injection wor
 design did not have: **it sends the text, so it needs neither `require` nor `Source`.** Section 3
 bettered the stale reason and not the real one.
 
-**This is an inference, labelled as one:** that Team Create *causes* the source fault is not proven
-here -- what is measured is that both are true of her place and neither is true of DEV. The two
-candidates are Team Create's script ownership and the MCP context's script security in that session.
+**AND IT IS THE EDIT SESSION ONLY -- measured at 14:22 UTC, which narrows it sharply.** A Play
+session was started in that same place and the same probe run in its **server** DataModel
+(`<runs-dir>/328d-playprobe.luau`):
+
+| reading, SAME place | Edit (MCP) | PLAY server |
+|---|---|---|
+| `require(ReplicatedStorage.Grid)` | ERR | **OK**, `grid:v1 cells=8` |
+| `require(Grid.Relief)` | ERR | **OK**, `bake=1` |
+| `#Grid.Source` | **0** | **27,750** -- the same length DEV reads |
+
+So the source IS in her place and is byte-identical in length to DEV's; the **Edit DataModel's MCP
+context** is what cannot reach it. Play was started and stopped by the Builder with the place in
+Edit (rule C), Edit confirmed again afterwards, and Karen's eighteen `ServerStorage` attributes were
+read before and after and are unchanged (`GRID_PREVIEW=true`, `RANGE_SOLO=true`; lesson K).
+
+**This remains an inference, labelled as one:** that Team Create *causes* the Edit-side fault is not
+proven -- what is measured is that both are true of her place and neither is true of DEV, and that
+the fault is Edit-side only. The bake runs in **Edit** (design 5.3), so it is blocked either way.
 
 ### NEEDS DIRECTOR -- one decision, and it is not the Builder's
 

@@ -16,10 +16,15 @@ MEASURED 2026-11-02 AND IT BLOCKS THE LIVE HALF OF THIS ROUTE: in Karen's Forest
 StudioMCP's execute_luau, EVERY script instance reads `Source` length 0 (297 of 297) and `require`
 of any of them fails with "Module code did not return exactly one value" -- while the same probe in
 DEV reads 27,750 characters and requires fine. So `check_synced` (which compares Source) can only
-refuse there, and the parentless-clone load cannot load anything. See ESCALATE.md, 2026-11-02, task
-328d: the Director decides between turning Team Create off, reversing the design's ruling, or baking
-elsewhere. This tool is written to the design and says plainly when the route is unavailable, rather
-than silently falling back to injection.
+refuse there, and the parentless-clone load cannot load anything.
+
+IT IS THE EDIT SESSION ONLY, measured the same day: in that SAME place's PLAY server,
+`require(ReplicatedStorage.Grid)` answers `grid:v1 cells=8` and `#Grid.Source` is 27,750. The source
+is there; the Edit DataModel's MCP context is what cannot reach it. The bake runs in Edit (design
+5.3), so it is still blocked -- but the cause is narrowed, and Team Create is on in that place while
+it is off in DEV. See ESCALATE.md, 2026-11-02, task 328d: the Director decides between turning Team
+Create off, reversing the design's ruling, or baking elsewhere. This tool is written to the design
+and says plainly when the route is unavailable, rather than silently falling back to injection.
 
 Usage:
   python tools/terrainbake.py plan    [--cells C1]                      # read-only: tiles + the cost estimate
@@ -397,12 +402,32 @@ def command_survey(studio, studio_id, args):
     return 0
 
 
-def command_census(studio, studio_id):
-    result = call(studio, studio_id, "TerrainBake.census({ census = function() "
-                                     "return require(game:GetService(\"ServerStorage\")"
-                                     ":WaitForChild(\"GridCensus\")).run() end })")
-    print(json.dumps(result, indent=2)[:4000])
+def command_census(studio, studio_id, cells):
+    """GridCensus' OWN entry point is `survey(folder, cellId, groundAt, clawOf)` -- there is no
+    `run()`, measured 2026-11-02 by listing the module's keys in the Forest Test's Play server."""
+    for cell_id in cells:
+        result = call(studio, studio_id, CENSUS_SEAM % cell_id)
+        print("[bake] %s" % result.get("line", json.dumps(result)[:2000]))
     return 0
+
+
+# The seam TerrainBake.census is handed: GridCensus' own survey, with a terrain raycast for the
+# ground and the claw left to the template audit (328b), which this task does not re-run.
+CENSUS_SEAM = """TerrainBake.census({ census = function()
+        local Workspace = game:GetService("Workspace")
+        local GridCensus = require(game:GetService("ServerStorage"):WaitForChild("GridCensus"))
+        local folder = Workspace:FindFirstChild("GridForest") or Workspace:FindFirstChild("GridPlaces")
+        local function groundAt(x, z)
+            local p = RaycastParams.new()
+            p.FilterType = Enum.RaycastFilterType.Include
+            p.FilterDescendantsInstances = { Workspace.Terrain }
+            p.IgnoreWater = true
+            local h = Workspace:Raycast(Vector3.new(x, 2000, z), Vector3.new(0, -4000, 0), p)
+            return if h then h.Position.Y else nil
+        end
+        local report = GridCensus.survey(folder, "%s", groundAt, function() return 0 end)
+        return { line = GridCensus.line(report), report = report }
+    end })"""
 
 
 def tile_pass(studio, studio_id, args, facts, sha, dry):
@@ -497,7 +522,7 @@ def main(argv):
         if args.command == "survey":
             return command_survey(studio, studio_id, args)
         if args.command == "census":
-            return command_census(studio, studio_id)
+            return command_census(studio, studio_id, args.cells or list(CELL_IDS))
         if args.command == "snapshot":
             if not args.cells:
                 return refuse("--cells is missing")
@@ -672,6 +697,11 @@ def selftest():
     ok("the sent Luau REQUIRES and injects nothing", "require(" in sent and "Relief.LANDFORMS" not in sent)
     ok("the sent Luau names ServerStorage.TerrainBake", 'WaitForChild("TerrainBake")' in sent)
     ok("the place id in the tool is the Forest Test's", FOREST_PLACE_ID == "130094961655666")
+    # MEASURED 2026-11-02 in the Forest Test's Play server: GridCensus has measure/survey/line/
+    # publish and NO `run`. The first version of this seam called `run()`.
+    seam = CENSUS_SEAM % "C1"
+    ok("the census seam calls GridCensus.survey and GridCensus.line, not a run() that is not there",
+       "GridCensus.survey(" in seam and "GridCensus.line(" in seam and ".run()" not in seam)
 
     # The place id in the tool and the one in the Luau are one fact.
     ok("the tool and the Luau name the same place",
