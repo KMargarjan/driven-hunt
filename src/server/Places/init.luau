@@ -41,6 +41,8 @@ local Workspace = game:GetService("Workspace")
 
 local Plan = require(ReplicatedStorage:WaitForChild("Places"))
 local Ground = require(script:WaitForChild("Ground"))
+-- THE BUDGETED LOOP (task 327c): it spends a frame and enforces destroy-before-plant.
+local Slice = require(script:WaitForChild("Slice"))
 local TreeGround = require(ReplicatedStorage:WaitForChild("TreeGround"))
 local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
 -- THE GRID (task 327a): the eight drive cells' arithmetic. PURE data -- this module is the one that
@@ -536,6 +538,152 @@ function Places.stakeGrid(
 	return made, missing
 end
 
+-- WHICH CHILDREN OF `GridPlaces` ARE A CELL'S WOOD. One folder per cell id, beside the corner stakes
+-- (which are BaseParts named `Stake_*`), so a reader can see at a glance which cell is standing and
+-- the dress can destroy the previous one without touching anything else.
+function Places.cellWoodFolders(gridFolder: Instance?): { Instance }
+	local out: { Instance } = {}
+	if gridFolder == nil then
+		return out
+	end
+	for _, child in ipairs(gridFolder:GetChildren()) do
+		if child:IsA("Folder") and Grid.cellOf(child.Name) ~= nil then
+			table.insert(out, child)
+		end
+	end
+	return out
+end
+
+-- DRESS ONE CELL: destroy whatever cell is standing, then plant this one, both through `Slice` and
+-- both in `Slice.BUDGET_MS` bites. Returns one report line's worth of counts.
+--
+-- THE ORDER IS THE SLICE'S AND NOT THIS FUNCTION'S (`Slice.ORDER`): both jobs are queued and the
+-- queue runs every destroy first, so the peak part count is one cell's. The new folder is created by
+-- the FIRST PLANTED ITEM, after which the old folders are already empty -- which is the same fact
+-- said in code rather than in a comment.
+--
+-- EVERY MOVING PART IS AN ARGUMENT: the folder, the ground reader, the template lookup, the yield and
+-- the clock. A spec drives this into a fake folder on a fake hillside with no Terrain and no yield.
+function Places.dressCell(
+	cellId: string,
+	gridFolder: Instance?,
+	groundAt: (number, number) -> number?,
+	template: (string) -> Model?,
+	breathe: (() -> ())?,
+	clock: (() -> number)?
+): { [string]: any }
+	local tick = clock or os.clock
+	local report = {
+		cell = cellId,
+		planted = 0,
+		skipped = 0,
+		missing = 0,
+		cliff = 0,
+		destroyed = 0,
+		parts = 0,
+		steps = 0,
+		seconds = 0,
+		stepMsAvg = 0,
+		stepMsMax = 0,
+		overBudgetStarts = 0,
+		wanted = 0,
+		capacity = 0,
+	}
+	if gridFolder == nil or Grid.cellOf(cellId) == nil then
+		report.reason = "no-cell"
+		return report
+	end
+	Slice.reset()
+	local old = Places.cellWoodFolders(gridFolder)
+	local dying: { Instance } = {}
+	for _, folder in ipairs(old) do
+		for _, child in ipairs(folder:GetChildren()) do
+			table.insert(dying, child)
+		end
+	end
+	-- NEAREST THE HUNTER LINE FIRST. The line is the cell's MAIN road (`Grid.layoutFor`), which is
+	-- the layout `ForestTest.roadZ` answers for.
+	local layout = Grid.layoutFor(cellId)
+	local wanted = Slice.order(Plan.plantCell(cellId), layout)
+	report.wanted = #wanted
+	report.capacity = Plan.cellCapacity(cellId)
+
+	local here: Instance? = nil
+	local function ensureFolder(): Instance
+		if here == nil then
+			-- THE OLD SHELLS GO NOW, and they are empty: the destroy job ran first.
+			for _, folder in ipairs(old) do
+				folder:Destroy()
+			end
+			local made = Instance.new("Folder")
+			made.Name = cellId
+			made.Parent = gridFolder
+			here = made
+		end
+		return here :: Instance
+	end
+
+	Slice.begin("plant", wanted, {
+		clock = tick,
+		work = function(item)
+			local source = template(item.model)
+			if source == nil then
+				report.missing += 1
+				return
+			end
+			local made, reason = Places.plantOne(item, source, ensureFolder(), groundAt)
+			if made ~= nil then
+				report.planted += 1
+			elseif reason == "cliff" then
+				report.cliff += 1
+			else
+				report.skipped += 1
+			end
+		end,
+	})
+	Slice.begin("destroy", dying, {
+		clock = tick,
+		work = function(item)
+			item:Destroy()
+		end,
+	})
+
+	local done = false
+	-- A HARD STEP CEILING SO A BROKEN `work` CANNOT SPIN FOR EVER: every step does at least one item,
+	-- so the queue cannot need more steps than it has items.
+	local ceiling = #wanted + #dying + 2
+	local steps = 0
+	while not done and steps < ceiling do
+		local _, finished = Slice.step(tick())
+		done = finished
+		steps += 1
+		if breathe ~= nil and not done then
+			breathe()
+		end
+	end
+	-- NOTHING WAS PLANTED (no templates in this world): the old shells still have to go.
+	for _, folder in ipairs(old) do
+		if folder.Parent ~= nil then
+			folder:Destroy()
+		end
+	end
+	local stats = Slice.stats()
+	report.destroyed = stats.destroyed
+	report.steps = stats.steps
+	report.stepMsAvg = stats.stepMsAvg
+	report.stepMsMax = stats.stepMsMax
+	report.overBudgetStarts = stats.overBudgetStarts
+	report.seconds = stats.seconds
+	if here ~= nil then
+		for _, thing in ipairs((here :: Instance):GetDescendants()) do
+			if thing:IsA("BasePart") then
+				report.parts += 1
+			end
+		end
+	end
+	return report
+end
+
 -- BUILD EVERY DRESSED PLACE. Returns one report line's worth of counts.
 --
 -- `groundAt` AND `world` ARE ARGUMENTS AND NEVER `Workspace` BY DEFAULT inside a spec's reach, which
@@ -622,12 +770,14 @@ function Places.build(
 	-- 18-stud `Ground` strip (design 4.1). The ruts are NOT painted on a grid road -- see
 	-- `Ground.ROAD_CHUNK_STUDS` for the call arithmetic that decides it.
 	report.gridPaints = Ground.paintRoads(terrain, Grid.roads(), Plan.surfaceFor("track"), reader, previewOn, breathe)
+	local gridFolder: Instance? = nil
 	if previewOn then
 		local folder = Instance.new("Folder")
 		folder.Name = Places.GRID_FOLDER
 		local made, missing = Places.stakeGrid(folder, reader, true, breathe)
 		report.gridStakes, report.gridMissing = made, missing
 		folder.Parent = root
+		gridFolder = folder
 	end
 	report.gridSeconds = os.clock() - gridStarted
 
@@ -717,6 +867,16 @@ function Places.build(
 				report.parts += 1
 			end
 		end
+	end
+	-- ------------------------------------------------ THE PREVIEW CELL'S WOOD (task 327c)
+	--
+	-- **AFTER THE TEMPLATE LOOKUP EXISTS AND NOT IN THE BLOCK ABOVE:** the roads and the stakes need
+	-- no template, so they are built in a world that has none; a cell's wood is 2,400 clones of this
+	-- world's own trees and there is nothing to clone in DEV. So the preview stakes eight cells and
+	-- dresses ONE -- `Grid.PREVIEW_CELL`, which is C1 (task 327b: the cell with the most to show).
+	-- Task 327d replaces this with the per-drive dress at the `Scoring -> Assigning` edge.
+	if previewOn and gridFolder ~= nil then
+		report.gridWood = Places.dressCell(Grid.PREVIEW_CELL, gridFolder, reader, template, breathe, nil)
 	end
 	report.seconds = os.clock() - started
 	return report
