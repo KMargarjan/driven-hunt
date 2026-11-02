@@ -1,21 +1,20 @@
 # Task 328j -- the bake's two fixes, and C1 BAKED in Karen's Forest Test
 
 Task: 328j
-Round: 1
+Round: 2
 Base: 6b520717 (origin/main)
-Code commit: 3f7628fe8f1aee11d95c17e5f786d65e01cba55c
+Code commit: a18b4ac563b7d51fabd8746c826e4997a1cd75a3
 
 ```
-[harness] PASS: 34/34 checks @ 3f7628fe8f1aee11d95c17e5f786d65e01cba55c (clean tree) scope=all
+[harness] PASS: 34/34 checks @ a18b4ac563b7d51fabd8746c826e4997a1cd75a3 (clean tree) scope=all
 ```
 
 `test2` is N/A: nothing here is in `TWO_PLAYER_PATHS` (the bake is the map and the tools).
 
-**The first review PASSED** (`reviews/task-328j/RESULT.md` at commit `3886e92a`; a copy is at
-`<runs-dir>/328j-RESULT-round1-PASS.md` because this run overwrites that file -- the gate counts a
-PASS as closing the count, so this request is `Round: 1` again and `agents.py` refuses any other
-number) and its twelve notes are queued in
-`TASKS.md`, not fixed here. This round covers only what changed after it: two tool bugs that each
+**Two reviews have run.** The first PASSED (`3886e92a`; a copy of that verdict is at
+`<runs-dir>/328j-RESULT-round1-PASS.md`, because a PASS closes the gate's count and the next run
+overwrites the file). The second, numbered round 1 by that same rule, found **one** blocking thing
+and claim 11 below is its fix. Their notes are queued in `TASKS.md`, not fixed here. This round covers only what changed after it: two tool bugs that each
 stopped the bake dead, and **the bake itself**, which has now run. The whole branch against `main`
 is 328d plus 328j; 328d's request still stands.
 
@@ -90,6 +89,21 @@ is 328d plus 328j; 328d's request still stands.
     attribute was cleared, Play was stopped, and nothing was saved, published or committed in her
     place.
 
+11. **The refusal-7 cases now carry the shape the transport answers, and the fix dies without them.**
+    The previous round's finding: all four `check_overrides` cases fed `FakeStudio` BARE names, which
+    `flag_overrides` never returns, so reverting `override_names` left them green. Each now passes
+    `DHFlag_<NAME>=<value>` as `QUERY_FLAG_OVERRIDES` builds it, and a fifth covers `--keep-flags`
+    accepting a declared override and only that one. Verify: revert `override_names` to
+    `sorted(flag_overrides(...))` and **two** cases go red -- "LEAVES Karen's own two alone" and the
+    `--keep-flags` one (run, not argued). `LOCALAPPDATA=/nonexistent` exits 0 with **83** PASS lines.
+12. **Two notes of that round taken, not queued.** `parse_json` now prefers the candidate that
+    CONSUMES THE WHOLE REPLY: by position alone a quote in Studio's preamble beats the JSON behind
+    it, and by type alone `[{"a": 1}]` decodes to its first element -- the suite's existing array case
+    caught the second, and both shapes have a case now. `log_run` keeps `keepFlags` and
+    `liveOverrides`, which the docstring and `ESCALATE.md` had claimed it did when only stdout had
+    them. **The bake's own run log predates that**, so `.terrainbake/20261102T181221Z-C1.json` is
+    still tiles only and claim 2 rests on the bake output, not on it.
+
 ## What I could not verify
 
 * **The stands are still not on the ground, and the bake is not what levels them.** Before:
@@ -120,5 +134,10 @@ is 328d plus 328j; 328d's request still stands.
 * **The grade CHANGE at a pinned junction breaches design 7.1's rate** -- NS3 and NS4 print
   `grade change 10.00 % over 60 st` against a 2.40 % allowance. Printed, never hidden, and queued in
   `TASKS.md`'s 328j row; which of the two rules yields is the Architect's.
-* **`deer_hitbox.spec:682`** failed once in three clean-tree runs on this branch and passed in the
-  other two; the dispatch names it a known intermittent. The final run at `3f7628fe` is 34/34.
+* **`deer_hitbox.spec:682`** failed once in five clean-tree runs on this branch and passed in the
+  other four; the dispatch names it a known intermittent. The final run at `a18b4ac5` is 34/34.
+* **`bake` has still never completed end to end.** It died in `epoch_for` after `log_run`, and the
+  epoch was a hand call to `TerrainBake.stamp`, so no `[bake] OK: 208/208 ... epoch=...` line exists
+  for C1 and the `parse_json` fix has not met a real Studio reply. 328e's wet run is the first that
+  will. Re-running `bake` on C1 to produce that line would read the BAKED ground as its base, so it
+  is not a thing to do for the sake of a line.
