@@ -1049,14 +1049,39 @@ return function()
 			expect(math.abs((crown - edge) - spec.crownFallStuds) < 1e-9).to.equal(true)
 			expect(2 * spec.crownFallStuds <= 0.5).to.equal(true)
 			-- THE RUTS AND THE DITCH are the realised whole-column bounds, at the centre's own
-			-- parity (correction F-2), and they are 8 studs wide however the centreline falls.
-			local rutNear, rutFar = Relief.columnsFor(road.at, spec.rut.nearStuds, spec.rut.farStuds)
-			local ditchNear, ditchFar = Relief.columnsFor(road.at, spec.ditch.nearStuds, spec.ditch.farStuds)
-			expect((rutFar - rutNear) % Relief.VOXEL).to.equal(0)
-			expect(ditchFar - ditchNear).to.equal(spec.ditch.farStuds - spec.ditch.nearStuds)
-			local _, rutName = at((rutNear + rutFar) / 2 - road.at)
+			-- parity (correction F-2): ONE column of rut and TWO of ditch, ON EACH SIDE. Round 2
+			-- built the minus side's bounds negative, so |d| could never reach them and that whole
+			-- half of every road in the world came out flat Grass (round-2 finding 1).
+			local rutLo, rutHi = TerrainBake.bandFor(road.at, spec.rut.nearStuds, spec.rut.farStuds, 1)
+			local ditchLo, ditchHi = TerrainBake.bandFor(road.at, spec.ditch.nearStuds, spec.ditch.farStuds, 1)
+			local mRutLo, mRutHi = TerrainBake.bandFor(road.at, spec.rut.nearStuds, spec.rut.farStuds, -1)
+			local mDitchLo, mDitchHi = TerrainBake.bandFor(road.at, spec.ditch.nearStuds, spec.ditch.farStuds, -1)
+			local rutNear, rutFar = road.at + rutLo, road.at + rutHi
+			local ditchNear, ditchFar = road.at + ditchLo, road.at + ditchHi
+			-- THE REALISED WIDTH, pinned: the rut is ONE voxel column and the ditch is TWO, both
+			-- sides (328c note: `% VOXEL == 0` was weaker than the sentence above it).
+			expect(rutHi - rutLo).to.equal(Relief.VOXEL)
+			expect(mRutHi - mRutLo).to.equal(Relief.VOXEL)
+			expect(ditchHi - ditchLo).to.equal(2 * Relief.VOXEL)
+			expect(mDitchHi - mDitchLo).to.equal(2 * Relief.VOXEL)
+			-- WHOLE COLUMNS IN ABSOLUTE COORDINATES on each side, which is what F-2 asks for.
+			expect((road.at + rutLo) % Relief.VOXEL).to.equal(0)
+			expect((road.at - mRutHi) % Relief.VOXEL).to.equal(0)
+			expect((road.at + ditchLo) % Relief.VOXEL).to.equal(0)
+			expect((road.at - mDitchHi) % Relief.VOXEL).to.equal(0)
+			-- As symmetric as a centre at = 1 (mod 4) allows: half a voxel apart, never more.
+			expect(math.abs((rutLo + rutHi) / 2 - (mRutLo + mRutHi) / 2) <= Relief.VOXEL / 2).to.equal(true)
+			expect(math.abs((ditchLo + ditchHi) / 2 - (mDitchLo + mDitchHi) / 2) <= Relief.VOXEL / 2).to.equal(true)
+			local _, rutName = at((rutLo + rutHi) / 2)
 			expect(rutName).to.equal("Mud")
-			local ditchY, ditchName = at((ditchNear + ditchFar) / 2 - road.at)
+			-- FAIL FIRST, THE MINUS SIDE: before the fix `at(-d)` answered Grass at the verge
+			-- height for every one of these, because the band bounds there were negative.
+			local _, mRutName = at(-(mRutLo + mRutHi) / 2)
+			expect(mRutName).to.equal("Mud")
+			local mDitchY, mDitchName = at(-(mDitchLo + mDitchHi) / 2)
+			expect(mDitchName).to.equal("Mud")
+			expect(math.abs((crown - mDitchY) - spec.ditch.depthStuds) < 1e-9).to.equal(true)
+			local ditchY, ditchName = at((ditchLo + ditchHi) / 2)
 			TestKit.note(
 				string.format(
 					"road %s at %d: rut columns [%d,%d] d %.0f..%.0f, ditch [%d,%d] d %.0f..%.0f, ditch %.2f st below the crown",
@@ -1071,6 +1096,21 @@ return function()
 					ditchNear - road.at,
 					ditchFar - road.at,
 					crown - ditchY
+				)
+			)
+			TestKit.note(
+				string.format(
+					"road %s MINUS side: rut d %.0f..%.0f abs [%d,%d], ditch d %.0f..%.0f abs [%d,%d], %.2f st below the crown",
+					road.id,
+					mRutLo,
+					mRutHi,
+					road.at - mRutHi,
+					road.at - mRutLo,
+					mDitchLo,
+					mDitchHi,
+					road.at - mDitchHi,
+					road.at - mDitchLo,
+					crown - mDitchY
 				)
 			)
 			expect(ditchName).to.equal("Mud")
@@ -1111,9 +1151,11 @@ return function()
 			local function name(z: number): string
 				return names[(kFor(z) - 1) * n + 16]
 			end
-			local ditchNear, ditchFar = Relief.columnsFor(road.at, spec.ditch.nearStuds, spec.ditch.farStuds)
+			local ditchLo, ditchHi = TerrainBake.bandFor(road.at, spec.ditch.nearStuds, spec.ditch.farStuds, 1)
+			local mDitchLo, mDitchHi = TerrainBake.bandFor(road.at, spec.ditch.nearStuds, spec.ditch.farStuds, -1)
 			local crownZ = road.at + 1
-			local ditchZ = (ditchNear + ditchFar) / 2
+			local ditchZ = road.at + (ditchLo + ditchHi) / 2
+			local mDitchZ = road.at - (mDitchLo + mDitchHi) / 2
 			local awayZ = tile.minZ + TerrainBake.TILE_STUDS - 2
 			TestKit.note(
 				string.format(
@@ -1133,6 +1175,20 @@ return function()
 			expect(name(crownZ)).to.equal("Ground")
 			expect(math.abs(h(ditchZ) - (h(crownZ) - spec.ditch.depthStuds)) < 0.05).to.equal(true)
 			expect(name(ditchZ)).to.equal("Mud")
+			-- AND ON THE OTHER SIDE OF THE CENTRELINE, in the same written tile. FAIL FIRST: before
+			-- round 3 this read 99.80 and "Grass" -- the verge height, with no ditch at all.
+			TestKit.note(
+				string.format(
+					"same tile, MINUS side at z=%.0f (d=%.0f): %.3f (%s), crown %.3f",
+					mDitchZ,
+					road.at - mDitchZ,
+					h(mDitchZ),
+					name(mDitchZ),
+					h(crownZ)
+				)
+			)
+			expect(name(mDitchZ)).to.equal("Mud")
+			expect(math.abs(h(mDitchZ) - (h(crownZ) - spec.ditch.depthStuds)) < 0.05).to.equal(true)
 			-- FAIL FIRST: with no profiles handed in there is no road, and the ditch is not there.
 			local bare = TerrainBake.shapeTile(tile, slice, { "C1" }, {}, nil)
 			expect(math.abs(bare[(kFor(ditchZ) - 1) * n + 16] - 100) < 0.05).to.equal(true)
@@ -1248,6 +1304,93 @@ return function()
 				return if x < minX - 40 then nil else 100
 			end, minX, minZ, 6, 6)
 			expect(holed[1]).to.equal(nil)
+		end)
+
+		it("328d-20 relaxes the grade on a road it cannot cut to, and names the breach", function()
+			-- Design 7.1: cut-or-fill <= 12 st, and a breach "relaxes the grade on that road and is
+			-- printed, never hidden". ROUND-2 FINDING 4: the whole relaxation arm could be deleted
+			-- with every case still green, because nothing fed it a base it could not meet.
+			local road = Grid.roadsOf("C1").main
+			local spec = TerrainBake.ROAD
+			-- A 20-STUD CLIFF across the road's length. At 8 % the road needs 250 st to climb it, so
+			-- the clamped line cuts and fills more than 12 st and the arm has to relax.
+			local stepAt = road.from + (road.to - road.from) / 2
+			local profile = TerrainBake.longProfile(road, function(x: number, _z: number)
+				return if x < stepAt then 100 else 120
+			end)
+			expect(profile).never.to.equal(nil)
+			TestKit.note(
+				string.format(
+					"road %s over a 20-st cliff: relaxed=%s grade %d %% (clamp %d %%), cut-or-fill %.2f (cap %d), %d breach(es): %s",
+					road.id,
+					tostring(profile.relaxed),
+					profile.gradePercent,
+					spec.gradePercent[road.axis],
+					profile.worstCutFill,
+					spec.cutFillStuds,
+					#profile.breaches,
+					profile.breaches[1] or "none"
+				)
+			)
+			-- FAIL FIRST: delete the relaxation arm and all three of these go the other way.
+			expect(profile.relaxed).to.equal(true)
+			expect(profile.gradePercent > spec.gradePercent[road.axis]).to.equal(true)
+			expect(#profile.breaches >= 1).to.equal(true)
+			expect(string.find(profile.breaches[1], road.id, 1, true) ~= nil).to.equal(true)
+			-- AND IT IS THE CLIFF THAT DID IT, not the road: the same road over a flat base neither
+			-- relaxes nor breaches, so the case cannot pass for the wrong reason.
+			local calm = TerrainBake.longProfile(road, function()
+				return 100
+			end)
+			expect(calm.relaxed).to.equal(false)
+			expect(#calm.breaches).to.equal(0)
+			expect(calm.gradePercent).to.equal(spec.gradePercent[road.axis])
+		end)
+
+		it("328d-21 holds the grade CHANGE to design 7.1's rate, iterating until it does", function()
+			-- ROUND-2 FINDING 4: the grade-change limiter could be deleted with every case green,
+			-- because nothing measured a grade CHANGE. And one pass does not meet the rule: on this
+			-- very base it left 3.80 % per 60 st against a 2.40 % allowance.
+			local road = Grid.roadsOf("C1").west -- north-south, so the 10 % clamp leaves the kink
+			local spec = TerrainBake.ROAD
+			-- A KINK: dead flat, then 10 % -- inside the axis clamp, so the cone sweep leaves it and
+			-- only the grade-CHANGE arm can soften it.
+			local kinkAt = road.from + (road.to - road.from) / 2
+			local profile = TerrainBake.longProfile(road, function(_x: number, z: number)
+				return 100 + (if z < kinkAt then 0 else 0.10 * (z - kinkAt))
+			end)
+			expect(profile).never.to.equal(nil)
+			-- THE RULE IS A RATE: 2 % per 50 st, measured over the span the 20-st samples allow.
+			local allowance = spec.gradeChangePercentPer50 * (profile.gradeChangeSpanStuds / 50)
+			TestKit.note(
+				string.format(
+					"road %s over a 0 -> 10 %% kink: worst grade change %.3f %% per %d st (allowance %.3f), cut-or-fill %.2f, %d breach(es)",
+					road.id,
+					profile.worstGradeChangePercent,
+					profile.gradeChangeSpanStuds,
+					allowance,
+					profile.worstCutFill,
+					#profile.breaches
+				)
+			)
+			-- FAIL FIRST: the INPUT's own change is 10 % in one step, four times the allowance.
+			expect(10 > allowance).to.equal(true)
+			expect(profile.worstGradeChangePercent <= allowance + 1e-6).to.equal(true)
+			-- The allowance IS the design's rate, re-derived from the span actually measured.
+			expect(
+				math.abs(profile.worstGradeChangePercent / profile.gradeChangeSpanStuds)
+					<= spec.gradeChangePercentPer50 / 50 + 1e-9
+			).to.equal(true)
+			-- IT SMOOTHED, it did not flatten: the road still climbs at the clamp it was given.
+			local climb = (profile.y[#profile.y] - profile.y[1]) / (profile.to - profile.from) * 100
+			expect(climb > 4).to.equal(true)
+			expect(math.abs(climb) <= profile.gradePercent + 1e-6).to.equal(true)
+			-- And a road with no kink in it reports no change and no breach.
+			local even = TerrainBake.longProfile(road, function(_x: number, z: number)
+				return 100 + 0.05 * (z - road.from)
+			end)
+			expect(even.worstGradeChangePercent < 1e-6).to.equal(true)
+			expect(#even.breaches).to.equal(0)
 		end)
 	end)
 end

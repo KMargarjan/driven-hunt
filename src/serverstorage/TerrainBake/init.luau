@@ -112,7 +112,9 @@ local function index(snapshot: Snapshot, i: number, k: number): number
 end
 
 -- THE BASE READER a snapshot hands to `Relief.heightAt`: nil outside the snapshot, so a point the
--- bake has no base for is skipped instead of guessed.
+-- bake has no base for is answered nil here. `shapeTile` then KEEPS the ground (`snapshot.minY`,
+-- marked exempt) rather than cutting a hole; `bakeTileAt` refuses such a tile before that, so the
+-- branch is a floor and not a guess the bake relies on.
 function TerrainBake.readerFor(snapshot: Snapshot): (number, number) -> number?
 	return function(x: number, z: number): number?
 		local i = math.floor((x - snapshot.minX) / snapshot.pitch) + 1
@@ -236,7 +238,7 @@ end
 
 -- ONE BLEND, AT THE EDGE OF WHAT WAS BAKED -- the 328d decision the 328c note asks for.
 -- `Relief.heightAt` fades `k` from ONE CELL's bounds, which bleeds every cell's delta up to 200
--- studs into its neighbours; the bake divides that out and fades once, from the baked union.
+-- studs into its neighbours; the bake REPLACES that `k` with one fade from the baked union.
 function TerrainBake.blendAt(union: Bounds, x: number, z: number): number
 	local dx = math.max(union.minX - x, x - union.maxX, 0)
 	local dz = math.max(union.minZ - z, z - union.maxZ, 0)
@@ -284,8 +286,15 @@ export type Profile = {
 	gradePercent: number,
 	relaxed: boolean,
 	worstCutFill: number,
+	worstGradeChangePercent: number,
+	gradeChangeSpanStuds: number,
 	breaches: { string },
 }
+
+-- HOW MANY SMOOTHING PASSES the grade-change limiter may take. One pass does NOT meet the rule:
+-- measured on a 0 -> 10 % kink it leaves 3.80 % per 60 st against a 2.40 % allowance, and it takes
+-- ~20 passes to settle at the allowance (round-2 finding 4).
+TerrainBake.GRADE_CHANGE_PASSES = 40
 
 -- THE LONG PROFILE of one road: sample the base every 20 st, clamp the grade, limit how fast the
 -- grade may change, and cap cut-or-fill at 12 st. A cap that cannot be met RELAXES the grade on
@@ -306,6 +315,13 @@ function TerrainBake.longProfile(road: Relief.Road, baseAt: (number, number) -> 
 	local ceilingPercent = TerrainBake.ROAD.gradePercent[road.axis]
 	local out, relaxed, breaches = table.clone(base), false, {}
 	local worst = 0
+	-- THE GRADE-CHANGE RULE IS A RATE -- "<= 2 % change per 50 st" (design 7.1). The samples are 20
+	-- st apart, so the nearest measurable span is 60 st (3 steps) and the allowance is that SAME
+	-- rate over the span actually measured: 2 % x 60/50 = 2.4 %. Re-derived here, not retyped.
+	local window = math.max(1, math.floor(50 / step + 0.5))
+	local spanStuds = window * step
+	local limit = TerrainBake.ROAD.gradeChangePercentPer50 / 100 * (spanStuds / 50)
+	local worstChange = 0
 	for attempt = 1, 6 do
 		out = table.clone(base)
 		local rise = ceilingPercent / 100 * step
@@ -323,24 +339,30 @@ function TerrainBake.longProfile(road: Relief.Road, baseAt: (number, number) -> 
 				end
 			end
 		end
-		-- THE GRADE MAY NOT CHANGE FASTER THAN 2 % PER 50 ST: one smoothing pass over the slopes,
-		-- re-integrated, so the road reads as a road and not as a chain of facets.
-		local window = math.max(1, math.floor(50 / step + 0.5))
+		-- THE GRADE MAY NOT CHANGE FASTER THAN THE RATE ABOVE: smoothing passes over the slopes,
+		-- re-integrated, UNTIL NO WINDOW BREACHES. One pass leaves a kink at 3.80 % against the
+		-- 2.40 % allowance -- it is a relaxation, and it has to be iterated (round-2 finding 4).
 		local slope = table.create(math.max(1, n - 1), 0)
-		for i = 1, n - 1 do
-			slope[i] = (out[i + 1] - out[i]) / step
-		end
-		local limit = TerrainBake.ROAD.gradeChangePercentPer50 / 100
-		for i = 1, n - 1 - window do
-			local change = slope[i + window] - slope[i]
-			if math.abs(change) > limit then
-				local excess = (math.abs(change) - limit) / 2 * (if change > 0 then 1 else -1)
-				slope[i] += excess
-				slope[i + window] -= excess
+		for _ = 1, TerrainBake.GRADE_CHANGE_PASSES do
+			for i = 1, n - 1 do
+				slope[i] = (out[i + 1] - out[i]) / step
 			end
-		end
-		for i = 1, n - 1 do
-			out[i + 1] = out[i] + slope[i] * step
+			local over = 0
+			for i = 1, n - 1 - window do
+				local change = slope[i + window] - slope[i]
+				if math.abs(change) > limit + 1e-12 then
+					over += 1
+					local excess = (math.abs(change) - limit) / 2 * (if change > 0 then 1 else -1)
+					slope[i] += excess
+					slope[i + window] -= excess
+				end
+			end
+			for i = 1, n - 1 do
+				out[i + 1] = out[i] + slope[i] * step
+			end
+			if over == 0 then
+				break
+			end
 		end
 		-- RE-CENTRE on the base, so the smoothing cannot drift the whole road up or down.
 		local drift = 0
@@ -376,6 +398,25 @@ function TerrainBake.longProfile(road: Relief.Road, baseAt: (number, number) -> 
 			)
 		end
 	end
+	-- THE REALISED GRADE CHANGE, off the profile that is actually returned. A breach that the
+	-- passes above could not settle is RECORDED, never hidden (design 7.1).
+	for i = 1, n - 1 - window do
+		local a = (out[i + 1] - out[i]) / step
+		local b = (out[i + window + 1] - out[i + window]) / step
+		worstChange = math.max(worstChange, math.abs(b - a))
+	end
+	if worstChange > limit + 1e-9 then
+		table.insert(
+			breaches,
+			string.format(
+				"%s: grade change %.2f %% over %d st, over the %.2f %% allowance",
+				road.id,
+				worstChange * 100,
+				spanStuds,
+				limit * 100
+			)
+		)
+	end
 	return {
 		road = road,
 		from = road.from,
@@ -385,6 +426,8 @@ function TerrainBake.longProfile(road: Relief.Road, baseAt: (number, number) -> 
 		gradePercent = ceilingPercent,
 		relaxed = relaxed,
 		worstCutFill = worst,
+		worstGradeChangePercent = worstChange * 100,
+		gradeChangeSpanStuds = spanStuds,
 		breaches = breaches,
 	}
 end
@@ -396,6 +439,23 @@ function TerrainBake.profileY(profile: Profile, along: number): number
 	local j = math.clamp(i + 1, 1, #profile.y)
 	local f = math.clamp(t - (i - 1), 0, 1)
 	return profile.y[i] + (profile.y[j] - profile.y[i]) * f
+end
+
+-- THE ONE BAND REALISER, and every road path goes through it (round-2 finding 1, lesson L-031).
+-- It answers the band as bounds on |d|, the distance from the centreline, for the side the point is
+-- on. `Relief.columnsFor` snaps a band to whole voxel columns on the PLUS side only; every centre
+-- sits at = 1 (mod 4) (design 7.1 correction F-2), so the minus side's whole columns are 2 studs off
+-- that lattice and a mirrored band would not be whole columns there. Reflecting the centre through
+-- the origin turns the minus side into a plus side, so ONE function realises both: each side gets
+-- the same number of whole columns, the same width, and midpoints half a voxel apart -- which is the
+-- closest to symmetric a centre at = 1 (mod 4) allows.
+function TerrainBake.bandFor(centre: number, nearStuds: number, farStuds: number, side: number): (number, number)
+	if side >= 0 then
+		local first, last = Relief.columnsFor(centre, nearStuds, farStuds)
+		return first - centre, last - centre
+	end
+	local first, last = Relief.columnsFor(-centre, nearStuds, farStuds)
+	return first + centre, last + centre
 end
 
 -- THE CROSS-SECTION at one point: the height the road wants there, the material, and how strongly
@@ -425,22 +485,21 @@ function TerrainBake.roadAt(profiles: { Profile }, naturalY: number, x: number, 
 	local spec = TerrainBake.ROAD
 	local centre = road.at
 	local across = (if road.axis == "x" then z else x)
-	-- The realised whole-column bounds of the two bands that have to BE whole columns.
-	local rutNear, rutFar = Relief.columnsFor(centre, spec.rut.nearStuds, spec.rut.farStuds)
-	local ditchNear, ditchFar = Relief.columnsFor(centre, spec.ditch.nearStuds, spec.ditch.farStuds)
 	local d = math.abs(across - centre)
 	local crownY = TerrainBake.profileY(profile, bestAlong)
 	local material = spec.material[road.axis]
-	-- Which band, measured OUTWARD from the centreline. The rut and the ditch are tested against
-	-- their realised columns on the side the point is on, not against the nominal numbers.
+	-- Which band, measured OUTWARD from the centreline, on THE SIDE THE POINT IS ON. Round 2 built
+	-- the far side's bounds as `centre - far`, which is negative and so unreachable by |d|: the ditch
+	-- and the ruts were dead on the minus side of every road in the world (round-2 finding 1).
 	local side = if across >= centre then 1 else -1
-	local lo = if side == 1 then rutNear - centre else centre - rutFar
-	local hi = if side == 1 then rutFar - centre else centre - rutNear
-	local ditchLo = if side == 1 then ditchNear - centre else centre - ditchFar
-	local ditchHi = if side == 1 then ditchFar - centre else centre - ditchNear
+	local lo, hi = TerrainBake.bandFor(centre, spec.rut.nearStuds, spec.rut.farStuds, side)
+	local ditchLo, ditchHi = TerrainBake.bandFor(centre, spec.ditch.nearStuds, spec.ditch.farStuds, side)
 	if d <= spec.carriagewayStuds then
 		local y = crownY - spec.crownFallStuds * (d / spec.carriagewayStuds)
-		local name = if d <= 6 then material.mid elseif d >= 10 then material.outer else material.mid
+		-- Design 7.1: `mid` 0..+-6, the rut +-6..+-10 as ONE whole column, `outer` +-10..+-20. The
+		-- realised column is 4 st wide, so what is left of the nominal rut band keeps the
+		-- carriageway's own material. Round 2 wrote this as three arms whose first and last agreed.
+		local name = if d < 10 then material.mid else material.outer
 		if d >= lo and d <= hi then
 			name = material.rut
 		end
@@ -833,7 +892,27 @@ function TerrainBake.bakeTileAt(
 			message = problem,
 		}
 	end
-	return TerrainBake.bakeTile(tile, slice, cellIds, {}, dryRun, profiles or TerrainBake.profilesFor(cellIds))
+	-- THE PROFILES ARE HANDED IN, ALWAYS. Round 2 fell back to `profilesFor` here, which raycasts
+	-- LIVE terrain: from the second tile onwards that reads ground this bake has already written, so
+	-- two tiles of one road would meet at a step and the result would depend on the tile order
+	-- (round-2 finding 2). `tools/terrainbake.py` computes them ONCE from the base and sends the
+	-- same set to every tile; a tile with none is REFUSED rather than given a profile of its own.
+	if profiles == nil then
+		return {
+			minX = tile.minX,
+			minZ = tile.minZ,
+			calls = 0,
+			voxels = 0,
+			bandMin = 0,
+			bandMax = 0,
+			elapsedMs = 0,
+			message = "no profiles were handed to tile "
+				.. tostring(tileIndex)
+				.. ". The long profiles are computed ONCE from the base, before any write, and sent "
+				.. "to every tile; a profile read here would be read off half-baked ground.",
+		}
+	end
+	return TerrainBake.bakeTile(tile, slice, cellIds, {}, dryRun, profiles)
 end
 
 -- A STABLE 0..1 PER COLUMN, from its own coordinates: the scree mix has to come out the same on
