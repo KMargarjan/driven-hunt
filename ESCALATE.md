@@ -1,3 +1,56 @@
+## 2026-11-02 ~18:55 UTC, Task 328j -- C1 IS BAKED IN KAREN'S FOREST TEST, and one NEEDS KAREN is left
+
+**Reviewer PASS** (`reviews/task-328j/RESULT.md`, round 2, `777cd5e5`, $2.62). Code commit
+`a18b4ac5`, `[harness] PASS: 34/34 checks @ a18b4ac5 (clean tree) scope=all`, CI green on `35ee34b4`.
+Three reviews in all; two findings, both fixed and both proved by running the deletion.
+
+**The bake ran at 18:10-18:12 UTC**: 208/208 tiles, 3,513,344 voxels, 82-127 ms a tile (mean 98.0),
+20.4 s of tile time. The backup gate was re-checked immediately before the first `WriteVoxels`
+(29,360,598 bytes, 1.16 h old). Her session was Edit only. Every attribute was dumped before and
+after (`<runs-dir>/attr-328j-20261102T173231Z.log` and `-182237Z.log`) and the two are
+**byte-identical**: her 15 flags are exactly as found, `DH328dFrame` was cleared, Play was stopped,
+and nothing in her place was saved, published or committed.
+
+### NEEDS KAREN -- the one click left, for the morning
+
+**`StreamingMinRadius` 64 -> 384.** It cannot be set or even read from a tool: `StreamingMinRadius`,
+`StreamingTargetRadius` and `StreamingIntegrityMode` all answer *"not a valid member of Workspace"*
+in this Studio build.
+
+1. In Studio, with **Driven Hunt Forest Test** in front, click **Workspace** in the Explorer.
+2. In the **Properties** pane, find **StreamingMinRadius** (under Streaming).
+3. Type `384` and press Enter.
+
+Team Create saves her place by itself; nobody needs to save, publish or commit it.
+
+### What the bake produced, measured in her place at the code commit
+
+* **The road is cut.** Ditch **1.97 / 1.98 / 1.92 / 1.98 st** on BOTH sides of EW2, EW3, NS3, NS4
+  against design 7.1's 2.00 -- worst error 0.08 st, so section 15 item 2's 4-stud fallback is not
+  triggered. The carriageway is level (-0.08 st at d 10, -0.12 at d 15), the ditches bottom at d +23
+  and d -25, the verge comes back at d 30-33.
+* **The junction step is gone.** Inside the square, on the written ground: **0.1758 / 0.0900 /
+  0.1984 / 0.0547 st** at the four crossings, all at or under the 0.20 crown fall. Round 3 measured
+  **60.00 st**. The tool's own `junctionSteps` reads pin **0.0000** on all four.
+* **Director decision 3 holds on the ground.** NS3 realises **10.23 %** and NS4 **7.90 %** over the
+  baked span, where round 3's profiles were 15.73 and 13.47.
+* **The census on the baked ground**: `trees=2085 parts=6073 floating=0 sunk=0 tilted=0 broken=0
+  noGround=0 inRoad=0 onCliff=0`.
+* **Four frames, looked at**: `.screenshots/328j-after-A|B|C|D-view.png`. The ridge is now on the
+  horizon where round 3's before-frame had none; the carriageway reads as a pale strip with a grass
+  verge; NS3 from a truck driver's eye climbs 93.60 to 149.64 over 1,100 studs as a long rounded
+  hill. **No tree and no stand post is in any of them** -- the forest is planted at Play and the
+  markers are not the bake's.
+
+### Two things that are NOT met, and neither is this task's to meet
+
+1. **The stands are still off the ground**: 5 floating (worst 13.57 st) and 10 buried (worst 21.84).
+   `Relief.materialAt`'s plan argument is unused, so no pad op exists anywhere yet. 328e/328f.
+2. **A pinned junction kinks the grade**: NS3 and NS4 print `grade change 10.00 % over 60 st` against
+   a 2.40 % allowance. Design 7.1 asks for the pins AND the rate; which yields is the Architect's.
+
+Both are in `TASKS.md`'s 328j-notes row with the rest.
+
 ## 2026-11-02 ~18:05 UTC, Task 328j -- REFUSAL 7 BLOCKS THE BAKE IN KAREN'S PLACE, measured, and it is a BUG in 328d's own gate
 
 **Round 1 PASSED** (`reviews/task-328j/RESULT.md`, commit `46c4e355`, $4.85, 37 turns) and the backup
