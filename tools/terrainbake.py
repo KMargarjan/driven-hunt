@@ -528,14 +528,35 @@ def check_backup(backup):
     return None
 
 
-def check_overrides(studio, studio_id):
-    """Refusal 7, less Karen's own two (lesson K: never clear her Forest Test's overrides)."""
-    live = flag_overrides(studio, studio_id=studio_id) or {}
-    strays = sorted(name for name in live if name not in KARENS_FLAGS)
+def override_name_of(part):
+    """`DHFlag_GRID_PREVIEW=true` -> `GRID_PREVIEW`, the pure half of refusal 7's fix."""
+    name = part.split("=", 1)[0]
+    return name[len("DHFlag_"):] if name.startswith("DHFlag_") else name
+
+
+def override_names(studio, studio_id):
+    """The NAMES of the live flag overrides. `flag_overrides` answers `DHFlag_<NAME>=<value>`
+    strings, so a whitelist of bare names matched NOTHING and refusal 7 refused Karen's own two
+    flags -- the two it exists to allow. Measured 2026-11-02 18:00 UTC in her Forest Test: 15 of 15
+    refused, `DHFlag_GRID_PREVIEW=true` among them."""
+    return sorted(override_name_of(part) for part in flag_overrides(studio, studio_id=studio_id) or [])
+
+
+def check_overrides(studio, studio_id, keep=()):
+    """Refusal 7, less Karen's own (lesson K: never clear her Forest Test's overrides).
+
+    `keep` is the operator's DECLARED list (`--keep-flags`), for the place owner's own playtest
+    switches: the dispatch of 2026-11-02 says her 15 are "left as found", and clearing them is what
+    lesson K forbids. The caller prints it and `log_run` keeps it, so the widening is on the record;
+    anything NOT declared still refuses, which is what the guard is for -- a stray override a
+    BUILDER left behind. Nothing in the bake's geometry reads a flag: `Flags` is not in MODULES."""
+    allowed = set(KARENS_FLAGS) | set(keep)
+    strays = [name for name in override_names(studio, studio_id) if name not in allowed]
     if strays:
-        return ("a flag override is live: %s. Run `python tools/flags.py --place forest set <NAME> off`\n"
-                "  for THAT flag only -- never `clear`, which would remove Karen's %s too."
-                % (", ".join(strays), " and ".join(KARENS_FLAGS)))
+        return ("a flag override is live and NOT declared: %s. Either set THAT flag off with "
+                "`python tools/flags.py --place forest set <NAME> off`"
+                " -- never `clear`, which would take Karen's %s with it -- or name it in "
+                "--keep-flags." % (", ".join(strays), " and ".join(KARENS_FLAGS)))
     pose = pose_override(studio, studio_id=studio_id)
     if pose:
         return "a pose override is live (%s). Run `python tools/pose.py clear` first." % pose
@@ -774,6 +795,8 @@ def main(argv):
     parser.add_argument("--tiles", type=int, help="stop after this many tiles")
     parser.add_argument("--out", help="where `snapshot` writes, default <runs-dir>")
     parser.add_argument("--base-sha", help="the base snapshot's sha256, which the epoch hashes")
+    parser.add_argument("--keep-flags", help="comma list of flag overrides that are the PLACE "
+                                             "OWNER's and must be left as found (refusal 7)")
     parser.add_argument("--y-min", type=float, default=-100.0, help="the Y band the snapshot reads")
     parser.add_argument("--y-max", type=float, default=400.0)
     args = parser.parse_args(argv)
@@ -838,9 +861,14 @@ def main(argv):
         if problem:
             return refuse(problem)
         if mutating:
-            problem = check_overrides(studio, studio_id)  # refusal 7
+            keep = [f.strip().upper() for f in (args.keep_flags or "").split(",") if f.strip()]
+            if keep:
+                print("  keep   %d declared override(s), left as found: %s"
+                      % (len(keep), ",".join(keep)))
+            problem = check_overrides(studio, studio_id, keep)  # refusal 7
             if problem:
                 return refuse(problem)
+            print("  flags  live overrides: %s" % (",".join(override_names(studio, studio_id)) or "none"))
         if args.command == "survey":
             return command_survey(studio, studio_id, args, injected)
         if args.command == "census":
@@ -960,6 +988,14 @@ def selftest():
            command_plan(plan_args, facts, None, None) == 2)
     finally:
         EXPECTED_TILES["A1"] = kept
+    # REFUSAL 7's whitelist never matched: `flag_overrides` answers `DHFlag_<NAME>=<value>` and the
+    # check compared the WHOLE string with bare names, so the bake was refused in Karen's place over
+    # the two flags the list exists to allow (measured 2026-11-02 18:00 UTC, 15 of 15 refused).
+    ok("refusal 7 reads the NAME out of a DHFlag_<NAME>=<value> override, which its whitelist needs",
+       override_name_of("DHFlag_GRID_PREVIEW=true") == "GRID_PREVIEW"
+       and override_name_of("DHFlag_GRID_PREVIEW=true") in KARENS_FLAGS
+       and "DHFlag_GRID_PREVIEW=true" not in KARENS_FLAGS
+       and override_name_of("RANGE_SOLO") == "RANGE_SOLO")
     ok("every tile origin is voxel-aligned, so ExpandToGrid has nothing to do",
        tile_count(c1region, facts["tile"])[3] % facts["voxel"] == 0
        and tile_count(c1region, facts["tile"])[4] % facts["voxel"] == 0)
