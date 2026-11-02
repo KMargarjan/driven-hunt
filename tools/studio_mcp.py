@@ -1169,7 +1169,10 @@ SCOPE_SPECS = {
             "tests/server/grid.spec.luau",
             # Task 328b: the census asks `Grid` where the roads and the stands are, so a change to
             # the grid's geometry plays the spec that asserts what stands clear of them.
-            "tests/server/grid_ground.spec.luau"),
+            "tests/server/grid_ground.spec.luau",
+            # Task 328c: the eight landforms and the shaping arithmetic. `src/shared/Grid/` is this
+            # scope, and `Relief` lives there.
+            "tests/server/grid_relief.spec.luau"),
     # `boar_model.spec` reads the manifest's `boar.male` rows and the `BOAR_MODEL` row, so a change
     # to either reaches it (task 115).
     "assets": ("tests/server/assets_seam.spec.luau", "tests/server/boar_model.spec.luau",
