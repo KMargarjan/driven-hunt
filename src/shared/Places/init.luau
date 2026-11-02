@@ -2020,22 +2020,35 @@ function Places.inFrontage(cellId: string, x: number, z: number): boolean
 	return false
 end
 
--- A MIX WITH ONLY THE FRONTAGE'S GROUPS LEFT IN IT, weights kept. This is how the rule costs no
--- density: the roadside draws birch and larch instead of spruce rather than drawing nothing. Every
--- shipped mix but `clearing` carries at least one allowed group, and `grid_ground.spec` case 7
--- asserts that rather than assuming it; a mix that carried none would come back empty and the site
--- would simply go unplanted.
+-- THE MIX A FRONTAGE BAND DRAWS FROM. Design 7.2 says it plainly -- *"within 60 st of any road or
+-- ride centreline, only those four groups are drawn"*, and A1's spruce thicket *"becomes birch and
+-- larch"* -- so it is the FOUR GROUPS, not the four groups a zone happens to already carry. The
+-- zone's own weights are kept where they overlap and a missing group joins at weight 1, which is
+-- what keeps a frontage in character instead of making all eight cells the same hedge.
+--
+-- **AND IT IS WHY THE RULE COSTS NO DENSITY.** MEASURED: taking the INTERSECTION instead left C1's
+-- roadside thicket able to draw only `young`, which the front cone then refuses in the 40-140 st
+-- band of every stand -- and frame `328f-AFTER-G5` (2026-11-02, cycle 2) came back as bare grass
+-- where Karen had a wall of spruce. An empty mix (a clearing) stays empty: nothing is drawn there
+-- at all, and a frontage must not invent a wood in one.
 function Places.frontageRows(plan: any, rows: any): any
-	if plan == nil or plan.frontage == nil or rows == nil then
+	if plan == nil or plan.frontage == nil or rows == nil or #rows == 0 then
 		return rows
 	end
 	local out = {}
+	local carried: { [string]: boolean } = {}
 	for _, row in ipairs(rows) do
 		for _, each in ipairs(plan.frontage.groups) do
 			if each == row.group then
 				table.insert(out, row)
+				carried[row.group] = true
 				break
 			end
+		end
+	end
+	for _, each in ipairs(plan.frontage.groups) do
+		if not carried[each] then
+			table.insert(out, { group = each, weight = 1 })
 		end
 	end
 	return out

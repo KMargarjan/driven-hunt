@@ -659,10 +659,22 @@ return function()
 					end
 				end
 			end
-			-- AND IT REALLY FILTERS: a spruce thicket's conifer row goes, its larch row stays.
+			-- AND IT REALLY CHANGES THE DRAW: a spruce thicket's conifer row goes, its larch row
+			-- keeps its own weight, and the three groups it never carried join at 1 -- which is
+			-- design 7.2's *"becomes birch and larch"* rather than a bare strip.
 			local thicket = Plan.frontageRows(plan, Plan.cellMixNamed("spruceThicket"))
-			expect(#thicket).to.equal(1)
-			expect(thicket[1].group).to.equal("young")
+			expect(#thicket).to.equal(#plan.frontage.groups)
+			local byGroup = {}
+			for _, row in ipairs(thicket) do
+				byGroup[row.group] = row.weight
+			end
+			expect(byGroup.conifer).to.equal(nil)
+			expect(byGroup.young).to.equal(2)
+			expect(byGroup.birch).to.equal(1)
+			expect(byGroup.aspen).to.equal(1)
+			expect(byGroup.fieldOak).to.equal(1)
+			-- A CLEARING STAYS A CLEARING: an empty mix is not a licence to invent a hedge.
+			expect(#Plan.frontageRows(plan, Plan.cellMixNamed("clearing"))).to.equal(0)
 		end)
 	end)
 
