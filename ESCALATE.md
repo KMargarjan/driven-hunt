@@ -1,3 +1,68 @@
+## 2026-11-02 ~09:15 UTC, Task 328a -- DIRECTOR DECISIONS on the six scope items
+
+1. **The Architect's exact text** in `grid-terrain.md` section 16 is pasted VERBATIM by the Builder in 328b's first commit, one commit of its own, marked "the Architect's text, grid-terrain.md section 16". Nothing is reworded. It covers `grid-map.md` section 18, the `drive-places.md` and `map-generator.md` appends, and the `forest_ground.py` header.
+2. **D-1, frames.** Use the OS capture (`<runs-dir>/shot.ps1`, Forest Test window to the front, cropped by `winrect.ps1`), as 327a, 327b and 327c did; it works. `screen_capture` is not used for the Forest Test. Karen's eye remains the final check.
+3. **D-2, Team Create.** 328d step 0 reports it, and the bake does not run until the Director decides.
+4. **D-3, `forest_ground.py`.** Queued as a task of its own (before release). It stays as is.
+5. **D-4, the ride at 54 studs.** Ratified. Karen judges the 328f frame, and widening is a data change.
+6. **D-5/D-6.** In 328d, `terrainbake.py` gets a `BLAST_RADIUS` row (the `map` scope) and `plan` ASSERTS the tile count against the design's arithmetic.
+
+## 2026-11-02, Task 328a -- NEEDS KAREN (one question) and NEEDS DIRECTOR (six scope decisions)
+
+`reviews/task-328/ARCH_RESULT.md` line 1 is **PASS**: the design is complete and buildable as
+written, so **nothing here blocks 328b, 328c, 328f, 328g or 328i**. These are the decisions the
+design itself lists as open (`docs/design/grid-terrain.md` section 17). They are recorded here rather
+than carried quietly.
+
+### NEEDS KAREN
+
+1. **Q1 -- MAY WE PERMANENTLY RESHAPE THE GROUND IN YOUR FOREST TEST?** A full copy is saved first,
+   so it can be put back. **UNANSWERED. 328d does not start until she answers, and the default is not
+   assumed** (SWARM_DESIGN B6). **What a NO costs, honestly: the relief, not the forest.** A no deletes
+   `Relief.luau`, `TerrainBake`, `terrainbake.py`, the epoch, the base snapshot, the level road
+   profile, the ditch and the verge -- and `grid-map.md` section 4.4's measured relief stands. What
+   survives is all of 328b, 328f, 328g and 328i: the 54-stud rides, the crown and frontage rules,
+   `TEMPLATE_DIMS`, the template audit, the quarantine, `GridCensus`, the prebuild and
+   `Workspace.GridForest` -- that is **all of "not broken trees hanging or to inside"**, which is the
+   sentence she actually wrote.
+2. **Q6 (new) -- the roadside spruce becomes birch and larch.** The frontage rule is what stops a
+   crown hanging over a road or a ride (section 7.2), and it replaces the first 60 studs of A1's and
+   C2's roadside thickets, which are the two cells she would most notice. **A frame, not a number**:
+   328f's.
+
+Q2 (build once and save), Q3 (D1's meadow with tractor stripes), Q4 (flank sectors, out of scope) and
+Q5 (row 1 low, row 2 high) are proceeding on their defaults and the design is written to them.
+
+### NEEDS DIRECTOR
+
+1. **Who applies the Architect's exact text for the other design docs.** `grid-terrain.md` section 16
+   carries finished wording for a new `grid-map.md` section 18, an append to `drive-places.md`
+   section 19, an append to `map-generator.md`'s grid section, and a header note for
+   `tools/forest_ground.py`. **The Builder did not paste it**: `docs/design/` is the Architect's to
+   write (rule 3 and the role table), and the design script writes only its own file. Until it is
+   applied, `grid-map.md` section 4.4 still reads *"No terrain height is written anywhere"* and D-5
+   still reads open, which contradicts the design that now supersedes it.
+2. **D-1, the frame fault (inherited, 2026-11-01).** `screen_capture` against the Forest Test returns
+   one cached image for six cameras, and `ftplay.py capture` ignores the camera during Play (task
+   306h). Either it is fixed, or **every task in the 328 series is accepted on Karen's eye and says
+   so**. The design mandates the `DHTestLook` route and will not pretend to close this.
+3. **D-2, Team Create.** The check sits at 328d step 0: the save behaviour is reported before anything
+   is baked. If the place is in Team Create, the Director decides whether a ~70-minute bake runs in
+   it at all.
+4. **D-3, `tools/forest_ground.py`'s injection.** Its stated reason is **stale** -- 
+   `default.project.json`'s `servePlaceIds` holds the Forest Test as well as DEV, so the require
+   route is available. Rewriting it is a task of its own and is not in this split: queue it, or say it
+   stays.
+5. **D-4, the ride at 54 studs.** It meets neither published ratio (0.54x a 100-stud tree against
+   BASC's 1.0x and Fieldsports' 1.5x); it meets the geometric consequence -- 15.1 m, the published
+   minimum width for an open space to count -- instead. **Ratify the deviation, or set a wider ride
+   and accept the density cost.**
+6. **D-5 and D-6, two things a gate could misread.** `terrainbake.py` has no scope and no spec, so a
+   change to it alone resolves to `scope=auto:none` and its only gate is `selftest` in CI. And the
+   1,053 tile count is **printed, not asserted** (36 x 24 = 864 covers the bare footprint; the border
+   wood pushes it up) -- if the Director wants a number in a gate, 328d's `plan` is where to take it
+   from.
+
 ## 2026-11-02 ~23:15 UTC, Task 327b -- DIRECTOR DECISION: C, one more round (Round 3)
 
 **C**, as the Builder recommends. Keep the preview cell as the live layout, so Karen can walk it.
