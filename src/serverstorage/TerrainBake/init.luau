@@ -29,10 +29,22 @@ local AIR = Enum.Material.Air
 TerrainBake.PLACE_ID = 130094961655666
 TerrainBake.TILE_STUDS = 128
 TerrainBake.MAX_VOXELS = 24576
+-- ReadVoxels' own documented ceiling, which is far above WriteVoxels' measured one. A snapshot that
+-- would pass it is refused with its size, not left to the engine to reject with no location.
+-- https://create.roblox.com/docs/reference/engine/classes/Terrain#ReadVoxels
+TerrainBake.MAX_READ_VOXELS = 4194304
 TerrainBake.BAND_PAD = table.freeze({ belowStuds = 16, aboveStuds = 32 })
 -- How far past a road centreline the bake owns the ground: the design's 34-stud verge plus the
 -- 12-stud bank (7.1, last row). A `--cells` region is grown to this on each of the cell's roads.
 TerrainBake.ROAD_HALF_STUDS = 46
+-- HOW FAR PAST A TILE THE SHAPING GRID REACHES so the slope limiter does not depend on the tile
+-- lattice (round-1 finding 2). `Relief.limitPass`' window is 16 studs and it makes 8 relaxation
+-- passes, so influence travels up to 8 windows; 128 studs is that reach, and the margin is
+-- discarded after the limit so only the inner 128-stud tile is written.
+TerrainBake.LIMIT_MARGIN_STUDS = 128
+-- SWARM 2.2 for B2: "Scree (Ground 70 / Rock 30) where the slope is 30-40 degrees". `materialAt`
+-- answers Rock for the whole band; this is the 30 % of columns that keep it.
+TerrainBake.SCREE_ROCK_SHARE = 0.3
 
 export type Bounds = Relief.Bounds
 
@@ -121,6 +133,15 @@ function TerrainBake.snapshot(region: Bounds, yMin: number, yMax: number): (Snap
 	local nz = math.floor((region.maxZ - region.minZ) / v + 0.5)
 	if nx < 1 or nz < 1 then
 		return nil, "the region is smaller than one voxel"
+	end
+	local reads = nx * nz * math.ceil((yMax - yMin) / v)
+	if reads > TerrainBake.MAX_READ_VOXELS then
+		return nil,
+			string.format(
+				"the snapshot is %d voxels, over ReadVoxels' ceiling %d: narrow the Y band",
+				reads,
+				TerrainBake.MAX_READ_VOXELS
+			)
 	end
 	local snapshot: Snapshot = {
 		pitch = v,
@@ -227,6 +248,226 @@ function TerrainBake.blendAt(union: Bounds, x: number, z: number): number
 	return 1 - t * t * (3 - 2 * t)
 end
 
+-- ---------------------------------------------------------------- the road (design 7.1)
+
+-- DESIGN 7.1's CROSS-SECTION, as data. `d` is the distance from the centreline; every band below is
+-- NOMINAL and `Relief.columnsFor` realises it as whole voxel columns (correction F-2: the BAND
+-- snaps, never the centre, because all eight centres sit at = 1 mod 4).
+TerrainBake.ROAD = table.freeze({
+	carriagewayStuds = 20, -- 0 to +-20, level
+	-- "crossfall <= 0.5 st over 44 st": 0.2 st from the crown to each edge is 0.4 over 44, under it.
+	crownFallStuds = 0.2,
+	rut = table.freeze({ nearStuds = 6, farStuds = 10 }), -- F-3: +-6..+-10, never +-4 (they merged)
+	ditch = table.freeze({ nearStuds = 22, farStuds = 30, depthStuds = 2 }),
+	vergeStuds = 34, -- no tree, no fern (the mask is Places.mask's, 328f)
+	bankMinStuds = 12, -- at least 12 wide, and never steeper than 1:2
+	bankMaxSlope = 0.5,
+	-- The long profile's clamps: 8 % east-west, 10 % north-south, <= 2 % change per 50 st,
+	-- cut-or-fill <= 12 st. A breach RELAXES the grade on that road and is printed, never hidden.
+	gradePercent = table.freeze({ x = 8, z = 10 }),
+	gradeChangePercentPer50 = 2,
+	cutFillStuds = 12,
+	sampleStuds = 20,
+	-- Design 7.1's material table. `mid` is 0..+-6, `outer` is +-10..+-20.
+	material = table.freeze({
+		x = table.freeze({ mid = "Ground", rut = "Mud", outer = "Grass", ditch = "Mud", verge = "Grass" }),
+		z = table.freeze({ mid = "Grass", rut = "Mud", outer = "Grass", ditch = "Mud", verge = "Grass" }),
+	}),
+})
+
+export type Profile = {
+	road: Relief.Road,
+	from: number,
+	to: number,
+	step: number,
+	y: { number },
+	gradePercent: number,
+	relaxed: boolean,
+	worstCutFill: number,
+	breaches: { string },
+}
+
+-- THE LONG PROFILE of one road: sample the base every 20 st, clamp the grade, limit how fast the
+-- grade may change, and cap cut-or-fill at 12 st. A cap that cannot be met RELAXES the grade on
+-- THAT road and says so in `breaches` -- design 7.1, "a breach relaxes the grade on that road and
+-- is printed, never hidden".
+function TerrainBake.longProfile(road: Relief.Road, baseAt: (number, number) -> number?): Profile?
+	local step = TerrainBake.ROAD.sampleStuds
+	local n = math.floor((road.to - road.from) / step) + 1
+	local base = table.create(n, 0)
+	for i = 1, n do
+		local at = road.from + (i - 1) * step
+		local y = if road.axis == "x" then baseAt(at, road.at) else baseAt(road.at, at)
+		if y == nil then
+			return nil
+		end
+		base[i] = y
+	end
+	local ceilingPercent = TerrainBake.ROAD.gradePercent[road.axis]
+	local out, relaxed, breaches = table.clone(base), false, {}
+	local worst = 0
+	for attempt = 1, 6 do
+		out = table.clone(base)
+		local rise = ceilingPercent / 100 * step
+		-- A FORWARD-THEN-BACKWARD MIN-CONE SWEEP, which is exact on a chain -- the same finishing
+		-- sweep `Relief.limitPass` uses, and for the same reason.
+		for _ = 1, 2 do
+			for i = 1, n - 1 do
+				if out[i + 1] - out[i] > rise then
+					out[i + 1] = out[i] + rise
+				end
+			end
+			for i = n - 1, 1, -1 do
+				if out[i] - out[i + 1] > rise then
+					out[i] = out[i + 1] + rise
+				end
+			end
+		end
+		-- THE GRADE MAY NOT CHANGE FASTER THAN 2 % PER 50 ST: one smoothing pass over the slopes,
+		-- re-integrated, so the road reads as a road and not as a chain of facets.
+		local window = math.max(1, math.floor(50 / step + 0.5))
+		local slope = table.create(math.max(1, n - 1), 0)
+		for i = 1, n - 1 do
+			slope[i] = (out[i + 1] - out[i]) / step
+		end
+		local limit = TerrainBake.ROAD.gradeChangePercentPer50 / 100
+		for i = 1, n - 1 - window do
+			local change = slope[i + window] - slope[i]
+			if math.abs(change) > limit then
+				local excess = (math.abs(change) - limit) / 2 * (if change > 0 then 1 else -1)
+				slope[i] += excess
+				slope[i + window] -= excess
+			end
+		end
+		for i = 1, n - 1 do
+			out[i + 1] = out[i] + slope[i] * step
+		end
+		-- RE-CENTRE on the base, so the smoothing cannot drift the whole road up or down.
+		local drift = 0
+		for i = 1, n do
+			drift += base[i] - out[i]
+		end
+		drift /= n
+		worst = 0
+		for i = 1, n do
+			out[i] += drift
+			worst = math.max(worst, math.abs(out[i] - base[i]))
+		end
+		if worst <= TerrainBake.ROAD.cutFillStuds then
+			break
+		end
+		if attempt < 6 then
+			relaxed = true
+			ceilingPercent += 2
+			table.insert(
+				breaches,
+				string.format(
+					"%s: cut-or-fill %.1f st over the %d-st cap, so the grade is relaxed to %d %%",
+					road.id,
+					worst,
+					TerrainBake.ROAD.cutFillStuds,
+					ceilingPercent
+				)
+			)
+		else
+			table.insert(
+				breaches,
+				string.format("%s: cut-or-fill %.1f st STILL over the cap at %d %%", road.id, worst, ceilingPercent)
+			)
+		end
+	end
+	return {
+		road = road,
+		from = road.from,
+		to = road.to,
+		step = step,
+		y = out,
+		gradePercent = ceilingPercent,
+		relaxed = relaxed,
+		worstCutFill = worst,
+		breaches = breaches,
+	}
+end
+
+-- The profile's own height at one point along the road, linearly between its 20-st samples.
+function TerrainBake.profileY(profile: Profile, along: number): number
+	local t = (along - profile.from) / profile.step
+	local i = math.clamp(math.floor(t) + 1, 1, #profile.y)
+	local j = math.clamp(i + 1, 1, #profile.y)
+	local f = math.clamp(t - (i - 1), 0, 1)
+	return profile.y[i] + (profile.y[j] - profile.y[i]) * f
+end
+
+-- THE CROSS-SECTION at one point: the height the road wants there, the material, and how strongly
+-- the road owns the ground (1 inside the verge, falling to 0 across the bank). Returns nil when the
+-- point is outside every road's reach, which is most of a cell.
+--
+-- The rut and the ditch are realised by `Relief.columnsFor` at the road's own parity, so their
+-- WIDTH does not depend on where the centreline happens to fall (correction F-2).
+function TerrainBake.roadAt(profiles: { Profile }, naturalY: number, x: number, z: number): (number?, string?, number)
+	local best: Profile? = nil
+	local bestD, bestAlong = math.huge, 0
+	for _, profile in profiles do
+		local road = profile.road
+		local along = if road.axis == "x" then x else z
+		if along >= road.from and along <= road.to then
+			local d = math.abs((if road.axis == "x" then z else x) - road.at)
+			if d < bestD then
+				best, bestD, bestAlong = profile, d, along
+			end
+		end
+	end
+	if best == nil then
+		return nil, nil, 0
+	end
+	local profile = best :: Profile
+	local road = profile.road
+	local spec = TerrainBake.ROAD
+	local centre = road.at
+	local across = (if road.axis == "x" then z else x)
+	-- The realised whole-column bounds of the two bands that have to BE whole columns.
+	local rutNear, rutFar = Relief.columnsFor(centre, spec.rut.nearStuds, spec.rut.farStuds)
+	local ditchNear, ditchFar = Relief.columnsFor(centre, spec.ditch.nearStuds, spec.ditch.farStuds)
+	local d = math.abs(across - centre)
+	local crownY = TerrainBake.profileY(profile, bestAlong)
+	local material = spec.material[road.axis]
+	-- Which band, measured OUTWARD from the centreline. The rut and the ditch are tested against
+	-- their realised columns on the side the point is on, not against the nominal numbers.
+	local side = if across >= centre then 1 else -1
+	local lo = if side == 1 then rutNear - centre else centre - rutFar
+	local hi = if side == 1 then rutFar - centre else centre - rutNear
+	local ditchLo = if side == 1 then ditchNear - centre else centre - ditchFar
+	local ditchHi = if side == 1 then ditchFar - centre else centre - ditchNear
+	if d <= spec.carriagewayStuds then
+		local y = crownY - spec.crownFallStuds * (d / spec.carriagewayStuds)
+		local name = if d <= 6 then material.mid elseif d >= 10 then material.outer else material.mid
+		if d >= lo and d <= hi then
+			name = material.rut
+		end
+		return y, name, 1
+	end
+	if d >= ditchLo and d <= ditchHi then
+		return crownY - spec.ditch.depthStuds, material.ditch, 1
+	end
+	if d < ditchLo then
+		-- The shoulder between the carriageway edge and the ditch lip: level with the edge.
+		return crownY - spec.crownFallStuds, material.outer, 1
+	end
+	if d <= spec.vergeStuds then
+		return crownY - spec.crownFallStuds, material.verge, 1
+	end
+	-- THE BANK: back to the natural ground, never steeper than 1:2 and never narrower than 12 st.
+	local vergeY = crownY - spec.crownFallStuds
+	local drop = math.abs(naturalY - vergeY)
+	local width = math.max(spec.bankMinStuds, drop / spec.bankMaxSlope)
+	local t = (d - spec.vergeStuds) / width
+	if t >= 1 then
+		return nil, nil, 0
+	end
+	local smooth = t * t * (3 - 2 * t)
+	return vergeY + (naturalY - vergeY) * smooth, nil, 1 - smooth
+end
+
 -- ---------------------------------------------------------------- the slope limiter, BOTH axes
 
 -- BOTH AXES -- the 328d decision the 328c note asks for. `Relief.limitPass` runs along one axis at a
@@ -286,48 +527,127 @@ function TerrainBake.bandsFor(lo: number, hi: number): { { min: number, max: num
 	return out
 end
 
--- ONE TILE: shape and material in the SAME WriteVoxels call (design 5.3 step 3). IDEMPOTENT -- every
--- voxel of the region is written from the snapshot, so a re-run against the same snapshot is a no-op.
--- `dryRun` computes and measures everything and writes nothing, which is what the ten-tile cost
--- measurement uses before any backup exists.
+-- THE SHAPE OF ONE TILE, PURE: heights and material names for the tile's own 32 x 32 columns, and
+-- it touches `Terrain` nowhere. Split out of `bakeTile` so the thing that decides the ground can be
+-- asserted by a spec over a synthetic snapshot (round-1 finding 7).
+--
+-- THE GRID IS WIDER THAN THE TILE. The slope limiter reaches `LIMIT_MARGIN_STUDS` past a column, so
+-- limiting the tile alone would clamp the same ground to two heights either side of a 128-stud seam
+-- (round-1 finding 2). It is shaped and limited over the tile plus that margin; only the inner tile
+-- is returned.
+function TerrainBake.shapeTile(
+	tile: Tile,
+	snapshot: Snapshot,
+	cellIds: { string },
+	plans: { [string]: any },
+	profiles: { Profile }?
+): ({ number }, { string }, number)
+	local v = Relief.VOXEL
+	local side = TerrainBake.TILE_STUDS
+	local n = math.floor(side / v)
+	local margin = math.floor(TerrainBake.LIMIT_MARGIN_STUDS / v)
+	local wide = n + 2 * margin
+	local union = TerrainBake.unionOf(cellIds)
+	local baseAt = TerrainBake.readerFor(snapshot)
+	local shaped = table.create(wide * wide, 0)
+	local exempt = table.create(wide * wide, false)
+	local names: { string } = table.create(wide * wide, "")
+	local depth = table.create(wide * wide, 0)
+	local roads = Grid.roads()
+	for i = 1, wide do
+		local x = tile.minX + (i - margin - 0.5) * v
+		for k = 1, wide do
+			local z = tile.minZ + (k - margin - 0.5) * v
+			local at = (k - 1) * wide + i
+			local base = baseAt(x, z)
+			local id = TerrainBake.cellAt(cellIds, x, z)
+			local form = Relief.LANDFORMS[id]
+			if base == nil then
+				-- `readerFor` has no answer here. KEEP GROUND rather than invent one: writing 0
+				-- would cut a hole from the band floor up to y = 0 (round-1 note).
+				shaped[at] = snapshot.minY
+				exempt[at] = true
+			elseif form == nil then
+				shaped[at] = base
+			else
+				local bounds = Grid.boundsOf(id)
+				-- ONE FADE, handed to the arithmetic that owns it (round-1 finding 7). Multiplying
+				-- the bake's own fade onto `heightAt`'s cell-edge `k` put two fades in series.
+				local here = Relief.heightAt(form, bounds, roads, baseAt, x, z, TerrainBake.blendAt(union, x, z))
+				shaped[at] = here or base
+				exempt[at] = Relief.isExempt(form, bounds, x, z)
+				depth[at] = TerrainBake.depthAt(base, here or base)
+			end
+			-- THE ROAD WINS over the landform inside its verge and blends back across its bank
+			-- (design 7.1). Its columns are EXEMPT from the limiter: a limiter free to move a ditch
+			-- has not cut a ditch.
+			if profiles ~= nil then
+				local roadY, roadName, weight = TerrainBake.roadAt(profiles, shaped[at], x, z)
+				if roadY ~= nil then
+					shaped[at] = roadY
+					if roadName ~= nil then
+						names[at] = roadName
+					end
+					if weight >= 1 then
+						exempt[at] = true
+					end
+				end
+			end
+		end
+	end
+	shaped = TerrainBake.limitGrid(shaped, wide, wide, v, Relief.LIMIT_DEG.tree, exempt)
+	-- MATERIALS IN A SECOND PASS, over the LIMITED grid: `Relief.materialAt`'s scree rule reads the
+	-- slope, and the slope is only real once the limiter has finished with it. The road's own name,
+	-- set above, wins -- a road is gravel whatever the ground under it was going to be (design 7.1).
+	local inner = table.create(n * n, 0)
+	local innerNames: { string } = table.create(n * n, "")
+	for i = 1, n do
+		for k = 1, n do
+			local from = (k + margin - 1) * wide + (i + margin)
+			local to = (k - 1) * n + i
+			inner[to] = shaped[from]
+			local name = names[from]
+			if name == "" then
+				local x = tile.minX + (i - 0.5) * v
+				local z = tile.minZ + (k - 0.5) * v
+				local id = TerrainBake.cellAt(cellIds, x, z)
+				local form = Relief.LANDFORMS[id]
+				if form == nil then
+					name = "Ground"
+				else
+					local slope = TerrainBake.slopeAt(shaped, wide, i + margin, k + margin, v)
+					name = Relief.materialAt(form, Grid.boundsOf(id), plans[id], slope, depth[from], x, z)
+					-- THE 70/30 SCREE MIX is the bake's, not `materialAt`'s -- its own header says
+					-- so (design 5.3 step 3). Deterministic in the column, so a re-run is a no-op.
+					if name == "Rock" and TerrainBake.mixAt(x, z) >= TerrainBake.SCREE_ROCK_SHARE then
+						name = form.floor.default
+					end
+				end
+			end
+			innerNames[to] = name
+		end
+	end
+	return inner, innerNames, n
+end
+
+-- ONE TILE: shape and material in the SAME WriteVoxels call (design 5.3 step 3). IDEMPOTENT --
+-- every voxel of the region is written from the snapshot, so a re-run against the same snapshot is
+-- a no-op. `dryRun` builds every array and skips only the write, so its cost is the real cost less
+-- one engine call -- not a different measurement wearing the same name.
 function TerrainBake.bakeTile(
 	tile: Tile,
 	snapshot: Snapshot,
 	cellIds: { string },
 	plans: { [string]: any },
-	dryRun: boolean?
+	dryRun: boolean?,
+	profiles: { Profile }?
 ): TileReport
 	local started = os.clock()
 	local v = Relief.VOXEL
 	local side = TerrainBake.TILE_STUDS
-	local n = math.floor(side / v)
-	local roads = Grid.roads()
-	local union = TerrainBake.unionOf(cellIds)
-	local baseAt = TerrainBake.readerFor(snapshot)
-	local shaped, exempt = table.create(n * n, 0), table.create(n * n, false)
-	for i = 1, n do
-		local x = tile.minX + (i - 0.5) * v
-		for k = 1, n do
-			local z = tile.minZ + (k - 0.5) * v
-			local at = (k - 1) * n + i
-			local base = baseAt(x, z)
-			local id = TerrainBake.cellAt(cellIds, x, z)
-			local form = Relief.LANDFORMS[id]
-			if base == nil then
-				shaped[at] = 0
-			elseif form == nil then
-				shaped[at] = base
-			else
-				local bounds = Grid.boundsOf(id)
-				local here = Relief.heightAt(form, bounds, roads, baseAt, x, z)
-				shaped[at] = base + TerrainBake.blendAt(union, x, z) * ((here or base) - base)
-				exempt[at] = Relief.isExempt(form, bounds, x, z)
-			end
-		end
-	end
-	shaped = TerrainBake.limitGrid(shaped, n, n, v, Relief.LIMIT_DEG.tree, exempt)
+	local inner, innerNames, n = TerrainBake.shapeTile(tile, snapshot, cellIds, plans, profiles)
 	local lo, hi = math.huge, -math.huge
-	for _, h in shaped do
+	for _, h in inner do
 		lo = math.min(lo, h)
 		hi = math.max(hi, h)
 	end
@@ -362,42 +682,29 @@ function TerrainBake.bakeTile(
 			report.elapsedMs = math.floor((os.clock() - started) * 1000 + 0.5)
 			return report
 		end
-		do
-			local min = region.CFrame.Position - size / 2
-			local materials, occupancies = {}, {}
-			for i = 1, n do
-				materials[i], occupancies[i] = {}, {}
+		local min = region.CFrame.Position - size / 2
+		local materials, occupancies = {}, {}
+		for i = 1, n do
+			materials[i], occupancies[i] = {}, {}
+			for j = 1, ny do
+				materials[i][j], occupancies[i][j] = {}, {}
+			end
+		end
+		for i = 1, n do
+			for k = 1, n do
+				local at = (k - 1) * n + i
+				local h = inner[at]
+				local material = (Enum.Material :: any)[innerNames[at]] or Enum.Material.Ground
 				for j = 1, ny do
-					materials[i][j], occupancies[i][j] = {}, {}
+					local bottom = min.Y + (j - 1) * v
+					local occupancy = math.clamp((h - bottom) / v, 0, 1)
+					materials[i][j][k] = if occupancy > 0 then material else AIR
+					occupancies[i][j][k] = occupancy
 				end
 			end
-			for i = 1, n do
-				local x = min.X + (i - 0.5) * v
-				for k = 1, n do
-					local z = min.Z + (k - 0.5) * v
-					local at = (k - 1) * n + i
-					local h = shaped[at]
-					local id = TerrainBake.cellAt(cellIds, x, z)
-					local form = Relief.LANDFORMS[id]
-					local name = "Ground"
-					if form ~= nil then
-						local slope = TerrainBake.slopeAt(shaped, n, i, k, v)
-						name = Relief.materialAt(form, Grid.boundsOf(id), plans[id], slope, 0, x, z)
-					end
-					local material = (Enum.Material :: any)[name] or Enum.Material.Ground
-					for j = 1, ny do
-						local bottom = min.Y + (j - 1) * v
-						local occupancy = math.clamp((h - bottom) / v, 0, 1)
-						materials[i][j][k] = if occupancy > 0 then material else AIR
-						occupancies[i][j][k] = occupancy
-					end
-				end
-			end
-			-- A DRY RUN BUILDS EVERY ARRAY AND SKIPS ONLY THE WRITE, so its per-tile cost is the
-			-- real cost less one engine call -- not a different measurement wearing the same name.
-			if not dryRun then
-				Workspace.Terrain:WriteVoxels(region, v, materials, occupancies)
-			end
+		end
+		if not dryRun then
+			Workspace.Terrain:WriteVoxels(region, v, materials, occupancies)
 		end
 		report.voxels += voxels
 	end
@@ -405,13 +712,57 @@ function TerrainBake.bakeTile(
 	return report
 end
 
--- HOW FAR OUTSIDE A TILE THE SHAPING READS THE BASE: the blur's own cutoff, plus one voxel so the
--- edge sample has a neighbour. `Relief.blurredAt` is the only reader that leaves the point -- except
--- a `bench`, which walks the base across its whole v band (`applyOps`), and `bakeTileAt` refuses
--- that rather than snapshot a slice it does not hold.
+-- HOW DEEP A POINT SITS BELOW THE GROUND THE LANDFORM CAME FROM -- what `Relief.materialAt`'s mud
+-- rule reads (`A1.floor.mudDepthStuds` 10, `D1` 6). Round 1 passed a literal 0, so the rule could
+-- never fire; C1's floor is plain `Ground`, so nothing was wrong for THIS cell, and 328f reads it.
+function TerrainBake.depthAt(base: number, shaped: number): number
+	return math.max(0, base - shaped)
+end
+
+-- HOW FAR OUTSIDE A TILE THE SNAPSHOT MUST REACH: the limiter's margin, plus the blur's own
+-- cutoff, plus one voxel so the outermost sample has a neighbour. `Relief.blurredAt` is the only
+-- point reader that leaves its point -- except a `bench`, which walks the base across its whole v
+-- band (`applyOps`), and `bakeTileAt` refuses that rather than snapshot a slice it does not hold.
 function TerrainBake.padFor(): number
 	local v = Relief.VOXEL
-	return v * math.ceil((Relief.BLUR.cutoffStuds + v) / v)
+	return v * math.ceil((TerrainBake.LIMIT_MARGIN_STUDS + Relief.BLUR.cutoffStuds + v) / v)
+end
+
+-- THE LONG PROFILES of every road a run touches, computed ONCE from the base before any voxel is
+-- written -- a profile read off half-baked ground would depend on the tile order. `sampler`
+-- defaults to a terrain raycast, which is the base only while nothing has been written yet.
+function TerrainBake.profilesFor(cellIds: { string }, sampler: ((number, number) -> number?)?): { Profile }
+	local read = sampler or TerrainBake.terrainReader()
+	local wanted: { [string]: Relief.Road } = {}
+	for _, id in cellIds do
+		for _, key in { "main", "muster", "west", "east" } do
+			local road = (Grid.roadsOf(id) :: any)[key]
+			wanted[road.id] = road
+		end
+	end
+	local out: { Profile } = {}
+	for _, road in wanted do
+		local profile = TerrainBake.longProfile(road, read)
+		if profile ~= nil then
+			table.insert(out, profile)
+		end
+	end
+	table.sort(out, function(a, b)
+		return a.road.id < b.road.id
+	end)
+	return out
+end
+
+-- The terrain raycast reader, in one place: the survey and the profiles both use it.
+function TerrainBake.terrainReader(): (number, number) -> number?
+	return function(x: number, z: number): number?
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Include
+		params.FilterDescendantsInstances = { Workspace.Terrain }
+		params.IgnoreWater = true
+		local hit = Workspace:Raycast(Vector3.new(x, 2000, z), Vector3.new(0, -4000, 0), params)
+		return if hit then hit.Position.Y else nil
+	end
 end
 
 function TerrainBake.readsWholeCell(form: any): boolean
@@ -430,7 +781,8 @@ function TerrainBake.bakeTileAt(
 	cellIds: { string },
 	yMin: number,
 	yMax: number,
-	dryRun: boolean
+	dryRun: boolean,
+	profiles: { Profile }?
 ): TileReport
 	local plan = TerrainBake.tilePlan(TerrainBake.regionFor(cellIds))
 	assert(tileIndex >= 1 and tileIndex <= #plan, string.format("tile %d is not in a plan of %d", tileIndex, #plan))
@@ -475,7 +827,18 @@ function TerrainBake.bakeTileAt(
 			message = problem,
 		}
 	end
-	return TerrainBake.bakeTile(tile, slice, cellIds, {}, dryRun)
+	return TerrainBake.bakeTile(tile, slice, cellIds, {}, dryRun, profiles or TerrainBake.profilesFor(cellIds))
+end
+
+-- A STABLE 0..1 PER COLUMN, from its own coordinates: the scree mix has to come out the same on
+-- every run, so it cannot use `Random`. One integer hash, the shape `Grid.seedFor` already uses.
+function TerrainBake.mixAt(x: number, z: number): number
+	local h = bit32.bxor(
+		bit32.band(math.floor(x / Relief.VOXEL) * 73856093, 0x7FFFFFFF),
+		bit32.band(math.floor(z / Relief.VOXEL) * 19349663, 0x7FFFFFFF)
+	)
+	h = bit32.band(h * 1103515245 + 12345, 0x7FFFFFFF)
+	return h / 0x7FFFFFFF
 end
 
 -- The slope at one grid point, in degrees, from its neighbours. One number for `Relief.materialAt`,
@@ -496,15 +859,7 @@ end
 -- `heightOf` is the seam, so a spec can survey a synthetic world with no terrain in it.
 function TerrainBake.survey(cellId: string, heightOf: ((number, number) -> number?)?): any
 	local bounds = Grid.boundsOf(cellId)
-	local reader = heightOf
-		or function(x: number, z: number): number?
-			local params = RaycastParams.new()
-			params.FilterType = Enum.RaycastFilterType.Include
-			params.FilterDescendantsInstances = { Workspace.Terrain }
-			params.IgnoreWater = true
-			local hit = Workspace:Raycast(Vector3.new(x, 2000, z), Vector3.new(0, -4000, 0), params)
-			return if hit then hit.Position.Y else nil
-		end
+	local reader = heightOf or TerrainBake.terrainReader()
 	local lo, hi, sum, n = math.huge, -math.huge, 0, 0
 	for x = bounds.minX, bounds.maxX, 20 do
 		for z = bounds.minZ, bounds.maxZ, 20 do

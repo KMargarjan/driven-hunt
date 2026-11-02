@@ -822,6 +822,7 @@ BLAST_RADIUS = (
     # THE CENSUS (task 328b): `ServerStorage.GridCensus` certifies what `src/server/Places/` planted,
     # and `grid_ground.spec` is the only spec that asserts it -- which is in `places` as well as in
     # `lobby` and `map` (the dual membership this table already uses).
+    ("src/serverstorage/GridCensus/", "places"),
     # THE BAKE (task 328d): the world half of the terrain bake, and its driver. BOTH resolve to
     # `map` (Director decision 6, 2026-11-02) -- the tool is not just a tool here, it is the thing
     # that decides the shape of the ground, and `grid_relief.spec` is what asserts the arithmetic it
@@ -829,7 +830,6 @@ BLAST_RADIUS = (
     # plays the spec that covers the bake.
     ("src/serverstorage/TerrainBake/", "map"),
     ("tools/terrainbake.py", "map"),
-    ("src/serverstorage/GridCensus/", "places"),
     ("src/serverstorage/Assets/", "assets"),
     ("src/shared/Flags/", "flags"),
     # THE GAME'S LIGHT (task 215): the one owner of `Lighting`, its `Atmosphere` and its post

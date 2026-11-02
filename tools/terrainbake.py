@@ -138,6 +138,16 @@ def luau_facts():
 CELL_IDS = ("A1", "B1", "C1", "D1", "A2", "B2", "C2", "D2")
 BORDER_WOOD_STUDS = 230
 
+# THE TILE COUNTS, COMMITTED (Director decision 6). Round 1 "asserted" `ceil(a/b)` against
+# `-(-a//b)`, which is one value compared with itself: the branch was dead for every input. These
+# are the counts as they stand, so a change to `region_for`, to `Grid.CONFIG` or to the tile size
+# reddens the line and somebody has to say the new number out loud.
+EXPECTED_TILES = {
+    "A1": 208, "B1": 208, "C1": 208, "D1": 208,
+    "A2": 208, "B2": 208, "C2": 208, "D2": 208,
+    "ALL": 1333,
+}
+
 
 def cell_of(cell_id, facts):
     """One cell's interior bounds, by `Grid.boundsOf`'s own arithmetic, in Python (Director 6)."""
@@ -206,6 +216,47 @@ def tile_count(region, tile):
     return nx * nz, nx, nz, x0, z0
 
 
+# ---------------------------------------------------------------- canonical JSON
+
+def canonical(value):
+    """`Relief.canonical` in Python: keys sorted, numbers %.6g, no whitespace (design 5.4).
+
+    It exists so the selftest can check the Luau encoder against a second implementation, which is
+    what design 6.4 asks of this tool. The epoch itself is still hashed from the LUAU string --
+    this is the check, never the source.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return "%.6g" % value
+    if isinstance(value, str):
+        return json.dumps(value)
+    if isinstance(value, (list, tuple)):
+        return "[" + ",".join(canonical(v) for v in value) + "]"
+    if isinstance(value, dict):
+        return "{" + ",".join("%s:%s" % (json.dumps(str(k)), canonical(value[k]))
+                              for k in sorted(value, key=str)) + "}"
+    raise RuntimeError("cannot encode %s" % type(value).__name__)
+
+
+# CAPTURED FROM THE LUAU, 2026-11-02, by running `Relief.epochInput` on this exact input in DEV
+# (<runs-dir>/328d-epoch.luau). If the two encoders ever disagree, this string is what says so.
+CANONICAL_FIXTURE_INPUT = {
+    "bakeVersion": 1,
+    "config": {"cellDepthStuds": 1430, "cellWidthStuds": 1070, "columns": 4,
+               "originX": -6700, "originZ": -6600, "roadClearStuds": 42, "rows": 2},
+    "landforms": {"Z1": {"baseKeep": 0.5,
+                         "floor": {"default": "Ground", "mudDepthStuds": 6},
+                         "ops": [{"dyStuds": -2.5, "kind": "dome", "rStuds": 10, "u": 0.25, "v": 0.75}]}},
+}
+CANONICAL_FIXTURE_OUTPUT = (
+    '{"bakeVersion":1,"config":{"cellDepthStuds":1430,"cellWidthStuds":1070,"columns":4,'
+    '"originX":-6700,"originZ":-6600,"roadClearStuds":42,"rows":2},"landforms":{"Z1":'
+    '{"baseKeep":0.5,"floor":{"default":"Ground","mudDepthStuds":6},"ops":'
+    '[{"dyStuds":-2.5,"kind":"dome","rStuds":10,"u":0.25,"v":0.75}]}}}'
+)
+
+
 # ---------------------------------------------------------------- the Luau this tool sends
 
 # ONE EXPRESSION PER CALL, and the modules arrive by `require` -- no source in this string (design 3).
@@ -213,7 +264,13 @@ CALL_TEMPLATE = """
 local HttpService = game:GetService("HttpService")
 local ok, result = pcall(function()
     local ServerStorage = game:GetService("ServerStorage")
-    local TerrainBake = require(ServerStorage:WaitForChild("TerrainBake"))
+    -- FindFirstChild, never WaitForChild: in a place that does not hold the module, WaitForChild
+    -- blocks until the MCP call times out with no reason given (measured 2026-11-02).
+    local module = ServerStorage:FindFirstChild("TerrainBake")
+    if module == nil then
+        error("ServerStorage.TerrainBake is not in this place: is Rojo serving this branch?", 0)
+    end
+    local TerrainBake = require(module)
     return %s
 end)
 if not ok then
@@ -254,6 +311,26 @@ def refuse(reason):
     return 2
 
 
+class pin_default:
+    """Make every UNSCOPED call in the block go to one Studio, and put the old default back.
+
+    `compare_synced` and `unmanaged_scripts` take no `studio_id`; without this they address
+    whichever Studio `_choose_default_studio` pinned, which is the DEV place (finding 3, round 1).
+    """
+
+    def __init__(self, studio, studio_id):
+        self.studio, self.studio_id, self.previous = studio, studio_id, None
+
+    def __enter__(self):
+        self.previous = getattr(self.studio, "default_studio_id", None)
+        self.studio.default_studio_id = self.studio_id
+        return self.studio
+
+    def __exit__(self, *_):
+        self.studio.default_studio_id = self.previous
+        return False
+
+
 def check_place(studio, studio_id):
     """Refusals 1 and 2, re-run before EVERY mutating call (B1), by place id and never by name."""
     mode = studio.mode(studio_id=studio_id)
@@ -268,6 +345,12 @@ def check_place(studio, studio_id):
 def check_synced(studio, studio_id):
     """Refusal 4: Studio's copy of the bake, the grid and the places must equal disk, byte for byte.
 
+    IT ADDRESSES THE RESOLVED STUDIO. `compare_synced` issues its queries UNSCOPED, and an unscoped
+    Edit call goes to `Studio.default_studio_id`, which `_choose_default_studio` pins to the DEV
+    place. Round 1 shipped exactly that: refusal 4 compared DEV's scripts with disk, answered "no
+    problems", and let a bake proceed against an unchecked Forest Test -- the silent fall-back this
+    tool's own docstring quotes lesson L-055 about. `pin_default` is what closes it.
+
     IT CANNOT PASS IN THE FOREST TEST TODAY and the failure says why rather than looking like an
     un-pressed Connect: every script there reads Source length 0 through execute_luau (measured
     2026-11-02; ESCALATE.md task 328d), so a Source comparison has nothing to compare.
@@ -278,7 +361,8 @@ def check_synced(studio, studio_id):
             wanted.append((path, cls, files))
     if not wanted:
         return "the sourcemap has no %s: is default.project.json right?" % " / ".join(SYNCED_HEADS)
-    problems = compare_synced(studio, wanted)
+    with pin_default(studio, studio_id):
+        problems = compare_synced(studio, wanted)
     if not problems:
         return None
     unreadable = sum(1 for p in problems if "Source" in p or "source" in p)
@@ -292,8 +376,10 @@ def check_synced(studio, studio_id):
     return detail
 
 
-def check_clean_tree():
-    sha, dirty = git_state()
+def check_clean_tree(state=None):
+    """Refusal 3. `state` is the (sha, dirty) pair, handed in so `selftest` can feed it a dirty
+    tree without making one -- the refusal is the thing under test, not git."""
+    sha, dirty = state if state is not None else git_state()
     if dirty:
         return sha, ("the tree is dirty: a world baked from uncommitted code cannot be rebuilt from "
                      "a commit.\n  - " + "\n  - ".join(dirty))
@@ -365,7 +451,7 @@ def resolve(studio):
     return studio_id, None
 
 
-def command_plan(args, facts):
+def command_plan(args, facts, studio=None, studio_id=None):
     """Read-only, and it ASSERTS the tile count against the design's arithmetic (Director 6)."""
     cells = args.cells or list(CELL_IDS)
     region = region_for(cells, facts)
@@ -380,13 +466,33 @@ def command_plan(args, facts):
     print("  columns  %d per tile, %d in the run" % (columns, columns * count))
     print("  ceiling  %d voxels a call; a %d-stud tile allows %d studs of Y band per call"
           % (facts["maxVoxels"], facts["tile"], facts["voxel"] * (facts["maxVoxels"] // columns)))
-    # THE ASSERTION. A plan whose count disagrees with the arithmetic is a refusal, not a warning:
-    # the count is what every cost estimate and every "n/m tiles" line is measured against.
-    expect_nx = -(-(region["maxX"] - x0) // facts["tile"])
-    expect_nz = -(-(region["maxZ"] - z0) // facts["tile"])
-    if (nx, nz) != (expect_nx, expect_nz):
-        return refuse("the tile plan is %dx%d but the arithmetic gives %dx%d" % (nx, nz, expect_nx, expect_nz))
-    print("  ASSERTED: %d tiles, re-derived from Grid.CONFIG on disk" % count)
+    # THE ASSERTION, against a number this function did not compute: the committed count for this
+    # run, and -- when a Studio answers -- `Relief.tiles`' own output, which is a different engine.
+    key = cells[0] if len(cells) == 1 else ("ALL" if len(cells) == len(CELL_IDS) else None)
+    expected = EXPECTED_TILES.get(key) if key else None
+    if expected is None:
+        print("  NOT ASSERTED: no committed count for cells=%s; %d tiles printed, not checked"
+              % (",".join(cells), count))
+    elif count != expected:
+        return refuse("the plan is %d tiles for cells=%s; the committed count is %d. If the region "
+                      "moved on purpose, say the new number in EXPECTED_TILES." % (count, ",".join(cells), expected))
+    else:
+        print("  ASSERTED: %d tiles == the committed count for %s" % (count, key))
+    live = None
+    if studio is not None and studio_id is not None:
+        try:
+            live = call(studio, studio_id,
+                        "#TerrainBake.tilePlan(TerrainBake.regionFor({%s}))"
+                        % ",".join('"%s"' % c for c in cells), timeout=45)
+        except Exception as problem:  # noqa: BLE001 -- a read-only plan never fails on the extra check
+            print("  (Relief.tiles was not asked: %s)" % str(problem).strip()[:160])
+    if live is not None:
+        if live != count:
+            return refuse("Relief.tiles in Studio makes %s tiles for cells=%s; this tool makes %d"
+                          % (live, ",".join(cells), count))
+        print("  ASSERTED: Relief.tiles in Studio agrees -- %s tiles" % live)
+    else:
+        print("  (Relief.tiles was not asked, so the committed count stands alone)")
     return 0
 
 
@@ -430,6 +536,18 @@ CENSUS_SEAM = """TerrainBake.census({ census = function()
     end })"""
 
 
+def epoch_for(studio, studio_id, base_sha):
+    """The 16 hex of design 5.4, computed HERE from the Luau's own input string.
+
+    `TerrainBake.epochInputFor` builds the string (the landform digest, the geometry and
+    BAKE_VERSION); this is the digest the design's formula asks for, and nothing else makes one.
+    """
+    text = call(studio, studio_id, 'TerrainBake.epochInputFor("%s")' % base_sha, timeout=60)
+    if not isinstance(text, str):
+        raise RuntimeError("TerrainBake.epochInputFor did not answer a string: %r" % (text,))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
 def tile_pass(studio, studio_id, args, facts, sha, dry):
     """The tile loop, shared by `measure` (dry) and `bake` (wet). One MCP call per tile."""
     cells = args.cells
@@ -462,8 +580,14 @@ def tile_pass(studio, studio_id, args, facts, sha, dry):
             print("[bake] FAILED at tile %d: %s" % (index, report["message"]))
             return 1, entries
     log_run(cells, entries)
-    print("[bake] %s: %d/%d tiles @ %s cells=%s worstTileMs=%d (clean tree)"
-          % ("DRY OK" if dry else "OK", limit, limit, sha, ",".join(cells), worst))
+    # THE EPOCH IS STAMPED AT THE END OF A WET RUN, through TerrainBake.stamp, which design 2 names
+    # as its only writer -- and it is printed, because design 6.3 puts it in this line.
+    epoch = "dry"
+    if not dry:
+        epoch = epoch_for(studio, studio_id, args.base_sha or sha)
+        call(studio, studio_id, 'TerrainBake.stamp("%s") or "stamped"' % epoch, timeout=60)
+    print("[bake] %s: %d/%d tiles @ %s cells=%s epoch=%s worstTileMs=%d (clean tree)"
+          % ("DRY OK" if dry else "OK", limit, limit, sha, ",".join(cells), epoch, worst))
     return 0, entries
 
 
@@ -475,6 +599,7 @@ def main(argv):
     parser.add_argument("--backup", help="a .rbxl saved by File -> Save to File, outside the repo")
     parser.add_argument("--tiles", type=int, help="stop after this many tiles")
     parser.add_argument("--out", help="where `snapshot` writes, default <runs-dir>")
+    parser.add_argument("--base-sha", help="the base snapshot's sha256, which the epoch hashes")
     parser.add_argument("--y-min", type=float, default=-100.0, help="the Y band the snapshot reads")
     parser.add_argument("--y-max", type=float, default=400.0)
     args = parser.parse_args(argv)
@@ -489,7 +614,20 @@ def main(argv):
 
     facts = luau_facts()
     if args.command == "plan":
-        return command_plan(args, facts)
+        # `plan` is read-only, so a Studio is a bonus and never a requirement: with one it also
+        # compares against `Relief.tiles`' own count, and without one it says the check was skipped.
+        studio = None
+        try:
+            studio = Studio()
+            studio_id, _ = resolve(studio)
+        except Exception as problem:  # noqa: BLE001 -- a plan must still print with no Studio
+            print("[bake] note: no Studio addressed (%s)" % str(problem)[:120])
+            studio_id = None
+        try:
+            return command_plan(args, facts, studio if studio_id else None, studio_id)
+        finally:
+            if studio is not None:
+                studio.close()
 
     mutating = args.command in ("bake", "archive")
     if mutating and not args.cells:
@@ -552,6 +690,14 @@ def main(argv):
 
 
 # ---------------------------------------------------------------- selftest (CI; no Studio, no network)
+
+def _raises(fn):
+    try:
+        fn()
+    except Exception:  # noqa: BLE001 -- "it refuses" IS the assertion
+        return True
+    return False
+
 
 def selftest():
     """Every refusal above against a scripted Studio, plus the arithmetic `plan` asserts."""
@@ -695,7 +841,9 @@ def selftest():
     # The Luau this tool sends carries no module source -- the design's whole point (section 3).
     sent = CALL_TEMPLATE % 'TerrainBake.survey("C1")'
     ok("the sent Luau REQUIRES and injects nothing", "require(" in sent and "Relief.LANDFORMS" not in sent)
-    ok("the sent Luau names ServerStorage.TerrainBake", 'WaitForChild("TerrainBake")' in sent)
+    ok("the sent Luau names ServerStorage.TerrainBake", 'FindFirstChild("TerrainBake")' in sent)
+    ok("the sent Luau never blocks on WaitForChild for the module",
+       'WaitForChild("TerrainBake")' not in sent and "is not in this place" in sent)
     ok("the place id in the tool is the Forest Test's", FOREST_PLACE_ID == "130094961655666")
     # MEASURED 2026-11-02 in the Forest Test's Play server: GridCensus has measure/survey/line/
     # publish and NO `run`. The first version of this seam called `run()`.
@@ -706,6 +854,81 @@ def selftest():
     # The place id in the tool and the one in the Luau are one fact.
     ok("the tool and the Luau name the same place",
        str(int(number_from(BAKE_LUAU, r"^TerrainBake\.PLACE_ID = ([0-9_]+)"))) == FOREST_PLACE_ID)
+
+    # ---- the three refusals round 1 shipped with no case, and the two other items design 6.4 names
+    ok("refusal 3 ACCEPTS a clean tree", check_clean_tree(("abc123", []))[1] is None)
+    ok("refusal 3 rejects a dirty tree, and names the files",
+       "src/x.luau" in (check_clean_tree(("abc123", ["src/x.luau"]))[1] or ""))
+    ok("refusal 6 refuses `bake` with no --cells, before any Studio is opened", main(["bake"]) == 2)
+    ok("refusal 6 refuses `archive` with no --cells", main(["archive"]) == 2)
+    ok("an unknown cell is refused", main(["plan", "--cells", "Z9"]) == 2)
+
+    # REFUSAL 4 IS ASKED OF THE RESOLVED STUDIO (finding 3, round 1). The scripted compare records
+    # which id an UNSCOPED call would have gone to at the moment it ran.
+    asked = {}
+    saved_compare, saved_nodes = globals()["compare_synced"], globals()["synced_nodes"]
+    globals()["compare_synced"] = lambda studio, nodes: asked.update(
+        {"default": getattr(studio, "default_studio_id", None), "nodes": len(nodes)}) or []
+    globals()["synced_nodes"] = lambda: [
+        (("ServerStorage", "TerrainBake"), "ModuleScript", ["x"]),
+        (("ReplicatedStorage", "Grid"), "ModuleScript", ["y"]),
+        (("Workspace", "Something"), "Folder", ["z"]),
+    ]
+    try:
+        probe = FakeStudio()
+        probe.default_studio_id = "THE-DEV-DEFAULT"
+        problem = check_synced(probe, "THE-FOREST-ID")
+        ok("refusal 4 addresses the RESOLVED Studio, not the pinned default",
+           asked.get("default") == "THE-FOREST-ID", "asked %r" % (asked.get("default"),))
+        ok("refusal 4 puts the old default back afterwards", probe.default_studio_id == "THE-DEV-DEFAULT")
+        ok("refusal 4 passes when nothing differs", problem is None)
+        ok("refusal 4 compares only the heads the design names, not every synced node",
+           asked.get("nodes") == 2, "compared %s node(s)" % asked.get("nodes"))
+        globals()["compare_synced"] = lambda studio, nodes: ["Grid: Source differs"]
+        said = check_synced(FakeStudio(), "THE-FOREST-ID") or ""
+        ok("refusal 4 refuses when Studio differs from disk, and names Connect", "press Connect" in said)
+        ok("refusal 4 explains the Forest Test Source fault rather than blaming Connect alone",
+           "Source length 0" in said)
+        globals()["synced_nodes"] = lambda: []
+        ok("refusal 4 refuses when the sourcemap holds none of the heads",
+           "the sourcemap has no" in (check_synced(FakeStudio(), "x") or ""))
+    finally:
+        globals()["compare_synced"], globals()["synced_nodes"] = saved_compare, saved_nodes
+
+    # THE RUN-LOG WRITER (design 6.3).
+    rows = [{"minX": -4736, "minZ": -5376, "elapsedMs": 7}]
+    path = log_run(["C1"], rows)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            back = json.load(handle)
+        ok("the run log round-trips its per-tile reports", back == rows)
+        ok("the run log is named for the cells and sits in .terrainbake",
+           path.endswith("-C1.json") and os.path.dirname(path) == RUN_LOG_DIR)
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+
+    # THE CANONICAL ENCODER against the Luau own output (design 6.4).
+    ok("the Python canonical encoder matches the Luau, byte for byte",
+       canonical(CANONICAL_FIXTURE_INPUT) == CANONICAL_FIXTURE_OUTPUT,
+       canonical(CANONICAL_FIXTURE_INPUT)[:120])
+    ok("canonical sorts keys, so table order cannot change the epoch",
+       canonical({"b": 1, "a": 2}) == canonical({"a": 2, "b": 1}) == '{"a":2,"b":1}')
+    ok("canonical formats numbers %.6g, as the Luau does",
+       canonical(0.1 + 0.2) == "0.3" and canonical(1430) == "1430")
+    ok("canonical refuses what it cannot encode", _raises(lambda: canonical(object())))
+
+    # THE EPOCH IS A DIGEST OF THAT STRING, and 16 hex of it (design 5.4).
+    def digest(text):
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+    ok("the epoch is 16 hex of sha256 over the input string, and two inputs differ",
+       len(digest(CANONICAL_FIXTURE_OUTPUT)) == 16
+       and digest(CANONICAL_FIXTURE_OUTPUT) != digest(CANONICAL_FIXTURE_OUTPUT + "x"),
+       digest(CANONICAL_FIXTURE_OUTPUT))
+    ok("a BAKE_VERSION bump changes the epoch",
+       digest(canonical(CANONICAL_FIXTURE_INPUT))
+       != digest(canonical(dict(CANONICAL_FIXTURE_INPUT, bakeVersion=2))))
 
     print("[bake] selftest: %d check(s) failed" % len(failures) if failures else "[bake] selftest: PASS")
     return 1 if failures else 0

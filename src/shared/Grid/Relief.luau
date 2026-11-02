@@ -328,25 +328,36 @@ end
 --   h = base + k * ( (1 - baseKeep) * (blur(base) - base) + roadFade * delta )
 -- `k` is 1 inside the cell and 0 at `BLEND_STUDS` outside it, so past 200 studs the answer IS the
 -- base, exactly -- the blur fades out with the ops (design 3.0, 13.1 case 7).
+--
+-- `blend` OVERRIDES that `k` (task 328d). The bake fades ONCE, from the edge of the region it is
+-- baking, and multiplying its own fade onto this one gave two in series -- the square of the
+-- design's falloff. Handing the weight in keeps ONE fade and keeps it here, where the arithmetic
+-- lives. Omitted, nothing moves: every caller before 328d gets the cell-edge `k` exactly as before.
 function Relief.heightAt(
 	form: Landform,
 	bounds: Bounds,
 	roads: { Road },
 	baseAt: (number, number) -> number?,
 	x: number,
-	z: number
+	z: number,
+	blend: number?
 ): number?
 	local base = baseAt(x, z)
 	if base == nil then
 		return nil
 	end
-	local dx = math.max(bounds.minX - x, x - bounds.maxX, 0)
-	local dz = math.max(bounds.minZ - z, z - bounds.maxZ, 0)
-	local outside = math.sqrt(dx * dx + dz * dz)
-	if outside >= Relief.BLEND_STUDS then
+	local k: number
+	if blend ~= nil then
+		k = blend
+	else
+		local dx = math.max(bounds.minX - x, x - bounds.maxX, 0)
+		local dz = math.max(bounds.minZ - z, z - bounds.maxZ, 0)
+		local outside = math.sqrt(dx * dx + dz * dz)
+		k = 1 - smoothstep(outside / Relief.BLEND_STUDS)
+	end
+	if k <= 0 then
 		return base
 	end
-	local k = 1 - smoothstep(outside / Relief.BLEND_STUDS)
 	local smoothed = if form.baseKeep >= 1 then base else blurredAt(baseAt, x, z)
 	if smoothed == nil then
 		return nil
