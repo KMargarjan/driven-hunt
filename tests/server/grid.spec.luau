@@ -1203,8 +1203,17 @@ return function()
 						local zoneThere = Plan.zoneAt(found.id, item.x, item.z)
 						expect(zoneThere ~= nil).to.equal(true)
 						expect(zoneThere.spacingStuds > 0).to.equal(true)
+						-- ...THROUGH THE FRONTAGE RULE (task 328f): within 60 studs of a road or a
+						-- ride centreline only `frontage.groups` are drawn, so the mix a skirt
+						-- planting comes from is the neighbour zone's mix AS THAT RULE LEAVES IT.
+						-- `frontageRows` returns the mix unchanged outside the band.
+						local theirPlan = Plan.cellPlanFor(found.id)
+						local rows = Plan.cellMixNamed(zoneThere.mix)
+						if Plan.inFrontage(found.id, item.x, item.z) then
+							rows = Plan.frontageRows(theirPlan, rows)
+						end
 						local names = {}
-						for _, row in ipairs(Plan.cellMixNamed(zoneThere.mix)) do
+						for _, row in ipairs(rows) do
 							for _, name in ipairs((Plan.SPECIES :: any)[row.group]) do
 								names[name] = true
 							end
