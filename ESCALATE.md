@@ -1,3 +1,99 @@
+## 2026-11-02 ~13:56 UTC, Task 328d -- TWO HARD STOPS AT STEP 0, AND A REFUTED DESIGN PREMISE
+
+**NEEDS KAREN** and **NEEDS DIRECTOR**. The code, the tool, the selftest, the survey and the
+arithmetic are built and gated; **no `WriteVoxels` ran in Karen's Forest Test** and none can, for
+three measured reasons. Every reading below is from Karen's place in Edit at 13:49-13:56 UTC today,
+with the DEV place as the control for each.
+
+### 1. The backup file does not exist (Director decision 2, 2026-11-02)
+
+`Desktop\driven-hunt-backups\` exists and is **empty** (created 13:46 UTC). The gate is "exists,
+newer than 13:55 UTC 2026-11-02, over 10 MB". Nothing to measure.
+
+**NEEDS KAREN, exact clicks:**
+1. In Studio, with **Driven Hunt Forest Test** in front, click the **File** menu.
+2. Click **Save to File As...** (not "Save to Roblox").
+3. Navigate to `Desktop\driven-hunt-backups`.
+4. Type the file name `FT-before-328d` and press **Save**. It must come out over 10 MB.
+
+### 2. TEAM CREATE IS ON in the Forest Test (Director decision 4; design 17 D-2)
+
+`TeamCreateService` exposes no readable property in this Studio build (`IsEnabled`, `Enabled`,
+`TeamCreateEnabled`, `Connected` all read UNREADABLE), so the state is read off two signals, **with
+the DEV place as a control in the same Studio install, same probe** (`<runs-dir>/328d-tc.luau`):
+
+| signal | Forest Test | DEV (control) |
+|---|---|---|
+| `game:FindService("NetworkClient")` | `NetworkClient` | `nil` |
+| `#Players:GetPlayers()` | **1** -- `Alhamdulilah824`, uid 8167651842 = `game.CreatorId` | **0** |
+
+Two places, one Studio, one probe, opposite answers: the signal is a property of the session, not of
+the probe. **Read as Team Create ON with the owner connected.** Per the Director's decision 4 the
+bake stops here regardless of the backup.
+
+### 3. THE DESIGN'S OWN LOAD ROUTE DOES NOT WORK IN HER PLACE -- and this is the finding that matters
+
+`docs/design/grid-terrain.md` section 3 rules that the bake **requires** rather than injects, behind
+`check_synced` and a parentless-clone load. Measured, `<runs-dir>/328d-req2.luau` and `328d-src.luau`:
+
+| reading | Forest Test | DEV (control) |
+|---|---|---|
+| `#ReplicatedStorage.Grid.Source` | **0** | 27,750 |
+| `#(Grid.Relief:Clone()).Source` | **0** | 26,276 |
+| `require(ReplicatedStorage.Grid)` | **ERR** "Module code did not return exactly one value" | `grid:v1 cells=8` |
+| `require(RS.Grid.Relief:Clone())` | **ERR**, same | `bake=1` |
+| **every script instance in the place** | **297 of 297 read Source length 0** | reads real source |
+
+So in Karen's Forest Test, through StudioMCP's `execute_luau`, **no module can be required and no
+module's source can be read** -- which takes out BOTH halves of section 3's ruling at once:
+
+* the **parentless-clone load** (section 3 item 3) cannot load `Relief`, `Grid` or `TerrainBake`;
+* **`check_synced`** (section 3 item 2) compares `Source` byte for byte, and with every script
+  reading empty it can only ever refuse.
+
+It also explains `tools/forest_ground.py`'s injection, whose *stated* reason section 3 correctly
+calls stale (`servePlaceIds` does hold the Forest Test) -- but the injection works for a reason the
+design did not have: **it sends the text, so it needs neither `require` nor `Source`.** Section 3
+bettered the stale reason and not the real one.
+
+**This is an inference, labelled as one:** that Team Create *causes* the source fault is not proven
+here -- what is measured is that both are true of her place and neither is true of DEV. The two
+candidates are Team Create's script ownership and the MCP context's script security in that session.
+
+### NEEDS DIRECTOR -- one decision, and it is not the Builder's
+
+The bake cannot run by the route the design mandates. **No workaround was designed** (rule V280:
+the stop is written here first). The three routes, with what each costs:
+
+1. **Karen turns Team Create OFF** for the bake (File -> Session -> Team Create, or the Collaborate
+   button), re-opens the place, and the design's route is re-measured. If `require` then works, the
+   design stands unchanged and 328d finishes as written. **This is the cheapest test of the
+   inference and it costs one click plus one re-open.**
+2. **The bake injects** instead, as `forest_ground.py` does. That reverses section 3's ruling, loses
+   the lint and the diff on the Luau that is actually sent, and is an **Architect** decision, not a
+   Builder's.
+3. **The bake runs in DEV** and the Forest Test is re-synced. That is not what Karen asked for and it
+   does not reshape her ground.
+
+Recommendation: **1 first**, because it is a click and it settles the premise; **2** only if 1 fails,
+and then as an Architect run, not a Builder edit.
+
+### What IS measured, and is in `reviews/task-328d/REQUEST.md`
+
+The base snapshot over C1 and its four roads, the part survey over footprint + 430, the tile plan
+(1,333 whole-world / 208 for C1, both re-derived twice), the realised ditch and rut columns, and the
+fifteen stands against the base ground -- **worst stand 10, buried 24.33 studs by the base today**.
+NOT OBTAINABLE without a bake: the per-tile cost in seconds, the achieved ditch depth, the road
+crown, the landform census and the post-bake tree census.
+
+### NEEDS KAREN, the second click, for when the bake does run
+
+`StreamingMinRadius` **64 -> 384**: in Studio, click **Workspace** in the Explorer, find
+**StreamingMinRadius** in the Properties pane, type `384`, press Enter. It cannot be set or even read
+from a tool -- `StreamingMinRadius`, `StreamingTargetRadius` and `StreamingIntegrityMode` all answer
+*"not a valid member of Workspace"* in this Studio build, which `tools/studio_mcp.py`'s own
+`map_streaming_radius` already records for `StreamingTargetRadius`.
+
 ## 2026-11-02 ~13:55 UTC, Task 328d -- KAREN'S ANSWER TO Q1, and the order of the bake
 
 1. **Q1 is answered YES.** Karen, 2026-11-02 ~09:15 UTC, verbatim: *"yes"* -- we may permanently reshape the ground in her Forest Test after a full backup.
