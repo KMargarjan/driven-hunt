@@ -39,10 +39,18 @@ four arms and the two tile states with a FAIL FIRST on the old behaviour.
 The live run printed it: `[reshape] C1 reshape=false (TerrainEpoch is set and this cell carries no
 shape stamp: its landform is already in the ground)`.
 
-**It held.** `TerrainBake.survey` over C1, before and after TWO full bakes tonight:
-meanY 115.655 -> **116.14** (+0.49 studs), against the +3.67 per bake the drift probe predicted for
-the old path. maxY 150.17 -> 154.09 and lineMeanY 108.88 -> 112.83 -- those are the ROAD being
-re-cut and the pads, not the landform.
+**It held.** `TerrainBake.survey` over C1, before and after the THREE full bakes this task ran
+(two at `9946c7da`, one at the final `c7d97625`): meanY 115.655 -> **116.43**, **+0.78 studs in
+all**, against +3.67 PER BAKE the drift probe predicted for the old path.
+
+**But the ROAD half is still not idempotent, and it is measured on those same three runs.**
+`profilesFor` reads the long profile off LIVE ground, which after a bake already holds the road, so
+the cut-or-fill clamp lets the crown creep: `lineMeanY` went 108.88 -> 112.83 (two bakes) ->
+**114.81** (the third), about **+2 studs a bake**, and the fifteen stands moved up to **3.42 studs**
+between the last two. Same root cause -- nothing stores the original base -- and the same answer,
+design 5.3 step 2's whole-cell snapshot. **NEEDS DIRECTOR: C1 should not be re-baked again until
+that exists.** C1's main line is ~6 studs higher than when this task started; three of those are
+mine, for re-running the bake at the final code commit.
 
 ### What this does NOT fix, and it is the Director's to schedule
 
