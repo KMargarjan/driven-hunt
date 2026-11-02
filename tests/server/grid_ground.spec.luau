@@ -236,22 +236,37 @@ return function()
 			-- THE QUARANTINE IS EMPTY TODAY -- all 35 templates pass -- so the door has to be driven to
 			-- be proved (round 1, finding 1). `isQuarantined` is stubbed for one name and the memo
 			-- forgotten; everything else is the shipped code.
-			local victim = "SilverBirch_Var11_LOD_0"
+			-- THE VICTIM IS A FERN, so the fixture can be a template that genuinely PASSES its own
+			-- measured row: `SM_Forest_Fern_Var01` is one part, 2.2 studs tall, at scale 1.
+			local victim = "SM_Forest_Fern_Var01"
+			local group = "fern"
 			local real = Plan.isQuarantined
 			local function restore()
 				Plan.isQuarantined = real
 				Plan.forgetPlantable()
 			end
-			local model = template(victim, Vector3.new(2, 40, 2), Vector3.new(16, 10, 16))
-			-- BEFORE: it is a sound template and the planter plants it.
+			local function fern(): Model
+				local made = Instance.new("Model")
+				made.Name = victim
+				local part = Instance.new("Part")
+				part.Name = "Trunk"
+				part.Size = Vector3.new(9.6, 2.2, 9.6)
+				part.Anchored = true
+				part.CFrame = CFrame.new(0, 1.1, 0)
+				part.Parent = made
+				made.PrimaryPart = part
+				return made
+			end
+			local model = fern()
+			-- BEFORE: it is a sound template -- it passes its OWN measured row -- and is planted.
 			expect(Planter.auditTemplate(model, victim)).to.equal(nil)
-			local beforeNames = Plan.namesOf("birch")
+			local beforeNames = Plan.namesOf(group)
 			expect(table.find(beforeNames, victim) ~= nil).to.equal(true)
 			local function buildWith(): any
 				local world = Instance.new("Folder")
 				local forest = Instance.new("Folder")
 				forest.Name = "OurForest"
-				local source = template(victim, Vector3.new(2, 40, 2), Vector3.new(16, 10, 16))
+				local source = fern()
 				source.Parent = forest
 				forest.Parent = world
 				local report = Planter.build(function()
@@ -284,7 +299,7 @@ return function()
 				-- (a) the audit refuses it, by name, before it measures anything.
 				expect(Planter.auditTemplate(model, victim)).to.equal("quarantined")
 				-- (b) `namesOf` drops it, and drops only it.
-				local after = Plan.namesOf("birch")
+				local after = Plan.namesOf(group)
 				expect(#after).to.equal(#beforeNames - 1)
 				expect(table.find(after, victim)).to.equal(nil)
 				for _, name in ipairs(beforeNames) do
@@ -311,7 +326,7 @@ return function()
 			end
 			-- AND THE DOOR OPENS AGAIN, so the stub is proved to have been the only thing holding it.
 			expect(Planter.auditTemplate(model, victim)).to.equal(nil)
-			expect(table.find(Plan.namesOf("birch"), victim) ~= nil).to.equal(true)
+			expect(table.find(Plan.namesOf(group), victim) ~= nil).to.equal(true)
 			model:Destroy()
 		end)
 

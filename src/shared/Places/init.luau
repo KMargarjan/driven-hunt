@@ -1287,7 +1287,13 @@ function Places.layer(layout: any, plan: any, rng: Random, minX: number, maxX: n
 							local into = if floor then "herb" else Places.bandAt(reach, plan)
 							if into ~= nil and reach > 0 and not tooClose(grid, jx, z, gap) then
 								local group = Places.speciesFrom((plan :: any)[into], rng:NextNumber())
-								local names = (Places.SPECIES :: any)[group]
+								-- `namesOf` AND NOT `SPECIES` DIRECTLY, the same door `scatter` uses: it is
+								-- the ONE place a quarantined template is dropped, and the four line
+								-- places must not be the hole in it (round 1, finding 1).
+								local names = Places.namesOf(group)
+								if #names == 0 then
+									continue
+								end
 								local scale
 								if floor then
 									scale = 0.8 + rng:NextNumber() * 0.9
