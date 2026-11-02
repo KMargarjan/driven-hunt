@@ -1,3 +1,82 @@
+## 2026-11-02 ~15:45 UTC, Task 328d -- ROUND 2 FOUND FOUR, ALL FOUR ARE RIGHT, AND THE DISPATCH SAYS STOP
+
+The dispatch: *"Review: at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."*
+Round 2's verdict (`reviews/task-328d/RESULT.md`, commit `add945ec`, $6.32) lists four blocking
+findings. **I checked each one against the code myself rather than taking it on trust, and all four
+are correct.** Two of them are defects I would not want baked into Karen's ground.
+
+### 1. The ditch and the ruts are cut on ONE SIDE of every road. CONFIRMED, and it is the worst of the four.
+
+`TerrainBake.roadAt` compares a distance `d = math.abs(across - centre)`, which is never negative,
+against a band it builds as `centre - ditchFar` on the far side. Reproduced numerically for EW2:
+
+```
+ditch columns -5088..-5080  ->  d 19..27
+side +1: rut window [3,7]    ditch window [19,27]    reachable by d>=0: YES
+side -1: rut window [-7,-3]  ditch window [-27,-19]  reachable by d>=0: NO
+```
+
+All eight road centres sit at = 1 (mod 4) (design 7.1, F-2), so `columnsFor` returns bounds above
+the centre for **every road in the world** and the minus-side branch is dead everywhere, not in a
+corner. What the minus side actually gets is a flat Grass shoulder where 7.1's table requires two
+whole columns of Mud 2 studs deep. **My round-2 claims 2 and 3 are therefore true for one half of
+each road and false for the other, and no case I wrote samples the minus side** -- 328d-15 only
+calls `at(d)` with d > 0, and 328d-16 reads both its points above `road.at`. That is my error twice
+over: in the arithmetic, and in writing cases that could only see the half that worked.
+
+### 2. The wet path recomputes the long profiles per tile, off LIVE terrain. CONFIRMED.
+
+`tile_pass` sends `bakeTileAt(index, cells, yMin, yMax, dry)` -- five arguments, no profiles -- and
+`bakeTileAt` falls back to `profilesFor(cellIds)`, whose default sampler raycasts `Workspace.Terrain`.
+**My own code comment says why that is wrong** ("a profile read off half-baked ground would depend on
+the tile order ... the base only while nothing has been written yet"), and my round-2 claim 2 asserts
+the opposite -- "computes every profile ONCE from the base, before any write". The route I shipped
+cannot do what the claim says. Two tiles of one road baked in different orders would meet at a step.
+It is also ~900 raycasts a tile, ~187,000 over C1's 208, against an 8 s/tile target nobody has measured.
+
+### 3. `EXPECTED_TILES` is wrong for seven of the eight cells. CONFIRMED, with the numbers.
+
+I wrote 208 for every cell on the assumption that equal-sized cells tile equally. They do not: the
+count depends on the lattice PHASE, not the width. Re-derived from the tool's own arithmetic:
+
+```
+A1 224 (14x16)  B1 224  C1 208 OK  D1 224
+A2 238 (14x17)  B2 238  C2 221     D2 238      ALL 1333 OK
+```
+
+So `plan --cells A1` would now REFUSE a perfectly correct region. Round 1 shipped an assertion that
+could never fail; round 2 replaced it with one that fails on seven of eight correct inputs. 328e and
+328f bake those cells.
+
+### 4. Two of the three things claim 2 offers 328d-14 as proof of survive deletion. CONFIRMED by reading.
+
+The grade-CHANGE limiter and the whole relaxation arm can both be deleted with 328d-14 still green:
+its only step assertion is satisfied by the min-cone sweep above them, and its only `relaxed`
+assertion is on a flat base that the initialiser already satisfies. Design 7.1 states the relaxation
+as an obligation ("a breach relaxes the grade on that road and is printed, never hidden"), so the
+arm that decides whether a road silently exceeds its clamp is the one with no case.
+
+### NEEDS DIRECTOR -- and this one is cheap
+
+The four fixes are small and I know exactly what each is: a signed offset (or a second `columnsFor`
+on the minus side) with a case on **each** side; profiles computed once by the tool and handed to
+every tile, with a case that two tiles share a crown at one x; the seven real counts committed with
+a case on a second cell; and two cases that force a relaxation and a grade-change breach.
+
+**The repo's own cap is 3 rounds, so a round 3 needs no authorisation at all** -- `MAX_ROUNDS` is 3
+and this was round 2. It is the DISPATCH that caps this task at two. So the Director's choice is
+just: say "take round 3" and the four are fixed in one pass, or redispatch. I have stopped as
+instructed rather than deciding that for myself.
+
+**Nothing merges as it stands.** The branch is green on the gate and on CI, but finding 1 means the
+bake it describes would cut half a ditch, and findings 1-3 were all introduced or left by me.
+
+### And the three hard stops from 13:56 UTC still stand, unchanged
+
+The backup file still does not exist, Team Create still reads ON in Karen's Forest Test, and her
+Edit session still cannot `require` or read the `Source` of any of its 297 scripts. **No `WriteVoxels`
+has run in her place at any point in this task.**
+
 ## 2026-11-02 ~13:56 UTC, Task 328d -- TWO HARD STOPS AT STEP 0, AND A REFUTED DESIGN PREMISE
 
 **NEEDS KAREN** and **NEEDS DIRECTOR**. The code, the tool, the selftest, the survey and the
