@@ -1,3 +1,10 @@
+## 2026-11-02 ~17:05 UTC, Task 328d round 3 -- DIRECTOR DECISIONS: no round 4; follow-up task 328j; the backup exists; the steep roads
+
+1. **No round 4.** The extra round is for documentation-only findings, and both round-3 findings are code. **Task 328j** takes exactly the two: (a) the selftest case must not construct `Studio()` -- call `command_plan` with no transport, CI hermetic; (b) build design 7.1's junction pinning and E-W precedence, with a case that measures the step across each of C1's four crossings and fails before the fix. 328j works on the same branch, `task-328d-bake-c1`; its reviews go in `reviews/task-328j/`, Round 1. 328d and 328j merge together as one PR once 328j passes.
+2. **THE BACKUP EXISTS.** Karen delegated it to the Director (2026-11-02 ~16:45 UTC, verbatim: *"you do and I quit continue working see ya tomorrow"*). Her place is Team Create, which offers **File -> Download a Copy** and no Save to File As; the Director used it. `Desktop\driven-hunt-backups\FT-before-328d.rbxl`, **29,360,598 bytes, 17:00 UTC** -- decision 2's gate (exists, newer than 13:55 UTC, over 10 MB) is MET. Her Forest Test is open again on `:34873`, Edit mode.
+3. **NS3 / NS4 (13-16 % realised grades).** Raise `cutFillStuds` for the north-south roads only, in steps, to the smallest value that brings each under **12 %**, with a hard ceiling of **20 studs** of cut or fill; a road that still exceeds 12 % at 20 studs keeps its relaxed grade, printed, and gets a frame from the truck for Karen. A deeper road cutting through rising ground is what a real forest road does; a 1-in-7 track is not.
+4. **After 328j passes review: bake C1 and its four roads in her place** at the code commit, with the before/after frames and census of the 328d brief. She is away until tomorrow morning; the Director accepts the frames tonight and she judges them in the morning.
+
 ## 2026-11-02 ~16:55 UTC, Task 328d -- ROUND 3 FOUND TWO, BOTH ARE RIGHT, AND I STOPPED AS THE DISPATCH SAYS
 
 The dispatch: *"Review: this is round 3, the last. A finding on round 3 goes to ESCALATE.md and
