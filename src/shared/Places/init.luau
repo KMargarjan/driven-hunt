@@ -1077,8 +1077,8 @@ Places.CELL_PLANS = table.freeze({
 		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
 		scaleFloor = 0.35,
 		zones = table.freeze({
-			zone(0.00, 0.00, 1.00, 0.26, 26, "larchYoung", "shrub"),
-			zone(0.00, 0.26, 0.35, 0.65, 28, "larchYoung", "shrub"),
+			zone(0.00, 0.00, 1.00, 0.26, 26, "larchYoung", "shrub", { rows = "NS", jitter = 0.25 }),
+			zone(0.00, 0.26, 0.35, 0.65, 28, "larchYoung", "shrub", { rows = "NS", jitter = 0.25 }),
 			zone(0.35, 0.26, 1.00, 0.65, 38, "mixedWood", "wood"),
 			zone(0.00, 0.65, 1.00, 0.82, 0, "clearing", "wood"),
 			zone(0.00, 0.82, 1.00, 1.00, 28, "scrub", "shrub"),
@@ -1478,16 +1478,34 @@ end
 
 -- ONE ZONE AS A WORLD RECTANGLE. The fractions are of the cell's INSET ground, so the zones still
 -- tile it exactly and the inset is taken off the outside and never out of a zone boundary.
+--
+-- MEMOISED PER (cell, zone), and that is not a micro-optimisation: `Places.mask` asks `zoneAt` for
+-- every candidate, `zoneAt` asks this for every zone, and the planter plus the specs make something
+-- like a million calls -- each of which allocated a fresh table. Both inputs are frozen (`Grid.CELLS`
+-- and `CELL_PLANS`), so there is nothing to invalidate; `Places.forgetCells` drops it anyway, for the
+-- same reason the mask's own cache has that door.
+local ZONE_RECTS: { [string]: { [any]: any } } = {}
 function Places.zoneRect(cellId: string, z: any): { minX: number, maxX: number, minZ: number, maxZ: number }
+	local forCell = ZONE_RECTS[cellId]
+	if forCell == nil then
+		forCell = {}
+		ZONE_RECTS[cellId] = forCell
+	end
+	local found = forCell[z]
+	if found ~= nil then
+		return found
+	end
 	local ground = Places.cellGround(cellId)
 	local width = ground.maxX - ground.minX
 	local depth = ground.maxZ - ground.minZ
-	return {
+	local made = {
 		minX = ground.minX + z.at[1] * width,
 		minZ = ground.minZ + z.at[2] * depth,
 		maxX = ground.minX + z.at[3] * width,
 		maxZ = ground.minZ + z.at[4] * depth,
 	}
+	forCell[z] = made
+	return made
 end
 
 -- WHICH ZONE A WORLD POINT IS IN, or nil outside the cell's ground and in a gap no zone covers. The
@@ -1560,7 +1578,11 @@ Places.RIDE_CLEAR_STUDS = 54
 Places.RIDE_PAINT_STUDS = 24
 
 -- THE DITCH AND THE VERGE, from design 7.1's table. No tree and no fern stands in either.
-Places.DITCH_STUDS = table.freeze({ from = 22, to = 30 })
+--
+-- THE DITCH STARTS AT `roadClearStuds / 2` (21) AND NOT AT THE TABLE'S 22, so the three bands tile
+-- [0, 34] with no stud between them belonging to nothing: 21 is the clear width the rest of the
+-- game already measures against (`Places.clearOfEveryRoad`, `grid.spec` case 12's identity), and a
+-- one-stud gap would have read `nil` -- plantable -- between the road and the ditch.
 Places.VERGE_STUDS = table.freeze({ from = 30, to = 34 })
 
 -- HOW FAR A PLANTED TREE'S TRUNK CENTRE CAN END UP FROM THE POINT THE PLAN ASKED FOR, and it is
@@ -1581,10 +1603,9 @@ Places.TOWER_CLEAR_STUDS = 24
 Places.CONE = table.freeze({
 	halfDegrees = 30,
 	nearStuds = 40,
+	-- On a TOWER stand young growth is allowed in the far cone: a larch's top is under the
+	-- 17.5-stud deck eye (`HighSeats.DIMS.DECK_RISE_STUDS` 12.5 + 5), so he looks over it.
 	farStuds = 140,
-	-- On a TOWER stand young growth is allowed in the far cone: its top is under the 17.5-stud deck
-	-- eye (`HighSeats.DIMS.DECK_RISE_STUDS` 12.5 + 5).
-	towerTopStuds = 13.5,
 })
 
 -- WHERE AN "X" CUT CROSSES THE SIGHT LINE: the far edge of the managed cone, so the cut ends the
@@ -1801,16 +1822,6 @@ local function segmentDistance(seg: Segment, x: number, z: number): number
 	return math.sqrt((x - px) * (x - px) + (z - pz) * (z - pz))
 end
 
--- A BEATER CORRIDOR'S CENTRELINE AT ONE DEPTH. The wander is a hash of the cell and the corridor
--- plus a sine of z, so it is PURE and the same every run -- `Grid.seedFor`'s own discipline, with no
--- `Random` object carrying state between calls.
-function Places.corridorXAt(cellId: string, index: number, z: number): number
-	local box = Grid.boundsOf(cellId)
-	local phase = (Grid.seedFor(cellId, 90 + index) % 1000) / 1000 * math.pi * 2
-	local wander = math.sin(z / Places.CORRIDOR.waveStuds * math.pi * 2 + phase) * Places.CORRIDOR.jitterStuds
-	return box.minX + Places.CORRIDOR.atStuds[index] + wander
-end
-
 -- THE CELL'S FIELD, as a world rectangle, or nil where the recipe carries none (design 8.1: D1).
 function Places.fieldRect(cellId: string): { minX: number, maxX: number, minZ: number, maxZ: number }?
 	local plan = Places.cellPlanFor(cellId)
@@ -1855,9 +1866,20 @@ local function cellFacts(cellId: string): CellFacts
 	return built
 end
 
+-- A BEATER CORRIDOR'S CENTRELINE AT ONE DEPTH. The wander is a hash of the cell and the corridor
+-- plus a sine of z, so it is PURE and the same every run -- `Grid.seedFor`'s own discipline, with no
+-- `Random` object carrying state between calls.
+function Places.corridorXAt(cellId: string, index: number, z: number): number
+	local facts = cellFacts(cellId)
+	local wander = math.sin(z / Places.CORRIDOR.waveStuds * math.pi * 2 + facts.corridors[index])
+		* Places.CORRIDOR.jitterStuds
+	return facts.minX + Places.CORRIDOR.atStuds[index] + wander
+end
+
 -- FORGET IT. `Places.forgetPlantable`'s own reason, for the mask's half of the data.
 function Places.forgetCells()
 	CELL_FACTS = {}
+	ZONE_RECTS = {}
 end
 
 -- MAY A TREE STAND HERE? `nil` means yes; anything else is a `Places.REASON`, in `REASON_ORDER`.
@@ -1899,8 +1921,8 @@ function Places.mask(cellId: string, x: number, z: number, template: string?, sc
 		end
 	end
 	-- 7 THE FIELD, less its headland: the headland is where the hedge and the lone oaks stand.
-	if plan ~= nil and plan.field ~= nil then
-		local field = Places.zoneRect(cellId, plan.field)
+	local field = Places.fieldRect(cellId)
+	if plan ~= nil and field ~= nil then
 		local inset = plan.field.headlandStuds or 0
 		if
 			x >= field.minX + inset
@@ -1948,9 +1970,8 @@ function Places.mask(cellId: string, x: number, z: number, template: string?, sc
 	end
 	-- 12 THE BEATER CORRIDORS.
 	if not herb then
-		for index, phase in ipairs(facts.corridors) do
-			local wander = math.sin(z / Places.CORRIDOR.waveStuds * math.pi * 2 + phase) * Places.CORRIDOR.jitterStuds
-			if math.abs(x - (facts.minX + Places.CORRIDOR.atStuds[index] + wander)) <= Places.CORRIDOR.halfStuds then
+		for index = 1, #facts.corridors do
+			if math.abs(x - Places.corridorXAt(cellId, index, z)) <= Places.CORRIDOR.halfStuds then
 				return R.CORRIDOR
 			end
 		end
@@ -1989,18 +2010,24 @@ function Places.mask(cellId: string, x: number, z: number, template: string?, sc
 	return nil
 end
 
--- IS THIS TEMPLATE'S GROUP ONE THE FRONTAGE ALLOWS? A plan with no `frontage` row allows everything.
-function Places.frontageAllows(plan: any, template: string?): boolean
+-- IS THIS GROUP ONE THE FRONTAGE ALLOWS? A plan with no `frontage` row allows everything.
+function Places.frontageAllowsGroup(plan: any, group: string?): boolean
 	if plan == nil or plan.frontage == nil then
 		return true
 	end
-	local group = Places.groupOf(template)
 	for _, each in ipairs(plan.frontage.groups) do
 		if each == group then
 			return true
 		end
 	end
 	return false
+end
+
+-- ...AND THE SAME QUESTION ASKED OF A TEMPLATE NAME, which is what the mask has. Two names for one
+-- rule because the two callers hold two different things, and asking the template version with a
+-- GROUP answers false for every group there is -- round 2's own defect, caught by the spec.
+function Places.frontageAllows(plan: any, template: string?): boolean
+	return Places.frontageAllowsGroup(plan, Places.groupOf(template))
 end
 
 -- IS THIS POINT IN A FRONTAGE BAND -- within `frontage.studs` of a road or a ride centreline?
@@ -2022,18 +2049,26 @@ end
 
 -- THE MIX A FRONTAGE BAND DRAWS FROM. Design 7.2 says it plainly -- *"within 60 st of any road or
 -- ride centreline, only those four groups are drawn"*, and A1's spruce thicket *"becomes birch and
--- larch"* -- so it is the FOUR GROUPS, not the four groups a zone happens to already carry. The
--- zone's own weights are kept where they overlap and a missing group joins at weight 1, which is
--- what keeps a frontage in character instead of making all eight cells the same hedge.
+-- larch"* -- so it is the FOUR GROUPS, not the four a zone happens to already carry. The zone's own
+-- weights are kept where they overlap and a missing group joins at weight 1, which keeps a frontage
+-- in character instead of making all eight cells the same hedge.
 --
 -- **AND IT IS WHY THE RULE COSTS NO DENSITY.** MEASURED: taking the INTERSECTION instead left C1's
 -- roadside thicket able to draw only `young`, which the front cone then refuses in the 40-140 st
 -- band of every stand -- and frame `328f-AFTER-G5` (2026-11-02, cycle 2) came back as bare grass
--- where Karen had a wall of spruce. An empty mix (a clearing) stays empty: nothing is drawn there
--- at all, and a frontage must not invent a wood in one.
+-- where Karen had a wall of spruce. An empty mix (a clearing) stays empty: a frontage must not
+-- invent a wood in one.
+--
+-- **IT IS A TREE RULE.** A mix carrying ground cover (`Places.HERB_GROUPS`) is passed through
+-- untouched, so the fern floor can never be rewritten into a wood -- round 1, finding 1.
 function Places.frontageRows(plan: any, rows: any): any
 	if plan == nil or plan.frontage == nil or rows == nil or #rows == 0 then
 		return rows
+	end
+	for _, row in ipairs(rows) do
+		if (Places.HERB_GROUPS :: any)[row.group] then
+			return rows
+		end
 	end
 	local out = {}
 	local carried: { [string]: boolean } = {}
@@ -2052,6 +2087,24 @@ function Places.frontageRows(plan: any, rows: any): any
 		end
 	end
 	return out
+end
+
+-- THE GROUP A FRONTAGE SITE ACTUALLY TAKES, given the one the zone -- and then the relief bias --
+-- chose. A group the frontage allows is kept, so the zone's own character survives wherever it can;
+-- anything else is re-drawn from `frontage.groups`. `roll` is in [0, 1). Ground cover is never
+-- rewritten (round 1, finding 1).
+function Places.frontageGroupFor(plan: any, group: string, roll: number): string
+	if plan == nil or plan.frontage == nil then
+		return group
+	end
+	if (Places.HERB_GROUPS :: any)[group] or Places.frontageAllowsGroup(plan, group) then
+		return group
+	end
+	local rows = {}
+	for _, each in ipairs(plan.frontage.groups) do
+		table.insert(rows, { group = each, weight = 1 })
+	end
+	return Places.speciesFrom(rows, roll)
 end
 
 -- WHICH LETTER A STAND IS, DERIVED FROM THE PLAN AND NEVER WRITTEN DOWN (design 8.5). A hand-written
@@ -2375,26 +2428,37 @@ local function scatter(
 			if jx >= rect.minX and jx <= rect.maxX and jz >= rect.minZ and jz <= rect.maxZ and site == nil then
 				local rowsFor, band = pick(jx, jz)
 				if rowsFor ~= nil and band ~= nil and #rowsFor > 0 and not tooClose(grid, jx, jz, gap) then
-					-- THE FRONTAGE DRAWS FROM THE ALLOWED GROUPS rather than refusing the site, which
-					-- is why the rule costs no density (design 7.2).
-					if o.maskCell ~= nil and o.maskPlan ~= nil and Places.inFrontage(o.maskCell, jx, jz) then
-						rowsFor = Places.frontageRows(o.maskPlan, rowsFor)
-					end
-					if #rowsFor == 0 then
-						continue
-					end
 					local group = Places.speciesFrom(rowsFor, rng:NextNumber())
-					-- THE RELIEF BIAS (design 8.3): spruce in the cold bottom, birch on the top.
+					-- THE RELIEF BIAS FIRST (design 8.3): spruce in the cold bottom, birch on the
+					-- top. BEFORE the frontage, so the bias reads the zone's own wood and the
+					-- frontage still has the last word -- which is what keeps a crown off the road.
 					if relief ~= nil then
 						local y = (o.heightAt :: any)(jx, jz)
 						if y ~= nil then
 							local hn = (y - relief.minY) / relief.spreadStuds
-							if hn < 0.30 and group ~= "conifer" and group ~= "fern" then
+							if hn < 0.30 and group ~= "conifer" then
 								group = "conifer"
 							elseif hn > 0.70 and group == "conifer" then
 								group = "birch"
 							end
 						end
+					end
+					-- THE FRONTAGE DRAWS FROM THE ALLOWED GROUPS rather than refusing the site,
+					-- which is why the rule costs no density (design 7.2).
+					--
+					-- **IT IS A RULE ABOUT TREES AND IT MAY NOT TOUCH THE FLOOR** (round 1, finding
+					-- 1): `fernFloor` carries one row, `fern`, which is in no `frontage.groups`, so
+					-- rewriting the herb layer dropped that row, put the four TREE groups back, and
+					-- planted full trees at the herb band's own 0.8-1.7 scale -- wider than the wood
+					-- band's 0.8-1.2 -- on the FLOOR's neighbour grid, where `minGapStuds` could not
+					-- see them against the zone layer's trunks.
+					if
+						band ~= "herb"
+						and o.maskCell ~= nil
+						and o.maskPlan ~= nil
+						and Places.inFrontage(o.maskCell, jx, jz)
+					then
+						group = Places.frontageGroupFor(o.maskPlan, group, rng:NextNumber())
 					end
 					-- `namesOf` AND NOT `SPECIES` DIRECTLY: it is the one door that drops a quarantined
 					-- template, so no caller can plant one (design 9.3).

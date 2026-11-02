@@ -1448,6 +1448,10 @@ return function()
 			-- function of a height, so a plan made WITHOUT one is a different, equally valid plan --
 			-- `woods` above has no reader on purpose, and comparing the two would compare two worlds.
 			expect(report.wanted).to.equal(#Plan.plantCell(id, hillside))
+			-- ...AND THAT IS NOT A VALUE COMPARED WITH ITSELF (round 1, finding 2): the plan WITH a
+			-- reader and the plan without one are different plans, so the line above fails if
+			-- `dressCell` stops handing the ground reader through. `woods[id]` is the no-reader one.
+			expect(#Plan.plantCell(id, hillside) ~= #woods[id]).to.equal(true)
 			expect(report.planted > 0).to.equal(true)
 			expect(report.missing).to.equal(0)
 			expect(report.destroyed).to.equal(0)
