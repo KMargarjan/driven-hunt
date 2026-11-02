@@ -19,6 +19,15 @@ the game -- which is the thing lesson L-031 asks to be verified rather than prom
 exists because Karen's Forest Test place is a DIFFERENT place: `default.project.json` serves only
 the DEV place, so `require(ReplicatedStorage.TreeGround)` would be yesterday's copy, or absent.
 
+THE INJECTION'S STATED REASON IS STALE -- the note the design leaves for whoever next touches
+this tool, pasted verbatim from `docs/design/grid-terrain.md` section 16 (task 328b, Director
+decision 1; queued as section 17 D-3):
+
+  The injection's stated reason is stale: `default.project.json`'s `servePlaceIds` holds the Forest
+  Test as well as DEV, so `require(ReplicatedStorage.TreeGround:Clone())` behind
+  `compare_synced` is available and is what `tools/terrainbake.py` does
+  (`docs/design/grid-terrain.md` §3). This tool is not rewritten here; it works, and rule 7 applies.
+
 THE RULE, IN ONE SENTENCE: plant the tree so the TRUNK/ROOT JUNCTION -- the height at which the
 base stops being claws and becomes trunk -- is at or just below the LOWEST terrain anywhere under
 the trunk's own footprint, and let the claws bury themselves on the high side. Seating the claw

@@ -1251,3 +1251,12 @@ parameter shape, and `Drive.deepFreeze`/`table.freeze` for data with no run-time
 * **D6. Task 194's beater ground** sits **north of z −3460** on places 3 and 4 (beyond the planted
   belt's far edge) and **inside the existing wood** on place 2. This task leaves that room and builds
   nothing in it (BRIEF D5).
+
+*Appended verbatim from `docs/design/grid-terrain.md` section 16 (task 328b, Director decision 1).*
+
+> **§1.2 item 3 is NARROWED by `docs/design/grid-terrain.md` §1.2 item 1** (task 328): the grid's
+> terrain height is written once, at Edit time, by a tool, in the Forest Test only. **Nothing under
+> `src/` writes terrain height or material**, so this document's prohibition holds for every system
+> it is about. **§7.2's unverified premise — that a Play session's terrain write is discarded when
+> Play stops — stops mattering here**: the bake runs in **Edit** and is saved on purpose, and its
+> rollback is the backup `.rbxl`, not a discard.
