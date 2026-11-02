@@ -149,6 +149,32 @@ print(
 		planted.gridSeconds
 	)
 )
+-- ...AND THE CELL'S WOOD (task 327c), printed and never assumed (design 11): how many models went
+-- in, how many the ground refused, how many parts that is against the design's < 22,000, and what
+-- the slice spent -- steps, average and worst step, and how long the whole dress took.
+local wood = planted.gridWood
+if wood ~= nil then
+	print(
+		string.format(
+			"[ForestTestBoot] grid wood %s: %d of %d planted (%d parts), %d on a step, %d skipped, %d missing, "
+				.. "%d destroyed, capacity %d, %d slice step(s) avg %.2f ms worst %.2f ms over budget %d, %.2fs",
+			tostring(wood.cell),
+			wood.planted,
+			wood.wanted,
+			wood.parts,
+			wood.cliff,
+			wood.skipped,
+			wood.missing,
+			wood.destroyed,
+			wood.capacity,
+			wood.steps,
+			wood.stepMsAvg,
+			wood.stepMsMax,
+			wood.overBudgetStarts,
+			wood.seconds
+		)
+	)
+end
 
 -- ONE CELL'S STANDS AND TOWERS, UNDER THE PREVIEW (task 327b, design 17's 327b). Karen's own line
 -- for this task is *"she stands on all 15 stands of one cell and climbs its towers"*, and nothing
