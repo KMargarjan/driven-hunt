@@ -48,7 +48,7 @@ inside the junction square: (+5,+10) -> 159.95, (+10,+5) -> 99.95  ->  60.00 stu
 
 Nothing softens it: `shapeTile` marks the whole carriageway `exempt`, so `limitGrid` may not move it.
 **C1's own bake writes four such crossings** (EW2/EW3 x NS3/NS4). On Karen's real ground the two
-axes' cut-or-fill differ by 13 studs (EW2 1.02, NS3 14.07 at `f30854ff`), so the real step is not
+axes' cut-or-fill differ by 13 studs (EW2 1.02, NS3 14.07, `measure` at `c9962d44`), so the step is not
 knowable without measuring it in her place -- which I could not do, see below. This gap is not new in
 round 3; it was in rounds 1 and 2 and nobody named it, including me.
 
@@ -107,7 +107,10 @@ in this Studio build.
 
 ### NEEDS DIRECTOR -- C1's roads cannot meet the 12-stud cut-or-fill cap on her ground, and that is measured
 
-The long profiles, computed once off her real base at `f30854ff` and printed in full by the tool:
+The long profiles, computed once off her real base and printed in full by the tool. **These rows are
+from the `measure` run at `c9962d44`**, the commit before the code commit; `f30854ff` changed only
+the breach threshold and added `realisedGradePercent`, so the heights and relaxations are unchanged
+by it:
 
 | road | ceiling it ended on | realised grade | cut-or-fill | relaxed |
 |---|---|---|---|---|
@@ -127,12 +130,17 @@ now has cases on both halves -- but nobody should first see a 1-in-7 road in a p
 
 ### What IS measured at the code commit, in her place, and what is not
 
-Measured: the base over C1 + its roads + 200 (minY 83.89, maxY 160.00, spread 76.11, 8,019 samples,
-0 missed); the four roads' own base spans; **per-tile cost 84-106 ms against the design's unmeasured
-8 s target**; the realised ditch **1.99 st deep and Mud on BOTH sides of every road** (target 2.00,
-error 0.01 st, so design 15 item 2's 4-stud fallback is NOT triggered); cross-fall 0.160 st at the
-sampled column, inside the 0.5-st rule; the 15 stands against the base ground (worst: stand 10,
-**buried 24.33 st**; stands 8 and 9 floating 17.82 st); three before-frames from eye height.
+Measured, with the run each number came from (V284 -- no row blends two runs):
+* **at `c9962d44`** (`measure --cells C1 --tiles 10`, twice): **per-tile cost 84-106 ms** against
+  the design's unmeasured 8 s target, and the four long profiles with all 16 breach lines.
+* **at `2500b38e` plus an uncommitted one-line edit to the snapshot expression** (a read-only
+  raycast probe): the base over C1 + its roads + 200 -- minY **83.89**, maxY **160.00**, spread
+  76.11, 8,019 samples, 0 missed -- and each road's own base span. Labelled: the tree was not clean.
+* **at `f30854ff`, the code commit, clean tree**: the realised ditch **1.99 st deep and `Mud` on
+  BOTH sides of every road** (target 2.00, worst error **0.01 st**, so design 15 item 2's 4-stud
+  fallback is NOT triggered); cross-fall 0.160 st at the sampled column, inside the 0.5-st rule; the
+  15 stands against the base (worst **stand 10, buried 24.33 st**; stands 8 and 9 floating
+  17.82 st); and the three before-frames from eye height.
 
 NOT OBTAINABLE without the bake, and NOT claimed: the road crown and ditch in WRITTEN ground, the
 landform census of C1's ridge, the pad and stand heights AFTER, and the post-bake tree census.
