@@ -1,3 +1,10 @@
+## 2026-11-02 ~15:50 UTC, Task 328d -- DIRECTOR DECISIONS: round 3, the injection route, Team Create
+
+1. **Take round 3.** Fix the four round-2 findings exactly as the entry below names them, each with a case that fails before the fix (both sides of a road; one profile set for all tiles; the eight real tile counts; a forced relaxation and a forced grade-change breach). The repo cap is 3; this is the last round. A finding on round 3 goes here and stops.
+2. **The load route is INJECTION, not require** -- a measured deviation from `docs/design/grid-terrain.md` section 3, recorded here for the Architect. Her Edit session reads every Source as empty and cannot require (13:56 entry, DEV as control). The tool sends the TEXT of `src/shared/Grid/Relief.luau` and `src/serverstorage/TerrainBake/` read from the tree at the code commit, as `tools/forest_ground.py` does (borrowed, rule 2). `check_synced` is replaced by: the tool refuses a dirty tree, prints the sha256 of every injected file and the commit, and the bake's first line echoes those hashes back from inside Studio. The repo files stay the one source.
+3. **Team Create ON is accepted for the bake.** Karen answered Q1 "yes" to a permanent reshape after a backup; Team Create only means the change saves with her session instead of on a Save click. Decision 4 of 13:55 is revised: the bake still needs the backup file (decision 2), still never runs while she is in Play, and after the bake the Builder lists StreamingMinRadius 64 -> 384 as her click. The Builder never saves, publishes or commits her place.
+4. **The bake waits for the backup file as before.** If it is still missing when round 3 passes, write NEEDS KAREN and stop with the code merged-ready; the Director runs the bake step after her click.
+
 ## 2026-11-02 ~15:45 UTC, Task 328d -- ROUND 2 FOUND FOUR, ALL FOUR ARE RIGHT, AND THE DISPATCH SAYS STOP
 
 The dispatch: *"Review: at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."*
