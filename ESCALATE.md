@@ -1,3 +1,10 @@
+## 2026-11-02 ~13:55 UTC, Task 328d -- KAREN'S ANSWER TO Q1, and the order of the bake
+
+1. **Q1 is answered YES.** Karen, 2026-11-02 ~09:15 UTC, verbatim: *"yes"* -- we may permanently reshape the ground in her Forest Test after a full backup.
+2. **The bake waits for the backup FILE, not for a message.** Karen saves her Forest Test with File -> Save to File as `<backups-dir>/FT-before-328d.rbxl` (Desktop\driven-hunt-backups). The Builder may build `TerrainBake`, `terrainbake.py`, its selftest, the survey and the tile measurement before that; **no WriteVoxels runs in her place until that file exists, is newer than 13:55 UTC 2026-11-02 and is over 10 MB.** Missing: write NEEDS KAREN here and stop.
+3. **StreamingMinRadius 64 -> 384 and the save after the bake are Karen's clicks** (the Director never saves her place). The Builder lists them as NEEDS KAREN with the exact clicks.
+4. **Team Create** (decision 3 above): step 0 reports it; if it is ON, stop before the bake.
+
 ## 2026-11-02 ~09:15 UTC, Task 328a -- DIRECTOR DECISIONS on the six scope items
 
 1. **The Architect's exact text** in `grid-terrain.md` section 16 is pasted VERBATIM by the Builder in 328b's first commit, one commit of its own, marked "the Architect's text, grid-terrain.md section 16". Nothing is reworded. It covers `grid-map.md` section 18, the `drive-places.md` and `map-generator.md` appends, and the `forest_ground.py` header.
