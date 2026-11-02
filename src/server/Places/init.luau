@@ -113,10 +113,14 @@ Places.CLAW_FRACTION = table.freeze({
 -- THE CLAW FRACTION MEASURED A SECOND TIME, BY A SECOND METHOD, AND WHAT CAME OF IT (task 328b,
 -- design 9.2: *do not re-run the method that failed*).
 --
--- `a` IS THE UPWARD-RAY METHOD (`tools/forest_ground.py species`, the one that wrote the five numbers
--- above); `b` IS THE LOBBY'S HORIZONTAL RULE -- *where the radius falls back to the trunk's* -- 24
+-- `a` IS THE UPWARD-RAY METHOD (`tools/forest_ground.py species`'s, re-run here) and `b` IS THE
+-- LOBBY'S HORIZONTAL RULE -- *where the radius falls back to the trunk's* -- 24
 -- heights x 8 azimuths over the 0.10h band. Both were measured on the TEMPLATE itself in Karen's
--- Forest Test on 2026-11-02 by `driven-hunt-runs/328b-dims.luau`.
+-- Forest Test on 2026-11-02 by `driven-hunt-runs/328b-dims.luau`. **`a` IS A RE-MEASUREMENT AND NOT
+-- A COPY of the five numbers above**: it reads the ONE template instance, where `CLAW_FRACTION`'s
+-- numbers are the median over every instance in the world. `Var11` comes out identical (0.0425);
+-- `Var13` reads 0.0222 against the shipped 0.0239, which is that difference and not a disagreement.
+-- The shipped numbers are the better evidence and are unchanged.
 --
 -- `verdict` IS THE RULE, APPLIED: both over 0.002 and within a factor of 3 is `agree`; anything else
 -- keeps **0**, which is strictly safe arithmetic (it seats the lowest geometry) and is design 9.2's
@@ -124,7 +128,8 @@ Places.CLAW_FRACTION = table.freeze({
 -- (0.0425 / 0.0625) and `_Var13_LOD_0` (0.0222 / 0.0625) -- which is the pair `CLAW_FRACTION` above
 -- already carries, found again by a method that shares nothing with the first.
 --
--- FOUR SPRUCES AGREE AND ARE **NOT** ADOPTED, and the arithmetic is the reason: `Old_Spruce_Var04` at
+-- THREE SPRUCES AGREE AND ARE **NOT** ADOPTED (`Old_Spruce_Var01`, `_Var02`, `_Var04`; `Var03` and
+-- `Var06` disagree and both `Spruce_Tree_*` read b-zero), and the arithmetic is the reason: `Old_Spruce_Var04` at
 -- 0.0417 x 121 studs would sink 5.0 studs deeper than lowest-geometry seating, and a spruce's base is
 -- a SKIRT, not an arch of claws -- burying the skirt is the failure `forest_ground.py` refused to
 -- ship. So they are listed here with both numbers and adopted nowhere.

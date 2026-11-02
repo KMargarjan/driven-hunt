@@ -24,8 +24,10 @@ local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
 
 local GridCensus = {}
 
--- A PART THIS TRANSPARENT IS NOT WHAT KAREN SEES, so it is not what the census measures. The
--- planter's own number, for the same reason it needed one (the birches' invisible pad).
+-- A PART THIS TRANSPARENT IS NOT WHAT KAREN SEES, so it is not what the census measures.
+-- A DELIBERATE SECOND COPY of `Places.INVISIBLE_AT`, named as one: the census may not reach into
+-- the planter (header), and this is a property of the EYE rather than of the planting rule. It is
+-- not a threshold the contact rule shares, which is what design 9.1 is about.
 GridCensus.INVISIBLE_AT = 0.95
 
 -- LEANING. Design 9.4: `up . Y < cos 2`. Kept as the cosine so the comparison is one dot product.
@@ -37,8 +39,10 @@ GridCensus.TILT_COS = math.cos(math.rad(2))
 -- A FOLIAGE PART IS IN THE GROUND WHEN ITS BOTTOM IS THIS FAR BELOW IT (design 9.4).
 GridCensus.FOLIAGE_SINK_STUDS = 0.5
 
--- HOW CLOSE TO A STAND COUNTS AS "IN" IT. `Grid`'s own clearance, which is what the planter's lane
--- rule keeps clear.
+-- HOW CLOSE TO A STAND COUNTS AS "IN" IT. THE CENSUS'S OWN NUMBER and nobody else's: `Grid.CONFIG`
+-- has no stand clearance (its only clearance is `roadClearStuds` 42, a ROAD's), and task 327c's
+-- census used the same 8 studs for the same question. It is a reporting threshold, not a rule any
+-- planter reads.
 GridCensus.STAND_CLEAR_STUDS = 8
 
 -- THE ROWS THIS TASK CANNOT MEASURE, each named with the task that builds the thing it is about.
@@ -280,6 +284,10 @@ function GridCensus.survey(
 			if not Plan.clearOfEveryRoad(atX, atZ) then
 				report.inRoad += 1
 			end
+			-- `inLane` IS NOT A CELL DEFECT AND THE NAME SAYS SO IN THE LINE. It asks the four LINE
+			-- places' rule, whose `Forest.roadZ(x, layout)` is defined for every x and so cuts a
+			-- stripe across the whole world (design 11.3: two worlds, one live). Reported until
+			-- task 327d retires those places; never 0 for a grid cell.
 			if not Plan.clearOfEveryLane(atX, atZ) then
 				report.inLane += 1
 			end
@@ -302,8 +310,13 @@ function GridCensus.survey(
 			end
 		end
 	end
-	if report.trees == 0 then
-		report.worstHigh, report.worstSink = 0, 0
+	-- NOTHING CONTRIBUTED, NOT NOTHING COUNTED: a folder whose trees all read `noGround` would
+	-- otherwise leave these at -inf and print it (round 1, note).
+	if report.worstHigh == -math.huge then
+		report.worstHigh = 0
+	end
+	if report.worstSink == -math.huge then
+		report.worstSink = 0
 	end
 	report.laneHalf = laneHalf
 	if refused ~= nil then
@@ -324,7 +337,7 @@ function GridCensus.line(report: Report, epoch: string?): string
 	table.sort(unmeasured)
 	return string.format(
 		"[census] %s epoch=%s trees=%d parts=%d floating=%d sunk=%d foliageInGround=%d tilted=%d broken=%d"
-			.. " noGround=%d inRoad=%d inStand=%d inLane=%d onCliff=%d crownOverRoad=%d crownUnmeasured=%d"
+			.. " noGround=%d inRoad=%d inStand=%d inLane(other-world)=%d onCliff=%d crownOverRoad=%d crownUnmeasured=%d"
 			.. " refused=%s worstHigh=%.2f worstSink=%.2f UNMEASURED=%s",
 		tostring(report.cell),
 		tostring(epoch or "?"),

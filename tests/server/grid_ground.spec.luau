@@ -66,9 +66,10 @@ return function()
 			-- THE ALLOWANCE IS THE SAME FUNCTION and not the same formula typed twice: the server's
 			-- `stepAllowance` IS `Plan.stepAllowanceStuds` since task 328b.
 			expect(Planter.stepAllowance).to.equal(Plan.stepAllowanceStuds)
-			for _, height in ipairs({ 2.8, 30, 60, 121 }) do
-				expect(Plan.stepAllowanceStuds(height)).to.equal(math.max(TreeGround.CLIFF_STUDS, 0.1 * height))
-			end
+			-- THE CONSTANTS, not the formula: transcribing the function under test can only catch a
+			-- deleted one (verdict 278). `places.spec` pins the shipped values (70 -> 7, 100 -> 10).
+			expect(TreeGround.CLIFF_STUDS).to.equal(4)
+			expect(Plan.stepAllowanceStuds(2.8)).to.equal(TreeGround.CLIFF_STUDS)
 			-- THE CENSUS DEFINES NEITHER. It has no tolerance and no sink of its own, so there is
 			-- nothing for a fork to drift from.
 			expect(rawget(Census, "TOLERANCE_STUDS")).to.equal(nil)
@@ -231,17 +232,103 @@ return function()
 			expect(Plan.auditReason(Planter.measureFor(model), far, 1)).to.equal("extents")
 		end)
 
-		it("auditTemplate refuses a quarantined name without measuring anything", function()
-			local model = template("GoodTree", Vector3.new(2, 40, 2), Vector3.new(16, 10, 16))
-			expect(Planter.auditTemplate(model, "GoodTree")).to.equal(nil)
-			-- A REAL ONE, against its own measured row: the template as this world holds it passes.
+		it("a QUARANTINED name is refused by the audit, dropped by namesOf, and never planted", function()
+			-- THE QUARANTINE IS EMPTY TODAY -- all 35 templates pass -- so the door has to be driven to
+			-- be proved (round 1, finding 1). `isQuarantined` is stubbed for one name and the memo
+			-- forgotten; everything else is the shipped code.
+			local victim = "SilverBirch_Var11_LOD_0"
+			local real = Plan.isQuarantined
+			local function restore()
+				Plan.isQuarantined = real
+				Plan.forgetPlantable()
+			end
+			local model = template(victim, Vector3.new(2, 40, 2), Vector3.new(16, 10, 16))
+			-- BEFORE: it is a sound template and the planter plants it.
+			expect(Planter.auditTemplate(model, victim)).to.equal(nil)
+			local beforeNames = Plan.namesOf("birch")
+			expect(table.find(beforeNames, victim) ~= nil).to.equal(true)
+			local function buildWith(): any
+				local world = Instance.new("Folder")
+				local forest = Instance.new("Folder")
+				forest.Name = "OurForest"
+				local source = template(victim, Vector3.new(2, 40, 2), Vector3.new(16, 10, 16))
+				source.Parent = forest
+				forest.Parent = world
+				local report = Planter.build(function()
+					return 120
+				end, world, { ReplaceMaterial = function() end }, false)
+				local drawn = 0
+				local folder = world:FindFirstChild(Planter.FOLDER)
+				if folder ~= nil then
+					for _, place in ipairs(folder:GetChildren()) do
+						for _, child in ipairs(place:GetChildren()) do
+							if child.Name == victim then
+								drawn += 1
+							end
+						end
+					end
+				end
+				world:Destroy()
+				return { report = report, drawn = drawn }
+			end
+			local sound = buildWith()
+			expect(sound.drawn > 0).to.equal(true)
+			expect(sound.report.quarantined).to.equal(0)
+
+			-- AFTER: the same name, quarantined. Three doors, each asserted on its own.
+			local ok, err = pcall(function()
+				Plan.isQuarantined = function(name: string): boolean
+					return name == victim
+				end
+				Plan.forgetPlantable()
+				-- (a) the audit refuses it, by name, before it measures anything.
+				expect(Planter.auditTemplate(model, victim)).to.equal("quarantined")
+				-- (b) `namesOf` drops it, and drops only it.
+				local after = Plan.namesOf("birch")
+				expect(#after).to.equal(#beforeNames - 1)
+				expect(table.find(after, victim)).to.equal(nil)
+				for _, name in ipairs(beforeNames) do
+					if name ~= victim then
+						expect(table.find(after, name) ~= nil).to.equal(true)
+					end
+				end
+				-- ...so no planting list names it, in any cell.
+				for _, id in ipairs({ "C1", "A1" }) do
+					for _, item in ipairs(Plan.plantCell(id)) do
+						expect(item.model).never.to.equal(victim)
+					end
+				end
+				-- (c) `Places.build`'s own audit closure refuses the template and plants NONE of it,
+				-- counting it once in the report.
+				local refused = buildWith()
+				expect(refused.drawn).to.equal(0)
+				expect(refused.report.quarantined).to.equal(1)
+				expect(refused.report.quarantinedBy["quarantined"]).to.equal(1)
+			end)
+			restore()
+			if not ok then
+				error(err, 0)
+			end
+			-- AND THE DOOR OPENS AGAIN, so the stub is proved to have been the only thing holding it.
+			expect(Planter.auditTemplate(model, victim)).to.equal(nil)
+			expect(table.find(Plan.namesOf("birch"), victim) ~= nil).to.equal(true)
+			model:Destroy()
+		end)
+
+		it("a real template passes its own measured row", function()
+			local good = template("GoodTree", Vector3.new(2, 40, 2), Vector3.new(16, 10, 16))
+			expect(Planter.auditTemplate(good, "GoodTree")).to.equal(nil)
 			expect(Plan.dimsFor("SilverBirch_Var11_LOD_0") ~= nil).to.equal(true)
+			good:Destroy()
 		end)
 	end)
 
 	-- ---------------------------------------------------------------- 10/11. the census
 
 	describe("the census and the planter disagree about nothing but the instrument", function()
+		-- THE NAME HALF OF DESIGN 13.2 CASE 10 IS THE WEAKER HALF and is said so: the names come from
+		-- `plantOne`'s own return, so that comparison is the planter against itself. The count, the
+		-- part total and the four verdict counts are the real cross-instrument check.
 		it("counts every tree the planter planted, by name, on one synthetic hillside", function()
 			local source = template("SynthBirch", Vector3.new(2, 40, 2), Vector3.new(16, 10, 16))
 			local folder = Instance.new("Folder")

@@ -188,9 +188,22 @@ function Places.namesOf(group: string): { string }
 	return out
 end
 
+-- FORGET THE MEMO. `QUARANTINE` is frozen data, so nothing in the game ever needs this -- it exists
+-- so `grid_ground.spec` can make a name quarantined and watch the door shut, which an empty
+-- quarantine cannot otherwise prove (round 1, finding 1). `Places.junctionGap`'s own reason.
+function Places.forgetPlantable()
+	PLANTABLE = {}
+end
+
 -- EVERY PLANTED TEMPLATE'S REFERENCE DIMENSIONS -- MEASURED in Karen's Forest Test on 2026-11-02 by
 -- `driven-hunt-runs/328b-dims.luau` (read-only, Edit mode), one row per name in `Places.SPECIES`
 -- (35 of 35 found in `Workspace.OurForest`).
+--
+-- WHAT INVALIDATES THEM, said plainly: a re-import, a re-scale or a re-parent of a model in
+-- `Workspace.OurForest`. There is no committed tool that re-derives this table -- design 9.2 names
+-- `tools/forest_ground.py dims`, which does not exist and which section 16 says is not written here
+-- -- so the guard is the run-time audit: a template whose extents have moved more than 15 % from
+-- its row is quarantined and `report.quarantined` says so on the boot's face.
 --
 -- EACH ROW IS AT THE TEMPLATE'S OWN `GetScale()`, WHICH IS RECORDED, and NOT at scale 1 (design
 -- 9.2): `plantOne` scales with `made:ScaleTo(made:GetScale() * item.scale)`, so `item.scale` is
