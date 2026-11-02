@@ -831,8 +831,14 @@ def main(argv):
                 return refuse("--cells is missing")
             region = region_for(args.cells, facts)
             out = args.out or os.path.join(runs_dir(), "terrain-base-%s.json" % sha[:12])
+            # `snapshot` answers (nil, why) when it refuses -- over ReadVoxels' ceiling, Water, an
+            # overhang. JSONEncode of the FIRST value then sends "null" and the reason is lost
+            # (measured 2026-11-02 on C1's whole region: 24.6 M voxels against a 4.19 M ceiling), so
+            # the refusal is raised instead and the tool prints it.
             result = call(studio, studio_id,
-                          "TerrainBake.snapshot({minX=%g,maxX=%g,minZ=%g,maxZ=%g}, %g, %g)"
+                          "(function() local snap, why = TerrainBake.snapshot("
+                          "{minX=%g,maxX=%g,minZ=%g,maxZ=%g}, %g, %g) "
+                          "if snap == nil then error(why, 0) end return snap end)()"
                           % (region["minX"], region["maxX"], region["minZ"], region["maxZ"],
                              args.y_min, args.y_max), injected=injected)
             with open(out, "w", encoding="utf-8") as handle:
