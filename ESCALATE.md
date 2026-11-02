@@ -1,3 +1,65 @@
+## 2026-11-02 ~16:40 UTC, Task 328d round 3 -- NEEDS KAREN (the backup), and one measured thing for the Director
+
+**The four round-2 findings are fixed, the gate is green (34/34 @ `f30854ff`, clean tree, scope=all),
+and the injection route WORKS in Karen's place** -- the thing that blocked rounds 1 and 2. The base
+survey, the ten-tile cost and the ditch depth are all measured in her Forest Test at the code commit.
+**No `WriteVoxels` has run in her place at any point in this task**, and none can, for one reason:
+
+### NEEDS KAREN 1 -- the backup file does not exist. The bake stops here.
+
+`Desktop\driven-hunt-backups\` was created at 14:46 UTC and is still **empty** at 16:40 UTC. The gate
+(Director decision 2, 13:55 UTC) is: the file exists, is newer than 13:55 UTC today, and is over
+10 MB. There is nothing to measure, so the bake did not start.
+
+**Exact clicks:**
+1. In Studio, with **Driven Hunt Forest Test** in front, click the **File** menu.
+2. Click **Save to File As...** (not "Save to Roblox").
+3. Navigate to `Desktop\driven-hunt-backups`.
+4. Type the file name `FT-before-328d` and press **Save**. It must come out over 10 MB.
+
+### NEEDS KAREN 2 -- `StreamingMinRadius` 64 -> 384, for when the bake does run
+
+In Studio, click **Workspace** in the Explorer, find **StreamingMinRadius** in the Properties pane,
+type `384`, press Enter. It cannot be set or even read from a tool: `StreamingMinRadius`,
+`StreamingTargetRadius` and `StreamingIntegrityMode` all answer *"not a valid member of Workspace"*
+in this Studio build.
+
+### NEEDS KAREN 3 -- **File -> Save** after the bake. The Builder never saves, publishes or commits her place.
+
+### NEEDS DIRECTOR -- C1's roads cannot meet the 12-stud cut-or-fill cap on her ground, and that is measured
+
+The long profiles, computed once off her real base at `f30854ff` and printed in full by the tool:
+
+| road | ceiling it ended on | realised grade | cut-or-fill | relaxed |
+|---|---|---|---|---|
+| EW2 (z -5107) | 8 % | 7.07 % | 1.02 st | no |
+| EW3 (z -3635) | 12 % | 12.00 % | 10.94 st | yes |
+| NS3 (x -4455) | **20 %** | 15.73 % | **14.07 st, still over the 12-st cap** | yes |
+| NS4 (x -3343) | **20 %** | 13.47 % | **14.10 st, still over the 12-st cap** | yes |
+
+This is design 7.1's relaxation arm doing exactly what it says -- the breach relaxes the grade on
+that road and is printed, never hidden; all 16 breach lines are in the tool's output. But the
+CONSEQUENCE is a design/feel decision and not the Builder's: **C1's two north-south roads would be
+baked climbing at 13-16 %** (the design's north-south clamp is 10 %), because their base rises 110
+and 124 studs over their 2,986-stud span. A 15 % road is 1 in 6.7. Karen rides these in a truck.
+The options are the Director's: accept it, raise `cutFillStuds`, lower the relaxation ceiling and
+accept a bigger cut, or re-site the roads. Nothing here blocks the merge -- the arm is correct and
+now has cases on both halves -- but nobody should first see a 1-in-7 road in a playtest.
+
+### What IS measured at the code commit, in her place, and what is not
+
+Measured: the base over C1 + its roads + 200 (minY 83.89, maxY 160.00, spread 76.11, 8,019 samples,
+0 missed); the four roads' own base spans; **per-tile cost 84-106 ms against the design's unmeasured
+8 s target**; the realised ditch **1.99 st deep and Mud on BOTH sides of every road** (target 2.00,
+error 0.01 st, so design 15 item 2's 4-stud fallback is NOT triggered); cross-fall 0.160 st at the
+sampled column, inside the 0.5-st rule; the 15 stands against the base ground (worst: stand 10,
+**buried 24.33 st**; stands 8 and 9 floating 17.82 st); three before-frames from eye height.
+
+NOT OBTAINABLE without the bake, and NOT claimed: the road crown and ditch in WRITTEN ground, the
+landform census of C1's ridge, the pad and stand heights AFTER, and the post-bake tree census.
+A whole-region snapshot is also not obtainable in one call and now says so: C1's region is
+**24,611,375 voxels against ReadVoxels' 4,194,304 ceiling**, which is why the bake snapshots per tile.
+
 ## 2026-11-02 ~15:50 UTC, Task 328d -- DIRECTOR DECISIONS: round 3, the injection route, Team Create
 
 1. **Take round 3.** Fix the four round-2 findings exactly as the entry below names them, each with a case that fails before the fix (both sides of a road; one profile set for all tiles; the eight real tile counts; a forced relaxation and a forced grade-change breach). The repo cap is 3; this is the last round. A finding on round 3 goes here and stops.

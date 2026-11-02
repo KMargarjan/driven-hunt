@@ -1,140 +1,89 @@
-# Task 328d -- BAKE C1: the bake, its road, its tool, and the two hard stops
+# Task 328d -- BAKE C1: review request
 
 Task: 328d
-Round: 2
-Base: main (`6b520717`)
-Code commit: `c7bdbd96786c0ea2e1ef9d7baa0ef156a9e88a5e`
+Round: 3
+Base: 6b5207176d26
+Code commit: f30854ff774844e76eac018aa3514eab90764878
 
-```
-[harness] PASS: 34/34 checks @ c7bdbd96786c0ea2e1ef9d7baa0ef156a9e88a5e (clean tree) scope=all
-```
+`[harness] PASS: 34/34 checks @ f30854ff774844e76eac018aa3514eab90764878 (clean tree) scope=all`
+`[harness2]` N/A: no path in `TWO_PLAYER_PATHS` is touched (TerrainBake, Relief's caller, the spec
+and the tool -- no match, drive, tie or team code).
 
-`test2` N/A: no path in `TWO_PLAYER_PATHS` is touched.
-
-## What changed
-
-`src/serverstorage/TerrainBake/init.luau` (new), `tools/terrainbake.py` (new) with its selftest as
-a CI step, two `BLAST_RADIUS` rows, nineteen cases in `tests/server/grid_relief.spec.luau`, three
-additive functions in `src/shared/Grid/Relief.luau`, a `.gitignore` line, `TASKS.md`, `ESCALATE.md`.
-
-**THE BAKE DID NOT RUN AND NO `WriteVoxels` TOUCHED KAREN'S PLACE** (claim 1). Everything readable
-read-only was read; everything else is `NOT OBTAINABLE` in claim 10 and is not claimed.
-
-## PLAN (core protocol step 0), as it resolved
-
-- **(a) THE DESIGN:** a forest road is level across and graded along -- 8 % E-W, 10 % N-S, crossfall
-  under 0.5 st over 44, a 2-st ditch in two whole voxel columns (7.1; 15 item 2).
-- **(b) MEASURED NOW** in her place, `<runs-dir>/328d-base.luau`: C1's base spans 61.73 st (min
-  89.16, max 150.89, mean 113.20, 3,888 rays); its four road centrelines fall 21.99 / 52.25 / 63.61
-  / 28.99 st with worst 20-st steps of **9.2 / 18.4 / 26.5 / 13.7 %**, every one over its clamp; and
-  `Grid.standPosition`'s fixed Y 106.98 is up to **24.33 st** off the ground -- **stand 10 is buried
-  24.33 st** today.
-- **(c) TARGET:** those clamps, and the ditch at 2 st +- 1.0 (else the 4-st fallback).
-- **(d) LEVER:** `TerrainBake.longProfile` and `TerrainBake.roadAt`, written this round; the write is
-  `TerrainBake.bakeTile` -> `Terrain:WriteVoxels`.
-- **(e) AFTER:** the same probe and the same three cameras.
-- **(b) CONTRADICTED THE DISPATCH and the run stopped there**, 13:56 UTC, before any workaround was
-  designed (V280). `ESCALATE.md` carries it.
+**WHAT CHANGED.** The four round-2 findings, each with a case that fails before the fix; the load
+route is INJECTION (Director decision 2, `ESCALATE.md` at `6cf9cf42`); and the measurements the
+dispatch asks for, taken in Karen's Forest Test at this commit. **No `WriteVoxels` ran in her place:
+the backup file still does not exist, so the bake stopped at its gate (`ESCALATE.md`, NEEDS KAREN).**
 
 ## Claims
 
-1. **Three hard stops, each with a control** -- `ESCALATE.md`, 2026-11-02 ~13:56 UTC. (i) the backup
-   folder is empty; (ii) **Team Create reads ON** -- `FindService("NetworkClient")` answers
-   `NetworkClient` and `Players:GetPlayers()` holds 1 (the owner) where **DEV answers `nil` and 0**,
-   same Studio, same probe (`328d-tc.luau`); (iii) in her **Edit** session **297 of 297** scripts
-   read `Source` length 0 and `require` fails on every one, where DEV reads 27,750 and requires
-   fine (`328d-src.luau`, `328d-req2.luau`) -- which takes out both halves of design 3's ruling.
-   **It is Edit-only:** the same place's PLAY server requires `Grid` and reads 27,750
-   (`328d-playprobe.luau`). Play was started and stopped with the place in Edit (rule C), Edit
-   confirmed after, and her eighteen `ServerStorage` attributes read identical before and after.
-2. **DESIGN 7.1 IS BUILT** (round-1 finding 1). `TerrainBake.ROAD` is the cross-section as data;
-   `longProfile` clamps the grade, limits grade CHANGE to 2 % per 50 st, caps cut-or-fill at 12 st
-   and **relaxes the grade on that road and records it** rather than hiding a breach; `roadAt` cuts
-   the crown, the ruts, the 2-st ditch, the verge and a bank never steeper than 1:2; `profilesFor`
-   computes every profile ONCE from the base, before any write, so no profile is read off
-   half-baked ground. Verify, cases **328d-14/15/16**, notes from the gate run:
-   `road EW2: 225 samples, worst step 0.667 st per 20 (allowed 1.600 at 8 %), cut-or-fill 6.60, relaxed=false`
-   -- against a sawtooth input of 12-st steps (30 %), which 328d-14 asserts is over the clamp first;
-   `road EW2 at -5107: rut columns [-5104,-5100] d 3..7, ditch [-5088,-5080] d 19..27, ditch 2.00 st below the crown`
-   -- realised by **`Relief.columnsFor`**, which now has a caller, so the BAND snaps and not the
-   centre (F-2), and the inward shift is printed rather than assumed.
-3. **The ditch is in the ground a tile writes, and FAIL FIRST proves it.** Case **328d-16** shapes a
-   whole tile over a synthetic flat-100 snapshot: `tile (-4352,-5120) over a flat 100 base: crown
-   99.990 (Ground), ditch 98.000 (Mud), 125 st away 100.000 (Ground)`. The same tile shaped with no
-   profiles handed in comes back **100.000 at the ditch** -- no road, no cut. `TerrainBake.shapeTile`
-   is split out of `bakeTile` precisely so the thing that decides the ground has a case
-   (round-1 finding 7).
-4. **The limiter crosses a tile seam** (round-1 finding 2). `shapeTile` shapes and limits the tile
-   plus `LIMIT_MARGIN_STUDS` 128 and returns only the inner tile; `padFor` grew to cover it
-   (`bake pad 204 st = limiter margin 128 + blur cutoff 72 + one voxel`). Case **328d-17** runs a
-   0.6 gradient (~31 degrees) across two adjacent tiles and asserts every 16-stud window that
-   straddles the seam: `seam at column 32 of 64: worst 16-st window 5.824 at 9, worst window ACROSS
-   the seam 5.824, ceiling 5.824`. The case first asserts the input is over the ceiling.
-5. **ONE fade, in the arithmetic that owns it** (round-1 finding 7). `Relief.heightAt` takes the
-   weight as a parameter; the bake hands it `blendAt(union, ...)` instead of multiplying onto the
-   cell-edge `k`. Case **328d-5** asserts linearity in that weight -- `one fade: full +24.000,
-   quarter +6.000 over the base` -- which two fades in series cannot satisfy, and that weight 0
-   returns the base exactly. Omitting the parameter leaves every caller before 328d unchanged.
-6. **Refusal 4 asks the RESOLVED Studio** (round-1 finding 3). `compare_synced` issues unscoped
-   queries, and an unscoped Edit call goes to the default, which `_choose_default_studio` pins to
-   **DEV** -- so round 1 compared the wrong place and would have let a bake proceed. `pin_default`
-   closes it, and the selftest asserts the id the comparison was asked of, and that the old default
-   is put back. Cases added for refusals **3, 4 and 6**, the **run-log writer**, and the
-   **canonical encoder** against the Luau's own output (captured from `Relief.epochInput` in DEV,
-   `328d-epoch.luau`) -- design 6.4's two other mandated items. Verify:
-   `python tools/terrainbake.py selftest` -> `[bake] selftest: PASS`, **55** cases, a CI step.
-7. **`plan` asserts against a number it did not compute** (round-1 finding 4). Round 1 compared
-   `ceil(a/b)` with `-(-a//b)` -- dead for every input. It now checks a committed `EXPECTED_TILES`
-   and, when a Studio answers, `Relief.tiles`' own count, and says which checks ran. Verify:
-   `python tools/terrainbake.py plan --cells C1` -> `ASSERTED: 208 tiles == the committed count for
-   C1`, and against the Forest Test today it prints `(Relief.tiles was not asked: ...
-   ServerStorage.TerrainBake is not in this place)` rather than passing quietly.
-8. **The epoch is computed, stamped and printed** (round-1 finding 6). `epoch_for` digests
-   `TerrainBake.epochInputFor`'s string, `tile_pass` stamps it through `TerrainBake.stamp` at the
-   end of a wet run, and the OK line carries `epoch=`. Case **328d-11** now also asserts the
-   **landform digest** is in the input (`landforms`, `C1`, `scarp`, length > 2000) -- round 1
-   asserted the sha and the version only, so dropping `Relief.epochInput` left it green.
-9. **The limiter's second axis and its exempt mask cannot be deleted** (round-1 finding 5). Case
-   **328d-6** is steep in BOTH axes -- `the input holds 16.00 in x and 16.00 in z, both axes leave
-   5.82 / 5.82` -- and pins a whole column through the mask, asserting it did not move.
-   **And the 328c blur note is paid, because this task's own gate forced it:** with the per-point
-   1,369-read kernel the server spec run passed the harness 300-s cap outright (`FAIL: 25/29 @
-   7829a554`, `[server] runner reported within 300 s`). `Relief.blurredGrid` is the separable pass;
-   case **328d-19** measures it against the per-point kernel -- `separable blur vs the per-point
-   kernel: worst 0.000e+00 studs over 576 points` -- pins the kernel's normalisation on a constant
-   base, and keeps the nil rule.
-10. **What is NOT proven, said plainly.** NOT OBTAINABLE without a bake, and none of it claimed: the
-    per-tile cost in seconds (the design's 8 s stays UNMEASURED), the achieved ditch depth **in her
-    terrain** against +- 1.0 st (the 2.00 above is the shaped grid, not voxels on the ground, and
-    section 15's fallback therefore stays undecided), the road crown in her world, the landform
-    census, pad and stand heights after, and the post-bake tree census. Three BEFORE frames were
-    taken and looked at (`328d-before-A|B|C.png`, eye 5 st over the measured ground, cameras in
-    `328d-cam.luau` for reuse): **A** from stand 4, a flat featureless plain with **no ridge**; **B**
-    standing on EW2's centreline, **no road at all** and the ground falling away west; **C** at stand
-    10, the camera on a high shoulder in deep grass -- the 24.33-st burial in a picture. The BEFORE
-    tree census (`328d-census-before.luau`, her Play server): `Session` trees=769 floating=195
-    sunk=464 broken=250 worstHigh=65.23; `OurForest` trees=4819 floating=836 sunk=1673 broken=1277
-    -- **SUSPECT as a certified figure** (rule E): `clawOf` was stubbed to 0, the survey does not
-    filter its tree set by cell, and `Workspace.GridForest` does not exist yet. A baseline, not a
-    census.
+1. **The ditch and the ruts are cut on BOTH sides of every road** (finding 1). `TerrainBake.bandFor`
+   is the ONE band realiser and every road path goes through it (L-031): it answers bounds on `|d|`
+   for the side the point is on, reflecting the centre through the origin for the minus side so each
+   side gets whole voxel columns. *Verify:* `roadAt` no longer builds `centre - rutFar`; cases
+   **328d-15** (both sides' widths, absolute column alignment, midpoints within VOXEL/2, Mud on each
+   side, exact height symmetry where the bands agree, and the one place they cannot -- d 29) and
+   **328d-16** (the minus rut in the tile, the minus ditch in the tile below).
 
-## Could not be verified
+2. **The realised cross-section is design 7.1's, measured on her ground.** Ditch **1.99 st deep and
+   `Mud` on both sides of every road** (target 2.00, worst error **0.01 st**, so design 15 item 2's
+   4-stud fallback is not triggered); cross-fall 0.160 st at the sampled column, inside the 0.5-st
+   rule. *Verify:* `ESCALATE.md` 16:40 entry; six crossings over five tiles, EW2/EW3/NS3/NS4.
 
-- Everything the bake would produce (claim 10). The blocked proof is an `ESCALATE.md` entry written
-  at the stop, not worked around (V280).
-- **The port switch to `:34874` was not performed and nothing was synced**, because without a bake
-  there was nothing to sync; `driven-hunt-karen` was never checked out and its HEAD never moved.
-  Her place stayed on `localhost:34873`, visible in the Rojo panel in all three frames.
-- Whether Team Create CAUSES the Edit-side source fault. Labelled an inference in `ESCALATE.md`.
-- `StreamingMinRadius` cannot be read from this context, let alone set. A NEEDS KAREN click.
-- **Still open from the round-1 notes, queued in `TASKS.md` rather than claimed**: `plant` and
-  `dims` are in design 6.1 and not in `choices=`; case 328d-13 still returns early (noting it
-  proved nothing) on a run where `Script.Source` is unreadable, and the gate counts it.
+3. **The long profiles are computed ONCE, by the tool, before any write** (finding 2).
+   `bakeTileAt` no longer falls back to `profilesFor` -- a tile with no profiles is REFUSED with the
+   reason. *Verify:* `tools/terrainbake.py` `profiles_once` and `tile_pass`; selftest cases "EVERY
+   tile call carries the profiles the tool computed once", "every tile of one run carries the SAME
+   profile bytes", "the Luau refuses a tile that arrives with no profiles"; case **328d-16**'s south
+   tile reads its ditch 2 st under the crown the NORTH tile wrote, at the same x.
 
-## The gate
+4. **The eight tile counts are the arithmetic's** (finding 3): A1/B1/D1 224, C1 208, A2/B2/D2 238,
+   C2 221, ALL 1333. *Verify:* `EXPECTED_TILES`; the selftest re-derives every one and asserts
+   `plan --cells A1` now returns 0, which round 2 would have refused.
 
-`c7bdbd96` passed 34/34 first time, no re-run. Earlier runs on this branch: `190a4930` failed once
-on `deer_hitbox.spec:528` then passed 34/34; `f64106dd` failed on `weapon_shot.spec:1890` and on
-`weapon_shot.spec:1490` (the one the dispatch names as not ours) before passing 34/34; `7829a554`
-failed on the blur cost, which claim 9 fixes, and `c326e6c9` on one stale `padFor` assertion of my
-own, fixed in `c7bdbd96`. Logs: `<runs-dir>/328d-gate1..8.txt`.
+5. **The relaxation arm and the grade-change arm both have cases that bite** (finding 4).
+   **328d-20**: a 20-st cliff forces `relaxed == true`, `gradePercent` above the axis clamp and a
+   breach naming the road, with a flat-base control that does none of it. **328d-21**: a 0 -> 10 %
+   kink. *Verify:* delete either arm and the case fails.
+
+6. **One smoothing pass did NOT meet the grade-change rule** -- 3.80 % per 60 st against a 2.40 %
+   allowance -- so the pass is iterated to convergence, the realised change is carried on the profile
+   and a change that cannot be settled goes into `breaches`. The allowance is the design's RATE
+   (2 % per 50 st) over the span the 20-st samples allow (60 st), re-derived in the code (L-167).
+   *Verify:* `TerrainBake.GRADE_CHANGE_PASSES`, `worstGradeChangePercent`, case 328d-21.
+
+7. **The injection route works in Karen's Edit session** -- what blocked rounds 1 and 2. The tool
+   sends the text of `Relief`, `Grid` and `TerrainBake`, each require rewritten and asserted to match
+   exactly once; `Shotgun` is stubbed with the one number `Grid` reads, off the Shotgun file.
+   *Verify:* the tool's own output -- `injected Relief 381db97acf90, Grid 0977863b7ac2, TerrainBake
+   af6f27bd182c, echoed back from Studio: tile=128 voxel=4 cells=8 roads=8 bakeVersion=1` -- then
+   `survey C1` answering `minY 89.16 maxY 150.89 spread 61.73 ridge` from her place.
+
+8. **Refusal 4 is the echo, and it says what it proves and what it does not.** Luau has no sha256 and
+   `loadstring` is disabled, so Studio cannot digest its own injected text; the echo compares the
+   constants the arrived code defines with the files' own, and the sha256s say which bytes were sent.
+   *Verify:* `check_echo`, the docstring, and four selftest cases (a stale module, a wrong cell
+   count, a TerrainBake pinned to another place, a wrong road count).
+
+9. **Per-tile cost measured: 84-106 ms** on ten tiles of C1, against the design's UNMEASURED 8 s
+   target (12.2). *Verify:* `measure --cells C1 --tiles 10` output; `.terrainbake/` run log.
+
+10. **A snapshot refusal now says why.** `TerrainBake.snapshot` answers `(nil, why)` and JSONEncode
+    of the first value sent `"null"`. Measured: C1's whole region is **24,611,375 voxels against
+    ReadVoxels' 4,194,304 ceiling**, which is why the bake snapshots per tile.
+
+## What I could not verify
+
+* **Nothing in Karen's place changed.** No `WriteVoxels` ran: the backup gate is unmet. So the road
+  crown and ditch IN WRITTEN GROUND, the landform census of C1's ridge, the pad and stand heights
+  AFTER, and the post-bake tree census are **NOT OBTAINABLE** and are not claimed. The BEFORE halves
+  are measured at this commit: the base (minY 83.89, maxY 160.00 over C1 + roads + 200), the 15
+  stands (worst stand 10, **buried 24.33 st**), and three frames from eye height, looked at
+  (`328d-r3-before-A|B|C.png`: **A** stand 4, a level horizon with **no ridge**; **B** on EW2's
+  centreline, **no road at all**; **C** stand 10, the ground falling away east). Rule 5 is therefore
+  **not met** for the bake's own result.
+* **NS3 and NS4 end on a 20 % ceiling** with 14.1 st of cut-or-fill still over the 12-st cap, and
+  realise 13-16 % grades. The arm is correct and printed all 16 breaches; the consequence for the
+  truck ride is a Director/Karen decision, written up in `ESCALATE.md`.
+* `deer_hitbox.spec:659` fired once in one of four runs (named INTERMITTENT in the dispatch);
+  `semiauto_client.spec:93` fired once, is not on that list, and passed in the other three runs. The
+  final run at `f30854ff` is 34/34 with neither.
