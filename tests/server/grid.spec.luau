@@ -1362,8 +1362,13 @@ return function()
 		end
 
 		it("spends a budget, finishes, and destroys before it plants", function()
-			-- 0.9 ms A MODEL: twice design 8.3's own measurement (M9, 200 models in 0.09 s).
-			local COST_MS = 0.9
+			-- 1.0 ms A MODEL: twice design 8.3's own measurement (M9, 200 models in 0.09 s),
+			-- rounded up so the cost is NOT a divisor of `BUDGET_MS`. At 0.9 the fifth item lands on
+			-- 4.5 exactly and whether the step stops there is decided by the last bit of a float:
+			-- `0.0009 * 5` is 4.500000000000001 ms and `(0.9 / 1000) * 5` is 4.499999999999999, so the
+			-- same arithmetic written two ways gave 5 items and 6. A case at a knife edge measures the
+			-- float and not the budget.
+			local COST_MS = 1.0
 			local clock, spend = fakeClock(COST_MS / 1000)
 			local plantItems, destroyItems = {}, {}
 			for index = 1, 2400 do
@@ -1425,7 +1430,8 @@ return function()
 			for index = 601, 3000 do
 				expect(order[index]).to.equal("plant")
 			end
-			-- AT 0.9 ms A MODEL THE CLOCK IS WHAT BITES: 5 items a step, not 10.
+			-- AT 1 ms A MODEL THE CLOCK IS WHAT BITES: the fifth item starts at 4.0 ms and the sixth
+			-- would start at 5.0, so 5 items a step and not 10.
 			expect(worstStep).to.equal(5)
 			-- ...AND AT 0.1 ms IT IS `MAX_PER_STEP`. One boolean apart, both bounds proved to bite.
 			local fastClock, fastSpend = fakeClock(0.0001)
