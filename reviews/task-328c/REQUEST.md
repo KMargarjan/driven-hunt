@@ -1,12 +1,12 @@
 # Task 328c -- RELIEF: the eight landforms and the shaping arithmetic
 
 Task: 328c
-Round: 1
+Round: 2
 Base: 17c8d0bf (main, with 328b #314 merged)
-Code commit: 52b4667e7514c070ce8d23cd2cbfa3b2bf02f4cc
+Code commit: 291f68cbe60d920adbacaf89ca3060fec2802916
 
 ```
-[harness] PASS: 34/34 checks @ 52b4667e7514c070ce8d23cd2cbfa3b2bf02f4cc (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 291f68cbe60d920adbacaf89ca3060fec2802916 (clean tree) scope=all
 ```
 
 `[harness2]`: **N/A.** Nothing changed touches `TWO_PLAYER_PATHS` -- `src/shared/Grid/` is the map,
@@ -47,9 +47,10 @@ place, and no existing file's behaviour changes.**
    `python tools/studio_mcp.py selftest` passes (it fails if a spec belongs to no scope), as does
    `python tools/agents.py selftest`.
 7. **Design 13.1's twelve cases are covered**, in this spec's own describe blocks: 1 golden,
-   2 the eight landforms, 3 falloffs, 4 scarp/bench/ramps, 5 the road fade, 6 the limiter,
-   7 outside the footprint, 8 tile alignment, 9 the voxel ceiling, 10 `columnsFor`, 11 `epochInput`,
-   12 no terrain written. Three deviations are listed under **Deviations** and each says why.
+   2 the eight landforms, 3 falloffs, 4 the scarp, the ramps AND the bench, 5 the road fade,
+   6 the limiter, 7 outside the footprint, 8 tile alignment, 9 the voxel ceiling, 10 `columnsFor`,
+   11 `epochInput`, 12 no terrain written. **Seven deviations** are listed under **Deviations** and
+   each says why; case 9's SPLIT half is declared 328d's, not claimed.
 8. **Nothing in this change writes terrain.** *Verify:* `grid_relief.spec`'s *"drives all eight
    landforms and changes not one voxel of the place"* drives 121 points a cell through `heightAt`
    and `materialAt` and asserts `Terrain:CountCells()` and a `ReadVoxels` of a whole 128-stud tile
@@ -58,12 +59,23 @@ place, and no existing file's behaviour changes.**
 9. **The road stays flat.** `roadFadeAt` is exactly 0 at every centreline and at 51 studs from it,
    and exactly 1 at 120 studs wherever no crossing road is nearer -- asserted over all eight roads
    at 11 points each, both sides (the spec counts the full-fade assertions and requires > 100).
-10. **The limiter meets its ceiling.** A 63.4-degree synthetic cliff comes out at exactly 20.00 and
+10. **Every bench is a plane at its own weight times its own grade** (round 2, finding 2).
+    *Verify:* `grid_relief.spec`'s *"makes every bench a PLANE at its own weight times its own
+    grade"*, on a column at u .64 that is clear of A1's gully and all three of B2's ramps. The gate
+    run prints all three: `A1 ... 0.0160 st/st against 0.0160`, `B2 ... 0.0180 against 0.0180`,
+    `D2 ... 0.0280 against 0.0280` -- each the recipe's `weight * gradePercent / 100` exactly, with
+    one gradient to 1e-9 across the span.
+11. **The voxel-ceiling case reads shipped producers only** (round 2, finding 1). *Verify:*
+    `grid_relief.spec`'s *"emits tiles the MEASURED voxel ceiling can carry"* takes its tiles from
+    `Relief.tiles` and its 32 columns, 24 layers and 24,576 ceiling from `MapGen.Config`
+    (`TILE_STUDS`, `VOXEL`, `BAND_Y`), whose header carries the 2026-09-26 measurement. Delete
+    `Relief.tiles` and the case fails.
+12. **The limiter meets its ceiling.** A 63.4-degree synthetic cliff comes out at exactly 20.00 and
     32.00 degrees, and every cell's own column -- over a flat base and over a base built from that
     cell's measured `Grid.CELLS[*].relief` row -- is at or under its ceiling clear of the pins.
     A pinned band is returned byte-identical.
 
-## Measured (the gate run at 52b4667e unless a row says otherwise)
+## Measured (the gate run at 291f68cb unless a row says otherwise)
 
 Worst 16-stud window AFTER `limitPass`, clear of pinned samples, `u = 0.64` (off B2's ramps):
 
@@ -86,6 +98,13 @@ B2's scarp and ramps, measured off `heightAt` (probe run, 2026-11-02; `heightAt`
 
 Road fade, every road, probe run: `at51=0.000000` for all eight.
 
+Every bench's realised plane, gate run: `A1 v 0.55-0.74 rises 3.008 studs over 188, 0.0160 st/st
+against 0.0160` -- `B2 v 0.00-0.22 rises 3.096 over 172, 0.0180 against 0.0180` -- `D2 v 0.50-0.74
+rises 7.280 over 260, 0.0280 against 0.0280`.
+
+Limiter, gate run: `63.4 deg cliff -> 20.00 after 8 passes ... ceiling 20` and `-> 32.00 ...
+ceiling 32`. Tiles, gate run: `the bake's region is 1333 tiles of 128 studs`.
+
 Each op's own peak against its recipe, probe run, flat base: A1 trough -14.000 / B1 dome +22.000,
 trough -8.000 / C1 ridge +24.000, saddles cut it to +12.000 / D1 bowl -10.000 / A2 trough -13.000 at
 v .60 (0 at v .20 to -26 at v 1) / C2 knolls +26.000 each / B2 scarp -14.000 at its centre.
@@ -103,9 +122,10 @@ v .60 (0 at v .20 to -26 at v 1) / C2 knolls +26.000 each / B2 scarp -14.000 at 
    PluginSecurity, which design 5.4 itself records. The scan arm therefore asserts its own verdict
    rather than passing silently, and §1.2 item 1 is carried by claim 8's behavioural proof. The
    scan arm is written and will run the day the instrument becomes readable.
-   (A literal repo-wide scan would also fail today for a legitimate reason: `src/server/Lobby/Field`
-   and `src/server/Places/Ground` write terrain for the LOBBY and the four line places, which §1.2
-   item 1 names as untouched. They are the spec's allow-list.)
+   (A literal repo-wide scan would also fail today for a legitimate reason: `src/server/Lobby/Field`,
+   `src/server/Places/Ground` and `src/server/Range/Build` write terrain for the LOBBY, the four line
+   places and the range, none of which §1.2 item 1 touches. They are the spec's allow-list, and the
+   match is on the CALL shape `:FillBlock(` so a comment mentioning one is not an offender.)
 4. **Design 13.1 case 3's "0.001 of weight a stud at the support boundary"** is met by every falloff
    whose support is >= 100 studs and asserted there. A ramp's 16-stud side blend cannot reach it
    (0.0112 at its last non-zero stud), so what is asserted for the short blends is the thing the
@@ -115,9 +135,43 @@ v .60 (0 at v .20 to -26 at v 1) / C2 knolls +26.000 each / B2 scarp -14.000 at 
    on B2's scarp and read the 28-stud face as 33.5); and `limitPass` finishes with an exact
    forward-then-backward min-cone clamp, because 8 relaxation passes alone leave a 63.4-degree cliff
    at 22.92 against a ceiling of 20.
-6. **Design 15 item 4's "~75 st" worst corridor-to-ramp distance is 96 st** (`TASKS.md` 328a-notes
+6. **`deltaAt` and `Landform` differ from design 4's sketch.** `deltaAt` takes `baseAt` and `h0`
+   as well, because a bench's plane is anchored on the ground it meets and that needs the reader;
+   and `Landform` gains a `floor` row, which `materialAt` needs and the sketch has none for.
+7. **Design 13.1 case 9's SPLIT rule is 328d's, not asserted here.** The Y-band pad is
+   `TerrainBake.BAND_PAD`, which does not exist yet; this task asserts only the ceiling and the
+   stride, from shipped numbers. Round 1 finding 1 was exactly this and it is now declared.
+8. **Design 15 item 4's "~75 st" worst corridor-to-ramp distance is 96 st** (`TASKS.md` 328a-notes
    (d)). Not used here -- the three ramps ship as the design rules -- recorded because this task
    re-derived it.
+
+## Round 2 -- what the two findings changed
+
+- **Finding 1** (the voxel case asserted literals it defined itself): rewritten to read
+  `Relief.tiles` and `MapGen.Config`; the split half is declared, not claimed (Deviation 7).
+- **Finding 2** (the bench's recipe asserted nowhere): a new case, claim 10 above.
+- Five of the notes touched SHIPPED files and are fixed with them rather than queued, because each
+  was a factual error in the tree: **B1 and A2 carried an invented mud depth** and SWARM 2.2 states
+  none for either (A1's and D1's stay, each with its recipe line quoted beside it, and the four
+  cells SWARM gives no floor now say so); the source scan matches the **call shape** and carries
+  `Range.Build`; the scan's note now says plainly that it **proved nothing** on a run where `Source`
+  is unreadable; the golden's header no longer names an instrument the repo does not hold; and the
+  `epochInput` case now builds a **differently ordered** config, which is what `table.sort` is for.
+  The limiter case's name and comment now say the finishing clamp is what lands it on the ceiling.
+- The remaining notes are queued in `TASKS.md` under 328c-notes, not fixed here: the separable blur
+  (328d pays for it), `columnsFor`'s inward shift on an off-centre band (328e paints it), the axes
+  `limitPass` runs on (328d), and B2's bench weight 0.9.
+
+## A harness fault worth reporting (rule 6)
+
+The gate at this commit took **four runs**. Run 1 failed `deer_hitbox.spec:682`, run 2
+`deer_hitbox.spec:659` -- both on the dispatch's KNOWN-INTERMITTENT list, and both passed on the
+runs either side. Run 3 failed at the harness level, not in a spec:
+`[input] replayed every step of 6 scenario(s) (shoot-the-boar: RuntimeError: user_mouse_input:
+Network action UserMouseInputTool.SendUserInput sent to DMN_ID_PLAYCLIENT failed - Target is not
+reachable ...)`, with every spec passing in that same run. Run 4 is the PASS pasted at the top.
+The first gate of this task, at 52b4667e, passed 34/34 first time. Nothing in this change touches
+the deer, the boar or the input replay.
 
 ## Not verified
 
