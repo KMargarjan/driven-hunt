@@ -1187,5 +1187,54 @@ return function()
 			expect(lowest).to.equal(100)
 			expect(lowest).never.to.equal(0)
 		end)
+
+		it("328d-19 blurs a grid separably, and it is the SAME blur, measured", function()
+			-- 328c note (c): `blurredAt` applies the Gaussian as a full 2-D kernel, 1,369 base reads
+			-- a point. 328d is the task that pays -- with the per-point kernel this spec run passed
+			-- the harness 300-s cap. A Gaussian is separable exactly, and this case is what says the
+			-- two agree rather than a comment promising it.
+			local function lumpy(x: number, z: number): number?
+				return 100 + 7 * math.sin(x / 53) + 4 * math.cos(z / 31) + 0.002 * x
+			end
+			local v = Relief.VOXEL
+			local minX, minZ, n = -4400, -5100, 24
+			local grid = Relief.blurredGrid(lumpy, minX, minZ, n, n)
+			local worst, worstAt = 0, ""
+			for i = 1, n do
+				for k = 1, n do
+					local x, z = minX + (i - 1) * v, minZ + (k - 1) * v
+					local point = Relief.blurredAtPoint(lumpy, x, z)
+					local gap = math.abs(grid[(k - 1) * n + i] - point)
+					if gap > worst then
+						worst, worstAt = gap, string.format("(%d,%d)", x, z)
+					end
+				end
+			end
+			TestKit.note(
+				string.format(
+					"separable blur vs the per-point kernel: worst %.3e studs at %s over %d points",
+					worst,
+					worstAt,
+					n * n
+				)
+			)
+			expect(worst < 1e-9).to.equal(true)
+			-- FAIL FIRST: the blur is not the identity, so a pass that returned the base would fail.
+			local middle = grid[(12 - 1) * n + 12]
+			expect(math.abs(middle - lumpy(minX + 11 * v, minZ + 11 * v)) > 0.05).to.equal(true)
+			-- A CONSTANT BASE COMES BACK THE CONSTANT, which is what pins the kernel's
+			-- normalisation -- the 328c note said nothing asserted it.
+			local level = Relief.blurredGrid(function()
+				return 42
+			end, minX, minZ, 6, 6)
+			for _, y in level do
+				expect(math.abs(y - 42) < 1e-9).to.equal(true)
+			end
+			-- nil anywhere in a point's support makes that point nil, as the per-point kernel does.
+			local holed = Relief.blurredGrid(function(x: number, _z: number)
+				return if x < minX - 40 then nil else 100
+			end, minX, minZ, 6, 6)
+			expect(holed[1]).to.equal(nil)
+		end)
 	end)
 end

@@ -142,6 +142,66 @@ local function blurredAt(baseAt: (number, number) -> number?, x: number, z: numb
 	return total
 end
 
+-- The per-point kernel, exposed so a spec can measure the separable grid pass against it. The bake
+-- never calls this one: it is the reference, not the route (328c note (c)).
+function Relief.blurredAtPoint(baseAt: (number, number) -> number?, x: number, z: number): number?
+	return blurredAt(baseAt, x, z)
+end
+
+-- THE SAME BLUR OVER A WHOLE GRID, as a SEPARABLE row-then-column pass: 2 x 37 reads a point
+-- instead of 37 x 37 = 1,369 (328c note (c), and 328d is the task that pays -- its server spec run
+-- timed out at 300 s with the per-point kernel). A Gaussian is separable exactly, and both passes
+-- normalise by the same 1-D kernel, so the answer is `blurredAt`'s to float error -- which
+-- `grid_relief.spec` MEASURES rather than this comment promising it.
+--
+-- nil anywhere inside a point's support makes that point nil, exactly as `blurredAt` does.
+function Relief.blurredGrid(
+	baseAt: (number, number) -> number?,
+	minX: number,
+	minZ: number,
+	nx: number,
+	nz: number
+): { number? }
+	local v = Relief.VOXEL
+	local taps = #KERNEL - 1
+	-- THE ROW PASS RUNS `taps` ROWS PAST THE GRID on each side, so the column pass never falls off
+	-- the end and no point has to pay the per-point kernel as a fallback.
+	local tall = nz + 2 * taps
+	local rows: { number? } = table.create(nx * tall, 0)
+	for k = 1, tall do
+		local z = minZ + (k - 1 - taps) * v
+		for i = 1, nx do
+			local x = minX + (i - 1) * v
+			local total, ok = 0, true
+			for ix = -taps, taps do
+				local y = baseAt(x + ix * v, z)
+				if y == nil then
+					ok = false
+					break
+				end
+				total += KERNEL[math.abs(ix) + 1] * y
+			end
+			rows[(k - 1) * nx + i] = if ok then total else nil
+		end
+	end
+	local out: { number? } = table.create(nx * nz, 0)
+	for i = 1, nx do
+		for k = 1, nz do
+			local total: number? = 0
+			for iz = -taps, taps do
+				local y = rows[(k + taps + iz - 1) * nx + i]
+				if y == nil then
+					total = nil
+					break
+				end
+				total = (total :: number) + KERNEL[math.abs(iz) + 1] * y
+			end
+			out[(k - 1) * nx + i] = total
+		end
+	end
+	return out
+end
+
 -- ---------------------------------------------------------------- one op's falloff
 
 -- The nearest point on a polyline, in STUD space: the perpendicular distance and the `dyStuds`
@@ -340,7 +400,8 @@ function Relief.heightAt(
 	baseAt: (number, number) -> number?,
 	x: number,
 	z: number,
-	blend: number?
+	blend: number?,
+	smoothedAt: number?
 ): number?
 	local base = baseAt(x, z)
 	if base == nil then
@@ -358,7 +419,12 @@ function Relief.heightAt(
 	if k <= 0 then
 		return base
 	end
-	local smoothed = if form.baseKeep >= 1 then base else blurredAt(baseAt, x, z)
+	-- `smoothedAt` is the blur ALREADY COMPUTED for this point, which is how the bake hands in a
+	-- separable grid pass instead of paying 1,369 base reads here (328c note (c)).
+	local smoothed = if form.baseKeep >= 1
+		then base
+		elseif smoothedAt ~= nil then smoothedAt
+		else blurredAt(baseAt, x, z)
 	if smoothed == nil then
 		return nil
 	end

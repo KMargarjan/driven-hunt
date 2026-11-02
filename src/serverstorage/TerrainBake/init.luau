@@ -554,6 +554,11 @@ function TerrainBake.shapeTile(
 	local names: { string } = table.create(wide * wide, "")
 	local depth = table.create(wide * wide, 0)
 	local roads = Grid.roads()
+	-- THE BLUR, ONCE, SEPARABLY, over the whole shaping grid (328c note (c)). Per point it is
+	-- 1,369 base reads; over the grid it is 2 x 37, and `grid_relief.spec` measures that the two
+	-- agree. With the per-point kernel this task's own spec run passed the harness 300-s cap.
+	local blurred =
+		Relief.blurredGrid(baseAt, tile.minX + (1 - margin - 0.5) * v, tile.minZ + (1 - margin - 0.5) * v, wide, wide)
 	for i = 1, wide do
 		local x = tile.minX + (i - margin - 0.5) * v
 		for k = 1, wide do
@@ -573,7 +578,8 @@ function TerrainBake.shapeTile(
 				local bounds = Grid.boundsOf(id)
 				-- ONE FADE, handed to the arithmetic that owns it (round-1 finding 7). Multiplying
 				-- the bake's own fade onto `heightAt`'s cell-edge `k` put two fades in series.
-				local here = Relief.heightAt(form, bounds, roads, baseAt, x, z, TerrainBake.blendAt(union, x, z))
+				local here =
+					Relief.heightAt(form, bounds, roads, baseAt, x, z, TerrainBake.blendAt(union, x, z), blurred[at])
 				shaped[at] = here or base
 				exempt[at] = Relief.isExempt(form, bounds, x, z)
 				depth[at] = TerrainBake.depthAt(base, here or base)
