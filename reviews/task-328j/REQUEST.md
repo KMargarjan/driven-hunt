@@ -1,108 +1,121 @@
-# Task 328j -- the bake's two fixes, then C1's bake
+# Task 328j -- the bake's two fixes, and C1 BAKED in Karen's Forest Test
 
 Task: 328j
-Round: 1
+Round: 2
 Base: 6b520717 (origin/main)
-Code commit: 89d9c5b10064a28e1922c7edfa1c586dbd2f4ead
+Code commit: 3f7628fe8f1aee11d95c17e5f786d65e01cba55c
 
 ```
-[harness] PASS: 34/34 checks @ 89d9c5b10064a28e1922c7edfa1c586dbd2f4ead (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 3f7628fe8f1aee11d95c17e5f786d65e01cba55c (clean tree) scope=all
 ```
 
 `test2` is N/A: nothing here is in `TWO_PLAYER_PATHS` (the bake is the map and the tools).
 
-**What this covers.** The whole branch against `main`: task 328d (the bake tool, the Luau, the
-cases) plus 328j, which is exactly the two blocking findings of `reviews/task-328d/RESULT.md` round
-3, plus Director decision 3 of `ESCALATE.md`'s 17:05 UTC entry. 328d's own request is
-`reviews/task-328d/REQUEST.md` and its claims still stand; the claims below are 328j's.
+**Round 1 PASSED** (`reviews/task-328j/RESULT.md`, `46c4e355`) and its twelve notes are queued in
+`TASKS.md`, not fixed here. This round covers only what changed after it: two tool bugs that each
+stopped the bake dead, and **the bake itself**, which has now run. The whole branch against `main`
+is 328d plus 328j; 328d's request still stands.
 
 ## Claims
 
-1. **The CI selftest no longer touches a Studio, proved with CI's own condition.**
-   `tools/terrainbake.py` `selftest` calls `command_plan(argparse.Namespace(cells=["A1"]), facts,
-   None, None)` -- the transport is two arguments and both are `None`. Verify:
-   `LOCALAPPDATA=/nonexistent python tools/terrainbake.py selftest` exits **0** and prints **78
-   PASS** lines. Before the fix the same command exits **1** after **19** lines (`StudioMCP.exe not
-   found under %LOCALAPPDATA%\Roblox\Versions`), because `main`'s `plan` branch builds `Studio()` and
-   `SystemExit` is not an `Exception`. No other `main([...])` case in the selftest reaches a Studio:
-   `bake`/`archive` with no `--cells` is refusal 6 and an unknown cell is refused, both before
-   `facts` is read.
-2. **That case now asserts the count instead of printing it.** A second case sets
-   `EXPECTED_TILES["A1"]` to a wrong number and requires `command_plan` to answer **2**, restoring it
-   in a `finally`. Verify: delete the `elif count != expected: return refuse(...)` arm and the new
-   case fails while the old one still passes.
-3. **Design 7.1's junctions are pinned, in closed form, and the pin is exact.**
-   `TerrainBake.junctionPins` gives a north-south road one pin per crossing at the **east-west
-   crown**; `pinnedSamples` holds every sample within `pinWindowStuds()` = carriageway + one sample
-   step = 40 st of it; `longProfile`'s pin stage builds `upper`/`lower` cones of `rise` a sample from
-   the held samples and clamps the profile into that band. Verify: case **328j-1** reads `pinStuds`
-   **0.0000** at all four of C1's crossings, and in Karen's place the tool printed the same (claim
-   7). The band is why it is exact: the median of three functions Lipschitz in `rise` is Lipschitz in
-   `rise`, and the band is zero-width at a held sample.
-4. **The first attempt at this was wrong and the comment says what it measured.** The existing
-   min-cone sweep can only LOWER, so a crossing above the ground each side is never met: iterating
-   (restore the pins, sweep) left the pin **2.75 st** out on NS3 and **7.55 st** on NS4 in Karen's
-   place. Verify: `ESCALATE.md`'s 328j entry quotes that run; the `longProfile` pin-stage comment
-   carries both numbers and the reason.
-5. **A pin the ground cannot carry is dropped and SAID, never forced.** `pinCost` is set when the
-   band is empty, or on the last attempt when pinning costs more cut-or-fill than the axis cap AND
-   more than not pinning; a breach line then names the road. Verify: case **328j-3** on the
-   Reviewer's own base (east-west lines 60 st down) reads `NS3: pinning its junctions needs 60.0 st
-   of cut or fill, over the 20-st cap, so this road is NOT pinned`, and `worstCutFill` is back inside
-   the cap. Forcing it instead is what sent a flank's bank 165 st into a tile it has no business in:
-   **328d-17** failed at `worst 16-st window 454.687` against a `5.824` ceiling while that was in,
-   and reads **5.824** now.
-6. **The E-W profile wins inside the junction square, and only there.** `roadAt` keeps the nearest
-   centreline **per axis** and prefers the `x` one when both are within `carriagewayStuds`. Verify:
-   case **328j-1** reads a point at (+4,+12) from the crossing -- where the nearest centreline is the
-   north-south one -- as **147.8800**, the east-west section's own value to 1e-9; the square's
-   diagonal (+5,+10) against (+10,+5) differs by 0.05 st, inside the crown fall; and 500 st up the
-   same road the north-south crown wins again at **160.00**. Delete `inSquare or` from the condition
-   and the first of those fails.
-7. **Measured at C1's four crossings in Karen's Forest Test, at the code commit.**
-   `TerrainBake.junctionSteps` prints the pin, the worst height difference between voxel-adjacent
-   columns on the junction square (plus one voxel past it, minus the corner on neither carriageway
-   and anything past either road's end), and what the east-west crown's own rise across the square
-   explains. From the `measure --cells C1 --tiles 1` run at this commit, injection route:
+1. **Refusal 7 could not pass Karen's own two flags, so the bake could not start at all.**
+   `flag_overrides` answers `DHFlag_<NAME>=<value>` strings and `check_overrides` compared each WHOLE
+   string with a whitelist of bare names, so `"DHFlag_GRID_PREVIEW=true" not in ("GRID_PREVIEW",
+   "RANGE_SOLO")` was true and the whitelist matched nothing. Measured in her place at 18:00 UTC:
+   **all 15** of her overrides refused, the two the list exists to allow among them. `override_name_of`
+   is the pure half; the selftest case states the bug (`"DHFlag_GRID_PREVIEW=true" not in
+   KARENS_FLAGS` is asserted as true beside `override_name_of(...) in KARENS_FLAGS`). Verify:
+   `ESCALATE.md`'s 18:05 UTC entry has the probe output before the fix.
+2. **`--keep-flags` declares the place owner's overrides instead of clearing them.** The dispatch
+   says her flags are "left as found" and lesson K forbids `clear`. The bake printed
+   `keep 13 declared override(s), left as found: AIM_REWIND,...,ZONES_FOLLOW_GAIT` and then
+   `flags live overrides: ...` beside it, so the widening is in the run output. An undeclared
+   override still refuses. Verify: `.terrainbake/20261102T181221Z-C1.json` and the bake log.
+3. **The first wet bake wrote every tile and then died stamping the epoch.** `epochInputFor` answers
+   a STRING whose landform digest carries braces, and `parse_json` looked for the first `{`.
+   `parse_json` now tries `{`, `[` and `"` in the order they appear and takes the first that DECODES;
+   two cases cover it, and the string one fails before the fix. No wet run had ever happened, so
+   nothing had reached that line. Verify: the traceback is in the bake log after `tile 208/208`.
+4. **THE BAKE RAN, in Karen's Forest Test, at the code commit, by the injection route.**
+   208/208 tiles, **3,513,344 voxels**, 82-127 ms a tile (mean 98.0), **20.4 s** of tile time, one
+   MCP call each, no tile message. The backup gate was re-checked immediately before the first
+   `WriteVoxels`: `FT-before-328d.rbxl`, 29,360,598 bytes, 1.16 h old, outside the repo. Her session
+   was **Edit only** (`get_studio_state`: "Available DataModels: Edit"), so rule C held. The epoch was
+   then stamped through `TerrainBake.stamp` -- design 2's only writer -- with **no re-bake**, because
+   a second bake would read the BAKED ground as its base: `TerrainEpoch` nil -> `5f6a97f4aace5dcf`.
+5. **The road is cut into the ground, measured away from the crossings.** The first probe sampled
+   each road's span midpoint, which for all four of C1's roads IS a crossing -- where the design says
+   the other axis wins and there is no ditch -- and scanned the grade over the whole road, most of
+   which was never baked. Re-measured halfway between the two crossings and only inside the baked
+   region (`328j-section-AFTER.json`):
 
-   | crossing | pin | worst voxel step | E-W rise over the square | explained |
+   | road | crown | ditch + | ditch - | realised grade over the baked span |
    |---|---|---|---|---|
-   | EW2 x NS3 | 0.0000 | 0.6801 | 0.6801 | 0.8801 |
-   | EW2 x NS4 | 0.0000 | 0.4132 | 0.4132 | 0.6132 |
-   | EW3 x NS3 | 0.0000 | 0.8466 | 0.8466 | 1.0466 |
-   | EW3 x NS4 | 0.0000 | 0.2007 | 0.2007 | 0.4007 |
+   | EW2 | 110.58 | **1.97** | **1.97** | 5.48 % |
+   | EW3 | 144.78 | **1.98** | **1.98** | 11.99 % |
+   | NS3 | 109.97 | **1.92** | **1.92** | 10.23 % |
+   | NS4 | 124.90 | **1.98** | **1.98** | 7.90 % |
 
-   Every step **equals that crossing's east-west rise to four decimals**, which is the derivation:
-   the north-south crown is pinned flat across the square while the east-west one keeps climbing, so
-   the residual is the east-west road's own grade and not a discontinuity. Round 3 measured **60.00
-   st** there.
-8. **`cutFillStuds` is per axis, and 20 was walked rather than chosen** (Director decision 3).
-   `x = 12` is design 7.1's and the east-west roads keep it. The realised **grade in per cent** each
-   north-south cap buys, each from its own `measure` run in Karen's place: **12 st -> NS3 20.00, NS4
-   20.00 · 16 -> 16.00, 12.00 · 18 -> 12.00, 10.00 · 20 -> 10.00, 10.00**. 20 is the smallest under
-   the 12 % the decision asks for and is its own hard ceiling. The **cut in studs** it realises:
-   **NS3 19.75, NS4 17.21**, both inside 20, and neither road relaxes any more. Verify: case
-   **328j-2** walks a cliff height until the cut is over the east-west cap and inside the north-south
-   one, then requires `relaxed == false` and no breach; the same cut on a hunter line relaxes. With
-   one scalar cap the first of those fails.
-9. **What this does NOT fix, measured and printed, not hidden.** Pinning a junction flat over 80 st
-   on a 10 % hillside kinks the grade: NS3 and NS4 now print `grade change 10.00 % over 60 st, over
-   the 2.40 % allowance` as breach lines. Before the pins they printed `20.00 %` at a 12-st cap and
-   the grade itself was 15.73 / 13.47 %. EW3's 2.41 % against 2.40 is unchanged from 328d. Verify:
-   the breach list of the final `measure` run, quoted in `ESCALATE.md`'s 328j entry.
-10. **The gate and the lint.** `tools/agents.py selftest`, `tools/studio_mcp.py selftest` and
-    `tools/terrainbake.py selftest` all pass; `selene src`, `selene --config tests/selene.toml tests`
-    and `stylua --check src tests` are clean. No new spec FILE, so no `SCOPE_SPECS` row is needed.
+   Design 7.1's ditch is 2.00 st; the worst error is **0.08 st**, so section 15 item 2's 4-stud
+   fallback is not triggered. The full `d -40..+40` section of EW2 is in the file: level carriageway
+   (-0.00 at d 1, -0.08 at d 10, -0.12 at d 15), both ditches bottoming at **-1.97** at d +23 and
+   d -25 inside the realised band 19..27, verge back up at d 30-33, bank beyond.
+6. **The step at each crossing, on the WRITTEN GROUND, where round 3 measured 60 studs.** Inside the
+   junction square (|d| <= 16 on both axes, 81 rays a crossing, `328j-cross-AFTER.json`): worst
+   adjacent-column step **0.1758 / 0.0900 / 0.1984 / 0.0547 st** for EW2xNS3, EW2xNS4, EW3xNS3,
+   EW3xNS4 -- every one at or under the 0.20 crown fall. The tool's own `junctionSteps` over the
+   profiles read pin 0.0000 on all four at this commit.
+7. **The ±24 window reads bigger, and the reason is the ditch, not the junction.** The same metric
+   with the round-1 ±24 window reads 1.474 / 0.927 / 1.416 / 0.932 st, at offsets like (+16,-24):
+   the REALISED ditch band starts at d **19**, not the nominal 22 (`columnsFor`'s documented inward
+   shift), so a point 24 studs out on one axis is in the other road's 2-stud ditch while still
+   "on a carriageway" by the nominal rule. Named here rather than quietly dropped.
+8. **Director decision 3, on the written ground.** NS3 realises **10.23 %** and NS4 **7.90 %** over
+   the baked span -- both under the 12 % the decision asks for, where round 3's profiles were 15.73
+   and 13.47. The caps are `cutFillStuds = { x = 12, z = 20 }` and the ladder that chose 20 is claim
+   8 of round 1.
+9. **The census, on the baked ground, from a fresh Play boot with her GRID_PREVIEW already on.**
+   `[census] C1 epoch=5f6a97f4aace5dcf trees=2085 parts=6073 floating=0 sunk=0 foliageInGround=275
+   tilted=0 broken=0 noGround=0 inRoad=0 inStand=0 inLane(other-world)=131 onCliff=0
+   crownOverRoad=91 crownUnmeasured=0 refused=25+0/2165=1.2% worstHigh=-0.18 worstSink=0.60`.
+   **floating 0, sunk 0, tilted 0** is the dispatch's ask. `crownOverRoad=91` is 328f's frontage
+   rule, not this task's.
+10. **Her place is as found.** Every place/ServerStorage/Workspace/ReplicatedStorage attribute was
+    dumped BEFORE the first `WriteVoxels` (`<runs-dir>/attr-328j-20261102T173231Z.log`, 17:32 UTC,
+    15 `DHFlag_*` plus `DHForestStartRole`, `DHShopTestGrant`, `DHTestOwns`) and again after
+    (`attr-328j-20261102T182237Z.log`): **byte-identical**. The frame camera's `DH328dFrame`
+    attribute was cleared, Play was stopped, and nothing was saved, published or committed in her
+    place.
 
 ## What I could not verify
 
-* **`deer_hitbox.spec:682` failed on the first run of this commit and passed on the second**, both
-  clean-tree at `89d9c5b1`: `FAIL: 32/34 ... (clean tree) scope=all`, then
-  `PASS: 34/34 ... (clean tree) scope=all`. The dispatch names `deer_hitbox.spec:659/:682` as a known
-  intermittent. One of two runs, and nothing in this change touches a deer or a hitbox.
-* **Design 7.1 still says "cut-or-fill <= 12 st" for both axes.** The per-axis cap is the Director's
-  decision 3, not the design's; `docs/design/grid-terrain.md` is the Architect's file and is not
-  touched here. Queued in `TASKS.md` under 328j.
-* **The bake itself.** At the time this request is written no `WriteVoxels` has run in Karen's place
-  in this task. The bake and its before/after measurement follow this review, as `ESCALATE.md`'s
-  17:05 UTC decision 4 orders; everything measured above is read-only.
+* **The stands are still not on the ground, and the bake is not what levels them.** Before:
+  5 floating (worst 17.82 st) and 10 buried (worst 24.33) of 15. After: 5 floating (worst **13.57**)
+  and 10 buried (worst **21.84**) -- better, but only because the landform moved under them.
+  `bakeTileAt` passes `plans = {}` to `shapeTile`, so **no pad op is applied at all** (round 1's
+  Reviewer note says the same of `Relief.materialAt`). The dispatch's "none floating, none buried"
+  is therefore **NOT MET**, and nothing in this task could meet it: it needs the pad plans, queued
+  as 328e/328f. Stand 10 went -24.33 -> -7.41; stand 11 went -16.55 -> **-21.84**, so the worst case
+  moved rather than closed.
+* **C1's landform cannot be checked against `Relief.heightAt` after the bake.** `heightAt` takes the
+  BASE as a function, and the base is now overwritten, so re-deriving it reads the baked ground as
+  its own input. Measured anyway and labelled: 12.99 st worst deviation before, 12.91 after, over 36
+  points -- the two are **not the same quantity** and neither is evidence. What is comparable is the
+  ridge, from the same 1,530-ray scan: **150.89 at (-4434,-3806) before, 149.36 at (-4050,-3678)
+  after** -- it moved 384 st east and dropped 1.53 st.
+* **The four frames are looked at and described, from eye height, in her place after the bake**
+  (`.screenshots/328j-after-A|B|C|D-view.png`, cropped to her viewport). **A** stand 4 looking north:
+  a ridge line with rounded humps across the horizon where round 3's before-frame had a level,
+  ridgeless horizon, bare carriageway in the foreground with a grass band. **B** on EW2 looking west:
+  the carriageway reads as a pale bare strip with a tall grass verge beside it -- the near ditch is
+  BEHIND that grass band and is not visible from this eye point, so the frame does not show it.
+  **C** stand 10 looking east: a grass slope rising to a long bare ridge, a pale track to the right,
+  and **no stand post or tower**, which the bake does not place. **D** (new) NS3 at a truck driver's
+  7-stud eye looking north: the carriageway runs away between two grass edges and climbs into a long
+  rounded hill -- 93.60 to 149.64 over 1,100 studs. **No tree is in any of the four**: the forest is
+  planted at Play, and these are Edit frames.
+* **The grade CHANGE at a pinned junction breaches design 7.1's rate** -- NS3 and NS4 print
+  `grade change 10.00 % over 60 st` against a 2.40 % allowance. Printed, never hidden, and queued in
+  `TASKS.md`'s 328j row; which of the two rules yields is the Architect's.
+* **`deer_hitbox.spec:682`** failed once in three clean-tree runs on this branch and passed in the
+  other two; the dispatch names it a known intermittent. The final run at `3f7628fe` is 34/34.
