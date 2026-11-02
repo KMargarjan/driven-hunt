@@ -1,3 +1,46 @@
+## 2026-11-02 ~18:05 UTC, Task 328j -- REFUSAL 7 BLOCKS THE BAKE IN KAREN'S PLACE, measured, and it is a BUG in 328d's own gate
+
+**Round 1 PASSED** (`reviews/task-328j/RESULT.md`, commit `46c4e355`, $4.85, 37 turns) and the backup
+gate is MET (`FT-before-328d.rbxl`, 29,360,598 bytes, 17:00 UTC). The bake still cannot start, and
+this entry is written AT the stop, before any workaround (V280).
+
+### What the probe read, in her Edit session, at the code commit
+
+```
+flag_overrides -> ['DHFlag_AIM_REWIND=true', ... 'DHFlag_GRID_PREVIEW=true', ... 15 entries]
+KARENS_FLAGS   -> ('GRID_PREVIEW', 'RANGE_SOLO')
+check_overrides-> "a flag override is live: DHFlag_AIM_REWIND=true, ... DHFlag_GRID_PREVIEW=true,
+                   ... DHFlag_ZONES_FOLLOW_GAIT=true. Run `python tools/flags.py --place forest set
+                   <NAME> off` for THAT flag only -- never `clear` ..."
+```
+
+**`flag_overrides` answers a LIST of `DHFlag_<NAME>=<value>` strings and `check_overrides` compares
+each whole string with a whitelist of bare names.** `"DHFlag_GRID_PREVIEW=true" not in
+("GRID_PREVIEW", "RANGE_SOLO")` is true, so **the whitelist never matches anything** -- refusal 7
+refuses Karen's own two flags, the two it was written to allow (lesson K, and its own docstring says
+*"refusal 7 is about an override a BUILDER left, not about her playtest setup"*). Her place holds
+**15** of them, every one hers: they are in the baseline dump
+`<runs-dir>ttr-328j-20261102T173231Z.log`, written at 17:32 UTC before anything in this task
+touched her place, and this task set none.
+
+**The dispatch's instruction and the tool's behaviour are in direct conflict**: *"her flags
+(GRID_PREVIEW=true, RANGE_SOLO=true and the rest) are left as found"*, and the tool will not bake
+until they are off. Clearing them is forbidden (lesson K; `flags.py clear` would take hers with it)
+and setting 15 flags off and back on is exactly the destruction the rule exists to prevent.
+
+### What I am doing about it, and what it costs
+
+Rule 6: a harness fault is a bug, and this one is in 328d's own gate, on this branch. **It is two
+lines**: compare the NAME (strip `DHFlag_`, strip `=value`), and let the operator DECLARE the place
+owner's overrides with `--keep-flags`, printed in the run output and the run log so the widening is
+auditable instead of silent. Nothing about the bake's geometry is flag-dependent -- `Flags` is not in
+the injected prelude at all -- so the refusal here is a false positive, but it is not mine to delete:
+narrowing it to a declared list keeps the guard for a stray Builder override.
+
+**The cost is one review round**, which the dispatch's budget allows ("at most 2 rounds"): the code
+commit moves, so the harness and the Reviewer both run again before the bake. The read-only BEFORE
+measurement does not depend on it and is taken first, so the before/after pair uses one instrument.
+
 ## 2026-11-02 ~17:05 UTC, Task 328d round 3 -- DIRECTOR DECISIONS: no round 4; follow-up task 328j; the backup exists; the steep roads
 
 1. **No round 4.** The extra round is for documentation-only findings, and both round-3 findings are code. **Task 328j** takes exactly the two: (a) the selftest case must not construct `Studio()` -- call `command_plan` with no transport, CI hermetic; (b) build design 7.1's junction pinning and E-W precedence, with a case that measures the step across each of C1's four crossings and fails before the fix. 328j works on the same branch, `task-328d-bake-c1`; its reviews go in `reviews/task-328j/`, Round 1. 328d and 328j merge together as one PR once 328j passes.
