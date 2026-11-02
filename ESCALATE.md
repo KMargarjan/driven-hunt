@@ -25,7 +25,7 @@ the DEV place as a control in the same Studio install, same probe** (`<runs-dir>
 | signal | Forest Test | DEV (control) |
 |---|---|---|
 | `game:FindService("NetworkClient")` | `NetworkClient` | `nil` |
-| `#Players:GetPlayers()` | **1** -- `Alhamdulilah824`, uid 8167651842 = `game.CreatorId` | **0** |
+| `#Players:GetPlayers()` | **1** -- the place's owner, whose uid equals `game.CreatorId` | **0** |
 
 Two places, one Studio, one probe, opposite answers: the signal is a property of the session, not of
 the probe. **Read as Team Create ON with the owner connected.** Per the Director's decision 4 the
