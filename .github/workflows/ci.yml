@@ -95,6 +95,13 @@ jobs:
         if: success() || failure()
         run: python3 tools/aim_bench.py selftest
 
+      # The terrain bake's tool half (Task 328d): the seven refusals against a scripted Studio, and
+      # the tile arithmetic re-derived in Python from the Luau on disk -- the design's own gate for a
+      # tool that is not in BLAST_RADIUS. The bake itself needs the Forest Test in Edit.
+      - name: Terrain bake selftest (no Studio, no network)
+        if: success() || failure()
+        run: python3 tools/terrainbake.py selftest
+
       # The Meshy tool's validators, builders and parsers, with no key and no network (Task 55).
       # CI never gets a Meshy key, and this step must never need one.
       - name: Meshy tool selftest (no key, no network)

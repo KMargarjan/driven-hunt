@@ -1,3 +1,459 @@
+## 2026-11-02 ~18:55 UTC, Task 328j -- C1 IS BAKED IN KAREN'S FOREST TEST, and one NEEDS KAREN is left
+
+**Reviewer PASS** (`reviews/task-328j/RESULT.md`, round 2, `777cd5e5`, $2.62). Code commit
+`a18b4ac5`, `[harness] PASS: 34/34 checks @ a18b4ac5 (clean tree) scope=all`, CI green on `35ee34b4`.
+Three reviews in all; two findings, both fixed and both proved by running the deletion.
+
+**The bake ran at 18:10-18:12 UTC**: 208/208 tiles, 3,513,344 voxels, 82-127 ms a tile (mean 98.0),
+20.4 s of tile time. The backup gate was re-checked immediately before the first `WriteVoxels`
+(29,360,598 bytes, 1.16 h old). Her session was Edit only. Every attribute was dumped before and
+after (`<runs-dir>/attr-328j-20261102T173231Z.log` and `-182237Z.log`) and the two are
+**byte-identical**: her 15 flags are exactly as found, `DH328dFrame` was cleared, Play was stopped,
+and nothing in her place was saved, published or committed.
+
+### NEEDS KAREN -- the one click left, for the morning
+
+**`StreamingMinRadius` 64 -> 384.** It cannot be set or even read from a tool: `StreamingMinRadius`,
+`StreamingTargetRadius` and `StreamingIntegrityMode` all answer *"not a valid member of Workspace"*
+in this Studio build.
+
+1. In Studio, with **Driven Hunt Forest Test** in front, click **Workspace** in the Explorer.
+2. In the **Properties** pane, find **StreamingMinRadius** (under Streaming).
+3. Type `384` and press Enter.
+
+Team Create saves her place by itself; nobody needs to save, publish or commit it.
+
+### What the bake produced, measured in her place at the code commit
+
+* **The road is cut.** Ditch **1.97 / 1.98 / 1.92 / 1.98 st** on BOTH sides of EW2, EW3, NS3, NS4
+  against design 7.1's 2.00 -- worst error 0.08 st, so section 15 item 2's 4-stud fallback is not
+  triggered. The carriageway is level (-0.08 st at d 10, -0.12 at d 15), the ditches bottom at d +23
+  and d -25, the verge comes back at d 30-33.
+* **The junction step is gone.** Inside the square, on the written ground: **0.1758 / 0.0900 /
+  0.1984 / 0.0547 st** at the four crossings, all at or under the 0.20 crown fall. Round 3 measured
+  **60.00 st**. The tool's own `junctionSteps` reads pin **0.0000** on all four.
+* **Director decision 3 holds on the ground.** NS3 realises **10.23 %** and NS4 **7.90 %** over the
+  baked span, where round 3's profiles were 15.73 and 13.47.
+* **The census on the baked ground**: `trees=2085 parts=6073 floating=0 sunk=0 tilted=0 broken=0
+  noGround=0 inRoad=0 onCliff=0`.
+* **Four frames, looked at**: `.screenshots/328j-after-A|B|C|D-view.png`. The ridge is now on the
+  horizon where round 3's before-frame had none; the carriageway reads as a pale strip with a grass
+  verge; NS3 from a truck driver's eye climbs 93.60 to 149.64 over 1,100 studs as a long rounded
+  hill. **No tree and no stand post is in any of them** -- the forest is planted at Play and the
+  markers are not the bake's.
+
+### Two things that are NOT met, and neither is this task's to meet
+
+1. **The stands are still off the ground**: 5 floating (worst 13.57 st) and 10 buried (worst 21.84).
+   `Relief.materialAt`'s plan argument is unused, so no pad op exists anywhere yet. 328e/328f.
+2. **A pinned junction kinks the grade**: NS3 and NS4 print `grade change 10.00 % over 60 st` against
+   a 2.40 % allowance. Design 7.1 asks for the pins AND the rate; which yields is the Architect's.
+
+Both are in `TASKS.md`'s 328j-notes row with the rest.
+
+## 2026-11-02 ~18:05 UTC, Task 328j -- REFUSAL 7 BLOCKS THE BAKE IN KAREN'S PLACE, measured, and it is a BUG in 328d's own gate
+
+**Round 1 PASSED** (`reviews/task-328j/RESULT.md`, commit `46c4e355`, $4.85, 37 turns) and the backup
+gate is MET (`FT-before-328d.rbxl`, 29,360,598 bytes, 17:00 UTC). The bake still cannot start, and
+this entry is written AT the stop, before any workaround (V280).
+
+### What the probe read, in her Edit session, at the code commit
+
+```
+flag_overrides -> ['DHFlag_AIM_REWIND=true', ... 'DHFlag_GRID_PREVIEW=true', ... 15 entries]
+KARENS_FLAGS   -> ('GRID_PREVIEW', 'RANGE_SOLO')
+check_overrides-> "a flag override is live: DHFlag_AIM_REWIND=true, ... DHFlag_GRID_PREVIEW=true,
+                   ... DHFlag_ZONES_FOLLOW_GAIT=true. Run `python tools/flags.py --place forest set
+                   <NAME> off` for THAT flag only -- never `clear` ..."
+```
+
+**`flag_overrides` answers a LIST of `DHFlag_<NAME>=<value>` strings and `check_overrides` compares
+each whole string with a whitelist of bare names.** `"DHFlag_GRID_PREVIEW=true" not in
+("GRID_PREVIEW", "RANGE_SOLO")` is true, so **the whitelist never matches anything** -- refusal 7
+refuses Karen's own two flags, the two it was written to allow (lesson K, and its own docstring says
+*"refusal 7 is about an override a BUILDER left, not about her playtest setup"*). Her place holds
+**15** of them, every one hers: they are in the baseline dump
+`<runs-dir>ttr-328j-20261102T173231Z.log`, written at 17:32 UTC before anything in this task
+touched her place, and this task set none.
+
+**The dispatch's instruction and the tool's behaviour are in direct conflict**: *"her flags
+(GRID_PREVIEW=true, RANGE_SOLO=true and the rest) are left as found"*, and the tool will not bake
+until they are off. Clearing them is forbidden (lesson K; `flags.py clear` would take hers with it)
+and setting 15 flags off and back on is exactly the destruction the rule exists to prevent.
+
+### What I am doing about it, and what it costs
+
+Rule 6: a harness fault is a bug, and this one is in 328d's own gate, on this branch. **It is two
+lines**: compare the NAME (strip `DHFlag_`, strip `=value`), and let the operator DECLARE the place
+owner's overrides with `--keep-flags`, printed in the run output and the run log so the widening is
+auditable instead of silent. Nothing about the bake's geometry is flag-dependent -- `Flags` is not in
+the injected prelude at all -- so the refusal here is a false positive, but it is not mine to delete:
+narrowing it to a declared list keeps the guard for a stray Builder override.
+
+**The cost is one review round**, which the dispatch's budget allows ("at most 2 rounds"): the code
+commit moves, so the harness and the Reviewer both run again before the bake. The read-only BEFORE
+measurement does not depend on it and is taken first, so the before/after pair uses one instrument.
+
+## 2026-11-02 ~17:05 UTC, Task 328d round 3 -- DIRECTOR DECISIONS: no round 4; follow-up task 328j; the backup exists; the steep roads
+
+1. **No round 4.** The extra round is for documentation-only findings, and both round-3 findings are code. **Task 328j** takes exactly the two: (a) the selftest case must not construct `Studio()` -- call `command_plan` with no transport, CI hermetic; (b) build design 7.1's junction pinning and E-W precedence, with a case that measures the step across each of C1's four crossings and fails before the fix. 328j works on the same branch, `task-328d-bake-c1`; its reviews go in `reviews/task-328j/`, Round 1. 328d and 328j merge together as one PR once 328j passes.
+2. **THE BACKUP EXISTS.** Karen delegated it to the Director (2026-11-02 ~16:45 UTC, verbatim: *"you do and I quit continue working see ya tomorrow"*). Her place is Team Create, which offers **File -> Download a Copy** and no Save to File As; the Director used it. `Desktop\driven-hunt-backups\FT-before-328d.rbxl`, **29,360,598 bytes, 17:00 UTC** -- decision 2's gate (exists, newer than 13:55 UTC, over 10 MB) is MET. Her Forest Test is open again on `:34873`, Edit mode.
+3. **NS3 / NS4 (13-16 % realised grades).** Raise `cutFillStuds` for the north-south roads only, in steps, to the smallest value that brings each under **12 %**, with a hard ceiling of **20 studs** of cut or fill; a road that still exceeds 12 % at 20 studs keeps its relaxed grade, printed, and gets a frame from the truck for Karen. A deeper road cutting through rising ground is what a real forest road does; a 1-in-7 track is not.
+4. **After 328j passes review: bake C1 and its four roads in her place** at the code commit, with the before/after frames and census of the 328d brief. She is away until tomorrow morning; the Director accepts the frames tonight and she judges them in the morning.
+
+## 2026-11-02 ~16:55 UTC, Task 328d -- ROUND 3 FOUND TWO, BOTH ARE RIGHT, AND I STOPPED AS THE DISPATCH SAYS
+
+The dispatch: *"Review: this is round 3, the last. A finding on round 3 goes to ESCALATE.md and
+stops."* `reviews/task-328d/RESULT.md` (commit `d7e4beeb`, $5.50, 46 turns) lists two blocking
+findings. **I checked both against the code myself and reproduced each one rather than taking it on
+trust. Both are correct, and the first is mine from this round.**
+
+### 1. THE CI STEP THIS TASK ADDS DIES ON EVERY PUSH. Confirmed by running it.
+
+My round-3 selftest case `main(["plan", "--cells", "A1"]) == 0` constructs `Studio()`.
+`Studio.__init__` calls `find_exe`, whose miss path is `sys.exit(...)` -- and **`SystemExit` is not a
+subclass of `Exception`**, so `command_plan`'s `except Exception` does not catch it. On CI's ubuntu
+runner `os.path.expandvars` leaves `%LOCALAPPDATA%` unexpanded, the glob matches nothing, and the
+selftest aborts.
+
+**Reproduced on this machine, with CI's own condition:**
+
+```
+$ LOCALAPPDATA=/nonexistent python tools/terrainbake.py selftest
+  PASS A1 is 224, NOT C1's 208 -- equal cells do not tile equally
+StudioMCP.exe not found under %LOCALAPPDATA%\Roblox\Versions
+EXIT: 1
+```
+
+It dies there and **~45 later checks never run** -- including every refusal case, the injection
+cases and the epoch cases. The step is named "no Studio, no network" and is the only gate the design
+gives this tool (D-5). It passed for me only because Studio was open, where the case is not even
+testing what it claims: `command_plan` then makes a live `execute_luau` call.
+
+**The fix is two lines** and I have not made it: call `command_plan(args, luau_facts(), None, None)`
+directly so the case proves the committed count with no transport at all.
+
+### 2. DESIGN 7.1'S TWO JUNCTION RULES ARE NOT BUILT. Confirmed, and measured at 60 studs.
+
+Section 7.1: *"sample every 20 st, **pin the 15 junctions**, clamp the grade"* and *"**Junctions:**
+the E-W profile wins inside the junction square."* `longProfile` takes no junction argument and pins
+nothing; `roadAt` picks the **nearest centreline** with no axis precedence. So the two roads'
+profiles are under no constraint to agree where they cross, and inside the square the surface
+switches from one crown to the other along the diagonal.
+
+**Measured** (`DEV ONLY`, a synthetic base, so no terrain is read: the east-west line at 100 and
+everything else at 160, which NS3 must smooth and EW2 need not):
+
+```
+E-W crown at the crossing 100.00, N-S crown 160.00            ->  STEP 60.00 studs
+inside the junction square: (+5,+10) -> 159.95, (+10,+5) -> 99.95  ->  60.00 studs across the diagonal
+```
+
+Nothing softens it: `shapeTile` marks the whole carriageway `exempt`, so `limitGrid` may not move it.
+**C1's own bake writes four such crossings** (EW2/EW3 x NS3/NS4). On Karen's real ground the two
+axes' cut-or-fill differ by 13 studs (EW2 1.02, NS3 14.07, `measure` at `c9962d44`), so the step is not
+knowable without measuring it in her place -- which I could not do, see below. This gap is not new in
+round 3; it was in rounds 1 and 2 and nobody named it, including me.
+
+**It is not a two-line fix.** It needs the 15 crossings pinned to one shared height in both axes'
+profiles, E-W precedence inside the square, and a case for each -- the kind of change that should not
+be written in the last minutes of a round that is already over its cap.
+
+### NEEDS DIRECTOR -- and the round count is the point
+
+`MAX_ROUNDS` is 3 and round 3 is spent. The repo's one extra round is for findings that are
+**documentation-only**; these are not. So this is the Director's call: authorise a round 4 for
+`DIRECTOR_MAX_ROUNDS=4` naming this task and round, or redispatch 328d with the two fixes as its
+scope. **Nothing merges as it stands**: finding 1 reddens CI on every push, and finding 2 would bake
+four cliffs into C1's crossings.
+
+### WHAT IS DONE, AND WHAT CLOSED UNDER ME
+
+The four round-2 findings are fixed and the Reviewer re-derived all four independently and confirmed
+them (its own non-blocking note). The gate is `[harness] PASS: 34/34 @ f30854ff (clean tree)
+scope=all`. **The injection route works in Karen's Edit session** -- `survey C1` answered from her
+place, which rounds 1 and 2 could not do, so Director decision 2 is proven, not merely adopted.
+
+**Her Forest Test Studio window closed between 16:34 and 16:53 UTC.** It was open and responding at
+16:34 (the ditch measurements) and the process is gone at 16:53; I did not close it, and nothing was
+written to her place at any point. **Any further live work needs it reopened** -- that is a click
+only Karen or the Director can make -- and the two NEEDS KAREN items of the 16:40 entry still stand:
+the backup file `FT-before-328d.rbxl` does not exist, and `StreamingMinRadius` is still 64.
+
+## 2026-11-02 ~16:40 UTC, Task 328d round 3 -- NEEDS KAREN (the backup), and one measured thing for the Director
+
+**The four round-2 findings are fixed, the gate is green (34/34 @ `f30854ff`, clean tree, scope=all),
+and the injection route WORKS in Karen's place** -- the thing that blocked rounds 1 and 2. The base
+survey, the ten-tile cost and the ditch depth are all measured in her Forest Test at the code commit.
+**No `WriteVoxels` has run in her place at any point in this task**, and none can, for one reason:
+
+### NEEDS KAREN 1 -- the backup file does not exist. The bake stops here.
+
+`Desktop\driven-hunt-backups\` was created at 14:46 UTC and is still **empty** at 16:40 UTC. The gate
+(Director decision 2, 13:55 UTC) is: the file exists, is newer than 13:55 UTC today, and is over
+10 MB. There is nothing to measure, so the bake did not start.
+
+**Exact clicks:**
+1. In Studio, with **Driven Hunt Forest Test** in front, click the **File** menu.
+2. Click **Save to File As...** (not "Save to Roblox").
+3. Navigate to `Desktop\driven-hunt-backups`.
+4. Type the file name `FT-before-328d` and press **Save**. It must come out over 10 MB.
+
+### NEEDS KAREN 2 -- `StreamingMinRadius` 64 -> 384, for when the bake does run
+
+In Studio, click **Workspace** in the Explorer, find **StreamingMinRadius** in the Properties pane,
+type `384`, press Enter. It cannot be set or even read from a tool: `StreamingMinRadius`,
+`StreamingTargetRadius` and `StreamingIntegrityMode` all answer *"not a valid member of Workspace"*
+in this Studio build.
+
+### NEEDS KAREN 3 -- **File -> Save** after the bake. The Builder never saves, publishes or commits her place.
+
+### NEEDS DIRECTOR -- C1's roads cannot meet the 12-stud cut-or-fill cap on her ground, and that is measured
+
+The long profiles, computed once off her real base and printed in full by the tool. **These rows are
+from the `measure` run at `c9962d44`**, the commit before the code commit; `f30854ff` changed only
+the breach threshold and added `realisedGradePercent`, so the heights and relaxations are unchanged
+by it:
+
+| road | ceiling it ended on | realised grade | cut-or-fill | relaxed |
+|---|---|---|---|---|
+| EW2 (z -5107) | 8 % | 7.07 % | 1.02 st | no |
+| EW3 (z -3635) | 12 % | 12.00 % | 10.94 st | yes |
+| NS3 (x -4455) | **20 %** | 15.73 % | **14.07 st, still over the 12-st cap** | yes |
+| NS4 (x -3343) | **20 %** | 13.47 % | **14.10 st, still over the 12-st cap** | yes |
+
+This is design 7.1's relaxation arm doing exactly what it says -- the breach relaxes the grade on
+that road and is printed, never hidden; all 16 breach lines are in the tool's output. But the
+CONSEQUENCE is a design/feel decision and not the Builder's: **C1's two north-south roads would be
+baked climbing at 13-16 %** (the design's north-south clamp is 10 %), because their base rises 110
+and 124 studs over their 2,986-stud span. A 15 % road is 1 in 6.7. Karen rides these in a truck.
+The options are the Director's: accept it, raise `cutFillStuds`, lower the relaxation ceiling and
+accept a bigger cut, or re-site the roads. Nothing here blocks the merge -- the arm is correct and
+now has cases on both halves -- but nobody should first see a 1-in-7 road in a playtest.
+
+### What IS measured at the code commit, in her place, and what is not
+
+Measured, with the run each number came from (V284 -- no row blends two runs):
+* **at `c9962d44`** (`measure --cells C1 --tiles 10`, twice): **per-tile cost 84-106 ms** against
+  the design's unmeasured 8 s target, and the four long profiles with all 16 breach lines.
+* **at `2500b38e` plus an uncommitted one-line edit to the snapshot expression** (a read-only
+  raycast probe): the base over C1 + its roads + 200 -- minY **83.89**, maxY **160.00**, spread
+  76.11, 8,019 samples, 0 missed -- and each road's own base span. Labelled: the tree was not clean.
+* **at `f30854ff`, the code commit, clean tree**: the realised ditch **1.99 st deep and `Mud` on
+  BOTH sides of every road** (target 2.00, worst error **0.01 st**, so design 15 item 2's 4-stud
+  fallback is NOT triggered); cross-fall 0.160 st at the sampled column, inside the 0.5-st rule; the
+  15 stands against the base (worst **stand 10, buried 24.33 st**; stands 8 and 9 floating
+  17.82 st); and the three before-frames from eye height.
+
+NOT OBTAINABLE without the bake, and NOT claimed: the road crown and ditch in WRITTEN ground, the
+landform census of C1's ridge, the pad and stand heights AFTER, and the post-bake tree census.
+A whole-region snapshot is also not obtainable in one call and now says so: C1's region is
+**24,611,375 voxels against ReadVoxels' 4,194,304 ceiling**, which is why the bake snapshots per tile.
+
+## 2026-11-02 ~15:50 UTC, Task 328d -- DIRECTOR DECISIONS: round 3, the injection route, Team Create
+
+1. **Take round 3.** Fix the four round-2 findings exactly as the entry below names them, each with a case that fails before the fix (both sides of a road; one profile set for all tiles; the eight real tile counts; a forced relaxation and a forced grade-change breach). The repo cap is 3; this is the last round. A finding on round 3 goes here and stops.
+2. **The load route is INJECTION, not require** -- a measured deviation from `docs/design/grid-terrain.md` section 3, recorded here for the Architect. Her Edit session reads every Source as empty and cannot require (13:56 entry, DEV as control). The tool sends the TEXT of `src/shared/Grid/Relief.luau` and `src/serverstorage/TerrainBake/` read from the tree at the code commit, as `tools/forest_ground.py` does (borrowed, rule 2). `check_synced` is replaced by: the tool refuses a dirty tree, prints the sha256 of every injected file and the commit, and the bake's first line echoes those hashes back from inside Studio. The repo files stay the one source.
+3. **Team Create ON is accepted for the bake.** Karen answered Q1 "yes" to a permanent reshape after a backup; Team Create only means the change saves with her session instead of on a Save click. Decision 4 of 13:55 is revised: the bake still needs the backup file (decision 2), still never runs while she is in Play, and after the bake the Builder lists StreamingMinRadius 64 -> 384 as her click. The Builder never saves, publishes or commits her place.
+4. **The bake waits for the backup file as before.** If it is still missing when round 3 passes, write NEEDS KAREN and stop with the code merged-ready; the Director runs the bake step after her click.
+
+## 2026-11-02 ~15:45 UTC, Task 328d -- ROUND 2 FOUND FOUR, ALL FOUR ARE RIGHT, AND THE DISPATCH SAYS STOP
+
+The dispatch: *"Review: at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."*
+Round 2's verdict (`reviews/task-328d/RESULT.md`, commit `add945ec`, $6.32) lists four blocking
+findings. **I checked each one against the code myself rather than taking it on trust, and all four
+are correct.** Two of them are defects I would not want baked into Karen's ground.
+
+### 1. The ditch and the ruts are cut on ONE SIDE of every road. CONFIRMED, and it is the worst of the four.
+
+`TerrainBake.roadAt` compares a distance `d = math.abs(across - centre)`, which is never negative,
+against a band it builds as `centre - ditchFar` on the far side. Reproduced numerically for EW2:
+
+```
+ditch columns -5088..-5080  ->  d 19..27
+side +1: rut window [3,7]    ditch window [19,27]    reachable by d>=0: YES
+side -1: rut window [-7,-3]  ditch window [-27,-19]  reachable by d>=0: NO
+```
+
+All eight road centres sit at = 1 (mod 4) (design 7.1, F-2), so `columnsFor` returns bounds above
+the centre for **every road in the world** and the minus-side branch is dead everywhere, not in a
+corner. What the minus side actually gets is a flat Grass shoulder where 7.1's table requires two
+whole columns of Mud 2 studs deep. **My round-2 claims 2 and 3 are therefore true for one half of
+each road and false for the other, and no case I wrote samples the minus side** -- 328d-15 only
+calls `at(d)` with d > 0, and 328d-16 reads both its points above `road.at`. That is my error twice
+over: in the arithmetic, and in writing cases that could only see the half that worked.
+
+### 2. The wet path recomputes the long profiles per tile, off LIVE terrain. CONFIRMED.
+
+`tile_pass` sends `bakeTileAt(index, cells, yMin, yMax, dry)` -- five arguments, no profiles -- and
+`bakeTileAt` falls back to `profilesFor(cellIds)`, whose default sampler raycasts `Workspace.Terrain`.
+**My own code comment says why that is wrong** ("a profile read off half-baked ground would depend on
+the tile order ... the base only while nothing has been written yet"), and my round-2 claim 2 asserts
+the opposite -- "computes every profile ONCE from the base, before any write". The route I shipped
+cannot do what the claim says. Two tiles of one road baked in different orders would meet at a step.
+It is also ~900 raycasts a tile, ~187,000 over C1's 208, against an 8 s/tile target nobody has measured.
+
+### 3. `EXPECTED_TILES` is wrong for seven of the eight cells. CONFIRMED, with the numbers.
+
+I wrote 208 for every cell on the assumption that equal-sized cells tile equally. They do not: the
+count depends on the lattice PHASE, not the width. Re-derived from the tool's own arithmetic:
+
+```
+A1 224 (14x16)  B1 224  C1 208 OK  D1 224
+A2 238 (14x17)  B2 238  C2 221     D2 238      ALL 1333 OK
+```
+
+So `plan --cells A1` would now REFUSE a perfectly correct region. Round 1 shipped an assertion that
+could never fail; round 2 replaced it with one that fails on seven of eight correct inputs. 328e and
+328f bake those cells.
+
+### 4. Two of the three things claim 2 offers 328d-14 as proof of survive deletion. CONFIRMED by reading.
+
+The grade-CHANGE limiter and the whole relaxation arm can both be deleted with 328d-14 still green:
+its only step assertion is satisfied by the min-cone sweep above them, and its only `relaxed`
+assertion is on a flat base that the initialiser already satisfies. Design 7.1 states the relaxation
+as an obligation ("a breach relaxes the grade on that road and is printed, never hidden"), so the
+arm that decides whether a road silently exceeds its clamp is the one with no case.
+
+### NEEDS DIRECTOR -- and this one is cheap
+
+The four fixes are small and I know exactly what each is: a signed offset (or a second `columnsFor`
+on the minus side) with a case on **each** side; profiles computed once by the tool and handed to
+every tile, with a case that two tiles share a crown at one x; the seven real counts committed with
+a case on a second cell; and two cases that force a relaxation and a grade-change breach.
+
+**The repo's own cap is 3 rounds, so a round 3 needs no authorisation at all** -- `MAX_ROUNDS` is 3
+and this was round 2. It is the DISPATCH that caps this task at two. So the Director's choice is
+just: say "take round 3" and the four are fixed in one pass, or redispatch. I have stopped as
+instructed rather than deciding that for myself.
+
+**Nothing merges as it stands.** The branch is green on the gate and on CI, but finding 1 means the
+bake it describes would cut half a ditch, and findings 1-3 were all introduced or left by me.
+
+### And the three hard stops from 13:56 UTC still stand, unchanged
+
+The backup file still does not exist, Team Create still reads ON in Karen's Forest Test, and her
+Edit session still cannot `require` or read the `Source` of any of its 297 scripts. **No `WriteVoxels`
+has run in her place at any point in this task.**
+
+## 2026-11-02 ~13:56 UTC, Task 328d -- TWO HARD STOPS AT STEP 0, AND A REFUTED DESIGN PREMISE
+
+**NEEDS KAREN** and **NEEDS DIRECTOR**. The code, the tool, the selftest, the survey and the
+arithmetic are built and gated; **no `WriteVoxels` ran in Karen's Forest Test** and none can, for
+three measured reasons. Every reading below is from Karen's place in Edit at 13:49-13:56 UTC today,
+with the DEV place as the control for each.
+
+### 1. The backup file does not exist (Director decision 2, 2026-11-02)
+
+`Desktop\driven-hunt-backups\` exists and is **empty** (created 13:46 UTC). The gate is "exists,
+newer than 13:55 UTC 2026-11-02, over 10 MB". Nothing to measure.
+
+**NEEDS KAREN, exact clicks:**
+1. In Studio, with **Driven Hunt Forest Test** in front, click the **File** menu.
+2. Click **Save to File As...** (not "Save to Roblox").
+3. Navigate to `Desktop\driven-hunt-backups`.
+4. Type the file name `FT-before-328d` and press **Save**. It must come out over 10 MB.
+
+### 2. TEAM CREATE IS ON in the Forest Test (Director decision 4; design 17 D-2)
+
+`TeamCreateService` exposes no readable property in this Studio build (`IsEnabled`, `Enabled`,
+`TeamCreateEnabled`, `Connected` all read UNREADABLE), so the state is read off two signals, **with
+the DEV place as a control in the same Studio install, same probe** (`<runs-dir>/328d-tc.luau`):
+
+| signal | Forest Test | DEV (control) |
+|---|---|---|
+| `game:FindService("NetworkClient")` | `NetworkClient` | `nil` |
+| `#Players:GetPlayers()` | **1** -- the place's owner, whose uid equals `game.CreatorId` | **0** |
+
+Two places, one Studio, one probe, opposite answers: the signal is a property of the session, not of
+the probe. **Read as Team Create ON with the owner connected.** Per the Director's decision 4 the
+bake stops here regardless of the backup.
+
+### 3. THE DESIGN'S OWN LOAD ROUTE DOES NOT WORK IN HER PLACE -- and this is the finding that matters
+
+`docs/design/grid-terrain.md` section 3 rules that the bake **requires** rather than injects, behind
+`check_synced` and a parentless-clone load. Measured, `<runs-dir>/328d-req2.luau` and `328d-src.luau`:
+
+| reading | Forest Test | DEV (control) |
+|---|---|---|
+| `#ReplicatedStorage.Grid.Source` | **0** | 27,750 |
+| `#(Grid.Relief:Clone()).Source` | **0** | 26,276 |
+| `require(ReplicatedStorage.Grid)` | **ERR** "Module code did not return exactly one value" | `grid:v1 cells=8` |
+| `require(RS.Grid.Relief:Clone())` | **ERR**, same | `bake=1` |
+| **every script instance in the place** | **297 of 297 read Source length 0** | reads real source |
+
+So in Karen's Forest Test, through StudioMCP's `execute_luau`, **no module can be required and no
+module's source can be read** -- which takes out BOTH halves of section 3's ruling at once:
+
+* the **parentless-clone load** (section 3 item 3) cannot load `Relief`, `Grid` or `TerrainBake`;
+* **`check_synced`** (section 3 item 2) compares `Source` byte for byte, and with every script
+  reading empty it can only ever refuse.
+
+It also explains `tools/forest_ground.py`'s injection, whose *stated* reason section 3 correctly
+calls stale (`servePlaceIds` does hold the Forest Test) -- but the injection works for a reason the
+design did not have: **it sends the text, so it needs neither `require` nor `Source`.** Section 3
+bettered the stale reason and not the real one.
+
+**AND IT IS THE EDIT SESSION ONLY -- measured at 14:22 UTC, which narrows it sharply.** A Play
+session was started in that same place and the same probe run in its **server** DataModel
+(`<runs-dir>/328d-playprobe.luau`):
+
+| reading, SAME place | Edit (MCP) | PLAY server |
+|---|---|---|
+| `require(ReplicatedStorage.Grid)` | ERR | **OK**, `grid:v1 cells=8` |
+| `require(Grid.Relief)` | ERR | **OK**, `bake=1` |
+| `#Grid.Source` | **0** | **27,750** -- the same length DEV reads |
+
+So the source IS in her place and is byte-identical in length to DEV's; the **Edit DataModel's MCP
+context** is what cannot reach it. Play was started and stopped by the Builder with the place in
+Edit (rule C), Edit confirmed again afterwards, and Karen's eighteen `ServerStorage` attributes were
+read before and after and are unchanged (`GRID_PREVIEW=true`, `RANGE_SOLO=true`; lesson K).
+
+**This remains an inference, labelled as one:** that Team Create *causes* the Edit-side fault is not
+proven -- what is measured is that both are true of her place and neither is true of DEV, and that
+the fault is Edit-side only. The bake runs in **Edit** (design 5.3), so it is blocked either way.
+
+### NEEDS DIRECTOR -- one decision, and it is not the Builder's
+
+The bake cannot run by the route the design mandates. **No workaround was designed** (rule V280:
+the stop is written here first). The three routes, with what each costs:
+
+1. **Karen turns Team Create OFF** for the bake (File -> Session -> Team Create, or the Collaborate
+   button), re-opens the place, and the design's route is re-measured. If `require` then works, the
+   design stands unchanged and 328d finishes as written. **This is the cheapest test of the
+   inference and it costs one click plus one re-open.**
+2. **The bake injects** instead, as `forest_ground.py` does. That reverses section 3's ruling, loses
+   the lint and the diff on the Luau that is actually sent, and is an **Architect** decision, not a
+   Builder's.
+3. **The bake runs in DEV** and the Forest Test is re-synced. That is not what Karen asked for and it
+   does not reshape her ground.
+
+Recommendation: **1 first**, because it is a click and it settles the premise; **2** only if 1 fails,
+and then as an Architect run, not a Builder edit.
+
+### What IS measured, and is in `reviews/task-328d/REQUEST.md`
+
+The base snapshot over C1 and its four roads, the part survey over footprint + 430, the tile plan
+(1,333 whole-world / 208 for C1, both re-derived twice), the realised ditch and rut columns, and the
+fifteen stands against the base ground -- **worst stand 10, buried 24.33 studs by the base today**.
+NOT OBTAINABLE without a bake: the per-tile cost in seconds, the achieved ditch depth, the road
+crown, the landform census and the post-bake tree census.
+
+### NEEDS KAREN, the second click, for when the bake does run
+
+`StreamingMinRadius` **64 -> 384**: in Studio, click **Workspace** in the Explorer, find
+**StreamingMinRadius** in the Properties pane, type `384`, press Enter. It cannot be set or even read
+from a tool -- `StreamingMinRadius`, `StreamingTargetRadius` and `StreamingIntegrityMode` all answer
+*"not a valid member of Workspace"* in this Studio build, which `tools/studio_mcp.py`'s own
+`map_streaming_radius` already records for `StreamingTargetRadius`.
+
+## 2026-11-02 ~13:55 UTC, Task 328d -- KAREN'S ANSWER TO Q1, and the order of the bake
+
+1. **Q1 is answered YES.** Karen, 2026-11-02 ~09:15 UTC, verbatim: *"yes"* -- we may permanently reshape the ground in her Forest Test after a full backup.
+2. **The bake waits for the backup FILE, not for a message.** Karen saves her Forest Test with File -> Save to File as `<backups-dir>/FT-before-328d.rbxl` (Desktop\driven-hunt-backups). The Builder may build `TerrainBake`, `terrainbake.py`, its selftest, the survey and the tile measurement before that; **no WriteVoxels runs in her place until that file exists, is newer than 13:55 UTC 2026-11-02 and is over 10 MB.** Missing: write NEEDS KAREN here and stop.
+3. **StreamingMinRadius 64 -> 384 and the save after the bake are Karen's clicks** (the Director never saves her place). The Builder lists them as NEEDS KAREN with the exact clicks.
+4. **Team Create** (decision 3 above): step 0 reports it; if it is ON, stop before the bake.
+
 ## 2026-11-02 ~09:15 UTC, Task 328a -- DIRECTOR DECISIONS on the six scope items
 
 1. **The Architect's exact text** in `grid-terrain.md` section 16 is pasted VERBATIM by the Builder in 328b's first commit, one commit of its own, marked "the Architect's text, grid-terrain.md section 16". Nothing is reworded. It covers `grid-map.md` section 18, the `drive-places.md` and `map-generator.md` appends, and the `forest_ground.py` header.

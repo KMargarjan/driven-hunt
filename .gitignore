@@ -75,3 +75,6 @@ service-account*.json
 
 # Map generator run logs (tools/mapgen.py, one JSON per run; evidence, not repo content)
 /.mapgen/
+
+# Terrain bake run logs (tools/terrainbake.py, one JSON per run; evidence, not repo content)
+/.terrainbake/

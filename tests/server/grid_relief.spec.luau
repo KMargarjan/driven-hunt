@@ -651,4 +651,988 @@ return function()
 			expect(#offenders).to.equal(0)
 		end)
 	end)
+	-- ---------------------------------------------------------------- task 328d: the bake
+	--
+	-- PURE PARTS ONLY. `snapshot` and `bakeTile`'s write touch `Terrain`, which this place has none
+	-- of for the grid; everything that decides a shape is a function, and is cased here.
+	describe("the bake (task 328d)", function()
+		local TerrainBake = require(ServerStorage:WaitForChild("TerrainBake"))
+
+		it("328d-1 aims at Karen's Forest Test and not at DEV", function()
+			expect(TerrainBake.PLACE_ID).to.equal(130094961655666)
+			expect(TerrainBake.PLACE_ID).never.to.equal(game.PlaceId)
+		end)
+
+		it("328d-2 covers one cell with its roads plus the blend, and the whole world plus 430", function()
+			local one = TerrainBake.regionFor({ "C1" })
+			local cell = Grid.boundsOf("C1")
+			local roads = Grid.roadsOf("C1")
+			-- THE NUMBERS, not a re-spelling of the body: C1 plus its four road corridors plus the
+			-- 200-stud blend is this box, and a change to any of the three reddens the line.
+			expect(one.minX).to.equal(-4701)
+			expect(one.maxX).to.equal(-3097)
+			expect(one.minZ).to.equal(-5353)
+			expect(one.maxZ).to.equal(-3389)
+			expect(one.minX).to.equal(
+				math.min(cell.minX, roads.west.at - TerrainBake.ROAD_HALF_STUDS) - Relief.BLEND_STUDS
+			)
+			expect(one.maxZ).to.equal(
+				math.max(cell.maxZ, roads.muster.at + TerrainBake.ROAD_HALF_STUDS) + Relief.BLEND_STUDS
+			)
+			local all = TerrainBake.regionFor(Grid.cellIds())
+			local box = Grid.footprint()
+			-- The border wood's 230 on top of the blend's 200: design 5.2's "footprint plus 430 st".
+			expect(box.minX - all.minX).to.equal(Relief.BLEND_STUDS + 230)
+			expect(all.maxX - box.maxX).to.equal(Relief.BLEND_STUDS + 230)
+		end)
+
+		it("328d-3 tiles both regions on the voxel lattice, and the counts are the arithmetic's", function()
+			local one = TerrainBake.tilePlan(TerrainBake.regionFor({ "C1" }))
+			local all = TerrainBake.tilePlan(TerrainBake.regionFor(Grid.cellIds()))
+			TestKit.note(string.format("bake tiles: C1 %d, the whole world %d", #one, #all))
+			expect(#one).to.equal(208)
+			expect(#all).to.equal(1333)
+			expect(TerrainBake.TILE_STUDS % Relief.VOXEL).to.equal(0)
+			for _, tile in one do
+				expect(tile.minX % Relief.VOXEL).to.equal(0)
+				expect(tile.minZ % Relief.VOXEL).to.equal(0)
+			end
+		end)
+
+		it("328d-4 splits the Y band so no call passes the measured voxel ceiling", function()
+			local columns = (TerrainBake.TILE_STUDS / Relief.VOXEL) ^ 2
+			local short = TerrainBake.bandsFor(100, 140)
+			expect(#short).to.equal(1)
+			-- 16 below + 40 + 32 above = 88 studs, inside one call, and voxel-aligned.
+			expect(short[1].min).to.equal(84)
+			expect(short[1].max % Relief.VOXEL).to.equal(0)
+			local tall = TerrainBake.bandsFor(0, 250)
+			expect(#tall > 1).to.equal(true)
+			for _, band in tall do
+				expect(columns * ((band.max - band.min) / Relief.VOXEL) <= TerrainBake.MAX_VOXELS).to.equal(true)
+			end
+			-- The bands abut and cover the whole span, so no slice of ground is left unwritten.
+			expect(tall[1].min).to.equal(-16)
+			expect(tall[#tall].max).to.equal(284)
+			for i = 2, #tall do
+				expect(tall[i].min).to.equal(tall[i - 1].max)
+			end
+		end)
+
+		it("328d-5 blends ONCE, and the one fade is the arithmetic's own", function()
+			-- THE 328d DECISION, and round-1 finding 7: round 1 multiplied the bake's fade onto
+			-- `heightAt`'s cell-edge `k`, which is two fades in series. The weight is handed in now.
+			local union = TerrainBake.unionOf({ "C1" })
+			local cell = Grid.boundsOf("C1")
+			expect(union.minX).to.equal(cell.minX)
+			expect(TerrainBake.blendAt(union, (cell.minX + cell.maxX) / 2, (cell.minZ + cell.maxZ) / 2)).to.equal(1)
+			expect(TerrainBake.blendAt(union, cell.minX - Relief.BLEND_STUDS, cell.minZ + 10)).to.equal(0)
+			local half = TerrainBake.blendAt(union, cell.minX - Relief.BLEND_STUDS / 2, cell.minZ + 10)
+			expect(half > 0).to.equal(true)
+			expect(half < 1).to.equal(true)
+			-- ONE FADE: the handed-in weight scales the whole shaping term, linearly, and 0 gives
+			-- the base back exactly. Two fades in series would not be linear in the weight.
+			local form = Relief.LANDFORMS.C1
+			local x, z = (cell.minX + cell.maxX) / 2, cell.minZ + 0.30 * (cell.maxZ - cell.minZ)
+			local full = Relief.heightAt(form, cell, ROADS, flat, x, z, 1)
+			local part = Relief.heightAt(form, cell, ROADS, flat, x, z, 0.25)
+			local none = Relief.heightAt(form, cell, ROADS, flat, x, z, 0)
+			expect(none).to.equal(flat(x, z))
+			expect(math.abs((part - none) - 0.25 * (full - none)) < 1e-9).to.equal(true)
+			TestKit.note(string.format("one fade: full %+.3f, quarter %+.3f over the base", full - none, part - none))
+			-- AND THE CASE THAT BITES, which one cell cannot show: baking C1 AND C2 makes the road
+			-- between them full strength, where each cell's own `k` fades it.
+			local pair = TerrainBake.unionOf({ "C1", "C2" })
+			local between = Grid.roadsOf("C1").main.at
+			local lone = TerrainBake.blendAt(union, (cell.minX + cell.maxX) / 2, between)
+			expect(TerrainBake.blendAt(pair, (cell.minX + cell.maxX) / 2, between)).to.equal(1)
+			expect(lone < 1).to.equal(true)
+		end)
+
+		it("328d-6 runs the slope limiter on BOTH axes, and neither pass survives deletion", function()
+			-- THE 328d DECISION. Round 1 asserted a grid flat in z, so the z direction passed before
+			-- any pass ran and the x loop could be deleted unnoticed (round-1 finding 5).
+			local n, pitch = 16, 4
+			local ceiling = Relief.LIMIT_DEG.tree
+			local limit = 16 * math.tan(math.rad(ceiling))
+			local window = math.max(1, math.floor(16 / pitch + 0.5))
+			local function worstIn(g, axis: string): number
+				local worst = 0
+				for i = 1, n do
+					for k = 1, n do
+						local bi = if axis == "x" then i + window else i
+						local bk = if axis == "x" then k else k + window
+						if bi <= n and bk <= n then
+							worst = math.max(worst, math.abs(g[(bk - 1) * n + bi] - g[(k - 1) * n + i]))
+						end
+					end
+				end
+				return worst
+			end
+			-- STEEP IN BOTH AXES: 45 degrees each way, so deleting either loop leaves its own axis
+			-- over the ceiling and this case red.
+			local grid = table.create(n * n, 0)
+			for i = 1, n do
+				for k = 1, n do
+					grid[(k - 1) * n + i] = (i + k) * 4
+				end
+			end
+			expect(worstIn(grid, "x") > limit).to.equal(true)
+			expect(worstIn(grid, "z") > limit).to.equal(true)
+			local both = TerrainBake.limitGrid(grid, n, n, pitch, ceiling)
+			TestKit.note(
+				string.format(
+					"limiter: ceiling %.2f st per 16; the input holds %.2f in x and %.2f in z, both axes leave %.2f / %.2f",
+					limit,
+					worstIn(grid, "x"),
+					worstIn(grid, "z"),
+					worstIn(both, "x"),
+					worstIn(both, "z")
+				)
+			)
+			expect(worstIn(both, "x") <= limit + 1e-6).to.equal(true)
+			expect(worstIn(both, "z") <= limit + 1e-6).to.equal(true)
+			-- AND THE EXEMPT MASK is read on BOTH passes: pin a whole column and it does not move.
+			local exempt = table.create(n * n, false)
+			for k = 1, n do
+				exempt[(k - 1) * n + 8] = true
+			end
+			local pinned = TerrainBake.limitGrid(grid, n, n, pitch, ceiling, exempt)
+			for k = 1, n do
+				expect(pinned[(k - 1) * n + 8]).to.equal(grid[(k - 1) * n + 8])
+			end
+		end)
+
+		it("328d-7 gives every point one owning cell, and the nearest on a road", function()
+			local cell = Grid.boundsOf("C1")
+			local c2 = Grid.boundsOf("C2")
+			expect(TerrainBake.cellAt({ "C1", "C2" }, (cell.minX + cell.maxX) / 2, (cell.minZ + cell.maxZ) / 2)).to.equal(
+				"C1"
+			)
+			expect(TerrainBake.cellAt({ "C1", "C2" }, (c2.minX + c2.maxX) / 2, (c2.minZ + c2.maxZ) / 2)).to.equal("C2")
+			-- On the road between them the nearer bound wins, and neither point is left unowned.
+			local onRoad = TerrainBake.cellAt({ "C1", "C2" }, (cell.minX + cell.maxX) / 2, Grid.roadsOf("C1").main.at)
+			expect(onRoad == "C1" or onRoad == "C2").to.equal(true)
+		end)
+
+		it("328d-8 names the landforms whose base reads leave the tile, from the data", function()
+			-- A `bench` walks the base over its v band (`Relief.applyOps`), which one tile's slice
+			-- does not hold, so `bakeTileAt` refuses it. The cells are named by the data, not here.
+			local benched, plain = {}, {}
+			for _, id in Grid.cellIds() do
+				table.insert(if TerrainBake.readsWholeCell(Relief.LANDFORMS[id]) then benched else plain, id)
+			end
+			TestKit.note(
+				"bake: benched cells " .. table.concat(benched, ",") .. "; tile-local " .. table.concat(plain, ",")
+			)
+			expect(#benched).to.equal(3)
+			expect(TerrainBake.readsWholeCell(Relief.LANDFORMS.C1)).to.equal(false)
+			expect(TerrainBake.readsWholeCell(Relief.LANDFORMS.B2)).to.equal(true)
+			-- THE PAD a tile needs covers BOTH readers that leave the tile: the limiter's margin
+			-- and the blur's cutoff, plus one voxel so the outermost sample has a neighbour.
+			expect(TerrainBake.padFor()).to.equal(
+				Relief.VOXEL
+					* math.ceil(
+						(TerrainBake.LIMIT_MARGIN_STUDS + Relief.BLUR.cutoffStuds + Relief.VOXEL) / Relief.VOXEL
+					)
+			)
+			expect(TerrainBake.padFor() >= TerrainBake.LIMIT_MARGIN_STUDS + Relief.BLUR.cutoffStuds).to.equal(true)
+			expect(TerrainBake.padFor() % Relief.VOXEL).to.equal(0)
+			TestKit.note(
+				string.format(
+					"bake pad %d st = limiter margin %d + blur cutoff %d + one voxel",
+					TerrainBake.padFor(),
+					TerrainBake.LIMIT_MARGIN_STUDS,
+					Relief.BLUR.cutoffStuds
+				)
+			)
+		end)
+
+		it("328d-9 reads the snapshot inside it and nil outside it", function()
+			local slice = {
+				pitch = Relief.VOXEL,
+				minX = 0,
+				minZ = 0,
+				nx = 4,
+				nz = 4,
+				height = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 },
+				material = {},
+				minY = 1,
+				maxY = 16,
+			}
+			local read = TerrainBake.readerFor(slice)
+			expect(read(2, 2)).to.equal(1)
+			expect(read(14, 14)).to.equal(16)
+			expect(read(-2, 2)).to.equal(nil)
+			expect(read(2, 20)).to.equal(nil)
+		end)
+
+		it("328d-10 surveys by 327a's own classifier, through a seam with no terrain in it", function()
+			local flatRow = TerrainBake.survey("C1", function()
+				return 120
+			end)
+			expect(flatRow.cell).to.equal("C1")
+			expect(flatRow.spreadStuds).to.equal(0)
+			expect(flatRow.character).to.equal("flat")
+			expect(flatRow.meanY).to.equal(120)
+			expect(flatRow.lineMeanY).to.equal(120)
+			local bounds = Grid.boundsOf("C1")
+			local ridgeRow = TerrainBake.survey("C1", function(_x: number, z: number)
+				return 100 + (z - bounds.minZ) / (bounds.maxZ - bounds.minZ) * 80
+			end)
+			expect(ridgeRow.spreadStuds > 60).to.equal(true)
+			expect(ridgeRow.character).to.equal("ridge")
+			expect(ridgeRow.samples > 0).to.equal(true)
+		end)
+
+		it("328d-11 puts no code commit in the epoch input, and the bake version in it", function()
+			local a = TerrainBake.epochInputFor("aaaa")
+			expect(a).never.to.equal(TerrainBake.epochInputFor("bbbb"))
+			expect(string.sub(a, 1, 4)).to.equal("aaaa")
+			-- The version is the tail. A maths change that forgets to bump it changes nothing here,
+			-- and `relief_golden` is what catches that (design 5.4).
+			expect(string.sub(a, -#tostring(Relief.BAKE_VERSION))).to.equal(tostring(Relief.BAKE_VERSION))
+			expect(TerrainBake.epochInputFor("aaaa")).to.equal(a)
+			expect(string.find(a, "commit", 1, true)).to.equal(nil)
+			-- AND THE LANDFORM DIGEST IS IN IT. Round 1 asserted the sha and the version only, so
+			-- dropping `Relief.epochInput` from the input left every expectation green.
+			expect(string.find(a, "landforms", 1, true)).never.to.equal(nil)
+			expect(string.find(a, "C1", 1, true)).never.to.equal(nil)
+			expect(string.find(a, "scarp", 1, true)).never.to.equal(nil)
+			expect(#a > 2000).to.equal(true)
+		end)
+
+		it("328d-12 measures a slope in degrees off the shaped grid", function()
+			local n, pitch = 8, 4
+			local grid = table.create(n * n, 0)
+			for i = 1, n do
+				for k = 1, n do
+					grid[(k - 1) * n + i] = i * pitch -- 45 degrees in x
+				end
+			end
+			expect(math.abs(TerrainBake.slopeAt(grid, n, 4, 4, pitch) - 45) < 0.001).to.equal(true)
+			expect(TerrainBake.slopeAt(table.create(n * n, 7), n, 4, 4, pitch)).to.equal(0)
+		end)
+
+		it("328d-13 leaves ServerStorage's Edit-time terrain writers at exactly two", function()
+			-- The scan above walks ServerScriptService, ReplicatedStorage and StarterPlayerScripts and
+			-- SKIPS ServerStorage, so this bounds the hole that skip leaves rather than widening it.
+			local EDIT_TIME = {
+				["ServerStorage.MapGen.Ground"] = true,
+				["ServerStorage.TerrainBake"] = true,
+			}
+			local readable = type(select(
+				2,
+				pcall(function()
+					return (script :: any).Source
+				end)
+			)) == "string"
+			TestKit.note(
+				"328d-13 source scan: Script.Source is "
+					.. (
+						if readable
+							then "readable, so the scan below ran"
+							else "UNREADABLE, so this case proved nothing"
+					)
+			)
+			if not readable then
+				expect(readable).to.equal(false)
+				return
+			end
+			local offenders = {}
+			for _, inst in ServerStorage:GetDescendants() do
+				if inst:IsA("LuaSourceContainer") then
+					local got = select(
+						2,
+						pcall(function()
+							return (inst :: any).Source
+						end)
+					)
+					if type(got) == "string" and string.find(got, ":WriteVoxels(", 1, true) then
+						if not EDIT_TIME[inst:GetFullName()] then
+							table.insert(offenders, inst:GetFullName())
+						end
+					end
+				end
+			end
+			if #offenders > 0 then
+				TestKit.note("328d-13: terrain is written in ServerStorage by " .. table.concat(offenders, ", "))
+			end
+			expect(#offenders).to.equal(0)
+		end)
+
+		-- A SYNTHETIC SNAPSHOT, so the thing that decides the ground can be asserted with no terrain
+		-- in the world: the same shape `TerrainBake.snapshot` returns, filled from a function.
+		local function sliceFor(tile, heightOf): any
+			local pad = TerrainBake.padFor()
+			local side = TerrainBake.TILE_STUDS
+			local v = Relief.VOXEL
+			local minX, minZ = tile.minX - pad, tile.minZ - pad
+			local n = (side + 2 * pad) / v
+			local slice = {
+				pitch = v,
+				minX = minX,
+				minZ = minZ,
+				nx = n,
+				nz = n,
+				height = table.create(n * n, 0),
+				material = table.create(n * n, "Ground"),
+				minY = math.huge,
+				maxY = -math.huge,
+			}
+			for i = 1, n do
+				for k = 1, n do
+					local y = heightOf(minX + (i - 0.5) * v, minZ + (k - 0.5) * v)
+					slice.height[(k - 1) * n + i] = y
+					slice.minY = math.min(slice.minY, y)
+					slice.maxY = math.max(slice.maxY, y)
+				end
+			end
+			return slice
+		end
+
+		it("328d-14 clamps the road's long profile, and says so when it has to relax", function()
+			-- Design 7.1: 8 % east-west, 10 % north-south, <= 2 % change per 50 st, cut-or-fill
+			-- <= 12 st, and a breach relaxes the grade ON THAT ROAD and is printed, never hidden.
+			local road = Grid.roadsOf("C1").main
+			local spec = TerrainBake.ROAD
+			-- A SAWTOOTH the clamp has to flatten: +-6 studs every 20, which is 30 %.
+			local n = 0
+			local profile = TerrainBake.longProfile(road, function(x: number, _z: number)
+				n += 1
+				return 100 + (if math.floor((x - road.from) / spec.sampleStuds) % 2 == 0 then 6 else -6)
+			end)
+			expect(profile).never.to.equal(nil)
+			local worst = 0
+			for i = 2, #profile.y do
+				worst = math.max(worst, math.abs(profile.y[i] - profile.y[i - 1]))
+			end
+			local allowed = profile.gradePercent / 100 * spec.sampleStuds
+			TestKit.note(
+				string.format(
+					"road %s: %d samples, worst step %.3f st per %d (allowed %.3f at %d %%), cut-or-fill %.2f, relaxed=%s",
+					road.id,
+					#profile.y,
+					worst,
+					spec.sampleStuds,
+					allowed,
+					profile.gradePercent,
+					profile.worstCutFill,
+					tostring(profile.relaxed)
+				)
+			)
+			-- FAIL FIRST: the input holds 12-stud steps, 30 %, and the clamp is 8 %.
+			expect(12 > spec.gradePercent.x / 100 * spec.sampleStuds).to.equal(true)
+			expect(worst <= allowed + 1e-6).to.equal(true)
+			expect(profile.worstCutFill <= spec.cutFillStuds[road.axis] + 1e-6).to.equal(true)
+			-- A north-south road gets the 10 % clamp, not the east-west 8 %.
+			local flank = TerrainBake.longProfile(Grid.roadsOf("C1").west, function()
+				return 100
+			end)
+			expect(spec.gradePercent[flank.road.axis]).to.equal(10)
+			expect(spec.gradePercent[profile.road.axis]).to.equal(8)
+			expect(flank.relaxed).to.equal(false)
+		end)
+
+		it("328d-15 cuts design 7.1's cross-section, in whole voxel columns", function()
+			local road = Grid.roadsOf("C1").main
+			local spec = TerrainBake.ROAD
+			local profiles = TerrainBake.profilesFor({ "C1" }, flat)
+			local mid = (Grid.boundsOf("C1").minX + Grid.boundsOf("C1").maxX) / 2
+			local function at(d: number)
+				return TerrainBake.roadAt(profiles, 100, mid, road.at + d)
+			end
+			-- THE CARRIAGEWAY is level across, with the crown fall under the design's half-stud.
+			local crown = at(0)
+			local edge = at(spec.carriagewayStuds)
+			expect(crown).never.to.equal(nil)
+			expect(math.abs((crown - edge) - spec.crownFallStuds) < 1e-9).to.equal(true)
+			expect(2 * spec.crownFallStuds <= 0.5).to.equal(true)
+			-- THE RUTS AND THE DITCH are the realised whole-column bounds, at the centre's own
+			-- parity (correction F-2): ONE column of rut and TWO of ditch, ON EACH SIDE. Round 2
+			-- built the minus side's bounds negative, so |d| could never reach them and that whole
+			-- half of every road in the world came out flat Grass (round-2 finding 1).
+			local rutLo, rutHi = TerrainBake.bandFor(road.at, spec.rut.nearStuds, spec.rut.farStuds, 1)
+			local ditchLo, ditchHi = TerrainBake.bandFor(road.at, spec.ditch.nearStuds, spec.ditch.farStuds, 1)
+			local mRutLo, mRutHi = TerrainBake.bandFor(road.at, spec.rut.nearStuds, spec.rut.farStuds, -1)
+			local mDitchLo, mDitchHi = TerrainBake.bandFor(road.at, spec.ditch.nearStuds, spec.ditch.farStuds, -1)
+			local rutNear, rutFar = road.at + rutLo, road.at + rutHi
+			local ditchNear, ditchFar = road.at + ditchLo, road.at + ditchHi
+			-- THE REALISED WIDTH, pinned: the rut is ONE voxel column and the ditch is TWO, both
+			-- sides (328c note: `% VOXEL == 0` was weaker than the sentence above it).
+			expect(rutHi - rutLo).to.equal(Relief.VOXEL)
+			expect(mRutHi - mRutLo).to.equal(Relief.VOXEL)
+			expect(ditchHi - ditchLo).to.equal(2 * Relief.VOXEL)
+			expect(mDitchHi - mDitchLo).to.equal(2 * Relief.VOXEL)
+			-- WHOLE COLUMNS IN ABSOLUTE COORDINATES on each side, which is what F-2 asks for.
+			expect((road.at + rutLo) % Relief.VOXEL).to.equal(0)
+			expect((road.at - mRutHi) % Relief.VOXEL).to.equal(0)
+			expect((road.at + ditchLo) % Relief.VOXEL).to.equal(0)
+			expect((road.at - mDitchHi) % Relief.VOXEL).to.equal(0)
+			-- As symmetric as a centre at = 1 (mod 4) allows: half a voxel apart, never more.
+			expect(math.abs((rutLo + rutHi) / 2 - (mRutLo + mRutHi) / 2) <= Relief.VOXEL / 2).to.equal(true)
+			expect(math.abs((ditchLo + ditchHi) / 2 - (mDitchLo + mDitchHi) / 2) <= Relief.VOXEL / 2).to.equal(true)
+			local _, rutName = at((rutLo + rutHi) / 2)
+			expect(rutName).to.equal("Mud")
+			-- THE HEIGHT IS SYMMETRIC EXACTLY wherever the two sides' bands agree: the carriageway
+			-- and the verge depend on |d| alone, and the two ditches overlap over d 21..27.
+			for _, d in { 1, 7, 13, 17, 23, 25, 31 } do
+				expect(math.abs((at(d) or 0) - (at(-d) or 0)) < 1e-9).to.equal(true)
+			end
+			-- AND WHERE THEY CANNOT: the bands are half a voxel apart (a centre at = 1 mod 4 admits
+			-- no better), so d 29 is still ditch on the minus side and already verge on the plus
+			-- side. Said here rather than left for someone to find in the ground. The carriageway
+			-- test comes first, so the plus ditch is realised over d 21..27 and the minus over
+			-- 21..29 -- two sampled columns each, which is design 7.1's "two whole columns".
+			expect(math.abs((at(29) or 0) - (at(-29) or 0)) > 1).to.equal(true)
+			-- FAIL FIRST, THE MINUS SIDE: before the fix `at(-d)` answered Grass at the verge
+			-- height for every one of these, because the band bounds there were negative.
+			local _, mRutName = at(-(mRutLo + mRutHi) / 2)
+			expect(mRutName).to.equal("Mud")
+			local mDitchY, mDitchName = at(-(mDitchLo + mDitchHi) / 2)
+			expect(mDitchName).to.equal("Mud")
+			expect(math.abs((crown - mDitchY) - spec.ditch.depthStuds) < 1e-9).to.equal(true)
+			local ditchY, ditchName = at((ditchLo + ditchHi) / 2)
+			TestKit.note(
+				string.format(
+					"road %s at %d: rut columns [%d,%d] d %.0f..%.0f, ditch [%d,%d] d %.0f..%.0f, ditch %.2f st below the crown",
+					road.id,
+					road.at,
+					rutNear,
+					rutFar,
+					rutNear - road.at,
+					rutFar - road.at,
+					ditchNear,
+					ditchFar,
+					ditchNear - road.at,
+					ditchFar - road.at,
+					crown - ditchY
+				)
+			)
+			TestKit.note(
+				string.format(
+					"road %s MINUS side: rut d %.0f..%.0f abs [%d,%d], ditch d %.0f..%.0f abs [%d,%d], %.2f st below the crown",
+					road.id,
+					mRutLo,
+					mRutHi,
+					road.at - mRutHi,
+					road.at - mRutLo,
+					mDitchLo,
+					mDitchHi,
+					road.at - mDitchHi,
+					road.at - mDitchLo,
+					crown - mDitchY
+				)
+			)
+			expect(ditchName).to.equal("Mud")
+			expect(math.abs((crown - ditchY) - spec.ditch.depthStuds) < 1e-9).to.equal(true)
+			-- THE VERGE is the shoulder, and past the bank the road owns nothing.
+			local _, vergeName = at(spec.vergeStuds - 1)
+			expect(vergeName).to.equal("Grass")
+			local beyond = at(spec.vergeStuds + spec.bankMinStuds + 1)
+			expect(beyond).to.equal(nil)
+			-- THE BANK is never steeper than 1:2. Drop the natural ground 30 studs and the bank has
+			-- to widen past its 12-stud minimum rather than fall faster.
+			local steepY, _, weight = TerrainBake.roadAt(profiles, 70, mid, road.at + spec.vergeStuds + 20)
+			expect(steepY).never.to.equal(nil)
+			expect(weight > 0).to.equal(true)
+			expect(steepY > 70).to.equal(true)
+			expect(TerrainBake.roadAt(profiles, 70, mid, road.at + spec.vergeStuds + 70)).to.equal(nil)
+			-- An east-west carriageway is Ground in the middle; a north-south one is Grass.
+			local _, midName = at(0)
+			expect(midName).to.equal(spec.material.x.mid)
+			expect(spec.material.z.mid).to.equal("Grass")
+		end)
+
+		it("328d-16 shapes a whole tile: the road is cut into it, and the ditch is in the ground", function()
+			local tile = { minX = -4352, minZ = -5120 } -- holds EW2 at z = -5107
+			local road = Grid.roadsOf("C1").main
+			local spec = TerrainBake.ROAD
+			local slice = sliceFor(tile, flat)
+			local profiles = TerrainBake.profilesFor({ "C1" }, flat)
+			local heights, names, n = TerrainBake.shapeTile(tile, slice, { "C1" }, {}, profiles)
+			expect(n).to.equal(TerrainBake.TILE_STUDS / Relief.VOXEL)
+			expect(#heights).to.equal(n * n)
+			local function kFor(z: number): number
+				return math.floor((z - tile.minZ) / Relief.VOXEL) + 1
+			end
+			local function h(z: number): number
+				return heights[(kFor(z) - 1) * n + 16]
+			end
+			local function name(z: number): string
+				return names[(kFor(z) - 1) * n + 16]
+			end
+			local ditchLo, ditchHi = TerrainBake.bandFor(road.at, spec.ditch.nearStuds, spec.ditch.farStuds, 1)
+			local mDitchLo, mDitchHi = TerrainBake.bandFor(road.at, spec.ditch.nearStuds, spec.ditch.farStuds, -1)
+			local crownZ = road.at + 1
+			local ditchZ = road.at + (ditchLo + ditchHi) / 2
+			local mDitchZ = road.at - (mDitchLo + mDitchHi) / 2
+			local awayZ = tile.minZ + TerrainBake.TILE_STUDS - 2
+			TestKit.note(
+				string.format(
+					"tile (%d,%d) over a flat 100 base: crown %.3f (%s), ditch %.3f (%s), 125 st away %.3f (%s)",
+					tile.minX,
+					tile.minZ,
+					h(crownZ),
+					name(crownZ),
+					h(ditchZ),
+					name(ditchZ),
+					h(awayZ),
+					name(awayZ)
+				)
+			)
+			-- THE DITCH IS CUT: 2 studs below the crown, as Mud, in the ground the tile writes.
+			expect(math.abs(h(crownZ) - 100) < 0.25).to.equal(true)
+			expect(name(crownZ)).to.equal("Ground")
+			expect(math.abs(h(ditchZ) - (h(crownZ) - spec.ditch.depthStuds)) < 0.05).to.equal(true)
+			expect(name(ditchZ)).to.equal("Mud")
+			-- THE OTHER SIDE OF THE CENTRELINE. The road sits 13 studs above this tile's floor, so
+			-- the minus RUT is in this tile and the minus DITCH is in the one below -- which is also
+			-- what proves the two tiles agree: the ditch in the SOUTH tile is 2 studs under the
+			-- crown THIS tile wrote, at the same x, because both were handed the same profiles.
+			local mRutLo, mRutHi = TerrainBake.bandFor(road.at, spec.rut.nearStuds, spec.rut.farStuds, -1)
+			local mRutZ = road.at - (mRutLo + mRutHi) / 2
+			-- FAIL FIRST, BOTH OF THESE: before round 3 the minus side had no rut and no ditch, so
+			-- this read "Ground" at the carriageway height and "Grass" at the verge height.
+			expect(name(mRutZ)).to.equal("Mud")
+			-- SYMMETRIC IN HEIGHT, to within the sample lattice: the voxel centres fall at odd |d|
+			-- on each side and the two sides' odd numbers differ by 2, so the nearest pair to +-12 is
+			-- d 13 and d 11 -- 0.02 st of crossfall apart. The exact claim is 328d-15's, on `roadAt`.
+			expect(math.abs(h(road.at + 12) - h(road.at - 12)) < 0.05).to.equal(true)
+			local south = { minX = tile.minX, minZ = tile.minZ - TerrainBake.TILE_STUDS }
+			local southHeights, southNames = TerrainBake.shapeTile(south, sliceFor(south, flat), { "C1" }, {}, profiles)
+			local function southAt(z: number): (number, string)
+				local k = math.floor((z - south.minZ) / Relief.VOXEL) + 1
+				return southHeights[(k - 1) * n + 16], southNames[(k - 1) * n + 16]
+			end
+			local mDitchY, mDitchName = southAt(mDitchZ)
+			TestKit.note(
+				string.format(
+					"MINUS side: rut z=%.0f (d=%.0f) %s in tile (%d,%d); ditch z=%.0f (d=%.0f) %.3f (%s) in tile (%d,%d), crown %.3f",
+					mRutZ,
+					road.at - mRutZ,
+					name(mRutZ),
+					tile.minX,
+					tile.minZ,
+					mDitchZ,
+					road.at - mDitchZ,
+					mDitchY,
+					mDitchName,
+					south.minX,
+					south.minZ,
+					h(crownZ)
+				)
+			)
+			expect(mDitchName).to.equal("Mud")
+			expect(math.abs(mDitchY - (h(crownZ) - spec.ditch.depthStuds)) < 0.05).to.equal(true)
+			-- THE TWO TILES SHARE THE ROAD at the seam: the last column of the south tile and the
+			-- first of this one are 4 studs apart and the road is continuous across them (round-2
+			-- finding 2 -- with a profile read per tile, off half-baked ground, it would not be).
+			-- d 15 and d 11, so 0.04 st of crossfall is expected and anything more is a step.
+			local seamSouth = southAt(tile.minZ - 2)
+			local seamHere = h(tile.minZ + 2)
+			expect(math.abs(seamSouth - seamHere) < 0.1).to.equal(true)
+			-- FAIL FIRST: with no profiles handed in there is no road, and the ditch is not there.
+			local bare = TerrainBake.shapeTile(tile, slice, { "C1" }, {}, nil)
+			expect(math.abs(bare[(kFor(ditchZ) - 1) * n + 16] - 100) < 0.05).to.equal(true)
+			-- Past the bank the road owns nothing and the landform does.
+			expect(math.abs(h(awayZ) - 100) < 1.0).to.equal(true)
+		end)
+
+		it("328d-17 limits across a tile seam, which a tile-local limiter cannot", function()
+			-- ROUND-1 FINDING 2. Two tiles of one continuous over-steep slope must meet without a
+			-- step, and every 16-stud window THAT STRADDLES THE SEAM must be under the ceiling.
+			local a = { minX = -4352, minZ = -5120 }
+			local b = { minX = -4352, minZ = -4992 }
+			local function ramp(_x: number, z: number): number
+				return 100 + (z + 5324) * 0.6 -- ~31 degrees, well over the 20-degree tree ceiling
+			end
+			local profiles = TerrainBake.profilesFor({ "C1" }, ramp)
+			local heightsA, _, n = TerrainBake.shapeTile(a, sliceFor(a, ramp), { "C1" }, {}, profiles)
+			local heightsB = TerrainBake.shapeTile(b, sliceFor(b, ramp), { "C1" }, {}, profiles)
+			local column = table.create(2 * n, 0)
+			for k = 1, n do
+				column[k] = heightsA[(k - 1) * n + 16]
+				column[n + k] = heightsB[(k - 1) * n + 16]
+			end
+			local window = math.floor(16 / Relief.VOXEL + 0.5)
+			local ceiling = 16 * math.tan(math.rad(Relief.LIMIT_DEG.tree))
+			local worst, worstAt, worstSeam = 0, 0, 0
+			for i = 1, #column - window do
+				local step = math.abs(column[i + window] - column[i])
+				if step > worst then
+					worst, worstAt = step, i
+				end
+				if i > n - window and i <= n then
+					worstSeam = math.max(worstSeam, step)
+				end
+			end
+			TestKit.note(
+				string.format(
+					"seam at column %d of %d: worst 16-st window %.3f at %d, worst window ACROSS the seam %.3f, ceiling %.3f",
+					n,
+					#column,
+					worst,
+					worstAt,
+					worstSeam,
+					ceiling
+				)
+			)
+			-- The input is far over the ceiling, so this is not a case that passes on its input.
+			expect(0.6 * 16 > ceiling).to.equal(true)
+			expect(worstSeam <= ceiling + 1e-6).to.equal(true)
+			expect(worst <= ceiling + 1e-6).to.equal(true)
+		end)
+
+		it("328d-18 keeps the ground where the snapshot has no answer", function()
+			-- ROUND-1 NOTE: round 1 wrote 0 there, which cuts a hole from the band floor up to y=0.
+			local tile = { minX = -4352, minZ = -5120 }
+			local slice = sliceFor(tile, flat)
+			slice.nx = 4 -- the reader now answers nil for almost every column of the tile
+			slice.nz = 4
+			slice.minY = 100
+			local heights = TerrainBake.shapeTile(tile, slice, { "C1" }, {}, nil)
+			local lowest = math.huge
+			for _, y in heights do
+				lowest = math.min(lowest, y)
+			end
+			expect(lowest).to.equal(100)
+			expect(lowest).never.to.equal(0)
+		end)
+
+		it("328d-19 blurs a grid separably, and it is the SAME blur, measured", function()
+			-- 328c note (c): `blurredAt` applies the Gaussian as a full 2-D kernel, 1,369 base reads
+			-- a point. 328d is the task that pays -- with the per-point kernel this spec run passed
+			-- the harness 300-s cap. A Gaussian is separable exactly, and this case is what says the
+			-- two agree rather than a comment promising it.
+			local function lumpy(x: number, z: number): number?
+				return 100 + 7 * math.sin(x / 53) + 4 * math.cos(z / 31) + 0.002 * x
+			end
+			local v = Relief.VOXEL
+			local minX, minZ, n = -4400, -5100, 24
+			local grid = Relief.blurredGrid(lumpy, minX, minZ, n, n)
+			local worst, worstAt = 0, ""
+			for i = 1, n do
+				for k = 1, n do
+					local x, z = minX + (i - 1) * v, minZ + (k - 1) * v
+					local point = Relief.blurredAtPoint(lumpy, x, z)
+					local gap = math.abs(grid[(k - 1) * n + i] - point)
+					if gap > worst then
+						worst, worstAt = gap, string.format("(%d,%d)", x, z)
+					end
+				end
+			end
+			TestKit.note(
+				string.format(
+					"separable blur vs the per-point kernel: worst %.3e studs at %s over %d points",
+					worst,
+					worstAt,
+					n * n
+				)
+			)
+			expect(worst < 1e-9).to.equal(true)
+			-- FAIL FIRST: the blur is not the identity, so a pass that returned the base would fail.
+			local middle = grid[(12 - 1) * n + 12]
+			expect(math.abs(middle - lumpy(minX + 11 * v, minZ + 11 * v)) > 0.05).to.equal(true)
+			-- A CONSTANT BASE COMES BACK THE CONSTANT, which is what pins the kernel's
+			-- normalisation -- the 328c note said nothing asserted it.
+			local level = Relief.blurredGrid(function()
+				return 42
+			end, minX, minZ, 6, 6)
+			for _, y in level do
+				expect(math.abs(y - 42) < 1e-9).to.equal(true)
+			end
+			-- nil anywhere in a point's support makes that point nil, as the per-point kernel does.
+			local holed = Relief.blurredGrid(function(x: number, _z: number)
+				return if x < minX - 40 then nil else 100
+			end, minX, minZ, 6, 6)
+			expect(holed[1]).to.equal(nil)
+		end)
+
+		it("328d-20 relaxes the grade on a road it cannot cut to, and names the breach", function()
+			-- Design 7.1: cut-or-fill <= 12 st, and a breach "relaxes the grade on that road and is
+			-- printed, never hidden". ROUND-2 FINDING 4: the whole relaxation arm could be deleted
+			-- with every case still green, because nothing fed it a base it could not meet.
+			local road = Grid.roadsOf("C1").main
+			local spec = TerrainBake.ROAD
+			-- A 20-STUD CLIFF across the road's length. At 8 % the road needs 250 st to climb it, so
+			-- the clamped line cuts and fills more than 12 st and the arm has to relax.
+			local stepAt = road.from + (road.to - road.from) / 2
+			local profile = TerrainBake.longProfile(road, function(x: number, _z: number)
+				return if x < stepAt then 100 else 120
+			end)
+			expect(profile).never.to.equal(nil)
+			TestKit.note(
+				string.format(
+					"road %s over a 20-st cliff: relaxed=%s grade %d %% (clamp %d %%), cut-or-fill %.2f (cap %d), %d breach(es): %s",
+					road.id,
+					tostring(profile.relaxed),
+					profile.gradePercent,
+					spec.gradePercent[road.axis],
+					profile.worstCutFill,
+					spec.cutFillStuds[road.axis],
+					#profile.breaches,
+					profile.breaches[1] or "none"
+				)
+			)
+			-- FAIL FIRST: delete the relaxation arm and all three of these go the other way.
+			expect(profile.relaxed).to.equal(true)
+			expect(profile.gradePercent > spec.gradePercent[road.axis]).to.equal(true)
+			expect(#profile.breaches >= 1).to.equal(true)
+			expect(string.find(profile.breaches[1], road.id, 1, true) ~= nil).to.equal(true)
+			-- AND IT IS THE CLIFF THAT DID IT, not the road: the same road over a flat base neither
+			-- relaxes nor breaches, so the case cannot pass for the wrong reason.
+			local calm = TerrainBake.longProfile(road, function()
+				return 100
+			end)
+			expect(calm.relaxed).to.equal(false)
+			expect(#calm.breaches).to.equal(0)
+			expect(calm.gradePercent).to.equal(spec.gradePercent[road.axis])
+			-- A FLAT BASE REALISES NO GRADE AT ALL, whatever ceiling it was allowed.
+			expect(calm.realisedGradePercent < 1e-6).to.equal(true)
+			-- AND THE CLIFF ROAD REALISES A GRADE INSIDE THE CEILING IT RELAXED TO.
+			expect(profile.realisedGradePercent <= profile.gradePercent + 1e-6).to.equal(true)
+			expect(profile.realisedGradePercent > spec.gradePercent[road.axis]).to.equal(true)
+		end)
+
+		it("328d-21 holds the grade CHANGE to design 7.1's rate, iterating until it does", function()
+			-- ROUND-2 FINDING 4: the grade-change limiter could be deleted with every case green,
+			-- because nothing measured a grade CHANGE. And one pass does not meet the rule: on this
+			-- very base it left 3.80 % per 60 st against a 2.40 % allowance.
+			local road = Grid.roadsOf("C1").west -- north-south, so the 10 % clamp leaves the kink
+			local spec = TerrainBake.ROAD
+			-- A KINK: dead flat, then 10 % -- inside the axis clamp, so the cone sweep leaves it and
+			-- only the grade-CHANGE arm can soften it.
+			local kinkAt = road.from + (road.to - road.from) / 2
+			local profile = TerrainBake.longProfile(road, function(_x: number, z: number)
+				return 100 + (if z < kinkAt then 0 else 0.10 * (z - kinkAt))
+			end)
+			expect(profile).never.to.equal(nil)
+			-- THE RULE IS A RATE: 2 % per 50 st, measured over the span the 20-st samples allow.
+			local allowance = spec.gradeChangePercentPer50 * (profile.gradeChangeSpanStuds / 50)
+			TestKit.note(
+				string.format(
+					"road %s over a 0 -> 10 %% kink: worst grade change %.3f %% per %d st (allowance %.3f), cut-or-fill %.2f, %d breach(es)",
+					road.id,
+					profile.worstGradeChangePercent,
+					profile.gradeChangeSpanStuds,
+					allowance,
+					profile.worstCutFill,
+					#profile.breaches
+				)
+			)
+			-- FAIL FIRST: the INPUT's own change is 10 % in one step, four times the allowance.
+			expect(10 > allowance).to.equal(true)
+			expect(profile.worstGradeChangePercent <= allowance + 1e-6).to.equal(true)
+			-- The allowance IS the design's rate, re-derived from the span actually measured.
+			expect(
+				math.abs(profile.worstGradeChangePercent / profile.gradeChangeSpanStuds)
+					<= spec.gradeChangePercentPer50 / 50 + 1e-9
+			).to.equal(true)
+			-- IT SMOOTHED, it did not flatten: the road still climbs, and the grade it REALISES is
+			-- inside the ceiling it was given -- two different numbers, so neither stands in for the
+			-- other (the live run on C1 ends at a 20 % ceiling with less than that realised).
+			local climb = (profile.y[#profile.y] - profile.y[1]) / (profile.to - profile.from) * 100
+			expect(climb > 4).to.equal(true)
+			expect(profile.realisedGradePercent >= climb - 1e-6).to.equal(true)
+			expect(profile.realisedGradePercent <= profile.gradePercent + 1e-6).to.equal(true)
+			-- And a road with no kink in it reports no change and no breach.
+			local even = TerrainBake.longProfile(road, function(_x: number, z: number)
+				return 100 + 0.05 * (z - road.from)
+			end)
+			expect(even.worstGradeChangePercent < 1e-6).to.equal(true)
+			expect(#even.breaches).to.equal(0)
+		end)
+
+		it("328j-1 pins every junction and gives the E-W profile the junction square", function()
+			-- ROUND-3 FINDING 2 (reviews/task-328d/RESULT.md): design 7.1's "pin the 15 junctions"
+			-- and "the E-W profile wins inside the junction square" were not built, so the two axes'
+			-- profiles were under no constraint to agree and the surface switched crowns along the
+			-- square's diagonal. The Reviewer measured 60.00 studs on this very base.
+			local spec = TerrainBake.ROAD
+			-- THE BASE: every east-west centreline 12 studs below all other ground, so each E-W profile
+			-- is flat at 148, each north-south one wants 160, and the two disagree by 12 studs at
+			-- every crossing -- a cliff across a road, and a cut a north-south road can afford
+			-- (328j-3 is this base at 60 studs, which it cannot).
+			local function base(_x: number, z: number): number?
+				for _, road in Grid.roads() do
+					if road.axis == "x" and math.abs(z - road.at) < 0.5 then
+						return 160 - 12
+					end
+				end
+				return 160
+			end
+			local profiles = TerrainBake.profilesFor({ "C1" }, base)
+			local ew, ns = Grid.roadsOf("C1").main, Grid.roadsOf("C1").west
+			-- FAIL FIRST, AS A NUMBER: the same north-south road with NO pins misses the east-west
+			-- crown at the crossing by the whole disagreement. That is the defect, re-measured here;
+			-- the Reviewer measured 60.00 st of it on the steeper base 328j-3 uses.
+			local bare = TerrainBake.longProfile(ns, base)
+			local bareStep = math.abs(TerrainBake.profileY(bare, ew.at) - 148)
+			TestKit.note(
+				string.format("unpinned %s at the %s crossing is %.2f st off the E-W crown", ns.id, ew.id, bareStep)
+			)
+			expect(bareStep > 10).to.equal(true)
+			-- C1's FOUR CROSSINGS: EW2/EW3 x NS3/NS4, each measured.
+			local steps = TerrainBake.junctionSteps(profiles)
+			expect(#steps).to.equal(4)
+			for _, row in steps do
+				TestKit.note(
+					string.format(
+						"%s x %s at (%d,%d): %d samples, pin %.4f st, worst step %.4f st at (%+d,%+d), explained %.4f",
+						row.ew,
+						row.ns,
+						row.x,
+						row.z,
+						row.samples,
+						row.pinStuds,
+						row.worstStepStuds,
+						row.atOffsetX,
+						row.atOffsetZ,
+						row.explainedStuds
+					)
+				)
+				-- THE PIN: the two crowns agree at the crossing. 60.00 before, 0 after.
+				expect(row.pinStuds < 1e-6).to.equal(true)
+				-- AND THE GROUND SHOWS NO STEP BIGGER THAN THE CROSSFALL across the square and one
+				-- voxel past its boundary -- the two roads' crossfalls are perpendicular, so where
+				-- one road's crown meets the other's edge the whole crown fall is the residual.
+				expect(row.worstStepStuds <= spec.crownFallStuds + 1e-6).to.equal(true)
+			end
+			-- THE PRECEDENCE, ON ITS OWN: a point inside the square whose NEAREST centreline is the
+			-- north-south one. Before this was built the nearest rule answered ~160 there.
+			local inside = TerrainBake.roadAt(profiles, 160, ns.at + 4, ew.at + 12)
+			local wantEW = 148 - spec.crownFallStuds * (12 / spec.carriagewayStuds)
+			TestKit.note(
+				string.format("inside the square at (+4,+12): %.4f, the E-W section wants %.4f", inside, wantEW)
+			)
+			expect(math.abs(inside - wantEW) < 1e-9).to.equal(true)
+			-- THE DIAGONAL the Reviewer measured at 60.00 studs: (+5,+10) against (+10,+5).
+			local diagA = TerrainBake.roadAt(profiles, 160, ns.at + 5, ew.at + 10)
+			local diagB = TerrainBake.roadAt(profiles, 160, ns.at + 10, ew.at + 5)
+			TestKit.note(string.format("the square's diagonal: %.4f vs %.4f", diagA, diagB))
+			expect(math.abs(diagA - diagB) <= spec.crownFallStuds + 1e-9).to.equal(true)
+			-- AND IT IS CONFINED TO THE SQUARE: 500 studs up the same north-south road, away from
+			-- every crossing, the nearest centreline still wins and the road is back on its own
+			-- crown -- so the precedence rule cannot be passing by flattening the world.
+			local away = TerrainBake.roadAt(profiles, 160, ns.at, ew.at + 500)
+			local nsProfile = nil
+			for _, profile in profiles do
+				if profile.road.id == ns.id then
+					nsProfile = profile
+				end
+			end
+			expect(nsProfile).never.to.equal(nil)
+			TestKit.note(
+				string.format(
+					"500 st up %s: %.2f, its own crown %.2f",
+					ns.id,
+					away,
+					TerrainBake.profileY(nsProfile, ew.at + 500)
+				)
+			)
+			expect(math.abs(away - TerrainBake.profileY(nsProfile, ew.at + 500)) < 1e-9).to.equal(true)
+			expect(away > 155).to.equal(true)
+		end)
+
+		it("328j-2 gives the north-south roads their own cut-or-fill cap, not the east-west 12", function()
+			-- DIRECTOR DECISION 3 (ESCALATE.md, 2026-11-02 17:05 UTC): C1's base rises 110 and 124 st
+			-- over NS3's and NS4's span, so at a 12-st cap the relaxation arm took them to a realised
+			-- 15.73 % and 13.47 %. The cap is raised for the north-south roads only, ceiling 20 st.
+			local spec = TerrainBake.ROAD
+			expect(spec.cutFillStuds.x).to.equal(12)
+			expect(spec.cutFillStuds.z <= 20).to.equal(true)
+			expect(spec.cutFillStuds.z > spec.cutFillStuds.x).to.equal(true)
+			local flank = Grid.roadsOf("C1").west
+			local line = Grid.roadsOf("C1").main
+			local function cliff(height: number, road)
+				local at = road.from + (road.to - road.from) / 2
+				return function(x: number, z: number): number?
+					local along = if road.axis == "x" then x else z
+					return if along < at then 100 else 100 + height
+				end
+			end
+			-- A CLIFF TALL ENOUGH to need more than the east-west 12 st and no more than the 20 the
+			-- north-south roads now have -- WALKED, not guessed, so the case cannot drift.
+			local chosen, profile = 0, nil
+			for height = 10, 80, 2 do
+				local candidate = TerrainBake.longProfile(flank, cliff(height, flank))
+				if candidate.worstCutFill > spec.cutFillStuds.x and candidate.worstCutFill <= spec.cutFillStuds.z then
+					chosen, profile = height, candidate
+					break
+				end
+			end
+			expect(profile).never.to.equal(nil)
+			TestKit.note(
+				string.format(
+					"%s over a %d-st cliff: cut-or-fill %.2f st (E-W cap %d, N-S cap %d), relaxed=%s, realised %.2f %%",
+					flank.id,
+					chosen,
+					profile.worstCutFill,
+					spec.cutFillStuds.x,
+					spec.cutFillStuds.z,
+					tostring(profile.relaxed),
+					profile.realisedGradePercent
+				)
+			)
+			-- FAIL FIRST: with one 12-st cap for both axes this cut relaxes the grade and breaches.
+			expect(profile.worstCutFill > spec.cutFillStuds.x).to.equal(true)
+			expect(profile.relaxed).to.equal(false)
+			expect(#profile.breaches).to.equal(0)
+			expect(profile.realisedGradePercent <= spec.gradePercent.z + 1e-6).to.equal(true)
+			-- AND THE EAST-WEST ROADS KEEP THE DESIGN'S 12: the same cut on a hunter line relaxes.
+			local onLine = nil
+			for height = 10, 120, 2 do
+				local candidate = TerrainBake.longProfile(line, cliff(height, line))
+				if candidate.worstCutFill > spec.cutFillStuds.x then
+					onLine = candidate
+					break
+				end
+			end
+			expect(onLine).never.to.equal(nil)
+			expect(onLine.relaxed).to.equal(true)
+			expect(#onLine.breaches >= 1).to.equal(true)
+		end)
+
+		it("328j-3 gives a pin up rather than drag the road off the hillside, and says which", function()
+			-- A PIN THE GROUND CANNOT CARRY. 328j-1's base with the east-west lines 60 studs down --
+			-- the Reviewer's own base, where it measured the 60.00-stud step. Meeting the pins costs
+			-- 60 st of cut against the north-south cap of 20, and forcing them is worse than the step:
+			-- on a 31-degree ramp the forced flank's bank reached 165 studs into a tile it has no
+			-- business in (328d-17). So the pinning is given up, and a breach line says which road.
+			local spec = TerrainBake.ROAD
+			local function base(_x: number, z: number): number?
+				for _, road in Grid.roads() do
+					if road.axis == "x" and math.abs(z - road.at) < 0.5 then
+						return 160 - 60
+					end
+				end
+				return 160
+			end
+			local ns = Grid.roadsOf("C1").west
+			local ewProfiles = {}
+			for _, road in Grid.roads() do
+				if road.axis == "x" then
+					table.insert(ewProfiles, TerrainBake.longProfile(road, base))
+				end
+			end
+			local pins = TerrainBake.junctionPins(ns, ewProfiles)
+			expect(#pins).to.equal(3)
+			local profile = TerrainBake.longProfile(ns, base, pins)
+			local given = nil
+			for _, line in profile.breaches do
+				if string.find(line, "NOT pinned", 1, true) ~= nil then
+					given = line
+				end
+			end
+			TestKit.note(string.format("%s with 3 unaffordable pins: %s", ns.id, given or "NOTHING SAID"))
+			-- FAIL FIRST: the cut the pins ask for is 3x the cap, so this is not a case that passes
+			-- on a base it could have met anyway.
+			expect(60 > spec.cutFillStuds.z).to.equal(true)
+			expect(given).never.to.equal(nil)
+			expect(string.find(given, ns.id, 1, true) ~= nil).to.equal(true)
+			-- AND THE PROFILE IS BACK ON THE GROUND it was read off, which the forced one was not.
+			expect(profile.worstCutFill <= spec.cutFillStuds.z + 1e-6).to.equal(true)
+		end)
+	end)
 end

@@ -142,6 +142,66 @@ local function blurredAt(baseAt: (number, number) -> number?, x: number, z: numb
 	return total
 end
 
+-- The per-point kernel, exposed so a spec can measure the separable grid pass against it. The bake
+-- never calls this one: it is the reference, not the route (328c note (c)).
+function Relief.blurredAtPoint(baseAt: (number, number) -> number?, x: number, z: number): number?
+	return blurredAt(baseAt, x, z)
+end
+
+-- THE SAME BLUR OVER A WHOLE GRID, as a SEPARABLE row-then-column pass: 2 x 37 reads a point
+-- instead of 37 x 37 = 1,369 (328c note (c), and 328d is the task that pays -- its server spec run
+-- timed out at 300 s with the per-point kernel). A Gaussian is separable exactly, and both passes
+-- normalise by the same 1-D kernel, so the answer is `blurredAt`'s to float error -- which
+-- `grid_relief.spec` MEASURES rather than this comment promising it.
+--
+-- nil anywhere inside a point's support makes that point nil, exactly as `blurredAt` does.
+function Relief.blurredGrid(
+	baseAt: (number, number) -> number?,
+	minX: number,
+	minZ: number,
+	nx: number,
+	nz: number
+): { number? }
+	local v = Relief.VOXEL
+	local taps = #KERNEL - 1
+	-- THE ROW PASS RUNS `taps` ROWS PAST THE GRID on each side, so the column pass never falls off
+	-- the end and no point has to pay the per-point kernel as a fallback.
+	local tall = nz + 2 * taps
+	local rows: { number? } = table.create(nx * tall, 0)
+	for k = 1, tall do
+		local z = minZ + (k - 1 - taps) * v
+		for i = 1, nx do
+			local x = minX + (i - 1) * v
+			local total, ok = 0, true
+			for ix = -taps, taps do
+				local y = baseAt(x + ix * v, z)
+				if y == nil then
+					ok = false
+					break
+				end
+				total += KERNEL[math.abs(ix) + 1] * y
+			end
+			rows[(k - 1) * nx + i] = if ok then total else nil
+		end
+	end
+	local out: { number? } = table.create(nx * nz, 0)
+	for i = 1, nx do
+		for k = 1, nz do
+			local total: number? = 0
+			for iz = -taps, taps do
+				local y = rows[(k + taps + iz - 1) * nx + i]
+				if y == nil then
+					total = nil
+					break
+				end
+				total = (total :: number) + KERNEL[math.abs(iz) + 1] * y
+			end
+			out[(k - 1) * nx + i] = total
+		end
+	end
+	return out
+end
+
 -- ---------------------------------------------------------------- one op's falloff
 
 -- The nearest point on a polyline, in STUD space: the perpendicular distance and the `dyStuds`
@@ -328,26 +388,43 @@ end
 --   h = base + k * ( (1 - baseKeep) * (blur(base) - base) + roadFade * delta )
 -- `k` is 1 inside the cell and 0 at `BLEND_STUDS` outside it, so past 200 studs the answer IS the
 -- base, exactly -- the blur fades out with the ops (design 3.0, 13.1 case 7).
+--
+-- `blend` OVERRIDES that `k` (task 328d). The bake fades ONCE, from the edge of the region it is
+-- baking, and multiplying its own fade onto this one gave two in series -- the square of the
+-- design's falloff. Handing the weight in keeps ONE fade and keeps it here, where the arithmetic
+-- lives. Omitted, nothing moves: every caller before 328d gets the cell-edge `k` exactly as before.
 function Relief.heightAt(
 	form: Landform,
 	bounds: Bounds,
 	roads: { Road },
 	baseAt: (number, number) -> number?,
 	x: number,
-	z: number
+	z: number,
+	blend: number?,
+	smoothedAt: number?
 ): number?
 	local base = baseAt(x, z)
 	if base == nil then
 		return nil
 	end
-	local dx = math.max(bounds.minX - x, x - bounds.maxX, 0)
-	local dz = math.max(bounds.minZ - z, z - bounds.maxZ, 0)
-	local outside = math.sqrt(dx * dx + dz * dz)
-	if outside >= Relief.BLEND_STUDS then
+	local k: number
+	if blend ~= nil then
+		k = blend
+	else
+		local dx = math.max(bounds.minX - x, x - bounds.maxX, 0)
+		local dz = math.max(bounds.minZ - z, z - bounds.maxZ, 0)
+		local outside = math.sqrt(dx * dx + dz * dz)
+		k = 1 - smoothstep(outside / Relief.BLEND_STUDS)
+	end
+	if k <= 0 then
 		return base
 	end
-	local k = 1 - smoothstep(outside / Relief.BLEND_STUDS)
-	local smoothed = if form.baseKeep >= 1 then base else blurredAt(baseAt, x, z)
+	-- `smoothedAt` is the blur ALREADY COMPUTED for this point, which is how the bake hands in a
+	-- separable grid pass instead of paying 1,369 base reads here (328c note (c)).
+	local smoothed = if form.baseKeep >= 1
+		then base
+		elseif smoothedAt ~= nil then smoothedAt
+		else blurredAt(baseAt, x, z)
 	if smoothed == nil then
 		return nil
 	end
