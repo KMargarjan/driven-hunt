@@ -50,6 +50,9 @@ local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
 -- THE GRID (task 327c): the eight cells' geometry and their seeds. PURE data, one direction only
 -- -- `Grid` requires neither this module nor `ForestTest`.
 local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
+-- WHERE A TREE MEETS THE GROUND (task 199). PURE arithmetic, no Instance: this module reads
+-- `CLIFF_STUDS` and `samples` from it so the planter and the census share ONE rule (design 9.1).
+local TreeGround = require(ReplicatedStorage:WaitForChild("TreeGround"))
 
 local Places = {}
 
@@ -142,6 +145,452 @@ Places.SPECIES = table.freeze({
 		"SM_Lady_Fern_Var04",
 	}),
 })
+
+-- WHICH GROUPS ARE GROUND COVER AND NOT TREES. A fern is wider than it is tall, so the template
+-- audit's "the trunk's longest extent must be Y" rule is a TREE's rule (design 9.3) -- MEASURED on
+-- all five fern templates on 2026-11-02: 2.2-3.1 studs tall against 8.2-9.6 studs wide.
+Places.HERB_GROUPS = table.freeze({ fern = true })
+
+-- IS THIS MODEL NAME GROUND COVER? Asked of the NAME, because that is all a planted clone carries.
+function Places.isHerbName(name: string): boolean
+	for group, herb in pairs(Places.HERB_GROUPS) do
+		if herb then
+			for _, candidate in ipairs((Places.SPECIES :: any)[group]) do
+				if candidate == name then
+					return true
+				end
+			end
+		end
+	end
+	return false
+end
+
+-- THE NAMES A GROUP MAY PLANT: its `SPECIES` row, MINUS anything quarantined. The ONE door between
+-- the species table and a planting list, so a quarantined template cannot be planted by any caller
+-- (design 9.3: *listed and never planted*).
+local PLANTABLE: { [string]: { string } } = {}
+function Places.namesOf(group: string): { string }
+	local cached = PLANTABLE[group]
+	if cached ~= nil then
+		return cached
+	end
+	local names = (Places.SPECIES :: any)[group]
+	if names == nil then
+		return {}
+	end
+	local out: { string } = {}
+	for _, name in ipairs(names) do
+		if not Places.isQuarantined(name) then
+			table.insert(out, name)
+		end
+	end
+	PLANTABLE[group] = out
+	return out
+end
+
+-- FORGET THE MEMO. `QUARANTINE` is frozen data, so nothing in the game ever needs this -- it exists
+-- so `grid_ground.spec` can make a name quarantined and watch the door shut, which an empty
+-- quarantine cannot otherwise prove (round 1, finding 1). `Places.junctionGap`'s own reason.
+function Places.forgetPlantable()
+	PLANTABLE = {}
+end
+
+-- EVERY PLANTED TEMPLATE'S REFERENCE DIMENSIONS -- MEASURED in Karen's Forest Test on 2026-11-02 by
+-- `driven-hunt-runs/328b-dims.luau` (read-only, Edit mode), one row per name in `Places.SPECIES`
+-- (35 of 35 found in `Workspace.OurForest`).
+--
+-- WHAT INVALIDATES THEM, said plainly: a re-import, a re-scale or a re-parent of a model in
+-- `Workspace.OurForest`. There is no committed tool that re-derives this table -- design 9.2 names
+-- `tools/forest_ground.py dims`, which does not exist and which section 16 says is not written here
+-- -- so the guard is the run-time audit: a template whose extents have moved more than 15 % from
+-- its row is quarantined and `report.quarantined` says so on the boot's face.
+--
+-- EACH ROW IS AT THE TEMPLATE'S OWN `GetScale()`, WHICH IS RECORDED, and NOT at scale 1 (design
+-- 9.2): `plantOne` scales with `made:ScaleTo(made:GetScale() * item.scale)`, so `item.scale` is
+-- relative to the template's own scale and a reference "at scale 1" would fail the audit on
+-- everything. 30 of these 35 stand at a scale that is not 1 (the birches at 0.037-0.054, the larches
+-- at 1.6-2.0); the five ferns are the only 1.0.
+--
+-- `crownHalfWidthStuds` IS THE UNION OF THE FOLIAGE-NAMED PARTS, half-extent, the larger of X and Z
+-- -- `Places.isFoliageName` below, which `places.spec` already asserts matches no trunk name. The
+-- five ferns have NO foliage-named part (one `MeshPart` each), so their crown reads 0: a herb has no
+-- crown to hang over a road.
+Places.TEMPLATE_DIMS = table.freeze({
+	-- conifer
+	Old_Spruce_Tree_Var01_LOD_0 = table.freeze({
+		scale = 0.4350,
+		heightStuds = 80.2,
+		trunkHalfWidthStuds = 7.00,
+		crownHalfWidthStuds = 16.49,
+		parts = 3,
+	}),
+	Old_Spruce_Tree_Var02_LOD_0 = table.freeze({
+		scale = 0.3446,
+		heightStuds = 70.1,
+		trunkHalfWidthStuds = 8.15,
+		crownHalfWidthStuds = 13.10,
+		parts = 3,
+	}),
+	Old_Spruce_Tree_Var03_LOD_0 = table.freeze({
+		scale = 0.3126,
+		heightStuds = 90.3,
+		trunkHalfWidthStuds = 6.62,
+		crownHalfWidthStuds = 14.17,
+		parts = 3,
+	}),
+	Old_Spruce_Tree_Var04_LOD_0 = table.freeze({
+		scale = 0.3715,
+		heightStuds = 121.0,
+		trunkHalfWidthStuds = 9.19,
+		crownHalfWidthStuds = 18.88,
+		parts = 3,
+	}),
+	Old_Spruce_Tree_Var06_LOD_0 = table.freeze({
+		scale = 0.3326,
+		heightStuds = 52.5,
+		trunkHalfWidthStuds = 5.13,
+		crownHalfWidthStuds = 12.61,
+		parts = 3,
+	}),
+	Spruce_Tree_Var01_LOD_0 = table.freeze({
+		scale = 0.3757,
+		heightStuds = 58.0,
+		trunkHalfWidthStuds = 2.52,
+		crownHalfWidthStuds = 13.11,
+		parts = 2,
+	}),
+	Spruce_Tree_Var02_LOD_0 = table.freeze({
+		scale = 0.3482,
+		heightStuds = 44.2,
+		trunkHalfWidthStuds = 3.01,
+		crownHalfWidthStuds = 12.31,
+		parts = 3,
+	}),
+	-- young
+	LarchTree_Var01 = table.freeze({
+		scale = 2.0279,
+		heightStuds = 40.2,
+		trunkHalfWidthStuds = 9.61,
+		crownHalfWidthStuds = 12.13,
+		parts = 3,
+	}),
+	LarchTree_Var02 = table.freeze({
+		scale = 1.8531,
+		heightStuds = 32.9,
+		trunkHalfWidthStuds = 8.30,
+		crownHalfWidthStuds = 10.58,
+		parts = 3,
+	}),
+	LarchTree_Var03 = table.freeze({
+		scale = 1.8687,
+		heightStuds = 36.2,
+		trunkHalfWidthStuds = 7.97,
+		crownHalfWidthStuds = 10.54,
+		parts = 3,
+	}),
+	LarchTree_Var04 = table.freeze({
+		scale = 1.5580,
+		heightStuds = 58.2,
+		trunkHalfWidthStuds = 9.97,
+		crownHalfWidthStuds = 14.58,
+		parts = 3,
+	}),
+	-- birch
+	SilverBirchTree_Var02 = table.freeze({
+		scale = 0.3526,
+		heightStuds = 62.9,
+		trunkHalfWidthStuds = 1.34,
+		crownHalfWidthStuds = 18.91,
+		parts = 5,
+	}),
+	SilverBirchTree_Var06 = table.freeze({
+		scale = 0.2636,
+		heightStuds = 71.1,
+		trunkHalfWidthStuds = 0.78,
+		crownHalfWidthStuds = 10.57,
+		parts = 4,
+	}),
+	SilverBirch_Var01_LOD_0 = table.freeze({
+		scale = 0.0367,
+		heightStuds = 43.3,
+		trunkHalfWidthStuds = 1.19,
+		crownHalfWidthStuds = 11.06,
+		parts = 3,
+	}),
+	SilverBirch_Var02_LOD_0 = table.freeze({
+		scale = 0.0405,
+		heightStuds = 54.9,
+		trunkHalfWidthStuds = 0.74,
+		crownHalfWidthStuds = 10.82,
+		parts = 3,
+	}),
+	SilverBirch_Var05_LOD_0 = table.freeze({
+		scale = 0.0373,
+		heightStuds = 46.8,
+		trunkHalfWidthStuds = 8.02,
+		crownHalfWidthStuds = 13.65,
+		parts = 3,
+	}),
+	SilverBirch_Var08_LOD_0 = table.freeze({
+		scale = 0.0393,
+		heightStuds = 38.5,
+		trunkHalfWidthStuds = 8.13,
+		crownHalfWidthStuds = 14.36,
+		parts = 3,
+	}),
+	SilverBirch_Var11_LOD_0 = table.freeze({
+		scale = 0.0435,
+		heightStuds = 74.7,
+		trunkHalfWidthStuds = 2.55,
+		crownHalfWidthStuds = 16.41,
+		parts = 4,
+	}),
+	SilverBirch_Var13_LOD_0 = table.freeze({
+		scale = 0.0538,
+		heightStuds = 112.7,
+		trunkHalfWidthStuds = 4.38,
+		crownHalfWidthStuds = 24.73,
+		parts = 4,
+	}),
+	-- oak
+	Forest_OakTree_Var01_LOD_0 = table.freeze({
+		scale = 0.1743,
+		heightStuds = 62.8,
+		trunkHalfWidthStuds = 1.58,
+		crownHalfWidthStuds = 15.45,
+		parts = 3,
+	}),
+	Forest_OakTree_Var02_LOD_0 = table.freeze({
+		scale = 0.2494,
+		heightStuds = 90.7,
+		trunkHalfWidthStuds = 1.51,
+		crownHalfWidthStuds = 24.51,
+		parts = 3,
+	}),
+	Forest_OakTree_Var03_LOD_0 = table.freeze({
+		scale = 0.1554,
+		heightStuds = 53.9,
+		trunkHalfWidthStuds = 1.01,
+		crownHalfWidthStuds = 10.06,
+		parts = 3,
+	}),
+	-- fieldOak
+	Field_OakTree_Var04_LOD_0 = table.freeze({
+		scale = 0.2435,
+		heightStuds = 55.6,
+		trunkHalfWidthStuds = 12.03,
+		crownHalfWidthStuds = 18.58,
+		parts = 3,
+	}),
+	Field_OakTree_Var05_LOD_0 = table.freeze({
+		scale = 0.2265,
+		heightStuds = 68.7,
+		trunkHalfWidthStuds = 18.01,
+		crownHalfWidthStuds = 28.06,
+		parts = 3,
+	}),
+	Field_OakTree_Var06_LOD_0 = table.freeze({
+		scale = 0.1852,
+		heightStuds = 48.1,
+		trunkHalfWidthStuds = 10.91,
+		crownHalfWidthStuds = 17.21,
+		parts = 3,
+	}),
+	Field_OakTree_Var07_LOD_0 = table.freeze({
+		scale = 0.2404,
+		heightStuds = 56.1,
+		trunkHalfWidthStuds = 11.55,
+		crownHalfWidthStuds = 20.57,
+		parts = 3,
+	}),
+	-- aspen
+	SM_AspenTree_Var02 = table.freeze({
+		scale = 0.6124,
+		heightStuds = 65.9,
+		trunkHalfWidthStuds = 1.57,
+		crownHalfWidthStuds = 19.44,
+		parts = 3,
+	}),
+	SM_AspenTree_Var04 = table.freeze({
+		scale = 0.6135,
+		heightStuds = 63.7,
+		trunkHalfWidthStuds = 6.08,
+		crownHalfWidthStuds = 19.60,
+		parts = 3,
+	}),
+	SM_AspenTree_Var06 = table.freeze({
+		scale = 0.8192,
+		heightStuds = 97.4,
+		trunkHalfWidthStuds = 1.95,
+		crownHalfWidthStuds = 23.06,
+		parts = 3,
+	}),
+	SM_AspenTree_Var09 = table.freeze({
+		scale = 0.8179,
+		heightStuds = 94.6,
+		trunkHalfWidthStuds = 2.59,
+		crownHalfWidthStuds = 21.08,
+		parts = 3,
+	}),
+	-- fern
+	SM_Forest_Fern_Var01 = table.freeze({
+		scale = 1.0000,
+		heightStuds = 2.2,
+		trunkHalfWidthStuds = 4.80,
+		crownHalfWidthStuds = 0.00,
+		parts = 1,
+	}),
+	SM_Forest_Fern_Var03 = table.freeze({
+		scale = 1.0000,
+		heightStuds = 2.6,
+		trunkHalfWidthStuds = 4.34,
+		crownHalfWidthStuds = 0.00,
+		parts = 1,
+	}),
+	SM_Forest_Fern_Var05 = table.freeze({
+		scale = 1.0000,
+		heightStuds = 2.8,
+		trunkHalfWidthStuds = 4.10,
+		crownHalfWidthStuds = 0.00,
+		parts = 1,
+	}),
+	SM_Lady_Fern_Var02 = table.freeze({
+		scale = 1.0000,
+		heightStuds = 2.8,
+		trunkHalfWidthStuds = 4.38,
+		crownHalfWidthStuds = 0.00,
+		parts = 1,
+	}),
+	SM_Lady_Fern_Var04 = table.freeze({
+		scale = 1.0000,
+		heightStuds = 3.1,
+		trunkHalfWidthStuds = 4.46,
+		crownHalfWidthStuds = 0.00,
+		parts = 1,
+	}),
+})
+
+-- THE REFERENCE ROW FOR A MODEL NAME, or nil for anything this world does not plant.
+function Places.dimsFor(name: string): any?
+	return (Places.TEMPLATE_DIMS :: any)[name]
+end
+
+-- THE TEMPLATES THE AUDIT REFUSED, with the reason, and they are NEVER PLANTED (design 9.3).
+--
+-- IT IS EMPTY, AND THAT IS A MEASUREMENT RATHER THAN AN OMISSION: run over all 35 templates on
+-- 2026-11-02, every one passed -- the trunk's longest extent is Y on all 30 trees, the worst trunk
+-- tilt is 0.2 degrees (`LarchTree_Var04`), no model has a detached foliage part, and the five ferns
+-- are exempt from the axis rule by `HERB_GROUPS` above. The run-time audit in
+-- `ServerScriptService.Places` is what keeps it that way, and `grid_ground.spec` proves each arm of
+-- it bites with a synthetic template rather than relying on this table being non-empty.
+Places.QUARANTINE = table.freeze({})
+
+-- IS THIS TEMPLATE REFUSED? One lookup, so `namesOf` and the planter cannot disagree.
+function Places.isQuarantined(name: string): boolean
+	return (Places.QUARANTINE :: any)[name] ~= nil
+end
+
+-- WHICH PARTS ARE FOLIAGE, BY NAME. MOVED HERE in task 328b from `ServerScriptService.Places`, which
+-- still carries the whole measurement behind it (623 queryable leaves, 127 colliding branches, and
+-- the control that proved `CanQuery = false` is not enough) and now aliases these two. It is here
+-- because `TEMPLATE_DIMS`'s crown half-width and `ServerStorage.GridCensus` both need it and neither
+-- may reach into the server's planter (design 9.2, 9.4).
+Places.FOLIAGE_WORDS = table.freeze({
+	"leaf",
+	"leaves",
+	"branch",
+	"twig",
+	"frond",
+	"fern",
+	"needle",
+	"canopy",
+	"crown",
+	"bush",
+	"shrub",
+})
+
+-- IS THIS PART FOLIAGE BY NAME? Case-insensitive substring, so `SM_Leaves`, `OuterLeaves`,
+-- `Branch.002` and `Bush4` all answer true and `Trunk`, `SM_Trunk` and `CollidePart` all answer
+-- false. ONE definition, so the sweep, the census and the spec cannot disagree about what a leaf is.
+function Places.isFoliageName(name: string): boolean
+	local lower = string.lower(name)
+	for _, word in ipairs(Places.FOLIAGE_WORDS) do
+		if string.find(lower, word, 1, true) then
+			return true
+		end
+	end
+	return false
+end
+
+-- HOW MUCH GROUND SPREAD A TREE OF THIS HEIGHT MAY BE PLANTED ACROSS. MOVED HERE in task 328b for
+-- `GridCensus`'s sake (design 9.1: the census SHARES THE THRESHOLDS and shares no measurement);
+-- `ServerScriptService.Places.stepAllowance` is now an alias and carries the measurement that chose
+-- it -- a flat 4 refused 776 of 2,713 candidates, 29% of the forest, as holes.
+function Places.stepAllowanceStuds(heightStuds: number): number
+	return math.max(TreeGround.CLIFF_STUDS, 0.10 * heightStuds)
+end
+
+-- THE AUDIT'S THREE NUMBERS (design 9.3), named rather than typed into the arms below.
+Places.AUDIT_LYING_DEGREES = 5
+Places.AUDIT_DETACHED_STUDS = 1
+Places.AUDIT_EXTENTS_FRACTION = 0.15
+
+-- ONE MODEL'S MEASURED GEOMETRY, as plain numbers, so the audit below needs no Instance and no
+-- world. `tiltCos` is the lowest non-foliage part's `UpVector . Y`.
+export type Measured = {
+	name: string,
+	parts: number,
+	tiltCos: number,
+	trunk: TreeGround.Box?,
+	whole: TreeGround.Box?,
+	crown: TreeGround.Box?,
+}
+
+-- THE TEMPLATE AUDIT (design 9.3), AS ARITHMETIC AND NOTHING ELSE. Nil means it passed; otherwise the
+-- reason, in one word. **ONE definition, called twice**: the planter audits each TEMPLATE at build
+-- time and `ServerStorage.GridCensus` audits each PLANTED model (where design 9.4 calls it `broken`),
+-- so the two can never disagree about what broken means -- they disagree only about what they measure.
+--
+-- `scale` IS THE MODEL'S `GetScale()` and the extents arm divides it by `dims.scale` (design 9.2);
+-- `dims` nil means there is no reference and nothing but the two geometry arms can be judged.
+function Places.auditReason(measured: Measured, dims: any?, scale: number): string?
+	local trunk, whole = measured.trunk, measured.whole
+	if trunk == nil or whole == nil then
+		return "no-geometry"
+	end
+	-- A HERB IS WIDER THAN IT IS TALL AND THAT IS NOT A DEFECT (see `HERB_GROUPS`), so the axis arm
+	-- and the lying arm are a TREE's. This arm is what catches 327c-f3's lying birch at the source.
+	if not Places.isHerbName(measured.name) then
+		local tx, ty, tz = trunk.maxX - trunk.minX, trunk.maxY - trunk.minY, trunk.maxZ - trunk.minZ
+		if ty < tx or ty < tz then
+			return "trunk-axis-not-Y"
+		end
+		if measured.tiltCos < math.cos(math.rad(Places.AUDIT_LYING_DEGREES)) then
+			return "trunk-lying"
+		end
+	end
+	-- DETACHED FOLIAGE: a crown whose bottom is more than a stud above the trunk's top, or which does
+	-- not overlap the trunk in X or Z at all.
+	local crown = measured.crown
+	if crown ~= nil then
+		local overX = math.min(crown.maxX, trunk.maxX) - math.max(crown.minX, trunk.minX)
+		local overZ = math.min(crown.maxZ, trunk.maxZ) - math.max(crown.minZ, trunk.minZ)
+		if crown.minY - trunk.maxY > Places.AUDIT_DETACHED_STUDS or overX <= 0 or overZ <= 0 then
+			return "foliage-detached"
+		end
+	end
+	if dims == nil then
+		return nil
+	end
+	if measured.parts ~= dims.parts then
+		return "part-count"
+	end
+	local want = dims.heightStuds * (scale / math.max(dims.scale, 1e-6))
+	if want > 0 and math.abs((whole.maxY - whole.minY) - want) > Places.AUDIT_EXTENTS_FRACTION * want then
+		return "extents"
+	end
+	return nil
+end
 
 -- WHICH SPECIES, IN WHAT PROPORTION, PER BAND. Each row is a list of `{ group, weight }` and the
 -- weights are read cumulatively, so a row is one `math.random` and not a chain of ifs.
@@ -838,7 +1287,13 @@ function Places.layer(layout: any, plan: any, rng: Random, minX: number, maxX: n
 							local into = if floor then "herb" else Places.bandAt(reach, plan)
 							if into ~= nil and reach > 0 and not tooClose(grid, jx, z, gap) then
 								local group = Places.speciesFrom((plan :: any)[into], rng:NextNumber())
-								local names = (Places.SPECIES :: any)[group]
+								-- `namesOf` AND NOT `SPECIES` DIRECTLY, the same door `scatter` uses: it is
+								-- the ONE place a quarantined template is dropped, and the four line
+								-- places must not be the hole in it (round 1, finding 1).
+								local names = Places.namesOf(group)
+								if #names == 0 then
+									continue
+								end
 								local scale
 								if floor then
 									scale = 0.8 + rng:NextNumber() * 0.9
@@ -952,8 +1407,10 @@ end
 -- the whole grid footprint 5,000 studs west of where that place actually is. The four line places and
 -- the eight cells are two worlds (design 11.3), only one of them is ever live, and task 327d retires
 -- the first.
-function Places.clearOfEveryRoad(x: number, z: number): boolean
-	local half = Grid.CONFIG.roadClearStuds / 2
+-- `reachStuds` IS THE CROWN (task 328b, design 9.4's `crownOverRoad`): 0 asks about the TRUNK, which
+-- is every caller written before it, and a crown half-width asks whether the canopy hangs over.
+function Places.clearOfEveryRoad(x: number, z: number, reachStuds: number?): boolean
+	local half = Grid.CONFIG.roadClearStuds / 2 + (reachStuds or 0)
 	for _, road in ipairs(allRoads()) do
 		if road.axis == "x" then
 			if math.abs(z - road.at) <= half and x >= road.from and x <= road.to then
@@ -1096,7 +1553,12 @@ local function scatter(
 				local rows, band = pick(jx, jz)
 				if rows ~= nil and band ~= nil and #rows > 0 and not tooClose(grid, jx, jz, gap) then
 					local group = Places.speciesFrom(rows, rng:NextNumber())
-					local names = (Places.SPECIES :: any)[group]
+					-- `namesOf` AND NOT `SPECIES` DIRECTLY: it is the one door that drops a quarantined
+					-- template, so no caller can plant one (design 9.3).
+					local names = Places.namesOf(group)
+					if #names == 0 then
+						continue
+					end
 					table.insert(out, {
 						model = names[rng:NextInteger(1, #names)],
 						x = jx,

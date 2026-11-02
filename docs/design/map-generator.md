@@ -1361,3 +1361,15 @@ E. **The species and brush keys need rows in `asset-pipeline.md` §12.1** (§19.
 F. **Measurement N2 (pathfinding cost with ~3,000 trunks) could send M2.8b back.** If it does, the
    answer is a density number or non-collidable trunks below crown height, and **either is a `TASKS.md`
    row with a measurement attached, not a quiet tweak.**
+
+## 21. The grid’s terrain (task 328)
+
+*Pasted verbatim from `docs/design/grid-terrain.md` section 16 (task 328b, Director decision 1).
+This file carries no section about the grid, so the Architect’s text is a section of its own.*
+
+> **The grid's terrain IS now generated, and `MapGen` is still not what generates it** (task 328).
+> The bake is `ServerStorage.TerrainBake` driven by `tools/terrainbake.py`, in the **Forest Test**,
+> not DEV, and the only things borrowed from this generator are the **measured voxel ceiling**
+> (`Config.VOXEL`: 24,576 a `WriteVoxels` call at resolution 4, and resolution 4 is the only value
+> the API takes), the **occupancy loop** in `MapGen.Ground`, the **128-stud tile** and the **step
+> split**. §12.2's one-id-table rule is untouched: the bake adds no asset id.

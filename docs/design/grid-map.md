@@ -1557,3 +1557,23 @@ Each is one task, small, testable, and committed with a research note where rule
 **Total ≈ 9.0 days.** Three tasks need the two-player run and one human click; five do not.
 **327a gives her the empty world with its roads and its relief and nothing else**, which is the
 brief's first requirement.
+
+## 18. Superseded by the grid’s terrain (task 328)
+
+*Pasted verbatim from `docs/design/grid-terrain.md` section 16 (task 328b, Director decision 1).*
+
+> **§4.4's open decision D-5 is CLOSED: sculpt.** The relief is the measured base plus one baked
+> landform a cell, written **once at Edit time** by `tools/terrainbake.py` driving
+> `ServerStorage.TerrainBake` in the Forest Test, after a backup. The four `relief` fields and
+> `lineMeanY` keep their shape and are re-filled by the post-bake survey — the escape hatch §4.4
+> designed is the one being used. **§1.2 item 2 is NARROWED, not lifted: no code in `src/` writes
+> terrain height or material**, and `grid_relief.spec` asserts the call appears nowhere there.
+> **§3.1's row for `Ground.paintRoads` is superseded**: the Edit-time tile pass writes shape and
+> material together, and that function plus `grid.spec` case 19 are archived under `backups/` with a
+> note (rule 7) in task 328e. **§4.5 becomes `CELL_PLANS` v2** and **§8.1–8.3 become the Edit-time
+> prebuild plus a border wood**, with `Places.dressCell` and `Slice` kept whole as the measured
+> fallback behind 328g's performance gate. **§11.3 step 2 is unchanged for `GridPlaces` and
+> `DrivePlaces`, and the prebuilt forest lives in a third folder, `Workspace.GridForest`, which
+> nothing in `src/` ever destroys** — see `docs/design/grid-terrain.md` §10.1. **K-6 is closed: bare
+> earth**, on `Places.SURFACES`' own measurement. **The full design is
+> `docs/design/grid-terrain.md`, and where the two disagree that document wins.**

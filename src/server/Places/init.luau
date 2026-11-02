@@ -110,6 +110,74 @@ Places.CLAW_FRACTION = table.freeze({
 	SilverBirch_Var13_LOD_0 = 0.0239,
 })
 
+-- THE CLAW FRACTION MEASURED A SECOND TIME, BY A SECOND METHOD, AND WHAT CAME OF IT (task 328b,
+-- design 9.2: *do not re-run the method that failed*).
+--
+-- `a` IS THE UPWARD-RAY METHOD (`tools/forest_ground.py species`'s, re-run here) and `b` IS THE
+-- LOBBY'S HORIZONTAL RULE -- *where the radius falls back to the trunk's* -- 24
+-- heights x 8 azimuths over the 0.10h band. Both were measured on the TEMPLATE itself in Karen's
+-- Forest Test on 2026-11-02 by `driven-hunt-runs/328b-dims.luau`. **`a` IS A RE-MEASUREMENT AND NOT
+-- A COPY of the five numbers above**: it reads the ONE template instance, where `CLAW_FRACTION`'s
+-- numbers are the median over every instance in the world. `Var11` comes out identical (0.0425);
+-- `Var13` reads 0.0222 against the shipped 0.0239, which is that difference and not a disagreement.
+-- The shipped numbers are the better evidence and are unchanged.
+--
+-- `verdict` IS THE RULE, APPLIED: both over 0.002 and within a factor of 3 is `agree`; anything else
+-- keeps **0**, which is strictly safe arithmetic (it seats the lowest geometry) and is design 9.2's
+-- own honest outcome. Exactly TWO templates agree and both are birch -- `SilverBirch_Var11_LOD_0`
+-- (0.0425 / 0.0625) and `_Var13_LOD_0` (0.0222 / 0.0625) -- which is the pair `CLAW_FRACTION` above
+-- already carries, found again by a method that shares nothing with the first.
+--
+-- THREE SPRUCES AGREE AND ARE **NOT** ADOPTED (`Old_Spruce_Var01`, `_Var02`, `_Var04`; `Var03` and
+-- `Var06` disagree and both `Spruce_Tree_*` read b-zero), and the arithmetic is the reason: `Old_Spruce_Var04` at
+-- 0.0417 x 121 studs would sink 5.0 studs deeper than lowest-geometry seating, and a spruce's base is
+-- a SKIRT, not an arch of claws -- burying the skirt is the failure `forest_ground.py` refused to
+-- ship. So they are listed here with both numbers and adopted nowhere.
+Places.CLAW_CROSSCHECK = table.freeze({
+	-- conifer
+	Old_Spruce_Tree_Var01_LOD_0 = table.freeze({ a = 0.0565, b = 0.0542, verdict = "agree-not-adopted" }),
+	Old_Spruce_Tree_Var02_LOD_0 = table.freeze({ a = 0.0229, b = 0.0167, verdict = "agree-not-adopted" }),
+	Old_Spruce_Tree_Var03_LOD_0 = table.freeze({ a = 0.0121, b = 0.0375, verdict = "disagree" }),
+	Old_Spruce_Tree_Var04_LOD_0 = table.freeze({ a = 0.0822, b = 0.0417, verdict = "agree-not-adopted" }),
+	Old_Spruce_Tree_Var06_LOD_0 = table.freeze({ a = 0.0116, b = 0.0500, verdict = "disagree" }),
+	Spruce_Tree_Var01_LOD_0 = table.freeze({ a = 0.0959, b = 0.0000, verdict = "b-zero" }),
+	Spruce_Tree_Var02_LOD_0 = table.freeze({ a = 0.0844, b = 0.0000, verdict = "b-zero" }),
+	-- young
+	LarchTree_Var01 = table.freeze({ a = 0.0970, b = 0.0000, verdict = "b-zero" }),
+	LarchTree_Var02 = table.freeze({ a = 0.0853, b = 0.0042, verdict = "disagree" }),
+	LarchTree_Var03 = table.freeze({ a = 0.0905, b = 0.0042, verdict = "disagree" }),
+	LarchTree_Var04 = table.freeze({ a = 0.0000, b = 0.0000, verdict = "both-zero" }),
+	-- birch
+	SilverBirchTree_Var02 = table.freeze({ a = 0.0000, b = 0.0458, verdict = "a-zero" }),
+	SilverBirchTree_Var06 = table.freeze({ a = 0.0000, b = 0.0000, verdict = "both-zero" }),
+	SilverBirch_Var01_LOD_0 = table.freeze({ a = 0.0000, b = 0.0000, verdict = "both-zero" }),
+	SilverBirch_Var02_LOD_0 = table.freeze({ a = 0.0000, b = 0.0000, verdict = "both-zero" }),
+	SilverBirch_Var05_LOD_0 = table.freeze({ a = 0.0000, b = 0.0000, verdict = "both-zero" }),
+	SilverBirch_Var08_LOD_0 = table.freeze({ a = 0.0000, b = 0.0042, verdict = "a-zero" }),
+	SilverBirch_Var11_LOD_0 = table.freeze({ a = 0.0425, b = 0.0625, verdict = "agree-adopted" }),
+	SilverBirch_Var13_LOD_0 = table.freeze({ a = 0.0222, b = 0.0625, verdict = "agree-adopted" }),
+	-- oak
+	Forest_OakTree_Var01_LOD_0 = table.freeze({ a = 0.0000, b = 0.0000, verdict = "both-zero" }),
+	Forest_OakTree_Var02_LOD_0 = table.freeze({ a = 0.0000, b = 0.0500, verdict = "a-zero" }),
+	Forest_OakTree_Var03_LOD_0 = table.freeze({ a = 0.0000, b = 0.0542, verdict = "a-zero" }),
+	-- fieldOak
+	Field_OakTree_Var04_LOD_0 = table.freeze({ a = 0.0000, b = 0.0000, verdict = "both-zero" }),
+	Field_OakTree_Var05_LOD_0 = table.freeze({ a = 0.0000, b = 0.0000, verdict = "both-zero" }),
+	Field_OakTree_Var06_LOD_0 = table.freeze({ a = 0.0068, b = 0.0542, verdict = "disagree" }),
+	Field_OakTree_Var07_LOD_0 = table.freeze({ a = 0.0000, b = 0.0000, verdict = "both-zero" }),
+	-- aspen
+	SM_AspenTree_Var02 = table.freeze({ a = 0.0005, b = 0.0458, verdict = "a-zero" }),
+	SM_AspenTree_Var04 = table.freeze({ a = 0.0000, b = 0.0000, verdict = "both-zero" }),
+	SM_AspenTree_Var06 = table.freeze({ a = 0.0000, b = 0.0250, verdict = "a-zero" }),
+	SM_AspenTree_Var09 = table.freeze({ a = 0.0000, b = 0.0000, verdict = "both-zero" }),
+	-- fern
+	SM_Forest_Fern_Var01 = table.freeze({ a = 0.0000, b = 0.0000, verdict = "both-zero" }),
+	SM_Forest_Fern_Var03 = table.freeze({ a = 0.0000, b = 0.0000, verdict = "both-zero" }),
+	SM_Forest_Fern_Var05 = table.freeze({ a = 0.0000, b = 0.0000, verdict = "both-zero" }),
+	SM_Lady_Fern_Var02 = table.freeze({ a = 0.0000, b = 0.0000, verdict = "both-zero" }),
+	SM_Lady_Fern_Var04 = table.freeze({ a = 0.0000, b = 0.0000, verdict = "both-zero" }),
+})
+
 -- HOW MUCH GROUND SPREAD A TREE OF THIS HEIGHT MAY BE PLANTED ACROSS, before this module refuses the
 -- spot rather than seating it.
 --
@@ -121,9 +189,11 @@ Places.CLAW_FRACTION = table.freeze({
 -- the spread costs is how much of the UPHILL root flare is buried, and a tenth of the tree's height is
 -- not something an eye can see. `CLIFF_STUDS` stays the floor, so ferns and saplings keep the
 -- tool's own allowance.
-function Places.stepAllowance(heightStuds: number): number
-	return math.max(TreeGround.CLIFF_STUDS, 0.10 * heightStuds)
-end
+-- ...AND IT MOVED TO `ReplicatedStorage.Places` IN TASK 328b, because `ServerStorage.GridCensus`
+-- has to read the same number and may not reach into this module (design 9.1: the census shares the
+-- thresholds and shares no measurement). This is the alias; the measurement above is why the number
+-- is what it is.
+Places.stepAllowance = Plan.stepAllowanceStuds
 
 -- A PART IS INVISIBLE AT OR ABOVE THIS TRANSPARENCY, and an invisible part must never stop a bullet.
 -- `forest_ground.py`'s own number, for the same reason it needed one: *"the birches carry an
@@ -248,32 +318,11 @@ end
 -- `Bush4`) and the colliding branches 127 across three (`Branch`, `Branch.001`, `Branch.002`),
 -- against trunks named `Trunk`, `SM_Trunk` and `CollidePart`. `places.spec` asserts that no name in
 -- `FOLIAGE_WORDS` matches any of those three.
-Places.FOLIAGE_WORDS = table.freeze({
-	"leaf",
-	"leaves",
-	"branch",
-	"twig",
-	"frond",
-	"fern",
-	"needle",
-	"canopy",
-	"crown",
-	"bush",
-	"shrub",
-})
-
--- IS THIS PART FOLIAGE BY NAME? Case-insensitive substring, so `SM_Leaves`, `OuterLeaves`,
--- `Branch.002` and `Bush4` all answer true and `Trunk`, `SM_Trunk` and `CollidePart` all answer
--- false. One definition, so the sweep and the spec cannot disagree about what a leaf is.
-function Places.isFoliageName(name: string): boolean
-	local lower = string.lower(name)
-	for _, word in ipairs(Places.FOLIAGE_WORDS) do
-		if string.find(lower, word, 1, true) then
-			return true
-		end
-	end
-	return false
-end
+-- ...AND THE LIST AND ITS PREDICATE MOVED TO `ReplicatedStorage.Places` IN TASK 328b, unchanged,
+-- because `TEMPLATE_DIMS`'s crown half-width and `ServerStorage.GridCensus` both need them. These are
+-- the aliases; every word of the measurement above is why the list is what it is.
+Places.FOLIAGE_WORDS = Plan.FOLIAGE_WORDS
+Places.isFoliageName = Plan.isFoliageName
 
 -- THE ONE RULE, APPLIED TO ANY TREE ANYWHERE: a leaf or a branch stops nothing. Returns how many
 -- parts it changed, so a caller can report "0" and mean it.
@@ -382,6 +431,54 @@ end
 --
 -- IT ONLY EVER LOWERS A TREE: `decide` answers `seated` for anything already in the ground and
 -- `cliff` for a footprint across a step, and neither moves. Returns how many it lowered.
+-- ONE MODEL, MEASURED THE WAY `Plan.TEMPLATE_DIMS` WAS MEASURED (task 328b, design 9.3): the visible
+-- parts' boxes, split by `Plan.isFoliageName` into trunk and crown, plus the part count and the
+-- lowest non-foliage part's tilt. Plain numbers out, so `Plan.auditReason` needs no world.
+function Places.measureFor(model: Model): Plan.Measured
+	local all: { TreeGround.Box }, trunks: { TreeGround.Box }, crowns: { TreeGround.Box } = {}, {}, {}
+	local lowest: BasePart? = nil
+	local lowestY = math.huge
+	local parts = 0
+	for _, thing in ipairs(model:GetDescendants()) do
+		if thing:IsA("BasePart") and thing.Transparency < Places.INVISIBLE_AT then
+			local box = Places.boxOf(thing)
+			parts += 1
+			table.insert(all, box)
+			if Plan.isFoliageName(thing.Name) then
+				table.insert(crowns, box)
+			else
+				table.insert(trunks, box)
+				if box.minY < lowestY then
+					lowest, lowestY = thing, box.minY
+				end
+			end
+		end
+	end
+	local whole = TreeGround.bounds(all)
+	return {
+		name = model.Name,
+		parts = parts,
+		tiltCos = if lowest ~= nil then (lowest :: BasePart).CFrame.UpVector:Dot(Vector3.yAxis) else 1,
+		trunk = TreeGround.bounds(trunks) or whole,
+		whole = whole,
+		crown = TreeGround.bounds(crowns),
+	}
+end
+
+-- AUDIT ONE TEMPLATE, ONCE, AT BUILD TIME (design 9.3). Nil means plant it; otherwise the reason, and
+-- the planter refuses every clone of it for the rest of the build.
+--
+-- `name` IS THE PLANTING'S NAME AND NOT THE TEMPLATE INSTANCE'S, because that is the name the dims
+-- row and the quarantine are keyed by, and `plantOne` renames each clone to it.
+function Places.auditTemplate(model: Model, name: string): string?
+	if Plan.isQuarantined(name) then
+		return "quarantined"
+	end
+	local measured = Places.measureFor(model)
+	measured.name = name
+	return Plan.auditReason(measured, Plan.dimsFor(name), model:GetScale())
+end
+
 -- PLANT ONE. Returns the model, or nil with a reason.
 --
 -- THE ORDER MATTERS AND IS NOT COSMETIC: scale FIRST, then yaw and the provisional position, then
@@ -410,7 +507,21 @@ function Places.plantOne(
 	-- HIGH ENOUGH THAT THE SETTLE IS ALWAYS A DROP. `TreeGround.decide` only ever sinks a tree (its
 	-- own header: *"A tree that is already deep in the ground is left exactly where it is"*), so a
 	-- freshly cloned tree is offered to it from above and never from below.
-	made:PivotTo(CFrame.new(item.x, rough + made:GetExtentsSize().Y, item.z) * CFrame.Angles(0, item.yaw, 0))
+	--
+	-- **THE TEMPLATE'S OWN ORIENTATION IS KEPT AND ONLY THE YAW IS OURS** (task 328b), and that one
+	-- `* spin` is what stops a tree being planted lying down. A Model with NO `PrimaryPart` has a
+	-- pivot carrying the BOUNDING BOX's rotation, which for these meshes is not upright --
+	-- `Forest_OakTree_Var03_LOD_0`'s pivot up vector is (-0.97, 0.00, -0.22) -- so
+	-- `PivotTo(CFrame.new(...) * CFrame.Angles(0, yaw, 0))` FORCED that pivot upright and rotated
+	-- the whole tree by the inverse. MEASURED in Karen's Forest Test on 2026-11-02
+	-- (`driven-hunt-runs/328b-pivot.luau`): the planted `Forest_OakTree_Var03_LOD_0`'s trunk part
+	-- stood at 90.0 degrees off vertical, its trunk box 8.2 x 1.4 x 53.0 studs and the model 18.8
+	-- studs tall against the template's 53.9 -- a 53-stud trunk flat on the ground. The census
+	-- counted **571 of C1's 2,019 trees** like that, across the 10 templates with no `PrimaryPart`.
+	-- For the 25 templates that do have one the pivot rotation is the identity and this changes
+	-- nothing, which is why the defect hid: most of the wood stood up.
+	local spin = made:GetPivot().Rotation
+	made:PivotTo(CFrame.new(item.x, rough + made:GetExtentsSize().Y, item.z) * CFrame.Angles(0, item.yaw, 0) * spin)
 	local trunk, whole = Places.trunkBox(made)
 	if trunk == nil or whole == nil then
 		made:Destroy()
@@ -442,6 +553,12 @@ function Places.plantOne(
 		made:PivotTo(made:GetPivot() + Vector3.new(0, verdict.lift, 0))
 	end
 	Places.quieten(made)
+	-- ONE TREE IS ONE THING TO STREAM IN (task 328b, design 16's 328b row). `Atomic` sends the whole
+	-- model or none of it, so a client can never be handed a trunk with no crown -- or a crown with no
+	-- trunk to stop a bullet. It touches no part property, so the foliage flags `quieten` just set
+	-- stand: `grid_ground.spec` asserts that pair rather than assuming it (lesson L-060).
+	-- https://create.roblox.com/docs/workspace/streaming#model-streaming-modes
+	made.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	made.Name = item.model
 	made:SetAttribute("DrivePlaceBand", item.band)
 	made.Parent = parent
@@ -806,14 +923,30 @@ function Places.build(
 	local folder = Instance.new("Folder")
 	folder.Name = Places.FOLDER
 	local lookup: { [string]: Model } = {}
+	-- THE TEMPLATE AUDIT, ONCE PER NAME (task 328b, design 9.3). A template that fails is listed in
+	-- `report.quarantined`, refused for the whole build, and never planted; `refusedTemplates` is the
+	-- memo, so the audit's raycast-free measurement runs 35 times and not 2,400.
+	local refusedTemplates: { [string]: string } = {}
+	report.quarantined = 0
+	report.quarantinedBy = {}
 	local function template(name: string): Model?
 		local found = lookup[name]
 		if found then
 			return found
 		end
+		if refusedTemplates[name] ~= nil then
+			return nil
+		end
 		for _, source in ipairs(sources) do
 			local child = source:FindFirstChild(name)
 			if child and child:IsA("Model") then
+				local why = Places.auditTemplate(child :: Model, name)
+				if why ~= nil then
+					refusedTemplates[name] = why
+					report.quarantined += 1
+					report.quarantinedBy[why] = (report.quarantinedBy[why] or 0) + 1
+					return nil
+				end
 				lookup[name] = child
 				return child
 			end

@@ -3016,8 +3016,19 @@ ForestTest.MAX_BODIES_IN_A_COLUMN = 8
 -- `GridPlaces` IS THE GRID'S OWN FOLDER (task 327a, `Places.GRID_FOLDER`): a corner stake standing
 -- inside the footprint must never be the answer to "where is the ground". Its parts are already
 -- `CanQuery = false`, so this is the second of two locks rather than the only one.
-ForestTest.GROUND_IGNORE =
-	table.freeze({ "OurForest", "Foliage", "Boars", "DrivePlaces", "GridPlaces", "RangeTargets" })
+-- `GridForest` IS THE PREBUILT WOOD (task 328b; `docs/design/grid-terrain.md` defect F-1 and 10.1):
+-- a THIRD folder beside `DrivePlaces` and `GridPlaces`, which nothing under `src/` ever destroys. It
+-- is listed here for the same reason the other two are -- a ray looking for the ground must not stop
+-- on our own trunk. `grid_ground.spec` asserts it appears once and that the three names differ.
+ForestTest.GROUND_IGNORE = table.freeze({
+	"OurForest",
+	"Foliage",
+	"Boars",
+	"DrivePlaces",
+	"GridPlaces",
+	"GridForest",
+	"RangeTargets",
+})
 
 -- IT IGNORES THE FOREST, THE ANIMALS AND THE PEOPLE. A boar must be put on the GROUND, not on a
 -- fern, not on the back of the boar spawned a moment earlier -- and not on a player's head.
