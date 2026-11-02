@@ -1080,9 +1080,11 @@ return function()
 				expect(math.abs((at(d) or 0) - (at(-d) or 0)) < 1e-9).to.equal(true)
 			end
 			-- AND WHERE THEY CANNOT: the bands are half a voxel apart (a centre at = 1 mod 4 admits
-			-- no better), so d 19 is ditch on the plus side and still shoulder on the minus side.
-			-- Said here rather than left for someone to find in the ground.
-			expect(math.abs((at(19) or 0) - (at(-19) or 0)) > 1).to.equal(true)
+			-- no better), so d 29 is still ditch on the minus side and already verge on the plus
+			-- side. Said here rather than left for someone to find in the ground. The carriageway
+			-- test comes first, so the plus ditch is realised over d 21..27 and the minus over
+			-- 21..29 -- two sampled columns each, which is design 7.1's "two whole columns".
+			expect(math.abs((at(29) or 0) - (at(-29) or 0)) > 1).to.equal(true)
 			-- FAIL FIRST, THE MINUS SIDE: before the fix `at(-d)` answered Grass at the verge
 			-- height for every one of these, because the band bounds there were negative.
 			local _, mRutName = at(-(mRutLo + mRutHi) / 2)
