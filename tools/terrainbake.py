@@ -697,6 +697,24 @@ def profiles_once(studio, studio_id, cells, injected):
             breaches += 1
             print("    BREACH: %s" % line)
     print("[bake] profiles: %d breach(es) printed, never hidden (design 7.1)" % breaches)
+    # THE JUNCTIONS, MEASURED (round-3 finding 2). Design 7.1 pins the 15 crossings and gives the
+    # E-W profile the junction square; these are the three numbers that say whether it happened --
+    # the two crowns' disagreement AT the crossing, the worst step between voxel-adjacent columns on
+    # the square, and what the steeper road's own grade explains anyway.
+    steps = call(studio, studio_id, "TerrainBake.junctionSteps(HttpService:JSONDecode([==[%s]==]))"
+                 % payload, timeout=300, injected=injected)
+    print("[bake] junctions, measured on those profiles (%d crossing(s) in this run):" % len(steps))
+    worst_pin, worst_step = 0.0, 0.0
+    for row in steps:
+        over = row["worstStepStuds"] > row["explainedStuds"] + 1e-6
+        print("  %-4s x %-4s at (%7g,%7g)  pin %7.4f st  worst voxel step %7.4f st at (%+d,%+d)"
+              "  E-W rise over the square %6.4f  explained %7.4f%s"
+              % (row["ew"], row["ns"], row["x"], row["z"], row["pinStuds"], row["worstStepStuds"],
+                 row["atOffsetX"], row["atOffsetZ"], row["ewSpanStuds"], row["explainedStuds"],
+                 "   OVER" if over else ""))
+        worst_pin = max(worst_pin, row["pinStuds"])
+        worst_step = max(worst_step, row["worstStepStuds"])
+    print("[bake] junctions: worst pin %.4f st, worst voxel step %.4f st" % (worst_pin, worst_step))
     return payload, digest
 
 
@@ -925,7 +943,23 @@ def selftest():
     ok("A1 is 224, NOT C1's 208 -- equal cells do not tile equally",
        EXPECTED_TILES["A1"] == 224 and EXPECTED_TILES["C2"] == 221
        and EXPECTED_TILES["A1"] != EXPECTED_TILES["C1"])
-    ok("`plan` ACCEPTS a second cell, which round 2 would have refused", main(["plan", "--cells", "A1"]) == 0)
+    # ROUND-3 FINDING 1: this case used to go through `main(["plan", ...])`, which constructs
+    # `Studio()`, whose miss path is `sys.exit` -- and `SystemExit` is not an `Exception`, so CI's
+    # ubuntu runner aborted the selftest here and ~45 later checks never ran. `command_plan` takes
+    # the transport as two arguments, so it is called with NONE and the step is hermetic as its name
+    # claims. What is asserted is the arithmetic and the committed count, which need no Studio.
+    plan_args = argparse.Namespace(cells=["A1"])
+    ok("`plan` ACCEPTS a second cell, which round 2 would have refused (NO transport: command_plan,"
+       " never Studio())", command_plan(plan_args, facts, None, None) == 0)
+    # AND THE COUNT IS ASSERTED, not just printed: a wrong committed number REFUSES. Without this
+    # the case above passes with the whole assertion arm deleted.
+    kept = EXPECTED_TILES["A1"]
+    EXPECTED_TILES["A1"] = kept + 1
+    try:
+        ok("`plan` REFUSES when the arithmetic and the committed count disagree",
+           command_plan(plan_args, facts, None, None) == 2)
+    finally:
+        EXPECTED_TILES["A1"] = kept
     ok("every tile origin is voxel-aligned, so ExpandToGrid has nothing to do",
        tile_count(c1region, facts["tile"])[3] % facts["voxel"] == 0
        and tile_count(c1region, facts["tile"])[4] % facts["voxel"] == 0)

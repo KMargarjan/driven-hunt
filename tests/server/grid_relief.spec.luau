@@ -1024,7 +1024,7 @@ return function()
 			-- FAIL FIRST: the input holds 12-stud steps, 30 %, and the clamp is 8 %.
 			expect(12 > spec.gradePercent.x / 100 * spec.sampleStuds).to.equal(true)
 			expect(worst <= allowed + 1e-6).to.equal(true)
-			expect(profile.worstCutFill <= spec.cutFillStuds + 1e-6).to.equal(true)
+			expect(profile.worstCutFill <= spec.cutFillStuds[road.axis] + 1e-6).to.equal(true)
 			-- A north-south road gets the 10 % clamp, not the east-west 8 %.
 			local flank = TerrainBake.longProfile(Grid.roadsOf("C1").west, function()
 				return 100
@@ -1370,7 +1370,7 @@ return function()
 					profile.gradePercent,
 					spec.gradePercent[road.axis],
 					profile.worstCutFill,
-					spec.cutFillStuds,
+					spec.cutFillStuds[road.axis],
 					#profile.breaches,
 					profile.breaches[1] or "none"
 				)
@@ -1442,6 +1442,197 @@ return function()
 			end)
 			expect(even.worstGradeChangePercent < 1e-6).to.equal(true)
 			expect(#even.breaches).to.equal(0)
+		end)
+
+		it("328j-1 pins every junction and gives the E-W profile the junction square", function()
+			-- ROUND-3 FINDING 2 (reviews/task-328d/RESULT.md): design 7.1's "pin the 15 junctions"
+			-- and "the E-W profile wins inside the junction square" were not built, so the two axes'
+			-- profiles were under no constraint to agree and the surface switched crowns along the
+			-- square's diagonal. The Reviewer measured 60.00 studs on this very base.
+			local spec = TerrainBake.ROAD
+			-- THE BASE: every east-west centreline 12 studs below all other ground, so each E-W profile
+			-- is flat at 148, each north-south one wants 160, and the two disagree by 12 studs at
+			-- every crossing -- a cliff across a road, and a cut a north-south road can afford
+			-- (328j-3 is this base at 60 studs, which it cannot).
+			local function base(_x: number, z: number): number?
+				for _, road in Grid.roads() do
+					if road.axis == "x" and math.abs(z - road.at) < 0.5 then
+						return 160 - 12
+					end
+				end
+				return 160
+			end
+			local profiles = TerrainBake.profilesFor({ "C1" }, base)
+			local ew, ns = Grid.roadsOf("C1").main, Grid.roadsOf("C1").west
+			-- FAIL FIRST, AS A NUMBER: the same north-south road with NO pins misses the east-west
+			-- crown at the crossing by the whole disagreement. That is the defect, re-measured here;
+			-- the Reviewer measured 60.00 st of it on the steeper base 328j-3 uses.
+			local bare = TerrainBake.longProfile(ns, base)
+			local bareStep = math.abs(TerrainBake.profileY(bare, ew.at) - 148)
+			TestKit.note(
+				string.format("unpinned %s at the %s crossing is %.2f st off the E-W crown", ns.id, ew.id, bareStep)
+			)
+			expect(bareStep > 10).to.equal(true)
+			-- C1's FOUR CROSSINGS: EW2/EW3 x NS3/NS4, each measured.
+			local steps = TerrainBake.junctionSteps(profiles)
+			expect(#steps).to.equal(4)
+			for _, row in steps do
+				TestKit.note(
+					string.format(
+						"%s x %s at (%d,%d): %d samples, pin %.4f st, worst step %.4f st at (%+d,%+d), explained %.4f",
+						row.ew,
+						row.ns,
+						row.x,
+						row.z,
+						row.samples,
+						row.pinStuds,
+						row.worstStepStuds,
+						row.atOffsetX,
+						row.atOffsetZ,
+						row.explainedStuds
+					)
+				)
+				-- THE PIN: the two crowns agree at the crossing. 60.00 before, 0 after.
+				expect(row.pinStuds < 1e-6).to.equal(true)
+				-- AND THE GROUND SHOWS NO STEP BIGGER THAN THE CROSSFALL across the square and one
+				-- voxel past its boundary -- the two roads' crossfalls are perpendicular, so where
+				-- one road's crown meets the other's edge the whole crown fall is the residual.
+				expect(row.worstStepStuds <= spec.crownFallStuds + 1e-6).to.equal(true)
+			end
+			-- THE PRECEDENCE, ON ITS OWN: a point inside the square whose NEAREST centreline is the
+			-- north-south one. Before this was built the nearest rule answered ~160 there.
+			local inside = TerrainBake.roadAt(profiles, 160, ns.at + 4, ew.at + 12)
+			local wantEW = 148 - spec.crownFallStuds * (12 / spec.carriagewayStuds)
+			TestKit.note(
+				string.format("inside the square at (+4,+12): %.4f, the E-W section wants %.4f", inside, wantEW)
+			)
+			expect(math.abs(inside - wantEW) < 1e-9).to.equal(true)
+			-- THE DIAGONAL the Reviewer measured at 60.00 studs: (+5,+10) against (+10,+5).
+			local diagA = TerrainBake.roadAt(profiles, 160, ns.at + 5, ew.at + 10)
+			local diagB = TerrainBake.roadAt(profiles, 160, ns.at + 10, ew.at + 5)
+			TestKit.note(string.format("the square's diagonal: %.4f vs %.4f", diagA, diagB))
+			expect(math.abs(diagA - diagB) <= spec.crownFallStuds + 1e-9).to.equal(true)
+			-- AND IT IS CONFINED TO THE SQUARE: 500 studs up the same north-south road, away from
+			-- every crossing, the nearest centreline still wins and the road is back on its own
+			-- crown -- so the precedence rule cannot be passing by flattening the world.
+			local away = TerrainBake.roadAt(profiles, 160, ns.at, ew.at + 500)
+			local nsProfile = nil
+			for _, profile in profiles do
+				if profile.road.id == ns.id then
+					nsProfile = profile
+				end
+			end
+			expect(nsProfile).never.to.equal(nil)
+			TestKit.note(
+				string.format(
+					"500 st up %s: %.2f, its own crown %.2f",
+					ns.id,
+					away,
+					TerrainBake.profileY(nsProfile, ew.at + 500)
+				)
+			)
+			expect(math.abs(away - TerrainBake.profileY(nsProfile, ew.at + 500)) < 1e-9).to.equal(true)
+			expect(away > 155).to.equal(true)
+		end)
+
+		it("328j-2 gives the north-south roads their own cut-or-fill cap, not the east-west 12", function()
+			-- DIRECTOR DECISION 3 (ESCALATE.md, 2026-11-02 17:05 UTC): C1's base rises 110 and 124 st
+			-- over NS3's and NS4's span, so at a 12-st cap the relaxation arm took them to a realised
+			-- 15.73 % and 13.47 %. The cap is raised for the north-south roads only, ceiling 20 st.
+			local spec = TerrainBake.ROAD
+			expect(spec.cutFillStuds.x).to.equal(12)
+			expect(spec.cutFillStuds.z <= 20).to.equal(true)
+			expect(spec.cutFillStuds.z > spec.cutFillStuds.x).to.equal(true)
+			local flank = Grid.roadsOf("C1").west
+			local line = Grid.roadsOf("C1").main
+			local function cliff(height: number, road)
+				local at = road.from + (road.to - road.from) / 2
+				return function(x: number, z: number): number?
+					local along = if road.axis == "x" then x else z
+					return if along < at then 100 else 100 + height
+				end
+			end
+			-- A CLIFF TALL ENOUGH to need more than the east-west 12 st and no more than the 20 the
+			-- north-south roads now have -- WALKED, not guessed, so the case cannot drift.
+			local chosen, profile = 0, nil
+			for height = 10, 80, 2 do
+				local candidate = TerrainBake.longProfile(flank, cliff(height, flank))
+				if candidate.worstCutFill > spec.cutFillStuds.x and candidate.worstCutFill <= spec.cutFillStuds.z then
+					chosen, profile = height, candidate
+					break
+				end
+			end
+			expect(profile).never.to.equal(nil)
+			TestKit.note(
+				string.format(
+					"%s over a %d-st cliff: cut-or-fill %.2f st (E-W cap %d, N-S cap %d), relaxed=%s, realised %.2f %%",
+					flank.id,
+					chosen,
+					profile.worstCutFill,
+					spec.cutFillStuds.x,
+					spec.cutFillStuds.z,
+					tostring(profile.relaxed),
+					profile.realisedGradePercent
+				)
+			)
+			-- FAIL FIRST: with one 12-st cap for both axes this cut relaxes the grade and breaches.
+			expect(profile.worstCutFill > spec.cutFillStuds.x).to.equal(true)
+			expect(profile.relaxed).to.equal(false)
+			expect(#profile.breaches).to.equal(0)
+			expect(profile.realisedGradePercent <= spec.gradePercent.z + 1e-6).to.equal(true)
+			-- AND THE EAST-WEST ROADS KEEP THE DESIGN'S 12: the same cut on a hunter line relaxes.
+			local onLine = nil
+			for height = 10, 120, 2 do
+				local candidate = TerrainBake.longProfile(line, cliff(height, line))
+				if candidate.worstCutFill > spec.cutFillStuds.x then
+					onLine = candidate
+					break
+				end
+			end
+			expect(onLine).never.to.equal(nil)
+			expect(onLine.relaxed).to.equal(true)
+			expect(#onLine.breaches >= 1).to.equal(true)
+		end)
+
+		it("328j-3 gives a pin up rather than drag the road off the hillside, and says which", function()
+			-- A PIN THE GROUND CANNOT CARRY. 328j-1's base with the east-west lines 60 studs down --
+			-- the Reviewer's own base, where it measured the 60.00-stud step. Meeting the pins costs
+			-- 60 st of cut against the north-south cap of 20, and forcing them is worse than the step:
+			-- on a 31-degree ramp the forced flank's bank reached 165 studs into a tile it has no
+			-- business in (328d-17). So the pinning is given up, and a breach line says which road.
+			local spec = TerrainBake.ROAD
+			local function base(_x: number, z: number): number?
+				for _, road in Grid.roads() do
+					if road.axis == "x" and math.abs(z - road.at) < 0.5 then
+						return 160 - 60
+					end
+				end
+				return 160
+			end
+			local ns = Grid.roadsOf("C1").west
+			local ewProfiles = {}
+			for _, road in Grid.roads() do
+				if road.axis == "x" then
+					table.insert(ewProfiles, TerrainBake.longProfile(road, base))
+				end
+			end
+			local pins = TerrainBake.junctionPins(ns, ewProfiles)
+			expect(#pins).to.equal(3)
+			local profile = TerrainBake.longProfile(ns, base, pins)
+			local given = nil
+			for _, line in profile.breaches do
+				if string.find(line, "NOT pinned", 1, true) ~= nil then
+					given = line
+				end
+			end
+			TestKit.note(string.format("%s with 3 unaffordable pins: %s", ns.id, given or "NOTHING SAID"))
+			-- FAIL FIRST: the cut the pins ask for is 3x the cap, so this is not a case that passes
+			-- on a base it could have met anyway.
+			expect(60 > spec.cutFillStuds.z).to.equal(true)
+			expect(given).never.to.equal(nil)
+			expect(string.find(given, ns.id, 1, true) ~= nil).to.equal(true)
+			-- AND THE PROFILE IS BACK ON THE GROUND it was read off, which the forced one was not.
+			expect(profile.worstCutFill <= spec.cutFillStuds.z + 1e-6).to.equal(true)
 		end)
 	end)
 end

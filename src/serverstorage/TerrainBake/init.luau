@@ -268,7 +268,14 @@ TerrainBake.ROAD = table.freeze({
 	-- cut-or-fill <= 12 st. A breach RELAXES the grade on that road and is printed, never hidden.
 	gradePercent = table.freeze({ x = 8, z = 10 }),
 	gradeChangePercentPer50 = 2,
-	cutFillStuds = 12,
+	-- CUT-OR-FILL, PER AXIS, IN STUDS. 12 is design 7.1's and the east-west roads keep it. The
+	-- north-south roads are 20 -- Director decision 3 (2026-11-02), walked in Karen's place against
+	-- C1's own base, which rises 110 and 124 st over NS3's and NS4's 2,986-st span. The realised
+	-- GRADE in PER CENT that each cap buys, measured: 12 st -> NS3 20.00, NS4 20.00 · 16 -> 16.00,
+	-- 12.00 · 18 -> 12.00, 10.00 · 20 -> 10.00, 10.00. 20 is the smallest of those under the 12 %
+	-- the decision asks for, it is the decision's own hard ceiling, and the cut it realises is
+	-- 19.75 st on NS3 and 17.21 on NS4 -- inside it. A deeper cut is what a real forest road does.
+	cutFillStuds = table.freeze({ x = 12, z = 20 }),
 	sampleStuds = 20,
 	-- Design 7.1's material table. `mid` is 0..+-6, `outer` is +-10..+-20.
 	material = table.freeze({
@@ -292,6 +299,61 @@ export type Profile = {
 	breaches: { string },
 }
 
+-- ONE JUNCTION PIN: the height the road must pass through at `along`. Design 7.1, "pin the 15
+-- junctions" -- the world has 3 east-west and 5 north-south roads, so 15 crossings.
+export type Pin = { along: number, y: number }
+
+-- HOW FAR EITHER SIDE OF A CROSSING A PIN HOLDS THE PROFILE FLAT. Derived, not chosen: the junction
+-- square's half-width (the carriageway, so both roads cover the point) PLUS one sample step, so the
+-- 20-st interpolation on each side of the square is flat at the pinned height too. Without the extra
+-- step the crown would already be sloping away at the square's boundary and the step would be the
+-- road's grade over half a sample -- 1.3 st at 12 %.
+function TerrainBake.pinWindowStuds(): number
+	return TerrainBake.ROAD.carriagewayStuds + TerrainBake.ROAD.sampleStuds
+end
+
+-- WHICH SAMPLES A PIN HOLDS, as sample index -> height.
+function TerrainBake.pinnedSamples(road: Relief.Road, n: number, step: number, pins: { Pin }?): { [number]: number }
+	local out: { [number]: number } = {}
+	if pins == nil then
+		return out
+	end
+	local window = TerrainBake.pinWindowStuds()
+	for _, pin in pins do
+		for i = 1, n do
+			if math.abs(road.from + (i - 1) * step - pin.along) <= window + 1e-9 then
+				out[i] = pin.y
+			end
+		end
+	end
+	return out
+end
+
+-- THE PINS FOR ONE ROAD (design 7.1: "pin the 15 junctions" and "the E-W profile wins inside the
+-- junction square"). Those are the same ruling read twice: the east-west road is the authority, so
+-- it is pinned by nothing and every north-south road is pinned to the east-west CROWN at each
+-- crossing. Without this the two axes' profiles are under no constraint to agree and the surface
+-- steps by their whole difference along the junction square's diagonal -- measured at 60.00 studs on
+-- a synthetic base before this existed (reviews/task-328d/RESULT.md round-3 finding 2).
+function TerrainBake.junctionPins(road: Relief.Road, ewProfiles: { Profile }): { Pin }
+	local pins: { Pin } = {}
+	if road.axis ~= "z" then
+		return pins
+	end
+	for _, profile in ewProfiles do
+		local ew = profile.road
+		local crossesIt = road.at >= ew.from and road.at <= ew.to
+		local crossesUs = ew.at >= road.from and ew.at <= road.to
+		if ew.axis == "x" and crossesIt and crossesUs then
+			table.insert(pins, { along = ew.at, y = TerrainBake.profileY(profile, road.at) })
+		end
+	end
+	table.sort(pins, function(a: Pin, b: Pin)
+		return a.along < b.along
+	end)
+	return pins
+end
+
 -- HOW MANY SMOOTHING PASSES the grade-change limiter may take. One pass does NOT meet the rule:
 -- measured on a 0 -> 10 % kink it leaves 3.80 % per 60 st against a 2.40 % allowance, and it takes
 -- ~20 passes to settle at the allowance (round-2 finding 4).
@@ -301,7 +363,7 @@ TerrainBake.GRADE_CHANGE_PASSES = 40
 -- grade may change, and cap cut-or-fill at 12 st. A cap that cannot be met RELAXES the grade on
 -- THAT road and says so in `breaches` -- design 7.1, "a breach relaxes the grade on that road and
 -- is printed, never hidden".
-function TerrainBake.longProfile(road: Relief.Road, baseAt: (number, number) -> number?): Profile?
+function TerrainBake.longProfile(road: Relief.Road, baseAt: (number, number) -> number?, pins: { Pin }?): Profile?
 	local step = TerrainBake.ROAD.sampleStuds
 	local n = math.floor((road.to - road.from) / step) + 1
 	local base = table.create(n, 0)
@@ -314,6 +376,8 @@ function TerrainBake.longProfile(road: Relief.Road, baseAt: (number, number) -> 
 		base[i] = y
 	end
 	local ceilingPercent = TerrainBake.ROAD.gradePercent[road.axis]
+	local cutFillCap = TerrainBake.ROAD.cutFillStuds[road.axis]
+	local held = TerrainBake.pinnedSamples(road, n, step, pins)
 	local out, relaxed, breaches = table.clone(base), false, {}
 	local worst = 0
 	-- THE GRADE-CHANGE RULE IS A RATE -- "<= 2 % change per 50 st" (design 7.1). The samples are 20
@@ -322,7 +386,7 @@ function TerrainBake.longProfile(road: Relief.Road, baseAt: (number, number) -> 
 	local window = math.max(1, math.floor(50 / step + 0.5))
 	local spanStuds = window * step
 	local limit = TerrainBake.ROAD.gradeChangePercentPer50 / 100 * (spanStuds / 50)
-	local worstChange = 0
+	local worstChange, pinMiss, pinCost = 0, 0, 0
 	for attempt = 1, 6 do
 		out = table.clone(base)
 		local rise = ceilingPercent / 100 * step
@@ -371,12 +435,71 @@ function TerrainBake.longProfile(road: Relief.Road, baseAt: (number, number) -> 
 			drift += base[i] - out[i]
 		end
 		drift /= n
-		worst = 0
 		for i = 1, n do
 			out[i] += drift
+		end
+		-- THE JUNCTION PINS, AS A BAND (design 7.1). The clamp above is a MIN-CONE sweep: it can only
+		-- lower, which is right for a slope ceiling and wrong for a pin -- a crossing higher than the
+		-- ground each side has to be MET BY FILL, and 12 rounds of lower-then-restore left the pin
+		-- 2.75 and 7.55 st out on NS3 and NS4 (measured in Karen's place, cycle 0). So the pins are
+		-- applied in closed form instead: each held sample opens a cone of +-`rise` a sample, the
+		-- cones intersect into a band [lower, upper] that is zero-width at every held sample, and the
+		-- profile is clamped into it. The median of three functions that are each Lipschitz in `rise`
+		-- is Lipschitz in `rise`, so the clamped profile still meets the grade ceiling, and it passes
+		-- through every crossing exactly rather than nearly.
+		pinMiss, pinCost = 0, 0
+		local beforePins = table.clone(out)
+		if next(held) ~= nil then
+			local upper, lower = table.create(n, math.huge), table.create(n, -math.huge)
+			for i, y in held do
+				upper[i], lower[i] = y, y
+			end
+			for i = 2, n do
+				upper[i] = math.min(upper[i], upper[i - 1] + rise)
+				lower[i] = math.max(lower[i], lower[i - 1] - rise)
+			end
+			for i = n - 1, 1, -1 do
+				upper[i] = math.min(upper[i], upper[i + 1] + rise)
+				lower[i] = math.max(lower[i], lower[i + 1] - rise)
+			end
+			local empty = false
+			for i = 1, n do
+				if lower[i] > upper[i] + 1e-9 then
+					empty = true
+				end
+			end
+			if empty then
+				-- TWO CROSSINGS FARTHER APART IN HEIGHT THAN THE CLAMP CAN SPAN. There is no profile
+				-- that meets both, so neither is forced.
+				pinCost = math.huge
+			else
+				for i = 1, n do
+					out[i] = math.clamp(out[i], lower[i], upper[i])
+				end
+				for i, y in held do
+					pinMiss = math.max(pinMiss, math.abs(out[i] - y))
+				end
+			end
+			-- A PIN THE GROUND CANNOT CARRY IS DROPPED, NOT FORCED. Forcing one drags the whole
+			-- profile off the hillside: on a synthetic 31-degree ramp the pinned flank's bank reached
+			-- 165 studs into a tile it has no business in (328d-17). So on the LAST attempt, after
+			-- every relaxation has been tried, a pinning that costs more cut-or-fill than the cap AND
+			-- more than not pinning at all is given up and said so.
+			local pinned, bare = 0, 0
+			for i = 1, n do
+				pinned = math.max(pinned, math.abs(out[i] - base[i]))
+				bare = math.max(bare, math.abs(beforePins[i] - base[i]))
+			end
+			if pinCost == math.huge or (attempt == 6 and pinned > cutFillCap and pinned > bare) then
+				out = beforePins
+				pinCost, pinMiss = pinned, 0
+			end
+		end
+		worst = 0
+		for i = 1, n do
 			worst = math.max(worst, math.abs(out[i] - base[i]))
 		end
-		if worst <= TerrainBake.ROAD.cutFillStuds then
+		if worst <= cutFillCap then
 			break
 		end
 		if attempt < 6 then
@@ -388,7 +511,7 @@ function TerrainBake.longProfile(road: Relief.Road, baseAt: (number, number) -> 
 					"%s: cut-or-fill %.1f st over the %d-st cap, so the grade is relaxed to %d %%",
 					road.id,
 					worst,
-					TerrainBake.ROAD.cutFillStuds,
+					cutFillCap,
 					ceilingPercent
 				)
 			)
@@ -410,6 +533,22 @@ function TerrainBake.longProfile(road: Relief.Road, baseAt: (number, number) -> 
 	-- limit, and re-integrating the heights puts ~1e-10 of float noise back. At 1e-9 the first live
 	-- run on C1 printed a "breach" of 2.40 % against a 2.40 % allowance on all four roads, which is
 	-- noise wearing a breach's name. 1e-6 is a ten-thousandth of the printed precision.
+	-- A PIN GIVEN UP, and a pin that could not be met, are breach lines like any other: printed,
+	-- never hidden. Both need a base whose crossings are steeper apart than the clamp can span.
+	if pinCost > 1e-6 then
+		table.insert(
+			breaches,
+			string.format(
+				"%s: pinning its junctions needs %.1f st of cut or fill, over the %d-st cap, so this road is NOT pinned",
+				road.id,
+				pinCost,
+				cutFillCap
+			)
+		)
+	end
+	if pinMiss > 1e-6 then
+		table.insert(breaches, string.format("%s: a junction pin is still %.2f st out of its band", road.id, pinMiss))
+	end
 	if worstChange > limit + 1e-6 then
 		table.insert(
 			breaches,
@@ -478,24 +617,45 @@ end
 -- The rut and the ditch are realised by `Relief.columnsFor` at the road's own parity, so their
 -- WIDTH does not depend on where the centreline happens to fall (correction F-2).
 function TerrainBake.roadAt(profiles: { Profile }, naturalY: number, x: number, z: number): (number?, string?, number)
-	local best: Profile? = nil
-	local bestD, bestAlong = math.huge, 0
+	local spec = TerrainBake.ROAD
+	-- THE NEAREST CENTRELINE ON EACH AXIS, kept apart, because inside a junction square both roads
+	-- cover the point and the design says which one wins.
+	local bestX: Profile? = nil
+	local bestZ: Profile? = nil
+	local dX, dZ = math.huge, math.huge
+	local alongX, alongZ = 0, 0
 	for _, profile in profiles do
 		local road = profile.road
 		local along = if road.axis == "x" then x else z
 		if along >= road.from and along <= road.to then
 			local d = math.abs((if road.axis == "x" then z else x) - road.at)
-			if d < bestD then
-				best, bestD, bestAlong = profile, d, along
+			if road.axis == "x" then
+				if d < dX then
+					bestX, dX, alongX = profile, d, along
+				end
+			elseif d < dZ then
+				bestZ, dZ, alongZ = profile, d, along
 			end
 		end
+	end
+	local best: Profile? = nil
+	local bestAlong = 0
+	-- DESIGN 7.1: "Junctions: the E-W profile wins inside the junction square." The square is where
+	-- the two CARRIAGEWAYS overlap. Without this the nearest-centreline rule switches surfaces along
+	-- the square's diagonal, and the two crowns are only as close as their independent deviations
+	-- allow -- 60.00 studs apart on the synthetic base of 328j-1, and 13 studs of cut apart on
+	-- Karen's real ground (EW2 1.02 st against NS3 14.07 st).
+	local inSquare = bestX ~= nil and bestZ ~= nil and dX <= spec.carriagewayStuds and dZ <= spec.carriagewayStuds
+	if bestX ~= nil and (inSquare or bestZ == nil or dX <= dZ) then
+		best, bestAlong = bestX, alongX
+	else
+		best, bestAlong = bestZ, alongZ
 	end
 	if best == nil then
 		return nil, nil, 0
 	end
 	local profile = best :: Profile
 	local road = profile.road
-	local spec = TerrainBake.ROAD
 	local centre = road.at
 	local across = (if road.axis == "x" then z else x)
 	local d = math.abs(across - centre)
@@ -818,9 +978,32 @@ function TerrainBake.profilesFor(cellIds: { string }, sampler: ((number, number)
 			wanted[road.id] = road
 		end
 	end
+	-- EVERY EAST-WEST ROAD IN THE WORLD FIRST, not just this run's. The E-W profile wins at a
+	-- junction (design 7.1), so it is computed free -- and a north-south road is pinned to the E-W
+	-- crown at EVERY crossing it has, including crossings outside the cells being baked. That is
+	-- what makes a north-south profile the same bytes whatever cell list it is asked for, so two
+	-- runs that share a road cannot meet at a step.
+	local ewProfiles: { Profile } = {}
+	for _, road in Grid.roads() do
+		if road.axis == "x" then
+			local profile = TerrainBake.longProfile(road, read)
+			if profile ~= nil then
+				table.insert(ewProfiles, profile)
+			end
+		end
+	end
 	local out: { Profile } = {}
 	for _, road in wanted do
-		local profile = TerrainBake.longProfile(road, read)
+		local profile: Profile? = nil
+		if road.axis == "x" then
+			for _, ready in ewProfiles do
+				if ready.road.id == road.id then
+					profile = ready
+				end
+			end
+		else
+			profile = TerrainBake.longProfile(road, read, TerrainBake.junctionPins(road, ewProfiles))
+		end
 		if profile ~= nil then
 			table.insert(out, profile)
 		end
@@ -829,6 +1012,101 @@ function TerrainBake.profilesFor(cellIds: { string }, sampler: ((number, number)
 		return a.road.id < b.road.id
 	end)
 	return out
+end
+
+-- WHAT THE STEP AT EVERY CROSSING ACTUALLY IS, measured off the profiles the bake will use. Three
+-- numbers a crossing, all of them read rather than argued:
+--   `pinStuds`      the two crowns' disagreement AT the crossing. The pin makes this 0.
+--   `worstStepStuds` the worst height difference between two voxel-adjacent columns on the junction
+--                   square and one voxel past it -- which is the step the ground shows. The corner
+--                   outside BOTH carriageways is skipped: there the 2-st ditch lip is the feature.
+--   `explainedStuds` what the step at the square's edge is allowed to be anyway: the E-W crown's own
+--                   rise over the square's half-width (`ewSpanStuds`) plus the crossfall, because
+--                   the N-S crown is pinned FLAT across the square while the E-W one keeps climbing.
+--                   A step above this is a discontinuity; below it, it is the road's own grade.
+function TerrainBake.junctionSteps(profiles: { Profile }): { any }
+	local spec = TerrainBake.ROAD
+	local v = Relief.VOXEL
+	local reach = spec.carriagewayStuds + v
+	local rows = {}
+	for _, ew in profiles do
+		for _, ns in profiles do
+			local a, b = ew.road, ns.road
+			local crosses = a.axis == "x"
+				and b.axis == "z"
+				and b.at >= a.from
+				and b.at <= a.to
+				and a.at >= b.from
+				and a.at <= b.to
+			if crosses then
+				local crownEW = TerrainBake.profileY(ew, b.at)
+				local crownNS = TerrainBake.profileY(ns, a.at)
+				local grid: { [string]: number } = {}
+				for dx = -reach, reach, v do
+					for dz = -reach, reach, v do
+						-- THE SQUARE, PLUS ONE VOXEL PAST ITS BOUNDARY, minus the corner that is on
+						-- neither carriageway (there the 2-st ditch lip is the feature, not a step)
+						-- and minus anything past either road's END: the world's north edge is 21 st
+						-- from EW3, so NS3 simply stops there and EW3's ditch is what is beyond it.
+						-- That is a road end, not a junction, and it read 1.80 st when counted.
+						local onEither = math.abs(dx) <= spec.carriagewayStuds or math.abs(dz) <= spec.carriagewayStuds
+						local inBoth = b.at + dx >= a.from
+							and b.at + dx <= a.to
+							and a.at + dz >= b.from
+							and a.at + dz <= b.to
+						if onEither and inBoth then
+							local y = TerrainBake.roadAt(profiles, crownEW, b.at + dx, a.at + dz)
+							if y ~= nil then
+								grid[string.format("%d:%d", dx, dz)] = y
+							end
+						end
+					end
+				end
+				local worst, atX, atZ = 0, 0, 0
+				for key, y in grid do
+					local dx = tonumber(string.match(key, "^(-?%d+):")) :: number
+					local dz = tonumber(string.match(key, ":(-?%d+)$")) :: number
+					for _, shift in { { v, 0 }, { 0, v } } do
+						local other = grid[string.format("%d:%d", dx + shift[1], dz + shift[2])]
+						if other ~= nil and math.abs(other - y) > worst then
+							worst, atX, atZ = math.abs(other - y), dx, dz
+						end
+					end
+				end
+				local samples = 0
+				for _ in grid do
+					samples += 1
+				end
+				-- WHAT A STEP AT THE SQUARE'S EDGE IS ALLOWED TO BE, DERIVED. Inside the square the
+				-- height is the E-W crown at x; just outside it on the N-S carriageway it is the N-S
+				-- crown, which the pin holds FLAT at the E-W crown's value AT THE CROSSING. So the
+				-- residual is the E-W crown's own rise over the square's half-width, plus the
+				-- crossfall, because the two roads' crossfalls are perpendicular. Measured off this
+				-- crossing's own profile, not off the road's worst grade.
+				local ewSpan = math.max(
+					math.abs(TerrainBake.profileY(ew, b.at + spec.carriagewayStuds) - crownEW),
+					math.abs(TerrainBake.profileY(ew, b.at - spec.carriagewayStuds) - crownEW)
+				)
+				table.insert(rows, {
+					ew = a.id,
+					ns = b.id,
+					samples = samples,
+					x = b.at,
+					z = a.at,
+					pinStuds = math.abs(crownEW - crownNS),
+					worstStepStuds = worst,
+					atOffsetX = atX,
+					atOffsetZ = atZ,
+					ewSpanStuds = ewSpan,
+					explainedStuds = ewSpan + spec.crownFallStuds,
+				})
+			end
+		end
+	end
+	table.sort(rows, function(p: any, q: any)
+		return p.ew .. p.ns < q.ew .. q.ns
+	end)
+	return rows
 end
 
 -- The terrain raycast reader, in one place: the survey and the profiles both use it.
