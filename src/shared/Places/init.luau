@@ -193,6 +193,9 @@ end
 -- quarantine cannot otherwise prove (round 1, finding 1). `Places.junctionGap`'s own reason.
 function Places.forgetPlantable()
 	PLANTABLE = {}
+	-- AND THE MASK'S PER-CELL GEOMETRY with it, for the same reason: a spec that stubs a cell plan
+	-- must see the new one. Defined further down, so it is looked up at call time.
+	Places.forgetCells()
 end
 
 -- EVERY PLANTED TEMPLATE'S REFERENCE DIMENSIONS -- MEASURED in Karen's Forest Test on 2026-11-02 by
@@ -818,17 +821,38 @@ export type Zone = {
 	mix: string,
 	spacingStuds: number, -- 0 = no trees at all
 	band: string, -- "wood" | "shrub": which of the plan's two scale bands this zone's trees take
+	-- v2 (task 328f, design 8.1 and 8.3), all optional:
+	jitter: number?, -- how far a site wanders off the grid, as a fraction of the spacing
+	rows: string?, -- "NS": hold the x line and let only the depth wander -- a plantation
+	reliefBias: boolean?, -- spruce below hn .30, birch above .70, off the cell's measured relief
+	floor: string?, -- which floor table this zone takes (the bake's, not the planter's)
 }
 
 -- A HELPER SO A RECIPE READS AS A TILING AND NOT AS PUNCTUATION. The eight recipes below are its
 -- only callers.
-local function zone(x0: number, z0: number, x1: number, z1: number, spacing: number, name: string, band: string): Zone
-	return table.freeze({
+-- `extra` IS THE v2 HALF (task 328f): `jitter`, `rows`, `reliefBias` and `floor`, all optional, all
+-- data, so a recipe row stays one line per zone and a zone that wants none of them reads exactly as
+-- it did before.
+local function zone(
+	x0: number,
+	z0: number,
+	x1: number,
+	z1: number,
+	spacing: number,
+	name: string,
+	band: string,
+	extra: { [string]: any }?
+): Zone
+	local made: { [string]: any } = {
 		at = table.freeze({ x0, z0, x1, z1 }),
 		mix = name,
 		spacingStuds = spacing,
 		band = band,
-	}) :: any
+	}
+	for key, value in pairs(extra or {}) do
+		made[key] = value
+	end
+	return table.freeze(made) :: any
 end
 
 -- HOW FAR INSIDE ITS OWN EDGE A CELL PLANTS. The lane rule measures `<=` (`Places.inLane`), so a
@@ -883,6 +907,15 @@ Places.CELL_PLANS = table.freeze({
 		shrubScale = table.freeze({ 0.25, 0.45 }),
 		woodScale = table.freeze({ 0.8, 1.2 }),
 		seed = 3271,
+		-- v2 (task 328f). THE FRONTAGE RULE (design 7.2): within 60 studs of any road or ride
+		-- centreline only these four groups are drawn, so a mature crown is set back from the one
+		-- thing a hunter sights along at no cost in density -- the roadside draws birch and larch
+		-- instead of spruce rather than drawing nothing.
+		frontage = table.freeze({ studs = 60, groups = table.freeze({ "birch", "young", "aspen", "fieldOak" }) }),
+		-- THE FERN BAND, MEASURED FROM THE ROAD CENTRELINE (defect F-5): 34 is the far edge of the
+		-- verge, so no bracken stands in the ditch or on the verge design 7.1 keeps bare.
+		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
+		scaleFloor = 0.35,
 		zones = table.freeze({
 			zone(0.00, 0.00, 1.00, 0.30, 24, "spruceThicket", "wood"),
 			zone(0.00, 0.30, 1.00, 0.55, 30, "mixedWood", "wood"),
@@ -907,6 +940,15 @@ Places.CELL_PLANS = table.freeze({
 		shrubScale = table.freeze({ 0.25, 0.45 }),
 		woodScale = table.freeze({ 0.8, 1.2 }),
 		seed = 3272,
+		-- v2 (task 328f). THE FRONTAGE RULE (design 7.2): within 60 studs of any road or ride
+		-- centreline only these four groups are drawn, so a mature crown is set back from the one
+		-- thing a hunter sights along at no cost in density -- the roadside draws birch and larch
+		-- instead of spruce rather than drawing nothing.
+		frontage = table.freeze({ studs = 60, groups = table.freeze({ "birch", "young", "aspen", "fieldOak" }) }),
+		-- THE FERN BAND, MEASURED FROM THE ROAD CENTRELINE (defect F-5): 34 is the far edge of the
+		-- verge, so no bracken stands in the ditch or on the verge design 7.1 keeps bare.
+		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
+		scaleFloor = 0.35,
 		zones = table.freeze({
 			zone(0.00, 0.00, 0.55, 0.40, 30, "birchStand", "wood"),
 			zone(0.55, 0.00, 1.00, 0.40, 24, "spruceThicket", "wood"),
@@ -934,11 +976,34 @@ Places.CELL_PLANS = table.freeze({
 		shrubScale = table.freeze({ 0.25, 0.45 }),
 		woodScale = table.freeze({ 0.8, 1.2 }),
 		seed = 3273,
+		-- C1's RIDES AND CUTS (SWARM_DESIGN section 2.2): a V ride straight out from stand 5, an X
+		-- cut across stand 3's sight line, and an L ride into the cell from each flank -- W9 and
+		-- E14, which `Grid.standPosition` puts at z 560 and z 780, the two depths that table names.
+		-- The design gives no length for an X cut; 300 is the L ride's own published length and it
+		-- spans the +-30 degree cone at the crossing distance (161 studs) with 70 either side.
+		rides = table.freeze({
+			table.freeze({ kind = "V", atStandIndex = 5, lengthStuds = 700 }),
+			table.freeze({ kind = "X", atStandIndex = 3, lengthStuds = 300 }),
+			table.freeze({ kind = "L", atStandIndex = 9, lengthStuds = 300 }),
+			table.freeze({ kind = "L", atStandIndex = 14, lengthStuds = 300 }),
+		}),
+		-- v2 (task 328f). THE FRONTAGE RULE (design 7.2): within 60 studs of any road or ride
+		-- centreline only these four groups are drawn, so a mature crown is set back from the one
+		-- thing a hunter sights along at no cost in density -- the roadside draws birch and larch
+		-- instead of spruce rather than drawing nothing.
+		frontage = table.freeze({ studs = 60, groups = table.freeze({ "birch", "young", "aspen", "fieldOak" }) }),
+		-- THE FERN BAND, MEASURED FROM THE ROAD CENTRELINE (defect F-5): 34 is the far edge of the
+		-- verge, so no bracken stands in the ditch or on the verge design 7.1 keeps bare.
+		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
+		scaleFloor = 0.35,
+		-- `reliefBias` ON THE FOUR WOOD ZONES (design 8.3): C1 is the ridge cell, so spruce takes the
+		-- cold bottom under hn .30 and birch the crest over .70. The two scrub zones and the
+		-- clearing are left alone -- a bias that rewrote the scrub would erase the beaters' ground.
 		zones = table.freeze({
-			zone(0.00, 0.00, 0.40, 0.35, 24, "spruceThicket", "wood"),
-			zone(0.40, 0.00, 1.00, 0.35, 32, "mixedWood", "wood"),
-			zone(0.00, 0.35, 0.60, 0.70, 30, "birchStand", "wood"),
-			zone(0.60, 0.35, 1.00, 0.70, 44, "oakPark", "wood"),
+			zone(0.00, 0.00, 0.40, 0.35, 24, "spruceThicket", "wood", { reliefBias = true }),
+			zone(0.40, 0.00, 1.00, 0.35, 32, "mixedWood", "wood", { reliefBias = true }),
+			zone(0.00, 0.35, 0.60, 0.70, 30, "birchStand", "wood", { reliefBias = true }),
+			zone(0.60, 0.35, 1.00, 0.70, 44, "oakPark", "wood", { reliefBias = true, jitter = 1.0 }),
 			zone(0.15, 0.70, 0.65, 1.00, 0, "clearing", "wood"),
 			zone(0.00, 0.70, 0.15, 1.00, 24, "scrub", "shrub"),
 			zone(0.65, 0.70, 1.00, 1.00, 26, "scrub", "shrub"),
@@ -959,6 +1024,24 @@ Places.CELL_PLANS = table.freeze({
 		shrubScale = table.freeze({ 0.25, 0.45 }),
 		woodScale = table.freeze({ 0.8, 1.2 }),
 		seed = 3274,
+		-- D1's MEADOW (SWARM_DESIGN section 2.2: "a field in a shallow dish", 798 x 515 studs). The
+		-- fractions are of the cell's inset ground, 1064 x 1424, so they come out 798 x 513. The
+		-- 12-stud headland is where the hedge and the four lone oaks stand; the mask keeps trees out
+		-- of the field INSIDE it, not out of the headland.
+		field = table.freeze({
+			at = table.freeze({ 0.12, 0.05, 0.87, 0.41 }),
+			headlandStuds = 12,
+			stripePitchStuds = 8,
+		}),
+		-- v2 (task 328f). THE FRONTAGE RULE (design 7.2): within 60 studs of any road or ride
+		-- centreline only these four groups are drawn, so a mature crown is set back from the one
+		-- thing a hunter sights along at no cost in density -- the roadside draws birch and larch
+		-- instead of spruce rather than drawing nothing.
+		frontage = table.freeze({ studs = 60, groups = table.freeze({ "birch", "young", "aspen", "fieldOak" }) }),
+		-- THE FERN BAND, MEASURED FROM THE ROAD CENTRELINE (defect F-5): 34 is the far edge of the
+		-- verge, so no bracken stands in the ditch or on the verge design 7.1 keeps bare.
+		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
+		scaleFloor = 0.35,
 		zones = table.freeze({
 			zone(0.00, 0.00, 1.00, 0.22, 34, "oakPark", "wood"),
 			zone(0.00, 0.22, 0.50, 0.60, 28, "oakWood", "wood"),
@@ -984,6 +1067,15 @@ Places.CELL_PLANS = table.freeze({
 		shrubScale = table.freeze({ 0.30, 0.55 }),
 		woodScale = table.freeze({ 0.8, 1.2 }),
 		seed = 3275,
+		-- v2 (task 328f). THE FRONTAGE RULE (design 7.2): within 60 studs of any road or ride
+		-- centreline only these four groups are drawn, so a mature crown is set back from the one
+		-- thing a hunter sights along at no cost in density -- the roadside draws birch and larch
+		-- instead of spruce rather than drawing nothing.
+		frontage = table.freeze({ studs = 60, groups = table.freeze({ "birch", "young", "aspen", "fieldOak" }) }),
+		-- THE FERN BAND, MEASURED FROM THE ROAD CENTRELINE (defect F-5): 34 is the far edge of the
+		-- verge, so no bracken stands in the ditch or on the verge design 7.1 keeps bare.
+		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
+		scaleFloor = 0.35,
 		zones = table.freeze({
 			zone(0.00, 0.00, 1.00, 0.26, 26, "larchYoung", "shrub"),
 			zone(0.00, 0.26, 0.35, 0.65, 28, "larchYoung", "shrub"),
@@ -1008,6 +1100,15 @@ Places.CELL_PLANS = table.freeze({
 		shrubScale = table.freeze({ 0.25, 0.45 }),
 		woodScale = table.freeze({ 0.8, 1.2 }),
 		seed = 3276,
+		-- v2 (task 328f). THE FRONTAGE RULE (design 7.2): within 60 studs of any road or ride
+		-- centreline only these four groups are drawn, so a mature crown is set back from the one
+		-- thing a hunter sights along at no cost in density -- the roadside draws birch and larch
+		-- instead of spruce rather than drawing nothing.
+		frontage = table.freeze({ studs = 60, groups = table.freeze({ "birch", "young", "aspen", "fieldOak" }) }),
+		-- THE FERN BAND, MEASURED FROM THE ROAD CENTRELINE (defect F-5): 34 is the far edge of the
+		-- verge, so no bracken stands in the ditch or on the verge design 7.1 keeps bare.
+		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
+		scaleFloor = 0.35,
 		zones = table.freeze({
 			zone(0.00, 0.00, 1.00, 0.34, 28, "aspenWood", "wood"),
 			zone(0.00, 0.34, 1.00, 0.52, 0, "clearing", "wood"),
@@ -1030,6 +1131,15 @@ Places.CELL_PLANS = table.freeze({
 		shrubScale = table.freeze({ 0.25, 0.45 }),
 		woodScale = table.freeze({ 0.8, 1.2 }),
 		seed = 3277,
+		-- v2 (task 328f). THE FRONTAGE RULE (design 7.2): within 60 studs of any road or ride
+		-- centreline only these four groups are drawn, so a mature crown is set back from the one
+		-- thing a hunter sights along at no cost in density -- the roadside draws birch and larch
+		-- instead of spruce rather than drawing nothing.
+		frontage = table.freeze({ studs = 60, groups = table.freeze({ "birch", "young", "aspen", "fieldOak" }) }),
+		-- THE FERN BAND, MEASURED FROM THE ROAD CENTRELINE (defect F-5): 34 is the far edge of the
+		-- verge, so no bracken stands in the ditch or on the verge design 7.1 keeps bare.
+		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
+		scaleFloor = 0.35,
 		zones = table.freeze({
 			zone(0.00, 0.00, 0.30, 0.45, 26, "spruceThicket", "wood"),
 			zone(0.30, 0.00, 0.70, 0.45, 34, "birchOpen", "wood"),
@@ -1056,6 +1166,15 @@ Places.CELL_PLANS = table.freeze({
 		shrubScale = table.freeze({ 0.25, 0.45 }),
 		woodScale = table.freeze({ 0.8, 1.2 }),
 		seed = 3278,
+		-- v2 (task 328f). THE FRONTAGE RULE (design 7.2): within 60 studs of any road or ride
+		-- centreline only these four groups are drawn, so a mature crown is set back from the one
+		-- thing a hunter sights along at no cost in density -- the roadside draws birch and larch
+		-- instead of spruce rather than drawing nothing.
+		frontage = table.freeze({ studs = 60, groups = table.freeze({ "birch", "young", "aspen", "fieldOak" }) }),
+		-- THE FERN BAND, MEASURED FROM THE ROAD CENTRELINE (defect F-5): 34 is the far edge of the
+		-- verge, so no bracken stands in the ditch or on the verge design 7.1 keeps bare.
+		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
+		scaleFloor = 0.35,
 		zones = table.freeze({
 			zone(0.00, 0.00, 1.00, 0.28, 30, "birchStand", "wood"),
 			zone(0.00, 0.28, 1.00, 0.50, 44, "oakPark", "wood"),
@@ -1423,6 +1542,646 @@ function Places.clearOfEveryRoad(x: number, z: number, reachStuds: number?): boo
 	return true
 end
 
+-- ===================================================================== the forest, v2 (task 328f)
+--
+-- WHAT THIS BLOCK IS FOR, in Karen's words (2026-11-02): *"not broken trees hanging or to inside"*.
+-- One pure function, `Places.mask`, answers "may a tree stand here?" for every site in the world,
+-- and every exclusion the design names is a named reason in it.
+-- Design: docs/design/grid-terrain.md sections 7.2, 7.3, 7.4, 8.1-8.5.
+
+-- THE TRUNK-FREE HALF-WIDTHS, and both are FLOORS that a crown term can only raise (design 7.2).
+-- 34 is the far edge of the verge (design 7.1's cross-section: road 0-21, ditch 22-30, verge 30-34),
+-- so the three road reasons below tile [0, 34] exactly and the floor IS the cross-section.
+Places.ROAD_TRUNK_FLOOR_STUDS = 34
+Places.RIDE_TRUNK_FLOOR_STUDS = 27
+
+-- THE RIDE: 54 studs trunk-free (design 7.3, settled against BASC's 15 m minimum), painted 24.
+Places.RIDE_CLEAR_STUDS = 54
+Places.RIDE_PAINT_STUDS = 24
+
+-- THE DITCH AND THE VERGE, from design 7.1's table. No tree and no fern stands in either.
+Places.DITCH_STUDS = table.freeze({ from = 22, to = 30 })
+Places.VERGE_STUDS = table.freeze({ from = 30, to = 34 })
+
+-- HOW FAR A PLANTED TREE'S TRUNK CENTRE CAN END UP FROM THE POINT THE PLAN ASKED FOR, and it is
+-- MEASURED, not chosen: `plantOne` puts the model's PIVOT at (x, z) and then moves the clone in Y
+-- only, but a Model with no `PrimaryPart` carries its bounding-box centre for a pivot, which a
+-- one-sided crown pulls off the trunk. Over C1's 1,999 planted trees in Karen's Forest Test on
+-- 2026-11-02 (`driven-hunt-runs/328f-offset.luau`): mean 0.746, worst **9.273**
+-- (`SM_AspenTree_Var04`), 19 of them over 8 studs. The crown rule adds 10 so the CENSUS -- which
+-- measures the trunk box, not the pivot -- cannot find a crown over a road the plan set back.
+Places.CROWN_DRIFT_STUDS = 10
+
+-- CLEARANCE AROUND WHAT A HUNTER STANDS ON (design 7.4 / SWARM_DESIGN section 3.3).
+Places.POST_CLEAR_STUDS = 20
+Places.TOWER_CLEAR_STUDS = 24
+
+-- THE FRONT CONE. Trunk-free for the first 40 studs; out to 140 no young growth, which is the band
+-- a hunter actually shoots into.
+Places.CONE = table.freeze({
+	halfDegrees = 30,
+	nearStuds = 40,
+	farStuds = 140,
+	-- On a TOWER stand young growth is allowed in the far cone: its top is under the 17.5-stud deck
+	-- eye (`HighSeats.DIMS.DECK_RISE_STUDS` 12.5 + 5).
+	towerTopStuds = 13.5,
+})
+
+-- WHERE AN "X" CUT CROSSES THE SIGHT LINE: the far edge of the managed cone, so the cut ends the
+-- shot zone rather than striping through the middle of it. DERIVED from `CONE.farStuds`.
+Places.CUT_CROSS_STUDS = 140
+
+-- THE SIX BEATER CORRIDORS (SWARM_DESIGN section 3.4): 10 studs wide, measured from the cell's WEST
+-- edge, each centreline wandering +-20 studs on a 240-stud wavelength so it reads as a deer path.
+Places.CORRIDOR = table.freeze({
+	atStuds = table.freeze({ 160, 310, 460, 610, 760, 910 }),
+	halfStuds = 5,
+	jitterStuds = 20,
+	waveStuds = 240,
+})
+
+-- THE FERN CAP (B9) and the zones a fern may stand in: design 8.3's W, M, B and Bo. Not under a
+-- thicket, not in scrub, not in a larch plantation and not in a clearing.
+Places.FERN_CAP = 400
+Places.FERN_MIXES = table.freeze({
+	oakWood = true,
+	oakPark = true,
+	mixedWood = true,
+	birchStand = true,
+	birchOpen = true,
+})
+
+-- NO TREE SMALLER THAN THIS FRACTION OF ITS TEMPLATE (design 8.3). Below it a larch reads as litter.
+Places.SCALE_FLOOR = 0.35
+
+-- WHY A SITE IS REFUSED. `Places.mask` answers with one of these, or `nil` for "plantable".
+--
+-- TWO OF THE FIFTEEN ARE NOT THIS FUNCTION'S TO ANSWER, and the names are kept so one vocabulary
+-- covers the whole planting path: **`CLIFF`** needs terrain, so `Places.plantOne`'s own `"cliff"`
+-- refusal answers it from real rays; **`GAP`** is the `minGapStuds` rule, a fact about the trees
+-- already placed, so it lives in `scatter`'s neighbour grid. `grid_ground.spec` case 4 asserts both
+-- as reasons the pure mask never returns.
+Places.REASON = table.freeze({
+	ROAD = "road",
+	VERGE = "verge",
+	DITCH = "ditch",
+	RIDE = "ride",
+	STAND = "stand",
+	TOWER = "tower",
+	CONE = "cone",
+	CORRIDOR = "corridor",
+	NO_TREES = "noTrees",
+	CLIFF = "cliff",
+	FIELD = "field",
+	CLEARING = "clearing",
+	FRONTAGE = "frontage",
+	CROWN = "crown",
+	GAP = "gap",
+})
+
+-- THE ORDER THE MASK ASKS IN, OUTERMOST FACT FIRST -- the world's own geometry, then the cell's
+-- plan, then this one tree. A TABLE and not prose, so a spec can assert it (design 8.2); and it
+-- matters because the FIRST match is the reason the caller is given, so a point in a ditch that is
+-- also under a crown reads `ditch`, which is the fact a person can act on.
+Places.REASON_ORDER = table.freeze({
+	Places.REASON.ROAD,
+	Places.REASON.DITCH,
+	Places.REASON.VERGE,
+	Places.REASON.RIDE,
+	Places.REASON.CLIFF,
+	Places.REASON.NO_TREES,
+	Places.REASON.FIELD,
+	Places.REASON.CLEARING,
+	Places.REASON.TOWER,
+	Places.REASON.STAND,
+	Places.REASON.CONE,
+	Places.REASON.CORRIDOR,
+	Places.REASON.FRONTAGE,
+	Places.REASON.CROWN,
+	Places.REASON.GAP,
+})
+
+-- THE TWO REASONS A PURE MASK CANNOT REACH, named here rather than in a comment so the spec reads
+-- the same list the header promises.
+Places.REASON_NOT_MASKED = table.freeze({ Places.REASON.CLIFF, Places.REASON.GAP })
+
+-- WHICH GROUP A TEMPLATE BELONGS TO. Built once from `SPECIES`, the one table that says so.
+local GROUP_OF: { [string]: string }? = nil
+function Places.groupOf(name: string?): string?
+	if type(name) ~= "string" then
+		return nil
+	end
+	if GROUP_OF == nil then
+		local built: { [string]: string } = {}
+		for group, names in pairs(Places.SPECIES) do
+			for _, each in ipairs(names) do
+				built[each] = group
+			end
+		end
+		GROUP_OF = built
+	end
+	return (GROUP_OF :: any)[name]
+end
+
+-- HOW FAR THIS TREE'S CROWN REACHES SIDEWAYS, in world studs, or nil for a template with no measured
+-- row. `TEMPLATE_DIMS` records the crown half-width at the template's OWN scale and `item.scale` is
+-- relative to it, so the product is the absolute reach -- the same arithmetic `GridCensus.survey`
+-- does as `crownHalfWidthStuds * (model:GetScale() / dims.scale)`, which IS `item.scale`.
+function Places.crownReachStuds(template: string?, scale: number?): number?
+	local dims = Places.dimsFor(template or "")
+	if dims == nil then
+		return nil
+	end
+	return dims.crownHalfWidthStuds * (scale or 1)
+end
+
+-- THE TRUNK MINIMUM BESIDE A ROAD AND BESIDE A RIDE (design 7.2): how far from the CENTRELINE a
+-- trunk may stand.
+--
+-- **THE LINEAR TERM IS MEASURED FROM THE SAME HALF-WIDTH THE CENSUS USES, NOT FROM THE PAINTED
+-- CARRIAGEWAY.** Design 7.2 writes `halfCrown * scale + 10`, taking 10 from the painted half-width;
+-- but `GridCensus`' `crownOverRoad` counts a tree inside `roadClearStuds / 2` (21) PLUS its crown
+-- reach of a centreline, so a tree set back by `crown + 10` still counts. MEASURED in Karen's Forest
+-- Test at `121eb5ce` before this task (`driven-hunt-runs/328f-diag.luau`): **crownOverRoad 88** of
+-- 1,999 trees, worst overhang 22.77 studs, in every group -- conifer 29, birch 24, aspen 16, oak 7,
+-- young 3, fieldOak 2 -- so the frontage rule alone could not answer it. Taking the census's own 21
+-- plus the measured pivot drift makes the count 0 by construction, and is strictly stronger than
+-- design 7.2's number at a cost of about 5 studs on the widest crown.
+--
+-- WITH NO `TEMPLATE_DIMS` ROW the linear term is skipped and the floor is the whole rule (design
+-- 7.2), which is what the census's `crownOverRoad=UNMEASURED` means.
+function Places.roadTrunkMin(template: string?, scale: number?): number
+	local reach = Places.crownReachStuds(template, scale)
+	if reach == nil then
+		return Places.ROAD_TRUNK_FLOOR_STUDS
+	end
+	return math.max(Places.ROAD_TRUNK_FLOOR_STUDS, Grid.CONFIG.roadClearStuds / 2 + reach + Places.CROWN_DRIFT_STUDS)
+end
+
+function Places.rideTrunkMin(template: string?, scale: number?): number
+	local reach = Places.crownReachStuds(template, scale)
+	if reach == nil then
+		return Places.RIDE_TRUNK_FLOOR_STUDS
+	end
+	return math.max(Places.RIDE_TRUNK_FLOOR_STUDS, Places.RIDE_CLEAR_STUDS / 2 + reach + Places.CROWN_DRIFT_STUDS)
+end
+
+-- HOW FAR A POINT IS FROM THE NEAREST ROAD CENTRELINE, over the roads that actually run past it.
+-- `math.huge` for a point no road reaches, which no point inside the footprint is.
+function Places.roadDistance(x: number, z: number): number
+	local best = math.huge
+	for _, road in ipairs(allRoads()) do
+		if road.axis == "x" then
+			if x >= road.from and x <= road.to then
+				best = math.min(best, math.abs(z - road.at))
+			end
+		elseif z >= road.from and z <= road.to then
+			best = math.min(best, math.abs(x - road.at))
+		end
+	end
+	return best
+end
+
+-- WHICH WAY A STAND FACES: into its own cell, away from the road it stands on. A main-line stand
+-- looks up the cell (the drive comes at it); a flank stand looks across it. Unit, in XZ.
+function Places.standFacing(cellId: string, standIndex: number): (number, number)
+	local box = Grid.boundsOf(cellId)
+	local spot = Grid.standPosition(cellId, standIndex)
+	if Grid.sideOf(cellId, standIndex) == "main" then
+		return 0, if spot.Z <= (box.minZ + box.maxZ) / 2 then 1 else -1
+	end
+	return (if spot.X <= (box.minX + box.maxX) / 2 then 1 else -1), 0
+end
+
+-- ONE RIDE OR CUT CENTRELINE.
+export type Segment = { kind: string, ax: number, az: number, bx: number, bz: number }
+
+-- THE RIDE AND CUT CENTRELINES OF A CELL. One rule for all three letters: a ride runs from its stand
+-- ALONG that stand's facing, into the cell; an X cut runs ACROSS the sight line at `CUT_CROSS_STUDS`,
+-- centred on it.
+function Places.rideSegments(cellId: string): { Segment }
+	local plan = Places.cellPlanFor(cellId)
+	local out: { Segment } = {}
+	if plan == nil or plan.rides == nil or Grid.cellOf(cellId) == nil then
+		return out
+	end
+	for _, ride in ipairs(plan.rides) do
+		local spot = Grid.standPosition(cellId, ride.atStandIndex)
+		local fx, fz = Places.standFacing(cellId, ride.atStandIndex)
+		if ride.kind == "X" then
+			local cx = spot.X + fx * Places.CUT_CROSS_STUDS
+			local cz = spot.Z + fz * Places.CUT_CROSS_STUDS
+			local half = ride.lengthStuds / 2
+			table.insert(out, {
+				kind = ride.kind,
+				ax = cx - fz * half,
+				az = cz + fx * half,
+				bx = cx + fz * half,
+				bz = cz - fx * half,
+			})
+		else
+			table.insert(out, {
+				kind = ride.kind,
+				ax = spot.X,
+				az = spot.Z,
+				bx = spot.X + fx * ride.lengthStuds,
+				bz = spot.Z + fz * ride.lengthStuds,
+			})
+		end
+	end
+	return out
+end
+
+-- THE DISTANCE FROM A POINT TO A SEGMENT, in XZ. The one piece of geometry the ride rule needs.
+local function segmentDistance(seg: Segment, x: number, z: number): number
+	local dx, dz = seg.bx - seg.ax, seg.bz - seg.az
+	local len2 = dx * dx + dz * dz
+	local t = if len2 <= 0 then 0 else math.clamp(((x - seg.ax) * dx + (z - seg.az) * dz) / len2, 0, 1)
+	local px, pz = seg.ax + t * dx, seg.az + t * dz
+	return math.sqrt((x - px) * (x - px) + (z - pz) * (z - pz))
+end
+
+-- A BEATER CORRIDOR'S CENTRELINE AT ONE DEPTH. The wander is a hash of the cell and the corridor
+-- plus a sine of z, so it is PURE and the same every run -- `Grid.seedFor`'s own discipline, with no
+-- `Random` object carrying state between calls.
+function Places.corridorXAt(cellId: string, index: number, z: number): number
+	local box = Grid.boundsOf(cellId)
+	local phase = (Grid.seedFor(cellId, 90 + index) % 1000) / 1000 * math.pi * 2
+	local wander = math.sin(z / Places.CORRIDOR.waveStuds * math.pi * 2 + phase) * Places.CORRIDOR.jitterStuds
+	return box.minX + Places.CORRIDOR.atStuds[index] + wander
+end
+
+-- THE CELL'S FIELD, as a world rectangle, or nil where the recipe carries none (design 8.1: D1).
+function Places.fieldRect(cellId: string): { minX: number, maxX: number, minZ: number, maxZ: number }?
+	local plan = Places.cellPlanFor(cellId)
+	if plan == nil or plan.field == nil then
+		return nil
+	end
+	return Places.zoneRect(cellId, plan.field)
+end
+
+-- THE PER-CELL GEOMETRY THE MASK ASKS ~3,000 TIMES A CELL, worked out once. Every input is frozen
+-- data (`Grid.CELLS`, `Places.CELL_PLANS`), so there is nothing to invalidate; `forgetPlantable`
+-- drops it anyway, because a spec that re-stubs a cell plan must see the new one.
+type CellFacts = {
+	rides: { Segment },
+	stands: { { x: number, z: number, fx: number, fz: number, tower: boolean } },
+	corridors: { number },
+	minX: number,
+}
+local CELL_FACTS: { [string]: CellFacts } = {}
+local function cellFacts(cellId: string): CellFacts
+	local found = CELL_FACTS[cellId]
+	if found ~= nil then
+		return found
+	end
+	local built: CellFacts = { rides = Places.rideSegments(cellId), stands = {}, corridors = {}, minX = 0 }
+	if Grid.cellOf(cellId) ~= nil then
+		local towers: { [number]: boolean } = {}
+		for _, index in ipairs(Grid.towerStands(cellId)) do
+			towers[index] = true
+		end
+		for index = 1, Grid.standCount(cellId) do
+			local spot = Grid.standPosition(cellId, index)
+			local fx, fz = Places.standFacing(cellId, index)
+			table.insert(built.stands, { x = spot.X, z = spot.Z, fx = fx, fz = fz, tower = towers[index] == true })
+		end
+		built.minX = Grid.boundsOf(cellId).minX
+		for index = 1, #Places.CORRIDOR.atStuds do
+			table.insert(built.corridors, (Grid.seedFor(cellId, 90 + index) % 1000) / 1000 * math.pi * 2)
+		end
+	end
+	CELL_FACTS[cellId] = built
+	return built
+end
+
+-- FORGET IT. `Places.forgetPlantable`'s own reason, for the mask's half of the data.
+function Places.forgetCells()
+	CELL_FACTS = {}
+end
+
+-- MAY A TREE STAND HERE? `nil` means yes; anything else is a `Places.REASON`, in `REASON_ORDER`.
+-- PURE: no Instance, no raycast, no terrain -- which is why `CLIFF` and `GAP` are its callers'.
+--
+-- `template` AND `scale` ARE OPTIONAL, and they are what the frontage and crown rules need. Asked
+-- without them the answer is the SITE's own facts, which is the question `scatter` asks first.
+function Places.mask(cellId: string, x: number, z: number, template: string?, scale: number?): string?
+	local R = Places.REASON
+	local herb = template ~= nil and Places.isHerbName(template)
+	-- 1-3 THE ROAD CROSS-SECTION (design 7.1), which tiles [0, 34] in three named bands.
+	local d = Places.roadDistance(x, z)
+	if d <= Grid.CONFIG.roadClearStuds / 2 then
+		return R.ROAD
+	end
+	if d < Places.VERGE_STUDS.from then
+		return R.DITCH
+	end
+	if d < Places.VERGE_STUDS.to then
+		return R.VERGE
+	end
+	local facts = cellFacts(cellId)
+	-- 4 THE RIDES, at their own trunk-free half-width. A fern may floor a ride; a trunk may not.
+	if not herb then
+		for _, seg in ipairs(facts.rides) do
+			if segmentDistance(seg, x, z) <= Places.RIDE_CLEAR_STUDS / 2 then
+				return R.RIDE
+			end
+		end
+	end
+	local plan = Places.cellPlanFor(cellId)
+	-- 6 THE SCARP AND ANYTHING ELSE A RECIPE DECLARES BARE.
+	if plan ~= nil and plan.noTrees ~= nil then
+		for _, rect in ipairs(plan.noTrees) do
+			local box = Places.zoneRect(cellId, rect)
+			if x >= box.minX and x <= box.maxX and z >= box.minZ and z <= box.maxZ then
+				return R.NO_TREES
+			end
+		end
+	end
+	-- 7 THE FIELD, less its headland: the headland is where the hedge and the lone oaks stand.
+	if plan ~= nil and plan.field ~= nil then
+		local field = Places.zoneRect(cellId, plan.field)
+		local inset = plan.field.headlandStuds or 0
+		if
+			x >= field.minX + inset
+			and x <= field.maxX - inset
+			and z >= field.minZ + inset
+			and z <= field.maxZ - inset
+		then
+			return R.FIELD
+		end
+	end
+	-- 8 A CLEARING is a zone whose spacing is 0 -- the one fact that says "nothing is drawn here".
+	local zoneHere = Places.zoneAt(cellId, x, z)
+	if zoneHere ~= nil and zoneHere.spacingStuds <= 0 then
+		return R.CLEARING
+	end
+	-- 9-11 THE STANDS, THE TOWERS AND THE FRONT CONES. A fern is allowed round a post (it is what a
+	-- hunter stands in); a trunk is not.
+	if not herb then
+		local group = Places.groupOf(template)
+		local coneCos = math.cos(math.rad(Places.CONE.halfDegrees))
+		for _, stand in ipairs(facts.stands) do
+			local dx, dz = x - stand.x, z - stand.z
+			local range = math.sqrt(dx * dx + dz * dz)
+			if stand.tower then
+				if range <= Places.TOWER_CLEAR_STUDS then
+					return R.TOWER
+				end
+			elseif range <= Places.POST_CLEAR_STUDS then
+				return R.STAND
+			end
+			if range > 0 and range <= Places.CONE.farStuds then
+				local cos = (dx * stand.fx + dz * stand.fz) / range
+				if cos >= coneCos then
+					if range <= Places.CONE.nearStuds then
+						return R.CONE
+					end
+					-- THE MANAGED BAND: no young growth in front of a hunter, unless he is up a
+					-- tower and looking over it.
+					if group == "young" and not stand.tower then
+						return R.CONE
+					end
+				end
+			end
+		end
+	end
+	-- 12 THE BEATER CORRIDORS.
+	if not herb then
+		for index, phase in ipairs(facts.corridors) do
+			local wander = math.sin(z / Places.CORRIDOR.waveStuds * math.pi * 2 + phase) * Places.CORRIDOR.jitterStuds
+			if math.abs(x - (facts.minX + Places.CORRIDOR.atStuds[index] + wander)) <= Places.CORRIDOR.halfStuds then
+				return R.CORRIDOR
+			end
+		end
+	end
+	-- 13 THE FRONTAGE. Within `frontage.studs` of a road or a ride centreline, only the named groups
+	-- are drawn -- which is what keeps a mature crown away from the carriageway at no density cost
+	-- (design 7.2). `scatter` draws FROM the allowed groups rather than refusing, so this arm is the
+	-- rule stated for a caller that hands in a template of its own.
+	if plan ~= nil and plan.frontage ~= nil and template ~= nil and not herb then
+		local near = d <= plan.frontage.studs
+		if not near then
+			for _, seg in ipairs(facts.rides) do
+				if segmentDistance(seg, x, z) <= plan.frontage.studs then
+					near = true
+					break
+				end
+			end
+		end
+		if near and not Places.frontageAllows(plan, template) then
+			return R.FRONTAGE
+		end
+	end
+	-- 14 THE CROWN. The floors above have already cleared 34 studs of road and 27 of ride; this is
+	-- the linear term, and it bites only on a crown wide enough to reach past them.
+	if template ~= nil and not herb then
+		if d < Places.roadTrunkMin(template, scale) then
+			return R.CROWN
+		end
+		local rideMin = Places.rideTrunkMin(template, scale)
+		for _, seg in ipairs(facts.rides) do
+			if segmentDistance(seg, x, z) < rideMin then
+				return R.CROWN
+			end
+		end
+	end
+	return nil
+end
+
+-- IS THIS TEMPLATE'S GROUP ONE THE FRONTAGE ALLOWS? A plan with no `frontage` row allows everything.
+function Places.frontageAllows(plan: any, template: string?): boolean
+	if plan == nil or plan.frontage == nil then
+		return true
+	end
+	local group = Places.groupOf(template)
+	for _, each in ipairs(plan.frontage.groups) do
+		if each == group then
+			return true
+		end
+	end
+	return false
+end
+
+-- IS THIS POINT IN A FRONTAGE BAND -- within `frontage.studs` of a road or a ride centreline?
+function Places.inFrontage(cellId: string, x: number, z: number): boolean
+	local plan = Places.cellPlanFor(cellId)
+	if plan == nil or plan.frontage == nil then
+		return false
+	end
+	if Places.roadDistance(x, z) <= plan.frontage.studs then
+		return true
+	end
+	for _, seg in ipairs(cellFacts(cellId).rides) do
+		if segmentDistance(seg, x, z) <= plan.frontage.studs then
+			return true
+		end
+	end
+	return false
+end
+
+-- A MIX WITH ONLY THE FRONTAGE'S GROUPS LEFT IN IT, weights kept. This is how the rule costs no
+-- density: the roadside draws birch and larch instead of spruce rather than drawing nothing. Every
+-- shipped mix but `clearing` carries at least one allowed group, and `grid_ground.spec` case 7
+-- asserts that rather than assuming it; a mix that carried none would come back empty and the site
+-- would simply go unplanted.
+function Places.frontageRows(plan: any, rows: any): any
+	if plan == nil or plan.frontage == nil or rows == nil then
+		return rows
+	end
+	local out = {}
+	for _, row in ipairs(rows) do
+		for _, each in ipairs(plan.frontage.groups) do
+			if each == row.group then
+				table.insert(out, row)
+				break
+			end
+		end
+	end
+	return out
+end
+
+-- WHICH LETTER A STAND IS, DERIVED FROM THE PLAN AND NEVER WRITTEN DOWN (design 8.5). A hand-written
+-- table and the zones that actually stand there are two writers of one fact, and they disagree the
+-- first time a recipe moves. The letters are SWARM_DESIGN section 2.1's.
+Places.STAND_LETTERS = table.freeze({ "T", "V", "X", "L", "F", "P", "C", "S", "R", "O" })
+function Places.standTypeFor(cellId: string, standIndex: number): string
+	local plan = Places.cellPlanFor(cellId)
+	if plan == nil or Grid.cellOf(cellId) == nil then
+		return "O"
+	end
+	for _, index in ipairs(Grid.towerStands(cellId)) do
+		if index == standIndex then
+			return "T"
+		end
+	end
+	if plan.rides ~= nil then
+		for _, ride in ipairs(plan.rides) do
+			if ride.atStandIndex == standIndex then
+				return ride.kind
+			end
+		end
+	end
+	local spot = Grid.standPosition(cellId, standIndex)
+	local fx, fz = Places.standFacing(cellId, standIndex)
+	local ax, az = spot.X + fx * Places.CONE.farStuds, spot.Z + fz * Places.CONE.farStuds
+	if plan.field ~= nil then
+		local field = Places.zoneRect(cellId, plan.field)
+		if ax >= field.minX and ax <= field.maxX and az >= field.minZ and az <= field.maxZ then
+			return "P"
+		end
+		local reach = Places.CONE.farStuds * 2
+		if
+			spot.X >= field.minX - reach
+			and spot.X <= field.maxX + reach
+			and spot.Z >= field.minZ - reach
+			and spot.Z <= field.maxZ + reach
+		then
+			return "F"
+		end
+	end
+	-- A RIDE OR A CUT CROSSING THE SIGHT LINE rather than starting at it.
+	for _, seg in ipairs(Places.rideSegments(cellId)) do
+		if segmentDistance(seg, ax, az) <= Places.RIDE_CLEAR_STUDS then
+			return "X"
+		end
+	end
+	-- WHAT IS IN FRONT: the zone at the far edge of the managed cone, which is the ground a hunter
+	-- is looking at rather than the two metres under his boots.
+	local ahead = Places.zoneAt(cellId, ax, az)
+	if ahead == nil then
+		return "O"
+	end
+	if ahead.spacingStuds <= 0 then
+		return "C"
+	end
+	if ahead.mix == "spruceThicket" or ahead.mix == "scrub" then
+		return "S"
+	end
+	if Grid.sideOf(cellId, standIndex) == "main" then
+		return "R"
+	end
+	return "O"
+end
+
+-- THE CELL NEAREST A POINT OUTSIDE THE GRID, by its bounding box.
+function Places.nearestCellTo(x: number, z: number): string?
+	local best, bestD = nil, math.huge
+	for _, id in ipairs(Grid.cellIds()) do
+		local box = Grid.boundsOf(id)
+		local dx = math.max(box.minX - x, 0, x - box.maxX)
+		local dz = math.max(box.minZ - z, 0, z - box.maxZ)
+		local d = dx * dx + dz * dz
+		if d < bestD then
+			best, bestD = id, d
+		end
+	end
+	return best
+end
+
+-- THE MIX OF A CELL'S FRONT ZONE -- the first zone its recipe lists that draws anything.
+function Places.frontMixOf(cellId: string): any
+	local plan = Places.cellPlanFor(cellId)
+	if plan == nil then
+		return nil
+	end
+	for _, item in ipairs(plan.zones) do
+		if item.spacingStuds > 0 then
+			return Places.cellMixNamed(item.mix)
+		end
+	end
+	return nil
+end
+
+-- THE BORDER WOOD (design 8.4): 230 studs of wood all round the grid's footprint, at 40-stud
+-- spacing, drawn from the mix of the NEAREST cell's front zone -- so the wood a hunter sees over the
+-- world's edge is the same wood as the cell he stands in. It closes 327c's own finding, *"a row-2
+-- cell's hunter looks south out of the world"*.
+--
+-- PURE, like every other plan here, and NOT planted by `dressCell`: the whole-world prebuild into
+-- `Workspace.GridForest` is task 328i's (design 10.1).
+Places.BORDER_STUDS = 230
+Places.BORDER_SPACING_STUDS = 40
+function Places.borderPlan(): { Planting }
+	local out: { Planting } = {}
+	local box = Grid.footprint()
+	local rng = Random.new(Grid.seedFor(Grid.CELL_ORDER[1], 97))
+	local depth = Places.BORDER_STUDS
+	local step = Places.BORDER_SPACING_STUDS
+	local rings = {
+		{ minX = box.minX - depth, maxX = box.maxX + depth, minZ = box.minZ - depth, maxZ = box.minZ },
+		{ minX = box.minX - depth, maxX = box.maxX + depth, minZ = box.maxZ, maxZ = box.maxZ + depth },
+		{ minX = box.minX - depth, maxX = box.minX, minZ = box.minZ, maxZ = box.maxZ },
+		{ minX = box.maxX, maxX = box.maxX + depth, minZ = box.minZ, maxZ = box.maxZ },
+	}
+	for _, rect in ipairs(rings) do
+		for x = rect.minX, rect.maxX, step do
+			for z = rect.minZ, rect.maxZ, step do
+				local jx = x + (rng:NextNumber() - 0.5) * step * Places.JITTER
+				local jz = z + (rng:NextNumber() - 0.5) * step * Places.JITTER
+				local nearest = Places.nearestCellTo(jx, jz)
+				local rows = if nearest ~= nil then Places.frontMixOf(nearest) else nil
+				if rows ~= nil and #rows > 0 then
+					local group = Places.speciesFrom(rows, rng:NextNumber())
+					local names = Places.namesOf(group)
+					if #names > 0 then
+						table.insert(out, {
+							model = names[rng:NextInteger(1, #names)],
+							x = jx,
+							z = jz,
+							scale = math.max(Places.SCALE_FLOOR, 0.8 + rng:NextNumber() * 0.4),
+							yaw = rng:NextNumber() * math.pi * 2,
+							band = "wood",
+							side = -1,
+						})
+					end
+				end
+			end
+		end
+	end
+	return out
+end
+
 -- THE CELLS THAT SHARE A ROAD WITH THIS ONE, in `Grid.CELL_ORDER`, with the axis of the road between
 -- them ("x" is an east-west road, so the shared frontage is the cell's WIDTH; "z" its depth).
 --
@@ -1498,8 +2257,27 @@ end
 -- applied to a rectangle instead of to a line. Four rectangles and not one ring, so the corners are
 -- covered once each and the spec can add their areas up.
 function Places.fernBands(cellId: string, plan: any): { any }
-	local g = Places.cellGround(cellId)
-	local w = plan.fernBandStuds
+	local box = Grid.boundsOf(cellId)
+	-- **MEASURED FROM THE ROAD CENTRELINE, NOT FROM THE CELL EDGE** -- defect F-5 (design 8.1). A
+	-- cell's edge is exactly `roadClearStuds / 2` from the road that bounds it, so the old
+	-- `fernBandStuds` band started 21 studs out and planted bracken through the ditch (22-30) and
+	-- the verge (30-34), which design 7.1 keeps bare. `fernBand.fromStuds` is the distance from the
+	-- CENTRELINE, so the inset off the cell edge is the difference.
+	local band = plan.fernBand
+	local from, depth
+	if band ~= nil then
+		from, depth = band.fromStuds, band.depthStuds
+	else
+		from, depth = Grid.CONFIG.roadClearStuds / 2, plan.fernBandStuds
+	end
+	local inset = from - Grid.CONFIG.roadClearStuds / 2
+	local g = {
+		minX = box.minX + inset,
+		maxX = box.maxX - inset,
+		minZ = box.minZ + inset,
+		maxZ = box.maxZ - inset,
+	}
+	local w = depth
 	local inner = { minX = g.minX + w, maxX = g.maxX - w, minZ = g.minZ + w, maxZ = g.maxZ - w }
 	return {
 		{ minX = g.minX, maxX = g.maxX, minZ = g.minZ, maxZ = g.minZ + w },
@@ -1511,11 +2289,14 @@ end
 
 -- THE SCALE FOR ONE ZONE'S BAND. `shrub` is this world's young growth (`LarchTree_*` at 0.25-0.55 of
 -- the template), `wood` a full tree.
+-- ...AND NOTHING COMES OUT BELOW `scaleFloor` (design 8.3): the shrub band's own low end is 0.25,
+-- which on a larch is a 7-stud twig that reads as litter rather than as young growth.
 local function scaleFor(plan: any, band: string, rng: Random): number
+	local floor = plan.scaleFloor or 0
 	if band == "shrub" then
-		return plan.shrubScale[1] + rng:NextNumber() * (plan.shrubScale[2] - plan.shrubScale[1])
+		return math.max(floor, plan.shrubScale[1] + rng:NextNumber() * (plan.shrubScale[2] - plan.shrubScale[1]))
 	end
-	return plan.woodScale[1] + rng:NextNumber() * (plan.woodScale[2] - plan.woodScale[1])
+	return math.max(floor, plan.woodScale[1] + rng:NextNumber() * (plan.woodScale[2] - plan.woodScale[1]))
 end
 
 -- ONE JITTERED GRID OVER ONE RECTANGLE. The same arithmetic `Places.layer` uses on a band, lifted so
@@ -1523,6 +2304,18 @@ end
 --
 -- `pick` ANSWERS (mix, band) FOR A POINT or nil to plant nothing there, which is how a clearing on the
 -- far side of a road stays a clearing: the skirt asks the NEIGHBOUR's zones.
+--
+-- `opts` IS THE v2 HALF (task 328f) and every field is optional, so `Places.layer`'s four callers are
+-- untouched: `maskCell` turns the whole of `Places.mask` on for this rectangle, `zone` carries the
+-- per-zone `jitter` / `rows` / `reliefBias`, `heightAt` is the pure ground reader the relief bias
+-- needs, and `cap` stops a layer at a count (the ferns' 400, B9).
+type ScatterOpts = {
+	maskCell: string?,
+	maskPlan: any?,
+	zone: any?,
+	heightAt: ((number, number) -> number?)?,
+	cap: number?,
+}
 local function scatter(
 	out: { Planting },
 	rect: any,
@@ -1532,38 +2325,83 @@ local function scatter(
 	rng: Random,
 	plan: any,
 	side: number,
-	pick: (number, number) -> (any, string?)
+	pick: (number, number) -> (any, string?),
+	opts: ScatterOpts?
 )
 	if spacing <= 0 then
 		return
 	end
+	local o: ScatterOpts = opts or {}
+	local recipe = o.zone
+	-- IN ROWS, a plantation is planted: the x line is held and only the depth wanders (design 8.3).
+	local rows = recipe ~= nil and recipe.rows == "NS"
+	local jitter = (recipe ~= nil and recipe.jitter) or Places.JITTER
+	local relief = nil
+	if o.maskCell ~= nil and recipe ~= nil and recipe.reliefBias == true and o.heightAt ~= nil then
+		local cell = Grid.cellOf(o.maskCell)
+		if cell ~= nil and cell.relief ~= nil and cell.relief.spreadStuds > 0 then
+			relief = cell.relief
+		end
+	end
+	local planted = 0
 	for x = rect.minX, rect.maxX, spacing do
 		local z = rect.minZ
 		while z < rect.maxZ do
-			local jx = x + (rng:NextNumber() - 0.5) * spacing * Places.JITTER
-			local jz = z + rng:NextNumber() * spacing * Places.JITTER
+			if o.cap ~= nil and planted >= o.cap then
+				return
+			end
+			local jx = x + (if rows then 0 else (rng:NextNumber() - 0.5) * spacing * jitter)
+			local jz = z + rng:NextNumber() * spacing * jitter
 			z += spacing
-			if
-				jx >= rect.minX
-				and jx <= rect.maxX
-				and jz >= rect.minZ
-				and jz <= rect.maxZ
-				and Places.clearOfEveryRoad(jx, jz)
-			then
-				local rows, band = pick(jx, jz)
-				if rows ~= nil and band ~= nil and #rows > 0 and not tooClose(grid, jx, jz, gap) then
-					local group = Places.speciesFrom(rows, rng:NextNumber())
+			local site: string? = nil
+			if o.maskCell ~= nil then
+				site = Places.mask(o.maskCell, jx, jz)
+			elseif not Places.clearOfEveryRoad(jx, jz) then
+				site = "road"
+			end
+			if jx >= rect.minX and jx <= rect.maxX and jz >= rect.minZ and jz <= rect.maxZ and site == nil then
+				local rowsFor, band = pick(jx, jz)
+				if rowsFor ~= nil and band ~= nil and #rowsFor > 0 and not tooClose(grid, jx, jz, gap) then
+					-- THE FRONTAGE DRAWS FROM THE ALLOWED GROUPS rather than refusing the site, which
+					-- is why the rule costs no density (design 7.2).
+					if o.maskCell ~= nil and o.maskPlan ~= nil and Places.inFrontage(o.maskCell, jx, jz) then
+						rowsFor = Places.frontageRows(o.maskPlan, rowsFor)
+					end
+					if #rowsFor == 0 then
+						continue
+					end
+					local group = Places.speciesFrom(rowsFor, rng:NextNumber())
+					-- THE RELIEF BIAS (design 8.3): spruce in the cold bottom, birch on the top.
+					if relief ~= nil then
+						local y = (o.heightAt :: any)(jx, jz)
+						if y ~= nil then
+							local hn = (y - relief.minY) / relief.spreadStuds
+							if hn < 0.30 and group ~= "conifer" and group ~= "fern" then
+								group = "conifer"
+							elseif hn > 0.70 and group == "conifer" then
+								group = "birch"
+							end
+						end
+					end
 					-- `namesOf` AND NOT `SPECIES` DIRECTLY: it is the one door that drops a quarantined
 					-- template, so no caller can plant one (design 9.3).
 					local names = Places.namesOf(group)
 					if #names == 0 then
 						continue
 					end
+					local model = names[rng:NextInteger(1, #names)]
+					local scale = if band == "herb" then 0.8 + rng:NextNumber() * 0.9 else scaleFor(plan, band, rng)
+					-- AND NOW THIS TREE'S OWN FACTS: the crown term, which needs the template and the
+					-- scale the draw has just settled (design 7.2).
+					if o.maskCell ~= nil and Places.mask(o.maskCell, jx, jz, model, scale) ~= nil then
+						continue
+					end
+					planted += 1
 					table.insert(out, {
-						model = names[rng:NextInteger(1, #names)],
+						model = model,
 						x = jx,
 						z = jz,
-						scale = if band == "herb" then 0.8 + rng:NextNumber() * 0.9 else scaleFor(plan, band, rng),
+						scale = scale,
 						yaw = rng:NextNumber() * math.pi * 2,
 						band = band,
 						side = side,
@@ -1581,7 +2419,12 @@ end
 -- hashes `(CONFIG.seed, row, column, stream)` and never a counter, so planting B1 before A1 gives A1
 -- exactly the list planting A1 first gives it (`grid.spec` case 13). That is Minecraft's own per-chunk
 -- rule, and `drive-places.md` section 10.1 is where this project learned why it matters.
-function Places.plantCell(cellId: string): { Planting }
+--
+-- `heightAt` IS OPTIONAL AND IT IS THE RELIEF BIAS'S ONE INPUT (design 8.3): a pure ground reader,
+-- handed in rather than measured here, so this function stays pure OF ITS ARGUMENTS and a spec can
+-- drive the bias with a synthetic hillside. Called with none, the bias is simply off and the list is
+-- the same one every caller before task 328f got.
+function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?)?): { Planting }
 	local out: { Planting } = {}
 	local plan = Places.cellPlanFor(cellId)
 	if plan == nil then
@@ -1597,21 +2440,33 @@ function Places.plantCell(cellId: string): { Planting }
 		local rows = Places.cellMixNamed(item.mix)
 		scatter(out, rect, item.spacingStuds, trees, plan.minGapStuds, rng, plan, 1, function()
 			return rows, item.band
-		end)
+		end, { maskCell = cellId, maskPlan = plan, zone = item, heightAt = heightAt })
 	end
 	-- THE FLOOR, on its own stream and its own neighbour grid (`Places.layer`'s own discipline: a fern
 	-- under a tree is right, two ferns in one spot is not).
+	--
+	-- **IN W, M, B AND Bo ZONES ONLY, AND CAPPED AT 400 A CELL** (design 8.3, B9): bracken does not
+	-- grow under a closed spruce thicket, and a cell that floors its whole edge in fern is 1,500
+	-- extra models for ground the hunter never walks on.
 	local floor = {}
 	local fernRng = Random.new(Grid.seedFor(cellId, Places.CELL_STREAM.ferns))
 	local fernRows = Places.cellMixNamed("fernFloor")
+	local ferns = 0
 	for _, rect in ipairs(Places.fernBands(cellId, plan)) do
-		scatter(out, rect, plan.fernSpacing, floor, 0.5 * plan.fernSpacing, fernRng, plan, 1, function()
+		local before = #out
+		scatter(out, rect, plan.fernSpacing, floor, 0.5 * plan.fernSpacing, fernRng, plan, 1, function(x, z)
+			local zoneThere = Places.zoneAt(cellId, x, z)
+			if zoneThere == nil or not Places.FERN_MIXES[zoneThere.mix] then
+				return nil, nil
+			end
 			return fernRows, "herb"
-		end)
+		end, { maskCell = cellId, maskPlan = plan, heightAt = heightAt, cap = math.max(0, Places.FERN_CAP - ferns) })
+		ferns += #out - before
 	end
 	-- THE SKIRT, into every neighbour, at THIS cell's density and the NEIGHBOUR's own species.
 	local skirtRng = Random.new(Grid.seedFor(cellId, Places.CELL_STREAM.skirt))
 	for _, near in ipairs(Places.neighboursOf(cellId)) do
+		local theirPlan = Places.cellPlanFor(near.id)
 		for _, band in ipairs(Places.skirtBands(cellId, near.id, near.axis, plan)) do
 			scatter(out, band.rect, band.spacing, trees, plan.minGapStuds, skirtRng, plan, -1, function(x, z)
 				local zoneThere = Places.zoneAt(near.id, x, z)
@@ -1619,7 +2474,7 @@ function Places.plantCell(cellId: string): { Planting }
 					return nil, nil
 				end
 				return Places.cellMixNamed(zoneThere.mix), zoneThere.band
-			end)
+			end, { maskCell = near.id, maskPlan = theirPlan, heightAt = heightAt })
 		end
 	end
 	return out

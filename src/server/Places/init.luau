@@ -721,7 +721,9 @@ function Places.dressCell(
 	-- NEAREST THE HUNTER LINE FIRST. The line is the cell's MAIN road (`Grid.layoutFor`), which is
 	-- the layout `ForestTest.roadZ` answers for.
 	local layout = Grid.layoutFor(cellId)
-	local wanted = Slice.order(Plan.plantCell(cellId), layout)
+	-- THE GROUND READER GOES INTO THE PLAN (task 328f): `Plan.plantCell`'s relief bias is a pure
+	-- function of a height, and this is the one place in the game that has one.
+	local wanted = Slice.order(Plan.plantCell(cellId, groundAt), layout)
 	report.wanted = #wanted
 	report.capacity = Plan.cellCapacity(cellId)
 

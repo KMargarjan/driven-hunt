@@ -1435,7 +1435,10 @@ return function()
 			grid.Name = Planter.GRID_FOLDER
 			local report = Planter.dressCell(id, grid, hillside, template, nil, nil)
 			expect(report.cell).to.equal(id)
-			expect(report.wanted).to.equal(#woods[id])
+			-- THE SAME READER THE DRESS USES (task 328f): `Plan.plantCell`'s relief bias is a pure
+			-- function of a height, so a plan made WITHOUT one is a different, equally valid plan --
+			-- `woods` above has no reader on purpose, and comparing the two would compare two worlds.
+			expect(report.wanted).to.equal(#Plan.plantCell(id, hillside))
 			expect(report.planted > 0).to.equal(true)
 			expect(report.missing).to.equal(0)
 			expect(report.destroyed).to.equal(0)
