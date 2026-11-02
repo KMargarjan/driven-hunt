@@ -1388,6 +1388,11 @@ return function()
 			expect(calm.relaxed).to.equal(false)
 			expect(#calm.breaches).to.equal(0)
 			expect(calm.gradePercent).to.equal(spec.gradePercent[road.axis])
+			-- A FLAT BASE REALISES NO GRADE AT ALL, whatever ceiling it was allowed.
+			expect(calm.realisedGradePercent < 1e-6).to.equal(true)
+			-- AND THE CLIFF ROAD REALISES A GRADE INSIDE THE CEILING IT RELAXED TO.
+			expect(profile.realisedGradePercent <= profile.gradePercent + 1e-6).to.equal(true)
+			expect(profile.realisedGradePercent > spec.gradePercent[road.axis]).to.equal(true)
 		end)
 
 		it("328d-21 holds the grade CHANGE to design 7.1's rate, iterating until it does", function()
@@ -1424,10 +1429,13 @@ return function()
 				math.abs(profile.worstGradeChangePercent / profile.gradeChangeSpanStuds)
 					<= spec.gradeChangePercentPer50 / 50 + 1e-9
 			).to.equal(true)
-			-- IT SMOOTHED, it did not flatten: the road still climbs at the clamp it was given.
+			-- IT SMOOTHED, it did not flatten: the road still climbs, and the grade it REALISES is
+			-- inside the ceiling it was given -- two different numbers, so neither stands in for the
+			-- other (the live run on C1 ends at a 20 % ceiling with less than that realised).
 			local climb = (profile.y[#profile.y] - profile.y[1]) / (profile.to - profile.from) * 100
 			expect(climb > 4).to.equal(true)
-			expect(math.abs(climb) <= profile.gradePercent + 1e-6).to.equal(true)
+			expect(profile.realisedGradePercent >= climb - 1e-6).to.equal(true)
+			expect(profile.realisedGradePercent <= profile.gradePercent + 1e-6).to.equal(true)
 			-- And a road with no kink in it reports no change and no breach.
 			local even = TerrainBake.longProfile(road, function(_x: number, z: number)
 				return 100 + 0.05 * (z - road.from)

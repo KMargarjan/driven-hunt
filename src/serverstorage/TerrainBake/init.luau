@@ -286,6 +286,7 @@ export type Profile = {
 	gradePercent: number,
 	relaxed: boolean,
 	worstCutFill: number,
+	realisedGradePercent: number,
 	worstGradeChangePercent: number,
 	gradeChangeSpanStuds: number,
 	breaches: { string },
@@ -405,7 +406,11 @@ function TerrainBake.longProfile(road: Relief.Road, baseAt: (number, number) -> 
 		local b = (out[i + window + 1] - out[i + window]) / step
 		worstChange = math.max(worstChange, math.abs(b - a))
 	end
-	if worstChange > limit + 1e-9 then
+	-- 1e-6 OF A SLOPE, not 1e-9: the convergence loop settles every window to within 1e-12 of the
+	-- limit, and re-integrating the heights puts ~1e-10 of float noise back. At 1e-9 the first live
+	-- run on C1 printed a "breach" of 2.40 % against a 2.40 % allowance on all four roads, which is
+	-- noise wearing a breach's name. 1e-6 is a ten-thousandth of the printed precision.
+	if worstChange > limit + 1e-6 then
 		table.insert(
 			breaches,
 			string.format(
@@ -417,6 +422,13 @@ function TerrainBake.longProfile(road: Relief.Road, baseAt: (number, number) -> 
 			)
 		)
 	end
+	-- WHAT THE ROAD ACTUALLY DOES, not what it was allowed: `gradePercent` is the ceiling the
+	-- relaxation arm ended on, and on a base it cannot meet that is 20 % while the realised grade
+	-- may be far less. Both are reported so neither can stand in for the other.
+	local realised = 0
+	for i = 1, n - 1 do
+		realised = math.max(realised, math.abs(out[i + 1] - out[i]) / step)
+	end
 	return {
 		road = road,
 		from = road.from,
@@ -424,6 +436,7 @@ function TerrainBake.longProfile(road: Relief.Road, baseAt: (number, number) -> 
 		step = step,
 		y = out,
 		gradePercent = ceilingPercent,
+		realisedGradePercent = realised * 100,
 		relaxed = relaxed,
 		worstCutFill = worst,
 		worstGradeChangePercent = worstChange * 100,

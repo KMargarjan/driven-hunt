@@ -687,9 +687,10 @@ def profiles_once(studio, studio_id, cells, injected):
     breaches = 0
     for row in rows:
         road = row.get("road", {})
-        print("  %-6s %-4s at %-7g %4d samples  grade %2s %%  cut/fill %6.2f  change %5.2f %% per %g st  relaxed=%s"
+        print("  %-6s %-4s at %-7g %4d samples  ceiling %2s %%  realised %5.2f %%  cut/fill %6.2f  "
+              "change %5.2f %% per %g st  relaxed=%s"
               % (road.get("id"), road.get("axis"), road.get("at"), len(row.get("y", [])),
-                 row.get("gradePercent"), row.get("worstCutFill", 0),
+                 row.get("gradePercent"), row.get("realisedGradePercent", 0), row.get("worstCutFill", 0),
                  row.get("worstGradeChangePercent", 0), row.get("gradeChangeSpanStuds", 0),
                  row.get("relaxed")))
         for line in row.get("breaches", []) or []:
