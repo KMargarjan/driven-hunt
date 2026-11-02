@@ -1914,5 +1914,80 @@ return function()
 				)
 			)
 		end)
+		it("328e-6 puts the landform in ONCE: a bake over baked ground does not add it again", function()
+			-- MEASURED IN KAREN'S PLACE BEFORE THIS TASK WROTE ANYTHING
+			-- (`<runs-dir>/328e-drift-BEFORE.json`): over 90 points of C1 a fresh bake would have
+			-- raised the ground a mean of 3.67 studs, 27 points by over half a stud, NONE lowered,
+			-- worst **+24.04 studs on the ridge line** -- which is `C1.ops[1].dyStuds` 24 exactly.
+			-- `Relief.deltaAt` adds its ops, so a base that is already baked gets a second ridge.
+			local mark = Instance.new("Folder")
+			-- ARM 1: NO EPOCH -- a virgin base. The landform is applied.
+			local wanted, why = TerrainBake.reshapeWanted("C1", mark)
+			expect(wanted).to.equal(true)
+			expect(string.find(why, "never been baked", 1, true) ~= nil).to.equal(true)
+			-- ARM 2: AN EPOCH AND NO SHAPE STAMP -- the ground 328d and 328j left. Already shaped.
+			TerrainBake.stamp("deadbeefdeadbeef", mark)
+			wanted, why = TerrainBake.reshapeWanted("C1", mark)
+			expect(wanted).to.equal(false)
+			expect(string.find(why, "already in the ground", 1, true) ~= nil).to.equal(true)
+			-- ARM 3: THE STAMPED SHAPE IS THIS LANDFORM. Still already shaped.
+			expect(TerrainBake.stampShape({ "C1" }, mark)).to.equal(1)
+			expect(mark:GetAttribute("TerrainShape_C1")).to.equal(TerrainBake.shapeInputFor("C1"))
+			wanted = TerrainBake.reshapeWanted("C1", mark)
+			expect(wanted).to.equal(false)
+			-- ARM 4: A DIFFERENT SHAPE -- someone moved the ops. Apply, and the header says the base
+			-- has to be restored first.
+			mark:SetAttribute("TerrainShape_C1", "a landform that is not this one")
+			wanted, why = TerrainBake.reshapeWanted("C1", mark)
+			expect(wanted).to.equal(true)
+			expect(string.find(why, "shape has changed", 1, true) ~= nil).to.equal(true)
+			-- THE STAMP IS THE SHAPE AND NOT THE FLOOR: this task moved C1's floor from `Ground` to
+			-- `LeafyGrass`, which moves no ground, so it may not force a re-shape.
+			local painted = Relief.epochInput({
+				C1 = {
+					baseKeep = Relief.LANDFORMS.C1.baseKeep,
+					ops = Relief.LANDFORMS.C1.ops,
+					floor = { default = "Rock" },
+				},
+			}, Grid.CONFIG)
+			expect(TerrainBake.shapeInputFor("C1")).never.to.equal(painted)
+			expect(string.find(TerrainBake.shapeInputFor("C1"), "floor", 1, true)).to.equal(nil)
+			mark:Destroy()
+
+			-- AND IT REACHES THE GROUND: the same tile, shaped both ways over a base that already
+			-- carries C1's ridge. With `reshape` off the heights ARE the base; with it on they are
+			-- the base plus the landform again, and the difference is the ridge.
+			local tile = { minX = -4096, minZ = -4736 } -- inside C1, off every road
+			local function base(_x: number, _z: number): number?
+				return 120
+			end
+			local profiles = TerrainBake.profilesFor({ "C1" }, base)
+			local slice = sliceFor(tile, base)
+			local again = TerrainBake.shapeTile(tile, slice, { "C1" }, {}, profiles, { C1 = true })
+			local once = TerrainBake.shapeTile(tile, slice, { "C1" }, {}, profiles, { C1 = false })
+			local worstAgain, worstOnce = 0, 0
+			for index = 1, #once do
+				worstAgain = math.max(worstAgain, math.abs(again[index] - 120))
+				worstOnce = math.max(worstOnce, math.abs(once[index] - 120))
+			end
+			TestKit.note(
+				string.format(
+					"tile (%d,%d) over a flat 120 base: reshape=true moves it %.2f st, reshape=false %.2f st",
+					tile.minX,
+					tile.minZ,
+					worstAgain,
+					worstOnce
+				)
+			)
+			-- FAIL FIRST: `reshape=true` is the old behaviour and it MOVES this ground; the whole
+			-- claim is that `reshape=false` leaves it where it is.
+			expect(worstAgain > 5).to.equal(true)
+			expect(worstOnce < 0.01).to.equal(true)
+			-- ...AND `nil` IS THE VIRGIN DEFAULT, identical to asking for every cell.
+			local byDefault = TerrainBake.shapeTile(tile, slice, { "C1" }, {}, profiles, nil)
+			for index = 1, #byDefault do
+				expect(math.abs(byDefault[index] - again[index]) < 1e-9).to.equal(true)
+			end
+		end)
 	end)
 end

@@ -91,6 +91,9 @@ export type TileReport = {
 	bandMax: number,
 	elapsedMs: number,
 	message: string?,
+	-- WHICH CELLS THIS TILE RE-SHAPED AND WHY, printed by the tool and kept in the run log, so a
+	-- run that silently skipped the landform cannot look like one that applied it.
+	reshape: string?,
 }
 
 -- ---------------------------------------------------------------- the region
@@ -859,7 +862,11 @@ function TerrainBake.shapeTile(
 	snapshot: Snapshot,
 	cellIds: { string },
 	plans: { [string]: any },
-	profiles: { Profile }?
+	profiles: { Profile }?,
+	-- WHICH CELLS' LANDFORM THIS TILE MAY APPLY. Nil means all of them, which is a virgin base.
+	-- `bakeTileAt` fills it from `reshapeWanted`; a spec drives both states by parameter, because a
+	-- bake over already-baked ground must not add the landform twice (see `reshapeWanted`).
+	reshape: { [string]: boolean }?
 ): ({ number }, { string }, number)
 	local v = Relief.VOXEL
 	local side = TerrainBake.TILE_STUDS
@@ -894,8 +901,11 @@ function TerrainBake.shapeTile(
 				-- would cut a hole from the band floor up to y = 0 (round-1 note).
 				shaped[at] = snapshot.minY
 				exempt[at] = true
-			elseif form == nil then
+			elseif form == nil or (reshape ~= nil and reshape[id] ~= true) then
+				-- EITHER NO LANDFORM, OR ITS LANDFORM IS ALREADY IN THIS GROUND: the base IS the
+				-- shaped height, and the road, the pad and the material are written onto it.
 				shaped[at] = base
+				exempt[at] = form ~= nil and Relief.isExempt(form, Grid.boundsOf(id), x, z)
 			else
 				local bounds = Grid.boundsOf(id)
 				-- ONE FADE, handed to the arithmetic that owns it (round-1 finding 7). Multiplying
@@ -981,12 +991,13 @@ function TerrainBake.bakeTile(
 	cellIds: { string },
 	plans: { [string]: any },
 	dryRun: boolean?,
-	profiles: { Profile }?
+	profiles: { Profile }?,
+	reshape: { [string]: boolean }?
 ): TileReport
 	local started = os.clock()
 	local v = Relief.VOXEL
 	local side = TerrainBake.TILE_STUDS
-	local inner, innerNames, n = TerrainBake.shapeTile(tile, snapshot, cellIds, plans, profiles)
+	local inner, innerNames, n = TerrainBake.shapeTile(tile, snapshot, cellIds, plans, profiles, reshape)
 	local lo, hi = math.huge, -math.huge
 	for _, h in inner do
 		lo = math.min(lo, h)
@@ -1306,7 +1317,18 @@ function TerrainBake.bakeTileAt(
 				.. "to every tile; a profile read here would be read off half-baked ground.",
 		}
 	end
-	return TerrainBake.bakeTile(tile, slice, cellIds, {}, dryRun, profiles)
+	-- THE LANDFORM GOES IN ONCE (`reshapeWanted`): a bake whose base is already baked ground would
+	-- otherwise add it again -- measured at +24.04 studs on C1's ridge, 2026-11-02.
+	local reshape: { [string]: boolean } = {}
+	local why: { string } = {}
+	for _, id in cellIds do
+		local wanted, reason = TerrainBake.reshapeWanted(id)
+		reshape[id] = wanted
+		table.insert(why, string.format("%s reshape=%s (%s)", id, tostring(wanted), reason))
+	end
+	local report = TerrainBake.bakeTile(tile, slice, cellIds, {}, dryRun, profiles, reshape)
+	report.reshape = table.concat(why, "; ")
+	return report
 end
 
 -- A STABLE 0..1 PER COLUMN, from its own coordinates: the scree mix has to come out the same on
@@ -1398,6 +1420,66 @@ end
 function TerrainBake.stamp(epoch: string, where: Instance?): ()
 	local target = where or Workspace.Terrain
 	target:SetAttribute("TerrainEpoch", epoch)
+end
+
+-- ---------------------------------------------------------------- the landform is written ONCE
+
+-- A CELL'S LANDFORM SHAPE, as a string: `baseKeep` and `ops`, and NOT `floor`, which is material and
+-- moves no ground. `Relief.epochInput`'s own canonical encoder, so there is one definition of "the
+-- same landform".
+function TerrainBake.shapeInputFor(cellId: string): string
+	local form = Relief.LANDFORMS[cellId]
+	if form == nil then
+		return ""
+	end
+	return Relief.epochInput({ [cellId] = { baseKeep = form.baseKeep, ops = form.ops } }, Grid.CONFIG)
+end
+
+-- MAY THIS RUN APPLY THE LANDFORM TO THIS CELL, OR IS IT ALREADY IN THE GROUND?
+--
+-- `Relief.deltaAt`'s ops are ADDITIVE (`h += weightOf(op) * dyStuds`), and `heightAt` returns
+-- `base + k * ((h0 - base) + roadFade * delta)`. So a bake whose BASE IS ALREADY BAKED GROUND adds
+-- the landform a second time. MEASURED in Karen's Forest Test on 2026-11-02 before this task wrote
+-- anything (`<runs-dir>/328e-drift-BEFORE.json`): over 90 points of C1 a fresh bake would have
+-- raised the ground by a mean of 3.67 studs, 27 points by more than half a stud, NONE lowered, and
+-- the worst was **+24.04 studs on the ridge line** -- which is `C1.ops[1].dyStuds` 24, exactly. The
+-- cell would have grown a second ridge on top of the one 328d and 328j already put there.
+--
+-- THE RULE: the landform goes in ONCE. `TerrainEpoch` is written only at the end of a WET run
+-- (`stamp`, called by `tools/terrainbake.py`), and a wet run shapes the whole region -- so its
+-- presence IS the record that the landform is in the ground. `TerrainShape_<id>` then says WHICH
+-- shape, so a later task that changes a cell's `ops` can tell.
+--
+-- WHAT THIS DOES NOT DO, said plainly: it cannot UN-apply a landform. Changing a cell's `ops` after
+-- a bake needs the original base back -- restore the backup `.rbxl` and bake again. Storing the base
+-- snapshot so a re-shape needs no backup is design 5.3 step 2's whole-cell route and is not built.
+function TerrainBake.reshapeWanted(cellId: string, where: Instance?): (boolean, string)
+	local target = where or Workspace.Terrain
+	if target:GetAttribute("TerrainEpoch") == nil then
+		return true, "no TerrainEpoch: this ground has never been baked"
+	end
+	local stamped = target:GetAttribute("TerrainShape_" .. cellId)
+	if stamped == nil then
+		return false, "TerrainEpoch is set and this cell carries no shape stamp: its landform is already in the ground"
+	end
+	if tostring(stamped) ~= TerrainBake.shapeInputFor(cellId) then
+		return true,
+			"the landform's shape has changed since the stamp -- see this function's header: the base must be restored first"
+	end
+	return false, "the stamped shape is this landform: it is already in the ground"
+end
+
+-- THE ONE WRITER of `TerrainShape_<id>`, called at the end of a wet run beside `stamp`.
+function TerrainBake.stampShape(cellIds: { string }, where: Instance?): number
+	local target = where or Workspace.Terrain
+	local written = 0
+	for _, id in cellIds do
+		if Relief.LANDFORMS[id] ~= nil then
+			target:SetAttribute("TerrainShape_" .. id, TerrainBake.shapeInputFor(id))
+			written += 1
+		end
+	end
+	return written
 end
 
 -- ---------------------------------------------------------------- the archive, and the census

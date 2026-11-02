@@ -773,6 +773,7 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
     limit = min(args.tiles or count, count)
     y_min, y_max = args.y_min, args.y_max
     entries, worst = [], 0
+    reshape_said = [None]
     print("[bake] %s: %d of %d tiles, cells=%s" % ("measure (DRY)" if dry else "bake", limit, count, ",".join(cells)))
     for index in range(1, limit + 1):
         # REFUSAL 2 AGAIN, before every mutating call (B1): the operator can open another place
@@ -791,6 +792,12 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
         report = call(studio, studio_id, expression, injected=injected)
         entries.append(report)
         worst = max(worst, report.get("elapsedMs", 0))
+        # THE LANDFORM GOES IN ONCE, and which way the tile went is PRINTED on the first tile and
+        # whenever it changes -- a run that skipped the landform must not look like one that
+        # applied it (`TerrainBake.reshapeWanted`; measured +24.04 st of double ridge on C1).
+        if report.get("reshape") and report["reshape"] != reshape_said[0]:
+            reshape_said[0] = report["reshape"]
+            print("  [reshape] %s" % report["reshape"])
         print("  tile %3d/%-3d (%6d,%6d) calls=%d voxels=%-6d band %.0f..%.0f  %d ms%s"
               % (index, limit, report["minX"], report["minZ"], report["calls"], report["voxels"],
                  report["bandMin"], report["bandMax"], report["elapsedMs"],
@@ -807,6 +814,11 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
         epoch = epoch_for(studio, studio_id, args.base_sha or sha, injected)
         call(studio, studio_id, 'TerrainBake.stamp("%s") or "stamped"' % epoch, timeout=60,
              injected=injected)
+        # ...AND THE PER-CELL SHAPE STAMP, so a later run can tell whether this cell's landform is
+        # the one already in the ground (`TerrainBake.reshapeWanted`).
+        stamped = call(studio, studio_id, "TerrainBake.stampShape({%s})"
+                       % ",".join('"%s"' % c for c in cells), timeout=60, injected=injected)
+        print("[bake] shape stamp written on %s cell(s): %s" % (stamped, ",".join(cells)))
     print("[bake] %s: %d/%d tiles @ %s cells=%s epoch=%s worstTileMs=%d (clean tree)"
           % ("DRY OK" if dry else "OK", limit, limit, sha, ",".join(cells), epoch, worst))
     return 0, entries
