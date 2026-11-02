@@ -828,11 +828,24 @@ return function()
 			expect(#benched).to.equal(3)
 			expect(TerrainBake.readsWholeCell(Relief.LANDFORMS.C1)).to.equal(false)
 			expect(TerrainBake.readsWholeCell(Relief.LANDFORMS.B2)).to.equal(true)
-			-- And the pad a tile-local cell needs is the blur's own cutoff, plus one voxel.
+			-- THE PAD a tile needs covers BOTH readers that leave the tile: the limiter's margin
+			-- and the blur's cutoff, plus one voxel so the outermost sample has a neighbour.
 			expect(TerrainBake.padFor()).to.equal(
-				Relief.VOXEL * math.ceil((Relief.BLUR.cutoffStuds + Relief.VOXEL) / Relief.VOXEL)
+				Relief.VOXEL
+					* math.ceil(
+						(TerrainBake.LIMIT_MARGIN_STUDS + Relief.BLUR.cutoffStuds + Relief.VOXEL) / Relief.VOXEL
+					)
 			)
-			expect(TerrainBake.padFor() >= Relief.BLUR.cutoffStuds).to.equal(true)
+			expect(TerrainBake.padFor() >= TerrainBake.LIMIT_MARGIN_STUDS + Relief.BLUR.cutoffStuds).to.equal(true)
+			expect(TerrainBake.padFor() % Relief.VOXEL).to.equal(0)
+			TestKit.note(
+				string.format(
+					"bake pad %d st = limiter margin %d + blur cutoff %d + one voxel",
+					TerrainBake.padFor(),
+					TerrainBake.LIMIT_MARGIN_STUDS,
+					Relief.BLUR.cutoffStuds
+				)
+			)
 		end)
 
 		it("328d-9 reads the snapshot inside it and nil outside it", function()
