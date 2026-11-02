@@ -651,4 +651,284 @@ return function()
 			expect(#offenders).to.equal(0)
 		end)
 	end)
+	-- ---------------------------------------------------------------- task 328d: the bake
+	--
+	-- PURE PARTS ONLY. `snapshot` and `bakeTile`'s write touch `Terrain`, which this place has none
+	-- of for the grid; everything that decides a shape is a function, and is cased here.
+	describe("the bake (task 328d)", function()
+		local TerrainBake = require(ServerStorage:WaitForChild("TerrainBake"))
+
+		it("328d-1 aims at Karen's Forest Test and not at DEV", function()
+			expect(TerrainBake.PLACE_ID).to.equal(130094961655666)
+			expect(TerrainBake.PLACE_ID).never.to.equal(game.PlaceId)
+		end)
+
+		it("328d-2 covers one cell with its roads plus the blend, and the whole world plus 430", function()
+			local one = TerrainBake.regionFor({ "C1" })
+			local cell = Grid.boundsOf("C1")
+			local roads = Grid.roadsOf("C1")
+			expect(one.minX).to.equal(
+				math.min(cell.minX, roads.west.at - TerrainBake.ROAD_HALF_STUDS) - Relief.BLEND_STUDS
+			)
+			expect(one.maxZ).to.equal(
+				math.max(cell.maxZ, roads.muster.at + TerrainBake.ROAD_HALF_STUDS) + Relief.BLEND_STUDS
+			)
+			local all = TerrainBake.regionFor(Grid.cellIds())
+			local box = Grid.footprint()
+			-- The border wood's 230 on top of the blend's 200: design 5.2's "footprint plus 430 st".
+			expect(box.minX - all.minX).to.equal(Relief.BLEND_STUDS + 230)
+			expect(all.maxX - box.maxX).to.equal(Relief.BLEND_STUDS + 230)
+		end)
+
+		it("328d-3 tiles both regions on the voxel lattice, and the counts are the arithmetic's", function()
+			local one = TerrainBake.tilePlan(TerrainBake.regionFor({ "C1" }))
+			local all = TerrainBake.tilePlan(TerrainBake.regionFor(Grid.cellIds()))
+			TestKit.note(string.format("bake tiles: C1 %d, the whole world %d", #one, #all))
+			expect(#one).to.equal(208)
+			expect(#all).to.equal(1333)
+			expect(TerrainBake.TILE_STUDS % Relief.VOXEL).to.equal(0)
+			for _, tile in one do
+				expect(tile.minX % Relief.VOXEL).to.equal(0)
+				expect(tile.minZ % Relief.VOXEL).to.equal(0)
+			end
+		end)
+
+		it("328d-4 splits the Y band so no call passes the measured voxel ceiling", function()
+			local columns = (TerrainBake.TILE_STUDS / Relief.VOXEL) ^ 2
+			local short = TerrainBake.bandsFor(100, 140)
+			expect(#short).to.equal(1)
+			-- 16 below + 40 + 32 above = 88 studs, inside one call, and voxel-aligned.
+			expect(short[1].min).to.equal(84)
+			expect(short[1].max % Relief.VOXEL).to.equal(0)
+			local tall = TerrainBake.bandsFor(0, 250)
+			expect(#tall > 1).to.equal(true)
+			for _, band in tall do
+				expect(columns * ((band.max - band.min) / Relief.VOXEL) <= TerrainBake.MAX_VOXELS).to.equal(true)
+			end
+			-- The bands abut and cover the whole span, so no slice of ground is left unwritten.
+			expect(tall[1].min).to.equal(-16)
+			expect(tall[#tall].max).to.equal(284)
+			for i = 2, #tall do
+				expect(tall[i].min).to.equal(tall[i - 1].max)
+			end
+		end)
+
+		it("328d-5 blends ONCE at the edge of what was baked, not at every cell edge", function()
+			-- THE 328d DECISION (design 16's 328d row, and the 328c note that asks for it).
+			local union = TerrainBake.unionOf({ "C1" })
+			local cell = Grid.boundsOf("C1")
+			expect(union.minX).to.equal(cell.minX)
+			expect(TerrainBake.blendAt(union, (cell.minX + cell.maxX) / 2, (cell.minZ + cell.maxZ) / 2)).to.equal(1)
+			expect(TerrainBake.blendAt(union, cell.minX - Relief.BLEND_STUDS, cell.minZ + 10)).to.equal(0)
+			expect(TerrainBake.blendAt(union, cell.minX - Relief.BLEND_STUDS - 400, cell.minZ + 10)).to.equal(0)
+			local half = TerrainBake.blendAt(union, cell.minX - Relief.BLEND_STUDS / 2, cell.minZ + 10)
+			expect(half > 0).to.equal(true)
+			expect(half < 1).to.equal(true)
+			-- AND THE CASE THAT BITES, which one cell cannot show: baking C1 AND C2 makes the road
+			-- between them full strength, where each cell's own `k` fades it.
+			local pair = TerrainBake.unionOf({ "C1", "C2" })
+			local between = Grid.roadsOf("C1").main.at
+			local x = (cell.minX + cell.maxX) / 2
+			local lone = TerrainBake.blendAt(union, x, between)
+			TestKit.note(
+				string.format(
+					"blend on the C1/C2 road: union of both %.3f, C1 alone %.3f",
+					TerrainBake.blendAt(pair, x, between),
+					lone
+				)
+			)
+			expect(TerrainBake.blendAt(pair, x, between)).to.equal(1)
+			expect(lone < 1).to.equal(true)
+		end)
+
+		it("328d-6 runs the slope limiter on BOTH axes, which one axis does not", function()
+			-- THE 328d DECISION. A grid steep in x only: a z-pass alone cannot see it.
+			local n, pitch = 16, 4
+			local grid = table.create(n * n, 0)
+			for i = 1, n do
+				for k = 1, n do
+					grid[(k - 1) * n + i] = i * 4 -- 45 degrees in x, flat in z
+				end
+			end
+			local ceiling = Relief.LIMIT_DEG.tree
+			local limit = 16 * math.tan(math.rad(ceiling))
+			local window = math.max(1, math.floor(16 / pitch + 0.5))
+			local function worstIn(g, axis: string): number
+				local worst = 0
+				for i = 1, n do
+					for k = 1, n do
+						local bi = if axis == "x" then i + window else i
+						local bk = if axis == "x" then k else k + window
+						if bi <= n and bk <= n then
+							worst = math.max(worst, math.abs(g[(bk - 1) * n + bi] - g[(k - 1) * n + i]))
+						end
+					end
+				end
+				return worst
+			end
+			-- FAIL FIRST: a z-only pass leaves the x slope exactly as it was.
+			local zOnly = table.clone(grid)
+			for i = 1, n do
+				local column = table.create(n, 0)
+				for k = 1, n do
+					column[k] = zOnly[(k - 1) * n + i]
+				end
+				local done = Relief.limitPass(column, pitch, ceiling)
+				for k = 1, n do
+					zOnly[(k - 1) * n + i] = done[k]
+				end
+			end
+			expect(worstIn(zOnly, "x") > limit).to.equal(true)
+			local both = TerrainBake.limitGrid(grid, n, n, pitch, ceiling)
+			TestKit.note(
+				string.format(
+					"limiter: ceiling %.2f st per 16; z-only leaves %.2f in x, both axes leave %.2f",
+					limit,
+					worstIn(zOnly, "x"),
+					worstIn(both, "x")
+				)
+			)
+			expect(worstIn(both, "x") <= limit + 1e-6).to.equal(true)
+			expect(worstIn(both, "z") <= limit + 1e-6).to.equal(true)
+		end)
+
+		it("328d-7 gives every point one owning cell, and the nearest on a road", function()
+			local cell = Grid.boundsOf("C1")
+			local c2 = Grid.boundsOf("C2")
+			expect(TerrainBake.cellAt({ "C1", "C2" }, (cell.minX + cell.maxX) / 2, (cell.minZ + cell.maxZ) / 2)).to.equal(
+				"C1"
+			)
+			expect(TerrainBake.cellAt({ "C1", "C2" }, (c2.minX + c2.maxX) / 2, (c2.minZ + c2.maxZ) / 2)).to.equal("C2")
+			-- On the road between them the nearer bound wins, and neither point is left unowned.
+			local onRoad = TerrainBake.cellAt({ "C1", "C2" }, (cell.minX + cell.maxX) / 2, Grid.roadsOf("C1").main.at)
+			expect(onRoad == "C1" or onRoad == "C2").to.equal(true)
+		end)
+
+		it("328d-8 names the landforms whose base reads leave the tile, from the data", function()
+			-- A `bench` walks the base over its v band (`Relief.applyOps`), which one tile's slice
+			-- does not hold, so `bakeTileAt` refuses it. The cells are named by the data, not here.
+			local benched, plain = {}, {}
+			for _, id in Grid.cellIds() do
+				table.insert(if TerrainBake.readsWholeCell(Relief.LANDFORMS[id]) then benched else plain, id)
+			end
+			TestKit.note(
+				"bake: benched cells " .. table.concat(benched, ",") .. "; tile-local " .. table.concat(plain, ",")
+			)
+			expect(#benched).to.equal(3)
+			expect(TerrainBake.readsWholeCell(Relief.LANDFORMS.C1)).to.equal(false)
+			expect(TerrainBake.readsWholeCell(Relief.LANDFORMS.B2)).to.equal(true)
+			-- And the pad a tile-local cell needs is the blur's own cutoff, plus one voxel.
+			expect(TerrainBake.padFor()).to.equal(
+				Relief.VOXEL * math.ceil((Relief.BLUR.cutoffStuds + Relief.VOXEL) / Relief.VOXEL)
+			)
+			expect(TerrainBake.padFor() >= Relief.BLUR.cutoffStuds).to.equal(true)
+		end)
+
+		it("328d-9 reads the snapshot inside it and nil outside it", function()
+			local slice = {
+				pitch = Relief.VOXEL,
+				minX = 0,
+				minZ = 0,
+				nx = 4,
+				nz = 4,
+				height = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 },
+				material = {},
+				minY = 1,
+				maxY = 16,
+			}
+			local read = TerrainBake.readerFor(slice)
+			expect(read(2, 2)).to.equal(1)
+			expect(read(14, 14)).to.equal(16)
+			expect(read(-2, 2)).to.equal(nil)
+			expect(read(2, 20)).to.equal(nil)
+		end)
+
+		it("328d-10 surveys by 327a's own classifier, through a seam with no terrain in it", function()
+			local flatRow = TerrainBake.survey("C1", function()
+				return 120
+			end)
+			expect(flatRow.cell).to.equal("C1")
+			expect(flatRow.spreadStuds).to.equal(0)
+			expect(flatRow.character).to.equal("flat")
+			expect(flatRow.meanY).to.equal(120)
+			expect(flatRow.lineMeanY).to.equal(120)
+			local bounds = Grid.boundsOf("C1")
+			local ridgeRow = TerrainBake.survey("C1", function(_x: number, z: number)
+				return 100 + (z - bounds.minZ) / (bounds.maxZ - bounds.minZ) * 80
+			end)
+			expect(ridgeRow.spreadStuds > 60).to.equal(true)
+			expect(ridgeRow.character).to.equal("ridge")
+			expect(ridgeRow.samples > 0).to.equal(true)
+		end)
+
+		it("328d-11 puts no code commit in the epoch input, and the bake version in it", function()
+			local a = TerrainBake.epochInputFor("aaaa")
+			expect(a).never.to.equal(TerrainBake.epochInputFor("bbbb"))
+			expect(string.sub(a, 1, 4)).to.equal("aaaa")
+			-- The version is the tail. A maths change that forgets to bump it changes nothing here,
+			-- and `relief_golden` is what catches that (design 5.4).
+			expect(string.sub(a, -#tostring(Relief.BAKE_VERSION))).to.equal(tostring(Relief.BAKE_VERSION))
+			expect(TerrainBake.epochInputFor("aaaa")).to.equal(a)
+			expect(string.find(a, "commit", 1, true)).to.equal(nil)
+		end)
+
+		it("328d-12 measures a slope in degrees off the shaped grid", function()
+			local n, pitch = 8, 4
+			local grid = table.create(n * n, 0)
+			for i = 1, n do
+				for k = 1, n do
+					grid[(k - 1) * n + i] = i * pitch -- 45 degrees in x
+				end
+			end
+			expect(math.abs(TerrainBake.slopeAt(grid, n, 4, 4, pitch) - 45) < 0.001).to.equal(true)
+			expect(TerrainBake.slopeAt(table.create(n * n, 7), n, 4, 4, pitch)).to.equal(0)
+		end)
+
+		it("328d-13 leaves ServerStorage's Edit-time terrain writers at exactly two", function()
+			-- The scan above walks ServerScriptService, ReplicatedStorage and StarterPlayerScripts and
+			-- SKIPS ServerStorage, so this bounds the hole that skip leaves rather than widening it.
+			local EDIT_TIME = {
+				["ServerStorage.MapGen.Ground"] = true,
+				["ServerStorage.TerrainBake"] = true,
+			}
+			local readable = type(select(
+				2,
+				pcall(function()
+					return (script :: any).Source
+				end)
+			)) == "string"
+			TestKit.note(
+				"328d-13 source scan: Script.Source is "
+					.. (
+						if readable
+							then "readable, so the scan below ran"
+							else "UNREADABLE, so this case proved nothing"
+					)
+			)
+			if not readable then
+				expect(readable).to.equal(false)
+				return
+			end
+			local offenders = {}
+			for _, inst in ServerStorage:GetDescendants() do
+				if inst:IsA("LuaSourceContainer") then
+					local got = select(
+						2,
+						pcall(function()
+							return (inst :: any).Source
+						end)
+					)
+					if type(got) == "string" and string.find(got, ":WriteVoxels(", 1, true) then
+						if not EDIT_TIME[inst:GetFullName()] then
+							table.insert(offenders, inst:GetFullName())
+						end
+					end
+				end
+			end
+			if #offenders > 0 then
+				TestKit.note("328d-13: terrain is written in ServerStorage by " .. table.concat(offenders, ", "))
+			end
+			expect(#offenders).to.equal(0)
+		end)
+	end)
 end
