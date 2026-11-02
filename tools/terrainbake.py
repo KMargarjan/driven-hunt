@@ -476,7 +476,10 @@ def check_echo(studio, studio_id, facts, injected, shas):
              for k, v in sorted(wanted.items()) if echo.get(k) != v]
     if echo.get("cells") != len(CELL_IDS):
         wrong.append("cells: Studio says %r, the grid has %d" % (echo.get("cells"), len(CELL_IDS)))
-    if echo.get("roads") != 2 * (facts["rows"] + 1) + (facts["columns"] + 1):
+    # MEASURED in DEV, 2026-11-02: `Grid.roads()` answers 8 -- (rows + 1) east-west and
+    # (columns + 1) north-south, 3 + 5. The first version of this line doubled the east-west count
+    # and would have refused every run.
+    if echo.get("roads") != (facts["rows"] + 1) + (facts["columns"] + 1):
         wrong.append("roads: Studio says %r" % (echo.get("roads"),))
     if wrong:
         return ("the injected code does not match the files at this commit:" + chr(10)
@@ -1071,7 +1074,7 @@ def selftest():
             "roadHalf": echo_facts["roadHalf"], "voxel": echo_facts["voxel"],
             "blend": echo_facts["blend"], "originX": echo_facts["originX"],
             "cellDepth": echo_facts["cellDepth"], "placeId": int(FOREST_PLACE_ID),
-            "cells": len(CELL_IDS), "roads": 2 * (echo_facts["rows"] + 1) + (echo_facts["columns"] + 1),
+            "cells": len(CELL_IDS), "roads": (echo_facts["rows"] + 1) + (echo_facts["columns"] + 1),
             "bakeVersion": 1}
     saved_call = globals()["call"]
     try:
@@ -1088,6 +1091,12 @@ def selftest():
         globals()["call"] = lambda *a, **k: dict(good, placeId=136410205938347)
         ok("refusal 4 refuses a TerrainBake pinned to another place",
            "placeId" in (check_echo(FakeStudio(), "x", echo_facts, "<i>", shas) or ""))
+        # THE NUMBER STUDIO ACTUALLY ANSWERED, 2026-11-02, with this prelude injected into DEV.
+        ok("the expected road count is the 8 Studio answered, not a formula nobody ran",
+           good["roads"] == 8, "roads=%d" % good["roads"])
+        globals()["call"] = lambda *a, **k: dict(good, roads=11)
+        ok("refusal 4 refuses a grid whose road count is not 8",
+           "roads: Studio says 11" in (check_echo(FakeStudio(), "x", echo_facts, "<i>", shas) or ""))
     finally:
         globals()["call"] = saved_call
 
