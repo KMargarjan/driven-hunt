@@ -123,12 +123,19 @@ Grid.PREVIEW_CELL = "C1"
 -- produce one, and the ground is what it is. The design correction is queued, not invented here.
 --
 -- A later task that GENERATES the relief writes the same fields from its own heightfield and no
--- assertion in `grid.spec` moves. `recipe` (327c) and `animals` (327h) are not here yet.
+-- assertion in `grid.spec` moves.
+--
+-- `recipe` NAMES THE ROW IN `Places.CELL_PLANS` THIS CELL IS DRESSED WITH (task 327c), and it is
+-- chosen from the MEASURED `relief.character` above -- character, then recipe (design 12D). It is
+-- a string and not the recipe itself, so `Grid` still requires nothing. `animals` (327h) is not
+-- here yet.
 Grid.CELLS = table.freeze({
 	table.freeze({
 		id = "A1",
 		row = 1,
 		column = 1,
+		-- THE WOOD THAT GROWS HERE (task 327c): the slope's thicket on the low ground.
+		recipe = "spruceSlope",
 		relief = table.freeze({
 			character = "slope",
 			minY = 51.2,
@@ -143,6 +150,8 @@ Grid.CELLS = table.freeze({
 		id = "B1",
 		row = 1,
 		column = 2,
+		-- THE WOOD THAT GROWS HERE (task 327c): white trunks and one clearing off centre.
+		recipe = "birchSlope",
 		relief = table.freeze({
 			character = "slope",
 			minY = 70.2,
@@ -157,6 +166,8 @@ Grid.CELLS = table.freeze({
 		id = "C1",
 		row = 1,
 		column = 3,
+		-- THE WOOD THAT GROWS HERE (task 327c): seven zones, four woods -- the preview cell.
+		recipe = "mixedRolling",
 		relief = table.freeze({
 			character = "rolling",
 			minY = 89.2,
@@ -171,6 +182,8 @@ Grid.CELLS = table.freeze({
 		id = "D1",
 		row = 1,
 		column = 4,
+		-- THE WOOD THAT GROWS HERE (task 327c): open oak park, the thinnest wood of row 1.
+		recipe = "oakRolling",
 		relief = table.freeze({
 			character = "rolling",
 			minY = 103.3,
@@ -185,6 +198,8 @@ Grid.CELLS = table.freeze({
 		id = "A2",
 		row = 2,
 		column = 1,
+		-- THE WOOD THAT GROWS HERE (task 327c): a larch plantation: this world's smallest trees.
+		recipe = "larchRolling",
 		relief = table.freeze({
 			character = "rolling",
 			minY = 54.8,
@@ -200,6 +215,8 @@ Grid.CELLS = table.freeze({
 		id = "B2",
 		row = 2,
 		column = 2,
+		-- THE WOOD THAT GROWS HERE (task 327c): four zones; on the steepest line the relief is the variety.
+		recipe = "aspenSlope",
 		relief = table.freeze({
 			character = "slope",
 			minY = 69.4,
@@ -215,6 +232,8 @@ Grid.CELLS = table.freeze({
 		id = "C2",
 		row = 2,
 		column = 3,
+		-- THE WOOD THAT GROWS HERE (task 327c): dark conifer either side of a lighter middle.
+		recipe = "spruceRolling",
 		relief = table.freeze({
 			character = "rolling",
 			minY = 94.6,
@@ -230,6 +249,8 @@ Grid.CELLS = table.freeze({
 		id = "D2",
 		row = 2,
 		column = 4,
+		-- THE WOOD THAT GROWS HERE (task 327c): the most broken ground, the thinnest wood.
+		recipe = "birchRolling",
 		relief = table.freeze({
 			character = "rolling",
 			-- THE STEEPEST CELL OF THE EIGHT, and it is reported rather than smoothed: 173 studs over

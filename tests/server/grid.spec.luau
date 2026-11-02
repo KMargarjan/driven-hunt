@@ -1029,4 +1029,602 @@ return function()
 			)
 		end)
 	end)
+
+	-- ================================================================ task 327c: the cell's wood
+	--
+	-- EVERY CASE BELOW IS PURE OR DRIVEN THROUGH A FAKE. `Places.plantCell` is arithmetic over
+	-- `Grid`'s data, and the one case that puts an Instance anywhere builds its own fake templates on
+	-- its own fake hillside in its own Folder.
+
+	-- THE EIGHT PLANTING LISTS, COMPUTED ONCE. Seven cases read them and each list is ~2,400 items;
+	-- `plantCell` is a pure function of the id, so computing it once is the same answer as computing
+	-- it seven times (case 13 is what proves that, and it computes its own).
+	local Slice = require(ServerScriptService.Places:WaitForChild("Slice"))
+	local woods: { [string]: any } = {}
+	for _, id in ipairs(Grid.cellIds()) do
+		woods[id] = Plan.plantCell(id)
+	end
+
+	-- ---------------------------------------------------------------- 12. the recipes and the zones
+
+	describe("the eight recipes", function()
+		it("name species that exist and tile the cell in zones that never overlap", function()
+			local seenRecipes: { [string]: string } = {}
+			local lines = {}
+			for _, id in ipairs(Grid.cellIds()) do
+				local cell = Grid.cellOf(id)
+				local plan = Plan.cellPlanFor(id)
+				-- EVERY CELL HAS A RECIPE AND EVERY RECIPE IS ITS OWN, so no two cells are dressed
+				-- the same -- which is the whole of Karen's *"different trees growing in different
+				-- section"*.
+				expect(type(cell.recipe)).to.equal("string")
+				expect(plan ~= nil).to.equal(true)
+				expect(seenRecipes[cell.recipe]).to.equal(nil)
+				seenRecipes[cell.recipe] = id
+				-- `halfStripStuds` IS ONE FACT WITH THE ROAD, not a second number.
+				expect(Plan.laneHalfWidth(plan) * 2).to.equal(Grid.CONFIG.roadClearStuds)
+				local clear, covered = 0, 0
+				for index, zone in ipairs(plan.zones) do
+					local at = zone.at
+					expect(#at).to.equal(4)
+					-- INSIDE [0,1]^2 AND NON-EMPTY.
+					for _, value in ipairs(at) do
+						expect(value >= 0 and value <= 1).to.equal(true)
+					end
+					expect(at[3] > at[1]).to.equal(true)
+					expect(at[4] > at[2]).to.equal(true)
+					covered += (at[3] - at[1]) * (at[4] - at[2])
+					local rows = Plan.cellMixNamed(zone.mix)
+					-- THE MIX EXISTS, AND EVERY GROUP IN IT IS A KEY OF `Places.SPECIES` with at
+					-- least one model name in it. A name this world does not have plants nothing,
+					-- silently, which is exactly the class of defect this case is for.
+					expect(rows ~= nil).to.equal(true)
+					for _, row in ipairs(rows) do
+						local names = (Plan.SPECIES :: any)[row.group]
+						expect(names ~= nil).to.equal(true)
+						expect(#names > 0).to.equal(true)
+						expect(row.weight > 0).to.equal(true)
+					end
+					-- A CLEARING IS AN EMPTY MIX AND SPACING 0, BOTH WAYS -- so "no trees here"
+					-- cannot be said in one of the two places and forgotten in the other.
+					expect(#rows == 0).to.equal(zone.spacingStuds == 0)
+					if zone.spacingStuds == 0 then
+						clear += (at[3] - at[1]) * (at[4] - at[2])
+					else
+						expect(zone.spacingStuds > 0).to.equal(true)
+						expect(zone.band == "wood" or zone.band == "shrub").to.equal(true)
+					end
+					-- NO TWO ZONES OF ONE CELL OVERLAP.
+					for other = index + 1, #plan.zones do
+						local b = plan.zones[other].at
+						local hit = at[1] < b[3] and b[1] < at[3] and at[2] < b[4] and b[2] < at[4]
+						expect(hit).to.equal(false)
+					end
+				end
+				-- THE ZONES TILE THE CELL EXACTLY. Not asked by the design, asserted here because a
+				-- gap is a bald patch nobody declared: a clearing is a ZONE with spacing 0, so an
+				-- uncovered rectangle can only ever be an arithmetic slip in a recipe.
+				expect(math.abs(covered - 1) < 1e-9).to.equal(true)
+				-- EVERY CELL HAS AT LEAST ONE CLEARING and none is more than a third clear.
+				expect(clear > 0 and clear < 0.34).to.equal(true)
+				table.insert(
+					lines,
+					string.format("%s=%s(%d zones, %.0f%% clear)", id, cell.recipe, #plan.zones, clear * 100)
+				)
+			end
+			TestKit.note("recipes: " .. table.concat(lines, " "))
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- 13. the same forest every time
+
+	describe("a cell's wood", function()
+		it("is the same list twice, and the same list whatever order the cells were built in", function()
+			local id = Grid.PREVIEW_CELL
+			local first = Plan.plantCell(id)
+			local second = Plan.plantCell(id)
+			expect(#first).to.equal(#second)
+			expect(#first > 0).to.equal(true)
+			for index, item in ipairs(first) do
+				local other = second[index]
+				expect(other.model).to.equal(item.model)
+				expect(other.x).to.equal(item.x)
+				expect(other.z).to.equal(item.z)
+				expect(other.scale).to.equal(item.scale)
+				expect(other.yaw).to.equal(item.yaw)
+				expect(other.band).to.equal(item.band)
+			end
+			-- ...AND IN A DIFFERENT BUILD ORDER. `Grid.seedFor` hashes (seed, row, column, stream)
+			-- and NEVER a counter, so planting B1 first cannot shift A1 by one draw. This is the
+			-- case `drive-places.md` section 10.1 was written after.
+			local aFirst = Plan.plantCell("A1")
+			local _ = Plan.plantCell("B1")
+			local aAfter = Plan.plantCell("A1")
+			expect(#aAfter).to.equal(#aFirst)
+			for index, item in ipairs(aFirst) do
+				expect(aAfter[index].model).to.equal(item.model)
+				expect(aAfter[index].x).to.equal(item.x)
+				expect(aAfter[index].z).to.equal(item.z)
+			end
+			-- AND NO TWO CELLS ARE THE SAME FOREST, which is the other half of the property.
+			expect(Plan.plantCell("A1")[1].x == Plan.plantCell("B1")[1].x).to.equal(false)
+			-- A NAME NOBODY KNOWS GETS NO WOOD rather than the wrong wood.
+			expect(#Plan.plantCell("Z9")).to.equal(0)
+			expect(Plan.cellPlanFor("Z9")).to.equal(nil)
+			TestKit.note(string.format("%s: %d plantings, identical twice and across build orders", id, #first))
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- 14. under the declared capacity
+
+	describe("the budget", function()
+		it("holds every cell under its own bound and every bound under 3,600 models", function()
+			local worstId, worstTotal, worstCap = "", 0, 0
+			local lines = {}
+			for _, id in ipairs(Grid.cellIds()) do
+				local capacity = Plan.cellCapacity(id)
+				local total = #woods[id]
+				expect(total <= capacity).to.equal(true)
+				-- DESIGN 8.3'S HARD BOUND, ON THE BOUND ITSELF and not only on today's draw: a
+				-- density tweak that would breach it fails here before anything is cloned.
+				expect(capacity < 3600).to.equal(true)
+				expect(total < 3600).to.equal(true)
+				-- ...AND THE SAME FUNCTION UNDER THE NAME EVERY OTHER CALLER USES.
+				expect(Plan.capacity(Grid.layoutFor(id), Plan.cellPlanFor(id))).to.equal(capacity)
+				if total > worstTotal then
+					worstId, worstTotal, worstCap = id, total, capacity
+				end
+				local trees, ferns, skirt = 0, 0, 0
+				for _, item in ipairs(woods[id]) do
+					if item.band == "herb" then
+						ferns += 1
+					elseif item.side < 0 then
+						skirt += 1
+					else
+						trees += 1
+					end
+				end
+				table.insert(lines, string.format("%s %d(t%d f%d s%d)/%d", id, total, trees, ferns, skirt, capacity))
+			end
+			TestKit.note(
+				string.format(
+					"per cell: %s -- worst %s %d of %d",
+					table.concat(lines, " "),
+					worstId,
+					worstTotal,
+					worstCap
+				)
+			)
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- 15. nothing in a road
+
+	describe("the roads", function()
+		it("carry no tree, measured independently of Places.inLane and then through it", function()
+			local half = Grid.CONFIG.roadClearStuds / 2
+			local roads = Grid.roads()
+			local worst = math.huge
+			local total = 0
+			for _, id in ipairs(Grid.cellIds()) do
+				local layout = Grid.layoutFor(id)
+				local plan = Plan.cellPlanFor(id)
+				for _, item in ipairs(woods[id]) do
+					total += 1
+					-- INDEPENDENTLY: the spec's own loop over the road list, which is
+					-- `drive-places.md` section 10.4 item 3's lesson -- a rule asserted only through
+					-- the function that implements it asserts nothing.
+					for _, road in ipairs(roads) do
+						local gap
+						if road.axis == "x" then
+							gap = if item.x >= road.from and item.x <= road.to
+								then math.abs(item.z - road.at)
+								else math.huge
+						else
+							gap = if item.z >= road.from and item.z <= road.to
+								then math.abs(item.x - road.at)
+								else math.huge
+						end
+						expect(gap > half).to.equal(true)
+						worst = math.min(worst, gap)
+					end
+					-- ...AND THROUGH IT. `Places.inLane` measures against the layout's own line z at
+					-- that x, which for a cell is its MAIN road -- the one a hunter stands on.
+					expect(Plan.inLane(item.x, item.z, layout, plan)).to.equal(false)
+					expect(Plan.clearOfEveryRoad(item.x, item.z)).to.equal(true)
+				end
+			end
+			-- A STAND'S CLEARANCE FALLS OUT OF THE SAME FACT, and is asserted rather than argued:
+			-- every stand of every cell sits ON a road's centre line, so no tree is inside its
+			-- circle. 8 studs is the dispatch's number; `ForestTest.PICK.standRadiusStuds` is 12 and
+			-- `HighSeats.footprintRadiusStuds` is the tower's own.
+			local tightest = math.huge
+			for _, id in ipairs(Grid.cellIds()) do
+				for index = 1, Grid.standCount(id) do
+					local at = Grid.standPosition(id, index)
+					for _, item in ipairs(woods[id]) do
+						local dx, dz = item.x - at.X, item.z - at.Z
+						tightest = math.min(tightest, math.sqrt(dx * dx + dz * dz))
+					end
+				end
+			end
+			expect(tightest > 12).to.equal(true)
+			expect(tightest > HighSeats.footprintRadiusStuds()).to.equal(true)
+			TestKit.note(
+				string.format(
+					"%d plantings: nearest road centre %.2f studs (clear half %.1f), nearest stand %.2f studs",
+					total,
+					worst,
+					half,
+					tightest
+				)
+			)
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- 16. the skirt
+
+	describe("the skirt", function()
+		it("reaches into every neighbour from the shared road and stops at skirtStuds", function()
+			local half = Grid.CONFIG.roadClearStuds / 2
+			local lines = {}
+			for _, id in ipairs(Grid.cellIds()) do
+				local plan = Plan.cellPlanFor(id)
+				local mine = Grid.boundsOf(id)
+				local near = Plan.neighboursOf(id)
+				-- A 2 x 4 GRID HAS NO CELL WITH FOUR NEIGHBOURS (design 8.3's skirt row is wrong
+				-- about that, lesson L-167): a corner cell has 2 and a middle one 3.
+				expect(#near >= 2 and #near <= 3).to.equal(true)
+				local count, reach = 0, 0
+				local hitEach: { [string]: number } = {}
+				for _, item in ipairs(woods[id]) do
+					if item.side < 0 then
+						count += 1
+						-- IT IS OUTSIDE THE ACTIVE CELL...
+						local inside = item.x > mine.minX
+							and item.x < mine.maxX
+							and item.z > mine.minZ
+							and item.z < mine.maxZ
+						expect(inside).to.equal(false)
+						-- ...AND INSIDE EXACTLY ONE NEIGHBOUR, within `skirtStuds` of the road the
+						-- two of them share.
+						local found = nil
+						for _, other in ipairs(near) do
+							local box = Grid.boundsOf(other.id)
+							if
+								item.x >= box.minX
+								and item.x <= box.maxX
+								and item.z >= box.minZ
+								and item.z <= box.maxZ
+							then
+								expect(found).to.equal(nil)
+								found = other
+							end
+						end
+						expect(found ~= nil).to.equal(true)
+						hitEach[found.id] = (hitEach[found.id] or 0) + 1
+						-- THE DISTANCE FROM THE SHARED ROAD'S OWN CENTRE LINE. The band starts at
+						-- the neighbour's inset edge, which is `roadClear / 2 + CELL_EDGE_STUDS`
+						-- from that centre, and runs `skirtStuds` further.
+						local gap
+						if found.axis == "z" then
+							local centre = if item.x > mine.maxX then mine.maxX + half else mine.minX - half
+							gap = math.abs(item.x - centre)
+						else
+							local centre = if item.z > mine.maxZ then mine.maxZ + half else mine.minZ - half
+							gap = math.abs(item.z - centre)
+						end
+						expect(gap >= half + Plan.CELL_EDGE_STUDS).to.equal(true)
+						expect(gap <= half + Plan.CELL_EDGE_STUDS + plan.skirtStuds).to.equal(true)
+						reach = math.max(reach, gap)
+						-- AND IT IS THE NEIGHBOUR'S OWN WOOD, not this cell's: the species came from
+						-- the zone the point is in over THERE, which is what makes two sections
+						-- either side of one road read differently.
+						local zoneThere = Plan.zoneAt(found.id, item.x, item.z)
+						expect(zoneThere ~= nil).to.equal(true)
+						expect(zoneThere.spacingStuds > 0).to.equal(true)
+						local names = {}
+						for _, row in ipairs(Plan.cellMixNamed(zoneThere.mix)) do
+							for _, name in ipairs((Plan.SPECIES :: any)[row.group]) do
+								names[name] = true
+							end
+						end
+						expect(names[item.model]).to.equal(true)
+					end
+				end
+				-- EVERY NEIGHBOUR IS DRESSED, not just the first one found.
+				for _, other in ipairs(near) do
+					expect((hitEach[other.id] or 0) > 0).to.equal(true)
+				end
+				expect(count > 0).to.equal(true)
+				table.insert(
+					lines,
+					string.format("%s %d into %d (reach %.0f/%d)", id, count, #near, reach, plan.skirtStuds)
+				)
+			end
+			TestKit.note("skirt: " .. table.concat(lines, " "))
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- 17/18. the slice
+
+	describe("the slice", function()
+		-- A CLOCK THE WORK ADVANCES AND READS DO NOT. That is the faithful model: `os.clock()` costs
+		-- nothing and cloning a model costs 0.45 ms (design 8.3, M9). A clock that ticked on every
+		-- READ would make the measured step length an artefact of how often the loop looks at it.
+		local function fakeClock(costSeconds: number)
+			local t = 0
+			return function()
+				return t
+			end, function()
+				t += costSeconds
+			end
+		end
+
+		it("spends a budget, finishes, and destroys before it plants", function()
+			-- 1.0 ms A MODEL: twice design 8.3's own measurement (M9, 200 models in 0.09 s),
+			-- rounded up so the cost is NOT a divisor of `BUDGET_MS`. At 0.9 the fifth item lands on
+			-- 4.5 exactly and whether the step stops there is decided by the last bit of a float:
+			-- `0.0009 * 5` is 4.500000000000001 ms and `(0.9 / 1000) * 5` is 4.499999999999999, so the
+			-- same arithmetic written two ways gave 5 items and 6. A case at a knife edge measures the
+			-- float and not the budget.
+			local COST_MS = 1.0
+			local clock, spend = fakeClock(COST_MS / 1000)
+			local plantItems, destroyItems = {}, {}
+			for index = 1, 2400 do
+				table.insert(plantItems, { kind = "plant", index = index })
+			end
+			for index = 1, 600 do
+				table.insert(destroyItems, { kind = "destroy", index = index })
+			end
+			local order = {}
+			Slice.reset()
+			-- THE CALLER ASKS FOR THE PLANT FIRST, ON PURPOSE: the ORDER is the slice's rule and not
+			-- the caller's discipline (design 8.3, "whole cell destroyed, FIRST").
+			Slice.begin("plant", plantItems, {
+				clock = clock,
+				work = function(item)
+					spend()
+					table.insert(order, item.kind)
+				end,
+			})
+			Slice.begin("destroy", destroyItems, {
+				clock = clock,
+				work = function(item)
+					spend()
+					table.insert(order, item.kind)
+				end,
+			})
+			expect(Slice.pending()).to.equal(3000)
+			local steps, worstStep, done = 0, 0, false
+			while not done and steps < 4000 do
+				local before = clock()
+				local spent, finished = Slice.step(before)
+				done = finished
+				steps += 1
+				-- NO STEP TOUCHES MORE THAN `MAX_PER_STEP` ITEMS...
+				expect(spent <= Slice.MAX_PER_STEP).to.equal(true)
+				-- ...AND NO STEP RUNS PAST `BUDGET_MS` BY MORE THAN THE ONE ITEM IT WAS ALREADY
+				-- DOING. That is the contract `Slice.step`'s header states, and not a weaker one: the
+				-- budget is checked BEFORE each item, so a step stops as soon as it is spent and can
+				-- only ever overrun by the cost of the item in hand. `overBudgetStarts` below is the
+				-- other half -- no item is ever BEGUN past the budget.
+				local took = (clock() - before) * 1000
+				expect(took <= Slice.BUDGET_MS + COST_MS + 1e-6).to.equal(true)
+				worstStep = math.max(worstStep, spent)
+			end
+			expect(done).to.equal(true)
+			expect(Slice.pending()).to.equal(0)
+			local stats = Slice.stats()
+			-- THE TOTAL EQUALS THE INPUT: nothing dropped, nothing done twice.
+			expect(stats.planted).to.equal(2400)
+			expect(stats.destroyed).to.equal(600)
+			expect(#order).to.equal(3000)
+			expect(stats.overBudgetStarts).to.equal(0)
+			expect(stats.stepMsMax <= Slice.BUDGET_MS + COST_MS + 1e-6).to.equal(true)
+			-- DESTROY RAN BEFORE PLANT: the first 600 work calls are all destroys and no destroy
+			-- comes after a plant.
+			for index = 1, 600 do
+				expect(order[index]).to.equal("destroy")
+			end
+			for index = 601, 3000 do
+				expect(order[index]).to.equal("plant")
+			end
+			-- AT 1 ms A MODEL THE CLOCK IS WHAT BITES: the fifth item starts at 4.0 ms and the sixth
+			-- would start at 5.0, so 5 items a step and not 10.
+			expect(worstStep).to.equal(5)
+			-- ...AND AT 0.1 ms IT IS `MAX_PER_STEP`. One boolean apart, both bounds proved to bite.
+			local fastClock, fastSpend = fakeClock(0.0001)
+			Slice.reset()
+			Slice.begin("plant", plantItems, {
+				clock = fastClock,
+				work = function()
+					fastSpend()
+				end,
+			})
+			local fastWorst, fastDone, fastSteps = 0, false, 0
+			while not fastDone and fastSteps < 4000 do
+				local spent, finished = Slice.step(fastClock())
+				fastWorst, fastDone, fastSteps = math.max(fastWorst, spent), finished, fastSteps + 1
+			end
+			expect(fastWorst).to.equal(Slice.MAX_PER_STEP)
+			expect(Slice.stats().planted).to.equal(2400)
+			-- AN EMPTY QUEUE IS DONE AND NOT A SPIN.
+			Slice.reset()
+			local spent, finished = Slice.step(0)
+			expect(spent).to.equal(0)
+			expect(finished).to.equal(true)
+			TestKit.note(
+				string.format(
+					"slice: 3000 items in %d steps, worst %d/step, stepMsMax %.3f ms (budget %.1f + one %.1f ms item); 0.1 ms/model -> %d/step in %d steps",
+					steps,
+					worstStep,
+					stats.stepMsMax,
+					Slice.BUDGET_MS,
+					COST_MS,
+					fastWorst,
+					fastSteps
+				)
+			)
+		end)
+
+		it("plants nearest the hunter line first", function()
+			local id = Grid.PREVIEW_CELL
+			local layout = Grid.layoutFor(id)
+			local ordered = Slice.order(woods[id], layout)
+			expect(#ordered).to.equal(#woods[id])
+			-- MONOTONE IN |z - roadZ(x)|, over every pair in sequence.
+			local last = -1
+			for _, item in ipairs(ordered) do
+				local key = math.abs(item.z - Forest.roadZ(item.x, layout))
+				expect(key >= last - 1e-9).to.equal(true)
+				last = key
+			end
+			-- IT IS A PERMUTATION AND NOT A FILTER: every planting is still there, once.
+			local seen = {}
+			for _, item in ipairs(woods[id]) do
+				seen[item] = (seen[item] or 0) + 1
+			end
+			for _, item in ipairs(ordered) do
+				expect(seen[item] >= 1).to.equal(true)
+				seen[item] -= 1
+			end
+			for _, left in pairs(seen) do
+				expect(left).to.equal(0)
+			end
+			-- THE SAME LIST TWICE: `table.sort` is not stable, so the tie-break is the original
+			-- index and the order is total.
+			local again = Slice.order(woods[id], layout)
+			for index, item in ipairs(ordered) do
+				expect(again[index]).to.equal(item)
+			end
+			TestKit.note(
+				string.format(
+					"order: first %.1f studs off the line, last %.1f",
+					math.abs(ordered[1].z - Forest.roadZ(ordered[1].x, layout)),
+					last
+				)
+			)
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- 18b. every tree ON the ground
+
+	describe("a dressed cell", function()
+		it("puts every planted tree on the ground and refuses the rest, destroy before plant", function()
+			-- LESSON L-086: design 13.1's cases 12-18 and 20 carry NO ground-contact assertion, and
+			-- an unguarded "0 floating" line has shipped twice. Task 326's planter is what guards
+			-- it; this case DRIVES that planter -- the real `plantOne`, the real `TreeGround` -- over
+			-- a real cell's plan on a hillside that falls 1 stud in 10, and re-measures every model
+			-- that went in off the MODEL and not off the lift (`Places.junctionGap`).
+			local function hillside(x: number, z: number): number?
+				return 120 + 0.1 * (x - Grid.CONFIG.originX) - 0.05 * (z - Grid.CONFIG.originZ)
+			end
+			-- FAKE TEMPLATES: one Model per species name, a named `Trunk` and a wider crown above it,
+			-- which is `places.spec`'s own fixture shape.
+			local sources = Instance.new("Folder")
+			local function fake(name: string): Model
+				local model = Instance.new("Model")
+				model.Name = name
+				local trunk = Instance.new("Part")
+				trunk.Name = "Trunk"
+				trunk.Size = Vector3.new(4, 40, 4)
+				trunk.Position = Vector3.new(0, 20, 0)
+				trunk.Anchored = true
+				trunk.Parent = model
+				local crown = Instance.new("Part")
+				crown.Name = "OuterLeaves"
+				crown.Size = Vector3.new(24, 24, 24)
+				crown.Position = Vector3.new(0, 48, 0)
+				crown.Anchored = true
+				crown.Parent = model
+				model.PrimaryPart = trunk
+				model.Parent = sources
+				return model
+			end
+			local made: { [string]: Model } = {}
+			local function template(name: string): Model?
+				if made[name] == nil then
+					made[name] = fake(name)
+				end
+				return made[name]
+			end
+
+			local id = Grid.PREVIEW_CELL
+			local grid = Instance.new("Folder")
+			grid.Name = Planter.GRID_FOLDER
+			local report = Planter.dressCell(id, grid, hillside, template, nil, nil)
+			expect(report.cell).to.equal(id)
+			expect(report.wanted).to.equal(#woods[id])
+			expect(report.planted > 0).to.equal(true)
+			expect(report.missing).to.equal(0)
+			expect(report.destroyed).to.equal(0)
+			-- EVERY PLANTING IS ACCOUNTED FOR: planted, refused for a cliff, or skipped. Nothing
+			-- silently vanishes.
+			expect(report.planted + report.cliff + report.skipped + report.missing).to.equal(report.wanted)
+			local here = grid:FindFirstChild(id)
+			expect(here ~= nil).to.equal(true)
+			expect(#here:GetChildren()).to.equal(report.planted)
+			-- ...AND NOT ONE OF THEM IS IN THE AIR. `junctionGap` is junction minus the LOWEST
+			-- terrain under the TRUNK'S OWN footprint, read at 25 samples -- never the pivot
+			-- (lessons L-024, L-086). Positive is daylight.
+			local worst = -math.huge
+			for _, model in ipairs(here:GetChildren()) do
+				local gap = Planter.junctionGap(model, hillside)
+				expect(gap ~= nil).to.equal(true)
+				expect(gap <= 1).to.equal(true)
+				worst = math.max(worst, gap)
+			end
+			-- A SECOND DRESS DESTROYS THE FIRST ONE'S WOOD BEFORE PLANTING ITS OWN, and the folder
+			-- does not double.
+			local second = Planter.dressCell(id, grid, hillside, template, nil, nil)
+			expect(second.destroyed).to.equal(report.planted)
+			expect(second.planted).to.equal(report.planted)
+			local folders = Planter.cellWoodFolders(grid)
+			expect(#folders).to.equal(1)
+			expect(#folders[1]:GetChildren()).to.equal(second.planted)
+			-- THE CORNER STAKES ARE NOT A CELL'S WOOD and a dress never touches them.
+			local stake = Instance.new("Part")
+			stake.Name = "Stake_C1_SW"
+			stake.Parent = grid
+			Planter.dressCell(id, grid, hillside, template, nil, nil)
+			expect(stake.Parent).to.equal(grid)
+			-- A NAME NOBODY KNOWS DRESSES NOTHING.
+			local none = Planter.dressCell("Z9", grid, hillside, template, nil, nil)
+			expect(none.planted).to.equal(0)
+			expect(none.reason).to.equal("no-cell")
+			TestKit.note(
+				string.format(
+					"%s on a 1-in-10 hillside: %d planted, %d refused (cliff), %d parts, worst junction %.3f studs above ground",
+					id,
+					report.planted,
+					report.cliff,
+					report.parts,
+					worst
+				)
+			)
+			grid:Destroy()
+			sources:Destroy()
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- 20. one name, one fact
+
+	describe("the grid folder's name", function()
+		it("is the same fact as the ground-ignore list", function()
+			-- SO A PLANTED TREE CAN NEVER ANSWER "WHERE IS THE GROUND" for the next one, and a
+			-- corner stake can never answer it at all (design 8.4).
+			expect(table.find(Forest.GROUND_IGNORE, Planter.GRID_FOLDER) ~= nil).to.equal(true)
+			expect(table.find(Forest.GROUND_IGNORE, Planter.FOLDER) ~= nil).to.equal(true)
+			expect(Planter.GRID_FOLDER).never.to.equal(Planter.FOLDER)
+			TestKit.note(
+				string.format(
+					"GROUND_IGNORE carries %s and %s of %d names",
+					Planter.FOLDER,
+					Planter.GRID_FOLDER,
+					#Forest.GROUND_IGNORE
+				)
+			)
+		end)
+	end)
 end

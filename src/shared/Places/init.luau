@@ -47,6 +47,9 @@
 -- Note:   docs/research/2026-10-17-four-driven-hunt-places.md
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
+-- THE GRID (task 327c): the eight cells' geometry and their seeds. PURE data, one direction only
+-- -- `Grid` requires neither this module nor `ForestTest`.
+local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
 
 local Places = {}
 
@@ -331,6 +334,290 @@ Places.SURFACES = table.freeze({
 	}),
 })
 
+-- ---------------------------------------------------------------- the grid's cells (task 327c)
+
+-- THE NAMED MIXES A CELL'S ZONES DRAW FROM. Karen, 2026-11-01: *"one big terrain where is different
+-- trees growing in different section, mixed"* -- so the SECTION is what names a mix, and two sections
+-- either side of one road must not read the same.
+-- Pattern: character-then-recipe per region (Red Blob Games, "Making maps with noise functions",
+-- design 12D). Every group is a key of `Places.SPECIES`; `grid.spec` case 12 asserts that.
+Places.CELL_MIXES = table.freeze({
+	spruceThicket = mix({ "conifer", 8 }, { "young", 2 }),
+	spruceHigh = mix({ "conifer", 9 }, { "birch", 1 }),
+	mixedWood = mix({ "conifer", 4 }, { "birch", 3 }, { "aspen", 2 }, { "oak", 2 }),
+	birchStand = mix({ "birch", 8 }, { "aspen", 2 }),
+	birchOpen = mix({ "birch", 6 }, { "fieldOak", 2 }, { "young", 1 }),
+	oakWood = mix({ "oak", 6 }, { "birch", 2 }, { "aspen", 2 }),
+	oakPark = mix({ "fieldOak", 7 }, { "birch", 2 }),
+	larchYoung = mix({ "young", 8 }, { "birch", 2 }),
+	aspenWood = mix({ "aspen", 6 }, { "birch", 3 }, { "oak", 1 }),
+	scrub = mix({ "young", 5 }, { "birch", 3 }, { "fieldOak", 2 }),
+	-- THE FLOOR OF A CELL, hugging its four roads: `Places.PLANS`' own `herb` row, under a name,
+	-- because a cell's zones index a mix by name and its floor must index one too.
+	fernFloor = mix({ "fern", 1 }),
+	-- A CLEARING IS AN EMPTY MIX AND NOT A MISSING ONE, so a zone always names a mix that exists and
+	-- `grid.spec` can assert the pair as one fact: an empty mix has `spacingStuds` 0, and spacing 0
+	-- has an empty mix. Nothing is ever drawn from it.
+	clearing = mix(),
+})
+
+-- ONE ZONE of a cell: a rectangle in CELL-RELATIVE FRACTIONS (design 4.5), so a zone row is
+-- independent of the cell's size and survives a `Grid.CONFIG` change to it. `at` is
+-- { x0, z0, x1, z1 } with 0 at the cell's min corner.
+export type Zone = {
+	at: { number },
+	mix: string,
+	spacingStuds: number, -- 0 = no trees at all
+	band: string, -- "wood" | "shrub": which of the plan's two scale bands this zone's trees take
+}
+
+-- A HELPER SO A RECIPE READS AS A TILING AND NOT AS PUNCTUATION. The eight recipes below are its
+-- only callers.
+local function zone(x0: number, z0: number, x1: number, z1: number, spacing: number, name: string, band: string): Zone
+	return table.freeze({
+		at = table.freeze({ x0, z0, x1, z1 }),
+		mix = name,
+		spacingStuds = spacing,
+		band = band,
+	}) :: any
+end
+
+-- HOW FAR INSIDE ITS OWN EDGE A CELL PLANTS. The lane rule measures `<=` (`Places.inLane`), so a
+-- candidate landing exactly on the cell's edge reads as IN the road's clear width -- a cell's
+-- interior starts exactly `roadClearStuds / 2` from each road's centre line. Three studs is clear of
+-- that and costs 0.6 % of the cell's area.
+Places.CELL_EDGE_STUDS = 3
+
+-- THE RANDOM STREAMS, one per layer, hashed through `Grid.seedFor` -- so the trees, the floor and the
+-- skirt cannot shift each other, and NO stream is a counter (design 4.6: a cell's wood is the same
+-- whatever order the cells were built in).
+Places.CELL_STREAM = table.freeze({ trees = 1, ferns = 2, skirt = 3 })
+
+-- THE EIGHT RECIPES, one per cell, keyed by the name `Grid.CELLS[i].recipe` carries.
+--
+-- WHAT A ROW CARRIES THAT `Places.PLANS` DOES NOT, and why the band record is gone: a line place is
+-- dressed in DEPTH BANDS measured out from one road, and a cell is dressed in ZONES over an area
+-- bounded by four. `bands` / `beltStuds` / `northBeltStuds` / `plotHalfWidthStuds` have no meaning
+-- over a rectangle, so they are not carried; `zones` replaces them, and the SURVEYED plot is the cell
+-- itself (task 327a re-measured this block at 20 studs: 33,750/33,750 terrain hits, 0 parts inside).
+-- Everything else is the same field under the same name: `halfStripStuds`, `spacingStuds`,
+-- `deepSpacingStuds`, `fernSpacing`, `minGapStuds`, the two scale bands and `seed`.
+--
+-- `halfStripStuds` IS 9 AND THAT IS ONE FACT WITH THE ROAD, not a second number: `laneHalfWidth`
+-- (9 + `LANE_STUDS` 12) is 21, which is `Grid.CONFIG.roadClearStuds / 2` exactly, so `Places.inLane`
+-- and the grid's own road geometry answer the same question. `grid.spec` case 15 asserts the identity
+-- and then asks the question BOTH ways.
+--
+-- THE TREE COUNT OF EACH ROW IS DERIVED AND WAS CHECKED BEFORE IT WAS WRITTEN (lesson L-167), as
+-- `sum(zone area / spacing^2)` over a 1070 x 1430 cell: A1 1667, B1 1562, C1 1511, D1 1268, A2 1475,
+-- B2 1640, C2 1552, D2 1191 -- against design 8.3's target of ~1,500 for the active cell's own wood.
+-- The spread is deliberate (an open birch wood IS thinner than a spruce thicket), and the actual
+-- planted number is lower again by the `minGapStuds` drops, which is why the census MEASURES it.
+--
+-- ONE DESIGN NUMBER IS WRONG AND IS NOT BUILT TO (lesson L-167): design 8.3's skirt row says "worst
+-- case (4 neighbours)". **In a 2 x 4 grid no cell has four neighbours** -- the grid has no third row,
+-- so a corner cell has 2 and B1/C1/B2/C2 have 3. The worst skirt here is C1's 565 trees against the
+-- design's 650, so the BOUND is not breached; the arithmetic behind it is.
+Places.CELL_PLANS = table.freeze({
+	-- A1, measured `slope`, 113.4 studs of spread: the thicket is on the LOW ground by the main road
+	-- and the wood thins uphill, so the hunter looks into cover and the beaters walk out of light.
+	-- Strips across the fall line, which is what a slope reads as from the road.
+	spruceSlope = table.freeze({
+		halfStripStuds = 9,
+		spacingStuds = 26,
+		deepSpacingStuds = 60,
+		fernSpacing = 24,
+		fernBandStuds = 30,
+		minGapStuds = 12,
+		skirtFullStuds = 80,
+		skirtStuds = 230,
+		shrubScale = table.freeze({ 0.25, 0.45 }),
+		woodScale = table.freeze({ 0.8, 1.2 }),
+		seed = 3271,
+		zones = table.freeze({
+			zone(0.00, 0.00, 1.00, 0.30, 24, "spruceThicket", "wood"),
+			zone(0.00, 0.30, 1.00, 0.55, 30, "mixedWood", "wood"),
+			zone(0.20, 0.55, 0.80, 0.74, 0, "clearing", "wood"),
+			zone(0.00, 0.55, 0.20, 0.74, 34, "spruceHigh", "wood"),
+			zone(0.80, 0.55, 1.00, 0.74, 34, "spruceHigh", "wood"),
+			zone(0.00, 0.74, 1.00, 1.00, 34, "spruceHigh", "wood"),
+		}),
+	}),
+
+	-- B1, measured `slope`, 103.0 studs: white trunks, and one wide clearing off centre so the
+	-- crossings funnel west of it. The regrowth strip at the back is the beaters' own ground.
+	birchSlope = table.freeze({
+		halfStripStuds = 9,
+		spacingStuds = 30,
+		deepSpacingStuds = 60,
+		fernSpacing = 24,
+		fernBandStuds = 30,
+		minGapStuds = 12,
+		skirtFullStuds = 80,
+		skirtStuds = 230,
+		shrubScale = table.freeze({ 0.25, 0.45 }),
+		woodScale = table.freeze({ 0.8, 1.2 }),
+		seed = 3272,
+		zones = table.freeze({
+			zone(0.00, 0.00, 0.55, 0.40, 30, "birchStand", "wood"),
+			zone(0.55, 0.00, 1.00, 0.40, 24, "spruceThicket", "wood"),
+			zone(0.00, 0.40, 1.00, 0.62, 38, "birchOpen", "wood"),
+			zone(0.30, 0.62, 0.95, 0.85, 0, "clearing", "wood"),
+			zone(0.00, 0.62, 0.30, 0.85, 30, "birchStand", "wood"),
+			zone(0.95, 0.62, 1.00, 0.85, 30, "birchStand", "wood"),
+			zone(0.00, 0.85, 1.00, 1.00, 26, "scrub", "shrub"),
+		}),
+	}),
+
+	-- C1, measured `rolling`, 61.7 studs -- the gentlest cell, and the one `Grid.PREVIEW_CELL` shows.
+	-- SEVEN ZONES AND FOUR DIFFERENT WOODS, because it is the cell Karen looks into first: a thicket
+	-- at her left shoulder, mixed wood ahead, an oak park to the east where the sight lines open, and
+	-- a clearing two thirds in with scrub either side of it.
+	mixedRolling = table.freeze({
+		halfStripStuds = 9,
+		spacingStuds = 28,
+		deepSpacingStuds = 60,
+		fernSpacing = 24,
+		fernBandStuds = 30,
+		minGapStuds = 12,
+		skirtFullStuds = 80,
+		skirtStuds = 230,
+		shrubScale = table.freeze({ 0.25, 0.45 }),
+		woodScale = table.freeze({ 0.8, 1.2 }),
+		seed = 3273,
+		zones = table.freeze({
+			zone(0.00, 0.00, 0.40, 0.35, 24, "spruceThicket", "wood"),
+			zone(0.40, 0.00, 1.00, 0.35, 32, "mixedWood", "wood"),
+			zone(0.00, 0.35, 0.60, 0.70, 30, "birchStand", "wood"),
+			zone(0.60, 0.35, 1.00, 0.70, 44, "oakPark", "wood"),
+			zone(0.15, 0.70, 0.65, 1.00, 0, "clearing", "wood"),
+			zone(0.00, 0.70, 0.15, 1.00, 24, "scrub", "shrub"),
+			zone(0.65, 0.70, 1.00, 1.00, 26, "scrub", "shrub"),
+		}),
+	}),
+
+	-- D1, measured `rolling`, 63.5 studs but 36.8 along the line: open-grown oak over a park-like
+	-- east half, so this is the cell a hunter can actually see across -- the thinnest wood of row 1.
+	oakRolling = table.freeze({
+		halfStripStuds = 9,
+		spacingStuds = 32,
+		deepSpacingStuds = 60,
+		fernSpacing = 24,
+		fernBandStuds = 30,
+		minGapStuds = 12,
+		skirtFullStuds = 80,
+		skirtStuds = 230,
+		shrubScale = table.freeze({ 0.25, 0.45 }),
+		woodScale = table.freeze({ 0.8, 1.2 }),
+		seed = 3274,
+		zones = table.freeze({
+			zone(0.00, 0.00, 1.00, 0.22, 34, "oakPark", "wood"),
+			zone(0.00, 0.22, 0.50, 0.60, 28, "oakWood", "wood"),
+			zone(0.50, 0.22, 1.00, 0.60, 44, "oakPark", "wood"),
+			zone(0.00, 0.60, 0.45, 1.00, 32, "mixedWood", "wood"),
+			zone(0.45, 0.60, 1.00, 0.80, 0, "clearing", "wood"),
+			zone(0.45, 0.80, 1.00, 1.00, 30, "birchOpen", "wood"),
+		}),
+	}),
+
+	-- A2, measured `rolling`, 97.7 studs with 42.2 along the line: a larch plantation. The SMALLEST
+	-- trees this world has (`Places.SPECIES.young`: 26-96 studs against the spruces' 56-156), so this
+	-- is the cell where a hunter sees over the wood and a boar is in view the whole way.
+	larchRolling = table.freeze({
+		halfStripStuds = 9,
+		spacingStuds = 28,
+		deepSpacingStuds = 60,
+		fernSpacing = 24,
+		fernBandStuds = 30,
+		minGapStuds = 12,
+		skirtFullStuds = 80,
+		skirtStuds = 230,
+		shrubScale = table.freeze({ 0.30, 0.55 }),
+		woodScale = table.freeze({ 0.8, 1.2 }),
+		seed = 3275,
+		zones = table.freeze({
+			zone(0.00, 0.00, 1.00, 0.26, 26, "larchYoung", "shrub"),
+			zone(0.00, 0.26, 0.35, 0.65, 28, "larchYoung", "shrub"),
+			zone(0.35, 0.26, 1.00, 0.65, 38, "mixedWood", "wood"),
+			zone(0.00, 0.65, 1.00, 0.82, 0, "clearing", "wood"),
+			zone(0.00, 0.82, 1.00, 1.00, 28, "scrub", "shrub"),
+		}),
+	}),
+
+	-- B2, measured `slope`, 129.9 studs and 61.3 along the line -- the steepest line in the world.
+	-- FOUR ZONES, THE FEWEST, and one clearing band straight across the middle: on ground that falls
+	-- 61 studs under the stands the relief IS the variety, and a quilt of small zones would not read.
+	aspenSlope = table.freeze({
+		halfStripStuds = 9,
+		spacingStuds = 30,
+		deepSpacingStuds = 60,
+		fernSpacing = 24,
+		fernBandStuds = 30,
+		minGapStuds = 12,
+		skirtFullStuds = 80,
+		skirtStuds = 230,
+		shrubScale = table.freeze({ 0.25, 0.45 }),
+		woodScale = table.freeze({ 0.8, 1.2 }),
+		seed = 3276,
+		zones = table.freeze({
+			zone(0.00, 0.00, 1.00, 0.34, 28, "aspenWood", "wood"),
+			zone(0.00, 0.34, 1.00, 0.52, 0, "clearing", "wood"),
+			zone(0.00, 0.52, 0.65, 1.00, 30, "aspenWood", "wood"),
+			zone(0.65, 0.52, 1.00, 1.00, 24, "spruceThicket", "wood"),
+		}),
+	}),
+
+	-- C2, measured `rolling`, 142.7 studs: dark conifer either side of a lighter middle, so the
+	-- crossings read against the thickets and not against the sky.
+	spruceRolling = table.freeze({
+		halfStripStuds = 9,
+		spacingStuds = 30,
+		deepSpacingStuds = 60,
+		fernSpacing = 24,
+		fernBandStuds = 30,
+		minGapStuds = 12,
+		skirtFullStuds = 80,
+		skirtStuds = 230,
+		shrubScale = table.freeze({ 0.25, 0.45 }),
+		woodScale = table.freeze({ 0.8, 1.2 }),
+		seed = 3277,
+		zones = table.freeze({
+			zone(0.00, 0.00, 0.30, 0.45, 26, "spruceThicket", "wood"),
+			zone(0.30, 0.00, 0.70, 0.45, 34, "birchOpen", "wood"),
+			zone(0.70, 0.00, 1.00, 0.45, 26, "spruceThicket", "wood"),
+			zone(0.25, 0.45, 0.75, 0.68, 0, "clearing", "wood"),
+			zone(0.00, 0.45, 0.25, 0.68, 28, "spruceHigh", "wood"),
+			zone(0.75, 0.45, 1.00, 0.68, 28, "spruceHigh", "wood"),
+			zone(0.00, 0.68, 1.00, 1.00, 32, "mixedWood", "wood"),
+		}),
+	}),
+
+	-- D2, measured `rolling`, 173.0 studs -- the most broken ground in the world, and the thinnest
+	-- wood on it (1191 trees): an open birch stand with a wide oak park through the middle, where
+	-- what a hunter reads is the hollows and not the trunks.
+	birchRolling = table.freeze({
+		halfStripStuds = 9,
+		spacingStuds = 34,
+		deepSpacingStuds = 60,
+		fernSpacing = 24,
+		fernBandStuds = 30,
+		minGapStuds = 12,
+		skirtFullStuds = 80,
+		skirtStuds = 230,
+		shrubScale = table.freeze({ 0.25, 0.45 }),
+		woodScale = table.freeze({ 0.8, 1.2 }),
+		seed = 3278,
+		zones = table.freeze({
+			zone(0.00, 0.00, 1.00, 0.28, 30, "birchStand", "wood"),
+			zone(0.00, 0.28, 1.00, 0.50, 44, "oakPark", "wood"),
+			zone(0.10, 0.50, 0.60, 0.74, 0, "clearing", "wood"),
+			zone(0.00, 0.50, 0.10, 0.74, 28, "birchStand", "wood"),
+			zone(0.60, 0.50, 1.00, 0.74, 28, "birchStand", "wood"),
+			zone(0.00, 0.74, 1.00, 1.00, 36, "birchOpen", "wood"),
+		}),
+	}),
+})
+
 -- THE SURFACE FOR A LAYOUT, OR NIL. Nil is a place whose ground is left as the world made it --
 -- `edge`, because its field is grass and painting it `Ground` would make a ploughed field, which is a
 -- different place from karen-ref-6.
@@ -581,12 +868,342 @@ function Places.layer(layout: any, plan: any, rng: Random, minX: number, maxX: n
 	return out
 end
 
+-- ---------------------------------------------------------------- a cell's wood (task 327c)
+
+-- THE RECIPE A CELL IS DRESSED WITH, or nil for a name nobody knows -- `planFor`'s own discipline, so
+-- a typo gets no wood rather than the wrong wood.
+function Places.cellPlanFor(cellId: string?): any
+	local cell = Grid.cellOf(cellId)
+	if cell == nil then
+		return nil
+	end
+	return (Places.CELL_PLANS :: any)[cell.recipe]
+end
+
+-- THE MIX A ZONE DRAWS FROM. Nil for a name no mix carries, which `grid.spec` case 12 proves cannot
+-- happen for any shipped zone.
+function Places.cellMixNamed(name: string?): any
+	if type(name) ~= "string" then
+		return nil
+	end
+	return (Places.CELL_MIXES :: any)[name]
+end
+
+-- THE CELL'S PLANTABLE GROUND: its interior, inset by `CELL_EDGE_STUDS` so a jittered candidate can
+-- never land in a road's clear width (see that constant).
+function Places.cellGround(cellId: string): { minX: number, maxX: number, minZ: number, maxZ: number }
+	local box = Grid.boundsOf(cellId)
+	local inset = Places.CELL_EDGE_STUDS
+	return {
+		minX = box.minX + inset,
+		maxX = box.maxX - inset,
+		minZ = box.minZ + inset,
+		maxZ = box.maxZ - inset,
+	}
+end
+
+-- ONE ZONE AS A WORLD RECTANGLE. The fractions are of the cell's INSET ground, so the zones still
+-- tile it exactly and the inset is taken off the outside and never out of a zone boundary.
+function Places.zoneRect(cellId: string, z: any): { minX: number, maxX: number, minZ: number, maxZ: number }
+	local ground = Places.cellGround(cellId)
+	local width = ground.maxX - ground.minX
+	local depth = ground.maxZ - ground.minZ
+	return {
+		minX = ground.minX + z.at[1] * width,
+		minZ = ground.minZ + z.at[2] * depth,
+		maxX = ground.minX + z.at[3] * width,
+		maxZ = ground.minZ + z.at[4] * depth,
+	}
+end
+
+-- WHICH ZONE A WORLD POINT IS IN, or nil outside the cell's ground and in a gap no zone covers. The
+-- SKIRT asks this of the NEIGHBOUR cell, which is how the wood across a road is that cell's own wood
+-- and not the active cell's -- Karen's *"different trees growing in different section"* (design 8.2).
+function Places.zoneAt(cellId: string, x: number, z: number): any
+	local plan = Places.cellPlanFor(cellId)
+	if plan == nil then
+		return nil
+	end
+	for _, item in ipairs(plan.zones) do
+		local rect = Places.zoneRect(cellId, item)
+		if x >= rect.minX and x <= rect.maxX and z >= rect.minZ and z <= rect.maxZ then
+			return item
+		end
+	end
+	return nil
+end
+
+-- EVERY ROAD, ONCE. `Grid.roads()` hands back fresh tables on purpose (nothing can mutate the
+-- world's shape through them), and this module asks the question per candidate -- about 3,000 times a
+-- cell -- so the list is read once and never written.
+local ROADS: { any }? = nil
+local function allRoads(): { any }
+	if ROADS == nil then
+		ROADS = Grid.roads()
+	end
+	return ROADS :: { any }
+end
+
+-- IS THIS POINT CLEAR OF EVERY GRID ROAD'S CLEAR WIDTH? The cell rule, and the ONE definition -- the
+-- planner and `grid.spec` case 15 both ask this function.
+--
+-- IT IS NOT `clearOfEveryLane`, AND THE REASON IS THAT FUNCTION'S OWN GEOMETRY: a layout's line is a
+-- `roadZ(x)` defined for every x, so `ride`'s line at z -4540 would cut a 42-stud bare stripe across
+-- the whole grid footprint 5,000 studs west of where that place actually is. The four line places and
+-- the eight cells are two worlds (design 11.3), only one of them is ever live, and task 327d retires
+-- the first.
+function Places.clearOfEveryRoad(x: number, z: number): boolean
+	local half = Grid.CONFIG.roadClearStuds / 2
+	for _, road in ipairs(allRoads()) do
+		if road.axis == "x" then
+			if math.abs(z - road.at) <= half and x >= road.from and x <= road.to then
+				return false
+			end
+		elseif math.abs(x - road.at) <= half and z >= road.from and z <= road.to then
+			return false
+		end
+	end
+	return true
+end
+
+-- THE CELLS THAT SHARE A ROAD WITH THIS ONE, in `Grid.CELL_ORDER`, with the axis of the road between
+-- them ("x" is an east-west road, so the shared frontage is the cell's WIDTH; "z" its depth).
+--
+-- IN `CELL_ORDER` AND NOT IN A COMPASS ORDER, because the skirt's random stream walks this list: a
+-- fixed order is what makes a cell's skirt the same list every time (design 4.6).
+function Places.neighboursOf(cellId: string): { { id: string, axis: string } }
+	local cell = Grid.cellOf(cellId)
+	local out: { { id: string, axis: string } } = {}
+	if cell == nil then
+		return out
+	end
+	for _, id in ipairs(Grid.cellIds()) do
+		local other = Grid.cellOf(id)
+		if other ~= nil and id ~= cellId then
+			if other.row == cell.row and math.abs(other.column - cell.column) == 1 then
+				table.insert(out, { id = id, axis = "z" })
+			elseif other.column == cell.column and math.abs(other.row - cell.row) == 1 then
+				table.insert(out, { id = id, axis = "x" })
+			end
+		end
+	end
+	return out
+end
+
+-- THE SKIRT'S BANDS INSIDE ONE NEIGHBOUR, measured from the SHARED ROAD inward (design 8.2): the
+-- first `skirtFullStuds` at the ACTIVE cell's own spacing, then out to `skirtStuds` at
+-- `deepSpacingStuds`. A hunter on the main line looks 21 studs across the road into the next cell, so
+-- without this he is looking at bare grass.
+function Places.skirtBands(cellId: string, other: string, axis: string, plan: any): { any }
+	local mine = Grid.boundsOf(cellId)
+	local theirs = Places.cellGround(other)
+	local out: { any } = {}
+	-- WHICH WAY IS INWARD: from the shared road, into the neighbour, away from this cell.
+	local from, sign
+	if axis == "z" then
+		-- an east-west step: the shared road is a north-south one, so the band runs in x.
+		sign = if theirs.minX > mine.maxX then 1 else -1
+		from = if sign > 0 then theirs.minX else theirs.maxX
+	else
+		sign = if theirs.minZ > mine.maxZ then 1 else -1
+		from = if sign > 0 then theirs.minZ else theirs.maxZ
+	end
+	for _, band in ipairs({
+		{ near = 0, far = plan.skirtFullStuds, spacing = plan.spacingStuds },
+		{ near = plan.skirtFullStuds, far = plan.skirtStuds, spacing = plan.deepSpacingStuds },
+	}) do
+		local a = from + sign * band.near
+		local b = from + sign * band.far
+		local rect
+		if axis == "z" then
+			rect = {
+				minX = math.max(theirs.minX, math.min(a, b)),
+				maxX = math.min(theirs.maxX, math.max(a, b)),
+				minZ = theirs.minZ,
+				maxZ = theirs.maxZ,
+			}
+		else
+			rect = {
+				minX = theirs.minX,
+				maxX = theirs.maxX,
+				minZ = math.max(theirs.minZ, math.min(a, b)),
+				maxZ = math.min(theirs.maxZ, math.max(a, b)),
+			}
+		end
+		if rect.maxX > rect.minX and rect.maxZ > rect.minZ then
+			table.insert(out, { rect = rect, spacing = band.spacing, deep = band.near > 0 })
+		end
+	end
+	return out
+end
+
+-- THE FOUR FERN BANDS, hugging the cell's own edges from the inside -- design 8.2's `Krautsaum`
+-- applied to a rectangle instead of to a line. Four rectangles and not one ring, so the corners are
+-- covered once each and the spec can add their areas up.
+function Places.fernBands(cellId: string, plan: any): { any }
+	local g = Places.cellGround(cellId)
+	local w = plan.fernBandStuds
+	local inner = { minX = g.minX + w, maxX = g.maxX - w, minZ = g.minZ + w, maxZ = g.maxZ - w }
+	return {
+		{ minX = g.minX, maxX = g.maxX, minZ = g.minZ, maxZ = g.minZ + w },
+		{ minX = g.minX, maxX = g.maxX, minZ = g.maxZ - w, maxZ = g.maxZ },
+		{ minX = g.minX, maxX = g.minX + w, minZ = inner.minZ, maxZ = inner.maxZ },
+		{ minX = g.maxX - w, maxX = g.maxX, minZ = inner.minZ, maxZ = inner.maxZ },
+	}
+end
+
+-- THE SCALE FOR ONE ZONE'S BAND. `shrub` is this world's young growth (`LarchTree_*` at 0.25-0.55 of
+-- the template), `wood` a full tree.
+local function scaleFor(plan: any, band: string, rng: Random): number
+	if band == "shrub" then
+		return plan.shrubScale[1] + rng:NextNumber() * (plan.shrubScale[2] - plan.shrubScale[1])
+	end
+	return plan.woodScale[1] + rng:NextNumber() * (plan.woodScale[2] - plan.woodScale[1])
+end
+
+-- ONE JITTERED GRID OVER ONE RECTANGLE. The same arithmetic `Places.layer` uses on a band, lifted so
+-- a zone, a fern band and a skirt band are three callers of one loop rather than three copies of it.
+--
+-- `pick` ANSWERS (mix, band) FOR A POINT or nil to plant nothing there, which is how a clearing on the
+-- far side of a road stays a clearing: the skirt asks the NEIGHBOUR's zones.
+local function scatter(
+	out: { Planting },
+	rect: any,
+	spacing: number,
+	grid: any,
+	gap: number,
+	rng: Random,
+	plan: any,
+	side: number,
+	pick: (number, number) -> (any, string?)
+)
+	if spacing <= 0 then
+		return
+	end
+	for x = rect.minX, rect.maxX, spacing do
+		local z = rect.minZ
+		while z < rect.maxZ do
+			local jx = x + (rng:NextNumber() - 0.5) * spacing * Places.JITTER
+			local jz = z + rng:NextNumber() * spacing * Places.JITTER
+			z += spacing
+			if
+				jx >= rect.minX
+				and jx <= rect.maxX
+				and jz >= rect.minZ
+				and jz <= rect.maxZ
+				and Places.clearOfEveryRoad(jx, jz)
+			then
+				local rows, band = pick(jx, jz)
+				if rows ~= nil and band ~= nil and #rows > 0 and not tooClose(grid, jx, jz, gap) then
+					local group = Places.speciesFrom(rows, rng:NextNumber())
+					local names = (Places.SPECIES :: any)[group]
+					table.insert(out, {
+						model = names[rng:NextInteger(1, #names)],
+						x = jx,
+						z = jz,
+						scale = if band == "herb" then 0.8 + rng:NextNumber() * 0.9 else scaleFor(plan, band, rng),
+						yaw = rng:NextNumber() * math.pi * 2,
+						band = band,
+						side = side,
+					})
+				end
+			end
+		end
+	end
+end
+
+-- THE WHOLE PLANTING LIST FOR ONE CELL: its zones, its fern bands, and a skirt into every neighbour.
+-- PURE -- no Instance, no terrain, no `Workspace`, and no `y`.
+--
+-- A PURE FUNCTION OF THE CELL ID AND NOTHING ELSE. Every stream is `Grid.seedFor(id, stream)`, which
+-- hashes `(CONFIG.seed, row, column, stream)` and never a counter, so planting B1 before A1 gives A1
+-- exactly the list planting A1 first gives it (`grid.spec` case 13). That is Minecraft's own per-chunk
+-- rule, and `drive-places.md` section 10.1 is where this project learned why it matters.
+function Places.plantCell(cellId: string): { Planting }
+	local out: { Planting } = {}
+	local plan = Places.cellPlanFor(cellId)
+	if plan == nil then
+		return out
+	end
+	-- ONE NEIGHBOUR GRID FOR EVERY TREE, cell and skirt alike: two trees on opposite sides of a road
+	-- are 42 studs apart and can never be within `minGapStuds`, but one hash costs nothing and means
+	-- the gap rule has no seam in it.
+	local trees = {}
+	local rng = Random.new(Grid.seedFor(cellId, Places.CELL_STREAM.trees))
+	for _, item in ipairs(plan.zones) do
+		local rect = Places.zoneRect(cellId, item)
+		local rows = Places.cellMixNamed(item.mix)
+		scatter(out, rect, item.spacingStuds, trees, plan.minGapStuds, rng, plan, 1, function()
+			return rows, item.band
+		end)
+	end
+	-- THE FLOOR, on its own stream and its own neighbour grid (`Places.layer`'s own discipline: a fern
+	-- under a tree is right, two ferns in one spot is not).
+	local floor = {}
+	local fernRng = Random.new(Grid.seedFor(cellId, Places.CELL_STREAM.ferns))
+	local fernRows = Places.cellMixNamed("fernFloor")
+	for _, rect in ipairs(Places.fernBands(cellId, plan)) do
+		scatter(out, rect, plan.fernSpacing, floor, 0.5 * plan.fernSpacing, fernRng, plan, 1, function()
+			return fernRows, "herb"
+		end)
+	end
+	-- THE SKIRT, into every neighbour, at THIS cell's density and the NEIGHBOUR's own species.
+	local skirtRng = Random.new(Grid.seedFor(cellId, Places.CELL_STREAM.skirt))
+	for _, near in ipairs(Places.neighboursOf(cellId)) do
+		for _, band in ipairs(Places.skirtBands(cellId, near.id, near.axis, plan)) do
+			scatter(out, band.rect, band.spacing, trees, plan.minGapStuds, skirtRng, plan, -1, function(x, z)
+				local zoneThere = Places.zoneAt(near.id, x, z)
+				if zoneThere == nil then
+					return nil, nil
+				end
+				return Places.cellMixNamed(zoneThere.mix), zoneThere.band
+			end)
+		end
+	end
+	return out
+end
+
+-- THE UPPER BOUND ON WHAT ONE CELL PLANTS, known before anything runs: every grid's cell count, with
+-- nothing subtracted for the lane rule or the gap rule. Design 8.3's hard bound is 3,600 models a
+-- drive and `grid.spec` case 14 asserts BOTH halves -- `#plantCell(id) <= this` and `this < 3600`.
+function Places.cellCapacity(cellId: string): number
+	local plan = Places.cellPlanFor(cellId)
+	if plan == nil then
+		return 0
+	end
+	local function cells(rect: any, spacing: number): number
+		if spacing <= 0 then
+			return 0
+		end
+		return (math.floor((rect.maxX - rect.minX) / spacing) + 1) * (math.floor((rect.maxZ - rect.minZ) / spacing) + 1)
+	end
+	local total = 0
+	for _, item in ipairs(plan.zones) do
+		total += cells(Places.zoneRect(cellId, item), item.spacingStuds)
+	end
+	for _, rect in ipairs(Places.fernBands(cellId, plan)) do
+		total += cells(rect, plan.fernSpacing)
+	end
+	for _, near in ipairs(Places.neighboursOf(cellId)) do
+		for _, band in ipairs(Places.skirtBands(cellId, near.id, near.axis, plan)) do
+			total += cells(band.rect, band.spacing)
+		end
+	end
+	return total
+end
+
 -- THE UPPER BOUND ON WHAT A PLACE PLANTS, known before anything is cloned. A number that can be
 -- asserted is what stops a density tweak quietly becoming a 20,000-part world. It counts the deep
 -- band at its own coarser cell (design 10.2) over the SURVEYED width (design 10.5).
 function Places.capacity(layout: any, plan: any): number
 	if layout == nil or plan == nil then
 		return 0
+	end
+	-- A CELL IS BOUNDED BY FOUR ROADS AND A LINE PLACE BY ONE, so the two bounds are different
+	-- arithmetic -- but they answer the same question and callers ask it under one name. The PLAN is
+	-- what says which: only a cell recipe carries `zones` (task 327c).
+	if plan.zones ~= nil then
+		return Places.cellCapacity(layout.name)
 	end
 	local minX, maxX = Places.widthOf(layout, plan)
 	local width = maxX - minX
