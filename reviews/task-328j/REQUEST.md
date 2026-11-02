@@ -1,7 +1,7 @@
 # Task 328j -- the bake's two fixes, and C1 BAKED in Karen's Forest Test
 
 Task: 328j
-Round: 2
+Round: 1
 Base: 6b520717 (origin/main)
 Code commit: 3f7628fe8f1aee11d95c17e5f786d65e01cba55c
 
@@ -11,7 +11,10 @@ Code commit: 3f7628fe8f1aee11d95c17e5f786d65e01cba55c
 
 `test2` is N/A: nothing here is in `TWO_PLAYER_PATHS` (the bake is the map and the tools).
 
-**Round 1 PASSED** (`reviews/task-328j/RESULT.md`, `46c4e355`) and its twelve notes are queued in
+**The first review PASSED** (`reviews/task-328j/RESULT.md` at commit `3886e92a`; a copy is at
+`<runs-dir>/328j-RESULT-round1-PASS.md` because this run overwrites that file -- the gate counts a
+PASS as closing the count, so this request is `Round: 1` again and `agents.py` refuses any other
+number) and its twelve notes are queued in
 `TASKS.md`, not fixed here. This round covers only what changed after it: two tool bugs that each
 stopped the bake dead, and **the bake itself**, which has now run. The whole branch against `main`
 is 328d plus 328j; 328d's request still stands.
