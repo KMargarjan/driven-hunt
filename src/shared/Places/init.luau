@@ -914,6 +914,8 @@ export type Zone = {
 	rows: string?, -- "NS": hold the x line and let only the depth wander -- a plantation
 	reliefBias: boolean?, -- spruce below hn .30, birch above .70, off the cell's measured relief
 	floor: string?, -- which floor table this zone takes (the bake's, not the planter's)
+	-- v3 (task 328m): A SECOND STOREY over the same rectangle, young growth under the canopy.
+	under: { spacingStuds: number, mix: string, jitter: number? }?,
 }
 
 -- A HELPER SO A RECIPE READS AS A TILING AND NOT AS PUNCTUATION. The eight recipes below are its
@@ -952,7 +954,15 @@ Places.CELL_EDGE_STUDS = 3
 -- THE RANDOM STREAMS, one per layer, hashed through `Grid.seedFor` -- so the trees, the floor and the
 -- skirt cannot shift each other, and NO stream is a counter (design 4.6: a cell's wood is the same
 -- whatever order the cells were built in).
-Places.CELL_STREAM = table.freeze({ trees = 1, ferns = 2, skirt = 3 })
+-- `under` IS THE UNDERSTOREY'S OWN STREAM (task 328m), so adding a second storey to one zone cannot
+-- move a single canopy stem -- `grid.spec` asserts that pair rather than assuming it.
+Places.CELL_STREAM = table.freeze({ trees = 1, ferns = 2, skirt = 3, under = 4 })
+
+-- HOW FAR AN UNDERSTOREY SITE WANDERS off its grid, as a fraction of its own spacing, when the row
+-- names none. 1.0 -- the whole cell -- because a sapling thicket has no grid in it at all, and
+-- because the canopy is planted FIRST and shares `minGapStuds`: a wandering sapling finds the gaps
+-- between trunks, which is where young growth actually stands.
+Places.UNDER_JITTER = 1.0
 
 -- THE EIGHT RECIPES, one per cell, keyed by the name `Grid.CELLS[i].recipe` carries.
 --
@@ -1087,14 +1097,59 @@ Places.CELL_PLANS = table.freeze({
 		-- `reliefBias` ON THE FOUR WOOD ZONES (design 8.3): C1 is the ridge cell, so spruce takes the
 		-- cold bottom under hn .30 and birch the crest over .70. The two scrub zones and the
 		-- clearing are left alone -- a bias that rewrote the scrub would erase the beaters' ground.
+		-- v3 (task 328m). KAREN, 2026-11-03, HAVING PLAYED C1: *"it's not broken trees it's good has
+		-- to be a bit more realistic more trees but rest is good"*. C1 is the only recipe that takes
+		-- these rows -- the other seven are untouched until she has judged this one.
+		--
+		-- WHAT EACH ZONE GETS, SAID PER ZONE, because "the rest is good" is a claim about ZONES and
+		-- round 1's header made it about three of them while the rows made it about four
+		-- (`reviews/task-328m/RESULT.md` finding 1):
+		--  * `spruceThicket`, `mixedWood`, `birchStand` -- CLOSER (24/32/30 -> 21/28/27) AND a second
+		--    storey (`under`): young larch at the `shrub` band's 0.35-0.45 scale, sharing the
+		--    canopy's `minGapStuds` so it clumps into the gaps between trunks.
+		--  * `oakPark` -- SPACING AND STOREY BOTH UNCHANGED. It is the park a hunter can see across
+		--    (this recipe's own header: *"an oak park to the east where the sight lines open"*) and
+		--    it is the part of "the rest" she said was good, so it gets neither.
+		--  * the clearing -- NOTHING. Spacing 0, no jitter, plants nothing, exactly as before.
+		--  * the two `scrub` zones -- SPACING UNCHANGED, but `jitter` 1.0 like every other zone, so
+		--    their sites DO move. That is not "untouched" and is not claimed to be: at the 0.8
+		--    default a site wanders over 80 % of its own step, which leaves a 20 % empty stripe per
+		--    row -- a grid you can see. 1.0 spans the step, costs no capacity, and is the dispatch's
+		--    *"no rows where the design does not ask for rows"*.
+		--
+		-- THE BUDGET IS WHAT SETS THE NUMBERS, not taste: design 8.3's hard bound is `cellCapacity`
+		-- < 3,600 and `grid.spec` case 14 asserts it. C1 stood at 2,598; these rows put it at 3,416,
+		-- which leaves 184 -- the park's 132 among them, now that it carries no second storey.
+		-- MEASURED, three allocations of that same budget (`driven-hunt-runs/328m-yield-v{1,2,3}.txt`):
+		-- 1,885 / 1,876 / 1,886 planned models at capacity 3,548 / 3,588 / 3,526. The count PLATEAUS,
+		-- because what refuses a site is `minGapStuds` and `Places.mask`, not the grid -- a per-zone
+		-- yield of 54-76 % in the canopy and 19-47 % under it. So the three are one count with three
+		-- storey splits, and this one is the split with the most understorey (232 saplings against
+		-- 148 and 150). `minGapStuds` 12 is NOT lowered: these crowns are 20-80 studs wide and
+		-- already interpenetrate at 12.
 		zones = table.freeze({
-			zone(0.00, 0.00, 0.40, 0.35, 24, "spruceThicket", "wood", { reliefBias = true }),
-			zone(0.40, 0.00, 1.00, 0.35, 32, "mixedWood", "wood", { reliefBias = true }),
-			zone(0.00, 0.35, 0.60, 0.70, 30, "birchStand", "wood", { reliefBias = true }),
-			zone(0.60, 0.35, 1.00, 0.70, 44, "oakPark", "wood", { reliefBias = true, jitter = 1.0 }),
+			zone(0.00, 0.00, 0.40, 0.35, 21, "spruceThicket", "wood", {
+				reliefBias = true,
+				jitter = 1.0,
+				under = table.freeze({ spacingStuds = 42, mix = "larchYoung" }),
+			}),
+			zone(0.40, 0.00, 1.00, 0.35, 28, "mixedWood", "wood", {
+				reliefBias = true,
+				jitter = 1.0,
+				under = table.freeze({ spacingStuds = 42, mix = "larchYoung" }),
+			}),
+			zone(0.00, 0.35, 0.60, 0.70, 27, "birchStand", "wood", {
+				reliefBias = true,
+				jitter = 1.0,
+				under = table.freeze({ spacingStuds = 42, mix = "larchYoung" }),
+			}),
+			zone(0.60, 0.35, 1.00, 0.70, 44, "oakPark", "wood", {
+				reliefBias = true,
+				jitter = 1.0,
+			}),
 			zone(0.15, 0.70, 0.65, 1.00, 0, "clearing", "wood"),
-			zone(0.00, 0.70, 0.15, 1.00, 24, "scrub", "shrub"),
-			zone(0.65, 0.70, 1.00, 1.00, 26, "scrub", "shrub"),
+			zone(0.00, 0.70, 0.15, 1.00, 24, "scrub", "shrub", { jitter = 1.0 }),
+			zone(0.65, 0.70, 1.00, 1.00, 26, "scrub", "shrub", { jitter = 1.0 }),
 		}),
 	}),
 
@@ -2617,6 +2672,47 @@ function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?
 			return rows, item.band
 		end, { maskCell = cellId, maskPlan = plan, zone = item, heightAt = heightAt })
 	end
+	-- THE UNDERSTOREY (task 328m), AFTER EVERY CANOPY ZONE AND ON THE SAME NEIGHBOUR GRID.
+	--
+	-- Karen, 2026-11-03, on C1: *"it's not broken trees it's good has to be a bit more realistic more
+	-- trees but rest is good"*. A mature wood has two storeys; this one had one, so the floor between
+	-- the trunks read as a lawn.
+	--
+	-- **THE SAME `trees` GRID AND THE SAME `minGapStuds`**, for two reasons. `tooClose` buckets by the
+	-- gap it is handed, so two gaps in one grid would bucket inconsistently and the rule would stop
+	-- being a rule. And sharing it is what makes the layer CLUMP: the canopy went in first, so a
+	-- sapling is refused where the stems are close and planted where they are not.
+	--
+	-- NO `reliefBias` AND NO `heightAt`: the bias rewrites `young` to `conifer` below hn .30, and a
+	-- spruce at a sapling's scale is a 1-stud-thick trunk (`Places.SPECIES.young`'s own header).
+	local underRng = Random.new(Grid.seedFor(cellId, Places.CELL_STREAM.under))
+	for _, item in ipairs(plan.zones) do
+		local under = item.under
+		if under ~= nil then
+			local rows = Places.cellMixNamed(under.mix)
+			-- THE SYNTHETIC RECIPE CARRIES `jitter` AND NOTHING ELSE, so an understorey is never
+			-- biased by relief and never planted in rows. A `rows = "NS"` zone would get a scattered
+			-- storey under a planted one; no recipe has both today (C1 has no `rows` zone).
+			scatter(
+				out,
+				Places.zoneRect(cellId, item),
+				under.spacingStuds,
+				trees,
+				plan.minGapStuds,
+				underRng,
+				plan,
+				1,
+				function()
+					return rows, "shrub"
+				end,
+				{
+					maskCell = cellId,
+					maskPlan = plan,
+					zone = { jitter = under.jitter or Places.UNDER_JITTER },
+				}
+			)
+		end
+	end
 	-- THE FLOOR, on its own stream and its own neighbour grid (`Places.layer`'s own discipline: a fern
 	-- under a tree is right, two ferns in one spot is not).
 	--
@@ -2672,6 +2768,11 @@ function Places.cellCapacity(cellId: string): number
 	local total = 0
 	for _, item in ipairs(plan.zones) do
 		total += cells(Places.zoneRect(cellId, item), item.spacingStuds)
+		-- THE UNDERSTOREY IS PART OF THE BOUND (task 328m) and not an exemption from it: a second
+		-- storey that the budget did not count would breach design 8.3's < 3,600 unseen.
+		if item.under ~= nil then
+			total += cells(Places.zoneRect(cellId, item), item.under.spacingStuds)
+		end
 	end
 	for _, rect in ipairs(Places.fernBands(cellId, plan)) do
 		total += cells(rect, plan.fernSpacing)

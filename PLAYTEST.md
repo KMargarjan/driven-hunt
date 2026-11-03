@@ -3,6 +3,30 @@
 Karen's test sessions, newest first. The Builder adds Karen's feedback here every round (same PR),
 and turns each "to fix" item into a row in `TASKS.md`, linked by session date.
 
+## 2026-11-03 -- C1 in the Forest Test (task 328m)
+
+Karen played C1 in her Forest Test. Her words, verbatim:
+
+> those gates shouldnt be
+
+(said of a frame taken from a road, looking down it at a junction: two tall yellow-orange pillars
+standing one either side of the road.) They are the **32 corner stakes** task 327a planted behind
+`GRID_PREVIEW` to show where the eight cells are. Task 328m removes them from the world and archives
+the build (`backups/2026-11-03_task-328m_Places-stakeGrid-and-grid-case-22.md`, rule 7).
+
+> it's not broken trees it's good has to be a bit more realistic more trees but rest is good
+
+Task 328m raises C1's density, per zone -- because "the rest is good" is a claim about zones:
+
+- `spruceThicket`, `mixedWood`, `birchStand`: closer (24/32/30 -> 21/28/27) **and** a second storey
+  of young larch under the canopy;
+- `oakPark`: **neither**. It is the park a hunter can see across, and it is part of "the rest";
+- the clearing: nothing at all;
+- the two `scrub` zones: the same spacing, but `jitter` 1.0 like every zone -- so their sites do
+  move. At the old 0.8 a site wandered over 80 % of its step, leaving an empty stripe per row.
+
+Measured in her place: trees **1,433 -> 1,687**. **She has not judged the new density yet.**
+
 ## Quick test mode: boars on the road in seconds (Studio only, Task 83)
 
 A real drive is 20 s of intermission plus 20 s before the first release, and the first boars start
