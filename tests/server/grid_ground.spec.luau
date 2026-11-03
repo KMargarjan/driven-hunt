@@ -582,8 +582,11 @@ return function()
 			local box = Grid.boundsOf(cellId)
 			local x = (box.minX + box.maxX) / 2
 			-- INTO THE CELL from the main road's centre line, one band at a time.
+			-- GRID IN (task 328r): `road.at` is a grid station and every band below is measured from
+			-- it, so the question is `maskGrid`'s. Asked of `mask` these points are read as world
+			-- points and mapped BACK, which at 45/60 moves them out of their own band.
 			local function at(distance: number): string?
-				return Plan.mask(cellId, x, road.at + distance, nil, nil)
+				return Plan.maskGrid(cellId, x, road.at + distance, nil, nil)
 			end
 			expect(at(0)).to.equal(Plan.REASON.ROAD)
 			expect(at(21)).to.equal(Plan.REASON.ROAD)
@@ -922,7 +925,24 @@ return function()
 			local plan = Plan.cellPlanFor("C1")
 			expect(plan.fernBand.fromStuds).to.equal(Plan.VERGE_STUDS.to)
 			for _, rect in ipairs(Plan.fernBands("C1", plan)) do
-				expect(roadGap(rect.minX, rect.minZ) >= Plan.VERGE_STUDS.to).to.equal(true)
+				-- A GRID RECT, AND THE BAND IS AN AXIS-ALIGNED GRID RULE (task 328r): `fernBands`
+				-- insets by `fromStuds` from the road's grid line, so that is the distance to
+				-- assert. `roadDistanceGrid` answers the PERPENDICULAR distance, which on a bend is
+				-- `cos(swing)` of it -- 33.73 where the band starts at 34 -- so the band's inner
+				-- edge counts as verge and the mask refuses it. That is the conservative side and
+				-- it is asserted as its own bound rather than left to be discovered.
+				local axis = math.min(
+					math.abs(rect.minZ - Grid.roadsOf("C1").main.at),
+					math.abs(rect.minZ - Grid.roadsOf("C1").muster.at),
+					math.abs(rect.minX - Grid.roadsOf("C1").west.at),
+					math.abs(rect.minX - Grid.roadsOf("C1").east.at)
+				)
+				expect(axis >= Plan.VERGE_STUDS.to - 1e-9).to.equal(true)
+				local swing = math.max(Grid.bendFacts("x").swingDeg, Grid.bendFacts("z").swingDeg)
+				expect(
+					Plan.roadDistanceGrid(rect.minX, rect.minZ)
+						>= Plan.VERGE_STUDS.to * math.cos(math.rad(swing)) - 1e-9
+				).to.equal(true)
 			end
 		end)
 	end)
@@ -1037,8 +1057,18 @@ return function()
 
 		it("C1's L rides stand at the two depths SWARM_DESIGN 2.2 names, 560 and 780", function()
 			local main = Grid.roadsOf("C1").main
-			expect(Grid.standPosition("C1", 9).Z - main.at).to.be.near(560, 1e-6)
-			expect(Grid.standPosition("C1", 14).Z - main.at).to.be.near(780, 1e-6)
+			-- THEY ARE **GRID** DEPTHS, AND THE BEND MOVED THEM (task 328r). SWARM 2.2's 560 and
+			-- 780 are `flankFirstStuds + k * flankSpacing` at the straight set-back of 340; at
+			-- 45/60 the set-back solves to 366, so the two depths are 586 and 806. The WORLD z is
+			-- a third number again (578.83 and 813.49, measured), because the stand sits on the
+			-- road's curve -- all three are asserted so none can be read as another.
+			local straight = { ewStuds = 0, nsStuds = 0, harmonic = 1 }
+			expect(select(2, Grid.standGridOf("C1", 9, straight)) - main.at).to.be.near(560, 1e-6)
+			expect(select(2, Grid.standGridOf("C1", 14, straight)) - main.at).to.be.near(780, 1e-6)
+			expect(select(2, Grid.standGridOf("C1", 9)) - main.at).to.be.near(586, 1e-6)
+			expect(select(2, Grid.standGridOf("C1", 14)) - main.at).to.be.near(806, 1e-6)
+			expect(Grid.standPosition("C1", 9).Z - main.at).to.be.near(578.83, 0.01)
+			expect(Grid.standPosition("C1", 14).Z - main.at).to.be.near(813.49, 0.01)
 			-- **THE DEPTH IS A GRID FACT AND THAT IS WHY IT SURVIVES THE BEND** (task 328q): it is
 			-- `flankFirstStuds + k * flankSpacing` at ANY amplitude, driven here by parameter. The
 			-- design's 5.4 names 586 / 806 for these two at 45/60, and those are the GRID depths --
@@ -1068,7 +1098,7 @@ return function()
 			-- ON THE V RIDE's own centreline, a third of the way up it -- far from the road bands.
 			local x = seg.ax + (seg.bx - seg.ax) / 3
 			local z = seg.az + (seg.bz - seg.az) / 3
-			expect(Plan.mask(id, x, z, nil, nil)).to.equal(Plan.REASON.RIDE)
+			expect(Plan.maskGrid(id, x, z, nil, nil)).to.equal(Plan.REASON.RIDE)
 			-- ...AND JUST OUTSIDE IT, the same depth, is not refused for a ride.
 			local out = Plan.mask(id, x + Plan.RIDE_CLEAR_STUDS, z, nil, nil)
 			expect(out ~= Plan.REASON.RIDE).to.equal(true)
@@ -1118,7 +1148,8 @@ return function()
 			local box = Grid.boundsOf(id)
 			local z = box.minZ + 700
 			local x = Plan.corridorXAt(id, 1, z)
-			expect(Plan.mask(id, x, z, nil, nil)).to.equal(Plan.REASON.CORRIDOR)
+			-- A GRID x AT A GRID z, so the question is `maskGrid`'s (task 328r).
+			expect(Plan.maskGrid(id, x, z, nil, nil)).to.equal(Plan.REASON.CORRIDOR)
 			local off = Plan.CORRIDOR.halfStuds * 3
 			expect(Plan.mask(id, x + off, z, nil, nil) ~= Plan.REASON.CORRIDOR).to.equal(true)
 			expect(Plan.mask(id, x - off, z, nil, nil) ~= Plan.REASON.CORRIDOR).to.equal(true)
@@ -1146,11 +1177,13 @@ return function()
 			-- IT BITES: D1 plants nothing inside the field.
 			local inside = 0
 			for _, item in ipairs(planOf("D1")) do
+				-- A ROW CARRIES THE WORLD POINT; `rect` IS A GRID RECT (task 328r).
+				local gx, gz = Grid.toGrid(item.x, item.z)
 				if
-					item.x > rect.minX + plan.field.headlandStuds
-					and item.x < rect.maxX - plan.field.headlandStuds
-					and item.z > rect.minZ + plan.field.headlandStuds
-					and item.z < rect.maxZ - plan.field.headlandStuds
+					gx > rect.minX + plan.field.headlandStuds
+					and gx < rect.maxX - plan.field.headlandStuds
+					and gz > rect.minZ + plan.field.headlandStuds
+					and gz < rect.maxZ - plan.field.headlandStuds
 				then
 					inside += 1
 				end
@@ -1185,8 +1218,10 @@ return function()
 			expect(Plan.TOWER_CLEAR_STUDS < Plan.ROAD_TRUNK_FLOOR_STUDS).to.equal(true)
 			for _, id in ipairs(Grid.cellIds()) do
 				for index = 1, Grid.standCount(id) do
+					-- 1e-3 AND NOT 1e-6: `standPosition` returns a `Vector3`, whose components are
+					-- float32 (measured residual 1.87e-4 at 45/60). The arithmetic is exact.
 					local spot = Grid.standPosition(id, index)
-					expect(roadGap(spot.X, spot.Z)).to.be.near(0, 1e-6)
+					expect(roadGap(spot.X, spot.Z)).to.be.near(0, 1e-3)
 				end
 			end
 			-- AND NO PLANTING OF ANY CELL IS INSIDE EITHER CLEARANCE, which is the fact that matters.

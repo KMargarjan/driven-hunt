@@ -1290,8 +1290,17 @@ return function()
 			local gather, normal = Match.gatherSpotFor(set, Match.CONFIG)
 			expect(gather).to.be.ok()
 			expect(math.abs((normal :: Vector3).Z - 1) < 1e-6).to.equal(true)
-			expect(math.abs((gather :: Vector3).Z - (roads.main.at - behind)) < 1e-3).to.equal(true)
-			expect(math.abs((gather :: Vector3).X - layout.centre.X) < 1e-3).to.equal(true)
+			-- IT IS BEHIND THE MIDDLE **LINE** POST, and that post is on the road's curve at its own
+			-- x (task 328r). `layout.centre.X` is the GRID centre; at 45/60 the middle post's world
+			-- x is up to `maxBendStuds` from it, so both are asserted and neither stands in for the
+			-- other.
+			local middleLine = set.linePosts[math.ceil(#set.linePosts / 2)]
+			expect(math.abs((gather :: Vector3).Z - (middleLine.Position.Z - behind)) < 1e-3).to.equal(true)
+			expect(math.abs((gather :: Vector3).X - middleLine.Position.X) < 1e-3).to.equal(true)
+			expect(math.abs(middleLine.Position.Z - Grid.roadCentreAt(roads.main, middleLine.Position.X)) < 1e-3).to.equal(
+				true
+			)
+			expect(math.abs((gather :: Vector3).X - layout.centre.X) <= Grid.maxBendStuds()).to.equal(true)
 			-- ...and it is NOT the flank answer, said as its own assertion so the number that would
 			-- have been wrong is named rather than implied.
 			expect(math.abs((gather :: Vector3).Z - (wrongMiddle.Position.Z - behind)) > 1).to.equal(true)
@@ -1300,8 +1309,12 @@ return function()
 			local through = Match.throughSpotFor(set, Match.CONFIG, 0)
 			expect(through).to.be.ok()
 			local throughBehind = Match.CONFIG.BEATER_THROUGH.BEHIND_STUDS
-			expect(math.abs((through :: CFrame).Position.Z - (roads.main.at - throughBehind)) < 1e-3).to.equal(true)
-			expect(math.abs((through :: CFrame).Position.X - layout.centre.X) < 1e-3).to.equal(true)
+			-- BEHIND THE SAME MIDDLE LINE POST, on the road's curve at its own x (task 328r).
+			expect(math.abs((through :: CFrame).Position.Z - (middleLine.Position.Z - throughBehind)) < 1e-3).to.equal(
+				true
+			)
+			expect(math.abs((through :: CFrame).Position.X - middleLine.Position.X) < 1e-3).to.equal(true)
+			expect(math.abs((through :: CFrame).Position.X - layout.centre.X) <= Grid.maxBendStuds()).to.equal(true)
 			-- AND ON A SHIPPED LAYOUT NOTHING MOVED: `linePosts` IS `posts` there, so the middle of
 			-- the road's nine is the road's stand 5 exactly as before this task.
 			local road = Forest.layoutNamed("road") :: any
@@ -1845,10 +1858,18 @@ return function()
 				table.insert(buckets[key], { x = item.x, z = item.z, gx = gx, gz = gz })
 			end
 			expect(worst >= plan.minGapStuds).to.equal(true)
-			-- THE SHEAR CAN ONLY CLOSE A GAP BY `|J - 1|`, and design 5.6's bound at 45/60 is
-			-- 0.0163 (the product of the two peak slopes). 5 % is that with room, and it is a
-			-- BOUND -- if the world gap ever fell below it the wood would be denser than planned.
-			expect(worstWorld >= plan.minGapStuds * 0.95).to.equal(true)
+			-- THE WORLD GAP IS THE GRID GAP THROUGH THE SHEAR, and what bounds it is the SMALLER
+			-- SINGULAR VALUE of `[[1, bendX'], [bendZ', 1]]` -- not `|J - 1|`, which is the
+			-- determinant's distance from 1 and says nothing about the worst direction. At the peak
+			-- slopes (0.1281 and 0.1271) that is 0.8724, so a 12-stud grid gap can read 10.47 in
+			-- the world. Derived from the same two slopes `bendFacts` is the angle of, and exactly
+			-- 1 at amplitude 0.
+			local ax = Grid.bendFacts("z").amplitudeStuds * math.pi * Grid.CONFIG.bend.harmonic / Grid.bendPitch("z")
+			local az = Grid.bendFacts("x").amplitudeStuds * math.pi * Grid.CONFIG.bend.harmonic / Grid.bendPitch("x")
+			local trace, cross = 2 + ax * ax + az * az, ax + az
+			local root = math.sqrt(math.max(0, (az * az - ax * ax) ^ 2 + 4 * cross * cross))
+			local shrink = math.sqrt(math.max(0, (trace - root) / 2))
+			expect(worstWorld >= plan.minGapStuds * shrink - 1e-9).to.equal(true)
 			TestKit.note(
 				string.format(
 					"C1 understorey: %d sapling(s) to scale %.2f, capacity %d of %d (%d canopy + %d under + %d fern + %d skirt), closest two of %d trees %.2f studs (gap %d)",
@@ -2062,23 +2083,19 @@ return function()
 				for _, item in ipairs(woods[id]) do
 					if item.side < 0 then
 						count += 1
+						-- A ROW CARRIES THE WORLD POINT AND EVERY BOX HERE IS A GRID RECT
+						-- (task 328r): the skirt is placed in grid space, so that is where it is
+						-- inside exactly one neighbour.
+						local gx, gz = Grid.toGrid(item.x, item.z)
 						-- IT IS OUTSIDE THE ACTIVE CELL...
-						local inside = item.x > mine.minX
-							and item.x < mine.maxX
-							and item.z > mine.minZ
-							and item.z < mine.maxZ
+						local inside = gx > mine.minX and gx < mine.maxX and gz > mine.minZ and gz < mine.maxZ
 						expect(inside).to.equal(false)
 						-- ...AND INSIDE EXACTLY ONE NEIGHBOUR, within `skirtStuds` of the road the
 						-- two of them share.
 						local found = nil
 						for _, other in ipairs(near) do
 							local box = Grid.boundsOf(other.id)
-							if
-								item.x >= box.minX
-								and item.x <= box.maxX
-								and item.z >= box.minZ
-								and item.z <= box.maxZ
-							then
+							if gx >= box.minX and gx <= box.maxX and gz >= box.minZ and gz <= box.maxZ then
 								expect(found).to.equal(nil)
 								found = other
 							end
@@ -2090,11 +2107,11 @@ return function()
 						-- from that centre, and runs `skirtStuds` further.
 						local gap
 						if found.axis == "z" then
-							local centre = if item.x > mine.maxX then mine.maxX + half else mine.minX - half
-							gap = math.abs(item.x - centre)
+							local centre = if gx > mine.maxX then mine.maxX + half else mine.minX - half
+							gap = math.abs(gx - centre)
 						else
-							local centre = if item.z > mine.maxZ then mine.maxZ + half else mine.minZ - half
-							gap = math.abs(item.z - centre)
+							local centre = if gz > mine.maxZ then mine.maxZ + half else mine.minZ - half
+							gap = math.abs(gz - centre)
 						end
 						expect(gap >= half + Plan.CELL_EDGE_STUDS).to.equal(true)
 						expect(gap <= half + Plan.CELL_EDGE_STUDS + plan.skirtStuds).to.equal(true)
@@ -2102,7 +2119,7 @@ return function()
 						-- AND IT IS THE NEIGHBOUR'S OWN WOOD, not this cell's: the species came from
 						-- the zone the point is in over THERE, which is what makes two sections
 						-- either side of one road read differently.
-						local zoneThere = Plan.zoneAt(found.id, item.x, item.z)
+						local zoneThere = Plan.zoneAt(found.id, gx, gz)
 						expect(zoneThere ~= nil).to.equal(true)
 						expect(zoneThere.spacingStuds > 0).to.equal(true)
 						-- ...THROUGH THE FRONTAGE RULE (task 328f): within 60 studs of a road or a
