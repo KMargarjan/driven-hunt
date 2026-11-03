@@ -2189,9 +2189,10 @@ return function()
 			expect(string.find(refused.message :: string, "no single height", 1, true)).never.to.equal(nil)
 			expect(string.find(refused.message :: string, "REFUSED, never guessed", 1, true)).never.to.equal(nil)
 
-			-- AND THE SLICE THAT DOES COVER IT GETS PAST ALL THREE, on to the profiles check -- so
-			-- the refusals above are the arms they name and not one blanket stop.
-			local good = TerrainBake.bakeTileAt(1, { "C1" }, true, nil, TerrainBake.encodeSlice(holed))
+			-- AND A CLEAN SLICE THAT DOES COVER IT GETS PAST ALL THREE, on to the profiles check --
+			-- so the refusals above are the arms they name and not one blanket stop.
+			local clean = snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, flat, {})
+			local good = TerrainBake.bakeTileAt(1, { "C1" }, true, nil, TerrainBake.encodeSlice(clean))
 			expect(string.find(good.message :: string, "no profiles were handed", 1, true)).never.to.equal(nil)
 		end)
 
@@ -2261,13 +2262,34 @@ return function()
 					worst
 				)
 			)
-			-- FAIL FIRST: drop one point and that road's profile goes away, so the case above would
-			-- have caught an incomplete cover.
+			-- FAIL FIRST: drop ONE point of C1's own main road and that road's profile goes away, so
+			-- the case above would have caught an incomplete cover. It has to be one of the four
+			-- roads this cell asks for -- dropping a sample of some other cell's east-west road
+			-- costs a junction PIN, not a profile.
+			local main = Grid.roadsOf("C1").main
 			local dropped: { number } = {}
-			for at = 4, #rows do
-				table.insert(dropped, rows[at])
+			local gone = 0
+			for at = 1, #rows - 2, 3 do
+				if gone == 0 and rows[at] == main.from and rows[at + 1] == main.at then
+					gone += 1
+				else
+					table.insert(dropped, rows[at])
+					table.insert(dropped, rows[at + 1])
+					table.insert(dropped, rows[at + 2])
+				end
 			end
-			expect(#TerrainBake.profilesFor({ "C1" }, TerrainBake.pointSampler(dropped)) < #direct).to.equal(true)
+			expect(gone).to.equal(1)
+			local short = TerrainBake.profilesFor({ "C1" }, TerrainBake.pointSampler(dropped))
+			TestKit.note(
+				string.format(
+					"fail-first: dropping (%g,%g) leaves %d of %d profile(s)",
+					main.from,
+					main.at,
+					#short,
+					#direct
+				)
+			)
+			expect(#short < #direct).to.equal(true)
 		end)
 
 		it("328k-10 keeps the snapshot's lattice on ExpandToGrid's own grid", function()
