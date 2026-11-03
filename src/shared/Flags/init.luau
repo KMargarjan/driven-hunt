@@ -519,7 +519,10 @@ Flags.DEFAULTS = {
 		-- reads a flag: it is handed the targets.
 		owner = "ServerScriptService.Match",
 		born = "2026-10-12 task 161",
-		expires = "2026-11-02", -- 21 days: the ceiling in feature-flags.md section 12
+		-- MOVED 2026-11-03 (task 328f), and the reason is the one the rule asks for: the flag is
+		-- still ON in Karen's Forest Test as an override and she has not yet judged the bots, so it
+		-- has not lost its reason to exist. 21 days again, the ceiling in feature-flags.md 12.
+		expires = "2026-11-23",
 		why = "A drive is always 4 hunters and 4 beaters: every slot no real player fills is a visible "
 			.. "R15 bot -- beaters in orange vests walking the wood and blowing the horn, hunters "
 			.. "standing on the stands. OFF is exactly the game before task 161: nobody is built, the "
