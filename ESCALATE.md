@@ -1825,3 +1825,27 @@ and the real mouse click on a pad, are NOT PROVEN. Nobody has seen them.**
 this proof, or authorise it for 323c, which needs a pinned 400x800 frame of the same panel anyway.
 `<runs-dir>/ft-open.sh` is the cold-restart route and exists; the Builder did not use it because the
 dispatch says plainly *"do NOT open the Forest Test"*.
+
+## 2026-11-03 ~00:30 UTC -- Task 328f: `TEMPLATE_DIMS.scale` disagrees with the live template for 27 of the 35. A DECISION, for the Architect
+
+**Measured, in Karen's Forest Test, all 35 templates found** (`driven-hunt-runs/328f-dims.luau`):
+`TEMPLATE_DIMS[name].scale` is not the template's own `GetScale()` for **27 of the 35**, with
+`live / row` from **0.589** (`Forest_OakTree_Var02_LOD_0`) to **1.371** (`SilverBirch_Var01_LOD_0`).
+
+**Why it matters beyond 328f.** Design 9.2 makes that row the reference every scaled measurement is
+taken against, so two owners read one crown differently: the planner scales `crownHalfWidthStuds` by
+`item.scale` (relative to the template) while `GridCensus` scales it by `model:GetScale() / dims.scale`.
+That is exactly how one `SM_AspenTree_Var04` came out **3.17 studs over a road** in 328f's round 2.
+The **template audit's extents arm** divides by the same row, so it is measuring against a reference
+that is up to 1.7x out in either direction, and **`brokenReason` reads 0 anyway** -- the audit cannot
+see this.
+
+**328f's answer is a stopgap, deliberately:** `Places.CROWN_SCALE_SLACK` 1.40 carries the worst
+measured ratio so the census's reach is always the one the set-back covers. It costs set-back
+everywhere to pay for a table that is wrong in 27 places.
+
+**The decision:** whether `TEMPLATE_DIMS` is re-measured (328b owns it; `tools/forest_ground.py dims`
+is named by design 9.2 and does not exist), and whether the audit should REFUSE a template whose live
+`GetScale()` has moved off its row rather than silently rescaling the reference. Not the Builder's to
+take, and 328h and 328i both inherit it.
+
