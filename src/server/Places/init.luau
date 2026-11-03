@@ -230,6 +230,28 @@ function Places.clawFor(model: string): number
 	return (Places.CLAW_FRACTION :: any)[model] or 0
 end
 
+-- WHICH STANDING TREE IS "THE TEMPLATE" FOR A SPECIES NAME, and it is NOT `FindFirstChild`'s answer
+-- (task 328l). `Workspace.OurForest` is the WOOD, not a folder of 35 models: each name has 16 to 125
+-- instances whose scales span x1.8, so the old lookup cloned an arbitrary one and `item.scale` --
+-- which is relative to it -- planted a different size whenever the child order moved.
+-- `Plan.nearestScale` picks the instance the row was measured on; nil when this folder has none.
+function Places.pickTemplate(source: Instance, name: string): Model?
+	local models: { Model } = {}
+	local scales: { number } = {}
+	for _, child in ipairs(source:GetChildren()) do
+		if child.Name == name and child:IsA("Model") then
+			table.insert(models, child :: Model)
+			table.insert(scales, (child :: Model):GetScale())
+		end
+	end
+	if #models == 0 then
+		return nil
+	end
+	local dims = Plan.dimsFor(name)
+	local index = if dims ~= nil then Plan.nearestScale(scales, dims.scale) else nil
+	return models[index or 1]
+end
+
 -- ---------------------------------------------------------------- the world half
 
 -- WHICH PART IS THE TRUNK, and the footprint that matters is ITS and never the crown's. A birch's
@@ -402,6 +424,23 @@ function Places.quieten(model: Model): number
 	return changed
 end
 
+-- WHERE THIS MODEL'S CROWN FOOT SITS RELATIVE TO THE BOX THE SEAT PUTS ON THE GROUND -- **SIGNED**,
+-- positive below -- or nil when the model has no foliage-named part (task 328l). It is what
+-- `TreeGround.sinkFor` leaves room for, and it is measured off THIS model's parts, never off a
+-- per-species number (lesson L-024).
+function Places.foliageDrop(model: Model, trunkMinY: number): number?
+	local low: number? = nil
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") and part.Transparency < Places.INVISIBLE_AT and Plan.isFoliageName(part.Name) then
+			low = math.min(low or math.huge, Places.boxOf(part).minY)
+		end
+	end
+	if low == nil then
+		return nil
+	end
+	return trunkMinY - (low :: number)
+end
+
 -- HOW FAR THE JUNCTION STANDS ABOVE THE LOWEST GROUND UNDER THE TRUNK'S OWN FOOTPRINT. Positive is
 -- daylight. `nil` when the model has no geometry or the world cannot answer under it. It exists so a
 -- SPEC can re-measure a settled tree off the model instead of off the lift that was applied to it
@@ -473,6 +512,13 @@ end
 function Places.auditTemplate(model: Model, name: string): string?
 	if Plan.isQuarantined(name) then
 		return "quarantined"
+	end
+	-- THE ROW'S OWN SCALE, REFUSED WHEN IT HAS MOVED (design 9.2, task 328l). This arm is the
+	-- TEMPLATE's alone: a planted clone's `GetScale()` is this one times `item.scale` by design, so
+	-- `Plan.auditReason` -- which the census runs over clones -- must never carry it.
+	local rescaled = Plan.rescaledReason(model:GetScale(), Plan.dimsFor(name))
+	if rescaled ~= nil then
+		return rescaled
 	end
 	local measured = Places.measureFor(model)
 	measured.name = name
@@ -548,7 +594,16 @@ function Places.plantOne(
 		made:Destroy()
 		return nil, "cliff"
 	end
-	local verdict = TreeGround.decide(trunk.minY, whole.maxY, Places.clawFor(item.model), grounds, allowance)
+	-- THE SEAT MAKES ROOM FOR A CROWN THAT HANGS BELOW THE TRUNK (task 328l): this clone's own crown
+	-- against this clone's own trunk box, so the number is geometry and not a species constant.
+	local verdict = TreeGround.decide(
+		trunk.minY,
+		whole.maxY,
+		Places.clawFor(item.model),
+		grounds,
+		allowance,
+		Places.foliageDrop(made, trunk.minY)
+	)
 	if verdict.move and verdict.lift ~= nil then
 		made:PivotTo(made:GetPivot() + Vector3.new(0, verdict.lift, 0))
 	end
@@ -938,8 +993,10 @@ function Places.build(
 			return nil
 		end
 		for _, source in ipairs(sources) do
-			local child = source:FindFirstChild(name)
-			if child and child:IsA("Model") then
+			-- `pickTemplate` AND NOT `FindFirstChild`: the row's instance, not the folder's first
+			-- child (task 328l). `auditTemplate` then refuses it if even that one is off the row.
+			local child = Places.pickTemplate(source, name)
+			if child then
 				local why = Places.auditTemplate(child :: Model, name)
 				if why ~= nil then
 					refusedTemplates[name] = why

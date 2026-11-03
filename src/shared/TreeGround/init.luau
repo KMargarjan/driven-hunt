@@ -182,12 +182,36 @@ function TreeGround.junctionY(minY: number, maxY: number, clawFraction: number):
 	return minY + (maxY - minY) * clawFraction
 end
 
+-- HOW FAR A LEAF MAY FINISH BELOW THE GROUND BEFORE IT IS "IN THE GROUND". `GridCensus`'s own
+-- `foliageInGround` threshold, moved here in task 328l so the seat and the census share the number
+-- (design 9.1: the census shares the thresholds and shares no measurement).
+TreeGround.FOLIAGE_SINK_STUDS = 0.5
+
+-- AND THE HAIR THE SEAT KEEPS INSIDE THAT LINE. Without it a crown aimed at exactly 0.5 lands on the
+-- census's own comparison, where a 1e-4-stud rounding decides the count either way.
+TreeGround.FOLIAGE_MARGIN_STUDS = 0.05
+
 -- HOW DEEP TO BURY THE JUNCTION FOR A MODEL OF THIS HEIGHT. `SINK_STUDS` is sized for a sixty-stud
 -- tree; on a 2.8-stud fern it would be a fifth of the plant, so it is also capped at a tenth of the
 -- height. A tree is never affected by the cap and a fern always is, which is the intent written as
 -- one line rather than as two code paths.
-function TreeGround.sinkFor(height: number): number
-	return math.min(TreeGround.SINK_STUDS, 0.1 * height)
+--
+-- `foliageDrop` IS WHERE THE CROWN'S FOOT IS RELATIVE TO THE TRUNK BOX'S, **SIGNED** -- positive
+-- below, negative above -- and `nil` for a plant with no foliage-named part at all, which seats
+-- exactly as before. The sink takes the crown down with it, so `sink + drop` is what finishes under
+-- the grass and it is held to `FOLIAGE_SINK_STUDS`.
+--
+-- THE SIGN MATTERS AND IS MEASURED. In Karen's Forest Test on 2026-11-03 the census counted 158
+-- `foliageInGround` over six template names, and for two of them the crown sits ABOVE the trunk's
+-- foot (`LarchTree_Var01`, -0.10): they were counted because the **sink alone is 0.6 against the
+-- census's 0.5 line**. So the clamp runs for every crown and not only for a drooping one.
+function TreeGround.sinkFor(height: number, foliageDrop: number?): number
+	local sink = math.min(TreeGround.SINK_STUDS, 0.1 * height)
+	if foliageDrop == nil then
+		return sink
+	end
+	local room = TreeGround.FOLIAGE_SINK_STUDS - TreeGround.FOLIAGE_MARGIN_STUDS - (foliageDrop :: number)
+	return math.max(0, math.min(sink, room))
 end
 
 -- THE PLANTING RULE, AND THE ONE LINE THAT MOVES ANYTHING: drop until NO contact is left in the
@@ -246,12 +270,16 @@ export type Verdict = {
 -- questions. `CLIFF_STUDS` (4) answers *"would sinking this EXISTING tree bury it?"*; a planter that
 -- has already accepted the spot has its own, wider number (`Places.stepAllowance`) and must pass it
 -- in, or the pre-check and the verdict disagree and the tree is left hanging (task 326).
+-- `foliageDrop` IS PASSED STRAIGHT TO `sinkFor` (task 328l): the caller measures the clone's own
+-- crown against its own trunk box, so the number is this tree's geometry and not a per-species
+-- constant (lesson L-024).
 function TreeGround.decide(
 	minY: number,
 	maxY: number,
 	clawFraction: number,
 	grounds: { number },
-	cliffStuds: number?
+	cliffStuds: number?,
+	foliageDrop: number?
 ): Verdict
 	if #grounds == 0 then
 		return { move = false, lift = nil, clawGap = 0, bottomGap = 0, spread = 0, reason = "no-ground" }
@@ -280,7 +308,7 @@ function TreeGround.decide(
 	for _, y in ipairs(grounds) do
 		table.insert(contacts, { ground = y, bottom = junction })
 	end
-	local lift = TreeGround.liftTo(contacts, TreeGround.sinkFor(maxY - minY))
+	local lift = TreeGround.liftTo(contacts, TreeGround.sinkFor(maxY - minY, foliageDrop))
 	return { move = true, lift = lift, clawGap = clawGap, bottomGap = bottomGap, spread = spread, reason = "ok" }
 end
 
