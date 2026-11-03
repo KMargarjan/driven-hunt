@@ -24,7 +24,7 @@ Everything in `grid-map.md` and `grid-terrain.md` not named here is untouched an
 |---|---|---|
 | `grid-map.md` §2 — *"A CELL'S ROADS ARE STRAIGHT IN PLAN"*, and `Grid.layoutFor`'s `amplitudeStuds = 0` | straight | **bent, by one sine per axis whose zeros fall exactly on the junctions** (§2). A cell layout's `amplitudeStuds` becomes the east–west family's amplitude, and `ForestTest.roadZ` delegates to `Grid` for a cell exactly as `standPosition` already does |
 | `grid-map.md` §4.2 / §6.1 — the stands sit at a constant `roadZ` (main) or a constant `standX` (flank) | constants | **each stand sits on its own road's world curve**, by construction: `Grid.standGridOf` is today's arithmetic in **grid** coordinates and `Grid.standPosition` is that point through `Grid.toWorld` (§4, §6.2) |
-| `grid-map.md` §7 — `flankFirstStuds` = 340, derived from `sqrt(330² − 106²)` | a plane solve | **366, re-derived in WORLD coordinates**: the shear can take up to 39.9 studs off the 106-stud `dx` term, which left the 330-stud invariant with 3.1 studs of margin instead of 26.1. §5.4 is the fixed point; `grid.spec` case 5 is the proof. **This is defect F-1 and it is the one the bend would have shipped silently** |
+| `grid-map.md` §7 — `flankFirstStuds` = 340, derived from `sqrt(330² − 106²)` | a plane solve | **366 at 45/60 and 340 at 0, re-derived in WORLD coordinates by one fixed point**: the shear can take up to `|bendX'|max × f = 43.54` studs off the 106-stud `dx` term, which bounds the 330-stud invariant at 2.44 studs of margin instead of 26.1 — **measured**, the realised worst pair at 340 is 338.41 (8.41 of margin) and at 366 it is 363.79 (33.79). §5.4 is the fixed point; `grid.spec` case 5 is the proof, at both amplitudes. **This is defect F-1 and it is the one the bend would have shipped silently** |
 | `grid-map.md` §8.3 / `grid.spec` case 14 — *"models per drive ≈ 2,400; hard bound < 3,600"* at *"≈ 7 descendants per model"* | a literal, carrying a refuted ratio | **two derived bounds** from the **measured 3.03 parts a model**: a plan cap of 7,260 and a draw cap of 2,640 models a cell. §8. C1's room for "more trees" goes from 184 models to 953 |
 | `grid-terrain.md` §7.1 — the cross-section is measured from `road.at`, a constant | a constant | **a function of the station**: `centre = Grid.roadCentreAt(road, along)`. The band realiser, the materials, the junction rule, the grade clamp and the cut/fill cap are **unchanged**; three lines of `TerrainBake.roadAt` move (§7) |
 | `grid-terrain.md` §7.1 correction F-2 — the band snaps, never the centre | correct and kept | **kept and extended: the band snaps in WORLD coordinates at each station**, so the ditch and the rut stay whole voxel columns everywhere and the cost is a 4-stud lateral stair every 31.5 studs along a bend, which is one voxel and is measured, not hidden (§5.5, §7.2) |
@@ -828,10 +828,14 @@ re-typed sine — `MapUi`'s own stated rule.
 Each would have been inherited. Each has a file, a symbol and a fix.
 
 **F-1 — the bend eats the safety margin, and nothing would have said so.** `Grid.flankFirstStuds`
-solves the 330-stud invariant in plane coordinates; in world coordinates the shear takes up to 39.9
-studs off the `dx` term and the tightest pair falls from 356.1 to **333.1 studs — 3.1 of margin**.
-`grid.spec` case 5 would still have passed. **Fix:** re-derive the set-back in world terms (§5.4),
-340 → **366**, and make case 5 compute the pairs in world coordinates.
+solves the 330-stud invariant in plane coordinates; in world coordinates the shear takes up to
+`|bendX'|max × 340 = 43.54` studs off the `dx` term and the tightest pair falls from 356.14 to a BOUND
+of **332.44 studs — 2.44 of margin**. **Measured** (task 328q, `grid.spec` case 5's own world loop over
+all 8 cells): the realised worst pair at 340 is **338.41 (8.41 of margin)**, so two thirds of the
+margin goes and the invariant itself still holds — `grid.spec` case 5 would have passed either way,
+which is exactly why it now pins the realised number. **Fix:** re-derive the set-back in world terms
+(§5.4), 340 → **366** at 45/60 and 340 at 0 by the same formula, and make case 5 compute the pairs in
+world coordinates at both amplitudes (realised worst at 366: **363.79, 33.79 of margin**).
 
 **F-2 — the epoch would not have changed, so the census would have certified the old forest.**
 `Relief.epochInput` hashes a **fixed list of seven** `Grid.CONFIG` keys and `assert`s each exists, so a
