@@ -2002,6 +2002,42 @@ return function()
 				)
 			)
 		end)
+
+		-- KAREN, 2026-11-03, HAVING PLAYED C1: *"more trees"*. The floor is pinned so a later tweak
+		-- cannot quietly give it back, and the planter's own tally says WHICH RULE refuses the rest.
+		-- Task 328s. Design: docs/design/grid-roads.md 8.2.
+		it("plants C1 at the density Karen asked for, and accounts for every site it refused", function()
+			local rows = Plan.plantCell("C1")
+			local tally = Plan.TALLY
+			expect(#rows >= 2300).to.equal(true)
+			expect(#rows <= Plan.CELL_PART_CAP).to.equal(true)
+			expect(tally.planted).to.equal(#rows)
+			-- EVERY OFFERED SITE LANDS IN EXACTLY ONE BUCKET, which is what makes the split a
+			-- measurement rather than two totals and a guess: a new refusal arm with no counter
+			-- reddens here.
+			local mask, crown = 0, 0
+			for _, n in pairs(tally.mask) do
+				mask += n
+			end
+			for _, n in pairs(tally.crown) do
+				crown += n
+			end
+			local sum = tally.outside + tally.noRows + tally.gap + mask + crown + tally.planted
+			expect(sum).to.equal(tally.offered)
+			TestKit.note(
+				string.format(
+					"C1 planned %d of %d offered (cap %d): gap %d, mask %d, crown %d, outside %d, noRows %d",
+					#rows,
+					tally.offered,
+					Plan.CELL_PART_CAP,
+					tally.gap,
+					mask,
+					crown,
+					tally.outside,
+					tally.noRows
+				)
+			)
+		end)
 	end)
 
 	-- ---------------------------------------------------------------- 15. nothing in a road
