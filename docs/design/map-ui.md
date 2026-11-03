@@ -1183,3 +1183,21 @@ one axis.
    map adds a fifth **reader** (`Report.metres`) and no fifth copy, so it is not this task's to fix
    — but four statements of one constant is four places a retune can be forgotten.
 5. **Whether `test2` is run once by hand** to photograph two markers (§16.1). Not a gate item.
+
+---
+
+## 21. The grid's roads are curves (task 328o, pasted by 328q)
+
+*`docs/design/grid-roads.md` section 14 asks for this to be appended to §21. **This document ends at
+§20**, so the delta is §21 itself — named rather than pasted into an unrelated section.*
+
+> **The grid's roads are curves.** `geometryFromGrid`'s eight road polylines come from
+> **`Grid.roadPolyline(road, samples)`** and are never re-typed as a sine — this document's own rule,
+> stated for `geometryFromForestTest` and binding here. The world view's bounds are
+> **`Grid.worldFootprint()`** plus the margin, which is the grid footprint grown by the north–south
+> amplitude in x and the east–west one in z. **Nothing in `src/client/` changes until 327f**, which is
+> the task that must honour this; task 328q adds the sampler and the box and no client reads them yet.
+> `geometryFromForestTest` is already correct for a cell for free: it samples `data.roadZ(x, layout)`,
+> which now delegates to `Grid`, and it already adds `layout.amplitudeStuds` to its bounds —
+> `GEOMETRY_MARGIN_STUDS` 60 covers the 45 that 328r commits, and `ROAD_SAMPLES` 33 over 1,190 studs
+> is a 36-stud chord on a 2,224-stud wavelength.

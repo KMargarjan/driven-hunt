@@ -1,3 +1,56 @@
+## 2026-11-03 ~18:35 UTC, Task 328q -- DIRECTOR: ROUND 3 AUTHORISED (within MAX_ROUNDS 3)
+
+Round 2's one finding (`standTypeFor` read the world point) is right and fixed in `87844e02`; the clean-tree harness PASS at `a7267a8d` covers it. The dispatch's two-round cap was mine; I lift it for the LAST round the loop allows. Round 3 reviews the fix and nothing new. A finding on round 3 is an ESCALATE entry and the task stops; notes go to TASKS.md.
+
+## 2026-11-03 ~18:25 UTC, Task 328q -- STOPPED AT THE DISPATCH'S TWO-ROUND CAP: round 2 returned one blocking finding, I agree with it, and the fix is committed and green
+
+**This is a stop, not a workaround.** The dispatch says *"Review: at most 2 rounds; a FINDING on
+round 2 goes to ESCALATE.md, then stop."* Round 2 returned exactly one blocking finding, it is
+**correct**, and the fix is commit `87844e02`. The branch is pushed and the full one-player gate is
+green at the head.
+
+**The finding.** `Places.standTypeFor` derived a stand's letter from `Grid.standPosition` -- the one
+WORLD-producing function in `Grid` -- and then measured that point against `Places.zoneRect`,
+`Places.zoneAt` and `Places.rideSegments`, every one of which this task made (or kept) a GRID fact,
+with `Places.standFacing` now an explicitly grid unit vector. At 45/60 the letter would have been
+decided by a point up to 60 studs in x and 45 in z from the rectangles it is compared against. It is
+the same class of defect as round 1's finding 2 (`Places.inFrontage`) in another body, it is inert
+only because `Grid.CONFIG.bend` is `{0, 0, 1}`, and **the design this task writes says the opposite
+twice** (`grid-roads.md` 6.2's bend-free list, and the `grid-terrain.md` 19 paste). Fixed by reading
+`Grid.standGridOf`, which is what `standFacing`, `rideSegments` and `cellFacts` now do. Four of the
+nine non-blocking notes were taken in the same commit; the rest are queued in `TASKS.md` under 328q.
+
+**What the Director has to decide, and both options are cheap:**
+
+1. **Authorise round 3.** It is **within `MAX_ROUNDS` 3**, so it needs no `DIRECTOR_MAX_ROUNDS`
+   override -- only a dispatch saying so, because the two-round cap was the dispatch's and not the
+   repo's. One review call (~$5).
+2. **Merge on the round-2 verdict plus this fix**, on the Director's own reading of it. The risk is
+   named rather than hidden: `87844e02` changes `src/` and no Reviewer has read it. What bounds that
+   risk is that the change is **four tokens** (`Grid.standPosition(...)` -> `Grid.standGridOf(...)`
+   plus `spot.Z` -> `spot.Y` twice, with `spot` now a `Vector2`), it is the fix the Reviewer itself
+   prescribed verbatim (*"Required: read `Grid.standGridOf(cellId, standIndex)` and use `(u, v)`"*),
+   and it is **provably inert**: at amplitude 0 `Grid.toWorld` is the identity, so `standGridOf` and
+   `standPosition` carry the same two numbers, and `grid.spec`'s inert case asserts exactly that for
+   all 120 stands of all 8 cells to magnitude 0.
+
+**The gate at the head, and the two harness lines the flake rule asks for:**
+
+* `[harness] PASS: 34/34 checks @ a7267a8dfe273e59cfeb48b1549bf9ae1cdd5d41 (clean tree) scope=all`
+* control at the merge-base: `[harness] PASS: 34/34 checks @ 1ef61b67fd70366a3f2de32d6f335cb1010e089a (clean tree) scope=all`
+* `test2`: N/A -- no `TWO_PLAYER_PATHS` path is touched.
+
+**AND ONE THING WORTH THE DIRECTOR'S EYE, because it changes what "known intermittent" means.**
+`deer_hitbox.spec:659` (*calf: the skull ... answered nil, wanted head*) failed **three consecutive
+clean-tree runs at the same commit** `a7267a8d`, then the control run at `main` passed 34/34, then
+the SAME commit `a7267a8d` passed 34/34. So it is **not amplitude-, code- or commit-dependent: it is
+Studio-session state**, and this session had ten harness runs in it. The spec requires only `Assets`,
+`Loader`, `Pierce`, `Boar`, `TestKit` and `Weapon` -- not one file this branch touches -- and it
+builds its own plate and spawns its own model, so no dependency path reaches it from here. A streak
+of three is what made it worth measuring; the measurement says the remedy is a fresh Studio session,
+not a fix. Worth a `TASKS.md` row of its own so the next task that hits a streak does not spend three
+runs on it, as this one did.
+
 ## 2026-11-03 ~15:20 UTC, Task 328o -- DIRECTOR: ROUND 2 AUTHORISED (within MAX_ROUNDS 3)
 
 The round-1 finding is documentation-only (the research note read a half-width as a full width; no game, test, owner boundary or security effect), it is correct, and the fix is commit `f46e5c9f`. The dispatch's one-round cap was mine; I lift it for ONE more round. Round 2 reviews `f46e5c9f` plus the notes (a), (b), (d), (e) where they are one-line text fixes; anything else goes to TASKS.md. A finding on round 2 is an ESCALATE entry and the task stops.

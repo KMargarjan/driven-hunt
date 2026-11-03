@@ -606,12 +606,24 @@ local function canonical(value: any): string
 	return "{" .. table.concat(parts, ",") .. "}"
 end
 
--- WHAT THE EPOCH HASHES: the landforms and the SEVEN geometry fields of `Grid.CONFIG`, nothing else.
+-- WHAT THE EPOCH HASHES: the landforms and TEN geometry fields of `Grid.CONFIG`, nothing else.
 -- `config` is handed in, so this module still requires no `Grid` (design 5.4).
+--
+-- **THE THREE BEND ROWS ARE IN IT, AND THAT IS WHAT FORCES THE RE-BAKE** (defect F-2,
+-- `grid-roads.md` 7.4): without them a bend added to `CONFIG` would leave `TerrainEpoch` unchanged,
+-- `PlantEpoch` would still match and the census would certify a forest standing on moved ground.
+-- `nil`-checked and not truthy-checked, because an amplitude of 0 is the shipped value.
 function Relief.epochInput(forms: { [string]: Landform }, config: { [string]: any }): string
 	local geometry = {}
 	for _, key in { "originX", "originZ", "cellWidthStuds", "cellDepthStuds", "roadClearStuds", "rows", "columns" } do
 		geometry[key] = assert(config[key], "Relief.epochInput: Grid.CONFIG is missing " .. key)
+	end
+	local bend = config.bend
+	assert(bend ~= nil, "Relief.epochInput: Grid.CONFIG is missing bend")
+	for _, pair in { { "ewStuds", "bendEwStuds" }, { "nsStuds", "bendNsStuds" }, { "harmonic", "bendHarmonic" } } do
+		local value = bend[pair[1]]
+		assert(value ~= nil, "Relief.epochInput: Grid.CONFIG.bend is missing " .. pair[1])
+		geometry[pair[2]] = value
 	end
 	return canonical({ bakeVersion = Relief.BAKE_VERSION, config = geometry, landforms = forms })
 end

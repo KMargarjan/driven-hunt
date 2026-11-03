@@ -173,6 +173,11 @@ def luau_facts():
         "roadClear": int(number_from(GRID_LUAU, r"^\troadClearStuds = ([0-9_]+)")),
         "rows": int(number_from(GRID_LUAU, r"^\trows = ([0-9_]+)")),
         "columns": int(number_from(GRID_LUAU, r"^\tcolumns = ([0-9_]+)")),
+        # THE BEND (task 328q), through the same `number_from` route as everything else: this twin
+        # must grow `region_for` by the amplitude or `plan` would refuse a correct region (F-5).
+        "bendEw": int(number_from(GRID_LUAU, r"^\t\tewStuds = (-?[0-9_]+)")),
+        "bendNs": int(number_from(GRID_LUAU, r"^\t\tnsStuds = (-?[0-9_]+)")),
+        "bendHarmonic": int(number_from(GRID_LUAU, r"^\t\tharmonic = (-?[0-9_]+)")),
     }
 
 
@@ -234,10 +239,15 @@ def footprint(facts):
 
 
 def region_for(cells, facts):
-    """`TerrainBake.regionFor`'s arithmetic, independently in Python. The two must agree."""
+    """`TerrainBake.regionFor`'s arithmetic, independently in Python. The two must agree.
+
+    GROWN BY `Grid.maxBendStuds()` (task 328q): the larger of the two amplitudes, on both axes.
+    0 at the born amplitude, so every tile count below is today's.
+    """
+    bend = max(facts["bendEw"], facts["bendNs"])
     if len(cells) == len(CELL_IDS):
         box = footprint(facts)
-        pad = facts["blend"] + BORDER_WOOD_STUDS
+        pad = facts["blend"] + BORDER_WOOD_STUDS + bend
         return {"minX": box["minX"] - pad, "maxX": box["maxX"] + pad,
                 "minZ": box["minZ"] - pad, "maxZ": box["maxZ"] + pad}
     min_x, max_x, min_z, max_z = None, None, None, None
@@ -252,7 +262,7 @@ def region_for(cells, facts):
         highs = [cell["maxZ"], roads["muster"] + half]
         min_z = min([min_z] + lows) if min_z is not None else min(lows)
         max_z = max([max_z] + highs) if max_z is not None else max(highs)
-    pad = facts["blend"]
+    pad = facts["blend"] + bend
     return {"minX": min_x - pad, "maxX": max_x + pad, "minZ": min_z - pad, "maxZ": max_z + pad}
 
 
@@ -495,18 +505,21 @@ def canonical(value):
     raise RuntimeError("cannot encode %s" % type(value).__name__)
 
 
-# CAPTURED FROM THE LUAU, 2026-11-02, by running `Relief.epochInput` on this exact input in DEV
-# (<runs-dir>/328d-epoch.luau). If the two encoders ever disagree, this string is what says so.
+# CAPTURED FROM THE LUAU, re-captured 2026-11-03 for the three bend rows `Relief.epochInput` now
+# flattens into the geometry (task 328q, defect F-5). If the two encoders ever disagree, this string
+# is what says so.
 CANONICAL_FIXTURE_INPUT = {
     "bakeVersion": 1,
-    "config": {"cellDepthStuds": 1430, "cellWidthStuds": 1070, "columns": 4,
+    "config": {"bendEwStuds": 0, "bendHarmonic": 1, "bendNsStuds": 0,
+               "cellDepthStuds": 1430, "cellWidthStuds": 1070, "columns": 4,
                "originX": -6700, "originZ": -6600, "roadClearStuds": 42, "rows": 2},
     "landforms": {"Z1": {"baseKeep": 0.5,
                          "floor": {"default": "Ground", "mudDepthStuds": 6},
                          "ops": [{"dyStuds": -2.5, "kind": "dome", "rStuds": 10, "u": 0.25, "v": 0.75}]}},
 }
 CANONICAL_FIXTURE_OUTPUT = (
-    '{"bakeVersion":1,"config":{"cellDepthStuds":1430,"cellWidthStuds":1070,"columns":4,'
+    '{"bakeVersion":1,"config":{"bendEwStuds":0,"bendHarmonic":1,"bendNsStuds":0,'
+    '"cellDepthStuds":1430,"cellWidthStuds":1070,"columns":4,'
     '"originX":-6700,"originZ":-6600,"roadClearStuds":42,"rows":2},"landforms":{"Z1":'
     '{"baseKeep":0.5,"floor":{"default":"Ground","mudDepthStuds":6},"ops":'
     '[{"dyStuds":-2.5,"kind":"dome","rStuds":10,"u":0.25,"v":0.75}]}}}'

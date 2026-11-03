@@ -1689,14 +1689,20 @@ end
 -- the first.
 -- `reachStuds` IS THE CROWN (task 328b, design 9.4's `crownOverRoad`): 0 asks about the TRUNK, which
 -- is every caller written before it, and a crown half-width asks whether the canopy hangs over.
+--
+-- WORLD IN, `Grid.toGrid` ONCE, AND THE BODY IS UNCHANGED (task 328q, design 6.1): in grid
+-- coordinates every road is straight at its own `at`, so this is the same test it always was. The
+-- measure is axis-aligned in that plane, which reads up to 0.82 % wide against the true
+-- perpendicular at the shipped bend (design 5.5) and exactly right at amplitude 0.
 function Places.clearOfEveryRoad(x: number, z: number, reachStuds: number?): boolean
+	local u, v = Grid.toGrid(x, z)
 	local half = Grid.CONFIG.roadClearStuds / 2 + (reachStuds or 0)
 	for _, road in ipairs(allRoads()) do
 		if road.axis == "x" then
-			if math.abs(z - road.at) <= half and x >= road.from and x <= road.to then
+			if math.abs(v - road.at) <= half and u >= road.from and u <= road.to then
 				return false
 			end
-		elseif math.abs(x - road.at) <= half and z >= road.from and z <= road.to then
+		elseif math.abs(u - road.at) <= half and v >= road.from and v <= road.to then
 			return false
 		end
 	end
@@ -1900,31 +1906,50 @@ function Places.rideTrunkMin(template: string?, scale: number?): number
 	return math.max(Places.RIDE_TRUNK_FLOOR_STUDS, Places.RIDE_CLEAR_STUDS / 2 + reach + Places.CROWN_DRIFT_STUDS)
 end
 
--- HOW FAR A POINT IS FROM THE NEAREST ROAD CENTRELINE, over the roads that actually run past it.
--- `math.huge` for a point no road reaches, which no point inside the footprint is.
-function Places.roadDistance(x: number, z: number): number
-	local best = math.huge
+-- HOW FAR A GRID POINT IS FROM THE NEAREST ROAD CENTRELINE, over the roads that actually run past
+-- it, measured PERPENDICULAR TO THE ROAD -- because a crown hangs over a carriageway across it, not
+-- across the z axis (design 5.5). `math.huge` for a point no road reaches.
+--
+-- THE KERNEL: today's arithmetic in the plane where the roads are straight, times `cos(swing)` for
+-- the road it picked. At amplitude 0 the slope is 0, the cosine is exactly 1, and this answers what
+-- it always answered. The station the slope is read at is the WORLD one, through `Grid.toWorld`, so
+-- there is one definition of the seam and no second sine here.
+function Places.roadDistanceGrid(u: number, v: number): number
+	local best, bestRoad = math.huge, nil :: any
 	for _, road in ipairs(allRoads()) do
 		if road.axis == "x" then
-			if x >= road.from and x <= road.to then
-				best = math.min(best, math.abs(z - road.at))
+			if u >= road.from and u <= road.to and math.abs(v - road.at) < best then
+				best, bestRoad = math.abs(v - road.at), road
 			end
-		elseif z >= road.from and z <= road.to then
-			best = math.min(best, math.abs(x - road.at))
+		elseif v >= road.from and v <= road.to and math.abs(u - road.at) < best then
+			best, bestRoad = math.abs(u - road.at), road
 		end
 	end
-	return best
+	if bestRoad == nil or best <= 0 then
+		return best
+	end
+	local x, z = Grid.toWorld(u, v)
+	local slope = if bestRoad.axis == "x" then Grid.bendSlopeZ(x) else Grid.bendSlopeX(z)
+	return best / math.sqrt(1 + slope * slope)
+end
+
+-- THE SAME MEASURE, ASKED IN WORLD COORDINATES. One of the four seam functions (design 6.3).
+function Places.roadDistance(x: number, z: number): number
+	return Places.roadDistanceGrid(Grid.toGrid(x, z))
 end
 
 -- WHICH WAY A STAND FACES: into its own cell, away from the road it stands on. A main-line stand
 -- looks up the cell (the drive comes at it); a flank stand looks across it. Unit, in XZ.
+-- IT IS A GRID-COORDINATE UNIT VECTOR (task 328q, design 6.4), which is why it reads
+-- `Grid.standGridOf` and compares against the cell's grid rectangle. Mapped into the world the cone
+-- is perpendicular to the LOCAL road, at most `bendFacts().swingDeg` off the drive axis.
 function Places.standFacing(cellId: string, standIndex: number): (number, number)
 	local box = Grid.boundsOf(cellId)
-	local spot = Grid.standPosition(cellId, standIndex)
+	local u, v = Grid.standGridOf(cellId, standIndex)
 	if Grid.sideOf(cellId, standIndex) == "main" then
-		return 0, if spot.Z <= (box.minZ + box.maxZ) / 2 then 1 else -1
+		return 0, if v <= (box.minZ + box.maxZ) / 2 then 1 else -1
 	end
-	return (if spot.X <= (box.minX + box.maxX) / 2 then 1 else -1), 0
+	return (if u <= (box.minX + box.maxX) / 2 then 1 else -1), 0
 end
 
 -- ONE RIDE OR CUT CENTRELINE.
@@ -1940,11 +1965,14 @@ function Places.rideSegments(cellId: string): { Segment }
 		return out
 	end
 	for _, ride in ipairs(plan.rides) do
-		local spot = Grid.standPosition(cellId, ride.atStandIndex)
+		-- GRID COORDINATES (task 328q): a ride is straight in the plane and a gentle curve in the
+		-- world, which is what a cut through a sheared cell looks like.
+		local su, sv = Grid.standGridOf(cellId, ride.atStandIndex)
+		local spot = Vector2.new(su, sv)
 		local fx, fz = Places.standFacing(cellId, ride.atStandIndex)
 		if ride.kind == "X" then
 			local cx = spot.X + fx * Places.CUT_CROSS_STUDS
-			local cz = spot.Z + fz * Places.CUT_CROSS_STUDS
+			local cz = spot.Y + fz * Places.CUT_CROSS_STUDS
 			local half = ride.lengthStuds / 2
 			table.insert(out, {
 				kind = ride.kind,
@@ -1957,9 +1985,9 @@ function Places.rideSegments(cellId: string): { Segment }
 			table.insert(out, {
 				kind = ride.kind,
 				ax = spot.X,
-				az = spot.Z,
+				az = spot.Y,
 				bx = spot.X + fx * ride.lengthStuds,
-				bz = spot.Z + fz * ride.lengthStuds,
+				bz = spot.Y + fz * ride.lengthStuds,
 			})
 		end
 	end
@@ -2006,9 +2034,11 @@ local function cellFacts(cellId: string): CellFacts
 			towers[index] = true
 		end
 		for index = 1, Grid.standCount(cellId) do
-			local spot = Grid.standPosition(cellId, index)
+			-- GRID COORDINATES, so the cache key stays the cell id: these are grid facts and the
+			-- bend does not move them (task 328q, design 6.1).
+			local su, sv = Grid.standGridOf(cellId, index)
 			local fx, fz = Places.standFacing(cellId, index)
-			table.insert(built.stands, { x = spot.X, z = spot.Z, fx = fx, fz = fz, tower = towers[index] == true })
+			table.insert(built.stands, { x = su, z = sv, fx = fx, fz = fz, tower = towers[index] == true })
 		end
 		built.minX = Grid.boundsOf(cellId).minX
 		for index = 1, #Places.CORRIDOR.atStuds do
@@ -2040,11 +2070,20 @@ end
 --
 -- `template` AND `scale` ARE OPTIONAL, and they are what the frontage and crown rules need. Asked
 -- without them the answer is the SITE's own facts, which is the question `scatter` asks first.
+-- WORLD IN; `Grid.toGrid` ONCE; `Places.maskGrid` IS TODAY'S BODY (task 328q, design 6.1). The
+-- planner calls `maskGrid` directly and pays no inverse.
 function Places.mask(cellId: string, x: number, z: number, template: string?, scale: number?): string?
+	local u, v = Grid.toGrid(x, z)
+	return Places.maskGrid(cellId, u, v, template, scale)
+end
+
+-- THE SAME QUESTION IN GRID COORDINATES, where every road, zone, ride, cone and corridor is the
+-- straight thing it has always been. `x` and `z` below are grid coordinates throughout.
+function Places.maskGrid(cellId: string, x: number, z: number, template: string?, scale: number?): string?
 	local R = Places.REASON
 	local herb = template ~= nil and Places.isHerbName(template)
 	-- 1-3 THE ROAD CROSS-SECTION (design 7.1), which tiles [0, 34] in three named bands.
-	local d = Places.roadDistance(x, z)
+	local d = Places.roadDistanceGrid(x, z)
 	if d <= Grid.CONFIG.roadClearStuds / 2 then
 		return R.ROAD
 	end
@@ -2184,12 +2223,21 @@ function Places.frontageAllows(plan: any, template: string?): boolean
 end
 
 -- IS THIS POINT IN A FRONTAGE BAND -- within `frontage.studs` of a road or a ride centreline?
+--
+-- WORLD IN, `Grid.toGrid` ONCE, AND `inFrontageGrid` IS THE KERNEL -- the `mask` / `maskGrid`
+-- treatment, for the same reason (round 1 finding 2): its two arms measure against a road and
+-- against a RIDE, and a ride is a grid-coordinate segment, so one body cannot straddle the seam.
 function Places.inFrontage(cellId: string, x: number, z: number): boolean
+	return Places.inFrontageGrid(cellId, Grid.toGrid(x, z))
+end
+
+-- THE SAME QUESTION IN GRID COORDINATES. `scatter` calls this one and pays no inverse.
+function Places.inFrontageGrid(cellId: string, x: number, z: number): boolean
 	local plan = Places.cellPlanFor(cellId)
 	if plan == nil or plan.frontage == nil then
 		return false
 	end
-	if Places.roadDistance(x, z) <= plan.frontage.studs then
+	if Places.roadDistanceGrid(x, z) <= plan.frontage.studs then
 		return true
 	end
 	for _, seg in ipairs(cellFacts(cellId).rides) do
@@ -2281,9 +2329,14 @@ function Places.standTypeFor(cellId: string, standIndex: number): string
 			end
 		end
 	end
-	local spot = Grid.standPosition(cellId, standIndex)
+	-- THE GRID POINT, AND ONE SPACE (round 2 finding 1): `standFacing` is a grid unit vector and
+	-- `zoneRect`, `zoneAt` and `rideSegments` are all grid facts, so the sight line this letter is
+	-- derived from has to be the grid one too. `standPosition` is the WORLD point and would be up to
+	-- 60 studs in x away from the rects it is compared against at 45/60.
+	local su, sv = Grid.standGridOf(cellId, standIndex)
+	local spot = Vector2.new(su, sv)
 	local fx, fz = Places.standFacing(cellId, standIndex)
-	local ax, az = spot.X + fx * Places.CONE.farStuds, spot.Z + fz * Places.CONE.farStuds
+	local ax, az = spot.X + fx * Places.CONE.farStuds, spot.Y + fz * Places.CONE.farStuds
 	if plan.field ~= nil then
 		local field = Places.zoneRect(cellId, plan.field)
 		if ax >= field.minX and ax <= field.maxX and az >= field.minZ and az <= field.maxZ then
@@ -2293,8 +2346,8 @@ function Places.standTypeFor(cellId: string, standIndex: number): string
 		if
 			spot.X >= field.minX - reach
 			and spot.X <= field.maxX + reach
-			and spot.Z >= field.minZ - reach
-			and spot.Z <= field.maxZ + reach
+			and spot.Y >= field.minZ - reach
+			and spot.Y <= field.maxZ + reach
 		then
 			return "F"
 		end
@@ -2325,6 +2378,9 @@ end
 
 -- THE CELL NEAREST A POINT OUTSIDE THE GRID, by its bounding box.
 function Places.nearestCellTo(x: number, z: number): string?
+	-- WORLD IN, `Grid.toGrid` ONCE (task 328q, design 6.3): the boxes below are grid rectangles.
+	local u, v = Grid.toGrid(x, z)
+	x, z = u, v
 	local best, bestD = nil, math.huge
 	for _, id in ipairs(Grid.cellIds()) do
 		local box = Grid.boundsOf(id)
@@ -2363,7 +2419,9 @@ Places.BORDER_STUDS = 230
 Places.BORDER_SPACING_STUDS = 40
 function Places.borderPlan(): { Planting }
 	local out: { Planting } = {}
-	local box = Grid.footprint()
+	-- THE WORLD BOX, not the grid one (task 328q): the border wood is drawn in world coordinates and
+	-- has to start outside everything the bend moved. At amplitude 0 the two boxes are equal.
+	local box = Grid.worldFootprint()
 	local rng = Random.new(Grid.seedFor(Grid.CELL_ORDER[1], 97))
 	local depth = Places.BORDER_STUDS
 	local step = Places.BORDER_SPACING_STUDS
@@ -2572,21 +2630,24 @@ local function scatter(
 			local jx = x + (if rows then 0 else (rng:NextNumber() - 0.5) * spacing * jitter)
 			local jz = z + rng:NextNumber() * spacing * jitter
 			z += spacing
+			-- **jx / jz ARE GRID COORDINATES** and so is every rect, zone and gap below (task 328q,
+			-- design 6.1). The site is mapped into the world once, for `heightAt` and the row.
 			local site: string? = nil
 			if o.maskCell ~= nil then
-				site = Places.mask(o.maskCell, jx, jz)
-			elseif not Places.clearOfEveryRoad(jx, jz) then
+				site = Places.maskGrid(o.maskCell, jx, jz)
+			elseif not Places.clearOfEveryRoad(Grid.toWorld(jx, jz)) then
 				site = "road"
 			end
 			if jx >= rect.minX and jx <= rect.maxX and jz >= rect.minZ and jz <= rect.maxZ and site == nil then
 				local rowsFor, band = pick(jx, jz)
 				if rowsFor ~= nil and band ~= nil and #rowsFor > 0 and not tooClose(grid, jx, jz, gap) then
+					local wx, wz = Grid.toWorld(jx, jz)
 					local group = Places.speciesFrom(rowsFor, rng:NextNumber())
 					-- THE RELIEF BIAS FIRST (design 8.3): spruce in the cold bottom, birch on the
 					-- top. BEFORE the frontage, so the bias reads the zone's own wood and the
 					-- frontage still has the last word -- which is what keeps a crown off the road.
 					if relief ~= nil then
-						local y = (o.heightAt :: any)(jx, jz)
+						local y = (o.heightAt :: any)(wx, wz)
 						if y ~= nil then
 							local hn = (y - relief.minY) / relief.spreadStuds
 							if hn < 0.30 and group ~= "conifer" then
@@ -2609,7 +2670,7 @@ local function scatter(
 						band ~= "herb"
 						and o.maskCell ~= nil
 						and o.maskPlan ~= nil
-						and Places.inFrontage(o.maskCell, jx, jz)
+						and Places.inFrontageGrid(o.maskCell, jx, jz)
 					then
 						group = Places.frontageGroupFor(o.maskPlan, group, rng:NextNumber())
 					end
@@ -2623,14 +2684,14 @@ local function scatter(
 					local scale = if band == "herb" then 0.8 + rng:NextNumber() * 0.9 else scaleFor(plan, band, rng)
 					-- AND NOW THIS TREE'S OWN FACTS: the crown term, which needs the template and the
 					-- scale the draw has just settled (design 7.2).
-					if o.maskCell ~= nil and Places.mask(o.maskCell, jx, jz, model, scale) ~= nil then
+					if o.maskCell ~= nil and Places.maskGrid(o.maskCell, jx, jz, model, scale) ~= nil then
 						continue
 					end
 					planted += 1
 					table.insert(out, {
 						model = model,
-						x = jx,
-						z = jz,
+						x = wx,
+						z = wz,
 						scale = scale,
 						yaw = rng:NextNumber() * math.pi * 2,
 						band = band,

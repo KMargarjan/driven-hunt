@@ -227,6 +227,46 @@ return function()
 				end
 			end
 			expect(checked > 100).to.equal(true)
+			-- **ASKED IN GRID COORDINATES, AND THAT IS WHY `Relief` IS NOT TOUCHED** (task 328q,
+			-- design 7.3): in the plane the roads ARE straight at their own `at`, so `roadFadeAt`
+			-- becomes curve-correct with no edit. The assertion is the conversion: a WORLD point
+			-- within 51 studs of the CURVED centreline lands inside the grid zero band -- driven by
+			-- parameter at the amplitude 328r commits, where the two spaces actually differ.
+			local converted, moved = 0, 0
+			for _, bend in ipairs({
+				{ ewStuds = 0, nsStuds = 0, harmonic = 1 },
+				{ ewStuds = 45, nsStuds = 60, harmonic = 1 },
+			}) do
+				for _, road in ROADS do
+					for step = 0, 10 do
+						local along = road.from + (step / 10) * (road.to - road.from)
+						local centre = Grid.roadCentreAt(road, along, bend)
+						for _, sign in { -1, 1 } do
+							for _, offset in { 0, 25, 50 } do
+								local x = if road.axis == "x" then along else centre + sign * offset
+								local z = if road.axis == "x" then centre + sign * offset else along
+								local u, v = Grid.toGrid(x, z, bend)
+								expect(Relief.roadFadeAt(ROADS, u, v)).to.equal(0)
+								-- **AND THE CONVERSION DOES WORK AT 45/60** (round 1 finding 4): with
+								-- the bend deleted the points would be straight, the map the identity
+								-- and all of them would still land in the band. This is what says the
+								-- band was reached THROUGH a shear.
+								moved = math.max(moved, math.abs(x - u) + math.abs(z - v))
+								converted += 1
+							end
+						end
+					end
+				end
+			end
+			expect(converted).to.equal(2 * #ROADS * 11 * 2 * 3)
+			expect(moved > 40).to.equal(true)
+			TestKit.note(
+				string.format(
+					"%d world points within 51 st of a centreline, at bend 0 and 45/60, all inside the grid zero band; worst shear carried %.2f studs",
+					converted,
+					moved
+				)
+			)
 		end)
 
 		it("gives B2 a 28-stud scarp over 64 studs and three ramps at 15 per cent", function()
@@ -525,6 +565,49 @@ return function()
 				expect(width).to.equal(math.max(1, math.ceil((band.far - band.near) / Relief.VOXEL)) * Relief.VOXEL)
 			end
 		end)
+
+		it("snaps the band to whole WORLD columns AT EVERY STATION along a bend (task 328q)", function()
+			-- CORRECTION F-2 KEPT AND EXTENDED (design 7.2): the BAND snaps, never the centre, so the
+			-- ditch and the rut stay whole columns everywhere -- at the cost of a 4-stud lateral
+			-- stair every 31.5 studs along a bend, which is one voxel and the lattice's own
+			-- resolution. Driven by parameter at the amplitude 328r commits, where the centre
+			-- actually moves between stations.
+			local bends = { { ewStuds = 0, nsStuds = 0, harmonic = 1 }, { ewStuds = 45, nsStuds = 60, harmonic = 1 } }
+			local road = Grid.roadsOf("C1").main
+			for _, bend in ipairs(bends) do
+				local steps, phases = 0, {}
+				for i = 0, 49 do
+					local along = road.from + (road.to - road.from) * i / 49
+					local centre = Grid.roadCentreAt(road, along, bend)
+					for _, band in BANDS do
+						local lo, hi = Relief.columnsFor(centre, band.near, band.far)
+						expect(lo % Relief.VOXEL).to.equal(0)
+						expect(hi % Relief.VOXEL).to.equal(0)
+						-- THE WIDTH NEVER CHANGES, whatever the station's phase: one band is one
+						-- width, which is correction F-2's whole point.
+						expect(hi - lo).to.equal(
+							math.max(1, math.ceil((band.far - band.near) / Relief.VOXEL)) * Relief.VOXEL
+						)
+					end
+					phases[tostring(math.floor(centre) % Relief.VOXEL)] = true
+					steps += 1
+				end
+				expect(steps).to.equal(50)
+				-- AND AT THE BENT AMPLITUDE THE CENTRE REALLY DOES CROSS THE LATTICE, which is the
+				-- stair: all four residues mod 4 are visited, where a straight road only ever has one.
+				local seen = 0
+				for _ in phases do
+					seen += 1
+				end
+				expect(seen).to.equal(if bend.ewStuds == 0 then 1 else 4)
+			end
+			-- THE STAIR'S PITCH IS DERIVED, NOT TRANSCRIBED: `VOXEL / tan(swing)`.
+			local stair = Grid.bendFacts("x", bends[2]).stairStuds
+			expect(stair > 31 and stair < 32).to.equal(true)
+			TestKit.note(
+				string.format("50 stations x 2 amplitudes: whole columns everywhere, stair pitch %.2f studs", stair)
+			)
+		end)
 	end)
 
 	describe("Relief: the epoch and the floor", function()
@@ -538,13 +621,43 @@ return function()
 			-- A changed landform number changes it; a differently ORDERED config does not.
 			-- A table built key by key in a DIFFERENT order encodes the same, which is what
 			-- `table.sort(keys)` in `canonical` is for.
-			local moved = {}
+			local moved: { [string]: any } = {}
 			for _, key in
 				{ "columns", "rows", "roadClearStuds", "cellDepthStuds", "cellWidthStuds", "originZ", "originX" }
 			do
 				moved[key] = Grid.CONFIG[key]
 			end
+			moved.bend = Grid.CONFIG.bend
 			expect(Relief.epochInput(Relief.LANDFORMS, moved)).to.equal(once)
+			-- **THE THREE BEND ROWS ARE IN THE HASH, AND THEY ARE WHAT FORCES THE RE-BAKE** (task
+			-- 328q, defect F-2): without them the epoch would not move when the road did, `PlantEpoch`
+			-- would still match and the census would certify a forest standing on moved ground.
+			expect(string.find(once, '"bendEwStuds":0', 1, true) ~= nil).to.equal(true)
+			expect(string.find(once, '"bendNsStuds":0', 1, true) ~= nil).to.equal(true)
+			expect(string.find(once, '"bendHarmonic":1', 1, true) ~= nil).to.equal(true)
+			for _, row in { "ewStuds", "nsStuds", "harmonic" } do
+				local bent: { [string]: any } = table.clone(Grid.CONFIG.bend)
+				bent[row] = (bent[row] :: number) + 1
+				moved.bend = bent
+				expect(Relief.epochInput(Relief.LANDFORMS, moved)).never.to.equal(once)
+			end
+			-- AND A MISSING `bend` IS A NAMED REFUSAL, not a silently short hash.
+			moved.bend = nil
+			expect(pcall(Relief.epochInput, Relief.LANDFORMS, moved)).to.equal(false)
+			moved.bend = Grid.CONFIG.bend
+			expect(Relief.epochInput(Relief.LANDFORMS, moved)).to.equal(once)
+			-- **THE PYTHON TWIN'S FIXTURE, RE-CAPTURED FROM THIS ENCODER** (task 328q, defect F-5):
+			-- `tools/terrainbake.py`'s `CANONICAL_FIXTURE_OUTPUT` is the string below, and its
+			-- `selftest` compares its own encoder against it. Printed here so the capture is a
+			-- reading off the Luau and not a retyping.
+			local fixture = Relief.epochInput({
+				Z1 = {
+					baseKeep = 0.5,
+					floor = { default = "Ground", mudDepthStuds = 6 },
+					ops = { { dyStuds = -2.5, kind = "dome", rStuds = 10, u = 0.25, v = 0.75 } },
+				},
+			}, moved)
+			TestKit.note("grid_relief: epochInput fixture = " .. fixture)
 			moved.originX = Grid.CONFIG.originX + 4
 			expect(Relief.epochInput(Relief.LANDFORMS, moved)).never.to.equal(once)
 			local forms = { A1 = { baseKeep = 0.6, ops = {}, floor = { default = "Ground" } } }
@@ -661,6 +774,122 @@ return function()
 		it("328d-1 aims at Karen's Forest Test and not at DEV", function()
 			expect(TerrainBake.PLACE_ID).to.equal(130094961655666)
 			expect(TerrainBake.PLACE_ID).never.to.equal(game.PlaceId)
+		end)
+
+		it("328q-1 pins every junction at a station that is a zero at any amplitude", function()
+			-- EACH ROAD'S LINE IS A ZERO OF THE OTHER FAMILY'S BEND (design 5.1), so the 15 pinned
+			-- junction heights do not move when the amplitude does. Asserted because the pins are
+			-- what hold the two crowns together inside the junction square.
+			--
+			-- **WHAT IS MEASURED AT WHICH AMPLITUDE, SAID PLAINLY** (round 2 note): `longProfile` and
+			-- `junctionPins` take no bend, so the count and each pin's height are measured at the
+			-- SHIPPED amplitude only; the two `Grid.bendX` lines below are the half driven at 45/60.
+			local function sloped(_x: number, z: number): number?
+				return 120 + z / 100
+			end
+			local bent = { ewStuds = 45, nsStuds = 60, harmonic = 1 }
+			local profiles = {}
+			for _, road in Grid.roads() do
+				local profile = TerrainBake.longProfile(road, sloped)
+				if profile ~= nil then
+					table.insert(profiles, profile)
+				end
+			end
+			expect(#profiles).to.equal(8)
+			local ew = {}
+			for _, profile in profiles do
+				if profile.road.axis == "x" then
+					table.insert(ew, profile)
+				end
+			end
+			local pinned = 0
+			for _, profile in profiles do
+				if profile.road.axis == "z" then
+					local pins = TerrainBake.junctionPins(profile.road, ew)
+					expect(#pins).to.equal(3)
+					for _, pin in pins do
+						-- THE PIN'S STATION IS AN EAST-WEST ROAD'S OWN `at`, and `bendX` is exactly 0
+						-- there, so the pin is at the junction in the WORLD as well as in the grid.
+						-- **DRIVEN AT 45/60 BY PARAMETER, AND THE ZERO IS A ZERO OF SOMETHING** (round
+						-- 1 finding 3): at the shipped amplitude `bendX` returns 0 on its first line,
+						-- so the assertion alone survives deleting the sine. The half-pitch station
+						-- half a pitch away is the amplitude itself, which is what makes it a zero.
+						expect(math.abs(Grid.bendX(pin.along, bent)) < 1e-12).to.equal(true)
+						expect(math.abs(Grid.bendX(pin.along + Grid.bendPitch("z") / 2, bent))).to.be.near(
+							bent.nsStuds,
+							1e-9
+						)
+						-- AND THE PIN'S HEIGHT IS THE EAST-WEST PROFILE'S OWN CROWN AT THE CROSSING,
+						-- recomputed here off the profile rather than taken from the pin.
+						local want = nil
+						for _, other in ew do
+							if other.road.at == pin.along then
+								want = TerrainBake.profileY(other, profile.road.at)
+							end
+						end
+						expect(want ~= nil).to.equal(true)
+						expect(pin.y).to.be.near(want :: number, 1e-9)
+						pinned += 1
+					end
+				end
+			end
+			expect(pinned).to.equal(15)
+			TestKit.note(string.format("%d junction pins, every station an exact zero of the other family", pinned))
+		end)
+
+		it("328q-2 cuts the SAME cross-section along a bend: same widths, same materials", function()
+			-- THE SECTION IS MOVED, NOT RESHAPED (design 11.3): `roadAt` reads the centre from
+			-- `Grid.roadCentreAt` and every band, material and crown fall below it is unchanged.
+			--
+			-- **WHAT THIS CASE CAN AND CANNOT DO, SAID PLAINLY:** `roadAt` reads `Grid.CONFIG.bend`
+			-- and takes no amplitude, so at the shipped 0 the centre IS `road.at` and this is the
+			-- INERT gate -- it catches a station-dependent regression (a wrong `bestAlong`, a band
+			-- built from the wrong side) and it does NOT prove the section on a real curve. That is
+			-- measured in 328r, off the baked ground, and is declared unproven here until then.
+			local function level(_x: number, _z: number): number?
+				return 120
+			end
+			local road = Grid.roadsOf("C1").main
+			local profile = TerrainBake.longProfile(road, level)
+			expect(profile ~= nil).to.equal(true)
+			local profiles = { profile }
+			local spec = TerrainBake.ROAD
+			local reference: { string } = {}
+			local stations = 0
+			for i = 0, 39 do
+				-- INSIDE C1's OWN SPAN, away from the world's ends and from any crossing road, so the
+				-- junction-square rule is not what this case is reading.
+				local cell = Grid.boundsOf("C1")
+				local along = cell.minX + 80 + (cell.maxX - 80 - (cell.minX + 80)) * i / 39
+				local centre = Grid.roadCentreAt(road, along)
+				local section: { string } = {}
+				for d = 0, spec.vergeStuds + 8, 2 do
+					local y, name = TerrainBake.roadAt(profiles, 120, along, centre + d)
+					table.insert(section, string.format("%s/%.3f", tostring(name), (y or 0) - 120))
+				end
+				if #reference == 0 then
+					reference = section
+				else
+					for k, value in ipairs(section) do
+						expect(value).to.equal(reference[k])
+					end
+				end
+				stations += 1
+			end
+			expect(stations).to.equal(40)
+			expect(#reference > 10).to.equal(true)
+			-- AND THE SECTION IS NOT EMPTY: the carriageway, the rut, the ditch and the verge are all
+			-- in it, or the comparison above would be forty copies of nothing.
+			local materials: { [string]: boolean } = {}
+			for _, value in ipairs(reference) do
+				materials[string.match(value, "^[^/]+") :: string] = true
+			end
+			expect(materials[spec.material[road.axis].mid]).to.equal(true)
+			expect(materials[spec.material[road.axis].ditch]).to.equal(true)
+			expect(materials[spec.material[road.axis].verge]).to.equal(true)
+			TestKit.note(
+				string.format("%d stations, %d samples a section, identical band for band", stations, #reference)
+			)
 		end)
 
 		it("328d-2 covers one cell with its roads plus the blend, and the whole world plus 430", function()

@@ -98,6 +98,10 @@ Ground.Y_PAD_STUDS = 10
 -- A STRAIGHT LINE WANDERS NOWHERE, so it keeps the full `CHUNK_STUDS` and one box covers 200 studs of
 -- it.
 function Ground.chunkFor(layout: any, surface: any): number
+	-- A CELL'S WAVELENGTH IS THE JUNCTION PITCH, 32x `SHAPE.wavelengthDivisor` (defect F-3,
+	-- `grid-roads.md` 12). No cell reaches here today -- `Places.surfaceFor` has no cell row -- so
+	-- this REFUSES rather than mis-chunks the next task that gives one a surface.
+	assert(layout.sides == nil, "Ground.chunkFor: a grid cell's road is Grid.roadCentreAt, not SHAPE")
 	local amplitude = layout.amplitudeStuds
 	if amplitude == nil or amplitude <= 0 then
 		return Ground.CHUNK_STUDS

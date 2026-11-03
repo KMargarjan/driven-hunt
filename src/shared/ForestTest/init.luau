@@ -386,6 +386,13 @@ end
 -- layout anything with no world running.
 function ForestTest.roadZ(x: number, layout: Layout?): number
 	local resolved = layout or ForestTest.ROAD_LAYOUT
+	if resolved.sides ~= nil then
+		-- A CELL'S ROAD IS `Grid`'s CURVE, and this branch comes FIRST: the grid's wavelength is the
+		-- junction pitch (2,224 studs), never `SHAPE.wavelengthDivisor`'s 70, and a cell evaluated
+		-- below would be 32x out. Delegated exactly as `standX` and `standPosition` already are.
+		-- Design: docs/design/grid-roads.md 6.1.
+		return Grid.roadCentreAt(Grid.roadsOf(resolved.name).main, x)
+	end
 	if resolved.amplitudeStuds == 0 then
 		-- A STRAIGHT LINE IS THE SINE AT AMPLITUDE 0, so this branch changes no answer. It is here
 		-- because `roadZ` is called from every ground read and a straight layout's z is then exact

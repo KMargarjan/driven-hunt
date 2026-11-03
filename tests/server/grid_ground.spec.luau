@@ -75,6 +75,13 @@ return function()
 	-- ---------------------------------------------------------------- 1. the contact rule
 
 	describe("the contact rule is TreeGround's, by identity", function()
+		it("hold ONE trunk floor and ONE voxel, shared with Grid's bendFacts copies", function()
+			-- `Grid` MAY REQUIRE NOTHING BUT `Shotgun`, so `bendFacts` holds its own 34 and 4
+			-- (task 328q). This is the assertion that stops the second copy drifting.
+			expect(Grid.TRUNK_FLOOR_STUDS).to.equal(Plan.ROAD_TRUNK_FLOOR_STUDS)
+			expect(Grid.VOXEL_STUDS).to.equal(require(ReplicatedStorage.Grid:WaitForChild("Relief")).VOXEL)
+		end)
+
 		it("the planter, the plan and the census read ONE allowance, ONE sink and ONE tolerance", function()
 			-- THE ALLOWANCE IS THE SAME FUNCTION and not the same formula typed twice: the server's
 			-- `stepAllowance` IS `Plan.stepAllowanceStuds` since task 328b.
@@ -506,21 +513,31 @@ return function()
 	-- THE ROADS AND THE RIDES, MEASURED HERE AND NOT THROUGH THE MASK. `drive-places.md` section
 	-- 10.4 item 3's lesson: a rule checked with the function that enforces it proves only that the
 	-- function agrees with itself.
-	local function roadGap(x: number, z: number): number
+	--
+	-- MEASURED FROM THE CURVE AND PERPENDICULAR TO IT (task 328q, design 5.5), through
+	-- `Grid.roadCentreAt` and the tangent -- never `road.at`, and never `Places.roadDistance`, which
+	-- is the function under test. `bend` is optional, so the same instrument reads both worlds.
+	local function roadGap(x: number, z: number, bend: any?): number
 		local best = math.huge
 		for _, road in ipairs(Grid.roads()) do
 			if road.axis == "x" then
 				if x >= road.from and x <= road.to then
-					best = math.min(best, math.abs(z - road.at))
+					local d = math.abs(z - Grid.roadCentreAt(road, x, bend))
+					best = math.min(best, d / math.sqrt(1 + Grid.bendSlopeZ(x, bend) ^ 2))
 				end
 			elseif z >= road.from and z <= road.to then
-				best = math.min(best, math.abs(x - road.at))
+				local d = math.abs(x - Grid.roadCentreAt(road, z, bend))
+				best = math.min(best, d / math.sqrt(1 + Grid.bendSlopeX(z, bend) ^ 2))
 			end
 		end
 		return best
 	end
+	-- A RIDE IS A GRID-COORDINATE SEGMENT (task 328q): straight in the plane, a gentle curve in the
+	-- world. So a WORLD point is converted once before it is measured against one.
 	local function rideGap(cellId: string, x: number, z: number): number
 		local best = math.huge
+		local u, v = Grid.toGrid(x, z)
+		x, z = u, v
 		for _, seg in ipairs(Plan.rideSegments(cellId)) do
 			local dx, dz = seg.bx - seg.ax, seg.bz - seg.az
 			local len2 = dx * dx + dz * dz
@@ -636,6 +653,85 @@ return function()
 				end
 			end
 			expect(checked).to.equal(41 * 41)
+		end)
+
+		it("is ONE rule in two spaces: the world question is the grid one through the seam", function()
+			-- THE SEAM IS FOUR FUNCTIONS (task 328q, design 6.3): `roadDistance`, `clearOfEveryRoad`,
+			-- `mask` and `nearestCellTo` take WORLD coordinates and call `Grid.toGrid` once. Inside
+			-- `Places` nothing is bend-aware, which is why `cellFacts` keeps its cache key.
+			local box = Grid.boundsOf("C1")
+			local checked = 0
+			for step = 0, 30 do
+				local u = box.minX + (box.maxX - box.minX) * step / 30
+				for inner = 0, 30 do
+					local v = box.minZ + (box.maxZ - box.minZ) * inner / 30
+					local x, z = Grid.toWorld(u, v)
+					-- 1. THE WORLD ANSWER IS THE GRID ANSWER, through the map and back.
+					expect(Plan.roadDistance(x, z)).to.be.near(Plan.roadDistanceGrid(u, v), 1e-6)
+					expect(Plan.mask("C1", x, z)).to.equal(Plan.maskGrid("C1", u, v))
+					-- 2. AND THE KERNEL AGREES WITH THIS FILE'S OWN PERPENDICULAR INSTRUMENT, which
+					-- is the measurement `Places.roadDistance` is not allowed to be checked by
+					-- itself against (`drive-places.md` 10.4 item 3).
+					expect(Plan.roadDistanceGrid(u, v)).to.be.near(roadGap(x, z), 1e-6)
+					checked += 1
+				end
+			end
+			expect(checked).to.equal(31 * 31)
+			-- **AND WHAT THIS CASE CANNOT DO YET, SAID PLAINLY:** `Places`' seam functions read
+			-- `Grid.CONFIG.bend` and take no amplitude of their own, so at the shipped 0 the
+			-- composition above IS the identity and the case is the INERT gate, not a curve test.
+			-- The curve is tested by parameter in `Grid` (`grid.spec`'s bend block) and this case
+			-- becomes non-trivial the moment 328r commits 45 / 60.
+			expect(Grid.CONFIG.bend.ewStuds).to.equal(0)
+			expect(Grid.CONFIG.bend.nsStuds).to.equal(0)
+			TestKit.note(
+				string.format(
+					"%d lattice points: world == grid through the seam, kernel == this file's own gap",
+					checked
+				)
+			)
+		end)
+
+		it("leaves the front cone covering the drive, with 22 degrees to spare", function()
+			-- DESIGN 6.4: `standFacing` is a GRID unit vector, so in the world the cone is
+			-- perpendicular to the LOCAL road and not to the drive axis. This is the honest statement
+			-- of what it still clears, and it is a case rather than a comment.
+			local bends = { { ewStuds = 0, nsStuds = 0, harmonic = 1 }, { ewStuds = 45, nsStuds = 60, harmonic = 1 } }
+			local worst = 0
+			for _, bend in ipairs(bends) do
+				local swing = math.max(Grid.bendFacts("x", bend).swingDeg, Grid.bendFacts("z", bend).swingDeg)
+				for _, id in ipairs(Grid.cellIds()) do
+					for index = 1, Grid.standCount(id) do
+						local fx, fz = Plan.standFacing(id, index)
+						local u, v = Grid.standGridOf(id, index, bend)
+						local x, z = Grid.toWorld(u, v, bend)
+						-- THE GRID DIRECTION MAPPED INTO THE WORLD: d(x,z)/du and d(x,z)/dv of the
+						-- shear, which are (1, bendZ') and (bendX', 1) up to the Jacobian.
+						local wx, wz
+						if fx == 0 then
+							wx, wz = Grid.bendSlopeX(z, bend) * fz, fz
+						else
+							wx, wz = fx, Grid.bendSlopeZ(x, bend) * fx
+						end
+						local length = math.sqrt(wx * wx + wz * wz)
+						local off = math.deg(math.acos(math.clamp((wx * fx + wz * fz) / length, -1, 1)))
+						expect(off <= swing + 1e-6).to.equal(true)
+						worst = math.max(worst, off)
+					end
+				end
+				expect(Plan.CONE.halfDegrees - swing >= 22).to.equal(true)
+			end
+			-- AT THE BENT AMPLITUDE THE TILT IS REAL AND NOT ZERO, or this case would pass on a map
+			-- that never moved.
+			expect(worst > 7).to.equal(true)
+			TestKit.note(
+				string.format(
+					"worst facing tilt %.3f deg at 45/60; cone half %d deg leaves %.3f up-drive",
+					worst,
+					Plan.CONE.halfDegrees,
+					Plan.CONE.halfDegrees - worst
+				)
+			)
 		end)
 	end)
 
@@ -898,7 +994,10 @@ return function()
 			expect(#segments).to.equal(#plan.rides)
 			for index, ride in ipairs(plan.rides) do
 				local seg = segments[index]
-				local spot = Grid.standPosition(id, ride.atStandIndex)
+				-- THE GRID POINT (task 328q): `rideSegments` is grid-coordinate, so the thing it has
+				-- to agree with is `standGridOf` and not the world position.
+				local su, sv = Grid.standGridOf(id, ride.atStandIndex)
+				local spot = Vector3.new(su, 0, sv)
 				local fx, fz = Plan.standFacing(id, ride.atStandIndex)
 				expect(seg.kind).to.equal(ride.kind)
 				if ride.kind == "X" then
@@ -924,6 +1023,20 @@ return function()
 			local main = Grid.roadsOf("C1").main
 			expect(Grid.standPosition("C1", 9).Z - main.at).to.be.near(560, 1e-6)
 			expect(Grid.standPosition("C1", 14).Z - main.at).to.be.near(780, 1e-6)
+			-- **THE DEPTH IS A GRID FACT AND THAT IS WHY IT SURVIVES THE BEND** (task 328q): it is
+			-- `flankFirstStuds + k * flankSpacing` at ANY amplitude, driven here by parameter. The
+			-- design's 5.4 names 586 / 806 for these two at 45/60, and those are the GRID depths --
+			-- `standPosition(...).Z - main.at` reads 578.83 / 813.49 there, because `bendZ` moves the
+			-- stand's world z as well. 328r is the task that re-transcribes them.
+			local bent = { ewStuds = 45, nsStuds = 60, harmonic = 1 }
+			for _, bend in ipairs({ { ewStuds = 0, nsStuds = 0, harmonic = 1 }, bent }) do
+				local first = Grid.flankFirstStuds(bend)
+				local _, v9 = Grid.standGridOf("C1", 9, bend)
+				local _, v14 = Grid.standGridOf("C1", 14, bend)
+				expect(v9 - main.at).to.be.near(first + Grid.CONFIG.flankSpacingStuds, 1e-9)
+				expect(v14 - main.at).to.be.near(first + 2 * Grid.CONFIG.flankSpacingStuds, 1e-9)
+			end
+			expect(Grid.flankFirstStuds(bent) + 2 * Grid.CONFIG.flankSpacingStuds).to.equal(806)
 			-- ...AND A FLANK STAND LOOKS ACROSS THE CELL, not along its own road.
 			local wx, wz = Plan.standFacing("C1", 9)
 			expect(wx).to.equal(1)

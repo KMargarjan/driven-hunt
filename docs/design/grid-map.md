@@ -1599,3 +1599,33 @@ here.*
 > client frame is what can raise or lower it, and no spec and no request may cite 8,000 as a
 > measurement until that run happens. **The full design is `docs/design/grid-roads.md`, and where the
 > two disagree that document wins.**
+
+---
+
+## 20. Superseded by the curved roads (task 328o, pasted by 328q)
+
+*The bend half of `docs/design/grid-roads.md` section 14's delta for this document. The capacity half
+is §19 above, pasted by task 328p. Section 14's own figures are corrected here from the measurements
+task 328q made; where this paste and an older number disagree, this one is the measured one.*
+
+> **§2's ruling that a cell's roads are straight in plan is OVERRIDDEN by
+> `reviews/task-328o/BRIEF.md` and `docs/design/grid-roads.md`.** Every road bends, by one sine per
+> axis whose **half-wavelength is the junction pitch** (1,112 studs east–west, 1,472 north–south), so
+> the offset is exactly zero at every junction and **§4.2's topology, ids, drive direction, main line,
+> muster line and flanks are untouched**. `Grid.layoutFor`'s `amplitudeStuds` becomes the east–west
+> amplitude, `halfSpanStuds` gains the north–south one and `fieldNorthStuds` the east–west one; and
+> `ForestTest.roadZ` delegates to `Grid.roadCentreAt` for a cell exactly as `standPosition` already
+> does, in a branch that comes FIRST so a cell is never evaluated with the line places' wavelength.
+> **§7's `flankFirstStuds` goes 340 → 366** when the amplitudes are switched on, and is **340 at the
+> born amplitude of 0, by the same formula**: the invariant is solved in WORLD coordinates by one
+> fixed point, because the shear takes up to `|bendX'|max × f = 43.54` studs off its `dx` term and up
+> to `|bendZ'|max × dx0 = 13.48` studs of its dz. **MEASURED, over all 8 cells and all 72 cross-side
+> pairs:** at 340 the realised worst pair is **338.41 studs (8.41 of margin, down from 26.14)** and at
+> 366 it is **363.79 (33.79)**. The 330-stud invariant holds in both; what the re-derivation buys back
+> is the margin. **No safety number moves.** §4.3's 275-second beater walk is unmoved, because the
+> roads of an axis are **exact translates** — asserted over 400 stations — so the cell's depth is
+> `cellDepthStuds` along every column. **§13.1 cases 3, 4, 5, 6 and 15 move** and eight cases are
+> added, every one driven **by parameter** at amplitude 0 and at 45/60 so the bent world is tested
+> while the config sits at 0. **The bend ships BY COMMIT, never as a feature flag** (task 79's
+> exception, `grid-roads.md` §9.3): born at 0 by task 328q, switched on by 328r's re-bake commit.
+> **The full design is `docs/design/grid-roads.md`, and where the two disagree that document wins.**
