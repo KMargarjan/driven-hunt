@@ -1817,7 +1817,10 @@ return function()
 			-- AND IT IS CONFINED TO THE SQUARE: 500 studs up the same north-south road, away from
 			-- every crossing, the nearest centreline still wins and the road is back on its own
 			-- crown -- so the precedence rule cannot be passing by flattening the world.
-			local away = TerrainBake.roadAt(profiles, 160, ns.at, ew.at + 500)
+			-- ON THE N-S ROAD'S OWN CENTRELINE 500 STUDS UP IT (task 328r): `ns.at` is the road's
+			-- grid station, and at 45/60 its world centre there is `ns.at + bendX(z)`.
+			local awayZ = ew.at + 500
+			local away = TerrainBake.roadAt(profiles, 160, Grid.roadCentreAt(ns, awayZ), awayZ)
 			local nsProfile = nil
 			for _, profile in profiles do
 				if profile.road.id == ns.id then
@@ -1830,10 +1833,10 @@ return function()
 					"500 st up %s: %.2f, its own crown %.2f",
 					ns.id,
 					away,
-					TerrainBake.profileY(nsProfile, ew.at + 500)
+					TerrainBake.profileY(nsProfile, awayZ)
 				)
 			)
-			expect(math.abs(away - TerrainBake.profileY(nsProfile, ew.at + 500)) < 1e-9).to.equal(true)
+			expect(math.abs(away - TerrainBake.profileY(nsProfile, awayZ)) < 1e-9).to.equal(true)
 			expect(away > 155).to.equal(true)
 		end)
 
