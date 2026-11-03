@@ -594,6 +594,10 @@ return HttpService:JSONEncode(result)
 """
 
 PLACE_QUERY = 'return tostring(game.PlaceId)'
+# The place AND the DataModel's name in one read -- `studio_mcp`'s own query, imported in
+# substance so there is one wire format. The name is what tells a re-opened backup .rbxl from
+# Karen's live window: both report the same place id (task 328k).
+QUERY_PLACE_AND_NAME = 'return tostring(game.PlaceId) .. "|" .. tostring(game.Name)'
 
 
 def parse_json(body):
@@ -679,14 +683,28 @@ class pin_default:
         return False
 
 
-def check_place(studio, studio_id):
-    """Refusals 1 and 2, re-run before EVERY mutating call (B1), by place id and never by name."""
+def check_place(studio, studio_id, want_name=None, allow_local=False):
+    """Refusals 1 and 2, re-run before EVERY mutating call (B1), by place id -- and, when
+    `--studio-name` is given, by the DataModel's own name as well.
+
+    THE PLACE ID IS NOT ENOUGH WHEN A BACKUP IS OPEN (task 328k). A `.rbxl` saved out of the Forest
+    Test and re-opened as a local file reports the SAME `game.PlaceId`, so with both windows up the
+    id cannot tell the base snapshot's window from Karen's live one. The name can: Studio names the
+    DataModel after the file. `--studio-name` is therefore not politeness -- it is the only
+    discriminator there is, and lesson L-055 is about exactly this fall-back.
+    """
     mode = studio.mode(studio_id=studio_id)
     if "Edit" not in mode:
         return "Studio is in %r, not Edit. Karen may be playing; the bake only runs in Edit." % mode
-    place = studio.query("Edit", PLACE_QUERY, studio_id=studio_id).strip().strip('"')
-    if place != FOREST_PLACE_ID:
-        return "that Studio is open on place %s, not the Forest Test %s" % (place, FOREST_PLACE_ID)
+    answer = studio.query("Edit", QUERY_PLACE_AND_NAME, studio_id=studio_id).strip().strip('"')
+    place, _, name = answer.partition("|")
+    if not local_ok(place.strip(), name, want_name, allow_local):
+        return ("that Studio is open on place %s, not the Forest Test %s"
+                % (place, FOREST_PLACE_ID))
+    if want_name and want_name.lower() not in name.lower():
+        return ("that Studio's place is %s but its DataModel is named %r, which does not hold %r: "
+                "two windows can report one place id (a backup .rbxl re-opened), so the name is the "
+                "only thing that tells them apart" % (place, name, want_name))
     return None
 
 
@@ -818,14 +836,55 @@ def log_run(cells, entries, keep=None, live=None):
 
 # ---------------------------------------------------------------- the commands
 
-def resolve(studio):
-    """(studio_id, why) for the Forest Test. The ONE resolver, by place id (L-055, L-014)."""
-    from studio_mcp import studio_for_place
-    studio_id, name, why = studio_for_place(studio, FOREST_PLACE_ID)
-    if studio_id is None:
-        return None, why
-    print("[bake] Studio: %s (%s), place %s" % (studio_id[:8], name, FOREST_PLACE_ID))
-    return studio_id, None
+def local_ok(place, name, want_name, allow_local):
+    """Is this Studio the one a run may talk to?
+
+    MEASURED 2026-11-03: a `.rbxl` saved out of the Forest Test and re-opened with
+    `-task EditFile -localPlaceFile` reports `game.PlaceId` **0**, not the place it was saved from,
+    and `game.Name` is the FILE's name. So the base snapshot's window cannot be addressed by place
+    id at all. `--allow-local-file` accepts place 0, and ONLY ever together with a `--studio-name`
+    that the DataModel's name holds -- and main() refuses the flag for every command but the
+    read-only `snapshot`, because B1's guard exists to stop a WRITE going to the wrong world and a
+    read of a backup file writes nothing.
+    """
+    if place == FOREST_PLACE_ID:
+        return not want_name or want_name.lower() in (name or "").lower()
+    if allow_local and place == "0" and want_name:
+        return want_name.lower() in (name or "").lower()
+    return False
+
+
+def resolve(studio, want_name=None, allow_local=False):
+    """(studio_id, why) for the Forest Test. The ONE resolver, by place id (L-055, L-014) -- and by
+    the DataModel's NAME too when `--studio-name` is given, because a backup `.rbxl` re-opened as a
+    local file reports the same place id as Karen's live window (see `check_place`).
+
+    It PRINTS every Studio it saw and what each answered, so the window it chose is readable rather
+    than assumed, and it re-lists before refusing for `studio_for_place`'s own measured reason.
+    """
+    from studio_mcp import place_of
+    seen = []
+    for attempt in range(5):
+        seen = []
+        for entry in studio.studio_list():
+            studio_id = entry.get("id")
+            at, name, why = place_of(studio, studio_id, "Edit")
+            seen.append("%s place=%s name=%r%s"
+                        % (studio_id[:8] if studio_id else "?", at or "?", name or "",
+                           "" if at else " (" + why[:60] + ")"))
+            if not local_ok(at, name, want_name, allow_local):
+                continue
+            print("[bake] Studios seen: %s" % " | ".join(seen))
+            print("[bake] Studio: %s name=%r place %s%s"
+                  % (studio_id[:8], name, at,
+                     "  (--studio-name %r matched)" % want_name if want_name else ""))
+            return studio_id, None
+        if attempt < 4:
+            time.sleep(2)
+    return None, ("no Studio is open on place %s%s. Saw: %s"
+                  % (FOREST_PLACE_ID,
+                     " with a DataModel named %r" % want_name if want_name else "",
+                     " | ".join(seen) or "nothing"))
 
 
 def command_plan(args, facts, studio=None, studio_id=None):
@@ -1258,7 +1317,7 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
         # REFUSAL 2 AGAIN, before every mutating call (B1): the operator can open another place
         # inside a 70-minute run, and a silent fall-back would reshape DEV.
         if not dry:
-            problem = check_place(studio, studio_id)
+            problem = check_place(studio, studio_id, args.studio_name)
             if problem:
                 return refuse(problem), entries
         # THIS TILE'S SLICE OF THE BASE SNAPSHOT, cut out of the `.bin` (task 328k). The bake used
@@ -1329,6 +1388,15 @@ def main(argv):
                                           "hashes this sha and never the git sha (design 5.4)")
     parser.add_argument("--source", help="a note recorded in the snapshot's header, e.g. which "
                                         ".rbxl it was read out of")
+    parser.add_argument("--allow-local-file", action="store_true",
+                        help="accept a Studio with NO place id (a .rbxl opened as a local file, "
+                             "which reports game.PlaceId 0). Only `snapshot` takes it, only with "
+                             "--studio-name, and it can never reach a mutating command")
+    parser.add_argument("--studio-name", help="the Studio whose DataModel NAME holds this text, as "
+                                              "well as the Forest Test's place id. REQUIRED in "
+                                              "practice whenever a backup .rbxl is open beside "
+                                              "Karen's live window: both report the same place id "
+                                              "(task 328k, lesson L-055)")
     parser.add_argument("--keep-flags", help="comma list of flag overrides that are the PLACE "
                                              "OWNER's and must be left as found (refusal 7)")
     parser.add_argument("--y-min", type=float, default=-100.0, help="the Y band the snapshot reads")
@@ -1350,7 +1418,7 @@ def main(argv):
         studio = None
         try:
             studio = Studio()
-            studio_id, _ = resolve(studio)
+            studio_id, _ = resolve(studio, args.studio_name)
         except Exception as problem:  # noqa: BLE001 -- a plan must still print with no Studio
             print("[bake] note: no Studio addressed (%s)" % str(problem)[:120])
             studio_id = None
@@ -1360,6 +1428,15 @@ def main(argv):
             if studio is not None:
                 studio.close()
 
+    # THE LOCAL-FILE DOOR IS ONE COMMAND WIDE. `snapshot` writes nothing in the world; everything
+    # else either writes terrain or measures the live place, and both need the place id.
+    local = bool(args.allow_local_file)
+    if local and args.command != "snapshot":
+        return refuse("--allow-local-file is only for `snapshot`, which writes nothing; `%s` needs "
+                      "the Forest Test's own place id" % args.command)
+    if local and not args.studio_name:
+        return refuse("--allow-local-file needs --studio-name: a Studio with no place id can only "
+                      "be told apart by the name of the file it has open")
     mutating = args.command in ("bake", "archive")
     if mutating and not args.cells:
         return refuse("--cells is missing: an unnamed cell is an unbounded run")  # refusal 6
@@ -1385,10 +1462,10 @@ def main(argv):
 
     studio = Studio()
     try:
-        studio_id, why = resolve(studio)
+        studio_id, why = resolve(studio, args.studio_name, local)
         if studio_id is None:
             return refuse(why)
-        problem = check_place(studio, studio_id)  # refusals 1 and 2
+        problem = check_place(studio, studio_id, args.studio_name, local)  # refusals 1 and 2
         if problem:
             return refuse(problem)
         problem = check_echo(studio, studio_id, facts, injected, shas)  # refusal 4
@@ -1778,6 +1855,8 @@ def selftest():
         base_sha = None
         out = None
         source = None
+        studio_name = None
+        allow_local_file = False
 
     # A SYNTHETIC BASE covering the first two tiles plus their pad, so the tile pass can cut real
     # slices out of it with no Studio.
@@ -1916,6 +1995,26 @@ def selftest():
        (reshape_blocked({"D1": "changed", "A1": "changed", "C1": "same"}) or "").startswith("A1, D1"))
     ok("refusal 7b lets a cell whose stamp is the same landform through",
        reshape_blocked({"C1": "same"}) is None and reshape_blocked({"C1": "virgin"}) is None)
+
+    # ---- WHICH WINDOW (L-055). A backup .rbxl re-opened reports place 0 and the FILE's name;
+    # Karen's live window reports the Forest Test's place id and 'Driven Hunt Forest Test'. Both
+    # were read off this machine on 2026-11-03 with all three windows open.
+    ok("the live Forest Test is accepted by its place id, with or without a name",
+       local_ok(FOREST_PLACE_ID, "Driven Hunt Forest Test", None, False)
+       and local_ok(FOREST_PLACE_ID, "Driven Hunt Forest Test", "Forest Test", False))
+    ok("a name that does not match is refused even on the right place id",
+       not local_ok(FOREST_PLACE_ID, "Driven Hunt Forest Test", "FT-base-328k", False))
+    ok("a local file (place 0) is refused unless --allow-local-file AND the name match",
+       not local_ok("0", "FT-base-328k.rbxl", "FT-base-328k", False)
+       and not local_ok("0", "FT-base-328k.rbxl", None, True)
+       and local_ok("0", "FT-base-328k.rbxl", "FT-base-328k", True))
+    ok("DEV is refused however the flags are set -- the one thing L-014 is about",
+       not local_ok("136410205938347", "Driven Hunt DEV", None, True)
+       and not local_ok("136410205938347", "Driven Hunt DEV", "DEV", True))
+    ok("--allow-local-file cannot reach a mutating command",
+       main(["bake", "--cells", "C1", "--allow-local-file", "--studio-name", "x"]) == 2)
+    ok("--allow-local-file without --studio-name is refused",
+       main(["snapshot", "--allow-local-file"]) == 2)
 
     # THE RUN-LOG WRITER (design 6.3).
     rows = [{"minX": -4736, "minZ": -5376, "elapsedMs": 7}]
