@@ -2114,6 +2114,40 @@ return function()
 			-- itself quantise: the same bytes come back out.
 			local again = TerrainBake.encodeSlice(slice)
 			expect(again.b64).to.equal(FIXTURE_B64)
+			expect(again.holes).to.equal(0)
+		end)
+
+		it("328k-2b carries the holes as a BITMASK, and decodes the same set back", function()
+			-- A chunk of the border pad where NO column has ground sent 16,384 hole INDICES, the
+			-- reply truncated mid-object, and the tool read `holeWhy` -- a list of sentences -- where
+			-- a slice should have been (MEASURED 2026-11-03). One bit a column is 2 KB instead.
+			local want = { [1] = true, [8] = true, [9] = true, [63] = true }
+			local snap = snapshotOf(0, 0, 9, 7, flat, want)
+			local wire = TerrainBake.encodeSlice(snap)
+			expect(wire.holes).to.equal(4)
+			expect(type(wire.holeBits)).to.equal("string")
+			-- 63 columns is 8 bytes of mask, which is 12 characters of base64 (8 -> ceil(8/3)*4).
+			expect(#wire.holeBits).to.equal(12)
+			local back = TerrainBake.decodeSlice(wire)
+			expect(back.holes).to.equal(4)
+			local read = TerrainBake.readerFor(back)
+			for at = 1, 63 do
+				local i = (at - 1) % 9 + 1
+				local k = (at - 1) // 9 + 1
+				local there = read((i - 0.5) * Relief.VOXEL, (k - 0.5) * Relief.VOXEL)
+				if want[at] then
+					expect(there).to.equal(nil)
+				else
+					expect(there).to.equal(100)
+				end
+			end
+			-- AND AN ALL-HOLE SLICE round-trips too: that is the chunk that broke the wire.
+			local every: { [number]: boolean } = {}
+			for at = 1, 63 do
+				every[at] = true
+			end
+			local none = TerrainBake.decodeSlice(TerrainBake.encodeSlice(snapshotOf(0, 0, 9, 7, flat, every)))
+			expect(none.holes).to.equal(63)
 		end)
 
 		it("328k-3 round-trips a slice at 1/64 of a stud, under one voxel's own occupancy step", function()

@@ -1155,6 +1155,9 @@ def command_snapshot(studio, studio_id, args, facts, injected, sha):
                            "if snap == nil then error(why, 0) end "
                            "return TerrainBake.encodeSlice(snap) end)()"
                            % (x0, x1, z0, z1, args.y_min, args.y_max), injected=injected)
+            if not isinstance(payload, dict):
+                raise RuntimeError("chunk (%g, %g) answered %r, not a slice"
+                                   % (x0, z0, str(payload)[:200]))
             if abs(payload["minX"] - x0) > 1e-6 or abs(payload["minZ"] - z0) > 1e-6:
                 raise RuntimeError("chunk (%g, %g) came back anchored at (%g, %g): the lattice is "
                                    "not aligned" % (x0, z0, payload["minX"], payload["minZ"]))
@@ -1171,17 +1174,24 @@ def command_snapshot(studio, studio_id, args, facts, injected, sha):
             for k in range(cnz):
                 at = (k0 + k) * nx + i0
                 codes[at:at + cnx] = blob[k * cnx:(k + 1) * cnx]
-            for local in payload.get("holes", []) or []:
-                index = int(local) - 1
-                holes.add((k0 + index // cnx) * nx + i0 + index % cnx + 1)
+            # THE HOLES ARRIVE AS A BITMASK, one bit a column (see `encodeSlice`'s header): a
+            # chunk where nothing has ground would otherwise send 16,384 indices and truncate the
+            # reply.
+            mask = base64.b64decode(payload["holeBits"])
+            for index in range(cnx * cnz):
+                if mask[index // 8] >> (index % 8) & 1:
+                    holes.add((k0 + index // cnx) * nx + i0 + index % cnx + 1)
             for line in payload.get("holeWhy", []) or []:
                 if len(reasons) < 40:
                     reasons.append(line)
-            low = payload["minY"] if low is None else min(low, payload["minY"])
-            high = payload["maxY"] if high is None else max(high, payload["maxY"])
+            # A CHUNK WITH NO GROUND AT ALL reports minY/maxY 0, which is not a height: it must
+            # not drag the file's range to 0. Only a chunk that read at least one column counts.
+            if payload["holes"] < cnx * cnz:
+                low = payload["minY"] if low is None else min(low, payload["minY"])
+                high = payload["maxY"] if high is None else max(high, payload["maxY"])
             done += 1
             print("  chunk %3d/%-3d (%7g,%7g)..(%7g,%7g)  %5d x %-5d  holes %d"
-                  % (done, len(xs) * len(zs), x0, z0, x1, z1, cnx, cnz, len(payload.get("holes") or [])))
+                  % (done, len(xs) * len(zs), x0, z0, x1, z1, cnx, cnz, payload["holes"]))
     header = {
         "pitch": v,
         "minX": min_x,

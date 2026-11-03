@@ -403,25 +403,34 @@ TerrainBake.toBase64 = toBase64
 -- A SNAPSHOT, COMPACT ENOUGH TO COME BACK THROUGH ONE MCP CALL. 16,384 columns of JSON floats plus
 -- 16,384 material strings is ~280 KB of reply; the same columns as int16 in a fixed frame are
 -- 43 KB of base64. `decodeSlice` is its exact inverse, and the tool's own encoder is checked against
--- this one by `terrainbake.py selftest` (task 328k). A hole's code is 0 and its index is listed.
+-- this one by `terrainbake.py selftest` (task 328k).
+--
+-- THE HOLES ARE A BITMASK, NOT A LIST, and that is measured: a chunk of the border pad where NO
+-- column has ground sent 16,384 hole INDICES, the reply was truncated mid-object, and `parse_json`
+-- fell back to the one array it could close -- `holeWhy` -- so the tool read a list of sentences
+-- where a slice should have been (2026-11-03). One bit a column is 2 KB for the same chunk.
 function TerrainBake.encodeSlice(snapshot: Snapshot): any
 	local scale = TerrainBake.SLICE_SCALE
 	local offset = TerrainBake.SLICE_OFFSET
 	local count = snapshot.nx * snapshot.nz
 	local buf = buffer.create(count * 2)
+	local bits = buffer.create((count + 7) // 8)
 	local hole = snapshot.hole
-	local holes: { number } = {}
+	local holes = 0
 	for at = 1, count do
+		local slot = at - 1
 		if hole ~= nil and hole[at] == true then
-			table.insert(holes, at)
-			buffer.writei16(buf, (at - 1) * 2, 0)
+			holes += 1
+			local byte = slot // 8
+			buffer.writeu8(bits, byte, bit32.bor(buffer.readu8(bits, byte), bit32.lshift(1, slot % 8)))
+			buffer.writei16(buf, slot * 2, 0)
 		else
 			local code = math.round((snapshot.height[at] - offset) * scale)
 			assert(
 				code >= -32768 and code <= 32767,
 				string.format("encodeSlice: height %.3f is outside the slice frame", snapshot.height[at])
 			)
-			buffer.writei16(buf, (at - 1) * 2, code)
+			buffer.writei16(buf, slot * 2, code)
 		end
 	end
 	return {
@@ -435,6 +444,7 @@ function TerrainBake.encodeSlice(snapshot: Snapshot): any
 		minY = if snapshot.minY < math.huge then snapshot.minY else 0,
 		maxY = if snapshot.maxY > -math.huge then snapshot.maxY else 0,
 		holes = holes,
+		holeBits = toBase64(bits),
 		holeWhy = snapshot.holeWhy,
 		b64 = toBase64(buf),
 	}
@@ -464,11 +474,26 @@ function TerrainBake.decodeSlice(payload: any): Snapshot
 		lo = math.min(lo, h)
 		hi = math.max(hi, h)
 	end
+	-- EITHER SHAPE OF HOLE: a base64 BITMASK, one bit a column, which is what `encodeSlice` sends
+	-- (see its header), or a plain list of 1-based indices, which is what the tool's tile slices and
+	-- a hand-written fixture use. The bitmask wins when both are present.
 	local hole: { [number]: boolean } = {}
 	local holes = 0
-	for _, at in payload.holes or {} do
-		hole[math.round(at)] = true
-		holes += 1
+	if type(payload.holeBits) == "string" then
+		local bits = fromBase64(payload.holeBits)
+		for at = 1, count do
+			local slot = at - 1
+			local byte = slot // 8
+			if byte < buffer.len(bits) and bit32.band(buffer.readu8(bits, byte), bit32.lshift(1, slot % 8)) ~= 0 then
+				hole[at] = true
+				holes += 1
+			end
+		end
+	else
+		for _, at in payload.holes or {} do
+			hole[math.round(at)] = true
+			holes += 1
+		end
 	end
 	return {
 		pitch = payload.pitch or Relief.VOXEL,
