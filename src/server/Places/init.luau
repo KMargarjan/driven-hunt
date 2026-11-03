@@ -65,8 +65,8 @@ Places.FOLDER = "DrivePlaces"
 -- WHERE THE GRID'S OWN OUTPUT LIVES, and it is a SECOND folder rather than a child of the first: the
 -- four places and the eight cells are two worlds, only one of them is ever live, and
 -- `docs/design/grid-map.md` section 11.3 step 2 wants the one that is NOT this world's destroyed at
--- every boot. It is also the name `ForestTest.GROUND_IGNORE` carries, so a corner stake can never be
--- mistaken for the ground.
+-- every boot. It is also the name `ForestTest.GROUND_IGNORE` carries, so nothing the preview parents
+-- can ever be mistaken for the ground.
 Places.GRID_FOLDER = "GridPlaces"
 
 -- THE FLAG THAT SHOWS IT. Born OFF (`src/shared/Flags/init.luau`); read ONCE here, at this module's
@@ -848,9 +848,8 @@ function Places.build(
 
 	-- ------------------------------------------------ THE GRID PREVIEW (task 327a), FIRST
 	--
-	-- **BEFORE THE TEMPLATE CHECK, AND THAT IS THE POINT:** the grid's roads and corner stakes need
-	-- no tree template at all, so they must not be skipped in a world that has none -- which is
-	-- every DEV spec run.
+	-- **BEFORE THE TEMPLATE CHECK, AND THAT IS THE POINT:** the grid's folder needs no tree template
+	-- at all, so it must not be skipped in a world that has none -- which is every DEV spec run.
 	--
 	-- **THE OTHER WORLD'S FOLDER IS DESTROYED WHATEVER THE FLAG SAYS** (design 11.3 step 2): the
 	-- grid's parts must not be left standing in a world that has never heard of them, and task 79

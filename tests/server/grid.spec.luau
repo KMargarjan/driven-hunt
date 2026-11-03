@@ -857,7 +857,8 @@ return function()
 			-- be"*). The folder is the cell wood's parent and nothing else, so a BUILD puts NO part
 			-- in it -- and the fields that counted the stakes are gone with them, which is what
 			-- stops a later report quietly reintroducing a count nobody reads.
-			expect(#folder:GetChildren()).to.equal(0)
+			local ownParts = #folder:GetChildren()
+			expect(ownParts).to.equal(0)
 			expect((report :: any).gridStakes).to.equal(nil)
 			expect((report :: any).gridMissing).to.equal(nil)
 			-- IT TAGS NOTHING, BUILDS NO STAND AND NO SEAT, and the layout list does not move: with
@@ -894,7 +895,7 @@ return function()
 			TestKit.note(
 				string.format(
 					"preview on: folder present with %d part(s) of its own, %d layouts before and after; preview off: no folder",
-					0,
+					ownParts,
 					#after
 				)
 			)
@@ -1053,7 +1054,10 @@ return function()
 			expect(under > 0).to.equal(true)
 			expect(Plan.cellCapacity("C1")).to.equal(zones + under + ferns + skirt)
 
-			-- IT ACTUALLY PLANTS, at the `shrub` band's scale and from no other group.
+			-- IT ACTUALLY PLANTS, AT THE `shrub` BAND'S SCALE. Not "and from no other group": the
+			-- mix check above is where the groups are asserted, because `scatter` puts every
+			-- non-herb site within `frontage.studs` 60 of a road through `frontageGroupFor`, so a
+			-- `fieldOak` at 0.4 is a legal understorey stem (design 7.2).
 			local saplings, worstScale = 0, 0
 			for _, item in ipairs(woods.C1) do
 				if item.band == "shrub" and item.side == 1 then
@@ -1068,8 +1072,11 @@ return function()
 			-- storey, and this case reddens the moment the `under` loop in `plantCell` is removed.
 			expect(saplings > 381).to.equal(true)
 
-			-- ...AND IT MOVES NO CANOPY STEM. `CELL_STREAM.under` is its own stream, so the four
-			-- layers cannot shift each other -- design 4.6's rule, asserted rather than assumed.
+			-- ...AND IT MOVES NO CANOPY STEM, which is true BY CONSTRUCTION and only half asserted
+			-- here, said so nobody reads more into the case than it carries: the `under` loop runs
+			-- AFTER every zone on its own `Random`, so the only state it shares with the canopy is
+			-- the `trees` bucket grid -- which from there can refuse a SKIRT site and nothing else.
+			-- What this asserts is the half that could rot: four distinct stream ids (design 4.6).
 			local streams = {}
 			for name, value in pairs(Plan.CELL_STREAM) do
 				expect(streams[value]).to.equal(nil)
@@ -1635,8 +1642,8 @@ return function()
 
 	describe("the grid folder's name", function()
 		it("is the same fact as the ground-ignore list", function()
-			-- SO A PLANTED TREE CAN NEVER ANSWER "WHERE IS THE GROUND" for the next one, and a
-			-- corner stake can never answer it at all (design 8.4).
+			-- SO A PLANTED TREE CAN NEVER ANSWER "WHERE IS THE GROUND" for the next one, and nothing
+			-- the preview parents can answer it at all (design 8.4).
 			expect(table.find(Forest.GROUND_IGNORE, Planter.GRID_FOLDER) ~= nil).to.equal(true)
 			expect(table.find(Forest.GROUND_IGNORE, Planter.FOLDER) ~= nil).to.equal(true)
 			expect(Planter.GRID_FOLDER).never.to.equal(Planter.FOLDER)

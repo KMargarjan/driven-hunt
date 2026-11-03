@@ -1098,21 +1098,28 @@ Places.CELL_PLANS = table.freeze({
 		-- cold bottom under hn .30 and birch the crest over .70. The two scrub zones and the
 		-- clearing are left alone -- a bias that rewrote the scrub would erase the beaters' ground.
 		-- v3 (task 328m). KAREN, 2026-11-03, HAVING PLAYED C1: *"it's not broken trees it's good has
-		-- to be a bit more realistic more trees but rest is good"*. Three changes, and C1 is the only
-		-- recipe that takes them -- the other seven are untouched until she has judged this one.
+		-- to be a bit more realistic more trees but rest is good"*. C1 is the only recipe that takes
+		-- these rows -- the other seven are untouched until she has judged this one.
 		--
-		-- 1. THE FOUR WOOD ZONES GAIN A SECOND STOREY (`under`), young larch at the `shrub` band's
-		--    0.35-0.45 scale. It shares the canopy's `minGapStuds`, so it clumps into the gaps.
-		-- 2. THE THREE CLOSED ZONES TIGHTEN (24/32/30 -> 21/28/27). `oakPark` does NOT: it is the
-		--    park a hunter can see across (design 8.3's own intent for the east half), and it is the
-		--    part of "the rest" she said was good. Neither do the two scrub zones behind the
-		--    clearing, nor the clearing itself.
-		-- 3. `jitter` 1.0 ON EVERY ZONE. At the 0.8 default a site wanders over 80 % of its own step,
-		--    which leaves a 20 % empty stripe per row -- a grid you can see. 1.0 spans the step and
-		--    costs no capacity.
+		-- WHAT EACH ZONE GETS, SAID PER ZONE, because "the rest is good" is a claim about ZONES and
+		-- round 1's header made it about three of them while the rows made it about four
+		-- (`reviews/task-328m/RESULT.md` finding 1):
+		--  * `spruceThicket`, `mixedWood`, `birchStand` -- CLOSER (24/32/30 -> 21/28/27) AND a second
+		--    storey (`under`): young larch at the `shrub` band's 0.35-0.45 scale, sharing the
+		--    canopy's `minGapStuds` so it clumps into the gaps between trunks.
+		--  * `oakPark` -- SPACING AND STOREY BOTH UNCHANGED. It is the park a hunter can see across
+		--    (this recipe's own header: *"an oak park to the east where the sight lines open"*) and
+		--    it is the part of "the rest" she said was good, so it gets neither.
+		--  * the clearing -- NOTHING. Spacing 0, no jitter, plants nothing, exactly as before.
+		--  * the two `scrub` zones -- SPACING UNCHANGED, but `jitter` 1.0 like every other zone, so
+		--    their sites DO move. That is not "untouched" and is not claimed to be: at the 0.8
+		--    default a site wanders over 80 % of its own step, which leaves a 20 % empty stripe per
+		--    row -- a grid you can see. 1.0 spans the step, costs no capacity, and is the dispatch's
+		--    *"no rows where the design does not ask for rows"*.
 		--
 		-- THE BUDGET IS WHAT SETS THE NUMBERS, not taste: design 8.3's hard bound is `cellCapacity`
-		-- < 3,600 and `grid.spec` case 14 asserts it. C1 stood at 2,598; these rows put it at 3,548.
+		-- < 3,600 and `grid.spec` case 14 asserts it. C1 stood at 2,598; these rows put it at 3,416,
+		-- which leaves 184 -- the park's 132 among them, now that it carries no second storey.
 		-- MEASURED, three allocations of that same budget (`driven-hunt-runs/328m-yield-v{1,2,3}.txt`):
 		-- 1,885 / 1,876 / 1,886 planned models at capacity 3,548 / 3,588 / 3,526. The count PLATEAUS,
 		-- because what refuses a site is `minGapStuds` and `Places.mask`, not the grid -- a per-zone
@@ -1139,7 +1146,6 @@ Places.CELL_PLANS = table.freeze({
 			zone(0.60, 0.35, 1.00, 0.70, 44, "oakPark", "wood", {
 				reliefBias = true,
 				jitter = 1.0,
-				under = table.freeze({ spacingStuds = 42, mix = "larchYoung" }),
 			}),
 			zone(0.15, 0.70, 0.65, 1.00, 0, "clearing", "wood"),
 			zone(0.00, 0.70, 0.15, 1.00, 24, "scrub", "shrub", { jitter = 1.0 }),
@@ -2684,6 +2690,9 @@ function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?
 		local under = item.under
 		if under ~= nil then
 			local rows = Places.cellMixNamed(under.mix)
+			-- THE SYNTHETIC RECIPE CARRIES `jitter` AND NOTHING ELSE, so an understorey is never
+			-- biased by relief and never planted in rows. A `rows = "NS"` zone would get a scattered
+			-- storey under a planted one; no recipe has both today (C1 has no `rows` zone).
 			scatter(
 				out,
 				Places.zoneRect(cellId, item),
