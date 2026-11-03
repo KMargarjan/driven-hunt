@@ -136,6 +136,41 @@ return function()
 		it("buries a tree by the lobby's own 0.6 and a fern by a tenth of itself", function()
 			expect(TreeGround.sinkFor(74.8)).to.equal(0.6)
 			expect(TreeGround.sinkFor(2.8)).to.be.near(0.28, 1e-9)
+			-- NO FOLIAGE-NAMED PART IS THE SAME NUMBER, which is what keeps a fern's seat exactly
+			-- where it was: `nil` and not 0, because 0 means "the crown's foot is AT the trunk's".
+			expect(TreeGround.sinkFor(74.8, nil)).to.equal(0.6)
+		end)
+
+		it("makes room for a crown that hangs below the trunk (task 328l)", function()
+			-- MEASURED: `LarchTree_Var02` drops 0.10 studs, `Field_OakTree_Var05_LOD_0` 1.68. The
+			-- sink plus the drop is what ends up under the grass, held to 0.5 less a hair.
+			local line = TreeGround.FOLIAGE_SINK_STUDS - TreeGround.FOLIAGE_MARGIN_STUDS
+			expect(TreeGround.sinkFor(32.3, 0.10)).to.be.near(line - 0.10, 1e-9)
+			expect(TreeGround.sinkFor(32.3, 0.10) + 0.10 < TreeGround.FOLIAGE_SINK_STUDS).to.equal(true)
+			-- A CROWN AT THE TRUNK'S FOOT IS ALREADY TOO DEEP AT THE FULL SINK: 0.6 against the
+			-- census's 0.5, which is why 18 `LarchTree_Var01` were counted with no droop at all.
+			expect(TreeGround.sinkFor(38.3, 0)).to.be.near(line, 1e-9)
+			-- A CROWN ABOVE THE FOOT BUYS BACK THAT MUCH SINK, up to the full 0.6 again.
+			expect(TreeGround.sinkFor(38.3, -0.10)).to.be.near(line + 0.10, 1e-9)
+			expect(TreeGround.sinkFor(38.3, -1.00)).to.equal(0.6)
+			-- A DROP BIGGER THAN THE LINE CANNOT BE PAID FOR: the sink goes to 0 and no further,
+			-- because lifting a tree off the ground is the defect Karen photographed.
+			expect(TreeGround.sinkFor(61.1, 1.68)).to.equal(0)
+			expect(TreeGround.sinkFor(61.1, 100)).to.equal(0)
+			-- THE HEIGHT CAP STILL WINS WHERE IT IS SMALLER: a 2.8-stud fern, 0.10 of drop.
+			expect(TreeGround.sinkFor(2.8, 0.10)).to.be.near(0.28, 1e-9)
+		end)
+	end)
+
+	describe("decide carries the drop", function()
+		it("seats a drooping crown higher than the same tree without one", function()
+			-- SAME TREE, SAME GROUND, ONE DIFFERENCE. With the drop dropped from `decide`'s call to
+			-- `sinkFor`, both lines read -2.6 and this case fails.
+			local plain = TreeGround.decide(100, 160, 0, { 98 })
+			local droopy = TreeGround.decide(100, 160, 0, { 98 }, nil, 1.68)
+			expect(plain.lift).to.be.near(-2.6, 1e-9)
+			expect(droopy.lift).to.be.near(-2.0, 1e-9)
+			expect(TreeGround.decide(100, 160, 0, { 98 }, nil, 0.10).lift).to.be.near(-2.35, 1e-9)
 		end)
 	end)
 

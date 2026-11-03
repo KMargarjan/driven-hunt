@@ -183,6 +183,91 @@ return function()
 		end)
 	end)
 
+	-- ------------------------------------------- 2c. WHICH standing tree is the template (task 328l)
+
+	describe("the template is the instance the row was measured on", function()
+		it("nearestScale takes the nearest, then the smaller, and never the first", function()
+			-- MEASURED, 2026-11-03: `OurForest` holds 16-125 instances of every one of the 35 names,
+			-- scales spanning x1.84. So "the template" has to be chosen, not found.
+			expect(Plan.nearestScale({ 0.50, 0.10, 0.30 }, 0.30)).to.equal(3)
+			-- FAIL FIRST: the old rule was "the folder's first child". Here that is the worst answer.
+			expect(Plan.nearestScale({ 0.50, 0.10, 0.30 }, 0.30) ~= 1).to.equal(true)
+			-- A TIE GOES TO THE SMALLER SCALE, so the answer cannot depend on the order.
+			expect(Plan.nearestScale({ 0.40, 0.20 }, 0.30)).to.equal(2)
+			expect(Plan.nearestScale({ 0.20, 0.40 }, 0.30)).to.equal(1)
+			expect(Plan.nearestScale({}, 0.30)).to.equal(nil)
+		end)
+
+		it("pickTemplate clones that one out of a folder of three, and not the first child", function()
+			local name = "SM_AspenTree_Var02"
+			local row = Plan.dimsFor(name)
+			expect(row ~= nil).to.equal(true)
+			local folder = Instance.new("Folder")
+			local made: { Model } = {}
+			for _, factor in ipairs({ 1.3, 0.7, 1.0 }) do
+				local model = template(name, Vector3.new(2, 40, 2), Vector3.new(16, 10, 16))
+				model:ScaleTo(row.scale * factor)
+				model.Parent = folder
+				table.insert(made, model)
+			end
+			local picked = Planter.pickTemplate(folder, name)
+			expect(picked).to.equal(made[3])
+			expect(picked ~= made[1]).to.equal(true)
+			-- A FOLDER WITH NONE OF THEM IS NOT AN ERROR (the DEV place), and one unmeasured name
+			-- falls back to the first child, because there is no row to be near.
+			expect(Planter.pickTemplate(folder, "NoSuchTemplate")).to.equal(nil)
+			local other = template("NoSuchTemplate", Vector3.new(2, 40, 2))
+			other.Parent = folder
+			expect(Planter.pickTemplate(folder, "NoSuchTemplate")).to.equal(other)
+			folder:Destroy()
+		end)
+
+		it("rescaledReason refuses a template off its row, and the audit carries it", function()
+			local name = "SM_AspenTree_Var02"
+			local row = Plan.dimsFor(name)
+			expect(Plan.rescaledReason(row.scale, row)).to.equal(nil)
+			expect(Plan.rescaledReason(row.scale * (1 + Plan.AUDIT_SCALE_FRACTION / 2), row)).to.equal(nil)
+			expect(Plan.rescaledReason(row.scale * 1.3, row)).to.equal("template-rescaled")
+			expect(Plan.rescaledReason(row.scale * 0.7, row)).to.equal("template-rescaled")
+			-- NO ROW IS NOT A FAILURE: there is nothing to be off (design 9.2).
+			expect(Plan.rescaledReason(row.scale * 1.3, nil)).to.equal(nil)
+			expect(Plan.rescaledReason(row.scale * 1.3, { scale = 0 })).to.equal(nil)
+			-- AND IT IS WIRED INTO THE AUDIT, which is what quarantines the name. With this arm
+			-- deleted the reason would be `extents` or `part-count`, never this word.
+			local off = template(name, Vector3.new(2, 40, 2), Vector3.new(16, 10, 16))
+			off:ScaleTo(row.scale * 1.3)
+			expect(Planter.auditTemplate(off, name)).to.equal("template-rescaled")
+			-- THE CLONE'S PATH MUST NOT CARRY IT: a planted tree's scale is the template's times
+			-- `item.scale` by design, so the census's `brokenReason` can never see this word.
+			expect(Plan.auditReason(Planter.measureFor(off), row, row.scale * 1.3) == "template-rescaled").to.equal(
+				false
+			)
+			off:Destroy()
+		end)
+
+		it("foliageDrop measures this model's crown against this model's trunk", function()
+			-- A CROWN THAT HANGS 3 STUDS BELOW THE TRUNK BOX'S FOOT. The trunk is 2 x 40 x 2 with its
+			-- centre at y = 20, so its foot is 0; a 10-stud crown centred at y = 2 reaches -3.
+			local droopy = template("Droopy", Vector3.new(2, 40, 2))
+			local crown = Instance.new("Part")
+			crown.Name = "SM_Leaves"
+			crown.Size = Vector3.new(16, 10, 16)
+			crown.Anchored = true
+			crown.CFrame = CFrame.new(0, 2, 0)
+			crown.Parent = droopy
+			local trunk = droopy:FindFirstChild("Trunk") :: BasePart
+			expect(Planter.foliageDrop(droopy, trunk.Position.Y - trunk.Size.Y / 2)).to.be.near(3, 1e-6)
+			-- A CROWN ABOVE THE FOOT IS A NEGATIVE NUMBER AND NOT 0: it buys back sink, and 18
+			-- `LarchTree_Var01` were counted in the ground for want of exactly that.
+			local sound = template("Sound", Vector3.new(2, 40, 2), Vector3.new(16, 10, 16))
+			expect(Planter.foliageDrop(sound, 0)).to.be.near(-35, 1e-6)
+			-- NO FOLIAGE-NAMED PART AT ALL IS `nil`, which is how a fern keeps its old seat.
+			expect(Planter.foliageDrop(template("Bare", Vector3.new(2, 40, 2)), 0)).to.equal(nil)
+			droopy:Destroy()
+			sound:Destroy()
+		end)
+	end)
+
 	-- ---------------------------------------------------------------- 3. the audit catches each failure
 
 	describe("the template audit catches each failure separately", function()
@@ -575,14 +660,14 @@ return function()
 			expect(Plan.roadTrunkMin(widest, scale)).to.be.near(
 				math.max(
 					Plan.ROAD_TRUNK_FLOOR_STUDS,
-					Grid.CONFIG.roadClearStuds / 2 + reach * scale * Plan.CROWN_SCALE_SLACK + Plan.CROWN_DRIFT_STUDS
+					Grid.CONFIG.roadClearStuds / 2 + reach * scale + Plan.CROWN_DRIFT_STUDS
 				),
 				1e-9
 			)
 			expect(Plan.rideTrunkMin(widest, scale)).to.be.near(
 				math.max(
 					Plan.RIDE_TRUNK_FLOOR_STUDS,
-					Plan.RIDE_CLEAR_STUDS / 2 + reach * scale * Plan.CROWN_SCALE_SLACK + Plan.CROWN_DRIFT_STUDS
+					Plan.RIDE_CLEAR_STUDS / 2 + reach * scale + Plan.CROWN_DRIFT_STUDS
 				),
 				1e-9
 			)
@@ -590,9 +675,10 @@ return function()
 			-- NO ROW: the floors are the whole rule (design 7.2), which is the census's
 			-- `crownOverRoad=UNMEASURED`.
 			expect(Plan.crownReachStuds("NoSuchTemplate", 1)).to.equal(nil)
-			-- THE SLACK IS >= THE WORST MEASURED `live / row` RATIO, 1.371, or the census's reach is
-			-- bigger than the planner's and a crown comes out over a road (round 2, measured).
-			expect(Plan.CROWN_SCALE_SLACK >= 1.371).to.equal(true)
+			-- THE SLACK IS RETIRED (task 328l): the planner's reach IS the census's, because
+			-- `nearestScale` and the audit hold `GetScale() / dims.scale` at 1.000. A slack would
+			-- now be a second, bigger number for the same crown.
+			expect(rawget(Plan, "CROWN_SCALE_SLACK")).to.equal(nil)
 			expect(Plan.roadTrunkMin("NoSuchTemplate", 1)).to.be.near(Plan.ROAD_TRUNK_FLOOR_STUDS, 1e-9)
 			expect(Plan.rideTrunkMin("NoSuchTemplate", 1)).to.be.near(Plan.RIDE_TRUNK_FLOOR_STUDS, 1e-9)
 		end)
@@ -600,12 +686,19 @@ return function()
 		it("and the mask refuses a wide crown where it passes a narrow one, same point", function()
 			local id = "C1"
 			local box = Grid.boundsOf(id)
+			-- THE WIDEST CROWN THE FRONTAGE ALLOWS, and the frontage is why (task 328l): with the
+			-- retired slack the set-back is under the 60-stud frontage band, so a group the frontage
+			-- refuses reads `frontage` -- the earlier reason in `REASON_ORDER` -- and this case would
+			-- be asking about a different rule.
+			local plan = Plan.cellPlanFor(id)
 			local widest, reach = nil, 0
-			for name in pairs(Plan.SPECIES) do
-				for _, each in ipairs(Plan.namesOf(name)) do
-					local dims = Plan.dimsFor(each)
-					if dims ~= nil and dims.crownHalfWidthStuds > reach then
-						widest, reach = each, dims.crownHalfWidthStuds
+			for group in pairs(Plan.SPECIES) do
+				if Plan.frontageAllowsGroup(plan, group) then
+					for _, each in ipairs(Plan.namesOf(group)) do
+						local dims = Plan.dimsFor(each)
+						if dims ~= nil and dims.crownHalfWidthStuds > reach then
+							widest, reach = each, dims.crownHalfWidthStuds
+						end
 					end
 				end
 			end

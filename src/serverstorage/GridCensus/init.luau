@@ -36,8 +36,11 @@ GridCensus.TILT_COS = math.cos(math.rad(2))
 -- LYING IS THE AUDIT'S NUMBER AND NOT ONE OF OURS: `Plan.AUDIT_LYING_DEGREES` (5), reached through
 -- `brokenReason` below. Leaning is this module's own 2 degrees, above.
 
--- A FOLIAGE PART IS IN THE GROUND WHEN ITS BOTTOM IS THIS FAR BELOW IT (design 9.4).
-GridCensus.FOLIAGE_SINK_STUDS = 0.5
+-- A FOLIAGE PART IS IN THE GROUND WHEN ITS BOTTOM IS THIS FAR BELOW IT (design 9.4). **THE SEAT'S
+-- OWN NUMBER SINCE TASK 328l** -- `TreeGround.FOLIAGE_SINK_STUDS`, which `TreeGround.sinkFor` holds
+-- the sink plus the crown's drop to -- so the planter aims at the line this counts against (design
+-- 9.1: shared thresholds, no shared measurement).
+GridCensus.FOLIAGE_SINK_STUDS = TreeGround.FOLIAGE_SINK_STUDS
 
 -- HOW CLOSE TO A STAND COUNTS AS "IN" IT. THE CENSUS'S OWN NUMBER and nobody else's: `Grid.CONFIG`
 -- has no stand clearance (its only clearance is `roadClearStuds` 42, a ROAD's), and task 327c's

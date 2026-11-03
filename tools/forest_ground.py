@@ -73,6 +73,7 @@ WHAT IT REFUSES, BEFORE IT TOUCHES ANYTHING -- the shape `tools/mapgen.py` alrea
      agreeing with the live place on every model's name and X/Z. Workspace has no other rollback.
 
 Usage:
+  python tools/forest_ground.py dims    [--write]                        # read-only unless --write
   python tools/forest_ground.py species [--out tools/forest_claws.json]   # read-only unless --out
   python tools/forest_ground.py backup  --out <path outside the repo>.json
   python tools/forest_ground.py plan    [--worst 10]                     # read-only DRY RUN
@@ -678,7 +679,296 @@ def cmd_restore(args, studio, studio_id, sha, place):
     return 1 if bad else 0
 
 
+
+# ---------------------------------------------------------------------------- `dims` (design 9.2)
+
+PLAN_PATH = os.path.join(REPO, "src", "shared", "Places", "init.luau")
+PLANTER_PATH = os.path.join(REPO, "src", "server", "Places", "init.luau")
+
+
+def luau_table(path, name):
+    """The body of one `Places.<name> = table.freeze({ ... })`.
+
+    The tool reads the game's own tables instead of restating them -- a second copy of `SPECIES`
+    here is a second thing to drift, which is why `module_number` exists.
+    """
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    found = re.search(r"^Places\.%s = table\.freeze\(\{(.*?)^\}\)" % name, text, re.M | re.S)
+    if not found:
+        fail("tools/forest_ground.py: Places.%s is gone from %s" % (name, path))
+    return found.group(1)
+
+
+def species_names():
+    """[(group, name)] for every template `Places.SPECIES` can plant, in file order."""
+    out, group = [], None
+    for line in luau_table(PLAN_PATH, "SPECIES").splitlines():
+        head = re.match(r"\s*(\w+) = table\.freeze\(\{", line)
+        if head:
+            group = head.group(1)
+            line = line[head.end():]
+        for name in re.findall(r'"([^"]+)"', line):
+            out.append((group, name))
+    return out
+
+
+def plan_strings(name):
+    return re.findall(r'"([^"]+)"', luau_table(PLAN_PATH, name))
+
+
+def planter_sources():
+    """`Places.TEMPLATE_SOURCES`, in order: the folders the planter clones from."""
+    with open(PLANTER_PATH, encoding="utf-8") as handle:
+        found = re.search(r"^Places\.TEMPLATE_SOURCES = table\.freeze\(\{([^}]*)\}\)", handle.read(), re.M)
+    if not found:
+        fail("tools/forest_ground.py: Places.TEMPLATE_SOURCES is gone from %s" % PLANTER_PATH)
+    return re.findall(r'"([^"]+)"', found.group(1))
+
+
+def planter_number(name):
+    """One of the PLANTER's constants, read out of its file rather than restated (`INVISIBLE_AT`)."""
+    with open(PLANTER_PATH, encoding="utf-8") as handle:
+        found = re.search(r"^Places\.%s = ([0-9.]+)$" % name, handle.read(), re.M)
+    if not found:
+        fail("tools/forest_ground.py: Places.%s is gone from %s" % (name, PLANTER_PATH))
+    return float(found.group(1))
+
+
+def current_rows():
+    """`Places.TEMPLATE_DIMS` as it stands in the repo: {name: {field: number}}."""
+    out = {}
+    for name, fields in re.findall(
+        r"(\w+) = table\.freeze\(\{(.*?)\}\)", luau_table(PLAN_PATH, "TEMPLATE_DIMS"), re.S
+    ):
+        out[name] = {k: float(v) for k, v in re.findall(r"(\w+) = (-?[0-9.]+)", fields)}
+    return out
+
+
+# ONE TEMPLATE, MEASURED THE WAY `Places.measureFor` MEASURES A CLONE (design 9.2 and 9.3): the
+# visible parts, split by `Places.isFoliageName` into trunk and crown, at the template's OWN
+# `GetScale()`, which is recorded because `plantOne`'s `item.scale` is relative to it.
+#
+# WHICH INSTANCE IS "THE TEMPLATE": the MEDIAN by scale, over every instance of that name in the
+# first `TEMPLATE_SOURCES` folder that has any. `Workspace.OurForest` is the wood and not a folder of
+# 35 models -- each name has 16 to 125 instances whose scales span x1.8 -- so `FindFirstChild`'s
+# answer is arbitrary and moves with the child order. The median is a measurement; one tree added or
+# removed does not move it; and `Places.pickTemplate` in game then finds it again by the row's scale.
+# The first child's scale is reported beside it, which is the number the old lookup would have used.
+DIMS = """
+local H = game:GetService("HttpService")
+local TreeGround = %(module)s
+local SOURCES = H:JSONDecode(%(sources)s)
+local NAMES = H:JSONDecode(%(names)s)
+local WORDS = H:JSONDecode(%(words)s)
+local INVISIBLE_AT = %(invisible)s
+local function isFoliage(name)
+	local lower = string.lower(name)
+	for _, word in ipairs(WORDS) do
+		if string.find(lower, word, 1, true) then
+			return true
+		end
+	end
+	return false
+end
+local function boxOf(part)
+	local _, _, _, r00, r01, r02, r10, r11, r12, r20, r21, r22 = part.CFrame:GetComponents()
+	local s = part.Size
+	local rx = 0.5 * (math.abs(r00) * s.X + math.abs(r01) * s.Y + math.abs(r02) * s.Z)
+	local ry = 0.5 * (math.abs(r10) * s.X + math.abs(r11) * s.Y + math.abs(r12) * s.Z)
+	local rz = 0.5 * (math.abs(r20) * s.X + math.abs(r21) * s.Y + math.abs(r22) * s.Z)
+	local p = part.Position
+	return {
+		minX = p.X - rx, minY = p.Y - ry, minZ = p.Z - rz,
+		maxX = p.X + rx, maxY = p.Y + ry, maxZ = p.Z + rz,
+	}
+end
+local roots = {}
+for _, path in ipairs(SOURCES) do
+	local at = workspace
+	for piece in string.gmatch(path, "[^%%.]+") do
+		at = if at then at:FindFirstChild(piece) else nil
+	end
+	if at ~= nil then
+		table.insert(roots, { path, at })
+	end
+end
+local function pathOf(thing)
+	local out, at = {}, thing
+	while at ~= nil and at ~= workspace do
+		table.insert(out, 1, at.Name)
+		at = at.Parent
+	end
+	return table.concat(out, ".")
+end
+local function measure(model)
+	local all, trunks, crowns, parts = {}, {}, {}, 0
+	for _, thing in ipairs(model:GetDescendants()) do
+		if thing:IsA("BasePart") and thing.Transparency < INVISIBLE_AT then
+			local box = boxOf(thing)
+			parts += 1
+			table.insert(all, box)
+			if isFoliage(thing.Name) then
+				table.insert(crowns, box)
+			else
+				table.insert(trunks, box)
+			end
+		end
+	end
+	local whole = TreeGround.bounds(all)
+	if whole == nil then
+		return nil
+	end
+	local trunk = TreeGround.bounds(trunks) or whole
+	local crown = TreeGround.bounds(crowns)
+	return {
+		scale = model:GetScale(),
+		parts = parts,
+		heightStuds = whole.maxY - whole.minY,
+		trunkHalfWidthStuds = math.max(trunk.maxX - trunk.minX, trunk.maxZ - trunk.minZ) / 2,
+		crownHalfWidthStuds = if crown
+			then math.max(crown.maxX - crown.minX, crown.maxZ - crown.minZ) / 2
+			else 0,
+		-- HOW FAR THE CROWN HANGS BELOW THE TRUNK BOX'S FOOT. Positive means the seat has to make
+		-- room for it or the leaves finish under the grass (`GridCensus.foliageInGround`).
+		foliageDropStuds = if crown then math.max(0, trunk.minY - crown.minY) else 0,
+		trunkTallerThanWide = (trunk.maxY - trunk.minY) >= (trunk.maxX - trunk.minX)
+			and (trunk.maxY - trunk.minY) >= (trunk.maxZ - trunk.minZ),
+	}
+end
+local out = {}
+for _, row in ipairs(NAMES) do
+	local group, name = row[1], row[2]
+	local found, source, first, kept = nil, "-", nil, {}
+	for _, pair in ipairs(roots) do
+		if found == nil then
+			local models = {}
+			for _, child in ipairs(pair[2]:GetChildren()) do
+				if child.Name == name and child:IsA("Model") then
+					table.insert(models, child)
+				end
+			end
+			if #models > 0 then
+				first, source = models[1]:GetScale(), pair[1]
+				table.sort(models, function(a, b)
+					return a:GetScale() < b:GetScale()
+				end)
+				found, kept = models[math.ceil(#models / 2)], models
+			end
+		end
+	end
+	local entry = {
+		group = group,
+		name = name,
+		source = source,
+		instances = #kept,
+		firstScale = first or 0,
+		lowScale = if #kept > 0 then kept[1]:GetScale() else 0,
+		highScale = if #kept > 0 then kept[#kept]:GetScale() else 0,
+	}
+	if found == nil then
+		entry.missing = true
+	else
+		entry.path = pathOf(found)
+		local m = measure(found)
+		if m == nil then
+			entry.missing = true
+			entry.note = "no-visible-part"
+		else
+			for key, value in pairs(m) do
+				entry[key] = value
+			end
+		end
+	end
+	table.insert(out, entry)
+end
+return H:JSONEncode({ rows = out, count = #out })
+"""
+
+
+def cmd_dims(args, studio, studio_id, sha, place):
+    """Design 9.2: re-derive `Places.TEMPLATE_DIMS` from the live templates. Read-only until --write."""
+    rows_in = species_names()
+    payload = DIMS % {
+        "module": module_source(),
+        "sources": luau_json(planter_sources()),
+        "names": luau_json([[group, name] for group, name in rows_in]),
+        "words": luau_json(plan_strings("FOLIAGE_WORDS")),
+        "invisible": repr(planter_number("INVISIBLE_AT")),
+    }
+    data, problem = json_answer(studio, payload, studio_id=studio_id)
+    if problem:
+        fail("[dims] FAILED: %s" % problem)
+    rows = data.get("rows", [])
+    was = current_rows()
+    print("\n%-30s %5s %8s %8s %8s %8s %7s %6s %6s %5s"
+          % ("template", "n", "median", "row", "med/row", "first", "height", "crown", "drop", "parts"))
+    worst, missing, moved = 1.0, [], []
+    for row in rows:
+        if row.get("missing"):
+            missing.append(row["name"])
+            print("%-30s %5d %8s  %s" % (row["name"], row["instances"], "MISSING", row.get("note", "")))
+            continue
+        old = was.get(row["name"], {})
+        ratio = row["scale"] / max(old.get("scale") or 1e-9, 1e-9)
+        worst = max(worst, ratio, 1.0 / ratio)
+        print("%-30s %5d %8.4f %8.4f %8.3f %8.4f %7.1f %6.2f %6.2f %5d"
+              % (row["name"], row["instances"], row["scale"], old.get("scale", 0), ratio,
+                 row["firstScale"], row["heightStuds"], row["crownHalfWidthStuds"],
+                 row["foliageDropStuds"], row["parts"]))
+        if abs(ratio - 1) > 0.001:
+            moved.append(row["name"])
+    spread = max((r["highScale"] / max(r["lowScale"], 1e-9)) for r in rows if r.get("instances"))
+    print("  one name's instances span up to x%.2f in scale, which is why the median is the row" % spread)
+    for drop, name in sorted(
+        ((r["foliageDropStuds"], r["name"]) for r in rows if not r.get("missing")), reverse=True
+    ):
+        if drop > 0:
+            print("  crown below the trunk box: %-30s %6.3f studs" % (name, drop))
+    print("\n[dims] %d templates, %d missing, %d off their row (worst ratio %.3f) @ %s place=%s"
+          % (len(rows), len(missing), len(moved), worst, sha[:12], place))
+    if args.write:
+        if missing:
+            fail("[dims] REFUSED --write: %d of the templates are not in this place: %s"
+                 % (len(missing), ", ".join(missing)), 2)
+        print("[dims] wrote %d rows into %s" % (len(rows), write_dims(rows)))
+    return 0
+
+
+def dims_block(rows):
+    """The `TEMPLATE_DIMS` body, generated: a group comment, then one frozen row per template."""
+    out, group = [], None
+    for row in rows:
+        if row["group"] != group:
+            group = row["group"]
+            out.append("\t-- %s" % group)
+        out.append("\t%s = table.freeze({" % row["name"])
+        out.append("\t\tscale = %.4f," % row["scale"])
+        out.append("\t\theightStuds = %.1f," % row["heightStuds"])
+        out.append("\t\ttrunkHalfWidthStuds = %.2f," % row["trunkHalfWidthStuds"])
+        out.append("\t\tcrownHalfWidthStuds = %.2f," % row["crownHalfWidthStuds"])
+        out.append("\t\tfoliageDropStuds = %.2f," % row["foliageDropStuds"])
+        out.append("\t\tparts = %d," % row["parts"])
+        out.append("\t}),")
+    return "\n".join(out)
+
+
+def write_dims(rows):
+    """Replace the generated body in place. The header above it is a person's and is not touched."""
+    with open(PLAN_PATH, encoding="utf-8") as handle:
+        text = handle.read()
+    begin = "Places.TEMPLATE_DIMS = table.freeze({\n"
+    at = text.find(begin)
+    end = text.find("\n})\n", at)
+    if at < 0 or end < 0:
+        fail("tools/forest_ground.py: cannot find Places.TEMPLATE_DIMS's block in %s" % PLAN_PATH)
+    with open(PLAN_PATH, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text[: at + len(begin)] + dims_block(rows) + text[end:])
+    return PLAN_PATH
+
+
 COMMANDS = {
+    "dims": (cmd_dims, False),
     "species": (cmd_species, False),
     "backup": (cmd_backup, False),
     "plan": (cmd_plan, False),
@@ -696,6 +986,8 @@ def main(argv=None):
     parser.add_argument("--out", default=None)
     parser.add_argument("--only", default=None)
     parser.add_argument("--worst", type=int, default=10)
+    parser.add_argument("--write", action="store_true",
+                        help="`dims` only: rewrite Places.TEMPLATE_DIMS from the measurement")
     args = parser.parse_args(argv)
     handler, mutates = COMMANDS[args.command]
     sha = require_clean(args.command) if mutates else git_state()[0]

@@ -198,21 +198,30 @@ function Places.forgetPlantable()
 	Places.forgetCells()
 end
 
--- EVERY PLANTED TEMPLATE'S REFERENCE DIMENSIONS -- MEASURED in Karen's Forest Test on 2026-11-02 by
--- `driven-hunt-runs/328b-dims.luau` (read-only, Edit mode), one row per name in `Places.SPECIES`
--- (35 of 35 found in `Workspace.OurForest`).
+-- EVERY PLANTED TEMPLATE'S REFERENCE DIMENSIONS -- **GENERATED, NOT TYPED**: re-measured in Karen's
+-- Forest Test on 2026-11-03 by `python tools/forest_ground.py dims --write` (read-only without the
+-- flag, Edit mode), one row per name in `Places.SPECIES` (35 of 35 found in `Workspace.OurForest`).
+-- Design 9.2 named that tool; task 328l wrote it, so this table is no longer a hand-copied paste.
 --
--- WHAT INVALIDATES THEM, said plainly: a re-import, a re-scale or a re-parent of a model in
--- `Workspace.OurForest`. There is no committed tool that re-derives this table -- design 9.2 names
--- `tools/forest_ground.py dims`, which does not exist and which section 16 says is not written here
--- -- so the guard is the run-time audit: a template whose extents have moved more than 15 % from
--- its row is quarantined and `report.quarantined` says so on the boot's face.
+-- EACH ROW IS THE **MEDIAN-SCALE INSTANCE** OF THAT NAME, and that is the whole correction task 328l
+-- made. `OurForest` is the WOOD: every name has 16 to 125 instances whose own scales span x1.65 to
+-- x1.84, so `FindFirstChild(name)` answered an arbitrary tree and 27 of the 35 rows described a
+-- different one than the day before (`live / row` 0.589 to 1.371). `Places.nearestScale` now finds
+-- the row's instance by its scale, `Places.rescaledReason` refuses one more than 2 % off it, and
+-- `live / row` is 1.000 for all 35 (`driven-hunt-runs/328l-dims-AFTER.txt`).
 --
--- EACH ROW IS AT THE TEMPLATE'S OWN `GetScale()`, WHICH IS RECORDED, and NOT at scale 1 (design
--- 9.2): `plantOne` scales with `made:ScaleTo(made:GetScale() * item.scale)`, so `item.scale` is
--- relative to the template's own scale and a reference "at scale 1" would fail the audit on
--- everything. 30 of these 35 stand at a scale that is not 1 (the birches at 0.037-0.054, the larches
--- at 1.6-2.0); the five ferns are the only 1.0.
+-- `item.scale` IS RELATIVE TO THAT SCALE: `plantOne` scales with `made:ScaleTo(made:GetScale() *
+-- item.scale)`, so a reference "at scale 1" would fail the audit on everything. 30 of these 35 stand
+-- at a scale that is not 1 (the birches at 0.039-0.046, the larches at 1.6-1.9); the ferns are the
+-- only 1.0, and all 1,326 of them are exactly 1.0.
+--
+-- WHAT INVALIDATES THEM: a re-import or a re-scale of the wood. The guard is the boot-time audit --
+-- more than 2 % off the row's scale, or 15 % off its extents, and the name is quarantined with the
+-- reason on the boot's face (`report.quarantinedBy`).
+--
+-- `foliageDropStuds` IS HOW FAR THE CROWN HANGS BELOW THE TRUNK BOX'S FOOT, 0 for 30 of the 35. It
+-- is what `TreeGround.sinkFor` leaves room for, and it is measured per CLONE at plant time; the row
+-- is the reference the quarantine decision is argued from.
 --
 -- `crownHalfWidthStuds` IS THE UNION OF THE FOLIAGE-NAMED PARTS, half-extent, the larger of X and Z
 -- -- `Places.isFoliageName` below, which `places.spec` already asserts matches no trunk name. The
@@ -221,124 +230,125 @@ end
 Places.TEMPLATE_DIMS = table.freeze({
 	-- conifer
 	Old_Spruce_Tree_Var01_LOD_0 = table.freeze({
-		scale = 0.4350,
-		heightStuds = 80.2,
-		trunkHalfWidthStuds = 7.00,
-		crownHalfWidthStuds = 16.49,
+		scale = 0.3786,
+		heightStuds = 69.8,
+		trunkHalfWidthStuds = 5.92,
+		crownHalfWidthStuds = 13.99,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	Old_Spruce_Tree_Var02_LOD_0 = table.freeze({
-		scale = 0.3446,
-		heightStuds = 70.1,
-		trunkHalfWidthStuds = 8.15,
-		crownHalfWidthStuds = 13.10,
+		scale = 0.3775,
+		heightStuds = 76.8,
+		trunkHalfWidthStuds = 9.05,
+		crownHalfWidthStuds = 14.54,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	Old_Spruce_Tree_Var03_LOD_0 = table.freeze({
-		scale = 0.3126,
-		heightStuds = 90.3,
-		trunkHalfWidthStuds = 6.62,
-		crownHalfWidthStuds = 14.17,
+		scale = 0.3448,
+		heightStuds = 99.6,
+		trunkHalfWidthStuds = 8.13,
+		crownHalfWidthStuds = 17.67,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	Old_Spruce_Tree_Var04_LOD_0 = table.freeze({
-		scale = 0.3715,
-		heightStuds = 121.0,
-		trunkHalfWidthStuds = 9.19,
-		crownHalfWidthStuds = 18.88,
+		scale = 0.3773,
+		heightStuds = 122.9,
+		trunkHalfWidthStuds = 9.68,
+		crownHalfWidthStuds = 22.80,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	Old_Spruce_Tree_Var06_LOD_0 = table.freeze({
-		scale = 0.3326,
-		heightStuds = 52.5,
-		trunkHalfWidthStuds = 5.13,
-		crownHalfWidthStuds = 12.61,
+		scale = 0.3410,
+		heightStuds = 53.9,
+		trunkHalfWidthStuds = 4.69,
+		crownHalfWidthStuds = 11.37,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	Spruce_Tree_Var01_LOD_0 = table.freeze({
-		scale = 0.3757,
-		heightStuds = 58.0,
-		trunkHalfWidthStuds = 2.52,
-		crownHalfWidthStuds = 13.11,
+		scale = 0.3829,
+		heightStuds = 59.1,
+		trunkHalfWidthStuds = 2.55,
+		crownHalfWidthStuds = 13.24,
+		foliageDropStuds = 0.00,
 		parts = 2,
 	}),
 	Spruce_Tree_Var02_LOD_0 = table.freeze({
-		scale = 0.3482,
-		heightStuds = 44.2,
-		trunkHalfWidthStuds = 3.01,
-		crownHalfWidthStuds = 12.31,
+		scale = 0.3934,
+		heightStuds = 50.0,
+		trunkHalfWidthStuds = 3.42,
+		crownHalfWidthStuds = 14.09,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	-- young
 	LarchTree_Var01 = table.freeze({
-		scale = 2.0279,
-		heightStuds = 40.2,
-		trunkHalfWidthStuds = 9.61,
-		crownHalfWidthStuds = 12.13,
+		scale = 1.9361,
+		heightStuds = 38.3,
+		trunkHalfWidthStuds = 7.25,
+		crownHalfWidthStuds = 9.26,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	LarchTree_Var02 = table.freeze({
-		scale = 1.8531,
-		heightStuds = 32.9,
-		trunkHalfWidthStuds = 8.30,
-		crownHalfWidthStuds = 10.58,
+		scale = 1.8193,
+		heightStuds = 32.3,
+		trunkHalfWidthStuds = 7.95,
+		crownHalfWidthStuds = 10.13,
+		foliageDropStuds = 0.10,
 		parts = 3,
 	}),
 	LarchTree_Var03 = table.freeze({
-		scale = 1.8687,
-		heightStuds = 36.2,
-		trunkHalfWidthStuds = 7.97,
-		crownHalfWidthStuds = 10.54,
+		scale = 1.8472,
+		heightStuds = 35.8,
+		trunkHalfWidthStuds = 8.91,
+		crownHalfWidthStuds = 11.78,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	LarchTree_Var04 = table.freeze({
-		scale = 1.5580,
-		heightStuds = 58.2,
-		trunkHalfWidthStuds = 9.97,
-		crownHalfWidthStuds = 14.58,
+		scale = 1.5623,
+		heightStuds = 58.4,
+		trunkHalfWidthStuds = 10.40,
+		crownHalfWidthStuds = 15.21,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	-- birch
-	SilverBirchTree_Var02 = table.freeze({
-		scale = 0.3526,
-		heightStuds = 62.9,
-		trunkHalfWidthStuds = 1.34,
-		crownHalfWidthStuds = 18.91,
-		parts = 5,
-	}),
-	SilverBirchTree_Var06 = table.freeze({
-		scale = 0.2636,
-		heightStuds = 71.1,
-		trunkHalfWidthStuds = 0.78,
-		crownHalfWidthStuds = 10.57,
-		parts = 4,
-	}),
 	SilverBirch_Var01_LOD_0 = table.freeze({
-		scale = 0.0367,
-		heightStuds = 43.3,
+		scale = 0.0394,
+		heightStuds = 46.5,
 		trunkHalfWidthStuds = 1.19,
-		crownHalfWidthStuds = 11.06,
+		crownHalfWidthStuds = 12.33,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	SilverBirch_Var02_LOD_0 = table.freeze({
-		scale = 0.0405,
-		heightStuds = 54.9,
-		trunkHalfWidthStuds = 0.74,
-		crownHalfWidthStuds = 10.82,
+		scale = 0.0459,
+		heightStuds = 62.2,
+		trunkHalfWidthStuds = 0.70,
+		crownHalfWidthStuds = 9.69,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	SilverBirch_Var05_LOD_0 = table.freeze({
-		scale = 0.0373,
-		heightStuds = 46.8,
-		trunkHalfWidthStuds = 8.02,
-		crownHalfWidthStuds = 13.65,
+		scale = 0.0425,
+		heightStuds = 53.4,
+		trunkHalfWidthStuds = 8.52,
+		crownHalfWidthStuds = 14.42,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	SilverBirch_Var08_LOD_0 = table.freeze({
-		scale = 0.0393,
-		heightStuds = 38.5,
-		trunkHalfWidthStuds = 8.13,
-		crownHalfWidthStuds = 14.36,
+		scale = 0.0439,
+		heightStuds = 43.0,
+		trunkHalfWidthStuds = 8.10,
+		crownHalfWidthStuds = 14.30,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	SilverBirch_Var11_LOD_0 = table.freeze({
@@ -346,93 +356,122 @@ Places.TEMPLATE_DIMS = table.freeze({
 		heightStuds = 74.7,
 		trunkHalfWidthStuds = 2.55,
 		crownHalfWidthStuds = 16.41,
+		foliageDropStuds = 0.00,
 		parts = 4,
 	}),
 	SilverBirch_Var13_LOD_0 = table.freeze({
-		scale = 0.0538,
-		heightStuds = 112.7,
-		trunkHalfWidthStuds = 4.38,
-		crownHalfWidthStuds = 24.73,
+		scale = 0.0407,
+		heightStuds = 85.3,
+		trunkHalfWidthStuds = 3.27,
+		crownHalfWidthStuds = 18.46,
+		foliageDropStuds = 0.00,
+		parts = 4,
+	}),
+	SilverBirchTree_Var02 = table.freeze({
+		scale = 0.3497,
+		heightStuds = 62.3,
+		trunkHalfWidthStuds = 1.38,
+		crownHalfWidthStuds = 19.47,
+		foliageDropStuds = 0.00,
+		parts = 5,
+	}),
+	SilverBirchTree_Var06 = table.freeze({
+		scale = 0.3552,
+		heightStuds = 95.8,
+		trunkHalfWidthStuds = 1.35,
+		crownHalfWidthStuds = 18.11,
+		foliageDropStuds = 0.00,
 		parts = 4,
 	}),
 	-- oak
 	Forest_OakTree_Var01_LOD_0 = table.freeze({
-		scale = 0.1743,
-		heightStuds = 62.8,
-		trunkHalfWidthStuds = 1.58,
-		crownHalfWidthStuds = 15.45,
+		scale = 0.2176,
+		heightStuds = 78.4,
+		trunkHalfWidthStuds = 1.99,
+		crownHalfWidthStuds = 21.35,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	Forest_OakTree_Var02_LOD_0 = table.freeze({
-		scale = 0.2494,
-		heightStuds = 90.7,
-		trunkHalfWidthStuds = 1.51,
-		crownHalfWidthStuds = 24.51,
+		scale = 0.2203,
+		heightStuds = 80.1,
+		trunkHalfWidthStuds = 1.41,
+		crownHalfWidthStuds = 23.13,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	Forest_OakTree_Var03_LOD_0 = table.freeze({
-		scale = 0.1554,
-		heightStuds = 53.9,
-		trunkHalfWidthStuds = 1.01,
-		crownHalfWidthStuds = 10.06,
+		scale = 0.2035,
+		heightStuds = 70.6,
+		trunkHalfWidthStuds = 1.39,
+		crownHalfWidthStuds = 14.16,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	-- fieldOak
 	Field_OakTree_Var04_LOD_0 = table.freeze({
-		scale = 0.2435,
-		heightStuds = 55.6,
-		trunkHalfWidthStuds = 12.03,
-		crownHalfWidthStuds = 18.58,
+		scale = 0.2084,
+		heightStuds = 47.6,
+		trunkHalfWidthStuds = 11.93,
+		crownHalfWidthStuds = 18.27,
+		foliageDropStuds = 1.35,
 		parts = 3,
 	}),
 	Field_OakTree_Var05_LOD_0 = table.freeze({
-		scale = 0.2265,
-		heightStuds = 68.7,
-		trunkHalfWidthStuds = 18.01,
-		crownHalfWidthStuds = 28.06,
+		scale = 0.2015,
+		heightStuds = 61.1,
+		trunkHalfWidthStuds = 15.29,
+		crownHalfWidthStuds = 21.05,
+		foliageDropStuds = 1.68,
 		parts = 3,
 	}),
 	Field_OakTree_Var06_LOD_0 = table.freeze({
-		scale = 0.1852,
-		heightStuds = 48.1,
-		trunkHalfWidthStuds = 10.91,
-		crownHalfWidthStuds = 17.21,
+		scale = 0.2077,
+		heightStuds = 53.9,
+		trunkHalfWidthStuds = 9.60,
+		crownHalfWidthStuds = 15.25,
+		foliageDropStuds = 0.37,
 		parts = 3,
 	}),
 	Field_OakTree_Var07_LOD_0 = table.freeze({
-		scale = 0.2404,
-		heightStuds = 56.1,
-		trunkHalfWidthStuds = 11.55,
-		crownHalfWidthStuds = 20.57,
+		scale = 0.2114,
+		heightStuds = 49.4,
+		trunkHalfWidthStuds = 11.29,
+		crownHalfWidthStuds = 20.51,
+		foliageDropStuds = 1.30,
 		parts = 3,
 	}),
 	-- aspen
 	SM_AspenTree_Var02 = table.freeze({
-		scale = 0.6124,
-		heightStuds = 65.9,
-		trunkHalfWidthStuds = 1.57,
-		crownHalfWidthStuds = 19.44,
+		scale = 0.6791,
+		heightStuds = 73.1,
+		trunkHalfWidthStuds = 1.66,
+		crownHalfWidthStuds = 20.56,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	SM_AspenTree_Var04 = table.freeze({
-		scale = 0.6135,
-		heightStuds = 63.7,
-		trunkHalfWidthStuds = 6.08,
-		crownHalfWidthStuds = 19.60,
+		scale = 0.6642,
+		heightStuds = 69.0,
+		trunkHalfWidthStuds = 7.58,
+		crownHalfWidthStuds = 16.42,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	SM_AspenTree_Var06 = table.freeze({
-		scale = 0.8192,
-		heightStuds = 97.4,
-		trunkHalfWidthStuds = 1.95,
-		crownHalfWidthStuds = 23.06,
+		scale = 0.6299,
+		heightStuds = 74.8,
+		trunkHalfWidthStuds = 1.11,
+		crownHalfWidthStuds = 14.63,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	SM_AspenTree_Var09 = table.freeze({
-		scale = 0.8179,
-		heightStuds = 94.6,
-		trunkHalfWidthStuds = 2.59,
-		crownHalfWidthStuds = 21.08,
+		scale = 0.6444,
+		heightStuds = 74.5,
+		trunkHalfWidthStuds = 2.04,
+		crownHalfWidthStuds = 16.64,
+		foliageDropStuds = 0.00,
 		parts = 3,
 	}),
 	-- fern
@@ -441,34 +480,39 @@ Places.TEMPLATE_DIMS = table.freeze({
 		heightStuds = 2.2,
 		trunkHalfWidthStuds = 4.80,
 		crownHalfWidthStuds = 0.00,
+		foliageDropStuds = 0.00,
 		parts = 1,
 	}),
 	SM_Forest_Fern_Var03 = table.freeze({
 		scale = 1.0000,
 		heightStuds = 2.6,
-		trunkHalfWidthStuds = 4.34,
+		trunkHalfWidthStuds = 4.92,
 		crownHalfWidthStuds = 0.00,
+		foliageDropStuds = 0.00,
 		parts = 1,
 	}),
 	SM_Forest_Fern_Var05 = table.freeze({
 		scale = 1.0000,
 		heightStuds = 2.8,
-		trunkHalfWidthStuds = 4.10,
+		trunkHalfWidthStuds = 4.09,
 		crownHalfWidthStuds = 0.00,
+		foliageDropStuds = 0.00,
 		parts = 1,
 	}),
 	SM_Lady_Fern_Var02 = table.freeze({
 		scale = 1.0000,
 		heightStuds = 2.8,
-		trunkHalfWidthStuds = 4.38,
+		trunkHalfWidthStuds = 3.62,
 		crownHalfWidthStuds = 0.00,
+		foliageDropStuds = 0.00,
 		parts = 1,
 	}),
 	SM_Lady_Fern_Var04 = table.freeze({
 		scale = 1.0000,
 		heightStuds = 3.1,
-		trunkHalfWidthStuds = 4.46,
+		trunkHalfWidthStuds = 3.48,
 		crownHalfWidthStuds = 0.00,
+		foliageDropStuds = 0.00,
 		parts = 1,
 	}),
 })
@@ -533,10 +577,54 @@ function Places.stepAllowanceStuds(heightStuds: number): number
 	return math.max(TreeGround.CLIFF_STUDS, 0.10 * heightStuds)
 end
 
--- THE AUDIT'S THREE NUMBERS (design 9.3), named rather than typed into the arms below.
+-- THE AUDIT'S FOUR NUMBERS (design 9.3), named rather than typed into the arms below.
 Places.AUDIT_LYING_DEGREES = 5
 Places.AUDIT_DETACHED_STUDS = 1
 Places.AUDIT_EXTENTS_FRACTION = 0.15
+-- HOW FAR A CHOSEN TEMPLATE'S OWN `GetScale()` MAY SIT FROM ITS ROW. 2 % is wider than the 4
+-- decimals a row carries (0.3 % on the thinnest birch at 0.0316) and far inside the x1.8 spread
+-- `Places.nearestScale` picks out of, so only a RE-IMPORT of the wood can trip it.
+Places.AUDIT_SCALE_FRACTION = 0.02
+
+-- WHICH STANDING TREE IS "THE TEMPLATE": the one whose own scale is nearest the row's, and NOT
+-- whichever `FindFirstChild` answers first.
+--
+-- MEASURED in Karen's Forest Test on 2026-11-03 (`tools/forest_ground.py dims`, task 328l): every
+-- one of the 35 names has 16 to 125 standing instances in `Workspace.OurForest`, and within ONE name
+-- the scales span a factor of **1.65 to 1.84** (`Old_Spruce_Tree_Var01_LOD_0`: 21 instances,
+-- 0.2855 to 0.4703). `FindFirstChild(name)` answers an arbitrary one of them, so `TEMPLATE_DIMS`
+-- described a different tree on 2026-11-02 than it does today -- 27 of the 35 rows read `live / row`
+-- 0.589 to 1.371 -- and `item.scale`, which is RELATIVE to the template, planted a different size
+-- every time the folder's child order moved. This picker is what makes the row a fact: nearest wins,
+-- then the smaller scale, so the answer cannot depend on child order.
+function Places.nearestScale(scales: { number }, want: number): number?
+	local best: number?, bestGap = nil, math.huge
+	for index, scale in ipairs(scales) do
+		local gap = math.abs(scale - want)
+		local bestScale = if best ~= nil then scales[best :: number] else math.huge
+		if gap < bestGap - 1e-9 or (gap <= bestGap + 1e-9 and scale < bestScale) then
+			best, bestGap = index, gap
+		end
+	end
+	return best
+end
+
+-- IS THE CHOSEN TEMPLATE STILL THE ONE THE ROW WAS MEASURED ON? Design 9.2's refusal, and it is the
+-- TEMPLATE's arm alone -- never a planted clone's, whose `GetScale()` is the template's times
+-- `item.scale` on purpose. Nil means plant it.
+function Places.rescaledReason(live: number, dims: any?): string?
+	if dims == nil then
+		return nil
+	end
+	local want = dims.scale
+	if want == nil or want <= 0 then
+		return nil
+	end
+	if math.abs(live / want - 1) > Places.AUDIT_SCALE_FRACTION then
+		return "template-rescaled"
+	end
+	return nil
+end
 
 -- ONE MODEL'S MEASURED GEOMETRY, as plain numbers, so the audit below needs no Instance and no
 -- world. `tiltCos` is the lowest non-foliage part's `UpVector . Y`.
@@ -1594,17 +1682,14 @@ Places.VERGE_STUDS = table.freeze({ from = 30, to = 34 })
 -- measures the trunk box, not the pivot -- cannot find a crown over a road the plan set back.
 Places.CROWN_DRIFT_STUDS = 10
 
--- ...AND HOW FAR `TEMPLATE_DIMS.scale` IS FROM THE TEMPLATE THAT IS ACTUALLY STANDING THERE, which
--- is the second thing between the planner's reach and the census's. The planner knows `item.scale`
--- (relative to the template) and the census divides `model:GetScale()` by `dims.scale`, so the two
--- agree only while `dims.scale` IS the template's own `GetScale()`. **IT IS NOT, for 27 of the 35**
--- -- measured in Karen's Forest Test on 2026-11-03 (`driven-hunt-runs/328f-dims.luau`), ratios
--- `live / row` from 0.589 (`Forest_OakTree_Var02_LOD_0`) to **1.371** (`SilverBirch_Var01_LOD_0`).
--- That is `TEMPLATE_DIMS`' defect, not this rule's, and re-measuring the table is task 328b's; until
--- it is, the planner carries the worst ratio so the CENSUS's reach is always the one covered.
--- MEASURED CONSEQUENCE of not carrying it: one `SM_AspenTree_Var04` (live 0.8081, row 0.6135) came
--- out 3.17 studs over a road, planner reach 18.76 against the census's 30.58.
-Places.CROWN_SCALE_SLACK = 1.40
+-- ...AND THE SLACK THAT USED TO SIT BESIDE IT IS **RETIRED** (task 328l, Director decision
+-- 2026-11-03). `Places.CROWN_SCALE_SLACK` was 1.40: the planner knows `item.scale` (relative to the
+-- template) and the census divides `model:GetScale()` by `dims.scale`, so the two agreed only while
+-- `dims.scale` WAS the chosen template's own scale -- and for 27 of the 35 it was not, by ratios
+-- 0.589 to 1.371, because `FindFirstChild` answered an arbitrary one of 16-125 standing instances.
+-- `Places.nearestScale` now chooses that instance by the row, the audit refuses a template more than
+-- 2 % off it, so `live / row` is 1.000 for all 35 and the two reaches are the same number. The
+-- archived text and its arithmetic are in `backups/2026-11-03-crown-scale-slack.md`.
 
 -- CLEARANCE AROUND WHAT A HUNTER STANDS ON (design 7.4 / SWARM_DESIGN section 3.3).
 Places.POST_CLEAR_STUDS = 20
@@ -1717,15 +1802,16 @@ function Places.groupOf(name: string?): string?
 end
 
 -- HOW FAR THIS TREE'S CROWN REACHES SIDEWAYS, in world studs, or nil for a template with no measured
--- row. `TEMPLATE_DIMS` records the crown half-width at the template's OWN scale and `item.scale` is
--- relative to it, so the product is the absolute reach -- the same arithmetic `GridCensus.survey`
--- does as `crownHalfWidthStuds * (model:GetScale() / dims.scale)`, which IS `item.scale`.
+-- row. `TEMPLATE_DIMS` records the crown half-width at the chosen template's OWN scale and
+-- `item.scale` is relative to it, so the product is the absolute reach -- the same arithmetic
+-- `GridCensus.survey` does as `crownHalfWidthStuds * (model:GetScale() / dims.scale)`, which IS
+-- `item.scale` once `nearestScale` and the audit make `GetScale() / dims.scale` 1.000.
 function Places.crownReachStuds(template: string?, scale: number?): number?
 	local dims = Places.dimsFor(template or "")
 	if dims == nil then
 		return nil
 	end
-	return dims.crownHalfWidthStuds * (scale or 1) * Places.CROWN_SCALE_SLACK
+	return dims.crownHalfWidthStuds * (scale or 1)
 end
 
 -- THE TRUNK MINIMUM BESIDE A ROAD AND BESIDE A RIDE (design 7.2): how far from the CENTRELINE a
