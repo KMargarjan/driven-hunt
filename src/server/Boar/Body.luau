@@ -364,6 +364,41 @@ function Body.useCollisionGroup(part: BasePart, config, dead: boolean?): boolean
 	return ok
 end
 
+-- WHAT FORCE DRIVES THIS BODY (task 328n). PURE. `config.MAX_FORCE` is the force the boar's box was
+-- tuned on; a Part's mass is `volume * density` and the density is the same for every animal, so
+-- scaling by VOLUME against `MAX_FORCE_BODY` gives every species the SAME acceleration -- the thing
+-- that decides what it can climb -- instead of the same force.
+--
+-- MEASURED in Karen's Forest Test, C1, 4 s commanded straight uphill at 18 studs/s
+-- (`<runs-dir>/328n-ladder.luau`): on one force the deer box covered 67.8 studs at 10 deg and 1.3 at
+-- 15, where the boar box covered 70.9 and 67.9 at the same two points. Karen, 2026-11-03: *"red stag
+-- stuck cant clim in this mountain"*.
+--
+-- IT IS A FLOOR AND NEVER A CUT, and that was MEASURED before it was written: the first form
+-- scaled both ways and took the cub from 6000 to 547 and the sow to 3685, because their boxes are
+-- SMALLER than the reference. Nothing asked for a weaker cub and nothing has measured one, so the
+-- rule only ever raises -- every boar kind keeps the force it has had since Milestone 1.2, to the
+-- byte, and only an animal BIGGER than the box the number was tuned on is given more.
+--
+-- A CONFIG WITHOUT `MAX_FORCE_BODY` GETS `MAX_FORCE` UNCHANGED, which is every world written before
+-- this task.
+function Body.driveForce(size: Vector3?, config): number
+	local force = if config ~= nil then config.MAX_FORCE else nil
+	if type(force) ~= "number" then
+		return 0
+	end
+	local ref = if config ~= nil then config.MAX_FORCE_BODY else nil
+	if typeof(ref) ~= "Vector3" or typeof(size) ~= "Vector3" then
+		return force
+	end
+	local refVolume = ref.X * ref.Y * ref.Z
+	local volume = (size :: Vector3).X * (size :: Vector3).Y * (size :: Vector3).Z
+	if refVolume <= 0 or volume <= 0 then
+		return force
+	end
+	return math.max(force, force * volume / refVolume)
+end
+
 -- Builds one boar body at `position` and returns a handle the Runtime keeps. The Part is parented
 -- last, then the zone parts are welded on and the network owner is set: all of those need the part
 -- to be in the DataModel.
@@ -444,7 +479,7 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 	mover.PrimaryTangentAxis = Vector3.new(1, 0, 0)
 	mover.SecondaryTangentAxis = Vector3.new(0, 0, 1)
 	mover.PlaneVelocity = Vector2.zero
-	mover.MaxForce = config.MAX_FORCE
+	mover.MaxForce = Body.driveForce(geometry.bodySize, config)
 	mover.Parent = part
 
 	local upright = Instance.new("AlignOrientation")
