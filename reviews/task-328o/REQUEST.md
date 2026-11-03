@@ -1,108 +1,85 @@
 # REQUEST -- Task 328o: curved grid roads, the research note and the docs round
 
 Task: 328o
-Round: 1
+Round: 2
 Base: `97b2cfbc` (main)
-Code commit: `6e54e4fc`
+Code commit: `05f770e9`
 
-**Docs only.** No file under `src/`, `tests/` or `tools/` is touched, so the harness is N/A
-(CLAUDE.md loop step 3's docs-only exemption) and `test2` is N/A. Nothing in the world changed, so
-there is no frame and no click proof. Diff: `docs/research/2026-11-03-curved-grid-roads.md` (new),
-`docs/research/INDEX.md` (one row), `TASKS.md` (nine rows).
+**Docs only.** Nothing under `src/`, `tests/` or `tools/` is touched, so the harness is N/A
+(CLAUDE.md loop step 3's docs-only exemption) and `test2` is N/A. Nothing in the world changed:
+no frame, no click proof. Diff against `main`: `docs/research/2026-11-03-curved-grid-roads.md`
+(new), `docs/research/INDEX.md` (one row), `TASKS.md` (nine rows), `ESCALATE.md` (two entries),
+`reviews/task-328o/` (this file, `RESULT.md`).
 
-The branch already carried `reviews/task-328o/BRIEF.md`, the Architect's `docs/design/grid-roads.md`
-and its `ARCH_RESULT.md` = PASS, plus the Director's decisions at the top of `ESCALATE.md`. **This
-round adds the rule-1 note, and that note is the first actual check on the design**: its
-`ARCH_RESULT.md` is a bare PASS with no re-derived number and no fetched-URL status, and the design's
-own section 16 item 1 says no source was fetched.
+Round 1 returned **one blocking finding and six notes**. The finding was right; it is fixed in
+`f46e5c9f`, the Director authorised round 2 at the top of `ESCALATE.md`, and this round is the
+notes. Every claim below names the commit the text lives in.
 
 ## Claims
 
-1. **The note exists and meets rule 1.** `docs/research/2026-11-03-curved-grid-roads.md` has what the
-   system must do (section 1), five named and linked external sources with licence and maintenance
-   status (section 2), what each does well and badly (section 2), the pattern adopted and why, with the
-   rejected alternatives and their reasons (section 3), and the numeric targets (sections 4-5). It is
-   indexed in `docs/research/INDEX.md`, newest first. *Verify:* read those sections; `grep` the INDEX
-   for `2026-11-03-curved-grid-roads`.
-2. **All five sources were actually fetched, and all five carry a correction** -- this is the dispatch's
-   item 1 and L-069's failure mode. Section 2 names each fetch, its status, and the delta against the
-   design's section 10: OpenDRIVE is **v1.9.0, spec dated 2026-05-08** under an ASAM grant (*"a basic,
-   non-exclusive and unlimited license to use the standard ASAM OpenDRIVE"*), not "CC
-   attribution/no-derivatives" at "1.8 ... 2024", and `poly3` is deprecated; **FAO 13/5 is ALL RIGHTS
-   RESERVED and dated 1998**, not "non-commercial reproduction with attribution" and not 1989; Red Blob
-   Games is code MIT-or-Apache-2.0 with the prose the author's, last modified 22 Jun 2026 (the design's
-   wording is accurate); Roblox's docs are **CC BY 4.0** as claimed, but the 4-stud voxel is on
-   `create.roblox.com/docs/parts/terrain` and **no Roblox page fetched states the lattice is
-   world-axis-aligned**. *Verify:* each URL is in section 2 and section 7 with the status beside it.
-3. **Source B's "15-30 m" is WRONG, which the dispatch asked to be checked first.** Keller & Sherar
-   Table 4.1 gives **Curve Radius 15 m min.** for a Rural Access Road (Road Width 3.5-4.5 m, our class
-   -- `grid-terrain.md` 7.1's carriageway is 20 studs = 5.6 m, its painted surface 18 studs = 5.0 m)
-   and **25 m min.** for a Collector Road, plus the practice *"Locate roads with a minimum curve radius
-   of 15 meters."* **There is no 30 anywhere in the document.** *Verify:* the quoted Table 4.1 in
-   section 2 B; the design's section 5.3 row says "15-30 m".
-4. **What that changes is ONLY the ratio row, and it changes in our favour** (the dispatch asked this
-   question explicitly). The design's *"26 to 52x looser"* is 780/30 to 780/15, so its lower end rests
-   on a figure not in the source, and the N-S column's *"same"* is wrong independently because the N-S
-   minimum radius is 1,024 m, not 780 m. **Corrected: E-W 52x the 15 m floor (31x the collector floor),
-   N-S 68x (41x).** The conclusion -- curvature does not bind, so the amplitude is sized by the sight
-   line -- is strengthened. Nothing downstream reads the ratio: section 5.2's amplitudes come from the
-   equal-swing rule and the sight figures from `Places.ROAD_TRUNK_FLOOR_STUDS`. *Verify:* section 4
-   finding 1; `grep` the design for the ratio and check no other section consumes it.
-5. **Every number in the design's sections 5 and 8 was re-derived from `Grid.CONFIG`, not copied**
-   (dispatch item 2, CHECKED L-167). Section 4 is a row per number with its inputs: the junction
-   pitches 1112 / 1472 from `cellWidthStuds + roadClearStuds` and `cellDepthStuds + roadClearStuds`;
-   the first junctions -6679 / -6579 from `originX`/`originZ + roadClearStuds/2`; the swing slopes
-   0.12713 / 0.12805; the minimum radii 2784.2 st = 779.6 m and 3659.0 st = 1024.5 m at 1 stud = 0.28 m;
-   the sight figures 435.1 / 498.8 and their 2.90 / 2.27 stand gaps; `flankFirstStuds`' `dx0` = 106 from
-   `(cellWidthStuds/2 + roadClearStuds/2) - ((mainStandCount-1)/2) * mainSpacingStuds`; the fixed point
-   340 -> 365 -> 366; the Jacobian 0.0163 and the five `toWorld` steps to 6.9e-8; 151.21, +0.82 %,
-   0.16 st, 0.208 st, 31.46 / 31.24 st. *Verify:* the inputs are the frozen `Grid.CONFIG` in
-   `src/shared/Grid/init.luau`; re-run any row.
-6. **Two numbers do not reproduce, and they are reported as findings against the design, not silently
-   fixed.** (a) Section 5.4's intermediate *"333.1 studs, 3.1 of margin"* is **332.44 and 2.44** -- the
-   design's own parenthesised arithmetic `sqrt(62.5^2 + (340-13.5)^2)` evaluates to 332.44, and at full
-   precision to 332.444. **The defect the design found is real and worse than it wrote**, and the fix
-   (`flankFirstStuds` = **366**, realised worst pair **357.45**, margin **27.45**, stand depths 586 and
-   806, span 1026, 404 short of the muster road) reproduces to the decimal. (b) The swing angles are
-   **7.245 / 7.297 deg**, not 7.244 / 7.295; the slopes they come from are exact and their 0.052 deg
-   difference holds. Neither is blocking; both are corrected in the design's section 14 delta by 328q,
-   which 328q's `TASKS.md` row names. *Verify:* section 4 findings 1 and 2.
-7. **All of the design's section 8 reproduces exactly:** 5104/1687 = 3.0255 -> **3.03**;
-   floor(22000/3.03) = **7260**; floor(8000/3.03) = **2640**; room 2640 - 1687 = **953** models, 20.1 %
-   as a spacing cut against the old bound's 2.6 %; C1's 1875 + 516 + 1025 = **3416** against today's
-   `grid.spec` case 14 (`capacity < 3600` and `total < 3600`), so **184** of slack; 2640 * 3.03 = 7999
-   parts and 8 cells = 64,000; and the refuted ratio's own contradiction, 3600 * 7 = 25,200 against the
-   same section's 22,000 ceiling. *Verify:* section 4's capacity paragraph; `tests/server/grid.spec.luau`
-   for the two `3600` assertions.
-8. **`TASKS.md` carries the 328o status row and the Director's queue in the Director's own words.** The
-   order line *"**D-B** RATIFIED: 328g moves after 328h. Order: **328p -> 328q -> 328r -> 328s -> 328h
-   -> 328i -> 328g**."* is transcribed verbatim from `ESCALATE.md`'s 328o entry and marked as the
-   Director's in each row, as are D-A, D-C, D-D, D-E and all four of K-A..K-D (in 328r's row, the task
-   where Karen sees it). Each row's scope is `docs/design/grid-roads.md` section 13's own text.
-   *Verify:* rows `328o`, `328p`, `328q`, `328r`, `328s`, `328h`, `328i`, `328g` against the top of
-   `ESCALATE.md` and the design's section 13.
-9. **F-6 is queued under "before release", not fixed** (the Director's D-E, transcribed). Row
-   `328o-F6`, in the before-release part of the table beside `133a`: the six `Places.CORRIDOR.atStuds`
-   corridors and `ForestTest.beaterLaneOffset`'s lanes are two different sets of x values, pre-existing,
-   neither created nor worsened by the bend. *Verify:* the row, and `grep` `Places.CORRIDOR` /
-   `ForestTest.beaterLaneOffset`.
-10. **Rule G ran even though this is docs-only:** `python tools/privacy_scan.py selftest` (26 shapes
-    caught, 23 allowed forms clean) and `scan` (**0 findings in 1336 tracked text files**, with the note
-    staged -- it cites a re-host URL and no local path), `python tools/agents.py selftest` (**all ok**)
-    and `python tools/studio_mcp.py selftest` (**PASS**). *Verify:* re-run all four.
+1. **The blocking finding is fixed: the repo's road width is stated as the repo states it, and the
+   class pick is gone.** `f46e5c9f`. Section 2 B's cross-section is now three half-widths read from
+   the centreline -- painted +-10 = **5.6 m**, level formation `TerrainBake.ROAD.carriagewayStuds = 20`
+   (*"0 to +-20"*) = +-20 = **11.2 m**, trunk-free `Places.ROAD_TRUNK_FLOOR_STUDS = 34` = **19.0 m** --
+   and section 4 finding 1 concludes *"our road is wider than both of source B's classes ... so no
+   published floor applies directly"*. *Verify:* section 2 B's table and section 4 finding 1 against
+   `TerrainBake.ROAD` and `Places.ROAD_TRUNK_FLOOR_STUDS`.
+2. **The ratio row is the defensible one, `<=` and against the 25 m floor.** `f46e5c9f`. Section 4's
+   table row reads *"so ours is looser by, against the widest class B publishes | 779.6/25, 1024.5/25 |
+   **<= 31x (E-W), <= 41x (N-S)** | "26 to 52x", N-S "same" | **NO -- finding 1**"*. 779.6/25 = 31.2,
+   1024.5/25 = 41.0; `<=` because source B's own floor rises with the class. *Verify:* the row, and
+   that no other section consumes the ratio (`grep` the design).
+3. **Note (a), fixed and read back out of the commit.** `git show f46e5c9f:docs/research/2026-11-03-curved-grid-roads.md`
+   finding 2 now reads *"The design's own parenthesised arithmetic, `sqrt(62.5^2 + (340 - 13.5)^2)`,
+   evaluates to **332.43**, and at full precision (dx 62.462, dz 326.524) to **332.444** -- margin
+   **2.44**, not 3.1."* sqrt(3906.25 + 106602.25) = 332.428. The table row's **332.44** is unchanged
+   and still right (it uses dx 62.46 / bendZ 13.48). *Verify:* that sentence; recompute both.
+4. **Note (d), fixed and read back.** The two attributions now name `grid-roads.md`'s own sections, not
+   its section 14: `f46e5c9f` lines read *"Not blocking; `grid-roads.md`'s own section 5.3 row is
+   corrected by 328q."* and *"... `grid-roads.md`'s own section 5.4 numbers are corrected by 328q."*
+   Section 6 item 8 still says section 14, correctly -- that item IS about the section 14 delta text.
+   *Verify:* `grep -n "corrected by 328q"` at `f46e5c9f`.
+5. **Note (e), fixed and read back: the two URL lists are now equal, four each.** `f46e5c9f` section
+   2 E lists terrain · `Terrain#WriteVoxels` · `datatypes/Region3` · `creator-docs/blob/main/LICENSE`
+   -- *"**all four fetched, 200.**"* -- and section 7's Roblox bullet lists the same four. *Verify:*
+   diff the two lists at `f46e5c9f`.
+6. **Notes (b) and (c) are queued in `TASKS.md`'s 328q row, not fixed here.** Items (ii) and (iii) of
+   that row: (ii) the section 14 delta's *"39.9 studs off its `dx` term"* matches nothing -- section
+   5.4's linear bound is `0.12805 * 340 = 43.54` and the true max swing over a 340-stud window is
+   **42.59** -- so neither 39.9 nor its *"3.1 studs of margin"* may be pasted as it stands; (iii) the
+   *"cell depth ... exactly 1430"* row restates `cellDepthStuds` and cannot fail, so the
+   **exact-translate property** is the assertable thing and 328q's spec is where it belongs.
+   *Verify:* the 328q row.
+7. **A fourth correction this round found: `TASKS.md`'s 328q row still carried round 1's ratio.**
+   `05f770e9`. It said *"corrected to source B's real figures (15 m / 25 m; 52x and 68x)"* -- figures
+   computed against a floor the blocking finding showed does not apply to our width, in the row that
+   328q PASTES into the design. It now reads *"corrected to source B's real figures (15 m min. Rural
+   Access, 25 m min. Collector) and to the fact that **our road is wider than both of those classes**,
+   so the ratio row becomes **<= 31x (E-W, 780 m) and <= 41x (N-S, 1,024 m)** against the 25 m floor of
+   the widest class B publishes, not 52x and 68x"*. *Verify:* `grep -c "52x and 68x" TASKS.md` is 1,
+   inside that corrective clause, and the 328o row carries the same pair.
+8. **Note (a) was repeated in `TASKS.md` and is fixed there too.** `05f770e9`. The 328o row now reads
+   *"(the design's own parenthesised arithmetic, `sqrt(62.5^2 + (340 - 13.5)^2)`, evaluates to
+   **332.43**; 332.44 is the realised pair at full precision, dx 62.462 / bendZ 13.48)"*. *Verify:*
+   `grep "parenthesised arithmetic" TASKS.md` -- no 332.44 attribution survives.
+9. **Everything round 1 verified is untouched.** `f46e5c9f` and `05f770e9` change no number in the
+   verdict's note (g) list: the junction pitches, the first junctions, the slopes 0.12713 / 0.12805,
+   the angles 7.245 / 7.297, the radii, the sight figures, the fixed point 340 -> 365 -> 366, 357.45 /
+   27.45, and all of section 8. The `0.16 st` row the finding named is now two figures with their
+   inputs -- **0.16** painted (20 * 0.00817), **0.33** level (40 * 0.00817) -- and carries finding 3,
+   the repo's two meanings of *"carriageway"*. *Verify:* `git diff 41b33361..05f770e9` over the note.
+10. **Rule G ran, even docs-only.** `python tools/agents.py selftest` -> **all ok**;
+    `python tools/studio_mcp.py selftest` -> **selftest PASS**; `python tools/privacy_scan.py scan` ->
+    **PASS: 0 findings in 1338 tracked text files**. *Verify:* re-run all three.
 
 ## What could not be verified
 
-- **Nothing was measured in Karen's place**, and nothing could be: task 328o is docs-only, no harness
-  run, no Studio, no frame, no voxel, no bake. Every repo number is read from the file named beside it;
-  every derived number is arithmetic over those. The note's section 6 lists this and six more
-  unverified items.
-- **Source B's official Forest Service URL is HTTP 403 to this fetcher.** The document was read from a
-  complete re-host, named in section 2 B with the evidence that it is the same document (the same title
-  page, the same "LOW-VOLUME ROADS BMPS: i..." footers, the same Table 4.1), extracted with
-  `pdftotext -layout`. So the design's *"still distributed by the Forest Service's T&D programme"* is
-  **not confirmed**; the content is.
-- **The 435 / 499-stud sight figures remain a tangent-line approximation** (`0.5*k*d^2` against the
-  34-stud corridor), not a ray cast through planted wood. 328r's frame is the measurement.
-- **The per-cell 8,000-part ceiling and the world-axis alignment of the voxel lattice are both
-  unmeasured/undocumented** as section 6 items 4 and 5 say; 328g owns the first.
+- **Nothing was measured in Karen's place, and nothing could be.** Docs-only: no harness run, no
+  Studio, no frame, no voxel, no bake. Every repo number is read from the file named beside it; every
+  derived number is arithmetic over those. The note's section 6 lists this and eight more items.
+- **The five fetches cannot be re-made from the review worktree** (no network): source B's own
+  `fs.usda.gov` URL is HTTP 403 here and the text came from a complete re-host, named in section 2 B,
+  so *"still distributed by the Forest Service"* stays **unconfirmed**; the content is confirmed.
+- **The sight figures 435 / 499 are still a tangent approximation** (`0.5*k*d^2` against a 34-stud
+  corridor), not a cast ray. 328r's frame is the measurement.
+- **Karen has judged neither the bend nor the moved flank stands**, as round 1's rule-5 paragraph says.
