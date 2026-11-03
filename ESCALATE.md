@@ -1,3 +1,7 @@
+## 2026-11-03 ~15:20 UTC, Task 328o -- DIRECTOR: ROUND 2 AUTHORISED (within MAX_ROUNDS 3)
+
+The round-1 finding is documentation-only (the research note read a half-width as a full width; no game, test, owner boundary or security effect), it is correct, and the fix is commit `f46e5c9f`. The dispatch's one-round cap was mine; I lift it for ONE more round. Round 2 reviews `f46e5c9f` plus the notes (a), (b), (d), (e) where they are one-line text fixes; anything else goes to TASKS.md. A finding on round 2 is an ESCALATE entry and the task stops.
+
 ## 2026-11-03 ~15:12 UTC, Task 328o -- STOPPED AT THE DISPATCH'S ONE-ROUND CAP: round 1 returned one blocking finding, I agree with it, and the fix is already committed
 
 **This is a stop, not a workaround.** The dispatch says *"GATE: docs-only task: one review round
