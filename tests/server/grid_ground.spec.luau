@@ -59,6 +59,19 @@ return function()
 		return { model = name, x = x, z = z, scale = 1, yaw = 0, band = "wood", side = 1 }
 	end
 
+	-- EVERY CELL'S PLAN, WORKED OUT ONCE. `Plan.plantCell` is the expensive call in this file and
+	-- nine cases want the same eight lists; building them per case put the server runner over its
+	-- 300 s budget twice (round 2). Pure and deterministic, so one copy is the same as nine.
+	local PLANS: { [string]: any } = {}
+	local function planOf(cellId: string): any
+		-- NEVER inside a fixture that changes what `namesOf` may draw: the quarantine case asks
+		-- `Plan.plantCell` directly for exactly that reason.
+		if PLANS[cellId] == nil then
+			PLANS[cellId] = Plan.plantCell(cellId)
+		end
+		return PLANS[cellId]
+	end
+
 	-- ---------------------------------------------------------------- 1. the contact rule
 
 	describe("the contact rule is TreeGround's, by identity", function()
@@ -150,7 +163,7 @@ return function()
 				end
 			end
 			for _, id in ipairs({ "C1", "A1", "D2" }) do
-				for _, item in ipairs(Plan.plantCell(id)) do
+				for _, item in ipairs(planOf(id)) do
 					expect(Plan.isQuarantined(item.model)).to.equal(false)
 				end
 			end
@@ -307,7 +320,9 @@ return function()
 						expect(table.find(after, name) ~= nil).to.equal(true)
 					end
 				end
-				-- ...so no planting list names it, in any cell.
+				-- ...so no planting list names it, in any cell. NOT `planOf`: this case is asking
+				-- what the plan says WHILE the quarantine stub is up, and a memo from before it
+				-- would answer the wrong question.
 				for _, id in ipairs({ "C1", "A1" }) do
 					for _, item in ipairs(Plan.plantCell(id)) do
 						expect(item.model).never.to.equal(victim)
@@ -495,7 +510,7 @@ return function()
 			for _, id in ipairs(Grid.cellIds()) do
 				local worstRoad, worstRide = math.huge, math.huge
 				local trees = 0
-				for _, item in ipairs(Plan.plantCell(id)) do
+				for _, item in ipairs(planOf(id)) do
 					local herb = Plan.isHerbName(item.model)
 					worstRoad = math.min(worstRoad, roadGap(item.x, item.z))
 					if not herb then
@@ -560,14 +575,14 @@ return function()
 			expect(Plan.roadTrunkMin(widest, scale)).to.be.near(
 				math.max(
 					Plan.ROAD_TRUNK_FLOOR_STUDS,
-					Grid.CONFIG.roadClearStuds / 2 + reach * scale + Plan.CROWN_DRIFT_STUDS
+					Grid.CONFIG.roadClearStuds / 2 + reach * scale * Plan.CROWN_SCALE_SLACK + Plan.CROWN_DRIFT_STUDS
 				),
 				1e-9
 			)
 			expect(Plan.rideTrunkMin(widest, scale)).to.be.near(
 				math.max(
 					Plan.RIDE_TRUNK_FLOOR_STUDS,
-					Plan.RIDE_CLEAR_STUDS / 2 + reach * scale + Plan.CROWN_DRIFT_STUDS
+					Plan.RIDE_CLEAR_STUDS / 2 + reach * scale * Plan.CROWN_SCALE_SLACK + Plan.CROWN_DRIFT_STUDS
 				),
 				1e-9
 			)
@@ -575,6 +590,9 @@ return function()
 			-- NO ROW: the floors are the whole rule (design 7.2), which is the census's
 			-- `crownOverRoad=UNMEASURED`.
 			expect(Plan.crownReachStuds("NoSuchTemplate", 1)).to.equal(nil)
+			-- THE SLACK IS >= THE WORST MEASURED `live / row` RATIO, 1.371, or the census's reach is
+			-- bigger than the planner's and a crown comes out over a road (round 2, measured).
+			expect(Plan.CROWN_SCALE_SLACK >= 1.371).to.equal(true)
 			expect(Plan.roadTrunkMin("NoSuchTemplate", 1)).to.be.near(Plan.ROAD_TRUNK_FLOOR_STUDS, 1e-9)
 			expect(Plan.rideTrunkMin("NoSuchTemplate", 1)).to.be.near(Plan.RIDE_TRUNK_FLOOR_STUDS, 1e-9)
 		end)
@@ -632,7 +650,7 @@ return function()
 			for _, id in ipairs(Grid.cellIds()) do
 				local plan = Plan.cellPlanFor(id)
 				expect(plan.frontage ~= nil).to.equal(true)
-				for _, item in ipairs(Plan.plantCell(id)) do
+				for _, item in ipairs(planOf(id)) do
 					total += 1
 					if not Plan.isHerbName(item.model) then
 						local inBand = roadGap(item.x, item.z) <= plan.frontage.studs
@@ -682,7 +700,7 @@ return function()
 		it("stand clear of the ditch and the verge, and never more than the cap a cell", function()
 			for _, id in ipairs(Grid.cellIds()) do
 				local ferns = 0
-				for _, item in ipairs(Plan.plantCell(id)) do
+				for _, item in ipairs(planOf(id)) do
 					if Plan.isHerbName(item.model) then
 						ferns += 1
 						-- DEFECT F-5: measured from the ROAD CENTRELINE, so 34 is the verge's far
@@ -902,7 +920,7 @@ return function()
 			expect(Plan.fieldRect("C1")).to.equal(nil)
 			-- IT BITES: D1 plants nothing inside the field.
 			local inside = 0
-			for _, item in ipairs(Plan.plantCell("D1")) do
+			for _, item in ipairs(planOf("D1")) do
 				if
 					item.x > rect.minX + plan.field.headlandStuds
 					and item.x < rect.maxX - plan.field.headlandStuds
@@ -955,7 +973,7 @@ return function()
 				for other = 1, Grid.standCount(id) do
 					table.insert(spots, Grid.standPosition(id, other))
 				end
-				for _, item in ipairs(Plan.plantCell(id)) do
+				for _, item in ipairs(planOf(id)) do
 					if not Plan.isHerbName(item.model) then
 						for _, spot in ipairs(spots) do
 							local dx, dz = item.x - spot.X, item.z - spot.Z
@@ -993,7 +1011,7 @@ return function()
 			local counts, total, mine = {}, 0, 0
 			for _, id in ipairs(Grid.cellIds()) do
 				local ferns = 0
-				for _, item in ipairs(Plan.plantCell(id)) do
+				for _, item in ipairs(planOf(id)) do
 					if item.band == "herb" then
 						ferns += 1
 						local zone = Plan.zoneAt(id, item.x, item.z)
@@ -1076,7 +1094,7 @@ return function()
 			-- depth wanders. Count them against the same zone's own spacing.
 			local lines: { [number]: boolean } = {}
 			local counted = 0
-			for _, item in ipairs(Plan.plantCell("A2")) do
+			for _, item in ipairs(planOf("A2")) do
 				for _, zone in ipairs(plan.zones) do
 					if zone.rows == "NS" then
 						local rect = Plan.zoneRect("A2", zone)

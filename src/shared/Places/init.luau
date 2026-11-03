@@ -1594,6 +1594,18 @@ Places.VERGE_STUDS = table.freeze({ from = 30, to = 34 })
 -- measures the trunk box, not the pivot -- cannot find a crown over a road the plan set back.
 Places.CROWN_DRIFT_STUDS = 10
 
+-- ...AND HOW FAR `TEMPLATE_DIMS.scale` IS FROM THE TEMPLATE THAT IS ACTUALLY STANDING THERE, which
+-- is the second thing between the planner's reach and the census's. The planner knows `item.scale`
+-- (relative to the template) and the census divides `model:GetScale()` by `dims.scale`, so the two
+-- agree only while `dims.scale` IS the template's own `GetScale()`. **IT IS NOT, for 27 of the 35**
+-- -- measured in Karen's Forest Test on 2026-11-03 (`driven-hunt-runs/328f-dims.luau`), ratios
+-- `live / row` from 0.589 (`Forest_OakTree_Var02_LOD_0`) to **1.371** (`SilverBirch_Var01_LOD_0`).
+-- That is `TEMPLATE_DIMS`' defect, not this rule's, and re-measuring the table is task 328b's; until
+-- it is, the planner carries the worst ratio so the CENSUS's reach is always the one covered.
+-- MEASURED CONSEQUENCE of not carrying it: one `SM_AspenTree_Var04` (live 0.8081, row 0.6135) came
+-- out 3.17 studs over a road, planner reach 18.76 against the census's 30.58.
+Places.CROWN_SCALE_SLACK = 1.40
+
 -- CLEARANCE AROUND WHAT A HUNTER STANDS ON (design 7.4 / SWARM_DESIGN section 3.3).
 Places.POST_CLEAR_STUDS = 20
 Places.TOWER_CLEAR_STUDS = 24
@@ -1713,7 +1725,7 @@ function Places.crownReachStuds(template: string?, scale: number?): number?
 	if dims == nil then
 		return nil
 	end
-	return dims.crownHalfWidthStuds * (scale or 1)
+	return dims.crownHalfWidthStuds * (scale or 1) * Places.CROWN_SCALE_SLACK
 end
 
 -- THE TRUNK MINIMUM BESIDE A ROAD AND BESIDE A RIDE (design 7.2): how far from the CENTRELINE a
