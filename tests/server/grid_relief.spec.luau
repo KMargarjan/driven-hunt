@@ -2060,10 +2060,15 @@ return function()
 			end
 			for i = 1, nx do
 				for k = 1, nz do
+					local at = (k - 1) * nx + i
 					local y = heightOf(minX + (i - 0.5) * v, minZ + (k - 0.5) * v)
-					snap.height[(k - 1) * nx + i] = y
-					snap.minY = math.min(snap.minY, y)
-					snap.maxY = math.max(snap.maxY, y)
+					snap.height[at] = y
+					-- THE RANGE SKIPS THE HOLES, exactly as `TerrainBake.snapshot` does: a hole has no
+					-- height to put in it (Reviewer, round 1, finding 1).
+					if not snap.hole[at] then
+						snap.minY = math.min(snap.minY, y)
+						snap.maxY = math.max(snap.maxY, y)
+					end
 				end
 			end
 			return snap
@@ -2178,6 +2183,33 @@ return function()
 			expect(empty).to.throw()
 		end)
 
+		it("328k-2c takes a slice's range over the columns that HAVE a height, never over a hole", function()
+			-- A hole's code on the wire is 0, and `shapeTile` writes `snapshot.minY` wherever the reader
+			-- has no answer. A range that counted holes therefore put a 0-stud floor under 100-stud
+			-- ground, and the slope limiter drags the tile's own edge down to it (round-1 finding 1).
+			local snap = snapshotOf(0, 0, 9, 7, function(): number
+				return 120
+			end, { [5] = true, [40] = true })
+			local back = TerrainBake.decodeSlice(TerrainBake.encodeSlice(snap))
+			expect(back.holes).to.equal(2)
+			-- FAIL FIRST: the hole's own decoded height IS 0, so the range is the only thing keeping 0
+			-- out of `minY`.
+			expect(back.height[5]).to.equal(0)
+			expect(back.minY).to.equal(120)
+			expect(back.maxY).to.equal(120)
+			-- AND WITH NO COLUMN AT ALL the sender's own number stands rather than a decoded 0.
+			local every: { [number]: boolean } = {}
+			for at = 1, 63 do
+				every[at] = true
+			end
+			local blank = snapshotOf(0, 0, 9, 7, function(): number
+				return 120
+			end, every)
+			blank.minY, blank.maxY = 111, 111
+			local none = TerrainBake.decodeSlice(TerrainBake.encodeSlice(blank))
+			expect(none.minY).to.equal(111)
+		end)
+
 		it("328k-5 answers nil at a hole, and counts only the holes inside the tile", function()
 			-- The reader must not answer a guessed height at a Water column.
 			local snap = snapshotOf(0, 0, 4, 4, flat, { [6] = true })
@@ -2224,6 +2256,21 @@ return function()
 			local refused = TerrainBake.bakeTileAt(1, { "C1" }, true, { {} :: any }, TerrainBake.encodeSlice(holed))
 			expect(string.find(refused.message :: string, "no single height", 1, true)).never.to.equal(nil)
 			expect(string.find(refused.message :: string, "REFUSED, never guessed", 1, true)).never.to.equal(nil)
+			expect(string.find(refused.message :: string, "1 inside the tile and 0 in its", 1, true)).never.to.equal(
+				nil
+			)
+
+			-- (d) A HOLE IN THE PAD IS REFUSED TOO. The blur reads 72 studs out and the limiter 128, so a
+			-- hole out there reaches the tile's own columns through the limiter's relaxation. Before 328k
+			-- the snapshot call refused the whole tile+pad read, so refusing on the tile alone was a
+			-- loosening, not a rule (Reviewer, round 1, finding 1).
+			local padHole = snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, flat, {});
+			(padHole.hole :: any)[1] = true
+			local outside = TerrainBake.bakeTileAt(1, { "C1" }, true, { {} :: any }, TerrainBake.encodeSlice(padHole))
+			expect(string.find(outside.message :: string, "0 inside the tile and 1 in its", 1, true)).never.to.equal(
+				nil
+			)
+			expect(TerrainBake.holesInTile(TerrainBake.decodeSlice(TerrainBake.encodeSlice(padHole)), tile)).to.equal(0)
 
 			-- AND A CLEAN SLICE THAT DOES COVER IT GETS PAST ALL THREE, on to the profiles check --
 			-- so the refusals above are the arms they name and not one blanket stop.

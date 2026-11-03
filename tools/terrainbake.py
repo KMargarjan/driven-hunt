@@ -348,11 +348,16 @@ def base_index(base, x, z):
 
 
 def base_at(base, x, z):
-    """The base height at a point, or None outside the snapshot or at a hole."""
+    """The base height at a point, or None outside the snapshot or at a hole.
+
+    THE FRAME COMES OUT OF THE FILE'S OWN HEADER, not out of this module: they agree today, and a
+    later frame change would otherwise misread an old `.bin` silently instead of refusing it.
+    """
     at = base_index(base, x, z)
     if at is None or at in base["holes"]:
         return None
-    return SLICE_OFFSET + base["codes"][at - 1] / SLICE_SCALE
+    head = base["header"]
+    return head.get("offset", SLICE_OFFSET) + base["codes"][at - 1] / head.get("scale", SLICE_SCALE)
 
 
 def base_slice(base, min_x, min_z, max_x, max_z):
@@ -381,14 +386,22 @@ def base_slice(base, min_x, min_z, max_x, max_z):
         for i in range(nx):
             if src + i + 1 in base["holes"]:
                 holes.append(k * nx + i + 1)
+    # THE SLICE CARRIES ITS OWN RANGE, over the columns that HAVE a height. A hole's code is 0, and
+    # `minY` is what `shapeTile` writes where the reader has no answer, so a range that counted holes
+    # would put a 0-stud floor under 100-stud ground (Reviewer, round 1, finding 1).
+    scale = head.get("scale", SLICE_SCALE)
+    offset = head.get("offset", SLICE_OFFSET)
+    real = [codes[at] for at in range(nx * nz) if at + 1 not in set(holes)] if holes else list(codes)
     return {
         "pitch": pitch,
         "minX": head["minX"] + (i0 - 1) * pitch,
         "minZ": head["minZ"] + (k0 - 1) * pitch,
         "nx": nx,
         "nz": nz,
-        "scale": SLICE_SCALE,
-        "offset": SLICE_OFFSET,
+        "scale": scale,
+        "offset": offset,
+        "minY": offset + min(real) / scale if real else head["minY"],
+        "maxY": offset + max(real) / scale if real else head["maxY"],
         "holes": holes,
         "b64": base64.b64encode(_sliced(codes)).decode("ascii"),
     }, None
@@ -613,10 +626,10 @@ return HttpService:JSONEncode(result)
 """
 
 PLACE_QUERY = 'return tostring(game.PlaceId)'
-# The place AND the DataModel's name in one read -- `studio_mcp`'s own query, imported in
-# substance so there is one wire format. The name is what tells a re-opened backup .rbxl from
-# Karen's live window: both report the same place id (task 328k).
-QUERY_PLACE_AND_NAME = 'return tostring(game.PlaceId) .. "|" .. tostring(game.Name)'
+# The place AND the DataModel's name in one read. IMPORTED, not re-typed: a second copy here could
+# drift from the one `place_of` actually uses (Reviewer, round 1, note). The name is what tells a
+# re-opened backup .rbxl from Karen's live window -- the backup reports place id 0 (task 328k).
+from studio_mcp import QUERY_PLACE_AND_NAME  # noqa: E402
 
 
 def parse_json(body):
@@ -717,13 +730,15 @@ def check_place(studio, studio_id, want_name=None, allow_local=False):
         return "Studio is in %r, not Edit. Karen may be playing; the bake only runs in Edit." % mode
     answer = studio.query("Edit", QUERY_PLACE_AND_NAME, studio_id=studio_id).strip().strip('"')
     place, _, name = answer.partition("|")
+    if want_name and want_name.lower() not in name.lower():
+        # THIS BRANCH FIRST, or the one case the feature exists for is reported as a wrong place id
+        # (Reviewer, round 1, note).
+        return ("that Studio's place is %s but its DataModel is named %r, which does not hold %r: "
+                "two windows can report one place id (a backup .rbxl re-opened), so the name is the "
+                "only thing that tells them apart" % (place.strip(), name, want_name))
     if not local_ok(place.strip(), name, want_name, allow_local):
         return ("that Studio is open on place %s, not the Forest Test %s"
                 % (place, FOREST_PLACE_ID))
-    if want_name and want_name.lower() not in name.lower():
-        return ("that Studio's place is %s but its DataModel is named %r, which does not hold %r: "
-                "two windows can report one place id (a backup .rbxl re-opened), so the name is the "
-                "only thing that tells them apart" % (place, name, want_name))
     return None
 
 
@@ -1372,6 +1387,12 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
     limit = min(args.tiles or count, count)
     entries, worst = [], 0
     side = facts["tile"]
+    # THE TWO LATTICES MUST AGREE BEFORE THE RUN. `limit` is Python's count and the slices come from
+    # Studio's plan; a disagreement used to be an IndexError partway through a 70-minute bake
+    # (Reviewer, round 1, note).
+    if plan is not None and len(plan) != count:
+        return refuse("Studio's tile plan has %d tiles and this tool's count says %d: the two "
+                      "lattices disagree, so no slice can be trusted" % (len(plan), count)), entries
     reshape_said = [None]
     print("[bake] %s: %d of %d tiles, cells=%s" % ("measure (DRY)" if dry else "bake", limit, count, ",".join(cells)))
     for index in range(1, limit + 1):
@@ -1930,10 +1951,16 @@ def selftest():
 
     # A SYNTHETIC BASE covering the first two tiles plus their pad, so the tile pass can cut real
     # slices out of it with no Studio.
-    fake_plan = [{"minX": -4736, "minZ": -5376}, {"minX": -4608, "minZ": -5376}]
+    # THE WHOLE LATTICE, built the way `Relief.tiles` builds it, because `tile_pass` now refuses a
+    # plan whose length disagrees with its own count. Only the first `tiles` of them are sliced.
+    _c1region = region_for(["C1"], echo_facts)
+    _count, _tnx, _tnz, _tx0, _tz0 = tile_count(_c1region, echo_facts["tile"])
+    fake_plan = [{"minX": _tx0 + i * echo_facts["tile"], "minZ": _tz0 + k * echo_facts["tile"]}
+                 for k in range(_tnz) for i in range(_tnx)]
     fake_pad = 204
-    fake_header = {"pitch": 4, "minX": -5120, "minZ": -5760, "nx": 320, "nz": 240,
-                   "minY": 100.0, "maxY": 100.0, "yMin": -100.0, "yMax": 400.0}
+    fake_header = {"pitch": 4, "minX": _tx0 - 384, "minZ": _tz0 - 384, "nx": 320, "nz": 240,
+                   "minY": 100.0, "maxY": 100.0, "yMin": -100.0, "yMax": 400.0,
+                   "scale": SLICE_SCALE, "offset": SLICE_OFFSET}
     fake_codes = array.array("h", [round((100.0 - SLICE_OFFSET) * SLICE_SCALE)]) * (320 * 240)
     fake_base = {"header": fake_header, "codes": fake_codes, "holes": set(), "sha": "f" * 64}
 
@@ -1966,9 +1993,7 @@ def selftest():
        "profiles or TerrainBake.profilesFor" not in open(BAKE_LUAU, encoding="utf-8").read())
     bake_text = open(BAKE_LUAU, encoding="utf-8").read()
     ok("EVERY tile call carries its own slice of the base snapshot",
-       all("decodeSlice" not in e or True for e, _ in sent_tiles)
-       and all(e.count("JSONDecode([==[") == 2 for e, _ in sent_tiles),
-       sent_tiles[0][0][:60])
+       all(e.count("JSONDecode([==[") == 2 for e, _ in sent_tiles), sent_tiles[0][0][:60])
     ok("the Luau refuses a tile that arrives with no base snapshot slice",
        "no base snapshot slice was handed to tile" in bake_text)
     ok("profilesFor refuses to run with no sampler, so it can never raycast live terrain",
@@ -1976,9 +2001,20 @@ def selftest():
     tool_text = open(os.path.join(REPO, "tools", "terrainbake.py"), encoding="utf-8").read()
     # THE EPOCH'S ONE CALL SITE, by regex rather than by quoting the wrong text -- a check that
     # quotes the string it forbids matches its own source and can never fail.
+    # THE WHOLE ARGUMENT, up to the comma. `[A-Za-z_.]+` stopped at the first space, so the very
+    # defect 328e note c names -- `args.base_sha or sha` -- also matched and the case was green
+    # against the line it is offered as proof of fixing (Reviewer, round 1, finding 2).
+    # OVER THE RUNTIME HALF ONLY. The fail-first subject below is itself a line of this file, so a
+    # scan of the whole text matches it and the case can never be green.
+    runtime = tool_text.split("---------------- selftest (CI; no Studio")[0]
+    epoch_args = re.findall(r"epoch = epoch_for\(studio, studio_id, ([^,)]+)", runtime)
     ok("the bake's epoch hashes the SNAPSHOT sha and never the git sha (design 5.4, 328e note c)",
-       re.findall(r"epoch = epoch_for\(studio, studio_id, ([A-Za-z_.]+)", tool_text) == ["args.base_sha"],
-       str(re.findall(r"epoch = epoch_for\(studio, studio_id, ([A-Za-z_.]+)", tool_text)))
+       epoch_args == ["args.base_sha"], str(epoch_args))
+    # FAIL FIRST: the pre-fix line must NOT pass this case.
+    ok("...and the pre-fix `args.base_sha or sha` would fail that case",
+       re.findall(r"epoch = epoch_for\(studio, studio_id, ([^,)]+)",
+                  "        epoch = epoch_for(studio, studio_id, args.base_sha or sha, injected)")
+       == ["args.base_sha or sha"])
     ok("bakeTileAt reads no terrain of its own: the slice comes from the tool",
        "TerrainBake.snapshot(" not in bake_text.split("function TerrainBake.bakeTileAt")[1]
        .split("function TerrainBake.roadDistance")[0])

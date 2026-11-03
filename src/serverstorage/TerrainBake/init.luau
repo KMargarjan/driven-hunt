@@ -466,17 +466,12 @@ function TerrainBake.decodeSlice(payload: any): Snapshot
 		buffer.len(buf) == count * 2,
 		string.format("TerrainBake.decodeSlice: %d bytes for %d x %d columns", buffer.len(buf), nx, nz)
 	)
-	local height = table.create(count, 0)
-	local lo, hi = math.huge, -math.huge
-	for at = 1, count do
-		local h = offset + buffer.readi16(buf, (at - 1) * 2) / scale
-		height[at] = h
-		lo = math.min(lo, h)
-		hi = math.max(hi, h)
-	end
-	-- EITHER SHAPE OF HOLE: a base64 BITMASK, one bit a column, which is what `encodeSlice` sends
-	-- (see its header), or a plain list of 1-based indices, which is what the tool's tile slices and
-	-- a hand-written fixture use. The bitmask wins when both are present.
+	-- THE HOLES FIRST, BECAUSE THE RANGE MUST NOT COUNT THEM. A hole's code on the wire is 0, which
+	-- decodes to a height of 0, and `minY` is what `shapeTile` writes where the reader has no answer
+	-- -- so taking the range over every slot put a 0-stud floor under ground that stands at 100-150
+	-- (Reviewer, round 1, finding 1). EITHER SHAPE: a base64 BITMASK, one bit a column, which is what
+	-- `encodeSlice` sends, or a plain list of 1-based indices, which the tool's tile slices and a
+	-- hand-written fixture use. The bitmask wins when both are present.
 	local hole: { [number]: boolean } = {}
 	local holes = 0
 	if type(payload.holeBits) == "string" then
@@ -495,6 +490,23 @@ function TerrainBake.decodeSlice(payload: any): Snapshot
 			holes += 1
 		end
 	end
+	local height = table.create(count, 0)
+	local lo, hi = math.huge, -math.huge
+	for at = 1, count do
+		local h = offset + buffer.readi16(buf, (at - 1) * 2) / scale
+		height[at] = h
+		if not hole[at] then
+			lo = math.min(lo, h)
+			hi = math.max(hi, h)
+		end
+	end
+	-- EVERY COLUMN A HOLE: there is no range to take, so the sender's own numbers stand. `encodeSlice`
+	-- sends 0 for that case and the tool sends the ground minimum it stitched, so this is a floor and
+	-- never an invented height -- and such a slice refuses its tile anyway.
+	if lo == math.huge then
+		lo = payload.minY or 0
+		hi = payload.maxY or lo
+	end
 	return {
 		pitch = payload.pitch or Relief.VOXEL,
 		minX = payload.minX,
@@ -502,8 +514,8 @@ function TerrainBake.decodeSlice(payload: any): Snapshot
 		nx = nx,
 		nz = nz,
 		height = height,
-		minY = if lo < math.huge then lo else 0,
-		maxY = if hi > -math.huge then hi else 0,
+		minY = lo,
+		maxY = hi,
 		hole = hole,
 		holes = holes,
 		holeWhy = {},
@@ -1710,19 +1722,29 @@ function TerrainBake.bakeTileAt(
 		)
 		return refusal
 	end
-	-- A TILE HOLDING WATER OR AN OVERHANG IS REFUSED, NEVER GUESSED (design 5.3 step 2). The base
-	-- pass records such a column as a hole; a hole inside the tile itself is ground the bake would
-	-- have to invent, so it stops here with the count rather than writing an invented floor.
-	local holes = TerrainBake.holesInTile(base, tile)
+	-- A TILE WHOSE BASE HAS A HOLE ANYWHERE IN ITS SLICE IS REFUSED, NEVER GUESSED (design 5.3 step
+	-- 2). THE PAD COUNTS, and that is the round-1 finding: the blur reads 72 studs out and the slope
+	-- limiter 128, so a hole out there reaches the tile's own columns through
+	-- `Relief.limitPass`, which pulls an unpinned neighbour down to within one window's ceiling of
+	-- its pinned partner. Before 328k `bakeTileAt` snapshotted the tile plus pad with no `allowHoles`
+	-- and got `nil, why` for a fault anywhere in it -- so refusing on the tile alone was a
+	-- loosening, not a rule. The two counts are reported apart because they mean different things to
+	-- whoever widens the band or the terrain.
+	local inside = TerrainBake.holesInTile(base, tile)
+	local holes = base.holes or 0
 	if holes > 0 then
 		local refusal: TileReport = table.clone(bare)
 		refusal.message = string.format(
 			"tile %d (%.0f, %.0f) holds %d base column(s) with no single height (Water, an overhang, "
-				.. "or no ground in the Y band). A tile like that is REFUSED, never guessed.",
+				.. "or no ground in the Y band): %d inside the tile and %d in its %d-stud pad, which "
+				.. "the blur and the slope limiter both read. A tile like that is REFUSED, never guessed.",
 			tileIndex,
 			tile.minX,
 			tile.minZ,
-			holes
+			holes,
+			inside,
+			holes - inside,
+			pad
 		)
 		return refusal
 	end
