@@ -65,14 +65,15 @@ Grid.CONFIG = table.freeze({
 	-- THE WORLD SEED. Every per-cell stream hashes from it (`Grid.seedFor`), so a cell's wood is the
 	-- same whatever order the cells were built in -- Minecraft's own per-chunk rule (note section 2B).
 	seed = 327_001,
-	-- THE BEND, AND 0 IS TODAY'S WORLD. Karen, 2026-11-03: *"road could be also not just straight
-	-- make line in real life"*. One sine per axis, half-wavelength = the junction pitch, so the
-	-- offset is exactly 0 at every junction. BORN AT ZERO: task 328r switches it to 45 / 60 by
-	-- COMMIT (task 79's map-switch exception), never by a flag.
+	-- THE BEND. Karen, 2026-11-03: *"road could be also not just straight make line in real life"*.
+	-- One sine per axis, half-wavelength = the junction pitch, so the offset is exactly 0 at every
+	-- junction. Born at 0 in 328q; SWITCHED ON HERE BY COMMIT (task 79's map-switch exception,
+	-- CLAUDE.md "Feature flags"), never by a flag -- the ground is baked to these numbers and a
+	-- flag-off build would plant trees into the real ditch.
 	-- Design: docs/design/grid-roads.md 4, 5, 9.1-9.3.
 	bend = table.freeze({
-		ewStuds = 0, -- the east-west family (the main and muster lines). 328r: 45
-		nsStuds = 0, -- the north-south family (the flanks). 328r: 60
+		ewStuds = 45, -- the east-west family (the main and muster lines); design 5.2
+		nsStuds = 60, -- the north-south family (the flanks); design 5.2
 		harmonic = 1, -- bends per junction span. AN INTEGER, OR THE JUNCTIONS STOP BEING ZEROS
 	}),
 })

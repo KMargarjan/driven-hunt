@@ -632,8 +632,13 @@ return function()
 			-- **THE THREE BEND ROWS ARE IN THE HASH, AND THEY ARE WHAT FORCES THE RE-BAKE** (task
 			-- 328q, defect F-2): without them the epoch would not move when the road did, `PlantEpoch`
 			-- would still match and the census would certify a forest standing on moved ground.
-			expect(string.find(once, '"bendEwStuds":0', 1, true) ~= nil).to.equal(true)
-			expect(string.find(once, '"bendNsStuds":0', 1, true) ~= nil).to.equal(true)
+			expect(string.find(once, '"bendEwStuds":45', 1, true) ~= nil).to.equal(true)
+			expect(string.find(once, '"bendNsStuds":60', 1, true) ~= nil).to.equal(true)
+			-- ...AND THE SHIPPED AMPLITUDE IS WHAT IS IN IT (task 328r): the same input with the
+			-- bend put back to 0 hashes to a DIFFERENT string, which is the re-bake this task did.
+			local straightened = table.clone(moved)
+			straightened.bend = { ewStuds = 0, nsStuds = 0, harmonic = Grid.CONFIG.bend.harmonic }
+			expect(Relief.epochInput(Relief.LANDFORMS, straightened)).never.to.equal(once)
 			expect(string.find(once, '"bendHarmonic":1', 1, true) ~= nil).to.equal(true)
 			for _, row in { "ewStuds", "nsStuds", "harmonic" } do
 				local bent: { [string]: any } = table.clone(Grid.CONFIG.bend)
@@ -854,6 +859,7 @@ return function()
 			expect(profile ~= nil).to.equal(true)
 			local profiles = { profile }
 			local spec = TerrainBake.ROAD
+			local STRAIGHT = { ewStuds = 0, nsStuds = 0, harmonic = 1 }
 			local reference: { string } = {}
 			local stations = 0
 			for i = 0, 39 do
@@ -861,10 +867,14 @@ return function()
 				-- junction-square rule is not what this case is reading.
 				local cell = Grid.boundsOf("C1")
 				local along = cell.minX + 80 + (cell.maxX - 80 - (cell.minX + 80)) * i / 39
-				local centre = Grid.roadCentreAt(road, along)
+				-- DRIVEN AT AMPLITUDE 0 BY PARAMETER (task 328r). The forty-identical-sections claim
+				-- is a STRAIGHT road's: on a bent one the band is snapped to whole WORLD voxel
+				-- columns at each station, so the rut's and the ditch's edges step by one voxel
+				-- every ~31.5 studs (design 7.2's measured stair). That stair is the NEXT case.
+				local centre = Grid.roadCentreAt(road, along, STRAIGHT)
 				local section: { string } = {}
 				for d = 0, spec.vergeStuds + 8, 2 do
-					local y, name = TerrainBake.roadAt(profiles, 120, along, centre + d)
+					local y, name = TerrainBake.roadAt(profiles, 120, along, centre + d, STRAIGHT)
 					table.insert(section, string.format("%s/%.3f", tostring(name), (y or 0) - 120))
 				end
 				if #reference == 0 then
@@ -898,29 +908,39 @@ return function()
 			local roads = Grid.roadsOf("C1")
 			-- THE NUMBERS, not a re-spelling of the body: C1 plus its four road corridors plus the
 			-- 200-stud blend is this box, and a change to any of the three reddens the line.
-			expect(one.minX).to.equal(-4701)
-			expect(one.maxX).to.equal(-3097)
-			expect(one.minZ).to.equal(-5353)
-			expect(one.maxZ).to.equal(-3389)
+			-- ...PLUS `Grid.maxBendStuds()` ON EVERY SIDE (task 328r, design 7.1): the region has to
+			-- hold every tile the bent road reaches, so each bound moved out by 60. The pre-bend box
+			-- is written beside it, so this row is a diff across the commit.
+			local grew = Grid.maxBendStuds()
+			expect(grew).to.equal(60)
+			expect(one.minX).to.equal(-4701 - grew)
+			expect(one.maxX).to.equal(-3097 + grew)
+			expect(one.minZ).to.equal(-5353 - grew)
+			expect(one.maxZ).to.equal(-3389 + grew)
 			expect(one.minX).to.equal(
-				math.min(cell.minX, roads.west.at - TerrainBake.ROAD_HALF_STUDS) - Relief.BLEND_STUDS
+				math.min(cell.minX, roads.west.at - TerrainBake.ROAD_HALF_STUDS) - Relief.BLEND_STUDS - grew
 			)
 			expect(one.maxZ).to.equal(
-				math.max(cell.maxZ, roads.muster.at + TerrainBake.ROAD_HALF_STUDS) + Relief.BLEND_STUDS
+				math.max(cell.maxZ, roads.muster.at + TerrainBake.ROAD_HALF_STUDS) + Relief.BLEND_STUDS + grew
 			)
 			local all = TerrainBake.regionFor(Grid.cellIds())
 			local box = Grid.footprint()
-			-- The border wood's 230 on top of the blend's 200: design 5.2's "footprint plus 430 st".
-			expect(box.minX - all.minX).to.equal(Relief.BLEND_STUDS + 230)
-			expect(all.maxX - box.maxX).to.equal(Relief.BLEND_STUDS + 230)
+			-- The border wood's 230 on top of the blend's 200: design 5.2's "footprint plus 430 st",
+			-- and the bend's 60 on top of that.
+			expect(box.minX - all.minX).to.equal(Relief.BLEND_STUDS + 230 + grew)
+			expect(all.maxX - box.maxX).to.equal(Relief.BLEND_STUDS + 230 + grew)
 		end)
 
 		it("328d-3 tiles both regions on the voxel lattice, and the counts are the arithmetic's", function()
 			local one = TerrainBake.tilePlan(TerrainBake.regionFor({ "C1" }))
 			local all = TerrainBake.tilePlan(TerrainBake.regionFor(Grid.cellIds()))
 			TestKit.note(string.format("bake tiles: C1 %d, the whole world %d", #one, #all))
-			expect(#one).to.equal(208)
-			expect(#all).to.equal(1333)
+			-- RE-DERIVED AT 45/60 (task 328r): C1 208 -> 255 and the world 1333 -> 1408, because
+			-- `regionFor` grows by `maxBendStuds` before the 128-stud lattice rounding.
+			-- `tools/terrainbake.py`'s EXPECTED_TILES carries the same two numbers, computed by a
+			-- second engine, and its `selftest` re-derives them from its own `region_for`.
+			expect(#one).to.equal(255)
+			expect(#all).to.equal(1408)
 			expect(TerrainBake.TILE_STUDS % Relief.VOXEL).to.equal(0)
 			for _, tile in one do
 				expect(tile.minX % Relief.VOXEL).to.equal(0)
@@ -953,7 +973,9 @@ return function()
 			-- `heightAt`'s cell-edge `k`, which is two fades in series. The weight is handed in now.
 			local union = TerrainBake.unionOf({ "C1" })
 			local cell = Grid.boundsOf("C1")
-			expect(union.minX).to.equal(cell.minX)
+			-- `unionOf` IS `Grid.worldBoundsOf`'s union, which grows by the amplitude on each axis
+			-- (task 328r): the bent cell reaches `nsStuds` further in x than its grid rectangle.
+			expect(union.minX).to.equal(cell.minX - Grid.CONFIG.bend.nsStuds)
 			expect(TerrainBake.blendAt(union, (cell.minX + cell.maxX) / 2, (cell.minZ + cell.maxZ) / 2)).to.equal(1)
 			expect(TerrainBake.blendAt(union, cell.minX - Relief.BLEND_STUDS, cell.minZ + 10)).to.equal(0)
 			local half = TerrainBake.blendAt(union, cell.minX - Relief.BLEND_STUDS / 2, cell.minZ + 10)
@@ -1268,8 +1290,17 @@ return function()
 			local spec = TerrainBake.ROAD
 			local profiles = TerrainBake.profilesFor({ "C1" }, flat)
 			local mid = (Grid.boundsOf("C1").minX + Grid.boundsOf("C1").maxX) / 2
+			-- DRIVEN AT AMPLITUDE 0 BY PARAMETER (task 328r). Every claim below is about the
+			-- LATTICE -- one whole column of rut, two of ditch, the two sides half a voxel apart,
+			-- the centre at = 1 (mod 4) -- and every one of them is stated for a centreline that
+			-- falls on a whole stud. A bent road's centre is fractional at almost every station, so
+			-- the parities move; what the bend does to this section is the stair, and the case
+			-- below measures that. Keeping this one straight keeps the cross-section's own shape
+			-- asserted exactly, which is what it exists for.
+			local STRAIGHT15 = { ewStuds = 0, nsStuds = 0, harmonic = 1 }
+			local midCentre = Grid.roadCentreAt(road, mid, STRAIGHT15)
 			local function at(d: number)
-				return TerrainBake.roadAt(profiles, 100, mid, road.at + d)
+				return TerrainBake.roadAt(profiles, 100, mid, midCentre + d, STRAIGHT15)
 			end
 			-- THE CARRIAGEWAY is level across, with the crown fall under the design's half-stud.
 			local crown = at(0)
@@ -1281,12 +1312,12 @@ return function()
 			-- parity (correction F-2): ONE column of rut and TWO of ditch, ON EACH SIDE. Round 2
 			-- built the minus side's bounds negative, so |d| could never reach them and that whole
 			-- half of every road in the world came out flat Grass (round-2 finding 1).
-			local rutLo, rutHi = TerrainBake.bandFor(road.at, spec.rut.nearStuds, spec.rut.farStuds, 1)
-			local ditchLo, ditchHi = TerrainBake.bandFor(road.at, spec.ditch.nearStuds, spec.ditch.farStuds, 1)
-			local mRutLo, mRutHi = TerrainBake.bandFor(road.at, spec.rut.nearStuds, spec.rut.farStuds, -1)
-			local mDitchLo, mDitchHi = TerrainBake.bandFor(road.at, spec.ditch.nearStuds, spec.ditch.farStuds, -1)
-			local rutNear, rutFar = road.at + rutLo, road.at + rutHi
-			local ditchNear, ditchFar = road.at + ditchLo, road.at + ditchHi
+			local rutLo, rutHi = TerrainBake.bandFor(midCentre, spec.rut.nearStuds, spec.rut.farStuds, 1)
+			local ditchLo, ditchHi = TerrainBake.bandFor(midCentre, spec.ditch.nearStuds, spec.ditch.farStuds, 1)
+			local mRutLo, mRutHi = TerrainBake.bandFor(midCentre, spec.rut.nearStuds, spec.rut.farStuds, -1)
+			local mDitchLo, mDitchHi = TerrainBake.bandFor(midCentre, spec.ditch.nearStuds, spec.ditch.farStuds, -1)
+			local rutNear, rutFar = midCentre + rutLo, midCentre + rutHi
+			local ditchNear, ditchFar = midCentre + ditchLo, midCentre + ditchHi
 			-- THE REALISED WIDTH, pinned: the rut is ONE voxel column and the ditch is TWO, both
 			-- sides (328c note: `% VOXEL == 0` was weaker than the sentence above it).
 			expect(rutHi - rutLo).to.equal(Relief.VOXEL)
@@ -1294,10 +1325,10 @@ return function()
 			expect(ditchHi - ditchLo).to.equal(2 * Relief.VOXEL)
 			expect(mDitchHi - mDitchLo).to.equal(2 * Relief.VOXEL)
 			-- WHOLE COLUMNS IN ABSOLUTE COORDINATES on each side, which is what F-2 asks for.
-			expect((road.at + rutLo) % Relief.VOXEL).to.equal(0)
-			expect((road.at - mRutHi) % Relief.VOXEL).to.equal(0)
-			expect((road.at + ditchLo) % Relief.VOXEL).to.equal(0)
-			expect((road.at - mDitchHi) % Relief.VOXEL).to.equal(0)
+			expect((midCentre + rutLo) % Relief.VOXEL).to.equal(0)
+			expect((midCentre - mRutHi) % Relief.VOXEL).to.equal(0)
+			expect((midCentre + ditchLo) % Relief.VOXEL).to.equal(0)
+			expect((midCentre - mDitchHi) % Relief.VOXEL).to.equal(0)
 			-- As symmetric as a centre at = 1 (mod 4) allows: half a voxel apart, never more.
 			expect(math.abs((rutLo + rutHi) / 2 - (mRutLo + mRutHi) / 2) <= Relief.VOXEL / 2).to.equal(true)
 			expect(math.abs((ditchLo + ditchHi) / 2 - (mDitchLo + mDitchHi) / 2) <= Relief.VOXEL / 2).to.equal(true)
@@ -1324,32 +1355,32 @@ return function()
 			local ditchY, ditchName = at((ditchLo + ditchHi) / 2)
 			TestKit.note(
 				string.format(
-					"road %s at %d: rut columns [%d,%d] d %.0f..%.0f, ditch [%d,%d] d %.0f..%.0f, ditch %.2f st below the crown",
+					"road %s centre %.1f: rut columns [%.0f,%.0f] d %.0f..%.0f, ditch [%.0f,%.0f] d %.0f..%.0f, ditch %.2f st below the crown",
 					road.id,
-					road.at,
+					midCentre,
 					rutNear,
 					rutFar,
-					rutNear - road.at,
-					rutFar - road.at,
+					rutNear - midCentre,
+					rutFar - midCentre,
 					ditchNear,
 					ditchFar,
-					ditchNear - road.at,
-					ditchFar - road.at,
+					ditchNear - midCentre,
+					ditchFar - midCentre,
 					crown - ditchY
 				)
 			)
 			TestKit.note(
 				string.format(
-					"road %s MINUS side: rut d %.0f..%.0f abs [%d,%d], ditch d %.0f..%.0f abs [%d,%d], %.2f st below the crown",
+					"road %s MINUS side: rut d %.0f..%.0f abs [%.0f,%.0f], ditch d %.0f..%.0f abs [%.0f,%.0f], %.2f st below the crown",
 					road.id,
 					mRutLo,
 					mRutHi,
-					road.at - mRutHi,
-					road.at - mRutLo,
+					midCentre - mRutHi,
+					midCentre - mRutLo,
 					mDitchLo,
 					mDitchHi,
-					road.at - mDitchHi,
-					road.at - mDitchLo,
+					midCentre - mDitchHi,
+					midCentre - mDitchLo,
 					crown - mDitchY
 				)
 			)
@@ -1362,11 +1393,12 @@ return function()
 			expect(beyond).to.equal(nil)
 			-- THE BANK is never steeper than 1:2. Drop the natural ground 30 studs and the bank has
 			-- to widen past its 12-stud minimum rather than fall faster.
-			local steepY, _, weight = TerrainBake.roadAt(profiles, 70, mid, road.at + spec.vergeStuds + 20)
+			local steepY, _, weight =
+				TerrainBake.roadAt(profiles, 70, mid, midCentre + spec.vergeStuds + 20, STRAIGHT15)
 			expect(steepY).never.to.equal(nil)
 			expect(weight > 0).to.equal(true)
 			expect(steepY > 70).to.equal(true)
-			expect(TerrainBake.roadAt(profiles, 70, mid, road.at + spec.vergeStuds + 70)).to.equal(nil)
+			expect(TerrainBake.roadAt(profiles, 70, mid, midCentre + spec.vergeStuds + 70, STRAIGHT15)).to.equal(nil)
 			-- An east-west carriageway is Ground in the middle; a north-south one is Grass.
 			local _, midName = at(0)
 			expect(midName).to.equal(spec.material.x.mid)
@@ -1391,11 +1423,16 @@ return function()
 			local function name(z: number): string
 				return names[(kFor(z) - 1) * n + 16]
 			end
-			local ditchLo, ditchHi = TerrainBake.bandFor(road.at, spec.ditch.nearStuds, spec.ditch.farStuds, 1)
-			local mDitchLo, mDitchHi = TerrainBake.bandFor(road.at, spec.ditch.nearStuds, spec.ditch.farStuds, -1)
-			local crownZ = road.at + 1
-			local ditchZ = road.at + (ditchLo + ditchHi) / 2
-			local mDitchZ = road.at - (mDitchLo + mDitchHi) / 2
+			-- THE REALISED CENTRE IN THE COLUMN THIS CASE READS (task 328r). It reads column i = 16,
+			-- whose world x is `tile.minX + 15.5 * VOXEL`; at 45/60 the road's crown there is about
+			-- 20 studs north of `road.at`, so a z measured off `road.at` lands in the verge.
+			local columnX = tile.minX + 15.5 * Relief.VOXEL
+			local centre16 = Grid.roadCentreAt(road, columnX)
+			local ditchLo, ditchHi = TerrainBake.bandFor(centre16, spec.ditch.nearStuds, spec.ditch.farStuds, 1)
+			local mDitchLo, mDitchHi = TerrainBake.bandFor(centre16, spec.ditch.nearStuds, spec.ditch.farStuds, -1)
+			local crownZ = centre16 + 1
+			local ditchZ = centre16 + (ditchLo + ditchHi) / 2
+			local mDitchZ = centre16 - (mDitchLo + mDitchHi) / 2
 			local awayZ = tile.minZ + TerrainBake.TILE_STUDS - 2
 			TestKit.note(
 				string.format(
@@ -1419,15 +1456,15 @@ return function()
 			-- the minus RUT is in this tile and the minus DITCH is in the one below -- which is also
 			-- what proves the two tiles agree: the ditch in the SOUTH tile is 2 studs under the
 			-- crown THIS tile wrote, at the same x, because both were handed the same profiles.
-			local mRutLo, mRutHi = TerrainBake.bandFor(road.at, spec.rut.nearStuds, spec.rut.farStuds, -1)
-			local mRutZ = road.at - (mRutLo + mRutHi) / 2
+			local mRutLo, mRutHi = TerrainBake.bandFor(centre16, spec.rut.nearStuds, spec.rut.farStuds, -1)
+			local mRutZ = centre16 - (mRutLo + mRutHi) / 2
 			-- FAIL FIRST, BOTH OF THESE: before round 3 the minus side had no rut and no ditch, so
 			-- this read "Ground" at the carriageway height and "Grass" at the verge height.
 			expect(name(mRutZ)).to.equal("Mud")
 			-- SYMMETRIC IN HEIGHT, to within the sample lattice: the voxel centres fall at odd |d|
 			-- on each side and the two sides' odd numbers differ by 2, so the nearest pair to +-12 is
 			-- d 13 and d 11 -- 0.02 st of crossfall apart. The exact claim is 328d-15's, on `roadAt`.
-			expect(math.abs(h(road.at + 12) - h(road.at - 12)) < 0.05).to.equal(true)
+			expect(math.abs(h(centre16 + 12) - h(centre16 - 12)) < 0.05).to.equal(true)
 			local south = { minX = tile.minX, minZ = tile.minZ - TerrainBake.TILE_STUDS }
 			local southHeights, southNames = TerrainBake.shapeTile(south, sliceFor(south, flat), { "C1" }, {}, profiles)
 			local function southAt(z: number): (number, string)
@@ -2064,16 +2101,28 @@ return function()
 			local profiles = TerrainBake.profilesFor({ "C1" }, flat)
 			-- OFF THE STANDS AND OFF EVERY JUNCTION, so this is the plain cross-section.
 			local along = Grid.standPosition("C1", 4).X + 75
+			-- THE REALISED CENTRE AT THIS STATION (task 328r), not `road.at`.
+			local centreHere = Grid.roadCentreAt(road, along)
 			local function nameAt(d: number): string
-				local _, name = TerrainBake.roadAt(profiles, 100, along, road.at + d)
+				local _, name = TerrainBake.roadAt(profiles, 100, along, centreHere + d)
 				return name
 			end
 			expect(spec.midStuds).to.equal(6)
-			-- THE REALISED COLUMN CENTRES on this road sit at d = 1 (mod 4), which is what F-2's
-			-- "every centre is = 1 (mod 4)" makes them. `mid` for d < 6, `outer` above it, and the
-			-- rut band overrides whichever it lands in.
-			local rutLo, rutHi = TerrainBake.bandFor(road.at, spec.rut.nearStuds, spec.rut.farStuds, 1)
-			for _, d in { 1, 5, 9, 13, 17 } do
+			-- THE REALISED COLUMN CENTRES, READ OFF THE LATTICE (task 328r). They used to be
+			-- written here as `d = 1 (mod 4)`, which holds only when the centreline falls on a whole
+			-- stud: at 45/60 this station's centre is fractional, so the five columns are asked of
+			-- `Relief.columnsFor` -- the same function `bandFor` uses -- instead of being typed.
+			local rutLo, rutHi = TerrainBake.bandFor(centreHere, spec.rut.nearStuds, spec.rut.farStuds, 1)
+			local v = Relief.VOXEL
+			local firstColumn = v * math.floor(centreHere / v) + v / 2
+			if firstColumn <= centreHere then
+				firstColumn += v
+			end
+			local columns = {}
+			for k = 0, 4 do
+				table.insert(columns, firstColumn + k * v - centreHere)
+			end
+			for _, d in columns do
 				local want
 				if d >= rutLo and d <= rutHi then
 					want = spec.material.x.rut
@@ -2084,7 +2133,25 @@ return function()
 				end
 				expect(nameAt(d)).to.equal(want)
 			end
-			-- FAIL FIRST, AND IT IS **d 9 ALONE** that does it: under `d < 10` that column answered
+			-- AND THE FIVE OFFSETS ARE THE LATTICE'S, PRINTED, so the case says which columns it
+			-- actually read rather than which ones a straight road would have had.
+			TestKit.note(
+				string.format(
+					"328e-4 at x %.1f: centre %.3f, columns d = %s (rut band %.2f..%.2f)",
+					along,
+					centreHere,
+					table.concat({
+						string.format("%.2f", columns[1]),
+						string.format("%.2f", columns[2]),
+						string.format("%.2f", columns[3]),
+						string.format("%.2f", columns[4]),
+						string.format("%.2f", columns[5]),
+					}, ", "),
+					rutLo,
+					rutHi
+				)
+			)
+			-- FAIL FIRST, AND IT IS **THE COLUMN NEAR d 9** that does it: under `d < 10` that column answered
 			-- `mid` (Ground) where the design's table asks for `outer` (Grass). d 13 and 17 are
 			-- already >= 10 and answered `outer` before this change too, so they are a guard and not
 			-- the bite -- said here because round 1 claimed all three.

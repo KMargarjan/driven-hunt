@@ -1039,7 +1039,17 @@ end
 --
 -- The rut and the ditch are realised by `Relief.columnsFor` at the road's own parity, so their
 -- WIDTH does not depend on where the centreline happens to fall (correction F-2).
-function TerrainBake.roadAt(profiles: { Profile }, naturalY: number, x: number, z: number): (number?, string?, number)
+--
+-- `bend` IS A TRAILING OPTIONAL (task 328r, 328q note (a)): every band below is measured from
+-- `Grid.roadCentreAt`, which moves with the amplitude, and with no parameter no case could put a
+-- point in the ditch of a BENT road while `Grid.CONFIG.bend` sat at one value.
+function TerrainBake.roadAt(
+	profiles: { Profile },
+	naturalY: number,
+	x: number,
+	z: number,
+	bend: any?
+): (number?, string?, number)
 	local spec = TerrainBake.ROAD
 	-- THE NEAREST CENTRELINE ON EACH AXIS, kept apart, because inside a junction square both roads
 	-- cover the point and the design says which one wins.
@@ -1051,7 +1061,7 @@ function TerrainBake.roadAt(profiles: { Profile }, naturalY: number, x: number, 
 		local road = profile.road
 		local along = if road.axis == "x" then x else z
 		if along >= road.from and along <= road.to then
-			local d = math.abs((if road.axis == "x" then z else x) - Grid.roadCentreAt(road, along))
+			local d = math.abs((if road.axis == "x" then z else x) - Grid.roadCentreAt(road, along, bend))
 			if road.axis == "x" then
 				if d < dX then
 					bestX, dX, alongX = profile, d, along
@@ -1082,7 +1092,7 @@ function TerrainBake.roadAt(profiles: { Profile }, naturalY: number, x: number, 
 	-- THE CENTRE IS A FUNCTION OF THE STATION (task 328q, design 7.2). The band still snaps to whole
 	-- WORLD voxel columns at each station, which is correction F-2 kept: the cost is a 4-stud lateral
 	-- stair every 31.5 studs along a bend, printed by the census.
-	local centre = Grid.roadCentreAt(road, bestAlong)
+	local centre = Grid.roadCentreAt(road, bestAlong, bend)
 	local across = (if road.axis == "x" then z else x)
 	local d = math.abs(across - centre)
 	local crownY = TerrainBake.profileY(profile, bestAlong)
@@ -1565,7 +1575,12 @@ end
 --                   rise over the square's half-width (`ewSpanStuds`) plus the crossfall, because
 --                   the N-S crown is pinned FLAT across the square while the E-W one keeps climbing.
 --                   A step above this is a discontinuity; below it, it is the road's own grade.
-function TerrainBake.junctionSteps(profiles: { Profile }): { any }
+--
+-- THE SQUARE IS WALKED IN THE ROADS' OWN LOCAL FRAME (task 328r, design 7.2): `dx` is measured from
+-- the N-S road's REALISED centre at that z and `dz` from the E-W road's realised centre at that x,
+-- so the sample 24 studs along a bend is still 24 studs along the CARRIAGEWAY and not 3 studs into
+-- the ditch. At amplitude 0 both centres are `at` and every sample point is exactly what it was.
+function TerrainBake.junctionSteps(profiles: { Profile }, bend: any?): { any }
 	local spec = TerrainBake.ROAD
 	local v = Relief.VOXEL
 	local reach = spec.carriagewayStuds + v
@@ -1591,12 +1606,15 @@ function TerrainBake.junctionSteps(profiles: { Profile }): { any }
 						-- from EW3, so NS3 simply stops there and EW3's ditch is what is beyond it.
 						-- That is a road end, not a junction, and it read 1.80 st when counted.
 						local onEither = math.abs(dx) <= spec.carriagewayStuds or math.abs(dz) <= spec.carriagewayStuds
-						local inBoth = b.at + dx >= a.from
-							and b.at + dx <= a.to
-							and a.at + dz >= b.from
-							and a.at + dz <= b.to
+						-- THE REALISED CENTRES, x first and then z from that x: `bendX` is a
+						-- function of z and `bendZ` of x, so this is one pass and not a fixed point.
+						local x = Grid.roadCentreAt(b, a.at + dz, bend) + dx
+						local z = Grid.roadCentreAt(a, x, bend) + dz
+						-- THE RANGE TEST IS A GRID TEST, because `from`/`to` are grid stations.
+						local u, w = Grid.toGrid(x, z, bend)
+						local inBoth = u >= a.from and u <= a.to and w >= b.from and w <= b.to
 						if onEither and inBoth then
-							local y = TerrainBake.roadAt(profiles, crownEW, b.at + dx, a.at + dz)
+							local y = TerrainBake.roadAt(profiles, crownEW, x, z, bend)
 							if y ~= nil then
 								grid[string.format("%d:%d", dx, dz)] = y
 							end
@@ -1628,6 +1646,11 @@ function TerrainBake.junctionSteps(profiles: { Profile }): { any }
 					math.abs(TerrainBake.profileY(ew, b.at + spec.carriagewayStuds) - crownEW),
 					math.abs(TerrainBake.profileY(ew, b.at - spec.carriagewayStuds) - crownEW)
 				)
+				-- THE LATERAL STAIR, PRINTED (design 7.2 and the dispatch's own measure): the band
+				-- is snapped to whole WORLD voxel columns at each station, so a bent road's rut and
+				-- ditch edges step by one voxel every `Grid.bendFacts().stairStuds`. 0 at amplitude
+				-- 0, because then there is no stair to climb.
+				local facts = Grid.bendFacts(a.axis, bend)
 				table.insert(rows, {
 					ew = a.id,
 					ns = b.id,
@@ -1639,6 +1662,8 @@ function TerrainBake.junctionSteps(profiles: { Profile }): { any }
 					atOffsetX = atX,
 					atOffsetZ = atZ,
 					ewSpanStuds = ewSpan,
+					stairStuds = facts.stairStuds,
+					swingDeg = facts.swingDeg,
 					explainedStuds = ewSpan + spec.crownFallStuds,
 				})
 			end
@@ -1802,14 +1827,23 @@ function TerrainBake.bakeTileAt(
 				.. "to every tile; a profile read here would be read off half-baked ground.",
 		}
 	end
-	-- THE LANDFORM GOES IN ONCE (`reshapeWanted`): a bake whose base is already baked ground would
-	-- otherwise add it again -- measured at +24.04 studs on C1's ridge, 2026-11-02.
+	-- THE LANDFORM ALWAYS GOES IN, BECAUSE `slice` IS THE VIRGIN BASE (task 328r; design 7.1).
+	-- `reshapeWanted` was built when both halves of the bake raycast LIVE ground, where a second
+	-- bake read its own first bake and `Relief.deltaAt`'s ops ADDED (+24.04 studs of second ridge on
+	-- C1, 2026-11-02). Since 328k the slice is REQUIRED and comes out of the sha-checked `.bin`, so
+	-- the bake writes ABSOLUTE heights over the old bake and there is nothing to double.
+	--
+	-- MEASURED, and it is why this is a defect and not a tidy-up: `reshapeWanted("C1")` answers
+	-- `wanted=false, kind=stamped` in Karen's Forest Test (2026-11-03), so the old rule would have
+	-- taken `shapeTile`'s keep-the-base branch and written C1's roads and pads onto ground with NO
+	-- landform in it -- the ridge erased. The stamp is still WRITTEN (`stampShape`) and still read by
+	-- the tool's own report; what it no longer does is decide this.
 	local reshape: { [string]: boolean } = {}
 	local why: { string } = {}
 	for _, id in cellIds do
-		local wanted, reason = TerrainBake.reshapeWanted(id)
-		reshape[id] = wanted
-		table.insert(why, string.format("%s reshape=%s (%s)", id, tostring(wanted), reason))
+		reshape[id] = true
+		local _, reason, kind = TerrainBake.reshapeWanted(id)
+		table.insert(why, string.format("%s reshape=true (base is virgin; stamp says %s: %s)", id, kind, reason))
 	end
 	local report = TerrainBake.bakeTile(tile, base, cellIds, {}, dryRun, profiles, reshape)
 	report.reshape = table.concat(why, "; ")
@@ -1825,15 +1859,20 @@ end
 -- landform's, and one mean over both would hide either.
 -- SECOND COPY, NAMED: `Places.roadDistance` is the same arithmetic in another file (defect F-4,
 -- `grid-roads.md` 12). Both read `Grid.roadCentreAt`, so `Grid` owns the line they measure from.
-function TerrainBake.roadDistance(x: number, z: number): number
+-- THE `from`/`to` TEST IS ASKED IN GRID COORDINATES (task 328r, 328q note (c)): a road's `from` and
+-- `to` are grid stations, and testing a WORLD x against them put the end of the range up to 60
+-- studs out at 45/60. The gap itself stays the WORLD one, because the caller is splitting a
+-- world-lattice diff into a road band and the rest.
+function TerrainBake.roadDistance(x: number, z: number, bend: any?): number
 	local best = math.huge
+	local u, v = Grid.toGrid(x, z, bend)
 	for _, road in Grid.roads() do
 		if road.axis == "x" then
-			if x >= road.from and x <= road.to then
-				best = math.min(best, math.abs(z - Grid.roadCentreAt(road, x)))
+			if u >= road.from and u <= road.to then
+				best = math.min(best, math.abs(z - Grid.roadCentreAt(road, x, bend)))
 			end
-		elseif z >= road.from and z <= road.to then
-			best = math.min(best, math.abs(x - Grid.roadCentreAt(road, z)))
+		elseif v >= road.from and v <= road.to then
+			best = math.min(best, math.abs(x - Grid.roadCentreAt(road, z, bend)))
 		end
 	end
 	return best
@@ -1983,13 +2022,20 @@ end
 -- 327a's own four fields plus `lineMeanY`, per cell, on the same 20-stud lattice. READ-ONLY: a
 -- commit writes the numbers into `Grid.CELLS[*].relief`, never this function (design 5.5).
 -- `heightOf` is the seam, so a spec can survey a synthetic world with no terrain in it.
-function TerrainBake.survey(cellId: string, heightOf: ((number, number) -> number?)?): any
+-- A GRID RANGE, READ AT THE WORLD POINTS IT MAPS TO (task 328r, 328q note (c)). `Grid.boundsOf` is
+-- the cell's GRID rectangle and `reader` is a WORLD reader: walking the grid range and handing its
+-- numbers straight to the reader sampled the right points only at amplitude 0, and put the END of
+-- the range up to 60 studs outside the cell at 45/60. Every sample now goes through `Grid.toWorld`,
+-- which is the identity at 0, so no number here moves until the bend does.
+--
+-- `bend` IS A TRAILING OPTIONAL for the same reason as everywhere else in this seam.
+function TerrainBake.survey(cellId: string, heightOf: ((number, number) -> number?)?, bend: any?): any
 	local bounds = Grid.boundsOf(cellId)
 	local reader = heightOf or TerrainBake.terrainReader()
 	local lo, hi, sum, n = math.huge, -math.huge, 0, 0
-	for x = bounds.minX, bounds.maxX, 20 do
-		for z = bounds.minZ, bounds.maxZ, 20 do
-			local y = reader(x, z)
+	for u = bounds.minX, bounds.maxX, 20 do
+		for v = bounds.minZ, bounds.maxZ, 20 do
+			local y = reader(Grid.toWorld(u, v, bend))
 			if y ~= nil then
 				n += 1
 				sum += y
@@ -2000,11 +2046,12 @@ function TerrainBake.survey(cellId: string, heightOf: ((number, number) -> numbe
 	end
 	local road = Grid.roadsOf(cellId).main
 	local lineSum, lineN = 0, 0
-	for x = bounds.minX, bounds.maxX, 20 do
+	for u = bounds.minX, bounds.maxX, 20 do
 		-- ALONG THE CURVE (task 328q): `lineMeanY` is the mean ground along the cell's own main line,
-		-- so the sample has to follow it. Not in design 13's list for this task; added because 328r's
-		-- re-survey writes this number and a straight sample would read the wrong line.
-		local y = reader(x, Grid.roadCentreAt(road, x))
+		-- so the sample has to follow it. `toWorld` gives the world x of this grid station; the main
+		-- line's own z there is `roadCentreAt`, which IS that world curve.
+		local x = (Grid.toWorld(u, road.at, bend))
+		local y = reader(x, Grid.roadCentreAt(road, x, bend))
 		if y ~= nil then
 			lineN += 1
 			lineSum += y

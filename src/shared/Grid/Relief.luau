@@ -614,9 +614,14 @@ end
 -- `PlantEpoch` would still match and the census would certify a forest standing on moved ground.
 -- `nil`-checked and not truthy-checked, because an amplitude of 0 is the shipped value.
 function Relief.epochInput(forms: { [string]: Landform }, config: { [string]: any }): string
+	-- `~= nil` FOR ALL TEN (task 328r, 328q note (k)): the seven geometry rows were truthy-checked
+	-- and the three bend rows nil-checked, two rules for one question. `originX` and `originZ` are
+	-- legitimate zeros and an amplitude of 0 is the born value, so "missing" can only ever mean nil.
 	local geometry = {}
 	for _, key in { "originX", "originZ", "cellWidthStuds", "cellDepthStuds", "roadClearStuds", "rows", "columns" } do
-		geometry[key] = assert(config[key], "Relief.epochInput: Grid.CONFIG is missing " .. key)
+		local value = config[key]
+		assert(value ~= nil, "Relief.epochInput: Grid.CONFIG is missing " .. key)
+		geometry[key] = value
 	end
 	local bend = config.bend
 	assert(bend ~= nil, "Relief.epochInput: Grid.CONFIG is missing bend")

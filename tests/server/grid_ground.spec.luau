@@ -519,13 +519,17 @@ return function()
 	-- is the function under test. `bend` is optional, so the same instrument reads both worlds.
 	local function roadGap(x: number, z: number, bend: any?): number
 		local best = math.huge
+		-- THE `from`/`to` TEST IS A GRID TEST (task 328r): a road's span is in grid stations, and
+		-- comparing a WORLD x against it put the end of the range up to 60 studs out at 45/60.
+		-- `Places.roadDistance`'s own shape, independently here.
+		local u, v = Grid.toGrid(x, z, bend)
 		for _, road in ipairs(Grid.roads()) do
 			if road.axis == "x" then
-				if x >= road.from and x <= road.to then
+				if u >= road.from and u <= road.to then
 					local d = math.abs(z - Grid.roadCentreAt(road, x, bend))
 					best = math.min(best, d / math.sqrt(1 + Grid.bendSlopeZ(x, bend) ^ 2))
 				end
-			elseif z >= road.from and z <= road.to then
+			elseif v >= road.from and v <= road.to then
 				local d = math.abs(x - Grid.roadCentreAt(road, z, bend))
 				best = math.min(best, d / math.sqrt(1 + Grid.bendSlopeX(z, bend) ^ 2))
 			end
@@ -656,9 +660,9 @@ return function()
 		end)
 
 		it("is ONE rule in two spaces: the world question is the grid one through the seam", function()
-			-- THE SEAM IS FOUR FUNCTIONS (task 328q, design 6.3): `roadDistance`, `clearOfEveryRoad`,
-			-- `mask` and `nearestCellTo` take WORLD coordinates and call `Grid.toGrid` once. Inside
-			-- `Places` nothing is bend-aware, which is why `cellFacts` keeps its cache key.
+			-- THE SEAM IS FIVE FUNCTIONS (design 6.3, plus `inFrontage` from 328q round 2):
+			-- `roadDistance`, `clearOfEveryRoad`, `mask`, `inFrontage` and `nearestCellTo` take
+			-- WORLD coordinates and call `Grid.toGrid` once.
 			local box = Grid.boundsOf("C1")
 			local checked = 0
 			for step = 0, 30 do
@@ -677,17 +681,29 @@ return function()
 				end
 			end
 			expect(checked).to.equal(31 * 31)
-			-- **AND WHAT THIS CASE CANNOT DO YET, SAID PLAINLY:** `Places`' seam functions read
-			-- `Grid.CONFIG.bend` and take no amplitude of their own, so at the shipped 0 the
-			-- composition above IS the identity and the case is the INERT gate, not a curve test.
-			-- The curve is tested by parameter in `Grid` (`grid.spec`'s bend block) and this case
-			-- becomes non-trivial the moment 328r commits 45 / 60.
-			expect(Grid.CONFIG.bend.ewStuds).to.equal(0)
-			expect(Grid.CONFIG.bend.nsStuds).to.equal(0)
+			-- **AND IT IS NOT THE IDENTITY ANY MORE** (task 328r). At the born 0 this composition
+			-- was `x == u` and the case was the inert gate; the shipped bend is 45 / 60, so the
+			-- worst lattice point below moves tens of studs between the two spaces and the three
+			-- assertions above are a real round trip. Measured here rather than asserted blind.
+			local moved = 0
+			for step = 0, 30 do
+				local u = box.minX + (box.maxX - box.minX) * step / 30
+				for inner = 0, 30 do
+					local v = box.minZ + (box.maxZ - box.minZ) * inner / 30
+					local x, z = Grid.toWorld(u, v)
+					moved = math.max(moved, math.abs(x - u), math.abs(z - v))
+				end
+			end
+			expect(Grid.CONFIG.bend.ewStuds).to.equal(45)
+			expect(Grid.CONFIG.bend.nsStuds).to.equal(60)
+			expect(moved > 10).to.equal(true)
 			TestKit.note(
 				string.format(
-					"%d lattice points: world == grid through the seam, kernel == this file's own gap",
-					checked
+					"%d lattice points: world == grid through the seam, kernel == this file's own gap; the map moves a point up to %.2f studs at bend %d/%d",
+					checked,
+					moved,
+					Grid.CONFIG.bend.ewStuds,
+					Grid.CONFIG.bend.nsStuds
 				)
 			)
 		end)
@@ -1118,10 +1134,13 @@ return function()
 			local plan = Plan.cellPlanFor("D1")
 			local midX = (rect.minX + rect.maxX) / 2
 			local midZ = (rect.minZ + rect.maxZ) / 2
-			expect(Plan.mask("D1", midX, midZ, nil, nil)).to.equal(Plan.REASON.FIELD)
+			-- `fieldRect` IS A GRID RECTANGLE, so the question is `maskGrid`'s (task 328r). Asked of
+			-- `mask`, a grid point is read as a world point and mapped BACK through `toGrid`, which
+			-- at 45/60 moves it up to 60 studs out of its own field.
+			expect(Plan.maskGrid("D1", midX, midZ, nil, nil)).to.equal(Plan.REASON.FIELD)
 			-- THE HEADLAND IS NOT THE FIELD: that is where the hedge and the lone oaks stand.
 			local inHeadland = rect.minZ + plan.field.headlandStuds / 2
-			expect(Plan.mask("D1", midX, inHeadland, nil, nil) ~= Plan.REASON.FIELD).to.equal(true)
+			expect(Plan.maskGrid("D1", midX, inHeadland, nil, nil) ~= Plan.REASON.FIELD).to.equal(true)
 			-- ...AND NO OTHER CELL HAS ONE.
 			expect(Plan.fieldRect("C1")).to.equal(nil)
 			-- IT BITES: D1 plants nothing inside the field.
@@ -1220,7 +1239,11 @@ return function()
 				for _, item in ipairs(planOf(id)) do
 					if item.band == "herb" then
 						ferns += 1
-						local zone = Plan.zoneAt(id, item.x, item.z)
+						-- A PLANTING ROW CARRIES THE **WORLD** POINT and `zoneAt` takes GRID
+						-- coordinates (task 328r): at 45/60 the two differ by up to 60 studs, which
+						-- read 353 ferns as standing outside every FERN_MIXES zone.
+						local gx, gz = Grid.toGrid(item.x, item.z)
+						local zone = Plan.zoneAt(id, gx, gz)
 						if not Plan.isHerbName(item.model) or zone == nil or not Plan.FERN_MIXES[zone.mix] then
 							wrong += 1
 							worstName = item.model
@@ -1304,14 +1327,19 @@ return function()
 				for _, zone in ipairs(plan.zones) do
 					if zone.rows == "NS" then
 						local rect = Plan.zoneRect("A2", zone)
+						-- THE ROWS ARE GRID LINES AND THE RECT IS A GRID RECT (task 328r). A row's
+						-- WORLD x varies along the row by `bendX(z)` -- that IS the bend -- so
+						-- counting distinct world x would give one "line" per tree at 45/60 and the
+						-- case would be measuring the map rather than the planter.
+						local gx, gz = Grid.toGrid(item.x, item.z)
 						if
-							item.x >= rect.minX
-							and item.x <= rect.maxX
-							and item.z >= rect.minZ
-							and item.z <= rect.maxZ
+							gx >= rect.minX
+							and gx <= rect.maxX
+							and gz >= rect.minZ
+							and gz <= rect.maxZ
 							and item.band ~= "herb"
 						then
-							lines[math.floor(item.x * 1000 + 0.5)] = true
+							lines[math.floor(gx * 1000 + 0.5)] = true
 							counted += 1
 						end
 					end

@@ -82,8 +82,12 @@ WHAT IT REFUSES, BEFORE IT TOUCHES ANYTHING (design section 6.2):
      BACKUP_MAX_AGE_HOURS. `--backup census` is NOT accepted, because Karen's place is full of
      hand-made content a census cannot stand in for.
   6. --cells missing on bake/archive. There is no default: an unnamed cell is an unbounded run.
-  7b. A named cell's ground already carries a DIFFERENT landform (`TerrainBake.reshapeWanted`
-     answers "changed"). A bake ADDS its ops, so the fix is the backup, not another bake.
+  7b. RETIRED in task 328r, and the reason is measured. It refused a cell whose stamp named a
+     DIFFERENT landform, because a bake ADDED its ops. Since task 328k every bake reads the
+     ORIGINAL ground out of the sha-checked `--base` file and writes ABSOLUTE heights, so there is
+     nothing to double; and `reshapeWanted("C1")` answering `stamped` would have made the bake keep
+     the virgin base and write C1's roads onto ground with NO landform in it. The stamp is still
+     written and still PRINTED for every cell of a run; it no longer decides anything.
   7. A flag or pose override is live -- the rule `test` and `test2` already enforce. EXCEPT the two
      Karen has set on purpose in the Forest Test (GRID_PREVIEW, RANGE_SOLO): the dispatch says leave
      them, and clearing them would destroy her setup (lesson K).
@@ -194,13 +198,17 @@ BORDER_WOOD_STUDS = 230
 # assumption that equal cells tile equally; they do not, and `plan --cells A1` then REFUSED a correct
 # region (round-2 finding 3). Re-derived from this file's own `region_for`/`tile_count`, and the
 # selftest checks a second cell as well as C1 so one right number cannot cover seven wrong ones.
-#   A1 14x16=224  B1 224  C1 13x16=208  D1 224   |   A2 14x17=238  B2 238  C2 13x17=221  D2 238
-# C-column cells are 13 wide because their region starts just inside a lattice line; row 2 is 17 deep
-# for the same reason. ALL is 43x31 and is NOT the sum of the eight (the regions overlap).
+# RE-DERIVED AT THE BEND 45/60 (task 328r), from this file's own `region_for`/`tile_count`: every
+# region grows by `Grid.maxBendStuds()` 60 on each axis before the 128-stud rounding, so every count
+# moved and C1's went 208 -> 255. The 328q row's figures were NOT carried over; these are this
+# file's arithmetic read back (and `selftest` below re-derives them a second time).
+#   A1 14x17=238  B1 238  C1 15x17=255  D1 238   |   A2 14x17=238  B2 238  C2 15x17=255  D2 238
+# C-column cells are 15 wide and row 1 is now 17 deep because the grown region crosses one more
+# lattice line. ALL is 44x32 and is NOT the sum of the eight (the regions overlap).
 EXPECTED_TILES = {
-    "A1": 224, "B1": 224, "C1": 208, "D1": 224,
-    "A2": 238, "B2": 238, "C2": 221, "D2": 238,
-    "ALL": 1333,
+    "A1": 238, "B1": 238, "C1": 255, "D1": 238,
+    "A2": 238, "B2": 238, "C2": 255, "D2": 238,
+    "ALL": 1408,
 }
 
 
@@ -426,20 +434,19 @@ SLICE_FIXTURE_HEIGHTS = [100.0, 100.5, 101.25, 99.0, 98.75, 100.0]
 SLICE_FIXTURE_B64 = "ABkgGVAZwBiwGAAZ"
 
 
-def reshape_blocked(answers):
-    """REFUSAL 7b, as a decision over `TerrainBake.reshapeWanted`'s answers, so it has a case.
+def reshape_report(answers):
+    """What each named cell's stamp SAYS, as one printable line per cell, in cell order.
 
-    `answers` is {cell: kind}. "changed" means that cell's ground already carries a DIFFERENT
-    landform, and a bake ADDS its ops rather than replacing them -- measured at +24.04 studs of
-    second ridge on C1, 2026-11-02. The fix is the backup, not another bake.
+    IT IS A REPORT AND NOT A REFUSAL ANY MORE (task 328r). Refusal 7b refused a cell whose stamp
+    named a different landform, because a bake ADDED its ops; since task 328k every bake reads the
+    ORIGINAL ground out of the sha-checked `--base` file, so it writes ABSOLUTE heights and there
+    is nothing to double (design grid-roads.md 7.1). Worse, the old rule was measured WRONG on
+    2026-11-03: `reshapeWanted("C1")` answered `stamped`, which would have made the bake keep the
+    virgin base and write C1's roads onto ground with no landform -- the ridge erased. Archived
+    verbatim in backups/2026-11-03_task-328r_refusal-7b-reshape-blocked.txt.
     """
-    blocked = sorted(cell for cell, kind in answers.items() if kind == "changed")
-    if not blocked:
-        return None
-    return ("%s already carr%s a DIFFERENT landform in the ground, and a bake ADDS its ops "
-            "rather than replacing them (measured: +24.04 studs of second ridge on C1, "
-            "2026-11-02). Restore the backup .rbxl and bake again."
-            % (", ".join(blocked), "ies" if len(blocked) == 1 else "y"))
+    return ["  reshape %-3s %-7s %s (the base file is virgin: the landform goes in regardless)"
+            % (cell, answers[cell]["kind"], answers[cell]["why"]) for cell in sorted(answers)]
 
 
 def check_base(args, region):
@@ -1645,15 +1652,13 @@ def main(argv):
             if args.command == "bake":
                 answers = {}
                 for cell in args.cells:
-                    answer = call(studio, studio_id,
-                                  "(function() local wanted, why, kind = TerrainBake.reshapeWanted(\"%s\") "
-                                  "return { wanted = wanted, why = why, kind = kind } end)()" % cell,
-                                  timeout=60, injected=injected)
-                    print("  reshape %-3s %-7s %s" % (cell, answer["kind"], answer["why"]))
-                    answers[cell] = answer["kind"]
-                problem = reshape_blocked(answers)  # refusal 7b
-                if problem:
-                    return refuse(problem)
+                    answers[cell] = call(
+                        studio, studio_id,
+                        "(function() local wanted, why, kind = TerrainBake.reshapeWanted(\"%s\") "
+                        "return { wanted = wanted, why = why, kind = kind } end)()" % cell,
+                        timeout=60, injected=injected)
+                for line in reshape_report(answers):
+                    print(line)
             sampler, problem = profile_sampler(studio, studio_id, args.cells, injected, base)
             if problem:
                 return refuse(problem)  # refusal 9, second half
@@ -1713,23 +1718,34 @@ def selftest():
     # THE TILE COUNT, both ways round (Director decision 6).
     whole = region_for(list(CELL_IDS), facts)
     count, nx, nz = tile_count(whole, facts["tile"])[:3]
-    ok("the whole-world region is the footprint + 430",
-       (whole["maxX"] - whole["minX"], whole["maxZ"] - whole["minZ"]) == (4490 + 860, 2986 + 860),
-       "%d x %d" % (whole["maxX"] - whole["minX"], whole["maxZ"] - whole["minZ"]))
-    ok("the whole world is 43 x 31 = 1333 tiles", (nx, nz, count) == (43, 31, 1333),
+    # + 430 + the bend's 60 on each side (task 328r): `region_for` grows every region by
+    # `max(bendEw, bendNs)`, so the whole-world box is 860 + 120 wider and deeper than the footprint.
+    grown = 2 * (facts["blend"] + BORDER_WOOD_STUDS + max(facts["bendEw"], facts["bendNs"]))
+    ok("the whole-world region is the footprint + 430 + the bend",
+       (whole["maxX"] - whole["minX"], whole["maxZ"] - whole["minZ"]) == (4490 + grown, 2986 + grown),
+       "%d x %d (grown %d)" % (whole["maxX"] - whole["minX"], whole["maxZ"] - whole["minZ"], grown))
+    ok("the whole world is 44 x 32 = 1408 tiles at the bend 45/60", (nx, nz, count) == (44, 32, 1408),
        "%d x %d = %d" % (nx, nz, count))
     c1region = region_for(["C1"], facts)
     count1, nx1, nz1 = tile_count(c1region, facts["tile"])[:3]
-    ok("C1 + its roads + 200 is 13 x 16 = 208 tiles", (nx1, nz1, count1) == (13, 16, 208),
+    ok("C1 + its roads + 200 + the bend is 15 x 17 = 255 tiles", (nx1, nz1, count1) == (15, 17, 255),
        "%d x %d = %d" % (nx1, nz1, count1))
+    # AND THE BEND IS WHAT MOVED THEM: at amplitude 0 this file's own arithmetic still answers the
+    # pre-328r counts, so the new numbers are the bend's and not a lattice typo.
+    flat = dict(facts, bendEw=0, bendNs=0)
+    ok("at amplitude 0 the same arithmetic still answers 208 for C1 and 1333 for the world",
+       tile_count(region_for(["C1"], flat), flat["tile"])[0] == 208
+       and tile_count(region_for(list(CELL_IDS), flat), flat["tile"])[0] == 1333,
+       "%d, %d" % (tile_count(region_for(["C1"], flat), flat["tile"])[0],
+                   tile_count(region_for(list(CELL_IDS), flat), flat["tile"])[0]))
     # THE COUNT IS PHASE DEPENDENT, so one right cell proves nothing about the other seven
     # (round-2 finding 3): every committed count is re-derived here, and A1 and C2 are named.
     for cell_id in CELL_IDS:
         n_cell, nxc, nzc = tile_count(region_for([cell_id], facts), facts["tile"])[:3]
         ok("the committed count for %s is the arithmetic's (%d x %d)" % (cell_id, nxc, nzc),
            n_cell == EXPECTED_TILES[cell_id], "%d vs %d" % (n_cell, EXPECTED_TILES[cell_id]))
-    ok("A1 is 224, NOT C1's 208 -- equal cells do not tile equally",
-       EXPECTED_TILES["A1"] == 224 and EXPECTED_TILES["C2"] == 221
+    ok("A1 is 238, NOT C1's 255 -- equal cells do not tile equally",
+       EXPECTED_TILES["A1"] == 238 and EXPECTED_TILES["C2"] == 255
        and EXPECTED_TILES["A1"] != EXPECTED_TILES["C1"])
     # ROUND-3 FINDING 1: this case used to go through `main(["plan", ...])`, which constructs
     # `Studio()`, whose miss path is `sys.exit` -- and `SystemExit` is not an `Exception`, so CI's
@@ -2141,14 +2157,21 @@ def selftest():
        all(chunk_studs(0.0, span, 4) % 4 == 0 and chunk_studs(0.0, span, 4) >= 32
            for span in (10.0, 500.0, 5000.0, 40000.0)))
 
-    # ---- REFUSAL 7b, which had no case at all until now (328e note h).
-    ok("refusal 7b refuses a cell whose ground already carries a DIFFERENT landform",
-       "already carries a DIFFERENT landform" in (reshape_blocked({"C1": "changed"}) or ""),
-       reshape_blocked({"C1": "changed"}))
-    ok("refusal 7b names EVERY blocked cell, in order",
-       (reshape_blocked({"D1": "changed", "A1": "changed", "C1": "same"}) or "").startswith("A1, D1"))
-    ok("refusal 7b lets a cell whose stamp is the same landform through",
-       reshape_blocked({"C1": "same"}) is None and reshape_blocked({"C1": "virgin"}) is None)
+    # ---- THE RESHAPE REPORT, WHICH REPLACED REFUSAL 7b (task 328r). It must REFUSE NOTHING and
+    # must still say what every cell's stamp says: the measured defect was a bake that would keep
+    # the virgin base because C1 read `stamped`, so a silent report would hide exactly that.
+    answers_328r = {"D1": {"kind": "changed", "why": "d-why"}, "A1": {"kind": "virgin", "why": "a-why"},
+                    "C1": {"kind": "stamped", "why": "c-why"}}
+    lines_328r = reshape_report(answers_328r)
+    ok("the reshape report names every cell, in cell order",
+       [line.split()[1] for line in lines_328r] == ["A1", "C1", "D1"], " | ".join(lines_328r))
+    ok("...and prints each cell's OWN kind beside it",
+       [line.split()[2] for line in lines_328r] == ["virgin", "stamped", "changed"], " | ".join(lines_328r))
+    ok("...and each cell's own reason, so `stamped` is visible rather than silent",
+       [line.split()[3] for line in lines_328r] == ["a-why", "c-why", "d-why"], " | ".join(lines_328r))
+    ok("...and says the landform goes in regardless -- on the `changed` line refusal 7b used to "
+       "REFUSE and on the `stamped` line that used to keep the virgin base",
+       all("the landform goes in regardless" in line for line in lines_328r), " | ".join(lines_328r))
 
     # ---- WHICH WINDOW (L-055). A backup .rbxl re-opened reports place 0 and the FILE's name;
     # Karen's live window reports the Forest Test's place id and 'Driven Hunt Forest Test'. Both
