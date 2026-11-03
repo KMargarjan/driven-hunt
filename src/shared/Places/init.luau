@@ -1694,8 +1694,16 @@ end
 -- coordinates every road is straight at its own `at`, so this is the same test it always was. The
 -- measure is axis-aligned in that plane, which reads up to 0.82 % wide against the true
 -- perpendicular at the shipped bend (design 5.5) and exactly right at amplitude 0.
-function Places.clearOfEveryRoad(x: number, z: number, reachStuds: number?): boolean
-	local u, v = Grid.toGrid(x, z)
+function Places.clearOfEveryRoad(x: number, z: number, reachStuds: number?, bend: any?): boolean
+	local u, v = Grid.toGrid(x, z, bend)
+	return Places.clearOfEveryRoadGrid(u, v, reachStuds, bend)
+end
+
+-- THE SAME QUESTION IN GRID COORDINATES, and it is the KERNEL (task 328r, 328q note (i)): the
+-- rectangle test below is a GRID test, so `scatter` -- which already holds a grid point -- asked it
+-- by mapping forward and letting the wrapper map straight back, two five-step inverses a site.
+-- `bend` is carried only so the signature matches the rest of the seam; nothing here reads it.
+function Places.clearOfEveryRoadGrid(u: number, v: number, reachStuds: number?, _bend: any?): boolean
 	local half = Grid.CONFIG.roadClearStuds / 2 + (reachStuds or 0)
 	for _, road in ipairs(allRoads()) do
 		if road.axis == "x" then
@@ -1911,31 +1919,52 @@ end
 -- across the z axis (design 5.5). `math.huge` for a point no road reaches.
 --
 -- THE KERNEL: today's arithmetic in the plane where the roads are straight, times `cos(swing)` for
--- the road it picked. At amplitude 0 the slope is 0, the cosine is exactly 1, and this answers what
--- it always answered. The station the slope is read at is the WORLD one, through `Grid.toWorld`, so
--- there is one definition of the seam and no second sine here.
-function Places.roadDistanceGrid(u: number, v: number): number
-	local best, bestRoad = math.huge, nil :: any
+-- the road. At amplitude 0 the slope is 0, the cosine is exactly 1, and this answers what it always
+-- answered. The station the slope is read at is the WORLD one, through `Grid.toWorld`, so there is
+-- one definition of the seam and no second sine here.
+--
+-- `bend` IS A TRAILING OPTIONAL and nil means `Grid.CONFIG.bend` (task 328r, 328q note (a)): with
+-- no parameter no case could drive the perpendicular factor or the band thresholds at a non-zero
+-- amplitude, and both of 328q's blocking findings were invisible to every spec for exactly that
+-- reason.
+--
+-- THE MINIMUM IS TAKEN OVER THE PERPENDICULAR DISTANCES, NOT OVER THE AXIS-ALIGNED ONES (328q note
+-- (b)): round 1 picked the road by |v - at| and only then divided by sec(swing), so near a junction
+-- it could pick a road that is not the perpendicular nearest and answer that one's distance.
+-- THE INVERSE IS PAID AT MOST ONCE PER ASK, and only when a road actually reaches the point
+-- (328q note (d)): `maskGrid` asks this ~3,000 times a cell and `Grid.toWorld` is five fixed-point
+-- steps of ten trig calls. Most of a cell is out of every road's `from`/`to`, and that costs none.
+function Places.roadDistanceGrid(u: number, v: number, bend: any?): number
+	local best = math.huge
+	local wx, wz = nil :: number?, nil :: number?
 	for _, road in ipairs(allRoads()) do
+		local along, across
 		if road.axis == "x" then
-			if u >= road.from and u <= road.to and math.abs(v - road.at) < best then
-				best, bestRoad = math.abs(v - road.at), road
+			along, across = u, v
+		else
+			along, across = v, u
+		end
+		if along >= road.from and along <= road.to then
+			local gap = math.abs(across - road.at)
+			if gap > 0 then
+				if wx == nil then
+					wx, wz = Grid.toWorld(u, v, bend)
+				end
+				local slope = if road.axis == "x"
+					then Grid.bendSlopeZ(wx :: number, bend)
+					else Grid.bendSlopeX(wz :: number, bend)
+				gap /= math.sqrt(1 + slope * slope)
 			end
-		elseif v >= road.from and v <= road.to and math.abs(u - road.at) < best then
-			best, bestRoad = math.abs(u - road.at), road
+			best = math.min(best, gap)
 		end
 	end
-	if bestRoad == nil or best <= 0 then
-		return best
-	end
-	local x, z = Grid.toWorld(u, v)
-	local slope = if bestRoad.axis == "x" then Grid.bendSlopeZ(x) else Grid.bendSlopeX(z)
-	return best / math.sqrt(1 + slope * slope)
+	return best
 end
 
--- THE SAME MEASURE, ASKED IN WORLD COORDINATES. One of the four seam functions (design 6.3).
-function Places.roadDistance(x: number, z: number): number
-	return Places.roadDistanceGrid(Grid.toGrid(x, z))
+-- THE SAME MEASURE, ASKED IN WORLD COORDINATES. One of the five seam functions (design 6.3).
+function Places.roadDistance(x: number, z: number, bend: any?): number
+	local u, v = Grid.toGrid(x, z, bend)
+	return Places.roadDistanceGrid(u, v, bend)
 end
 
 -- WHICH WAY A STAND FACES: into its own cell, away from the road it stands on. A main-line stand
@@ -1943,9 +1972,12 @@ end
 -- IT IS A GRID-COORDINATE UNIT VECTOR (task 328q, design 6.4), which is why it reads
 -- `Grid.standGridOf` and compares against the cell's grid rectangle. Mapped into the world the cone
 -- is perpendicular to the LOCAL road, at most `bendFacts().swingDeg` off the drive axis.
-function Places.standFacing(cellId: string, standIndex: number): (number, number)
+-- `bend` IS A TRAILING OPTIONAL (task 328r, 328q note (a)/(j)): `Grid.standGridOf` moves a FLANK
+-- stand with the amplitude (`flankFirstStuds` 340 -> 366), so this answer is a function of the bend
+-- and a case that cannot name one cannot show the flank arm moving.
+function Places.standFacing(cellId: string, standIndex: number, bend: any?): (number, number)
 	local box = Grid.boundsOf(cellId)
-	local u, v = Grid.standGridOf(cellId, standIndex)
+	local u, v = Grid.standGridOf(cellId, standIndex, bend)
 	if Grid.sideOf(cellId, standIndex) == "main" then
 		return 0, if v <= (box.minZ + box.maxZ) / 2 then 1 else -1
 	end
@@ -1958,7 +1990,7 @@ export type Segment = { kind: string, ax: number, az: number, bx: number, bz: nu
 -- THE RIDE AND CUT CENTRELINES OF A CELL. One rule for all three letters: a ride runs from its stand
 -- ALONG that stand's facing, into the cell; an X cut runs ACROSS the sight line at `CUT_CROSS_STUDS`,
 -- centred on it.
-function Places.rideSegments(cellId: string): { Segment }
+function Places.rideSegments(cellId: string, bend: any?): { Segment }
 	local plan = Places.cellPlanFor(cellId)
 	local out: { Segment } = {}
 	if plan == nil or plan.rides == nil or Grid.cellOf(cellId) == nil then
@@ -1967,9 +1999,9 @@ function Places.rideSegments(cellId: string): { Segment }
 	for _, ride in ipairs(plan.rides) do
 		-- GRID COORDINATES (task 328q): a ride is straight in the plane and a gentle curve in the
 		-- world, which is what a cut through a sheared cell looks like.
-		local su, sv = Grid.standGridOf(cellId, ride.atStandIndex)
+		local su, sv = Grid.standGridOf(cellId, ride.atStandIndex, bend)
 		local spot = Vector2.new(su, sv)
-		local fx, fz = Places.standFacing(cellId, ride.atStandIndex)
+		local fx, fz = Places.standFacing(cellId, ride.atStandIndex, bend)
 		if ride.kind == "X" then
 			local cx = spot.X + fx * Places.CUT_CROSS_STUDS
 			local cz = spot.Y + fz * Places.CUT_CROSS_STUDS
@@ -2022,22 +2054,46 @@ type CellFacts = {
 	minX: number,
 }
 local CELL_FACTS: { [string]: CellFacts } = {}
-local function cellFacts(cellId: string): CellFacts
-	local found = CELL_FACTS[cellId]
+-- THE CACHE IS KEYED ON THE CELL AND HOLDS THE **SHIPPED** BEND'S FACTS ONLY (task 328r).
+--
+-- 328q's header here said *"these are grid facts and the bend does not move them"*, and for a MAIN
+-- stand that is true. For a FLANK stand it is not: `Grid.standGridOf` adds `Grid.flankFirstStuds`,
+-- which solves a fixed point against the amplitude and goes 340 -> 366 at 45/60. MEASURED: asking
+-- `plantCell("C1", nil, STRAIGHT)` while the cache held the shipped bend's stands answered 1,795
+-- rows against the straight world's own 1,823 -- the stand, tower and cone arms of the mask were
+-- reading flank posts 26 studs from where that world puts them.
+--
+-- SO THERE ARE TWO CACHES, AND THE SECOND IS KEYED ON THE BEND TABLE'S IDENTITY. `nil` -- every
+-- production caller -- is cached exactly as before and costs nothing. An explicit bend gets its own
+-- cache, emptied the moment a DIFFERENT table is handed in, which is what a spec driving two
+-- amplitudes does. Without it `maskGrid` rebuilt fifteen stands and the rides on EVERY site:
+-- `plantCell` asks it about 3,000 times a cell and the server suite stopped reporting inside its
+-- 300 s window.
+local CELL_FACTS_BENT: { [string]: CellFacts } = {}
+local LAST_BEND: any = nil
+local function cellFacts(cellId: string, bend: any?): CellFacts
+	local found
+	if bend == nil then
+		found = CELL_FACTS[cellId]
+	else
+		if bend ~= LAST_BEND then
+			CELL_FACTS_BENT, LAST_BEND = {}, bend
+		end
+		found = CELL_FACTS_BENT[cellId]
+	end
 	if found ~= nil then
 		return found
 	end
-	local built: CellFacts = { rides = Places.rideSegments(cellId), stands = {}, corridors = {}, minX = 0 }
+	local built: CellFacts = { rides = Places.rideSegments(cellId, bend), stands = {}, corridors = {}, minX = 0 }
 	if Grid.cellOf(cellId) ~= nil then
 		local towers: { [number]: boolean } = {}
 		for _, index in ipairs(Grid.towerStands(cellId)) do
 			towers[index] = true
 		end
 		for index = 1, Grid.standCount(cellId) do
-			-- GRID COORDINATES, so the cache key stays the cell id: these are grid facts and the
-			-- bend does not move them (task 328q, design 6.1).
-			local su, sv = Grid.standGridOf(cellId, index)
-			local fx, fz = Places.standFacing(cellId, index)
+			-- GRID COORDINATES, and the flank's v carries the bend (above).
+			local su, sv = Grid.standGridOf(cellId, index, bend)
+			local fx, fz = Places.standFacing(cellId, index, bend)
 			table.insert(built.stands, { x = su, z = sv, fx = fx, fz = fz, tower = towers[index] == true })
 		end
 		built.minX = Grid.boundsOf(cellId).minX
@@ -2045,15 +2101,19 @@ local function cellFacts(cellId: string): CellFacts
 			table.insert(built.corridors, (Grid.seedFor(cellId, 90 + index) % 1000) / 1000 * math.pi * 2)
 		end
 	end
-	CELL_FACTS[cellId] = built
+	if bend == nil then
+		CELL_FACTS[cellId] = built
+	else
+		CELL_FACTS_BENT[cellId] = built
+	end
 	return built
 end
 
 -- A BEATER CORRIDOR'S CENTRELINE AT ONE DEPTH. The wander is a hash of the cell and the corridor
 -- plus a sine of z, so it is PURE and the same every run -- `Grid.seedFor`'s own discipline, with no
 -- `Random` object carrying state between calls.
-function Places.corridorXAt(cellId: string, index: number, z: number): number
-	local facts = cellFacts(cellId)
+function Places.corridorXAt(cellId: string, index: number, z: number, bend: any?): number
+	local facts = cellFacts(cellId, bend)
 	local wander = math.sin(z / Places.CORRIDOR.waveStuds * math.pi * 2 + facts.corridors[index])
 		* Places.CORRIDOR.jitterStuds
 	return facts.minX + Places.CORRIDOR.atStuds[index] + wander
@@ -2062,6 +2122,7 @@ end
 -- FORGET IT. `Places.forgetPlantable`'s own reason, for the mask's half of the data.
 function Places.forgetCells()
 	CELL_FACTS = {}
+	CELL_FACTS_BENT, LAST_BEND = {}, nil
 	ZONE_RECTS = {}
 end
 
@@ -2072,18 +2133,22 @@ end
 -- without them the answer is the SITE's own facts, which is the question `scatter` asks first.
 -- WORLD IN; `Grid.toGrid` ONCE; `Places.maskGrid` IS TODAY'S BODY (task 328q, design 6.1). The
 -- planner calls `maskGrid` directly and pays no inverse.
-function Places.mask(cellId: string, x: number, z: number, template: string?, scale: number?): string?
-	local u, v = Grid.toGrid(x, z)
-	return Places.maskGrid(cellId, u, v, template, scale)
+function Places.mask(cellId: string, x: number, z: number, template: string?, scale: number?, bend: any?): string?
+	local u, v = Grid.toGrid(x, z, bend)
+	return Places.maskGrid(cellId, u, v, template, scale, bend)
 end
 
 -- THE SAME QUESTION IN GRID COORDINATES, where every road, zone, ride, cone and corridor is the
 -- straight thing it has always been. `x` and `z` below are grid coordinates throughout.
-function Places.maskGrid(cellId: string, x: number, z: number, template: string?, scale: number?): string?
+--
+-- `bend` IS A TRAILING OPTIONAL (task 328r, 328q note (a)): the three road bands below are the only
+-- thing here that moves with the amplitude, and without the parameter no case could cross a band
+-- threshold at 45/60 while `Grid.CONFIG.bend` sat at one value.
+function Places.maskGrid(cellId: string, x: number, z: number, template: string?, scale: number?, bend: any?): string?
 	local R = Places.REASON
 	local herb = template ~= nil and Places.isHerbName(template)
 	-- 1-3 THE ROAD CROSS-SECTION (design 7.1), which tiles [0, 34] in three named bands.
-	local d = Places.roadDistanceGrid(x, z)
+	local d = Places.roadDistanceGrid(x, z, bend)
 	if d <= Grid.CONFIG.roadClearStuds / 2 then
 		return R.ROAD
 	end
@@ -2093,7 +2158,7 @@ function Places.maskGrid(cellId: string, x: number, z: number, template: string?
 	if d < Places.VERGE_STUDS.to then
 		return R.VERGE
 	end
-	local facts = cellFacts(cellId)
+	local facts = cellFacts(cellId, bend)
 	-- 4 THE RIDES, at their own trunk-free half-width. A fern may floor a ride; a trunk may not.
 	if not herb then
 		for _, seg in ipairs(facts.rides) do
@@ -2163,7 +2228,7 @@ function Places.maskGrid(cellId: string, x: number, z: number, template: string?
 	-- 12 THE BEATER CORRIDORS.
 	if not herb then
 		for index = 1, #facts.corridors do
-			if math.abs(x - Places.corridorXAt(cellId, index, z)) <= Places.CORRIDOR.halfStuds then
+			if math.abs(x - Places.corridorXAt(cellId, index, z, bend)) <= Places.CORRIDOR.halfStuds then
 				return R.CORRIDOR
 			end
 		end
@@ -2227,20 +2292,21 @@ end
 -- WORLD IN, `Grid.toGrid` ONCE, AND `inFrontageGrid` IS THE KERNEL -- the `mask` / `maskGrid`
 -- treatment, for the same reason (round 1 finding 2): its two arms measure against a road and
 -- against a RIDE, and a ride is a grid-coordinate segment, so one body cannot straddle the seam.
-function Places.inFrontage(cellId: string, x: number, z: number): boolean
-	return Places.inFrontageGrid(cellId, Grid.toGrid(x, z))
+function Places.inFrontage(cellId: string, x: number, z: number, bend: any?): boolean
+	local u, v = Grid.toGrid(x, z, bend)
+	return Places.inFrontageGrid(cellId, u, v, bend)
 end
 
 -- THE SAME QUESTION IN GRID COORDINATES. `scatter` calls this one and pays no inverse.
-function Places.inFrontageGrid(cellId: string, x: number, z: number): boolean
+function Places.inFrontageGrid(cellId: string, x: number, z: number, bend: any?): boolean
 	local plan = Places.cellPlanFor(cellId)
 	if plan == nil or plan.frontage == nil then
 		return false
 	end
-	if Places.roadDistanceGrid(x, z) <= plan.frontage.studs then
+	if Places.roadDistanceGrid(x, z, bend) <= plan.frontage.studs then
 		return true
 	end
-	for _, seg in ipairs(cellFacts(cellId).rides) do
+	for _, seg in ipairs(cellFacts(cellId, bend).rides) do
 		if segmentDistance(seg, x, z) <= plan.frontage.studs then
 			return true
 		end
@@ -2312,7 +2378,10 @@ end
 -- table and the zones that actually stand there are two writers of one fact, and they disagree the
 -- first time a recipe moves. The letters are SWARM_DESIGN section 2.1's.
 Places.STAND_LETTERS = table.freeze({ "T", "V", "X", "L", "F", "P", "C", "S", "R", "O" })
-function Places.standTypeFor(cellId: string, standIndex: number): string
+-- `bend` IS A TRAILING OPTIONAL (task 328r, 328q note (j)): the letter is derived from the GRID
+-- point, and a flank stand's grid v moves with the amplitude, so the parameter is what lets a case
+-- drive all fifteen letters at 45/60 instead of only at whatever `Grid.CONFIG.bend` happens to say.
+function Places.standTypeFor(cellId: string, standIndex: number, bend: any?): string
 	local plan = Places.cellPlanFor(cellId)
 	if plan == nil or Grid.cellOf(cellId) == nil then
 		return "O"
@@ -2333,9 +2402,9 @@ function Places.standTypeFor(cellId: string, standIndex: number): string
 	-- `zoneRect`, `zoneAt` and `rideSegments` are all grid facts, so the sight line this letter is
 	-- derived from has to be the grid one too. `standPosition` is the WORLD point and would be up to
 	-- 60 studs in x away from the rects it is compared against at 45/60.
-	local su, sv = Grid.standGridOf(cellId, standIndex)
+	local su, sv = Grid.standGridOf(cellId, standIndex, bend)
 	local spot = Vector2.new(su, sv)
-	local fx, fz = Places.standFacing(cellId, standIndex)
+	local fx, fz = Places.standFacing(cellId, standIndex, bend)
 	local ax, az = spot.X + fx * Places.CONE.farStuds, spot.Y + fz * Places.CONE.farStuds
 	if plan.field ~= nil then
 		local field = Places.zoneRect(cellId, plan.field)
@@ -2353,7 +2422,7 @@ function Places.standTypeFor(cellId: string, standIndex: number): string
 		end
 	end
 	-- A RIDE OR A CUT CROSSING THE SIGHT LINE rather than starting at it.
-	for _, seg in ipairs(Places.rideSegments(cellId)) do
+	for _, seg in ipairs(Places.rideSegments(cellId, bend)) do
 		if segmentDistance(seg, ax, az) <= Places.RIDE_CLEAR_STUDS then
 			return "X"
 		end
@@ -2592,6 +2661,8 @@ type ScatterOpts = {
 	zone: any?,
 	heightAt: ((number, number) -> number?)?,
 	cap: number?,
+	-- THE BEND, carried from `plantCell` (task 328r, 328q note (a)). nil is `Grid.CONFIG.bend`.
+	bend: any?,
 }
 local function scatter(
 	out: { Planting },
@@ -2634,14 +2705,17 @@ local function scatter(
 			-- design 6.1). The site is mapped into the world once, for `heightAt` and the row.
 			local site: string? = nil
 			if o.maskCell ~= nil then
-				site = Places.maskGrid(o.maskCell, jx, jz)
-			elseif not Places.clearOfEveryRoad(Grid.toWorld(jx, jz)) then
+				site = Places.maskGrid(o.maskCell, jx, jz, nil, nil, o.bend)
+			elseif not Places.clearOfEveryRoadGrid(jx, jz, nil, o.bend) then
+				-- GRID IN, GRID OUT (328q note (i)): this arm asked a GRID point a WORLD question
+				-- through `Grid.toWorld`, and `clearOfEveryRoad` mapped it straight back with
+				-- `toGrid`. Two five-step inverses per site, for an answer the grid already had.
 				site = "road"
 			end
 			if jx >= rect.minX and jx <= rect.maxX and jz >= rect.minZ and jz <= rect.maxZ and site == nil then
 				local rowsFor, band = pick(jx, jz)
 				if rowsFor ~= nil and band ~= nil and #rowsFor > 0 and not tooClose(grid, jx, jz, gap) then
-					local wx, wz = Grid.toWorld(jx, jz)
+					local wx, wz = Grid.toWorld(jx, jz, o.bend)
 					local group = Places.speciesFrom(rowsFor, rng:NextNumber())
 					-- THE RELIEF BIAS FIRST (design 8.3): spruce in the cold bottom, birch on the
 					-- top. BEFORE the frontage, so the bias reads the zone's own wood and the
@@ -2670,7 +2744,7 @@ local function scatter(
 						band ~= "herb"
 						and o.maskCell ~= nil
 						and o.maskPlan ~= nil
-						and Places.inFrontageGrid(o.maskCell, jx, jz)
+						and Places.inFrontageGrid(o.maskCell, jx, jz, o.bend)
 					then
 						group = Places.frontageGroupFor(o.maskPlan, group, rng:NextNumber())
 					end
@@ -2684,7 +2758,7 @@ local function scatter(
 					local scale = if band == "herb" then 0.8 + rng:NextNumber() * 0.9 else scaleFor(plan, band, rng)
 					-- AND NOW THIS TREE'S OWN FACTS: the crown term, which needs the template and the
 					-- scale the draw has just settled (design 7.2).
-					if o.maskCell ~= nil and Places.maskGrid(o.maskCell, jx, jz, model, scale) ~= nil then
+					if o.maskCell ~= nil and Places.maskGrid(o.maskCell, jx, jz, model, scale, o.bend) ~= nil then
 						continue
 					end
 					planted += 1
@@ -2715,7 +2789,10 @@ end
 -- handed in rather than measured here, so this function stays pure OF ITS ARGUMENTS and a spec can
 -- drive the bias with a synthetic hillside. Called with none, the bias is simply off and the list is
 -- the same one every caller before task 328f got.
-function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?)?): { Planting }
+-- `bend` IS A TRAILING OPTIONAL (task 328r, 328q note (a)): the whole plan is grid-coordinate work,
+-- but the mask's three road bands and the world point each row carries both move with it, so this
+-- is what lets one case pin the STRAIGHT plan and the BENT plan side by side.
+function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?)?, bend: any?): { Planting }
 	local out: { Planting } = {}
 	local plan = Places.cellPlanFor(cellId)
 	if plan == nil then
@@ -2731,7 +2808,7 @@ function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?
 		local rows = Places.cellMixNamed(item.mix)
 		scatter(out, rect, item.spacingStuds, trees, plan.minGapStuds, rng, plan, 1, function()
 			return rows, item.band
-		end, { maskCell = cellId, maskPlan = plan, zone = item, heightAt = heightAt })
+		end, { maskCell = cellId, maskPlan = plan, zone = item, heightAt = heightAt, bend = bend })
 	end
 	-- THE UNDERSTOREY (task 328m), AFTER EVERY CANOPY ZONE AND ON THE SAME NEIGHBOUR GRID.
 	--
@@ -2770,6 +2847,7 @@ function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?
 					maskCell = cellId,
 					maskPlan = plan,
 					zone = { jitter = under.jitter or Places.UNDER_JITTER },
+					bend = bend,
 				}
 			)
 		end
@@ -2792,7 +2870,13 @@ function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?
 				return nil, nil
 			end
 			return fernRows, "herb"
-		end, { maskCell = cellId, maskPlan = plan, heightAt = heightAt, cap = math.max(0, Places.FERN_CAP - ferns) })
+		end, {
+			maskCell = cellId,
+			maskPlan = plan,
+			heightAt = heightAt,
+			cap = math.max(0, Places.FERN_CAP - ferns),
+			bend = bend,
+		})
 		ferns += #out - before
 	end
 	-- THE SKIRT, into every neighbour, at THIS cell's density and the NEIGHBOUR's own species.
@@ -2806,7 +2890,7 @@ function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?
 					return nil, nil
 				end
 				return Places.cellMixNamed(zoneThere.mix), zoneThere.band
-			end, { maskCell = near.id, maskPlan = theirPlan, heightAt = heightAt })
+			end, { maskCell = near.id, maskPlan = theirPlan, heightAt = heightAt, bend = bend })
 		end
 	end
 	return out

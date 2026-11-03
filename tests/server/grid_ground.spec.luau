@@ -519,13 +519,17 @@ return function()
 	-- is the function under test. `bend` is optional, so the same instrument reads both worlds.
 	local function roadGap(x: number, z: number, bend: any?): number
 		local best = math.huge
+		-- THE `from`/`to` TEST IS A GRID TEST (task 328r): a road's span is in grid stations, and
+		-- comparing a WORLD x against it put the end of the range up to 60 studs out at 45/60.
+		-- `Places.roadDistance`'s own shape, independently here.
+		local u, v = Grid.toGrid(x, z, bend)
 		for _, road in ipairs(Grid.roads()) do
 			if road.axis == "x" then
-				if x >= road.from and x <= road.to then
+				if u >= road.from and u <= road.to then
 					local d = math.abs(z - Grid.roadCentreAt(road, x, bend))
 					best = math.min(best, d / math.sqrt(1 + Grid.bendSlopeZ(x, bend) ^ 2))
 				end
-			elseif z >= road.from and z <= road.to then
+			elseif v >= road.from and v <= road.to then
 				local d = math.abs(x - Grid.roadCentreAt(road, z, bend))
 				best = math.min(best, d / math.sqrt(1 + Grid.bendSlopeX(z, bend) ^ 2))
 			end
@@ -578,8 +582,11 @@ return function()
 			local box = Grid.boundsOf(cellId)
 			local x = (box.minX + box.maxX) / 2
 			-- INTO THE CELL from the main road's centre line, one band at a time.
+			-- GRID IN (task 328r): `road.at` is a grid station and every band below is measured from
+			-- it, so the question is `maskGrid`'s. Asked of `mask` these points are read as world
+			-- points and mapped BACK, which at 45/60 moves them out of their own band.
 			local function at(distance: number): string?
-				return Plan.mask(cellId, x, road.at + distance, nil, nil)
+				return Plan.maskGrid(cellId, x, road.at + distance, nil, nil)
 			end
 			expect(at(0)).to.equal(Plan.REASON.ROAD)
 			expect(at(21)).to.equal(Plan.REASON.ROAD)
@@ -595,7 +602,7 @@ return function()
 				local px = box.minX + (box.maxX - box.minX) * step / 24
 				for inner = 0, 24 do
 					local pz = box.minZ + (box.maxZ - box.minZ) * inner / 24
-					local why = Plan.mask(cellId, px, pz, "SilverBirch_Var08_LOD_0", 1)
+					local why = Plan.maskGrid(cellId, px, pz, "SilverBirch_Var08_LOD_0", 1)
 					expect(why ~= Plan.REASON.CLIFF).to.equal(true)
 					expect(why ~= Plan.REASON.GAP).to.equal(true)
 				end
@@ -656,9 +663,9 @@ return function()
 		end)
 
 		it("is ONE rule in two spaces: the world question is the grid one through the seam", function()
-			-- THE SEAM IS FOUR FUNCTIONS (task 328q, design 6.3): `roadDistance`, `clearOfEveryRoad`,
-			-- `mask` and `nearestCellTo` take WORLD coordinates and call `Grid.toGrid` once. Inside
-			-- `Places` nothing is bend-aware, which is why `cellFacts` keeps its cache key.
+			-- THE SEAM IS FIVE FUNCTIONS (design 6.3, plus `inFrontage` from 328q round 2):
+			-- `roadDistance`, `clearOfEveryRoad`, `mask`, `inFrontage` and `nearestCellTo` take
+			-- WORLD coordinates and call `Grid.toGrid` once.
 			local box = Grid.boundsOf("C1")
 			local checked = 0
 			for step = 0, 30 do
@@ -677,17 +684,29 @@ return function()
 				end
 			end
 			expect(checked).to.equal(31 * 31)
-			-- **AND WHAT THIS CASE CANNOT DO YET, SAID PLAINLY:** `Places`' seam functions read
-			-- `Grid.CONFIG.bend` and take no amplitude of their own, so at the shipped 0 the
-			-- composition above IS the identity and the case is the INERT gate, not a curve test.
-			-- The curve is tested by parameter in `Grid` (`grid.spec`'s bend block) and this case
-			-- becomes non-trivial the moment 328r commits 45 / 60.
-			expect(Grid.CONFIG.bend.ewStuds).to.equal(0)
-			expect(Grid.CONFIG.bend.nsStuds).to.equal(0)
+			-- **AND IT IS NOT THE IDENTITY ANY MORE** (task 328r). At the born 0 this composition
+			-- was `x == u` and the case was the inert gate; the shipped bend is 45 / 60, so the
+			-- worst lattice point below moves tens of studs between the two spaces and the three
+			-- assertions above are a real round trip. Measured here rather than asserted blind.
+			local moved = 0
+			for step = 0, 30 do
+				local u = box.minX + (box.maxX - box.minX) * step / 30
+				for inner = 0, 30 do
+					local v = box.minZ + (box.maxZ - box.minZ) * inner / 30
+					local x, z = Grid.toWorld(u, v)
+					moved = math.max(moved, math.abs(x - u), math.abs(z - v))
+				end
+			end
+			expect(Grid.CONFIG.bend.ewStuds).to.equal(45)
+			expect(Grid.CONFIG.bend.nsStuds).to.equal(60)
+			expect(moved > 10).to.equal(true)
 			TestKit.note(
 				string.format(
-					"%d lattice points: world == grid through the seam, kernel == this file's own gap",
-					checked
+					"%d lattice points: world == grid through the seam, kernel == this file's own gap; the map moves a point up to %.2f studs at bend %d/%d",
+					checked,
+					moved,
+					Grid.CONFIG.bend.ewStuds,
+					Grid.CONFIG.bend.nsStuds
 				)
 			)
 		end)
@@ -906,7 +925,24 @@ return function()
 			local plan = Plan.cellPlanFor("C1")
 			expect(plan.fernBand.fromStuds).to.equal(Plan.VERGE_STUDS.to)
 			for _, rect in ipairs(Plan.fernBands("C1", plan)) do
-				expect(roadGap(rect.minX, rect.minZ) >= Plan.VERGE_STUDS.to).to.equal(true)
+				-- A GRID RECT, AND THE BAND IS AN AXIS-ALIGNED GRID RULE (task 328r): `fernBands`
+				-- insets by `fromStuds` from the road's grid line, so that is the distance to
+				-- assert. `roadDistanceGrid` answers the PERPENDICULAR distance, which on a bend is
+				-- `cos(swing)` of it -- 33.73 where the band starts at 34 -- so the band's inner
+				-- edge counts as verge and the mask refuses it. That is the conservative side and
+				-- it is asserted as its own bound rather than left to be discovered.
+				local axis = math.min(
+					math.abs(rect.minZ - Grid.roadsOf("C1").main.at),
+					math.abs(rect.minZ - Grid.roadsOf("C1").muster.at),
+					math.abs(rect.minX - Grid.roadsOf("C1").west.at),
+					math.abs(rect.minX - Grid.roadsOf("C1").east.at)
+				)
+				expect(axis >= Plan.VERGE_STUDS.to - 1e-9).to.equal(true)
+				local swing = math.max(Grid.bendFacts("x").swingDeg, Grid.bendFacts("z").swingDeg)
+				expect(
+					Plan.roadDistanceGrid(rect.minX, rect.minZ)
+						>= Plan.VERGE_STUDS.to * math.cos(math.rad(swing)) - 1e-9
+				).to.equal(true)
 			end
 		end)
 	end)
@@ -1021,8 +1057,18 @@ return function()
 
 		it("C1's L rides stand at the two depths SWARM_DESIGN 2.2 names, 560 and 780", function()
 			local main = Grid.roadsOf("C1").main
-			expect(Grid.standPosition("C1", 9).Z - main.at).to.be.near(560, 1e-6)
-			expect(Grid.standPosition("C1", 14).Z - main.at).to.be.near(780, 1e-6)
+			-- THEY ARE **GRID** DEPTHS, AND THE BEND MOVED THEM (task 328r). SWARM 2.2's 560 and
+			-- 780 are `flankFirstStuds + k * flankSpacing` at the straight set-back of 340; at
+			-- 45/60 the set-back solves to 366, so the two depths are 586 and 806. The WORLD z is
+			-- a third number again (578.83 and 813.49, measured), because the stand sits on the
+			-- road's curve -- all three are asserted so none can be read as another.
+			local straight = { ewStuds = 0, nsStuds = 0, harmonic = 1 }
+			expect(select(2, Grid.standGridOf("C1", 9, straight)) - main.at).to.be.near(560, 1e-6)
+			expect(select(2, Grid.standGridOf("C1", 14, straight)) - main.at).to.be.near(780, 1e-6)
+			expect(select(2, Grid.standGridOf("C1", 9)) - main.at).to.be.near(586, 1e-6)
+			expect(select(2, Grid.standGridOf("C1", 14)) - main.at).to.be.near(806, 1e-6)
+			expect(Grid.standPosition("C1", 9).Z - main.at).to.be.near(578.83, 0.01)
+			expect(Grid.standPosition("C1", 14).Z - main.at).to.be.near(813.49, 0.01)
 			-- **THE DEPTH IS A GRID FACT AND THAT IS WHY IT SURVIVES THE BEND** (task 328q): it is
 			-- `flankFirstStuds + k * flankSpacing` at ANY amplitude, driven here by parameter. The
 			-- design's 5.4 names 586 / 806 for these two at 45/60, and those are the GRID depths --
@@ -1052,9 +1098,13 @@ return function()
 			-- ON THE V RIDE's own centreline, a third of the way up it -- far from the road bands.
 			local x = seg.ax + (seg.bx - seg.ax) / 3
 			local z = seg.az + (seg.bz - seg.az) / 3
-			expect(Plan.mask(id, x, z, nil, nil)).to.equal(Plan.REASON.RIDE)
-			-- ...AND JUST OUTSIDE IT, the same depth, is not refused for a ride.
-			local out = Plan.mask(id, x + Plan.RIDE_CLEAR_STUDS, z, nil, nil)
+			expect(Plan.maskGrid(id, x, z, nil, nil)).to.equal(Plan.REASON.RIDE)
+			-- ...AND JUST OUTSIDE IT, the same depth, is not refused for a ride. **`maskGrid`, like
+			-- the positive half above** (round 1, finding 2): asked of `mask`, this grid point is
+			-- read as a world one and `Grid.toGrid` moves it ~60 studs before the mask sees it, so
+			-- the control answered "not in the band" for a point that was never in it -- it held
+			-- with `RIDE_CLEAR_STUDS` set to 0.
+			local out = Plan.maskGrid(id, x + Plan.RIDE_CLEAR_STUDS, z, nil, nil)
 			expect(out ~= Plan.REASON.RIDE).to.equal(true)
 			-- A COUNTED BITE over the whole cell, so an empty `rides` row cannot pass this.
 			local box = Grid.boundsOf(id)
@@ -1063,7 +1113,8 @@ return function()
 				local px = box.minX + (box.maxX - box.minX) * step / 40
 				for inner = 0, 40 do
 					local pz = box.minZ + (box.maxZ - box.minZ) * inner / 40
-					if Plan.mask(id, px, pz, nil, nil) == Plan.REASON.RIDE then
+					-- A GRID RECTANGLE WALKED IN GRID COORDINATES (round 1, note 2).
+					if Plan.maskGrid(id, px, pz, nil, nil) == Plan.REASON.RIDE then
 						hits += 1
 					end
 				end
@@ -1080,21 +1131,25 @@ return function()
 			-- `crown` before it answers `cone` (round 2's first harness run). Stand 6 is 300 studs
 			-- east of the cut and 150 from the V ride.
 			local index = 6
-			local spot = Grid.standPosition(id, index)
+			-- THE WHOLE CASE IN GRID COORDINATES (round 1, note 2): `standFacing` is a GRID unit
+			-- vector, so a world stand position plus `fx * reach` is a point in neither space --
+			-- it drifts up to `0.128 * reach` laterally at 45/60. The cone, the stand and the
+			-- zones are all grid facts, so the point and the question are both grid ones.
+			local sx, sz = Grid.standGridOf(id, index)
 			local fx, fz = Plan.standFacing(id, index)
 			local reach = Plan.CONE.nearStuds - 4
-			expect(Plan.mask(id, spot.X + fx * reach, spot.Z + fz * reach, nil, nil)).to.equal(Plan.REASON.CONE)
+			expect(Plan.maskGrid(id, sx + fx * reach, sz + fz * reach, nil, nil)).to.equal(Plan.REASON.CONE)
 			-- BEHIND HIM is not his cone (it is outside the cell, and nothing else refuses it).
-			expect(Plan.mask(id, spot.X - fx * reach, spot.Z - fz * reach, nil, nil)).to.equal(nil)
+			expect(Plan.maskGrid(id, sx - fx * reach, sz - fz * reach, nil, nil)).to.equal(nil)
 			-- THE FAR BAND is a rule about YOUNG GROWTH and about nothing else: same point, two
 			-- templates, two answers.
 			local far = (Plan.CONE.nearStuds + Plan.CONE.farStuds) / 2
-			local fx2, fz2 = spot.X + fx * far, spot.Z + fz * far
-			expect(Plan.mask(id, fx2, fz2, "LarchTree_Var01", 0.5)).to.equal(Plan.REASON.CONE)
-			expect(Plan.mask(id, fx2, fz2, "SilverBirch_Var08_LOD_0", 1)).to.equal(nil)
+			local fx2, fz2 = sx + fx * far, sz + fz * far
+			expect(Plan.maskGrid(id, fx2, fz2, "LarchTree_Var01", 0.5)).to.equal(Plan.REASON.CONE)
+			expect(Plan.maskGrid(id, fx2, fz2, "SilverBirch_Var08_LOD_0", 1)).to.equal(nil)
 			-- ...AND PAST THE CONE even a larch stands.
 			local past = Plan.CONE.farStuds + 20
-			expect(Plan.mask(id, spot.X + fx * past, spot.Z + fz * past, "LarchTree_Var01", 0.5)).to.equal(nil)
+			expect(Plan.maskGrid(id, sx + fx * past, sz + fz * past, "LarchTree_Var01", 0.5)).to.equal(nil)
 		end)
 
 		it("a beater corridor, on its own jittered centreline and 15 studs off it", function()
@@ -1102,10 +1157,14 @@ return function()
 			local box = Grid.boundsOf(id)
 			local z = box.minZ + 700
 			local x = Plan.corridorXAt(id, 1, z)
-			expect(Plan.mask(id, x, z, nil, nil)).to.equal(Plan.REASON.CORRIDOR)
+			-- A GRID x AT A GRID z, so the question is `maskGrid`'s (task 328r).
+			expect(Plan.maskGrid(id, x, z, nil, nil)).to.equal(Plan.REASON.CORRIDOR)
+			-- BOTH CONTROLS IN THE SAME SPACE AS THE HIT (round 1, finding 2): `off` is 15 studs
+			-- against a 5-stud half-width, and `Grid.bendX(-4386)` is -59.97, so asked of `mask`
+			-- these two held with `off` set to 0.
 			local off = Plan.CORRIDOR.halfStuds * 3
-			expect(Plan.mask(id, x + off, z, nil, nil) ~= Plan.REASON.CORRIDOR).to.equal(true)
-			expect(Plan.mask(id, x - off, z, nil, nil) ~= Plan.REASON.CORRIDOR).to.equal(true)
+			expect(Plan.maskGrid(id, x + off, z, nil, nil) ~= Plan.REASON.CORRIDOR).to.equal(true)
+			expect(Plan.maskGrid(id, x - off, z, nil, nil) ~= Plan.REASON.CORRIDOR).to.equal(true)
 			-- THE WANDER IS REAL: the centreline is not the same x at every depth.
 			expect(math.abs(Plan.corridorXAt(id, 1, z) - Plan.corridorXAt(id, 1, z + Plan.CORRIDOR.waveStuds / 2)) > 1).to.equal(
 				true
@@ -1118,20 +1177,25 @@ return function()
 			local plan = Plan.cellPlanFor("D1")
 			local midX = (rect.minX + rect.maxX) / 2
 			local midZ = (rect.minZ + rect.maxZ) / 2
-			expect(Plan.mask("D1", midX, midZ, nil, nil)).to.equal(Plan.REASON.FIELD)
+			-- `fieldRect` IS A GRID RECTANGLE, so the question is `maskGrid`'s (task 328r). Asked of
+			-- `mask`, a grid point is read as a world point and mapped BACK through `toGrid`, which
+			-- at 45/60 moves it up to 60 studs out of its own field.
+			expect(Plan.maskGrid("D1", midX, midZ, nil, nil)).to.equal(Plan.REASON.FIELD)
 			-- THE HEADLAND IS NOT THE FIELD: that is where the hedge and the lone oaks stand.
 			local inHeadland = rect.minZ + plan.field.headlandStuds / 2
-			expect(Plan.mask("D1", midX, inHeadland, nil, nil) ~= Plan.REASON.FIELD).to.equal(true)
+			expect(Plan.maskGrid("D1", midX, inHeadland, nil, nil) ~= Plan.REASON.FIELD).to.equal(true)
 			-- ...AND NO OTHER CELL HAS ONE.
 			expect(Plan.fieldRect("C1")).to.equal(nil)
 			-- IT BITES: D1 plants nothing inside the field.
 			local inside = 0
 			for _, item in ipairs(planOf("D1")) do
+				-- A ROW CARRIES THE WORLD POINT; `rect` IS A GRID RECT (task 328r).
+				local gx, gz = Grid.toGrid(item.x, item.z)
 				if
-					item.x > rect.minX + plan.field.headlandStuds
-					and item.x < rect.maxX - plan.field.headlandStuds
-					and item.z > rect.minZ + plan.field.headlandStuds
-					and item.z < rect.maxZ - plan.field.headlandStuds
+					gx > rect.minX + plan.field.headlandStuds
+					and gx < rect.maxX - plan.field.headlandStuds
+					and gz > rect.minZ + plan.field.headlandStuds
+					and gz < rect.maxZ - plan.field.headlandStuds
 				then
 					inside += 1
 				end
@@ -1151,7 +1215,8 @@ return function()
 				end
 			end
 			expect(empty ~= nil).to.equal(true)
-			expect(Plan.mask(id, (empty.minX + empty.maxX) / 2, (empty.minZ + empty.maxZ) / 2, nil, nil)).to.equal(
+			-- A `zoneRect` CENTRE IS A GRID POINT (round 1, note 2).
+			expect(Plan.maskGrid(id, (empty.minX + empty.maxX) / 2, (empty.minZ + empty.maxZ) / 2, nil, nil)).to.equal(
 				Plan.REASON.CLEARING
 			)
 		end)
@@ -1166,8 +1231,10 @@ return function()
 			expect(Plan.TOWER_CLEAR_STUDS < Plan.ROAD_TRUNK_FLOOR_STUDS).to.equal(true)
 			for _, id in ipairs(Grid.cellIds()) do
 				for index = 1, Grid.standCount(id) do
+					-- 1e-3 AND NOT 1e-6: `standPosition` returns a `Vector3`, whose components are
+					-- float32 (measured residual 1.87e-4 at 45/60). The arithmetic is exact.
 					local spot = Grid.standPosition(id, index)
-					expect(roadGap(spot.X, spot.Z)).to.be.near(0, 1e-6)
+					expect(roadGap(spot.X, spot.Z)).to.be.near(0, 1e-3)
 				end
 			end
 			-- AND NO PLANTING OF ANY CELL IS INSIDE EITHER CLEARANCE, which is the fact that matters.
@@ -1220,7 +1287,11 @@ return function()
 				for _, item in ipairs(planOf(id)) do
 					if item.band == "herb" then
 						ferns += 1
-						local zone = Plan.zoneAt(id, item.x, item.z)
+						-- A PLANTING ROW CARRIES THE **WORLD** POINT and `zoneAt` takes GRID
+						-- coordinates (task 328r): at 45/60 the two differ by up to 60 studs, which
+						-- read 353 ferns as standing outside every FERN_MIXES zone.
+						local gx, gz = Grid.toGrid(item.x, item.z)
+						local zone = Plan.zoneAt(id, gx, gz)
 						if not Plan.isHerbName(item.model) or zone == nil or not Plan.FERN_MIXES[zone.mix] then
 							wrong += 1
 							worstName = item.model
@@ -1304,14 +1375,19 @@ return function()
 				for _, zone in ipairs(plan.zones) do
 					if zone.rows == "NS" then
 						local rect = Plan.zoneRect("A2", zone)
+						-- THE ROWS ARE GRID LINES AND THE RECT IS A GRID RECT (task 328r). A row's
+						-- WORLD x varies along the row by `bendX(z)` -- that IS the bend -- so
+						-- counting distinct world x would give one "line" per tree at 45/60 and the
+						-- case would be measuring the map rather than the planter.
+						local gx, gz = Grid.toGrid(item.x, item.z)
 						if
-							item.x >= rect.minX
-							and item.x <= rect.maxX
-							and item.z >= rect.minZ
-							and item.z <= rect.maxZ
+							gx >= rect.minX
+							and gx <= rect.maxX
+							and gz >= rect.minZ
+							and gz <= rect.maxZ
 							and item.band ~= "herb"
 						then
-							lines[math.floor(item.x * 1000 + 0.5)] = true
+							lines[math.floor(gx * 1000 + 0.5)] = true
 							counted += 1
 						end
 					end

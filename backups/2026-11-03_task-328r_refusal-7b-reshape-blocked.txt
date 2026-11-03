@@ -1,0 +1,77 @@
+ARCHIVED 2026-11-03, task 328r. Rule 7: never delete.
+
+WAS: `reshape_blocked` in tools/terrainbake.py, plus its call from the `bake` branch of `main`,
+plus the per-cell `reshapeWanted` loop in `TerrainBake.bakeTileAt` that decided whether a cell's
+landform went into the ground. Refusal 7b in the docstring went with it.
+
+WHY ARCHIVED: its premise -- "a bake ADDS its ops rather than replacing them" -- stopped being
+true at task 328k. Since then `bake` REQUIRES `--base`, a sha-checked `.bin` holding the ORIGINAL
+ground, and `Relief.heightAt` reads it instead of live terrain, so a re-bake writes ABSOLUTE
+heights over the old bake (design docs/design/grid-roads.md 7.1: "the straight road's cut and fill
+are erased, not stacked"). With the base virgin there is nothing to double.
+
+AND IT WAS ACTIVELY WRONG, MEASURED IN KAREN'S FOREST TEST 2026-11-03 BEFORE ANY WRITE:
+`TerrainBake.reshapeWanted("C1")` answered `wanted=false, kind=stamped`. A `bake --cells C1
+--base <virgin>` would therefore have taken `shapeTile`'s keep-the-base branch and written C1's
+roads, pads and materials onto ground with NO landform in it -- C1's ridge erased. The guard built
+to stop a second ridge would have removed the first one.
+
+The per-cell stamp `TerrainShape_<id>` is NOT retired: `TerrainBake.stampShape` still writes it and
+`bakeTileAt` still PRINTS what it says on every tile report, so the operator can still see whether
+a cell's ground carries this landform. What it no longer does is decide whether the landform is
+applied.
+
+---- the removed Python, verbatim ----
+
+def reshape_blocked(answers):
+    """REFUSAL 7b, as a decision over `TerrainBake.reshapeWanted`'s answers, so it has a case.
+
+    `answers` is {cell: kind}. "changed" means that cell's ground already carries a DIFFERENT
+    landform, and a bake ADDS its ops rather than replacing them -- measured at +24.04 studs of
+    second ridge on C1, 2026-11-02. The fix is the backup, not another bake.
+    """
+    blocked = sorted(cell for cell, kind in answers.items() if kind == "changed")
+    if not blocked:
+        return None
+    return ("%s already carr%s a DIFFERENT landform in the ground, and a bake ADDS its ops "
+            "rather than replacing them (measured: +24.04 studs of second ridge on C1, "
+            "2026-11-02). Restore the backup .rbxl and bake again."
+            % (", ".join(blocked), "ies" if len(blocked) == 1 else "y"))
+
+---- its call site in `main`, verbatim ----
+
+            if args.command == "bake":
+                answers = {}
+                for cell in args.cells:
+                    answer = call(studio, studio_id,
+                                  "(function() local wanted, why, kind = TerrainBake.reshapeWanted(\"%s\") "
+                                  "return { wanted = wanted, why = why, kind = kind } end)()" % cell,
+                                  timeout=60, injected=injected)
+                    print("  reshape %-3s %-7s %s" % (cell, answer["kind"], answer["why"]))
+                    answers[cell] = answer["kind"]
+                problem = reshape_blocked(answers)  # refusal 7b
+                if problem:
+                    return refuse(problem)
+
+---- its three selftest cases, verbatim ----
+
+    # ---- REFUSAL 7b, which had no case at all until now (328e note h).
+    ok("refusal 7b refuses a cell whose ground already carries a DIFFERENT landform",
+       "already carries a DIFFERENT landform" in (reshape_blocked({"C1": "changed"}) or ""),
+       reshape_blocked({"C1": "changed"}))
+    ok("refusal 7b names EVERY blocked cell, in order",
+       (reshape_blocked({"D1": "changed", "A1": "changed", "C1": "same"}) or "").startswith("A1, D1"))
+    ok("refusal 7b lets a cell whose stamp is the same landform through",
+       reshape_blocked({"C1": "stamped", "A1": "virgin"}) is None)
+
+---- the removed Luau, verbatim (TerrainBake.bakeTileAt) ----
+
+	-- THE LANDFORM GOES IN ONCE (`reshapeWanted`): a bake whose base is already baked ground would
+	-- otherwise add it again -- measured at +24.04 studs on C1's ridge, 2026-11-02.
+	local reshape: { [string]: boolean } = {}
+	local why: { string } = {}
+	for _, id in cellIds do
+		local wanted, reason = TerrainBake.reshapeWanted(id)
+		reshape[id] = wanted
+		table.insert(why, string.format("%s reshape=%s (%s)", id, tostring(wanted), reason))
+	end

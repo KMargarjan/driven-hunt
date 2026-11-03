@@ -65,14 +65,15 @@ Grid.CONFIG = table.freeze({
 	-- THE WORLD SEED. Every per-cell stream hashes from it (`Grid.seedFor`), so a cell's wood is the
 	-- same whatever order the cells were built in -- Minecraft's own per-chunk rule (note section 2B).
 	seed = 327_001,
-	-- THE BEND, AND 0 IS TODAY'S WORLD. Karen, 2026-11-03: *"road could be also not just straight
-	-- make line in real life"*. One sine per axis, half-wavelength = the junction pitch, so the
-	-- offset is exactly 0 at every junction. BORN AT ZERO: task 328r switches it to 45 / 60 by
-	-- COMMIT (task 79's map-switch exception), never by a flag.
+	-- THE BEND. Karen, 2026-11-03: *"road could be also not just straight make line in real life"*.
+	-- One sine per axis, half-wavelength = the junction pitch, so the offset is exactly 0 at every
+	-- junction. Born at 0 in 328q; SWITCHED ON HERE BY COMMIT (task 79's map-switch exception,
+	-- CLAUDE.md "Feature flags"), never by a flag -- the ground is baked to these numbers and a
+	-- flag-off build would plant trees into the real ditch.
 	-- Design: docs/design/grid-roads.md 4, 5, 9.1-9.3.
 	bend = table.freeze({
-		ewStuds = 0, -- the east-west family (the main and muster lines). 328r: 45
-		nsStuds = 0, -- the north-south family (the flanks). 328r: 60
+		ewStuds = 45, -- the east-west family (the main and muster lines); design 5.2
+		nsStuds = 60, -- the north-south family (the flanks); design 5.2
 		harmonic = 1, -- bends per junction span. AN INTEGER, OR THE JUNCTIONS STOP BEING ZEROS
 	}),
 })
@@ -185,15 +186,25 @@ Grid.CELLS = table.freeze({
 		column = 3,
 		-- THE WOOD THAT GROWS HERE (task 327c): seven zones, four woods -- the preview cell.
 		recipe = "mixedRolling",
+		-- RE-MEASURED AFTER THE 45/60 RE-BAKE (task 328r), off the ground it describes:
+		-- `tools/terrainbake.py survey --cells C1` over 3,888 samples, each one the world point its
+		-- GRID station maps to. `character` does not move -- the spread went 61.7 -> 61.12.
 		relief = table.freeze({
 			character = "rolling",
-			minY = 89.2,
-			maxY = 150.9,
-			spreadStuds = 61.7,
-			lineSpreadStuds = 21.0,
-			lineMeanY = 106.98,
+			minY = 89.14,
+			maxY = 150.26,
+			spreadStuds = 61.12,
+			lineSpreadStuds = 20.49,
+			lineMeanY = 106.03,
 		}),
-		towers = table.freeze({ 8, 13, 15 }), -- 8 west +80/0.00/0.00; 13 east +244/0.00/0.02; 15 east +95/0.30/1.42
+		-- RE-MEASURED TOO (task 328r), with 327b's own instrument over C1's fifteen stands at their
+		-- new world points (`<runs-dir>/328r-towers.luau`). Ranked by gain, never two adjacent,
+		-- `gain >= 60`, `spread <= 4.0`, `relief <= 1.8`: 13 (+234), then 10 (+216), then 8 (+120)
+		-- -- 11 (+180) and 9 (+89) are adjacent to 10, and 14 (+120) is adjacent to 13. **15 LEFT
+		-- THE SET**: the bend turned its sight line and its gain fell +95 -> +40, under the 60
+		-- floor. Every one of the fifteen pads measured `spread 0.00` and `relief <= 0.10`, so
+		-- `towersRelaxed` stays absent for C1, which is what design 11.4 said to expect.
+		towers = table.freeze({ 8, 10, 13 }), -- 8 west +120/0.00/0.01; 10 west +216/0.00/0.10; 13 east +234/0.00/0.03
 	}),
 	table.freeze({
 		id = "D1",
