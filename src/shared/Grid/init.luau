@@ -186,15 +186,25 @@ Grid.CELLS = table.freeze({
 		column = 3,
 		-- THE WOOD THAT GROWS HERE (task 327c): seven zones, four woods -- the preview cell.
 		recipe = "mixedRolling",
+		-- RE-MEASURED AFTER THE 45/60 RE-BAKE (task 328r), off the ground it describes:
+		-- `tools/terrainbake.py survey --cells C1` over 3,888 samples, each one the world point its
+		-- GRID station maps to. `character` does not move -- the spread went 61.7 -> 61.12.
 		relief = table.freeze({
 			character = "rolling",
-			minY = 89.2,
-			maxY = 150.9,
-			spreadStuds = 61.7,
-			lineSpreadStuds = 21.0,
-			lineMeanY = 106.98,
+			minY = 89.14,
+			maxY = 150.26,
+			spreadStuds = 61.12,
+			lineSpreadStuds = 20.49,
+			lineMeanY = 106.03,
 		}),
-		towers = table.freeze({ 8, 13, 15 }), -- 8 west +80/0.00/0.00; 13 east +244/0.00/0.02; 15 east +95/0.30/1.42
+		-- RE-MEASURED TOO (task 328r), with 327b's own instrument over C1's fifteen stands at their
+		-- new world points (`<runs-dir>/328r-towers.luau`). Ranked by gain, never two adjacent,
+		-- `gain >= 60`, `spread <= 4.0`, `relief <= 1.8`: 13 (+234), then 10 (+216), then 8 (+120)
+		-- -- 11 (+180) and 9 (+89) are adjacent to 10, and 14 (+120) is adjacent to 13. **15 LEFT
+		-- THE SET**: the bend turned its sight line and its gain fell +95 -> +40, under the 60
+		-- floor. Every one of the fifteen pads measured `spread 0.00` and `relief <= 0.10`, so
+		-- `towersRelaxed` stays absent for C1, which is what design 11.4 said to expect.
+		towers = table.freeze({ 8, 10, 13 }), -- 8 west +120/0.00/0.01; 10 west +216/0.00/0.10; 13 east +234/0.00/0.03
 	}),
 	table.freeze({
 		id = "D1",
