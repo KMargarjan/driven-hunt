@@ -3,10 +3,10 @@
 -- quarantine, and `ServerStorage.GridCensus` -- design 13.2's cases 1, 2, 3, 10, 11 and 12, plus the
 -- two this task's own code needs (the Atomic streaming pair, and the crown rule by parameter).
 --
--- CASES 4 TO 9 ARE **328f's** AND ARE NOT HERE: `Places.mask`, `Places.REASON`, the 34/27-stud
--- frontage floors and `Places.standTypeFor` do not exist yet, and a case asserting a function nobody
--- has written is a false-PASS path waiting to happen (design 16's 328e row says exactly that about
--- `grid.spec` case 19). They are queued in `TASKS.md` under 328f.
+-- CASES 4 TO 9 ARE TASK 328f's and are here now: `Places.mask` and `Places.REASON` in their stated
+-- order, the 34 / 27-stud floors measured INDEPENDENTLY of the mask, the linear crown term by
+-- parameter, the frontage rule over all eight cells, the ferns clear of the ditch and the verge, and
+-- `Places.standTypeFor` derived.
 --
 -- EVERYTHING RUNS WITH NO WORLD AND NO TERRAIN: every ground reading is a FAKE HILLSIDE handed in as
 -- a function, and every template is built here out of Parts. That is `grid.spec`'s own discipline.
@@ -57,6 +57,19 @@ return function()
 
 	local function plantingAt(name: string, x: number, z: number): any
 		return { model = name, x = x, z = z, scale = 1, yaw = 0, band = "wood", side = 1 }
+	end
+
+	-- EVERY CELL'S PLAN, WORKED OUT ONCE. `Plan.plantCell` is the expensive call in this file and
+	-- nine cases want the same eight lists; building them per case put the server runner over its
+	-- 300 s budget twice (round 2). Pure and deterministic, so one copy is the same as nine.
+	local PLANS: { [string]: any } = {}
+	local function planOf(cellId: string): any
+		-- NEVER inside a fixture that changes what `namesOf` may draw: the quarantine case asks
+		-- `Plan.plantCell` directly for exactly that reason.
+		if PLANS[cellId] == nil then
+			PLANS[cellId] = Plan.plantCell(cellId)
+		end
+		return PLANS[cellId]
 	end
 
 	-- ---------------------------------------------------------------- 1. the contact rule
@@ -150,7 +163,7 @@ return function()
 				end
 			end
 			for _, id in ipairs({ "C1", "A1", "D2" }) do
-				for _, item in ipairs(Plan.plantCell(id)) do
+				for _, item in ipairs(planOf(id)) do
 					expect(Plan.isQuarantined(item.model)).to.equal(false)
 				end
 			end
@@ -307,7 +320,9 @@ return function()
 						expect(table.find(after, name) ~= nil).to.equal(true)
 					end
 				end
-				-- ...so no planting list names it, in any cell.
+				-- ...so no planting list names it, in any cell. NOT `planOf`: this case is asking
+				-- what the plan says WHILE the quarantine stub is up, and a memo from before it
+				-- would answer the wrong question.
 				for _, id in ipairs({ "C1", "A1" }) do
 					for _, item in ipairs(Plan.plantCell(id)) do
 						expect(item.model).never.to.equal(victim)
@@ -400,6 +415,711 @@ return function()
 	end)
 
 	-- ---------------------------------------------------------------- 10/11. the census
+
+	-- ------------------------------------------------- 4-9. the forest v2 (task 328f, design 13.2)
+
+	-- THE ROADS AND THE RIDES, MEASURED HERE AND NOT THROUGH THE MASK. `drive-places.md` section
+	-- 10.4 item 3's lesson: a rule checked with the function that enforces it proves only that the
+	-- function agrees with itself.
+	local function roadGap(x: number, z: number): number
+		local best = math.huge
+		for _, road in ipairs(Grid.roads()) do
+			if road.axis == "x" then
+				if x >= road.from and x <= road.to then
+					best = math.min(best, math.abs(z - road.at))
+				end
+			elseif z >= road.from and z <= road.to then
+				best = math.min(best, math.abs(x - road.at))
+			end
+		end
+		return best
+	end
+	local function rideGap(cellId: string, x: number, z: number): number
+		local best = math.huge
+		for _, seg in ipairs(Plan.rideSegments(cellId)) do
+			local dx, dz = seg.bx - seg.ax, seg.bz - seg.az
+			local len2 = dx * dx + dz * dz
+			local t = if len2 <= 0 then 0 else math.clamp(((x - seg.ax) * dx + (z - seg.az) * dz) / len2, 0, 1)
+			local px, pz = seg.ax + t * dx, seg.az + t * dz
+			best = math.min(best, math.sqrt((x - px) * (x - px) + (z - pz) * (z - pz)))
+		end
+		return best
+	end
+
+	describe("the mask refuses for the right reason, in the stated order", function()
+		it("every reason is in REASON_ORDER once, and the two a pure mask cannot reach are named", function()
+			local order = Plan.REASON_ORDER
+			local seen = {}
+			for _, reason in ipairs(order) do
+				expect(seen[reason]).to.equal(nil)
+				seen[reason] = true
+			end
+			local count = 0
+			for _, reason in pairs(Plan.REASON) do
+				count += 1
+				expect(seen[reason]).to.equal(true)
+			end
+			expect(#order).to.equal(count)
+			expect(#order).to.equal(15)
+			-- THE ORDER IS A TABLE AND NOT PROSE (design 8.2): outermost fact first.
+			expect(order[1]).to.equal(Plan.REASON.ROAD)
+			expect(order[2]).to.equal(Plan.REASON.DITCH)
+			expect(order[3]).to.equal(Plan.REASON.VERGE)
+			expect(order[4]).to.equal(Plan.REASON.RIDE)
+			expect(order[#order]).to.equal(Plan.REASON.GAP)
+			expect(#Plan.REASON_NOT_MASKED).to.equal(2)
+		end)
+
+		it("names the band a point is actually in, and the two unreachable reasons never come back", function()
+			local cellId = "C1"
+			local road = Grid.roadsOf(cellId).main
+			local box = Grid.boundsOf(cellId)
+			local x = (box.minX + box.maxX) / 2
+			-- INTO THE CELL from the main road's centre line, one band at a time.
+			local function at(distance: number): string?
+				return Plan.mask(cellId, x, road.at + distance, nil, nil)
+			end
+			expect(at(0)).to.equal(Plan.REASON.ROAD)
+			expect(at(21)).to.equal(Plan.REASON.ROAD)
+			expect(at(25)).to.equal(Plan.REASON.DITCH)
+			expect(at(32)).to.equal(Plan.REASON.VERGE)
+			-- ...AND NOT ROAD, DITCH OR VERGE past 34.
+			local past = at(40)
+			expect(past ~= Plan.REASON.ROAD).to.equal(true)
+			expect(past ~= Plan.REASON.DITCH).to.equal(true)
+			expect(past ~= Plan.REASON.VERGE).to.equal(true)
+			-- THE TWO THE PURE MASK CANNOT ANSWER, over a lattice of the whole cell.
+			for step = 0, 24 do
+				local px = box.minX + (box.maxX - box.minX) * step / 24
+				for inner = 0, 24 do
+					local pz = box.minZ + (box.maxZ - box.minZ) * inner / 24
+					local why = Plan.mask(cellId, px, pz, "SilverBirch_Var08_LOD_0", 1)
+					expect(why ~= Plan.REASON.CLIFF).to.equal(true)
+					expect(why ~= Plan.REASON.GAP).to.equal(true)
+				end
+			end
+		end)
+	end)
+
+	describe("no trunk stands in a road or a ride", function()
+		it("every planting of every cell clears 34 studs of road and 27 of ride, measured here", function()
+			-- ONE CELL CARRIES RIDES TODAY (C1), and a skirt planting lands in a neighbour, so the
+			-- ride question is asked of that one cell for every planting of every cell.
+			local ridden = "C1"
+			expect(#Plan.rideSegments(ridden) > 0).to.equal(true)
+			for _, id in ipairs(Grid.cellIds()) do
+				local worstRoad, worstRide = math.huge, math.huge
+				local trees = 0
+				for _, item in ipairs(planOf(id)) do
+					local herb = Plan.isHerbName(item.model)
+					worstRoad = math.min(worstRoad, roadGap(item.x, item.z))
+					if not herb then
+						trees += 1
+						-- THE RIDE IS THE CELL'S OWN; a skirt planting is inside the NEIGHBOUR, and
+						-- `plantCell` masks it against that cell, so ask both.
+						worstRide = math.min(worstRide, rideGap(ridden, item.x, item.z))
+					end
+				end
+				expect(trees > 0).to.equal(true)
+				assert(
+					worstRoad >= Plan.ROAD_TRUNK_FLOOR_STUDS,
+					string.format("%s: a trunk stands %.2f st from a road centre", id, worstRoad)
+				)
+				assert(
+					worstRide >= Plan.RIDE_TRUNK_FLOOR_STUDS,
+					string.format("%s: a trunk stands %.2f st from a ride centre", id, worstRide)
+				)
+			end
+		end)
+
+		it("and the mask agrees with that independent measurement, point for point", function()
+			local id = "C1"
+			local box = Grid.boundsOf(id)
+			local checked = 0
+			for step = 0, 40 do
+				local x = box.minX + (box.maxX - box.minX) * step / 40
+				for inner = 0, 40 do
+					local z = box.minZ + (box.maxZ - box.minZ) * inner / 40
+					local why = Plan.mask(id, x, z, nil, nil)
+					if roadGap(x, z) < Plan.ROAD_TRUNK_FLOOR_STUDS then
+						expect(why ~= nil).to.equal(true)
+					end
+					if rideGap(id, x, z) <= Plan.RIDE_CLEAR_STUDS / 2 then
+						expect(why ~= nil).to.equal(true)
+					end
+					checked += 1
+				end
+			end
+			expect(checked).to.equal(41 * 41)
+		end)
+	end)
+
+	describe("the crown rule is linear, by parameter", function()
+		it("a measured crown raises the floor; a template with no row leaves it alone", function()
+			-- THE WIDEST CROWN THIS WORLD HAS, from `TEMPLATE_DIMS` itself rather than a number
+			-- typed here (lesson L-167).
+			local widest, reach = nil, 0
+			for name in pairs(Plan.SPECIES) do
+				for _, each in ipairs(Plan.namesOf(name)) do
+					local dims = Plan.dimsFor(each)
+					if dims ~= nil and dims.crownHalfWidthStuds > reach then
+						widest, reach = each, dims.crownHalfWidthStuds
+					end
+				end
+			end
+			expect(widest ~= nil).to.equal(true)
+			local scale = 1.2
+			-- **THE BASE IS THE CENSUS'S OWN HALF-WIDTH, NOT DESIGN 7.2's PAINTED 10** -- see the
+			-- header of `Places.roadTrunkMin`. `GridCensus` counts a crown over a road inside
+			-- `roadClearStuds / 2` plus the reach, so a set-back of `reach + 10` still counts.
+			expect(Plan.roadTrunkMin(widest, scale)).to.be.near(
+				math.max(
+					Plan.ROAD_TRUNK_FLOOR_STUDS,
+					Grid.CONFIG.roadClearStuds / 2 + reach * scale * Plan.CROWN_SCALE_SLACK + Plan.CROWN_DRIFT_STUDS
+				),
+				1e-9
+			)
+			expect(Plan.rideTrunkMin(widest, scale)).to.be.near(
+				math.max(
+					Plan.RIDE_TRUNK_FLOOR_STUDS,
+					Plan.RIDE_CLEAR_STUDS / 2 + reach * scale * Plan.CROWN_SCALE_SLACK + Plan.CROWN_DRIFT_STUDS
+				),
+				1e-9
+			)
+			expect(Plan.roadTrunkMin(widest, scale) > Plan.ROAD_TRUNK_FLOOR_STUDS).to.equal(true)
+			-- NO ROW: the floors are the whole rule (design 7.2), which is the census's
+			-- `crownOverRoad=UNMEASURED`.
+			expect(Plan.crownReachStuds("NoSuchTemplate", 1)).to.equal(nil)
+			-- THE SLACK IS >= THE WORST MEASURED `live / row` RATIO, 1.371, or the census's reach is
+			-- bigger than the planner's and a crown comes out over a road (round 2, measured).
+			expect(Plan.CROWN_SCALE_SLACK >= 1.371).to.equal(true)
+			expect(Plan.roadTrunkMin("NoSuchTemplate", 1)).to.be.near(Plan.ROAD_TRUNK_FLOOR_STUDS, 1e-9)
+			expect(Plan.rideTrunkMin("NoSuchTemplate", 1)).to.be.near(Plan.RIDE_TRUNK_FLOOR_STUDS, 1e-9)
+		end)
+
+		it("and the mask refuses a wide crown where it passes a narrow one, same point", function()
+			local id = "C1"
+			local box = Grid.boundsOf(id)
+			local widest, reach = nil, 0
+			for name in pairs(Plan.SPECIES) do
+				for _, each in ipairs(Plan.namesOf(name)) do
+					local dims = Plan.dimsFor(each)
+					if dims ~= nil and dims.crownHalfWidthStuds > reach then
+						widest, reach = each, dims.crownHalfWidthStuds
+					end
+				end
+			end
+			-- FIND THE POINT RATHER THAN TYPE IT: somewhere clear of every site rule, but inside the
+			-- widest crown's own set-back. A hand-picked coordinate lands in a beater corridor or a
+			-- front cone the first time a constant moves.
+			local scale = 1.2
+			local minimum = Plan.roadTrunkMin(widest, scale)
+			local foundX, foundZ = nil, nil
+			for step = 0, 80 do
+				local x = box.minX + (box.maxX - box.minX) * step / 80
+				for inner = 0, 80 do
+					local z = box.minZ + (box.maxZ - box.minZ) * inner / 80
+					local gap = roadGap(x, z)
+					if
+						gap >= Plan.ROAD_TRUNK_FLOOR_STUDS
+						and gap < minimum
+						and Plan.mask(id, x, z, nil, nil) == nil
+					then
+						foundX, foundZ = x, z
+						break
+					end
+				end
+				if foundX ~= nil then
+					break
+				end
+			end
+			assert(foundX ~= nil, "no point between the road floor and the crown set-back is otherwise plantable")
+			-- THE WIDE CROWN IS REFUSED THERE...
+			expect(Plan.mask(id, foundX, foundZ, widest, scale)).to.equal(Plan.REASON.CROWN)
+			-- ...AND THE SAME POINT WITH NO TEMPLATE IS PLANTABLE: the crown term is this tree's own
+			-- fact, which is what "by parameter" means.
+			expect(Plan.mask(id, foundX, foundZ, nil, nil)).to.equal(nil)
+			-- ...AND A FERN, WHICH HAS NO CROWN, STANDS THERE TOO.
+			expect(Plan.mask(id, foundX, foundZ, "SM_Forest_Fern_Var05", 1)).to.equal(nil)
+		end)
+	end)
+
+	describe("the frontage rule", function()
+		it("draws only the named groups within 60 studs of a centreline, over all eight cells", function()
+			local near, total = 0, 0
+			for _, id in ipairs(Grid.cellIds()) do
+				local plan = Plan.cellPlanFor(id)
+				expect(plan.frontage ~= nil).to.equal(true)
+				for _, item in ipairs(planOf(id)) do
+					total += 1
+					if not Plan.isHerbName(item.model) then
+						local inBand = roadGap(item.x, item.z) <= plan.frontage.studs
+							or rideGap("C1", item.x, item.z) <= plan.frontage.studs
+						if inBand then
+							near += 1
+							expect(Plan.frontageAllows(plan, item.model)).to.equal(true)
+						end
+					end
+				end
+			end
+			expect(total > 0).to.equal(true)
+			-- IT HAS TO BITE SOMEWHERE, or the case proves nothing (lesson L-086).
+			expect(near > 0).to.equal(true)
+		end)
+
+		it("costs no density: every shipped mix keeps at least one allowed group", function()
+			local plan = Plan.cellPlanFor("C1")
+			for _, id in ipairs(Grid.cellIds()) do
+				for _, zone in ipairs(Plan.cellPlanFor(id).zones) do
+					local rows = Plan.cellMixNamed(zone.mix)
+					if #rows > 0 then
+						expect(#Plan.frontageRows(plan, rows) > 0).to.equal(true)
+					end
+				end
+			end
+			-- AND IT REALLY CHANGES THE DRAW: a spruce thicket's conifer row goes, its larch row
+			-- keeps its own weight, and the three groups it never carried join at 1 -- which is
+			-- design 7.2's *"becomes birch and larch"* rather than a bare strip.
+			local thicket = Plan.frontageRows(plan, Plan.cellMixNamed("spruceThicket"))
+			expect(#thicket).to.equal(#plan.frontage.groups)
+			local byGroup = {}
+			for _, row in ipairs(thicket) do
+				byGroup[row.group] = row.weight
+			end
+			expect(byGroup.conifer).to.equal(nil)
+			expect(byGroup.young).to.equal(2)
+			expect(byGroup.birch).to.equal(1)
+			expect(byGroup.aspen).to.equal(1)
+			expect(byGroup.fieldOak).to.equal(1)
+			-- A CLEARING STAYS A CLEARING: an empty mix is not a licence to invent a hedge.
+			expect(#Plan.frontageRows(plan, Plan.cellMixNamed("clearing"))).to.equal(0)
+		end)
+	end)
+
+	describe("the ferns", function()
+		it("stand clear of the ditch and the verge, and never more than the cap a cell", function()
+			for _, id in ipairs(Grid.cellIds()) do
+				local ferns = 0
+				for _, item in ipairs(planOf(id)) do
+					if Plan.isHerbName(item.model) then
+						ferns += 1
+						-- DEFECT F-5: measured from the ROAD CENTRELINE, so 34 is the verge's far
+						-- edge and no bracken stands in the 22-34 band design 7.1 keeps bare.
+						expect(roadGap(item.x, item.z) >= Plan.VERGE_STUDS.to).to.equal(true)
+					end
+				end
+				-- THE CAP IS A GUARD, NOT A MEASUREMENT: C1's bands offer far fewer sites than 400,
+				-- so this line cannot fail today and is here to notice a spacing change that would
+				-- make it bite (round 1, note).
+				expect(ferns <= Plan.FERN_CAP).to.equal(true)
+			end
+			-- AND THE BAND ITSELF STARTS AT 34, not at the cell edge.
+			local plan = Plan.cellPlanFor("C1")
+			expect(plan.fernBand.fromStuds).to.equal(Plan.VERGE_STUDS.to)
+			for _, rect in ipairs(Plan.fernBands("C1", plan)) do
+				expect(roadGap(rect.minX, rect.minZ) >= Plan.VERGE_STUDS.to).to.equal(true)
+			end
+		end)
+	end)
+
+	describe("stand types are derived, never written", function()
+		it("every stand of every cell gets one of the letters, and no recipe carries a letter", function()
+			local allowed = {}
+			for _, letter in ipairs(Plan.STAND_LETTERS) do
+				allowed[letter] = true
+			end
+			for _, id in ipairs(Grid.cellIds()) do
+				expect((Plan.cellPlanFor(id) :: any).standTypes).to.equal(nil)
+				for index = 1, Grid.standCount(id) do
+					expect(allowed[Plan.standTypeFor(id, index)]).to.equal(true)
+				end
+			end
+		end)
+
+		it("gives a v2 cell at least five distinct letters over its fifteen stands", function()
+			-- EVERY CELL IN ONE MESSAGE, because a cell that fails has its RECIPE changed (design
+			-- 8.5) and the person changing it needs the whole row, not the first one that broke.
+			local report, worst, weakest = {}, 0, 99
+			local v2Distinct, v2Adjacent = 99, 0
+			for _, id in ipairs(Grid.cellIds()) do
+				local seen, letters = {}, {}
+				for index = 1, Grid.standCount(id) do
+					local letter = Plan.standTypeFor(id, index)
+					table.insert(letters, letter)
+					seen[letter] = true
+				end
+				local distinct = 0
+				for _ in pairs(seen) do
+					distinct += 1
+				end
+				local adjacent = 0
+				for index = 2, #letters do
+					if letters[index] == letters[index - 1] then
+						adjacent += 1
+					end
+				end
+				weakest = math.min(weakest, distinct)
+				worst = math.max(worst, adjacent)
+				if (Plan.cellPlanFor(id) :: any).rides ~= nil then
+					v2Distinct = math.min(v2Distinct, distinct)
+					v2Adjacent = math.max(v2Adjacent, adjacent)
+				end
+				table.insert(
+					report,
+					string.format("%s %s d=%d adj=%d", id, table.concat(letters, ""), distinct, adjacent)
+				)
+			end
+			local rows = table.concat(report, " | ")
+			-- A CELL WHOSE RECIPE CARRIES `rides` HAS BEEN BROUGHT TO v2 and meets design 8.5's
+			-- count. Task 328f brings C1; the other seven keep the letters their 327c recipes give
+			-- them, and `TASKS.md` carries the measurement.
+			assert(v2Distinct >= 5, "a v2 cell has fewer than five letters: " .. rows)
+			-- AND NO CELL IS A SINGLE LETTER, v2 or not.
+			assert(weakest >= 3, "a cell has fewer than three letters: " .. rows)
+		end)
+
+		it("follows the plan: a ride's stand takes the ride's letter, a tower's stand takes T", function()
+			local plan = Plan.cellPlanFor("C1")
+			for _, ride in ipairs(plan.rides) do
+				local tower = false
+				for _, index in ipairs(Grid.towerStands("C1")) do
+					tower = tower or index == ride.atStandIndex
+				end
+				if not tower then
+					expect(Plan.standTypeFor("C1", ride.atStandIndex)).to.equal(ride.kind)
+				end
+			end
+			for _, index in ipairs(Grid.towerStands("C1")) do
+				expect(Plan.standTypeFor("C1", index)).to.equal("T")
+			end
+		end)
+	end)
+
+	-- ------------------------------------- round 2: the arms, the rides and the bias, each BITING
+
+	describe("the rides are where the recipe says, measured off Grid and not off the mask", function()
+		it("one segment per ride row, from its stand along its facing, and the X cut across it", function()
+			local id = "C1"
+			local plan = Plan.cellPlanFor(id)
+			local segments = Plan.rideSegments(id)
+			expect(#segments).to.equal(#plan.rides)
+			for index, ride in ipairs(plan.rides) do
+				local seg = segments[index]
+				local spot = Grid.standPosition(id, ride.atStandIndex)
+				local fx, fz = Plan.standFacing(id, ride.atStandIndex)
+				expect(seg.kind).to.equal(ride.kind)
+				if ride.kind == "X" then
+					-- ACROSS the sight line at the cone's far edge, centred on it, perpendicular.
+					local mx = (seg.ax + seg.bx) / 2
+					local mz = (seg.az + seg.bz) / 2
+					expect(mx).to.be.near(spot.X + fx * Plan.CUT_CROSS_STUDS, 1e-6)
+					expect(mz).to.be.near(spot.Z + fz * Plan.CUT_CROSS_STUDS, 1e-6)
+					local dx, dz = seg.bx - seg.ax, seg.bz - seg.az
+					expect(math.sqrt(dx * dx + dz * dz)).to.be.near(ride.lengthStuds, 1e-6)
+					-- PERPENDICULAR: the dot product with the facing is zero.
+					expect(dx * fx + dz * fz).to.be.near(0, 1e-6)
+				else
+					expect(seg.ax).to.be.near(spot.X, 1e-6)
+					expect(seg.az).to.be.near(spot.Z, 1e-6)
+					expect(seg.bx).to.be.near(spot.X + fx * ride.lengthStuds, 1e-6)
+					expect(seg.bz).to.be.near(spot.Z + fz * ride.lengthStuds, 1e-6)
+				end
+			end
+		end)
+
+		it("C1's L rides stand at the two depths SWARM_DESIGN 2.2 names, 560 and 780", function()
+			local main = Grid.roadsOf("C1").main
+			expect(Grid.standPosition("C1", 9).Z - main.at).to.be.near(560, 1e-6)
+			expect(Grid.standPosition("C1", 14).Z - main.at).to.be.near(780, 1e-6)
+			-- ...AND A FLANK STAND LOOKS ACROSS THE CELL, not along its own road.
+			local wx, wz = Plan.standFacing("C1", 9)
+			expect(wx).to.equal(1)
+			expect(wz).to.equal(0)
+			local ex, ez = Plan.standFacing("C1", 14)
+			expect(ex).to.equal(-1)
+			expect(ez).to.equal(0)
+		end)
+
+		it("and the ride arm BITES: the mask refuses points for it, and none without the rides", function()
+			local id = "C1"
+			local seg = Plan.rideSegments(id)[1]
+			-- ON THE V RIDE's own centreline, a third of the way up it -- far from the road bands.
+			local x = seg.ax + (seg.bx - seg.ax) / 3
+			local z = seg.az + (seg.bz - seg.az) / 3
+			expect(Plan.mask(id, x, z, nil, nil)).to.equal(Plan.REASON.RIDE)
+			-- ...AND JUST OUTSIDE IT, the same depth, is not refused for a ride.
+			local out = Plan.mask(id, x + Plan.RIDE_CLEAR_STUDS, z, nil, nil)
+			expect(out ~= Plan.REASON.RIDE).to.equal(true)
+			-- A COUNTED BITE over the whole cell, so an empty `rides` row cannot pass this.
+			local box = Grid.boundsOf(id)
+			local hits = 0
+			for step = 0, 40 do
+				local px = box.minX + (box.maxX - box.minX) * step / 40
+				for inner = 0, 40 do
+					local pz = box.minZ + (box.maxZ - box.minZ) * inner / 40
+					if Plan.mask(id, px, pz, nil, nil) == Plan.REASON.RIDE then
+						hits += 1
+					end
+				end
+			end
+			assert(hits > 8, string.format("the ride arm refused only %d of 1,681 lattice points", hits))
+		end)
+	end)
+
+	describe("each exclusion arm comes back at its own constant, and not just outside it", function()
+		it("the front cone, near and far, with its twin behind the stand", function()
+			local id = "C1"
+			-- STAND 6, NOT 4: the X cut at stand 3 crosses 140 studs ahead of the middle of the line
+			-- and its own crown set-back reaches stand 4's far-cone point, so that point answers
+			-- `crown` before it answers `cone` (round 2's first harness run). Stand 6 is 300 studs
+			-- east of the cut and 150 from the V ride.
+			local index = 6
+			local spot = Grid.standPosition(id, index)
+			local fx, fz = Plan.standFacing(id, index)
+			local reach = Plan.CONE.nearStuds - 4
+			expect(Plan.mask(id, spot.X + fx * reach, spot.Z + fz * reach, nil, nil)).to.equal(Plan.REASON.CONE)
+			-- BEHIND HIM is not his cone (it is outside the cell, and nothing else refuses it).
+			expect(Plan.mask(id, spot.X - fx * reach, spot.Z - fz * reach, nil, nil)).to.equal(nil)
+			-- THE FAR BAND is a rule about YOUNG GROWTH and about nothing else: same point, two
+			-- templates, two answers.
+			local far = (Plan.CONE.nearStuds + Plan.CONE.farStuds) / 2
+			local fx2, fz2 = spot.X + fx * far, spot.Z + fz * far
+			expect(Plan.mask(id, fx2, fz2, "LarchTree_Var01", 0.5)).to.equal(Plan.REASON.CONE)
+			expect(Plan.mask(id, fx2, fz2, "SilverBirch_Var08_LOD_0", 1)).to.equal(nil)
+			-- ...AND PAST THE CONE even a larch stands.
+			local past = Plan.CONE.farStuds + 20
+			expect(Plan.mask(id, spot.X + fx * past, spot.Z + fz * past, "LarchTree_Var01", 0.5)).to.equal(nil)
+		end)
+
+		it("a beater corridor, on its own jittered centreline and 15 studs off it", function()
+			local id = "C1"
+			local box = Grid.boundsOf(id)
+			local z = box.minZ + 700
+			local x = Plan.corridorXAt(id, 1, z)
+			expect(Plan.mask(id, x, z, nil, nil)).to.equal(Plan.REASON.CORRIDOR)
+			local off = Plan.CORRIDOR.halfStuds * 3
+			expect(Plan.mask(id, x + off, z, nil, nil) ~= Plan.REASON.CORRIDOR).to.equal(true)
+			expect(Plan.mask(id, x - off, z, nil, nil) ~= Plan.REASON.CORRIDOR).to.equal(true)
+			-- THE WANDER IS REAL: the centreline is not the same x at every depth.
+			expect(math.abs(Plan.corridorXAt(id, 1, z) - Plan.corridorXAt(id, 1, z + Plan.CORRIDOR.waveStuds / 2)) > 1).to.equal(
+				true
+			)
+		end)
+
+		it("D1's field, inside the headland and in it", function()
+			local rect = Plan.fieldRect("D1")
+			expect(rect ~= nil).to.equal(true)
+			local plan = Plan.cellPlanFor("D1")
+			local midX = (rect.minX + rect.maxX) / 2
+			local midZ = (rect.minZ + rect.maxZ) / 2
+			expect(Plan.mask("D1", midX, midZ, nil, nil)).to.equal(Plan.REASON.FIELD)
+			-- THE HEADLAND IS NOT THE FIELD: that is where the hedge and the lone oaks stand.
+			local inHeadland = rect.minZ + plan.field.headlandStuds / 2
+			expect(Plan.mask("D1", midX, inHeadland, nil, nil) ~= Plan.REASON.FIELD).to.equal(true)
+			-- ...AND NO OTHER CELL HAS ONE.
+			expect(Plan.fieldRect("C1")).to.equal(nil)
+			-- IT BITES: D1 plants nothing inside the field.
+			local inside = 0
+			for _, item in ipairs(planOf("D1")) do
+				if
+					item.x > rect.minX + plan.field.headlandStuds
+					and item.x < rect.maxX - plan.field.headlandStuds
+					and item.z > rect.minZ + plan.field.headlandStuds
+					and item.z < rect.maxZ - plan.field.headlandStuds
+				then
+					inside += 1
+				end
+			end
+			expect(inside).to.equal(0)
+		end)
+
+		it("a clearing refuses, and the zone beside it does not", function()
+			local id = "C1"
+			local plan = Plan.cellPlanFor(id)
+			local empty, solid = nil, nil
+			for _, zone in ipairs(plan.zones) do
+				if zone.spacingStuds <= 0 then
+					empty = Plan.zoneRect(id, zone)
+				elseif solid == nil then
+					solid = Plan.zoneRect(id, zone)
+				end
+			end
+			expect(empty ~= nil).to.equal(true)
+			expect(Plan.mask(id, (empty.minX + empty.maxX) / 2, (empty.minZ + empty.maxZ) / 2, nil, nil)).to.equal(
+				Plan.REASON.CLEARING
+			)
+		end)
+
+		it("the stand and tower arms are SUBSUMED by the road band, and that is why they cannot fire", function()
+			-- EVERY STAND IN THIS WORLD SITS ON A ROAD CENTRELINE (`Grid.standPosition`), and the
+			-- road's own trunk-free band is 34 studs -- wider than `POST_CLEAR_STUDS` 20 and
+			-- `TOWER_CLEAR_STUDS` 24. So design 7.4's clearance is MET by a stronger rule and the
+			-- two arms are unreachable. Asserted rather than deleted: a stand off a road would need
+			-- them, and this case is what would notice.
+			expect(Plan.POST_CLEAR_STUDS < Plan.ROAD_TRUNK_FLOOR_STUDS).to.equal(true)
+			expect(Plan.TOWER_CLEAR_STUDS < Plan.ROAD_TRUNK_FLOOR_STUDS).to.equal(true)
+			for _, id in ipairs(Grid.cellIds()) do
+				for index = 1, Grid.standCount(id) do
+					local spot = Grid.standPosition(id, index)
+					expect(roadGap(spot.X, spot.Z)).to.be.near(0, 1e-6)
+				end
+			end
+			-- AND NO PLANTING OF ANY CELL IS INSIDE EITHER CLEARANCE, which is the fact that matters.
+			-- ONE value over every pair and ONE `expect`: an expectation per pair is 168,000 of them
+			-- and it timed the server runner out (round 2's first harness run).
+			local worst = math.huge
+			for _, id in ipairs(Grid.cellIds()) do
+				local spots = {}
+				for other = 1, Grid.standCount(id) do
+					table.insert(spots, Grid.standPosition(id, other))
+				end
+				for _, item in ipairs(planOf(id)) do
+					if not Plan.isHerbName(item.model) then
+						for _, spot in ipairs(spots) do
+							local dx, dz = item.x - spot.X, item.z - spot.Z
+							worst = math.min(worst, dx * dx + dz * dz)
+						end
+					end
+				end
+			end
+			assert(
+				worst > Plan.TOWER_CLEAR_STUDS * Plan.TOWER_CLEAR_STUDS,
+				string.format("a trunk stands %.2f st from a stand", math.sqrt(worst))
+			)
+		end)
+
+		it("noTrees is a declared reason with no data behind it yet, and the spec says so", function()
+			-- THE SCARP IS B2's AND IT IS 328h's (the bake). Until a recipe carries a `noTrees` row
+			-- the arm cannot fire, and a case claiming otherwise would be a false pass.
+			for _, id in ipairs(Grid.cellIds()) do
+				expect((Plan.cellPlanFor(id) :: any).noTrees).to.equal(nil)
+			end
+			local seen = false
+			for _, reason in ipairs(Plan.REASON_ORDER) do
+				seen = seen or reason == Plan.REASON.NO_TREES
+			end
+			expect(seen).to.equal(true)
+		end)
+	end)
+
+	describe("the fern floor is ferns", function()
+		it("every item a fern band produces is ground cover, in a W/M/B/Bo zone", function()
+			-- ROUND 1, FINDING 1: the frontage rewrite was reaching the herb layer, dropping the one
+			-- `fern` row and putting the four TREE groups back -- full trees at the herb band's own
+			-- 0.8-1.7 scale, on the floor's neighbour grid.
+			local wrong, worstName = 0, ""
+			local counts, total, mine = {}, 0, 0
+			for _, id in ipairs(Grid.cellIds()) do
+				local ferns = 0
+				for _, item in ipairs(planOf(id)) do
+					if item.band == "herb" then
+						ferns += 1
+						local zone = Plan.zoneAt(id, item.x, item.z)
+						if not Plan.isHerbName(item.model) or zone == nil or not Plan.FERN_MIXES[zone.mix] then
+							wrong += 1
+							worstName = item.model
+						end
+					end
+				end
+				table.insert(counts, string.format("%s=%d", id, ferns))
+				total += ferns
+				if id == "C1" then
+					mine = ferns
+				end
+			end
+			assert(wrong == 0, string.format("%d herb-band item(s) are not ground cover, e.g. %s", wrong, worstName))
+			-- THE BITE: this cell's own floor exists. A per-cell `> 0` would be a bet on seven other
+			-- recipes whose zones are mostly thicket, scrub and larch -- none of them `FERN_MIXES`.
+			assert(mine > 0 and total > 0, "no ferns: " .. table.concat(counts, " "))
+			-- AND THE RULE ITSELF: a mix carrying ground cover is passed through untouched.
+			local plan = Plan.cellPlanFor("C1")
+			local floor = Plan.cellMixNamed("fernFloor")
+			expect(#Plan.frontageRows(plan, floor)).to.equal(#floor)
+			expect(Plan.frontageRows(plan, floor)[1].group).to.equal("fern")
+			expect(Plan.frontageGroupFor(plan, "fern", 0.5)).to.equal("fern")
+			-- ...WHILE A CONIFER IN A FRONTAGE BAND IS RE-DRAWN from the four groups.
+			local drawn = Plan.frontageGroupFor(plan, "conifer", 0.5)
+			expect(drawn ~= "conifer").to.equal(true)
+			expect(Plan.frontageAllowsGroup(plan, drawn)).to.equal(true)
+			-- ...AND AN ALLOWED GROUP IS KEPT, so the zone's own character survives where it can.
+			expect(Plan.frontageGroupFor(plan, "birch", 0.5)).to.equal("birch")
+			-- THE TWO DOORS ANSWER ONE RULE: the template one is the group one through `groupOf`.
+			expect(Plan.frontageAllows(plan, "SilverBirch_Var08_LOD_0")).to.equal(true)
+			expect(Plan.frontageAllows(plan, "Old_Spruce_Tree_Var01_LOD_0")).to.equal(false)
+			expect(Plan.frontageAllowsGroup(plan, "birch")).to.equal(true)
+			expect(Plan.frontageAllowsGroup(plan, "conifer")).to.equal(false)
+		end)
+	end)
+
+	describe("the relief bias is a function of the ground, and it bites", function()
+		it("the same cell on a low hillside and on a high one draws different woods", function()
+			local id = "C1"
+			local cell = Grid.cellOf(id)
+			local low = cell.relief.minY + 0.1 * cell.relief.spreadStuds
+			local high = cell.relief.minY + 0.9 * cell.relief.spreadStuds
+			local function histogram(heightAt): { [string]: number }
+				local out: { [string]: number } = {}
+				for _, item in ipairs(Plan.plantCell(id, heightAt)) do
+					local group = Plan.groupOf(item.model) or "?"
+					out[group] = (out[group] or 0) + 1
+				end
+				return out
+			end
+			local cold = histogram(function()
+				return low
+			end)
+			local warm = histogram(function()
+				return high
+			end)
+			-- UNDER hn .30 a broadleaf zone draws spruce; OVER .70 a spruce zone draws birch.
+			expect((cold.conifer or 0) > (warm.conifer or 0)).to.equal(true)
+			expect((warm.birch or 0) > (cold.birch or 0)).to.equal(true)
+			-- AND WITH NO READER the bias is simply off -- the plan every caller before 328f got.
+			local none = histogram(nil)
+			expect((none.conifer or 0) < (cold.conifer or 0)).to.equal(true)
+			-- THE FERN FLOOR IS NEVER BIASED: a fern is not a broadleaf zone.
+			expect(cold.fern).to.equal(none.fern)
+		end)
+
+		it("a plantation is planted in rows: A2's larch zones hold their x line", function()
+			local plan = Plan.cellPlanFor("A2")
+			local rowZones = 0
+			for _, zone in ipairs(plan.zones) do
+				if zone.rows == "NS" then
+					rowZones += 1
+				end
+			end
+			expect(rowZones > 0).to.equal(true)
+			-- THE SITES IN A ROW ZONE SIT ON A SMALL NUMBER OF DISTINCT x VALUES, because only the
+			-- depth wanders. Count them against the same zone's own spacing.
+			local lines: { [number]: boolean } = {}
+			local counted = 0
+			for _, item in ipairs(planOf("A2")) do
+				for _, zone in ipairs(plan.zones) do
+					if zone.rows == "NS" then
+						local rect = Plan.zoneRect("A2", zone)
+						if
+							item.x >= rect.minX
+							and item.x <= rect.maxX
+							and item.z >= rect.minZ
+							and item.z <= rect.maxZ
+							and item.band ~= "herb"
+						then
+							lines[math.floor(item.x * 1000 + 0.5)] = true
+							counted += 1
+						end
+					end
+				end
+			end
+			expect(counted > 50).to.equal(true)
+			local distinct = 0
+			for _ in pairs(lines) do
+				distinct += 1
+			end
+			-- FAR fewer lines than trees: a jittered grid would give one x per tree.
+			expect(distinct * 4 < counted).to.equal(true)
+		end)
+	end)
 
 	describe("the census and the planter disagree about nothing but the instrument", function()
 		-- THE NAME HALF OF DESIGN 13.2 CASE 10 IS THE WEAKER HALF and is said so: the names come from

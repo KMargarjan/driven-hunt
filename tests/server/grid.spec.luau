@@ -1203,8 +1203,17 @@ return function()
 						local zoneThere = Plan.zoneAt(found.id, item.x, item.z)
 						expect(zoneThere ~= nil).to.equal(true)
 						expect(zoneThere.spacingStuds > 0).to.equal(true)
+						-- ...THROUGH THE FRONTAGE RULE (task 328f): within 60 studs of a road or a
+						-- ride centreline only `frontage.groups` are drawn, so the mix a skirt
+						-- planting comes from is the neighbour zone's mix AS THAT RULE LEAVES IT.
+						-- `frontageRows` returns the mix unchanged outside the band.
+						local theirPlan = Plan.cellPlanFor(found.id)
+						local rows = Plan.cellMixNamed(zoneThere.mix)
+						if Plan.inFrontage(found.id, item.x, item.z) then
+							rows = Plan.frontageRows(theirPlan, rows)
+						end
 						local names = {}
-						for _, row in ipairs(Plan.cellMixNamed(zoneThere.mix)) do
+						for _, row in ipairs(rows) do
 							for _, name in ipairs((Plan.SPECIES :: any)[row.group]) do
 								names[name] = true
 							end
@@ -1435,7 +1444,14 @@ return function()
 			grid.Name = Planter.GRID_FOLDER
 			local report = Planter.dressCell(id, grid, hillside, template, nil, nil)
 			expect(report.cell).to.equal(id)
-			expect(report.wanted).to.equal(#woods[id])
+			-- THE SAME READER THE DRESS USES (task 328f): `Plan.plantCell`'s relief bias is a pure
+			-- function of a height, so a plan made WITHOUT one is a different, equally valid plan --
+			-- `woods` above has no reader on purpose, and comparing the two would compare two worlds.
+			expect(report.wanted).to.equal(#Plan.plantCell(id, hillside))
+			-- ...AND THAT IS NOT A VALUE COMPARED WITH ITSELF (round 1, finding 2): the plan WITH a
+			-- reader and the plan without one are different plans, so the line above fails if
+			-- `dressCell` stops handing the ground reader through. `woods[id]` is the no-reader one.
+			expect(#Plan.plantCell(id, hillside) ~= #woods[id]).to.equal(true)
 			expect(report.planted > 0).to.equal(true)
 			expect(report.missing).to.equal(0)
 			expect(report.destroyed).to.equal(0)
