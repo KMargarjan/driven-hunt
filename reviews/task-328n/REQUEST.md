@@ -3,7 +3,7 @@
 Task: 328n
 Round: 1
 Base: 4ee9f3aa
-Code commit: (filled in below, at the harness line)
+Code commit: 782fc1ab15956ca6964783e137b2d5a2fb201d2a
 
 Karen, 2026-11-03: *"red stag stuck cant clim in this mountain"*.
 
@@ -47,3 +47,71 @@ One writer, one constant. `MAX_FORCE` is a FORCE, and `Boar.speciesConfig` repla
 is 1.85x the mass on the same force, and gets 54 % of the boar's acceleration.
 
 **(e) HOW IT WILL BE MEASURED AFTER.** The same two probes, same place, same session.
+
+## HARNESS
+
+```
+[harness] PASS: 34/34 checks @ 782fc1ab15956ca6964783e137b2d5a2fb201d2a (clean tree) scope=all
+```
+2795 server + 676 client assertions, 0 failed, 0 errors. **No flake fired**, so no control run is
+owed. `test2` is **N/A**: no path in `TWO_PLAYER_PATHS` is touched (`src/server/Boar/`,
+`tests/server/deer.spec.luau`). `studio_mcp.py selftest` and `agents.py selftest` both pass.
+
+## WHAT CHANGED
+
+`src/server/Boar/init.luau` -- one new row, `MAX_FORCE_BODY = Vector3.new(2, 3, 5.5)`, the box
+`MAX_FORCE` was tuned on. `src/server/Boar/Body.luau` -- `Body.driveForce` (pure) and one call site,
+`Body.create`'s `mover.MaxForce`. `tests/server/deer.spec.luau` -- three cases.
+
+## CLAIMS
+
+1. **The cause is measured, not argued.** `<runs-dir>/328n-ladder-CYCLE3.txt`: of 18 C1 points
+   at >= 8 deg, 14 are ground a BOAR crosses (>= 50 studs in 4 s commanded uphill). On those the
+   deer-sized body covered **5/14 before, 12/14 after**; mean **26.5 -> 60.8 studs**. Every failing
+   row is 17-21 deg and reads 0.0-4.0 before, 59.6-67.7 after. *Verify:* read the file; the boar
+   column is the control and is unchanged between the two.
+2. **Karen's sentence, reproduced as a number.** `<runs-dir>/328n-stuck-BEFORE.txt`: a counted
+   100 s window of a live C1 drive -- the one stag held **16.0 s with no progress** (commanded to
+   move, net under 8 studs over 6 s) at (-3798,-5059) on a **14.8 deg** slope, 48 studs north of the
+   main road; stuck samples **20.7 %** against 0.0-0.8 % for every boar kind.
+3. **...and answered.** `<runs-dir>/328n-stuck-AFTER2.txt`, same probe, same place, same cell, with
+   the force the shipped `Body.driveForce` computes: stag no-progress worst **0.0 s**, stuck samples
+   **0.6 %**, **0 of 61** animals with no progress >= 6 s (BEFORE: 1 of 29), road crossings
+   **17 of 18** (BEFORE: 1 of 2). *Verify:* the two files, read side by side.
+4. **No animal loses force.** `driveForce` is `math.max(force, force * volume / refVolume)`. Male,
+   sow and cub keep **6000** exactly; the stag gets 11,075 and the legendary 14,762. The first form
+   scaled both ways and took the cub to **547** -- measured in her place
+   (`<runs-dir>/328n-patch.txt`) and rejected before it shipped. *Verify:* `deer.spec`'s two pure
+   cases and the live one, which reads `Mover.MaxForce` off the real trunks `Runtime:spawn` built.
+5. **The live case bites when the producer is deleted (L-093).** It reads `MaxForce / AssemblyMass`
+   off seven real trunks: revert the `Body.create` line and the stag's and legendary's accelerations
+   fall to 0.54 and 0.41 of the male's, failing the `1e-6` equality. The harness proved this for
+   real: the FIRST version of that case asserted every boar kept 6000 and the run FAILED
+   (`expected 6000, got 14762.25`) because the legendary is scale 1.35 -- the case found a fact I
+   had got wrong. *Verify:* `<runs-dir>/328n-harness2.txt` is that failing run.
+6. **Frames, at hunter eye height, same camera both sides** (rule F, L-076). Camera K1 on the main
+   road at (-3798, 124.63, -5112), ground 119.03, eye 5.6, looking at (-3798, -5045).
+   `328n-BEFORE3-K1.png` (+ `-zoom.png`, 4x): the stag broadside among the trunks past the grass
+   verge, not moving -- Karen's own frame. `328n-AFTER-K1.png`: same camera, same placement, he has
+   left within 2 s. `328n-AFTER4-K2.png`: the same stag mid-stride in the wood on C1's slope. All
+   four opened and described in the report.
+7. **The boar did not regress.** AFTER census: cub n=28, female n=14, male n=18, **0** with no
+   progress, worst stuck 1.4 s. BEFORE: cub n=12, female n=7, male n=9, 0 with no progress.
+8. **Her place is untouched.** `328n-attrs-BEFORE.txt` and `328n-attrs-AFTER.txt` diff to nothing
+   (L-101). Nothing was saved, published or committed there; every force change was a runtime write
+   inside a Play session that is now stopped, and her build stays on merged `main` (L-014).
+
+## WHAT I COULD NOT VERIFY
+
+- **The AFTER force in her place is a runtime write, not this branch's code.** Her Forest Test only
+  ever runs merged `main` (L-014), so the AFTER runs set `Mover.MaxForce` to the number
+  `Body.driveForce` computes (`<runs-dir>/328n-patch.luau`, the same `math.max` arithmetic). The
+  code's own writing of that number is proved by `deer.spec`'s live case in the harness, not here.
+- **The staged 8-second placement is a weak instrument and no claim rests on it.** The stag's
+  setpoint is his brain's: with a player anchored on the road he flees north and downhill, so that
+  pair reads -5.06 -> -3.57 studs climbed. It measures the brain, not the body.
+- **Two of the 14 crossable points still stop the stag**, and more force changes neither, so neither
+  is this cause: `TASKS.md` 328n-notes(a).
+- **One stag per drive.** Deer are rare by design (`DEER.RELEASE`), so each census window holds
+  n=1 stag. The ladder is what carries the claim statistically; the census is what carries it
+  end-to-end.
