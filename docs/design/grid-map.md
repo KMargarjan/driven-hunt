@@ -1577,3 +1577,25 @@ brief's first requirement.
 > nothing in `src/` ever destroys** — see `docs/design/grid-terrain.md` §10.1. **K-6 is closed: bare
 > earth**, on `Places.SURFACES`' own measurement. **The full design is
 > `docs/design/grid-terrain.md`, and where the two disagree that document wins.**
+
+## 19. Superseded by the derived capacity bound (task 328p)
+
+*The capacity half of `docs/design/grid-roads.md` section 14's delta for this document, pasted by the
+task that makes it true. The rest of that delta -- the bend itself -- belongs to task 328q and is not
+here.*
+
+> **§8.3's *"hard bound < 3,600 models"* and its *"≈ 7 descendants per model"* are superseded** by two
+> bounds derived from the **measured 3.03** parts a model (5,104 parts for 1,687 planted models in C1,
+> task 328m, re-derived in `reviews/task-328m/RESULT.md`): a **plan cap of 7,260** and a **draw cap of
+> 2,640 a cell** (`grid-roads.md` §8). The old pair disagreed with this section's own **22,000**-part
+> ceiling by 3,200 parts — 3,600 × 7 = 25,200 — and the 22,000 itself is kept, as
+> `Places.PART_BUDGET_DRIVE`. The caps are **computed, not typed**: `CELL_PLAN_CAP` is
+> `PART_BUDGET_DRIVE / PARTS_PER_MODEL` and `CELL_PART_CAP` is `PART_BUDGET_CELL / PARTS_PER_MODEL`,
+> so a budget change moves both. **§13.1 case 14 moves with them**: it now asserts three things and
+> prints both slacks — `#list <= capacity`, `capacity <= CELL_PLAN_CAP`, and
+> `#list <= CELL_PART_CAP`, which is the one that now binds. C1's room for Karen's *"more trees"*
+> (2026-11-03 ~11:20 UTC) goes from **184** models to **953**: a 20.1 % spacing cut instead of 2.6 %.
+> **The per-cell 8,000-part ceiling is DERIVED, NOT MEASURED** (`grid-terrain.md` §12.2): 328g's
+> client frame is what can raise or lower it, and no spec and no request may cite 8,000 as a
+> measurement until that run happens. **The full design is `docs/design/grid-roads.md`, and where the
+> two disagree that document wins.**

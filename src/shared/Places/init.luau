@@ -1117,9 +1117,9 @@ Places.CELL_PLANS = table.freeze({
 		--    row -- a grid you can see. 1.0 spans the step, costs no capacity, and is the dispatch's
 		--    *"no rows where the design does not ask for rows"*.
 		--
-		-- THE BUDGET IS WHAT SETS THE NUMBERS, not taste: design 8.3's hard bound is `cellCapacity`
-		-- < 3,600 and `grid.spec` case 14 asserts it. C1 stood at 2,598; these rows put it at 3,416,
-		-- which leaves 184 -- the park's 132 among them, now that it carries no second storey.
+		-- THE BUDGET IS WHAT SETS THE NUMBERS, not taste: the bound is `grid-roads.md` 8.2's pair,
+		-- `cellCapacity <= CELL_PLAN_CAP` (7,260) and drawn `<= CELL_PART_CAP` (2,640). C1 stood at
+		-- 2,598; these rows put its capacity at 3,416 and its draw at 1,687, so 953 models of room.
 		-- MEASURED, three allocations of that same budget (`driven-hunt-runs/328m-yield-v{1,2,3}.txt`):
 		-- 1,885 / 1,876 / 1,886 planned models at capacity 3,548 / 3,588 / 3,526. The count PLATEAUS,
 		-- because what refuses a site is `minGapStuds` and `Places.mask`, not the grid -- a per-zone
@@ -2751,9 +2751,29 @@ function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?
 	return out
 end
 
+-- WHAT A MODEL COSTS IN PARTS. MEASURED in Karen's Forest Test at task 328m's code commit: 5,104
+-- parts for 1,687 planted models in C1 (`reviews/task-328m/RESULT.md`, re-derived by the Reviewer).
+-- It SUPERSEDES `grid-map.md` 8.3's "~7 descendants per model", which made that section's own two
+-- bounds disagree by 3,200 parts (3,600 x 7 = 25,200 against its 22,000 ceiling). It is C1's MIX, so
+-- the census prints `parts` every run and this number is re-read, never trusted forever.
+-- Design: docs/design/grid-roads.md 8.2. Note: docs/research/2026-11-03-curved-grid-roads.md 4.
+Places.PARTS_PER_MODEL = 3.03
+
+-- THE TWO PART CEILINGS the model caps come from. `PART_BUDGET_CELL` is DERIVED, NOT MEASURED
+-- (`grid-terrain.md` 12.2): 328g's client frame -- <= 16.7 ms with <= 17,000 parts inside 1,024
+-- studs -- is what can raise or lower it, and nothing may cite 8,000 as a measurement before it.
+Places.PART_BUDGET_DRIVE = 22000
+Places.PART_BUDGET_CELL = 8000
+
+-- THE MODEL CAPS, COMPUTED AND NOT TYPED (lesson L-167): change a budget or the ratio and these move
+-- with it. 7,260 bounds the PLAN (a typo guard) and 2,640 bounds what is DRAWN in one cell.
+Places.CELL_PLAN_CAP = math.floor(Places.PART_BUDGET_DRIVE / Places.PARTS_PER_MODEL)
+Places.CELL_PART_CAP = math.floor(Places.PART_BUDGET_CELL / Places.PARTS_PER_MODEL)
+
 -- THE UPPER BOUND ON WHAT ONE CELL PLANTS, known before anything runs: every grid's cell count, with
--- nothing subtracted for the lane rule or the gap rule. Design 8.3's hard bound is 3,600 models a
--- drive and `grid.spec` case 14 asserts BOTH halves -- `#plantCell(id) <= this` and `this < 3600`.
+-- nothing subtracted for the lane rule or the gap rule. `grid-roads.md` 8.2's caps bound it and
+-- `grid.spec` case 14 asserts all three -- `#plantCell(id) <= this`, `this <= CELL_PLAN_CAP` and
+-- `#plantCell(id) <= CELL_PART_CAP`.
 function Places.cellCapacity(cellId: string): number
 	local plan = Places.cellPlanFor(cellId)
 	if plan == nil then
@@ -2769,7 +2789,7 @@ function Places.cellCapacity(cellId: string): number
 	for _, item in ipairs(plan.zones) do
 		total += cells(Places.zoneRect(cellId, item), item.spacingStuds)
 		-- THE UNDERSTOREY IS PART OF THE BOUND (task 328m) and not an exemption from it: a second
-		-- storey that the budget did not count would breach design 8.3's < 3,600 unseen.
+		-- storey that the budget did not count would breach `CELL_PLAN_CAP` unseen.
 		if item.under ~= nil then
 			total += cells(Places.zoneRect(cellId, item), item.under.spacingStuds)
 		end
