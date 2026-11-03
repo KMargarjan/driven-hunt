@@ -1,18 +1,12 @@
 # Task 328m -- review request
 
 Task: 328m
-Round: 1
+Round: 2
 Base: 056f085c (main)
-Code commit: 9f537820e3db6f71c70aecf7f69730c8eeb63f42
+Code commit: 7ff5c4d3309da61e9046862cc30c651f9de5b4aa
 
-`[harness] PASS: 34/34 checks @ 9f537820e3db6f71c70aecf7f69730c8eeb63f42 (clean tree) scope=all`
-(`driven-hunt-runs/328m-harness3.txt`.) `test2` is **N/A**: nothing in `TWO_PLAYER_PATHS` is touched
--- the change is `src/shared/Places`, `src/server/Places`, `src/server/ForestTestBoot.server.luau`
-and `tests/server/grid.spec.luau`.
-
-The run before it (`328m-harness2.txt`) failed 32/34 on `deer_hitbox.spec:659`, named in the dispatch
-as a known intermittent and in no file this task touches; the re-run above is clean and is the
-evidence. No FAIL line is claimed as evidence here.
+`[harness] PASS: 34/34 checks @ 7ff5c4d3309da61e9046862cc30c651f9de5b4aa (clean tree) scope=all`
+(`driven-hunt-runs/328m-harness4.txt`.) `test2` is **N/A**: nothing in `TWO_PLAYER_PATHS` is touched.
 
 ## What changed
 
@@ -24,76 +18,95 @@ Karen played C1 in her Forest Test on 2026-11-03 (`PLAYTEST.md`, verbatim).
    `backups/2026-11-03_task-328m_Places-stakeGrid-and-grid-case-22.md`. `Places.GRID_FOLDER` stays --
    the cell's wood is dressed into it and `ForestTest.GROUND_IGNORE` names it.
 2. **"has to be a bit more realistic more trees but rest is good"** -- a zone gains an optional
-   `under` row (`Places.CELL_PLANS`, C1 only): a second, finer layer over the same rectangle, on its
-   own stream, at the `shrub` band's scale, sharing the canopy's neighbour grid and `minGapStuds`.
-   C1's three closed canopy zones tighten 24/32/30 -> 21/28/27 and every zone takes `jitter` 1.0.
-   `oakPark`, the clearing and the two scrub zones are untouched -- they are "the rest".
+   `under` row (C1 only): a second, finer layer over the same rectangle, on its own stream, at the
+   `shrub` band's scale, sharing the canopy's neighbour grid and `minGapStuds` so it clumps into
+   the gaps. Per zone: `spruceThicket` / `mixedWood` / `birchStand` tighten 24/32/30 -> 21/28/27 AND
+   take `under`; **`oakPark` takes neither**; the clearing takes nothing; the two `scrub` zones keep
+   their spacing but DO take `jitter` 1.0, like every zone, so their sites move.
+
+**Round 1's finding is fixed.** `oakPark` had an `under` row at 42 studs -- tighter than its own
+44-stud canopy -- against its own header's reasoning. The row is dropped, and the header is rewritten
+**per zone**, which is the shape the claim needed: round 1 said the two scrub zones were "untouched"
+and they are not, because `jitter` 1.0 moves every one of their sites.
 
 ## Claims
 
-1. **No stake is built any more, and `GridPlaces` still is.** `Places.STAKE` / `gridStakes` /
-   `stakeGrid` are gone from `src/server/Places/init.luau`; `grep -rn "stakeGrid\|Places.STAKE" src/
-   tests/` finds only the archive pointer. `grid.spec` case 22 asserts the folder exists with the
-   preview on, holds **0** children at build, and that `report.gridStakes` / `report.gridMissing`
-   are **nil** -- so a later report cannot quietly reintroduce the count. **LIVE**, the branch's own
-   `Places.build` in Karen's Play session: `stakes 32 -> 0`, `report{gridStakes=nil gridMissing=nil}`,
-   `ForestMarkers` 16 children and `HighSeats` 3 untouched (`328m-rebuild-AFTER.txt`).
-2. **Nothing else tall and yellow/orange stands at C1's junctions or road ends.** Frame
-   `328m-AFTER-J1.png`, the same camera as `328m-BEFORE-J1.png` (the junction of `NS3` and `EW2`,
-   eye 5.6 studs, level gaze): four glowing pillars before, none after, and no other such object in
-   the frame. `Workspace` descendant scan after the build: `stakesInWorkspace=0`
-   (`328m-census-AFTER.txt`).
-3. **The understorey is data and it plants.** `Zone.under`, `Places.CELL_STREAM.under`,
+1. **No stake is built any more, and `GridPlaces` still is.** `grep -rn "stakeGrid|Places.STAKE"
+   src/ tests/` finds only the archive pointer and case 22's two `nil` assertions. Case 22 asserts
+   the folder exists with the preview on, holds **0** children at build, and that `report.gridStakes`
+   / `gridMissing` are **nil**. **LIVE**, the branch's own `Places.build` in her Play session at this
+   commit: `stakes 32 -> 0`, `report{gridStakes=nil gridMissing=nil}`, `ForestMarkers` 16 children
+   and `HighSeats` 3 untouched (`328m-rebuild2-AFTER.txt`).
+2. **Nothing else tall and yellow/orange stands at C1's junctions or road ends.** `328m-BEFORE2-J1.png`
+   vs `328m-AFTER2-J1.png`, the same camera (the `NS3`/`EW2` junction, eye 5.6 studs, gaze pinned
+   level on BOTH sides so the pair is one camera). Both looked at: BEFORE, four glowing yellow
+   pillars stand across the road at ~400 studs, two either side of the carriageway, taller than the
+   spruce wall behind them. AFTER, they are gone; the same spruce wall, the same rutted road, the
+   same far stand frame on the skyline, and no other tall coloured object anywhere in the frame.
+   Descendant scan: `stakesInWorkspace=0` (`328m-census2-AFTER.txt`).
+3. **`oakPark` is untouched, and that is measured, not asserted.** `328m-yield-v4.txt`: `oakPark
+   sp=44 cap=120 got=76 | under sp=nil cap=0 got=0`, against round 1's `sp=44 ... got=76 | under
+   sp=42 cap=132 got=62`. Its canopy count is the SAME 76 either way -- the understorey ran after
+   the zone loop on the shared grid and displaced nothing.
+4. **The understorey is data and it plants.** `Zone.under`, `Places.CELL_STREAM.under`,
    `Places.UNDER_JITTER`, and the loop in `Places.plantCell` after the zone loop. C1's `shrub` band
-   goes **317 -> 525** planted (`328m-census-BEFORE.txt` / `-AFTER.txt`, `bands[...]`). `grid.spec`
-   case 12a asserts `saplings > 381` -- the two scrub zones alone hold 381 sites -- so the case
-   reddens the moment that loop is deleted (L-093).
-4. **It is counted in design 8.3's bound.** `Places.cellCapacity` adds the `under` grid. C1
-   **2,598 -> 3,548**, and case 14's `capacity < 3600` still passes. Case 12a asserts
-   `cellCapacity("C1") == zones + under + ferns + skirt` from its own arithmetic, so dropping the
-   clause reddens it.
-5. **The gap rule has no seam.** The understorey shares the canopy's grid AND `minGapStuds`, which
-   is both what makes it clump into the gaps and what stops a sapling inside a trunk. Case 12a
-   re-buckets C1's whole non-herb list and asserts the closest pair is **>= 12**; measured 12.06
-   (`328m-yield-v1.txt`). Giving the layer its own grid or its own gap reddens it.
-6. **MEASURED IN HER PLACE AT THE CODE COMMIT, same probe both sides** (`328m-plant.py`, `--raw` =
-   the place's own modules = main, no flag = the branch's). **Every counter the census emits**:
-   `trees` 1433 -> 1755 · `parts` 4338 -> 5319 · `floating` 0 -> 0 · `sunk` 0 -> 0 ·
+   goes **317 -> 457** planted (`328m-census2-BEFORE.txt` / `-AFTER.txt`). Case 12a asserts
+   `saplings > 381` -- the two scrub zones alone hold 381 sites -- so it reddens the moment that loop
+   is deleted (L-093); with the loop it reads 452.
+5. **It is counted in design 8.3's bound.** `cellCapacity` adds the `under` grid: C1
+   **2,598 -> 3,416**, 184 under the 3,600 the case asserts (round 1 left 52). Case 12a asserts
+   `cellCapacity("C1") == zones + under + ferns + skirt` from its own arithmetic.
+6. **The gap rule has no seam.** Case 12a re-buckets C1's whole non-herb list and asserts the closest
+   pair is **>= 12**; measured 12.06 (`328m-yield-v4.txt`). Its own grid or its own gap reddens it.
+7. **MEASURED IN HER PLACE AT THIS CODE COMMIT, one boot, same probe both sides** (`328m-plant.py`,
+   `--raw` = the place's own modules = main). **Every counter the census emits**:
+   `trees` 1433 -> 1687 · `parts` 4338 -> 5104 · `floating` 0 -> 0 · `sunk` 0 -> 0 ·
    `foliageInGround` **62 -> 65** · `tilted` 0 -> 0 · `broken` 0 -> 0 · `noGround` 0 -> 0 ·
-   `inRoad` 0 -> 0 · `inStand` 0 -> 0 · `inLane(other-world)` **81 -> 111** · `onCliff` 0 -> 0 ·
-   `crownOverRoad` 0 -> 0 · `crownUnmeasured` 0 -> 0 · `refusedCliff` 118 -> 123 ·
-   `refusedSkipped` 0 -> 0 · `refusedWanted` 1551 -> 1878 · `refusedPct` **7.61 % -> 6.55 %** ·
+   `inRoad` 0 -> 0 · `inStand` 0 -> 0 · `inLane(other-world)` **81 -> 98** · `onCliff` 0 -> 0 ·
+   `crownOverRoad` 0 -> 0 · `crownUnmeasured` 0 -> 0 · `refusedCliff` 118 -> 122 ·
+   `refusedSkipped` 0 -> 0 · `refusedWanted` 1551 -> 1809 · `refusedPct` **7.61 % -> 6.74 %** ·
    `worstHigh` 0.0000153 -> 0.0000153 · `worstSink` 0.600 -> 0.600 · `laneHalf` 21 -> 21.
-   Plant: `planMs` 41 -> 52, `plantSeconds` 1.0 -> 1.3, `capacity` 2598 -> 3548.
-   **Two counters rose** and neither is a defect: `foliageInGround` +3 is 328l's known residue (the
-   three `Field_OakTree` variants) and FELL as a fraction, 4.33 % -> 3.70 %; `inLane` is labelled in
-   `GridCensus` itself as *"NOT a cell defect"* -- the four legacy line places' stripe across the
-   whole world, retired at 327d -- and it scales with the count.
-7. **`refused` went DOWN, not up, and that was the risk in this task (L-041).** 7.61 % -> 6.55 %
-   against the 8 % gate: 118 -> 123 cliff refusals against a want of 1551 -> 1878, because the sites
-   added are in the cell's gentler interior. **The gate's threshold and `SCOPE_SPECS` are
-   untouched**; had it gone over, the fix would have been more plant sites, never the gate.
-8. **The seven other cells are byte-identical.** `328m-cap-BEFORE.txt` / `328m-cap-AFTER.txt`: A1,
-   B1, D1, A2, B2, C2, D2 all report the same `cap` and the same `plan` count on both sides. Only
-   C1 moves. Case 12a asserts C1 is the only cell carrying an `under` row.
-9. **Posts, towers and the boot are clean.** Her boot line: `grid preview cell C1: 15 of 15 post(s)
-   (7 line), 3 tower(s) at {8,13,15}, line=true, complete=true`, and `0` lines matching
-   `Stack Begin|attempt to|invalid argument` in the whole console, before and after
-   (`328m-console-BEFORE.txt`, `328m-console-AFTER.txt`).
-10. **No terrain write, and her place is untouched.** The probes raycast `Workspace.Terrain` and
+   Plant: `planMs` 43 -> 46, `plantSeconds` 1.1 -> 1.4, `capacity` 2598 -> 3416.
+   **The two that rose**, named rather than left out: `foliageInGround` +3 is 328l's known residue
+   (the three `Field_OakTree` variants) and FELL as a fraction, 4.33 % -> 3.85 %; `inLane` is
+   labelled in `GridCensus` itself as *"NOT a cell defect"* -- the legacy line places' stripe across
+   the whole world, retired at 327d -- and it scales with the count.
+8. **`refused` went DOWN, and that was the one real risk here (L-041).** 7.61 % -> 6.74 % against the
+   8 % gate: 118 -> 122 cliff refusals against a want of 1551 -> 1809, because the added sites are in
+   the cell's gentler interior. **The gate's threshold and `SCOPE_SPECS` are untouched**; had it gone
+   over, the fix would have been more plant sites, never the gate.
+9. **The seven other cells are byte-identical.** `328m-cap-BEFORE.txt` vs `328m-cap-AFTER.txt`:
+   A1, B1, D1, A2, B2, C2, D2 report the same `cap` and the same `plan` count on both sides. Case 12a
+   asserts C1 is the only cell carrying an `under` row.
+10. **The new density, at eye height, looked at.** `328m-{BEFORE2,AFTER2}-{S1,W1}.png`, same cameras.
+    **S1** (stand 5, looking north up the V ride): BEFORE, scattered trunks on an unbroken lawn and
+    the far hillside visible between every pair; AFTER, the flanks close into a wall of conifer with
+    small spire-shaped larches among them, the hillside is now screened except straight up the ride,
+    and the 54-stud ride itself is still open from the post to the skyline. **W1** (inside the birch
+    stand, looking west): BEFORE, ~14 bare trunks with the ground visible all the way out; AFTER,
+    more trunks plus three or four conical young larches standing BETWEEN them at mid-ground -- a
+    second storey where there was none. The floor is still grass in both: the fern layer is
+    unchanged (50 planted, design 8.2's Krautsaum, cap 400).
+11. **Posts, towers and the boot are clean.** Her boot line: `grid preview cell C1: 15 of 15 post(s)
+    (7 line), 3 tower(s) at {8,13,15}, line=true, complete=true`; `places: 3 dressed, 3727 planted
+    (9105 parts), ... 9.92s`; and **0** lines matching `Stack Begin|attempt to|invalid argument` in
+    the whole console, before and after (`328m-console2-BEFORE.txt`, `328m-console2-AFTER.txt`).
+12. **No terrain write, and her place is untouched.** The probes raycast `Workspace.Terrain` and
     never write it; `ServerStorage`'s 19 attributes are byte-identical before and after (same md5,
-    `328m-attrs-BEFORE.clean` / `-AFTER.clean`), nothing was checked out in `driven-hunt-karen`, and
-    her place was never saved, published or committed.
+    `328m-attrs2-BEFORE.clean` / `-AFTER.clean`), the Edit place holds no `GridPlaces` and no stake
+    afterwards, nothing was checked out in `driven-hunt-karen`, and her place was never saved,
+    published or committed.
 
 ## What I could not verify
 
-- **Whether the new density reads as "realistic" to Karen.** That is hers (`## Needs Karen`). The
-  frames are `328m-{BEFORE,AFTER}-{J1,S1,W1}.png`, all six looked at and described in the report.
-- **The pre-328f count of ~2,019 is not reached and cannot be** from this ground: 1,755 is +22.5 %,
-  and three allocations of the same budget all land at ~1,885 planned. What refuses the rest is
-  `Places.mask` (the rides, cones, corridors and frontage Karen accepted) and `minGapStuds` 12, not
-  the grid. Raising it further needs a design number to move -- the < 3,600 model bound, whose
-  derivation assumes 7 parts per model against a measured 3.03, or the 12-stud gap. **Neither was
-  touched here**; both are queued for the Director.
-- `S1`'s AFTER frame has a sounder of boars crossing the ride (the drive was running); the BEFORE
-  frame does not. Nothing else differs between the two but the wood.
+- **Whether the new density reads as "realistic" to Karen.** That is hers (`## Needs Karen`).
+- **The pre-328f count of ~2,019 is not reached and cannot be** from this ground: 1,687 is +17.7 %,
+  and four allocations of the same budget all land at ~1,823-1,886 planned
+  (`328m-yield-v{1,2,3,4}.txt`). What refuses the rest is `Places.mask` -- the rides, cones,
+  corridors and frontage Karen accepted -- and `minGapStuds` 12, not the grid. Going further needs a
+  design number to move: the < 3,600 model bound, whose derivation assumes 7 parts per model against
+  a measured 3.03 (5,104 parts for 1,687 models), or the 12-stud gap, which these 20-80-stud crowns
+  already interpenetrate. **Neither was touched here**; both are for the Director and the Architect.
+- Round 1's remaining notes outside the files this change touches (`Flags.GRID_PREVIEW.why`,
+  `ForestTest.GROUND_IGNORE`'s header, `tools/studio_mcp.py`'s two scope comments, and the two
+  design-doc appends) are queued in `TASKS.md`, not fixed here.
