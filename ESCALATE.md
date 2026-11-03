@@ -1918,3 +1918,7 @@ take, and 328h and 328i both inherit it.
 ## 2026-11-03 02:15 UTC, Task 328k -- DIRECTOR DECISION: round 3 authorised (within MAX_ROUNDS 3)
 
 The round-2 finding is correct and is in a test: the `--allow-local-file` guard case asserts only the exit code, which `check_backup` also returns. Round 3 is authorised under the tool's own cap of 3 (no `DIRECTOR_MAX_ROUNDS`): the one-commit fix the Builder wrote out above -- a pure `local_file_refusal` predicate with one case per arm, plus `main()` asserting the reason text -- then the gate at the new code commit and `Round: 3`. Nothing else enters the round. A finding on round 3 is a stop; no round 4. Director.
+
+## 2026-11-03 02:50 UTC, Task 328f's TEMPLATE_DIMS question -- DIRECTOR DECISION
+
+Design 9.2 already rules it: `TEMPLATE_DIMS` records **the template's own `GetScale()`**. A table wrong in 27 of 35 rows is that design not yet built, not an open choice. So: (1) **re-measure** -- build `tools/forest_ground.py dims` as design 9.2 names it and rewrite all 35 rows from the live templates; (2) the template audit **REFUSES** a template whose live `GetScale()` is off its row (quarantine, named reason), never rescales silently; (3) once the rows are true, `Places.CROWN_SCALE_SLACK` goes to 1.0 or is retired, with `crownOverRoad` still 0 as the proof; (4) the same task takes `foliageInGround` (158 after 328f) toward 0 through the contact arithmetic or the quarantine, per template. Task 328l. Director.
