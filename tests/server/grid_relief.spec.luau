@@ -2036,7 +2036,7 @@ return function()
 		-- THE SAME BYTES `tools/terrainbake.py selftest` checks its own encoder against
 		-- (`SLICE_FIXTURE_B64`). Each side is checked against committed bytes, never against the
 		-- other side's good intentions.
-		local FIXTURE_B64 = "AFkgWVBZwFiwWABZ"
+		local FIXTURE_B64 = "ABkgGVAZwBiwGAAZ"
 		local FIXTURE_HEIGHTS = { 100.0, 100.5, 101.25, 99.0, 98.75, 100.0 }
 
 		local function snapshotOf(minX: number, minZ: number, nx: number, nz: number, heightOf, holes)
@@ -2097,7 +2097,7 @@ return function()
 				nx = 3,
 				nz = 2,
 				scale = 64,
-				offset = -256,
+				offset = 0,
 				b64 = FIXTURE_B64,
 				holes = {},
 			})

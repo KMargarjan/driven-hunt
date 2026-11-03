@@ -271,7 +271,7 @@ def tile_count(region, tile):
 # of the same ground give the same file, which is what `snapshot` twice proves.
 BASE_MAGIC = b"DHTB1\n"
 SLICE_SCALE = 64
-SLICE_OFFSET = -256
+SLICE_OFFSET = 0
 
 # ReadVoxels' ceiling is 4,194,304 voxels. A 512-stud chunk is 128 x 128 = 16,384 columns, and a
 # 500-stud Y band is 125 voxels deep: 2.05 M, inside it with room for a deeper band.
@@ -379,7 +379,7 @@ def base_slice(base, min_x, min_z, max_x, max_z):
 # string with `TerrainBake.decodeSlice` and asserts these same heights, so the Luau decoder and this
 # encoder are each checked against committed bytes rather than against each other's good intentions.
 SLICE_FIXTURE_HEIGHTS = [100.0, 100.5, 101.25, 99.0, 98.75, 100.0]
-SLICE_FIXTURE_B64 = "AFkgWVBZwFiwWABZ"
+SLICE_FIXTURE_B64 = "ABkgGVAZwBiwGAAZ"
 
 
 def reshape_blocked(answers):

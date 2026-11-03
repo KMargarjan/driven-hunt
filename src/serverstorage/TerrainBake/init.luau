@@ -297,9 +297,11 @@ end
 -- payload rather than 150 KB of JSON floats.
 TerrainBake.SLICE_SCALE = 64
 -- ONE FIXED FRAME for every slice, so two reads of the same ground are the SAME BYTES and the file
--- can be stitched out of chunks without a per-chunk offset. -256 + 65535/64 = 767.98 studs of
--- range, and the bake's Y band is -100..400.
-TerrainBake.SLICE_OFFSET = -256
+-- can be stitched out of chunks without a per-chunk offset. int16 at 1/64 spans -512.00 to 511.98
+-- studs, which holds the bake's whole Y band (-100..400). MEASURED 2026-11-03: a -256 offset put
+-- the ceiling at 255.98 and her place has ground at 256.52, so `encodeSlice` refused the chunk --
+-- which is the assert working, and the frame that was wrong.
+TerrainBake.SLICE_OFFSET = 0
 
 local B64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 local B64_REV: { [number]: number } = {}
