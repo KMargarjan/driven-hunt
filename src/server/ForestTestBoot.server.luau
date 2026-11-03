@@ -136,20 +136,11 @@ print(string.format(
 	planted.seconds,
 	if planted.reason then " (" .. tostring(planted.reason) .. ")" else ""
 ))
--- THE GRID'S OWN LINE (task 327a), so the preview's numbers are read and never assumed: how many
--- corner stakes went in, how many had no ground, and how long it took. All zeroes with
--- `GRID_PREVIEW` off, which is the flag-off proof on the boot's own face. The road paint count left
--- this line in task 328e with `Ground.paintRoads` (rule 7): the roads' material is the Edit-time
--- bake's now, so there is nothing for a boot to count.
-print(
-	string.format(
-		"[ForestTestBoot] grid: preview=%s, %d corner stake(s), %d without ground, %.2fs",
-		tostring(gridPreviewOn),
-		planted.gridStakes,
-		planted.gridMissing,
-		planted.gridSeconds
-	)
-)
+-- THE GRID'S OWN LINE (task 327a), so the preview's state is read and never assumed. The stake count
+-- left it in task 328m with the 32 corner stakes themselves (rule 7; Karen, 2026-11-03: *"those gates
+-- shouldnt be"*), as the road paint count left it in 328e with `Ground.paintRoads`. What is left is
+-- the flag and what the preview still costs: the folder that the cell's wood is dressed into.
+print(string.format("[ForestTestBoot] grid: preview=%s, %.2fs", tostring(gridPreviewOn), planted.gridSeconds))
 -- ...AND THE CELL'S WOOD (task 327c), printed and never assumed (design 11): how many models went
 -- in, how many the ground refused, how many parts that is against the design's < 22,000, and what
 -- the slice spent -- steps, average and worst step, and how long the whole dress took.

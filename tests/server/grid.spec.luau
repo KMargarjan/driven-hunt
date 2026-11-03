@@ -839,7 +839,7 @@ return function()
 	-- ---------------------------------------------------------------- 22. the preview tags nothing
 
 	describe("the preview", function()
-		it("stakes the corners and changes nothing else about the world", function()
+		it("stands no part of its own and changes nothing else about the world", function()
 			-- THE FLAG IS REACHABLE BY PARAMETER, which is what lets both states be asserted while
 			-- `GRID_PREVIEW` sits at one of them (CLAUDE.md, "Feature flags").
 			local before = Forest.layoutNames()
@@ -851,24 +851,17 @@ return function()
 				ReplaceMaterial = function() end,
 			}
 			local report = Planter.build(reader, world, terrain, true)
-			-- 8 CELLS x 4 CORNERS.
-			expect(report.gridStakes).to.equal(32)
-			expect(report.gridMissing).to.equal(0)
 			local folder = world:FindFirstChild(Planter.GRID_FOLDER)
 			expect(folder ~= nil).to.equal(true)
-			expect(#folder:GetChildren()).to.equal(32)
+			-- THE 32 CORNER STAKES ARE GONE (task 328m; Karen, 2026-11-03: *"those gates shouldnt
+			-- be"*). The folder is the cell wood's parent and nothing else, so a BUILD puts NO part
+			-- in it -- and the fields that counted the stakes are gone with them, which is what
+			-- stops a later report quietly reintroducing a count nobody reads.
+			expect(#folder:GetChildren()).to.equal(0)
+			expect((report :: any).gridStakes).to.equal(nil)
+			expect((report :: any).gridMissing).to.equal(nil)
 			-- IT TAGS NOTHING, BUILDS NO STAND AND NO SEAT, and the layout list does not move: with
 			-- the preview on, everything the drive reads answers exactly what it answered before.
-			for _, child in ipairs(folder:GetChildren()) do
-				expect(child:IsA("BasePart")).to.equal(true)
-				-- A STAKE MUST NOT BE THE GROUND AND MUST NOT STOP A BULLET.
-				expect(child.CanQuery).to.equal(false)
-				expect(child.CanCollide).to.equal(false)
-				expect(child.Anchored).to.equal(true)
-				expect(string.find(child.Name, "^Stake_") ~= nil).to.equal(true)
-				expect(string.find(child.Name, "^Stand") == nil).to.equal(true)
-				expect(#child:GetTags()).to.equal(0)
-			end
 			expect(world:FindFirstChild("ForestMarkers")).to.equal(nil)
 			expect(world:FindFirstChild("HighSeats")).to.equal(nil)
 			local after = Forest.layoutNames()
@@ -882,16 +875,15 @@ return function()
 				expect(Forest.layoutNamed(id)).to.equal(nil)
 			end
 
-			-- ...AND WITH IT OFF, NOTHING AT ALL. The same call, the same world, one boolean apart.
+			-- ...AND WITH IT OFF, NO FOLDER AT ALL. The same call, the same world, one boolean apart.
 			local quiet = Instance.new("Folder")
 			local off = Planter.build(reader, quiet, terrain, false)
-			expect(off.gridStakes).to.equal(0)
 			-- `off.gridPaints` WENT WITH `Ground.paintRoads` (task 328e): the report has no such
 			-- field now, because nothing in `src/` paints a grid road.
 			expect((off :: any).gridPaints).to.equal(nil)
 			expect(quiet:FindFirstChild(Planter.GRID_FOLDER)).to.equal(nil)
-			-- THE FOLDER NAME IS ONE FACT with the ground-ignore list, so a stake can never answer
-			-- "where is the ground" even though its parts are already unqueryable.
+			-- THE FOLDER NAME IS ONE FACT with the ground-ignore list, so nothing the preview parents
+			-- can ever answer "where is the ground".
 			expect(table.find(Forest.GROUND_IGNORE, Planter.GRID_FOLDER) ~= nil).to.equal(true)
 			-- A SECOND BUILD REBUILDS RATHER THAN DOUBLING, and an OFF build cleans up an ON one:
 			-- design 11.3 step 2's rule, in the direction this task can reach.
@@ -901,10 +893,9 @@ return function()
 			quiet:Destroy()
 			TestKit.note(
 				string.format(
-					"preview on: %d stakes, %d layouts before and after; preview off: %d stakes",
-					report.gridStakes,
-					#after,
-					off.gridStakes
+					"preview on: folder present with %d part(s) of its own, %d layouts before and after; preview off: no folder",
+					0,
+					#after
 				)
 			)
 		end)
@@ -993,6 +984,141 @@ return function()
 				)
 			end
 			TestKit.note("recipes: " .. table.concat(lines, " "))
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- 12a. the understorey (task 328m)
+
+	describe("the understorey", function()
+		it("is a second storey of young growth, inside the budget, that moves no canopy stem", function()
+			-- KAREN, 2026-11-03, HAVING PLAYED C1: *"has to be a bit more realistic more trees"*.
+			-- A zone's optional `under` row plants a second, finer layer over the SAME rectangle.
+			local withUnder = {}
+			for _, id in ipairs(Grid.cellIds()) do
+				local plan = Plan.cellPlanFor(id)
+				for _, zone in ipairs(plan.zones) do
+					local under = zone.under
+					if under ~= nil then
+						table.insert(withUnder, id)
+						-- A ROW THAT PLANTS NOTHING IS A ROW NOBODY MEANT: spacing above 0, a mix
+						-- that exists and is not empty, and NOT on a clearing.
+						expect(under.spacingStuds > 0).to.equal(true)
+						expect(zone.spacingStuds > 0).to.equal(true)
+						local rows = Plan.cellMixNamed(under.mix)
+						expect(rows ~= nil).to.equal(true)
+						expect(#rows > 0).to.equal(true)
+						-- IT IS YOUNG GROWTH AND NOT A SECOND CANOPY. Every group in the mix is one
+						-- of the two small-tree groups, so a recipe cannot quietly put a second
+						-- storey of mature spruce under the first.
+						for _, row in ipairs(rows) do
+							expect(row.group == "young" or row.group == "birch").to.equal(true)
+						end
+					end
+				end
+			end
+			-- C1 IS THE ONLY CELL THAT HAS ONE, until Karen has judged it (the recipe says so).
+			expect(#withUnder > 0).to.equal(true)
+			for _, id in ipairs(withUnder) do
+				expect(id).to.equal("C1")
+			end
+
+			-- IT IS COUNTED IN THE BOUND. `cellCapacity` must be the sum of all four layers, so an
+			-- understorey the budget did not count cannot breach design 8.3's < 3,600 unseen.
+			local plan = Plan.cellPlanFor("C1")
+			local function cells(rect: any, spacing: number): number
+				if spacing <= 0 then
+					return 0
+				end
+				return (math.floor((rect.maxX - rect.minX) / spacing) + 1)
+					* (math.floor((rect.maxZ - rect.minZ) / spacing) + 1)
+			end
+			local zones, under = 0, 0
+			for _, zone in ipairs(plan.zones) do
+				local rect = Plan.zoneRect("C1", zone)
+				zones += cells(rect, zone.spacingStuds)
+				if zone.under ~= nil then
+					under += cells(rect, zone.under.spacingStuds)
+				end
+			end
+			local ferns = 0
+			for _, rect in ipairs(Plan.fernBands("C1", plan)) do
+				ferns += cells(rect, plan.fernSpacing)
+			end
+			local skirt = 0
+			for _, near in ipairs(Plan.neighboursOf("C1")) do
+				for _, band in ipairs(Plan.skirtBands("C1", near.id, near.axis, plan)) do
+					skirt += cells(band.rect, band.spacing)
+				end
+			end
+			expect(under > 0).to.equal(true)
+			expect(Plan.cellCapacity("C1")).to.equal(zones + under + ferns + skirt)
+
+			-- IT ACTUALLY PLANTS, at the `shrub` band's scale and from no other group.
+			local saplings, worstScale = 0, 0
+			for _, item in ipairs(woods.C1) do
+				if item.band == "shrub" and item.side == 1 then
+					saplings += 1
+					worstScale = math.max(worstScale, item.scale)
+					expect(item.scale >= plan.scaleFloor).to.equal(true)
+					expect(item.scale <= plan.shrubScale[2]).to.equal(true)
+				end
+			end
+			-- MORE THAN THE TWO SCRUB ZONES ALONE COULD GIVE: those two hold 381 sites between them
+			-- (`driven-hunt-runs/328m-yield-v1.txt`), so a count above that can only be the second
+			-- storey, and this case reddens the moment the `under` loop in `plantCell` is removed.
+			expect(saplings > 381).to.equal(true)
+
+			-- ...AND IT MOVES NO CANOPY STEM. `CELL_STREAM.under` is its own stream, so the four
+			-- layers cannot shift each other -- design 4.6's rule, asserted rather than assumed.
+			local streams = {}
+			for name, value in pairs(Plan.CELL_STREAM) do
+				expect(streams[value]).to.equal(nil)
+				streams[value] = name
+			end
+			expect(type(Plan.CELL_STREAM.under)).to.equal("number")
+
+			-- AND THE GAP RULE HAS NO SEAM IN IT. The understorey shares the canopy's neighbour grid
+			-- AND its `minGapStuds`, which is both what makes it clump into the gaps between trunks
+			-- and what stops a sapling standing inside one. `tooClose` buckets by the gap it is
+			-- handed, so a second gap on that grid would silently stop being a rule: this case fails
+			-- the moment the understorey is given a grid or a gap of its own.
+			local trees = {}
+			for _, item in ipairs(woods.C1) do
+				if item.band ~= "herb" then
+					table.insert(trees, item)
+				end
+			end
+			local worst, buckets = math.huge, {}
+			for _, item in ipairs(trees) do
+				local cx, cz = math.floor(item.x / plan.minGapStuds), math.floor(item.z / plan.minGapStuds)
+				for dx = -1, 1 do
+					for dz = -1, 1 do
+						for _, other in ipairs(buckets[(cx + dx) .. ":" .. (cz + dz)] or {}) do
+							local ddx, ddz = other.x - item.x, other.z - item.z
+							worst = math.min(worst, math.sqrt(ddx * ddx + ddz * ddz))
+						end
+					end
+				end
+				local key = cx .. ":" .. cz
+				buckets[key] = buckets[key] or {}
+				table.insert(buckets[key], item)
+			end
+			expect(worst >= plan.minGapStuds).to.equal(true)
+			TestKit.note(
+				string.format(
+					"C1 understorey: %d sapling(s) to scale %.2f, capacity %d of 3600 (%d canopy + %d under + %d fern + %d skirt), closest two of %d trees %.2f studs (gap %d)",
+					saplings,
+					worstScale,
+					Plan.cellCapacity("C1"),
+					zones,
+					under,
+					ferns,
+					skirt,
+					#trees,
+					worst,
+					plan.minGapStuds
+				)
+			)
 		end)
 	end)
 
@@ -1479,12 +1605,13 @@ return function()
 			local folders = Planter.cellWoodFolders(grid)
 			expect(#folders).to.equal(1)
 			expect(#folders[1]:GetChildren()).to.equal(second.planted)
-			-- THE CORNER STAKES ARE NOT A CELL'S WOOD and a dress never touches them.
-			local stake = Instance.new("Part")
-			stake.Name = "Stake_C1_SW"
-			stake.Parent = grid
+			-- A CHILD OF `GridPlaces` THAT IS NOT A CELL FOLDER IS NOT A CELL'S WOOD, and a dress
+			-- never touches it.
+			local other = Instance.new("Part")
+			other.Name = "NotACell"
+			other.Parent = grid
 			Planter.dressCell(id, grid, hillside, template, nil, nil)
-			expect(stake.Parent).to.equal(grid)
+			expect(other.Parent).to.equal(grid)
 			-- A NAME NOBODY KNOWS DRESSES NOTHING.
 			local none = Planter.dressCell("Z9", grid, hillside, template, nil, nil)
 			expect(none.planted).to.equal(0)
