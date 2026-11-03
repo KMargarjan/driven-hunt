@@ -111,11 +111,26 @@ reproduced.
 
 and the recommended practice is a single number: *"Locate roads with a minimum curve radius of 15
 meters."* **There is no 30 anywhere in the document** -- `grep -i "radius\|radii"` over the extracted
-text returns four lines: these two and two about *hydraulic* radius. Our road is the **Rural Access**
-column by its own running surface, because 3.5-4.5 m is `grid-terrain.md` 7.1's carriageway (20 studs =
-5.6 m with the verge; the painted running surface is 18 studs = 5.0 m). So **the published floor for our
-class of road is 15 m, and 25 m is the floor for a wider collector road.** What that changes in the
-design's section 5.3 is in section 4 below: only the ratio row, and it moves in our favour.
+text returns four lines: these two and two about *hydraulic* radius.
+
+**WHICH COLUMN IS OURS: NEITHER, and that is the honest answer** (round 1 of the review caught a wrong
+pick here, and it was right). Our road is **wider than both of source B's classes**, by the repo's own
+cross-section, every figure of which is a **distance from the centreline**:
+
+| our road | studs | m |
+|---|---|---|
+| painted strip Karen sights down (`grid-terrain.md` 7.1 prose and 7.2, `+-10`) | 20 | **5.6** |
+| level formation (`TerrainBake.ROAD.carriagewayStuds = 20`, *"0 to +-20, level"*; 7.1's own `+-10 to +-20` row) | 40 | **11.2** |
+| trunk-free formation to the far edge of the verge (`Places.ROAD_TRUNK_FLOOR_STUDS = 34`: road 0-21, ditch 22-30, verge 30-34) | 68 | **19.0** |
+
+Even the narrowest reading, the 5.6 m painted strip, is past the Collector column's 5.5 m top, and the
+level formation is **2 to 3 times** either class. **So source B publishes no floor for a road of our
+width**, and "15 m is the floor for our class" is not established. What IS defensible: **25 m is the
+largest floor source B publishes** -- for its widest, fastest class -- and in source B **the floor rises
+with the class** (15 m at 3.5-4.5 m and 25-35 kph, 25 m at 4-5.5 m and 45-60 kph), so for a road of our
+width the floor is **at least 25 m** and source B does not say how much more. The ratio row in the
+design's section 5.3 is corrected against **25 m** in section 4 below, which is the *loosest* multiple
+that can be defended: a higher true floor only shrinks it.
 
 **Also a delta:** the design credits source B with *"the alignment rule that a forest road should follow
 the natural contour **and avoid long tangents**"*. The contour half is verbatim present -- *"Locate
@@ -182,7 +197,8 @@ amplitude whose positions would match at a junction and whose tangents would not
 
 <https://create.roblox.com/docs/parts/terrain> ·
 <https://create.roblox.com/docs/reference/engine/classes/Terrain#WriteVoxels> ·
-<https://github.com/Roblox/creator-docs/blob/main/LICENSE> -- **all fetched, 200.**
+<https://create.roblox.com/docs/reference/engine/datatypes/Region3> ·
+<https://github.com/Roblox/creator-docs/blob/main/LICENSE> -- **all four fetched, 200.**
 
 **Licence: CC BY 4.0**, confirmed at the repository's own LICENSE file (*"reproduce and Share the
 Licensed Material"* with attribution, royalty-free, irrevocable). **Maintenance: actively maintained**
@@ -256,8 +272,11 @@ Inputs, all read from `src/shared/Grid/init.luau` at `c30a4512`: `originX = -670
 `cellWidthStuds = 1070`, `cellDepthStuds = 1430`, `roadClearStuds = 42`, `mainStandCount = 7`,
 `mainSpacingStuds = 150`, `flankStandCount = 4`, `flankSpacingStuds = 220`, `flankMarginStuds = 27`;
 `Shotgun.CONFIG.RANGE_STUDS.Slug = 330`; `Places.ROAD_TRUNK_FLOOR_STUDS = 34`; `Relief.VOXEL = 4`;
-carriageway 20 studs (`grid-terrain.md` 7.1); **1 stud = 0.28 m** (`Grid.CONFIG`'s own header).
-Amplitudes `ewStuds = 45`, `nsStuds = 60`, `harmonic = 1` (K-A, Director default 2026-11-03).
+**1 stud = 0.28 m** (`Grid.CONFIG`'s own header). Amplitudes `ewStuds = 45`, `nsStuds = 60`,
+`harmonic = 1` (K-A, Director default 2026-11-03). **Two rows below are NOT `Grid.CONFIG` values and
+say so on their own line**: the road widths come from `grid-terrain.md` 7.1 and
+`TerrainBake.ROAD.carriagewayStuds` (a **half**-width, *"0 to +-20"*), and source B's floor comes from
+its Table 4.1.
 
 | Quantity | Inputs | Derived here | Design section 5 | Agrees? |
 |---|---|---|---|---|
@@ -271,8 +290,8 @@ Amplitudes `ewStuds = 45`, `nsStuds = 60`, `harmonic = 1` (K-A, Director default
 | the two swings differ by | -- | **0.052 deg** | 0.05 | yes |
 | E-W min plan radius | `P^2/(A*pi^2*m^2)` = 1112^2/(45*pi^2) | **2784.2 st = 779.6 m** | 2784 / 780 | yes |
 | N-S min plan radius | 1472^2/(60*pi^2) | **3659.0 st = 1024.5 m** | 3659 / 1024 | yes |
-| source B's floor for our class | Table 4.1, Rural Access | **15 m** (collector: 25 m) | "15-30 m" | **NO -- finding 1** |
-| so ours is looser by | 779.6/15, 1024.5/15 | **52x (E-W), 68x (N-S)** | "26 to 52x", N-S "same" | **NO -- finding 1** |
+| source B's floors (**not a `Grid.CONFIG` row**) | Table 4.1 | **15 m** (Rural Access, 3.5-4.5 m) and **25 m** (Collector, 4-5.5 m); **none for a road of our width** | "15-30 m" | **NO -- finding 1** |
+| so ours is looser by, against the widest class B publishes | 779.6/25, 1024.5/25 | **<= 31x (E-W), <= 41x (N-S)** | "26 to 52x", N-S "same" | **NO -- finding 1** |
 | E-W view down the carriageway | `(P/(pi*m))*sqrt(2*34/A)` | **435.1 st** | 435 | yes |
 | N-S view down the carriageway | same, 1472 and 60 | **498.8 st** | 499 | yes |
 | in stand gaps | 435.1/150, 498.8/220 | **2.90**, **2.27** | 2.9, 2.3 | yes |
@@ -292,7 +311,7 @@ Amplitudes `ewStuds = 45`, `nsStuds = 60`, `harmonic = 1` (K-A, Director default
 | `toWorld` error from 60 st, per step | *0.0163 each | 0.98, 0.016, 2.6e-4, **4.2e-6**, **6.9e-8** | 4e-6 / 7e-8 | yes |
 | main-stand spacing along the road | 150 / cos(7.245 deg) | **151.21** | <= 151.2 | yes |
 | perpendicular vs axis-aligned measure | 1 / cos(7.297 deg) | **+0.82 %** | <= 0.82 % | yes |
-| carriageway narrower perpendicular | 20 * 0.0082 | **0.16 st** | 0.16 | yes |
+| the road narrower perpendicular (**not a `Grid.CONFIG` row**) | painted strip 20 * 0.00817; level formation 40 * 0.00817 | **0.16 st** painted, **0.33 st** level | 0.16, and silent about the level formation | **painted yes; level NOT STATED -- finding 3** |
 | tangent approximation error at 34 st | `0.5*34^2/2784.2` | **0.208 st** | 0.21 | yes |
 | voxel band stair | 4/0.12713, 4/0.12805 | **31.46**, **31.24** st | 31.5 / 31.2 | yes |
 | cell depth along any column | the E-W roads are exact translates | **exactly 1430** | 1430 | yes |
@@ -307,28 +326,45 @@ of slack under today's `grid.spec` case 14 (`capacity < 3600` **and** `total < 3
 too: 3600 * 7 = 25,200, which is **3,200 parts past** the same section's 22,000 ceiling.
 **All of section 8 reproduces exactly.**
 
-### The two findings against the design
+### The three findings against the design
 
-**Finding 1 -- section 5.3's published-minimum row is not what source B says, and the ratio row is
-wrong.** Source B gives **15 m min.** for a Rural Access Road (3.5-4.5 m running surface, our class) and
-**25 m min.** for a Collector Road. There is no "15-30 m" and no 30 m anywhere in it. The design's
-*"26 to 52x looser"* is 780/30 to 780/15, so its lower end rests on a figure that is not in the source;
-and the N-S column's *"same"* is wrong independently, because the N-S minimum radius is 1,024 m, not
-780 m. **Corrected row: E-W 780 m is 52x source B's floor for our class (31x the collector floor); N-S
-1,024 m is 68x (41x).** **What it changes in the design: only that row.** The conclusion it supports --
-that curvature is not the binding constraint, so the amplitude is sized by the sight line (435 / 499
-studs) and not by a radius -- is **strengthened**, because the true margin is larger than claimed.
-Nothing downstream reads the ratio: section 5.2's amplitudes come from the equal-swing rule, and the
-sight figures from the corridor width. **Not blocking; corrected in the section 14 delta by 328q.**
+**Finding 1 -- section 5.3's published-minimum row is not what source B says, the ratio row is wrong,
+and no column of source B covers a road as wide as ours.** Source B gives **15 m min.** for a Rural
+Access Road (3.5-4.5 m) and **25 m min.** for a Collector Road (4-5.5 m). There is no "15-30 m" and no
+30 m anywhere in it. The design's *"26 to 52x looser"* is 780/30 to 780/15, so its lower end rests on a
+figure that is not in the source; and the N-S column's *"same"* is wrong independently, because the N-S
+minimum radius is 1,024 m, not 780 m. **And our road is wider than both of source B's classes** (section
+2 B's table: 5.6 m painted, 11.2 m level, 19.0 m to the verge edge), so no published floor applies
+directly. **Corrected row, stated as the loosest multiple that can be defended: against the 25 m floor
+of the widest class source B publishes, E-W 780 m is `<= 31x` and N-S 1,024 m is `<= 41x`** -- `<=`,
+because for a road of our width source B's own trend (the floor rises with class) says the true floor is
+at least 25 m and possibly more, which only shrinks the multiple. **What it changes in the design: only
+that row.** The conclusion it supports -- that curvature is not the binding constraint, so the amplitude
+is sized by the sight line (435 / 499 studs) and not by a radius -- **still holds by a wide margin**: the
+floor would have to reach about **780 m**, which is 31x the widest class source B publishes, before
+curvature bound our E-W road at all. Nothing downstream reads the ratio: section 5.2's amplitudes come
+from the equal-swing rule, and the sight figures from `Places.ROAD_TRUNK_FLOOR_STUDS`. **Not blocking;
+`grid-roads.md`'s own section 5.3 row is corrected by 328q.**
 
 **Finding 2 -- section 5.4's intermediate "333.1 studs, 3.1 of margin" does not reproduce; it is 332.4
 and 2.4.** The design's own parenthesised arithmetic, `sqrt(62.5^2 + (340 - 13.5)^2)`, evaluates to
-**332.44**, and at full precision (dx 62.462, dz 326.524) to **332.444** -- margin **2.44**, not 3.1.
+**332.43**, and at full precision (dx 62.462, dz 326.524) to **332.444** -- margin **2.44**, not 3.1.
 **What it changes: nothing that gets built.** It is the "before" figure that motivates the fix; the fix
 itself -- the fixed point 340 -> 365 -> 366, `flankFirstStuds() = 366`, and the realised worst pair
 **357.45** with **27.45** of margin -- reproduces to the decimal. The defect the design found (the shear
 eats the 26.1-stud safety margin down to about 2.4) is **real, and is worse than it wrote**, which is the
-direction that matters. **Not blocking; the two numbers are corrected in the section 14 delta by 328q.**
+direction that matters. **Not blocking; `grid-roads.md`'s own section 5.4 numbers are corrected by 328q.**
+
+**Finding 3 -- "carriageway" names two different widths in this repo, which is what produced findings 1
+and 2's neighbourhood of error.** `TerrainBake.ROAD.carriagewayStuds = 20` is a **half**-width, and its
+own comment says so (*"0 to +-20, level"*), as does `grid-terrain.md` 7.1's table row *"+-10 to +-20"*;
+but 7.1's prose says *"The grid road's carriageway is 20 st (+-10)"* and 7.2 says *"10 and 12 are the
+painted half-widths"*. So one word means **20 studs** in the prose and **40 studs** in the code and the
+table. The design's section 5.5 consequence, *"the realised carriageway is 0.16 studs narrower
+perpendicular than nominal"*, is right for the **painted** reading and silent about the level formation,
+which narrows by **0.33 studs** (40 * 0.00817). **Not blocking** -- 0.33 studs is a twelfth of a voxel
+and changes nothing that gets built -- but 328q owns the word: each rule must name which width it means,
+or the next reader picks the wrong one, exactly as this note did in round 1.
 
 Everything else in sections 5 and 8 reproduces. The two slips in section 5.2's swing angles (7.244 vs
 **7.245**, 7.295 vs **7.297**; the slopes they come from are both exact) are rounding, not arithmetic,
@@ -373,6 +409,14 @@ and are noted here so that the spec asserting them uses the right value.
 6. **`PARTS_PER_MODEL` 3.03 is C1's mix only** (5,104 / 1,687). A recipe planting more of a 7-part
    template moves it; the census prints `parts/trees` every run, so the bound is re-read and not trusted.
 7. **The 4-stud ditch stair has never been looked at** (K-D).
+8. **This re-derivation was scoped to the design's sections 5 and 8** and did not reach its section 14
+   delta text, where *"takes up to 39.9 studs off its `dx` term"* matches nothing derived here: section
+   5.4's own linear bound is `0.12805 * 340 = 43.54`, and the true maximum change of `bendX` over a
+   340-stud window is **42.59** (swept at 0.5-stud steps). 328q pastes that text into
+   `grid-map.md`, so its row carries the correction.
+9. **Which width each road rule means is a repo ambiguity, not a measurement** (finding 3): the painted
+   20 studs and the level 40 studs are both called "the carriageway". Nothing here measured either in
+   the world; both are read off `grid-terrain.md` 7.1 and `TerrainBake.ROAD`.
 
 ---
 
@@ -392,7 +436,8 @@ and are noted here so that the spec asserting them uses the right value.
   code MIT or Apache-2.0, prose the author's; last modified 22 Jun 2026.
 - Roblox, *Terrain* and *Region3*: <https://create.roblox.com/docs/parts/terrain> ·
   <https://create.roblox.com/docs/reference/engine/classes/Terrain#WriteVoxels> ·
-  <https://create.roblox.com/docs/reference/engine/datatypes/Region3> -- docs **CC BY 4.0**
+  <https://create.roblox.com/docs/reference/engine/datatypes/Region3> ·
+  <https://github.com/Roblox/creator-docs/blob/main/LICENSE> -- docs **CC BY 4.0**
   (`Roblox/creator-docs`); actively maintained.
 - In-repo, borrowed (rule 2): `ForestTest.LAYOUTS.road`, `ForestTest.exitZOf`,
   `MapUi.geometryFromForestTest`, `Relief.columnsFor`, `Ground.bandBounds`, `Grid.seedFor`,
