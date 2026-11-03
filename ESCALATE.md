@@ -1914,3 +1914,7 @@ is named by design 9.2 and does not exist), and whether the audit should REFUSE 
 `GetScale()` has moved off its row rather than silently rescaling the reference. Not the Builder's to
 take, and 328h and 328i both inherit it.
 
+
+## 2026-11-03 02:15 UTC, Task 328k -- DIRECTOR DECISION: round 3 authorised (within MAX_ROUNDS 3)
+
+The round-2 finding is correct and is in a test: the `--allow-local-file` guard case asserts only the exit code, which `check_backup` also returns. Round 3 is authorised under the tool's own cap of 3 (no `DIRECTOR_MAX_ROUNDS`): the one-commit fix the Builder wrote out above -- a pure `local_file_refusal` predicate with one case per arm, plus `main()` asserting the reason text -- then the gate at the new code commit and `Round: 3`. Nothing else enters the round. A finding on round 3 is a stop; no round 4. Director.
