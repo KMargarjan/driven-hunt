@@ -377,8 +377,9 @@ end
 -- IT IS A FLOOR AND NEVER A CUT, and that was MEASURED before it was written: the first form
 -- scaled both ways and took the cub from 6000 to 547 and the sow to 3685, because their boxes are
 -- SMALLER than the reference. Nothing asked for a weaker cub and nothing has measured one, so the
--- rule only ever raises -- every boar kind keeps the force it has had since Milestone 1.2, to the
--- byte, and only an animal BIGGER than the box the number was tuned on is given more.
+-- rule only ever raises: the male IS the reference box and the sow and the cub are smaller, so
+-- those three keep 6000 to the byte, and only an animal BIGGER than it is given more -- the three
+-- red deer, and the legendary boar, who is the male's box at scale 1.35 (2.46x by volume).
 --
 -- A CONFIG WITHOUT `MAX_FORCE_BODY` GETS `MAX_FORCE` UNCHANGED, which is every world written before
 -- this task.

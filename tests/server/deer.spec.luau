@@ -171,27 +171,36 @@ return function()
 			-- owner built, not off the pure rule, and asserted as an EQUAL ACCELERATION across all
 			-- seven kinds -- the property. `AssemblyMass` is the trunk's own: zones and mesh are
 			-- Massless.
-			it("gives the stag the force his mass needs, and takes none off any boar", function()
-				local reference = nil
-				for _, kind in ipairs(BOAR_KINDS) do
+			it("gives the stag the force his mass needs, and takes none off any animal", function()
+				local function moverOf(kind: string): (BasePart, LinearVelocity)
 					local trunk = trunks[kind] :: BasePart
 					local mover = trunk:FindFirstChild("Mover") :: LinearVelocity
 					expect(mover).to.be.ok()
-					-- EVERY BOAR IS THE NUMBER IT HAS ALWAYS BEEN. A boar box is never bigger than
-					-- the box `MAX_FORCE` was tuned on, so the floor is what it gets.
-					expect(mover.MaxForce).to.equal(Boar.CONFIG.MAX_FORCE)
-					reference = mover.MaxForce / trunk.AssemblyMass
+					return trunk, mover
 				end
-				-- ...AND THE STAG, WHOSE BOX IS 1.85x THE MALE'S, GETS AT LEAST A BOAR'S
-				-- ACCELERATION -- the thing that decides the slope he can climb.
-				local stag = trunks.stag :: BasePart
-				local stagMover = stag:FindFirstChild("Mover") :: LinearVelocity
-				expect(stagMover.MaxForce > Boar.CONFIG.MAX_FORCE * 1.5).to.equal(true)
-				local male = trunks.male :: BasePart
-				local boarAccel = (male:FindFirstChild("Mover") :: LinearVelocity).MaxForce / male.AssemblyMass
-				local stagAccel = stagMover.MaxForce / stag.AssemblyMass
-				expect(math.abs(stagAccel - boarAccel) / boarAccel < 1e-6).to.equal(true)
-				expect(reference).to.be.ok()
+				-- NOTHING LOSES FORCE. `driveForce` is a floor, so no animal in the game is driven
+				-- by less than the 6000 it has had since Milestone 1.2.
+				for _, kind in ipairs(ALL_KINDS) do
+					local _, mover = moverOf(kind)
+					expect(mover.MaxForce >= Boar.CONFIG.MAX_FORCE).to.equal(true)
+				end
+				-- THE THREE ANIMALS BUILT ON THE REFERENCE BOX KEEP IT EXACTLY: the male IS that
+				-- box, and the sow and the cub are smaller, so the floor is what they get.
+				for _, kind in ipairs({ "male", "female", "cub" }) do
+					local _, mover = moverOf(kind)
+					expect(mover.MaxForce).to.equal(Boar.CONFIG.MAX_FORCE)
+				end
+				-- ...AND THE TWO ANIMALS BIGGER THAN IT GET THE SAME ACCELERATION AS THE MALE,
+				-- which is what decides the slope they can climb. The legendary is the male's box
+				-- at scale 1.35; the stag's is 1.85x by volume.
+				local male, maleMover = moverOf("male")
+				local boarAccel = maleMover.MaxForce / male.AssemblyMass
+				for _, kind in ipairs({ "stag", "legendary" }) do
+					local trunk, mover = moverOf(kind)
+					expect(mover.MaxForce > Boar.CONFIG.MAX_FORCE * 1.5).to.equal(true)
+					local accel = mover.MaxForce / trunk.AssemblyMass
+					expect(math.abs(accel - boarAccel) / boarAccel < 1e-6).to.equal(true)
+				end
 			end)
 
 			it("publishes reddeer on every deer kind and boar on every boar kind", function()
