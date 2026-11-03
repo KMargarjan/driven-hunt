@@ -244,8 +244,9 @@ is unchanged.
 | half-wavelength | **1112 / harmonic** | **1472 / harmonic** |
 | offset at every junction | `A·sin(πk)` = **0, exactly** | **0, exactly** |
 
-`harmonic` must be a positive **integer**: at `m = 1.5` the zeros fall at 741-stud spacing and three of
-the five junctions stop being zeros. `grid.spec` asserts `harmonic % 1 == 0`.
+`harmonic` must be a positive **integer**: at `m = 1.5` the zeros fall at 741-stud spacing and **two**
+of the five north–south junctions stop being zeros (`A·sin(1.5πk)` is non-zero only at k = 1 and k = 3;
+corrected by task 328q). `grid.spec` asserts `harmonic % 1 == 0` and counts those two.
 
 ### 5.2 The amplitudes are a pair, chosen by one rule
 
@@ -255,8 +256,8 @@ is written in that angle, and one angle for the whole world is one number to che
 
 ```
 tan(swing) = A·π·harmonic / P
-ewStuds = 45  ->  45π/1112 = 0.12713  ->  7.244 deg
-nsStuds = 60  ->  60π/1472 = 0.12805  ->  7.295 deg      (equal to 0.05 deg)
+ewStuds = 45  ->  45π/1112 = 0.1271328  ->  7.2453 deg
+nsStuds = 60  ->  60π/1472 = 0.1280540  ->  7.2972 deg      (equal to 0.06 deg)
 ```
 
 ### 5.3 What 45 and 60 buy, and the constraint that does NOT bind
@@ -265,10 +266,20 @@ nsStuds = 60  ->  60π/1472 = 0.12805  ->  7.295 deg      (equal to 0.05 deg)
 |---|---|---|
 | lateral wander, peak to trough | ±45 studs (12.6 m) | ±60 studs (16.8 m) |
 | **minimum plan radius** `P²/(Aπ²m²)` | **2,784 studs = 780 m** | **3,659 studs = 1,024 m** |
-| published minimum for this class of road (source B) | 15–30 m | 15–30 m |
-| so ours is | **26 to 52× looser than the real limit** | same |
+| published minimum for the widest class source B carries (Collector, 4–5.5 m) | **25 m** | **25 m** |
+| so ours is | **≤ 31× looser than that floor** | **≤ 41×** |
 | **view down the carriageway** `(P/πm)·sqrt(2·34/A)` | **435 studs** | **499 studs** |
 | in stand gaps (150 main / 220 flank) | **2.9** | **2.3** |
+
+**Corrected by task 328o, which fetched source B (its §16 item 1 said nobody had).** The guide's
+Table 4.1 publishes **15 m minimum for a Rural Access Road (3.5–4.5 m)** and **25 m for a Collector
+Road (4–5.5 m)** — no range, and no 30 anywhere in the document. **And our road is wider than both
+classes**, measured from the centreline: the painted strip is ±10 studs = 5.6 m, the level formation
+`TerrainBake.ROAD.carriagewayStuds` 20 either side = 11.2 m, the trunk-free formation
+`Places.ROAD_TRUNK_FLOOR_STUDS` 34 either side = 19.0 m. So **source B publishes no floor for a road of
+our width**, the ratio is written `≤` against the 25 m floor of the widest class it does publish, and
+the conclusion survives by a wide margin: the floor would have to reach about **780 m** before it bound
+our east–west road. Nothing downstream reads the ratio.
 
 **Curvature is not the binding constraint and the design says so plainly.** A real forest road's tight
 bends come from gullies, rock and property lines at a 1:1 scale; our cell is 300 × 400 m of invented
@@ -293,10 +304,18 @@ against the near flank stand. They differ by 340 studs in `v`, and `bendX` chang
 `0.12805 × 340 = 43.5` studs over that — straight off the `dx` term:
 
 ```
-dx = 106 − 43.5 = 62.5  ->  needed dz = sqrt(330² − 62.5²) = 324.0
-and the pair also loses up to 0.12713 × 106 = 13.5 studs of dz to bendZ
-->  realised separation  sqrt(62.5² + (340 − 13.5)²) = 333.1 studs, 3.1 of margin, not 26.1
+dx = 106 − 43.54 = 62.46  ->  needed dz = sqrt(330² − 62.46²) = 324.03
+and the pair also loses up to 0.1271328 × 106 = 13.48 studs of dz to bendZ
+->  bound on the separation  sqrt(62.46² + (340 − 13.48)²) = 332.44 studs, 2.44 of margin, not 26.1
 ```
+
+**That 332.44 is the LINEAR WORST-CASE BOUND, not a realised pair, and task 328q measured the
+difference.** The bound uses the PEAK slope of each sine; the two stands of the tight pair do not sit
+at both peaks at once. Measured by `grid.spec` case 5's own world loop over all 8 cells and all 72
+cross-side pairs: at the un-re-derived set-back of 340 the realised worst is **338.41 studs (8.41 of
+margin)** and at 366 it is **363.79 (33.79)**. So defect F-1 is real as a loss of margin — 26.14 → 8.41,
+two thirds of it gone — and is **not** a breach of the 330-stud invariant: a bare `>= 330` assertion
+would have passed either way, which is why case 5 pins the realised number as well.
 
 **The fix is the formula, not the literal.** Solve it where it is written, in world terms, by one
 fixed-point iteration (it converges in two steps and the code does three):
@@ -306,13 +325,18 @@ f(n+1) = ceil( sqrt(range² − (dx0 − |bendX'|max · f(n))²) + |bendZ'|max �
 340 -> 365 -> 366 -> 366
 ```
 
-**`Grid.flankFirstStuds()` = 366**, and the realised worst pair is **357.4 studs — 27.4 of margin**,
-which is the margin the design asked for. `grid.spec` case 5 computes all 105 pairs of all 8 cells in
-**world** coordinates with its own loop and reports the worst, so a CONFIG change that eats it is read
-as a number and not as a pass.
+**`Grid.flankFirstStuds(bend)` = 366 at 45/60 and 340 at 0** — the same formula, and the fixed point
+is the identity when both sines are 0, which is what makes this task inert. The BOUND at 366 is
+**357.45 studs (27.45 of margin)**, which is the margin the design asked for; the **realised** worst
+pair, measured, is **363.79 (33.79)**. `grid.spec` case 5 computes all 72 cross-side pairs of all 8
+cells in **world** coordinates with its own loop, at bend 0 and at 45/60 by parameter, and pins the
+realised number, so a CONFIG change that eats the margin is read as a number and not as a pass.
 
 **What moves with it, named:** `Sides.flanks.firstStuds`; `grid_ground.spec`'s two transcribed depths
-(`standPosition("C1", 9).Z − main.at` 560 → **586**, `(…, 14)` 780 → **806**); and
+(560 → **586**, 780 → **806** — **and those are the GRID depths, `standGridOf`'s `v − main.at`, not
+`standPosition(…).Z − main.at`, which reads 578.83 and 813.49 at 45/60 because `bendZ` moves the
+stand's world z too; corrected by task 328q, which asserts the grid form by parameter and leaves the
+world transcription to 328r**); and
 `Places.CELL_PLANS`' comment that names those two depths. The flank's four stands now span
 `366 + 3×220 = 1026` of 1430 studs, so the far one is 404 studs short of the muster road — unchanged
 in kind.
@@ -325,9 +349,14 @@ in kind.
 | **axis-aligned** `|across − Grid.roadCentreAt(road, along)|` | `TerrainBake.roadAt`, `bandFor`, `Relief.columnsFor` | the voxel lattice is world-axis-aligned. A band that is perpendicular is not whole columns, and a ditch that is not whole columns is the merge already measured once | **≤ 0.82 %** (`1/cos 7.295°`) |
 
 Both read **the same** `Grid.roadCentreAt`. The design states the bound, `grid_ground.spec` asserts it,
-and the two residuals are: the realised carriageway is 0.16 studs narrower perpendicular than nominal,
-and the tangent measure is up to **0.21 studs** optimistic against the true curve distance at 34 studs
-(`½κd²`). The independent polyline check in the spec carries a 0.3-stud allowance for exactly that.
+and the two residuals are: the tangent measure is up to **0.21 studs** optimistic against the true curve
+distance at 34 studs (`½κ d²`), and **the narrowing depends on WHICH width is meant, which every road
+rule in this project must now say** (task 328q correction (i)): *"carriageway"* names two things here —
+`grid-terrain.md` §7.1's prose and §7.2 call the **painted** strip 20 studs wide (±10), while that
+section's own table row and `TerrainBake.ROAD.carriagewayStuds = 20` are a **half-width**, so the level
+formation is 40 studs (±20). Perpendicular against axis-aligned, at the 0.82 % bound: the painted strip
+narrows **0.16 st**, the level formation **0.33 st**, and the 68-stud trunk-free formation **0.56 st**.
+The independent polyline check in the spec carries a 0.3-stud allowance for the `½κ d²` residual.
 
 ### 5.6 The rest of the arithmetic
 
@@ -589,10 +618,11 @@ must check each one.
 ### A. ASAM **OpenDRIVE** — the road-network description standard
 <https://www.asam.net/standards/detail/opendrive/> ·
 <https://publications.pages.asam.net/standards/ASAM_OpenDRIVE/ASAM_OpenDRIVE_Specification/latest/>
-**Licence:** an ASAM standard; the specification is published for free reading and the recent HTML
-releases carry a Creative Commons attribution/no-derivatives licence. **No text and no schema is
-reproduced here; the decomposition is what is taken.** **Maintenance:** actively maintained — 1.8
-released under ASAM's stewardship in 2024, after the hand-over from VIRES.
+**Licence:** an ASAM standard, published under **an ASAM grant of *"a basic, non-exclusive and
+unlimited license to use the standard"*** — not a Creative Commons attribution/no-derivatives licence
+(task 328o item 1c). **No text and no schema is reproduced here; the decomposition is what is taken.**
+**Maintenance:** actively maintained — **1.9.0, specification dated 2026-05-08**, under ASAM's
+stewardship after the hand-over from VIRES. **`poly3` is now deprecated.**
 **Does well:** it is the industry's answer to exactly this problem. A road is a **reference line** in
 plan (`geometry` records: `line`, `arc`, `spiral`, `poly3`); everything else about the road — lanes,
 widths, ditches, objects, markings — is placed in **`(s, t)` coordinates relative to that line**; and
@@ -610,15 +640,20 @@ perpendicular `t` frame.
 
 ### B. USDA Forest Service / USAID — **"Low-Volume Roads Engineering: Best Management Practices Field Guide"** (Keller & Sherar, 2003)
 <https://www.fs.usda.gov/t-d/pubs/pdf/LowVolumeRoads/LVR_BMP_Field_Guide.pdf>
-**Licence:** a work of the United States federal government — **public domain**. Facts used, nothing
-reproduced. **Maintenance:** 2003, still distributed by the Forest Service's Technology & Development
-programme and widely re-hosted; **not revised**.
-**Does well:** it is the only source here with real numbers for *this class of road* — a single-lane
-forest road with a 3.5–4.5 m running surface, a ditch, a crown or outslope, and **minimum curve radii
-of roughly 15–30 m** (tighter at switchbacks); plus the alignment rule that a forest road should follow
-the natural contour and avoid long tangents. Our §7.1 cross-section is this shape, and our 780 m
-minimum radius is **26 to 52 times looser** than its limit — which is the fact that tells us curvature
-is not what sizes the bend.
+**Licence:** **the document carries NO copyright notice** — only a USDA/USAID disclaimer, with Virginia
+Tech's Center for Multimodal Innovation a named co-producer — so "a work of the US federal government,
+public domain" is **not provable from it** (task 328o item 1d). Facts used, nothing reproduced.
+**Maintenance:** 2003, **not revised**; its own `fs.usda.gov` URL answers **HTTP 403** to a fetcher, so
+the text was read from a complete re-host (named in the research note) and "still distributed by the
+Forest Service's T&D programme" is **NOT confirmed**.
+**Does well:** it is the only source here with real numbers for a low-volume forest road: Table 4.1's
+**15 m minimum radius for a Rural Access Road (3.5–4.5 m running surface)** and **25 m for a Collector
+Road (4–5.5 m)**, plus the recommended practice *"Locate roads with a minimum curve radius of 15
+meters."* and the rule that a road should follow the natural contour. **It contains no "avoid long
+tangents" rule** — the contour rule is what it does carry. **And our road is WIDER than both of those
+classes** (§5.3: 5.6 m painted, 11.2 m formation, 19.0 m trunk-free), so the guide publishes no floor
+for it; measured against the 25 m floor of its widest class our 780 m / 1,024 m radii are **≤ 31× and
+≤ 41× looser**, which is the fact that tells us curvature is not what sizes the bend.
 **Does badly:** it is a drainage-and-erosion guide. Its radii come from the turning circle of a log
 truck, which neither our boar nor our hunters have, and it says nothing about sight lines for shooting
 — the only thing Karen judges.
@@ -628,9 +663,10 @@ reason, as open decision K-B.
 
 ### C. FAO — **Watershed Management Field Manual: road design and construction in sensitive watersheds** (FAO Conservation Guide 13/5)
 <https://www.fao.org/4/t0099e/t0099e00.htm>
-**Licence:** © FAO; the document repository permits non-commercial reproduction with attribution
-(FAO's newer works are CC BY-NC-SA 3.0 IGO). Nothing is reproduced. **Maintenance:** 1989, still
-published in the FAO document repository; **not revised**.
+**Licence:** the document's own notice reads **ALL RIGHTS RESERVED** (task 328o item 1b) — not
+non-commercial reproduction with attribution, and not CC BY-NC-SA. **Nothing is reproduced from it, so
+it stays usable as a source of facts.** **Maintenance:** **1998**, not 1989; still published in the FAO
+document repository; **not revised**.
 **Does well:** forest-road geometric design from first principles — horizontal alignment, gradient
 limits, curve widening, and the explicit principle that a forest road is **laid to the ground** rather
 than imposed on it, which is why long straight sections are rare in forest terrain. It is the clearest
@@ -655,10 +691,12 @@ no road.
 
 ### E. Roblox — `Terrain:WriteVoxels` and `Region3:ExpandToGrid`
 <https://create.roblox.com/docs/reference/engine/classes/Terrain#WriteVoxels>
-**Licence:** first-party, source repo `Roblox/creator-docs`, **CC BY 4.0**. **Maintenance:** actively
-maintained. Already cited as `grid-terrain.md` §11A, and carried here for one reason: the voxel lattice
-is **world-axis-aligned and 4 studs**, which is why §5.5 keeps the bake's bands axis-aligned and why
-the stair in §5.6 is one voxel and not a defect. **Does badly:** it still states no limits at all.
+**Licence:** first-party, source repo `Roblox/creator-docs`, **CC BY 4.0** — confirmed. **Maintenance:**
+actively maintained. **The 4-stud voxel is stated on `docs/parts/terrain`, not on the `Terrain` class
+page linked above** (task 328o item 1e), and **no Roblox page states that the lattice is
+world-axis-aligned**: that is THIS repo's measured fact (`Relief.VOXEL`, `MapGen.Config.VOXEL`,
+`Relief.tiles`' own assertion), and it is why §5.5 keeps the bake's bands axis-aligned and why the
+stair in §5.6 is one voxel and not a defect. **Does badly:** it still states no limits at all.
 
 ---
 
@@ -880,9 +918,12 @@ part of the task that makes it true.
 > and **§4.2's topology, ids, drive direction, main line, muster line and flanks are untouched**.
 > `Grid.layoutFor`'s `amplitudeStuds` becomes the east–west amplitude (45) and `ForestTest.roadZ`
 > delegates to `Grid` for a cell exactly as `standPosition` already does. **§7's `flankFirstStuds` goes
-> 340 → 366**: the invariant is solved in WORLD coordinates, because the shear takes up to 39.9 studs
-> off its `dx` term and left the 330-stud separation with 3.1 studs of margin instead of 26.1 — the
-> realised worst pair is 357.4. **No safety number moves.** §4.3's 275-second beater walk is unmoved,
+> 340 → 366**: the invariant is solved in WORLD coordinates, because the shear takes up to
+> `|bendX'|max × 340 = 43.54` studs off its `dx` term (the linear bound the fixed point uses; the true
+> maximum change of `bendX` over a 340-stud window is **42.59**) and left the 330-stud separation with
+> a bound of **2.44** studs of margin instead of 26.1 — **measured**, the realised worst pair at 340 is
+> **338.41 studs (8.41 of margin)** and at 366 it is **363.79 (33.79)**, against a bound of 357.45.
+> **No safety number moves.** §4.3's 275-second beater walk is unmoved,
 > because the roads of an axis are exact translates and the cell's depth is `cellDepthStuds` along every
 > column. **§8.3's "hard bound < 3,600 models" and its "≈ 7 descendants per model" are superseded** by
 > two bounds derived from the measured **3.03** parts a model: a plan cap of 7,260 and a draw cap of

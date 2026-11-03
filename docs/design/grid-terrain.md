@@ -1267,3 +1267,44 @@ count. If the Director wants a number in a gate, 328d's `plan` is where to take 
 9. **Team Create's save behaviour in that place is unknown** (D-2).
 10. **I did not run the harness, open Studio, take a frame or read a terrain voxel.** Task 328a is
     docs-only.
+
+---
+
+## 19. The roads bend (task 328o, pasted by 328q)
+
+*`docs/design/grid-roads.md` section 14's delta for this document, pasted by the task that makes it
+true. Born at amplitude 0: nothing in any world moves until 328r's re-bake commit.*
+
+> **§7.1's cross-section is measured from a centreline that is now a FUNCTION of the station:**
+> `centre = Grid.roadCentreAt(road, along)`. The long profile's 20-stud sampling, the 15 pinned
+> junctions, the 8 %/10 % grade clamp, the ≤ 2 %/50 st rule, the 12-stud cut-or-fill cap, the
+> junction-square rule, the carriageway, the ruts at d ±6…±10, the ditch, the verge, the bank and
+> every material are **unchanged**; three lines of `TerrainBake.roadAt` move, plus `longProfile` and
+> `profileSamples`, which must sample the curve because the base reader and the profile have to agree
+> on one lattice. **Correction F-2 is kept and extended: the band snaps to whole WORLD voxel columns
+> at each station**, so the ditch and the rut stay whole columns everywhere — asserted over 50
+> stations, where a bent centreline visits all four residues mod 4 and a straight one visits one — at
+> the cost of a 4-stud lateral stair every **31.46 studs** along an east–west bend (31.24 north–
+> south), which is `Grid.bendFacts().stairStuds` and not a typed number. One voxel, printed by the
+> census, with §15 item 2's 4-stud ditch as the named fallback. **WHICH WIDTH A ROAD RULE MEANS MUST
+> NOW BE SAID**: *"carriageway"* is the **painted** 20-stud strip in §7.1's prose and §7.2, and a
+> **half-width** in §7.1's own table row and in `TerrainBake.ROAD.carriagewayStuds = 20`, which makes
+> the level formation 40 studs. **§4's `Relief.luau` is not touched, not one line**: the bake hands it
+> GRID coordinates and a base reader composed with `Grid.toWorld`, and in grid coordinates the roads
+> are straight, so `roadFadeAt` becomes curve-correct for free — asserted by converting 1,056 world
+> points within 51 studs of the curved centreline, at amplitude 0 and at 45/60, and finding every one
+> inside the grid zero band. **`BAKE_VERSION` stays 1 and `relief_golden.luau` does not move;
+> `Relief.epochInput`'s key list gains the three bend rows** (`bendEwStuds`, `bendNsStuds`,
+> `bendHarmonic`), so the epoch changes the moment the amplitudes are committed, the stale-forest
+> refusal fires and `tools/terrainbake.py`'s captured epoch fixture is re-captured in the same commit.
+> **`TerrainBake.regionFor` and `unionOf` grow by `Grid.maxBendStuds()`** (0 today, so
+> `EXPECTED_TILES` does not move in 328q and **does** have to be re-derived in 328r), and `cellAt`
+> converts with `Grid.toGrid`. `blendAt` and `limitGrid` need **no edit**: the first measures against
+> the box `unionOf` already grew, and the second takes a height grid and a pitch and no coordinates.
+> **§7.4's pads, §8.2's mask, §8.5's stand types and §9.4's census all keep their arithmetic**, because
+> everything inside `src/shared/Places` is grid-coordinate and bend-free; four functions convert at
+> the seam (`roadDistance`, `clearOfEveryRoad`, `mask`, `nearestCellTo`), and `plantCell` and
+> `standPosition` convert outward. **C1 is re-baked from the 328k base snapshot** — absolute heights
+> over the old bake, so the straight road's cut and fill are erased, not layered — and the re-survey
+> re-writes `relief`, `lineMeanY`, `towers` and `towersRelaxed` in the same commit. `TerrainBake.survey`
+> samples `lineMeanY` **along the curve** for that reason.

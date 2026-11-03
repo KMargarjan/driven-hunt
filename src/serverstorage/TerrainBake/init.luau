@@ -114,9 +114,12 @@ export type TileReport = {
 -- returns to the base at the edge of what was actually baked and nowhere else.
 function TerrainBake.regionFor(cellIds: { string }): Bounds
 	assert(#cellIds > 0, "TerrainBake.regionFor: no cells")
+	-- GROWN BY THE BEND (task 328q): every tile the curved road touches has to be re-written, and a
+	-- box is the only thing `WriteVoxels` takes. 0 at the born amplitude, so the region is today's.
+	local bend = Grid.maxBendStuds()
 	if #cellIds == #Grid.cellIds() then
 		local box = Grid.footprint()
-		local pad = Relief.BLEND_STUDS + 230
+		local pad = Relief.BLEND_STUDS + 230 + bend
 		return { minX = box.minX - pad, maxX = box.maxX + pad, minZ = box.minZ - pad, maxZ = box.maxZ + pad }
 	end
 	local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge
@@ -128,7 +131,7 @@ function TerrainBake.regionFor(cellIds: { string }): Bounds
 		minZ = math.min(minZ, cell.minZ, roads.main.at - TerrainBake.ROAD_HALF_STUDS)
 		maxZ = math.max(maxZ, cell.maxZ, roads.muster.at + TerrainBake.ROAD_HALF_STUDS)
 	end
-	local pad = Relief.BLEND_STUDS
+	local pad = Relief.BLEND_STUDS + bend
 	return { minX = minX - pad, maxX = maxX + pad, minZ = minZ - pad, maxZ = maxZ + pad }
 end
 
@@ -595,11 +598,14 @@ function TerrainBake.profileSamples(cellIds: { string }): { number }
 		local n = math.floor((road.to - road.from) / step) + 1
 		for i = 1, n do
 			local along = road.from + (i - 1) * step
+			-- THE CURVE'S OWN POINT, never `road.at` (task 328q): `longProfile` reads the base here
+			-- and the two sample lattices must be the same one.
+			local centre = Grid.roadCentreAt(road, along)
 			if road.axis == "x" then
 				table.insert(out, along)
-				table.insert(out, road.at)
+				table.insert(out, centre)
 			else
-				table.insert(out, road.at)
+				table.insert(out, centre)
 				table.insert(out, along)
 			end
 		end
@@ -613,6 +619,9 @@ end
 -- fade here, because the ROAD FADE is the blend between cells -- `Relief.roadFadeAt` is 0 for 51
 -- studs either side of a centreline and cells only ever meet at a road.
 function TerrainBake.cellAt(cellIds: { string }, x: number, z: number): string
+	-- WORLD IN, `Grid.toGrid` ONCE (task 328q): `boundsOf` is a GRID rectangle.
+	local u, v = Grid.toGrid(x, z)
+	x, z = u, v
 	local best, bestD = cellIds[1], math.huge
 	for _, id in cellIds do
 		local b = Grid.boundsOf(id)
@@ -627,10 +636,12 @@ function TerrainBake.cellAt(cellIds: { string }, x: number, z: number): string
 end
 
 -- THE UNION OF THE CELLS BEING BAKED, which is what `blendAt` fades from.
+-- IT IS A WORLD BOX, so it is `worldBoundsOf` and not `boundsOf` (task 328q): `blendAt` measures
+-- how far a WORLD point is outside what was baked, and the bend moves the cell's edge.
 function TerrainBake.unionOf(cellIds: { string }): Bounds
 	local out = { minX = math.huge, maxX = -math.huge, minZ = math.huge, maxZ = -math.huge }
 	for _, id in cellIds do
-		local b = Grid.boundsOf(id)
+		local b = Grid.worldBoundsOf(id)
 		out.minX = math.min(out.minX, b.minX)
 		out.maxX = math.max(out.maxX, b.maxX)
 		out.minZ = math.min(out.minZ, b.minZ)
@@ -778,7 +789,10 @@ function TerrainBake.longProfile(road: Relief.Road, baseAt: (number, number) -> 
 	local base = table.create(n, 0)
 	for i = 1, n do
 		local at = road.from + (i - 1) * step
-		local y = if road.axis == "x" then baseAt(at, road.at) else baseAt(road.at, at)
+		-- THE CENTRELINE IS A FUNCTION OF THE STATION (task 328q, design 7.2). Everything below --
+		-- the grade clamp, the 2 %/50 st rule, the cut/fill cap, the pins -- is unchanged.
+		local centre = Grid.roadCentreAt(road, at)
+		local y = if road.axis == "x" then baseAt(at, centre) else baseAt(centre, at)
 		if y == nil then
 			return nil
 		end
@@ -1037,7 +1051,7 @@ function TerrainBake.roadAt(profiles: { Profile }, naturalY: number, x: number, 
 		local road = profile.road
 		local along = if road.axis == "x" then x else z
 		if along >= road.from and along <= road.to then
-			local d = math.abs((if road.axis == "x" then z else x) - road.at)
+			local d = math.abs((if road.axis == "x" then z else x) - Grid.roadCentreAt(road, along))
 			if road.axis == "x" then
 				if d < dX then
 					bestX, dX, alongX = profile, d, along
@@ -1065,7 +1079,10 @@ function TerrainBake.roadAt(profiles: { Profile }, naturalY: number, x: number, 
 	end
 	local profile = best :: Profile
 	local road = profile.road
-	local centre = road.at
+	-- THE CENTRE IS A FUNCTION OF THE STATION (task 328q, design 7.2). The band still snaps to whole
+	-- WORLD voxel columns at each station, which is correction F-2 kept: the cost is a 4-stud lateral
+	-- stair every 31.5 studs along a bend, printed by the census.
+	local centre = Grid.roadCentreAt(road, bestAlong)
 	local across = (if road.axis == "x" then z else x)
 	local d = math.abs(across - centre)
 	local crownY = TerrainBake.profileY(profile, bestAlong)
@@ -1257,6 +1274,11 @@ function TerrainBake.shapeTile(
 	local wide = n + 2 * margin
 	local union = TerrainBake.unionOf(cellIds)
 	local baseAt = TerrainBake.readerFor(snapshot)
+	-- THE BASE IS STILL READ AT THE REAL WORLD POINT (design 7.3): `Relief` is handed grid
+	-- coordinates and this reader maps them back. One composition, no second definition.
+	local baseAtGrid = function(a: number, b: number): number?
+		return baseAt(Grid.toWorld(a, b))
+	end
 	local shaped = table.create(wide * wide, 0)
 	local exempt = table.create(wide * wide, false)
 	local names: { string } = table.create(wide * wide, "")
@@ -1278,6 +1300,10 @@ function TerrainBake.shapeTile(
 			local base = baseAt(x, z)
 			local id = TerrainBake.cellAt(cellIds, x, z)
 			local form = Relief.LANDFORMS[id]
+			-- THE GRID POINT, AND A BASE READER COMPOSED WITH `toWorld` (task 328q, design 7.3). In
+			-- grid coordinates the roads are straight at their own `at`, so `Relief.roadFadeAt`
+			-- becomes curve-correct with NO EDIT and `BAKE_VERSION` stays 1.
+			local gx, gz = Grid.toGrid(x, z)
 			if base == nil then
 				-- `readerFor` has no answer here. KEEP GROUND rather than invent one: writing 0
 				-- would cut a hole from the band floor up to y = 0 (round-1 note).
@@ -1291,13 +1317,21 @@ function TerrainBake.shapeTile(
 				-- cuts nothing. C1 has no such rule (328e-5 asserts it); A1's gully Mud and D1's
 				-- dish Mud would not be re-painted by a re-bake of those cells.
 				shaped[at] = base
-				exempt[at] = form ~= nil and Relief.isExempt(form, Grid.boundsOf(id), x, z)
+				exempt[at] = form ~= nil and Relief.isExempt(form, Grid.boundsOf(id), gx, gz)
 			else
 				local bounds = Grid.boundsOf(id)
 				-- ONE FADE, handed to the arithmetic that owns it (round-1 finding 7). Multiplying
 				-- the bake's own fade onto `heightAt`'s cell-edge `k` put two fades in series.
-				local here =
-					Relief.heightAt(form, bounds, roads, baseAt, x, z, TerrainBake.blendAt(union, x, z), blurred[at])
+				local here = Relief.heightAt(
+					form,
+					bounds,
+					roads,
+					baseAtGrid,
+					gx,
+					gz,
+					TerrainBake.blendAt(union, x, z),
+					blurred[at]
+				)
 				shaped[at] = here or base
 				exempt[at] = Relief.isExempt(form, bounds, x, z)
 				depth[at] = TerrainBake.depthAt(base, here or base)
@@ -1789,15 +1823,17 @@ end
 -- HOW FAR A POINT IS FROM THE NEAREST ROAD CENTRELINE it actually lies along, or math.huge. Used to
 -- split the dry-run diff: the ROAD band drifts for the long profile's reason, the rest for the
 -- landform's, and one mean over both would hide either.
+-- SECOND COPY, NAMED: `Places.roadDistance` is the same arithmetic in another file (defect F-4,
+-- `grid-roads.md` 12). Both read `Grid.roadCentreAt`, so `Grid` owns the line they measure from.
 function TerrainBake.roadDistance(x: number, z: number): number
 	local best = math.huge
 	for _, road in Grid.roads() do
 		if road.axis == "x" then
 			if x >= road.from and x <= road.to then
-				best = math.min(best, math.abs(z - road.at))
+				best = math.min(best, math.abs(z - Grid.roadCentreAt(road, x)))
 			end
 		elseif z >= road.from and z <= road.to then
-			best = math.min(best, math.abs(x - road.at))
+			best = math.min(best, math.abs(x - Grid.roadCentreAt(road, z)))
 		end
 	end
 	return best
@@ -1965,7 +2001,10 @@ function TerrainBake.survey(cellId: string, heightOf: ((number, number) -> numbe
 	local road = Grid.roadsOf(cellId).main
 	local lineSum, lineN = 0, 0
 	for x = bounds.minX, bounds.maxX, 20 do
-		local y = reader(x, road.at)
+		-- ALONG THE CURVE (task 328q): `lineMeanY` is the mean ground along the cell's own main line,
+		-- so the sample has to follow it. Not in design 13's list for this task; added because 328r's
+		-- re-survey writes this number and a straight sample would read the wrong line.
+		local y = reader(x, Grid.roadCentreAt(road, x))
 		if y ~= nil then
 			lineN += 1
 			lineSum += y
@@ -2001,6 +2040,9 @@ function TerrainBake.epochInputFor(baseSnapshotSha: string): string
 		roadClearStuds = config.roadClearStuds,
 		rows = config.rows,
 		columns = config.columns,
+		-- THE BEND, so a changed amplitude changes the epoch and the stale-forest refusal fires
+		-- (task 328q, defect F-2). `Relief.epochInput` flattens it into three hashed rows.
+		bend = config.bend,
 	}
 	return baseSnapshotSha .. Relief.epochInput(Relief.LANDFORMS, geometry) .. tostring(Relief.BAKE_VERSION)
 end

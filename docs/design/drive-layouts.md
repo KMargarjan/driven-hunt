@@ -1019,6 +1019,16 @@ already computes a post line and a road, so it would publish a `Layout` per gene
 of `Map.ROAD` plus `Map.FIELD`, and `MapUi.geometryFor`'s second provider would collapse into the
 first. Out of scope here (brief §3) and stated in one sentence, as asked.
 
+**A cell's road bends (task 328o, pasted by 328q).** `ForestTest.LAYOUTS`' cell rows carry
+`amplitudeStuds = Grid.CONFIG.bend.ewStuds`, and **`ForestTest.roadZ` resolves a cell through
+`Grid.roadCentreAt`, not through `SHAPE.wavelengthDivisor`** — in a branch that comes FIRST, because a
+cell's half-wavelength is the junction pitch (1,112 studs) and the divisor's is 70, so a cell
+evaluated by the old arm would be 32× out. The four line places keep `road`'s 30-over-70 sine and
+every number `forest_stand.spec` asserts for them: they carry no `sides`, so they never reach that
+branch, and `grid.spec` re-asserts both halves. `Ground.chunkFor` now **refuses** a layout with
+`sides ~= nil` for the same reason (`grid-roads.md` defect F-3) rather than mis-chunking it silently.
+The bend ships at amplitude **0**, so until 328r's commit every number here is the one it was.
+
 ---
 
 ## 14. Deltas to the designs already written

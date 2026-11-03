@@ -33,6 +33,19 @@ return function()
 		return 140
 	end
 
+	-- THE TWO STATES, BY PARAMETER (task 328q). `Grid.CONFIG.bend` ships at 0 and every function
+	-- that carries the bend takes it as a trailing optional, so the BENT world is reachable here
+	-- while the world Karen plays stays straight. 45 / 60 / 1 is what task 328r commits.
+	local STRAIGHT = { ewStuds = 0, nsStuds = 0, harmonic = 1 }
+	local BENT = { ewStuds = 45, nsStuds = 60, harmonic = 1 }
+
+	-- A STAND IN WORLD COORDINATES AT ANY AMPLITUDE: the grid point through the map, which is
+	-- exactly what `Grid.standPosition` does at the shipped bend. Two returns, x and z.
+	local function worldStand(id: string, index: number, bend: any): (number, number)
+		local u, v = Grid.standGridOf(id, index, bend)
+		return Grid.toWorld(u, v, bend)
+	end
+
 	-- ---------------------------------------------------------------- 1. eight cells
 
 	describe("the eight cells", function()
@@ -163,14 +176,40 @@ return function()
 				expect(of.west.at < cell.minX).to.equal(true)
 				expect(of.east.at > cell.maxX).to.equal(true)
 			end
+			-- THE WORLD FOOTPRINT IS THE GRID ONE GROWN BY THE AMPLITUDE THAT CAN MOVE A POINT INTO
+			-- IT, and every road's WORLD polyline lies inside it -- at the shipped bend and at the
+			-- one 328r commits, so the bound is asserted where it can actually bind.
+			for _, bend in ipairs({ STRAIGHT, BENT }) do
+				local world = Grid.worldFootprint(bend)
+				expect(world.minX).to.equal(box.minX - bend.nsStuds)
+				expect(world.maxX).to.equal(box.maxX + bend.nsStuds)
+				expect(world.minZ).to.equal(box.minZ - bend.ewStuds)
+				expect(world.maxZ).to.equal(box.maxZ + bend.ewStuds)
+				for _, road in ipairs(roads) do
+					for _, point in ipairs(Grid.roadPolyline(road, 97, bend)) do
+						local inside = point.X >= world.minX
+							and point.X <= world.maxX
+							and point.Y >= world.minZ
+							and point.Y <= world.maxZ
+						expect(inside).to.equal(true)
+					end
+				end
+				for _, id in ipairs(Grid.cellIds()) do
+					local cell, grown = Grid.boundsOf(id), Grid.worldBoundsOf(id, bend)
+					expect(grown.minX).to.equal(cell.minX - bend.nsStuds)
+					expect(grown.maxZ).to.equal(cell.maxZ + bend.ewStuds)
+				end
+			end
 			TestKit.note(
 				string.format(
-					"footprint %.0f x %.0f at (%d, %d), %d roads",
+					"footprint %.0f x %.0f at (%d, %d), %d roads; world box +%d x / +%d z at 45/60",
 					box.maxX - box.minX,
 					box.maxZ - box.minZ,
 					c.originX,
 					c.originZ,
-					#roads
+					#roads,
+					BENT.nsStuds,
+					BENT.ewStuds
 				)
 			)
 		end)
@@ -222,16 +261,42 @@ return function()
 				end
 				expect(math.abs(Grid.separationStuds(id) - mine) < 1e-9).to.equal(true)
 			end
+			-- AND THE SAME SWEEP IN WORLD COORDINATES AT THE AMPLITUDE 328r COMMITS, BY PARAMETER
+			-- (task 328q, design 5.4 / defect F-1). This is the assertion the straight loop above
+			-- cannot make: the shear takes up to 43.5 studs off the tight pair's `dx`, and it is
+			-- `Grid.flankFirstStuds`' own re-derivation that pays for it. The pinned value is what
+			-- gives the case teeth -- at the unfixed set-back of 340 the worst pair is 338.41, which
+			-- still clears 330 and would pass a bare inequality.
+			local bentWorst, bentAt = math.huge, ""
+			for _, id in ipairs(Grid.cellIds()) do
+				for a = 1, count - 1 do
+					local ax, az = worldStand(id, a, BENT)
+					for b = a + 1, count do
+						if Grid.sideOf(id, a) ~= Grid.sideOf(id, b) then
+							local bx, bz = worldStand(id, b, BENT)
+							local apart = math.sqrt((ax - bx) ^ 2 + (az - bz) ^ 2)
+							expect(apart >= range).to.equal(true)
+							if apart < bentWorst then
+								bentWorst, bentAt = apart, string.format("%s %d-%d", id, a, b)
+							end
+						end
+					end
+				end
+			end
+			expect(math.abs(bentWorst - 363.79) < 0.05).to.equal(true)
 			-- THE MARGIN IS REPORTED AS A NUMBER, so a CONFIG change that eats it is read rather
 			-- than passed over.
 			expect(Match.CONFIG.SAFETY_RANGE_STUDS).to.equal(range)
 			TestKit.note(
 				string.format(
-					"worst cross-side pair %.1f studs (%s), range %d, margin %.1f",
+					"worst cross-side pair %.2f studs (%s), range %d, margin %.2f; at bend 45/60 %.2f (%s), margin %.2f",
 					worst,
 					worstAt,
 					range,
-					worst - range
+					worst - range,
+					bentWorst,
+					bentAt,
+					bentWorst - range
 				)
 			)
 		end)
@@ -285,6 +350,35 @@ return function()
 			expect(math.abs(required - 312.51) < 0.01).to.equal(true)
 			expect(Grid.flankFirstStuds()).to.equal(math.ceil(required) + c.flankMarginStuds)
 			expect(Grid.flankFirstStuds()).to.equal(340)
+			-- ...AND IN WORLD COORDINATES IT IS A FIXED POINT, RECOMPUTED HERE (task 328q, design
+			-- 5.4). The shear takes `|bendX'|max * f` off the `dx` term and `|bendZ'|max * dx0` off
+			-- the dz, so the set-back solves itself. Asserted at BOTH amplitudes and the number of
+			-- steps to converge is asserted too: a formula that needed more would be a different one.
+			for _, bend in ipairs({ STRAIGHT, BENT }) do
+				local slopeX = bend.nsStuds * math.pi * bend.harmonic / Grid.bendPitch("z")
+				local slopeZ = bend.ewStuds * math.pi * bend.harmonic / Grid.bendPitch("x")
+				local f = math.ceil(required) + c.flankMarginStuds
+				local steps = 0
+				for _ = 1, 8 do
+					local inner = dx - slopeX * f
+					local next_ = math.ceil(math.sqrt(range * range - inner * inner) + slopeZ * dx) + c.flankMarginStuds
+					if next_ == f then
+						break
+					end
+					f, steps = next_, steps + 1
+				end
+				expect(steps <= 3).to.equal(true)
+				expect(Grid.flankFirstStuds(bend)).to.equal(f)
+				-- AND IT IS ENOUGH IN THE WORLD, which is the inequality the number exists for: the
+				-- worst realised cross-side pair of every cell, computed from the map.
+				for _, id in ipairs(Grid.cellIds()) do
+					local ax, az = worldStand(id, 7, bend)
+					local bx, bz = worldStand(id, 12, bend)
+					expect(math.sqrt((ax - bx) ^ 2 + (az - bz) ^ 2) >= range).to.equal(true)
+				end
+			end
+			expect(Grid.flankFirstStuds(STRAIGHT)).to.equal(340)
+			expect(Grid.flankFirstStuds(BENT)).to.equal(366)
 			-- AND IT IS ENOUGH, which is the inequality the number exists for.
 			expect(math.sqrt(dx * dx + Grid.flankFirstStuds() ^ 2) >= range).to.equal(true)
 			-- THE FLANK FITS IN THE CELL: four stands 220 apart from the set-back is 1000 of 1430.
@@ -297,6 +391,425 @@ return function()
 					required,
 					span,
 					c.cellDepthStuds
+				)
+			)
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- 6b. the bend (task 328q)
+
+	describe("the bend", function()
+		-- EVERY CASE BELOW IS DRIVEN BY PARAMETER at `STRAIGHT` and at `BENT`, because the config
+		-- ships at 0 and a case that can only ask 0 asserts nothing about the world 328r commits.
+		-- Design: docs/design/grid-roads.md 5, 11.1.
+
+		it("is exactly zero at every junction and exactly the amplitude at every half-pitch", function()
+			local roads = Grid.roads()
+			local junctions = 0
+			for _, ew in ipairs(roads) do
+				for _, ns in ipairs(roads) do
+					if ew.axis == "x" and ns.axis == "z" then
+						junctions += 1
+						for _, bend in ipairs({ STRAIGHT, BENT }) do
+							-- THE ZEROS. `A * sin(pi * m * k)` for integer k, and the half-wavelength
+							-- IS the junction pitch (design 5.1), so this is exact and not a limit.
+							expect(math.abs(Grid.bendZ(ns.at, bend)) < 1e-12).to.equal(true)
+							expect(math.abs(Grid.bendX(ew.at, bend)) < 1e-12).to.equal(true)
+							-- ...SO THE TWO WORLD CURVES MEET AT EXACTLY (ns.at, ew.at).
+							expect(math.abs(Grid.roadCentreAt(ew, ns.at, bend) - ew.at) < 1e-12).to.equal(true)
+							expect(math.abs(Grid.roadCentreAt(ns, ew.at, bend) - ns.at) < 1e-12).to.equal(true)
+						end
+					end
+				end
+			end
+			expect(junctions).to.equal(15)
+			-- **AND THE HALF THAT CAN FAIL AT AMPLITUDE 0** (TASKS.md 328q item (vii)): the zeros
+			-- alone are `A * 0` and pass for any A, so the pair is the zeros PLUS the extremum. At
+			-- half a pitch from a junction the offset IS the amplitude, to the sign.
+			for _, bend in ipairs({ STRAIGHT, BENT }) do
+				local atX = Grid.bendOrigin("x") + Grid.bendPitch("x") / 2
+				local atZ = Grid.bendOrigin("z") + Grid.bendPitch("z") / 2
+				expect(math.abs(Grid.bendZ(atX, bend) - bend.ewStuds) < 1e-9).to.equal(true)
+				expect(math.abs(Grid.bendX(atZ, bend) - bend.nsStuds) < 1e-9).to.equal(true)
+				-- AND THE HALF-PITCH IS THE CELL'S OWN CENTRE, which is why a stand at the middle of
+				-- a main line is the one the bulge moves furthest.
+				expect(math.abs(atX - (Grid.boundsOf("A1").minX + Grid.boundsOf("A1").maxX) / 2) < 1e-9).to.equal(true)
+			end
+			-- A NON-INTEGER HARMONIC BREAKS THE ZEROS, and that is asserted rather than asserted of:
+			-- at m = 1.5 two of the five north-south junctions stop being zeros.
+			local broken = { ewStuds = 45, nsStuds = 60, harmonic = 1.5 }
+			local nonZero = 0
+			for _, road in ipairs(roads) do
+				if road.axis == "z" and math.abs(Grid.bendZ(road.at, broken)) > 1e-6 then
+					nonZero += 1
+				end
+			end
+			expect(nonZero).to.equal(2)
+			expect(Grid.CONFIG.bend.harmonic % 1).to.equal(0)
+			TestKit.note(
+				string.format(
+					"15 junctions, bend 0 to 1e-12 at every one; at 45/60 the half-pitch offsets are %.3f / %.3f; m=1.5 breaks %d of 5",
+					Grid.bendZ(Grid.bendOrigin("x") + Grid.bendPitch("x") / 2, BENT),
+					Grid.bendX(Grid.bendOrigin("z") + Grid.bendPitch("z") / 2, BENT),
+					nonZero
+				)
+			)
+		end)
+
+		it("maps between grid and world both ways, inside the contraction's own bound", function()
+			-- THE BOUND IS DERIVED PER AMPLITUDE, not typed: the fixed point contracts by
+			-- `q = |bendZ'|max * |bendX'|max` per step, so after `TO_WORLD_STEPS` an initial error of
+			-- at most `ewStuds + nsStuds` is down to `(ewStuds + nsStuds) * q^steps`.
+			--
+			-- **A CORRECTION TO DESIGN 11.1 CASE 2, MEASURED HERE:** it asks for 1e-6 "at the shipped
+			-- bend and at twice it". At 45 / 60 the residual is 1.2e-7 and 1e-6 holds; at 90 / 120
+			-- the same five steps leave 1.2e-4, because q quadruples. The derived bound is what this
+			-- case asserts, and 1e-6 is asserted where it is true.
+			local box = Grid.footprint()
+			local twice = { ewStuds = 2 * BENT.ewStuds, nsStuds = 2 * BENT.nsStuds, harmonic = 1 }
+			local worstJacobian, points = 0, 0
+			local rounds: { [number]: number } = {}
+			for index, bend in ipairs({ STRAIGHT, BENT, twice }) do
+				local worstRound = 0
+				for x = box.minX, box.maxX, 50 do
+					for z = box.minZ, box.maxZ, 50 do
+						points += 1
+						-- `toGrid` IS THE DEFINITION and `toWorld` is its numeric inverse, so BOTH
+						-- compositions have to come home (design 5.6).
+						local u, v = Grid.toGrid(x, z, bend)
+						local bx, bz = Grid.toWorld(u, v, bend)
+						worstRound = math.max(worstRound, math.abs(bx - x), math.abs(bz - z))
+						local fx, fz = Grid.toWorld(x, z, bend)
+						local gu, gv = Grid.toGrid(fx, fz, bend)
+						worstRound = math.max(worstRound, math.abs(gu - x), math.abs(gv - z))
+						-- THE SHEAR JACOBIAN, `1 - bendZ' * bendX'` (design 5.6): it is what bounds a
+						-- cell's area, and therefore `cellCapacity`, to 1.63 %.
+						local j = 1 - Grid.bendSlopeZ(x, bend) * Grid.bendSlopeX(z, bend)
+						worstJacobian = math.max(worstJacobian, math.abs(j - 1))
+					end
+				end
+				local q = (bend.ewStuds * math.pi * bend.harmonic / Grid.bendPitch("x"))
+					* (bend.nsStuds * math.pi * bend.harmonic / Grid.bendPitch("z"))
+				expect(worstRound <= (bend.ewStuds + bend.nsStuds) * q ^ Grid.TO_WORLD_STEPS).to.equal(true)
+				rounds[index] = worstRound
+			end
+			-- AT 0 THE MAP IS THE IDENTITY, EXACTLY; at the shipped 45 / 60 the design's 1e-6 holds.
+			expect(rounds[1]).to.equal(0)
+			expect(rounds[2] < 1e-6).to.equal(true)
+			expect(rounds[3] > 1e-6).to.equal(true)
+			-- THE SHEAR IS REAL AND NOT ZERO: 4 x 0.0163 at twice the bend, and a map that never
+			-- moved would read 0 here.
+			expect(worstJacobian > 0.06 and worstJacobian < 0.07).to.equal(true)
+			expect(Grid.TO_WORLD_STEPS).to.equal(5)
+			TestKit.note(
+				string.format(
+					"%d lattice points: worst round-trip %.2e / %.2e / %.2e studs at 0, 45-60, 90-120; worst |J-1| %.4f",
+					points,
+					rounds[1],
+					rounds[2],
+					rounds[3],
+					worstJacobian
+				)
+			)
+		end)
+
+		it("swings equally on both axes, which is the rule the pair was chosen by", function()
+			-- DESIGN 5.2: ONE angle for the whole world, because every bound in the design -- the
+			-- cone, the +Z normal, the perpendicular measure, the voxel stair -- is written in it.
+			for _, bend in ipairs({ STRAIGHT, BENT }) do
+				local ew = Grid.bendFacts("x", bend)
+				local ns = Grid.bendFacts("z", bend)
+				expect(math.abs(ew.swingDeg - ns.swingDeg) < 0.1).to.equal(true)
+				expect(ew.pitchStuds).to.equal(Grid.CONFIG.cellWidthStuds + Grid.CONFIG.roadClearStuds)
+				expect(ns.pitchStuds).to.equal(Grid.CONFIG.cellDepthStuds + Grid.CONFIG.roadClearStuds)
+				expect(ew.amplitudeStuds).to.equal(bend.ewStuds)
+				expect(ns.amplitudeStuds).to.equal(bend.nsStuds)
+			end
+			-- AND AT 0 THE ANGLE IS 0 AND THE THREE DERIVED LENGTHS ARE INFINITE: a straight road has
+			-- no plan radius, no sight limit and no voxel stair. Asserted, so the zero case is a
+			-- stated answer and not an accident of arithmetic.
+			local flat = Grid.bendFacts("x", STRAIGHT)
+			expect(flat.swingDeg).to.equal(0)
+			expect(flat.radiusStuds).to.equal(math.huge)
+			expect(flat.sightStuds).to.equal(math.huge)
+			expect(flat.stairStuds).to.equal(math.huge)
+		end)
+
+		it("gives the two roads of an axis the SAME curve, so a cell's depth is exact", function()
+			-- THIS IS THE CASE THAT KEEPS `grid-map.md` 4.3's 275-SECOND BEATER WALK (design 2 item
+			-- 3 / TASKS.md 328q item (iii)): the exact-translate property, which is the assertable
+			-- thing -- the old row restated `cellDepthStuds` and could not fail.
+			local roads = Grid.roads()
+			local ew, ns = {}, {}
+			for _, road in ipairs(roads) do
+				table.insert(if road.axis == "x" then ew else ns, road)
+			end
+			local box = Grid.footprint()
+			local worst, worstDepth, stations = 0, 0, 0
+			for _, bend in ipairs({ STRAIGHT, BENT }) do
+				for i = 1, 200 do
+					local x = box.minX + (box.maxX - box.minX) * (i - 1) / 199
+					stations += 1
+					local first = Grid.roadCentreAt(ew[1], x, bend) - ew[1].at
+					for k = 2, #ew do
+						worst = math.max(worst, math.abs((Grid.roadCentreAt(ew[k], x, bend) - ew[k].at) - first))
+					end
+					-- SO THE CELL'S DEPTH ALONG THIS COLUMN IS `cellDepthStuds` EXACTLY: the main
+					-- road and the muster road are the same curve, 1472 apart.
+					local of = Grid.roadsOf("A1")
+					local depth = Grid.roadCentreAt(of.muster, x, bend) - Grid.roadCentreAt(of.main, x, bend)
+					worstDepth = math.max(worstDepth, math.abs(depth - (of.muster.at - of.main.at)))
+				end
+				for i = 1, 200 do
+					local z = box.minZ + (box.maxZ - box.minZ) * (i - 1) / 199
+					local first = Grid.roadCentreAt(ns[1], z, bend) - ns[1].at
+					for k = 2, #ns do
+						worst = math.max(worst, math.abs((Grid.roadCentreAt(ns[k], z, bend) - ns[k].at) - first))
+					end
+				end
+			end
+			expect(worst < 1e-12).to.equal(true)
+			expect(worstDepth < 1e-12).to.equal(true)
+			-- AND THE WALK IS STILL THE CLOCK'S: 1430 / 5.2 inside the 300-second drive less grace.
+			local seconds = Grid.CONFIG.cellDepthStuds / Grid.CONFIG.beaterWalkStudsPerSecond
+			expect(math.abs(seconds - 275) < 0.1).to.equal(true)
+			TestKit.note(
+				string.format(
+					"%d stations x 2 amplitudes: worst translate error %.2e, worst cell depth error %.2e, walk %.1f s",
+					stations,
+					worst,
+					worstDepth,
+					seconds
+				)
+			)
+		end)
+
+		it("derives its own facts, so nothing in the design is transcribed", function()
+			-- RECOMPUTED IN THE CASE from the pitch, the amplitude and the harmonic (design 4's rule
+			-- that the facts are a function and not a comment).
+			for _, axis in ipairs({ "x", "z" }) do
+				for _, bend in ipairs({ STRAIGHT, BENT }) do
+					local facts = Grid.bendFacts(axis, bend)
+					local pitch = Grid.bendPitch(axis)
+					local a = if axis == "x" then bend.ewStuds else bend.nsStuds
+					local m = bend.harmonic
+					local slope = a * math.pi * m / pitch
+					expect(math.abs(facts.swingDeg - math.deg(math.atan(slope))) < 1e-9).to.equal(true)
+					if a > 0 then
+						expect(math.abs(facts.radiusStuds - pitch * pitch / (a * math.pi * math.pi * m * m)) < 1e-6).to.equal(
+							true
+						)
+						expect(
+							math.abs(
+								facts.sightStuds - (pitch / (math.pi * m)) * math.sqrt(2 * Grid.TRUNK_FLOOR_STUDS / a)
+							) < 1e-6
+						).to.equal(true)
+						expect(math.abs(facts.stairStuds - Grid.VOXEL_STUDS / slope) < 1e-9).to.equal(true)
+					end
+				end
+			end
+			local ew, ns = Grid.bendFacts("x", BENT), Grid.bendFacts("z", BENT)
+			TestKit.note(
+				string.format(
+					"at 45/60: swing %.3f / %.3f deg, plan radius %.0f / %.0f studs, view %.0f / %.0f, voxel stair %.1f / %.1f studs",
+					ew.swingDeg,
+					ns.swingDeg,
+					ew.radiusStuds,
+					ns.radiusStuds,
+					ew.sightStuds,
+					ns.sightStuds,
+					ew.stairStuds,
+					ns.stairStuds
+				)
+			)
+		end)
+
+		it("makes a beater cross at the bulge, not at the baseline", function()
+			-- `Match.lineReferenceFor`'s OWN HEADER: "the stands stand ON the road, so the nearest
+			-- one sideways is where the line really is for this beater". This is the case that
+			-- mechanism was written for (design 6.5).
+			local id = "A1"
+			local roads = Grid.roadsOf(id)
+			local line = { position = Vector3.new(0, 0, roads.main.at), normal = Vector3.zAxis }
+			local function fake(bend: any): { any }
+				local out = {}
+				for index = 1, Grid.CONFIG.mainStandCount do
+					local x, z = worldStand(id, index, bend)
+					table.insert(out, { Position = Vector3.new(x, 0, z) })
+				end
+				return out
+			end
+			-- THE CELL'S CENTRE COLUMN IS THE HALF-PITCH, so the post there is a full 45 studs NORTH
+			-- of `main.at` at the bent amplitude and exactly on it at the straight one.
+			local bulgeX = (Grid.boundsOf(id).minX + Grid.boundsOf(id).maxX) / 2
+			local _, bulgeZ = worldStand(id, 4, BENT)
+			-- NOT EXACTLY 45, AND MEASURED RATHER THAN ASSUMED: the stand's grid v is an east-west
+			-- road's `at`, where `bendX` is 0, but its WORLD z is 45 north of that, and `bendX` there
+			-- is -5.8 studs -- which moves the station the east-west bulge is read at. The realised
+			-- offset is 44.995. The 0.02 allowance is that second-order coupling and nothing else.
+			expect(math.abs(bulgeZ - (roads.main.at + BENT.ewStuds)) < 0.02).to.equal(true)
+			expect(bulgeZ > roads.main.at + BENT.ewStuds - 0.02).to.equal(true)
+			-- A BEATER HALF-WAY UP THE BULGE: 20 studs north of the baseline, 25 SOUTH of his own
+			-- post. He is THROUGH against the bent line and NOT through against the straight one --
+			-- the two answers disagree, which is what makes this a case and not a restatement.
+			local at = Vector3.new(bulgeX, 0, roads.main.at + 20)
+			local bent = Match.lineReferenceFor(at, line, fake(BENT))
+			expect(math.abs((bent :: Vector3).Z - bulgeZ) < 1e-6).to.equal(true)
+			expect(Match.crossedLine(at, line, fake(BENT), 0)).to.equal(true)
+			expect(Match.crossedLine(at, line, fake(STRAIGHT), 0)).to.equal(false)
+			-- AND NORTH OF THE BULGE HE IS NOT THROUGH EITHER WAY, so the flip is at the bulge and
+			-- not simply everywhere.
+			local north = Vector3.new(bulgeX, 0, roads.main.at + BENT.ewStuds + 10)
+			expect(Match.crossedLine(north, line, fake(BENT), 0)).to.equal(false)
+			expect(Match.crossedLine(north, line, fake(STRAIGHT), 0)).to.equal(false)
+			TestKit.note(
+				string.format(
+					"beater %+.0f studs of main.at at the cell's centre column: bent post %+.0f (through), straight post %+.0f (not)",
+					at.Z - roads.main.at,
+					bulgeZ - roads.main.at,
+					select(2, worldStand(id, 4, STRAIGHT)) - roads.main.at
+				)
+			)
+		end)
+
+		it("IS today's world at amplitude zero, value for value", function()
+			-- **THIS IS WHAT MAKES THE STRUCTURAL TASK PROVABLY INERT** (design 11.1 case 7). Every
+			-- answer below is recomputed from the PRE-328q arithmetic, written out here, and compared
+			-- with what the live functions answer at the shipped config.
+			local c = Grid.CONFIG
+			expect(c.bend.ewStuds).to.equal(0)
+			expect(c.bend.nsStuds).to.equal(0)
+			local box = Grid.footprint()
+			-- 1. THE TWO MAPS ARE THE IDENTITY, exactly -- not to a tolerance.
+			for x = box.minX, box.maxX, 97 do
+				for z = box.minZ, box.maxZ, 97 do
+					local u, v = Grid.toGrid(x, z)
+					expect(u).to.equal(x)
+					expect(v).to.equal(z)
+					local wx, wz = Grid.toWorld(x, z)
+					expect(wx).to.equal(x)
+					expect(wz).to.equal(z)
+				end
+			end
+			-- 2. `standPosition` IS THE OLD FORMULA: the cell's centre x plus the offset, at the main
+			-- road's z; a flank at the road's x, `flankFirst` up, `flankSpacing` apart.
+			for _, id in ipairs(Grid.cellIds()) do
+				local cell = Grid.cellOf(id) :: any
+				local cellBox = Grid.boundsOf(id)
+				local roads = Grid.roadsOf(id)
+				local centreX = (cellBox.minX + cellBox.maxX) / 2
+				for index = 1, Grid.standCount(id) do
+					local at = Grid.standPosition(id, index)
+					local side = Grid.sideOf(id, index)
+					local want: Vector3
+					if side == "main" then
+						local middle = (c.mainStandCount + 1) / 2
+						want = Vector3.new(
+							centreX + (index - middle) * c.mainSpacingStuds,
+							cell.relief.lineMeanY,
+							roads.main.at
+						)
+					else
+						local first = if side == "west"
+							then c.mainStandCount + 1
+							else c.mainStandCount + c.flankStandCount + 1
+						want = Vector3.new(
+							if side == "west" then roads.west.at else roads.east.at,
+							cell.relief.lineMeanY,
+							roads.main.at + 340 + (index - first) * c.flankSpacingStuds
+						)
+					end
+					expect((at - want).Magnitude).to.equal(0)
+				end
+			end
+			expect(Grid.flankFirstStuds()).to.equal(340)
+			-- 3. `roadDistance` IS THE AXIS-ALIGNED MINIMUM over the roads that run past the point.
+			local roads = Grid.roads()
+			for x = box.minX + 13, box.maxX, 211 do
+				for z = box.minZ + 7, box.maxZ, 197 do
+					local want = math.huge
+					for _, road in ipairs(roads) do
+						if road.axis == "x" then
+							if x >= road.from and x <= road.to then
+								want = math.min(want, math.abs(z - road.at))
+							end
+						elseif z >= road.from and z <= road.to then
+							want = math.min(want, math.abs(x - road.at))
+						end
+					end
+					expect(math.abs(Plan.roadDistance(x, z) - want) < 1e-9).to.equal(true)
+					expect(math.abs(Plan.roadDistanceGrid(x, z) - want) < 1e-9).to.equal(true)
+				end
+			end
+			-- 4. `layoutFor`'s THREE BEND FIELDS ARE THE PRE-328q LITERALS.
+			local layout = Grid.layoutFor("C1")
+			expect(layout.amplitudeStuds).to.equal(0)
+			expect(layout.halfSpanStuds).to.equal(535)
+			expect(layout.fieldNorthStuds).to.equal(1472)
+			expect(layout.sides.flanks.firstStuds).to.equal(340)
+			-- 5. `plantCell` EMITS THE SAME LIST: every row is its own grid point (the map is the
+			-- identity) and is clear of the mask asked in EITHER space. C1's plan is 328p's measured
+			-- 1,823 and the count is pinned, not reported, because this is the inert gate.
+			local drawn = Plan.plantCell("C1")
+			expect(#drawn).to.equal(1823)
+			for _, item in ipairs(drawn) do
+				local u, v = Grid.toGrid(item.x, item.z)
+				expect(u).to.equal(item.x)
+				expect(v).to.equal(item.z)
+				-- THE TWO SPACES AGREE, WHICH IS THE INERT CLAIM. Not "== nil": a SKIRT row is planted
+				-- into a neighbour and masked against THAT cell, and asking C1 about it can answer
+				-- `corridor` -- which it did, and which is pre-328q semantics and not a bend defect.
+				expect(Plan.mask("C1", item.x, item.z)).to.equal(Plan.maskGrid("C1", u, v))
+				expect(Plan.mask("C1", item.x, item.z, item.model, item.scale)).to.equal(
+					Plan.maskGrid("C1", u, v, item.model, item.scale)
+				)
+			end
+			-- 6. AND `ForestTest.roadZ`'s NEW CELL BRANCH ANSWERS THE LAYOUT'S OWN centre.Z, which is
+			-- what the `amplitudeStuds == 0` branch answered before it.
+			for x = box.minX, box.maxX, 101 do
+				expect(math.abs(Forest.roadZ(x, layout) - layout.centre.Z) < 1e-9).to.equal(true)
+			end
+			TestKit.note(
+				string.format(
+					"inert at bend 0: all %d stands of 8 cells exact, %d plantings in C1, both maps the identity",
+					8 * Grid.standCount("A1"),
+					#drawn
+				)
+			)
+		end)
+
+		it("never reaches the four old places, whose roadZ is still their own sine", function()
+			-- BOUNDARY 7 AGAIN, WITH THE NEW BRANCH IN IT (design 11.1 case 8): the cell branch is
+			-- FIRST in `roadZ`, so a shipped row that grew `sides` would take it. None has one, and
+			-- `forest_stand.spec`'s number-for-number assertions stand because of that.
+			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+				local layout = Forest.layoutNamed(name) :: any
+				expect(layout.sides).to.equal(nil)
+				expect(Grid.cellOf(name)).to.equal(nil)
+				for i = 0, 40 do
+					local x = layout.centre.X - 1000 + i * 50
+					local want = if layout.amplitudeStuds == 0
+						then layout.centre.Z
+						else layout.centre.Z + layout.amplitudeStuds * math.sin(
+							(x - layout.centre.X) / Forest.SHAPE.wavelengthDivisor
+						)
+					expect(math.abs(Forest.roadZ(x, layout) - want) < 1e-9).to.equal(true)
+				end
+			end
+			-- AND THE GRID'S WAVELENGTH IS NOT THEIRS: 2,224 studs against 70, which is the 32x
+			-- defect F-3's assert in `Ground.chunkFor` now refuses.
+			expect(2 * Grid.bendPitch("x") / Forest.SHAPE.wavelengthDivisor > 30).to.equal(true)
+			-- REQUIRED HERE AND NOWHERE ELSE IN THIS FILE (the header says `Places.Ground` left it in
+			-- 328e): this one assertion is defect F-3's refusal and it belongs with the wavelength.
+			local Ground = require(ServerScriptService.Places:WaitForChild("Ground"))
+			local cellLayout = Grid.layoutFor("C1")
+			expect(pcall(Ground.chunkFor, cellLayout, { halfWidthStuds = 11 })).to.equal(false)
+			expect(Ground.chunkFor(Forest.layoutNamed("road"), { halfWidthStuds = 11 }) > 0).to.equal(true)
+			TestKit.note(
+				string.format(
+					"4 places untouched; grid half-wavelength %d studs against SHAPE's %d; chunkFor refuses a cell",
+					Grid.bendPitch("x"),
+					Forest.SHAPE.wavelengthDivisor
 				)
 			)
 		end)
@@ -423,13 +936,15 @@ return function()
 				expect(layout.name).to.equal(id)
 				expect(layout.standCount).to.equal(15)
 				expect(layout.standSpacing).to.equal(c.mainSpacingStuds)
-				expect(layout.amplitudeStuds).to.equal(0)
-				expect(layout.halfSpanStuds).to.equal(c.cellWidthStuds / 2)
+				-- THE THREE FIELDS THE BEND MOVES (task 328q, design 6.1), each read off `CONFIG`
+				-- rather than typed, so 328r's commit moves them and no assertion here moves.
+				expect(layout.amplitudeStuds).to.equal(c.bend.ewStuds)
+				expect(layout.halfSpanStuds).to.equal(c.cellWidthStuds / 2 + c.bend.nsStuds)
 				expect(layout.sides.main.count).to.equal(c.mainStandCount)
 				expect(layout.sides.flanks.count).to.equal(c.flankStandCount)
 				expect(layout.sides.flanks.firstStuds).to.equal(Grid.flankFirstStuds())
 				expect(layout.beaterNorthStuds).to.equal(c.cellDepthStuds)
-				expect(layout.fieldNorthStuds).to.equal(c.cellDepthStuds + c.roadClearStuds)
+				expect(layout.fieldNorthStuds).to.equal(c.cellDepthStuds + c.roadClearStuds + c.bend.ewStuds)
 				expect(layout.cellOf.row).to.equal((Grid.cellOf(id) :: any).row)
 				expect(layout.cellOf.column).to.equal((Grid.cellOf(id) :: any).column)
 				-- MEMOISED: the boot compares a promoted layout by identity, so a fresh table per
@@ -457,8 +972,22 @@ return function()
 				for index = c.mainStandCount + 1, Grid.standCount(id) do
 					local at = Forest.standPosition(index, layout)
 					expect(at.Z > roads.main.at + 1).to.equal(true)
-					local onFlank = math.abs(at.X - roads.west.at) < 1e-6 or math.abs(at.X - roads.east.at) < 1e-6
-					expect(onFlank).to.equal(true)
+				end
+				-- **EVERY ONE OF THE FIFTEEN LIES ON ITS OWN ROAD'S WORLD CURVE** (task 328q, design
+				-- 11.1 case 4), which is the assertion that replaces `at.Z == roads.main.at` and
+				-- `at.X == roads.west.at`. Driven at BOTH amplitudes, because at 0 the curve is the
+				-- straight line and the case would otherwise be the old one wearing a new name.
+				for _, bend in ipairs({ STRAIGHT, BENT }) do
+					for index = 1, Grid.standCount(id) do
+						local sx, sz = worldStand(id, index, bend)
+						local side = Grid.sideOf(id, index)
+						if side == "main" then
+							expect(math.abs(sz - Grid.roadCentreAt(roads.main, sx, bend)) < 1e-6).to.equal(true)
+						else
+							local road = if side == "west" then roads.west else roads.east
+							expect(math.abs(sx - Grid.roadCentreAt(road, sz, bend)) < 1e-6).to.equal(true)
+						end
+					end
 				end
 				-- AN INDEX NOBODY HAS IS AN ERROR AND NOT A POINT OUTSIDE THE WORLD (327a note (d)):
 				-- 327b wires a client-supplied index into this seam.
@@ -1252,14 +1781,21 @@ return function()
 					-- `drive-places.md` section 10.4 item 3's lesson -- a rule asserted only through
 					-- the function that implements it asserts nothing.
 					for _, road in ipairs(roads) do
+						-- MEASURED FROM THE CURVE AND PERPENDICULAR TO IT (task 328q, design 5.5),
+						-- with `Grid.roadCentreAt` and the tangent -- not from `road.at`, and not
+						-- through `Places.roadDistance`, whose job this checks.
 						local gap
 						if road.axis == "x" then
 							gap = if item.x >= road.from and item.x <= road.to
-								then math.abs(item.z - road.at)
+								then math.abs(item.z - Grid.roadCentreAt(road, item.x)) / math.sqrt(
+									1 + Grid.bendSlopeZ(item.x) ^ 2
+								)
 								else math.huge
 						else
 							gap = if item.z >= road.from and item.z <= road.to
-								then math.abs(item.x - road.at)
+								then math.abs(item.x - Grid.roadCentreAt(road, item.z)) / math.sqrt(
+									1 + Grid.bendSlopeX(item.z) ^ 2
+								)
 								else math.huge
 						end
 						expect(gap > half).to.equal(true)

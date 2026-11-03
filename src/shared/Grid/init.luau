@@ -65,7 +65,24 @@ Grid.CONFIG = table.freeze({
 	-- THE WORLD SEED. Every per-cell stream hashes from it (`Grid.seedFor`), so a cell's wood is the
 	-- same whatever order the cells were built in -- Minecraft's own per-chunk rule (note section 2B).
 	seed = 327_001,
+	-- THE BEND, AND 0 IS TODAY'S WORLD. Karen, 2026-11-03: *"road could be also not just straight
+	-- make line in real life"*. One sine per axis, half-wavelength = the junction pitch, so the
+	-- offset is exactly 0 at every junction. BORN AT ZERO: task 328r switches it to 45 / 60 by
+	-- COMMIT (task 79's map-switch exception), never by a flag.
+	-- Design: docs/design/grid-roads.md 4, 5, 9.1-9.3.
+	bend = table.freeze({
+		ewStuds = 0, -- the east-west family (the main and muster lines). 328r: 45
+		nsStuds = 0, -- the north-south family (the flanks). 328r: 60
+		harmonic = 1, -- bends per junction span. AN INTEGER, OR THE JUNCTIONS STOP BEING ZEROS
+	}),
 })
+
+-- THE ENGINE'S TERRAIN VOXEL and the trunk-free half-width, HELD HERE ONLY BECAUSE `bendFacts`
+-- NEEDS THEM AND `Grid` REQUIRES NOTHING BUT `Shotgun`. One fact each with `Relief.VOXEL` and
+-- `Places.ROAD_TRUNK_FLOOR_STUDS`; `grid_ground.spec` and `grid_relief.spec` assert the equalities,
+-- so a second copy cannot drift silently.
+Grid.VOXEL_STUDS = 4
+Grid.TRUNK_FLOOR_STUDS = 34
 
 -- WEST TO EAST, and the id is the column letter plus the row number, so `Places.CELL_PLANS`,
 -- `HighSeats.STANDS`, `ForestTest.LAYOUTS` and the vote's wire all key on one string.
@@ -376,6 +393,210 @@ function Grid.roadsOf(id: string): { main: Road, west: Road, east: Road, muster:
 	}
 end
 
+-- ---------------------------------------------------------------- the bend (design 5, task 328q)
+
+export type Bend = { ewStuds: number, nsStuds: number, harmonic: number }
+
+-- THE BEND IS A TRAILING OPTIONAL on every function below -- the idiom `layoutFor`, `spook`,
+-- `beater` and `rest` already use. The arithmetic is pure in a table handed in, so a spec can ask
+-- any amplitude anything with no world running and BOTH STATES ARE REACHABLE BY PARAMETER.
+local function bendOf(bend: Bend?): Bend
+	return (bend or Grid.CONFIG.bend) :: Bend
+end
+
+-- THE TWO JUNCTION PITCHES, which are not a choice (design 5.1): the half-wavelength IS the pitch
+-- between junctions, so `sin(pi * harmonic * k)` is exactly 0 at every one of them.
+--   axis "x" (the east-west family): junctions are the five north-south road centres, 1112 apart
+--   axis "z" (the north-south family): the three east-west road centres, 1472 apart
+function Grid.bendPitch(axis: string): number
+	local c = Grid.CONFIG
+	if axis == "x" then
+		return c.cellWidthStuds + c.roadClearStuds
+	end
+	return c.cellDepthStuds + c.roadClearStuds
+end
+
+-- THE FIRST JUNCTION OF EACH FAMILY -- the phase reference, so a road centre is a ZERO of the other
+-- family and not an extremum. `Grid.roads()`' own arithmetic: `origin + roadClear/2`.
+function Grid.bendOrigin(axis: string): number
+	local c = Grid.CONFIG
+	return (if axis == "x" then c.originX else c.originZ) + c.roadClearStuds / 2
+end
+
+-- THE EAST-WEST FAMILY'S z OFFSET AT A WORLD x. Every east-west road is this one curve plus its own
+-- `at`, so the three of them are EXACT TRANSLATES and a cell's depth is `cellDepthStuds` along
+-- every column (design 2 item 3 -- the property that keeps the 275-second beater walk).
+function Grid.bendZ(x: number, bend: Bend?): number
+	local b = bendOf(bend)
+	if b.ewStuds == 0 then
+		return 0
+	end
+	local pitch = Grid.bendPitch("x")
+	return b.ewStuds * math.sin(math.pi * b.harmonic * (x - Grid.bendOrigin("x")) / pitch)
+end
+
+-- THE NORTH-SOUTH FAMILY'S x OFFSET AT A WORLD z.
+function Grid.bendX(z: number, bend: Bend?): number
+	local b = bendOf(bend)
+	if b.nsStuds == 0 then
+		return 0
+	end
+	local pitch = Grid.bendPitch("z")
+	return b.nsStuds * math.sin(math.pi * b.harmonic * (z - Grid.bendOrigin("z")) / pitch)
+end
+
+-- d(bendZ)/dx and d(bendX)/dz, for the tangent, the normal and the perpendicular measure (5.5).
+function Grid.bendSlopeZ(x: number, bend: Bend?): number
+	local b = bendOf(bend)
+	if b.ewStuds == 0 then
+		return 0
+	end
+	local k = math.pi * b.harmonic / Grid.bendPitch("x")
+	return b.ewStuds * k * math.cos(k * (x - Grid.bendOrigin("x")))
+end
+
+function Grid.bendSlopeX(z: number, bend: Bend?): number
+	local b = bendOf(bend)
+	if b.nsStuds == 0 then
+		return 0
+	end
+	local k = math.pi * b.harmonic / Grid.bendPitch("z")
+	return b.nsStuds * k * math.cos(k * (z - Grid.bendOrigin("z")))
+end
+
+-- HOW FAR ANY WORLD BOX HAS TO GROW to hold what the bend moved into it: the larger amplitude, on
+-- both axes, because an east-west road wanders in z and a north-south one in x.
+function Grid.maxBendStuds(bend: Bend?): number
+	local b = bendOf(bend)
+	return math.max(b.ewStuds, b.nsStuds)
+end
+
+-- ---- THE TWO MAPS, and `toGrid` IS THE DEFINITION (design 5.6).
+--
+-- In GRID coordinates every road is straight at its own `at`, which is why `Relief`, the whole of
+-- `Places` and every zone, ride, cone and corridor keep their arithmetic unchanged. The world is
+-- that plane sheared by the two sines:
+--
+--   u = x - bendX(z)        v = z - bendZ(x)        (closed form, this direction)
+--   x = u + bendX(z)        z = v + bendZ(x)        (implicit, solved by the fixed point below)
+function Grid.toGrid(x: number, z: number, bend: Bend?): (number, number)
+	return x - Grid.bendX(z, bend), z - Grid.bendZ(x, bend)
+end
+
+-- THE NUMERIC INVERSE, five fixed-point steps. The contraction per step is |bendZ'| * |bendX'| <=
+-- 0.0163, so from a 60-stud initial error 4 steps reach 4e-6 studs and 5 reach 7e-8 (design 5.6).
+-- ONE DIRECTION ONLY WOULD BE A SECOND DEFINITION of where the roads are, so this is an inverse of
+-- `toGrid` and never a second sine.
+Grid.TO_WORLD_STEPS = 5
+function Grid.toWorld(u: number, v: number, bend: Bend?): (number, number)
+	local b = bendOf(bend)
+	if b.ewStuds == 0 and b.nsStuds == 0 then
+		-- EXACT, not an approximation: at amplitude 0 both sines are 0 and the map is the identity.
+		return u, v
+	end
+	local x, z = u, v
+	for _ = 1, Grid.TO_WORLD_STEPS do
+		x = u + Grid.bendX(z, b)
+		z = v + Grid.bendZ(x, b)
+	end
+	return x, z
+end
+
+-- WHERE A ROAD'S CENTRELINE IS, in the world, at one station along it: its own `at` plus the OTHER
+-- family's bend. `along` is the WORLD coordinate the road runs in (x for an east-west road, z for a
+-- north-south one), which is what the bake and the map both already have in hand.
+--
+-- THE ONE DEFINITION. `TerrainBake.roadAt`, `longProfile`, `profileSamples`, `TerrainBake`'s and
+-- `Places`' two `roadDistance`s and `Hud.MapUi` all ask this; none of them re-types a sine.
+function Grid.roadCentreAt(road: Road, along: number, bend: Bend?): number
+	if road.axis == "x" then
+		return road.at + Grid.bendZ(along, bend)
+	end
+	return road.at + Grid.bendX(along, bend)
+end
+
+-- THE ROAD'S DIRECTION AT ONE STATION, in degrees off its own axis. 0 at every junction, +-7.3 at
+-- the shipped amplitudes (design 5.2's one rule for the pair).
+function Grid.roadTangentDeg(road: Road, along: number, bend: Bend?): number
+	local slope = if road.axis == "x" then Grid.bendSlopeZ(along, bend) else Grid.bendSlopeX(along, bend)
+	return math.deg(math.atan(slope))
+end
+
+-- THE ROAD AS WORLD POINTS, ONE SAMPLER for the map, the specs and the census -- design 3's rule
+-- that `MapUi` asks and never re-derives. `samples` is the number of POINTS, so 2 is the end pair.
+function Grid.roadPolyline(road: Road, samples: number, bend: Bend?): { Vector2 }
+	local n = math.max(2, math.floor(samples))
+	local out: { Vector2 } = table.create(n)
+	for i = 1, n do
+		local along = road.from + (road.to - road.from) * (i - 1) / (n - 1)
+		local centre = Grid.roadCentreAt(road, along, bend)
+		if road.axis == "x" then
+			table.insert(out, Vector2.new(along, centre))
+		else
+			table.insert(out, Vector2.new(centre, along))
+		end
+	end
+	return out
+end
+
+-- THE DERIVED FACTS, AS A FUNCTION AND NOT AS A COMMENT (design 4), so the spec, the census line and
+-- this file read the same numbers and nothing is transcribed. `math.huge` where amplitude 0 makes
+-- the quantity infinite: a straight road has no plan radius, no sight limit and no voxel stair.
+function Grid.bendFacts(
+	axis: string,
+	bend: Bend?
+): {
+	pitchStuds: number,
+	amplitudeStuds: number,
+	harmonic: number,
+	swingDeg: number,
+	radiusStuds: number,
+	sightStuds: number,
+	stairStuds: number,
+}
+	local b = bendOf(bend)
+	local pitch = Grid.bendPitch(axis)
+	local amplitude = if axis == "x" then b.ewStuds else b.nsStuds
+	local m = b.harmonic
+	local slope = amplitude * math.pi * m / pitch
+	return {
+		pitchStuds = pitch,
+		amplitudeStuds = amplitude,
+		harmonic = m,
+		swingDeg = math.deg(math.atan(slope)),
+		radiusStuds = if amplitude <= 0 then math.huge else pitch * pitch / (amplitude * math.pi * math.pi * m * m),
+		sightStuds = if amplitude <= 0
+			then math.huge
+			else (pitch / (math.pi * m)) * math.sqrt(2 * Grid.TRUNK_FLOOR_STUDS / amplitude),
+		stairStuds = if slope <= 0 then math.huge else Grid.VOXEL_STUDS / slope,
+	}
+end
+
+-- AN AXIS-ALIGNED WORLD BOX FOR A CELL: its grid rectangle grown by the amplitude that can move a
+-- point into it -- the north-south family in x, the east-west family in z. The bake's region, the
+-- boar field, the map's bounds and the border wood all need a box and not a curve.
+function Grid.worldBoundsOf(id: string, bend: Bend?): { minX: number, maxX: number, minZ: number, maxZ: number }
+	local box = Grid.boundsOf(id)
+	local b = bendOf(bend)
+	return {
+		minX = box.minX - b.nsStuds,
+		maxX = box.maxX + b.nsStuds,
+		minZ = box.minZ - b.ewStuds,
+		maxZ = box.maxZ + b.ewStuds,
+	}
+end
+
+function Grid.worldFootprint(bend: Bend?): { minX: number, maxX: number, minZ: number, maxZ: number }
+	local box = Grid.footprint()
+	local b = bendOf(bend)
+	return {
+		minX = box.minX - b.nsStuds,
+		maxX = box.maxX + b.nsStuds,
+		minZ = box.minZ - b.ewStuds,
+		maxZ = box.maxZ + b.ewStuds,
+	}
+end
+
 -- ---------------------------------------------------------------- the stands
 
 -- HOW MANY STANDS ARE ON THE MAIN LINE, and it is what `Fill.standsFree` must be given -- never
@@ -431,12 +652,32 @@ end
 --
 -- Written as the formula so a change to the cell width, the main count or the spacing MOVES it
 -- instead of silently breaking it.
-function Grid.flankFirstStuds(): number
+--
+-- **AND IT IS SOLVED IN WORLD COORDINATES, BECAUSE THE SHEAR EATS THE MARGIN** (design 5.4, defect
+-- F-1). The tight pair differs by `f` in `v`, and `bendX` changes by up to `|bendX'|max * f` over
+-- that -- straight off the `dx` term -- while the pair also loses up to `|bendZ'|max * dx0` of dz.
+-- So the set-back is the fixed point of
+--
+--   f(n+1) = ceil( sqrt(range^2 - (dx0 - |bendX'|max * f(n))^2) + |bendZ'|max * dx0 ) + flankMargin
+--
+-- started at the straight answer. It converges in two steps and this does three:
+--   bend 0      340 -> 340                (the sines are 0, so this IS today's arithmetic)
+--   bend 45/60  340 -> 365 -> 366 -> 366
+function Grid.flankFirstStuds(bend: Bend?): number
 	local c = Grid.CONFIG
-	local dx = (c.cellWidthStuds / 2 + c.roadClearStuds / 2) - ((c.mainStandCount - 1) / 2) * c.mainSpacingStuds
+	local b = bendOf(bend)
+	local dx0 = (c.cellWidthStuds / 2 + c.roadClearStuds / 2) - ((c.mainStandCount - 1) / 2) * c.mainSpacingStuds
 	local range = Shotgun.CONFIG.RANGE_STUDS.Slug
-	local required = math.sqrt(math.max(0, range * range - dx * dx))
-	return math.ceil(required) + c.flankMarginStuds
+	-- THE PEAK SLOPES, `A * pi * m / P` on each axis -- the same quantity `bendFacts().swingDeg` is
+	-- the angle of, so there is one definition of "how hard the world shears".
+	local slopeX = b.nsStuds * math.pi * b.harmonic / Grid.bendPitch("z")
+	local slopeZ = b.ewStuds * math.pi * b.harmonic / Grid.bendPitch("x")
+	local f = math.ceil(math.sqrt(math.max(0, range * range - dx0 * dx0))) + c.flankMarginStuds
+	for _ = 1, 3 do
+		local dx = dx0 - slopeX * f
+		f = math.ceil(math.sqrt(math.max(0, range * range - dx * dx)) + slopeZ * dx0) + c.flankMarginStuds
+	end
+	return f
 end
 
 -- WHERE A HUNTER STANDS, as a world position. Side-aware.
@@ -445,27 +686,39 @@ end
 -- centre x plus `(index - (count + 1)/2) * spacing`, at the main road's z, with the cell's measured
 -- line mean as the fallback y. Task 327b makes `ForestTest.standPosition` delegate here and asserts
 -- the two agree to 1e-9 for indices 1..7 of every cell.
-function Grid.standPosition(id: string, standIndex: number): Vector3
+-- WHERE A HUNTER STANDS IN GRID COORDINATES -- today's arithmetic, unchanged, and now named, so
+-- `standPosition` is one `toWorld` of it and `Places.rideSegments` can ask for the grid point it
+-- actually wants (design 4). Returns `(u, v)`.
+function Grid.standGridOf(id: string, standIndex: number, bend: Bend?): (number, number)
 	local cell = Grid.cellOf(id)
-	assert(cell ~= nil, "Grid.standPosition: no such cell")
-	assertStandIndex("standPosition", id, standIndex)
+	assert(cell ~= nil, "Grid.standGridOf: no such cell")
+	assertStandIndex("standGridOf", id, standIndex)
 	local c = Grid.CONFIG
 	local box = Grid.boundsOf(id)
-	local centreX = (box.minX + box.maxX) / 2
-	local y = cell.relief.lineMeanY
 	local roads = Grid.roadsOf(id)
 	local mainZ = roads.main.at
 	local side = Grid.sideOf(id, standIndex)
 	if side == "main" then
 		local middle = (c.mainStandCount + 1) / 2
-		return Vector3.new(centreX + (standIndex - middle) * c.mainSpacingStuds, y, mainZ)
+		return (box.minX + box.maxX) / 2 + (standIndex - middle) * c.mainSpacingStuds, mainZ
 	end
 	-- A FLANK RUNS NORTH FROM THE MAIN ROAD, into the cell: stand 1 of a flank is `flankFirst` up,
 	-- then `flankSpacing` apart, so four stands span 660 of the cell's 1430 studs.
 	local first = if side == "west" then c.mainStandCount + 1 else c.mainStandCount + c.flankStandCount + 1
 	local step = standIndex - first
-	local z = mainZ + Grid.flankFirstStuds() + step * c.flankSpacingStuds
-	return Vector3.new(if side == "west" then roads.west.at else roads.east.at, y, z)
+	local v = mainZ + Grid.flankFirstStuds(bend) + step * c.flankSpacingStuds
+	return (if side == "west" then roads.west.at else roads.east.at), v
+end
+
+function Grid.standPosition(id: string, standIndex: number): Vector3
+	local cell = Grid.cellOf(id)
+	assert(cell ~= nil, "Grid.standPosition: no such cell")
+	local u, v = Grid.standGridOf(id, standIndex)
+	-- THE GRID POINT THROUGH THE MAP, so every stand lies EXACTLY on its own road's world curve
+	-- (`grid.spec` case 4 asserts it to 1e-6). The y is unchanged: the cell's measured line mean,
+	-- a FALLBACK ground that the real terrain decides.
+	local x, z = Grid.toWorld(u, v)
+	return Vector3.new(x, cell.relief.lineMeanY, z)
 end
 
 -- THE ORDER STANDS ARE OFFERED IN, and it is `HighSeats.dealLine`'s `walk` parameter, so there is no
@@ -540,13 +793,16 @@ function Grid.layoutFor(id: string): any
 		-- Y IS A FALLBACK GROUND ONLY, which is what `ForestTest.Layout` documents it as -- so it is
 		-- the cell's own MAIN LINE mean and not its midpoint (`Grid.CELLS[*].relief.lineMeanY`).
 		centre = Vector3.new((box.minX + box.maxX) / 2, cell.relief.lineMeanY, roads.main.at),
-		-- A CELL'S ROADS ARE STRAIGHT IN PLAN, and 0 is a straight line in one code path (design 2).
-		amplitudeStuds = 0,
+		-- THE EAST-WEST FAMILY'S AMPLITUDE (task 328q): a cell's main line IS this sine, and 0 is a
+		-- straight line in one code path. `ForestTest.roadZ` resolves a cell through `Grid` and never
+		-- through `SHAPE.wavelengthDivisor`, so this field is read for its BOUNDS, not its curve.
+		amplitudeStuds = c.bend.ewStuds,
 		standCount = Grid.standCount(id),
 		standSpacing = c.mainSpacingStuds,
 		-- THE CELL'S OWN HALF WIDTH: 900 studs of stands plus 85 of run-out each end is 535, which
 		-- is `cellWidth / 2` exactly -- so the boar field spans the cell and stops at its roads.
-		halfSpanStuds = c.cellWidthStuds / 2,
+		-- PLUS THE NORTH-SOUTH AMPLITUDE, because a flank road now wanders that far in x.
+		halfSpanStuds = c.cellWidthStuds / 2 + c.bend.nsStuds,
 		sides = table.freeze({
 			main = table.freeze({ count = c.mainStandCount, spacingStuds = c.mainSpacingStuds }),
 			flanks = table.freeze({
@@ -562,8 +818,9 @@ function Grid.layoutFor(id: string): any
 		-- 4.3): 1430 / 5.2 = 275 s, inside the 300 s clock less the 15 s through-grace.
 		beaterNorthStuds = c.cellDepthStuds,
 		-- THE BOAR FIELD REACHES THE MUSTER ROAD and stops there: a field that ended at the old 900
-		-- would clamp every animal 530 studs short of where the beaters start.
-		fieldNorthStuds = c.cellDepthStuds + c.roadClearStuds,
+		-- would clamp every animal 530 studs short of where the beaters start. PLUS THE EAST-WEST
+		-- AMPLITUDE, because the muster road itself wanders that far north of its own `at`.
+		fieldNorthStuds = c.cellDepthStuds + c.roadClearStuds + c.bend.ewStuds,
 		cellOf = table.freeze({ row = cell.row, column = cell.column }),
 	})
 	LAYOUT_BY_ID[id] = layout
