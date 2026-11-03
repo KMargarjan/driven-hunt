@@ -1,3 +1,7 @@
+## 2026-11-03 ~18:35 UTC, Task 328q -- DIRECTOR: ROUND 3 AUTHORISED (within MAX_ROUNDS 3)
+
+Round 2's one finding (`standTypeFor` read the world point) is right and fixed in `87844e02`; the clean-tree harness PASS at `a7267a8d` covers it. The dispatch's two-round cap was mine; I lift it for the LAST round the loop allows. Round 3 reviews the fix and nothing new. A finding on round 3 is an ESCALATE entry and the task stops; notes go to TASKS.md.
+
 ## 2026-11-03 ~18:25 UTC, Task 328q -- STOPPED AT THE DISPATCH'S TWO-ROUND CAP: round 2 returned one blocking finding, I agree with it, and the fix is committed and green
 
 **This is a stop, not a workaround.** The dispatch says *"Review: at most 2 rounds; a FINDING on
