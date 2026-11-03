@@ -654,7 +654,9 @@ return function()
 			-- the two answers disagree, which is what makes this a case and not a restatement.
 			local at = Vector3.new(bulgeX, 0, roads.main.at + 20)
 			local bent = Match.lineReferenceFor(at, line, fake(BENT))
-			expect(math.abs((bent :: Vector3).Z - bulgeZ) < 1e-6).to.equal(true)
+			-- 1e-3 AND NOT 1e-6, for case 2's own float32 reason: the post's `Position` is a `Vector3`,
+			-- so at a z of -5062 one ulp is 4.9e-4. MEASURED: this line failed at 1e-6.
+			expect(math.abs((bent :: Vector3).Z - bulgeZ) < 1e-3).to.equal(true)
 			expect(Match.crossedLine(at, line, fake(BENT), 0)).to.equal(true)
 			expect(Match.crossedLine(at, line, fake(STRAIGHT), 0)).to.equal(false)
 			-- AND NORTH OF THE BULGE HE IS NOT THROUGH EITHER WAY, so the flip is at the bulge and
