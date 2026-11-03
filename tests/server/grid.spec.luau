@@ -570,6 +570,13 @@ return function()
 			end
 			expect(worst < 1e-12).to.equal(true)
 			expect(worstDepth < 1e-12).to.equal(true)
+			-- **AND THE CURVE THE THREE ROADS SHARE IS NOT THE ZERO CURVE** (round 1 finding 4): every
+			-- assertion above is a DIFFERENCE, so all of them pass with `bendZ` and `bendX` stubbed to
+			-- return 0. At the half-pitch the shared offset is the amplitude itself.
+			local halfX = Grid.bendOrigin("x") + Grid.bendPitch("x") / 2
+			local halfZ = Grid.bendOrigin("z") + Grid.bendPitch("z") / 2
+			expect(math.abs(Grid.roadCentreAt(ew[1], halfX, BENT) - ew[1].at)).to.be.near(BENT.ewStuds, 1e-9)
+			expect(math.abs(Grid.roadCentreAt(ns[1], halfZ, BENT) - ns[1].at)).to.be.near(BENT.nsStuds, 1e-9)
 			-- AND THE WALK IS STILL THE CLOCK'S: 1430 / 5.2 inside the 300-second drive less grace.
 			local seconds = Grid.CONFIG.cellDepthStuds / Grid.CONFIG.beaterWalkStudsPerSecond
 			expect(math.abs(seconds - 275) < 0.1).to.equal(true)
@@ -648,7 +655,6 @@ return function()
 			-- is -5.8 studs -- which moves the station the east-west bulge is read at. The realised
 			-- offset is 44.995. The 0.02 allowance is that second-order coupling and nothing else.
 			expect(math.abs(bulgeZ - (roads.main.at + BENT.ewStuds)) < 0.02).to.equal(true)
-			expect(bulgeZ > roads.main.at + BENT.ewStuds - 0.02).to.equal(true)
 			-- A BEATER HALF-WAY UP THE BULGE: 20 studs north of the baseline, 25 SOUTH of his own
 			-- post. He is THROUGH against the bent line and NOT through against the straight one --
 			-- the two answers disagree, which is what makes this a case and not a restatement.

@@ -232,7 +232,7 @@ return function()
 			-- becomes curve-correct with no edit. The assertion is the conversion: a WORLD point
 			-- within 51 studs of the CURVED centreline lands inside the grid zero band -- driven by
 			-- parameter at the amplitude 328r commits, where the two spaces actually differ.
-			local converted = 0
+			local converted, moved = 0, 0
 			for _, bend in ipairs({
 				{ ewStuds = 0, nsStuds = 0, harmonic = 1 },
 				{ ewStuds = 45, nsStuds = 60, harmonic = 1 },
@@ -247,6 +247,11 @@ return function()
 								local z = if road.axis == "x" then centre + sign * offset else along
 								local u, v = Grid.toGrid(x, z, bend)
 								expect(Relief.roadFadeAt(ROADS, u, v)).to.equal(0)
+								-- **AND THE CONVERSION DOES WORK AT 45/60** (round 1 finding 4): with
+								-- the bend deleted the points would be straight, the map the identity
+								-- and all of them would still land in the band. This is what says the
+								-- band was reached THROUGH a shear.
+								moved = math.max(moved, math.abs(x - u) + math.abs(z - v))
 								converted += 1
 							end
 						end
@@ -254,10 +259,12 @@ return function()
 				end
 			end
 			expect(converted).to.equal(2 * #ROADS * 11 * 2 * 3)
+			expect(moved > 40).to.equal(true)
 			TestKit.note(
 				string.format(
-					"%d world points within 51 st of a centreline, at bend 0 and 45/60, all inside the grid zero band",
-					converted
+					"%d world points within 51 st of a centreline, at bend 0 and 45/60, all inside the grid zero band; worst shear carried %.2f studs",
+					converted,
+					moved
 				)
 			)
 		end)
@@ -776,6 +783,7 @@ return function()
 			local function sloped(_x: number, z: number): number?
 				return 120 + z / 100
 			end
+			local bent = { ewStuds = 45, nsStuds = 60, harmonic = 1 }
 			local profiles = {}
 			for _, road in Grid.roads() do
 				local profile = TerrainBake.longProfile(road, sloped)
@@ -798,7 +806,25 @@ return function()
 					for _, pin in pins do
 						-- THE PIN'S STATION IS AN EAST-WEST ROAD'S OWN `at`, and `bendX` is exactly 0
 						-- there, so the pin is at the junction in the WORLD as well as in the grid.
-						expect(math.abs(Grid.bendX(pin.along) - 0) < 1e-12).to.equal(true)
+						-- **DRIVEN AT 45/60 BY PARAMETER, AND THE ZERO IS A ZERO OF SOMETHING** (round
+						-- 1 finding 3): at the shipped amplitude `bendX` returns 0 on its first line,
+						-- so the assertion alone survives deleting the sine. The half-pitch station
+						-- half a pitch away is the amplitude itself, which is what makes it a zero.
+						expect(math.abs(Grid.bendX(pin.along, bent)) < 1e-12).to.equal(true)
+						expect(math.abs(Grid.bendX(pin.along + Grid.bendPitch("z") / 2, bent))).to.be.near(
+							bent.nsStuds,
+							1e-9
+						)
+						-- AND THE PIN'S HEIGHT IS THE EAST-WEST PROFILE'S OWN CROWN AT THE CROSSING,
+						-- recomputed here off the profile rather than taken from the pin.
+						local want = nil
+						for _, other in ew do
+							if other.road.at == pin.along then
+								want = TerrainBake.profileY(other, profile.road.at)
+							end
+						end
+						expect(want ~= nil).to.equal(true)
+						expect(pin.y).to.be.near(want :: number, 1e-9)
 						pinned += 1
 					end
 				end

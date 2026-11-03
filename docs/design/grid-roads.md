@@ -257,7 +257,7 @@ is written in that angle, and one angle for the whole world is one number to che
 ```
 tan(swing) = A·π·harmonic / P
 ewStuds = 45  ->  45π/1112 = 0.1271328  ->  7.2453 deg
-nsStuds = 60  ->  60π/1472 = 0.1280540  ->  7.2972 deg      (equal to 0.06 deg)
+nsStuds = 60  ->  60π/1472 = 0.1280540  ->  7.2972 deg      (equal to 0.05 deg)
 ```
 
 ### 5.3 What 45 and 60 buy, and the constraint that does NOT bind

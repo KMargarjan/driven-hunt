@@ -2223,12 +2223,21 @@ function Places.frontageAllows(plan: any, template: string?): boolean
 end
 
 -- IS THIS POINT IN A FRONTAGE BAND -- within `frontage.studs` of a road or a ride centreline?
+--
+-- WORLD IN, `Grid.toGrid` ONCE, AND `inFrontageGrid` IS THE KERNEL -- the `mask` / `maskGrid`
+-- treatment, for the same reason (round 1 finding 2): its two arms measure against a road and
+-- against a RIDE, and a ride is a grid-coordinate segment, so one body cannot straddle the seam.
 function Places.inFrontage(cellId: string, x: number, z: number): boolean
+	return Places.inFrontageGrid(cellId, Grid.toGrid(x, z))
+end
+
+-- THE SAME QUESTION IN GRID COORDINATES. `scatter` calls this one and pays no inverse.
+function Places.inFrontageGrid(cellId: string, x: number, z: number): boolean
 	local plan = Places.cellPlanFor(cellId)
 	if plan == nil or plan.frontage == nil then
 		return false
 	end
-	if Places.roadDistance(x, z) <= plan.frontage.studs then
+	if Places.roadDistanceGrid(x, z) <= plan.frontage.studs then
 		return true
 	end
 	for _, seg in ipairs(cellFacts(cellId).rides) do
@@ -2656,7 +2665,7 @@ local function scatter(
 						band ~= "herb"
 						and o.maskCell ~= nil
 						and o.maskPlan ~= nil
-						and Places.inFrontage(o.maskCell, jx, jz)
+						and Places.inFrontageGrid(o.maskCell, jx, jz)
 					then
 						group = Places.frontageGroupFor(o.maskPlan, group, rng:NextNumber())
 					end

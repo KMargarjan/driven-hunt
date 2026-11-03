@@ -1333,7 +1333,7 @@ function TerrainBake.shapeTile(
 					blurred[at]
 				)
 				shaped[at] = here or base
-				exempt[at] = Relief.isExempt(form, bounds, x, z)
+				exempt[at] = Relief.isExempt(form, bounds, gx, gz)
 				depth[at] = TerrainBake.depthAt(base, here or base)
 			end
 			-- THE ROAD WINS over the landform inside its verge and blends back across its bank
