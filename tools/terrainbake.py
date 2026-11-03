@@ -274,8 +274,20 @@ SLICE_SCALE = 64
 SLICE_OFFSET = 0
 
 # ReadVoxels' ceiling is 4,194,304 voxels. A 512-stud chunk is 128 x 128 = 16,384 columns, and a
-# 500-stud Y band is 125 voxels deep: 2.05 M, inside it with room for a deeper band.
+# 500-stud Y band is 125 voxels deep: 2.05 M, which is what MEASURED FINE (88 chunks of the whole
+# footprint in 24.4 s, 2026-11-03). A DEEPER BAND NARROWS THE CHUNK rather than riding the ceiling:
+# at a 1,000-stud band a 512-stud chunk is 4.10 M voxels, and that read came back
+# "Target is not reachable" -- Studio stopped answering mid-call. So the budget is half the engine's
+# ceiling and the chunk is derived from the band, never typed.
 SNAPSHOT_CHUNK_STUDS = 512
+SNAPSHOT_READ_BUDGET = 2097152
+
+
+def chunk_studs(y_min, y_max, voxel):
+    """The chunk side that keeps one ReadVoxels under `SNAPSHOT_READ_BUDGET`, in whole voxels."""
+    depth = max(1, int(math.ceil((y_max - y_min) / voxel)))
+    columns = max(8, int(math.sqrt(SNAPSHOT_READ_BUDGET / depth)))
+    return int(max(voxel * 8, min(SNAPSHOT_CHUNK_STUDS, voxel * columns)))
 
 
 def _sliced(codes):
@@ -1104,7 +1116,7 @@ def command_snapshot(studio, studio_id, args, facts, injected, sha):
     codes = array.array("h", [0]) * (nx * nz)
     holes, reasons = set(), []
     low, high = None, None
-    chunk = SNAPSHOT_CHUNK_STUDS
+    chunk = chunk_studs(args.y_min, args.y_max, v)
     xs = list(range(int(min_x), int(max_x), chunk))
     zs = list(range(int(min_z), int(max_z), chunk))
     print("[bake] snapshot: x[%g,%g] z[%g,%g] = %d x %d columns at pitch %g, in %d chunk(s) of %d st, "
@@ -2004,6 +2016,18 @@ def selftest():
         for name in os.listdir(scratch):
             os.remove(os.path.join(scratch, name))
         os.rmdir(scratch)
+
+    # ---- THE CHUNK IS DERIVED FROM THE BAND, so a deeper band cannot ride ReadVoxels' ceiling.
+    ok("a 500-stud band keeps the 512-stud chunk that measured fine",
+       chunk_studs(-100.0, 400.0, 4) == 512, str(chunk_studs(-100.0, 400.0, 4)))
+    ok("a 1,000-stud band narrows the chunk, and every chunk stays under the read budget",
+       chunk_studs(-200.0, 800.0, 4) < 512
+       and all((chunk_studs(0.0, span, 4) / 4) ** 2 * math.ceil(span / 4) <= SNAPSHOT_READ_BUDGET
+               for span in (100.0, 500.0, 1000.0, 2000.0)),
+       "1000 st band -> %d st chunk" % chunk_studs(-200.0, 800.0, 4))
+    ok("the chunk is always a whole number of voxels and never under 8 of them",
+       all(chunk_studs(0.0, span, 4) % 4 == 0 and chunk_studs(0.0, span, 4) >= 32
+           for span in (10.0, 500.0, 5000.0, 40000.0)))
 
     # ---- REFUSAL 7b, which had no case at all until now (328e note h).
     ok("refusal 7b refuses a cell whose ground already carries a DIFFERENT landform",
