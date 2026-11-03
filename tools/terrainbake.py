@@ -104,7 +104,9 @@ Every run appends its per-tile reports to .terrainbake/<utc>-<cells>.json (git-i
 import argparse
 import array
 import base64
+import contextlib
 import hashlib
+import io
 import json
 import math
 import os
@@ -877,15 +879,33 @@ def local_ok(place, name, want_name, allow_local):
     `-task EditFile -localPlaceFile` reports `game.PlaceId` **0**, not the place it was saved from,
     and `game.Name` is the FILE's name. So the base snapshot's window cannot be addressed by place
     id at all. `--allow-local-file` accepts place 0, and ONLY ever together with a `--studio-name`
-    that the DataModel's name holds -- and main() refuses the flag for every command but the
-    read-only `snapshot`, because B1's guard exists to stop a WRITE going to the wrong world and a
-    read of a backup file writes nothing.
+    that the DataModel's name holds -- and `local_file_refusal` below refuses the flag for every
+    command but the read-only `snapshot`, because B1's guard exists to stop a WRITE going to the
+    wrong world and a read of a backup file writes nothing.
     """
     if place == FOREST_PLACE_ID:
         return not want_name or want_name.lower() in (name or "").lower()
     if allow_local and place == "0" and want_name:
         return want_name.lower() in (name or "").lower()
     return False
+
+
+def local_file_refusal(command, allow_local, studio_name):
+    """Why `--allow-local-file` may not be used HERE, or None. The door is one command wide.
+
+    Pure, and the one writer of this rule, so a selftest case can enter each arm and die when the
+    arm is deleted (round-2 finding: `main(...) == 2` could not fail, because `check_backup` also
+    returns 2).
+    """
+    if not allow_local:
+        return None
+    if command != "snapshot":
+        return ("--allow-local-file is only for `snapshot`, which writes nothing; `%s` needs "
+                "the Forest Test's own place id" % command)
+    if not studio_name:
+        return ("--allow-local-file needs --studio-name: a Studio with no place id can only "
+                "be told apart by the name of the file it has open")
+    return None
 
 
 def resolve(studio, want_name=None, allow_local=False):
@@ -1519,12 +1539,9 @@ def main(argv):
     # THE LOCAL-FILE DOOR IS ONE COMMAND WIDE. `snapshot` writes nothing in the world; everything
     # else either writes terrain or measures the live place, and both need the place id.
     local = bool(args.allow_local_file)
-    if local and args.command != "snapshot":
-        return refuse("--allow-local-file is only for `snapshot`, which writes nothing; `%s` needs "
-                      "the Forest Test's own place id" % args.command)
-    if local and not args.studio_name:
-        return refuse("--allow-local-file needs --studio-name: a Studio with no place id can only "
-                      "be told apart by the name of the file it has open")
+    why_not_local = local_file_refusal(args.command, local, args.studio_name)
+    if why_not_local:
+        return refuse(why_not_local)
     mutating = args.command in ("bake", "archive")
     if mutating and not args.cells:
         return refuse("--cells is missing: an unnamed cell is an unbounded run")  # refusal 6
@@ -2135,10 +2152,34 @@ def selftest():
     ok("DEV is refused however the flags are set -- the one thing L-014 is about",
        not local_ok("136410205938347", "Driven Hunt DEV", None, True)
        and not local_ok("136410205938347", "Driven Hunt DEV", "DEV", True))
-    ok("--allow-local-file cannot reach a mutating command",
-       main(["bake", "--cells", "C1", "--allow-local-file", "--studio-name", "x"]) == 2)
-    ok("--allow-local-file without --studio-name is refused",
-       main(["snapshot", "--allow-local-file"]) == 2)
+    # `local_file_refusal`'s FOUR arms, one case each, because round 2 found that
+    # `main(...) == 2` cannot fail: `check_backup(None)` refuses with 2 as well. A case on the
+    # predicate's TEXT dies when its arm is deleted.
+    ok("local_file_refusal arm 1: the flag off is never a refusal",
+       local_file_refusal("bake", False, None) is None
+       and local_file_refusal("snapshot", False, None) is None)
+    ok("local_file_refusal arm 2: a command that is not snapshot is refused BY NAME",
+       "only for `snapshot`" in (local_file_refusal("bake", True, "x") or "")
+       and "`archive`" in (local_file_refusal("archive", True, "x") or ""))
+    ok("local_file_refusal arm 3: snapshot without --studio-name is refused for the name",
+       "needs --studio-name" in (local_file_refusal("snapshot", True, None) or "")
+       and "needs --studio-name" in (local_file_refusal("snapshot", True, "") or ""))
+    ok("local_file_refusal arm 4: snapshot with a name is allowed",
+       local_file_refusal("snapshot", True, "FT-base-328k") is None)
+
+    def refusal_of(argv):
+        """(exit code, what main PRINTED). Exit 2 alone cannot say WHICH refusal fired."""
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = main(argv)
+        return code, out.getvalue()
+
+    code, said = refusal_of(["bake", "--cells", "C1", "--allow-local-file", "--studio-name", "x"])
+    ok("main refuses --allow-local-file on a mutating command, for THAT reason",
+       code == 2 and "only for `snapshot`" in said, said.strip()[:80])
+    code, said = refusal_of(["snapshot", "--allow-local-file"])
+    ok("main refuses --allow-local-file with no --studio-name, for THAT reason",
+       code == 2 and "needs --studio-name" in said, said.strip()[:80])
 
     # THE RUN-LOG WRITER (design 6.3).
     rows = [{"minX": -4736, "minZ": -5376, "elapsedMs": 7}]
