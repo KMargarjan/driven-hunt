@@ -1,3 +1,84 @@
+## 2026-11-03 ~15:12 UTC, Task 328o -- STOPPED AT THE DISPATCH'S ONE-ROUND CAP: round 1 returned one blocking finding, I agree with it, and the fix is already committed
+
+**This is a stop, not a workaround.** The dispatch says *"GATE: docs-only task: one review round
+(CLAUDE.md loop step 5). Notes go to TASKS.md. A blocking finding goes to `ESCALATE.md`, then stop."*
+Round 1 returned one blocking finding. **It is correct, I reproduced it against the code, and it was a
+real defect in my note** -- so the Director decides whether to spend a second review call. The branch
+is pushed; the fix is commit `f46e5c9f`.
+
+### The finding, and why it is right
+
+`reviews/task-328o/RESULT.md` item 1: the note picked source B's **Rural Access** column (3.5-4.5 m
+running surface) as "our class" by reading `grid-terrain.md` 7.1's *"carriageway 20 studs"* as a FULL
+width. **It is a half-width**, and the repo says so twice:
+`TerrainBake.ROAD.carriagewayStuds = 20, -- 0 to +-20, level`, and
+`Places.ROAD_TRUNK_FLOOR_STUDS`' own header giving the cross-section as *"road 0-21, ditch 22-30, verge
+30-34"* -- all distances from the centreline. So our road is **5.6 m** painted (+-10), **11.2 m** level
+formation (+-20) and **19.0 m** to the far edge of the verge (+-34). The note's own two figures already
+contradicted its claim: neither 5.6 m nor 5.0 m sits inside 3.5-4.5 m.
+
+### What it changes, and what it does not
+
+**Our road is wider than BOTH of Table 4.1's columns** (Rural Access 3.5-4.5 m -> 15 m min.; Collector
+4-5.5 m -> 25 m min.), so *"15 m is the published floor for our class"* was not established and the row
+328q would have pasted was wrong a second time.
+
+**Corrected, and this is the defensible form:** source B publishes **no** floor for a road of our width;
+the largest it does publish is **25 m**, for its widest and fastest class, and in source B the floor
+**rises with the class** (15 m at 3.5-4.5 m / 25-35 kph, 25 m at 4-5.5 m / 45-60 kph). So the floor for
+our width is **at least 25 m**, and the ratio row becomes **`<= 31x` (E-W, 780 m) and `<= 41x` (N-S,
+1,024 m)** -- `<=`, because a higher true floor only shrinks the multiple.
+
+**The conclusion the row exists to support is unchanged and still wide:** curvature does not bind, so
+the amplitude is sized by the sight line (435 / 499 studs), not by a radius. The floor would have to
+reach about **780 m** -- 31 times the widest class source B publishes -- before it bound our E-W road
+at all.
+
+**And fixing it found a third defect in the design, which is the useful part.** *"Carriageway"* names
+two different widths in this repo: **20 studs** in `grid-terrain.md` 7.1's prose (*"The grid road's
+carriageway is 20 st (+-10)"*) and 7.2 (*"10 and 12 are the painted half-widths"*), and **40 studs** in
+7.1's own `+-10 to +-20` table row and in `TerrainBake.ROAD.carriagewayStuds`. That is one word with two
+meanings across a design and its code, and it is what produced this error. Consequence:
+`grid-roads.md` 5.5's *"the realised carriageway is 0.16 studs narrower perpendicular than nominal"* is
+right for the **painted** strip and silent about the level formation, which narrows **0.33 st**
+(40 * 0.00817). 0.33 studs is a twelfth of a voxel, so nothing built changes -- but **328q must make
+each road rule name which width it means**, and its `TASKS.md` row now says so.
+
+### What is NOT in doubt, from the Reviewer's own notes
+
+- **The re-derivation survives deletion**, which is what the Reviewer checked: *"The design's numbers
+  deleted, every `Derived here` cell still stands on `Grid.CONFIG` ... `Grid.CONFIG` deleted, nothing in
+  the table answers. I re-ran every row by hand and all reproduce except the one named in finding 1 and
+  the one named in note (a)."*
+- **Findings 1 and 2 against the design stand.** Source B's *"15-30 m"* is still wrong (there is no 30
+  in the document, and the two published floors are 15 m and 25 m); and section 5.4's *"333.1 studs, 3.1
+  of margin"* is still **332.4 / 2.4**, so the safety defect the design found is real and worse than it
+  wrote, while its fix (`flankFirstStuds` **366**, realised **357.45**, margin **27.45**) reproduces to
+  the decimal.
+- **The source fetches stand.** All five were fetched and all five carry a correction (FAO 13/5 is ALL
+  RIGHTS RESERVED and dated 1998; OpenDRIVE is 1.9.0 of 2026-05-08 under an ASAM grant; source B's own
+  `fs.usda.gov` URL is HTTP 403; no Roblox page states the voxel lattice is world-axis-aligned). The
+  Reviewer records these as *"Not verifiable here"* -- it has no network -- not as wrong.
+- **Rule 5, in the Reviewer's words and repeated here rather than softened:** `flankFirstStuds`
+  340 -> 366 is a **shooting** number, the 330-stud cross-side separation, and *"nothing in this round
+  was seen in Karen's place"*. It is arithmetic on paper; today's `grid.spec` case 5 still measures the
+  straight world. **Karen has judged neither the bend nor the moved flank stands** -- that is 328r.
+
+### What the Director has to decide
+
+1. **Authorise one more review round** for 328o, so the corrected note is signed off before 328p starts
+   (the fix is committed and pushed; it is one review call); or
+2. **merge as it stands** -- the finding was about a sentence in a research note, the corrected
+   arithmetic is in the tree at `f46e5c9f`, and no code exists yet to be wrong; or
+3. **carry 328o's tail into 328q**, which is the task that pastes these rows into `grid-roads.md` and
+   `grid-map.md` and whose `TASKS.md` row already names all four corrections.
+
+My recommendation is **(2)**: nothing under `src/`, `tests/` or `tools/` is touched, the queue rows the
+next five tasks need are in the tree, and the one blocking finding is fixed with its arithmetic written
+out. If the design's rows are to be corrected under a signed-off note instead, (1) is one call.
+
+---
+
 ## 2026-11-03 ~14:45 UTC, Task 328o -- DIRECTOR DECISIONS on `docs/design/grid-roads.md` (Architect PASS on `6e6e2051`)
 
 Karen, 2026-11-03 ~11:20 UTC, verbatim: *"road could be also not just straight make line in real life"*.
