@@ -34,7 +34,13 @@ file outside the repo, sha-checked, that both halves read.
    1,232 more columns are holes. **ROUND 2:** a hole ANYWHERE in a tile's slice refuses that tile,
    the pad included — the blur reads 72 studs out and the limiter 128, and before 328k the snapshot
    call refused the whole tile+pad read, so refusing on the tile alone was a loosening. 328k-6c/6d
-   enter both arms and assert the two counts are reported apart.
+   enter both arms and assert the two counts are reported apart. **And a slice's range never counts
+   a hole:** a hole's code on the wire is 0 and `shapeTile` writes `snapshot.minY` where the reader
+   has no answer, so a slice holding one hole used to put a 0-stud floor under 100–150-stud ground.
+   `decodeSlice` builds the hole set first and takes its range over the columns that have a height
+   (the sender's own numbers stand when none do); `base_slice` sends `minY`/`maxY`; the spec's
+   `snapshotOf` no longer counts a hole either. 328k-2c asserts the hole's decoded height IS 0 and
+   that `minY` is still 120.
 3. **Snapshot twice, same sha — three times now, across two commits.** Whole footprint + 430 + the tile pad, read twice from the backup:
    `010b6400abdd3e12f919e10a4f1a214d479145bda88b27931ad3deda39d878bf` both times, 4,203,957 bytes,
    1,532,160 columns, 172,320 holes, ground 44.80..395.42, 24.6 s and 24.8 s. C1's region alone, also
@@ -61,13 +67,6 @@ file outside the repo, sha-checked, that both halves read.
    **ROUND 2:** the round-1 case's regex stopped at the first space, so the pre-fix `args.base_sha or
    sha` matched it too. It captures the whole argument now, over the runtime half of the file only,
    with a fail-first case that feeds it that exact pre-fix line and requires it to differ.
-
-11. **ROUND 2 — a slice's range never counts a hole.** A hole's code on the wire is 0, and
-   `shapeTile` writes `snapshot.minY` wherever the reader has no answer, so a decoded slice holding
-   one hole put a 0-stud floor under 100–150-stud ground. `decodeSlice` builds the hole set first and
-   takes its range over the columns that have a height (the sender's own numbers stand when none do);
-   `base_slice` sends `minY`/`maxY`; the spec's `snapshotOf` no longer counts a hole either. 328k-2c
-   asserts the hole's decoded height IS 0 and that `minY` is still 120.
 7. **Refusal 9, both halves.** `--base` and `--base-sha` are required for `bake`/`measure`/`diff`; the
    file must be outside the repo, exist, parse, carry that exact sha, and cover the run's region
    (seven selftest cases, including a stale sha and a truncated file). Second half: a base that cannot
@@ -81,15 +80,16 @@ file outside the repo, sha-checked, that both halves read.
    answered, and matches through one predicate `local_ok`; `--studio-name` requires the name too;
    `--allow-local-file` accepts place 0 only with a name and only for the read-only `snapshot`
    (main() refuses it elsewhere). Six selftest cases, DEV refused in both directions.
-12. **Nothing in her place changed.** Every operation there was a read. Her attributes are
+10. **Nothing in her place changed.** Every operation there was a read. Her attributes are
     byte-identical to 328f's AFTER dump (`<runs-dir>/328k-attrs-AFTER.json` vs `328f-attrs-AFTER.json`),
     and the backup `.rbxl` and its copy both still hash `e4cbb70f2a49…`, the value read before Studio
     opened it — checked again after the second open. No frames: nothing in the world changed.
 
-13. **ROUND 2 — five notes fixed too:** the `X or True` tautology is gone; `base_at` reads the frame
-    out of the file's own header; `tile_pass` refuses when Studio's tile plan and this tool's count
-    disagree instead of an IndexError partway through a 70-minute bake; `check_place`'s name-mismatch
-    branch is reachable again; `QUERY_PLACE_AND_NAME` is imported from `studio_mcp`, not copied.
+**Also fixed, from the round-1 notes** (not a claim, listed so the diff is accounted for): the
+`X or True` tautology is gone; `base_at` reads the frame out of the file's own header; `tile_pass`
+refuses when Studio's tile plan and this tool's count disagree, instead of an IndexError partway
+through a 70-minute bake; `check_place`'s name-mismatch branch is reachable again; and
+`QUERY_PLACE_AND_NAME` is imported from `studio_mcp` rather than copied.
 
 ## What could not be verified
 
