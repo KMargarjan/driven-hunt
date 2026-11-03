@@ -1,17 +1,81 @@
-1. `src/shared/Places/init.luau` / `Places.CELL_PLANS.mixedRolling` — the `oakPark` zone is given a second storey by the same change whose own header says it must not be, and the request states it was left alone. Evidence, the recipe's new header: *"2. THE THREE CLOSED ZONES TIGHTEN (24/32/30 -> 21/28/27). `oakPark` does NOT: it is the park a hunter can see across (design 8.3's own intent for the east half), and it is the part of 'the rest' she said was good."* — and the row immediately below it: `zone(0.60, 0.35, 1.00, 0.70, 44, "oakPark", "wood", { reliefBias = true, jitter = 1.0, under = table.freeze({ spacingStuds = 42, mix = "larchYoung" }) })`. The park's canopy grid is 44 studs; the understorey it now carries is **42** — tighter than the canopy — over the whole 425.6 x 498.4-stud rectangle (132 of the 648 new grid cells, and 132 of the 52 studs of headroom left under the 3,600 bound). C1's own file header calls that zone *"an oak park to the east where the sight lines open"*, and `larchYoung` draws `young` (larch 26-96 studs) and `birch` at `shrubScale` 0.35-0.45 over `scaleFloor` 0.35, i.e. 9-43-stud stems through the one zone a hunter shoots across. The task statement is Karen's *"more trees but rest is good"*, and the Builder's own reading of "the rest" names `oakPark` in it. The request repeats the contradiction as fact: *"`oakPark`, the clearing and the two scrub zones are untouched -- they are 'the rest'"* — false for `oakPark` (it gains the `under` row) and false for the two scrub zones (`zone(..., 24, "scrub", "shrub", { jitter = 1.0 })` and `{ jitter = 1.0 }` on the second: every scrub site moves, because `scatter` reads `recipe.jitter` and the zone loop shares one `trees` stream). Required: drop the `under` row from the `oakPark` zone, which is what its own header's reasoning asks for — or, if the park is meant to carry it, say so in the header with the reason its sight lines survive a 42-stud grid of stems, and correct the request and the TASKS.md row to state that `oakPark` gains a second storey and that the two scrub zones' sites all moved.
+PASS
+
+Rule 5, stated so this PASS is not read as rule 5 having been met: both halves of what Karen will
+judge HAVE been seen in her place at the code commit and described in prose. The stake removal --
+claim 2, `328m-BEFORE2-J1.png` vs `-AFTER2-J1.png`, same camera: *"BEFORE, four glowing yellow
+pillars stand across the road at ~400 studs ... AFTER, they are gone; the same spruce wall, the same
+rutted road, the same far stand frame on the skyline, and no other tall coloured object anywhere in
+the frame."* And the new density -- claim 10, `S1` and `W1`, which round 1 found undescribed and this
+round describes: *"the flanks close into a wall of conifer with small spire-shaped larches among
+them, the hillside is now screened except straight up the ride, and the 54-stud ride itself is still
+open from the post to the skyline"*; *"more trunks plus three or four conical young larches standing
+BETWEEN them at mid-ground -- a second storey where there was none"*. What remains is her taste
+("more realistic"), which is `## Needs Karen` and not rule 5. No core item (animal behaviour,
+shooting) is touched.
+
+Delete-the-producer, by reading, on the two cases offered as proof:
+- case 22 (claim 1): restore `Places.stakeGrid` and `ownParts == 0`, `report.gridStakes == nil` and
+  `report.gridMissing == nil` all redden; delete the grid block entirely and `expect(folder ~= nil)`
+  reddens. Teeth both ways.
+- case 12a (claims 4, 5, 6, 9): delete the `under` loop in `Places.plantCell` and `saplings > 381`
+  cannot pass -- I re-derived the bound from `Grid.CONFIG` (1070 x 1430, inset 3) and the two `scrub`
+  zones hold 7x18 + 15x17 = **381 grid sites exactly**, one tree per site maximum, and they are C1's
+  only other source of `band == "shrub"` with `side == 1` (the skirt is `side = -1`, the ferns are
+  `herb`). Delete the `if item.under ~= nil` arm in `cellCapacity` and the
+  `cellCapacity("C1") == zones + under + ferns + skirt` equality reddens. Delete the `under` rows
+  from the recipe and `#withUnder > 0` reddens.
+  **Two lines of case 12a DO survive the deletion**, named per the duty: `expect(worst >=
+  plan.minGapStuds)` (the canopy alone satisfies 12 studs) and the `CELL_STREAM` distinct-id loop
+  (data, not behaviour). The case as a whole still fails, so this is not a blocking finding.
 
 ## Notes (non-blocking)
-- Rule 5, stated so nothing here is read as rule 5 having been met: the stake removal **was** seen in her place and described (claim 2, `328m-AFTER-J1.png` vs `-BEFORE-J1.png`, *"four glowing pillars before, none after"*). The **density** was not: the request names `328m-{BEFORE,AFTER}-{J1,S1,W1}.png` and says they were *"described in the report"*, but no sentence in the request describes what the new wood looks like at eye height — the S1 bullet describes only a sounder of boars crossing the ride, and W1 is not described at all. The thing Karen will judge ("more realistic more trees") has been measured in her place and not shown. Describe the three AFTER frames in the next round's request.
-- `tests/server/grid.spec.luau`, case 12a — the comment *"IT ACTUALLY PLANTS, at the `shrub` band's scale and from no other group"* is wider than the loop under it, which asserts `item.scale >= plan.scaleFloor` and `<= plan.shrubScale[2]` and no group at all. It cannot be tightened as written either: `scatter` applies the frontage rule to every `band ~= "herb"` site, so a sapling within C1's `frontage.studs` 60 is drawn from `{ "birch", "young", "aspen", "fieldOak" }` — a `Field_OakTree` at 0.4 is a legal understorey stem today, and is the likeliest source of the `foliageInGround` 62 -> 65 the request reports. Narrow the comment to the mix-level check above it.
-- `tests/server/grid.spec.luau`, case 12a — *"...AND IT MOVES NO CANOPY STEM. `CELL_STREAM.under` is its own stream ... asserted rather than assumed"*. What is asserted is that the four stream ids are distinct and that `type(Plan.CELL_STREAM.under) == "number"`; nothing compares C1's canopy list with what it was. The property does hold by construction (the `under` loop runs after the zone loop on its own `Random`, and the only shared state is the `trees` bucket grid, which from there affects the skirt alone — and a skirt tree is ≥ 36 studs across a road from any C1 site), but say that, or assert it against a golden the way `tests/server/relief_golden.luau` does.
-- `tests/server/grid.spec.luau`, case 22 — `TestKit.note` formats a literal `0` for *"folder present with %d part(s) of its own"* rather than `#folder:GetChildren()`. The assertion above it carries the case; the printed line is the one number in it that is assumed. Capture the count before `world:Destroy()`.
-- Stale comments the change leaves behind, in files it touched: `src/server/Places/init.luau` — `GRID_FOLDER`'s header (*"so a corner stake can never be..."*) and `build`'s grid block (*"the grid's roads and corner stakes need no tree template at all"*); `tests/server/grid.spec.luau` (*"corner stake can never answer it at all (design 8.4)"*). 328e updated these in the same commit as its own archive.
-- Outside the changed files but made stale by this change, for whoever picks it up: `src/shared/Flags/init.luau`, `GRID_PREVIEW.why` still says *"their corners staked"*; `src/shared/ForestTest/init.luau`'s `GROUND_IGNORE` header says *"a corner stake standing..."*; `tools/studio_mcp.py`'s two scope comments say *"its corner stakes and `GRID_PREVIEW`-off proof"*. No tool parses the boot's `grid:` line, so the format change breaks nothing.
-- `docs/design/grid-terrain.md` §8.1 lists the per-zone optional fields (`jitter`, `rows`, `reliefBias`, `floor`) and has no `under` row; `docs/design/grid-map.md` still says the preview *"parents a `Folder` of trees and corner stakes"*. `docs/design/` is the Architect's (328a-queued (a)) — queue both appends.
-- `Places.cellCapacity("C1")` is now 3,548 against case 14's `< 3600`: 52 of headroom, 1.4 %. I re-derived it from `Grid.CONFIG` (1070 x 1430, inset 3) and it is exactly right — 1,875 canopy + 648 under + 1,025 fern/skirt — so the request's 2,598 -> 3,548 checks out. The next density change to any C1 zone reddens case 14 before it reaches her; that is the Director's number to move, not the Builder's.
-- Design 8.3 bounds *"whole cell planted < 4.0 s"* and the boot prints the slice's steps, average, worst step and dress seconds — the request quotes `plantSeconds` 1.0 -> 1.3 from its own probe and not that line from her place, while the planted count rose 22 %. At the probe's implied 0.69 ms a model, `Slice.BUDGET_MS` 4.5 gives ~6 models a step, not `MAX_PER_STEP` 10, so the dress is ~5 s against a 40 s head-room — harmless in play, pre-existing in rate, and unmeasured in this request. Quote the boot's `places:` line next time.
-- `Places.UNDER_JITTER` and the `under.jitter` override: no recipe sets `jitter` on an `under` row and no case drives the override, so only the 1.0 default is reachable. The synthetic recipe the loop passes (`zone = { jitter = under.jitter or Places.UNDER_JITTER }`) also drops `rows`, so a zone with `rows = "NS"` (D1's `larchYoung` plantation) would get a non-row understorey under a row canopy. Cannot bite today — C1 has no `rows` zone — but say it in the header.
-- Harness and paperwork check out: `[harness] PASS: 34/34 checks @ 9f537820e3db6f71c70aecf7f69730c8eeb63f42 (clean tree) scope=all` names the request's `Code commit:`, and `paperwork-after-code-commit.txt` reads OK (only `TASKS.md` and `REQUEST.md` followed it). selene 0/0, stylua clean, `rojo build` exit 0. The rule-7 archive is complete and has a rollback. Claim 1's grep holds: `Places.STAKE` / `gridStakes` / `stakeGrid` survive only in comments, the archive, and case 22's two `nil` assertions. The live probe outputs (`328m-*.txt`, `328m-plant.py`) are outside the worktree and were checked for consistency only.
+- `src/shared/Places/init.luau`, `mixedRolling`'s new header — the "MEASURED, three allocations"
+  paragraph is stale after the round-1 fix. It reads *"three allocations of that same budget
+  (`driven-hunt-runs/328m-yield-v{1,2,3}.txt`): 1,885 / 1,876 / 1,886 planned models at capacity
+  3,548 / 3,588 / 3,526 ... and this one is the split with the most understorey (232 saplings against
+  148 and 150)"* — but the shipped split is none of those three: it is v4, at the **3,416** the same
+  header states two sentences earlier, and the request's claims 3 and 5 cite `328m-yield-v4.txt` for
+  it. 3,548 was round 1's number, with `oakPark`'s 132. Re-point the paragraph at v4 or say the three
+  were the rejected allocations.
+- `PLAYTEST.md` — the round-1 finding's own wording survives here, in the one file the Builder did not
+  rewrite: *"a second storey of young growth under the four wood zones"* (it is three — `oakPark`
+  takes neither) and *"`oakPark`, the clearing and the two scrub zones are untouched"*, which the same
+  sentence's own preceding clause (*"`jitter` 1.0 on every zone"*) contradicts. The recipe header and
+  the `TASKS.md` row both say it correctly per zone.
+- `tests/server/grid.spec.luau`, case 12a — the capacity half re-implements `cells()` verbatim from
+  `Places.cellCapacity`, so the equality catches the *missing* `under` term but would not catch a
+  wrong cell formula (verdict 278). `expect(under > 0)` is the independent part that carries it.
+  The no-displacement half is still argued in the comment rather than asserted against a golden
+  (already queued as 328m-notes (f)); for what it is worth I checked it holds by construction -- the
+  `under` loop runs after the whole zone loop on its own `Random`, and the only shared state is the
+  `trees` bucket grid, whose only later reader is the skirt, which `Places.skirtBands` puts entirely
+  inside the NEIGHBOUR's inset ground across a 42-stud road, far beyond `minGapStuds` 12.
+- `foliageInGround` **62 -> 65** (claim 7) is the one design 12.1 counter that moved the wrong way,
+  and the cause the request names is consistent with the new layer: `scatter` sends every
+  `band ~= "herb"` site inside C1's `frontage.studs` 60 through `frontageGroupFor`, whose groups
+  include `fieldOak`, so a `Field_OakTree_Var04/05/07` at 0.35-0.45 is a legal understorey stem and
+  is 328l's documented residue. The rate fell (4.33 % -> 3.85 %) and the target was already breached
+  at 62 with a `QUARANTINE` row offered to Karen -- for whoever takes that up, not for this round.
+- `Places.UNDER_JITTER`'s override is still unreachable (no recipe sets `under.jitter`, no case drives
+  it) and the synthetic recipe drops `rows`; the header now says both, which is what round 1 asked
+  for. Queued as 328m-notes (e).
+- Queued and still open, outside the files this change touched: `Flags.GRID_PREVIEW.why` (*"their
+  corners staked"*), `ForestTest.GROUND_IGNORE`'s header, `tools/studio_mcp.py`'s two scope comments,
+  and the two design appends (`grid-terrain.md` §8.1's optional-field list has no `under` row;
+  `grid-map.md`'s preview sentence). I confirmed no tool PARSES the boot's `grid:` line, so the
+  format change breaks nothing.
+- What I re-derived rather than took on trust, all of it exact: capacity 1,573 + 1,025 = **2,598**
+  before and 1,875 + 516 + 1,025 = **3,416** after, 184 under 3,600 (claim 5); `oakPark` cap
+  **120** at spacing 44 and its row byte-identical to the base, so claim 3's "untouched" now holds;
+  the two `scrub` zones' **381** sites (claim 4); `refusedPct` 122/1809 = 6.74 % and 118/1551 =
+  7.61 %, `parts` 5104/1687 = 3.03 (claim 7). The removal is complete -- `Places.STAKE`, `gridStakes`,
+  `stakeGrid` and `Stake_` survive only in the rule-7 archive, one pointer comment and case 22's two
+  `nil` assertions -- and `report.gridSeconds`, the only field the rewritten boot print still reads,
+  is set in both report shapes. Harness `[harness] PASS: 34/34 checks @ 7ff5c4d3 (clean tree)
+  scope=all` names the request's `Code commit:`; `paperwork-after-code-commit.txt` reads OK (only
+  `TASKS.md` and `REQUEST.md` followed it); selene 0/0, stylua clean, `rojo build` exit 0. No gate
+  threshold, no `SCOPE_SPECS` and no flag row was touched (L-041). The `328m-*.txt` probe outputs are
+  outside the worktree and were checked for internal consistency only.
 
 ---
-REVIEWER verdict on commit `1a67989ded78c425ea7e0c93b5342b5c165843f5` (round 1) · 2026-11-03 10:21 UTC · session cost $3.87, 44 turns · written by tools/agents.py
+REVIEWER verdict on commit `5d0e1e20f7bca693ef9ad8972bba0b6f1959be68` (round 2) · 2026-11-03 10:42 UTC · session cost $3.26, 41 turns · written by tools/agents.py
