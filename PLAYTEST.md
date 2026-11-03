@@ -16,10 +16,16 @@ the build (`backups/2026-11-03_task-328m_Places-stakeGrid-and-grid-case-22.md`, 
 
 > it's not broken trees it's good has to be a bit more realistic more trees but rest is good
 
-Task 328m raises C1's density: a second storey of young growth under the four wood zones, the three
-closed canopy zones tightened (24/32/30 -> 21/28/27), and `jitter` 1.0 on every zone so no row of
-sites reads as a row. `oakPark`, the clearing and the two scrub zones are untouched -- they are "the
-rest". **She has not judged the new density yet.**
+Task 328m raises C1's density, per zone -- because "the rest is good" is a claim about zones:
+
+- `spruceThicket`, `mixedWood`, `birchStand`: closer (24/32/30 -> 21/28/27) **and** a second storey
+  of young larch under the canopy;
+- `oakPark`: **neither**. It is the park a hunter can see across, and it is part of "the rest";
+- the clearing: nothing at all;
+- the two `scrub` zones: the same spacing, but `jitter` 1.0 like every zone -- so their sites do
+  move. At the old 0.8 a site wandered over 80 % of its step, leaving an empty stripe per row.
+
+Measured in her place: trees **1,433 -> 1,687**. **She has not judged the new density yet.**
 
 ## Quick test mode: boars on the road in seconds (Studio only, Task 83)
 
