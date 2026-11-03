@@ -2069,24 +2069,26 @@ return function()
 			return snap
 		end
 
-		it("328k-1 ENTERS each of the three column faults, and answers nil for a clean column", function()
+		it("328k-1 ENTERS each of the four column faults, and answers nil for a clean column", function()
 			-- L-093: one case per ARM, each one entered, not one case near the code.
-			local water = TerrainBake.columnFault(true, 1, true, 10, 20, -100, 400)
-			local over = TerrainBake.columnFault(false, 2, true, 10, 20, -100, 400)
-			local empty = TerrainBake.columnFault(false, 0, false, 10, 20, -100, 400)
+			local water = TerrainBake.columnFault(true, 1, true, false, 10, 20, -100, 400)
+			local over = TerrainBake.columnFault(false, 2, true, false, 10, 20, -100, 400)
+			local empty = TerrainBake.columnFault(false, 0, false, false, 10, 20, -100, 400)
+			local ceiling = TerrainBake.columnFault(false, 1, true, true, 10, 20, -100, 400)
 			expect(water).never.to.equal(nil)
 			expect(string.find(water :: string, "Water", 1, true)).never.to.equal(nil)
 			expect(string.find(over :: string, "overhang", 1, true)).never.to.equal(nil)
 			expect(string.find(over :: string, "2 solid runs", 1, true)).never.to.equal(nil)
 			expect(string.find(empty :: string, "no ground", 1, true)).never.to.equal(nil)
 			expect(string.find(empty :: string, "-100..400", 1, true)).never.to.equal(nil)
+			expect(string.find(ceiling :: string, "reaches the top of the Y band", 1, true)).never.to.equal(nil)
 			-- WATER WINS OVER AN OVERHANG, so a flooded cave is named for the water it holds.
-			expect(string.find(TerrainBake.columnFault(true, 3, true, 0, 0, 0, 1) :: string, "Water", 1, true)).never.to.equal(
+			expect(string.find(TerrainBake.columnFault(true, 3, true, true, 0, 0, 0, 1) :: string, "Water", 1, true)).never.to.equal(
 				nil
 			)
 			-- AND A CLEAN COLUMN IS NOT A FAULT -- without this the whole base would be holes.
-			expect(TerrainBake.columnFault(false, 1, true, 10, 20, -100, 400)).to.equal(nil)
-			TestKit.note("column faults: " .. water .. " | " .. over .. " | " .. empty)
+			expect(TerrainBake.columnFault(false, 1, true, false, 10, 20, -100, 400)).to.equal(nil)
+			TestKit.note("column faults: " .. water .. " | " .. over .. " | " .. empty .. " | " .. ceiling)
 		end)
 
 		it("328k-2 decodes the committed slice fixture to the exact heights, and back", function()

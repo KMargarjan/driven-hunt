@@ -286,9 +286,16 @@ def _sliced(codes):
     return blob.tobytes()
 
 
+# WHAT THE HASHED HEADER MAY HOLD: the lattice, the band and the frame -- and NOTHING an operator
+# typed. The sha has to be a function of THE GROUND, or "snapshot twice, same sha" would only mean
+# "nobody made a commit in between" and the base could not be re-taken after a paperwork commit.
+# Provenance (the commit, the .rbxl it came out of, the cells, the clock) goes in the sidecar.
+BASE_HEADER_KEYS = ("pitch", "minX", "minZ", "nx", "nz", "minY", "maxY", "yMin", "yMax")
+
+
 def base_save(path, header, codes, holes):
     """Write the .bin and answer its sha256. The sha is of the WHOLE file, header included."""
-    head = dict(header)
+    head = {key: header[key] for key in BASE_HEADER_KEYS}
     head["holes"] = sorted(int(h) for h in holes)
     head["scale"], head["offset"] = SLICE_SCALE, SLICE_OFFSET
     body = (BASE_MAGIC
@@ -1173,8 +1180,13 @@ def command_snapshot(studio, studio_id, args, facts, injected, sha):
         if os.path.exists(out):
             os.remove(out)
         os.replace(staging, out)
+    # THE SIDECAR CARRIES THE PROVENANCE the hashed header must not: which commit read it, which
+    # .rbxl it came out of, which cells were asked for, and when.
     with open(out + ".sha256", "w", encoding="utf-8") as handle:
-        handle.write(digest + "\n")
+        handle.write("%s  %s\n" % (digest, os.path.basename(out)))
+        handle.write("commit %s\nplace %s\ncells %s\nutc %s\nsource %s\n"
+                     % (sha, FOREST_PLACE_ID, ",".join(header["cells"]),
+                        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), header["source"]))
     elapsed = time.time() - started
     print("[bake] snapshot: %s" % out)
     print("[bake] snapshot: sha256=%s  %d columns, %d bytes, %d hole(s), ground %.2f..%.2f, %.1f s"
@@ -1927,6 +1939,12 @@ def selftest():
         sha_two = base_save(two, header, codes, [2])
         ok("two snapshots of the same ground are the same bytes and the same sha256",
            sha_one == sha_two and open(one, "rb").read() == open(two, "rb").read(), sha_one[:16])
+        # AND NOTHING AN OPERATOR TYPED IS IN THE HASH, or the base could not be re-taken after a
+        # paperwork commit and still be the same base.
+        noisy = dict(header, commit="deadbeef", source="a different note", cells=["A1"],
+                     place="1", chunkStuds=256)
+        ok("the sha is a function of the GROUND, not of the commit or the operator's note",
+           base_save(os.path.join(scratch, "e.bin"), noisy, codes, [2]) == sha_one)
         back = base_load(one)
         ok("the .bin round-trips its lattice, its codes and its holes",
            back["header"]["nx"] == 3 and back["holes"] == {2}

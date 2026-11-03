@@ -163,14 +163,21 @@ function TerrainBake.readerFor(snapshot: Snapshot): (number, number) -> number?
 	end
 end
 
--- WHY ONE COLUMN HAS NO SINGLE HEIGHT, or nil when it has one. THREE SEPARATE ARMS, and they are
+-- WHY ONE COLUMN HAS NO SINGLE HEIGHT, or nil when it has one. FOUR SEPARATE ARMS, and they are
 -- out here as a pure function so each can be ENTERED by a case rather than argued from the code
--- that happens to be near it (lesson L-093): Water has no single height, an overhang has two, and
--- an empty column has none. Guessing any of them is how a bake silently fills a cave.
+-- that happens to be near it (lesson L-093): Water has no single height, an overhang has two, an
+-- empty column has none, and a column whose TOP voxel is solid has one the band cannot see.
+-- Guessing any of them is how a bake silently fills a cave -- or flattens a hilltop.
+--
+-- THE CEILING ARM IS MEASURED, not imagined (2026-11-03). The whole-footprint read at a Y band of
+-- -100..400 came back with `maxY` exactly 400.00: the walk takes the highest SOLID voxel inside the
+-- band, so ground that continues above the band reports the band's own ceiling as its surface. That
+-- is a truncated hilltop dressed as a height, and it is the one fault that looks like data.
 function TerrainBake.columnFault(
 	water: boolean,
 	runs: number,
 	hasTop: boolean,
+	atCeiling: boolean,
 	x: number,
 	z: number,
 	yMin: number,
@@ -184,6 +191,16 @@ function TerrainBake.columnFault(
 	end
 	if not hasTop then
 		return string.format("no ground at (%.0f, %.0f) in the Y band %.0f..%.0f", x, z, yMin, yMax)
+	end
+	if atCeiling then
+		return string.format(
+			"ground at (%.0f, %.0f) reaches the top of the Y band %.0f..%.0f, so its surface is above "
+				.. "what was read: widen the band",
+			x,
+			z,
+			yMin,
+			yMax
+		)
 	end
 	return nil
 end
@@ -244,6 +261,7 @@ function TerrainBake.snapshot(region: Bounds, yMin: number, yMax: number, allowH
 			local top: number? = nil
 			local runs, inRun, material = 0, false, "Air"
 			local water = false
+			local atCeiling = occupancies[i][ny][k] > 0
 			for j = ny, 1, -1 do
 				local occupancy = occupancies[i][j][k]
 				if occupancy > 0 then
@@ -265,7 +283,7 @@ function TerrainBake.snapshot(region: Bounds, yMin: number, yMax: number, allowH
 			-- `allowHoles` is the WHOLE-REGION base pass (the bake's step 2): it RECORDS a faulted
 			-- column instead of losing the other million, and `bakeTileAt` then REFUSES any tile
 			-- whose own columns hold one -- never guesses.
-			local why = TerrainBake.columnFault(water, runs, top ~= nil, x, z, yMin, yMax)
+			local why = TerrainBake.columnFault(water, runs, top ~= nil, atCeiling, x, z, yMin, yMax)
 			local at = index(snapshot, i, k)
 			if why ~= nil then
 				if allowHoles ~= true then
