@@ -725,6 +725,31 @@ return function()
 				end
 			end
 			expect(Grid.flankFirstStuds()).to.equal(340)
+			-- 2b. AND THREE OF THOSE POINTS ARE PUBLISHED PRE-328q WORLD COORDINATES, quoted from
+			-- `Grid.CELLS`' own `towers` header (task 327b's shared-flank finding): C1 8 IS B1 12,
+			-- C1 13 IS D1 9 and C1 15 IS D1 11. They are a DIFF against the code before this task,
+			-- and not a recomputation of it.
+			for _, row in ipairs({
+				{ "C1", 8, -4455, -4767 },
+				{ "C1", 13, -3343, -4547 },
+				{ "C1", 15, -3343, -4107 },
+				{ "B1", 12, -4455, -4767 },
+				{ "D1", 9, -3343, -4547 },
+				{ "D1", 11, -3343, -4107 },
+			}) do
+				local at = Grid.standPosition(row[1] :: string, row[2] :: number)
+				expect(at.X).to.equal(row[3])
+				expect(at.Z).to.equal(row[4])
+			end
+			-- 2c. AND WHAT THE BEND WOULD MOVE, PRINTED: the peak offsets at 45/60, so the inert
+			-- claim is read beside the size of what is being held at zero.
+			local peakZ, peakX = 0, 0
+			for i = 0, 200 do
+				peakZ = math.max(peakZ, math.abs(Grid.bendZ(box.minX + (box.maxX - box.minX) * i / 200, BENT)))
+				peakX = math.max(peakX, math.abs(Grid.bendX(box.minZ + (box.maxZ - box.minZ) * i / 200, BENT)))
+			end
+			expect(peakZ).to.be.near(BENT.ewStuds, 0.01)
+			expect(peakX).to.be.near(BENT.nsStuds, 0.01)
 			-- 3. `roadDistance` IS THE AXIS-ALIGNED MINIMUM over the roads that run past the point.
 			local roads = Grid.roads()
 			for x = box.minX + 13, box.maxX, 211 do
@@ -773,9 +798,17 @@ return function()
 			end
 			TestKit.note(
 				string.format(
-					"inert at bend 0: all %d stands of 8 cells exact, %d plantings in C1, both maps the identity",
+					"inert at bend 0: all %d stands of 8 cells exact (C1 8 = %.0f,%.0f; 13 = %.0f,%.0f; 15 = %.0f,%.0f), %d plantings in C1, both maps the identity; held at zero: max |bendZ| %.2f, max |bendX| %.2f",
 					8 * Grid.standCount("A1"),
-					#drawn
+					Grid.standPosition("C1", 8).X,
+					Grid.standPosition("C1", 8).Z,
+					Grid.standPosition("C1", 13).X,
+					Grid.standPosition("C1", 13).Z,
+					Grid.standPosition("C1", 15).X,
+					Grid.standPosition("C1", 15).Z,
+					#drawn,
+					peakZ,
+					peakX
 				)
 			)
 		end)

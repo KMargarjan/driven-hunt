@@ -639,6 +639,18 @@ return function()
 			expect(pcall(Relief.epochInput, Relief.LANDFORMS, moved)).to.equal(false)
 			moved.bend = Grid.CONFIG.bend
 			expect(Relief.epochInput(Relief.LANDFORMS, moved)).to.equal(once)
+			-- **THE PYTHON TWIN'S FIXTURE, RE-CAPTURED FROM THIS ENCODER** (task 328q, defect F-5):
+			-- `tools/terrainbake.py`'s `CANONICAL_FIXTURE_OUTPUT` is the string below, and its
+			-- `selftest` compares its own encoder against it. Printed here so the capture is a
+			-- reading off the Luau and not a retyping.
+			local fixture = Relief.epochInput({
+				Z1 = {
+					baseKeep = 0.5,
+					floor = { default = "Ground", mudDepthStuds = 6 },
+					ops = { { dyStuds = -2.5, kind = "dome", rStuds = 10, u = 0.25, v = 0.75 } },
+				},
+			}, moved)
+			TestKit.note("grid_relief: epochInput fixture = " .. fixture)
 			moved.originX = Grid.CONFIG.originX + 4
 			expect(Relief.epochInput(Relief.LANDFORMS, moved)).never.to.equal(once)
 			local forms = { A1 = { baseKeep = 0.6, ops = {}, floor = { default = "Ground" } } }
