@@ -1,3 +1,23 @@
+## 2026-11-03 ~14:45 UTC, Task 328o -- DIRECTOR DECISIONS on `docs/design/grid-roads.md` (Architect PASS on `6e6e2051`)
+
+Karen, 2026-11-03 ~11:20 UTC, verbatim: *"road could be also not just straight make line in real life"*.
+
+**Director (scope), all as the design recommends:**
+- **D-A** RATIFIED: the bend ships BY COMMIT, never as a flag (task 79's exception). Born at 0 in 328q, switched on by 328r's re-bake commit.
+- **D-B** RATIFIED: 328g moves after 328h. Order: **328p -> 328q -> 328r -> 328s -> 328h -> 328i -> 328g**.
+- **D-C** ACCEPTED: `EXPECTED_TILES` and the epoch fixture are re-committed in 328q, named in its request.
+- **D-D** CONFIRMED: `tools/terrainbake.py` stays an independent twin and gains the bend.
+- **D-E** F-6 (corridors vs bot lanes) queued under "before release", not in this split.
+- **D-1** (frame fault) stays open: the `DHTestLook` route is the frame route, as section 11.4 mandates.
+
+**Karen (look) -- defaults taken now, shown to her as frames at 328r (Karen 10-17 "styling never blocks"; 10-05 velocity rule):**
+- **K-A** 45 studs east-west / 60 studs north-south (view about 3 stands down the road).
+- **K-B** arithmetic bend, not terrain-following.
+- **K-C** every east-west road bows the same way (no beater-walk change).
+- **K-D** the one-voxel ditch stair is kept; the 4-stud ditch is the named fallback if her frame reads as a sawtooth.
+
+Any of these four changes on Karen's word costs one `Grid.CONFIG` row and a re-bake of C1, nothing else.
+
 ## 2026-11-03 ~02:12 UTC, Task 328k -- STOPPED AT THE DISPATCH'S TWO-ROUND CAP: round 2 found a selftest case that passes with its own guard deleted
 
 **This is a stop.** The dispatch says *"Review: at most 2 rounds; a FINDING on round 2 goes to
