@@ -72,9 +72,18 @@ export type Snapshot = {
 	nx: number,
 	nz: number,
 	height: { number },
-	material: { string },
+	-- THE SURFACE MATERIAL, where the reader kept it. `shapeTile` never reads it -- the bake paints
+	-- from `Relief.materialAt` -- so a slice that arrives over the wire omits it rather than
+	-- shipping 18,000 strings nothing looks at.
+	material: { string }?,
 	minY: number,
 	maxY: number,
+	-- A COLUMN WITH NO SINGLE HEIGHT: Water, an overhang, or no ground in the Y band. The index is
+	-- `readerFor`'s own, and the reader answers nil there, so a hole is never a guessed zero
+	-- (design 5.3 step 2, note 4 item 5).
+	hole: { [number]: boolean }?,
+	holes: number?,
+	holeWhy: { string }?,
 }
 
 export type Tile = { minX: number, minZ: number }
@@ -145,21 +154,81 @@ function TerrainBake.readerFor(snapshot: Snapshot): (number, number) -> number?
 		if i < 1 or k < 1 or i > snapshot.nx or k > snapshot.nz then
 			return nil
 		end
-		return snapshot.height[index(snapshot, i, k)]
+		local at = index(snapshot, i, k)
+		local hole = snapshot.hole
+		if hole ~= nil and hole[at] == true then
+			return nil
+		end
+		return snapshot.height[at]
 	end
+end
+
+-- WHY ONE COLUMN HAS NO SINGLE HEIGHT, or nil when it has one. FOUR SEPARATE ARMS, and they are
+-- out here as a pure function so each can be ENTERED by a case rather than argued from the code
+-- that happens to be near it (lesson L-093): Water has no single height, an overhang has two, an
+-- empty column has none, and a column whose TOP voxel is solid has one the band cannot see.
+-- Guessing any of them is how a bake silently fills a cave -- or flattens a hilltop.
+--
+-- THE CEILING ARM IS MEASURED, not imagined (2026-11-03). The whole-footprint read at a Y band of
+-- -100..400 came back with `maxY` exactly 400.00: the walk takes the highest SOLID voxel inside the
+-- band, so ground that continues above the band reports the band's own ceiling as its surface. That
+-- is a truncated hilltop dressed as a height, and it is the one fault that looks like data.
+function TerrainBake.columnFault(
+	water: boolean,
+	runs: number,
+	hasTop: boolean,
+	atCeiling: boolean,
+	x: number,
+	z: number,
+	yMin: number,
+	yMax: number
+): string?
+	if water then
+		return string.format("Water at (%.0f, %.0f) has no single height", x, z)
+	end
+	if runs > 1 then
+		return string.format("an overhang at (%.0f, %.0f): %d solid runs in one column", x, z, runs)
+	end
+	if not hasTop then
+		return string.format("no ground at (%.0f, %.0f) in the Y band %.0f..%.0f", x, z, yMin, yMax)
+	end
+	if atCeiling then
+		return string.format(
+			"ground at (%.0f, %.0f) reaches the top of the Y band %.0f..%.0f, so its surface is above "
+				.. "what was read: widen the band",
+			x,
+			z,
+			yMin,
+			yMax
+		)
+	end
+	return nil
 end
 
 -- ONE REGION OF BASE TERRAIN, through `ReadVoxels`. REFUSES Water and REFUSES an overhang (two
 -- separated solid runs in one column): neither has a single height, and guessing one is how a bake
--- silently fills a cave (design 5.3 step 2; note 4 item 5).
-function TerrainBake.snapshot(region: Bounds, yMin: number, yMax: number): (Snapshot?, string?)
+-- silently fills a cave (design 5.3 step 2; note 4 item 5). `allowHoles` records such a column
+-- instead, which is what the WHOLE-REGION base pass needs -- one pond must not lose a million
+-- columns -- and `bakeTileAt` then refuses any tile whose own columns hold one.
+--
+-- THE LATTICE IS `ExpandToGrid`'s, NOT THE REGION'S (task 328k). `ExpandToGrid(4)` rounds outward,
+-- so a region whose edge is not a multiple of 4 reads columns centred on the EXPANDED box while
+-- `readerFor` indexed from the raw edge -- up to one voxel of shear. Every caller before 328k
+-- passed a 4-aligned region so nothing was wrong; the base pass tiles the whole footprint, whose
+-- edges are not aligned, so the stored origin is now the one the columns were actually read on.
+function TerrainBake.snapshot(region: Bounds, yMin: number, yMax: number, allowHoles: boolean?): (Snapshot?, string?)
 	local v = Relief.VOXEL
-	local nx = math.floor((region.maxX - region.minX) / v + 0.5)
-	local nz = math.floor((region.maxZ - region.minZ) / v + 0.5)
-	if nx < 1 or nz < 1 then
+	if region.maxX - region.minX < v or region.maxZ - region.minZ < v then
 		return nil, "the region is smaller than one voxel"
 	end
-	local reads = nx * nz * math.ceil((yMax - yMin) / v)
+	local box = Region3.new(Vector3.new(region.minX, yMin, region.minZ), Vector3.new(region.maxX, yMax, region.maxZ))
+		:ExpandToGrid(v)
+	local size = box.Size
+	local min = box.CFrame.Position - size / 2
+	local nx = math.floor(size.X / v + 0.5)
+	local nz = math.floor(size.Z / v + 0.5)
+	local ny = math.floor(size.Y / v + 0.5)
+	local reads = nx * nz * ny
 	if reads > TerrainBake.MAX_READ_VOXELS then
 		return nil,
 			string.format(
@@ -170,21 +239,19 @@ function TerrainBake.snapshot(region: Bounds, yMin: number, yMax: number): (Snap
 	end
 	local snapshot: Snapshot = {
 		pitch = v,
-		minX = region.minX,
-		minZ = region.minZ,
+		minX = min.X,
+		minZ = min.Z,
 		nx = nx,
 		nz = nz,
 		height = table.create(nx * nz, 0),
 		material = table.create(nx * nz, "Air"),
 		minY = math.huge,
 		maxY = -math.huge,
+		hole = {},
+		holes = 0,
+		holeWhy = {},
 	}
-	local box = Region3.new(Vector3.new(region.minX, yMin, region.minZ), Vector3.new(region.maxX, yMax, region.maxZ))
-		:ExpandToGrid(v)
 	local materials, occupancies = Workspace.Terrain:ReadVoxels(box, v)
-	local size = box.Size
-	local min = box.CFrame.Position - size / 2
-	local ny = math.floor(size.Y / v + 0.5)
 	for i = 1, nx do
 		local x = min.X + (i - 0.5) * v
 		for k = 1, nz do
@@ -193,11 +260,13 @@ function TerrainBake.snapshot(region: Bounds, yMin: number, yMax: number): (Snap
 			-- more than one, with air between, is an overhang and has no single height.
 			local top: number? = nil
 			local runs, inRun, material = 0, false, "Air"
+			local water = false
+			local atCeiling = occupancies[i][ny][k] > 0
 			for j = ny, 1, -1 do
 				local occupancy = occupancies[i][j][k]
 				if occupancy > 0 then
 					if materials[i][j][k] == Enum.Material.Water then
-						return nil, string.format("Water at (%.0f, %.0f) has no single height", x, z)
+						water = true
 					end
 					if not inRun then
 						runs += 1
@@ -211,20 +280,331 @@ function TerrainBake.snapshot(region: Bounds, yMin: number, yMax: number): (Snap
 					inRun = false
 				end
 			end
-			if runs > 1 then
-				return nil, string.format("an overhang at (%.0f, %.0f): %d solid runs in one column", x, z, runs)
-			end
-			if top == nil then
-				return nil, string.format("no ground at (%.0f, %.0f) in the Y band %.0f..%.0f", x, z, yMin, yMax)
-			end
+			-- `allowHoles` is the WHOLE-REGION base pass (the bake's step 2): it RECORDS a faulted
+			-- column instead of losing the other million, and `bakeTileAt` then REFUSES any tile
+			-- whose own columns hold one -- never guesses.
+			local why = TerrainBake.columnFault(water, runs, top ~= nil, atCeiling, x, z, yMin, yMax)
 			local at = index(snapshot, i, k)
-			snapshot.height[at] = top
-			snapshot.material[at] = material
-			snapshot.minY = math.min(snapshot.minY, top)
-			snapshot.maxY = math.max(snapshot.maxY, top)
+			if why ~= nil then
+				if allowHoles ~= true then
+					return nil, why
+				end
+				(snapshot.hole :: any)[at] = true
+				snapshot.holes = (snapshot.holes :: number) + 1
+				local seen = snapshot.holeWhy :: { string }
+				if #seen < 20 then
+					table.insert(seen, why)
+				end
+			else
+				snapshot.height[at] = top :: number
+				(snapshot.material :: { string })[at] = material
+				snapshot.minY = math.min(snapshot.minY, top :: number)
+				snapshot.maxY = math.max(snapshot.maxY, top :: number)
+			end
 		end
 	end
 	return snapshot, nil
+end
+
+-- ---------------------------------------------------------------- the slice, over the wire
+
+-- THE BASE SNAPSHOT IS A FILE OUTSIDE THE REPOSITORY and Studio cannot read a file, so the tool
+-- reads the slice a tile needs out of it and sends it as text. int16 at 1/64 of a stud, which is
+-- 0.0156 st -- the same granularity a voxel's own occupancy byte has (4 / 255 = 0.0157), so the
+-- quantisation is below what `WriteVoxels` can express. 536 x 536 studs of slice is 36 KB of
+-- payload rather than 150 KB of JSON floats.
+TerrainBake.SLICE_SCALE = 64
+-- ONE FIXED FRAME for every slice, so two reads of the same ground are the SAME BYTES and the file
+-- can be stitched out of chunks without a per-chunk offset. int16 at 1/64 spans -512.00 to 511.98
+-- studs, which holds the bake's whole Y band (-100..400). MEASURED 2026-11-03: a -256 offset put
+-- the ceiling at 255.98 and her place has ground at 256.52, so `encodeSlice` refused the chunk --
+-- which is the assert working, and the frame that was wrong.
+TerrainBake.SLICE_OFFSET = 0
+
+local B64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local B64_REV: { [number]: number } = {}
+for i = 1, #B64_ALPHABET do
+	B64_REV[string.byte(B64_ALPHABET, i)] = i - 1
+end
+
+-- RFC 4648 base64 -> bytes. Written here because Luau has no decoder, `loadstring` is disabled in
+-- Roblox and `HttpService` offers none, so an int16 payload can only arrive as text.
+--   https://datatracker.ietf.org/doc/html/rfc4648#section-4
+local function fromBase64(text: string): buffer
+	local clean = (string.gsub(text, "[^A-Za-z0-9+/]", ""))
+	local n = #clean
+	local groups = n // 4
+	local tail = n - groups * 4
+	local bytes = groups * 3 + (if tail == 3 then 2 elseif tail == 2 then 1 else 0)
+	assert(tail ~= 1, "base64: a 1-character tail cannot be a byte")
+	local out = buffer.create(bytes)
+	local at = 0
+	for g = 0, groups - 1 do
+		local p, q, r, t = string.byte(clean, g * 4 + 1, g * 4 + 4)
+		local value = B64_REV[p] * 262144 + B64_REV[q] * 4096 + B64_REV[r] * 64 + B64_REV[t]
+		buffer.writeu8(out, at, value // 65536 % 256)
+		buffer.writeu8(out, at + 1, value // 256 % 256)
+		buffer.writeu8(out, at + 2, value % 256)
+		at += 3
+	end
+	if tail >= 2 then
+		local p, q = string.byte(clean, groups * 4 + 1, groups * 4 + 2)
+		local value = B64_REV[p] * 4 + B64_REV[q] // 16
+		buffer.writeu8(out, at, value % 256)
+		if tail == 3 then
+			local r = string.byte(clean, groups * 4 + 3)
+			buffer.writeu8(out, at + 1, (B64_REV[q] % 16) * 16 + B64_REV[r] // 4)
+		end
+	end
+	return out
+end
+
+TerrainBake.fromBase64 = fromBase64
+
+local function toBase64(buf: buffer): string
+	local n = buffer.len(buf)
+	local pieces: { string } = {}
+	local at = 0
+	while at + 3 <= n do
+		local value = buffer.readu8(buf, at) * 65536 + buffer.readu8(buf, at + 1) * 256 + buffer.readu8(buf, at + 2)
+		table.insert(
+			pieces,
+			string.sub(B64_ALPHABET, value // 262144 + 1, value // 262144 + 1)
+				.. string.sub(B64_ALPHABET, value // 4096 % 64 + 1, value // 4096 % 64 + 1)
+				.. string.sub(B64_ALPHABET, value // 64 % 64 + 1, value // 64 % 64 + 1)
+				.. string.sub(B64_ALPHABET, value % 64 + 1, value % 64 + 1)
+		)
+		at += 3
+	end
+	local left = n - at
+	if left == 1 then
+		local a = buffer.readu8(buf, at)
+		table.insert(
+			pieces,
+			string.sub(B64_ALPHABET, a // 4 + 1, a // 4 + 1)
+				.. string.sub(B64_ALPHABET, a % 4 * 16 + 1, a % 4 * 16 + 1)
+				.. "=="
+		)
+	elseif left == 2 then
+		local a, b = buffer.readu8(buf, at), buffer.readu8(buf, at + 1)
+		table.insert(
+			pieces,
+			string.sub(B64_ALPHABET, a // 4 + 1, a // 4 + 1)
+				.. string.sub(B64_ALPHABET, (a % 4 * 16 + b // 16) + 1, (a % 4 * 16 + b // 16) + 1)
+				.. string.sub(B64_ALPHABET, b % 16 * 4 + 1, b % 16 * 4 + 1)
+				.. "="
+		)
+	end
+	return table.concat(pieces)
+end
+
+TerrainBake.toBase64 = toBase64
+
+-- A SNAPSHOT, COMPACT ENOUGH TO COME BACK THROUGH ONE MCP CALL. 16,384 columns of JSON floats plus
+-- 16,384 material strings is ~280 KB of reply; the same columns as int16 in a fixed frame are
+-- 43 KB of base64. `decodeSlice` is its exact inverse, and the tool's own encoder is checked against
+-- this one by `terrainbake.py selftest` (task 328k).
+--
+-- THE HOLES ARE A BITMASK, NOT A LIST, and that is measured: a chunk of the border pad where NO
+-- column has ground sent 16,384 hole INDICES, the reply was truncated mid-object, and `parse_json`
+-- fell back to the one array it could close -- `holeWhy` -- so the tool read a list of sentences
+-- where a slice should have been (2026-11-03). One bit a column is 2 KB for the same chunk.
+function TerrainBake.encodeSlice(snapshot: Snapshot): any
+	local scale = TerrainBake.SLICE_SCALE
+	local offset = TerrainBake.SLICE_OFFSET
+	local count = snapshot.nx * snapshot.nz
+	local buf = buffer.create(count * 2)
+	local bits = buffer.create((count + 7) // 8)
+	local hole = snapshot.hole
+	local holes = 0
+	for at = 1, count do
+		local slot = at - 1
+		if hole ~= nil and hole[at] == true then
+			holes += 1
+			local byte = slot // 8
+			buffer.writeu8(bits, byte, bit32.bor(buffer.readu8(bits, byte), bit32.lshift(1, slot % 8)))
+			buffer.writei16(buf, slot * 2, 0)
+		else
+			local code = math.round((snapshot.height[at] - offset) * scale)
+			assert(
+				code >= -32768 and code <= 32767,
+				string.format("encodeSlice: height %.3f is outside the slice frame", snapshot.height[at])
+			)
+			buffer.writei16(buf, slot * 2, code)
+		end
+	end
+	return {
+		pitch = snapshot.pitch,
+		minX = snapshot.minX,
+		minZ = snapshot.minZ,
+		nx = snapshot.nx,
+		nz = snapshot.nz,
+		scale = scale,
+		offset = offset,
+		minY = if snapshot.minY < math.huge then snapshot.minY else 0,
+		maxY = if snapshot.maxY > -math.huge then snapshot.maxY else 0,
+		holes = holes,
+		holeBits = toBase64(bits),
+		holeWhy = snapshot.holeWhy,
+		b64 = toBase64(buf),
+	}
+end
+
+-- ONE TILE'S SLICE OF THE BASE SNAPSHOT, decoded. The payload is the tool's, and its `holes` are
+-- the columns the base pass could not give a single height: `readerFor` answers nil there and
+-- `bakeTileAt` refuses the tile, so a Water column is never silently filled (design 5.3 step 2).
+function TerrainBake.decodeSlice(payload: any): Snapshot
+	assert(type(payload) == "table", "TerrainBake.decodeSlice: the payload is not a table")
+	local nx = math.round(payload.nx)
+	local nz = math.round(payload.nz)
+	assert(nx >= 1 and nz >= 1, "TerrainBake.decodeSlice: the slice is empty")
+	local scale = payload.scale or TerrainBake.SLICE_SCALE
+	local offset = payload.offset or TerrainBake.SLICE_OFFSET
+	local buf = fromBase64(payload.b64)
+	local count = nx * nz
+	assert(
+		buffer.len(buf) == count * 2,
+		string.format("TerrainBake.decodeSlice: %d bytes for %d x %d columns", buffer.len(buf), nx, nz)
+	)
+	-- THE HOLES FIRST, BECAUSE THE RANGE MUST NOT COUNT THEM. A hole's code on the wire is 0, which
+	-- decodes to a height of 0, and `minY` is what `shapeTile` writes where the reader has no answer
+	-- -- so taking the range over every slot put a 0-stud floor under ground that stands at 100-150
+	-- (Reviewer, round 1, finding 1). EITHER SHAPE: a base64 BITMASK, one bit a column, which is what
+	-- `encodeSlice` sends, or a plain list of 1-based indices, which the tool's tile slices and a
+	-- hand-written fixture use. The bitmask wins when both are present.
+	local hole: { [number]: boolean } = {}
+	local holes = 0
+	if type(payload.holeBits) == "string" then
+		local bits = fromBase64(payload.holeBits)
+		for at = 1, count do
+			local slot = at - 1
+			local byte = slot // 8
+			if byte < buffer.len(bits) and bit32.band(buffer.readu8(bits, byte), bit32.lshift(1, slot % 8)) ~= 0 then
+				hole[at] = true
+				holes += 1
+			end
+		end
+	else
+		for _, at in payload.holes or {} do
+			hole[math.round(at)] = true
+			holes += 1
+		end
+	end
+	local height = table.create(count, 0)
+	local lo, hi = math.huge, -math.huge
+	for at = 1, count do
+		local h = offset + buffer.readi16(buf, (at - 1) * 2) / scale
+		height[at] = h
+		if not hole[at] then
+			lo = math.min(lo, h)
+			hi = math.max(hi, h)
+		end
+	end
+	-- EVERY COLUMN A HOLE: there is no range to take, so the sender's own numbers stand. `encodeSlice`
+	-- sends 0 for that case and the tool sends the ground minimum it stitched, so this is a floor and
+	-- never an invented height -- and such a slice refuses its tile anyway.
+	if lo == math.huge then
+		lo = payload.minY or 0
+		hi = payload.maxY or lo
+	end
+	return {
+		pitch = payload.pitch or Relief.VOXEL,
+		minX = payload.minX,
+		minZ = payload.minZ,
+		nx = nx,
+		nz = nz,
+		height = height,
+		minY = lo,
+		maxY = hi,
+		hole = hole,
+		holes = holes,
+		holeWhy = {},
+	}
+end
+
+-- WHICH OF A SLICE'S HOLES FALL INSIDE THE TILE ITSELF, not in its pad. A hole in the pad only
+-- blurs; a hole in the tile is ground this bake would have to invent, so `bakeTileAt` refuses.
+function TerrainBake.holesInTile(slice: Snapshot, tile: Tile): number
+	local hole = slice.hole
+	if hole == nil then
+		return 0
+	end
+	local v = slice.pitch
+	local count = 0
+	for at in hole do
+		local i = (at - 1) % slice.nx + 1
+		local k = (at - 1) // slice.nx + 1
+		local x = slice.minX + (i - 0.5) * v
+		local z = slice.minZ + (k - 0.5) * v
+		if
+			x >= tile.minX
+			and x < tile.minX + TerrainBake.TILE_STUDS
+			and z >= tile.minZ
+			and z < tile.minZ + TerrainBake.TILE_STUDS
+		then
+			count += 1
+		end
+	end
+	return count
+end
+
+-- ---------------------------------------------------------------- the base, at named points only
+
+-- A SAMPLER THAT ANSWERS ONLY THE POINTS IT WAS GIVEN, read off the base snapshot FILE by the tool.
+-- A long profile reads the base at exactly `profileSamples`' points, so this is the whole of what it
+-- needs -- and a point nobody sent is nil, never a live raycast. That raycast is the +2 studs a bake
+-- the road half drifted (ESCALATE.md, task 328e: lineMeanY 108.88 -> 112.83 -> 114.81).
+-- `rows` is flat: x, z, y, x, z, y, ...
+function TerrainBake.pointSampler(rows: { number }): (number, number) -> number?
+	local by: { [string]: number } = {}
+	local at = 1
+	while at + 2 <= #rows do
+		by[string.format("%d:%d", math.round(rows[at]), math.round(rows[at + 1]))] = rows[at + 2]
+		at += 3
+	end
+	return function(x: number, z: number): number?
+		return by[string.format("%d:%d", math.round(x), math.round(z))]
+	end
+end
+
+-- EXACTLY THE POINTS `profilesFor` WILL ASK THE BASE FOR, so the tool reads those out of the
+-- snapshot file and the sample lattice is never written twice. The road set is `profilesFor`'s own:
+-- EVERY east-west road in the world, plus the four roads of each named cell. Flat: x, z, x, z, ...
+function TerrainBake.profileSamples(cellIds: { string }): { number }
+	local step = TerrainBake.ROAD.sampleStuds
+	local wanted: { [string]: Relief.Road } = {}
+	for _, road in Grid.roads() do
+		if road.axis == "x" then
+			wanted[road.id] = road
+		end
+	end
+	for _, id in cellIds do
+		for _, key in { "main", "muster", "west", "east" } do
+			local road = (Grid.roadsOf(id) :: any)[key]
+			wanted[road.id] = road
+		end
+	end
+	local ids: { string } = {}
+	for id in wanted do
+		table.insert(ids, id)
+	end
+	table.sort(ids)
+	local out: { number } = {}
+	for _, id in ids do
+		local road = wanted[id]
+		local n = math.floor((road.to - road.from) / step) + 1
+		for i = 1, n do
+			local along = road.from + (i - 1) * step
+			if road.axis == "x" then
+				table.insert(out, along)
+				table.insert(out, road.at)
+			else
+				table.insert(out, road.at)
+				table.insert(out, along)
+			end
+		end
+	end
+	return out
 end
 
 -- ---------------------------------------------------------------- which cell, and one blend
@@ -1086,11 +1466,18 @@ function TerrainBake.padFor(): number
 	return v * math.ceil((TerrainBake.LIMIT_MARGIN_STUDS + Relief.BLUR.cutoffStuds + v) / v)
 end
 
--- THE LONG PROFILES of every road a run touches, computed ONCE from the base before any voxel is
--- written -- a profile read off half-baked ground would depend on the tile order. `sampler`
--- defaults to a terrain raycast, which is the base only while nothing has been written yet.
+-- THE LONG PROFILES of every road a run touches, computed ONCE from the BASE SNAPSHOT before any
+-- voxel is written. THE SAMPLER IS REQUIRED (task 328k): it used to default to a terrain raycast,
+-- which reads the base only while nothing has been written yet -- so a second bake read its own
+-- first bake and the road half drifted +2 studs a run (lineMeanY 108.88 -> 112.83 -> 114.81,
+-- ESCALATE.md 2026-11-02). `TerrainBake.pointSampler` over `profileSamples` is the route.
 function TerrainBake.profilesFor(cellIds: { string }, sampler: ((number, number) -> number?)?): { Profile }
-	local read = sampler or TerrainBake.terrainReader()
+	local read = assert(
+		sampler,
+		"TerrainBake.profilesFor: no sampler. The long profiles read the BASE SNAPSHOT (design 5.3 "
+			.. "step 2); a live raycast here reads ground an earlier bake wrote, which is the +2 studs "
+			.. "a bake the road half drifted on C1 (ESCALATE.md 2026-11-02)."
+	)
 	local wanted: { [string]: Relief.Road } = {}
 	for _, id in cellIds do
 		for _, key in { "main", "muster", "west", "east" } do
@@ -1255,10 +1642,12 @@ end
 function TerrainBake.bakeTileAt(
 	tileIndex: number,
 	cellIds: { string },
-	yMin: number,
-	yMax: number,
 	dryRun: boolean,
-	profiles: { Profile }?
+	profiles: { Profile }?,
+	-- ONE TILE'S SLICE OF THE BASE SNAPSHOT, as `tools/terrainbake.py` cut it out of the `.bin`
+	-- (task 328k). REQUIRED: this used to call `TerrainBake.snapshot` here, which reads LIVE ground
+	-- -- so a second bake read its own first bake and the landform could not be un-applied.
+	slice: any?
 ): TileReport
 	local plan = TerrainBake.tilePlan(TerrainBake.regionFor(cellIds))
 	assert(tileIndex >= 1 and tileIndex <= #plan, string.format("tile %d is not in a plan of %d", tileIndex, #plan))
@@ -1285,23 +1674,79 @@ function TerrainBake.bakeTileAt(
 	end
 	local pad = TerrainBake.padFor()
 	local side = TerrainBake.TILE_STUDS
-	local slice, problem = TerrainBake.snapshot({
-		minX = tile.minX - pad,
-		maxX = tile.minX + side + pad,
-		minZ = tile.minZ - pad,
-		maxZ = tile.minZ + side + pad,
-	}, yMin, yMax)
+	local bare = {
+		minX = tile.minX,
+		minZ = tile.minZ,
+		calls = 0,
+		voxels = 0,
+		bandMin = 0,
+		bandMax = 0,
+		elapsedMs = 0,
+	}
 	if slice == nil then
-		return {
-			minX = tile.minX,
-			minZ = tile.minZ,
-			calls = 0,
-			voxels = 0,
-			bandMin = 0,
-			bandMax = 0,
-			elapsedMs = 0,
-			message = problem,
-		}
+		local refusal: TileReport = table.clone(bare)
+		refusal.message = "no base snapshot slice was handed to tile "
+			.. tostring(tileIndex)
+			.. ". The base is read ONCE, before any write, from <runs-dir>/terrain-base-<sha>.bin; a "
+			.. "slice read here would be read off ground this bake has already written (design 5.3 "
+			.. "step 2, task 328k)."
+		return refusal
+	end
+	local base = TerrainBake.decodeSlice(slice)
+	-- THE SLICE MUST COVER THE TILE PLUS `padFor()`, or the limiter and the blur would read nil at
+	-- the edge and `shapeTile` would KEEP GROUND there -- a seam, dressed as a snapshot.
+	local wantMinX, wantMinZ = tile.minX - pad, tile.minZ - pad
+	local wantMaxX, wantMaxZ = tile.minX + side + pad, tile.minZ + side + pad
+	local haveMaxX = base.minX + base.nx * base.pitch
+	local haveMaxZ = base.minZ + base.nz * base.pitch
+	if
+		base.minX > wantMinX + 1e-6
+		or base.minZ > wantMinZ + 1e-6
+		or haveMaxX < wantMaxX - 1e-6
+		or haveMaxZ < wantMaxZ - 1e-6
+	then
+		local refusal: TileReport = table.clone(bare)
+		refusal.message = string.format(
+			"the slice x[%.0f,%.0f] z[%.0f,%.0f] does not cover tile %d plus its %d-stud pad, "
+				.. "x[%.0f,%.0f] z[%.0f,%.0f]",
+			base.minX,
+			haveMaxX,
+			base.minZ,
+			haveMaxZ,
+			tileIndex,
+			pad,
+			wantMinX,
+			wantMaxX,
+			wantMinZ,
+			wantMaxZ
+		)
+		return refusal
+	end
+	-- A TILE WHOSE BASE HAS A HOLE ANYWHERE IN ITS SLICE IS REFUSED, NEVER GUESSED (design 5.3 step
+	-- 2). THE PAD COUNTS, and that is the round-1 finding: the blur reads 72 studs out and the slope
+	-- limiter 128, so a hole out there reaches the tile's own columns through
+	-- `Relief.limitPass`, which pulls an unpinned neighbour down to within one window's ceiling of
+	-- its pinned partner. Before 328k `bakeTileAt` snapshotted the tile plus pad with no `allowHoles`
+	-- and got `nil, why` for a fault anywhere in it -- so refusing on the tile alone was a
+	-- loosening, not a rule. The two counts are reported apart because they mean different things to
+	-- whoever widens the band or the terrain.
+	local inside = TerrainBake.holesInTile(base, tile)
+	local holes = base.holes or 0
+	if holes > 0 then
+		local refusal: TileReport = table.clone(bare)
+		refusal.message = string.format(
+			"tile %d (%.0f, %.0f) holds %d base column(s) with no single height (Water, an overhang, "
+				.. "or no ground in the Y band): %d inside the tile and %d in its %d-stud pad, which "
+				.. "the blur and the slope limiter both read. A tile like that is REFUSED, never guessed.",
+			tileIndex,
+			tile.minX,
+			tile.minZ,
+			holes,
+			inside,
+			holes - inside,
+			pad
+		)
+		return refusal
 	end
 	-- THE PROFILES ARE HANDED IN, ALWAYS. Round 2 fell back to `profilesFor` here, which raycasts
 	-- LIVE terrain: from the second tile onwards that reads ground this bake has already written, so
@@ -1332,13 +1777,147 @@ function TerrainBake.bakeTileAt(
 		reshape[id] = wanted
 		table.insert(why, string.format("%s reshape=%s (%s)", id, tostring(wanted), reason))
 	end
-	local report = TerrainBake.bakeTile(tile, slice, cellIds, {}, dryRun, profiles, reshape)
+	local report = TerrainBake.bakeTile(tile, base, cellIds, {}, dryRun, profiles, reshape)
 	report.reshape = table.concat(why, "; ")
 	-- THE STANDS NO ROAD REACHES, ON THE REPORT and not only in a header's promise (Reviewer, round
 	-- 1, note 1): the caller said it reported them and nothing carried them out of `shapeTile`.
 	local _, missed = TerrainBake.standPadsFor(cellIds, profiles)
 	report.padsMissed = table.concat(missed, ",")
 	return report
+end
+
+-- HOW FAR A POINT IS FROM THE NEAREST ROAD CENTRELINE it actually lies along, or math.huge. Used to
+-- split the dry-run diff: the ROAD band drifts for the long profile's reason, the rest for the
+-- landform's, and one mean over both would hide either.
+function TerrainBake.roadDistance(x: number, z: number): number
+	local best = math.huge
+	for _, road in Grid.roads() do
+		if road.axis == "x" then
+			if x >= road.from and x <= road.to then
+				best = math.min(best, math.abs(z - road.at))
+			end
+		elseif z >= road.from and z <= road.to then
+			best = math.min(best, math.abs(x - road.at))
+		end
+	end
+	return best
+end
+
+-- THE DRY RUN'S DIFF, FOR ONE TILE: what the bake WOULD write against the ground that is there now.
+-- IT WRITES NOTHING. Two classes, reported apart -- inside `ROAD.ditch.farStuds` of a centreline is
+-- the road band, everything else is the landform's. `liveBase` true re-runs the SAME arithmetic off
+-- a LIVE per-tile read, which is the pre-328k route, so the two can be compared with one instrument
+-- (task 328k; design 5.3 step 2).
+function TerrainBake.diffTileAt(
+	tileIndex: number,
+	cellIds: { string },
+	profiles: { Profile }?,
+	slice: any?,
+	yMin: number,
+	yMax: number,
+	liveBase: boolean?,
+	-- WHETHER THE LANDFORM GOES IN. nil asks `reshapeWanted`, which is what a bake does; true and
+	-- false are the two questions a dry run has to be able to ask separately. With it FALSE the
+	-- shaped height IS the base away from the roads, so the diff against already-baked ground is
+	-- the whole landform -- which says nothing about whether a re-bake would double it. TRUE is the
+	-- re-bake-from-the-base case, and its diff is the DRIFT alone.
+	reshapeAll: boolean?
+): any
+	local plan = TerrainBake.tilePlan(TerrainBake.regionFor(cellIds))
+	assert(tileIndex >= 1 and tileIndex <= #plan, string.format("tile %d is not in a plan of %d", tileIndex, #plan))
+	local tile = plan[tileIndex]
+	local v = Relief.VOXEL
+	local side = TerrainBake.TILE_STUDS
+	local pad = TerrainBake.padFor()
+	local base: Snapshot
+	if liveBase == true then
+		local read, why = TerrainBake.snapshot({
+			minX = tile.minX - pad,
+			maxX = tile.minX + side + pad,
+			minZ = tile.minZ - pad,
+			maxZ = tile.minZ + side + pad,
+		}, yMin, yMax, true)
+		if read == nil then
+			return { tile = tileIndex, message = why }
+		end
+		base = read
+	else
+		if slice == nil then
+			return { tile = tileIndex, message = "no base snapshot slice" }
+		end
+		base = TerrainBake.decodeSlice(slice)
+	end
+	local reshape: { [string]: boolean } = {}
+	local said: { string } = {}
+	for _, id in cellIds do
+		if reshapeAll ~= nil then
+			reshape[id] = reshapeAll
+			table.insert(said, string.format("%s reshape=%s (asked for)", id, tostring(reshapeAll)))
+		else
+			local wanted, reason = TerrainBake.reshapeWanted(id)
+			reshape[id] = wanted
+			table.insert(said, string.format("%s reshape=%s (%s)", id, tostring(wanted), reason))
+		end
+	end
+	local inner, _names, n = TerrainBake.shapeTile(tile, base, cellIds, {}, profiles, reshape)
+	-- AN IDENTITY FOR WHAT THIS TILE WOULD WRITE: FNV-1a over the heights at 1/64 of a stud. Not a
+	-- cryptographic digest -- it is here so two dry runs can be compared in one number, which is
+	-- what "a re-bake from the same snapshot is a no-op" means (design 1.1, idempotent).
+	-- THE GROUND THAT IS THERE NOW, on the tile's own 32 x 32 column centres. A hole is skipped and
+	-- counted, never compared against an invented height.
+	local now, why = TerrainBake.snapshot({
+		minX = tile.minX,
+		maxX = tile.minX + side,
+		minZ = tile.minZ,
+		maxZ = tile.minZ + side,
+	}, yMin, yMax, true)
+	if now == nil then
+		return { tile = tileIndex, message = why }
+	end
+	local fnv = 2166136261
+	for at = 1, n * n do
+		local q = math.round(inner[at] * TerrainBake.SLICE_SCALE) % 4294967296
+		for _ = 1, 4 do
+			fnv = bit32.bxor(fnv, q % 256)
+			fnv = (fnv * 16777619) % 4294967296
+			q = q // 256
+		end
+	end
+	local out = {
+		tile = tileIndex,
+		minX = tile.minX,
+		minZ = tile.minZ,
+		shapeFnv = string.format("%08x", fnv),
+		reshape = table.concat(said, "; "),
+		n = 0,
+		maxAbs = 0,
+		sum = 0,
+		roadN = 0,
+		roadMaxAbs = 0,
+		roadSum = 0,
+		skipped = now.holes :: number,
+		baseHoles = (base.holes :: number) or 0,
+	}
+	for i = 1, n do
+		local x = tile.minX + (i - 0.5) * v
+		for k = 1, n do
+			local z = tile.minZ + (k - 0.5) * v
+			local at = (k - 1) * n + i
+			local hole = now.hole
+			if not (hole ~= nil and hole[at] == true) then
+				local d = inner[at] - now.height[at]
+				out.n += 1
+				out.sum += d
+				out.maxAbs = math.max(out.maxAbs, math.abs(d))
+				if TerrainBake.roadDistance(x, z) <= TerrainBake.ROAD.ditch.farStuds then
+					out.roadN += 1
+					out.roadSum += d
+					out.roadMaxAbs = math.max(out.roadMaxAbs, math.abs(d))
+				end
+			end
+		end
+	end
+	return out
 end
 
 -- A STABLE 0..1 PER COLUMN, from its own coordinates: the scree mix has to come out the same on

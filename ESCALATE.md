@@ -1,3 +1,68 @@
+## 2026-11-03 ~02:12 UTC, Task 328k -- STOPPED AT THE DISPATCH'S TWO-ROUND CAP: round 2 found a selftest case that passes with its own guard deleted
+
+**This is a stop.** The dispatch says *"Review: at most 2 rounds; a FINDING on round 2 goes to
+`ESCALATE.md`, then stop."* Round 2 returned one blocking finding. **I agree with it** -- it is
+correct, I reproduced the reasoning, and it is a test being wrong, which rule 10 lists as blocking.
+Nothing is hidden and nothing was worked around; the branch is pushed and the work is otherwise done.
+
+### The finding, in one paragraph
+
+`tools/terrainbake.py selftest`: the case *"--allow-local-file cannot reach a mutating command"* is
+`main(["bake", "--cells", "C1", "--allow-local-file", "--studio-name", "x"]) == 2` and asserts only
+the exit code. With the guard deleted, `main` falls through to `check_backup(None)`, which refuses
+with *"no --backup..."* and **also returns 2**. So the one case that proves a flag accepting a Studio
+with **no place id** cannot reach a `bake` that calls `WriteVoxels` cannot fail. That is exactly the
+core protocol's step-4 item 1 (*"a proof case that still passes when the producing code is deleted"*),
+and claim 9's *"main() refuses it elsewhere"* rested on it.
+
+### The fix, written out so an authorised round 3 is one commit
+
+In `tools/terrainbake.py`, lift the guard into a pure predicate beside `local_ok` and case THAT,
+rather than asserting an exit code two different refusals can produce:
+
+```python
+def local_file_refusal(command, allow_local, studio_name):
+    """Why --allow-local-file may not be used here, or None. Pure, so a case can enter each arm."""
+    if not allow_local:
+        return None
+    if command != "snapshot":
+        return ("--allow-local-file is only for `snapshot`, which writes nothing; `%s` needs the "
+                "Forest Test's own place id" % command)
+    if not studio_name:
+        return ("--allow-local-file needs --studio-name: a Studio with no place id can only be told "
+                "apart by the name of the file it has open")
+    return None
+```
+
+`main` then calls it and refuses on the answer; the selftest cases become
+`local_file_refusal("bake", True, "x")` holding `"only for `snapshot`"`,
+`local_file_refusal("snapshot", True, None)` holding `"needs --studio-name"`, and
+`local_file_refusal("snapshot", True, "x") is None` plus `local_file_refusal("bake", False, None) is
+None`. Each arm is entered, and deleting the guard kills them all.
+
+### What the Director has to decide
+
+1. **Authorise one extra round** (`DIRECTOR_MAX_ROUNDS=3`, recorded here for task 328k round 3) so
+   the fix above plus the round-2 notes worth taking can go in and be reviewed once; or
+2. **merge as it stands** -- the finding is about a TEST, not about the bake: `local_ok` is still
+   correct, the guard itself is still in `main` and still refuses, and no command but `snapshot` can
+   use the flag today. The defect is that nothing would catch it if someone removed the guard; or
+3. **hand 328k's tail to 328h**, which is the next task to touch this file.
+
+My recommendation is (1): it is one commit, the arms are already written above, and 328h cannot
+start until this merges.
+
+### What is NOT in doubt
+
+Both round-1 findings are fixed and the Reviewer says so in its own notes: the fixes die on deletion.
+The measured results stand and are unaffected by this finding -- the snapshot is deterministic across
+three reads and two commits (`010b6400abdd...`), the live route's long profile sits +4.79 to +9.40
+studs above the base, a live-route re-bake would add +2.71 st mean to C1's road band again, and a
+snapshot re-bake from the base reproduces the landform within 0.05 st mean away from the roads.
+**No terrain was written anywhere, in any place.**
+
+---
+
 ## 2026-11-02 ~20:35 UTC, Task 328e -- A BAKE OVER BAKED GROUND WOULD HAVE BUILT C1 A SECOND RIDGE, measured before the write
 
 **NOT a stop: a decision taken in code, with the measurement, and put here so the Director sees it
@@ -1849,3 +1914,7 @@ is named by design 9.2 and does not exist), and whether the audit should REFUSE 
 `GetScale()` has moved off its row rather than silently rescaling the reference. Not the Builder's to
 take, and 328h and 328i both inherit it.
 
+
+## 2026-11-03 02:15 UTC, Task 328k -- DIRECTOR DECISION: round 3 authorised (within MAX_ROUNDS 3)
+
+The round-2 finding is correct and is in a test: the `--allow-local-file` guard case asserts only the exit code, which `check_backup` also returns. Round 3 is authorised under the tool's own cap of 3 (no `DIRECTOR_MAX_ROUNDS`): the one-commit fix the Builder wrote out above -- a pure `local_file_refusal` predicate with one case per arm, plus `main()` asserting the reason text -- then the gate at the new code commit and `Round: 3`. Nothing else enters the round. A finding on round 3 is a stop; no round 4. Director.

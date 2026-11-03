@@ -37,11 +37,31 @@ every tile. A profile read per tile would be read off ground the bake had alread
 tiles of one road could meet at a step and the result would depend on the tile order; `bakeTileAt`
 REFUSES a tile that arrives without profiles rather than making its own.
 
+THE BASE IS A FILE, NOT THE GROUND (task 328k; design 5.3 step 2, B2). `snapshot` reads the ORIGINAL
+ground ONCE, in chunks that fit ReadVoxels' 4,194,304-voxel ceiling, into
+`<runs-dir>/terrain-base-<sha>.bin` -- int16 at 1/64 of a stud in a fixed frame, so two reads of the
+same ground are the same bytes and the same sha256. Every later command reads the BASE from that
+file: the tool cuts each tile's slice out of it and sends it, and it reads the few thousand
+centreline points the long profiles need and sends those as a `pointSampler`. `bakeTileAt` refuses a
+tile with no slice and `profilesFor` refuses to run with no sampler, so neither half can fall back to
+live terrain. Before this existed both halves raycast LIVE ground, so a second bake read its own
+first bake: C1's `lineMeanY` went 108.88 -> 112.83 -> 114.81 over three bakes, ~+2 studs a run
+(ESCALATE.md, task 328e), and `reshapeWanted` could stop the LANDFORM going in twice but nothing
+could stop the ROAD from climbing. A column with no single height -- Water, an overhang, no ground in
+the band -- is recorded as a HOLE with its reason, and any tile whose own columns hold one is
+REFUSED, never guessed.
+
 Usage:
   python tools/terrainbake.py plan    [--cells C1]                      # read-only: tiles + the cost estimate
-  python tools/terrainbake.py snapshot --cells C1 [--out <file>]        # read-only: the base, to a file outside the repo
-  python tools/terrainbake.py measure --cells C1 [--tiles 10]           # read-only: per-tile cost, DRY (no WriteVoxels)
-  python tools/terrainbake.py bake    --cells C1 --backup <f>.rbxl [--tiles 10]
+  python tools/terrainbake.py snapshot [--cells C1] [--out <file>] [--source <note>]
+                                                                        # read-only: the base, to a .bin OUTSIDE the repo
+  python tools/terrainbake.py diff    --cells C1 --base <f>.bin --base-sha <sha> [--tiles 12]
+                                                                        # read-only DRY RUN: what a bake WOULD write,
+                                                                        # against the ground that is there now, snapshot
+                                                                        # route vs the old live route. Writes nothing.
+  python tools/terrainbake.py measure --cells C1 --base <f>.bin --base-sha <sha> [--tiles 10]
+                                                                        # read-only: per-tile cost, DRY (no WriteVoxels)
+  python tools/terrainbake.py bake    --cells C1 --backup <f>.rbxl --base <f>.bin --base-sha <sha> [--tiles 10]
   python tools/terrainbake.py survey  [--cells C1]                      # read-only: the relief rows
   python tools/terrainbake.py archive --cells C1 --backup <f>.rbxl      # B3, Parent only
   python tools/terrainbake.py census                                    # read-only
@@ -67,6 +87,11 @@ WHAT IT REFUSES, BEFORE IT TOUCHES ANYTHING (design section 6.2):
   7. A flag or pose override is live -- the rule `test` and `test2` already enforce. EXCEPT the two
      Karen has set on purpose in the Forest Test (GRID_PREVIEW, RANGE_SOLO): the dispatch says leave
      them, and clearing them would destroy her setup (lesson K).
+  9. NO BASE SNAPSHOT, for `bake`, `measure` and `diff`: `--base` must name an existing `.bin`
+     OUTSIDE the repository whose own sha256 is the one `--base-sha` names, and whose lattice covers
+     this run's region. The sha is required and compared because a snapshot taken AFTER a bake is the
+     one mistake that looks like success. The EPOCH hashes that sha and never the git sha
+     (design 5.4; task 328e note c).
 
 The one pasteable report line:
 
@@ -77,8 +102,13 @@ Every run appends its per-tile reports to .terrainbake/<utc>-<cells>.json (git-i
 """
 
 import argparse
+import array
+import base64
+import contextlib
 import hashlib
+import io
 import json
+import math
 import os
 import re
 import sys
@@ -228,12 +258,218 @@ def region_for(cells, facts):
 
 def tile_count(region, tile):
     """`Relief.tiles`' own count: the lattice expanded OUTWARD, floor of the low corner."""
-    import math
     x0 = tile * math.floor(region["minX"] / tile)
     z0 = tile * math.floor(region["minZ"] / tile)
     nx = max(0, math.ceil((region["maxX"] - x0) / tile))
     nz = max(0, math.ceil((region["maxZ"] - z0) / tile))
     return nx * nz, nx, nz, x0, z0
+
+
+# ---------------------------------------------------------------- the base snapshot FILE (B2)
+
+# `<runs-dir>/terrain-base-<sha>.bin`: magic, one JSON header line, then int16 little-endian codes,
+# one per column, row-major with x fastest -- `TerrainBake.readerFor`'s own index. The codes ARE the
+# bytes the Luau encoder produced, so a slice is a byte slice and nothing is re-quantised; two reads
+# of the same ground give the same file, which is what `snapshot` twice proves.
+BASE_MAGIC = b"DHTB1\n"
+SLICE_SCALE = 64
+SLICE_OFFSET = 0
+
+# ReadVoxels' ceiling is 4,194,304 voxels. A 512-stud chunk is 128 x 128 = 16,384 columns, and a
+# 500-stud Y band is 125 voxels deep: 2.05 M, which is what MEASURED FINE (88 chunks of the whole
+# footprint in 24.4 s, 2026-11-03). A DEEPER BAND NARROWS THE CHUNK rather than riding the ceiling:
+# at a 1,000-stud band a 512-stud chunk is 4.10 M voxels, and that read came back
+# "Target is not reachable" -- Studio stopped answering mid-call. So the budget is half the engine's
+# ceiling and the chunk is derived from the band, never typed.
+SNAPSHOT_CHUNK_STUDS = 512
+SNAPSHOT_READ_BUDGET = 2097152
+
+
+def chunk_studs(y_min, y_max, voxel):
+    """The chunk side that keeps one ReadVoxels under `SNAPSHOT_READ_BUDGET`, in whole voxels."""
+    depth = max(1, int(math.ceil((y_max - y_min) / voxel)))
+    columns = max(8, int(math.sqrt(SNAPSHOT_READ_BUDGET / depth)))
+    return int(max(voxel * 8, min(SNAPSHOT_CHUNK_STUDS, voxel * columns)))
+
+
+def _sliced(codes):
+    """The int16 array as little-endian bytes, whatever this machine's byte order is."""
+    blob = array.array("h", codes)
+    if sys.byteorder != "little":
+        blob.byteswap()
+    return blob.tobytes()
+
+
+# WHAT THE HASHED HEADER MAY HOLD: the lattice, the band and the frame -- and NOTHING an operator
+# typed. The sha has to be a function of THE GROUND, or "snapshot twice, same sha" would only mean
+# "nobody made a commit in between" and the base could not be re-taken after a paperwork commit.
+# Provenance (the commit, the .rbxl it came out of, the cells, the clock) goes in the sidecar.
+BASE_HEADER_KEYS = ("pitch", "minX", "minZ", "nx", "nz", "minY", "maxY", "yMin", "yMax")
+
+
+def base_save(path, header, codes, holes):
+    """Write the .bin and answer its sha256. The sha is of the WHOLE file, header included."""
+    head = {key: header[key] for key in BASE_HEADER_KEYS}
+    head["holes"] = sorted(int(h) for h in holes)
+    head["scale"], head["offset"] = SLICE_SCALE, SLICE_OFFSET
+    body = (BASE_MAGIC
+            + json.dumps(head, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+            + _sliced(codes))
+    with open(path, "wb") as handle:
+        handle.write(body)
+    return hashlib.sha256(body).hexdigest()
+
+
+def base_load(path):
+    """The .bin back, with its own sha256. Raises on anything it cannot read as one."""
+    with open(path, "rb") as handle:
+        body = handle.read()
+    if not body.startswith(BASE_MAGIC):
+        raise ValueError("%s is not a base snapshot (no %r magic)" % (path, BASE_MAGIC))
+    end = body.index(b"\n", len(BASE_MAGIC))
+    header = json.loads(body[len(BASE_MAGIC):end].decode("utf-8"))
+    blob = array.array("h")
+    blob.frombytes(body[end + 1:])
+    if sys.byteorder != "little":
+        blob.byteswap()
+    want = header["nx"] * header["nz"]
+    if len(blob) != want:
+        raise ValueError("%s holds %d codes, not the %d its header names" % (path, len(blob), want))
+    return {"header": header, "codes": blob, "holes": set(header.get("holes", [])),
+            "sha": hashlib.sha256(body).hexdigest()}
+
+
+def base_index(base, x, z):
+    """`TerrainBake.readerFor`'s index, in Python: 1-based, or None outside the snapshot."""
+    head = base["header"]
+    i = int(math.floor((x - head["minX"]) / head["pitch"])) + 1
+    k = int(math.floor((z - head["minZ"]) / head["pitch"])) + 1
+    if i < 1 or k < 1 or i > head["nx"] or k > head["nz"]:
+        return None
+    return (k - 1) * head["nx"] + i
+
+
+def base_at(base, x, z):
+    """The base height at a point, or None outside the snapshot or at a hole.
+
+    THE FRAME COMES OUT OF THE FILE'S OWN HEADER, not out of this module: they agree today, and a
+    later frame change would otherwise misread an old `.bin` silently instead of refusing it.
+    """
+    at = base_index(base, x, z)
+    if at is None or at in base["holes"]:
+        return None
+    head = base["header"]
+    return head.get("offset", SLICE_OFFSET) + base["codes"][at - 1] / head.get("scale", SLICE_SCALE)
+
+
+def base_slice(base, min_x, min_z, max_x, max_z):
+    """One tile's slice of the base, as the payload `TerrainBake.decodeSlice` takes.
+
+    It is a BYTE SLICE of the stored codes -- no arithmetic on the heights at all -- so the slice a
+    tile shapes from is the same base, to the bit, on every run and in every cell list.
+    """
+    head = base["header"]
+    pitch = head["pitch"]
+    i0 = int(math.floor((min_x - head["minX"]) / pitch)) + 1
+    k0 = int(math.floor((min_z - head["minZ"]) / pitch)) + 1
+    i1 = int(math.ceil((max_x - head["minX"]) / pitch))
+    k1 = int(math.ceil((max_z - head["minZ"]) / pitch))
+    if i0 < 1 or k0 < 1 or i1 > head["nx"] or k1 > head["nz"]:
+        return None, ("the base snapshot x[%g,%g] z[%g,%g] does not cover x[%g,%g] z[%g,%g]"
+                      % (head["minX"], head["minX"] + head["nx"] * pitch,
+                         head["minZ"], head["minZ"] + head["nz"] * pitch,
+                         min_x, max_x, min_z, max_z))
+    nx, nz = i1 - i0 + 1, k1 - k0 + 1
+    codes = array.array("h", [0]) * (nx * nz)
+    holes = []
+    for k in range(nz):
+        src = (k0 - 1 + k) * head["nx"] + i0 - 1
+        codes[k * nx:(k + 1) * nx] = base["codes"][src:src + nx]
+        for i in range(nx):
+            if src + i + 1 in base["holes"]:
+                holes.append(k * nx + i + 1)
+    # THE SLICE CARRIES ITS OWN RANGE, over the columns that HAVE a height. A hole's code is 0, and
+    # `minY` is what `shapeTile` writes where the reader has no answer, so a range that counted holes
+    # would put a 0-stud floor under 100-stud ground (Reviewer, round 1, finding 1).
+    scale = head.get("scale", SLICE_SCALE)
+    offset = head.get("offset", SLICE_OFFSET)
+    real = [codes[at] for at in range(nx * nz) if at + 1 not in set(holes)] if holes else list(codes)
+    return {
+        "pitch": pitch,
+        "minX": head["minX"] + (i0 - 1) * pitch,
+        "minZ": head["minZ"] + (k0 - 1) * pitch,
+        "nx": nx,
+        "nz": nz,
+        "scale": scale,
+        "offset": offset,
+        "minY": offset + min(real) / scale if real else head["minY"],
+        "maxY": offset + max(real) / scale if real else head["maxY"],
+        "holes": holes,
+        "b64": base64.b64encode(_sliced(codes)).decode("ascii"),
+    }, None
+
+
+# ONE SLICE, ENCODED, THAT BOTH SIDES CHECK. `tests/server/grid_relief.spec.luau` decodes this same
+# string with `TerrainBake.decodeSlice` and asserts these same heights, so the Luau decoder and this
+# encoder are each checked against committed bytes rather than against each other's good intentions.
+SLICE_FIXTURE_HEIGHTS = [100.0, 100.5, 101.25, 99.0, 98.75, 100.0]
+SLICE_FIXTURE_B64 = "ABkgGVAZwBiwGAAZ"
+
+
+def reshape_blocked(answers):
+    """REFUSAL 7b, as a decision over `TerrainBake.reshapeWanted`'s answers, so it has a case.
+
+    `answers` is {cell: kind}. "changed" means that cell's ground already carries a DIFFERENT
+    landform, and a bake ADDS its ops rather than replacing them -- measured at +24.04 studs of
+    second ridge on C1, 2026-11-02. The fix is the backup, not another bake.
+    """
+    blocked = sorted(cell for cell, kind in answers.items() if kind == "changed")
+    if not blocked:
+        return None
+    return ("%s already carr%s a DIFFERENT landform in the ground, and a bake ADDS its ops "
+            "rather than replacing them (measured: +24.04 studs of second ridge on C1, "
+            "2026-11-02). Restore the backup .rbxl and bake again."
+            % (", ".join(blocked), "ies" if len(blocked) == 1 else "y"))
+
+
+def check_base(args, region):
+    """REFUSAL 9: no base snapshot, or one whose sha256 is not the one named, or one that does not
+    cover this run's region.
+
+    This is B2's whole point. Without it `bakeTileAt` read the base LIVE, per tile, so a second bake
+    read its own first bake: `lineMeanY` went 108.88 -> 112.83 -> 114.81 over three bakes of C1
+    (ESCALATE.md, task 328e) and no re-run could ever be a no-op. The sha is REQUIRED and compared,
+    because a snapshot taken AFTER a bake is the one mistake that looks like success.
+    """
+    path = args.base
+    if not path:
+        return None, ("--base is missing: the bake reads the ORIGINAL ground from "
+                      "<runs-dir>/terrain-base-<sha>.bin, never live terrain (design 5.3 step 2)")
+    if not args.base_sha:
+        return None, "--base-sha is missing: an unchecked snapshot file is not evidence of the base"
+    if os.path.commonpath([os.path.abspath(path), REPO]) == REPO:
+        return None, "the base snapshot must live OUTSIDE the repository: %s" % path
+    if not os.path.isfile(path):
+        return None, "no base snapshot at %s" % path
+    try:
+        base = base_load(path)
+    except Exception as problem:  # noqa: BLE001 -- the reason IS the refusal
+        return None, str(problem)
+    if base["sha"] != args.base_sha:
+        return None, ("the base snapshot's sha256 is %s, not the %s named by --base-sha: this is a "
+                      "DIFFERENT base, and a bake off the wrong base cannot be reproduced"
+                      % (base["sha"], args.base_sha))
+    head = base["header"]
+    pitch = head["pitch"]
+    if (head["minX"] > region["minX"] or head["minZ"] > region["minZ"]
+            or head["minX"] + head["nx"] * pitch < region["maxX"]
+            or head["minZ"] + head["nz"] * pitch < region["maxZ"]):
+        return None, ("the base snapshot covers x[%g,%g] z[%g,%g], which does not hold this run's "
+                      "region x[%g,%g] z[%g,%g]"
+                      % (head["minX"], head["minX"] + head["nx"] * pitch,
+                         head["minZ"], head["minZ"] + head["nz"] * pitch,
+                         region["minX"], region["maxX"], region["minZ"], region["maxZ"]))
+    return base, None
 
 
 # ---------------------------------------------------------------- canonical JSON
@@ -392,6 +628,10 @@ return HttpService:JSONEncode(result)
 """
 
 PLACE_QUERY = 'return tostring(game.PlaceId)'
+# The place AND the DataModel's name in one read. IMPORTED, not re-typed: a second copy here could
+# drift from the one `place_of` actually uses (Reviewer, round 1, note). The name is what tells a
+# re-opened backup .rbxl from Karen's live window -- the backup reports place id 0 (task 328k).
+from studio_mcp import QUERY_PLACE_AND_NAME  # noqa: E402
 
 
 def parse_json(body):
@@ -477,14 +717,30 @@ class pin_default:
         return False
 
 
-def check_place(studio, studio_id):
-    """Refusals 1 and 2, re-run before EVERY mutating call (B1), by place id and never by name."""
+def check_place(studio, studio_id, want_name=None, allow_local=False):
+    """Refusals 1 and 2, re-run before EVERY mutating call (B1), by place id -- and, when
+    `--studio-name` is given, by the DataModel's own name as well.
+
+    THE PLACE ID IS NOT ENOUGH WHEN A BACKUP IS OPEN (task 328k). A `.rbxl` saved out of the Forest
+    Test and re-opened as a local file reports the SAME `game.PlaceId`, so with both windows up the
+    id cannot tell the base snapshot's window from Karen's live one. The name can: Studio names the
+    DataModel after the file. `--studio-name` is therefore not politeness -- it is the only
+    discriminator there is, and lesson L-055 is about exactly this fall-back.
+    """
     mode = studio.mode(studio_id=studio_id)
     if "Edit" not in mode:
         return "Studio is in %r, not Edit. Karen may be playing; the bake only runs in Edit." % mode
-    place = studio.query("Edit", PLACE_QUERY, studio_id=studio_id).strip().strip('"')
-    if place != FOREST_PLACE_ID:
-        return "that Studio is open on place %s, not the Forest Test %s" % (place, FOREST_PLACE_ID)
+    answer = studio.query("Edit", QUERY_PLACE_AND_NAME, studio_id=studio_id).strip().strip('"')
+    place, _, name = answer.partition("|")
+    if want_name and want_name.lower() not in name.lower():
+        # THIS BRANCH FIRST, or the one case the feature exists for is reported as a wrong place id
+        # (Reviewer, round 1, note).
+        return ("that Studio's place is %s but its DataModel is named %r, which does not hold %r: "
+                "two windows can report one place id (a backup .rbxl re-opened), so the name is the "
+                "only thing that tells them apart" % (place.strip(), name, want_name))
+    if not local_ok(place.strip(), name, want_name, allow_local):
+        return ("that Studio is open on place %s, not the Forest Test %s"
+                % (place, FOREST_PLACE_ID))
     return None
 
 
@@ -616,14 +872,73 @@ def log_run(cells, entries, keep=None, live=None):
 
 # ---------------------------------------------------------------- the commands
 
-def resolve(studio):
-    """(studio_id, why) for the Forest Test. The ONE resolver, by place id (L-055, L-014)."""
-    from studio_mcp import studio_for_place
-    studio_id, name, why = studio_for_place(studio, FOREST_PLACE_ID)
-    if studio_id is None:
-        return None, why
-    print("[bake] Studio: %s (%s), place %s" % (studio_id[:8], name, FOREST_PLACE_ID))
-    return studio_id, None
+def local_ok(place, name, want_name, allow_local):
+    """Is this Studio the one a run may talk to?
+
+    MEASURED 2026-11-03: a `.rbxl` saved out of the Forest Test and re-opened with
+    `-task EditFile -localPlaceFile` reports `game.PlaceId` **0**, not the place it was saved from,
+    and `game.Name` is the FILE's name. So the base snapshot's window cannot be addressed by place
+    id at all. `--allow-local-file` accepts place 0, and ONLY ever together with a `--studio-name`
+    that the DataModel's name holds -- and `local_file_refusal` below refuses the flag for every
+    command but the read-only `snapshot`, because B1's guard exists to stop a WRITE going to the
+    wrong world and a read of a backup file writes nothing.
+    """
+    if place == FOREST_PLACE_ID:
+        return not want_name or want_name.lower() in (name or "").lower()
+    if allow_local and place == "0" and want_name:
+        return want_name.lower() in (name or "").lower()
+    return False
+
+
+def local_file_refusal(command, allow_local, studio_name):
+    """Why `--allow-local-file` may not be used HERE, or None. The door is one command wide.
+
+    Pure, and the one writer of this rule, so a selftest case can enter each arm and die when the
+    arm is deleted (round-2 finding: `main(...) == 2` could not fail, because `check_backup` also
+    returns 2).
+    """
+    if not allow_local:
+        return None
+    if command != "snapshot":
+        return ("--allow-local-file is only for `snapshot`, which writes nothing; `%s` needs "
+                "the Forest Test's own place id" % command)
+    if not studio_name:
+        return ("--allow-local-file needs --studio-name: a Studio with no place id can only "
+                "be told apart by the name of the file it has open")
+    return None
+
+
+def resolve(studio, want_name=None, allow_local=False):
+    """(studio_id, why) for the Forest Test. The ONE resolver, by place id (L-055, L-014) -- and by
+    the DataModel's NAME too when `--studio-name` is given, because a backup `.rbxl` re-opened as a
+    local file reports the same place id as Karen's live window (see `check_place`).
+
+    It PRINTS every Studio it saw and what each answered, so the window it chose is readable rather
+    than assumed, and it re-lists before refusing for `studio_for_place`'s own measured reason.
+    """
+    from studio_mcp import place_of
+    seen = []
+    for attempt in range(5):
+        seen = []
+        for entry in studio.studio_list():
+            studio_id = entry.get("id")
+            at, name, why = place_of(studio, studio_id, "Edit")
+            seen.append("%s place=%s name=%r%s"
+                        % (studio_id[:8] if studio_id else "?", at or "?", name or "",
+                           "" if at else " (" + why[:60] + ")"))
+            if not local_ok(at, name, want_name, allow_local):
+                continue
+            print("[bake] Studios seen: %s" % " | ".join(seen))
+            print("[bake] Studio: %s name=%r place %s%s"
+                  % (studio_id[:8], name, at,
+                     "  (--studio-name %r matched)" % want_name if want_name else ""))
+            return studio_id, None
+        if attempt < 4:
+            time.sleep(2)
+    return None, ("no Studio is open on place %s%s. Saw: %s"
+                  % (FOREST_PLACE_ID,
+                     " with a DataModel named %r" % want_name if want_name else "",
+                     " | ".join(seen) or "nothing"))
 
 
 def command_plan(args, facts, studio=None, studio_id=None):
@@ -724,7 +1039,48 @@ def epoch_for(studio, studio_id, base_sha, injected=None):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-def profiles_once(studio, studio_id, cells, injected):
+def profile_sampler(studio, studio_id, cells, injected, base):
+    """THE BASE, AT EXACTLY THE POINTS A LONG PROFILE READS IT, out of the snapshot FILE (task 328k).
+
+    `longProfile` reads the base only on the centreline, every `ROAD.sampleStuds`, so the whole of
+    what the profiles need is a few thousand heights -- which is why this can be a lookup and does
+    not have to be a live raycast. The raycast was the bug: `profilesFor`'s sampler defaulted to it,
+    so a second bake read the crown its first bake had written and `lineMeanY` climbed 108.88 ->
+    112.83 -> 114.81 over three bakes of C1 (ESCALATE.md, task 328e). A point the snapshot cannot
+    answer is a REFUSAL, never a fallback.
+    """
+    points = call(studio, studio_id, 'TerrainBake.profileSamples({%s})'
+                  % ",".join('"%s"' % c for c in cells), timeout=120, injected=injected)
+    if not isinstance(points, list) or len(points) < 2:
+        raise RuntimeError("TerrainBake.profileSamples answered %r" % (points,))
+    rows, missing = [], []
+    for at in range(0, len(points) - 1, 2):
+        x, z = points[at], points[at + 1]
+        y = base_at(base, x, z)
+        if y is None:
+            missing.append("(%g, %g)" % (x, z))
+        else:
+            rows.extend([x, z, y])
+    if missing:
+        # REFUSAL 9, SECOND HALF. `profilesFor` computes EVERY east-west road in the WORLD, over its
+        # whole length, so that a north-south crown is pinned at crossings outside the cells being
+        # baked. A one-cell base snapshot therefore cannot feed it: the base has to cover the whole
+        # footprint + 430 (design 5.2), which is what `snapshot` with no --cells reads. MEASURED
+        # 2026-11-03: a C1-only base left 639 of the road sample points unanswerable.
+        return None, ("the base snapshot has no height at %d of the %d road sample point(s) the long "
+                      "profiles read -- first %s%s. `profilesFor` computes EVERY east-west road over "
+                      "its WHOLE length (so a north-south crown is pinned at crossings outside this "
+                      "run), so the base must cover the whole grid footprint + 430 st: take it with "
+                      "`snapshot` and no --cells (design 5.2). A hole at a road sample point is the "
+                      "other way this fires, and it is refused for the same reason -- never guessed."
+                      % (len(missing), len(points) // 2, ", ".join(missing[:6]),
+                         " ..." if len(missing) > 6 else ""))
+    print("[bake] road base: %d sample point(s) read off the snapshot %s"
+          % (len(rows) // 3, base["sha"][:16]))
+    return json.dumps(rows, separators=(",", ":")), None
+
+
+def profiles_once(studio, studio_id, cells, injected, sampler):
     """THE LONG PROFILES, COMPUTED ONCE, BEFORE ANY VOXEL IS WRITTEN (round-2 finding 2).
 
     Round 2 let every tile call `TerrainBake.profilesFor` for itself, whose sampler raycasts LIVE
@@ -733,11 +1089,15 @@ def profiles_once(studio, studio_id, cells, injected):
     asks for them ONCE, holds the JSON, and sends THE SAME BYTES to every tile -- which is what
     makes the crown at a shared x identical by construction rather than by argument.
 
+    `sampler` is the Luau EXPRESSION for the base reader: `profile_sampler`'s snapshot lookup for a
+    bake, and `TerrainBake.terrainReader()` only where the `diff` command deliberately measures the
+    old live route against the new one.
+
     It also prints what design 7.1 obliges: the grade each road was given, whether it had to be
     relaxed, the worst cut-or-fill, the realised grade change, and every breach, in full.
     """
-    rows = call(studio, studio_id, 'TerrainBake.profilesFor({%s})'
-                % ",".join('"%s"' % c for c in cells), timeout=300, injected=injected)
+    rows = call(studio, studio_id, 'TerrainBake.profilesFor({%s}, %s)'
+                % (",".join('"%s"' % c for c in cells), sampler), timeout=300, injected=injected)
     if not isinstance(rows, list) or not rows:
         raise RuntimeError("TerrainBake.profilesFor answered %r, not a list of profiles" % (rows,))
     payload = json.dumps(rows, separators=(",", ":"), sort_keys=True)
@@ -778,29 +1138,304 @@ def profiles_once(studio, studio_id, cells, injected):
     return payload, digest
 
 
-def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=None, keep=None, live=None):
+def command_snapshot(studio, studio_id, args, facts, injected, sha):
+    """STEP 2 OF THE BAKE (design 5.3): the ORIGINAL ground, read ONCE, to a file OUTSIDE the repo.
+
+    Chunked, because `ReadVoxels` tops out at 4,194,304 voxels and C1's region alone is 24.6 M at a
+    500-stud Y band (measured 2026-11-02). Every chunk is 4-aligned, so `Region3:ExpandToGrid` is a
+    no-op and the stitched lattice is exactly the one the engine read on.
+
+    A column with no single height -- Water, an overhang, no ground in the band -- is recorded as a
+    HOLE with its reason and NOT guessed; `bakeTileAt` then refuses any tile whose own columns hold
+    one. Refusing the whole million-column pass for one pond is not the design's rule (note 4 item
+    5 refuses the TILE), and guessing is what fills a cave.
+    """
+    region = region_for(args.cells or list(CELL_IDS), facts)
+    # AND ONE TILE'S PAD BEYOND IT. The tile lattice is expanded OUTWARD to 128 studs, and each tile
+    # shapes over itself plus `padFor()` 204 for the limiter's reach and the blur's cutoff -- so the
+    # last tile of a run reads up to 204 studs past the region's own edge. MEASURED 2026-11-03: a
+    # base taken at exactly footprint + 430 skipped C1's tile 208, which wanted z up to -3124
+    # against the base's -3184.
+    pad = call(studio, studio_id, "TerrainBake.padFor()", timeout=60, injected=injected)
+    region = {"minX": region["minX"] - pad, "maxX": region["maxX"] + pad,
+              "minZ": region["minZ"] - pad, "maxZ": region["maxZ"] + pad}
+    v = facts["voxel"]
+    min_x = v * math.floor(region["minX"] / v)
+    min_z = v * math.floor(region["minZ"] / v)
+    max_x = v * math.ceil(region["maxX"] / v)
+    max_z = v * math.ceil(region["maxZ"] / v)
+    nx = int(round((max_x - min_x) / v))
+    nz = int(round((max_z - min_z) / v))
+    codes = array.array("h", [0]) * (nx * nz)
+    holes, reasons = set(), []
+    low, high = None, None
+    chunk = chunk_studs(args.y_min, args.y_max, v)
+    xs = list(range(int(min_x), int(max_x), chunk))
+    zs = list(range(int(min_z), int(max_z), chunk))
+    print("[bake] snapshot: x[%g,%g] z[%g,%g] = %d x %d columns at pitch %g, in %d chunk(s) of %d st, "
+          "Y band %g..%g (the region plus one tile's %d-stud pad)"
+          % (min_x, max_x, min_z, max_z, nx, nz, v, len(xs) * len(zs), chunk,
+             args.y_min, args.y_max, pad))
+    started = time.time()
+    done = 0
+    for z0 in zs:
+        for x0 in xs:
+            x1, z1 = min(x0 + chunk, max_x), min(z0 + chunk, max_z)
+            # `snapshot` answers (nil, why) when it refuses -- over ReadVoxels' ceiling, or a
+            # region under one voxel. JSONEncode of the first value would send "null" and lose the
+            # reason, so the refusal is raised and the tool prints it.
+            payload = call(studio, studio_id,
+                           "(function() local snap, why = TerrainBake.snapshot("
+                           "{minX=%g,maxX=%g,minZ=%g,maxZ=%g}, %g, %g, true) "
+                           "if snap == nil then error(why, 0) end "
+                           "return TerrainBake.encodeSlice(snap) end)()"
+                           % (x0, x1, z0, z1, args.y_min, args.y_max), injected=injected)
+            if not isinstance(payload, dict):
+                raise RuntimeError("chunk (%g, %g) answered %r, not a slice"
+                                   % (x0, z0, str(payload)[:200]))
+            if abs(payload["minX"] - x0) > 1e-6 or abs(payload["minZ"] - z0) > 1e-6:
+                raise RuntimeError("chunk (%g, %g) came back anchored at (%g, %g): the lattice is "
+                                   "not aligned" % (x0, z0, payload["minX"], payload["minZ"]))
+            blob = array.array("h")
+            blob.frombytes(base64.b64decode(payload["b64"]))
+            if sys.byteorder != "little":
+                blob.byteswap()
+            cnx, cnz = int(payload["nx"]), int(payload["nz"])
+            if len(blob) != cnx * cnz:
+                raise RuntimeError("chunk (%g, %g) sent %d codes for %d x %d columns"
+                                   % (x0, z0, len(blob), cnx, cnz))
+            i0 = int(round((x0 - min_x) / v))
+            k0 = int(round((z0 - min_z) / v))
+            for k in range(cnz):
+                at = (k0 + k) * nx + i0
+                codes[at:at + cnx] = blob[k * cnx:(k + 1) * cnx]
+            # THE HOLES ARRIVE AS A BITMASK, one bit a column (see `encodeSlice`'s header): a
+            # chunk where nothing has ground would otherwise send 16,384 indices and truncate the
+            # reply.
+            mask = base64.b64decode(payload["holeBits"])
+            for index in range(cnx * cnz):
+                if mask[index // 8] >> (index % 8) & 1:
+                    holes.add((k0 + index // cnx) * nx + i0 + index % cnx + 1)
+            for line in payload.get("holeWhy", []) or []:
+                if len(reasons) < 40:
+                    reasons.append(line)
+            # A CHUNK WITH NO GROUND AT ALL reports minY/maxY 0, which is not a height: it must
+            # not drag the file's range to 0. Only a chunk that read at least one column counts.
+            if payload["holes"] < cnx * cnz:
+                low = payload["minY"] if low is None else min(low, payload["minY"])
+                high = payload["maxY"] if high is None else max(high, payload["maxY"])
+            done += 1
+            print("  chunk %3d/%-3d (%7g,%7g)..(%7g,%7g)  %5d x %-5d  holes %d"
+                  % (done, len(xs) * len(zs), x0, z0, x1, z1, cnx, cnz, payload["holes"]))
+    header = {
+        "pitch": v,
+        "minX": min_x,
+        "minZ": min_z,
+        "nx": nx,
+        "nz": nz,
+        "minY": low,
+        "maxY": high,
+        "yMin": args.y_min,
+        "yMax": args.y_max,
+        "cells": args.cells or list(CELL_IDS),
+        "place": FOREST_PLACE_ID,
+        "commit": sha,
+        "chunkStuds": chunk,
+        "source": args.source or "",
+    }
+    out = args.out
+    if out:
+        digest = base_save(out, header, codes, holes)
+    else:
+        # THE FILE IS NAMED AFTER ITS OWN CONTENT, which is what makes "snapshot twice, same sha"
+        # readable off the directory listing: a second identical read overwrites one file, and a
+        # different read lands beside it under a different name.
+        staging = os.path.join(runs_dir(), "terrain-base-staging.bin")
+        digest = base_save(staging, header, codes, holes)
+        out = os.path.join(runs_dir(), "terrain-base-%s.bin" % digest[:12])
+        if os.path.exists(out):
+            os.remove(out)
+        os.replace(staging, out)
+    # THE SIDECAR CARRIES THE PROVENANCE the hashed header must not: which commit read it, which
+    # .rbxl it came out of, which cells were asked for, and when.
+    with open(out + ".sha256", "w", encoding="utf-8") as handle:
+        handle.write("%s  %s\n" % (digest, os.path.basename(out)))
+        handle.write("commit %s\nplace %s\ncells %s\nutc %s\nsource %s\n"
+                     % (sha, FOREST_PLACE_ID, ",".join(header["cells"]),
+                        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), header["source"]))
+    elapsed = time.time() - started
+    print("[bake] snapshot: %s" % out)
+    print("[bake] snapshot: sha256=%s  %d columns, %d bytes, %d hole(s), ground %.2f..%.2f, %.1f s"
+          % (digest, nx * nz, os.path.getsize(out), len(holes),
+             low if low is not None else 0, high if high is not None else 0, elapsed))
+    for line in reasons[:10]:
+        print("  HOLE: %s" % line)
+    if len(reasons) > 10:
+        print("  HOLE: ... and %d more reason(s) recorded by the chunks" % (len(reasons) - 10))
+    return 0
+
+
+def command_diff(studio, studio_id, args, facts, injected, base):
+    """THE DRY RUN (task 328k): what a bake WOULD write, against the ground that is there now.
+
+    NOTHING IS WRITTEN. Two routes are computed with the SAME instrument so the drift is a measured
+    difference and not an argument:
+      * the SNAPSHOT route -- the base and the road profiles both out of the `.bin`;
+      * the LIVE route -- the pre-328k one, `TerrainBake.terrainReader()` for both, which on ground
+        that has already been baked reads the bake's own last answer.
+    The road band (within `ROAD.ditch.farStuds` of a centreline) is reported apart from the rest,
+    because the two drift for different reasons.
+    """
+    cells = args.cells
+    plan = tile_plan(studio, studio_id, cells, injected)
+    pad = call(studio, studio_id, "TerrainBake.padFor()", timeout=60, injected=injected)
+    side = facts["tile"]
+    sampler, problem = profile_sampler(studio, studio_id, cells, injected, base)
+    if problem:
+        return refuse(problem)
+    print("[bake] diff: the SNAPSHOT route's profiles")
+    snap_profiles, _ = profiles_once(studio, studio_id, cells, injected,
+                                     "TerrainBake.pointSampler(HttpService:JSONDecode([==[%s]==]))"
+                                     % sampler)
+    print("[bake] diff: the LIVE route's profiles (the pre-328k raycast, for comparison ONLY)")
+    live_profiles, _ = profiles_once(studio, studio_id, cells, injected,
+                                     "TerrainBake.terrainReader()")
+    # THE DRIFT, ON THE ROADS THEMSELVES: the two routes' long profiles, road by road. This is the
+    # number ESCALATE.md measured as +2 studs a bake, read here without writing anything.
+    print("[bake] diff: long profile, snapshot route vs live route, per road")
+    worst_road, worst_mean = 0.0, 0.0
+    by_id = {row["road"]["id"]: row for row in json.loads(live_profiles)}
+    for row in json.loads(snap_profiles):
+        other = by_id.get(row["road"]["id"])
+        if not other or len(other["y"]) != len(row["y"]):
+            print("  %-6s no comparable live profile" % row["road"]["id"])
+            continue
+        deltas = [b - a for a, b in zip(row["y"], other["y"])]
+        mean = sum(deltas) / len(deltas)
+        top = max(abs(d) for d in deltas)
+        worst_road, worst_mean = max(worst_road, top), max(worst_mean, abs(mean))
+        print("  %-6s %4d samples  live - snapshot: mean %+7.3f st  max |d| %7.3f st"
+              % (row["road"]["id"], len(deltas), mean, top))
+    print("[bake] diff: worst road mean %+.3f st, worst road max %.3f st -- the LIVE route's drift "
+          "off the base" % (worst_mean, worst_road))
+    # THE TILES, SPREAD ACROSS THE PLAN rather than the first N, so the road band and the cell
+    # interior are both in the sample.
+    want = min(args.tiles or 12, len(plan))
+    picked = sorted({1 + round(i * (len(plan) - 1) / max(1, want - 1)) for i in range(want)})
+    reshape = {"auto": "nil", "on": "true", "off": "false"}[args.reshape]
+    print("[bake] diff: %d of %d tiles, spread across the plan: %s; reshape=%s"
+          % (len(picked), len(plan), ",".join(str(i) for i in picked), args.reshape))
+    totals = {"snap": [0, 0.0, 0.0, 0, 0.0, 0.0], "live": [0, 0.0, 0.0, 0, 0.0, 0.0]}
+    said = [None]
+    fnv = {"snap": [], "live": []}
+    for index in picked:
+        payload, problem = slice_for(base, plan[index - 1], pad, side)
+        if problem:
+            print("  tile %3d  SKIPPED: %s" % (index, problem))
+            continue
+        rows = {}
+        for route, profiles, slice_arg in (
+            ("snap", snap_profiles, "HttpService:JSONDecode([==[%s]==])"
+             % json.dumps(payload, separators=(",", ":"))),
+            ("live", live_profiles, "nil"),
+        ):
+            rows[route] = call(studio, studio_id,
+                               "TerrainBake.diffTileAt(%d, {%s}, "
+                               "HttpService:JSONDecode([==[%s]==]), %s, %g, %g, %s, %s)"
+                               % (index, ",".join('"%s"' % c for c in cells), profiles, slice_arg,
+                                  args.y_min, args.y_max, "true" if route == "live" else "false",
+                                  reshape),
+                               injected=injected)
+        if rows["snap"].get("message") or rows["live"].get("message"):
+            print("  tile %3d  %s" % (index, rows["snap"].get("message") or rows["live"]["message"]))
+            continue
+        for route in ("snap", "live"):
+            row = rows[route]
+            box = totals[route]
+            box[0] += row["n"]
+            box[1] += row["sum"]
+            box[2] = max(box[2], row["maxAbs"])
+            box[3] += row["roadN"]
+            box[4] += row["roadSum"]
+            box[5] = max(box[5], row["roadMaxAbs"])
+            fnv[route].append(row["shapeFnv"])
+        a, b = rows["snap"], rows["live"]
+        if a.get("reshape") and a["reshape"] != said[0]:
+            said[0] = a["reshape"]
+            print("  [reshape] %s" % a["reshape"])
+        print("  tile %3d (%6d,%6d)  snapshot: all mean %+7.3f max %7.3f | road n=%-5d mean %+7.3f "
+              "max %7.3f   live: all mean %+7.3f max %7.3f | road mean %+7.3f max %7.3f"
+              % (index, a["minX"], a["minZ"],
+                 a["sum"] / max(1, a["n"]), a["maxAbs"], a["roadN"],
+                 a["roadSum"] / max(1, a["roadN"]), a["roadMaxAbs"],
+                 b["sum"] / max(1, b["n"]), b["maxAbs"],
+                 b["roadSum"] / max(1, b["roadN"]), b["roadMaxAbs"]))
+    for route, label in (("snap", "SNAPSHOT"), ("live", "LIVE")):
+        n, total, top, rn, rtotal, rtop = totals[route]
+        print("[bake] diff %s route over %d column(s): mean %+0.4f st, max |d| %0.4f st; road band "
+              "%d column(s): mean %+0.4f st, max |d| %0.4f st"
+              % (label, n, total / max(1, n), top, rn, rtotal / max(1, rn), rtop))
+    print("[bake] diff: shape identity per tile (FNV-1a over 1/64-stud heights)")
+    print("  snapshot %s" % ",".join(fnv["snap"]))
+    print("  live     %s" % ",".join(fnv["live"]))
+    return 0
+
+
+def tile_plan(studio, studio_id, cells, injected):
+    """The tile lattice, ASKED OF `Relief.tiles` rather than re-derived here: the tool has to know
+    each tile's corner to cut its slice out of the base, and two copies of that lattice is how a
+    slice silently stops covering the tile it is for."""
+    plan = call(studio, studio_id, 'TerrainBake.tilePlan(TerrainBake.regionFor({%s}))'
+                % ",".join('"%s"' % c for c in cells), timeout=120, injected=injected)
+    if not isinstance(plan, list) or not plan:
+        raise RuntimeError("TerrainBake.tilePlan answered %r" % (plan,))
+    return plan
+
+
+def slice_for(base, tile, pad, side):
+    """One tile's base slice, or (None, why). The pad is `TerrainBake.padFor()`'s, asked of Studio."""
+    return base_slice(base, tile["minX"] - pad, tile["minZ"] - pad,
+                      tile["minX"] + side + pad, tile["minZ"] + side + pad)
+
+
+def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=None, keep=None,
+              live=None, base=None, plan=None, pad=None):
     """The tile loop, shared by `measure` (dry) and `bake` (wet). One MCP call per tile."""
     cells = args.cells
     region = region_for(cells, facts)
     count = tile_count(region, facts["tile"])[0]
     limit = min(args.tiles or count, count)
-    y_min, y_max = args.y_min, args.y_max
     entries, worst = [], 0
+    side = facts["tile"]
+    # THE TWO LATTICES MUST AGREE BEFORE THE RUN. `limit` is Python's count and the slices come from
+    # Studio's plan; a disagreement used to be an IndexError partway through a 70-minute bake
+    # (Reviewer, round 1, note).
+    if plan is not None and len(plan) != count:
+        return refuse("Studio's tile plan has %d tiles and this tool's count says %d: the two "
+                      "lattices disagree, so no slice can be trusted" % (len(plan), count)), entries
     reshape_said = [None]
     print("[bake] %s: %d of %d tiles, cells=%s" % ("measure (DRY)" if dry else "bake", limit, count, ",".join(cells)))
     for index in range(1, limit + 1):
         # REFUSAL 2 AGAIN, before every mutating call (B1): the operator can open another place
         # inside a 70-minute run, and a silent fall-back would reshape DEV.
         if not dry:
-            problem = check_place(studio, studio_id)
+            problem = check_place(studio, studio_id, args.studio_name)
             if problem:
                 return refuse(problem), entries
+        # THIS TILE'S SLICE OF THE BASE SNAPSHOT, cut out of the `.bin` (task 328k). The bake used
+        # to read it LIVE here, which is what made a re-bake read its own last bake.
+        payload, problem = slice_for(base, plan[index - 1], pad, side)
+        if problem:
+            print("[bake] FAILED at tile %d: %s" % (index, problem))
+            log_run(cells, entries, keep, live)
+            return 1, entries
         # THE SAME PROFILE BYTES INTO EVERY TILE. `[==[` quoting, because the payload is JSON and
         # holds double quotes; it is a value, never code.
         expression = (
-            'TerrainBake.bakeTileAt(%d, {%s}, %g, %g, %s, HttpService:JSONDecode([==[%s]==]))'
-            % (index, ",".join('"%s"' % c for c in cells), y_min, y_max,
-               "true" if dry else "false", profiles)
+            'TerrainBake.bakeTileAt(%d, {%s}, %s, HttpService:JSONDecode([==[%s]==]), '
+            'HttpService:JSONDecode([==[%s]==]))'
+            % (index, ",".join('"%s"' % c for c in cells), "true" if dry else "false", profiles,
+               json.dumps(payload, separators=(",", ":")))
         )
         report = call(studio, studio_id, expression, injected=injected)
         entries.append(report)
@@ -824,7 +1459,9 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
     # as its only writer -- and it is printed, because design 6.3 puts it in this line.
     epoch = "dry"
     if not dry:
-        epoch = epoch_for(studio, studio_id, args.base_sha or sha, injected)
+        # THE EPOCH HASHES THE BASE SNAPSHOT'S SHA, NEVER THE GIT SHA (design 5.4; 328e note c).
+        # `check_base` has already proved that sha is the file's own.
+        epoch = epoch_for(studio, studio_id, args.base_sha, injected)
         call(studio, studio_id, 'TerrainBake.stamp("%s") or "stamped"' % epoch, timeout=60,
              injected=injected)
         # ...AND THE PER-CELL SHAPE STAMP, so a later run can tell whether this cell's landform is
@@ -839,13 +1476,35 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
 
 def main(argv):
     parser = argparse.ArgumentParser(prog="terrainbake")
-    parser.add_argument("command", choices=("plan", "snapshot", "measure", "bake", "survey",
+    parser.add_argument("command", choices=("plan", "snapshot", "diff", "measure", "bake", "survey",
                                             "archive", "census", "selftest"))
     parser.add_argument("--cells", help="comma list, e.g. C1")
     parser.add_argument("--backup", help="a .rbxl saved by File -> Save to File, outside the repo")
     parser.add_argument("--tiles", type=int, help="stop after this many tiles")
-    parser.add_argument("--out", help="where `snapshot` writes, default <runs-dir>")
-    parser.add_argument("--base-sha", help="the base snapshot's sha256, which the epoch hashes")
+    parser.add_argument("--out", help="where `snapshot` writes, default "
+                                      "<runs-dir>/terrain-base-<its own sha>.bin")
+    parser.add_argument("--base", help="the base snapshot .bin every bake reads the ORIGINAL ground "
+                                      "from; it must live OUTSIDE the repository")
+    parser.add_argument("--base-sha", help="that file's sha256. REQUIRED with --base: an unchecked "
+                                          "snapshot is not evidence of the base, and the epoch "
+                                          "hashes this sha and never the git sha (design 5.4)")
+    parser.add_argument("--source", help="a note recorded in the snapshot's header, e.g. which "
+                                        ".rbxl it was read out of")
+    parser.add_argument("--reshape", choices=("auto", "on", "off"), default="auto",
+                        help="`diff` only: whether the landform goes in. `auto` asks "
+                             "TerrainBake.reshapeWanted, which is what a bake does. `on` is the "
+                             "re-bake-from-the-base case, whose diff against already-baked ground is "
+                             "the DRIFT alone; `off` writes the base away from the roads, so its "
+                             "diff is the whole landform and says nothing about doubling")
+    parser.add_argument("--allow-local-file", action="store_true",
+                        help="accept a Studio with NO place id (a .rbxl opened as a local file, "
+                             "which reports game.PlaceId 0). Only `snapshot` takes it, only with "
+                             "--studio-name, and it can never reach a mutating command")
+    parser.add_argument("--studio-name", help="the Studio whose DataModel NAME holds this text, as "
+                                              "well as the Forest Test's place id. REQUIRED in "
+                                              "practice whenever a backup .rbxl is open beside "
+                                              "Karen's live window: both report the same place id "
+                                              "(task 328k, lesson L-055)")
     parser.add_argument("--keep-flags", help="comma list of flag overrides that are the PLACE "
                                              "OWNER's and must be left as found (refusal 7)")
     parser.add_argument("--y-min", type=float, default=-100.0, help="the Y band the snapshot reads")
@@ -867,7 +1526,7 @@ def main(argv):
         studio = None
         try:
             studio = Studio()
-            studio_id, _ = resolve(studio)
+            studio_id, _ = resolve(studio, args.studio_name)
         except Exception as problem:  # noqa: BLE001 -- a plan must still print with no Studio
             print("[bake] note: no Studio addressed (%s)" % str(problem)[:120])
             studio_id = None
@@ -877,6 +1536,12 @@ def main(argv):
             if studio is not None:
                 studio.close()
 
+    # THE LOCAL-FILE DOOR IS ONE COMMAND WIDE. `snapshot` writes nothing in the world; everything
+    # else either writes terrain or measures the live place, and both need the place id.
+    local = bool(args.allow_local_file)
+    why_not_local = local_file_refusal(args.command, local, args.studio_name)
+    if why_not_local:
+        return refuse(why_not_local)
     mutating = args.command in ("bake", "archive")
     if mutating and not args.cells:
         return refuse("--cells is missing: an unnamed cell is an unbounded run")  # refusal 6
@@ -902,10 +1567,10 @@ def main(argv):
 
     studio = Studio()
     try:
-        studio_id, why = resolve(studio)
+        studio_id, why = resolve(studio, args.studio_name, local)
         if studio_id is None:
             return refuse(why)
-        problem = check_place(studio, studio_id)  # refusals 1 and 2
+        problem = check_place(studio, studio_id, args.studio_name, local)  # refusals 1 and 2
         if problem:
             return refuse(problem)
         problem = check_echo(studio, studio_id, facts, injected, shas)  # refusal 4
@@ -927,25 +1592,17 @@ def main(argv):
         if args.command == "census":
             return command_census(studio, studio_id, args.cells or list(CELL_IDS), injected)
         if args.command == "snapshot":
+            if args.out and os.path.commonpath([os.path.abspath(args.out), REPO]) == REPO:
+                return refuse("the base snapshot must be written OUTSIDE the repository: %s"
+                              % args.out)
+            return command_snapshot(studio, studio_id, args, facts, injected, sha)
+        if args.command == "diff":
             if not args.cells:
                 return refuse("--cells is missing")
-            region = region_for(args.cells, facts)
-            out = args.out or os.path.join(runs_dir(), "terrain-base-%s.json" % sha[:12])
-            # `snapshot` answers (nil, why) when it refuses -- over ReadVoxels' ceiling, Water, an
-            # overhang. JSONEncode of the FIRST value then sends "null" and the reason is lost
-            # (measured 2026-11-02 on C1's whole region: 24.6 M voxels against a 4.19 M ceiling), so
-            # the refusal is raised instead and the tool prints it.
-            result = call(studio, studio_id,
-                          "(function() local snap, why = TerrainBake.snapshot("
-                          "{minX=%g,maxX=%g,minZ=%g,maxZ=%g}, %g, %g) "
-                          "if snap == nil then error(why, 0) end return snap end)()"
-                          % (region["minX"], region["maxX"], region["minZ"], region["maxZ"],
-                             args.y_min, args.y_max), injected=injected)
-            with open(out, "w", encoding="utf-8") as handle:
-                json.dump(result, handle)
-            digest = hashlib.sha256(open(out, "rb").read()).hexdigest()
-            print("[bake] snapshot: %s  sha256=%s" % (out, digest))
-            return 0
+            base, problem = check_base(args, region_for(args.cells, facts))  # refusal 9
+            if problem:
+                return refuse(problem)
+            return command_diff(studio, studio_id, args, facts, injected, base)
         if args.command == "archive":
             result = call(studio, studio_id, 'TerrainBake.archive("GridForest", {})', injected=injected)
             print("[bake] archive: %s" % json.dumps(result))
@@ -953,31 +1610,46 @@ def main(argv):
         if args.command in ("measure", "bake"):
             if not args.cells:
                 return refuse("--cells is missing")
+            # REFUSAL 9: THE BASE SNAPSHOT. The bake reads the ORIGINAL ground from the file, never
+            # live terrain -- design 5.3 step 2, and the reason the road half drifted +2 studs a
+            # bake until task 328k (ESCALATE.md, task 328e).
+            base, problem = check_base(args, region_for(args.cells, facts))
+            if problem:
+                return refuse(problem)
+            print("[bake] base snapshot %s  sha256=%s  x[%g,%g] z[%g,%g] %d x %d  %d hole(s)"
+                  % (args.base, base["sha"], base["header"]["minX"],
+                     base["header"]["minX"] + base["header"]["nx"] * base["header"]["pitch"],
+                     base["header"]["minZ"],
+                     base["header"]["minZ"] + base["header"]["nz"] * base["header"]["pitch"],
+                     base["header"]["nx"], base["header"]["nz"], len(base["holes"])))
+            plan = tile_plan(studio, studio_id, args.cells, injected)
+            pad = call(studio, studio_id, "TerrainBake.padFor()", timeout=60, injected=injected)
             # REFUSAL 8: A LANDFORM MAY NOT GO INTO THE SAME GROUND TWICE. `reshapeWanted` answers
             # "changed" when a cell's stamp names a landform that is not the one on disk; re-baking
             # then ADDS the new ops on top of the old ones, which is the +24.04-stud double ridge
             # this task measured in Karen's place before writing (ESCALATE.md 2026-11-02 ~20:35).
             # The fix is the backup, not another bake, so the tool says so instead of printing it.
             if args.command == "bake":
-                blocked = []
+                answers = {}
                 for cell in args.cells:
                     answer = call(studio, studio_id,
                                   "(function() local wanted, why, kind = TerrainBake.reshapeWanted(\"%s\") "
                                   "return { wanted = wanted, why = why, kind = kind } end)()" % cell,
                                   timeout=60, injected=injected)
                     print("  reshape %-3s %-7s %s" % (cell, answer["kind"], answer["why"]))
-                    if answer["kind"] == "changed":
-                        blocked.append(cell)
-                if blocked:
-                    return refuse(
-                        "%s already carr%s a DIFFERENT landform in the ground, and a bake ADDS its ops "
-                        "rather than replacing them (measured: +24.04 studs of second ridge on C1, "
-                        "2026-11-02). Restore the backup .rbxl and bake again."
-                        % (", ".join(blocked), "ies" if len(blocked) == 1 else "y"))
-            profiles, _ = profiles_once(studio, studio_id, args.cells, injected)
+                    answers[cell] = answer["kind"]
+                problem = reshape_blocked(answers)  # refusal 7b
+                if problem:
+                    return refuse(problem)
+            sampler, problem = profile_sampler(studio, studio_id, args.cells, injected, base)
+            if problem:
+                return refuse(problem)  # refusal 9, second half
+            profiles, _ = profiles_once(
+                studio, studio_id, args.cells, injected,
+                "TerrainBake.pointSampler(HttpService:JSONDecode([==[%s]==]))" % sampler)
             code, _ = tile_pass(studio, studio_id, args, facts, sha,
                                 dry=args.command == "measure", injected=injected, profiles=profiles,
-                                keep=keep, live=live)
+                                keep=keep, live=live, base=base, plan=plan, pad=pad)
             return code
     finally:
         studio.close()
@@ -1286,7 +1958,28 @@ def selftest():
         cells = ["C1"]
         tiles = 2
         y_min, y_max = -100.0, 400.0
+        base = None
         base_sha = None
+        out = None
+        source = None
+        studio_name = None
+        allow_local_file = False
+        reshape = "auto"
+
+    # A SYNTHETIC BASE covering the first two tiles plus their pad, so the tile pass can cut real
+    # slices out of it with no Studio.
+    # THE WHOLE LATTICE, built the way `Relief.tiles` builds it, because `tile_pass` now refuses a
+    # plan whose length disagrees with its own count. Only the first `tiles` of them are sliced.
+    _c1region = region_for(["C1"], echo_facts)
+    _count, _tnx, _tnz, _tx0, _tz0 = tile_count(_c1region, echo_facts["tile"])
+    fake_plan = [{"minX": _tx0 + i * echo_facts["tile"], "minZ": _tz0 + k * echo_facts["tile"]}
+                 for k in range(_tnz) for i in range(_tnx)]
+    fake_pad = 204
+    fake_header = {"pitch": 4, "minX": _tx0 - 384, "minZ": _tz0 - 384, "nx": 320, "nz": 240,
+                   "minY": 100.0, "maxY": 100.0, "yMin": -100.0, "yMax": 400.0,
+                   "scale": SLICE_SCALE, "offset": SLICE_OFFSET}
+    fake_codes = array.array("h", [round((100.0 - SLICE_OFFSET) * SLICE_SCALE)]) * (320 * 240)
+    fake_base = {"header": fake_header, "codes": fake_codes, "holes": set(), "sha": "f" * 64}
 
     saved_call, saved_log = globals()["call"], globals()["log_run"]
     try:
@@ -1298,12 +1991,15 @@ def selftest():
         globals()["call"] = record
         globals()["log_run"] = lambda cells, entries, keep=None, live=None: "<log>"
         code, entries = tile_pass(None, "x", Args(), echo_facts, "abc", True,
-                                  injected="<PRELUDE>", profiles='[{"road":{"id":"EW2"}}]')
+                                  injected="<PRELUDE>", profiles='[{"road":{"id":"EW2"}}]',
+                                  base=fake_base, plan=fake_plan, pad=fake_pad)
         ok("the tile pass runs every tile it was asked for", code == 0 and len(entries) == 2)
         ok("EVERY tile call carries the profiles the tool computed once",
            all("JSONDecode([==[" in e and '"EW2"' in e for e, _ in sent_tiles), sent_tiles[0][0][:90])
         ok("every tile of one run carries the SAME profile bytes",
-           len({e.split("JSONDecode", 1)[1] for e, _ in sent_tiles}) == 1)
+           len({e.split("JSONDecode([==[", 2)[1] for e, _ in sent_tiles}) == 1)
+        ok("every tile carries a DIFFERENT slice -- its own, not a shared one",
+           len({e.split("JSONDecode([==[", 2)[2] for e, _ in sent_tiles}) == len(sent_tiles))
         ok("every tile of one run carries the SAME injected prelude",
            {i for _, i in sent_tiles} == {"<PRELUDE>"})
     finally:
@@ -1312,6 +2008,178 @@ def selftest():
        "no profiles were handed to tile" in open(BAKE_LUAU, encoding="utf-8").read())
     ok("bakeTileAt no longer falls back to profilesFor",
        "profiles or TerrainBake.profilesFor" not in open(BAKE_LUAU, encoding="utf-8").read())
+    bake_text = open(BAKE_LUAU, encoding="utf-8").read()
+    ok("EVERY tile call carries its own slice of the base snapshot",
+       all(e.count("JSONDecode([==[") == 2 for e, _ in sent_tiles), sent_tiles[0][0][:60])
+    ok("the Luau refuses a tile that arrives with no base snapshot slice",
+       "no base snapshot slice was handed to tile" in bake_text)
+    ok("profilesFor refuses to run with no sampler, so it can never raycast live terrain",
+       "TerrainBake.profilesFor: no sampler" in bake_text)
+    tool_text = open(os.path.join(REPO, "tools", "terrainbake.py"), encoding="utf-8").read()
+    # THE EPOCH'S ONE CALL SITE, by regex rather than by quoting the wrong text -- a check that
+    # quotes the string it forbids matches its own source and can never fail.
+    # THE WHOLE ARGUMENT, up to the comma. `[A-Za-z_.]+` stopped at the first space, so the very
+    # defect 328e note c names -- `args.base_sha or sha` -- also matched and the case was green
+    # against the line it is offered as proof of fixing (Reviewer, round 1, finding 2).
+    # OVER THE RUNTIME HALF ONLY. The fail-first subject below is itself a line of this file, so a
+    # scan of the whole text matches it and the case can never be green.
+    runtime = tool_text.split("---------------- selftest (CI; no Studio")[0]
+    epoch_args = re.findall(r"epoch = epoch_for\(studio, studio_id, ([^,)]+)", runtime)
+    ok("the bake's epoch hashes the SNAPSHOT sha and never the git sha (design 5.4, 328e note c)",
+       epoch_args == ["args.base_sha"], str(epoch_args))
+    # FAIL FIRST: the pre-fix line must NOT pass this case.
+    ok("...and the pre-fix `args.base_sha or sha` would fail that case",
+       re.findall(r"epoch = epoch_for\(studio, studio_id, ([^,)]+)",
+                  "        epoch = epoch_for(studio, studio_id, args.base_sha or sha, injected)")
+       == ["args.base_sha or sha"])
+    ok("bakeTileAt reads no terrain of its own: the slice comes from the tool",
+       "TerrainBake.snapshot(" not in bake_text.split("function TerrainBake.bakeTileAt")[1]
+       .split("function TerrainBake.roadDistance")[0])
+
+    # ---- THE BASE SNAPSHOT FILE (B2): it round-trips, it is DETERMINISTIC, and a slice of it is a
+    # byte slice of the stored codes.
+    import tempfile
+    scratch = tempfile.mkdtemp(prefix="dh-base-")
+    try:
+        header = {"pitch": 4, "minX": -40, "minZ": -20, "nx": 3, "nz": 2,
+                  "minY": 98.75, "maxY": 101.25, "yMin": -100.0, "yMax": 400.0}
+        codes = [round((h - SLICE_OFFSET) * SLICE_SCALE) for h in SLICE_FIXTURE_HEIGHTS]
+        one = os.path.join(scratch, "a.bin")
+        two = os.path.join(scratch, "b.bin")
+        sha_one = base_save(one, header, codes, [2])
+        sha_two = base_save(two, header, codes, [2])
+        ok("two snapshots of the same ground are the same bytes and the same sha256",
+           sha_one == sha_two and open(one, "rb").read() == open(two, "rb").read(), sha_one[:16])
+        # AND NOTHING AN OPERATOR TYPED IS IN THE HASH, or the base could not be re-taken after a
+        # paperwork commit and still be the same base.
+        noisy = dict(header, commit="deadbeef", source="a different note", cells=["A1"],
+                     place="1", chunkStuds=256)
+        ok("the sha is a function of the GROUND, not of the commit or the operator's note",
+           base_save(os.path.join(scratch, "e.bin"), noisy, codes, [2]) == sha_one)
+        back = base_load(one)
+        ok("the .bin round-trips its lattice, its codes and its holes",
+           back["header"]["nx"] == 3 and back["holes"] == {2}
+           and list(back["codes"]) == codes and back["sha"] == sha_one)
+        ok("base_at reads a height, and nil at a hole and outside the snapshot",
+           base_at(back, -38, -18) == 100.0 and base_at(back, -34, -18) is None
+           and base_at(back, -30, -18) == 101.25 and base_at(back, -60, -18) is None,
+           "%r %r" % (base_at(back, -38, -18), base_at(back, -30, -18)))
+        ok("the Python encoder's bytes are the fixture the Luau spec decodes",
+           base64.b64encode(_sliced(codes)).decode("ascii") == SLICE_FIXTURE_B64,
+           base64.b64encode(_sliced(codes)).decode("ascii"))
+        cut, why = base_slice(back, -40, -20, -32, -12)
+        ok("a slice is a byte slice of the stored codes, with its own hole index",
+           why is None and cut["nx"] == 2 and cut["nz"] == 2 and cut["minX"] == -40
+           and base64.b64decode(cut["b64"]) == _sliced([codes[0], codes[1], codes[3], codes[4]])
+           and cut["holes"] == [2], "%r %r" % (cut and cut["holes"], why))
+        _, why = base_slice(back, -400, -20, -32, -12)
+        ok("a slice the snapshot does not cover is refused, with both rectangles named",
+           why is not None and "does not cover" in why, why)
+        # bad magic
+        broken = os.path.join(scratch, "c.bin")
+        with open(broken, "wb") as handle:
+            handle.write(b"not a snapshot\n{}\n")
+        ok("a file that is not a base snapshot is refused by its magic",
+           _raises(lambda: base_load(broken)))
+        # truncated payload
+        short = os.path.join(scratch, "d.bin")
+        body = open(one, "rb").read()
+        with open(short, "wb") as handle:
+            handle.write(body[:-2])
+        ok("a truncated .bin is refused, and says how many codes it holds",
+           _raises(lambda: base_load(short)))
+
+        class BaseArgs:
+            def __init__(self, path=None, sha=None):
+                self.base, self.base_sha = path, sha
+
+        region = {"minX": -40, "maxX": -28, "minZ": -20, "maxZ": -12}
+        ok("refusal 9 refuses a bake with no --base",
+           check_base(BaseArgs(None, sha_one), region)[1].startswith("--base is missing"))
+        ok("refusal 9 refuses a --base with no --base-sha",
+           "--base-sha is missing" in check_base(BaseArgs(one, None), region)[1])
+        ok("refusal 9 refuses a base snapshot inside the repository",
+           "OUTSIDE the repository" in check_base(
+               BaseArgs(os.path.join(REPO, "x.bin"), sha_one), region)[1])
+        ok("refusal 9 refuses a base snapshot that is not there",
+           "no base snapshot at" in check_base(
+               BaseArgs(os.path.join(scratch, "nope.bin"), sha_one), region)[1])
+        ok("refusal 9 refuses a STALE sha -- the one mistake that looks like success",
+           "DIFFERENT base" in check_base(BaseArgs(one, "0" * 64), region)[1])
+        ok("refusal 9 ACCEPTS the file whose sha256 is the one named, and covers the region",
+           check_base(BaseArgs(one, sha_one), region)[1] is None)
+        ok("refusal 9 refuses a base that does not cover the run's region",
+           "does not hold this run's region" in check_base(
+               BaseArgs(one, sha_one), {"minX": -40, "maxX": 900, "minZ": -20, "maxZ": -12})[1])
+    finally:
+        for name in os.listdir(scratch):
+            os.remove(os.path.join(scratch, name))
+        os.rmdir(scratch)
+
+    # ---- THE CHUNK IS DERIVED FROM THE BAND, so a deeper band cannot ride ReadVoxels' ceiling.
+    ok("a 500-stud band keeps the 512-stud chunk that measured fine",
+       chunk_studs(-100.0, 400.0, 4) == 512, str(chunk_studs(-100.0, 400.0, 4)))
+    ok("a 1,000-stud band narrows the chunk, and every chunk stays under the read budget",
+       chunk_studs(-200.0, 800.0, 4) < 512
+       and all((chunk_studs(0.0, span, 4) / 4) ** 2 * math.ceil(span / 4) <= SNAPSHOT_READ_BUDGET
+               for span in (100.0, 500.0, 1000.0, 2000.0)),
+       "1000 st band -> %d st chunk" % chunk_studs(-200.0, 800.0, 4))
+    ok("the chunk is always a whole number of voxels and never under 8 of them",
+       all(chunk_studs(0.0, span, 4) % 4 == 0 and chunk_studs(0.0, span, 4) >= 32
+           for span in (10.0, 500.0, 5000.0, 40000.0)))
+
+    # ---- REFUSAL 7b, which had no case at all until now (328e note h).
+    ok("refusal 7b refuses a cell whose ground already carries a DIFFERENT landform",
+       "already carries a DIFFERENT landform" in (reshape_blocked({"C1": "changed"}) or ""),
+       reshape_blocked({"C1": "changed"}))
+    ok("refusal 7b names EVERY blocked cell, in order",
+       (reshape_blocked({"D1": "changed", "A1": "changed", "C1": "same"}) or "").startswith("A1, D1"))
+    ok("refusal 7b lets a cell whose stamp is the same landform through",
+       reshape_blocked({"C1": "same"}) is None and reshape_blocked({"C1": "virgin"}) is None)
+
+    # ---- WHICH WINDOW (L-055). A backup .rbxl re-opened reports place 0 and the FILE's name;
+    # Karen's live window reports the Forest Test's place id and 'Driven Hunt Forest Test'. Both
+    # were read off this machine on 2026-11-03 with all three windows open.
+    ok("the live Forest Test is accepted by its place id, with or without a name",
+       local_ok(FOREST_PLACE_ID, "Driven Hunt Forest Test", None, False)
+       and local_ok(FOREST_PLACE_ID, "Driven Hunt Forest Test", "Forest Test", False))
+    ok("a name that does not match is refused even on the right place id",
+       not local_ok(FOREST_PLACE_ID, "Driven Hunt Forest Test", "FT-base-328k", False))
+    ok("a local file (place 0) is refused unless --allow-local-file AND the name match",
+       not local_ok("0", "FT-base-328k.rbxl", "FT-base-328k", False)
+       and not local_ok("0", "FT-base-328k.rbxl", None, True)
+       and local_ok("0", "FT-base-328k.rbxl", "FT-base-328k", True))
+    ok("DEV is refused however the flags are set -- the one thing L-014 is about",
+       not local_ok("136410205938347", "Driven Hunt DEV", None, True)
+       and not local_ok("136410205938347", "Driven Hunt DEV", "DEV", True))
+    # `local_file_refusal`'s FOUR arms, one case each, because round 2 found that
+    # `main(...) == 2` cannot fail: `check_backup(None)` refuses with 2 as well. A case on the
+    # predicate's TEXT dies when its arm is deleted.
+    ok("local_file_refusal arm 1: the flag off is never a refusal",
+       local_file_refusal("bake", False, None) is None
+       and local_file_refusal("snapshot", False, None) is None)
+    ok("local_file_refusal arm 2: a command that is not snapshot is refused BY NAME",
+       "only for `snapshot`" in (local_file_refusal("bake", True, "x") or "")
+       and "`archive`" in (local_file_refusal("archive", True, "x") or ""))
+    ok("local_file_refusal arm 3: snapshot without --studio-name is refused for the name",
+       "needs --studio-name" in (local_file_refusal("snapshot", True, None) or "")
+       and "needs --studio-name" in (local_file_refusal("snapshot", True, "") or ""))
+    ok("local_file_refusal arm 4: snapshot with a name is allowed",
+       local_file_refusal("snapshot", True, "FT-base-328k") is None)
+
+    def refusal_of(argv):
+        """(exit code, what main PRINTED). Exit 2 alone cannot say WHICH refusal fired."""
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = main(argv)
+        return code, out.getvalue()
+
+    code, said = refusal_of(["bake", "--cells", "C1", "--allow-local-file", "--studio-name", "x"])
+    ok("main refuses --allow-local-file on a mutating command, for THAT reason",
+       code == 2 and "only for `snapshot`" in said, said.strip()[:80])
+    code, said = refusal_of(["snapshot", "--allow-local-file"])
+    ok("main refuses --allow-local-file with no --studio-name, for THAT reason",
+       code == 2 and "needs --studio-name" in said, said.strip()[:80])
 
     # THE RUN-LOG WRITER (design 6.3).
     rows = [{"minX": -4736, "minZ": -5376, "elapsedMs": 7}]
