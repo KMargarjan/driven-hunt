@@ -1024,7 +1024,7 @@ return function()
 			end
 
 			-- IT IS COUNTED IN THE BOUND. `cellCapacity` must be the sum of all four layers, so an
-			-- understorey the budget did not count cannot breach design 8.3's < 3,600 unseen.
+			-- understorey the budget did not count cannot breach `CELL_PLAN_CAP` unseen.
 			local plan = Plan.cellPlanFor("C1")
 			local function cells(rect: any, spacing: number): number
 				if spacing <= 0 then
@@ -1113,10 +1113,11 @@ return function()
 			expect(worst >= plan.minGapStuds).to.equal(true)
 			TestKit.note(
 				string.format(
-					"C1 understorey: %d sapling(s) to scale %.2f, capacity %d of 3600 (%d canopy + %d under + %d fern + %d skirt), closest two of %d trees %.2f studs (gap %d)",
+					"C1 understorey: %d sapling(s) to scale %.2f, capacity %d of %d (%d canopy + %d under + %d fern + %d skirt), closest two of %d trees %.2f studs (gap %d)",
 					saplings,
 					worstScale,
 					Plan.cellCapacity("C1"),
+					Plan.CELL_PLAN_CAP,
 					zones,
 					under,
 					ferns,
@@ -1168,22 +1169,39 @@ return function()
 		end)
 	end)
 
-	-- ---------------------------------------------------------------- 14. under the declared capacity
+	-- --------------------------------------------------- 14. under the capacity and the two part caps
 
 	describe("the budget", function()
-		it("holds every cell under its own bound and every bound under 3,600 models", function()
+		-- THE TWO CAPS ARE DERIVED FROM A MEASURED RATIO, not typed (`grid-roads.md` 8.2): the old
+		-- `< 3,600` carried `grid-map.md` 8.3's refuted "~7 parts a model" against the measured 3.03,
+		-- and left C1 184 models of room where Karen asked for more trees. Archived: backups/README.md.
+		it("holds every cell under its own capacity, its plan cap and its part cap", function()
+			-- THE CAPS MOVE WITH THE BUDGETS, so the spec recomputes them and never restates them.
+			local planCap = math.floor(Plan.PART_BUDGET_DRIVE / Plan.PARTS_PER_MODEL)
+			local partCap = math.floor(Plan.PART_BUDGET_CELL / Plan.PARTS_PER_MODEL)
+			expect(Plan.CELL_PLAN_CAP).to.equal(planCap)
+			expect(Plan.CELL_PART_CAP).to.equal(partCap)
+			-- ...AND AT THE PAIR THE DESIGN PUBLISHES (`grid-roads.md` 8.2, `grid-map.md` 19), so a
+			-- change to the ratio or to either budget reddens here before it ships undocumented.
+			expect(Plan.CELL_PLAN_CAP).to.equal(7260)
+			expect(Plan.CELL_PART_CAP).to.equal(2640)
 			local worstId, worstTotal, worstCap = "", 0, 0
+			local planSlack, partSlack = math.huge, math.huge
 			local lines = {}
 			for _, id in ipairs(Grid.cellIds()) do
 				local capacity = Plan.cellCapacity(id)
 				local total = #woods[id]
+				-- 1. WHAT IS DRAWN IS INSIDE WHAT WAS PLANNED.
 				expect(total <= capacity).to.equal(true)
-				-- DESIGN 8.3'S HARD BOUND, ON THE BOUND ITSELF and not only on today's draw: a
-				-- density tweak that would breach it fails here before anything is cloned.
-				expect(capacity < 3600).to.equal(true)
-				expect(total < 3600).to.equal(true)
+				-- 2. THE TYPO GUARD, on the BOUND itself and not on today's draw: a zone at spacing 2
+				-- plans 100,000 sites and this catches it before anything is cloned.
+				expect(capacity <= Plan.CELL_PLAN_CAP).to.equal(true)
+				-- 3. THE BOUND THAT NOW BINDS -- models against the per-cell PART ceiling.
+				expect(total <= Plan.CELL_PART_CAP).to.equal(true)
 				-- ...AND THE SAME FUNCTION UNDER THE NAME EVERY OTHER CALLER USES.
 				expect(Plan.capacity(Grid.layoutFor(id), Plan.cellPlanFor(id))).to.equal(capacity)
+				planSlack = math.min(planSlack, Plan.CELL_PLAN_CAP - capacity)
+				partSlack = math.min(partSlack, Plan.CELL_PART_CAP - total)
 				if total > worstTotal then
 					worstId, worstTotal, worstCap = id, total, capacity
 				end
@@ -1201,11 +1219,17 @@ return function()
 			end
 			TestKit.note(
 				string.format(
-					"per cell: %s -- worst %s %d of %d",
+					"per cell: %s -- worst %s %d of %d; %.2f parts/model, caps %d plan / %d part; "
+						.. "tightest slack %d plan, %d part",
 					table.concat(lines, " "),
 					worstId,
 					worstTotal,
-					worstCap
+					worstCap,
+					Plan.PARTS_PER_MODEL,
+					Plan.CELL_PLAN_CAP,
+					Plan.CELL_PART_CAP,
+					planSlack,
+					partSlack
 				)
 			)
 		end)
