@@ -776,10 +776,14 @@ return function()
 			expect(TerrainBake.PLACE_ID).never.to.equal(game.PlaceId)
 		end)
 
-		it("328q-1 leaves every junction pin exactly where it was, at any amplitude", function()
+		it("328q-1 pins every junction at a station that is a zero at any amplitude", function()
 			-- EACH ROAD'S LINE IS A ZERO OF THE OTHER FAMILY'S BEND (design 5.1), so the 15 pinned
 			-- junction heights do not move when the amplitude does. Asserted because the pins are
 			-- what hold the two crowns together inside the junction square.
+			--
+			-- **WHAT IS MEASURED AT WHICH AMPLITUDE, SAID PLAINLY** (round 2 note): `longProfile` and
+			-- `junctionPins` take no bend, so the count and each pin's height are measured at the
+			-- SHIPPED amplitude only; the two `Grid.bendX` lines below are the half driven at 45/60.
 			local function sloped(_x: number, z: number): number?
 				return 120 + z / 100
 			end

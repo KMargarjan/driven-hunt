@@ -175,9 +175,9 @@ def luau_facts():
         "columns": int(number_from(GRID_LUAU, r"^\tcolumns = ([0-9_]+)")),
         # THE BEND (task 328q), through the same `number_from` route as everything else: this twin
         # must grow `region_for` by the amplitude or `plan` would refuse a correct region (F-5).
-        "bendEw": number_from(GRID_LUAU, r"^\t\tewStuds = (-?[0-9_.]+)"),
-        "bendNs": number_from(GRID_LUAU, r"^\t\tnsStuds = (-?[0-9_.]+)"),
-        "bendHarmonic": number_from(GRID_LUAU, r"^\t\tharmonic = (-?[0-9_.]+)"),
+        "bendEw": int(number_from(GRID_LUAU, r"^\t\tewStuds = (-?[0-9_]+)")),
+        "bendNs": int(number_from(GRID_LUAU, r"^\t\tnsStuds = (-?[0-9_]+)")),
+        "bendHarmonic": int(number_from(GRID_LUAU, r"^\t\tharmonic = (-?[0-9_]+)")),
     }
 
 

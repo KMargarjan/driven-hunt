@@ -2329,9 +2329,14 @@ function Places.standTypeFor(cellId: string, standIndex: number): string
 			end
 		end
 	end
-	local spot = Grid.standPosition(cellId, standIndex)
+	-- THE GRID POINT, AND ONE SPACE (round 2 finding 1): `standFacing` is a grid unit vector and
+	-- `zoneRect`, `zoneAt` and `rideSegments` are all grid facts, so the sight line this letter is
+	-- derived from has to be the grid one too. `standPosition` is the WORLD point and would be up to
+	-- 60 studs in x away from the rects it is compared against at 45/60.
+	local su, sv = Grid.standGridOf(cellId, standIndex)
+	local spot = Vector2.new(su, sv)
 	local fx, fz = Places.standFacing(cellId, standIndex)
-	local ax, az = spot.X + fx * Places.CONE.farStuds, spot.Z + fz * Places.CONE.farStuds
+	local ax, az = spot.X + fx * Places.CONE.farStuds, spot.Y + fz * Places.CONE.farStuds
 	if plan.field ~= nil then
 		local field = Places.zoneRect(cellId, plan.field)
 		if ax >= field.minX and ax <= field.maxX and az >= field.minZ and az <= field.maxZ then
@@ -2341,8 +2346,8 @@ function Places.standTypeFor(cellId: string, standIndex: number): string
 		if
 			spot.X >= field.minX - reach
 			and spot.X <= field.maxX + reach
-			and spot.Z >= field.minZ - reach
-			and spot.Z <= field.maxZ + reach
+			and spot.Y >= field.minZ - reach
+			and spot.Y <= field.maxZ + reach
 		then
 			return "F"
 		end

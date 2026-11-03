@@ -490,7 +490,10 @@ return function()
 				end
 				local q = (bend.ewStuds * math.pi * bend.harmonic / Grid.bendPitch("x"))
 					* (bend.nsStuds * math.pi * bend.harmonic / Grid.bendPitch("z"))
-				expect(worstRound <= (bend.ewStuds + bend.nsStuds) * q ^ Grid.TO_WORLD_STEPS).to.equal(true)
+				-- A FACTOR OF 2 ON THE DERIVED BOUND (round 2 note): at 45/60 the realised residual is
+				-- 1.17e-7 against a bound of 1.20e-7, which is 2.6 % of margin -- one `math.sin` ulp
+				-- or a change to the lattice step would redden a correct map.
+				expect(worstRound <= 2 * (bend.ewStuds + bend.nsStuds) * q ^ Grid.TO_WORLD_STEPS).to.equal(true)
 				rounds[index] = worstRound
 			end
 			-- AT 0 THE MAP IS THE IDENTITY, EXACTLY; at the shipped 45 / 60 the design's 1e-6 holds.
@@ -582,8 +585,8 @@ return function()
 			expect(math.abs(seconds - 275) < 0.1).to.equal(true)
 			TestKit.note(
 				string.format(
-					"%d stations x 2 amplitudes: worst translate error %.2e, worst cell depth error %.2e, walk %.1f s",
-					stations,
+					"%d stations at each of 2 amplitudes: worst translate error %.2e, worst cell depth error %.2e, walk %.1f s",
+					stations / 2,
 					worst,
 					worstDepth,
 					seconds
