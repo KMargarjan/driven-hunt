@@ -1143,7 +1143,7 @@ end
 -- construction (`profilesFor`' own reason).
 --
 -- THE PAD'S HEIGHT IS THE ROAD'S OWN CROWN AT THE STAND, NEVER `Grid.standPosition`'s Y. That Y is
--- the cell's single `relief.lineMeanY` for all fifteen stands (106.98 for C1), and C1's west flank
+-- the cell's single `relief.lineMeanY` for all fifteen stands (106.03 for C1, task 328r), and C1's west flank
 -- road rises 35.4 studs between stands 8 and 11 -- MEASURED 2026-11-02 in Karen's place
 -- (`<runs-dir>/328e-ground-BEFORE.json`): ground 93.41 and 128.82, which is the road's own clamped
 -- 5.4 % grade over 660 studs. Levelling those two pads to 106.98 would mean a 21.84-stud pit and a
@@ -1884,8 +1884,10 @@ end
 -- `grid-roads.md` 12). Both read `Grid.roadCentreAt`, so `Grid` owns the line they measure from.
 -- THE `from`/`to` TEST IS ASKED IN GRID COORDINATES (task 328r, 328q note (c)): a road's `from` and
 -- `to` are grid stations, and testing a WORLD x against them put the end of the range up to 60
--- studs out at 45/60. The gap itself stays the WORLD one, because the caller is splitting a
--- world-lattice diff into a road band and the rest.
+-- studs out at 45/60. The gap is then the GRID AXIS GAP -- `|z - roadCentreAt(road, x)|` IS
+-- `|v - road.at|`, by `Grid.toGrid`'s own definition -- and that is the right one here, because the
+-- caller is splitting a world-lattice diff into a road band and the rest and the two spaces agree
+-- about which band a point is in. Named exactly (round 1, note).
 function TerrainBake.roadDistance(x: number, z: number, bend: any?): number
 	local best = math.huge
 	local u, v = Grid.toGrid(x, z, bend)
@@ -2154,8 +2156,15 @@ end
 -- (Reviewer, task 328e round 1, finding 1). Only the per-cell stamp is evidence about a cell.
 --
 -- WHAT THIS DOES NOT DO, said plainly: it cannot UN-apply a landform. Changing a cell's `ops` after
--- a bake needs the original base back -- restore the backup `.rbxl` and bake again, and
--- `tools/terrainbake.py` REFUSES a wet run in that state rather than quietly adding the ops twice.
+-- a bake needed the original base back. SINCE TASK 328k IT DOES NOT: the base is a sha-checked
+-- `.bin` and the bake writes ABSOLUTE heights, so `bakeTileAt` applies the landform every time and
+-- this answer is a REPORT; `tools/terrainbake.py` no longer refuses on it (refusal 7b, retired in
+-- task 328r and archived under `backups/`).
+--
+-- **WHAT NOTHING CHECKS, SAID PLAINLY:** that the `--base` file was captured off VIRGIN ground.
+-- `check_base` proves the bytes match `--base-sha`, not that they are the original; a snapshot
+-- taken after a bake would pass it and the landform would go in twice. The operator naming the
+-- recorded sha is the whole guard.
 -- Storing the base snapshot so a re-shape needs no backup is design 5.3 step 2's whole-cell route
 -- and is not built.
 --

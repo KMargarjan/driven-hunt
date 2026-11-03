@@ -602,7 +602,7 @@ return function()
 				local px = box.minX + (box.maxX - box.minX) * step / 24
 				for inner = 0, 24 do
 					local pz = box.minZ + (box.maxZ - box.minZ) * inner / 24
-					local why = Plan.mask(cellId, px, pz, "SilverBirch_Var08_LOD_0", 1)
+					local why = Plan.maskGrid(cellId, px, pz, "SilverBirch_Var08_LOD_0", 1)
 					expect(why ~= Plan.REASON.CLIFF).to.equal(true)
 					expect(why ~= Plan.REASON.GAP).to.equal(true)
 				end
@@ -1099,8 +1099,12 @@ return function()
 			local x = seg.ax + (seg.bx - seg.ax) / 3
 			local z = seg.az + (seg.bz - seg.az) / 3
 			expect(Plan.maskGrid(id, x, z, nil, nil)).to.equal(Plan.REASON.RIDE)
-			-- ...AND JUST OUTSIDE IT, the same depth, is not refused for a ride.
-			local out = Plan.mask(id, x + Plan.RIDE_CLEAR_STUDS, z, nil, nil)
+			-- ...AND JUST OUTSIDE IT, the same depth, is not refused for a ride. **`maskGrid`, like
+			-- the positive half above** (round 1, finding 2): asked of `mask`, this grid point is
+			-- read as a world one and `Grid.toGrid` moves it ~60 studs before the mask sees it, so
+			-- the control answered "not in the band" for a point that was never in it -- it held
+			-- with `RIDE_CLEAR_STUDS` set to 0.
+			local out = Plan.maskGrid(id, x + Plan.RIDE_CLEAR_STUDS, z, nil, nil)
 			expect(out ~= Plan.REASON.RIDE).to.equal(true)
 			-- A COUNTED BITE over the whole cell, so an empty `rides` row cannot pass this.
 			local box = Grid.boundsOf(id)
@@ -1109,7 +1113,8 @@ return function()
 				local px = box.minX + (box.maxX - box.minX) * step / 40
 				for inner = 0, 40 do
 					local pz = box.minZ + (box.maxZ - box.minZ) * inner / 40
-					if Plan.mask(id, px, pz, nil, nil) == Plan.REASON.RIDE then
+					-- A GRID RECTANGLE WALKED IN GRID COORDINATES (round 1, note 2).
+					if Plan.maskGrid(id, px, pz, nil, nil) == Plan.REASON.RIDE then
 						hits += 1
 					end
 				end
@@ -1126,21 +1131,25 @@ return function()
 			-- `crown` before it answers `cone` (round 2's first harness run). Stand 6 is 300 studs
 			-- east of the cut and 150 from the V ride.
 			local index = 6
-			local spot = Grid.standPosition(id, index)
+			-- THE WHOLE CASE IN GRID COORDINATES (round 1, note 2): `standFacing` is a GRID unit
+			-- vector, so a world stand position plus `fx * reach` is a point in neither space --
+			-- it drifts up to `0.128 * reach` laterally at 45/60. The cone, the stand and the
+			-- zones are all grid facts, so the point and the question are both grid ones.
+			local sx, sz = Grid.standGridOf(id, index)
 			local fx, fz = Plan.standFacing(id, index)
 			local reach = Plan.CONE.nearStuds - 4
-			expect(Plan.mask(id, spot.X + fx * reach, spot.Z + fz * reach, nil, nil)).to.equal(Plan.REASON.CONE)
+			expect(Plan.maskGrid(id, sx + fx * reach, sz + fz * reach, nil, nil)).to.equal(Plan.REASON.CONE)
 			-- BEHIND HIM is not his cone (it is outside the cell, and nothing else refuses it).
-			expect(Plan.mask(id, spot.X - fx * reach, spot.Z - fz * reach, nil, nil)).to.equal(nil)
+			expect(Plan.maskGrid(id, sx - fx * reach, sz - fz * reach, nil, nil)).to.equal(nil)
 			-- THE FAR BAND is a rule about YOUNG GROWTH and about nothing else: same point, two
 			-- templates, two answers.
 			local far = (Plan.CONE.nearStuds + Plan.CONE.farStuds) / 2
-			local fx2, fz2 = spot.X + fx * far, spot.Z + fz * far
-			expect(Plan.mask(id, fx2, fz2, "LarchTree_Var01", 0.5)).to.equal(Plan.REASON.CONE)
-			expect(Plan.mask(id, fx2, fz2, "SilverBirch_Var08_LOD_0", 1)).to.equal(nil)
+			local fx2, fz2 = sx + fx * far, sz + fz * far
+			expect(Plan.maskGrid(id, fx2, fz2, "LarchTree_Var01", 0.5)).to.equal(Plan.REASON.CONE)
+			expect(Plan.maskGrid(id, fx2, fz2, "SilverBirch_Var08_LOD_0", 1)).to.equal(nil)
 			-- ...AND PAST THE CONE even a larch stands.
 			local past = Plan.CONE.farStuds + 20
-			expect(Plan.mask(id, spot.X + fx * past, spot.Z + fz * past, "LarchTree_Var01", 0.5)).to.equal(nil)
+			expect(Plan.maskGrid(id, sx + fx * past, sz + fz * past, "LarchTree_Var01", 0.5)).to.equal(nil)
 		end)
 
 		it("a beater corridor, on its own jittered centreline and 15 studs off it", function()
@@ -1150,9 +1159,12 @@ return function()
 			local x = Plan.corridorXAt(id, 1, z)
 			-- A GRID x AT A GRID z, so the question is `maskGrid`'s (task 328r).
 			expect(Plan.maskGrid(id, x, z, nil, nil)).to.equal(Plan.REASON.CORRIDOR)
+			-- BOTH CONTROLS IN THE SAME SPACE AS THE HIT (round 1, finding 2): `off` is 15 studs
+			-- against a 5-stud half-width, and `Grid.bendX(-4386)` is -59.97, so asked of `mask`
+			-- these two held with `off` set to 0.
 			local off = Plan.CORRIDOR.halfStuds * 3
-			expect(Plan.mask(id, x + off, z, nil, nil) ~= Plan.REASON.CORRIDOR).to.equal(true)
-			expect(Plan.mask(id, x - off, z, nil, nil) ~= Plan.REASON.CORRIDOR).to.equal(true)
+			expect(Plan.maskGrid(id, x + off, z, nil, nil) ~= Plan.REASON.CORRIDOR).to.equal(true)
+			expect(Plan.maskGrid(id, x - off, z, nil, nil) ~= Plan.REASON.CORRIDOR).to.equal(true)
 			-- THE WANDER IS REAL: the centreline is not the same x at every depth.
 			expect(math.abs(Plan.corridorXAt(id, 1, z) - Plan.corridorXAt(id, 1, z + Plan.CORRIDOR.waveStuds / 2)) > 1).to.equal(
 				true
@@ -1203,7 +1215,8 @@ return function()
 				end
 			end
 			expect(empty ~= nil).to.equal(true)
-			expect(Plan.mask(id, (empty.minX + empty.maxX) / 2, (empty.minZ + empty.maxZ) / 2, nil, nil)).to.equal(
+			-- A `zoneRect` CENTRE IS A GRID POINT (round 1, note 2).
+			expect(Plan.maskGrid(id, (empty.minX + empty.maxX) / 2, (empty.minZ + empty.maxZ) / 2, nil, nil)).to.equal(
 				Plan.REASON.CLEARING
 			)
 		end)

@@ -1781,12 +1781,18 @@ return function()
 				-- AND THE GROUND SHOWS NO STEP BIGGER THAN THE CROSSFALL across the square and one
 				-- voxel past its boundary -- the two roads' crossfalls are perpendicular, so where
 				-- one road's crown meets the other's edge the whole crown fall is the residual.
-				-- THE ALLOWANCE CARRIES THE STAIR AT A BEND (task 328r): the band snaps to whole
-				-- world voxel columns at each station, so between two adjacent samples the E-W
-				-- crown can also have climbed its own grade over one voxel. Measured and printed,
-				-- and 0 at amplitude 0 because then there is no stair.
-				local stair = if row.stairStuds > 0 then Relief.VOXEL * spec.gradePercent.x / 100 else 0
-				expect(row.worstStepStuds <= spec.crownFallStuds + stair + 1e-6).to.equal(true)
+				-- THE ALLOWANCE IS THE ROW'S OWN `explainedStuds`, WHICH IS THE FUNCTION'S OWN RULE
+				-- (round 1, finding 1): the E-W crown's rise over the square's half-width plus the
+				-- crossfall, measured off THIS crossing's profile -- *"a step above this is a
+				-- discontinuity; below it, it is the road's own grade"*. Round 1 of this task added
+				-- a 0.32-stud "stair" term on top, guarded by `row.stairStuds > 0`, which is TRUE
+				-- in every world because `bendFacts` answers `math.huge` at amplitude 0: it widened
+				-- the gate everywhere against a measured worst step of 0.2000, and its arithmetic
+				-- was a LONGITUDINAL grade dressed as a lateral stair. Gone.
+				expect(row.worstStepStuds <= row.explainedStuds + 1e-6).to.equal(true)
+				-- ...AND IT IS STILL AT MOST THE CROSSFALL PLUS THAT RISE, which is the sentence the
+				-- design states, asserted as its own line so the two cannot drift apart.
+				expect(row.explainedStuds).to.be.near(row.ewSpanStuds + spec.crownFallStuds, 1e-9)
 			end
 			-- THE PRECEDENCE, ON ITS OWN: a point inside the square whose NEAREST centreline is the
 			-- north-south one. Before this was built the nearest rule answered ~160 there.
