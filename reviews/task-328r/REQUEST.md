@@ -1,18 +1,53 @@
 # Task 328r - C1's ground, re-baked at the bend
 
 Task: 328r
-Round: 1
+Round: 2
 Base: `main` `33ae3d15`
-Code commit: `79b3c977d21b8462713d80f4ab2fdd0e57bc2c9d`
+Code commit: `d989ebc0f7ed51415d5a45f00c2d2e175d79cac4`
 
 ```
-[harness] PASS: 34/34 checks @ 79b3c977d21b8462713d80f4ab2fdd0e57bc2c9d (clean tree) scope=all
+[harness] PASS: 34/34 checks @ d989ebc0f7ed51415d5a45f00c2d2e175d79cac4 (clean tree) scope=all
 ```
 `test2` N/A: no `TWO_PLAYER_PATHS` path is touched (Grid, Places, TerrainBake, grid*.spec, terrainbake.py).
 
 `Grid.CONFIG.bend` is **45 / 60 / 1**, by commit, and C1's ground in Karen's Forest Test is baked to
-it. Five commits; the bake ran at `11f354cf` and the two commits after it change only
-`Grid.CELLS.C1` and two spec pins -- see claim 10.
+it. Six commits; the bake ran at `11f354cf` and everything after it changes only `Grid.CELLS.C1`,
+spec pins, spec coordinate spaces and three headers -- see claim 10.
+
+## Round 1's two findings, both correct, both fixed in `d989ebc0`
+
+**1. The junction-step allowance was widened in every world by an inverted test.** Right, and worse
+than the finding says: `Grid.bendFacts` answers `stairStuds = math.huge` at amplitude 0, which this
+suite asserts itself, so `row.stairStuds > 0` was true everywhere and the 0.32-stud term applied to
+the straight world the comment exempted -- and its arithmetic was a LONGITUDINAL grade over one
+voxel wearing the name of a lateral stair. The term is gone. The gate is now `row.explainedStuds`,
+which is the rule `junctionSteps`' own docstring states, plus a second line asserting
+`explainedStuds == ewSpanStuds + crownFallStuds` so the two cannot drift. **It is now exactly
+tight**, which is the point: the note reads `worst step 0.2000 st ... explained 0.2000` at all four
+of C1's crossings, so a single stud of regression reddens it.
+
+**2. Two "and not just outside it" controls still asked `Plan.mask` (WORLD) with a GRID point.**
+Right. At `z` -4386 `Grid.bendX` is -59.97, against a corridor half-width of 5 and an `off` of 15:
+both controls answered "not in the band" for a point that was never in it, and would have held with
+`off` set to 0. Both ask `maskGrid` now.
+
+**And the same class in the same pass, which the Reviewer asked for:** the counted ride bite and the
+CLIFF/GAP lattice walk `Grid.boundsOf` (a grid rectangle); the clearing case asks a `zoneRect`
+centre; the front-cone case built its point from a WORLD `standPosition` plus a GRID `standFacing`
+unit vector, up to 4.6 studs of lateral drift at 45/60. All five ask `maskGrid` at a grid point now.
+
+**Three headers corrected, no behaviour:** `reshapeWanted` still promised the retired refusal -- and
+now says plainly that **nothing checks the `--base` file was captured off virgin ground**
+(`check_base` proves the sha, not the provenance, so a snapshot taken after a bake would pass it and
+the landform would go in twice); `standPadsFor` still quoted `lineMeanY` 106.98; `roadDistance`'s
+new sentence called a grid axis gap a world one.
+
+**Queued, not fixed (said so rather than left to be found):** `shapeTile` carries `bend` into
+`toGrid`/`toWorld`/`roadAt`/`standPadsFor`/`standPadAt` but not into `cellAt`/`unionOf`/`blendAt`,
+which read `Grid.CONFIG.bend` themselves -- harmless today because each case bakes one cell deep
+inside its own union, and threading it would move `unionOf` under three cases I would then have to
+re-pin in a round that must not fail. `Places.fernBands`' 34-stud inset against the perpendicular
+34 goes to 328s with the replant.
 
 ## What changed
 
@@ -113,6 +148,11 @@ it. Five commits; the bake ran at `11f354cf` and the two commits after it change
   all masked against the bent road).
 * **A HUNTER IN HER BUILD IS DEALT A STAND 45 STUDS OFF THE ROAD**, for the same reason: her copy's
   `Grid.standPosition` is the straight one. It resolves when this merges and `karen-build.sh` runs.
+* **THE ANIMALS ARE NOT PROVEN ON A BENT ROAD**, and round 1 is right to say so. The two metrics I
+  can cite (`0` stuck > 3 s, `0` no-progress >= 6 s) read the same on both sides and so would also
+  pass with the bend deleted; the one that is about a curved road -- the crossing counter -- is dead
+  because its `ROADZ` is the straight `-5107`. What claim 9 establishes is the NEGATIVE: the re-bake
+  did not make anything worse. Nobody has watched an animal cross a curved road.
 * The three AFTER frames are from main stands 1 and 7, not from a junction or a flank stand:
   `ForestTest.boundary` clamps a hunter to 12 studs of the stand the drive dealt him, and at 45/60
   the bent road is ~45 studs from the middle stands, so no camera could be held there. Named rather
