@@ -2029,4 +2029,271 @@ return function()
 			end
 		end)
 	end)
+
+	-- ---------------------------------------------------------------- task 328k: the base snapshot
+	describe("TerrainBake: the base snapshot (task 328k, design 5.3 step 2)", function()
+		local TerrainBake = require(ServerStorage:WaitForChild("TerrainBake"))
+		-- THE SAME BYTES `tools/terrainbake.py selftest` checks its own encoder against
+		-- (`SLICE_FIXTURE_B64`). Each side is checked against committed bytes, never against the
+		-- other side's good intentions.
+		local FIXTURE_B64 = "AFkgWVBZwFiwWABZ"
+		local FIXTURE_HEIGHTS = { 100.0, 100.5, 101.25, 99.0, 98.75, 100.0 }
+
+		local function snapshotOf(minX: number, minZ: number, nx: number, nz: number, heightOf, holes)
+			local v = Relief.VOXEL
+			local snap = {
+				pitch = v,
+				minX = minX,
+				minZ = minZ,
+				nx = nx,
+				nz = nz,
+				height = table.create(nx * nz, 0),
+				minY = math.huge,
+				maxY = -math.huge,
+				hole = holes or {},
+				holes = 0,
+				holeWhy = {},
+			}
+			for at in snap.hole do
+				snap.holes += 1
+				local _ = at
+			end
+			for i = 1, nx do
+				for k = 1, nz do
+					local y = heightOf(minX + (i - 0.5) * v, minZ + (k - 0.5) * v)
+					snap.height[(k - 1) * nx + i] = y
+					snap.minY = math.min(snap.minY, y)
+					snap.maxY = math.max(snap.maxY, y)
+				end
+			end
+			return snap
+		end
+
+		it("328k-1 ENTERS each of the three column faults, and answers nil for a clean column", function()
+			-- L-093: one case per ARM, each one entered, not one case near the code.
+			local water = TerrainBake.columnFault(true, 1, true, 10, 20, -100, 400)
+			local over = TerrainBake.columnFault(false, 2, true, 10, 20, -100, 400)
+			local empty = TerrainBake.columnFault(false, 0, false, 10, 20, -100, 400)
+			expect(water).never.to.equal(nil)
+			expect(string.find(water :: string, "Water", 1, true)).never.to.equal(nil)
+			expect(string.find(over :: string, "overhang", 1, true)).never.to.equal(nil)
+			expect(string.find(over :: string, "2 solid runs", 1, true)).never.to.equal(nil)
+			expect(string.find(empty :: string, "no ground", 1, true)).never.to.equal(nil)
+			expect(string.find(empty :: string, "-100..400", 1, true)).never.to.equal(nil)
+			-- WATER WINS OVER AN OVERHANG, so a flooded cave is named for the water it holds.
+			expect(string.find(TerrainBake.columnFault(true, 3, true, 0, 0, 0, 1) :: string, "Water", 1, true)).never.to.equal(
+				nil
+			)
+			-- AND A CLEAN COLUMN IS NOT A FAULT -- without this the whole base would be holes.
+			expect(TerrainBake.columnFault(false, 1, true, 10, 20, -100, 400)).to.equal(nil)
+			TestKit.note("column faults: " .. water .. " | " .. over .. " | " .. empty)
+		end)
+
+		it("328k-2 decodes the committed slice fixture to the exact heights, and back", function()
+			local slice = TerrainBake.decodeSlice({
+				pitch = 4,
+				minX = -40,
+				minZ = -20,
+				nx = 3,
+				nz = 2,
+				scale = 64,
+				offset = -256,
+				b64 = FIXTURE_B64,
+				holes = {},
+			})
+			expect(slice.nx).to.equal(3)
+			expect(slice.nz).to.equal(2)
+			for at, want in FIXTURE_HEIGHTS do
+				expect(math.abs(slice.height[at] - want) < 1e-9).to.equal(true)
+			end
+			expect(slice.minY).to.equal(98.75)
+			expect(slice.maxY).to.equal(101.25)
+			-- AND THE ENCODER IS ITS INVERSE, which is what lets the tool stitch chunks it did not
+			-- itself quantise: the same bytes come back out.
+			local again = TerrainBake.encodeSlice(slice)
+			expect(again.b64).to.equal(FIXTURE_B64)
+		end)
+
+		it("328k-3 round-trips a slice at 1/64 of a stud, under one voxel's own occupancy step", function()
+			local snap = snapshotOf(0, 0, 9, 7, function(x: number, z: number): number
+				return 100 + x * 0.01 - z * 0.013
+			end)
+			local back = TerrainBake.decodeSlice(TerrainBake.encodeSlice(snap))
+			local worst = 0
+			for at = 1, 9 * 7 do
+				worst = math.max(worst, math.abs(back.height[at] - snap.height[at]))
+			end
+			-- 1/64 = 0.015625 st, and a voxel's occupancy byte can only express 4/255 = 0.01569 st.
+			expect(worst <= 1 / (2 * TerrainBake.SLICE_SCALE) + 1e-12).to.equal(true)
+			expect(worst < Relief.VOXEL / 255).to.equal(true)
+			TestKit.note(
+				string.format("slice round trip: worst %.6f st, voxel step %.6f st", worst, Relief.VOXEL / 255)
+			)
+		end)
+
+		it("328k-4 refuses a slice whose bytes do not match the lattice it claims", function()
+			local function bad()
+				return TerrainBake.decodeSlice({ nx = 4, nz = 4, b64 = FIXTURE_B64 })
+			end
+			expect(bad).to.throw()
+			local function empty()
+				return TerrainBake.decodeSlice({ nx = 0, nz = 0, b64 = "" })
+			end
+			expect(empty).to.throw()
+		end)
+
+		it("328k-5 answers nil at a hole, and counts only the holes inside the tile", function()
+			-- The reader must not answer a guessed height at a Water column.
+			local snap = snapshotOf(0, 0, 4, 4, flat, { [6] = true })
+			local read = TerrainBake.readerFor(snap)
+			expect(read(2, 2)).to.equal(100)
+			expect(read(6, 6)).to.equal(nil)
+			-- A HOLE IN THE PAD ONLY BLURS; A HOLE IN THE TILE IS GROUND THE BAKE WOULD INVENT.
+			local pad = TerrainBake.padFor()
+			local v = Relief.VOXEL
+			local tile = { minX = 0, minZ = 0 }
+			local wide = (TerrainBake.TILE_STUDS + 2 * pad) / v
+			local inside = snapshotOf(-pad, -pad, wide, wide, flat, {})
+			local centre = (pad / v) * wide + pad / v + 1
+			expect(TerrainBake.holesInTile(inside, tile)).to.equal(0);
+			(inside.hole :: any)[1] = true
+			expect(TerrainBake.holesInTile(inside, tile)).to.equal(0);
+			(inside.hole :: any)[centre] = true
+			expect(TerrainBake.holesInTile(inside, tile)).to.equal(1)
+		end)
+
+		it("328k-6 REFUSES a tile with no slice, a slice that misses the pad, and a hole in the tile", function()
+			local plan = TerrainBake.tilePlan(TerrainBake.regionFor({ "C1" }))
+			local tile = plan[1]
+			local pad = TerrainBake.padFor()
+			local v = Relief.VOXEL
+			local wide = (TerrainBake.TILE_STUDS + 2 * pad) / v
+
+			-- (a) NO SLICE AT ALL. This is the whole of B2: before 328k `bakeTileAt` read the base
+			-- LIVE here, so a second bake read its own first bake.
+			local none = TerrainBake.bakeTileAt(1, { "C1" }, true, { {} :: any }, nil)
+			expect(none.message).never.to.equal(nil)
+			expect(string.find(none.message :: string, "no base snapshot slice", 1, true)).never.to.equal(nil)
+			expect(none.voxels).to.equal(0)
+
+			-- (b) A SLICE THAT DOES NOT REACH THE PAD: the limiter and the blur would read nil at
+			-- the edge, and `shapeTile` would KEEP GROUND there -- a seam dressed as a snapshot.
+			local short = TerrainBake.encodeSlice(snapshotOf(tile.minX, tile.minZ, 32, 32, flat, {}))
+			local missed = TerrainBake.bakeTileAt(1, { "C1" }, true, { {} :: any }, short)
+			expect(string.find(missed.message :: string, "does not cover tile", 1, true)).never.to.equal(nil)
+
+			-- (c) A HOLE INSIDE THE TILE: refused, never guessed.
+			local holed = snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, flat, {});
+			(holed.hole :: any)[(pad / v) * wide + pad / v + 1] = true
+			local refused = TerrainBake.bakeTileAt(1, { "C1" }, true, { {} :: any }, TerrainBake.encodeSlice(holed))
+			expect(string.find(refused.message :: string, "no single height", 1, true)).never.to.equal(nil)
+			expect(string.find(refused.message :: string, "REFUSED, never guessed", 1, true)).never.to.equal(nil)
+
+			-- AND THE SLICE THAT DOES COVER IT GETS PAST ALL THREE, on to the profiles check -- so
+			-- the refusals above are the arms they name and not one blanket stop.
+			local good = TerrainBake.bakeTileAt(1, { "C1" }, true, nil, TerrainBake.encodeSlice(holed))
+			expect(string.find(good.message :: string, "no profiles were handed", 1, true)).never.to.equal(nil)
+		end)
+
+		it("328k-7 makes the long profiles REFUSE to run with no sampler", function()
+			-- The default was a live raycast, and that is the measured drift: C1's lineMeanY went
+			-- 108.88 -> 112.83 -> 114.81 over three bakes (ESCALATE.md, task 328e).
+			local function noSampler()
+				return TerrainBake.profilesFor({ "C1" })
+			end
+			expect(noSampler).to.throw()
+			local caught: string? = nil
+			local okRun = pcall(function()
+				TerrainBake.profilesFor({ "C1" })
+			end)
+			if not okRun then
+				local _, why = pcall(function()
+					TerrainBake.profilesFor({ "C1" })
+				end)
+				caught = tostring(why)
+			end
+			expect(okRun).to.equal(false)
+			expect(string.find(caught :: string, "no sampler", 1, true)).never.to.equal(nil)
+		end)
+
+		it("328k-8 answers exactly the points the sampler was given, and nil for any other", function()
+			local sampler = TerrainBake.pointSampler({ -4700, -5300, 123.5, -4680, -5300, 124.25 })
+			expect(sampler(-4700, -5300)).to.equal(123.5)
+			expect(sampler(-4680, -5300)).to.equal(124.25)
+			expect(sampler(-4690, -5300)).to.equal(nil)
+			expect(sampler(-4700, -5280)).to.equal(nil)
+		end)
+
+		it("328k-9 names EVERY point the long profiles read, so the snapshot can answer all of them", function()
+			-- THE STRONG FORM: build a sampler that knows ONLY `profileSamples`' points, and ask
+			-- `profilesFor` for the same cell. A missing point makes `longProfile` return nil and
+			-- the road disappears, so an equal profile set is proof the cover is complete.
+			local function hill(x: number, z: number): number?
+				return 100 + x * 0.004 - z * 0.003
+			end
+			local points = TerrainBake.profileSamples({ "C1" })
+			expect(#points > 0).to.equal(true)
+			expect(#points % 2).to.equal(0)
+			local rows: { number } = {}
+			for at = 1, #points - 1, 2 do
+				table.insert(rows, points[at])
+				table.insert(rows, points[at + 1])
+				table.insert(rows, hill(points[at], points[at + 1]) :: number)
+			end
+			local direct = TerrainBake.profilesFor({ "C1" }, hill)
+			local viaPoints = TerrainBake.profilesFor({ "C1" }, TerrainBake.pointSampler(rows))
+			expect(#viaPoints).to.equal(#direct)
+			expect(#direct > 0).to.equal(true)
+			local worst = 0
+			for index, row in direct do
+				expect(viaPoints[index].road.id).to.equal(row.road.id)
+				expect(#viaPoints[index].y).to.equal(#row.y)
+				for at, y in row.y do
+					worst = math.max(worst, math.abs(viaPoints[index].y[at] - y))
+				end
+			end
+			expect(worst < 1e-9).to.equal(true)
+			TestKit.note(
+				string.format(
+					"profileSamples: %d point(s) cover %d road profile(s); worst y difference %.2e st",
+					#points // 2,
+					#direct,
+					worst
+				)
+			)
+			-- FAIL FIRST: drop one point and that road's profile goes away, so the case above would
+			-- have caught an incomplete cover.
+			local dropped: { number } = {}
+			for at = 4, #rows do
+				table.insert(dropped, rows[at])
+			end
+			expect(#TerrainBake.profilesFor({ "C1" }, TerrainBake.pointSampler(dropped)) < #direct).to.equal(true)
+		end)
+
+		it("328k-10 keeps the snapshot's lattice on ExpandToGrid's own grid", function()
+			-- A region whose edge is not a multiple of 4 used to store the RAW edge as the lattice
+			-- origin while the columns were read on the expanded box: up to one voxel of shear.
+			-- `regionFor` for one cell gives exactly such an edge, which is why this is here.
+			local region = TerrainBake.regionFor({ "C1" })
+			local v = Relief.VOXEL
+			local ragged = region.minX % v ~= 0 or region.minZ % v ~= 0
+			TestKit.note(
+				string.format(
+					"C1 region x[%g,%g] z[%g,%g]; 4-aligned=%s",
+					region.minX,
+					region.maxX,
+					region.minZ,
+					region.maxZ,
+					tostring(not ragged)
+				)
+			)
+			-- The tile lattice IS aligned, which is the discipline design 5.1 asserts, and that is
+			-- why every pre-328k caller was safe.
+			for _, tile in TerrainBake.tilePlan(region) do
+				expect(tile.minX % v).to.equal(0)
+				expect(tile.minZ % v).to.equal(0)
+				expect((tile.minX - TerrainBake.padFor()) % v).to.equal(0)
+			end
+		end)
+	end)
 end
