@@ -1,11 +1,11 @@
 # Task 328q — THE BEND, PURE AND INERT AT ZERO
 
 Task: 328q
-Round: 1
+Round: 2
 Base: `main` `1ef61b67` (328o #323 and 328p #324 both merged)
-Code commit: `60bc112f`
+Code commit: `c0e48bab`
 
-`[harness] PASS: 34/34 checks @ 60bc112f92b90cedaced353616801647d5de8189 (clean tree) scope=all`
+`[harness] PASS: 34/34 checks @ c0e48bab5ea719ba7071013ab940cdfe5866d7fc (clean tree) scope=all`
 
 `test2`: **N/A.** No path in `TWO_PLAYER_PATHS` is touched. `src/shared/ForestTest/init.luau` is
 changed (`roadZ`) and is **not** in that list; `src/shared/Drive/` and both `Match/` trees are
@@ -18,15 +18,47 @@ arithmetic ships; **`Grid.CONFIG.bend` is `{0, 0, 1}` and nothing in any world m
 it to 45 / 60 by commit. Everything new carries the bend as a **trailing optional**, so both states
 are reachable by parameter and every new spec case asserts the bent world while the config sits at 0.
 
+## Round 1's four findings, each fixed and each with the assertion that now bites
+
+1. **`TerrainBake.shapeTile` handed `Relief.isExempt` WORLD coordinates in its landform arm** while
+   the arm above it handed grid ones. Correct, and worse than inert-only: at 45/60 B2's scarp
+   exemption would slide up to 45 studs off the face the function exists for. Both calls pass
+   `gx, gz` now — `grep -n "isExempt" src/serverstorage/TerrainBake/init.luau` shows two lines and
+   both end `gx, gz`.
+2. **`Places.inFrontage` straddled the seam** — a world `roadDistance` beside GRID ride segments,
+   called from `scatter` with grid coordinates. Split into `Places.inFrontageGrid` (today's body,
+   reading `roadDistanceGrid`; `scatter` calls this one and pays no inverse) and a world wrapper that
+   is one `Grid.toGrid`. The `mask` / `maskGrid` treatment, for the reason the Reviewer gave.
+3. **The junction-pin case's one assertion was `0 < 1e-12`** and survived deleting the sine. It is
+   driven at 45/60 by parameter now, asserts that the station half a pitch away IS the amplitude (so
+   the zero is a zero of something), and recomputes every pin's height off the east–west profile
+   instead of reading it back off the pin.
+4. **The exact-translate case and the road-fade conversion were pure consistency checks** that passed
+   with the bend stubbed to 0. Each now asserts the two amplitudes disagree: the offset the three
+   east–west roads share at the half-pitch IS `ewStuds` (and the five north–south roads' IS
+   `nsStuds`), and the fade case's worst carried shear is asserted over 40 studs and reads
+   **70.83** — harness note `1056 world points within 51 st of a centreline, at bend 0 and 45/60, all
+   inside the grid zero band; worst shear carried 70.83 studs`.
+
+**Three non-blocking notes taken while here**, the rest queued in `TASKS.md` under the task: §5.2's
+swing difference rounds to **0.05** (round 1's correction had moved it to 0.06 — the Reviewer is
+right, 7.29724 − 7.24531 = 0.052); the `GAME_DESIGN.md` row no longer claims `roadPolyline` has a
+caller under `src/` (it says 327f is the task that must use it, and names how the other three readers
+reach the curve); and the bulge case's redundant one-sided bound is gone.
+
+**Claim 1's sine enumeration below is corrected** on the Reviewer's reading: `src/shared/Range/`
+carries four `math.sin` calls (a mat wave and three more) and `Relief.luau` carries none.
+
 ## Claims, each with how to verify it
 
 1. **`Grid` owns the centreline and nothing else holds one.** `Grid.CONFIG.bend`, `bendPitch`,
    `bendOrigin`, `bendZ`, `bendX`, `bendSlopeZ`, `bendSlopeX`, `maxBendStuds`, `toGrid` (the closed
    form, and the definition), `toWorld` (its five-step inverse), `roadCentreAt`, `roadTangentDeg`,
    `roadPolyline`, `bendFacts`, `worldBoundsOf`, `worldFootprint`, `standGridOf`. `Grid` still
-   requires only `Shotgun`. Verify: `grep -n "math.sin" src/ --include=*.luau -r` — the only sines
-   outside `Grid` are `ForestTest.roadZ`'s own line-place arm, `Places.corridorXAt`'s jitter and
-   `Relief`'s landform ops, none of them a road centreline.
+   requires only `Shotgun`. Verify: `grep -rn "math.sin" src/ --include=*.luau` — the sines
+   outside `Grid` are `ForestTest.roadZ`'s own line-place arm, `Places.corridorXAt`'s jitter,
+   `src/shared/Range/`'s four (a mat wave and three more) and `MapGen`'s noise; **not one of them is
+   a road centreline**, and `Relief.luau` has none at all.
 2. **Inert, proved against PUBLISHED pre-328q coordinates and not against a recomputation.**
    `grid.spec` → "the bend" → *"IS today's world at amplitude zero, value for value"*: both maps are
    the identity **exactly** over the footprint; all 120 stands of all 8 cells equal the pre-328q
@@ -39,7 +71,7 @@ are reachable by parameter and every new spec case asserts the bent world while 
 3. **Exactly TWO expected values moved in the whole suite, and both are the epoch.**
    `Relief.epochInput` hashes ten keys, not seven (defect F-2), so its string changed; and
    `tools/terrainbake.py`'s `CANONICAL_FIXTURE_INPUT`/`_OUTPUT` were **re-captured** with the three
-   bend rows in them. Nothing geometric moved: `git diff 1ef61b67..60bc112f -- tests/` shows every
+   bend rows in them. Nothing geometric moved: `git diff 1ef61b67..c0e48bab -- tests/` shows every
    other change is an **added** assertion, a note's format, or the same value reached through the
    seam (`roadGap` from the curve instead of `road.at`, `spot` from `standGridOf` instead of
    `standPosition`, `amplitudeStuds == 0` → `== c.bend.ewStuds`). `EXPECTED_TILES` is **unchanged**,
@@ -68,7 +100,7 @@ are reachable by parameter and every new spec case asserts the bent world while 
    4.55e-13, walk 275.0 s`. Also `15 junction pins, every station an exact zero of the other family`.
 9. **`Relief.luau` is not touched and `BAKE_VERSION` stays 1.** The bake hands it GRID coordinates
    and a base reader composed with `Grid.toWorld` (`TerrainBake.shapeTile`'s `baseAtGrid`). Verify:
-   `git diff 1ef61b67..60bc112f -- src/shared/Grid/Relief.luau` is `epochInput` and nothing else.
+   `git diff 1ef61b67..c0e48bab -- src/shared/Grid/Relief.luau` is `epochInput` and nothing else.
    Harness note: `1056 world points within 51 st of a centreline, at bend 0 and 45/60, all inside the
    grid zero band`; and `50 stations x 2 amplitudes: whole columns everywhere, stair pitch 31.46 studs`.
 10. **Every design figure in sections 5.1–5.6 is re-derived and reproduces, and the five that do not
@@ -98,6 +130,14 @@ are reachable by parameter and every new spec case asserts the bent world while 
   and §7.3 keeps the limiter a world-lattice pass.
 * **`Places.cellFacts`' cache key** stays `cellId`: with `standGridOf` and grid rides, everything in
   it is a grid fact.
+
+## Queued in `TASKS.md`, not fixed here (the Reviewer's own suggestion)
+
+`Places.roadDistanceGrid`, `Places.maskGrid` and `TerrainBake.roadAt` take **no bend**, so the
+perpendicular factor and the band thresholds that read it are never exercised at a non-zero amplitude
+anywhere in the suite — which is also why findings 1 and 2 were invisible to every spec. Giving those
+three the trailing-optional treatment is worth doing **before** 328r, and it is a change to three
+signatures and their callers, which is more than a round-2 fix.
 
 ## What could not be verified
 
