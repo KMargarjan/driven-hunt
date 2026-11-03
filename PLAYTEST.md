@@ -186,3 +186,20 @@ just approved; it changes no behaviour she has not already played.
 **What was done.** The two rows in `src/shared/Flags/init.luau` go to `default = true`. The rows are
 NOT retired here — that is a later retirement, with the losing branch archived under `backups/` and a
 note (rule 7).
+
+## 2026-11-03 ~11:20 UTC -- Karen, after playing C1 in her Forest Test
+
+Verbatim:
+
+> red stag stuck cant clim in this mountain
+
+> more trees, and road could be also not just straight make line in real life
+
+> rest is ok and could be more red stags they also run in bundle like 5 8 one row ect like in life
+
+Her frame: `<runs-dir>/karen-328n-stag-stuck.png` -- a red stag standing in the wood just past the
+road's grass verge, beside a spruce, not moving.
+
+The first sentence is task 328n. The other two are transcribed here only and are the Director's to
+queue: more trees in C1, roads that bend rather than run straight, and bigger stag groups (5-8 in a
+row).

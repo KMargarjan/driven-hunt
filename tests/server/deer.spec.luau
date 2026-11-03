@@ -96,6 +96,29 @@ end
 
 return function()
 	describe("the red deer", function()
+		-- 0. THE DRIVE FORCE, AS A PURE RULE (task 328n) -----------------------------------------
+		describe("Body.driveForce", function()
+			it("returns MAX_FORCE unchanged for the box it was tuned on, and for a world without one", function()
+				local config = Boar.CONFIG
+				expect(Body.driveForce(config.MAX_FORCE_BODY, config)).to.equal(config.MAX_FORCE)
+				expect(Body.driveForce(config.BODY_SIZE, config)).to.equal(config.MAX_FORCE)
+				-- EVERY WORLD WRITTEN BEFORE THIS TASK: no `MAX_FORCE_BODY`, so no scaling at all.
+				expect(Body.driveForce(Vector3.new(1.8, 4.8, 7.05), { MAX_FORCE = 6000 })).to.equal(6000)
+			end)
+
+			it("scales UP by volume for the red deer, and never down for a smaller box", function()
+				local config = Boar.CONFIG
+				local deer = (config.SPECIES.reddeer :: any).BODY_SIZE
+				local ref = config.MAX_FORCE_BODY
+				local ratio = (deer.X * deer.Y * deer.Z) / (ref.X * ref.Y * ref.Z)
+				expect(ratio > 1.8).to.equal(true)
+				expect(math.abs(Body.driveForce(deer, config) - config.MAX_FORCE * ratio) < 1e-6).to.equal(true)
+				-- THE FLOOR. A cub-sized box scaled both ways came out at 547 against 6000, which
+				-- is a weaker cub nobody asked for; it keeps the whole number.
+				expect(Body.driveForce(Vector3.new(1, 1.5, 2.75), config)).to.equal(config.MAX_FORCE)
+			end)
+		end)
+
 		-- 1 + 2. THE LICENCE RULE, AS A PAIR, ON A REAL ANIMAL -----------------------------------
 		--
 		-- Not the hand-made stub `weapon_rules.spec` drives (that one proves the GATE with no world
@@ -140,6 +163,44 @@ return function()
 			afterAll(function()
 				runtime:destroy()
 				holder:Destroy()
+			end)
+
+			-- THE DRIVE FORCE IS PER MASS, ON THE REAL TRUNK (task 328n). Karen: *"red stag stuck
+			-- cant clim in this mountain"*. A constant `MaxForce` gave the deer 54 % of the boar's
+			-- acceleration, which is what decides the slope it can climb. Read off the Instance the
+			-- owner built, not off the pure rule, and asserted as an EQUAL ACCELERATION across all
+			-- seven kinds -- the property. `AssemblyMass` is the trunk's own: zones and mesh are
+			-- Massless.
+			it("gives the stag the force his mass needs, and takes none off any animal", function()
+				local function moverOf(kind: string): (BasePart, LinearVelocity)
+					local trunk = trunks[kind] :: BasePart
+					local mover = trunk:FindFirstChild("Mover") :: LinearVelocity
+					expect(mover).to.be.ok()
+					return trunk, mover
+				end
+				-- NOTHING LOSES FORCE. `driveForce` is a floor, so no animal in the game is driven
+				-- by less than the 6000 it has had since Milestone 1.2.
+				for _, kind in ipairs(ALL_KINDS) do
+					local _, mover = moverOf(kind)
+					expect(mover.MaxForce >= Boar.CONFIG.MAX_FORCE).to.equal(true)
+				end
+				-- THE THREE ANIMALS BUILT ON THE REFERENCE BOX KEEP IT EXACTLY: the male IS that
+				-- box, and the sow and the cub are smaller, so the floor is what they get.
+				for _, kind in ipairs({ "male", "female", "cub" }) do
+					local _, mover = moverOf(kind)
+					expect(mover.MaxForce).to.equal(Boar.CONFIG.MAX_FORCE)
+				end
+				-- ...AND THE TWO ANIMALS BIGGER THAN IT GET THE SAME ACCELERATION AS THE MALE,
+				-- which is what decides the slope they can climb. The legendary is the male's box
+				-- at scale 1.35; the stag's is 1.85x by volume.
+				local male, maleMover = moverOf("male")
+				local boarAccel = maleMover.MaxForce / male.AssemblyMass
+				for _, kind in ipairs({ "stag", "legendary" }) do
+					local trunk, mover = moverOf(kind)
+					expect(mover.MaxForce > Boar.CONFIG.MAX_FORCE * 1.5).to.equal(true)
+					local accel = mover.MaxForce / trunk.AssemblyMass
+					expect(math.abs(accel - boarAccel) / boarAccel < 1e-6).to.equal(true)
+				end
 			end)
 
 			it("publishes reddeer on every deer kind and boar on every boar kind", function()

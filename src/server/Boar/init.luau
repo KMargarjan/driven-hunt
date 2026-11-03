@@ -447,7 +447,13 @@ Boar.CONFIG = {
 	-- (Task 22), the lit sides read warm sand and the shaded sides a warm grey-brown, both clearly
 	-- against the floor from all four sides. Karen's dial.
 	BODY_COLOR = Color3.fromRGB(198, 158, 110),
+	-- THE DRIVE FORCE, AND THE BOX IT WAS TUNED ON (task 328n). `MAX_FORCE` is a FORCE and a body's
+	-- mass is not a constant: the red deer's box is 1.85x the boar's, so on one number it got 54 %
+	-- of the boar's acceleration and stopped dead on C1's hillsides (Karen: *"red stag stuck cant
+	-- clim in this mountain"*). `Body.driveForce` scales it by volume against `MAX_FORCE_BODY`,
+	-- which IS this table's own `BODY_SIZE` -- so every boar's force is 6000 exactly, unchanged.
 	MAX_FORCE = 6000,
+	MAX_FORCE_BODY = Vector3.new(2, 3, 5.5),
 	MAX_TORQUE = 20000,
 	ALIGN_RESPONSIVENESS = 25,
 	SPAWN_CLEARANCE = 0.5, -- studs above the ground, so it settles instead of starting embedded
