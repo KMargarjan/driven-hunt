@@ -1027,12 +1027,22 @@ def profile_sampler(studio, studio_id, cells, injected, base):
         else:
             rows.extend([x, z, y])
     if missing:
-        raise RuntimeError("the base snapshot has no height at %d road sample point(s): %s%s"
-                           % (len(missing), ", ".join(missing[:6]),
-                              " ..." if len(missing) > 6 else ""))
+        # REFUSAL 9, SECOND HALF. `profilesFor` computes EVERY east-west road in the WORLD, over its
+        # whole length, so that a north-south crown is pinned at crossings outside the cells being
+        # baked. A one-cell base snapshot therefore cannot feed it: the base has to cover the whole
+        # footprint + 430 (design 5.2), which is what `snapshot` with no --cells reads. MEASURED
+        # 2026-11-03: a C1-only base left 639 of the road sample points unanswerable.
+        return None, ("the base snapshot has no height at %d of the %d road sample point(s) the long "
+                      "profiles read -- first %s%s. `profilesFor` computes EVERY east-west road over "
+                      "its WHOLE length (so a north-south crown is pinned at crossings outside this "
+                      "run), so the base must cover the whole grid footprint + 430 st: take it with "
+                      "`snapshot` and no --cells (design 5.2). A hole at a road sample point is the "
+                      "other way this fires, and it is refused for the same reason -- never guessed."
+                      % (len(missing), len(points) // 2, ", ".join(missing[:6]),
+                         " ..." if len(missing) > 6 else ""))
     print("[bake] road base: %d sample point(s) read off the snapshot %s"
           % (len(rows) // 3, base["sha"][:16]))
-    return json.dumps(rows, separators=(",", ":"))
+    return json.dumps(rows, separators=(",", ":")), None
 
 
 def profiles_once(studio, studio_id, cells, injected, sampler):
@@ -1106,6 +1116,14 @@ def command_snapshot(studio, studio_id, args, facts, injected, sha):
     5 refuses the TILE), and guessing is what fills a cave.
     """
     region = region_for(args.cells or list(CELL_IDS), facts)
+    # AND ONE TILE'S PAD BEYOND IT. The tile lattice is expanded OUTWARD to 128 studs, and each tile
+    # shapes over itself plus `padFor()` 204 for the limiter's reach and the blur's cutoff -- so the
+    # last tile of a run reads up to 204 studs past the region's own edge. MEASURED 2026-11-03: a
+    # base taken at exactly footprint + 430 skipped C1's tile 208, which wanted z up to -3124
+    # against the base's -3184.
+    pad = call(studio, studio_id, "TerrainBake.padFor()", timeout=60, injected=injected)
+    region = {"minX": region["minX"] - pad, "maxX": region["maxX"] + pad,
+              "minZ": region["minZ"] - pad, "maxZ": region["maxZ"] + pad}
     v = facts["voxel"]
     min_x = v * math.floor(region["minX"] / v)
     min_z = v * math.floor(region["minZ"] / v)
@@ -1120,8 +1138,9 @@ def command_snapshot(studio, studio_id, args, facts, injected, sha):
     xs = list(range(int(min_x), int(max_x), chunk))
     zs = list(range(int(min_z), int(max_z), chunk))
     print("[bake] snapshot: x[%g,%g] z[%g,%g] = %d x %d columns at pitch %g, in %d chunk(s) of %d st, "
-          "Y band %g..%g" % (min_x, max_x, min_z, max_z, nx, nz, v, len(xs) * len(zs), chunk,
-                             args.y_min, args.y_max))
+          "Y band %g..%g (the region plus one tile's %d-stud pad)"
+          % (min_x, max_x, min_z, max_z, nx, nz, v, len(xs) * len(zs), chunk,
+             args.y_min, args.y_max, pad))
     started = time.time()
     done = 0
     for z0 in zs:
@@ -1226,7 +1245,9 @@ def command_diff(studio, studio_id, args, facts, injected, base):
     plan = tile_plan(studio, studio_id, cells, injected)
     pad = call(studio, studio_id, "TerrainBake.padFor()", timeout=60, injected=injected)
     side = facts["tile"]
-    sampler = profile_sampler(studio, studio_id, cells, injected, base)
+    sampler, problem = profile_sampler(studio, studio_id, cells, injected, base)
+    if problem:
+        return refuse(problem)
     print("[bake] diff: the SNAPSHOT route's profiles")
     snap_profiles, _ = profiles_once(studio, studio_id, cells, injected,
                                      "TerrainBake.pointSampler(HttpService:JSONDecode([==[%s]==]))"
@@ -1256,9 +1277,11 @@ def command_diff(studio, studio_id, args, facts, injected, base):
     # interior are both in the sample.
     want = min(args.tiles or 12, len(plan))
     picked = sorted({1 + round(i * (len(plan) - 1) / max(1, want - 1)) for i in range(want)})
-    print("[bake] diff: %d of %d tiles, spread across the plan: %s"
-          % (len(picked), len(plan), ",".join(str(i) for i in picked)))
+    reshape = {"auto": "nil", "on": "true", "off": "false"}[args.reshape]
+    print("[bake] diff: %d of %d tiles, spread across the plan: %s; reshape=%s"
+          % (len(picked), len(plan), ",".join(str(i) for i in picked), args.reshape))
     totals = {"snap": [0, 0.0, 0.0, 0, 0.0, 0.0], "live": [0, 0.0, 0.0, 0, 0.0, 0.0]}
+    said = [None]
     fnv = {"snap": [], "live": []}
     for index in picked:
         payload, problem = slice_for(base, plan[index - 1], pad, side)
@@ -1273,9 +1296,10 @@ def command_diff(studio, studio_id, args, facts, injected, base):
         ):
             rows[route] = call(studio, studio_id,
                                "TerrainBake.diffTileAt(%d, {%s}, "
-                               "HttpService:JSONDecode([==[%s]==]), %s, %g, %g, %s)"
+                               "HttpService:JSONDecode([==[%s]==]), %s, %g, %g, %s, %s)"
                                % (index, ",".join('"%s"' % c for c in cells), profiles, slice_arg,
-                                  args.y_min, args.y_max, "true" if route == "live" else "false"),
+                                  args.y_min, args.y_max, "true" if route == "live" else "false",
+                                  reshape),
                                injected=injected)
         if rows["snap"].get("message") or rows["live"].get("message"):
             print("  tile %3d  %s" % (index, rows["snap"].get("message") or rows["live"]["message"]))
@@ -1291,6 +1315,9 @@ def command_diff(studio, studio_id, args, facts, injected, base):
             box[5] = max(box[5], row["roadMaxAbs"])
             fnv[route].append(row["shapeFnv"])
         a, b = rows["snap"], rows["live"]
+        if a.get("reshape") and a["reshape"] != said[0]:
+            said[0] = a["reshape"]
+            print("  [reshape] %s" % a["reshape"])
         print("  tile %3d (%6d,%6d)  snapshot: all mean %+7.3f max %7.3f | road n=%-5d mean %+7.3f "
               "max %7.3f   live: all mean %+7.3f max %7.3f | road mean %+7.3f max %7.3f"
               % (index, a["minX"], a["minZ"],
@@ -1412,6 +1439,12 @@ def main(argv):
                                           "hashes this sha and never the git sha (design 5.4)")
     parser.add_argument("--source", help="a note recorded in the snapshot's header, e.g. which "
                                         ".rbxl it was read out of")
+    parser.add_argument("--reshape", choices=("auto", "on", "off"), default="auto",
+                        help="`diff` only: whether the landform goes in. `auto` asks "
+                             "TerrainBake.reshapeWanted, which is what a bake does. `on` is the "
+                             "re-bake-from-the-base case, whose diff against already-baked ground is "
+                             "the DRIFT alone; `off` writes the base away from the roads, so its "
+                             "diff is the whole landform and says nothing about doubling")
     parser.add_argument("--allow-local-file", action="store_true",
                         help="accept a Studio with NO place id (a .rbxl opened as a local file, "
                              "which reports game.PlaceId 0). Only `snapshot` takes it, only with "
@@ -1560,7 +1593,9 @@ def main(argv):
                 problem = reshape_blocked(answers)  # refusal 7b
                 if problem:
                     return refuse(problem)
-            sampler = profile_sampler(studio, studio_id, args.cells, injected, base)
+            sampler, problem = profile_sampler(studio, studio_id, args.cells, injected, base)
+            if problem:
+                return refuse(problem)  # refusal 9, second half
             profiles, _ = profiles_once(
                 studio, studio_id, args.cells, injected,
                 "TerrainBake.pointSampler(HttpService:JSONDecode([==[%s]==]))" % sampler)
@@ -1881,6 +1916,7 @@ def selftest():
         source = None
         studio_name = None
         allow_local_file = False
+        reshape = "auto"
 
     # A SYNTHETIC BASE covering the first two tiles plus their pad, so the tile pass can cut real
     # slices out of it with no Studio.

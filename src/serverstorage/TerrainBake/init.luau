@@ -1768,7 +1768,13 @@ function TerrainBake.diffTileAt(
 	slice: any?,
 	yMin: number,
 	yMax: number,
-	liveBase: boolean?
+	liveBase: boolean?,
+	-- WHETHER THE LANDFORM GOES IN. nil asks `reshapeWanted`, which is what a bake does; true and
+	-- false are the two questions a dry run has to be able to ask separately. With it FALSE the
+	-- shaped height IS the base away from the roads, so the diff against already-baked ground is
+	-- the whole landform -- which says nothing about whether a re-bake would double it. TRUE is the
+	-- re-bake-from-the-base case, and its diff is the DRIFT alone.
+	reshapeAll: boolean?
 ): any
 	local plan = TerrainBake.tilePlan(TerrainBake.regionFor(cellIds))
 	assert(tileIndex >= 1 and tileIndex <= #plan, string.format("tile %d is not in a plan of %d", tileIndex, #plan))
@@ -1795,8 +1801,16 @@ function TerrainBake.diffTileAt(
 		base = TerrainBake.decodeSlice(slice)
 	end
 	local reshape: { [string]: boolean } = {}
+	local said: { string } = {}
 	for _, id in cellIds do
-		reshape[id] = (TerrainBake.reshapeWanted(id))
+		if reshapeAll ~= nil then
+			reshape[id] = reshapeAll
+			table.insert(said, string.format("%s reshape=%s (asked for)", id, tostring(reshapeAll)))
+		else
+			local wanted, reason = TerrainBake.reshapeWanted(id)
+			reshape[id] = wanted
+			table.insert(said, string.format("%s reshape=%s (%s)", id, tostring(wanted), reason))
+		end
 	end
 	local inner, _names, n = TerrainBake.shapeTile(tile, base, cellIds, {}, profiles, reshape)
 	-- AN IDENTITY FOR WHAT THIS TILE WOULD WRITE: FNV-1a over the heights at 1/64 of a stud. Not a
@@ -1827,6 +1841,7 @@ function TerrainBake.diffTileAt(
 		minX = tile.minX,
 		minZ = tile.minZ,
 		shapeFnv = string.format("%08x", fnv),
+		reshape = table.concat(said, "; "),
 		n = 0,
 		maxAbs = 0,
 		sum = 0,
