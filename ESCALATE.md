@@ -1,3 +1,44 @@
+## 2026-11-04 ~14:40 UTC, Task 328x -- THE NARROWED HOLE RULE WORKS (103 refusals -> 0), BUT THE FIVE CANNOT BE BAKED AS A RUN OF FIVE, AND `A1` CANNOT BE BAKED FROM THIS BASE FILE AT ALL
+
+**Measured before any code was written**, over 328h's virgin base `terrain-base-010b6400abdd.bin`,
+with this task's own instrument (`m2.py`/`m6.py`, the same `region_for`/`tile_count`/`base_slice` the
+tool uses). The instrument first REPRODUCED 328h's committed table exactly -- A1 34, A2 46, B2 14,
+C2 15, D2 23, 103 of 1,120, 30 of them with a hole inside the tile -- so it is the same measurement.
+
+**1. The Director's candidate 1 is right, and the size of it is 103 -> 0.** With an absent column
+dropped from the limiter's window and the refusal narrowed to a hole with real ground on both sides
+inside the tile, **every one of the 103 refusals disappears**: not one of those 30 tiles' interior
+holes is bracketed by real ground on either axis. They are all the world running out.
+
+**2. THE FIVE MAY NOT BE BAKED WITHOUT ROW 1 IN THE SAME RUN.** `regionFor` grows a subset by
+`BLEND_STUDS` + the bend, so row 2's region reaches `z -4801` -- **285 studs into each of `B1`, `C1`
+and `D1`'s own cell interiors**, and across `EW2` at `z -5107`, which is row 2's `muster` AND row 1's
+MAIN LINE. Two consequences, both from the code: `standPadsFor` iterates the RUN's `cellIds` only, so
+a row-2-only run rewrites that strip with **no pads for row 1's main-line stands** -- the hunters'
+landings -- and `blendAt(unionOf(cellIds))` would fade row 2's landform to the VIRGIN base at row 1's
+edge, where the real ground is row 1's BAKED ground: a step at the seam. So the run is
+**`B1,C1,D1,A2,B2,C2,D2` -- seven cells, 1,120 tiles**, row 1 re-baked from the same virgin base with
+the enlarged union. **This contradicts the dispatch's "B1, C1, D1 must not move"**: they will move at
+the new seam, for the same reason C1 moved 0.1562 studs when D1 joined it in 328h. It is measured
+and reported, not hidden. Baking the five alone is the alternative, and it erases row 1's stands.
+
+**3. `A1` CANNOT BE BAKED FROM THIS BASE FILE. NOT MET, and it is arithmetic, not an opinion.**
+Eight cells take `regionFor`'s ALL branch (footprint + 490), whose tile lattice starts at `x -7296`;
+a tile's own slice needs `x >= -7500` and **the base file starts at `x -7336`** -- 164 studs short.
+Adding `A1` to the seven IS eight. And `A1` cannot be baked in a second run afterwards: its region
+reaches 285 studs into `A2`'s and `B1`'s interiors, so it would do to them what item 2 describes.
+**The fix, if the Director wants `A1`:** extend the base `.bin` westward by 164 studs of MEASURED
+void (her terrain ends near `x -7016`; the file's own westernmost 320 studs are already entirely
+holes, and a live probe at `x -7400/-7500` would settle it), which is a new base sha with a stated
+provenance -- or candidate 2, a world edit and a stitched snapshot.
+
+**4. A SECOND, SMALLER BLOCKER, FIXED IN THIS TASK (328h note (i), as predicted).** At the
+seven-cell lattice every tile's bench band for `B2` and `D2` is cut at `tile.minX - 204 - 120`, and
+for the westernmost tile column (28 tiles) that is `x -7364` -- **28 studs outside the file**, which
+`base_slice` refuses and which stops the whole bake. The band is now CLIPPED to the file, and the
+clip is checked rather than asserted: measured over all 1,120 tiles, the clipped band's westernmost
+column line is **entirely void in every one of the 28 cases** (`clipEdgeNotAllVoid 0`), 84 bands hold
+holes and **none is enclosed**. So the clip removes no column that could ever have answered.
 ## 2026-11-04 ~13:25 UTC, Task 328h -- DIRECTOR: ROUND 3 AUTHORISED (within MAX_ROUNDS 3), and the five-cell blocker decided
 
 **Round 3.** Round 2's two findings are correct and fixed in `6260e7dc`; the gate is green at `8e05ce48`. The dispatch's two-round cap was mine; I lift it for the LAST round the loop allows. Round 3 reviews those two fixes and nothing new. A finding on round 3 is an ESCALATE entry and the task stops; notes go to TASKS.md. 328h then merges as ROW 1 ONLY (B1, C1, D1); its row says the other five are NOT MET and moved.

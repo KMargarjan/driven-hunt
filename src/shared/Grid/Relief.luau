@@ -465,8 +465,22 @@ end
 
 -- EIGHT RELAXATION PASSES that bring every 16-stud window under `ceilingDeg`, moving the two ends of
 -- an over-steep window half the excess each. `exempt[i]` true pins that sample (the scarp, the ramps).
-function Relief.limitPass(column: { number }, pitchStuds: number, ceilingDeg: number, exempt: { boolean }?): { number }
+--
+-- `absent[i]` IS A COLUMN THE BASE CANNOT ANSWER -- beyond the edge of the world -- AND IT IS NO
+-- CONSTRAINT: every window with an absent end is DROPPED, never pinned (Director decision, task
+-- 328x, `ESCALATE.md` 2026-11-04). Pinning it at the band floor made the limiter drag the real
+-- ground beside it down toward ground that does not exist.
+function Relief.limitPass(
+	column: { number },
+	pitchStuds: number,
+	ceilingDeg: number,
+	exempt: { boolean }?,
+	absent: { boolean }?
+): { number }
 	local out: { number } = table.clone(column)
+	local gone = function(i: number): boolean
+		return absent ~= nil and absent[i] == true
+	end
 	local window = math.max(1, math.floor(16 / pitchStuds + 0.5))
 	local ceiling = 16 * math.tan(math.rad(ceilingDeg))
 	-- EIGHT PASSES, ALTERNATING DIRECTION. One direction alone leaves the far end of a long face
@@ -480,7 +494,7 @@ function Relief.limitPass(column: { number }, pitchStuds: number, ceilingDeg: nu
 			local j = i + window
 			local d = out[j] - out[i]
 			local excess = math.abs(d) - ceiling
-			if excess > 0 then
+			if excess > 0 and not (gone(i) or gone(j)) then
 				local pinI = exempt ~= nil and exempt[i] == true
 				local pinJ = exempt ~= nil and exempt[j] == true
 				if not (pinI and pinJ) then
@@ -500,13 +514,13 @@ function Relief.limitPass(column: { number }, pitchStuds: number, ceilingDeg: nu
 	for _ = 1, 2 do
 		for i = 1, #out - window do
 			local j = i + window
-			if out[j] - out[i] > ceiling and not (exempt ~= nil and exempt[j] == true) then
+			if out[j] - out[i] > ceiling and not (exempt ~= nil and exempt[j] == true) and not (gone(i) or gone(j)) then
 				out[j] = out[i] + ceiling
 			end
 		end
 		for i = #out - window, 1, -1 do
 			local j = i + window
-			if out[i] - out[j] > ceiling and not (exempt ~= nil and exempt[i] == true) then
+			if out[i] - out[j] > ceiling and not (exempt ~= nil and exempt[i] == true) and not (gone(i) or gone(j)) then
 				out[i] = out[j] + ceiling
 			end
 		end

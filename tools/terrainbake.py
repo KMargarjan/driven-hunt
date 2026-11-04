@@ -384,7 +384,7 @@ def base_at(base, x, z):
     return head.get("offset", SLICE_OFFSET) + base["codes"][at - 1] / head.get("scale", SLICE_SCALE)
 
 
-def base_slice(base, min_x, min_z, max_x, max_z):
+def base_slice(base, min_x, min_z, max_x, max_z, clip_x=False):
     """One tile's slice of the base, as the payload `TerrainBake.decodeSlice` takes.
 
     It is a BYTE SLICE of the stored codes -- no arithmetic on the heights at all -- so the slice a
@@ -396,6 +396,12 @@ def base_slice(base, min_x, min_z, max_x, max_z):
     k0 = int(math.floor((min_z - head["minZ"]) / pitch)) + 1
     i1 = int(math.ceil((max_x - head["minX"]) / pitch))
     k1 = int(math.ceil((max_z - head["minZ"]) / pitch))
+    # CLIPPED IN x, FOR A BENCH BAND ONLY (task 328x). `benchBands`' rectangle reaches 28 studs past
+    # the west edge of this world's base file, and refusing it stops the whole bake (328h note (i)).
+    # The clip is not trusted: `TerrainBake.voidMargin` makes Studio ask the slice whether ground had
+    # already run out over a strip at least as wide as what was cut off, and refuses the band if not.
+    if clip_x:
+        i0, i1 = max(i0, 1), min(i1, head["nx"])
     if i0 < 1 or k0 < 1 or i1 > head["nx"] or k1 > head["nz"]:
         return None, ("the base snapshot x[%g,%g] z[%g,%g] does not cover x[%g,%g] z[%g,%g]"
                       % (head["minX"], head["minX"] + head["nx"] * pitch,
@@ -404,18 +410,23 @@ def base_slice(base, min_x, min_z, max_x, max_z):
     nx, nz = i1 - i0 + 1, k1 - k0 + 1
     codes = array.array("h", [0]) * (nx * nz)
     holes = []
+    # THE WHOLE-FILE HOLE SET IS BOUND ONCE (task 328x). It was looked up as `base["holes"]` per
+    # column and rebuilt as `set(holes)` per column below -- O(columns^2) -- which cost nothing while
+    # every slice of row 1 was hole-free and is minutes a tile now that the border pad is baked.
+    all_holes = base["holes"]
     for k in range(nz):
         src = (k0 - 1 + k) * head["nx"] + i0 - 1
         codes[k * nx:(k + 1) * nx] = base["codes"][src:src + nx]
         for i in range(nx):
-            if src + i + 1 in base["holes"]:
+            if src + i + 1 in all_holes:
                 holes.append(k * nx + i + 1)
     # THE SLICE CARRIES ITS OWN RANGE, over the columns that HAVE a height. A hole's code is 0, and
     # `minY` is what `shapeTile` writes where the reader has no answer, so a range that counted holes
     # would put a 0-stud floor under 100-stud ground (Reviewer, round 1, finding 1).
     scale = head.get("scale", SLICE_SCALE)
     offset = head.get("offset", SLICE_OFFSET)
-    real = [codes[at] for at in range(nx * nz) if at + 1 not in set(holes)] if holes else list(codes)
+    hole_set = set(holes)
+    real = [codes[at] for at in range(nx * nz) if at + 1 not in hole_set] if holes else list(codes)
     return {
         "pitch": pitch,
         "minX": head["minX"] + (i0 - 1) * pitch,
@@ -1452,7 +1463,7 @@ def bench_slices_for(base, bands, tile, pad, side):
         # the TILE's window; `base_slice` refuses a rectangle that leaves the FILE.
         min_x = tile["minX"] - pad - extra
         max_x = tile["minX"] + side + pad + extra
-        payload, problem = base_slice(base, min_x, band["minZ"], max_x, band["maxZ"])
+        payload, problem = base_slice(base, min_x, band["minZ"], max_x, band["maxZ"], clip_x=True)
         if problem:
             return None, ("%s's bench band: %s" % (band["cell"], problem))
         out.append(payload)
@@ -2162,6 +2173,35 @@ def selftest():
        _cut[0]["minZ"] <= _near["minZ"] and _cut[0]["minZ"] + _cut[0]["nz"] * 4 >= _near["maxZ"])
     ok("a run with no bench sends an empty band list, not a missing argument",
        bench_slices_for(fake_base, [], _tile, fake_pad, echo_facts["tile"]) == ([], None))
+    # TASK 328x: THE CLIP. At the seven-cell lattice the band `benchBands` asks for reaches 28 studs
+    # past the WEST EDGE of this world's base file, and `base_slice` refusing it stops the whole bake
+    # (328h note (i)). It is clipped in x for a BENCH BAND ONLY, and `TerrainBake.voidMargin` makes
+    # Studio refuse the clip unless the slice shows void at least that wide at its own edge. Both
+    # arms here: clipped it cuts, unclipped the same rectangle is still refused.
+    _edge_tile = {"minX": fake_header["minX"] + fake_pad, "minZ": _tz0}
+    _edge_band = dict(_near)
+    _edge_cut, _edge_why = bench_slices_for(fake_base, [_edge_band], _edge_tile, fake_pad,
+                                            echo_facts["tile"])
+    ok("a bench band that leaves the base file in x is CLIPPED, not refused",
+       _edge_why is None and _edge_cut[0]["minX"] == fake_header["minX"],
+       "why=%s x0=%s file=%g" % (_edge_why, _edge_cut[0]["minX"] if _edge_cut else None,
+                                 fake_header["minX"]))
+    _unclipped, _unclipped_why = base_slice(
+        fake_base, _edge_tile["minX"] - fake_pad - _edge_band["xPad"], _edge_band["minZ"],
+        _edge_tile["minX"] + echo_facts["tile"] + fake_pad + _edge_band["xPad"], _edge_band["maxZ"])
+    ok("and the SAME rectangle without the clip is still refused -- the clip is the bench's only",
+       _unclipped is None and "does not cover" in (_unclipped_why or ""), str(_unclipped_why))
+    # AND THE HOLE SET IS BOUND ONCE PER SLICE, not rebuilt per column. It was O(columns^2), which
+    # cost nothing while every slice of row 1 was hole-free and is minutes a tile over the border
+    # pad. Behavioural, not textual: a holey slice of the real size has to come back promptly.
+    _holey_base = {"header": fake_header, "codes": fake_codes,
+                   "holes": set(range(1, fake_header["nx"] * fake_header["nz"], 3)), "sha": "f" * 64}
+    _t0 = time.time()
+    _holey, _ = base_slice(_holey_base, _tx0 - 324, _tz0, _tx0 + 452, _tz0 + 292)
+    _took = time.time() - _t0
+    ok("a slice over a HOLEY base is cut in well under a second (the hole set is bound once)",
+       _holey is not None and _took < 1.0, "%.3f s for %d columns, %d holes"
+       % (_took, _holey["nx"] * _holey["nz"], len(_holey["holes"])))
     ok("the cut band covers the band's WHOLE z range, which is what the anchor walk reads (far)",
        _cut[1]["minZ"] <= _far["minZ"] and _cut[1]["minZ"] + _cut[1]["nz"] * 4 >= _far["maxZ"])
     ok("the Luau refuses a tile that arrives with no base snapshot slice",
@@ -2176,8 +2216,12 @@ def selftest():
        "was handed no base slice covering its anchor " in bake_text)
     ok("the bench band's pad is the blur cutoff, a voxel and the bend -- not a guessed number",
        "Relief.BLUR.cutoffStuds + Relief.VOXEL + Grid.maxBendStuds()" in bake_text)
-    ok("a bench band with a HOLE is refused exactly as the tile's own slice is (round 1, finding 1)",
-       "holding %d column(s) with " in bake_text and "(band.holes or 0) > 0" in bake_text)
+    # TASK 328x: the band refusal narrowed to an ENCLOSED hole, exactly as the tile's own slice did,
+    # and the band may be CLIPPED at the base file's edge with a void margin to show for it.
+    ok("a bench band with an ENCLOSED hole is refused as the tile's own slice is (round 1, finding 1)",
+       "holding %d column(s) with " in bake_text and "bandEnclosed > 0" in bake_text)
+    ok("the band's clip is checked by voidMargin against the slice, not asserted by this tool",
+       "TerrainBake.voidMargin(extra, band.minZ, band.maxZ, west, east)" in bake_text)
     ok("the band's x clip carries twice the bend amplitude on BOTH sides (round 1, finding 2)",
        "xPad = 2 * Grid.maxBendStuds()" in bake_text
        and "tile.minX - pad - band.xPad" in bake_text

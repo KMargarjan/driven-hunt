@@ -2585,26 +2585,26 @@ return function()
 			local missed = TerrainBake.bakeTileAt(1, { "C1" }, true, { {} :: any }, short)
 			expect(string.find(missed.message :: string, "does not cover tile", 1, true)).never.to.equal(nil)
 
-			-- (c) A HOLE INSIDE THE TILE: refused, never guessed.
+			-- (c) AN ENCLOSED HOLE INSIDE THE TILE -- real ground on both sides of it -- is refused,
+			-- never guessed: Water, an overhang, a pond. THIS is the hole the rule is about (task
+			-- 328x narrowed it; the tile's centre is enclosed on both axes).
 			local holed = snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, flat, {});
 			(holed.hole :: any)[(pad / v) * wide + pad / v + 1] = true
 			local refused = TerrainBake.bakeTileAt(1, { "C1" }, true, { {} :: any }, TerrainBake.encodeSlice(holed))
 			expect(string.find(refused.message :: string, "no single height", 1, true)).never.to.equal(nil)
 			expect(string.find(refused.message :: string, "REFUSED, never guessed", 1, true)).never.to.equal(nil)
-			expect(string.find(refused.message :: string, "1 inside the tile and 0 in its", 1, true)).never.to.equal(
-				nil
-			)
+			expect(string.find(refused.message :: string, "1 of those have real ground", 1, true)).never.to.equal(nil)
 
-			-- (d) A HOLE IN THE PAD IS REFUSED TOO. The blur reads 72 studs out and the limiter 128, so a
-			-- hole out there reaches the tile's own columns through the limiter's relaxation. Before 328k
-			-- the snapshot call refused the whole tile+pad read, so refusing on the tile alone was a
-			-- loosening, not a rule (Reviewer, round 1, finding 1).
+			-- (d) A HOLE IN THE PAD IS NOT A REFUSAL ANY MORE (task 328x, Director candidate 1,
+			-- `ESCALATE.md` 2026-11-04). It used to be, because `shapeTile` PINNED such a column at
+			-- the band floor and `Relief.limitPass` then dragged the real ground beside it down
+			-- toward ground that does not exist. An absent column is dropped from the limiter's
+			-- window now, so a hole out in the pad constrains nothing -- and this rule refused
+			-- A1, A2, B2, C2 and D2 over 103 of their 1,120 tiles whose own columns are all real.
 			local padHole = snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, flat, {});
 			(padHole.hole :: any)[1] = true
-			local outside = TerrainBake.bakeTileAt(1, { "C1" }, true, { {} :: any }, TerrainBake.encodeSlice(padHole))
-			expect(string.find(outside.message :: string, "0 inside the tile and 1 in its", 1, true)).never.to.equal(
-				nil
-			)
+			local outside = TerrainBake.bakeTileAt(1, { "C1" }, true, nil, TerrainBake.encodeSlice(padHole))
+			expect(string.find(outside.message :: string, "no profiles were handed", 1, true)).never.to.equal(nil)
 			expect(TerrainBake.holesInTile(TerrainBake.decodeSlice(TerrainBake.encodeSlice(padHole)), tile)).to.equal(0)
 
 			-- AND A CLEAN SLICE THAT DOES COVER IT GETS PAST ALL THREE, on to the profiles check --
@@ -2695,10 +2695,12 @@ return function()
 			local tooNarrow = TerrainBake.bakeTileAt(pick :: number, cells, true, { {} :: any }, slice, { narrow })
 			expect(string.find(tooNarrow.message :: string, "covering its anchor", 1, true)).never.to.equal(nil)
 
-			-- (d) A BAND WITH A HOLE IS REFUSED, naming the count (round 1, finding 1): a nil
-			-- column there would drop the bench for that column with no report at all.
+			-- (d) A BAND WITH AN ENCLOSED HOLE IS REFUSED, naming the count (round 1, finding 1): a
+			-- nil column there would drop the bench for that column with no report at all. TASK
+			-- 328x NARROWED IT to a hole with real ground on both sides inside the band, and both
+			-- arms are driven here: the band's interior refuses, its corner does not.
 			local holed = snapshotOf(bandX0, bands[1].minZ - v, bandNx, bandNz, flat, {});
-			(holed.hole :: any)[1] = true
+			(holed.hole :: any)[math.floor(bandNz / 2) * bandNx + math.floor(bandNx / 2)] = true
 			holed.holes = 1
 			local withHole = TerrainBake.bakeTileAt(
 				pick :: number,
@@ -2709,7 +2711,19 @@ return function()
 				{ TerrainBake.encodeSlice(holed) }
 			)
 			expect(string.find(withHole.message :: string, "no single height", 1, true)).never.to.equal(nil)
+			expect(string.find(withHole.message :: string, "real ground on both sides", 1, true)).never.to.equal(nil)
 			expect(withHole.voxels).to.equal(0)
+
+			-- (d2) THE OTHER ARM: the same band with the hole at its CORNER -- the world running out
+			-- -- is accepted and the tile goes on to the profiles check. The anchor walk reads nil
+			-- out there whether the band is cut that wide or not, so refusing for it refused ground
+			-- that never existed.
+			local edge = snapshotOf(bandX0, bands[1].minZ - v, bandNx, bandNz, flat, {});
+			(edge.hole :: any)[1] = true
+			edge.holes = 1
+			local atEdge =
+				TerrainBake.bakeTileAt(pick :: number, cells, true, nil, slice, { TerrainBake.encodeSlice(edge) })
+			expect(string.find(atEdge.message :: string, "no profiles were handed", 1, true)).never.to.equal(nil)
 
 			-- (e) AND A CLEAN, WIDE ENOUGH BAND gets past all of it, on to the next refusal.
 			local good = TerrainBake.bakeTileAt(pick :: number, cells, true, nil, slice, { band })
@@ -2907,6 +2921,223 @@ return function()
 				expect(tile.minZ % v).to.equal(0)
 				expect((tile.minX - TerrainBake.padFor()) % v).to.equal(0)
 			end
+		end)
+
+		-- ------------------------------------------------------------ task 328x: the world's edge
+
+		it("328x-1 drops an ABSENT column from the limiter's window, and PINNING it drags the ground", function()
+			-- THE TWO ARMS, BY PARAMETER, over the same column (Director candidate 1,
+			-- `ESCALATE.md` 2026-11-04). `limitPass`' window is 4 samples at a 4-stud pitch, so
+			-- samples 2, 3 and 4 are each paired with one of the three absent samples 6, 7, 8 and
+			-- with nothing else. Pinned, they are dragged toward 0; dropped, nothing moves.
+			local v = Relief.VOXEL
+			local column = { 200, 200, 200, 200, 200, 0, 0, 0 }
+			local gone = { false, false, false, false, false, true, true, true }
+			local deg = Relief.LIMIT_DEG.tree
+
+			local dropped = Relief.limitPass(column, v, deg, nil, gone)
+			for i = 1, 5 do
+				expect(dropped[i]).to.be.near(200, 1e-9)
+			end
+
+			-- THE PRODUCER DELETED: the same absent columns handed in as the old PIN. If the drop
+			-- is removed from `limitPass`, the first arm becomes this one and this case fails.
+			local pinned = Relief.limitPass(column, v, deg, gone, nil)
+			local ceiling = 16 * math.tan(math.rad(deg))
+			TestKit.note(
+				string.format(
+					"328x-1 sample 2: dropped %.4f, pinned %.4f (ceiling %.4f st per 16)",
+					dropped[2],
+					pinned[2],
+					ceiling
+				)
+			)
+			expect(pinned[2] < 190).to.equal(true)
+			expect(dropped[2] - pinned[2] > 10).to.equal(true)
+		end)
+
+		it("328x-2 limitGrid carries `absent` on BOTH axes", function()
+			-- `limitGrid` runs `limitPass` along x and then along z, and 328d's lesson was that a
+			-- mask handed to one axis only leaves the other free. A single absent column at the
+			-- centre of a flat-high grid must move nothing on either axis; pinned, it pulls a cone.
+			local v = Relief.VOXEL
+			local n = 24
+			local grid = table.create(n * n, 200)
+			local gone = table.create(n * n, false)
+			local centre = (n // 2 - 1) * n + n // 2
+			grid[centre] = 0
+			gone[centre] = true
+			local deg = Relief.LIMIT_DEG.tree
+
+			local dropped = TerrainBake.limitGrid(grid, n, n, v, deg, nil, gone)
+			local pinned = TerrainBake.limitGrid(grid, n, n, v, deg, gone, nil)
+			local worstDropped, worstPinned = 0, 0
+			for at = 1, n * n do
+				if at ~= centre then
+					worstDropped = math.max(worstDropped, 200 - dropped[at])
+					worstPinned = math.max(worstPinned, 200 - pinned[at])
+				end
+			end
+			TestKit.note(
+				string.format(
+					"328x-2 worst drop off the plateau: absent %.4f st, pinned %.4f st",
+					worstDropped,
+					worstPinned
+				)
+			)
+			expect(worstDropped).to.be.near(0, 1e-9)
+			expect(worstPinned > 50).to.equal(true)
+		end)
+
+		it("328x-3 enclosedHoles counts a POND and not the world running out", function()
+			-- The narrowed rule, at the one function that decides it. A hole with real ground on
+			-- both sides inside the rectangle is ground the bake would have to invent; a hole that
+			-- runs out to the rectangle's edge on both axes is the world ending.
+			local v = Relief.VOXEL
+			local n = 16
+			local pond = snapshotOf(0, 0, n, n, flat, {})
+			local centre = (n // 2 - 1) * n + n // 2
+			(pond.hole :: any)[centre] = true
+			pond.holes = 1
+			expect(TerrainBake.enclosedHoles(pond, 0, 0, n * v, n * v)).to.equal(1)
+
+			-- THE WORLD RUNNING OUT: the three westernmost column LINES, every z. No real column
+			-- to the west on any row, and no real column above or below on those lines either.
+			local edge = snapshotOf(0, 0, n, n, flat, {})
+			local count = 0
+			for k = 1, n do
+				for i = 1, 3 do
+					(edge.hole :: any)[(k - 1) * n + i] = true
+					count += 1
+				end
+			end
+			edge.holes = count
+			expect(TerrainBake.enclosedHoles(edge, 0, 0, n * v, n * v)).to.equal(0)
+
+			-- AND A NOTCH IN THAT EDGE IS A POND AGAIN: one hole at i = 4 with ground west of it
+			-- would not be enclosed, but with the void strip beside it there is no real ground to
+			-- the west -- so it is caught by the z axis instead, which is why both axes are tested.
+			local notch = snapshotOf(0, 0, n, n, flat, {})
+			for k = 1, n do
+				for i = 1, 3 do
+					(notch.hole :: any)[(k - 1) * n + i] = true
+				end
+			end
+			(notch.hole :: any)[(n // 2 - 1) * n + 4] = true
+			notch.holes = 3 * n + 1
+			expect(TerrainBake.enclosedHoles(notch, 0, 0, n * v, n * v)).to.equal(1)
+		end)
+
+		it("328x-4 voidMargin asks the slice whether ground had run out before the clip", function()
+			-- The bench band `benchBands` asks for reaches 28 studs past the west edge of this
+			-- world's base file (MEASURED, task 328x), and `base_slice` clips it there. The clip is
+			-- only sound where ground had already run out, so the check is a void strip at the
+			-- slice's own edge AT LEAST AS WIDE as what was cut off.
+			local v = Relief.VOXEL
+			local n = 32
+			local shortfall = 28
+			local lines = shortfall // v
+			local void = snapshotOf(0, 0, n, n, flat, {})
+			local count = 0
+			for k = 1, n do
+				for i = 1, lines do
+					(void.hole :: any)[(k - 1) * n + i] = true
+					count += 1
+				end
+			end
+			void.holes = count
+			expect(TerrainBake.voidMargin(void, 0, n * v, shortfall, 0)).to.equal(true)
+			-- ONE STUD MORE SHORTFALL THAN THERE IS VOID: refused.
+			expect(TerrainBake.voidMargin(void, 0, n * v, shortfall + v, 0)).to.equal(false)
+			-- GROUND IN THE MARGIN: refused. One real column in the strip is enough.
+			local ground = snapshotOf(0, 0, n, n, flat, {})
+			for k = 1, n do
+				for i = 1, lines do
+					(ground.hole :: any)[(k - 1) * n + i] = true
+				end
+			end
+			(ground.hole :: any)[(n // 2 - 1) * n + 1] = nil
+			ground.holes = count - 1
+			expect(TerrainBake.voidMargin(ground, 0, n * v, shortfall, 0)).to.equal(false)
+			-- NO CLIP, NOTHING TO PROVE.
+			expect(TerrainBake.voidMargin(snapshotOf(0, 0, n, n, flat, {}), 0, n * v, 0, 0)).to.equal(true)
+		end)
+
+		it("328x-5 shapeTile marks the void ABSENT, keeps the real ground, and the Y band skips it", function()
+			-- THE INTEGRATION, over a synthetic base whose west half is beyond the edge of the
+			-- world. `minY` is forced low exactly as the real base file's is -- it is the lowest
+			-- column of the whole slice, hundreds of studs below the ground at the edge -- because
+			-- that is the number the old rule pinned the void at.
+			local plan = TerrainBake.tilePlan(TerrainBake.regionFor({ "C1" }))
+			local tile = plan[1]
+			local pad = TerrainBake.padFor()
+			local v = Relief.VOXEL
+			local side = TerrainBake.TILE_STUDS
+			local wide = (side + 2 * pad) / v
+			local function high(_x: number, _z: number): number
+				return 200
+			end
+			local snap = snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, high, {})
+			snap.minY = 0
+			local voidTo = wide // 2
+			local holes = 0
+			for k = 1, wide do
+				for i = 1, voidTo do
+					(snap.hole :: any)[(k - 1) * wide + i] = true
+					holes += 1
+				end
+			end
+			snap.holes = holes
+
+			-- `reshape = {}` so no landform is applied and the base IS the shaped height: the only
+			-- thing that can move a column here is the limiter, which is what is under test.
+			local inner, _names, n, absent = TerrainBake.shapeTile(tile, snap, { "C1" }, {}, nil, {})
+			local margin = pad / v
+			local voidCols, realCols, worstReal = 0, 0, 0
+			for i = 1, n do
+				for k = 1, n do
+					local at = (k - 1) * n + i
+					if (i + margin) <= voidTo then
+						expect(absent[at]).to.equal(true)
+						voidCols += 1
+					else
+						expect(absent[at]).to.equal(false)
+						realCols += 1
+						worstReal = math.max(worstReal, 200 - inner[at])
+					end
+				end
+			end
+			TestKit.note(
+				string.format(
+					"328x-5 %d absent and %d real columns of %d; worst drop on the real ground %.4f st",
+					voidCols,
+					realCols,
+					n * n,
+					worstReal
+				)
+			)
+			expect(voidCols > 0).to.equal(true)
+			expect(realCols > 0).to.equal(true)
+			expect(worstReal).to.be.near(0, 1e-9)
+
+			-- THE Y BAND IS TAKEN OVER THE GROUND, not over the placeholder: `bandsFor(200, 200)`
+			-- is 184..232, and counting the void's `minY` 0 would start it at -16.
+			local report = TerrainBake.bakeTile(tile, snap, { "C1" }, {}, true, nil, {})
+			TestKit.note(string.format("328x-5 band %.0f..%.0f", report.bandMin, report.bandMax))
+			expect(report.bandMin).to.be.near(184, 1e-9)
+
+			-- AND A TILE ENTIRELY BEYOND THE EDGE WRITES NOTHING, with no refusal: it is honestly
+			-- empty, not a fault.
+			local allVoid = snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, high, {})
+			allVoid.minY = 0
+			for at = 1, wide * wide do
+				(allVoid.hole :: any)[at] = true
+			end
+			allVoid.holes = wide * wide
+			local empty = TerrainBake.bakeTile(tile, allVoid, { "C1" }, {}, true, nil, {})
+			expect(empty.message).to.equal(nil)
+			expect(empty.voxels).to.equal(0)
+			expect(empty.calls).to.equal(0)
 		end)
 	end)
 end
