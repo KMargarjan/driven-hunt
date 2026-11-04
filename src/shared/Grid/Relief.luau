@@ -29,6 +29,10 @@ Relief.ROAD_FADE = table.freeze({ zeroStuds = 51, fullStuds = 120 })
 -- The base blur: a Gaussian sigma 24 studs cut off at 72 (3 sigma), run separably.
 Relief.BLUR = table.freeze({ sigmaStuds = 24, cutoffStuds = 72 })
 
+-- HOW FAR INTO ITS BAND A BENCH WALKS THE BASE to anchor its plane (`applyOps`). Named here, not
+-- written twice, because `TerrainBake.benchBands` cuts the base slice that walk reads (task 328h).
+Relief.BENCH_ANCHOR_STUDS = 20
+
 -- The slope ceiling the limiter clamps to, by zone (design 3.0). The scarp and ramps are exempt.
 Relief.LIMIT_DEG = table.freeze({ tree = 20, open = 32 })
 
@@ -325,7 +329,7 @@ local function applyOps(
 				-- same x, so the bench starts on the ground it meets rather than at a chosen Y.
 				local z0 = bounds.minZ + need(op.v0, "v0") * (bounds.maxZ - bounds.minZ)
 				local sum, n = 0, 0
-				for s = 0, 20, Relief.VOXEL do
+				for s = 0, Relief.BENCH_ANCHOR_STUDS, Relief.VOXEL do
 					local b = baseAt(x, z0 + s)
 					if b ~= nil then
 						local smoothed = if form.baseKeep >= 1 then b else blurredAt(baseAt, x, z0 + s)

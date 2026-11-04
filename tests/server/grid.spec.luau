@@ -78,6 +78,42 @@ return function()
 					or relief.character == "rolling"
 				expect(known).to.equal(true)
 			end
+			-- TASK 328h: WHAT ROW 1's BAKE SHIPPED, pinned to the stud it was measured at, and C1's
+			-- row pinned UNCHANGED beside it -- so a re-bake that moved C1 would redden here. The
+			-- numbers are `terrainbake.py survey --cells B1,C1,D1` (3,888 samples a cell) plus 54
+			-- samples along the realised main line for `lineSpreadStuds`; the towers are 218's
+			-- instrument re-run in a PLAY session (design 6.1).
+			for _, row in ipairs({
+				{ "B1", 66.05, 189.54, 123.50, 22.82, 81.29, { 8, 10, 12, 14 } },
+				{ "C1", 89.14, 150.26, 61.12, 20.49, 106.03, { 8, 10, 13 } },
+				{ "D1", 101.83, 166.26, 64.43, 36.27, 135.85, { 9 } },
+			}) do
+				local cell = Grid.cellOf(row[1] :: string)
+				expect(cell.relief.minY).to.equal(row[2])
+				expect(cell.relief.maxY).to.equal(row[3])
+				expect(cell.relief.spreadStuds).to.equal(row[4])
+				expect(cell.relief.lineSpreadStuds).to.equal(row[5])
+				expect(cell.relief.lineMeanY).to.equal(row[6])
+				local towers = Grid.towerStands(row[1] :: string)
+				expect(#towers).to.equal(#(row[7] :: { number }))
+				for at, want in ipairs(row[7] :: { number }) do
+					expect(towers[at]).to.equal(want)
+				end
+				-- NO TWO ADJACENT, and the cap is five: 327b's rule, asserted on what shipped
+				-- rather than re-derived from the gains this spec cannot read.
+				expect(#towers <= 5).to.equal(true)
+				for at = 2, #towers do
+					expect(towers[at] - towers[at - 1] >= 2).to.equal(true)
+				end
+				-- NONE OF THE THREE RELAXED. B1's and D1's thirty pads were measured in THIS task
+				-- (`spread 0.00`, `relief <= 0.12` against the 1.8 threshold); C1's fifteen were
+				-- measured in 328r at `relief <= 0.10` and are carried, not re-measured here.
+				expect(Grid.towersRelaxed(row[1] :: string)).to.equal(false)
+			end
+			-- AND THE FIVE CELLS 328h COULD NOT BAKE still carry their PRE-BAKE rows, which is what
+			-- says the task is unfinished rather than that this world is done (`ESCALATE.md`).
+			expect(Grid.cellOf("B2").relief.lineMeanY).to.equal(181.83)
+			expect(Grid.cellOf("C2").relief.lineMeanY).to.equal(211.22)
 			-- A NAME NOBODY KNOWS GETS NO CELL rather than the wrong one.
 			expect(Grid.cellOf("E1")).to.equal(nil)
 			expect(Grid.cellOf(nil)).to.equal(nil)
@@ -914,11 +950,20 @@ return function()
 			expect(junctions).to.equal(15)
 			expect(worstJunction < 1e-12).to.equal(true)
 			-- 6. THE PLAN AT THE SHIPPED BEND, pinned beside the straight count the case above pins.
-			-- **2,448 bent against 2,458 straight** since task 328s's denser C1 (was 1,789/1,803):
-			-- the 10 sites the straight mask allows sit inside a bent road's own bands.
+			-- **2,429 bent since task 328h** (328s pinned 2,448, 328o 1,789). MEASURED, not
+			-- argued: the harness's own per-cell note reads C1 `2448(t1861 f104 s483)` with `Grid`
+			-- at `main` and `2429(t1861 f104 s464)` with 328h's, in two runs at the same code
+			-- commit -- **identical trees and ferns; the whole 19 is the SKIRT**. A cell's plan
+			-- carries a skirt into its neighbours, the skirt is masked against THEIR stands, and
+			-- 328h re-measured B1's towers (1 -> 4) and D1's (2 -> 1). A tower stand carries a
+			-- wider exclusion than a plain one, so B1's three new towers cost C1's skirt 19 sites.
+			-- BOTH COUNTS ARE NOTED BEFORE EITHER IS ASSERTED, so a run that moves one tells you
+			-- the other's value instead of stopping at the first `expect`.
 			local drawn = Plan.plantCell("C1")
-			expect(#drawn).to.equal(2448)
-			expect(#Plan.plantCell("C1", nil, STRAIGHT)).to.equal(2458)
+			local straightCount = #Plan.plantCell("C1", nil, STRAIGHT)
+			TestKit.note(string.format("328h: C1 plan bent %d, straight %d", #drawn, straightCount))
+			expect(#drawn).to.equal(2429)
+			expect(straightCount).to.equal(2458)
 			TestKit.note(
 				string.format(
 					"SHIPPED BENT %d/%d: flank set-back %d (was 340), C1 stand 1 (%.2f,%.2f) 8 (%.2f,%.2f) 10 (%.2f,%.2f), layout span %d / north %d, roadZ departs %.2f st from the centre and is exact at %d sampled stations, %d junctions to %.1e, C1 plan %d (straight 2458)",

@@ -205,9 +205,13 @@ BORDER_WOOD_STUDS = 230
 #   A1 14x17=238  B1 238  C1 15x17=255  D1 238   |   A2 14x17=238  B2 238  C2 15x17=255  D2 238
 # C-column cells are 15 wide and row 1 is now 17 deep because the grown region crosses one more
 # lattice line. ALL is 44x32 and is NOT the sum of the eight (the regions overlap).
+#   Task 328h bakes row 1 in ONE run -- "B1,C1,D1" -- because a cell baked alone writes the VIRGIN
+# base over the ~60-stud strip of its neighbour that its grown region covers, which would erase part
+# of C1's finished ground. 527 is this file's own `tile_count` for that union, read back.
 EXPECTED_TILES = {
     "A1": 238, "B1": 238, "C1": 255, "D1": 238,
     "A2": 238, "B2": 238, "C2": 255, "D2": 238,
+    "B1,C1,D1": 527,
     "ALL": 1408,
 }
 
@@ -978,7 +982,12 @@ def command_plan(args, facts, studio=None, studio_id=None):
           % (facts["maxVoxels"], facts["tile"], facts["voxel"] * (facts["maxVoxels"] // columns)))
     # THE ASSERTION, against a number this function did not compute: the committed count for this
     # run, and -- when a Studio answers -- `Relief.tiles`' own output, which is a different engine.
+    # THE UNION KEY IS ORDER-INDEPENDENT (Reviewer round 1, note): `--cells C1,B1,D1` names the same
+    # region as `--cells B1,C1,D1` and must meet the same pinned count, not fall to "NOT ASSERTED".
+    joined = ",".join(sorted(cells))
     key = cells[0] if len(cells) == 1 else ("ALL" if len(cells) == len(CELL_IDS) else None)
+    if key is None and joined in EXPECTED_TILES:
+        key = joined
     expected = EXPECTED_TILES.get(key) if key else None
     if expected is None:
         print("  NOT ASSERTED: no committed count for cells=%s; %d tiles printed, not checked"
@@ -1418,8 +1427,40 @@ def slice_for(base, tile, pad, side):
                       tile["minX"] + side + pad, tile["minZ"] + side + pad)
 
 
+def bench_slices_for(base, bands, tile, pad, side):
+    """THE BENCH BANDS THIS TILE READS, cut out of the same `.bin` (task 328h).
+
+    A `bench` op anchors its plane on the mean base over its band's first `BENCH_ANCHOR_STUDS` at
+    the same x, so a tile at the far end of the cell reads ground up to a cell depth away in z. A
+    single rectangle covering both would be the whole cell's depth on EVERY tile; two rectangles are
+    the same bytes of the same file for a fraction of the payload.
+
+    THE x CLIP CARRIES `band["xPad"]`, WHICH IS TWICE THE BEND'S NORTH-SOUTH AMPLITUDE (Reviewer
+    round 1, finding 2). The anchor is read at the tile column's GRID x but at the BAND's z, and
+    `shapeTile` reads through `Grid.toWorld`, so the world x of the anchor sample is displaced from
+    the column's own by `bendX(zAnchor) - bendX(zTile)` -- up to 120 studs at 45/60 against the 204
+    the tile pad alone gives. Without it `blurredAt` answers nil over the band's outer columns and
+    `applyOps` anchors on the RAW base with no refusal. `bakeTileAt` clips to the same rectangle.
+    """
+    out = []
+    for band in bands or []:
+        extra = band.get("xPad", 0)
+        # NOT CLAMPED TO THE BAND'S OWN x RANGE (Reviewer round 2, finding 1): `shapeTile` applies a
+        # cell's landform well outside `Grid.boundsOf` -- `cellAt` answers the NEAREST cell and
+        # `blendAt` is non-zero 200 studs past `worldBoundsOf` -- so a band cut to the cell's own
+        # bounds leaves the walk reading nil out there, silently, on the raw base. The band covers
+        # the TILE's window; `base_slice` refuses a rectangle that leaves the FILE.
+        min_x = tile["minX"] - pad - extra
+        max_x = tile["minX"] + side + pad + extra
+        payload, problem = base_slice(base, min_x, band["minZ"], max_x, band["maxZ"])
+        if problem:
+            return None, ("%s's bench band: %s" % (band["cell"], problem))
+        out.append(payload)
+    return out, None
+
+
 def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=None, keep=None,
-              live=None, base=None, plan=None, pad=None):
+              live=None, base=None, plan=None, pad=None, bands=None):
     """The tile loop, shared by `measure` (dry) and `bake` (wet). One MCP call per tile."""
     cells = args.cells
     region = region_for(cells, facts)
@@ -1449,13 +1490,19 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
             print("[bake] FAILED at tile %d: %s" % (index, problem))
             log_run(cells, entries, keep, live)
             return 1, entries
+        bench, problem = bench_slices_for(base, bands, plan[index - 1], pad, side)
+        if problem:
+            print("[bake] FAILED at tile %d: %s" % (index, problem))
+            log_run(cells, entries, keep, live)
+            return 1, entries
         # THE SAME PROFILE BYTES INTO EVERY TILE. `[==[` quoting, because the payload is JSON and
         # holds double quotes; it is a value, never code.
         expression = (
             'TerrainBake.bakeTileAt(%d, {%s}, %s, HttpService:JSONDecode([==[%s]==]), '
-            'HttpService:JSONDecode([==[%s]==]))'
+            'HttpService:JSONDecode([==[%s]==]), HttpService:JSONDecode([==[%s]==]))'
             % (index, ",".join('"%s"' % c for c in cells), "true" if dry else "false", profiles,
-               json.dumps(payload, separators=(",", ":")))
+               json.dumps(payload, separators=(",", ":")),
+               json.dumps(bench, separators=(",", ":")))
         )
         report = call(studio, studio_id, expression, injected=injected)
         entries.append(report)
@@ -1665,9 +1712,21 @@ def main(argv):
             profiles, _ = profiles_once(
                 studio, studio_id, args.cells, injected,
                 "TerrainBake.pointSampler(HttpService:JSONDecode([==[%s]==]))" % sampler)
+            # THE BENCH BANDS, ASKED OF STUDIO ONCE (task 328h): the rectangles `applyOps` walks
+            # outside a tile. Studio owns them, because they are `Relief.LANDFORMS` and
+            # `Grid.boundsOf` arithmetic and this tool must not hold a second copy of either.
+            bands = call(studio, studio_id, "TerrainBake.benchBands({%s})"
+                         % ",".join('"%s"' % c for c in args.cells), timeout=60, injected=injected)
+            if not isinstance(bands, list):
+                return refuse("TerrainBake.benchBands answered %r, not a list" % (bands,))
+            if bands:
+                print("[bake] bench band(s), cut from the same base file as every tile slice:")
+                for band in bands:
+                    print("  %-3s x[%.0f,%.0f] z[%.0f,%.0f]"
+                          % (band["cell"], band["minX"], band["maxX"], band["minZ"], band["maxZ"]))
             code, _ = tile_pass(studio, studio_id, args, facts, sha,
                                 dry=args.command == "measure", injected=injected, profiles=profiles,
-                                keep=keep, live=live, base=base, plan=plan, pad=pad)
+                                keep=keep, live=live, base=base, plan=plan, pad=pad, bands=bands)
             return code
     finally:
         studio.close()
@@ -2031,6 +2090,22 @@ def selftest():
            len({e.split("JSONDecode([==[", 2)[2] for e, _ in sent_tiles}) == len(sent_tiles))
         ok("every tile of one run carries the SAME injected prelude",
            {i for _, i in sent_tiles} == {"<PRELUDE>"})
+        # END TO END, WITH A REAL BAND (Reviewer round 1, note): until this case the third payload
+        # was `[]` in every run, spec and bake, so the tool -> Luau band wiring was never exercised
+        # at all. It asserts the band ARRIVES and that it is the band's own rectangle.
+        sent_tiles.clear()
+        _band = {"cell": "D2", "minX": _tx0 - 2000, "maxX": _tx0 + 2000,
+                 "minZ": _tz0 + 400, "maxZ": _tz0 + 520, "xPad": 120}
+        code2, _ = tile_pass(None, "x", Args(), echo_facts, "abc", True,
+                             injected="<PRELUDE>", profiles='[{"road":{"id":"EW2"}}]',
+                             base=fake_base, plan=fake_plan, pad=fake_pad, bands=[_band])
+        third = [json.loads(e.split("JSONDecode([==[", 3)[3].split("]==]")[0]) for e, _ in sent_tiles]
+        ok("a run WITH a bench band sends it to every tile, non-empty",
+           code2 == 0 and third and all(len(t) == 1 for t in third), str(third)[:80])
+        ok("and the band that arrives is the band's own rectangle, not the tile's",
+           all(t[0]["minZ"] <= _band["minZ"] and t[0]["minZ"] + t[0]["nz"] * 4 >= _band["maxZ"]
+               for t in third),
+           "minZ=%g nz=%d" % (third[0][0]["minZ"], third[0][0]["nz"]))
     finally:
         globals()["call"], globals()["log_run"] = saved_call, saved_log
     ok("the Luau refuses a tile that arrives with no profiles, rather than reading live terrain",
@@ -2038,10 +2113,79 @@ def selftest():
     ok("bakeTileAt no longer falls back to profilesFor",
        "profiles or TerrainBake.profilesFor" not in open(BAKE_LUAU, encoding="utf-8").read())
     bake_text = open(BAKE_LUAU, encoding="utf-8").read()
-    ok("EVERY tile call carries its own slice of the base snapshot",
-       all(e.count("JSONDecode([==[") == 2 for e, _ in sent_tiles), sent_tiles[0][0][:60])
+    ok("EVERY tile call carries its own slice of the base snapshot AND its bench bands",
+       all(e.count("JSONDecode([==[") == 3 for e, _ in sent_tiles), sent_tiles[0][0][:60])
+    # THE UNION'S PINNED COUNT, RE-DERIVED from this file's own region/tile arithmetic rather than
+    # compared with itself (Reviewer round 1, note): 527 is `tile_count(region_for(["B1","C1","D1"]))`.
+    _union = tile_count(region_for(["B1", "C1", "D1"], facts), facts["tile"])[0]
+    ok("the committed count for the B1,C1,D1 union is this file's own tile_count",
+       _union == EXPECTED_TILES["B1,C1,D1"], "%d vs %d" % (_union, EXPECTED_TILES["B1,C1,D1"]))
+    ok("and it is NOT the sum of the three, because the regions overlap",
+       _union < EXPECTED_TILES["B1"] + EXPECTED_TILES["C1"] + EXPECTED_TILES["D1"])
+    # THE BENCH BAND CUTTER (task 328h), with no Studio: a band that overlaps the tile's window in x
+    # is cut, one that does not is dropped, and the cut is CLIPPED to that window -- which is the
+    # rectangle the Luau's coverage refusal is written against. Deleting `bench_slices_for`'s clip
+    # or its overlap test fails one of these.
+    _tile = {"minX": _tx0, "minZ": _tz0}
+    _near = {"cell": "B2", "minX": _tx0 - 2000, "maxX": _tx0 + 2000,
+             "minZ": _tz0 + 400, "maxZ": _tz0 + 500}
+    _far = {"cell": "D2", "minX": _tx0 + 9000, "maxX": _tx0 + 9500,
+            "minZ": _tz0 + 400, "maxZ": _tz0 + 500}
+    _near["xPad"] = 120
+    _far["xPad"] = 120
+    _cut, _why = bench_slices_for(fake_base, [_near, _far], _tile, fake_pad, echo_facts["tile"])
+    # EVERY BAND OF THE RUN IS CUT FOR EVERY TILE, with NO relevance skip (Reviewer round 2,
+    # finding 1): `cellAt` answers the nearest cell, so a cell's landform -- and its bench -- is
+    # applied well outside its own bounds, and a skip keyed on the band's x rectangle is the same
+    # unfalsifiable clamp in another place. Correctness over payload; the cost is recorded as
+    # unmeasured in `ESCALATE.md`.
+    ok("every band of the run is cut for this tile, none silently dropped",
+       _why is None and len(_cut) == 2, "%s %s" % (_why, len(_cut or [])))
+    ok("and each is cut over the TILE's window, not over its own cell's rectangle",
+       all(abs(c["minX"] - (_tile["minX"] - fake_pad - 120)) < 4.001 for c in _cut),
+       "x0=%s" % [c["minX"] for c in _cut])
+    ok("the band is cut CLIPPED to the tile's shaping window, not over the whole cell",
+       _cut[0]["minX"] >= _tile["minX"] - fake_pad - _near["xPad"] - 4
+       and _cut[0]["minX"] + _cut[0]["nx"] * 4
+       <= _tile["minX"] + echo_facts["tile"] + fake_pad + _near["xPad"] + 4,
+       "x0=%g nx=%d" % (_cut[0]["minX"], _cut[0]["nx"]))
+    # ...AND THE CLIP IS WIDER THAN THE TILE PAD BY `xPad`, which is the whole of round 1's
+    # finding 2: the anchor is read at the column's grid x but the band's z, so the world x moves
+    # with the bend. Deleting the `extra` term narrows the cut and fails this.
+    _noPad = dict(_near)
+    _noPad["xPad"] = 0
+    _tight, _ = bench_slices_for(fake_base, [_noPad], _tile, fake_pad, echo_facts["tile"])
+    ok("the x clip is widened by the band's own xPad, not only by the tile pad",
+       _cut[0]["nx"] > _tight[0]["nx"],
+       "%d vs %d columns" % (_cut[0]["nx"], _tight[0]["nx"]))
+    ok("the cut band covers the band's WHOLE z range, which is what the anchor walk reads",
+       _cut[0]["minZ"] <= _near["minZ"] and _cut[0]["minZ"] + _cut[0]["nz"] * 4 >= _near["maxZ"])
+    ok("a run with no bench sends an empty band list, not a missing argument",
+       bench_slices_for(fake_base, [], _tile, fake_pad, echo_facts["tile"]) == ([], None))
+    ok("the cut band covers the band's WHOLE z range, which is what the anchor walk reads (far)",
+       _cut[1]["minZ"] <= _far["minZ"] and _cut[1]["minZ"] + _cut[1]["nz"] * 4 >= _far["maxZ"])
     ok("the Luau refuses a tile that arrives with no base snapshot slice",
        "no base snapshot slice was handed to tile" in bake_text)
+    # TASK 328h: the blanket bench refusal is GONE and a COVERAGE refusal stands in its place. The
+    # old one refused A1, B2 and D2 outright -- three of the eight cells -- so 328h could not bake
+    # them at all. Both halves are asserted: the old text must not come back, and the new one must
+    # name the band it wanted.
+    ok("the blanket 'a bench reads the whole cell' refusal is retired",
+       "one tile's snapshot does not hold that" not in bake_text)
+    ok("a bench cell whose anchor band was not handed in is REFUSED, naming the band",
+       "was handed no base slice covering its anchor " in bake_text)
+    ok("the bench band's pad is the blur cutoff, a voxel and the bend -- not a guessed number",
+       "Relief.BLUR.cutoffStuds + Relief.VOXEL + Grid.maxBendStuds()" in bake_text)
+    ok("a bench band with a HOLE is refused exactly as the tile's own slice is (round 1, finding 1)",
+       "holding %d column(s) with " in bake_text and "(band.holes or 0) > 0" in bake_text)
+    ok("the band's x clip carries twice the bend amplitude on BOTH sides (round 1, finding 2)",
+       "xPad = 2 * Grid.maxBendStuds()" in bake_text
+       and "tile.minX - pad - band.xPad" in bake_text
+       and "tile.minX + side + pad + band.xPad" in bake_text)
+    ok("the anchor length is named once and read by both the walk and the band",
+       "Relief.BENCH_ANCHOR_STUDS" in bake_text
+       and "for s = 0, Relief.BENCH_ANCHOR_STUDS, Relief.VOXEL do"
+       in open(os.path.join(REPO, "src", "shared", "Grid", "Relief.luau"), encoding="utf-8").read())
     ok("profilesFor refuses to run with no sampler, so it can never raycast live terrain",
        "TerrainBake.profilesFor: no sampler" in bake_text)
     tool_text = open(os.path.join(REPO, "tools", "terrainbake.py"), encoding="utf-8").read()

@@ -1073,8 +1073,10 @@ return function()
 		end)
 
 		it("328d-8 names the landforms whose base reads leave the tile, from the data", function()
-			-- A `bench` walks the base over its v band (`Relief.applyOps`), which one tile's slice
-			-- does not hold, so `bakeTileAt` refuses it. The cells are named by the data, not here.
+			-- A `bench` walks the base over its band's first `Relief.BENCH_ANCHOR_STUDS`
+			-- (`Relief.applyOps`), which one tile's slice does not hold. SINCE TASK 328h that band is
+			-- cut from the same base file and handed in beside the tile, and `bakeTileAt` refuses
+			-- only a tile that arrives WITHOUT it -- this classifier names which cells need one.
 			local benched, plain = {}, {}
 			for _, id in Grid.cellIds() do
 				table.insert(if TerrainBake.readsWholeCell(Relief.LANDFORMS[id]) then benched else plain, id)
@@ -2610,6 +2612,173 @@ return function()
 			local clean = snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, flat, {})
 			local good = TerrainBake.bakeTileAt(1, { "C1" }, true, nil, TerrainBake.encodeSlice(clean))
 			expect(string.find(good.message :: string, "no profiles were handed", 1, true)).never.to.equal(nil)
+		end)
+
+		it("328h-1 bakes a BENCH cell from the tile slice plus its anchor band, and refuses it without", function()
+			-- A1, B2 and D2 carry a `bench`, whose plane is anchored on the base over the band's
+			-- first `Relief.BENCH_ANCHOR_STUDS` AT THE SAME x -- which for a tile deep in the band
+			-- is a long way off in z. `bakeTileAt` used to refuse all three outright; 328h cuts that
+			-- rectangle out of the SAME base file and hands it in beside the tile's own slice.
+			--
+			-- D2, NOT B2, AND THE REASON IS ARITHMETIC: B2's bench starts at v 0.00, so its anchor
+			-- band is inside every one of its tiles' own 204-stud pads except for the blur's reach.
+			-- D2's starts at v 0.50, so a tile at the far end of the band is a clear 300+ studs
+			-- away from the ground the anchor reads. A case that cannot tell the two states apart
+			-- is not a case.
+			local cells = { "D2" }
+			local bands = TerrainBake.benchBands(cells)
+			expect(#bands).to.equal(1)
+			expect(bands[1].cell).to.equal("D2")
+			local bounds = Grid.boundsOf("D2")
+			local reach = Relief.BLUR.cutoffStuds + Relief.VOXEL + Grid.maxBendStuds()
+			local z0 = bounds.minZ + 0.50 * (bounds.maxZ - bounds.minZ)
+			expect(bands[1].minZ).to.be.near(z0 - reach, 1e-6)
+			expect(bands[1].maxZ).to.be.near(z0 + Relief.BENCH_ANCHOR_STUDS + reach, 1e-6)
+
+			-- THE TILE: inside D2 in x, and in z past the band's far edge, so the band is NOT in
+			-- this tile's own slice. Chosen by searching the plan, never by a pasted index.
+			local plan = TerrainBake.tilePlan(TerrainBake.regionFor(cells))
+			local pad = TerrainBake.padFor()
+			local v = Relief.VOXEL
+			local side = TerrainBake.TILE_STUDS
+			local pick = nil
+			for at, tile in plan do
+				-- INSIDE D2 in x, inside the bench's v band (v1 .74) so the bench has weight here,
+				-- and far enough along z that the tile's OWN 204-stud pad does not reach the
+				-- anchor ground. The coverage rule accepts the tile's slice when it does, so a
+				-- tile chosen without this test would prove nothing.
+				-- AT THE CELL'S EASTERN EXTREMITY, not its middle (Reviewer round 2, finding 1):
+				-- the middle is the only region where a band cut to `bounds` always covered the
+				-- window, which is why round 1's case could not see the shortfall.
+				if
+					tile.minX + side > bounds.maxX
+					and tile.minX < bounds.maxX + 300
+					and tile.minZ - pad > bands[1].minZ
+					and tile.minZ < bounds.minZ + 0.74 * (bounds.maxZ - bounds.minZ)
+				then
+					pick = at
+					break
+				end
+			end
+			expect(pick).never.to.equal(nil)
+			local tile = plan[pick :: number]
+			local wide = (side + 2 * pad) / v
+
+			-- (a) WITHOUT THE BAND THE TILE IS REFUSED, and the refusal names the band it wanted.
+			local slice = TerrainBake.encodeSlice(snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, flat, {}))
+			local none = TerrainBake.bakeTileAt(pick :: number, cells, true, { {} :: any }, slice)
+			expect(none.message).never.to.equal(nil)
+			expect(string.find(none.message :: string, "covering its anchor", 1, true)).never.to.equal(nil)
+			expect(none.voxels).to.equal(0)
+
+			-- (b) A BAND THAT DOES NOT REACH THIS TILE'S x WINDOW IS NOT A BAND: still refused, so
+			-- the coverage test is a test and not a count of arguments.
+			local away = TerrainBake.encodeSlice(snapshotOf(tile.minX + 4000, bands[1].minZ, 64, 64, flat, {}))
+			-- (the band's OWN rectangle is no longer a clamp: the window the tile reads is the
+			-- window the band must cover, Reviewer round 2 finding 1)
+			local wrong = TerrainBake.bakeTileAt(pick :: number, cells, true, { {} :: any }, slice, { away })
+			expect(string.find(wrong.message :: string, "covering its anchor", 1, true)).never.to.equal(nil)
+
+			-- (c) WITH IT, the tile gets past this refusal to the NEXT one (no profiles) -- which
+			-- is why the band check sits BEFORE the profiles check in `bakeTileAt`: with it after,
+			-- this call would stop at the profiles and prove nothing about the band.
+			-- THE BAND MUST REACH `pad + band.xPad` EITHER SIDE IN x: the anchor is read at the
+			-- column's grid x but the band's z, so the world x moves with the bend (round 1,
+			-- finding 2). A band cut only to the tile pad is refused, which is the point.
+			local bandNz = math.ceil((bands[1].maxZ - bands[1].minZ) / v) + 1
+			local bandX0 = tile.minX - pad - bands[1].xPad
+			local bandNx = (side + 2 * pad + 2 * bands[1].xPad) / v
+			local band = TerrainBake.encodeSlice(snapshotOf(bandX0, bands[1].minZ - v, bandNx, bandNz, flat, {}))
+			local narrow = TerrainBake.encodeSlice(
+				snapshotOf(tile.minX - pad, bands[1].minZ - v, (side + 2 * pad) / v, bandNz, flat, {})
+			)
+			local tooNarrow = TerrainBake.bakeTileAt(pick :: number, cells, true, { {} :: any }, slice, { narrow })
+			expect(string.find(tooNarrow.message :: string, "covering its anchor", 1, true)).never.to.equal(nil)
+
+			-- (d) A BAND WITH A HOLE IS REFUSED, naming the count (round 1, finding 1): a nil
+			-- column there would drop the bench for that column with no report at all.
+			local holed = snapshotOf(bandX0, bands[1].minZ - v, bandNx, bandNz, flat, {});
+			(holed.hole :: any)[1] = true
+			holed.holes = 1
+			local withHole = TerrainBake.bakeTileAt(
+				pick :: number,
+				cells,
+				true,
+				{ {} :: any },
+				slice,
+				{ TerrainBake.encodeSlice(holed) }
+			)
+			expect(string.find(withHole.message :: string, "no single height", 1, true)).never.to.equal(nil)
+			expect(withHole.voxels).to.equal(0)
+
+			-- (e) AND A CLEAN, WIDE ENOUGH BAND gets past all of it, on to the next refusal.
+			local good = TerrainBake.bakeTileAt(pick :: number, cells, true, nil, slice, { band })
+			expect(string.find(good.message :: string, "no profiles were handed", 1, true)).never.to.equal(nil)
+		end)
+
+		it("328h-2 reads the band through the SAME reader, and the band CHANGES the height", function()
+			-- THE FALL-THROUGH BITES, asserted AT ONE POINT and not over a tile. The anchor walk is
+			-- six `blurredAt` calls -- 1,369 base reads each -- for EVERY point inside the bench's
+			-- band, so shaping one real D2 tile is ~1.5e8 reads and overran the harness's own 300 s
+			-- cap twice (gate runs 2 and 3, task 328h). The cost is a real fact about the bench
+			-- path, recorded in `ESCALATE.md`; the case does not have to pay it to prove the rule.
+			local cells = { "D2" }
+			local bands = TerrainBake.benchBands(cells)
+			expect(#bands).to.equal(1)
+			local bounds = Grid.boundsOf("D2")
+			local form = Relief.LANDFORMS.D2
+			local v = Relief.VOXEL
+			-- A POINT DEEP IN THE BAND, well past where the anchor is read.
+			local x = (bounds.minX + bounds.maxX) / 2
+			local z = bounds.minZ + 0.70 * (bounds.maxZ - bounds.minZ)
+			-- A SLOPE, not a flat: a bench anchored on ground that is already level would read the
+			-- same with and without the band and the case would prove nothing.
+			local function height(px: number, pz: number): number
+				return 100 + 0.01 * (px + pz)
+			end
+			-- TWO READERS OVER THE SAME ARITHMETIC: one that answers only near the point, one that
+			-- also answers over the band. `readerFor`'s `extras` arm is the whole difference.
+			-- THE BAND IS BUILT FROM A DIFFERENT HEIGHT FUNCTION, 500 studs higher, so the line
+			-- below that says the point's own column still comes from the FIRST slice is a test and
+			-- not two names for one number (Reviewer round 1, note).
+			local function bandHeight(px: number, pz: number): number
+				return (height(px, pz) :: number) + 500
+			end
+			local near = snapshotOf(x - 200, z - 200, 100, 100, height, {})
+			local band = snapshotOf(
+				x - 200,
+				bands[1].minZ - v,
+				100,
+				math.ceil((bands[1].maxZ - bands[1].minZ) / v) + 2,
+				bandHeight,
+				{}
+			)
+			local plain = TerrainBake.readerFor(near)
+			local withBand = TerrainBake.readerFor(near, { band })
+			expect(plain(x, bands[1].minZ + 2)).to.equal(nil)
+			expect(withBand(x, bands[1].minZ + 2)).never.to.equal(nil)
+			-- ...AND THE FIRST SLICE WINS WHERE BOTH ANSWER, asserted on a slice that OVERLAPS it
+			-- (Reviewer round 2, finding 2). The band above is 130 studs north of this point, so
+			-- comparing there read nil through both readers and could not fail whatever the order.
+			local overlap = snapshotOf(x - 200, z - 200, 100, 100, bandHeight, {})
+			local both = TerrainBake.readerFor(near, { overlap })
+			expect(both(x, z)).to.equal(plain(x, z))
+			expect(both(x, z)).never.to.equal(bandHeight(x, z))
+
+			local without = Relief.heightAt(form, bounds, {}, plain, x, z, 1)
+			local with = Relief.heightAt(form, bounds, {}, withBand, x, z, 1)
+			expect(without).never.to.equal(nil)
+			expect(with).never.to.equal(nil)
+			local moved = math.abs((without :: number) - (with :: number))
+			expect(moved > 0.01).to.equal(true)
+			TestKit.note(
+				string.format(
+					"328h: D2's bench band moves this point %.3f st (%.3f -> %.3f)",
+					moved,
+					without :: number,
+					with :: number
+				)
+			)
 		end)
 
 		it("328k-7 makes the long profiles REFUSE to run with no sampler", function()

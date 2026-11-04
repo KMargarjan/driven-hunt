@@ -1,3 +1,129 @@
+## 2026-11-04 ~13:25 UTC, Task 328h -- DIRECTOR: ROUND 3 AUTHORISED (within MAX_ROUNDS 3), and the five-cell blocker decided
+
+**Round 3.** Round 2's two findings are correct and fixed in `6260e7dc`; the gate is green at `8e05ce48`. The dispatch's two-round cap was mine; I lift it for the LAST round the loop allows. Round 3 reviews those two fixes and nothing new. A finding on round 3 is an ESCALATE entry and the task stops; notes go to TASKS.md. 328h then merges as ROW 1 ONLY (B1, C1, D1); its row says the other five are NOT MET and moved.
+
+**The five cells (A1, A2, B2, C2, D2): candidate 1, decided.** An ABSENT column (no ground in the base snapshot, beyond the edge of the world) is **no constraint** to the slope limiter -- dropped from its window, not pinned at `snapshot.minY` -- and the refusal narrows to a hole with real ground on both sides of it inside the tile. Both arms driven by parameter in a spec. Reason: it is the smallest change, it unblocks all five, and C2 is the cell Karen's "more trees behind the line" (2026-11-04 ~09:20 UTC) names. Candidate 2 (extending her terrain) is a world edit plus a stitched snapshot; candidate 3 leaves the outer roads unbaked. This is a new task, **328x**, after 328h merges; the Architect amends `grid-terrain.md`'s hole rule to match at the next audit (queued). The bench-band cost (~1.5e8 reads a tile, unmeasured) is 328x's first measurement: ten tiles before any full run.
+
+## 2026-11-04 ~13:15 UTC, Task 328h -- STOPPED AT THE DISPATCH'S TWO-ROUND CAP: round 2 returned two blocking findings, I agree with both, and the fixes are committed and green
+
+**This is a stop, not a workaround.** The dispatch says *"Review: at most 2 rounds; a FINDING on
+round 2 goes to ESCALATE.md, then stop."* Round 2 returned two findings, **both correct**, and both
+are fixed in `6260e7dc`. The branch is pushed and the full one-player gate is green at the head:
+
+```
+[harness] PASS: 34/34 checks @ 8e05ce48143aadad41596096813cb28c567c454c (clean tree) scope=all
+```
+Code commit **`8e05ce48`** (the last code commit is `6260e7dc`; only `reviews/task-328h/RESULT.md`
+follows it). `test2` N/A -- no `TWO_PLAYER_PATHS` path is touched. **Round 3 needs the Director's
+authorisation** (`DIRECTOR_MAX_ROUNDS=3`), and it reviews these two fixes and nothing new.
+
+**Finding 1 -- the bench band's x rectangle, and the test written against it.** Right, and worse
+than round 1's version of the same defect. `benchBands` cut the band to `bounds +- 136` and the
+coverage test clamped its required window to that same rectangle, so `covered` was true by
+construction exactly where the band ran out. `TerrainBake.cellAt` answers *the nearest cell*, and
+`blendAt` is non-zero for `Relief.BLEND_STUDS` 200 studs past `Grid.worldBoundsOf`, so the bench walk
+runs for grid x hundreds of studs outside `Grid.boundsOf` -- where the band holds no column,
+`readOne` answers nil, `blurredAt` answers nil, and `applyOps` takes `smoothed or b` and anchors the
+plane on the RAW base, or past `bounds.maxX + 76` drops the bench for that column outright. **The
+window is now the TILE's, unclamped**, every band of a run is cut for every tile with **no relevance
+skip** (a skip keyed on the band's own rectangle is the same unfalsifiable clamp in another place),
+and `grid_relief.spec` 328h-1 now drives a tile at the cell's EASTERN EXTREMITY, which is precisely
+the region its round-1 pick excluded.
+
+**Finding 2 -- 328h-2's precedence line could not fail.** Right. `expect(withBand(x, z)).to.equal(plain(x, z))`
+compared at `z` -5557 while the band covers -5983..-5687, so both readers answered nil whatever the
+order, and round 2's REQUEST claimed that line now bites. It compares through an OVERLAPPING slice
+now, built from a height function 500 studs higher, and also asserts the answer is NOT the band's.
+
+**What the Director needs to decide, in order:**
+
+1. **Round 3, or merge on the round-2 verdict plus these two fixes.** The fixes are small, both are
+   entered by a case, and the gate is green; but nobody has reviewed them.
+2. **THE FIVE UNBAKED CELLS -- the real blocker, unchanged** (the 2026-11-04 ~10:35 entry below).
+   `A1`, `A2`, `B2`, `C2`, `D2` cannot be baked because the Forest Test has no terrain under the
+   grid's north and west border pad. **`C2` is the cell Karen's "more trees behind the line" names**,
+   so her sentence is still unanswered and `328h-F1-before.png` and `328h-F1-after.png` are
+   deliberately the same frame.
+3. **A NEW UNMEASURED COST, recorded here because it bears on 328i and 328g.** The bench anchor walk
+   is six `blurredAt` calls -- 1,369 base reads each -- for EVERY point in the band, so shaping ONE
+   real D2 tile is ~1.5e8 reads; it overran the harness's own 300 s cap twice before the spec was
+   moved to a single point. **No bench cell has ever been baked, so the real cost of A1, B2 and D2 is
+   unknown and could be far above this run's 376 ms a tile.** The round-1 claim in `ESCALATE.md`
+   below that *"three of the five need no further tool work"* should be read as *no further
+   CORRECTNESS work* -- the cost is still open.
+
+## 2026-11-04 ~10:35 UTC, Task 328h -- FIVE OF THE SEVEN CELLS CANNOT BE BAKED: the Forest Test has NO TERRAIN under the grid's north and west border pad, and the design's own hole refusal is right
+
+**What shipped.** `B1`, `C1` and `D1` -- row 1 -- are baked at the bend, surveyed, and their
+`relief` / `towers` written. `[bake] OK: 527/527 tiles @ 5a113240 cells=B1,C1,D1
+epoch=5e09ea024be987ee worstTileMs=376 (clean tree)`, 6 m 03 s.
+
+**What is blocked: `A1`, `A2`, `B2`, `C2`, `D2`.** `bakeTileAt` REFUSES a tile when the base
+snapshot has a hole anywhere in the tile **plus its 204-stud read pad** -- the pad counts because
+the blur reads 72 studs out and the slope limiter 128, and a hole out there reaches the tile's own
+columns through `Relief.limitPass` (328k round-1 finding 1). **MEASURED** over
+`terrain-base-010b6400abdd.bin` with this tool's own `region_for`/`tile_count`:
+
+| run | tiles | refused | of which have a hole INSIDE the tile |
+|---|---|---|---|
+| `B1` | 238 | **0** | 0 |
+| `D1` | 238 | **0** | 0 |
+| `C1` | 255 | **0** | 0 |
+| `B1,C1,D1` (what shipped) | 527 | **0** | 0 |
+| `A1` | 238 | 34 | 17 |
+| `A2` | 238 | 46 | 17 |
+| `B2` | 238 | 14 | **0** |
+| `C2` | 255 | 15 | **0** |
+| `D2` | 238 | 23 | 2 |
+| the seven together | 1120 | 103 | 30 |
+| all eight | 1408 | 327 | 181 |
+
+**Every one of those refusals is a REAL hole, not the file running out**: the same count computed
+with out-of-file columns separated reads `refused-for-file-edge-only 0`. And it is not the
+snapshot's fault either -- **probed LIVE in her place at the code commit**
+(`<runs-dir>/328h-void.luau`, `placeId=130094961655666`): `(-7100,-6500)=NO GROUND`,
+`(-7200,-5000)=NO GROUND`, `(-7050,-4000)=NO GROUND`, `(-5000,-7100)=NO GROUND`, while the grid's
+own corners answer `(-6700,-6600)=109.59 Grass` and `(-2210,-3614)=110.76 Limestone`. **The Forest
+Test's terrain ends at about x -7016 and z -6916. The grid's border pad is over empty space.**
+
+**WHY THIS MATTERS MORE THAN THE TILE COUNT.** C1's main line is `EW2` at z -5107 and the hunters
+face +Z, so **"behind the line" is cell `C2`** -- and `C2` is one of the five. Karen's sentence
+*"more trees behind the line"* is about ground this task could not touch. `328h-F1-before.png` and
+`328h-F1-after.png` are the same view for exactly that reason, and they are in the review request
+as the evidence that it is NOT done. For `B2` and `C2` the tiles' OWN columns are entirely over real
+ground: only the 204-stud read pad crosses the edge of the world.
+
+**THE DECISION I AM NOT TAKING.** `shapeTile` already has a rule for a column the base cannot
+answer -- `shaped[at] = snapshot.minY; exempt[at] = true`, "keep ground rather than invent one". At
+the world's edge that pins a non-existent column at the BAND FLOOR and `limitGrid` then drags the
+real ground beside it down toward that pin. So the refusal is right as the code stands, and the fix
+is a change to what an ABSENT column means to the limiter (no constraint, rather than a pinned
+floor). **That is a design change to the one thing this whole task exists to get right, and it is
+the Architect's and the Director's call, not mine.** The three candidate answers, in the order I
+would rank them:
+
+1. **Teach `shapeTile` that an absent column is not a constraint** (drop it from the limiter's
+   window instead of pinning it at `minY`), then narrow the refusal to a hole with ground around it.
+   Smallest change, and it would unblock all five. Needs a design ruling and a spec that drives both
+   arms by parameter.
+2. **Extend the terrain in her place** so the footprint + 430 studs has ground under it, then take a
+   fresh base snapshot. Un-blocks everything with no code change, but it is a world edit in Karen's
+   place, a new base sha, and C1/B1/D1 are now baked so the new snapshot would not be virgin
+   everywhere -- the two halves would have to be stitched, which is its own rule.
+3. **Shrink the baked region** so no tile's pad leaves the terrain. Cheapest, and wrong: it would
+   leave the outer cells' own roads unbaked.
+
+**What this costs the queue.** 328i (the whole world's forest) plants eight cells over ground only
+three of which are baked. 328g's performance gate is about C1 and its four neighbours, two of which
+are baked. `grid-terrain.md` 12.2's **B2 bot climb stays UNMEASURED** and 15 item 4's three ramps
+are built in `Relief.LANDFORMS` but have never been written into ground.
+
+**One thing is now UNBLOCKED and should be recorded:** `bakeTileAt` used to refuse A1, B2 and D2
+outright, for a second and unrelated reason -- their landform carries a `bench`, whose anchor walk
+reads the base across its band. Commit `5a113240` fixes that (the band is cut from the same `.bin`
+as a second rectangle). So when the hole question is answered, three of the five need no further
+tool work.
+
 ## 2026-11-03 ~18:35 UTC, Task 328q -- DIRECTOR: ROUND 3 AUTHORISED (within MAX_ROUNDS 3)
 
 Round 2's one finding (`standTypeFor` read the world point) is right and fixed in `87844e02`; the clean-tree harness PASS at `a7267a8d` covers it. The dispatch's two-round cap was mine; I lift it for the LAST round the loop allows. Round 3 reviews the fix and nothing new. A finding on round 3 is an ESCALATE entry and the task stops; notes go to TASKS.md.
