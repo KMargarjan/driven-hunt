@@ -3107,8 +3107,13 @@ return function()
 			-- (b) A VOID STRIP IN THE PAD, well OUTSIDE the tile -- so the tile itself is not
 			-- refused -- but inside the blur's 72-stud reach of the tile's own western columns.
 			local holed = snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, rolling, {})
+			-- THE STRIP STOPS TWO COLUMNS SHORT OF THE TILE: `holesInTile` is 0, so the tile is
+			-- NOT refused, and the tile's own westernmost column is 12 studs from the void --
+			-- well inside the blur's reach either side of the bend's shear. Round 1 of this case
+			-- put the strip's edge AT 72 studs, where the grid-space fallback inside `heightAt`
+			-- still found real ground and `inner[1]` came out unchanged.
 			local reach = math.floor(Relief.BLUR.cutoffStuds / v)
-			local strip = pad / v - reach + 2
+			local strip = pad / v - 2
 			local holes = 0
 			for k = 1, wide do
 				for i = 1, strip do
