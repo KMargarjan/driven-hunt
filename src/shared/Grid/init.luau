@@ -170,15 +170,26 @@ Grid.CELLS = table.freeze({
 		column = 2,
 		-- THE WOOD THAT GROWS HERE (task 327c): white trunks and one clearing off centre.
 		recipe = "birchSlope",
+		-- MEASURED AFTER B1's FIRST BAKE (task 328h), off the ground it describes:
+		-- `terrainbake.py survey --cells B1,C1,D1` over 3,888 samples, and `lineSpreadStuds` off 54
+		-- samples along the realised main line (`<runs-dir>/328h-line.luau`). `character` is 327c's
+		-- own word and is a LABEL, not a reading -- the survey's three-way classifier would say
+		-- "ridge" at this spread, and `grid.spec` accepts both vocabularies.
 		relief = table.freeze({
 			character = "slope",
-			minY = 70.2,
-			maxY = 173.2,
-			spreadStuds = 103.0,
-			lineSpreadStuds = 21.8,
-			lineMeanY = 80.50,
+			minY = 66.05,
+			maxY = 189.54,
+			spreadStuds = 123.50,
+			lineSpreadStuds = 22.82,
+			lineMeanY = 81.29,
 		}),
-		towers = table.freeze({ 12 }), -- 12 east gain +80, spread 0.00, relief 0.00
+		-- RE-MEASURED IN A PLAY SESSION (task 328h; design 6.1 -- an Edit run reads
+		-- `DrivePlaces=ABSENT`), 218's instrument over B1's fifteen stands at their bent world
+		-- points. Ranked by gain, never two adjacent, `gain >= 60`, `spread <= 4.0`,
+		-- `relief <= 1.8`: 14 (+216), 10 (+153), 12 (+120), 8 (+116) -- 15 (+180) is adjacent to
+		-- 14, 9 (+137) to 10, 13 (+89) to both. NO MAIN STAND CLEARS +60 on this ground. Every one
+		-- of the fifteen pads read `spread 0.00` and `relief <= 0.12`, so `towersRelaxed` is absent.
+		towers = table.freeze({ 8, 10, 12, 14 }), -- 8 west +116/0.00/0.09; 10 west +153/0.00/0.12; 12 east +120/0.00/0.01; 14 east +216/0.00/0.11
 	}),
 	table.freeze({
 		id = "C1",
@@ -212,15 +223,19 @@ Grid.CELLS = table.freeze({
 		column = 4,
 		-- THE WOOD THAT GROWS HERE (task 327c): open oak park, the thinnest wood of row 1.
 		recipe = "oakRolling",
+		-- MEASURED AFTER D1's FIRST BAKE (task 328h), same two instruments as B1 above.
 		relief = table.freeze({
 			character = "rolling",
-			minY = 103.3,
-			maxY = 166.8,
-			spreadStuds = 63.5,
-			lineSpreadStuds = 36.8,
-			lineMeanY = 134.35,
+			minY = 101.83,
+			maxY = 166.26,
+			spreadStuds = 64.43,
+			lineSpreadStuds = 36.27,
+			lineMeanY = 135.85,
 		}),
-		towers = table.freeze({ 9, 11 }), -- 9 west +244/0.00/0.02; 11 west +95/0.30/1.42
+		-- RE-MEASURED IN PLAY (task 328h): only 9 (+234) and 10 (+120) clear the +60 floor and they
+		-- are adjacent, so the set is ONE. **11 LEFT THE SET** -- its gain fell +95 -> +40 when the
+		-- bake cut the road it overlooks. All fifteen pads `spread 0.00`, `relief <= 0.08`.
+		towers = table.freeze({ 9 }), -- 9 west +234/0.00/0.03
 	}),
 	table.freeze({
 		id = "A2",

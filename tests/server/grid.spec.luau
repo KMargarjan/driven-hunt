@@ -78,6 +78,41 @@ return function()
 					or relief.character == "rolling"
 				expect(known).to.equal(true)
 			end
+			-- TASK 328h: WHAT ROW 1's BAKE SHIPPED, pinned to the stud it was measured at, and C1's
+			-- row pinned UNCHANGED beside it -- so a re-bake that moved C1 would redden here. The
+			-- numbers are `terrainbake.py survey --cells B1,C1,D1` (3,888 samples a cell) plus 54
+			-- samples along the realised main line for `lineSpreadStuds`; the towers are 218's
+			-- instrument re-run in a PLAY session (design 6.1).
+			for _, row in ipairs({
+				{ "B1", 66.05, 189.54, 123.50, 22.82, 81.29, { 8, 10, 12, 14 } },
+				{ "C1", 89.14, 150.26, 61.12, 20.49, 106.03, { 8, 10, 13 } },
+				{ "D1", 101.83, 166.26, 64.43, 36.27, 135.85, { 9 } },
+			}) do
+				local cell = Grid.cellOf(row[1] :: string)
+				expect(cell.relief.minY).to.equal(row[2])
+				expect(cell.relief.maxY).to.equal(row[3])
+				expect(cell.relief.spreadStuds).to.equal(row[4])
+				expect(cell.relief.lineSpreadStuds).to.equal(row[5])
+				expect(cell.relief.lineMeanY).to.equal(row[6])
+				local towers = Grid.towerStands(row[1] :: string)
+				expect(#towers).to.equal(#(row[7] :: { number }))
+				for at, want in ipairs(row[7] :: { number }) do
+					expect(towers[at]).to.equal(want)
+				end
+				-- NO TWO ADJACENT, and the cap is five: 327b's rule, asserted on what shipped
+				-- rather than re-derived from the gains this spec cannot read.
+				expect(#towers <= 5).to.equal(true)
+				for at = 2, #towers do
+					expect(towers[at] - towers[at - 1] >= 2).to.equal(true)
+				end
+				-- EVERY PAD OF ALL THREE MEASURED `spread 0.00`, `relief <= 0.12` against the 1.8
+				-- threshold, so none of the three relaxed.
+				expect(Grid.towersRelaxed(row[1] :: string)).to.equal(false)
+			end
+			-- AND THE FIVE CELLS 328h COULD NOT BAKE still carry their PRE-BAKE rows, which is what
+			-- says the task is unfinished rather than that this world is done (`ESCALATE.md`).
+			expect(Grid.cellOf("B2").relief.lineMeanY).to.equal(181.83)
+			expect(Grid.cellOf("C2").relief.lineMeanY).to.equal(211.22)
 			-- A NAME NOBODY KNOWS GETS NO CELL rather than the wrong one.
 			expect(Grid.cellOf("E1")).to.equal(nil)
 			expect(Grid.cellOf(nil)).to.equal(nil)

@@ -1906,16 +1906,16 @@ function TerrainBake.bakeTileAt(
 		end
 	end
 	for _, band in TerrainBake.benchBands(cellIds) do
-		local wantMinX = math.max(band.minX, tile.minX - pad)
-		local wantMaxX = math.min(band.maxX, tile.minX + side + pad)
-		if wantMinX < wantMaxX then
+		local bandMinX = math.max(band.minX, tile.minX - pad)
+		local bandMaxX = math.min(band.maxX, tile.minX + side + pad)
+		if bandMinX < bandMaxX then
 			local covered = false
 			for _, extra in extras do
 				local eMaxX = extra.minX + extra.nx * extra.pitch
 				local eMaxZ = extra.minZ + extra.nz * extra.pitch
 				if
-					extra.minX <= wantMinX + 1e-6
-					and eMaxX >= wantMaxX - 1e-6
+					extra.minX <= bandMinX + 1e-6
+					and eMaxX >= bandMaxX - 1e-6
 					and extra.minZ <= band.minZ + 1e-6
 					and eMaxZ >= band.maxZ - 1e-6
 				then
@@ -1931,8 +1931,8 @@ function TerrainBake.bakeTileAt(
 						.. "would anchor the bench plane on nil.",
 					band.cell,
 					tileIndex,
-					wantMinX,
-					wantMaxX,
+					bandMinX,
+					bandMaxX,
 					band.minZ,
 					band.maxZ
 				)
