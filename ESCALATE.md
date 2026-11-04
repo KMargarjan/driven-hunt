@@ -2195,3 +2195,42 @@ Director's to authorise, not mine.
 **Task 328s is otherwise complete and every number in it was measured in Karen's own place.** Her
 Forest Test is back on `localhost:34873` from `driven-hunt-karen`, connected, and `smoke.sh` is
 **PASS**.
+
+### 2026-11-04 02:26 UTC -- 328s: the decisive pair. The SPECS are fine; the server REPORT never exists
+
+| what | measured |
+|---|---|
+| the server specs themselves, run directly through TestEZ over `ServerStorage.Tests` in a DEV Play server (`<runs-dir>/328s-suite.luau`) | **`SUITE DONE in 331 s | successCount=2771 failureCount=40 errors=40`** |
+| the harness's server report, window **300 s** (runs 1, 3, 4, 6) | never arrives |
+| window **900 s** (run 5) | never arrives |
+| window **2400 s** (run 7, `65889bdf`, same scratchpad wrapper, repo untouched) | **never arrives** -- `[harness] phases, 2577 s total: 2400.4 s reading both reports` |
+
+**So it is not the window and it is not a slow suite.** A per-spec scan (`328s-specscan.luau`, 82
+spec modules, 25 s budget each) found no spec that hangs for ever: the four over 25 s are the live
+ones (`match_live`, `match_teams`, `weapon_shot`, `zz_pad_restart`) and the whole folder still
+finished in 331 s.
+
+**Where the report comes from.** `tests/TestRunner.server.luau` writes
+`ServerStorage:SetAttribute("TestReport", ...)` **only after `TestKit.run` returns**, and before that
+it does `local token = TestKit.awaitToken() ; if not token then return end` -- a **silent** return.
+The harness reads that attribute with `studio.query("Server", ...)` and no `studio_id`, i.e. through
+`default_studio_id`. I proved that read path is sound: in a DEV Play I set
+`ServerStorage:SetAttribute("TestReportProbe328s", ...)` through `datamodel_type: "Server"` and read
+it back through the same path, value intact (`328s-setattr.luau` / `328s-getattr.luau`). The Edit
+datamodel is not even reachable during Play -- it raises *"Edit datamodel is not available in Play
+mode"* rather than answering emptily -- so the harness is not reading the wrong place.
+
+**The hypothesis I could not test from here, for the Director:** the attribute is never set because
+`awaitToken()` returned nil and `TestRunner` took its silent `return`. `TestKit.TOKEN_MAX_AGE` is
+**120 s**, the token is written BEFORE Play, and this machine's DEV Play boot is currently slowed by
+a storm of failing asset loads (`rbxassetid://20001`-`20018`, `boar_shot.spec`'s deliberate fake ids
+-- 512 of 512 retained log entries). If the boot now takes longer than 120 s, the server runner finds
+only a stale token and returns without a word, which matches EVERY observation: no report at any
+window, the client (whose runner reached the token sooner) reporting at a steady 191 s, and the
+control at `main` failing the same way.
+
+**Testing it costs one line in `tests/TestRunner.server.luau`** (print, or set the attribute, when
+`awaitToken` returns nil) -- a change to the gate's own machinery, which is why I have not made it.
+
+**328s stands on its own evidence**, all of it measured in Karen's place and listed in
+`reviews/task-328s/REQUEST.md`.
