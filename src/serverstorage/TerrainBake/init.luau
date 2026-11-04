@@ -1544,8 +1544,9 @@ end
 
 -- HOW FAR OUTSIDE A TILE THE SNAPSHOT MUST REACH: the limiter's margin, plus the blur's own
 -- cutoff, plus one voxel so the outermost sample has a neighbour. `Relief.blurredAt` is the only
--- point reader that leaves its point -- except a `bench`, which walks the base across its whole v
--- band (`applyOps`), and `bakeTileAt` refuses that rather than snapshot a slice it does not hold.
+-- point reader that leaves its point -- except a `bench`, which walks the base across its band's
+-- first `Relief.BENCH_ANCHOR_STUDS`. That band is NOT covered by this pad: it is cut separately by
+-- `TerrainBake.benchBands` and handed in beside the tile's slice (task 328h).
 function TerrainBake.padFor(): number
 	local v = Relief.VOXEL
 	return v * math.ceil((TerrainBake.LIMIT_MARGIN_STUDS + Relief.BLUR.cutoffStuds + v) / v)
@@ -1762,13 +1763,22 @@ function TerrainBake.benchBands(cellIds: { string }): { any }
 			local bounds = Grid.boundsOf(id)
 			for _, op in form.ops do
 				if op.kind == "bench" then
-					local z0 = bounds.minZ + op.v0 * (bounds.maxZ - bounds.minZ)
+					local v0 = assert(op.v0, "TerrainBake.benchBands: a bench op with no v0")
+					local z0 = bounds.minZ + v0 * (bounds.maxZ - bounds.minZ)
 					table.insert(out, {
 						cell = id,
 						minX = bounds.minX - pad,
 						maxX = bounds.maxX + pad,
 						minZ = z0 - pad,
 						maxZ = z0 + Relief.BENCH_ANCHOR_STUDS + pad,
+						-- HOW MUCH WIDER IN x THE BAND MUST BE CUT THAN THE TILE'S OWN COLUMNS
+						-- (Reviewer round 1, finding 2). The anchor is read at the column's GRID x
+						-- but the BAND's z, so `baseAtGrid` lands at `gx + bendX(zAnchor)` while the
+						-- column itself sits at `gx + bendX(zTile)`. The two differ by up to twice
+						-- the north-south amplitude, which at 45/60 is 120 studs against the 204 the
+						-- tile pad alone would have given -- `blurredAt` would answer nil out there
+						-- and `applyOps` would anchor on the RAW base with no refusal.
+						xPad = 2 * Grid.maxBendStuds(),
 					})
 				end
 			end
@@ -1882,12 +1892,33 @@ function TerrainBake.bakeTileAt(
 	local extras: { Snapshot } = {}
 	if benchSlices ~= nil then
 		for _, one in benchSlices do
-			table.insert(extras, TerrainBake.decodeSlice(one))
+			local band = TerrainBake.decodeSlice(one)
+			-- A HOLE IN A BAND IS REFUSED EXACTLY AS A HOLE IN THE TILE IS (Reviewer round 1,
+			-- finding 1). `readOne` answers nil at a hole, `blurredAt` answers nil the moment its
+			-- reader does, and `applyOps` then drops that column's bench with `smoothed or b` and
+			-- `if n > 0` -- no error, no report, a tile flat-dressed-as-shaped. B2's band is the
+			-- cell's north edge, which is exactly where this world's terrain runs out.
+			if (band.holes or 0) > 0 then
+				local refusal: TileReport = table.clone(bare)
+				refusal.message = string.format(
+					"tile %d was handed a bench band x[%.0f,%.0f] z[%.0f,%.0f] holding %d column(s) with "
+						.. "no single height. A band is refused for a hole exactly as the tile's own slice "
+						.. "is: the bench would be dropped for those columns with no report (task 328h).",
+					tileIndex,
+					band.minX,
+					band.minX + band.nx * band.pitch,
+					band.minZ,
+					band.minZ + band.nz * band.pitch,
+					band.holes
+				)
+				return refusal
+			end
+			table.insert(extras, band)
 		end
 	end
 	for _, band in TerrainBake.benchBands(cellIds) do
-		local bandMinX = math.max(band.minX, tile.minX - pad)
-		local bandMaxX = math.min(band.maxX, tile.minX + side + pad)
+		local bandMinX = math.max(band.minX, tile.minX - pad - band.xPad)
+		local bandMaxX = math.min(band.maxX, tile.minX + side + pad + band.xPad)
 		if bandMinX < bandMaxX then
 			local covered = false
 			-- THE TILE'S OWN SLICE COUNTS AS A BAND: for a bench near the tile in z the 204-stud

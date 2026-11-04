@@ -1073,8 +1073,10 @@ return function()
 		end)
 
 		it("328d-8 names the landforms whose base reads leave the tile, from the data", function()
-			-- A `bench` walks the base over its v band (`Relief.applyOps`), which one tile's slice
-			-- does not hold, so `bakeTileAt` refuses it. The cells are named by the data, not here.
+			-- A `bench` walks the base over its band's first `Relief.BENCH_ANCHOR_STUDS`
+			-- (`Relief.applyOps`), which one tile's slice does not hold. SINCE TASK 328h that band is
+			-- cut from the same base file and handed in beside the tile, and `bakeTileAt` refuses
+			-- only a tile that arrives WITHOUT it -- this classifier names which cells need one.
 			local benched, plain = {}, {}
 			for _, id in Grid.cellIds() do
 				table.insert(if TerrainBake.readsWholeCell(Relief.LANDFORMS[id]) then benched else plain, id)
@@ -2703,13 +2705,19 @@ return function()
 			end
 			-- TWO READERS OVER THE SAME ARITHMETIC: one that answers only near the point, one that
 			-- also answers over the band. `readerFor`'s `extras` arm is the whole difference.
+			-- THE BAND IS BUILT FROM A DIFFERENT HEIGHT FUNCTION, 500 studs higher, so the line
+			-- below that says the point's own column still comes from the FIRST slice is a test and
+			-- not two names for one number (Reviewer round 1, note).
+			local function bandHeight(px: number, pz: number): number
+				return (height(px, pz) :: number) + 500
+			end
 			local near = snapshotOf(x - 200, z - 200, 100, 100, height, {})
 			local band = snapshotOf(
 				x - 200,
 				bands[1].minZ - v,
 				100,
 				math.ceil((bands[1].maxZ - bands[1].minZ) / v) + 2,
-				height,
+				bandHeight,
 				{}
 			)
 			local plain = TerrainBake.readerFor(near)

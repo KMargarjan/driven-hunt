@@ -105,8 +105,9 @@ return function()
 				for at = 2, #towers do
 					expect(towers[at] - towers[at - 1] >= 2).to.equal(true)
 				end
-				-- EVERY PAD OF ALL THREE MEASURED `spread 0.00`, `relief <= 0.12` against the 1.8
-				-- threshold, so none of the three relaxed.
+				-- NONE OF THE THREE RELAXED. B1's and D1's thirty pads were measured in THIS task
+				-- (`spread 0.00`, `relief <= 0.12` against the 1.8 threshold); C1's fifteen were
+				-- measured in 328r at `relief <= 0.10` and are carried, not re-measured here.
 				expect(Grid.towersRelaxed(row[1] :: string)).to.equal(false)
 			end
 			-- AND THE FIVE CELLS 328h COULD NOT BAKE still carry their PRE-BAKE rows, which is what
