@@ -1930,6 +1930,16 @@ QUERY_REPORT = {
     "server": 'return game:GetService("ServerStorage"):GetAttribute("TestReport") or ""',
     "client": 'local p = game:GetService("Players").LocalPlayer return p and p:GetAttribute("TestReport") or ""',
 }
+# WHERE A RUN THAT NEVER REPORTED GOT TO (task 328t). `tests/TestRunner.server.luau` publishes
+# ServerStorage.TestStage as it goes, so a missing TestReport finally names its own stage instead of
+# saying nothing at all. It lives in the PLAY datamodel, so it is read before Play stops.
+QUERY_TEST_STAGE = {
+    "server": ('local SS = game:GetService("ServerStorage") '
+               'return tostring(SS:GetAttribute("TestStageAge")) .. " | errors: " '
+               '.. tostring(SS:GetAttribute("TestStageErrors")) .. " | trail: " '
+               '.. tostring(SS:GetAttribute("TestStageTrail"))'),
+    "client": 'local p = game:GetService("Players").LocalPlayer return p and tostring(p:GetAttribute("TestStage")) or "no player"',
+}
 # ONE SCRIPT'S SOURCE, A SLICE AT A TIME (Task 115). StudioMCP truncates a tool result at roughly
 # 100 KB and a single script's Source can be bigger than that on its own -- `src/serverstorage/
 # Assets/init.luau` passed it the moment the boar's ten animation rows landed, and the run failed as
@@ -3537,6 +3547,24 @@ def replay_input(studio, data, token, check, studio_id=None, mirror_ids=(), serv
             call_seconds += time.time() - began
             calls += 1
             for target, failure in results.items():
+                # STILL LOADING IS NOT A FAULT, AND IT WAS NOT APPLIED HERE (task 328t). A Play
+                # client registers with StudioMCP before its input handler can answer, so
+                # "Target is not reachable" against it is "not yet" -- the policy `still_loading`
+                # and `process_call` already state for every other call against a test process.
+                # This loop recorded it as a failed scenario instead, and it failed 7 of 9 runs
+                # on the last scenario while every one of the 2,800 specs passed.
+                # The whole batch is re-sent for that target because the CALL failed, so none of
+                # its steps arrived -- a re-send repeats nothing.
+                if failure is not None and still_loading(failure):
+                    deadline = time.time() + INPUT_RETRY
+                    while time.time() < deadline:
+                        time.sleep(1)
+                        failure = studio.send_input_many(device, payload, [target]).get(target)
+                        if failure is None or not still_loading(failure):
+                            break
+                    if failure is not None:
+                        print(f"[input] {scenario.get('name')}: {target} stayed unreachable for "
+                              f"{INPUT_RETRY} s")
                 if failure is not None:
                     # Not just RuntimeError: the transport raises queue.Empty when StudioMCP stops
                     # answering, and a hung input call must fail this check, not the whole run
@@ -3637,7 +3665,7 @@ def run_test(studio, scope=None):
 
     token = f"{secrets.token_hex(8)}:{int(time.time())}"
     write_token(token)
-    reports, output = {}, ""
+    reports, stages, output = {}, {}, ""
     try:
         seen, ok = wait_for(lambda: studio.query("Edit", QUERY_TOKEN), lambda v: v == token, 15)
         if not check("Rojo synced the fresh token from disk", ok, f"Studio has {seen!r}"):
@@ -3780,6 +3808,14 @@ def run_test(studio, scope=None):
                                     timeout=10)
                     if pending:
                         time.sleep(1)
+                # THE STAGE OF A SIDE THAT NEVER REPORTED (task 328t), read HERE because the
+                # attribute only exists in the Play datamodel that the `finally` below is about to
+                # end. `pending` holds exactly the sides whose report did not arrive.
+                for side, datamodel in pending.items():
+                    raw, why = process_call(
+                        lambda dm=datamodel: studio.query(dm, QUERY_TEST_STAGE[side]), timeout=10, default="")
+                    stages[side] = raw or f"unreadable: {why}"
+                    print(f"[harness] {side} never reported; its last stage was {stages[side]}")
                 phases.mark("reading both reports")
                 output = studio.console()
             finally:
@@ -3803,7 +3839,8 @@ def run_test(studio, scope=None):
             print(f"  failed [{side}] {describe_failure(failure)}")
     for side in sides:
         report = reports.get(side)
-        if not check(f"[{side}] runner reported within {REPORT_WINDOW} s", report is not None):
+        if not check(f"[{side}] runner reported within {REPORT_WINDOW} s", report is not None,
+                     f"last stage: {stages.get(side, '?')}"):
             continue
         check(f"[{side}] report carries this run's token", report["token"] == token, report["token"])
         check(f"[{side}] report comes from the DEV place", str(report["placeId"]) == place, str(report["placeId"]))
@@ -4240,6 +4277,8 @@ def end_session(studio, before):
 # sequential: since Task 41 the server's last spec waits for the client to finish before it ends the
 # drive, so the server legitimately reports after the client does, and reading the server first burned
 # the whole window before the client was looked at once.
+# Seconds a single input batch is re-sent to a Play client that answers "not yet" (task 328t).
+INPUT_RETRY = 20
 REPORT_WINDOW = 300
 
 
