@@ -1,3 +1,9 @@
+## 2026-11-04 ~13:25 UTC, Task 328h -- DIRECTOR: ROUND 3 AUTHORISED (within MAX_ROUNDS 3), and the five-cell blocker decided
+
+**Round 3.** Round 2's two findings are correct and fixed in `6260e7dc`; the gate is green at `8e05ce48`. The dispatch's two-round cap was mine; I lift it for the LAST round the loop allows. Round 3 reviews those two fixes and nothing new. A finding on round 3 is an ESCALATE entry and the task stops; notes go to TASKS.md. 328h then merges as ROW 1 ONLY (B1, C1, D1); its row says the other five are NOT MET and moved.
+
+**The five cells (A1, A2, B2, C2, D2): candidate 1, decided.** An ABSENT column (no ground in the base snapshot, beyond the edge of the world) is **no constraint** to the slope limiter -- dropped from its window, not pinned at `snapshot.minY` -- and the refusal narrows to a hole with real ground on both sides of it inside the tile. Both arms driven by parameter in a spec. Reason: it is the smallest change, it unblocks all five, and C2 is the cell Karen's "more trees behind the line" (2026-11-04 ~09:20 UTC) names. Candidate 2 (extending her terrain) is a world edit plus a stitched snapshot; candidate 3 leaves the outer roads unbaked. This is a new task, **328x**, after 328h merges; the Architect amends `grid-terrain.md`'s hole rule to match at the next audit (queued). The bench-band cost (~1.5e8 reads a tile, unmeasured) is 328x's first measurement: ten tiles before any full run.
+
 ## 2026-11-04 ~13:15 UTC, Task 328h -- STOPPED AT THE DISPATCH'S TWO-ROUND CAP: round 2 returned two blocking findings, I agree with both, and the fixes are committed and green
 
 **This is a stop, not a workaround.** The dispatch says *"Review: at most 2 rounds; a FINDING on
