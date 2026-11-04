@@ -65,6 +65,18 @@ function TestKit.activeToken(): string?
 	return activeToken
 end
 
+-- WHICH STAGE OF A RUN IS LIVE, for the harness when no report ever arrives (task 328t). Every stop
+-- between `run` being entered and the report being written used to be silent. The RUNNER publishes
+-- it, because nothing in here owns ServerStorage; TestKit only says where it got to.
+TestKit.onStage = nil :: ((string) -> ())?
+
+function TestKit.stage(name: string)
+	local hook = TestKit.onStage
+	if hook then
+		pcall(hook, name)
+	end
+end
+
 -- Notes a spec wants the HARNESS to see, whatever happens to the console.
 --
 -- Studio's console comes back truncated from a long session -- every two-player run so far lost the
@@ -76,12 +88,54 @@ local notes: { string } = {}
 function TestKit.note(text: string)
 	table.insert(notes, text)
 	print("[note] " .. text)
+	-- A note is also the furthest point a run is KNOWN to have reached, and it is the only signal
+	-- TestEZ's own run emits from inside (task 328t): its reporter speaks once, at the end.
+	TestKit.stage("note:" .. string.sub(text, 1, 80))
+end
+
+-- Seconds of non-yielding execution after which the suite yields one frame.
+--
+-- THE ENGINE KILLS A THREAD THAT NEVER YIELDS -- "Script timeout: exhausted allowed execution
+-- time" -- and that is what had been failing the gate (MEASURED, task 328t): ~2,800 synchronous
+-- tests, a stretch of pure-maths specs with no wait in them, and the runner's thread is terminated
+-- MID-TEST. It is not catchable, so there is no report at any window: 300, 900 and 2400 s all
+-- failed identically. A yield at a test boundary resets the engine's budget.
+TestKit.YIELD_AFTER = 2
+
+-- WHAT HAPPENS AT EVERY TEST BOUNDARY: the yield above, and the stage that names the test.
+-- TestEZ's reporter speaks once, at the end, so a run that never finishes named nothing at all; its
+-- node walk recurses through a plain table field, so it is wrapped once (0.4.1 is archived upstream
+-- and cannot drift under us). An `it` never reaches `runPlanNode` -- only a describe does -- but
+-- every node is pushed on the session, which is where the test's own name is.
+function TestKit.atEveryNode(TestEZ)
+	if TestEZ.TestRunner.dhNodeSeam then
+		return
+	end
+	TestEZ.TestRunner.dhNodeSeam = true
+	local inner = TestEZ.TestRunner.runPlanNode
+	local lastYield = os.clock()
+	TestEZ.TestRunner.runPlanNode = function(session, planNode, hooks)
+		if not session.dhNodeSeam then
+			session.dhNodeSeam = true
+			local push = session.pushNode
+			session.pushNode = function(self, node)
+				TestKit.stage("node:" .. tostring(node.phrase))
+				if os.clock() - lastYield > TestKit.YIELD_AFTER then
+					task.wait()
+					lastYield = os.clock()
+				end
+				return push(self, node)
+			end
+		end
+		return inner(session, planNode, hooks)
+	end
 end
 
 -- Runs every *.spec ModuleScript under specsFolder and returns the report table.
 -- side is "server" or "client"; it is echoed in the report and the [tests:<side>] line.
 function TestKit.run(side: string, token: string, specsFolder: Instance?)
 	activeToken = token
+	TestKit.stage("run-entered")
 	local report = {
 		side = side,
 		token = token,
@@ -103,6 +157,7 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 		-- clock seam open for the rest of the session, in a Studio session a human is about to play in.
 		-- Every exit from `run` goes through here, including the early returns above.
 		activeToken = nil
+		TestKit.stage("finish:" .. report.status)
 		local line = if report.status == "ERROR"
 			then string.format("[tests:%s] ERROR: %s", side, report.message)
 			else string.format(
@@ -145,6 +200,7 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 	for _, module in specsFolder:GetDescendants() do
 		if module:IsA("ModuleScript") and string.match(module.Name, "%.spec$") then
 			table.insert(report.specs, module:GetFullName())
+			TestKit.stage("spec-load:" .. module.Name)
 			local startedAt = os.clock()
 			local ok, err = pcall(require, module)
 			table.insert(slowest, { name = module.Name, ms = (os.clock() - startedAt) * 1000 })
@@ -165,8 +221,10 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 		TestKit.note("spec load, slowest three: " .. table.concat(worst, ", "))
 	end
 
+	TestKit.stage("testez-starting")
 	local ok, resultsOrErr = pcall(function()
 		local TestEZ = require(devPackages.TestEZ)
+		TestKit.atEveryNode(TestEZ)
 		return TestEZ.TestBootstrap:run({ specsFolder }, TestEZ.Reporters.TextReporter)
 	end)
 	if not ok then
@@ -174,6 +232,7 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 		return finish()
 	end
 
+	TestKit.stage("testez-returned")
 	local results = resultsOrErr
 	-- THE FAILURES THEMSELVES, in the report. Studio's console comes back truncated from a long
 	-- session and takes the failure list with it: a two-player run said "13 failed" and nothing
@@ -192,6 +251,7 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 	-- Zero passing tests is a failure: it means nothing ran, not that everything is fine.
 	-- Any skipped test is a failure too: SKIP/itSKIP/describeSKIP skip tests directly, and
 	-- FOCUS/itFOCUS/describeFOCUS skip every unfocused test. Neither may reach main.
+	TestKit.stage("report-built")
 	report.status = if results.failureCount == 0
 			and report.errorCount == 0
 			and results.skippedCount == 0

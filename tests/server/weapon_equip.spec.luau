@@ -117,6 +117,10 @@ local function realGunOf(player: Player): Tool?
 	return nil
 end
 
+-- Seconds the late-mesh case waits for the gun template to be preloaded (task 328t). Bounded, so a
+-- template that never arrives still fails the case rather than hanging the suite.
+local TEMPLATE_WAIT = 45
+
 local function waitUntil(seconds: number, predicate: () -> boolean): boolean
 	local deadline = os.clock() + seconds
 	while os.clock() < deadline do
@@ -624,19 +628,55 @@ return function()
 			-- of that name breaks the one-gun-per-player rule `Weapon.grant` enforces.
 			local tool = probeTool(Hardware.TOOL_NAME)
 			tool.Parent = backpack
+			-- AND THE CASE'S OWN PREMISE, SET RATHER THAN INHERITED (task 328t). "Spawned inside the
+			-- server's first second" means holding nothing; `upgradeLook` re-equips the gun that was
+			-- HELD, or the PRIMARY when none is (task 140's rule, `Weapon.upgradeLook`). MEASURED in
+			-- this session: `heldId=rifle` from an earlier case, upgraded=1 and wearsMesh=true, and
+			-- the sweep then correctly left the upgraded SHOTGUN in the Backpack -- so the case was
+			-- asserting against the very rule it is built on.
+			local humanoid = if player.Character then player.Character:FindFirstChildOfClass("Humanoid") else nil
+			if humanoid then
+				humanoid:UnequipTools()
+				-- AND WAITED FOR: `Weapon.heldId` is the server's own bookkeeping, written by the
+				-- Tool's Unequipped listener a frame later, so reading it in this frame still
+				-- answers "rifle" (measured, round 1 of this fix).
+				waitUntil(2, function()
+					return Weapon.heldId(player) == nil
+				end)
+			end
 
 			local ok, err = pcall(function()
 				expect(Hardware.wearsMesh(tool)).to.equal(false)
 
 				-- THE MESH LANDS. `Weapon.upgradeLook` is the one path both callers use (`WeaponBoot`
 				-- once, the arming sweep after that), and its `after` callback is task 123 round 9.
+				--
+				-- AND IT IS WAITED FOR, NOT DEMANDED ON THE FIRST SWEEP (task 328t). The gated suite
+				-- starts at BOOT, and this place's asset preload is now slow enough that the file is
+				-- reached before `shotgun.handle` has arrived -- measured: the same case fails alone
+				-- in a fresh Play session and the live guns wear their meshes a moment later. The
+				-- claim is unchanged: the sweep must dress this Tool, and it still FAILS when the
+				-- template never comes.
+				-- The observable is the PLAYER'S OWN GUN wearing its mesh: a fresh `Hardware` in a
+				-- probe cannot see the live template provider (measured), and hammering the sweep
+				-- every frame while waiting disturbs the specs after this one (round 1: a
+				-- rate-limited shot and a spent shell).
+				if realGun ~= nil then
+					waitUntil(TEMPLATE_WAIT, function()
+						return Hardware.wearsMesh(realGun :: Tool)
+					end)
+				end
 				local upgraded = Weapon.upgradeLook()
 				if not Hardware.wearsMesh(tool) then
 					-- The template is not loaded in this session, so there is nothing to upgrade TO.
 					-- It FAILS rather than passing on nothing: a silent skip is how the fault this
 					-- file guards came back twice.
 					error(
-						"the gun mesh template is not available in this session, so the upgrade path could not run",
+						string.format(
+							"the gun mesh template is not available in this session after %d s,"
+								.. " so the upgrade path could not run",
+							TEMPLATE_WAIT
+						),
 						0
 					)
 				end
