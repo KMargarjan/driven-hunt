@@ -950,6 +950,10 @@ return function()
 			expect(junctions).to.equal(15)
 			expect(worstJunction < 1e-12).to.equal(true)
 			-- 6. THE PLAN AT THE SHIPPED BEND, pinned beside the straight count the case above pins.
+			-- **1,965 bent since task 328i**, which is 2,429 MINUS C1's 464-site SKIRT: all three of
+			-- C1's neighbours are in `Grid.PLANTED_CELLS` now, and a cell draws no skirt into a
+			-- neighbour that has its own wood. C1's OWN rectangle has not moved a tree -- 328s's own
+			-- per-cell note reads `2448(t1861 f104 s483)` and this plan is `t1861 f104 s0`.
 			-- **2,429 bent since task 328h** (328s pinned 2,448, 328o 1,789). MEASURED, not
 			-- argued: the harness's own per-cell note reads C1 `2448(t1861 f104 s483)` with `Grid`
 			-- at `main` and `2429(t1861 f104 s464)` with 328h's, in two runs at the same code
@@ -962,11 +966,11 @@ return function()
 			local drawn = Plan.plantCell("C1")
 			local straightCount = #Plan.plantCell("C1", nil, STRAIGHT)
 			TestKit.note(string.format("328h: C1 plan bent %d, straight %d", #drawn, straightCount))
-			expect(#drawn).to.equal(2429)
-			expect(straightCount).to.equal(2458)
+			expect(#drawn).to.equal(1965)
+			expect(straightCount).to.equal(1969)
 			TestKit.note(
 				string.format(
-					"SHIPPED BENT %d/%d: flank set-back %d (was 340), C1 stand 1 (%.2f,%.2f) 8 (%.2f,%.2f) 10 (%.2f,%.2f), layout span %d / north %d, roadZ departs %.2f st from the centre and is exact at %d sampled stations, %d junctions to %.1e, C1 plan %d (straight 2458)",
+					"SHIPPED BENT %d/%d: flank set-back %d (was 340), C1 stand 1 (%.2f,%.2f) 8 (%.2f,%.2f) 10 (%.2f,%.2f), layout span %d / north %d, roadZ departs %.2f st from the centre and is exact at %d sampled stations, %d junctions to %.1e, C1 plan %d (straight 1969)",
 					c.bend.ewStuds,
 					c.bend.nsStuds,
 					Grid.flankFirstStuds(),
@@ -1832,12 +1836,21 @@ return function()
 			for _, rect in ipairs(Plan.fernBands("C1", plan)) do
 				ferns += cells(rect, plan.fernSpacing)
 			end
-			local skirt = 0
+			-- THE SKIRT TERM IS ZERO FOR C1 AND THE CASE SAYS WHY (task 328i): all three of its
+			-- neighbours are planted, so no skirt band is drawn and none may be counted. The bands
+			-- themselves still EXIST -- the second loop asserts that, so a `skirtBands` that
+			-- silently returned nothing would not be mistaken for the rule working.
+			local skirt, bands = 0, 0
 			for _, near in ipairs(Plan.neighboursOf("C1")) do
 				for _, band in ipairs(Plan.skirtBands("C1", near.id, near.axis, plan)) do
-					skirt += cells(band.rect, band.spacing)
+					bands += 1
+					if not Plan.isPlanted(near.id) then
+						skirt += cells(band.rect, band.spacing)
+					end
 				end
 			end
+			expect(bands > 0).to.equal(true)
+			expect(skirt).to.equal(0)
 			expect(under > 0).to.equal(true)
 			expect(Plan.cellCapacity("C1")).to.equal(zones + under + ferns + skirt)
 
@@ -2045,8 +2058,20 @@ return function()
 		it("plants C1 at the density Karen asked for, and accounts for every site it refused", function()
 			local rows = Plan.plantCell("C1")
 			local tally = Plan.TALLY
-			expect(#rows >= 2300).to.equal(true)
+			-- 328s's FLOOR WAS 2,300 ON THE WHOLE PLAN, SKIRT INCLUDED. Task 328i stops the skirt
+			-- into a planted neighbour and all three of C1's are planted, so the same wood now
+			-- counts 1,965 -- `2448 = t1861 + f104 + s483` at 328s, `1965 = t1861 + f104` here.
+			-- The floor moves to the half that is C1's OWN GROUND, which is the half Karen looked
+			-- at, and it is the number 328s already measured: not one tree inside C1 has moved.
+			expect(#rows >= 1900).to.equal(true)
 			expect(#rows <= Plan.CELL_PART_CAP).to.equal(true)
+			local skirtHere = 0
+			for _, item in ipairs(rows) do
+				if item.side < 0 then
+					skirtHere += 1
+				end
+			end
+			expect(skirtHere).to.equal(0)
 			expect(tally.planted).to.equal(#rows)
 			-- EVERY OFFERED SITE LANDS IN EXACTLY ONE BUCKET, which is what makes the split a
 			-- measurement rather than two totals and a guess: a new refusal arm with no counter
@@ -2533,23 +2558,87 @@ return function()
 			TestKit.note("PLANTED_CELLS: " .. table.concat(planted, ","))
 		end)
 
-		-- THE DENSITY. Pinned so a later tweak cannot quietly give it back, exactly as 328s pinned
-		-- C1's. The target is 328s's own, quoted: >= 2,300 planned and <= `CELL_PART_CAP`.
-		it("plans every one of them at C1's accepted density", function()
-			local floorWanted = 2300
+		-- THE DENSITY, MEASURED ON THE CELL'S OWN GROUND. The SKIRT is excluded on purpose: a
+		-- skirt stands in the NEIGHBOUR's rectangle, so counting it would credit a cell with wood
+		-- a hunter standing in it cannot see, and it is the term 328i withdraws between two planted
+		-- cells. C1's own wood is **1,861 trees**, which is what Karen accepted on 2026-11-04
+		-- (*"rest seems ok I think you did good job"*), and every other planted cell is held within
+		-- **+-10 %** of it. Pinned so a later tweak cannot quietly give the density back.
+		it("plants every one of them at C1's own accepted density, give or take a tenth", function()
+			local function ownTrees(id: string): number
+				local n = 0
+				for _, item in ipairs(woods[id]) do
+					if item.side > 0 and item.band ~= "herb" then
+						n += 1
+					end
+				end
+				return n
+			end
+			local standard = ownTrees(Grid.PREVIEW_CELL)
+			expect(standard).to.equal(1861)
 			local lines = {}
 			for _, id in ipairs(Grid.PLANTED_CELLS) do
-				local total = #woods[id]
-				table.insert(lines, string.format("%s %d/%d", id, total, Plan.cellCapacity(id)))
-				expect(total >= floorWanted).to.equal(true)
-				expect(total <= Plan.CELL_PART_CAP).to.equal(true)
+				local own = ownTrees(id)
+				table.insert(lines, string.format("%s %d (%.0f%%) of %d", id, own, 100 * own / standard, #woods[id]))
+				expect(own >= math.floor(standard * 0.9)).to.equal(true)
+				expect(own <= math.ceil(standard * 1.1)).to.equal(true)
+				-- ...AND THE WHOLE PLAN IS STILL INSIDE BOTH CAPS.
+				expect(#woods[id] <= Plan.CELL_PART_CAP).to.equal(true)
 				expect(Plan.cellCapacity(id) <= Plan.CELL_PLAN_CAP).to.equal(true)
 			end
-			-- ...AND THE THREE UNBAKED CELLS ARE NOT TOUCHED: the task that bakes them raises them.
+			-- ...AND THE THREE UNBAKED CELLS ARE NOT TOUCHED: the task that bakes them raises them,
+			-- and until then they are well under the band. This is what makes the case above a
+			-- reading of THIS task's rows and not of the planter in general.
 			for _, id in ipairs({ "A1", "B2", "D2" }) do
-				expect(#woods[id] < floorWanted).to.equal(true)
+				expect(ownTrees(id) < math.floor(standard * 0.9)).to.equal(true)
 			end
-			TestKit.note(string.format("328i planned (no ground reader): %s", table.concat(lines, " ")))
+			TestKit.note(string.format("328i own wood: %s", table.concat(lines, " ")))
+		end)
+
+		-- THE SKIRT RULE, which is what keeps two planted cells' woods out of each other. MEASURED
+		-- in Karen's place with the skirt still drawn and all five cells standing: 199 pairs of
+		-- trunks inside 6 studs and 59 inside 3, worst 0.54 -- against 0 and 0 WITHIN a cell, same
+		-- instrument, same run (`<runs-dir>/328i-overlap-after.txt`).
+		it("draws no skirt into a planted neighbour, and still skirts a bare one", function()
+			-- C1's three neighbours are ALL planted, so it draws none.
+			for _, near in ipairs(Plan.neighboursOf(Grid.PREVIEW_CELL)) do
+				expect(Plan.isPlanted(near.id)).to.equal(true)
+			end
+			local c1Skirt = 0
+			for _, item in ipairs(woods[Grid.PREVIEW_CELL]) do
+				if item.side < 0 then
+					c1Skirt += 1
+				end
+			end
+			expect(c1Skirt).to.equal(0)
+			-- ...AND A CELL WITH A BARE NEIGHBOUR STILL DRESSES IT, so the case fails if `plantCell`
+			-- simply stopped skirting. C2's B2 and D2 are not planted; A1 is in no list at all.
+			expect(Plan.isPlanted("B2")).to.equal(false)
+			expect(Plan.isPlanted("A1")).to.equal(false)
+			expect(Plan.isPlanted("Z9")).to.equal(false)
+			local c2Skirt = 0
+			for _, item in ipairs(woods.C2) do
+				if item.side < 0 then
+					c2Skirt += 1
+				end
+			end
+			expect(c2Skirt > 0).to.equal(true)
+			-- ...AND NOT ONE SKIRT SITE OF C2's LANDS INSIDE A PLANTED CELL'S OWN GROUND, which is
+			-- the fact the collision measurement is about. Asked of the rectangle rather than of
+			-- "the nearest cell", so a site in the road between two cells cannot flip the answer.
+			local stray = 0
+			for _, item in ipairs(woods.C2) do
+				if item.side < 0 then
+					for _, id in ipairs(Grid.PLANTED_CELLS) do
+						local g = Plan.cellGround(id)
+						if item.x >= g.minX and item.x <= g.maxX and item.z >= g.minZ and item.z <= g.maxZ then
+							stray += 1
+						end
+					end
+				end
+			end
+			expect(stray).to.equal(0)
+			TestKit.note(string.format("skirt: C1 %d (3 planted neighbours), C2 %d into bare ground", c1Skirt, c2Skirt))
 		end)
 
 		-- THE BEHAVIOUR, driven through the real planter over a fake hillside -- the fixture case 18b

@@ -1262,17 +1262,17 @@ Places.CELL_PLANS = table.freeze({
 		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
 		scaleFloor = 0.35,
 		zones = table.freeze({
-			zone(0.00, 0.00, 1.00, 0.26, 20, "larchYoung", "shrub", {
+			zone(0.00, 0.00, 1.00, 0.26, 21, "larchYoung", "shrub", {
 				rows = "NS",
 				jitter = 0.25,
 				under = UNDER,
 			}),
-			zone(0.00, 0.26, 0.35, 0.65, 21, "larchYoung", "shrub", {
+			zone(0.00, 0.26, 0.35, 0.65, 22, "larchYoung", "shrub", {
 				rows = "NS",
 				jitter = 0.25,
 				under = UNDER,
 			}),
-			zone(0.35, 0.26, 1.00, 0.65, 29, "mixedWood", "wood", CANOPY),
+			zone(0.35, 0.26, 1.00, 0.65, 30, "mixedWood", "wood", CANOPY),
 			zone(0.00, 0.65, 1.00, 0.82, 0, "clearing", "wood"),
 			zone(0.00, 0.82, 1.00, 1.00, 28, "scrub", "shrub", { jitter = 1.0 }),
 		}),
@@ -2976,9 +2976,22 @@ function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?
 		})
 		ferns += #out - before
 	end
-	-- THE SKIRT, into every neighbour, at THIS cell's density and the NEIGHBOUR's own species.
+	-- THE SKIRT, into every BARE neighbour, at THIS cell's density and the NEIGHBOUR's own species.
+	--
+	-- **NOT INTO A NEIGHBOUR THAT IS PLANTED ITSELF** (task 328i). The skirt exists to dress a cell
+	-- whose neighbour is bare ground, so that a hunter looking over the boundary sees wood and not
+	-- an edge. Once the neighbour has its OWN wood the skirt is a second wood laid over the first,
+	-- and `minGapStuds` cannot see it: the gap rule runs over one cell's own grid. MEASURED in
+	-- Karen's place with all five cells standing and the skirt still drawn, trunk pivots, ferns
+	-- excluded (`<runs-dir>/328i-overlap-after.txt`): **199 pairs inside 6 studs and 59 inside 3,
+	-- worst 0.54 studs** -- interpenetrating trunks -- against **0 and 0 WITHIN a cell**, same
+	-- instrument, same run. What separates two planted cells is the road between them, and a road
+	-- is meant to be clear.
 	local skirtRng = Random.new(Grid.seedFor(cellId, Places.CELL_STREAM.skirt))
 	for _, near in ipairs(Places.neighboursOf(cellId)) do
+		if Places.isPlanted(near.id) then
+			continue
+		end
 		local theirPlan = Places.cellPlanFor(near.id)
 		for _, band in ipairs(Places.skirtBands(cellId, near.id, near.axis, plan)) do
 			scatter(out, band.rect, band.spacing, trees, plan.minGapStuds, skirtRng, plan, -1, function(x, z)
@@ -2991,6 +3004,15 @@ function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?
 		end
 	end
 	return out
+end
+
+-- IS THIS CELL ONE OF THE ONES THAT GETS ITS OWN WOOD (task 328i)? One reader of
+-- `Grid.PLANTED_CELLS`, so the skirt rule above and `Places.build`'s dress list are one fact.
+function Places.isPlanted(cellId: string?): boolean
+	if type(cellId) ~= "string" then
+		return false
+	end
+	return table.find(Grid.PLANTED_CELLS, cellId :: string) ~= nil
 end
 
 -- WHAT A MODEL COSTS IN PARTS. MEASURED in Karen's Forest Test at task 328m's code commit: 5,104
@@ -3039,9 +3061,13 @@ function Places.cellCapacity(cellId: string): number
 	for _, rect in ipairs(Places.fernBands(cellId, plan)) do
 		total += cells(rect, plan.fernSpacing)
 	end
+	-- THE SKIRT'S OWN BOUND COUNTS THE BANDS `plantCell` ACTUALLY DRAWS (task 328i): a skirt into a
+	-- planted neighbour is not drawn, so counting it here would bound a plan that cannot exist.
 	for _, near in ipairs(Places.neighboursOf(cellId)) do
-		for _, band in ipairs(Places.skirtBands(cellId, near.id, near.axis, plan)) do
-			total += cells(band.rect, band.spacing)
+		if not Places.isPlanted(near.id) then
+			for _, band in ipairs(Places.skirtBands(cellId, near.id, near.axis, plan)) do
+				total += cells(band.rect, band.spacing)
+			end
 		end
 	end
 	return total
