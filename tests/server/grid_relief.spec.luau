@@ -2268,6 +2268,63 @@ return function()
 				)
 			)
 		end)
+		it("328y gives A2, C2 and D2 C1's litter floor, and the shape stamp does not move", function()
+			-- MEASURED in Karen's place after the 328x bake, 1,645 lattice samples a cell
+			-- (`<runs-dir>/328y-census-before.txt`): A2 1,537 `Ground`, C2 1,539, D2 1,545, where
+			-- C1 reads 1,533 `LeafyGrass`. SWARM 2.2 states no floor for these three.
+			for _, id in { "A2", "C2", "D2" } do
+				local form = Relief.LANDFORMS[id]
+				expect(form.floor.default).to.equal("LeafyGrass")
+				-- C1's RULE IS A DEFAULT AND NOTHING ELSE, so no borrowed arm can fire on ground
+				-- C1 never had: the extremes of both arms still answer the default.
+				expect(form.floor.mudDepthStuds).to.equal(nil)
+				expect(form.floor.screeDegFrom).to.equal(nil)
+				local bounds = Grid.boundsOf(id)
+				expect(Relief.materialAt(form, bounds, nil, 0, 0, 0, 0)).to.equal("LeafyGrass")
+				expect(Relief.materialAt(form, bounds, nil, 35, 40, 0, 0)).to.equal("LeafyGrass")
+				expect(Relief.materialAt(form, bounds, nil, 89, 400, 0, 0)).to.equal("LeafyGrass")
+			end
+			-- MATERIAL ONLY: `TerrainShape_<id>` hashes `baseKeep` and `ops`, so every stamp is what
+			-- it was and the repaint cannot be read as a shape change. The landform still goes in on
+			-- every re-bake (328r) -- the heights hold because the base is the virgin `.bin` and the
+			-- write is absolute. The EPOCH moves: `epochInput` hashes the floor too.
+			local mark = Instance.new("Folder")
+			expect(TerrainBake.stampShape({ "A2", "C2", "D2" }, mark)).to.equal(3)
+			local shaped = { A2 = Relief.LANDFORMS.A2, C2 = Relief.LANDFORMS.C2, D2 = Relief.LANDFORMS.D2 }
+			local brown = {} :: any
+			for id, form in Relief.LANDFORMS do
+				brown[id] = form
+			end
+			for id, form in shaped do
+				-- ASKED THROUGH THE FUNCTION THE STAMP IS WRITTEN FROM (Reviewer round 1, finding 1):
+				-- `shapeInputFor` carries no floor, so a repaint leaves `reshapeWanted` at "stamped".
+				expect(string.find(TerrainBake.shapeInputFor(id), "floor", 1, true)).to.equal(nil)
+				expect(TerrainBake.shapeInputFor(id)).never.to.equal(Relief.epochInput({
+					[id] = { baseKeep = form.baseKeep, ops = form.ops, floor = { default = "Rock" } },
+				}, Grid.CONFIG))
+				expect(mark:GetAttribute("TerrainShape_" .. id)).to.equal(TerrainBake.shapeInputFor(id))
+				local wanted, _, kind = TerrainBake.reshapeWanted(id, mark)
+				expect(wanted).to.equal(false)
+				expect(kind).to.equal("stamped")
+				brown[id] = table.freeze({
+					baseKeep = form.baseKeep,
+					ops = form.ops,
+					floor = table.freeze({ default = "Ground" }),
+				})
+			end
+			mark:Destroy()
+			expect(Relief.epochInput(Relief.LANDFORMS, Grid.CONFIG)).never.to.equal(
+				Relief.epochInput(brown, Grid.CONFIG)
+			)
+			TestKit.note(
+				string.format(
+					"A2/C2/D2 floor %s/%s/%s",
+					Relief.LANDFORMS.A2.floor.default,
+					Relief.LANDFORMS.C2.floor.default,
+					Relief.LANDFORMS.D2.floor.default
+				)
+			)
+		end)
 		it("328e-6 puts the landform in ONCE: a bake over baked ground does not add it again", function()
 			-- MEASURED IN KAREN'S PLACE BEFORE THIS TASK WROTE ANYTHING
 			-- (`<runs-dir>/328e-drift-BEFORE.json`): over 90 points of C1 a fresh bake would have
