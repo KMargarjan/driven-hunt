@@ -2612,6 +2612,84 @@ return function()
 			expect(string.find(good.message :: string, "no profiles were handed", 1, true)).never.to.equal(nil)
 		end)
 
+		it("328h-1 bakes a BENCH cell from the tile slice plus its anchor band, and refuses it without", function()
+			-- A1, B2 and D2 carry a `bench`, whose plane is anchored on the base over the band's
+			-- first `Relief.BENCH_ANCHOR_STUDS` AT THE SAME x -- which for most tiles is a long way
+			-- off in z. `bakeTileAt` used to refuse all three outright; 328h cuts that rectangle out
+			-- of the SAME base file and hands it in beside the tile's own slice.
+			local plan = TerrainBake.tilePlan(TerrainBake.regionFor({ "B2" }))
+			local pad = TerrainBake.padFor()
+			local v = Relief.VOXEL
+			local wide = (TerrainBake.TILE_STUDS + 2 * pad) / v
+			local tile = plan[#plan] -- the far end of the cell in z, where the band is NOT in the tile
+
+			-- (a) THE BAND IS THE LANDFORM'S OWN, not a number this spec chose.
+			local bands = TerrainBake.benchBands({ "B2" })
+			expect(#bands).to.equal(1)
+			expect(bands[1].cell).to.equal("B2")
+			local bounds = Grid.boundsOf("B2")
+			local reach = Relief.BLUR.cutoffStuds + v + Grid.maxBendStuds()
+			expect(bands[1].minZ).to.be.near(bounds.minZ - reach, 1e-6)
+			expect(bands[1].maxZ).to.be.near(bounds.minZ + Relief.BENCH_ANCHOR_STUDS + reach, 1e-6)
+
+			-- (b) WITHOUT THE BAND THE TILE IS REFUSED, and the refusal names the band it wanted.
+			local slice = TerrainBake.encodeSlice(snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, flat, {}))
+			local none = TerrainBake.bakeTileAt(#plan, { "B2" }, true, { {} :: any }, slice)
+			expect(none.message).never.to.equal(nil)
+			expect(string.find(none.message :: string, "covering its anchor", 1, true)).never.to.equal(nil)
+			expect(none.voxels).to.equal(0)
+
+			-- (c) A BAND THAT DOES NOT REACH THE TILE'S x WINDOW IS NOT A BAND: still refused, so
+			-- the coverage test is a test and not a count of arguments.
+			local away = TerrainBake.encodeSlice(snapshotOf(tile.minX + 4000, bands[1].minZ, 64, 64, flat, {}))
+			local wrong = TerrainBake.bakeTileAt(#plan, { "B2" }, true, { {} :: any }, slice, { away })
+			expect(string.find(wrong.message :: string, "covering its anchor", 1, true)).never.to.equal(nil)
+
+			-- (d) WITH IT, the tile gets past this refusal to the next one (no profiles).
+			local bandNx = (TerrainBake.TILE_STUDS + 2 * pad) / v
+			local bandNz = math.ceil((bands[1].maxZ - bands[1].minZ) / v)
+			local band = TerrainBake.encodeSlice(snapshotOf(tile.minX - pad, bands[1].minZ, bandNx, bandNz, flat, {}))
+			local good = TerrainBake.bakeTileAt(#plan, { "B2" }, true, nil, slice, { band })
+			expect(string.find(good.message :: string, "no profiles were handed", 1, true)).never.to.equal(nil)
+		end)
+
+		it("328h-2 reads the band through the SAME reader, and the band changes the shaped ground", function()
+			-- THE FALL-THROUGH BITES. A reader with no extra answers nil in the band, so `applyOps`
+			-- anchors the bench plane on nothing and the tile comes out at a different height. Two
+			-- shapes of the same tile, same bytes except the band -- so deleting `readerFor`'s
+			-- `extras` arm, or the band itself, fails this.
+			local plan = TerrainBake.tilePlan(TerrainBake.regionFor({ "B2" }))
+			local pad = TerrainBake.padFor()
+			local v = Relief.VOXEL
+			local wide = (TerrainBake.TILE_STUDS + 2 * pad) / v
+			local tile = plan[#plan]
+			local function slope(x: number, z: number): number
+				return 100 + 0.01 * (x + z)
+			end
+			local snap = snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, slope, {})
+			local bands = TerrainBake.benchBands({ "B2" })
+			local bandNz = math.ceil((bands[1].maxZ - bands[1].minZ) / v)
+			local band = snapshotOf(tile.minX - pad, bands[1].minZ, wide, bandNz, slope, {})
+
+			local plain = TerrainBake.readerFor(snap)
+			local withBand = TerrainBake.readerFor(snap, { band })
+			local probeX, probeZ = tile.minX + 2, bands[1].minZ + 2
+			expect(plain(probeX, probeZ)).to.equal(nil)
+			expect(withBand(probeX, probeZ)).never.to.equal(nil)
+			-- ...and the tile's own columns still come from the TILE slice, not the band.
+			expect(withBand(tile.minX + 2, tile.minZ + 2)).to.equal(plain(tile.minX + 2, tile.minZ + 2))
+
+			local without = TerrainBake.shapeTile(tile, snap, { "B2" }, {}, nil, nil, nil, nil)
+			local with = TerrainBake.shapeTile(tile, snap, { "B2" }, {}, nil, nil, nil, { band })
+			local moved = 0
+			for at, h in without do
+				if math.abs(h - with[at]) > 1e-6 then
+					moved += 1
+				end
+			end
+			expect(moved > 0).to.equal(true)
+		end)
+
 		it("328k-7 makes the long profiles REFUSE to run with no sampler", function()
 			-- The default was a live raycast, and that is the measured drift: C1's lineMeanY went
 			-- 108.88 -> 112.83 -> 114.81 over three bakes (ESCALATE.md, task 328e).
