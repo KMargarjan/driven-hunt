@@ -2080,3 +2080,49 @@ The round-2 finding is correct and is in a test: the `--allow-local-file` guard 
 ## 2026-11-03 02:50 UTC, Task 328f's TEMPLATE_DIMS question -- DIRECTOR DECISION
 
 Design 9.2 already rules it: `TEMPLATE_DIMS` records **the template's own `GetScale()`**. A table wrong in 27 of 35 rows is that design not yet built, not an open choice. So: (1) **re-measure** -- build `tools/forest_ground.py dims` as design 9.2 names it and rewrite all 35 rows from the live templates; (2) the template audit **REFUSES** a template whose live `GetScale()` is off its row (quarantine, named reason), never rescales silently; (3) once the rows are true, `Places.CROWN_SCALE_SLACK` goes to 1.0 or is retired, with `crownOverRoad` still 0 as the proof; (4) the same task takes `foliageInGround` (158 after 328f) toward 0 through the contact arithmetic or the quarantine, per template. Task 328l. Director.
+
+## 2026-11-04 00:10 UTC -- Task 328s: THE ONE-PLAYER GATE IS RED AT MAIN, NOT AT THIS BRANCH
+
+**The hard stop, written before any workaround (rule V280).** `tools/studio_mcp.py test` cannot
+produce a PASS line tonight, on this branch OR on the commit it branched from, so the review gate
+(`tools/agents.py` refuses a request with no harness PASS for the code commit) cannot be met.
+
+**Three runs, same Studio, same evening:**
+
+| # | commit | result |
+|---|---|---|
+| 1 | `aba97b6f` (328s code commit) | `FAIL: 25/29 @ aba97b6f8f14... (clean tree) scope=all` -- `[server] runner reported within 300 s` FAIL; client `674 passed, 2 failed, 2 errors` (`hit_marker.spec:127`, `shoot_boar.spec:328`) |
+| 2 | `aba97b6f`, re-run | `FAIL: 19/24 @ aba97b6f8f14...` -- BOTH runners failed to report within 300 s |
+| 3 | **`14581cc7` (merge-base, `main`)** -- the CONTROL | `FAIL: 23/29 @ 14581cc79724... (clean tree) scope=all` -- `[server] runner reported within 300 s` FAIL; client **`674 passed, 2 failed, 2 errors`, the same two specs, the same counts** |
+
+Run 3 is the control the standing rule asks for (`Vnight-1027`): two harness lines naming two
+different commits, and the merge-base fails **identically**. Nothing in 328s's diff is reachable
+from it either way -- DEV's world is `map:v1` (`Map.WORLD_BY_PLACE`), and `Places.plantCell` /
+`Places.CELL_PLANS` dress only the grid world, so a tree-density row cannot move a hit marker in
+DEV.
+
+**What the log says.** `LogService:GetLogHistory()` in the DEV place after run 3: all 512 retained
+entries are asset failures, no test output survives --
+
+```
+ContentId: rbxassetid://20007 failed due to: Asset is not trusted for this place
+ContentId: rbxassetid://20002 failed due to: User is not authorized to access Asset.
+Failed to load animation with sanitized ID rbxassetid://20005: Animation failed to load ...
+The experience doesn't have access permission to use asset id 20014. Click to share access
+```
+
+Ids `20001`-`20018` are the FAKE animation ids `tests/server/boar_shot.spec.luau` uses as a fixture
+(its own `idle = 20001, walk = 20002, ...` rows). They have always been fake; what is new is that
+the engine's refusal is now slow enough and loud enough to bury the whole log, and the SERVER suite
+no longer reports inside `REPORT_WINDOW` (300 s, `tools/studio_mcp.py`). 328r's gate passed 34/34 at
+`d989ebc0` hours earlier with the same spec in the tree, so this is a change in the environment
+(asset delivery / retry backoff), not in the repo.
+
+**NOT WORKED AROUND.** I have not raised `REPORT_WINDOW`, and I have not touched
+`boar_shot.spec.luau`: making a red gate green by moving the gate is the Director's decision, not
+mine, and `tools/studio_mcp.py` is the harness.
+
+**NEEDS THE DIRECTOR.** Either (a) authorise a `REPORT_WINDOW` raise with the measurement behind it,
+or (b) open a task for the fake-asset-id storm in `boar_shot.spec` (real ids, or no `Animator` load
+at all in a spec fixture), or (c) accept 328s on the evidence that does not need the gate. Task 328s
+itself is built, measured and unaffected: C1's plan 1,789 -> 2,448, every cell inside all three caps.
