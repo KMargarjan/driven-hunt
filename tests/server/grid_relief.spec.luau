@@ -2677,8 +2677,36 @@ return function()
 			-- (c) WITH IT, the tile gets past this refusal to the NEXT one (no profiles) -- which
 			-- is why the band check sits BEFORE the profiles check in `bakeTileAt`: with it after,
 			-- this call would stop at the profiles and prove nothing about the band.
+			-- THE BAND MUST REACH `pad + band.xPad` EITHER SIDE IN x: the anchor is read at the
+			-- column's grid x but the band's z, so the world x moves with the bend (round 1,
+			-- finding 2). A band cut only to the tile pad is refused, which is the point.
 			local bandNz = math.ceil((bands[1].maxZ - bands[1].minZ) / v) + 1
-			local band = TerrainBake.encodeSlice(snapshotOf(tile.minX - pad, bands[1].minZ - v, wide, bandNz, flat, {}))
+			local bandX0 = tile.minX - pad - bands[1].xPad
+			local bandNx = (side + 2 * pad + 2 * bands[1].xPad) / v
+			local band = TerrainBake.encodeSlice(snapshotOf(bandX0, bands[1].minZ - v, bandNx, bandNz, flat, {}))
+			local narrow = TerrainBake.encodeSlice(
+				snapshotOf(tile.minX - pad, bands[1].minZ - v, (side + 2 * pad) / v, bandNz, flat, {})
+			)
+			local tooNarrow = TerrainBake.bakeTileAt(pick :: number, cells, true, { {} :: any }, slice, { narrow })
+			expect(string.find(tooNarrow.message :: string, "covering its anchor", 1, true)).never.to.equal(nil)
+
+			-- (d) A BAND WITH A HOLE IS REFUSED, naming the count (round 1, finding 1): a nil
+			-- column there would drop the bench for that column with no report at all.
+			local holed = snapshotOf(bandX0, bands[1].minZ - v, bandNx, bandNz, flat, {});
+			(holed.hole :: any)[1] = true
+			holed.holes = 1
+			local withHole = TerrainBake.bakeTileAt(
+				pick :: number,
+				cells,
+				true,
+				{ {} :: any },
+				slice,
+				{ TerrainBake.encodeSlice(holed) }
+			)
+			expect(string.find(withHole.message :: string, "no single height", 1, true)).never.to.equal(nil)
+			expect(withHole.voxels).to.equal(0)
+
+			-- (e) AND A CLEAN, WIDE ENOUGH BAND gets past all of it, on to the next refusal.
 			local good = TerrainBake.bakeTileAt(pick :: number, cells, true, nil, slice, { band })
 			expect(string.find(good.message :: string, "no profiles were handed", 1, true)).never.to.equal(nil)
 		end)
