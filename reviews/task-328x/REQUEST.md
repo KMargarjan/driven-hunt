@@ -1,12 +1,12 @@
 # Task 328x -- bake the five edge cells
 
 Task: 328x
-Round: 1
+Round: 2
 Base: main `3d39646` (328h #329 merged: row 1 B1, C1, D1 baked)
-Code commit: `61c059a16228d4f5467a9a1b86f1068479c9f049`
+Code commit: `a2d647fef0611fd43261039975e6e6176a3a6f8a`
 
 ```
-[harness] PASS: 34/34 checks @ 61c059a16228d4f5467a9a1b86f1068479c9f049 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ a2d647fef0611fd43261039975e6e6176a3a6f8a (clean tree) scope=all
 ```
 `test2` N/A: no `TWO_PLAYER_PATHS` path is touched (`src/shared/Grid/`, `src/serverstorage/TerrainBake/`,
 `tests/server/grid_relief.spec.luau`, `tools/terrainbake.py`).
@@ -18,9 +18,16 @@ sides inside the rectangle. Two things the bake could not run without came with 
 is clipped where it leaves the base file (checked by `voidMargin`, not asserted), and `base_slice`'s
 per-column `set(holes)` rebuild is bound once. `--hold-landform` holds B2's and D2's landform back.
 
-**THE BAKE RAN AT `1cdc894d`, ONE COMMIT EARLIER.** `git diff 1cdc894d..HEAD --name-only` is
-`tests/server/grid_relief.spec.luau` alone, so the ground in Karen's place is byte-for-byte what the
-code commit produces. The spec fix is in the diff and its reason is in the commit message.
+**THE BAKE RAN AT `820484a6`, AND `git diff 820484a6..HEAD --name-only` IS
+`tests/server/grid_relief.spec.luau` ALONE**, so the ground in Karen's place is byte-for-byte what
+this code commit produces. Three bakes were run in all and the last two are at round 2's code: the
+row-1 snapshot came back with the same sha256 `8541621a62c9` all three times.
+
+**ROUND 2 ANSWERS BOTH ROUND-1 FINDINGS, AND I AGREE WITH BOTH.** Finding 1 was a real silent drop:
+the refusal's window is the tile but `Relief.blurredGrid` answers nil for any point whose 72-stud
+support holds a void, so a real column near one keeps the RAW base and the landform's whole
+`(1 - baseKeep) * (blur - base) + roadFade * delta` term is lost. Finding 2 was right about
+`BAKE_VERSION`. Claims 11 and 12 below are the two answers; claims 1-10 are unchanged.
 
 ## Claims
 
@@ -80,6 +87,30 @@ code commit produces. The spec fix is in the diff and its reason is in the commi
     ~16:20 carries the arithmetic and the fix I would take, including why a naive per-x cache does
     not work under the bend.
 
+11. **THE SILENT DROP IS A READING NOW, AND ON KAREN'S GROUND IT IS ZERO** (finding 1).
+    `shapeTile` returns the count of columns where `Relief.heightAt` answered nil;
+    `TileReport.droppedLandform` carries it; `tools/terrainbake.py` prints
+    `droppedLandform=N/M tiles` on the `[bake]` line **whatever N is**, so 0 is measured and never
+    assumed. The whole run reads **`droppedLandform=0/0 tiles` over all 1,120 tiles** -- which the
+    geometry predicts and now does not have to: `blendAt` is 0 beyond 200 studs of the union's box,
+    whose west edge is ~-6903, and the nearest void column is at -7000, a 97-stud gap against the
+    blur's 72. **`grid_relief` 328x-7 proves the defect is real anyway**, so the 0 is a fact about
+    this world and not about the code: a void strip in a real C1 tile's PAD (`holesInTile` 0, so
+    the tile is NOT refused) loses the landform on **1,728 shaping columns** -- 18 a row, exactly
+    the blur's reach -- and the tile's own westernmost column comes out **106.4708 against the
+    clean run's 106.7123**. Two ways that case was wrong before it bit, both in the log: its strip
+    first stopped at exactly 72 studs, where `heightAt`'s grid-space fallback still finds ground
+    across the bend's shear; and its synthetic base was a PLANE, whose blur is itself, so losing
+    the blur changed nothing.
+
+12. **`BAKE_VERSION` STAYS 1 AND THE REASON IS AT THE CONSTANT** (finding 2). Both new arms --
+    `limitPass`' `absent` and the Y band over the columns that have ground -- are reached ONLY by a
+    column the base cannot answer, and no stamped ground can hold one: `bakeTileAt` refused every
+    such tile outright before this task. The evidence is direct: B1, C1 and D1 were re-baked by
+    THIS code over ground the OLD code wrote and all **3 x 95,944 interior columns came back
+    byte-identical**. A bump would re-stamp every cell to say the ground changed when it is the same
+    ground to the bit. Verify at `Relief.BAKE_VERSION`, which now carries that paragraph.
+
 ## What I could NOT verify, said plainly
 
 * **A1 IS NOT BAKED.** Eight cells take `regionFor`'s ALL branch, whose lattice starts at x -7296, so
@@ -100,3 +131,14 @@ code commit produces. The spec fix is in the diff and its reason is in the commi
   They are neighbours ON the same line facing the same way, not across it, and both are row-1 stands
   on byte-identical ground -- so it is not a change this task made, and I have not measured the
   across-the-line statistic the dispatch's ">= 330" probably means.
+* **THE GATE WAS NOT GREEN FIRST TIME AND THE RUNS ARE NAMED.** At this code commit: run 1
+  30/34 with `deer_hitbox.spec:659`, `weapon_shot.spec:1490` and `semiauto_client.spec:93` -- all
+  three on the dispatch's known-flake list; run 2 32/34 with `deer_hitbox.spec:682`, also named;
+  run 3 32/34 with **`boar_behaviour.spec:1553`, which is NOT on the list**, so a control run was
+  made at the merge-base and passed -- `[harness] PASS: 34/34 checks @
+  cbeb3f788febd1f9dd267527a5b9f81086963efa (clean tree) scope=all` -- and this diff touches no boar
+  file; run 4 is the PASS line at the top. Four runs, one control.
+* **ROUND 1's NOTES ARE NOT ALL CLOSED.** The clipped-band acceptance branch still has no case of
+  its own (328h note (g)'s class), `relief_golden.luau` still has no holey-base sample, and the
+  `[bake]` line's format has drifted from design section 5 by `hold=` and now `droppedLandform=`.
+  Queued, not fixed in this round.
