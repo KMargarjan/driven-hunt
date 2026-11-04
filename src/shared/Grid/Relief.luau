@@ -18,6 +18,16 @@ local Relief = {}
 -- BUMPS WHEN THE ARITHMETIC MOVES -- a falloff shape, the blur sigma, the limiter, the road fade,
 -- the Y-band rule, `columnsFor`. NOT for a data change: `epochInput` already covers that.
 -- `relief_golden.luau` fails the harness if the maths moves without this number (design 5.4).
+--
+-- STAYS 1 THROUGH TASK 328x, AND THE REASON IS A MEASUREMENT, NOT A JUDGEMENT (Reviewer round 1,
+-- finding 2). 328x adds an `absent` arm to `limitPass` and takes the Y band over the columns that
+-- have ground -- both arithmetic by design 5.4's list. But both arms are reached ONLY by a column
+-- the base cannot answer, which could not occur in any stamped ground: `bakeTileAt` refused every
+-- such tile outright before this task. The evidence is direct rather than argued -- B1, C1 and D1
+-- were re-baked by THIS code over ground the OLD code wrote, and all 3 x 95,944 interior columns
+-- came back BYTE-IDENTICAL (`328x-row1-before.bin` / `-after2.bin`). A bump would re-stamp every
+-- cell to say the ground changed when it is the same ground to the bit. The next change to the
+-- limiter or the Y band that CAN move an existing column bumps this.
 Relief.BAKE_VERSION = 1
 
 -- How far outside the footprint the result returns to the base, exactly (design 3.0).

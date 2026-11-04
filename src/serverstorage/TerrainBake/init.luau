@@ -105,6 +105,12 @@ export type TileReport = {
 	reshape: string?,
 	-- THE STANDS `standPadsFor` COULD NOT PLACE A PAD UNDER, comma-separated and "" for none.
 	padsMissed: string?,
+	-- COLUMNS WHERE `Relief.heightAt` ANSWERED NIL and the landform was therefore NOT applied
+	-- (Reviewer round 1, finding 1; task 328x). The refusal's window is the tile, but the BLUR
+	-- reaches `Relief.BLUR.cutoffStuds` out of every column and `blurredGrid` answers nil for any
+	-- point whose support holds one, so a real column near the void keeps the RAW base instead.
+	-- Counted rather than argued: this is 0 or it is a number somebody has to look at.
+	droppedLandform: number?,
 }
 
 -- ---------------------------------------------------------------- the region
@@ -1425,7 +1431,7 @@ function TerrainBake.shapeTile(
 	-- own slice has no column. Nil for a run with no bench; `bakeTileAt` refuses a bench cell that
 	-- arrives without them, exactly as it refuses a tile with no profiles.
 	extras: { Snapshot }?
-): ({ number }, { string }, number, { boolean })
+): ({ number }, { string }, number, { boolean }, number)
 	local v = Relief.VOXEL
 	local side = TerrainBake.TILE_STUDS
 	local n = math.floor(side / v)
@@ -1447,6 +1453,8 @@ function TerrainBake.shapeTile(
 	local names: { string } = table.create(wide * wide, "")
 	local depth = table.create(wide * wide, 0)
 	local roads = Grid.roads()
+	-- SEE `TileReport.droppedLandform`.
+	local dropped = 0
 	-- THE STAND PADS, from the profiles this tile was handed -- so every tile of a run builds the
 	-- same pads from the same bytes (design 7.4).
 	local pads: { StandPad } = if profiles ~= nil then (TerrainBake.standPadsFor(cellIds, profiles, bend)) else {}
@@ -1498,6 +1506,9 @@ function TerrainBake.shapeTile(
 					TerrainBake.blendAt(union, x, z),
 					blurred[at]
 				)
+				if here == nil then
+					dropped += 1
+				end
 				shaped[at] = here or base
 				exempt[at] = Relief.isExempt(form, bounds, gx, gz)
 				depth[at] = TerrainBake.depthAt(base, here or base)
@@ -1573,7 +1584,7 @@ function TerrainBake.shapeTile(
 			innerNames[to] = name
 		end
 	end
-	return inner, innerNames, n, innerAbsent
+	return inner, innerNames, n, innerAbsent, dropped
 end
 
 -- ONE TILE: shape and material in the SAME WriteVoxels call (design 5.3 step 3). IDEMPOTENT --
@@ -1594,7 +1605,7 @@ function TerrainBake.bakeTile(
 	local started = os.clock()
 	local v = Relief.VOXEL
 	local side = TerrainBake.TILE_STUDS
-	local inner, innerNames, n, innerAbsent =
+	local inner, innerNames, n, innerAbsent, dropped =
 		TerrainBake.shapeTile(tile, snapshot, cellIds, plans, profiles, reshape, bend, extras)
 	-- THE Y BAND IS TAKEN OVER THE COLUMNS THAT HAVE GROUND (task 328x). An absent column carries
 	-- `snapshot.minY` as a placeholder and is written as AIR; counting it would drop the band's
@@ -1617,6 +1628,7 @@ function TerrainBake.bakeTile(
 			bandMin = 0,
 			bandMax = 0,
 			elapsedMs = math.floor((os.clock() - started) * 1000 + 0.5),
+			droppedLandform = dropped,
 		}
 	end
 	local bands = TerrainBake.bandsFor(lo, hi)
@@ -1628,6 +1640,7 @@ function TerrainBake.bakeTile(
 		bandMin = bands[1].min,
 		bandMax = bands[#bands].max,
 		elapsedMs = 0,
+		droppedLandform = dropped,
 	}
 	for _, band in bands do
 		local region = Region3.new(

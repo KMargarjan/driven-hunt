@@ -1487,6 +1487,7 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
     count = tile_count(region, facts["tile"])[0]
     limit = min(args.tiles or count, count)
     entries, worst = [], 0
+    dropped_total, dropped_tiles = [0], [0]
     side = facts["tile"]
     # THE TWO LATTICES MUST AGREE BEFORE THE RUN. `limit` is Python's count and the slices come from
     # Studio's plan; a disagreement used to be an IndexError partway through a 70-minute bake
@@ -1528,6 +1529,12 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
         report = call(studio, studio_id, expression, injected=injected)
         entries.append(report)
         worst = max(worst, report.get("elapsedMs", 0))
+        # COLUMNS WHERE THE LANDFORM WAS DROPPED because the blur had a void inside its support
+        # (Reviewer round 1 of task 328x, finding 1). It goes on the `[bake]` line whatever it is,
+        # so "0" is a reading and not a silence.
+        dropped_total[0] += report.get("droppedLandform") or 0
+        if (report.get("droppedLandform") or 0) > 0:
+            dropped_tiles[0] += 1
         # THE LANDFORM GOES IN ONCE, and which way the tile went is PRINTED on the first tile and
         # whenever it changes -- a run that skipped the landform must not look like one that
         # applied it (`TerrainBake.reshapeWanted`; measured +24.04 st of double ridge on C1).
@@ -1563,9 +1570,11 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
         print("[bake] shape stamp written on %s cell(s): %s%s"
               % (stamped, ",".join(shaped_cells),
                  ("  (NOT stamped, landform held: " + ",".join(hold) + ")") if hold else ""))
-    print("[bake] %s: %d/%d tiles @ %s cells=%s%s epoch=%s worstTileMs=%d (clean tree)"
+    print("[bake] %s: %d/%d tiles @ %s cells=%s%s epoch=%s worstTileMs=%d "
+          "droppedLandform=%d/%d tiles (clean tree)"
           % ("DRY OK" if dry else "OK", limit, limit, sha, ",".join(cells),
-             (" hold=" + ",".join(hold)) if hold else "", epoch, worst))
+             (" hold=" + ",".join(hold)) if hold else "", epoch, worst,
+             dropped_total[0], dropped_tiles[0]))
     return 0, entries
 
 

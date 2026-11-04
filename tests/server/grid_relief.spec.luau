@@ -3068,6 +3068,78 @@ return function()
 			expect(TerrainBake.voidMargin(snapshotOf(0, 0, n, n, flat, {}), 0, n * v, 0, 0)).to.equal(true)
 		end)
 
+		it("328x-7 the landform is DROPPED, and COUNTED, where the blur's support holds a void", function()
+			-- Reviewer round 1, finding 1. The refusal's window is the tile, but `Relief.BLUR`
+			-- reaches 72 studs out of every column and `blurredGrid` answers nil for any point
+			-- whose support holds a void -- so a REAL column near one keeps the RAW base and the
+			-- whole `(1 - baseKeep) * (blur - base) + roadFade * delta` term is lost. It is a
+			-- reading now: `shapeTile`'s fifth return and `TileReport.droppedLandform`.
+			local plan = TerrainBake.tilePlan(TerrainBake.regionFor({ "C1" }))
+			local pad = TerrainBake.padFor()
+			local v = Relief.VOXEL
+			local wide = (TerrainBake.TILE_STUDS + 2 * pad) / v
+			-- A TILE INSIDE C1, so the landform has full weight and the drop is a real loss.
+			local bounds = Grid.boundsOf("C1")
+			local pick = nil
+			for at, t in plan do
+				if
+					t.minX > bounds.minX + 200
+					and t.minX + TerrainBake.TILE_STUDS < bounds.maxX - 200
+					and t.minZ > bounds.minZ + 200
+					and t.minZ + TerrainBake.TILE_STUDS < bounds.maxZ - 200
+				then
+					pick = at
+					break
+				end
+			end
+			expect(pick).never.to.equal(nil)
+			local tile = plan[pick :: number]
+			local function rolling(x: number, z: number): number
+				return 120 + 0.02 * x + 0.03 * z
+			end
+			local reshape = { C1 = true }
+
+			-- (a) NO VOID: nothing is dropped.
+			local clean = snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, rolling, {})
+			local base, _n1, _c1, _a1, noneDropped = TerrainBake.shapeTile(tile, clean, { "C1" }, {}, nil, reshape)
+			expect(noneDropped).to.equal(0)
+
+			-- (b) A VOID STRIP IN THE PAD, well OUTSIDE the tile -- so the tile itself is not
+			-- refused -- but inside the blur's 72-stud reach of the tile's own western columns.
+			local holed = snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, rolling, {})
+			local reach = math.floor(Relief.BLUR.cutoffStuds / v)
+			local strip = pad / v - reach + 2
+			local holes = 0
+			for k = 1, wide do
+				for i = 1, strip do
+					(holed.hole :: any)[(k - 1) * wide + i] = true
+					holes += 1
+				end
+			end
+			holed.holes = holes
+			local shaped, _n2, n, _a2, dropped = TerrainBake.shapeTile(tile, holed, { "C1" }, {}, nil, reshape)
+			TestKit.note(
+				string.format(
+					"328x-7 void strip %d columns wide, blur reach %d: dropped %d of %d shaping columns",
+					strip,
+					reach,
+					dropped,
+					wide * wide
+				)
+			)
+			expect(dropped > 0).to.equal(true)
+			expect(TerrainBake.holesInTile(holed, tile)).to.equal(0)
+
+			-- AND THE DROP IS A REAL LOSS, not only a count: the tile's westernmost column keeps
+			-- the RAW base where the clean run shaped it. If `heightAt` stopped answering nil the
+			-- two would agree and this line would fail.
+			local west = base[1]
+			local westHoled = shaped[1]
+			TestKit.note(string.format("328x-7 tile column 1: clean %.4f, with the void %.4f", west, westHoled))
+			expect(math.abs(west - westHoled) > 1e-6).to.equal(true)
+			expect(n).to.equal(TerrainBake.TILE_STUDS / v)
+		end)
+
 		it("328x-6 a HELD cell keeps the base, and an absent one gets a NEIGHBOUR's landform", function()
 			-- WHY THE PARAMETER EXISTS, as a measurement and not an argument (task 328x). B2 and D2
 			-- carry a bench whose anchor walk this run cannot afford (`ESCALATE.md` 2026-11-04).
