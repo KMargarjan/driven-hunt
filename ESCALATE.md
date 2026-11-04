@@ -2126,3 +2126,40 @@ mine, and `tools/studio_mcp.py` is the harness.
 or (b) open a task for the fake-asset-id storm in `boar_shot.spec` (real ids, or no `Animator` load
 at all in a spec fixture), or (c) accept 328s on the evidence that does not need the gate. Task 328s
 itself is built, measured and unaffected: C1's plan 1,789 -> 2,448, every cell inside all three caps.
+
+### 2026-11-04 01:08 UTC -- 328s, the same stop, now MEASURED: it is not a slow suite
+
+Two further runs, both at `6af7e745` (the code commit plus this file):
+
+| # | window | result |
+|---|---|---|
+| 4 | `REPORT_WINDOW` 300 (the gate) | `FAIL: 24/29` -- server runner never reported; client `674 passed, 2 failed, 2 errors` |
+| 5 | **900**, overridden at runtime from a scratchpad wrapper (`studio_mcp.REPORT_WINDOW = 900`) -- **the repo was not modified** | `FAIL: 25/29` -- `[harness] client reported after 191 s`; **`FAIL [server] runner reported within 900 s`** |
+
+**So option (a) of the entry above is refuted and I am withdrawing it.** The server suite does not
+need a longer window: at three times the window it still never reports. Raising `REPORT_WINDOW`
+would buy 10 minutes a run and change no answer.
+
+**The mechanism, as far as a read-only diagnosis reaches.** Run 5 printed
+
+```
+[harness] Play datamodels: 0 new, server=? client=?
+```
+
+`classify_studios` compares `list_roblox_studios` before and after Play and takes the NEW entry as
+the server datamodel. It found **none**, so `play_ids["Server"]` is `None` and the server report is
+never read -- while the client's, which does not need that id, arrives in 191 s. And
+`list_roblox_studios` is **flapping** on this machine tonight: three calls two seconds apart
+answered `[DEV]`, `[Forest Test]`, `[DEV]`. A list that drops an entry at random cannot support a
+before/after difference, which is exactly the comparison `classify_studios` makes.
+
+**THE ONE EXPERIMENT THAT WOULD SETTLE IT, AND WHY I DID NOT RUN IT.** Closing the Forest Test
+Studio would leave one Studio connected and the list stable. I did not, and will not without the
+Director's word: **328r's baked C1 terrain lives in that open session**, and I cannot prove from
+here that it has been written to the place. The rule in my dispatch is *never Save, Publish or
+Drafts Commit*, so if that ground is unsaved, closing the window destroys it and Karen's morning
+with it. A red gate is recoverable; that is not.
+
+**What the Director can decide:** (a) confirm the FT's terrain is safe, then close the FT Studio and
+re-run the gate; or (b) restart StudioMCP / the DEV Studio, which is the other way to stop the list
+flapping; or (c) accept 328s on the evidence below, which is all measured in Karen's own place.
