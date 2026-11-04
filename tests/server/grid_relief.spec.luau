@@ -2588,8 +2588,13 @@ return function()
 			-- (c) AN ENCLOSED HOLE INSIDE THE TILE -- real ground on both sides of it -- is refused,
 			-- never guessed: Water, an overhang, a pond. THIS is the hole the rule is about (task
 			-- 328x narrowed it; the tile's centre is enclosed on both axes).
-			local holed = snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, flat, {});
-			(holed.hole :: any)[(pad / v) * wide + pad / v + 1] = true
+			local holed = snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, flat, {})
+			-- THE TILE'S CENTRE, not its corner: the corner has no real ground to the west or the
+			-- north INSIDE the tile, so under the narrowed rule it is the world running out and is
+			-- NOT a refusal. Round 1 of this task put the hole at the corner and the case could not
+			-- fire -- the arithmetic is `pad / v` margin columns plus half the tile's 32.
+			local mid = pad / v + TerrainBake.TILE_STUDS / v // 2
+			(holed.hole :: any)[(mid - 1) * wide + mid] = true
 			local refused = TerrainBake.bakeTileAt(1, { "C1" }, true, { {} :: any }, TerrainBake.encodeSlice(holed))
 			expect(string.find(refused.message :: string, "no single height", 1, true)).never.to.equal(nil)
 			expect(string.find(refused.message :: string, "REFUSED, never guessed", 1, true)).never.to.equal(nil)
@@ -3097,7 +3102,10 @@ return function()
 
 			-- (d) AND THE HOLD REACHES `reshape`, which is what keeps the base: a held cell's
 			-- report says FALSE where an unheld one says true.
-			local shaped = TerrainBake.bakeTileAt(1, cells, true, { {} :: any }, slice, nil, { "B2" })
+			-- AN EMPTY PROFILE LIST, not a list holding an empty table: `roadAt` reads
+			-- `profile.road.axis`, so a dummy profile is a nil index as soon as a tile really
+			-- shapes -- which is exactly what the hold makes this call do.
+			local shaped = TerrainBake.bakeTileAt(1, cells, true, {} :: any, slice, nil, { "B2" })
 			TestKit.note("328x-6 reshape: " .. tostring(shaped.reshape))
 			expect(string.find(tostring(shaped.reshape), "HELD BACK", 1, true)).never.to.equal(nil)
 		end)
