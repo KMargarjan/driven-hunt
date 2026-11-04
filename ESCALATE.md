@@ -1,3 +1,90 @@
+## 2026-11-04 ~16:20 UTC, Task 328x -- WHAT THE BAKE SHIPPED, AND THE THREE THINGS IT COULD NOT
+
+**Shipped**, in Karen's Forest Test at the code commit:
+`[bake] OK: 1120/1120 tiles @ 1cdc894d0848e35410199e796416ea77463fe65f cells=B1,C1,D1,A2,B2,C2,D2
+hold=B2,D2 epoch=5e09ea024be987ee worstTileMs=477 (clean tree)`, 15 m 08 s. **`A2` and `C2` are
+baked** -- `C2` is the cell Karen's *"more trees behind the line"* names -- and **row 1's three
+cells are BYTE-IDENTICAL**: 0 of each cell's 95,944 interior columns moved, measured by snapshotting
+B1/C1/D1 before and after and comparing the stored codes.
+
+**1. THE BENCH IS UNAFFORDABLE, MEASURED, AND IT IS WHY `B2` AND `D2` ARE HELD.** The ten-tile
+measurement the dispatch asked for came back **clean and useless** -- 244 ms a tile, because the
+first ten tiles carry no bench weight. Widening it found the wall: the seven-cell run **stops dead
+at tile 51**, the first tile whose window reaches `B2`'s area, with `Target is not reachable` --
+twice, at the same tile, deterministically. That is `applyOps`' anchor walk: six `blurredAt` calls,
+1,369 base reads each, for every one of a tile's 17,956 points -- **~1.5e8 reads a tile**, 328h's own
+figure, not returning inside the MCP call window. About **360 of 1,120 tiles** carry bench weight, so
+a full run would be **hours, not the 60 minutes the dispatch allows**.
+
+**The fix I would take, and the trap in it.** The anchor depends on the point's **x only**, never its
+z, so it is recomputed ~134 times per x today. A per-x cache would cut it ~134x, to about the 300 ms
+every other tile costs. **The trap:** under the bend `shapeTile` works in GRID coordinates and
+`gx = toGrid(x, z)` moves with z, so there are ~18,000 distinct `gx` in a tile and a naive per-`gx`
+cache never hits. The answer is piecewise constant in `gx` -- `baseAt` quantises to the base lattice,
+and for one anchor z every tap's index steps at the same `gx` -- so the exact key is the tuple of the
+six anchor rows' base-column indices, which `applyOps` cannot compute because it only holds the
+reader. **So this is a design question about how a bench anchors under a bent grid, not a tidy-up**,
+and it belongs to the Architect and the Director. It blocks `B2`'s three ramps, the `B2` bot climb,
+`A1`, and anything else that shapes a bench cell.
+
+**2. `A1` STILL CANNOT BE BAKED** (the ~14:40 entry): eight cells take `regionFor`'s ALL branch,
+whose lattice starts at `x -7296`, and a tile's own slice then needs `x >= -7500` against a base file
+that starts at `-7336`. 164 studs short. Unchanged by anything in this task.
+
+**3. A VISIBLE LOOK CHANGE KAREN WILL NOTICE, AND IT IS THE DESIGN'S PLACEHOLDER, NOT A DEFECT HERE.**
+Sampled 121 points in each cell (`328x-mats.luau`): `C1` **121/121 LeafyGrass**, but **`A2`, `C2` and
+`D2` read 121/121 `Ground`** -- bare brown. `Relief.materialAt`'s own header says it: SWARM 2.2
+states a zone floor for four cells and *"the other four get the placeholder `Ground` until
+`CELL_PLANS` v2 carries the zone floor (328f)"*. Baking `A2` and `C2` is the first time that
+placeholder has been on the ground where Karen can see it, and `328x-F1-before/after` shows it
+plainly: flat green before, a brown plain rising to a ridge after. **328f is the task that fixes it,
+and it should come before 328i plants trees on it.**
+**One of those three is the hold's own fault and is mine, not the design's:** `D2` is HELD, so it
+keeps Karen's HEIGHTS, but `shapeTile`'s material pass runs for every column regardless of `reshape`
+and repainted it. A held cell should keep the base material too -- the base snapshot carries it, and
+`shapeTile` simply never reads it. Queued in `TASKS.md`, not fixed in another round.
+
+## 2026-11-04 ~14:40 UTC, Task 328x -- THE NARROWED HOLE RULE WORKS (103 refusals -> 0), BUT THE FIVE CANNOT BE BAKED AS A RUN OF FIVE, AND `A1` CANNOT BE BAKED FROM THIS BASE FILE AT ALL
+
+**Measured before any code was written**, over 328h's virgin base `terrain-base-010b6400abdd.bin`,
+with this task's own instrument (`m2.py`/`m6.py`, the same `region_for`/`tile_count`/`base_slice` the
+tool uses). The instrument first REPRODUCED 328h's committed table exactly -- A1 34, A2 46, B2 14,
+C2 15, D2 23, 103 of 1,120, 30 of them with a hole inside the tile -- so it is the same measurement.
+
+**1. The Director's candidate 1 is right, and the size of it is 103 -> 0.** With an absent column
+dropped from the limiter's window and the refusal narrowed to a hole with real ground on both sides
+inside the tile, **every one of the 103 refusals disappears**: not one of those 30 tiles' interior
+holes is bracketed by real ground on either axis. They are all the world running out.
+
+**2. THE FIVE MAY NOT BE BAKED WITHOUT ROW 1 IN THE SAME RUN.** `regionFor` grows a subset by
+`BLEND_STUDS` + the bend, so row 2's region reaches `z -4801` -- **285 studs into each of `B1`, `C1`
+and `D1`'s own cell interiors**, and across `EW2` at `z -5107`, which is row 2's `muster` AND row 1's
+MAIN LINE. Two consequences, both from the code: `standPadsFor` iterates the RUN's `cellIds` only, so
+a row-2-only run rewrites that strip with **no pads for row 1's main-line stands** -- the hunters'
+landings -- and `blendAt(unionOf(cellIds))` would fade row 2's landform to the VIRGIN base at row 1's
+edge, where the real ground is row 1's BAKED ground: a step at the seam. So the run is
+**`B1,C1,D1,A2,B2,C2,D2` -- seven cells, 1,120 tiles**, row 1 re-baked from the same virgin base with
+the enlarged union. **This contradicts the dispatch's "B1, C1, D1 must not move"**: they will move at
+the new seam, for the same reason C1 moved 0.1562 studs when D1 joined it in 328h. It is measured
+and reported, not hidden. Baking the five alone is the alternative, and it erases row 1's stands.
+
+**3. `A1` CANNOT BE BAKED FROM THIS BASE FILE. NOT MET, and it is arithmetic, not an opinion.**
+Eight cells take `regionFor`'s ALL branch (footprint + 490), whose tile lattice starts at `x -7296`;
+a tile's own slice needs `x >= -7500` and **the base file starts at `x -7336`** -- 164 studs short.
+Adding `A1` to the seven IS eight. And `A1` cannot be baked in a second run afterwards: its region
+reaches 285 studs into `A2`'s and `B1`'s interiors, so it would do to them what item 2 describes.
+**The fix, if the Director wants `A1`:** extend the base `.bin` westward by 164 studs of MEASURED
+void (her terrain ends near `x -7016`; the file's own westernmost 320 studs are already entirely
+holes, and a live probe at `x -7400/-7500` would settle it), which is a new base sha with a stated
+provenance -- or candidate 2, a world edit and a stitched snapshot.
+
+**4. A SECOND, SMALLER BLOCKER, FIXED IN THIS TASK (328h note (i), as predicted).** At the
+seven-cell lattice every tile's bench band for `B2` and `D2` is cut at `tile.minX - 204 - 120`, and
+for the westernmost tile column (28 tiles) that is `x -7364` -- **28 studs outside the file**, which
+`base_slice` refuses and which stops the whole bake. The band is now CLIPPED to the file, and the
+clip is checked rather than asserted: measured over all 1,120 tiles, the clipped band's westernmost
+column line is **entirely void in every one of the 28 cases** (`clipEdgeNotAllVoid 0`), 84 bands hold
+holes and **none is enclosed**. So the clip removes no column that could ever have answered.
 ## 2026-11-04 ~13:25 UTC, Task 328h -- DIRECTOR: ROUND 3 AUTHORISED (within MAX_ROUNDS 3), and the five-cell blocker decided
 
 **Round 3.** Round 2's two findings are correct and fixed in `6260e7dc`; the gate is green at `8e05ce48`. The dispatch's two-round cap was mine; I lift it for the LAST round the loop allows. Round 3 reviews those two fixes and nothing new. A finding on round 3 is an ESCALATE entry and the task stops; notes go to TASKS.md. 328h then merges as ROW 1 ONLY (B1, C1, D1); its row says the other five are NOT MET and moved.

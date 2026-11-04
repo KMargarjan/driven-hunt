@@ -105,6 +105,12 @@ export type TileReport = {
 	reshape: string?,
 	-- THE STANDS `standPadsFor` COULD NOT PLACE A PAD UNDER, comma-separated and "" for none.
 	padsMissed: string?,
+	-- COLUMNS WHERE `Relief.heightAt` ANSWERED NIL and the landform was therefore NOT applied
+	-- (Reviewer round 1, finding 1; task 328x). The refusal's window is the tile, but the BLUR
+	-- reaches `Relief.BLUR.cutoffStuds` out of every column and `blurredGrid` answers nil for any
+	-- point whose support holds one, so a real column near the void keeps the RAW base instead.
+	-- Counted rather than argued: this is 0 or it is a number somebody has to look at.
+	droppedLandform: number?,
 }
 
 -- ---------------------------------------------------------------- the region
@@ -570,6 +576,111 @@ function TerrainBake.holesInTile(slice: Snapshot, tile: Tile): number
 		end
 	end
 	return count
+end
+
+-- A HOLE WITH REAL GROUND ON BOTH SIDES OF IT INSIDE THE RECTANGLE -- Water, an overhang, a pond:
+-- ground this bake would have to INVENT, and the only hole that still refuses a tile (task 328x,
+-- Director candidate 1, `ESCALATE.md` 2026-11-04). A hole that runs out to the rectangle's edge on
+-- both axes is the WORLD running out, and an absent column is no constraint to the limiter now, so
+-- refusing for it refused five of the eight cells over ground their own columns never touch.
+--
+-- Four linear scans, not a search per hole: the whole window is 194 x 74 for a bench band and this
+-- runs for every band of every tile.
+function TerrainBake.enclosedHoles(slice: Snapshot, minX: number, minZ: number, maxX: number, maxZ: number): number
+	local hole = slice.hole
+	if hole == nil or (slice.holes or 0) == 0 then
+		return 0
+	end
+	local v = slice.pitch
+	local i0 = math.max(1, math.floor((minX - slice.minX) / v) + 1)
+	local k0 = math.max(1, math.floor((minZ - slice.minZ) / v) + 1)
+	local i1 = math.min(slice.nx, math.ceil((maxX - slice.minX) / v))
+	local k1 = math.min(slice.nz, math.ceil((maxZ - slice.minZ) / v))
+	if i1 < i0 or k1 < k0 then
+		return 0
+	end
+	local xlo, xhi, zlo, zhi = {}, {}, {}, {}
+	for k = k0, k1 do
+		local seen = false
+		for i = i0, i1 do
+			local at = (k - 1) * slice.nx + i
+			xlo[at] = seen
+			seen = seen or hole[at] ~= true
+		end
+		seen = false
+		for i = i1, i0, -1 do
+			local at = (k - 1) * slice.nx + i
+			xhi[at] = seen
+			seen = seen or hole[at] ~= true
+		end
+	end
+	for i = i0, i1 do
+		local seen = false
+		for k = k0, k1 do
+			local at = (k - 1) * slice.nx + i
+			zlo[at] = seen
+			seen = seen or hole[at] ~= true
+		end
+		seen = false
+		for k = k1, k0, -1 do
+			local at = (k - 1) * slice.nx + i
+			zhi[at] = seen
+			seen = seen or hole[at] ~= true
+		end
+	end
+	local count = 0
+	for k = k0, k1 do
+		for i = i0, i1 do
+			local at = (k - 1) * slice.nx + i
+			if hole[at] == true and ((xlo[at] and xhi[at]) or (zlo[at] and zhi[at])) then
+				count += 1
+			end
+		end
+	end
+	return count
+end
+
+-- WHETHER A SLICE RUNS OUT INTO THE VOID rather than being cut short of ground, on either x side,
+-- over a z range (task 328x). The question a clipped bench band has to answer: the base FILE ends
+-- 28 studs inside the band `benchBands` asks for, and the walk reads nil beyond the file whatever
+-- the band's rectangle says -- so the clip is harmless EXACTLY WHEN ground had already run out.
+-- The evidence asked for is a void strip at the slice's own edge AT LEAST AS WIDE as the shortfall:
+-- `westStuds` of void measured inside the slice next to `westStuds` of unmeasured ground outside it.
+function TerrainBake.voidMargin(
+	slice: Snapshot,
+	minZ: number,
+	maxZ: number,
+	westStuds: number,
+	eastStuds: number
+): boolean
+	local hole = slice.hole
+	local v = slice.pitch
+	local k0 = math.max(1, math.floor((minZ - slice.minZ) / v) + 1)
+	local k1 = math.min(slice.nz, math.ceil((maxZ - slice.minZ) / v))
+	local sides = {
+		{ short = westStuds, first = 1, step = 1 },
+		{ short = eastStuds, first = slice.nx, step = -1 },
+	}
+	for _, side in sides do
+		if side.short > 1e-6 then
+			if hole == nil then
+				return false
+			end
+			local lines = math.ceil(side.short / v)
+			for n = 0, lines - 1 do
+				local i = side.first + n * side.step
+				if i < 1 or i > slice.nx then
+					return false
+				end
+				for k = k0, k1 do
+					if hole[(k - 1) * slice.nx + i] ~= true then
+						return false
+					end
+				end
+			end
+		end
+	end
+	return true
 end
 
 -- ---------------------------------------------------------------- the base, at named points only
@@ -1235,33 +1346,38 @@ end
 -- BOTH AXES -- the 328d decision the 328c note asks for. `Relief.limitPass` runs along one axis at a
 -- time and 328c asserted only z; a tree ceiling is a slope in ANY direction, and the note measured
 -- B2's scarp climbing back to ~22 degrees in x where nothing pinned it.
+-- `absent` RIDES ALONG UNCHANGED on both axes (task 328x): a column beyond the edge of the world is
+-- no constraint, so every window with an absent end is dropped from the limiter's walk.
 function TerrainBake.limitGrid(
 	grid: { number },
 	nx: number,
 	nz: number,
 	pitch: number,
 	ceilingDeg: number,
-	exempt: { boolean }?
+	exempt: { boolean }?,
+	absent: { boolean }?
 ): { number }
 	local out = table.clone(grid)
 	for k = 1, nz do
-		local column, mask = table.create(nx, 0), table.create(nx, false)
+		local column, mask, gone = table.create(nx, 0), table.create(nx, false), table.create(nx, false)
 		for i = 1, nx do
 			column[i] = out[(k - 1) * nx + i]
 			mask[i] = exempt ~= nil and exempt[(k - 1) * nx + i] == true
+			gone[i] = absent ~= nil and absent[(k - 1) * nx + i] == true
 		end
-		local limited = Relief.limitPass(column, pitch, ceilingDeg, mask)
+		local limited = Relief.limitPass(column, pitch, ceilingDeg, mask, gone)
 		for i = 1, nx do
 			out[(k - 1) * nx + i] = limited[i]
 		end
 	end
 	for i = 1, nx do
-		local column, mask = table.create(nz, 0), table.create(nz, false)
+		local column, mask, gone = table.create(nz, 0), table.create(nz, false), table.create(nz, false)
 		for k = 1, nz do
 			column[k] = out[(k - 1) * nx + i]
 			mask[k] = exempt ~= nil and exempt[(k - 1) * nx + i] == true
+			gone[k] = absent ~= nil and absent[(k - 1) * nx + i] == true
 		end
-		local limited = Relief.limitPass(column, pitch, ceilingDeg, mask)
+		local limited = Relief.limitPass(column, pitch, ceilingDeg, mask, gone)
 		for k = 1, nz do
 			out[(k - 1) * nx + i] = limited[k]
 		end
@@ -1315,7 +1431,7 @@ function TerrainBake.shapeTile(
 	-- own slice has no column. Nil for a run with no bench; `bakeTileAt` refuses a bench cell that
 	-- arrives without them, exactly as it refuses a tile with no profiles.
 	extras: { Snapshot }?
-): ({ number }, { string }, number)
+): ({ number }, { string }, number, { boolean }, number)
 	local v = Relief.VOXEL
 	local side = TerrainBake.TILE_STUDS
 	local n = math.floor(side / v)
@@ -1330,9 +1446,15 @@ function TerrainBake.shapeTile(
 	end
 	local shaped = table.create(wide * wide, 0)
 	local exempt = table.create(wide * wide, false)
+	-- A COLUMN THE BASE CANNOT ANSWER: beyond the edge of the world, so NO CONSTRAINT to the
+	-- limiter and NO GROUND to write (task 328x). It used to be pinned at `snapshot.minY`, which
+	-- dragged the real ground beside it down toward a column that does not exist.
+	local absent = table.create(wide * wide, false)
 	local names: { string } = table.create(wide * wide, "")
 	local depth = table.create(wide * wide, 0)
 	local roads = Grid.roads()
+	-- SEE `TileReport.droppedLandform`.
+	local dropped = 0
 	-- THE STAND PADS, from the profiles this tile was handed -- so every tile of a run builds the
 	-- same pads from the same bytes (design 7.4).
 	local pads: { StandPad } = if profiles ~= nil then (TerrainBake.standPadsFor(cellIds, profiles, bend)) else {}
@@ -1354,10 +1476,13 @@ function TerrainBake.shapeTile(
 			-- becomes curve-correct with NO EDIT and `BAKE_VERSION` stays 1.
 			local gx, gz = Grid.toGrid(x, z, bend)
 			if base == nil then
-				-- `readerFor` has no answer here. KEEP GROUND rather than invent one: writing 0
-				-- would cut a hole from the band floor up to y = 0 (round-1 note).
+				-- `readerFor` has no answer here: this column is beyond the edge of the world.
+				-- It is ABSENT -- dropped from the limiter's window and written as AIR -- not
+				-- pinned at the band floor, which is what refused five of the eight cells
+				-- (`ESCALATE.md` 2026-11-04, Director candidate 1). `snapshot.minY` is still the
+				-- array's placeholder so every later pass reads a number, never nil.
 				shaped[at] = snapshot.minY
-				exempt[at] = true
+				absent[at] = true
 			elseif form == nil or (reshape ~= nil and reshape[id] ~= true) then
 				-- EITHER NO LANDFORM, OR ITS LANDFORM IS ALREADY IN THIS GROUND: the base IS the
 				-- shaped height, and the road, the pad and the material are written onto it.
@@ -1381,6 +1506,9 @@ function TerrainBake.shapeTile(
 					TerrainBake.blendAt(union, x, z),
 					blurred[at]
 				)
+				if here == nil then
+					dropped += 1
+				end
 				shaped[at] = here or base
 				exempt[at] = Relief.isExempt(form, bounds, gx, gz)
 				depth[at] = TerrainBake.depthAt(base, here or base)
@@ -1392,6 +1520,11 @@ function TerrainBake.shapeTile(
 				local roadY, roadName, weight = TerrainBake.roadAt(profiles, shaped[at], x, z, bend)
 				if roadY ~= nil then
 					shaped[at] = roadY
+					-- THE ROAD IS GROUND THE GRID OWNS, so a column it takes is no longer absent: a
+					-- carriageway with a hole in it is worse than one over the void. It never
+					-- happens in this world -- MEASURED over the base, 0 holes in all 838,881
+					-- columns of `Grid.footprint` -- and a spec drives it rather than trusting that.
+					absent[at] = false
 					if roadName ~= nil then
 						names[at] = roadName
 					end
@@ -1408,6 +1541,8 @@ function TerrainBake.shapeTile(
 				local padY, padWeight = TerrainBake.standPadAt(pads, shaped[at], x, z, bend)
 				if padY ~= nil then
 					shaped[at] = padY
+					-- A STAND'S LANDING, for the road's reason above.
+					absent[at] = false
 					if padWeight >= 1 then
 						exempt[at] = true
 					end
@@ -1415,17 +1550,19 @@ function TerrainBake.shapeTile(
 			end
 		end
 	end
-	shaped = TerrainBake.limitGrid(shaped, wide, wide, v, Relief.LIMIT_DEG.tree, exempt)
+	shaped = TerrainBake.limitGrid(shaped, wide, wide, v, Relief.LIMIT_DEG.tree, exempt, absent)
 	-- MATERIALS IN A SECOND PASS, over the LIMITED grid: `Relief.materialAt`'s scree rule reads the
 	-- slope, and the slope is only real once the limiter has finished with it. The road's own name,
 	-- set above, wins -- a road is gravel whatever the ground under it was going to be (design 7.1).
 	local inner = table.create(n * n, 0)
 	local innerNames: { string } = table.create(n * n, "")
+	local innerAbsent = table.create(n * n, false)
 	for i = 1, n do
 		for k = 1, n do
 			local from = (k + margin - 1) * wide + (i + margin)
 			local to = (k - 1) * n + i
 			inner[to] = shaped[from]
+			innerAbsent[to] = absent[from]
 			local name = names[from]
 			if name == "" then
 				local x = tile.minX + (i - 0.5) * v
@@ -1447,7 +1584,7 @@ function TerrainBake.shapeTile(
 			innerNames[to] = name
 		end
 	end
-	return inner, innerNames, n
+	return inner, innerNames, n, innerAbsent, dropped
 end
 
 -- ONE TILE: shape and material in the SAME WriteVoxels call (design 5.3 step 3). IDEMPOTENT --
@@ -1468,11 +1605,31 @@ function TerrainBake.bakeTile(
 	local started = os.clock()
 	local v = Relief.VOXEL
 	local side = TerrainBake.TILE_STUDS
-	local inner, innerNames, n = TerrainBake.shapeTile(tile, snapshot, cellIds, plans, profiles, reshape, bend, extras)
+	local inner, innerNames, n, innerAbsent, dropped =
+		TerrainBake.shapeTile(tile, snapshot, cellIds, plans, profiles, reshape, bend, extras)
+	-- THE Y BAND IS TAKEN OVER THE COLUMNS THAT HAVE GROUND (task 328x). An absent column carries
+	-- `snapshot.minY` as a placeholder and is written as AIR; counting it would drop the band's
+	-- floor to the band floor of the whole snapshot for a tile at the world's edge.
 	local lo, hi = math.huge, -math.huge
-	for _, h in inner do
-		lo = math.min(lo, h)
-		hi = math.max(hi, h)
+	for at, h in inner do
+		if not innerAbsent[at] then
+			lo = math.min(lo, h)
+			hi = math.max(hi, h)
+		end
+	end
+	-- EVERY COLUMN BEYOND THE EDGE OF THE WORLD: there is no ground to write and no band to write
+	-- it in. Not a refusal -- the tile is honestly empty -- so it reports 0 voxels and no message.
+	if lo == math.huge then
+		return {
+			minX = tile.minX,
+			minZ = tile.minZ,
+			calls = 0,
+			voxels = 0,
+			bandMin = 0,
+			bandMax = 0,
+			elapsedMs = math.floor((os.clock() - started) * 1000 + 0.5),
+			droppedLandform = dropped,
+		}
 	end
 	local bands = TerrainBake.bandsFor(lo, hi)
 	local report: TileReport = {
@@ -1483,6 +1640,7 @@ function TerrainBake.bakeTile(
 		bandMin = bands[1].min,
 		bandMax = bands[#bands].max,
 		elapsedMs = 0,
+		droppedLandform = dropped,
 	}
 	for _, band in bands do
 		local region = Region3.new(
@@ -1518,9 +1676,13 @@ function TerrainBake.bakeTile(
 				local at = (k - 1) * n + i
 				local h = inner[at]
 				local material = (Enum.Material :: any)[innerNames[at]] or Enum.Material.Ground
+				-- AIR ALL THE WAY UP WHERE THE WORLD HAS NO GROUND (task 328x). Writing the
+				-- placeholder height here would raise a stub of terrain at the band floor out in
+				-- the void -- ground this bake would have invented.
+				local gone = innerAbsent[at]
 				for j = 1, ny do
 					local bottom = min.Y + (j - 1) * v
-					local occupancy = math.clamp((h - bottom) / v, 0, 1)
+					local occupancy = if gone then 0 else math.clamp((h - bottom) / v, 0, 1)
 					materials[i][j][k] = if occupancy > 0 then material else AIR
 					occupancies[i][j][k] = occupancy
 				end
@@ -1802,11 +1964,27 @@ function TerrainBake.bakeTileAt(
 	-- rectangle clipped to this tile's own shaping window. A bench cell that arrives without its
 	-- band is REFUSED below, never shaped off a reader that would answer nil in the band and leave
 	-- the plane anchored on the unsmoothed base.
-	benchSlices: { any }?
+	benchSlices: { any }?,
+	-- CELLS WHOSE LANDFORM THIS RUN HOLDS BACK (task 328x): in the run's geography, so `cellAt`
+	-- gives them their own area and no neighbour's landform is written across it, but the base is
+	-- kept there. Their roads and stand pads are still built. See the `held` block below.
+	holdLandform: { string }?
 ): TileReport
 	local plan = TerrainBake.tilePlan(TerrainBake.regionFor(cellIds))
 	assert(tileIndex >= 1 and tileIndex <= #plan, string.format("tile %d is not in a plan of %d", tileIndex, #plan))
 	local tile = plan[tileIndex]
+	-- A CELL MAY BE IN THE RUN'S GEOGRAPHY AND HAVE ITS LANDFORM HELD BACK (task 328x). `cellAt`
+	-- answers the NEAREST cell of `cellIds`, so leaving a cell out does not leave its ground alone:
+	-- its area is inside `unionOf`'s box, `blendAt` is 1 there, and a NEIGHBOUR's landform is
+	-- written across it at FULL strength. Held, the cell owns its own area and `shapeTile` keeps
+	-- the base there -- its roads and its stand pads are still built, and its bench is never
+	-- walked, because `Relief.heightAt` is not reached. This is how B2 and D2 keep Karen's ground
+	-- while their bench stays unaffordable (`ESCALATE.md` 2026-11-04). NEVER silent: the reason is
+	-- on the report, and the tool prints `hold=` on its own `[bake]` line.
+	local held: { [string]: boolean } = {}
+	for _, id in holdLandform or {} do
+		held[id] = true
+	end
 	local pad = TerrainBake.padFor()
 	local side = TerrainBake.TILE_STUDS
 	local bare = {
@@ -1867,17 +2045,21 @@ function TerrainBake.bakeTileAt(
 	-- whoever widens the band or the terrain.
 	local inside = TerrainBake.holesInTile(base, tile)
 	local holes = base.holes or 0
-	if holes > 0 then
+	local enclosed = TerrainBake.enclosedHoles(base, tile.minX, tile.minZ, tile.minX + side, tile.minZ + side)
+	if enclosed > 0 then
 		local refusal: TileReport = table.clone(bare)
 		refusal.message = string.format(
-			"tile %d (%.0f, %.0f) holds %d base column(s) with no single height (Water, an overhang, "
-				.. "or no ground in the Y band): %d inside the tile and %d in its %d-stud pad, which "
-				.. "the blur and the slope limiter both read. A tile like that is REFUSED, never guessed.",
+			"tile %d (%.0f, %.0f) holds %d base column(s) with no single height, %d inside the tile, "
+				.. "and %d of those have real ground on both sides INSIDE the tile -- Water, an overhang "
+				.. "or a pond. That is ground this bake would have to INVENT, so the tile is REFUSED, "
+				.. "never guessed. (%d column(s) in its %d-stud pad are not counted: an absent column is "
+				.. "no constraint to the limiter, task 328x.)",
 			tileIndex,
 			tile.minX,
 			tile.minZ,
 			holes,
 			inside,
+			enclosed,
 			holes - inside,
 			pad
 		)
@@ -1898,18 +2080,25 @@ function TerrainBake.bakeTileAt(
 			-- reader does, and `applyOps` then drops that column's bench with `smoothed or b` and
 			-- `if n > 0` -- no error, no report, a tile flat-dressed-as-shaped. B2's band is the
 			-- cell's north edge, which is exactly where this world's terrain runs out.
-			if (band.holes or 0) > 0 then
+			local bandMaxX = band.minX + band.nx * band.pitch
+			local bandMaxZ = band.minZ + band.nz * band.pitch
+			local bandEnclosed = TerrainBake.enclosedHoles(band, band.minX, band.minZ, bandMaxX, bandMaxZ)
+			if bandEnclosed > 0 then
 				local refusal: TileReport = table.clone(bare)
 				refusal.message = string.format(
 					"tile %d was handed a bench band x[%.0f,%.0f] z[%.0f,%.0f] holding %d column(s) with "
-						.. "no single height. A band is refused for a hole exactly as the tile's own slice "
-						.. "is: the bench would be dropped for those columns with no report (task 328h).",
+						.. "no single height, %d of them with real ground on both sides inside the band. "
+						.. "A band is refused for an ENCLOSED hole exactly as the tile's own slice is: the "
+						.. "bench would be dropped for those columns with no report (task 328h). A hole "
+						.. "that runs out to the band's edge is the world running out, and the anchor walk "
+						.. "reads nil out there whether the band is cut that wide or not (task 328x).",
 					tileIndex,
 					band.minX,
-					band.minX + band.nx * band.pitch,
+					bandMaxX,
 					band.minZ,
-					band.minZ + band.nz * band.pitch,
-					band.holes
+					bandMaxZ,
+					band.holes,
+					bandEnclosed
 				)
 				return refusal
 			end
@@ -1917,6 +2106,10 @@ function TerrainBake.bakeTileAt(
 		end
 	end
 	for _, band in TerrainBake.benchBands(cellIds) do
+		-- A HELD CELL'S BENCH IS NEVER WALKED, so no band is asked for it (task 328x).
+		if held[band.cell] then
+			continue
+		end
 		-- THE WINDOW IS THE TILE'S, AND IT IS NOT CLAMPED TO THE BAND'S OWN RECTANGLE (Reviewer
 		-- round 2, finding 1). Clamping made the test unfalsifiable exactly where it mattered:
 		-- `cellAt` answers "the nearest cell" and `blendAt` is non-zero for 200 studs past
@@ -1935,13 +2128,18 @@ function TerrainBake.bakeTileAt(
 			for _, extra in { base, table.unpack(extras) } do
 				local eMaxX = extra.minX + extra.nx * extra.pitch
 				local eMaxZ = extra.minZ + extra.nz * extra.pitch
-				if
-					extra.minX <= bandMinX + 1e-6
-					and eMaxX >= bandMaxX - 1e-6
-					and extra.minZ <= band.minZ + 1e-6
-					and eMaxZ >= band.maxZ - 1e-6
-				then
-					covered = true
+				if extra.minZ <= band.minZ + 1e-6 and eMaxZ >= band.maxZ - 1e-6 then
+					-- CLIPPED AT THE BASE FILE'S EDGE IS ALLOWED, AND ONLY WITH THE VOID TO SHOW
+					-- FOR IT (task 328x). The band `benchBands` asks for reaches 28 studs past the
+					-- west edge of this world's base file, which `base_slice` refuses -- and that
+					-- refusal stops the whole bake (328h note (i)). `voidMargin` asks the slice
+					-- itself whether ground had already run out there.
+					local west = extra.minX - bandMinX
+					local east = bandMaxX - eMaxX
+					local whole = west <= 1e-6 and east <= 1e-6
+					if whole or TerrainBake.voidMargin(extra, band.minZ, band.maxZ, west, east) then
+						covered = true
+					end
 				end
 			end
 			if not covered then
@@ -1996,9 +2194,13 @@ function TerrainBake.bakeTileAt(
 	local reshape: { [string]: boolean } = {}
 	local why: { string } = {}
 	for _, id in cellIds do
-		reshape[id] = true
-		local _, reason, kind = TerrainBake.reshapeWanted(id)
-		table.insert(why, string.format("%s reshape=true (base is virgin; stamp says %s: %s)", id, kind, reason))
+		reshape[id] = not held[id]
+		if held[id] then
+			table.insert(why, string.format("%s reshape=FALSE (landform HELD BACK by this run)", id))
+		else
+			local _, reason, kind = TerrainBake.reshapeWanted(id)
+			table.insert(why, string.format("%s reshape=true (base is virgin; stamp says %s: %s)", id, kind, reason))
+		end
 	end
 	local report = TerrainBake.bakeTile(tile, base, cellIds, {}, dryRun, profiles, reshape, nil, extras)
 	report.reshape = table.concat(why, "; ")

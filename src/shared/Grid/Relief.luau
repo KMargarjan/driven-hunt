@@ -18,6 +18,16 @@ local Relief = {}
 -- BUMPS WHEN THE ARITHMETIC MOVES -- a falloff shape, the blur sigma, the limiter, the road fade,
 -- the Y-band rule, `columnsFor`. NOT for a data change: `epochInput` already covers that.
 -- `relief_golden.luau` fails the harness if the maths moves without this number (design 5.4).
+--
+-- STAYS 1 THROUGH TASK 328x, AND THE REASON IS A MEASUREMENT, NOT A JUDGEMENT (Reviewer round 1,
+-- finding 2). 328x adds an `absent` arm to `limitPass` and takes the Y band over the columns that
+-- have ground -- both arithmetic by design 5.4's list. But both arms are reached ONLY by a column
+-- the base cannot answer, which could not occur in any stamped ground: `bakeTileAt` refused every
+-- such tile outright before this task. The evidence is direct rather than argued -- B1, C1 and D1
+-- were re-baked by THIS code over ground the OLD code wrote, and all 3 x 95,944 interior columns
+-- came back BYTE-IDENTICAL (`328x-row1-before.bin` / `-after2.bin`). A bump would re-stamp every
+-- cell to say the ground changed when it is the same ground to the bit. The next change to the
+-- limiter or the Y band that CAN move an existing column bumps this.
 Relief.BAKE_VERSION = 1
 
 -- How far outside the footprint the result returns to the base, exactly (design 3.0).
@@ -465,8 +475,22 @@ end
 
 -- EIGHT RELAXATION PASSES that bring every 16-stud window under `ceilingDeg`, moving the two ends of
 -- an over-steep window half the excess each. `exempt[i]` true pins that sample (the scarp, the ramps).
-function Relief.limitPass(column: { number }, pitchStuds: number, ceilingDeg: number, exempt: { boolean }?): { number }
+--
+-- `absent[i]` IS A COLUMN THE BASE CANNOT ANSWER -- beyond the edge of the world -- AND IT IS NO
+-- CONSTRAINT: every window with an absent end is DROPPED, never pinned (Director decision, task
+-- 328x, `ESCALATE.md` 2026-11-04). Pinning it at the band floor made the limiter drag the real
+-- ground beside it down toward ground that does not exist.
+function Relief.limitPass(
+	column: { number },
+	pitchStuds: number,
+	ceilingDeg: number,
+	exempt: { boolean }?,
+	absent: { boolean }?
+): { number }
 	local out: { number } = table.clone(column)
+	local gone = function(i: number): boolean
+		return absent ~= nil and absent[i] == true
+	end
 	local window = math.max(1, math.floor(16 / pitchStuds + 0.5))
 	local ceiling = 16 * math.tan(math.rad(ceilingDeg))
 	-- EIGHT PASSES, ALTERNATING DIRECTION. One direction alone leaves the far end of a long face
@@ -480,7 +504,7 @@ function Relief.limitPass(column: { number }, pitchStuds: number, ceilingDeg: nu
 			local j = i + window
 			local d = out[j] - out[i]
 			local excess = math.abs(d) - ceiling
-			if excess > 0 then
+			if excess > 0 and not (gone(i) or gone(j)) then
 				local pinI = exempt ~= nil and exempt[i] == true
 				local pinJ = exempt ~= nil and exempt[j] == true
 				if not (pinI and pinJ) then
@@ -500,13 +524,13 @@ function Relief.limitPass(column: { number }, pitchStuds: number, ceilingDeg: nu
 	for _ = 1, 2 do
 		for i = 1, #out - window do
 			local j = i + window
-			if out[j] - out[i] > ceiling and not (exempt ~= nil and exempt[j] == true) then
+			if out[j] - out[i] > ceiling and not (exempt ~= nil and exempt[j] == true) and not (gone(i) or gone(j)) then
 				out[j] = out[i] + ceiling
 			end
 		end
 		for i = #out - window, 1, -1 do
 			local j = i + window
-			if out[i] - out[j] > ceiling and not (exempt ~= nil and exempt[i] == true) then
+			if out[i] - out[j] > ceiling and not (exempt ~= nil and exempt[i] == true) and not (gone(i) or gone(j)) then
 				out[i] = out[j] + ceiling
 			end
 		end
