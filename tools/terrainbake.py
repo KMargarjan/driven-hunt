@@ -1554,9 +1554,15 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
              injected=injected)
         # ...AND THE PER-CELL SHAPE STAMP, so a later run can tell whether this cell's landform is
         # the one already in the ground (`TerrainBake.reshapeWanted`).
+        # A HELD CELL IS NOT STAMPED (task 328x): the stamp says "this cell's landform IS in its
+        # ground", and for a held cell it is not. Stamping it would tell the next run the opposite
+        # of what happened.
+        shaped_cells = [c for c in cells if c not in hold]
         stamped = call(studio, studio_id, "TerrainBake.stampShape({%s})"
-                       % ",".join('"%s"' % c for c in cells), timeout=60, injected=injected)
-        print("[bake] shape stamp written on %s cell(s): %s" % (stamped, ",".join(cells)))
+                       % ",".join('"%s"' % c for c in shaped_cells), timeout=60, injected=injected)
+        print("[bake] shape stamp written on %s cell(s): %s%s"
+              % (stamped, ",".join(shaped_cells),
+                 ("  (NOT stamped, landform held: " + ",".join(hold) + ")") if hold else ""))
     print("[bake] %s: %d/%d tiles @ %s cells=%s%s epoch=%s worstTileMs=%d (clean tree)"
           % ("DRY OK" if dry else "OK", limit, limit, sha, ",".join(cells),
              (" hold=" + ",".join(hold)) if hold else "", epoch, worst))
