@@ -824,10 +824,12 @@ return function()
 			-- 5. `plantCell` EMITS THE SAME LIST: every row is its own grid point (the map is the
 			-- identity) and is clear of the mask asked in EITHER space.
 			--
-			-- **2,458 since task 328s re-planted C1 denser** (was 1,803). Measured, not a bound: a
-			-- straight-world count that moved on its own would mean the recipe changed by accident.
+			-- **1,969 since task 328i**, which is 2,458 MINUS C1's 489-site straight-world SKIRT:
+			-- all three of C1's neighbours are planted now and a cell skirts no planted neighbour.
+			-- (328s pinned 2,458, 328o 1,803.) Measured, not a bound: a straight-world count that
+			-- moved on its own would mean the recipe changed by accident.
 			local drawn = Plan.plantCell("C1", nil, STRAIGHT)
-			expect(#drawn).to.equal(2458)
+			expect(#drawn).to.equal(1969)
 			for _, item in ipairs(drawn) do
 				local u, v = Grid.toGrid(item.x, item.z, STRAIGHT)
 				expect(u).to.equal(item.x)
@@ -950,23 +952,24 @@ return function()
 			expect(junctions).to.equal(15)
 			expect(worstJunction < 1e-12).to.equal(true)
 			-- 6. THE PLAN AT THE SHIPPED BEND, pinned beside the straight count the case above pins.
-			-- **2,429 bent since task 328h** (328s pinned 2,448, 328o 1,789). MEASURED, not
-			-- argued: the harness's own per-cell note reads C1 `2448(t1861 f104 s483)` with `Grid`
-			-- at `main` and `2429(t1861 f104 s464)` with 328h's, in two runs at the same code
-			-- commit -- **identical trees and ferns; the whole 19 is the SKIRT**. A cell's plan
-			-- carries a skirt into its neighbours, the skirt is masked against THEIR stands, and
-			-- 328h re-measured B1's towers (1 -> 4) and D1's (2 -> 1). A tower stand carries a
-			-- wider exclusion than a plain one, so B1's three new towers cost C1's skirt 19 sites.
-			-- BOTH COUNTS ARE NOTED BEFORE EITHER IS ASSERTED, so a run that moves one tells you
-			-- the other's value instead of stopping at the first `expect`.
+			-- **1,965 bent since task 328i**, which is 2,429 MINUS C1's 464-site SKIRT: all three of
+			-- C1's neighbours are in `Grid.PLANTED_CELLS` now, and a cell draws no skirt into a
+			-- neighbour that has its own wood. C1's OWN rectangle has not moved a tree -- 328s's own
+			-- per-cell note reads `2448(t1861 f104 s483)` and this plan is `t1861 f104 s0`.
+			-- The history, now that the skirt is not in the number: 328o 1,789, 328s 2,448 and
+			-- 328h 2,429 -- every one of them `t1861 f104` plus a skirt of 483 or 464. The SKIRT is
+			-- the only term that ever moved (328h re-measured B1's towers 1 -> 4 and D1's 2 -> 1,
+			-- and a tower stand carries a wider exclusion, which cost C1's skirt 19 sites). BOTH
+			-- COUNTS ARE NOTED BEFORE EITHER IS ASSERTED, so a run that moves one tells you the
+			-- other's value instead of stopping at the first `expect`.
 			local drawn = Plan.plantCell("C1")
 			local straightCount = #Plan.plantCell("C1", nil, STRAIGHT)
 			TestKit.note(string.format("328h: C1 plan bent %d, straight %d", #drawn, straightCount))
-			expect(#drawn).to.equal(2429)
-			expect(straightCount).to.equal(2458)
+			expect(#drawn).to.equal(1965)
+			expect(straightCount).to.equal(1969)
 			TestKit.note(
 				string.format(
-					"SHIPPED BENT %d/%d: flank set-back %d (was 340), C1 stand 1 (%.2f,%.2f) 8 (%.2f,%.2f) 10 (%.2f,%.2f), layout span %d / north %d, roadZ departs %.2f st from the centre and is exact at %d sampled stations, %d junctions to %.1e, C1 plan %d (straight 2458)",
+					"SHIPPED BENT %d/%d: flank set-back %d (was 340), C1 stand 1 (%.2f,%.2f) 8 (%.2f,%.2f) 10 (%.2f,%.2f), layout span %d / north %d, roadZ departs %.2f st from the centre and is exact at %d sampled stations, %d junctions to %.1e, C1 plan %d (straight 1969)",
 					c.bend.ewStuds,
 					c.bend.nsStuds,
 					Grid.flankFirstStuds(),
@@ -1804,11 +1807,27 @@ return function()
 					end
 				end
 			end
-			-- C1 IS THE ONLY CELL THAT HAS ONE, until Karen has judged it (the recipe says so).
+			-- EXACTLY THE PLANTED CELLS HAVE ONE (task 328i): C1's second storey was 328m's, and
+			-- 328i gave the same row to the four cells behind and beside it, because it is half of
+			-- what carries C1's accepted density. The three UNBAKED cells have none -- the task
+			-- that bakes their ground is the one that plants them.
 			expect(#withUnder > 0).to.equal(true)
-			for _, id in ipairs(withUnder) do
-				expect(id).to.equal("C1")
+			local planted: { [string]: boolean } = {}
+			for _, id in ipairs(Grid.PLANTED_CELLS) do
+				planted[id] = true
 			end
+			-- `withUnder` IS ONE ENTRY PER ZONE, so the count is compared over DISTINCT CELLS:
+			-- every planted cell has at least one storeyed zone, and no other cell has any.
+			local seenUnder: { [string]: boolean } = {}
+			local distinct = 0
+			for _, id in ipairs(withUnder) do
+				expect(planted[id]).to.equal(true)
+				if not seenUnder[id] then
+					seenUnder[id] = true
+					distinct += 1
+				end
+			end
+			expect(distinct).to.equal(#Grid.PLANTED_CELLS)
 
 			-- IT IS COUNTED IN THE BOUND. `cellCapacity` must be the sum of all four layers, so an
 			-- understorey the budget did not count cannot breach `CELL_PLAN_CAP` unseen.
@@ -1832,12 +1851,21 @@ return function()
 			for _, rect in ipairs(Plan.fernBands("C1", plan)) do
 				ferns += cells(rect, plan.fernSpacing)
 			end
-			local skirt = 0
+			-- THE SKIRT TERM IS ZERO FOR C1 AND THE CASE SAYS WHY (task 328i): all three of its
+			-- neighbours are planted, so no skirt band is drawn and none may be counted. The bands
+			-- themselves still EXIST -- the second loop asserts that, so a `skirtBands` that
+			-- silently returned nothing would not be mistaken for the rule working.
+			local skirt, bands = 0, 0
 			for _, near in ipairs(Plan.neighboursOf("C1")) do
 				for _, band in ipairs(Plan.skirtBands("C1", near.id, near.axis, plan)) do
-					skirt += cells(band.rect, band.spacing)
+					bands += 1
+					if not Plan.isPlanted(near.id) then
+						skirt += cells(band.rect, band.spacing)
+					end
 				end
 			end
+			expect(bands > 0).to.equal(true)
+			expect(skirt).to.equal(0)
 			expect(under > 0).to.equal(true)
 			expect(Plan.cellCapacity("C1")).to.equal(zones + under + ferns + skirt)
 
@@ -2045,8 +2073,20 @@ return function()
 		it("plants C1 at the density Karen asked for, and accounts for every site it refused", function()
 			local rows = Plan.plantCell("C1")
 			local tally = Plan.TALLY
-			expect(#rows >= 2300).to.equal(true)
+			-- 328s's FLOOR WAS 2,300 ON THE WHOLE PLAN, SKIRT INCLUDED. Task 328i stops the skirt
+			-- into a planted neighbour and all three of C1's are planted, so the same wood now
+			-- counts 1,965 -- `2448 = t1861 + f104 + s483` at 328s, `1965 = t1861 + f104` here.
+			-- The floor moves to the half that is C1's OWN GROUND, which is the half Karen looked
+			-- at, and it is the number 328s already measured: not one tree inside C1 has moved.
+			expect(#rows >= 1900).to.equal(true)
 			expect(#rows <= Plan.CELL_PART_CAP).to.equal(true)
+			local skirtHere = 0
+			for _, item in ipairs(rows) do
+				if item.side < 0 then
+					skirtHere += 1
+				end
+			end
+			expect(skirtHere).to.equal(0)
 			expect(tally.planted).to.equal(#rows)
 			-- EVERY OFFERED SITE LANDS IN EXACTLY ONE BUCKET, which is what makes the split a
 			-- measurement rather than two totals and a guess: a new refusal arm with no counter
@@ -2150,7 +2190,7 @@ return function()
 	-- ---------------------------------------------------------------- 16. the skirt
 
 	describe("the skirt", function()
-		it("reaches into every neighbour from the shared road and stops at skirtStuds", function()
+		it("reaches into every BARE neighbour from the shared road and stops at skirtStuds", function()
 			local half = Grid.CONFIG.roadClearStuds / 2
 			local lines = {}
 			for _, id in ipairs(Grid.cellIds()) do
@@ -2222,14 +2262,38 @@ return function()
 						expect(names[item.model]).to.equal(true)
 					end
 				end
-				-- EVERY NEIGHBOUR IS DRESSED, not just the first one found.
+				-- EVERY BARE NEIGHBOUR IS DRESSED, not just the first one found -- AND NO PLANTED
+				-- ONE IS (task 328i): a skirt over a wood that is already there is a second wood
+				-- laid on the first, and `minGapStuds` runs over one cell's own grid and cannot
+				-- see it. Both halves are asserted, so neither "it skirts everything" nor "it
+				-- skirts nothing" can pass.
 				for _, other in ipairs(near) do
-					expect((hitEach[other.id] or 0) > 0).to.equal(true)
+					if Plan.isPlanted(other.id) then
+						expect(hitEach[other.id]).to.equal(nil)
+					else
+						expect((hitEach[other.id] or 0) > 0).to.equal(true)
+					end
 				end
-				expect(count > 0).to.equal(true)
+				-- A CELL WITH A BARE NEIGHBOUR SKIRTS; A CELL WHOSE NEIGHBOURS ARE ALL PLANTED
+				-- DRAWS NOTHING AT ALL. C1 is the second kind, and it is the only one today.
+				local bare = 0
+				for _, other in ipairs(near) do
+					if not Plan.isPlanted(other.id) then
+						bare += 1
+					end
+				end
+				expect(count > 0).to.equal(bare > 0)
 				table.insert(
 					lines,
-					string.format("%s %d into %d (reach %.0f/%d)", id, count, #near, reach, plan.skirtStuds)
+					string.format(
+						"%s %d into %d bare of %d (reach %.0f/%d)",
+						id,
+						count,
+						bare,
+						#near,
+						reach,
+						plan.skirtStuds
+					)
 				)
 			end
 			TestKit.note("skirt: " .. table.concat(lines, " "))
@@ -2499,6 +2563,268 @@ return function()
 					report.cliff,
 					report.parts,
 					worst
+				)
+			)
+			grid:Destroy()
+			sources:Destroy()
+		end)
+	end)
+
+	-- ------------------------------------------ 19b. the forest behind the line (task 328i)
+
+	describe("the cells that get a wood", function()
+		-- KAREN, 2026-11-04: *"more trees behind the line"*. There were none: `Places.build` dressed
+		-- `Grid.PREVIEW_CELL` and nothing else, so seven cells had never had a tree in them.
+		it("is a list of baked cells, C1 first and C2 -- the cell behind the line -- second", function()
+			local planted = Grid.PLANTED_CELLS
+			expect(#planted).to.equal(5)
+			expect(planted[1]).to.equal(Grid.PREVIEW_CELL)
+			expect(planted[2]).to.equal("C2")
+			local seen: { [string]: boolean } = {}
+			for _, id in ipairs(planted) do
+				-- EVERY ID IS A REAL CELL and no id is listed twice -- a duplicate would plant a
+				-- cell, keep it, then fell and re-plant it for nothing.
+				expect(Grid.cellOf(id) ~= nil).to.equal(true)
+				expect(seen[id]).never.to.equal(true)
+				seen[id] = true
+			end
+			-- THE THREE THAT ARE OUT ARE OUT, and the case says which: A1 was never baked, B2 and
+			-- D2 had their landform HELD (`terrainbake.py --hold-landform`), so all three carry
+			-- ground that is going to move. `grid-terrain.md` 16's 328h/328x rows.
+			for _, id in ipairs({ "A1", "B2", "D2" }) do
+				expect(seen[id]).never.to.equal(true)
+			end
+			TestKit.note("PLANTED_CELLS: " .. table.concat(planted, ","))
+		end)
+
+		-- THE DENSITY, MEASURED ON THE CELL'S OWN GROUND. The SKIRT is excluded on purpose: a
+		-- skirt stands in the NEIGHBOUR's rectangle, so counting it would credit a cell with wood
+		-- a hunter standing in it cannot see, and it is the term 328i withdraws between two planted
+		-- cells. C1's own wood is **1,861 trees**, which is what Karen accepted on 2026-11-04
+		-- (*"rest seems ok I think you did good job"*), and every other planted cell is held within
+		-- **+-10 %** of it. Pinned so a later tweak cannot quietly give the density back.
+		it("plants every one of them at C1's own accepted density, give or take a tenth", function()
+			local function ownTrees(id: string): number
+				local n = 0
+				for _, item in ipairs(woods[id]) do
+					if item.side > 0 and item.band ~= "herb" then
+						n += 1
+					end
+				end
+				return n
+			end
+			local standard = ownTrees(Grid.PREVIEW_CELL)
+			expect(standard).to.equal(1861)
+			local lines = {}
+			for _, id in ipairs(Grid.PLANTED_CELLS) do
+				local own = ownTrees(id)
+				table.insert(lines, string.format("%s %d (%.0f%%) of %d", id, own, 100 * own / standard, #woods[id]))
+				expect(own >= math.floor(standard * 0.9)).to.equal(true)
+				expect(own <= math.ceil(standard * 1.1)).to.equal(true)
+				-- ...AND THE WHOLE PLAN IS STILL INSIDE BOTH CAPS.
+				expect(#woods[id] <= Plan.CELL_PART_CAP).to.equal(true)
+				expect(Plan.cellCapacity(id) <= Plan.CELL_PLAN_CAP).to.equal(true)
+			end
+			-- ...AND THE THREE UNBAKED CELLS ARE NOT TOUCHED: the task that bakes them raises them,
+			-- and until then they are well under the band. This is what makes the case above a
+			-- reading of THIS task's rows and not of the planter in general.
+			for _, id in ipairs({ "A1", "B2", "D2" }) do
+				expect(ownTrees(id) < math.floor(standard * 0.9)).to.equal(true)
+			end
+			TestKit.note(string.format("328i own wood: %s", table.concat(lines, " ")))
+		end)
+
+		-- THE BOOT'S CRITICAL PATH (reviewer round 1). `Places.build` is `ForestTestBoot`'s
+		-- composition root -- `Bots.start`, `Economy.start`, `Lobby.start`, `Shop.start`,
+		-- `Match.start` and `HitLog.start` all come after it -- so it plants ONE cell and hands the
+		-- rest back. Five serial dresses measure ~172 s in Karen's place; one is ~34 s.
+		it("plants one cell on the boot path and hands the rest back as gridPending", function()
+			local function hillside(x: number, z: number): number?
+				return 120 + 0.1 * (x - Grid.CONFIG.originX) - 0.05 * (z - Grid.CONFIG.originZ)
+			end
+			-- A FAKE WORLD WITH A TEMPLATE SOURCE IN IT, because `build` returns `"no-templates"`
+			-- before it dresses anything. One Model per species name, the fixture shape case 18b
+			-- uses, under the first name in `Places.TEMPLATE_SOURCES`.
+			local function fakeWorld(): Instance
+				local world = Instance.new("Folder")
+				local source = Instance.new("Folder")
+				source.Name = Planter.TEMPLATE_SOURCES[1]
+				source.Parent = world
+				for _, names in pairs(Plan.SPECIES) do
+					for _, name in ipairs(names) do
+						local model = Instance.new("Model")
+						model.Name = name
+						local trunk = Instance.new("Part")
+						trunk.Name = "Trunk"
+						trunk.Size = Vector3.new(4, 40, 4)
+						trunk.Position = Vector3.new(0, 20, 0)
+						trunk.Anchored = true
+						trunk.Parent = model
+						model.PrimaryPart = trunk
+						model.Parent = source
+					end
+				end
+				return world
+			end
+			local world = fakeWorld()
+			local report = Planter.build(hillside, world, nil, true, nil, { "C1", "C2", "B1" })
+			-- ONE REPORT, FOR THE FIRST CELL OF THE LIST -- and the other two are named, in order.
+			expect(#report.gridWoods).to.equal(1)
+			expect(report.gridWoods[1].cell).to.equal("C1")
+			expect(#report.gridPending).to.equal(2)
+			expect(report.gridPending[1]).to.equal("C2")
+			expect(report.gridPending[2]).to.equal("B1")
+			-- THE DEFAULT LIST IS THE CONFIG'S, AND ITS FIRST CELL IS THE ONE A PLAYER STANDS IN.
+			local other = fakeWorld()
+			local whole = Planter.build(hillside, other, nil, true, nil)
+			expect(whole.gridWoods[1].cell).to.equal(Grid.PLANTED_CELLS[1])
+			expect(#whole.gridPending).to.equal(#Grid.PLANTED_CELLS - 1)
+			-- ...AND `dressPending` REFUSES EVERY SHAPE THAT WOULD PLANT NOTHING, rather than
+			-- erroring on the boot's own thread.
+			expect(#Planter.dressPending({}, world, hillside, nil, nil)).to.equal(0)
+			expect(#Planter.dressPending({ "C2" }, world, nil, nil, nil)).to.equal(0)
+			expect(#Planter.dressPending({ "C2" }, Instance.new("Folder"), hillside, nil, nil)).to.equal(0)
+			TestKit.note(
+				string.format(
+					"boot path: 1 cell (%s), %d deferred (%s)",
+					whole.gridWoods[1].cell,
+					#whole.gridPending,
+					table.concat(whole.gridPending, ",")
+				)
+			)
+			world:Destroy()
+			other:Destroy()
+		end)
+
+		-- THE SKIRT RULE, which is what keeps two planted cells' woods out of each other. MEASURED
+		-- in Karen's place with the skirt still drawn and all five cells standing: 199 pairs of
+		-- trunks inside 6 studs and 59 inside 3, worst 0.54 -- against 0 and 0 WITHIN a cell, same
+		-- instrument, same run (`<runs-dir>/328i-overlap-after.txt`).
+		it("draws no skirt into a planted neighbour, and still skirts a bare one", function()
+			-- C1's three neighbours are ALL planted, so it draws none.
+			for _, near in ipairs(Plan.neighboursOf(Grid.PREVIEW_CELL)) do
+				expect(Plan.isPlanted(near.id)).to.equal(true)
+			end
+			local c1Skirt = 0
+			for _, item in ipairs(woods[Grid.PREVIEW_CELL]) do
+				if item.side < 0 then
+					c1Skirt += 1
+				end
+			end
+			expect(c1Skirt).to.equal(0)
+			-- ...AND A CELL WITH A BARE NEIGHBOUR STILL DRESSES IT, so the case fails if `plantCell`
+			-- simply stopped skirting. C2's B2 and D2 are not planted; A1 is in no list at all.
+			expect(Plan.isPlanted("B2")).to.equal(false)
+			expect(Plan.isPlanted("A1")).to.equal(false)
+			expect(Plan.isPlanted("Z9")).to.equal(false)
+			local c2Skirt = 0
+			for _, item in ipairs(woods.C2) do
+				if item.side < 0 then
+					c2Skirt += 1
+				end
+			end
+			expect(c2Skirt > 0).to.equal(true)
+			-- ...AND NOT ONE SKIRT SITE OF C2's LANDS INSIDE A PLANTED CELL'S OWN GROUND, which is
+			-- the fact the collision measurement is about. Asked of the rectangle rather than of
+			-- "the nearest cell", so a site in the road between two cells cannot flip the answer.
+			local stray = 0
+			for _, item in ipairs(woods.C2) do
+				if item.side < 0 then
+					for _, id in ipairs(Grid.PLANTED_CELLS) do
+						local g = Plan.cellGround(id)
+						if item.x >= g.minX and item.x <= g.maxX and item.z >= g.minZ and item.z <= g.maxZ then
+							stray += 1
+						end
+					end
+				end
+			end
+			expect(stray).to.equal(0)
+			TestKit.note(string.format("skirt: C1 %d (3 planted neighbours), C2 %d into bare ground", c1Skirt, c2Skirt))
+		end)
+
+		-- THE BEHAVIOUR, driven through the real planter over a fake hillside -- the fixture case 18b
+		-- uses. IT DIES IF `keep` DIES: `dressCell` fells every other cell's wood on its way in, so
+		-- without the set only the LAST cell of the list would be standing.
+		it("stands every cell of the list up at once, and fells anything not in it", function()
+			local function hillside(x: number, z: number): number?
+				return 120 + 0.1 * (x - Grid.CONFIG.originX) - 0.05 * (z - Grid.CONFIG.originZ)
+			end
+			local sources = Instance.new("Folder")
+			local made: { [string]: Model } = {}
+			local function template(name: string): Model?
+				if made[name] == nil then
+					local model = Instance.new("Model")
+					model.Name = name
+					local trunk = Instance.new("Part")
+					trunk.Name = "Trunk"
+					trunk.Size = Vector3.new(4, 40, 4)
+					trunk.Position = Vector3.new(0, 20, 0)
+					trunk.Anchored = true
+					trunk.Parent = model
+					model.PrimaryPart = trunk
+					model.Parent = sources
+					made[name] = model
+				end
+				return made[name]
+			end
+			local grid = Instance.new("Folder")
+			grid.Name = Planter.GRID_FOLDER
+			-- A STALE CELL IS STANDING BEFORE THE DRESS -- one that is NOT in the list.
+			local stale = Instance.new("Folder")
+			stale.Name = "D2"
+			stale.Parent = grid
+			local staleTree = Instance.new("Model")
+			staleTree.Name = "stale"
+			staleTree.Parent = stale
+
+			local wanted = { "C1", "C2", "B1" }
+			local reports = Planter.dressCells(wanted, grid, hillside, template, nil, nil)
+			expect(#reports).to.equal(#wanted)
+			local standing: { [string]: number } = {}
+			for _, folder in ipairs(Planter.cellWoodFolders(grid)) do
+				standing[folder.Name] = #folder:GetChildren()
+			end
+			-- EVERY CELL OF THE LIST IS STANDING, with its own report's count of trees in it. This
+			-- is the assertion the one-cell contract cannot pass.
+			for index, id in ipairs(wanted) do
+				expect(reports[index].cell).to.equal(id)
+				expect(reports[index].planted > 0).to.equal(true)
+				expect(standing[id]).to.equal(reports[index].planted)
+			end
+			-- ...AND THE STALE CELL IS GONE, folder and tree.
+			expect(standing["D2"]).to.equal(nil)
+			expect(staleTree.Parent).to.equal(nil)
+			-- A SECOND RUN OF THE SAME LIST RE-PLANTS AND NEVER DOUBLES: the cell being dressed is
+			-- destroyed whether or not it is in `keep`.
+			local again = Planter.dressCells(wanted, grid, hillside, template, nil, nil)
+			local after = Planter.cellWoodFolders(grid)
+			expect(#after).to.equal(#wanted)
+			for index, id in ipairs(wanted) do
+				expect(again[index].cell).to.equal(id)
+				expect(again[index].planted).to.equal(reports[index].planted)
+			end
+			-- AN EMPTY LIST DRESSES NOTHING AND TOUCHES NOTHING -- no `dressCell` call is made, so
+			-- the wood already standing stays. That is the branch a spec takes to reach `build`
+			-- with no wood at all.
+			expect(#Planter.dressCells({}, grid, hillside, template, nil, nil)).to.equal(0)
+			expect(#Planter.cellWoodFolders(grid)).to.equal(#wanted)
+			-- THE KEEP LIST IS SEPARABLE FROM THE DRESS LIST (task 328i, reviewer round 1), which
+			-- is what lets the boot plant four cells behind a fifth that is already standing: dress
+			-- D1 alone, keeping the three, and all four are up.
+			local later = Planter.dressCells({ "D1" }, grid, hillside, template, nil, nil, { "C1", "C2", "B1", "D1" })
+			expect(#later).to.equal(1)
+			local all = Planter.cellWoodFolders(grid)
+			expect(#all).to.equal(4)
+			-- ...AND WITHOUT THE KEEP LIST THE SAME CALL FELLS THEM, which is the one-cell contract
+			-- and the reason the argument exists.
+			expect(#Planter.dressCells({ "D1" }, grid, hillside, template, nil, nil)).to.equal(1)
+			expect(#Planter.cellWoodFolders(grid)).to.equal(1)
+			TestKit.note(
+				string.format(
+					"dressCells %s: %d trees standing over %d cells",
+					table.concat(wanted, ","),
+					reports[1].planted + reports[2].planted + reports[3].planted,
+					#after
 				)
 			)
 			grid:Destroy()

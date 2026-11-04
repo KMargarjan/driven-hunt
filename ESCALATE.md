@@ -1,3 +1,35 @@
+## 2026-11-04 ~21:50 UTC, Task 328i -- TWO DESIGN ROWS THE DIRECTOR HAS TO SETTLE
+
+Task 328i is REVIEWER PASS and ready to merge. Neither item below blocks it; both are decisions
+that are not the Builder's (`docs/design/` is not mine to write).
+
+**1. `Workspace.GridForest` is NOT built, and two design rows disagree about whose job it is.**
+`grid-terrain.md` section 16's 328i row says *"the whole-world plant goes into
+**`Workspace.GridForest`** (F-1); the archive re-parents only (B3)"*. `grid-roads.md` section 13
+item 5 says the **Edit-time prebuild and the performance gate** are **328g**'s, scoped to *"C1 and
+its four neighbours"*. They cannot both govern: `GridForest` exists precisely because nothing in
+`src/` destroys it, which means it is written at EDIT time and **saved with the place** -- and this
+dispatch's step 0 forbids clicking Save, Publish or Drafts Commit. So 328i plants at boot into
+`GridPlaces`, as `Places.build` has always done, and the world is correct in every session without
+anyone saving anything. **What I need:** which row governs. If section 16's, 328g (or a new task)
+has to carry the prebuild AND a `NEEDS KAREN` save click; if section 13's, section 16's 328i row
+should be amended to say the plant stays at boot until 328g.
+
+**2. `drive-places.md` section 6.4 says the planting happens BEFORE the boars and before
+`Match.start`. Four of five cells now go in after it, and that was forced.** The Reviewer's round-1
+finding, which was right: `Places.build` is `ForestTestBoot`'s composition root -- `Bots.start`,
+`Economy.start`, `Lobby.start`, `Shop.start`, `Match.start` and `HitLog.start` all come after it --
+so dressing five cells there is **~172 s measured** in which Karen has no lobby, no shop, no match
+and no gun. One cell (the one she stands in) still goes in on that path; the other four go in on a
+`task.spawn` below `HitLog.start`. **The design's stated reason for "first" is pathfinding** (*"a
+boar released into a place whose wood arrived afterwards would have pathfound over ground that then
+grew trees"*), and the ordering answers it: `Grid.PLANTED_CELLS` puts **C2 second**, so the only
+deferred cell a drive actually uses -- 37 % of this task's animal samples were in C2 -- is dressed
+FIRST of the four, about 18 s into the 71.8 s, against a first wave a minute out. **What I need:**
+section 6.4 amended to "one cell before the owners, the rest behind them, nearest cell first", or a
+decision to gate the first wave on `report.gridPending` being empty. The boot's own comment above
+`Places.build` carries the same stale sentence and should move with the design row.
+
 ## 2026-11-04 ~16:20 UTC, Task 328x -- WHAT THE BAKE SHIPPED, AND THE THREE THINGS IT COULD NOT
 
 **Shipped**, in Karen's Forest Test at the code commit:
@@ -2479,3 +2511,8 @@ boundaries. Merged into `task-328s-c1-denser` at `8164e299`; the full gate there
 `FAIL: 32/34` on two of my OWN stale pins (`grid.spec` C1 plan 1,803/1,789 against the denser
 2,458/2,448), fixed at `871f7655`, which gates
 `[harness] PASS: 34/34 checks @ 871f7655a0c44989ee47e6b983f70655d1f84444 (clean tree) scope=all`.
+
+## 2026-11-04 ~22:00 UTC, Director -- Task 328i's two design rows, DECIDED
+
+1. **`grid-roads.md` section 13 governs.** The forest stays planted at boot into `GridPlaces` until 328g, which owns the Edit-time `Workspace.GridForest` prebuild, the performance gate, and the `NEEDS KAREN` save click that prebuild needs. The Architect amends `grid-terrain.md` section 16's 328i row to say so at the next audit.
+2. **The deferred order is accepted.** One cell is dressed before the owners. The rest are dressed behind `HitLog.start`, nearest cell first, with C2 second. The Architect amends `drive-places.md` section 6.4 to that wording at the next audit. The reason is the one the Builder gave: the Reviewer's measured ~172 s with no lobby, gun or match beats the pathfinding argument, and that argument is answered by the order.

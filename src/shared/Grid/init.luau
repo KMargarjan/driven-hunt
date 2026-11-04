@@ -99,6 +99,17 @@ Grid.CELL_ORDER = table.freeze({ "A1", "B1", "C1", "D1", "A2", "B2", "C2", "D2" 
 -- BOTH flanks, and it needs no relief relaxation. Task 327d retires the preview and this row with it.
 Grid.PREVIEW_CELL = "C1"
 
+-- WHICH CELLS GET A WOOD UNDER `GRID_PREVIEW` (task 328i). Karen, 2026-11-04: *"more trees behind
+-- the line"* -- there were none, because `Places.build` dressed `PREVIEW_CELL` and nothing else.
+--
+-- **THE LIST IS THE CELLS WHOSE GROUND IS BAKED, and that is a reading, not a preference**: a wood
+-- planted on ground that is about to be re-baked is work thrown away, and its trees would be seated
+-- on a shape that no longer exists. 328x baked `B1,C1,D1,A2,B2,C2,D2` and HELD B2 and D2's landform
+-- (`--hold-landform`), so those two still carry the raw base; A1 was never in a bake at all. That
+-- leaves five. **C1 IS FIRST** because `dressCells` plants in the order given and a player stands in
+-- it; **C2 IS SECOND** because it is the cell behind C1's hunter line, which is the one Karen named.
+Grid.PLANTED_CELLS = table.freeze({ "C1", "C2", "A2", "B1", "D1" })
+
 -- THE EIGHT CELLS. **`relief` IS MEASURED AND NOT WRITTEN** (design 4.4): no terrain height is
 -- generated anywhere, because 13.41 M sq studs is ~750 `MapGen` tiles and ~50 minutes of Edit-time
 -- build over ground Karen already bought (rule 7). The four values below come from task 327a's own
