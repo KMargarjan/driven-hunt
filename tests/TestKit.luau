@@ -193,7 +193,16 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 			local inner = TestEZ.TestRunner.runPlanNode
 			TestEZ.TestRunner.dhStaged = true
 			TestEZ.TestRunner.runPlanNode = function(session, planNode, hooks)
-				TestKit.stage("block:" .. tostring(planNode.phrase))
+				-- An `it` never reaches `runPlanNode` -- only a describe does -- but every node is
+				-- pushed on the session, so that is where the test's own name is.
+				if not session.dhStaged then
+					session.dhStaged = true
+					local push = session.pushNode
+					session.pushNode = function(self, node)
+						TestKit.stage("node:" .. tostring(node.phrase))
+						return push(self, node)
+					end
+				end
 				return inner(session, planNode, hooks)
 			end
 		end

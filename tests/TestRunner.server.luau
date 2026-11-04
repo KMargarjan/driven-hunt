@@ -13,8 +13,8 @@ local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local lastStage, startedAt = "boot", os.clock()
 -- A TRAIL AND NOT ONE WORD: Studio's console comes back truncated from a run this long (the whole
 -- head of it is gone -- the same reason TestKit.note exists), so the last stages travel on the
--- attribute WITH their timestamps. Twelve is enough to tell a crawl from a stop.
-local TRAIL = 12
+-- attribute WITH their timestamps. Thirty is enough to tell a crawl from a stop and name the test.
+local TRAIL = 30
 local trail: { string } = {}
 
 local function mark(name: string)
