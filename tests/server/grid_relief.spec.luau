@@ -3094,8 +3094,11 @@ return function()
 			end
 			expect(pick).never.to.equal(nil)
 			local tile = plan[pick :: number]
+			-- NOT A PLANE. The blur of a plane IS the plane, so `h0 == base` and losing the blur
+			-- would change nothing -- round 1 of this case used one and the "real loss" line
+			-- could not fire however wide the void was.
 			local function rolling(x: number, z: number): number
-				return 120 + 0.02 * x + 0.03 * z
+				return 120 + 8 * math.sin(x / 60) + 6 * math.cos(z / 50)
 			end
 			local reshape = { C1 = true }
 
@@ -3125,11 +3128,12 @@ return function()
 			local shaped, _n2, n, _a2, dropped = TerrainBake.shapeTile(tile, holed, { "C1" }, {}, nil, reshape)
 			TestKit.note(
 				string.format(
-					"328x-7 void strip %d columns wide, blur reach %d: dropped %d of %d shaping columns",
+					"328x-7 void strip %d slice columns, blur reach %d columns: %d shaping column(s) lost "
+						.. "the landform (the shaping grid is %d wide)",
 					strip,
 					reach,
 					dropped,
-					wide * wide
+					TerrainBake.TILE_STUDS / v + 2 * (TerrainBake.LIMIT_MARGIN_STUDS / v)
 				)
 			)
 			expect(dropped > 0).to.equal(true)
