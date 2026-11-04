@@ -628,6 +628,16 @@ return function()
 			-- of that name breaks the one-gun-per-player rule `Weapon.grant` enforces.
 			local tool = probeTool(Hardware.TOOL_NAME)
 			tool.Parent = backpack
+			-- AND THE CASE'S OWN PREMISE, SET RATHER THAN INHERITED (task 328t). "Spawned inside the
+			-- server's first second" means holding nothing; `upgradeLook` re-equips the gun that was
+			-- HELD, or the PRIMARY when none is (task 140's rule, `Weapon.upgradeLook`). MEASURED in
+			-- this session: `heldId=rifle` from an earlier case, upgraded=1 and wearsMesh=true, and
+			-- the sweep then correctly left the upgraded SHOTGUN in the Backpack -- so the case was
+			-- asserting against the very rule it is built on.
+			local humanoid = if player.Character then player.Character:FindFirstChildOfClass("Humanoid") else nil
+			if humanoid then
+				humanoid:UnequipTools()
+			end
 
 			local ok, err = pcall(function()
 				expect(Hardware.wearsMesh(tool)).to.equal(false)
