@@ -2163,3 +2163,35 @@ with it. A red gate is recoverable; that is not.
 **What the Director can decide:** (a) confirm the FT's terrain is safe, then close the FT Studio and
 re-run the gate; or (b) restart StudioMCP / the DEV Studio, which is the other way to stop the list
 flapping; or (c) accept 328s on the evidence below, which is all measured in Karen's own place.
+
+### 2026-11-04 01:32 UTC -- 328s: correcting my own mechanism, and stopping
+
+Two more readings, and the first of them **corrects the entry above**:
+
+1. **The flapping is NOT the mechanism, and I should not have leant on it.** Re-measured with DEV
+   in Play, `list_roblox_studios` answered the same two Studios three times out of three. The
+   flapping I saw earlier was real but transient, and it is not what fails the run.
+2. **Play registers NO new datamodel at all**: the list is identical before and during Play, which
+   is why `classify_studios` prints `0 new, server=?` on every run. I had taken that for the fault;
+   I can no longer claim it is, because the CLIENT report arrives on the same machinery (191 s,
+   token checked, `comes from the DEV place` ok) and 328r's 34/34 runs went through the same code.
+   So `server=?` is probably normal and harmless, and I am recording it as an observation, not a
+   diagnosis.
+
+**What is established, and it is enough for the decision:**
+
+* the gate is red at the merge-base `14581cc7` as well as at 328s's code commit, with the SAME two
+  client failures and the SAME missing server report (runs 1-6 above);
+* the server suite does not finish in **900 s**, so it is not a window that is too small;
+* nothing in 328s's diff is reachable from either failure: DEV's world is `map:v1`, and
+  `Places.plantCell` / `CELL_PLANS` dress only the grid world.
+
+**What I did NOT do, deliberately.** I did not raise `REPORT_WINDOW`, edit `boar_shot.spec`, close
+the Forest Test Studio (328r's baked C1 may be unsaved in that session) or restart the DEV Studio
+(its universe id is recorded nowhere on this machine, so I could not prove I could reopen it). Each
+of those either moves the gate or risks an environment I cannot restore, and both are the
+Director's to authorise, not mine.
+
+**Task 328s is otherwise complete and every number in it was measured in Karen's own place.** Her
+Forest Test is back on `localhost:34873` from `driven-hunt-karen`, connected, and `smoke.sh` is
+**PASS**.
