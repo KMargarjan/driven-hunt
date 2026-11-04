@@ -1,3 +1,51 @@
+## 2026-11-04 ~13:15 UTC, Task 328h -- STOPPED AT THE DISPATCH'S TWO-ROUND CAP: round 2 returned two blocking findings, I agree with both, and the fixes are committed and green
+
+**This is a stop, not a workaround.** The dispatch says *"Review: at most 2 rounds; a FINDING on
+round 2 goes to ESCALATE.md, then stop."* Round 2 returned two findings, **both correct**, and both
+are fixed in `6260e7dc`. The branch is pushed and the full one-player gate is green at the head:
+
+```
+[harness] PASS: 34/34 checks @ 8e05ce48143aadad41596096813cb28c567c454c (clean tree) scope=all
+```
+Code commit **`8e05ce48`** (the last code commit is `6260e7dc`; only `reviews/task-328h/RESULT.md`
+follows it). `test2` N/A -- no `TWO_PLAYER_PATHS` path is touched. **Round 3 needs the Director's
+authorisation** (`DIRECTOR_MAX_ROUNDS=3`), and it reviews these two fixes and nothing new.
+
+**Finding 1 -- the bench band's x rectangle, and the test written against it.** Right, and worse
+than round 1's version of the same defect. `benchBands` cut the band to `bounds +- 136` and the
+coverage test clamped its required window to that same rectangle, so `covered` was true by
+construction exactly where the band ran out. `TerrainBake.cellAt` answers *the nearest cell*, and
+`blendAt` is non-zero for `Relief.BLEND_STUDS` 200 studs past `Grid.worldBoundsOf`, so the bench walk
+runs for grid x hundreds of studs outside `Grid.boundsOf` -- where the band holds no column,
+`readOne` answers nil, `blurredAt` answers nil, and `applyOps` takes `smoothed or b` and anchors the
+plane on the RAW base, or past `bounds.maxX + 76` drops the bench for that column outright. **The
+window is now the TILE's, unclamped**, every band of a run is cut for every tile with **no relevance
+skip** (a skip keyed on the band's own rectangle is the same unfalsifiable clamp in another place),
+and `grid_relief.spec` 328h-1 now drives a tile at the cell's EASTERN EXTREMITY, which is precisely
+the region its round-1 pick excluded.
+
+**Finding 2 -- 328h-2's precedence line could not fail.** Right. `expect(withBand(x, z)).to.equal(plain(x, z))`
+compared at `z` -5557 while the band covers -5983..-5687, so both readers answered nil whatever the
+order, and round 2's REQUEST claimed that line now bites. It compares through an OVERLAPPING slice
+now, built from a height function 500 studs higher, and also asserts the answer is NOT the band's.
+
+**What the Director needs to decide, in order:**
+
+1. **Round 3, or merge on the round-2 verdict plus these two fixes.** The fixes are small, both are
+   entered by a case, and the gate is green; but nobody has reviewed them.
+2. **THE FIVE UNBAKED CELLS -- the real blocker, unchanged** (the 2026-11-04 ~10:35 entry below).
+   `A1`, `A2`, `B2`, `C2`, `D2` cannot be baked because the Forest Test has no terrain under the
+   grid's north and west border pad. **`C2` is the cell Karen's "more trees behind the line" names**,
+   so her sentence is still unanswered and `328h-F1-before.png` and `328h-F1-after.png` are
+   deliberately the same frame.
+3. **A NEW UNMEASURED COST, recorded here because it bears on 328i and 328g.** The bench anchor walk
+   is six `blurredAt` calls -- 1,369 base reads each -- for EVERY point in the band, so shaping ONE
+   real D2 tile is ~1.5e8 reads; it overran the harness's own 300 s cap twice before the spec was
+   moved to a single point. **No bench cell has ever been baked, so the real cost of A1, B2 and D2 is
+   unknown and could be far above this run's 376 ms a tile.** The round-1 claim in `ESCALATE.md`
+   below that *"three of the five need no further tool work"* should be read as *no further
+   CORRECTNESS work* -- the cost is still open.
+
 ## 2026-11-04 ~10:35 UTC, Task 328h -- FIVE OF THE SEVEN CELLS CANNOT BE BAKED: the Forest Test has NO TERRAIN under the grid's north and west border pad, and the design's own hole refusal is right
 
 **What shipped.** `B1`, `C1` and `D1` -- row 1 -- are baked at the bend, surveyed, and their
