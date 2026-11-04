@@ -1935,7 +1935,7 @@ QUERY_REPORT = {
 # saying nothing at all. It lives in the PLAY datamodel, so it is read before Play stops.
 QUERY_TEST_STAGE = {
     "server": ('local SS = game:GetService("ServerStorage") '
-               'return tostring(SS:GetAttribute("TestStage")) .. " | alive " .. tostring(SS:GetAttribute("TestStageAge"))'),
+               'return tostring(SS:GetAttribute("TestStageAge")) .. " | trail: " .. tostring(SS:GetAttribute("TestStageTrail"))'),
     "client": 'local p = game:GetService("Players").LocalPlayer return p and tostring(p:GetAttribute("TestStage")) or "no player"',
 }
 # ONE SCRIPT'S SOURCE, A SLICE AT A TIME (Task 115). StudioMCP truncates a tool result at roughly

@@ -11,11 +11,21 @@ local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 -- used to be silent, so a missing TestReport named nothing -- four hours of 328s went on guessing.
 -- Read by tools/studio_mcp.py when the report does not arrive.
 local lastStage, startedAt = "boot", os.clock()
+-- A TRAIL AND NOT ONE WORD: Studio's console comes back truncated from a run this long (the whole
+-- head of it is gone -- the same reason TestKit.note exists), so the last stages travel on the
+-- attribute WITH their timestamps. Twelve is enough to tell a crawl from a stop.
+local TRAIL = 12
+local trail: { string } = {}
 
 local function mark(name: string)
 	lastStage = name
+	table.insert(trail, string.format("%.0fs %s", os.clock() - startedAt, name))
+	if #trail > TRAIL then
+		table.remove(trail, 1)
+	end
 	pcall(function()
 		ServerStorage:SetAttribute("TestStage", name)
+		ServerStorage:SetAttribute("TestStageTrail", table.concat(trail, " >> "))
 	end)
 end
 
@@ -27,7 +37,10 @@ task.spawn(function()
 	while true do
 		task.wait(5)
 		pcall(function()
-			ServerStorage:SetAttribute("TestStageAge", string.format("%.0f s at %s", os.clock() - startedAt, lastStage))
+			ServerStorage:SetAttribute(
+				"TestStageAge",
+				string.format("%.0f s since boot, last stage %s", os.clock() - startedAt, lastStage)
+			)
 		end)
 	end
 end)
