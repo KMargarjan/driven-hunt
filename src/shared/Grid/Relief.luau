@@ -552,9 +552,9 @@ end
 
 -- ---------------------------------------------------------------- the floor material
 
--- THE ZONE FLOOR AT ONE POINT. Only the rules SWARM section 2.2 states -- four cells state one, and
--- the other four get the placeholder `Ground` until `CELL_PLANS` v2 carries the zone floor (328f).
--- The 70/30 scree MIX is the bake's, not this function's (design 5.3 step 3).
+-- THE ZONE FLOOR AT ONE POINT. Four cells state a rule in SWARM section 2.2; the other four take
+-- C1's litter default (328e, 328y) -- the `Ground` placeholder is gone until `CELL_PLANS` v2
+-- carries the per-ZONE floor (328f). The 70/30 scree MIX is the bake's, not this (design 5.3).
 function Relief.materialAt(
 	form: Landform,
 	_bounds: Bounds,
@@ -757,7 +757,10 @@ Relief.LANDFORMS = table.freeze({
 				halfWidthStuds = 180,
 			}),
 		}),
-		floor = table.freeze({ default = "Ground" }),
+		-- C1's FLOOR RULE, BORROWED WHOLE (task 328y): SWARM 2.2 states none for this cell, so the
+		-- `Ground` was the header's placeholder -- MEASURED 1,537/1,645 `Ground` against C1's 1,533
+		-- `LeafyGrass` (`<runs-dir>/328y-census-before.txt`). C1 has no mud or scree arm to differ.
+		floor = table.freeze({ default = "LeafyGrass" }),
 	}),
 	-- B2 PLATEAU AND THE EDGE: a 2 % bench to the lip, a 24-degree scarp, and THREE ramps up it.
 	-- SWARM section 2.2 gives B2's bench no weight; 0.9 is chosen so the plateau reads as a plateau.
@@ -782,7 +785,10 @@ Relief.LANDFORMS = table.freeze({
 			table.freeze({ kind = "knoll", u = 0.18, v = 0.40, rStuds = 200, dyStuds = 26 }),
 			table.freeze({ kind = "knoll", u = 0.82, v = 0.40, rStuds = 200, dyStuds = 26 }),
 		}),
-		floor = table.freeze({ default = "Ground" }),
+		-- C1's FLOOR RULE, BORROWED WHOLE (task 328y): SWARM 2.2 states none for this cell, so the
+		-- `Ground` was the header's placeholder -- MEASURED 1,539/1,645 `Ground` against C1's 1,533
+		-- `LeafyGrass` (`<runs-dir>/328y-census-before.txt`). C1 has no mud or scree arm to differ.
+		floor = table.freeze({ default = "LeafyGrass" }),
 	}),
 	-- D2 BROKEN HILLSIDE: the hanging meadow on a 4 % bench, and the limiter does the rest.
 	D2 = table.freeze({
@@ -790,7 +796,11 @@ Relief.LANDFORMS = table.freeze({
 		ops = table.freeze({
 			table.freeze({ kind = "bench", v0 = 0.50, v1 = 0.74, weight = 0.7, gradePercent = 4 }),
 		}),
-		floor = table.freeze({ default = "Ground" }),
+		-- C1's FLOOR RULE, BORROWED WHOLE (task 328y): SWARM 2.2 states none for this cell, so the
+		-- `Ground` was the header's placeholder -- MEASURED 1,545/1,645 `Ground` against C1's 1,533
+		-- `LeafyGrass` (`<runs-dir>/328y-census-before.txt`). C1 has no mud or scree arm to differ.
+		-- D2 IS HELD: `shapeTile` repaints a held cell's material and leaves its heights (328x note n).
+		floor = table.freeze({ default = "LeafyGrass" }),
 	}),
 })
 
