@@ -2259,3 +2259,10 @@ authorise; I have not made it.**
 
 My token was written into DEV's Edit `ReplicatedStorage` for these tests and is **cleared** (`""`),
 so no playtest will run tests. Nothing else in DEV or in Karen's place was changed.
+
+**RESOLVED BY 328t (#327, `85ef6ddd`), 2026-11-04 06:47 UTC.** All four 328s gate entries above are
+closed: the engine's Script timeout was killing the server runner, and `TestKit` now yields at test
+boundaries. Merged into `task-328s-c1-denser` at `8164e299`; the full gate there read
+`FAIL: 32/34` on two of my OWN stale pins (`grid.spec` C1 plan 1,803/1,789 against the denser
+2,458/2,448), fixed at `871f7655`, which gates
+`[harness] PASS: 34/34 checks @ 871f7655a0c44989ee47e6b983f70655d1f84444 (clean tree) scope=all`.
