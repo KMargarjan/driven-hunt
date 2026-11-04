@@ -2511,3 +2511,8 @@ boundaries. Merged into `task-328s-c1-denser` at `8164e299`; the full gate there
 `FAIL: 32/34` on two of my OWN stale pins (`grid.spec` C1 plan 1,803/1,789 against the denser
 2,458/2,448), fixed at `871f7655`, which gates
 `[harness] PASS: 34/34 checks @ 871f7655a0c44989ee47e6b983f70655d1f84444 (clean tree) scope=all`.
+
+## 2026-11-04 ~22:00 UTC, Director -- Task 328i's two design rows, DECIDED
+
+1. **`grid-roads.md` section 13 governs.** The forest stays planted at boot into `GridPlaces` until 328g, which owns the Edit-time `Workspace.GridForest` prebuild, the performance gate, and the `NEEDS KAREN` save click that prebuild needs. The Architect amends `grid-terrain.md` section 16's 328i row to say so at the next audit.
+2. **The deferred order is accepted.** One cell is dressed before the owners. The rest are dressed behind `HitLog.start`, nearest cell first, with C2 second. The Architect amends `drive-places.md` section 6.4 to that wording at the next audit. The reason is the one the Builder gave: the Reviewer's measured ~172 s with no lobby, gun or match beats the pathfinding argument, and that argument is answered by the order.
