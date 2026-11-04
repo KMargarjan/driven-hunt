@@ -2284,26 +2284,35 @@ return function()
 				expect(Relief.materialAt(form, bounds, nil, 35, 40, 0, 0)).to.equal("LeafyGrass")
 				expect(Relief.materialAt(form, bounds, nil, 89, 400, 0, 0)).to.equal("LeafyGrass")
 			end
-			-- MATERIAL ONLY: `TerrainShape_<id>` hashes `baseKeep` and `ops`, so the stamp of each
-			-- cell is what it was before this task and no cell is re-shaped. The EPOCH does move,
-			-- because `epochInput` hashes the whole landform, floor included.
+			-- MATERIAL ONLY: `TerrainShape_<id>` hashes `baseKeep` and `ops`, so every stamp is what
+			-- it was and the repaint cannot be read as a shape change. The landform still goes in on
+			-- every re-bake (328r) -- the heights hold because the base is the virgin `.bin` and the
+			-- write is absolute. The EPOCH moves: `epochInput` hashes the floor too.
+			local mark = Instance.new("Folder")
+			expect(TerrainBake.stampShape({ "A2", "C2", "D2" }, mark)).to.equal(3)
 			local shaped = { A2 = Relief.LANDFORMS.A2, C2 = Relief.LANDFORMS.C2, D2 = Relief.LANDFORMS.D2 }
 			local brown = {} :: any
 			for id, form in Relief.LANDFORMS do
 				brown[id] = form
 			end
 			for id, form in shaped do
-				-- THE STAMP'S OWN INPUT -- `baseKeep` and `ops`, `TerrainBake.shapeInputFor`'s shape --
-				-- does not carry the floor, so a repaint cannot make `reshapeWanted` say "changed".
-				expect(Relief.epochInput({ [id] = { baseKeep = form.baseKeep, ops = form.ops } }, Grid.CONFIG)).never.to.equal(
-					Relief.epochInput({ [id] = form }, Grid.CONFIG)
-				)
+				-- ASKED THROUGH THE FUNCTION THE STAMP IS WRITTEN FROM (Reviewer round 1, finding 1):
+				-- `shapeInputFor` carries no floor, so a repaint leaves `reshapeWanted` at "stamped".
+				expect(string.find(TerrainBake.shapeInputFor(id), "floor", 1, true)).to.equal(nil)
+				expect(TerrainBake.shapeInputFor(id)).never.to.equal(Relief.epochInput({
+					[id] = { baseKeep = form.baseKeep, ops = form.ops, floor = { default = "Rock" } },
+				}, Grid.CONFIG))
+				expect(mark:GetAttribute("TerrainShape_" .. id)).to.equal(TerrainBake.shapeInputFor(id))
+				local wanted, _, kind = TerrainBake.reshapeWanted(id, mark)
+				expect(wanted).to.equal(false)
+				expect(kind).to.equal("stamped")
 				brown[id] = table.freeze({
 					baseKeep = form.baseKeep,
 					ops = form.ops,
 					floor = table.freeze({ default = "Ground" }),
 				})
 			end
+			mark:Destroy()
 			expect(Relief.epochInput(Relief.LANDFORMS, Grid.CONFIG)).never.to.equal(
 				Relief.epochInput(brown, Grid.CONFIG)
 			)
