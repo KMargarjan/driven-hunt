@@ -1930,6 +1930,13 @@ QUERY_REPORT = {
     "server": 'return game:GetService("ServerStorage"):GetAttribute("TestReport") or ""',
     "client": 'local p = game:GetService("Players").LocalPlayer return p and p:GetAttribute("TestReport") or ""',
 }
+# WHERE A RUN THAT NEVER REPORTED GOT TO (task 328t). `tests/TestRunner.server.luau` publishes
+# ServerStorage.TestStage as it goes, so a missing TestReport finally names its own stage instead of
+# saying nothing at all. It lives in the PLAY datamodel, so it is read before Play stops.
+QUERY_TEST_STAGE = {
+    "server": 'return tostring(game:GetService("ServerStorage"):GetAttribute("TestStage"))',
+    "client": 'local p = game:GetService("Players").LocalPlayer return p and tostring(p:GetAttribute("TestStage")) or "no player"',
+}
 # ONE SCRIPT'S SOURCE, A SLICE AT A TIME (Task 115). StudioMCP truncates a tool result at roughly
 # 100 KB and a single script's Source can be bigger than that on its own -- `src/serverstorage/
 # Assets/init.luau` passed it the moment the boar's ten animation rows landed, and the run failed as
@@ -3637,7 +3644,7 @@ def run_test(studio, scope=None):
 
     token = f"{secrets.token_hex(8)}:{int(time.time())}"
     write_token(token)
-    reports, output = {}, ""
+    reports, stages, output = {}, {}, ""
     try:
         seen, ok = wait_for(lambda: studio.query("Edit", QUERY_TOKEN), lambda v: v == token, 15)
         if not check("Rojo synced the fresh token from disk", ok, f"Studio has {seen!r}"):
@@ -3780,6 +3787,14 @@ def run_test(studio, scope=None):
                                     timeout=10)
                     if pending:
                         time.sleep(1)
+                # THE STAGE OF A SIDE THAT NEVER REPORTED (task 328t), read HERE because the
+                # attribute only exists in the Play datamodel that the `finally` below is about to
+                # end. `pending` holds exactly the sides whose report did not arrive.
+                for side, datamodel in pending.items():
+                    raw, why = process_call(
+                        lambda dm=datamodel: studio.query(dm, QUERY_TEST_STAGE[side]), timeout=10, default="")
+                    stages[side] = raw or f"unreadable: {why}"
+                    print(f"[harness] {side} never reported; its last stage was {stages[side]}")
                 phases.mark("reading both reports")
                 output = studio.console()
             finally:
@@ -3803,7 +3818,8 @@ def run_test(studio, scope=None):
             print(f"  failed [{side}] {describe_failure(failure)}")
     for side in sides:
         report = reports.get(side)
-        if not check(f"[{side}] runner reported within {REPORT_WINDOW} s", report is not None):
+        if not check(f"[{side}] runner reported within {REPORT_WINDOW} s", report is not None,
+                     f"last stage: {stages.get(side, '?')}"):
             continue
         check(f"[{side}] report carries this run's token", report["token"] == token, report["token"])
         check(f"[{side}] report comes from the DEV place", str(report["placeId"]) == place, str(report["placeId"]))

@@ -78,10 +78,23 @@ function TestKit.note(text: string)
 	print("[note] " .. text)
 end
 
+-- WHICH STAGE OF A RUN IS LIVE, for the harness when no report ever arrives (task 328t). Every stop
+-- between `run` being entered and the report being written used to be silent. The RUNNER publishes
+-- it, because nothing in here owns ServerStorage; TestKit only says where it got to.
+TestKit.onStage = nil :: ((string) -> ())?
+
+local function stage(name: string)
+	local hook = TestKit.onStage
+	if hook then
+		pcall(hook, name)
+	end
+end
+
 -- Runs every *.spec ModuleScript under specsFolder and returns the report table.
 -- side is "server" or "client"; it is echoed in the report and the [tests:<side>] line.
 function TestKit.run(side: string, token: string, specsFolder: Instance?)
 	activeToken = token
+	stage("run-entered")
 	local report = {
 		side = side,
 		token = token,
@@ -103,6 +116,7 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 		-- clock seam open for the rest of the session, in a Studio session a human is about to play in.
 		-- Every exit from `run` goes through here, including the early returns above.
 		activeToken = nil
+		stage("finish:" .. report.status)
 		local line = if report.status == "ERROR"
 			then string.format("[tests:%s] ERROR: %s", side, report.message)
 			else string.format(
@@ -145,6 +159,7 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 	for _, module in specsFolder:GetDescendants() do
 		if module:IsA("ModuleScript") and string.match(module.Name, "%.spec$") then
 			table.insert(report.specs, module:GetFullName())
+			stage("spec-load:" .. module.Name)
 			local startedAt = os.clock()
 			local ok, err = pcall(require, module)
 			table.insert(slowest, { name = module.Name, ms = (os.clock() - startedAt) * 1000 })
@@ -165,6 +180,7 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 		TestKit.note("spec load, slowest three: " .. table.concat(worst, ", "))
 	end
 
+	stage("testez-starting")
 	local ok, resultsOrErr = pcall(function()
 		local TestEZ = require(devPackages.TestEZ)
 		return TestEZ.TestBootstrap:run({ specsFolder }, TestEZ.Reporters.TextReporter)
@@ -174,6 +190,7 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 		return finish()
 	end
 
+	stage("testez-returned")
 	local results = resultsOrErr
 	-- THE FAILURES THEMSELVES, in the report. Studio's console comes back truncated from a long
 	-- session and takes the failure list with it: a two-player run said "13 failed" and nothing
@@ -192,6 +209,7 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 	-- Zero passing tests is a failure: it means nothing ran, not that everything is fine.
 	-- Any skipped test is a failure too: SKIP/itSKIP/describeSKIP skip tests directly, and
 	-- FOCUS/itFOCUS/describeFOCUS skip every unfocused test. Neither may reach main.
+	stage("report-built")
 	report.status = if results.failureCount == 0
 			and report.errorCount == 0
 			and results.skippedCount == 0
