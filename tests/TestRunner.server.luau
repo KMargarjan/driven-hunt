@@ -10,13 +10,27 @@ local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 -- WHERE THIS RUN GOT TO, published as it goes (task 328t). Every stop between boot and the report
 -- used to be silent, so a missing TestReport named nothing -- four hours of 328s went on guessing.
 -- Read by tools/studio_mcp.py when the report does not arrive.
+local lastStage, startedAt = "boot", os.clock()
+
 local function mark(name: string)
+	lastStage = name
 	pcall(function()
 		ServerStorage:SetAttribute("TestStage", name)
 	end)
 end
 
 mark("boot")
+
+-- IS IT HUNG OR IS IT DEAD? A stage that stops moving says nothing on its own; a clock beside it
+-- that also stops says the thread is gone, and one that keeps ticking says it is waiting.
+task.spawn(function()
+	while true do
+		task.wait(5)
+		pcall(function()
+			ServerStorage:SetAttribute("TestStageAge", string.format("%.0f s at %s", os.clock() - startedAt, lastStage))
+		end)
+	end
+end)
 
 -- awaitToken, not openToken: a two-player run cannot put the token in the place these processes
 -- start from, so it arrives after they are up (tools/studio_mcp.py docstring, `test2`). The gate is
