@@ -637,6 +637,12 @@ return function()
 			local humanoid = if player.Character then player.Character:FindFirstChildOfClass("Humanoid") else nil
 			if humanoid then
 				humanoid:UnequipTools()
+				-- AND WAITED FOR: `Weapon.heldId` is the server's own bookkeeping, written by the
+				-- Tool's Unequipped listener a frame later, so reading it in this frame still
+				-- answers "rifle" (measured, round 1 of this fix).
+				waitUntil(2, function()
+					return Weapon.heldId(player) == nil
+				end)
 			end
 
 			local ok, err = pcall(function()
