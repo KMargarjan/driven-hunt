@@ -795,6 +795,45 @@ function Places.dressCell(
 	return report
 end
 
+-- THE TEMPLATE AUDIT, ONCE PER NAME (task 328b, design 9.3), as a closure over `sources`. A
+-- template that fails is counted in `report.quarantined`, refused for the whole run and never
+-- planted; the two memos make the audit's measurement run 35 times and not 2,400.
+--
+-- LIFTED OUT OF `Places.build` IN TASK 328i so the deferred dress uses the SAME audit rather than
+-- a second copy of it -- lesson L-031's rule, and the reason `dressPending` below is three lines.
+function Places.templateLookup(sources: { Instance }, report: { [string]: any }): (string) -> Model?
+	local lookup: { [string]: Model } = {}
+	local refusedTemplates: { [string]: string } = {}
+	report.quarantined = 0
+	report.quarantinedBy = {}
+	return function(name: string): Model?
+		local found = lookup[name]
+		if found then
+			return found
+		end
+		if refusedTemplates[name] ~= nil then
+			return nil
+		end
+		for _, source in ipairs(sources) do
+			-- `pickTemplate` AND NOT `FindFirstChild`: the row's instance, not the folder's first
+			-- child (task 328l). `auditTemplate` then refuses it if even that one is off the row.
+			local child = Places.pickTemplate(source, name)
+			if child then
+				local why = Places.auditTemplate(child :: Model, name)
+				if why ~= nil then
+					refusedTemplates[name] = why
+					report.quarantined += 1
+					report.quarantinedBy[why] = (report.quarantinedBy[why] or 0) + 1
+					return nil
+				end
+				lookup[name] = child
+				return child
+			end
+		end
+		return nil
+	end
+end
+
 -- DRESS A LIST OF CELLS, one after another, each into its own folder. Returns one report per cell,
 -- in the order given.
 --
@@ -811,10 +850,14 @@ function Places.dressCells(
 	groundAt: (number, number) -> number?,
 	template: (string) -> Model?,
 	breathe: (() -> ())?,
-	clock: (() -> number)?
+	clock: (() -> number)?,
+	-- WHICH CELLS SURVIVE, when that is not the same list as the one being dressed (task 328i,
+	-- reviewer round 1). The deferred dress plants four cells and must not fell the fifth, which is
+	-- already standing and is the one the player is in. nil keeps exactly what it dresses.
+	keepIds: { string }?
 ): { { [string]: any } }
 	local keep: { [string]: boolean } = {}
-	for _, id in ipairs(cellIds) do
+	for _, id in ipairs(keepIds or cellIds) do
 		keep[id] = true
 	end
 	local reports: { { [string]: any } } = {}
@@ -822,6 +865,34 @@ function Places.dressCells(
 		table.insert(reports, Places.dressCell(id, gridFolder, groundAt, template, breathe, clock, keep))
 	end
 	return reports
+end
+
+-- DRESS THE CELLS `build` HANDED BACK, off the boot's critical path (task 328i, reviewer round 1).
+-- The caller spawns it; this function never spawns anything itself, so a spec drives it straight.
+--
+-- IT FINDS THE FOLDER AND THE TEMPLATES THE SAME WAY `build` DOES and keeps `keepIds` standing, so
+-- the cell already planted is not felled by the cells arriving behind it.
+function Places.dressPending(
+	cellIds: { string },
+	world: Instance?,
+	groundAt: ((number, number) -> number?)?,
+	breathe: (() -> ())?,
+	keepIds: { string }?
+): { { [string]: any } }
+	if groundAt == nil or #cellIds == 0 then
+		return {}
+	end
+	local root = world or Workspace
+	local gridFolder = root:FindFirstChild(Places.GRID_FOLDER)
+	if gridFolder == nil then
+		return {}
+	end
+	local sources = Places.templates(root)
+	if #sources == 0 then
+		return {}
+	end
+	local template = Places.templateLookup(sources, {})
+	return Places.dressCells(cellIds, gridFolder, groundAt, template, breathe, nil, keepIds or cellIds)
 end
 
 -- BUILD EVERY DRESSED PLACE. Returns one report line's worth of counts.
@@ -940,39 +1011,7 @@ function Places.build(
 	-- it touches and must never see a building.
 	local folder = Instance.new("Folder")
 	folder.Name = Places.FOLDER
-	local lookup: { [string]: Model } = {}
-	-- THE TEMPLATE AUDIT, ONCE PER NAME (task 328b, design 9.3). A template that fails is listed in
-	-- `report.quarantined`, refused for the whole build, and never planted; `refusedTemplates` is the
-	-- memo, so the audit's raycast-free measurement runs 35 times and not 2,400.
-	local refusedTemplates: { [string]: string } = {}
-	report.quarantined = 0
-	report.quarantinedBy = {}
-	local function template(name: string): Model?
-		local found = lookup[name]
-		if found then
-			return found
-		end
-		if refusedTemplates[name] ~= nil then
-			return nil
-		end
-		for _, source in ipairs(sources) do
-			-- `pickTemplate` AND NOT `FindFirstChild`: the row's instance, not the folder's first
-			-- child (task 328l). `auditTemplate` then refuses it if even that one is off the row.
-			local child = Places.pickTemplate(source, name)
-			if child then
-				local why = Places.auditTemplate(child :: Model, name)
-				if why ~= nil then
-					refusedTemplates[name] = why
-					report.quarantined += 1
-					report.quarantinedBy[why] = (report.quarantinedBy[why] or 0) + 1
-					return nil
-				end
-				lookup[name] = child
-				return child
-			end
-		end
-		return nil
-	end
+	local template = Places.templateLookup(sources, report)
 	for _, name in ipairs(Forest.LAYOUT_ORDER) do
 		local layout = Forest.layoutNamed(name)
 		local plan = Plan.planFor(name)
@@ -1029,8 +1068,22 @@ function Places.build(
 	-- dresses `Grid.PLANTED_CELLS` -- the five whose ground is baked (task 328i; it dressed
 	-- `Grid.PREVIEW_CELL` alone until then, which is why there was no wood behind the line).
 	-- Task 327d replaces this with the per-drive dress at the `Scoring -> Assigning` edge.
+	-- ONLY THE FIRST CELL GOES IN ON THIS PATH, AND THAT IS THE WHOLE POINT (task 328i, reviewer
+	-- round 1). `Places.build` is `ForestTestBoot`'s composition root: `Bots.start`, `Economy.start`,
+	-- `Lobby.start`, `Shop.start`, `Match.start` and `HitLog.start` all come AFTER it, so a second
+	-- of planting here is a second with no lobby, no shop, no match and no gun. Five serial dresses
+	-- measure ~172 s. The first cell is the one a player stands in (`PLANTED_CELLS[1]` is
+	-- `PREVIEW_CELL`); the rest are handed back in `report.gridPending` for the boot to dress on its
+	-- own thread once every owner has started.
 	if previewOn and gridFolder ~= nil then
-		report.gridWoods = Places.dressCells(cells or Grid.PLANTED_CELLS, gridFolder, reader, template, breathe, nil)
+		local list = cells or Grid.PLANTED_CELLS
+		local first: { string } = if list[1] ~= nil then { list[1] } else {}
+		local rest: { string } = {}
+		for index = 2, #list do
+			table.insert(rest, list[index])
+		end
+		report.gridWoods = Places.dressCells(first, gridFolder, reader, template, breathe, nil, list)
+		report.gridPending = rest
 	end
 	report.seconds = os.clock() - started
 	return report

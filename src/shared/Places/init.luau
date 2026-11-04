@@ -991,17 +991,26 @@ Places.UNDER_JITTER = 1.0
 -- case (4 neighbours)". **In a 2 x 4 grid no cell has four neighbours** -- the grid has no third row,
 -- so a corner cell has 2 and B1/C1/B2/C2 have 3. The worst skirt here is C1's 565 trees against the
 -- design's 650, so the BOUND is not breached; the arithmetic behind it is.
--- THE DENSITY RULE (task 328i), READ OFF C1's OWN ACCEPTED DIFF and applied to the cells BEHIND
--- THE LINE. Karen, 2026-11-04: *"more trees behind the line"* / on C1, *"rest seems ok I think you
--- did good job"*. So C1 is the standard and nothing here invents a number: every value below is
--- C1's, or C1's own v2 -> v4 ratio applied to a zone C1 tightened the counterpart of.
---  * `minGapStuds` **11** and the skirt **24 / 52** -- C1's, borrowed whole.
---  * every zone gets `jitter` **1.0** unless the recipe already names one (A2's two plantation rows
---    keep `rows = "NS"` and 0.25: that is the cell's character, and C1 left its own named jitters).
---  * every CANOPY zone -- a wood zone that is not `oakPark`, `clearing` or `scrub` -- gets
---    `under` and its spacing x **0.667**, which is C1's own `spruceThicket` 24 -> 16, rounded.
---  * `oakPark`, `clearing` and `scrub` keep their spacing, because C1 kept theirs: the park is the
---    one a hunter sees across and the scrub is the beaters' ground.
+-- THE DENSITY RULE (task 328i), applied to the cells BEHIND THE LINE. Karen, 2026-11-04: *"more
+-- trees behind the line"* / on C1, *"rest seems ok I think you did good job"*. C1 is the standard:
+-- **1,861 trees inside its own rectangle**, the number she accepted.
+--
+-- THE FIELDS ARE C1's, BORROWED WHOLE: `minGapStuds` **11**, the skirt **24 / 52**, `jitter` **1.0**
+-- on every zone that does not already name one (A2's two plantation rows keep `rows = "NS"` and
+-- 0.25 -- the cell's character, and C1 kept its own named jitters), and `under` (**30**-stud
+-- `larchYoung`) on every CANOPY zone, meaning a wood zone that is not `oakPark`, `clearing` or
+-- `scrub`. Those three keep their spacing because C1 kept its three: the park is the one a hunter
+-- sees across and the scrub is the beaters' ground.
+--
+-- **THE SPACINGS ARE SOLVED PER CELL, NOT SCALED BY A BORROWED RATIO, AND THAT IS A MEASUREMENT.**
+-- Applying C1's own v2 -> v4 ratio (24 -> 16, x0.667) to every canopy zone put C2, A2 and B1 PAST
+-- `CELL_PART_CAP` 2,640 (`<runs-dir>/328i-yield-c1.txt`: 3,329 / 2,803 / 3,114) and still left D1
+-- short. So the ratio is refuted and the target -- C1's 1,861 -- is solved for instead
+-- (`328i-sweep1.txt`, `328i-split2.txt`): **C2 and B1 reach it on the FIELDS ALONE and keep their
+-- own canopy spacing**; A2 (a larch plantation) and D1 (52 % park and clearing, which this rule
+-- forbids touching) needed theirs tightened. Shipped own-wood: 1,926 / 2,016 / 1,805 / 1,843
+-- against C1's 1,861 -- 103 / 108 / 97 / 99 %.
+--
 -- FOUR RECIPES TAKE IT -- `spruceRolling` (C2), `larchRolling` (A2), `birchSlope` (B1) and
 -- `oakRolling` (D1): the cells whose GROUND IS BAKED. `spruceSlope` (A1), `aspenSlope` (B2) and
 -- `birchRolling` (D2) are untouched; planting a cell whose ground is about to be re-baked is work

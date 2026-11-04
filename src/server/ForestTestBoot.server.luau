@@ -1779,6 +1779,43 @@ end)
 HitLog.start()
 ForestTest.start(runtime, os.clock())
 
+-- THE CELLS BEHIND THE LINE, PLANTED AFTER EVERY OWNER IS UP (task 328i, reviewer round 1).
+--
+-- **HERE AND NOT IN `Places.build`, AND THAT IS THE WHOLE REASON THE SPLIT EXISTS:** `build` is
+-- this file's composition root, so every second it spends planting is a second with no lobby, no
+-- shop, no match and no gun. One cell is ~34 s of sliced planting and five are ~172 s. `build`
+-- dresses the cell the player stands in and hands the other four back in `gridPending`; they fill
+-- in behind him on this thread, which starts only now, below `HitLog.start` and `ForestTest.start`.
+-- `Grid.PLANTED_CELLS` is passed as the KEEP list so the cell already standing is not felled.
+task.spawn(function()
+	for _, wood in
+		ipairs(Places.dressPending(planted.gridPending or {}, workspace, ForestTest.terrainYAt, function()
+			task.wait()
+		end, Grid.PLANTED_CELLS))
+	do
+		print(
+			string.format(
+				"[ForestTestBoot] grid wood %s (deferred): %d of %d planted (%d parts), %d on a step, %d skipped, "
+					.. "%d missing, %d destroyed, capacity %d, %d slice step(s) avg %.2f ms worst %.2f ms over budget %d, %.2fs",
+				tostring(wood.cell),
+				wood.planted,
+				wood.wanted,
+				wood.parts,
+				wood.cliff,
+				wood.skipped,
+				wood.missing,
+				wood.destroyed,
+				wood.capacity,
+				wood.steps,
+				wood.stepMsAvg,
+				wood.stepMsMax,
+				wood.overBudgetStarts,
+				wood.seconds
+			)
+		)
+	end
+end)
+
 -- THE LEVEL-TRIGGERED RETRY FOR A PROFILE THAT DID NOT LOAD (task 170), on the phase this file
 -- already listens to. The `Weapon.refreshArming` / `syncBots` discipline and its stated reason:
 -- *"every edge-triggered grant in this repo has been measured missing one"*. A transient Roblox
