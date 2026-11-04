@@ -1,15 +1,75 @@
-1. `src/serverstorage/TerrainBake/init.luau` / `TerrainBake.benchBands` + `bakeTileAt`'s coverage loop — round 1's finding 2 is fixed only for the TILE clip; the band's OWN rectangle is still too narrow in x, and the coverage refusal is written against that same narrow rectangle, so the bench is still silently anchored on the RAW base (and, further out, dropped entirely) over the cell's x skirt. Evidence: `benchBands` cuts `minX = bounds.minX - pad`, `maxX = bounds.maxX + pad` with `local pad = Relief.BLUR.cutoffStuds + Relief.VOXEL + Grid.maxBendStuds()` = 72+4+60 = **136**, which is exactly the reach for a column whose GRID x is inside `bounds` (`gx - 72 - 4 + bendX(zAnchor) >= bounds.minX - 136`) and nothing more. But `shapeTile` shapes and applies the landform far outside those bounds: `TerrainBake.cellAt` returns "the one whose bounds contain it, **else the nearest**", `blendAt` is > 0 until `BLEND_STUDS` 200 past `Grid.worldBoundsOf` (`bounds ± nsStuds`), and `regionFor` pads a subset run by `Relief.BLEND_STUDS + bend` = 260 — so the bench walk runs for grid x down to `bounds.minX - 320` and up to `bounds.maxX + 320`. The refusal cannot see the shortfall because it clamps to the band's own edge: `local bandMinX = math.max(band.minX, tile.minX - pad - band.xPad)` / `bandMaxX = math.min(band.maxX, ...)`, and `bench_slices_for` cuts the identical rectangle (`min_x = max(band["minX"], tile["minX"] - pad - extra)`), so `covered = true` while the reads land outside it. Concretely for D2 (`bounds` x [-3322,-2252], z [-6558,-5128], `v0 = 0.50` → `z0 = -5843`, where `Grid.bendX(-5843) = 60*sin(pi/2) = +60` exactly): band x = [-3458,-2116]; every column with grid x > `bounds.maxX` reads `gx + 60 + 72 > -2116` → `readOne` nil → "`blurredAt` ... returns nil the moment the base reader does" → `applyOps` takes `local hb = form.baseKeep * b + (1 - form.baseKeep) * (smoothed or b)`, i.e. the unblurred base, with no refusal; past `gx > bounds.maxX + 76` even `b = baseAt(x, z0 + s)` is nil for every `s`, so `if n > 0` fails and the bench is dropped for that column outright. Those columns are not weightless: `Relief.roadFadeAt` is 1 beyond 120 studs of the flank centreline (`bounds.maxX + 21`) and `blendAt` is still ~0.6 there, so up to ~0.6 of the bench's full offset is wrong, as a hard step in x where the nil threshold crosses — and `limitGrid`'s 20° clamp smears it into a ramp rather than removing it. This is also why `grid_relief.spec` 328h-1 cannot see it: it picks its tile with `tile.minX > bounds.minX + 200 and tile.minX + side < bounds.maxX - 200`, the only region where `band.minX`/`band.maxX` never bind. The header this change added claims the opposite — "A bench cell that arrives without its band is REFUSED, never shaped off a reader that would answer nil in the band and leave the plane anchored on the unsmoothed base" — and `terrainbake.py selftest` asserts that pad string as proof. No shipped ground is affected (B1/C1/D1 carry no bench), but `ESCALATE.md` tells the Director "three of the five need no further tool work", which this does not support. Required: either grow `benchBands`' x pad to the reach `shapeTile` actually uses (`LIMIT_MARGIN_STUDS + Relief.BLUR.cutoffStuds + Relief.BLEND_STUDS + 2 * Grid.maxBendStuds()`), or — cheaper and safer — stop clamping the coverage test to `band.minX`/`band.maxX` so a band that does not cover the window the walk reads is REFUSED instead of read as nil; and drive the new arm with a tile at the cell's x extremity, which is the case 328h-1 currently excludes.
-2. `tests/server/grid_relief.spec.luau` / 328h-2 — the precedence assertion still cannot fail, and the request claims it now does. Evidence: the line is `expect(withBand(x, z)).to.equal(plain(x, z))` under the comment "...and the point's own column still comes from the FIRST slice, not the band", and the request's round-1-notes paragraph says "328h-2's band is built from a height function 500 studs higher, so its 'the point's own column comes from the FIRST slice' line bites". It does not: the band snapshot is built at `snapshotOf(x - 200, bands[1].minZ - v, 100, math.ceil((bands[1].maxZ - bands[1].minZ) / v) + 2, bandHeight, {})`, i.e. z in [-5983, -5683] (D2: `bounds.minZ` -6558, `z0` -5843, band z [-5979,-5687], 75 rows of pitch 4), while the compared point is `z = bounds.minZ + 0.70 * (bounds.maxZ - bounds.minZ)` = **-5557** — 130 studs north of the band's last row. The band holds no column at that point, so `readOne(band, x, z)` is nil whatever the order, and the assertion passes with `bandHeight` set to `height`, with the `extras` tried FIRST, or with the ordering branch deleted. (The rest of 328h-2 does bite: `plain(x, bands[1].minZ + 2) == nil` / `withBand(...) ~= nil` and `moved > 0.01` die with `readerFor`'s `extras` arm removed.) Required: compare at a point the band DOES cover — a z inside `[bands[1].minZ, bands[1].maxZ]` that the `near` slice also covers — so the assertion fails if the band ever wins, or delete the line and the claim with it.
+PASS (items 1, 2 NOT PROVEN)
+
+Round 3's scope is the two round-2 fixes. Both are real, and both are entered by a case that dies
+when the thing it tests dies.
+
+FIX 1 (the window is the TILE's). `TerrainBake.bakeTileAt` now requires `bandMinX = tile.minX - pad
+- band.xPad` / `bandMaxX = tile.minX + side + pad + band.xPad` with no `math.max(band.minX, ...)`,
+and `bench_slices_for` cuts `min_x = tile["minX"] - pad - extra` with `band["minX"]`/`band["maxX"]`
+no longer read at all, for every band of the run with no relevance skip. The arithmetic covers the
+reach: `shapeTile`'s grid runs `tile.minX + (i - margin - 0.5) * v` = tile.minX -126 .. +side+126,
+`gx = x - bendX(z)` and `baseAtGrid` re-adds `bendX(zAnchor)` (2 * `maxBendStuds` = 120), and
+`blurredAt` adds 72 in grid x -- 318 studs against the 324 the window gives. In z, `pad` 136 covers
+72 + one voxel + `bendZ`'s 45. So the behavioural defect round 2 named -- the bench anchored on the
+RAW base over the cell's x skirt with `covered` still true -- is gone, not relocated.
+Delete-the-producer: with `benchBands` returning nothing, 328h-1's `expect(#bands).to.equal(1)`
+fails; with the refusal block deleted, (a)'s `expect(none.message).never.to.equal(nil)` fails; with
+`bench_slices_for`'s clip deleted, the selftest's "each is cut over the TILE's window" fails.
+
+FIX 2 (precedence). `overlap` is built at the compared point from `bandHeight`, and
+`expect(both(x, z)).to.equal(plain(x, z))` now dies if `extras` is tried first (it would return
+`height+500` where `plain` returns `height`). The old line survived that; this one does not.
 
 ## Notes (non-blocking)
-- `tools/terrainbake.py` / `selftest` — five of the new cases assert the TEXT of another file, not behaviour: `"Relief.BLUR.cutoffStuds + Relief.VOXEL + Grid.maxBendStuds()" in bake_text`, `"xPad = 2 * Grid.maxBendStuds()" in bake_text`, `"(band.holes or 0) > 0" in bake_text`, `"was handed no base slice covering its anchor " in bake_text`, `"one tile's snapshot does not hold that" not in bake_text`. Each would pass with the string in a comment. The behaviour is covered by `grid_relief` 328h-1 (a)-(e); these inflate the case count rather than the gate.
-- `tests/server/grid_relief.spec.luau` / 328h-1 — `expect(bands[1].minZ).to.be.near(z0 - reach, 1e-6)` builds `reach` from the same three constants `benchBands` adds (`Relief.BLUR.cutoffStuds + Relief.VOXEL + Grid.maxBendStuds()`), so it pins the formula to itself, not to a measured reach.
-- `reviews/task-328h/REQUEST.md` claim 4 — "`terrainbake.py selftest` gains **eleven** cases over two rounds"; the diff against `62fd830e` adds about fifteen `ok(...)` calls and rewords one.
-- `src/serverstorage/TerrainBake/init.luau` / `TerrainBake.readsWholeCell` — still dead in production after the blanket refusal was retired; the only callers are `grid_relief.spec` 328d-8's three lines. Round 1's note, still open (TASKS.md says the rest are queued).
-- `tests/server/grid.spec.luau` — `expect(Grid.towersRelaxed(row[1] :: string)).to.equal(false)` cannot fail for B1/C1/D1 while none of the three carries the field at all; it pins an absence, which is what the comment says, but it is not a reading of the 1.8 threshold.
-- The tower sets cross-check cleanly against the shared flank points named in `Grid.CELLS`' header (B1 12 = C1 8 = +120, B1 14 = C1 10 = +216, B1 15 = C1 11 = +180, B1 13 = C1 9 = +89, D1 9 = C1 13 = +234, D1 10 = C1 14 = +120, D1 11 = C1 15 = +40), which is good corroboration for claim 8 and is recorded here so the next task does not re-measure them.
+- `tests/server/grid_relief.spec.luau` / 328h-1 — no sub-case distinguishes the unclamped window
+  from a RESTORED `bandMinX = math.max(band.minX, ...)` / `bandMaxX = math.min(band.maxX, ...)` in
+  `bakeTileAt`. At the picked tile (`tile.minX + side > bounds.maxX`, so tile.minX > -2380 for D2)
+  `band.minX` -3458 never binds, so (c)'s `expect(string.find(tooNarrow.message, "covering its
+  anchor", ...))` survives the clamp -- `narrow` already fails on the LOW side for want of `xPad` --
+  and (e)'s `good` covers the clamped window a fortiori; (b) and (d) are unaffected. The
+  distinguishing input is a band cut to `bands[1].minX`/`bands[1].maxX` themselves: it stops at
+  -2116 while the required window runs to `tile.minX + 452`. One sub-case (f) handing that band and
+  expecting "covering its anchor" closes it. The request's "Restoring either clamp fails those"
+  therefore holds for `bench_slices_for` only (the selftest's `abs(c["minX"] - (_tile["minX"] -
+  fake_pad - 120)) < 4.001` catches that one); the Luau half is unpinned, and the `ok(...)` cases
+  that match `"tile.minX - pad - band.xPad" in bake_text` still pass with the clamp wrapped round it.
+- `tests/server/grid_relief.spec.luau` / 328h-2 — `expect(both(x, z)).never.to.equal(bandHeight(x,
+  z))` cannot detect the band winning. `snapshotOf` stores `heightOf(minX + (i - 0.5) * v, ...)`, so
+  the value a band win returns is `bandHeight(x + 2, z + 2)`, which differs from `bandHeight(x, z)`
+  by 0.04 anyway — the assertion passes either way. The precedence is carried entirely by the
+  companion `expect(both(x, z)).to.equal(plain(x, z))`. Compare against the column value `overlap`
+  actually holds, or drop the line and the request's "and that the answer is NOT the band's".
+- `tools/terrainbake.py` / `bench_slices_for` — every band is now cut for every tile over
+  `[tile.minX - pad - xPad, tile.minX + side + pad + xPad]` (194 x ~74 columns a band a tile), and
+  `base_slice` refuses a rectangle that leaves the file. For a bench run whose region reaches the
+  edge of `terrain-base-*.bin` the whole bake now stops at that tile with `[bake] FAILED at tile N`.
+  Loud, not silent, and no bench cell has baked -- but 328x should expect it, and the payload is a
+  second unmeasured cost beside the ~1.5e8 reads already recorded.
+- `src/serverstorage/TerrainBake/init.luau` / `benchBands` — the 324-stud window's sufficiency (126
+  + 72 + 2 * `maxBendStuds`) is derived in the header's prose and in `xPad`'s comment, not pinned by
+  a case: the margin is 6 studs, and a bend amplitude raised past 63 would silently exceed it while
+  `grid_relief` 328h-1 stayed green (it builds its own band from `xPad`). A case asserting the
+  window against `LIMIT_MARGIN_STUDS + BLUR.cutoffStuds + 2 * maxBendStuds()` would hold it.
+- `reviews/task-328h/REQUEST.md` — "`git diff --name-only 8e05ce48..HEAD` = `ESCALATE.md`,
+  `TASKS.md`" omits `reviews/task-328h/REQUEST.md` itself, which
+  `.agent-evidence/paperwork-after-code-commit.txt` lists; all three are paperwork and the file reads
+  "Not paperwork: none", so the harness line does cover HEAD.
+- Round 2's notes (a)-(f) are all still open in the tree and are recorded as queued in `TASKS.md`:
+  the five `in bake_text` string cases, `readsWholeCell` dead but for 328d-8, 328h-1's `reach` built
+  from the same three constants `benchBands` uses, and `expect(Grid.towersRelaxed(...)).to.equal
+  (false)` pinning an absence for three cells that carry no such field.
+- `test2` N/A is correct: none of the ten changed files is in `src/server/Match/`,
+  `src/client/Match/`, `src/shared/Drive/`, `tests/client/Role.luau` or the named match/drive specs.
 
-Rule 5, stated so this is not read as rule 5 having been met: B1's and D1's baked ground HAS been seen in Karen's place (F2/F3, before/after at hunter eye height on NS2 and NS5, described, with the 6.25-stud ground rise under F2 owned). NOT seen: (a) the thing Karen asked for — "more trees behind the line" is C2, which did not bake, and F1-before/F1-after are deliberately the same frame; (b) any bench ground anywhere — no bench cell baked, so the path finding 1 concerns has never written a voxel; (c) animal behaviour on the new ground — the sampler read `CELL B1 n=0` / `CELL D1 n=0` over 100 s.
+Rule 5, stated so this PASS is not read as rule 5 having been met: B1's and D1's baked ground HAS
+been seen in Karen's place (F2/F3, before/after at hunter eye height on NS2 and NS5, described, with
+the 6.25-stud rise under F2 owned), and the towers and pads were re-measured in a PLAY session. NOT
+seen: (a) items 1 and 2 -- no bench cell has baked anywhere, so the band path both round-2 fixes
+concern has never written a voxel; what is proved is the RULE by cases, not ground; (b) the thing
+Karen asked for -- "more trees behind the line" is cell C2, which did not bake, and
+`328h-F1-before.png` / `-after.png` are deliberately the same frame, so her named defect is open in
+328x and nobody has seen it fixed; (c) animal behaviour on the new ground -- `328h-sampler.luau` read
+`CELL B1 n=0` / `CELL D1 n=0` over 100 s because the FT's drive runs in C1 only.
 
 ---
-REVIEWER verdict on commit `8dffff97cea4beb41b26d98184689f919327f513` (round 2) · 2026-11-04 12:53 UTC · session cost $3.72, 31 turns · written by tools/agents.py
+REVIEWER verdict on commit `388311d13fcc2b3ea2693f4ce6f02be4c9fab1d2` (round 3) · 2026-11-04 13:33 UTC · session cost $2.95, 26 turns · written by tools/agents.py
