@@ -186,6 +186,17 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 	TestKit.stage("testez-starting")
 	local ok, resultsOrErr = pcall(function()
 		local TestEZ = require(devPackages.TestEZ)
+		-- WHICH BLOCK IS RUNNING. TestEZ's reporter speaks once, at the end, so a run that never
+		-- finishes names nothing at all. Its node walk recurses through a plain table field, so it
+		-- is wrapped once here (TestEZ 0.4.1 is archived upstream and cannot drift under us).
+		if not TestEZ.TestRunner.dhStaged then
+			local inner = TestEZ.TestRunner.runPlanNode
+			TestEZ.TestRunner.dhStaged = true
+			TestEZ.TestRunner.runPlanNode = function(session, planNode, hooks)
+				TestKit.stage("block:" .. tostring(planNode.phrase))
+				return inner(session, planNode, hooks)
+			end
+		end
 		return TestEZ.TestBootstrap:run({ specsFolder }, TestEZ.Reporters.TextReporter)
 	end)
 	if not ok then
