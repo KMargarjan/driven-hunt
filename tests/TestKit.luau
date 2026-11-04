@@ -93,6 +93,44 @@ function TestKit.note(text: string)
 	TestKit.stage("note:" .. string.sub(text, 1, 80))
 end
 
+-- Seconds of non-yielding execution after which the suite yields one frame.
+--
+-- THE ENGINE KILLS A THREAD THAT NEVER YIELDS -- "Script timeout: exhausted allowed execution
+-- time" -- and that is what had been failing the gate (MEASURED, task 328t): ~2,800 synchronous
+-- tests, a stretch of pure-maths specs with no wait in them, and the runner's thread is terminated
+-- MID-TEST. It is not catchable, so there is no report at any window: 300, 900 and 2400 s all
+-- failed identically. A yield at a test boundary resets the engine's budget.
+TestKit.YIELD_AFTER = 2
+
+-- WHAT HAPPENS AT EVERY TEST BOUNDARY: the yield above, and the stage that names the test.
+-- TestEZ's reporter speaks once, at the end, so a run that never finishes named nothing at all; its
+-- node walk recurses through a plain table field, so it is wrapped once (0.4.1 is archived upstream
+-- and cannot drift under us). An `it` never reaches `runPlanNode` -- only a describe does -- but
+-- every node is pushed on the session, which is where the test's own name is.
+function TestKit.atEveryNode(TestEZ)
+	if TestEZ.TestRunner.dhNodeSeam then
+		return
+	end
+	TestEZ.TestRunner.dhNodeSeam = true
+	local inner = TestEZ.TestRunner.runPlanNode
+	local lastYield = os.clock()
+	TestEZ.TestRunner.runPlanNode = function(session, planNode, hooks)
+		if not session.dhNodeSeam then
+			session.dhNodeSeam = true
+			local push = session.pushNode
+			session.pushNode = function(self, node)
+				TestKit.stage("node:" .. tostring(node.phrase))
+				if os.clock() - lastYield > TestKit.YIELD_AFTER then
+					task.wait()
+					lastYield = os.clock()
+				end
+				return push(self, node)
+			end
+		end
+		return inner(session, planNode, hooks)
+	end
+end
+
 -- Runs every *.spec ModuleScript under specsFolder and returns the report table.
 -- side is "server" or "client"; it is echoed in the report and the [tests:<side>] line.
 function TestKit.run(side: string, token: string, specsFolder: Instance?)
@@ -186,26 +224,7 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 	TestKit.stage("testez-starting")
 	local ok, resultsOrErr = pcall(function()
 		local TestEZ = require(devPackages.TestEZ)
-		-- WHICH BLOCK IS RUNNING. TestEZ's reporter speaks once, at the end, so a run that never
-		-- finishes names nothing at all. Its node walk recurses through a plain table field, so it
-		-- is wrapped once here (TestEZ 0.4.1 is archived upstream and cannot drift under us).
-		if not TestEZ.TestRunner.dhStaged then
-			local inner = TestEZ.TestRunner.runPlanNode
-			TestEZ.TestRunner.dhStaged = true
-			TestEZ.TestRunner.runPlanNode = function(session, planNode, hooks)
-				-- An `it` never reaches `runPlanNode` -- only a describe does -- but every node is
-				-- pushed on the session, so that is where the test's own name is.
-				if not session.dhStaged then
-					session.dhStaged = true
-					local push = session.pushNode
-					session.pushNode = function(self, node)
-						TestKit.stage("node:" .. tostring(node.phrase))
-						return push(self, node)
-					end
-				end
-				return inner(session, planNode, hooks)
-			end
-		end
+		TestKit.atEveryNode(TestEZ)
 		return TestEZ.TestBootstrap:run({ specsFolder }, TestEZ.Reporters.TextReporter)
 	end)
 	if not ok then

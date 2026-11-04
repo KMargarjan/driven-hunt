@@ -2,6 +2,7 @@
 -- Pattern: thin runner over TestKit (tests/TestKit.luau). Full description: tools/studio_mcp.py docstring.
 -- Note: docs/research/2026-09-24-toolchain.md
 local HttpService = game:GetService("HttpService")
+local LogService = game:GetService("LogService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 
@@ -31,25 +32,39 @@ end
 
 mark("boot")
 
--- IS IT HUNG OR IS IT DEAD, AND WHERE? A stage that stops moving says nothing on its own; a clock
--- beside it that also stops says the thread is gone, and one that keeps ticking says it is waiting.
--- WHERE it waits comes from `debug.info(thread, ...)`, which reads another thread's stack -- so a run
--- that parks names its own file and line instead of a test title (task 328t; measured to work in a
--- Play server before it was relied on).
-local runThread = coroutine.running()
+-- THE ERROR NOBODY SAW. Studio's console comes back truncated and this place's log is flooded by
+-- the fake asset ids a spec fixture uses on purpose, so an unhandled error in the suite was
+-- invisible: the run just stopped (task 328t). The engine's own errors are kept here instead, with
+-- the asset noise filtered out, and travel on an attribute like everything else.
+local ASSET_NOISE = {
+	"Asset is not trusted",
+	"not authorized to access Asset",
+	"access permission to use asset",
+	"failed to load",
+	"Failed to load",
+}
+local errors: { string } = {}
 
-local function whereIs(): string
-	local frames = {}
-	for level = 1, 12 do
-		local ok, source, line = pcall(debug.info, runThread, level, "sl")
-		if not ok or source == nil then
-			break
-		end
-		table.insert(frames, string.format("%s:%s", tostring(source), tostring(line)))
+LogService.MessageOut:Connect(function(message: string, messageType: Enum.MessageType)
+	if messageType ~= Enum.MessageType.MessageError then
+		return
 	end
-	return if #frames > 0 then table.concat(frames, " <- ") else "no frames"
-end
+	for _, noise in ASSET_NOISE do
+		if string.find(message, noise, 1, true) then
+			return
+		end
+	end
+	table.insert(errors, string.sub(message, 1, 240))
+	if #errors > 6 then
+		table.remove(errors, 1)
+	end
+	pcall(function()
+		ServerStorage:SetAttribute("TestStageErrors", table.concat(errors, " ## "))
+	end)
+end)
 
+-- IS IT HUNG OR IS IT DEAD? A stage that stops moving says nothing on its own; a clock beside it
+-- that also stops says the thread is gone, and one that keeps ticking says it is waiting.
 task.spawn(function()
 	while true do
 		task.wait(5)
@@ -58,7 +73,6 @@ task.spawn(function()
 				"TestStageAge",
 				string.format("%.0f s since boot, last stage %s", os.clock() - startedAt, lastStage)
 			)
-			ServerStorage:SetAttribute("TestStageWhere", whereIs())
 		end)
 	end
 end)
@@ -74,7 +88,13 @@ end
 mark("token-ok")
 TestKit.onStage = mark
 
-local report = TestKit.run("server", token, ServerStorage:FindFirstChild("Tests"))
+-- xpcall AND NOT A BARE CALL: `TestKit.run` pcalls the TestEZ run, but nothing covered the
+-- pre-pass's own caller or this line, so a throw here ended the run with no report and no word.
+local ran, report = xpcall(TestKit.run, debug.traceback, "server", token, ServerStorage:FindFirstChild("Tests"))
+if not ran then
+	mark("run-threw: " .. string.sub(tostring(report), 1, 240))
+	return
+end
 mark("run-returned")
 -- THE DRIVE-CLOCK SEAM, observed from OUTSIDE TestKit after the run returned (audit-004 F5). Asked
 -- here rather than inside `TestKit.finish`, where the answer would sit one line below the assignment
@@ -86,9 +106,8 @@ mark("run-returned")
 -- that requires ReplicatedStorage.TestKit through `execute_luau` gets a DIFFERENT instance, out of its
 -- own require cache, and answers about a token nothing ever set.
 report.seamClosed = TestKit.activeToken() == nil
--- Read by tools/studio_mcp.py from the Server DataModel. The encode is NOT protected here on
--- purpose: this round only has to say whether it throws, so the observable stays exactly today's
--- (no report) and `TestStage` names it.
+-- Read by tools/studio_mcp.py from the Server DataModel. MEASURED not to be the fault (task 328t):
+-- the thread never reached this line -- the engine had killed it mid-suite.
 local encoded = HttpService:JSONEncode(report)
 mark("encoded")
 ServerStorage:SetAttribute("TestReport", encoded)
