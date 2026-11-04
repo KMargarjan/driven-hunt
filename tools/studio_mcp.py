@@ -3547,6 +3547,24 @@ def replay_input(studio, data, token, check, studio_id=None, mirror_ids=(), serv
             call_seconds += time.time() - began
             calls += 1
             for target, failure in results.items():
+                # STILL LOADING IS NOT A FAULT, AND IT WAS NOT APPLIED HERE (task 328t). A Play
+                # client registers with StudioMCP before its input handler can answer, so
+                # "Target is not reachable" against it is "not yet" -- the policy `still_loading`
+                # and `process_call` already state for every other call against a test process.
+                # This loop recorded it as a failed scenario instead, and it failed 7 of 9 runs
+                # on the last scenario while every one of the 2,800 specs passed.
+                # The whole batch is re-sent for that target because the CALL failed, so none of
+                # its steps arrived -- a re-send repeats nothing.
+                if failure is not None and still_loading(failure):
+                    deadline = time.time() + INPUT_RETRY
+                    while time.time() < deadline:
+                        time.sleep(1)
+                        failure = studio.send_input_many(device, payload, [target]).get(target)
+                        if failure is None or not still_loading(failure):
+                            break
+                    if failure is not None:
+                        print(f"[input] {scenario.get('name')}: {target} stayed unreachable for "
+                              f"{INPUT_RETRY} s")
                 if failure is not None:
                     # Not just RuntimeError: the transport raises queue.Empty when StudioMCP stops
                     # answering, and a hung input call must fail this check, not the whole run
@@ -4259,6 +4277,8 @@ def end_session(studio, before):
 # sequential: since Task 41 the server's last spec waits for the client to finish before it ends the
 # drive, so the server legitimately reports after the client does, and reading the server first burned
 # the whole window before the client was looked at once.
+# Seconds a single input batch is re-sent to a Play client that answers "not yet" (task 328t).
+INPUT_RETRY = 20
 REPORT_WINDOW = 300
 
 
