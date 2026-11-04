@@ -1873,26 +1873,6 @@ function TerrainBake.bakeTileAt(
 		)
 		return refusal
 	end
-	-- THE PROFILES ARE HANDED IN, ALWAYS. Round 2 fell back to `profilesFor` here, which raycasts
-	-- LIVE terrain: from the second tile onwards that reads ground this bake has already written, so
-	-- two tiles of one road would meet at a step and the result would depend on the tile order
-	-- (round-2 finding 2). `tools/terrainbake.py` computes them ONCE from the base and sends the
-	-- same set to every tile; a tile with none is REFUSED rather than given a profile of its own.
-	if profiles == nil then
-		return {
-			minX = tile.minX,
-			minZ = tile.minZ,
-			calls = 0,
-			voxels = 0,
-			bandMin = 0,
-			bandMax = 0,
-			elapsedMs = 0,
-			message = "no profiles were handed to tile "
-				.. tostring(tileIndex)
-				.. ". The long profiles are computed ONCE from the base, before any write, and sent "
-				.. "to every tile; a profile read here would be read off half-baked ground.",
-		}
-	end
 	-- THE BENCH BANDS, DECODED, AND A BENCH CELL WITHOUT ONE IS REFUSED (task 328h). The old rule
 	-- here refused every bench cell outright -- A1, B2 and D2, three of the eight -- on the ground
 	-- that "one tile's snapshot does not hold" the band. Since 328k the base is a sha-checked FILE,
@@ -1939,6 +1919,26 @@ function TerrainBake.bakeTileAt(
 				return refusal
 			end
 		end
+	end
+	-- THE PROFILES ARE HANDED IN, ALWAYS. Round 2 fell back to `profilesFor` here, which raycasts
+	-- LIVE terrain: from the second tile onwards that reads ground this bake has already written, so
+	-- two tiles of one road would meet at a step and the result would depend on the tile order
+	-- (round-2 finding 2). `tools/terrainbake.py` computes them ONCE from the base and sends the
+	-- same set to every tile; a tile with none is REFUSED rather than given a profile of its own.
+	if profiles == nil then
+		return {
+			minX = tile.minX,
+			minZ = tile.minZ,
+			calls = 0,
+			voxels = 0,
+			bandMin = 0,
+			bandMax = 0,
+			elapsedMs = 0,
+			message = "no profiles were handed to tile "
+				.. tostring(tileIndex)
+				.. ". The long profiles are computed ONCE from the base, before any write, and sent "
+				.. "to every tile; a profile read here would be read off half-baked ground.",
+		}
 	end
 	-- THE LANDFORM ALWAYS GOES IN, BECAUSE `slice` IS THE VIRGIN BASE (task 328r; design 7.1).
 	-- `reshapeWanted` was built when both halves of the bake raycast LIVE ground, where a second

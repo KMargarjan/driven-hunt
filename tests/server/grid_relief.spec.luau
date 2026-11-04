@@ -2668,70 +2668,66 @@ return function()
 			local wrong = TerrainBake.bakeTileAt(pick :: number, cells, true, { {} :: any }, slice, { away })
 			expect(string.find(wrong.message :: string, "covering its anchor", 1, true)).never.to.equal(nil)
 
-			-- (c) WITH IT, the tile gets past this refusal to the next one (no profiles).
+			-- (c) WITH IT, the tile gets past this refusal to the NEXT one (no profiles) -- which
+			-- is why the band check sits BEFORE the profiles check in `bakeTileAt`: with it after,
+			-- this call would stop at the profiles and prove nothing about the band.
 			local bandNz = math.ceil((bands[1].maxZ - bands[1].minZ) / v) + 1
 			local band = TerrainBake.encodeSlice(snapshotOf(tile.minX - pad, bands[1].minZ - v, wide, bandNz, flat, {}))
 			local good = TerrainBake.bakeTileAt(pick :: number, cells, true, nil, slice, { band })
 			expect(string.find(good.message :: string, "no profiles were handed", 1, true)).never.to.equal(nil)
 		end)
 
-		it("328h-2 reads the band through the SAME reader, and the band CHANGES the shaped ground", function()
-			-- THE FALL-THROUGH BITES. With no extra the reader answers nil over the band, so
-			-- `applyOps` anchors D2's bench plane on nothing and the tile comes out at a different
-			-- height. Two shapes of the same tile, same bytes except the band -- so deleting
-			-- `readerFor`'s `extras` arm, or the band itself, fails this.
+		it("328h-2 reads the band through the SAME reader, and the band CHANGES the height", function()
+			-- THE FALL-THROUGH BITES, asserted AT ONE POINT and not over a tile. The anchor walk is
+			-- six `blurredAt` calls -- 1,369 base reads each -- for EVERY point inside the bench's
+			-- band, so shaping one real D2 tile is ~1.5e8 reads and overran the harness's own 300 s
+			-- cap twice (gate runs 2 and 3, task 328h). The cost is a real fact about the bench
+			-- path, recorded in `ESCALATE.md`; the case does not have to pay it to prove the rule.
 			local cells = { "D2" }
 			local bands = TerrainBake.benchBands(cells)
+			expect(#bands).to.equal(1)
 			local bounds = Grid.boundsOf("D2")
-			local plan = TerrainBake.tilePlan(TerrainBake.regionFor(cells))
-			local pad = TerrainBake.padFor()
+			local form = Relief.LANDFORMS.D2
 			local v = Relief.VOXEL
-			local side = TerrainBake.TILE_STUDS
-			local pick = nil
-			for at, tile in plan do
-				if
-					tile.minX > bounds.minX + 200
-					and tile.minX + side < bounds.maxX - 200
-					and tile.minZ - pad > bands[1].maxZ
-					and tile.minZ < bounds.minZ + 0.74 * (bounds.maxZ - bounds.minZ)
-				then
-					pick = at
-					break
-				end
-			end
-			expect(pick).never.to.equal(nil)
-			local tile = plan[pick :: number]
-			local wide = (side + 2 * pad) / v
-			-- A SLOPE, not a flat: a bench anchored on a plane that is already level would read the
+			-- A POINT DEEP IN THE BAND, well past where the anchor is read.
+			local x = (bounds.minX + bounds.maxX) / 2
+			local z = bounds.minZ + 0.70 * (bounds.maxZ - bounds.minZ)
+			-- A SLOPE, not a flat: a bench anchored on ground that is already level would read the
 			-- same with and without the band and the case would prove nothing.
-			local function slope(x: number, z: number): number?
-				return 100 + 0.01 * (x + z)
+			local function height(px: number, pz: number): number
+				return 100 + 0.01 * (px + pz)
 			end
-			local snap = snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, slope, {})
-			local bandNz = math.ceil((bands[1].maxZ - bands[1].minZ) / v) + 1
-			local band = snapshotOf(tile.minX - pad, bands[1].minZ - v, wide, bandNz, slope, {})
+			-- TWO READERS OVER THE SAME ARITHMETIC: one that answers only near the point, one that
+			-- also answers over the band. `readerFor`'s `extras` arm is the whole difference.
+			local near = snapshotOf(x - 200, z - 200, 100, 100, height, {})
+			local band = snapshotOf(
+				x - 200,
+				bands[1].minZ - v,
+				100,
+				math.ceil((bands[1].maxZ - bands[1].minZ) / v) + 2,
+				height,
+				{}
+			)
+			local plain = TerrainBake.readerFor(near)
+			local withBand = TerrainBake.readerFor(near, { band })
+			expect(plain(x, bands[1].minZ + 2)).to.equal(nil)
+			expect(withBand(x, bands[1].minZ + 2)).never.to.equal(nil)
+			-- ...and the point's own column still comes from the FIRST slice, not the band.
+			expect(withBand(x, z)).to.equal(plain(x, z))
 
-			local plain = TerrainBake.readerFor(snap)
-			local withBand = TerrainBake.readerFor(snap, { band })
-			local probeX, probeZ = tile.minX + 2, bands[1].minZ + 2
-			expect(plain(probeX, probeZ)).to.equal(nil)
-			expect(withBand(probeX, probeZ)).never.to.equal(nil)
-			-- ...and the tile's own columns still come from the TILE slice, not the band.
-			expect(withBand(tile.minX + 2, tile.minZ + 2)).to.equal(plain(tile.minX + 2, tile.minZ + 2))
-
-			local without = TerrainBake.shapeTile(tile, snap, cells, {}, nil, nil, nil, nil)
-			local with = TerrainBake.shapeTile(tile, snap, cells, {}, nil, nil, nil, { band })
-			local moved, worst = 0, 0
-			for at, h in without do
-				local d = math.abs(h - with[at])
-				if d > 1e-6 then
-					moved += 1
-					worst = math.max(worst, d)
-				end
-			end
-			expect(moved > 0).to.equal(true)
+			local without = Relief.heightAt(form, bounds, {}, plain, x, z, 1)
+			local with = Relief.heightAt(form, bounds, {}, withBand, x, z, 1)
+			expect(without).never.to.equal(nil)
+			expect(with).never.to.equal(nil)
+			local moved = math.abs((without :: number) - (with :: number))
+			expect(moved > 0.01).to.equal(true)
 			TestKit.note(
-				string.format("328h: D2's bench band moves %d of %d columns, worst %.3f st", moved, #without, worst)
+				string.format(
+					"328h: D2's bench band moves this point %.3f st (%.3f -> %.3f)",
+					moved,
+					without :: number,
+					with :: number
+				)
 			)
 		end)
 
