@@ -1819,10 +1819,18 @@ return function()
 			for _, id in ipairs(Grid.PLANTED_CELLS) do
 				planted[id] = true
 			end
+			-- `withUnder` IS ONE ENTRY PER ZONE, so the count is compared over DISTINCT CELLS:
+			-- every planted cell has at least one storeyed zone, and no other cell has any.
+			local seenUnder: { [string]: boolean } = {}
+			local distinct = 0
 			for _, id in ipairs(withUnder) do
 				expect(planted[id]).to.equal(true)
+				if not seenUnder[id] then
+					seenUnder[id] = true
+					distinct += 1
+				end
 			end
-			expect(#withUnder).to.equal(#Grid.PLANTED_CELLS)
+			expect(distinct).to.equal(#Grid.PLANTED_CELLS)
 
 			-- IT IS COUNTED IN THE BOUND. `cellCapacity` must be the sum of all four layers, so an
 			-- understorey the budget did not count cannot breach `CELL_PLAN_CAP` unseen.
