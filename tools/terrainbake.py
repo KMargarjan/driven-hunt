@@ -1474,6 +1474,15 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
               live=None, base=None, plan=None, pad=None, bands=None):
     """The tile loop, shared by `measure` (dry) and `bake` (wet). One MCP call per tile."""
     cells = args.cells
+    # CELLS IN THE RUN'S GEOGRAPHY WHOSE LANDFORM IS HELD BACK (task 328x). It goes on the `[bake]`
+    # line and into the run log: a run that held two cells must never read like one that shaped them.
+    hold = [c for c in (getattr(args, "hold_landform", None) or "").split(",") if c]
+    for c in hold:
+        if c not in cells:
+            return refuse("--hold-landform %s is not in --cells %s: a held cell is IN the run's "
+                          "geography, so that `cellAt` gives it its own area and no neighbour's "
+                          "landform is written across it" % (c, ",".join(cells))), []
+    bands = [b for b in (bands or []) if b["cell"] not in hold]
     region = region_for(cells, facts)
     count = tile_count(region, facts["tile"])[0]
     limit = min(args.tiles or count, count)
@@ -1510,10 +1519,11 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
         # holds double quotes; it is a value, never code.
         expression = (
             'TerrainBake.bakeTileAt(%d, {%s}, %s, HttpService:JSONDecode([==[%s]==]), '
-            'HttpService:JSONDecode([==[%s]==]), HttpService:JSONDecode([==[%s]==]))'
+            'HttpService:JSONDecode([==[%s]==]), HttpService:JSONDecode([==[%s]==]), {%s})'
             % (index, ",".join('"%s"' % c for c in cells), "true" if dry else "false", profiles,
                json.dumps(payload, separators=(",", ":")),
-               json.dumps(bench, separators=(",", ":")))
+               json.dumps(bench, separators=(",", ":")),
+               ",".join('"%s"' % c for c in hold))
         )
         report = call(studio, studio_id, expression, injected=injected)
         entries.append(report)
@@ -1547,8 +1557,9 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
         stamped = call(studio, studio_id, "TerrainBake.stampShape({%s})"
                        % ",".join('"%s"' % c for c in cells), timeout=60, injected=injected)
         print("[bake] shape stamp written on %s cell(s): %s" % (stamped, ",".join(cells)))
-    print("[bake] %s: %d/%d tiles @ %s cells=%s epoch=%s worstTileMs=%d (clean tree)"
-          % ("DRY OK" if dry else "OK", limit, limit, sha, ",".join(cells), epoch, worst))
+    print("[bake] %s: %d/%d tiles @ %s cells=%s%s epoch=%s worstTileMs=%d (clean tree)"
+          % ("DRY OK" if dry else "OK", limit, limit, sha, ",".join(cells),
+             (" hold=" + ",".join(hold)) if hold else "", epoch, worst))
     return 0, entries
 
 
@@ -1558,6 +1569,10 @@ def main(argv):
                                             "archive", "census", "selftest"))
     parser.add_argument("--cells", help="comma list, e.g. C1")
     parser.add_argument("--backup", help="a .rbxl saved by File -> Save to File, outside the repo")
+    parser.add_argument("--hold-landform", help="comma list of cells IN --cells whose landform this "
+                        "run does NOT write: the cell keeps the base, and still gets its roads and "
+                        "its stand pads. Leaving a cell out of --cells instead writes a NEIGHBOUR's "
+                        "landform across it at full strength (task 328x)")
     parser.add_argument("--tiles", type=int, help="stop after this many tiles")
     parser.add_argument("--out", help="where `snapshot` writes, default "
                                       "<runs-dir>/terrain-base-<its own sha>.bin")
@@ -2113,6 +2128,37 @@ def selftest():
         third = [json.loads(e.split("JSONDecode([==[", 3)[3].split("]==]")[0]) for e, _ in sent_tiles]
         ok("a run WITH a bench band sends it to every tile, non-empty",
            code2 == 0 and third and all(len(t) == 1 for t in third), str(third)[:80])
+        # TASK 328x: --hold-landform, both arms. The held cell reaches the Luau as the seventh
+        # argument and its bench band is dropped, so the cell keeps the base and walks no bench.
+        sent_tiles.clear()
+
+        class HeldArgs(Args):
+            hold_landform = "C1"
+
+        _ownBand = dict(_band)
+        _ownBand["cell"] = "C1"
+        code3, _ = tile_pass(None, "x", HeldArgs(), echo_facts, "abc", True,
+                             injected="<PRELUDE>", profiles='[{"road":{"id":"EW2"}}]',
+                             base=fake_base, plan=fake_plan, pad=fake_pad, bands=[_ownBand])
+        held_third = [json.loads(e.split("JSONDecode([==[", 3)[3].split("]==]")[0])
+                      for e, _ in sent_tiles]
+        ok("a HELD cell's bench band is dropped before the tile loop",
+           code3 == 0 and held_third and all(t == [] for t in held_third), str(held_third)[:80])
+        ok("and the held cell reaches bakeTileAt as its own argument, named",
+           bool(sent_tiles) and all(e.rstrip().endswith(', {"C1"})') for e, _ in sent_tiles),
+           sent_tiles[0][0][-24:] if sent_tiles else "<none>")
+
+        class StrayArgs(Args):
+            cells = ["C1"]
+            hold_landform = "D2"
+
+        _before = len(sent_tiles)
+        code4, _ = tile_pass(None, "x", StrayArgs(), echo_facts, "abc", True,
+                             injected="<PRELUDE>", profiles='[{"road":{"id":"EW2"}}]',
+                             base=fake_base, plan=fake_plan, pad=fake_pad, bands=[_band])
+        ok("holding a cell that is NOT in --cells is refused, and no tile is sent",
+           code4 == 2 and len(sent_tiles) == _before,
+           "code=%s tiles sent=%d" % (code4, len(sent_tiles) - _before))
         ok("and the band that arrives is the band's own rectangle, not the tile's",
            all(t[0]["minZ"] <= _band["minZ"] and t[0]["minZ"] + t[0]["nz"] * 4 >= _band["maxZ"]
                for t in third),
@@ -2222,6 +2268,14 @@ def selftest():
        "holding %d column(s) with " in bake_text and "bandEnclosed > 0" in bake_text)
     ok("the band's clip is checked by voidMargin against the slice, not asserted by this tool",
        "TerrainBake.voidMargin(extra, band.minZ, band.maxZ, west, east)" in bake_text)
+    # TASK 328x: --hold-landform. A cell left OUT of --cells does not keep its ground -- `cellAt`
+    # answers the nearest cell of the list, so a NEIGHBOUR's landform is written across it at full
+    # strength. Held, it is in the run and keeps the base. Both the refusal and the band drop below.
+    ok("the Luau holds the landform by `reshape`, and says so on the report",
+       "reshape[id] = not held[id]" in bake_text
+       and "landform HELD BACK by this run" in bake_text)
+    ok("a held cell's bench band is never asked for",
+       "if held[band.cell] then" in bake_text)
     ok("the band's x clip carries twice the bend amplitude on BOTH sides (round 1, finding 2)",
        "xPad = 2 * Grid.maxBendStuds()" in bake_text
        and "tile.minX - pad - band.xPad" in bake_text

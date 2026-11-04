@@ -1951,11 +1951,27 @@ function TerrainBake.bakeTileAt(
 	-- rectangle clipped to this tile's own shaping window. A bench cell that arrives without its
 	-- band is REFUSED below, never shaped off a reader that would answer nil in the band and leave
 	-- the plane anchored on the unsmoothed base.
-	benchSlices: { any }?
+	benchSlices: { any }?,
+	-- CELLS WHOSE LANDFORM THIS RUN HOLDS BACK (task 328x): in the run's geography, so `cellAt`
+	-- gives them their own area and no neighbour's landform is written across it, but the base is
+	-- kept there. Their roads and stand pads are still built. See the `held` block below.
+	holdLandform: { string }?
 ): TileReport
 	local plan = TerrainBake.tilePlan(TerrainBake.regionFor(cellIds))
 	assert(tileIndex >= 1 and tileIndex <= #plan, string.format("tile %d is not in a plan of %d", tileIndex, #plan))
 	local tile = plan[tileIndex]
+	-- A CELL MAY BE IN THE RUN'S GEOGRAPHY AND HAVE ITS LANDFORM HELD BACK (task 328x). `cellAt`
+	-- answers the NEAREST cell of `cellIds`, so leaving a cell out does not leave its ground alone:
+	-- its area is inside `unionOf`'s box, `blendAt` is 1 there, and a NEIGHBOUR's landform is
+	-- written across it at FULL strength. Held, the cell owns its own area and `shapeTile` keeps
+	-- the base there -- its roads and its stand pads are still built, and its bench is never
+	-- walked, because `Relief.heightAt` is not reached. This is how B2 and D2 keep Karen's ground
+	-- while their bench stays unaffordable (`ESCALATE.md` 2026-11-04). NEVER silent: the reason is
+	-- on the report, and the tool prints `hold=` on its own `[bake]` line.
+	local held: { [string]: boolean } = {}
+	for _, id in holdLandform or {} do
+		held[id] = true
+	end
 	local pad = TerrainBake.padFor()
 	local side = TerrainBake.TILE_STUDS
 	local bare = {
@@ -2077,6 +2093,10 @@ function TerrainBake.bakeTileAt(
 		end
 	end
 	for _, band in TerrainBake.benchBands(cellIds) do
+		-- A HELD CELL'S BENCH IS NEVER WALKED, so no band is asked for it (task 328x).
+		if held[band.cell] then
+			continue
+		end
 		-- THE WINDOW IS THE TILE'S, AND IT IS NOT CLAMPED TO THE BAND'S OWN RECTANGLE (Reviewer
 		-- round 2, finding 1). Clamping made the test unfalsifiable exactly where it mattered:
 		-- `cellAt` answers "the nearest cell" and `blendAt` is non-zero for 200 studs past
@@ -2161,9 +2181,13 @@ function TerrainBake.bakeTileAt(
 	local reshape: { [string]: boolean } = {}
 	local why: { string } = {}
 	for _, id in cellIds do
-		reshape[id] = true
-		local _, reason, kind = TerrainBake.reshapeWanted(id)
-		table.insert(why, string.format("%s reshape=true (base is virgin; stamp says %s: %s)", id, kind, reason))
+		reshape[id] = not held[id]
+		if held[id] then
+			table.insert(why, string.format("%s reshape=FALSE (landform HELD BACK by this run)", id))
+		else
+			local _, reason, kind = TerrainBake.reshapeWanted(id)
+			table.insert(why, string.format("%s reshape=true (base is virgin; stamp says %s: %s)", id, kind, reason))
+		end
 	end
 	local report = TerrainBake.bakeTile(tile, base, cellIds, {}, dryRun, profiles, reshape, nil, extras)
 	report.reshape = table.concat(why, "; ")

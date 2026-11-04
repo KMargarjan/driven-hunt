@@ -3063,6 +3063,45 @@ return function()
 			expect(TerrainBake.voidMargin(snapshotOf(0, 0, n, n, flat, {}), 0, n * v, 0, 0)).to.equal(true)
 		end)
 
+		it("328x-6 a HELD cell keeps the base, and an absent one gets a NEIGHBOUR's landform", function()
+			-- WHY THE PARAMETER EXISTS, as a measurement and not an argument (task 328x). B2 and D2
+			-- carry a bench whose anchor walk this run cannot afford (`ESCALATE.md` 2026-11-04).
+			-- Leaving them out of `cellIds` does NOT leave their ground alone: `cellAt` answers the
+			-- NEAREST cell of the list, `unionOf` is a BOX that contains them, so `blendAt` is 1
+			-- and a neighbour's landform is written across them at full strength. Both arms here.
+			local v = Relief.VOXEL
+			local b2 = Grid.boundsOf("B2")
+			local x, z = (b2.minX + b2.maxX) / 2, (b2.minZ + b2.maxZ) / 2
+			-- (a) B2 LEFT OUT: the nearest cell of the run is NOT B2, and the union still covers it.
+			local without = { "B1", "C1", "D1", "A2", "C2" }
+			expect(TerrainBake.cellAt(without, x, z)).never.to.equal("B2")
+			local union = TerrainBake.unionOf(without)
+			expect(TerrainBake.blendAt(union, x, z)).to.be.near(1, 1e-9)
+			-- (b) B2 IN THE RUN: its own area is its own.
+			local withB2 = { "B1", "C1", "D1", "A2", "B2", "C2" }
+			expect(TerrainBake.cellAt(withB2, x, z)).to.equal("B2")
+
+			-- (c) AND HELD, `bakeTileAt` says so on the report and asks for no bench band. A tile
+			-- of a run holding B2, with no band handed in: without the hold it is REFUSED for the
+			-- band it was not given, which is the case that makes the hold bite.
+			local cells = { "B2" }
+			local plan = TerrainBake.tilePlan(TerrainBake.regionFor(cells))
+			local pad = TerrainBake.padFor()
+			local wide = (TerrainBake.TILE_STUDS + 2 * pad) / v
+			local tile = plan[1]
+			local slice = TerrainBake.encodeSlice(snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, flat, {}))
+			local refused = TerrainBake.bakeTileAt(1, cells, true, { {} :: any }, slice, nil)
+			expect(string.find(refused.message :: string, "covering its anchor", 1, true)).never.to.equal(nil)
+			local heldRun = TerrainBake.bakeTileAt(1, cells, true, nil, slice, nil, { "B2" })
+			expect(string.find(heldRun.message :: string, "no profiles were handed", 1, true)).never.to.equal(nil)
+
+			-- (d) AND THE HOLD REACHES `reshape`, which is what keeps the base: a held cell's
+			-- report says FALSE where an unheld one says true.
+			local shaped = TerrainBake.bakeTileAt(1, cells, true, { {} :: any }, slice, nil, { "B2" })
+			TestKit.note("328x-6 reshape: " .. tostring(shaped.reshape))
+			expect(string.find(tostring(shaped.reshape), "HELD BACK", 1, true)).never.to.equal(nil)
+		end)
+
 		it("328x-5 shapeTile marks the void ABSENT, keeps the real ground, and the Y band skips it", function()
 			-- THE INTEGRATION, over a synthetic base whose west half is beyond the edge of the
 			-- world. `minY` is forced low exactly as the real base file's is -- it is the lowest
