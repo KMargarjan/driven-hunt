@@ -2234,3 +2234,28 @@ control at `main` failing the same way.
 
 **328s stands on its own evidence**, all of it measured in Karen's place and listed in
 `reviews/task-328s/REQUEST.md`.
+
+### 2026-11-04 02:40 UTC -- 328s: three more hypotheses tested and REFUTED. What is left is `TestKit.run`
+
+I was wrong twice above and both corrections are here rather than edited away.
+
+| hypothesis | test | verdict |
+|---|---|---|
+| the Play boot is slow, so the 120 s token goes stale | measured time from `set_play(True)` to the Server datamodel answering: **3.9 s** | **REFUTED** |
+| a Play clone does not carry `TestSyncToken`'s VALUE (`TestKit`'s own `test2` comment) | wrote a token into DEV's Edit `ReplicatedStorage`, started Play, read it in the Play server at 15 s: **`[328sprobe00000aa:1793758969]`**, intact | **REFUTED** |
+| `TextReporter` printing ~2,800 results into a console flooded by the asset storm is what takes the time | ran TestEZ over `ServerStorage.Tests` in the Play server with `TestEZ.Reporters.TextReporter` instead of a quiet one: **`TEXTREPORTER DONE in 330 s`** against the quiet run's 331 s | **REFUTED** |
+
+**And the one that matters.** With a VALID token carried into the Play server -- so
+`TestRunner.server.luau` had everything it needs -- `ServerStorage:GetAttribute("TestReport")` was
+still **absent after 566 s**, while a bare `TestEZ.TestBootstrap:run` over the SAME folder in the
+SAME session finishes in **330 s**.
+
+So the fault is not the specs, not the window, not the token, not the reporter and not the harness's
+read path (all measured above). **What is left is `TestKit.run` / `TestRunner.server.luau` itself** --
+the spec-load pre-pass, the clients-done handshake, or `finish()`. Narrowing further means adding a
+line to the gate's own machinery (a print, or an attribute, when `awaitToken` returns nil and at each
+stage of `TestKit.run`), and that is a change to the thing under test. **It is the Director's to
+authorise; I have not made it.**
+
+My token was written into DEV's Edit `ReplicatedStorage` for these tests and is **cleared** (`""`),
+so no playtest will run tests. Nothing else in DEV or in Karen's place was changed.
