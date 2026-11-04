@@ -1917,9 +1917,17 @@ function TerrainBake.bakeTileAt(
 		end
 	end
 	for _, band in TerrainBake.benchBands(cellIds) do
-		local bandMinX = math.max(band.minX, tile.minX - pad - band.xPad)
-		local bandMaxX = math.min(band.maxX, tile.minX + side + pad + band.xPad)
-		if bandMinX < bandMaxX then
+		-- THE WINDOW IS THE TILE'S, AND IT IS NOT CLAMPED TO THE BAND'S OWN RECTANGLE (Reviewer
+		-- round 2, finding 1). Clamping made the test unfalsifiable exactly where it mattered:
+		-- `cellAt` answers "the nearest cell" and `blendAt` is non-zero for 200 studs past
+		-- `worldBoundsOf`, so the bench walk runs for grid x hundreds of studs outside `boundsOf`,
+		-- where the band -- cut to `bounds +- 136` -- holds no column at all. The reader then
+		-- answered nil, `blurredAt` answered nil, and `applyOps` anchored on the RAW base, or
+		-- dropped the bench outright, with `covered` still true. The band must cover every x this
+		-- tile reads: the tile pad, plus twice the bend's amplitude for the z the anchor is read at.
+		local bandMinX = tile.minX - pad - band.xPad
+		local bandMaxX = tile.minX + side + pad + band.xPad
+		do
 			local covered = false
 			-- THE TILE'S OWN SLICE COUNTS AS A BAND: for a bench near the tile in z the 204-stud
 			-- pad already holds the anchor ground, and refusing that tile would be refusing for

@@ -1445,10 +1445,13 @@ def bench_slices_for(base, bands, tile, pad, side):
     out = []
     for band in bands or []:
         extra = band.get("xPad", 0)
-        min_x = max(band["minX"], tile["minX"] - pad - extra)
-        max_x = min(band["maxX"], tile["minX"] + side + pad + extra)
-        if min_x >= max_x:
-            continue
+        # NOT CLAMPED TO THE BAND'S OWN x RANGE (Reviewer round 2, finding 1): `shapeTile` applies a
+        # cell's landform well outside `Grid.boundsOf` -- `cellAt` answers the NEAREST cell and
+        # `blendAt` is non-zero 200 studs past `worldBoundsOf` -- so a band cut to the cell's own
+        # bounds leaves the walk reading nil out there, silently, on the raw base. The band covers
+        # the TILE's window; `base_slice` refuses a rectangle that leaves the FILE.
+        min_x = tile["minX"] - pad - extra
+        max_x = tile["minX"] + side + pad + extra
         payload, problem = base_slice(base, min_x, band["minZ"], max_x, band["maxZ"])
         if problem:
             return None, ("%s's bench band: %s" % (band["cell"], problem))
@@ -2131,8 +2134,16 @@ def selftest():
     _near["xPad"] = 120
     _far["xPad"] = 120
     _cut, _why = bench_slices_for(fake_base, [_near, _far], _tile, fake_pad, echo_facts["tile"])
-    ok("a bench band that does not reach this tile's window in x is not cut at all",
-       _why is None and len(_cut) == 1, "%s %s" % (_why, len(_cut or [])))
+    # EVERY BAND OF THE RUN IS CUT FOR EVERY TILE, with NO relevance skip (Reviewer round 2,
+    # finding 1): `cellAt` answers the nearest cell, so a cell's landform -- and its bench -- is
+    # applied well outside its own bounds, and a skip keyed on the band's x rectangle is the same
+    # unfalsifiable clamp in another place. Correctness over payload; the cost is recorded as
+    # unmeasured in `ESCALATE.md`.
+    ok("every band of the run is cut for this tile, none silently dropped",
+       _why is None and len(_cut) == 2, "%s %s" % (_why, len(_cut or [])))
+    ok("and each is cut over the TILE's window, not over its own cell's rectangle",
+       all(abs(c["minX"] - (_tile["minX"] - fake_pad - 120)) < 4.001 for c in _cut),
+       "x0=%s" % [c["minX"] for c in _cut])
     ok("the band is cut CLIPPED to the tile's shaping window, not over the whole cell",
        _cut[0]["minX"] >= _tile["minX"] - fake_pad - _near["xPad"] - 4
        and _cut[0]["minX"] + _cut[0]["nx"] * 4
@@ -2151,6 +2162,8 @@ def selftest():
        _cut[0]["minZ"] <= _near["minZ"] and _cut[0]["minZ"] + _cut[0]["nz"] * 4 >= _near["maxZ"])
     ok("a run with no bench sends an empty band list, not a missing argument",
        bench_slices_for(fake_base, [], _tile, fake_pad, echo_facts["tile"]) == ([], None))
+    ok("the cut band covers the band's WHOLE z range, which is what the anchor walk reads (far)",
+       _cut[1]["minZ"] <= _far["minZ"] and _cut[1]["minZ"] + _cut[1]["nz"] * 4 >= _far["maxZ"])
     ok("the Luau refuses a tile that arrives with no base snapshot slice",
        "no base snapshot slice was handed to tile" in bake_text)
     # TASK 328h: the blanket bench refusal is GONE and a COVERAGE refusal stands in its place. The

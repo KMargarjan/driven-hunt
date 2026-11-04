@@ -2647,9 +2647,12 @@ return function()
 				-- and far enough along z that the tile's OWN 204-stud pad does not reach the
 				-- anchor ground. The coverage rule accepts the tile's slice when it does, so a
 				-- tile chosen without this test would prove nothing.
+				-- AT THE CELL'S EASTERN EXTREMITY, not its middle (Reviewer round 2, finding 1):
+				-- the middle is the only region where a band cut to `bounds` always covered the
+				-- window, which is why round 1's case could not see the shortfall.
 				if
-					tile.minX > bounds.minX + 200
-					and tile.minX + side < bounds.maxX - 200
+					tile.minX + side > bounds.maxX
+					and tile.minX < bounds.maxX + 300
 					and tile.minZ - pad > bands[1].minZ
 					and tile.minZ < bounds.minZ + 0.74 * (bounds.maxZ - bounds.minZ)
 				then
@@ -2671,6 +2674,8 @@ return function()
 			-- (b) A BAND THAT DOES NOT REACH THIS TILE'S x WINDOW IS NOT A BAND: still refused, so
 			-- the coverage test is a test and not a count of arguments.
 			local away = TerrainBake.encodeSlice(snapshotOf(tile.minX + 4000, bands[1].minZ, 64, 64, flat, {}))
+			-- (the band's OWN rectangle is no longer a clamp: the window the tile reads is the
+			-- window the band must cover, Reviewer round 2 finding 1)
 			local wrong = TerrainBake.bakeTileAt(pick :: number, cells, true, { {} :: any }, slice, { away })
 			expect(string.find(wrong.message :: string, "covering its anchor", 1, true)).never.to.equal(nil)
 
@@ -2752,8 +2757,13 @@ return function()
 			local withBand = TerrainBake.readerFor(near, { band })
 			expect(plain(x, bands[1].minZ + 2)).to.equal(nil)
 			expect(withBand(x, bands[1].minZ + 2)).never.to.equal(nil)
-			-- ...and the point's own column still comes from the FIRST slice, not the band.
-			expect(withBand(x, z)).to.equal(plain(x, z))
+			-- ...AND THE FIRST SLICE WINS WHERE BOTH ANSWER, asserted on a slice that OVERLAPS it
+			-- (Reviewer round 2, finding 2). The band above is 130 studs north of this point, so
+			-- comparing there read nil through both readers and could not fail whatever the order.
+			local overlap = snapshotOf(x - 200, z - 200, 100, 100, bandHeight, {})
+			local both = TerrainBake.readerFor(near, { overlap })
+			expect(both(x, z)).to.equal(plain(x, z))
+			expect(both(x, z)).never.to.equal(bandHeight(x, z))
 
 			local without = Relief.heightAt(form, bounds, {}, plain, x, z, 1)
 			local with = Relief.heightAt(form, bounds, {}, withBand, x, z, 1)
