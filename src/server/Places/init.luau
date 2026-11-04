@@ -669,7 +669,12 @@ function Places.dressCell(
 	groundAt: (number, number) -> number?,
 	template: (string) -> Model?,
 	breathe: (() -> ())?,
-	clock: (() -> number)?
+	clock: (() -> number)?,
+	-- WHICH OTHER CELLS' WOOD SURVIVES THIS DRESS (task 328i). nil is the one-cell contract this
+	-- function was born with: every other cell goes. A set of ids keeps those, so `dressCells` can
+	-- stand five woods up without each one felling the last. The cell being dressed is ALWAYS
+	-- destroyed first, in the set or not -- that is what re-planting it means.
+	keep: { [string]: boolean }?
 ): { [string]: any }
 	local tick = clock or os.clock
 	local report = {
@@ -693,7 +698,12 @@ function Places.dressCell(
 		return report
 	end
 	Slice.reset()
-	local old = Places.cellWoodFolders(gridFolder)
+	local old: { Instance } = {}
+	for _, folder in ipairs(Places.cellWoodFolders(gridFolder)) do
+		if folder.Name == cellId or keep == nil or keep[folder.Name] ~= true then
+			table.insert(old, folder)
+		end
+	end
 	local dying: { Instance } = {}
 	for _, folder in ipairs(old) do
 		for _, child in ipairs(folder:GetChildren()) do
@@ -785,6 +795,35 @@ function Places.dressCell(
 	return report
 end
 
+-- DRESS A LIST OF CELLS, one after another, each into its own folder. Returns one report per cell,
+-- in the order given.
+--
+-- KAREN, 2026-11-04: *"more trees behind the line"*. There were none, and the reason was one call:
+-- `build` dressed `Grid.PREVIEW_CELL` and nothing else, so seven of the eight cells had never had a
+-- tree planted in them. `dressCell` is built around ONE cell -- it fells every other cell's wood on
+-- its way in -- so the list is what `keep` exists for, and the one-cell contract is untouched.
+--
+-- THE ORDER MATTERS AND IT IS THE CALLER'S: the first id is dressed first, and `Slice` plants each
+-- cell nearest ITS OWN hunter line first, so the cell a player is standing in should be first.
+function Places.dressCells(
+	cellIds: { string },
+	gridFolder: Instance?,
+	groundAt: (number, number) -> number?,
+	template: (string) -> Model?,
+	breathe: (() -> ())?,
+	clock: (() -> number)?
+): { { [string]: any } }
+	local keep: { [string]: boolean } = {}
+	for _, id in ipairs(cellIds) do
+		keep[id] = true
+	end
+	local reports: { { [string]: any } } = {}
+	for _, id in ipairs(cellIds) do
+		table.insert(reports, Places.dressCell(id, gridFolder, groundAt, template, breathe, clock, keep))
+	end
+	return reports
+end
+
 -- BUILD EVERY DRESSED PLACE. Returns one report line's worth of counts.
 --
 -- `groundAt` AND `world` ARE ARGUMENTS AND NEVER `Workspace` BY DEFAULT inside a spec's reach, which
@@ -798,7 +837,11 @@ function Places.build(
 	-- (`Places.gridPreviewEnabled`); a spec passes true or false and never touches the flag.
 	gridPreview: boolean?,
 	-- THE SLICE. The boot hands `task.wait`; a spec hands nil, and nothing yields.
-	breathe: (() -> ())?
+	breathe: (() -> ())?,
+	-- WHICH CELLS GET A WOOD (task 328i). nil reads `Grid.PLANTED_CELLS`, the cells whose ground is
+	-- baked; a spec hands its own list and never touches the config. An EMPTY list dresses nothing,
+	-- which is how a spec reaches the no-wood branch by parameter.
+	cells: { string }?
 ): { [string]: any }
 	local root = world or Workspace
 	-- THE GROUND READER IS HANDED IN AND THERE IS NO DEFAULT, AND THAT IS DESIGN 10.1 RATHER THAN
@@ -983,10 +1026,11 @@ function Places.build(
 	-- **AFTER THE TEMPLATE LOOKUP EXISTS AND NOT IN THE BLOCK ABOVE:** the roads and the stakes need
 	-- no template, so they are built in a world that has none; a cell's wood is 2,400 clones of this
 	-- world's own trees and there is nothing to clone in DEV. So the preview stakes eight cells and
-	-- dresses ONE -- `Grid.PREVIEW_CELL`, which is C1 (task 327b: the cell with the most to show).
+	-- dresses `Grid.PLANTED_CELLS` -- the five whose ground is baked (task 328i; it dressed
+	-- `Grid.PREVIEW_CELL` alone until then, which is why there was no wood behind the line).
 	-- Task 327d replaces this with the per-drive dress at the `Scoring -> Assigning` edge.
 	if previewOn and gridFolder ~= nil then
-		report.gridWood = Places.dressCell(Grid.PREVIEW_CELL, gridFolder, reader, template, breathe, nil)
+		report.gridWoods = Places.dressCells(cells or Grid.PLANTED_CELLS, gridFolder, reader, template, breathe, nil)
 	end
 	report.seconds = os.clock() - started
 	return report

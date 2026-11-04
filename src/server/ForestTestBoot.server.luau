@@ -141,11 +141,11 @@ print(string.format(
 -- shouldnt be"*), as the road paint count left it in 328e with `Ground.paintRoads`. What is left is
 -- the flag and what the preview still costs: the folder that the cell's wood is dressed into.
 print(string.format("[ForestTestBoot] grid: preview=%s, %.2fs", tostring(gridPreviewOn), planted.gridSeconds))
--- ...AND THE CELL'S WOOD (task 327c), printed and never assumed (design 11): how many models went
--- in, how many the ground refused, how many parts that is against the design's < 22,000, and what
--- the slice spent -- steps, average and worst step, and how long the whole dress took.
-local wood = planted.gridWood
-if wood ~= nil then
+-- ...AND EVERY DRESSED CELL'S WOOD (task 327c; ONE LINE PER CELL since 328i), printed and never
+-- assumed (design 11): how many models went in, how many the ground refused, how many parts that is
+-- against the design's < 22,000, and what the slice spent -- steps, average and worst step, and how
+-- long the dress took.
+for _, wood in ipairs(planted.gridWoods or {}) do
 	print(
 		string.format(
 			"[ForestTestBoot] grid wood %s: %d of %d planted (%d parts), %d on a step, %d skipped, %d missing, "

@@ -991,6 +991,24 @@ Places.UNDER_JITTER = 1.0
 -- case (4 neighbours)". **In a 2 x 4 grid no cell has four neighbours** -- the grid has no third row,
 -- so a corner cell has 2 and B1/C1/B2/C2 have 3. The worst skirt here is C1's 565 trees against the
 -- design's 650, so the BOUND is not breached; the arithmetic behind it is.
+-- THE DENSITY RULE (task 328i), READ OFF C1's OWN ACCEPTED DIFF and applied to the cells BEHIND
+-- THE LINE. Karen, 2026-11-04: *"more trees behind the line"* / on C1, *"rest seems ok I think you
+-- did good job"*. So C1 is the standard and nothing here invents a number: every value below is
+-- C1's, or C1's own v2 -> v4 ratio applied to a zone C1 tightened the counterpart of.
+--  * `minGapStuds` **11** and the skirt **24 / 52** -- C1's, borrowed whole.
+--  * every zone gets `jitter` **1.0** unless the recipe already names one (A2's two plantation rows
+--    keep `rows = "NS"` and 0.25: that is the cell's character, and C1 left its own named jitters).
+--  * every CANOPY zone -- a wood zone that is not `oakPark`, `clearing` or `scrub` -- gets
+--    `under` and its spacing x **0.667**, which is C1's own `spruceThicket` 24 -> 16, rounded.
+--  * `oakPark`, `clearing` and `scrub` keep their spacing, because C1 kept theirs: the park is the
+--    one a hunter sees across and the scrub is the beaters' ground.
+-- FOUR RECIPES TAKE IT -- `spruceRolling` (C2), `larchRolling` (A2), `birchSlope` (B1) and
+-- `oakRolling` (D1): the cells whose GROUND IS BAKED. `spruceSlope` (A1), `aspenSlope` (B2) and
+-- `birchRolling` (D2) are untouched; planting a cell whose ground is about to be re-baked is work
+-- thrown away (Director decision, 2026-11-04).
+local UNDER = table.freeze({ spacingStuds = 30, mix = "larchYoung" })
+local CANOPY = table.freeze({ jitter = 1.0, under = UNDER })
+
 Places.CELL_PLANS = table.freeze({
 	-- A1, measured `slope`, 113.4 studs of spread: the thicket is on the LOW ground by the main road
 	-- and the wood thins uphill, so the hunter looks into cover and the beaters walk out of light.
@@ -1030,11 +1048,12 @@ Places.CELL_PLANS = table.freeze({
 	-- crossings funnel west of it. The regrowth strip at the back is the beaters' own ground.
 	birchSlope = table.freeze({
 		halfStripStuds = 9,
-		spacingStuds = 30,
-		deepSpacingStuds = 60,
+		-- v3 (task 328i): C1's accepted skirt and gap, borrowed whole. See THE DENSITY RULE above.
+		spacingStuds = 24,
+		deepSpacingStuds = 52,
 		fernSpacing = 24,
 		fernBandStuds = 30,
-		minGapStuds = 12,
+		minGapStuds = 11,
 		skirtFullStuds = 80,
 		skirtStuds = 230,
 		shrubScale = table.freeze({ 0.25, 0.45 }),
@@ -1050,13 +1069,13 @@ Places.CELL_PLANS = table.freeze({
 		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
 		scaleFloor = 0.35,
 		zones = table.freeze({
-			zone(0.00, 0.00, 0.55, 0.40, 30, "birchStand", "wood"),
-			zone(0.55, 0.00, 1.00, 0.40, 24, "spruceThicket", "wood"),
-			zone(0.00, 0.40, 1.00, 0.62, 38, "birchOpen", "wood"),
+			zone(0.00, 0.00, 0.55, 0.40, 30, "birchStand", "wood", CANOPY),
+			zone(0.55, 0.00, 1.00, 0.40, 24, "spruceThicket", "wood", CANOPY),
+			zone(0.00, 0.40, 1.00, 0.62, 38, "birchOpen", "wood", CANOPY),
 			zone(0.30, 0.62, 0.95, 0.85, 0, "clearing", "wood"),
-			zone(0.00, 0.62, 0.30, 0.85, 30, "birchStand", "wood"),
-			zone(0.95, 0.62, 1.00, 0.85, 30, "birchStand", "wood"),
-			zone(0.00, 0.85, 1.00, 1.00, 26, "scrub", "shrub"),
+			zone(0.00, 0.62, 0.30, 0.85, 30, "birchStand", "wood", CANOPY),
+			zone(0.95, 0.62, 1.00, 0.85, 30, "birchStand", "wood", CANOPY),
+			zone(0.00, 0.85, 1.00, 1.00, 26, "scrub", "shrub", { jitter = 1.0 }),
 		}),
 	}),
 
@@ -1178,11 +1197,12 @@ Places.CELL_PLANS = table.freeze({
 	-- east half, so this is the cell a hunter can actually see across -- the thinnest wood of row 1.
 	oakRolling = table.freeze({
 		halfStripStuds = 9,
-		spacingStuds = 32,
-		deepSpacingStuds = 60,
+		-- v3 (task 328i): C1's accepted skirt and gap, borrowed whole. See THE DENSITY RULE above.
+		spacingStuds = 24,
+		deepSpacingStuds = 52,
 		fernSpacing = 24,
 		fernBandStuds = 30,
-		minGapStuds = 12,
+		minGapStuds = 11,
 		skirtFullStuds = 80,
 		skirtStuds = 230,
 		shrubScale = table.freeze({ 0.25, 0.45 }),
@@ -1207,12 +1227,12 @@ Places.CELL_PLANS = table.freeze({
 		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
 		scaleFloor = 0.35,
 		zones = table.freeze({
-			zone(0.00, 0.00, 1.00, 0.22, 34, "oakPark", "wood"),
-			zone(0.00, 0.22, 0.50, 0.60, 28, "oakWood", "wood"),
-			zone(0.50, 0.22, 1.00, 0.60, 44, "oakPark", "wood"),
-			zone(0.00, 0.60, 0.45, 1.00, 32, "mixedWood", "wood"),
+			zone(0.00, 0.00, 1.00, 0.22, 34, "oakPark", "wood", { jitter = 1.0 }),
+			zone(0.00, 0.22, 0.50, 0.60, 14, "oakWood", "wood", CANOPY),
+			zone(0.50, 0.22, 1.00, 0.60, 44, "oakPark", "wood", { jitter = 1.0 }),
+			zone(0.00, 0.60, 0.45, 1.00, 16, "mixedWood", "wood", CANOPY),
 			zone(0.45, 0.60, 1.00, 0.80, 0, "clearing", "wood"),
-			zone(0.45, 0.80, 1.00, 1.00, 30, "birchOpen", "wood"),
+			zone(0.45, 0.80, 1.00, 1.00, 15, "birchOpen", "wood", CANOPY),
 		}),
 	}),
 
@@ -1221,11 +1241,12 @@ Places.CELL_PLANS = table.freeze({
 	-- is the cell where a hunter sees over the wood and a boar is in view the whole way.
 	larchRolling = table.freeze({
 		halfStripStuds = 9,
-		spacingStuds = 28,
-		deepSpacingStuds = 60,
+		-- v3 (task 328i): C1's accepted skirt and gap, borrowed whole. See THE DENSITY RULE above.
+		spacingStuds = 24,
+		deepSpacingStuds = 52,
 		fernSpacing = 24,
 		fernBandStuds = 30,
-		minGapStuds = 12,
+		minGapStuds = 11,
 		skirtFullStuds = 80,
 		skirtStuds = 230,
 		shrubScale = table.freeze({ 0.30, 0.55 }),
@@ -1241,11 +1262,19 @@ Places.CELL_PLANS = table.freeze({
 		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
 		scaleFloor = 0.35,
 		zones = table.freeze({
-			zone(0.00, 0.00, 1.00, 0.26, 26, "larchYoung", "shrub", { rows = "NS", jitter = 0.25 }),
-			zone(0.00, 0.26, 0.35, 0.65, 28, "larchYoung", "shrub", { rows = "NS", jitter = 0.25 }),
-			zone(0.35, 0.26, 1.00, 0.65, 38, "mixedWood", "wood"),
+			zone(0.00, 0.00, 1.00, 0.26, 20, "larchYoung", "shrub", {
+				rows = "NS",
+				jitter = 0.25,
+				under = UNDER,
+			}),
+			zone(0.00, 0.26, 0.35, 0.65, 21, "larchYoung", "shrub", {
+				rows = "NS",
+				jitter = 0.25,
+				under = UNDER,
+			}),
+			zone(0.35, 0.26, 1.00, 0.65, 29, "mixedWood", "wood", CANOPY),
 			zone(0.00, 0.65, 1.00, 0.82, 0, "clearing", "wood"),
-			zone(0.00, 0.82, 1.00, 1.00, 28, "scrub", "shrub"),
+			zone(0.00, 0.82, 1.00, 1.00, 28, "scrub", "shrub", { jitter = 1.0 }),
 		}),
 	}),
 
@@ -1285,11 +1314,12 @@ Places.CELL_PLANS = table.freeze({
 	-- crossings read against the thickets and not against the sky.
 	spruceRolling = table.freeze({
 		halfStripStuds = 9,
-		spacingStuds = 30,
-		deepSpacingStuds = 60,
+		-- v3 (task 328i): C1's accepted skirt and gap, borrowed whole. See THE DENSITY RULE above.
+		spacingStuds = 24,
+		deepSpacingStuds = 52,
 		fernSpacing = 24,
 		fernBandStuds = 30,
-		minGapStuds = 12,
+		minGapStuds = 11,
 		skirtFullStuds = 80,
 		skirtStuds = 230,
 		shrubScale = table.freeze({ 0.25, 0.45 }),
@@ -1305,13 +1335,13 @@ Places.CELL_PLANS = table.freeze({
 		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
 		scaleFloor = 0.35,
 		zones = table.freeze({
-			zone(0.00, 0.00, 0.30, 0.45, 26, "spruceThicket", "wood"),
-			zone(0.30, 0.00, 0.70, 0.45, 34, "birchOpen", "wood"),
-			zone(0.70, 0.00, 1.00, 0.45, 26, "spruceThicket", "wood"),
+			zone(0.00, 0.00, 0.30, 0.45, 26, "spruceThicket", "wood", CANOPY),
+			zone(0.30, 0.00, 0.70, 0.45, 34, "birchOpen", "wood", CANOPY),
+			zone(0.70, 0.00, 1.00, 0.45, 26, "spruceThicket", "wood", CANOPY),
 			zone(0.25, 0.45, 0.75, 0.68, 0, "clearing", "wood"),
-			zone(0.00, 0.45, 0.25, 0.68, 28, "spruceHigh", "wood"),
-			zone(0.75, 0.45, 1.00, 0.68, 28, "spruceHigh", "wood"),
-			zone(0.00, 0.68, 1.00, 1.00, 32, "mixedWood", "wood"),
+			zone(0.00, 0.45, 0.25, 0.68, 28, "spruceHigh", "wood", CANOPY),
+			zone(0.75, 0.45, 1.00, 0.68, 28, "spruceHigh", "wood", CANOPY),
+			zone(0.00, 0.68, 1.00, 1.00, 32, "mixedWood", "wood", CANOPY),
 		}),
 	}),
 

@@ -2506,6 +2506,131 @@ return function()
 		end)
 	end)
 
+	-- ------------------------------------------- 19. the forest behind the line (task 328i)
+
+	describe("the cells that get a wood", function()
+		-- KAREN, 2026-11-04: *"more trees behind the line"*. There were none: `Places.build` dressed
+		-- `Grid.PREVIEW_CELL` and nothing else, so seven cells had never had a tree in them.
+		it("is a list of baked cells, C1 first and C2 -- the cell behind the line -- second", function()
+			local planted = Grid.PLANTED_CELLS
+			expect(#planted).to.equal(5)
+			expect(planted[1]).to.equal(Grid.PREVIEW_CELL)
+			expect(planted[2]).to.equal("C2")
+			local seen: { [string]: boolean } = {}
+			for _, id in ipairs(planted) do
+				-- EVERY ID IS A REAL CELL and no id is listed twice -- a duplicate would plant a
+				-- cell, keep it, then fell and re-plant it for nothing.
+				expect(Grid.cellOf(id) ~= nil).to.equal(true)
+				expect(seen[id]).never.to.equal(true)
+				seen[id] = true
+			end
+			-- THE THREE THAT ARE OUT ARE OUT, and the case says which: A1 was never baked, B2 and
+			-- D2 had their landform HELD (`terrainbake.py --hold-landform`), so all three carry
+			-- ground that is going to move. `grid-terrain.md` 16's 328h/328x rows.
+			for _, id in ipairs({ "A1", "B2", "D2" }) do
+				expect(seen[id]).never.to.equal(true)
+			end
+			TestKit.note("PLANTED_CELLS: " .. table.concat(planted, ","))
+		end)
+
+		-- THE DENSITY. Pinned so a later tweak cannot quietly give it back, exactly as 328s pinned
+		-- C1's. The target is 328s's own, quoted: >= 2,300 planned and <= `CELL_PART_CAP`.
+		it("plans every one of them at C1's accepted density", function()
+			local floorWanted = 2300
+			local lines = {}
+			for _, id in ipairs(Grid.PLANTED_CELLS) do
+				local total = #woods[id]
+				table.insert(lines, string.format("%s %d/%d", id, total, Plan.cellCapacity(id)))
+				expect(total >= floorWanted).to.equal(true)
+				expect(total <= Plan.CELL_PART_CAP).to.equal(true)
+				expect(Plan.cellCapacity(id) <= Plan.CELL_PLAN_CAP).to.equal(true)
+			end
+			-- ...AND THE THREE UNBAKED CELLS ARE NOT TOUCHED: the task that bakes them raises them.
+			for _, id in ipairs({ "A1", "B2", "D2" }) do
+				expect(#woods[id] < floorWanted).to.equal(true)
+			end
+			TestKit.note(string.format("328i planned (no ground reader): %s", table.concat(lines, " ")))
+		end)
+
+		-- THE BEHAVIOUR, driven through the real planter over a fake hillside -- the fixture case 18b
+		-- uses. IT DIES IF `keep` DIES: `dressCell` fells every other cell's wood on its way in, so
+		-- without the set only the LAST cell of the list would be standing.
+		it("stands every cell of the list up at once, and fells anything not in it", function()
+			local function hillside(x: number, z: number): number?
+				return 120 + 0.1 * (x - Grid.CONFIG.originX) - 0.05 * (z - Grid.CONFIG.originZ)
+			end
+			local sources = Instance.new("Folder")
+			local made: { [string]: Model } = {}
+			local function template(name: string): Model?
+				if made[name] == nil then
+					local model = Instance.new("Model")
+					model.Name = name
+					local trunk = Instance.new("Part")
+					trunk.Name = "Trunk"
+					trunk.Size = Vector3.new(4, 40, 4)
+					trunk.Position = Vector3.new(0, 20, 0)
+					trunk.Anchored = true
+					trunk.Parent = model
+					model.PrimaryPart = trunk
+					model.Parent = sources
+					made[name] = model
+				end
+				return made[name]
+			end
+			local grid = Instance.new("Folder")
+			grid.Name = Planter.GRID_FOLDER
+			-- A STALE CELL IS STANDING BEFORE THE DRESS -- one that is NOT in the list.
+			local stale = Instance.new("Folder")
+			stale.Name = "D2"
+			stale.Parent = grid
+			local staleTree = Instance.new("Model")
+			staleTree.Name = "stale"
+			staleTree.Parent = stale
+
+			local wanted = { "C1", "C2", "B1" }
+			local reports = Planter.dressCells(wanted, grid, hillside, template, nil, nil)
+			expect(#reports).to.equal(#wanted)
+			local standing: { [string]: number } = {}
+			for _, folder in ipairs(Planter.cellWoodFolders(grid)) do
+				standing[folder.Name] = #folder:GetChildren()
+			end
+			-- EVERY CELL OF THE LIST IS STANDING, with its own report's count of trees in it. This
+			-- is the assertion the one-cell contract cannot pass.
+			for index, id in ipairs(wanted) do
+				expect(reports[index].cell).to.equal(id)
+				expect(reports[index].planted > 0).to.equal(true)
+				expect(standing[id]).to.equal(reports[index].planted)
+			end
+			-- ...AND THE STALE CELL IS GONE, folder and tree.
+			expect(standing["D2"]).to.equal(nil)
+			expect(staleTree.Parent).to.equal(nil)
+			-- A SECOND RUN OF THE SAME LIST RE-PLANTS AND NEVER DOUBLES: the cell being dressed is
+			-- destroyed whether or not it is in `keep`.
+			local again = Planter.dressCells(wanted, grid, hillside, template, nil, nil)
+			local after = Planter.cellWoodFolders(grid)
+			expect(#after).to.equal(#wanted)
+			for index, id in ipairs(wanted) do
+				expect(again[index].cell).to.equal(id)
+				expect(again[index].planted).to.equal(reports[index].planted)
+			end
+			-- AN EMPTY LIST DRESSES NOTHING AND TOUCHES NOTHING -- no `dressCell` call is made, so
+			-- the wood already standing stays. That is the branch a spec takes to reach `build`
+			-- with no wood at all.
+			expect(#Planter.dressCells({}, grid, hillside, template, nil, nil)).to.equal(0)
+			expect(#Planter.cellWoodFolders(grid)).to.equal(#wanted)
+			TestKit.note(
+				string.format(
+					"dressCells %s: %d trees standing over %d cells",
+					table.concat(wanted, ","),
+					reports[1].planted + reports[2].planted + reports[3].planted,
+					#after
+				)
+			)
+			grid:Destroy()
+			sources:Destroy()
+		end)
+	end)
+
 	-- ---------------------------------------------------------------- 20. one name, one fact
 
 	describe("the grid folder's name", function()
