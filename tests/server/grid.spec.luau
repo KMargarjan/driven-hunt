@@ -788,16 +788,10 @@ return function()
 			-- 5. `plantCell` EMITS THE SAME LIST: every row is its own grid point (the map is the
 			-- identity) and is clear of the mask asked in EITHER space.
 			--
-			-- **1,803 AND NOT 328p's 1,823, AND THE BEND IS NOT WHY** (task 328r). The straight plan
-			-- was still 1,823 at this task's own code commit `11f354cf`, with the bend already at
-			-- 45/60; it became 1,803 at `f0cc0459`, which changed nothing but `Grid.CELLS.C1`'s
-			-- `relief` and `towers`. The relief rows cannot move a count -- the bias needs a
-			-- `heightAt` and this call passes none -- so the 20 sites are the TOWER SET: C1 went
-			-- 8/13/15 to 8/10/13, and `maskGrid` clears `TOWER_CLEAR_STUDS` 24 round a tower against
-			-- `POST_CLEAR_STUDS` 20 round a post, and refuses `young` in a post's cone where a tower
-			-- looks over it. Two harness runs, one commit apart, are the measurement.
+			-- **2,458 since task 328s re-planted C1 denser** (was 1,803). Measured, not a bound: a
+			-- straight-world count that moved on its own would mean the recipe changed by accident.
 			local drawn = Plan.plantCell("C1", nil, STRAIGHT)
-			expect(#drawn).to.equal(1803)
+			expect(#drawn).to.equal(2458)
 			for _, item in ipairs(drawn) do
 				local u, v = Grid.toGrid(item.x, item.z, STRAIGHT)
 				expect(u).to.equal(item.x)
@@ -919,18 +913,15 @@ return function()
 			end
 			expect(junctions).to.equal(15)
 			expect(worstJunction < 1e-12).to.equal(true)
-			-- 6. THE PLAN AT THE SHIPPED BEND, pinned beside the straight 1,823 the case above pins.
-			-- It is not a bound: a plan that moved would be a world Karen's baked ground no longer
-			-- matches, and the census is what would find that out far too late. **1,789 against the
-			-- straight world's 1,803 at the same tower set**: 14 sites the straight mask allowed are
-			-- inside a bent road's own bands. (At the OLD tower set the same pair read 1,795 and
-			-- 1,823 -- measured at `11f354cf`, one commit before the towers moved.)
+			-- 6. THE PLAN AT THE SHIPPED BEND, pinned beside the straight count the case above pins.
+			-- **2,448 bent against 2,458 straight** since task 328s's denser C1 (was 1,789/1,803):
+			-- the 10 sites the straight mask allows sit inside a bent road's own bands.
 			local drawn = Plan.plantCell("C1")
-			expect(#drawn).to.equal(1789)
-			expect(#Plan.plantCell("C1", nil, STRAIGHT)).to.equal(1803)
+			expect(#drawn).to.equal(2448)
+			expect(#Plan.plantCell("C1", nil, STRAIGHT)).to.equal(2458)
 			TestKit.note(
 				string.format(
-					"SHIPPED BENT %d/%d: flank set-back %d (was 340), C1 stand 1 (%.2f,%.2f) 8 (%.2f,%.2f) 10 (%.2f,%.2f), layout span %d / north %d, roadZ departs %.2f st from the centre and is exact at %d sampled stations, %d junctions to %.1e, C1 plan %d (straight 1823)",
+					"SHIPPED BENT %d/%d: flank set-back %d (was 340), C1 stand 1 (%.2f,%.2f) 8 (%.2f,%.2f) 10 (%.2f,%.2f), layout span %d / north %d, roadZ departs %.2f st from the centre and is exact at %d sampled stations, %d junctions to %.1e, C1 plan %d (straight 2458)",
 					c.bend.ewStuds,
 					c.bend.nsStuds,
 					Grid.flankFirstStuds(),
