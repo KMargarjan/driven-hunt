@@ -1,3 +1,49 @@
+## 2026-11-04 ~16:20 UTC, Task 328x -- WHAT THE BAKE SHIPPED, AND THE THREE THINGS IT COULD NOT
+
+**Shipped**, in Karen's Forest Test at the code commit:
+`[bake] OK: 1120/1120 tiles @ 1cdc894d0848e35410199e796416ea77463fe65f cells=B1,C1,D1,A2,B2,C2,D2
+hold=B2,D2 epoch=5e09ea024be987ee worstTileMs=477 (clean tree)`, 15 m 08 s. **`A2` and `C2` are
+baked** -- `C2` is the cell Karen's *"more trees behind the line"* names -- and **row 1's three
+cells are BYTE-IDENTICAL**: 0 of each cell's 95,944 interior columns moved, measured by snapshotting
+B1/C1/D1 before and after and comparing the stored codes.
+
+**1. THE BENCH IS UNAFFORDABLE, MEASURED, AND IT IS WHY `B2` AND `D2` ARE HELD.** The ten-tile
+measurement the dispatch asked for came back **clean and useless** -- 244 ms a tile, because the
+first ten tiles carry no bench weight. Widening it found the wall: the seven-cell run **stops dead
+at tile 51**, the first tile whose window reaches `B2`'s area, with `Target is not reachable` --
+twice, at the same tile, deterministically. That is `applyOps`' anchor walk: six `blurredAt` calls,
+1,369 base reads each, for every one of a tile's 17,956 points -- **~1.5e8 reads a tile**, 328h's own
+figure, not returning inside the MCP call window. About **360 of 1,120 tiles** carry bench weight, so
+a full run would be **hours, not the 60 minutes the dispatch allows**.
+
+**The fix I would take, and the trap in it.** The anchor depends on the point's **x only**, never its
+z, so it is recomputed ~134 times per x today. A per-x cache would cut it ~134x, to about the 300 ms
+every other tile costs. **The trap:** under the bend `shapeTile` works in GRID coordinates and
+`gx = toGrid(x, z)` moves with z, so there are ~18,000 distinct `gx` in a tile and a naive per-`gx`
+cache never hits. The answer is piecewise constant in `gx` -- `baseAt` quantises to the base lattice,
+and for one anchor z every tap's index steps at the same `gx` -- so the exact key is the tuple of the
+six anchor rows' base-column indices, which `applyOps` cannot compute because it only holds the
+reader. **So this is a design question about how a bench anchors under a bent grid, not a tidy-up**,
+and it belongs to the Architect and the Director. It blocks `B2`'s three ramps, the `B2` bot climb,
+`A1`, and anything else that shapes a bench cell.
+
+**2. `A1` STILL CANNOT BE BAKED** (the ~14:40 entry): eight cells take `regionFor`'s ALL branch,
+whose lattice starts at `x -7296`, and a tile's own slice then needs `x >= -7500` against a base file
+that starts at `-7336`. 164 studs short. Unchanged by anything in this task.
+
+**3. A VISIBLE LOOK CHANGE KAREN WILL NOTICE, AND IT IS THE DESIGN'S PLACEHOLDER, NOT A DEFECT HERE.**
+Sampled 121 points in each cell (`328x-mats.luau`): `C1` **121/121 LeafyGrass**, but **`A2`, `C2` and
+`D2` read 121/121 `Ground`** -- bare brown. `Relief.materialAt`'s own header says it: SWARM 2.2
+states a zone floor for four cells and *"the other four get the placeholder `Ground` until
+`CELL_PLANS` v2 carries the zone floor (328f)"*. Baking `A2` and `C2` is the first time that
+placeholder has been on the ground where Karen can see it, and `328x-F1-before/after` shows it
+plainly: flat green before, a brown plain rising to a ridge after. **328f is the task that fixes it,
+and it should come before 328i plants trees on it.**
+**One of those three is the hold's own fault and is mine, not the design's:** `D2` is HELD, so it
+keeps Karen's HEIGHTS, but `shapeTile`'s material pass runs for every column regardless of `reshape`
+and repainted it. A held cell should keep the base material too -- the base snapshot carries it, and
+`shapeTile` simply never reads it. Queued in `TASKS.md`, not fixed in another round.
+
 ## 2026-11-04 ~14:40 UTC, Task 328x -- THE NARROWED HOLE RULE WORKS (103 refusals -> 0), BUT THE FIVE CANNOT BE BAKED AS A RUN OF FIVE, AND `A1` CANNOT BE BAKED FROM THIS BASE FILE AT ALL
 
 **Measured before any code was written**, over 328h's virgin base `terrain-base-010b6400abdd.bin`,
