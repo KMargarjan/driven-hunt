@@ -824,10 +824,12 @@ return function()
 			-- 5. `plantCell` EMITS THE SAME LIST: every row is its own grid point (the map is the
 			-- identity) and is clear of the mask asked in EITHER space.
 			--
-			-- **2,458 since task 328s re-planted C1 denser** (was 1,803). Measured, not a bound: a
-			-- straight-world count that moved on its own would mean the recipe changed by accident.
+			-- **1,969 since task 328i**, which is 2,458 MINUS C1's 489-site straight-world SKIRT:
+			-- all three of C1's neighbours are planted now and a cell skirts no planted neighbour.
+			-- (328s pinned 2,458, 328o 1,803.) Measured, not a bound: a straight-world count that
+			-- moved on its own would mean the recipe changed by accident.
 			local drawn = Plan.plantCell("C1", nil, STRAIGHT)
-			expect(#drawn).to.equal(2458)
+			expect(#drawn).to.equal(1969)
 			for _, item in ipairs(drawn) do
 				local u, v = Grid.toGrid(item.x, item.z, STRAIGHT)
 				expect(u).to.equal(item.x)
@@ -1808,11 +1810,19 @@ return function()
 					end
 				end
 			end
-			-- C1 IS THE ONLY CELL THAT HAS ONE, until Karen has judged it (the recipe says so).
+			-- EXACTLY THE PLANTED CELLS HAVE ONE (task 328i): C1's second storey was 328m's, and
+			-- 328i gave the same row to the four cells behind and beside it, because it is half of
+			-- what carries C1's accepted density. The three UNBAKED cells have none -- the task
+			-- that bakes their ground is the one that plants them.
 			expect(#withUnder > 0).to.equal(true)
-			for _, id in ipairs(withUnder) do
-				expect(id).to.equal("C1")
+			local planted: { [string]: boolean } = {}
+			for _, id in ipairs(Grid.PLANTED_CELLS) do
+				planted[id] = true
 			end
+			for _, id in ipairs(withUnder) do
+				expect(planted[id]).to.equal(true)
+			end
+			expect(#withUnder).to.equal(#Grid.PLANTED_CELLS)
 
 			-- IT IS COUNTED IN THE BOUND. `cellCapacity` must be the sum of all four layers, so an
 			-- understorey the budget did not count cannot breach `CELL_PLAN_CAP` unseen.
@@ -2175,7 +2185,7 @@ return function()
 	-- ---------------------------------------------------------------- 16. the skirt
 
 	describe("the skirt", function()
-		it("reaches into every neighbour from the shared road and stops at skirtStuds", function()
+		it("reaches into every BARE neighbour from the shared road and stops at skirtStuds", function()
 			local half = Grid.CONFIG.roadClearStuds / 2
 			local lines = {}
 			for _, id in ipairs(Grid.cellIds()) do
@@ -2247,14 +2257,38 @@ return function()
 						expect(names[item.model]).to.equal(true)
 					end
 				end
-				-- EVERY NEIGHBOUR IS DRESSED, not just the first one found.
+				-- EVERY BARE NEIGHBOUR IS DRESSED, not just the first one found -- AND NO PLANTED
+				-- ONE IS (task 328i): a skirt over a wood that is already there is a second wood
+				-- laid on the first, and `minGapStuds` runs over one cell's own grid and cannot
+				-- see it. Both halves are asserted, so neither "it skirts everything" nor "it
+				-- skirts nothing" can pass.
 				for _, other in ipairs(near) do
-					expect((hitEach[other.id] or 0) > 0).to.equal(true)
+					if Plan.isPlanted(other.id) then
+						expect(hitEach[other.id]).to.equal(nil)
+					else
+						expect((hitEach[other.id] or 0) > 0).to.equal(true)
+					end
 				end
-				expect(count > 0).to.equal(true)
+				-- A CELL WITH A BARE NEIGHBOUR SKIRTS; A CELL WHOSE NEIGHBOURS ARE ALL PLANTED
+				-- DRAWS NOTHING AT ALL. C1 is the second kind, and it is the only one today.
+				local bare = 0
+				for _, other in ipairs(near) do
+					if not Plan.isPlanted(other.id) then
+						bare += 1
+					end
+				end
+				expect(count > 0).to.equal(bare > 0)
 				table.insert(
 					lines,
-					string.format("%s %d into %d (reach %.0f/%d)", id, count, #near, reach, plan.skirtStuds)
+					string.format(
+						"%s %d into %d of %d bare (reach %.0f/%d)",
+						id,
+						count,
+						#near - bare,
+						#near,
+						reach,
+						plan.skirtStuds
+					)
 				)
 			end
 			TestKit.note("skirt: " .. table.concat(lines, " "))
