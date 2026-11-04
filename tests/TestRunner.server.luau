@@ -31,8 +31,25 @@ end
 
 mark("boot")
 
--- IS IT HUNG OR IS IT DEAD? A stage that stops moving says nothing on its own; a clock beside it
--- that also stops says the thread is gone, and one that keeps ticking says it is waiting.
+-- IS IT HUNG OR IS IT DEAD, AND WHERE? A stage that stops moving says nothing on its own; a clock
+-- beside it that also stops says the thread is gone, and one that keeps ticking says it is waiting.
+-- WHERE it waits comes from `debug.info(thread, ...)`, which reads another thread's stack -- so a run
+-- that parks names its own file and line instead of a test title (task 328t; measured to work in a
+-- Play server before it was relied on).
+local runThread = coroutine.running()
+
+local function whereIs(): string
+	local frames = {}
+	for level = 1, 12 do
+		local ok, source, line = pcall(debug.info, runThread, level, "sl")
+		if not ok or source == nil then
+			break
+		end
+		table.insert(frames, string.format("%s:%s", tostring(source), tostring(line)))
+	end
+	return if #frames > 0 then table.concat(frames, " <- ") else "no frames"
+end
+
 task.spawn(function()
 	while true do
 		task.wait(5)
@@ -41,6 +58,7 @@ task.spawn(function()
 				"TestStageAge",
 				string.format("%.0f s since boot, last stage %s", os.clock() - startedAt, lastStage)
 			)
+			ServerStorage:SetAttribute("TestStageWhere", whereIs())
 		end)
 	end
 end)
