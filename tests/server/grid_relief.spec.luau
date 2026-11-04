@@ -2641,10 +2641,14 @@ return function()
 			local side = TerrainBake.TILE_STUDS
 			local pick = nil
 			for at, tile in plan do
+				-- INSIDE D2 in x, inside the bench's v band (v1 .74) so the bench has weight here,
+				-- and far enough along z that the tile's OWN 204-stud pad does not reach the
+				-- anchor ground. The coverage rule accepts the tile's slice when it does, so a
+				-- tile chosen without this test would prove nothing.
 				if
 					tile.minX > bounds.minX + 200
 					and tile.minX + side < bounds.maxX - 200
-					and tile.minZ - pad > bands[1].maxZ
+					and tile.minZ - pad > bands[1].minZ
 					and tile.minZ < bounds.minZ + 0.74 * (bounds.maxZ - bounds.minZ)
 				then
 					pick = at

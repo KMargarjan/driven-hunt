@@ -1890,7 +1890,10 @@ function TerrainBake.bakeTileAt(
 		local bandMaxX = math.min(band.maxX, tile.minX + side + pad)
 		if bandMinX < bandMaxX then
 			local covered = false
-			for _, extra in extras do
+			-- THE TILE'S OWN SLICE COUNTS AS A BAND: for a bench near the tile in z the 204-stud
+			-- pad already holds the anchor ground, and refusing that tile would be refusing for
+			-- want of an argument rather than for want of the base.
+			for _, extra in { base, table.unpack(extras) } do
 				local eMaxX = extra.minX + extra.nx * extra.pitch
 				local eMaxZ = extra.minZ + extra.nz * extra.pitch
 				if

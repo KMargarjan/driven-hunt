@@ -949,11 +949,20 @@ return function()
 			expect(junctions).to.equal(15)
 			expect(worstJunction < 1e-12).to.equal(true)
 			-- 6. THE PLAN AT THE SHIPPED BEND, pinned beside the straight count the case above pins.
-			-- **2,448 bent against 2,458 straight** since task 328s's denser C1 (was 1,789/1,803):
-			-- the 10 sites the straight mask allows sit inside a bent road's own bands.
+			-- **2,429 bent since task 328h** (328s pinned 2,448, 328o 1,789). MEASURED, not
+			-- argued: the harness's own per-cell note reads C1 `2448(t1861 f104 s483)` with `Grid`
+			-- at `main` and `2429(t1861 f104 s464)` with 328h's, in two runs at the same code
+			-- commit -- **identical trees and ferns; the whole 19 is the SKIRT**. A cell's plan
+			-- carries a skirt into its neighbours, the skirt is masked against THEIR stands, and
+			-- 328h re-measured B1's towers (1 -> 4) and D1's (2 -> 1). A tower stand carries a
+			-- wider exclusion than a plain one, so B1's three new towers cost C1's skirt 19 sites.
+			-- BOTH COUNTS ARE NOTED BEFORE EITHER IS ASSERTED, so a run that moves one tells you
+			-- the other's value instead of stopping at the first `expect`.
 			local drawn = Plan.plantCell("C1")
-			expect(#drawn).to.equal(2448)
-			expect(#Plan.plantCell("C1", nil, STRAIGHT)).to.equal(2458)
+			local straightCount = #Plan.plantCell("C1", nil, STRAIGHT)
+			TestKit.note(string.format("328h: C1 plan bent %d, straight %d", #drawn, straightCount))
+			expect(#drawn).to.equal(2429)
+			expect(straightCount).to.equal(2458)
 			TestKit.note(
 				string.format(
 					"SHIPPED BENT %d/%d: flank set-back %d (was 340), C1 stand 1 (%.2f,%.2f) 8 (%.2f,%.2f) 10 (%.2f,%.2f), layout span %d / north %d, roadZ departs %.2f st from the centre and is exact at %d sampled stations, %d junctions to %.1e, C1 plan %d (straight 2458)",
