@@ -641,12 +641,17 @@ return function()
 				-- in a fresh Play session and the live guns wear their meshes a moment later. The
 				-- claim is unchanged: the sweep must dress this Tool, and it still FAILS when the
 				-- template never comes.
-				local upgraded = 0
-				local dressed = waitUntil(TEMPLATE_WAIT, function()
-					upgraded += Weapon.upgradeLook()
-					return Hardware.wearsMesh(tool)
-				end)
-				if not dressed then
+				-- The observable is the PLAYER'S OWN GUN wearing its mesh: a fresh `Hardware` in a
+				-- probe cannot see the live template provider (measured), and hammering the sweep
+				-- every frame while waiting disturbs the specs after this one (round 1: a
+				-- rate-limited shot and a spent shell).
+				if realGun ~= nil then
+					waitUntil(TEMPLATE_WAIT, function()
+						return Hardware.wearsMesh(realGun :: Tool)
+					end)
+				end
+				local upgraded = Weapon.upgradeLook()
+				if not Hardware.wearsMesh(tool) then
 					-- The template is not loaded in this session, so there is nothing to upgrade TO.
 					-- It FAILS rather than passing on nothing: a silent skip is how the fault this
 					-- file guards came back twice.
