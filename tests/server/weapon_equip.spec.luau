@@ -117,6 +117,10 @@ local function realGunOf(player: Player): Tool?
 	return nil
 end
 
+-- Seconds the late-mesh case waits for the gun template to be preloaded (task 328t). Bounded, so a
+-- template that never arrives still fails the case rather than hanging the suite.
+local TEMPLATE_WAIT = 45
+
 local function waitUntil(seconds: number, predicate: () -> boolean): boolean
 	local deadline = os.clock() + seconds
 	while os.clock() < deadline do
@@ -630,13 +634,28 @@ return function()
 
 				-- THE MESH LANDS. `Weapon.upgradeLook` is the one path both callers use (`WeaponBoot`
 				-- once, the arming sweep after that), and its `after` callback is task 123 round 9.
-				local upgraded = Weapon.upgradeLook()
-				if not Hardware.wearsMesh(tool) then
+				--
+				-- AND IT IS WAITED FOR, NOT DEMANDED ON THE FIRST SWEEP (task 328t). The gated suite
+				-- starts at BOOT, and this place's asset preload is now slow enough that the file is
+				-- reached before `shotgun.handle` has arrived -- measured: the same case fails alone
+				-- in a fresh Play session and the live guns wear their meshes a moment later. The
+				-- claim is unchanged: the sweep must dress this Tool, and it still FAILS when the
+				-- template never comes.
+				local upgraded = 0
+				local dressed = waitUntil(TEMPLATE_WAIT, function()
+					upgraded += Weapon.upgradeLook()
+					return Hardware.wearsMesh(tool)
+				end)
+				if not dressed then
 					-- The template is not loaded in this session, so there is nothing to upgrade TO.
 					-- It FAILS rather than passing on nothing: a silent skip is how the fault this
 					-- file guards came back twice.
 					error(
-						"the gun mesh template is not available in this session, so the upgrade path could not run",
+						string.format(
+							"the gun mesh template is not available in this session after %d s,"
+								.. " so the upgrade path could not run",
+							TEMPLATE_WAIT
+						),
 						0
 					)
 				end
