@@ -2080,3 +2080,189 @@ The round-2 finding is correct and is in a test: the `--allow-local-file` guard 
 ## 2026-11-03 02:50 UTC, Task 328f's TEMPLATE_DIMS question -- DIRECTOR DECISION
 
 Design 9.2 already rules it: `TEMPLATE_DIMS` records **the template's own `GetScale()`**. A table wrong in 27 of 35 rows is that design not yet built, not an open choice. So: (1) **re-measure** -- build `tools/forest_ground.py dims` as design 9.2 names it and rewrite all 35 rows from the live templates; (2) the template audit **REFUSES** a template whose live `GetScale()` is off its row (quarantine, named reason), never rescales silently; (3) once the rows are true, `Places.CROWN_SCALE_SLACK` goes to 1.0 or is retired, with `crownOverRoad` still 0 as the proof; (4) the same task takes `foliageInGround` (158 after 328f) toward 0 through the contact arithmetic or the quarantine, per template. Task 328l. Director.
+
+## 2026-11-04 00:10 UTC -- Task 328s: THE ONE-PLAYER GATE IS RED AT MAIN, NOT AT THIS BRANCH
+
+**The hard stop, written before any workaround (rule V280).** `tools/studio_mcp.py test` cannot
+produce a PASS line tonight, on this branch OR on the commit it branched from, so the review gate
+(`tools/agents.py` refuses a request with no harness PASS for the code commit) cannot be met.
+
+**Three runs, same Studio, same evening:**
+
+| # | commit | result |
+|---|---|---|
+| 1 | `aba97b6f` (328s code commit) | `FAIL: 25/29 @ aba97b6f8f14... (clean tree) scope=all` -- `[server] runner reported within 300 s` FAIL; client `674 passed, 2 failed, 2 errors` (`hit_marker.spec:127`, `shoot_boar.spec:328`) |
+| 2 | `aba97b6f`, re-run | `FAIL: 19/24 @ aba97b6f8f14...` -- BOTH runners failed to report within 300 s |
+| 3 | **`14581cc7` (merge-base, `main`)** -- the CONTROL | `FAIL: 23/29 @ 14581cc79724... (clean tree) scope=all` -- `[server] runner reported within 300 s` FAIL; client **`674 passed, 2 failed, 2 errors`, the same two specs, the same counts** |
+
+Run 3 is the control the standing rule asks for (`Vnight-1027`): two harness lines naming two
+different commits, and the merge-base fails **identically**. Nothing in 328s's diff is reachable
+from it either way -- DEV's world is `map:v1` (`Map.WORLD_BY_PLACE`), and `Places.plantCell` /
+`Places.CELL_PLANS` dress only the grid world, so a tree-density row cannot move a hit marker in
+DEV.
+
+**What the log says.** `LogService:GetLogHistory()` in the DEV place after run 3: all 512 retained
+entries are asset failures, no test output survives --
+
+```
+ContentId: rbxassetid://20007 failed due to: Asset is not trusted for this place
+ContentId: rbxassetid://20002 failed due to: User is not authorized to access Asset.
+Failed to load animation with sanitized ID rbxassetid://20005: Animation failed to load ...
+The experience doesn't have access permission to use asset id 20014. Click to share access
+```
+
+Ids `20001`-`20018` are the FAKE animation ids `tests/server/boar_shot.spec.luau` uses as a fixture
+(its own `idle = 20001, walk = 20002, ...` rows). They have always been fake; what is new is that
+the engine's refusal is now slow enough and loud enough to bury the whole log, and the SERVER suite
+no longer reports inside `REPORT_WINDOW` (300 s, `tools/studio_mcp.py`). 328r's gate passed 34/34 at
+`d989ebc0` hours earlier with the same spec in the tree, so this is a change in the environment
+(asset delivery / retry backoff), not in the repo.
+
+**NOT WORKED AROUND.** I have not raised `REPORT_WINDOW`, and I have not touched
+`boar_shot.spec.luau`: making a red gate green by moving the gate is the Director's decision, not
+mine, and `tools/studio_mcp.py` is the harness.
+
+**NEEDS THE DIRECTOR.** Either (a) authorise a `REPORT_WINDOW` raise with the measurement behind it,
+or (b) open a task for the fake-asset-id storm in `boar_shot.spec` (real ids, or no `Animator` load
+at all in a spec fixture), or (c) accept 328s on the evidence that does not need the gate. Task 328s
+itself is built, measured and unaffected: C1's plan 1,789 -> 2,448, every cell inside all three caps.
+
+### 2026-11-04 01:08 UTC -- 328s, the same stop, now MEASURED: it is not a slow suite
+
+Two further runs, both at `6af7e745` (the code commit plus this file):
+
+| # | window | result |
+|---|---|---|
+| 4 | `REPORT_WINDOW` 300 (the gate) | `FAIL: 24/29` -- server runner never reported; client `674 passed, 2 failed, 2 errors` |
+| 5 | **900**, overridden at runtime from a scratchpad wrapper (`studio_mcp.REPORT_WINDOW = 900`) -- **the repo was not modified** | `FAIL: 25/29` -- `[harness] client reported after 191 s`; **`FAIL [server] runner reported within 900 s`** |
+
+**So option (a) of the entry above is refuted and I am withdrawing it.** The server suite does not
+need a longer window: at three times the window it still never reports. Raising `REPORT_WINDOW`
+would buy 10 minutes a run and change no answer.
+
+**The mechanism, as far as a read-only diagnosis reaches.** Run 5 printed
+
+```
+[harness] Play datamodels: 0 new, server=? client=?
+```
+
+`classify_studios` compares `list_roblox_studios` before and after Play and takes the NEW entry as
+the server datamodel. It found **none**, so `play_ids["Server"]` is `None` and the server report is
+never read -- while the client's, which does not need that id, arrives in 191 s. And
+`list_roblox_studios` is **flapping** on this machine tonight: three calls two seconds apart
+answered `[DEV]`, `[Forest Test]`, `[DEV]`. A list that drops an entry at random cannot support a
+before/after difference, which is exactly the comparison `classify_studios` makes.
+
+**THE ONE EXPERIMENT THAT WOULD SETTLE IT, AND WHY I DID NOT RUN IT.** Closing the Forest Test
+Studio would leave one Studio connected and the list stable. I did not, and will not without the
+Director's word: **328r's baked C1 terrain lives in that open session**, and I cannot prove from
+here that it has been written to the place. The rule in my dispatch is *never Save, Publish or
+Drafts Commit*, so if that ground is unsaved, closing the window destroys it and Karen's morning
+with it. A red gate is recoverable; that is not.
+
+**What the Director can decide:** (a) confirm the FT's terrain is safe, then close the FT Studio and
+re-run the gate; or (b) restart StudioMCP / the DEV Studio, which is the other way to stop the list
+flapping; or (c) accept 328s on the evidence below, which is all measured in Karen's own place.
+
+### 2026-11-04 01:32 UTC -- 328s: correcting my own mechanism, and stopping
+
+Two more readings, and the first of them **corrects the entry above**:
+
+1. **The flapping is NOT the mechanism, and I should not have leant on it.** Re-measured with DEV
+   in Play, `list_roblox_studios` answered the same two Studios three times out of three. The
+   flapping I saw earlier was real but transient, and it is not what fails the run.
+2. **Play registers NO new datamodel at all**: the list is identical before and during Play, which
+   is why `classify_studios` prints `0 new, server=?` on every run. I had taken that for the fault;
+   I can no longer claim it is, because the CLIENT report arrives on the same machinery (191 s,
+   token checked, `comes from the DEV place` ok) and 328r's 34/34 runs went through the same code.
+   So `server=?` is probably normal and harmless, and I am recording it as an observation, not a
+   diagnosis.
+
+**What is established, and it is enough for the decision:**
+
+* the gate is red at the merge-base `14581cc7` as well as at 328s's code commit, with the SAME two
+  client failures and the SAME missing server report (runs 1-6 above);
+* the server suite does not finish in **900 s**, so it is not a window that is too small;
+* nothing in 328s's diff is reachable from either failure: DEV's world is `map:v1`, and
+  `Places.plantCell` / `CELL_PLANS` dress only the grid world.
+
+**What I did NOT do, deliberately.** I did not raise `REPORT_WINDOW`, edit `boar_shot.spec`, close
+the Forest Test Studio (328r's baked C1 may be unsaved in that session) or restart the DEV Studio
+(its universe id is recorded nowhere on this machine, so I could not prove I could reopen it). Each
+of those either moves the gate or risks an environment I cannot restore, and both are the
+Director's to authorise, not mine.
+
+**Task 328s is otherwise complete and every number in it was measured in Karen's own place.** Her
+Forest Test is back on `localhost:34873` from `driven-hunt-karen`, connected, and `smoke.sh` is
+**PASS**.
+
+### 2026-11-04 02:26 UTC -- 328s: the decisive pair. The SPECS are fine; the server REPORT never exists
+
+| what | measured |
+|---|---|
+| the server specs themselves, run directly through TestEZ over `ServerStorage.Tests` in a DEV Play server (`<runs-dir>/328s-suite.luau`) | **`SUITE DONE in 331 s | successCount=2771 failureCount=40 errors=40`** |
+| the harness's server report, window **300 s** (runs 1, 3, 4, 6) | never arrives |
+| window **900 s** (run 5) | never arrives |
+| window **2400 s** (run 7, `65889bdf`, same scratchpad wrapper, repo untouched) | **never arrives** -- `[harness] phases, 2577 s total: 2400.4 s reading both reports` |
+
+**So it is not the window and it is not a slow suite.** A per-spec scan (`328s-specscan.luau`, 82
+spec modules, 25 s budget each) found no spec that hangs for ever: the four over 25 s are the live
+ones (`match_live`, `match_teams`, `weapon_shot`, `zz_pad_restart`) and the whole folder still
+finished in 331 s.
+
+**Where the report comes from.** `tests/TestRunner.server.luau` writes
+`ServerStorage:SetAttribute("TestReport", ...)` **only after `TestKit.run` returns**, and before that
+it does `local token = TestKit.awaitToken() ; if not token then return end` -- a **silent** return.
+The harness reads that attribute with `studio.query("Server", ...)` and no `studio_id`, i.e. through
+`default_studio_id`. I proved that read path is sound: in a DEV Play I set
+`ServerStorage:SetAttribute("TestReportProbe328s", ...)` through `datamodel_type: "Server"` and read
+it back through the same path, value intact (`328s-setattr.luau` / `328s-getattr.luau`). The Edit
+datamodel is not even reachable during Play -- it raises *"Edit datamodel is not available in Play
+mode"* rather than answering emptily -- so the harness is not reading the wrong place.
+
+**The hypothesis I could not test from here, for the Director:** the attribute is never set because
+`awaitToken()` returned nil and `TestRunner` took its silent `return`. `TestKit.TOKEN_MAX_AGE` is
+**120 s**, the token is written BEFORE Play, and this machine's DEV Play boot is currently slowed by
+a storm of failing asset loads (`rbxassetid://20001`-`20018`, `boar_shot.spec`'s deliberate fake ids
+-- 512 of 512 retained log entries). If the boot now takes longer than 120 s, the server runner finds
+only a stale token and returns without a word, which matches EVERY observation: no report at any
+window, the client (whose runner reached the token sooner) reporting at a steady 191 s, and the
+control at `main` failing the same way.
+
+**Testing it costs one line in `tests/TestRunner.server.luau`** (print, or set the attribute, when
+`awaitToken` returns nil) -- a change to the gate's own machinery, which is why I have not made it.
+
+**328s stands on its own evidence**, all of it measured in Karen's place and listed in
+`reviews/task-328s/REQUEST.md`.
+
+### 2026-11-04 02:40 UTC -- 328s: three more hypotheses tested and REFUTED. What is left is `TestKit.run`
+
+I was wrong twice above and both corrections are here rather than edited away.
+
+| hypothesis | test | verdict |
+|---|---|---|
+| the Play boot is slow, so the 120 s token goes stale | measured time from `set_play(True)` to the Server datamodel answering: **3.9 s** | **REFUTED** |
+| a Play clone does not carry `TestSyncToken`'s VALUE (`TestKit`'s own `test2` comment) | wrote a token into DEV's Edit `ReplicatedStorage`, started Play, read it in the Play server at 15 s: **`[328sprobe00000aa:1793758969]`**, intact | **REFUTED** |
+| `TextReporter` printing ~2,800 results into a console flooded by the asset storm is what takes the time | ran TestEZ over `ServerStorage.Tests` in the Play server with `TestEZ.Reporters.TextReporter` instead of a quiet one: **`TEXTREPORTER DONE in 330 s`** against the quiet run's 331 s | **REFUTED** |
+
+**And the one that matters.** With a VALID token carried into the Play server -- so
+`TestRunner.server.luau` had everything it needs -- `ServerStorage:GetAttribute("TestReport")` was
+still **absent after 566 s**, while a bare `TestEZ.TestBootstrap:run` over the SAME folder in the
+SAME session finishes in **330 s**.
+
+So the fault is not the specs, not the window, not the token, not the reporter and not the harness's
+read path (all measured above). **What is left is `TestKit.run` / `TestRunner.server.luau` itself** --
+the spec-load pre-pass, the clients-done handshake, or `finish()`. Narrowing further means adding a
+line to the gate's own machinery (a print, or an attribute, when `awaitToken` returns nil and at each
+stage of `TestKit.run`), and that is a change to the thing under test. **It is the Director's to
+authorise; I have not made it.**
+
+My token was written into DEV's Edit `ReplicatedStorage` for these tests and is **cleared** (`""`),
+so no playtest will run tests. Nothing else in DEV or in Karen's place was changed.
+
+**RESOLVED BY 328t (#327, `85ef6ddd`), 2026-11-04 06:47 UTC.** All four 328s gate entries above are
+closed: the engine's Script timeout was killing the server runner, and `TestKit` now yields at test
+boundaries. Merged into `task-328s-c1-denser` at `8164e299`; the full gate there read
+`FAIL: 32/34` on two of my OWN stale pins (`grid.spec` C1 plan 1,803/1,789 against the denser
+2,458/2,448), fixed at `871f7655`, which gates
+`[harness] PASS: 34/34 checks @ 871f7655a0c44989ee47e6b983f70655d1f84444 (clean tree) scope=all`.

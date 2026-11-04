@@ -984,6 +984,8 @@ Places.UNDER_JITTER = 1.0
 -- B2 1640, C2 1552, D2 1191 -- against design 8.3's target of ~1,500 for the active cell's own wood.
 -- The spread is deliberate (an open birch wood IS thinner than a spruce thicket), and the actual
 -- planted number is lower again by the `minGapStuds` drops, which is why the census MEASURES it.
+-- C1's row is the ONE that has moved since: 328m gave it a second storey and 328s raised it again,
+-- so its figure above is the v1 derivation and `Places.TALLY` is what now says where its sites go.
 --
 -- ONE DESIGN NUMBER IS WRONG AND IS NOT BUILT TO (lesson L-167): design 8.3's skirt row says "worst
 -- case (4 neighbours)". **In a 2 x 4 grid no cell has four neighbours** -- the grid has no third row,
@@ -1064,11 +1066,15 @@ Places.CELL_PLANS = table.freeze({
 	-- a clearing two thirds in with scrub either side of it.
 	mixedRolling = table.freeze({
 		halfStripStuds = 9,
-		spacingStuds = 28,
-		deepSpacingStuds = 60,
+		-- v4 (task 328s): C1's SKIRT spacings, 28/60 -> 24/52. These two drive the bands this cell
+		-- plants into its three neighbours, which is 621 of its 3,412 offered sites.
+		spacingStuds = 24,
+		deepSpacingStuds = 52,
 		fernSpacing = 24,
 		fernBandStuds = 30,
-		minGapStuds = 12,
+		-- v4 (task 328s): 12 -> 11 studs. One stud is ~0.28 m at these tree heights, so 11 is ~3.1 m
+		-- between trunks -- inside the 2-3 m a managed 40-80 year stand actually carries.
+		minGapStuds = 11,
 		skirtFullStuds = 80,
 		skirtStuds = 230,
 		shrubScale = table.freeze({ 0.25, 0.45 }),
@@ -1119,29 +1125,44 @@ Places.CELL_PLANS = table.freeze({
 		--
 		-- THE BUDGET IS WHAT SETS THE NUMBERS, not taste: the bound is `grid-roads.md` 8.2's pair,
 		-- `cellCapacity <= CELL_PLAN_CAP` (7,260) and drawn `<= CELL_PART_CAP` (2,640). C1 stood at
-		-- 2,598; these rows put its capacity at 3,416 and its draw at 1,687, so 953 models of room.
+		-- 2,598; these rows put its capacity at 3,416 and its draw at 1,687 PLANTED -- which is the
+		-- census, not the plan. The plan was 1,823 straight and 1,789 at the bend, so the room the
+		-- gate allowed was 817, not 953 (328p note (a); the design's own 8.3 table has the mixed pair).
 		-- MEASURED, three allocations of that same budget (`driven-hunt-runs/328m-yield-v{1,2,3}.txt`):
 		-- 1,885 / 1,876 / 1,886 planned models at capacity 3,548 / 3,588 / 3,526. The count PLATEAUS,
 		-- because what refuses a site is `minGapStuds` and `Places.mask`, not the grid -- a per-zone
 		-- yield of 54-76 % in the canopy and 19-47 % under it. So the three are one count with three
 		-- storey splits, and this one is the split with the most understorey (232 saplings against
-		-- 148 and 150). `minGapStuds` 12 is NOT lowered: these crowns are 20-80 studs wide and
-		-- already interpenetrate at 12.
+		-- 148 and 150).
+		--
+		-- v4 (task 328s). KAREN'S *"more trees"*, SPENT: the three wood zones 21/28/27 -> 16/22/21,
+		-- their understorey 42 -> 30, the skirt 28/60 -> 24/52 and `minGapStuds` 12 -> 11. C1's PLAN
+		-- goes 1,789 -> 2,448 (+36.8 %) at capacity 5,097, which is 192 under `CELL_PART_CAP` and
+		-- 2,163 under `CELL_PLAN_CAP`. `oakPark`, the clearing and the two scrub zones are NOT
+		-- touched: *"but rest is good"*, and the park is the one a hunter sees across.
+		--
+		-- WHICH RULE BINDS, COUNTED BY `Places.TALLY` WHERE IT REFUSES (and this is why v3's note
+		-- above could only guess): at 1,789 the planter offered 3,412 sites and lost 418 to the gap
+		-- rule, 481 to the mask, 360 to jitter leaving the rect and 243 to the crown. Raising the
+		-- offer to 5,438 (one notch past these rows) bought only 204 more trees and cost 380 more
+		-- gap refusals -- so the GAP RULE is the binding one and these rows sit at its knee.
+		-- `minGapStuds` is lowered ONE stud, not to 4: a stud is ~0.28 m here, so 11 is ~3.1 m
+		-- between trunks and 4 would be 1.1 m, which no wood carries.
 		zones = table.freeze({
-			zone(0.00, 0.00, 0.40, 0.35, 21, "spruceThicket", "wood", {
+			zone(0.00, 0.00, 0.40, 0.35, 16, "spruceThicket", "wood", {
 				reliefBias = true,
 				jitter = 1.0,
-				under = table.freeze({ spacingStuds = 42, mix = "larchYoung" }),
+				under = table.freeze({ spacingStuds = 30, mix = "larchYoung" }),
 			}),
-			zone(0.40, 0.00, 1.00, 0.35, 28, "mixedWood", "wood", {
+			zone(0.40, 0.00, 1.00, 0.35, 22, "mixedWood", "wood", {
 				reliefBias = true,
 				jitter = 1.0,
-				under = table.freeze({ spacingStuds = 42, mix = "larchYoung" }),
+				under = table.freeze({ spacingStuds = 30, mix = "larchYoung" }),
 			}),
-			zone(0.00, 0.35, 0.60, 0.70, 27, "birchStand", "wood", {
+			zone(0.00, 0.35, 0.60, 0.70, 21, "birchStand", "wood", {
 				reliefBias = true,
 				jitter = 1.0,
-				under = table.freeze({ spacingStuds = 42, mix = "larchYoung" }),
+				under = table.freeze({ spacingStuds = 30, mix = "larchYoung" }),
 			}),
 			zone(0.60, 0.35, 1.00, 0.70, 44, "oakPark", "wood", {
 				reliefBias = true,
@@ -2664,6 +2685,29 @@ type ScatterOpts = {
 	-- THE BEND, carried from `plantCell` (task 328r, 328q note (a)). nil is `Grid.CONFIG.bend`.
 	bend: any?,
 }
+-- WHY A SITE WAS REFUSED, COUNTED WHERE IT IS REFUSED (task 328s). `plantCell` resets it; read it
+-- straight after. Two totals alone cannot say whether the gap rule, the mask or the crown term costs
+-- the density, and "more trees" is a question about exactly that.
+Places.TALLY = nil :: any
+
+function Places.resetTally()
+	Places.TALLY = { offered = 0, planted = 0, outside = 0, noRows = 0, gap = 0, mask = {}, crown = {} }
+end
+
+local function tallyMiss(bucket: string, reason: string)
+	local t = Places.TALLY
+	if t ~= nil then
+		t[bucket][reason] = (t[bucket][reason] or 0) + 1
+	end
+end
+
+local function tallyBump(field: string)
+	local t = Places.TALLY
+	if t ~= nil then
+		t[field] += 1
+	end
+end
+
 local function scatter(
 	out: { Planting },
 	rect: any,
@@ -2701,6 +2745,7 @@ local function scatter(
 			local jx = x + (if rows then 0 else (rng:NextNumber() - 0.5) * spacing * jitter)
 			local jz = z + rng:NextNumber() * spacing * jitter
 			z += spacing
+			tallyBump("offered")
 			-- **jx / jz ARE GRID COORDINATES** and so is every rect, zone and gap below (task 328q,
 			-- design 6.1). The site is mapped into the world once, for `heightAt` and the row.
 			local site: string? = nil
@@ -2712,9 +2757,24 @@ local function scatter(
 				-- `toGrid`. Two five-step inverses per site, for an answer the grid already had.
 				site = "road"
 			end
-			if jx >= rect.minX and jx <= rect.maxX and jz >= rect.minZ and jz <= rect.maxZ and site == nil then
+			local inRect = jx >= rect.minX and jx <= rect.maxX and jz >= rect.minZ and jz <= rect.maxZ
+			if not inRect then
+				tallyBump("outside")
+			elseif site ~= nil then
+				tallyMiss("mask", site)
+			end
+			if inRect and site == nil then
 				local rowsFor, band = pick(jx, jz)
-				if rowsFor ~= nil and band ~= nil and #rowsFor > 0 and not tooClose(grid, jx, jz, gap) then
+				-- ONE `tooClose` CALL AND ONE ONLY: it RESERVES the site as a side effect, so a
+				-- second ask would enter the same tree in the neighbour grid twice.
+				local hasRows = rowsFor ~= nil and band ~= nil and #rowsFor > 0
+				local blocked = hasRows and tooClose(grid, jx, jz, gap)
+				if not hasRows then
+					tallyBump("noRows")
+				elseif blocked then
+					tallyBump("gap")
+				end
+				if hasRows and not blocked then
 					local wx, wz = Grid.toWorld(jx, jz, o.bend)
 					local group = Places.speciesFrom(rowsFor, rng:NextNumber())
 					-- THE RELIEF BIAS FIRST (design 8.3): spruce in the cold bottom, birch on the
@@ -2752,16 +2812,22 @@ local function scatter(
 					-- template, so no caller can plant one (design 9.3).
 					local names = Places.namesOf(group)
 					if #names == 0 then
+						tallyBump("noRows")
 						continue
 					end
 					local model = names[rng:NextInteger(1, #names)]
 					local scale = if band == "herb" then 0.8 + rng:NextNumber() * 0.9 else scaleFor(plan, band, rng)
 					-- AND NOW THIS TREE'S OWN FACTS: the crown term, which needs the template and the
 					-- scale the draw has just settled (design 7.2).
-					if o.maskCell ~= nil and Places.maskGrid(o.maskCell, jx, jz, model, scale, o.bend) ~= nil then
+					local own = if o.maskCell ~= nil
+						then Places.maskGrid(o.maskCell, jx, jz, model, scale, o.bend)
+						else nil
+					if own ~= nil then
+						tallyMiss("crown", own)
 						continue
 					end
 					planted += 1
+					tallyBump("planted")
 					table.insert(out, {
 						model = model,
 						x = wx,
@@ -2794,6 +2860,7 @@ end
 -- is what lets one case pin the STRAIGHT plan and the BENT plan side by side.
 function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?)?, bend: any?): { Planting }
 	local out: { Planting } = {}
+	Places.resetTally()
 	local plan = Places.cellPlanFor(cellId)
 	if plan == nil then
 		return out
