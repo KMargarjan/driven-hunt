@@ -4238,6 +4238,60 @@ function ForestTest.readOnlyBoars(runtime)
 	}
 end
 
+-- ---------------------------------------------------------------- the prebuilt forest's arbiter
+--
+-- WHO DRESSES THE GRID'S WOOD AT BOOT, decided ONCE from two epochs and nothing else
+-- (`docs/design/grid-terrain.md` 10.3). The boot reads `Workspace.Terrain.TerrainEpoch` and
+-- `Workspace.GridForest.PlantEpoch` once and hands both in; this function owns no instance, reads no
+-- attribute and plants nothing, so a spec reaches all three branches by parameter.
+-- The SERVER `ForestTest` and not the shared one: it is this world's server owner, the same module
+-- that hands the planter `terrainYAt`, and no client has a use for the answer.
+ForestTest.PREBUILD = table.freeze({ STANDS = "stands", ABSENT = "absent", REFUSED = "refused" })
+
+-- THE STAMP THE ARBITER READS, named here and not on the planter so this module needs no new
+-- require for one string: `Places.FOREST_FOLDER` names the FOLDER (the planter's output) and this
+-- names the ATTRIBUTE on it (the boot's input). `tools/terrainbake.py plant` writes it and echoes
+-- both names back off the files, which is how the tool proves it stamped the attribute this code
+-- reads.
+ForestTest.PLANT_EPOCH_ATTR = "PlantEpoch"
+ForestTest.TERRAIN_EPOCH_ATTR = "TerrainEpoch"
+
+-- A `GridForest` THAT IS THERE BUT CARRIES NO EPOCH IS NOT "ABSENT", and that distinction is the
+-- whole reason this reader exists rather than a bare `GetAttribute` at the call site. Absent means
+-- "no prebuilt wood, dress one"; an unstamped folder means a wood IS standing whose provenance
+-- nobody can check, and dressing `GridPlaces` on top of it is the double forest this task exists to
+-- stop. `UNSTAMPED` can never equal a 16-hex epoch, so it falls to REFUSED -- loud, and plants
+-- nothing.
+ForestTest.UNSTAMPED = "unstamped"
+
+function ForestTest.plantedEpochOf(folder: Instance?): string?
+	if folder == nil then
+		return nil
+	end
+	local stamp = folder:GetAttribute(ForestTest.PLANT_EPOCH_ATTR)
+	if type(stamp) ~= "string" or stamp == "" then
+		return ForestTest.UNSTAMPED
+	end
+	return stamp
+end
+
+-- THE THREE BRANCHES, AND `dress` IS THE ONLY THING THE BOOT ACTS ON.
+--   planted == nil        -> ABSENT:  no prebuild. Dress the active cell exactly as before.
+--   planted == live       -> STANDS:  the prebuild is for THIS ground. Dress nothing.
+--   anything else         -> REFUSED: a stale forest on re-baked ground is trees hanging in the air
+--                                     (the defect this task exists to stop). Dress nothing, say so.
+-- `live == nil` is not special-cased: a `GridForest` stamped anything at all over Terrain carrying no
+-- epoch is a mismatch, and no prebuild over no epoch is still ABSENT.
+function ForestTest.prebuildVerdict(live: string?, planted: string?): { [string]: any }
+	if planted == nil then
+		return { branch = ForestTest.PREBUILD.ABSENT, dress = true, live = live, planted = planted }
+	end
+	if live ~= nil and planted == live then
+		return { branch = ForestTest.PREBUILD.STANDS, dress = false, live = live, planted = planted }
+	end
+	return { branch = ForestTest.PREBUILD.REFUSED, dress = false, live = live, planted = planted }
+end
+
 -- ---------------------------------------------------------------- where a beater is put down
 --
 -- THE GROUND, ASKED OF THE TERRAIN ALONE (task 153). `Data.groundAt` excludes `OurForest`,
