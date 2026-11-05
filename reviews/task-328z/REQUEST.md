@@ -1,30 +1,70 @@
 # Task 328z -- red stag herds of 5-8 in single file, and more of them
 
 Task: 328z
-Round: 1
+Round: 2
 Base: 9c09c64a (main, 328i #332 merged)
-Code commit: 25226aeda257f7df9094ac459649ce7f74be0aed
+Code commit: a752a15c51795034e051c925ca39bfc1fcd1fb6a
 
 ```
-[harness] PASS: 34/34 checks @ 25226aeda257f7df9094ac459649ce7f74be0aed (clean tree) scope=auto:assets,boar,economy,flags,lobby,match,report,shop,weapon
-[harness] PASS: 34/34 checks @ 8ae8c62796a395d4ffe7fde272f8fc65b0f9b202 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ a752a15c51795034e051c925ca39bfc1fcd1fb6a (clean tree) scope=auto:assets,boar,economy,flags,lobby,match,report,shop,weapon
+[harness] PASS: 34/34 checks @ a752a15c51795034e051c925ca39bfc1fcd1fb6a (clean tree) scope=all
 ```
 
-`8ae8c627` is the last commit that changed `src/` or `tests/`; `25226aed` is the paperwork commit
-the scoped run tested, and between the two only `ESCALATE.md`, `TASKS.md` and this file changed.
-The FULL `scope=all` line is the second one.
+`[harness2]`: not run. `src/server/Match/`, `src/server/Match/Phase.luau` and
+`tests/server/match_live.spec.luau` are `TWO_PLAYER_PATHS` files, so the MERGE gate wants it; the
+scoped line is the review round's evidence and `agents.py` asks for no `[harness2]` against it.
+The exact clicks are a `NEEDS KAREN` in `ESCALATE.md` item 5.
 
-`[harness2]`: not run. `tests/server/match_live.spec.luau` IS in `TWO_PLAYER_PATHS`, so the MERGE
-gate wants it -- the scoped line above is the review round's evidence and `agents.py` asks for no
-`[harness2]` against it. The click is written out as a `NEEDS KAREN` in `ESCALATE.md` item 5.
+## ROUND 1'S THREE FINDINGS
 
-**Two runs failed before the two PASSes above, both re-run at the SAME commit and both named
-here rather than left out.** At `8ae8c627`: `FAIL: 32/34`, server suite green, the two failing
-checks not captured. At `25226aed`: `FAIL: 32/34` on one case, `deer_hitbox.spec:528` -- *"calf:
-the rear band at (0, +1.36, +1.27) answered nil"*, a live raycast answering nil, which is the same
-family as the `deer_hitbox.spec:659/:682` intermittent the dispatch discloses, in a third case of
-the same loop. Nothing in this task touches a hitbox, a zone or the calf's geometry. No control run
-at `main` was made, so that reading is an inference and is marked as one.
+**1 -- a herd went through `MAX_ALIVE_BOARS` by up to +6. Correct, and fixed where the Reviewer
+said.** The ceiling was tested on `size`, the BOAR budget's bite, and `Runtime:spawnSounder` then
+threw that size away for the composition's. `Phase.deerRelease` is PURE -- it reads `state` and
+returns a boolean, and the CALLER is what latches `deerReleased` -- so it now runs **above** the
+ceiling test and the gate weighs what the release will actually put down:
+`local animals = if deer then math.max(size, config.DEER_PARTY_MAX or size) else size`. Nothing
+mutates before the gate, so a held-back release is held back whole, exactly as before.
+`Match.CONFIG.MAX_ALIVE_BOARS` 6 -> **7** and a new `DEER_PARTY_MAX = 7`: the same idiom one
+number wider as *"`MAX_ALIVE_BOARS >= SOUNDER.MAX_SIZE` is an invariant asserted in
+match_live.spec, not a coincidence of two numbers"*, and it is now asserted beside it --
+`DEER_PARTY_MAX == biggestParty` (read off `COMPOSITIONS`, so the two cannot drift),
+`MAX_ALIVE_BOARS >= DEER_PARTY_MAX`, `MAX_ALIVE_BOARS <= maxBoars`.
+**MEASURED ON THE MATCH PATH, which no cycle had touched** (`328z-match.luau`, two 330 s windows
+of a live DEV drive at the code commit, `328z-match-w1.txt` / `-w2.txt`):
+
+```
+MAX_ALIVE_BOARS=7 DEER_PARTY_MAX=7 BOARS_PER_DRIVE=6
+release 1 t= 16.4 n=6 [stagx6]
+WINDOW 330s: releases=1 | peak alive=6 | peak deer alive=6 | samples over MAX_ALIVE_BOARS=0
+release 1 t=  0.0 n=6 [stagx6]      (the same six, still up)
+release 2 t=262.8 n=5 [calfx2,hindx3]
+WINDOW 330s: releases=2 | peak alive=6 | peak deer alive=6 | samples over MAX_ALIVE_BOARS=0
+```
+A 6-animal bachelor group and a 5-animal hind party both came out on the Match path, **peak 6
+alive against a ceiling of 7, and not one sample over it** across 660 s at 2 Hz. The hind party
+waited until the stags had cleared -- which is the ceiling doing its job rather than a herd walking
+through it. (`Match.stats()` in that probe is a FRESH module copy and reads zeros; the counts above
+are INSTANCE facts off `Workspace`, and `Match.CONFIG` is a constant.)
+
+**2 -- `maxBoars = 24` is unexercised by every Forest Test measurement. Correct, and said plainly
+now.** `ForestTestBoot` builds that world with `maxBoars = Data.MAX_BOARS` (60), so reverting 24 to
+8 would change none of `328z-stuck-AFTER.txt` or `328z-AFTER-ft-c1/c2/c3.txt`. **Where the number
+binds is the Match path**, and the comment on the row now says so. What it buys there, stated as
+arithmetic rather than as a measurement: at 8 a 7-animal `harem` plus two 120-second carcasses
+cannot be released at all (`spawnSounder` returns `{}` at `#self._boars + size > maxBoars`). The
+two DEV windows above never reached 8 live, so **they do not exercise 24 either** -- the honest
+claim is that 24 removes a ceiling that would otherwise bite on a carcass-heavy drive, and nothing
+in this request has seen it bite.
+
+**3 -- the repeat window re-released six stags after the lone stag, and I had weakened the case
+that forbade it. Correct, and both halves are undone.** `ForestTest.slotAt`'s repeat branch now
+excludes **any** `species == "reddeer"` row, not just `party == "stag"`, and
+`forest_line.spec`'s case is back to `expect(row.party).to.equal(nil)` with
+`expect(row.species).to.equal("boar")` beside it. One consequence is measured and carried: cycle
+3's drive outlived its script and its wave 13 was a repeated bachelor group, so its **24** red deer
+become **19** under this fix -- the figure the script itself carries. Cycles 1 and 2 (19 and 18)
+are unaffected. `ESCALATE.md` item 4's blocker therefore **stands** and is not something this
+commit broke: no deer row sits after slot 8, in the table or in the repeat window.
 
 ## PLAN
 
@@ -78,7 +118,8 @@ the following rule (a follower may never aim closer than `LINE.MARGIN` to the an
    w=35 size=7 | stags w=20 size=6`.
 2. **Red deer per Forest Test drive: 3 -> 19 by the script, 19 to 24 measured.**
    `328z-BEFORE-cfg.txt` vs `328z-AFTER-cfg.txt` (`deerAnimals/drive=3` -> `19`), and the live
-   windows in `328z-AFTER-ft-c1/c2/c3.txt` (`deerAnimals=19 / 18 / 24`). Verify also
+   windows in `328z-AFTER-ft-c1/c2/c3.txt` (`deerAnimals=19 / 18 / 24`; cycle 3's 24 included one REPEATED bachelor group, which round 2's
+   `slotAt` fix removes -- 19 is the figure the script carries). Verify also
    `forest_line.spec`'s `normal.deerGroups` 2 -> 4 and `animalsAt("normal")` 59 -> 65.
 3. **They cross in ONE ROW, at this repo's own measured station.** Approach median gap **8.50**
    studs (target 8.5 +- 3) and lateral **0.20 / 0.30** studs (target <= 2.5), p90 lateral 0.80 --
@@ -100,11 +141,12 @@ the following rule (a follower may never aim closer than `LINE.MARGIN` to the an
 6. **A shot runs the file on forward, never back.** Unchanged -- nothing in this task touches
    `Line`, the trail, `MARCH_RANK` or the spook. The cycle-3 window shows 29 of 29 crossings
    completed and no deer among the animals that made no progress.
-7. **`maxBoars` 8 -> 24 was forced, not chosen.** `Runtime:spawnSounder` returns `{}` when
-   `#self._boars + size > self._config.maxBoars`, so at 8 a herd of 7 could never come out beside
-   the drive's six boars. The relations the design protects still hold and are still asserted
-   (`match_live.spec`: `MAX_ALIVE_BOARS <= maxBoars`). Peak live animals measured: **45** in 100 s,
-   against `ForestTest.MAX_BOARS = 60`.
+7. **`maxBoars` 8 -> 24 is unexercised by every measurement here, and the row says so.**
+   `Runtime:spawnSounder` returns `{}` when `#self._boars + size > self._config.maxBoars`, so at 8
+   a 7-animal herd plus two 120-second carcasses could not be released -- but the Forest Test
+   overrides this number with `Data.MAX_BOARS = 60` (`ForestTestBoot`), so the 45-animal peak in
+   `328z-stuck-AFTER.txt` proves nothing about it, and the two DEV windows never reached 8 live
+   either. The only place it binds is the Match path. Round 1 finding 2.
 8. **`match_live.spec`'s budget case was wrong, not the code.** `stats.boarsReleased` counts the
    ANIMALS the owner spawned (`Match/init.luau`'s `stats.boarsReleased += #handles`), while the
    drive's budget counts the `size` each release was scheduled for -- and a deer release replaces
