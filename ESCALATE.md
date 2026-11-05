@@ -1,3 +1,51 @@
+## 2026-11-05 ~11:50 UTC, Task 328z -- FOUR DESIGN ROWS AND ONE `NEEDS KAREN`
+
+Task 328z (red deer herds of 5-8, in one row, and more of them) is built, gated and measured in
+Karen's own Forest Test. None of the five below is the Builder's to settle: four are
+`docs/design/` rows, and the fifth is a click.
+
+**1. `docs/design/red-deer.md` sections 4.2 and 15 now disagree with the code, on purpose.** That
+design fixes *"deer group size | 1-3, inside `MAX_ALIVE_BOARS = 6`"* and *"deer release chance |
+0.2 per release"*, with `MAX_GROUPS_ALIVE = 1`. The dispatch asked for groups of **5-8** and *"a
+red deer group in at least every second wave"*, so the code now reads: four `COMPOSITIONS` rows at
+**1 / 5 / 7 / 6**, `CHANCE_PER_RELEASE` **0.5**, `MAX_GROUPS_ALIVE` **3**. **What I need:** the
+Architect's pen on sections 4.2 and 15.
+
+**2. `docs/design/drive.md` section 6.3 says *"`Boar.CONFIG.maxBoars` stays 8"*. It is 24.** It had
+to move: `Runtime:spawnSounder` refuses a release that does not fit WHOLE, so at 8 a herd of 7
+could never come out beside the drive's six boars. The relation the design actually protects --
+`BOARS_PER_DRIVE <= maxBoars` and `MAX_ALIVE_BOARS <= maxBoars` -- is unchanged and still asserted.
+**What I need:** that sentence amended.
+
+**3. THE SPECIES MIX ON THE DRIVE PATH INVERTS, AND THE NUMBER IS THE DIRECTOR'S.** With
+`CHANCE_PER_RELEASE = 0.5` and a group averaging 5.5 animals, a `Match` drive of 6 releases carries
+about 3.5 deer groups and **~19 deer against ~3 boars**. That is what *"a group in at least every
+second wave"* buys once a group is 5-8 rather than 1-3; it was 2.2 groups and ~4 deer at 0.2.
+Delivered as asked and flagged rather than quietly turned down. **My recommendation:** 0.25, which
+gives ~2.5 groups and ~13 deer against 4-5 boars -- still four times the red deer Karen has today,
+with the boar drive still a boar drive. One line, `src/server/Boar/init.luau`'s `RELEASE` table.
+
+**4. "A GROUP IN AT LEAST EVERY SECOND WAVE" IS NOT MET IN THE FOREST TEST SCRIPT, and one design
+rule is why.** Deer are in **4 of the 15 slots** (2, 4, 6, 8) = 27 %, measured at 21 % of release
+buckets over two full drives. The blocker is *"the stag comes last"* (Karen through the Designer's
+plan, 2026-10-23), which `forest_line.spec` asserts as *"nothing with antlers or a calf comes after
+him"* -- so no deer row may sit after slot 8 and the back half of the drive can carry none.
+**What I need:** either that rule relaxed to *"no SECOND LONE STAG after him"* (then slots 9, 12
+and 14 can carry herds and the alternation is complete -- one data row each plus that one spec
+case), or the target accepted at 27 %.
+
+**5. `NEEDS KAREN` -- the merge gate now wants `test2`, and that is a click only she can make.**
+`tests/server/match_live.spec.luau` is in `TWO_PLAYER_PATHS`, and it had to change: its
+*"`stats.boarsReleased <= BOARS_PER_DRIVE`"* compares the OWNER's count of ANIMALS against the
+drive's BOAR budget, and a deer release replaces its scheduled size with its composition's -- true
+while a party weighed 1-3, false at 5-8. The review round is covered (a scoped one-player line
+needs no `[harness2]`), but git workflow step 4 wants `[harness2] PASS ... @ <code commit>` before
+the merge. **The exact clicks, in order, with the DEV place (`Driven Hunt DEV`) in Edit:**
+1. run `python tools/studio_mcp.py test2` in the repo and leave it running;
+2. in Studio: the **Test** tab -> **Clients and Servers** -> set **Players: 2** -> press **Start**;
+3. wait for the three windows; the harness drives the rest and prints its line;
+4. when it has finished, press **Cleanup** in the same Test tab to close the three windows.
+
 ## 2026-11-04 ~21:50 UTC, Task 328i -- TWO DESIGN ROWS THE DIRECTOR HAS TO SETTLE
 
 Task 328i is REVIEWER PASS and ready to merge. Neither item below blocks it; both are decisions
