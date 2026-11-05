@@ -1316,13 +1316,21 @@ return function()
 		-- ------------------------- THIS PLACE'S OWN DEER-GROUP CEILING (task 328z)
 		it("NEEDS ITS OWN DEER-GROUP CAP, because a deer group is in about every second slot", function()
 			-- `MAX_GROUPS_ALIVE` is 1 in the animal owner -- the DRIVE's pacing rule, and the
-			-- Director's option B leaves it there (`ESCALATE.md`, 2026-11-05). This script releases
-			-- a deer group in 7 of its 15 slots, two of them 13 seconds apart (the lone stag at 8
-			-- and the big herd at 9), so at 1 the second of the pair releases NOTHING -- a hole in
-			-- the drive, not fewer deer. `ForestTestBoot` overrides it with the number below exactly
-			-- as it overrides `maxBoars` with `Data.MAX_BOARS`.
-			expect(Data.MAX_DEER_GROUPS).to.equal(3)
+			-- Director's option B leaves it there (`ESCALATE.md`, 2026-11-05). Here the SCHEDULE is
+			-- the pacing rule, and a cap that refuses a scripted slot releases NOTHING. MEASURED at
+			-- a cap of 3: the console refused slots 6, 8 and 9 outright, because a deer that has
+			-- lost its sounder counts as its OWN group and one herd dissolving at the crossing is
+			-- already five. So the number must clear every deer the script can have afoot at once,
+			-- and THAT is the assertion -- not the literal.
 			expect(Boar.CONFIG.SPECIES.reddeer.RELEASE.MAX_GROUPS_ALIVE).to.equal(1)
+			local scriptDeer = 0
+			for _, row in ipairs(SCHEDULE.drive) do
+				if row.species == "reddeer" then
+					scriptDeer += Boar.compositionSize(Boar.deerComposition(0, 0, configOn(), row.party), configOn())
+				end
+			end
+			expect(scriptDeer).to.equal(39)
+			expect(Data.MAX_DEER_GROUPS >= scriptDeer).to.equal(true)
 			local function capped(n: number)
 				local c = configOn()
 				c.SPECIES = table.clone(c.SPECIES)
@@ -1341,13 +1349,14 @@ return function()
 			expect(Boar.deerGroupsAllowed(twoOut, capped(1), "bigherd")).to.equal(false)
 			-- ...and at this place's 3 it comes out, which is the whole of the override.
 			expect(Boar.deerGroupsAllowed(twoOut, capped(Data.MAX_DEER_GROUPS), "bigherd")).to.equal(true)
-			-- ...AND IT IS A CAP AND NOT A BYPASS: a fourth group is refused at 3 as well.
-			local threeOut = {
-				{ kind = "stag", sounder = "S6" },
-				{ kind = "stag", sounder = nil },
-				{ kind = "hind", sounder = "S9" },
-			}
-			expect(Boar.deerGroupsAllowed(threeOut, capped(Data.MAX_DEER_GROUPS), "bigherd")).to.equal(false)
+			-- ...AND IT IS STILL A CAP AND NOT A BYPASS: one group past the number is refused.
+			local over = {}
+			for i = 1, Data.MAX_DEER_GROUPS do
+				table.insert(over, { kind = "hind", sounder = "S" .. i })
+			end
+			expect(Boar.deerGroupsAllowed(over, capped(Data.MAX_DEER_GROUPS), "bigherd")).to.equal(false)
+			table.remove(over)
+			expect(Boar.deerGroupsAllowed(over, capped(Data.MAX_DEER_GROUPS), "bigherd")).to.equal(true)
 			-- EVERY DEER SLOT THE SCRIPT HAS NAMES A PARTY THE OWNER PUBLISHES, and no deer row ever
 			-- marches in two files -- `RELEASE.FORMATION` is `"column"`.
 			local deerSlots = 0

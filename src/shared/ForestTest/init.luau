@@ -3131,10 +3131,14 @@ end
 ForestTest.MAX_BOARS = 60
 
 -- HOW MANY RED DEER GROUPS MAY BE ALIVE IN **THIS** PLACE (task 328z). The animal owner's own
--- `MAX_GROUPS_ALIVE` is 1, which is the drive's pacing rule; this script releases a deer group in
--- about every second slot (7 of 15), and at a cap of 1 the second of two adjacent deer slots
--- releases NOTHING -- a hole in the drive rather than fewer deer. Overridden at `ForestTestBoot`'s
--- composition root exactly as `MAX_BOARS` is, so the Match drive keeps its own number.
-ForestTest.MAX_DEER_GROUPS = 3
+-- `MAX_GROUPS_ALIVE` is 1, which is the DRIVE's pacing rule; here the SCHEDULE is the pacing rule,
+-- and a cap that refuses a scripted slot releases NOTHING -- a hole in the drive rather than fewer
+-- deer. MEASURED at a cap of 3 (console, 2026-11-05): *"slot 6 wanted the stags and the deer cap
+-- refused"*, and the same for slots 8 and 9 -- because `Boar.deerGroupsAllowed` counts a deer with
+-- no sounder id as its own GROUP, so one herd that strings out at the crossing and dissolves
+-- (`SOUNDER.BREAK_STUDS`) is already five groups. 40 is past every deer this script can have on
+-- its feet at once (39), so it never refuses a scripted slot. The REAL ceiling here is unchanged:
+-- `Data.MAX_BOARS` = 60 and `releaseLine`'s "the whole line fits or none of it".
+ForestTest.MAX_DEER_GROUPS = 40
 
 return ForestTest
