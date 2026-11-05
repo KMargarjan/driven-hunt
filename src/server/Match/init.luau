@@ -552,7 +552,17 @@ Match.CONFIG = {
 	-- impossible and stall the drive on a retry loop. MAX_ALIVE_BOARS >= SOUNDER.MAX_SIZE is an
 	-- invariant asserted in match_live.spec, not a coincidence of two numbers. With the flag off it
 	-- only widens a guard the 90-second singles rhythm never approaches.
-	MAX_ALIVE_BOARS = 6, -- never exceed Boar.CONFIG.maxBoars, and carcasses do not count
+	-- 6 -> 7 (task 328z), and it is the SAME invariant one number wider: a red deer party is now 5
+	-- to 8 animals, so a ceiling of 6 made the 7-animal `harem` permanently impossible exactly as a
+	-- ceiling of 4 made a 5-boar sounder impossible. `MAX_ALIVE_BOARS >= max(SOUNDER.MAX_SIZE,
+	-- DEER_PARTY_MAX)` is asserted in match_live.spec.
+	MAX_ALIVE_BOARS = 7, -- never exceed Boar.CONFIG.maxBoars, and carcasses do not count
+	-- THE BIGGEST THING ONE RELEASE CAN PUT DOWN WHEN IT IS THE DRIVE'S DEER (task 328z). The owner
+	-- decides WHICH party comes (`Boar.deerComposition`); this is the only thing the SCHEDULE needs
+	-- to know about them -- how many bodies to leave room for before it opens the gate. Asserted
+	-- equal to the largest `SPECIES.reddeer.RELEASE.COMPOSITIONS` row in match_live.spec, so the two
+	-- cannot drift.
+	DEER_PARTY_MAX = 7,
 
 	-- THE SOUNDER: how big a release is and how often (design, "the sounder release" and "the
 	-- sounder numbers"). How a sounder BEHAVES is Boar.CONFIG.SOUNDER and is not this system's.

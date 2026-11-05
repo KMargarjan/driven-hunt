@@ -482,11 +482,13 @@ Boar.CONFIG = {
 	spawnPoint = Vector3.new(-40, 0, 20),
 	-- A guard, not a feature. Raised from 4 in Milestone 1.7a: a killed boar stays in the list
 	-- for CARCASS_SECONDS = 120 and counts against this, so four kills inside two minutes would
-	-- stop a drive dead (docs/design/drive.md section 6.3). The drive's own MAX_ALIVE_BOARS = 4
+	-- stop a drive dead (docs/design/drive.md section 6.3). The drive's own MAX_ALIVE_BOARS
 	-- counts only boars that are neither DOWN nor GONE.
 	-- 8 -> 24 (task 328z): a red deer herd is now 5 to 8 animals and `Runtime:spawnSounder`
-	-- REFUSES a release that does not fit whole, so 8 meant a herd could never come out beside the
-	-- drive's six boars. The drive's own budget (MAX_ALIVE_BOARS = 6) is unchanged.
+	-- REFUSES a release that does not fit whole, so 8 meant a herd plus two 120-second carcasses
+	-- could not come out at all. The drive's own ceiling is `Match.CONFIG.MAX_ALIVE_BOARS` (6 -> 7
+	-- in the same task) and the Forest Test overrides this one with `Data.MAX_BOARS` = 60, so THIS
+	-- number binds on the Match path only.
 	maxBoars = 24,
 
 	BOUNDS_SLACK = 10,
@@ -3929,8 +3931,11 @@ Boar.CONFIG.SPECIES = {
 			-- counter two paths could disagree about -- the shape `Runtime:_legendaryAllowed`
 			-- already uses for its cap.
 			-- 1 -> 3 (task 328z). At 1 a deer slot whose predecessor is still on its feet releases
-			-- NOTHING -- a hole in the drive, not fewer deer -- so "a group every second wave"
-			-- is unreachable at any chance. 3 groups x ~6 animals is inside `maxBoars` below.
+			-- NOTHING -- a hole in the drive, not fewer deer -- so "a group every second wave" is
+			-- unreachable at any chance. WORST CASE, SAID OUT LOUD: three `harem` draws are 21
+			-- animals, which with the drive's boars is past `maxBoars` = 24 and `spawnSounder`
+			-- would answer `{}`. It cannot happen on the Match path -- `MAX_ALIVE_BOARS` = 7 lets
+			-- one party be alive there -- and the Forest Test's ceiling is 60.
 			MAX_GROUPS_ALIVE = 3,
 			-- ...AND A PARTY OF ONE MAY COME ANYWAY (task 253). **THE DIRECTOR'S DECISION,
 			-- 2026-10-24**: *"if MAX_GROUPS_ALIVE slips him, let the stag (only) be released even if

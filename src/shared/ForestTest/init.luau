@@ -2001,7 +2001,7 @@ end
 -- WHAT PART 1 DOES NOT DO, said here rather than discovered in a playtest (rule 8). This is the
 -- FIRST half of task 251 (the Director's own split point: items 1 and 4 now, the stag's behaviour
 -- and his voice next). So today:
---   * `check = true` on rows 2 and 13 is honoured by the EXISTING edge stop and nothing more: every
+--   * `check = true` on rows 2, 4, 6 and 8 is honoured by the EXISTING edge stop and nothing more: every
 --     line's leader is already offered `Runtime:check` as she comes inside `LINE.checkWithinStuds`
 --     (`ForestTest.stepLines`), at the Brain's own `MOVE.EDGE_CHANCE` of 0.55 and for 1-4 s. The
 --     deer's own longer, likelier, look-BACK check (0.90, 2-6 s, 150 deg) is spec section 3.2 and is
@@ -2645,10 +2645,14 @@ function ForestTest.slotAt(slot: number, density: string?, schedule)
 		-- is a silence rather than a loop.
 		for _ = 1, span do
 			local candidate = rows[at]
-			-- ...AND IT NEVER REPEATS THE STAG (task 251c). See `repeatFrom`: the exclusion used to
-			-- be positional and his slot moved inside the window, so it is said here instead.
-			local isStag = candidate ~= nil and candidate.species == "reddeer" and candidate.party == "stag"
-			if candidate ~= nil and not isStag and (candidate.keepAt or 1) <= want then
+			-- ...AND IT NEVER REPEATS A DEER ROW (task 251c, widened in task 328z). See `repeatFrom`:
+			-- the exclusion used to be positional and the stag's slot moved inside the window, so it
+			-- is said here instead. It was `party == "stag"` until slot 6 became a bachelor group of
+			-- six stags -- which the window would then have re-released AFTER the lone stag, and
+			-- *"the stag is the last deer"* (Karen through the Designer's plan, 2026-10-23) is the
+			-- rule that forbids it. Any `reddeer` row, not just his.
+			local isDeer = candidate ~= nil and candidate.species == "reddeer"
+			if candidate ~= nil and not isDeer and (candidate.keepAt or 1) <= want then
 				return candidate
 			end
 			at = from + ((at - from + 1) % span)

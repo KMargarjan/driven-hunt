@@ -784,6 +784,13 @@ return function()
 				biggestParty = math.max(biggestParty, Boar.compositionSize(row, Boar.CONFIG))
 			end
 			expect(biggestParty >= 5).to.equal(true)
+			-- THE IDIOM, ONE NUMBER WIDER (task 328z): a ceiling below the biggest thing a release
+			-- can put down makes that release PERMANENTLY impossible, which is why
+			-- `MAX_ALIVE_BOARS >= SOUNDER.MAX_SIZE` exists. A deer party is now 5 to 8, so the
+			-- schedule is told how many bodies to leave room for, and the two cannot drift.
+			expect(Match.CONFIG.DEER_PARTY_MAX).to.equal(biggestParty)
+			expect(Match.CONFIG.MAX_ALIVE_BOARS >= Match.CONFIG.DEER_PARTY_MAX).to.equal(true)
+			expect(Match.CONFIG.MAX_ALIVE_BOARS <= Boar.CONFIG.maxBoars).to.equal(true)
 			expect(stats.soundersReleased <= Match.CONFIG.BOARS_PER_DRIVE).to.equal(true)
 			expect(
 				stats.boarsReleased <= stats.soundersReleased * math.max(Match.CONFIG.SOUNDER.MAX_SIZE, biggestParty)

@@ -84,7 +84,7 @@ measurement.** What changes is the number of animals standing on that spacing, s
 measures is whether the file still holds at seven.
 
 **Frequency: raise the dial, let the live cap throttle.** `CHANCE_PER_RELEASE` 0.2 -> 0.5 (a group
-in at least every second release on the drive path) and the Forest Test script carries deer in six
+in at least every second release on the drive path) and the Forest Test script carries deer in four
 of its fifteen slots instead of two. `MAX_GROUPS_ALIVE` 1 -> 3, because one group at a time cannot
 deliver a group every second wave at any chance, and a refused deer slot releases **nothing** --
 a hole in the drive rather than fewer deer.
@@ -99,8 +99,8 @@ stag at the head. Changing the march order is a design row, not this task's.
 | What | Before (measured) | Target |
 |---|---|---|
 | red deer group sizes available | 1, 2, 3 | **5, 6, 7** and 1 (the lone stag) |
-| red deer per Forest Test drive | 3 | **>= 20** |
-| deer slots in the Forest Test script | 2 of 15 (13 %) | **6 of 15 (40 %)** |
+| red deer per Forest Test drive | 3 | **19** -- the most those four slots carry |
+| deer slots in the Forest Test script | 2 of 15 (13 %) | **4 of 15 (27 %)**, the most the rule *"the stag is the last deer"* allows |
 | deer releases on the drive path | 1 guaranteed + 0.2/release | 1 guaranteed + **0.5/release** |
 | centre-to-centre gap in the file, at the road | no reading possible (never 2 deer at once) | **8.5 studs** +- 3, median |
 | lateral offset from the leader's trail | same | **<= 2.5 studs** median (a body width) |

@@ -1250,9 +1250,11 @@ return function()
 				local row = Data.slotAt(slot, "normal", SCHEDULE)
 				expect(row).to.be.ok()
 				expect(row.slot >= SCHEDULE.repeatFrom and row.slot <= SCHEDULE.repeatTo).to.equal(true)
-				-- THE RULE IS "NEVER THE STAG", NOT "NEVER A DEER" (task 328z): the window now holds
-				-- a herd row as well, and repeating a herd is what Karen asked for.
-				expect(row.party == nil or row.party ~= "stag").to.equal(true)
+				-- NO DEER ROW IS EVER REPEATED (task 328z). The window holds slot 6's bachelor
+				-- group of six stags as well as the lone stag at slot 8, and *"the stag is the last
+				-- deer"* forbids either of them coming out after him.
+				expect(row.party).to.equal(nil)
+				expect(row.species).to.equal("boar")
 			end
 			-- The window wraps in order, so slot 16 is the first row of it.
 			expect(Data.slotAt(rows + 1, "normal", SCHEDULE).slot).to.equal(SCHEDULE.repeatFrom)
