@@ -771,7 +771,23 @@ return function()
 			expect(type(stats.soundersReleased)).to.equal("number")
 			expect(type(stats.boarsReleased)).to.equal("number")
 			expect(stats.sounderHoldbacks < Match.CONFIG.SOUNDER.HOLDBACK_WARN).to.equal(true)
-			expect(stats.boarsReleased <= Match.CONFIG.BOARS_PER_DRIVE).to.equal(true)
+			-- THE BUDGET IS BOARS, AND A DEER HERD RIDES ON TOP OF IT (task 328z). `boarsReleased`
+			-- here is the OWNER's count of ANIMALS put on the ground (`#handles`), while the drive's
+			-- budget counts the `size` each release was SCHEDULED for -- and a deer release replaces
+			-- that size with its composition's, which is 5 to 8 since Karen asked for herds
+			-- (*"they also run in bundle like 5 8 one row"*). So `<= BOARS_PER_DRIVE` was only ever
+			-- true while a deer party weighed no more than its slot; it is the wrong counter for the
+			-- claim. What is still exactly true is per RELEASE, and the budget claim that survives is
+			-- about the releases themselves -- each one spends at least one of the six.
+			local biggestParty = 0
+			for _, row in ipairs(Boar.CONFIG.SPECIES.reddeer.RELEASE.COMPOSITIONS) do
+				biggestParty = math.max(biggestParty, Boar.compositionSize(row, Boar.CONFIG))
+			end
+			expect(biggestParty >= 5).to.equal(true)
+			expect(stats.soundersReleased <= Match.CONFIG.BOARS_PER_DRIVE).to.equal(true)
+			expect(
+				stats.boarsReleased <= stats.soundersReleased * math.max(Match.CONFIG.SOUNDER.MAX_SIZE, biggestParty)
+			).to.equal(true)
 			TestKit.note(
 				string.format(
 					"drive: %d sounder(s), %d boar(s) released, %d holdback(s), max alive %d, budget %d",
