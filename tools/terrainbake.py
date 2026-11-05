@@ -1888,6 +1888,9 @@ def delta_pass(studio, studio_id, args, sha, injected, profiles, base, plan, pad
                json.dumps(slice_payload, separators=(",", ":")),
                json.dumps(bench, separators=(",", ":")),
                ",".join('"%s"' % c for c in hold)))
+        print("  tile %4d (%7.0f,%7.0f) benchCols~%4d  expression %d bytes, slice %d x %d, %d band(s)"
+              % (index, row["minX"], row["minZ"], row["columns"], len(expression),
+                 slice_payload.get("nx", 0), slice_payload.get("nz", 0), len(bench)))
         got = call(studio, studio_id, expression, timeout=PROOF_CALL_TIMEOUT, injected=injected)
         rows.append(got)
         if got.get("message"):
