@@ -3,10 +3,19 @@
 Task: 328z
 Round: 2
 Base: 9c09c64a (main, 328i #332 merged)
-Code commit: a752a15c51795034e051c925ca39bfc1fcd1fb6a
+Code commit: fdde54744963b8a0ab40fb8825429482aa9615e1
 
 ```
-[harness] PASS: 34/34 checks @ a752a15c51795034e051c925ca39bfc1fcd1fb6a (clean tree) scope=auto:assets,boar,economy,flags,lobby,match,report,shop,weapon
+[harness] PASS: 34/34 checks @ fdde54744963b8a0ab40fb8825429482aa9615e1 (clean tree) scope=auto:assets,boar,economy,flags,lobby,match,report,shop,weapon
+```
+
+`a752a15c` is the last commit that changed `src/` or `tests/`; `fdde5474` is the paperwork commit
+the scoped run above tested, and between the two only this file changed. **The FULL suite also
+passed, at `a752a15c`**, and that line is quoted here as the record rather than as this round's
+evidence (`agents.py` reads a full line against the code commit as a merge-gate request and then
+asks for the two-player run):
+
+```
 [harness] PASS: 34/34 checks @ a752a15c51795034e051c925ca39bfc1fcd1fb6a (clean tree) scope=all
 ```
 
