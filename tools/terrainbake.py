@@ -1877,12 +1877,16 @@ def proof_half(studio, studio_id, injected, cells, hold, index, payload, bench, 
               % (time.time() - started, attr))
     deadline = time.time() + PROOF_POLL_SECONDS
     while time.time() < deadline:
-        time.sleep(20)
+        time.sleep(30)
+        # EVERY FAILURE HERE IS "STUDIO IS STILL BUSY": while the half is running, this call sits in
+        # StudioMCP's own queue behind it and comes back as a client timeout, a server
+        # `Request timeout`, or `Target is not reachable`. None of those is an answer, and none of
+        # them is a reason to stop asking -- the deadline is.
         try:
             found = call(studio, studio_id,
                          '(function() local v = game:GetService("ServerStorage"):GetAttribute("%s") '
-                         'return { got = v } end)()' % attr, timeout=120, injected=injected)
-        except RuntimeError:
+                         'return { got = v } end)()' % attr, timeout=150, injected=injected)
+        except Exception:  # noqa: BLE001 -- "Studio is busy" wears several names; see above
             continue
         got = (found or {}).get("got")
         if got:
