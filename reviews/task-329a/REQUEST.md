@@ -11,8 +11,9 @@ harness line required*. The sha above is the paperwork commit the claims were wr
 ## What changed
 
 Nothing in `src/`, `tests/` or `tools/`. The fault is in the Director's smoke check, so the
-deliverable is `<runs-dir>/smoke-329a.patch` (copied to `reviews/task-329a/smoke-329a.patch` so it
-can be read in the PR) plus `reviews/task-329a/EVIDENCE.md`. `<runs-dir>/smoke.sh` is untouched: the
+deliverable is `<runs-dir>/smoke-329a.patch` (a placeholdered, readable copy is
+`reviews/task-329a/smoke-329a-patch.md`; the absolute path in the diff's context would fail
+`tools/privacy_scan.py` in a tracked file, so that copy is not apply-clean) plus `reviews/task-329a/EVIDENCE.md`. `<runs-dir>/smoke.sh` is untouched: the
 patch was developed and run as `<runs-dir>/smoke-329a-test.sh`.
 
 ## Claims
@@ -59,8 +60,8 @@ patch was developed and run as `<runs-dir>/smoke-329a-test.sh`.
 8. **5 consecutive patched runs PASS**, each printing its own measured waits (lobby +13..17 s, gun
    +17..18 s), `stacks=0 errorLines=0`, and `position @15s`/`@end` at `y=110.5`.
    *Verify:* `t329a-v2-1.txt` .. `t329a-v2-5.txt`, 17:20-17:33 UTC 2026-11-05.
-9. **No harness gate is owed.** `git diff --name-only dadc3540..HEAD` touches only
-   `reviews/task-329a/`, so this is a docs-only change. `python tools/studio_mcp.py selftest` and
+9. **No harness gate is owed.** `git diff --name-only dadc3540..HEAD` is `TASKS.md` plus the three
+   files of `reviews/task-329a/`, so this is a docs-only change. `python tools/studio_mcp.py selftest` and
    `python tools/agents.py selftest` were both run and both PASS (rule G).
 10. **Karen's place was not altered.** All 18 `ServerStorage` attributes are byte-identical to the
     snapshot task 328z left (`328z-r3-attrs-AFTER.txt` vs `t329a-attrs-AFTER.txt`), no code was ever
