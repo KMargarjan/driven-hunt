@@ -11,14 +11,16 @@ prefers is one `git mv` plus this `Task:` line. Everything below is unchanged.
 Task: 3282
 Round: 1
 Base: `main` @ `8f91a477`
-Code commit: `8f91a47749f8286ff2cf98e61de4016969863e8e`
+Code commit: `b3efcf845afe888e54f23a2275c38f8926b2b791`
 
-That sha is `main` itself, and it is named because **this task is docs-only**: nothing under `src/`,
-`tests/` or `tools/` changed on this branch, so the LAST commit that changed code is the branch's
-own base, and the definition in CLAUDE.md git workflow step 4 — "at or after the last commit that
-changed src/, tests/ or tools/, and only paperwork after it" — is satisfied exactly by it.
+**This task is docs-only** — nothing under `src/`, `tests/` or `tools/` changed on this branch — so
+there is no commit that ran code to name. `b3efcf84` is this branch's FIRST paperwork commit, which
+satisfies the definition in CLAUDE.md git workflow step 4 both ways: it is after the last commit
+that changed code (`main` `8f91a477`, the base), and only paperwork follows it.
 `git diff --name-only 8f91a477..HEAD` is `ESCALATE.md`, `TASKS.md` and `reviews/task-3282/`, all
-paperwork. **No harness line is pasted and none is required** (docs-only is exempt). Rule G ran
+paperwork. (`main` itself cannot be named here: it is the merge of PR #335, so `agents.py`'s
+anti-bypass range `<code>~1..HEAD` would reach across the merge and pick up part 1's six code
+files, which a one-line docs change has not re-run.) **No harness line is pasted and none is required** (docs-only is exempt). Rule G ran
 anyway: `tools/studio_mcp.py selftest` PASS, `tools/agents.py selftest` "all ok". **No flake fired**
 — no spec ran at all, because no spec file and no code file changed.
 
