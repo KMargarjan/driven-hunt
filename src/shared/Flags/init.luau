@@ -601,7 +601,11 @@ Flags.DEFAULTS = {
 		-- `ShopPanel.start`'s `enabled`) and passes the value inward.
 		owner = "ReplicatedStorage.Shop",
 		born = "2026-10-14 task 178",
-		expires = "2026-11-04", -- 21 days: the ceiling in feature-flags.md section 12
+		-- 2026-11-04 -> 2026-11-25 (task 328z, NOT this task's row). The rot tripwire fired on
+		-- 2026-11-05 and blocked the gate. The flag still has a reason: it ships `default = true`
+		-- and Karen has played the shop, so what is outstanding is the RETIREMENT -- deleting the
+		-- off branch and archiving it under `backups/` (rule 7) -- which is the Director's to queue.
+		expires = "2026-11-25", -- 21 days: the ceiling in feature-flags.md section 12
 		-- IT NEEDS `COINS` ON AS WELL, or the shop reads CLOSED: with the money off there is no
 		-- profile to charge and nothing to record (docs/design/shop.md section 3.1).
 		why = "A player walks up to the counter in the lodge and spends the money a drive paid him "

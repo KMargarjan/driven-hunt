@@ -243,7 +243,10 @@ return function()
 		end)
 
 		it("raised the boar's own guard, because carcasses occupy slots for two minutes", function()
-			expect(Boar.CONFIG.maxBoars).to.equal(8)
+			-- 8 -> 24 (task 328z): a red deer herd is 5 to 8 animals and `spawnSounder` refuses a
+			-- release that does not fit WHOLE, so at 8 a herd could never come out beside the
+			-- drive's six boars. The relation below is the invariant; the number is not.
+			expect(Boar.CONFIG.maxBoars).to.equal(24)
 			expect(Match.CONFIG.MAX_ALIVE_BOARS <= Boar.CONFIG.maxBoars).to.equal(true)
 		end)
 	end)

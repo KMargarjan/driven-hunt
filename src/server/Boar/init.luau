@@ -484,7 +484,10 @@ Boar.CONFIG = {
 	-- for CARCASS_SECONDS = 120 and counts against this, so four kills inside two minutes would
 	-- stop a drive dead (docs/design/drive.md section 6.3). The drive's own MAX_ALIVE_BOARS = 4
 	-- counts only boars that are neither DOWN nor GONE.
-	maxBoars = 8,
+	-- 8 -> 24 (task 328z): a red deer herd is now 5 to 8 animals and `Runtime:spawnSounder`
+	-- REFUSES a release that does not fit whole, so 8 meant a herd could never come out beside the
+	-- drive's six boars. The drive's own budget (MAX_ALIVE_BOARS = 6) is unchanged.
+	maxBoars = 24,
 
 	BOUNDS_SLACK = 10,
 	FALL_LIMIT = 50,
@@ -3882,19 +3885,17 @@ Boar.CONFIG.SPECIES = {
 		-- `Runtime:spawnSounder` consults only when its caller named no composition -- so the Forest
 		-- Test's own named waves are untouched.
 		--
-		-- 0.2 IS KAREN'S DIAL AND HERE IS WHAT IT BUYS, so it is turned against a number rather than
-		-- a feeling. A drive is about 6 releases (`FIRST_RELEASE_SECONDS` 20 then
-		-- `RELEASE_INTERVAL_SECONDS` 90 over ten minutes), and a deer group averages
-		-- 0.4x1 + 0.4x2 + 0.2x3 = 1.8 animals, so a drive carries about 1.2 deer releases and 2.16
-		-- deer against `BOARS_PER_DRIVE` = 6 boars -- and 0.8^6 = 26 % of drives carry none at all.
-		-- Rarer than boar, and not folklore.
+		-- 0.5 IS KAREN'S DIAL AND HERE IS WHAT IT BUYS (task 328z), turned against a number rather
+		-- than a feeling. A drive is about 6 releases (`FIRST_RELEASE_SECONDS` 20 then
+		-- `RELEASE_INTERVAL_SECONDS` 90 over ten minutes), and a group now averages
+		-- 0.1x1 + 0.35x5 + 0.35x7 + 0.2x6 = 5.5 animals, so a drive carries about 3.5 deer
+		-- releases and ~19 deer -- a group in at least every second wave, which is what she asked
+		-- for. It was 0.2 and 1.8 animals until 2026-11-03.
 		--
-		-- THE THREE SHAPES ARE THE DIRECTOR'S SENTENCE ("a stag alone or with hinds, a hind with a
-		-- calf") and they are also the Animal Diversity Web's account of Cervus elaphus: hinds with
-		-- their calves in matriarchal groups, stags solitary outside the rut, a stag holding hinds
-		-- in it. The WEIGHTS are reasoned from this game: the hind-and-calf group is 40 % because it
-		-- is the one that carries the PENALTY, and a -10 a player meets once a session is a trap
-		-- while one he meets most drives is a rule he learns.
+		-- THE FOUR SHAPES ARE ALL IN THE ANIMAL DIVERSITY WEB'S ACCOUNT of Cervus elaphus -- hinds
+		-- with their calves in matriarchal groups, stags solitary or in bachelor groups outside the
+		-- rut, a stag holding hinds -- at the Isle of Rum medians (5 to 7).
+		-- docs/research/2026-11-05-red-deer-herds.md
 		RELEASE = {
 			-- KAREN'S DIAL, AND SINCE TASK 234 IT ONLY DECIDES THE **EXTRA** DEER. Karen,
 			-- 2026-10-21: *"we need all a time in drive deer"* and *"I want to see a deer"* -- and
@@ -3905,10 +3906,9 @@ Boar.CONFIG.SPECIES = {
 			-- builds ONE runtime for the whole server and a runtime therefore has no drive
 			-- boundary to latch against.
 			--
-			-- So the arithmetic now reads: one group guaranteed, plus about 1.2 more by this dial,
-			-- so a drive carries about 2.2 deer groups and ~4 animals against `BOARS_PER_DRIVE`
-			-- = 6 boars. If that is too many for an animal Karen called rare, this is the number.
-			CHANCE_PER_RELEASE = 0.2, -- K's dial
+			-- 0.2 -> 0.5 (task 328z). Karen, 2026-11-03: *"could be more red stags"*. With the
+			-- drive's one guaranteed group this is a deer group in at least every second release.
+			CHANCE_PER_RELEASE = 0.5, -- K's dial
 			-- HOW A DEER GROUP MOVES (task 234). Karen, 2026-10-21: *"we need all a time in drive
 			-- deer and could be also lines and how they behav"*, and "yes" to deer walking one
 			-- after another in a row.
@@ -3925,11 +3925,13 @@ Boar.CONFIG.SPECIES = {
 			-- 2026-10-20), so the longest of them has about two studs of daylight to the animal in
 			-- front. Nothing is retuned here; the check is why it is not.
 			FORMATION = "column",
-			-- ONE GROUP AT A TIME. A drive is 6 live animals and a group is up to 3, so two groups
-			-- could be half the drive and the animal Karen called rare would be in front of every
-			-- shooter. Answered by COUNTING THE LIVE ENTRIES, not by a counter two paths could
-			-- disagree about -- the shape `Runtime:_legendaryAllowed` already uses for its cap.
-			MAX_GROUPS_ALIVE = 1,
+			-- HOW MANY GROUPS MAY BE ALIVE AT ONCE. Answered by COUNTING THE LIVE ENTRIES, not by a
+			-- counter two paths could disagree about -- the shape `Runtime:_legendaryAllowed`
+			-- already uses for its cap.
+			-- 1 -> 3 (task 328z). At 1 a deer slot whose predecessor is still on its feet releases
+			-- NOTHING -- a hole in the drive, not fewer deer -- so "a group every second wave"
+			-- is unreachable at any chance. 3 groups x ~6 animals is inside `maxBoars` below.
+			MAX_GROUPS_ALIVE = 3,
 			-- ...AND A PARTY OF ONE MAY COME ANYWAY (task 253). **THE DIRECTOR'S DECISION,
 			-- 2026-10-24**: *"if MAX_GROUPS_ALIVE slips him, let the stag (only) be released even if
 			-- one other group is alive, because he moves alone"*. MEASURED in the Forest Test the
@@ -3953,9 +3955,15 @@ Boar.CONFIG.SPECIES = {
 			-- WORD; `Boar.deerComposition` is still the only thing that knows which row that is, and
 			-- the weights below still decide every draw that is not asked for by name.
 			COMPOSITIONS = {
-				{ name = "stag", weight = 40, stag = 1 },
-				{ name = "hinds", weight = 40, hind = 1, calf = 1 },
-				{ name = "harem", weight = 20, stag = 1, hind = 2 },
+				-- FIVE TO EIGHT IS THE ISLE OF RUM MEDIAN, NOT A GUESS (task 328z). Karen,
+				-- 2026-11-03: *"could be more red stags they also run in bundle like 5 8 one row"*.
+				-- Wildlife Online on the Clutton-Brock study: hind parties median **7 in summer,
+				-- 5 in winter**; bachelor stag groups **7 and 4**.
+				-- docs/research/2026-11-05-red-deer-herds.md
+				{ name = "stag", weight = 10, stag = 1 },
+				{ name = "hinds", weight = 35, hind = 3, calf = 2 },
+				{ name = "harem", weight = 35, stag = 1, hind = 4, calf = 2 },
+				{ name = "stags", weight = 20, stag = 6 },
 			},
 		},
 	},

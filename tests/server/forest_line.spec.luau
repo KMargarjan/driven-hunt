@@ -547,14 +547,15 @@ return function()
 			expect(normal.crossings).to.equal(10)
 			expect(normal.refusals).to.equal(2)
 			expect(normal.holds).to.equal(1)
-			expect(normal.deerGroups).to.equal(2)
-			expect(normal.boarGroups).to.equal(11)
-			-- THREE LEAPING ANIMALS AND NO BOAR AMONG THEM. *"how many groups jumping over road"*:
-			-- the hind, her calf and the stag -- and `leaps` is only ever on a `reddeer` row.
-			-- `leapingGroups` COUNTS GROUPS, and the field is named for it (round 1's note): the hind
-			-- party is ONE row of two animals, and the stag is the other -- so two ROWS and three
-			-- ANIMALS leap, and the animals are counted through the owner's weigher just below.
-			expect(normal.leapingGroups).to.equal(2)
+			-- 2 -> 4 DEER GROUPS AND 11 -> 9 BOAR (task 328z). Karen, 2026-11-03: *"could be more
+			-- red stags they also run in bundle like 5 8 one row"* -- slots 4 and 6 carry a herd and
+			-- a bachelor group of stags instead of two boar rows.
+			expect(normal.deerGroups).to.equal(4)
+			expect(normal.boarGroups).to.equal(9)
+			-- NINETEEN LEAPING ANIMALS AND NO BOAR AMONG THEM. *"how many groups jumping over road"*:
+			-- `leaps` is only ever on a `reddeer` row. `leapingGroups` COUNTS GROUPS (round 1's
+			-- note), and the ANIMALS are counted through the owner's weigher just below.
+			expect(normal.leapingGroups).to.equal(4)
 			local config3 = configOn()
 			local leaping = 0
 			for _, row in ipairs(normal.rows) do
@@ -562,14 +563,14 @@ return function()
 					leaping += Boar.compositionSize(Boar.deerComposition(0, 0, config3, row.party), config3)
 				end
 			end
-			expect(leaping).to.equal(3)
+			expect(leaping).to.equal(19)
 			for _, row in ipairs(SCHEDULE.drive) do
 				if row.leaps == true then
 					expect(row.species).to.equal("reddeer")
 				end
 			end
 			-- ...and the animals, weighed by the animal's owner rather than written down here.
-			expect(animalsAt("normal")).to.equal(59)
+			expect(animalsAt("normal")).to.equal(65)
 			TestKit.note(
 				string.format(
 					"task 251: one normal drive is %d groups / %d animals -- %d cross, %d break back, %d holds",
@@ -594,16 +595,16 @@ return function()
 			expect(quiet.groups).to.equal(9)
 			expect(quiet.refusals).to.equal(0)
 			expect(quiet.holds).to.equal(0)
-			expect(quiet.deerGroups).to.equal(1) -- the hinds only; no stag in a quiet drive
-			expect(animalsAt("quiet")).to.equal(37)
+			expect(quiet.deerGroups).to.equal(3) -- the hinds, the herd and the stags; no stag alone
+			expect(animalsAt("quiet")).to.equal(43)
 
 			local busy = Data.driveTally("busy", SCHEDULE)
 			expect(busy.groups).to.equal(15)
 			expect(busy.silent).to.equal(0)
 			expect(busy.refusals).to.equal(2)
 			expect(busy.holds).to.equal(1)
-			expect(busy.deerGroups).to.equal(2)
-			expect(animalsAt("busy")).to.equal(69)
+			expect(busy.deerGroups).to.equal(4)
+			expect(animalsAt("busy")).to.equal(75)
 
 			-- AN UNKNOWN WORD IS `normal`, not silence: a typo in the dial must not empty the wood.
 			expect(Data.groupsWanted("sideways", SCHEDULE)).to.equal(13)
@@ -1249,7 +1250,9 @@ return function()
 				local row = Data.slotAt(slot, "normal", SCHEDULE)
 				expect(row).to.be.ok()
 				expect(row.slot >= SCHEDULE.repeatFrom and row.slot <= SCHEDULE.repeatTo).to.equal(true)
-				expect(row.party).to.equal(nil)
+				-- THE RULE IS "NEVER THE STAG", NOT "NEVER A DEER" (task 328z): the window now holds
+				-- a herd row as well, and repeating a herd is what Karen asked for.
+				expect(row.party == nil or row.party ~= "stag").to.equal(true)
 			end
 			-- The window wraps in order, so slot 16 is the first row of it.
 			expect(Data.slotAt(rows + 1, "normal", SCHEDULE).slot).to.equal(SCHEDULE.repeatFrom)

@@ -2128,7 +2128,7 @@ ForestTest.SCHEDULE = {
 			atSeconds = 23,
 			act = 1,
 			species = "reddeer",
-			party = "hinds", -- {hind = 1, calf = 1}
+			party = "hinds", -- {hind = 3, calf = 2}
 			zone = "A",
 			northStuds = 125,
 			offsetX = 80,
@@ -2161,17 +2161,22 @@ ForestTest.SCHEDULE = {
 			slot = 4,
 			atSeconds = 49,
 			act = 1,
-			species = "boar",
-			composition = 2, -- {males = 2}
+			-- A RED DEER HERD SINCE TASK 328z. Karen, 2026-11-03: *"could be more red stags they
+			-- also run in bundle like 5 8 one row ect like in life"*. Seven is the Isle of Rum
+			-- summer median for a stag with hinds (docs/research/2026-11-05-red-deer-herds.md).
+			species = "reddeer",
+			party = "harem", -- {stag = 1, hind = 4, calf = 2}
 			zone = "A",
 			northStuds = 85,
 			offsetX = 45,
-			files = 1,
+			files = 1, -- a deer group is a column, never two files (`RELEASE.FORMATION`)
 			crossOffset = 20,
 			route = "STRAIGHT",
 			pace = "trot",
+			check = true,
+			leaps = true,
 			keepAt = 9,
-			note = "the near pair, straight down the front of the stand",
+			note = "the near herd: a stag, his hinds and their calves in one row, close in front",
 		},
 		{
 			-- SILENCE AT quiet AND normal. A drive with no gaps in it is a shooting gallery; this is
@@ -2197,18 +2202,23 @@ ForestTest.SCHEDULE = {
 			slot = 6,
 			atSeconds = 75,
 			act = 2,
-			species = "boar",
-			composition = 3, -- {males = 5, females = 3}
+			-- A BACHELOR GROUP OF STAGS SINCE TASK 328z, and the broadside pass is where antlers are
+			-- worth drawing. Six is inside Rum's 4-to-7 median for stag groups
+			-- (docs/research/2026-11-05-red-deer-herds.md).
+			species = "reddeer",
+			party = "stags", -- {stag = 6}
 			zone = "D",
 			northStuds = 150,
 			offsetX = 95,
-			files = 1,
+			files = 1, -- a deer group is a column, never two files (`RELEASE.FORMATION`)
 			crossOffset = -70,
 			route = "LATERAL",
 			lateral = "LtoR",
 			pace = "trot",
+			check = true,
+			leaps = true,
 			keepAt = 9,
-			note = "the broadside pass: across her front left to right, then over the road",
+			note = "the broadside pass: six stags in one row across her front, then over the road",
 		},
 		{
 			slot = 7,
@@ -2826,7 +2836,7 @@ ForestTest.STAGED = {
 	-- (`SPECIES.reddeer.RELEASE.COMPOSITIONS`) and `Boar.deerComposition` is still the only thing
 	-- that turns a name into counts -- this is the set of names this parser will pass ON to it, so a
 	-- misspelling is refused HERE with a readable reason instead of arriving there as nil.
-	PARTIES = { stag = true, hinds = true, harem = true },
+	PARTIES = { stag = true, hinds = true, harem = true, stags = true },
 }
 
 -- PURE, exported, and the ONE place a staged spec string becomes a row.
