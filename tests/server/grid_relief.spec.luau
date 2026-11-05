@@ -20,6 +20,42 @@ return function()
 		return 100
 	end
 
+	-- A FAKE BASE SNAPSHOT, built from a height function. Hoisted to the file's own helpers in
+	-- task 330 so the anchor-cache cases share ONE definition of the base lattice with 328k's.
+	local function snapshotOf(minX: number, minZ: number, nx: number, nz: number, heightOf, holes)
+		local v = Relief.VOXEL
+		local snap = {
+			pitch = v,
+			minX = minX,
+			minZ = minZ,
+			nx = nx,
+			nz = nz,
+			height = table.create(nx * nz, 0),
+			minY = math.huge,
+			maxY = -math.huge,
+			hole = holes or {},
+			holes = 0,
+			holeWhy = {},
+		}
+		for at in snap.hole do
+			snap.holes += 1
+			local _ = at
+		end
+		for i = 1, nx do
+			for k = 1, nz do
+				local at = (k - 1) * nx + i
+				local y = heightOf(minX + (i - 0.5) * v, minZ + (k - 0.5) * v)
+				snap.height[at] = y
+				-- THE RANGE SKIPS THE HOLES, exactly as `TerrainBake.snapshot` does: a hole has no
+				-- height to put in it (Reviewer, round 1, finding 1).
+				if not snap.hole[at] then
+					snap.minY = math.min(snap.minY, y)
+					snap.maxY = math.max(snap.maxY, y)
+				end
+			end
+		end
+		return snap
+	end
 	local function xzOf(bounds, u: number, v: number)
 		return bounds.minX + u * (bounds.maxX - bounds.minX), bounds.minZ + v * (bounds.maxZ - bounds.minZ)
 	end
@@ -2431,41 +2467,6 @@ return function()
 		local FIXTURE_B64 = "ABkgGVAZwBiwGAAZ"
 		local FIXTURE_HEIGHTS = { 100.0, 100.5, 101.25, 99.0, 98.75, 100.0 }
 
-		local function snapshotOf(minX: number, minZ: number, nx: number, nz: number, heightOf, holes)
-			local v = Relief.VOXEL
-			local snap = {
-				pitch = v,
-				minX = minX,
-				minZ = minZ,
-				nx = nx,
-				nz = nz,
-				height = table.create(nx * nz, 0),
-				minY = math.huge,
-				maxY = -math.huge,
-				hole = holes or {},
-				holes = 0,
-				holeWhy = {},
-			}
-			for at in snap.hole do
-				snap.holes += 1
-				local _ = at
-			end
-			for i = 1, nx do
-				for k = 1, nz do
-					local at = (k - 1) * nx + i
-					local y = heightOf(minX + (i - 0.5) * v, minZ + (k - 0.5) * v)
-					snap.height[at] = y
-					-- THE RANGE SKIPS THE HOLES, exactly as `TerrainBake.snapshot` does: a hole has no
-					-- height to put in it (Reviewer, round 1, finding 1).
-					if not snap.hole[at] then
-						snap.minY = math.min(snap.minY, y)
-						snap.maxY = math.max(snap.maxY, y)
-					end
-				end
-			end
-			return snap
-		end
-
 		it("328k-1 ENTERS each of the four column faults, and answers nil for a clean column", function()
 			-- L-093: one case per ARM, each one entered, not one case near the code.
 			local water = TerrainBake.columnFault(true, 1, true, false, 10, 20, -100, 400)
@@ -3323,6 +3324,201 @@ return function()
 			expect(empty.message).to.equal(nil)
 			expect(empty.voxels).to.equal(0)
 			expect(empty.calls).to.equal(0)
+		end)
+	end)
+	-- ---------------------------------------------------------------- task 330: the bench anchor cache
+	describe("330 the bench anchor cache", function()
+		local TerrainBake = require(ServerStorage:WaitForChild("TerrainBake"))
+		local STRAIGHT = { ewStuds = 0, nsStuds = 0, harmonic = 1 }
+		local B2 = Relief.LANDFORMS.B2
+		local B2BOUNDS = Grid.boundsOf("B2")
+		local BENCH = B2.ops[1]
+		local Z0 = B2BOUNDS.minZ + BENCH.v0 * (B2BOUNDS.maxZ - B2BOUNDS.minZ)
+		local LAT = Relief.VOXEL
+
+		-- A HILLSIDE, read through the SAME `math.floor` lattice `columnOf` uses, so a reader built
+		-- on it steps exactly where a real base snapshot's reader steps.
+		local function hillside(x: number, z: number): number?
+			local i = math.floor(x / LAT) * LAT
+			local k = math.floor(z / LAT) * LAT
+			return 120 - 0.22 * i - 0.11 * k + 6 * math.sin(i / 37) + 4 * math.cos(k / 29)
+		end
+
+		-- THE CACHE A CALLER BUILDS: `indexAt` names the column the read falls in, which on this
+		-- lattice is the pair (i, k) packed -- `TerrainBake.columnAt`'s own shape.
+		local function cacheOn(): any
+			return {
+				indexAt = function(x: number, z: number): number
+					return math.floor(x / LAT) * 1e6 + math.floor(z / LAT)
+				end,
+				store = {},
+				hits = 0,
+				misses = 0,
+			}
+		end
+
+		it("330-1 columnAt names the column that ANSWERED, falls through the extras, and 0 for none", function()
+			-- L-093: every arm entered. `columnAt` is `readerFor`'s twin and must agree with it
+			-- about WHICH slice answered, or the key would quantise differently than the reads do.
+			local main = TerrainBake.decodeSlice(TerrainBake.encodeSlice(snapshotOf(0, 0, 4, 4, flat, { [6] = true })))
+			local extra = TerrainBake.decodeSlice(TerrainBake.encodeSlice(snapshotOf(0, 100, 4, 4, flat, {})))
+			local columnAt = TerrainBake.columnAt(main, { extra })
+			local readAt = TerrainBake.readerFor(main, { extra })
+			expect(columnAt(2, 2)).to.equal(1)
+			expect(readAt(2, 2)).to.equal(100)
+			expect(columnAt(14, 2)).to.equal(4)
+			-- the hole at flat index 6 (i = 2, k = 2): the reader falls through, and so must this
+			expect(readAt(6, 6)).to.equal(nil)
+			expect(columnAt(6, 6)).to.equal(0)
+			-- inside the EXTRA: the identity carries which slice answered
+			expect(readAt(2, 102)).to.equal(100)
+			expect(columnAt(2, 102)).to.equal(TerrainBake.COLUMN_SPACE + 1)
+			-- outside both
+			expect(readAt(-50, -50)).to.equal(nil)
+			expect(columnAt(-50, -50)).to.equal(0)
+			-- NO TWO DISTINCT COLUMNS SHARE AN IDENTITY, which is the one property the key needs.
+			local seen: { [number]: boolean } = {}
+			for x = 2, 14, 4 do
+				for z = 2, 14, 4 do
+					local near = columnAt(x, z)
+					if near ~= 0 then
+						expect(seen[near]).to.equal(nil)
+						seen[near] = true
+					end
+					local far = columnAt(x, z + 100)
+					expect(seen[far]).to.equal(nil)
+					seen[far] = true
+				end
+			end
+		end)
+
+		it("330-2 ON A STRAIGHT GRID the cache changes no answer over a hillside, to the stored code", function()
+			-- WHY THE STRAIGHT GRID IS THE EXACT CASE: with no bend the grid x IS the world x, so
+			-- every read the anchor walk makes -- the six rows and all 1,369 blur taps -- sits at
+			-- the key's own column plus a FIXED offset and steps where the key steps. The BENT case
+			-- is the real tiles' case and is measured there, not promised here (task 330).
+			local anchors = cacheOn()
+			local worst, pairs = 0, 0
+			-- SUB-STUD STEPS, so two x inside one base column are asked both ways: a step of a whole
+			-- voxel would never share a bucket and the cache would never be reached.
+			for step = 0, 48 do
+				local x = B2BOUNDS.minX + 300 + step * 0.25
+				local z = Z0 + 90
+				local off = Relief.heightAt(B2, B2BOUNDS, ROADS, hillside, x, z, 1, nil, nil)
+				local on = Relief.heightAt(B2, B2BOUNDS, ROADS, hillside, x, z, 1, nil, anchors)
+				expect(off).to.be.ok()
+				expect(on).to.be.ok()
+				expect(math.round((off :: number) * 64)).to.equal(math.round((on :: number) * 64))
+				worst = math.max(worst, math.abs((off :: number) - (on :: number)))
+				pairs += 1
+			end
+			-- THE CACHE WAS ACTUALLY REACHED. Without this the case would pass on a bench that was
+			-- never walked (L-093).
+			TestKit.note(
+				string.format(
+					"330-2 %d pairs, %d walks, %d hits, worst %.9f st",
+					pairs,
+					anchors.misses,
+					anchors.hits,
+					worst
+				)
+			)
+			expect(anchors.misses > 0).to.equal(true)
+			expect(anchors.hits > 0).to.equal(true)
+			expect(worst).to.be.near(0, 1e-9)
+			local _ = STRAIGHT
+		end)
+
+		it("330-3 FAIL FIRST: a key too coarse DOES diverge, so the comparison bites", function()
+			-- The Director's bar is "the cache never changes an answer". A proof that cannot see a
+			-- wrong key proves nothing, so here is a key that holds one bucket per 64 studs instead
+			-- of the six rows' columns -- and the SAME comparison the case above makes now fails.
+			local coarse = {
+				indexAt = function(x: number, _z: number): number
+					return math.floor(x / 64)
+				end,
+				store = {},
+				hits = 0,
+				misses = 0,
+			}
+			local worst = 0
+			for step = 0, 48 do
+				local x = B2BOUNDS.minX + 300 + step * 0.25
+				local z = Z0 + 90
+				local off = Relief.heightAt(B2, B2BOUNDS, ROADS, hillside, x, z, 1, nil, nil)
+				local on = Relief.heightAt(B2, B2BOUNDS, ROADS, hillside, x, z, 1, nil, coarse)
+				worst = math.max(worst, math.abs((off :: number) - (on :: number)))
+			end
+			TestKit.note(
+				string.format(
+					"330-3 coarse key: %d walks, %d hits, worst %.4f st (> 1/64)",
+					coarse.misses,
+					coarse.hits,
+					worst
+				)
+			)
+			expect(coarse.hits > 0).to.equal(true)
+			-- BIGGER THAN ONE STORED CODE, so the equality proof on a real tile would catch it.
+			expect(worst > 1 / 64).to.equal(true)
+		end)
+
+		it("330-4 shapeTile caches per tile, reuses, and writes the same heights and materials", function()
+			-- THE PLUMBING, on a real tile: the cache reaches `shapeTile`'s own call to `heightAt`.
+			-- A tile whose MARGIN alone reaches B2's bench band, so the uncached run is affordable
+			-- in a spec; the whole-tile case is the bake's, measured in Karen's place (task 330).
+			local pad = TerrainBake.padFor()
+			local side = TerrainBake.TILE_STUDS
+			local tile = { minX = -5120, minZ = -6784 }
+			local wide = math.floor((side + 2 * pad) / Relief.VOXEL)
+			local snap = snapshotOf(tile.minX - pad, tile.minZ - pad, wide, wide, function(x, z)
+				return hillside(x, z) :: number
+			end, {})
+			local reshape = { B2 = true }
+			local off, offNames, n, _a, _d, none = TerrainBake.shapeTile(
+				tile,
+				snap,
+				{ "B2" },
+				{},
+				nil,
+				reshape,
+				STRAIGHT,
+				nil,
+				false
+			)
+			local on, onNames, n2, _a2, _d2, anchors = TerrainBake.shapeTile(
+				tile,
+				snap,
+				{ "B2" },
+				{},
+				nil,
+				reshape,
+				STRAIGHT,
+				nil,
+				true
+			)
+			expect(none).to.equal(nil)
+			expect(anchors).to.be.ok()
+			local cache = anchors :: any
+			TestKit.note(string.format("330-4 columns=%d walks=%d hits=%d", n * n, cache.misses, cache.hits))
+			expect(cache.misses > 0).to.equal(true)
+			expect(cache.hits > 0).to.equal(true)
+			expect(n).to.equal(n2)
+			expect(TerrainBake.codeFnv(off, n * n)).to.equal(TerrainBake.codeFnv(on, n * n))
+			expect(TerrainBake.nameFnv(offNames, n * n)).to.equal(TerrainBake.nameFnv(onNames, n * n))
+		end)
+
+		it("330-5 codeFnv and nameFnv answer differently for one changed column", function()
+			-- The equality proof's own instrument: a hash that cannot see a one-column change would
+			-- report "identical" for every tile there is.
+			local a = { 100, 101, 102 }
+			local b = { 100, 101 + 1 / 64, 102 }
+			expect(TerrainBake.codeFnv(a, 3)).to.equal(TerrainBake.codeFnv({ 100, 101, 102 }, 3))
+			expect(TerrainBake.codeFnv(a, 3)).never.to.equal(TerrainBake.codeFnv(b, 3))
+			expect(TerrainBake.nameFnv({ "Ground", "Rock" }, 2)).never.to.equal(
+				TerrainBake.nameFnv({ "Ground", "Grass" }, 2)
+			)
+			-- AND IT IS NOT FOOLED BY A JOIN: "a","bc" must not hash like "ab","c".
+			expect(TerrainBake.nameFnv({ "a", "bc" }, 2)).never.to.equal(TerrainBake.nameFnv({ "ab", "c" }, 2))
 		end)
 	end)
 end
