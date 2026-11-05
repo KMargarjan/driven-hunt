@@ -1,3 +1,62 @@
+## 2026-11-05 ~20:40 UTC, Task 328g2 -- THE PLANT IS DONE IN HER PLACE; THE REVIEW IS BLOCKED BY THE TASK ID
+
+**NEEDS THE DIRECTOR: one word.** Everything the dispatch asked for is measured and committed
+(`reviews/task-328g2/REQUEST.md`, branch `task-328g2-plant`, pushed, head `b3efcf84`). The review
+cannot be RUN, and no Builder choice can unblock it.
+
+**THE HARD STOP, verbatim:**
+
+```
+$ powershell -ExecutionPolicy Bypass -File tools/review.ps1 328g2
+[agents] REFUSED: task number must be digits, with an optional single lower-case letter
+(266, 266b); got '328g2'
+```
+
+`TASK_PATTERN` in `tools/agents.py` is `[0-9]{1,4}[a-z]?`. `328g2` cannot match it, with the
+argument or without it -- `resolve_task` uses the SAME pattern to scan committed
+`reviews/task-*/REQUEST.md`, so a no-argument run does not fall through to this folder, it falls
+through to the newest CONFORMANT one, which is `task-328g`: it would review PART 1 again and write
+its verdict over part 1's. I did not run it.
+
+**AND THERE IS NO FREE CONFORMANT ID IN THIS SERIES.** `328a` through `328z` are all taken in
+`TASKS.md` -- u, v and w included -- and `reviews/task-328g2` is the first folder in the repo that
+does not match the pattern (every other one does).
+
+**THE THREE WAYS OUT. The choice is the Director's, because it allocates a task number and that is
+the Director's file:**
+
+1. **Give it a new number** (`330`, say). One `git mv reviews/task-328g2 reviews/task-330`, one
+   `Task:` line, one `TASKS.md` key. Cheapest, and nothing else in the repo moves.
+2. **Call it 328g round 2** -- it IS part 2 of 328g, same design section, same branch lineage.
+   `tools/agents.py` would then count the round off part 1's committed trailer and require
+   `Round: 2`, which is inside `MAX_ROUNDS`. The cost: this branch's
+   `reviews/task-328g/REQUEST.md` and `RESULT.md` would be REPLACED (part 1's are preserved in
+   `main` through PR #335), and a reader checking part 1's gate on this branch would not find them.
+3. **Widen `TASK_PATTERN`** to allow a trailing digit. That is a `tools/` change, so this task would
+   stop being docs-only and would need the full harness run and CI -- and the dispatch says to stop
+   and escalate rather than touch code.
+
+**I recommend 1.** It costs three edits and no history.
+
+**WHAT IS ALREADY TRUE IN HER PLACE, review or no review** (full evidence in the request):
+`Workspace.GridForest` stands in place `130094961655666` -- 10,839 models / 36,007 parts in five
+cell folders, `PlantEpoch=58575af518ae6156`, planted from Edit out of a worktree of merged main
+`8f91a477`. The boot prints `STANDS ... dress=false` and `GridPlaces` holds no cell folder; the
+trees are complete at `up=1.1 s`; `places:` is 1.90 s against 20.55 s; it survived a Studio close
+and reopen as a new process, byte-identical; the attribute diff is the two lines the plant itself
+writes and her 15 flag overrides are untouched; `smoke.sh` on `:34873` is PASS. Her Studio is in
+**Edit**, Rojo **connected on :34873**. Backup `<backups-dir>/FT-before-328g2.rbxl`, 28,944,173 B.
+
+**TWO FINDINGS FOR THE DIRECTOR, in the request as claims 4 and 10:**
+- the dispatch's expected row hashes are **NOT MET**; the plant reproduces part 1's **boot dress
+  #2** exactly, and the split correlates with part 1's own Studio restart, so part 1's "the boot
+  dress is not reproducible run to run, and the prebuild is" should read "both are reproducible
+  within a Studio session and shift by at most 5 models a cell across a restart";
+- **REFUSED does not remove the stale wood.** Nothing under `src/` destroys `Places.FOREST_FOLDER`,
+  so after a B2/D2 bake she would see the OLD trees standing on the NEW ground until someone
+  re-plants. Both of the runbook's cases are therefore live, and both are written into
+  `<runs-dir>/replant-forest.sh`'s header.
+
 ## 2026-11-05 ~13:10 UTC, Task 328z -- STOPPED AT THE DISPATCH'S TWO-ROUND CAP, WITH THREE CORRECT FINDINGS OPEN
 
 The dispatch says *"Review: at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."*
