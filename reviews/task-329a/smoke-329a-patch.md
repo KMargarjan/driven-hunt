@@ -4,10 +4,12 @@ The patch that APPLIES is `<runs-dir>/smoke-329a.patch`. This copy exists so the
 read in the pull request; its one absolute path is replaced by the `<runs-dir>` placeholder that
 `tools/privacy_scan.py` requires of a tracked file, so it is NOT apply-clean.
 
+Amended after the round-1 PASS -- see EVIDENCE.md section 7 for what changed and why.
+
 ```diff
 --- smoke.sh	2026-10-16 23:49:13.363019200 +0200
-+++ smoke-329a-test.sh	2026-11-05 18:20:01.377548000 +0100
-@@ -7,28 +7,83 @@
++++ smoke-329a-test.sh	2026-11-05 18:49:34.748997900 +0100
+@@ -7,29 +7,95 @@
  R=<runs-dir>; S=${1:-80}; cd "$R" || exit 9
  m=$(python ftplay.py mode 2>/dev/null | tail -1)
  [ "$m" = "Edit" ] || { echo "SMOKE REFUSED: Studio is '$m' (Karen may be playing)"; exit 2; }
@@ -32,9 +34,17 @@ read in the pull request; its one absolute path is replaced by the `<runs-dir>` 
 +#   * stepping him on while the folder exists but the lobby has NOT taken him (`gunBefore=true`)
 +#     gets him respawned back to the lodge, OFF the pad, so the pad never takes him either
 +#     (measured 2026-11-05: step-on at +12 s, no gun 51 s later, y=153.4 throughout).
-+# So the wait ends on the fact the next line asserts, and nothing else.
-+lob=nolobby; lobwait=0; nolobby=0; lobbyfail=0
++# So the wait ends on the fact the next line asserts, and nothing else. TASK 177'S CHECK IS NOW
++# SATISFIED BY ANY ONE SAMPLE IN THE WINDOW rather than by the single sample it used to take, and
++# that is deliberate: before the lobby has taken him the gun it is about to remove is not "a gun in
++# the lobby". Do not re-tighten this `case` to the first answer.
++#
++# ONLY THE FOREST TEST IS POLLED. Another `SMOKE_PLACE` has no lobby by design, so it keeps the old
++# single call, the old `sleep 20` and the old timing, bit for bit -- a poll there would spend
++# `SMOKE_GUN_WAIT` waiting for a step-on that never happened.
++lob=nolobby; lobwait=0; nolobby=0; lobbyfail=0; gunpoll=0
 +if [ "${SMOKE_PLACE:-$FT}" = "$FT" ]; then
++	gunpoll=1
 +	while [ "$lobwait" -le "${SMOKE_LOBBY_WAIT:-70}" ]; do
 +		lob=$(python ftplay.py server lobby-go.luau 2>/dev/null | tail -1)
 +		lobwait=$(( $(date +%s) - t0 ))
@@ -47,15 +57,18 @@ read in the pull request; its one absolute path is replaced by the `<runs-dir>` 
 +		*) nolobby=1;;
 +	esac
 +else
++	sleep 15
 +	lob=$(python ftplay.py server lobby-go.luau 2>/dev/null | tail -1)
 +	lobwait=$(( $(date +%s) - t0 ))
-+	case "$lob" in lobby*) echo "$lob" | grep -q "gunBefore=false" || lobbyfail=1;; esac
++	case "$lob" in lobby*) echo "$lob" | grep -q "gunBefore=false" || lobbyfail=1; sleep 20;; esac
 +fi
 +echo "lobby-go at +${lobwait}s: [$lob]"
 +# ...AND THE SAME FOR THE GUN. The pad needs 8 s to pick, 5 s to leave and a scan: measured
-+# 13.9-18 s from the step-on to the Tool being in the CHARACTER. The old `sleep 20` left 2-3 s.
++# 13.9-18.0 s from the step-on to the Tool being in the CHARACTER (the config's own comment predicts
++# 13.2 s; the remainder is this script's 2 s poll granularity plus the depart teleport and the
++# equip). The old `sleep 20` left 2-3 s.
 +gunwait=0; g1=0
-+if [ "$nolobby" -eq 0 ] && [ "$lobbyfail" -eq 0 ]; then
++if [ "$gunpoll" -eq 1 ] && [ "$nolobby" -eq 0 ] && [ "$lobbyfail" -eq 0 ]; then
 +	t1=$(date +%s)
 +	while [ "$gunwait" -le "${SMOKE_GUN_WAIT:-50}" ]; do
 +		g1=$(python ftplay.py client wq.luau 2>/dev/null | grep -c "equipped tool")
@@ -91,12 +104,14 @@ read in the pull request; its one absolute path is replaced by the `<runs-dir>` 
 +echo "lobby=[$lob] (+${lobwait}s) gun in hand @+${gunwait}s=$g1 @${S}s=$g2 | stacks=$stacks errorLines=$errs | waves=$waves | $snd"
  fail=0
 -[ "$lobbyfail" -eq 0 ] || { echo "FAIL: a gun in the lobby"; fail=1; }
+-echo "position @15s=[$gr1] @end=[$gr2] respawn+10s=[$gr3]"
 +[ "$lobbyfail" -eq 0 ] || { echo "FAIL: a gun in the lobby after ${lobwait}s"; fail=1; }
-+# TASK 329a: NO LOBBY IS NOW A FAILURE AND NOT A SKIP. It means the boot was still running, so
-+# nothing below this line was ever given a chance -- and it is the state that used to report itself
-+# as "gun not in hand".
-+[ "$nolobby" -eq 0 ] || { echo "FAIL: no lobby after ${lobwait}s -- the boot had not finished, so the player was never stepped onto a truck pad (task 329a)"; fail=1; }
- echo "position @15s=[$gr1] @end=[$gr2] respawn+10s=[$gr3]"
++# TASK 329a: NO LOBBY IS NOW A FAILURE AND NOT A SKIP. It means the boot was still running -- or the
++# probe never answered at all -- so nothing below this line was ever given a chance, and it is the
++# state that used to report itself as "gun not in hand". The raw answer is in the `lobby-go at` line.
++[ "$nolobby" -eq 0 ] || { echo "FAIL: no lobby after ${lobwait}s -- the boot had not finished, or lobby-go did not answer, so the player was never stepped onto a truck pad (task 329a)"; fail=1; }
++echo "position @after-gun=[$gr1] @end=[$gr2] respawn+10s=[$gr3]"
  case "$gr1 $gr2 $gr3" in *BURIED*|*FLOATING*|*nochar*|*" hp=0 "*) echo "FAIL: a player is not standing on the ground (Karen 10-14: under the terrain, dying each round)"; fail=1;; esac
  case "$gr1|$gr2|$gr3" in *ground*\|*ground*\|*respawn-ground*) ;; *) echo "FAIL: ground probe returned nothing"; fail=1;; esac
+ [ "$g1" -ge 1 ] && [ "$g2" -ge 1 ] || { echo "FAIL: gun not in hand"; fail=1; }
 ```

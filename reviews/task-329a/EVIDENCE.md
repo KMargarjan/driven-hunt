@@ -130,3 +130,44 @@ changes a script, and the dispatch forbids serving anything but merged main to :
 pushes nothing. The five runs above are consecutive Plays at that commit. What makes the fix hold
 regardless is that neither wait depends on boot speed any more: both bounds are ~4x the measured
 need, and a boot slower than that now names itself instead of reporting a missing gun.
+
+## 7. After the round-1 PASS: two of the Reviewer's notes fixed in the patch, the rest queued
+
+`reviews/task-329a/RESULT.md` line 1 is `PASS (items 2, 8 NOT PROVEN)`. Notes under a PASS are
+queued and not fixed (CLAUDE.md, the loop, step 5) -- but two of them named defects in the
+deliverable the Director has not applied yet, and shipping a patch with a known bug in it is worse
+than the rule it would follow. Both are fixed in `<runs-dir>/smoke-329a.patch` and re-proven; the
+other six are queued in `TASKS.md` as 329a-notes.
+
+1. **The non-Forest-Test branch is restored bit for bit** (note 2). `nolobby` was only ever set
+   inside the FT branch, so another `SMOKE_PLACE` fell through into the gun poll and sat there for
+   `SMOKE_GUN_WAIT`, after which `rest` went negative and the end check was no longer at `S`. A
+   `gunpoll` flag now carries it: the FT polls, anything else keeps its old `sleep 15`, its old
+   single `lobby-go`, its old `sleep 20` and its old single `wq` read.
+   *Proven:* `t329a-v3-dev.txt`, `SMOKE_PLACE=136410205938347`, `lobby-go at +18s: [nolobby]`, no
+   new FAIL, `g1=1`, **SMOKE PASS** in 120 s.
+2. **`position @15s=` is renamed `position @after-gun=`** (note 3). That probe is now read after both
+   polls -- about +30 s -- and at a true +15 s the player is still at the lodge, so the old field
+   name asserted a time the line never sampled.
+3. Two sentences the Reviewer asked for are now **in the patch's own comment** rather than only
+   here: that task 177's "no gun in the lobby" check is deliberately satisfied by any one sample in
+   the window and must not be re-tightened to the first answer (note 8), and that the remainder
+   between the config's predicted 13.2 s and the measured 13.98 s is the poll granularity plus the
+   depart teleport and the equip, not something the config predicts (note 5). The `nolobby` message
+   now also names the probe-failure cause (note 4).
+
+**Re-proven after the amendment**, both at `<runs-dir>/smoke-329a-test.sh` as rebuilt:
+
+    lobby-go at +17s: [lobby gunBefore=false]
+    gun in hand at +17s after the step-on: g1=1
+    position @after-gun=[... y=110.5] @end=[... y=110.5]        SMOKE PASS      (t329a-v3-1.txt)
+
+    lobby-go at +4s: [nolobby]
+    FAIL: no lobby after 4s -- the boot had not finished, or lobby-go did not answer, ...
+    FAIL: gun not in hand                                       SMOKE FAIL      (t329a-v3-control.txt)
+
+**And the Reviewer's first note is accepted as written:** the five PASS runs are a REGRESSION check
+-- the old script passed on a warm Play too, which is the dispatch's own *"a second smoke straight
+after PASSED"*. What proves the fix is the `SMOKE_LOBBY_WAIT=0` control, where the new script names
+the cause that the old one reported only as a missing gun. Section 5's five runs should be read as
+"the patch does not break the path that already worked", and nothing more.
