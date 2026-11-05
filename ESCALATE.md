@@ -14,9 +14,12 @@ $ powershell -ExecutionPolicy Bypass -File tools/review.ps1 328g2
 
 `TASK_PATTERN` in `tools/agents.py` is `[0-9]{1,4}[a-z]?`. `328g2` cannot match it, with the
 argument or without it -- `resolve_task` uses the SAME pattern to scan committed
-`reviews/task-*/REQUEST.md`, so a no-argument run does not fall through to this folder, it falls
-through to the newest CONFORMANT one, which is `task-328g`: it would review PART 1 again and write
-its verdict over part 1's. I did not run it.
+`reviews/task-*/REQUEST.md`, so a no-argument run cannot land on this folder at all; it lands on
+some OTHER task's request and writes a verdict there. (Round 1's Reviewer corrected my first
+wording, which named `task-328g`: the primary path is the most recently COMMITTED request by
+`git log`, and the fallback is `max(..., key=task_order)`, so with `reviews/task-329a/REQUEST.md`
+committed neither path answers `328g`. The conclusion is the same -- do not run it with no
+argument -- and I did not.)
 
 **AND THERE IS NO FREE CONFORMANT ID IN THIS SERIES.** `328a` through `328z` are all taken in
 `TASKS.md` -- u, v and w included -- and `reviews/task-328g2` is the first folder in the repo that
