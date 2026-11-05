@@ -3,7 +3,10 @@
 Task: 329a
 Round: 1
 Base: dadc3540 (main, 328z #333 merged)
-Code commit: (no `src/`, `tests/` or `tools/` file changed -- paperwork only; see claim 9)
+Code commit: `0086ab92`
+(no `src/`, `tests/` or `tools/` file changed -- `git diff --name-only dadc3540..HEAD` is
+`TASKS.md` and `reviews/task-329a/` only, so `harness_gate` reports *docs-only change: no
+harness line required*. The sha above is the paperwork commit the claims were written at.)
 
 ## What changed
 
