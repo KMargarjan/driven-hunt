@@ -1,3 +1,7 @@
+## 2026-11-05 ~20:50 UTC, Director decision on Task 328g2's task id
+
+**Kept as `reviews/task-3282/`.** It is reviewed and passed there, and a rename would detach the verdict from its trailer, for no gain. `TASKS.md` keeps the label 328g2. From now on a sub-task of a lettered task gets a fresh number (the next free one), never a second letter or digit. The boot-dress hash split (both reproducible within a session, at most 5 models per cell across a Studio restart) is accepted: Karen judges the wood as it now stands. REFUSED not removing stale wood is handled by `<runs-dir>/replant-forest.sh` after every bake or planting change; the code fix is queued in TASKS.md before release.
+
 ## 2026-11-05 ~20:40 UTC, Task 328g2 -- THE PLANT IS DONE IN HER PLACE; THE REVIEW IS BLOCKED BY THE TASK ID
 
 **NEEDS THE DIRECTOR: one word.** Everything the dispatch asked for is measured and committed
