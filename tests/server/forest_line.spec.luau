@@ -687,9 +687,12 @@ return function()
 			-- THE ONE THING KAREN NAMED TWICE. *"red stags"* -- and the Rum finding is that a mature
 			-- stag keeps his own company outside the rut, while the Jaeger finding is that red deer
 			-- come long after the drive starts.
+			-- `hindherd` AND NOT `hinds` SINCE TASK 328z: the near hind party is a herd of five now
+			-- (`Boar.CONFIG.SPECIES.reddeer.RELEASE.COMPOSITIONS`), and `hinds` -- the hind and her
+			-- calf -- is the DRIVE path's row, which this script never names.
 			local hinds, stag = nil, nil
 			for _, row in ipairs(SCHEDULE.drive) do
-				if row.party == "hinds" then
+				if row.party == "hindherd" and hinds == nil then
 					hinds = row
 				elseif row.party == "stag" then
 					stag = row
