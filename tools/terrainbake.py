@@ -159,6 +159,10 @@ BAKE_CALL_TIMEOUT = 300
 # avoid: the heaviest bench tile is ~8,200 columns x 8,220 base reads, each read a `Grid.toWorld`,
 # and it did NOT answer inside `BAKE_CALL_TIMEOUT` (MEASURED 2026-11-05). The cached half is seconds.
 PROOF_CALL_TIMEOUT = 1500
+
+# HOW LONG THE TOOL WILL POLL FOR A HALF'S ATTRIBUTE after MCP has given up on the call. The
+# uncached half of the heaviest tile MEASURED about 13 minutes; this is twice that.
+PROOF_POLL_SECONDS = 1800
 BACKUP_MAX_AGE_HOURS = 6
 RUN_LOG_DIR = os.path.join(REPO, ".terrainbake")
 FOREST_PLACE_ID = place_choice("forest")[0]
@@ -1843,20 +1847,72 @@ def bench_slices_for(base, bands, tile, pad, side):
     return out, None
 
 
+def proof_half(studio, studio_id, injected, cells, hold, index, payload, bench, cached):
+    """ONE HALF of one tile's proof -- shaped with the cache on or off -- read off its attribute.
+
+    StudioMCP's own request timeout is about five minutes and the UNCACHED half of the heaviest
+    bench tile takes about thirteen (MEASURED 2026-11-05), so the reply cannot come back on the call
+    that asked for it. The Luau keeps running after MCP gives up and writes its answer to an
+    attribute, so this fires the call, tolerates exactly that timeout, and then POLLS for the
+    attribute. Any other failure is raised: a timeout is the only thing being worked around.
+    """
+    attr = "DH330Proof_T%d_%s" % (index, "on" if cached else "off")
+    expression = (
+        'TerrainBake.anchorHalfAt(%d, {%s}, HttpService:JSONDecode([==[%s]==]), '
+        'HttpService:JSONDecode([==[%s]==]), HttpService:JSONDecode([==[%s]==]), {%s}, %s)'
+        % (index, ",".join('"%s"' % c for c in cells), profiles_of(payload),
+           json.dumps(payload["slice"], separators=(",", ":")),
+           json.dumps(bench, separators=(",", ":")),
+           ",".join('"%s"' % c for c in hold), "true" if cached else "false"))
+    started = time.time()
+    try:
+        row = call(studio, studio_id, expression, timeout=PROOF_CALL_TIMEOUT, injected=injected)
+        if isinstance(row, dict) and row.get("shapeFnv"):
+            row["waitedS"] = round(time.time() - started, 1)
+            return row
+    except RuntimeError as problem:
+        if "timeout" not in str(problem).lower() and "not reachable" not in str(problem).lower():
+            raise
+        print("      (MCP gave up after %.0f s; the Luau is still running -- polling %s)"
+              % (time.time() - started, attr))
+    deadline = time.time() + PROOF_POLL_SECONDS
+    while time.time() < deadline:
+        time.sleep(20)
+        try:
+            found = call(studio, studio_id,
+                         '(function() local v = game:GetService("ServerStorage"):GetAttribute("%s") '
+                         'return { got = v } end)()' % attr, timeout=120, injected=injected)
+        except RuntimeError:
+            continue
+        got = (found or {}).get("got")
+        if got:
+            row = json.loads(got)
+            row["waitedS"] = round(time.time() - started, 1)
+            return row
+    return {"message": "%s never appeared after %d s" % (attr, PROOF_POLL_SECONDS)}
+
+
+def profiles_of(payload):
+    """The profile JSON this tile was handed. Kept beside the slice so one dict carries both."""
+    return payload["profiles"]
+
+
 def proof_pass(studio, studio_id, args, sha, injected, profiles, base, plan, pad, bands, keep, live):
     """THE BENCH ANCHOR CACHE'S EQUALITY PROOF (task 330), on the heaviest bench tiles there are.
 
     The Director's decision on `ESCALATE.md` 2026-11-04 ~16:20 item 1 is "the cache never changes an
     answer", and this is the measurement: the same tile, the same slice and the same bands shaped
     TWICE -- cache off, then cache on -- and the two stored-code identities compared. Both runs are
-    dry, so it writes nothing and needs no backup.
+    dry, so it writes no terrain; what it does write is one attribute per half, which
+    `--clear-proof` takes back off.
 
-    WHICH TILES ARE "HEAVIEST" IS MEASURED, not typed: `TerrainBake.benchWeightPlan` counts the
-    columns that actually pay an anchor walk, in the arithmetic that owns the bench band.
+    WHICH TILES ARE "HEAVIEST" IS MEASURED, not typed: `TerrainBake.benchWeightPlan` ranks them by
+    the columns that actually pay an anchor walk, and each row's `walks` is that tile's exact count.
     """
     cells = args.cells
     hold = [c for c in (getattr(args, "hold_landform", None) or "").split(",") if c]
     bands = [b for b in (bands or []) if b["cell"] not in hold]
+    side = args_side()
     weights = call(studio, studio_id, "TerrainBake.benchWeightPlan({%s}, {%s})"
                    % (",".join('"%s"' % c for c in cells), ",".join('"%s"' % c for c in hold)),
                    timeout=BAKE_CALL_TIMEOUT, injected=injected)
@@ -1868,42 +1924,42 @@ def proof_pass(studio, studio_id, args, sha, injected, profiles, base, plan, pad
     weights.sort(key=lambda row: -row["columns"])
     want = min(args.tiles or 10, len(weights))
     print("[proof] %d of %d tiles carry bench weight; the %d heaviest, by a 1-in-%d column sample "
-          "(the exact walk count is each row's own `walks`):"
+          "(each row's `walks` is that tile's exact count):"
           % (len(weights), len(plan), want, weights[0].get("stride", 1) ** 2))
-    rows, worst_on, worst_off, differed = [], 0, 0, []
+    rows, differed, worst_on, worst_off = [], [], 0, 0
     for row in weights[:want]:
         index = row["tile"]
-        payload, problem = slice_for(base, plan[index - 1], pad, args_side())
+        slice_payload, problem = slice_for(base, plan[index - 1], pad, side)
         if problem:
             print("[proof] FAILED at tile %d: %s" % (index, problem))
             return 1, rows
-        bench, problem = bench_slices_for(base, bands, plan[index - 1], pad, args_side())
+        bench, problem = bench_slices_for(base, bands, plan[index - 1], pad, side)
         if problem:
             print("[proof] FAILED at tile %d: %s" % (index, problem))
             return 1, rows
-        expression = (
-            'TerrainBake.anchorProofAt(%d, {%s}, HttpService:JSONDecode([==[%s]==]), '
-            'HttpService:JSONDecode([==[%s]==]), HttpService:JSONDecode([==[%s]==]), {%s})'
-            % (index, ",".join('"%s"' % c for c in cells), profiles,
-               json.dumps(payload, separators=(",", ":")),
-               json.dumps(bench, separators=(",", ":")),
-               ",".join('"%s"' % c for c in hold)))
-        got = call(studio, studio_id, expression, timeout=PROOF_CALL_TIMEOUT, injected=injected)
-        rows.append(got)
-        if got.get("message"):
-            print("  tile %4d REFUSED: %s" % (index, got["message"]))
+        payload = {"slice": slice_payload, "profiles": profiles}
+        print("  tile %4d (%7.0f,%7.0f) benchCols~%5d" % (index, row["minX"], row["minZ"], row["columns"]))
+        off = proof_half(studio, studio_id, injected, cells, hold, index, payload, bench, False)
+        if off.get("message"):
+            print("      REFUSED (cache off): %s" % off["message"])
             return 1, rows
-        worst_on = max(worst_on, got["msOn"])
-        worst_off = max(worst_off, got["msOff"])
-        if not got["identical"]:
+        on = proof_half(studio, studio_id, injected, cells, hold, index, payload, bench, True)
+        if on.get("message"):
+            print("      REFUSED (cache on): %s" % on["message"])
+            return 1, rows
+        same = off["shapeFnv"] == on["shapeFnv"] and off["materialFnv"] == on["materialFnv"]
+        rows.append({"tile": index, "off": off, "on": on, "identical": same,
+                     "benchColumnsSampled": row["columns"]})
+        worst_off = max(worst_off, off["ms"])
+        worst_on = max(worst_on, on["ms"])
+        if not same:
             differed.append(index)
-        print("  tile %4d (%7.0f,%7.0f) benchCols~%5d  walks %6d -> %5d (hits %6d)  "
-              "%6d ms -> %5d ms  codes %s/%s %s %s"
-              % (index, got["minX"], got["minZ"], row["columns"],
-                 got["anchorWalksOff"], got["anchorWalksOn"], got["anchorHitsOn"],
-                 got["msOff"], got["msOn"], got["shapeFnvOff"], got["materialFnvOff"],
-                 "==" if got["identical"] else "!=",
-                 "%s/%s" % (got["shapeFnvOn"], got["materialFnvOn"])))
+        print("      walks %6d -> %5d (hits %6d)   %7d ms -> %5d ms   codes %s/%s %s %s/%s"
+              % (off["walks"], on["walks"], on["hits"], off["ms"], on["ms"],
+                 off["shapeFnv"], off["materialFnv"], "==" if same else "!=",
+                 on["shapeFnv"], on["materialFnv"]))
+        if off["walks"] == 0:
+            print("      NOTE: this tile paid NO anchor walk, so it proves nothing about the cache")
     log_run(["proof"] + cells, rows, keep, live)
     if differed:
         print("[proof] DIFFERS: %d of %d tiles changed their stored codes with the cache on: %s"
@@ -2032,9 +2088,9 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
 
 def main(argv):
     parser = argparse.ArgumentParser(prog="terrainbake")
-    parser.add_argument("command", choices=("plan", "snapshot", "diff", "measure", "proof", "bake",
-                                            "survey", "archive", "census", "plant", "rows",
-                                            "selftest"))
+    parser.add_argument("command", choices=("plan", "snapshot", "diff", "measure", "proof",
+                                            "clear-proof", "bake", "survey", "archive", "census",
+                                            "plant", "rows", "selftest"))
     parser.add_argument("--cells", help="comma list, e.g. C1")
     parser.add_argument("--backup", help="a .rbxl saved by File -> Save to File, outside the repo")
     parser.add_argument("--hold-landform", help="comma list of cells IN --cells whose landform this "
@@ -2203,6 +2259,11 @@ def main(argv):
             if not args.cells:
                 return refuse("--cells is missing: an unnamed cell is an unbounded run")
             return command_plant(studio, studio_id, args.cells, injected, wanted, sha)
+        if args.command == "clear-proof":
+            gone = call(studio, studio_id, "TerrainBake.clearProof()", timeout=120, injected=injected)
+            left = call(studio, studio_id, "TerrainBake.readProof()", timeout=120, injected=injected)
+            print("[proof] cleared %s attribute(s); %d left" % (gone, len(left or {})))
+            return 0
         if args.command == "archive":
             result = call(studio, studio_id, 'TerrainBake.archive("GridForest", {})', injected=injected)
             print("[bake] archive: %s" % json.dumps(result))

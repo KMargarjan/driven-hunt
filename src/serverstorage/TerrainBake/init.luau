@@ -15,6 +15,10 @@
 -- Design: docs/design/grid-terrain.md (sections 3, 5, 7.1)
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- THE PROOF'S OWN TWO SERVICES (task 330): `anchorHalfAt` publishes its answer as an attribute
+-- because StudioMCP's request timeout is shorter than the uncached walk it measures.
+local ServerStorage = game:GetService("ServerStorage")
+local HttpService = game:GetService("HttpService")
 
 local GridFolder = ReplicatedStorage:WaitForChild("Grid")
 local Grid = require(GridFolder)
@@ -2429,6 +2433,76 @@ function TerrainBake.benchWeightPlan(cellIds: { string }, holdLandform: { string
 				sampled = sampled,
 				stride = step,
 			})
+		end
+	end
+	return out
+end
+
+-- ONE HALF OF THE EQUALITY PROOF, AND IT PUBLISHES ITS ANSWER WHERE A LATER CALL CAN READ IT
+-- (task 330). The UNCACHED half of the heaviest bench tile is ~8,200 columns x 8,220 base reads,
+-- each read a `Grid.toWorld`: MEASURED at about 13 minutes, and StudioMCP's own request timeout is
+-- about five, so the reply can never come back on the call that asked for it (`Request timeout`,
+-- 2026-11-05 -- 328x's "Target is not reachable" is the same wall). The Luau keeps running after
+-- MCP gives up, so the answer goes on an ATTRIBUTE and the tool polls for it (`L-093`'s rule that a
+-- diagnostic nobody can reach is not a diagnostic).
+--
+-- `TerrainBake.proofAttr` is the one place the name is built, so the writer and the reader cannot
+-- disagree about it. `clearProof` takes them all back off again: these are a Builder's marks in
+-- Karen's place and they do not belong there once the proof is read (`L-101`).
+TerrainBake.PROOF_PREFIX = "DH330Proof_"
+
+function TerrainBake.proofAttr(tileIndex: number, cached: boolean): string
+	return string.format("%sT%d_%s", TerrainBake.PROOF_PREFIX, tileIndex, if cached then "on" else "off")
+end
+
+function TerrainBake.anchorHalfAt(
+	tileIndex: number,
+	cellIds: { string },
+	profiles: { Profile }?,
+	slice: any?,
+	benchSlices: { any }?,
+	holdLandform: { string }?,
+	cacheAnchors: boolean?,
+	where: Instance?
+): any
+	local report =
+		TerrainBake.bakeTileAt(tileIndex, cellIds, true, profiles, slice, benchSlices, holdLandform, cacheAnchors)
+	local row = {
+		tile = tileIndex,
+		cached = cacheAnchors == true,
+		minX = report.minX,
+		minZ = report.minZ,
+		shapeFnv = report.shapeFnv,
+		materialFnv = report.materialFnv,
+		walks = report.anchorMisses,
+		hits = report.anchorHits,
+		ms = report.elapsedMs,
+		dropped = report.droppedLandform,
+		message = report.message,
+	}
+	local target = where or ServerStorage
+	target:SetAttribute(TerrainBake.proofAttr(tileIndex, cacheAnchors == true), HttpService:JSONEncode(row))
+	return row
+end
+
+function TerrainBake.clearProof(where: Instance?): number
+	local target = where or ServerStorage
+	local gone = 0
+	for name in target:GetAttributes() do
+		if string.sub(name, 1, #TerrainBake.PROOF_PREFIX) == TerrainBake.PROOF_PREFIX then
+			target:SetAttribute(name, nil)
+			gone += 1
+		end
+	end
+	return gone
+end
+
+function TerrainBake.readProof(where: Instance?): { any }
+	local target = where or ServerStorage
+	local out: { any } = {}
+	for name, value in target:GetAttributes() do
+		if string.sub(name, 1, #TerrainBake.PROOF_PREFIX) == TerrainBake.PROOF_PREFIX then
+			out[name] = value
 		end
 	end
 	return out
