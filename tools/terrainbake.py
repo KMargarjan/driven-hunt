@@ -840,8 +840,19 @@ def check_plant_echo(studio, studio_id, wanted, injected, shas):
 
 
 # THE SEAM `plant` RUNS, ONE CALL PER CELL. `Planter.dressCells` with the WHOLE cell list as `keep`
-# so a cell arriving does not fell the cell before it (task 328i's rule), `breathe = nil` because
-# nothing yields in Edit, and `terrainYAt` -- the boot's own reader, cut out of its own file.
+# so a cell arriving does not fell the cell before it (task 328i's rule), and `terrainYAt` -- the
+# boot's own reader, cut out of its own file.
+#
+# IT YIELDS, AND DESIGN 10.2's `breathe = nil` IS REFUTED BY MEASUREMENT (2026-11-05, C1 in Karen's
+# Forest Test). Without a yield the 1,941 clones go in on Studio's main thread in one block; the
+# WORK finishes -- C1 stood complete afterwards -- but StudioMCP cannot answer while the thread is
+# blocked and the call comes back "Target is not reachable (ExecuteLuau.runCode, DMN_ID_EDIT)" after
+# six seconds, so the driver can never read its own report or stamp the folder.
+#
+# THE YIELD CHANGES NOTHING ABOUT THE WOOD, and that is measured rather than argued: C1 planted with
+# NO yield hashed `f8d6b718` / 1,941 models / 6,563 parts, which is byte-for-byte the hash the boot
+# dress produced in a Play server. `Slice` yields BETWEEN steps and the plan is a pure function of
+# its seed, so the yield moves no tree -- it only lets Studio draw a frame.
 PLANT_SEAM = """(function()
         local folder = Workspace:FindFirstChild(Planter.FOREST_FOLDER)
         if folder == nil then
@@ -857,7 +868,9 @@ PLANT_SEAM = """(function()
         local audit = {}
         local template = Planter.templateLookup(sources, audit)
         local keep = {%s}
-        local reports = Planter.dressCells({"%s"}, folder, terrainYAt, template, nil, nil, keep)
+        local reports = Planter.dressCells({"%s"}, folder, terrainYAt, template, function()
+            task.wait()
+        end, nil, keep)
         local row = reports[1]
         row.quarantined = audit.quarantined
         row.sources = #sources
@@ -2963,7 +2976,10 @@ def selftest():
     ok("the plant seam drives Places.dressCells -- the ONE writer -- with no yield and the whole "
        "cell list as keep",
        "Planter.dressCells(" in PLANT_SEAM and "terrainYAt" in PLANT_SEAM
-       and "local keep = {%s}" in PLANT_SEAM and "Planter.FOREST_FOLDER" in PLANT_SEAM)
+       and "local keep = {%s}" in PLANT_SEAM and "Planter.FOREST_FOLDER" in PLANT_SEAM
+       # ...AND IT YIELDS, because without one StudioMCP cannot answer while 1,941 clones go in on
+       # the main thread -- measured, see the seam's header.
+       and "task.wait()" in PLANT_SEAM)
     ok("the row-hash seam reads whatever folder it is given, so the prebuild and a boot dress are "
        "measured by the SAME instrument",
        FOREST_ROWS_SEAM % ("GridPlaces", "C1", "PlantEpoch")
