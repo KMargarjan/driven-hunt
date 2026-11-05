@@ -1,6 +1,14 @@
 # Task 328g2 — the prebuilt forest PLANTED into Karen's Forest Test, for real (PART 2)
 
-Task: 328g2
+**THE FOLDER IS `reviews/task-3282/`, NOT `reviews/task-328g2/`, AND THAT IS A DEVIATION FROM THE
+DISPATCH.** `tools/agents.py`'s `TASK_PATTERN` is `[0-9]{1,4}[a-z]?`, so it REFUSES `328g2`
+outright, and `328a`..`328z` are all taken in `TASKS.md`, so no conformant id in that series is
+free. `3282` is conformant, free, and far from the queue's head (329), so it cannot collide with
+the Director's next dispatch. `ESCALATE.md`'s entry of today ~20:40 UTC records the hard stop,
+the refusal verbatim, and the three ways out; renaming this folder to whatever the Director
+prefers is one `git mv` plus this `Task:` line. Everything below is unchanged.
+
+Task: 3282
 Round: 1
 Base: `main` @ `8f91a477`
 Code commit: n/a — **docs-only**. Nothing under `src/`, `tests/` or `tools/` changed. This task is a

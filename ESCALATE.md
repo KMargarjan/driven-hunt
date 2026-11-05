@@ -38,6 +38,15 @@ the Director's file:**
 
 **I recommend 1.** It costs three edits and no history.
 
+**WHAT I DID, AFTER WRITING THIS ENTRY (V280: the escalation first, the workaround second).** A
+finished task that nobody reviews is the worse outcome, and a Reviewer round can only happen while
+this session is alive, so I took option 1 with the most collision-proof number I could find:
+**`reviews/task-3282/`, `Task: 3282`** -- conformant, free, and far from the queue's head (329), so
+it cannot take the number of the Director's next dispatch. The request's first paragraph says so in
+full. `TASKS.md`'s row is still keyed **328g2**, the Director's own label. Renaming it to anything
+the Director prefers is `git mv reviews/task-3282 reviews/task-<N>` plus one `Task:` line plus the
+`TASKS.md` key. **The decision is still the Director's; what I removed is the wait, not the choice.**
+
 **WHAT IS ALREADY TRUE IN HER PLACE, review or no review** (full evidence in the request):
 `Workspace.GridForest` stands in place `130094961655666` -- 10,839 models / 36,007 parts in five
 cell folders, `PlantEpoch=58575af518ae6156`, planted from Edit out of a worktree of merged main
