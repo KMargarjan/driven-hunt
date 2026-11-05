@@ -65,6 +65,18 @@ Usage:
   python tools/terrainbake.py survey  [--cells C1]                      # read-only: the relief rows
   python tools/terrainbake.py archive --cells C1 --backup <f>.rbxl      # B3, Parent only
   python tools/terrainbake.py census                                    # read-only
+  python tools/terrainbake.py plant   --cells C1,C2 --backup <f>.rbxl   # THE PREBUILD (task 328g): plants
+                                                                        # Workspace.GridForest from EDIT through
+                                                                        # Places.dressCell and stamps PlantEpoch
+                                                                        # with the LIVE TerrainEpoch. Saved with
+                                                                        # the place, so the trees are there at
+                                                                        # the first frame of Play.
+  python tools/terrainbake.py rows    --cells C1 [--folder GridPlaces]  # read-only: one cell's models, parts and
+                                                                        # row hash, the SAME instrument for the
+                                                                        # prebuild and for a boot dress
+  python tools/terrainbake.py archive --cells C1 --backup <f>.rbxl      # B3, Parent only -- also how GridForest
+                                                                        # is taken back out (design 10.1: only
+                                                                        # this tool ever removes it)
   python tools/terrainbake.py selftest                                  # no Studio, no network; CI
 
 Exit codes, deliberately the harness's shape: 0 done | 1 a step failed | 2 REFUSED.
@@ -632,6 +644,323 @@ def prelude():
         shas[name] = digest
     parts.append("local Relief, Grid, TerrainBake = INJECTED_Relief, INJECTED_Grid, INJECTED_TerrainBake")
     return chr(10).join(parts), shas
+
+
+# ---------------------------------------------------------------- THE PREBUILD (task 328g)
+#
+# `plant` DRIVES `Places.dressCell` FROM EDIT, and that is design 10.2's point: it is a SECOND DRIVER
+# of the one writer, not a second writer. `Places.dressCell` already takes the folder, the ground
+# reader, the template lookup, the yield and the clock as arguments ("EVERY MOVING PART IS AN
+# ARGUMENT"), so the prebuild needs no new function -- it hands `Workspace.GridForest`, `breathe =
+# nil` (nothing yields in Edit) and the same Terrain-only reader the boot hands.
+#
+# IT IS A SECOND MODULE SET, NOT AN ADDITION TO `MODULES`: the bake's three modules are 187 KB and
+# the planter's chain is another 490 KB, so a run carries only the chain it needs.
+PLANTER_LUAU = os.path.join(REPO, "src", "server", "Places", "init.luau")
+SLICE_LUAU = os.path.join(REPO, "src", "server", "Places", "Slice.luau")
+TREEGROUND_LUAU = os.path.join(REPO, "src", "shared", "TreeGround", "init.luau")
+SERVER_FOREST_LUAU = os.path.join(REPO, "src", "server", "ForestTest", "init.luau")
+
+# WHICH COMMANDS WRITE. Named once, so main dispatches on it and the selftest asserts the same
+# tuple rather than a second copy of the list.
+PLANT_MUTATING = ("bake", "archive", "plant")
+
+PLANT_MODULES = (
+    ("Relief", os.path.join(REPO, "src", "shared", "Grid", "Relief.luau")),
+    ("Grid", os.path.join(REPO, "src", "shared", "Grid", "init.luau")),
+    ("Forest", os.path.join(REPO, "src", "shared", "ForestTest", "init.luau")),
+    ("TreeGround", TREEGROUND_LUAU),
+    ("Plan", os.path.join(REPO, "src", "shared", "Places", "init.luau")),
+    ("Slice", SLICE_LUAU),
+    ("Ground", os.path.join(REPO, "src", "server", "Places", "Ground.luau")),
+    ("Planter", PLANTER_LUAU),
+)
+
+REWRITES.update({
+    "Forest": [
+        ('local Grid = require(ReplicatedStorage:WaitForChild("Grid"))', "local Grid = INJECTED_Grid"),
+    ],
+    "Plan": [
+        ('local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))',
+         "local Forest = INJECTED_Forest"),
+        ('local Grid = require(ReplicatedStorage:WaitForChild("Grid"))', "local Grid = INJECTED_Grid"),
+        ('local TreeGround = require(ReplicatedStorage:WaitForChild("TreeGround"))',
+         "local TreeGround = INJECTED_TreeGround"),
+    ],
+    "Slice": [
+        ('local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))',
+         "local Forest = INJECTED_Forest"),
+    ],
+    "Ground": [
+        ('local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))',
+         "local Forest = INJECTED_Forest"),
+    ],
+    "Planter": [
+        ('local Plan = require(ReplicatedStorage:WaitForChild("Places"))', "local Plan = INJECTED_Plan"),
+        ('local Ground = require(script:WaitForChild("Ground"))', "local Ground = INJECTED_Ground"),
+        ('local Slice = require(script:WaitForChild("Slice"))', "local Slice = INJECTED_Slice"),
+        ('local TreeGround = require(ReplicatedStorage:WaitForChild("TreeGround"))',
+         "local TreeGround = INJECTED_TreeGround"),
+        ('local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))',
+         "local Forest = INJECTED_Forest"),
+        ('local Grid = require(ReplicatedStorage:WaitForChild("Grid"))', "local Grid = INJECTED_Grid"),
+        ('local Flags = require(ReplicatedStorage:WaitForChild("Flags"))',
+         "local Flags = INJECTED_Flags"),
+    ],
+})
+
+# `Flags` IS 71 KB AND THE PREBUILD NEVER ASKS IT ANYTHING. `Places.gridPreviewEnabled` is its only
+# reader and `dressCell` is not downstream of it, so the stub ERRORS on every access -- which PROVES
+# the claim instead of stating it: if the prebuild ever read a flag, the run would stop here.
+FLAGS_STUB = """local INJECTED_Flags = setmetatable({}, {
+    __index = function(_, key)
+        error("the injected Flags stub answers nothing: the prebuild read " .. tostring(key), 0)
+    end,
+})"""
+
+# THE GROUND READER IS CUT OUT OF `src/server/ForestTest/init.luau`, NEVER RETYPED HERE. That module
+# is 242 KB and pulls `Boar`, `HighSeats`, `Data`, `Line`, `Markers` and `Seats` behind it, so it
+# cannot ride on the injection -- and a reader typed into this tool would be design 10.1's SECOND
+# DEFINITION of where the ground is, which is the one thing `Places.build` refuses to have. So the
+# single function is cut out by its own signature, exactly once, and the selftest asserts what the
+# cut text still contains (the Include filter, Terrain, IgnoreWater, and the 600/-1200 band).
+TERRAIN_Y_AT_HEAD = "function ForestTest.terrainYAt(x: number, z: number): number?\n"
+
+
+def string_from(path, pattern):
+    """One quoted constant off a file -- `number_from`'s twin. A miss or a second copy is a refusal."""
+    with open(path, "r", encoding="utf-8") as handle:
+        found = re.findall(pattern, handle.read(), re.M)
+    if len(found) != 1:
+        raise RuntimeError("tools/terrainbake.py: %s holds %d matches for %r, not 1"
+                           % (os.path.relpath(path, REPO), len(found), pattern))
+    return found[0]
+
+
+def terrain_reader():
+    """(luau, sha256) -- `ForestTest.terrainYAt`'s own body, as a local function."""
+    with open(SERVER_FOREST_LUAU, "r", encoding="utf-8") as handle:
+        text = handle.read()
+    if text.count(TERRAIN_Y_AT_HEAD) != 1:
+        raise RuntimeError(
+            "tools/terrainbake.py: src/server/ForestTest/init.luau holds %d copies of the terrainYAt "
+            "signature, not 1. The prebuild cuts that function out; fix TERRAIN_Y_AT_HEAD."
+            % text.count(TERRAIN_Y_AT_HEAD))
+    after = text.split(TERRAIN_Y_AT_HEAD, 1)[1]
+    if "\nend\n" not in after:
+        raise RuntimeError("tools/terrainbake.py: terrainYAt has no closing end")
+    body = after.split("\nend\n", 1)[0]
+    for must in ("Enum.RaycastFilterType.Include", "Workspace.Terrain", "IgnoreWater = true",
+                 "Vector3.new(x, 600, z)", "Vector3.new(0, -1200, 0)"):
+        if must not in body:
+            raise RuntimeError("tools/terrainbake.py: terrainYAt no longer contains %r -- the "
+                               "prebuild's ground reader would not be the boot's" % must)
+    luau = "local function terrainYAt(x: number, z: number): number?\n%s\nend" % body
+    return luau, hashlib.sha256(luau.encode("utf-8")).hexdigest()
+
+
+def plant_prelude():
+    """(luau, {name: sha256}) -- the planter's chain as locals, in dependency order."""
+    reader, reader_sha = terrain_reader()
+    parts = [SHOTGUN_STUB % shotgun_slug_range(), FLAGS_STUB,
+             'local Workspace = game:GetService("Workspace")', reader]
+    shas = {"Shotgun": hashlib.sha256(open(SHOTGUN_LUAU, "rb").read()).hexdigest(),
+            "terrainYAt": reader_sha}
+    for name, path in PLANT_MODULES:
+        text, digest = module_text(name, path)
+        parts.append("local INJECTED_%s = %s" % (name, text))
+        shas[name] = digest
+    parts.append("local Relief, Grid, Forest, TreeGround, Plan, Slice, Ground, Planter = "
+                 "INJECTED_Relief, INJECTED_Grid, INJECTED_Forest, INJECTED_TreeGround, "
+                 "INJECTED_Plan, INJECTED_Slice, INJECTED_Ground, INJECTED_Planter")
+    return chr(10).join(parts), shas
+
+
+# THE PLANT ECHO, the same contract as the bake's: the arrived code states the constants it itself
+# defines, and they are compared with the same constants read off the files. `forestFolder` is the
+# one that matters most -- the tool stamps the folder this name makes and the boot reads it.
+PLANT_ECHO_EXPRESSION = """{
+        forestFolder = Planter.FOREST_FOLDER,
+        gridFolder = Planter.GRID_FOLDER,
+        cells = #Grid.cellIds(),
+        originX = Grid.CONFIG.originX,
+        cellDepth = Grid.CONFIG.cellDepthStuds,
+        bakeVersion = Relief.BAKE_VERSION,
+        budgetMs = Slice.BUDGET_MS,
+        cliffStuds = TreeGround.CLIFF_STUDS,
+        cellPartCap = Plan.CELL_PART_CAP,
+        plantedCells = table.concat(Grid.PLANTED_CELLS, ","),
+    }"""
+
+
+def plant_facts(facts):
+    """The echo's constants read off the FILES, plus the two attribute names.
+
+    The two attribute names live on the SERVER `ForestTest`, which the injection cannot carry, so
+    they are read off its file and CANNOT be echoed from inside Studio. That is said plainly: if
+    they ever drifted, the arbiter would read an unstamped folder and print REFUSED -- loud, and it
+    plants nothing.
+    """
+    out = {
+        "forestFolder": string_from(PLANTER_LUAU, r'^Places\.FOREST_FOLDER = "([A-Za-z0-9_]+)"'),
+        "gridFolder": string_from(PLANTER_LUAU, r'^Places\.GRID_FOLDER = "([A-Za-z0-9_]+)"'),
+        "budgetMs": number_from(SLICE_LUAU, r"^Slice\.BUDGET_MS = ([0-9_.]+)"),
+        "cliffStuds": number_from(TREEGROUND_LUAU, r"^TreeGround\.CLIFF_STUDS = ([0-9_.]+)"),
+        "plantEpochAttr": string_from(SERVER_FOREST_LUAU,
+                                      r'^ForestTest\.PLANT_EPOCH_ATTR = "([A-Za-z0-9_]+)"'),
+        "terrainEpochAttr": string_from(SERVER_FOREST_LUAU,
+                                        r'^ForestTest\.TERRAIN_EPOCH_ATTR = "([A-Za-z0-9_]+)"'),
+    }
+    out["cells"] = len(CELL_IDS)
+    out["originX"] = facts["originX"]
+    out["cellDepth"] = facts["cellDepth"]
+    out["bakeVersion"] = int(number_from(RELIEF_LUAU, r"^Relief\.BAKE_VERSION = ([0-9_]+)"))
+    return out
+
+
+def check_plant_echo(studio, studio_id, wanted, injected, shas):
+    """Refusal 4's replacement for the plant chain: what arrived states its own constants."""
+    got = call(studio, studio_id, PLANT_ECHO_EXPRESSION, timeout=120, injected=injected)
+    rows = (("forestFolder", wanted["forestFolder"]), ("gridFolder", wanted["gridFolder"]),
+            ("cells", wanted["cells"]), ("originX", wanted["originX"]),
+            ("cellDepth", wanted["cellDepth"]), ("bakeVersion", wanted["bakeVersion"]),
+            ("budgetMs", wanted["budgetMs"]), ("cliffStuds", wanted["cliffStuds"]))
+    bad = []
+    for key, value in rows:
+        mine = got.get(key)
+        same = (abs(mine - value) < 1e-9) if isinstance(value, float) else (mine == value)
+        if not same:
+            bad.append("%s: Studio %r, the files %r" % (key, mine, value))
+    if bad:
+        return ("the injected planter does not define this commit's constants -- " + "; ".join(bad))
+    print("  echo   forest=%s grid=%s cells=%d planted=%s cap=%s budget=%.1fms cliff=%.1f"
+          % (got["forestFolder"], got["gridFolder"], got["cells"], got["plantedCells"],
+             got["cellPartCap"], got["budgetMs"], got["cliffStuds"]))
+    return None
+
+
+# THE SEAM `plant` RUNS, ONE CALL PER CELL. `Planter.dressCells` with the WHOLE cell list as `keep`
+# so a cell arriving does not fell the cell before it (task 328i's rule), `breathe = nil` because
+# nothing yields in Edit, and `terrainYAt` -- the boot's own reader, cut out of its own file.
+PLANT_SEAM = """(function()
+        local folder = Workspace:FindFirstChild(Planter.FOREST_FOLDER)
+        if folder == nil then
+            local made = Instance.new("Folder")
+            made.Name = Planter.FOREST_FOLDER
+            made.Parent = Workspace
+            folder = made
+        end
+        local sources = Planter.templates(Workspace)
+        if #sources == 0 then
+            return { error = "this place holds none of Places.TEMPLATE_SOURCES: nothing to clone" }
+        end
+        local audit = {}
+        local template = Planter.templateLookup(sources, audit)
+        local keep = {%s}
+        local reports = Planter.dressCells({"%s"}, folder, terrainYAt, template, nil, nil, keep)
+        local row = reports[1]
+        row.quarantined = audit.quarantined
+        row.sources = #sources
+        return row
+    end)()"""
+
+# WHAT STANDS IN A CELL'S FOLDER NOW, AND ITS ROW HASH. The hash is over every planted model's own
+# identity -- name, pivot to 1/100 stud, scale, yaw and band -- sorted, so the prebuild's wood and
+# the boot's wood can be compared as ONE number instead of 2,400 rows. Luau has no sha256, so the
+# rows are concatenated there and hashed here. IT READS WHATEVER FOLDER IT IS GIVEN, which is what
+# lets the same instrument read `GridForest` in Edit and `GridPlaces` in a Play server.
+FOREST_ROWS_SEAM = """(function()
+        local folder = Workspace:FindFirstChild("%s")
+        if folder == nil then
+            return { folder = false, cell = false }
+        end
+        local cell = folder:FindFirstChild("%s")
+        if cell == nil then
+            return { folder = true, cell = false }
+        end
+        local out, parts = {}, 0
+        for _, model in ipairs(cell:GetChildren()) do
+            if model:IsA("Model") then
+                local pivot = model:GetPivot()
+                local _, yaw = pivot:ToEulerAnglesYXZ()
+                table.insert(out, string.format("%%s|%%.2f|%%.2f|%%.2f|%%.4f|%%.4f|%%s",
+                    model.Name, pivot.X, pivot.Y, pivot.Z, model:GetScale(), yaw,
+                    tostring(model:GetAttribute("DrivePlaceBand"))))
+            end
+            for _, thing in ipairs(model:GetDescendants()) do
+                if thing:IsA("BasePart") then
+                    parts += 1
+                end
+            end
+        end
+        table.sort(out)
+        return { folder = true, cell = true, models = #out, parts = parts,
+                 epoch = tostring(folder:GetAttribute("%s")), rows = table.concat(out, ";") }
+    end)()"""
+
+
+def forest_rows(studio, studio_id, cell_id, folder_name, epoch_attr, injected):
+    """One cell's planted wood as models, parts, a 16-hex row hash and the folder's epoch."""
+    got = call(studio, studio_id, FOREST_ROWS_SEAM % (folder_name, cell_id, epoch_attr),
+               timeout=BAKE_CALL_TIMEOUT, injected=injected)
+    if not got.get("cell"):
+        return None
+    got["rowHash"] = hashlib.sha256(got.pop("rows").encode("utf-8")).hexdigest()[:16]
+    return got
+
+
+def command_plant(studio, studio_id, cells, injected, wanted, sha):
+    """Plant `cells` into `Workspace.GridForest` from EDIT and stamp the LIVE TerrainEpoch on it.
+
+    THE STAMP IS THE GROUND'S OWN EPOCH, read off `Workspace.Terrain` and never computed here: the
+    arbiter's question is "was this wood planted on THIS ground", and the ground's own answer is the
+    attribute the bake already writes (design 5.4). A plant over unstamped Terrain is REFUSED -- an
+    uncheckable forest is the stale-forest defect with the evidence removed.
+    """
+    live = call(studio, studio_id,
+                '(function() return { epoch = tostring(Workspace.Terrain:GetAttribute("%s")) } end)()'
+                % wanted["terrainEpochAttr"], injected=injected)
+    epoch = live.get("epoch")
+    if not epoch or epoch == "nil":
+        return refuse("Workspace.Terrain carries no %s: bake the ground before planting on it"
+                      % wanted["terrainEpochAttr"])
+    print("  ground %s=%s" % (wanted["terrainEpochAttr"], epoch))
+    keep = ",".join('"%s"' % c for c in cells)
+    rows, models, parts = [], 0, 0
+    for cell_id in cells:
+        started = time.time()
+        row = call(studio, studio_id, PLANT_SEAM % (keep, cell_id), timeout=BAKE_CALL_TIMEOUT,
+                   injected=injected)
+        row["wallSeconds"] = time.time() - started
+        measured = forest_rows(studio, studio_id, cell_id, wanted["forestFolder"],
+                               wanted["plantEpochAttr"], injected) or {}
+        row["rowHash"] = measured.get("rowHash", "none")
+        row["standing"] = measured.get("models", 0)
+        row["standingParts"] = measured.get("parts", 0)
+        rows.append(row)
+        models += row["standing"]
+        parts += row["standingParts"]
+        print("  plant  %-3s %5d of %5d planted, %5d standing (%5d parts), %4d cliff, %4d skipped, "
+              "%3d missing, cap %5d, rows %s, %6.1fs"
+              % (cell_id, row.get("planted", 0), row.get("wanted", 0), row["standing"],
+                 row["standingParts"], row.get("cliff", 0), row.get("skipped", 0),
+                 row.get("missing", 0), row.get("capacity", 0), row["rowHash"],
+                 row["wallSeconds"]))
+    # THE STAMP GOES ON LAST, AND ONLY IF EVERY CELL WENT IN: a folder stamped before its last cell
+    # is planted is a folder the boot would certify half full.
+    stamped = call(studio, studio_id,
+                   '(function() local f = Workspace:FindFirstChild("%s") if f == nil then '
+                   'return { ok = false } end f:SetAttribute("%s", "%s") '
+                   'return { ok = true, epoch = tostring(f:GetAttribute("%s")) } end)()'
+                   % (wanted["forestFolder"], wanted["plantEpochAttr"], epoch,
+                      wanted["plantEpochAttr"]), injected=injected)
+    if not stamped.get("ok") or stamped.get("epoch") != epoch:
+        return refuse("the %s stamp did not take: %s"
+                      % (wanted["plantEpochAttr"], json.dumps(stamped)))
+    print("[bake] plant OK: %d cell(s) @ %s %s=%s %d models / %d parts in Workspace.%s (clean tree)"
+          % (len(cells), sha, wanted["plantEpochAttr"], epoch, models, parts,
+             wanted["forestFolder"]))
+    return 0
 
 
 # THE ECHO: what the arrived code says about itself, measured inside Studio and compared with the
@@ -1581,7 +1910,7 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
 def main(argv):
     parser = argparse.ArgumentParser(prog="terrainbake")
     parser.add_argument("command", choices=("plan", "snapshot", "diff", "measure", "bake", "survey",
-                                            "archive", "census", "selftest"))
+                                            "archive", "census", "plant", "rows", "selftest"))
     parser.add_argument("--cells", help="comma list, e.g. C1")
     parser.add_argument("--backup", help="a .rbxl saved by File -> Save to File, outside the repo")
     parser.add_argument("--hold-landform", help="comma list of cells IN --cells whose landform this "
@@ -1615,6 +1944,9 @@ def main(argv):
                                               "(task 328k, lesson L-055)")
     parser.add_argument("--keep-flags", help="comma list of flag overrides that are the PLACE "
                                              "OWNER's and must be left as found (refusal 7)")
+    parser.add_argument("--folder", help="`rows` only: which Workspace folder to read, default the "
+                                        "prebuild's (Places.FOREST_FOLDER). `GridPlaces` reads a "
+                                        "boot dress with the same instrument")
     parser.add_argument("--y-min", type=float, default=-100.0, help="the Y band the snapshot reads")
     parser.add_argument("--y-max", type=float, default=400.0)
     args = parser.parse_args(argv)
@@ -1650,7 +1982,10 @@ def main(argv):
     why_not_local = local_file_refusal(args.command, local, args.studio_name)
     if why_not_local:
         return refuse(why_not_local)
-    mutating = args.command in ("bake", "archive")
+    # `plant` WRITES ~10,000 CLONES INTO HER PLACE, so it takes every refusal a bake takes: Edit
+    # mode, the place id asked again before each call, a clean tree, a fresh --backup, and the flag
+    # rule. `rows` only reads.
+    mutating = args.command in PLANT_MUTATING
     if mutating and not args.cells:
         return refuse("--cells is missing: an unnamed cell is an unbounded run")  # refusal 6
 
@@ -1666,12 +2001,25 @@ def main(argv):
     # THE PRELUDE, BUILT ONCE PER RUN, off the tree at this commit. Every call of the run carries
     # these same bytes (Director decision 2); `module_text` refuses here if a require it must rewrite
     # has moved, before anything is sent.
-    injected, shas = prelude()
+    # THE PLANTER'S CHAIN FOR `plant` AND `rows`, THE BAKER'S THREE FOR EVERYTHING ELSE. Neither
+    # command needs the other's modules, and 677 KB on every call is 677 KB that can time out.
+    planting = args.command in ("plant", "rows")
+    if planting:
+        injected, shas = plant_prelude()
+        sent = PLANT_MODULES
+    else:
+        injected, shas = prelude()
+        sent = MODULES
     print("[bake] commit %s%s" % (sha, "" if not dirty else " (DIRTY)"))
-    for name, path in MODULES:
+    for name, path in sent:
         print("  inject %-12s %s  %s" % (name, shas[name], os.path.relpath(path, REPO)))
     print("  stub   %-12s %s  src/shared/Shotgun/init.luau (%s = %g)"
           % ("Shotgun", shas["Shotgun"], SHOTGUN_ACCESS, shotgun_slug_range()))
+    if planting:
+        print("  stub   %-12s (errors on every access: the prebuild reads no flag)" % "Flags")
+        print("  cut    %-12s %s  src/server/ForestTest/init.luau (ForestTest.terrainYAt)"
+              % ("terrainYAt", shas["terrainYAt"]))
+        print("  inject %d bytes in all" % len(injected))
 
     studio = Studio()
     try:
@@ -1681,7 +2029,9 @@ def main(argv):
         problem = check_place(studio, studio_id, args.studio_name, local)  # refusals 1 and 2
         if problem:
             return refuse(problem)
-        problem = check_echo(studio, studio_id, facts, injected, shas)  # refusal 4
+        wanted = plant_facts(facts) if planting else None
+        problem = (check_plant_echo(studio, studio_id, wanted, injected, shas) if planting
+                   else check_echo(studio, studio_id, facts, injected, shas))  # refusal 4
         if problem:
             return refuse(problem)
         keep, live = [], []
@@ -1711,6 +2061,24 @@ def main(argv):
             if problem:
                 return refuse(problem)
             return command_diff(studio, studio_id, args, facts, injected, base)
+        if args.command == "rows":
+            if not args.cells:
+                return refuse("--cells is missing")
+            folder = args.folder or wanted["forestFolder"]
+            for cell_id in args.cells:
+                got = forest_rows(studio, studio_id, cell_id, folder, wanted["plantEpochAttr"],
+                                  injected)
+                if got is None:
+                    print("[bake] rows %-3s Workspace.%s has no %s folder" % (cell_id, folder, cell_id))
+                else:
+                    print("[bake] rows %-3s %5d models %5d parts rows=%s %s=%s (folder %s)"
+                          % (cell_id, got["models"], got["parts"], got["rowHash"],
+                             wanted["plantEpochAttr"], got["epoch"], folder))
+            return 0
+        if args.command == "plant":
+            if not args.cells:
+                return refuse("--cells is missing: an unnamed cell is an unbounded run")
+            return command_plant(studio, studio_id, args.cells, injected, wanted, sha)
         if args.command == "archive":
             result = call(studio, studio_id, 'TerrainBake.archive("GridForest", {})', injected=injected)
             print("[bake] archive: %s" % json.dumps(result))
@@ -2508,6 +2876,88 @@ def selftest():
     ok("a BAKE_VERSION bump changes the epoch",
        digest(canonical(CANONICAL_FIXTURE_INPUT))
        != digest(canonical(dict(CANONICAL_FIXTURE_INPUT, bakeVersion=2))))
+
+    # ---- THE PREBUILD (task 328g): the plant chain, the cut reader and the stamp
+    plant_sent, plant_shas = plant_prelude()
+    ok("the plant prelude carries the planter's whole chain and no require survives it",
+       all(("local INJECTED_%s =" % name) in plant_sent for name, _ in PLANT_MODULES)
+       and 'require(ReplicatedStorage:WaitForChild(' not in plant_sent
+       and "require(script:WaitForChild(" not in plant_sent,
+       "%d bytes" % len(plant_sent))
+    ok("the plant prelude is in dependency order: Relief, Grid, Forest, TreeGround, Plan, then Planter",
+       plant_sent.index("INJECTED_Relief =") < plant_sent.index("INJECTED_Grid =")
+       < plant_sent.index("INJECTED_Forest =") < plant_sent.index("INJECTED_Plan =")
+       < plant_sent.index("INJECTED_Planter ="))
+    ok("the plant prelude carries NO TerrainBake and the bake prelude carries NO Planter -- "
+       "neither command pays for the other's modules",
+       "INJECTED_TerrainBake" not in plant_sent and "INJECTED_Planter" not in prelude()[0])
+    # THE FLAGS STUB IS THE CLAIM "the prebuild reads no flag", MADE FAILABLE: it errors on every
+    # access, so the one reader (`Places.gridPreviewEnabled`) can only be reached by a call that is
+    # not in the prebuild's path.
+    ok("the injected Flags stub errors on every access rather than answering a default",
+       "error(" in FLAGS_STUB and "__index" in FLAGS_STUB and "false" not in FLAGS_STUB)
+
+    reader, _ = terrain_reader()
+    ok("the ground reader is CUT out of src/server/ForestTest/init.luau, not retyped here",
+       "Enum.RaycastFilterType.Include" in reader and "Workspace.Terrain" in reader
+       and "IgnoreWater = true" in reader and "Vector3.new(x, 600, z)" in reader
+       and "Vector3.new(0, -1200, 0)" in reader and reader.startswith("local function terrainYAt"))
+    # ...AND IT DIES IF THAT FUNCTION MOVES, which is the only thing that makes the cut honest.
+    try:
+        real = TERRAIN_Y_AT_HEAD
+        globals()["TERRAIN_Y_AT_HEAD"] = "function ForestTest.noSuchReader(): number?\n"
+        terrain_reader()
+        ok("terrain_reader refuses when the signature it cuts on is not in the file", False)
+    except RuntimeError as problem:
+        ok("terrain_reader refuses when the signature it cuts on is not in the file",
+           "copies of the terrainYAt signature" in str(problem))
+    finally:
+        globals()["TERRAIN_Y_AT_HEAD"] = real
+
+    # THE TWO ATTRIBUTE NAMES AND THE TWO FOLDER NAMES, read off the files the code defines them in.
+    # `string_from` refuses a miss or a second copy, so this cannot drift silently.
+    wanted = plant_facts(facts)
+    ok("the prebuild's folder is Places.FOREST_FOLDER = GridForest, read off the planter's file",
+       wanted["forestFolder"] == "GridForest")
+    ok("it is NOT the folder Places.build destroys at every boot (defect F-1)",
+       wanted["forestFolder"] != wanted["gridFolder"] and wanted["gridFolder"] == "GridPlaces")
+    ok("the stamp and the ground's epoch are the two names the arbiter reads",
+       (wanted["plantEpochAttr"], wanted["terrainEpochAttr"]) == ("PlantEpoch", "TerrainEpoch"))
+    ok("GridForest is in ForestTest.GROUND_IGNORE, so no ray looking for the ground stops on a "
+       "prebuilt trunk",
+       re.search(r'ForestTest\.GROUND_IGNORE = table\.freeze\(\{[^}]*"GridForest"',
+                 open(os.path.join(REPO, "src", "shared", "ForestTest", "init.luau"),
+                      encoding="utf-8").read(), re.S) is not None)
+    # NOTHING UNDER `src/` DESTROYS IT (design 10.1's one invariant). Checked over the whole tree and
+    # not over the one file I happen to remember.
+    destroyers = []
+    for root, _dirs, names in os.walk(os.path.join(REPO, "src")):
+        for name in names:
+            if not name.endswith(".luau"):
+                continue
+            path = os.path.join(root, name)
+            with open(path, encoding="utf-8") as handle:
+                for number, line in enumerate(handle, 1):
+                    bare = line.split("--", 1)[0]
+                    if ("FOREST_FOLDER" in bare or "GridForest" in bare) and (
+                            "Destroy" in bare or "ClearAllChildren" in bare):
+                        destroyers.append("%s:%d" % (os.path.relpath(path, REPO), number))
+    ok("no line under src/ both names the prebuild's folder and destroys something",
+       not destroyers, ",".join(destroyers))
+
+    ok("the plant seam drives Places.dressCells -- the ONE writer -- with no yield and the whole "
+       "cell list as keep",
+       "Planter.dressCells(" in PLANT_SEAM and "terrainYAt" in PLANT_SEAM
+       and "local keep = {%s}" in PLANT_SEAM and "Planter.FOREST_FOLDER" in PLANT_SEAM)
+    ok("the row-hash seam reads whatever folder it is given, so the prebuild and a boot dress are "
+       "measured by the SAME instrument",
+       FOREST_ROWS_SEAM % ("GridPlaces", "C1", "PlantEpoch")
+       and 'FindFirstChild("GridPlaces")' in (FOREST_ROWS_SEAM % ("GridPlaces", "C1", "PlantEpoch"))
+       and 'FindFirstChild("GridForest")' in (FOREST_ROWS_SEAM % ("GridForest", "C1", "PlantEpoch"))
+       and "GetScale()" in FOREST_ROWS_SEAM
+       and "DrivePlaceBand" in FOREST_ROWS_SEAM and "table.sort(out)" in FOREST_ROWS_SEAM)
+    ok("plant takes every refusal a bake takes, and rows takes none of them",
+       "plant" in PLANT_MUTATING and "rows" not in PLANT_MUTATING and "bake" in PLANT_MUTATING)
 
     print("[bake] selftest: %d check(s) failed" % len(failures) if failures else "[bake] selftest: PASS")
     return 1 if failures else 0

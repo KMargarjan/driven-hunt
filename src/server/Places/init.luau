@@ -69,6 +69,14 @@ Places.FOLDER = "DrivePlaces"
 -- can ever be mistaken for the ground.
 Places.GRID_FOLDER = "GridPlaces"
 
+-- THE PREBUILT WOOD'S FOLDER, AND IT IS A THIRD FOLDER FOR ONE REASON: `Places.build` destroys
+-- `GRID_FOLDER` at every boot, whichever world is live (`docs/design/grid-map.md` 11.3 step 2), so a
+-- forest prebuilt into it would be deleted at every Play -- defect F-1, `grid-terrain.md` 10.1.
+-- **NOTHING UNDER `src/` EVER DESTROYS THIS FOLDER.** It is written by `Places.dressCell` driven from
+-- EDIT by `tools/terrainbake.py plant` and saved with the place; `grid_ground.spec` asserts the name
+-- is in `ForestTest.GROUND_IGNORE` once, so a ray looking for the ground cannot stop on our trunk.
+Places.FOREST_FOLDER = "GridForest"
+
 -- THE FLAG THAT SHOWS IT. Born OFF (`src/shared/Flags/init.luau`); read ONCE here, at this module's
 -- boundary, and passed inward as a boolean -- the only permitted shape (CLAUDE.md, "Feature flags").
 Places.GRID_FLAG = "GRID_PREVIEW"
@@ -1090,9 +1098,13 @@ function Places.build(
 end
 
 -- WHAT WAS PLANTED, for the boot's own line and for a live probe. Read-only.
-function Places.stats(world: Instance?): { [string]: any }
+--
+-- ONE COUNTER FOR BOTH FOLDERS (task 328g), by parameter and not by a second copy: `DrivePlaces`
+-- holds one child folder per place and `GridForest` one per cell, so "how many models stand in each
+-- child, and how many in total" is the same question of both. nil reads `Places.FOLDER`.
+function Places.stats(world: Instance?, folderName: string?): { [string]: any }
 	local root = world or Workspace
-	local folder = root:FindFirstChild(Places.FOLDER)
+	local folder = root:FindFirstChild(folderName or Places.FOLDER)
 	local out: { [string]: any } = { folder = folder ~= nil, total = 0 }
 	if folder == nil then
 		return out

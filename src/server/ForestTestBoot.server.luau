@@ -117,9 +117,47 @@ print(
 -- the line that reports it and by the preview cell below (327a review note (g) -- the line used to
 -- print a second read, so a flag flipped between them would have been invisible).
 local gridPreviewOn = Places.gridPreviewEnabled()
-local planted = Places.build(ForestTest.terrainYAt, nil, workspace.Terrain, gridPreviewOn, function()
-	task.wait()
-end)
+-- THE PREBUILT FOREST'S ARBITER, AND THE TWO ATTRIBUTES ARE READ EXACTLY ONCE -- HERE
+-- (task 328g, `docs/design/grid-terrain.md` 10.3). `Workspace.GridForest` is planted at EDIT time by
+-- `tools/terrainbake.py plant` and saved with the place, so Karen's trees are there at the first
+-- frame instead of filling in over ~70 s behind her. This file owns nothing but the question: the
+-- comparison is `ForestTest.prebuildVerdict`, pure and reachable in all three branches from a spec.
+--
+-- `dress` IS THE ONLY THING ACTED ON, and it is acted on by handing `Places.build` an EMPTY cell
+-- list -- the no-wood branch that function already has by parameter. So `build`'s contract is
+-- untouched, `gridPending` comes back empty and the deferred dress below is inert for free.
+local prebuiltForest = workspace:FindFirstChild(Places.FOREST_FOLDER)
+local prebuild = ForestTest.prebuildVerdict(
+	workspace.Terrain:GetAttribute(ForestTest.TERRAIN_EPOCH_ATTR),
+	ForestTest.plantedEpochOf(prebuiltForest)
+)
+local prebuiltStats = Places.stats(workspace, Places.FOREST_FOLDER)
+-- PRINTED AND NEVER ASSUMED (design 11), and the REFUSED branch prints BOTH epochs: a stale forest
+-- on re-baked ground is trees hanging in the air, which is the defect the arbiter exists to stop.
+print(
+	string.format(
+		"[ForestTestBoot] prebuilt forest: %s, folder=%s, %d model(s) in %d cell folder(s), live=%s planted=%s, dress=%s",
+		string.upper(tostring(prebuild.branch)),
+		tostring(prebuiltForest ~= nil),
+		prebuiltStats.total,
+		#(if prebuiltForest ~= nil then prebuiltForest:GetChildren() else {}),
+		tostring(prebuild.live),
+		tostring(prebuild.planted),
+		tostring(prebuild.dress)
+	)
+)
+local planted = Places.build(
+	ForestTest.terrainYAt,
+	nil,
+	workspace.Terrain,
+	gridPreviewOn,
+	function()
+		task.wait()
+	end,
+	-- NO CELL LIST WHEN THE PREBUILD STANDS (or was refused): an empty list dresses nothing. nil is
+	-- today's boot exactly -- `Grid.PLANTED_CELLS`, read at the planter's own boundary.
+	if prebuild.dress then nil else {}
+)
 print(string.format(
 	-- `%d leaf part(s) unblocked` IS TASK 260's COUNT, printed because it is the number the
 	-- Director asked for before and after: how many parts in Karen's own wood stopped a bullet

@@ -1545,14 +1545,18 @@ return function()
 		it("GROUND_IGNORE carries GridForest once, and the three folder names differ", function()
 			local seen = 0
 			for _, name in ipairs(Forest.GROUND_IGNORE) do
-				if name == "GridForest" then
+				-- `Planter.FOREST_FOLDER` AND NOT THE LITERAL (task 328g): the list is asserted
+				-- against the CONSTANT the planter and the tool both use, so a rename moves both or
+				-- fails here.
+				if name == Planter.FOREST_FOLDER then
 					seen += 1
 				end
 			end
 			expect(seen).to.equal(1)
 			expect(Planter.FOLDER).never.to.equal(Planter.GRID_FOLDER)
-			expect(Planter.FOLDER).never.to.equal("GridForest")
-			expect(Planter.GRID_FOLDER).never.to.equal("GridForest")
+			expect(Planter.FOREST_FOLDER).to.equal("GridForest")
+			expect(Planter.FOLDER).never.to.equal(Planter.FOREST_FOLDER)
+			expect(Planter.GRID_FOLDER).never.to.equal(Planter.FOREST_FOLDER)
 			-- EVERY FOLDER THIS MODULE WRITES IS IN THE IGNORE LIST, or a ray stops on our own trunk.
 			local listed = {}
 			for _, name in ipairs(Forest.GROUND_IGNORE) do

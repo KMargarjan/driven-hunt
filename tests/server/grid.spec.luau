@@ -2832,6 +2832,140 @@ return function()
 		end)
 	end)
 
+	-- ---------------------------------------------------------------- 328g. the prebuild's arbiter
+
+	describe("the prebuilt forest's boot arbiter (task 328g, design 10.3)", function()
+		-- ALL THREE BRANCHES BY PARAMETER, which is why `prebuildVerdict` takes the two epochs rather
+		-- than reading the two attributes: the boot reads them once and this case needs no Workspace.
+		it("stands on a match, dresses on an absence, and REFUSES a mismatch", function()
+			local live = "58575af518ae6156"
+			-- 1. THE PREBUILD STANDS. Nothing is dressed; `dress` false is the only thing the boot acts on.
+			local stands = ForestTest.prebuildVerdict(live, live)
+			expect(stands.branch).to.equal(ForestTest.PREBUILD.STANDS)
+			expect(stands.dress).to.equal(false)
+			-- 2. NO PREBUILD: today's boot exactly.
+			local absent = ForestTest.prebuildVerdict(live, nil)
+			expect(absent.branch).to.equal(ForestTest.PREBUILD.ABSENT)
+			expect(absent.dress).to.equal(true)
+			-- 3. A STALE FOREST ON RE-BAKED GROUND IS TREES HANGING IN THE AIR -- the defect this whole
+			-- task exists to stop. It is REFUSED and NOTHING is silently rebuilt.
+			local stale = ForestTest.prebuildVerdict(live, "0000000000000000")
+			expect(stale.branch).to.equal(ForestTest.PREBUILD.REFUSED)
+			expect(stale.dress).to.equal(false)
+			-- BOTH EPOCHS COME BACK, because the REFUSED line prints both.
+			expect(stale.live).to.equal(live)
+			expect(stale.planted).to.equal("0000000000000000")
+			-- THE THREE BRANCH NAMES ARE THREE, so a typo cannot collapse two of them into one.
+			expect(ForestTest.PREBUILD.STANDS).never.to.equal(ForestTest.PREBUILD.ABSENT)
+			expect(ForestTest.PREBUILD.STANDS).never.to.equal(ForestTest.PREBUILD.REFUSED)
+			expect(ForestTest.PREBUILD.ABSENT).never.to.equal(ForestTest.PREBUILD.REFUSED)
+			TestKit.note(
+				string.format(
+					"arbiter: match=%s absent=%s stale=%s",
+					tostring(stands.branch),
+					tostring(absent.branch),
+					tostring(stale.branch)
+				)
+			)
+		end)
+
+		-- UNSTAMPED IS NOT ABSENT, and that distinction is the one the boot would get wrong on its own.
+		-- A `GridForest` standing with no epoch means a wood IS there whose provenance nobody can
+		-- check; calling it "absent" would dress `GridPlaces` on top of it -- the double forest.
+		it("reads an unstamped GridForest as REFUSED and not as absent", function()
+			expect(ForestTest.plantedEpochOf(nil)).to.equal(nil)
+			local bare = Instance.new("Folder")
+			bare.Name = Planter.FOREST_FOLDER
+			expect(ForestTest.plantedEpochOf(bare)).to.equal(ForestTest.UNSTAMPED)
+			expect(ForestTest.prebuildVerdict("abc", ForestTest.plantedEpochOf(bare)).branch).to.equal(
+				ForestTest.PREBUILD.REFUSED
+			)
+			-- AN EMPTY STRING IS NOT AN EPOCH EITHER.
+			bare:SetAttribute(ForestTest.PLANT_EPOCH_ATTR, "")
+			expect(ForestTest.plantedEpochOf(bare)).to.equal(ForestTest.UNSTAMPED)
+			-- ...AND A STAMPED ONE READS BACK AS ITSELF, so the STANDS branch is reachable from a folder.
+			bare:SetAttribute(ForestTest.PLANT_EPOCH_ATTR, "58575af518ae6156")
+			expect(ForestTest.plantedEpochOf(bare)).to.equal("58575af518ae6156")
+			expect(ForestTest.prebuildVerdict("58575af518ae6156", ForestTest.plantedEpochOf(bare)).dress).to.equal(
+				false
+			)
+			-- NO EPOCH ON EITHER SIDE IS STILL ABSENT: an un-baked world dresses as it always did.
+			expect(ForestTest.prebuildVerdict(nil, nil).branch).to.equal(ForestTest.PREBUILD.ABSENT)
+			-- ...BUT A STAMPED FOLDER OVER UN-BAKED GROUND IS A MISMATCH, not a match of two nils.
+			expect(ForestTest.prebuildVerdict(nil, "58575af518ae6156").branch).to.equal(ForestTest.PREBUILD.REFUSED)
+			bare:Destroy()
+		end)
+
+		-- WHAT THE BOOT DOES WITH `dress = false`: it hands `Places.build` an EMPTY cell list, which is
+		-- the no-wood branch that function already had by parameter. So no cell is dressed, nothing is
+		-- handed back to the deferred thread, and `build`'s contract is untouched.
+		it("an empty cell list dresses nothing and defers nothing, which is how the boot stands down", function()
+			local function hillside(x: number, _z: number): number?
+				return 120 + 0.1 * (x - Grid.CONFIG.originX)
+			end
+			local world = Instance.new("Folder")
+			local source = Instance.new("Folder")
+			source.Name = Planter.TEMPLATE_SOURCES[1]
+			source.Parent = world
+			for _, names in pairs(Plan.SPECIES) do
+				for _, name in ipairs(names) do
+					local model = Instance.new("Model")
+					model.Name = name
+					local trunk = Instance.new("Part")
+					trunk.Name = "Trunk"
+					trunk.Size = Vector3.new(4, 40, 4)
+					trunk.Position = Vector3.new(0, 20, 0)
+					trunk.Anchored = true
+					trunk.Parent = model
+					model.PrimaryPart = trunk
+					model.Parent = source
+				end
+			end
+			-- A PREBUILT FOREST STANDING IN THE SAME WORLD, so this case also reads the one invariant
+			-- design 10.1 rests on: `build` destroys `GridPlaces` at every boot and NEVER `GridForest`.
+			local prebuilt = Instance.new("Folder")
+			prebuilt.Name = Planter.FOREST_FOLDER
+			prebuilt.Parent = world
+			local cell = Instance.new("Folder")
+			cell.Name = "C1"
+			cell.Parent = prebuilt
+			local standing = Instance.new("Model")
+			standing.Name = "prebuilt-tree"
+			standing.Parent = cell
+
+			local down = Planter.build(hillside, world, nil, true, nil, {})
+			expect(#(down.gridWoods or {})).to.equal(0)
+			expect(#(down.gridPending or {})).to.equal(0)
+			expect(world:FindFirstChild(Planter.FOREST_FOLDER)).to.be.ok()
+			expect(standing.Parent).to.equal(cell)
+			-- IT DIES IF THE EMPTY LIST STOPS MEANING "NOTHING": the same world with the default list
+			-- dresses one cell and defers the rest.
+			local up = Planter.build(hillside, world, nil, true, nil)
+			expect(#up.gridWoods).to.equal(1)
+			expect(#up.gridPending).to.equal(#Grid.PLANTED_CELLS - 1)
+			-- ...AND THE PREBUILT WOOD IS STILL THERE AFTER A DRESS THAT DID PLANT.
+			expect(standing.Parent).to.equal(cell)
+			-- `Places.stats` READS EITHER FOLDER (task 328g), which is what lets the boot print the
+			-- prebuild's model count with the counter it already had.
+			local forest = Planter.stats(world, Planter.FOREST_FOLDER)
+			expect(forest.folder).to.equal(true)
+			expect(forest.total).to.equal(1)
+			expect(forest.C1).to.equal(1)
+			expect(Planter.stats(world, "NoSuchFolder").folder).to.equal(false)
+			expect(Planter.stats(world).folder).to.equal(true)
+			TestKit.note(
+				string.format(
+					"stand-down: woods %d, pending %d; prebuilt %d model(s) survived %d dress(es)",
+					#(down.gridWoods or {}),
+					#(down.gridPending or {}),
+					forest.total,
+					2
+				)
+			)
+			world:Destroy()
+		end)
+	end)
+
 	-- ---------------------------------------------------------------- 20. one name, one fact
 
 	describe("the grid folder's name", function()
@@ -2841,11 +2975,17 @@ return function()
 			expect(table.find(Forest.GROUND_IGNORE, Planter.GRID_FOLDER) ~= nil).to.equal(true)
 			expect(table.find(Forest.GROUND_IGNORE, Planter.FOLDER) ~= nil).to.equal(true)
 			expect(Planter.GRID_FOLDER).never.to.equal(Planter.FOLDER)
+			-- ...AND THE THIRD FOLDER TOO (task 328g): the prebuilt wood is as able to answer "where
+			-- is the ground" wrongly as the preview's, and it is the one that is SAVED WITH THE PLACE.
+			expect(table.find(Forest.GROUND_IGNORE, Planter.FOREST_FOLDER) ~= nil).to.equal(true)
+			expect(Planter.FOREST_FOLDER).never.to.equal(Planter.GRID_FOLDER)
+			expect(Planter.FOREST_FOLDER).never.to.equal(Planter.FOLDER)
 			TestKit.note(
 				string.format(
-					"GROUND_IGNORE carries %s and %s of %d names",
+					"GROUND_IGNORE carries %s, %s and %s of %d names",
 					Planter.FOLDER,
 					Planter.GRID_FOLDER,
+					Planter.FOREST_FOLDER,
 					#Forest.GROUND_IGNORE
 				)
 			)
