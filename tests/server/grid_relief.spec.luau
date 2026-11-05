@@ -3462,6 +3462,44 @@ return function()
 			expect(worst > 1 / 64).to.equal(true)
 		end)
 
+		it("330-4b shapeTile builds NO cache unless a caller asks for TRUE", function()
+			-- The default is OFF because the key is not exact under the bend (330-6), so a bake is
+			-- bit-for-bit what it was until the Director decides. nil, false and omitted are one
+			-- answer; only `true` is the other.
+			local pad = TerrainBake.padFor()
+			local tile = { minX = -5120, minZ = -6784 }
+			local wide = math.floor((TerrainBake.TILE_STUDS + 2 * pad) / Relief.VOXEL)
+			local snap = snapshotOf(tile.minX - pad, tile.minZ - pad, 8, 8, flat, {})
+			snap.nx, snap.nz = wide, wide
+			snap.height = table.create(wide * wide, 100)
+			for _, asked in { "omitted", "nil", "false" } do
+				local _h, _n, _c, _a, _d, anchors = TerrainBake.shapeTile(
+					tile,
+					snap,
+					{ "B2" },
+					{},
+					nil,
+					{ B2 = true },
+					STRAIGHT,
+					nil,
+					if asked == "false" then false else nil
+				)
+				expect(anchors).to.equal(nil)
+			end
+			local _h2, _n2, _c2, _a2, _d2, built = TerrainBake.shapeTile(
+				tile,
+				snap,
+				{ "B2" },
+				{},
+				nil,
+				{ B2 = true },
+				STRAIGHT,
+				nil,
+				true
+			)
+			expect(built).to.be.ok()
+		end)
+
 		it("330-4 shapeTile caches per tile, reuses, and writes the same heights and materials", function()
 			-- THE PLUMBING, on a real tile: the cache reaches `shapeTile`'s own call to `heightAt`.
 			-- A tile whose MARGIN alone reaches B2's bench band, so the uncached run is affordable

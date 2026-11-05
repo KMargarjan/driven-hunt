@@ -1517,9 +1517,18 @@ function TerrainBake.shapeTile(
 	-- own slice has no column. Nil for a run with no bench; `bakeTileAt` refuses a bench cell that
 	-- arrives without them, exactly as it refuses a tile with no profiles.
 	extras: { Snapshot }?,
-	-- THE BENCH ANCHOR CACHE, ON UNLESS IT IS SWITCHED OFF (task 330). nil and true build one per
-	-- tile; FALSE walks the base for every grid x, which is the pre-330 route and the one the
-	-- equality proof measures against -- both states by parameter, design 4 rule 1.
+	-- THE BENCH ANCHOR CACHE, AND IT IS OFF UNLESS A CALLER ASKS FOR IT (task 330). Only TRUE
+	-- builds one; nil and false walk the base for every grid x, which is every pre-330 caller.
+	--
+	-- WHY OFF IS THE DEFAULT, and it is a measurement: the Director's key -- the tuple of the six
+	-- anchor rows' base-column indices -- is EXACT on a straight grid and is NOT exact under the
+	-- bend, because `toWorld` moves both world coordinates with the grid x and the six rows'
+	-- columns stop stepping where each row's 1,369 blur taps step. On the heaviest bench tile in
+	-- Karen's place the stored codes came back 64dafbe0 cached against c2d95b90 uncached
+	-- (`<runs-dir>/330-proof-1.txt`, tile 393), and `grid_relief.spec` 330-6 measures the same
+	-- divergence at 0.153 studs -- 9.8 of the 1/64-stud codes the bake writes. The dispatch's answer
+	-- to that is `ESCALATE.md` and a Director decision, so the arithmetic ships here with the fast
+	-- route reachable BY PARAMETER and nothing switched on: a bake is bit-for-bit what it was.
 	cacheAnchors: boolean?
 ): ({ number }, { string }, number, { boolean }, number, Relief.AnchorCache?)
 	local v = Relief.VOXEL
@@ -1537,7 +1546,7 @@ function TerrainBake.shapeTile(
 	-- ONE CACHE PER TILE, composed through the SAME `toWorld` as the reader above it, so the key's
 	-- lattice is the lattice the reads quantise to (task 330).
 	local anchors: Relief.AnchorCache? = nil
-	if cacheAnchors ~= false then
+	if cacheAnchors == true then
 		local columnAt = TerrainBake.columnAt(snapshot, extras)
 		anchors = {
 			indexAt = function(a: number, b: number): number
@@ -1706,8 +1715,7 @@ function TerrainBake.bakeTile(
 	reshape: { [string]: boolean }?,
 	bend: any?,
 	extras: { Snapshot }?,
-	-- THE BENCH ANCHOR CACHE (task 330), passed straight through to `shapeTile`: nil and true cache,
-	-- false walks the base for every grid x.
+	-- THE BENCH ANCHOR CACHE (task 330), passed straight through to `shapeTile`: only TRUE caches.
 	cacheAnchors: boolean?
 ): TileReport
 	local started = os.clock()
@@ -2092,8 +2100,8 @@ function TerrainBake.bakeTileAt(
 	-- gives them their own area and no neighbour's landform is written across it, but the base is
 	-- kept there. Their roads and stand pads are still built. See the `held` block below.
 	holdLandform: { string }?,
-	-- THE BENCH ANCHOR CACHE (task 330). nil and true cache; false walks the base for every grid x,
-	-- which is what `TerrainBake.anchorProofAt` runs the SAME tile against.
+	-- THE BENCH ANCHOR CACHE (task 330). Only TRUE caches, so a bake is unchanged until the
+	-- Director decides on `ESCALATE.md` 2026-11-05; `anchorProofAt` drives both states.
 	cacheAnchors: boolean?
 ): TileReport
 	local plan = TerrainBake.tilePlan(TerrainBake.regionFor(cellIds))
