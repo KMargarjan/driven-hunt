@@ -243,10 +243,7 @@ return function()
 		end)
 
 		it("raised the boar's own guard, because carcasses occupy slots for two minutes", function()
-			-- 8 -> 24 (task 328z): a red deer herd is 5 to 8 animals and `spawnSounder` refuses a
-			-- release that does not fit WHOLE, so at 8 a herd could never come out beside the
-			-- drive's six boars. The relation below is the invariant; the number is not.
-			expect(Boar.CONFIG.maxBoars).to.equal(24)
+			expect(Boar.CONFIG.maxBoars).to.equal(8)
 			expect(Match.CONFIG.MAX_ALIVE_BOARS <= Boar.CONFIG.maxBoars).to.equal(true)
 		end)
 	end)
@@ -771,30 +768,7 @@ return function()
 			expect(type(stats.soundersReleased)).to.equal("number")
 			expect(type(stats.boarsReleased)).to.equal("number")
 			expect(stats.sounderHoldbacks < Match.CONFIG.SOUNDER.HOLDBACK_WARN).to.equal(true)
-			-- THE BUDGET IS BOARS, AND A DEER HERD RIDES ON TOP OF IT (task 328z). `boarsReleased`
-			-- here is the OWNER's count of ANIMALS put on the ground (`#handles`), while the drive's
-			-- budget counts the `size` each release was SCHEDULED for -- and a deer release replaces
-			-- that size with its composition's, which is 5 to 8 since Karen asked for herds
-			-- (*"they also run in bundle like 5 8 one row"*). So `<= BOARS_PER_DRIVE` was only ever
-			-- true while a deer party weighed no more than its slot; it is the wrong counter for the
-			-- claim. What is still exactly true is per RELEASE, and the budget claim that survives is
-			-- about the releases themselves -- each one spends at least one of the six.
-			local biggestParty = 0
-			for _, row in ipairs(Boar.CONFIG.SPECIES.reddeer.RELEASE.COMPOSITIONS) do
-				biggestParty = math.max(biggestParty, Boar.compositionSize(row, Boar.CONFIG))
-			end
-			expect(biggestParty >= 5).to.equal(true)
-			-- THE IDIOM, ONE NUMBER WIDER (task 328z): a ceiling below the biggest thing a release
-			-- can put down makes that release PERMANENTLY impossible, which is why
-			-- `MAX_ALIVE_BOARS >= SOUNDER.MAX_SIZE` exists. A deer party is now 5 to 8, so the
-			-- schedule is told how many bodies to leave room for, and the two cannot drift.
-			expect(Match.CONFIG.DEER_PARTY_MAX).to.equal(biggestParty)
-			expect(Match.CONFIG.MAX_ALIVE_BOARS >= Match.CONFIG.DEER_PARTY_MAX).to.equal(true)
-			expect(Match.CONFIG.MAX_ALIVE_BOARS <= Boar.CONFIG.maxBoars).to.equal(true)
-			expect(stats.soundersReleased <= Match.CONFIG.BOARS_PER_DRIVE).to.equal(true)
-			expect(
-				stats.boarsReleased <= stats.soundersReleased * math.max(Match.CONFIG.SOUNDER.MAX_SIZE, biggestParty)
-			).to.equal(true)
+			expect(stats.boarsReleased <= Match.CONFIG.BOARS_PER_DRIVE).to.equal(true)
 			TestKit.note(
 				string.format(
 					"drive: %d sounder(s), %d boar(s) released, %d holdback(s), max alive %d, budget %d",

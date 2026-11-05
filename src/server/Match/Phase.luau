@@ -977,22 +977,13 @@ local function maybeRelease(state: State, effects: { Effect }, now: number, even
 		return
 	end
 
-	-- ...AND A DEER RELEASE IS WEIGHED BY WHAT IT ACTUALLY PUTS DOWN (task 328z). `size` is the
-	-- BOAR budget's bite; the owner then replaces it with the deer party's own count
-	-- (`Runtime:spawnSounder`: *"A COMPOSITION IS ALSO THE SIZE"*), which is 5 to 8 since Karen
-	-- asked for herds -- so gating on `size` let a herd through a ceiling of 6 by up to +6 animals.
-	-- `Phase.deerRelease` is PURE (it reads `state` and returns a boolean; the caller is what
-	-- latches `deerReleased`), so asking it here changes nothing about when the latch moves.
-	local deer = Phase.deerRelease(state, size, config)
-	local animals = if deer then math.max(size, config.DEER_PARTY_MAX or size) else size
-
 	-- THE WHOLE SOUNDER FITS OR NONE OF IT IS RELEASED. A half sounder would make the drive's budget
 	-- disagree with the world, and `Runtime:spawnSounder` is all-or-nothing for the same reason.
 	-- Held back, never dropped: the same hash index draws the same size next tick.
 	local alive = event.aliveBoars or 0
 	local entries = event.boarEntries or 0
 	local capacity = event.boarCapacity or math.huge
-	if alive + animals > config.MAX_ALIVE_BOARS or entries + animals > capacity then
+	if alive + size > config.MAX_ALIVE_BOARS or entries + size > capacity then
 		state.holdbacks += 1
 		return -- retried next tick; the owner counts it
 	end
@@ -1006,9 +997,10 @@ local function maybeRelease(state: State, effects: { Effect }, now: number, even
 	if config.QUICK_TEST and state.soundersReleased == 0 and state.quickSpawn then
 		position, spread = state.quickSpawn, config.QUICK_TEST_SPREAD_STUDS
 	end
-	-- `deer` WAS ASKED BEFORE THE COUNTS MOVED (task 234) -- above the ceiling test since task 328z,
-	-- which is still before them: `size` is the release being decided, and "is this the last one" is
-	-- `boarsReleased + size >= BOARS_PER_DRIVE` against the budget BEFORE this release is in it.
+	-- ASKED BEFORE THE COUNTS MOVE (task 234), because `Phase.deerRelease` reads them: `size` is the
+	-- release being decided, and "is this the last one" is `boarsReleased + size >= BOARS_PER_DRIVE`
+	-- against the budget BEFORE this release is in it.
+	local deer = Phase.deerRelease(state, size, config)
 	state.soundersReleased += 1
 	state.boarsReleased += size
 	state.deerReleased = state.deerReleased or deer

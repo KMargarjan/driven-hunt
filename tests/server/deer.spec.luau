@@ -947,41 +947,89 @@ return function()
 				expect(Boar.deerComposition(1.0, 0, config)).to.equal(nil)
 				expect(Boar.deerComposition(0.9999, 0, config)).to.equal(nil)
 				expect(Boar.deerComposition(0.0, 0, config)).to.be.ok()
-				-- The dial itself: 0.2 -> 0.5 (task 328z), one release in two. Karen, 2026-11-03:
-				-- *"could be more red stags"*.
-				expect(CONFIG.SPECIES.reddeer.RELEASE.CHANCE_PER_RELEASE).to.be.near(0.5, EPSILON)
-				expect(Boar.deerComposition(0.4999, 0, config)).to.be.ok()
-				expect(Boar.deerComposition(0.5, 0, config)).to.equal(nil)
+				-- The dial itself: 0.2 is one release in five.
+				expect(CONFIG.SPECIES.reddeer.RELEASE.CHANCE_PER_RELEASE).to.be.near(0.2, EPSILON)
+				expect(Boar.deerComposition(0.1999, 0, config)).to.be.ok()
+				expect(Boar.deerComposition(0.2, 0, config)).to.equal(nil)
 			end)
 
-			it("draws each of the four compositions at its own weight boundary", function()
-				-- FOUR ROWS AND HERDS OF FIVE TO EIGHT SINCE TASK 328z, at the Isle of Rum medians
-				-- (docs/research/2026-11-05-red-deer-herds.md). Weights 10/35/35/20, walked in
-				-- order, so the boundaries are 0.10, 0.45 and 0.80.
+			it("draws each of the three compositions at its own weight boundary", function()
 				local config = configWith(true)
 				local alone = Boar.deerComposition(0, 0.0, config)
 				expect(alone.stag).to.equal(1)
 				expect(Boar.compositionSize(alone, config)).to.equal(1)
-				local nursery = Boar.deerComposition(0, 0.2, config)
-				expect(nursery.hind).to.equal(3)
-				expect(nursery.calf).to.equal(2)
-				expect(Boar.compositionSize(nursery, config)).to.equal(5)
-				local harem = Boar.deerComposition(0, 0.5, config)
+				local nursery = Boar.deerComposition(0, 0.5, config)
+				expect(nursery.hind).to.equal(1)
+				expect(nursery.calf).to.equal(1)
+				expect(Boar.compositionSize(nursery, config)).to.equal(2)
+				local harem = Boar.deerComposition(0, 0.9, config)
 				expect(harem.stag).to.equal(1)
-				expect(harem.hind).to.equal(4)
-				expect(harem.calf).to.equal(2)
-				expect(Boar.compositionSize(harem, config)).to.equal(7)
-				local bachelors = Boar.deerComposition(0, 0.9, config)
-				expect(bachelors.stag).to.equal(6)
-				expect(Boar.compositionSize(bachelors, config)).to.equal(6)
+				expect(harem.hind).to.equal(2)
+				expect(Boar.compositionSize(harem, config)).to.equal(3)
 				-- `weight` IS NOT AN ANIMAL and must never be counted as one.
 				expect(harem.weight).to.equal(nil)
-				-- KAREN'S SENTENCE AS A CASE: *"they also run in bundle like 5 8 one row"*. Every
-				-- row but the solitary stag is a bundle of five to eight.
-				for _, row in ipairs(CONFIG.SPECIES.reddeer.RELEASE.COMPOSITIONS) do
-					local size = Boar.compositionSize(row, config)
-					expect(size == 1 or (size >= 5 and size <= 8)).to.equal(true)
+			end)
+
+			-- ------------------------------- THE HERDS ARE NAMED, NEVER DRAWN (task 328z)
+			it("KEEPS THE HERDS OUT OF THE WEIGHTED DRAW and lets a name reach them", function()
+				-- Karen, 2026-11-03: *"could be more red stags they also run in bundle like 5 8 one
+				-- row"* -- and the Director's option B (`ESCALATE.md` 2026-11-05): the herds are the
+				-- FOREST TEST's, and the `Match` drive releases exactly what it released before.
+				-- `weight = 0` is the whole mechanism, so this case is about the zero.
+				local config = configWith(true)
+				local rows = config.SPECIES.reddeer.RELEASE.COMPOSITIONS
+				local herds, drawable = {}, {}
+				for _, row in ipairs(rows) do
+					if (row.weight or 0) > 0 then
+						table.insert(drawable, row)
+					else
+						herds[row.name] = Boar.compositionSize(row, config)
+					end
 				end
+				-- THE DRAWABLE ROWS ARE THE DRIVE'S, and none of them is bigger than three animals:
+				-- that is what makes `Match.CONFIG.MAX_ALIVE_BOARS` mean what it says.
+				expect(#drawable).to.equal(3)
+				for _, row in ipairs(drawable) do
+					expect(Boar.compositionSize(row, config) <= 3).to.equal(true)
+				end
+				-- THE HERDS ARE FIVE TO EIGHT, which is Karen's own range read as the four Isle of
+				-- Rum medians (docs/research/2026-11-05-red-deer-herds.md).
+				expect(herds.hindherd).to.equal(5)
+				expect(herds.stags).to.equal(6)
+				expect(herds.herd).to.equal(7)
+				expect(herds.bigherd).to.equal(8)
+				-- NO `pick` REACHES ONE. The walk is over [0, 1) and the herds carry no weight, so
+				-- 1001 picks across the whole interval answer a drawable row every time.
+				for i = 0, 1000 do
+					local drawn = Boar.deerComposition(0, i / 1000, config)
+					expect(drawn).to.be.ok()
+					expect(Boar.compositionSize(drawn, config) <= 3).to.equal(true)
+				end
+				-- ...AND A NAME REACHES EVERY ONE OF THEM, which is how the Forest Test's script
+				-- asks (`ForestTest.SCHEDULE.drive[n].party`).
+				for name, size in pairs(herds) do
+					local party = Boar.deerComposition(0, 0, config, name)
+					expect(party).to.be.ok()
+					expect(Boar.compositionSize(party, config)).to.equal(size)
+				end
+				-- THE ZERO IS LOAD-BEARING, and this is the arm that proves it: give `bigherd` a
+				-- weight in a clone and the same walk reaches it at the top of the interval. Delete
+				-- the `weight = 0` and the loop above fails, which is the point.
+				local weighted = configWith(true)
+				weighted.SPECIES = table.clone(weighted.SPECIES)
+				weighted.SPECIES.reddeer = table.clone(weighted.SPECIES.reddeer)
+				weighted.SPECIES.reddeer.RELEASE = table.clone(weighted.SPECIES.reddeer.RELEASE)
+				local copy = {}
+				for _, row in ipairs(rows) do
+					local one = table.clone(row)
+					if one.name == "bigherd" then
+						one.weight = 1000
+					end
+					table.insert(copy, one)
+				end
+				weighted.SPECIES.reddeer.RELEASE.COMPOSITIONS = copy
+				local big = Boar.deerComposition(0, 0.999, weighted)
+				expect(Boar.compositionSize(big, weighted)).to.equal(8)
 			end)
 
 			it("turns a named composition into that composition's own kinds", function()
@@ -1007,8 +1055,7 @@ return function()
 			-- ------------------------------------------------ THE DRIVE ASKS FOR ONE (task 234)
 			it("GIVES A GROUP WHATEVER THE ROLL when the drive asks, and still picks WHICH", function()
 				-- Karen, 2026-10-21: *"we need all a time in drive deer"*. `CHANCE_PER_RELEASE` is
-				-- 0.5 since task 328z, and at the old 0.2 `0.8^6` = 26 % of drives carried none; the
-				-- schedule now names one release.
+				-- 0.2 and 0.8^6 = 26 % of drives carried none; the schedule now names one release.
 				--
 				-- THE ASK SKIPS THE CHANCE AND NOTHING ELSE: `pick` still chooses the group by the
 				-- same weighted walk, so WHICH deer come is still this function's own decision and
@@ -1018,8 +1065,8 @@ return function()
 				local asked = Boar.deerComposition(1.0, 0, config, true)
 				expect(asked).to.be.ok()
 				expect(asked.stag).to.equal(1)
-				expect(Boar.deerComposition(1.0, 0.2, config, true).hind).to.equal(3)
-				expect(Boar.deerComposition(1.0, 0.9, config, true).stag).to.equal(6)
+				expect(Boar.deerComposition(1.0, 0.5, config, true).hind).to.equal(1)
+				expect(Boar.deerComposition(1.0, 0.9, config, true).hind).to.equal(2)
 				-- ...AND IT CANNOT CONJURE AN ANIMAL THAT DOES NOT EXIST. With `BOAR_MODEL` off
 				-- there are no deer kinds, and an ask is refused exactly as a roll is -- which is
 				-- what keeps the schedule's half of this feature free of the flag.
@@ -1042,14 +1089,13 @@ return function()
 				expect(stag.hind).to.equal(nil)
 				local hinds = Boar.deerComposition(0, 0, config, "hinds")
 				expect(hinds).to.be.ok()
-				expect(hinds.hind).to.equal(3)
-				expect(hinds.calf).to.equal(2)
+				expect(hinds.hind).to.equal(1)
+				expect(hinds.calf).to.equal(1)
 				expect(hinds.stag).to.equal(nil)
-				expect(Boar.deerComposition(0, 0, config, "harem").hind).to.equal(4)
-				expect(Boar.deerComposition(0, 0, config, "stags").stag).to.equal(6)
+				expect(Boar.deerComposition(0, 0, config, "harem").hind).to.equal(2)
 				-- THE NAME BEATS THE PICK, which is the whole point: at `pick` 0.9 the weighted walk
 				-- would answer the harem, and the ask answers what it asked for.
-				expect(Boar.deerComposition(0, 0.9, config, "hinds").calf).to.equal(2)
+				expect(Boar.deerComposition(0, 0.9, config, "hinds").calf).to.equal(1)
 				-- ...AND A NAME IT DOES NOT HAVE IS nil, not a draw and not the first row. A slot
 				-- that asked for a party this table has not got is a mistake in the drive script, and
 				-- "no deer, and the console says which word" is the honest answer to it.
@@ -1133,28 +1179,12 @@ return function()
 				expect(gap > longest).to.equal(true)
 			end)
 
-			it("refuses one group too many, and counts GROUPS", function()
-				-- THE CAP IS A DIAL AND THE CASES NAME IT (task 328z: 1 -> 3). The claim is "one
-				-- group over the cap is refused", so the cap each case means is written into the
-				-- config it hands in rather than inherited from the shipped number.
+			it("refuses a second deer group while one is alive, and counts GROUPS", function()
 				local config = configWith(true)
-				local function capped(n: number)
-					local c = configWith(true)
-					c.SPECIES = table.clone(Boar.CONFIG.SPECIES)
-					c.SPECIES.reddeer = table.clone(Boar.CONFIG.SPECIES.reddeer)
-					c.SPECIES.reddeer.RELEASE = table.clone(Boar.CONFIG.SPECIES.reddeer.RELEASE)
-					c.SPECIES.reddeer.RELEASE.MAX_GROUPS_ALIVE = n
-					return c
-				end
-				local one = capped(1)
 				expect(Boar.deerGroupsAllowed({}, config)).to.equal(true)
 				expect(Boar.deerGroupsAllowed({ "male", "female", "cub" }, config)).to.equal(true)
-				expect(Boar.deerGroupsAllowed({ "male", "hind" }, one)).to.equal(false)
-				expect(Boar.deerGroupsAllowed({ "stag" }, one)).to.equal(false)
-				-- ...AND AT THE SHIPPED CAP OF 3 a lone deer leaves room, which is the behaviour
-				-- Karen's *"more red stags"* needs: a refused deer slot releases NOTHING.
-				expect(Boar.CONFIG.SPECIES.reddeer.RELEASE.MAX_GROUPS_ALIVE).to.equal(3)
-				expect(Boar.deerGroupsAllowed({ "male", "hind" }, config)).to.equal(true)
+				expect(Boar.deerGroupsAllowed({ "male", "hind" }, config)).to.equal(false)
+				expect(Boar.deerGroupsAllowed({ "stag" }, config)).to.equal(false)
 				-- ROUND 1 DID NOT COUNT ANYTHING (Reviewer's note): it answered
 				-- `MAX_GROUPS_ALIVE > 1` on the FIRST live deer, so the dial worked only at 1 and at
 				-- 2 it capped nothing at all. Three members of ONE release share a sounder id and
@@ -1175,15 +1205,8 @@ return function()
 					{ kind = "hind", sounder = "S2" },
 				}
 				expect(Boar.deerGroupsAllowed(twoHerds, two)).to.equal(false)
-				-- ...and at a cap of 1 that same single herd already fills it.
-				expect(Boar.deerGroupsAllowed(oneHerd, one)).to.equal(false)
-				-- THREE SEPARATE HERDS FILL THE SHIPPED CAP, and a fourth is refused.
-				local three = {
-					{ kind = "stag", sounder = "S1" },
-					{ kind = "hind", sounder = "S2" },
-					{ kind = "hind", sounder = "S3" },
-				}
-				expect(Boar.deerGroupsAllowed(three, config)).to.equal(false)
+				-- ...and at the shipped cap of 1 that same single herd already fills it.
+				expect(Boar.deerGroupsAllowed(oneHerd, config)).to.equal(false)
 			end)
 
 			-- --------------------------------- THE SAME CAP, ASKED FROM OUTSIDE (task 239)
@@ -1220,27 +1243,19 @@ return function()
 				runtime:spawn(Vector3.new(0, FIELD.groundY, 0), "male")
 				runtime:spawn(Vector3.new(6, FIELD.groundY, 0), "female")
 				expect(runtime:deerAllowed()).to.equal(true)
-				-- ...and filling `MAX_GROUPS_ALIVE` (3 since task 328z) does: three lone deer are
-				-- three groups, because a lone animal has no sounder id to share.
+				-- ...and one hind does, at `MAX_GROUPS_ALIVE` of 1.
 				local hind = runtime:spawn(Vector3.new(12, FIELD.groundY, 0), "hind")
 				expect(hind).to.be.ok()
-				expect(runtime:deerAllowed()).to.equal(true)
-				runtime:spawn(Vector3.new(18, FIELD.groundY, 0), "hind")
-				runtime:spawn(Vector3.new(24, FIELD.groundY, 0), "stag")
 				expect(runtime:deerAllowed()).to.equal(false)
 				-- IT DRAWS NO NUMBER, which is what lets the forest ask it before deciding
 				-- anything: the same question twice is the same answer twice.
 				expect(runtime:deerAllowed()).to.equal(false)
 				-- ...AND IT IS THE PURE RULE, not a second count. `Boar.deerGroupsAllowed` over
 				-- the same three animals must agree, which is the whole claim.
-				-- FIVE ANIMALS AND NOT THREE SINCE TASK 328z, because the cap is 3: a lone deer has
-				-- no sounder id to share, so three of them are three groups and the cap is full.
 				local live = {
 					{ kind = "male", sounder = nil },
 					{ kind = "female", sounder = nil },
 					{ kind = "hind", sounder = nil },
-					{ kind = "hind", sounder = nil },
-					{ kind = "stag", sounder = nil },
 				}
 				expect(Boar.deerGroupsAllowed(live, configWith(true))).to.equal(false)
 				-- ...AND THE STAG COMES ANYWAY, BECAUSE HE MOVES ALONE (task 253). **THE DIRECTOR'S
@@ -1257,8 +1272,6 @@ return function()
 				-- AND THE EXEMPTION IS ONE GROUP DEEP, not a bypass: with the stag out as well, the
 				-- next stag is refused too.
 				local stagOut = {
-					{ kind = "hind", sounder = nil },
-					{ kind = "hind", sounder = nil },
 					{ kind = "hind", sounder = nil },
 					{ kind = "stag", sounder = nil },
 				}

@@ -68,12 +68,29 @@ published metre figure to borrow.
 exactly the band Wildlife Online reports (hind parties 5 in winter, 7 in summer; stag groups 4 to
 7). So the three red deer `COMPOSITIONS` rows become four, every one of them a shape ADW names:
 
-| Row | Animals | Real-life shape |
-|---|---|---|
-| `hinds` | hind x3, calf x2 = **5** | the matriarchal party, Rum's winter median |
-| `harem` | stag x1, hind x4, calf x2 = **7** | a stag with hinds, Rum's summer median |
-| `stags` | stag x6 = **6** | a bachelor group, inside Rum's 4-7 |
-| `stag` | stag x1 = **1** | the solitary mature stag (ADW), kept because it is the drive's one scripted trophy and the row the lone-party rule is written against |
+| Row | Weight | Animals | Real-life shape |
+|---|---|---|---|
+| `hindherd` | **0** | hind x3, calf x2 = **5** | the matriarchal party, Rum's winter median |
+| `stags` | **0** | stag x6 = **6** | a bachelor group, inside Rum's 4-7 |
+| `herd` | **0** | stag x1, hind x4, calf x2 = **7** | a stag with hinds, Rum's summer median |
+| `bigherd` | **0** | stag x1, hind x5, calf x2 = **8** | the top of Karen's *"5 8"* |
+| `stag` | 40 | stag x1 = **1** | the solitary mature stag (ADW); the drive's one scripted trophy and the row the lone-party rule is written against |
+| `hinds` | 40 | hind x1, calf x1 = **2** | the hind and her calf, unchanged -- the drive's PENALTY row |
+| `harem` | 20 | stag x1, hind x2 = **3** | a small holding party, unchanged |
+
+**`weight = 0` IS WHY THE HERDS ARE THE FOREST TEST'S AND NOT THE DRIVE'S** (the Director's option
+B, `ESCALATE.md` 2026-11-05). `Boar.deerComposition` sums `math.max(0, row.weight or 0)` and walks
+the rows against a `want` strictly below that total, so a zero-weight row can never be DRAWN -- and
+three blocks above, a caller that asks for a party BY NAME matches `row.name` and ignores weight
+entirely. The `Match` drive draws; the Forest Test's script names. So the drive releases exactly
+what it released before this task (1 to 3 animals, the chance at 0.2, one group alive at a time, the
+ceiling at 6) and the herds come out only where Karen plays.
+
+The first round of this task put the herds in the weighted table instead, and the Reviewer was right
+about the three consequences: the drive's ceiling was weighed against the scheduled size while the
+owner replaced it with a party's, `MAX_ALIVE_BOARS = DEER_PARTY_MAX` meant the guaranteed release
+needed an empty field, and the fix had no case with teeth. All three are about an arithmetic that no
+longer exists.
 
 **Spacing: nothing is retuned, and the measurement is why.** The field's unit is the body length,
 and this game already set its file spacing that way and measured it: `Data.LINE.spacingStuds = 8.5`
@@ -83,11 +100,14 @@ twin. **Borrowing beats inventing (rule 2), and the thing to borrow here is this
 measurement.** What changes is the number of animals standing on that spacing, so what this task
 measures is whether the file still holds at seven.
 
-**Frequency: raise the dial, let the live cap throttle.** `CHANCE_PER_RELEASE` 0.2 -> 0.5 (a group
-in at least every second release on the drive path) and the Forest Test script carries deer in four
-of its fifteen slots instead of two. `MAX_GROUPS_ALIVE` 1 -> 3, because one group at a time cannot
-deliver a group every second wave at any chance, and a refused deer slot releases **nothing** --
-a hole in the drive rather than fewer deer.
+**Frequency: the SCRIPT carries it, not the dial.** `CHANCE_PER_RELEASE` stays **0.2** and so does
+every other number the drive reads. The Forest Test's script carries deer in **7 of its 15 slots**
+(2, 4, 6, 8, 9, 12, 14) instead of 2, which is *"about every second wave"* without touching the
+drive at all. The one number that had to move for that is the deer-group cap: one group at a time
+cannot deliver a group every second slot, and a refused deer slot releases **nothing** -- a hole in
+the drive rather than fewer deer -- so `ForestTest.MAX_DEER_GROUPS = 3` is overridden at
+`ForestTestBoot`'s composition root, exactly as `MAX_BOARS` = 60 already is. `Boar.CONFIG`'s own
+`MAX_GROUPS_ALIVE` stays 1.
 
 **Formation: unchanged, by design.** `RELEASE.FORMATION = "column"` and `Boar.MARCH_RANK`
 (hind 1, calf 2, stag 3) already declare one file with a hind in front. A hind leading is the
@@ -98,10 +118,11 @@ stag at the head. Changing the march order is a design row, not this task's.
 
 | What | Before (measured) | Target |
 |---|---|---|
-| red deer group sizes available | 1, 2, 3 | **5, 6, 7** and 1 (the lone stag) |
-| red deer per Forest Test drive | 3 | **19** -- the most those four slots carry |
-| deer slots in the Forest Test script | 2 of 15 (13 %) | **4 of 15 (27 %)**, the most the rule *"the stag is the last deer"* allows |
-| deer releases on the drive path | 1 guaranteed + 0.2/release | 1 guaranteed + **0.5/release** |
+| red deer group sizes available in the Forest Test | 1, 2, 3 | **5, 6, 7, 8** and 1 (the lone stag) |
+| red deer per Forest Test drive (normal) | 3 | **39** -- what those seven slots carry |
+| animals per Forest Test drive (normal) | 59 | **73** |
+| deer slots in the Forest Test script | 2 of 15 (13 %) | **7 of 15 (47 %)**, once *"the stag is last"* is relaxed to *"no second LONE stag after him"* |
+| deer releases on the drive path | 1 guaranteed + 0.2/release, groups of 1-3 | **unchanged** (the Director's option B) |
 | centre-to-centre gap in the file, at the road | no reading possible (never 2 deer at once) | **8.5 studs** +- 3, median |
 | lateral offset from the leader's trail | same | **<= 2.5 studs** median (a body width) |
 | animals stuck >= 3 s | 0 | **0** |

@@ -648,12 +648,9 @@ return function()
 		end)
 
 		it("creates NOTHING when the whole sounder does not fit", function()
-			-- A RELATION, NOT 3 (task 328z): `maxBoars` went 8 -> 24 so a red deer herd of eight
-			-- fits, and the claim here is "one more than the room creates nothing", which is the
-			-- same claim at any ceiling.
-			local room = herd:capacity() - herd:count()
-			expect(room).to.equal(Boar.CONFIG.maxBoars - 5)
-			local refused = herd:spawnSounder(CENTER, room + 1, 14)
+			-- capacity() is 8 and five are already standing, so three slots are left.
+			expect(herd:capacity() - herd:count()).to.equal(3)
+			local refused = herd:spawnSounder(CENTER, 5, 14)
 			expect(#refused).to.equal(0)
 			expect(herd:count()).to.equal(5)
 			expect(#herd:sounders()).to.equal(1)
