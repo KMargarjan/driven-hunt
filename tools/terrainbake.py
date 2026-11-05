@@ -683,7 +683,7 @@ PLANT_MUTATING = ("bake", "archive", "plant")
 # READ-ONLY, BUT IT IS EVIDENCE, so it refuses a dirty tree exactly as a mutating command does
 # (lesson L-162: every live proof at the code commit). `proof` writes nothing; what it produces is a
 # claim about a commit, and a claim measured off uncommitted code names no commit.
-PROOF_NEEDS_CLEAN = ("proof",)
+PROOF_NEEDS_CLEAN = ("proof", "delta")
 
 PLANT_MODULES = (
     ("Relief", os.path.join(REPO, "src", "shared", "Grid", "Relief.luau")),
@@ -1847,6 +1847,65 @@ def bench_slices_for(base, bands, tile, pad, side):
     return out, None
 
 
+def delta_pass(studio, studio_id, args, sha, injected, profiles, base, plan, pad, bands, keep, live):
+    """HOW FAR APART the cached and the uncached tile are, on the LIGHTEST tile worth reading.
+
+    The equality proof (`proof`) answers IF the cache changes an answer. This answers BY HOW MUCH,
+    which is what the `ESCALATE.md` entry needs. Both halves run in one MCP call, so the tile has to
+    be light: the heaviest took 939.6 s uncached (MEASURED 2026-11-05) and StudioMCP gives up at 300.
+    """
+    cells = args.cells
+    hold = [c for c in (getattr(args, "hold_landform", None) or "").split(",") if c]
+    bands = [b for b in (bands or []) if b["cell"] not in hold]
+    side = args_side()
+    weights = call(studio, studio_id, "TerrainBake.benchWeightPlan({%s}, {%s})"
+                   % (",".join('"%s"' % c for c in cells), ",".join('"%s"' % c for c in hold)),
+                   timeout=BAKE_CALL_TIMEOUT, injected=injected)
+    if not isinstance(weights, list) or not weights:
+        return refuse("no tile carries bench weight, so there is no delta to measure"), []
+    floor = args.min_columns or 160
+    light = sorted((r for r in weights if r["columns"] >= floor), key=lambda r: r["columns"])
+    if not light:
+        return refuse("no tile has at least %d bench columns" % floor), []
+    want = min(args.tiles or 3, len(light))
+    print("[delta] %d of %d tiles carry bench weight; the %d lightest with >= %d of them:"
+          % (len(weights), len(plan), want, floor))
+    rows = []
+    for row in light[:want]:
+        index = row["tile"]
+        slice_payload, problem = slice_for(base, plan[index - 1], pad, side)
+        if problem:
+            print("[delta] FAILED at tile %d: %s" % (index, problem))
+            return 1, rows
+        bench, problem = bench_slices_for(base, bands, plan[index - 1], pad, side)
+        if problem:
+            print("[delta] FAILED at tile %d: %s" % (index, problem))
+            return 1, rows
+        expression = (
+            'TerrainBake.anchorDeltaAt(%d, {%s}, HttpService:JSONDecode([==[%s]==]), '
+            'HttpService:JSONDecode([==[%s]==]), HttpService:JSONDecode([==[%s]==]), {%s})'
+            % (index, ",".join('"%s"' % c for c in cells), profiles,
+               json.dumps(slice_payload, separators=(",", ":")),
+               json.dumps(bench, separators=(",", ":")),
+               ",".join('"%s"' % c for c in hold)))
+        got = call(studio, studio_id, expression, timeout=PROOF_CALL_TIMEOUT, injected=injected)
+        rows.append(got)
+        if got.get("message"):
+            print("  tile %4d REFUSED: %s" % (index, got["message"]))
+            return 1, rows
+        print("  tile %4d (%7.0f,%7.0f) benchCols~%4d  walked %d (+%d hits)  %d ms -> %d ms"
+              % (index, got["minX"], got["minZ"], row["columns"], got["walks"], got["hits"],
+                 got["msOff"], got["msOn"]))
+        print("      of %d columns: %d differ at all, %d differ in their STORED CODE, %d in material"
+              % (got["columns"], got["differing"], got["codesApart"], got["namesApart"]))
+        print("      worst %.6f studs = %.2f codes of 1/64, at (%.0f, %.0f)   codes %s vs %s"
+              % (got["worstStuds"], got["worstCodes"], got["worstAtX"], got["worstAtZ"],
+                 got["shapeFnvOff"], got["shapeFnvOn"]))
+    log_run(["delta"] + cells, rows, keep, live)
+    print("[delta] read %d tile(s) @ %s cells=%s (clean tree)" % (want, sha, ",".join(cells)))
+    return 0, rows
+
+
 def proof_half(studio, studio_id, injected, cells, hold, index, payload, bench, cached):
     """ONE HALF of one tile's proof -- shaped with the cache on or off -- read off its attribute.
 
@@ -1962,8 +2021,15 @@ def proof_pass(studio, studio_id, args, sha, injected, profiles, base, plan, pad
               % (off["walks"], on["walks"], on["hits"], off["ms"], on["ms"],
                  off["shapeFnv"], off["materialFnv"], "==" if same else "!=",
                  on["shapeFnv"], on["materialFnv"]))
-        if off["walks"] == 0:
-            print("      NOTE: this tile paid NO anchor walk, so it proves nothing about the cache")
+        # THE UNCACHED HALF HAS NO COUNTERS -- there is no cache to count -- so `off["walks"]` is 0
+        # for every tile and says nothing. The CACHED half's walks + hits IS the number of columns
+        # that paid an anchor walk, and that is what tells a real proof from an empty one (L-093).
+        if on["walks"] + on["hits"] == 0:
+            print("      NOTE: no column of this tile walked a bench anchor, so it proves NOTHING "
+                  "about the cache")
+        else:
+            print("      (%d bench columns actually walked: %d + %d)"
+                  % (on["walks"] + on["hits"], on["walks"], on["hits"]))
     log_run(["proof"] + cells, rows, keep, live)
     if differed:
         print("[proof] DIFFERS: %d of %d tiles changed their stored codes with the cache on: %s"
@@ -2093,10 +2159,13 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
 def main(argv):
     parser = argparse.ArgumentParser(prog="terrainbake")
     parser.add_argument("command", choices=("plan", "snapshot", "diff", "measure", "proof",
-                                            "clear-proof", "bake", "survey", "archive", "census",
-                                            "plant", "rows", "selftest"))
+                                            "delta", "clear-proof", "bake", "survey", "archive",
+                                            "census", "plant", "rows", "selftest"))
     parser.add_argument("--cells", help="comma list, e.g. C1")
     parser.add_argument("--backup", help="a .rbxl saved by File -> Save to File, outside the repo")
+    parser.add_argument("--min-columns", type=int, help="`delta` only: the fewest bench columns a "
+                        "tile may have and still be read. Default 160 -- below that the two halves "
+                        "can agree for want of work rather than for want of a difference")
     parser.add_argument("--hold-landform", help="comma list of cells IN --cells whose landform this "
                         "run does NOT write: the cell keeps the base, and still gets its roads and "
                         "its stand pads. Leaving a cell out of --cells instead writes a NEIGHBOUR's "
@@ -2272,7 +2341,7 @@ def main(argv):
             result = call(studio, studio_id, 'TerrainBake.archive("GridForest", {})', injected=injected)
             print("[bake] archive: %s" % json.dumps(result))
             return 0
-        if args.command in ("measure", "bake", "proof"):
+        if args.command in ("measure", "bake", "proof", "delta"):
             if not args.cells:
                 return refuse("--cells is missing")
             # REFUSAL 9: THE BASE SNAPSHOT. The bake reads the ORIGINAL ground from the file, never
@@ -2322,6 +2391,10 @@ def main(argv):
                 for band in bands:
                     print("  %-3s x[%.0f,%.0f] z[%.0f,%.0f]"
                           % (band["cell"], band["minX"], band["maxX"], band["minZ"], band["maxZ"]))
+            if args.command == "delta":
+                code, _ = delta_pass(studio, studio_id, args, sha, injected, profiles, base, plan,
+                                     pad, bands, keep, live)
+                return code
             if args.command == "proof":
                 code, _ = proof_pass(studio, studio_id, args, sha, injected, profiles, base, plan,
                                      pad, bands, keep, live)
@@ -3159,7 +3232,8 @@ def selftest():
     ok("plant takes every refusal a bake takes, and rows takes none of them",
        "plant" in PLANT_MUTATING and "rows" not in PLANT_MUTATING and "bake" in PLANT_MUTATING)
     ok("the equality proof refuses a dirty tree although it writes nothing (task 330, L-162)",
-       "proof" in PROOF_NEEDS_CLEAN and "proof" not in PLANT_MUTATING)
+       "proof" in PROOF_NEEDS_CLEAN and "proof" not in PLANT_MUTATING
+       and "delta" in PROOF_NEEDS_CLEAN and "delta" not in PLANT_MUTATING)
 
     print("[bake] selftest: %d check(s) failed" % len(failures) if failures else "[bake] selftest: PASS")
     return 1 if failures else 0

@@ -2438,6 +2438,92 @@ function TerrainBake.benchWeightPlan(cellIds: { string }, holdLandform: { string
 	return out
 end
 
+-- HOW FAR APART the cached and the uncached tile actually are, column by column (task 330). The
+-- equality proof answers IF; this answers BY HOW MUCH, which is what an `ESCALATE.md` entry about a
+-- cache that changes an answer has to carry. It runs both halves in ONE call, so it is only
+-- affordable on a LIGHT bench tile -- the heaviest took 939.6 s uncached, MEASURED -- and the tool
+-- picks the lightest tile that still pays enough anchor walks to be worth reading.
+--
+-- `bakeTileAt` runs first, cached and dry, purely as the GATE: every refusal about the slice, the
+-- holes and the bench bands is its own, so this cannot report a number for a tile the bake would
+-- have refused.
+function TerrainBake.anchorDeltaAt(
+	tileIndex: number,
+	cellIds: { string },
+	profiles: { Profile }?,
+	slice: any?,
+	benchSlices: { any }?,
+	holdLandform: { string }?
+): any
+	local gate = TerrainBake.bakeTileAt(tileIndex, cellIds, true, profiles, slice, benchSlices, holdLandform, true)
+	if gate.message ~= nil then
+		return { tile = tileIndex, message = gate.message }
+	end
+	local plan = TerrainBake.tilePlan(TerrainBake.regionFor(cellIds))
+	local tile = plan[tileIndex]
+	local base = TerrainBake.decodeSlice(slice)
+	local extras: { Snapshot } = {}
+	for _, one in benchSlices or {} do
+		table.insert(extras, TerrainBake.decodeSlice(one))
+	end
+	local held: { [string]: boolean } = {}
+	for _, id in holdLandform or {} do
+		held[id] = true
+	end
+	local reshape: { [string]: boolean } = {}
+	for _, id in cellIds do
+		reshape[id] = not held[id]
+	end
+	local startedOff = os.clock()
+	local off, offNames, n = TerrainBake.shapeTile(tile, base, cellIds, {}, profiles, reshape, nil, extras, false)
+	local msOff = math.floor((os.clock() - startedOff) * 1000 + 0.5)
+	local startedOn = os.clock()
+	local on, onNames, _, _, _, anchors =
+		TerrainBake.shapeTile(tile, base, cellIds, {}, profiles, reshape, nil, extras, true)
+	local msOn = math.floor((os.clock() - startedOn) * 1000 + 0.5)
+	-- THE CODES, not the studs: a difference below half of 1/64 of a stud writes the same voxel and
+	-- is not a changed answer. Both are counted, because the two say different things.
+	local differing, codesApart, worst, worstAt = 0, 0, 0, 0
+	for at = 1, n * n do
+		local d = math.abs(off[at] - on[at])
+		if d > worst then
+			worst = d
+			worstAt = at
+		end
+		if d > 0 then
+			differing += 1
+		end
+		if math.round(off[at] * TerrainBake.SLICE_SCALE) ~= math.round(on[at] * TerrainBake.SLICE_SCALE) then
+			codesApart += 1
+		end
+	end
+	local names = 0
+	for at = 1, n * n do
+		if offNames[at] ~= onNames[at] then
+			names += 1
+		end
+	end
+	return {
+		tile = tileIndex,
+		minX = tile.minX,
+		minZ = tile.minZ,
+		columns = n * n,
+		differing = differing,
+		codesApart = codesApart,
+		namesApart = names,
+		worstStuds = worst,
+		worstCodes = worst * TerrainBake.SLICE_SCALE,
+		worstAtX = tile.minX + ((worstAt - 1) % n + 0.5) * Relief.VOXEL,
+		worstAtZ = tile.minZ + math.floor((worstAt - 1) / n) * Relief.VOXEL + Relief.VOXEL / 2,
+		walks = anchors ~= nil and anchors.misses or 0,
+		hits = anchors ~= nil and anchors.hits or 0,
+		msOff = msOff,
+		msOn = msOn,
+		shapeFnvOff = TerrainBake.codeFnv(off, n * n),
+		shapeFnvOn = TerrainBake.codeFnv(on, n * n),
+	}
+end
+
 -- ONE HALF OF THE EQUALITY PROOF, AND IT PUBLISHES ITS ANSWER WHERE A LATER CALL CAN READ IT
 -- (task 330). The UNCACHED half of the heaviest bench tile is ~8,200 columns x 8,220 base reads,
 -- each read a `Grid.toWorld`: MEASURED at about 13 minutes, and StudioMCP's own request timeout is
