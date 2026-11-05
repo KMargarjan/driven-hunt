@@ -2620,3 +2620,10 @@ boundaries. Merged into `task-328s-c1-denser` at `8164e299`; the full gate there
 
 1. **`grid-roads.md` section 13 governs.** The forest stays planted at boot into `GridPlaces` until 328g, which owns the Edit-time `Workspace.GridForest` prebuild, the performance gate, and the `NEEDS KAREN` save click that prebuild needs. The Architect amends `grid-terrain.md` section 16's 328i row to say so at the next audit.
 2. **The deferred order is accepted.** One cell is dressed before the owners. The rest are dressed behind `HitLog.start`, nearest cell first, with C2 second. The Architect amends `drive-places.md` section 6.4 to that wording at the next audit. The reason is the one the Builder gave: the Reviewer's measured ~172 s with no lobby, gun or match beats the pathfinding argument, and that argument is answered by the order.
+
+## 2026-11-05 ~13:20 UTC, Director -- Task 328z DECIDED: option (B), round 3 authorised
+
+- **(B) Herds in the Forest Test only.** The `Match` drive keeps its old deer shapes, chance and budget. Every change under `src/server/Match/` and `tests/server/match_live.spec.luau` is reverted, so no `TWO_PLAYER_PATHS` path is touched and the merge gate is the one-player line. The 11:50 entry's items 2, 3 and 5 are therefore moot.
+- **Item 4: the rule is relaxed** to *"no second lone stag after him"*. The 15-slot Forest Test line may now carry herds in slots 9, 12 and 14, so a group comes in about every second wave. `forest_line.spec` asserts the new rule, and boars keep the rest of the slots.
+- **Item 1:** the Architect amends `red-deer.md` 4.2/15 to read *"Forest Test herds 5-8; Match path 1-3"* at the next audit.
+- **Round 3 is authorised** within MAX_ROUNDS 3. A finding on round 3 is an ESCALATE entry, not a fourth round.
