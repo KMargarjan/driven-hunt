@@ -1,18 +1,96 @@
-1. `src/server/Match/Phase.luau` / `maybeRelease` — round 1 finding 1 is HALF fixed: the new `animals` gate covers only the drive's ONE guaranteed deer release, and every *extra* deer group — the 0.2 → 0.5 dial this task exists to raise — still goes through `MAX_ALIVE_BOARS` weighed as the BOAR `size` and is then replaced by a 5-to-7-animal party inside the owner. The overrun is the same **+6** round 1 measured. Evidence, in order: `maybeRelease` computes `local deer = Phase.deerRelease(state, size, config)` then `local animals = if deer then math.max(size, config.DEER_PARTY_MAX or size) else size`; `Phase.deerRelease` begins `if state.deerReleased then return false end` and `maybeRelease` latches it on the first one (`state.deerReleased = state.deerReleased or deer`) — so **at most one release per drive is ever weighed at `DEER_PARTY_MAX`, and every other one is weighed at `size`**. The owner then hands the release on with no composition and no guard of its own: `applySpawnSounder`'s `return world.boars:spawnSounder(position, animals, spread, nil, deer)` under *"NO SECOND GUARD. Phase.maybeRelease already decided"*. `Runtime:spawnSounder` fills that nil in: `if composition == nil and self._config.KINDS ~= nil and self._config.KINDS.ENABLED == true then if self:deerAllowed() then composition = Boar.deerComposition(self._rng:NextNumber(), self._rng:NextNumber(), self._config, wantDeer)`, and `Boar.deerComposition` with `wanted == nil` refuses only `if wanted ~= true and type(wanted) ~= "string" and roll >= (release.CHANCE_PER_RELEASE or 0)` — i.e. it returns a party on any roll under **0.5** — after which *"A COMPOSITION IS ALSO THE SIZE"*: `size = Boar.compositionSize(composition, self._config)`, checked only against `maxBoars` (24). `KINDS.ENABLED = Flags.isOn("BOAR_MODEL")` and `BOAR_MODEL` is lit (`default = true`), so this is the shipped path. The arithmetic: the gate passes `alive + size <= 7` with `size >= 1`, so `alive` may be **6**; the owner puts down a `harem` of **7**; `boarsAlive()` counts every handle whatever its species, so the field reads **13 against a ceiling of 7**, and `MAX_GROUPS_ALIVE = 3` permits it three times over (21 deer). This also makes the comment the commit wrote into `src/server/Boar/init.luau` false — *"WORST CASE, SAID OUT LOUD: three `harem` draws are 21 animals ... It cannot happen on the Match path -- `MAX_ALIVE_BOARS` = 7 lets one party be alive there"* — `MAX_ALIVE_BOARS` lets one party be alive only for the one release the gate weighs; and `REQUEST.md`'s *"the gate weighs what the release will actually put down"* is a claim the code cannot support. Required: weigh EVERY composition-less release at `DEER_PARTY_MAX` (the owner may turn any of them into a party), or move the species decision into the machine so the gate sees what will actually be released — and gate on it.
+PASS (item 6, 8, 9, 10 NOT PROVEN)
 
-2. `src/server/Match/Phase.luau` + `tests/server/match_live.spec.luau` + `328z-match-w1/w2.txt` — delete the producer and every case still passes, including the live one offered as proof (blocking duty (a)). Evidence: `DEER_PARTY_MAX` is named by exactly two assertions in the whole repo, both pure config relations — `expect(Match.CONFIG.DEER_PARTY_MAX).to.equal(biggestParty)` and `expect(Match.CONFIG.MAX_ALIVE_BOARS >= Match.CONFIG.DEER_PARTY_MAX).to.equal(true)` — and both still pass with `local animals = ...` deleted and `if alive + size > config.MAX_ALIVE_BOARS` restored, because neither touches `maybeRelease`. `tests/server/match_phase.spec.luau` is the pure spec that already drives this exact gate (*"MAX_ALIVE_BOARS are already out: nothing may be released"*, `run(state, cfg, cfg.INTERMISSION_SECONDS, 20, 0.25, cfg.MAX_ALIVE_BOARS)`) and it is **not in `.agent-evidence/changed-files.txt`** — no case was added there, and with `config.DEER_PARTY_MAX` absent from its `cfg` tables the `or size` fallback makes the new branch invisible to it. The live evidence survives the deletion too: both windows report `peak alive=6` and `samples over MAX_ALIVE_BOARS=0`, and the one deer release in each landed on a cleared field, so at `MAX_ALIVE_BOARS = 6` gating on `size` the same two releases pass at the same moments and the same lines print. The line that survives the deletion, verbatim: `WINDOW 330s: releases=1 | peak alive=6 | peak deer alive=6 | samples over MAX_ALIVE_BOARS=0`. Required: a `match_phase.spec` case in the shape of design §12.4 item 6 — hand in `DEER_PARTY_MAX`, an `aliveBoars` that admits `size` but not the party, and the deer ordinal; assert no `spawnSounder` effect, `boarsReleased` unchanged, `holdbacks` incremented, and the same release landing when the count falls — plus the same case for a release the owner turns into a party (finding 1).
+Rule 5, stated so this PASS is not read as rule 5 having been met: the herds were seen in the
+Forest Test place (130094961655666) at the code commit, from a C1 stand at the hunter's own eye
+height — frames `328z-r3-G1.png` / `-G2.png`, which I cannot view and which are described, not
+claimed as unseen — but the Rojo behind them was served from `driven-hunt-rev` on :34876, and
+**Karen herself has played neither the Forest Test herds nor a shot into one** (the request says so
+in "WHAT I COULD NOT VERIFY"). Claims 6, 8, 9 and 10 are animal behaviour and shooting; they are
+measured, not judged. The `Match` drive needs no sighting: it is main's, byte for byte.
 
-3. `src/server/Match/init.luau` `MAX_ALIVE_BOARS = 7` / `DEER_PARTY_MAX = 7` — set equal, the guaranteed deer release can pass only on an **empty** field, and while it waits it blocks the whole drive and runs the stall counter past its own warn threshold. Evidence: the gate is `alive + animals > config.MAX_ALIVE_BOARS` with `animals = 7` and the ceiling 7, so it requires `alive == 0` — where before this commit the same release was gated at `alive + size > 6` with `size <= 5` and passed with up to five animals up. `maybeRelease` returns at that gate *before* the position, the effect and `nextReleaseAt`, so every boar release behind it waits too, and `nextReleaseAt` is not advanced — `state.holdbacks += 1` on every dispatch. `MATCH_STEP_HZ = 4` (and `Match/init.luau`'s own comment: *"dispatch is stepped at ~15x `MATCH_STEP_HZ`"*), so **about five seconds of waiting crosses `HOLDBACK_WARN = 20`**, firing `warn("[match] a release has been held back %d times in a row...")`, and `match_live.spec`'s own case *"asks the runtime what it holds, and the drive is not stalling"* asserts `expect(stats.sounderHoldbacks < Match.CONFIG.SOUNDER.HOLDBACK_WARN).to.equal(true)` — the drive's one guaranteed deer release now breaks it whenever the field is not empty at that moment, which the design's own worked example says it will not be (*"releases at 20, 200, 380 — the last sounder arrives 220 s before the end with three animals on the field"*). The request's own measurement shows the wait and not the counter: `release 2 t=262.8` is past `GAP_MAX_SECONDS` 180 + `RELEASE_JITTER_SECONDS` 15, so hold-backs accumulated in the measured drive, and the probe could not read them — *"(`Match.stats()` in that probe is a FRESH module copy and reads zeros ...)"*. Two releases across 660 s against `BOARS_PER_DRIVE = 6` is the visible cost. Required: leave the deer release headroom instead of exactly its own ceiling (and name the relation, e.g. `MAX_ALIVE_BOARS >= DEER_PARTY_MAX + SOUNDER.MAX_SIZE`, with the `drive.md` §6.3 row amended on the same ESCALATE item), or carry `stats.sounderHoldbacks` from one real `Match` drive to show the stall does not happen.
+What I checked rather than took on trust:
+- **Claim 1 (the Match drive is main's)**: `changed-files.txt` holds 13 files and not one is under
+  `src/server/Match/`, `src/client/Match/`, `src/shared/Drive/` or `tests/server/match_*.spec.luau`.
+  `MAX_ALIVE_BOARS = 6` in `src/server/Match/init.luau`, and `grep DEER_PARTY_MAX src/server/Match`
+  answers nothing — claims 2, 3 and 4 are closed by deletion as stated. `Boar.CONFIG`'s `maxBoars`
+  8, `CHANCE_PER_RELEASE` 0.2 and `MAX_GROUPS_ALIVE` 1 are all in place.
+- **`weight = 0` is load-bearing**: `Boar.deerComposition` sums `math.max(0, row.weight or 0)` to
+  100 and walks `want = clamp(pick,0,0.999999) * total`; `seen` reaches 100 at `harem`, so the four
+  zero-weight rows are unreachable by any `pick`, while the `row.name == wanted` block three above
+  ignores weight entirely. **Delete the producer**: strike the four herd rows and `deer.spec`'s
+  `expect(herds.hindherd).to.equal(5)` reads nil and fails; give `bigherd` a weight and the 1001-pick
+  loop's `compositionSize(drawn) <= 3` fails. The case bites both ways.
+- **Claim 7**: `deerAfter(SCHEDULE.drive, 8) == 3` is the fail-first line — slots 9, 12 and 14 are
+  `reddeer`, so the old "every row after him is a boar" is false on the shipped script. Arm two
+  reaches 1 by parameter and falls back to 0 when the row is made a `hindherd`.
+- **Claim 6's arithmetic reproduces from the rows**, through `driveTally`'s own fields: `keepAt<=9`
+  gives quiet 9 groups / 5 deer / 53 animals; `<=13` gives normal 13 / 7 deer / 6 boar / 73; busy
+  15 / 7 / 83. `leaps` is on slots 2,4,6,8,9,14 = 6 groups, 5+7+6+1+8+5 = 32 animals. `scriptDeer`
+  = 5+7+6+1+8+7+5 = **39**, and `Data.MAX_DEER_GROUPS` 40 >= 39. `slotAt(16)` walks past the
+  `reddeer` row 6 and answers row 7, as the spec asserts.
+- **The override is one writer at the composition root**: `Boar.newRuntime` replaces `SPECIES`
+  wholesale (`self._config[key] = value`), and `ForestTestBoot` clones `SPECIES` → `reddeer` →
+  `RELEASE` before flipping one value — the same idiom as the six blocks above it. `boarConfig()`
+  returns `runtime:config()`, so `releaseLine`'s named ask and `deerAllowed` read the same table.
+  Nothing else in the repo writes `world.config.SPECIES`.
+- **The cap case is a cap and not a bypass**: `deerGroupsAllowed` with 40 unique sounders answers
+  false and with 39 answers true. The live differential at `2b558bb3` (cap 3, three slots refused)
+  against `e4a05fbf` (cap 40, 0 refusals) is the producer-deletion test for the boot line itself.
+- Harness: `[harness] PASS: 34/34 @ e4a05fbf... (clean tree) scope=all` names the request's
+  `Code commit:`; `log.txt` confirms `e4a05fbf` is the last commit to touch `src/` or `tests/`;
+  `paperwork-after-code-commit.txt` says OK (only `TASKS.md` and `REQUEST.md` followed). selene,
+  stylua and `rojo build` are exit 0.
+- Callers I swept for breakage: `forest_stand.spec` (depth only — every changed row kept its
+  `northStuds`), `grid.spec` (15 slots, unchanged), `zz_horn.spec` (deepest 360, slot 15,
+  unchanged), `forest_line.spec`'s "names only crossings, compositions and parties that exist"
+  (every changed row kept its `crossOffset`, all five still used, `composition` dropped where
+  `party` arrived), `deer.spec`'s all-rows loops (names unique, every row reachable, every row
+  `compositionFormation == "column"`), and the `STAGED.PARTIES` ↔ `COMPOSITIONS` bidirectional case,
+  which is the teeth on the `PARTIES` edit. `stagedRow` matches `PARTIES[who]` exactly, so `stags`
+  cannot be read as `stag` nor `herd` as `hindherd`.
 
 ## Notes (non-blocking)
-- `REQUEST.md` claim 9 — says `SHOP`'s `expires` was *"Moved to 2026-11-25"*. The code says `expires = "2026-12-31"`, with the accepted-and-lit reason written on it. The code is the right answer; the claim's date is wrong.
-- `TASKS.md` row 328z — still reads *"**awaiting review** (round 1) ... Code commit `8ae8c627`, `[harness] PASS: 34/34 checks @ 8ae8c627...`"*, two code commits stale against this round's `fdde5474`.
-- `tests/server/boar_body.spec.luau` *"creates NOTHING when the whole sounder does not fit"* — `expect(room).to.equal(Boar.CONFIG.maxBoars - 5)` is still one number through two names (`Runtime:capacity` is `return self._config.maxBoars`, and `herd` carries no config override), so that line asserts only `herd:count() == 5`. The `room + 1` call and the three assertions under it do have teeth. Round 1's note, unchanged.
-- `tests/server/match_live.spec.luau` — with `stats.boarsReleased <= Match.CONFIG.BOARS_PER_DRIVE` gone, nothing live asserts the drive's budget spend any more; `stats.boarsReleased <= stats.soundersReleased * math.max(SOUNDER.MAX_SIZE, biggestParty)` is `soundersReleased * 7` and cannot tell one release of 14 from two of 7. `REQUEST.md` claim 8's *"Asserted per release now"* overstates an aggregate.
-- `tests/server/forest_line.spec.luau` — the comment *"NINETEEN LEAPING ANIMALS AND NO BOAR AMONG THEM"* still sits above `expect(normal.leapingGroups).to.equal(4)`; the 19 is asserted twelve lines down. The arithmetic all reproduces: `hinds` 5 + `harem` 7 + `stags` 6 + `stag` 1 = 19, `deerGroups` 4, `boarGroups` 9, and +6 on each of `animalsAt` normal 65 / quiet 43 / busy 75 (slot 2 +3, slot 4 +5, slot 6 −2).
-- Round 1 findings 2 and 3 are properly closed. `maxBoars = 24`'s row now says *"THIS number binds on the Match path only"* and claim 7 states the measurements do not exercise it. `ForestTest.slotAt`'s repeat branch excludes `candidate.species == "reddeer"` whole, and `forest_line.spec` has teeth on it both ways: reverting to `party == "stag"` makes `slotAt(16)` answer row 6 and fails `expect(row.species).to.equal("boar")` and `expect(first.slot).to.equal(7)`; the new `for slot = SCHEDULE.repeatFrom, first.slot - 1 do expect(SCHEDULE.drive[slot].species).to.equal("reddeer")` pins why the window starts at 7.
-- Harness paperwork is consistent: the scoped line names the `Code commit:` `fdde5474` with "(clean tree)", its `auto:` scope includes `boar`, `match` and `flags` (and `forest_line.spec` rides in the `match` tuple, `tools/studio_mcp.py`), the full `scope=all` line names `a752a15c` — the last commit to touch `src/` or `tests/` — and `paperwork-after-code-commit.txt` says OK. selene, stylua and `rojo build` are all exit 0.
-- Rule 5, stated so nothing above is read as rule 5 having been met: the Forest Test behaviour (claims 1-6) was seen in Karen's place at :34873 — frames `328z-F1/F2.png` from a C1 stand with gun and HUD in shot, which I cannot view and which are described, not claimed as unseen. The `Match` drive path — the one thing `MAX_ALIVE_BOARS`, `DEER_PARTY_MAX`, `maxBoars` and `CHANCE_PER_RELEASE = 0.5` actually govern, and where all three findings above live — has been seen only through the two 330 s probe windows, whose own output is identical with this round's fix reverted (finding 2), and **Karen herself has played neither**.
+- `docs/research/INDEX.md`, the 2026-11-05 row — it is **round 1's design, which the Director
+  reversed**, and four of its facts are now false: *"the three one-to-three-animal `COMPOSITIONS`
+  rows become four herd shapes ... `hinds` 5, `harem` 7, `stags` 6"* (the three drive rows are
+  untouched; four NEW rows were added at `weight = 0`), *"`CHANCE_PER_RELEASE` 0.2 -> 0.5"* (it is
+  0.2), *"deer in 4 of the Forest Test's 15 slots"* (7), *"`MAX_GROUPS_ALIVE` 1 -> 3"* (it is 1,
+  with a per-place override of 40). The note it indexes is correct; rewrite the row from the note.
+- `docs/research/2026-11-05-red-deer-herds.md` section 3, "Frequency" — *"`ForestTest.MAX_DEER_GROUPS
+  = 3` is overridden at `ForestTestBoot`'s composition root"*. The shipped value is **40**, and the
+  request's own iteration row 3 is why it moved. Same stale 3 in the `TASKS.md` 328z row.
+- `src/shared/ForestTest/init.luau`, the comment above `STAGED_ATTRIBUTE` — *"this drive carries
+  deer in **2 of its 15 slots** (`SCHEDULE.drive` rows 2 and 8) and releases them 200-360 studs
+  out"*. This change made that false (7 slots, 85-330 studs), and it is the paragraph that argues
+  why the staged-release instrument exists. One sentence.
+- `ForestTest.MAX_DEER_GROUPS = 40` vs `docs/design/red-deer.md` section 4.3 — the design fixes
+  `MAX_GROUPS_ALIVE = 1` structurally and says *"Two deer groups cannot be out at once"*. The
+  Director's 13:20 item 1 queues an amendment for sections 4.2 and 15 (*"Forest Test herds 5-8;
+  Match path 1-3"*) and names only group size and chance, so **the Forest Test's deer-group cap has
+  no amendment queued**. `Boar.CONFIG`'s own 1 is untouched and the override is at the documented
+  composition-root seam, so nothing is wrong in the code — but 4.3 should be on the Architect's list
+  beside 4.2 and 15.
+- The Forest Test's species mix at `normal` is now **39 deer against 34 boar** (53 %), up from 3 of
+  59. That follows arithmetically from the Director's own *"a group comes in about every second
+  wave"* at a group of 5-8, and the `TASKS.md` row discloses it — but the Builder's round-2
+  escalation called a 19-vs-3 inversion on the Match path *"not what anybody asked for"*, and this
+  is larger, in the place Karen actually plays. Worth her eye, and worth a number in front of the
+  Architect, before it is read as settled.
+- `src/server/ForestTest/init.luau` `releaseLine` — the request's *"`releaseLine`'s
+  whole-line-or-nothing"* is not what the code does: `count = math.min(count, room)` **truncates
+  silently** (only `room <= 0` prints a held line). Worst-case concurrent animals are now 73 against
+  the 60 ceiling (`min(Data.MAX_BOARS, runtime:capacity())`), the first time the script's own total
+  has exceeded it. The live drive released all seven herds whole (sizes 5/7/6/1/8/7/5), so it did
+  not bite, and at ~13 s between slots only ~5 groups are afoot at once — but peak was not measured,
+  as the request says, and a herd that ever truncates will show as a short file and no console line.
+- `REQUEST.md` claim 5 and the L-093 answer — *"Delete `weight = 0` from the four new rows and the
+  1001-pick loop fails"* is wrong: deleting the field leaves `row.weight or 0` = 0 and the loop
+  still passes. The case's real teeth are the second arm (`bigherd` at weight 1000 answers 8) and
+  row deletion (`herds.hindherd` reads nil). The case is sound; the sentence describing it is not.
+- `src/shared/Flags/init.luau` SHOP `expires` 2026-11-04 → 2026-12-31 — work beyond the task
+  (rule 4), declared as such on the row itself, and 2026-12-31 is what fourteen other accepted rows
+  in the file carry. Queue the retirement it names: delete the off branch and archive under
+  `backups/` (rule 7).
 
 ---
-REVIEWER verdict on commit `80d71fc97da4731654452b950a6077ba13fae205` (round 2) · 2026-11-05 13:03 UTC · session cost $3.81, 35 turns · written by tools/agents.py
+REVIEWER verdict on commit `59f3b313e8e298d02bceb69108258d3df8d3318e` (round 3) · 2026-11-05 15:07 UTC · session cost $5.48, 55 turns · written by tools/agents.py
