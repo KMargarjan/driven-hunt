@@ -154,6 +154,11 @@ from studio_mcp import (  # noqa: E402  (the path insert above has to come first
 # task measures it). _rpc's own default is 120 s; a whole-cell run in one call would exceed it, and
 # chunking also makes a failed tile name itself.
 BAKE_CALL_TIMEOUT = 300
+
+# THE EQUALITY PROOF'S OWN WINDOW (task 330). Its UNCACHED half is the thing the cache exists to
+# avoid: the heaviest bench tile is ~8,200 columns x 8,220 base reads, each read a `Grid.toWorld`,
+# and it did NOT answer inside `BAKE_CALL_TIMEOUT` (MEASURED 2026-11-05). The cached half is seconds.
+PROOF_CALL_TIMEOUT = 1500
 BACKUP_MAX_AGE_HOURS = 6
 RUN_LOG_DIR = os.path.join(REPO, ".terrainbake")
 FOREST_PLACE_ID = place_choice("forest")[0]
@@ -1883,7 +1888,7 @@ def proof_pass(studio, studio_id, args, sha, injected, profiles, base, plan, pad
                json.dumps(payload, separators=(",", ":")),
                json.dumps(bench, separators=(",", ":")),
                ",".join('"%s"' % c for c in hold)))
-        got = call(studio, studio_id, expression, injected=injected)
+        got = call(studio, studio_id, expression, timeout=PROOF_CALL_TIMEOUT, injected=injected)
         rows.append(got)
         if got.get("message"):
             print("  tile %4d REFUSED: %s" % (index, got["message"]))
