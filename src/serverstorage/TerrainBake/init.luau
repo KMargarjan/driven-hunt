@@ -2333,24 +2333,30 @@ function TerrainBake.bakeTileAt(
 	return report
 end
 
--- WHICH TILES OF A RUN CARRY BENCH WEIGHT, AND HOW MUCH (task 330). The anchor walk is the whole
--- cost of a bench cell, and it runs for a column only where that column's cell has a bench op whose
--- `weightOf` is above 0 -- so this counts exactly the columns that pay, with no base read and no
--- shaping. It is how the equality proof picks "the ten heaviest bench tiles" by MEASUREMENT instead
--- of by a list somebody typed.
+-- WHICH TILES OF A RUN CARRY BENCH WEIGHT, AND ROUGHLY HOW MUCH (task 330). The anchor walk is the
+-- whole cost of a bench cell and it runs for a column only where that column's cell has a bench op
+-- whose `weightOf` is above 0 -- so this counts those columns, with no base read and no shaping. It
+-- is how the equality proof picks "the ten heaviest bench tiles" by MEASUREMENT rather than from a
+-- list somebody typed.
 --
--- A tile whose whole shaping window is clear of every bench band in z is skipped before its columns
--- are walked: 986 of this world's 1,120 tiles, which is what keeps this one MCP call short.
-function TerrainBake.benchWeightPlan(cellIds: { string }, holdLandform: { string }?): { any }
+-- IT SAMPLES, every `stride` columns on each axis, and the count is scaled back up: the number is
+-- used to RANK tiles, and `anchorProofAt` then reports each chosen tile's EXACT walk count. A full
+-- count is 480 tiles x 9,216 columns of `toGrid` and `cellAt`, which did not return inside the MCP
+-- call window (MEASURED 2026-11-05, the same "Target is not reachable" the uncached bench gives).
+--
+-- A tile whose shaping window misses every bench's own box in x AND z -- grown by the blend and the
+-- bend, which is as far as a column outside the cell can still take its landform -- is skipped
+-- before any of its columns are walked.
+function TerrainBake.benchWeightPlan(cellIds: { string }, holdLandform: { string }?, stride: number?): { any }
 	local held: { [string]: boolean } = {}
 	for _, id in holdLandform or {} do
 		held[id] = true
 	end
+	local step = math.max(1, math.floor(stride or 4))
 	local bend = Grid.CONFIG.bend
-	local reach = Grid.maxBendStuds()
-	-- EVERY BENCH BAND IN GRID z, with the cell and the op that owns it.
+	local grow = Relief.BLEND_STUDS + Grid.maxBendStuds()
+	-- EVERY BENCH, with the cell and the op that owns it and the world box it can reach.
 	local benches: { any } = {}
-	local lo, hi = math.huge, -math.huge
 	for _, id in cellIds do
 		local form = Relief.LANDFORMS[id]
 		if form == nil or held[id] then
@@ -2361,9 +2367,15 @@ function TerrainBake.benchWeightPlan(cellIds: { string }, holdLandform: { string
 			if op.kind == "bench" then
 				local z0 = bounds.minZ + assert(op.v0, "benchWeightPlan: no v0") * (bounds.maxZ - bounds.minZ)
 				local z1 = bounds.minZ + assert(op.v1, "benchWeightPlan: no v1") * (bounds.maxZ - bounds.minZ)
-				table.insert(benches, { id = id, op = op, bounds = bounds })
-				lo = math.min(lo, z0)
-				hi = math.max(hi, z1)
+				table.insert(benches, {
+					id = id,
+					op = op,
+					bounds = bounds,
+					minX = bounds.minX - grow,
+					maxX = bounds.maxX + grow,
+					minZ = z0 - grow,
+					maxZ = z1 + grow,
+				})
 			end
 		end
 	end
@@ -2378,31 +2390,45 @@ function TerrainBake.benchWeightPlan(cellIds: { string }, holdLandform: { string
 	local wide = math.floor(side / v) + 2 * margin
 	local union = TerrainBake.unionOf(cellIds)
 	for at, tile in plan do
-		-- THE CHEAP REJECT, in WORLD z grown by the bend's amplitude: no column of this tile can
-		-- reach any bench band, so none of its columns can pay.
-		if tile.minZ + side + margin * v < lo - reach or tile.minZ - margin * v > hi + reach then
+		local loX, hiX = tile.minX - margin * v, tile.minX + side + margin * v
+		local loZ, hiZ = tile.minZ - margin * v, tile.minZ + side + margin * v
+		local reach = false
+		for _, bench in benches do
+			if loX <= bench.maxX and hiX >= bench.minX and loZ <= bench.maxZ and hiZ >= bench.minZ then
+				reach = true
+				break
+			end
+		end
+		if not reach then
 			continue
 		end
-		local columns = 0
-		for i = 1, wide do
+		local sampled = 0
+		for i = 1, wide, step do
 			local x = tile.minX + (i - margin - 0.5) * v
-			for k = 1, wide do
+			for k = 1, wide, step do
 				local z = tile.minZ + (k - margin - 0.5) * v
 				if TerrainBake.blendAt(union, x, z) <= 0 then
 					continue
 				end
-				local id = TerrainBake.cellAt(cellIds, x, z)
 				local gx, gz = Grid.toGrid(x, z, bend)
+				local id = TerrainBake.cellAt(cellIds, x, z)
 				for _, bench in benches do
 					if bench.id == id and Relief.weightOf(bench.op, bench.bounds, gx, gz) > 0 then
-						columns += 1
+						sampled += 1
 						break
 					end
 				end
 			end
 		end
-		if columns > 0 then
-			table.insert(out, { tile = at, minX = tile.minX, minZ = tile.minZ, columns = columns })
+		if sampled > 0 then
+			table.insert(out, {
+				tile = at,
+				minX = tile.minX,
+				minZ = tile.minZ,
+				columns = sampled * step * step,
+				sampled = sampled,
+				stride = step,
+			})
 		end
 	end
 	return out

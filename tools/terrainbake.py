@@ -1862,8 +1862,9 @@ def proof_pass(studio, studio_id, args, sha, injected, profiles, base, plan, pad
                       "about the cache (task 330)" % ",".join(cells)), []
     weights.sort(key=lambda row: -row["columns"])
     want = min(args.tiles or 10, len(weights))
-    print("[proof] %d of %d tiles carry bench weight; the %d heaviest, by column count:"
-          % (len(weights), len(plan), want))
+    print("[proof] %d of %d tiles carry bench weight; the %d heaviest, by a 1-in-%d column sample "
+          "(the exact walk count is each row's own `walks`):"
+          % (len(weights), len(plan), want, weights[0].get("stride", 1) ** 2))
     rows, worst_on, worst_off, differed = [], 0, 0, []
     for row in weights[:want]:
         index = row["tile"]
@@ -1891,7 +1892,7 @@ def proof_pass(studio, studio_id, args, sha, injected, profiles, base, plan, pad
         worst_off = max(worst_off, got["msOff"])
         if not got["identical"]:
             differed.append(index)
-        print("  tile %4d (%7.0f,%7.0f) benchCols=%5d  walks %6d -> %5d (hits %6d)  "
+        print("  tile %4d (%7.0f,%7.0f) benchCols~%5d  walks %6d -> %5d (hits %6d)  "
               "%6d ms -> %5d ms  codes %s/%s %s %s"
               % (index, got["minX"], got["minZ"], row["columns"],
                  got["anchorWalksOff"], got["anchorWalksOn"], got["anchorHitsOn"],
