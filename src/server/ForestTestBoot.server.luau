@@ -276,6 +276,15 @@ move.ENABLED = true
 local lineMode = table.clone(Boar.CONFIG.LINE)
 lineMode.ENABLED = true
 
+-- HOW MANY DEER GROUPS MAY BE ALIVE IN THIS PLACE (task 328z). `MAX_GROUPS_ALIVE` is 1 in the
+-- animal owner because that is the DRIVE's pacing rule; this script releases a deer group in about
+-- every second slot, and at 1 the second of two adjacent deer slots releases nothing at all.
+-- A full clone of the three nested tables, one value flipped, like every block above it.
+local species = table.clone(Boar.CONFIG.SPECIES)
+species.reddeer = table.clone(species.reddeer)
+species.reddeer.RELEASE = table.clone(species.reddeer.RELEASE)
+species.reddeer.RELEASE.MAX_GROUPS_ALIVE = Data.MAX_DEER_GROUPS
+
 local world = Boar.defaultWorld(field)
 -- WHERE THIS WORLD'S GROUND IS, per position. See `ForestTest.groundAt`: `field.groundY` is one
 -- number and this terrain climbs 56 studs in 400, so without this every released boar was spawned
@@ -295,6 +304,7 @@ world.config = {
 	-- is 8 because the real drive releases a sounder at a time into a corridor; Karen asked for
 	-- *"a lot not too much to break"* and this world has no drive to balance against.
 	maxBoars = Data.MAX_BOARS,
+	SPECIES = species,
 }
 
 -- THE CLOSURE TRAP, and the same line as MatchBoot for the same reason (design section 6.5):

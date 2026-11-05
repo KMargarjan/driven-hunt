@@ -3189,7 +3189,7 @@ function ForestTest.releaseLine(now: number, staged: any?): string?
 			state.owedRow = nil
 		end
 		count = Boar.compositionSize(composition, boar)
-		-- ONE FILE. A deer group is one to three animals and `SPECIES.reddeer.RELEASE.FORMATION` is
+		-- ONE FILE. A deer group is one to eight animals (task 328z) and `SPECIES.reddeer.RELEASE.FORMATION` is
 		-- `"column"`; splitting two animals into two parallel files is not a column, and
 		-- `Boar.compositionFormation` is what declares that for the sounder path.
 		lines = 1

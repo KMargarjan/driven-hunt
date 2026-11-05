@@ -3929,6 +3929,9 @@ Boar.CONFIG.SPECIES = {
 			-- could be half the drive and the animal Karen called rare would be in front of every
 			-- shooter. Answered by COUNTING THE LIVE ENTRIES, not by a counter two paths could
 			-- disagree about -- the shape `Runtime:_legendaryAllowed` already uses for its cap.
+			-- ONE IS THE DRIVE'S NUMBER AND NOT EVERY WORLD'S (task 328z): the Forest Test's
+			-- script releases a deer group in about every second slot, so `ForestTestBoot`
+			-- overrides this with `Data.MAX_DEER_GROUPS` exactly as it overrides `maxBoars`.
 			MAX_GROUPS_ALIVE = 1,
 			-- ...AND A PARTY OF ONE MAY COME ANYWAY (task 253). **THE DIRECTOR'S DECISION,
 			-- 2026-10-24**: *"if MAX_GROUPS_ALIVE slips him, let the stag (only) be released even if
@@ -3956,6 +3959,20 @@ Boar.CONFIG.SPECIES = {
 				{ name = "stag", weight = 40, stag = 1 },
 				{ name = "hinds", weight = 40, hind = 1, calf = 1 },
 				{ name = "harem", weight = 20, stag = 1, hind = 2 },
+				-- THE HERDS, AND `weight = 0` IS WHAT KEEPS THEM OUT OF THE DRIVE (task 328z,
+				-- the Director's option B). Karen, 2026-11-03: *"could be more red stags they
+				-- also run in bundle like 5 8 one row ect like in life"* -- so the Isle of Rum
+				-- medians (hind parties 7 and 5, bachelor stags 7 and 4) are in the table as
+				-- NAMES the Forest Test's script asks for by name, and the weighted walk above
+				-- cannot reach them: `deerComposition` sums `math.max(0, row.weight or 0)` and
+				-- `want` is strictly below that total, so a zero-weight row is never drawn.
+				-- The `Match` drive therefore releases exactly what it released before this task
+				-- (1 to 3 animals) and its ceiling arithmetic is untouched.
+				-- docs/research/2026-11-05-red-deer-herds.md
+				{ name = "hindherd", weight = 0, hind = 3, calf = 2 },
+				{ name = "stags", weight = 0, stag = 6 },
+				{ name = "herd", weight = 0, stag = 1, hind = 4, calf = 2 },
+				{ name = "bigherd", weight = 0, stag = 1, hind = 5, calf = 2 },
 			},
 		},
 	},

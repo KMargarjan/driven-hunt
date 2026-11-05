@@ -547,14 +547,17 @@ return function()
 			expect(normal.crossings).to.equal(10)
 			expect(normal.refusals).to.equal(2)
 			expect(normal.holds).to.equal(1)
-			expect(normal.deerGroups).to.equal(2)
-			expect(normal.boarGroups).to.equal(11)
-			-- THREE LEAPING ANIMALS AND NO BOAR AMONG THEM. *"how many groups jumping over road"*:
-			-- the hind, her calf and the stag -- and `leaps` is only ever on a `reddeer` row.
-			-- `leapingGroups` COUNTS GROUPS, and the field is named for it (round 1's note): the hind
-			-- party is ONE row of two animals, and the stag is the other -- so two ROWS and three
-			-- ANIMALS leap, and the animals are counted through the owner's weigher just below.
-			expect(normal.leapingGroups).to.equal(2)
+			-- 2 -> 7 DEER GROUPS AND 11 -> 6 BOAR (task 328z). Karen, 2026-11-03: *"could be more
+			-- red stags they also run in bundle like 5 8 one row"* -- slots 4, 6, 9, 12 and 14 carry
+			-- a herd instead of a boar row, so a deer group is in about every second slot (7 of 15)
+			-- where it was 4 of 15.
+			expect(normal.deerGroups).to.equal(7)
+			expect(normal.boarGroups).to.equal(6)
+			-- THIRTY-TWO LEAPING ANIMALS AND NO BOAR AMONG THEM. *"how many groups jumping over
+			-- road"*: `leaps` is only ever on a `reddeer` row, and `leapingGroups` COUNTS GROUPS
+			-- (round 1's note) while the ANIMALS are weighed through the owner just below. Six of
+			-- the seven deer rows leap; slot 12 is the deer REFUSAL and never reaches the road.
+			expect(normal.leapingGroups).to.equal(6)
 			local config3 = configOn()
 			local leaping = 0
 			for _, row in ipairs(normal.rows) do
@@ -562,14 +565,14 @@ return function()
 					leaping += Boar.compositionSize(Boar.deerComposition(0, 0, config3, row.party), config3)
 				end
 			end
-			expect(leaping).to.equal(3)
+			expect(leaping).to.equal(32)
 			for _, row in ipairs(SCHEDULE.drive) do
 				if row.leaps == true then
 					expect(row.species).to.equal("reddeer")
 				end
 			end
 			-- ...and the animals, weighed by the animal's owner rather than written down here.
-			expect(animalsAt("normal")).to.equal(59)
+			expect(animalsAt("normal")).to.equal(73)
 			TestKit.note(
 				string.format(
 					"task 251: one normal drive is %d groups / %d animals -- %d cross, %d break back, %d holds",
@@ -594,16 +597,18 @@ return function()
 			expect(quiet.groups).to.equal(9)
 			expect(quiet.refusals).to.equal(0)
 			expect(quiet.holds).to.equal(0)
-			expect(quiet.deerGroups).to.equal(1) -- the hinds only; no stag in a quiet drive
-			expect(animalsAt("quiet")).to.equal(37)
+			-- 1 -> 5 (task 328z): the two near herds, the stags, the big herd and the last hinds.
+			-- Still no LONE stag in a quiet drive -- his row is `keepAt = 13`.
+			expect(quiet.deerGroups).to.equal(5)
+			expect(animalsAt("quiet")).to.equal(53)
 
 			local busy = Data.driveTally("busy", SCHEDULE)
 			expect(busy.groups).to.equal(15)
 			expect(busy.silent).to.equal(0)
 			expect(busy.refusals).to.equal(2)
 			expect(busy.holds).to.equal(1)
-			expect(busy.deerGroups).to.equal(2)
-			expect(animalsAt("busy")).to.equal(69)
+			expect(busy.deerGroups).to.equal(7)
+			expect(animalsAt("busy")).to.equal(83)
 
 			-- AN UNKNOWN WORD IS `normal`, not silence: a typo in the dial must not empty the wood.
 			expect(Data.groupsWanted("sideways", SCHEDULE)).to.equal(13)
@@ -682,9 +687,12 @@ return function()
 			-- THE ONE THING KAREN NAMED TWICE. *"red stags"* -- and the Rum finding is that a mature
 			-- stag keeps his own company outside the rut, while the Jaeger finding is that red deer
 			-- come long after the drive starts.
+			-- `hindherd` AND NOT `hinds` SINCE TASK 328z: the near hind party is a herd of five now
+			-- (`Boar.CONFIG.SPECIES.reddeer.RELEASE.COMPOSITIONS`), and `hinds` -- the hind and her
+			-- calf -- is the DRIVE path's row, which this script never names.
 			local hinds, stag = nil, nil
 			for _, row in ipairs(SCHEDULE.drive) do
-				if row.party == "hinds" then
+				if row.party == "hindherd" and hinds == nil then
 					hinds = row
 				elseif row.party == "stag" then
 					stag = row
@@ -719,15 +727,50 @@ return function()
 			-- and the look back could not happen at all (`ESCALATE.md`, 2026-10-24).
 			expect(stag.act).to.equal(2)
 			expect(stag.pace).to.equal("walk")
-			-- HE IS STILL THE LAST DEER, which is what *"the stag last"* has always been about: the
-			-- hinds come at slot 2 and nothing with antlers or a calf comes after him. (He is not the
-			-- last WALKER -- slot 9's big lone male walks at 114 s -- and the gate caught the case
-			-- that claimed he was.)
-			for _, row in ipairs(SCHEDULE.drive) do
-				if row.slot > stag.slot then
-					expect(row.species).to.equal("boar")
+			-- HE IS STILL THE LAST **LONE** STAG, AND THAT IS THE WHOLE RULE SINCE TASK 328z.
+			-- It was *"nothing with antlers or a calf comes after him"*, which at a deer group of 5
+			-- to 8 animals left the back half of every drive with no deer in it at all. Karen,
+			-- 2026-11-03: *"could be more red stags"*. The rule is now parameterised over a
+			-- schedule, so BOTH arms are stated here rather than read off the shipped rows.
+			local function loneStagsAfter(rows, after: number): number
+				local found = 0
+				for _, row in ipairs(rows) do
+					if row.slot > after and row.species == "reddeer" then
+						local shape = Boar.deerComposition(0, 0, configOn(), row.party)
+						if shape ~= nil and Boar.compositionSize(shape, configOn()) <= 1 then
+							found += 1
+						end
+					end
 				end
+				return found
 			end
+			local function deerAfter(rows, after: number): number
+				local found = 0
+				for _, row in ipairs(rows) do
+					if row.slot > after and row.species == "reddeer" then
+						found += 1
+					end
+				end
+				return found
+			end
+			-- ARM ONE, THE SHIPPED SCRIPT: no second lone stag behind him...
+			expect(loneStagsAfter(SCHEDULE.drive, stag.slot)).to.equal(0)
+			-- ...AND THE RELAXATION IS LOAD-BEARING, which is the arm that makes this case bite:
+			-- three HERDS do come after him (slots 9, 12 and 14), so the OLD rule -- "every row
+			-- after him is a boar" -- is false on the shipped script and this case would fail if it
+			-- were still written that way.
+			expect(deerAfter(SCHEDULE.drive, stag.slot)).to.equal(3)
+			-- ARM TWO, BY PARAMETER: a hand-built script with a second lone stag behind him is
+			-- caught, and the same script with that row made a herd is not.
+			local withSecond = {
+				{ slot = 8, species = "reddeer", party = "stag" },
+				{ slot = 11, species = "boar", composition = 2 },
+				{ slot = 14, species = "reddeer", party = "stag" },
+			}
+			expect(loneStagsAfter(withSecond, 8)).to.equal(1)
+			withSecond[3] = { slot = 14, species = "reddeer", party = "hindherd" }
+			expect(loneStagsAfter(withSecond, 8)).to.equal(0)
+			expect(deerAfter(withSecond, 8)).to.equal(1)
 		end)
 
 		-- ---------------------------------------------- AHEAD OF THE BEATER LINE (task 251c)
@@ -1249,13 +1292,84 @@ return function()
 				local row = Data.slotAt(slot, "normal", SCHEDULE)
 				expect(row).to.be.ok()
 				expect(row.slot >= SCHEDULE.repeatFrom and row.slot <= SCHEDULE.repeatTo).to.equal(true)
+				-- NO DEER ROW IS EVER REPEATED (widened in task 328z). The window 6-12 now holds
+				-- four of them -- the bachelor stags at 6, the lone stag at 8, the big herd at 9
+				-- and the deer refusal at 12 -- and *"the stag is the last lone stag"* forbids a
+				-- repeat of any of them behind him.
 				expect(row.party).to.equal(nil)
+				expect(row.species).to.equal("boar")
 			end
-			-- The window wraps in order, so slot 16 is the first row of it.
-			expect(Data.slotAt(rows + 1, "normal", SCHEDULE).slot).to.equal(SCHEDULE.repeatFrom)
+			-- The window wraps in order, so slot 16 is the first row of it THAT MAY BE REPEATED:
+			-- `repeatFrom` is 6 and slot 6 is a deer row, which the exclusion above walks past, so
+			-- the answer is slot 7 (task 328z).
+			local first = Data.slotAt(rows + 1, "normal", SCHEDULE)
+			expect(first.slot >= SCHEDULE.repeatFrom).to.equal(true)
+			expect(first.slot).to.equal(7)
+			for slot = SCHEDULE.repeatFrom, first.slot - 1 do
+				expect(SCHEDULE.drive[slot].species).to.equal("reddeer")
+			end
 			-- A slot before the first is nothing at all, rather than row 1 by accident.
 			expect(Data.slotAt(0, "normal", SCHEDULE)).to.equal(nil)
 			expect(Data.slotAt(-3, "normal", SCHEDULE)).to.equal(nil)
+		end)
+
+		-- ------------------------- THIS PLACE'S OWN DEER-GROUP CEILING (task 328z)
+		it("NEEDS ITS OWN DEER-GROUP CAP, because a deer group is in about every second slot", function()
+			-- `MAX_GROUPS_ALIVE` is 1 in the animal owner -- the DRIVE's pacing rule, and the
+			-- Director's option B leaves it there (`ESCALATE.md`, 2026-11-05). Here the SCHEDULE is
+			-- the pacing rule, and a cap that refuses a scripted slot releases NOTHING. MEASURED at
+			-- a cap of 3: the console refused slots 6, 8 and 9 outright, because a deer that has
+			-- lost its sounder counts as its OWN group and one herd dissolving at the crossing is
+			-- already five. So the number must clear every deer the script can have afoot at once,
+			-- and THAT is the assertion -- not the literal.
+			expect(Boar.CONFIG.SPECIES.reddeer.RELEASE.MAX_GROUPS_ALIVE).to.equal(1)
+			local scriptDeer = 0
+			for _, row in ipairs(SCHEDULE.drive) do
+				if row.species == "reddeer" then
+					scriptDeer += Boar.compositionSize(Boar.deerComposition(0, 0, configOn(), row.party), configOn())
+				end
+			end
+			expect(scriptDeer).to.equal(39)
+			expect(Data.MAX_DEER_GROUPS >= scriptDeer).to.equal(true)
+			local function capped(n: number)
+				local c = configOn()
+				c.SPECIES = table.clone(c.SPECIES)
+				c.SPECIES.reddeer = table.clone(c.SPECIES.reddeer)
+				c.SPECIES.reddeer.RELEASE = table.clone(c.SPECIES.reddeer.RELEASE)
+				c.SPECIES.reddeer.RELEASE.MAX_GROUPS_ALIVE = n
+				return c
+			end
+			-- THE STATE THE SCRIPT ACTUALLY REACHES: the bachelor stags from slot 6 and the lone
+			-- stag from slot 8 are both on their feet when slot 9's herd is due.
+			local twoOut = {
+				{ kind = "stag", sounder = "S6" },
+				{ kind = "stag", sounder = nil },
+			}
+			-- BOTH ARMS, BY PARAMETER. At the owner's own 1 the herd is refused...
+			expect(Boar.deerGroupsAllowed(twoOut, capped(1), "bigherd")).to.equal(false)
+			-- ...and at this place's 3 it comes out, which is the whole of the override.
+			expect(Boar.deerGroupsAllowed(twoOut, capped(Data.MAX_DEER_GROUPS), "bigherd")).to.equal(true)
+			-- ...AND IT IS STILL A CAP AND NOT A BYPASS: one group past the number is refused.
+			local over = {}
+			for i = 1, Data.MAX_DEER_GROUPS do
+				table.insert(over, { kind = "hind", sounder = "S" .. i })
+			end
+			expect(Boar.deerGroupsAllowed(over, capped(Data.MAX_DEER_GROUPS), "bigherd")).to.equal(false)
+			table.remove(over)
+			expect(Boar.deerGroupsAllowed(over, capped(Data.MAX_DEER_GROUPS), "bigherd")).to.equal(true)
+			-- EVERY DEER SLOT THE SCRIPT HAS NAMES A PARTY THE OWNER PUBLISHES, and no deer row ever
+			-- marches in two files -- `RELEASE.FORMATION` is `"column"`.
+			local deerSlots = 0
+			for _, row in ipairs(SCHEDULE.drive) do
+				if row.species == "reddeer" then
+					deerSlots += 1
+					expect(Boar.deerComposition(0, 0, configOn(), row.party)).to.be.ok()
+					expect(row.files == nil or row.files == 1).to.equal(true)
+				end
+			end
+			-- SEVEN OF FIFTEEN IS *"about every second wave"*, which is what the Director asked for.
+			expect(deerSlots).to.equal(7)
+			expect(deerSlots * 2 >= #SCHEDULE.drive - 1).to.equal(true)
 		end)
 
 		it("is what BOTH release paths read, through one function", function()

@@ -2001,7 +2001,7 @@ end
 -- WHAT PART 1 DOES NOT DO, said here rather than discovered in a playtest (rule 8). This is the
 -- FIRST half of task 251 (the Director's own split point: items 1 and 4 now, the stag's behaviour
 -- and his voice next). So today:
---   * `check = true` on rows 2 and 13 is honoured by the EXISTING edge stop and nothing more: every
+--   * `check = true` on rows 2, 4, 6, 8, 9, 12 and 14 is honoured by the EXISTING edge stop and nothing more: every
 --     line's leader is already offered `Runtime:check` as she comes inside `LINE.checkWithinStuds`
 --     (`ForestTest.stepLines`), at the Brain's own `MOVE.EDGE_CHANCE` of 0.55 and for 1-4 s. The
 --     deer's own longer, likelier, look-BACK check (0.90, 2-6 s, 150 deg) is spec section 3.2 and is
@@ -2096,12 +2096,12 @@ ForestTest.SCHEDULE = {
 	-- is the part of a drive that can bear repeating -- so a longer `DRIVE.seconds` can never run out
 	-- of animals.
 	--
-	-- IT EXCLUDES THE STAG, AND SINCE TASK 251c THAT IS A RULE IN `slotAt` RATHER THAN AN ACCIDENT OF
-	-- THESE TWO NUMBERS. It used to be true positionally -- he was slot 13 and the window is 6-12 --
-	-- and moving him to slot 8 put him INSIDE it, so slot 18 of a long drive would have asked for a
-	-- second stag (the live run that found it got as far as slot 17). A second stag in one drive is
-	-- not a drive with a stag in it; `MAX_GROUPS_ALIVE` would usually refuse him, but "usually" is
-	-- not what the comment claimed.
+	-- IT EXCLUDES EVERY DEER ROW, AND SINCE TASK 251c THAT IS A RULE IN `slotAt` RATHER THAN AN
+	-- ACCIDENT OF THESE TWO NUMBERS. It used to be true positionally -- the stag was slot 13 and the
+	-- window is 6-12 -- and moving him to slot 8 put him INSIDE it, so slot 18 of a long drive would
+	-- have asked for a second stag (the live run that found it got as far as slot 17). Widened from
+	-- his own party to any `reddeer` row in task 328z, because the window now holds four of them
+	-- (6, 8, 9, 12) and a repeat of any would put deer out after the last lone stag.
 	repeatFrom = 6,
 	repeatTo = 12,
 
@@ -2128,7 +2128,7 @@ ForestTest.SCHEDULE = {
 			atSeconds = 23,
 			act = 1,
 			species = "reddeer",
-			party = "hinds", -- {hind = 1, calf = 1}
+			party = "hindherd", -- {hind = 3, calf = 2}
 			zone = "A",
 			northStuds = 125,
 			offsetX = 80,
@@ -2161,17 +2161,22 @@ ForestTest.SCHEDULE = {
 			slot = 4,
 			atSeconds = 49,
 			act = 1,
-			species = "boar",
-			composition = 2, -- {males = 2}
+			-- A RED DEER HERD SINCE TASK 328z. Karen, 2026-11-03: *"could be more red stags they
+			-- also run in bundle like 5 8 one row ect like in life"*. Seven is the Isle of Rum
+			-- summer median for a stag with hinds (docs/research/2026-11-05-red-deer-herds.md).
+			species = "reddeer",
+			party = "herd", -- {stag = 1, hind = 4, calf = 2}
 			zone = "A",
 			northStuds = 85,
 			offsetX = 45,
-			files = 1,
+			files = 1, -- a deer group is a column, never two files (`RELEASE.FORMATION`)
 			crossOffset = 20,
 			route = "STRAIGHT",
 			pace = "trot",
+			check = true,
+			leaps = true,
 			keepAt = 9,
-			note = "the near pair, straight down the front of the stand",
+			note = "the near herd: a stag, his hinds and their calves in one row, close in front",
 		},
 		{
 			-- SILENCE AT quiet AND normal. A drive with no gaps in it is a shooting gallery; this is
@@ -2197,18 +2202,23 @@ ForestTest.SCHEDULE = {
 			slot = 6,
 			atSeconds = 75,
 			act = 2,
-			species = "boar",
-			composition = 3, -- {males = 5, females = 3}
+			-- A BACHELOR GROUP OF STAGS SINCE TASK 328z, and the broadside pass is where antlers are
+			-- worth drawing. Six is inside Rum's 4-to-7 median for stag groups
+			-- (docs/research/2026-11-05-red-deer-herds.md).
+			species = "reddeer",
+			party = "stags", -- {stag = 6}
 			zone = "D",
 			northStuds = 150,
 			offsetX = 95,
-			files = 1,
+			files = 1, -- a deer group is a column, never two files (`RELEASE.FORMATION`)
 			crossOffset = -70,
 			route = "LATERAL",
 			lateral = "LtoR",
 			pace = "trot",
+			check = true,
+			leaps = true,
 			keepAt = 9,
-			note = "the broadside pass: across her front left to right, then over the road",
+			note = "the broadside pass: six stags in one row across her front, then over the road",
 		},
 		{
 			slot = 7,
@@ -2264,12 +2274,12 @@ ForestTest.SCHEDULE = {
 			-- bolted across the road: a shallower, later-looking release is the one that lets him
 			-- walk.
 			--
-			-- HE IS THE LAST DEER, AND HE IS NOT THE LAST WALKER: slot 9's big lone male walks at
-			-- 114 s, and slot 14 -- released at 179 s at a RUN from a depth the clamp pulls to its
-			-- floor -- is over the road about two seconds later, so it crosses after him. Both are
-			-- said out loud rather than discovered (rule 8), and the second is the clamp's own
-			-- consequence rather than a second rule: a deep row released when the line is already at
-			-- the verge has nowhere ahead of it to start from.
+			-- HE IS THE LAST **LONE** STAG, AND SINCE TASK 328z THAT IS THE WHOLE OF THE RULE.
+			-- It used to be "nothing with antlers or a calf comes after him", which left the back
+			-- half of the drive with no deer at all once a deer group became 5 to 8 animals. Karen,
+			-- 2026-11-03: *"could be more red stags"*. So slots 9, 12 and 14 carry herds behind him
+			-- and `forest_line.spec` asserts the relaxed rule in both arms: no SECOND lone stag
+			-- after him, a herd allowed.
 			--
 			-- HIS `act` IS 2 BECAUSE A ROW'S ACT IS WHERE IT SITS IN THE DRIVE (five slots each, and
 			-- `forest_line.spec` asserts the quotient). WHAT REACHES ACT III IS THE STAG HIMSELF, at
@@ -2307,20 +2317,26 @@ ForestTest.SCHEDULE = {
 			note = "THE RED STAG: out of the far wood at a walk, alone, and he sneaks the treeline",
 		},
 		{
+			-- THE BIG HERD SINCE TASK 328z, and it is the drive's largest group of anything.
+			-- Karen, 2026-11-03: *"could be more red stags they also run in bundle like 5 8 one
+			-- row"* -- eight is the top of her range (`bigherd`), and the walk it inherits from the
+			-- lone male it replaces is what a herd that has not been hurried does.
 			slot = 9,
 			atSeconds = 114,
 			act = 2,
-			species = "boar",
-			composition = 6, -- {males = 1}
+			species = "reddeer",
+			party = "bigherd", -- {stag = 1, hind = 5, calf = 2}
 			zone = "B",
 			northStuds = 210,
 			offsetX = -70,
-			files = 1,
+			files = 1, -- a deer group is a column, never two files (`RELEASE.FORMATION`)
 			crossOffset = -70,
 			route = "STRAIGHT",
 			pace = "walk",
+			check = true,
+			leaps = true,
 			keepAt = 9,
-			note = "the big lone male, slow, and worth the barrel",
+			note = "the big herd: eight of them in one row, at a walk, and worth the barrel",
 		},
 		{
 			-- THE SECOND SILENCE, and at `busy` a pair of males out of the far wood.
@@ -2370,20 +2386,24 @@ ForestTest.SCHEDULE = {
 			note = "the pressed sounder, flushed from inside: it splits at the verge and crosses twice",
 		},
 		{
+			-- A DEER REFUSAL SINCE TASK 328z, and it is the one deer row that never crosses: the
+			-- herd comes to 55 studs of the road, will not take it, and goes back through the men.
+			-- No `leaps` on it for that reason -- `leaps` is about the road it does not reach.
 			slot = 12,
 			atSeconds = 153,
 			act = 3,
-			species = "boar",
-			composition = 4, -- {females = 3, cubs = 6}
+			species = "reddeer",
+			party = "herd", -- {stag = 1, hind = 4, calf = 2}
 			zone = "C",
 			northStuds = 300,
 			offsetX = -60,
-			files = 1,
+			files = 1, -- a deer group is a column, never two files (`RELEASE.FORMATION`)
 			route = "BREAK-BACK",
 			turnAtDz = 55,
 			pace = "trot",
+			check = true,
 			keepAt = 13,
-			note = "the second refusal: nine of them turn at 55 studs and break back through the beaters",
+			note = "the second refusal: seven deer turn at 55 studs and break back through the beaters",
 		},
 		{
 			-- THE REFUSAL, AND IT IS SLOT 13 BECAUSE THE STAG TOOK ITS 101 s (task 251c). The two rows
@@ -2414,20 +2434,26 @@ ForestTest.SCHEDULE = {
 			note = "THE REFUSAL: she comes to 40 studs of the road, thinks better of it, and goes home",
 		},
 		{
+			-- A HIND PARTY AT A RUN SINCE TASK 328z. The lone stag at slot 8 is still the last
+			-- LONE stag (`forest_line.spec`), and a group of five hinds and calves behind him is
+			-- what the relaxed rule allows -- a drive does not stop having deer in it because the
+			-- stag has gone.
 			slot = 14,
 			atSeconds = 179,
 			act = 3,
-			species = "boar",
-			composition = 2, -- {males = 2}
+			species = "reddeer",
+			party = "hindherd", -- {hind = 3, calf = 2}
 			zone = "C",
 			northStuds = 290,
 			offsetX = 95,
-			files = 1,
+			files = 1, -- a deer group is a column, never two files (`RELEASE.FORMATION`)
 			crossOffset = 95,
 			route = "STRAIGHT",
 			pace = "run",
+			check = true,
+			leaps = true,
 			keepAt = 9,
-			note = "the last of them, running: the beaters are at their backs by now",
+			note = "the last of them, running: five hinds and calves with the beaters at their backs",
 		},
 		{
 			slot = 15,
@@ -2635,10 +2661,14 @@ function ForestTest.slotAt(slot: number, density: string?, schedule)
 		-- is a silence rather than a loop.
 		for _ = 1, span do
 			local candidate = rows[at]
-			-- ...AND IT NEVER REPEATS THE STAG (task 251c). See `repeatFrom`: the exclusion used to
-			-- be positional and his slot moved inside the window, so it is said here instead.
-			local isStag = candidate ~= nil and candidate.species == "reddeer" and candidate.party == "stag"
-			if candidate ~= nil and not isStag and (candidate.keepAt or 1) <= want then
+			-- ...AND IT NEVER REPEATS A DEER ROW (task 251c, widened in task 328z). See `repeatFrom`:
+			-- the exclusion used to be positional and the stag's slot moved inside the window, so it
+			-- is said here instead. It was `party == "stag"` until slot 6 became a bachelor group of
+			-- six stags -- which the window would then have re-released AFTER the lone stag, and
+			-- *"the stag is the last deer"* (Karen through the Designer's plan, 2026-10-23) is the
+			-- rule that forbids it. Any `reddeer` row, not just his.
+			local isDeer = candidate ~= nil and candidate.species == "reddeer"
+			if candidate ~= nil and not isDeer and (candidate.keepAt or 1) <= want then
 				return candidate
 			end
 			at = from + ((at - from + 1) % span)
@@ -2826,7 +2856,15 @@ ForestTest.STAGED = {
 	-- (`SPECIES.reddeer.RELEASE.COMPOSITIONS`) and `Boar.deerComposition` is still the only thing
 	-- that turns a name into counts -- this is the set of names this parser will pass ON to it, so a
 	-- misspelling is refused HERE with a readable reason instead of arriving there as nil.
-	PARTIES = { stag = true, hinds = true, harem = true },
+	PARTIES = {
+		stag = true,
+		hinds = true,
+		harem = true,
+		hindherd = true,
+		stags = true,
+		herd = true,
+		bigherd = true,
+	},
 }
 
 -- PURE, exported, and the ONE place a staged spec string becomes a row.
@@ -3091,5 +3129,16 @@ end
 -- test"*. The number itself is MEASURED on the machine and lives in the server system's own
 -- report, not guessed here; this is the ceiling it may not exceed whatever it measures.
 ForestTest.MAX_BOARS = 60
+
+-- HOW MANY RED DEER GROUPS MAY BE ALIVE IN **THIS** PLACE (task 328z). The animal owner's own
+-- `MAX_GROUPS_ALIVE` is 1, which is the DRIVE's pacing rule; here the SCHEDULE is the pacing rule,
+-- and a cap that refuses a scripted slot releases NOTHING -- a hole in the drive rather than fewer
+-- deer. MEASURED at a cap of 3 (console, 2026-11-05): *"slot 6 wanted the stags and the deer cap
+-- refused"*, and the same for slots 8 and 9 -- because `Boar.deerGroupsAllowed` counts a deer with
+-- no sounder id as its own GROUP, so one herd that strings out at the crossing and dissolves
+-- (`SOUNDER.BREAK_STUDS`) is already five groups. 40 is past every deer this script can have on
+-- its feet at once (39), so it never refuses a scripted slot. The REAL ceiling here is unchanged:
+-- `Data.MAX_BOARS` = 60 and `releaseLine`'s "the whole line fits or none of it".
+ForestTest.MAX_DEER_GROUPS = 40
 
 return ForestTest

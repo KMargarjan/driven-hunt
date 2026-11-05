@@ -970,6 +970,68 @@ return function()
 				expect(harem.weight).to.equal(nil)
 			end)
 
+			-- ------------------------------- THE HERDS ARE NAMED, NEVER DRAWN (task 328z)
+			it("KEEPS THE HERDS OUT OF THE WEIGHTED DRAW and lets a name reach them", function()
+				-- Karen, 2026-11-03: *"could be more red stags they also run in bundle like 5 8 one
+				-- row"* -- and the Director's option B (`ESCALATE.md` 2026-11-05): the herds are the
+				-- FOREST TEST's, and the `Match` drive releases exactly what it released before.
+				-- `weight = 0` is the whole mechanism, so this case is about the zero.
+				local config = configWith(true)
+				local rows = config.SPECIES.reddeer.RELEASE.COMPOSITIONS
+				local herds, drawable = {}, {}
+				for _, row in ipairs(rows) do
+					if (row.weight or 0) > 0 then
+						table.insert(drawable, row)
+					else
+						herds[row.name] = Boar.compositionSize(row, config)
+					end
+				end
+				-- THE DRAWABLE ROWS ARE THE DRIVE'S, and none of them is bigger than three animals:
+				-- that is what makes `Match.CONFIG.MAX_ALIVE_BOARS` mean what it says.
+				expect(#drawable).to.equal(3)
+				for _, row in ipairs(drawable) do
+					expect(Boar.compositionSize(row, config) <= 3).to.equal(true)
+				end
+				-- THE HERDS ARE FIVE TO EIGHT, which is Karen's own range read as the four Isle of
+				-- Rum medians (docs/research/2026-11-05-red-deer-herds.md).
+				expect(herds.hindherd).to.equal(5)
+				expect(herds.stags).to.equal(6)
+				expect(herds.herd).to.equal(7)
+				expect(herds.bigherd).to.equal(8)
+				-- NO `pick` REACHES ONE. The walk is over [0, 1) and the herds carry no weight, so
+				-- 1001 picks across the whole interval answer a drawable row every time.
+				for i = 0, 1000 do
+					local drawn = Boar.deerComposition(0, i / 1000, config)
+					expect(drawn).to.be.ok()
+					expect(Boar.compositionSize(drawn, config) <= 3).to.equal(true)
+				end
+				-- ...AND A NAME REACHES EVERY ONE OF THEM, which is how the Forest Test's script
+				-- asks (`ForestTest.SCHEDULE.drive[n].party`).
+				for name, size in pairs(herds) do
+					local party = Boar.deerComposition(0, 0, config, name)
+					expect(party).to.be.ok()
+					expect(Boar.compositionSize(party, config)).to.equal(size)
+				end
+				-- THE ZERO IS LOAD-BEARING, and this is the arm that proves it: give `bigherd` a
+				-- weight in a clone and the same walk reaches it at the top of the interval. Delete
+				-- the `weight = 0` and the loop above fails, which is the point.
+				local weighted = configWith(true)
+				weighted.SPECIES = table.clone(weighted.SPECIES)
+				weighted.SPECIES.reddeer = table.clone(weighted.SPECIES.reddeer)
+				weighted.SPECIES.reddeer.RELEASE = table.clone(weighted.SPECIES.reddeer.RELEASE)
+				local copy = {}
+				for _, row in ipairs(rows) do
+					local one = table.clone(row)
+					if one.name == "bigherd" then
+						one.weight = 1000
+					end
+					table.insert(copy, one)
+				end
+				weighted.SPECIES.reddeer.RELEASE.COMPOSITIONS = copy
+				local big = Boar.deerComposition(0, 0.999, weighted)
+				expect(Boar.compositionSize(big, weighted)).to.equal(8)
+			end)
+
 			it("turns a named composition into that composition's own kinds", function()
 				local config = configWith(true)
 				local kinds = Boar.sounderKinds(3, {}, config, { stag = 1, hind = 2 })
