@@ -865,10 +865,17 @@ PLANT_SEAM = """(function()
     end)()"""
 
 # WHAT STANDS IN A CELL'S FOLDER NOW, AND ITS ROW HASH. The hash is over every planted model's own
-# identity -- name, pivot to 1/100 stud, scale, yaw and band -- sorted, so the prebuild's wood and
-# the boot's wood can be compared as ONE number instead of 2,400 rows. Luau has no sha256, so the
-# rows are concatenated there and hashed here. IT READS WHATEVER FOLDER IT IS GIVEN, which is what
-# lets the same instrument read `GridForest` in Edit and `GridPlaces` in a Play server.
+# identity -- name, pivot to 1/100 stud, scale, yaw and band -- SORTED, so the prebuild's wood and
+# the boot's wood are compared as ONE number instead of 2,400 rows.
+#
+# THE HASH IS COMPUTED IN LUAU AND NOT HERE, and that was measured rather than chosen: returning the
+# rows themselves truncates the MCP reply at ~2,400 rows (2026-11-05, C1 in Karen's Play server), so
+# the number could only ever be read for a small cell. FNV-1a over 32 bits, folded by hand because
+# Luau's bit32 is the only integer arithmetic there is. What matters is that BOTH readers run this
+# same expression: the tool in Edit and `328g-rows.py` in a Play server import this one string.
+#
+# IT READS WHATEVER FOLDER IT IS GIVEN, which is what lets one instrument read `GridForest` in Edit
+# and `GridPlaces` in a Play server.
 FOREST_ROWS_SEAM = """(function()
         local folder = Workspace:FindFirstChild("%s")
         if folder == nil then
@@ -894,18 +901,26 @@ FOREST_ROWS_SEAM = """(function()
             end
         end
         table.sort(out)
+        local hash = 2166136261
+        for _, row in ipairs(out) do
+            for at = 1, #row do
+                hash = bit32.bxor(hash, string.byte(row, at))
+                hash = bit32.band(hash * 16777619, 0xFFFFFFFF)
+            end
+            hash = bit32.bxor(hash, 59)
+            hash = bit32.band(hash * 16777619, 0xFFFFFFFF)
+        end
         return { folder = true, cell = true, models = #out, parts = parts,
-                 epoch = tostring(folder:GetAttribute("%s")), rows = table.concat(out, ";") }
+                 epoch = tostring(folder:GetAttribute("%s")), rowHash = string.format("%%08x", hash) }
     end)()"""
 
 
 def forest_rows(studio, studio_id, cell_id, folder_name, epoch_attr, injected):
-    """One cell's planted wood as models, parts, a 16-hex row hash and the folder's epoch."""
+    """One cell's planted wood as models, parts, an 8-hex row hash and the folder's epoch."""
     got = call(studio, studio_id, FOREST_ROWS_SEAM % (folder_name, cell_id, epoch_attr),
                timeout=BAKE_CALL_TIMEOUT, injected=injected)
     if not got.get("cell"):
         return None
-    got["rowHash"] = hashlib.sha256(got.pop("rows").encode("utf-8")).hexdigest()[:16]
     return got
 
 
@@ -2955,7 +2970,11 @@ def selftest():
        and 'FindFirstChild("GridPlaces")' in (FOREST_ROWS_SEAM % ("GridPlaces", "C1", "PlantEpoch"))
        and 'FindFirstChild("GridForest")' in (FOREST_ROWS_SEAM % ("GridForest", "C1", "PlantEpoch"))
        and "GetScale()" in FOREST_ROWS_SEAM
-       and "DrivePlaceBand" in FOREST_ROWS_SEAM and "table.sort(out)" in FOREST_ROWS_SEAM)
+       and "DrivePlaceBand" in FOREST_ROWS_SEAM and "table.sort(out)" in FOREST_ROWS_SEAM
+       # ...AND IT HASHES IN LUAU, so a Play server and an Edit session answer the same number and
+       # neither reply can truncate on 2,400 rows.
+       and "2166136261" in FOREST_ROWS_SEAM and "bit32.bxor" in FOREST_ROWS_SEAM
+       and "rows = table.concat" not in FOREST_ROWS_SEAM)
     ok("plant takes every refusal a bake takes, and rows takes none of them",
        "plant" in PLANT_MUTATING and "rows" not in PLANT_MUTATING and "bake" in PLANT_MUTATING)
 
