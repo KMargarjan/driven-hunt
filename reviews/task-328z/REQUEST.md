@@ -163,8 +163,9 @@ the following rule (a follower may never aim closer than `LINE.MARGIN` to the an
    BOARS_PER_DRIVE`, which is still exactly true.
 9. **`SHOP`'s `expires` moved, and it is NOT this task's row.** It was 2026-11-04; the rot
    tripwire fired on 2026-11-05 and failed `flags.spec:124`, which blocks the gate. Moved to
-   2026-11-25 with the reason written on it (design section 11's third option). Flagged in the
-   report.
+   **2026-12-31**, the date every other accepted-and-lit row in that file takes, with the reason
+   written on it (round 2's note: round 1's text here said 2026-11-25, which the code never was
+   after round 2's commit -- corrected here rather than left standing). Flagged in the report.
 10. **Karen's own place was left exactly as it was found.** :34873 is back on
     `driven-hunt-karen` at `9c09c64a` (merged main), the FT is reconnected and synced
     (`328z-ft-restore2.png`), and the 18 `ServerStorage` attributes are byte-identical before and

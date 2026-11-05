@@ -1,3 +1,59 @@
+## 2026-11-05 ~13:10 UTC, Task 328z -- STOPPED AT THE DISPATCH'S TWO-ROUND CAP, WITH THREE CORRECT FINDINGS OPEN
+
+The dispatch says *"Review: at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."*
+Round 2 found three. **I believe all three are correct** -- I checked each against the code -- so this
+is not a disagreement. It is a stop with the work half done, and what is left is one decision the
+Builder may not take.
+
+**WHAT IS DONE AND MEASURED (the Forest Test half, which is what Karen asked about).** Red deer come
+in herds of 5 to 8 at the Isle of Rum medians, 3 -> 19 per drive, in ONE ROW at a median
+centre-to-centre gap of **8.50 studs** and a median lateral offset of **0.20-0.30** over two drives
+in her own place, stuck >= 3 s = 0 of 45 animals, 29 of 29 crossings completed, frames from a C1
+stand. Round 1's findings 2 and 3 are closed and the Reviewer says so. None of that is in question.
+
+**WHAT IS OPEN -- all three are the SAME thing: the `Match` drive's ceiling and a herd.**
+
+1. **Only the drive's ONE guaranteed deer release is weighed at `DEER_PARTY_MAX`.** `Phase.deerRelease`
+   returns false once `state.deerReleased` latches, so every *extra* group -- which is exactly what
+   `CHANCE_PER_RELEASE` 0.2 -> 0.5 buys -- is still weighed as the boar `size` and then replaced by a
+   5-to-7-animal party inside `Runtime:spawnSounder`. The overrun is the same +6 round 1 measured.
+2. **The fix has no case with teeth.** `DEER_PARTY_MAX` is named by two pure config relations only;
+   delete the `animals` branch and restore the old gate and every case still passes, the two live
+   DEV windows included (both landed on a cleared field).
+3. **`MAX_ALIVE_BOARS = DEER_PARTY_MAX = 7` means the guaranteed deer release needs an EMPTY field.**
+   While it waits it holds the whole drive and `holdbacks` climbs past `HOLDBACK_WARN = 20` in about
+   five seconds. The measurement shows the symptom: two releases in 660 s, the second at t=262.8.
+
+**THE DECISION I CANNOT TAKE, stated as the choice it is.** Making the gate honest means weighing
+**every** composition-less release at `DEER_PARTY_MAX` (the owner may turn any of them into a party),
+and then leaving headroom -- `MAX_ALIVE_BOARS >= DEER_PARTY_MAX + SOUNDER.MAX_SIZE` = **12**, against
+the 6 `docs/design/drive.md` 6.3 fixes and the <= 30 neighbour-pairs-a-frame 11.6 budgets. That is a
+design row and a performance claim, not a Builder's line. The alternatives, with their costs:
+
+* **(A) `MAX_ALIVE_BOARS` 6 -> 12, every release weighed at `DEER_PARTY_MAX` when a deer is possible,
+  design 6.3 and 11.6 amended, and a `match_phase.spec` case per the Reviewer's shape.** The drive
+  then really can hold a herd plus a sounder. Costs: a design amendment and a perf number nobody has
+  measured.
+* **(B) Keep the Match drive out of it: herds in the FOREST TEST only.** The species' `COMPOSITIONS`
+  are the animal owner's, but the drive's budget is `Match`'s -- so the drive path keeps a small
+  party (the old 1/2/3 shapes, or a 5 at most) and Karen's Forest Test, which is the place she
+  plays, carries the herds. Smallest change, and it makes findings 1 and 3 moot.
+* **(C) Revert `CHANCE_PER_RELEASE` to 0.2** so the guaranteed release is the only deer release on
+  the Match path, and fix only finding 3 (headroom) and finding 2 (the case). This still leaves a
+  7-animal party against a 7-ceiling unless (A)'s headroom comes with it.
+
+**My recommendation is (B), and item 3 of the 11:50 entry above is why**: at `CHANCE_PER_RELEASE =
+0.5` with herds the Match drive's species mix inverts to roughly 19 deer against 3 boars, which
+nobody has asked for -- the ask was *"more red stags"* in the drive Karen plays. (B) delivers her
+sentence where she will see it and leaves the `Match` budget, its design rows and its perf numbers
+exactly where they are.
+
+**STATE OF THE BRANCH.** `task-328z-stag-herds`, pushed. Code commit `a752a15c` (last `src/`/`tests/`
+change), `[harness] PASS: 34/34 ... scope=all` and a scoped line at the paperwork head `fdde5474`;
+CI green. `reviews/task-328z/RESULT.md` holds round 2's three findings. **NOTHING MERGES as it
+stands**, and the merge would in any case need `[harness2]` -- the `NEEDS KAREN` in the 11:50 entry
+item 5 -- because `src/server/Match/` is now touched as well.
+
 ## 2026-11-05 ~11:50 UTC, Task 328z -- FOUR DESIGN ROWS AND ONE `NEEDS KAREN`
 
 Task 328z (red deer herds of 5-8, in one row, and more of them) is built, gated and measured in
