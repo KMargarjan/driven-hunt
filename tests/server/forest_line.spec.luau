@@ -1256,8 +1256,15 @@ return function()
 				expect(row.party).to.equal(nil)
 				expect(row.species).to.equal("boar")
 			end
-			-- The window wraps in order, so slot 16 is the first row of it.
-			expect(Data.slotAt(rows + 1, "normal", SCHEDULE).slot).to.equal(SCHEDULE.repeatFrom)
+			-- The window wraps in order, so slot 16 is the first row of it THAT MAY BE REPEATED:
+			-- `repeatFrom` is 6 and slot 6 is now the bachelor group, which the deer exclusion
+			-- above walks past, so the answer is slot 7 (task 328z).
+			local first = Data.slotAt(rows + 1, "normal", SCHEDULE)
+			expect(first.slot >= SCHEDULE.repeatFrom).to.equal(true)
+			expect(first.slot).to.equal(7)
+			for slot = SCHEDULE.repeatFrom, first.slot - 1 do
+				expect(SCHEDULE.drive[slot].species).to.equal("reddeer")
+			end
 			-- A slot before the first is nothing at all, rather than row 1 by accident.
 			expect(Data.slotAt(0, "normal", SCHEDULE)).to.equal(nil)
 			expect(Data.slotAt(-3, "normal", SCHEDULE)).to.equal(nil)
