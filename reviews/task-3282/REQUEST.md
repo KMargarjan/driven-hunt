@@ -11,11 +11,16 @@ prefers is one `git mv` plus this `Task:` line. Everything below is unchanged.
 Task: 3282
 Round: 1
 Base: `main` @ `8f91a477`
-Code commit: n/a — **docs-only**. Nothing under `src/`, `tests/` or `tools/` changed. This task is a
-PLACE operation plus paperwork, and `git diff --name-only main..HEAD` shows only
-`reviews/task-328g2/` and this task's status row in `TASKS.md`. No harness line is pasted and none
-is required. Rule G ran anyway: `tools/studio_mcp.py selftest` PASS, `tools/agents.py selftest`
-"all ok". **No flake fired** — no spec ran at all, because no spec file and no code file changed.
+Code commit: `8f91a47749f8286ff2cf98e61de4016969863e8e`
+
+That sha is `main` itself, and it is named because **this task is docs-only**: nothing under `src/`,
+`tests/` or `tools/` changed on this branch, so the LAST commit that changed code is the branch's
+own base, and the definition in CLAUDE.md git workflow step 4 — "at or after the last commit that
+changed src/, tests/ or tools/, and only paperwork after it" — is satisfied exactly by it.
+`git diff --name-only 8f91a477..HEAD` is `ESCALATE.md`, `TASKS.md` and `reviews/task-3282/`, all
+paperwork. **No harness line is pasted and none is required** (docs-only is exempt). Rule G ran
+anyway: `tools/studio_mcp.py selftest` PASS, `tools/agents.py selftest` "all ok". **No flake fired**
+— no spec ran at all, because no spec file and no code file changed.
 
 ## What happened
 
