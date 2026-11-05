@@ -3507,6 +3507,55 @@ return function()
 			expect(TerrainBake.nameFnv(offNames, n * n)).to.equal(TerrainBake.nameFnv(onNames, n * n))
 		end)
 
+		it("330-6 UNDER THE BEND the six-row key is NOT exact, and this is how far out it is", function()
+			-- THE MEASUREMENT THE DIRECTOR'S DECISION TURNS ON (task 330, `ESCALATE.md` 2026-11-05).
+			-- With the bend on, `shapeTile` hands `Relief` a GRID x, and `toWorld` moves BOTH world
+			-- coordinates with it: the six anchor rows' columns no longer step where the 1,369 blur
+			-- taps of each row step, so two grid x in one bucket can have different blur. 330-2
+			-- shows the straight grid IS exact; this shows the bent one is not, in the shipped
+			-- arithmetic rather than in a replica.
+			--
+			-- IT ASSERTS A BOUND, NOT EXACTNESS: a regression guard on how far the cache may move a
+			-- column while the Director decides (the dispatch's answer to a divergence is
+			-- `ESCALATE.md`, not a tuned key). The measured worst goes in the note.
+			local BEND = Grid.CONFIG.bend
+			local anchors = {
+				indexAt = function(x: number, z: number): number
+					local wx, wz = Grid.toWorld(x, z, BEND)
+					return math.floor(wx / LAT) * 1e6 + math.floor(wz / LAT)
+				end,
+				store = {},
+				hits = 0,
+				misses = 0,
+			}
+			local function bentBase(x: number, z: number): number?
+				return hillside(Grid.toWorld(x, z, BEND))
+			end
+			local worst, pairs = 0, 0
+			for step = 0, 48 do
+				local x = B2BOUNDS.minX + 300 + step * 0.25
+				local z = Z0 + 150
+				local off = Relief.heightAt(B2, B2BOUNDS, ROADS, bentBase, x, z, 1, nil, nil)
+				local on = Relief.heightAt(B2, B2BOUNDS, ROADS, bentBase, x, z, 1, nil, anchors)
+				worst = math.max(worst, math.abs((off :: number) - (on :: number)))
+				pairs += 1
+			end
+			TestKit.note(
+				string.format(
+					"330-6 BENT: %d pairs, %d walks, %d hits, worst %.6f st = %.2f codes of 1/64",
+					pairs,
+					anchors.misses,
+					anchors.hits,
+					worst,
+					worst * 64
+				)
+			)
+			expect(anchors.hits > 0).to.equal(true)
+			-- THE BOUND. It is not 0: the real tiles' stored codes differ, measured in Karen's place
+			-- (`<runs-dir>/330-proof-1.txt`, tile 393, 64dafbe0 vs c2d95b90).
+			expect(worst < 0.25).to.equal(true)
+		end)
+
 		it("330-5 codeFnv and nameFnv answer differently for one changed column", function()
 			-- The equality proof's own instrument: a hash that cannot see a one-column change would
 			-- report "identical" for every tile there is.
