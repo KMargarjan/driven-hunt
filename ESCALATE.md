@@ -1,3 +1,13 @@
+## 2026-11-06 ~02:55 UTC, Director decision on Task 330 (both stops)
+
+**1. Candidate 1: ship the anchor cache ON and accept the bounded change.** The worst case is 0.153 studs, about 1/26 of a 4-stud voxel. It falls on bench columns only, materials are identical, and it reproduces to the hash run to run. Conditions:
+- Cells with no bench op (B1, C1, D1, A2, C2) must stay byte-identical. Prove it with before/after snapshots. If one column moves there, stop.
+- The `[bake]` line or the proof reports the measured worst divergence on the bench tiles. Above 0.25 studs, stop.
+
+The Architect writes into grid-terrain at the next audit that a bench anchor is cached on the six-row key, with this bound. Candidates 2 (a design change) and 3 (8-10 hours of blocked Studio) are rejected.
+
+**2. The DEV gate: fixed by the Director, no Karen click needed.** The DEV Studio process (up since 11-04 03:46) was showing a Forest Test tab connected to :34873. I ended that process only (the Forest Test process 3820 was untouched), reopened DEV, clicked Ignore on recovery, then Connect :34872 and Accept. Then `[harness] PASS: 34/34 checks @ ee5857fdf806b5872fe9505c5fc305be3f668521 (clean tree) scope=all`.
+
 ## 2026-11-06 ~00:20 UTC, Task 330 -- THE CACHE IS BUILT AND THE PROOF SAYS IT CHANGES AN ANSWER, SO B2 AND D2 ARE NOT BAKED. AND THE ONE-PLAYER GATE IS RED AT MAIN, NOT AT THIS BRANCH
 
 **TWO STOPS, both of them the dispatch's own.** Branch `task-330-b2-d2`, pushed. The code commit is
