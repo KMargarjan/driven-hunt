@@ -1795,6 +1795,10 @@ return function()
 				burstOff.ENABLED = false
 				-- SWITCHED ON AND AIRBORNE is the only combination that is not 1.
 				expect(Brain.leapSpeedScale(true, burstOn)).to.equal(leap.SPEED_SCALE)
+				-- ...AND THE NUMBER ITSELF, which `leap.SPEED_SCALE` alone cannot tell from any
+				-- other value above 1 (Reviewer note, round 1). 3 / sqrt(2) is section 9.2's
+				-- derivation: 2x the apex is sqrt(2) x the airtime, so 3x the length needs this.
+				expect(leap.SPEED_SCALE).to.be.near(3 / math.sqrt(2), 1e-5)
 				expect(Brain.leapSpeedScale(false, burstOn)).to.equal(1)
 				expect(Brain.leapSpeedScale(nil, burstOn)).to.equal(1)
 				expect(Brain.leapSpeedScale(true, burstOff)).to.equal(1)
@@ -1805,6 +1809,35 @@ return function()
 				expect(Brain.leapSpeedScale(true, none)).to.equal(1)
 				none.SPEED_SCALE = 0.5
 				expect(Brain.leapSpeedScale(true, none)).to.equal(1)
+			end)
+
+			it("gives every deer kind its OWN airtime through kindConfig (task 334 round 2)", function()
+				-- FAILS WHEN `Boar.leapByKind` IS DROPPED FROM `Boar.kindConfig`. That call is the
+				-- ONE wire between the arc (`Body.leapAir`) and the Brain's `_burstFor`: without it
+				-- every live deer reads `MOVE.LEAP_AIR_SECONDS` as nil, the burst never fires, and
+				-- the whole 3x length is gone with a green suite (Reviewer finding 1, round 1).
+				local leap = CONFIG.MODEL.LEAP
+				local seen = {}
+				for _, kind in ipairs(DEER_KINDS) do
+					local move = Boar.kindConfig(kind, CONFIG).MOVE
+					expect(move).to.be.ok()
+					local air = Body.leapAir(kind, leap)
+					expect(air > 0).to.equal(true)
+					expect(move.LEAP_AIR_SECONDS).to.be.near(air, 1e-9)
+					-- ...AND IT IS SHORTER THAN THE DRAWING WINDOW, which is why it exists.
+					expect(move.LEAP_AIR_SECONDS < leap.SECONDS).to.equal(true)
+					seen[kind] = move.LEAP_AIR_SECONDS
+				end
+				-- A CALF IS IN THE AIR FOR LESS TIME THAN ITS MOTHER, and she than the stag.
+				expect(seen.calf < seen.hind).to.equal(true)
+				expect(seen.hind < seen.stag).to.equal(true)
+				-- A BOAR HAS NO `APEX_STUDS` ROW, so it gets the config back BY REFERENCE and no
+				-- boar in the game carries this key at all.
+				expect(Body.leapAir("male", leap)).to.equal(0)
+				expect(Boar.kindConfig("male", CONFIG)).to.equal(CONFIG)
+				expect(CONFIG.MOVE.LEAP_AIR_SECONDS).to.equal(nil)
+				-- Nothing to solve, nothing to write: a world with no leap table answers 0.
+				expect(Body.leapAir("stag", nil)).to.equal(0)
 			end)
 
 			it("is 2x the measured height and 3x the measured length for a hind, within 15 %", function()
@@ -1918,6 +1951,82 @@ return function()
 				expect(burstOff).to.be.near(flatOff, 1e-3)
 				-- ...and with it, that speed times the scale.
 				expect(burstOn / burstOff).to.be.near(CONFIG.MODEL.LEAP.SPEED_SCALE, 1e-4)
+			end)
+
+			it("cannot re-arm the burst inside a bound it is already flying (task 334 round 2)", function()
+				-- FAILS WITHOUT `self._leapFor <= 0` ON THE TRIGGER (Reviewer finding 2, round 1).
+				-- A bound now covers 45 studs across a 40-stud band, so the animal LEAVES the band
+				-- in mid-flight every crossing and `_leapArmed` comes back. A re-entry then
+				-- refreshed `_burstFor` for a bound `Body` will NOT launch -- `leapSpent` is
+				-- latched while `leaping` never drops -- which is a second 0.46 s of 60 studs/s
+				-- along the GROUND, with no arc. That is cycle 2's measured defect by another door.
+				local function run(leaveAt: number?)
+					local config = table.clone(CONFIG)
+					config.SENSE = table.clone(CONFIG.SENSE)
+					config.SENSE.ENABLED = true
+					local model = table.clone(CONFIG.MODEL)
+					model.LEAP = table.clone(CONFIG.MODEL.LEAP)
+					model.LEAP.ENABLED = true
+					config.MODEL = model
+					config.MOVE = table.clone(CONFIG.MOVE)
+					config.MOVE.LEAP_AIR_SECONDS = Body.leapAir("hind", model.LEAP)
+					local away = false
+					local field = {
+						bounds = FIELD.bounds,
+						exitZ = FIELD.exitZ,
+						groundY = 0,
+						-- THE ROAD MOVES, not the animal: the observation the Brain is handed is
+						-- then identical tick for tick in both runs, and the ONE thing that differs
+						-- is whether it is on the road.
+						road = {
+							halfWidthStuds = 20,
+							zAt = function(_x: number): number
+								return if away then 400 else 0
+							end,
+						},
+					}
+					local brain = Brain.new(config, field, Vector3.zero, Random.new(7))
+					local speeds, flat = {}, 0
+					for tick = 1, 300 do
+						away = leaveAt ~= nil and tick >= leaveAt and tick < leaveAt + 2
+						local intent = brain:step(1 / 60, {
+							position = Vector3.zero,
+							velocity = Vector3.zero,
+							threats = {
+								{ id = "d", position = Vector3.new(0, 0, 8), kind = "driver" },
+							},
+							waypoints = nil,
+							pathFailed = false,
+							blockedAhead = false,
+						})
+						local speed = intent.targetVelocity.Magnitude
+						if not intent.leaping then
+							flat = math.max(flat, speed)
+						end
+						table.insert(speeds, speed)
+					end
+					-- THE FIRST CONTIGUOUS BURST, which is the one the re-entry would extend.
+					local firstAt, held = nil, 0
+					for index, speed in ipairs(speeds) do
+						if speed > flat + 1e-3 then
+							if firstAt == nil then
+								firstAt = index
+							end
+							if firstAt ~= nil and index == (firstAt + held) then
+								held += 1
+							end
+						end
+					end
+					return held, firstAt
+				end
+				local straight, firstAt = run(nil)
+				expect(firstAt).to.be.ok()
+				-- IT LASTS THE HIND'S OWN FLIGHT and not the drawing window: 0.457 s against 0.75.
+				local air = Body.leapAir("hind", CONFIG.MODEL.LEAP)
+				expect(straight).to.be.near(air * 60, 2)
+				-- ...AND LEAVING THE BAND AND COMING STRAIGHT BACK INSIDE IT CHANGES NOTHING.
+				local reentered = run((firstAt :: number) + 4)
+				expect(reentered).to.equal(straight)
 			end)
 
 			it("starts the bound at the clip's own take-off frame (task 325)", function()

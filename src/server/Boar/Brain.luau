@@ -1489,6 +1489,10 @@ function Brain:spook(from: Vector3?, seconds: number?, untilExit: boolean?)
 			(boundMove ~= nil and boundMove.BOUND_FROM_SPEED) or 0,
 			boundLeap
 		)
+		-- ...AND NOT WHILE ONE IS ALREADY RUNNING (task 334 round 2). The same guard as the road
+		-- leap's below, and for the same reason: a refresh that `Body` will not launch is a burst
+		-- along the ground with no arc.
+		and self._leapFor <= 0
 	then
 		self._leapFor = boundLeap.SECONDS
 		self._burstFor = (boundMove ~= nil and boundMove.LEAP_AIR_SECONDS) or 0
@@ -2100,7 +2104,13 @@ function Brain:step(dt: number, obs)
 	if not onRoad then
 		self._leapArmed = true
 	elseif
-		Brain.leapStarts(onRoad, self._leapArmed, self._speed, config.MODEL and config.MODEL.RUN_FROM or 0, leap)
+		-- NOT WHILE A BOUND IS STILL RUNNING (task 334 round 2, Reviewer finding 2). A bound now
+		-- covers 45 studs across a 40-stud band, so the animal LEAVES the band mid-flight and
+		-- `_leapArmed` comes back; a re-entry then refreshed a window `Body` will not launch
+		-- (`leapSpent` is latched while `leaping` never drops), which is a second 0.46 s of
+		-- 60 studs/s along the GROUND. At 0.55 s and 28 studs/s it could not happen.
+		self._leapFor <= 0
+		and Brain.leapStarts(onRoad, self._leapArmed, self._speed, config.MODEL and config.MODEL.RUN_FROM or 0, leap)
 	then
 		self._leapArmed = false
 		self._leapFor = leap.SECONDS
