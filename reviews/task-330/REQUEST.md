@@ -51,22 +51,24 @@ exists. It is written now so the review can run the moment it does.
 6. **FAIL FIRST.** Spec `330-3`: a key of one bucket per 64 studs diverges by `3.7329` studs, so
    the equality comparison can see a wrong key. Without it "identical" could not be told from a
    check that never compares.
-7. **The equality proof ran on the heaviest bench tile in Karen's place and the stored codes
-   differ.** `<runs-dir>/330-proof-1.txt`: tile 393 (-2944, -5760), heights `64dafbe0` uncached
-   against `c2d95b90` cached, materials `c7bac250` both ways, 937,275 ms -> 9,849 ms, 423 walks +
-   7,823 hits = 8,246 bench columns. The two halves' own JSON rows are in
-   `<runs-dir>/330-attrs-before-clear.txt`.
+7. **The equality proof ran on the EIGHT heaviest bench tiles in Karen's place: all eight
+   stored-height codes DIFFER, and all eight material codes are identical.**
+   `<runs-dir>/330-proof-8.txt`, table in `ESCALATE.md` -- seven D2 tiles (392-398) and one B2 tile
+   (135), 7,545-8,246 bench columns each, 780,487-911,207 ms uncached -> 3,663-27,978 ms cached.
+   Tile 393 was read twice an hour apart and gave `64dafbe0` / `c2d95b90` both times, so it is not
+   float noise. The sixteen halves' own JSON rows are in `<runs-dir>/330-attrs-8tile.txt`.
 8. **"The ten heaviest" is a measurement, not a list.** `TerrainBake.benchWeightPlan` counts the
    columns that pay an anchor walk and the tool ranks on it: 134 of 1,120 tiles carry bench weight.
    It SAMPLES 1 in 16 and says so, because a full count did not return inside the MCP window; each
-   proof row's `walks + hits` is that tile's exact count. **NOT MET: only 1 of the 10 tiles was
-   measured** -- the uncached half is 15 min 37 s and StudioMCP's request timeout is ~5 min, so each
-   half publishes its answer on an attribute and the tool polls for it. Ten tiles is ~2 h 40 m of
-   blocked Studio to repeat an answer the first tile already gave. `ESCALATE.md` states this.
-9. **Nothing was written in Karen's place.** No bake, no plant, no flag change. The two
-   `DH330Proof_*` attributes this task set were removed (`clear-proof`: `cleared 2 attribute(s); 0
-   left`), and her 15 `DHFlag_*` overrides are present before and after
-   (`<runs-dir>/330-flags-before.txt`, `330-attrs-before-clear.txt`, `330-attrs-after-clear.txt`).
+   proof row's `walks + hits` is that tile's exact count. **PARTLY MET: 8 of the dispatch's 10.**
+   The uncached half is 13-15 min and StudioMCP's request timeout is ~5 min, so each half publishes
+   its answer on a `ServerStorage` attribute and the tool polls for it; the eight uncached halves
+   cost 1 h 55 m of blocked Studio. I stopped at eight -- they are unanimous, they cover both cells
+   in scope, and the dispatch's stop fired on the first.
+9. **Nothing was written in Karen's place.** No bake, no plant, no flag change. The sixteen
+   `DH330Proof_*` attributes this task set were removed (`clear-proof`: `cleared 16 attribute(s); 0
+   left`, then re-read: 0 left), and her 15 `DHFlag_*` overrides are identical before and after,
+   name for name (`<runs-dir>/330-karens-flags.txt` diffed against `330-attrs-final.txt`).
    `TerrainEpoch` reads `58575af518ae6156` and this task did not write it.
 10. **A1's strip is VOID, not virgin ground**, read live:
     `TerrainBake.snapshot({minX=-7500, maxX=-7336, minZ=-5086, maxZ=-3656}, 0, 500, true)` answers
@@ -77,7 +79,7 @@ exists. It is written now so the review can run the moment it does.
 
 - **The gate.** No `[harness] PASS` exists at any commit tonight, main included (item 2 above).
   CI on the pushed branch is not read either.
-- **Nine of the ten proof tiles** (claim 8), for the measured reason.
+- **Two of the ten proof tiles** (claim 8), for the measured reason.
 - **The magnitude from the real tile arrays.** `TerrainBake.anchorDeltaAt` and `terrainbake.py
   delta` are committed and lint clean, but every call came back `Target is not reachable` at the
   transport, three times, on two different tiles, while the same-sized `anchorHalfAt` call was
