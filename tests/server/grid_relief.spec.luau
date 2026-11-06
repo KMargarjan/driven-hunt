@@ -3462,6 +3462,106 @@ return function()
 			expect(worst > 1 / 64).to.equal(true)
 		end)
 
+		it("330-7 THE DIVERGENCE AUDIT measures the gap the cache leaves, and 0 when there is none", function()
+			-- GUARD 2 OF THE DIRECTOR'S DECISION (2026-11-06 ~02:55): the bake must MEASURE its own
+			-- worst bench divergence and stop above 0.25 st. The audit is what measures it: every
+			-- Nth reuse also walks the base uncached. This drives it both ways on the SAME hillside
+			-- the two cases above use -- an exact key must read 0, and a key known to be wrong must
+			-- read the gap the plain comparison sees.
+			local exact = cacheOn()
+			exact.auditEvery = 1
+			exact.auditWalks = 0
+			exact.auditWorst = 0
+			exact.auditWorstHeight = 0
+			local coarse = {
+				indexAt = function(x: number, _z: number): number
+					return math.floor(x / 64)
+				end,
+				store = {},
+				hits = 0,
+				misses = 0,
+				auditEvery = 1,
+				auditWalks = 0,
+				auditWorst = 0,
+				auditWorstHeight = 0,
+			}
+			local plainWorst = 0
+			for step = 0, 48 do
+				local x = B2BOUNDS.minX + 300 + step * 0.25
+				local z = Z0 + 90
+				Relief.heightAt(B2, B2BOUNDS, ROADS, hillside, x, z, 1, nil, exact)
+				local off = Relief.heightAt(B2, B2BOUNDS, ROADS, hillside, x, z, 1, nil, nil)
+				local on = Relief.heightAt(B2, B2BOUNDS, ROADS, hillside, x, z, 1, nil, coarse)
+				plainWorst = math.max(plainWorst, math.abs((off :: number) - (on :: number)))
+			end
+			TestKit.note(
+				string.format(
+					"330-7 exact key: %d audited reuse(s), worst %.9f st | coarse key: %d audited, "
+						.. "worst %.4f st, plain comparison %.4f st",
+					exact.auditWalks,
+					exact.auditWorst,
+					coarse.auditWalks,
+					coarse.auditWorst,
+					plainWorst
+				)
+			)
+			-- THE AUDIT WAS REACHED on both. Without this the 0 below could mean "nobody walked".
+			expect(exact.auditWalks > 0).to.equal(true)
+			expect(coarse.auditWalks > 0).to.equal(true)
+			-- AN EXACT KEY: 0 studs, to float error.
+			expect(exact.auditWorst).to.be.near(0, 1e-9)
+			-- FAIL FIRST: a key that IS wrong is reported as wrong, and the number the audit reads
+			-- is the same order as the one the plain off-vs-on comparison sees.
+			expect(coarse.auditWorst > 1 / 64).to.equal(true)
+			expect(coarse.auditWorst).to.be.near(plainWorst, plainWorst * 0.5 + 1e-9)
+		end)
+
+		it("330-8 the audit's stride is what it says: every Nth reuse, and 0 is OFF", function()
+			-- A stride nobody can read is not a measurement. This counts the walks against the
+			-- hits, so "auditEvery = 4" cannot quietly mean "every one" or "none".
+			local function run(every: number): (number, number)
+				local c = cacheOn()
+				c.auditEvery = every
+				c.auditWalks = 0
+				c.auditWorst = 0
+				c.auditWorstHeight = 0
+				for step = 0, 48 do
+					Relief.heightAt(
+						B2,
+						B2BOUNDS,
+						ROADS,
+						hillside,
+						B2BOUNDS.minX + 300 + step * 0.25,
+						Z0 + 90,
+						1,
+						nil,
+						c
+					)
+				end
+				return c.hits, c.auditWalks
+			end
+			local hitsOne, walksOne = run(1)
+			local hitsFour, walksFour = run(4)
+			local hitsOff, walksOff = run(0)
+			TestKit.note(
+				string.format(
+					"330-8 every=1: %d hits %d walks | every=4: %d hits %d walks | off: %d hits %d walks",
+					hitsOne,
+					walksOne,
+					hitsFour,
+					walksFour,
+					hitsOff,
+					walksOff
+				)
+			)
+			expect(hitsOne > 0).to.equal(true)
+			expect(walksOne).to.equal(hitsOne)
+			expect(walksFour).to.equal(math.floor(hitsFour / 4))
+			-- OFF IS OFF: the hits still happen, nothing is walked.
+			expect(hitsOff > 0).to.equal(true)
+			expect(walksOff).to.equal(0)
+		end)
+
 		it("330-4b shapeTile builds NO cache unless a caller asks for TRUE", function()
 			-- The default is OFF because the key is not exact under the bend (330-6), so a bake is
 			-- bit-for-bit what it was until the Director decides. nil, false and omitted are one

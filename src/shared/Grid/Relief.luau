@@ -62,11 +62,21 @@ export type Road = { id: string, axis: string, at: number, from: number, to: num
 -- `indexAt` answers WHICH BASE COLUMN a grid point falls in (0 for none) -- the lattice the walk's
 -- own reads quantise to -- and the key is the tuple of the six anchor rows' column indices.
 -- `store` and the two counters are the CALLER's, so the lifetime is the caller's: one tile.
+--
+-- THE DIVERGENCE AUDIT (task 330, Director decision 2026-11-06 ~02:55, guard 2). `auditEvery` > 0
+-- makes every Nth reuse ALSO walk the base uncached and record how far the reused anchor is from
+-- the walk's own answer, in studs. `auditWorst` is the raw anchor gap and `auditWorstHeight` that
+-- gap times the bench's blend weight, which is what the column's stored height actually moves by.
 export type AnchorCache = {
 	indexAt: (number, number) -> number,
 	store: { [any]: { [string]: any } },
 	hits: number,
 	misses: number,
+	auditEvery: number?,
+	auditWalks: number?,
+	auditWorst: number?,
+	auditWorstHeight: number?,
+	auditWorstAtX: number?,
 }
 
 export type Op = {
@@ -310,6 +320,9 @@ end
 
 -- ---------------------------------------------------------------- the ops, in order
 
+-- FORWARD-DECLARED: the anchor walk below calls back into `applyOps`, which calls the walk.
+local applyOps: (Landform, Bounds, (number, number) -> number?, number, number, number, number, AnchorCache?) -> number
+
 -- THE SIX ANCHOR ROWS' BASE COLUMNS, as one key (task 330). Those six reads are the walk's own
 -- first reads, so this is the lattice it already quantises to -- not a chosen bucket width.
 local function anchorKey(anchors: AnchorCache, x: number, z0: number): string
@@ -320,9 +333,38 @@ local function anchorKey(anchors: AnchorCache, x: number, z0: number): string
 	return table.concat(parts, ",")
 end
 
+-- THE ANCHOR WALK ITSELF: the mean height over the bench's first `BENCH_ANCHOR_STUDS` at one x,
+-- with every op before the bench applied. nil means no ground under the band at all. Factored out
+-- of the bench branch (task 330) so the cache's MISS path and the divergence audit are the same
+-- code and cannot drift apart.
+local function anchorMeanAt(
+	form: Landform,
+	bounds: Bounds,
+	baseAt: (number, number) -> number?,
+	x: number,
+	z0: number,
+	upTo: number,
+	anchors: AnchorCache?
+): number?
+	local sum, n = 0, 0
+	for s = 0, Relief.BENCH_ANCHOR_STUDS, Relief.VOXEL do
+		local b = baseAt(x, z0 + s)
+		if b ~= nil then
+			local smoothed = if form.baseKeep >= 1 then b else blurredAt(baseAt, x, z0 + s)
+			local hb = form.baseKeep * b + (1 - form.baseKeep) * (smoothed or b)
+			sum += applyOps(form, bounds, baseAt, hb, x, z0 + s, upTo, anchors)
+			n += 1
+		end
+	end
+	if n == 0 then
+		return nil
+	end
+	return sum / n
+end
+
 -- WHAT THE OPS DO TO ONE HEIGHT, applied IN ORDER. `upTo` exists for the bench, whose plane is
 -- anchored on the ground it meets -- so it asks this function for the height before itself.
-local function applyOps(
+function applyOps(
 	form: Landform,
 	bounds: Bounds,
 	baseAt: (number, number) -> number?,
@@ -379,6 +421,32 @@ local function applyOps(
 					local hit = (bucket :: any)[key]
 					if hit ~= nil then
 						anchors.hits += 1
+						-- THE DIVERGENCE AUDIT (task 330 guard 2): every Nth reuse walks the base
+						-- uncached as well and records how far the reused anchor is out. Sampled,
+						-- because an exact audit IS the uncached run -- under the bend the grid x
+						-- moves with z, so a bucket is reused by DIFFERENT x and every reuse would
+						-- need its own walk.
+						local every = anchors.auditEvery
+						if every ~= nil and every > 0 and anchors.hits % every == 0 then
+							anchors.auditWalks = (anchors.auditWalks or 0) + 1
+							local truth = anchorMeanAt(form, bounds, baseAt, x, z0, i - 1, nil)
+							local cached: number? = if hit == false then nil else hit
+							if truth ~= nil and cached ~= nil then
+								local gap = math.abs(truth - cached)
+								if gap > (anchors.auditWorst or 0) then
+									anchors.auditWorst = gap
+									anchors.auditWorstAtX = x
+								end
+								anchors.auditWorstHeight = math.max(anchors.auditWorstHeight or 0, w * gap)
+							elseif truth ~= cached then
+								-- One side had ground under the band and the other did not. That is
+								-- a whole bench plane appearing or vanishing, so it is reported as
+								-- the worst there can be rather than skipped.
+								anchors.auditWorst = math.huge
+								anchors.auditWorstHeight = math.huge
+								anchors.auditWorstAtX = x
+							end
+						end
 						if hit ~= false then
 							local plane = hit + (z - z0) * (need(op.gradePercent, "gradePercent") / 100)
 							h = (1 - w) * h + w * plane
@@ -387,18 +455,8 @@ local function applyOps(
 					end
 					anchors.misses += 1
 				end
-				local sum, n = 0, 0
-				for s = 0, Relief.BENCH_ANCHOR_STUDS, Relief.VOXEL do
-					local b = baseAt(x, z0 + s)
-					if b ~= nil then
-						local smoothed = if form.baseKeep >= 1 then b else blurredAt(baseAt, x, z0 + s)
-						local hb = form.baseKeep * b + (1 - form.baseKeep) * (smoothed or b)
-						sum += applyOps(form, bounds, baseAt, hb, x, z0 + s, i - 1, anchors)
-						n += 1
-					end
-				end
-				if n > 0 then
-					local anchor = sum / n
+				local anchor = anchorMeanAt(form, bounds, baseAt, x, z0, i - 1, anchors)
+				if anchor ~= nil then
 					if bucket ~= nil then
 						(bucket :: any)[key] = anchor
 					end

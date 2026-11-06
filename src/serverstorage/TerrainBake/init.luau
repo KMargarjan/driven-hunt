@@ -123,6 +123,14 @@ export type TileReport = {
 	materialFnv: string?,
 	anchorHits: number?,
 	anchorMisses: number?,
+	-- THE DIVERGENCE AUDIT (task 330 guard 2, Director 2026-11-06 ~02:55). `anchorAuditWalks` is
+	-- how many reuses were checked against an uncached walk on this tile; the two worsts are in
+	-- STUDS -- the raw anchor gap, and that gap times the bench weight, which is what the stored
+	-- height moves by. -1 means the audit was not switched on.
+	anchorAuditWalks: number?,
+	anchorAuditWorst: number?,
+	anchorAuditWorstHeight: number?,
+	anchorAuditWorstAtX: number?,
 }
 
 -- ---------------------------------------------------------------- the region
@@ -1529,7 +1537,10 @@ function TerrainBake.shapeTile(
 	-- divergence at 0.153 studs -- 9.8 of the 1/64-stud codes the bake writes. The dispatch's answer
 	-- to that is `ESCALATE.md` and a Director decision, so the arithmetic ships here with the fast
 	-- route reachable BY PARAMETER and nothing switched on: a bake is bit-for-bit what it was.
-	cacheAnchors: boolean?
+	cacheAnchors: boolean?,
+	-- THE DIVERGENCE AUDIT'S STRIDE (task 330 guard 2): every Nth cache reuse is also walked
+	-- uncached and the gap recorded. nil/0 is off, which is every caller that does not measure.
+	auditEvery: number?
 ): ({ number }, { string }, number, { boolean }, number, Relief.AnchorCache?)
 	local v = Relief.VOXEL
 	local side = TerrainBake.TILE_STUDS
@@ -1555,6 +1566,11 @@ function TerrainBake.shapeTile(
 			store = {},
 			hits = 0,
 			misses = 0,
+			auditEvery = auditEvery,
+			auditWalks = 0,
+			auditWorst = 0,
+			auditWorstHeight = 0,
+			auditWorstAtX = 0,
 		}
 	end
 	local shaped = table.create(wide * wide, 0)
@@ -1716,13 +1732,15 @@ function TerrainBake.bakeTile(
 	bend: any?,
 	extras: { Snapshot }?,
 	-- THE BENCH ANCHOR CACHE (task 330), passed straight through to `shapeTile`: only TRUE caches.
-	cacheAnchors: boolean?
+	cacheAnchors: boolean?,
+	-- THE DIVERGENCE AUDIT'S STRIDE (task 330 guard 2), also straight through.
+	auditEvery: number?
 ): TileReport
 	local started = os.clock()
 	local v = Relief.VOXEL
 	local side = TerrainBake.TILE_STUDS
 	local inner, innerNames, n, innerAbsent, dropped, anchors =
-		TerrainBake.shapeTile(tile, snapshot, cellIds, plans, profiles, reshape, bend, extras, cacheAnchors)
+		TerrainBake.shapeTile(tile, snapshot, cellIds, plans, profiles, reshape, bend, extras, cacheAnchors, auditEvery)
 	-- WHAT THIS TILE WOULD WRITE, AS TWO NUMBERS (task 330): FNV-1a over the heights at 1/64 of a
 	-- stud, and over the material names. `diffTileAt` already hashed the heights this way; the
 	-- arithmetic is named once now, because the anchor cache's equality proof compares these two.
@@ -1730,6 +1748,12 @@ function TerrainBake.bakeTile(
 	local materialFnv = TerrainBake.nameFnv(innerNames, n * n)
 	local anchorHits = if anchors ~= nil then anchors.hits else 0
 	local anchorMisses = if anchors ~= nil then anchors.misses else 0
+	-- -1, NOT 0, WHEN THE AUDIT WAS NOT ASKED FOR: "0 studs out" and "nobody measured" must not
+	-- read the same on the tool's line (task 330 guard 2).
+	local auditWalks = if anchors ~= nil and (auditEvery or 0) > 0 then (anchors.auditWalks or 0) else -1
+	local auditWorst = if auditWalks >= 0 then (anchors :: any).auditWorst else -1
+	local auditWorstHeight = if auditWalks >= 0 then (anchors :: any).auditWorstHeight else -1
+	local auditWorstAtX = if auditWalks >= 0 then (anchors :: any).auditWorstAtX else 0
 	-- THE Y BAND IS TAKEN OVER THE COLUMNS THAT HAVE GROUND (task 328x). An absent column carries
 	-- `snapshot.minY` as a placeholder and is written as AIR; counting it would drop the band's
 	-- floor to the band floor of the whole snapshot for a tile at the world's edge.
@@ -1756,6 +1780,10 @@ function TerrainBake.bakeTile(
 			materialFnv = materialFnv,
 			anchorHits = anchorHits,
 			anchorMisses = anchorMisses,
+			anchorAuditWalks = auditWalks,
+			anchorAuditWorst = auditWorst,
+			anchorAuditWorstHeight = auditWorstHeight,
+			anchorAuditWorstAtX = auditWorstAtX,
 		}
 	end
 	local bands = TerrainBake.bandsFor(lo, hi)
@@ -1772,6 +1800,10 @@ function TerrainBake.bakeTile(
 		materialFnv = materialFnv,
 		anchorHits = anchorHits,
 		anchorMisses = anchorMisses,
+		anchorAuditWalks = auditWalks,
+		anchorAuditWorst = auditWorst,
+		anchorAuditWorstHeight = auditWorstHeight,
+		anchorAuditWorstAtX = auditWorstAtX,
 	}
 	for _, band in bands do
 		local region = Region3.new(
@@ -2100,9 +2132,12 @@ function TerrainBake.bakeTileAt(
 	-- gives them their own area and no neighbour's landform is written across it, but the base is
 	-- kept there. Their roads and stand pads are still built. See the `held` block below.
 	holdLandform: { string }?,
-	-- THE BENCH ANCHOR CACHE (task 330). Only TRUE caches, so a bake is unchanged until the
-	-- Director decides on `ESCALATE.md` 2026-11-05; `anchorProofAt` drives both states.
-	cacheAnchors: boolean?
+	-- THE BENCH ANCHOR CACHE (task 330). Only TRUE caches; the Director switched it ON for the
+	-- bake on 2026-11-06 ~02:55 with two guards, and `anchorProofAt` still drives both states.
+	cacheAnchors: boolean?,
+	-- THE DIVERGENCE AUDIT'S STRIDE (task 330 guard 2): every Nth reuse is also walked uncached
+	-- and the gap goes on the report, so the bake MEASURES what the cache cost it.
+	auditEvery: number?
 ): TileReport
 	local plan = TerrainBake.tilePlan(TerrainBake.regionFor(cellIds))
 	assert(tileIndex >= 1 and tileIndex <= #plan, string.format("tile %d is not in a plan of %d", tileIndex, #plan))
@@ -2336,7 +2371,8 @@ function TerrainBake.bakeTileAt(
 			table.insert(why, string.format("%s reshape=true (base is virgin; stamp says %s: %s)", id, kind, reason))
 		end
 	end
-	local report = TerrainBake.bakeTile(tile, base, cellIds, {}, dryRun, profiles, reshape, nil, extras, cacheAnchors)
+	local report =
+		TerrainBake.bakeTile(tile, base, cellIds, {}, dryRun, profiles, reshape, nil, extras, cacheAnchors, auditEvery)
 	report.reshape = table.concat(why, "; ")
 	-- THE STANDS NO ROAD REACHES, ON THE REPORT and not only in a header's promise (Reviewer, round
 	-- 1, note 1): the caller said it reported them and nothing carried them out of `shapeTile`.

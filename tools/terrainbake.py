@@ -155,6 +155,11 @@ from studio_mcp import (  # noqa: E402  (the path insert above has to come first
 # chunking also makes a failed tile name itself.
 BAKE_CALL_TIMEOUT = 300
 
+# THE DIVERGENCE STOP (task 330, Director decision 2026-11-06 ~02:55, guard 2): "The worst bench
+# divergence must be measured and printed; above 0.25 studs, stop." 0.25 st is 16 of the 1/64-stud
+# codes the bake writes, and 1/16 of a 4-stud voxel.
+ANCHOR_DIVERGENCE_STOP_STUDS = 0.25
+
 # THE EQUALITY PROOF'S OWN WINDOW (task 330). Its UNCACHED half is the thing the cache exists to
 # avoid: the heaviest bench tile is ~8,200 columns x 8,220 base reads, each read a `Grid.toWorld`,
 # and it did NOT answer inside `BAKE_CALL_TIMEOUT` (MEASURED 2026-11-05). The cached half is seconds.
@@ -2064,6 +2069,14 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
                           "geography, so that `cellAt` gives it its own area and no neighbour's "
                           "landform is written across it" % (c, ",".join(cells))), []
     bands = [b for b in (bands or []) if b["cell"] not in hold]
+    # THE CACHE AND ITS AUDIT (task 330). `--audit-every` without `--cache-anchors` measures
+    # nothing, because there are no reuses to audit, so it is refused rather than ignored.
+    cache = bool(getattr(args, "cache_anchors", False))
+    audit = int(getattr(args, "audit_every", 0) or 0)
+    if audit and not cache:
+        return refuse("--audit-every %d without --cache-anchors: an uncached run has no reuse to "
+                      "audit, so the number would be a silence, not a measurement" % audit), []
+    worst_div, worst_div_at, audited = -1.0, None, 0
     region = region_for(cells, facts)
     count = tile_count(region, facts["tile"])[0]
     limit = min(args.tiles or count, count)
@@ -2077,7 +2090,11 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
         return refuse("Studio's tile plan has %d tiles and this tool's count says %d: the two "
                       "lattices disagree, so no slice can be trusted" % (len(plan), count)), entries
     reshape_said = [None]
-    print("[bake] %s: %d of %d tiles, cells=%s" % ("measure (DRY)" if dry else "bake", limit, count, ",".join(cells)))
+    print("[bake] %s: %d of %d tiles, cells=%s  anchorCache=%s%s"
+          % ("measure (DRY)" if dry else "bake", limit, count, ",".join(cells),
+             "ON" if cache else "off",
+             ("  auditEvery=%d (stop above %.2f st)" % (audit, ANCHOR_DIVERGENCE_STOP_STUDS))
+             if audit else ""))
     for index in range(1, limit + 1):
         # REFUSAL 2 AGAIN, before every mutating call (B1): the operator can open another place
         # inside a 70-minute run, and a silent fall-back would reshape DEV.
@@ -2101,11 +2118,12 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
         # holds double quotes; it is a value, never code.
         expression = (
             'TerrainBake.bakeTileAt(%d, {%s}, %s, HttpService:JSONDecode([==[%s]==]), '
-            'HttpService:JSONDecode([==[%s]==]), HttpService:JSONDecode([==[%s]==]), {%s})'
+            'HttpService:JSONDecode([==[%s]==]), HttpService:JSONDecode([==[%s]==]), {%s}, %s, %d)'
             % (index, ",".join('"%s"' % c for c in cells), "true" if dry else "false", profiles,
                json.dumps(payload, separators=(",", ":")),
                json.dumps(bench, separators=(",", ":")),
-               ",".join('"%s"' % c for c in hold))
+               ",".join('"%s"' % c for c in hold),
+               "true" if cache else "nil", audit)
         )
         report = call(studio, studio_id, expression, injected=injected)
         entries.append(report)
@@ -2126,6 +2144,28 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
               % (index, limit, report["minX"], report["minZ"], report["calls"], report["voxels"],
                  report["bandMin"], report["bandMax"], report["elapsedMs"],
                  "  " + report["message"] if report.get("message") else ""))
+        # THE DIVERGENCE AUDIT'S READING FOR THIS TILE (task 330 guard 2). -1 means the audit was
+        # not switched on; a bench tile that reported no walks is said so, never passed over.
+        walked = report.get("anchorAuditWalks")
+        if walked is not None and walked >= 0:
+            gap = report.get("anchorAuditWorst") or 0.0
+            tall = report.get("anchorAuditWorstHeight") or 0.0
+            audited += walked
+            if walked > 0:
+                print("    [audit] %d reuse(s) walked uncached: worst anchor gap %.6f st, worst "
+                      "stored height %.6f st (%.2f codes of 1/64) at x %.0f"
+                      % (walked, gap, tall, tall * 64.0, report.get("anchorAuditWorstAtX") or 0))
+            if gap > worst_div:
+                worst_div, worst_div_at = gap, index
+            # THE STOP, AND IT FIRES INSIDE THE RUN (guard 2): above 0.25 studs the Director's
+            # decision is to stop, so the remaining tiles are not written.
+            if gap > ANCHOR_DIVERGENCE_STOP_STUDS:
+                log_run(cells, entries, keep, live)
+                print("[bake] STOP at tile %d: the bench anchor cache is %.6f st out, over the "
+                      "%.2f-st guard (task 330, Director 2026-11-06 ~02:55 guard 2). Write "
+                      "ESCALATE.md; %d tile(s) were written before this one."
+                      % (index, gap, ANCHOR_DIVERGENCE_STOP_STUDS, index - 1))
+                return 2, entries
         if report.get("message"):
             log_run(cells, entries, keep, live)
             print("[bake] FAILED at tile %d: %s" % (index, report["message"]))
@@ -2152,10 +2192,13 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
               % (stamped, ",".join(shaped_cells),
                  ("  (NOT stamped, landform held: " + ",".join(hold) + ")") if hold else ""))
     print("[bake] %s: %d/%d tiles @ %s cells=%s%s epoch=%s worstTileMs=%d "
-          "droppedLandform=%d/%d tiles (clean tree)"
+          "droppedLandform=%d/%d tiles anchorCache=%s %s (clean tree)"
           % ("DRY OK" if dry else "OK", limit, limit, sha, ",".join(cells),
              (" hold=" + ",".join(hold)) if hold else "", epoch, worst,
-             dropped_total[0], dropped_tiles[0]))
+             dropped_total[0], dropped_tiles[0], "ON" if cache else "off",
+             ("worstAnchorDivergence=%.6f st over %d audited reuse(s), tile %s, guard %.2f"
+              % (worst_div, audited, worst_div_at, ANCHOR_DIVERGENCE_STOP_STUDS))
+             if worst_div >= 0 else "anchorDivergence=NOT MEASURED (no audit)"))
     return 0, entries
 
 
@@ -2198,6 +2241,19 @@ def main(argv):
                                               "practice whenever a backup .rbxl is open beside "
                                               "Karen's live window: both report the same place id "
                                               "(task 328k, lesson L-055)")
+    parser.add_argument("--cache-anchors", action="store_true",
+                        help="switch the BENCH ANCHOR CACHE on for this run (task 330; Director "
+                             "decision 2026-11-06 ~02:55). Without it every bench column walks the "
+                             "base, which `proof` measured at 780-911 s a tile -- about 8-10 hours "
+                             "of blocked Studio for the 134 bench tiles. The cache is NOT exact "
+                             "under the bend, so it comes with --audit-every and the %.2f-stud "
+                             "stop below" % ANCHOR_DIVERGENCE_STOP_STUDS)
+    parser.add_argument("--audit-every", type=int, default=0,
+                        help="with --cache-anchors: every Nth cache reuse ALSO walks the base "
+                             "uncached and the gap is recorded, so the run measures its own worst "
+                             "divergence on EVERY bench tile it writes. 0 is off. A full audit is "
+                             "the uncached run itself -- under the bend a bucket is reused by "
+                             "different grid x -- so this is a stride and the tool says so")
     parser.add_argument("--keep-flags", help="comma list of flag overrides that are the PLACE "
                                              "OWNER's and must be left as found (refusal 7)")
     parser.add_argument("--folder", help="`rows` only: which Workspace folder to read, default the "
@@ -2731,6 +2787,8 @@ def selftest():
         studio_name = None
         allow_local_file = False
         reshape = "auto"
+        cache_anchors = False
+        audit_every = 0
 
     # A SYNTHETIC BASE covering the first two tiles plus their pad, so the tile pass can cut real
     # slices out of it with no Studio.
@@ -2797,8 +2855,61 @@ def selftest():
         ok("a HELD cell's bench band is dropped before the tile loop",
            code3 == 0 and held_third and all(t == [] for t in held_third), str(held_third)[:80])
         ok("and the held cell reaches bakeTileAt as its own argument, named",
-           bool(sent_tiles) and all(e.rstrip().endswith(', {"C1"})') for e, _ in sent_tiles),
+           bool(sent_tiles) and all(e.rstrip().endswith(', {"C1"}, nil, 0)') for e, _ in sent_tiles),
            sent_tiles[0][0][-24:] if sent_tiles else "<none>")
+        # TASK 330: THE CACHE AND ITS AUDIT ARE THE LAST TWO ARGUMENTS, and they are OFF unless
+        # asked for. An uncached run must still send `nil`, so a bake is what it was.
+        sent_tiles.clear()
+
+        class CacheArgs(Args):
+            cache_anchors = True
+            audit_every = 64
+
+        code330, _ = tile_pass(None, "x", CacheArgs(), echo_facts, "abc", True,
+                               injected="<PRELUDE>", profiles='[{"road":{"id":"EW2"}}]',
+                               base=fake_base, plan=fake_plan, pad=fake_pad, bands=[_band])
+        ok("--cache-anchors and --audit-every reach bakeTileAt as its last two arguments",
+           code330 == 0 and bool(sent_tiles)
+           and all(e.rstrip().endswith(', {}, true, 64)') for e, _ in sent_tiles),
+           sent_tiles[0][0][-26:] if sent_tiles else "<none>")
+
+        class AuditOnlyArgs(Args):
+            cache_anchors = False
+            audit_every = 64
+
+        code331, _ = tile_pass(None, "x", AuditOnlyArgs(), echo_facts, "abc", True,
+                               injected="<PRELUDE>", profiles='[{"road":{"id":"EW2"}}]',
+                               base=fake_base, plan=fake_plan, pad=fake_pad, bands=[_band])
+        ok("--audit-every with NO --cache-anchors is REFUSED, not quietly ignored", code331 == 2,
+           "exit %s" % code331)
+        # THE STOP (guard 2). A tile reporting a gap over 0.25 st ends the run, and the tiles after
+        # it are NOT written. FAIL FIRST: the same run under the guard returns 0.
+        _divergent = [0.9, 0.2]
+
+        def divergent_call(_studio, _id, expression, **_kw):
+            if "bakeTileAt" not in expression:
+                return {}
+            return {"minX": 0, "minZ": 0, "calls": 1, "voxels": 1, "bandMin": 0, "bandMax": 1,
+                    "elapsedMs": 1, "anchorAuditWalks": 3,
+                    "anchorAuditWorst": _divergent[0], "anchorAuditWorstHeight": _divergent[0],
+                    "anchorAuditWorstAtX": -5000}
+
+        _real_call = globals()["call"]
+        globals()["call"] = divergent_call
+        try:
+            over, overEntries = tile_pass(None, "x", CacheArgs(), echo_facts, "abc", True,
+                                          injected="<PRELUDE>", profiles='[{"road":{"id":"EW2"}}]',
+                                          base=fake_base, plan=fake_plan, pad=fake_pad, bands=[_band])
+            _divergent[0] = 0.2
+            under, _ = tile_pass(None, "x", CacheArgs(), echo_facts, "abc", True,
+                                 injected="<PRELUDE>", profiles='[{"road":{"id":"EW2"}}]',
+                                 base=fake_base, plan=fake_plan, pad=fake_pad, bands=[_band])
+        finally:
+            globals()["call"] = _real_call
+        ok("a divergence over the %.2f-st guard STOPS the run at that tile (task 330 guard 2)"
+           % ANCHOR_DIVERGENCE_STOP_STUDS,
+           over == 2 and len(overEntries) == 1 and under == 0,
+           "over=%s tiles=%d under=%s" % (over, len(overEntries), under))
 
         class StrayArgs(Args):
             cells = ["C1"]
