@@ -3041,3 +3041,13 @@ has freed the cursor -- MAP, REPORT, RELOAD and AMMO alike. Task 332 makes the O
 (design section 8.4's reserved tag), so the MAP button now closes the map; opening the map with the
 button still needs a free cursor. That is the cursor owner's question (`src/client/Camera/Cursor.luau`
 and `Hud.Rail`), not the map's. Queued in `TASKS.md` under task 332.
+
+### DIRECTOR DECISION, 2026-11-06 ~20:40 UTC, Task 334: ROUND 3 AUTHORISED
+
+Round 3 is within `MAX_ROUNDS` (3); no `DIRECTOR_MAX_ROUNDS` is needed or allowed. Scope of round 3, nothing else:
+1. Finding 1: write the fix proposed above (an on-road tick consumes the arm while a window runs: `elseif self._leapFor > 0 then self._leapArmed = false`), the same rule in `Brain:spook`.
+2. Finding 2: the case counts every burst run and asserts the re-entered crossing has exactly one, of the hind's own flight.
+3. Correct "0.516 s flight" to the calf's 0.369 s flight in every comment, the research note and the request.
+4. The stag's length x2.40 against x3 is ACCEPTED for now: Karen judges the bound by eye. Do not touch `Body.driveForce` in this round.
+5. The in-band 108.4 studs/s stays queued; measure it again after the fix and report the number.
+A finding on round 3 is an ESCALATE.md entry and a stop.
