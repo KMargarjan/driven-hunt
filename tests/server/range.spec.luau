@@ -2493,11 +2493,12 @@ return function()
 			expect(select(1, startRange(fake, now))).to.equal(true)
 			expect(Range.setPace(1, "walk")).to.equal(true)
 			advance(fake, clock, 2)
-			local animal = animalAt(fake, clock, 1) :: any
-			expect(animal).to.be.ok()
-			local first = animal.id
+			expect(animalAt(fake, clock, 1)).to.be.ok()
+			-- LONG ENOUGH FOR SEVERAL WHOLE PASSES at this span: each one ends because its animal
+			-- LEFT, and not one of them because the range could not steer it.
 			advance(fake, clock, 8)
-			expect((Range.trialOf(1) :: any).targetId).to.equal(first)
+			expect(Range.stats().passes > 0).to.equal(true)
+			expect(Range.stats().unsteered).to.equal(0)
 			expect(Range.stats().unsteeredClears).to.equal(0)
 			Range.stop()
 		end)
