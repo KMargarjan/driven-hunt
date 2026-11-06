@@ -1,15 +1,29 @@
 # Task 331 -- a wounded range animal must never keep the lane; the next pass is a fresh animal
 
 Task: 331
-Round: 1
+Round: 2
 Base: b59e065b (main)
-Code commit: 98263b84a618fa0cea102a679baab43aa2fc6f46
+Code commit: 9cc0fb633f5e779d961c25933873995d3c42f0f6
 
 ```
-[harness] PASS: 34/34 checks @ 98263b84a618fa0cea102a679baab43aa2fc6f46 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 9cc0fb633f5e779d961c25933873995d3c42f0f6 (clean tree) scope=all
 ```
 `test2`: N/A -- no path in `TWO_PLAYER_PATHS` is touched (`src/server/Range/`, `src/server/Boar/`,
-`tests/server/`). No known flake fired; both suites were green (2844 server / 676 client, 0 failed).
+`tests/server/`). No known flake fired; both suites were green (2847 server / 676 client, 0 failed).
+
+**Round 1's blocking finding is fixed, and three of its notes with it.** The fake's animals now
+carry a `wound` (0 at spawn, as `Boar.Wound` does); the case writes **55** on the animal whose order
+it refuses and asserts the replacement reads **0** while the refused one read 55 -- an assertion
+about the ANIMAL, not about the fake's table shape. From the notes: `UNSTEERED_PASS_SECONDS`'
+comment no longer rests on `Runtime:flying` (the Reviewer is right -- `SENSE` is off at the range,
+nothing wires `hearShot`, `_latchFlight` is unreachable there, so `flying` is never true and 3.0
+was never a bound on that branch); a new case covers the reset on an ACCEPTED lead; and the boar
+case pins the rump slug's 55 to `Boar.CONFIG.WOUND.DAMAGE.rear.Slug` and asserts it is under
+`LETHAL` and not a carcass. **The live proof stands at this commit**: `git diff 98263b84 9cc0fb63
+-- src/` is comment-only (no non-comment line changed), so the 3.89 / 3.86 / 3.98 s readings below
+are readings of this code. The three notes left for `TASKS.md` are the design-doc delta
+(`docs/design/shooting-range.md` section 6 -- not mine, dispatch), the untested flying branch, and
+the merge note about an unsteered animal being despawned where it stands.
 
 ## PLAN (core quality protocol)
 
@@ -34,10 +48,13 @@ over 16 more. What Karen sees is the animal she hit **holding her lane** instead
 
 (c) **TARGET.** An animal the range can no longer steer loses the lane within **4.0 s** of its last
 accepted order; the animal that follows is a different instance at **wound 0**; the gap stays at
-today's median. Why 4.0: `WOUND.BOLT_SECONDS` is **3.0**, the longest stretch in which a HEALTHY
-pass legitimately refuses steering (the bolt after a hit, during which `Runtime:flying` is true and
-`scan` skips `order` on purpose). 4.0 clears it by 1.0 s, so a grazed animal still finishes its pass
-and a crippled one goes.
+today's median. Why 4.0 (**corrected in round 2**, Reviewer note 3): the only refusal that reaches
+this range is `CRIPPLED`, and it is permanent, so any positive bound ends the hold -- `Runtime:flying`
+is never true here (`RangeBoot` sets `SENSE.ENABLED = false`, `world.threats` is empty and nothing
+wires `hearShot`, so `_latchFlight` is unreachable) and 3.0 was never a bound on that branch. 4.0 is
+the shortest value comfortably past the one TRANSIENT the animal system has after a hit,
+`WOUND.BOLT_SECONDS` = 3.0, so that if the flying skip ever does become reachable here a bolting
+animal keeps its pass; and it is 19% of the 20.8 s the lane was held at main.
 
 (d) **LEVER.** `boars.leadTo`'s own return value, already read in `Range.order`, and `boars.flying`,
 already read in `Range.scan`:
@@ -80,7 +97,10 @@ and the refusal itself: `Brain:leadTo` in `src/server/Boar/Brain.luau` returns `
    neither `UNSTEERED_PASS_SECONDS` nor `unsteeredClears` exists and the animal is never cleared.
 4. **A pass that is still being steered is never cut.** Same file, "never takes an animal that is
    still accepting its orders": 8 s, several whole passes, `unsteered == 0` and
-   `unsteeredClears == 0`. Without it a plain 4 s timer would pass claim 3.
+   `unsteeredClears == 0`. Without it a plain 4 s timer would pass claim 3. And, from round 1's
+   note 5, "forgets the refusals an accepted order has answered": 3 s refused, ONE accepted order,
+   3 s refused again -- 6 s of refusal in 6.3 s and the animal is still his. Delete
+   `trial.unsteeredFor = 0` from `order` and that case fails.
 5. **The next animal is fresh, and that is readable live.** `Body` publishes `Wound` on the trunk,
    0 at birth (`Body.create`) and the damage after a hit (`Runtime:takeHit` -> `Body.setWound`).
    Verify: `tests/server/boar_model.spec.luau`, "publishes the wound on the animal, 0 at birth and
