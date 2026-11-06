@@ -1215,6 +1215,61 @@ return function()
 		end)
 	end)
 
+	-- ------------------------------------------------- task 332: "and M doesnt work at all"
+	--
+	-- KAREN, 2026-11-06, in her Forest Test. MEASURED THERE THE SAME DAY, with `GRID_PREVIEW` on:
+	-- the server published `Live.Layout = "C1"`, `layoutNamed("C1")` answered nil, so `geometryFor`
+	-- answered nil, the map never BUILT -- and the build is what binds M. A real M press arrived at
+	-- the client (`UserInputService` saw it) with `DrivenHunt.Map.Toggle` absent from
+	-- `GetAllBoundActionInfo`, and `FullMap.Visible` stayed false for the key AND for the button.
+	describe("a grid cell is a layout the map can draw (task 332)", function()
+		local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
+		local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+
+		it("draws every one of the eight cells, with all of its stands inside the bounds", function()
+			for _, id in ipairs(Grid.CELL_ORDER) do
+				local geometry = MapUi.geometryFor("forest-test", data, Map, id)
+				expect(geometry).to.be.ok()
+				local model = geometry :: any
+				expect(#model.stands).to.equal(Grid.standCount(id))
+				for index, at in ipairs(model.stands) do
+					local inside = at.X >= model.bounds.minX
+						and at.X <= model.bounds.maxX
+						and at.Y >= model.bounds.minZ
+						and at.Y <= model.bounds.maxZ
+					if not inside then
+						error(
+							string.format("cell %s stand %d at (%.0f, %.0f) is outside the map", id, index, at.X, at.Y)
+						)
+					end
+				end
+				-- ...AND THE BEATERS ARE ON IT. A cell musters at its own depth; the no-argument
+				-- `beaterNorthStuds()` answered the road layout's 580 and cut 850 studs of drive off
+				-- the top of the picture.
+				local layout = data.layoutOf(id)
+				expect(model.bounds.maxZ >= layout.centre.Z + data.beaterNorthStuds(layout)).to.equal(true)
+			end
+		end)
+
+		it("binds M and opens on a cell, and closes again", function()
+			local restore = MapUi.geometry()
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, Grid.PREVIEW_CELL))
+			local actions = MapUi.boundActions()
+			expect(#actions).to.equal(1)
+			expect(ContextActionService:GetAllBoundActionInfo()[actions[1]]).to.be.ok()
+
+			local full = Hud.fullMap() :: Frame
+			expect(full.Visible).to.equal(false)
+			MapUi.toggle()
+			expect(full.Visible).to.equal(true)
+			expect(full.AbsoluteSize.X > 0 and full.AbsoluteSize.Y > 0).to.equal(true)
+			MapUi.toggle()
+			expect(full.Visible).to.equal(false)
+
+			MapUi.setGeometry(restore)
+		end)
+	end)
+
 	describe("the map is left as this world had it", function()
 		it("leaves it closed, unsuppressed and on this player's own direction", function()
 			-- A harness run must never leave Karen's screen with a map open over her gun.

@@ -750,7 +750,11 @@ function MapUi.geometryFromForestTest(data: any, layout: any): MapGeometry
 	-- task 162; 700 is still the larger, so these bounds are unchanged by it) --
 	-- because a driver walking in from 700 studs is one of the *"other players moving"* Karen asked
 	-- to see, and a map that cuts him off has lost him.
-	local north = math.max(data.DRIVERS.startNorthStuds, data.beaterNorthStuds())
+	-- THE LAYOUT IS PASSED (task 332): a CELL musters its beaters at its own depth (1,430 studs,
+	-- `Grid.layoutFor`), and the no-argument call answered the road layout's 580 -- bounds that cut
+	-- off the beaters Karen asked to see moving. The four shipped rows state none, so they are
+	-- unchanged number for number.
+	local north = math.max(data.DRIVERS.startNorthStuds, data.beaterNorthStuds(layout))
 	return {
 		world = data.WORLD,
 		bounds = {
@@ -815,7 +819,10 @@ function MapUi.geometryFor(world: string, forestTest: any?, map: any?, layoutNam
 		if forestTest == nil then
 			return nil
 		end
-		local layout = forestTest.layoutNamed(layoutName)
+		-- `layoutOf` AND NOT `layoutNamed` (task 332): the second answers the four shipped rows only,
+		-- so the live name "C1" -- what `GRID_PREVIEW` publishes, and what Karen's Forest Test ran on
+		-- 2026-11-06 -- resolved nil, the map never built, and M was never bound at all.
+		local layout = forestTest.layoutOf(layoutName)
 		if layout == nil then
 			return nil
 		end
