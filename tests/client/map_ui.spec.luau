@@ -1268,6 +1268,24 @@ return function()
 
 			MapUi.setGeometry(restore)
 		end)
+
+		it("hands the mouse over while the panel is up, so the MAP button can be clicked", function()
+			-- THE SECOND HALF OF KAREN'S SENTENCE. The camera holds the mouse at `LockCenter` in a
+			-- drive, so a real click on the HUD's MAP button landed at the centre of the view and
+			-- the button could not be pressed at all -- measured in DEV, 2026-11-06. Section 8.4
+			-- reserved the tag `"map"` for exactly this.
+			expect(MapUi.isModalHeld()).to.equal(false)
+			local heldBefore = #Weapon.Input.holdTags()
+			MapUi.setOpen(true)
+			expect(MapUi.isModalHeld()).to.equal(true)
+			expect(Camera.Cursor.isFree()).to.equal(true)
+			expect(Weapon.Input.isHeld()).to.equal(true)
+			MapUi.setOpen(false)
+			expect(MapUi.isModalHeld()).to.equal(false)
+			-- ...AND IT IS HANDED BACK. Reference counted, so the count is what proves it rather
+			-- than the final state, which another holder could be keeping.
+			expect(#Weapon.Input.holdTags()).to.equal(heldBefore)
+		end)
 	end)
 
 	describe("the map is left as this world had it", function()
