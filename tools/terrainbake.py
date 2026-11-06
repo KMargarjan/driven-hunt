@@ -1089,6 +1089,17 @@ def parse_json(body):
     raise RuntimeError("no JSON in Studio's reply: %s" % body[:400])
 
 
+# THE TRANSPORT DROPS A CALL NOW AND AGAIN, and a bake is 1,120 of them (task 330). StudioMCP
+# answers "Target is not reachable ... No OnInvoke handler responded" when the Edit DataModel
+# never picks the action up -- measured at tile 51 of 140 on 2026-11-06 03:21, the same Studio
+# answering a `plan` a minute later. A bake writes ABSOLUTE heights out of the base file, so
+# repeating a tile writes the same voxels and a retry cannot double anything. Bounded, and every
+# retry is PRINTED: a silent one would hide a Studio that is really gone.
+UNREACHABLE = "Target is not reachable"
+CALL_RETRIES = 3
+CALL_RETRY_PAUSE = 6
+
+
 def call(studio, studio_id, expression, timeout=BAKE_CALL_TIMEOUT, injected=None):
     """Run one TerrainBake expression in the addressed Edit DataModel and parse its JSON reply.
 
@@ -1097,14 +1108,27 @@ def call(studio, studio_id, expression, timeout=BAKE_CALL_TIMEOUT, injected=None
     """
     code = CALL_TEMPLATE % (injected if injected is not None else prelude()[0], expression)
     arguments = {"datamodel_type": "Edit", "code": code, "studio_id": studio_id}
-    text = studio._rpc("tools/call", {"name": "execute_luau", "arguments": arguments}, timeout=timeout)
-    body = "\n".join(c.get("text", "") for c in text.get("content", []))
+    text, body = None, ""
+    for attempt in range(1, CALL_RETRIES + 1):
+        text = studio._rpc("tools/call", {"name": "execute_luau", "arguments": arguments},
+                           timeout=timeout)
+        body = "\n".join(c.get("text", "") for c in text.get("content", []))
+        if not (text.get("isError") and UNREACHABLE in body) or attempt == CALL_RETRIES:
+            break
+        print("    [retry %d/%d] the Edit DataModel did not pick the call up (%s); %d s"
+              % (attempt, CALL_RETRIES - 1, UNREACHABLE, CALL_RETRY_PAUSE))
+        time.sleep(CALL_RETRY_PAUSE)
     if text.get("isError"):
         raise RuntimeError("execute_luau: %s" % body)
     value = parse_json(body)
     if isinstance(value, dict) and value.get("error"):
         raise RuntimeError("TerrainBake: %s" % value["error"])
     return value
+
+
+# THE REAL `call`, UNDER A NAME NO STUB TAKES. The selftest swaps `call` out several times; without
+# this the retry checks below would exercise whichever stub was installed last (they did).
+CALL_IMPL = call
 
 
 # ---------------------------------------------------------------- the refusals
@@ -2906,6 +2930,44 @@ def selftest():
                                  base=fake_base, plan=fake_plan, pad=fake_pad, bands=[_band])
         finally:
             globals()["call"] = _real_call
+        # THE TRANSPORT RETRY (task 330): a dropped call is retried and then given up on, and
+        # BOTH arms are driven -- a retry that never gives up would hang a bake on a dead Studio.
+        class FakeStudio:
+            def __init__(self, fail):
+                self.fail, self.calls = fail, 0
+
+            def _rpc(self, _name, _args, timeout=None):
+                self.calls += 1
+                if self.calls <= self.fail:
+                    return {"isError": True, "content": [{"text": "boom " + UNREACHABLE + " boom"}]}
+                return {"content": [{"text": "{\"ok\":1}"}]}
+
+        flaky = FakeStudio(1)
+        got = CALL_IMPL(flaky, "sid", "X()", injected="<P>")
+        ok("one dropped call is retried and the second answer is used",
+           got == {"ok": 1} and flaky.calls == 2, "calls=%d got=%r" % (flaky.calls, got))
+        dead = FakeStudio(99)
+        try:
+            CALL_IMPL(dead, "sid", "X()", injected="<P>")
+            gave_up = False
+        except RuntimeError:
+            gave_up = True
+        ok("a Studio that never answers is given up on after %d attempts, not retried forever"
+           % CALL_RETRIES, gave_up and dead.calls == CALL_RETRIES, "calls=%d" % dead.calls)
+        other = FakeStudio(0)
+
+        class OtherError(FakeStudio):
+            def _rpc(self, _name, _args, timeout=None):
+                self.calls += 1
+                return {"isError": True, "content": [{"text": "some other failure"}]}
+
+        other = OtherError(0)
+        try:
+            CALL_IMPL(other, "sid", "X()", injected="<P>")
+        except RuntimeError:
+            pass
+        ok("an error that is NOT the dropped-call one is raised at once, never retried",
+           other.calls == 1, "calls=%d" % other.calls)
         ok("a divergence over the %.2f-st guard STOPS the run at that tile (task 330 guard 2)"
            % ANCHOR_DIVERGENCE_STOP_STUDS,
            over == 2 and len(overEntries) == 1 and under == 0,
