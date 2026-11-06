@@ -1,9 +1,11 @@
 ## 2026-11-06 ~00:20 UTC, Task 330 -- THE CACHE IS BUILT AND THE PROOF SAYS IT CHANGES AN ANSWER, SO B2 AND D2 ARE NOT BAKED. AND THE ONE-PLAYER GATE IS RED AT MAIN, NOT AT THIS BRANCH
 
-**TWO STOPS, both of them the dispatch's own.** Branch `task-330-b2-d2`, pushed, head `2b0bc348`.
-Karen's place is UNTOUCHED: no terrain was written, no planting, no flag changed, and the two
-diagnostic attributes this task set were taken back off (`clear-proof`: 2 cleared, 0 left; her 15
-`DHFlag_*` overrides all still there, read before and after).
+**TWO STOPS, both of them the dispatch's own.** Branch `task-330-b2-d2`, pushed. The code commit is
+`2b0bc348`; everything after it is this paperwork.
+Karen's place is UNTOUCHED: no terrain was written, no planting, no flag changed, and the sixteen
+diagnostic attributes this task set were taken back off (`clear-proof`: `cleared 16 attribute(s);
+0 left`). Her 15 `DHFlag_*` overrides are identical before and after, name for name
+(`<runs-dir>/330-karens-flags.txt` diffed against `330-attrs-final.txt`).
 
 ### 1. THE DIRECTOR'S STOP RULE FIRED: the six-row key is not exact, MEASURED in her place
 
@@ -11,30 +13,38 @@ The dispatch: *"The cache never changes an answer. PROOF REQUIRED: on the 10 hea
 the cached and the uncached `applyOps` give byte-identical stored codes. If they differ by one
 column, STOP and write ESCALATE.md. Do not tune it."*
 
-**They differ.** On the heaviest bench tile there is -- tile 393 (-2944, -5760), 8,246 columns that
-actually pay an anchor walk, picked by `TerrainBake.benchWeightPlan`, not by a list anybody typed:
+**THEY DIFFER, ON EVERY ONE OF THE EIGHT HEAVIEST BENCH TILES.** The tiles are picked by
+`TerrainBake.benchWeightPlan`, which counts the columns that actually pay an anchor walk -- not from
+a list anybody typed. 134 of the run's 1,120 tiles carry bench weight. `<runs-dir>/330-proof-8.txt`:
 
 ```
-tile  393 (  -2944,  -5760) benchCols~ 8304
-      walks      0 ->   423 (hits   7823)    937275 ms ->  9849 ms
-      codes 64dafbe0/c7bac250 != c2d95b90/c7bac250
+tile  cell  (   minX,   minZ)  bench cols  walks  hits   uncached ms -> cached   heights         materials
+ 393   D2   ( -2944,  -5760)        8,246    423  7,823   879,114 ->   8,253   64dafbe0 != c2d95b90   same
+ 395   D2   ( -2688,  -5760)        8,240    370  7,870   861,967 ->   7,226   d944b760 != d4e0c1e0   same
+ 394   D2   ( -2816,  -5760)        8,242    433  7,809   865,175 ->   8,577   b3863500 != 3a88acb0   same
+ 392   D2   ( -3072,  -5760)        8,238    319  7,919   872,366 ->   6,598   e0239d08 != 862bdd90   same
+ 396   D2   ( -2560,  -5760)        8,233    253  7,980   911,207 ->   5,202   3c9dc330 != 71999ef8   same
+ 397   D2   ( -2432,  -5760)        8,204    166  8,038   865,669 ->   3,663   e4034240 != d0e03a84   same
+ 398   D2   ( -2304,  -5760)        8,053    203  7,850   847,801 ->   4,306   165df950 != cf3291e8   same
+ 135   B2   ( -5248,  -6528)        7,545    656  6,889   780,487 ->  27,978   d5b78b90 != 4029c5c0   same
+[proof] DIFFERS: 8 of 8 tiles changed their stored codes with the cache on: 393,395,394,392,396,397,398,135
 ```
 
-- heights: **`64dafbe0` uncached against `c2d95b90` cached** -- not byte-identical.
-- materials: `c7bac250` both ways -- the material pass is unaffected.
-- cost: **937,275 ms -> 9,849 ms, 95.2x**. The cache IS the difference between a bench tile that
-  cannot be baked and one that costs 9.8 s. 134 of the run's 1,120 tiles carry bench weight.
-- `<runs-dir>/330-proof-1.txt`, and the two halves' own rows are in
-  `<runs-dir>/330-attrs-before-clear.txt` verbatim.
-
-**ONE MORE TILE WAS NOT MEASURED, and the reason is arithmetic, not a choice.** The dispatch asks
-for ten. The uncached half of ONE heaviest tile takes **15 min 37 s**, and StudioMCP's own request
-timeout is about five minutes, so the answer cannot come back on the call that asked for it
-(`Request timeout`; 328x's *"Target is not reachable"* is the same wall). The fix shipped here is
-that each half stamps its answer on a `ServerStorage` attribute and the tool polls for it -- which
-works, and is how tile 393 was read. Ten tiles is then ~2 h 40 m of blocked Studio. **The first
-tile already answered the question the Director asked, and the answer is the stop.** Nine more
-would cost the night to say the same thing nine more times.
+- **8 of 8 heights differ. All 8 materials are identical** (`c7bac250`, and `f8f26b5c` on 398).
+- **ms per bench tile, before and after: 780,487-911,207 ms -> 3,663-27,978 ms.** The cache is the
+  difference between a bench tile that cannot be baked and one that costs 4-28 s.
+- **It reproduces to the hash.** Tile 393 was read twice, in two separate runs an hour apart:
+  `64dafbe0` / `c2d95b90` both times, with 8,246 bench columns both times. This is not float noise.
+- **B2 is the expensive cell AND the worse one, for one structural reason.** Tile 135 (B2) pays 656
+  anchor walks against D2's 166-433, so its speedup is 27.9x where D2's is 99-236x: `bendX'` is near
+  its maximum at B2's bench `z0`, so B2's six anchor rows' world-x offsets spread 2.56 studs and its
+  cache buckets are ~0.5 studs wide, while at D2's bench `z0` `bendX'` is ~0 and the six rows step
+  together. Both cells of this task's scope are covered, and they agree.
+- **Two of the ten were not run**, and I stopped on purpose: each is ~15 min of blocked Studio
+  (StudioMCP's request timeout is ~5 min, so each half publishes its answer on a `ServerStorage`
+  attribute and the tool polls for it -- that is how any of this was read at all). Eight are
+  unanimous across both cells, and the dispatch's stop fired on the first. The eight uncached halves
+  cost 1 h 55 m of Studio as it is.
 
 ### WHY it is not exact, and it is not a tuning knob
 
