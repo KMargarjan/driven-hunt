@@ -352,12 +352,25 @@ applied identically to both sides.
 | 1 | -- (baseline, cdc885b7) | stag apex 2.905 / length 8.14, hind 2.471 / 7.58, calf 1.612 / 5.52 |
 | 2 | `APEX_STUDS` x2 and `SPEED_SCALE` applied on the published `leaping` window | apex right, length WRONG: calf 40.97 against a 16.56 target, and the herd's measured in-band speeds reached **150.7 studs/s**. `LEAP.SECONDS` is one size (0.75) and a calf's flight is 0.516, so the burst drove it along the GROUND at 60 studs/s for 0.23 s after touchdown |
 | 3 | the burst ends at touchdown: `Body.leapAir` -> `Boar.leapByKind` -> the Brain's `_burstFor` | stag 5.685 / 20.22, hind 4.955 / 21.53, calf 3.286 / 17.94 |
+| 4 | a bound cannot be re-armed while it is still flying (`self._leapFor <= 0` on both triggers) | stag 5.803 / 21.17, hind 4.922 / 21.12, calf 3.181 / 22.94 |
+
+Cycle 4 is there because a bound now covers 45 studs across a 40-stud band, so the animal LEAVES the
+band in mid-flight and `_leapArmed` comes back. A re-entry then refreshed `_burstFor` for a bound
+`Body` will not launch (`leapSpent` is latched while `leaping` never drops): a second 0.46 s of
+60 studs/s along the GROUND, which is cycle 2's defect through another door. At `SECONDS` 0.55 and
+28 studs/s a bound could not outrun the band, so nothing before this task could reach it.
 
 | kind | apex x | length x, normalised for entry speed | airtime x |
 |---|---|---|---|
-| stag | **1.96** | **2.83** | 1.51 |
-| hind | **2.01** | **2.85** | 1.44 |
-| calf | **2.04** | **3.31** | 1.53 |
+| stag | **2.00** | 2.40 | 1.47 |
+| hind | **1.99** | **2.79** | 1.40 |
+| calf | **1.97** | **3.08** | 1.56 |
+
+**The stag's length is 20 % under and that is measured, not estimated.** At `v0` 24 a hind holds
+50.91 studs/s (`RUN_SPEED x runScale x SPEED_SCALE`) for 93 % of its flight; the stag reaches the
+same speed but averages **66 %** of it, so it covers less ground in a longer flight. The burst is
+published identically for both -- the difference is how fast the `LinearVelocity` mover gets the
+heavier body there, which is `Body.driveForce` and not this task's dial. Queued, not fixed.
 
 Length is normalised by the animal's own entry speed (`length / v0`) because length IS speed x
 airtime and the gait speed at the band edge is not something this task changed; the raw means are
@@ -366,6 +379,7 @@ at 0.02-0.04 s, which clips ~2 studs off a 21-stud bound at 51 studs/s and only 
 one at 24.
 
 **One regression, measured and queued, not fixed:** in-band speed went from a max of 39.9 studs/s
-(0 animals over 45) to **113.8** (45 of 90 over 60). 60.0 is `PACE.RUN_SPEED x runScale x
+(0 animals over 45) to **108.4** at cycle 4 (40 of 86 over 60; it was 150.7 at cycle 2 and 113.8 at
+cycle 3, and the count above the 95.1 ceiling fell 37 -> 13 -> 8 as the two burst guards went in). 60.0 is `PACE.RUN_SPEED x runScale x
 SPEED_SCALE` and is the feature; 95.1 is the ceiling a sprinting animal reaches; above that is
 animals shoved by a herd that now covers 20 studs a bound instead of 8.
