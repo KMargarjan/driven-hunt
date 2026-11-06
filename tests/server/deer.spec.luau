@@ -1939,8 +1939,8 @@ return function()
 				expect(ticksOn).to.equal(ticksOff)
 				-- THE BURST ENDS AT TOUCHDOWN AND THE DRAWING RUNS ON (task 334's round-2 fix).
 				-- MEASURED in her place when it did not: a calf was driven along the GROUND at 60
-				-- studs/s for the 0.23 s its clip outlasted its flight, and the herd's measured
-				-- speeds reached 138 studs/s. `LEAP.SECONDS` is 0.75 and a hind's flight is 0.457.
+				-- studs/s for the 0.381 s its clip outlasted its 0.369 s flight, and the herd's
+				-- measured speeds reached 138 studs/s. `LEAP.SECONDS` is 0.75, a hind flies 0.457.
 				expect(burstTicks > 0).to.equal(true)
 				expect(burstTicks < ticksOn).to.equal(true)
 				expect(noBurstTicks).to.equal(0)
@@ -1953,13 +1953,14 @@ return function()
 				expect(burstOn / burstOff).to.be.near(CONFIG.MODEL.LEAP.SPEED_SCALE, 1e-4)
 			end)
 
-			it("cannot re-arm the burst inside a bound it is already flying (task 334 round 2)", function()
-				-- FAILS WITHOUT `self._leapFor <= 0` ON THE TRIGGER (Reviewer finding 2, round 1).
-				-- A bound now covers 45 studs across a 40-stud band, so the animal LEAVES the band
-				-- in mid-flight every crossing and `_leapArmed` comes back. A re-entry then
-				-- refreshed `_burstFor` for a bound `Body` will NOT launch -- `leapSpent` is
-				-- latched while `leaping` never drops -- which is a second 0.46 s of 60 studs/s
-				-- along the GROUND, with no arc. That is cycle 2's measured defect by another door.
+			it("cannot re-arm the burst inside a bound it is already flying (task 334 round 3)", function()
+				-- FAILS WITH NO GUARD AT ALL **AND WITH ROUND 2'S** (`self._leapFor <= 0` on the
+				-- trigger): that one only DELAYED the refresh to the window edge, where `leaping` never
+				-- drops for a tick, `Body`'s `leapSpent` stays latched, the launch never fires and the
+				-- burst runs 0.46 s along the GROUND with no arc. A bound covers 45 studs across a
+				-- 40-stud band, so the animal LEAVES the band mid-flight every crossing and `_leapArmed`
+				-- comes back; that re-entry must buy nothing. Karen's rule: one bound per crossing.
+				local TICKS = 200
 				local function run(leaveAt: number?)
 					local config = table.clone(CONFIG)
 					config.SENSE = table.clone(CONFIG.SENSE)
@@ -1976,7 +1977,7 @@ return function()
 						exitZ = FIELD.exitZ,
 						groundY = 0,
 						-- THE ROAD MOVES, not the animal: the observation the Brain is handed is
-						-- then identical tick for tick in both runs, and the ONE thing that differs
+						-- then identical tick for tick in every run, and the ONE thing that differs
 						-- is whether it is on the road.
 						road = {
 							halfWidthStuds = 20,
@@ -1986,8 +1987,8 @@ return function()
 						},
 					}
 					local brain = Brain.new(config, field, Vector3.zero, Random.new(7))
-					local speeds, flat = {}, 0
-					for tick = 1, 300 do
+					local speeds, flying, flat = {}, {}, 0
+					for tick = 1, TICKS do
 						away = leaveAt ~= nil and tick >= leaveAt and tick < leaveAt + 2
 						local intent = brain:step(1 / 60, {
 							position = Vector3.zero,
@@ -2004,29 +2005,45 @@ return function()
 							flat = math.max(flat, speed)
 						end
 						table.insert(speeds, speed)
+						table.insert(flying, intent.leaping == true)
 					end
-					-- THE FIRST CONTIGUOUS BURST, which is the one the re-entry would extend.
-					local firstAt, held = nil, 0
+					-- EVERY BURST RUN AND NOT JUST THE FIRST (Reviewer finding 2, round 2): the
+					-- refresh round 2 left behind lands ~17 ticks AFTER the first burst ended, so a
+					-- metric that stops at the first contiguous run is blind to exactly the defect.
+					local bursts = {}
 					for index, speed in ipairs(speeds) do
 						if speed > flat + 1e-3 then
-							if firstAt == nil then
-								firstAt = index
-							end
-							if firstAt ~= nil and index == (firstAt + held) then
-								held += 1
+							local last = bursts[#bursts]
+							if last ~= nil and last.to == index - 1 then
+								last.to = index
+							else
+								table.insert(bursts, { from = index, to = index })
 							end
 						end
 					end
-					return held, firstAt
+					return bursts, flying
 				end
-				local straight, firstAt = run(nil)
-				expect(firstAt).to.be.ok()
-				-- IT LASTS THE HIND'S OWN FLIGHT and not the drawing window: 0.457 s against 0.75.
+				-- ONE BURST, THE HIND'S OWN FLIGHT: 0.457 s against the 0.75 s drawing window.
+				local bursts = run(nil)
+				expect(#bursts).to.equal(1)
 				local air = Body.leapAir("hind", CONFIG.MODEL.LEAP)
-				expect(straight).to.be.near(air * 60, 2)
-				-- ...AND LEAVING THE BAND AND COMING STRAIGHT BACK INSIDE IT CHANGES NOTHING.
-				local reentered = run((firstAt :: number) + 4)
-				expect(reentered).to.equal(straight)
+				local held = bursts[1].to - bursts[1].from + 1
+				expect(held).to.be.near(air * 60, 2)
+				local startedAt = bursts[1].from
+				-- A RE-ENTRY ANYWHERE INSIDE THE FLIGHT BUYS NOTHING. `window - 2` is the last offset
+				-- whose two off-band ticks both fall inside the window, so the animal is back on the
+				-- band on the very tick `_leapFor` reaches 0 -- the edge round 2's guard left open.
+				local window = math.floor(CONFIG.MODEL.LEAP.SECONDS * 60)
+				for offset = 2, window - 2 do
+					local each, flying = run(startedAt + offset)
+					expect(#each).to.equal(1)
+					expect(each[1].to - each[1].from + 1).to.equal(held)
+					-- ...and the one burst there is is the take-off's own: the tick before it, the
+					-- animal was NOT already flying. This is `_burstFor` is never set while
+					-- `intent.leaping` has stayed true since the previous tick, which is the exact
+					-- condition under which `Body` cannot launch the bound it is handed.
+					expect(flying[each[1].from - 1]).to.equal(false)
+				end
 			end)
 
 			it("starts the bound at the clip's own take-off frame (task 325)", function()

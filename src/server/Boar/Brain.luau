@@ -629,8 +629,8 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	-- ever: `MODEL.CLIPS` has no `leap` and `field.road` is nil in the DEV world.
 	self._leapFor = 0
 	-- SECONDS LEFT OF THE FORWARD BURST (task 334), which is SHORTER than `_leapFor`: the burst is
-	-- the flight and `_leapFor` is the drawing, and a calf's flight is 0.23 s shorter than the
-	-- window the clip is held for. `MOVE.LEAP_AIR_SECONDS` is this kind's own, from `Body.leapAir`.
+	-- the flight and `_leapFor` is the drawing: a calf flies 0.369 s and `LEAP.SECONDS` holds the
+	-- clip for 0.75. `MOVE.LEAP_AIR_SECONDS` is this kind's own, from `Body.leapAir`.
 	self._burstFor = 0
 	self._leapArmed = true
 	-- HAS IT HEARD A SHOT? One way, for the rest of its life here (task 150). Karen: *"once they
@@ -1489,13 +1489,16 @@ function Brain:spook(from: Vector3?, seconds: number?, untilExit: boolean?)
 			(boundMove ~= nil and boundMove.BOUND_FROM_SPEED) or 0,
 			boundLeap
 		)
-		-- ...AND NOT WHILE ONE IS ALREADY RUNNING (task 334 round 2). The same guard as the road
-		-- leap's below, and for the same reason: a refresh that `Body` will not launch is a burst
-		-- along the ground with no arc.
-		and self._leapFor <= 0
 	then
-		self._leapFor = boundLeap.SECONDS
-		self._burstFor = (boundMove ~= nil and boundMove.LEAP_AIR_SECONDS) or 0
+		-- ONE BOUND PER CROSSING, AND NEVER WHILE ONE IS ALREADY RUNNING -- the same rule as
+		-- `Brain:step`'s road leap (task 334 round 3, Reviewer finding 1): a refresh `Body` will
+		-- not launch is a burst along the ground with no arc, so a running bound SPENDS the arm
+		-- rather than renewing anything.
+		if self._leapFor <= 0 then
+			self._leapFor = boundLeap.SECONDS
+			self._burstFor = (boundMove ~= nil and boundMove.LEAP_AIR_SECONDS) or 0
+		end
+		self._leapArmed = false
 	end
 	if untilExit == true and config.SENSE ~= nil and config.SENSE.SHOT_FLIGHT_UNTIL_EXIT == true then
 		self._heardShot = true
@@ -2093,6 +2096,11 @@ function Brain:step(dt: number, obs)
 	-- has decided: a fleeing deer, a pushed one and a wandering one all cross the same road. Nothing
 	-- about the animal's movement changes -- the leap is a DRAWING, published on the intent, and the
 	-- speed, the heading and the path are whatever the rest of this step makes them.
+	-- WAS IT ALREADY FLYING WHEN THIS TICK BEGAN? Read BEFORE the countdown, so this is exactly
+	-- "`intent.leaping` was true last tick" -- the published value, which is what `Body`'s latch
+	-- reacted to. The window edge is inside it: on the tick `_leapFor` reaches 0 the animal was
+	-- still leaping a sixtieth of a second ago, so a refresh there would never drop `leaping`.
+	local wasLeaping = self._leapFor > 0
 	self._leapFor = math.max(0, self._leapFor - dt)
 	self._burstFor = math.max(0, self._burstFor - dt)
 	-- `self._speed` IS THE SPEED THIS ANIMAL IS RUNNING AT, which is the only one this module has:
@@ -2103,14 +2111,15 @@ function Brain:step(dt: number, obs)
 	local onRoad = Brain.onRoad(position, self._field.road)
 	if not onRoad then
 		self._leapArmed = true
+	elseif wasLeaping then
+		-- AN ON-ROAD TICK INSIDE A BOUND SPENDS THE ARM (task 334 round 3, Reviewer finding 1).
+		-- A bound covers 45 studs across a 40-stud band, so the animal LEAVES the band mid-flight
+		-- and `_leapArmed` comes back; refusing the refresh while the window runs only DELAYED it
+		-- to the window edge, where `leaping` never drops, `Body`'s `leapSpent` stays latched and
+		-- the burst ran 0.46 s along the GROUND with no arc. This crossing has had its bound.
+		self._leapArmed = false
 	elseif
-		-- NOT WHILE A BOUND IS STILL RUNNING (task 334 round 2, Reviewer finding 2). A bound now
-		-- covers 45 studs across a 40-stud band, so the animal LEAVES the band mid-flight and
-		-- `_leapArmed` comes back; a re-entry then refreshed a window `Body` will not launch
-		-- (`leapSpent` is latched while `leaping` never drops), which is a second 0.46 s of
-		-- 60 studs/s along the GROUND. At 0.55 s and 28 studs/s it could not happen.
-		self._leapFor <= 0
-		and Brain.leapStarts(onRoad, self._leapArmed, self._speed, config.MODEL and config.MODEL.RUN_FROM or 0, leap)
+		Brain.leapStarts(onRoad, self._leapArmed, self._speed, config.MODEL and config.MODEL.RUN_FROM or 0, leap)
 	then
 		self._leapArmed = false
 		self._leapFor = leap.SECONDS
@@ -2709,7 +2718,7 @@ function Brain:step(dt: number, obs)
 	intent.activityDraw = if intent.activity ~= nil then self._calmDraws else nil
 	-- ...AND A BOUND CARRIES IT FORWARD WHILE IT IS IN THE AIR (task 334). `_burstFor` and not
 	-- `leaping`: the drawing window is one size for all three kinds and outlasts a calf's flight by
-	-- 0.23 s, which MEASURED as a quarter-second of 60 studs/s along the ground after touchdown.
+	-- 0.381 s, which MEASURED as a third of a second of 60 studs/s along the ground after touchdown.
 	-- Never applied to `self._speed`, which the leap gate and the gait band read.
 	intent.targetVelocity = self._desired * self._speed * Brain.leapSpeedScale(self._burstFor > 0, leap)
 	intent.facing = self._desired

@@ -4722,7 +4722,7 @@ end
 
 -- HOW LONG THIS KIND IS AIRBORNE, LAID ONTO `MOVE` (task 334), so the Brain can end a bound's
 -- forward burst at TOUCHDOWN rather than at `LEAP.SECONDS`, which is one size for all three kinds
--- and outlasts a calf's flight by 0.23 s -- a quarter of a second of 60 studs/s on the ground.
+-- outlasts a calf's 0.369 s flight by 0.381 s -- a third of a second of 60 studs/s on the ground.
 -- `Body.leapAir` stays the only owner of the arc; this copies its answer to the kind that flies it.
 -- A kind with no `APEX_STUDS` row (every boar) gets 0 back and the config BY REFERENCE.
 function Boar.leapByKind(config, kind: string?)

@@ -350,7 +350,7 @@ applied identically to both sides.
 | cycle | change | measured |
 |---|---|---|
 | 1 | -- (baseline, cdc885b7) | stag apex 2.905 / length 8.14, hind 2.471 / 7.58, calf 1.612 / 5.52 |
-| 2 | `APEX_STUDS` x2 and `SPEED_SCALE` applied on the published `leaping` window | apex right, length WRONG: calf 40.97 against a 16.56 target, and the herd's measured in-band speeds reached **150.7 studs/s**. `LEAP.SECONDS` is one size (0.75) and a calf's flight is 0.516, so the burst drove it along the GROUND at 60 studs/s for 0.23 s after touchdown |
+| 2 | `APEX_STUDS` x2 and `SPEED_SCALE` applied on the published `leaping` window | apex right, length WRONG: calf 40.97 against a 16.56 target, and the herd's measured in-band speeds reached **150.7 studs/s**. `LEAP.SECONDS` is one size (0.75) and a calf's flight is 0.369 s (0.516 is its `Body.leapPlan` WINDOW, the flight x 1.4), so the burst drove it along the GROUND at 60 studs/s for 0.381 s after touchdown |
 | 3 | the burst ends at touchdown: `Body.leapAir` -> `Boar.leapByKind` -> the Brain's `_burstFor` | stag 5.685 / 20.22, hind 4.955 / 21.53, calf 3.286 / 17.94 |
 | 4 | a bound cannot be re-armed while it is still flying (`self._leapFor <= 0` on both triggers) | stag 5.803 / 21.17, hind 4.922 / 21.12, calf 3.181 / 22.94 |
 
