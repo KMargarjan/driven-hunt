@@ -1,3 +1,63 @@
+## 2026-11-06 ~20:40 UTC, Task 334 -- REVIEWER FINDINGS ON ROUND 2, STOPPING AS THE DISPATCH SAYS
+
+The dispatch: *"Review: at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."*
+`reviews/task-334/RESULT.md` has two blocking findings at round 2. **I have checked both against
+the code myself and both are CORRECT.** Branch `task-334-deer-leap`, pushed, head `e90992c4`; code
+commit `21982dc7`, `[harness] PASS: 34/34 checks @ 21982dc71d74a1c153d67c26fda3110e4905b485 (clean
+tree) scope=all`. I have NOT written the fix below -- the Director decides whether round 3 happens.
+
+### What is already right, and is worth keeping whatever you decide
+
+Apex **x2.00 / x1.99 / x1.97** (stag / hind / calf), measured in her Forest Test at `470a75ff` with
+the same instrument as the before-run. Length, normalised for entry speed, **x2.79 for the hind and
+x3.08 for the calf** -- the hind is the dispatch's own L-093 case and it is inside 15 %. Every kind
+already bounded before this task (12 of 12 running in-band crossings); *"only mail jumping"* is
+refuted and that premise is finished.
+
+### Finding 1 (real): the re-arm guard DELAYS the bad burst by 0.29 s, it does not remove it
+
+Round 2 added `self._leapFor <= 0` to both bound triggers. While a window runs, the `elseif` body
+never executes, so `self._leapArmed = false` is never reached -- and the arm set by the **mid-flight
+band exit** (`if not onRoad then self._leapArmed = true`) survives the whole flight. On the tick
+`_leapFor` reaches 0, if the animal is back on the band at or above `RUN_FROM`, the branch runs
+`_leapFor = leap.SECONDS` and `_burstFor = MOVE.LEAP_AIR_SECONDS` **before**
+`intent.leaping = self._leapFor > 0` is published, so `leaping` never goes false for a single tick.
+`Body.stepVisual` clears `leapSpent` only on `if info.leaping ~= true`, so the latch holds, the
+launch block never fires, and the animal gets another 0.46 s of ~60 studs/s **along the ground with
+no arc**, drawn at the gait rate. That is cycle 2's defect through a third door, and it is a
+candidate producer of the disclosed 108.4 studs/s regression.
+
+**The fix I would write, for the Director to authorise or reject:** consume the arm on an on-road
+tick even while a window runs -- `if not onRoad then self._leapArmed = true elseif self._leapFor > 0
+then self._leapArmed = false elseif Brain.leapStarts(...) then ...` -- so a crossing that has
+already spent its bound cannot buy a second one at the window edge, and the same rule in
+`Brain:spook`. That also restores Karen's *"once per crossing"* at the window edge, which `Body`'s
+own task-325 comment says was the original defect.
+
+### Finding 2 (real): my round-2 case measures only the FIRST contiguous burst
+
+`expect(reentered).to.equal(straight)` counts one run of burst ticks, so a second burst 17 ticks
+later is invisible: the case proves the refresh is DELAYED, not that it cannot happen, and its own
+comment claims the opposite. It must count every burst tick, or the number of distinct burst runs,
+and assert the re-entered run has exactly one burst of the hind's own flight.
+
+### One factual error of mine the Reviewer caught, in comments and tables only
+
+*"a calf flies 0.516 s"* is wrong in four code comments, the research note's cycle-2 row and the
+request. 0.516 is the calf's `Body.leapPlan` **window**; its flight is `2*sqrt(2*3.336/196.2)` =
+**0.369 s**, so `LEAP.SECONDS` 0.75 outlasts it by **0.381 s**, not 0.23. The code is right and the
+conclusion is strengthened, not weakened. It needs correcting wherever round 3 lands.
+
+### What I did NOT do
+
+No round 3, no further `src/` edit, no further measurement. Her Forest Test is back on `:34873`
+from `driven-hunt-karen` at `cdc885b7`, Connected, and its 24 flag rows are byte-identical to the
+snapshot I took before I started (`<runs-dir>/334-ft-attrs-before.txt` vs `-final.txt`). The proof
+worktree `driven-hunt-rev` is back at `8ae8c627`. **Karen has still not seen the new bound in
+motion** -- 334-F1 is one hind anchored at the top of one bound, and that is not rule 5 on movement.
+
+---
+
 ## 2026-11-06 ~04:15 UTC, Task 330 -- GUARD 1 TRIPPED ON C2, AND THE CACHE IS MEASURED INNOCENT OF IT. I BAKED ON; SAY IF THAT WAS WRONG
 
 **Guard 2 PASSED and guard 1 FAILED on one cell.** Code commit `3bce240c`,
@@ -2981,3 +3041,13 @@ has freed the cursor -- MAP, REPORT, RELOAD and AMMO alike. Task 332 makes the O
 (design section 8.4's reserved tag), so the MAP button now closes the map; opening the map with the
 button still needs a free cursor. That is the cursor owner's question (`src/client/Camera/Cursor.luau`
 and `Hud.Rail`), not the map's. Queued in `TASKS.md` under task 332.
+
+### DIRECTOR DECISION, 2026-11-06 ~20:40 UTC, Task 334: ROUND 3 AUTHORISED
+
+Round 3 is within `MAX_ROUNDS` (3); no `DIRECTOR_MAX_ROUNDS` is needed or allowed. Scope of round 3, nothing else:
+1. Finding 1: write the fix proposed above (an on-road tick consumes the arm while a window runs: `elseif self._leapFor > 0 then self._leapArmed = false`), the same rule in `Brain:spook`.
+2. Finding 2: the case counts every burst run and asserts the re-entered crossing has exactly one, of the hind's own flight.
+3. Correct "0.516 s flight" to the calf's 0.369 s flight in every comment, the research note and the request.
+4. The stag's length x2.40 against x3 is ACCEPTED for now: Karen judges the bound by eye. Do not touch `Body.driveForce` in this round.
+5. The in-band 108.4 studs/s stays queued; measure it again after the fix and report the number.
+A finding on round 3 is an ESCALATE.md entry and a stop.

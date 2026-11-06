@@ -3515,7 +3515,9 @@ Boar.CONFIG.MODEL = {
 		-- airtime; the Brain does not, so it holds the longest of the three (the stag's 0.49 s) with
 		-- a little headroom. A number BELOW a kind's window would drop the animal back into its gait
 		-- in mid-air.
-		SECONDS = 0.55,
+		-- 0.75 SINCE TASK 334, because doubling the apex lengthened every kind's airtime by sqrt(2):
+		-- the stag's `Body.leapPlan` window is now 0.692 s against 0.49 before.
+		SECONDS = 0.75,
 		-- HOW FAST IT HAS TO BE GOING. Karen's sentence is about an animal CROSSING, and a deer
 		-- ambling over the lane does not bound. `MODEL.RUN_FROM` is the speed this world already
 		-- calls running -- the band edge where the run clip takes over -- so the leap and the gait
@@ -3567,9 +3569,18 @@ Boar.CONFIG.MODEL = {
 		--
 		-- ...AND NEVER BELOW THE FLOOR `Body.leapApex` puts under it -- the sink at the instant the
 		-- hooves reach deepest, plus `CLEARANCE_STUDS`. An arc lower than that would put the hooves
-		-- back through the road, which is the defect this task exists to fix. It binds on the calf
-		-- alone, lifting its 1.485 to 1.668; see `SINK_AT_SECONDS`.
-		APEX_STUDS = { stag = 3.0, hind = 2.566, calf = 1.485 },
+		-- back through the road, which is the defect task 325 existed to fix. It bound on the calf
+		-- alone (1.485 -> 1.668); SINCE TASK 334 it binds on nothing, because every kind's apex is
+		-- now at least twice its floor. See `SINK_AT_SECONDS`.
+		--
+		-- DOUBLED FOR TASK 334. Karen, 2026-11-06: *"does twice high and 3 times longer then now"*.
+		-- 2x each kind's EFFECTIVE apex measured in her place at cdc885b7 (stag 2.905, hind 2.471,
+		-- calf 1.612 studs; `<runs-dir>/334-BEFORE.txt`) -- so the calf's is 2 x the 1.668 the floor
+		-- gives it and not 2 x this row's old 1.485. The stag's 6.0 studs is 1.68 m, just under the
+		-- 1.8 m fence a red deer clears, so the bound is now an obstacle-clearing one.
+		-- NOTE: `MOVE.BOUND_ON_SPOOK` (`STAG_BOUND_ON_SPOOK`, off everywhere) reuses these numbers,
+		-- so switching it on would launch a near-stationary stag at 48.5 studs/s of pure up.
+		APEX_STUDS = { stag = 6.0, hind = 5.132, calf = 3.336 },
 		CLEARANCE_STUDS = 0.15,
 		-- WHEN THE HOOVES REACH DEEPEST, which is NOT the middle of the flight: 0.5417 against a
 		-- mid-point of 0.583 (`LIFT_STUDS`' own measurement). `Body.leapSinkShare` turns the gap
@@ -3583,6 +3594,12 @@ Boar.CONFIG.MODEL = {
 		-- `deer.spec` asserts it still matches `workspace.Gravity`, so the two halves of a
 		-- bound -- how high the body goes and how fast the legs move -- can never drift apart.
 		GRAVITY = 196.2,
+		-- HOW MUCH FASTER IT TRAVELS WHILE IT IS IN THE AIR (task 334), the push-off burst of a
+		-- bound. The arc is ballistic, so `apex = g t^2 / 8` and 2x the apex is sqrt(2) x the
+		-- airtime and nothing else: 3x the LENGTH therefore needs `3 / sqrt(2)` = 2.12132 x the
+		-- in-air horizontal speed. One number for all three kinds, because both targets are uniform.
+		-- Read by `Brain.leapSpeedScale` and applied at the Brain's one `targetVelocity` write.
+		SPEED_SCALE = 2.12132,
 	},
 }
 
@@ -4700,7 +4717,28 @@ function Boar.kindConfig(kind: string?, config)
 	-- ...AND THE KIND'S OWN EDGE CHECK AND BOUND GO ON LAST (task 251 part 2). Same place in the
 	-- chain as `wary` and the same rule: a kind with neither row gets `base` BY REFERENCE, so every
 	-- boar lives by the config it lived by before this task, byte for byte.
-	return Boar.edgeByKind(base, row and row.edge, row and row.spook)
+	return Boar.leapByKind(Boar.edgeByKind(base, row and row.edge, row and row.spook), kind)
+end
+
+-- HOW LONG THIS KIND IS AIRBORNE, LAID ONTO `MOVE` (task 334), so the Brain can end a bound's
+-- forward burst at TOUCHDOWN rather than at `LEAP.SECONDS`, which is one size for all three kinds
+-- outlasts a calf's 0.369 s flight by 0.381 s -- a third of a second of 60 studs/s on the ground.
+-- `Body.leapAir` stays the only owner of the arc; this copies its answer to the kind that flies it.
+-- A kind with no `APEX_STUDS` row (every boar) gets 0 back and the config BY REFERENCE.
+function Boar.leapByKind(config, kind: string?)
+	local leap = config.MODEL ~= nil and config.MODEL.LEAP or nil
+	if type(leap) ~= "table" or type(config.MOVE) ~= "table" then
+		return config
+	end
+	local air = Body.leapAir(kind, leap)
+	if air <= 0 then
+		return config
+	end
+	local out = table.clone(config)
+	local move = table.clone(config.MOVE)
+	move.LEAP_AIR_SECONDS = air
+	out.MOVE = move
+	return out
 end
 
 -- THE KIND'S `edge` AND `spook` ROWS, LAID OVER `MOVE` (task 251 part 2). The stag checks the open
