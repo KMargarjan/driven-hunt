@@ -341,6 +341,23 @@ function ForestTest.layoutNamed(name: string?): Layout?
 	return (ForestTest.LAYOUTS :: any)[name]
 end
 
+-- THE LAYOUT BY NAME, **THE GRID'S EIGHT CELLS INCLUDED** (task 332). `layoutNamed` above answers
+-- the four shipped rows only, so a client handed the live name "C1" resolved NOTHING and drew no
+-- map at all -- measured in Karen's Forest Test on 2026-11-06, where `GRID_PREVIEW` publishes
+-- `Grid.PREVIEW_CELL`: no `DrivenHunt.Map.Toggle` binding, `FullMap.Visible = false`, M dead.
+-- THE ONE RESOLVER: the server's own `layoutByName` is this function now, so a name the server can
+-- deal is a name the client can draw.
+function ForestTest.layoutOf(name: string?): Layout?
+	local row = ForestTest.layoutNamed(name)
+	if row ~= nil then
+		return row
+	end
+	if type(name) == "string" and Grid.cellOf(name) ~= nil then
+		return Grid.layoutFor(name :: string)
+	end
+	return nil
+end
+
 -- A FRESH COPY of the order, so a caller that shuffles its own bag cannot shuffle the table.
 function ForestTest.layoutNames(): { string }
 	return table.clone(ForestTest.LAYOUT_ORDER)

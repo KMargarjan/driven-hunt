@@ -2580,6 +2580,16 @@ return function()
 
 	describe("the cursor", function()
 		it("is locked and hidden by default, and freed only by request", function()
+			-- "BY DEFAULT" IS A PREMISE, SO IT IS WAITED FOR RATHER THAN ASSUMED (task 332). The map
+			-- is a modal since that task -- an open panel holds the cursor under the tag "map", the
+			-- `ReportPanel` shape -- and the harness's own `map-toggle` scenario presses M twice, so
+			-- this case can run in the gap between the two presses and read a cursor somebody else
+			-- is legitimately holding. The assertion keeps its bite: a cursor held FOR EVER still
+			-- fails here, 15 s later.
+			local settled = waitUntil(15, function()
+				return not Camera.Cursor.isFree()
+			end)
+			TestKit.note(string.format("camera_client: cursor handed back before this case=%s", tostring(settled)))
 			expect(UserInputService.MouseBehavior).to.equal(Enum.MouseBehavior.LockCenter)
 			expect(UserInputService.MouseIconEnabled).to.equal(false)
 

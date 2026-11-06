@@ -750,7 +750,11 @@ function MapUi.geometryFromForestTest(data: any, layout: any): MapGeometry
 	-- task 162; 700 is still the larger, so these bounds are unchanged by it) --
 	-- because a driver walking in from 700 studs is one of the *"other players moving"* Karen asked
 	-- to see, and a map that cuts him off has lost him.
-	local north = math.max(data.DRIVERS.startNorthStuds, data.beaterNorthStuds())
+	-- THE LAYOUT IS PASSED (task 332): a CELL musters its beaters at its own depth (1,430 studs,
+	-- `Grid.layoutFor`), and the no-argument call answered the road layout's 580 -- bounds that cut
+	-- off the beaters Karen asked to see moving. The four shipped rows state none, so they are
+	-- unchanged number for number.
+	local north = math.max(data.DRIVERS.startNorthStuds, data.beaterNorthStuds(layout))
 	return {
 		world = data.WORLD,
 		bounds = {
@@ -815,7 +819,10 @@ function MapUi.geometryFor(world: string, forestTest: any?, map: any?, layoutNam
 		if forestTest == nil then
 			return nil
 		end
-		local layout = forestTest.layoutNamed(layoutName)
+		-- `layoutOf` AND NOT `layoutNamed` (task 332): the second answers the four shipped rows only,
+		-- so the live name "C1" -- what `GRID_PREVIEW` publishes, and what Karen's Forest Test ran on
+		-- 2026-11-06 -- resolved nil, the map never built, and M was never bound at all.
+		local layout = forestTest.layoutOf(layoutName)
 		if layout == nil then
 			return nil
 		end
@@ -900,6 +907,13 @@ local pickReason: string? = nil
 local pickOpenedByWindow = false
 local footerLabel: TextLabel? = nil
 local PICK_TAG = "map-pick"
+-- THE TAG THE DESIGN RESERVED FOR THIS (map-ui section 8.4: *"If a later task makes the map
+-- clickable, it asks `PlayerScripts.Camera.Cursor` ... with the tag `"map"`"*). Task 332 is that
+-- task: the camera holds the mouse at `LockCenter`, so the HUD's own MAP button could not be
+-- clicked at all -- measured 2026-11-06, `MouseBehavior=LockCenter mouse=484,334` at the centre of
+-- a 969 x 784 view while the button sat at 933, 264.
+local MAP_TAG = "map"
+local modalHeld = false
 local started = false
 local built = false
 local tooSmallWarned = false
@@ -1483,6 +1497,37 @@ end
 --
 -- AND THE TRIGGER HOLD IS NOT OPTIONAL: `Weapon.Input` binds `MouseButton1`, so without it tapping
 -- a stand fires a shell. `ReportPanel` names the identical case in its own header.
+-- THE OPEN PANEL IS A MODAL, SO THE MOUSE IS THE PLAYER'S WHILE IT IS UP (task 332). Driven off the
+-- PANEL'S OWN `Visible`, never recomputed, so the mouse cannot be freed over a hidden map; the
+-- trigger goes with it because `Weapon.Input` binds `MouseButton1` and a click on MAP would
+-- otherwise fire a shell -- the pick's own pair of needs, under the tag section 8.4 reserved.
+local function applyModal(panelVisible: boolean)
+	if modalHeld == panelVisible then
+		return
+	end
+	modalHeld = panelVisible
+	if Cursor ~= nil then
+		if panelVisible then
+			Cursor.requestFree(MAP_TAG)
+		else
+			Cursor.release(MAP_TAG)
+		end
+	end
+	if WeaponInput ~= nil then
+		if panelVisible then
+			WeaponInput.requestHold(MAP_TAG)
+		else
+			WeaponInput.releaseHold(MAP_TAG)
+		end
+	end
+end
+
+-- Whether this module is holding the mouse and the trigger for an open panel, read off what was
+-- written rather than recomputed.
+function MapUi.isModalHeld(): boolean
+	return modalHeld
+end
+
 local function applyPick()
 	local on = pickableNow()
 	if Cursor ~= nil then
@@ -1680,6 +1725,10 @@ function MapUi.applyVisibility()
 	-- `setGeometry` and each 20 Hz tick, which is what catches the REPORT opening (nothing else
 	-- tells this module about that) -- so the grab and the release have one caller and the free
 	-- mouse in a drive cannot be left behind.
+	--
+	-- ...AND SO DOES THE OPEN PANEL'S OWN PAIR (task 332), off the same six exits and off the
+	-- panel's own answer.
+	applyModal(full.Visible)
 	applyPick()
 end
 

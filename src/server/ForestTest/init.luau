@@ -2352,18 +2352,11 @@ end
 -- EVERYTHING THAT HAS TO HAPPEN WHEN THE GROUND MOVES, in one place and in this order (design 6.5
 -- steps 1 and 2). Steps 3 to 8 are already per-drive and are listed there; nothing here repeats
 -- them.
--- A LAYOUT BY NAME, THE GRID'S CELLS INCLUDED (task 327b). `Data.layoutNamed` answers the four
--- shipped rows and nil for anything else; `Grid.layoutFor` answers the eight cells. One lookup, so
--- `promote` cannot deal a name `forcedLayout` accepted.
+-- A LAYOUT BY NAME, THE GRID'S CELLS INCLUDED (task 327b), AND THE RESOLVER IS SHARED NOW (332):
+-- these nine lines lived here, the CLIENT had no copy, and so the map drew nothing for every cell
+-- the server dealt. One lookup, so `promote` cannot deal a name `forcedLayout` accepted.
 local function layoutByName(name: string?): any
-	local row = Data.layoutNamed(name)
-	if row ~= nil then
-		return row
-	end
-	if type(name) == "string" and Grid.cellOf(name) ~= nil then
-		return Grid.layoutFor(name)
-	end
-	return nil
+	return Data.layoutOf(name)
 end
 
 local function promote(name: string, source: string)
