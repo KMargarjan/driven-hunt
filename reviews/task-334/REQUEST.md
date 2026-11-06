@@ -109,7 +109,10 @@ with nothing touching. A beater bot in an orange cap stands on the road beyond h
 1. Every kind bounds, and did before this task: 12/12 running in-band crossings, 0/4 walking ones.
    Verify: `334-why.txt` and (b2).
 2. The before means are the cycle-1 row, read at `cdc885b7` with `334-instrument.luau`.
-3. The after means are the cycle-3 row, read at the code commit with the same instrument.
+3. The after means are the cycle-3 row, read at **`9f65b70f`** with the same instrument (L-162).
+   `1e96adcf`, the code commit, differs from it in `docs/research/` alone -- `git diff --stat
+   9f65b70f..1e96adcf` touches no `src/` or `tests/` file -- so no number here was read at code
+   that is not in the commit under review.
 4. Apex x2 and length x3 within 15 % for all three kinds -- the second table.
 5. The burst has ONE writer: `Brain:step`'s `targetVelocity`, scaled by the pure
    `Brain.leapSpeedScale`; `self._speed` is unscaled. Verify: `grep -n leapSpeedScale src/`.
