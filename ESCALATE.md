@@ -105,6 +105,15 @@ It most likely broke at ~21:50, when a long diagnostic Luau call in the DEV Edit
 (Game Stopped, Edit confirmed) did not fix it, nor did waiting for five consecutive stable
 `list_roblox_studios` readings.
 
+**TWO THINGS RULED OUT, so the next session need not repeat them.** The Forest Test Studio registers
+with `"name": null` (`list_roblox_studios` shows `2f691373` nameless beside the named DEV entry),
+which is why the harness's own banner flaps between "1 Studio connected" and "2" from one call to
+the next -- but that is NOT the cause: `classify_studios` diffs by `id`, never by name, so a
+nameless entry is counted. And the Play SERVER datamodel is reachable (it ran 2,836 specs in the one
+run that got through and reached `zz_drive_boundary` in the others); it is the Play CLIENT that never
+binds its listeners. Free memory was 1.67 GB of 13.84 with the two Studios holding 5.9 GB, which is
+the other candidate and is also not something a Builder can change.
+
 **THE CLICKS, in order:**
 1. In **Driven Hunt DEV** Studio: File -> Close (do NOT save; it is Rojo-fed). Leave the **Forest
    Test** Studio alone.
