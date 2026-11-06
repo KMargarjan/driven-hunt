@@ -2953,3 +2953,31 @@ boundaries. Merged into `task-328s-c1-denser` at `8164e299`; the full gate there
 - **Item 4: the rule is relaxed** to *"no second lone stag after him"*. The 15-slot Forest Test line may now carry herds in slots 9, 12 and 14, so a group comes in about every second wave. `forest_line.spec` asserts the new rule, and boars keep the rest of the slots.
 - **Item 1:** the Architect amends `red-deer.md` 4.2/15 to read *"Forest Test herds 5-8; Match path 1-3"* at the next audit.
 - **Round 3 is authorised** within MAX_ROUNDS 3. A finding on round 3 is an ESCALATE entry, not a fourth round.
+
+## 2026-11-06 ~13:30 UTC, Builder -- Task 332: the AFTER proof in Karen's Forest Test needs the Director
+
+**Not a disagreement and not a blocker for the fix: a proof I may not take myself.**
+
+The defect was reproduced in Karen's own Forest Test, on merged `main`, with real input (below, and
+in `reviews/task-332/REQUEST.md`). The FIX is proven in DEV with a real key, a real click and the
+suite. **It cannot be proven in her place by me:** the Forest Test syncs from `driven-hunt-karen`,
+which is the Director's copy, and `CLAUDE.md` plus the dispatch forbid me checking code out there
+(L-014). So the last mile is:
+
+- **NEEDS DIRECTOR:** after this PR merges, sync `driven-hunt-karen` to `main`, start the Forest
+  Test, press **M** in the lobby and in a drive, and read `Live.Layout` (it will say `C1` while
+  `DHFlag_GRID_PREVIEW` is on) with the map open. Expected: `DrivenHunt.Map.Toggle` in
+  `ContextActionService:GetAllBoundActionInfo()`, `FullMap.Visible = true`, 15 stands drawn.
+  The probe is `<runs-dir>/332-probe.luau` (via `ftplay.py client`).
+
+**Measured there BEFORE the fix, 2026-11-06 12:52-12:55 UTC (Play in Edit, Karen not playing):**
+`Live.Layout=C1`; `DrivenHunt.Map.Toggle` absent from the bound actions in the lobby AND in a drive;
+a real M press (`298key.ps1`, one `InputBegan`) and a real click on the MAP button both left
+`FullMap.Visible=false AbsoluteSize=1100x700`.
+
+**A second, smaller item, for the Director to queue or decline (not fixed here, rule 3).** On a PC
+the camera holds the mouse at `LockCenter`, so NO button of `Hud.Rail` can be clicked while no panel
+has freed the cursor -- MAP, REPORT, RELOAD and AMMO alike. Task 332 makes the OPEN map free it
+(design section 8.4's reserved tag), so the MAP button now closes the map; opening the map with the
+button still needs a free cursor. That is the cursor owner's question (`src/client/Camera/Cursor.luau`
+and `Hud.Rail`), not the map's. Queued in `TASKS.md` under task 332.
