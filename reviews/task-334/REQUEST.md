@@ -3,11 +3,22 @@
 Task: 334
 Round: 1
 Base: cdc885b7
-Code commit: 9f65b70f21c47204a3c8e8a7dd0c2c1a000564d2
+Code commit: 1e96adcf5331d297b33e0bfb93aa743bc1d893bd
 
-Gate: `[harness] PASS: 34/34 checks @ 9f65b70f21c47204a3c8e8a7dd0c2c1a000564d2 (clean tree) scope=all`
+Gate: `[harness] PASS: 34/34 checks @ 1e96adcf5331d297b33e0bfb93aa743bc1d893bd (clean tree) scope=all`
 `test2` N/A: the diff touches `src/server/Boar/` and `tests/server/deer.spec.luau` only, no
-`TWO_PLAYER_PATHS` path. No spec FAILED in that run, so no flake is claimed.
+`TWO_PLAYER_PATHS` path.
+
+**The code commit is a DOCS commit on purpose.** `9f65b70f` is the last commit that changed `src/`
+or `tests/`, and it passed the same gate first time:
+`[harness] PASS: 34/34 checks @ 9f65b70f21c47204a3c8e8a7dd0c2c1a000564d2 (clean tree) scope=all`.
+`1e96adcf` adds section 9 of the research note, which `is_paperwork` does not cover, so it is named
+here instead -- the bound is then strictly tighter and only `reviews/` and the `TASKS.md` row follow
+it. **Two unstable specs fired on the first run at `1e96adcf`** -- `weapon_shot.spec:1490` (on the
+Director's list) and `weapon_shot.spec:2077` (**not** on it: `Expected nil, got "rate-limited"`) --
+and the re-run above is clean. The two harness lines name two different commits carrying byte-
+identical `src/` and `tests/`, which is the control: nothing in this change is nearer the weapon
+than `src/server/Boar/`.
 
 ## PLAN (core quality protocol, step 0)
 
