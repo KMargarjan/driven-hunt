@@ -442,6 +442,66 @@ return function()
 			expect(intent.activity).to.equal(nil)
 		end)
 
+		it("publishes NO activity while it is under an order, and takes it up again when it lapses", function()
+			-- TASK 333. Karen, 2026-11-06: *"sometimes one is head down fresh boar but head down"*.
+			-- The order branch in `_step` outranks every mood but leaves `_state` at IDLE, so a led
+			-- animal kept publishing what it had been doing -- and `root` draws `digWalk`, which
+			-- carries its own ground and so passes `Body.clipFor`'s `walks` gate at ANY speed.
+			-- The two ends of the chain, so the case bites whichever one is deleted.
+			local ordered = withCalmIds()
+			local line = table.clone(ordered.LINE)
+			line.ENABLED = true -- `Brain:leadTo` refuses outright with it off
+			ordered.LINE = line
+			-- THE CLIP A PUBLISHED `root` DRAWS AT PASS SPEED, which is the picture Karen sent.
+			expect(clipFor(ordered, { activity = "root", speed = 11 })).to.equal("digWalk")
+			expect(clipFor(ordered, { activity = nil, speed = 11 })).to.equal("trot")
+
+			-- Several seeds, because WHICH activity is drawn is a weighted roll and the rule is
+			-- about all of them.
+			local lapsed = 0
+			for seed = 1, 12 do
+				local brain = Brain.new(ordered, FIELD, Vector3.zero, Random.new(seed))
+				local free
+				for _ = 1, 600 do
+					free = brain:step(DT, obs(Vector3.zero))
+					if free.activity ~= nil then
+						break
+					end
+				end
+				expect(free.activity).to.be.ok() -- it really is doing something before the order
+
+				-- LED ACROSS THE LANE, the way `Range.order` leads one: re-issued every step.
+				local position, intent = Vector3.zero, nil
+				for _ = 1, 120 do
+					brain:leadTo(Vector3.new(0, 0, -150), 11)
+					intent = brain:step(DT, obs(position))
+					position += intent.targetVelocity * DT
+					expect(intent.state).to.equal("IDLE") -- an order does not change the state
+					expect(intent.activity).to.equal(nil)
+					expect(intent.activityDraw).to.equal(nil)
+				end
+				-- ...and it really was MOVING for all of that, which is what makes the clip a gait.
+				expect(intent.targetVelocity.Magnitude > 0.5).to.equal(true)
+				expect(clipFor(ordered, { activity = intent.activity, speed = intent.targetVelocity.Magnitude })).to.equal(
+					"trot"
+				)
+
+				-- THE ORDER IS A DEAD-MAN'S HANDLE: stop issuing it and the animal is an ordinary
+				-- calm boar again, which is what keeps this a gate and not a deletion.
+				for _ = 1, math.ceil((ordered.LINE.ORDER_SECONDS + 0.5) / DT) do
+					intent = brain:step(DT, obs(position))
+					if intent.activity ~= nil then
+						break
+					end
+				end
+				if intent.activity ~= nil then
+					lapsed += 1
+				end
+			end
+			expect(lapsed).to.equal(12)
+			TestKit.note("boar-calm 333: 12 ordered boars published no activity, and all 12 took one up again")
+		end)
+
 		it("shortens the FIRST activity, and never the one that is a clip length", function()
 			-- REVIEW ROUND 2, FINDING 4: the case this replaces asserted "two brains with different
 			-- seeds did not agree on all 1800 frames", which is true whatever the phasing does. The
