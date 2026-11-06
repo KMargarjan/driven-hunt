@@ -1100,7 +1100,7 @@ CALL_RETRIES = 3
 CALL_RETRY_PAUSE = 6
 
 
-def call(studio, studio_id, expression, timeout=BAKE_CALL_TIMEOUT, injected=None):
+def call(studio, studio_id, expression, timeout=BAKE_CALL_TIMEOUT, injected=None, retries=None):
     """Run one TerrainBake expression in the addressed Edit DataModel and parse its JSON reply.
 
     `injected` is the prelude, built ONCE per run and reused, so every call of a run carries exactly
@@ -1109,14 +1109,15 @@ def call(studio, studio_id, expression, timeout=BAKE_CALL_TIMEOUT, injected=None
     code = CALL_TEMPLATE % (injected if injected is not None else prelude()[0], expression)
     arguments = {"datamodel_type": "Edit", "code": code, "studio_id": studio_id}
     text, body = None, ""
-    for attempt in range(1, CALL_RETRIES + 1):
+    tries = CALL_RETRIES if retries is None else retries
+    for attempt in range(1, tries + 1):
         text = studio._rpc("tools/call", {"name": "execute_luau", "arguments": arguments},
                            timeout=timeout)
         body = "\n".join(c.get("text", "") for c in text.get("content", []))
-        if not (text.get("isError") and UNREACHABLE in body) or attempt == CALL_RETRIES:
+        if not (text.get("isError") and UNREACHABLE in body) or attempt == tries:
             break
         print("    [retry %d/%d] the Edit DataModel did not pick the call up (%s); %d s"
-              % (attempt, CALL_RETRIES - 1, UNREACHABLE, CALL_RETRY_PAUSE))
+              % (attempt, tries - 1, UNREACHABLE, CALL_RETRY_PAUSE))
         time.sleep(CALL_RETRY_PAUSE)
     if text.get("isError"):
         raise RuntimeError("execute_luau: %s" % body)
@@ -2084,8 +2085,8 @@ def args_side():
 # B2 blocks the Edit DataModel past StudioMCP's dispatch patience (MEASURED: tile 52 of the
 # seven-cell plan is "Target is not reachable" on every attempt, dry or wet, while tile 51 answers
 # in 1.3 s), so the answer comes off an attribute, exactly as the equality proof's halves do.
-TILE_POLL_SECONDS = 1200
-TILE_POLL_EVERY = 10
+TILE_POLL_SECONDS = 1800
+TILE_POLL_EVERY = 3
 
 
 def clear_tile_marks(studio, studio_id, injected):
@@ -2109,7 +2110,10 @@ def tile_call(studio, studio_id, injected, expression, token, index):
     attr = "DH330Tile_%s_%d" % (token, index)
     started = time.time()
     try:
-        row = call(studio, studio_id, expression, injected=injected)
+        # NO RETRY HERE, and that is the point: a retried tile is RE-SHAPED. Measured on the dry
+        # run of 2026-11-06 03:42 -- three attempts at 7.7 s each plus the pauses made one 7.7-s
+        # tile cost 35 s, and the answer was on its attribute after the first.
+        row = call(studio, studio_id, expression, injected=injected, retries=1)
         if isinstance(row, dict) and "elapsedMs" in row:
             return row
     except RuntimeError as problem:
@@ -2117,9 +2121,14 @@ def tile_call(studio, studio_id, injected, expression, token, index):
             raise
         print("    (MCP gave up after %.0f s; the tile is still running -- polling %s)"
               % (time.time() - started, attr))
+    # THE FIRST READ IS IMMEDIATE: the call above already ran the tile to completion -- only its
+    # reply was lost -- so the attribute is usually there before the first sleep.
     deadline = time.time() + TILE_POLL_SECONDS
+    first = True
     while time.time() < deadline:
-        time.sleep(TILE_POLL_EVERY)
+        if not first:
+            time.sleep(TILE_POLL_EVERY)
+        first = False
         # EVERY FAILURE HERE IS "STUDIO IS STILL BUSY": the poll sits in StudioMCP's own queue
         # behind the tile and comes back as a timeout or as `Target is not reachable`. Neither is
         # an answer and neither is a reason to stop asking -- the deadline is.
@@ -2895,7 +2904,7 @@ def selftest():
 
     saved_call, saved_log = globals()["call"], globals()["log_run"]
     try:
-        def record(studio, studio_id, expression, timeout=None, injected=None):
+        def record(studio, studio_id, expression, timeout=None, injected=None, retries=None):
             sent_tiles.append((expression, injected))
             return {"minX": 0, "minZ": 0, "calls": 1, "voxels": 1, "bandMin": 0, "bandMax": 1,
                     "elapsedMs": 5}
