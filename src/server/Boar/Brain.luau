@@ -628,6 +628,10 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	-- that dawdles on the lane does not bound every stride. Both are zero/true for every boar for
 	-- ever: `MODEL.CLIPS` has no `leap` and `field.road` is nil in the DEV world.
 	self._leapFor = 0
+	-- SECONDS LEFT OF THE FORWARD BURST (task 334), which is SHORTER than `_leapFor`: the burst is
+	-- the flight and `_leapFor` is the drawing, and a calf's flight is 0.23 s shorter than the
+	-- window the clip is held for. `MOVE.LEAP_AIR_SECONDS` is this kind's own, from `Body.leapAir`.
+	self._burstFor = 0
 	self._leapArmed = true
 	-- HAS IT HEARD A SHOT? One way, for the rest of its life here (task 150). Karen: *"once they
 	-- hear shoot they run and don't stop"*. Set by `spook` when the fright IS a bang; read by
@@ -1487,6 +1491,7 @@ function Brain:spook(from: Vector3?, seconds: number?, untilExit: boolean?)
 		)
 	then
 		self._leapFor = boundLeap.SECONDS
+		self._burstFor = (boundMove ~= nil and boundMove.LEAP_AIR_SECONDS) or 0
 	end
 	if untilExit == true and config.SENSE ~= nil and config.SENSE.SHOT_FLIGHT_UNTIL_EXIT == true then
 		self._heardShot = true
@@ -2085,6 +2090,7 @@ function Brain:step(dt: number, obs)
 	-- about the animal's movement changes -- the leap is a DRAWING, published on the intent, and the
 	-- speed, the heading and the path are whatever the rest of this step makes them.
 	self._leapFor = math.max(0, self._leapFor - dt)
+	self._burstFor = math.max(0, self._burstFor - dt)
 	-- `self._speed` IS THE SPEED THIS ANIMAL IS RUNNING AT, which is the only one this module has:
 	-- `obs` carries a position and no velocity, and the measured velocity is `Body`'s. It is last
 	-- tick's value here (the ramp below updates it), which at 60 Hz is a sixtieth of a second of lag
@@ -2098,6 +2104,7 @@ function Brain:step(dt: number, obs)
 	then
 		self._leapArmed = false
 		self._leapFor = leap.SECONDS
+		self._burstFor = (config.MOVE ~= nil and config.MOVE.LEAP_AIR_SECONDS) or 0
 	end
 	intent.leaping = self._leapFor > 0
 	-- TASK 126's three timers, counted with dt beside the others. With `MOVE.ENABLED` off none of
@@ -2690,10 +2697,11 @@ function Brain:step(dt: number, obs)
 	-- 7 of 49 range passes crossing at 11.00 studs/s with the rooting clip at full weight.
 	intent.activity = if self._state == "IDLE" and self._calm and not self:ordered() then self._calm.name else nil
 	intent.activityDraw = if intent.activity ~= nil then self._calmDraws else nil
-	-- ...AND A BOUND CARRIES IT FORWARD (task 334). The scale is applied HERE, on the published
-	-- velocity, and never to `self._speed`: the leap gate, the gait band and the clip rate all read
-	-- that, so scaling it would feed the burst back into the rule that started the bound.
-	intent.targetVelocity = self._desired * self._speed * Brain.leapSpeedScale(intent.leaping, leap)
+	-- ...AND A BOUND CARRIES IT FORWARD WHILE IT IS IN THE AIR (task 334). `_burstFor` and not
+	-- `leaping`: the drawing window is one size for all three kinds and outlasts a calf's flight by
+	-- 0.23 s, which MEASURED as a quarter-second of 60 studs/s along the ground after touchdown.
+	-- Never applied to `self._speed`, which the leap gate and the gait band read.
+	intent.targetVelocity = self._desired * self._speed * Brain.leapSpeedScale(self._burstFor > 0, leap)
 	intent.facing = self._desired
 	return intent
 end

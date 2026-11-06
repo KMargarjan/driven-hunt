@@ -1693,6 +1693,14 @@ function Body.leapPlan(kind: string?, leap): (number, number, number)
 	return up, rate, window
 end
 
+-- HOW LONG THIS KIND IS OFF THE GROUND, in seconds (task 334). Pure, and composed from exactly the
+-- two functions `leapPlan` composes, so the forward burst and the arc can never disagree.
+function Body.leapAir(kind: string?, leap): number
+	local gravity = if type(leap) == "table" and type(leap.GRAVITY) == "number" then leap.GRAVITY else 0
+	local _, air = Body.leapTakeoff(Body.leapApex(kind, leap), gravity)
+	return air
+end
+
 -- WHERE IN THE CLIP A BOUND STARTS. Pure. The clip's first 0.458 s is a running approach the run
 -- clip has already been drawing, and starting there would run it twice.
 function Body.leapStartAt(leap): number

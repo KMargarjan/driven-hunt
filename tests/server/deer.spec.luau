@@ -1850,6 +1850,10 @@ return function()
 					model.LEAP.ENABLED = true
 					model.LEAP.SPEED_SCALE = scale
 					config.MODEL = model
+					-- THIS KIND'S OWN FLIGHT, exactly as `Boar.kindConfig` lays it on, and shorter
+					-- than `LEAP.SECONDS`: that is the whole point of the second timer.
+					config.MOVE = table.clone(CONFIG.MOVE)
+					config.MOVE.LEAP_AIR_SECONDS = Body.leapAir("hind", model.LEAP)
 					local field = {
 						bounds = FIELD.bounds,
 						exitZ = FIELD.exitZ,
@@ -1863,6 +1867,7 @@ return function()
 					}
 					local brain = Brain.new(config, field, Vector3.zero, Random.new(7))
 					local leaping, flat, ticks = 0, 0, 0
+					local speeds = {}
 					for _ = 1, 600 do
 						local intent = brain:step(1 / 60, {
 							position = Vector3.zero,
@@ -1881,15 +1886,31 @@ return function()
 						else
 							flat = math.max(flat, speed)
 						end
+						table.insert(speeds, speed)
 					end
-					return leaping, flat, ticks
+					-- A BURST TICK IS ONE PUBLISHED ABOVE EVERY GROUNDED TICK'S SPEED, counted on a
+					-- second pass because the gait is still ramping on the first.
+					local burst = 0
+					for _, speed in ipairs(speeds) do
+						if speed > flat + 1e-3 then
+							burst += 1
+						end
+					end
+					return leaping, flat, ticks, burst
 				end
-				local burstOn, flatOn, ticksOn = run(CONFIG.MODEL.LEAP.SPEED_SCALE)
-				local burstOff, flatOff, ticksOff = run(1)
+				local burstOn, flatOn, ticksOn, burstTicks = run(CONFIG.MODEL.LEAP.SPEED_SCALE)
+				local burstOff, flatOff, ticksOff, noBurstTicks = run(1)
 				-- IT BOUNDED, in both runs and for the same number of ticks: the scale changes the
 				-- published velocity and nothing about WHEN the bound happens.
 				expect(ticksOn > 0).to.equal(true)
 				expect(ticksOn).to.equal(ticksOff)
+				-- THE BURST ENDS AT TOUCHDOWN AND THE DRAWING RUNS ON (task 334's round-2 fix).
+				-- MEASURED in her place when it did not: a calf was driven along the GROUND at 60
+				-- studs/s for the 0.23 s its clip outlasted its flight, and the herd's measured
+				-- speeds reached 138 studs/s. `LEAP.SECONDS` is 0.75 and a hind's flight is 0.457.
+				expect(burstTicks > 0).to.equal(true)
+				expect(burstTicks < ticksOn).to.equal(true)
+				expect(noBurstTicks).to.equal(0)
 				-- 1e-3 AND NOT 1e-6: a `Vector3`'s components are float32, so the magnitude of the
 				-- same 38 studs/s differs by ~4e-6 between two ticks with different headings.
 				expect(flatOn).to.be.near(flatOff, 1e-3)

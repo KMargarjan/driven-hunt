@@ -4717,7 +4717,28 @@ function Boar.kindConfig(kind: string?, config)
 	-- ...AND THE KIND'S OWN EDGE CHECK AND BOUND GO ON LAST (task 251 part 2). Same place in the
 	-- chain as `wary` and the same rule: a kind with neither row gets `base` BY REFERENCE, so every
 	-- boar lives by the config it lived by before this task, byte for byte.
-	return Boar.edgeByKind(base, row and row.edge, row and row.spook)
+	return Boar.leapByKind(Boar.edgeByKind(base, row and row.edge, row and row.spook), kind)
+end
+
+-- HOW LONG THIS KIND IS AIRBORNE, LAID ONTO `MOVE` (task 334), so the Brain can end a bound's
+-- forward burst at TOUCHDOWN rather than at `LEAP.SECONDS`, which is one size for all three kinds
+-- and outlasts a calf's flight by 0.23 s -- a quarter of a second of 60 studs/s on the ground.
+-- `Body.leapAir` stays the only owner of the arc; this copies its answer to the kind that flies it.
+-- A kind with no `APEX_STUDS` row (every boar) gets 0 back and the config BY REFERENCE.
+function Boar.leapByKind(config, kind: string?)
+	local leap = config.MODEL ~= nil and config.MODEL.LEAP or nil
+	if type(leap) ~= "table" or type(config.MOVE) ~= "table" then
+		return config
+	end
+	local air = Body.leapAir(kind, leap)
+	if air <= 0 then
+		return config
+	end
+	local out = table.clone(config)
+	local move = table.clone(config.MOVE)
+	move.LEAP_AIR_SECONDS = air
+	out.MOVE = move
+	return out
 end
 
 -- THE KIND'S `edge` AND `spook` ROWS, LAID OVER `MOVE` (task 251 part 2). The stag checks the open
