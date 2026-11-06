@@ -57,3 +57,76 @@ the ONE place it is steered.
 
 **(e) HOW IT WILL BE MEASURED AFTER.** The same probe, the same place, the same pace, the same two
 tallies: `<runs-dir>/333-start.luau` -> `<runs-dir>/333-after.txt`.
+
+---
+
+## What changed (round 1)
+
+**Code commit: `781221c63b1e3192e8f074f406f5a3ad4911690b`**
+
+    [harness] PASS: 34/34 checks @ 781221c63b1e3192e8f074f406f5a3ad4911690b (clean tree) scope=all
+
+`test2` is N/A: nothing here is in `TWO_PLAYER_PATHS` (the change is `src/server/Boar/Brain.luau`,
+`src/server/Range/init.luau` and two server specs -- boar and range, which one player evidences
+completely).
+
+Two lines of behaviour, one defect:
+
+1. **`Brain` publishes no activity while the animal is under an order.** The order branch already
+   outranks every mood, but it leaves `_state` at `"IDLE"`, so the last line of `_step` kept
+   publishing the calm activity of an animal that was being led.
+2. **`Range.release` issues the pass's first order on the tick it spawns the animal** (forward
+   declaration of `order`), so no range animal ever takes a Brain step as a free boar.
+
+## Claims
+
+1. **It is reproduced, on the player's path, as a number.** 49 range passes in DEV Play, Mat1
+   occupied, pace `trot` (11.00 studs/s), no shots: 65 samples in which an animal moving faster than
+   0.5 studs/s played a head-down clip; 7 animals played `digWalk` for their WHOLE pass at 11.00
+   studs/s. *Verify:* `<runs-dir>/333-before.txt`, and the table in the PLAN above.
+2. **The after is the same instrument.** Same probe (`<runs-dir>/333-start.luau`), same place, same
+   pace, 53 passes: **head-down while moving 65 -> 0**, and 0 over the first 20 passes as well.
+   *Verify:* `<runs-dir>/333-after.txt`.
+3. **The producer is named and pasted.** `intent.activity` in `Brain._step` is the only assignment
+   of that field in the repository, and `Body.activityClip` / `Body.clipFor` is the only reader.
+   *Verify:* `grep -rn "intent.activity" src/`.
+4. **The case dies if the Brain fix is deleted.** `boar_calm.spec.luau`, *"publishes NO activity
+   while it is under an order..."*: twelve seeds, each stepped until it really is doing something,
+   then led the way `Range.order` leads one -- `activity` and `activityDraw` must be nil on every
+   tick while the animal is moving, and the drawn clip `trot`. Revert the one `Brain` line and the
+   first `expect(intent.activity).to.equal(nil)` fails.
+5. **...and it is not a deletion.** The same case stops issuing the order and asserts all twelve
+   boars take an activity up again inside `LINE.ORDER_SECONDS + 0.5 s`. A fix that simply stopped
+   publishing activities would fail this half.
+6. **...and it states the chain.** The same case asserts `clipFor({activity = "root", speed = 11})`
+   is `digWalk` and `clipFor({activity = nil, speed = 11})` is `trot` -- the picture Karen sent, and
+   what replaces it.
+7. **The case dies if the Range fix is deleted.** `range.spec.luau`, *"orders the new animal on the
+   very tick it releases it"*: 30 s at a trot, and every release must already have a `fake.leads`
+   entry for its own id on the tick `targetId` changed. Remove `order(trial, from, 0)` from
+   `release` and `orderedAtBirth` falls short of `releases`.
+8. **331 is intact.** `UNSTEERED_PASS_SECONDS` is untouched; `order` still reads `boars.leadTo`'s
+   answer and still adds to `trial.unsteeredFor` when it is refused -- the release-tick call goes
+   through the same function, so a CRIPPLED animal's refusal is counted there too. *Verify:*
+   `range.spec.luau`, *"ends the pass of an animal it can no longer steer"*, which passes.
+9. **319 and 321's timing is intact.** No clock, no `NEXT_PASS_SECONDS`, no `PASS_MAX_SECONDS` and
+   no `trial.ended` changed. *Verify:* the whole `range.spec` suite is green (81 server spec files,
+   2847 assertions, 0 failed).
+10. **Frames, opened and described.** `<runs-dir>/333-frames/333-before-zoom.png` and
+    `333-F1-zoom.png`, the same camera (the shooter on Mat1), the same 124 studs, the same 70x40
+    crop at 10x. BEFORE: the boar's snout is DOWN at knee height, nose in the grass, the back
+    sloping up to the rump. AFTER (`333-F1`, `Boar67`, `clip=trot w=1.00 spd=11.00` read off the
+    animal at that moment): the snout is level with the shoulder, the back line horizontal, legs in
+    a trot stride.
+
+## What I could not verify
+
+- **Karen's own Forest Test.** Every number and both frames are from **DEV**. Her place syncs from
+  `driven-hunt-karen`, which I may not check code out in (L-014), so the AFTER in HER world is
+  unproven until the merge.
+- **The dispatch's literal "0 non-gait samples" is not reached, and this is measured, not waived.**
+  After the fix 24 of 409 samples are `idle` while moving (up to 11.00 studs/s) -- exactly one per
+  pass, always that pass's FIRST sample. That is `MODEL.MIN_CLIP_SECONDS` (0.18 s) holding the
+  standing spawn's clip while `ACCEL` takes the body to pace; `idle` is HEAD UP, it is in every
+  world since task 139, and the dwell is what stops the crossfade shake. Queued in `TASKS.md` under
+  this task rather than changed here.
