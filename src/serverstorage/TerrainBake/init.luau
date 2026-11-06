@@ -15,6 +15,10 @@
 -- Design: docs/design/grid-terrain.md (sections 3, 5, 7.1)
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- THE PROOF'S OWN TWO SERVICES (task 330): `anchorHalfAt` publishes its answer as an attribute
+-- because StudioMCP's request timeout is shorter than the uncached walk it measures.
+local ServerStorage = game:GetService("ServerStorage")
+local HttpService = game:GetService("HttpService")
 
 local GridFolder = ReplicatedStorage:WaitForChild("Grid")
 local Grid = require(GridFolder)
@@ -111,6 +115,22 @@ export type TileReport = {
 	-- point whose support holds one, so a real column near the void keeps the RAW base instead.
 	-- Counted rather than argued: this is 0 or it is a number somebody has to look at.
 	droppedLandform: number?,
+	-- WHAT THIS TILE WOULD WRITE, as one number for the heights and one for the materials, and how
+	-- the bench anchor cache did (task 330). The equality proof is `shapeFnv` and `materialFnv`
+	-- compared between a cached and an uncached run of the SAME tile; the two counters say whether
+	-- the cache was reached at all, so "identical" cannot quietly mean "no bench on this tile".
+	shapeFnv: string?,
+	materialFnv: string?,
+	anchorHits: number?,
+	anchorMisses: number?,
+	-- THE DIVERGENCE AUDIT (task 330 guard 2, Director 2026-11-06 ~02:55). `anchorAuditWalks` is
+	-- how many reuses were checked against an uncached walk on this tile; the two worsts are in
+	-- STUDS -- the raw anchor gap, and that gap times the bench weight, which is what the stored
+	-- height moves by. -1 means the audit was not switched on.
+	anchorAuditWalks: number?,
+	anchorAuditWorst: number?,
+	anchorAuditWorstHeight: number?,
+	anchorAuditWorstAtX: number?,
 }
 
 -- ---------------------------------------------------------------- the region
@@ -156,7 +176,11 @@ end
 -- bake has no base for is answered nil here. `shapeTile` then KEEPS the ground (`snapshot.minY`,
 -- marked exempt) rather than cutting a hole; `bakeTileAt` refuses such a tile before that, so the
 -- branch is a floor and not a guess the bake relies on.
-local function readOne(snapshot: Snapshot, x: number, z: number): number?
+-- WHICH COLUMN OF THIS SNAPSHOT A POINT FALLS IN, or nil where the snapshot has no answer there --
+-- outside it, or a hole. `readOne`'s own arithmetic, named once (task 330): the bench anchor cache
+-- keys on the COLUMN and the reader answers the HEIGHT, and two definitions of the lattice would be
+-- a cache that keys on a different quantisation than the reads it is caching.
+local function columnOf(snapshot: Snapshot, x: number, z: number): number?
 	local i = math.floor((x - snapshot.minX) / snapshot.pitch) + 1
 	local k = math.floor((z - snapshot.minZ) / snapshot.pitch) + 1
 	if i < 1 or k < 1 or i > snapshot.nx or k > snapshot.nz then
@@ -167,7 +191,12 @@ local function readOne(snapshot: Snapshot, x: number, z: number): number?
 	if hole ~= nil and hole[at] == true then
 		return nil
 	end
-	return snapshot.height[at]
+	return at
+end
+
+local function readOne(snapshot: Snapshot, x: number, z: number): number?
+	local at = columnOf(snapshot, x, z)
+	return if at ~= nil then snapshot.height[at] else nil
 end
 
 -- `extras` ARE MORE SLICES OF THE SAME BASE FILE, tried in order when the first has no column
@@ -190,6 +219,71 @@ function TerrainBake.readerFor(snapshot: Snapshot, extras: { Snapshot }?): (numb
 			end
 		end
 		return nil
+	end
+end
+
+-- HOW MANY COLUMNS ONE SNAPSHOT'S IDENTITIES ARE APART in `columnsFor`'s numbering below. Above any
+-- slice this bake cuts (the whole base is 1440 x 1064 = 1.53 M), so slice 2's column 7 can never
+-- collide with slice 1's.
+TerrainBake.COLUMN_SPACE = 1e9
+
+-- AN IDENTITY FOR WHAT A TILE WOULD WRITE, as one number each for the heights and the materials.
+-- FNV-1a, NOT a cryptographic digest: it is here so two shaping runs can be compared in one number,
+-- which is what "the bench anchor cache changes no answer" means (task 330) and what
+-- "a re-bake from the same snapshot is a no-op" meant for `diffTileAt` (design 1.1, idempotent).
+-- The heights are hashed at `SLICE_SCALE`, 1/64 of a stud -- finer than a voxel's own occupancy
+-- byte can express (4/255), so two runs that hash alike write the same voxels.
+local function fnvByte(fnv: number, byte: number): number
+	return (bit32.bxor(fnv, byte) * 16777619) % 4294967296
+end
+
+function TerrainBake.codeFnv(heights: { number }, count: number): string
+	local fnv = 2166136261
+	for at = 1, count do
+		local q = math.round(heights[at] * TerrainBake.SLICE_SCALE) % 4294967296
+		for _ = 1, 4 do
+			fnv = fnvByte(fnv, q % 256)
+			q = q // 256
+		end
+	end
+	return string.format("%08x", fnv)
+end
+
+function TerrainBake.nameFnv(names: { string }, count: number): string
+	local fnv = 2166136261
+	for at = 1, count do
+		local name = names[at]
+		for i = 1, #name do
+			fnv = fnvByte(fnv, string.byte(name, i))
+		end
+		fnv = fnvByte(fnv, 0)
+	end
+	return string.format("%08x", fnv)
+end
+
+-- THE BASE COLUMN A POINT FALLS IN, AS ONE NUMBER -- `readerFor`'s twin, answering WHERE it read
+-- instead of WHAT (task 330). 0 where nothing answered. This is the one small index function
+-- `Relief.AnchorCache` needs: it walks `snapshot` then `extras` in exactly `readerFor`'s order, so
+-- the number names the column that actually answered, holes and all.
+--
+-- The identity is PER SLICE, so the same world column reached through two slices gets two numbers.
+-- That can only SPLIT a cache bucket -- never merge two columns into one -- which is the safe
+-- direction: a split costs one more anchor walk, a merge would be a wrong answer.
+function TerrainBake.columnAt(snapshot: Snapshot, extras: { Snapshot }?): (number, number) -> number
+	return function(x: number, z: number): number
+		local here = columnOf(snapshot, x, z)
+		if here ~= nil then
+			return here
+		end
+		if extras ~= nil then
+			for which, extra in extras do
+				local there = columnOf(extra, x, z)
+				if there ~= nil then
+					return which * TerrainBake.COLUMN_SPACE + there
+				end
+			end
+		end
+		return 0
 	end
 end
 
@@ -1430,8 +1524,24 @@ function TerrainBake.shapeTile(
 	-- THE BENCH BANDS (task 328h), decoded slices of the SAME base file, read only where the tile's
 	-- own slice has no column. Nil for a run with no bench; `bakeTileAt` refuses a bench cell that
 	-- arrives without them, exactly as it refuses a tile with no profiles.
-	extras: { Snapshot }?
-): ({ number }, { string }, number, { boolean }, number)
+	extras: { Snapshot }?,
+	-- THE BENCH ANCHOR CACHE, AND IT IS OFF UNLESS A CALLER ASKS FOR IT (task 330). Only TRUE
+	-- builds one; nil and false walk the base for every grid x, which is every pre-330 caller.
+	--
+	-- WHY OFF IS THE DEFAULT, and it is a measurement: the Director's key -- the tuple of the six
+	-- anchor rows' base-column indices -- is EXACT on a straight grid and is NOT exact under the
+	-- bend, because `toWorld` moves both world coordinates with the grid x and the six rows'
+	-- columns stop stepping where each row's 1,369 blur taps step. On the heaviest bench tile in
+	-- Karen's place the stored codes came back 64dafbe0 cached against c2d95b90 uncached
+	-- (`<runs-dir>/330-proof-1.txt`, tile 393), and `grid_relief.spec` 330-6 measures the same
+	-- divergence at 0.153 studs -- 9.8 of the 1/64-stud codes the bake writes. The dispatch's answer
+	-- to that is `ESCALATE.md` and a Director decision, so the arithmetic ships here with the fast
+	-- route reachable BY PARAMETER and nothing switched on: a bake is bit-for-bit what it was.
+	cacheAnchors: boolean?,
+	-- THE DIVERGENCE AUDIT'S STRIDE (task 330 guard 2): every Nth cache reuse is also walked
+	-- uncached and the gap recorded. nil/0 is off, which is every caller that does not measure.
+	auditEvery: number?
+): ({ number }, { string }, number, { boolean }, number, Relief.AnchorCache?)
 	local v = Relief.VOXEL
 	local side = TerrainBake.TILE_STUDS
 	local n = math.floor(side / v)
@@ -1443,6 +1553,25 @@ function TerrainBake.shapeTile(
 	-- coordinates and this reader maps them back. One composition, no second definition.
 	local baseAtGrid = function(a: number, b: number): number?
 		return baseAt(Grid.toWorld(a, b, bend))
+	end
+	-- ONE CACHE PER TILE, composed through the SAME `toWorld` as the reader above it, so the key's
+	-- lattice is the lattice the reads quantise to (task 330).
+	local anchors: Relief.AnchorCache? = nil
+	if cacheAnchors == true then
+		local columnAt = TerrainBake.columnAt(snapshot, extras)
+		anchors = {
+			indexAt = function(a: number, b: number): number
+				return columnAt(Grid.toWorld(a, b, bend))
+			end,
+			store = {},
+			hits = 0,
+			misses = 0,
+			auditEvery = auditEvery,
+			auditWalks = 0,
+			auditWorst = 0,
+			auditWorstHeight = 0,
+			auditWorstAtX = 0,
+		}
 	end
 	local shaped = table.create(wide * wide, 0)
 	local exempt = table.create(wide * wide, false)
@@ -1504,7 +1633,8 @@ function TerrainBake.shapeTile(
 					gx,
 					gz,
 					TerrainBake.blendAt(union, x, z),
-					blurred[at]
+					blurred[at],
+					anchors
 				)
 				if here == nil then
 					dropped += 1
@@ -1584,7 +1714,7 @@ function TerrainBake.shapeTile(
 			innerNames[to] = name
 		end
 	end
-	return inner, innerNames, n, innerAbsent, dropped
+	return inner, innerNames, n, innerAbsent, dropped, anchors
 end
 
 -- ONE TILE: shape and material in the SAME WriteVoxels call (design 5.3 step 3). IDEMPOTENT --
@@ -1600,13 +1730,30 @@ function TerrainBake.bakeTile(
 	profiles: { Profile }?,
 	reshape: { [string]: boolean }?,
 	bend: any?,
-	extras: { Snapshot }?
+	extras: { Snapshot }?,
+	-- THE BENCH ANCHOR CACHE (task 330), passed straight through to `shapeTile`: only TRUE caches.
+	cacheAnchors: boolean?,
+	-- THE DIVERGENCE AUDIT'S STRIDE (task 330 guard 2), also straight through.
+	auditEvery: number?
 ): TileReport
 	local started = os.clock()
 	local v = Relief.VOXEL
 	local side = TerrainBake.TILE_STUDS
-	local inner, innerNames, n, innerAbsent, dropped =
-		TerrainBake.shapeTile(tile, snapshot, cellIds, plans, profiles, reshape, bend, extras)
+	local inner, innerNames, n, innerAbsent, dropped, anchors =
+		TerrainBake.shapeTile(tile, snapshot, cellIds, plans, profiles, reshape, bend, extras, cacheAnchors, auditEvery)
+	-- WHAT THIS TILE WOULD WRITE, AS TWO NUMBERS (task 330): FNV-1a over the heights at 1/64 of a
+	-- stud, and over the material names. `diffTileAt` already hashed the heights this way; the
+	-- arithmetic is named once now, because the anchor cache's equality proof compares these two.
+	local shapeFnv = TerrainBake.codeFnv(inner, n * n)
+	local materialFnv = TerrainBake.nameFnv(innerNames, n * n)
+	local anchorHits = if anchors ~= nil then anchors.hits else 0
+	local anchorMisses = if anchors ~= nil then anchors.misses else 0
+	-- -1, NOT 0, WHEN THE AUDIT WAS NOT ASKED FOR: "0 studs out" and "nobody measured" must not
+	-- read the same on the tool's line (task 330 guard 2).
+	local auditWalks = if anchors ~= nil and (auditEvery or 0) > 0 then (anchors.auditWalks or 0) else -1
+	local auditWorst = if auditWalks >= 0 then (anchors :: any).auditWorst else -1
+	local auditWorstHeight = if auditWalks >= 0 then (anchors :: any).auditWorstHeight else -1
+	local auditWorstAtX = if auditWalks >= 0 then (anchors :: any).auditWorstAtX else 0
 	-- THE Y BAND IS TAKEN OVER THE COLUMNS THAT HAVE GROUND (task 328x). An absent column carries
 	-- `snapshot.minY` as a placeholder and is written as AIR; counting it would drop the band's
 	-- floor to the band floor of the whole snapshot for a tile at the world's edge.
@@ -1629,6 +1776,14 @@ function TerrainBake.bakeTile(
 			bandMax = 0,
 			elapsedMs = math.floor((os.clock() - started) * 1000 + 0.5),
 			droppedLandform = dropped,
+			shapeFnv = shapeFnv,
+			materialFnv = materialFnv,
+			anchorHits = anchorHits,
+			anchorMisses = anchorMisses,
+			anchorAuditWalks = auditWalks,
+			anchorAuditWorst = auditWorst,
+			anchorAuditWorstHeight = auditWorstHeight,
+			anchorAuditWorstAtX = auditWorstAtX,
 		}
 	end
 	local bands = TerrainBake.bandsFor(lo, hi)
@@ -1641,6 +1796,14 @@ function TerrainBake.bakeTile(
 		bandMax = bands[#bands].max,
 		elapsedMs = 0,
 		droppedLandform = dropped,
+		shapeFnv = shapeFnv,
+		materialFnv = materialFnv,
+		anchorHits = anchorHits,
+		anchorMisses = anchorMisses,
+		anchorAuditWalks = auditWalks,
+		anchorAuditWorst = auditWorst,
+		anchorAuditWorstHeight = auditWorstHeight,
+		anchorAuditWorstAtX = auditWorstAtX,
 	}
 	for _, band in bands do
 		local region = Region3.new(
@@ -1968,7 +2131,13 @@ function TerrainBake.bakeTileAt(
 	-- CELLS WHOSE LANDFORM THIS RUN HOLDS BACK (task 328x): in the run's geography, so `cellAt`
 	-- gives them their own area and no neighbour's landform is written across it, but the base is
 	-- kept there. Their roads and stand pads are still built. See the `held` block below.
-	holdLandform: { string }?
+	holdLandform: { string }?,
+	-- THE BENCH ANCHOR CACHE (task 330). Only TRUE caches; the Director switched it ON for the
+	-- bake on 2026-11-06 ~02:55 with two guards, and `anchorProofAt` still drives both states.
+	cacheAnchors: boolean?,
+	-- THE DIVERGENCE AUDIT'S STRIDE (task 330 guard 2): every Nth reuse is also walked uncached
+	-- and the gap goes on the report, so the bake MEASURES what the cache cost it.
+	auditEvery: number?
 ): TileReport
 	local plan = TerrainBake.tilePlan(TerrainBake.regionFor(cellIds))
 	assert(tileIndex >= 1 and tileIndex <= #plan, string.format("tile %d is not in a plan of %d", tileIndex, #plan))
@@ -2202,13 +2371,357 @@ function TerrainBake.bakeTileAt(
 			table.insert(why, string.format("%s reshape=true (base is virgin; stamp says %s: %s)", id, kind, reason))
 		end
 	end
-	local report = TerrainBake.bakeTile(tile, base, cellIds, {}, dryRun, profiles, reshape, nil, extras)
+	local report =
+		TerrainBake.bakeTile(tile, base, cellIds, {}, dryRun, profiles, reshape, nil, extras, cacheAnchors, auditEvery)
 	report.reshape = table.concat(why, "; ")
 	-- THE STANDS NO ROAD REACHES, ON THE REPORT and not only in a header's promise (Reviewer, round
 	-- 1, note 1): the caller said it reported them and nothing carried them out of `shapeTile`.
 	local _, missed = TerrainBake.standPadsFor(cellIds, profiles)
 	report.padsMissed = table.concat(missed, ",")
 	return report
+end
+
+-- WHICH TILES OF A RUN CARRY BENCH WEIGHT, AND ROUGHLY HOW MUCH (task 330). The anchor walk is the
+-- whole cost of a bench cell and it runs for a column only where that column's cell has a bench op
+-- whose `weightOf` is above 0 -- so this counts those columns, with no base read and no shaping. It
+-- is how the equality proof picks "the ten heaviest bench tiles" by MEASUREMENT rather than from a
+-- list somebody typed.
+--
+-- IT SAMPLES, every `stride` columns on each axis, and the count is scaled back up: the number is
+-- used to RANK tiles, and `anchorProofAt` then reports each chosen tile's EXACT walk count. A full
+-- count is 480 tiles x 9,216 columns of `toGrid` and `cellAt`, which did not return inside the MCP
+-- call window (MEASURED 2026-11-05, the same "Target is not reachable" the uncached bench gives).
+--
+-- A tile whose shaping window misses every bench's own box in x AND z -- grown by the blend and the
+-- bend, which is as far as a column outside the cell can still take its landform -- is skipped
+-- before any of its columns are walked.
+function TerrainBake.benchWeightPlan(cellIds: { string }, holdLandform: { string }?, stride: number?): { any }
+	local held: { [string]: boolean } = {}
+	for _, id in holdLandform or {} do
+		held[id] = true
+	end
+	local step = math.max(1, math.floor(stride or 4))
+	local bend = Grid.CONFIG.bend
+	local grow = Relief.BLEND_STUDS + Grid.maxBendStuds()
+	-- EVERY BENCH, with the cell and the op that owns it and the world box it can reach.
+	local benches: { any } = {}
+	for _, id in cellIds do
+		local form = Relief.LANDFORMS[id]
+		if form == nil or held[id] then
+			continue
+		end
+		local bounds = Grid.boundsOf(id)
+		for _, op in form.ops do
+			if op.kind == "bench" then
+				local z0 = bounds.minZ + assert(op.v0, "benchWeightPlan: no v0") * (bounds.maxZ - bounds.minZ)
+				local z1 = bounds.minZ + assert(op.v1, "benchWeightPlan: no v1") * (bounds.maxZ - bounds.minZ)
+				table.insert(benches, {
+					id = id,
+					op = op,
+					bounds = bounds,
+					minX = bounds.minX - grow,
+					maxX = bounds.maxX + grow,
+					minZ = z0 - grow,
+					maxZ = z1 + grow,
+				})
+			end
+		end
+	end
+	local out: { any } = {}
+	if #benches == 0 then
+		return out
+	end
+	local plan = TerrainBake.tilePlan(TerrainBake.regionFor(cellIds))
+	local v = Relief.VOXEL
+	local side = TerrainBake.TILE_STUDS
+	local margin = math.floor(TerrainBake.LIMIT_MARGIN_STUDS / v)
+	local wide = math.floor(side / v) + 2 * margin
+	local union = TerrainBake.unionOf(cellIds)
+	for at, tile in plan do
+		local loX, hiX = tile.minX - margin * v, tile.minX + side + margin * v
+		local loZ, hiZ = tile.minZ - margin * v, tile.minZ + side + margin * v
+		local reach = false
+		for _, bench in benches do
+			if loX <= bench.maxX and hiX >= bench.minX and loZ <= bench.maxZ and hiZ >= bench.minZ then
+				reach = true
+				break
+			end
+		end
+		if not reach then
+			continue
+		end
+		local sampled = 0
+		for i = 1, wide, step do
+			local x = tile.minX + (i - margin - 0.5) * v
+			for k = 1, wide, step do
+				local z = tile.minZ + (k - margin - 0.5) * v
+				if TerrainBake.blendAt(union, x, z) <= 0 then
+					continue
+				end
+				local gx, gz = Grid.toGrid(x, z, bend)
+				local id = TerrainBake.cellAt(cellIds, x, z)
+				for _, bench in benches do
+					if bench.id == id and Relief.weightOf(bench.op, bench.bounds, gx, gz) > 0 then
+						sampled += 1
+						break
+					end
+				end
+			end
+		end
+		if sampled > 0 then
+			table.insert(out, {
+				tile = at,
+				minX = tile.minX,
+				minZ = tile.minZ,
+				columns = sampled * step * step,
+				sampled = sampled,
+				stride = step,
+			})
+		end
+	end
+	return out
+end
+
+-- HOW FAR APART the cached and the uncached tile actually are, column by column (task 330). The
+-- equality proof answers IF; this answers BY HOW MUCH, which is what an `ESCALATE.md` entry about a
+-- cache that changes an answer has to carry. It runs both halves in ONE call, so it is only
+-- affordable on a LIGHT bench tile -- the heaviest took 939.6 s uncached, MEASURED -- and the tool
+-- picks the lightest tile that still pays enough anchor walks to be worth reading.
+--
+-- `bakeTileAt` runs first, cached and dry, purely as the GATE: every refusal about the slice, the
+-- holes and the bench bands is its own, so this cannot report a number for a tile the bake would
+-- have refused.
+function TerrainBake.anchorDeltaAt(
+	tileIndex: number,
+	cellIds: { string },
+	profiles: { Profile }?,
+	slice: any?,
+	benchSlices: { any }?,
+	holdLandform: { string }?
+): any
+	local gate = TerrainBake.bakeTileAt(tileIndex, cellIds, true, profiles, slice, benchSlices, holdLandform, true)
+	if gate.message ~= nil then
+		return { tile = tileIndex, message = gate.message }
+	end
+	local plan = TerrainBake.tilePlan(TerrainBake.regionFor(cellIds))
+	local tile = plan[tileIndex]
+	local base = TerrainBake.decodeSlice(slice)
+	local extras: { Snapshot } = {}
+	for _, one in benchSlices or {} do
+		table.insert(extras, TerrainBake.decodeSlice(one))
+	end
+	local held: { [string]: boolean } = {}
+	for _, id in holdLandform or {} do
+		held[id] = true
+	end
+	local reshape: { [string]: boolean } = {}
+	for _, id in cellIds do
+		reshape[id] = not held[id]
+	end
+	local startedOff = os.clock()
+	local off, offNames, n = TerrainBake.shapeTile(tile, base, cellIds, {}, profiles, reshape, nil, extras, false)
+	local msOff = math.floor((os.clock() - startedOff) * 1000 + 0.5)
+	local startedOn = os.clock()
+	local on, onNames, _, _, _, anchors =
+		TerrainBake.shapeTile(tile, base, cellIds, {}, profiles, reshape, nil, extras, true)
+	local msOn = math.floor((os.clock() - startedOn) * 1000 + 0.5)
+	-- THE CODES, not the studs: a difference below half of 1/64 of a stud writes the same voxel and
+	-- is not a changed answer. Both are counted, because the two say different things.
+	local differing, codesApart, worst, worstAt = 0, 0, 0, 0
+	for at = 1, n * n do
+		local d = math.abs(off[at] - on[at])
+		if d > worst then
+			worst = d
+			worstAt = at
+		end
+		if d > 0 then
+			differing += 1
+		end
+		if math.round(off[at] * TerrainBake.SLICE_SCALE) ~= math.round(on[at] * TerrainBake.SLICE_SCALE) then
+			codesApart += 1
+		end
+	end
+	local names = 0
+	for at = 1, n * n do
+		if offNames[at] ~= onNames[at] then
+			names += 1
+		end
+	end
+	return {
+		tile = tileIndex,
+		minX = tile.minX,
+		minZ = tile.minZ,
+		columns = n * n,
+		differing = differing,
+		codesApart = codesApart,
+		namesApart = names,
+		worstStuds = worst,
+		worstCodes = worst * TerrainBake.SLICE_SCALE,
+		worstAtX = tile.minX + ((worstAt - 1) % n + 0.5) * Relief.VOXEL,
+		worstAtZ = tile.minZ + math.floor((worstAt - 1) / n) * Relief.VOXEL + Relief.VOXEL / 2,
+		walks = anchors ~= nil and anchors.misses or 0,
+		hits = anchors ~= nil and anchors.hits or 0,
+		msOff = msOff,
+		msOn = msOn,
+		shapeFnvOff = TerrainBake.codeFnv(off, n * n),
+		shapeFnvOn = TerrainBake.codeFnv(on, n * n),
+	}
+end
+
+-- ONE HALF OF THE EQUALITY PROOF, AND IT PUBLISHES ITS ANSWER WHERE A LATER CALL CAN READ IT
+-- (task 330). The UNCACHED half of the heaviest bench tile is ~8,200 columns x 8,220 base reads,
+-- each read a `Grid.toWorld`: MEASURED at about 13 minutes, and StudioMCP's own request timeout is
+-- about five, so the reply can never come back on the call that asked for it (`Request timeout`,
+-- 2026-11-05 -- 328x's "Target is not reachable" is the same wall). The Luau keeps running after
+-- MCP gives up, so the answer goes on an ATTRIBUTE and the tool polls for it (`L-093`'s rule that a
+-- diagnostic nobody can reach is not a diagnostic).
+--
+-- `TerrainBake.proofAttr` is the one place the name is built, so the writer and the reader cannot
+-- disagree about it. `clearProof` takes them all back off again: these are a Builder's marks in
+-- Karen's place and they do not belong there once the proof is read (`L-101`).
+TerrainBake.PROOF_PREFIX = "DH330Proof_"
+
+function TerrainBake.proofAttr(tileIndex: number, cached: boolean): string
+	return string.format("%sT%d_%s", TerrainBake.PROOF_PREFIX, tileIndex, if cached then "on" else "off")
+end
+
+function TerrainBake.anchorHalfAt(
+	tileIndex: number,
+	cellIds: { string },
+	profiles: { Profile }?,
+	slice: any?,
+	benchSlices: { any }?,
+	holdLandform: { string }?,
+	cacheAnchors: boolean?,
+	where: Instance?
+): any
+	local report =
+		TerrainBake.bakeTileAt(tileIndex, cellIds, true, profiles, slice, benchSlices, holdLandform, cacheAnchors)
+	local row = {
+		tile = tileIndex,
+		cached = cacheAnchors == true,
+		minX = report.minX,
+		minZ = report.minZ,
+		shapeFnv = report.shapeFnv,
+		materialFnv = report.materialFnv,
+		walks = report.anchorMisses,
+		hits = report.anchorHits,
+		ms = report.elapsedMs,
+		dropped = report.droppedLandform,
+		message = report.message,
+	}
+	local target = where or ServerStorage
+	target:SetAttribute(TerrainBake.proofAttr(tileIndex, cacheAnchors == true), HttpService:JSONEncode(row))
+	return row
+end
+
+-- ONE TILE, WITH ITS ANSWER PUBLISHED WHERE A LATER CALL CAN READ IT (task 330). A bench tile
+-- blocks the Edit DataModel for longer than StudioMCP's dispatch will wait -- MEASURED at tile 52
+-- of the seven-cell plan on 2026-11-06, which is unreachable on every attempt while tile 51 answers
+-- in 1.3 s -- so the reply cannot come back on the call that asked for it. The Luau keeps running
+-- and writes the report here; the tool polls. `token` is the RUN's, so a stale attribute from an
+-- earlier run can never be read as this run's answer.
+TerrainBake.TILE_PREFIX = "DH330Tile_"
+
+function TerrainBake.tileAttr(token: string, tileIndex: number): string
+	return string.format("%s%s_%d", TerrainBake.TILE_PREFIX, token, tileIndex)
+end
+
+function TerrainBake.bakeTileAtPublished(
+	token: string,
+	tileIndex: number,
+	cellIds: { string },
+	dryRun: boolean,
+	profiles: { Profile }?,
+	slice: any?,
+	benchSlices: { any }?,
+	holdLandform: { string }?,
+	cacheAnchors: boolean?,
+	auditEvery: number?,
+	where: Instance?
+): TileReport
+	local report = TerrainBake.bakeTileAt(
+		tileIndex,
+		cellIds,
+		dryRun,
+		profiles,
+		slice,
+		benchSlices,
+		holdLandform,
+		cacheAnchors,
+		auditEvery
+	)
+	local target = where or ServerStorage
+	target:SetAttribute(TerrainBake.tileAttr(token, tileIndex), HttpService:JSONEncode(report))
+	return report
+end
+
+function TerrainBake.clearProof(where: Instance?): number
+	local target = where or ServerStorage
+	local gone = 0
+	for name in target:GetAttributes() do
+		local isProof = string.sub(name, 1, #TerrainBake.PROOF_PREFIX) == TerrainBake.PROOF_PREFIX
+		local isTile = string.sub(name, 1, #TerrainBake.TILE_PREFIX) == TerrainBake.TILE_PREFIX
+		if isProof or isTile then
+			target:SetAttribute(name, nil)
+			gone += 1
+		end
+	end
+	return gone
+end
+
+function TerrainBake.readProof(where: Instance?): { any }
+	local target = where or ServerStorage
+	local out: { any } = {}
+	for name, value in target:GetAttributes() do
+		if string.sub(name, 1, #TerrainBake.PROOF_PREFIX) == TerrainBake.PROOF_PREFIX then
+			out[name] = value
+		end
+	end
+	return out
+end
+
+-- THE BENCH ANCHOR CACHE'S EQUALITY PROOF, FOR ONE REAL TILE (task 330; the Director's decision on
+-- `ESCALATE.md` 2026-11-04 ~16:20 item 1: "the cache never changes an answer"). The SAME tile, the
+-- SAME slice and the SAME bands, shaped twice -- cache off, then cache on -- and the two stored-code
+-- identities compared. It writes nothing: both runs are dry.
+--
+-- `anchorMisses` on the cached run is the number of anchor walks it actually paid, and `anchorHits`
+-- the number it saved; a tile with both 0 touched no bench, and the proof says so instead of
+-- reporting "identical" for a tile that proved nothing (`L-093`).
+function TerrainBake.anchorProofAt(
+	tileIndex: number,
+	cellIds: { string },
+	profiles: { Profile }?,
+	slice: any?,
+	benchSlices: { any }?,
+	holdLandform: { string }?
+): any
+	local off = TerrainBake.bakeTileAt(tileIndex, cellIds, true, profiles, slice, benchSlices, holdLandform, false)
+	if off.message ~= nil then
+		return { tile = tileIndex, message = off.message }
+	end
+	local on = TerrainBake.bakeTileAt(tileIndex, cellIds, true, profiles, slice, benchSlices, holdLandform, true)
+	if on.message ~= nil then
+		return { tile = tileIndex, message = on.message }
+	end
+	return {
+		tile = tileIndex,
+		minX = off.minX,
+		minZ = off.minZ,
+		shapeFnvOff = off.shapeFnv,
+		shapeFnvOn = on.shapeFnv,
+		materialFnvOff = off.materialFnv,
+		materialFnvOn = on.materialFnv,
+		identical = off.shapeFnv == on.shapeFnv and off.materialFnv == on.materialFnv,
+		msOff = off.elapsedMs,
+		msOn = on.elapsedMs,
+		anchorWalksOff = off.anchorMisses,
+		anchorWalksOn = on.anchorMisses,
+		anchorHitsOn = on.anchorHits,
+		droppedOff = off.droppedLandform,
+		droppedOn = on.droppedLandform,
+	}
 end
 
 -- HOW FAR A POINT IS FROM THE NEAREST ROAD CENTRELINE it actually lies along, or math.huge. Used to
@@ -2294,9 +2807,8 @@ function TerrainBake.diffTileAt(
 		end
 	end
 	local inner, _names, n = TerrainBake.shapeTile(tile, base, cellIds, {}, profiles, reshape)
-	-- AN IDENTITY FOR WHAT THIS TILE WOULD WRITE: FNV-1a over the heights at 1/64 of a stud. Not a
-	-- cryptographic digest -- it is here so two dry runs can be compared in one number, which is
-	-- what "a re-bake from the same snapshot is a no-op" means (design 1.1, idempotent).
+	-- AN IDENTITY FOR WHAT THIS TILE WOULD WRITE: `TerrainBake.codeFnv`, which task 330 named once
+	-- so the anchor cache's equality proof hashes the heights the same way this diff does.
 	-- THE GROUND THAT IS THERE NOW, on the tile's own 32 x 32 column centres. A hole is skipped and
 	-- counted, never compared against an invented height.
 	local now, why = TerrainBake.snapshot({
@@ -2308,20 +2820,11 @@ function TerrainBake.diffTileAt(
 	if now == nil then
 		return { tile = tileIndex, message = why }
 	end
-	local fnv = 2166136261
-	for at = 1, n * n do
-		local q = math.round(inner[at] * TerrainBake.SLICE_SCALE) % 4294967296
-		for _ = 1, 4 do
-			fnv = bit32.bxor(fnv, q % 256)
-			fnv = (fnv * 16777619) % 4294967296
-			q = q // 256
-		end
-	end
 	local out = {
 		tile = tileIndex,
 		minX = tile.minX,
 		minZ = tile.minZ,
-		shapeFnv = string.format("%08x", fnv),
+		shapeFnv = TerrainBake.codeFnv(inner, n * n),
 		reshape = table.concat(said, "; "),
 		n = 0,
 		maxAbs = 0,

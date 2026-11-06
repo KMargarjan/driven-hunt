@@ -56,6 +56,29 @@ export type Bounds = { minX: number, maxX: number, minZ: number, maxZ: number }
 
 export type Road = { id: string, axis: string, at: number, from: number, to: number }
 
+-- THE BENCH ANCHOR CACHE (task 330; Director decision on `ESCALATE.md` 2026-11-04 ~16:20 item 1).
+-- The anchor depends on the point's x ALONE, never its z, but under the bend `shapeTile` hands in a
+-- grid x that moves with z, so it was walked again for every one of a tile's ~9,000 grid x.
+-- `indexAt` answers WHICH BASE COLUMN a grid point falls in (0 for none) -- the lattice the walk's
+-- own reads quantise to -- and the key is the tuple of the six anchor rows' column indices.
+-- `store` and the two counters are the CALLER's, so the lifetime is the caller's: one tile.
+--
+-- THE DIVERGENCE AUDIT (task 330, Director decision 2026-11-06 ~02:55, guard 2). `auditEvery` > 0
+-- makes every Nth reuse ALSO walk the base uncached and record how far the reused anchor is from
+-- the walk's own answer, in studs. `auditWorst` is the raw anchor gap and `auditWorstHeight` that
+-- gap times the bench's blend weight, which is what the column's stored height actually moves by.
+export type AnchorCache = {
+	indexAt: (number, number) -> number,
+	store: { [any]: { [string]: any } },
+	hits: number,
+	misses: number,
+	auditEvery: number?,
+	auditWalks: number?,
+	auditWorst: number?,
+	auditWorstHeight: number?,
+	auditWorstAtX: number?,
+}
+
 export type Op = {
 	kind: string,
 	-- dome / knoll / bowl
@@ -297,16 +320,61 @@ end
 
 -- ---------------------------------------------------------------- the ops, in order
 
+-- FORWARD-DECLARED: the anchor walk below calls back into `applyOps`, which calls the walk.
+local applyOps: (Landform, Bounds, (number, number) -> number?, number, number, number, number, AnchorCache?) -> number
+
+-- THE SIX ANCHOR ROWS' BASE COLUMNS, as one key (task 330). Those six reads are the walk's own
+-- first reads, so this is the lattice it already quantises to -- not a chosen bucket width.
+local function anchorKey(anchors: AnchorCache, x: number, z0: number): string
+	local parts: { string } = {}
+	for s = 0, Relief.BENCH_ANCHOR_STUDS, Relief.VOXEL do
+		table.insert(parts, string.format("%d", anchors.indexAt(x, z0 + s)))
+	end
+	return table.concat(parts, ",")
+end
+
+-- THE ANCHOR WALK ITSELF: the mean height over the bench's first `BENCH_ANCHOR_STUDS` at one x,
+-- with every op before the bench applied. nil means no ground under the band at all. Factored out
+-- of the bench branch (task 330) so the cache's MISS path and the divergence audit are the same
+-- code and cannot drift apart.
+local function anchorMeanAt(
+	form: Landform,
+	bounds: Bounds,
+	baseAt: (number, number) -> number?,
+	x: number,
+	z0: number,
+	upTo: number,
+	anchors: AnchorCache?
+): number?
+	local sum, n = 0, 0
+	for s = 0, Relief.BENCH_ANCHOR_STUDS, Relief.VOXEL do
+		local b = baseAt(x, z0 + s)
+		if b ~= nil then
+			local smoothed = if form.baseKeep >= 1 then b else blurredAt(baseAt, x, z0 + s)
+			local hb = form.baseKeep * b + (1 - form.baseKeep) * (smoothed or b)
+			sum += applyOps(form, bounds, baseAt, hb, x, z0 + s, upTo, anchors)
+			n += 1
+		end
+	end
+	if n == 0 then
+		return nil
+	end
+	return sum / n
+end
+
 -- WHAT THE OPS DO TO ONE HEIGHT, applied IN ORDER. `upTo` exists for the bench, whose plane is
 -- anchored on the ground it meets -- so it asks this function for the height before itself.
-local function applyOps(
+function applyOps(
 	form: Landform,
 	bounds: Bounds,
 	baseAt: (number, number) -> number?,
 	h0: number,
 	x: number,
 	z: number,
-	upTo: number
+	upTo: number,
+	-- THE BENCH ANCHOR CACHE, TRAILING AND OPTIONAL (task 330). nil walks the base every time, which
+	-- is every caller before this task and the route the equality proof measures against.
+	anchors: AnchorCache?
 ): number
 	local h = h0
 	local scarp: Op? = nil
@@ -338,20 +406,64 @@ local function applyOps(
 				-- THE PLANE IS ANCHORED ON THE MEAN HEIGHT OVER THE BENCH'S FIRST 20 STUDS at this
 				-- same x, so the bench starts on the ground it meets rather than at a chosen Y.
 				local z0 = bounds.minZ + need(op.v0, "v0") * (bounds.maxZ - bounds.minZ)
-				local sum, n = 0, 0
-				for s = 0, Relief.BENCH_ANCHOR_STUDS, Relief.VOXEL do
-					local b = baseAt(x, z0 + s)
-					if b ~= nil then
-						local smoothed = if form.baseKeep >= 1 then b else blurredAt(baseAt, x, z0 + s)
-						local hb = form.baseKeep * b + (1 - form.baseKeep) * (smoothed or b)
-						sum += applyOps(form, bounds, baseAt, hb, x, z0 + s, i - 1)
-						n += 1
+				-- CACHED PER OP, BY THE SIX ANCHOR ROWS' COLUMNS (task 330). The bucket is keyed on
+				-- `op` and not on the cell, because one op is one cell's: two cells' benches can
+				-- never share a bucket. `false` is a remembered "no ground under the band at all".
+				local bucket: { [string]: any }? = nil
+				local key = ""
+				if anchors ~= nil then
+					bucket = anchors.store[op]
+					if bucket == nil then
+						bucket = {}
+						anchors.store[op] = bucket
 					end
+					key = anchorKey(anchors, x, z0)
+					local hit = (bucket :: any)[key]
+					if hit ~= nil then
+						anchors.hits += 1
+						-- THE DIVERGENCE AUDIT (task 330 guard 2): every Nth reuse walks the base
+						-- uncached as well and records how far the reused anchor is out. Sampled,
+						-- because an exact audit IS the uncached run -- under the bend the grid x
+						-- moves with z, so a bucket is reused by DIFFERENT x and every reuse would
+						-- need its own walk.
+						local every = anchors.auditEvery
+						if every ~= nil and every > 0 and anchors.hits % every == 0 then
+							anchors.auditWalks = (anchors.auditWalks or 0) + 1
+							local truth = anchorMeanAt(form, bounds, baseAt, x, z0, i - 1, nil)
+							local cached: number? = if hit == false then nil else hit
+							if truth ~= nil and cached ~= nil then
+								local gap = math.abs(truth - cached)
+								if gap > (anchors.auditWorst or 0) then
+									anchors.auditWorst = gap
+									anchors.auditWorstAtX = x
+								end
+								anchors.auditWorstHeight = math.max(anchors.auditWorstHeight or 0, w * gap)
+							elseif truth ~= cached then
+								-- One side had ground under the band and the other did not. That is
+								-- a whole bench plane appearing or vanishing, so it is reported as
+								-- the worst there can be rather than skipped.
+								anchors.auditWorst = math.huge
+								anchors.auditWorstHeight = math.huge
+								anchors.auditWorstAtX = x
+							end
+						end
+						if hit ~= false then
+							local plane = hit + (z - z0) * (need(op.gradePercent, "gradePercent") / 100)
+							h = (1 - w) * h + w * plane
+						end
+						continue
+					end
+					anchors.misses += 1
 				end
-				if n > 0 then
-					local anchor = sum / n
+				local anchor = anchorMeanAt(form, bounds, baseAt, x, z0, i - 1, anchors)
+				if anchor ~= nil then
+					if bucket ~= nil then
+						(bucket :: any)[key] = anchor
+					end
 					local plane = anchor + (z - z0) * (need(op.gradePercent, "gradePercent") / 100)
 					h = (1 - w) * h + w * plane
+				elseif bucket ~= nil then
+					(bucket :: any)[key] = false
 				end
 			end
 		else
@@ -368,9 +480,10 @@ function Relief.deltaAt(
 	baseAt: (number, number) -> number?,
 	h0: number,
 	x: number,
-	z: number
+	z: number,
+	anchors: AnchorCache?
 ): number
-	return applyOps(form, bounds, baseAt, h0, x, z, #form.ops) - h0
+	return applyOps(form, bounds, baseAt, h0, x, z, #form.ops, anchors) - h0
 end
 
 -- ---------------------------------------------------------------- the road fade
@@ -415,7 +528,10 @@ function Relief.heightAt(
 	x: number,
 	z: number,
 	blend: number?,
-	smoothedAt: number?
+	smoothedAt: number?,
+	-- THE BENCH ANCHOR CACHE (task 330), trailing and optional like `blend` and `smoothedAt`: nil
+	-- is every caller before this task, walking the base for every x.
+	anchors: AnchorCache?
 ): number?
 	local base = baseAt(x, z)
 	if base == nil then
@@ -443,7 +559,7 @@ function Relief.heightAt(
 		return nil
 	end
 	local h0 = form.baseKeep * base + (1 - form.baseKeep) * smoothed
-	local delta = Relief.deltaAt(form, bounds, baseAt, h0, x, z)
+	local delta = Relief.deltaAt(form, bounds, baseAt, h0, x, z, anchors)
 	return base + k * ((h0 - base) + Relief.roadFadeAt(roads, x, z) * delta)
 end
 

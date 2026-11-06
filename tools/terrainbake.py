@@ -61,6 +61,12 @@ Usage:
                                                                         # route vs the old live route. Writes nothing.
   python tools/terrainbake.py measure --cells C1 --base <f>.bin --base-sha <sha> [--tiles 10]
                                                                         # read-only: per-tile cost, DRY (no WriteVoxels)
+  python tools/terrainbake.py proof   --cells C1 --base <f>.bin --base-sha <sha> [--tiles 10]
+                                                                        # read-only: the BENCH ANCHOR CACHE's equality
+                                                                        # proof (task 330) -- the heaviest bench tiles
+                                                                        # shaped twice, cache off then on, and the
+                                                                        # stored codes compared. Writes nothing.
+                                                                        # read-only: per-tile cost, DRY (no WriteVoxels)
   python tools/terrainbake.py bake    --cells C1 --backup <f>.rbxl --base <f>.bin --base-sha <sha> [--tiles 10]
   python tools/terrainbake.py survey  [--cells C1]                      # read-only: the relief rows
   python tools/terrainbake.py archive --cells C1 --backup <f>.rbxl      # B3, Parent only
@@ -148,6 +154,20 @@ from studio_mcp import (  # noqa: E402  (the path insert above has to come first
 # task measures it). _rpc's own default is 120 s; a whole-cell run in one call would exceed it, and
 # chunking also makes a failed tile name itself.
 BAKE_CALL_TIMEOUT = 300
+
+# THE DIVERGENCE STOP (task 330, Director decision 2026-11-06 ~02:55, guard 2): "The worst bench
+# divergence must be measured and printed; above 0.25 studs, stop." 0.25 st is 16 of the 1/64-stud
+# codes the bake writes, and 1/16 of a 4-stud voxel.
+ANCHOR_DIVERGENCE_STOP_STUDS = 0.25
+
+# THE EQUALITY PROOF'S OWN WINDOW (task 330). Its UNCACHED half is the thing the cache exists to
+# avoid: the heaviest bench tile is ~8,200 columns x 8,220 base reads, each read a `Grid.toWorld`,
+# and it did NOT answer inside `BAKE_CALL_TIMEOUT` (MEASURED 2026-11-05). The cached half is seconds.
+PROOF_CALL_TIMEOUT = 1500
+
+# HOW LONG THE TOOL WILL POLL FOR A HALF'S ATTRIBUTE after MCP has given up on the call. The
+# uncached half of the heaviest tile MEASURED about 13 minutes; this is twice that.
+PROOF_POLL_SECONDS = 1800
 BACKUP_MAX_AGE_HOURS = 6
 RUN_LOG_DIR = os.path.join(REPO, ".terrainbake")
 FOREST_PLACE_ID = place_choice("forest")[0]
@@ -665,6 +685,11 @@ SERVER_FOREST_LUAU = os.path.join(REPO, "src", "server", "ForestTest", "init.lua
 # tuple rather than a second copy of the list.
 PLANT_MUTATING = ("bake", "archive", "plant")
 
+# READ-ONLY, BUT IT IS EVIDENCE, so it refuses a dirty tree exactly as a mutating command does
+# (lesson L-162: every live proof at the code commit). `proof` writes nothing; what it produces is a
+# claim about a commit, and a claim measured off uncommitted code names no commit.
+PROOF_NEEDS_CLEAN = ("proof", "delta")
+
 PLANT_MODULES = (
     ("Relief", os.path.join(REPO, "src", "shared", "Grid", "Relief.luau")),
     ("Grid", os.path.join(REPO, "src", "shared", "Grid", "init.luau")),
@@ -1064,7 +1089,18 @@ def parse_json(body):
     raise RuntimeError("no JSON in Studio's reply: %s" % body[:400])
 
 
-def call(studio, studio_id, expression, timeout=BAKE_CALL_TIMEOUT, injected=None):
+# THE TRANSPORT DROPS A CALL NOW AND AGAIN, and a bake is 1,120 of them (task 330). StudioMCP
+# answers "Target is not reachable ... No OnInvoke handler responded" when the Edit DataModel
+# never picks the action up -- measured at tile 51 of 140 on 2026-11-06 03:21, the same Studio
+# answering a `plan` a minute later. A bake writes ABSOLUTE heights out of the base file, so
+# repeating a tile writes the same voxels and a retry cannot double anything. Bounded, and every
+# retry is PRINTED: a silent one would hide a Studio that is really gone.
+UNREACHABLE = "Target is not reachable"
+CALL_RETRIES = 3
+CALL_RETRY_PAUSE = 6
+
+
+def call(studio, studio_id, expression, timeout=BAKE_CALL_TIMEOUT, injected=None, retries=None):
     """Run one TerrainBake expression in the addressed Edit DataModel and parse its JSON reply.
 
     `injected` is the prelude, built ONCE per run and reused, so every call of a run carries exactly
@@ -1072,14 +1108,28 @@ def call(studio, studio_id, expression, timeout=BAKE_CALL_TIMEOUT, injected=None
     """
     code = CALL_TEMPLATE % (injected if injected is not None else prelude()[0], expression)
     arguments = {"datamodel_type": "Edit", "code": code, "studio_id": studio_id}
-    text = studio._rpc("tools/call", {"name": "execute_luau", "arguments": arguments}, timeout=timeout)
-    body = "\n".join(c.get("text", "") for c in text.get("content", []))
+    text, body = None, ""
+    tries = CALL_RETRIES if retries is None else retries
+    for attempt in range(1, tries + 1):
+        text = studio._rpc("tools/call", {"name": "execute_luau", "arguments": arguments},
+                           timeout=timeout)
+        body = "\n".join(c.get("text", "") for c in text.get("content", []))
+        if not (text.get("isError") and UNREACHABLE in body) or attempt == tries:
+            break
+        print("    [retry %d/%d] the Edit DataModel did not pick the call up (%s); %d s"
+              % (attempt, tries - 1, UNREACHABLE, CALL_RETRY_PAUSE))
+        time.sleep(CALL_RETRY_PAUSE)
     if text.get("isError"):
         raise RuntimeError("execute_luau: %s" % body)
     value = parse_json(body)
     if isinstance(value, dict) and value.get("error"):
         raise RuntimeError("TerrainBake: %s" % value["error"])
     return value
+
+
+# THE REAL `call`, UNDER A NAME NO STUB TAKES. The selftest swaps `call` out several times; without
+# this the retry checks below would exercise whichever stub was installed last (they did).
+CALL_IMPL = call
 
 
 # ---------------------------------------------------------------- the refusals
@@ -1827,6 +1877,275 @@ def bench_slices_for(base, bands, tile, pad, side):
     return out, None
 
 
+def delta_pass(studio, studio_id, args, sha, injected, profiles, base, plan, pad, bands, keep, live):
+    """HOW FAR APART the cached and the uncached tile are, on the LIGHTEST tile worth reading.
+
+    The equality proof (`proof`) answers IF the cache changes an answer. This answers BY HOW MUCH,
+    which is what the `ESCALATE.md` entry needs. Both halves run in one MCP call, so the tile has to
+    be light: the heaviest took 939.6 s uncached (MEASURED 2026-11-05) and StudioMCP gives up at 300.
+    """
+    cells = args.cells
+    hold = [c for c in (getattr(args, "hold_landform", None) or "").split(",") if c]
+    bands = [b for b in (bands or []) if b["cell"] not in hold]
+    side = args_side()
+    weights = call(studio, studio_id, "TerrainBake.benchWeightPlan({%s}, {%s})"
+                   % (",".join('"%s"' % c for c in cells), ",".join('"%s"' % c for c in hold)),
+                   timeout=BAKE_CALL_TIMEOUT, injected=injected)
+    if not isinstance(weights, list) or not weights:
+        return refuse("no tile carries bench weight, so there is no delta to measure"), []
+    floor = args.min_columns or 160
+    light = sorted((r for r in weights if r["columns"] >= floor), key=lambda r: r["columns"])
+    if not light:
+        return refuse("no tile has at least %d bench columns" % floor), []
+    want = min(args.tiles or 3, len(light))
+    print("[delta] %d of %d tiles carry bench weight; the %d lightest with >= %d of them:"
+          % (len(weights), len(plan), want, floor))
+    rows = []
+    for row in light[:want]:
+        index = row["tile"]
+        slice_payload, problem = slice_for(base, plan[index - 1], pad, side)
+        if problem:
+            print("[delta] FAILED at tile %d: %s" % (index, problem))
+            return 1, rows
+        bench, problem = bench_slices_for(base, bands, plan[index - 1], pad, side)
+        if problem:
+            print("[delta] FAILED at tile %d: %s" % (index, problem))
+            return 1, rows
+        expression = (
+            'TerrainBake.anchorDeltaAt(%d, {%s}, HttpService:JSONDecode([==[%s]==]), '
+            'HttpService:JSONDecode([==[%s]==]), HttpService:JSONDecode([==[%s]==]), {%s})'
+            % (index, ",".join('"%s"' % c for c in cells), profiles,
+               json.dumps(slice_payload, separators=(",", ":")),
+               json.dumps(bench, separators=(",", ":")),
+               ",".join('"%s"' % c for c in hold)))
+        print("  tile %4d (%7.0f,%7.0f) benchCols~%4d  expression %d bytes, slice %d x %d, %d band(s)"
+              % (index, row["minX"], row["minZ"], row["columns"], len(expression),
+                 slice_payload.get("nx", 0), slice_payload.get("nz", 0), len(bench)))
+        got = call(studio, studio_id, expression, timeout=PROOF_CALL_TIMEOUT, injected=injected)
+        rows.append(got)
+        if got.get("message"):
+            print("  tile %4d REFUSED: %s" % (index, got["message"]))
+            return 1, rows
+        print("  tile %4d (%7.0f,%7.0f) benchCols~%4d  walked %d (+%d hits)  %d ms -> %d ms"
+              % (index, got["minX"], got["minZ"], row["columns"], got["walks"], got["hits"],
+                 got["msOff"], got["msOn"]))
+        print("      of %d columns: %d differ at all, %d differ in their STORED CODE, %d in material"
+              % (got["columns"], got["differing"], got["codesApart"], got["namesApart"]))
+        print("      worst %.6f studs = %.2f codes of 1/64, at (%.0f, %.0f)   codes %s vs %s"
+              % (got["worstStuds"], got["worstCodes"], got["worstAtX"], got["worstAtZ"],
+                 got["shapeFnvOff"], got["shapeFnvOn"]))
+    log_run(["delta"] + cells, rows, keep, live)
+    print("[delta] read %d tile(s) @ %s cells=%s (clean tree)" % (want, sha, ",".join(cells)))
+    return 0, rows
+
+
+def proof_half(studio, studio_id, injected, cells, hold, index, payload, bench, cached):
+    """ONE HALF of one tile's proof -- shaped with the cache on or off -- read off its attribute.
+
+    StudioMCP's own request timeout is about five minutes and the UNCACHED half of the heaviest
+    bench tile takes about thirteen (MEASURED 2026-11-05), so the reply cannot come back on the call
+    that asked for it. The Luau keeps running after MCP gives up and writes its answer to an
+    attribute, so this fires the call, tolerates exactly that timeout, and then POLLS for the
+    attribute. Any other failure is raised: a timeout is the only thing being worked around.
+    """
+    attr = "DH330Proof_T%d_%s" % (index, "on" if cached else "off")
+    expression = (
+        'TerrainBake.anchorHalfAt(%d, {%s}, HttpService:JSONDecode([==[%s]==]), '
+        'HttpService:JSONDecode([==[%s]==]), HttpService:JSONDecode([==[%s]==]), {%s}, %s)'
+        % (index, ",".join('"%s"' % c for c in cells), profiles_of(payload),
+           json.dumps(payload["slice"], separators=(",", ":")),
+           json.dumps(bench, separators=(",", ":")),
+           ",".join('"%s"' % c for c in hold), "true" if cached else "false"))
+    started = time.time()
+    try:
+        row = call(studio, studio_id, expression, timeout=PROOF_CALL_TIMEOUT, injected=injected)
+        if isinstance(row, dict) and row.get("shapeFnv"):
+            row["waitedS"] = round(time.time() - started, 1)
+            return row
+    except RuntimeError as problem:
+        if "timeout" not in str(problem).lower() and "not reachable" not in str(problem).lower():
+            raise
+        print("      (MCP gave up after %.0f s; the Luau is still running -- polling %s)"
+              % (time.time() - started, attr))
+    deadline = time.time() + PROOF_POLL_SECONDS
+    while time.time() < deadline:
+        time.sleep(30)
+        # EVERY FAILURE HERE IS "STUDIO IS STILL BUSY": while the half is running, this call sits in
+        # StudioMCP's own queue behind it and comes back as a client timeout, a server
+        # `Request timeout`, or `Target is not reachable`. None of those is an answer, and none of
+        # them is a reason to stop asking -- the deadline is.
+        try:
+            found = call(studio, studio_id,
+                         '(function() local v = game:GetService("ServerStorage"):GetAttribute("%s") '
+                         'return { got = v } end)()' % attr, timeout=150, injected=injected)
+        except Exception:  # noqa: BLE001 -- "Studio is busy" wears several names; see above
+            continue
+        got = (found or {}).get("got")
+        if got:
+            row = json.loads(got)
+            row["waitedS"] = round(time.time() - started, 1)
+            return row
+    return {"message": "%s never appeared after %d s" % (attr, PROOF_POLL_SECONDS)}
+
+
+def profiles_of(payload):
+    """The profile JSON this tile was handed. Kept beside the slice so one dict carries both."""
+    return payload["profiles"]
+
+
+def proof_pass(studio, studio_id, args, sha, injected, profiles, base, plan, pad, bands, keep, live):
+    """THE BENCH ANCHOR CACHE'S EQUALITY PROOF (task 330), on the heaviest bench tiles there are.
+
+    The Director's decision on `ESCALATE.md` 2026-11-04 ~16:20 item 1 is "the cache never changes an
+    answer", and this is the measurement: the same tile, the same slice and the same bands shaped
+    TWICE -- cache off, then cache on -- and the two stored-code identities compared. Both runs are
+    dry, so it writes no terrain; what it does write is one attribute per half, which
+    `--clear-proof` takes back off.
+
+    WHICH TILES ARE "HEAVIEST" IS MEASURED, not typed: `TerrainBake.benchWeightPlan` ranks them by
+    the columns that actually pay an anchor walk, and each row's `walks` is that tile's exact count.
+    """
+    cells = args.cells
+    hold = [c for c in (getattr(args, "hold_landform", None) or "").split(",") if c]
+    bands = [b for b in (bands or []) if b["cell"] not in hold]
+    side = args_side()
+    weights = call(studio, studio_id, "TerrainBake.benchWeightPlan({%s}, {%s})"
+                   % (",".join('"%s"' % c for c in cells), ",".join('"%s"' % c for c in hold)),
+                   timeout=BAKE_CALL_TIMEOUT, injected=injected)
+    if not isinstance(weights, list):
+        return refuse("TerrainBake.benchWeightPlan answered %r, not a list" % (weights,)), []
+    if not weights:
+        return refuse("no tile of cells=%s carries bench weight, so the proof would prove nothing "
+                      "about the cache (task 330)" % ",".join(cells)), []
+    weights.sort(key=lambda row: -row["columns"])
+    want = min(args.tiles or 10, len(weights))
+    print("[proof] %d of %d tiles carry bench weight; the %d heaviest, by a 1-in-%d column sample "
+          "(each row's `walks` is that tile's exact count):"
+          % (len(weights), len(plan), want, weights[0].get("stride", 1) ** 2))
+    rows, differed, worst_on, worst_off = [], [], 0, 0
+    for row in weights[:want]:
+        index = row["tile"]
+        slice_payload, problem = slice_for(base, plan[index - 1], pad, side)
+        if problem:
+            print("[proof] FAILED at tile %d: %s" % (index, problem))
+            return 1, rows
+        bench, problem = bench_slices_for(base, bands, plan[index - 1], pad, side)
+        if problem:
+            print("[proof] FAILED at tile %d: %s" % (index, problem))
+            return 1, rows
+        payload = {"slice": slice_payload, "profiles": profiles}
+        print("  tile %4d (%7.0f,%7.0f) benchCols~%5d" % (index, row["minX"], row["minZ"], row["columns"]))
+        off = proof_half(studio, studio_id, injected, cells, hold, index, payload, bench, False)
+        if off.get("message"):
+            print("      REFUSED (cache off): %s" % off["message"])
+            return 1, rows
+        on = proof_half(studio, studio_id, injected, cells, hold, index, payload, bench, True)
+        if on.get("message"):
+            print("      REFUSED (cache on): %s" % on["message"])
+            return 1, rows
+        same = off["shapeFnv"] == on["shapeFnv"] and off["materialFnv"] == on["materialFnv"]
+        rows.append({"tile": index, "off": off, "on": on, "identical": same,
+                     "benchColumnsSampled": row["columns"]})
+        worst_off = max(worst_off, off["ms"])
+        worst_on = max(worst_on, on["ms"])
+        if not same:
+            differed.append(index)
+        print("      walks %6d -> %5d (hits %6d)   %7d ms -> %5d ms   codes %s/%s %s %s/%s"
+              % (off["walks"], on["walks"], on["hits"], off["ms"], on["ms"],
+                 off["shapeFnv"], off["materialFnv"], "==" if same else "!=",
+                 on["shapeFnv"], on["materialFnv"]))
+        # THE UNCACHED HALF HAS NO COUNTERS -- there is no cache to count -- so `off["walks"]` is 0
+        # for every tile and says nothing. The CACHED half's walks + hits IS the number of columns
+        # that paid an anchor walk, and that is what tells a real proof from an empty one (L-093).
+        if on["walks"] + on["hits"] == 0:
+            print("      NOTE: no column of this tile walked a bench anchor, so it proves NOTHING "
+                  "about the cache")
+        else:
+            print("      (%d bench columns actually walked: %d + %d)"
+                  % (on["walks"] + on["hits"], on["walks"], on["hits"]))
+    log_run(["proof"] + cells, rows, keep, live)
+    if differed:
+        print("[proof] DIFFERS: %d of %d tiles changed their stored codes with the cache on: %s"
+              % (len(differed), want, ",".join(str(i) for i in differed)))
+        print("[proof] the Director's decision for this case is STOP and write ESCALATE.md "
+              "(task 330 dispatch). Nothing has been baked.")
+        return 1, rows
+    print("[proof] OK: %d/%d heaviest bench tiles byte-identical, cached vs uncached @ %s cells=%s "
+          "worstTileMs %d -> %d (clean tree)"
+          % (want, want, sha, ",".join(cells), worst_off, worst_on))
+    return 0, rows
+
+
+def args_side():
+    """The tile side, off the Luau, for the two slice cutters above."""
+    return int(number_from(BAKE_LUAU, r"^TerrainBake\.TILE_STUDS = ([0-9_]+)"))
+
+
+# HOW LONG ONE TILE MAY TAKE, and how often its attribute is read while it does. A bench tile of
+# B2 blocks the Edit DataModel past StudioMCP's dispatch patience (MEASURED: tile 52 of the
+# seven-cell plan is "Target is not reachable" on every attempt, dry or wet, while tile 51 answers
+# in 1.3 s), so the answer comes off an attribute, exactly as the equality proof's halves do.
+TILE_POLL_SECONDS = 1800
+TILE_POLL_EVERY = 3
+
+
+def clear_tile_marks(studio, studio_id, injected):
+    """THIS RUN'S TILE ATTRIBUTES OFF AGAIN (L-101). They are a Builder's marks in Karen's place."""
+    if studio is None:
+        return
+    try:
+        print("[bake] tile marks cleared: %s"
+              % call(studio, studio_id, "TerrainBake.clearProof()", timeout=120, injected=injected))
+    except Exception as problem:  # noqa: BLE001 -- never fail a finished bake over a tidy-up
+        print("[bake] NOTE: could not clear this run's tile attributes: %s" % str(problem)[:120])
+
+
+def tile_call(studio, studio_id, injected, expression, token, index):
+    """One tile, fired and then READ OFF ITS ATTRIBUTE if the reply cannot come back.
+
+    `TerrainBake.bakeTileAtPublished` writes the report under this run's token before it returns,
+    so a dropped reply costs a poll and never a re-bake. Only the two "Studio is busy" failures are
+    tolerated; anything else is raised, because a real error must not be waited out.
+    """
+    attr = "DH330Tile_%s_%d" % (token, index)
+    started = time.time()
+    try:
+        # NO RETRY HERE, and that is the point: a retried tile is RE-SHAPED. Measured on the dry
+        # run of 2026-11-06 03:42 -- three attempts at 7.7 s each plus the pauses made one 7.7-s
+        # tile cost 35 s, and the answer was on its attribute after the first.
+        row = call(studio, studio_id, expression, injected=injected, retries=1)
+        if isinstance(row, dict) and "elapsedMs" in row:
+            return row
+    except RuntimeError as problem:
+        if "timeout" not in str(problem).lower() and UNREACHABLE.lower() not in str(problem).lower():
+            raise
+        print("    (MCP gave up after %.0f s; the tile is still running -- polling %s)"
+              % (time.time() - started, attr))
+    # THE FIRST READ IS IMMEDIATE: the call above already ran the tile to completion -- only its
+    # reply was lost -- so the attribute is usually there before the first sleep.
+    deadline = time.time() + TILE_POLL_SECONDS
+    first = True
+    while time.time() < deadline:
+        if not first:
+            time.sleep(TILE_POLL_EVERY)
+        first = False
+        # EVERY FAILURE HERE IS "STUDIO IS STILL BUSY": the poll sits in StudioMCP's own queue
+        # behind the tile and comes back as a timeout or as `Target is not reachable`. Neither is
+        # an answer and neither is a reason to stop asking -- the deadline is.
+        try:
+            found = call(studio, studio_id,
+                         '(function() local v = game:GetService("ServerStorage"):GetAttribute("%s") '
+                         'return { got = v } end)()' % attr, timeout=150, injected=injected)
+        except Exception:  # noqa: BLE001 -- "Studio is busy" wears several names; see above
+            continue
+        got = found.get("got") if isinstance(found, dict) else None
+        if got:
+            row = json.loads(got)
+            row["waitedS"] = round(time.time() - started, 1)
+            return row
+    raise RuntimeError("tile %d never published %s after %d s" % (index, attr, TILE_POLL_SECONDS))
+
+
 def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=None, keep=None,
               live=None, base=None, plan=None, pad=None, bands=None):
     """The tile loop, shared by `measure` (dry) and `bake` (wet). One MCP call per tile."""
@@ -1840,6 +2159,17 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
                           "geography, so that `cellAt` gives it its own area and no neighbour's "
                           "landform is written across it" % (c, ",".join(cells))), []
     bands = [b for b in (bands or []) if b["cell"] not in hold]
+    # THE CACHE AND ITS AUDIT (task 330). `--audit-every` without `--cache-anchors` measures
+    # nothing, because there are no reuses to audit, so it is refused rather than ignored.
+    cache = bool(getattr(args, "cache_anchors", False))
+    audit = int(getattr(args, "audit_every", 0) or 0)
+    if audit and not cache:
+        return refuse("--audit-every %d without --cache-anchors: an uncached run has no reuse to "
+                      "audit, so the number would be a silence, not a measurement" % audit), []
+    worst_div, worst_div_at, audited = -1.0, None, 0
+    # THIS RUN'S TOKEN. Every tile publishes its report under it, so a poll can never read an
+    # attribute an earlier run left behind as this run's answer (task 330).
+    token = "%08x" % (int(time.time() * 1000) & 0xFFFFFFFF)
     region = region_for(cells, facts)
     count = tile_count(region, facts["tile"])[0]
     limit = min(args.tiles or count, count)
@@ -1853,7 +2183,11 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
         return refuse("Studio's tile plan has %d tiles and this tool's count says %d: the two "
                       "lattices disagree, so no slice can be trusted" % (len(plan), count)), entries
     reshape_said = [None]
-    print("[bake] %s: %d of %d tiles, cells=%s" % ("measure (DRY)" if dry else "bake", limit, count, ",".join(cells)))
+    print("[bake] %s: %d of %d tiles, cells=%s  anchorCache=%s%s"
+          % ("measure (DRY)" if dry else "bake", limit, count, ",".join(cells),
+             "ON" if cache else "off",
+             ("  auditEvery=%d (stop above %.2f st)" % (audit, ANCHOR_DIVERGENCE_STOP_STUDS))
+             if audit else ""))
     for index in range(1, limit + 1):
         # REFUSAL 2 AGAIN, before every mutating call (B1): the operator can open another place
         # inside a 70-minute run, and a silent fall-back would reshape DEV.
@@ -1876,14 +2210,16 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
         # THE SAME PROFILE BYTES INTO EVERY TILE. `[==[` quoting, because the payload is JSON and
         # holds double quotes; it is a value, never code.
         expression = (
-            'TerrainBake.bakeTileAt(%d, {%s}, %s, HttpService:JSONDecode([==[%s]==]), '
-            'HttpService:JSONDecode([==[%s]==]), HttpService:JSONDecode([==[%s]==]), {%s})'
-            % (index, ",".join('"%s"' % c for c in cells), "true" if dry else "false", profiles,
+            'TerrainBake.bakeTileAtPublished("%s", %d, {%s}, %s, HttpService:JSONDecode([==[%s]==]), '
+            'HttpService:JSONDecode([==[%s]==]), HttpService:JSONDecode([==[%s]==]), {%s}, %s, %d)'
+            % (token, index, ",".join('"%s"' % c for c in cells), "true" if dry else "false",
+               profiles,
                json.dumps(payload, separators=(",", ":")),
                json.dumps(bench, separators=(",", ":")),
-               ",".join('"%s"' % c for c in hold))
+               ",".join('"%s"' % c for c in hold),
+               "true" if cache else "nil", audit)
         )
-        report = call(studio, studio_id, expression, injected=injected)
+        report = tile_call(studio, studio_id, injected, expression, token, index)
         entries.append(report)
         worst = max(worst, report.get("elapsedMs", 0))
         # COLUMNS WHERE THE LANDFORM WAS DROPPED because the blur had a void inside its support
@@ -1902,10 +2238,35 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
               % (index, limit, report["minX"], report["minZ"], report["calls"], report["voxels"],
                  report["bandMin"], report["bandMax"], report["elapsedMs"],
                  "  " + report["message"] if report.get("message") else ""))
+        # THE DIVERGENCE AUDIT'S READING FOR THIS TILE (task 330 guard 2). -1 means the audit was
+        # not switched on; a bench tile that reported no walks is said so, never passed over.
+        walked = report.get("anchorAuditWalks")
+        if walked is not None and walked >= 0:
+            gap = report.get("anchorAuditWorst") or 0.0
+            tall = report.get("anchorAuditWorstHeight") or 0.0
+            audited += walked
+            if walked > 0:
+                print("    [audit] %d reuse(s) walked uncached: worst anchor gap %.6f st, worst "
+                      "stored height %.6f st (%.2f codes of 1/64) at x %.0f"
+                      % (walked, gap, tall, tall * 64.0, report.get("anchorAuditWorstAtX") or 0))
+            if gap > worst_div:
+                worst_div, worst_div_at = gap, index
+            # THE STOP, AND IT FIRES INSIDE THE RUN (guard 2): above 0.25 studs the Director's
+            # decision is to stop, so the remaining tiles are not written.
+            if gap > ANCHOR_DIVERGENCE_STOP_STUDS:
+                clear_tile_marks(studio, studio_id, injected)
+                log_run(cells, entries, keep, live)
+                print("[bake] STOP at tile %d: the bench anchor cache is %.6f st out, over the "
+                      "%.2f-st guard (task 330, Director 2026-11-06 ~02:55 guard 2). Write "
+                      "ESCALATE.md; %d tile(s) were written before this one."
+                      % (index, gap, ANCHOR_DIVERGENCE_STOP_STUDS, index - 1))
+                return 2, entries
         if report.get("message"):
+            clear_tile_marks(studio, studio_id, injected)
             log_run(cells, entries, keep, live)
             print("[bake] FAILED at tile %d: %s" % (index, report["message"]))
             return 1, entries
+    clear_tile_marks(studio, studio_id, injected)
     log_run(cells, entries, keep, live)
     # THE EPOCH IS STAMPED AT THE END OF A WET RUN, through TerrainBake.stamp, which design 2 names
     # as its only writer -- and it is printed, because design 6.3 puts it in this line.
@@ -1928,19 +2289,26 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
               % (stamped, ",".join(shaped_cells),
                  ("  (NOT stamped, landform held: " + ",".join(hold) + ")") if hold else ""))
     print("[bake] %s: %d/%d tiles @ %s cells=%s%s epoch=%s worstTileMs=%d "
-          "droppedLandform=%d/%d tiles (clean tree)"
+          "droppedLandform=%d/%d tiles anchorCache=%s %s (clean tree)"
           % ("DRY OK" if dry else "OK", limit, limit, sha, ",".join(cells),
              (" hold=" + ",".join(hold)) if hold else "", epoch, worst,
-             dropped_total[0], dropped_tiles[0]))
+             dropped_total[0], dropped_tiles[0], "ON" if cache else "off",
+             ("worstAnchorDivergence=%.6f st over %d audited reuse(s), tile %s, guard %.2f"
+              % (worst_div, audited, worst_div_at, ANCHOR_DIVERGENCE_STOP_STUDS))
+             if worst_div >= 0 else "anchorDivergence=NOT MEASURED (no audit)"))
     return 0, entries
 
 
 def main(argv):
     parser = argparse.ArgumentParser(prog="terrainbake")
-    parser.add_argument("command", choices=("plan", "snapshot", "diff", "measure", "bake", "survey",
-                                            "archive", "census", "plant", "rows", "selftest"))
+    parser.add_argument("command", choices=("plan", "snapshot", "diff", "measure", "proof",
+                                            "delta", "clear-proof", "bake", "survey", "archive",
+                                            "census", "plant", "rows", "selftest"))
     parser.add_argument("--cells", help="comma list, e.g. C1")
     parser.add_argument("--backup", help="a .rbxl saved by File -> Save to File, outside the repo")
+    parser.add_argument("--min-columns", type=int, help="`delta` only: the fewest bench columns a "
+                        "tile may have and still be read. Default 160 -- below that the two halves "
+                        "can agree for want of work rather than for want of a difference")
     parser.add_argument("--hold-landform", help="comma list of cells IN --cells whose landform this "
                         "run does NOT write: the cell keeps the base, and still gets its roads and "
                         "its stand pads. Leaving a cell out of --cells instead writes a NEIGHBOUR's "
@@ -1970,6 +2338,19 @@ def main(argv):
                                               "practice whenever a backup .rbxl is open beside "
                                               "Karen's live window: both report the same place id "
                                               "(task 328k, lesson L-055)")
+    parser.add_argument("--cache-anchors", action="store_true",
+                        help="switch the BENCH ANCHOR CACHE on for this run (task 330; Director "
+                             "decision 2026-11-06 ~02:55). Without it every bench column walks the "
+                             "base, which `proof` measured at 780-911 s a tile -- about 8-10 hours "
+                             "of blocked Studio for the 134 bench tiles. The cache is NOT exact "
+                             "under the bend, so it comes with --audit-every and the %.2f-stud "
+                             "stop below" % ANCHOR_DIVERGENCE_STOP_STUDS)
+    parser.add_argument("--audit-every", type=int, default=0,
+                        help="with --cache-anchors: every Nth cache reuse ALSO walks the base "
+                             "uncached and the gap is recorded, so the run measures its own worst "
+                             "divergence on EVERY bench tile it writes. 0 is off. A full audit is "
+                             "the uncached run itself -- under the bend a bucket is reused by "
+                             "different grid x -- so this is a stride and the tool says so")
     parser.add_argument("--keep-flags", help="comma list of flag overrides that are the PLACE "
                                              "OWNER's and must be left as found (refusal 7)")
     parser.add_argument("--folder", help="`rows` only: which Workspace folder to read, default the "
@@ -2018,7 +2399,7 @@ def main(argv):
         return refuse("--cells is missing: an unnamed cell is an unbounded run")  # refusal 6
 
     sha, dirty = check_clean_tree()
-    if mutating and dirty:
+    if (mutating or args.command in PROOF_NEEDS_CLEAN) and dirty:
         return refuse(dirty)  # refusal 3
 
     if mutating:
@@ -2107,11 +2488,16 @@ def main(argv):
             if not args.cells:
                 return refuse("--cells is missing: an unnamed cell is an unbounded run")
             return command_plant(studio, studio_id, args.cells, injected, wanted, sha)
+        if args.command == "clear-proof":
+            gone = call(studio, studio_id, "TerrainBake.clearProof()", timeout=120, injected=injected)
+            left = call(studio, studio_id, "TerrainBake.readProof()", timeout=120, injected=injected)
+            print("[proof] cleared %s attribute(s); %d left" % (gone, len(left or {})))
+            return 0
         if args.command == "archive":
             result = call(studio, studio_id, 'TerrainBake.archive("GridForest", {})', injected=injected)
             print("[bake] archive: %s" % json.dumps(result))
             return 0
-        if args.command in ("measure", "bake"):
+        if args.command in ("measure", "bake", "proof", "delta"):
             if not args.cells:
                 return refuse("--cells is missing")
             # REFUSAL 9: THE BASE SNAPSHOT. The bake reads the ORIGINAL ground from the file, never
@@ -2161,6 +2547,14 @@ def main(argv):
                 for band in bands:
                     print("  %-3s x[%.0f,%.0f] z[%.0f,%.0f]"
                           % (band["cell"], band["minX"], band["maxX"], band["minZ"], band["maxZ"]))
+            if args.command == "delta":
+                code, _ = delta_pass(studio, studio_id, args, sha, injected, profiles, base, plan,
+                                     pad, bands, keep, live)
+                return code
+            if args.command == "proof":
+                code, _ = proof_pass(studio, studio_id, args, sha, injected, profiles, base, plan,
+                                     pad, bands, keep, live)
+                return code
             code, _ = tile_pass(studio, studio_id, args, facts, sha,
                                 dry=args.command == "measure", injected=injected, profiles=profiles,
                                 keep=keep, live=live, base=base, plan=plan, pad=pad, bands=bands)
@@ -2490,6 +2884,8 @@ def selftest():
         studio_name = None
         allow_local_file = False
         reshape = "auto"
+        cache_anchors = False
+        audit_every = 0
 
     # A SYNTHETIC BASE covering the first two tiles plus their pad, so the tile pass can cut real
     # slices out of it with no Studio.
@@ -2508,7 +2904,7 @@ def selftest():
 
     saved_call, saved_log = globals()["call"], globals()["log_run"]
     try:
-        def record(studio, studio_id, expression, timeout=None, injected=None):
+        def record(studio, studio_id, expression, timeout=None, injected=None, retries=None):
             sent_tiles.append((expression, injected))
             return {"minX": 0, "minZ": 0, "calls": 1, "voxels": 1, "bandMin": 0, "bandMax": 1,
                     "elapsedMs": 5}
@@ -2556,8 +2952,99 @@ def selftest():
         ok("a HELD cell's bench band is dropped before the tile loop",
            code3 == 0 and held_third and all(t == [] for t in held_third), str(held_third)[:80])
         ok("and the held cell reaches bakeTileAt as its own argument, named",
-           bool(sent_tiles) and all(e.rstrip().endswith(', {"C1"})') for e, _ in sent_tiles),
+           bool(sent_tiles) and all(e.rstrip().endswith(', {"C1"}, nil, 0)') for e, _ in sent_tiles),
            sent_tiles[0][0][-24:] if sent_tiles else "<none>")
+        # TASK 330: THE CACHE AND ITS AUDIT ARE THE LAST TWO ARGUMENTS, and they are OFF unless
+        # asked for. An uncached run must still send `nil`, so a bake is what it was.
+        sent_tiles.clear()
+
+        class CacheArgs(Args):
+            cache_anchors = True
+            audit_every = 64
+
+        code330, _ = tile_pass(None, "x", CacheArgs(), echo_facts, "abc", True,
+                               injected="<PRELUDE>", profiles='[{"road":{"id":"EW2"}}]',
+                               base=fake_base, plan=fake_plan, pad=fake_pad, bands=[_band])
+        ok("--cache-anchors and --audit-every reach bakeTileAt as its last two arguments",
+           code330 == 0 and bool(sent_tiles)
+           and all(e.rstrip().endswith(', {}, true, 64)') for e, _ in sent_tiles),
+           sent_tiles[0][0][-26:] if sent_tiles else "<none>")
+
+        class AuditOnlyArgs(Args):
+            cache_anchors = False
+            audit_every = 64
+
+        code331, _ = tile_pass(None, "x", AuditOnlyArgs(), echo_facts, "abc", True,
+                               injected="<PRELUDE>", profiles='[{"road":{"id":"EW2"}}]',
+                               base=fake_base, plan=fake_plan, pad=fake_pad, bands=[_band])
+        ok("--audit-every with NO --cache-anchors is REFUSED, not quietly ignored", code331 == 2,
+           "exit %s" % code331)
+        # THE STOP (guard 2). A tile reporting a gap over 0.25 st ends the run, and the tiles after
+        # it are NOT written. FAIL FIRST: the same run under the guard returns 0.
+        _divergent = [0.9, 0.2]
+
+        def divergent_call(_studio, _id, expression, **_kw):
+            if "bakeTileAt" not in expression:
+                return {}
+            return {"minX": 0, "minZ": 0, "calls": 1, "voxels": 1, "bandMin": 0, "bandMax": 1,
+                    "elapsedMs": 1, "anchorAuditWalks": 3,
+                    "anchorAuditWorst": _divergent[0], "anchorAuditWorstHeight": _divergent[0],
+                    "anchorAuditWorstAtX": -5000}
+
+        _real_call = globals()["call"]
+        globals()["call"] = divergent_call
+        try:
+            over, overEntries = tile_pass(None, "x", CacheArgs(), echo_facts, "abc", True,
+                                          injected="<PRELUDE>", profiles='[{"road":{"id":"EW2"}}]',
+                                          base=fake_base, plan=fake_plan, pad=fake_pad, bands=[_band])
+            _divergent[0] = 0.2
+            under, _ = tile_pass(None, "x", CacheArgs(), echo_facts, "abc", True,
+                                 injected="<PRELUDE>", profiles='[{"road":{"id":"EW2"}}]',
+                                 base=fake_base, plan=fake_plan, pad=fake_pad, bands=[_band])
+        finally:
+            globals()["call"] = _real_call
+        # THE TRANSPORT RETRY (task 330): a dropped call is retried and then given up on, and
+        # BOTH arms are driven -- a retry that never gives up would hang a bake on a dead Studio.
+        class FakeStudio:
+            def __init__(self, fail):
+                self.fail, self.calls = fail, 0
+
+            def _rpc(self, _name, _args, timeout=None):
+                self.calls += 1
+                if self.calls <= self.fail:
+                    return {"isError": True, "content": [{"text": "boom " + UNREACHABLE + " boom"}]}
+                return {"content": [{"text": "{\"ok\":1}"}]}
+
+        flaky = FakeStudio(1)
+        got = CALL_IMPL(flaky, "sid", "X()", injected="<P>")
+        ok("one dropped call is retried and the second answer is used",
+           got == {"ok": 1} and flaky.calls == 2, "calls=%d got=%r" % (flaky.calls, got))
+        dead = FakeStudio(99)
+        try:
+            CALL_IMPL(dead, "sid", "X()", injected="<P>")
+            gave_up = False
+        except RuntimeError:
+            gave_up = True
+        ok("a Studio that never answers is given up on after %d attempts, not retried forever"
+           % CALL_RETRIES, gave_up and dead.calls == CALL_RETRIES, "calls=%d" % dead.calls)
+        other = FakeStudio(0)
+
+        class OtherError(FakeStudio):
+            def _rpc(self, _name, _args, timeout=None):
+                self.calls += 1
+                return {"isError": True, "content": [{"text": "some other failure"}]}
+
+        other = OtherError(0)
+        try:
+            CALL_IMPL(other, "sid", "X()", injected="<P>")
+        except RuntimeError:
+            pass
+        ok("an error that is NOT the dropped-call one is raised at once, never retried",
+           other.calls == 1, "calls=%d" % other.calls)
+        ok("a divergence over the %.2f-st guard STOPS the run at that tile (task 330 guard 2)"
+           % ANCHOR_DIVERGENCE_STOP_STUDS,
+           over == 2 and len(overEntries) == 1 and under == 0,
+           "over=%s tiles=%d under=%s" % (over, len(overEntries), under))
 
         class StrayArgs(Args):
             cells = ["C1"]
@@ -2993,6 +3480,9 @@ def selftest():
        and "rows = table.concat" not in FOREST_ROWS_SEAM)
     ok("plant takes every refusal a bake takes, and rows takes none of them",
        "plant" in PLANT_MUTATING and "rows" not in PLANT_MUTATING and "bake" in PLANT_MUTATING)
+    ok("the equality proof refuses a dirty tree although it writes nothing (task 330, L-162)",
+       "proof" in PROOF_NEEDS_CLEAN and "proof" not in PLANT_MUTATING
+       and "delta" in PROOF_NEEDS_CLEAN and "delta" not in PLANT_MUTATING)
 
     print("[bake] selftest: %d check(s) failed" % len(failures) if failures else "[bake] selftest: PASS")
     return 1 if failures else 0
