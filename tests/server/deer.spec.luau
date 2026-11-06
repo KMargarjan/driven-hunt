@@ -1890,11 +1890,13 @@ return function()
 				-- published velocity and nothing about WHEN the bound happens.
 				expect(ticksOn > 0).to.equal(true)
 				expect(ticksOn).to.equal(ticksOff)
-				expect(flatOn).to.be.near(flatOff, 1e-6)
-				-- WITH NO BURST a bound publishes exactly the gait speed...
-				expect(burstOff).to.be.near(flatOff, 1e-6)
-				-- ...and with it, that speed times the scale, to the last decimal.
-				expect(burstOn / burstOff).to.be.near(CONFIG.MODEL.LEAP.SPEED_SCALE, 1e-6)
+				-- 1e-3 AND NOT 1e-6: a `Vector3`'s components are float32, so the magnitude of the
+				-- same 38 studs/s differs by ~4e-6 between two ticks with different headings.
+				expect(flatOn).to.be.near(flatOff, 1e-3)
+				-- WITH NO BURST a bound publishes the gait speed and nothing more...
+				expect(burstOff).to.be.near(flatOff, 1e-3)
+				-- ...and with it, that speed times the scale.
+				expect(burstOn / burstOff).to.be.near(CONFIG.MODEL.LEAP.SPEED_SCALE, 1e-4)
 			end)
 
 			it("starts the bound at the clip's own take-off frame (task 325)", function()
