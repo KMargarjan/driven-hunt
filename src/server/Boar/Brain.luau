@@ -1920,6 +1920,27 @@ function Brain.leapStarts(onRoad: boolean, armed: boolean, speed: number, runFro
 	return speed >= runFrom
 end
 
+-- HOW MUCH OF ITS GAIT SPEED AN ANIMAL CARRIES WHILE IT IS IN THE AIR (task 334). Pure: the
+-- published `leaping` and the leap table in, a multiplier out, so both states are a spec case with
+-- the flag at false. 1 for a grounded animal, for a switched-off leap and for no table at all.
+--
+-- KAREN, 2026-11-06: *"does twice high and 3 times longer then now"*. The arc is ballistic, so 2x
+-- the apex is sqrt(2) x the airtime and no more; the rest of the length has to come from speed.
+-- Note: docs/research/2026-10-23-deer-road-leap.md section 9.
+function Brain.leapSpeedScale(leaping: boolean?, leap): number
+	if leaping ~= true then
+		return 1
+	end
+	if type(leap) ~= "table" or leap.ENABLED ~= true then
+		return 1
+	end
+	local scale = leap.SPEED_SCALE
+	if type(scale) ~= "number" or scale <= 1 then
+		return 1
+	end
+	return scale
+end
+
 -- DOES A BOUND START AT THIS SPOOK (task 251 part 2)? Pure, four plain values in and a boolean out,
 -- exactly `leapStarts` above and for the same reason: every rule below is a test case with no animal
 -- in the world and with the flag sitting at false.
@@ -2669,7 +2690,10 @@ function Brain:step(dt: number, obs)
 	-- 7 of 49 range passes crossing at 11.00 studs/s with the rooting clip at full weight.
 	intent.activity = if self._state == "IDLE" and self._calm and not self:ordered() then self._calm.name else nil
 	intent.activityDraw = if intent.activity ~= nil then self._calmDraws else nil
-	intent.targetVelocity = self._desired * self._speed
+	-- ...AND A BOUND CARRIES IT FORWARD (task 334). The scale is applied HERE, on the published
+	-- velocity, and never to `self._speed`: the leap gate, the gait band and the clip rate all read
+	-- that, so scaling it would feed the burst back into the rule that started the bound.
+	intent.targetVelocity = self._desired * self._speed * Brain.leapSpeedScale(intent.leaping, leap)
 	intent.facing = self._desired
 	return intent
 end

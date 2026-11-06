@@ -1783,6 +1783,120 @@ return function()
 				end
 			end)
 
+			-- 12b. TWICE AS HIGH AND THREE TIMES AS LONG (task 334) ---------------------------
+			--
+			-- KAREN, 2026-11-06: *"fix deer jump only mail jumping and does twice high and 3 times
+			-- longer then now"*. Note: docs/research/2026-10-23-deer-road-leap.md section 9.
+			it("carries the animal forward only while it is airborne, and only when switched on", function()
+				local leap = CONFIG.MODEL.LEAP
+				local burstOn = table.clone(leap)
+				burstOn.ENABLED = true
+				local burstOff = table.clone(burstOn)
+				burstOff.ENABLED = false
+				-- SWITCHED ON AND AIRBORNE is the only combination that is not 1.
+				expect(Brain.leapSpeedScale(true, burstOn)).to.equal(leap.SPEED_SCALE)
+				expect(Brain.leapSpeedScale(false, burstOn)).to.equal(1)
+				expect(Brain.leapSpeedScale(nil, burstOn)).to.equal(1)
+				expect(Brain.leapSpeedScale(true, burstOff)).to.equal(1)
+				expect(Brain.leapSpeedScale(true, nil)).to.equal(1)
+				-- A world that names no burst, or names one that would SLOW the animal, gets 1.
+				local none = table.clone(burstOn)
+				none.SPEED_SCALE = nil
+				expect(Brain.leapSpeedScale(true, none)).to.equal(1)
+				none.SPEED_SCALE = 0.5
+				expect(Brain.leapSpeedScale(true, none)).to.equal(1)
+			end)
+
+			it("is 2x the measured height and 3x the measured length for a hind, within 15 %", function()
+				-- MEASURED in her place at cdc885b7, 17 hind road bounds, instrument
+				-- `<runs-dir>/334-instrument.luau`, log `334-BEFORE.txt`: apex 2.471 studs,
+				-- length 7.58 studs, airtime 0.322 s. THIS CASE DIES if `APEX_STUDS` or
+				-- `SPEED_SCALE` goes back to what cdc885b7 shipped.
+				local leap = CONFIG.MODEL.LEAP
+				local BEFORE_APEX, BEFORE_LENGTH, BEFORE_AIR = 2.471, 7.58, 0.322
+				-- The CONFIGURED apex this measurement came off, so the after/before comparison is
+				-- made through the same instrument bias (the peak falls between frames, so the
+				-- reading runs ~3.7 % under the arc it is reading).
+				local BEFORE_CONFIGURED = 2.566
+				local up = Body.leapPlan("hind", leap)
+				local apex = up * up / (2 * leap.GRAVITY)
+				local air = 2 * up / leap.GRAVITY
+				local apexSeen = apex * (BEFORE_APEX / BEFORE_CONFIGURED)
+				expect(apexSeen / BEFORE_APEX).to.be.near(2, 0.3)
+				-- LENGTH IS THE IN-AIR HORIZONTAL SPEED TIMES THE AIRTIME, and the speed it had
+				-- before is the measurement itself: 7.58 / 0.322 = 23.5 studs/s.
+				local lengthSeen = (BEFORE_LENGTH / BEFORE_AIR)
+					* Brain.leapSpeedScale(true, {
+						ENABLED = true,
+						SPEED_SCALE = leap.SPEED_SCALE,
+					})
+					* air
+				expect(lengthSeen / BEFORE_LENGTH).to.be.near(3, 0.45)
+				-- ...AND THE AIRTIME CANNOT BE CHOSEN SEPARATELY: 2x the apex IS sqrt(2) x the air.
+				expect(air / BEFORE_AIR).to.be.near(math.sqrt(2), 0.1)
+			end)
+
+			it("the burst is on the published velocity and nowhere else (task 334)", function()
+				-- FAILS WHEN THE `leapSpeedScale` CALL AT `Brain:step`'s `targetVelocity` LINE IS
+				-- DELETED. The two runs below differ in NOTHING but `LEAP.SPEED_SCALE`: the
+				-- position is held, so both see the same observation on every tick and `_speed`
+				-- evolves identically.
+				local function run(scale: number)
+					local config = table.clone(CONFIG)
+					config.SENSE = table.clone(CONFIG.SENSE)
+					config.SENSE.ENABLED = true
+					local model = table.clone(CONFIG.MODEL)
+					model.LEAP = table.clone(CONFIG.MODEL.LEAP)
+					model.LEAP.ENABLED = true
+					model.LEAP.SPEED_SCALE = scale
+					config.MODEL = model
+					local field = {
+						bounds = FIELD.bounds,
+						exitZ = FIELD.exitZ,
+						groundY = 0,
+						road = {
+							halfWidthStuds = 20,
+							zAt = function(_x: number): number
+								return 0
+							end,
+						},
+					}
+					local brain = Brain.new(config, field, Vector3.zero, Random.new(7))
+					local leaping, flat, ticks = 0, 0, 0
+					for _ = 1, 600 do
+						local intent = brain:step(1 / 60, {
+							position = Vector3.zero,
+							velocity = Vector3.zero,
+							threats = {
+								{ id = "d", position = Vector3.new(0, 0, 8), kind = "driver" },
+							},
+							waypoints = nil,
+							pathFailed = false,
+							blockedAhead = false,
+						})
+						local speed = intent.targetVelocity.Magnitude
+						if intent.leaping then
+							ticks += 1
+							leaping = math.max(leaping, speed)
+						else
+							flat = math.max(flat, speed)
+						end
+					end
+					return leaping, flat, ticks
+				end
+				local burstOn, flatOn, ticksOn = run(CONFIG.MODEL.LEAP.SPEED_SCALE)
+				local burstOff, flatOff, ticksOff = run(1)
+				-- IT BOUNDED, in both runs and for the same number of ticks: the scale changes the
+				-- published velocity and nothing about WHEN the bound happens.
+				expect(ticksOn > 0).to.equal(true)
+				expect(ticksOn).to.equal(ticksOff)
+				expect(flatOn).to.be.near(flatOff, 1e-6)
+				-- WITH NO BURST a bound publishes exactly the gait speed...
+				expect(burstOff).to.be.near(flatOff, 1e-6)
+				-- ...and with it, that speed times the scale, to the last decimal.
+				expect(burstOn / burstOff).to.be.near(CONFIG.MODEL.LEAP.SPEED_SCALE, 1e-6)
+			end)
+
 			it("starts the bound at the clip's own take-off frame (task 325)", function()
 				local leap = CONFIG.MODEL.LEAP
 				expect(Body.leapStartAt(leap)).to.equal(leap.TAKEOFF_SECONDS)

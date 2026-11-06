@@ -278,3 +278,65 @@ Peak upward speed of the body during the bound, the same instrument on both runs
 The first sampled frame is already past the launch, so the figures sit under `v0` = 34.3 / 31.7 /
 24.2 as they must. A walking hind crossing still does not bound (`speed 1.9..4.5, LEAP=false`),
 which is `MODEL.RUN_FROM` and Karen's *"when is cross road"* at a run.
+
+## 9. Twice as high, three times as long (task 334, 2026-11-06)
+
+KAREN, 2026-11-06: *"fix deer jump only mail jumping and does twice high and 3 times longer then
+now"*.
+
+### 9.1 The first half of her sentence is refuted by measurement
+
+Every kind bounds, and did before this task. Her Forest Test (layout `C1`), per-frame probe
+`<runs-dir>/334-why.luau`, 18 animals: of those at or above `MODEL.RUN_FROM` (21 studs/s) **while
+inside** the road band (`|dz| <= 18`), **12 of 12 bounded -- stag 1/1, hind 7/7, calf 4/4**. Of the
+4 that crossed below it, none bounded, and all four were measured crossing at **2.0-2.8 studs/s**
+(walking). The gate is `Brain.leapStarts`' `speed >= runFrom`, which is Karen's own earlier
+sentence (section 8: *a deer ambling over the lane does not bound*). It is untouched.
+
+What reads as "only the male jumps" is the SIZE, measured at cdc885b7 over 260 s and 8 staged
+`herd@120,-140,60,run` releases (`<runs-dir>/334-instrument.luau`, `334-BEFORE.txt`):
+
+| kind | bounds | apex (studs) | length (studs) | airtime (s) |
+|---|---|---|---|---|
+| stag | 7 | 2.905 | 8.14 | 0.340 |
+| hind | 17 | 2.471 | 7.58 | 0.322 |
+| calf | 9 | 1.612 | 5.52 | 0.233 |
+
+The calf rises 1.61 studs in 0.23 s. Beside the stag's 2.91 that is not a bound anyone sees.
+
+### 9.2 The two targets together force a forward burst
+
+The arc is ballistic against `workspace.Gravity` (196.1999969482422, read live), so
+`apex = g t^2 / 8`: **doubling the apex multiplies the airtime by `sqrt(2)` and nothing else can
+change it.** Length is `horizontal speed x airtime`, so 3x the length needs the in-air horizontal
+speed at **`3 / sqrt(2)` = 2.12132x**. That is one number for all three kinds, because both of
+Karen's multiples are uniform. It is not a dial that was chosen; it is what her two numbers leave.
+
+So the change is three lines of data and one pure function:
+
+| lever | before | after |
+|---|---|---|
+| `MODEL.LEAP.APEX_STUDS` | stag 3.0, hind 2.566, calf 1.485 (effective 1.668, floor-bound) | stag **6.0**, hind **5.132**, calf **3.336** |
+| `MODEL.LEAP.SPEED_SCALE` | -- | **2.12132**, read by `Brain.leapSpeedScale` |
+| `MODEL.LEAP.SECONDS` | 0.55 | **0.75** (the stag's `Body.leapPlan` window is now 0.692 s) |
+
+The calf's 2x is 2 x **1.668** and not 2 x 1.485: `Body.leapApex`'s sink floor binds on it today.
+
+### 9.3 Against life
+
+A red deer clears a 1.8 m fence routinely (section 8). At `METRES_PER_STUD` 0.28 the stag's new
+apex is **1.68 m** and its length **6.84 m**; reported single-bound spans are 6-10 m. Both are now
+an obstacle-clearing bound rather than the 0.81 m x 2.28 m cruising skip.
+
+**The one number above life, stated plainly:** the in-air horizontal speed becomes ~50.8 studs/s =
+**51 km/h**, against a red deer's ~48 km/h top speed. It lasts 0.48 s and is the push-off burst of
+a bound, not a cruise -- but it is above the species' sustained maximum, and it is forced by 2x
+apex and 3x length together, not chosen.
+
+### 9.4 One flag shares these numbers
+
+`MOVE.BOUND_ON_SPOOK` (`STAG_BOUND_ON_SPOOK`) reads the same `APEX_STUDS`, and `Brain.boundStarts`
+fires at or below 6 studs/s -- so with that flag ON a near-stationary stag would now be launched at
+**48.5 studs/s of almost pure up**. The flag is off everywhere (default false, Forest Test override
+`none`), so no live build changes, and `SPEED_SCALE` cannot make it worse horizontally (2.12 x a
+near-zero velocity is still near zero). Queued, not fixed here.
