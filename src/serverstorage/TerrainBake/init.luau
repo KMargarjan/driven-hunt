@@ -2615,11 +2615,54 @@ function TerrainBake.anchorHalfAt(
 	return row
 end
 
+-- ONE TILE, WITH ITS ANSWER PUBLISHED WHERE A LATER CALL CAN READ IT (task 330). A bench tile
+-- blocks the Edit DataModel for longer than StudioMCP's dispatch will wait -- MEASURED at tile 52
+-- of the seven-cell plan on 2026-11-06, which is unreachable on every attempt while tile 51 answers
+-- in 1.3 s -- so the reply cannot come back on the call that asked for it. The Luau keeps running
+-- and writes the report here; the tool polls. `token` is the RUN's, so a stale attribute from an
+-- earlier run can never be read as this run's answer.
+TerrainBake.TILE_PREFIX = "DH330Tile_"
+
+function TerrainBake.tileAttr(token: string, tileIndex: number): string
+	return string.format("%s%s_%d", TerrainBake.TILE_PREFIX, token, tileIndex)
+end
+
+function TerrainBake.bakeTileAtPublished(
+	token: string,
+	tileIndex: number,
+	cellIds: { string },
+	dryRun: boolean,
+	profiles: { Profile }?,
+	slice: any?,
+	benchSlices: { any }?,
+	holdLandform: { string }?,
+	cacheAnchors: boolean?,
+	auditEvery: number?,
+	where: Instance?
+): TileReport
+	local report = TerrainBake.bakeTileAt(
+		tileIndex,
+		cellIds,
+		dryRun,
+		profiles,
+		slice,
+		benchSlices,
+		holdLandform,
+		cacheAnchors,
+		auditEvery
+	)
+	local target = where or ServerStorage
+	target:SetAttribute(TerrainBake.tileAttr(token, tileIndex), HttpService:JSONEncode(report))
+	return report
+end
+
 function TerrainBake.clearProof(where: Instance?): number
 	local target = where or ServerStorage
 	local gone = 0
 	for name in target:GetAttributes() do
-		if string.sub(name, 1, #TerrainBake.PROOF_PREFIX) == TerrainBake.PROOF_PREFIX then
+		local isProof = string.sub(name, 1, #TerrainBake.PROOF_PREFIX) == TerrainBake.PROOF_PREFIX
+		local isTile = string.sub(name, 1, #TerrainBake.TILE_PREFIX) == TerrainBake.TILE_PREFIX
+		if isProof or isTile then
 			target:SetAttribute(name, nil)
 			gone += 1
 		end

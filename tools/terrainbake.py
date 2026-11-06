@@ -2080,6 +2080,63 @@ def args_side():
     return int(number_from(BAKE_LUAU, r"^TerrainBake\.TILE_STUDS = ([0-9_]+)"))
 
 
+# HOW LONG ONE TILE MAY TAKE, and how often its attribute is read while it does. A bench tile of
+# B2 blocks the Edit DataModel past StudioMCP's dispatch patience (MEASURED: tile 52 of the
+# seven-cell plan is "Target is not reachable" on every attempt, dry or wet, while tile 51 answers
+# in 1.3 s), so the answer comes off an attribute, exactly as the equality proof's halves do.
+TILE_POLL_SECONDS = 1200
+TILE_POLL_EVERY = 10
+
+
+def clear_tile_marks(studio, studio_id, injected):
+    """THIS RUN'S TILE ATTRIBUTES OFF AGAIN (L-101). They are a Builder's marks in Karen's place."""
+    if studio is None:
+        return
+    try:
+        print("[bake] tile marks cleared: %s"
+              % call(studio, studio_id, "TerrainBake.clearProof()", timeout=120, injected=injected))
+    except Exception as problem:  # noqa: BLE001 -- never fail a finished bake over a tidy-up
+        print("[bake] NOTE: could not clear this run's tile attributes: %s" % str(problem)[:120])
+
+
+def tile_call(studio, studio_id, injected, expression, token, index):
+    """One tile, fired and then READ OFF ITS ATTRIBUTE if the reply cannot come back.
+
+    `TerrainBake.bakeTileAtPublished` writes the report under this run's token before it returns,
+    so a dropped reply costs a poll and never a re-bake. Only the two "Studio is busy" failures are
+    tolerated; anything else is raised, because a real error must not be waited out.
+    """
+    attr = "DH330Tile_%s_%d" % (token, index)
+    started = time.time()
+    try:
+        row = call(studio, studio_id, expression, injected=injected)
+        if isinstance(row, dict) and "elapsedMs" in row:
+            return row
+    except RuntimeError as problem:
+        if "timeout" not in str(problem).lower() and UNREACHABLE.lower() not in str(problem).lower():
+            raise
+        print("    (MCP gave up after %.0f s; the tile is still running -- polling %s)"
+              % (time.time() - started, attr))
+    deadline = time.time() + TILE_POLL_SECONDS
+    while time.time() < deadline:
+        time.sleep(TILE_POLL_EVERY)
+        # EVERY FAILURE HERE IS "STUDIO IS STILL BUSY": the poll sits in StudioMCP's own queue
+        # behind the tile and comes back as a timeout or as `Target is not reachable`. Neither is
+        # an answer and neither is a reason to stop asking -- the deadline is.
+        try:
+            found = call(studio, studio_id,
+                         '(function() local v = game:GetService("ServerStorage"):GetAttribute("%s") '
+                         'return { got = v } end)()' % attr, timeout=150, injected=injected)
+        except Exception:  # noqa: BLE001 -- "Studio is busy" wears several names; see above
+            continue
+        got = found.get("got") if isinstance(found, dict) else None
+        if got:
+            row = json.loads(got)
+            row["waitedS"] = round(time.time() - started, 1)
+            return row
+    raise RuntimeError("tile %d never published %s after %d s" % (index, attr, TILE_POLL_SECONDS))
+
+
 def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=None, keep=None,
               live=None, base=None, plan=None, pad=None, bands=None):
     """The tile loop, shared by `measure` (dry) and `bake` (wet). One MCP call per tile."""
@@ -2101,6 +2158,9 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
         return refuse("--audit-every %d without --cache-anchors: an uncached run has no reuse to "
                       "audit, so the number would be a silence, not a measurement" % audit), []
     worst_div, worst_div_at, audited = -1.0, None, 0
+    # THIS RUN'S TOKEN. Every tile publishes its report under it, so a poll can never read an
+    # attribute an earlier run left behind as this run's answer (task 330).
+    token = "%08x" % (int(time.time() * 1000) & 0xFFFFFFFF)
     region = region_for(cells, facts)
     count = tile_count(region, facts["tile"])[0]
     limit = min(args.tiles or count, count)
@@ -2141,15 +2201,16 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
         # THE SAME PROFILE BYTES INTO EVERY TILE. `[==[` quoting, because the payload is JSON and
         # holds double quotes; it is a value, never code.
         expression = (
-            'TerrainBake.bakeTileAt(%d, {%s}, %s, HttpService:JSONDecode([==[%s]==]), '
+            'TerrainBake.bakeTileAtPublished("%s", %d, {%s}, %s, HttpService:JSONDecode([==[%s]==]), '
             'HttpService:JSONDecode([==[%s]==]), HttpService:JSONDecode([==[%s]==]), {%s}, %s, %d)'
-            % (index, ",".join('"%s"' % c for c in cells), "true" if dry else "false", profiles,
+            % (token, index, ",".join('"%s"' % c for c in cells), "true" if dry else "false",
+               profiles,
                json.dumps(payload, separators=(",", ":")),
                json.dumps(bench, separators=(",", ":")),
                ",".join('"%s"' % c for c in hold),
                "true" if cache else "nil", audit)
         )
-        report = call(studio, studio_id, expression, injected=injected)
+        report = tile_call(studio, studio_id, injected, expression, token, index)
         entries.append(report)
         worst = max(worst, report.get("elapsedMs", 0))
         # COLUMNS WHERE THE LANDFORM WAS DROPPED because the blur had a void inside its support
@@ -2184,6 +2245,7 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
             # THE STOP, AND IT FIRES INSIDE THE RUN (guard 2): above 0.25 studs the Director's
             # decision is to stop, so the remaining tiles are not written.
             if gap > ANCHOR_DIVERGENCE_STOP_STUDS:
+                clear_tile_marks(studio, studio_id, injected)
                 log_run(cells, entries, keep, live)
                 print("[bake] STOP at tile %d: the bench anchor cache is %.6f st out, over the "
                       "%.2f-st guard (task 330, Director 2026-11-06 ~02:55 guard 2). Write "
@@ -2191,9 +2253,11 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
                       % (index, gap, ANCHOR_DIVERGENCE_STOP_STUDS, index - 1))
                 return 2, entries
         if report.get("message"):
+            clear_tile_marks(studio, studio_id, injected)
             log_run(cells, entries, keep, live)
             print("[bake] FAILED at tile %d: %s" % (index, report["message"]))
             return 1, entries
+    clear_tile_marks(studio, studio_id, injected)
     log_run(cells, entries, keep, live)
     # THE EPOCH IS STAMPED AT THE END OF A WET RUN, through TerrainBake.stamp, which design 2 names
     # as its only writer -- and it is printed, because design 6.3 puts it in this line.
