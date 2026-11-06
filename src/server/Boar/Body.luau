@@ -417,6 +417,10 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 	-- of boar Instances, and the weapon only reads. The trunk keeps HitZone = "body", so belly,
 	-- flank, rear and brisket -- whatever no zone part covers -- are the default zone.
 	part:SetAttribute("Damageable", true)
+	-- HOW MUCH DAMAGE THIS ANIMAL CARRIES, ON THE ANIMAL (task 331). 0 at birth, and `Body.setWound`
+	-- writes it on every hit, so "is the animal on the lane a fresh one at full health" is a fact a
+	-- probe and the Explorer can read instead of module state nobody outside the server can see.
+	part:SetAttribute("Wound", 0)
 	-- THE TRUNK'S OWN ZONE, AND A DEER HAS NONE (task 280). For a boar `body` is the fallback -- the
 	-- belly, the flank and the brisket are hits although no zone part covers them -- and
 	-- `TRUNK_HITTABLE` is absent from `Boar.CONFIG.ZONES`, so `geometry.trunkHittable` reads true
@@ -670,6 +674,15 @@ end
 -- Starts (or extends) the flash. The colour itself is written by stepFlash, on a transition only.
 function Body.setFlash(handle, seconds: number)
 	handle.flashFor = math.max(handle.flashFor, seconds)
+end
+
+-- THE WOUND THIS ANIMAL CARRIES, PUBLISHED BY ITS OWN OWNER (task 331). `Body` stays the only
+-- writer of a boar Instance; the Runtime hands it the number `Wound.apply` worked out.
+function Body.setWound(handle, damage: number)
+	local part = handle.part
+	if part ~= nil and part.Parent ~= nil then
+		part:SetAttribute("Wound", math.max(0, damage))
+	end
 end
 
 local function paint(handle, flashColor: Color3?)

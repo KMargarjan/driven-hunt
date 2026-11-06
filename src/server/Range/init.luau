@@ -73,6 +73,15 @@ Range.CONFIG = {
 	-- across the widest span, 156 studs, is 35 s)... so it is counted from the RELEASE to the span
 	-- ENTRY only, which is the run-up: 20 studs of apron at a walk is 4.4 s.
 	PASS_MAX_SECONDS = 20,
+	-- AN ANIMAL THE RANGE CANNOT STEER HAS ENDED ITS PASS (task 331). Karen, 2026-11-06: *"once I
+	-- hit animal and it's going to left or right and it ends on next has to be healthy animal new
+	-- one not the same"*. A rump hit puts the Brain in `CRIPPLED` and `Brain:leadTo` then REFUSES
+	-- every order, so the animal circles inside the span and the pass never ends -- measured 18.3 s
+	-- and 18.2 s in her place with nothing released (<runs-dir>/331-ft-cripple.txt).
+	-- 4.0 s because `WOUND.BOLT_SECONDS` is 3.0: the bolt after a hit is the longest stretch in
+	-- which a healthy pass legitimately refuses steering (`scan` skips `order` while `flying`), so
+	-- a grazed animal still finishes its pass and a crippled one goes.
+	UNSTEERED_PASS_SECONDS = 4.0,
 	-- Hold the carcass so the player sees what he did, then clear it. The NEXT animal does not wait
 	-- for it (task 321 (c)): death ends the pass, and the pass after it starts at once.
 	-- Death is the hunt's, not the range's (design section 6).
@@ -172,6 +181,9 @@ type Trial = {
 	passFrom: number?,
 	passEntered: boolean,
 	passOver: boolean,
+	-- HOW LONG THE RANGE HAS BEEN UNABLE TO STEER THIS ANIMAL (task 331): seconds since the last
+	-- order it ACCEPTED. Zeroed by every accepted `leadTo` and by every release.
+	unsteeredFor: number,
 	-- HIS CARCASS, held apart from his live target: it stays where it fell for `CARCASS_SECONDS`
 	-- while the next animal is already crossing (task 321 (c)).
 	carcassId: string?,
@@ -238,6 +250,11 @@ local state = {
 		-- HOW MANY SESSIONS WERE ENDED FROM THE PANEL (task 319): his animal cleared, his board
 		-- blanked, and nothing released again until he asks.
 		leaves = 0,
+		-- HOW MANY ORDERS THE ANIMAL REFUSED, and how many PASSES ended because it refused them for
+		-- `UNSTEERED_PASS_SECONDS` (task 331). A crippled animal refuses every one, so the first is a
+		-- liveness number and the second is the defect's own counter.
+		unsteered = 0,
+		unsteeredClears = 0,
 		-- A CLEAR THAT TOOK THE WHOLE RANGE WITH IT: a root that wired only `boars.clear` and no
 		-- `clearOne`. Counted rather than silent, because it is the defect B2 wrote down.
 		wideClears = 0,
@@ -370,6 +387,7 @@ local function newTrial(spot: number, pace: string): Trial
 		passFrom = nil,
 		passEntered = false,
 		passOver = false,
+		unsteeredFor = 0,
 		carcassId = nil,
 		carcassAt = nil,
 		releaseAt = nil,
@@ -1018,6 +1036,14 @@ local function clearId(trial: Trial, id: string?, reason: string): boolean
 		-- `false` for an id that is already gone must not bump the counters group 12 reads.
 		local ok, done = pcall(boars.clearOne, id :: string, reason)
 		if not ok or done == false then
+			-- IT IS NOT THERE, SO THIS TRIAL STOPS HOLDING IT (task 331, 321a(g)). `clearOne`
+			-- answers false only for an id its runtime does not have, so there is nothing to retry
+			-- and a kept `carcassId` would be published by `mineIdsFor` for the rest of the session.
+			-- The counters are NOT bumped: this module despawned nothing.
+			if ok and done == false and trial.carcassId == id then
+				trial.carcassId = nil
+				trial.carcassAt = nil
+			end
 			return false
 		end
 	elseif boars.clear ~= nil then
@@ -1154,7 +1180,9 @@ local function release(trial: Trial)
 	trial.windowEnteredAt = nil
 	trial.windowLeg = nil
 	trial.windowArmed = true
-	-- A FRESH PASS, with its own animal and its own clock (task 321).
+	-- A FRESH PASS, with its own animal and its own clock (task 321), and nothing owed from the
+	-- last one's steering (task 331).
+	trial.unsteeredFor = 0
 	trial.passes += 1
 	trial.passFrom = clockNow()
 	trial.passEntered = false
@@ -1259,8 +1287,15 @@ local function order(trial: Trial, position: Vector3, dt: number)
 
 	trial.directions[direction] = (trial.directions[direction] or 0) + 1
 	trial.issuedStudsPerSecond = speed
+	-- THE ANSWER IS READ, NOT JUST COUNTED (task 331): `Brain:leadTo` returns false for a CRIPPLED
+	-- animal, which is what a rump hit makes, and an animal that refuses every order is not on a
+	-- pass any more.
 	if boars.leadTo(trial.targetId :: string, point, speed) then
 		state.stats.leadTos += 1
+		trial.unsteeredFor = 0
+	else
+		trial.unsteeredFor += math.max(0, dt or 0)
+		state.stats.unsteered += 1
 	end
 end
 
@@ -1374,8 +1409,19 @@ local function scan(dt: number)
 		local stalled = not trial.passEntered
 			and from ~= nil
 			and now - (from :: number) >= Range.CONFIG.PASS_MAX_SECONDS
-		if trial.passOver or stalled then
-			if clearTarget(trial, if stalled then "range pass stalled" else "range pass over") then
+		-- ...OR THE RANGE CAN NO LONGER STEER IT (task 331): a crippled animal refuses every order
+		-- and circles inside the span, so neither of the two conditions above can ever fire and the
+		-- station holds a wounded animal instead of releasing a healthy one.
+		local unsteered = trial.unsteeredFor >= Range.CONFIG.UNSTEERED_PASS_SECONDS
+		if trial.passOver or stalled or unsteered then
+			local why = if trial.passOver
+				then "range pass over"
+				elseif stalled then "range pass stalled"
+				else "range pass unsteered"
+			if clearTarget(trial, why) then
+				if unsteered and not trial.passOver then
+					state.stats.unsteeredClears += 1
+				end
 				trial.leg += 1
 				state.stats.flips += 1
 				state.stats.passes += 1
@@ -1390,6 +1436,9 @@ local function scan(dt: number)
 		-- order an animal the Brain is flying"*.
 		if boars.flying ~= nil and boars.flying(trial.targetId) then
 			state.stats.skippedFlying += 1
+			-- A SKIPPED ORDER IS AN UNSTEERED TICK TOO (task 331): the bolt is 3.0 s and the bound
+			-- is 4.0, so a bolting animal comes back onto its lane and a latched one does not hold it.
+			trial.unsteeredFor += math.max(0, dt or 0)
 			continue
 		end
 		order(trial, status.position, dt)

@@ -5629,6 +5629,9 @@ function Runtime:takeHit(part: BasePart, hit): boolean
 			local record = nextWound.wounds[#nextWound.wounds]
 			entry.wound = nextWound
 			entry.lastHit = payload
+			-- ...AND ON THE ANIMAL ITSELF (task 331), through its own writer: a probe reading the
+			-- lane can then tell a fresh target from the one that has already been shot.
+			Body.setWound(entry.body, nextWound.damage)
 
 			self._stats.hits += 1
 			self._stats.pelletsTaken += record.pellets

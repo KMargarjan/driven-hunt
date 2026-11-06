@@ -187,9 +187,15 @@ return function()
 			local answer = fake.pastOf
 			return if answer ~= nil then answer(id, at) else nil
 		end
+		-- AN ANIMAL THAT REFUSES EVERY ORDER (task 331), which is what `Brain:leadTo` does for a
+		-- CRIPPLED animal -- the state a rump hit at or past MORTAL puts it in.
+		fake.refuseLeadIds = {} :: { [string]: boolean }
 		fake.leadTo = function(id: string, point: Vector3, speed: number)
 			local animal = fake.animals[id]
 			if animal == nil then
+				return false
+			end
+			if fake.refuseLeadIds[id] == true then
 				return false
 			end
 			animal.order = point
@@ -2429,6 +2435,100 @@ return function()
 			fake.flyingIds[animal.id] = false
 			advance(fake, clock, 1)
 			expect(leadsOf(animal.id) > leadsBefore).to.equal(true)
+			Range.stop()
+		end)
+
+		-- TASK 331. KAREN, 2026-11-06: *"once I hit animal and it's going to left or right and it
+		-- ends on next has to be healthy animal new one not the same"*. A rump hit at or past MORTAL
+		-- puts the Brain in CRIPPLED and `Brain:leadTo` then REFUSES every order, so the animal
+		-- circles inside the span: `passOver` never fires (it never leaves) and `stalled` never
+		-- fires (it DID enter). MEASURED in her place at main: 18.3 s and 18.2 s with nothing
+		-- released (<runs-dir>/331-ft-cripple.txt).
+		it("ends the pass of an animal it can no longer steer, and the next one is fresh", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now))).to.equal(true)
+			expect(Range.setPace(1, "walk")).to.equal(true)
+			advance(fake, clock, 2)
+			local animal = animalAt(fake, clock, 1) :: any
+			expect(animal).to.be.ok()
+			local first = animal.id
+			-- the order is refused from here on, and the animal stops moving: a crippled one pivots
+			-- where it stands, well inside the span.
+			fake.refuseLeadIds[first] = true
+			animal.order = nil
+			local clearsBefore = Range.stats().unsteeredClears
+			-- JUST UNDER THE BOUND IT IS STILL HIS ANIMAL: 3.0 s is the bolt, and a bolting animal
+			-- must come back to its lane rather than lose it.
+			advance(fake, clock, 3)
+			expect((Range.trialOf(1) :: any).targetId).to.equal(first)
+			expect(fake.animals[first]).to.be.ok()
+			-- ...and past it the station lets it go and releases another.
+			advance(fake, clock, 2)
+			expect(Range.stats().unsteeredClears > clearsBefore).to.equal(true)
+			expect(fake.animals[first]).to.equal(nil)
+			expect(fake.lastClear).to.equal("range pass unsteered")
+			local next_ = animalAt(fake, clock, 1) :: any
+			expect(next_).to.be.ok()
+			expect(next_.id ~= first).to.equal(true)
+			-- FRESH, NOT THE ONE THAT WAS SHOT: a new spawn carries no wound at all.
+			expect(next_.wound).to.equal(nil)
+			TestKit.note(
+				string.format(
+					"range 331: an unsteered animal keeps the lane for %.1f s and no longer, then %s replaces %s",
+					Range.CONFIG.UNSTEERED_PASS_SECONDS,
+					tostring(next_.id),
+					tostring(first)
+				)
+			)
+			Range.stop()
+		end)
+
+		-- THE OTHER SIDE OF THE SAME BOUND: an animal that keeps ACCEPTING orders is never taken,
+		-- however long its pass runs. Without this the case above could be passed by a timer that
+		-- retires every animal after 4 s.
+		it("never takes an animal that is still accepting its orders", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now))).to.equal(true)
+			expect(Range.setPace(1, "walk")).to.equal(true)
+			advance(fake, clock, 2)
+			local animal = animalAt(fake, clock, 1) :: any
+			expect(animal).to.be.ok()
+			local first = animal.id
+			advance(fake, clock, 8)
+			expect((Range.trialOf(1) :: any).targetId).to.equal(first)
+			expect(Range.stats().unsteeredClears).to.equal(0)
+			Range.stop()
+		end)
+
+		-- TASK 331 / 321a(g): a `clearOne` that answers FALSE means the runtime does not have that
+		-- id, so there is nothing to retry -- and a carcass slot that keeps it would be published by
+		-- `mineIdsFor` for the rest of the session.
+		it("drops a carcass id its runtime says it does not have", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now))).to.equal(true)
+			expect(Range.setPace(1, "walk")).to.equal(true)
+			advance(fake, clock, 2)
+			local animal = animalAt(fake, clock, 1) :: any
+			expect(animal).to.be.ok()
+			local id = animal.id
+			-- it dies, so the station moves it to its carcass slot...
+			animal.alive = false
+			advance(fake, clock, 0.4)
+			expect((Range.trialOf(1) :: any).carcassId).to.equal(id)
+			-- ...and then it leaves the runtime by somebody else's hand, so every clear answers false.
+			fake.animals[id] = nil
+			advance(fake, clock, Range.CONFIG.CARCASS_SECONDS + 1)
+			expect((Range.trialOf(1) :: any).carcassId).to.equal(nil)
+			local published = false
+			for _, mine in ipairs(Range.mineIdsFor(newCrowd({ 1 }).men[1])) do
+				if mine == id then
+					published = true
+				end
+			end
+			expect(published).to.equal(false)
 			Range.stop()
 		end)
 	end)
