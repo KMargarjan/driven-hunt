@@ -3,11 +3,27 @@
 Task: 334
 Round: 2
 Base: cdc885b7
-Code commit: TBD
+Code commit: 21982dc71d74a1c153d67c26fda3110e4905b485
 
-Gate: TBD
+Gate: `[harness] PASS: 34/34 checks @ 21982dc71d74a1c153d67c26fda3110e4905b485 (clean tree) scope=all`
 `test2` N/A: the diff touches `src/server/Boar/` and `tests/server/deer.spec.luau` only, no
 `TWO_PLAYER_PATHS` path.
+
+**The code commit is a DOCS commit on purpose.** `470a75ff` is the last commit that changed `src/`
+or `tests/`, and it passed the same gate FIRST TIME:
+`[harness] PASS: 34/34 checks @ 470a75ff77289946f343cc8eb88b583f488a5f61 (clean tree) scope=all`.
+`21982dc7` adds section 9's cycle-4 rows to the research note, which `is_paperwork` does not cover,
+so it is named here instead -- the bound is then strictly tighter, and
+`git diff --stat 470a75ff..21982dc7 -- src tests` is **empty**.
+
+**THE UNSTABLE SPECS, with the control beside them.** `weapon_shot.spec` claim cases failed on the
+first two runs at `21982dc7` -- `:1490` (on the Director's list) and `:1890` (**not** on it:
+`expect(after.claimsAccepted).to.equal(before.claimsAccepted + 1)`, got 3 of 4) -- and the third
+run is the PASS above. The two runs did not even agree with each other (30/34 then 32/34). Earlier
+today `:2077` failed the same way at `1e96adcf` and passed on its re-run. The control is the two
+harness lines above: they name two different commits carrying **byte-identical** `src/` and
+`tests/`, and `470a75ff` was green first time. Nothing in this change is nearer the weapon than
+`src/server/Boar/`, and no deer path is reachable from a claim case.
 
 ## Round 1's two findings, both fixed
 
