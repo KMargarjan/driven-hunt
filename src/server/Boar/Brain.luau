@@ -2662,7 +2662,12 @@ function Brain:step(dt: number, obs)
 	intent.state = self._state
 	-- WHAT A CALM BOAR IS DOING (task 117), published only while IDLE so every other state draws
 	-- exactly what it drew before. `Body` turns it into a clip; nothing else reads it.
-	intent.activity = if self._state == "IDLE" and self._calm then self._calm.name else nil
+	-- ...AND AN ORDERED ANIMAL IS NOT CALM (task 333). Karen, 2026-11-06: *"sometimes one is head
+	-- down fresh boar but head down"*. The order branch above outranks every mood but leaves
+	-- `_state` at IDLE, so a led animal kept publishing its activity: `root` draws `digWalk`, which
+	-- carries its own ground and so passes `Body.clipFor`'s `walks` gate at ANY speed -- measured
+	-- 7 of 49 range passes crossing at 11.00 studs/s with the rooting clip at full weight.
+	intent.activity = if self._state == "IDLE" and self._calm and not self:ordered() then self._calm.name else nil
 	intent.activityDraw = if intent.activity ~= nil then self._calmDraws else nil
 	intent.targetVelocity = self._desired * self._speed
 	intent.facing = self._desired

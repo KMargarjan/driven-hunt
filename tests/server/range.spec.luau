@@ -1683,6 +1683,43 @@ return function()
 			Range.stop()
 		end)
 
+		-- TASK 333: THE PASS IS STEERED FROM THE TICK THE ANIMAL IS BORN. Before this the first
+		-- order waited for the next 10 Hz `scan`, so every animal took ~0.1 s as a free boar, picked
+		-- a CALM clip while it stood still, and `MODEL.MIN_CLIP_SECONDS` held that head-down clip
+		-- while it accelerated to pace -- measured `grazeStart` at 8.99 studs/s on 8 of 49 passes.
+		it("orders the new animal on the very tick it releases it, never a scan later", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now, nil, nil, nil, true))).to.equal(true)
+			expect(Range.setPace(1, "trot")).to.equal(true)
+			local dt = 1 / 60
+			local lastId: string? = nil
+			local releases, orderedAtBirth = 0, 0
+			for _ = 1, math.floor(30 / dt) do
+				clock.t += dt
+				fake.advance(dt)
+				Range.step(dt)
+				local id = (Range.trialOf(1) :: any).targetId
+				if id ~= nil and id ~= lastId then
+					releases += 1
+					-- ON THIS TICK, not the next: the lead is already in the log for this id.
+					for _, lead in ipairs(fake.leads) do
+						if lead.id == id then
+							orderedAtBirth += 1
+							break
+						end
+					end
+				end
+				lastId = id
+			end
+			expect(releases >= 3).to.equal(true)
+			expect(orderedAtBirth).to.equal(releases)
+			TestKit.note(
+				string.format("range 333: %d releases, all %d ordered on the release tick", releases, orderedAtBirth)
+			)
+			Range.stop()
+		end)
+
 		-- (b) THE GAP, AS A TIME AND AT EVERY PACE. The run-up is `pace speed * NEXT_PASS_SECONDS`
 		-- of apron, so the next animal reaches the span's near edge that long after the last one left
 		-- it, whatever the pace. On main the gap is a whole reversal: 7.12 s, measured.

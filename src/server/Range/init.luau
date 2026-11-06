@@ -1141,6 +1141,10 @@ local function occupancy(): { [number]: boolean }
 	return out
 end
 
+-- FORWARD, so `release` can issue the pass's FIRST order on the tick it spawns the animal (task
+-- 333). Declared rather than moved: `order` reads the trial fields `release` writes.
+local order: (Trial, Vector3, number) -> ()
+
 local function release(trial: Trial)
 	local boars = state.boars
 	if boars == nil or boars.spawn == nil or state.anchor == nil then
@@ -1191,6 +1195,11 @@ local function release(trial: Trial)
 	trial.passEntered = false
 	trial.passOver = false
 	state.stats.spawns += 1
+	-- ORDERED ON THE TICK IT IS BORN (task 333). The first order used to wait for the next 10 Hz
+	-- `scan`, so every animal took ~0.1 s of Brain steps as a free boar: it picked a CALM clip at
+	-- rest and `MODEL.MIN_CLIP_SECONDS` (0.18 s) then held that head-down clip while `ACCEL` took
+	-- the body to pace -- measured `grazeStart` at 8.99 studs/s on 8 of 49 passes.
+	order(trial, from, 0)
 end
 
 -- THE WINDOW TIMER (TARGET 3). It times the target's passage through the SPAN of open lane, not
@@ -1233,7 +1242,7 @@ local function timeWindow(trial: Trial, position: Vector3, now: number)
 	end
 end
 
-local function order(trial: Trial, position: Vector3, dt: number)
+function order(trial: Trial, position: Vector3, dt: number)
 	local boars = state.boars
 	local anchor = state.anchor :: Vector3
 	local layout = RangeData.LAYOUT
