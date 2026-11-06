@@ -340,3 +340,32 @@ fires at or below 6 studs/s -- so with that flag ON a near-stationary stag would
 **48.5 studs/s of almost pure up**. The flag is off everywhere (default false, Forest Test override
 `none`), so no live build changes, and `SPEED_SCALE` cannot make it worse horizontally (2.12 x a
 near-zero velocity is still near zero). Queued, not fixed here.
+
+### 9.5 Three cycles, measured in her place
+
+Same instrument, same place, same 8 staged `herd@120,-140,60,run` releases over 260 s. Rows are the
+first bound of each animal, inside the road band, entered at a gait (`v0 <= 35`) -- one filter,
+applied identically to both sides.
+
+| cycle | change | measured |
+|---|---|---|
+| 1 | -- (baseline, cdc885b7) | stag apex 2.905 / length 8.14, hind 2.471 / 7.58, calf 1.612 / 5.52 |
+| 2 | `APEX_STUDS` x2 and `SPEED_SCALE` applied on the published `leaping` window | apex right, length WRONG: calf 40.97 against a 16.56 target, and the herd's measured in-band speeds reached **150.7 studs/s**. `LEAP.SECONDS` is one size (0.75) and a calf's flight is 0.516, so the burst drove it along the GROUND at 60 studs/s for 0.23 s after touchdown |
+| 3 | the burst ends at touchdown: `Body.leapAir` -> `Boar.leapByKind` -> the Brain's `_burstFor` | stag 5.685 / 20.22, hind 4.955 / 21.53, calf 3.286 / 17.94 |
+
+| kind | apex x | length x, normalised for entry speed | airtime x |
+|---|---|---|---|
+| stag | **1.96** | **2.83** | 1.51 |
+| hind | **2.01** | **2.85** | 1.44 |
+| calf | **2.04** | **3.31** | 1.53 |
+
+Length is normalised by the animal's own entry speed (`length / v0`) because length IS speed x
+airtime and the gait speed at the band edge is not something this task changed; the raw means are
+in the row above. The residual ~5 % under 3.00 is the instrument: take-off and landing are sampled
+at 0.02-0.04 s, which clips ~2 studs off a 21-stud bound at 51 studs/s and only ~0.3 off a 7.6-stud
+one at 24.
+
+**One regression, measured and queued, not fixed:** in-band speed went from a max of 39.9 studs/s
+(0 animals over 45) to **113.8** (45 of 90 over 60). 60.0 is `PACE.RUN_SPEED x runScale x
+SPEED_SCALE` and is the feature; 95.1 is the ceiling a sprinting animal reaches; above that is
+animals shoved by a herd that now covers 20 studs a bound instead of 8.
