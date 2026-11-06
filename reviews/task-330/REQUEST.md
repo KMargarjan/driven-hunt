@@ -78,7 +78,7 @@ exists. It is written now so the review can run the moment it does.
 ## What I could not verify
 
 - **The gate.** No `[harness] PASS` exists at any commit tonight, main included (item 2 above).
-  CI on the pushed branch is not read either.
+  CI IS green on the branch: `Build and lint completed success` at `d61928d0`.
 - **Two of the ten proof tiles** (claim 8), for the measured reason.
 - **The magnitude from the real tile arrays.** `TerrainBake.anchorDeltaAt` and `terrainbake.py
   delta` are committed and lint clean, but every call came back `Target is not reachable` at the
