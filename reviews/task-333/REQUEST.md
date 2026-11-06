@@ -3,7 +3,7 @@
 Task: 333
 Round: 1
 Base: b1a32a89
-Code commit: (filled in below, after the harness)
+Code commit: 781221c63b1e3192e8f074f406f5a3ad4911690b
 
 ## PLAN (core quality protocol, step 0)
 
