@@ -132,6 +132,34 @@ PASS line to paste at any commit tonight, main included.
   exactly as 328g2 left it.
 - Steps 2-5 of the dispatch (the backup, the bake, the planting, the re-plant, the three frames)
   were **not started**, because step 1's proof is the dispatch's own stop.
+- **CI is green** on the branch head `d61928d0`: `Build and lint completed success`.
+
+### 4. THE BLAST RADIUS OF CANDIDATE 1, READ OFF THE CODE (not measured -- it is a reading, and the
+### `grep` is below)
+
+This is what the Director needs in order to weigh candidate 1, and it is narrower than "the bench
+cells move":
+
+- **Only three cells have a bench op at all** -- `grep -n 'kind = "bench"' src/shared/Grid/Relief.luau`
+  gives three hits, in `A1` (line 741), `B2` (828) and `D2` (855). `applyOps` reaches the anchor walk
+  only inside its `bench` arm, so **B1, C1, D1, A2 and C2 are byte-identical whatever the cache
+  does** -- their columns never enter it. A1 cannot be baked from this base at all (item 3).
+- **A road's own surface cannot move with the bench.** `TerrainBake.roadAt` returns a height built
+  from `crownY` -- the long profile, computed once from the base by the tool -- for the carriageway,
+  the rut, the ditch, the shoulder and the verge, and `shapeTile` then OVERWRITES the shaped height
+  with it. The `naturalY` it is handed is used in exactly one place: the **bank**, where it blends
+  back to the ground by smoothstep. So a bank column carries up to the full change and every column
+  inboard of the verge carries none.
+- **A stand's landing cannot move either.** `TerrainBake.standPadAt` returns `pad.y` inside
+  `levelRadiusStuds`, and blends to `naturalY` only across `blendStuds`. The landing a hunter stands
+  on is the pad's own Y.
+- **The material pass is unaffected, and that is measured, not read**: tile 393's `materialFnv` was
+  `c7bac250` both ways. `Relief.materialAt`'s scree arm reads the SLOPE, so this says the slope did
+  not cross 30 or 40 degrees anywhere on that tile -- not that it never could.
+
+So candidate 1's change is confined to **B2's and D2's bench columns outside every road verge and
+every pad landing**, bounded by the 0.153 studs 330-6 measures -- about a twenty-sixth of a 4-stud
+voxel. I am not taking it: the dispatch says the decision is the Director's.
 
 ## 2026-11-05 ~20:50 UTC, Director decision on Task 328g2's task id
 
