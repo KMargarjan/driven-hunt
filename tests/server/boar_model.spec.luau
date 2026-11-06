@@ -2860,8 +2860,11 @@ return function()
 			-- A RUMP SLUG: 55 of the 100-point lethal scale, so it is wounded and not dead.
 			expect(runtime:takeHit(handle.part, { zone = "rear", ammo = "Slug", pellets = 1, at = 0 })).to.equal(true)
 			local carried = handle.part:GetAttribute("Wound")
-			expect(type(carried)).to.equal("number")
-			expect(carried > 0).to.equal(true)
+			-- THE NUMBER THE COMMENT NAMES (review round 1, note 6), read off the config rather
+			-- than typed in: 55 of the 100-point lethal scale, so it is wounded and not dead.
+			expect(carried).to.equal(Boar.CONFIG.WOUND.DAMAGE.rear.Slug)
+			expect(carried < Boar.CONFIG.WOUND.LETHAL).to.equal(true)
+			expect(handle.part:GetAttribute("Carcass")).never.to.equal(true)
 			expect(carried).to.equal(runtime:woundOf(handle.id).damage)
 			-- ...and the NEXT animal is born clean, which is the whole point of publishing it.
 			local fresh = runtime:spawn(Vector3.new(40, GROUND_Y, 40))

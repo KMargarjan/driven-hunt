@@ -136,6 +136,10 @@ return function()
 				position = position,
 				kind = kind,
 				alive = true,
+				-- WHAT THIS ANIMAL CARRIES (task 331), as `Boar.Wound` does: a spawn is at 0 and a
+				-- case that wounds one writes it. Without the field "the next one is fresh" is an
+				-- assertion about the fake's table shape (review round 1, finding 1).
+				wound = 0,
 				want = 0,
 				speed = 0,
 				root = trunk,
@@ -2456,6 +2460,7 @@ return function()
 			-- the order is refused from here on, and the animal stops moving: a crippled one pivots
 			-- where it stands, well inside the span.
 			fake.refuseLeadIds[first] = true
+			animal.wound = 55 -- a rump slug: what put the Brain in CRIPPLED in the first place
 			animal.order = nil
 			local clearsBefore = Range.stats().unsteeredClears
 			-- JUST UNDER THE BOUND IT IS STILL HIS ANIMAL: 3.0 s is the bolt, and a bolting animal
@@ -2471,8 +2476,11 @@ return function()
 			local next_ = animalAt(fake, clock, 1) :: any
 			expect(next_).to.be.ok()
 			expect(next_.id ~= first).to.equal(true)
-			-- FRESH, NOT THE ONE THAT WAS SHOT: a new spawn carries no wound at all.
-			expect(next_.wound).to.equal(nil)
+			-- FRESH, NOT THE ONE THAT WAS SHOT. The animal that lost the lane was carrying 55 and
+			-- the one that replaced it carries 0 -- a fact about the ANIMAL, not about the fake's
+			-- table shape (review round 1, finding 1).
+			expect(animal.wound).to.equal(55)
+			expect(next_.wound).to.equal(0)
 			TestKit.note(
 				string.format(
 					"range 331: an unsteered animal keeps the lane for %.1f s and no longer, then %s replaces %s",
@@ -2499,6 +2507,33 @@ return function()
 			advance(fake, clock, 8)
 			expect(Range.stats().passes > 0).to.equal(true)
 			expect(Range.stats().unsteered).to.equal(0)
+			expect(Range.stats().unsteeredClears).to.equal(0)
+			Range.stop()
+		end)
+
+		-- REVIEW ROUND 1, NOTE 5: the reset on an ACCEPTED lead needs its own case. Refusing for
+		-- 3 s, accepting once and refusing for 3 s more is 6 s of refusal and must still not take
+		-- the animal: without `trial.unsteeredFor = 0` in `order` it does.
+		it("forgets the refusals an accepted order has answered", function()
+			local clock, now = newClock()
+			local fake = newFakeBoars()
+			expect(select(1, startRange(fake, now))).to.equal(true)
+			expect(Range.setPace(1, "walk")).to.equal(true)
+			advance(fake, clock, 2)
+			local animal = animalAt(fake, clock, 1) :: any
+			expect(animal).to.be.ok()
+			local first = animal.id
+			fake.refuseLeadIds[first] = true
+			animal.order = nil
+			advance(fake, clock, 3)
+			expect((Range.trialOf(1) :: any).targetId).to.equal(first)
+			-- ONE accepted order, and the clock it was counting is spent.
+			fake.refuseLeadIds[first] = nil
+			advance(fake, clock, 0.3)
+			fake.refuseLeadIds[first] = true
+			animal.order = nil
+			advance(fake, clock, 3)
+			expect((Range.trialOf(1) :: any).targetId).to.equal(first)
 			expect(Range.stats().unsteeredClears).to.equal(0)
 			Range.stop()
 		end)

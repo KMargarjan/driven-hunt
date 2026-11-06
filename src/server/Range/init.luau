@@ -78,9 +78,12 @@ Range.CONFIG = {
 	-- one not the same"*. A rump hit puts the Brain in `CRIPPLED` and `Brain:leadTo` then REFUSES
 	-- every order, so the animal circles inside the span and the pass never ends -- measured 18.3 s
 	-- and 18.2 s in her place with nothing released (<runs-dir>/331-ft-cripple.txt).
-	-- 4.0 s because `WOUND.BOLT_SECONDS` is 3.0: the bolt after a hit is the longest stretch in
-	-- which a healthy pass legitimately refuses steering (`scan` skips `order` while `flying`), so
-	-- a grazed animal still finishes its pass and a crippled one goes.
+	-- 4.0 s. The only refusal that can reach this range today is CRIPPLED, and it is permanent
+	-- (`SENSE` is off here and nothing wires `hearShot`, so `Runtime:flying` is never true --
+	-- review round 1, note 3), so any positive bound ends the hold. 4.0 is the shortest that is
+	-- comfortably past the one TRANSIENT the animal system has after a hit, `WOUND.BOLT_SECONDS`
+	-- = 3.0: if the flying skip below ever does become reachable here, a bolting animal keeps its
+	-- pass. It is 19% of the 20.8 s the lane was held at main.
 	UNSTEERED_PASS_SECONDS = 4.0,
 	-- Hold the carcass so the player sees what he did, then clear it. The NEXT animal does not wait
 	-- for it (task 321 (c)): death ends the pass, and the pass after it starts at once.
@@ -1436,8 +1439,10 @@ local function scan(dt: number)
 		-- order an animal the Brain is flying"*.
 		if boars.flying ~= nil and boars.flying(trial.targetId) then
 			state.stats.skippedFlying += 1
-			-- A SKIPPED ORDER IS AN UNSTEERED TICK TOO (task 331): the bolt is 3.0 s and the bound
-			-- is 4.0, so a bolting animal comes back onto its lane and a latched one does not hold it.
+			-- A SKIPPED ORDER IS AN UNSTEERED TICK TOO (task 331): an order the range never issues
+			-- steers nothing. Unreachable at the range today (`Runtime:flying` needs a latched
+			-- flight and nothing here spooks an animal), so it is the bound's margin and not its
+			-- reason; a flight longer than `UNSTEERED_PASS_SECONDS` ends the pass.
 			trial.unsteeredFor += math.max(0, dt or 0)
 			continue
 		end
