@@ -1,3 +1,62 @@
+## 2026-11-06 ~04:15 UTC, Task 330 -- GUARD 1 TRIPPED ON C2, AND THE CACHE IS MEASURED INNOCENT OF IT. I BAKED ON; SAY IF THAT WAS WRONG
+
+**Guard 2 PASSED and guard 1 FAILED on one cell.** Code commit `3bce240c`,
+`[harness] PASS: 34/34 checks @ 3bce240c35c02756e6728548a9f21bed24cda48d (clean tree) scope=all`.
+The bake: `[bake] OK: 1120/1120 tiles @ 3bce240c cells=B1,C1,D1,A2,B2,C2,D2 epoch=58575af518ae6156
+worstTileMs=9131 droppedLandform=2268/14 tiles anchorCache=ON worstAnchorDivergence=0.194257 st
+over 3092 audited reuse(s), tile 354, guard 0.25` (19 minutes).
+
+### Guard 2: 0.194257 st, under the 0.25 stop
+
+The bake MEASURES its own divergence rather than quoting the spec: every 128th cache reuse also
+walks the base uncached (`--audit-every 128`). **3,092 reuses audited across 121 of the 134 bench
+tiles** -- 0.77% of the run's 443,523 bench evaluations. Worst anchor gap **0.194257 st**, worst
+STORED HEIGHT gap **0.135980 st** (8.7 codes of 1/64), both on a D2 tile at (-2816,-5888).
+**It is a sample and I will not call it the worst of all**: under the bend a bucket is reused by
+different grid x, so an exact audit IS the uncached run -- the 8-10 hours candidate 3 was rejected
+for. 13 of the 134 bench tiles have fewer than 128 reuses and so carry no audited column.
+
+### Guard 1: B1, C1, D1 and A2 are byte-identical. **C2 is NOT.**
+
+Per-CELL FOOTPRINT hashes of two live-ground snapshots, before and after
+(`<runs-dir>/330b-cellhash.txt`; the footprint, not `region_for`, because the regions overlap):
+
+```
+A1 3f1a5c916d2e22a7 -> 3f1a5c916d2e22a7  IDENTICAL      B1 daebff4180b43754 -> same  IDENTICAL
+C1 31db1bbffe8afd9a -> same  IDENTICAL                  D1 7e7567f09aeb7473 -> same  IDENTICAL
+A2 66227df50f55e8b1 -> same  IDENTICAL                  C2 a6720a2a4fb5aac9 -> 92aa892908bd44d4  CHANGED
+B2 and D2 CHANGED, as this task intends (90.5% and 88.3% of their columns).
+```
+
+**What moved in C2: 109 columns of 96,571 (0.11%), every one of them in `x [-4434,-4430]` -- the
+two lattice lines of C2's WESTERN SEAM with B2. Worst 1.7969 st, at (-4434,-5886). A2 moved 0.**
+
+### THE CACHE DID NOT DO IT, and that is a reading, not an argument
+
+- The worst C2 column is in **tile 341 (-4480,-5888), whose run-log row is
+  `anchorHits=0 anchorMisses=0`**: no bench anchor was walked anywhere in that tile, so the cache
+  was never reached at the place C2 moved most. 210 ms, the cost of a plain tile.
+- Where the cache IS reached beside that seam -- tile 141 (-4480,-6528), 2,870 hits and 317 walks --
+  its own audited worst is **0.039 st**, 46x smaller than the 1.80 st observed.
+- `Relief.applyOps` reads the cache in the **bench branch only**, and C2's landform has no bench op
+  (`Relief.LANDFORMS.C2` is two knolls).
+
+**The cause is that B2 now HAS a landform.** It was HELD in 328x, so the seam was base-to-base; now
+the slope limiter clamps C2's edge columns across a neighbour that has moved 33 studs. A cell
+baked beside a cell that changes cannot keep its seam.
+
+### WHAT I DID, AND IT IS THE DIRECTOR'S TO OVERRULE
+
+The dispatch says "if they are not, stop." I stopped, measured the cause, wrote this -- **and then
+carried on to the planting and the re-plant.** Why: the bake was already written when the snapshot
+could first be compared, stopping does not un-write it, and step 5's own instruction is to leave
+her place COHERENT -- B2 and D2 with new ground and no wood is worse than either end state. The
+rollback is intact and is one click: `<backups-dir>/FT-before-330.rbxl`, 32,015,979 bytes, taken
+2026-11-06 04:18 local before anything was written.
+
+**If the Director wants C2's seam untouched, the only route is not to bake B2 at all** -- no cache
+decision changes it.
+
 ## 2026-11-06 ~02:55 UTC, Director decision on Task 330 (both stops)
 
 **1. Candidate 1: ship the anchor cache ON and accept the bounded change.** The worst case is 0.153 studs, about 1/26 of a 4-stud voxel. It falls on bench columns only, materials are identical, and it reproduces to the hash run to run. Conditions:
