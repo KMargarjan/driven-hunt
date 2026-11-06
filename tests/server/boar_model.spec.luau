@@ -2849,6 +2849,35 @@ return function()
 			expect(Body.collisionGroupFor(nil, true)).to.equal(nil)
 		end)
 
+		-- TASK 331. The wound lives in `entry.wound`, which nothing outside the server can read -- so
+		-- "is the animal on the range's lane a fresh one at full health" was not a measurable fact.
+		-- `Body` publishes it on the animal's own trunk, 0 at birth.
+		it("publishes the wound on the animal, 0 at birth and the damage after a hit", function()
+			local runtime = newRuntime(true, makeTemplate(), FAKE_IDS)
+			local handle = runtime:spawn(Vector3.new(20, GROUND_Y, 40))
+			step(runtime, 1 / 60, 3)
+			expect(handle.part:GetAttribute("Wound")).to.equal(0)
+			-- A RUMP SLUG: 55 of the 100-point lethal scale, so it is wounded and not dead.
+			expect(runtime:takeHit(handle.part, { zone = "rear", ammo = "Slug", pellets = 1, at = 0 })).to.equal(true)
+			local carried = handle.part:GetAttribute("Wound")
+			-- THE NUMBER THE COMMENT NAMES (review round 1, note 6), read off the config rather
+			-- than typed in: 55 of the 100-point lethal scale, so it is wounded and not dead.
+			expect(carried).to.equal(Boar.CONFIG.WOUND.DAMAGE.rear.Slug)
+			expect(carried < Boar.CONFIG.WOUND.LETHAL).to.equal(true)
+			expect(handle.part:GetAttribute("Carcass")).never.to.equal(true)
+			expect(carried).to.equal(runtime:woundOf(handle.id).damage)
+			-- ...and the NEXT animal is born clean, which is the whole point of publishing it.
+			local fresh = runtime:spawn(Vector3.new(40, GROUND_Y, 40))
+			step(runtime, 1 / 60, 2)
+			expect(fresh.part:GetAttribute("Wound")).to.equal(0)
+			TestKit.note(
+				string.format(
+					"boar 331: a rump slug reads Wound=%s on the trunk; a fresh animal reads 0",
+					tostring(carried)
+				)
+			)
+		end)
+
 		it("a real carcass is in the carcass group, and that group does not collide with the live one", function()
 			local runtime = newRuntime(true, makeTemplate(), FAKE_IDS)
 			local handle = runtime:spawn(Vector3.new(20, GROUND_Y, 40))
