@@ -3203,9 +3203,21 @@ return function()
 			expect(store:FindFirstChild(Cells.STORE_NAME)).to.equal(nil)
 			expect(#Cells.standing(world)).to.equal(2)
 			-- AND THE PREDICATE ITSELF IS THE ONE `MapGen.Contract` USES: under the harness we are
-			-- in Studio and RUNNING, so it must answer false -- which is why the boot's own call,
-			-- with `isEdit = nil`, reconciles in a Play server and refuses in Edit.
+			-- in Studio and RUNNING, so it must answer false.
 			expect(Cells.editTime()).to.equal(false)
+			-- **...AND THE DEFAULT ARM, WHICH IS THE ONLY ONE THE GAME EVER RUNS** (round 1, finding
+			-- 1). Both live call sites pass three arguments -- `Cells.reconcile(want, workspace,
+			-- ServerStorage)` -- so `clock` and `isEdit` are nil and the refusal is decided by
+			-- `Cells.editTime()`. Until this line existed, inverting that default to "refuse unless
+			-- told otherwise" left all five cases green and the harness at 34/34 while the game
+			-- never reconciled at all. Under the harness `editTime()` is false (asserted above), so
+			-- the default arm MUST reconcile.
+			local defaulted = Cells.reconcile("C1", world, store, nil, nil)
+			expect(defaulted.reason).to.equal(nil)
+			expect(defaulted.moved).to.equal(1)
+			expect(defaulted.stood).to.equal("C1")
+			expect(#Cells.standing(world)).to.equal(1)
+			expect(#Cells.stored(store)).to.equal(1)
 			world:Destroy()
 			store:Destroy()
 		end)

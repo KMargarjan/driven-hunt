@@ -1,6 +1,7 @@
 --!strict
 -- Places.Cells: ONE CELL STANDS, EVERY OTHER PLANTED CELL IS STORED, and this module is the only
--- thing in the repository that writes a cell folder's `Parent`.
+-- thing in the repository that MOVES a cell folder between its home and the store.
+-- (`Places.dressCell` parents the folder it creates; same owner, different verb.)
 --
 -- Karen, 2026-11-08: *"so we will need to optimize, we only load one per game thats it"*.
 --
