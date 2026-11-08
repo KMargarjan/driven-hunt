@@ -899,6 +899,28 @@ Places.CELL_MIXES = table.freeze({
 	birchWood = mix({ "birch", 1 }),
 	birchThicket = mix({ "birch", 1 }),
 	birchScrub = mix({ "birch", 1 }),
+	-- ONE CELL, ONE KIND OF FOREST (task 336). Karen, 2026-11-08: *"can you make now all grounds
+	-- with different trees"*. TWO ROWS PER CELL for the reason C1 has three -- `Places.FERN_MIXES`
+	-- keys on the MIX NAME: the `*All` row is the cell's wood and carries the fern floor, the
+	-- `*Under` row is its thicket, its scrub and its second storey and carries none.
+	-- B1
+	spruceAll = mix({ "conifer", 1 }),
+	spruceUnder = mix({ "conifer", 1 }),
+	-- D1
+	oakAll = mix({ "oak", 1 }),
+	oakUnder = mix({ "oak", 1 }),
+	-- A2
+	aspenAll = mix({ "aspen", 1 }),
+	aspenUnder = mix({ "aspen", 1 }),
+	-- B2. `larchYoung` is NOT reused: it carries birch at 2 of 10, and this cell is one species.
+	larchAll = mix({ "young", 1 }),
+	larchUnder = mix({ "young", 1 }),
+	-- THE TWO MIXED CELLS, HALF AND HALF BY WEIGHT -- the Director's assignment, which Karen
+	-- delegated. Equal weights are the only thing that makes "roughly half and half" a number.
+	spruceBirchAll = mix({ "conifer", 1 }, { "birch", 1 }),
+	spruceBirchUnder = mix({ "conifer", 1 }, { "birch", 1 }),
+	fieldOakAspenAll = mix({ "fieldOak", 1 }, { "aspen", 1 }),
+	fieldOakAspenUnder = mix({ "fieldOak", 1 }, { "aspen", 1 }),
 	-- THE FLOOR OF A CELL, hugging its four roads: `Places.PLANS`' own `herb` row, under a name,
 	-- because a cell's zones index a mix by name and its floor must index one too.
 	fernFloor = mix({ "fern", 1 }),
@@ -1022,13 +1044,31 @@ Places.UNDER_JITTER = 1.0
 -- `oakRolling` (D1): the cells whose GROUND IS BAKED. `spruceSlope` (A1), `aspenSlope` (B2) and
 -- `birchRolling` (D2) are untouched; planting a cell whose ground is about to be re-baked is work
 -- thrown away (Director decision, 2026-11-04).
-local UNDER = table.freeze({ spacingStuds = 30, mix = "larchYoung" })
-local CANOPY = table.freeze({ jitter = 1.0, under = UNDER })
+-- `UNDER` AND `CANOPY` LIVED HERE UNTIL TASK 336 and have no caller left: the six recipes that
+-- named them now name their own cell's storey (`SPRUCE_CANOPY` and the five below it), and C1 has
+-- named `BIRCH_UNDER` since 335. The pair is in the history of this file; nothing else held it.
 
 -- C1's SECOND STOREY, BIRCH (task 335): the same 30 studs `larchYoung` held, one species. `scatter`
 -- plants it at the `shrub` band under this recipe's `scaleFloor` 0.35, so 0.35-0.45 of a 43-96 stud
 -- birch -- a 15-43 stud sapling.
 local BIRCH_UNDER = table.freeze({ spacingStuds = 30, mix = "birchScrub" })
+
+-- THE OTHER SIX CELLS' SECOND STOREY (task 336), C1's 30 studs borrowed whole -- one row per cell,
+-- its own species, so no cell's understorey can be another cell's tree.
+local SPRUCE_UNDER = table.freeze({ spacingStuds = 30, mix = "spruceUnder" })
+local OAK_UNDER = table.freeze({ spacingStuds = 30, mix = "oakUnder" })
+local ASPEN_UNDER = table.freeze({ spacingStuds = 30, mix = "aspenUnder" })
+local LARCH_UNDER = table.freeze({ spacingStuds = 30, mix = "larchUnder" })
+local SPRUCE_BIRCH_UNDER = table.freeze({ spacingStuds = 30, mix = "spruceBirchUnder" })
+local OAK_ASPEN_UNDER = table.freeze({ spacingStuds = 30, mix = "fieldOakAspenUnder" })
+
+-- ...AND THE `extra` RECORD EACH CANOPY ZONE TAKES: `CANOPY`'s jitter with that cell's own storey.
+local SPRUCE_CANOPY = table.freeze({ jitter = 1.0, under = SPRUCE_UNDER })
+local OAK_CANOPY = table.freeze({ jitter = 1.0, under = OAK_UNDER })
+local ASPEN_CANOPY = table.freeze({ jitter = 1.0, under = ASPEN_UNDER })
+local LARCH_CANOPY = table.freeze({ jitter = 1.0, under = LARCH_UNDER })
+local SPRUCE_BIRCH_CANOPY = table.freeze({ jitter = 1.0, under = SPRUCE_BIRCH_UNDER })
+local OAK_ASPEN_CANOPY = table.freeze({ jitter = 1.0, under = OAK_ASPEN_UNDER })
 
 Places.CELL_PLANS = table.freeze({
 	-- A1, measured `slope`, 113.4 studs of spread: the thicket is on the LOW ground by the main road
@@ -1067,7 +1107,7 @@ Places.CELL_PLANS = table.freeze({
 
 	-- B1, measured `slope`, 103.0 studs: white trunks, and one wide clearing off centre so the
 	-- crossings funnel west of it. The regrowth strip at the back is the beaters' own ground.
-	birchSlope = table.freeze({
+	spruceRidge = table.freeze({
 		halfStripStuds = 9,
 		-- v3 (task 328i): C1's accepted skirt and gap, borrowed whole. See THE DENSITY RULE above.
 		spacingStuds = 24,
@@ -1080,23 +1120,23 @@ Places.CELL_PLANS = table.freeze({
 		shrubScale = table.freeze({ 0.25, 0.45 }),
 		woodScale = table.freeze({ 0.8, 1.2 }),
 		seed = 3272,
-		-- v2 (task 328f). THE FRONTAGE RULE (design 7.2): within 60 studs of any road or ride
-		-- centreline only these four groups are drawn, so a mature crown is set back from the one
-		-- thing a hunter sights along at no cost in density -- the roadside draws birch and larch
-		-- instead of spruce rather than drawing nothing.
-		frontage = table.freeze({ studs = 60, groups = table.freeze({ "birch", "young", "aspen", "fieldOak" }) }),
+		-- THE FRONTAGE RULE, NOW THIS CELL'S OWN SPECIES (task 336; design 7.2 for the band). The
+		-- 60-stud band stays; what it allows is conifer, because a cell whose roadside drew birch and larch would not be the spruce cell Karen asked for. The CROWN
+		-- term (`Places.roadTrunkMin`, mask rule 14) is what still keeps a crown off the
+		-- carriageway, and it is geometric -- so species purity costs no clearance.
+		frontage = table.freeze({ studs = 60, groups = table.freeze({ "conifer" }) }),
 		-- THE FERN BAND, MEASURED FROM THE ROAD CENTRELINE (defect F-5): 34 is the far edge of the
 		-- verge, so no bracken stands in the ditch or on the verge design 7.1 keeps bare.
 		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
 		scaleFloor = 0.35,
 		zones = table.freeze({
-			zone(0.00, 0.00, 0.55, 0.40, 30, "birchStand", "wood", CANOPY),
-			zone(0.55, 0.00, 1.00, 0.40, 24, "spruceThicket", "wood", CANOPY),
-			zone(0.00, 0.40, 1.00, 0.62, 38, "birchOpen", "wood", CANOPY),
-			zone(0.30, 0.62, 0.95, 0.85, 0, "clearing", "wood"),
-			zone(0.00, 0.62, 0.30, 0.85, 30, "birchStand", "wood", CANOPY),
-			zone(0.95, 0.62, 1.00, 0.85, 30, "birchStand", "wood", CANOPY),
-			zone(0.00, 0.85, 1.00, 1.00, 26, "scrub", "shrub", { jitter = 1.0 }),
+			zone(0.00, 0.00, 0.55, 0.40, 26, "spruceAll", "wood", SPRUCE_CANOPY),
+			zone(0.55, 0.00, 1.00, 0.40, 25, "spruceUnder", "wood", SPRUCE_CANOPY),
+			zone(0.00, 0.40, 1.00, 0.62, 30, "spruceAll", "wood", SPRUCE_CANOPY),
+			zone(0.30, 0.62, 0.95, 0.85, 30, "spruceAll", "wood", SPRUCE_CANOPY),
+			zone(0.00, 0.62, 0.30, 0.85, 28, "spruceAll", "wood", SPRUCE_CANOPY),
+			zone(0.95, 0.62, 1.00, 0.85, 28, "spruceAll", "wood", SPRUCE_CANOPY),
+			zone(0.00, 0.85, 1.00, 1.00, 30, "spruceUnder", "shrub", { jitter = 1.0 }),
 		}),
 	}),
 
@@ -1242,29 +1282,29 @@ Places.CELL_PLANS = table.freeze({
 			headlandStuds = 12,
 			stripePitchStuds = 8,
 		}),
-		-- v2 (task 328f). THE FRONTAGE RULE (design 7.2): within 60 studs of any road or ride
-		-- centreline only these four groups are drawn, so a mature crown is set back from the one
-		-- thing a hunter sights along at no cost in density -- the roadside draws birch and larch
-		-- instead of spruce rather than drawing nothing.
-		frontage = table.freeze({ studs = 60, groups = table.freeze({ "birch", "young", "aspen", "fieldOak" }) }),
+		-- THE FRONTAGE RULE, NOW THIS CELL'S OWN SPECIES (task 336; design 7.2 for the band). The
+		-- 60-stud band stays; what it allows is oak, because D1 was already the oak cell and now draws nothing else. The CROWN
+		-- term (`Places.roadTrunkMin`, mask rule 14) is what still keeps a crown off the
+		-- carriageway, and it is geometric -- so species purity costs no clearance.
+		frontage = table.freeze({ studs = 60, groups = table.freeze({ "oak" }) }),
 		-- THE FERN BAND, MEASURED FROM THE ROAD CENTRELINE (defect F-5): 34 is the far edge of the
 		-- verge, so no bracken stands in the ditch or on the verge design 7.1 keeps bare.
 		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
 		scaleFloor = 0.35,
 		zones = table.freeze({
-			zone(0.00, 0.00, 1.00, 0.22, 34, "oakPark", "wood", { jitter = 1.0 }),
-			zone(0.00, 0.22, 0.50, 0.60, 14, "oakWood", "wood", CANOPY),
-			zone(0.50, 0.22, 1.00, 0.60, 44, "oakPark", "wood", { jitter = 1.0 }),
-			zone(0.00, 0.60, 0.45, 1.00, 16, "mixedWood", "wood", CANOPY),
-			zone(0.45, 0.60, 1.00, 0.80, 0, "clearing", "wood"),
-			zone(0.45, 0.80, 1.00, 1.00, 15, "birchOpen", "wood", CANOPY),
+			zone(0.00, 0.00, 1.00, 0.22, 24, "oakAll", "wood", OAK_CANOPY),
+			zone(0.00, 0.22, 0.50, 0.60, 18, "oakAll", "wood", OAK_CANOPY),
+			zone(0.50, 0.22, 1.00, 0.60, 24, "oakAll", "wood", OAK_CANOPY),
+			zone(0.00, 0.60, 0.45, 1.00, 18, "oakAll", "wood", OAK_CANOPY),
+			zone(0.45, 0.60, 1.00, 0.80, 24, "oakAll", "wood", OAK_CANOPY),
+			zone(0.45, 0.80, 1.00, 1.00, 20, "oakAll", "wood", OAK_CANOPY),
 		}),
 	}),
 
 	-- A2, measured `rolling`, 97.7 studs with 42.2 along the line: a larch plantation. The SMALLEST
 	-- trees this world has (`Places.SPECIES.young`: 26-96 studs against the spruces' 56-156), so this
 	-- is the cell where a hunter sees over the wood and a boar is in view the whole way.
-	larchRolling = table.freeze({
+	aspenRolling = table.freeze({
 		halfStripStuds = 9,
 		-- v3 (task 328i): C1's accepted skirt and gap, borrowed whole. See THE DENSITY RULE above.
 		spacingStuds = 24,
@@ -1277,67 +1317,74 @@ Places.CELL_PLANS = table.freeze({
 		shrubScale = table.freeze({ 0.30, 0.55 }),
 		woodScale = table.freeze({ 0.8, 1.2 }),
 		seed = 3275,
-		-- v2 (task 328f). THE FRONTAGE RULE (design 7.2): within 60 studs of any road or ride
-		-- centreline only these four groups are drawn, so a mature crown is set back from the one
-		-- thing a hunter sights along at no cost in density -- the roadside draws birch and larch
-		-- instead of spruce rather than drawing nothing.
-		frontage = table.freeze({ studs = 60, groups = table.freeze({ "birch", "young", "aspen", "fieldOak" }) }),
+		-- THE FRONTAGE RULE, NOW THIS CELL'S OWN SPECIES (task 336; design 7.2 for the band). The
+		-- 60-stud band stays; what it allows is aspen, because A2 is the aspen cell and its plantation rows are aspen too. The CROWN
+		-- term (`Places.roadTrunkMin`, mask rule 14) is what still keeps a crown off the
+		-- carriageway, and it is geometric -- so species purity costs no clearance.
+		frontage = table.freeze({ studs = 60, groups = table.freeze({ "aspen" }) }),
 		-- THE FERN BAND, MEASURED FROM THE ROAD CENTRELINE (defect F-5): 34 is the far edge of the
 		-- verge, so no bracken stands in the ditch or on the verge design 7.1 keeps bare.
 		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
 		scaleFloor = 0.35,
 		zones = table.freeze({
-			zone(0.00, 0.00, 1.00, 0.26, 21, "larchYoung", "shrub", {
+			zone(0.00, 0.00, 1.00, 0.26, 24, "aspenUnder", "shrub", {
 				rows = "NS",
 				jitter = 0.25,
-				under = UNDER,
+				under = ASPEN_UNDER,
 			}),
-			zone(0.00, 0.26, 0.35, 0.65, 22, "larchYoung", "shrub", {
+			zone(0.00, 0.26, 0.35, 0.65, 25, "aspenUnder", "shrub", {
 				rows = "NS",
 				jitter = 0.25,
-				under = UNDER,
+				under = ASPEN_UNDER,
 			}),
-			zone(0.35, 0.26, 1.00, 0.65, 30, "mixedWood", "wood", CANOPY),
-			zone(0.00, 0.65, 1.00, 0.82, 0, "clearing", "wood"),
-			zone(0.00, 0.82, 1.00, 1.00, 28, "scrub", "shrub", { jitter = 1.0 }),
+			zone(0.35, 0.26, 1.00, 0.65, 28, "aspenAll", "wood", ASPEN_CANOPY),
+			zone(0.00, 0.65, 1.00, 0.82, 30, "aspenAll", "wood", ASPEN_CANOPY),
+			zone(0.00, 0.82, 1.00, 1.00, 30, "aspenUnder", "shrub", { jitter = 1.0 }),
 		}),
 	}),
 
 	-- B2, measured `slope`, 129.9 studs and 61.3 along the line -- the steepest line in the world.
 	-- FOUR ZONES, THE FEWEST, and one clearing band straight across the middle: on ground that falls
 	-- 61 studs under the stands the relief IS the variety, and a quilt of small zones would not read.
-	aspenSlope = table.freeze({
+	larchSlope = table.freeze({
 		halfStripStuds = 9,
-		spacingStuds = 30,
-		deepSpacingStuds = 60,
+		-- v2 (task 336): C1's ACCEPTED SKIRT AND GAP, borrowed whole -- 24/52 and 11 studs, exactly
+		-- as the four baked cells borrowed them at 328i. This cell is planted for the first time
+		-- here, so its skirt has to carry the same density as the neighbours it plants into.
+		spacingStuds = 24,
+		deepSpacingStuds = 52,
 		fernSpacing = 24,
 		fernBandStuds = 30,
-		minGapStuds = 12,
+		-- v2 (task 336): 9 STUDS AND NOT 11, AND THAT IS A REAL-LIFE NUMBER, not room-making: a
+		-- stud is ~0.28 m here, so 9 is ~2.5 m between trunks, and a larch plantation IS planted at
+		-- 2.0-2.5 m. At 11 the gap rule refused 1,289 of 5,498 offered sites and left 209 interior
+		-- lattice points with no trunk within 25 studs (`<runs-dir>/336-voids.luau`, cycle 3).
+		minGapStuds = 9,
 		skirtFullStuds = 80,
 		skirtStuds = 230,
 		shrubScale = table.freeze({ 0.25, 0.45 }),
 		woodScale = table.freeze({ 0.8, 1.2 }),
 		seed = 3276,
-		-- v2 (task 328f). THE FRONTAGE RULE (design 7.2): within 60 studs of any road or ride
-		-- centreline only these four groups are drawn, so a mature crown is set back from the one
-		-- thing a hunter sights along at no cost in density -- the roadside draws birch and larch
-		-- instead of spruce rather than drawing nothing.
-		frontage = table.freeze({ studs = 60, groups = table.freeze({ "birch", "young", "aspen", "fieldOak" }) }),
+		-- THE FRONTAGE RULE, NOW THIS CELL'S OWN SPECIES (task 336; design 7.2 for the band). The
+		-- 60-stud band stays; what it allows is young, because B2 is the larch cell, and `young` IS the larch group. The CROWN
+		-- term (`Places.roadTrunkMin`, mask rule 14) is what still keeps a crown off the
+		-- carriageway, and it is geometric -- so species purity costs no clearance.
+		frontage = table.freeze({ studs = 60, groups = table.freeze({ "young" }) }),
 		-- THE FERN BAND, MEASURED FROM THE ROAD CENTRELINE (defect F-5): 34 is the far edge of the
 		-- verge, so no bracken stands in the ditch or on the verge design 7.1 keeps bare.
 		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
 		scaleFloor = 0.35,
 		zones = table.freeze({
-			zone(0.00, 0.00, 1.00, 0.34, 28, "aspenWood", "wood"),
-			zone(0.00, 0.34, 1.00, 0.52, 0, "clearing", "wood"),
-			zone(0.00, 0.52, 0.65, 1.00, 30, "aspenWood", "wood"),
-			zone(0.65, 0.52, 1.00, 1.00, 24, "spruceThicket", "wood"),
+			zone(0.00, 0.00, 1.00, 0.34, 27, "larchAll", "wood", LARCH_CANOPY),
+			zone(0.00, 0.34, 1.00, 0.52, 30, "larchAll", "wood", LARCH_CANOPY),
+			zone(0.00, 0.52, 0.65, 1.00, 27, "larchAll", "wood", LARCH_CANOPY),
+			zone(0.65, 0.52, 1.00, 1.00, 25, "larchUnder", "wood", LARCH_CANOPY),
 		}),
 	}),
 
 	-- C2, measured `rolling`, 142.7 studs: dark conifer either side of a lighter middle, so the
 	-- crossings read against the thickets and not against the sky.
-	spruceRolling = table.freeze({
+	spruceBirchRolling = table.freeze({
 		halfStripStuds = 9,
 		-- v3 (task 328i): C1's accepted skirt and gap, borrowed whole. See THE DENSITY RULE above.
 		spacingStuds = 24,
@@ -1350,57 +1397,60 @@ Places.CELL_PLANS = table.freeze({
 		shrubScale = table.freeze({ 0.25, 0.45 }),
 		woodScale = table.freeze({ 0.8, 1.2 }),
 		seed = 3277,
-		-- v2 (task 328f). THE FRONTAGE RULE (design 7.2): within 60 studs of any road or ride
-		-- centreline only these four groups are drawn, so a mature crown is set back from the one
-		-- thing a hunter sights along at no cost in density -- the roadside draws birch and larch
-		-- instead of spruce rather than drawing nothing.
-		frontage = table.freeze({ studs = 60, groups = table.freeze({ "birch", "young", "aspen", "fieldOak" }) }),
+		-- THE FRONTAGE RULE, NOW THIS CELL'S OWN SPECIES (task 336; design 7.2 for the band). The
+		-- 60-stud band stays; what it allows is conifer/birch, because C2 is the mixed cell and both of its species must reach its roads. The CROWN
+		-- term (`Places.roadTrunkMin`, mask rule 14) is what still keeps a crown off the
+		-- carriageway, and it is geometric -- so species purity costs no clearance.
+		frontage = table.freeze({ studs = 60, groups = table.freeze({ "conifer", "birch" }) }),
 		-- THE FERN BAND, MEASURED FROM THE ROAD CENTRELINE (defect F-5): 34 is the far edge of the
 		-- verge, so no bracken stands in the ditch or on the verge design 7.1 keeps bare.
 		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
 		scaleFloor = 0.35,
 		zones = table.freeze({
-			zone(0.00, 0.00, 0.30, 0.45, 26, "spruceThicket", "wood", CANOPY),
-			zone(0.30, 0.00, 0.70, 0.45, 34, "birchOpen", "wood", CANOPY),
-			zone(0.70, 0.00, 1.00, 0.45, 26, "spruceThicket", "wood", CANOPY),
-			zone(0.25, 0.45, 0.75, 0.68, 0, "clearing", "wood"),
-			zone(0.00, 0.45, 0.25, 0.68, 28, "spruceHigh", "wood", CANOPY),
-			zone(0.75, 0.45, 1.00, 0.68, 28, "spruceHigh", "wood", CANOPY),
-			zone(0.00, 0.68, 1.00, 1.00, 32, "mixedWood", "wood", CANOPY),
+			zone(0.00, 0.00, 0.30, 0.45, 24, "spruceBirchUnder", "wood", SPRUCE_BIRCH_CANOPY),
+			zone(0.30, 0.00, 0.70, 0.45, 27, "spruceBirchAll", "wood", SPRUCE_BIRCH_CANOPY),
+			zone(0.70, 0.00, 1.00, 0.45, 24, "spruceBirchUnder", "wood", SPRUCE_BIRCH_CANOPY),
+			zone(0.25, 0.45, 0.75, 0.68, 29, "spruceBirchAll", "wood", SPRUCE_BIRCH_CANOPY),
+			zone(0.00, 0.45, 0.25, 0.68, 27, "spruceBirchAll", "wood", SPRUCE_BIRCH_CANOPY),
+			zone(0.75, 0.45, 1.00, 0.68, 27, "spruceBirchAll", "wood", SPRUCE_BIRCH_CANOPY),
+			zone(0.00, 0.68, 1.00, 1.00, 28, "spruceBirchAll", "wood", SPRUCE_BIRCH_CANOPY),
 		}),
 	}),
 
 	-- D2, measured `rolling`, 173.0 studs -- the most broken ground in the world, and the thinnest
 	-- wood on it (1191 trees): an open birch stand with a wide oak park through the middle, where
 	-- what a hunter reads is the hollows and not the trunks.
-	birchRolling = table.freeze({
+	oakAspenRolling = table.freeze({
 		halfStripStuds = 9,
-		spacingStuds = 34,
-		deepSpacingStuds = 60,
+		-- v2 (task 336): C1's ACCEPTED SKIRT AND GAP, borrowed whole -- 24/52 and 11 studs, exactly
+		-- as the four baked cells borrowed them at 328i. This cell is planted for the first time
+		-- here, so its skirt has to carry the same density as the neighbours it plants into.
+		spacingStuds = 24,
+		deepSpacingStuds = 52,
 		fernSpacing = 24,
 		fernBandStuds = 30,
-		minGapStuds = 12,
+		minGapStuds = 11,
 		skirtFullStuds = 80,
 		skirtStuds = 230,
 		shrubScale = table.freeze({ 0.25, 0.45 }),
 		woodScale = table.freeze({ 0.8, 1.2 }),
 		seed = 3278,
-		-- v2 (task 328f). THE FRONTAGE RULE (design 7.2): within 60 studs of any road or ride
-		-- centreline only these four groups are drawn, so a mature crown is set back from the one
-		-- thing a hunter sights along at no cost in density -- the roadside draws birch and larch
-		-- instead of spruce rather than drawing nothing.
-		frontage = table.freeze({ studs = 60, groups = table.freeze({ "birch", "young", "aspen", "fieldOak" }) }),
+		-- THE FRONTAGE RULE, NOW THIS CELL'S OWN SPECIES (task 336; design 7.2 for the band). The
+		-- 60-stud band stays; what it allows is fieldOak/aspen, because D2 is the field-oak-and-aspen cell and both must reach its roads. The CROWN
+		-- term (`Places.roadTrunkMin`, mask rule 14) is what still keeps a crown off the
+		-- carriageway, and it is geometric -- so species purity costs no clearance.
+		frontage = table.freeze({ studs = 60, groups = table.freeze({ "fieldOak", "aspen" }) }),
 		-- THE FERN BAND, MEASURED FROM THE ROAD CENTRELINE (defect F-5): 34 is the far edge of the
 		-- verge, so no bracken stands in the ditch or on the verge design 7.1 keeps bare.
 		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
 		scaleFloor = 0.35,
 		zones = table.freeze({
-			zone(0.00, 0.00, 1.00, 0.28, 30, "birchStand", "wood"),
-			zone(0.00, 0.28, 1.00, 0.50, 44, "oakPark", "wood"),
-			zone(0.10, 0.50, 0.60, 0.74, 0, "clearing", "wood"),
-			zone(0.00, 0.50, 0.10, 0.74, 28, "birchStand", "wood"),
-			zone(0.60, 0.50, 1.00, 0.74, 28, "birchStand", "wood"),
-			zone(0.00, 0.74, 1.00, 1.00, 36, "birchOpen", "wood"),
+			zone(0.00, 0.00, 1.00, 0.28, 27, "fieldOakAspenAll", "wood", OAK_ASPEN_CANOPY),
+			zone(0.00, 0.28, 1.00, 0.50, 30, "fieldOakAspenAll", "wood", OAK_ASPEN_CANOPY),
+			zone(0.10, 0.50, 0.60, 0.74, 29, "fieldOakAspenAll", "wood", OAK_ASPEN_CANOPY),
+			zone(0.00, 0.50, 0.10, 0.74, 28, "fieldOakAspenAll", "wood", OAK_ASPEN_CANOPY),
+			zone(0.60, 0.50, 1.00, 0.74, 27, "fieldOakAspenAll", "wood", OAK_ASPEN_CANOPY),
+			zone(0.00, 0.74, 1.00, 1.00, 28, "fieldOakAspenAll", "wood", OAK_ASPEN_CANOPY),
 		}),
 	}),
 })
@@ -1871,6 +1921,13 @@ Places.FERN_MIXES = table.freeze({
 	-- their floor; `birchThicket` and `birchScrub` are not here, which keeps C1's fern footprint
 	-- exactly the three zones it covers today.
 	birchWood = true,
+	-- TASK 336's SIX CELLS, the `*All` row of each. `larchAll` is DELIBERATELY ABSENT: this table's
+	-- own rule is "not in a larch plantation", and B2 is one.
+	spruceAll = true,
+	oakAll = true,
+	aspenAll = true,
+	spruceBirchAll = true,
+	fieldOakAspenAll = true,
 	oakWood = true,
 	oakPark = true,
 	mixedWood = true,

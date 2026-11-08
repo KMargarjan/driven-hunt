@@ -1769,13 +1769,15 @@ return function()
 				-- gap is a bald patch nobody declared: a clearing is a ZONE with spacing 0, so an
 				-- uncovered rectangle can only ever be an arithmetic slip in a recipe.
 				expect(math.abs(covered - 1) < 1e-9).to.equal(true)
-				-- NO CELL IS MORE THAN A THIRD CLEAR, and every cell BUT C1 has a clearing.
-				-- **C1 HAS NONE** (task 335): Karen, 2026-11-08, on a top-down frame of it, *"all
-				-- has to be forest no free spot excep road"* -- its cut was the hole she meant.
-				-- The pair BITES BOTH WAYS: C1 gaining a clearing back fails, and any other cell
-				-- losing its own fails too.
+				-- NO CELL IS MORE THAN A THIRD CLEAR, and **A1 IS THE ONLY CELL WITH A CLEARING LEFT**
+				-- (task 336, after 335 took C1's). Karen, 2026-11-08: *"all has to be forest no free
+				-- spot excep road"* for C1, and *"can you make now all grounds with different
+				-- trees"* for the rest -- so every cell that is PLANTED is planted wall to wall and
+				-- its cut is gone. A1 is not planted and keeps its own.
+				-- The pair BITES BOTH WAYS: a planted cell gaining a clearing back fails here, and
+				-- A1 losing its own fails too.
 				expect(clear < 0.34).to.equal(true)
-				expect(clear > 0).to.equal(id ~= "C1")
+				expect(clear > 0).to.equal(id == "A1")
 				table.insert(
 					lines,
 					string.format("%s=%s(%d zones, %.0f%% clear)", id, cell.recipe, #plan.zones, clear * 100)
@@ -1805,11 +1807,22 @@ return function()
 						local rows = Plan.cellMixNamed(under.mix)
 						expect(rows ~= nil).to.equal(true)
 						expect(#rows > 0).to.equal(true)
-						-- IT IS YOUNG GROWTH AND NOT A SECOND CANOPY. Every group in the mix is one
-						-- of the two small-tree groups, so a recipe cannot quietly put a second
-						-- storey of mature spruce under the first.
+						-- IT IS YOUNG GROWTH AND NOT A SECOND CANOPY, and since task 336 that is the
+						-- SCALE's job and not the species': the storey is planted at the `shrub`
+						-- band (0.25-0.45 of the template, floored at `scaleFloor`) while the canopy
+						-- takes `woodScale` 0.8-1.2, so the same species is a sapling underneath and
+						-- a tree above. What is asserted instead is that it is THIS CELL'S OWN
+						-- species -- Karen's *"all grounds with different trees"* reaches the second
+						-- storey too, so a recipe cannot put larch under a spruce cell.
+						expect(zone.band == "wood" or zone.band == "shrub").to.equal(true)
+						local own: { [string]: boolean } = {}
+						for _, other in ipairs(plan.zones) do
+							for _, row in ipairs(Plan.cellMixNamed(other.mix) or {}) do
+								own[row.group] = true
+							end
+						end
 						for _, row in ipairs(rows) do
-							expect(row.group == "young" or row.group == "birch").to.equal(true)
+							expect(own[row.group]).to.equal(true)
 						end
 					end
 				end
@@ -2586,7 +2599,10 @@ return function()
 		-- `Grid.PREVIEW_CELL` and nothing else, so seven cells had never had a tree in them.
 		it("is a list of baked cells, C1 first and C2 -- the cell behind the line -- second", function()
 			local planted = Grid.PLANTED_CELLS
-			expect(#planted).to.equal(5)
+			-- SEVEN SINCE TASK 336: B2 and D2 joined, each with its own species (Karen, 2026-11-08:
+			-- *"can you make now all grounds with different trees"*). Their ground is the raw base
+			-- and that was the question the plant answered -- by raying every site, not by argument.
+			expect(#planted).to.equal(7)
 			expect(planted[1]).to.equal(Grid.PREVIEW_CELL)
 			expect(planted[2]).to.equal("C2")
 			local seen: { [string]: boolean } = {}
@@ -2597,12 +2613,12 @@ return function()
 				expect(seen[id]).never.to.equal(true)
 				seen[id] = true
 			end
-			-- THE THREE THAT ARE OUT ARE OUT, and the case says which: A1 was never baked, B2 and
-			-- D2 had their landform HELD (`terrainbake.py --hold-landform`), so all three carry
-			-- ground that is going to move. `grid-terrain.md` 16's 328h/328x rows.
-			for _, id in ipairs({ "A1", "B2", "D2" }) do
-				expect(seen[id]).never.to.equal(true)
-			end
+			-- **A1 IS THE ONE THAT IS OUT**, and it is out because it has no ground at all: it was
+			-- never in a bake (`grid-terrain.md` 16's 328h/328x rows). B2 and D2 were out with it
+			-- until task 336 for a different reason -- their landform was HELD
+			-- (`terrainbake.py --hold-landform`) -- and that reason is spent: holding a landform is
+			-- not the same as having none, and both planted.
+			expect(seen["A1"]).never.to.equal(true)
 			TestKit.note("PLANTED_CELLS: " .. table.concat(planted, ","))
 		end)
 
@@ -2618,7 +2634,12 @@ return function()
 		-- took C1 to 2,418 of its own, so holding four mixed woods to a one-species cell would mean
 		-- raising them on nobody's instruction. C1 is held to the two caps and to its own cover case
 		-- in `grid_ground.spec`, and the band below is asserted for the other four.
-		it("plants the four mixed woods at the accepted density, and C1 above it on instruction", function()
+		-- **AND SINCE TASK 336 THE STANDARD IS C1's OWN 2,418 AGAIN**, for the reason the paragraph
+		-- above gives in reverse: every planted cell is now one kind of forest planted wall to wall,
+		-- so C1 is no longer the exception -- it is the measurement the other six were solved to
+		-- (Karen, 2026-11-08: *"can you make now all grounds with different trees"*; the Director:
+		-- *"wall-to-wall like C1"*). The band is still +-10 %, and the ceiling is still the two caps.
+		it("plants every cell at C1's accepted density, and C1 itself at the number Karen saw", function()
 			local function ownTrees(id: string): number
 				local n = 0
 				for _, item in ipairs(woods[id]) do
@@ -2628,10 +2649,9 @@ return function()
 				end
 				return n
 			end
-			local standard = 1861
-			-- C1 IS ABOVE THE STANDARD AND THAT IS THE INSTRUCTION, not a drift: 2,418 pinned, so a
-			-- revert of the v5 recipe fails here too.
-			expect(ownTrees(Grid.PREVIEW_CELL)).to.equal(2418)
+			local standard = 2418
+			-- C1 IS THE STANDARD AND IS PINNED EXACTLY, so a revert of its v5 recipe fails here too.
+			expect(ownTrees(Grid.PREVIEW_CELL)).to.equal(standard)
 			local lines = {}
 			for _, id in ipairs(Grid.PLANTED_CELLS) do
 				local own = ownTrees(id)
@@ -2644,13 +2664,75 @@ return function()
 				expect(#woods[id] <= Plan.CELL_PART_CAP).to.equal(true)
 				expect(Plan.cellCapacity(id) <= Plan.CELL_PLAN_CAP).to.equal(true)
 			end
-			-- ...AND THE THREE UNBAKED CELLS ARE NOT TOUCHED: the task that bakes them raises them,
-			-- and until then they are well under the band. This is what makes the case above a
-			-- reading of THIS task's rows and not of the planter in general.
-			for _, id in ipairs({ "A1", "B2", "D2" }) do
-				expect(ownTrees(id) < math.floor(standard * 0.9)).to.equal(true)
+			-- ...AND A1, THE ONE CELL WITH NO GROUND, IS NOT TOUCHED: it is well under the band, which
+			-- is what makes the case above a reading of THESE rows and not of the planter in general.
+			expect(ownTrees("A1") < math.floor(standard * 0.9)).to.equal(true)
+			TestKit.note(string.format("336 own wood: %s", table.concat(lines, " ")))
+		end)
+
+		-- ONE CELL, ONE KIND OF FOREST (task 336). Karen, 2026-11-08: *"can you make now all grounds
+		-- with different trees"*; the Director assigned the species, which Karen delegated.
+		--
+		-- **THE SKIRT IS EXCLUDED AND THAT IS NOT A LOOPHOLE**: a skirt band stands in the
+		-- NEIGHBOUR's rectangle and draws the NEIGHBOUR's front mix, which is what blends two woods
+		-- at their shared road. So the claim is about `side > 0` -- the wood a hunter standing IN
+		-- this cell is looking at -- exactly as the density case above measures it.
+		--
+		-- IT DIES IF THE RECIPES ARE REVERTED (lesson L-093): the old rows drew six groups in every
+		-- cell, so B1 would come back with 735 birch and 721 larch in it and the first loop fails.
+		it("gives each planted cell its own species, and C1 nothing but birch", function()
+			-- THE ASSIGNMENT, as data. `fieldOak` and `oak` are two different groups in
+			-- `Places.SPECIES` (open-grown and drawn-up), so the two oak cells are not one row.
+			local WANT = {
+				C1 = { "birch" },
+				B1 = { "conifer" },
+				D1 = { "oak" },
+				A2 = { "aspen" },
+				B2 = { "young" },
+				C2 = { "conifer", "birch" },
+				D2 = { "fieldOak", "aspen" },
+			}
+			local lines = {}
+			for _, id in ipairs(Grid.PLANTED_CELLS) do
+				local want = WANT[id]
+				-- EVERY PLANTED CELL IS IN THE TABLE: a cell added to `PLANTED_CELLS` with no
+				-- species assigned is a hole in this case, not a pass.
+				expect(want ~= nil).to.equal(true)
+				local allowed: { [string]: boolean } = {}
+				for _, group in ipairs(want) do
+					-- ...AND EVERY NAME IS A REAL GROUP of `Places.SPECIES`.
+					expect(#Plan.namesOf(group) > 0).to.equal(true)
+					allowed[group] = true
+				end
+				local counts: { [string]: number } = {}
+				local own = 0
+				for _, item in ipairs(woods[id]) do
+					if item.side > 0 and item.band ~= "herb" then
+						local group = Plan.groupOf(item.model)
+						expect(group ~= nil).to.equal(true)
+						expect(allowed[group :: string]).to.equal(true)
+						counts[group :: string] = (counts[group :: string] or 0) + 1
+						own += 1
+					end
+				end
+				-- A CELL WHOSE SPECIES IS ASSIGNED PLANTS IT: an empty cell would pass the loop above.
+				expect(own > 0).to.equal(true)
+				local shares = {}
+				for _, group in ipairs(want) do
+					local share = (counts[group] or 0) / own
+					-- **"ROUGHLY HALF AND HALF" IS A NUMBER** for the two mixed cells: each of the
+					-- two carries 35-65 % of the cell's own wood, which equal weights in the mix
+					-- produce and a 9:1 weight does not. A single-species cell carries all of it.
+					if #want == 1 then
+						expect(share).to.equal(1)
+					else
+						expect(share >= 0.35 and share <= 0.65).to.equal(true)
+					end
+					table.insert(shares, string.format("%s %.0f%%", group, share * 100))
+				end
+				table.insert(lines, string.format("%s %d: %s", id, own, table.concat(shares, " ")))
 			end
-			TestKit.note(string.format("328i own wood: %s", table.concat(lines, " ")))
+			TestKit.note("336 species: " .. table.concat(lines, " | "))
 		end)
 
 		-- THE BOOT'S CRITICAL PATH (reviewer round 1). `Places.build` is `ForestTestBoot`'s
@@ -2746,11 +2828,14 @@ return function()
 			expect(c1Skirt).to.equal(0)
 			-- ...AND A CELL WITH A BARE NEIGHBOUR STILL DRESSES IT, so the case fails if `plantCell`
 			-- simply stopped skirting. C2's B2 and D2 are not planted; A1 is in no list at all.
-			expect(Plan.hasOwnWood("B2")).to.equal(false)
+			-- ...AND A CELL WITH A BARE NEIGHBOUR STILL DRESSES IT. **THAT CELL IS B1 SINCE TASK 336**
+			-- (it was C2, whose B2 and D2 are now planted): A1 is the one cell with no ground, so it
+			-- is the one bare neighbour left in the world, and B1 is beside it.
+			expect(Plan.hasOwnWood("B2")).to.equal(true)
 			expect(Plan.hasOwnWood("A1")).to.equal(false)
 			expect(Plan.hasOwnWood("Z9")).to.equal(false)
 			local c2Skirt = 0
-			for _, item in ipairs(woods.C2) do
+			for _, item in ipairs(woods.B1) do
 				if item.side < 0 then
 					c2Skirt += 1
 				end
@@ -2760,7 +2845,7 @@ return function()
 			-- the fact the collision measurement is about. Asked of the rectangle rather than of
 			-- "the nearest cell", so a site in the road between two cells cannot flip the answer.
 			local stray = 0
-			for _, item in ipairs(woods.C2) do
+			for _, item in ipairs(woods.B1) do
 				if item.side < 0 then
 					for _, id in ipairs(Grid.PLANTED_CELLS) do
 						local g = Plan.cellGround(id)
@@ -2771,7 +2856,7 @@ return function()
 				end
 			end
 			expect(stray).to.equal(0)
-			TestKit.note(string.format("skirt: C1 %d (3 planted neighbours), C2 %d into bare ground", c1Skirt, c2Skirt))
+			TestKit.note(string.format("skirt: C1 %d (3 planted neighbours), B1 %d into bare A1", c1Skirt, c2Skirt))
 		end)
 
 		-- THE BEHAVIOUR, driven through the real planter over a fake hillside -- the fixture case 18b
