@@ -2695,19 +2695,35 @@ return function()
 			-- nothing but C1 is standing. It dies if the rest are planted again -- the second
 			-- assertion would read 3.
 			expect(report.gridPending).to.equal(nil)
-			expect(#Planter.cellWoodFolders(world:FindFirstChild(Planter.GRID_FOLDER))).to.equal(1)
+			-- ...AND NO CELL BUT THE FIRST ONE IS STANDING. Named rather than counted, because a
+			-- cell whose every site the fixture's hillside refuses creates no folder at all: what
+			-- this case is about is that C2 and B1 were never DRESSED.
+			local gridFolder = world:FindFirstChild(Planter.GRID_FOLDER)
+			expect(gridFolder:FindFirstChild("C2")).to.equal(nil)
+			expect(gridFolder:FindFirstChild("B1")).to.equal(nil)
+			expect(#Planter.cellWoodFolders(gridFolder) <= 1).to.equal(true)
 			-- THE DEFAULT LIST IS THE CONFIG'S, AND ITS FIRST CELL IS THE ONE A PLAYER STANDS IN.
 			local other = fakeWorld()
 			local whole = Planter.build(hillside, other, nil, true, nil)
 			expect(whole.gridWoods[1].cell).to.equal(Grid.PLANTED_CELLS[1])
 			expect(#whole.gridWoods).to.equal(1)
 			expect(whole.gridPending).to.equal(nil)
+			local otherGrid = other:FindFirstChild(Planter.GRID_FOLDER)
+			for index = 2, #Grid.PLANTED_CELLS do
+				expect(otherGrid:FindFirstChild(Grid.PLANTED_CELLS[index])).to.equal(nil)
+			end
 			-- ...AND `dressPending` REFUSES EVERY SHAPE THAT WOULD PLANT NOTHING, rather than
 			-- erroring on the caller's thread. It is kept as the Edit/one-off door.
 			expect(#Planter.dressPending({}, world, hillside, nil)).to.equal(0)
 			expect(#Planter.dressPending({ "C2" }, world, nil, nil)).to.equal(0)
 			expect(#Planter.dressPending({ "C2" }, Instance.new("Folder"), hillside, nil)).to.equal(0)
-			TestKit.note(string.format("boot path: 1 cell (%s), nothing deferred", whole.gridWoods[1].cell))
+			TestKit.note(
+				string.format(
+					"boot path: 1 cell (%s), %d planted, nothing deferred",
+					whole.gridWoods[1].cell,
+					whole.gridWoods[1].planted
+				)
+			)
 			world:Destroy()
 			other:Destroy()
 		end)
