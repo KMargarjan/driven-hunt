@@ -865,7 +865,16 @@ return function()
 							or rideGap("C1", item.x, item.z) <= plan.frontage.studs
 						if inBand then
 							near += 1
-							expect(Plan.frontageAllows(plan, item.model)).to.equal(true)
+							-- **THE FRONTAGE OF THE CELL THE TREE STANDS IN**, which since task 336
+							-- is not always the cell that planted it: each cell's frontage now names
+							-- its OWN species, and a `side < 0` skirt band stands in the NEIGHBOUR's
+							-- ground and draws the neighbour's front mix -- which is the whole point
+							-- of a skirt. Measured: B1's and A2's skirts into bare A1 carry 36 and
+							-- 18 trees that B1's and A2's own frontage would refuse, and A1's allows
+							-- every one of them.
+							local standsIn = Plan.nearestCellTo(item.x, item.z) or id
+							local theirs = Plan.cellPlanFor(if item.side < 0 then standsIn else id)
+							expect(Plan.frontageAllows(theirs, item.model)).to.equal(true)
 						end
 					end
 				end
@@ -1204,9 +1213,10 @@ return function()
 		end)
 
 		it("a clearing refuses, and the zone beside it does not", function()
-			-- B1 AND NOT C1 (task 335): C1 is one birch wood with no cut left in it, so the cell
-			-- this arm is asked about has to be one that still declares a clearing.
-			local id = "B1"
+			-- A1 AND NOT B1 (task 336, after 335 moved it off C1): every PLANTED cell is now planted
+			-- wall to wall and has no cut left in it, so the one cell that still declares a clearing
+			-- is the one that is not planted at all.
+			local id = "A1"
 			local plan = Plan.cellPlanFor(id)
 			local empty, solid = nil, nil
 			for _, zone in ipairs(plan.zones) do

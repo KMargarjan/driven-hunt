@@ -108,7 +108,13 @@ Grid.PREVIEW_CELL = "C1"
 -- (`--hold-landform`), so those two still carry the raw base; A1 was never in a bake at all. That
 -- leaves five. **C1 IS FIRST** because `dressCells` plants in the order given and a player stands in
 -- it; **C2 IS SECOND** because it is the cell behind C1's hunter line, which is the one Karen named.
-Grid.PLANTED_CELLS = table.freeze({ "C1", "C2", "A2", "B1", "D1" })
+-- TASK 336 ADDS B2 AND D2, and the question their ground raised was answered by MEASUREMENT and
+-- not by argument: both carry the raw base (328x held their landform), so a tree there might have
+-- stood on a cliff. `tools/terrainbake.py plant` rays EVERY site and reports the ones it refuses as
+-- `cliff`, and the task's request pastes that count per cell -- a held landform is not the same as
+-- no landform, which is what kept them out until now.
+-- A1 IS STILL ABSENT and is the one cell with no ground to plant on at all.
+Grid.PLANTED_CELLS = table.freeze({ "C1", "C2", "A2", "B1", "D1", "B2", "D2" })
 
 -- THE EIGHT CELLS. **`relief` IS MEASURED AND NOT WRITTEN** (design 4.4): no terrain height is
 -- generated anywhere, because 13.41 M sq studs is ~750 `MapGen` tiles and ~50 minutes of Edit-time
@@ -179,8 +185,8 @@ Grid.CELLS = table.freeze({
 		id = "B1",
 		row = 1,
 		column = 2,
-		-- THE WOOD THAT GROWS HERE (task 327c): white trunks and one clearing off centre.
-		recipe = "birchSlope",
+		-- THE WOOD THAT GROWS HERE (task 336): spruce, wall to wall, nothing else.
+		recipe = "spruceRidge",
 		-- MEASURED AFTER B1's FIRST BAKE (task 328h), off the ground it describes:
 		-- `terrainbake.py survey --cells B1,C1,D1` over 3,888 samples, and `lineSpreadStuds` off 54
 		-- samples along the realised main line (`<runs-dir>/328h-line.luau`). `character` is 327c's
@@ -232,7 +238,7 @@ Grid.CELLS = table.freeze({
 		id = "D1",
 		row = 1,
 		column = 4,
-		-- THE WOOD THAT GROWS HERE (task 327c): open oak park, the thinnest wood of row 1.
+		-- THE WOOD THAT GROWS HERE (task 336): oak, wall to wall, less the meadow (task 327c's park).
 		recipe = "oakRolling",
 		-- MEASURED AFTER D1's FIRST BAKE (task 328h), same two instruments as B1 above.
 		relief = table.freeze({
@@ -252,8 +258,8 @@ Grid.CELLS = table.freeze({
 		id = "A2",
 		row = 2,
 		column = 1,
-		-- THE WOOD THAT GROWS HERE (task 327c): a larch plantation: this world's smallest trees.
-		recipe = "larchRolling",
+		-- THE WOOD THAT GROWS HERE (task 336): aspen, in the plantation rows this cell always had.
+		recipe = "aspenRolling",
 		relief = table.freeze({
 			character = "rolling",
 			minY = 54.8,
@@ -269,8 +275,8 @@ Grid.CELLS = table.freeze({
 		id = "B2",
 		row = 2,
 		column = 2,
-		-- THE WOOD THAT GROWS HERE (task 327c): four zones; on the steepest line the relief is the variety.
-		recipe = "aspenSlope",
+		-- THE WOOD THAT GROWS HERE (task 336): larch -- this world's SMALLEST trees, on its steepest line.
+		recipe = "larchSlope",
 		relief = table.freeze({
 			character = "slope",
 			minY = 69.4,
@@ -286,8 +292,8 @@ Grid.CELLS = table.freeze({
 		id = "C2",
 		row = 2,
 		column = 3,
-		-- THE WOOD THAT GROWS HERE (task 327c): dark conifer either side of a lighter middle.
-		recipe = "spruceRolling",
+		-- THE WOOD THAT GROWS HERE (task 336): spruce and birch, mixed half and half.
+		recipe = "spruceBirchRolling",
 		relief = table.freeze({
 			character = "rolling",
 			minY = 94.6,
@@ -303,8 +309,8 @@ Grid.CELLS = table.freeze({
 		id = "D2",
 		row = 2,
 		column = 4,
-		-- THE WOOD THAT GROWS HERE (task 327c): the most broken ground, the thinnest wood.
-		recipe = "birchRolling",
+		-- THE WOOD THAT GROWS HERE (task 336): field oak and aspen, mixed half and half.
+		recipe = "oakAspenRolling",
 		relief = table.freeze({
 			character = "rolling",
 			-- THE STEEPEST CELL OF THE EIGHT, and it is reported rather than smoothed: 173 studs over
