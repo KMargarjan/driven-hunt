@@ -3018,7 +3018,7 @@ function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?
 	-- is meant to be clear.
 	local skirtRng = Random.new(Grid.seedFor(cellId, Places.CELL_STREAM.skirt))
 	for _, near in ipairs(Places.neighboursOf(cellId)) do
-		if Places.isPlanted(near.id) then
+		if Places.hasOwnWood(near.id) then
 			continue
 		end
 		local theirPlan = Places.cellPlanFor(near.id)
@@ -3035,9 +3035,18 @@ function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?
 	return out
 end
 
--- IS THIS CELL ONE OF THE ONES THAT GETS ITS OWN WOOD (task 328i)? One reader of
--- `Grid.PLANTED_CELLS`, so the skirt rule above and `Places.build`'s dress list are one fact.
-function Places.isPlanted(cellId: string?): boolean
+-- DOES A WOOD EXIST FOR THIS CELL -- STANDING OR STORED (task 328i, renamed in task 337)? One
+-- reader of `Grid.PLANTED_CELLS`, so the skirt rule above and `Places.build`'s dress list are one
+-- fact.
+--
+-- **THE STATIC FACT, AND IT MUST STAY STATIC.** It carried the name `isPlanted` until cells began
+-- moving in and out of `Workspace`, at which point the one name answered two different questions and
+-- the skirt could read a cell as planted that was not standing (lesson L-093,
+-- `reviews/task-335/RESULT.md`). The LIVE question -- *is this cell's wood in `Workspace` now* -- is
+-- `Places.Cells.isStanding`, on the server, and nothing here may ask it: this plan is a pure
+-- function of (cell, seed), and a plan that read the world would stop being reproducible from a
+-- commit. Design: docs/design/cell-loading.md section 8.
+function Places.hasOwnWood(cellId: string?): boolean
 	if type(cellId) ~= "string" then
 		return false
 	end
@@ -3093,7 +3102,7 @@ function Places.cellCapacity(cellId: string): number
 	-- THE SKIRT'S OWN BOUND COUNTS THE BANDS `plantCell` ACTUALLY DRAWS (task 328i): a skirt into a
 	-- planted neighbour is not drawn, so counting it here would bound a plan that cannot exist.
 	for _, near in ipairs(Places.neighboursOf(cellId)) do
-		if not Places.isPlanted(near.id) then
+		if not Places.hasOwnWood(near.id) then
 			for _, band in ipairs(Places.skirtBands(cellId, near.id, near.axis, plan)) do
 				total += cells(band.rect, band.spacing)
 			end

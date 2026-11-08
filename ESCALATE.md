@@ -1,3 +1,59 @@
+## 2026-11-08 ~21:40 UTC, Task 337 -- NEEDS KAREN: one click, and the world trim is blocked behind it
+
+The dispatch asked for two things in one task: (A) only the round's cell in `Workspace`, and (B) the
+world outside the 8-cell grid removed. **A is built and is in this PR. B is not, for two reasons,
+and neither is a judgement call I can take.**
+
+### 1. NEEDS KAREN -- the backup is a human click and there is no tool for it
+
+The dispatch's own precondition: *"BEFORE any removal in her FT: a fresh backup via File > Download
+a Copy."* `<runs-dir>/replant-forest.sh` states the same thing in its header -- *"THE BACKUP IS A
+HUMAN CLICK and there is no tool for it"* -- and every backup in the backups folder was taken that
+way. Terrain cannot be archived the way parts can: a removed voxel has no folder to move it to, so
+the backup IS the rollback and nothing else is.
+
+**The exact clicks, in order:**
+
+1. Go to the Studio window titled **Driven Hunt Forest Test** (it is in **Edit**; do not press Play).
+2. **File > Download a Copy...**
+3. Type the full path: `<backups-dir>\FT-before-337.rbxl` -- that is the `driven-hunt-backups`
+   folder on the Desktop, beside `FT-before-335.rbxl`, and the file name is exactly
+   `FT-before-337.rbxl`.
+4. **Save**. It is ~33 MB and takes ~20 s.
+
+Nothing else. Do **not** Save, Publish or Drafts Commit.
+
+I did not work around it and I ran no removal of any kind: `337-census.luau`, `337-regions.luau`,
+`337-terrain.luau`, `337-frametime.luau` and `smoke.sh` are all read-only, and the one property I
+changed in her place for a frame -- `Lighting.Atmosphere.Density`, 0.230 -> 0 -> 0.230 -- was read
+back after restoring it and reads 0.230.
+
+### 2. FOR THE DIRECTOR -- the trim is also blocked on the rotation, which is not mine to change
+
+`docs/design/cell-loading.md` section 14 (Architect, `PASS`): the removal set includes the ground
+under the four pre-grid line places (`ForestTest.LAYOUTS.road.centre` is `(3030, -2097)`, about
+6,000 studs east of the grid), and `ForestTest.LAYOUT_ORDER` still DEALS those four places in the
+rotation. Trimming their ground while a drive can still be dealt there would put hunters on removed
+land. So 337b needs **either** the 327d switch (`LAYOUT_ORDER` becomes the eight cell ids) **or** a
+Director decision shrinking that list. Design decision D1 says the switch needs no new mechanism --
+`Places.build`'s loop is already guarded by `Forest.layoutNamed(name) ~= nil`, which is nil for a
+cell id, so 9,105 parts and 1.36 s of boot stop being built and not one line of `Places.build`
+changes -- but that is a 327d row, not this task's.
+
+**What B is worth, measured before anything was touched** (Forest Test, 2026-11-08, in a Play
+session): `Workspace` 75,008 instances / **31,437 parts**, of which **21,841 (69 %)** stand outside
+the footprint + 300; the terrain occupies **x,z [-7000..7000]** (841 of 1,681 lattice nodes) against
+a keep box of 5,090 x 3,586 -- **8.7 %** of it. `DrivePlaces` alone is 9,105 parts rebuilt at every
+boot. The numbers and the frames are in `reviews/task-337/REQUEST.md`.
+
+### 3. Not a disagreement with the design
+
+I am not escalating against the Architect: I agree with the three-way split and built part A to it.
+This entry exists because the dispatch asked for B tonight, and B cannot be started -- let alone
+finished -- without the click in section 1 and the decision in section 2.
+
+---
+
 ## 2026-11-08 ~17:10 UTC, Task 335 -- ONE FINDING ON ROUND 2; FIXED BECAUSE IT WAS A RED CI, AND STOPPING
 
 The dispatch: *"Review: at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."*

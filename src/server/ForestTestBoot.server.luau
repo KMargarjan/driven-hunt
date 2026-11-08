@@ -79,6 +79,9 @@ local Loader = require(ServerStorage.Assets:WaitForChild("Loader"))
 -- `Places` requires no owner and no owner requires it. It is the ONE writer of
 -- `Workspace.DrivePlaces` and it reads a layout from `ForestTest.Data` -- never the other way round.
 local Places = require(ServerScriptService:WaitForChild("Places"))
+-- WHICH CELL'S WOOD IS IN `Workspace` (task 337). The one writer of a cell folder's `Parent`; it
+-- creates nothing and destroys nothing. Design: docs/design/cell-loading.md.
+local Cells = require(ServerScriptService.Places:WaitForChild("Cells"))
 -- THE GRID'S EIGHT CELLS (task 327a). The preview below asks it for one cell's layout row.
 local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
 local Data = ForestTest.Data
@@ -125,7 +128,8 @@ local gridPreviewOn = Places.gridPreviewEnabled()
 --
 -- `dress` IS THE ONLY THING ACTED ON, and it is acted on by handing `Places.build` an EMPTY cell
 -- list -- the no-wood branch that function already has by parameter. So `build`'s contract is
--- untouched, `gridPending` comes back empty and the deferred dress below is inert for free.
+-- untouched, and `build` dresses nothing. (The deferred dress of the other cells was retired in
+-- task 337 with `gridPending` itself; `Places.Cells` below decides which planted cell stands.)
 local prebuiltForest = workspace:FindFirstChild(Places.FOREST_FOLDER)
 local prebuild = ForestTest.prebuildVerdict(
 	workspace.Terrain:GetAttribute(ForestTest.TERRAIN_EPOCH_ATTR),
@@ -205,6 +209,31 @@ for _, wood in ipairs(planted.gridWoods or {}) do
 		)
 	)
 end
+
+-- ONE CELL STANDS AND EVERY OTHER PLANTED CELL IS STORED (task 337). Karen, 2026-11-08: *"we only
+-- load one per game thats it"*.
+--
+-- **HERE, AFTER `Places.build` AND BEFORE `Match.start`** (design 6): `build` creates and destroys
+-- `GridPlaces` and may dress the first cell, and the three lines above read `GridForest` BEFORE
+-- anything moves, so `prebuildVerdict` still judges the prebuild it was handed. The level-triggered
+-- call at the drive boundary is in the `markers` closure below, and it is the same function.
+--
+-- IT REFUSES AT EDIT TIME BY ITSELF (`Cells.editTime`), so this line is a no-op in the Edit place
+-- and the store cannot be created where Rojo would delete it at the next Connect.
+local cells = Cells.reconcile(Cells.wantedCell(ForestTest.layoutName()), workspace, ServerStorage)
+-- UNCONDITIONALLY ONCE, so a session always says what it started with; the drive boundary's own
+-- calls print only when something moved.
+print(
+	Cells.line(cells)
+		or string.format(
+			"[Places.Cells] want=%s stood=%s (%d models) stored=%d cell(s)/%d models moved=0",
+			tostring(cells.want),
+			tostring(cells.stood),
+			cells.stoodModels,
+			cells.storedCells,
+			cells.storedModels
+		)
+)
 
 -- ONE CELL'S STANDS AND TOWERS, UNDER THE PREVIEW (task 327b, design 17's 327b). Karen's own line
 -- for this task is *"she stands on all 15 stands of one cell and climbs its towers"*, and nothing
@@ -1139,10 +1168,28 @@ Match.start({
 		-- the cell, so while the flag is on the cell IS the live place and ONE owner builds it.
 		-- The Director's `DHForestLayout` is ignored while the preview is on, which is said here
 		-- rather than discovered: a preview that could be overridden would be two answers.
+		--
+		-- **...AND A FORCED CELL BEATS THE PREVIEW (task 337, design 9.4).** With the preview on the
+		-- cell was pinned to `PREVIEW_CELL`, so the swap this task exists for could never be driven
+		-- in the only place it can be measured. A `DHForestLayout` that names a CELL now wins;
+		-- anything else is still ignored, for the reason written above -- a LINE PLACE forced while
+		-- the preview is on would still be two answers to which place is live.
+		local forced = ForestTest.forcedLayout(ServerStorage:GetAttribute(Data.LAYOUT_OVERRIDE_ATTRIBUTE))
 		ForestTest.layoutForDrive(
 			Match.driveNumber(),
-			if gridPreviewOn then Grid.PREVIEW_CELL else ServerStorage:GetAttribute(Data.LAYOUT_OVERRIDE_ATTRIBUTE)
+			if gridPreviewOn
+				then (if Grid.cellOf(forced) ~= nil then forced else Grid.PREVIEW_CELL)
+				else ServerStorage:GetAttribute(Data.LAYOUT_OVERRIDE_ATTRIBUTE)
 		)
+		-- THE WOOD ARRIVES BEFORE ANYBODY IS PLACED (task 337). Level-triggered exactly as
+		-- `Seats.ensure` below: a reconcile that has nothing to move is two `FindFirstChild`s and a
+		-- list compare, and it prints nothing. It is HERE and not on a `PhaseChanged` edge because
+		-- an edge handler would be a second place that decides when wood exists (lesson L-029), and
+		-- this closure already runs at that edge -- before `Match`'s own `placePlayers` effect.
+		local moved = Cells.line(Cells.reconcile(Cells.wantedCell(ForestTest.layoutName()), workspace, ServerStorage))
+		if moved then
+			print(moved)
+		end
 		-- THE HIGH SEATS, BEFORE THE MARKERS, AND THE ORDER IS THE WHOLE OF TASK 218 (design
 		-- section 9.3). `Seats.ensure` is LEVEL-TRIGGERED on the layout's name: a folder already
 		-- stamped with this layout costs a `FindFirstChild` and casts no ray, so the once-a-second
@@ -1827,42 +1874,13 @@ end)
 HitLog.start()
 ForestTest.start(runtime, os.clock())
 
--- THE CELLS BEHIND THE LINE, PLANTED AFTER EVERY OWNER IS UP (task 328i, reviewer round 1).
---
--- **HERE AND NOT IN `Places.build`, AND THAT IS THE WHOLE REASON THE SPLIT EXISTS:** `build` is
--- this file's composition root, so every second it spends planting is a second with no lobby, no
--- shop, no match and no gun. One cell is ~34 s of sliced planting and five are ~172 s. `build`
--- dresses the cell the player stands in and hands the other four back in `gridPending`; they fill
--- in behind him on this thread, which starts only now, below `HitLog.start` and `ForestTest.start`.
--- `Grid.PLANTED_CELLS` is passed as the KEEP list so the cell already standing is not felled.
-task.spawn(function()
-	for _, wood in
-		ipairs(Places.dressPending(planted.gridPending or {}, workspace, ForestTest.terrainYAt, function()
-			task.wait()
-		end, Grid.PLANTED_CELLS))
-	do
-		print(
-			string.format(
-				"[ForestTestBoot] grid wood %s (deferred): %d of %d planted (%d parts), %d on a step, %d skipped, "
-					.. "%d missing, %d destroyed, capacity %d, %d slice step(s) avg %.2f ms worst %.2f ms over budget %d, %.2fs",
-				tostring(wood.cell),
-				wood.planted,
-				wood.wanted,
-				wood.parts,
-				wood.cliff,
-				wood.skipped,
-				wood.missing,
-				wood.destroyed,
-				wood.capacity,
-				wood.steps,
-				wood.stepMsAvg,
-				wood.stepMsMax,
-				wood.overBudgetStarts,
-				wood.seconds
-			)
-		)
-	end
-end)
+-- THE CELLS BEHIND THE LINE ARE NOT PLANTED ANY MORE (task 337, rule 7). Until now a `task.spawn`
+-- here dressed the four cells `Places.build` handed back in `gridPending`, ~71.8 s of planting whose
+-- only possible next action under one-cell-at-a-time is to be STORED -- so it is retired with
+-- `gridPending` itself. It was already inert in Karen's place (`prebuild.dress == false` gives
+-- `build` an empty cell list), so nothing she can see changes. Wood is made at EDIT time by
+-- `tools/terrainbake.py plant`; `Places.Cells` above decides which of it stands.
+-- Archived: backups/2026-11-08_task-337_dressCell-keep-set.md
 
 -- THE LEVEL-TRIGGERED RETRY FOR A PROFILE THAT DID NOT LOAD (task 170), on the phase this file
 -- already listens to. The `Weapon.refreshArming` / `syncBots` discipline and its stated reason:

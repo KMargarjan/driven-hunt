@@ -1866,7 +1866,7 @@ return function()
 			for _, near in ipairs(Plan.neighboursOf("C1")) do
 				for _, band in ipairs(Plan.skirtBands("C1", near.id, near.axis, plan)) do
 					bands += 1
-					if not Plan.isPlanted(near.id) then
+					if not Plan.hasOwnWood(near.id) then
 						skirt += cells(band.rect, band.spacing)
 					end
 				end
@@ -2275,7 +2275,7 @@ return function()
 				-- see it. Both halves are asserted, so neither "it skirts everything" nor "it
 				-- skirts nothing" can pass.
 				for _, other in ipairs(near) do
-					if Plan.isPlanted(other.id) then
+					if Plan.hasOwnWood(other.id) then
 						expect(hitEach[other.id]).to.equal(nil)
 					else
 						expect((hitEach[other.id] or 0) > 0).to.equal(true)
@@ -2285,7 +2285,7 @@ return function()
 				-- DRAWS NOTHING AT ALL. C1 is the second kind, and it is the only one today.
 				local bare = 0
 				for _, other in ipairs(near) do
-					if not Plan.isPlanted(other.id) then
+					if not Plan.hasOwnWood(other.id) then
 						bare += 1
 					end
 				end
@@ -2655,9 +2655,10 @@ return function()
 
 		-- THE BOOT'S CRITICAL PATH (reviewer round 1). `Places.build` is `ForestTestBoot`'s
 		-- composition root -- `Bots.start`, `Economy.start`, `Lobby.start`, `Shop.start`,
-		-- `Match.start` and `HitLog.start` all come after it -- so it plants ONE cell and hands the
-		-- rest back. Five serial dresses measure ~172 s in Karen's place; one is ~34 s.
-		it("plants one cell on the boot path and hands the rest back as gridPending", function()
+		-- `Match.start` and `HitLog.start` all come after it -- so it plants ONE cell. Five serial
+		-- dresses measure ~172 s in Karen's place; one is ~34 s. SINCE TASK 337 THE REST ARE NOT
+		-- HANDED BACK EITHER: under one cell at a time their only next action would be to be stored.
+		it("plants exactly one cell on the boot path, and no more", function()
 			local function hillside(x: number, z: number): number?
 				return 120 + 0.1 * (x - Grid.CONFIG.originX) - 0.05 * (z - Grid.CONFIG.originZ)
 			end
@@ -2687,28 +2688,40 @@ return function()
 			end
 			local world = fakeWorld()
 			local report = Planter.build(hillside, world, nil, true, nil, { "C1", "C2", "B1" })
-			-- ONE REPORT, FOR THE FIRST CELL OF THE LIST -- and the other two are named, in order.
+			-- ONE REPORT, FOR THE FIRST CELL OF THE LIST, AND ONE CELL STANDING IN THE WORLD.
 			expect(#report.gridWoods).to.equal(1)
 			expect(report.gridWoods[1].cell).to.equal("C1")
-			expect(#report.gridPending).to.equal(2)
-			expect(report.gridPending[1]).to.equal("C2")
-			expect(report.gridPending[2]).to.equal("B1")
+			-- `gridPending` IS GONE WITH THE DEFERRED DRESS (task 337): nothing is handed back, and
+			-- nothing but C1 is standing. It dies if the rest are planted again -- the second
+			-- assertion would read 3.
+			expect(report.gridPending).to.equal(nil)
+			-- ...AND NO CELL BUT THE FIRST ONE IS STANDING. Named rather than counted, because a
+			-- cell whose every site the fixture's hillside refuses creates no folder at all: what
+			-- this case is about is that C2 and B1 were never DRESSED.
+			local gridFolder = world:FindFirstChild(Planter.GRID_FOLDER)
+			expect(gridFolder:FindFirstChild("C2")).to.equal(nil)
+			expect(gridFolder:FindFirstChild("B1")).to.equal(nil)
+			expect(#Planter.cellWoodFolders(gridFolder) <= 1).to.equal(true)
 			-- THE DEFAULT LIST IS THE CONFIG'S, AND ITS FIRST CELL IS THE ONE A PLAYER STANDS IN.
 			local other = fakeWorld()
 			local whole = Planter.build(hillside, other, nil, true, nil)
 			expect(whole.gridWoods[1].cell).to.equal(Grid.PLANTED_CELLS[1])
-			expect(#whole.gridPending).to.equal(#Grid.PLANTED_CELLS - 1)
+			expect(#whole.gridWoods).to.equal(1)
+			expect(whole.gridPending).to.equal(nil)
+			local otherGrid = other:FindFirstChild(Planter.GRID_FOLDER)
+			for index = 2, #Grid.PLANTED_CELLS do
+				expect(otherGrid:FindFirstChild(Grid.PLANTED_CELLS[index])).to.equal(nil)
+			end
 			-- ...AND `dressPending` REFUSES EVERY SHAPE THAT WOULD PLANT NOTHING, rather than
-			-- erroring on the boot's own thread.
-			expect(#Planter.dressPending({}, world, hillside, nil, nil)).to.equal(0)
-			expect(#Planter.dressPending({ "C2" }, world, nil, nil, nil)).to.equal(0)
-			expect(#Planter.dressPending({ "C2" }, Instance.new("Folder"), hillside, nil, nil)).to.equal(0)
+			-- erroring on the caller's thread. It is kept as the Edit/one-off door.
+			expect(#Planter.dressPending({}, world, hillside, nil)).to.equal(0)
+			expect(#Planter.dressPending({ "C2" }, world, nil, nil)).to.equal(0)
+			expect(#Planter.dressPending({ "C2" }, Instance.new("Folder"), hillside, nil)).to.equal(0)
 			TestKit.note(
 				string.format(
-					"boot path: 1 cell (%s), %d deferred (%s)",
+					"boot path: 1 cell (%s), %d planted, nothing deferred",
 					whole.gridWoods[1].cell,
-					#whole.gridPending,
-					table.concat(whole.gridPending, ",")
+					whole.gridWoods[1].planted
 				)
 			)
 			world:Destroy()
@@ -2722,7 +2735,7 @@ return function()
 		it("draws no skirt into a planted neighbour, and still skirts a bare one", function()
 			-- C1's three neighbours are ALL planted, so it draws none.
 			for _, near in ipairs(Plan.neighboursOf(Grid.PREVIEW_CELL)) do
-				expect(Plan.isPlanted(near.id)).to.equal(true)
+				expect(Plan.hasOwnWood(near.id)).to.equal(true)
 			end
 			local c1Skirt = 0
 			for _, item in ipairs(woods[Grid.PREVIEW_CELL]) do
@@ -2733,9 +2746,9 @@ return function()
 			expect(c1Skirt).to.equal(0)
 			-- ...AND A CELL WITH A BARE NEIGHBOUR STILL DRESSES IT, so the case fails if `plantCell`
 			-- simply stopped skirting. C2's B2 and D2 are not planted; A1 is in no list at all.
-			expect(Plan.isPlanted("B2")).to.equal(false)
-			expect(Plan.isPlanted("A1")).to.equal(false)
-			expect(Plan.isPlanted("Z9")).to.equal(false)
+			expect(Plan.hasOwnWood("B2")).to.equal(false)
+			expect(Plan.hasOwnWood("A1")).to.equal(false)
+			expect(Plan.hasOwnWood("Z9")).to.equal(false)
 			local c2Skirt = 0
 			for _, item in ipairs(woods.C2) do
 				if item.side < 0 then
@@ -2762,9 +2775,13 @@ return function()
 		end)
 
 		-- THE BEHAVIOUR, driven through the real planter over a fake hillside -- the fixture case 18b
-		-- uses. IT DIES IF `keep` DIES: `dressCell` fells every other cell's wood on its way in, so
-		-- without the set only the LAST cell of the list would be standing.
-		it("stands every cell of the list up at once, and fells anything not in it", function()
+		-- uses.
+		--
+		-- **IT DIES IF TASK 337'S FIX DIES** (design 11.1). `dressCell` used to fell every cell
+		-- folder not in a `keep` set, so a dress of three cells destroyed a fourth that was standing.
+		-- The stale cell below is NOT in the list and MUST survive with its tree: restore the
+		-- `keep == nil` arm and `staleTree.Parent` is nil and `standing["D2"]` is nil, both red.
+		it("stands every cell of the list up, and fells no cell it was not asked to dress", function()
 			local function hillside(x: number, z: number): number?
 				return 120 + 0.1 * (x - Grid.CONFIG.originX) - 0.05 * (z - Grid.CONFIG.originZ)
 			end
@@ -2788,7 +2805,8 @@ return function()
 			end
 			local grid = Instance.new("Folder")
 			grid.Name = Planter.GRID_FOLDER
-			-- A STALE CELL IS STANDING BEFORE THE DRESS -- one that is NOT in the list.
+			-- ANOTHER CELL'S WOOD IS STANDING BEFORE THE DRESS -- one that is NOT in the list.
+			-- This is the forest task 335 felled.
 			local stale = Instance.new("Folder")
 			stale.Name = "D2"
 			stale.Parent = grid
@@ -2810,14 +2828,18 @@ return function()
 				expect(reports[index].planted > 0).to.equal(true)
 				expect(standing[id]).to.equal(reports[index].planted)
 			end
-			-- ...AND THE STALE CELL IS GONE, folder and tree.
-			expect(standing["D2"]).to.equal(nil)
-			expect(staleTree.Parent).to.equal(nil)
+			-- ...AND THE OTHER CELL IS UNTOUCHED: the SAME folder Instance, with its tree still in
+			-- it and still parented to it. This is the assertion the keep set cannot pass.
+			expect(standing["D2"]).to.equal(1)
+			expect(grid:FindFirstChild("D2")).to.equal(stale)
+			expect(staleTree.Parent).to.equal(stale)
+			expect(reports[1].destroyed).to.equal(0)
 			-- A SECOND RUN OF THE SAME LIST RE-PLANTS AND NEVER DOUBLES: the cell being dressed is
-			-- destroyed whether or not it is in `keep`.
+			-- always destroyed first -- that is what re-planting it means.
 			local again = Planter.dressCells(wanted, grid, hillside, template, nil, nil)
 			local after = Planter.cellWoodFolders(grid)
-			expect(#after).to.equal(#wanted)
+			-- THE THREE DRESSED CELLS PLUS THE ONE THAT WAS ALREADY THERE.
+			expect(#after).to.equal(#wanted + 1)
 			for index, id in ipairs(wanted) do
 				expect(again[index].cell).to.equal(id)
 				expect(again[index].planted).to.equal(reports[index].planted)
@@ -2826,21 +2848,19 @@ return function()
 			-- the wood already standing stays. That is the branch a spec takes to reach `build`
 			-- with no wood at all.
 			expect(#Planter.dressCells({}, grid, hillside, template, nil, nil)).to.equal(0)
-			expect(#Planter.cellWoodFolders(grid)).to.equal(#wanted)
-			-- THE KEEP LIST IS SEPARABLE FROM THE DRESS LIST (task 328i, reviewer round 1), which
-			-- is what lets the boot plant four cells behind a fifth that is already standing: dress
-			-- D1 alone, keeping the three, and all four are up.
-			local later = Planter.dressCells({ "D1" }, grid, hillside, template, nil, nil, { "C1", "C2", "B1", "D1" })
+			expect(#Planter.cellWoodFolders(grid)).to.equal(#wanted + 1)
+			-- DRESSING ONE CELL LEAVES EVERY OTHER CELL STANDING, WITH NO KEEP LIST TO SAY SO
+			-- (task 337). The keep list is gone; the smaller contract is the fix.
+			local later = Planter.dressCells({ "D1" }, grid, hillside, template, nil, nil)
 			expect(#later).to.equal(1)
-			local all = Planter.cellWoodFolders(grid)
-			expect(#all).to.equal(4)
-			-- ...AND WITHOUT THE KEEP LIST THE SAME CALL FELLS THEM, which is the one-cell contract
-			-- and the reason the argument exists.
+			expect(#Planter.cellWoodFolders(grid)).to.equal(5)
+			expect(staleTree.Parent).to.equal(stale)
+			-- ...AND A REPEAT OF THAT ONE-CELL CALL STILL FELLS NOTHING BUT ITS OWN.
 			expect(#Planter.dressCells({ "D1" }, grid, hillside, template, nil, nil)).to.equal(1)
-			expect(#Planter.cellWoodFolders(grid)).to.equal(1)
+			expect(#Planter.cellWoodFolders(grid)).to.equal(5)
 			TestKit.note(
 				string.format(
-					"dressCells %s: %d trees standing over %d cells",
+					"dressCells %s: %d trees standing over %d cells (D2 untouched)",
 					table.concat(wanted, ","),
 					reports[1].planted + reports[2].planted + reports[3].planted,
 					#after
@@ -2954,14 +2974,14 @@ return function()
 
 			local down = Planter.build(hillside, world, nil, true, nil, {})
 			expect(#(down.gridWoods or {})).to.equal(0)
-			expect(#(down.gridPending or {})).to.equal(0)
+			expect(down.gridPending).to.equal(nil)
 			expect(world:FindFirstChild(Planter.FOREST_FOLDER)).to.be.ok()
 			expect(standing.Parent).to.equal(cell)
 			-- IT DIES IF THE EMPTY LIST STOPS MEANING "NOTHING": the same world with the default list
 			-- dresses one cell and defers the rest.
 			local up = Planter.build(hillside, world, nil, true, nil)
 			expect(#up.gridWoods).to.equal(1)
-			expect(#up.gridPending).to.equal(#Grid.PLANTED_CELLS - 1)
+			expect(up.gridPending).to.equal(nil)
 			-- ...AND THE PREBUILT WOOD IS STILL THERE AFTER A DRESS THAT DID PLANT.
 			expect(standing.Parent).to.equal(cell)
 			-- `Places.stats` READS EITHER FOLDER (task 328g), which is what lets the boot print the
@@ -2974,14 +2994,247 @@ return function()
 			expect(Planter.stats(world).folder).to.equal(true)
 			TestKit.note(
 				string.format(
-					"stand-down: woods %d, pending %d; prebuilt %d model(s) survived %d dress(es)",
+					"stand-down: woods %d; prebuilt %d model(s) survived %d dress(es)",
 					#(down.gridWoods or {}),
-					#(down.gridPending or {}),
 					forest.total,
 					2
 				)
 			)
 			world:Destroy()
+		end)
+	end)
+
+	-- ------------------------------------------------- 337. one cell at a time (docs/design/cell-loading.md)
+	--
+	-- Karen, 2026-11-08: *"we only load one per game thats it"*. Every case here runs over FAKE
+	-- folders -- never `Workspace`, never `ServerStorage` -- which is `Places.build`'s own discipline.
+	describe("one cell at a time", function()
+		local Cells = require(ServerScriptService.Places:WaitForChild("Cells"))
+
+		-- A CELL FOLDER WITH `n` MODELS IN IT, parented into `home` under `root`.
+		local function putCell(root: Instance, home: string, id: string, n: number): Instance
+			local holder = root:FindFirstChild(home)
+			if holder == nil then
+				local made = Instance.new("Folder")
+				made.Name = home
+				made.Parent = root
+				holder = made
+			end
+			local folder = Instance.new("Folder")
+			folder.Name = id
+			folder.Parent = holder
+			for index = 1, n do
+				local model = Instance.new("Model")
+				model.Name = id .. "-tree-" .. index
+				model.Parent = folder
+			end
+			return folder
+		end
+		local function names(list): { string }
+			local out = {}
+			for _, wood in ipairs(list) do
+				table.insert(out, wood.cell .. "@" .. wood.home)
+			end
+			table.sort(out)
+			return out
+		end
+
+		-- `wantedCell` IS PURE, and the fallback is what makes this change invisible today.
+		it("answers which cell should be standing, and falls back to the preview cell", function()
+			expect(Cells.wantedCell("C2")).to.equal("C2")
+			expect(Cells.wantedCell(Grid.PREVIEW_CELL)).to.equal(Grid.PREVIEW_CELL)
+			expect(Cells.wantedCell("road")).to.equal(Grid.PREVIEW_CELL)
+			expect(Cells.wantedCell(nil)).to.equal(Grid.PREVIEW_CELL)
+			expect(Cells.wantedCell("Z9")).to.equal(Grid.PREVIEW_CELL)
+			-- THE TRIPWIRE: today the rotation deals LINE PLACES, so the fallback is reachable and
+			-- the first boot must not store Karen's only wood. When `LAYOUT_ORDER` becomes the eight
+			-- cell ids (the 327d switch) this flips, and the line below is where a reader is told.
+			expect(Grid.cellOf(Forest.LAYOUT_ORDER[1])).to.equal(nil)
+			TestKit.note(
+				string.format("wantedCell: rotation deals %s -> fallback %s", Forest.LAYOUT_ORDER[1], Grid.PREVIEW_CELL)
+			)
+		end)
+
+		-- `plan` IS PURE: two lists and a string in, a plan out. Every branch, with no Instance work
+		-- beyond the folders the fixture needs.
+		it("plans every branch with no world at all", function()
+			local world = Instance.new("Folder")
+			local c1 = { cell = "C1", home = Planter.FOREST_FOLDER, folder = world, models = 10 }
+			local c2 = { cell = "C2", home = Planter.FOREST_FOLDER, folder = world, models = 20 }
+			-- STANDING AND WANTED: kept, nothing written.
+			local keep = Cells.plan({ c1, c2 }, {}, "C1")
+			expect(keep.keep).to.equal(c1)
+			expect(keep.stand).to.equal(nil)
+			expect(#keep.store).to.equal(1)
+			expect(keep.store[1]).to.equal(c2)
+			expect(keep.reason).to.equal(nil)
+			-- STORED AND WANTED: it must come out.
+			local back = Cells.plan({ c2 }, { c1 }, "C1")
+			expect(back.stand).to.equal(c1)
+			expect(back.keep).to.equal(nil)
+			expect(#back.store).to.equal(1)
+			-- NEITHER STANDING NOR STORED: a fact to report, not to plant -- and every OTHER cell is
+			-- STILL stored, so the world is left holding no cell folder at all (target T1's extreme,
+			-- and what design 15 step 2 asks a live run to show). The design's own 5.3 row says
+			-- "nothing written" here; 15 step 2 requires C1 stored, and this follows 15.
+			local missing = Cells.plan({ c1 }, {}, "C2")
+			expect(missing.reason).to.equal("missing")
+			expect(missing.stand).to.equal(nil)
+			expect(missing.keep).to.equal(nil)
+			expect(#missing.store).to.equal(1)
+			-- A NIL MUST NOT EMPTY THE WORLD.
+			for _, bad in ipairs({ "road", "Z9" }) do
+				local none = Cells.plan({ c1, c2 }, {}, bad)
+				expect(none.reason).to.equal("no-cell")
+				expect(#none.store).to.equal(0)
+				expect(none.keep).to.equal(nil)
+			end
+			expect(Cells.plan({ c1 }, {}, nil).reason).to.equal("no-cell")
+			-- TWO FOLDERS FOR THE WANTED CELL, one per home: Karen's Edit wood stays standing.
+			local twin = { cell = "C1", home = Planter.GRID_FOLDER, folder = world, models = 3 }
+			local both = Cells.plan({ twin, c1 }, {}, "C1")
+			expect(both.keep).to.equal(c1)
+			expect(#both.store).to.equal(1)
+			expect(both.store[1]).to.equal(twin)
+			expect(#both.anomalies).to.equal(1)
+			-- A STORE COLLISION IS LOUD AND THE STANDING ONE IS LEFT ALONE.
+			local clash = Cells.plan({ c2 }, { c2 }, "C1")
+			expect(#clash.store).to.equal(0)
+			expect(#clash.anomalies).to.equal(1)
+			world:Destroy()
+		end)
+
+		-- **DESIGN 11.2 -- IT MOVES, NEVER DESTROYS, AND IT IS LEVEL-TRIGGERED.**
+		-- Dies if the store branch calls `Destroy` (the model counts read 0), or if the reconcile
+		-- returns early when `want` has not changed (the third call's assertions go red).
+		it("stands one cell, stores the rest, and writes nothing when nothing changed", function()
+			local world = Instance.new("Folder")
+			local store = Instance.new("Folder")
+			putCell(world, Planter.FOREST_FOLDER, "C1", 7)
+			putCell(world, Planter.FOREST_FOLDER, "C2", 5)
+			-- A CHILD THAT IS NOT A CELL FOLDER IS NEVER TOUCHED.
+			local stake = Instance.new("Part")
+			stake.Name = "NotACell"
+			stake.Parent = world:FindFirstChild(Planter.FOREST_FOLDER)
+
+			local first = Cells.reconcile("C1", world, store, nil, false)
+			expect(first.stood).to.equal("C1")
+			expect(first.stoodModels).to.equal(7)
+			expect(first.moved).to.equal(1)
+			expect(first.storedCells).to.equal(1)
+			expect(first.storedModels).to.equal(5)
+			expect(first.reason).to.equal(nil)
+			expect(table.concat(names(Cells.standing(world)), " ")).to.equal("C1@" .. Planter.FOREST_FOLDER)
+			expect(table.concat(names(Cells.stored(store)), " ")).to.equal("C2@" .. Planter.FOREST_FOLDER)
+			expect(stake.Parent).to.equal(world:FindFirstChild(Planter.FOREST_FOLDER))
+			-- MOVED, NOT DESTROYED: C2's five models are still its children, and they are now
+			-- descendants of the STORE. This is the assertion a `Destroy` cannot pass.
+			local stored = Cells.stored(store)[1]
+			expect(stored.models).to.equal(5)
+			expect(stored.folder:GetChildren()[1]:IsDescendantOf(store)).to.equal(true)
+			expect(stored.folder:GetAttribute(Cells.HOME_ATTRIBUTE)).to.equal(Planter.FOREST_FOLDER)
+
+			-- THE SWAP. Both counts survive the round trip, and the cell goes back to its own home.
+			local swap = Cells.reconcile("C2", world, store, nil, false)
+			expect(swap.stood).to.equal("C2")
+			expect(swap.stoodModels).to.equal(5)
+			expect(swap.moved).to.equal(2)
+			expect(table.concat(names(Cells.standing(world)), " ")).to.equal("C2@" .. Planter.FOREST_FOLDER)
+			expect(table.concat(names(Cells.stored(store)), " ")).to.equal("C1@" .. Planter.FOREST_FOLDER)
+			expect(Cells.stored(store)[1].models).to.equal(7)
+			expect(Cells.standing(world)[1].models).to.equal(5)
+
+			-- **LEVEL-TRIGGERED**: the same want again writes nothing and says nothing (target T8).
+			local again = Cells.reconcile("C2", world, store, nil, false)
+			expect(again.moved).to.equal(0)
+			expect(again.stood).to.equal("C2")
+			expect(Cells.line(again)).to.equal(nil)
+			expect(table.concat(names(Cells.standing(world)), " ")).to.equal("C2@" .. Planter.FOREST_FOLDER)
+
+			-- A WANTED CELL WITH NO WOOD: nothing stands, everything else is stored, and it SAYS so.
+			local none = Cells.reconcile("B1", world, store, nil, false)
+			expect(none.reason).to.equal("missing")
+			expect(none.stood).to.equal(nil)
+			expect(#Cells.standing(world)).to.equal(0)
+			expect(#Cells.stored(store)).to.equal(2)
+			expect(string.find(Cells.line(none) or "", "MISSING") ~= nil).to.equal(true)
+			TestKit.note(
+				string.format(
+					"reconcile: C1(7)/C2(5) -> stand C1, swap to C2, no-op, then B1 MISSING; %d stored",
+					#Cells.stored(store)
+				)
+			)
+			world:Destroy()
+			store:Destroy()
+		end)
+
+		-- **DESIGN 11.3 -- THE TWO NAMES ANSWER DIFFERENTLY where the facts differ.**
+		-- Dies if `isStanding` is re-implemented off `Grid.PLANTED_CELLS` -- the exact defect task
+		-- 335's verdict names: C2 would then read `true, true` instead of `true, false`.
+		it("tells a wood that EXISTS from a wood that is STANDING", function()
+			local world = Instance.new("Folder")
+			local store = Instance.new("Folder")
+			putCell(world, Planter.FOREST_FOLDER, "C1", 2)
+			putCell(world, Planter.FOREST_FOLDER, "C2", 2)
+			Cells.reconcile("C1", world, store, nil, false)
+			-- BOTH CELLS ARE IN `Grid.PLANTED_CELLS`, so the STATIC fact is true of both...
+			expect(Plan.hasOwnWood("C1")).to.equal(true)
+			expect(Plan.hasOwnWood("C2")).to.equal(true)
+			-- ...AND ONLY ONE OF THEM IS STANDING.
+			expect(Cells.isStanding("C1", world)).to.equal(true)
+			expect(Cells.isStanding("C2", world)).to.equal(false)
+			expect(Cells.isStanding("A1", world)).to.equal(false)
+			expect(Cells.isStanding(nil, world)).to.equal(false)
+			world:Destroy()
+			store:Destroy()
+		end)
+
+		-- **DESIGN 11.4 -- THE EDIT REFUSAL.** `ServerStorage` is Rojo-owned with the default
+		-- `$ignoreUnknownInstances: false`, so a store created in Edit would be DELETED at the next
+		-- Connect, and Karen's wood with it. Dies if the guard is removed: the store folder appears.
+		it("refuses at Edit time and creates no store", function()
+			local world = Instance.new("Folder")
+			local store = Instance.new("Folder")
+			putCell(world, Planter.FOREST_FOLDER, "C1", 2)
+			putCell(world, Planter.FOREST_FOLDER, "C2", 2)
+			local refused = Cells.reconcile("C1", world, store, nil, true)
+			expect(refused.reason).to.equal("edit-time")
+			expect(refused.moved).to.equal(0)
+			expect(store:FindFirstChild(Cells.STORE_NAME)).to.equal(nil)
+			expect(#Cells.standing(world)).to.equal(2)
+			-- AND THE PREDICATE ITSELF IS THE ONE `MapGen.Contract` USES: under the harness we are
+			-- in Studio and RUNNING, so it must answer false.
+			expect(Cells.editTime()).to.equal(false)
+			-- **...AND THE DEFAULT ARM, WHICH IS THE ONLY ONE THE GAME EVER RUNS** (round 1, finding
+			-- 1). Both live call sites pass three arguments -- `Cells.reconcile(want, workspace,
+			-- ServerStorage)` -- so `clock` and `isEdit` are nil and the refusal is decided by
+			-- `Cells.editTime()`. Until this line existed, inverting that default to "refuse unless
+			-- told otherwise" left all five cases green and the harness at 34/34 while the game
+			-- never reconciled at all. Under the harness `editTime()` is false (asserted above), so
+			-- the default arm MUST reconcile.
+			local defaulted = Cells.reconcile("C1", world, store, nil, nil)
+			expect(defaulted.reason).to.equal(nil)
+			expect(defaulted.moved).to.equal(1)
+			expect(defaulted.stood).to.equal("C1")
+			expect(#Cells.standing(world)).to.equal(1)
+			expect(#Cells.stored(store)).to.equal(1)
+			world:Destroy()
+			store:Destroy()
+		end)
+
+		-- THE NAMES AND THE HOMES ARE READ OFF THE PLANTER, never written twice.
+		it("names the two homes and the store once", function()
+			expect(Cells.STORE_NAME).to.equal("GridWood")
+			expect(#Cells.HOMES).to.equal(2)
+			expect(Cells.HOMES[1]).to.equal(Planter.FOREST_FOLDER)
+			expect(Cells.HOMES[2]).to.equal(Planter.GRID_FOLDER)
+			expect(Planter.FOREST_FOLDER).never.to.equal(Planter.GRID_FOLDER)
+			-- A STORED CELL IS NOT IN `Workspace`, so no ground ray can stop on it and no
+			-- `GROUND_IGNORE` row is needed for the store.
+			expect(table.find(Forest.GROUND_IGNORE, Cells.STORE_NAME)).to.equal(nil)
+			for _, home in ipairs(Cells.HOMES) do
+				expect(table.find(Forest.GROUND_IGNORE, home) ~= nil).to.equal(true)
+			end
 		end)
 	end)
 
