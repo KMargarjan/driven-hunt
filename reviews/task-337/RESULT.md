@@ -1,16 +1,88 @@
-1. `tests/server/grid.spec.luau` describe("one cell at a time") / `src/server/Places/Cells.luau` `Cells.reconcile` — THE ONLY ARM THE GAME RUNS IS UNASSERTED, AND THE REQUEST CLAIMS OTHERWISE. Every `reconcile` call in the whole suite passes an explicit `isEdit`: `Cells.reconcile("C1", world, store, nil, false)` (three times), `(..., nil, true)` once. Nothing calls it the way the two live call sites do — `Cells.reconcile(Cells.wantedCell(ForestTest.layoutName()), workspace, ServerStorage)`, three arguments, `clock = nil` and `isEdit = nil` — so the line that resolves the default, `if if isEdit == nil then Cells.editTime() else isEdit then`, has no case over it. Invert it to `if isEdit == nil then true else isEdit` and the game never reconciles in any Play server or live server, every one of the five new cases stays green, and the harness still reads 34/34. The line that survives the deletion is the case's own `expect(Cells.editTime()).to.equal(false)` — which asserts the predicate and not the defaulting, while the comment directly above it claims the defaulting: *"which is why the boot's own call, with `isEdit = nil`, reconciles in a Play server and refuses in Edit"*. That is verdict 281's rule (an assertion weaker than the comment above it) on the one path Karen's server takes. The same hole makes REQUEST "What I could not verify" false where it says *"the two call sites are proven by `grid.spec` and by reading only"*: `grid.spec` names neither `ForestTestBoot` nor `isEdit = nil`, so the call sites are proven by reading ONLY. Required: one assertion in the existing Edit case that takes the default — `Cells.reconcile("C1", world, store, nil, nil)` on a fixture holding C1 and C2, asserting `moved == 1` / `reason == nil` (under the harness `editTime()` is false, which the case already asserts) — and correct the request sentence to "by reading only".
+PASS (item 6, 8 NOT PROVEN)
+
+Rule 5, stated so this PASS is not read as rule 5 having been met: nothing here is animal behaviour
+or shooting, so there is no core item in the usual sense -- but the thing Karen judges by playing
+(which wood is in `Workspace` when she hunts) was NOT seen in her place through the code under
+review. Claim 6's live run proves the MODULE on her real 2,476-model wood by injection at
+`6fab3196`; the two call sites that drive it -- `ForestTestBoot`'s boot-path
+`Cells.reconcile(Cells.wantedCell(ForestTest.layoutName()), workspace, ServerStorage)` and the same
+call inside the `markers` closure -- are proven by READING ONLY, which the request now says plainly,
+and item 8's forced-CELL-beats-`GRID_PREVIEW` line was never driven in her place at all. Her server
+syncs merged `main` (L-014), so this commit's `ForestTestBoot` has never run anywhere. T5/T6 have a
+before and no after, and the stored-cell frame is not obtainable (measured reason given). What WAS
+seen: F1/F2/F3 described, and the Edit census showing no `GridWood` and a byte-for-byte unchanged
+place.
+
+Round 1's blocking finding is fixed and the fix is real, not asserted. `grid.spec`'s
+*"refuses at Edit time and creates no store"* now calls `Cells.reconcile("C1", world, store, nil, nil)`
+-- the five-nil-argument shape both live call sites resolve to -- and asserts `reason == nil`,
+`moved == 1`, `stood == "C1"`, one standing, one stored, with `Cells.editTime() == false` asserted
+beside it so the default is pinned to a known value under the harness. `grid.spec:3216` is
+`expect(defaulted.reason).to.equal(nil)`, exactly the line the quoted fail-first run reddens
+(`Expected value "nil" (nil), got "edit-time" (string)`), on a dirty tree that was then restored.
+Delete-the-producer, by reading, per case the request offers:
+- claim 2: restore `keep == nil` in `dressCell`'s destroy loop and `expect(standing["D2"]).to.equal(1)`,
+  `expect(grid:FindFirstChild("D2")).to.equal(stale)` and `expect(staleTree.Parent).to.equal(stale)`
+  all redden. Survives nothing.
+- claim 3: a `Destroy` in the store branch makes `Cells.stored(store)[1]` nil and
+  `expect(stored.models).to.equal(5)` errors; an edge-triggered early return reddens the third
+  call's `moved == 0` / `Cells.line(again) == nil` pair.
+- claim 4: `isStanding` off `Grid.PLANTED_CELLS` makes `isStanding("C2", world)` read true against
+  the asserted false.
+- claim 5: covered above.
+- claim 7: restore `report.gridPending = rest` and `expect(report.gridPending).to.equal(nil)`
+  reddens; restore the dress of the rest and the named `C2`/`B1` assertions redden.
+Claim 1 verified in the file: `Cells.luau` holds one `Instance.new` (`ensure`, a Folder) and no
+`Destroy`; `src/server/Places/init.luau` names `Cells` only in comments, so `terrainbake.py`'s
+`PLANT_MODULES` require rewrites are untouched (it rewrites an explicit list, it does not walk the
+directory, so the new sibling is not injected). `test2` N/A is correct: none of the six touched
+src/tests/tools paths is in `TWO_PLAYER_PATHS`. Harness line names `e052992b` "(clean tree)" and
+`paperwork-after-code-commit.txt` says OK (only `REQUEST.md` followed it). selene/stylua/rojo clean.
+No local path and no personal datum in the changed files.
 
 ## Notes (non-blocking)
-- `docs/design/cell-loading.md` §5.3 vs §15 step 2 — FOR THE ARCHITECT, and the Builder's own disclosure is accurate: §5.3's table row says the `missing` branch writes *"nothing"*, §15 step 2 requires forcing C2 to store C1 and leave `Workspace` holding no cell folder. `Cells.plan` implements §15 (`out.reason = "missing"` is set after the standing loop has already filled `out.store`), and `grid.spec`'s `missing` case asserts `#missing.store == 1`. One of the two design lines needs correcting. The reachable consequence today, with only C1 actually planted (task 335's own note), is that a forced `DHForestLayout` naming any other cell runs a drive on bare ground — worth saying in TASKS.md 336 before anyone forces a cell in a playtest.
-- `src/server/Places/Cells.luau` `woodOf` — counts models as `#folder:GetChildren()`, while `cell-loading.md` §9's owner table says the model count is read through `Places.stats(root, name)`. A non-model child of a cell folder would be counted as a model. Either call `Places.stats` or correct that design row.
-- `src/server/Places/Cells.luau` `Cells.reconcile` — `report.ms` is left at 0 on both early returns (`edit-time`, `no-cell`): the number design 11 says is *printed, not assumed* is absent exactly when the function refuses. Set it before each return.
-- `src/server/Places/Cells.luau` `Cells.reconcile` — `wood.folder:SetAttribute(Cells.HOME_ATTRIBUTE, wood.home)` is written on the way into the store and never cleared on the way out, so a cell standing in `Workspace` carries a stale `WoodHome` stamp. Harmless today because `Cells.standing` derives `home` from the parent folder's name, but it is a second record of one fact.
-- `GAME_DESIGN.md` (both amended rows) and REQUEST claim 1 — *"the ONE writer of a cell folder's `Parent`, in both directions"* overstates: `Places.dressCell`'s `ensureFolder` writes `made.Parent = gridFolder` for the folder it creates. Same owner (`ServerScriptService.Places`), so no boundary is broken; the sentence should read "the only thing that MOVES a cell folder between its home and the store".
-- `tests/server/grid.spec.luau` "names the two homes and the store once" — `expect(Cells.HOMES[1]).to.equal(Planter.FOREST_FOLDER)` compares `Places.FOREST_FOLDER` with itself through two names, and `expect(Cells.STORE_NAME).to.equal("GridWood")` is a transcription of the constant. They catch only a hand-written literal drifting from the planter. The case is not offered as proof of any claim, so this is a note; the `Forest.GROUND_IGNORE` half is the part that can actually fail, and I verified it against `src/shared/ForestTest/init.luau` (`GridForest` and `GridPlaces` present, `GridWood` absent).
-- `src/server/Places/Cells.luau` `Cells.editTime` — `IsStudio() and not IsRunning()` is false in Studio **Run** as well as in a live server, so a Run session reconciles into the DataModel Rojo is connected to. Studio reverts on Stop so nothing is lost, but the header's stated reason (*"a store created in Edit would be DELETED at the next Connect"*) applies to Run too; say so, or widen the predicate.
-- `src/server/Places/init.luau` `Places.dressPending` — after this change it has no `src/` caller at all, and `tools/terrainbake.py`'s `PLANT_SEAM` drives `Places.dressCells`, not `dressPending`. The spec's new comment calls it *"the Edit/one-off door"* but nothing drives it. Queue its removal (rule 7 archive) or name the driver.
-- Verified against the repo, so the Director does not have to: `grep -i keep src/server/Places/init.luau` is prose only; `gridPending`, `isPlanted` and `keepIds` have no remaining `src/` reader (`ForestTestBoot` was the only `Places.build` caller); `Cells.luau` has no `Destroy` and its only `Instance.new` is `ensure`'s `Folder`; `Places/init.luau` does not require `Cells`, so `terrainbake.py`'s `REWRITES["Planter"]` is untouched; `PLANT_SEAM` holds exactly one `%s` and no `keep` substring, and `dressCells(..., template, breathe, nil)` is the right arity; `default.project.json` maps `ServerStorage` to `src/serverstorage` with no `$ignoreUnknownInstances`, so claim 5's reason for the Edit refusal is true; `Grid.cellOf` is nil-safe, so `Grid.cellOf(forced)` with no override is safe; `Cells` appears in the sourcemap under a Rojo-owned path; selene, stylua and rojo build are all exit 0; the harness line names the request's `Code commit:` `6fab3196` with "(clean tree)" and `paperwork-after-code-commit.txt` says OK.
-- Rule 5, stated so this result is not read as rule 5 having been met: nothing in this task is animal behaviour or shooting, so there is no core item, and F1/F2/F3 are each described in the request (rule 5 satisfied for the frames I cannot see). What has NOT been seen in Karen's place is the task's own wiring: by the Builder's own statement the boot call site, the drive-boundary call site and claim 8's forced-cell line never ran in her Forest Test — the live run drove the module by injection instead — so items 6, 7 and 8 are reading-only in her world. Her C1 forest standing unmoved is the thing she would judge, and the fallback in `Cells.wantedCell` plus `ForestTest.LAYOUT_ORDER` still dealing line places is what makes that true by reading; it has not been shown in her place.
+- `src/server/ForestTestBoot.server.luau`, the new `Cells` require comment -- still reads "The one
+  writer of a cell folder's `Parent`", the exact wording claim 1 says was corrected because
+  `dressCell`'s `ensureFolder` also parents a cell folder. It was corrected in `Cells.luau`'s header
+  and `GAME_DESIGN.md`'s two rows but not here, and `cell-loading.md` §9's section heading carries it
+  too. Fix: the same "only thing that MOVES a cell folder between its home and the store".
+- `reviews/task-337/REQUEST.md`, `ANSWERED: L-162` -- *"the one run made at the code commit
+  `6fab3196`: ... and the harness line names the same sha"* is false; the harness line names
+  `e052992b`. The substance holds and I checked it: `log.txt` shows `e052992b` changed
+  `src/server/Places/Cells.luau` by 2 insertions / 1 deletion, and the file's header is exactly the
+  two corrected sentences, so the injected text's BEHAVIOUR is the reviewed code. Claim 6's
+  parenthetical *"`Cells.luau`'s own text at this code commit"* should name `6fab3196`.
+- `tests/server/grid.spec.luau`, *"stands one cell, stores the rest, and writes nothing when nothing
+  changed"* -- design §11.2 names three deletion-sensitivities and the case implements two. The third
+  (*"a third assertion counts the world's children between the two writes through an injected `clock`
+  tick and reads 2"*) is absent, and it is not writable as specified: `reconcile` calls `tick` only at
+  entry and before `return`, so an injected clock cannot observe between the store and the stand
+  write. Store-before-stand IS implemented and nothing asserts it. Fix: drop the sentence from the
+  design, or give `reconcile` an observable seam and assert the peak.
+- `Cells.line` / `cell-loading.md` §5.4 -- the code emits `<head> | ANOMALY: ...`; the design's
+  example line is a bare `[Places.Cells] ANOMALY: C1 stands in both ...`. One of the two.
+- `Cells.line` on the `missing` branch -- it returns non-nil whenever `reason ~= nil`, and the
+  `markers` closure is read once a second while `Waiting`, so a wanted cell with no wood prints the
+  MISSING line ~1 Hz for the whole wait, not the "ONE line printed" of §5.3. Matches §5.4's own rule
+  as written, so the code is not wrong against the design; only reachable with a forced cell that has
+  no wood, which `TASKS.md` row 336 already warns against. Worth a `printed once per want` latch when
+  336 lands.
+- `tests/server/grid.spec.luau`, *"plants exactly one cell on the boot path, and no more"* --
+  `expect(#Planter.cellWoodFolders(gridFolder) <= 1).to.equal(true)` is a bound, not a count; the two
+  named `C2`/`B1` assertions above it are what can fail. Harmless, but it reads as a third proof and
+  is not one.
+- Round-1 notes (a)-(f) are queued verbatim in `TASKS.md` row 337 and all six still stand as written;
+  I re-checked (f) specifically -- `Cells.HOMES[1] == Planter.FOREST_FOLDER` is the same engine
+  identity through two names, and the request correctly does NOT offer that case as proof of
+  anything, so it stays a tripwire and a note. (b) `report.ms` left at 0 on both early returns is
+  confirmed in the source.
+- `src/server/Places/init.luau`, `Places.dressPending` -- now has no caller under `src/` (the boot's
+  `task.spawn` is archived and `PLANT_SEAM` drives `dressCells`), so its only driver is `grid.spec`.
+  Round-1 note (e) already queues naming a driver or archiving it under rule 7.
+- `cell-loading.md` §5.3 vs §15 step 2 -- the `missing` row says "nothing written" while step 2
+  requires every other cell stored. The code follows §15, says so in `Cells.plan`'s comment and in
+  the spec case, and target T1 needs it. Already queued for the Architect; recording that I agree
+  with the arm chosen.
 
 ---
-REVIEWER verdict on commit `310f5fd518c306d05f48405a9fdf4d1ea3b850ed` (round 1) · 2026-11-08 21:27 UTC · session cost $5.28, 50 turns · written by tools/agents.py
+REVIEWER verdict on commit `0fa48aa82c6156ef622127628a345b36624b81a8` (round 2) · 2026-11-08 21:50 UTC · session cost $3.77, 43 turns · written by tools/agents.py
