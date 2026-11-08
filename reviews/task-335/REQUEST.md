@@ -1,14 +1,14 @@
 # Task 335 -- cell C1 is one birch wood, wall to wall
 
 Task: 335
-Round: 1
+Round: 2
 Base: main 4751ffd6
-Code commit: ef357ba1322a076f6b81d5038c210a82636e8ac1
+Code commit: 687dc1e8971c72f862624a6acca6b2926b857ce9
 
 Gate, clean tree, at the code commit:
 
 ```
-[harness] PASS: 34/34 checks @ ef357ba1322a076f6b81d5038c210a82636e8ac1 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 687dc1e8971c72f862624a6acca6b2926b857ce9 (clean tree) scope=all
 ```
 
 `test2` N/A: no `TWO_PLAYER_PATHS` path is touched (`src/shared/Places/init.luau`,
@@ -24,6 +24,39 @@ forest no free spot excep road so in one terrain maik all birch trees"*.
 understorey `larchYoung` -> `birchScrub`, `reliefBias` dropped from all four wood zones, the clearing
 zone 0 -> 24 and the oak park 44 -> 26. Nothing else in the recipe moves. Two specs follow the
 recipe and two more carry the task's own claims.
+
+## The two frames, opened and described (round 1, finding 1)
+
+Both were taken in Karen's Forest Test in EDIT, after the plant, with `ftplay.py capture`.
+
+**`<runs-dir>/335-F1.png`** -- top-down, camera `-3899,1500,-4300` looking at `-3899,100,-4371`,
+the camera the dispatch gave (the same one as `c1-top2.png`). WHAT IS IN IT: C1's rectangle is one
+even grey-green canopy from the north road to the south road and from the west flank road to the
+east one. **The cut clearing that filled the middle of `c1-top2.png` is gone, and so is the almost
+empty field in its south half** -- `335-F1-south.png` is that south third at 2.4x and carries crowns
+across its whole width down to the south road. **No dark spruce block is left in the north half**:
+in `c1-top2.png` the north read as two black blocks against pale ground, here the whole cell is one
+tone, which is the one species. The bare ground inside the cell is: a narrow north-south lane out of
+the hunter line about two thirds up (the V ride at stand 5), a shorter cross-lane on the east half
+(the X cut on stand 3's sight line), two short flank lanes, and the pale road strips OUTSIDE the
+rectangle. **One honest qualification:** the eastern strip reads visibly thinner than the rest --
+that is the 26-stud `birchScrub` zone in the `shrub` band, whose crowns are 0.35-0.45 scale, so from
+1,400 studs up the ground shows between them. Every lattice point there is still inside 25 studs of
+a trunk (claim 2); it is a canopy-size difference, not a hole, and it is Karen's to judge.
+
+**`<runs-dir>/335-F2.png`** -- from C1 stand 8, camera `-4497,109,-4746` (the stand's own ground at
+103.6 plus a 5-stud eye) looking at `-4377,107,-4739`, which is 120 studs due east into the cell.
+WHAT IS IN IT: a closed wall of white-trunked birch three to four ranks deep, filling the frame from
+side to side; the grass verge and the ditch in the bottom quarter; the tower ladder of stand 8 in
+its own 24-stud clearing just right of centre. **Not one spruce, larch, oak or aspen is in the
+frame.** Sky shows above the canopy and between the upper crowns. **What it is NOT:** a thicket --
+`335-F2-zoom.png` is the mid-ground at 2.4x, and between the trunks the ground is open sunlit grass,
+so a hunter can still see a boar's body through the wood; what breaks the line of sight is the
+trunks and the low crowns, not the floor. **On note 2 (the understorey in the shot band):** the
+shrub-band birch ARE in the 40-140 stud band -- in that zoom, the small tree left of centre whose
+crown starts at about chest height, against the straight mature stems beside it -- so a hunter at
+this stand now has young growth in front of him where the `young` ban kept it out. Reported, not
+argued; it is her call.
 
 ## Claims
 
@@ -46,7 +79,11 @@ recipe and two more carry the task's own claims.
    400 of them are road, verge, ride or corridor, which the mask keeps trunk-free for the stands and
    the beaters -- 10.3 % of the lattice before a single tree is planted. The bound is therefore
    reported both ways and asserted against the non-exempt points. Verify: the `openwhy` line, and
-   `Places.maskGrid`'s arms 1-4 and 9-12.
+   `Places.maskGrid`'s arms 1-4 and 9-12. **Which mask produced that breakdown:** the LIVE probe
+   runs inside her place, whose `Places` is still merged `main` `4751ffd6`, so the labels are the
+   OLD mask read over the NEW trees -- which is why `clearing=7` appears at all (v5 has no spacing-0
+   zone, so its own arm 8 can never answer `clearing` for C1). The exempt set is byte-identical in
+   both recipes and `clearing` is non-exempt in either, so 80/3,220 = 2.48 % is unaffected.
 5. **`reliefBias` had to go, and the spec says so.** It rewrites any non-conifer to `conifer` under
    hn .30; C1's `relief.minY` 89.14 + .30 x 61.12 = 107.5 is ABOVE its `lineMeanY` 106.03, so left
    in it would have planted the lower half of a birch-only cell in spruce -- the live BEFORE count,
@@ -90,6 +127,22 @@ recipe and two more carry the task's own claims.
   `young` growth from a stand's far cone (40-140 studs). Saplings can therefore stand in a hunter's
   shot band where they could not before. Reported, not hidden; it is Karen's feel call.
 * No research note: this is a data change inside an existing recipe system, with no new pattern.
+
+## Round 2: what changed since round 1
+
+* The blocking finding: both frames are described above, in the request.
+* Five non-blocking notes fixed because they were WRONG rather than thin (`f3ad0c92`):
+  `BIRCH_UNDER`'s "11-43 stud sapling" (`scaleFloor` 0.35 floors it at 15-43); `mixedRolling`'s
+  pre-v5 paragraphs, now marked history rather than deleted; `grid.spec`'s `t1861 f104 s0` note,
+  now `t2418`; the density case's title; and the relief-bias case reading `cell.relief` outside its
+  `pcall` with the stub already installed.
+* **The planted wood in her place is still this code's wood.** It was planted at `ef357ba1`
+  (`[bake] plant OK: 1 cell(s) @ ef357ba1... 2476 models / 9318 parts`), and
+  `git diff ef357ba1 HEAD -- src/` has NO non-comment line in it. Verify by re-running that diff.
+* Notes left for `TASKS.md` rather than fixed: `Places.standTypeFor` and `Places.frontMixOf`
+  hand-match mix names so C1's stand letters and border strip move (both dormant, no `src/`
+  caller); `PARTS_PER_MODEL` 3.03 is C1's OLD mix and now understates it by ~1,676 parts; and the
+  far-cone ban should be stated in height, not in the species group.
 
 ANSWERED: L-136 no spec failed as a flake; the first full run named five failures, all of them this
 change's own pins, and they were fixed rather than called known. The second run is 34/34.
