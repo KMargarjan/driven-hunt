@@ -661,8 +661,15 @@ function Places.cellWoodFolders(gridFolder: Instance?): { Instance }
 	return out
 end
 
--- DRESS ONE CELL: destroy whatever cell is standing, then plant this one, both through `Slice` and
--- both in `Slice.BUDGET_MS` bites. Returns one report line's worth of counts.
+-- DRESS ONE CELL: destroy THIS CELL'S OWN wood, then plant it, both through `Slice` and both in
+-- `Slice.BUDGET_MS` bites. Returns one report line's worth of counts.
+--
+-- **IT FELLS NO CELL BUT `cellId` (task 337).** It used to take a `keep` set and destroy every cell
+-- folder not in it, so planting one cell felled the others -- `reviews/task-335/RESULT.md`. A keep
+-- set computed per call is the defect; the smaller contract is the fix, not more logic, so there is
+-- now no call shape that can fell a cell the caller did not name. Which cell STANDS is
+-- `Places.Cells`' question, and it moves folders rather than destroying them.
+-- Archived (rule 7): backups/2026-11-08_task-337_dressCell-keep-set.md
 --
 -- THE ORDER IS THE SLICE'S AND NOT THIS FUNCTION'S (`Slice.ORDER`): both jobs are queued and the
 -- queue runs every destroy first, so the peak part count is one cell's. The new folder is created by
@@ -677,12 +684,7 @@ function Places.dressCell(
 	groundAt: (number, number) -> number?,
 	template: (string) -> Model?,
 	breathe: (() -> ())?,
-	clock: (() -> number)?,
-	-- WHICH OTHER CELLS' WOOD SURVIVES THIS DRESS (task 328i). nil is the one-cell contract this
-	-- function was born with: every other cell goes. A set of ids keeps those, so `dressCells` can
-	-- stand five woods up without each one felling the last. The cell being dressed is ALWAYS
-	-- destroyed first, in the set or not -- that is what re-planting it means.
-	keep: { [string]: boolean }?
+	clock: (() -> number)?
 ): { [string]: any }
 	local tick = clock or os.clock
 	local report = {
@@ -708,7 +710,8 @@ function Places.dressCell(
 	Slice.reset()
 	local old: { Instance } = {}
 	for _, folder in ipairs(Places.cellWoodFolders(gridFolder)) do
-		if folder.Name == cellId or keep == nil or keep[folder.Name] ~= true then
+		-- THIS CELL AND NOTHING ELSE. Re-planting a cell means destroying what it had.
+		if folder.Name == cellId then
 			table.insert(old, folder)
 		end
 	end
@@ -845,10 +848,9 @@ end
 -- DRESS A LIST OF CELLS, one after another, each into its own folder. Returns one report per cell,
 -- in the order given.
 --
--- KAREN, 2026-11-04: *"more trees behind the line"*. There were none, and the reason was one call:
--- `build` dressed `Grid.PREVIEW_CELL` and nothing else, so seven of the eight cells had never had a
--- tree planted in them. `dressCell` is built around ONE cell -- it fells every other cell's wood on
--- its way in -- so the list is what `keep` exists for, and the one-cell contract is untouched.
+-- SINCE TASK 337 IT NEEDS NO `keepIds`: `dressCell` fells only the cell it is dressing, so dressing
+-- a list cannot fell a cell outside it. The parameter is archived with the keep set
+-- (backups/2026-11-08_task-337_dressCell-keep-set.md, rule 7).
 --
 -- THE ORDER MATTERS AND IT IS THE CALLER'S: the first id is dressed first, and `Slice` plants each
 -- cell nearest ITS OWN hunter line first, so the cell a player is standing in should be first.
@@ -858,19 +860,11 @@ function Places.dressCells(
 	groundAt: (number, number) -> number?,
 	template: (string) -> Model?,
 	breathe: (() -> ())?,
-	clock: (() -> number)?,
-	-- WHICH CELLS SURVIVE, when that is not the same list as the one being dressed (task 328i,
-	-- reviewer round 1). The deferred dress plants four cells and must not fell the fifth, which is
-	-- already standing and is the one the player is in. nil keeps exactly what it dresses.
-	keepIds: { string }?
+	clock: (() -> number)?
 ): { { [string]: any } }
-	local keep: { [string]: boolean } = {}
-	for _, id in ipairs(keepIds or cellIds) do
-		keep[id] = true
-	end
 	local reports: { { [string]: any } } = {}
 	for _, id in ipairs(cellIds) do
-		table.insert(reports, Places.dressCell(id, gridFolder, groundAt, template, breathe, clock, keep))
+		table.insert(reports, Places.dressCell(id, gridFolder, groundAt, template, breathe, clock))
 	end
 	return reports
 end
@@ -878,14 +872,13 @@ end
 -- DRESS THE CELLS `build` HANDED BACK, off the boot's critical path (task 328i, reviewer round 1).
 -- The caller spawns it; this function never spawns anything itself, so a spec drives it straight.
 --
--- IT FINDS THE FOLDER AND THE TEMPLATES THE SAME WAY `build` DOES and keeps `keepIds` standing, so
--- the cell already planted is not felled by the cells arriving behind it.
+-- IT FINDS THE FOLDER AND THE TEMPLATES THE SAME WAY `build` DOES. `keepIds` went with the keep set
+-- in task 337: no dress fells a cell it was not asked to dress.
 function Places.dressPending(
 	cellIds: { string },
 	world: Instance?,
 	groundAt: ((number, number) -> number?)?,
-	breathe: (() -> ())?,
-	keepIds: { string }?
+	breathe: (() -> ())?
 ): { { [string]: any } }
 	if groundAt == nil or #cellIds == 0 then
 		return {}
@@ -900,7 +893,7 @@ function Places.dressPending(
 		return {}
 	end
 	local template = Places.templateLookup(sources, {})
-	return Places.dressCells(cellIds, gridFolder, groundAt, template, breathe, nil, keepIds or cellIds)
+	return Places.dressCells(cellIds, gridFolder, groundAt, template, breathe, nil)
 end
 
 -- BUILD EVERY DRESSED PLACE. Returns one report line's worth of counts.
@@ -1076,22 +1069,18 @@ function Places.build(
 	-- dresses `Grid.PLANTED_CELLS` -- the five whose ground is baked (task 328i; it dressed
 	-- `Grid.PREVIEW_CELL` alone until then, which is why there was no wood behind the line).
 	-- Task 327d replaces this with the per-drive dress at the `Scoring -> Assigning` edge.
-	-- ONLY THE FIRST CELL GOES IN ON THIS PATH, AND THAT IS THE WHOLE POINT (task 328i, reviewer
-	-- round 1). `Places.build` is `ForestTestBoot`'s composition root: `Bots.start`, `Economy.start`,
-	-- `Lobby.start`, `Shop.start`, `Match.start` and `HitLog.start` all come AFTER it, so a second
-	-- of planting here is a second with no lobby, no shop, no match and no gun. Five serial dresses
-	-- measure ~172 s. The first cell is the one a player stands in (`PLANTED_CELLS[1]` is
-	-- `PREVIEW_CELL`); the rest are handed back in `report.gridPending` for the boot to dress on its
-	-- own thread once every owner has started.
+	-- ONLY THE FIRST CELL GOES IN, AND SINCE TASK 337 THE REST GO NOWHERE. `Places.build` is
+	-- `ForestTestBoot`'s composition root: `Bots.start`, `Economy.start`, `Lobby.start`, `Shop.start`,
+	-- `Match.start` and `HitLog.start` all come AFTER it, so a second of planting here is a second
+	-- with no lobby, no shop, no match and no gun. The first cell is the one a player stands in
+	-- (`PLANTED_CELLS[1]` is `PREVIEW_CELL`), which is also `Cells.wantedCell`'s answer at boot.
+	-- `report.gridPending` and the boot's deferred dress of the other four went with task 337: under
+	-- one-cell-at-a-time their only possible next action was to be stored, which is 71.8 s of
+	-- planting with no product. Archived: backups/2026-11-08_task-337_dressCell-keep-set.md (rule 7).
 	if previewOn and gridFolder ~= nil then
 		local list = cells or Grid.PLANTED_CELLS
 		local first: { string } = if list[1] ~= nil then { list[1] } else {}
-		local rest: { string } = {}
-		for index = 2, #list do
-			table.insert(rest, list[index])
-		end
-		report.gridWoods = Places.dressCells(first, gridFolder, reader, template, breathe, nil, list)
-		report.gridPending = rest
+		report.gridWoods = Places.dressCells(first, gridFolder, reader, template, breathe, nil)
 	end
 	report.seconds = os.clock() - started
 	return report

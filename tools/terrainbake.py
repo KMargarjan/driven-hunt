@@ -864,9 +864,12 @@ def check_plant_echo(studio, studio_id, wanted, injected, shas):
     return None
 
 
-# THE SEAM `plant` RUNS, ONE CALL PER CELL. `Planter.dressCells` with the WHOLE cell list as `keep`
-# so a cell arriving does not fell the cell before it (task 328i's rule), and `terrainYAt` -- the
-# boot's own reader, cut out of its own file.
+# THE SEAM `plant` RUNS, ONE CALL PER CELL. `Planter.dressCells` plus `terrainYAt` -- the boot's own
+# reader, cut out of its own file.
+#
+# THE `keep` LIST WENT IN TASK 337. `Planter.dressCell` now fells only the cell it is dressing, so a
+# cell arriving cannot fell the cell before it and there is nothing for a keep list to protect --
+# which is the fix, rather than a longer list (docs/design/cell-loading.md section 7).
 #
 # IT YIELDS, AND DESIGN 10.2's `breathe = nil` IS REFUTED BY MEASUREMENT (2026-11-05, C1 in Karen's
 # Forest Test). Without a yield the 1,941 clones go in on Studio's main thread in one block; the
@@ -892,10 +895,9 @@ PLANT_SEAM = """(function()
         end
         local audit = {}
         local template = Planter.templateLookup(sources, audit)
-        local keep = {%s}
         local reports = Planter.dressCells({"%s"}, folder, terrainYAt, template, function()
             task.wait()
-        end, nil, keep)
+        end, nil)
         local row = reports[1]
         row.quarantined = audit.quarantined
         row.sources = #sources
@@ -978,11 +980,10 @@ def command_plant(studio, studio_id, cells, injected, wanted, sha):
         return refuse("Workspace.Terrain carries no %s: bake the ground before planting on it"
                       % wanted["terrainEpochAttr"])
     print("  ground %s=%s" % (wanted["terrainEpochAttr"], epoch))
-    keep = ",".join('"%s"' % c for c in cells)
     rows, models, parts = [], 0, 0
     for cell_id in cells:
         started = time.time()
-        row = call(studio, studio_id, PLANT_SEAM % (keep, cell_id), timeout=BAKE_CALL_TIMEOUT,
+        row = call(studio, studio_id, PLANT_SEAM % cell_id, timeout=BAKE_CALL_TIMEOUT,
                    injected=injected)
         row["wallSeconds"] = time.time() - started
         measured = forest_rows(studio, studio_id, cell_id, wanted["forestFolder"],
@@ -3460,10 +3461,12 @@ def selftest():
     ok("no line under src/ both names the prebuild's folder and destroys something",
        not destroyers, ",".join(destroyers))
 
-    ok("the plant seam drives Places.dressCells -- the ONE writer -- with no yield and the whole "
-       "cell list as keep",
+    ok("the plant seam drives Places.dressCells -- the ONE writer -- into the prebuild's folder, and "
+       "carries NO keep list (task 337: a dress fells only the cell it dresses)",
        "Planter.dressCells(" in PLANT_SEAM and "terrainYAt" in PLANT_SEAM
-       and "local keep = {%s}" in PLANT_SEAM and "Planter.FOREST_FOLDER" in PLANT_SEAM
+       and "keep" not in PLANT_SEAM and "Planter.FOREST_FOLDER" in PLANT_SEAM
+       # ONE `%s` AND NOT TWO, so `PLANT_SEAM % cell_id` cannot silently take the wrong argument.
+       and PLANT_SEAM.count("%s") == 1
        # ...AND IT YIELDS, because without one StudioMCP cannot answer while 1,941 clones go in on
        # the main thread -- measured, see the seam's header.
        and "task.wait()" in PLANT_SEAM)
