@@ -957,7 +957,7 @@ return function()
 			-- **1,965 bent was task 328i**, which is 2,429 MINUS C1's 464-site SKIRT: all three of
 			-- C1's neighbours are in `Grid.PLANTED_CELLS` now, and a cell draws no skirt into a
 			-- neighbour that has its own wood. C1's OWN rectangle has not moved a tree -- 328s's own
-			-- per-cell note reads `2448(t1861 f104 s483)` and this plan is `t1861 f104 s0`.
+			-- per-cell note reads `2448(t1861 f104 s483)` and this plan is `t2418 f104 s0` (task 335).
 			-- The history, now that the skirt is not in the number: 328o 1,789, 328s 2,448 and
 			-- 328h 2,429 -- every one of them `t1861 f104` plus a skirt of 483 or 464. The SKIRT is
 			-- the only term that ever moved (328h re-measured B1's towers 1 -> 4 and D1's 2 -> 1,
@@ -2618,7 +2618,7 @@ return function()
 		-- took C1 to 2,418 of its own, so holding four mixed woods to a one-species cell would mean
 		-- raising them on nobody's instruction. C1 is held to the two caps and to its own cover case
 		-- in `grid_ground.spec`, and the band below is asserted for the other four.
-		it("plants every one of them at C1's own accepted density, give or take a tenth", function()
+		it("plants the four mixed woods at the accepted density, and C1 above it on instruction", function()
 			local function ownTrees(id: string): number
 				local n = 0
 				for _, item in ipairs(woods[id]) do

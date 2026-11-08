@@ -1026,7 +1026,8 @@ local UNDER = table.freeze({ spacingStuds = 30, mix = "larchYoung" })
 local CANOPY = table.freeze({ jitter = 1.0, under = UNDER })
 
 -- C1's SECOND STOREY, BIRCH (task 335): the same 30 studs `larchYoung` held, one species. `scatter`
--- plants it at the `shrub` band's 0.25-0.45, which on these templates is an 11-43 stud sapling.
+-- plants it at the `shrub` band under this recipe's `scaleFloor` 0.35, so 0.35-0.45 of a 43-96 stud
+-- birch -- a 15-43 stud sapling.
 local BIRCH_UNDER = table.freeze({ spacingStuds = 30, mix = "birchScrub" })
 
 Places.CELL_PLANS = table.freeze({
@@ -1139,9 +1140,13 @@ Places.CELL_PLANS = table.freeze({
 		-- verge, so no bracken stands in the ditch or on the verge design 7.1 keeps bare.
 		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
 		scaleFloor = 0.35,
-		-- `reliefBias` ON THE FOUR WOOD ZONES (design 8.3): C1 is the ridge cell, so spruce takes the
-		-- cold bottom under hn .30 and birch the crest over .70. The two scrub zones and the
-		-- clearing are left alone -- a bias that rewrote the scrub would erase the beaters' ground.
+		-- **EVERYTHING FROM HERE TO THE v5 BLOCK IS HISTORY AND NO LONGER DESCRIBES THIS RECIPE**
+		-- (task 335): the zone names, the clearing and `reliefBias` all changed there. Kept because
+		-- it is where the spacings came from, and they did not change.
+		--
+		-- v2: `reliefBias` ON THE FOUR WOOD ZONES (design 8.3): C1 was the ridge cell, so spruce took
+		-- the cold bottom under hn .30 and birch the crest over .70. The two scrub zones and the
+		-- clearing were left alone -- a bias that rewrote the scrub would erase the beaters' ground.
 		-- v3 (task 328m). KAREN, 2026-11-03, HAVING PLAYED C1: *"it's not broken trees it's good has
 		-- to be a bit more realistic more trees but rest is good"*. C1 is the only recipe that takes
 		-- these rows -- the other seven are untouched until she has judged this one.

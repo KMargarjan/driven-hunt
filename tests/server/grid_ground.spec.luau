@@ -1353,8 +1353,6 @@ return function()
 				return if which == id then mine else real(which)
 			end
 			Plan.forgetCells()
-			local low = cell.relief.minY + 0.1 * cell.relief.spreadStuds
-			local high = cell.relief.minY + 0.9 * cell.relief.spreadStuds
 			local function histogram(heightAt): { [string]: number }
 				local out: { [string]: number } = {}
 				for _, item in ipairs(Plan.plantCell(id, heightAt)) do
@@ -1363,7 +1361,11 @@ return function()
 				end
 				return out
 			end
+			-- EVERYTHING THAT CAN THROW IS INSIDE THE `pcall`, the two heights included: an error
+			-- out here would leave `cellPlanFor` stubbed for every later case in the run.
 			local ok, err = pcall(function()
+				local low = cell.relief.minY + 0.1 * cell.relief.spreadStuds
+				local high = cell.relief.minY + 0.9 * cell.relief.spreadStuds
 				local cold = histogram(function()
 					return low
 				end)
