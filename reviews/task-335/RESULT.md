@@ -1,25 +1,128 @@
-1. `reviews/task-335/REQUEST.md` / the `ANSWERED: L-014` block — a local absolute user path is committed to a PUBLIC repo and it fails the repo's own CI privacy step. Evidence: the file's last-but-three line reads *"The plant injected the planter's text off `<repo>` on this branch."* `tools/privacy_scan.py` RULES' first entry, `local-path`, is `(?<![A-Za-z0-9._-])(?:[A-Za-z]:[\\/]{1,2}Users|/[A-Za-z]/Users|/home|/Users)[\\/]{1,2}(?!(?:[<%${]|\.\.\.))[A-Za-z0-9._-]{2,}` — the preceding character is a backtick, `/c/Users` matches `/[A-Za-z]/Users`, and `karen` matches the tail; the tool's own selftest names this exact shape as CAUGHT (`"run it from /c" + "/Users/" + "someone" + "/proj"`). `scan()` reads every `git ls-files` text file with no path exclusion and no allowlist for this rule, and `reviews/task-335/REQUEST.md` is tracked (`.agent-evidence/ls-files.txt`:927), so `.github/workflows/ci.yml`'s *"Privacy and secret scan (local paths, emails, secret shapes)"* step returns 1 on this branch. It is the ONLY occurrence in the repository, so the change introduces it rather than inheriting it; and the harness line cannot have caught it, because it was taken at `687dc1e8` and this file arrived at `ff3d7428`. Required: replace the path with the placeholder the tool's own message names — *"the planter's text off `<repo>` on this branch"*. No code change, so the `687dc1e8` harness line still applies.
+PASS (item 1 NOT PROVEN)
+
+Rule 5, stated so this PASS is not read as rule 5 having been met: the deliverable here is a PICTURE
+— what C1 looks like from a stand — and **Karen has not looked at it**. What WAS seen in her place:
+the plant itself, the live cover probe on `Workspace.GridForest.C1` (`species birch=2387`, open ALL
+480/3888, non-exempt 80/3220) and two described captures in EDIT at explicit coordinates (F1
+top-down at the dispatch's camera, F2 from C1 stand 8's eye 120 studs east). What was NOT seen: her
+verdict on either frame, and **nothing was seen with a BOAR in the 40-140-stud band** — `maskGrid`
+arms 9-11 read `if group == "young" and not stand.tower then return R.CONE`, and C1's understorey is
+no longer `young`, so saplings now stand in the shot band of every non-tower C1 stand where none
+could before. Whether a hunter can still pick a body out of that wood is unproven by anything in
+this task. That is the shooting-adjacent half and it is why line 1 is not a bare PASS.
+
+What I verified rather than took on trust: the keep/fell path (`Places.dressCell`'s
+`if folder.Name == cellId or keep == nil or keep[folder.Name] ~= true`, `dressCells`' `keep` build,
+`PLANT_SEAM` and `command_plant`'s `keep = ",".join(...cells)`); claim 5's arithmetic against
+`Grid.CELLS` C1 (`minY` 89.14 + .30 × 61.12 = 107.476 > `lineMeanY` 106.03) and `scatter`'s bias
+block; claim 1's producer-sensitivity (the mixes are `mix({"birch", 1})`, `frontage.groups` contains
+`birch` so `frontageGroupFor` keeps it, and `frontageRows` — which WOULD inject `young`/`aspen`/
+`fieldOak` into a one-row mix — has no caller in `src/`); claim 2's lattice (54 × 72 = 3,888 grid
+points, `boundsOf` is grid space, `maskGrid` takes grid space, `Grid.toWorld` applied once, 50-stud
+buckets with a 3×3 neighbourhood which is sufficient for a 25-stud reach, and `REASON`'s strings
+match `EXEMPT`'s keys exactly while `clearing` is absent from it); claim 4's breakdown
+(73+7+11+233+107+49 = 480 = open ALL; 400 = 10.3 % of 3,888; 73+7 = 80 of 3,220 = 2.48 %); claim 6's
+stub (`Places` is not frozen, `plantCell` and `zoneAt` both call `Places.cellPlanFor` through the
+module table so the stub is honoured, everything that can throw is inside the `pcall`, and
+`forgetCells` clears `ZONE_RECTS`/`CELL_FACTS` on both sides); claim 9 (only `Grid.CELLS` row C1
+names `mixedRolling`, no other cell's zones name the three new mixes or `birchWood` in `FERN_MIXES`,
+and `plantCell`'s skirt loop `continue`s on `Places.isPlanted(near.id)` so nothing reads C1's
+recipe); claim 10 (`local standard = 1861` is now a literal and `expect(ownTrees(Grid.PREVIEW_CELL))
+.to.equal(2418)` reddens on a revert — the old `standard = ownTrees(PREVIEW_CELL)` was C1 compared
+with itself). Delete-the-producer, by reading: revert `mixedRolling`'s v5 `zones` and claim 1's case
+fails on its `wrong` list, claim 2's case fails because the spacing-0 clearing makes `maskGrid` arm 8
+answer `clearing` over ~15 % of a cell whose bound is 3 %, claim 8's `expect(clear > 0).to.equal(id
+~= "C1")` fails, and claim 10's 2,418 fails. Lint, format and build are green; the harness line names
+`687dc1e8` "(clean tree)" and `paperwork-after-code-commit.txt` reads OK.
 
 ## Notes (non-blocking)
-- Rule 5, stated so this verdict is not read as rule 5 having been met: the cell's LOOK is what Karen judges here and she has not looked at it. What WAS seen in her place: the plant itself (`[bake] plant OK: 1 cell(s) @ ef357ba1 ... 2476 models / 9318 parts`), the cover probe on the live `Workspace.GridForest.C1` (`species birch=2387`, open ALL 480/3888, non-exempt 80/3220), and two captures in EDIT at explicit coordinates — F1 top-down at her dispatch camera and F2 from C1 stand 8's eye at 109 looking 120 studs east, both described in the request. What was NOT seen: Karen's own verdict on either frame; and nothing was seen with a BOAR in the 40-140-stud band, so whether a hunter can still pick a body out of the new birch understorey — the storey that `maskGrid` arm 11's `young` ban used to keep out of that band — is unproven by anything in this round. Had there been no blocking finding, line 1 would have read `PASS (item 1, 2 NOT PROVEN)`.
-- `src/shared/Places/init.luau` / `mixedRolling`'s v5 zones — the oak park zone `(0.60, 0.35, 1.00, 0.70)` GAINED `under = BIRCH_UNDER`; it carried no `under` before. The v5 header says *"Three things change and nothing else does"* and names only *"the park 44 -> 26"*, and the request's "What changed" says *"Nothing else in the recipe moves"*. Both are short by one, and the one is a sight-line change at a stand, not a count: the v4 paragraph directly above it reads *"`oakPark` -- SPACING AND STOREY BOTH UNCHANGED. It is the park a hunter can see across"*. Karen's *"all has to be forest no free spot excep road"* authorises filling it; the storey going in is still her feel call and should be said where the spacing is said.
-- `src/shared/Places/init.luau` / the density-rule block above `UNDER` — *"C1 is the standard: **1,861 trees inside its own rectangle**, the number she accepted"* is now false (2,418), and *"`under` (**30**-stud `larchYoung`) on every CANOPY zone, meaning a wood zone that is not `oakPark`, `clearing` or `scrub`. Those three keep their spacing because C1 kept its three"* is false of C1 in all three clauses. `grid.spec`'s density case was corrected for exactly this fact; the source block it quotes was not.
-- `src/shared/Places/init.luau` / `mixedRolling`'s own first header — *"SEVEN ZONES AND FOUR DIFFERENT WOODS ... a thicket at her left shoulder, mixed wood ahead, an oak park to the east where the sight lines open, and a clearing two thirds in with scrub either side of it"* sits ABOVE the *"EVERYTHING FROM HERE TO THE v5 BLOCK IS HISTORY"* marker, so it still reads as current and is false in every clause. Same sentence, same change, in `src/shared/Grid/init.luau`'s C1 row: *"THE WOOD THAT GROWS HERE (task 327c): seven zones, four woods -- the preview cell."*
-- `tests/server/grid.spec.luau`, the bent-count case — the `t1861` -> `t2418` fix left the sentence it contradicts standing two lines above it: *"C1's OWN rectangle has not moved a tree -- 328s's own per-cell note reads `2448(t1861 f104 s483)` and this plan is `t2418 f104 s0`"*. It moved 557 trees. The new line's arithmetic is muddled the same way — *"2,522 bent since task 335 (328i's 1,965 plus the clearing, the park and a birch-only understorey)"* adds to a number that still had a 464-site skirt in it.
-- `tests/server/grid_ground.spec.luau`, "leaves no open ground off the roads..." — the case is real (I checked `covered`: a 50-stud bucket hash over the non-herb plan, a 3x3 neighbourhood, a true `<= 25^2` test, `Grid.toWorld` applied once because the lattice is in grid space and a row carries a world point), and it dies with the recipe: revert and the spacing-0 clearing answers `maskGrid` arm 8's `clearing`, which is NOT in `EXEMPT`, so ~15 % of the cell counts as asked-and-open against a 3 % bound. But the request quotes only the LIVE 2.48 %; the plan-side value the `TestKit.note` prints is nowhere in the request, so nobody can see how much margin this pin has against `BOUND = 0.03`. Quote the note's number in the request, the way the straight/bent counts are quoted.
-- `tests/server/grid.spec.luau`, the dressCell case — `expect(#Plan.plantCell(id, hillside)).to.equal(#woods[id])` and `expect(report.wanted).to.equal(#Plan.plantCell(id, hillside))` can no longer bite on the count: `scatter`'s bias block is the reader's only use inside `plantCell`, and no recipe declares `reliefBias` now. Claim 7 declares this and names the replacement, and the replacement holds — drop `plantOne`'s reader and `rough == nil` -> `no-ground` -> `report.planted > 0` fails. It is a tripwire, not a proof, and must not be re-offered as one.
-- `tests/server/grid.spec.luau`, the understorey case — *"IT IS YOUNG GROWTH AND NOT A SECOND CANOPY ... every group in the mix is one of the two small-tree groups"* with `expect(row.group == "young" or row.group == "birch")`. For C1 the second storey is now the SAME group as the canopy, so for that cell the only thing separating the two storeys is `scaleFor`'s `shrub` band (0.35-0.45 against the wood band's 0.8-1.2). Queue: assert the scale band, not the group.
-- `src/shared/Places/init.luau` / `Places.maskGrid` arms 9-11 — still round 1's open item, now disclosed in the request and queued: the far-cone rule is `if group == "young" and not stand.tower then return R.CONE`, so a `birchScrub` sapling stands in the 40-140-stud band of every non-tower C1 stand where none could before. State the ban in height or scale, not in the species group.
-- `src/shared/Places/init.luau` / `Places.PARTS_PER_MODEL`, `PART_BUDGET_CELL` — unchanged from round 1 and disclosed: 9,318 live parts for 2,476 models is 3.76 a model, so `grid.spec`'s `#woods[id] <= Plan.CELL_PART_CAP` (2,640, derived as 8,000/3.03) certifies as inside the cap a cell 1,318 parts past `PART_BUDGET_CELL`, and `grid-roads.md` §8.3's own row says *"C1 parts at the cap | 8,000 of 8,000"*. Not blocking for the reason §8.2 gives itself — *"no spec and no request may cite 8,000 as a measurement until that run happens"* — and the measured frame at C1 stand 8 (21.10 / 27.78 ms) beats untouched C2 stand 8's (24.05 / 31.60). Re-derive the ratio per mix or run 328g's client frame.
-- `src/shared/Places/init.luau` / `Places.standTypeFor`, `Places.frontMixOf` — round 1's note, correctly queued rather than fixed (rule 4). Verified dormant this round: the only callers of `standTypeFor` anywhere are `grid_ground.spec` (and its three C1 assertions read the tower and ride arms, which run before the mix-name arm), and `frontMixOf`'s only caller is `borderPlan`, which has no caller in `src/`.
-- `src/shared/Places/init.luau` / the v5 header — *"They were 510 and 197 of the 1,121 lattice points with no trunk within 25 studs"*; claim 3's own BEFORE line is `open 1188/3888`. One of the two counts is off.
-- `TASKS.md` row 335 — still reads **`awaiting review round 1`** and names code commit `ef357ba1` with the `ef357ba1` harness line, while the request under review is round 2 at `687dc1e8`. Paperwork, and it is the row the merge gate reads.
+- **THE ONE-CELL `GridForest`, AND THE PART OF THE DISCLOSURE THAT IS WRONG** — the mechanism is
+  exactly as disclosed and I confirmed it in code, so the fell is real and this task did it. I judge
+  it NOT blocking: `dressCell`'s one-cell contract is pre-existing and documented by its own `keep`
+  parameter ("nil is the one-cell contract this function was born with: every other cell goes"), the
+  tool refuses to run without a fresh `--backup` .rbxl outside the repo (`check_backup`, refusal 5),
+  no `src/` line is wrong, holding the merge would not restore one tree, and Karen's *"we only load
+  one per game"* plus task 336 are the Director's decision about the re-plant. **But the sentence
+  offered as the reason it is harmless is false, and the merge decision should not rest on it:**
+  *"a boot dress plants the cell being played"*. `command_plant` stamps the folder with the LIVE
+  terrain epoch as its last act, so `ForestTest.prebuildVerdict(live, planted)` now returns
+  `STANDS, dress = false`, and `ForestTestBoot` hands `Places.build` `if prebuild.dress then nil
+  else {}` — an EMPTY cell list. **No boot in her Forest Test will re-plant anything, ever, while
+  that stamp matches.** Worse, and this is the part she can SEE from where she actually plays:
+  `Places.isPlanted` reads the static `Grid.PLANTED_CELLS`, not the live folder, so C1 still draws
+  NO skirt into B1, D1 and C2 — 328i withdrew it precisely because those neighbours had their own
+  wood, and they no longer do. Looking across the road out of C1 she will see bare ground where
+  328i's reasoning put wood. The recovery is one Edit-mode command naming every planted cell so the
+  keep set is all of them (`plant --cells C1,B1,D1,A2,B2,C2,D2 --backup <fresh>.rbxl`), and it is
+  the Director's to run or to defer to 336 — but defer it knowingly, not in the belief that a boot
+  fixes it. Also worth one line in the tool: `report.destroyed` exists and `command_plant`'s row
+  printer is the one caller that does not print it, which is the whole reason this went two rounds
+  unseen.
+- `src/shared/Places/init.luau` / `mixedRolling`'s v5 header — *"Three things change and nothing else
+  does"* still counts three while the rows make four changes: the oak park zone `(0.60, 0.35, 1.00,
+  0.70)` gained `under = BIRCH_UNDER`, which it did not carry. The request's "What changed" now says
+  so; the source comment, which is what the next reader opens, does not. It is a sight line at a
+  stand — the v3 paragraph above it reads *"`oakPark` -- SPACING AND STOREY BOTH UNCHANGED. It is the
+  park a hunter can see across"* — so say the storey where the spacing is said, for Karen.
+- `src/shared/Places/init.luau` / three comment blocks still read as current and are false of v5
+  (round 2's note, queued not fixed): `mixedRolling`'s own first header, *"SEVEN ZONES AND FOUR
+  DIFFERENT WOODS ... an oak park to the east ... and a clearing two thirds in"*, which sits ABOVE
+  the *"EVERYTHING FROM HERE TO THE v5 BLOCK IS HISTORY"* marker and so is not covered by it; the
+  density block above `UNDER`, *"C1 is the standard: **1,861 trees inside its own rectangle**"* and
+  *"`under` (**30**-stud `larchYoung`) on every CANOPY zone, meaning a wood zone that is not
+  `oakPark`, `clearing` or `scrub`"* — false of C1 in every clause now; and `src/shared/Grid/
+  init.luau`'s C1 row, *"seven zones, four woods -- the preview cell"*.
+- `reviews/task-335/REQUEST.md` claim 9 — *"`grid.spec`'s density case still reading C2/A2/B1/D1 at
+  1,926/2,016/1,805/1,843"* cites the wrong file. Those four numbers are not in `grid.spec`, which
+  pins only the ±10 % band and prints the counts in a `TestKit.note`; they are in
+  `src/shared/Places/init.luau`'s own density block (*"Shipped own-wood: 1,926 / 2,016 / 1,805 /
+  1,843 against C1's 1,861 -- 103 / 108 / 97 / 99 %"*). The substance of claim 9 holds on the three
+  facts I checked above; only the pointer is wrong.
+- `tests/server/grid_ground.spec.luau`, "a clearing refuses, **and the zone beside it does not**" —
+  the change moved this case from C1 to B1, and the second half its name promises is still not
+  asserted: `local empty, solid = nil, nil`, `solid` is filled from the first non-clearing zone and
+  then never read. One `expect(Plan.maskGrid(id, centre of solid...)) ~= Plan.REASON.CLEARING` would
+  make the name true. Pre-existing, but this is the case the change touched.
+- `tests/server/grid.spec.luau`, the bent-count case — the `t1861` -> `t2418` fix left the sentence
+  it contradicts standing two lines above: *"C1's OWN rectangle has not moved a tree -- ... and this
+  plan is `t2418 f104 s0` (task 335)"*. It moved 557. And the new line, *"2,522 bent since task 335
+  (328i's 1,965 plus the clearing, the park and a birch-only understorey)"*, adds to a number that
+  still had a 464-site skirt in it.
+- `tests/server/grid.spec.luau`, the understorey case — *"IT IS YOUNG GROWTH AND NOT A SECOND
+  CANOPY"* with `expect(row.group == "young" or row.group == "birch")`. For C1 the second storey is
+  now the SAME group as the canopy, so the only thing separating the two storeys there is
+  `scaleFor`'s `shrub` band (0.35-0.45 against the wood band's 0.8-1.2). Assert the scale band, not
+  the group. The case does still bite on the `under` loop: `expect(saplings > 381)` counts
+  `band == "shrub"` and the two scrub zones alone hold 381.
+- `src/shared/Places/init.luau` / `scatter`'s `reliefBias` block — after this change NO shipped
+  recipe declares the key (`grid_ground.spec` asserts exactly that), so the bias ships with no caller
+  and is exercised only by a synthetic plan. `grid.spec`'s dressCell pair
+  (`expect(#Plan.plantCell(id, hillside)).to.equal(#woods[id])`) is therefore a tripwire and not a
+  proof; claim 7 says so, which is the right handling, and it must not be re-offered as one. Queue a
+  decision: keep the block for the next cell that wants it, or retire it under rule 7.
+- `src/shared/Places/init.luau` / `PARTS_PER_MODEL`, `PART_BUDGET_CELL` — disclosed and unchanged
+  since round 1: 9,318 live parts for 2,476 models is 3.76 a model against the frozen 3.03, so
+  `grid.spec`'s `#woods[id] <= Plan.CELL_PART_CAP` (2,640 = 8,000/3.03) certifies a cell 1,318 parts
+  past `PART_BUDGET_CELL`. Not blocking, and the design says why itself: `grid-roads.md` §8.2,
+  *"the per-cell part ceiling is UNMEASURED ... no spec and no request may cite 8,000 as a
+  measurement until that run happens"*, and its own open question 6, *"`PARTS_PER_MODEL` 3.03 is
+  C1's mix only ... the bound must be re-read, not trusted"*. This is that caveat coming true. The
+  one measurement taken favours the change (C1 stand 8 21.10 / 27.78 ms against untouched C2 stand
+  8's 24.05 / 31.60). Re-derive the ratio per mix, or run 328g's client frame.
+- `src/shared/Places/init.luau` / `Places.standTypeFor`, `Places.frontMixOf` — re-verified dormant
+  this round, so correctly queued rather than fixed: the mix-name arm
+  (`ahead.mix == "spruceThicket" or ahead.mix == "scrub"`) and the `spacingStuds <= 0` arm can no
+  longer fire for C1, so C1's "S" and "C" stand letters are gone; `standTypeFor`'s only callers
+  anywhere are in `grid_ground.spec` (whose C1 assertions read the tower and ride arms, which run
+  first), and `frontMixOf`'s only caller is `borderPlan`, which has no caller at all.
+- `src/shared/Places/init.luau` / the v5 header — *"They were 510 and 197 of the 1,121 lattice points
+  with no trunk within 25 studs"* against claim 3's own BEFORE line `open 1188/3888`. One of the two
+  is off; round 2's note, still queued.
+- `reviews/task-335/RESULT.md` — the round-2 verdict was edited by the Builder to replace the literal
+  that finding 1 quoted, which is disclosed in the file, in `ESCALATE.md` and in `TASKS.md`, and the
+  finding's substance is intact. The escalation's own ask is the right fix and I would back it:
+  `tools/agents.py` should run `privacy_scan` over the verdict before it writes it, so the Reviewer's
+  output is never the thing that reddens CI and the subject of a verdict never has cause to edit it.
 
 ---
-REVIEWER verdict on commit `ff3d742888c6872c12e406cfa54c42e4520b4f4e` (round 2) · 2026-11-08 17:06 UTC · session cost $3.75, 43 turns · written by tools/agents.py
-
-
-BUILDER NOTE (task 335, not the Reviewer's text): finding 1 quotes the offending literal, so
-this file failed `tools/privacy_scan.py scan` -- the CI step that verdict is about -- the moment it
-was committed. ONE substring was replaced here, the quoted path, by `<repo>`. Nothing else in the
-verdict is changed. `ESCALATE.md` 2026-11-08 records it.
+REVIEWER verdict on commit `c01f3fe02d119f0314bb17cf9461cd1043ab239b` (round 3) · 2026-11-08 19:56 UTC · session cost $4.53, 54 turns · written by tools/agents.py
