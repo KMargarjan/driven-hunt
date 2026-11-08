@@ -1,12 +1,12 @@
 # Task 337 -- review request
 
 Task: 337
-Round: 1
+Round: 2
 Base: `c0fa710b` (main)
-Code commit: `6fab31967fc38f149561b64d32ac7fcedee3725e`
+Code commit: `e052992bb274c8e75f5c88fd9e8c46b8a1b95e07`
 
 ```
-[harness] PASS: 34/34 checks @ 6fab31967fc38f149561b64d32ac7fcedee3725e (clean tree) scope=all
+[harness] PASS: 34/34 checks @ e052992bb274c8e75f5c88fd9e8c46b8a1b95e07 (clean tree) scope=all
 ```
 
 `test2`: **N/A.** No file here is in `TWO_PLAYER_PATHS` (`tools/agents.py`): the swap is called from
@@ -24,8 +24,10 @@ the removal set). Part C is `TASKS.md` 337c.
 
 ## Claims
 
-1. **`Places.Cells` is the one writer of a cell folder's `Parent`, and it creates and destroys
-   nothing.** New `src/server/Places/Cells.luau`. Verify: `grep -n "Destroy\|Instance.new" ` over it
+1. **`Places.Cells` is the only thing that MOVES a cell folder between its home and the store, and
+   it creates and destroys nothing.** (Round 1 note: "the one writer of a cell folder's `Parent`"
+   overstated it -- `dressCell`'s `ensureFolder` parents the folder it creates. Same owner, different
+   verb. Corrected here, in `GAME_DESIGN.md`'s two rows and in `Cells.luau`'s header.) New `src/server/Places/Cells.luau`. Verify: `grep -n "Destroy\|Instance.new" ` over it
    -- the only `Instance.new` is `ensure`, which makes a `Folder` when a home or the store is
    missing, and there is no `Destroy` at all. `Cells` requires `Places`; `Places/init.luau` does not
    require `Cells` (design 2, so `tools/terrainbake.py`'s require rewrites are untouched).
@@ -54,7 +56,16 @@ the removal set). Part C is `TASKS.md` 337c.
    store made in Edit would be deleted at the next Connect with 9,318 parts of Karen's wood. Both
    arms are reachable by parameter (`isEdit`). `grid.spec` *"refuses at Edit time and creates no
    store"* asserts `reason == "edit-time"`, `moved == 0` and that the store folder was **not**
-   created. **Measured in her place:** after the live run below and a Play stop, her Edit place reads
+   created, **and -- round 1, finding 1 -- the same case now takes the DEFAULT**, which is the only
+   arm the game ever runs: both live call sites pass three arguments, so `isEdit` is nil and
+   `Cells.editTime()` decides. `Cells.reconcile("C1", world, store, nil, nil)` must reconcile
+   (`reason == nil`, `moved == 1`, `stood == "C1"`, one standing, one stored).
+   **FAIL FIRST, RUN and not argued:** with that one line inverted to `if isEdit == nil then true`,
+   `python tools/studio_mcp.py test` read
+   `FAIL: 32/34 checks @ e052992b (DIRTY TREE (1 paths) - NOT valid evidence)` and
+   `failed [server] grid.spec:3216 Expected value "nil" (nil), got "edit-time" (string) instead`
+   -- 2,860 passed, 1 failed. The file was then restored with `git checkout --` and the tree is
+   clean at the code commit. Before this case existed the same inversion left every case green. **Measured in her place:** after the live run below and a Play stop, her Edit place reads
    **48,726 instances / 21,148 parts**, `GridForest` 20,518/9,318, `ServerStorage` 105 descendants
    and **no `GridWood`** -- byte-for-byte what it read before the session.
 
@@ -119,7 +130,10 @@ the removal set). Part C is `TASKS.md` 337c.
 - **The BOOT and DRIVE-BOUNDARY wiring is NOT PROVEN LIVE.** Her Forest Test syncs from
   `driven-hunt-karen` on merged `main` (rojo :34873), and L-014 forbids checking a branch out there,
   so her server never ran this commit's `ForestTestBoot`. Claim 6 proves the MODULE on her real wood
-  by injection; the two call sites are proven by `grid.spec` and by reading only. Pointing her place
+  by injection; **the two call sites are proven by READING ONLY** (round 1, finding 1 -- this
+  sentence used to say `grid.spec` proved them, and it does not: it names neither `ForestTestBoot`
+  nor the call shape). What the new default-arm case proves is that the DEFAULTING those call sites
+  rely on resolves to "reconcile" under a running server. Pointing her place
   at this branch needs a Rojo re-Connect, which is a click.
 - **T5 (boot / join-to-gun) and T6 (frame time) have a BEFORE and no AFTER in her place**, for the
   same reason. Before, at `c0fa710b`: `smoke.sh` PASS -- lobby took the player at +4 s, gun in hand
@@ -139,6 +153,21 @@ the removal set). Part C is `TASKS.md` 337c.
 - **`Places.PARTS_PER_MODEL` is 3.03 and the live wood measures 3.76** (9,318 parts / 2,476 models).
   Not touched here: it is `TASKS.md` 337c's, with the skirt.
 
+## Round 2: what changed since round 1
+
+One blocking finding, and it was right. Fixed in `e052992b`: every `reconcile` case passed an
+explicit `isEdit`, so the line resolving the default had no case over it -- inverting it would have
+stopped the game reconciling at all while the suite stayed green at 34/34. Claim 5 now carries the
+default-arm case AND the fail-first run that shows it reddens. The request's false sentence
+(*"proven by `grid.spec` and by reading"*) is corrected to **reading only**, and the overstated
+ownership wording is corrected in claim 1, `GAME_DESIGN.md` and `Cells.luau`.
+
+**Nothing else was touched.** The eight non-blocking notes are queued verbatim in `TASKS.md` row 337
+as (a)-(f) plus the Architect's 5.3-vs-15 contradiction (CLAUDE.md step 5: notes are queued, not
+fixed in another round), and the Reviewer's reachable consequence -- *a forced `DHForestLayout`
+naming any cell but C1 runs a drive on bare ground until 336 plants the others* -- is written into
+`TASKS.md` row 336.
+
 ---
 
 ANSWERED: **L-093** the producer-delete is stated per case in claims 2, 3, 4 and 5 -- what a reader
@@ -146,9 +175,10 @@ must restore to redden each. The flag's own subject is claim 4: `isPlanted` read
 while meaning two questions; it is now `hasOwnWood` (static) and `Cells.isStanding` (live, reads the
 world), and `isStanding` was read back **live after a swap** (claim 6, `isStanding(C1)=false` while
 `hasOwnWood("C1")` is true), not only by the Workspace/ServerStorage move.
-ANSWERED: **L-136** no spec failed in the PASS run; no flake fired, so none is named and no control
-run is owed. The one FAIL in the earlier run was **mine, not a flake** -- `grid.spec:2698` counted
-folders where the case means "C2 and B1 were never dressed" -- and it is fixed in `6fab3196`.
+ANSWERED: **L-136** no spec failed in either PASS run; no flake fired, so none is named and no
+control run is owed. Two FAILs happened this session and **neither was a flake**: `grid.spec:2698`
+counted folders where the case means "C2 and B1 were never dressed" (mine, fixed in `6fab3196`), and
+`grid.spec:3216` is the deliberate fail-first above, run on a dirty tree and restored.
 ANSWERED: **L-127** per item: MET -- claims 1-9 (specs + the live run + the selftests). NOT PROVEN --
 the boot and drive-boundary wiring live in her place, T5 and T6 after, and the stored-cell frame,
 each with its measured reason above. The world trim (dispatch item 2) is **NOT DONE**, blocked, in
