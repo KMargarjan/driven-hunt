@@ -1426,7 +1426,12 @@ return function()
 			table.sort(seen)
 			assert(
 				#wrong == 0,
-				string.format("%d non-birch stem(s), e.g. %s -- %s", #wrong, wrong[1], table.concat(seen, " "))
+				string.format(
+					"%d non-birch stem(s), e.g. %s -- %s",
+					#wrong,
+					tostring(wrong[1]),
+					table.concat(seen, " ")
+				)
 			)
 			-- AND THE CELL IS NOT EMPTY: a plan that plants nothing would pass the line above.
 			assert((counts.birch or 0) > 1500, "C1 plants only " .. tostring(counts.birch) .. " birch")

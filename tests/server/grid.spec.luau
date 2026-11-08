@@ -824,12 +824,12 @@ return function()
 			-- 5. `plantCell` EMITS THE SAME LIST: every row is its own grid point (the map is the
 			-- identity) and is clear of the mask asked in EITHER space.
 			--
-			-- **1,969 since task 328i**, which is 2,458 MINUS C1's 489-site straight-world SKIRT:
-			-- all three of C1's neighbours are planted now and a cell skirts no planted neighbour.
-			-- (328s pinned 2,458, 328o 1,803.) Measured, not a bound: a straight-world count that
+			-- **2,538 since task 335**, which is C1's whole plan with no skirt in it: all three of
+			-- C1's neighbours are planted and a cell skirts no planted neighbour. (328i pinned
+			-- 1,969, 328s 2,458, 328o 1,803.) Measured, not a bound: a straight-world count that
 			-- moved on its own would mean the recipe changed by accident.
 			local drawn = Plan.plantCell("C1", nil, STRAIGHT)
-			expect(#drawn).to.equal(1969)
+			expect(#drawn).to.equal(2538)
 			for _, item in ipairs(drawn) do
 				local u, v = Grid.toGrid(item.x, item.z, STRAIGHT)
 				expect(u).to.equal(item.x)
@@ -952,7 +952,9 @@ return function()
 			expect(junctions).to.equal(15)
 			expect(worstJunction < 1e-12).to.equal(true)
 			-- 6. THE PLAN AT THE SHIPPED BEND, pinned beside the straight count the case above pins.
-			-- **1,965 bent since task 328i**, which is 2,429 MINUS C1's 464-site SKIRT: all three of
+			-- **2,522 bent since task 335** (328i's 1,965 plus the clearing, the park and a
+			-- birch-only understorey; `t2418 f104`), and the straight plan is 2,538.
+			-- **1,965 bent was task 328i**, which is 2,429 MINUS C1's 464-site SKIRT: all three of
 			-- C1's neighbours are in `Grid.PLANTED_CELLS` now, and a cell draws no skirt into a
 			-- neighbour that has its own wood. C1's OWN rectangle has not moved a tree -- 328s's own
 			-- per-cell note reads `2448(t1861 f104 s483)` and this plan is `t1861 f104 s0`.
@@ -965,11 +967,11 @@ return function()
 			local drawn = Plan.plantCell("C1")
 			local straightCount = #Plan.plantCell("C1", nil, STRAIGHT)
 			TestKit.note(string.format("328h: C1 plan bent %d, straight %d", #drawn, straightCount))
-			expect(#drawn).to.equal(1965)
-			expect(straightCount).to.equal(1969)
+			expect(#drawn).to.equal(2522)
+			expect(straightCount).to.equal(2538)
 			TestKit.note(
 				string.format(
-					"SHIPPED BENT %d/%d: flank set-back %d (was 340), C1 stand 1 (%.2f,%.2f) 8 (%.2f,%.2f) 10 (%.2f,%.2f), layout span %d / north %d, roadZ departs %.2f st from the centre and is exact at %d sampled stations, %d junctions to %.1e, C1 plan %d (straight 1969)",
+					"SHIPPED BENT %d/%d: flank set-back %d (was 340), C1 stand 1 (%.2f,%.2f) 8 (%.2f,%.2f) 10 (%.2f,%.2f), layout span %d / north %d, roadZ departs %.2f st from the centre and is exact at %d sampled stations, %d junctions to %.1e, C1 plan %d (straight 2538)",
 					c.bend.ewStuds,
 					c.bend.nsStuds,
 					Grid.flankFirstStuds(),
@@ -2514,14 +2516,16 @@ return function()
 			grid.Name = Planter.GRID_FOLDER
 			local report = Planter.dressCell(id, grid, hillside, template, nil, nil)
 			expect(report.cell).to.equal(id)
-			-- THE SAME READER THE DRESS USES (task 328f): `Plan.plantCell`'s relief bias is a pure
-			-- function of a height, so a plan made WITHOUT one is a different, equally valid plan --
-			-- `woods` above has no reader on purpose, and comparing the two would compare two worlds.
+			-- THE SAME READER THE DRESS USES (task 328f).
 			expect(report.wanted).to.equal(#Plan.plantCell(id, hillside))
-			-- ...AND THAT IS NOT A VALUE COMPARED WITH ITSELF (round 1, finding 2): the plan WITH a
-			-- reader and the plan without one are different plans, so the line above fails if
-			-- `dressCell` stops handing the ground reader through. `woods[id]` is the no-reader one.
-			expect(#Plan.plantCell(id, hillside) ~= #woods[id]).to.equal(true)
+			-- **AND SINCE TASK 335 THE TWO ARE EQUAL, WHICH IS SAID HERE RATHER THAN HIDDEN**: no
+			-- recipe declares `reliefBias` any more, so a plan WITH a ground reader and one without
+			-- are the same plan and the pair above can no longer bite on the COUNT. What still
+			-- proves the reader is handed through is `plantOne`'s own use of it -- the "not one of
+			-- them is in the air" assertions below -- and the bias itself is proven end to end in
+			-- `grid_ground.spec` ("the relief bias ... and it bites"), which drives `plantCell`
+			-- with a synthetic plan that declares it.
+			expect(#Plan.plantCell(id, hillside)).to.equal(#woods[id])
 			expect(report.planted > 0).to.equal(true)
 			expect(report.missing).to.equal(0)
 			expect(report.destroyed).to.equal(0)
@@ -2605,9 +2609,15 @@ return function()
 		-- THE DENSITY, MEASURED ON THE CELL'S OWN GROUND. The SKIRT is excluded on purpose: a
 		-- skirt stands in the NEIGHBOUR's rectangle, so counting it would credit a cell with wood
 		-- a hunter standing in it cannot see, and it is the term 328i withdraws between two planted
-		-- cells. C1's own wood is **1,861 trees**, which is what Karen accepted on 2026-11-04
+		-- cells. The standard is **1,861 trees**, which is what Karen accepted on 2026-11-04
 		-- (*"rest seems ok I think you did good job"*), and every other planted cell is held within
 		-- **+-10 %** of it. Pinned so a later tweak cannot quietly give the density back.
+		--
+		-- **THE STANDARD IS THAT NUMBER AND NO LONGER C1's OWN COUNT** (task 335). It was C1's count
+		-- when 328i wrote this rule; Karen's *"all has to be forest no free spot excep road"* then
+		-- took C1 to 2,418 of its own, so holding four mixed woods to a one-species cell would mean
+		-- raising them on nobody's instruction. C1 is held to the two caps and to its own cover case
+		-- in `grid_ground.spec`, and the band below is asserted for the other four.
 		it("plants every one of them at C1's own accepted density, give or take a tenth", function()
 			local function ownTrees(id: string): number
 				local n = 0
@@ -2618,14 +2628,18 @@ return function()
 				end
 				return n
 			end
-			local standard = ownTrees(Grid.PREVIEW_CELL)
-			expect(standard).to.equal(1861)
+			local standard = 1861
+			-- C1 IS ABOVE THE STANDARD AND THAT IS THE INSTRUCTION, not a drift: 2,418 pinned, so a
+			-- revert of the v5 recipe fails here too.
+			expect(ownTrees(Grid.PREVIEW_CELL)).to.equal(2418)
 			local lines = {}
 			for _, id in ipairs(Grid.PLANTED_CELLS) do
 				local own = ownTrees(id)
 				table.insert(lines, string.format("%s %d (%.0f%%) of %d", id, own, 100 * own / standard, #woods[id]))
-				expect(own >= math.floor(standard * 0.9)).to.equal(true)
-				expect(own <= math.ceil(standard * 1.1)).to.equal(true)
+				if id ~= Grid.PREVIEW_CELL then
+					expect(own >= math.floor(standard * 0.9)).to.equal(true)
+					expect(own <= math.ceil(standard * 1.1)).to.equal(true)
+				end
 				-- ...AND THE WHOLE PLAN IS STILL INSIDE BOTH CAPS.
 				expect(#woods[id] <= Plan.CELL_PART_CAP).to.equal(true)
 				expect(Plan.cellCapacity(id) <= Plan.CELL_PLAN_CAP).to.equal(true)
