@@ -3093,3 +3093,7 @@ Round 3 is within `MAX_ROUNDS` (3); no `DIRECTOR_MAX_ROUNDS` is needed or allowe
 4. The stag's length x2.40 against x3 is ACCEPTED for now: Karen judges the bound by eye. Do not touch `Body.driveForce` in this round.
 5. The in-band 108.4 studs/s stays queued; measure it again after the fix and report the number.
 A finding on round 3 is an ESCALATE.md entry and a stop.
+
+### DIRECTOR DECISION, 2026-11-08 ~19:40 UTC, Task 335: ROUND 3 AUTHORISED
+
+Round 2's one finding (a local path in `reviews/task-335/REQUEST.md`) is fixed in `e065726c`, paperwork only; CI green there. Round 3 is within `MAX_ROUNDS` (3). Scope: a fresh one-page request at Round: 3 for the same code commit `687dc1e8` and its harness line, which ALSO discloses what the Director measured live in her FT at 19:35 UTC: `Workspace.GridForest` now holds ONE cell (`cells=C1=2476`); B1, D1, A2, B2, C2, D2's plantings (planted by 328g2/330) are no longer there. Say which command removed them and that it was not reported in round 1/2. No `src/` change. Karen's decision of 2026-11-08 ("we only load one per game") and Task 336 (every cell its own trees) re-plant them, so it is not a blocker by the Director's reading -- the Reviewer judges.
