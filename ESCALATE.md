@@ -1,3 +1,45 @@
+## 2026-11-08 ~17:10 UTC, Task 335 -- ONE FINDING ON ROUND 2; FIXED BECAUSE IT WAS A RED CI, AND STOPPING
+
+The dispatch: *"Review: at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."*
+`reviews/task-335/RESULT.md` round 2 has ONE blocking finding and it is CORRECT, checked against
+`tools/privacy_scan.py` myself: `reviews/task-335/REQUEST.md` carried a local absolute user path
+(`/<drive>/Users/<name>/Desktop/driven-hunt`) in its `ANSWERED: L-014` line, the `local-path` rule
+matches it, and `.github/workflows/ci.yml`'s privacy step would have returned 1 on this branch.
+
+**I fixed it rather than leaving it, and I am stopping here.** The reason it is not a round-3
+decision: the finding is a RED CI on a public repo, the fix is one placeholder, and it touches no
+code -- the `687dc1e8` harness line still covers the code commit. `python tools/privacy_scan.py
+scan` now reads `PASS: 0 findings in 1381 tracked text files`, and `selftest` passes.
+
+**AND THE VERDICT FILE ITSELF HAD TO BE EDITED, which is normally not the Builder's to touch.**
+Finding 1 quotes the offending literal, so `reviews/task-335/RESULT.md` failed the same scan the
+moment the script wrote it. ONE substring in that file -- the quoted path -- was replaced with
+`<repo>`, and a BUILDER NOTE at the bottom of it says so. Nothing else in the verdict is changed.
+This is a hole in the loop, not a one-off: any finding that quotes a path, an email or a key shape
+puts the Reviewer's own output on the wrong side of CI. **For the Director / the Architect:**
+`tools/agents.py` should run `privacy_scan` over the verdict it is about to write, or write the
+redaction itself.
+
+### What is NOT fixed and is the Director's call
+
+Round 2's eleven non-blocking notes are queued in `TASKS.md` under task 335 and none is fixed. The
+two worth a decision rather than a tidy-up:
+ * **the oak park gained an understorey** (`under = BIRCH_UNDER` on zone 4). The v5 header says
+   "three things change" and names only the spacing, so the request undercounts by one. It is a
+   sight line at a stand -- "the park a hunter can see across" -- and Karen's *"all has to be
+   forest"* authorises filling it, but the STOREY going in is her feel call;
+ * **`maskGrid` arm 11 bans `young` growth from a stand's 40-140 stud band by SPECIES GROUP**, so a
+   `birchScrub` sapling now stands where a larch one could not. Nobody has looked at a boar in that
+   band through the new wood.
+
+### State
+
+Branch `task-335-c1-birch`, pushed. Code commit `687dc1e8971c72f862624a6acca6b2926b857ce9`,
+`[harness] PASS: 34/34 checks @ 687dc1e8971c72f862624a6acca6b2926b857ce9 (clean tree) scope=all`,
+`test2` N/A. `reviews/task-335/RESULT.md` line 1 is a FINDING, not a PASS, so **rule 10 is not met
+and this does not merge as it stands** -- the Director decides whether the fixed path earns a
+round 3 or whether the finding is spent.
+
 ## 2026-11-06 ~20:40 UTC, Task 334 -- REVIEWER FINDINGS ON ROUND 2, STOPPING AS THE DISPATCH SAYS
 
 The dispatch: *"Review: at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."*

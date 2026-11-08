@@ -150,7 +150,7 @@ ANSWERED: L-127 every dispatch item is MET or NOT PROVEN by name in the report's
 ANSWERED: L-162 every live proof -- the plant, the cover probe, the frames, the frame time -- was
 taken in Karen's Forest Test at `ef357ba1`, which `[bake] plant OK: ... @ ef357ba1...` names.
 ANSWERED: L-014 nothing was checked out in `driven-hunt-karen`; it still reads `4751ffd6`. The plant
-injected the planter's text off `/c/Users/karen/Desktop/driven-hunt` on this branch.
+injected the planter's text off `<repo>` on this branch (the Builder's own copy, not hers).
 ANSWERED: L-101 the attribute diff of her place before and after the plant is EMPTY
 (`<runs-dir>/335-attrs-BEFORE.txt` against `335-attrs-AFTER.txt`): all 15 flag overrides,
 `TerrainEpoch` and `PlantEpoch` unchanged.
