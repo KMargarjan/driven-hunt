@@ -1767,8 +1767,13 @@ return function()
 				-- gap is a bald patch nobody declared: a clearing is a ZONE with spacing 0, so an
 				-- uncovered rectangle can only ever be an arithmetic slip in a recipe.
 				expect(math.abs(covered - 1) < 1e-9).to.equal(true)
-				-- EVERY CELL HAS AT LEAST ONE CLEARING and none is more than a third clear.
-				expect(clear > 0 and clear < 0.34).to.equal(true)
+				-- NO CELL IS MORE THAN A THIRD CLEAR, and every cell BUT C1 has a clearing.
+				-- **C1 HAS NONE** (task 335): Karen, 2026-11-08, on a top-down frame of it, *"all
+				-- has to be forest no free spot excep road"* -- its cut was the hole she meant.
+				-- The pair BITES BOTH WAYS: C1 gaining a clearing back fails, and any other cell
+				-- losing its own fails too.
+				expect(clear < 0.34).to.equal(true)
+				expect(clear > 0).to.equal(id ~= "C1")
 				table.insert(
 					lines,
 					string.format("%s=%s(%d zones, %.0f%% clear)", id, cell.recipe, #plan.zones, clear * 100)

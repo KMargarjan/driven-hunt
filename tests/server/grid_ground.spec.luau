@@ -1204,7 +1204,9 @@ return function()
 		end)
 
 		it("a clearing refuses, and the zone beside it does not", function()
-			local id = "C1"
+			-- B1 AND NOT C1 (task 335): C1 is one birch wood with no cut left in it, so the cell
+			-- this arm is asked about has to be one that still declares a clearing.
+			local id = "B1"
 			local plan = Plan.cellPlanFor(id)
 			local empty, solid = nil, nil
 			for _, zone in ipairs(plan.zones) do
@@ -1330,8 +1332,27 @@ return function()
 
 	describe("the relief bias is a function of the ground, and it bites", function()
 		it("the same cell on a low hillside and on a high one draws different woods", function()
+			-- NO SHIPPED RECIPE CARRIES `reliefBias` SINCE TASK 335 -- C1 was the only one and
+			-- Karen's C1 is one species -- so this case hands `plantCell` a plan of its own: C1's
+			-- row with a single `mixedWood` zone over the whole cell that declares the bias.
 			local id = "C1"
 			local cell = Grid.cellOf(id)
+			local real = Plan.cellPlanFor
+			local mine = table.clone(real(id))
+			mine.zones = {
+				{
+					at = { 0, 0, 1, 1 },
+					mix = "mixedWood",
+					spacingStuds = 30,
+					band = "wood",
+					reliefBias = true,
+					jitter = 1.0,
+				},
+			}
+			Plan.cellPlanFor = function(which)
+				return if which == id then mine else real(which)
+			end
+			Plan.forgetCells()
 			local low = cell.relief.minY + 0.1 * cell.relief.spreadStuds
 			local high = cell.relief.minY + 0.9 * cell.relief.spreadStuds
 			local function histogram(heightAt): { [string]: number }
@@ -1342,20 +1363,151 @@ return function()
 				end
 				return out
 			end
-			local cold = histogram(function()
-				return low
+			local ok, err = pcall(function()
+				local cold = histogram(function()
+					return low
+				end)
+				local warm = histogram(function()
+					return high
+				end)
+				-- UNDER hn .30 a broadleaf zone draws spruce; OVER .70 a spruce zone draws birch.
+				expect((cold.conifer or 0) > (warm.conifer or 0)).to.equal(true)
+				expect((warm.birch or 0) > (cold.birch or 0)).to.equal(true)
+				-- AND WITH NO READER the bias is simply off -- the plan every caller before 328f got.
+				local none = histogram(nil)
+				expect((none.conifer or 0) < (cold.conifer or 0)).to.equal(true)
+				-- THE FERN FLOOR IS NEVER BIASED: a fern is not a broadleaf zone.
+				expect(cold.fern).to.equal(none.fern)
 			end)
-			local warm = histogram(function()
-				return high
-			end)
-			-- UNDER hn .30 a broadleaf zone draws spruce; OVER .70 a spruce zone draws birch.
-			expect((cold.conifer or 0) > (warm.conifer or 0)).to.equal(true)
-			expect((warm.birch or 0) > (cold.birch or 0)).to.equal(true)
-			-- AND WITH NO READER the bias is simply off -- the plan every caller before 328f got.
-			local none = histogram(nil)
-			expect((none.conifer or 0) < (cold.conifer or 0)).to.equal(true)
-			-- THE FERN FLOOR IS NEVER BIASED: a fern is not a broadleaf zone.
-			expect(cold.fern).to.equal(none.fern)
+			-- THE SHIPPED PLAN GOES BACK whatever the assertions did, so no later case in this file
+			-- or any other reads a synthetic recipe.
+			Plan.cellPlanFor = real
+			Plan.forgetCells()
+			assert(ok, tostring(err))
+		end)
+
+		it("no shipped recipe declares it, which is what task 335 did to C1", function()
+			local carrying = {}
+			for _, id in ipairs(Grid.cellIds()) do
+				for _, zone in ipairs(Plan.cellPlanFor(id).zones) do
+					if zone.reliefBias == true then
+						table.insert(carrying, id .. "/" .. zone.mix)
+					end
+				end
+			end
+			assert(#carrying == 0, "reliefBias is shipped on " .. table.concat(carrying, " "))
+		end)
+	end)
+
+	-- ------------------------------------------- task 335: C1 is ONE SPECIES, WALL TO WALL
+
+	-- KAREN, 2026-11-08, on a top-down frame of C1: *"so we start with this that all has to be
+	-- forest no free spot excep road so in one terrain maik all birch trees"*. Two claims, two
+	-- cases, and both die if `mixedRolling`'s v5 zones are reverted.
+	describe("C1 is one birch wood with no free ground in it", function()
+		it("offers no stem that is not a birch, understorey and every zone included", function()
+			local birch = {}
+			for _, name in ipairs(Plan.SPECIES.birch) do
+				birch[name] = true
+			end
+			local wrong, counts = {}, {}
+			for _, item in ipairs(Plan.plantCell("C1", nil)) do
+				local group = Plan.groupOf(item.model) or "?"
+				counts[group] = (counts[group] or 0) + 1
+				-- THE FERN FLOOR IS GROUND COVER AND NOT A TREE, so it is not in the claim.
+				if not Plan.isHerbName(item.model) and not birch[item.model] then
+					table.insert(wrong, item.model)
+				end
+			end
+			local seen = {}
+			for group, n in pairs(counts) do
+				table.insert(seen, string.format("%s=%d", group, n))
+			end
+			table.sort(seen)
+			assert(
+				#wrong == 0,
+				string.format("%d non-birch stem(s), e.g. %s -- %s", #wrong, wrong[1], table.concat(seen, " "))
+			)
+			-- AND THE CELL IS NOT EMPTY: a plan that plants nothing would pass the line above.
+			assert((counts.birch or 0) > 1500, "C1 plants only " .. tostring(counts.birch) .. " birch")
+			TestKit.note("C1 one species: " .. table.concat(seen, " "))
+		end)
+
+		it("leaves no open ground off the roads, the rides, the corridors and the stands", function()
+			-- THE BOUND (dispatch 335): on a 20-stud lattice over the cell's interior, at most 3 %
+			-- of the points that are NOT road, ditch, verge, ride, corridor, stand, tower or cone
+			-- may have no trunk within 25 studs. Those eight are what a stand and a beater need.
+			local ID, STEP, REACH, BOUND = "C1", 20, 25, 0.03
+			local EXEMPT = {
+				road = true,
+				ditch = true,
+				verge = true,
+				ride = true,
+				corridor = true,
+				stand = true,
+				tower = true,
+				cone = true,
+			}
+			local CELLW = 50
+			local hash = {}
+			for _, item in ipairs(Plan.plantCell(ID, nil)) do
+				if not Plan.isHerbName(item.model) then
+					local key = math.floor(item.x / CELLW) .. ":" .. math.floor(item.z / CELLW)
+					local bucket = hash[key]
+					if bucket == nil then
+						bucket = {}
+						hash[key] = bucket
+					end
+					table.insert(bucket, item)
+				end
+			end
+			local function covered(x: number, z: number): boolean
+				local gx, gz = math.floor(x / CELLW), math.floor(z / CELLW)
+				for dx = -1, 1 do
+					for dz = -1, 1 do
+						local bucket = hash[(gx + dx) .. ":" .. (gz + dz)]
+						if bucket ~= nil then
+							for _, item in ipairs(bucket) do
+								local ex, ez = item.x - x, item.z - z
+								if ex * ex + ez * ez <= REACH * REACH then
+									return true
+								end
+							end
+						end
+					end
+				end
+				return false
+			end
+			local box = Grid.boundsOf(ID)
+			local asked, open = 0, 0
+			for u = box.minX, box.maxX, STEP do
+				for v = box.minZ, box.maxZ, STEP do
+					local why = Plan.maskGrid(ID, u, v)
+					if why == nil or EXEMPT[why] ~= true then
+						asked += 1
+						-- A PLANTING ROW CARRIES THE **WORLD** POINT and the lattice is in GRID
+						-- coordinates (task 328r's own trap), so the point is mapped once.
+						local wx, wz = Grid.toWorld(u, v)
+						if not covered(wx, wz) then
+							open += 1
+						end
+					end
+				end
+			end
+			assert(asked > 3000, "the lattice asked only " .. tostring(asked) .. " points")
+			TestKit.note(
+				string.format(
+					"C1 open ground: %d/%d = %.2f%% (<= %.0f%%)",
+					open,
+					asked,
+					open / asked * 100,
+					BOUND * 100
+				)
+			)
+			assert(
+				open / asked <= BOUND,
+				string.format("C1 open ground %d/%d = %.2f%%", open, asked, open / asked * 100)
+			)
 		end)
 
 		it("a plantation is planted in rows: A2's larch zones hold their x line", function()

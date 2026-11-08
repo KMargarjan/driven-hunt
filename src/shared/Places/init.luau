@@ -892,6 +892,13 @@ Places.CELL_MIXES = table.freeze({
 	larchYoung = mix({ "young", 8 }, { "birch", 2 }),
 	aspenWood = mix({ "aspen", 6 }, { "birch", 3 }, { "oak", 1 }),
 	scrub = mix({ "young", 5 }, { "birch", 3 }, { "fieldOak", 2 }),
+	-- C1's ONE SPECIES (task 335). Karen, 2026-11-08, on a top-down frame of C1: *"that all has to
+	-- be forest no free spot excep road so in one terrain maik all birch trees"*.
+	-- THREE ROWS AND NOT ONE because `Places.FERN_MIXES` keys on the MIX NAME: the wood keeps the
+	-- fern floor it has today, the thicket and the beaters' scrub keep their bare one.
+	birchWood = mix({ "birch", 1 }),
+	birchThicket = mix({ "birch", 1 }),
+	birchScrub = mix({ "birch", 1 }),
 	-- THE FLOOR OF A CELL, hugging its four roads: `Places.PLANS`' own `herb` row, under a name,
 	-- because a cell's zones index a mix by name and its floor must index one too.
 	fernFloor = mix({ "fern", 1 }),
@@ -1017,6 +1024,10 @@ Places.UNDER_JITTER = 1.0
 -- thrown away (Director decision, 2026-11-04).
 local UNDER = table.freeze({ spacingStuds = 30, mix = "larchYoung" })
 local CANOPY = table.freeze({ jitter = 1.0, under = UNDER })
+
+-- C1's SECOND STOREY, BIRCH (task 335): the same 30 studs `larchYoung` held, one species. `scatter`
+-- plants it at the `shrub` band's 0.25-0.45, which on these templates is an 11-43 stud sapling.
+local BIRCH_UNDER = table.freeze({ spacingStuds = 30, mix = "birchScrub" })
 
 Places.CELL_PLANS = table.freeze({
 	-- A1, measured `slope`, 113.4 studs of spread: the thicket is on the LOW ground by the main road
@@ -1176,29 +1187,29 @@ Places.CELL_PLANS = table.freeze({
 		-- gap refusals -- so the GAP RULE is the binding one and these rows sit at its knee.
 		-- `minGapStuds` is lowered ONE stud, not to 4: a stud is ~0.28 m here, so 11 is ~3.1 m
 		-- between trunks and 4 would be 1.1 m, which no wood carries.
+		-- v5 (task 335). KAREN, 2026-11-08, ON A TOP-DOWN FRAME OF C1: *"so we start with this that
+		-- all has to be forest no free spot excep road so in one terrain maik all birch trees"*.
+		-- Three things change and nothing else does:
+		--  * EVERY MIX IS BIRCH-ONLY, understorey included, so no spruce, larch, oak or aspen stem
+		--    is offered anywhere in this cell.
+		--  * `reliefBias` IS GONE FROM ALL FOUR WOOD ZONES, and that is the one line that could not
+		--    stay: the bias rewrites any non-conifer to `conifer` under hn .30, and C1's line mean
+		--    (106.03 against minY 89.14 + .30 x 61.12 = 107.5) is BELOW it -- so left in, the bias
+		--    would have planted the lower half of a birch-only cell in spruce.
+		--  * THE CLEARING AND THE PARK ARE PLANTED: the clearing 0 -> 24 (it was the cut she is
+		--    looking at) and the park 44 -> 26. They were 510 and 197 of the 1,121 lattice points
+		--    with no trunk within 25 studs; the roads, rides and corridors are the rest and they
+		--    stay, because they are what a stand and a beater need.
+		-- The three wood spacings, the two scrub spacings, `minGapStuds` and the skirt are UNTOUCHED:
+		-- what Karen accepted at 328s was the density, and this is the species and the holes.
 		zones = table.freeze({
-			zone(0.00, 0.00, 0.40, 0.35, 16, "spruceThicket", "wood", {
-				reliefBias = true,
-				jitter = 1.0,
-				under = table.freeze({ spacingStuds = 30, mix = "larchYoung" }),
-			}),
-			zone(0.40, 0.00, 1.00, 0.35, 22, "mixedWood", "wood", {
-				reliefBias = true,
-				jitter = 1.0,
-				under = table.freeze({ spacingStuds = 30, mix = "larchYoung" }),
-			}),
-			zone(0.00, 0.35, 0.60, 0.70, 21, "birchStand", "wood", {
-				reliefBias = true,
-				jitter = 1.0,
-				under = table.freeze({ spacingStuds = 30, mix = "larchYoung" }),
-			}),
-			zone(0.60, 0.35, 1.00, 0.70, 44, "oakPark", "wood", {
-				reliefBias = true,
-				jitter = 1.0,
-			}),
-			zone(0.15, 0.70, 0.65, 1.00, 0, "clearing", "wood"),
-			zone(0.00, 0.70, 0.15, 1.00, 24, "scrub", "shrub", { jitter = 1.0 }),
-			zone(0.65, 0.70, 1.00, 1.00, 26, "scrub", "shrub", { jitter = 1.0 }),
+			zone(0.00, 0.00, 0.40, 0.35, 16, "birchThicket", "wood", { jitter = 1.0, under = BIRCH_UNDER }),
+			zone(0.40, 0.00, 1.00, 0.35, 22, "birchWood", "wood", { jitter = 1.0, under = BIRCH_UNDER }),
+			zone(0.00, 0.35, 0.60, 0.70, 21, "birchWood", "wood", { jitter = 1.0, under = BIRCH_UNDER }),
+			zone(0.60, 0.35, 1.00, 0.70, 26, "birchWood", "wood", { jitter = 1.0, under = BIRCH_UNDER }),
+			zone(0.15, 0.70, 0.65, 1.00, 24, "birchThicket", "wood", { jitter = 1.0 }),
+			zone(0.00, 0.70, 0.15, 1.00, 24, "birchScrub", "shrub", { jitter = 1.0 }),
+			zone(0.65, 0.70, 1.00, 1.00, 26, "birchScrub", "shrub", { jitter = 1.0 }),
 		}),
 	}),
 
@@ -1851,6 +1862,10 @@ Places.CORRIDOR = table.freeze({
 -- thicket, not in scrub, not in a larch plantation and not in a clearing.
 Places.FERN_CAP = 400
 Places.FERN_MIXES = table.freeze({
+	-- C1's birch wood is `mixedWood` / `birchStand` / `oakPark`'s successor (task 335), so it keeps
+	-- their floor; `birchThicket` and `birchScrub` are not here, which keeps C1's fern footprint
+	-- exactly the three zones it covers today.
+	birchWood = true,
 	oakWood = true,
 	oakPark = true,
 	mixedWood = true,
