@@ -1,13 +1,17 @@
 # Task 339 -- only the stag leaps: the hind and the calf never jump
 
 Task: 339
-Round: 1
+Round: 2
 Base: d91d65e9
-Code commit: 0f0e91becda70f3e5c4840c84779b418a86429cf
+Code commit: fc323305f31521b7d2451567f3d5ad4bd0a1d4ce
 
-Harness, full run, first try, no flake fired:
+Harness, full run, first try both rounds, no flake fired either time:
 
-    [harness] PASS: 34/34 checks @ 0f0e91becda70f3e5c4840c84779b418a86429cf (clean tree) scope=all
+    [harness] PASS: 34/34 checks @ fc323305f31521b7d2451567f3d5ad4bd0a1d4ce (clean tree) scope=all
+
+(round 1's line, same 34/34, was @ `0f0e91be`. The live BEFORE/AFTER readings below were taken at
+`0f0e91be`; `git diff 0f0e91be..fc323305 -- src` is comments, one printed `note` string and no
+number a running animal reads, so they stand.)
 
 `test2` N/A: no `TWO_PLAYER_PATHS` file is touched (the change is `src/server/Boar/`,
 `src/shared/ForestTest/` and two server specs).
@@ -54,7 +58,7 @@ animation side.
 
    | kind | crossings before -> after | bounds **in the road band** | all LEAP lines |
    |---|---|---|---|
-   | stag | 16 -> 16 | 6 -> 10 | 10 -> 10 |
+   | stag | 16 -> 16 | 6 -> 6 | 10 -> 10 |
    | hind | 56 -> 54 | **9 -> 0** | **23 -> 0** |
    | calf | 30 -> 30 | **5 -> 0** | 21 -> 6 |
 
@@ -67,11 +71,18 @@ animation side.
    background exists BEFORE on the stag (4 out-of-band lines at `vy1` 13.4..15.3). The in-band
    count, which is the one Karen's sentence is about, is 0 for both kinds.
 
-3. **The stag is unchanged.** `git diff d91d65e9..0f0e91be -- src/server/Boar/init.luau` leaves
+3. **The stag is unchanged.** `git diff d91d65e9..fc323305 -- src/server/Boar/init.luau` leaves
    `stag = 6.0`, `SPEED_SCALE`, `SECONDS`, `GRAVITY` and `LIFT_STUDS.stag` untouched -- only the two
-   deleted keys and `leapByKind`'s new branch. Live: 10 in-band bounds after against 6 before, take-off
-   `vy1` **38.7..43.6** after against **40.9..42.8** before, median apex 5.274 -> 5.828 studs
-   (configured 6.0; the instrument reads under it because the peak falls between frames).
+   deleted keys, `leapByKind`'s new branch and comments. Live, and stated to the digit because
+   round 1 called a rise unexplained: his LEAP lines are **10 -> 10**, his bounds attributed to a
+   road crossing **6 of 16 -> 6 of 16**, take-off `vy1` **40.9..42.8 -> 38.7..43.6**, median apex
+   **5.274 -> 5.828** studs against a configured 6.0 (the instrument reads under the arc because
+   the peak falls between frames). What DID move is where the instrument filed four of those ten:
+   before, 6 lines sat inside the band at `vy1` 40.9..42.8 and 4 outside it at `vy1` 13.4..15.3 --
+   bounds and terrain hops; after, all 10 sit inside at `vy1` 38.7..43.6. **I cannot say from this
+   run why 4 of his crossings stopped producing a hop and started producing a bound**, and I am not
+   claiming a mechanism: his per-crossing bound rate is identical, 6 of 16 both times, and the code
+   that decides it is byte-identical.
 
 4. **A case dies if the fix is deleted (L-093).** `deer.spec`, *"bounds the STAG ALONE..."* asserts
    `leap.APEX_STUDS.hind == nil` and `calf == nil` and that `leapApex`/`leapAir`/`leapPlan` answer 0
@@ -116,7 +127,14 @@ animation side.
    `driven-hunt-karen`, Connected, in Edit; `driven-hunt-rev` is back at `2cdf3be4`. No checkout was
    ever made in `driven-hunt-karen` (L-014).
 
-10. **Gate.** `selene src`, `selene --config tests/selene.toml tests`, `stylua --check src tests`,
+10. **Round 1's finding is fixed, and it is fixed the way the Reviewer named.** The 2x/3x case
+    pinned `2.925, 8.16, 0.332` -- the MEDIAN of task 334's seven stag bounds -- where
+    `docs/research/2026-10-23-deer-road-leap.md` section 9.1 records their MEAN. Both halves now
+    read **2.905, 8.14, 0.340**, the research note's own row, and the header says "the MEANS" and
+    points at that section. The case still passes and by more: apex ratio 2.000, length 3.086
+    (tolerance 0.45), air ratio 1.455 against sqrt(2) (tolerance 0.1).
+
+11. **Gate.** `selene src`, `selene --config tests/selene.toml tests`, `stylua --check src tests`,
     `rojo build`, `tools/studio_mcp.py selftest` and `tools/agents.py selftest` all clean (rule G).
 
 ## What could not be verified
