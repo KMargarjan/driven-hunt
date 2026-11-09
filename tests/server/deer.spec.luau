@@ -1849,7 +1849,6 @@ return function()
 				-- every live deer reads `MOVE.LEAP_AIR_SECONDS` as nil, the burst never fires, and
 				-- the whole 3x length is gone with a green suite (Reviewer finding 1, round 1).
 				local leap = CONFIG.MODEL.LEAP
-				local seen = {}
 				for _, kind in ipairs(LEAPERS) do
 					local move = Boar.kindConfig(kind, CONFIG).MOVE
 					expect(move).to.be.ok()
@@ -1858,7 +1857,6 @@ return function()
 					expect(move.LEAP_AIR_SECONDS).to.be.near(air, 1e-9)
 					-- ...AND IT IS SHORTER THAN THE DRAWING WINDOW, which is why it exists.
 					expect(move.LEAP_AIR_SECONDS < leap.SECONDS).to.equal(true)
-					seen[kind] = move.LEAP_AIR_SECONDS
 				end
 				-- A NON-LEAPER CARRIES NO AIRTIME AT ALL, which is task 339's rule read off `MOVE`.
 				for _, kind in ipairs({ "hind", "calf" }) do
@@ -1875,15 +1873,18 @@ return function()
 
 			it("is 2x the measured height and 3x the measured length for the stag, within 15 %", function()
 				-- MEASURED in her place at cdc885b7, 7 stag road bounds, instrument
-				-- `<runs-dir>/334-instrument.luau`, log `334-BEFORE.txt`: apex 2.925 studs,
-				-- length 8.16 studs, airtime 0.332 s (medians). THIS CASE DIES if `APEX_STUDS` or
+				-- `<runs-dir>/334-instrument.luau`, log `334-BEFORE.txt`: apex 2.905 studs,
+				-- length 8.14 studs, airtime 0.340 s -- the MEANS, which is the row
+				-- `docs/research/2026-10-23-deer-road-leap.md` section 9.1 already records for this
+				-- same log, so the repo states one number for one measurement. THIS CASE DIES if
+				-- `APEX_STUDS` or
 				-- `SPEED_SCALE` goes back to what cdc885b7 shipped. It was the HIND's reading until
 				-- task 339 took her bound away; the ratio is the same and the kind is the one left.
 				local leap = CONFIG.MODEL.LEAP
-				local BEFORE_APEX, BEFORE_LENGTH, BEFORE_AIR = 2.925, 8.16, 0.332
+				local BEFORE_APEX, BEFORE_LENGTH, BEFORE_AIR = 2.905, 8.14, 0.340
 				-- The CONFIGURED apex this measurement came off, so the after/before comparison is
 				-- made through the same instrument bias (the peak falls between frames, so the
-				-- reading runs ~2.5 % under the arc it is reading).
+				-- reading runs ~3.2 % under the arc it is reading).
 				local BEFORE_CONFIGURED = 3.0
 				local up = Body.leapPlan("stag", leap)
 				local apex = up * up / (2 * leap.GRAVITY)
@@ -1891,7 +1892,7 @@ return function()
 				local apexSeen = apex * (BEFORE_APEX / BEFORE_CONFIGURED)
 				expect(apexSeen / BEFORE_APEX).to.be.near(2, 0.3)
 				-- LENGTH IS THE IN-AIR HORIZONTAL SPEED TIMES THE AIRTIME, and the speed it had
-				-- before is the measurement itself: 7.58 / 0.322 = 23.5 studs/s.
+				-- before is the measurement itself: 8.14 / 0.340 = 23.9 studs/s.
 				local lengthSeen = (BEFORE_LENGTH / BEFORE_AIR)
 					* Brain.leapSpeedScale(true, {
 						ENABLED = true,

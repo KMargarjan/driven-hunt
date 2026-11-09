@@ -1956,10 +1956,11 @@ end
 --   10 groups cross the road -- one about every 16 seconds across the middle of the drive
 --   2 refuse at the verge and break back through the beaters, and 1 never comes at all
 --      (that last one is the PLOS ONE study's 32 % of animals that stay put, made visible)
---   2 leaping GROUPS and 3 leaping ANIMALS -- the hind, her calf and the stag. NO BOAR EVER LEAPS.
---      SINCE TASK 339 `leaps` MEANS "A STAG IN THIS GROUP BOUNDS": Karen, 2026-11-09, *"only male
---      jump"*, so a hind-only group carries no `leaps` and the hinds and calves of a mixed one run
---      across the road while their stag bounds it.
+--   4 bounding GROUPS, 22 animals in them and 9 of those actually bound. NO BOAR EVER LEAPS, and
+--      since task 339 NO HIND AND NO CALF EITHER: Karen, 2026-11-09, *"only male jump"*, so `leaps`
+--      means "a STAG in this group bounds", a hind-only group carries none, and the hinds and
+--      calves of a mixed one run across the road while their stag bounds it. `forest_line.spec`
+--      holds the three counts (the counts above this line are task 251's and were stale by 328z).
 --      (`driveTally.leapingGroups` counts the rows and the spec adds the animals through the boar's
 --      own weigher. Round 1's note: the field was called `leapers` and answered 2 against a header
 --      that said 3.)
@@ -2177,7 +2178,7 @@ ForestTest.SCHEDULE = {
 			-- hinds and two calves run across it.
 
 			keepAt = 9,
-			note = "the hind party, early and in file: she stops at the verge, then they leap",
+			note = "the hind party, early and in file: she stops at the verge, then they cross",
 		},
 		{
 			slot = 3,

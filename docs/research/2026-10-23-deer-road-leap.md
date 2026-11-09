@@ -322,7 +322,7 @@ So the change is three lines of data and one pure function:
 
 The calf's 2x is 2 x **1.668** and not 2 x 1.485: `Body.leapApex`'s sink floor binds on it today.
 
-### 9.4 Task 339: only the stag bounds
+### 9.6 Task 339: only the stag bounds
 
 KAREN, 2026-11-09: *"btw I mentioned that deer famale and kid doesnt jumt you need to remove that
 only male jump"*. Task 334 read her 2026-11-07 sentence as "make every kind's leap bigger"; she

@@ -3515,8 +3515,9 @@ Boar.CONFIG.MODEL = {
 		-- airtime; the Brain does not, so it holds the longest of the three (the stag's 0.49 s) with
 		-- a little headroom. A number BELOW a kind's window would drop the animal back into its gait
 		-- in mid-air.
-		-- 0.75 SINCE TASK 334, because doubling the apex lengthened every kind's airtime by sqrt(2):
-		-- the stag's `Body.leapPlan` window is now 0.692 s against 0.49 before.
+		-- 0.75 SINCE TASK 334, because doubling the apex lengthened the airtime by sqrt(2): the
+		-- stag's `Body.leapPlan` window is 0.692 s against 0.49 before. Since task 339 he is the
+		-- only kind that bounds, so this covers one window and not the longest of three.
 		SECONDS = 0.75,
 		-- HOW FAST IT HAS TO BE GOING. Karen's sentence is about an animal CROSSING, and a deer
 		-- ambling over the lane does not bound. `MODEL.RUN_FROM` is the speed this world already
@@ -3576,9 +3577,11 @@ Boar.CONFIG.MODEL = {
 		-- the stag's 6.0 is four times his 1.500 floor. See `SINK_AT_SECONDS`.
 		--
 		-- DOUBLED FOR TASK 334. Karen, 2026-11-06: *"does twice high and 3 times longer then now"*.
-		-- 2x the stag's EFFECTIVE apex measured in her place at cdc885b7 (2.905 studs;
-		-- `<runs-dir>/334-BEFORE.txt`). 6.0 studs is 1.68 m, just under the 1.8 m fence a red deer
-		-- clears, so the bound is an obstacle-clearing one. UNCHANGED BY TASK 339.
+		-- 2x the CONFIGURED 3.000 this row held, which is 2.07x the 2.905 studs his bound actually
+		-- measured in her place at cdc885b7 (`<runs-dir>/334-BEFORE.txt`, 7 bounds, mean): the
+		-- instrument reads under the arc because the peak falls between frames. 6.0 studs is
+		-- 1.68 m, just under the 1.8 m fence a red deer clears, so the bound is an
+		-- obstacle-clearing one. UNCHANGED BY TASK 339.
 		-- NOTE: `MOVE.BOUND_ON_SPOOK` (`STAG_BOUND_ON_SPOOK`, off everywhere) reuses this number,
 		-- so switching it on would launch a near-stationary stag at 48.5 studs/s of pure up.
 		APEX_STUDS = { stag = 6.0 },
@@ -3586,9 +3589,9 @@ Boar.CONFIG.MODEL = {
 		-- WHEN THE HOOVES REACH DEEPEST, which is NOT the middle of the flight: 0.5417 against a
 		-- mid-point of 0.583 (`LIFT_STUDS`' own measurement). `Body.leapSinkShare` turns the gap
 		-- into the fraction of its apex the body is at then -- 0.891 -- and the floor is divided by
-		-- it, so the clearance is real where it is needed. It lifts the calf's bound from 1.485 to
-		-- (1.3358 + 0.15) / 0.891 = 1.668 and leaves the stag's 3.000 and the hind's 2.566 alone
-		-- (their floors are 1.500 and 1.577).
+		-- it, so the clearance is real where it is needed. The STAG's floor is
+		-- (1.1863 + 0.15) / 0.8908 = 1.500, which his 6.0 clears four times over, so it binds on
+		-- nothing. (Until task 339 it lifted the calf's bound from 1.485 to 1.668.)
 		SINK_AT_SECONDS = 0.5417,
 		-- THE GRAVITY THE ARC AND THE CLIP RATE ARE BOTH SOLVED AGAINST. Roblox's default, and this
 		-- place's own: read live in the Forest Test on 2026-11-01 as 196.1999969482422.
@@ -7947,7 +7950,10 @@ function Runtime:step(dt: number)
 				-- `config.MODEL.CLIPS` and its id through `config.MODEL.ANIMATION_IDS`, and the
 				-- deer has its own pair of those tables. Handing it the runtime's would play the
 				-- BOAR's published ids on `Arm_Deer` (design section 3.6). For every boar
-				-- `entry.config` IS `config` by reference, so nothing about a boar changed.
+				-- `entry.config` IS `config` by reference while the leap is off, which is every
+				-- world but her Forest Test; with `DEER_ROAD_LEAP` on, `Boar.leapByKind` clones a
+				-- boar's config to switch the leap off in it (task 339) and nothing reads config
+				-- identity, so still nothing about a boar changed.
 			}, entry.config or config)
 			-- The same speed drives the sound, so the hooves keep time with the legs: the gait and
 			-- the rate `Body.stepSoundFor` picks are the arithmetic `Body.clipFor` just used.
