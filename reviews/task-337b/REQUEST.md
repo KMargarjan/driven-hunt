@@ -1,127 +1,123 @@
 # Task 337b -- the world trim: `tools/terrainbake.py trim`
 
 Task: 337b
-Round: 2
+Round: 3
 Base: 77217b77 (`main`)
-Code commit: 98dbdaa95772c0e015bb30c3278ae70ab7d4cc71
+Code commit: 7462b00d4cd17588898e39e048acd02fc7aae59c
 
-`[harness] PASS: 34/34 checks @ 98dbdaa95772c0e015bb30c3278ae70ab7d4cc71 (clean tree) scope=all`
+`[harness] PASS: 34/34 checks @ 7462b00d4cd17588898e39e048acd02fc7aae59c (clean tree) scope=all`
 
-`test2`: **N/A** -- no `TWO_PLAYER_PATHS` path. The three files changed are `tools/terrainbake.py`,
+`test2`: **N/A** -- no `TWO_PLAYER_PATHS` path. The code files are `tools/terrainbake.py`,
 `src/serverstorage/TerrainBake/init.luau` and `tests/server/grid_relief.spec.luau`; the first two map
-to scope `map` in `BLAST_RADIUS` and none is in `TWO_PLAYER_PATHS`.
+to scope `map` in `BLAST_RADIUS`, none is in `TWO_PLAYER_PATHS`.
 
-## What changed
+Round 3 is **authorised by the Director** (`ESCALATE.md` top entry, 2026-11-09 ~05:15 UTC, commit
+`03e93950`), for this code commit only. `MAX_ROUNDS` is 3, so no `DIRECTOR_MAX_ROUNDS` is set.
+**This round changed nothing in `src/`, `tests/` or `tools/`** -- the tree at the code commit is the
+tree round 2 reviewed plus round 2's one fix. **The terrain run is NOT authorised tonight**: no
+backup has been taken and `trim` has never been run.
 
-The TOOL only. **No terrain has been removed, and none will be until this review passes** (dispatch
-item 1). Design `docs/design/cell-loading.md` section 10.
+## What changed since round 2
 
-## The two round-1 findings
+One commit, `7462b00d`: round 2's blocking finding, plus three of its notes that were a falsehood or
+a loop in a tool that writes terrain. Everything else in both verdicts stays queued (CLAUDE.md
+step 5), in `TASKS.md` row 337b.
 
-1. **The irreversible half is now proved in Studio, against terrain the case writes itself.**
-   `tests/server/grid_relief.spec.luau` 337b-1 and 337b-2 fill a 128-stud block of Grass at
-   x,z 8000 -- outside every keep box, every cell, and the region the terrain-writer case reads --
-   and then: `trimHits` reads **16 nodes / 0 hits** over Air and **16 hits** over ground;
-   `trimBlock` returns `hitsBefore 16 -> hitsAfter 0` and the lattice reads 0 after it; and a
-   MISALIGNED block is refused with `filled == 0` **and the ground still there**. *Verify:* the two
-   `it` blocks at the end of the `the bake (task 328d)` describe, and the harness note
-   `[server] 337b trimBlock x[8000,8128] z[8000,8128]: 16 node(s), 16 hit -> 0`. Delete `trimHits`,
-   delete the `FillRegion`, or widen the alignment threshold and a COUNT goes red, not a sentence.
-   The tool's `selftest` now only asserts that the two cases exist.
-2. **K1 is checked against `TerrainBake.regionFor(Grid.cellIds())` IN STUDIO**, the function design
-   10.4 names. `trim_live_region` asks it; `trim_region_problem` refuses when it could not be read
-   at all, when any side differs by a voxel, and when the answer is not numbers. `command_trim` asks
-   it **before the first block** and refuses; `command_trim_plan` asks it too and prints `ASSERTED`
-   or `NOT ASKED`. Read back live in her place: `x[-7190,-1720] z[-7090,-3124]`. *Verify:*
-   `selftest`'s *"K1 is checked against TerrainBake.regionFor IN STUDIO"* case, which enters all
-   three arms.
+## Claims -- each marked against the instrument that reads it, not against round 2's wording
 
-A round-1 note is fixed in the same round because it was one line: the `--block-studs` refusal now
-sits BEFORE the `trim plan` return, so `trim plan --block-studs 7` refuses instead of printing a
-traceback. **Every other note is queued, not fixed** (CLAUDE.md step 5), including the two the
-verdict corrected me on: `MapGen/Ground.luau` has two `WriteVoxels`, so *"every WriteVoxels in this
-repo"* was wrong -- the owner-boundary substance (the new terrain write is inside `TerrainBake`)
-holds; and the 11.3 % / ~10.5 % pair have different denominators.
-
-## Claims
-
-3. **A terrain write is not rayable on the tick that makes it, so both lattice reads yield first.**
-   MEASURED in DEV 2026-11-09 through `terrainbake`'s own `call`: a `FillBlock` at (8064, 0, 8064)
-   rayed `nil` on its writing tick and `18.0` after **two** frames; an Air fill the same.
-   `TerrainBake.TRIM_SETTLE_FRAMES` is 3 and `trimBlock` waits it before the before-read and before
-   the after-read. Without it the run's own numbers are stale readings -- which is how round 2's
-   first gate run read `16 hit -> 0` wrongly as `0`.
-4. **`trim` is a second DRIVER of one writer.** The Air fill is `TerrainBake.trimBlock`, in the
-   module that owns the bake's terrain writes; `tools/terrainbake.py` does the complement arithmetic
-   and calls it. The only new terrain-write call in `src/` is that one `FillRegion`.
-5. **K1 is computed, never typed (L-093).** `trim_keeps` returns `region_for(CELL_IDS, facts)`.
-   *Verify:* `selftest`'s first trim case moves the bend by +40 in a COPY of the facts and asserts
-   all four sides of K1 move with it; a typed rectangle cannot.
-6. **The keep list is checked against what it exists to hold, and the check is not a tautology.**
-   `trim_keep_problem` refuses unless every point of `trim_points()` is inside a keep box -- the
-   spawn, `Lobby.ANCHORS["forest-test"]`, `Range.ANCHORS["forest-test"]` and `OurForest`'s two
-   measured corners -- the two anchors READ OFF their own Luau files by `trim_anchors`. *Verify:*
-   `selftest` fires the refusal once for each anchor moved to (9000, -9000).
-7. **Refusal 10, the rotation, is code.** `trim_rotation_problem` refuses unless
-   `src/shared/ForestTest/init.luau` still reads `ForestTest.LAYOUT_ORDER = Grid.PLANTED_CELLS` and
-   every name in it is a grid cell -- `ride` (4900, -4540) and `track` (4700, -3900) stand outside
-   K2. *Verify:* `selftest` refuses a hand-written list, an empty one, and one holding `ride`.
-8. **The removal set is the exact complement and no block can reach a keep box.** `subtract_box`,
-   `trim_complement`, `grid_inward` (INWARD only), and `trimBlock`'s own `ExpandToGrid` refusal.
-   *Verify:* `selftest`'s complement case (areas sum to world less keep union; no rectangle meets a
-   keep box; no two meet each other) and its block case (on the lattice, inside a rectangle, clear
-   of both keeps).
-9. **The run prints what it removed (L-182).** Each block line prints `nodes`,
-   `hitsBefore -> hitsAfter` and its own milliseconds; the closing line totals them and states
-   `0 part(s) moved to Workspace.Archive337` with design 10.3's reason; the rows go to
-   `.terrainbake/<ts>-trim.json`, which is also where `trim plan` takes its MEASURED minutes from.
-10. **`trim` takes the whole existing ladder.** `MUTATING = PLANT_MUTATING + ("trim",)`: Edit mode,
-    the place id re-asked before **every block**, a clean tree, a fresh `--backup .rbxl` outside the
-    repo, the flag rule; `--blocks` required, `--cells` refused. `trim plan` returns before the
-    clean-tree check and writes nothing.
-11. **`trim plan` ran read-only in Karen's Forest Test at this commit** (Edit, place
-    130094961655666): K1 `x[-7190,-1720] z[-7090,-3124]` **ASSERTED against Studio's own
-    `regionFor`**, K2 `x[2200,3900] z[-3500,-1250]`, world `x[-7500,7500] z[-7500,7500] y[-512,616]`,
-    **7 rectangles, 233 blocks, 88.7 % of the world box removed, 11.3 % kept**, census `841/1681`
-    nodes with **738 outside the keep boxes**, `ForestRoadSpawn (3000, -2109) is inside K2`,
-    `OurForest parts x[2229..3833] z[-2896..-1297]`. The minutes line reads *"NOT MEASURED YET"*,
-    which is design 10.4 step 3.
-12. **The world box is MEASURED and the one unmeasurable number is bounded, not assumed.**
-    `trim_world` takes the census's occupied box grown by one lattice step -- not
-    `Terrain.MaxExtents`, which reads `[-32000..32000]` on every axis in her place and would make
-    4,073 blocks of mostly nothing. The Y floor cannot be read by a downward ray, so it is DECLARED
-    (-512) and the after-census is its check.
+1. **MET (read out of the commit, not out of ESCALATE.md).** Round 2's finding is fixed *in
+   `7462b00d`*: `git show 7462b00d:tools/terrainbake.py` has `command_trim`'s third statement as
+   `region = None`, then `region = trim_live_region(studio, studio_id, injected)`, and `region` is
+   what `trim_region_problem` and the `K1 ASSERTED` print read. Both `log_run` exits in
+   `command_trim` now pass the parameter `live` untouched, so `log_run`'s
+   `"liveOverrides": list(live or [])` records the override list and not the region's four key names.
+   *Verify:* `git show 7462b00d:tools/terrainbake.py`, `command_trim` and `log_run`. **Nothing RUNS
+   this fix** -- `selftest` stubs `log_run` to a lambda returning `"<log>"`, so no case can observe
+   what `live` carried. The claim is proved by reading, and I say so.
+2. **MET by reading, NOT by a case.** `main`'s refusal now tests
+   `args.block_studs is not None and (args.block_studs < facts["voxel"] or args.block_studs %
+   facts["voxel"] != 0)`, so `--block-studs -4`, `0` and `7` all refuse before `trim_blocks`' bare
+   `assert` and before the `trim plan` return. `grep -n "block_studs" tools/terrainbake.py` shows no
+   `selftest` case for it; the round-1 note's traceback and the round-2 note's `x += block` walk-away
+   are both closed in code only.
+3. **PART MET, and the residual is mine to report, not the Reviewer's to find.** The closing print
+   is fixed -- *"There is no cursor: the next run starts at block 1 again, so finish with a bigger
+   --blocks"*, and `grep -n "are LEFT" tools/terrainbake.py` is empty. But `command_trim`'s own
+   **docstring still opens *"Resumable: an Air write over Air is a no-op, so a run that stops half
+   way is continued by running it again"***, which is the sentence the note objected to, in the
+   place a reader meets first. *Verify:* the docstring of `command_trim` at this commit. Repeating a
+   run is harmless and is not progress; the docstring was not corrected, and I did not correct it
+   this round because the dispatch forbids touching `tools/`.
+4. **MET (read out of the commit).** `git show 7462b00d:src/serverstorage/TerrainBake/init.luau`
+   has the rule-7 comment (*"B3: REPARENT ONLY, never Destroy"*) immediately above
+   `function TerrainBake.archive`; the commit's only Luau change is the removal of that blank line.
+5. **MET, run in this session at this tree (rule G).** `python tools/studio_mcp.py selftest`,
+   `python tools/agents.py selftest` and `python tools/terrainbake.py selftest` all PASS now
+   (`[bake] selftest: PASS`). The trim cases carrying the two round-1 findings are in that output by
+   name: *"K1 is TerrainBake.regionFor's own region, COMPUTED -- a bend of +40 moves all four sides"*
+   `x[-7190,-1720] z[-7090,-3124]`; *"K1 is checked against TerrainBake.regionFor IN STUDIO"*;
+   *"refusal 11 ... REFUSES a K1 that is not regionFor's region"*; *"refusal 10 ... refuses a
+   hand-written list, an empty one, and a line place"*; *"the removal set is the EXACT complement"*
+   (7 rectangles); *"every block is on the 4-stud voxel lattice"* (74 blocks); *"the irreversible
+   half is proved by a Studio spec and not by a grep"*. `selene src`,
+   `selene --config tests/selene.toml tests` and `stylua --check src tests` are 0 warnings / exit 0.
+6. **MET for existence, NOT re-run by me.** The two Studio cases are in the spec *at this commit*:
+   `git show 7462b00d:tests/server/grid_relief.spec.luau` has `337b-1 trimHits reads the lattice it
+   is given, and trimBlock fills that block with Air` and `337b-2 trimBlock REFUSES a block it would
+   have to expand, and writes nothing`. Their producer-sensitivity was checked by round 2's own
+   verdict (its *"Producer-deletion check"* paragraph) against the identical spec text; **I did not
+   re-run that deletion check this round** and do not claim it as my own reading.
+7. **MET.** Only paperwork followed the code commit: `git diff --name-only 7462b00d..HEAD` is
+   `ESCALATE.md` and `TASKS.md`, and the `TASKS.md` diff is `1 insertion(+), 1 deletion(-)` -- row
+   337b alone.
+8. **MET for the branch head, NOT for the code commit's own sha.** `Build and lint completed
+   success` on `03e93950` (the pushed head, read from the GitHub check-runs API). The API returns
+   **no check run for `7462b00d`** -- CI ran on the push, which carried the later paperwork commits.
+   The head's tree equals the code commit's tree in `src/`, `tests/` and `tools/` (claim 7), so what
+   CI linted is this code; the sha on the green check is not the code commit's. There is **no PR
+   open** for this branch yet (`gh pr list --head task-337b-world-trim` is empty).
+9. **NOT RE-MEASURED THIS ROUND, and cited rather than re-asserted (L-182).** The harness PASS line
+   above was produced by the previous session, not by me: its record is the committed `TASKS.md`
+   row 337b and `ESCALATE.md` section 3 at commit `c66d22d8`. No harness run was made in this round
+   -- the dispatch says none is needed because the code commit is unchanged -- and there is no
+   harness log file in the repo to re-read it from.
+10. **NOT RE-MEASURED, and the run that printed them was at a DIFFERENT commit.** The trim-plan
+    figures -- 7 rectangles, **233 blocks, 88.7 % of the world box removed, 11.3 % kept**, census
+    `841/1681` nodes with 738 outside the keep boxes, K1 `x[-7190,-1720] z[-7090,-3124]`, K2
+    `x[2200,3900] z[-3500,-1250]`, world `x[-7500,7500] z[-7500,7500] y[-512,616]` -- come from the
+    read-only `trim plan` run in Karen's Forest Test at code commit **`98dbdaa9`** (round 2's
+    `REQUEST.md` claim 11, transcribed into `TASKS.md` row 337b). `trim plan` writes nothing, so
+    there is no `.terrainbake/` file to re-read: that transcription is its only record. `7462b00d`'s
+    change to that path is the variable rename alone (`git show 7462b00d -- tools/terrainbake.py`,
+    `command_trim_plan`), so the arithmetic is unchanged -- but **the numbers were not re-measured at
+    the commit under review**, and I do not present them as if they were.
 
 ## What I could not verify
 
-- **No terrain has been trimmed.** Dispatch items 2-4 (backup, run, before/after census, frames,
-  `smoke.sh`) come after this review by the dispatch's own order.
-- **The per-block cost is unmeasured**, so `trim plan` prints no minutes.
-- **Terrain beyond the census lattice (+-10,000 studs) is not in the removal set**, and the Y
-  CEILING is inferred from the same lattice as the floor (round-1 note).
-- **One incidental change to the DEV place, reported rather than hidden:** the 2026-11-09 settle
-  measurement filled and then cleared a 128 x 32 x 128 block at (576, 0, 576) in DEV's Edit session,
-  and the Air fill removed ~4,096 pre-existing terrain cells there as well as its own. Nothing was
-  saved or published; terrain is not Rojo-managed and no harness check reads it. The later probes
-  used x,z 8064, where there is no terrain.
+- **No terrain has been trimmed, no backup has been taken, `trim` has never been run.** Dispatch
+  items 2-4 (backup, run, before/after census, frames, `smoke.sh`) are gated on this PASS and on a
+  separate Director dispatch. Nothing in Karen's place was opened, read or written in this round.
+- **The per-block cost is still unmeasured**, so `trim plan` prints no minutes: measuring one block
+  is itself a terrain write.
+- **The live `FillRegion` size is still unproved.** The biggest fill any case runs is the spec's
+  128 x 256 x 128; a live block is ~18.5 M voxels, and `call` raises rather than refuses if the
+  engine rejects it. Queued round-2 note; the failure mode at block 1 is a traceback.
+- **Terrain beyond the census lattice (+-10,000 studs)** is not in the removal set, and the Y ceiling
+  is inferred from the same lattice as the declared -512 floor.
+- Round 2's other notes are all queued unchanged in `TASKS.md` row 337b, not fixed.
 
-ANSWERED: L-136 the named flakes fired repeatedly and are named with their runs, at this commit:
-run 6 `deer_hitbox.spec:682`, `weapon_shot.spec:1490`, `weapon_shot.spec:1890`,
-`semiauto_client.spec:93`; run 7 `weapon_shot.spec:1490` and `weapon_client.spec:1769`; run 8
-`PASS: 34/34`. All but `weapon_client.spec:1769` are in the dispatch's list (that file is listed at
-:1211/:1263, not :1769). Earlier, at the round-1 commit, `map_ui.spec:1071` failed three runs in a
-row at 11.05/11.10/11.62 Hz against `near 20 (within 8)`: NOT random and NOT a code defect -- free
-memory was 2.3 GB of 14.2 with a stray `RobloxPlayerBeta` (1,153 s CPU, no window, started 01:12),
-Chrome and three `RobloxCrashHandler`s alive. Closing those took it to 2.7 GB and the next run read
-PASS. Eight `test` runs in all; no control run at the merge-base was taken, and I do not claim one.
-ANSWERED: L-127 every claim names its instrument; everything else is under *"What I could not
-verify"*.
-ANSWERED: L-162 the harness line, `trim plan`'s live run and `selftest` are all at `98dbdaa9` on a
-clean tree.
-ANSWERED: L-014 nothing was checked out in `driven-hunt-karen`; `trim plan` only READ her place,
-in Edit, through StudioMCP.
-ANSWERED: L-101 no attribute of her place has been written; the attribute diff belongs with the run.
-ANSWERED: L-093 claims 1, 5, 6 and 7 each name the producer and what deleting it reddens; the Luau
-half is a Studio spec now, because a grep survived the deletion.
-ANSWERED: L-182 claim 9 -- the run prints the block count and the before/after lattice itself.
-ANSWERED: L-174 the cap is the Director's; this is round 2 and I stop here either way.
+ANSWERED: L-174 the round count is read off the committed `reviews/task-337b/RESULT.md` trailer,
+which names round 2 at `7b21d2b9`; this request is `Round: 3`, authorised by the Director in
+`ESCALATE.md` at `03e93950`, and 3 is inside `MAX_ROUNDS`, so no `DIRECTOR_MAX_ROUNDS` is set or
+committed. A finding here goes to `ESCALATE.md` and the task stops.
+ANSWERED: L-127 every claim above carries MET / PART MET / NOT RE-MEASURED against the instrument
+that reads it, and three of the ten are explicitly not measurements of mine (6, 9, 10). Claim 3
+reports a residual against the fix instead of restating round 2's wording as settled.
+ANSWERED: L-014 nothing was checked out in `driven-hunt-karen`, no Studio was opened, and no place
+was read or written in this round.
+ANSWERED: L-171 claim 1 reads the fix back out of `git show 7462b00d:tools/terrainbake.py`; neither
+`ESCALATE.md` nor round 2's `RESULT.md` is taken as evidence that it landed, and claims 2 and 4 do
+the same for the three notes.
+ANSWERED: L-182 claims 9 and 10 name where each number was printed and at which commit, and mark
+both as not re-measured here; the 233 / 88.7 % pair is cited to the `98dbdaa9` `trim plan` run as
+transcribed in `TASKS.md` row 337b, not re-asserted from this dispatch's own text.
