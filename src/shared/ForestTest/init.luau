@@ -296,14 +296,28 @@ ForestTest.LAYOUTS = table.freeze({
 	}),
 })
 
--- THE ROTATION, IN ONE PLACE AND IN KAREN'S OWN ORDER (task 193): her 1 road, 2 field edge, 3 cut
--- line, 4 forest road. Since task 193 this is not a bag's contents but the CYCLE ITSELF -- drive 1
--- plays the first, drive 5 plays the first again (`nextLayout`).
+-- THE ROTATION: **EVERY DRIVE IS DEALT IN A GRID CELL** (task 327d). Karen, 2026-11-08: *"so rest
+-- part of map we can remove we can only focus on those what we have from A1 ect"* and *"we only
+-- load one per game thats it"*.
 --
--- It is still the one-line commit that puts this world back to exactly today's game: `{ "road" }`.
--- `forest_stand.spec` proves `road` is unchanged number for number, so that commit is a real
--- rollback and not a hope (design 15).
-ForestTest.LAYOUT_ORDER = table.freeze({ "road", "edge", "ride", "track" })
+-- IT **IS** `Grid.PLANTED_CELLS` AND NOT A COPY OF IT, which is the whole of the item: the cells
+-- that have a wood and the cells the rotation deals cannot drift apart, and A1 -- the one cell with
+-- no baked ground to plant on -- is out of both by one fact rather than by two lists agreeing.
+-- C1 is first, so the cell `Places.build` dresses at boot and `Grid.DEFAULT_CELL` stands IS drive
+-- 1's cell: no wood is swapped before anybody has played.
+--
+-- THE FOUR LINE PLACES LEAVE THE ROTATION AND ARE NOT DELETED (rule 7, grid-map.md D-4): their
+-- rows stay in `ForestTest.LAYOUTS` and every number in them is still asserted, and the Director
+-- reaches any of them with `DHForestLayout=road` -- which is the rollback, and it is one attribute
+-- rather than a commit. Archived with its reasons: backups/2026-11-09_task-327d_the-four-line-places.md
+ForestTest.LAYOUT_ORDER = Grid.PLANTED_CELLS
+
+-- THE FOUR LINE PLACES, BY NAME, FOR THE READERS THAT STILL MEAN THEM (task 327d). `LAYOUT_ORDER`
+-- is the ROTATION and it holds cells now, so a reader asking "every line place's lane" had to stop
+-- asking it through the rotation or it would quietly answer "there are none".
+-- Its one production reader is `Places.clearOfEveryLane`, which keeps the four archived planting
+-- plans honest; a cell's own rule is `Places.clearOfEveryRoad`.
+ForestTest.LINE_PLACES = table.freeze({ "road", "edge", "ride", "track" })
 
 -- THE DEFAULT PARAMETER, NAMED FOR WHAT IT IS. A default meaning "the live layout" cannot exist in
 -- a replicated module: on a client this module has no live anything, so it would answer `road` for
@@ -344,7 +358,7 @@ end
 -- THE LAYOUT BY NAME, **THE GRID'S EIGHT CELLS INCLUDED** (task 332). `layoutNamed` above answers
 -- the four shipped rows only, so a client handed the live name "C1" resolved NOTHING and drew no
 -- map at all -- measured in Karen's Forest Test on 2026-11-06, where `GRID_PREVIEW` publishes
--- `Grid.PREVIEW_CELL`: no `DrivenHunt.Map.Toggle` binding, `FullMap.Visible = false`, M dead.
+-- `Grid.DEFAULT_CELL`: no `DrivenHunt.Map.Toggle` binding, `FullMap.Visible = false`, M dead.
 -- THE ONE RESOLVER: the server's own `layoutByName` is this function now, so a name the server can
 -- deal is a name the client can draw.
 function ForestTest.layoutOf(name: string?): Layout?

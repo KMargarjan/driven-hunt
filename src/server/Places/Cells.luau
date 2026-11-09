@@ -81,7 +81,7 @@ function Cells.wantedCell(layoutName: string?): string
 	if type(layoutName) == "string" and Grid.cellOf(layoutName :: string) ~= nil then
 		return layoutName :: string
 	end
-	return Grid.PREVIEW_CELL
+	return Grid.DEFAULT_CELL
 end
 
 -- IS THIS THE HOME A CELL'S OWN WOOD BELONGS IN WHEN TWO STAND? `FOREST_FOLDER` is Karen's Edit-time

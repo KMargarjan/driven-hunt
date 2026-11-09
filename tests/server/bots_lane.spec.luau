@@ -26,6 +26,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Bots = require(ServerScriptService:WaitForChild("Bots"))
+local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
 local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
 local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
@@ -98,7 +99,7 @@ return function()
 			-- 150 and 130 a single constant would be a second answer that disagrees with the live
 			-- one on a ride. The property task 167 needs is asserted of each of them instead.
 			for _, name in ipairs(Forest.LAYOUT_ORDER) do
-				local layout = Forest.layoutNamed(name)
+				local layout = Forest.layoutOf(name)
 				expect(Forest.laneSpacing(layout)).to.equal(layout.standSpacing)
 				expect(Forest.beaterLaneOffset(2, layout)).to.equal(layout.standSpacing)
 				expect(Forest.beaterLaneOffset(3, layout)).to.equal(-layout.standSpacing)
@@ -618,60 +619,77 @@ return function()
 		-- EVERY NUMBER BELOW IS THE SHIPPED ONE. That is the point of this block: the walk is a
 		-- quotient of three configs in three files, and until task 162 it was only ever written in a
 		-- comment -- so a drive ran for 29 seconds and nothing failed.
-		local function travelStuds(): number
-			return Forest.LINE.spawnNorthStuds + Forest.BEATER.behindLineStuds + Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS
+		--
+		-- **IT IS PER DEALT LAYOUT SINCE TASK 327d.** Every drive is dealt in a grid CELL and a cell
+		-- carries its OWN depth (1,430 studs against the four archived line places' shared 580), so
+		-- `travelStuds` takes a layout and the quotient is asked of each cell the rotation deals.
+		local function travelStuds(layout: any?): number
+			return Forest.beaterNorthStuds(layout) + Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS
 		end
 
-		it("takes about three and a half minutes at the bot pace, and that is the Director's number", function()
-			local seconds = travelStuds() / Bots.CONFIG.WALK_SPEED
-			-- KAREN (task 162): *"need longer walk for beaters let's say 2 min"*, and the band was
-			-- 105-135 s. THE DIRECTOR, 2026-10-24 (task 251 part 2, Karen having delegated the feel for
-			-- the night): *"lengthen the Forest Test drive to about 210 s by slowing the beater line"*,
-			-- because the drive script is fifteen slots and a 130-second drive only ever reached five of
-			-- them -- so the red stag at slot 13 never happened (`ESCALATE.md`, 2026-10-23).
-			--
-			-- THE BAND IS ON THE FLAT QUOTIENT AND THE TARGET IS ON THE GROUND, which is why it is
-			-- centred on 193 and not on 210: measured over three drives of part 1, the arrival is
-			-- **1.081x** the flat figure (130.8 / 133.0 / 125.3 s against a flat 120.0), so 193.5 flat
-			-- is ~209 s in Karen's place. +-20 s on the flat quotient, deliberately not +-1: the pair is
-			-- two numbers somebody will turn and the ground is a hill.
-			expect(seconds > 173).to.equal(true)
-			expect(seconds < 213).to.equal(true)
-			-- ...AND THE THING THE DRIVE IS FOR: every one of the fifteen slots is due before the line
-			-- arrives. This is the assertion part 1's escalation existed to get, and it reads the two
-			-- modules against each other rather than against a comment.
-			local lastSlot = Forest.slotSeconds(#Forest.SCHEDULE.drive)
-			expect(lastSlot < seconds * 1.081).to.equal(true)
+		it("walks the dealt cell's own depth, and arrives before the clock runs out", function()
+			-- KAREN (task 162): *"need longer walk for beaters let's say 2 min"*. THE DIRECTOR,
+			-- 2026-10-24 (task 251 part 2): *"lengthen the Forest Test drive to about 210 s by
+			-- slowing the beater line"*. AND THE DIRECTOR AGAIN, task 327d: the walk is the CELL's
+			-- depth now, so the pace is `Grid.CONFIG.beaterWalkStudsPerSecond` and the two numbers
+			-- that matter are the ones below.
+			local last = Forest.slotSeconds(#Forest.SCHEDULE.drive)
+			local worst = 0
+			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+				local layout = Forest.layoutOf(name)
+				local seconds = travelStuds(layout) / Bots.CONFIG.WALK_SPEED
+				worst = math.max(worst, seconds)
+				-- EVERY ONE OF THE FIFTEEN SLOTS IS DUE BEFORE THE LINE ARRIVES, which is the
+				-- assertion part 1's escalation existed to get: a drive ends when the line is
+				-- through, so a script longer than the walk is a stag nobody ever sees.
+				expect(last < seconds).to.equal(true, string.format("%s: walk %.0f s", name, seconds))
+				-- ...AND THE LINE ARRIVES BEFORE THE CLOCK ENDS THE DRIVE, or `END_ON_BEATERS_CROSS`
+				-- never fires at all and Karen's *"once I am driver ended with line I wait untile
+				-- hunt ends? its shit boring"* is every drive (TASKS.md 327b-notes (a)).
+				expect(seconds < Forest.DRIVE.seconds).to.equal(
+					true,
+					string.format("%s: walk %.0f s against a %d s clock", name, seconds, Forest.DRIVE.seconds)
+				)
+				-- ...**AND THE GRACE HAS SOMEWHERE TO RUN.** This is what is left of task 162's
+				-- `DRIVE.seconds - seconds > DRIVE.seconds / 3` margin, which a 1,430-stud cell at 5.2
+				-- cannot hold (21.2 s against a required 100) -- archived verbatim with the arithmetic
+				-- in backups/2026-11-09_task-327d_drive-length-assertions.luau.txt, rule 7. The margin
+				-- kept here is the one size the GAME names rather than a new dial: the line must be
+				-- through early enough for `BEATERS_THROUGH_GRACE_SECONDS` to run inside the clock,
+				-- 278.8 + 15 = 293.8 against 300. It reddens if the walk grows by 7 s.
+				expect(seconds + Match.CONFIG.BEATERS_THROUGH_GRACE_SECONDS < Forest.DRIVE.seconds).to.equal(
+					true,
+					string.format(
+						"%s: walk %.0f s + %d s grace against a %d s clock",
+						name,
+						seconds,
+						Match.CONFIG.BEATERS_THROUGH_GRACE_SECONDS,
+						Forest.DRIVE.seconds
+					)
+				)
+			end
+			-- **THE MARGIN IS THIN AND THE NUMBER IS PRINTED RATHER THAN HIDDEN BEHIND A BAND**
+			-- (rule 8). 1,450 studs at 5.2 is 278.8 s flat against a 300 s clock -- 21.2 s -- and the
+			-- ground adds a MEASURED 1.081 over the flat quotient (three drives of task 251 part 1),
+			-- which is ~301 s. So the early end is not proven by this arithmetic: it is proven or
+			-- refuted by one live drive, and task 327d's report carries that measurement.
+			-- **AND THE MEASURED NUMBER SAYS THE FLAT ONE IS NOT ENOUGH.** One live drive in Karen's
+			-- Forest Test at task 327d's code commit: the FIRST of four bot beaters arrived at
+			-- 292.9 s and the last at ~300-305 s, so `END_ON_BEATERS_CROSS` did not fire and the
+			-- clock ended the drive. That is not asserted here because the pace is a `docs/design/`
+			-- number; `ESCALATE.md` carries the arithmetic (5.35 / 5.64 / `DRIVE.seconds` 330).
 			TestKit.note(
 				string.format(
-					"slot %d (the last) is due at %.0f s and the bot line arrives at ~%.0f s: %.0f s to spare",
-					#Forest.SCHEDULE.drive,
-					lastSlot,
-					seconds * 1.081,
-					seconds * 1.081 - lastSlot
+					"the worst dealt cell's walk is %.0f s flat (x1.081 on the ground = %.0f s; MEASURED live"
+						.. " 292.9 s for the first of four) against a %d s clock and a %d s through-grace;"
+						.. " last slot due %.0f s",
+					worst,
+					worst * 1.081,
+					Forest.DRIVE.seconds,
+					Match.CONFIG.BEATERS_THROUGH_GRACE_SECONDS,
+					last
 				)
 			)
-			TestKit.note(
-				string.format(
-					"a bot beater walks %.0f studs at %.1f studs/s = %.1f s (flat; the measured ground path from the middle stand's pad is 612 studs, so ~%.0f s)",
-					travelStuds(),
-					Bots.CONFIG.WALK_SPEED,
-					seconds,
-					(612 + Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS) / Bots.CONFIG.WALK_SPEED
-				)
-			)
-		end)
-
-		it("finishes well inside the drive clock, so the clock is still the backstop", function()
-			-- THE CLOCK STILL ENDS EVERY DRIVE and the crossing can only ever end one EARLIER
-			-- (`Match.CONFIG.END_ON_BEATERS_CROSS`'s own comment). If the walk ever grew past the
-			-- forest's clock, the early end would stop happening at all and Karen's
-			-- *"Timer or when all beaters cross line of hunters"* would quietly become "timer".
-			local seconds = travelStuds() / Bots.CONFIG.WALK_SPEED
-			expect(seconds < Forest.DRIVE.seconds).to.equal(true)
-			-- ...with room for the hill, the trunks and the side-steps: the walk is measured flat and
-			-- the ground is not. A third of the clock is the margin.
-			expect(Forest.DRIVE.seconds - seconds > Forest.DRIVE.seconds / 3).to.equal(true)
 		end)
 
 		it("advances at a beater line's pace, in metres", function()
@@ -679,18 +697,20 @@ return function()
 			-- `Horn.CONFIG`, `Report.CONFIG` and `Boar.CONFIG.SENSE` publish. The 9 studs/s this
 			-- shipped with was 2.52 m/s, which is a jog, and that is still what the ceiling refuses.
 			--
-			-- THE FLOOR WENT 1.2 -> 0.8 IN TASK 251 PART 2, and the reason is a different claim rather
-			-- than a looser one. 1.2-1.5 m/s is what a MAN WALKING does, and 5 studs/s (1.40) sat inside
-			-- it. But a beater LINE does not walk, it ADVANCES: it stops in thick cover, beats it, waits
-			-- for the flanks so the line stays level, and moves on. 3.1 studs/s is 0.87 m/s, which is
-			-- that average -- a slow walk with stops in it -- and `Bots.CONFIG.WALK_SPEED`'s own comment
-			-- carries the source. The ceiling is untouched, so the jog is still a failure.
+			-- THE FLOOR WENT 1.2 -> 0.8 IN TASK 251 PART 2 because a beater LINE does not walk, it
+			-- ADVANCES: it stops in thick cover, beats it, waits for the flanks, and moves on.
+			-- TASK 327d SPENDS THAT BACK and the cost is stated: 5.2 studs/s is 1.46 m/s, the top of
+			-- the man-walking band, because a cell is 2.5x the road's depth and the clock did not
+			-- grow with it. The ceiling is untouched, so the jog is still a failure.
 			local metresPerSecond = Bots.CONFIG.WALK_SPEED * Forest.SPOOK.METRES_PER_STUD
 			expect(metresPerSecond >= 0.8).to.equal(true)
 			expect(metresPerSecond <= 1.5).to.equal(true)
+			-- THE PACE IS THE GRID'S OWN NUMBER AND NOT A SECOND COPY OF IT (task 327d): one owner
+			-- holds it, the design solves the clock against it, and this is the equality.
+			expect(Bots.CONFIG.WALK_SPEED).to.equal(Grid.CONFIG.beaterWalkStudsPerSecond)
 			-- AND THE FEET STILL DO NOT SLIDE AT IT (task 161's gait law, asserted rather than claimed
 			-- in the config's comment): the walk clip plays at `speed / NATURAL_WALK_SPEED`, so the
-			-- slowed pace has to stay above the rate floor and above the clip's own walk threshold.
+			-- pace has to stay above the rate floor and above the clip's own walk threshold.
 			local _, rate = Rig.gait(Bots.CONFIG.WALK_SPEED, nil)
 			expect(rate > Rig.GAIT.MIN_RATE).to.equal(true)
 			expect(Bots.CONFIG.WALK_SPEED > Rig.GAIT.WALK_ABOVE_STUDS).to.equal(true)
@@ -719,8 +739,10 @@ return function()
 			-- own `DRIVERS.walkSpeed` and reaches the road long before the bot line does. The drive
 			-- ends when ALL beaters are through, so what she gets is a wait, not a short drive.
 			expect(Forest.DRIVERS.walkSpeed > Bots.CONFIG.WALK_SPEED).to.equal(true)
-			local hers = travelStuds() / Forest.DRIVERS.walkSpeed
-			local theirs = travelStuds() / Bots.CONFIG.WALK_SPEED
+			-- THE DEALT CELL'S OWN DEPTH (task 327d), which is what she actually walks.
+			local dealt = Forest.layoutOf(Forest.LAYOUT_ORDER[1])
+			local hers = travelStuds(dealt) / Forest.DRIVERS.walkSpeed
+			local theirs = travelStuds(dealt) / Bots.CONFIG.WALK_SPEED
 			TestKit.note(
 				string.format(
 					"a real beater walks it in %.0f s at %d studs/s and then waits %.0f s for the bot line",

@@ -780,12 +780,19 @@ return function()
 		-- Both FAIL on the commit before this task: the first calls a function that did not exist, and
 		-- the second's own arithmetic is what the escalation measured as broken -- slot 13's stag was
 		-- put down at dz 330 at 166 s with the line already 100 studs past that depth.
+		-- THE LAYOUT EVERY DRIVE IS DEALT IN (task 327d): a grid cell. The rotation's first.
+		local DEALT = Data.layoutOf(Data.LAYOUT_ORDER[1])
+
 		local function lineNorthAt(seconds: number, factor: number?): number
 			-- WHERE THE LINE IS AT A TIME, from the two shipped numbers and nothing written twice:
 			-- the beaters start at `beaterNorthStuds` and walk at `Bots.CONFIG.WALK_SPEED`.
 			-- `factor` is `bots_lane.spec`'s measured ground factor (the arrival is 1.081x the flat
 			-- quotient over a hill), so the same case can be stated flat and as Karen's place.
-			return Data.beaterNorthStuds() - (Bots.CONFIG.WALK_SPEED / (factor or 1)) * seconds
+			--
+			-- **IT IS THE DEALT CELL'S OWN DEPTH SINCE TASK 327d** (1,430 studs, not the archived
+			-- line places' 580): every drive is dealt in a cell, so the line this script is measured
+			-- against is the line of the drive that actually happens.
+			return Data.beaterNorthStuds(DEALT) - (Bots.CONFIG.WALK_SPEED / (factor or 1)) * seconds
 		end
 
 		it("clamps a slot's depth to stay ahead of the line, and never deeper than the row (task 251c)", function()
@@ -929,28 +936,28 @@ return function()
 			-- Act III's late rows are ahead of the line but inside the 130-stud margin, and they take
 			-- their own route floors. Slot 15 is exempt on both models -- it holds and never comes --
 			-- and on the FLAT quotient the men are through by its 192 s as well.
+			-- **TASK 327d BOUGHT THE WHOLE MARGIN BACK, AND THAT IS WHAT THESE COUNTS SAY.** On the
+			-- 580-stud line places the men were at the road by 187 s flat, so slots 11-14 were
+			-- released inside the 130-stud lead (the `tight` list). A cell is 1,430 studs deep, so at
+			-- slot 14's 179 s the line is still ~499 studs out and EVERY row keeps its full margin.
+			-- Slot 15 stays exempt on both models -- it holds and never comes.
 			local flatExempt, flatTight = run()
 			expect(#flatExempt).to.equal(1)
 			expect(flatExempt[1]).to.equal(15)
-			expect(#flatTight).to.equal(4)
-			expect(flatTight[1]).to.equal(11)
-			expect(flatTight[2]).to.equal(12)
-			expect(flatTight[3]).to.equal(13)
-			expect(flatTight[4]).to.equal(14)
-			-- IN KAREN'S PLACE the line is 8 % slower, so act III's first row keeps the whole margin
-			-- and only the last three are tight. The live drive is this column:
-			-- `SLOT 11 ... released=77, line=207` is a full 130 clear.
+			expect(#flatTight).to.equal(0)
+			-- IN KAREN'S PLACE the line is 8 % slower, which can only widen the margin.
 			local groundExempt, groundTight = run(1.081)
 			expect(#groundExempt).to.equal(1)
 			expect(groundExempt[1]).to.equal(15)
-			expect(#groundTight).to.equal(3)
-			expect(groundTight[1]).to.equal(12)
-			expect(groundTight[2]).to.equal(13)
-			expect(groundTight[3]).to.equal(14)
+			expect(#groundTight).to.equal(0)
 			TestKit.note(
 				string.format(
-					"task 251c: slots 1-11 are released a full %d studs ahead of the line; 12-14 are ahead but inside that margin; slot 15 is due after the men are through",
-					SCHEDULE.leadStuds
+					"task 251c/327d: every slot 1-14 is released a full %d studs ahead of the line in a %d-stud cell"
+						.. " (the line is at dz %.0f at slot 14's %d s); slot 15 holds",
+					SCHEDULE.leadStuds,
+					Data.beaterNorthStuds(DEALT),
+					lineNorthAt(179),
+					179
 				)
 			)
 
@@ -966,7 +973,7 @@ return function()
 				return stag.atSeconds + (north + stag.sneakStuds) / walk
 			end
 			-- WHEN THE LINE IS AT THE ROAD, which is what ends a drive in this world.
-			local arrivesFlat = Data.beaterNorthStuds() / Bots.CONFIG.WALK_SPEED
+			local arrivesFlat = Data.beaterNorthStuds(DEALT) / Bots.CONFIG.WALK_SPEED
 			local arrivesGround = arrivesFlat * 1.081
 			-- HE IS AT THE VERGE BEFORE IT ON BOTH MODELS -- at the lead of 130 that is 158 s against
 			-- a line at the road at 187 s flat (29 s), and 163 s against 202 s in Karen's place
@@ -977,7 +984,13 @@ return function()
 			-- ...AND IN ACT III'S OWN WINDOW, which is the Director's words exactly: *"reaches the
 			-- verge in act III"*. Act III is slots 11-15, 140 s to 192 s.
 			expect(reachesVergeAt() > Data.slotSeconds(11, SCHEDULE)).to.equal(true)
-			expect(reachesVergeAt(1.081) < Data.slotSeconds(15, SCHEDULE)).to.equal(true)
+			-- **THE UPPER BOUND IS THE DRIVE AND NO LONGER SLOT 15 (task 327d).** It was
+			-- `< slotSeconds(15)` because on a 580-stud line the men were at the road at 187 s, so the
+			-- last release time and the end of the drive were the same moment. In a 1,430-stud cell he
+			-- is released unclamped at his full 330 and walks 450 studs, so he is at the verge at
+			-- ~201 s -- after slot 15 is DUE and 74 s before the line arrives, which is the margin
+			-- the two assertions above measure.
+			expect(reachesVergeAt(1.081) < Data.DRIVE.seconds).to.equal(true)
 			TestKit.note(
 				string.format(
 					"task 251c: the stag is released at %d s from dz %.0f (the line is at dz %.0f) and is at the verge at %.0f s; the line reaches the road at %.0f s flat / %.0f s on the ground",

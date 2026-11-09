@@ -93,14 +93,19 @@ Grid.COLUMN_LETTERS = table.freeze({ "A", "B", "C", "D" })
 -- larger z), because this world's drives all push south (`ForestTest.EXIT_SOUTH_STUDS`).
 Grid.CELL_ORDER = table.freeze({ "A1", "B1", "C1", "D1", "A2", "B2", "C2", "D2" })
 
--- WHICH CELL `GRID_PREVIEW` DRESSES, so Karen walks ONE cell's stands and towers rather than eight
--- cells' worth of posts (task 327b). **C1 BECAUSE IT HAS THE MOST TO SHOW**, which is a reading and
--- not a preference: it is the only cell whose tower measurement takes THREE stands, it takes them on
--- BOTH flanks, and it needs no relief relaxation. Task 327d retires the preview and this row with it.
-Grid.PREVIEW_CELL = "C1"
+-- THE CELL A SESSION FALLS BACK TO, so a boot with no drive dealt yet stands ONE cell rather than
+-- none. `Cells.wantedCell` and `Places.build`'s boot dress are its two readers, and it is
+-- `PLANTED_CELLS[1]` so those two and the rotation's first deal are the same cell.
+-- C1 BECAUSE IT HAS THE MOST TO SHOW: the only cell whose tower measurement takes three stands, on
+-- both flanks, with no relief relaxation. It was `PREVIEW_CELL` until task 327d retired the preview.
+Grid.DEFAULT_CELL = "C1"
 
--- WHICH CELLS GET A WOOD UNDER `GRID_PREVIEW` (task 328i). Karen, 2026-11-04: *"more trees behind
--- the line"* -- there were none, because `Places.build` dressed `PREVIEW_CELL` and nothing else.
+-- WHICH CELLS HAVE A WOOD (task 328i). Karen, 2026-11-04: *"more trees behind the line"* -- there
+-- were none, because `Places.build` dressed `DEFAULT_CELL` and nothing else.
+--
+-- **SINCE TASK 327d THIS LIST IS ALSO THE ROTATION**: `ForestTest.LAYOUT_ORDER` IS this table, so
+-- "the rotation deals only the cells that have a wood" is true by construction and not by a second
+-- hand-written list that could drift. A1 is absent from both for the same one reason.
 --
 -- **THE LIST IS THE CELLS WHOSE GROUND IS BAKED, and that is a reading, not a preference**: a wood
 -- planted on ground that is about to be re-baked is work thrown away, and its trees would be seated

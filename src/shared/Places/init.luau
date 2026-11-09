@@ -1140,7 +1140,7 @@ Places.CELL_PLANS = table.freeze({
 		}),
 	}),
 
-	-- C1, measured `rolling`, 61.7 studs -- the gentlest cell, and the one `Grid.PREVIEW_CELL` shows.
+	-- C1, measured `rolling`, 61.7 studs -- the gentlest cell, and the one `Grid.DEFAULT_CELL` shows.
 	-- SEVEN ZONES AND FOUR DIFFERENT WOODS, because it is the cell Karen looks into first: a thicket
 	-- at her left shoulder, mixed wood ahead, an oak park to the east where the sight lines open, and
 	-- a clearing two thirds in with scrub either side of it.
@@ -1510,8 +1510,12 @@ end
 --
 -- IT IS ASKED AT THE JITTERED POINT, like `inLane`, because the jitter is what walks a candidate into
 -- a lane.
+--
+-- IT LOOPS `Forest.LINE_PLACES` AND NOT `LAYOUT_ORDER` SINCE TASK 327d: the rotation holds cell ids
+-- now, and `layoutNamed` is nil for every one of them -- so through the rotation this function
+-- would answer "clear" everywhere and assert nothing.
 function Places.clearOfEveryLane(x: number, z: number): boolean
-	for _, name in ipairs(Forest.LAYOUT_ORDER) do
+	for _, name in ipairs(Forest.LINE_PLACES) do
 		local layout = Forest.layoutNamed(name)
 		if layout ~= nil then
 			if math.abs(z - Forest.roadZ(x, layout)) <= Places.laneHalfWidth(Places.planFor(name)) then

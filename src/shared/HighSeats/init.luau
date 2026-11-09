@@ -753,7 +753,8 @@ function HighSeats.plan(stand: Vector3, grounds: { number? }, facing: number?): 
 end
 
 -- EVERY LAYOUT NAME THIS MODULE KNOWS, for a spec that wants to walk them without reaching into the
--- frozen table. `ForestTest.LAYOUT_ORDER` is the authority on what the four are.
+-- frozen table. `ForestTest.LAYOUT_ORDER` is the authority, and since task 327d it is the
+-- rotation's cells.
 function HighSeats.layoutNames(): { string }
 	return Forest.layoutNames()
 end

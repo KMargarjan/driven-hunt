@@ -82,8 +82,9 @@ local Places = require(ServerScriptService:WaitForChild("Places"))
 -- WHICH CELL'S WOOD IS IN `Workspace` (task 337). The one writer of a cell folder's `Parent`; it
 -- creates nothing and destroys nothing. Design: docs/design/cell-loading.md.
 local Cells = require(ServerScriptService.Places:WaitForChild("Cells"))
--- THE GRID'S EIGHT CELLS (task 327a). The preview below asks it for one cell's layout row.
-local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
+-- THE GRID'S EIGHT CELLS (task 327a) ARE NOT REQUIRED HERE ANY MORE (task 327d). This file asked
+-- `Grid` for one cell's layout row under `GRID_PREVIEW`; the rotation IS `Grid.PLANTED_CELLS` now,
+-- so the cell reaches this file through `ForestTest` like any other layout and there is one path.
 local Data = ForestTest.Data
 
 print(
@@ -113,13 +114,8 @@ print(
 -- THE READER IS TERRAIN ONLY AND IT IS HANDED IN HERE (design 10.1). `ForestTest.terrainYAt` lives on
 -- the SERVER owner of this world, which is why the composition root is where the two meet: the
 -- planter learns nothing about `Workspace.Terrain` and `ForestTest` learns nothing about planting.
--- THE GRID PREVIEW (task 327a) IS THE FOURTH AND FIFTH ARGUMENTS: nil lets `Places` read its own
--- flag at its own boundary, and `task.wait` is the slice -- a boot that paints 270 terrain
--- regions in one frame is a boot Karen sees as a freeze.
--- THE PREVIEW FLAG IS READ ONCE, HERE, AND THE SAME BOOLEAN IS USED THREE TIMES: by the planter, by
--- the line that reports it and by the preview cell below (327a review note (g) -- the line used to
--- print a second read, so a flag flipped between them would have been invisible).
-local gridPreviewOn = Places.gridPreviewEnabled()
+-- `task.wait` IS THE SLICE (task 327a) -- a boot that plants a cell's 2,400 trees in one frame is a
+-- boot Karen sees as a freeze. The grid's folder is no longer behind a flag (task 327d).
 -- THE PREBUILT FOREST'S ARBITER, AND THE TWO ATTRIBUTES ARE READ EXACTLY ONCE -- HERE
 -- (task 328g, `docs/design/grid-terrain.md` 10.3). `Workspace.GridForest` is planted at EDIT time by
 -- `tools/terrainbake.py plant` and saved with the place, so Karen's trees are there at the first
@@ -154,7 +150,6 @@ local planted = Places.build(
 	ForestTest.terrainYAt,
 	nil,
 	workspace.Terrain,
-	gridPreviewOn,
 	function()
 		task.wait()
 	end,
@@ -178,11 +173,19 @@ print(string.format(
 	planted.seconds,
 	if planted.reason then " (" .. tostring(planted.reason) .. ")" else ""
 ))
--- THE GRID'S OWN LINE (task 327a), so the preview's state is read and never assumed. The stake count
--- left it in task 328m with the 32 corner stakes themselves (rule 7; Karen, 2026-11-03: *"those gates
--- shouldnt be"*), as the road paint count left it in 328e with `Ground.paintRoads`. What is left is
--- the flag and what the preview still costs: the folder that the cell's wood is dressed into.
-print(string.format("[ForestTestBoot] grid: preview=%s, %.2fs", tostring(gridPreviewOn), planted.gridSeconds))
+-- THE GRID'S OWN LINE (task 327a), and since task 327d it carries what the SWITCH is measured by:
+-- how many line places were dressed (0) and how many parts they put in `DrivePlaces` (0), beside
+-- the grid folder's own cost. The stake count left it in 328m with the 32 corner stakes (rule 7;
+-- Karen, 2026-11-03: *"those gates shouldnt be"*), as the road paint count left it in 328e.
+print(
+	string.format(
+		"[ForestTestBoot] grid: rotation=%s, line places dressed=%d (%d parts), folder %.2fs",
+		table.concat(Data.layoutNames(), "/"),
+		planted.places,
+		planted.parts,
+		planted.gridSeconds
+	)
+)
 -- ...AND EVERY DRESSED CELL'S WOOD (task 327c; ONE LINE PER CELL since 328i), printed and never
 -- assumed (design 11): how many models went in, how many the ground refused, how many parts that is
 -- against the design's < 22,000, and what the slice spent -- steps, average and worst step, and how
@@ -235,48 +238,12 @@ print(
 		)
 )
 
--- ONE CELL'S STANDS AND TOWERS, UNDER THE PREVIEW (task 327b, design 17's 327b). Karen's own line
--- for this task is *"she stands on all 15 stands of one cell and climbs its towers"*, and nothing
--- else in this world is touched: these are the live drive's own two folders. THERE ARE THEREFORE
--- TWO BUILDERS OF `ForestMarkers` WHILE THE PREVIEW IS ON -- this block and the drive's `markers`
--- closure -- and that is safe only because `Markers.build` clears the folder first and
--- `Seats.ensure` is level-triggered on the layout's name, so the second build is the same cell.
--- The flag forces the cell below, so the two agree about WHICH cell; they differ only in the
--- beater pad's x.
---
--- SEATS BEFORE MARKERS, WHICH IS THE WHOLE OF TASK 218 (design 9.3): `Markers.build` then asks the
--- seat where its deck is instead of reading that column from the sky and refusing the stand.
---
--- `Places.gridPreviewEnabled()` IS READ ONCE HERE and the value is printed, so the line says what
--- was used rather than a second read of the flag (327a review note (g)).
-if gridPreviewOn then
-	local cellLayout = Grid.layoutFor(Grid.PREVIEW_CELL)
-	local seats = ForestTest.Seats.ensure(cellLayout)
-	-- THE MIDDLE OF THE MAIN LINE, which since round 3 IS what `hunterStandX` answers with nobody
-	-- playing (`ForestTest.defaultPickIndex` is the walk's first stand). The drive's own closure
-	-- rebuilds this set a second later anyway, and the only thing derived from it here is the beater
-	-- pad in the console line below.
-	local middleX = Data.standX(math.ceil(Grid.CONFIG.mainStandCount / 2), cellLayout)
-	local set = ForestTest.Markers.build(middleX, cellLayout)
-	print(
-		string.format(
-			"[ForestTestBoot] grid preview cell %s: %d of %d post(s) (%d line), %d tower(s) at {%s}, line=%s, complete=%s%s",
-			Grid.PREVIEW_CELL,
-			#set.posts,
-			cellLayout.standCount,
-			#set.linePosts,
-			seats,
-			table.concat(HighSeats.standsFor(Grid.PREVIEW_CELL), ","),
-			tostring(set.line ~= nil),
-			tostring(set.complete),
-			if #set.missing > 0 then " missing=" .. table.concat(set.missing, ",") else ""
-		)
-	)
-	local seatLine = ForestTest.Seats.takeLine()
-	if seatLine then
-		print(seatLine)
-	end
-end
+-- THE BOOT BUILDS NO STANDS AND NO TOWERS ANY MORE (task 327d, rule 7). It built one cell's set
+-- under `GRID_PREVIEW` so Karen could walk it with no drive running, which made this file a SECOND
+-- builder of `ForestMarkers` beside the drive's own `markers` closure. The closure runs once a
+-- second while `Match` is `Waiting`, so the set exists from the first second of a session anyway --
+-- one builder, which is rule 3.
+-- Archived: backups/2026-11-09_task-327d_the-four-line-places.md
 
 -- ---------------------------------------------------------------- the boars
 
@@ -1161,26 +1128,13 @@ Match.start({
 		-- in `ForestTest`; the composition root only hands it the two things it cannot reach --
 		-- `Match`'s drive number and the Director's override.
 		--
-		-- **THE GRID PREVIEW FORCES THE CELL** (task 327b). Without it the drive's own level-trigger
-		-- rebuilds `ForestMarkers` and `HighSeats` for the ROAD a second after the boot built the
-		-- cell -- MEASURED in Karen's place: the proof probe read `Stand1 at (2430, -2120)`, the
-		-- road's own post, and stands 10-15 missing. The preview's whole job is that Karen can walk
-		-- the cell, so while the flag is on the cell IS the live place and ONE owner builds it.
-		-- The Director's `DHForestLayout` is ignored while the preview is on, which is said here
-		-- rather than discovered: a preview that could be overridden would be two answers.
-		--
-		-- **...AND A FORCED CELL BEATS THE PREVIEW (task 337, design 9.4).** With the preview on the
-		-- cell was pinned to `PREVIEW_CELL`, so the swap this task exists for could never be driven
-		-- in the only place it can be measured. A `DHForestLayout` that names a CELL now wins;
-		-- anything else is still ignored, for the reason written above -- a LINE PLACE forced while
-		-- the preview is on would still be two answers to which place is live.
-		local forced = ForestTest.forcedLayout(ServerStorage:GetAttribute(Data.LAYOUT_OVERRIDE_ATTRIBUTE))
-		ForestTest.layoutForDrive(
-			Match.driveNumber(),
-			if gridPreviewOn
-				then (if Grid.cellOf(forced) ~= nil then forced else Grid.PREVIEW_CELL)
-				else ServerStorage:GetAttribute(Data.LAYOUT_OVERRIDE_ATTRIBUTE)
-		)
+		-- **THE OVERRIDE GOES STRAIGHT THROUGH SINCE TASK 327d.** It was wrapped in a preview
+		-- branch that forced `DEFAULT_CELL` and ignored a line place, because with the four places
+		-- in the rotation a forced cell and a dealt road were two answers to which place is live.
+		-- The rotation deals only cells now, so there is one answer and no branch: `forcedLayout`
+		-- accepts a cell id ("c1") AND a line place ("road"), which is the rollback (rule 7) --
+		-- the geometry of an archived place, without its planted wood (`Places.build`'s own note).
+		ForestTest.layoutForDrive(Match.driveNumber(), ServerStorage:GetAttribute(Data.LAYOUT_OVERRIDE_ATTRIBUTE))
 		-- THE WOOD ARRIVES BEFORE ANYBODY IS PLACED (task 337). Level-triggered exactly as
 		-- `Seats.ensure` below: a reconcile that has nothing to move is two `FindFirstChild`s and a
 		-- list compare, and it prints nothing. It is HERE and not on a `PhaseChanged` edge because

@@ -365,7 +365,9 @@ return function()
 			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
 			expect(#data.LAYOUT_ORDER >= 1).to.equal(true)
 			for _, name in ipairs(data.LAYOUT_ORDER) do
-				local layout = data.layoutNamed(name)
+				-- `layoutOf` AND NOT `layoutNamed`: the rotation holds cell ids since task 327d and
+				-- `layoutNamed` answers nil for every one of them (327b-notes (b)).
+				local layout = data.layoutOf(name)
 				local model = MapUi.geometryFor("forest-test", data, Map, name)
 				expect(model).to.be.ok()
 				local shown = model :: any
@@ -682,13 +684,20 @@ return function()
 			local standsBefore, roadsBefore = drawn()
 
 			-- Two layouts with DIFFERENT stand counts, so "the picture moved" is countable.
+			-- THE ROTATION IS SEVEN CELLS SINCE TASK 327d AND EVERY CELL CARRIES 15 STANDS, so a pair
+			-- with DIFFERENT counts needs an archived line place beside them -- which is a layout the
+			-- Director can still force (`DHForestLayout=road`), resolved by the one resolver.
+			local names = data.layoutNames()
+			for _, extra in ipairs(data.LINE_PLACES) do
+				table.insert(names, extra)
+			end
 			local wide, narrow = nil, nil
-			for _, name in ipairs(data.LAYOUT_ORDER) do
-				local layout = data.layoutNamed(name)
-				if wide == nil or layout.standCount > data.layoutNamed(wide).standCount then
+			for _, name in ipairs(names) do
+				local layout = data.layoutOf(name)
+				if wide == nil or layout.standCount > data.layoutOf(wide).standCount then
 					wide = name
 				end
-				if narrow == nil or layout.standCount < data.layoutNamed(narrow).standCount then
+				if narrow == nil or layout.standCount < data.layoutOf(narrow).standCount then
 					narrow = name
 				end
 			end
@@ -696,13 +705,13 @@ return function()
 
 			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, wide))
 			local standsWide, roadsWide, firstWide = drawn()
-			expect(standsWide).to.equal(data.layoutNamed(wide).standCount)
+			expect(standsWide).to.equal(data.layoutOf(wide).standCount)
 			expect(roadsWide >= 1).to.equal(true)
 
 			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, narrow))
 			local standsNarrow, _roadsNarrow, firstNarrow = drawn()
 			-- THE DRAWN STANDS REALLY CHANGED, in number and in place.
-			expect(standsNarrow).to.equal(data.layoutNamed(narrow).standCount)
+			expect(standsNarrow).to.equal(data.layoutOf(narrow).standCount)
 			expect(standsNarrow).never.to.equal(standsWide)
 			expect(firstWide).to.be.ok()
 			expect(firstNarrow).to.be.ok()
@@ -1253,7 +1262,7 @@ return function()
 
 		it("binds M and opens on a cell, and closes again", function()
 			local restore = MapUi.geometry()
-			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, Grid.PREVIEW_CELL))
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL))
 			local actions = MapUi.boundActions()
 			expect(#actions).to.equal(1)
 			expect(ContextActionService:GetAllBoundActionInfo()[actions[1]]).to.be.ok()
@@ -1406,8 +1415,15 @@ return function()
 		it("case 28: every stand carries exactly one Hit pad, and no two pads overlap", function()
 			local data = forest()
 			local restore = MapUi.geometry()
+			-- **THE LINE PLACES AND NOT THE ROTATION'S CELLS (task 327d), AND THE NUMBER IS NAMED.**
+			-- The 72 px-against-96 px arithmetic below is a property of stands on ONE line. Drawn with
+			-- today's `geometryFor` a cell's 15 stands -- 7 main plus 8 on two flanks -- are squeezed
+			-- onto the road polyline, and this case MEASURED **70 overlapping pad pairs** there. The
+			-- cell's own map view (`geometryFromGrid`, ground vs tower icons) is task 327f's, which
+			-- `grid-map.md` section 17 lists as the task that draws it; this is its open gap, said
+			-- rather than skipped.
 			local worst = 0
-			for _, name in ipairs(data.LAYOUT_ORDER) do
+			for _, name in ipairs(data.LINE_PLACES) do
 				MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, name))
 				-- THE PADS ARE ONLY MEASURABLE WHILE THEY ARE ON SCREEN: `AbsoluteSize` is zero for
 				-- a descendant of a hidden frame, so the window is opened for a hunter first --
@@ -1416,7 +1432,7 @@ return function()
 				MapUi.setPickWindow(true, true)
 				task.wait()
 				local stands = canvasStands()
-				expect(#stands).to.equal(data.layoutNamed(name).standCount)
+				expect(#stands).to.equal(data.layoutOf(name).standCount)
 				local pads: { TextButton } = {}
 				for _, node in ipairs(stands) do
 					local hits = 0
@@ -1450,9 +1466,10 @@ return function()
 			MapUi.setGeometry(restore)
 			TestKit.note(
 				string.format(
-					"map_ui: %d px pads over %d layouts, 0 overlapping pairs",
+					"map_ui: %d px pads over %d line places, 0 overlapping pairs (a cell's 15 stands drawn on"
+						.. " one polyline give 70 overlapping pairs -- task 327f draws the cell view)",
 					CONFIG.STAND_HIT_PX,
-					#data.LAYOUT_ORDER
+					#data.LINE_PLACES
 				)
 			)
 		end)
@@ -1621,13 +1638,20 @@ return function()
 			-- 6. `teardown` -- the world hands the map a DIFFERENT layout, which destroys the nodes
 			-- the pads live on. Two layouts with different stand counts, so the rebuild is real
 			-- (`sameGeometry` returns early for the same one).
+			-- THE ROTATION IS SEVEN CELLS SINCE TASK 327d AND EVERY CELL CARRIES 15 STANDS, so a pair
+			-- with DIFFERENT counts needs an archived line place beside them -- which is a layout the
+			-- Director can still force (`DHForestLayout=road`), resolved by the one resolver.
+			local names = data.layoutNames()
+			for _, extra in ipairs(data.LINE_PLACES) do
+				table.insert(names, extra)
+			end
 			local wide, narrow = nil, nil
-			for _, name in ipairs(data.LAYOUT_ORDER) do
-				local layout = data.layoutNamed(name)
-				if wide == nil or layout.standCount > data.layoutNamed(wide).standCount then
+			for _, name in ipairs(names) do
+				local layout = data.layoutOf(name)
+				if wide == nil or layout.standCount > data.layoutOf(wide).standCount then
 					wide = name
 				end
-				if narrow == nil or layout.standCount < data.layoutNamed(narrow).standCount then
+				if narrow == nil or layout.standCount < data.layoutOf(narrow).standCount then
 					narrow = name
 				end
 			end

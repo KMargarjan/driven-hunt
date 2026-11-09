@@ -406,23 +406,31 @@ return function()
 			-- KAREN, 2026-10-13: *"not all a time same place hunters standing"*. The marker set is
 			-- what the drive stands on, so a layout the markers cannot build is a layout nobody can
 			-- play. These cases run the real `build` over every layout in the table with hand-written
-			-- ground readers, so a fourth layout added later is built here before it is played.
+			-- ground readers, so a layout added later is built here before it is played. `layoutOf`
+			-- since task 327d: the rotation holds cell ids.
 			for _, name in ipairs(Data.LAYOUT_ORDER) do
-				local layout = Data.layoutNamed(name) :: any
+				local layout = Data.layoutOf(name) :: any
 				local set = Markers.build(Data.standX(1, layout), layout, flat, flat)
 				expect(set.layout).to.equal(name)
 				expect(#set.posts).to.equal(layout.standCount)
 				expect(set.complete).to.equal(true)
 				expect(set.lineParts).to.equal(1)
 				expect(set.driverStart).to.be.ok()
-				-- One part per stand, named for its index, sorted west to east, on that layout's line.
+				-- One part per stand, named for its index, on that layout's OWN stand position.
+				--
+				-- **SORTED WEST TO EAST ONLY ON A LAYOUT WITH NO `sides`** (task 327d): a grid cell
+				-- carries 7 main stands plus 8 on its two FLANKS, so its posts run along three sides
+				-- of the cell and their x is not monotonic -- which is the shape, not a defect.
 				local previousX = -math.huge
+				local onOneLine = layout.sides == nil
 				for index, post in ipairs(set.posts) do
 					local stand = Data.standPosition(index, layout)
 					expect(post.Name).to.equal(string.format("Stand%d", index))
 					expect(math.abs(post.Position.X - stand.X) < 1e-3).to.equal(true)
 					expect(math.abs(post.Position.Z - stand.Z) < 1e-3).to.equal(true)
-					expect(post.Position.X > previousX).to.equal(true)
+					if onOneLine then
+						expect(post.Position.X > previousX).to.equal(true)
+					end
 					previousX = post.Position.X
 				end
 				-- The drive line sits ON the line at the layout's own centre, where the sine is 0 --
@@ -441,7 +449,7 @@ return function()
 
 		it("counts a refusal against the layout's own stand count", function()
 			for _, name in ipairs(Data.LAYOUT_ORDER) do
-				local layout = Data.layoutNamed(name) :: any
+				local layout = Data.layoutOf(name) :: any
 				local set = Markers.build(Data.standX(1, layout), layout, nothing, nothing)
 				expect(#set.posts).to.equal(0)
 				expect(set.complete).to.equal(false)
@@ -453,7 +461,7 @@ return function()
 
 		it("draws a ring on the stand of the layout it is given", function()
 			for _, name in ipairs(Data.LAYOUT_ORDER) do
-				local layout = Data.layoutNamed(name) :: any
+				local layout = Data.layoutOf(name) :: any
 				Markers.build(Data.standX(1, layout), layout, flat, flat)
 				local radius = Data.PICK.standRadiusStuds
 				local placed = Markers.ring(layout.standCount, radius, layout, flat, flat)

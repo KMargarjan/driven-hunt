@@ -151,10 +151,13 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- one changes who stands where in a drive and lengthens the intermission 5 s -> 15 s, which is a
 -- feel change and Karen's, so it is born off. **The Director may prefer to spend 82b instead**: this
 -- is one line either way.
--- 23 -> 24: `GRID_PREVIEW` (task 327a). The Director approved the one row rather than retiring
+-- 24 -> 23: `GRID_PREVIEW` RETIRED (task 327d, cell-loading.md 17 D-4). Every drive is now dealt
+-- in a cell, so there is no second world for a flag to choose between; the rollback to a line place
+-- is `DHForestLayout`, an attribute. Archived: backups/2026-11-09_task-327d_the-four-line-places.md
+-- PREVIOUSLY, 23 -> 24: `GRID_PREVIEW` (task 327a). The Director approved the one row rather than retiring
 -- two; `docs/design/grid-map.md` section 11.1 asks for 25 because it counts `CELL_VOTE` too,
 -- and that row is task 327e's.
-Flags.MAX_FLAGS = 24
+Flags.MAX_FLAGS = 23
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -314,7 +317,10 @@ Flags.DEFAULTS = {
 		default = false,
 		owner = "ServerScriptService.Match",
 		born = "2026-09-27 task 83",
-		expires = "2026-11-08", -- 21 days: the ceiling in feature-flags.md section 12
+		expires = "2026-11-29", -- 21 days: the ceiling in feature-flags.md section 12
+		-- STILL IN USE, 2026-11-09 (task 327d): re-justified for another 21 days rather than retired.
+		-- A drive in a grid cell is 300 s and the beater line needs ~279 s of it, so a Director
+		-- measuring one cell after another cannot wait out the full clock per cell.
 		-- STILL IN USE, 2026-10-18: the Director's live playtest switch. Task 205's lobby-card
 		-- frames were shot with it on the night of 2026-10-17, because a frame of the lodge cannot
 		-- wait 30 s per drive. Re-justified for another 21 days rather than retired.
@@ -807,19 +813,6 @@ Flags.DEFAULTS = {
 		why = "A red stag bounds once when he is spooked from a stand-still, instead of simply "
 			.. "running. OFF until TASKS.md 245c fixes the leap clip's measured hoof sink, which this "
 			.. "reuses and which a bound on flat ground is the case that shows.",
-	} :: FlagRow,
-	GRID_PREVIEW = {
-		default = false,
-		owner = "ServerScriptService.Places (and ReplicatedStorage.Grid, data)",
-		born = "2026-11-01 task 327a",
-		expires = "2026-11-22", -- 21 days: the ceiling in feature-flags.md section 12
-		why = "The grid world's eight drive cells: their roads painted, their corners staked, and "
-			.. "ONE cell (Grid.PREVIEW_CELL) built and made the live layout, with its fifteen Stand "
-			.. "markers and its three high seats, so Karen can WALK a cell and climb its towers "
-			.. "before the world switches. It is for walking, not for driving: a cell's beaters "
-			.. "still walk at Bots.CONFIG.WALK_SPEED 3.1 rather than the 5.2 its 1430 studs need, so "
-			.. "a drive in the cell is not judged until task 327d. With it OFF the four places are "
-			.. "the world bit for bit.",
 	} :: FlagRow,
 }
 

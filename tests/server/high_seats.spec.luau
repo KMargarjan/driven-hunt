@@ -50,8 +50,14 @@ end
 return function()
 	describe("HighSeats: which stands carry one", function()
 		it("has a row for every layout and none for anything else", function()
+			-- EVERY NAME THE GAME CAN DEAL OR FORCE (task 327d): the rotation's cells, plus the four
+			-- archived line places a `DHForestLayout` can still reach.
+			local every = Forest.layoutNames()
+			for _, extra in ipairs(Forest.LINE_PLACES) do
+				table.insert(every, extra)
+			end
 			local names = {}
-			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+			for _, name in ipairs(every) do
 				names[name] = true
 				expect(type((HighSeats.STANDS :: any)[name])).to.equal("table")
 			end
@@ -100,14 +106,15 @@ return function()
 			expect(table.isfrozen(HighSeats.STANDS)).to.equal(true)
 			expect(table.isfrozen(HighSeats.DIMS)).to.equal(true)
 			expect(table.isfrozen(HighSeats.COLORS)).to.equal(true)
-			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+			for name in pairs(HighSeats.STANDS) do
 				expect(table.isfrozen((HighSeats.STANDS :: any)[name])).to.equal(true)
 			end
 		end)
 
 		it("takes at least one stand, never more than the cap, and never two adjacent", function()
 			for _, name in ipairs(Forest.LAYOUT_ORDER) do
-				local layout = Forest.layoutNamed(name)
+				-- `layoutOf`: the rotation holds cell ids since task 327d.
+				local layout = Forest.layoutOf(name)
 				local row = HighSeats.standsFor(name)
 				-- EVERY PLACE GETS A SEAT (design 6.2 rule 4): Karen asked for them "in each of the
 				-- four places", and a layout whose terrain refuses the relief test still takes its
