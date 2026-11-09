@@ -39,6 +39,12 @@ return function()
 	local STRAIGHT = { ewStuds = 0, nsStuds = 0, harmonic = 1 }
 	local BENT = { ewStuds = 45, nsStuds = 60, harmonic = 1 }
 
+	-- C1's WHOLE PLAN, OWN WOOD PLUS A SKIRT ACROSS ALL FOUR ROADS (task 337c), at the shipped bend
+	-- and in the straight world. MEASURED (`<runs-dir>/337c-plan-all.txt`,
+	-- `<runs-dir>/337c-straight.luau`), not a bound: a count that moves on its own means a recipe
+	-- changed by accident. Named once, because cases 5 and 6 pin the same two numbers.
+	local BENT_C1, STRAIGHT_C1 = 3188, 3204
+
 	-- A STAND IN WORLD COORDINATES AT ANY AMPLITUDE: the grid point through the map, which is
 	-- exactly what `Grid.standPosition` does at the shipped bend. Two returns, x and z.
 	local function worldStand(id: string, index: number, bend: any): (number, number)
@@ -824,12 +830,12 @@ return function()
 			-- 5. `plantCell` EMITS THE SAME LIST: every row is its own grid point (the map is the
 			-- identity) and is clear of the mask asked in EITHER space.
 			--
-			-- **2,538 since task 335**, which is C1's whole plan with no skirt in it: all three of
-			-- C1's neighbours are planted and a cell skirts no planted neighbour. (328i pinned
-			-- 1,969, 328s 2,458, 328o 1,803.) Measured, not a bound: a straight-world count that
-			-- moved on its own would mean the recipe changed by accident.
+			-- **TASK 337c: the skirt is drawn across all four roads again, so the number carries one
+			-- again.** It was 2,538 from task 335 (C1's own rectangle, skirt withdrawn because every
+			-- neighbour is planted). Measured, not a bound: a straight-world count that moved on its
+			-- own would mean the recipe changed by accident.
 			local drawn = Plan.plantCell("C1", nil, STRAIGHT)
-			expect(#drawn).to.equal(2538)
+			expect(#drawn).to.equal(STRAIGHT_C1)
 			for _, item in ipairs(drawn) do
 				local u, v = Grid.toGrid(item.x, item.z, STRAIGHT)
 				expect(u).to.equal(item.x)
@@ -952,23 +958,17 @@ return function()
 			expect(junctions).to.equal(15)
 			expect(worstJunction < 1e-12).to.equal(true)
 			-- 6. THE PLAN AT THE SHIPPED BEND, pinned beside the straight count the case above pins.
-			-- **2,522 bent since task 335** (328i's 1,965 plus the clearing, the park and a
-			-- birch-only understorey; `t2418 f104`), and the straight plan is 2,538.
-			-- **1,965 bent was task 328i**, which is 2,429 MINUS C1's 464-site SKIRT: all three of
-			-- C1's neighbours are in `Grid.PLANTED_CELLS` now, and a cell draws no skirt into a
-			-- neighbour that has its own wood. C1's OWN rectangle has not moved a tree -- 328s's own
-			-- per-cell note reads `2448(t1861 f104 s483)` and this plan is `t2418 f104 s0` (task 335).
-			-- The history, now that the skirt is not in the number: 328o 1,789, 328s 2,448 and
-			-- 328h 2,429 -- every one of them `t1861 f104` plus a skirt of 483 or 464. The SKIRT is
-			-- the only term that ever moved (328h re-measured B1's towers 1 -> 4 and D1's 2 -> 1,
-			-- and a tower stand carries a wider exclusion, which cost C1's skirt 19 sites). BOTH
-			-- COUNTS ARE NOTED BEFORE EITHER IS ASSERTED, so a run that moves one tells you the
-			-- other's value instead of stopping at the first `expect`.
+			-- **TASK 337c: `BENT_C1` = own wood + a skirt across all four roads.** It was 2,522 from
+			-- task 335, when the skirt was withdrawn from every planted neighbour and C1 planted
+			-- `t2418 f104 s0`. The history of the OWN rectangle, which 337c does not touch: 328o
+			-- 1,789, 328s 2,448, 328h 2,429 -- every one of them `t1861 f104` plus a skirt of 483 or
+			-- 464. BOTH COUNTS ARE NOTED BEFORE EITHER IS ASSERTED, so a run that moves one tells you
+			-- the other's value instead of stopping at the first `expect`.
 			local drawn = Plan.plantCell("C1")
 			local straightCount = #Plan.plantCell("C1", nil, STRAIGHT)
 			TestKit.note(string.format("328h: C1 plan bent %d, straight %d", #drawn, straightCount))
-			expect(#drawn).to.equal(2522)
-			expect(straightCount).to.equal(2538)
+			expect(#drawn).to.equal(BENT_C1)
+			expect(straightCount).to.equal(STRAIGHT_C1)
 			TestKit.note(
 				string.format(
 					"SHIPPED BENT %d/%d: flank set-back %d (was 340), C1 stand 1 (%.2f,%.2f) 8 (%.2f,%.2f) 10 (%.2f,%.2f), layout span %d / north %d, roadZ departs %.2f st from the centre and is exact at %d sampled stations, %d junctions to %.1e, C1 plan %d (straight 2538)",
@@ -1961,21 +1961,24 @@ return function()
 			for _, rect in ipairs(Plan.fernBands("C1", plan)) do
 				ferns += cells(rect, plan.fernSpacing)
 			end
-			-- THE SKIRT TERM IS ZERO FOR C1 AND THE CASE SAYS WHY (task 328i): all three of its
-			-- neighbours are planted, so no skirt band is drawn and none may be counted. The bands
-			-- themselves still EXIST -- the second loop asserts that, so a `skirtBands` that
-			-- silently returned nothing would not be mistaken for the rule working.
-			local skirt, bands = 0, 0
-			for _, near in ipairs(Plan.neighboursOf("C1")) do
-				for _, band in ipairs(Plan.skirtBands("C1", near.id, near.axis, plan)) do
+			-- THE SKIRT TERM IS COUNTED ON ALL FOUR SIDES (task 337c), the grid's outer edge
+			-- included: `skirtSides` answers four entries for every cell, one of C1's with `id`
+			-- nil, and each contributes bands to the bound. A skirt term that silently fell back to
+			-- zero would be caught by the `> 0` below, which it was not before 337c.
+			local skirt, bands, outer = 0, 0, 0
+			for _, side in ipairs(Plan.skirtSides("C1")) do
+				if side.id == nil then
+					outer += 1
+				end
+				for _, band in ipairs(Plan.skirtBands("C1", side.id, side.axis, plan, side.sign)) do
 					bands += 1
-					if not Plan.hasOwnWood(near.id) then
-						skirt += cells(band.rect, band.spacing)
-					end
+					skirt += cells(band.rect, band.spacing)
 				end
 			end
-			expect(bands > 0).to.equal(true)
-			expect(skirt).to.equal(0)
+			expect(#Plan.skirtSides("C1")).to.equal(4)
+			expect(outer).to.equal(1)
+			expect(bands).to.equal(8)
+			expect(skirt > 0).to.equal(true)
 			expect(under > 0).to.equal(true)
 			expect(Plan.cellCapacity("C1")).to.equal(zones + under + ferns + skirt)
 
@@ -2124,10 +2127,13 @@ return function()
 			local partCap = math.floor(Plan.PART_BUDGET_CELL / Plan.PARTS_PER_MODEL)
 			expect(Plan.CELL_PLAN_CAP).to.equal(planCap)
 			expect(Plan.CELL_PART_CAP).to.equal(partCap)
-			-- ...AND AT THE PAIR THE DESIGN PUBLISHES (`grid-roads.md` 8.2, `grid-map.md` 19), so a
-			-- change to the ratio or to either budget reddens here before it ships undocumented.
-			expect(Plan.CELL_PLAN_CAP).to.equal(7260)
-			expect(Plan.CELL_PART_CAP).to.equal(2640)
+			-- ...AND AT THE PAIR THE DESIGN PUBLISHES (`grid-roads.md` 8.2, `cell-loading.md` 8.1), so
+			-- a change to the ratio or to either budget reddens here before it ships undocumented.
+			-- **TASK 337c raised all three**: 3.03 -> 3.76 parts a model (C1's own live 9,318/2,476),
+			-- and the budgets to fit a skirt on all four roads -- 12,800 drawn, 27,000 planned.
+			expect(Plan.PARTS_PER_MODEL).to.equal(3.76)
+			expect(Plan.CELL_PLAN_CAP).to.equal(7180)
+			expect(Plan.CELL_PART_CAP).to.equal(3404)
 			local worstId, worstTotal, worstCap = "", 0, 0
 			local planSlack, partSlack = math.huge, math.huge
 			local lines = {}
@@ -2183,20 +2189,25 @@ return function()
 		it("plants C1 at the density Karen asked for, and accounts for every site it refused", function()
 			local rows = Plan.plantCell("C1")
 			local tally = Plan.TALLY
-			-- 328s's FLOOR WAS 2,300 ON THE WHOLE PLAN, SKIRT INCLUDED. Task 328i stops the skirt
-			-- into a planted neighbour and all three of C1's are planted, so the same wood now
-			-- counts 1,965 -- `2448 = t1861 + f104 + s483` at 328s, `1965 = t1861 + f104` here.
-			-- The floor moves to the half that is C1's OWN GROUND, which is the half Karen looked
-			-- at, and it is the number 328s already measured: not one tree inside C1 has moved.
-			expect(#rows >= 1900).to.equal(true)
-			expect(#rows <= Plan.CELL_PART_CAP).to.equal(true)
-			local skirtHere = 0
+			-- THE FLOOR IS ON C1's OWN GROUND, which is the half Karen looked at in 328s, and it is
+			-- the number that task already measured: not one tree inside C1 has moved since.
+			-- **TASK 337c: the skirt is back on all four sides, so `skirtHere` must now be > 0** --
+			-- that is Karen's *"behind the road always has to be forest"*, and a skirt that silently
+			-- withdrew again would redden here. 666 at the shipped bend
+			-- (`<runs-dir>/337c-plan-all.txt`), asserted as a floor so a recipe tweak costs sites
+			-- without stopping the suite.
+			local ownHere, skirtHere = 0, 0
 			for _, item in ipairs(rows) do
 				if item.side < 0 then
 					skirtHere += 1
+				else
+					ownHere += 1
 				end
 			end
-			expect(skirtHere).to.equal(0)
+			expect(ownHere >= 1900).to.equal(true)
+			expect(skirtHere >= 600).to.equal(true)
+			expect(#rows).to.equal(BENT_C1)
+			expect(#rows <= Plan.CELL_PART_CAP).to.equal(true)
 			expect(tally.planted).to.equal(#rows)
 			-- EVERY OFFERED SITE LANDS IN EXACTLY ONE BUCKET, which is what makes the split a
 			-- measurement rather than two totals and a guess: a new refusal arm with no counter
@@ -2300,113 +2311,185 @@ return function()
 	-- ---------------------------------------------------------------- 16. the skirt
 
 	describe("the skirt", function()
-		it("reaches into every BARE neighbour from the shared road and stops at skirtStuds", function()
+		it("reaches across all four roads and stops at skirtStuds", function()
 			local half = Grid.CONFIG.roadClearStuds / 2
+			local box = Grid.footprint()
 			local lines = {}
+			-- WHAT A CELL'S OWN WOOD IS MADE OF, by group, which is what "the next cell looks like
+			-- itself" means as a number. Read off the PLAN and never typed here.
+			local function sharesOwn(id: string): any
+				local tally: { [string]: number } = {}
+				local total = 0
+				for _, item in ipairs(woods[id]) do
+					if item.side > 0 and item.band ~= "herb" then
+						local g = Plan.groupOf(item.model) or "?"
+						tally[g] = (tally[g] or 0) + 1
+						total += 1
+					end
+				end
+				return { tally = tally, total = total }
+			end
+			-- WHICH OUTER EDGE A SIDE OR A ROW IS BEYOND, as its own key (round 1, finding 1). A
+			-- corner cell has TWO `id == nil` sides, so one shared "OUTER" bucket proved only three
+			-- of its four sides: an empty band behind one of them passed off the other's rows.
+			-- The two bands are disjoint -- each spans the cell's own extent along the OTHER axis,
+			-- so a row beyond the west edge has `gz` inside the footprint and vice versa.
+			local function sideKey(side: any): string
+				if side.id ~= nil then
+					return side.id :: string
+				end
+				if side.axis == "z" then
+					return if side.sign > 0 then "OUTER:E" else "OUTER:W"
+				end
+				return if side.sign > 0 then "OUTER:N" else "OUTER:S"
+			end
+			-- WORST ROAD CLEARANCE, SKIRT AND OWN WOOD SIDE BY SIDE: the dispatch's *"the skirt's
+			-- roadside edge looks like the cell's own roadside edge"* as one pair of numbers.
+			local worstSkirtRoad, worstOwnRoad = math.huge, math.huge
 			for _, id in ipairs(Grid.cellIds()) do
 				local plan = Plan.cellPlanFor(id)
 				local mine = Grid.boundsOf(id)
-				local near = Plan.neighboursOf(id)
-				-- A 2 x 4 GRID HAS NO CELL WITH FOUR NEIGHBOURS (design 8.3's skirt row is wrong
-				-- about that, lesson L-167): a corner cell has 2 and a middle one 3.
-				expect(#near >= 2 and #near <= 3).to.equal(true)
+				local sides = Plan.skirtSides(id)
+				-- FOUR SIDES FOR EVERY CELL since task 337c: three neighbours and an outer edge for
+				-- a middle cell, two and two for a corner.
+				expect(#sides).to.equal(4)
 				local count, reach = 0, 0
 				local hitEach: { [string]: number } = {}
+				local groupOnSide: { [string]: { [string]: number } } = {}
 				for _, item in ipairs(woods[id]) do
 					if item.side < 0 then
 						count += 1
 						-- A ROW CARRIES THE WORLD POINT AND EVERY BOX HERE IS A GRID RECT
 						-- (task 328r): the skirt is placed in grid space, so that is where it is
-						-- inside exactly one neighbour.
+						-- inside exactly one neighbour -- or outside the footprint altogether.
 						local gx, gz = Grid.toGrid(item.x, item.z)
 						-- IT IS OUTSIDE THE ACTIVE CELL...
 						local inside = gx > mine.minX and gx < mine.maxX and gz > mine.minZ and gz < mine.maxZ
 						expect(inside).to.equal(false)
-						-- ...AND INSIDE EXACTLY ONE NEIGHBOUR, within `skirtStuds` of the road the
-						-- two of them share.
-						local found = nil
-						for _, other in ipairs(near) do
-							local box = Grid.boundsOf(other.id)
-							if gx >= box.minX and gx <= box.maxX and gz >= box.minZ and gz <= box.maxZ then
-								expect(found).to.equal(nil)
-								found = other
+						-- ...AND INSIDE EXACTLY ONE SIDE: one neighbour cell, or the ground beyond
+						-- the grid's own border road.
+						local found, key = nil, nil
+						for _, side in ipairs(sides) do
+							if side.id ~= nil then
+								local other = Grid.boundsOf(side.id :: string)
+								if gx >= other.minX and gx <= other.maxX and gz >= other.minZ and gz <= other.maxZ then
+									expect(key).to.equal(nil)
+									found, key = side, side.id
+								end
 							end
 						end
-						expect(found ~= nil).to.equal(true)
-						hitEach[found.id] = (hitEach[found.id] or 0) + 1
-						-- THE DISTANCE FROM THE SHARED ROAD'S OWN CENTRE LINE. The band starts at
-						-- the neighbour's inset edge, which is `roadClear / 2 + CELL_EDGE_STUDS`
-						-- from that centre, and runs `skirtStuds` further.
+						if key == nil then
+							-- THE OUTER EDGE: beyond the footprint, which INCLUDES the border road.
+							-- EXACTLY ONE of the four edges, keyed by itself, so a corner cell's two
+							-- outer sides are counted apart (round 1, finding 1).
+							local beyond = {}
+							if gx < box.minX then
+								table.insert(beyond, "OUTER:W")
+							end
+							if gx > box.maxX then
+								table.insert(beyond, "OUTER:E")
+							end
+							if gz > box.maxZ then
+								table.insert(beyond, "OUTER:N")
+							end
+							if gz < box.minZ then
+								table.insert(beyond, "OUTER:S")
+							end
+							expect(#beyond).to.equal(1)
+							key = beyond[1]
+						end
+						hitEach[key] = (hitEach[key] or 0) + 1
+						local bucket = groupOnSide[key]
+						if bucket == nil then
+							bucket = {}
+							groupOnSide[key] = bucket
+						end
+						local group = Plan.groupOf(item.model) or "?"
+						bucket[group] = (bucket[group] or 0) + 1
+						-- THE DISTANCE FROM THE SHARED ROAD'S OWN CENTRE LINE. Into a neighbour the
+						-- band starts at that cell's inset edge, `roadClear / 2 + CELL_EDGE_STUDS`
+						-- from the centre; over an outer edge it starts at the far kerb, `half`.
+						local axis = if found ~= nil then found.axis else nil
+						if axis == nil then
+							axis = if gx < box.minX or gx > box.maxX then "z" else "x"
+						end
 						local gap
-						if found.axis == "z" then
+						if axis == "z" then
 							local centre = if gx > mine.maxX then mine.maxX + half else mine.minX - half
 							gap = math.abs(gx - centre)
 						else
 							local centre = if gz > mine.maxZ then mine.maxZ + half else mine.minZ - half
 							gap = math.abs(gz - centre)
 						end
-						expect(gap >= half + Plan.CELL_EDGE_STUDS).to.equal(true)
+						expect(gap >= half).to.equal(true)
 						expect(gap <= half + Plan.CELL_EDGE_STUDS + plan.skirtStuds).to.equal(true)
 						reach = math.max(reach, gap)
-						-- AND IT IS THE NEIGHBOUR'S OWN WOOD, not this cell's: the species came from
-						-- the zone the point is in over THERE, which is what makes two sections
-						-- either side of one road read differently.
-						local zoneThere = Plan.zoneAt(found.id, gx, gz)
-						expect(zoneThere ~= nil).to.equal(true)
-						expect(zoneThere.spacingStuds > 0).to.equal(true)
-						-- ...THROUGH THE FRONTAGE RULE (task 328f): within 60 studs of a road or a
-						-- ride centreline only `frontage.groups` are drawn, so the mix a skirt
-						-- planting comes from is the neighbour zone's mix AS THAT RULE LEAVES IT.
-						-- `frontageRows` returns the mix unchanged outside the band.
-						local theirPlan = Plan.cellPlanFor(found.id)
-						local rows = Plan.cellMixNamed(zoneThere.mix)
-						if Plan.inFrontage(found.id, item.x, item.z) then
-							rows = Plan.frontageRows(theirPlan, rows)
+						-- NOTHING ON A ROAD, A DITCH OR A VERGE, A STAND PAD, A TOWER, A RIDE OR A
+						-- BEATER LINE -- asked of the cell whose GROUND it stands on, with the
+						-- template and scale the draw settled, which is `scatter`'s own last arm.
+						local ground = if found ~= nil then found.id :: string else id
+						expect(Plan.maskGrid(ground, gx, gz, item.model, item.scale)).to.equal(nil)
+						worstSkirtRoad = math.min(worstSkirtRoad, Plan.roadDistanceGrid(gx, gz))
+					elseif item.band ~= "herb" then
+						local gx, gz = Grid.toGrid(item.x, item.z)
+						worstOwnRoad = math.min(worstOwnRoad, Plan.roadDistanceGrid(gx, gz))
+					end
+				end
+				-- EVERY SIDE IS DRESSED (task 337c), the planted neighbours and the outer edge
+				-- alike, so neither "it skirts everything" nor "it skirts nothing" can pass.
+				local outerSides = 0
+				for _, side in ipairs(sides) do
+					if side.id == nil then
+						outerSides += 1
+					end
+					expect((hitEach[sideKey(side)] or 0) > 0).to.equal(true)
+				end
+				expect(count > 0).to.equal(true)
+				-- WHOSE WOOD EACH SIDE IS: across a road into a cell with a wood of its own, THAT
+				-- cell's; over an outer edge, and into A1 which has none, this cell's. Asserted
+				-- as a SHARE and not as "the same dominant group", because C2's own wood is
+				-- 1,252 conifer to 1,218 birch and a 600-stem sample tilts either way, so the
+				-- test would be about the tie and not about the rule. A swapped rule still
+				-- reddens: C1's birch is ~1 % of B1's own wood and 10 % is far above it.
+				for _, side in ipairs(sides) do
+					local key = sideKey(side)
+					local speciesCell = if side.id ~= nil and Plan.hasOwnWood(side.id) then side.id else id
+					local best, bestN = nil, 0
+					for g, n in pairs(groupOnSide[key] or {}) do
+						if n > bestN then
+							best, bestN = g, n
 						end
-						local names = {}
-						for _, row in ipairs(rows) do
-							for _, name in ipairs((Plan.SPECIES :: any)[row.group]) do
-								names[name] = true
-							end
-						end
-						expect(names[item.model]).to.equal(true)
 					end
+					expect(best ~= nil).to.equal(true)
+					local shares = sharesOwn(speciesCell :: string)
+					expect(shares.total > 0).to.equal(true)
+					expect((shares.tally[best :: string] or 0) / shares.total >= 0.10).to.equal(true)
 				end
-				-- EVERY BARE NEIGHBOUR IS DRESSED, not just the first one found -- AND NO PLANTED
-				-- ONE IS (task 328i): a skirt over a wood that is already there is a second wood
-				-- laid on the first, and `minGapStuds` runs over one cell's own grid and cannot
-				-- see it. Both halves are asserted, so neither "it skirts everything" nor "it
-				-- skirts nothing" can pass.
-				for _, other in ipairs(near) do
-					if Plan.hasOwnWood(other.id) then
-						expect(hitEach[other.id]).to.equal(nil)
-					else
-						expect((hitEach[other.id] or 0) > 0).to.equal(true)
-					end
-				end
-				-- A CELL WITH A BARE NEIGHBOUR SKIRTS; A CELL WHOSE NEIGHBOURS ARE ALL PLANTED
-				-- DRAWS NOTHING AT ALL. C1 is the second kind, and it is the only one today.
-				local bare = 0
-				for _, other in ipairs(near) do
-					if not Plan.hasOwnWood(other.id) then
-						bare += 1
-					end
-				end
-				expect(count > 0).to.equal(bare > 0)
 				table.insert(
 					lines,
 					string.format(
-						"%s %d into %d bare of %d (reach %.0f/%d)",
+						"%s %d over %d sides (%d outer, reach %.0f/%d)",
 						id,
 						count,
-						bare,
-						#near,
+						#sides,
+						outerSides,
 						reach,
 						plan.skirtStuds
 					)
 				)
 			end
-			TestKit.note("skirt: " .. table.concat(lines, " "))
+			-- ONE PAIR, ONE LINE: the skirt's roadside clearance against the own wood's.
+			expect(worstSkirtRoad >= Plan.VERGE_STUDS.to).to.equal(true)
+			expect(worstOwnRoad >= Plan.VERGE_STUDS.to).to.equal(true)
+			TestKit.note(
+				string.format(
+					"skirt: %s -- nearest road centre skirt %.2f / own %.2f studs (verge ends %.1f)",
+					table.concat(lines, " "),
+					worstSkirtRoad,
+					worstOwnRoad,
+					Plan.VERGE_STUDS.to
+				)
+			)
 		end)
 	end)
 
@@ -2900,53 +2983,99 @@ return function()
 			other:Destroy()
 		end)
 
-		-- THE SKIRT RULE, which is what keeps two planted cells' woods out of each other. MEASURED
-		-- in Karen's place with the skirt still drawn and all five cells standing: 199 pairs of
-		-- trunks inside 6 studs and 59 inside 3, worst 0.54 -- against 0 and 0 WITHIN a cell, same
-		-- instrument, same run (`<runs-dir>/328i-overlap-after.txt`).
-		it("draws no skirt into a planted neighbour, and still skirts a bare one", function()
-			-- C1's three neighbours are ALL planted, so it draws none.
-			for _, near in ipairs(Plan.neighboursOf(Grid.DEFAULT_CELL)) do
-				expect(Plan.hasOwnWood(near.id)).to.equal(true)
+		-- THE SKIRT RULE, INVERTED BY TASK 337c. Karen, 2026-11-09: *"behind the road always has to
+		-- be forest to have impression that animals running in forest not in empty field"*. Task
+		-- 328i withdrew the skirt from a planted neighbour because the two woods interpenetrated
+		-- (199 trunk pairs inside 6 studs with five cells standing,
+		-- `<runs-dir>/328i-overlap-after.txt`); since task 337 exactly one cell stands, so that
+		-- cannot happen and every side is dressed. The old case is archived at
+		-- `backups/2026-11-09-task-337c-skirt-rule-case.luau` (rule 7).
+		--
+		-- **IT DIES IF 337c's FIX DIES** (lesson L-093), and the kill was RUN, not argued
+		-- (`<runs-dir>/337c-l093.luau` through `336probe.py`, both readings at this commit):
+		-- restore `plantCell`'s `if Places.hasOwnWood(side.id) then continue end` and C1's skirt
+		-- goes **666 -> 150** -- every row that is left is an outer-edge one -- so `intoPlanted`
+		-- below goes 514 -> **0** and reddens. `c1Skirt > 0` alone would NOT have caught it, which
+		-- is why that count is here.
+		it("skirts all four of a cell's roads, planted neighbour or not, and the outer edge too", function()
+			-- C1's three neighbours are ALL planted, and it skirts them anyway.
+			local sides = Plan.skirtSides(Grid.DEFAULT_CELL)
+			expect(#sides).to.equal(4)
+			local planted, outerSides = 0, 0
+			for _, side in ipairs(sides) do
+				if side.id == nil then
+					outerSides += 1
+				elseif Plan.hasOwnWood(side.id) then
+					planted += 1
+				end
 			end
-			local c1Skirt = 0
+			expect(planted).to.equal(3)
+			expect(outerSides).to.equal(1)
+			local box = Grid.footprint()
+			local c1Skirt, outerRows, intoPlanted = 0, 0, 0
 			for _, item in ipairs(woods[Grid.DEFAULT_CELL]) do
 				if item.side < 0 then
 					c1Skirt += 1
+					local gx, gz = Grid.toGrid(item.x, item.z)
+					if gx < box.minX or gx > box.maxX or gz < box.minZ or gz > box.maxZ then
+						outerRows += 1
+					else
+						for _, side in ipairs(sides) do
+							if side.id ~= nil and Plan.hasOwnWood(side.id) then
+								local other = Grid.boundsOf(side.id :: string)
+								if gx >= other.minX and gx <= other.maxX and gz >= other.minZ and gz <= other.maxZ then
+									intoPlanted += 1
+									break
+								end
+							end
+						end
+					end
 				end
 			end
-			expect(c1Skirt).to.equal(0)
-			-- ...AND A CELL WITH A BARE NEIGHBOUR STILL DRESSES IT, so the case fails if `plantCell`
-			-- simply stopped skirting. C2's B2 and D2 are not planted; A1 is in no list at all.
-			-- ...AND A CELL WITH A BARE NEIGHBOUR STILL DRESSES IT. **THAT CELL IS B1 SINCE TASK 336**
-			-- (it was C2, whose B2 and D2 are now planted): A1 is the one cell with no ground, so it
-			-- is the one bare neighbour left in the world, and B1 is beside it.
+			expect(c1Skirt > 0).to.equal(true)
+			expect(outerRows > 0).to.equal(true)
+			-- THE ROWS 328i's RULE WOULD HAVE REFUSED, and the one count that dies with the fix.
+			expect(intoPlanted > 0).to.equal(true)
+			-- EVERY CELL SKIRTS, and `A1` -- the one cell with no wood of its own -- is still read
+			-- as bare, because that is what decides WHOSE species the skirt into it draws.
 			expect(Plan.hasOwnWood("B2")).to.equal(true)
 			expect(Plan.hasOwnWood("A1")).to.equal(false)
 			expect(Plan.hasOwnWood("Z9")).to.equal(false)
-			local c2Skirt = 0
-			for _, item in ipairs(woods.B1) do
-				if item.side < 0 then
-					c2Skirt += 1
+			local worstSkirt = math.huge
+			for _, id in ipairs(Grid.cellIds()) do
+				local n = 0
+				for _, item in ipairs(woods[id]) do
+					if item.side < 0 then
+						n += 1
+					end
 				end
+				worstSkirt = math.min(worstSkirt, n)
 			end
-			expect(c2Skirt > 0).to.equal(true)
-			-- ...AND NOT ONE SKIRT SITE OF C2's LANDS INSIDE A PLANTED CELL'S OWN GROUND, which is
-			-- the fact the collision measurement is about. Asked of the rectangle rather than of
-			-- "the nearest cell", so a site in the road between two cells cannot flip the answer.
+			expect(worstSkirt > 0).to.equal(true)
+			-- ...AND NOT ONE SKIRT SITE LANDS IN THE ACTIVE CELL'S OWN GROUND: the skirt is what is
+			-- across the road, so a band that leaked inward would be a second wood over this one.
 			local stray = 0
-			for _, item in ipairs(woods.B1) do
-				if item.side < 0 then
-					for _, id in ipairs(Grid.PLANTED_CELLS) do
-						local g = Plan.cellGround(id)
-						if item.x >= g.minX and item.x <= g.maxX and item.z >= g.minZ and item.z <= g.maxZ then
+			for _, id in ipairs(Grid.cellIds()) do
+				local g = Plan.cellGround(id)
+				for _, item in ipairs(woods[id]) do
+					if item.side < 0 then
+						local gx, gz = Grid.toGrid(item.x, item.z)
+						if gx >= g.minX and gx <= g.maxX and gz >= g.minZ and gz <= g.maxZ then
 							stray += 1
 						end
 					end
 				end
 			end
 			expect(stray).to.equal(0)
-			TestKit.note(string.format("skirt: C1 %d (3 planted neighbours), B1 %d into bare A1", c1Skirt, c2Skirt))
+			TestKit.note(
+				string.format(
+					"skirt: C1 %d across 4 roads (%d outer, %d into planted neighbours), weakest cell %d, 0 strays inward",
+					c1Skirt,
+					outerRows,
+					intoPlanted,
+					worstSkirt
+				)
+			)
 		end)
 
 		-- THE BEHAVIOUR, driven through the real planter over a fake hillside -- the fixture case 18b

@@ -875,15 +875,16 @@ return function()
 							or rideGap("C1", item.x, item.z) <= plan.frontage.studs
 						if inBand then
 							near += 1
-							-- **THE FRONTAGE OF THE CELL THE TREE STANDS IN**, which since task 336
-							-- is not always the cell that planted it: each cell's frontage now names
-							-- its OWN species, and a `side < 0` skirt band stands in the NEIGHBOUR's
-							-- ground and draws the neighbour's front mix -- which is the whole point
-							-- of a skirt. Measured: B1's and A2's skirts into bare A1 carry 36 and
-							-- 18 trees that B1's and A2's own frontage would refuse, and A1's allows
-							-- every one of them.
+							-- **THE FRONTAGE OF THE CELL WHOSE WOOD IT IS**, which since task 336 is
+							-- not always the cell that planted it: each cell's frontage names its
+							-- OWN species, and a `side < 0` skirt band draws the neighbour's front
+							-- mix -- the whole point of a skirt. **TASK 337c**: the skirt also
+							-- crosses the grid's outer edge and into A1, and there the wood is the
+							-- ACTIVE cell's (Director decision), so the frontage asked is the
+							-- active cell's too -- `plantCell`'s own `speciesCell`.
 							local standsIn = Plan.nearestCellTo(item.x, item.z) or id
-							local theirs = Plan.cellPlanFor(if item.side < 0 then standsIn else id)
+							local mine = item.side >= 0 or not Plan.hasOwnWood(standsIn)
+							local theirs = Plan.cellPlanFor(if mine then id else standsIn)
 							expect(Plan.frontageAllows(theirs, item.model)).to.equal(true)
 						end
 					end
@@ -1434,11 +1435,18 @@ return function()
 			end
 			local wrong, counts = {}, {}
 			for _, item in ipairs(Plan.plantCell("C1", nil)) do
-				local group = Plan.groupOf(item.model) or "?"
-				counts[group] = (counts[group] or 0) + 1
-				-- THE FERN FLOOR IS GROUND COVER AND NOT A TREE, so it is not in the claim.
-				if not Plan.isHerbName(item.model) and not birch[item.model] then
-					table.insert(wrong, item.model)
+				-- **C1's OWN GROUND, `side > 0`** (task 337c): the skirt stands across C1's roads
+				-- and draws the NEIGHBOUR's species on purpose -- B1's spruce, D1's oak -- which is
+				-- Karen's *"different trees growing in different section"*. Her sentence here is
+				-- about the terrain she stands on, and case 16 of `grid.spec` is what asserts whose
+				-- species each side of the skirt carries.
+				if item.side > 0 then
+					local group = Plan.groupOf(item.model) or "?"
+					counts[group] = (counts[group] or 0) + 1
+					-- THE FERN FLOOR IS GROUND COVER AND NOT A TREE, so it is not in the claim.
+					if not Plan.isHerbName(item.model) and not birch[item.model] then
+						table.insert(wrong, item.model)
+					end
 				end
 			end
 			local seen = {}

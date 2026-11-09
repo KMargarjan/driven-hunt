@@ -2672,8 +2672,10 @@ end
 -- THE CELLS THAT SHARE A ROAD WITH THIS ONE, in `Grid.CELL_ORDER`, with the axis of the road between
 -- them ("x" is an east-west road, so the shared frontage is the cell's WIDTH; "z" its depth).
 --
--- IN `CELL_ORDER` AND NOT IN A COMPASS ORDER, because the skirt's random stream walks this list: a
--- fixed order is what makes a cell's skirt the same list every time (design 4.6).
+-- IN `CELL_ORDER` AND NOT IN A COMPASS ORDER. **IT IS NO LONGER THE SKIRT'S WALKER** (task 337c):
+-- `Places.skirtSides` is, because the skirt crosses the grid's outer edges too, where there is no
+-- neighbour cell to list. Kept as the one answer to "which cells share a road with this one", with
+-- no caller in `src/` or `tests/` today.
 function Places.neighboursOf(cellId: string): { { id: string, axis: string } }
 	local cell = Grid.cellOf(cellId)
 	local out: { { id: string, axis: string } } = {}
@@ -2693,45 +2695,104 @@ function Places.neighboursOf(cellId: string): { { id: string, axis: string } }
 	return out
 end
 
+-- THE FOUR SIDES A STANDING CELL SKIRTS ACROSS (task 337c). Karen, 2026-11-09: *"behind the road
+-- always has to be forest"* -- so every one of a cell's four roads has wood on its far side, and
+-- `id` is nil on the grid's own outer edge, where the skirt stands on the ground the trim keeps
+-- (design `cell-loading.md` 8.1, `grid-terrain.md` 10.2's K1 = footprint + 490).
+--
+-- A FIXED COMPASS ORDER, west, east, north, south, because the skirt's random stream walks this list
+-- (design 4.6: a cell's skirt is the same list every time). `sign` is the way the band runs away from
+-- the cell in GRID coordinates; row 1 is the north row and sits at the larger z (`Grid.boundsOf`).
+function Places.skirtSides(cellId: string): { { id: string?, axis: string, sign: number } }
+	local cell = Grid.cellOf(cellId)
+	local out: { { id: string?, axis: string, sign: number } } = {}
+	if cell == nil then
+		return out
+	end
+	for _, step in ipairs({
+		{ dColumn = -1, dRow = 0, axis = "z", sign = -1 },
+		{ dColumn = 1, dRow = 0, axis = "z", sign = 1 },
+		{ dColumn = 0, dRow = -1, axis = "x", sign = 1 },
+		{ dColumn = 0, dRow = 1, axis = "x", sign = -1 },
+	}) do
+		local found: string? = nil
+		for _, id in ipairs(Grid.cellIds()) do
+			local other = Grid.cellOf(id)
+			if other ~= nil and other.row == cell.row + step.dRow and other.column == cell.column + step.dColumn then
+				found = id
+				break
+			end
+		end
+		table.insert(out, { id = found, axis = step.axis, sign = step.sign })
+	end
+	return out
+end
+
+-- WHOSE SPECIES AND WHICH BAND A SKIRT POINT TAKES (Director decision, task 337c): across a road
+-- into a cell that has a wood of its own, THAT cell's zone -- so the next cell looks like itself;
+-- at the grid's outer edge, and into A1 which has no wood at all, this cell's own zone, read at the
+-- point pushed back inside its ground so the wood across the road continues the wood behind it.
+function Places.skirtZoneAt(cellId: string, other: string?, x: number, z: number): any
+	if other ~= nil and Places.hasOwnWood(other) then
+		return Places.zoneAt(other :: string, x, z)
+	end
+	local g = Places.cellGround(cellId)
+	return Places.zoneAt(cellId, math.clamp(x, g.minX, g.maxX), math.clamp(z, g.minZ, g.maxZ))
+end
+
 -- THE SKIRT'S BANDS INSIDE ONE NEIGHBOUR, measured from the SHARED ROAD inward (design 8.2): the
 -- first `skirtFullStuds` at the ACTIVE cell's own spacing, then out to `skirtStuds` at
 -- `deepSpacingStuds`. A hunter on the main line looks 21 studs across the road into the next cell, so
 -- without this he is looking at bare grass.
-function Places.skirtBands(cellId: string, other: string, axis: string, plan: any): { any }
+-- `other` IS NIL AT THE GRID'S OUTER EDGE (task 337c), and then `sign` says which way out: the band
+-- starts at the far kerb of the border road (`Grid.footprint`, which includes it) and runs
+-- `skirtStuds` outward, spanning this cell's own inset ground across the road.
+function Places.skirtBands(cellId: string, other: string?, axis: string, plan: any, sign: number?): { any }
 	local mine = Grid.boundsOf(cellId)
-	local theirs = Places.cellGround(other)
 	local out: { any } = {}
-	-- WHICH WAY IS INWARD: from the shared road, into the neighbour, away from this cell.
-	local from, sign
-	if axis == "z" then
-		-- an east-west step: the shared road is a north-south one, so the band runs in x.
-		sign = if theirs.minX > mine.maxX then 1 else -1
-		from = if sign > 0 then theirs.minX else theirs.maxX
+	-- WHICH WAY IS INWARD, WHAT THE BAND SPANS ACROSS the road, and where it is clipped.
+	local from, step, lowCross, highCross, clipLow, clipHigh
+	if other ~= nil then
+		local theirs = Places.cellGround(other :: string)
+		if axis == "z" then
+			-- an east-west step: the shared road is a north-south one, so the band runs in x.
+			step = if theirs.minX > mine.maxX then 1 else -1
+			from = if step > 0 then theirs.minX else theirs.maxX
+			lowCross, highCross = theirs.minZ, theirs.maxZ
+			clipLow, clipHigh = theirs.minX, theirs.maxX
+		else
+			step = if theirs.minZ > mine.maxZ then 1 else -1
+			from = if step > 0 then theirs.minZ else theirs.maxZ
+			lowCross, highCross = theirs.minX, theirs.maxX
+			clipLow, clipHigh = theirs.minZ, theirs.maxZ
+		end
 	else
-		sign = if theirs.minZ > mine.maxZ then 1 else -1
-		from = if sign > 0 then theirs.minZ else theirs.maxZ
+		local box = Grid.footprint()
+		local ground = Places.cellGround(cellId)
+		step = sign or 1
+		if axis == "z" then
+			from = if step > 0 then box.maxX else box.minX
+			lowCross, highCross = ground.minZ, ground.maxZ
+		else
+			from = if step > 0 then box.maxZ else box.minZ
+			lowCross, highCross = ground.minX, ground.maxX
+		end
+		clipLow = math.min(from, from + step * plan.skirtStuds)
+		clipHigh = math.max(from, from + step * plan.skirtStuds)
 	end
 	for _, band in ipairs({
 		{ near = 0, far = plan.skirtFullStuds, spacing = plan.spacingStuds },
 		{ near = plan.skirtFullStuds, far = plan.skirtStuds, spacing = plan.deepSpacingStuds },
 	}) do
-		local a = from + sign * band.near
-		local b = from + sign * band.far
+		local a = from + step * band.near
+		local b = from + step * band.far
+		local low = math.max(clipLow, math.min(a, b))
+		local high = math.min(clipHigh, math.max(a, b))
 		local rect
 		if axis == "z" then
-			rect = {
-				minX = math.max(theirs.minX, math.min(a, b)),
-				maxX = math.min(theirs.maxX, math.max(a, b)),
-				minZ = theirs.minZ,
-				maxZ = theirs.maxZ,
-			}
+			rect = { minX = low, maxX = high, minZ = lowCross, maxZ = highCross }
 		else
-			rect = {
-				minX = theirs.minX,
-				maxX = theirs.maxX,
-				minZ = math.max(theirs.minZ, math.min(a, b)),
-				maxZ = math.min(theirs.maxZ, math.max(a, b)),
-			}
+			rect = { minX = lowCross, maxX = highCross, minZ = low, maxZ = high }
 		end
 		if rect.maxX > rect.minX and rect.maxZ > rect.minZ then
 			table.insert(out, { rect = rect, spacing = band.spacing, deep = band.near > 0 })
@@ -3066,31 +3127,33 @@ function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?
 		})
 		ferns += #out - before
 	end
-	-- THE SKIRT, into every BARE neighbour, at THIS cell's density and the NEIGHBOUR's own species.
+	-- THE SKIRT, ACROSS ALL FOUR OF THIS CELL'S ROADS (task 337c), at THIS cell's density.
+	-- Karen, 2026-11-09: *"behind the road always has to be forest to have impression that animals
+	-- running in forest not in empty field"*. Design: `cell-loading.md` 8.1.
 	--
-	-- **NOT INTO A NEIGHBOUR THAT IS PLANTED ITSELF** (task 328i). The skirt exists to dress a cell
-	-- whose neighbour is bare ground, so that a hunter looking over the boundary sees wood and not
-	-- an edge. Once the neighbour has its OWN wood the skirt is a second wood laid over the first,
-	-- and `minGapStuds` cannot see it: the gap rule runs over one cell's own grid. MEASURED in
-	-- Karen's place with all five cells standing and the skirt still drawn, trunk pivots, ferns
-	-- excluded (`<runs-dir>/328i-overlap-after.txt`): **199 pairs inside 6 studs and 59 inside 3,
-	-- worst 0.54 studs** -- interpenetrating trunks -- against **0 and 0 WITHIN a cell**, same
-	-- instrument, same run. What separates two planted cells is the road between them, and a road
-	-- is meant to be clear.
+	-- **EVERY SIDE, PLANTED NEIGHBOUR OR NOT**, which is what one-cell-at-a-time bought (task 337).
+	-- 328i withdrew the skirt from a planted neighbour because the two woods interpenetrated -- 199
+	-- trunk pairs inside 6 studs with five cells standing (`<runs-dir>/328i-overlap-after.txt`),
+	-- against 0 WITHIN a cell -- and `minGapStuds` runs over one cell's own grid so it cannot see
+	-- the other. Since `Places.Cells` stands exactly one cell, that neighbour's wood is in
+	-- `ServerStorage` while this skirt is on screen, so the two can no longer meet. The skirt lives
+	-- in THIS cell's folder and is stored and stood with it.
 	local skirtRng = Random.new(Grid.seedFor(cellId, Places.CELL_STREAM.skirt))
-	for _, near in ipairs(Places.neighboursOf(cellId)) do
-		if Places.hasOwnWood(near.id) then
-			continue
-		end
-		local theirPlan = Places.cellPlanFor(near.id)
-		for _, band in ipairs(Places.skirtBands(cellId, near.id, near.axis, plan)) do
+	for _, side in ipairs(Places.skirtSides(cellId)) do
+		-- THE GROUND'S CELL OWNS THE ROADS, THE STANDS AND THE CORRIDORS; the SPECIES cell owns the
+		-- mix and the frontage. They differ ONLY into A1, the one cell with no wood of its own: at
+		-- an outer edge there is no neighbour at all and both are this cell.
+		local groundCell = side.id or cellId
+		local speciesCell = if side.id ~= nil and Places.hasOwnWood(side.id) then side.id else cellId
+		local speciesPlan = Places.cellPlanFor(speciesCell)
+		for _, band in ipairs(Places.skirtBands(cellId, side.id, side.axis, plan, side.sign)) do
 			scatter(out, band.rect, band.spacing, trees, plan.minGapStuds, skirtRng, plan, -1, function(x, z)
-				local zoneThere = Places.zoneAt(near.id, x, z)
+				local zoneThere = Places.skirtZoneAt(cellId, side.id, x, z)
 				if zoneThere == nil then
 					return nil, nil
 				end
 				return Places.cellMixNamed(zoneThere.mix), zoneThere.band
-			end, { maskCell = near.id, maskPlan = theirPlan, heightAt = heightAt, bend = bend })
+			end, { maskCell = groundCell, maskPlan = speciesPlan, heightAt = heightAt, bend = bend })
 		end
 	end
 	return out
@@ -3114,22 +3177,29 @@ function Places.hasOwnWood(cellId: string?): boolean
 	return table.find(Grid.PLANTED_CELLS, cellId :: string) ~= nil
 end
 
--- WHAT A MODEL COSTS IN PARTS. MEASURED in Karen's Forest Test at task 328m's code commit: 5,104
--- parts for 1,687 planted models in C1 (`reviews/task-328m/RESULT.md`, re-derived by the Reviewer).
--- It SUPERSEDES `grid-map.md` 8.3's "~7 descendants per model", which made that section's own two
--- bounds disagree by 3,200 parts (3,600 x 7 = 25,200 against its 22,000 ceiling). It is C1's MIX, so
--- the census prints `parts` every run and this number is re-read, never trusted forever.
--- Design: docs/design/grid-roads.md 8.2. Note: docs/research/2026-11-03-curved-grid-roads.md 4.
-Places.PARTS_PER_MODEL = 3.03
+-- WHAT A MODEL COSTS IN PARTS. **RE-DERIVED IN TASK 337c, FROM THE CELL THAT STANDS TODAY**: C1 in
+-- Karen's Forest Test holds 9,318 parts in 2,476 planted models (`<runs-dir>/336-planfinal.txt`,
+-- task 336's live row) = 3.763. The 3.03 it replaces was C1's 328m mix, 5,104 parts for 1,687
+-- models, and three recipe rewrites later it under-read the real cost by 24 %.
+-- Design: docs/design/grid-roads.md 8.2, cell-loading.md 8.1. The census prints `parts` every run,
+-- so this is re-read and never trusted forever.
+Places.PARTS_PER_MODEL = 3.76
 
--- THE TWO PART CEILINGS the model caps come from. `PART_BUDGET_CELL` is DERIVED, NOT MEASURED
--- (`grid-terrain.md` 12.2): 328g's client frame -- <= 16.7 ms with <= 17,000 parts inside 1,024
--- studs -- is what can raise or lower it, and nothing may cite 8,000 as a measurement before it.
-Places.PART_BUDGET_DRIVE = 22000
-Places.PART_BUDGET_CELL = 8000
+-- THE TWO PART CEILINGS the model caps come from.
+--
+-- **RAISED IN TASK 337c TO FIT THE FOUR-SIDED SKIRT**, off the measured plans of all eight cells
+-- (`<runs-dir>/337c-plan-all.txt`), not off an estimate:
+--  * `PART_BUDGET_CELL` bounds what is DRAWN in one cell. The heaviest plan is D2's 3,256 models =
+--    12,243 parts at 3.76, so 12,800 leaves 148 models of headroom -- and it is still 4,200 parts
+--    under the only MEASURED ceiling there is, 328g's client frame (<= 16.7 ms with <= 17,000 parts
+--    inside 1,024 studs, `grid-terrain.md` 12.2). Nothing may cite it as a measurement itself.
+--  * `PART_BUDGET_DRIVE` bounds the PLAN and is a typo guard: nothing renders a plan. The heaviest
+--    bound is D1's `cellCapacity` 7,025 sites = 26,414 parts, so 27,000 leaves 155 sites.
+Places.PART_BUDGET_DRIVE = 27000
+Places.PART_BUDGET_CELL = 12800
 
 -- THE MODEL CAPS, COMPUTED AND NOT TYPED (lesson L-167): change a budget or the ratio and these move
--- with it. 7,260 bounds the PLAN (a typo guard) and 2,640 bounds what is DRAWN in one cell.
+-- with it. Today 7,180 bounds the PLAN (a typo guard) and 3,404 bounds what is DRAWN in one cell.
 Places.CELL_PLAN_CAP = math.floor(Places.PART_BUDGET_DRIVE / Places.PARTS_PER_MODEL)
 Places.CELL_PART_CAP = math.floor(Places.PART_BUDGET_CELL / Places.PARTS_PER_MODEL)
 
@@ -3160,13 +3230,11 @@ function Places.cellCapacity(cellId: string): number
 	for _, rect in ipairs(Places.fernBands(cellId, plan)) do
 		total += cells(rect, plan.fernSpacing)
 	end
-	-- THE SKIRT'S OWN BOUND COUNTS THE BANDS `plantCell` ACTUALLY DRAWS (task 328i): a skirt into a
-	-- planted neighbour is not drawn, so counting it here would bound a plan that cannot exist.
-	for _, near in ipairs(Places.neighboursOf(cellId)) do
-		if not Places.hasOwnWood(near.id) then
-			for _, band in ipairs(Places.skirtBands(cellId, near.id, near.axis, plan)) do
-				total += cells(band.rect, band.spacing)
-			end
+	-- THE SKIRT'S OWN BOUND COUNTS THE BANDS `plantCell` ACTUALLY DRAWS, which since task 337c is
+	-- all four sides -- the outer edges included.
+	for _, side in ipairs(Places.skirtSides(cellId)) do
+		for _, band in ipairs(Places.skirtBands(cellId, side.id, side.axis, plan, side.sign)) do
+			total += cells(band.rect, band.spacing)
 		end
 	end
 	return total
