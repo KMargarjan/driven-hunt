@@ -48,7 +48,6 @@ local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
 -- THE GRID (task 327a): the eight drive cells' arithmetic. PURE data -- this module is the one that
 -- draws it, and `Grid` knows nothing about Workspace.
 local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
-local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 
 local Places = {}
 
@@ -76,10 +75,6 @@ Places.GRID_FOLDER = "GridPlaces"
 -- EDIT by `tools/terrainbake.py plant` and saved with the place; `grid_ground.spec` asserts the name
 -- is in `ForestTest.GROUND_IGNORE` once, so a ray looking for the ground cannot stop on our trunk.
 Places.FOREST_FOLDER = "GridForest"
-
--- THE FLAG THAT SHOWS IT. Born OFF (`src/shared/Flags/init.luau`); read ONCE here, at this module's
--- boundary, and passed inward as a boolean -- the only permitted shape (CLAUDE.md, "Feature flags").
-Places.GRID_FLAG = "GRID_PREVIEW"
 
 -- THE 32 CORNER STAKES ARE ARCHIVED (task 328m, rule 7). Karen played C1 on 2026-11-03 and said of
 -- them *"those gates shouldnt be"*: they were 327a's scaffold, showing where the cells are while the
@@ -637,13 +632,7 @@ function Places.templates(world: Instance?): { Instance }
 	return out
 end
 
--- ---------------------------------------------------------------- the grid preview, drawn
-
--- IS THE PREVIEW ON? **THE ONE PLACE THE FLAG IS READ**, so every other function here takes a
--- boolean and both of its states are reachable from a pure spec.
-function Places.gridPreviewEnabled(): boolean
-	return Flags.isOn(Places.GRID_FLAG)
-end
+-- ---------------------------------------------------------------- the grid's cells, dressed
 
 -- WHICH CHILDREN OF `GridPlaces` ARE A CELL'S WOOD. One folder per cell id, and a child that is not
 -- one is not touched, so a reader can see at a glance which cell is standing and the dress can
@@ -905,9 +894,6 @@ function Places.build(
 	groundAt: ((number, number) -> number?)?,
 	world: Instance?,
 	terrain: any?,
-	-- THE GRID PREVIEW, BY PARAMETER. nil reads the flag at this module's boundary
-	-- (`Places.gridPreviewEnabled`); a spec passes true or false and never touches the flag.
-	gridPreview: boolean?,
 	-- THE SLICE. The boot hands `task.wait`; a spec hands nil, and nothing yields.
 	breathe: (() -> ())?,
 	-- WHICH CELLS GET A WOOD (task 328i). nil reads `Grid.PLANTED_CELLS`, the cells whose ground is
@@ -961,15 +947,16 @@ function Places.build(
 		gridSeconds = 0,
 	}
 
-	-- ------------------------------------------------ THE GRID PREVIEW (task 327a), FIRST
+	-- ------------------------------------------------ THE GRID'S FOLDER (task 327a), FIRST
 	--
 	-- **BEFORE THE TEMPLATE CHECK, AND THAT IS THE POINT:** the grid's folder needs no tree template
 	-- at all, so it must not be skipped in a world that has none -- which is every DEV spec run.
 	--
-	-- **THE OTHER WORLD'S FOLDER IS DESTROYED WHATEVER THE FLAG SAYS** (design 11.3 step 2): the
-	-- grid's parts must not be left standing in a world that has never heard of them, and task 79
-	-- measured what that costs in the other direction (both worlds tag with the same strings).
-	local previewOn = if gridPreview == nil then Places.gridPreviewEnabled() else gridPreview
+	-- **THE PRIOR FOLDER IS DESTROYED FIRST** (design 11.3 step 2): one writer means one folder, so a
+	-- second boot in the same session rebuilds rather than doubling.
+	--
+	-- **AND IT IS NO LONGER BEHIND A FLAG** (task 327d): `GRID_PREVIEW` is retired, every drive is
+	-- dealt in a cell, and a world with no `GridPlaces` folder is now a world with no wood at all.
 	local priorGrid = root:FindFirstChild(Places.GRID_FOLDER)
 	if priorGrid then
 		priorGrid:Destroy()
@@ -979,13 +966,9 @@ function Places.build(
 	-- archived and `ServerStorage.TerrainBake` writes the grid's shape and material together at
 	-- EDIT time (docs/design/grid-terrain.md sections 3.1 and 16). Nothing under `src/` writes the
 	-- grid's terrain. The rollback is `backups/2026-11-02_task-328e_Ground-paintRoads-and-grid-case-19.md`.
-	local gridFolder: Instance? = nil
-	if previewOn then
-		local folder = Instance.new("Folder")
-		folder.Name = Places.GRID_FOLDER
-		folder.Parent = root
-		gridFolder = folder
-	end
+	local gridFolder = Instance.new("Folder")
+	gridFolder.Name = Places.GRID_FOLDER
+	gridFolder.Parent = root
 	report.gridSeconds = os.clock() - gridStarted
 
 	if #sources == 0 then
@@ -1013,6 +996,14 @@ function Places.build(
 	local folder = Instance.new("Folder")
 	folder.Name = Places.FOLDER
 	local template = Places.templateLookup(sources, report)
+	-- **SINCE TASK 327d THIS LOOP BUILDS NOTHING, AND NOT ONE LINE OF IT CHANGED** (cell-loading.md
+	-- 13 D1): the rotation holds cell ids, both bodies are guarded by `layoutNamed`, and that is nil
+	-- for every cell -- so `report.places` reads 0 and the 9,105 parts are not built. It is PRINTED
+	-- and not assumed: the boot's own line carries `places` and `parts`.
+	--
+	-- THE COST OF THAT, SAID HERE: `DHForestLayout=road` still gives the road's stands, markers and
+	-- seats, but NOT its planted wood, because this ran at boot before the override was read. The
+	-- rollback is the geometry; Karen's own `OurForest` and `Session` trees stand either way.
 	for _, name in ipairs(Forest.LAYOUT_ORDER) do
 		local layout = Forest.layoutNamed(name)
 		local plan = Plan.planFor(name)
@@ -1061,23 +1052,20 @@ function Places.build(
 			end
 		end
 	end
-	-- ------------------------------------------------ THE PREVIEW CELL'S WOOD (task 327c)
+	-- ------------------------------------------------ THE DEALT CELL'S WOOD (task 327c)
 	--
-	-- **AFTER THE TEMPLATE LOOKUP EXISTS AND NOT IN THE BLOCK ABOVE:** the roads and the stakes need
-	-- no template, so they are built in a world that has none; a cell's wood is 2,400 clones of this
-	-- world's own trees and there is nothing to clone in DEV. So the preview stakes eight cells and
-	-- dresses `Grid.PLANTED_CELLS` -- the five whose ground is baked (task 328i; it dressed
-	-- `Grid.PREVIEW_CELL` alone until then, which is why there was no wood behind the line).
-	-- Task 327d replaces this with the per-drive dress at the `Scoring -> Assigning` edge.
+	-- **AFTER THE TEMPLATE LOOKUP EXISTS AND NOT IN THE BLOCK ABOVE:** the folder needs no tree
+	-- template, so it is made in a world that has none; a cell's wood is 2,400 clones of this world's
+	-- own trees and there is nothing to clone in DEV.
 	-- ONLY THE FIRST CELL GOES IN, AND SINCE TASK 337 THE REST GO NOWHERE. `Places.build` is
 	-- `ForestTestBoot`'s composition root: `Bots.start`, `Economy.start`, `Lobby.start`, `Shop.start`,
 	-- `Match.start` and `HitLog.start` all come AFTER it, so a second of planting here is a second
 	-- with no lobby, no shop, no match and no gun. The first cell is the one a player stands in
-	-- (`PLANTED_CELLS[1]` is `PREVIEW_CELL`), which is also `Cells.wantedCell`'s answer at boot.
+	-- (`PLANTED_CELLS[1]` is `DEFAULT_CELL`), which is also `Cells.wantedCell`'s answer at boot.
 	-- `report.gridPending` and the boot's deferred dress of the other four went with task 337: under
 	-- one-cell-at-a-time their only possible next action was to be stored, which is 71.8 s of
 	-- planting with no product. Archived: backups/2026-11-08_task-337_dressCell-keep-set.md (rule 7).
-	if previewOn and gridFolder ~= nil then
+	do
 		local list = cells or Grid.PLANTED_CELLS
 		local first: { string } = if list[1] ~= nil then { list[1] } else {}
 		report.gridWoods = Places.dressCells(first, gridFolder, reader, template, breathe, nil)

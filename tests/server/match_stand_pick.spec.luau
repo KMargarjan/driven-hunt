@@ -77,7 +77,9 @@ local function ask(over: { [string]: any }?): any
 end
 
 local function walkOf(layoutName: string): { number }
-	local layout = (Forest.LAYOUTS :: any)[layoutName]
+	-- `layoutOf` AND NOT `LAYOUTS` SINCE TASK 327d: the rotation deals grid cell ids, which that
+	-- table does not hold -- the one resolver does.
+	local layout = Forest.layoutOf(layoutName) :: any
 	local walk = {}
 	for index = 1, layout.standCount do
 		table.insert(walk, index)
@@ -221,7 +223,7 @@ return function()
 
 	-- ------------------------------------------------------- case 5, case 6, case 11: the deal
 	describe("HighSeats.dealLine: sweep A is strictly stronger than the fallback", function()
-		it("case 5: nil, {} and today's call are EQUAL element by element -- 128 assertions", function()
+		it("case 5: nil, {} and today's call are EQUAL element by element, layout by layout", function()
 			local asserted = 0
 			for _, layoutName in ipairs(Forest.LAYOUT_ORDER) do
 				local walk = walkOf(layoutName)
@@ -244,7 +246,10 @@ return function()
 					asserted += 1
 				end
 			end
-			expect(asserted).to.equal(64)
+			-- **DERIVED AND NOT WRITTEN DOWN (task 327d).** It read 64 for the four line places; the
+			-- rotation deals seven cells now, so the count is the rotation's own size times the
+			-- counts swept, and a rotation that grows cannot quietly assert less.
+			expect(asserted).to.equal(#Forest.LAYOUT_ORDER * 16)
 			TestKit.note(
 				string.format(
 					"match_stand_pick: flag off is bit for bit -- %d equal-by-value deals over %d layouts x 16 counts (`{}` only; `nil` is the same argument list)",

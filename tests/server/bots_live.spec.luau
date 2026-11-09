@@ -616,11 +616,15 @@ return function()
 			local got = (Bots.clipsOf("bot-beater-1") :: any).rate
 			expect(math.abs(got - slower) < Rig.GAIT.RATE_EPSILON).to.equal(true)
 			expect(math.abs(got - nominal * slowFraction) < Rig.GAIT.RATE_EPSILON).to.equal(true)
-			-- ...AND THE FLOOR IS REAL AND IS NOW REACHABLE AT THIS WALK, which is the fact the old
-			-- literal hid: at `WALK_SPEED` 3.1 a bot at HALF pace is drawn at `MIN_RATE` and not at
-			-- half the rate, so the next person who slows the line further must not read a clamped
-			-- rate as a scaled one. Asserted, so the clamp cannot be mistaken for the law.
-			local _, clamped = Rig.gait(Bots.CONFIG.WALK_SPEED / 2, "walk")
+			-- ...AND THE FLOOR IS REAL, AND TASK 327d MOVED WHERE IT BITES. At `WALK_SPEED` 3.1 a bot
+			-- at HALF pace was drawn at `MIN_RATE` rather than at half the rate; at 5.2 half pace is
+			-- 2.6 studs/s = rate 0.386, clear of the floor. Both facts are asserted, so the next
+			-- person who slows the line cannot read a clamped rate as a scaled one -- and the pace
+			-- that DOES reach the floor is computed from the law rather than written down.
+			local _, half = Rig.gait(Bots.CONFIG.WALK_SPEED / 2, "walk")
+			expect(half > Rig.GAIT.MIN_RATE).to.equal(true)
+			local atFloor = Rig.GAIT.MIN_RATE * Rig.GAIT.NATURAL_WALK_SPEED
+			local _, clamped = Rig.gait(atFloor / 2, "walk")
 			expect(clamped).to.equal(Rig.GAIT.MIN_RATE)
 			expect(slower > Rig.GAIT.MIN_RATE).to.equal(true)
 			TestKit.note(

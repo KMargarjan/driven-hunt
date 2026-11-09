@@ -996,7 +996,9 @@ return function()
 			-- BOUNDARY 7 AGAIN, WITH THE NEW BRANCH IN IT (design 11.1 case 8): the cell branch is
 			-- FIRST in `roadZ`, so a shipped row that grew `sides` would take it. None has one, and
 			-- `forest_stand.spec`'s number-for-number assertions stand because of that.
-			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+			-- `LINE_PLACES` AND NOT `LAYOUT_ORDER` SINCE TASK 327d: the rotation deals cells now, and
+			-- this case is about the four ARCHIVED rows (rule 7), which is where boundary 7 lives.
+			for _, name in ipairs(Forest.LINE_PLACES) do
 				local layout = Forest.layoutNamed(name) :: any
 				expect(layout.sides).to.equal(nil)
 				expect(Grid.cellOf(name)).to.equal(nil)
@@ -1068,7 +1070,8 @@ return function()
 
 	describe("the four shipped places", function()
 		it("carry none of the four new fields and answer value for value", function()
-			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+			-- `LINE_PLACES` SINCE TASK 327d, for the reason above: these are the archived rows.
+			for _, name in ipairs(Forest.LINE_PLACES) do
 				local layout = Forest.layoutNamed(name) :: any
 				-- ALL FOUR OPTIONAL FIELDS ABSENT. This is boundary 7: a shipped row that grew one of
 				-- them would take the cell code path through the world Karen plays today.
@@ -1570,7 +1573,7 @@ return function()
 			-- centre) while `hunterStandX` aimed every wave at stand 5. This drives the LIVE path:
 			-- the promoted cell, `ForestTest.standWalk()` as `ForestTestBoot`'s `placement` passes
 			-- it, and `hunterStandX()` with nobody having picked.
-			local id = Grid.PREVIEW_CELL
+			local id = Grid.DEFAULT_CELL
 			ForestTest.layoutForDrive(3273, id)
 			expect(ForestTest.layoutName()).to.equal(id)
 			local layout = ForestTest.layout()
@@ -1630,67 +1633,154 @@ return function()
 
 	-- ---------------------------------------------------------------- 22. the preview tags nothing
 
-	describe("the preview", function()
-		it("stands no part of its own and changes nothing else about the world", function()
-			-- THE FLAG IS REACHABLE BY PARAMETER, which is what lets both states be asserted while
-			-- `GRID_PREVIEW` sits at one of them (CLAUDE.md, "Feature flags").
-			local before = Forest.layoutNames()
+	describe("the switch", function()
+		-- A FAKE WORLD WITH A TEMPLATE SOURCE IN IT, because `build` returns `"no-templates"` before
+		-- it reaches either loop -- so without one neither case below could see what the loops did.
+		-- One Model per species name, under the first name in `Places.TEMPLATE_SOURCES`.
+		local function worldWithTemplates(): Instance
 			local world = Instance.new("Folder")
+			local source = Instance.new("Folder")
+			source.Name = Planter.TEMPLATE_SOURCES[1]
+			source.Parent = world
+			for _, names in pairs(Plan.SPECIES) do
+				for _, name in ipairs(names) do
+					local model = Instance.new("Model")
+					model.Name = name
+					local trunk = Instance.new("Part")
+					trunk.Name = "Trunk"
+					trunk.Size = Vector3.new(4, 40, 4)
+					trunk.Position = Vector3.new(0, 20, 0)
+					trunk.Anchored = true
+					trunk.Parent = model
+					model.PrimaryPart = trunk
+					model.Parent = source
+				end
+			end
+			return world
+		end
+
+		-- CASE 21 (design 13.1): **BOTH WORLDS' FOLDERS ARE DESTROYED, WHICHEVER WORLD IS LIVE**
+		-- (design 11.3 step 2). `GRID_PREVIEW` is retired at task 327d, so there is no boolean left
+		-- to drive -- and that is the stronger claim: a build cannot leave the other world standing.
+		it("case 21: destroys BOTH folders and stands no part of its own", function()
+			local world = worldWithTemplates()
 			local reader = function(_x: number, _z: number)
 				return 120
 			end
 			local terrain = {
 				ReplaceMaterial = function() end,
 			}
-			local report = Planter.build(reader, world, terrain, true)
+			-- A STALE WORLD, both folders with a child in each -- the state a second boot finds.
+			local staleDrive = Instance.new("Folder")
+			staleDrive.Name = Planter.FOLDER
+			local staleRoad = Instance.new("Folder")
+			staleRoad.Name = "road"
+			staleRoad.Parent = staleDrive
+			staleDrive.Parent = world
+			local staleGrid = Instance.new("Folder")
+			staleGrid.Name = Planter.GRID_FOLDER
+			local staleCell = Instance.new("Folder")
+			staleCell.Name = "C1"
+			staleCell.Parent = staleGrid
+			staleGrid.Parent = world
+
+			local report = Planter.build(reader, world, terrain)
+
+			-- BOTH OLD FOLDERS ARE GONE, by identity and not by name: a rebuild that re-parented the
+			-- old instance would pass a name check.
+			expect(staleDrive.Parent).to.equal(nil)
+			expect(staleGrid.Parent).to.equal(nil)
 			local folder = world:FindFirstChild(Planter.GRID_FOLDER)
 			expect(folder ~= nil).to.equal(true)
+			expect(folder).never.to.equal(staleGrid)
 			-- THE 32 CORNER STAKES ARE GONE (task 328m; Karen, 2026-11-03: *"those gates shouldnt
 			-- be"*). The folder is the cell wood's parent and nothing else, so a BUILD puts NO part
-			-- in it -- and the fields that counted the stakes are gone with them, which is what
-			-- stops a later report quietly reintroducing a count nobody reads.
-			local ownParts = #folder:GetChildren()
+			-- in it -- and the fields that counted the stakes are gone with them.
+			local ownParts = #(folder :: Instance):GetChildren()
 			expect(ownParts).to.equal(0)
 			expect((report :: any).gridStakes).to.equal(nil)
 			expect((report :: any).gridMissing).to.equal(nil)
-			-- IT TAGS NOTHING, BUILDS NO STAND AND NO SEAT, and the layout list does not move: with
-			-- the preview on, everything the drive reads answers exactly what it answered before.
+			expect((report :: any).gridPaints).to.equal(nil)
+			-- IT TAGS NOTHING, BUILDS NO STAND AND NO SEAT: the drive's own `markers` closure owns
+			-- those, and since task 327d it is the only builder of them.
 			expect(world:FindFirstChild("ForestMarkers")).to.equal(nil)
 			expect(world:FindFirstChild("HighSeats")).to.equal(nil)
-			local after = Forest.layoutNames()
-			expect(#after).to.equal(#before)
-			for index, name in ipairs(before) do
-				expect(after[index]).to.equal(name)
-			end
-			-- NO CELL ROW IS IN `LAYOUTS` YET (that is task 327d), so a cell id cannot be dealt as a
-			-- layout by accident.
-			for _, id in ipairs(Grid.cellIds()) do
-				expect(Forest.layoutNamed(id)).to.equal(nil)
-			end
-
-			-- ...AND WITH IT OFF, NO FOLDER AT ALL. The same call, the same world, one boolean apart.
-			local quiet = Instance.new("Folder")
-			local off = Planter.build(reader, quiet, terrain, false)
-			-- `off.gridPaints` WENT WITH `Ground.paintRoads` (task 328e): the report has no such
-			-- field now, because nothing in `src/` paints a grid road.
-			expect((off :: any).gridPaints).to.equal(nil)
-			expect(quiet:FindFirstChild(Planter.GRID_FOLDER)).to.equal(nil)
-			-- THE FOLDER NAME IS ONE FACT with the ground-ignore list, so nothing the preview parents
-			-- can ever answer "where is the ground".
+			-- THE FOLDER NAME IS ONE FACT with the ground-ignore list, so nothing a cell's wood is
+			-- parented to can ever answer "where is the ground".
 			expect(table.find(Forest.GROUND_IGNORE, Planter.GRID_FOLDER) ~= nil).to.equal(true)
-			-- A SECOND BUILD REBUILDS RATHER THAN DOUBLING, and an OFF build cleans up an ON one:
-			-- design 11.3 step 2's rule, in the direction this task can reach.
-			Planter.build(reader, world, terrain, false)
-			expect(world:FindFirstChild(Planter.GRID_FOLDER)).to.equal(nil)
+			-- A SECOND BUILD REBUILDS RATHER THAN DOUBLING.
+			local again = world:FindFirstChild(Planter.GRID_FOLDER)
+			Planter.build(reader, world, terrain)
+			expect((again :: Instance).Parent).to.equal(nil)
+			expect(world:FindFirstChild(Planter.GRID_FOLDER)).never.to.equal(again)
+			-- ONE OF EACH FOLDER AND NO MORE, beside the template source the fixture put in.
+			local children: { [string]: number } = {}
+			for _, child in ipairs(world:GetChildren()) do
+				children[child.Name] = (children[child.Name] or 0) + 1
+			end
+			expect(children[Planter.FOLDER]).to.equal(1)
+			expect(children[Planter.GRID_FOLDER]).to.equal(1)
+			expect(children[Planter.TEMPLATE_SOURCES[1]]).to.equal(1)
+			expect(#world:GetChildren()).to.equal(3)
 			world:Destroy()
-			quiet:Destroy()
 			TestKit.note(
 				string.format(
-					"preview on: folder present with %d part(s) of its own, %d layouts before and after; preview off: no folder",
-					ownParts,
-					#after
+					"case 21: both stale folders destroyed, grid folder rebuilt with %d part(s) of its own",
+					ownParts
 				)
 			)
+		end)
+
+		-- **THE CASE THAT DIES IF THE ROTATION IS PUT BACK (lesson L-093).** Delete the producer --
+		-- `ForestTest.LAYOUT_ORDER = Grid.PLANTED_CELLS` back to
+		-- `table.freeze({ "road", "edge", "ride", "track" })` -- and every assertion below reddens.
+		it("deals ONLY the planted cells, never a line place and never A1", function()
+			local order = Forest.LAYOUT_ORDER
+			-- IT IS THE PLANTED LIST ITSELF, not a copy of it: the cells with a wood and the cells
+			-- the rotation deals cannot drift apart.
+			expect(order).to.equal(Grid.PLANTED_CELLS)
+			expect(#order).to.equal(7)
+			for _, name in ipairs(order) do
+				-- EVERY NAME IS A CELL, AND NO NAME IS A LINE PLACE.
+				expect(Grid.cellOf(name)).to.be.ok()
+				expect(Forest.layoutNamed(name)).to.equal(nil)
+				expect(table.find(Forest.LINE_PLACES, name)).to.equal(nil)
+				expect(name).never.to.equal("A1")
+				-- ...AND IT RESOLVES TO A CELL LAYOUT, so a dealt name is never a drive with no ground.
+				local layout = Forest.layoutOf(name) :: any
+				expect(layout.name).to.equal(name)
+				expect(layout.cellOf).to.be.ok()
+			end
+			-- A1 IS THE ONE CELL WITH NO BAKED GROUND, so it is in neither list.
+			expect(Grid.cellOf("A1")).to.be.ok()
+			expect(table.find(order, "A1")).to.equal(nil)
+			-- THE ROTATION CANNOT REACH A LINE PLACE: four full cycles and not one of the four.
+			local previous = nil
+			for _ = 1, 4 * #order do
+				previous = Forest.nextLayout(previous)
+				expect(Grid.cellOf(previous)).to.be.ok()
+			end
+			-- ...AND `Places.build` THEREFORE DRESSES NO LINE PLACE (cell-loading.md 13 D1): the loop
+			-- is guarded by `layoutNamed`, which is nil for every cell, so 9,105 parts are not built.
+			-- MEASURED HERE AND NOT READ: the report's own counters.
+			local world = worldWithTemplates()
+			local report = Planter.build(function()
+				return 120
+			end, world, { ReplaceMaterial = function() end }, nil, {})
+			expect(report.reason).to.equal(nil)
+			expect(report.places).to.equal(0)
+			expect(report.parts).to.equal(0)
+			expect(report.paints).to.equal(0)
+			local drivePlaces = world:FindFirstChild(Planter.FOLDER)
+			expect(drivePlaces).to.be.ok()
+			expect(#(drivePlaces :: Instance):GetChildren()).to.equal(0)
+			world:Destroy()
+			-- ...AND THE FALLBACK IS NOW UNREACHABLE FROM THE ROTATION, which is the line
+			-- `reviews/task-337` wrote its tripwire for: `wantedCell` answered `DEFAULT_CELL` because
+			-- the rotation dealt line places. It no longer can.
+			local Cells = require(ServerScriptService.Places:WaitForChild("Cells"))
+			expect(Cells.wantedCell(Forest.LAYOUT_ORDER[1])).to.equal(Forest.LAYOUT_ORDER[1])
+			TestKit.note(string.format("the rotation: %s", table.concat(order, " -> ")))
 		end)
 	end)
 
@@ -1987,7 +2077,7 @@ return function()
 
 	describe("a cell's wood", function()
 		it("is the same list twice, and the same list whatever order the cells were built in", function()
-			local id = Grid.PREVIEW_CELL
+			local id = Grid.DEFAULT_CELL
 			local first = Plan.plantCell(id)
 			local second = Plan.plantCell(id)
 			expect(#first).to.equal(#second)
@@ -2443,7 +2533,7 @@ return function()
 		end)
 
 		it("plants nearest the hunter line first", function()
-			local id = Grid.PREVIEW_CELL
+			local id = Grid.DEFAULT_CELL
 			local layout = Grid.layoutFor(id)
 			local ordered = Slice.order(woods[id], layout)
 			expect(#ordered).to.equal(#woods[id])
@@ -2524,7 +2614,7 @@ return function()
 				return made[name]
 			end
 
-			local id = Grid.PREVIEW_CELL
+			local id = Grid.DEFAULT_CELL
 			local grid = Instance.new("Folder")
 			grid.Name = Planter.GRID_FOLDER
 			local report = Planter.dressCell(id, grid, hillside, template, nil, nil)
@@ -2596,14 +2686,14 @@ return function()
 
 	describe("the cells that get a wood", function()
 		-- KAREN, 2026-11-04: *"more trees behind the line"*. There were none: `Places.build` dressed
-		-- `Grid.PREVIEW_CELL` and nothing else, so seven cells had never had a tree in them.
+		-- `Grid.DEFAULT_CELL` and nothing else, so seven cells had never had a tree in them.
 		it("is a list of baked cells, C1 first and C2 -- the cell behind the line -- second", function()
 			local planted = Grid.PLANTED_CELLS
 			-- SEVEN SINCE TASK 336: B2 and D2 joined, each with its own species (Karen, 2026-11-08:
 			-- *"can you make now all grounds with different trees"*). Their ground is the raw base
 			-- and that was the question the plant answered -- by raying every site, not by argument.
 			expect(#planted).to.equal(7)
-			expect(planted[1]).to.equal(Grid.PREVIEW_CELL)
+			expect(planted[1]).to.equal(Grid.DEFAULT_CELL)
 			expect(planted[2]).to.equal("C2")
 			local seen: { [string]: boolean } = {}
 			for _, id in ipairs(planted) do
@@ -2651,12 +2741,12 @@ return function()
 			end
 			local standard = 2418
 			-- C1 IS THE STANDARD AND IS PINNED EXACTLY, so a revert of its v5 recipe fails here too.
-			expect(ownTrees(Grid.PREVIEW_CELL)).to.equal(standard)
+			expect(ownTrees(Grid.DEFAULT_CELL)).to.equal(standard)
 			local lines = {}
 			for _, id in ipairs(Grid.PLANTED_CELLS) do
 				local own = ownTrees(id)
 				table.insert(lines, string.format("%s %d (%.0f%%) of %d", id, own, 100 * own / standard, #woods[id]))
-				if id ~= Grid.PREVIEW_CELL then
+				if id ~= Grid.DEFAULT_CELL then
 					expect(own >= math.floor(standard * 0.9)).to.equal(true)
 					expect(own <= math.ceil(standard * 1.1)).to.equal(true)
 				end
@@ -2769,7 +2859,7 @@ return function()
 				return world
 			end
 			local world = fakeWorld()
-			local report = Planter.build(hillside, world, nil, true, nil, { "C1", "C2", "B1" })
+			local report = Planter.build(hillside, world, nil, nil, { "C1", "C2", "B1" })
 			-- ONE REPORT, FOR THE FIRST CELL OF THE LIST, AND ONE CELL STANDING IN THE WORLD.
 			expect(#report.gridWoods).to.equal(1)
 			expect(report.gridWoods[1].cell).to.equal("C1")
@@ -2786,7 +2876,7 @@ return function()
 			expect(#Planter.cellWoodFolders(gridFolder) <= 1).to.equal(true)
 			-- THE DEFAULT LIST IS THE CONFIG'S, AND ITS FIRST CELL IS THE ONE A PLAYER STANDS IN.
 			local other = fakeWorld()
-			local whole = Planter.build(hillside, other, nil, true, nil)
+			local whole = Planter.build(hillside, other, nil, nil)
 			expect(whole.gridWoods[1].cell).to.equal(Grid.PLANTED_CELLS[1])
 			expect(#whole.gridWoods).to.equal(1)
 			expect(whole.gridPending).to.equal(nil)
@@ -2816,11 +2906,11 @@ return function()
 		-- instrument, same run (`<runs-dir>/328i-overlap-after.txt`).
 		it("draws no skirt into a planted neighbour, and still skirts a bare one", function()
 			-- C1's three neighbours are ALL planted, so it draws none.
-			for _, near in ipairs(Plan.neighboursOf(Grid.PREVIEW_CELL)) do
+			for _, near in ipairs(Plan.neighboursOf(Grid.DEFAULT_CELL)) do
 				expect(Plan.hasOwnWood(near.id)).to.equal(true)
 			end
 			local c1Skirt = 0
-			for _, item in ipairs(woods[Grid.PREVIEW_CELL]) do
+			for _, item in ipairs(woods[Grid.DEFAULT_CELL]) do
 				if item.side < 0 then
 					c1Skirt += 1
 				end
@@ -3057,14 +3147,14 @@ return function()
 			standing.Name = "prebuilt-tree"
 			standing.Parent = cell
 
-			local down = Planter.build(hillside, world, nil, true, nil, {})
+			local down = Planter.build(hillside, world, nil, nil, {})
 			expect(#(down.gridWoods or {})).to.equal(0)
 			expect(down.gridPending).to.equal(nil)
 			expect(world:FindFirstChild(Planter.FOREST_FOLDER)).to.be.ok()
 			expect(standing.Parent).to.equal(cell)
 			-- IT DIES IF THE EMPTY LIST STOPS MEANING "NOTHING": the same world with the default list
 			-- dresses one cell and defers the rest.
-			local up = Planter.build(hillside, world, nil, true, nil)
+			local up = Planter.build(hillside, world, nil, nil)
 			expect(#up.gridWoods).to.equal(1)
 			expect(up.gridPending).to.equal(nil)
 			-- ...AND THE PREBUILT WOOD IS STILL THERE AFTER A DRESS THAT DID PLANT.
@@ -3125,19 +3215,17 @@ return function()
 		end
 
 		-- `wantedCell` IS PURE, and the fallback is what makes this change invisible today.
-		it("answers which cell should be standing, and falls back to the preview cell", function()
+		it("answers which cell should be standing, and falls back to the default cell", function()
 			expect(Cells.wantedCell("C2")).to.equal("C2")
-			expect(Cells.wantedCell(Grid.PREVIEW_CELL)).to.equal(Grid.PREVIEW_CELL)
-			expect(Cells.wantedCell("road")).to.equal(Grid.PREVIEW_CELL)
-			expect(Cells.wantedCell(nil)).to.equal(Grid.PREVIEW_CELL)
-			expect(Cells.wantedCell("Z9")).to.equal(Grid.PREVIEW_CELL)
-			-- THE TRIPWIRE: today the rotation deals LINE PLACES, so the fallback is reachable and
-			-- the first boot must not store Karen's only wood. When `LAYOUT_ORDER` becomes the eight
-			-- cell ids (the 327d switch) this flips, and the line below is where a reader is told.
-			expect(Grid.cellOf(Forest.LAYOUT_ORDER[1])).to.equal(nil)
-			TestKit.note(
-				string.format("wantedCell: rotation deals %s -> fallback %s", Forest.LAYOUT_ORDER[1], Grid.PREVIEW_CELL)
-			)
+			expect(Cells.wantedCell(Grid.DEFAULT_CELL)).to.equal(Grid.DEFAULT_CELL)
+			expect(Cells.wantedCell("road")).to.equal(Grid.DEFAULT_CELL)
+			expect(Cells.wantedCell(nil)).to.equal(Grid.DEFAULT_CELL)
+			expect(Cells.wantedCell("Z9")).to.equal(Grid.DEFAULT_CELL)
+			-- THE TRIPWIRE FLIPPED AT TASK 327d, AS THE 337 CASE SAID IT WOULD: the rotation deals
+			-- cells, so the fallback is no longer reachable from it. The rest of that proof lives in
+			-- "the switch" above.
+			expect(Grid.cellOf(Forest.LAYOUT_ORDER[1])).to.be.ok()
+			TestKit.note(string.format("wantedCell: rotation deals %s -> no fallback", Forest.LAYOUT_ORDER[1]))
 		end)
 
 		-- `plan` IS PURE: two lists and a string in, a plan out. Every branch, with no Instance work

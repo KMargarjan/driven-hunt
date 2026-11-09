@@ -18,16 +18,21 @@ return function()
 	local TreeGround = require(ReplicatedStorage:WaitForChild("TreeGround"))
 
 	-- ---------------------------------------------------------------- the four places exist
+	--
+	-- **EVERY CASE IN THIS FILE LOOPS `Forest.LINE_PLACES` AND NOT `LAYOUT_ORDER` SINCE TASK 327d.**
+	-- The rotation deals grid cells now and these four places are archived DATA (rule 7, grid-map.md
+	-- D-4): reachable with `DHForestLayout=road`, and every number in their plans still asserted
+	-- here, which is what makes that rollback real rather than hoped for.
 
 	describe("the four places", function()
 		it("dresses every layout that is not the road, and dresses the road with nothing", function()
 			-- KAREN ASKED FOR FOUR (2026-10-15). Three of them are planted; `road` is task 179's
 			-- world kept number for number (BRIEF decision 3), so it has no plan at all -- and that
 			-- absence is asserted, not assumed.
-			expect(#Forest.LAYOUT_ORDER).to.equal(4)
+			expect(#Forest.LINE_PLACES).to.equal(4)
 			expect(Plan.planFor("road")).to.equal(nil)
 			local dressed = 0
-			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+			for _, name in ipairs(Forest.LINE_PLACES) do
 				local plan = Plan.planFor(name)
 				if plan ~= nil then
 					dressed += 1
@@ -38,7 +43,7 @@ return function()
 				end
 			end
 			expect(dressed).to.equal(3)
-			TestKit.note(string.format("places: %s, %d dressed", table.concat(Forest.LAYOUT_ORDER, ", "), dressed))
+			TestKit.note(string.format("places: %s, %d dressed", table.concat(Forest.LINE_PLACES, ", "), dressed))
 		end)
 
 		it("gives each place the strip width its reference frame shows", function()
@@ -112,13 +117,13 @@ return function()
 			-- IT ALSO DOES THE ARITHMETIC ITSELF (round 1, finding 3): asking `Plan.inLane` alone proves
 			-- only that the planner called its own predicate.
 			local checked, worst, worstPair = 0, math.huge, "-"
-			for _, from in ipairs(Forest.LAYOUT_ORDER) do
+			for _, from in ipairs(Forest.LINE_PLACES) do
 				local plan = Plan.planFor(from)
 				local grown = Forest.layoutNamed(from)
 				if plan ~= nil and grown ~= nil then
 					for _, item in ipairs(Plan.plant(grown, plan)) do
 						checked += 1
-						for _, against in ipairs(Forest.LAYOUT_ORDER) do
+						for _, against in ipairs(Forest.LINE_PLACES) do
 							local other = Forest.layoutNamed(against)
 							local clear = Plan.laneHalfWidth(Plan.planFor(against))
 							local gap = math.abs(item.z - Forest.roadZ(item.x, other))
@@ -137,7 +142,7 @@ return function()
 				string.format(
 					"%d plantings x %d layouts, tightest margin %.1f studs (%s)",
 					checked,
-					#Forest.LAYOUT_ORDER,
+					#Forest.LINE_PLACES,
 					worst,
 					worstPair
 				)
@@ -154,12 +159,12 @@ return function()
 			expect(Plan.LANE_STUDS).to.equal(Forest.PICK.standRadiusStuds)
 			local radius = Forest.PICK.standRadiusStuds
 			local worst, worstAt = math.huge, "-"
-			for _, from in ipairs(Forest.LAYOUT_ORDER) do
+			for _, from in ipairs(Forest.LINE_PLACES) do
 				local plan = Plan.planFor(from)
 				local grown = Forest.layoutNamed(from)
 				if plan ~= nil and grown ~= nil then
 					local list = Plan.plant(grown, plan)
-					for _, against in ipairs(Forest.LAYOUT_ORDER) do
+					for _, against in ipairs(Forest.LINE_PLACES) do
 						local other = Forest.layoutNamed(against)
 						for index = 1, other.standCount do
 							local stand = Forest.standPosition(index, other)
@@ -215,7 +220,7 @@ return function()
 			-- THE BOUND IS KNOWN BEFORE ANYTHING IS CLONED, which is what stops a density tweak
 			-- quietly becoming a twenty-thousand-part world.
 			local total = 0
-			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+			for _, name in ipairs(Forest.LINE_PLACES) do
 				local plan = Plan.planFor(name)
 				local layout = Forest.layoutNamed(name)
 				if plan ~= nil and layout ~= nil then
@@ -234,7 +239,7 @@ return function()
 			-- THE GRADED EDGE (`Krautsaum`, `Strauchmantel`, `Baummantel`): the band nearest the
 			-- strip must be the SMALL one, in every place. This is what makes ref-5's young pines and
 			-- ref-1's young firs come out of the same table.
-			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+			for _, name in ipairs(Forest.LINE_PLACES) do
 				local plan = Plan.planFor(name)
 				if plan ~= nil then
 					expect(plan.shrubScale[2] <= plan.woodScale[1]).to.equal(true)
@@ -279,7 +284,7 @@ return function()
 					known[name] = true
 				end
 			end
-			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+			for _, name in ipairs(Forest.LINE_PLACES) do
 				local plan = Plan.planFor(name)
 				local layout = Forest.layoutNamed(name)
 				if plan ~= nil and layout ~= nil then
@@ -289,7 +294,7 @@ return function()
 				end
 			end
 			-- ...and every GROUP a band draws from has to exist too.
-			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+			for _, name in ipairs(Forest.LINE_PLACES) do
 				local plan = Plan.planFor(name)
 				if plan ~= nil then
 					for _, band in ipairs({ "herb", "shrub", "wood", "deep" }) do
@@ -306,7 +311,7 @@ return function()
 			-- two trees in adjacent cells could land 5 studs apart while a trunk flare is up to 13.6
 			-- studs across. The spec builds its OWN grid rather than calling the planner's helper, so a
 			-- broken `tooClose` cannot agree with itself.
-			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+			for _, name in ipairs(Forest.LINE_PLACES) do
 				local plan = Plan.planFor(name)
 				local layout = Forest.layoutNamed(name)
 				if plan ~= nil and layout ~= nil then
@@ -344,7 +349,7 @@ return function()
 			-- x 4245..5355 against a plot measured over 820 studs. An unsurveyed strip is where an
 			-- existing `Session` bush could be standing, and "every tree is on the ground" must not be
 			-- claimed over ground nobody looked at.
-			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+			for _, name in ipairs(Forest.LINE_PLACES) do
 				local plan = Plan.planFor(name)
 				local layout = Forest.layoutNamed(name)
 				if plan ~= nil and layout ~= nil then
@@ -362,7 +367,7 @@ return function()
 			-- is how far north a resting spot may be, and `restSpot` only accepts one whose nearest solid
 			-- thing is within `nearTrunkStuds`. A belt that stops short of `farRoadStuds` leaves the far
 			-- half of the resting wood with no trunk in it at all -- i.e. no legal spot.
-			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+			for _, name in ipairs(Forest.LINE_PLACES) do
 				local plan = Plan.planFor(name)
 				if plan ~= nil and plan.northBeltStuds > 0 then
 					expect(Forest.REST.farRoadStuds <= plan.northBeltStuds - Plan.LANE_STUDS).to.equal(true)
@@ -376,11 +381,11 @@ return function()
 			-- place's painted track, which is the one thing design 10.2 raised the belt to 640 to prevent.
 			-- The cut line moved 40 studs south (z -4540), the only candidate that keeps a 400-stud sight
 			-- line at every stand.
-			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+			for _, name in ipairs(Forest.LINE_PLACES) do
 				local layout = Forest.layoutNamed(name)
 				if layout ~= nil and Plan.planFor(name) ~= nil then
 					local musterZ = layout.centre.Z + Forest.beaterNorthStuds()
-					for _, against in ipairs(Forest.LAYOUT_ORDER) do
+					for _, against in ipairs(Forest.LINE_PLACES) do
 						if against ~= name then
 							local other = Forest.layoutNamed(against)
 							local clear = Plan.laneHalfWidth(Plan.planFor(against))
@@ -939,7 +944,7 @@ return function()
 				track = Enum.Material.Ground, -- karen-ref-1 is a brown dirt track under leaves
 			}
 			local painted, bare = 0, 0
-			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+			for _, name in ipairs(Forest.LINE_PLACES) do
 				local layout = Forest.layoutNamed(name)
 				local surface = Plan.surfaceFor(name)
 				table.clear(calls)
@@ -995,7 +1000,7 @@ return function()
 			--
 			-- IT SAMPLES THE LINE AND ASKS WHETHER ANY PAINTED REGION HOLDS IT, which the material case
 			-- cannot: that one checks material, resolution and grid alignment, all of which were right.
-			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+			for _, name in ipairs(Forest.LINE_PLACES) do
 				local surface = Plan.surfaceFor(name)
 				local layout = Forest.layoutNamed(name)
 				if surface ~= nil and layout ~= nil then

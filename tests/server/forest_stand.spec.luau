@@ -23,6 +23,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
+local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
 local Data = require(ReplicatedStorage:WaitForChild("ForestTest"))
 local ForestTest = require(ServerScriptService:WaitForChild("ForestTest"))
 local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
@@ -35,57 +36,92 @@ return function()
 	-- for beaters / we will make view for hunter from different places and diffretent tree lines road
 	-- ect like in real life"*.
 	--
-	-- EVERY CASE IN HERE LOOPS `LAYOUT_ORDER`, which is the point of it: the thing that must not
-	-- happen is somebody adding a fourth layout whose stands are inside a hill or whose exit is north
-	-- of its own line. These assertions fail on a bad layout rather than shipping it.
+	-- EVERY CASE IN HERE LOOPS `EVERY` BELOW, which is the point of it: the thing that must not
+	-- happen is somebody adding a layout whose stands are inside a hill or whose exit is north of its
+	-- own line. These assertions fail on a bad layout rather than shipping it.
+	--
+	-- **SINCE TASK 327d `EVERY` IS THE ROTATION'S SEVEN CELLS PLUS THE FOUR ARCHIVED LINE PLACES.**
+	-- The rotation deals cells; the four are reachable with `DHForestLayout=road` (rule 7,
+	-- grid-map.md D-4), so their numbers stay asserted here -- which is what makes that rollback real
+	-- rather than hoped for -- and the cells get the same geometry assertions for the first time.
 	-- Design: docs/design/drive-layouts.md (section 9.1)
 	-- Note:   docs/research/2026-10-14-drive-layouts.md
+	-- EVERY NAME THE GAME CAN DEAL OR FORCE. Built once, from the two lists and never a literal.
+	local EVERY: { string } = Data.layoutNames()
+	for _, archived in ipairs(Data.LINE_PLACES) do
+		table.insert(EVERY, archived)
+	end
+
 	describe("the drive layouts", function()
 		it("ships more than one place to stand, and names them once", function()
 			expect(#Data.LAYOUT_ORDER >= 1).to.equal(true)
 			local seen = {}
-			for _, name in ipairs(Data.LAYOUT_ORDER) do
+			for _, name in ipairs(EVERY) do
 				expect(seen[name]).to.equal(nil)
 				seen[name] = true
-				local layout = Data.layoutNamed(name)
+				local layout = Data.layoutOf(name)
 				expect(layout).to.be.ok()
 				-- The key and the record agree, so a published string can never name a layout whose
 				-- own `name` is a different one.
 				expect((layout :: any).name).to.equal(name)
 				expect(type((layout :: any).label)).to.equal("string")
 			end
-			-- ...AND EVERY LAYOUT IN THE TABLE IS IN THE ORDER. A layout the rotation never deals is a
-			-- layout Karen cannot judge, which is the whole reason the choice deals every place once per cycle.
+			-- ...AND EVERY NAME THE ROTATION DEALS RESOLVES, which is the property that matters: a
+			-- layout the rotation deals and nothing can resolve is a drive with no ground.
+			for _, name in ipairs(Data.LAYOUT_ORDER) do
+				expect(seen[name]).to.equal(true)
+				expect(Data.layoutOf(name)).to.be.ok()
+			end
+			-- ...AND EVERY ARCHIVED ROW IS STILL REACHABLE (rule 7). It is no longer in the rotation,
+			-- so what keeps it honest is that `LAYOUTS` and `LINE_PLACES` are the same four.
 			for name in pairs(Data.LAYOUTS) do
+				expect(table.find(Data.LINE_PLACES, name)).to.be.ok()
 				expect(seen[name]).to.equal(true)
 			end
+			expect(#Data.LINE_PLACES).to.equal(4)
 			expect(Data.layoutNamed("clearing")).to.equal(nil)
 			expect(Data.layoutNamed(nil)).to.equal(nil)
 			expect(Data.layoutNamed(42 :: any)).to.equal(nil)
-			TestKit.note(string.format("layouts: %s", table.concat(Data.LAYOUT_ORDER, ", ")))
+			TestKit.note(string.format("rotation: %s", table.concat(Data.LAYOUT_ORDER, ", ")))
+			TestKit.note(string.format("archived: %s", table.concat(Data.LINE_PLACES, ", ")))
 		end)
 
 		it("puts every layout's stands on its own line, sorted, at its own spacing", function()
-			for _, name in ipairs(Data.LAYOUT_ORDER) do
-				local layout = Data.layoutNamed(name) :: any
+			-- **THE UNIFORM GRID IS A LINE PLACE'S PROPERTY (task 327d).** A grid cell's 15 stands sit
+			-- on THREE sides of it -- 7 on the main line at 150 and 4 on each flank at 220 -- so they
+			-- are neither evenly spaced nor all on the main line, and `grid.spec`'s own cases assert
+			-- the cell's shape. What holds of every layout is that the one `standPosition` answers
+			-- the point `standX` names and that the whole set is inside the layout's span.
+			for _, name in ipairs(EVERY) do
+				local layout = Data.layoutOf(name) :: any
 				local span = Data.standSpan(layout)
+				local onOneLine = layout.sides == nil
 				local previous = nil
 				for index = 1, layout.standCount do
 					local x = Data.standX(index, layout)
 					local at = Data.standPosition(index, layout)
-					-- ON THE LINE: the z is read off `roadZ` and nowhere else. 1e-3 for the float32
-					-- reason the road's own case above measures.
-					expect(math.abs(at.Z - Data.roadZ(x, layout)) < 1e-3).to.equal(true)
-					expect(at.X >= span.minX - 1e-6 and at.X <= span.maxX + 1e-6).to.equal(true)
-					if previous ~= nil then
-						expect(math.abs((x - previous) - layout.standSpacing) < 1e-6).to.equal(true)
+					expect(math.abs(at.X - x) < 1e-3).to.equal(true)
+					if onOneLine then
+						-- INSIDE THE LAYOUT'S SPAN. `standSpan` is the MAIN line's span, so it bounds
+						-- a line place's every stand -- but a cell's flank stands stand on its east
+						-- and west roads, which is the span's own edge and past it once the
+						-- north-south bend is added (`grid.spec` bounds them against the cell).
+						expect(at.X >= span.minX - 1e-6 and at.X <= span.maxX + 1e-6).to.equal(true)
+						-- ON THE LINE: the z is read off `roadZ` and nowhere else. 1e-3 for the
+						-- float32 reason the road's own case above measures.
+						expect(math.abs(at.Z - Data.roadZ(x, layout)) < 1e-3).to.equal(true)
+						if previous ~= nil then
+							expect(math.abs((x - previous) - layout.standSpacing) < 1e-6).to.equal(true)
+						end
 					end
 					previous = x
 				end
 				-- The middle index sits exactly on the layout's centre.
-				expect(math.abs(Data.standX((layout.standCount + 1) / 2, layout) - layout.centre.X) < 1e-6).to.equal(
-					true
-				)
+				if onOneLine then
+					expect(math.abs(Data.standX((layout.standCount + 1) / 2, layout) - layout.centre.X) < 1e-6).to.equal(
+						true
+					)
+				end
 				-- A STRAIGHT LAYOUT IS FLAT AT EVERY x and a curved one is not, which is what makes
 				-- "amplitude 0 is a straight line, one shape and not two" a checked claim.
 				local flat = true
@@ -99,20 +135,23 @@ return function()
 		end)
 
 		it("starts the beaters behind the animals and north of every stand, in every layout", function()
-			for _, name in ipairs(Data.LAYOUT_ORDER) do
-				local layout = Data.layoutNamed(name) :: any
+			for _, name in ipairs(EVERY) do
+				local layout = Data.layoutOf(name) :: any
 				local span = Data.standSpan(layout)
 				for index = 1, layout.standCount do
 					local x = Data.standX(index, layout)
 					local start = Data.beaterStart(x, 0, layout)
-					-- NORTH OF THE LINE BY THE SAME 580 IN EVERY LAYOUT, which is what keeps a drive
-					-- the ~120 s task 162 measured whichever layout is dealt.
-					expect(math.abs((start.Z - Data.roadZ(x, layout)) - Data.beaterNorthStuds()) < 1e-3).to.equal(true)
+					-- NORTH OF THE LINE BY **THAT LAYOUT'S OWN** DEPTH (task 327d): a cell carries its
+					-- own 1,430 and the four archived places share 580, and the one reader is asked
+					-- with the layout rather than without it.
+					expect(math.abs((start.Z - Data.roadZ(x, layout)) - Data.beaterNorthStuds(layout)) < 1e-3).to.equal(
+						true
+					)
 					expect(start.Z > Data.roadZ(x, layout)).to.equal(true)
 				end
 				-- ...AND BEHIND THE ANIMALS THE DRIVE RELEASES, which is the reason task 153 gave
 				-- the number and is now a checked CONSEQUENCE rather than the reason.
-				expect(Data.beaterNorthStuds() > Data.LINE.spawnNorthStuds).to.equal(true)
+				expect(Data.beaterNorthStuds(layout) > Data.LINE.spawnNorthStuds).to.equal(true)
 				-- THE EXIT IS SOUTH OF EVERY POINT OF THE LINE, by the margin the world states. The
 				-- old `EXIT_Z` constant was -2377, which is NORTH of the ride's line at -2600: a
 				-- boar there would have been despawned before it reached the hunters.
@@ -123,47 +162,55 @@ return function()
 			end
 		end)
 
-		it("gives every layout one walk, because no layout may carry a depth of its own", function()
-			-- WHAT THIS CASE IS ABOUT IS THAT EVERY LAYOUT GETS THE SAME NUMBER, and that is why the
-			-- quotient is asserted against `ForestTest.slotSeconds` rather than against a constant:
-			-- the figure was 120 s until task 251 part 2 and is 193.5 s after it (the Director's
-			-- ~210-second drive, measured at 210.2 s and 210.7 s on the ground), and a case pinned to
-			-- a literal would have to be edited every time the Director turns the drive's length --
-			-- which is a dial Karen is expected to move.
+		it("gives every dealt layout a walk that outlasts the drive script and fits the clock", function()
+			-- **TASK 327d INVERTED THIS CASE'S CLAIM, AND THE TITLE SAYS SO.** It asserted that NO
+			-- layout carries a depth of its own, because the four line places shared 580 studs. Every
+			-- drive is dealt in a grid CELL now and a cell's depth IS its own (1,430), so what has to
+			-- hold per layout is the two things the number is FOR: the drive script finishes before
+			-- the line arrives, and the line arrives before the clock runs out.
 			local Bots = require(ServerScriptService:WaitForChild("Bots"))
 			local Match = require(ServerScriptService:WaitForChild("Match"))
 			local past = Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS
-			local seconds = (Data.beaterNorthStuds() + past) / Bots.CONFIG.WALK_SPEED
-			-- THE WALK HAS TO OUTLAST THE SCRIPT, which is the whole of part 1's escalation: a drive
-			-- ends when the line arrives, so every one of the fifteen slots has to be due before it.
-			-- The flat quotient understates the real walk by the measured 1.081 (the hill, the trunks
-			-- and the side-steps), so asserting against the FLAT figure is the strict direction.
-			--
-			-- **IT IS A TRIPWIRE AND NOT A BAND**, said plainly (review round 2's note): 193.5 against
-			-- 192 is 1.5 s of margin on the flat quotient, and the ground adds a measured 1.081 on top
-			-- -- so the real margin is ~18 s and the flat one is nearly nothing. Anybody who widens
-			-- `SCHEDULE.intervalSeconds` trips this, which is the point; anybody who NARROWS it (the
-			-- escalation's recommendation, 13 -> 9) buys room. It is the FLAT figure deliberately,
-			-- because that is the strict direction.
-			expect(seconds > Data.slotSeconds(#Data.SCHEDULE.drive)).to.equal(true)
-			-- ...AND IT IS THE SAME IN EVERY LAYOUT, which is this case's own claim, asserted by ASKING
-			-- EACH LAYOUT: `beaterNorthStuds` takes no layout argument -- that is the whole reason the
-			-- number cannot differ -- so what a per-layout check can still catch is a layout that grew
-			-- a depth of its own, which is exactly what the title warns about.
+			local lastSlot = Data.slotSeconds(#Data.SCHEDULE.drive)
 			for _, name in ipairs(Data.LAYOUT_ORDER) do
-				local one = Data.layoutNamed(name) :: any
-				expect(one).to.be.ok()
-				expect(one.beaterNorthStuds).to.equal(nil)
-				expect(one.behindLineStuds).to.equal(nil)
+				local layout = Data.layoutOf(name) :: any
+				local seconds = (Data.beaterNorthStuds(layout) + past) / Bots.CONFIG.WALK_SPEED
+				-- THE WALK OUTLASTS THE SCRIPT (task 251 part 2's escalation): a drive ends when the
+				-- line arrives, so all fifteen slots must be due before it. The flat quotient
+				-- understates the real walk by the measured 1.081, so the flat figure is strict.
+				expect(seconds > lastSlot).to.equal(true, string.format("%s: %.0f s walk", name, seconds))
+				-- ...AND THE LINE ARRIVES BEFORE THE CLOCK, or `END_ON_BEATERS_CROSS` never fires and
+				-- Karen's *"once I am driver ended with line I wait untile hunt ends? its shit
+				-- boring"* is every drive (TASKS.md 327b-notes (a)).
+				expect(seconds < Data.DRIVE.seconds).to.equal(true, string.format("%s: %.0f s walk", name, seconds))
+				TestKit.note(
+					string.format(
+						"%s: the bot line walks %d + %d studs at %.1f studs/s = %.0f s flat (x1.081 on the ground"
+							.. " = %.0f s) against a %d s clock, last slot due %.0f s",
+						name,
+						Data.beaterNorthStuds(layout),
+						past,
+						Bots.CONFIG.WALK_SPEED,
+						seconds,
+						seconds * 1.081,
+						Data.DRIVE.seconds,
+						lastSlot
+					)
+				)
 			end
-			expect(seconds < Data.DRIVE.seconds).to.equal(true)
+			-- **WHAT THE FOUR ARCHIVED PLACES NOW COST, SAID AND NOT ASSERTED (rule 8).** They share
+			-- 580 studs, so at 5.2 studs/s a forced `DHForestLayout=road` drive's line arrives in
+			-- ~115 s -- BEFORE the drive script's last slot. The rollback is the geometry, and this is
+			-- the second thing it no longer carries (the first is its planted wood). Not a failure
+			-- here, because nothing in the game deals them.
+			local archived = (Data.beaterNorthStuds(Data.ROAD_LAYOUT) + past) / Bots.CONFIG.WALK_SPEED
+			expect(archived < lastSlot).to.equal(true)
 			TestKit.note(
 				string.format(
-					"layouts: the bot line walks %d + %d studs at %.1f studs/s = %.1f s in every layout",
-					Data.beaterNorthStuds(),
-					past,
-					Bots.CONFIG.WALK_SPEED,
-					seconds
+					"ARCHIVED line places: %.0f s walk against a last slot due %.0f s -- a forced rollback"
+						.. " drive ends before its script does",
+					archived,
+					lastSlot
 				)
 			)
 		end)
@@ -172,8 +219,8 @@ return function()
 			-- TASK 172's property, asked per layout because the band depth is derived from the LANE
 			-- SPACING and the spacing is now the layout's: a notice band narrower than the flush band
 			-- would mean animals that bolt without ever having been seen to stand.
-			for _, name in ipairs(Data.LAYOUT_ORDER) do
-				local layout = Data.layoutNamed(name) :: any
+			for _, name in ipairs(EVERY) do
+				local layout = Data.layoutOf(name) :: any
 				local notice = Data.noticeAheadStuds(nil, layout)
 				local flush = Data.sweepAheadStuds(nil, layout)
 				expect(notice > flush).to.equal(true)
@@ -212,7 +259,13 @@ return function()
 			expect(field.bounds.minZ).to.equal(-2477)
 			expect(field.bounds.maxZ).to.equal(-1197)
 			expect(Data.DEFAULT_LAYOUT).to.equal("road")
-			expect(Data.LAYOUT_ORDER[1]).to.equal("road")
+			-- **THE ROLLBACK IS NO LONGER `LAYOUT_ORDER[1]` (task 327d).** The rotation deals the
+			-- grid's planted cells, and the road is reached with the Director's `DHForestLayout`
+			-- attribute instead of a commit -- which is a smaller rollback, not a lost one. What makes
+			-- it real is the eleven numbers above, which still hold value for value.
+			expect(Data.LAYOUT_ORDER[1]).to.equal(Grid.PLANTED_CELLS[1])
+			expect(Data.layoutNamed(Data.LAYOUT_ORDER[1])).to.equal(nil)
+			expect(ForestTest.forcedLayout("road")).to.equal("road")
 		end)
 
 		it("freezes the table, so nothing can rewrite a layout at run time", function()
@@ -273,7 +326,7 @@ return function()
 			expect(Data.nextLayout(nil)).to.equal(Data.LAYOUT_ORDER[1])
 			expect(Data.nextLayout("clearing")).to.equal(Data.LAYOUT_ORDER[1])
 			for _, bad in ipairs({ "", "ROAD", "road " }) do
-				expect(Data.layoutNamed(Data.nextLayout(bad))).to.be.ok()
+				expect(Data.layoutOf(Data.nextLayout(bad))).to.be.ok()
 			end
 		end)
 	end)
@@ -318,7 +371,7 @@ return function()
 			-- 1. a FORCED drive, then a rotated one: the rotated one must be the place that follows
 			--    the last ROTATED place, not the one that follows the forced name.
 			local rotated = ForestTest.layoutForDrive(900, nil)
-			expect(Data.layoutNamed(rotated)).to.be.ok()
+			expect(Data.layoutOf(rotated)).to.be.ok()
 			expect(ForestTest.stats().layoutSource).to.equal("rotation")
 			local forced = nil
 			for _, name in ipairs(order) do
@@ -343,7 +396,7 @@ return function()
 			-- second while `Waiting`, so a promoter that dealt on every call would move the ground
 			-- under a hunter standing on it.
 			local first = ForestTest.layoutForDrive(1, nil)
-			expect(Data.layoutNamed(first)).to.be.ok()
+			expect(Data.layoutOf(first)).to.be.ok()
 			for _ = 1, 5 do
 				expect(ForestTest.layoutForDrive(1, nil)).to.equal(first)
 			end
@@ -359,7 +412,7 @@ return function()
 			expect(ForestTest.stats().layoutSource).to.equal("override")
 			-- A name nobody knows does not stop the drive: it deals normally and says so.
 			local dealt = ForestTest.layoutForDrive(3, "clearing")
-			expect(Data.layoutNamed(dealt)).to.be.ok()
+			expect(Data.layoutOf(dealt)).to.be.ok()
 			expect(ForestTest.stats().layoutSource).to.equal("rotation")
 			TestKit.note(
 				string.format("layouts: drive 1 dealt %s, drive 3 dealt %s after a bad override", first, dealt)
@@ -378,7 +431,7 @@ return function()
 			-- 12-stud circle -- and `ForestTest.boundary` rewrote his `CFrame` onto the road's circle
 			-- every Heartbeat. He could not stand where he was placed.
 			for _, name in ipairs(Data.LAYOUT_ORDER) do
-				local layout = Data.layoutNamed(name) :: any
+				local layout = Data.layoutOf(name) :: any
 				local index = math.min(3, layout.standCount)
 				local home = Data.standPosition(index, layout)
 				-- ON his stand: inside the circle, and no wall.
@@ -412,7 +465,7 @@ return function()
 				return
 			end
 			local name = alternatives[1]
-			local layout = Data.layoutNamed(name) :: any
+			local layout = Data.layoutOf(name) :: any
 			ForestTest.layoutForDrive(400, name)
 			expect(ForestTest.layoutName()).to.equal(name)
 			local index = math.min(3, layout.standCount)
@@ -475,7 +528,7 @@ return function()
 				ForestTest.start(fake, 0)
 				expect(#given >= 1).to.equal(true)
 				local field = given[#given]
-				local layout = Data.layoutNamed(name)
+				local layout = Data.layoutOf(name)
 				expect(field.exitZ).to.equal(Data.exitZOf(layout))
 				expect(field.bounds.minX).to.equal(Data.boundsOf(layout).minX)
 				expect(field.bounds.maxZ).to.equal(Data.boundsOf(layout).maxZ)
@@ -559,7 +612,7 @@ return function()
 			expect(live:GetAttribute(Data.LAYOUT_ATTRIBUTE)).to.equal(Data.DEFAULT_LAYOUT)
 			-- ...and the published name is always one the client can resolve, which is what stops the
 			-- "no map rather than a wrong map" rule from meaning "no map, ever".
-			expect(Data.layoutNamed(live:GetAttribute(Data.LAYOUT_ATTRIBUTE))).to.be.ok()
+			expect(Data.layoutOf(live:GetAttribute(Data.LAYOUT_ATTRIBUTE))).to.be.ok()
 		end)
 
 		it("refuses a pick the live layout does not have", function()
@@ -568,11 +621,11 @@ return function()
 			-- `standArea`, `boundary` and `hunterStandX` would all believe.
 			local shortest = Data.LAYOUT_ORDER[1]
 			for _, name in ipairs(Data.LAYOUT_ORDER) do
-				if (Data.layoutNamed(name) :: any).standCount < (Data.layoutNamed(shortest) :: any).standCount then
+				if (Data.layoutOf(name) :: any).standCount < (Data.layoutOf(shortest) :: any).standCount then
 					shortest = name
 				end
 			end
-			local small = Data.layoutNamed(shortest) :: any
+			local small = Data.layoutOf(shortest) :: any
 			ForestTest.layoutForDrive(90, shortest)
 			expect(ForestTest.layoutName()).to.equal(shortest)
 
@@ -877,9 +930,12 @@ return function()
 			-- `Body.placementFor`'s modulo put the hunter on whichever post happened to be last.
 			-- Unreachable with bots, reachable with six real hunters. This case asks every layout,
 			-- which the old one -- looping the road's count only -- could not.
+			-- **`EVERY` AND NOT THE ROTATION (task 327d):** every grid cell carries 15 stands, an ODD
+			-- count, so the rotation alone could not reach the even-count branch this case exists for.
+			-- The archived `track` has 6, and it is still forceable.
 			local even = 0
-			for at, name in ipairs(Data.LAYOUT_ORDER) do
-				local layout = Data.layoutNamed(name) :: any
+			for at, name in ipairs(EVERY) do
+				local layout = Data.layoutOf(name) :: any
 				-- A NEW DRIVE KEY EVERY TIME, because the deal is idempotent per drive number: the
 				-- first version of this case keyed on the even-count counter, so two layouts shared
 				-- a key and the second was never promoted. The gate caught it.

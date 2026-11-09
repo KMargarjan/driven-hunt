@@ -36,6 +36,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
+-- THE BEATER WALK IS THE CELL'S OWN NUMBER (task 327d): `Grid.CONFIG.beaterWalkStudsPerSecond`.
+local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
 
 local Fill = require(script.Fill)
 local Lane = require(script.Lane)
@@ -121,7 +123,17 @@ Bots.CONFIG = {
 	-- line, because *"all beaters cross"* is the line and not the first of it. **That wait is what
 	-- this change makes longer**, and it is the one cost of it: ~3 minutes instead of ~1.5. Said here
 	-- rather than discovered in a playtest (rule 8).
-	WALK_SPEED = 3.1, -- K
+	-- **TASK 327d TOOK IT TO `Grid.CONFIG.beaterWalkStudsPerSecond` 5.2, AND THE ARITHMETIC IS WHY.**
+	-- Every drive is dealt in a grid CELL now, and a cell's `beaterNorthStuds` is its own depth,
+	-- 1,430 studs, against the road's 580. At 3.1 that walk is (1430 + 20) / 3.1 = **468 s** against
+	-- `ForestTest.DRIVE.seconds` 300: `END_ON_BEATERS_CROSS` could never fire and Karen's *"once I am
+	-- driver ended with line I wait untile hunt ends? its shit boring"* would be every drive.
+	-- At 5.2 it is **279 s** flat (TASKS.md 327b-notes (a); grid-map.md 4.3 solves 1430 / 5.2 = 275).
+	-- 1.46 m/s is the top of the man-walking band rather than the 0.87 m/s advance 3.1 modelled, and
+	-- that is the stated cost: a cell is 2.5x the road's depth and the clock did not grow with it.
+	-- **THE NUMBER IS READ, NOT COPIED**: one owner (`Grid.CONFIG`) holds it, the design solves the
+	-- clock against it, and `bots_lane.spec` asserts the quotient against `DRIVE.seconds`.
+	WALK_SPEED = Grid.CONFIG.beaterWalkStudsPerSecond, -- K, via the grid's own cell depth
 	-- THIS SYSTEM'S OWN CLOCK, declared rather than discovered. The drive's is 4
 	-- (`MATCH_STEP_HZ`) and the boar runtime has its own; this is a third.
 	STEP_HZ = 5,

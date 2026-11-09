@@ -254,8 +254,10 @@ return function()
 			local checks = 0
 			local worstCorridor, worstBounds = math.huge, math.huge
 			local exits = {}
+			-- `layoutOf` SINCE TASK 327d: the rotation holds cell ids, and a cell's corridor and
+			-- bounds are 2.5x the road's depth -- which is exactly the geometry this case guards.
 			for _, name in ipairs(ForestTest.LAYOUT_ORDER) do
-				local layout = ForestTest.layoutNamed(name)
+				local layout = ForestTest.layoutOf(name)
 				table.insert(exits, string.format("%s exitZ %.0f", name, ForestTest.exitZOf(layout)))
 				-- The ground a drive happens on: the stands' span, from the exit to the beaters'
 				-- start. Nobody stands, walks or is placed outside it.
@@ -289,7 +291,7 @@ return function()
 					checks += 1
 				end
 			end
-			-- Four layouts times three rectangles, and the number is asserted rather than assumed.
+			-- Every dealt layout times three rectangles, and the number is asserted, not assumed.
 			expect(checks).to.equal(#ForestTest.LAYOUT_ORDER * #rects)
 			TestKit.note(
 				string.format(

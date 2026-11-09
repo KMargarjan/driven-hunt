@@ -729,19 +729,13 @@ REWRITES.update({
         ('local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))',
          "local Forest = INJECTED_Forest"),
         ('local Grid = require(ReplicatedStorage:WaitForChild("Grid"))', "local Grid = INJECTED_Grid"),
-        ('local Flags = require(ReplicatedStorage:WaitForChild("Flags"))',
-         "local Flags = INJECTED_Flags"),
     ],
 })
 
-# `Flags` IS 71 KB AND THE PREBUILD NEVER ASKS IT ANYTHING. `Places.gridPreviewEnabled` is its only
-# reader and `dressCell` is not downstream of it, so the stub ERRORS on every access -- which PROVES
-# the claim instead of stating it: if the prebuild ever read a flag, the run would stop here.
-FLAGS_STUB = """local INJECTED_Flags = setmetatable({}, {
-    __index = function(_, key)
-        error("the injected Flags stub answers nothing: the prebuild read " .. tostring(key), 0)
-    end,
-})"""
+# `Flags` IS GONE FROM THE INJECTION (task 327d). `Places.gridPreviewEnabled` was its only reader and
+# `GRID_PREVIEW` is retired, so `src/server/Places/init.luau` requires no flag at all -- which is a
+# stronger statement than the erroring stub that used to prove it, and the `prelude` selftest below
+# asserts the require is absent rather than rewritten.
 
 # THE GROUND READER IS CUT OUT OF `src/server/ForestTest/init.luau`, NEVER RETYPED HERE. That module
 # is 242 KB and pulls `Boar`, `HighSeats`, `Data`, `Line`, `Markers` and `Seats` behind it, so it
@@ -787,7 +781,7 @@ def terrain_reader():
 def plant_prelude():
     """(luau, {name: sha256}) -- the planter's chain as locals, in dependency order."""
     reader, reader_sha = terrain_reader()
-    parts = [SHOTGUN_STUB % shotgun_slug_range(), FLAGS_STUB,
+    parts = [SHOTGUN_STUB % shotgun_slug_range(),
              'local Workspace = game:GetService("Workspace")', reader]
     shas = {"Shotgun": hashlib.sha256(open(SHOTGUN_LUAU, "rb").read()).hexdigest(),
             "terrainYAt": reader_sha}
@@ -3407,11 +3401,12 @@ def selftest():
     ok("the plant prelude carries NO TerrainBake and the bake prelude carries NO Planter -- "
        "neither command pays for the other's modules",
        "INJECTED_TerrainBake" not in plant_sent and "INJECTED_Planter" not in prelude()[0])
-    # THE FLAGS STUB IS THE CLAIM "the prebuild reads no flag", MADE FAILABLE: it errors on every
-    # access, so the one reader (`Places.gridPreviewEnabled`) can only be reached by a call that is
-    # not in the prebuild's path.
-    ok("the injected Flags stub errors on every access rather than answering a default",
-       "error(" in FLAGS_STUB and "__index" in FLAGS_STUB and "false" not in FLAGS_STUB)
+    # "THE PREBUILD READS NO FLAG" IS NOW A FACT ABOUT THE SOURCE, not a stub that would error if it
+    # did (task 327d retired `GRID_PREVIEW`, the one flag `Places` ever read).
+    ok("src/server/Places/init.luau requires no Flags, so the prebuild has no flag to stub",
+       'require(ReplicatedStorage:WaitForChild("Flags"))'
+       not in open(PLANTER_LUAU, encoding="utf-8").read()
+       and "INJECTED_Flags" not in plant_prelude()[0])
 
     reader, _ = terrain_reader()
     ok("the ground reader is CUT out of src/server/ForestTest/init.luau, not retyped here",

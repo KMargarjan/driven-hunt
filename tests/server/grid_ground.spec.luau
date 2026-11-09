@@ -376,14 +376,19 @@ return function()
 				forest.Parent = world
 				local report = Planter.build(function()
 					return 120
-				end, world, { ReplaceMaterial = function() end }, false)
+				end, world, { ReplaceMaterial = function() end })
+				-- BOTH FOLDERS SINCE TASK 327d: the rotation deals grid cells, so `DrivePlaces` is
+				-- empty and the wood this case counts stands in `GridPlaces`. The quarantine door is
+				-- `templateLookup`, which both loops go through, so the count is the same question.
 				local drawn = 0
-				local folder = world:FindFirstChild(Planter.FOLDER)
-				if folder ~= nil then
-					for _, place in ipairs(folder:GetChildren()) do
-						for _, child in ipairs(place:GetChildren()) do
-							if child.Name == victim then
-								drawn += 1
+				for _, name in ipairs({ Planter.FOLDER, Planter.GRID_FOLDER }) do
+					local folder = world:FindFirstChild(name)
+					if folder ~= nil then
+						for _, place in ipairs(folder:GetChildren()) do
+							for _, child in ipairs(place:GetChildren()) do
+								if child.Name == victim then
+									drawn += 1
+								end
 							end
 						end
 					end
@@ -469,14 +474,19 @@ return function()
 				forest.Parent = world
 				local report = Planter.build(function()
 					return 120
-				end, world, { ReplaceMaterial = function() end }, false)
+				end, world, { ReplaceMaterial = function() end })
+				-- BOTH FOLDERS SINCE TASK 327d: the rotation deals grid cells, so `DrivePlaces` is
+				-- empty and the wood this case counts stands in `GridPlaces`. The quarantine door is
+				-- `templateLookup`, which both loops go through, so the count is the same question.
 				local drawn = 0
-				local folder = world:FindFirstChild(Planter.FOLDER)
-				if folder ~= nil then
-					for _, place in ipairs(folder:GetChildren()) do
-						for _, child in ipairs(place:GetChildren()) do
-							if child.Name == victim then
-								drawn += 1
+				for _, name in ipairs({ Planter.FOLDER, Planter.GRID_FOLDER }) do
+					local folder = world:FindFirstChild(name)
+					if folder ~= nil then
+						for _, place in ipairs(folder:GetChildren()) do
+							for _, child in ipairs(place:GetChildren()) do
+								if child.Name == victim then
+									drawn += 1
+								end
 							end
 						end
 					end
