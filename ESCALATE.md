@@ -1,3 +1,49 @@
+## 2026-11-09 ~03:05 UTC, Task 327d2 -- 5.64 FIRES THE CROSSING-END, BUT NOT ON EVERY DRIVE. For the Director.
+
+**Not blocking the PR.** The pace is `docs/design/grid-map.md` 4.3's number and not the Builder's.
+
+### 1. The margin is ~5-15 s, so a slow drive still loses to the clock
+
+Five drives in Karen's Forest Test at the code commit `c61c9d48`, `[bots] ... N arrived in Xs` and
+the player-visible end line (`Phase` writes *"Drive over - the beaters are through"* only when
+`state.endedEarly`):
+
+| drive | beaters | arrived | + 15 s grace | the feed line |
+|---|---|---|---|---|
+| 1 | 4 bots | 279.8 s | 294.8 | not sampled |
+| 2 | 3 bots + a human who never walked | 285.3 s | -- | `Drive over` (**correct**: he was not across) |
+| 3 | 4 bots | 278.7 s | 293.7 | **`Drive over - the beaters are through`** |
+| 4 | 3 bots + a human placed across at ~88 s | 290.7 s | 305.7 | `Drive over` (the clock; 305.7 > 300) |
+| 5 | 4 bots | 270.6 s | 285.6 | **`Drive over - the beaters are through`** |
+
+**Every FOUR-beater drive crossed under 285 s (279.8, 278.7, 270.6) and the two sampled ended on the
+crossing. Both THREE-beater drives did not (285.3, 290.7) and both ended on the clock.** Fewer
+beaters means wider lanes, more detours (75 and 80 against 71 and 55) and ~10 s more walk, and
+`DRIVE.seconds` 300 has no room for it.
+
+**The ground factor in the dispatch is low.** 327d derived 1.051 from the FIRST of four beaters;
+`beatersThrough` needs the LAST. Measured here against the 257.1 s flat quotient: **1.053, 1.084,
+1.088, 1.110, 1.131** -- worst 1.131. To put the WORST case through by 285 s:
+`1450 * 1.131 / 285` = **5.75 studs/s** (1.61 m/s, which needs the ceiling at 1.65), or
+`DRIVE.seconds` 300 -> 315 at 5.64, which costs nothing in `Bots` and is one row.
+
+**Not taken here:** 5.64 and `DRIVE.seconds` 300 are this dispatch's own decision.
+
+### 2. "an animal got away xN" counts faster than animals are released. Possible defect, not fixed here
+
+Dispatch item 3. **It is normal in the sense that it is not this task's:** it is on at `52716ba4`
+(`<runs-dir>/327d-F1-stand-beaters.png`, x80 at 0:11 of drive 1) and at `c61c9d48`
+(`<runs-dir>/327d2-F1.png`, **x55** at 0:49 of drive 5, hunter, no shot fired). It appears in the
+first seconds of every drive and climbs: sampled in drive 5 at 1 -> x4 -> x2 -> x5 -> x8 -> x9 ->
+x11 -> x16 over 67 s.
+
+**What looks wrong is the magnitude, not the presence.** A drive releases 60 animals
+(`<runs-dir>/327d-drive.luau` read `animals=20 inC1=18` at the intermission), and x80 at **11
+seconds** of a drive exceeds everything that can have been released by then. So the counter is very
+likely counting crossings, or ticks, rather than animals -- the owner is the hunter's feed, not
+`Grid`. **Evidence only; no fix in this task** (dispatch). A control drive on `main` was not run:
+the before-frame at `52716ba4` is the baseline used instead.
+
 ## 2026-11-09 ~00:40 UTC, Task 327d -- TWO DESIGN NUMBERS, ONE MEASURED WRONG. Not blocking the PR.
 
 Both are `docs/design/`, which is not the Builder's (dispatch: *"NOT YOURS: docs/design/ -- a wrong
