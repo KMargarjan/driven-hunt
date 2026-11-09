@@ -2672,8 +2672,10 @@ end
 -- THE CELLS THAT SHARE A ROAD WITH THIS ONE, in `Grid.CELL_ORDER`, with the axis of the road between
 -- them ("x" is an east-west road, so the shared frontage is the cell's WIDTH; "z" its depth).
 --
--- IN `CELL_ORDER` AND NOT IN A COMPASS ORDER, because the skirt's random stream walks this list: a
--- fixed order is what makes a cell's skirt the same list every time (design 4.6).
+-- IN `CELL_ORDER` AND NOT IN A COMPASS ORDER. **IT IS NO LONGER THE SKIRT'S WALKER** (task 337c):
+-- `Places.skirtSides` is, because the skirt crosses the grid's outer edges too, where there is no
+-- neighbour cell to list. Kept as the one answer to "which cells share a road with this one", with
+-- no caller in `src/` or `tests/` today.
 function Places.neighboursOf(cellId: string): { { id: string, axis: string } }
 	local cell = Grid.cellOf(cellId)
 	local out: { { id: string, axis: string } } = {}
@@ -3139,8 +3141,8 @@ function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?
 	local skirtRng = Random.new(Grid.seedFor(cellId, Places.CELL_STREAM.skirt))
 	for _, side in ipairs(Places.skirtSides(cellId)) do
 		-- THE GROUND'S CELL OWNS THE ROADS, THE STANDS AND THE CORRIDORS; the SPECIES cell owns the
-		-- mix and the frontage. They differ only on an outer edge and into A1, where there is no
-		-- neighbour wood to look like.
+		-- mix and the frontage. They differ ONLY into A1, the one cell with no wood of its own: at
+		-- an outer edge there is no neighbour at all and both are this cell.
 		local groundCell = side.id or cellId
 		local speciesCell = if side.id ~= nil and Places.hasOwnWood(side.id) then side.id else cellId
 		local speciesPlan = Places.cellPlanFor(speciesCell)
@@ -3197,7 +3199,7 @@ Places.PART_BUDGET_DRIVE = 27000
 Places.PART_BUDGET_CELL = 12800
 
 -- THE MODEL CAPS, COMPUTED AND NOT TYPED (lesson L-167): change a budget or the ratio and these move
--- with it. 7,260 bounds the PLAN (a typo guard) and 2,640 bounds what is DRAWN in one cell.
+-- with it. Today 7,180 bounds the PLAN (a typo guard) and 3,404 bounds what is DRAWN in one cell.
 Places.CELL_PLAN_CAP = math.floor(Places.PART_BUDGET_DRIVE / Places.PARTS_PER_MODEL)
 Places.CELL_PART_CAP = math.floor(Places.PART_BUDGET_CELL / Places.PARTS_PER_MODEL)
 

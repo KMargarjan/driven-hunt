@@ -2329,6 +2329,20 @@ return function()
 				end
 				return { tally = tally, total = total }
 			end
+			-- WHICH OUTER EDGE A SIDE OR A ROW IS BEYOND, as its own key (round 1, finding 1). A
+			-- corner cell has TWO `id == nil` sides, so one shared "OUTER" bucket proved only three
+			-- of its four sides: an empty band behind one of them passed off the other's rows.
+			-- The two bands are disjoint -- each spans the cell's own extent along the OTHER axis,
+			-- so a row beyond the west edge has `gz` inside the footprint and vice versa.
+			local function sideKey(side: any): string
+				if side.id ~= nil then
+					return side.id :: string
+				end
+				if side.axis == "z" then
+					return if side.sign > 0 then "OUTER:E" else "OUTER:W"
+				end
+				return if side.sign > 0 then "OUTER:N" else "OUTER:S"
+			end
 			-- WORST ROAD CLEARANCE, SKIRT AND OWN WOOD SIDE BY SIDE: the dispatch's *"the skirt's
 			-- roadside edge looks like the cell's own roadside edge"* as one pair of numbers.
 			local worstSkirtRoad, worstOwnRoad = math.huge, math.huge
@@ -2366,9 +2380,23 @@ return function()
 						end
 						if key == nil then
 							-- THE OUTER EDGE: beyond the footprint, which INCLUDES the border road.
-							local outside = gx < box.minX or gx > box.maxX or gz < box.minZ or gz > box.maxZ
-							expect(outside).to.equal(true)
-							key = "OUTER"
+							-- EXACTLY ONE of the four edges, keyed by itself, so a corner cell's two
+							-- outer sides are counted apart (round 1, finding 1).
+							local beyond = {}
+							if gx < box.minX then
+								table.insert(beyond, "OUTER:W")
+							end
+							if gx > box.maxX then
+								table.insert(beyond, "OUTER:E")
+							end
+							if gz > box.maxZ then
+								table.insert(beyond, "OUTER:N")
+							end
+							if gz < box.minZ then
+								table.insert(beyond, "OUTER:S")
+							end
+							expect(#beyond).to.equal(1)
+							key = beyond[1]
 						end
 						hitEach[key] = (hitEach[key] or 0) + 1
 						local bucket = groupOnSide[key]
@@ -2411,12 +2439,10 @@ return function()
 				-- alike, so neither "it skirts everything" nor "it skirts nothing" can pass.
 				local outerSides = 0
 				for _, side in ipairs(sides) do
-					local wanted = side.id
-					if wanted == nil then
+					if side.id == nil then
 						outerSides += 1
-						wanted = "OUTER"
 					end
-					expect((hitEach[wanted :: string] or 0) > 0).to.equal(true)
+					expect((hitEach[sideKey(side)] or 0) > 0).to.equal(true)
 				end
 				expect(count > 0).to.equal(true)
 				-- WHOSE WOOD EACH SIDE IS: across a road into a cell with a wood of its own, THAT
@@ -2426,7 +2452,7 @@ return function()
 				-- test would be about the tie and not about the rule. A swapped rule still
 				-- reddens: C1's birch is ~1 % of B1's own wood and 10 % is far above it.
 				for _, side in ipairs(sides) do
-					local key = side.id or "OUTER"
+					local key = sideKey(side)
 					local speciesCell = if side.id ~= nil and Plan.hasOwnWood(side.id) then side.id else id
 					local best, bestN = nil, 0
 					for g, n in pairs(groupOnSide[key] or {}) do
@@ -2969,7 +2995,7 @@ return function()
 		-- (`<runs-dir>/337c-l093.luau` through `336probe.py`, both readings at this commit):
 		-- restore `plantCell`'s `if Places.hasOwnWood(side.id) then continue end` and C1's skirt
 		-- goes **666 -> 150** -- every row that is left is an outer-edge one -- so `intoPlanted`
-		-- below goes 516 -> **0** and reddens. `c1Skirt > 0` alone would NOT have caught it, which
+		-- below goes 514 -> **0** and reddens. `c1Skirt > 0` alone would NOT have caught it, which
 		-- is why that count is here.
 		it("skirts all four of a cell's roads, planted neighbour or not, and the outer edge too", function()
 			-- C1's three neighbours are ALL planted, and it skirts them anyway.
