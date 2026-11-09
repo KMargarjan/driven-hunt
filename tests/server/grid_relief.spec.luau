@@ -3713,8 +3713,14 @@ return function()
 		-- here, in Studio, against terrain this case writes and removes itself. A Play session's
 		-- terrain writes are discarded on Stop, and this ground is at x,z 8000 -- outside every keep
 		-- box, every cell and the region the terrain-writer case above reads.
+		-- ...AND IT YIELDS AFTERWARDS. A terrain write is not rayable on the tick that makes it
+		-- (measured in DEV 2026-11-09: nil on the writing tick, 18.0 two frames later), which is
+		-- why `TerrainBake.trimBlock` settles too.
 		local function trimGround(material)
 			workspace.Terrain:FillBlock(CFrame.new(8064, 0, 8064), Vector3.new(128, 32, 128), material)
+			for _ = 1, TerrainBake.TRIM_SETTLE_FRAMES do
+				task.wait()
+			end
 		end
 
 		it("337b-1 trimHits reads the lattice it is given, and trimBlock fills that block with Air", function()

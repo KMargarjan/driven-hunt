@@ -3033,6 +3033,9 @@ end
 
 -- ---------------------------------------------------------------- THE WORLD TRIM (task 337b)
 
+-- Frames to let a terrain write land before it is rayed. MEASURED: two were enough in DEV.
+TerrainBake.TRIM_SETTLE_FRAMES = 3
+
 -- THE TRIM'S OWN "WHAT I REMOVED" INSTRUMENT (lesson L-182): a ray lattice inside ONE block, read
 -- before and after the fill, so the run reports its own effect instead of leaving it to be
 -- re-derived. Same shape as the world lattice this task measures T4 with, five times finer.
@@ -3075,8 +3078,17 @@ function TerrainBake.trimBlock(box: Bounds, yMin: number, yMax: number, step: nu
 		return { filled = 0, refused = string.format("the block is not aligned to the %d-stud voxel grid", v) }
 	end
 	local probe = step or 100
+	-- A TERRAIN WRITE IS NOT RAYABLE ON THE TICK THAT MAKES IT. Measured in DEV, 2026-11-09: a
+	-- `FillBlock` at (8064, 0, 8064) rayed nil on its own tick and 18.0 after TWO frames, and an
+	-- Air fill the same. So both reads yield first, or the report would be a stale number.
+	for _ = 1, TerrainBake.TRIM_SETTLE_FRAMES do
+		task.wait()
+	end
 	local before = TerrainBake.trimHits(box, yMin, yMax, probe)
 	Workspace.Terrain:FillRegion(grid, v, AIR)
+	for _ = 1, TerrainBake.TRIM_SETTLE_FRAMES do
+		task.wait()
+	end
 	local after = TerrainBake.trimHits(box, yMin, yMax, probe)
 	return {
 		filled = 1,
