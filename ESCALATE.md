@@ -3341,3 +3341,64 @@ A finding on round 3 is an ESCALATE.md entry and a stop.
 ### DIRECTOR DECISION, 2026-11-08 ~19:40 UTC, Task 335: ROUND 3 AUTHORISED
 
 Round 2's one finding (a local path in `reviews/task-335/REQUEST.md`) is fixed in `e065726c`, paperwork only; CI green there. Round 3 is within `MAX_ROUNDS` (3). Scope: a fresh one-page request at Round: 3 for the same code commit `687dc1e8` and its harness line, which ALSO discloses what the Director measured live in her FT at 19:35 UTC: `Workspace.GridForest` now holds ONE cell (`cells=C1=2476`); B1, D1, A2, B2, C2, D2's plantings (planted by 328g2/330) are no longer there. Say which command removed them and that it was not reported in round 1/2. No `src/` change. Karen's decision of 2026-11-08 ("we only load one per game") and Task 336 (every cell its own trees) re-plant them, so it is not a blocker by the Director's reading -- the Reviewer judges.
+
+---
+
+## 2026-11-09 -- Task 338: the "an animal got away xN" premise is REFUTED by measurement
+
+**For the Director.** Task 338 said the toast *"counts things that are not animals getting away ...
+climbing from the first seconds with no shot fired, while a drive releases about 60 animals"*. I
+measured it in Karen's Forest Test on main `5cc51f81` (place 130094961655666, cell C1, exit line
+z = -5402, no shot fired) with two instruments installed in the same Play session:
+
+* `<runs-dir>/338-watch.luau` -- a server watcher on `Workspace.Boars`: every spawn, every removal,
+  and the animal's last sampled position at the moment it was removed;
+* `<runs-dir>/338-wire.luau` -- a client watcher on `ReplicatedStorage.Drive.Remotes.MatchEvent`,
+  which counts exactly the `escape` entries the Hud stacks into that toast.
+
+**Three findings, all three against the dispatch.**
+
+1. **The toast does not climb in the first seconds. It is ZERO there.** Drive 1: `escape=0` at 15 s
+   and `escape=0` at 60 s of the drive; 19 at 150 s; 108 at 300 s. The first escape entry of the
+   drive arrived at +72.8 s. Drive 2 at 145 s: 78 animals released, **no** line crossing yet and no
+   new toast. An animal needs ~75 s to walk from its release depth to the line, so the whole count
+   lands in the drive's second half.
+
+2. **"0:11" IS NOT ELEVEN SECONDS IN -- it is eleven seconds LEFT.** The HUD's `TIME` field is
+   `Match.secondsLeft()` = `phaseEndsAt - GetServerTimeNow()`, a COUNTDOWN. I opened both frames
+   myself: the evidence frame `327d-F1-stand-beaters.png` reads `DRIVE 1 · 0:11 TIME` with
+   *"an animal got away x80"*, i.e. **289 s into a 300 s drive**; my own `338-F1.png` reads
+   `DRIVE 2 · 3:33 TIME` -- 87 s in -- with **no got-away line on screen at all**. "x55 at 0:49 of
+   drive 5" is likewise 251 s in. Measured on main at those same two instants: ~100 at 289 s and
+   ~50 at 251 s. The reported figures are the correct ones.
+
+3. **Every toast was one real animal at the real exit line.** Drive 1: 130 animals spawned, 114
+   removed, 108 escape entries. Each removal that produced one had the animal at z = -5397 … -5402
+   against the C1 cell's own exit line of -5402. The 6 removals that produced NO toast are the
+   pre-drive animals wiped by `runtime:clear("layoutChanged")` at the layout promote -- correctly
+   silent. The two clocks are a fixed 4.0 s apart (the gap between the two probe installs), so the
+   entries map one-to-one and in order: toast 1 = **Boar1** (z=-5401), toast 2 = **Boar7** (-5401),
+   toast 3 = **Boar3** (-5402).
+
+**What the figure really says.** A 300 s drive at this density releases **130** animals (drive 1) and
+**80** (drive 2), not "about 60": `ForestTest.slotAt` repeats the 15-row script past slot 15 by
+design (*"a drive that outlives its script can never run out of animals"*), so the 13 s metronome
+fires ~23 times. Drive 2 ended at **x55** with 61 removals -- the same number the ESCALATE evidence
+photographed. The producer is correct; the number is large because the drive is large and the
+hunter shoots a handful of them.
+
+**No `src/` change was made.** Per the core-quality protocol step 0 -- *"If (b) contradicts the
+dispatch, say so and stop. A refuted premise is a finished item, not a failure"* -- and because the
+only way to make the toast read smaller would be to hide true events, which the dispatch forbids.
+
+**REPRODUCED EXACTLY, after the review (second session, same build, no shot fired).**
+`reviews/task-338/338-end.sh` sampled the HUD's own labels every ~9 s through a whole drive:
+nothing at 4:11, "an animal got away" at 4:02, x5 at 2:57, x23 at 2:20, **nothing at 2:02 (the line
+expired)**, x15 at 1:14, x46 at 0:56, x74 at 0:20, **"an animal got away x80" at 0:11** -- Karen's
+frame to the word and the number -- and nothing again at 0:03. So `xN` is a WINDOW count, not the
+drive total (80 shown against 114 on the wire): late in the drive the escapes arrive faster than the
+8 s feed window, so each repeat refreshes the one line.
+
+**The Director's decision, not mine:** whether ~130 released / ~110 escaped per drive is the drive
+Karen wants (that is drive density, which this task's NOT YOURS list puts outside it), and whether a
+"got away" line is worth drawing at all for an animal that crossed 400 m from the stand.
