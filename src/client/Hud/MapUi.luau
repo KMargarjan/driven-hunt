@@ -1124,6 +1124,9 @@ local standListFrame: ScrollingFrame? = nil
 -- reason stated there: a map shrinks on a phone and a thumb does not.
 local standListScale: UIScale? = nil
 local standListRoomPx = 0
+-- IS THE LIST UP? `layoutFor` reserves room beside the map for it only while it is, and `applyPick`
+-- re-lays the panel out on the edge -- one boolean, written in one place.
+local listShown = false
 -- WHAT THE WORLD SAID ABOUT EACH STAND, kept from the build so a row's word can be rewritten without
 -- asking the geometry again. Empty for a world that stated neither (the four drive places, DEV).
 local standKinds: { string } = {}
@@ -1760,7 +1763,13 @@ local function layoutFor(viewport: Vector2)
 	-- in the one function that already writes both `UIScale`s. Since task 220 it is the column the
 	-- rail SAYS it is occupying, because a folded rail is 124 wide and not 68.
 	local column = MapUi.railColumn()
-	local roomX = viewport.X - config.FULL_SIDE_INSET - column
+	-- THE STAND LIST GETS ITS OWN ROOM WHILE IT IS UP, and the map is scaled to what is left
+	-- (327f, measured in Karen's Forest Test): at her 969 px viewport there was no room beside the
+	-- panel, so the list sat over the map and covered the right-hand cells' own stands. The map is a
+	-- little smaller for the fifteen seconds of a pick and whole again afterwards -- `applyPick`
+	-- re-runs this on the edge, so nothing is reserved for a list nobody is looking at.
+	local reserve = if listShown and standListFrame ~= nil then config.STAND_LIST_WIDTH_PX + Style.SPACE.S else 0
+	local roomX = viewport.X - config.FULL_SIDE_INSET - column - reserve
 	local roomY = viewport.Y - config.FULL_TOP - config.FULL_BOTTOM_INSET
 	local scale = 1
 	if panelWidth > 0 and panelHeight > 0 then
@@ -1968,6 +1977,16 @@ local function applyPick()
 		node.Visible = on
 		node.Active = on
 		node.ScrollingEnabled = on
+		-- ON THE EDGE ONLY: the panel is re-measured so the list has room beside the map while it is
+		-- up (see `layoutFor`). A per-tick caller costs one comparison and no layout at all.
+		if on ~= listShown then
+			listShown = on
+			-- NOT BEFORE THE FIRST LAYOUT: `lastViewport` is (0, 0) until one has run, and a panel
+			-- measured against a zero viewport is a panel at the minimum scale.
+			if lastViewport.X > 0 then
+				layoutFor(lastViewport)
+			end
+		end
 	end
 	for _, row in ipairs(standRows) do
 		row.button.Active = on
@@ -2549,6 +2568,7 @@ local function teardown()
 	standListFrame = nil
 	standListScale = nil
 	standListRoomPx = 0
+	listShown = false
 	table.clear(standDrawn)
 	standVersion = nil
 	standMine = nil
