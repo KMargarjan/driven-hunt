@@ -1866,6 +1866,13 @@ return function()
 			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid))
 			MapUi.setOpen(true)
 			MapUi.setPickWindow(true, true)
+			-- NOTHING ELSE MAY BE HOLDING THE PANEL OFF SCREEN. The camera's scope suppresses this
+			-- map and the report panel hides it, and BOTH are driven by other specs in this one
+			-- client session -- so the window is asserted open through the module's own doors rather
+			-- than hoped for.
+			Hud.Report.setOpen(false)
+			MapUi.setSuppressed(false)
+			expect(MapUi.isPickable()).to.equal(true)
 			task.wait()
 			local stands = canvasStands()
 			expect(#stands).to.equal(Grid.standCount(Grid.DEFAULT_CELL))
@@ -1880,6 +1887,9 @@ return function()
 				local hit = node:FindFirstChild("Hit")
 				expect(hit).to.be.ok()
 				expect((hit :: TextButton).Size.X.Offset).to.equal(wanted)
+				-- ALIVE, which is what makes a tap land at all (`applyPick`'s own pair).
+				expect((hit :: TextButton).Active).to.equal(true)
+				expect((hit :: TextButton).Visible).to.equal(true)
 				table.insert(pads, hit :: TextButton)
 			end
 			local worst = 0
@@ -1939,16 +1949,21 @@ return function()
 			expect(frame.Visible).to.equal(false)
 			MapUi.setOpen(true)
 			MapUi.setPickWindow(true, true)
-			task.wait()
+			-- ...AND NOTHING ELSE HOLDING THE PANEL OFF SCREEN (case 31's reason).
+			Hud.Report.setOpen(false)
+			MapUi.setSuppressed(false)
+			expect(MapUi.isPickable()).to.equal(true)
 			expect(frame.Visible).to.equal(true)
 			-- A PHONE'S 44 PX THUMB MINIMUM, MEASURED ON SCREEN (mobile-controls.md §B) and not
 			-- transcribed: the panel shrinks to about a third at 400 x 800 and the list must not.
 			MapUi.setRailColumn(Rail.columnPx(), Vector2.new(400, 800))
 			MapUi.applyLayout(Vector2.new(400, 800))
 			task.wait()
+			MapUi.setSuppressed(false)
 			local row1 = frame:FindFirstChild("Row1") :: TextButton
 			expect(row1).to.be.ok()
 			local rowPx = row1.AbsoluteSize.Y
+			expect(rowPx > 0).to.equal(true)
 			expect(rowPx >= CONFIG.STAND_LIST_ROW_PX - 2).to.equal(true)
 			expect(frame.AbsoluteSize.Y <= full.AbsoluteSize.Y).to.equal(true)
 			-- THE WORDS: FREE, a tower, a holder's name and his own.

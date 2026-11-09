@@ -1003,7 +1003,11 @@ function MapUi.standHitPx(points: { Vector2 }, view: MapView): number
 	if closest == math.huge then
 		return config.STAND_HIT_PX
 	end
-	return math.clamp(math.floor(closest), config.STAND_HIT_MIN_PX, config.STAND_HIT_PX)
+	-- TWO PIXELS OF AIR, and it is a MEASUREMENT and not caution: the canvas is drawn under a
+	-- `UIScale`, so the engine's `AbsolutePosition` and `AbsoluteSize` are rounded AFTER the scale
+	-- and a pad exactly as wide as the gap came out one pixel over its neighbour -- measured, 1
+	-- overlapping pair of 105, in the 327f round-1 harness run.
+	return math.clamp(math.floor(closest) - 2, config.STAND_HIT_MIN_PX, config.STAND_HIT_PX)
 end
 
 -- WHICH WORLD'S GEOMETRY, or `nil`. A world that has stated nothing gets NO MAP AT ALL and says so
