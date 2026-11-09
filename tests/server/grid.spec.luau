@@ -2965,9 +2965,12 @@ return function()
 		-- cannot happen and every side is dressed. The old case is archived at
 		-- `backups/2026-11-09-task-337c-skirt-rule-case.luau` (rule 7).
 		--
-		-- **IT DIES IF 337c's FIX DIES** (lesson L-093): restore `plantCell`'s
-		-- `if Places.hasOwnWood(near.id) then continue end` and C1's skirt is 0 against the `> 0`
-		-- below; drop the outer-edge arm of `skirtBands` and `outerRows` is 0.
+		-- **IT DIES IF 337c's FIX DIES** (lesson L-093), and the kill was RUN, not argued
+		-- (`<runs-dir>/337c-l093.luau` through `336probe.py`, both readings at this commit):
+		-- restore `plantCell`'s `if Places.hasOwnWood(side.id) then continue end` and C1's skirt
+		-- goes **666 -> 150** -- every row that is left is an outer-edge one -- so `intoPlanted`
+		-- below goes 516 -> **0** and reddens. `c1Skirt > 0` alone would NOT have caught it, which
+		-- is why that count is here.
 		it("skirts all four of a cell's roads, planted neighbour or not, and the outer edge too", function()
 			-- C1's three neighbours are ALL planted, and it skirts them anyway.
 			local sides = Plan.skirtSides(Grid.DEFAULT_CELL)
@@ -2983,18 +2986,30 @@ return function()
 			expect(planted).to.equal(3)
 			expect(outerSides).to.equal(1)
 			local box = Grid.footprint()
-			local c1Skirt, outerRows = 0, 0
+			local c1Skirt, outerRows, intoPlanted = 0, 0, 0
 			for _, item in ipairs(woods[Grid.DEFAULT_CELL]) do
 				if item.side < 0 then
 					c1Skirt += 1
 					local gx, gz = Grid.toGrid(item.x, item.z)
 					if gx < box.minX or gx > box.maxX or gz < box.minZ or gz > box.maxZ then
 						outerRows += 1
+					else
+						for _, side in ipairs(sides) do
+							if side.id ~= nil and Plan.hasOwnWood(side.id) then
+								local other = Grid.boundsOf(side.id :: string)
+								if gx >= other.minX and gx <= other.maxX and gz >= other.minZ and gz <= other.maxZ then
+									intoPlanted += 1
+									break
+								end
+							end
+						end
 					end
 				end
 			end
 			expect(c1Skirt > 0).to.equal(true)
 			expect(outerRows > 0).to.equal(true)
+			-- THE ROWS 328i's RULE WOULD HAVE REFUSED, and the one count that dies with the fix.
+			expect(intoPlanted > 0).to.equal(true)
 			-- EVERY CELL SKIRTS, and `A1` -- the one cell with no wood of its own -- is still read
 			-- as bare, because that is what decides WHOSE species the skirt into it draws.
 			expect(Plan.hasOwnWood("B2")).to.equal(true)
@@ -3028,9 +3043,10 @@ return function()
 			expect(stray).to.equal(0)
 			TestKit.note(
 				string.format(
-					"skirt: C1 %d across 4 roads (%d outer rows), weakest cell %d, 0 strays inward",
+					"skirt: C1 %d across 4 roads (%d outer, %d into planted neighbours), weakest cell %d, 0 strays inward",
 					c1Skirt,
 					outerRows,
+					intoPlanted,
 					worstSkirt
 				)
 			)
