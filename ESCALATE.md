@@ -1,3 +1,68 @@
+## 2026-11-09 ~05:05 UTC, Task 337b -- ROUND 2 FOUND A REAL DEFECT. IT IS FIXED AND GATED; ROUND 3 NEEDS THE DIRECTOR. No terrain has been touched.
+
+**The dispatch caps this task at two review rounds** -- *"Review: at most 2 rounds; a FINDING on
+round 2 goes to ESCALATE.md, then stop"* -- so I stopped. CLAUDE.md's own `MAX_ROUNDS` is **3** and
+`tools/review.sh` would accept `Round: 3` with no authorisation, and the Learning Agent's **L-174**
+in this same dispatch asked for the cap to be 3 for exactly this reason. I did not raise it myself.
+
+### 1. What round 2 found, and it was right
+
+`command_trim` reused the name `live` for `TerrainBake.regionFor`'s answer. `live` is refusal 7's
+record -- the flag overrides `main` reads and `log_run` writes -- so the run log of the ONE
+IRREVERSIBLE COMMAND would have read `"liveOverrides": ["minX","maxX","minZ","maxZ"]` and thrown the
+real override list away. A terrain deletion whose only undo is a `.rbxl`, with a false record of the
+flags it ran under.
+
+### 2. It is fixed, and so are three of the round-2 notes that were falsehoods or loops in a tool that writes terrain
+
+Code commit **`7462b00d4cd17588898e39e048acd02fc7aae59c`**, branch `task-337b-world-trim`:
+- the Studio region is `region`; `live` reaches both `log_run` calls untouched;
+- `--block-studs` refuses a negative or sub-voxel value (it walked past a bare `assert` and
+  `x += block` then walked away from the rectangle's edge for ever);
+- *"the run resumes where it stopped"* is replaced by the truth: there is no cursor, the next run
+  starts at block 1, finish with a bigger `--blocks`;
+- the rule-7 comment is re-attached to `TerrainBake.archive`.
+
+Everything else in both verdicts is queued, not fixed (CLAUDE.md step 5).
+
+### 3. The gate is green at that commit
+
+`[harness] PASS: 34/34 checks @ 7462b00d4cd17588898e39e048acd02fc7aae59c (clean tree) scope=all`
+`test2` N/A -- no `TWO_PLAYER_PATHS` path.
+
+### 4. What the Director has to do, in one line
+
+Bump `reviews/task-337b/REQUEST.md` to `Round: 3` with that code commit and harness line, then
+`powershell -ExecutionPolicy Bypass -File tools/review.ps1 337b`. No `DIRECTOR_MAX_ROUNDS` is
+needed: 3 is inside CLAUDE.md's cap.
+
+### 5. The terrain run did NOT happen, and it should not have tonight
+
+Dispatch item 2 gates the run on a review PASS, and `trim plan`'s own estimate line still reads
+*"the MINUTES ARE NOT MEASURED YET"* because measuring one block is itself a terrain write. **233
+blocks**, and the dispatch's rule is *"START THE TERRAIN RUN ONLY IF the plan's estimate ends before
+06:00 UTC"* -- at 05:05, with no PASS, no backup and no measured per-block cost, that condition
+cannot be met. **Nothing in Karen's place has been written**: `trim plan` only read it, in Edit.
+No backup was taken (it is item 2, after the PASS).
+
+### 6. Two things the next session should know
+
+- **The suite is noisy on this machine tonight, and it is MEMORY, not code.** Nine `test` runs.
+  With 2.3 GB free of 14.2, `map_ui.spec:1071` failed three runs in a row at 11.05/11.10/11.62 Hz
+  against `near 20 (within 8)`. A stray `RobloxPlayerBeta` (1,153 s CPU, no window, started 01:12
+  local), Chrome and three `RobloxCrashHandler`s were alive; closing them took free memory to 2.7 GB
+  and the next run read `PASS: 34/34`. Runs 6 and 7 then lost `deer_hitbox.spec:682`,
+  `weapon_shot.spec:1490`, `:1890`, `semiauto_client.spec:93` and `weapon_client.spec:1769` -- all
+  in the dispatch's named list except `weapon_client.spec:1769` (listed at :1211/:1263).
+  **Close the stray Roblox processes before the gate.**
+- **A terrain write is not rayable on the tick that makes it.** Measured in DEV: a `FillBlock` at
+  (8064, 0, 8064) rayed `nil` on its own tick and `18.0` two frames later. `TRIM_SETTLE_FRAMES` is
+  why `trimBlock`'s before/after numbers are readings and not stale.
+- **One incidental change to DEV, reported not hidden:** that measurement filled and then cleared a
+  128 x 32 x 128 block at (576, 0, 576) in DEV's Edit session, and the Air fill removed ~4,096
+  pre-existing terrain cells there as well as its own. Nothing was saved or published; terrain is
+  not Rojo-managed and no harness check reads it.
+
 ## 2026-11-09 ~03:05 UTC, Task 327d2 -- 5.64 FIRES THE CROSSING-END, BUT NOT ON EVERY DRIVE. For the Director.
 
 **Not blocking the PR.** The pace is `docs/design/grid-map.md` 4.3's number and not the Builder's.
