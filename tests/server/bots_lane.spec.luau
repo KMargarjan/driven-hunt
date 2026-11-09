@@ -650,16 +650,39 @@ return function()
 					true,
 					string.format("%s: walk %.0f s against a %d s clock", name, seconds, Forest.DRIVE.seconds)
 				)
+				-- ...**AND THE GRACE HAS SOMEWHERE TO RUN.** This is what is left of task 162's
+				-- `DRIVE.seconds - seconds > DRIVE.seconds / 3` margin, which a 1,430-stud cell at 5.2
+				-- cannot hold (21.2 s against a required 100) -- archived verbatim with the arithmetic
+				-- in backups/2026-11-09_task-327d_drive-length-assertions.luau.txt, rule 7. The margin
+				-- kept here is the one size the GAME names rather than a new dial: the line must be
+				-- through early enough for `BEATERS_THROUGH_GRACE_SECONDS` to run inside the clock,
+				-- 278.8 + 15 = 293.8 against 300. It reddens if the walk grows by 7 s.
+				expect(seconds + Match.CONFIG.BEATERS_THROUGH_GRACE_SECONDS < Forest.DRIVE.seconds).to.equal(
+					true,
+					string.format(
+						"%s: walk %.0f s + %d s grace against a %d s clock",
+						name,
+						seconds,
+						Match.CONFIG.BEATERS_THROUGH_GRACE_SECONDS,
+						Forest.DRIVE.seconds
+					)
+				)
 			end
 			-- **THE MARGIN IS THIN AND THE NUMBER IS PRINTED RATHER THAN HIDDEN BEHIND A BAND**
 			-- (rule 8). 1,450 studs at 5.2 is 278.8 s flat against a 300 s clock -- 21.2 s -- and the
 			-- ground adds a MEASURED 1.081 over the flat quotient (three drives of task 251 part 1),
 			-- which is ~301 s. So the early end is not proven by this arithmetic: it is proven or
 			-- refuted by one live drive, and task 327d's report carries that measurement.
+			-- **AND THE MEASURED NUMBER SAYS THE FLAT ONE IS NOT ENOUGH.** One live drive in Karen's
+			-- Forest Test at task 327d's code commit: the FIRST of four bot beaters arrived at
+			-- 292.9 s and the last at ~300-305 s, so `END_ON_BEATERS_CROSS` did not fire and the
+			-- clock ended the drive. That is not asserted here because the pace is a `docs/design/`
+			-- number; `ESCALATE.md` carries the arithmetic (5.35 / 5.64 / `DRIVE.seconds` 330).
 			TestKit.note(
 				string.format(
-					"the worst dealt cell's walk is %.0f s flat (x1.081 on the ground = %.0f s) against a %d s"
-						.. " clock and a %d s through-grace; last slot due %.0f s",
+					"the worst dealt cell's walk is %.0f s flat (x1.081 on the ground = %.0f s; MEASURED live"
+						.. " 292.9 s for the first of four) against a %d s clock and a %d s through-grace;"
+						.. " last slot due %.0f s",
 					worst,
 					worst * 1.081,
 					Forest.DRIVE.seconds,

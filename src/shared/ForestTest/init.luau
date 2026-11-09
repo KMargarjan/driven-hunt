@@ -303,7 +303,7 @@ ForestTest.LAYOUTS = table.freeze({
 -- IT **IS** `Grid.PLANTED_CELLS` AND NOT A COPY OF IT, which is the whole of the item: the cells
 -- that have a wood and the cells the rotation deals cannot drift apart, and A1 -- the one cell with
 -- no baked ground to plant on -- is out of both by one fact rather than by two lists agreeing.
--- C1 is first, so the cell `Places.build` dresses at boot and `Cells.DEFAULT_CELL` stands IS drive
+-- C1 is first, so the cell `Places.build` dresses at boot and `Grid.DEFAULT_CELL` stands IS drive
 -- 1's cell: no wood is swapped before anybody has played.
 --
 -- THE FOUR LINE PLACES LEAVE THE ROTATION AND ARE NOT DELETED (rule 7, grid-map.md D-4): their

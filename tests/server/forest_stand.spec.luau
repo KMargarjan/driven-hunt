@@ -203,8 +203,10 @@ return function()
 			-- ~115 s -- BEFORE the drive script's last slot. The rollback is the geometry, and this is
 			-- the second thing it no longer carries (the first is its planted wood). Not a failure
 			-- here, because nothing in the game deals them.
+			-- IT IS A NOTE AND NOT AN `expect`, DELIBERATELY (Reviewer round 1): asserting
+			-- `archived < lastSlot` would pin the rollback's BROKEN inequality as a pass condition, so
+			-- fixing the rollback would turn the gate red. What is reported is the number.
 			local archived = (Data.beaterNorthStuds(Data.ROAD_LAYOUT) + past) / Bots.CONFIG.WALK_SPEED
-			expect(archived < lastSlot).to.equal(true)
 			TestKit.note(
 				string.format(
 					"ARCHIVED line places: %.0f s walk against a last slot due %.0f s -- a forced rollback"
