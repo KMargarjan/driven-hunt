@@ -1,7 +1,12 @@
-# Task 327d2 — the beaters cross the cell before the clock
+# Task 327d2 (filed as 327e) — the beaters cross the cell before the clock
 
-Task: 327d2
+Task: 327e
 Round: 1
+
+**The Director's task id is `327d2`.** `tools/agents.py`'s `TASK_PATTERN`
+(`[0-9]{1,4}[a-z]?`) cannot express a digit after the letter, so it REFUSED
+`review.ps1 327d2`. Filed under the nearest free legal id rather than changing the
+review gate's own code from inside the task it is gating. `ESCALATE.md` carries it.
 Base: main `0a2a2ffc`
 Code commit: `c61c9d48`
 

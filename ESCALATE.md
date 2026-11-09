@@ -44,6 +44,23 @@ likely counting crossings, or ticks, rather than animals -- the owner is the hun
 `Grid`. **Evidence only; no fix in this task** (dispatch). A control drive on `main` was not run:
 the before-frame at `52716ba4` is the baseline used instead.
 
+### 3. The task id `327d2` cannot be reviewed. Filed as `327e`. One line to fix, NOT taken here
+
+`tools/agents.py` line 634: `TASK_PATTERN = r"[0-9]{1,4}[a-z]?"`. A digit AFTER the letter is not
+expressible, so `powershell -File tools/review.ps1 327d2` answers
+`[agents] REFUSED: task number must be digits, with an optional single lower-case letter (266, 266b);
+got '327d2'` -- and the no-argument path cannot find the folder either, because it `fullmatch`es the
+same pattern against `reviews/task-327d2/REQUEST.md`.
+
+**Not worked around by widening the pattern.** That is `tools/` code, it would land after the code
+commit and break the merge gate's paperwork-only bound, and it is the Builder editing the review
+gate from inside the task the gate is reviewing. `reviews/task-327d2/` is `git mv`ed to
+`reviews/task-327e/` and the request says so on its second line.
+
+**For the Director:** either keep `327e` as this task's id in `TASKS.md`, or widen `TASK_PATTERN` to
+`[0-9]{1,4}[a-z]?[0-9]?` in a task of its own (`task_order` sorts on the pattern too, so it needs a
+case).
+
 ## 2026-11-09 ~00:40 UTC, Task 327d -- TWO DESIGN NUMBERS, ONE MEASURED WRONG. Not blocking the PR.
 
 Both are `docs/design/`, which is not the Builder's (dispatch: *"NOT YOURS: docs/design/ -- a wrong
