@@ -21,7 +21,7 @@
 --
 -- (B) THE MARGIN, `DRIVE.seconds - seconds > DRIVE.seconds / 3`. **This one is RED on the shipped
 --     numbers, and that is the finding of this task rather than a reason to drop it:**
---     300 - 278.8 = 21.2 studs-seconds of margin against a required 100. On the ground it is worse:
+--     300 - 278.8 = 21.2 s of margin against a required 100. On the ground it is worse:
 --     the live drive in Karen's Forest Test at the code commit measured the FIRST of four bot
 --     beaters arriving at 292.9 s (`[bots] ... 4 walking, 1 arrived in 292.9s`, 1,135 side-steps,
 --     74 detours, 0 stuck) and the last ~300-305 s, so `Phase.beatersThrough` never saw all four

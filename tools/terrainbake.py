@@ -2420,7 +2420,6 @@ def main(argv):
     print("  stub   %-12s %s  src/shared/Shotgun/init.luau (%s = %g)"
           % ("Shotgun", shas["Shotgun"], SHOTGUN_ACCESS, shotgun_slug_range()))
     if planting:
-        print("  stub   %-12s (errors on every access: the prebuild reads no flag)" % "Flags")
         print("  cut    %-12s %s  src/server/ForestTest/init.luau (ForestTest.terrainYAt)"
               % ("terrainYAt", shas["terrainYAt"]))
         print("  inject %d bytes in all" % len(injected))

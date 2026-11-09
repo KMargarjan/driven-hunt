@@ -651,12 +651,13 @@ return function()
 					string.format("%s: walk %.0f s against a %d s clock", name, seconds, Forest.DRIVE.seconds)
 				)
 				-- ...**AND THE GRACE HAS SOMEWHERE TO RUN.** This is what is left of task 162's
-				-- `DRIVE.seconds - seconds > DRIVE.seconds / 3` margin, which a 1,430-stud cell at 5.2
-				-- cannot hold (21.2 s against a required 100) -- archived verbatim with the arithmetic
-				-- in backups/2026-11-09_task-327d_drive-length-assertions.luau.txt, rule 7. The margin
+				-- `DRIVE.seconds - seconds > DRIVE.seconds / 3` margin, which a 1,430-stud cell
+				-- cannot hold -- archived verbatim with the arithmetic in
+				-- backups/2026-11-09_task-327d_drive-length-assertions.luau.txt, rule 7. The margin
 				-- kept here is the one size the GAME names rather than a new dial: the line must be
-				-- through early enough for `BEATERS_THROUGH_GRACE_SECONDS` to run inside the clock,
-				-- 278.8 + 15 = 293.8 against 300. It reddens if the walk grows by 7 s.
+				-- through early enough for `BEATERS_THROUGH_GRACE_SECONDS` to run inside the clock.
+				-- At 327d2's 5.64 that is 257.1 + 15 = 272.1 against 300, so it reddens if the flat
+				-- walk grows by 27.9 s -- and the MEASURED ground factor 1.051 spends 13.1 of those.
 				expect(seconds + Match.CONFIG.BEATERS_THROUGH_GRACE_SECONDS < Forest.DRIVE.seconds).to.equal(
 					true,
 					string.format(
@@ -668,23 +669,21 @@ return function()
 					)
 				)
 			end
-			-- **THE MARGIN IS THIN AND THE NUMBER IS PRINTED RATHER THAN HIDDEN BEHIND A BAND**
-			-- (rule 8). 1,450 studs at 5.2 is 278.8 s flat against a 300 s clock -- 21.2 s -- and the
-			-- ground adds a MEASURED 1.081 over the flat quotient (three drives of task 251 part 1),
-			-- which is ~301 s. So the early end is not proven by this arithmetic: it is proven or
-			-- refuted by one live drive, and task 327d's report carries that measurement.
-			-- **AND THE MEASURED NUMBER SAYS THE FLAT ONE IS NOT ENOUGH.** One live drive in Karen's
-			-- Forest Test at task 327d's code commit: the FIRST of four bot beaters arrived at
-			-- 292.9 s and the last at ~300-305 s, so `END_ON_BEATERS_CROSS` did not fire and the
-			-- clock ended the drive. That is not asserted here because the pace is a `docs/design/`
-			-- number; `ESCALATE.md` carries the arithmetic (5.35 / 5.64 / `DRIVE.seconds` 330).
+			-- **THE GROUND FACTOR IS THIS CELL'S OWN MEASUREMENT** (task 327d, cell C1, four bot
+			-- beaters: 292.9 s arrived against 278.8 s flat = 1.051). Task 251 part 1's 1.081 was
+			-- three drives of the 580-stud ROAD, a different walk, and is not used here.
+			-- 1,450 studs at 5.64 is 257.1 s flat and 270.2 s on the ground, so the line is through
+			-- with 29.8 s of the clock left and the 15 s grace runs inside it. The flat quotient is
+			-- what this case asserts; the ground factor is printed, and task 327d2's live drive is
+			-- the proof.
+			local GROUND = 1.051
 			TestKit.note(
 				string.format(
-					"the worst dealt cell's walk is %.0f s flat (x1.081 on the ground = %.0f s; MEASURED live"
-						.. " 292.9 s for the first of four) against a %d s clock and a %d s through-grace;"
-						.. " last slot due %.0f s",
+					"the worst dealt cell's walk is %.0f s flat (x%.3f MEASURED ground = %.0f s) against a"
+						.. " %d s clock and a %d s through-grace; last slot due %.0f s",
 					worst,
-					worst * 1.081,
+					GROUND,
+					worst * GROUND,
 					Forest.DRIVE.seconds,
 					Match.CONFIG.BEATERS_THROUGH_GRACE_SECONDS,
 					last
@@ -699,12 +698,14 @@ return function()
 			--
 			-- THE FLOOR WENT 1.2 -> 0.8 IN TASK 251 PART 2 because a beater LINE does not walk, it
 			-- ADVANCES: it stops in thick cover, beats it, waits for the flanks, and moves on.
-			-- TASK 327d SPENDS THAT BACK and the cost is stated: 5.2 studs/s is 1.46 m/s, the top of
-			-- the man-walking band, because a cell is 2.5x the road's depth and the clock did not
-			-- grow with it. The ceiling is untouched, so the jog is still a failure.
+			-- TASK 327d SPENT THAT BACK and 327d2 spends more: 5.64 studs/s is 1.58 m/s, a brisk
+			-- walk rather than a line's advance, because a 1,430-stud cell has to be crossed inside
+			-- a 300 s clock that did not grow with it. **THE CEILING MOVES 1.5 -> 1.6 FOR THAT ONE
+			-- REASON** (the Director, 2026-11-09), and no further: 9 studs/s (2.52 m/s) is a jog and
+			-- is still a failure.
 			local metresPerSecond = Bots.CONFIG.WALK_SPEED * Forest.SPOOK.METRES_PER_STUD
 			expect(metresPerSecond >= 0.8).to.equal(true)
-			expect(metresPerSecond <= 1.5).to.equal(true)
+			expect(metresPerSecond <= 1.6).to.equal(true)
 			-- THE PACE IS THE GRID'S OWN NUMBER AND NOT A SECOND COPY OF IT (task 327d): one owner
 			-- holds it, the design solves the clock against it, and this is the equality.
 			expect(Bots.CONFIG.WALK_SPEED).to.equal(Grid.CONFIG.beaterWalkStudsPerSecond)

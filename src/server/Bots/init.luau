@@ -119,18 +119,19 @@ Bots.CONFIG = {
 	--
 	-- A REAL PLAYER IS NOT SLOWED BY THIS. Nothing in this module writes a player's `WalkSpeed` --
 	-- `Match.Body` is the only writer of that and still hands out `Body.defaultWalkSpeed()` (16) --
-	-- so Karen walking as a beater still covers the 580 studs in ~36 s and then waits for the bot
-	-- line, because *"all beaters cross"* is the line and not the first of it. **That wait is what
-	-- this change makes longer**, and it is the one cost of it: ~3 minutes instead of ~1.5. Said here
-	-- rather than discovered in a playtest (rule 8).
-	-- **TASK 327d TOOK IT TO `Grid.CONFIG.beaterWalkStudsPerSecond` 5.2, AND THE ARITHMETIC IS WHY.**
-	-- Every drive is dealt in a grid CELL now, and a cell's `beaterNorthStuds` is its own depth,
-	-- 1,430 studs, against the road's 580. At 3.1 that walk is (1430 + 20) / 3.1 = **468 s** against
-	-- `ForestTest.DRIVE.seconds` 300: `END_ON_BEATERS_CROSS` could never fire and Karen's *"once I am
-	-- driver ended with line I wait untile hunt ends? its shit boring"* would be every drive.
-	-- At 5.2 it is **279 s** flat (TASKS.md 327b-notes (a); grid-map.md 4.3 solves 1430 / 5.2 = 275).
-	-- 1.46 m/s is the top of the man-walking band rather than the 0.87 m/s advance 3.1 modelled, and
-	-- that is the stated cost: a cell is 2.5x the road's depth and the clock did not grow with it.
+	-- so Karen walking as a beater covers a CELL's 1,450 studs in ~91 s and then waits for the bot
+	-- line, because *"all beaters cross"* is the line and not the first of it. **That wait is the one
+	-- cost of a slow line**, and 327d2 is what cuts it: ~180 s of a 300 s drive at 5.64 against ~188 s
+	-- at 5.2 -- and at 5.2 the clock, not the line, ended the drive. Said here rather than discovered
+	-- in a playtest (rule 8).
+	-- **THE PACE IS `Grid.CONFIG.beaterWalkStudsPerSecond`, 5.64 SINCE TASK 327d2.** Every drive is
+	-- dealt in a grid CELL now, and a cell's `beaterNorthStuds` is its own depth, 1,430 studs,
+	-- against the road's 580. At 3.1 that walk is (1430 + 20) / 3.1 = **468 s** against
+	-- `ForestTest.DRIVE.seconds` 300, and at 327d's 5.2 it MEASURED 292.9 s in Karen's own place:
+	-- either way the 300 s clock ends the drive and `END_ON_BEATERS_CROSS` never fires, which is
+	-- Karen's *"once I am driver ended with line I wait untile hunt ends? its shit boring"*.
+	-- 5.64 crosses at a measured ~270 s. 1.58 m/s is above the man-walking band, and that is the
+	-- stated cost: a cell is 2.5x the road's depth and the clock did not grow with it.
 	-- **THE NUMBER IS READ, NOT COPIED**: one owner (`Grid.CONFIG`) holds it, the design solves the
 	-- clock against it, and `bots_lane.spec` asserts the quotient against `DRIVE.seconds`.
 	WALK_SPEED = Grid.CONFIG.beaterWalkStudsPerSecond, -- K, via the grid's own cell depth

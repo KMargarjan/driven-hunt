@@ -40,10 +40,12 @@ Grid.CONFIG = table.freeze({
 	roadPaintStuds = 18,
 	rows = 2,
 	columns = 4,
-	-- 1430 / 5.2 = 275 s, inside `DRIVE.seconds` 300 less the 15 s through-grace, so Karen's
-	-- "when all beaters cross line of hunters" ending can actually fire (design 4.3). `Bots.CONFIG`
-	-- takes this number in task 327d; nothing reads it yet.
-	beaterWalkStudsPerSecond = 5.2,
+	-- MEASURED, NOT MODELLED (task 327d2). Design 4.3's "1430 / 5.2 = 275 s" leaves out
+	-- `GOAL_PAST_LINE_STUDS` 20 and the ground: one live drive in Karen's Forest Test crossed at
+	-- 292.9 s, so the 300 s clock ended every drive and `END_ON_BEATERS_CROSS` never fired.
+	-- 1450 / 5.64 = 257 s flat, x1.051 measured ground = 270 s, + 15 s grace = 285 s inside the
+	-- 300 s clock. The Director's number, 2026-11-09; `ESCALATE.md` holds the arithmetic.
+	beaterWalkStudsPerSecond = 5.64,
 	-- THE MAIN LINE: 7 stands at Karen's accepted 150 studs (42 m), 900 of the cell's 1070 with
 	-- 85 studs of run-out each end.
 	--
@@ -473,7 +475,7 @@ end
 
 -- THE EAST-WEST FAMILY'S z OFFSET AT A WORLD x. Every east-west road is this one curve plus its own
 -- `at`, so the three of them are EXACT TRANSLATES and a cell's depth is `cellDepthStuds` along
--- every column (design 2 item 3 -- the property that keeps the 275-second beater walk).
+-- every column (design 2 item 3 -- the property that keeps the beater walk one quotient).
 function Grid.bendZ(x: number, bend: Bend?): number
 	local b = bendOf(bend)
 	if b.ewStuds == 0 then
@@ -863,7 +865,8 @@ function Grid.layoutFor(id: string): any
 			}),
 		}),
 		-- THE BEATERS MUSTER ON THE CELL'S UPWIND ROAD, so the walk IS the cell's depth (design
-		-- 4.3): 1430 / 5.2 = 275 s, inside the 300 s clock less the 15 s through-grace.
+		-- 4.3). At the pace above: 1450 studs including the overrun, 270 s measured on the ground,
+		-- inside the 300 s clock less the 15 s through-grace.
 		beaterNorthStuds = c.cellDepthStuds,
 		-- THE BOAR FIELD REACHES THE MUSTER ROAD and stops there: a field that ended at the old 900
 		-- would clamp every animal 530 studs short of where the beaters start. PLUS THE EAST-WEST

@@ -624,9 +624,9 @@ return function()
 			local halfZ = Grid.bendOrigin("z") + Grid.bendPitch("z") / 2
 			expect(math.abs(Grid.roadCentreAt(ew[1], halfX, BENT) - ew[1].at)).to.be.near(BENT.ewStuds, 1e-9)
 			expect(math.abs(Grid.roadCentreAt(ns[1], halfZ, BENT) - ns[1].at)).to.be.near(BENT.nsStuds, 1e-9)
-			-- AND THE WALK IS STILL THE CLOCK'S: 1430 / 5.2 inside the 300-second drive less grace.
+			-- AND THE WALK IS STILL THE CLOCK'S: 1430 / 5.64 inside the 300-second drive less grace.
 			local seconds = Grid.CONFIG.cellDepthStuds / Grid.CONFIG.beaterWalkStudsPerSecond
-			expect(math.abs(seconds - 275) < 0.1).to.equal(true)
+			expect(math.abs(seconds - 253.5) < 0.1).to.equal(true)
 			TestKit.note(
 				string.format(
 					"%d stations at each of 2 amplitudes: worst translate error %.2e, worst cell depth error %.2e, walk %.1f s",
