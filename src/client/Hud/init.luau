@@ -5629,6 +5629,11 @@ function Hud.start()
 		-- a lie in the shape of a fact.
 		Hud.whenReady(ReplicatedStorage, "ForestTest", function(module)
 			local data = require(module)
+			-- THE GRID, FOR THE MAP (task 327f). Karen, 2026-11-09: *"map is not updated I want to
+			-- see all map all sections"*. `ForestTest` requires `Grid`, so by the time this module
+			-- has replicated and been required the grid is here too -- and it is INJECTED into
+			-- `geometryFor` rather than required inside it, which is what keeps that function pure.
+			local grid = require(ReplicatedStorage:WaitForChild("Grid"))
 			-- THE MAP'S GEOMETRY COMES OFF THE SAME MODULE, through the same door. `setGeometry` is
 			-- idempotent and builds once.
 			--
@@ -5658,7 +5663,7 @@ function Hud.start()
 				-- and it is this closure -- the same one that is already the only place the
 				-- server's published layout name is read.
 				driveLayoutName = if live then live:GetAttribute(data.LAYOUT_ATTRIBUTE) else nil
-				MapUi.setGeometry(MapUi.geometryFor(Map.EXPECTED_WORLD, data, Map, driveLayoutName))
+				MapUi.setGeometry(MapUi.geometryFor(Map.EXPECTED_WORLD, data, Map, driveLayoutName, grid))
 			end
 			drawMap()
 			if live then
