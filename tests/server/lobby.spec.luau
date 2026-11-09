@@ -2844,14 +2844,20 @@ return function()
 			store.Name = Data.TEMPLATES_NAME
 			local truckTemplate = templates:FindFirstChild(Data.TEMPLATE.TRUCK) :: Instance
 			truckTemplate.Parent = store
+			-- THE SAME BUILD TWICE, so the two sides are the same instrument: without the store the
+			-- truck is nowhere and every bay falls back; with it, the four bays are clones again.
+			-- `fallbacks` is not zero either way (there is no lodge or trophy template in this
+			-- fixture), so it is the DIFFERENCE that bites.
+			Build.build(container, anchor, CFG, templates)
+			local without = Build.stats().fallbacks
 			local folder = Build.build(container, anchor, CFG, templates, { templatesStore = store })
+			expect(without - Build.stats().fallbacks).to.equal(CFG.TRUCK.COUNT)
 			local first = folder:FindFirstChild("Truck1", true)
 			expect(first).to.be.ok()
 			-- THE CLONE, NOT THE PARTS TRUCK: the fake template's one part is called `Body` and the
 			-- built-from-parts truck's is called `Cab`.
 			expect((first :: Instance):FindFirstChild("Body")).to.be.ok()
 			expect((first :: Instance):FindFirstChild("Cab")).to.equal(nil)
-			expect(Build.stats().fallbacks < CFG.TRUCK.COUNT).to.equal(true)
 			-- ...AND THE TREES STILL COME OUT OF THE WORLD'S OWN FOLDER, which is the half that did
 			-- NOT move: `LobbyAssets.Trees` stands on kept ground.
 			expect(folder:FindFirstChild("TreeLine")).to.be.ok()
