@@ -1,14 +1,14 @@
 # Task 337c measurements — the skirt on all four roads, and the cell budget
 
 Every pair below is ONE instrument read twice: before at main `efe88ab2`, after at the code commit
-`183a38fe`, in Karen's Forest Test (place 130094961655666). Raw output:
+`65cbd4ba`, in Karen's Forest Test (place 130094961655666). Raw output:
 `<runs-dir>/337c-measure-before-final.txt`, `<runs-dir>/337c-measure-after.txt`,
 `<runs-dir>/337c-census-BEFORE.txt` and `-AFTER.txt`, `<runs-dir>/337c-control-base.txt`,
-`<runs-dir>/337c-harness-7.txt`.
+`<runs-dir>/337c-harness-10.txt`.
 
 ## 1. THE BUDGET, as its own ledger (lesson L-165)
 
-| row | before (`efe88ab2`) | after (`183a38fe`) | cap | verdict |
+| row | before (`efe88ab2`) | after (`65cbd4ba`) | cap | verdict |
 |---|---|---|---|---|
 | `PARTS_PER_MODEL` | 3.03 (C1's 328m mix) | **3.76** (C1 live 9,318 parts / 2,476 models) | — | re-derived |
 | worst cell PLAN, models | D2 2,624 | **D2 3,256** | `CELL_PART_CAP` 2,640 -> **3,404** | slack 16 -> **148** |
@@ -20,9 +20,11 @@ Every pair below is ONE instrument read twice: before at main `efe88ab2`, after 
 client frame, <= 16.7 ms with <= 17,000 parts inside 1,024 studs (`grid-terrain.md` 12.2).
 `PART_BUDGET_DRIVE` 27,000 bounds the PLAN, and nothing renders a plan.
 
-Live parts per model measured both ways, both reported: **C1 alone 11,645/3,141 = 3.71**;
-**all seven cells 67,926/20,599 = 3.30**. 3.76 is the worst cell, which is the conservative choice
-for a per-cell cap.
+Live parts per model, both readings: **C1 alone 11,645/3,141 = 3.71**; **all seven cells
+67,926/20,599 = 3.30**. 3.76 is the HIGHEST reading taken (C1 before the skirt) and so the
+conservative conversion, but no other cell's parts/model was printed, so it is not proven to be the
+worst — what actually covers the per-cell cost today is §5's three measured stand frames and §1's
+drawn-parts row, not the ratio (round 1 note).
 
 ## 2. SKIRT TREES PER CELL SIDE
 
@@ -39,8 +41,10 @@ Harness note at both commits (the `per cell` and `skirt` lines):
 | C2 | 0 | 607 | 0 of 3 | **4 of 4** (1 outer) |
 | D2 | 0 | 632 | 0 of 2 | **4 of 4** (2 outer) |
 
-Reach, measured from the shared road's own centre line: 250-253 studs, against `skirtStuds` 230
-plus `CELL_EDGE_STUDS` — the band's far edge, exactly as `grid.spec` case 16 bounds it.
+Reach, measured from the shared road's own centre line: 250-253 studs. The bound case 16 asserts is
+`roadClearStuds / 2` 21 + `CELL_EDGE_STUDS` 3 + `skirtStuds` 230 = **254**, which is where a band
+that starts at the neighbour's inset edge ends. (Round 1 note: the earlier wording left the
+`roadClearStuds / 2` term out, and 233 does not bound 253.)
 
 ## 3. NO TRUNK ON A ROAD, A PAD OR A BEATER LINE (dispatch item 2)
 
@@ -143,6 +147,9 @@ moves it, and a 661 ms swap happens between drives, not during one.
 named in the dispatch's list. **The cause was then measured, and it is not the code**: the case
 reads the Studio client's own tick rate, and the second Studio window — the Forest Test, now
 holding 12,672 more parts after the plant — was taking the frames. Minimised, the same commit
-reads 16.6 Hz and the run is `PASS 34/34`. `weapon_shot.spec:1490`, `:1890`, `:2077` and
+reads 16.6 Hz and the run is `PASS 34/34`. **`weapon_equip.spec:713` is NOT in the dispatch's
+list**: it fired in two consecutive runs of round 2 and in the merge-base control, and passed in
+the next run with nothing changed. It re-raises a `pcall`'d inner assertion and nothing in this
+change reaches the weapon. `weapon_shot.spec:1490`, `:1890`, `:2077` and
 `weapon_client.spec:1773` (the dispatch list says `:1769`; same case, lines drifted) each fired
 once or twice, all named in that list.
