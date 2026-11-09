@@ -58,9 +58,13 @@
 --         docs/research/2026-10-13-lobby-and-the-truck.md
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
 local Data = require(ReplicatedStorage:WaitForChild("Lobby"))
+-- THE SHARED PLAN, FOR ONE NAME (task 341): where a source that is no longer drawn waits. It is read
+-- from there and not spelled again here, so the three owners that need it cannot drift apart.
+local Plan = require(ReplicatedStorage:WaitForChild("Places"))
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 
 local Lobby = {}
@@ -448,6 +452,16 @@ local function tryBuild(): boolean
 	if templates == nil then
 		templates = (world.root or Workspace):FindFirstChild(Data.TEMPLATES_NAME)
 	end
+	-- ...AND WHERE THE ONES THAT STOOD OVER NO GROUND WENT (task 341). `Places.Store` moves them into
+	-- `ServerStorage.Sources.<folder>` at boot, which happens BEFORE this builds, so by now
+	-- `Workspace.LobbyAssets` holds only `Trees` -- the one child still standing on kept ground -- and
+	-- the truck is in the mirror. `Build` looks in the world first and here second, so nothing that is
+	-- still in place changes. nil in the DEV place and before the move, which is the old behaviour.
+	local templatesStore = world.templatesStore
+	if templatesStore == nil then
+		local sourceShelf = ServerStorage:FindFirstChild(Plan.SOURCE_STORE)
+		templatesStore = if sourceShelf then sourceShelf:FindFirstChild(Data.TEMPLATES_NAME) else nil
+	end
 	-- THE KEEPER'S TWO SEAMS, AND THE DEFAULT IS THIS OWNER'S TO SUPPLY (task 181). `Build` builds
 	-- no body at all when it is handed no rig source, which is what keeps a spec free of the avatar
 	-- service; the live server always has one, so "somebody forgot to inject it" cannot be a lodge
@@ -467,6 +481,7 @@ local function tryBuild(): boolean
 			rig = world.rig or Build.defaultRigSource,
 			dress = world.dress,
 			dressConfig = world.dressConfig,
+			templatesStore = templatesStore,
 			shopOn = world.shopOn,
 			-- WHAT A THING LOOKS LIKE, by name (task 196): the boar for the trophy over the fire and
 			-- the two guns for the rack behind the counter. The composition root translates a name

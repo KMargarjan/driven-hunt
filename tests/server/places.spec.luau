@@ -15,6 +15,8 @@ return function()
 	local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
 	local Planter = require(ServerScriptService:WaitForChild("Places"))
 	local Ground = require(ServerScriptService.Places:WaitForChild("Ground"))
+	-- THE ONE WRITER OF `ServerStorage.Sources` (task 341).
+	local Store = require(ServerScriptService.Places:WaitForChild("Store"))
 	local TreeGround = require(ReplicatedStorage:WaitForChild("TreeGround"))
 
 	-- ---------------------------------------------------------------- the four places exist
@@ -1175,6 +1177,165 @@ return function()
 			expect(report.planted).to.equal(0)
 			expect(empty:FindFirstChild(Planter.FOLDER)).to.equal(nil)
 			empty:Destroy()
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- nothing hangs over the void
+	--
+	-- TASK 341. After the world trim (340) 1,862 parts of the bought forest stood over no ground.
+	-- They may not be deleted or thinned (design 10.3: `pickTemplate` chooses by scale among every
+	-- instance of a name), so `Places.Store` MOVES the groundless ones where nothing is drawn.
+
+	describe("the sources that are no longer drawn", function()
+		-- ONE SOURCE CHILD: a model with one part at (x, z). `invisible` reaches the "nothing is
+		-- drawn for it" arm.
+		local function sourceChild(parent, name, x, z, invisible)
+			local model = Instance.new("Model")
+			model.Name = name
+			local part = Instance.new("Part")
+			part.Size = Vector3.new(4, 4, 4)
+			part.Position = Vector3.new(x, 200, z)
+			part.Transparency = if invisible then 1 else 0
+			part.Parent = model
+			model.Parent = parent
+			return model
+		end
+
+		-- A WORLD WITH TWO FOLDERS CALLED `Session` (lesson L-169: this place really has two) and a
+		-- `LobbyAssets`. Everything at x < 0 has terrain under it; everything at x >= 0 has none.
+		local function fakeWorld()
+			local root = Instance.new("Folder")
+			local first = Instance.new("Folder")
+			first.Name = "Session"
+			first.Parent = root
+			local lobbyAssets = Instance.new("Folder")
+			lobbyAssets.Name = "LobbyAssets"
+			lobbyAssets.Parent = root
+			local second = Instance.new("Folder")
+			second.Name = "Session"
+			second.Parent = root
+			return root, first, lobbyAssets, second
+		end
+
+		local function overLand(x, _z)
+			return x < 0
+		end
+
+		it("moves what stands over nothing and leaves what stands on the ground", function()
+			local root, first, lobbyAssets, second = fakeWorld()
+			sourceChild(first, "Tree8", 500, 10) -- over the void
+			sourceChild(first, "Bush", -500, 10) -- on the ground
+			sourceChild(lobbyAssets, "Truck", 900, 10) -- over the void
+			sourceChild(second, "Mesh Tree", 700, 10) -- over the void
+			local store = Instance.new("Folder")
+			local report = Store.stow(root, store, overLand, nil, false)
+			expect(report.moved).to.equal(3)
+			expect(report.movedParts).to.equal(3)
+			expect(report.stayed).to.equal(1)
+			-- THE ONE ON THE GROUND NEVER LEFT.
+			expect(first:FindFirstChild("Bush")).to.be.ok()
+			expect(first:FindFirstChild("Tree8")).to.equal(nil)
+			local shelf = store:FindFirstChild(Planter.SOURCE_STORE)
+			expect(shelf).to.be.ok()
+			-- ONE MIRROR PER SOURCE FOLDER, and `Session` mirrors twice because there are two of
+			-- them -- the duplicate the whole of `foliageRoots` exists for.
+			local sessions, assets = 0, 0
+			for _, child in ipairs(shelf:GetChildren()) do
+				if child.Name == "Session" then
+					sessions += 1
+				elseif child.Name == "LobbyAssets" then
+					assets += 1
+				end
+			end
+			expect(sessions).to.equal(2)
+			expect(assets).to.equal(1)
+			-- THE FIRST MIRROR IS THE FIRST FOLDER'S, so `FindFirstChild` answers the store's copy of
+			-- the SAME one it would have answered in the world.
+			local mirror = shelf:FindFirstChild("Session")
+			local moved = mirror:FindFirstChild("Tree8")
+			expect(moved).to.be.ok()
+			-- STAMPED WITH WHERE IT CAME FROM, so the move is reversible (rule 7).
+			expect(moved:GetAttribute(Store.HOME_ATTRIBUTE)).to.equal("Session")
+			local line = Store.line(report)
+			expect(typeof(line)).to.equal("string")
+			expect(string.find(line, "Session 1 child", 1, true) ~= nil).to.equal(true)
+			root:Destroy()
+			store:Destroy()
+		end)
+
+		it("leaves a child with no visible part where it is", function()
+			-- A MODEL THAT DRAWS NOTHING IS NOT WHAT KAREN SEES IN THE SKY, and an empty one is also
+			-- the shape a bad measurement makes -- so it stays rather than being swept up.
+			local root, first = fakeWorld()
+			sourceChild(first, "Ghost", 500, 10, true)
+			local store = Instance.new("Folder")
+			local report = Store.stow(root, store, overLand, nil, false)
+			expect(report.moved).to.equal(0)
+			expect(report.stayed).to.equal(1)
+			expect(first:FindFirstChild("Ghost")).to.be.ok()
+			expect(store:FindFirstChild(Planter.SOURCE_STORE)).to.equal(nil)
+			root:Destroy()
+			store:Destroy()
+		end)
+
+		it("refuses at Edit time and writes nothing", function()
+			-- NOT CAUTION (design 4.3, lesson L-057): `default.project.json` maps ALL of
+			-- `ServerStorage` with Rojo's default `$ignoreUnknownInstances: false`, so a store made
+			-- in Edit would be DELETED at the next Connect -- with Karen's forest inside it.
+			local root, first = fakeWorld()
+			sourceChild(first, "Tree8", 500, 10)
+			local store = Instance.new("Folder")
+			local report = Store.stow(root, store, overLand, nil, true)
+			expect(report.reason).to.equal("edit-time")
+			expect(report.moved).to.equal(0)
+			expect(first:FindFirstChild("Tree8")).to.be.ok()
+			expect(store:FindFirstChild(Planter.SOURCE_STORE)).to.equal(nil)
+			root:Destroy()
+			store:Destroy()
+		end)
+
+		it("says so, and does nothing, where there are no sources at all", function()
+			-- THE DEV CASE: neither `OurForest` nor `Session` exists there.
+			local empty = Instance.new("Folder")
+			local store = Instance.new("Folder")
+			local report = Store.stow(empty, store, overLand, nil, false)
+			expect(report.reason).to.equal("no-sources")
+			expect(report.roots).to.equal(0)
+			expect(store:FindFirstChild(Planter.SOURCE_STORE)).to.equal(nil)
+			empty:Destroy()
+			store:Destroy()
+		end)
+
+		it("finds a stowed source as a template, and still prefers the one still standing", function()
+			-- **THE CASE THAT DIES IF THE FIX IS DELETED** (lesson L-093): take the store arm out of
+			-- `Places.templates` and the stowed `Session` is no longer a source at all -- which is
+			-- the one thing the move would otherwise break.
+			local root, first = fakeWorld()
+			local ourForest = Instance.new("Folder")
+			ourForest.Name = "OurForest"
+			ourForest.Parent = root
+			sourceChild(first, "Tree8", 500, 10)
+			sourceChild(ourForest, "SilverBirch_Var11_LOD_0", -500, 10)
+			local store = Instance.new("Folder")
+			Store.stow(root, store, overLand, nil, false)
+			-- THE WORLD'S `Session` IS EMPTY NOW and its only child is in the store.
+			local sources = Planter.templates(root, store)
+			local sawStore, sawWorld = false, false
+			for _, one in ipairs(sources) do
+				if Planter.pickTemplate(one, "Tree8") ~= nil then
+					sawStore = true
+				end
+				if Planter.pickTemplate(one, "SilverBirch_Var11_LOD_0") ~= nil then
+					sawWorld = true
+				end
+			end
+			expect(sawStore).to.equal(true)
+			expect(sawWorld).to.equal(true)
+			-- THE WORLD'S COPY COMES FIRST, so a source that never moved cannot change which instance
+			-- is picked: `OurForest` is source 1 and is the world's own folder.
+			expect(sources[1]).to.equal(ourForest)
+			root:Destroy()
+			store:Destroy()
 		end)
 	end)
 end

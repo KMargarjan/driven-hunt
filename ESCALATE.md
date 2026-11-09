@@ -1,3 +1,37 @@
+## 2026-11-09 ~22:30 UTC, Task 341 -- FOR THE ARCHITECT: `cell-loading.md` D2 now reads as forbidding the shipped code
+
+Task 341 passed review round 1 (`reviews/task-341/RESULT.md`). Its first non-blocking note is a
+**design contradiction the Builder may not fix** (`docs/design/` is the Architect's, rule 3):
+
+- **D2** (section 13), verbatim: *"do `OurForest` and `Session` move out of `Workspace`? **NO**"*,
+  and **10.3**: *"a template source that must stay findable in `Workspace`"*.
+- Task 341 ships exactly that move, on the **Director's dispatch of 2026-11-09**: *"They must not
+  RENDER: move them where nothing is drawn (ServerStorage if only the server clones them...), with
+  exactly one owner and pickTemplate/everything that reads them reading from the new place."*
+
+**Which half of D2's reason survives, measured.** D2's stated reason is *"`ServerStorage` is
+Rojo-owned, so moving them there would have Rojo delete 24,192 instances"*.
+
+1. **The Rojo half is closed, not argued away.** `Places.Store.stow` refuses at Edit time
+   (`RunService:IsStudio() and not IsRunning()`, `MapGen.Contract`'s predicate), which is section
+   **4.1**'s own run-time-only pattern and the same refusal `Cells.reconcile` already carries. The
+   place file is untouched: Karen's Edit place was read before and after and the attribute diff is
+   EMPTY, and `Places.Store` does not exist in her place at all now that it is back on merged main.
+   Nothing is persisted, so there is nothing for a Connect to delete.
+2. **The "must stay findable" half survives and is now carried by code, not by the folder's
+   address.** `Places.templates` resolves each `TEMPLATE_SOURCES` path in `Workspace` **and** in
+   `ServerStorage.Sources`, world first. Measured in her Forest Test at the code commit: all 44
+   names still resolve, at identical scales, and `Tree10` resolves out of the store.
+3. **`OurForest` did NOT move, and D2's number is about it.** 0 of its 4,819 children was stowed
+   (every one has terrain under it). What moved is 810 children of `Session` x2 and `LobbyAssets`.
+
+**The Architect's call, not mine:** whether D2 is amended (a run-time move is allowed, the Edit
+refusal is the guard) or whether the Director's dispatch is recorded as an override. A second item
+for the same pass: `docs/design/drive-places.md` still documents
+`Places.templates(world: Instance?): { Instance }` with one argument, which is now stale.
+
+**Not blocking anything.** Task 341 is reviewed, gated and ready to merge.
+
 ## DIRECTOR DECISION, 2026-11-09 ~05:15 UTC, Task 337b: ROUND 3 AUTHORISED
 
 Round 3 of Task 337b's review is authorised, for the code commit `7462b00d` only. MAX_ROUNDS is 3, so no `DIRECTOR_MAX_ROUNDS` is needed. Round 2's one finding (the run log reused `live` for the region) is fixed and gated: `[harness] PASS: 34/34 checks @ 7462b00d` (clean tree, scope=all).

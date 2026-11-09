@@ -37,6 +37,7 @@
 -- Design: docs/design/drive-places.md
 -- Note:   docs/research/2026-10-17-four-driven-hunt-places.md
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
 local Plan = require(ReplicatedStorage:WaitForChild("Places"))
@@ -86,6 +87,12 @@ Places.FOREST_FOLDER = "GridForest"
 -- Test and both are read-only here: a template is CLONED, never moved, re-parented, scaled or
 -- destroyed (rule 7).
 Places.TEMPLATE_SOURCES = table.freeze({ "OurForest", "LobbyAssets.Trees", "Session" })
+
+-- ...AND SINCE TASK 341 A SOURCE MAY NO LONGER BE IN `Workspace`. `Places.Store` moves the part of
+-- this Studio content that stands over no ground into `ServerStorage.Sources`, where nothing is
+-- drawn; `Places.templates` looks for each path there too. The name is the shared plan's, so the
+-- three owners that need it cannot drift apart.
+Places.SOURCE_STORE = Plan.SOURCE_STORE
 
 -- THE CLAW FRACTIONS THAT ARE NOT ZERO, measured by `tools/forest_ground.py species` on 2026-10-16
 -- and recorded in `tools/forest_claws.json`. Of this world's 61 models it accepted 25 and only these
@@ -615,18 +622,38 @@ function Places.plantOne(
 	return made, verdict.reason
 end
 
+-- ONE `TEMPLATE_SOURCES` PATH, RESOLVED UNDER ONE ROOT. `FindFirstChild` per segment, which is what
+-- it has always been: the answer for a duplicated name is that root's FIRST child of it.
+local function under(root: Instance, path: string): Instance?
+	local at: Instance? = root
+	for piece in string.gmatch(path, "[^%.]+") do
+		at = if at then at:FindFirstChild(piece) else nil
+	end
+	return at
+end
+
 -- THE TEMPLATE FOLDERS THIS PLACE ACTUALLY HAS. Nil when none of them is here, which is the DEV
 -- case and is not an error.
-function Places.templates(world: Instance?): { Instance }
+--
+-- SINCE TASK 341 EACH PATH IS LOOKED FOR TWICE: in the world, and in `ServerStorage.Sources`, where
+-- `Places.Store` puts the part of this Studio content that stands over no ground. The world's copy
+-- comes FIRST, so nothing that is still standing changes which instance is picked; the store's is a
+-- FALLBACK for a name the world's copy no longer has. Measured in Karen's Forest Test on 2026-11-09
+-- before any of this ran: all 35 names `Places.SPECIES` can plant resolve out of `Workspace.OurForest`,
+-- which does not move at all -- so what the store answers today is only the nine names (`Bush`,
+-- `Tree8`, `Mesh Tree`...) that no plan row has ever asked for.
+function Places.templates(world: Instance?, store: Instance?): { Instance }
 	local root = world or Workspace
+	local shelf = (store or ServerStorage):FindFirstChild(Places.SOURCE_STORE)
 	local out: { Instance } = {}
 	for _, path in ipairs(Places.TEMPLATE_SOURCES) do
-		local at: Instance? = root
-		for piece in string.gmatch(path, "[^%.]+") do
-			at = if at then at:FindFirstChild(piece) else nil
+		local here = under(root, path)
+		if here ~= nil then
+			table.insert(out, here :: Instance)
 		end
-		if at ~= nil then
-			table.insert(out, at)
+		local stowed = if shelf ~= nil then under(shelf :: Instance, path) else nil
+		if stowed ~= nil then
+			table.insert(out, stowed :: Instance)
 		end
 	end
 	return out

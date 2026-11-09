@@ -101,6 +101,12 @@ export type Seams = {
 	-- Karen photographed. `ForestTest.terrainYAt` includes nothing but `Workspace.Terrain` and so
 	-- cannot answer anything but the ground. nil falls back to `groundAt`, and then to arithmetic.
 	terrainAt: ((number, number) -> number?)?,
+	-- A SECOND PLACE TO LOOK FOR A TEMPLATE (task 341). `Places.Store` moves the bought forest's
+	-- sources that stand over no ground into `ServerStorage.Sources`, and `Workspace.LobbyAssets.Truck`
+	-- is one of them -- it stood 32 parts' worth over the void after the world trim. The composition
+	-- root resolves the mirror and hands it in; this module learns no container's name. nil is
+	-- "nobody said", which is the state before the move and the state in a spec.
+	templatesStore: Instance?,
 	-- IS THE SHOP IN THIS BUILD AT ALL? The `SHOP` flag's value, read ONCE at the composition root
 	-- and passed inward (CLAUDE.md, feature flags), because this module must not learn what a shop
 	-- is. It decides one thing: whether the keeper's prompt is `Enabled`. With the shop off the
@@ -458,12 +464,16 @@ local function clone(
 	yaw: number,
 	parent: Instance,
 	cosmetic: boolean,
-	seat: boolean?
+	seat: boolean?,
+	-- WHERE THE TEMPLATE WENT IF IT IS NO LONGER IN `Workspace` (task 341).
+	store: Instance?
 ): Instance?
-	if templates == nil then
-		return nil
+	-- THE STORE IS A FALLBACK AND NEVER A FIRST CHOICE: a template still standing in the world is the
+	-- one that has always been used, so a move can only ADD an answer, never change one.
+	local template: Instance? = if templates ~= nil then (templates :: Instance):FindFirstChild(key) else nil
+	if template == nil and store ~= nil then
+		template = (store :: Instance):FindFirstChild(key)
 	end
-	local template = (templates :: Instance):FindFirstChild(key)
 	if template == nil then
 		stats.fallbacks += 1
 		return nil
@@ -3591,7 +3601,10 @@ local function trucks(
 	anchor: Vector3,
 	cfg,
 	templates: Instance?,
-	groundAt: ((number, number) -> number?)?
+	groundAt: ((number, number) -> number?)?,
+	-- THE SECOND PLACE A TEMPLATE CAN BE (task 341): this is the ONE call site that needs it, because
+	-- the truck is the one template `Places.Store` moves out of `Workspace`.
+	store: Instance?
 )
 	local folder = Instance.new("Folder")
 	-- THE NAME IS DATA SINCE TASK 197, because the CLIENT finds this folder too (`Lobby.truckPosition`,
@@ -3615,7 +3628,8 @@ local function trucks(
 			+ cfg.TRUCK.OFFSET
 			+ Vector3.new(cfg.TRUCK.BACK_STUDS, 0, -(index - 1) * cfg.TRUCK.BAY_GAP_STUDS)
 		local name = string.format(Data.TRUCK_NAME, index)
-		local made = clone(templates, Data.TEMPLATE.TRUCK, name, model.SCALE, at, model.YAW_RADIANS, folder, false)
+		local made =
+			clone(templates, Data.TEMPLATE.TRUCK, name, model.SCALE, at, model.YAW_RADIANS, folder, false, nil, store)
 		if made == nil then
 			made = truck(folder, at, cfg, name)
 		end
@@ -5313,7 +5327,7 @@ function Build.build(
 	-- the pads: the shelf the arithmetic predicts is not the surface the engine produced, and a truck
 	-- stood on the prediction has its tyres 0.75 studs inside the terrain -- measured, in this place,
 	-- on every one of them.
-	trucks(folder, anchor, cfg, templates, (seams or {}).groundAt)
+	trucks(folder, anchor, cfg, templates, (seams or {}).groundAt, (seams or {}).templatesStore)
 	-- FOUR PADS, AND PAD 1 IS THE `marker` THIS FUNCTION HAS ALWAYS RETURNED (task 182): its part is
 	-- still named `Lobby.SPOT_NAME`, so `Lobby.spotPart`, the Hud's chevron and the Director's
 	-- `smoke.sh` all keep working with no edit.

@@ -80,6 +80,14 @@ Places.LANE_STUDS = 12
 -- the value the frames were judged at.
 Places.JITTER = 0.8
 
+-- WHERE A STUDIO-CONTENT SOURCE WAITS ONCE IT IS NO LONGER DRAWN (task 341): a child of
+-- `ServerStorage`, which Roblox documents as "Not Replicated".
+--   https://create.roblox.com/docs/reference/engine/classes/ServerStorage
+-- IT IS SPELLED HERE, IN THE SHARED PLAN, because three owners have to agree on the one name --
+-- `Places.Store` writes it, `Places.templates` reads it, and the lobby's boundary reads it for the
+-- truck -- and a second spelling is the drift rule 3 exists to stop.
+Places.SOURCE_STORE = "Sources"
+
 -- THE SPECIES OF THIS WORLD, grouped by what they look like from a stand. Every name is a child of
 -- `Workspace.OurForest` in Karen's Forest Test, counted there on 2026-10-17 (61 models, 4,819
 -- instances). Nothing here invents a model: a name that is not in that folder plants nothing, which
