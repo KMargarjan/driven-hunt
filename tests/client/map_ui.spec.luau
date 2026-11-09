@@ -1865,15 +1865,17 @@ return function()
 			local restore = MapUi.geometry()
 			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid))
 			MapUi.setOpen(true)
-			MapUi.setPickWindow(true, true)
-			-- NOTHING ELSE MAY BE HOLDING THE PANEL OFF SCREEN. The camera's scope suppresses this
-			-- map and the report panel hides it, and BOTH are driven by other specs in this one
-			-- client session -- so the window is asserted open through the module's own doors rather
-			-- than hoped for.
-			Hud.Report.setOpen(false)
-			MapUi.setSuppressed(false)
-			expect(MapUi.isPickable()).to.equal(true)
+			-- ONE FRAME FOR THE ENGINE'S LAYOUT PASS, because the overlap below is measured in
+			-- `AbsolutePosition` -- the pixels a mouse really hits.
 			task.wait()
+			-- AND NOT ONE FRAME MORE. **THE LIVE HUD REWRITES THE PICK WINDOW EVERY TICK** (round 2,
+			-- measured): `renderObjective` runs in this client with no drive in it, so it says the
+			-- window is shut, and a `task.wait()` between opening the window and reading the pads
+			-- undoes the window. So this block yields NOWHERE. The scope is shut by the same rule --
+			-- the camera suppresses this map and other specs in this session drive the camera.
+			MapUi.setSuppressed(false)
+			MapUi.setPickWindow(true, true)
+			expect(MapUi.isPickable()).to.equal(true)
 			local stands = canvasStands()
 			expect(#stands).to.equal(Grid.standCount(Grid.DEFAULT_CELL))
 			-- THE SIZE IS COMPUTED IN THE CASE, from the view the panel is drawn at -- case 28's own
@@ -1947,25 +1949,16 @@ return function()
 			expect(frame.CanvasSize.Y.Offset > frame.Size.Y.Offset).to.equal(true)
 			-- CLOSED MAP, DEAD LIST: the pads' own rule, in the list's shape.
 			expect(frame.Visible).to.equal(false)
+			-- THIS BLOCK YIELDS NOWHERE, for case 31's measured reason: the live Hud shuts the pick
+			-- window on its own next tick.
+			MapUi.setSuppressed(false)
 			MapUi.setOpen(true)
 			MapUi.setPickWindow(true, true)
-			-- ...AND NOTHING ELSE HOLDING THE PANEL OFF SCREEN (case 31's reason).
-			Hud.Report.setOpen(false)
-			MapUi.setSuppressed(false)
 			expect(MapUi.isPickable()).to.equal(true)
 			expect(frame.Visible).to.equal(true)
-			-- A PHONE'S 44 PX THUMB MINIMUM, MEASURED ON SCREEN (mobile-controls.md §B) and not
-			-- transcribed: the panel shrinks to about a third at 400 x 800 and the list must not.
-			MapUi.setRailColumn(Rail.columnPx(1), Vector2.new(400, 800))
-			MapUi.applyLayout(Vector2.new(400, 800))
-			task.wait()
-			MapUi.setSuppressed(false)
 			local row1 = frame:FindFirstChild("Row1") :: TextButton
 			expect(row1).to.be.ok()
-			local rowPx = row1.AbsoluteSize.Y
-			expect(rowPx > 0).to.equal(true)
-			expect(rowPx >= CONFIG.STAND_LIST_ROW_PX - 2).to.equal(true)
-			expect(frame.AbsoluteSize.Y <= full.AbsoluteSize.Y).to.equal(true)
+			expect(row1.Active).to.equal(true)
 			-- THE WORDS: FREE, a tower, a holder's name and his own.
 			local towers = Grid.towerStands(Grid.DEFAULT_CELL)
 			expect(MapUi.standRowText(1, "MAIN", { state = "free" }, "ground")).to.equal(" 1  MAIN  FREE")
@@ -1979,8 +1972,7 @@ return function()
 				states[index] = { state = "free" }
 			end
 			states[2] = { state = "taken", name = "Rival" }
-			MapUi.setStandStates(states, 327)
-			task.wait()
+			MapUi.setStandStates(states, 327327)
 			expect(string.match((frame:FindFirstChild("Row2") :: TextButton).Text, "Rival")).to.be.ok()
 			-- A ROW ASKS THE SAME DOOR THE PAD DOES -- one tap rule, not two.
 			MapUi.tapStand(13)
@@ -1991,7 +1983,19 @@ return function()
 			MapUi.setOpen(false)
 			MapUi.tapStand(4)
 			expect(#asked).to.equal(1)
+			-- A PHONE'S 44 PX THUMB MINIMUM, MEASURED ON SCREEN (mobile-controls.md §B) and not
+			-- transcribed: the panel shrinks to about a third at 400 x 800 and the list must not
+			-- shrink with it. `AbsoluteSize` is the engine's own layout answer and it does not depend
+			-- on `Visible`, so this part may take the frame the layout pass needs.
+			MapUi.setRailColumn(Rail.columnPx(1), Vector2.new(400, 800))
+			MapUi.applyLayout(Vector2.new(400, 800))
+			task.wait()
+			local rowPx = row1.AbsoluteSize.Y
+			expect(rowPx > 0).to.equal(true)
+			expect(rowPx >= CONFIG.STAND_LIST_ROW_PX - 2).to.equal(true)
+			expect(frame.AbsoluteSize.Y <= full.AbsoluteSize.Y).to.equal(true)
 			MapUi.setPickSystem(nil)
+			MapUi.setRailColumn(nil)
 			MapUi.applyLayout()
 			MapUi.setGeometry(restore)
 			TestKit.note(string.format("map_ui 327f: %d list rows, %.0f px a row at 400 x 800", rows, rowPx))
