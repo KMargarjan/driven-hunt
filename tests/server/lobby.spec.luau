@@ -2834,6 +2834,31 @@ return function()
 			templates:Destroy()
 		end)
 
+		it("clones the truck out of the store once it is no longer in the world", function()
+			-- **THE CASE THAT DIES IF THE FIX IS DELETED** (task 341, lesson L-093). After the world
+			-- trim `Workspace.LobbyAssets.Truck` stood 32 parts over the void, so `Places.Store`
+			-- moves it into `ServerStorage.Sources.LobbyAssets` BEFORE the lobby builds. Take the
+			-- store arm out of `Build.clone` and every bay is a parts truck again.
+			local templates = fakeTemplates()
+			local store = Instance.new("Folder")
+			store.Name = Data.TEMPLATES_NAME
+			local truckTemplate = templates:FindFirstChild(Data.TEMPLATE.TRUCK) :: Instance
+			truckTemplate.Parent = store
+			local folder = Build.build(container, anchor, CFG, templates, { templatesStore = store })
+			local first = folder:FindFirstChild("Truck1", true)
+			expect(first).to.be.ok()
+			-- THE CLONE, NOT THE PARTS TRUCK: the fake template's one part is called `Body` and the
+			-- built-from-parts truck's is called `Cab`.
+			expect((first :: Instance):FindFirstChild("Body")).to.be.ok()
+			expect((first :: Instance):FindFirstChild("Cab")).to.equal(nil)
+			expect(Build.stats().fallbacks < CFG.TRUCK.COUNT).to.equal(true)
+			-- ...AND THE TREES STILL COME OUT OF THE WORLD'S OWN FOLDER, which is the half that did
+			-- NOT move: `LobbyAssets.Trees` stands on kept ground.
+			expect(folder:FindFirstChild("TreeLine")).to.be.ok()
+			templates:Destroy()
+			store:Destroy()
+		end)
+
 		it("strips a script a free model smuggled in, and says how many", function()
 			local templates = fakeTemplates(true)
 			local folder = Build.build(container, anchor, CFG, templates)

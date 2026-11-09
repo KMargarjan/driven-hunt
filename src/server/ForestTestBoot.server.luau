@@ -82,6 +82,8 @@ local Places = require(ServerScriptService:WaitForChild("Places"))
 -- WHICH CELL'S WOOD IS IN `Workspace` (task 337). The one writer of a cell folder's `Parent`; it
 -- creates nothing and destroys nothing. Design: docs/design/cell-loading.md.
 local Cells = require(ServerScriptService.Places:WaitForChild("Cells"))
+-- THE SOURCES THAT ARE NO LONGER DRAWN (task 341): the one writer of `ServerStorage.Sources`.
+local Store = require(ServerScriptService.Places:WaitForChild("Store"))
 -- THE GRID'S EIGHT CELLS (task 327a) ARE NOT REQUIRED HERE ANY MORE (task 327d). This file asked
 -- `Grid` for one cell's layout row under `GRID_PREVIEW`; the rotation IS `Grid.PLANTED_CELLS` now,
 -- so the cell reaches this file through `ForestTest` like any other layout and there is one path.
@@ -235,6 +237,28 @@ print(
 			cells.stoodModels,
 			cells.storedCells,
 			cells.storedModels
+		)
+)
+
+-- NO TREE HANGS OVER THE VOID (task 341). After the world trim the land outside the kept boxes is
+-- Air, and the bought forest's own template sources were left standing over nothing.
+-- `Places.Store` moves exactly the children with no terrain under them into `ServerStorage.Sources`,
+-- where nothing is drawn, and stamps each with the folder it came out of.
+--
+-- **HERE, AFTER `Places.build` AND AFTER `Cells.reconcile`**: `build` above is what sweeps this
+-- world's foliage (`%d leaf part(s) unblocked`), and it must sweep it where it stands, so the move
+-- comes after. The lobby builds LATER (`Lobby.start` below), by which time the truck's template is
+-- in the store -- which is why `Build.clone` is given the store as a second place to look.
+--
+-- IT REFUSES AT EDIT TIME BY ITSELF (`Store.editTime`), the same reason `Cells.reconcile` does.
+local stowed = Store.stow(workspace, ServerStorage)
+print(
+	Store.line(stowed)
+		or string.format(
+			"[Places.Store] nothing over the void: %d source folder(s), %d child(ren)/%d part(s) left standing",
+			stowed.roots,
+			stowed.stayed,
+			stowed.stayedParts
 		)
 )
 
