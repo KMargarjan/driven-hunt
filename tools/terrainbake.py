@@ -2601,6 +2601,31 @@ def trim_measured_seconds():
     return None, None
 
 
+def trim_live_region(studio, studio_id, injected=None):
+    """`TerrainBake.regionFor(Grid.cellIds())` AS STUDIO COMPUTES IT -- the function design 10.4
+    names the refusal against. Round-1 finding 2: comparing this file's Python twin with itself is
+    a value compared with itself, so the twin is checked against the Luau and not against itself."""
+    return call(studio, studio_id, "TerrainBake.regionFor(Grid.cellIds())", timeout=60,
+                injected=injected)
+
+
+def trim_region_problem(k1, live):
+    """REFUSAL 11's FIRST HALF, against Studio's own answer. `live` None means it was not read, and
+    for a run that is itself the refusal: an unchecked K1 is a typo that deletes the game."""
+    if live is None:
+        return ("TerrainBake.regionFor(Grid.cellIds()) was not read from Studio, so K1 would be "
+                "this tool's own twin compared with itself")
+    wrong = [side for side in ("minX", "maxX", "minZ", "maxZ")
+             if not isinstance(live.get(side), (int, float))
+             or abs(float(live[side]) - k1[side]) > 1e-6]
+    if wrong:
+        return ("K1 is not TerrainBake.regionFor(Grid.cellIds()) in Studio: %s differ -- this tool "
+                "says %s, Studio says %s"
+                % (", ".join(wrong), {k: k1[k] for k in sorted(k1)},
+                   {k: live.get(k) for k in sorted(k1)}))
+    return None
+
+
 def trim_census(studio, studio_id, keeps, injected=None):
     boxes = json.dumps([box for _, box in keeps])
     return call(studio, studio_id,
@@ -2665,12 +2690,17 @@ def command_trim_plan(args, facts, studio=None, studio_id=None):
     problem = trim_rotation_problem()
     if problem:
         return refuse(problem)  # refusal 10
-    census = None
+    census, live = None, None
     if studio is not None and studio_id is not None:
         try:
             census = trim_census(studio, studio_id, keeps)
+            live = trim_live_region(studio, studio_id)
         except Exception as problem:  # noqa: BLE001 -- a read-only plan still prints with no Studio
-            print("[bake] note: the census was not read (%s)" % str(problem).strip()[:160])
+            print("[bake] note: Studio was not read (%s)" % str(problem).strip()[:160])
+    if live is not None:
+        problem = trim_region_problem(dict(keeps)["K1"], live)
+        if problem:
+            return refuse(problem)  # refusal 11, against the Luau's own region
     world, band, measured = trim_world(census, facts, keeps)
     problem = trim_live_problem(census, keeps)
     if problem:
@@ -2696,6 +2726,13 @@ def command_trim_plan(args, facts, studio=None, studio_id=None):
                                                 rect["minZ"], rect["maxZ"]))
     print("  keep     %.1f%% of the world box is kept (K1 u K2, clipped to it)"
           % (100.0 * kept / box_area(world)))
+    if live is None:
+        print("  K1       NOT ASKED: no Studio answered, so K1 stands on this tool's twin alone -- "
+              "`trim` itself REFUSES in that state")
+    else:
+        print("  K1       ASSERTED: TerrainBake.regionFor(Grid.cellIds()) in Studio agrees -- "
+              "x[%g,%g] z[%g,%g]"
+              % (live["minX"], live["maxX"], live["minZ"], live["maxZ"]))
     seconds, log = trim_measured_seconds()
     if seconds is None:
         print("  estimate %d call(s); the MINUTES ARE NOT MEASURED YET -- run "
@@ -2715,6 +2752,16 @@ def command_trim(studio, studio_id, args, facts, injected, keep, live):
     problem = trim_keep_problem(facts, keeps=keeps) or trim_rotation_problem()
     if problem:
         return refuse(problem)  # refusals 10 and 11, before anything is written
+    live = None
+    try:
+        live = trim_live_region(studio, studio_id, injected)
+    except Exception as problem:  # noqa: BLE001 -- the refusal below says what that means
+        print("[bake] note: TerrainBake.regionFor was not read (%s)" % str(problem).strip()[:160])
+    problem = trim_region_problem(dict(keeps)["K1"], live)
+    if problem:
+        return refuse(problem)  # refusal 11, against the Luau's own region
+    print("[bake] K1 ASSERTED against TerrainBake.regionFor(Grid.cellIds()) in Studio: "
+          "x[%g,%g] z[%g,%g]" % (live["minX"], live["maxX"], live["minZ"], live["maxZ"]))
     census = trim_census(studio, studio_id, keeps, injected)
     problem = trim_live_problem(census, keeps)
     if problem:
@@ -2865,6 +2912,11 @@ def main(argv):
             if studio is not None:
                 studio.close()
 
+    if args.command == "trim" and (args.block_studs or TRIM_BLOCK_STUDS) % facts["voxel"] != 0:
+        # BEFORE the `plan` return, or `trim plan --block-studs 7` reaches `trim_blocks`' bare
+        # assert and prints a traceback instead of a refusal (round-1 note).
+        return refuse("--block-studs %s is not a whole number of %d-stud voxels"
+                      % (args.block_studs, facts["voxel"]))
     if args.command == "trim" and args.subject == "plan":
         # READ-ONLY like `plan`, so a Studio is a bonus: with one it reads the census and checks the
         # keep boxes against the LIVE world, and without one it says the census was not read.
@@ -2901,9 +2953,6 @@ def main(argv):
         if args.cells:
             return refuse("`trim` takes no --cells: the removal set is the COMPLEMENT of the keep "
                           "boxes, and K1 is every cell by construction")
-        if (args.block_studs or TRIM_BLOCK_STUDS) % facts["voxel"] != 0:
-            return refuse("--block-studs %s is not a whole number of %d-stud voxels"
-                          % (args.block_studs, facts["voxel"]))
 
     sha, dirty = check_clean_tree()
     if (mutating or args.command in PROOF_NEEDS_CLEAN) and dirty:
@@ -4014,6 +4063,16 @@ def selftest():
     ok("refusal 11 passes the real keep list and REFUSES a K1 that is not regionFor's region",
        trim_keep_problem(facts, keeps=keeps) is None
        and trim_keep_problem(facts, keeps=narrow) is not None)
+    # ...AND THE SIDE THAT MATTERS IS AGAINST THE LUAU, NOT AGAINST THIS FILE (round-1 finding 2):
+    # the twin compared with itself cannot fire, so `trim` asks Studio for `regionFor` and refuses
+    # when it disagrees -- and refuses when it could not be read at all.
+    ok("K1 is checked against TerrainBake.regionFor IN STUDIO: an unread region refuses, an equal "
+       "one passes, and one voxel of difference on any side refuses",
+       trim_region_problem(k1, None) is not None
+       and trim_region_problem(k1, dict(k1)) is None
+       and all(trim_region_problem(k1, dict(k1, **{side: k1[side] + facts["voxel"]})) is not None
+               for side in ("minX", "maxX", "minZ", "maxZ"))
+       and trim_region_problem(k1, {"minX": "x"}) is not None)
     # L-093, SECOND HALF: K2 holds the spawn, the two anchors and OurForest's corners -- and the
     # refusal fires when any one of them is moved out, so the check is not a tautology.
     points = trim_points()
@@ -4074,13 +4133,15 @@ def selftest():
     ok("`trim` takes every refusal a bake takes, and `trim plan` writes nothing",
        "trim" in MUTATING and "trim" not in PLANT_MUTATING
        and check_backup(None) is not None)
-    ok("TerrainBake.trimBlock refuses a block it would have to expand, fills with Air, and reads "
-       "its own lattice before AND after (lesson L-182)",
-       "trimBlock" in open(BAKE_LUAU, encoding="utf-8").read()
-       and "FillRegion" in open(BAKE_LUAU, encoding="utf-8").read()
-       and "not aligned to the" in open(BAKE_LUAU, encoding="utf-8").read()
-       and "hitsBefore" in open(BAKE_LUAU, encoding="utf-8").read()
-       and "hitsAfter" in open(BAKE_LUAU, encoding="utf-8").read())
+    # THE LUAU HALF IS NOT PROVED HERE. A substring grep survives deleting the producer (round-1
+    # finding 1), so `TerrainBake.trimBlock` and `TerrainBake.trimHits` are proved in Studio, against
+    # terrain the case writes and removes itself: `tests/server/grid_relief.spec.luau` 337b-1 and
+    # 337b-2. All this case asserts is that those two cases exist to be run.
+    ok("the irreversible half is proved by a Studio spec and not by a grep (round-1 finding 1)",
+       "337b-1 trimHits" in open(os.path.join(REPO, "tests", "server", "grid_relief.spec.luau"),
+                                 encoding="utf-8").read()
+       and "337b-2 trimBlock REFUSES" in open(
+           os.path.join(REPO, "tests", "server", "grid_relief.spec.luau"), encoding="utf-8").read())
 
     print("[bake] selftest: %d check(s) failed" % len(failures) if failures else "[bake] selftest: PASS")
     return 1 if failures else 0
