@@ -3707,5 +3707,72 @@ return function()
 			-- AND IT IS NOT FOOLED BY A JOIN: "a","bc" must not hash like "ab","c".
 			expect(TerrainBake.nameFnv({ "a", "bc" }, 2)).never.to.equal(TerrainBake.nameFnv({ "ab", "c" }, 2))
 		end)
+
+		-- THE WORLD TRIM (task 337b). The two cases the round-1 verdict asked for: a substring grep
+		-- in the tool's selftest survives deleting the producer, so the irreversible half is proved
+		-- here, in Studio, against terrain this case writes and removes itself. A Play session's
+		-- terrain writes are discarded on Stop, and this ground is at x,z 8000 -- outside every keep
+		-- box, every cell and the region the terrain-writer case above reads.
+		-- ...AND IT YIELDS AFTERWARDS. A terrain write is not rayable on the tick that makes it
+		-- (measured in DEV 2026-11-09: nil on the writing tick, 18.0 two frames later), which is
+		-- why `TerrainBake.trimBlock` settles too.
+		local function trimGround(material)
+			workspace.Terrain:FillBlock(CFrame.new(8064, 0, 8064), Vector3.new(128, 32, 128), material)
+			for _ = 1, TerrainBake.TRIM_SETTLE_FRAMES do
+				task.wait()
+			end
+		end
+
+		it("337b-1 trimHits reads the lattice it is given, and trimBlock fills that block with Air", function()
+			local box = { minX = 8000, maxX = 8128, minZ = 8000, maxZ = 8128 }
+			trimGround(Enum.Material.Air)
+			local empty = TerrainBake.trimHits(box, -64, 192, 32)
+			-- 128 studs at a 32-stud step is 4 nodes an axis: the COUNT is the walk's arithmetic.
+			expect(empty.nodes).to.equal(16)
+			expect(empty.hits).to.equal(0)
+			trimGround(Enum.Material.Grass)
+			local full = TerrainBake.trimHits(box, -64, 192, 32)
+			expect(full.nodes).to.equal(16)
+			expect(full.hits).to.equal(16)
+			local report = TerrainBake.trimBlock(box, -64, 192, 32)
+			expect(report.refused).to.equal(nil)
+			expect(report.filled).to.equal(1)
+			expect(report.step).to.equal(32)
+			-- BEFORE AND AFTER, OUT OF THE FUNCTION'S OWN RETURN: this is the pair the run prints,
+			-- and it dies if `trimHits` stops reading or `FillRegion` stops writing.
+			expect(report.hitsBefore).to.equal(16)
+			expect(report.hitsAfter).to.equal(0)
+			expect(TerrainBake.trimHits(box, -64, 192, 32).hits).to.equal(0)
+			TestKit.note(
+				string.format(
+					"337b trimBlock x[%d,%d] z[%d,%d]: %d node(s), %d hit -> %d",
+					box.minX,
+					box.maxX,
+					box.minZ,
+					box.maxZ,
+					report.nodes,
+					report.hitsBefore,
+					report.hitsAfter
+				)
+			)
+		end)
+
+		it("337b-2 trimBlock REFUSES a block it would have to expand, and writes nothing", function()
+			-- 8002 is not a multiple of `Relief.VOXEL`, so `ExpandToGrid` would grow the block
+			-- OUTWARD -- which, for a removal block, is outward INTO a keep box.
+			local off = { minX = 8002, maxX = 8126, minZ = 8002, maxZ = 8126 }
+			local whole = { minX = 8000, maxX = 8128, minZ = 8000, maxZ = 8128 }
+			trimGround(Enum.Material.Grass)
+			expect(TerrainBake.trimHits(whole, -64, 192, 32).hits).to.equal(16)
+			local report = TerrainBake.trimBlock(off, -64, 192, 32)
+			expect(report.filled).to.equal(0)
+			expect(type(report.refused)).to.equal("string")
+			expect(string.find(report.refused, "not aligned", 1, true) ~= nil).to.equal(true)
+			-- ...AND THE GROUND IS STILL THERE. The refusal returns before `FillRegion`, so a
+			-- widened threshold that let this block through would redden this line, not the text.
+			expect(TerrainBake.trimHits(whole, -64, 192, 32).hits).to.equal(16)
+			trimGround(Enum.Material.Air)
+			expect(TerrainBake.trimHits(whole, -64, 192, 32).hits).to.equal(0)
+		end)
 	end)
 end
