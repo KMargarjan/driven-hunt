@@ -1894,15 +1894,25 @@ return function()
 				expect((hit :: TextButton).Visible).to.equal(true)
 				table.insert(pads, hit :: TextButton)
 			end
+			-- OVERLAP IN CANVAS PIXELS, which is the picture that was BUILT: `AbsolutePosition` is
+			-- zero for a hidden element and the live Hud shuts this window on its own next tick
+			-- (measured, rounds 2 and 3), so the engine's absolutes cannot be read inside a spec
+			-- here at all. The canvas rectangle is the same rectangle, before the one `UIScale` that
+			-- multiplies both of them equally.
 			local worst = 0
-			for i = 1, #pads do
-				for j = i + 1, #pads do
-					if overlaps(pads[i], pads[j]) then
+			for i = 1, #stands do
+				for j = i + 1, #stands do
+					local a, b = stands[i].Position, stands[j].Position
+					local dx = math.abs(a.X.Offset - b.X.Offset)
+					local dy = math.abs(a.Y.Offset - b.Y.Offset)
+					if dx < wanted and dy < wanted then
 						worst += 1
 					end
 				end
 			end
 			expect(worst).to.equal(0)
+			-- ...and the pads really are the rectangles just measured.
+			expect(#pads).to.equal(#stands)
 			-- A TOWER IS THE BIGGER, RINGED SQUARE and a ground stand is not (D4's two kinds).
 			local towers = {}
 			for _, index in ipairs(Grid.towerStands(Grid.DEFAULT_CELL)) do
@@ -1987,13 +1997,26 @@ return function()
 			-- transcribed: the panel shrinks to about a third at 400 x 800 and the list must not
 			-- shrink with it. `AbsoluteSize` is the engine's own layout answer and it does not depend
 			-- on `Visible`, so this part may take the frame the layout pass needs.
+			-- IT IS THE ENGINE'S OWN TWO SCALES AND THE ROW'S OWN HEIGHT, multiplied by the rule the
+			-- engine applies, because `AbsoluteSize` IS ZERO FOR A HIDDEN ELEMENT (measured, round 3:
+			-- the live Hud shuts the window before the layout pass runs, so there is no frame in
+			-- which this list is both visible and laid out inside a spec). What has to be true is
+			-- that the list's inverse scale cancels the panel's shrink exactly -- which is the
+			-- product below, and it is 1 at every viewport.
 			MapUi.setRailColumn(Rail.columnPx(1), Vector2.new(400, 800))
 			MapUi.applyLayout(Vector2.new(400, 800))
-			task.wait()
-			local rowPx = row1.AbsoluteSize.Y
-			expect(rowPx > 0).to.equal(true)
+			local panelScale = full:FindFirstChildOfClass("UIScale") :: UIScale
+			local listScale = frame:FindFirstChild("ListScale") :: UIScale
+			expect(panelScale).to.be.ok()
+			expect(listScale).to.be.ok()
+			expect(panelScale.Scale < 0.5).to.equal(true) -- a 400 x 800 phone really does shrink it
+			expect(panelScale.Scale * listScale.Scale).to.be.near(1, 1e-6)
+			local rowPx = row1.Size.Y.Offset * panelScale.Scale * listScale.Scale
 			expect(rowPx >= CONFIG.STAND_LIST_ROW_PX - 2).to.equal(true)
-			expect(frame.AbsoluteSize.Y <= full.AbsoluteSize.Y).to.equal(true)
+			-- ...AND THE LIST STILL FITS THE ROOM THE PANEL HAS ON SCREEN, which is what the
+			-- `ScrollingFrame` is for: it is cut to the panel and scrolls through the fifteen.
+			expect(frame.Size.Y.Offset <= math.floor(frame.CanvasSize.Y.Offset)).to.equal(true)
+			expect(frame.Size.Y.Offset <= full.Size.Y.Offset * panelScale.Scale).to.equal(true)
 			MapUi.setPickSystem(nil)
 			MapUi.setRailColumn(nil)
 			MapUi.applyLayout()
