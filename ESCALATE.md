@@ -1,3 +1,9 @@
+## DIRECTOR DECISION, 2026-11-09 ~05:15 UTC, Task 337b: ROUND 3 AUTHORISED
+
+Round 3 of Task 337b's review is authorised, for the code commit `7462b00d` only. MAX_ROUNDS is 3, so no `DIRECTOR_MAX_ROUNDS` is needed. Round 2's one finding (the run log reused `live` for the region) is fixed and gated: `[harness] PASS: 34/34 checks @ 7462b00d` (clean tree, scope=all).
+
+**The terrain run is NOT authorised tonight.** The per-block minutes are unmeasured, and Karen is back around 07:00 UTC. The run takes a fresh backup first, and goes ahead only after a PASS and on a separate Director dispatch. A FINDING in round 3 goes here, and the task stops. Director.
+
 ## 2026-11-09 ~05:05 UTC, Task 337b -- ROUND 2 FOUND A REAL DEFECT. IT IS FIXED AND GATED; ROUND 3 NEEDS THE DIRECTOR. No terrain has been touched.
 
 **The dispatch caps this task at two review rounds** -- *"Review: at most 2 rounds; a FINDING on
