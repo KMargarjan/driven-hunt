@@ -1779,8 +1779,10 @@ local function layoutFor(viewport: Vector2)
 	if fullUiScale ~= nil then
 		fullUiScale.Scale = math.max(0.1, scale)
 	end
-	-- SHIFTED LEFT BY HALF THE COLUMN, so the panel stays centred in the room it actually has.
-	full.Position = UDim2.new(0.5, -math.round(column / 2), 0, config.FULL_TOP)
+	-- SHIFTED LEFT BY HALF THE COLUMN -- AND BY HALF THE LIST'S, so the panel stays centred in the
+	-- room it actually has. Measured (327f): reserving the width without shifting leaves only half
+	-- of it on the right, so the list came back over the map.
+	full.Position = UDim2.new(0.5, -math.round((column + reserve) / 2), 0, config.FULL_TOP)
 
 	-- THE STAND LIST IS SIZED IN SCREEN PIXELS AND NOT IN CANVAS PIXELS (tasks 323c, 327f).
 	-- Everything else in this panel shrinks with it, which is right for a map and wrong for a thumb:
@@ -1809,7 +1811,7 @@ local function layoutFor(viewport: Vector2)
 		-- shrunk panel (the column shrinks and the list does not), so the only place it fits is
 		-- outside. On a phone there is no outside, and then it sits over a map whose 10 px pads
 		-- nobody can tap anyway -- which is what the list is for.
-		local panelRightPx = viewport.X / 2 - math.round(column / 2) + (panelWidth * shown) / 2
+		local panelRightPx = viewport.X / 2 - math.round((column + reserve) / 2) + (panelWidth * shown) / 2
 		local gapPx = Style.SPACE.S
 		local roomRight = viewport.X - column - panelRightPx
 		if roomRight >= config.STAND_LIST_WIDTH_PX + gapPx then
