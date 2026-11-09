@@ -1,24 +1,58 @@
 # Task 327d — THE SWITCH: every drive is dealt in a grid cell
 
 Task: 327d
-Round: 1
+Round: 2
 Base: `2cdf3be4` (main, after #344)
-Code commit: `e811c60d122c8a5a2c6822190bd0dc3335364290`
+Code commit: `72d1f3899cead81b29639cb74c158a84ee88be55`
 Branch: `task-327d-switch`
 
 ```
-[harness] PASS: 34/34 checks @ e811c60d122c8a5a2c6822190bd0dc3335364290 (clean tree) scope=all
-[harness2] PASS: 36/36 checks @ e811c60d122c8a5a2c6822190bd0dc3335364290 (clean tree)
+[harness] PASS: 34/34 checks @ 72d1f3899cead81b29639cb74c158a84ee88be55 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 72d1f3899cead81b29639cb74c158a84ee88be55 (clean tree)
 ```
 
-Both runs first try, no failing spec, so no flake is named and no control run is owed (L-136).
-Only `ESCALATE.md` changed between the last `src/tests/tools` commit (`52716ba4`) and the code
-commit.
+`72d1f389` is the last commit that touched `src/`, `tests/` or `tools/`; only `reviews/` and the
+`TASKS.md` status row follow it. **Round 2 changes nothing about the switch** -- see "Round 2"
+below.
 
 Karen, 2026-11-08: *"so rest part of map we can remove we can only focus on those what we have from
 A1 ect"*, *"we only load one per game thats it"*; earlier *"once I am driver ended with line I wait
 untile hunt ends? its shit boring"*.
 Design: `grid-map.md` D-4 and the 327d row; `cell-loading.md` 13 D1 and 17 D-4.
+
+---
+
+## Round 2: what changed, and nothing else did
+
+Round 1 was ONE blocking finding and it was right: `bots_lane.spec`'s drive-length band
+(`seconds > 173` / `< 213`) and the whole case *"finishes well inside the drive clock, so the clock
+is still the backstop"* -- with `expect(DRIVE.seconds - seconds > DRIVE.seconds / 3)` -- were
+deleted rather than archived, and claim 10 did not name them.
+
+1. **Both are archived VERBATIM with the arithmetic**, rule 7:
+   `backups/2026-11-09_task-327d_drive-length-assertions.luau.txt` plus its `backups/README.md` row.
+   The note says what the measured 292.9 s does to the margin: `300 - 278.8 = 21.2` against a
+   required `300/3 = 100`, so the deleted margin is **RED on the shipped numbers**, which is this
+   task's own finding and not a reason to drop it.
+2. **The margin is KEPT, at the one size the game itself names** (the finding's own alternative):
+   `expect(seconds + Match.CONFIG.BEATERS_THROUGH_GRACE_SECONDS < Forest.DRIVE.seconds)` --
+   278.8 + 15 = 293.8 against 300 -- which is the through-grace having somewhere to run, and it
+   reddens if the walk grows by 7 s. The third-of-the-clock version goes back the day the Director
+   takes one of `ESCALATE.md`'s three numbers.
+3. The case's note now prints the **MEASURED 292.9 s** beside the flat 278.8 and the modelled 301.
+4. Two round-1 notes that were plainly right and cost one line each:
+   `forest_stand.spec`'s `expect(archived < lastSlot)` pinned the ROLLBACK's broken inequality as a
+   pass condition (fixing the rollback would have turned the gate red) and is now a `TestKit.note`;
+   and a comment of mine said `Cells.DEFAULT_CELL` where the constant is `Grid.DEFAULT_CELL`.
+   **Every other note is queued in `TASKS.md` row 327d-notes, not fixed** (CLAUDE.md step 5).
+
+**The first round-2 gate run FAILED two specs and the second PASSED, on the SAME commit with no
+change to the tree** (`72d1f389`, `.agent-logs/327d-r2-t1.log` then `327d-r2-t2.log`):
+`deer_hitbox.spec:659` *"calf: the skull at (0.01, 1.50, -1.02) answered nil"*, which is in the
+Director's named intermittent list, and `map_ui.spec:1071`, which is **not** -- it is a 0.6 s timing
+window (`ticks / elapsed` near `TICK_HZ` 20 within 40 %) that read **11.37 Hz** on a machine then
+running two Studios. Count: 2 intermittent failures in 3 round-2 runs; the pasted line is the clean
+PASS and nothing else is claimed from the failing run.
 
 ---
 
@@ -29,7 +63,7 @@ cells the rotation deals cannot drift apart.** `ForestTest.LAYOUT_ORDER = Grid.P
 `src/shared/ForestTest/init.luau`. Verify: `grid.spec` → *"deals ONLY the planted cells, never a line
 place and never A1"* asserts `order == Grid.PLANTED_CELLS` by IDENTITY, `#order == 7`, every name a
 cell, no name in `LINE_PLACES`, `layoutNamed(name) == nil` for each, `A1` in neither list, and four
-full `nextLayout` cycles reaching no line place. **LIVE in Karen's Forest Test at the code commit**
+full `nextLayout` cycles reaching no line place. **LIVE in Karen's Forest Test on the branch**
 (`<runs-dir>/327d-rotation.luau`): `order=C1,C2,A2,B1,D1,B2,D2 | 14 deals: C1 -> C2 -> A2 -> B1 ->
 D1 -> B2 -> D2 -> C1 -> ... | A1 in order=false`.
 
@@ -47,7 +81,7 @@ No line place and no A1 in seven drives.
 Verify by the same probe in the same place, before and after
 (`<runs-dir>/327d-parts.luau`):
 
-| | merge-base `2cdf3be4` | code commit `e811c60d` |
+| | merge-base `2cdf3be4` | the branch, live at `52716ba4` |
 |---|---|---|
 | `Workspace.DrivePlaces` | **9,105 parts / 3 children** | **0 / 0** |
 | whole `Workspace` | 31,566 parts | **22,459** |
@@ -66,7 +100,7 @@ requires no Flags, so the prebuild has no flag to stub"*). Losing branch archive
 `backups/2026-11-09_task-327d_the-four-line-places.md`.
 
 **5. Her leftover `DHFlag_GRID_PREVIEW=true` is a WARNING, not an error and not a failure — and it
-was NOT cleared.** Live, at the code commit: `[flags] OVERRIDE ACTIVE (Studio only) 5 of 23: …` then
+was NOT cleared.** Live, on the branch: `[flags] OVERRIDE ACTIVE (Studio only) 5 of 23: …` then
 `[flags] override(s) REJECTED and NOT applied: unknown flag GRID_PREVIEW`. `Flags.resolve` rejects an
 undeclared name rather than creating a flag, and `ensure()` warns once. Zero error lines in that
 boot. Her attributes are byte-identical before the first Connect and after the last Play (claim 9).
@@ -87,7 +121,7 @@ rate (0.77) clears the floor. **LIVE: every bot beater walked at exactly `WalkSp
 speed `sp=5.20` on every sample** (`<runs-dir>/327d-bots.luau`), dz 1430 → 23 over the drive. **The
 crossing still did not fire — see "what I could not verify" and `ESCALATE.md`.**
 
-**8. A drive works end to end in a cell, one player.** At the code commit, cell C1: the player
+**8. A drive works end to end in a cell, one player.** On the branch, cell C1: the player
 enrolled at the truck pad, was dealt **main stand 4** at `(-3905, 111, -5062)` against the cell's main
 road at `z = -5107`, with three bot hunters at dz 29–41 — **all four on MAIN-line stands, no flank
 stand was used**, so `Body.placementFor`'s north-facing on a flank (TASKS.md 327b-notes (c), 327g's)
@@ -113,7 +147,12 @@ outlasts the drive script and fits the clock"*, and `bots_live.spec`'s gait-floo
 pace no longer clamps — the pace that does is now computed from the law). `forest_markers.spec` and
 `forest_stand.spec` assert west-to-east sortedness and the uniform stand grid only for a layout with
 no `sides`, because a cell's 15 stands are on three of its sides. `QUICK_TEST` had expired
-2026-11-08 and is re-justified 21 days.
+2026-11-08 and is re-justified 21 days. **Round 2 archived the two drive-length assertions this
+block replaced** (`backups/2026-11-09_task-327d_drive-length-assertions.luau.txt`): task 162's /
+the Director's band `expect(seconds > 173)` + `expect(seconds < 213)` with its whole case, and the
+whole case `it("finishes well inside the drive clock, so the clock is still the backstop", ...)`
+with `expect(Forest.DRIVE.seconds - seconds > Forest.DRIVE.seconds / 3)`, verbatim, each with why it
+could not survive a 1,430-stud cell and what replaced it.
 
 ---
 
@@ -129,8 +168,9 @@ no `sides`, because a cell's 15 stands are on three of its sides. `QUICK_TEST` h
   (`1430 / 5.2 = 275 s`) leaves out `GOAL_PAST_LINE_STUDS` 20 (→ 278.8 s) and the measured ground
   overhead 1.051 (→ 292.9 s). The number lives in `docs/design/`, which is not mine; the arithmetic
   for one that would work (5.35 bare, 5.64 with margin, or `DRIVE.seconds` 300 → 330) is in
-  `ESCALATE.md` with its own table. `bots_lane.spec` prints the flat and ground figures as a note
-  rather than asserting a crossing it cannot see.
+  `ESCALATE.md` with its own table. `bots_lane.spec` prints the flat, modelled and MEASURED figures as a
+  note rather than asserting a crossing it cannot see, and asserts the smaller margin the game's own
+  `BEATERS_THROUGH_GRACE_SECONDS` names (claim 10 / Round 2 above).
 - **`Map.WORLD_BY_PLACE` → `"grid:v1"` (the design's 327d row) is NOT DONE, deliberately.** The
   dispatch does not ask for it and cites `cell-loading.md` instead. `"forest-test"` is the string
   `ForestTestBoot` returns early on, `MatchBoot` skips on, `RangeData.anchorFor` keys on and `Hud` /
@@ -164,18 +204,23 @@ no `sides`, because a cell's 15 stands are on three of its sides. `QUICK_TEST` h
 
 ---
 
-ANSWERED: **L-136** no spec failed in either gate run, so no flake is named and no control run is
-owed. Five earlier runs on a DIRTY tree failed while I was fixing the switch's own spec fallout
-(43 → 17 → 8 → 6 → 1 → 0 server failures); every one was mine and none is claimed as evidence.
+ANSWERED: **L-136** named with its count, not waved away. Round 2, same commit `72d1f389`, no change
+to the tree: run 1 FAILED `deer_hitbox.spec:659` (in the Director's list) and `map_ui.spec:1071`
+(**not** in it -- a 0.6 s timing window that read 11.37 Hz against a 20 Hz target ±40 %); run 2
+PASSED 34/34 and is the line pasted above. Round 1's two gate runs passed first try. Five earlier
+runs on a DIRTY tree failed while I was fixing the switch's own spec fallout (43 → 17 → 8 → 6 → 1 →
+0 server failures); every one of those was mine and none is claimed as evidence.
 ANSWERED: **L-127** per item. **MET** — items 1 (rotation), 2 (a drive end to end in a cell), 4
 (`GRID_PREVIEW` retired) and 5 (case 21 + the L-093 case). **NOT MET** — item 3: the beaters do not
 all cross inside the drive at 5.2; measured 292.9 s for the first of four against a 300 s clock,
 escalated with the arithmetic. **NOT PROVEN** — Karen has not played it, and the forced-rollback path
 was not driven live.
-ANSWERED: **L-162** every live number above is from the one Play session at the code commit
-`e811c60d` (the tree `driven-hunt-rev` served on rojo :34873 was `52716ba4`, which differs from the
-code commit only by `ESCALATE.md`); the BEFORE numbers are labelled `2cdf3be4` and were taken with
-the SAME probe file in the SAME place.
+ANSWERED: **L-162** every live number above is from the one Play session at `52716ba4` -- the tree
+`driven-hunt-rev` served on rojo :34873 -- which differs from round 1's code commit `e811c60d` only
+by `ESCALATE.md`. **Round 2's code commit `72d1f389` was NOT driven live**, and it does not need to
+be: its three files are a backups note, two spec cases and one comment word; nothing a live drive
+can see changed, and the diff `git diff e811c60d..72d1f389 -- src/` is one comment line. The BEFORE
+numbers are labelled `2cdf3be4` and were taken with the SAME probe file in the SAME place.
 ANSWERED: **L-014** `driven-hunt-karen` was never checked out, written to or touched; it is still on
 `2cdf3be4`. Her Forest Test ends on rojo **:34873 from `driven-hunt-karen`**, reconnected and in
 Edit. No Save, no Publish, no Drafts Commit. The branch was served from `driven-hunt-rev` for the
