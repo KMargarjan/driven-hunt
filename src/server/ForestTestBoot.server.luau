@@ -1337,6 +1337,24 @@ Match.PhaseChanged:Connect(function(_before, phase, driveNumber)
 				)
 			)
 		end
+		-- ...AND WHAT THE ANIMAL RUNTIME'S OWN STEP COST (task 327h, design 9.2's budget: <= 4.0 ms
+		-- average, <= 8.0 ms peak). Printed per drive on the same channel and for the same reason the
+		-- line above gives: the module never prints, and before this task nothing anywhere could say
+		-- what a drive's animals cost per frame. `peak live` is the other half of the budget --
+		-- design 9.2's <= 24 -- and `maxAlive` is the runtime's own high-water mark.
+		if boar.steps > 0 then
+			print(
+				string.format(
+					"[boarstep] drive %d: %d step(s) avg %.2f ms worst %.2f ms | %d alive now, %d parts",
+					driveNumber or 1,
+					boar.steps,
+					boar.stepMsAvg,
+					boar.stepMsMax,
+					runtime:count(),
+					runtime:partCount()
+				)
+			)
+		end
 	end
 end)
 

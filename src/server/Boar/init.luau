@@ -5118,6 +5118,16 @@ function Boar.newRuntime(world)
 	self._connection = nil
 	self._destroyed = false
 	self._stats = {
+		-- ---------------------------------- WHAT THE SERVER STEP COSTS (task 327h, design 9.2)
+		--
+		-- THE SAME THREE COUNTERS `Bots` ALREADY HAS, and the same arithmetic: `stepMsTotal / steps`
+		-- is the average and `stepMsMax` the worst single frame. Design 9.2 budgets <= 4.0 ms
+		-- average and <= 8.0 ms peak for this runtime and says plainly that it had NO instrument at
+		-- all -- "a hole this task closes rather than inherits". `Runtime:stats` publishes
+		-- `stepMsAvg`; nothing in the game reads any of them.
+		steps = 0,
+		stepMsTotal = 0,
+		stepMsMax = 0,
 		pathRequests = 0,
 		pathFailures = 0,
 		pathBlocked = 0,
@@ -5546,6 +5556,9 @@ function Runtime:stats()
 	-- about and what `Body.canPlayOneShot` exists to prevent. It is the same pure count
 	-- `_claimSqueal` caps against (`Boar.squealsSounding`), not a second rule, and it is read-only.
 	out.squeals = Boar.squealsSounding(self._squeals, os.clock())
+	-- DERIVED, NOT STORED (task 327h): `Bots.stats`' own line, so the two runtimes answer the step's
+	-- cost the same way and a reader cannot be handed an average that was never divided.
+	out.stepMsAvg = if self._stats.steps > 0 then self._stats.stepMsTotal / self._stats.steps else 0
 	return out
 end
 
@@ -6658,6 +6671,26 @@ function Runtime:count(): number
 	return #self._boars -- carcasses included: they hold a slot for CARCASS_SECONDS
 end
 
+-- HOW MANY PARTS THIS RUNTIME'S ANIMALS ARE MADE OF, right now (task 327h, design 9.2's "< 2,000").
+--
+-- COUNTED OFF THE FOLDER EVERY ANIMAL IS PARENTED INTO, not off `#self._boars` times a model's
+-- descendants: a carcass, a half-dressed spawn and a skinned mesh all count differently and the
+-- budget is about what the server is actually holding. Asked once per drive by the composition root,
+-- never per step.
+function Runtime:partCount(): number
+	local folder = self._folder
+	if folder == nil then
+		return 0
+	end
+	local parts = 0
+	for _, item in ipairs(folder:GetDescendants()) do
+		if item:IsA("BasePart") then
+			parts += 1
+		end
+	end
+	return parts
+end
+
 -- ONE DISPLAY ANIMAL OF THIS KIND, lying dead on its side at `cframe`, or nil (task 173).
 --
 -- THE ONE ROUTE FROM A KIND TO AN ASSET STAYS THE ONE ROUTE. `_modelTemplate` is the same lookup a
@@ -7593,6 +7626,10 @@ function Runtime:step(dt: number)
 	if self._destroyed then
 		return
 	end
+	-- THE STEP'S OWN COST (task 327h, design 9.2). `Bots.step`'s own two lines, verbatim: the clock
+	-- starts after the destroyed guard -- a destroyed runtime does no work and may not be averaged
+	-- in -- and `_stepCost` at the bottom is the only writer of the three counters.
+	local began = os.clock()
 	local config = self._config
 	local threats = self._world.threats()
 	-- THE SPEED OF EVERY STIMULUS, MEASURED (task 118, section 4.6), and only when the flag is on:
@@ -8003,6 +8040,21 @@ function Runtime:step(dt: number)
 				self:_requestPath(entry, intent.pathRequest)
 			end
 		end
+	end
+
+	self:_stepCost(began)
+end
+
+-- THE ONE WRITER OF THE THREE STEP COUNTERS (task 327h, design 9.2). A method and not three lines
+-- inline, because `step` has an early return above it and a counter that is only right on one path
+-- out is not a counter -- this is called on the one path that did the work.
+function Runtime:_stepCost(began: number)
+	local took = (os.clock() - began) * 1000
+	local stats = self._stats
+	stats.steps += 1
+	stats.stepMsTotal += took
+	if took > stats.stepMsMax then
+		stats.stepMsMax = took
 	end
 end
 

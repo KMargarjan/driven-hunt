@@ -41,6 +41,9 @@ local Data = require(DataModule)
 -- through both tables -- see `layoutByName`. 327d puts the cells into `Data.LAYOUTS` and the second
 -- lookup collapses into the first.
 local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
+-- FOR ONE QUESTION ONLY: which recipe ZONE a resting spot is in (`Places.zoneIndexAt`), so a
+-- cell's `animals.restZones` can be honoured where the cover is decided (task 327h, design 9.1).
+local Places = require(ReplicatedStorage:WaitForChild("Places"))
 -- READ, NEVER WIRED: this module asks `Boar` for ONE number -- how far a boar notices a moving
 -- stimulus -- so "was a driver already pushing here" uses the animal's own radius rather than a
 -- second copy of it. `Boar` does not require this module, so there is no cycle.
@@ -432,10 +435,23 @@ end
 -- `backups/2026-10-23_task-251_schedule-cycle.md`), and BOTH release paths read the same rows
 -- through this one function -- the `LINE` one Karen plays and the pre-task-127 wave path below it.
 --
--- THE DENSITY IS THE WORLD'S, NOT THE CALLER'S: it is `Data.SCHEDULE.density`, so one dial moves
--- every drive. `Data.slotAt` is the pure rule and its own comment is the why.
+-- THE DENSITY IS THE WORLD'S, NOT THE CALLER'S: it is the LIVE CELL's since task 327h, and
+-- `Data.SCHEDULE.density` for a cell that has no `animals` row (and for every road layout), so one
+-- dial still moves every drive this world has no row for. `Data.slotAt` is the pure rule.
 function ForestTest.waveAt(index: number)
-	return Data.slotAt(index, Data.SCHEDULE.density, Data.SCHEDULE)
+	local schedule = ForestTest.cellSchedule()
+	return Data.slotAt(index, schedule.density, schedule)
+end
+
+-- THE SCHEDULE OF THE CELL THAT IS DEALT -- the one place this file asks "how does THIS section
+-- play" (task 327h, design 9.1). Karen: *"each sections ahs different animal patters to be
+-- intrestin"*.
+--
+-- IT IS `Data.SCHEDULE` ITSELF, BY IDENTITY, for a layout with no `animals` row: `Grid.animalsOf`
+-- answers nil for a road layout and for A1, and `Data.cellSchedule(nil, ...)` hands the base table
+-- straight back -- so a cell without a row plays exactly as today rather than nearly so.
+function ForestTest.cellSchedule()
+	return Data.cellSchedule(Grid.animalsOf(chosen.name), Grid.CONFIG.cellDepthStuds)
 end
 
 -- ------------------------------------------------------- THE DRIVE'S RED DEER (task 239)
@@ -1797,8 +1813,16 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 	-- TWO PASSES, AND WHAT THEY DIFFER BY IS THE SIGHTLINE (task 172): the first takes only a spot
 	-- the group's own lane can SEE, the second takes any legal spot. Never the sweep rule -- that one
 	-- holds in both, because "behind the line" is not a preference.
-	for pass = 1, 2 do
+	-- WHICH RECIPE ZONES THIS CELL RESTS ITS GROUPS IN (task 327h), or nil for "any legal spot",
+	-- which is every cell before this task and every road layout. A THIRD PASS, not a rule: pass 1
+	-- wants the zone AND the sightline, pass 2 the zone alone, pass 3 drops the zone -- because a
+	-- wood whose legal spots all happen to fall in another zone is a wood with no animals in it,
+	-- which is worse than a group bedded one zone over. With no list there are two passes, exactly
+	-- as before.
+	local zones = Data.restZonesOf(Grid.animalsOf(chosen.name))
+	for pass = 1, (if zones ~= nil then 3 else 2) do
 		local wantSeen = pass == 1
+		local wantZone = zones ~= nil and pass <= 2
 		local avoidSweep = #beaters > 0
 		for ring = 0, rest.searchRings do
 			local tries = if ring == 0 then 1 else 8
@@ -1842,7 +1866,9 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 					-- that lane's group whatever the trunks do -- and the ray is only cast for the
 					-- spots that have already passed everything else.
 					local spot = Vector3.new(at.X, terrain :: number, at.Z)
-					if Data.offLaneStuds(standX, spec, spot) <= (rest.laneSideStuds or math.huge) then
+					local zoneOk = not wantZone
+						or Data.restZoneAllowed(zones, Places.zoneIndexAt(chosen.name, at.X, at.Z))
+					if zoneOk and Data.offLaneStuds(standX, spec, spot) <= (rest.laneSideStuds or math.huge) then
 						if not wantSeen or ForestTest.restSeenFromLane(standX, spec, spot, rest) then
 							return spot
 						end
@@ -3095,8 +3121,12 @@ function ForestTest.releaseLine(now: number, staged: any?): string?
 	-- may not be put where lying up after `holdStuds` would leave it on the far side of the road.
 	-- ...AND A ROW THAT NEVER STARTS FOR THE ROAD IS NOT CLAMPED AT ALL (round 1's blocking finding):
 	-- `Data.clampedToLine` is the rule and the HOLD row is the one it answers no for.
+	-- ...AND BOTH HALVES READ THE **CELL'S** SCHEDULE (task 327h): a cell's `animals` row writes the
+	-- row's own depth, and `leadStuds` / `minNorthStuds` come from the same table the row came out of,
+	-- so one derived schedule decides the whole of a slot's depth.
+	local schedule = ForestTest.cellSchedule()
 	local lineNorth = if Data.clampedToLine(row) then ForestTest.lineNorthAt(nominal.X) else nil
-	local startNorth = Data.releaseDepth(row.northStuds, lineNorth, Data.routeFloor(row))
+	local startNorth = Data.releaseDepth(row.northStuds, lineNorth, Data.routeFloor(row, schedule), schedule)
 	nominal = Vector3.new(nominal.X, nominal.Y, Data.roadZ(nominal.X, chosen.layout) + startNorth)
 	local start = Vector3.new(nominal.X, Data.groundAt(nominal.X, nominal.Z) or chosen.layout.centre.Y, nominal.Z)
 
@@ -3551,7 +3581,8 @@ end
 -- -- which is the same split `signalPoint` and `checkAtTheEdge` already keep: the world says WHERE,
 -- and in this case the world also says what it sounds like, because no animal is involved.
 function ForestTest.roarPoint(): Vector3?
-	local row = Data.stagRow(Data.SCHEDULE.density, Data.SCHEDULE)
+	local schedule = ForestTest.cellSchedule()
+	local row = Data.stagRow(schedule.density, schedule)
 	if row == nil then
 		return nil -- a drive with no stag in it: the dial, at `quiet`
 	end

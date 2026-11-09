@@ -1789,6 +1789,25 @@ function Places.zoneRect(cellId: string, z: any): { minX: number, maxX: number, 
 	return made
 end
 
+-- WHICH ZONE **INDEX** A WORLD POINT IS IN, or nil for none -- the same answer as `zoneAt`, as the
+-- ordinal the data is written in, so a cell's `animals.restZones` can name a zone (task 327h).
+function Places.zoneIndexAt(cellId: string, x: number, z: number): number?
+	local plan = Places.cellPlanFor(cellId)
+	if plan == nil then
+		return nil
+	end
+	local found = Places.zoneAt(cellId, x, z)
+	if found == nil then
+		return nil
+	end
+	for index, item in ipairs(plan.zones) do
+		if item == found then
+			return index
+		end
+	end
+	return nil
+end
+
 -- WHICH ZONE A WORLD POINT IS IN, or nil outside the cell's ground and in a gap no zone covers. The
 -- SKIRT asks this of the NEIGHBOUR cell, which is how the wood across a road is that cell's own wood
 -- and not the active cell's -- Karen's *"different trees growing in different section"* (design 8.2).

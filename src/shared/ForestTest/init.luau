@@ -2123,6 +2123,38 @@ ForestTest.SCHEDULE = {
 	-- A ROW THAT HOLDS IS NOT CLAMPED AT ALL (`ForestTest.clampedToLine`).
 	minNorthStuds = 25,
 
+	-- ------------------------------------- WHAT A CELL'S `animals` ROW MAY SAY (task 327h)
+	--
+	-- THE VOCABULARY LIVES WITH THE SCHEDULE, not with the cells: a cell's row names a density and a
+	-- `routeBias` WORD, and what those words mean about this drive is this table's own business
+	-- (design 9.1). `ForestTest.cellSchedule` is the only reader.
+	--
+	-- HOW DEEP A FRACTION OF 1.0 IS, as a fraction of the cell's depth: `Grid.CONFIG.cellDepthStuds`
+	-- 1430 x 0.25 = 357.5, which is this script's own deepest row (360, slot 15). So `startDepth = 1`
+	-- means "as deep as this drive has ever released" and nothing deeper is reachable by data.
+	bandFraction = 0.25,
+	-- THE CAP ON ANY CROSSING, AND IT WAS MEASURED (task 267 item 1): `|offsetX|` and `|crossOffset|`
+	-- are both capped at 95 studs so a wave is within sight of the stand she locked. No `ROUTE_BIAS`
+	-- band exceeds 1.0, so a biased crossing can never leave the cell or reach another road.
+	crossCapStuds = 95,
+	-- WHERE A CELL'S ANIMALS BREAK OUT, as a band of the cap. Five words, and the two SHAPES are
+	-- what tell them apart: a one-sided band is an affine map of the script's whole west-to-east
+	-- spread onto that band (`mirror = false`), and a mirrored one keeps the row's SIDE and takes
+	-- only its magnitude from the band, which leaves the middle of the line empty.
+	--   `centre`  everything funnels at the stand: +-30 studs of it, which is inside the middle
+	--             THIRD of the cap (31.7) -- so "a centre cell puts nothing on a flank" is a
+	--             statement about thirds and not about this band's own edge.
+	--   `west` / `east`  one flank takes the lot; the row's own ordering survives inside the band.
+	--   `split`  two streams, one each side, nothing between them.
+	--   `wide`   the same two streams pushed out to the flanks -- the widest of the five.
+	ROUTE_BIAS = {
+		centre = { lo = -0.30, hi = 0.30, mirror = false },
+		west = { lo = -1.00, hi = -0.10, mirror = false },
+		east = { lo = 0.10, hi = 1.00, mirror = false },
+		split = { lo = 0.55, hi = 1.00, mirror = true },
+		wide = { lo = 0.80, hi = 1.00, mirror = true },
+	},
+
 	-- HOW BUSY A DRIVE IS: "quiet", "normal" or "busy". Karen OK'd `normal`.
 	density = "normal",
 	-- HOW MANY OF THE FIFTEEN SLOTS CARRY ANIMALS at each setting. The one number the dial is.
@@ -2670,6 +2702,166 @@ end
 -- before it goes home, so it does start for the road and it does meet the line.
 function ForestTest.clampedToLine(row): boolean
 	return ForestTest.slotRoute(row) ~= "HOLD"
+end
+
+-- ---------------------------------------------- EACH SECTION ITS OWN ANIMAL PATTERN (task 327h)
+--
+-- Karen, 2026-11-09: *"each sections ahs different animal patters to be intrestin"*. Design 9.1:
+-- **a cell does not get its own schedule.** It gets a row -- `Grid.CELLS[*].animals` -- that
+-- PARAMETERISES the one above, and `ForestTest.cellSchedule` is the whole of it. Pure: a row plus
+-- the cell's depth in, a schedule out, so every pattern is a spec case with no world and no animal.
+-- `slotAt`, `stagRow`, `releaseDepth`, `routeFloor`, `wavePoint` and `releaseLine` are unchanged and
+-- are handed the cell's numbers instead of the layout's.
+
+-- WHICH QUARTER OF THE DRIVE A SLOT IS IN. `startDepth` is four fractions and a drive is fifteen
+-- slots, so the curve is read a quarter at a time -- slots 1-3, 4-7, 8-11, 12-15 at today's length.
+-- A REPEATED SLOT (past the script's end) takes the last quarter: the repeat window is the body of
+-- acts II and III, which is where the drive already is by then.
+function ForestTest.depthQuarter(slot: number, rows: number, quarters: number?): number
+	local parts = math.max(1, math.floor(quarters or 4))
+	local total = math.max(1, math.floor(rows or 1))
+	if type(slot) ~= "number" or slot < 1 then
+		return 1
+	end
+	return math.clamp(math.ceil(math.floor(slot) / (total / parts)), 1, parts)
+end
+
+-- HOW DEEP THIS CELL RELEASES A SLOT, in studs. A FRACTION OF THE CELL'S OWN DEPTH and not a stud
+-- count, so a `Grid.CONFIG.cellDepthStuds` change moves every row at once and none can be left
+-- behind (design 9.1).
+--
+-- `bandFraction` IS DERIVED FROM THE SCRIPT THAT IS ALREADY ACCEPTED, not chosen: the deepest row of
+-- `SCHEDULE.drive` is 360 studs and the cell is 1430 deep, so 0.25 x 1430 = 357.5 makes a fraction
+-- of 1.0 mean "as deep as this drive has ever released". `forest_line.spec` asserts that relation,
+-- so the band cannot drift away from the table.
+function ForestTest.startDepthStuds(slot: number, startDepth: { number }?, cellDepthStuds: number?, schedule): number?
+	local resolved = schedule or ForestTest.SCHEDULE
+	if type(startDepth) ~= "table" or #startDepth == 0 then
+		return nil
+	end
+	local depth = if type(cellDepthStuds) == "number" then cellDepthStuds else 0
+	if depth <= 0 then
+		return nil
+	end
+	local band = depth * (resolved.bandFraction or 0.25)
+	local rows = #(resolved.drive or {})
+	local quarter = ForestTest.depthQuarter(slot, rows, #startDepth)
+	local fraction = startDepth[math.clamp(quarter, 1, #startDepth)]
+	if type(fraction) ~= "number" then
+		return nil
+	end
+	-- ROUNDED TO 5 STUDS, so a generated row reads like the hand-written ones beside it.
+	return math.floor((fraction * band) / 5 + 0.5) * 5
+end
+
+-- WHERE THIS CELL'S ANIMALS BREAK OUT: the row's own crossing, mapped into the band the cell's
+-- `routeBias` names. Karen: *"we will make patter how they run where run how manny to have fun"*.
+--
+-- THE CAP IS THE ONE THAT WAS ALREADY MEASURED (`crossCapStuds` 95, task 267 item 1) and no bias
+-- exceeds it, so no biased crossing can leave the cell or reach a road the drive is not on -- which
+-- is the one thing the Director asked to be escalated if it could happen. It cannot: |band| <= 1.
+--
+-- `nil` IN, `nil` OUT. A `BREAK-BACK` and a `HOLD` carry no `crossOffset` because they never cross,
+-- and a bias may not invent one for them.
+function ForestTest.crossBias(offset: number?, bias: string?, schedule): number?
+	local resolved = schedule or ForestTest.SCHEDULE
+	if type(offset) ~= "number" then
+		return nil
+	end
+	local band = (resolved.ROUTE_BIAS or {})[bias]
+	if band == nil then
+		return offset
+	end
+	local cap = resolved.crossCapStuds or 95
+	local t = math.clamp(offset / cap, -1, 1)
+	local out
+	if band.mirror then
+		-- SIGN FROM THE ROW, MAGNITUDE FROM THE BAND: two streams, one each side, and the middle of
+		-- the line left empty. A tie (0) takes the WEST, which is `ForestTest.sneakEntryX`'s own
+		-- tie rule rather than a second one.
+		local sign = if t > 0 then 1 else -1
+		out = sign * (band.lo + math.abs(t) * (band.hi - band.lo))
+	else
+		-- THE WHOLE SPREAD MAPPED ONTO ONE SIDE (or onto the middle): an affine map of [-1, 1] onto
+		-- the band, so the row's own ordering west-to-east survives inside it.
+		out = band.lo + ((t + 1) / 2) * (band.hi - band.lo)
+	end
+	return math.floor((out * cap) / 5 + 0.5) * 5
+end
+
+-- THIS CELL'S SCHEDULE. The base one when the cell has no `animals` row -- **by identity**, so a
+-- cell without a row plays exactly as today and not merely nearly so.
+--
+-- MEMOISED PER (schedule, animals) ROW, because `releaseLine` asks once per slot and `Grid.CELLS` is
+-- frozen: the row's identity is stable for the session, so the derived table is built once per cell.
+--
+-- THE DEPTH CURVE MOVES ONLY THE ROWS THE LINE CLAMP MOVES (`clampedToLine`). The one that HOLDS
+-- keeps its own bed: it lies up `holdStuds` off its start and never comes, so a shallower start for
+-- it is the measured defect task 253 round 1 found -- *"a sow, four cubs and a male lying up 25
+-- studs from the road, in front of the hunter"*. And a clamped row never goes shallower than its
+-- own `routeFloor`, so `forest_line.spec`'s "the floor is below every depth the script writes" holds
+-- for a generated table too.
+local CELL_SCHEDULES: { [any]: { [any]: any } } = {}
+function ForestTest.cellSchedule(animals: any?, cellDepthStuds: number?, schedule)
+	local resolved = schedule or ForestTest.SCHEDULE
+	if animals == nil then
+		return resolved
+	end
+	local forSchedule = CELL_SCHEDULES[resolved]
+	if forSchedule == nil then
+		forSchedule = {}
+		CELL_SCHEDULES[resolved] = forSchedule
+	end
+	local found = forSchedule[animals]
+	if found ~= nil then
+		return found
+	end
+	local rows = {}
+	for index, row in ipairs(resolved.drive or {}) do
+		local copy = table.clone(row)
+		local depth = ForestTest.startDepthStuds(row.slot or index, animals.startDepth, cellDepthStuds, resolved)
+		if depth ~= nil and ForestTest.clampedToLine(row) then
+			copy.northStuds = math.max(depth, ForestTest.routeFloor(row, resolved))
+		end
+		if animals.routeBias ~= nil then
+			copy.crossOffset = ForestTest.crossBias(row.crossOffset, animals.routeBias, resolved)
+		end
+		rows[index] = table.freeze(copy)
+	end
+	local made = table.clone(resolved)
+	made.drive = table.freeze(rows)
+	made.density = animals.density or resolved.density
+	-- CARRIED, NOT USED HERE: `restSpot` is the only reader and it is on the server (design 9.1).
+	made.restZones = animals.restZones
+	made = table.freeze(made)
+	forSchedule[animals] = made
+	return made
+end
+
+-- WHICH RECIPE ZONES MAY HOLD A RESTING GROUP in this cell, or nil for "any legal spot", which is
+-- what every cell did before task 327h. The list is the cell's own; the rule that a spot must be in
+-- COVER is `REST.nearTrunkStuds`' and stays there.
+function ForestTest.restZonesOf(animals: any?): { number }?
+	if animals == nil or type(animals.restZones) ~= "table" then
+		return nil
+	end
+	return animals.restZones
+end
+
+-- IS THIS ZONE INDEX ONE OF THEM? Pure, and it is the whole of what `restSpot` asks.
+function ForestTest.restZoneAllowed(zones: { number }?, index: number?): boolean
+	if type(zones) ~= "table" or #zones == 0 then
+		return true
+	end
+	if type(index) ~= "number" then
+		return false
+	end
+	for _, want in ipairs(zones) do
+		if want == index then
+			return true
+		end
+	end
+	return false
 end
 
 -- WHICH ROW A SLOT RELEASES, or **nil for silence**. THE WHOLE OF THE DIAL IS THIS FUNCTION.
