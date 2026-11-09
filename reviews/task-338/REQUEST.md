@@ -3,7 +3,7 @@
 Task: 338
 Round: 1
 Base: 5cc51f81
-Code commit: (none -- this round changes no file under src/, tests/ or tools/; docs only)
+Code commit: ccd7689c (docs only -- no file under src/, tests/ or tools/ changed on this branch)
 
 ## PLAN (core-quality step 0)
 
