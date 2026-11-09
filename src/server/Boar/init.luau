@@ -3515,8 +3515,9 @@ Boar.CONFIG.MODEL = {
 		-- airtime; the Brain does not, so it holds the longest of the three (the stag's 0.49 s) with
 		-- a little headroom. A number BELOW a kind's window would drop the animal back into its gait
 		-- in mid-air.
-		-- 0.75 SINCE TASK 334, because doubling the apex lengthened every kind's airtime by sqrt(2):
-		-- the stag's `Body.leapPlan` window is now 0.692 s against 0.49 before.
+		-- 0.75 SINCE TASK 334, because doubling the apex lengthened the airtime by sqrt(2): the
+		-- stag's `Body.leapPlan` window is 0.692 s against 0.49 before. Since task 339 he is the
+		-- only kind that bounds, so this covers one window and not the longest of three.
 		SECONDS = 0.75,
 		-- HOW FAST IT HAS TO BE GOING. Karen's sentence is about an animal CROSSING, and a deer
 		-- ambling over the lane does not bound. `MODEL.RUN_FROM` is the speed this world already
@@ -3564,30 +3565,33 @@ Boar.CONFIG.MODEL = {
 		-- cruising bound, well inside what an animal that can clear 1.8 m does without trying.
 		-- 0.84 m is 3.00 studs at `Report.CONFIG.METRES_PER_STUD` 0.28.
 		--
-		-- PER KIND, OFF EACH KIND'S OWN SIZE: the stag's 3.00 taken to `KINDS.<kind>.scale`
-		-- (1.0 / 0.8553 / 0.495), so a calf bounds a calf's height and not a stag's.
+		-- ONLY THE STAG HAS A ROW, AND THAT IS THE WHOLE RULE: **no apex row, no bound** (task 339).
+		-- KAREN, 2026-11-09: *"deer famale and kid doesnt jumt you need to remove that only male
+		-- jump"*. `Boar.leapByKind` switches `ENABLED` off for a kind with no row, so a hind and a
+		-- calf cross the road at their run in every state. The hind's 5.132 and the calf's 3.336
+		-- are archived in `backups/task-339-hind-calf-apex.md`.
 		--
 		-- ...AND NEVER BELOW THE FLOOR `Body.leapApex` puts under it -- the sink at the instant the
 		-- hooves reach deepest, plus `CLEARANCE_STUDS`. An arc lower than that would put the hooves
-		-- back through the road, which is the defect task 325 existed to fix. It bound on the calf
-		-- alone (1.485 -> 1.668); SINCE TASK 334 it binds on nothing, because every kind's apex is
-		-- now at least twice its floor. See `SINK_AT_SECONDS`.
+		-- back through the road, which is the defect task 325 existed to fix. It binds on nothing:
+		-- the stag's 6.0 is four times his 1.500 floor. See `SINK_AT_SECONDS`.
 		--
 		-- DOUBLED FOR TASK 334. Karen, 2026-11-06: *"does twice high and 3 times longer then now"*.
-		-- 2x each kind's EFFECTIVE apex measured in her place at cdc885b7 (stag 2.905, hind 2.471,
-		-- calf 1.612 studs; `<runs-dir>/334-BEFORE.txt`) -- so the calf's is 2 x the 1.668 the floor
-		-- gives it and not 2 x this row's old 1.485. The stag's 6.0 studs is 1.68 m, just under the
-		-- 1.8 m fence a red deer clears, so the bound is now an obstacle-clearing one.
-		-- NOTE: `MOVE.BOUND_ON_SPOOK` (`STAG_BOUND_ON_SPOOK`, off everywhere) reuses these numbers,
+		-- 2x the CONFIGURED 3.000 this row held, which is 2.07x the 2.905 studs his bound actually
+		-- measured in her place at cdc885b7 (`<runs-dir>/334-BEFORE.txt`, 7 bounds, mean): the
+		-- instrument reads under the arc because the peak falls between frames. 6.0 studs is
+		-- 1.68 m, just under the 1.8 m fence a red deer clears, so the bound is an
+		-- obstacle-clearing one. UNCHANGED BY TASK 339.
+		-- NOTE: `MOVE.BOUND_ON_SPOOK` (`STAG_BOUND_ON_SPOOK`, off everywhere) reuses this number,
 		-- so switching it on would launch a near-stationary stag at 48.5 studs/s of pure up.
-		APEX_STUDS = { stag = 6.0, hind = 5.132, calf = 3.336 },
+		APEX_STUDS = { stag = 6.0 },
 		CLEARANCE_STUDS = 0.15,
 		-- WHEN THE HOOVES REACH DEEPEST, which is NOT the middle of the flight: 0.5417 against a
 		-- mid-point of 0.583 (`LIFT_STUDS`' own measurement). `Body.leapSinkShare` turns the gap
 		-- into the fraction of its apex the body is at then -- 0.891 -- and the floor is divided by
-		-- it, so the clearance is real where it is needed. It lifts the calf's bound from 1.485 to
-		-- (1.3358 + 0.15) / 0.891 = 1.668 and leaves the stag's 3.000 and the hind's 2.566 alone
-		-- (their floors are 1.500 and 1.577).
+		-- it, so the clearance is real where it is needed. The STAG's floor is
+		-- (1.1863 + 0.15) / 0.8908 = 1.500, which his 6.0 clears four times over, so it binds on
+		-- nothing. (Until task 339 it lifted the calf's bound from 1.485 to 1.668.)
 		SINK_AT_SECONDS = 0.5417,
 		-- THE GRAVITY THE ARC AND THE CLIP RATE ARE BOTH SOLVED AGAINST. Roblox's default, and this
 		-- place's own: read live in the Forest Test on 2026-11-01 as 196.1999969482422.
@@ -4724,7 +4728,15 @@ end
 -- forward burst at TOUCHDOWN rather than at `LEAP.SECONDS`, which is one size for all three kinds
 -- outlasts a calf's 0.369 s flight by 0.381 s -- a third of a second of 60 studs/s on the ground.
 -- `Body.leapAir` stays the only owner of the arc; this copies its answer to the kind that flies it.
--- A kind with no `APEX_STUDS` row (every boar) gets 0 back and the config BY REFERENCE.
+--
+-- ...AND IT IS ALSO THE GATE ON WHO BOUNDS AT ALL (task 339). KAREN, 2026-11-09: *"deer famale and
+-- kid doesnt jumt you need to remove that only male jump"*. A kind with no `APEX_STUDS` row -- a
+-- hind, a calf, every boar -- has no arc to fly, so this hands it a config with `LEAP.ENABLED`
+-- FALSE and it is a non-leaper everywhere at once: `Brain.leapStarts` (the road crossing),
+-- `Brain.boundStarts` (the spook bound) and `Body.hasClip`'s caller all read this one table, so
+-- `intent.leaping` never goes true and there is nothing per state to suppress. Before this, such a
+-- kind got the config BY REFERENCE and still triggered: it played the leap clip in place with no
+-- arc, which is the 2026-11-01 defect (`Body`'s "THE BOUND OVER THE ROAD" block).
 function Boar.leapByKind(config, kind: string?)
 	local leap = config.MODEL ~= nil and config.MODEL.LEAP or nil
 	if type(leap) ~= "table" or type(config.MOVE) ~= "table" then
@@ -4732,7 +4744,18 @@ function Boar.leapByKind(config, kind: string?)
 	end
 	local air = Body.leapAir(kind, leap)
 	if air <= 0 then
-		return config
+		-- NOTHING TO SWITCH OFF IN A WORLD WHERE IT IS ALREADY OFF, so the DEV place and every
+		-- spec with the flag down still get `config` by reference and allocate nothing.
+		if leap.ENABLED ~= true then
+			return config
+		end
+		local off = table.clone(config)
+		local model = table.clone(config.MODEL)
+		local noLeap = table.clone(leap)
+		noLeap.ENABLED = false
+		model.LEAP = noLeap
+		off.MODEL = model
+		return off
 	end
 	local out = table.clone(config)
 	local move = table.clone(config.MOVE)
@@ -7927,7 +7950,10 @@ function Runtime:step(dt: number)
 				-- `config.MODEL.CLIPS` and its id through `config.MODEL.ANIMATION_IDS`, and the
 				-- deer has its own pair of those tables. Handing it the runtime's would play the
 				-- BOAR's published ids on `Arm_Deer` (design section 3.6). For every boar
-				-- `entry.config` IS `config` by reference, so nothing about a boar changed.
+				-- `entry.config` IS `config` by reference while the leap is off, which is every
+				-- world but her Forest Test; with `DEER_ROAD_LEAP` on, `Boar.leapByKind` clones a
+				-- boar's config to switch the leap off in it (task 339) and nothing reads config
+				-- identity, so still nothing about a boar changed.
 			}, entry.config or config)
 			-- The same speed drives the sound, so the hooves keep time with the legs: the gait and
 			-- the rate `Body.stepSoundFor` picks are the arithmetic `Body.clipFor` just used.

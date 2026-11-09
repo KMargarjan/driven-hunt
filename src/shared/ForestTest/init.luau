@@ -1956,7 +1956,11 @@ end
 --   10 groups cross the road -- one about every 16 seconds across the middle of the drive
 --   2 refuse at the verge and break back through the beaters, and 1 never comes at all
 --      (that last one is the PLOS ONE study's 32 % of animals that stay put, made visible)
---   2 leaping GROUPS and 3 leaping ANIMALS -- the hind, her calf and the stag. NO BOAR EVER LEAPS.
+--   4 bounding GROUPS, 22 animals in them and 9 of those actually bound. NO BOAR EVER LEAPS, and
+--      since task 339 NO HIND AND NO CALF EITHER: Karen, 2026-11-09, *"only male jump"*, so `leaps`
+--      means "a STAG in this group bounds", a hind-only group carries none, and the hinds and
+--      calves of a mixed one run across the road while their stag bounds it. `forest_line.spec`
+--      holds the three counts (the counts above this line are task 251's and were stale by 328z).
 --      (`driveTally.leapingGroups` counts the rows and the spec adds the animals through the boar's
 --      own weigher. Round 1's note: the field was called `leapers` and answered 2 against a header
 --      that said 3.)
@@ -2043,7 +2047,8 @@ end
 --     next-deepest group that comes -- and SINCE TASK 251c he is released at slot 8 rather than 13,
 --     because a 95-second walk cannot be done in the 44 seconds slot 13 left him. He is last AT THE
 --     ROAD, which is what *"the stag last"* always meant (`ESCALATE.md`, 2026-10-24).
---   * `leaps` is the measured road leap, already built and already behind `DEER_ROAD_LEAP` (which is
+--   * `leaps` is the measured road leap of the group's STAG (task 339), already built and already
+--     behind `DEER_ROAD_LEAP` (which is
 --     ON in Karen's place). The STAG'S BOUND WHEN SPOOKED (spec section 3.2 `BOUND_ON_SPOOK`) is
 --     part 2, and the spec itself holds it behind the leap's known hoof sink (TASKS.md 245c).
 ForestTest.SCHEDULE = {
@@ -2168,9 +2173,12 @@ ForestTest.SCHEDULE = {
 			route = "STRAIGHT",
 			pace = "walk",
 			check = true,
-			leaps = true,
+			-- NO `leaps`: THERE IS NO STAG IN THIS GROUP (task 339). Karen, 2026-11-09, *"only male
+			-- jump"* -- `leaps` now means "an animal in this group bounds over the road", and three
+			-- hinds and two calves run across it.
+
 			keepAt = 9,
-			note = "the hind party, early and in file: she stops at the verge, then they leap",
+			note = "the hind party, early and in file: she stops at the verge, then they cross",
 		},
 		{
 			slot = 3,
@@ -2482,7 +2490,8 @@ ForestTest.SCHEDULE = {
 			route = "STRAIGHT",
 			pace = "run",
 			check = true,
-			leaps = true,
+			-- NO `leaps`, for the same reason as slot 2: no stag in this group (task 339).
+
 			keepAt = 9,
 			note = "the last of them, running: five hinds and calves with the beaters at their backs",
 		},

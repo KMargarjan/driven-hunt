@@ -1476,6 +1476,10 @@ return function()
 			}
 			local ON = { ENABLED = true, SECONDS = 0.55 }
 			local OFF = { ENABLED = false, SECONDS = 0.55 }
+			-- WHO BOUNDS, AND IT IS ONE KIND (task 339). Karen, 2026-11-09: *"deer famale and kid
+			-- doesnt jumt you need to remove that only male jump"*. Every case below that drives a
+			-- bound loops over THIS and not `DEER_KINDS`, which is the list of deer that EXIST.
+			local LEAPERS = { "stag" }
 
 			it("is BORN OFF, with an owner, a birthday and an expiry inside 21 days", function()
 				local row = Flags.DEFAULTS.DEER_ROAD_LEAP
@@ -1556,7 +1560,7 @@ return function()
 					Boar.clipFor({ leaping = true, speed = 28, clipScale = 1, hitFor = 0, deadFor = 0 }, config)
 				expect(name).to.equal("leap")
 				expect(rate).to.equal(1)
-				for _, kind in ipairs(DEER_KINDS) do
+				for _, kind in ipairs(LEAPERS) do
 					local planned = select(2, Body.leapPlan(kind, config.MODEL.LEAP))
 					local _, kindRate = Boar.clipFor({
 						leaping = true,
@@ -1608,8 +1612,9 @@ return function()
 			end)
 
 			it("carries the measured sink for all three kinds, inside the clip", function()
-				-- The sink each rig takes off the clip, read since task 325 as the floor under that
-				-- kind's bound (`Body.leapApex`), and pinned here so the floor cannot move under it.
+				-- The sink each rig takes off the clip, pinned here so it cannot move. It is read as
+				-- the floor under a bound (`Body.leapApex`), which since task 339 is the STAG's row
+				-- alone; the other two stay because the measurement is of the CLIP on those rigs.
 				local leap = CONFIG.MODEL.LEAP
 				for _, kind in ipairs(DEER_KINDS) do
 					expect(leap.LIFT_STUDS[kind] > 1).to.equal(true)
@@ -1625,44 +1630,71 @@ return function()
 				expect(leap.LAND_SECONDS < CONFIG.SPECIES.reddeer.MODEL.CLIPS.leap.seconds).to.equal(true)
 			end)
 
-			it("bounds every kind over its own sink, and the arc and the legs agree (task 325)", function()
-				-- KAREN, 2026-11-01: *"red stag male when jumping it has to jump not like now
-				-- broken and famale and kid doesnt jump"*. The defect was that NOTHING lifted the
-				-- animal: measured in her place at main, the stag's y held 134.42..134.52 across
-				-- the whole bound and the hind's 134.04..134.21.
+			it("bounds the STAG ALONE, over his own sink, and the arc and the legs agree (339)", function()
+				-- KAREN, 2026-11-09: *"deer famale and kid doesnt jumt you need to remove that only
+				-- male jump"*. ONE RULE: no `APEX_STUDS` row, no bound. His arc is task 334's and
+				-- task 339 does not touch it. Note: docs/research/2026-10-23-deer-road-leap.md s8.
 				local leap = CONFIG.MODEL.LEAP
-				local longest = 0
-				for _, kind in ipairs(DEER_KINDS) do
-					local up, rate, window = Body.leapPlan(kind, leap)
-					-- IT ACTUALLY LEAVES THE GROUND, and by more than the clip takes off its rig --
-					-- an arc lower than the sink puts the hooves back through the road.
-					expect(up > 0).to.equal(true)
-					local apex = up * up / (2 * leap.GRAVITY)
-					-- AT THE INSTANT THE HOOVES REACH DEEPEST, not at the apex: the two are 0.04 s
-					-- apart and the apex is the later one (review round 1, note).
-					local atSink = apex * Body.leapSinkShare(leap)
-					expect(atSink >= leap.LIFT_STUDS[kind] + leap.CLEARANCE_STUDS - EPSILON).to.equal(true)
-					-- THE LEGS ARE AIRBORNE FOR EXACTLY AS LONG AS THE BODY IS: the clip's own
-					-- airborne span, played at `rate`, is the flight time 2v/g.
-					local air = 2 * up / leap.GRAVITY
-					expect(math.abs((leap.LAND_SECONDS - leap.TAKEOFF_SECONDS) / rate - air) < 1e-6).to.equal(true)
-					expect(window > air).to.equal(true)
-					longest = math.max(longest, window)
+				local up, rate, window = Body.leapPlan("stag", leap)
+				-- HE ACTUALLY LEAVES THE GROUND, and by more than the clip takes off his rig --
+				-- an arc lower than the sink puts the hooves back through the road.
+				expect(up > 0).to.equal(true)
+				local apex = up * up / (2 * leap.GRAVITY)
+				expect(apex).to.be.near(6.0, 1e-9)
+				-- AT THE INSTANT THE HOOVES REACH DEEPEST, not at the apex: the two are 0.04 s
+				-- apart and the apex is the later one.
+				local atSink = apex * Body.leapSinkShare(leap)
+				expect(atSink >= leap.LIFT_STUDS.stag + leap.CLEARANCE_STUDS - EPSILON).to.equal(true)
+				-- THE LEGS ARE AIRBORNE FOR EXACTLY AS LONG AS THE BODY IS: the clip's own
+				-- airborne span, played at `rate`, is the flight time 2v/g.
+				local air = 2 * up / leap.GRAVITY
+				expect(math.abs((leap.LAND_SECONDS - leap.TAKEOFF_SECONDS) / rate - air) < 1e-6).to.equal(true)
+				expect(window > air).to.equal(true)
+				-- THE BRAIN'S WINDOW COVERS IT, or the animal is dropped back into its gait in
+				-- mid-air.
+				expect(leap.SECONDS >= window).to.equal(true)
+				-- **THIS CASE DIES IF THE HIND'S 5.132 AND THE CALF'S 3.336 COME BACK** -- the two
+				-- rows task 339 deleted (`backups/task-339-hind-calf-apex.md`). No row, no arc, for
+				-- them and for every boar.
+				expect(leap.APEX_STUDS.hind).to.equal(nil)
+				expect(leap.APEX_STUDS.calf).to.equal(nil)
+				for _, kind in ipairs({ "hind", "calf", "male", "female", "cub", "legendary" }) do
+					expect(Body.leapApex(kind, leap)).to.equal(0)
+					expect(Body.leapAir(kind, leap)).to.equal(0)
+					local kindUp, kindRate, kindWindow = Body.leapPlan(kind, leap)
+					expect(kindUp).to.equal(0)
+					expect(kindRate).to.equal(1)
+					expect(kindWindow).to.equal(0)
 				end
-				-- A CALF BOUNDS A CALF'S HEIGHT. Its apex is its own, not the stag's.
-				expect(Body.leapApex("calf", leap) < Body.leapApex("hind", leap)).to.equal(true)
-				expect(Body.leapApex("hind", leap) < Body.leapApex("stag", leap)).to.equal(true)
-				-- THE BRAIN'S WINDOW COVERS THE LONGEST OF THEM, or an animal would be dropped back
-				-- into its gait in mid-air.
-				expect(leap.SECONDS >= longest).to.equal(true)
-				-- A BOAR HAS NO ROW AND NO BOUND: the whole branch is dead in the world task 245b
-				-- shipped, which is what keeps every boar drawing what it drew.
-				local boarUp = Body.leapPlan("male", leap)
-				expect(boarUp).to.equal(0)
 				-- ...AND THE GRAVITY THE ARC IS SOLVED AGAINST IS THE WORLD'S OWN.
 				expect(math.abs(leap.GRAVITY - workspace.Gravity) < 0.01).to.equal(true)
 			end)
 
+			it("switches the leap OFF in a non-leaper's OWN config, in every state (task 339)", function()
+				-- `Boar.leapByKind` is the gate and it is upstream of all three readers: the road
+				-- crossing (`Brain.leapStarts`), the spook bound (`Brain.boundStarts`) and what
+				-- `Body` draws (`intent.leaping`). **THIS CASE DIES** when that branch is deleted:
+				-- a hind then triggers and plays the clip in place with no arc (the 11-01 defect).
+				local lit = table.clone(CONFIG)
+				local litModel = table.clone(CONFIG.MODEL)
+				local litLeap = table.clone(CONFIG.MODEL.LEAP)
+				litLeap.ENABLED = true
+				litModel.LEAP = litLeap
+				lit.MODEL = litModel
+				local runFrom = CONFIG.MODEL.RUN_FROM
+				local stag = Boar.kindConfig("stag", lit)
+				expect(stag.MODEL.LEAP.ENABLED).to.equal(true)
+				expect(Brain.leapStarts(true, true, runFrom + 7, runFrom, stag.MODEL.LEAP)).to.equal(true)
+				for _, kind in ipairs({ "hind", "calf", "male", "female", "cub" }) do
+					local other = Boar.kindConfig(kind, lit)
+					expect(other.MODEL.LEAP.ENABLED).to.equal(false)
+					expect(Brain.leapStarts(true, true, runFrom + 7, runFrom, other.MODEL.LEAP)).to.equal(false)
+					expect(Brain.boundStarts(true, 0, 1, other.MODEL.LEAP)).to.equal(false)
+				end
+				-- AND NOTHING IS ALLOCATED IN A WORLD WHERE THE LEAP IS ALREADY OFF, which is the
+				-- shipped one: every boar still gets the config table itself.
+				expect(Boar.kindConfig("male", CONFIG)).to.equal(CONFIG)
+			end)
 			it("drives stepVisual: ONE take-off per crossing, the body really launched (task 325)", function()
 				-- FAILS WHEN THE `stepVisual` BLOCKS ARE DELETED, and at main (they do not exist
 				-- there). MEASURED at the first cut in her place: a stag bounded at t 44.66, landed,
@@ -1684,7 +1716,7 @@ return function()
 				local config = table.clone(deer)
 				config.MODEL = model
 				local leap = model.LEAP
-				for _, kind in ipairs(DEER_KINDS) do
+				for _, kind in ipairs(LEAPERS) do
 					local up, rate, window = Body.leapPlan(kind, leap)
 					local plays, track = 0, nil :: any
 					local function newTrack(name: string)
@@ -1811,14 +1843,13 @@ return function()
 				expect(Brain.leapSpeedScale(true, none)).to.equal(1)
 			end)
 
-			it("gives every deer kind its OWN airtime through kindConfig (task 334 round 2)", function()
+			it("gives the leaping kind its OWN airtime through kindConfig (task 334 round 2)", function()
 				-- FAILS WHEN `Boar.leapByKind` IS DROPPED FROM `Boar.kindConfig`. That call is the
 				-- ONE wire between the arc (`Body.leapAir`) and the Brain's `_burstFor`: without it
 				-- every live deer reads `MOVE.LEAP_AIR_SECONDS` as nil, the burst never fires, and
 				-- the whole 3x length is gone with a green suite (Reviewer finding 1, round 1).
 				local leap = CONFIG.MODEL.LEAP
-				local seen = {}
-				for _, kind in ipairs(DEER_KINDS) do
+				for _, kind in ipairs(LEAPERS) do
 					local move = Boar.kindConfig(kind, CONFIG).MOVE
 					expect(move).to.be.ok()
 					local air = Body.leapAir(kind, leap)
@@ -1826,11 +1857,11 @@ return function()
 					expect(move.LEAP_AIR_SECONDS).to.be.near(air, 1e-9)
 					-- ...AND IT IS SHORTER THAN THE DRAWING WINDOW, which is why it exists.
 					expect(move.LEAP_AIR_SECONDS < leap.SECONDS).to.equal(true)
-					seen[kind] = move.LEAP_AIR_SECONDS
 				end
-				-- A CALF IS IN THE AIR FOR LESS TIME THAN ITS MOTHER, and she than the stag.
-				expect(seen.calf < seen.hind).to.equal(true)
-				expect(seen.hind < seen.stag).to.equal(true)
+				-- A NON-LEAPER CARRIES NO AIRTIME AT ALL, which is task 339's rule read off `MOVE`.
+				for _, kind in ipairs({ "hind", "calf" }) do
+					expect(Boar.kindConfig(kind, CONFIG).MOVE.LEAP_AIR_SECONDS).to.equal(nil)
+				end
 				-- A BOAR HAS NO `APEX_STUDS` ROW, so it gets the config back BY REFERENCE and no
 				-- boar in the game carries this key at all.
 				expect(Body.leapAir("male", leap)).to.equal(0)
@@ -1840,24 +1871,28 @@ return function()
 				expect(Body.leapAir("stag", nil)).to.equal(0)
 			end)
 
-			it("is 2x the measured height and 3x the measured length for a hind, within 15 %", function()
-				-- MEASURED in her place at cdc885b7, 17 hind road bounds, instrument
-				-- `<runs-dir>/334-instrument.luau`, log `334-BEFORE.txt`: apex 2.471 studs,
-				-- length 7.58 studs, airtime 0.322 s. THIS CASE DIES if `APEX_STUDS` or
-				-- `SPEED_SCALE` goes back to what cdc885b7 shipped.
+			it("is 2x the measured height and 3x the measured length for the stag, within 15 %", function()
+				-- MEASURED in her place at cdc885b7, 7 stag road bounds, instrument
+				-- `<runs-dir>/334-instrument.luau`, log `334-BEFORE.txt`: apex 2.905 studs,
+				-- length 8.14 studs, airtime 0.340 s -- the MEANS, which is the row
+				-- `docs/research/2026-10-23-deer-road-leap.md` section 9.1 already records for this
+				-- same log, so the repo states one number for one measurement. THIS CASE DIES if
+				-- `APEX_STUDS` or
+				-- `SPEED_SCALE` goes back to what cdc885b7 shipped. It was the HIND's reading until
+				-- task 339 took her bound away; the ratio is the same and the kind is the one left.
 				local leap = CONFIG.MODEL.LEAP
-				local BEFORE_APEX, BEFORE_LENGTH, BEFORE_AIR = 2.471, 7.58, 0.322
+				local BEFORE_APEX, BEFORE_LENGTH, BEFORE_AIR = 2.905, 8.14, 0.340
 				-- The CONFIGURED apex this measurement came off, so the after/before comparison is
 				-- made through the same instrument bias (the peak falls between frames, so the
-				-- reading runs ~3.7 % under the arc it is reading).
-				local BEFORE_CONFIGURED = 2.566
-				local up = Body.leapPlan("hind", leap)
+				-- reading runs ~3.2 % under the arc it is reading).
+				local BEFORE_CONFIGURED = 3.0
+				local up = Body.leapPlan("stag", leap)
 				local apex = up * up / (2 * leap.GRAVITY)
 				local air = 2 * up / leap.GRAVITY
 				local apexSeen = apex * (BEFORE_APEX / BEFORE_CONFIGURED)
 				expect(apexSeen / BEFORE_APEX).to.be.near(2, 0.3)
 				-- LENGTH IS THE IN-AIR HORIZONTAL SPEED TIMES THE AIRTIME, and the speed it had
-				-- before is the measurement itself: 7.58 / 0.322 = 23.5 studs/s.
+				-- before is the measurement itself: 8.14 / 0.340 = 23.9 studs/s.
 				local lengthSeen = (BEFORE_LENGTH / BEFORE_AIR)
 					* Brain.leapSpeedScale(true, {
 						ENABLED = true,
@@ -1886,7 +1921,7 @@ return function()
 					-- THIS KIND'S OWN FLIGHT, exactly as `Boar.kindConfig` lays it on, and shorter
 					-- than `LEAP.SECONDS`: that is the whole point of the second timer.
 					config.MOVE = table.clone(CONFIG.MOVE)
-					config.MOVE.LEAP_AIR_SECONDS = Body.leapAir("hind", model.LEAP)
+					config.MOVE.LEAP_AIR_SECONDS = Body.leapAir("stag", model.LEAP)
 					local field = {
 						bounds = FIELD.bounds,
 						exitZ = FIELD.exitZ,
@@ -1970,7 +2005,7 @@ return function()
 					model.LEAP.ENABLED = true
 					config.MODEL = model
 					config.MOVE = table.clone(CONFIG.MOVE)
-					config.MOVE.LEAP_AIR_SECONDS = Body.leapAir("hind", model.LEAP)
+					config.MOVE.LEAP_AIR_SECONDS = Body.leapAir("stag", model.LEAP)
 					local away = false
 					local field = {
 						bounds = FIELD.bounds,
@@ -2026,7 +2061,7 @@ return function()
 				-- ONE BURST, THE HIND'S OWN FLIGHT: 0.457 s against the 0.75 s drawing window.
 				local bursts = run(nil)
 				expect(#bursts).to.equal(1)
-				local air = Body.leapAir("hind", CONFIG.MODEL.LEAP)
+				local air = Body.leapAir("stag", CONFIG.MODEL.LEAP)
 				local held = bursts[1].to - bursts[1].from + 1
 				expect(held).to.be.near(air * 60, 2)
 				local startedAt = bursts[1].from
