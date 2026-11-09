@@ -6667,6 +6667,11 @@ function Runtime:capacity(): number
 	return self._config.maxBoars
 end
 
+-- HOW OFTEN THE STEP COST IS PUBLISHED on the runtime's folder (task 327h). 120 steps is about two
+-- seconds at 60 Hz: often enough for a probe taken at any moment in a drive, rare enough that four
+-- attribute writes cost nothing measurable against the step they are measuring.
+Boar.STEP_PUBLISH_EVERY = 120
+
 function Runtime:count(): number
 	return #self._boars -- carcasses included: they hold a slot for CARCASS_SECONDS
 end
@@ -8055,6 +8060,21 @@ function Runtime:_stepCost(began: number)
 	stats.stepMsTotal += took
 	if took > stats.stepMsMax then
 		stats.stepMsMax = took
+	end
+	-- ...AND PUBLISHED WHERE A PROBE CAN READ IT, on the folder this runtime owns. A counter that
+	-- only lives in module state is not a diagnostic: a live probe over StudioMCP `require`s a FRESH
+	-- copy of this module with empty state (measured, task 122), so the only live channel for these
+	-- three numbers was a console line printed once per drive -- which a 17 KB rolling buffer loses.
+	-- EVERY `PUBLISH_EVERY` STEPS, not every step: one modulo per step, four attribute writes every
+	-- two seconds at 60 Hz. `partCount` is NOT published here -- it walks the whole folder.
+	if stats.steps % Boar.STEP_PUBLISH_EVERY == 0 then
+		local folder = self._folder
+		if folder ~= nil then
+			folder:SetAttribute("StepCount", stats.steps)
+			folder:SetAttribute("StepMsAvg", stats.stepMsTotal / stats.steps)
+			folder:SetAttribute("StepMsMax", stats.stepMsMax)
+			folder:SetAttribute("Alive", #self._boars)
+		end
 	end
 end
 

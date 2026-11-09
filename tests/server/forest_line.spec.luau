@@ -1928,6 +1928,22 @@ return function()
 			-- ...AND UNDER design 9.2's 8.0 ms peak, which an empty world had better be.
 			expect(after.stepMsMax < 8.0).to.equal(true)
 			expect(runtime:partCount()).to.equal(0)
+			-- ...AND PUBLISHED WHERE A PROBE CAN READ IT (V293b): a counter that only lives in module
+			-- state is not a diagnostic, because a live probe gets a fresh copy of the module. The
+			-- folder carries nothing until the publish interval is reached, and then it carries the
+			-- same numbers `stats()` does.
+			local folder = holder:FindFirstChild("StepProbe")
+			expect(folder).to.be.ok()
+			expect(folder:GetAttribute("StepCount")).to.equal(nil)
+			-- EXACTLY TO THE INTERVAL (two steps are already taken above), so the published snapshot
+			-- and `stats()` are the same moment and the case is an equality rather than a window.
+			for _ = 1, Boar.STEP_PUBLISH_EVERY - 2 do
+				runtime:step(1 / 60)
+			end
+			expect(runtime:stats().steps).to.equal(Boar.STEP_PUBLISH_EVERY)
+			expect(folder:GetAttribute("StepCount")).to.equal(runtime:stats().steps)
+			expect(folder:GetAttribute("StepMsAvg")).to.be.near(runtime:stats().stepMsAvg, 1e-9)
+			expect(folder:GetAttribute("StepMsMax")).to.be.near(runtime:stats().stepMsMax, 1e-9)
 			runtime:destroy()
 			holder:Destroy()
 		end)
