@@ -3391,6 +3391,14 @@ hunter shoots a handful of them.
 dispatch, say so and stop. A refuted premise is a finished item, not a failure"* -- and because the
 only way to make the toast read smaller would be to hide true events, which the dispatch forbids.
 
+**REPRODUCED EXACTLY, after the review (second session, same build, no shot fired).**
+`reviews/task-338/338-end.sh` sampled the HUD's own labels every ~9 s through a whole drive:
+nothing at 4:11, "an animal got away" at 4:02, x5 at 2:57, x23 at 2:20, **nothing at 2:02 (the line
+expired)**, x15 at 1:14, x46 at 0:56, x74 at 0:20, **"an animal got away x80" at 0:11** -- Karen's
+frame to the word and the number -- and nothing again at 0:03. So `xN` is a WINDOW count, not the
+drive total (80 shown against 114 on the wire): late in the drive the escapes arrive faster than the
+8 s feed window, so each repeat refreshes the one line.
+
 **The Director's decision, not mine:** whether ~130 released / ~110 escaped per drive is the drive
 Karen wants (that is drive density, which this task's NOT YOURS list puts outside it), and whether a
 "got away" line is worth drawing at all for an animal that crossed 400 m from the stand.
