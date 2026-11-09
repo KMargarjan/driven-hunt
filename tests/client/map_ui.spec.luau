@@ -1993,6 +1993,15 @@ return function()
 			MapUi.setOpen(false)
 			MapUi.tapStand(4)
 			expect(#asked).to.equal(1)
+			-- BESIDE THE MAP WHEN THERE IS ROOM, NEVER OVER IT. Measured in Karen's Forest Test
+			-- (327f): a list inside the panel covered the right-hand cells' own stands, so a click
+			-- meant for stand 4 of D1 landed on a list row instead.
+			MapUi.setRailColumn(Rail.columnPx(1), Vector2.new(1920, 1080))
+			MapUi.applyLayout(Vector2.new(1920, 1080))
+			local canvas = full:FindFirstChild("Canvas") :: Frame
+			expect(canvas).to.be.ok()
+			expect(frame.AnchorPoint.X).to.equal(0)
+			expect(frame.Position.X.Offset >= canvas.Position.X.Offset + canvas.Size.X.Offset).to.equal(true)
 			-- A PHONE'S 44 PX THUMB MINIMUM, MEASURED ON SCREEN (mobile-controls.md §B) and not
 			-- transcribed: the panel shrinks to about a third at 400 x 800 and the list must not
 			-- shrink with it. `AbsoluteSize` is the engine's own layout answer and it does not depend

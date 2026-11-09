@@ -1790,6 +1790,28 @@ local function layoutFor(viewport: Vector2)
 			config.STAND_LIST_WIDTH_PX,
 			math.max(config.STAND_LIST_ROW_PX, math.min(wantedHeight, room))
 		)
+		-- BESIDE THE MAP WHEN THERE IS ROOM, OVER IT ONLY WHEN THERE IS NOT -- and it is a
+		-- MEASUREMENT, not a preference (327f, measured in Karen's Forest Test): a list inside the
+		-- panel covered the right-hand cells' own stands, so a click meant for stand 4 of D1 landed
+		-- on a list row instead. A list that hides the thing it is a list OF is a bug.
+		--
+		-- The arithmetic is in RENDERED pixels and the position in canvas ones, which is why it is
+		-- divided by the scale: an inverse-scaled list can never fit a column reserved INSIDE a
+		-- shrunk panel (the column shrinks and the list does not), so the only place it fits is
+		-- outside. On a phone there is no outside, and then it sits over a map whose 10 px pads
+		-- nobody can tap anyway -- which is what the list is for.
+		local panelRightPx = viewport.X / 2 - math.round(column / 2) + (panelWidth * shown) / 2
+		local gapPx = Style.SPACE.S
+		local roomRight = viewport.X - column - panelRightPx
+		if roomRight >= config.STAND_LIST_WIDTH_PX + gapPx then
+			node.AnchorPoint = Vector2.new(0, 0)
+			node.Position =
+				UDim2.fromOffset(math.round(panelWidth + gapPx / shown), config.FULL_TITLE_HEIGHT + config.FULL_PADDING)
+		else
+			node.AnchorPoint = Vector2.new(1, 0)
+			node.Position =
+				UDim2.fromOffset(panelWidth - config.FULL_PADDING, config.FULL_TITLE_HEIGHT + config.FULL_PADDING)
+		end
 	end
 
 	-- THE LEGEND GOES WITH THE PANEL'S SCALE, so it is hidden when no font inside the panel could be
