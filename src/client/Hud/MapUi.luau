@@ -140,7 +140,7 @@ MapUi.CONFIG = {
 	--
 	-- Karen, 2026-11-09: *"map is not updated I want to see all map all sections"*. The whole grid is
 	-- drawn -- eight cells and every road -- and the DEALT cell is the one marked.
-	GRID_ROAD_SAMPLES = 17, -- 8 roads x 16 segments; the bend is 45 studs, 9 px at this scale
+	GRID_ROAD_SAMPLES = 9, -- 8 roads x 8 segments. 17 cost frames for a bend that is 9 px wide
 	-- THE FLOOR UNDER A MEASURED PAD. The world view draws the main line's stands ~31 px apart, so
 	-- `STAND_HIT_PX` 72 would overlap three ways: `standHitPx` measures the drawn spacing and clamps
 	-- the pad to it, and this is the smallest thing that is still a pad.
@@ -1419,8 +1419,11 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 		end
 	end
 
-	-- EVERY ROAD IN THE WORLD, on both drawers: a flank road 200 studs away is what tells a hunter
-	-- which way he is facing, and the minimap is where he looks while he walks.
+	-- EVERY ROAD IN THE WORLD, ON THE FULL MAP ONLY -- and that is a MEASUREMENT, not a taste
+	-- (327f): with the world's eight roads on the minimap as well, `map_ui.spec`'s own tick case
+	-- measured the client at 9.4 Hz against its 20 Hz target, twice. The minimap is drawn every
+	-- frame and the panel only while it is open, so the 128 extra segments come off the one that is
+	-- always on screen. The minimap keeps the drive's own road, exactly as before this task.
 	local function polyline(points: { Vector2 }, thickness: number)
 		local lastU: number? = nil
 		local lastV: number? = nil
@@ -1432,7 +1435,7 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 			lastU, lastV = u, v
 		end
 	end
-	if model.roads ~= nil then
+	if standLabels and model.roads ~= nil then
 		for _, line in ipairs(model.roads :: { { Vector2 } }) do
 			polyline(line, config.ROAD_PX)
 		end
