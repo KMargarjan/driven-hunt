@@ -1,7 +1,7 @@
 # Task 327f — the map shows the whole grid, and a hunter picks his stand on it
 
 Task: 327f
-Round: 1
+Round: 2
 Base: b0d0a149
 Code commit: 7aa55e5c71129245c7aa4d144864818e4001c0e7
 
@@ -41,10 +41,14 @@ claims 6–9.
    C1 → C2 redraws with the brass rim on the new cell. Verify: case 33. `driven` has no publisher
    yet (the cell vote is 327e) and is reachable by parameter.
 6. **LIVE IN HER FOREST TEST, at this code commit** (`driven-hunt-rev` on :34873, her place, Play):
-   `full=true cells=8 stands=15 listRows=15 title="section C1" footer="click a stand"`, rows reading
-   `1 MAIN FREE … 7 MAIN TOWER … 15 EAST FREE`. Frame `327f-F1-after-full.png` (opened: all eight
-   sections with their roads, A1 said empty, C1 ringed in brass with its 15 stands, the list beside
-   the map, 0:14 LEFT in ASSIGNING).
+   `full=true cells=8 stands=15 listRows=15 title="section C1" footer="click a stand"`. The rows ON
+   THE FRAME, read off `327f-F1-after-full.png` itself: `1 MAIN FREE` … `7 MAIN FREE`, `8 WEST TOWER`,
+   `9 WEST FREE`, `10 WEST TOWER`, `11 WEST FREE` — which is `Grid.CELLS.C1.towers` `{8, 10, 13}` and
+   `Grid.sideOf`'s seven main stands, stand for stand. (Round 1 quoted `7 MAIN TOWER` here: that line
+   came from an earlier session's dealt cell, not from C1, and the Reviewer's finding 1 is right —
+   nothing in the shipped code can write it for C1. The transcription was wrong, not the picture.)
+   Frame `327f-F1-after-full.png` (opened: all eight sections with their roads, A1 said empty, C1
+   ringed in brass with its 15 stands, the list beside the map, 0:14 LEFT in ASSIGNING).
 7. **CLICK PROOF, same session, same commit**: one REAL left click (`click.ps1`) at the screen point
    of stand 4's own pad **on the map** → the footer went `"click a stand"` → `"stand 4 is yours"` and
    row 4 `4 MAIN YOURS`; the server then stood the player at `Grid.standPosition(C1, 4)`, **0.0
