@@ -1723,4 +1723,372 @@ return function()
 			expect(MapUi.pickFooterText()).to.equal("")
 		end)
 	end)
+
+	-- ---------------------------------------------------------------- the grid world (task 327f)
+	--
+	-- Karen, 2026-11-09, after playing cell drives: *"I still can't select on map position and map is
+	-- not updated I want to see all map all sections"*. Every count below is `Grid`'s own and never a
+	-- literal, so each case dies if the drawing is taken out again (L-093).
+	describe("the grid world's map", function()
+		local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
+
+		local function forest()
+			return require(ReplicatedStorage:WaitForChild("ForestTest"))
+		end
+
+		local function canvasStands(): { Frame }
+			local full = Hud.fullMap()
+			local canvas = if full then (full :: Frame):FindFirstChild("Canvas") else nil
+			local out: { Frame } = {}
+			if canvas == nil then
+				return out
+			end
+			for index = 1, 64 do
+				local node = (canvas :: Frame):FindFirstChild(string.format("Stand%d", index))
+				if node == nil then
+					break
+				end
+				table.insert(out, node :: Frame)
+			end
+			return out
+		end
+
+		it("case 29: draws ALL EIGHT sections, every road and the dealt cell's stands", function()
+			local model = MapUi.geometryFromGrid(Grid, Grid.DEFAULT_CELL)
+			expect(model).to.be.ok()
+			local shown = model :: any
+			expect(#shown.cells).to.equal(#Grid.cellIds())
+			expect(#shown.roads).to.equal(#Grid.roads())
+			local active, empty, ids = 0, {}, {}
+			for index, cell in ipairs(shown.cells) do
+				expect(cell.id).to.equal(Grid.cellIds()[index])
+				ids[cell.id] = cell
+				if cell.active then
+					active += 1
+					expect(cell.id).to.equal(Grid.DEFAULT_CELL)
+				end
+				if cell.empty then
+					table.insert(empty, cell.id)
+				end
+				-- THE WHOLE WORLD IS ON THE MAP: every cell's own box, inside the bounds.
+				local box = Grid.worldBoundsOf(cell.id)
+				expect(cell.bounds.minX).to.be.near(box.minX, 1e-6)
+				expect(cell.bounds.maxZ).to.be.near(box.maxZ, 1e-6)
+				expect(box.minX >= shown.bounds.minX and box.maxX <= shown.bounds.maxX).to.equal(true)
+				expect(box.minZ >= shown.bounds.minZ and box.maxZ <= shown.bounds.maxZ).to.equal(true)
+				-- NOBODY PUBLISHES A DRIVEN SET YET, so no cell is driven unless a caller says so.
+				expect(cell.driven).to.equal(false)
+			end
+			expect(active).to.equal(1)
+			expect(shown.activeCell).to.equal(Grid.DEFAULT_CELL)
+			-- THE CELL WITH NO WOOD IS DRAWN AND SAID TO BE EMPTY (`Grid.PLANTED_CELLS` has no A1).
+			expect(#empty).to.equal(#Grid.cellIds() - #Grid.PLANTED_CELLS)
+			for _, id in ipairs(Grid.PLANTED_CELLS) do
+				expect(ids[id].empty).to.equal(false)
+			end
+			-- THE STANDS ARE THE DEALT CELL'S, IN INDEX ORDER, AT `Grid`'S OWN POSITIONS.
+			local count = Grid.standCount(Grid.DEFAULT_CELL)
+			expect(#shown.stands).to.equal(count)
+			local towers = 0
+			for index = 1, count do
+				local at = Grid.standPosition(Grid.DEFAULT_CELL, index)
+				expect(shown.stands[index].X).to.be.near(at.X, 1e-3)
+				expect(shown.stands[index].Y).to.be.near(at.Z, 1e-3)
+				expect(shown.standSides[index]).to.equal(string.upper(Grid.sideOf(Grid.DEFAULT_CELL, index)))
+				if shown.standKinds[index] == "tower" then
+					towers += 1
+				else
+					expect(shown.standKinds[index]).to.equal("ground")
+				end
+			end
+			-- GROUND VS TOWER IS `Grid.towerStands`, STAND FOR STAND.
+			expect(towers).to.equal(#Grid.towerStands(Grid.DEFAULT_CELL))
+			for _, index in ipairs(Grid.towerStands(Grid.DEFAULT_CELL)) do
+				expect(shown.standKinds[index]).to.equal("tower")
+			end
+			-- A CELL NOBODY HAS HEARD OF GETS NOTHING, never a blank grid.
+			expect(MapUi.geometryFromGrid(Grid, "Z9")).to.equal(nil)
+			expect(MapUi.geometryFromGrid(nil, Grid.DEFAULT_CELL)).to.equal(nil)
+			TestKit.note(
+				string.format(
+					"map_ui 327f: %d cells, %d roads, %d stands (%d towers) for %s, bounds %.0f x %.0f studs",
+					#shown.cells,
+					#shown.roads,
+					#shown.stands,
+					towers,
+					Grid.DEFAULT_CELL,
+					shown.bounds.maxX - shown.bounds.minX,
+					shown.bounds.maxZ - shown.bounds.minZ
+				)
+			)
+		end)
+
+		it("case 30: a CELL drive draws the world; a line place draws exactly what it drew", function()
+			local data = forest()
+			-- THE DISPATCH, WHICH IS THE WHOLE OF KAREN'S *"map is not updated"*: the same call with
+			-- the grid injected draws eight sections, and without it draws one.
+			local with = MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid) :: any
+			local without = MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL) :: any
+			expect(with).to.be.ok()
+			expect(without).to.be.ok()
+			expect(#with.cells).to.equal(#Grid.cellIds())
+			expect(without.cells).to.equal(nil)
+			-- THE ROAD AND THE STANDS ARE THE DEALT CELL'S OWN, VALUE FOR VALUE: the hunter's feet
+			-- are on them, so the world view may not be a second answer about where stand 7 is.
+			expect(#with.road).to.equal(#without.road)
+			for index, point in ipairs(without.road) do
+				expect((with.road[index] - point).Magnitude).to.be.near(0, 1e-6)
+			end
+			expect(#with.stands).to.equal(#without.stands)
+			for index, point in ipairs(without.stands) do
+				expect((with.stands[index] - point).Magnitude).to.be.near(0, 1e-6)
+			end
+			-- ...AND THE WHOLE GRID IS WIDER THAN ONE CELL, which is the picture she asked for.
+			local wide = with.bounds.maxX - with.bounds.minX
+			expect(wide > without.bounds.maxX - without.bounds.minX).to.equal(true)
+			expect(with.label).to.equal(string.format("section %s", Grid.DEFAULT_CELL))
+			-- A LINE PLACE IS UNTOUCHED BY THIS TASK, grid injected or not (map-ui.md §21: absent is
+			-- pre-327 behaviour).
+			local line = MapUi.geometryFor("forest-test", data, Map, "road", Grid) :: any
+			expect(line).to.be.ok()
+			expect(line.cells).to.equal(nil)
+			expect(line.roads).to.equal(nil)
+			expect(line.label).to.equal(nil)
+			local dev = MapUi.geometryFor(Map.EXPECTED_WORLD, nil, Map, nil, Grid)
+			if dev ~= nil then
+				expect((dev :: any).cells).to.equal(nil)
+			end
+		end)
+
+		it("case 31: the pads are MEASURED off the drawn view and no two overlap", function()
+			local data = forest()
+			local restore = MapUi.geometry()
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid))
+			MapUi.setOpen(true)
+			-- ONE FRAME FOR THE ENGINE'S LAYOUT PASS, because the overlap below is measured in
+			-- `AbsolutePosition` -- the pixels a mouse really hits.
+			task.wait()
+			-- AND NOT ONE FRAME MORE. **THE LIVE HUD REWRITES THE PICK WINDOW EVERY TICK** (round 2,
+			-- measured): `renderObjective` runs in this client with no drive in it, so it says the
+			-- window is shut, and a `task.wait()` between opening the window and reading the pads
+			-- undoes the window. So this block yields NOWHERE. The scope is shut by the same rule --
+			-- the camera suppresses this map and other specs in this session drive the camera.
+			MapUi.setSuppressed(false)
+			MapUi.setPickWindow(true, true)
+			expect(MapUi.isPickable()).to.equal(true)
+			local stands = canvasStands()
+			expect(#stands).to.equal(Grid.standCount(Grid.DEFAULT_CELL))
+			-- THE SIZE IS COMPUTED IN THE CASE, from the view the panel is drawn at -- case 28's own
+			-- stated gap: a cell's fifteen stands under the 72 px pad gave 70 overlapping pairs.
+			local view = MapUi.viewOf("full") :: any
+			local geometry = MapUi.geometry() :: any
+			local wanted = MapUi.standHitPx(geometry.stands, view)
+			expect(wanted < CONFIG.STAND_HIT_PX).to.equal(true)
+			local pads: { TextButton } = {}
+			for _, node in ipairs(stands) do
+				local hit = node:FindFirstChild("Hit")
+				expect(hit).to.be.ok()
+				expect((hit :: TextButton).Size.X.Offset).to.equal(wanted)
+				-- ALIVE, which is what makes a tap land at all (`applyPick`'s own pair).
+				expect((hit :: TextButton).Active).to.equal(true)
+				expect((hit :: TextButton).Visible).to.equal(true)
+				table.insert(pads, hit :: TextButton)
+			end
+			-- OVERLAP IN CANVAS PIXELS, which is the picture that was BUILT: `AbsolutePosition` is
+			-- zero for a hidden element and the live Hud shuts this window on its own next tick
+			-- (measured, rounds 2 and 3), so the engine's absolutes cannot be read inside a spec
+			-- here at all. The canvas rectangle is the same rectangle, before the one `UIScale` that
+			-- multiplies both of them equally.
+			local worst = 0
+			for i = 1, #stands do
+				for j = i + 1, #stands do
+					local a, b = stands[i].Position, stands[j].Position
+					local dx = math.abs(a.X.Offset - b.X.Offset)
+					local dy = math.abs(a.Y.Offset - b.Y.Offset)
+					if dx < wanted and dy < wanted then
+						worst += 1
+					end
+				end
+			end
+			expect(worst).to.equal(0)
+			-- ...and the pads really are the rectangles just measured.
+			expect(#pads).to.equal(#stands)
+			-- A TOWER IS THE BIGGER, RINGED SQUARE and a ground stand is not (D4's two kinds).
+			local towers = {}
+			for _, index in ipairs(Grid.towerStands(Grid.DEFAULT_CELL)) do
+				towers[index] = true
+			end
+			for index, node in ipairs(stands) do
+				expect(node.Size.X.Offset).to.equal(if towers[index] then CONFIG.STAND_TOWER_PX else CONFIG.STAND_PX)
+				local ring = node:FindFirstChild("Seat")
+				expect((ring :: UIStroke).Enabled).to.equal(towers[index] == true)
+			end
+			MapUi.setPickWindow(false, false)
+			MapUi.setOpen(false)
+			MapUi.setGeometry(restore)
+			TestKit.note(
+				string.format("map_ui 327f: %d px pads over %d cell stands, 0 overlapping pairs", wanted, #pads)
+			)
+		end)
+
+		it("case 32: fifteen stands are a SCROLLING list, 44 real px a row, and a row picks", function()
+			local data = forest()
+			local restore = MapUi.geometry()
+			local asked: { number } = {}
+			MapUi.setPickSystem({
+				requestStand = function(index: number)
+					table.insert(asked, index)
+				end,
+			})
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid))
+			local full = Hud.fullMap() :: Frame
+			local list = full:FindFirstChild("StandList")
+			expect(list).to.be.ok()
+			expect((list :: Instance):IsA("ScrollingFrame")).to.equal(true)
+			local frame = list :: ScrollingFrame
+			local rows = 0
+			for _, child in ipairs(frame:GetChildren()) do
+				if child:IsA("TextButton") then
+					rows += 1
+				end
+			end
+			expect(rows).to.equal(Grid.standCount(Grid.DEFAULT_CELL))
+			-- IT SCROLLS, which is the one property 323c needed: fifteen rows are taller than the
+			-- room the panel has.
+			expect(frame.CanvasSize.Y.Offset).to.equal(rows * CONFIG.STAND_LIST_ROW_PX)
+			expect(frame.CanvasSize.Y.Offset > frame.Size.Y.Offset).to.equal(true)
+			-- CLOSED MAP, DEAD LIST: the pads' own rule, in the list's shape.
+			expect(frame.Visible).to.equal(false)
+			-- THIS BLOCK YIELDS NOWHERE, for case 31's measured reason: the live Hud shuts the pick
+			-- window on its own next tick.
+			MapUi.setSuppressed(false)
+			MapUi.setOpen(true)
+			MapUi.setPickWindow(true, true)
+			expect(MapUi.isPickable()).to.equal(true)
+			expect(frame.Visible).to.equal(true)
+			local row1 = frame:FindFirstChild("Row1") :: TextButton
+			expect(row1).to.be.ok()
+			expect(row1.Active).to.equal(true)
+			-- THE WORDS: FREE, a tower, a holder's name and his own.
+			local towers = Grid.towerStands(Grid.DEFAULT_CELL)
+			expect(MapUi.standRowText(1, "MAIN", { state = "free" }, "ground")).to.equal(" 1  MAIN  FREE")
+			expect(string.match(MapUi.standRowText(towers[1], "WEST", { state = "free" }, "tower"), "TOWER")).to.be.ok()
+			local taken = MapUi.standRowText(2, "MAIN", { state = "taken", name = "Rival" }, "ground")
+			expect(string.match(taken, "Rival")).to.be.ok()
+			expect(string.match(MapUi.standRowText(3, "MAIN", { state = "mine" }, "ground"), "YOURS")).to.be.ok()
+			-- ...AND THE DRAWN ROW SAYS IT TOO, off the same states the pads are drawn from.
+			local states = {}
+			for index = 1, rows do
+				states[index] = { state = "free" }
+			end
+			states[2] = { state = "taken", name = "Rival" }
+			MapUi.setStandStates(states, 327327)
+			expect(string.match((frame:FindFirstChild("Row2") :: TextButton).Text, "Rival")).to.be.ok()
+			-- A ROW ASKS THE SAME DOOR THE PAD DOES -- one tap rule, not two.
+			MapUi.tapStand(13)
+			expect(#asked).to.equal(1)
+			expect(asked[1]).to.equal(13)
+			-- ...AND NOTHING IS ASKED WITH THE WINDOW SHUT.
+			MapUi.setPickWindow(false, false)
+			MapUi.setOpen(false)
+			MapUi.tapStand(4)
+			expect(#asked).to.equal(1)
+			-- BESIDE THE MAP WHEN THERE IS ROOM, NEVER OVER IT. Measured in Karen's Forest Test
+			-- (327f): a list inside the panel covered the right-hand cells' own stands, so a click
+			-- meant for stand 4 of D1 landed on a list row instead.
+			MapUi.setRailColumn(Rail.columnPx(1), Vector2.new(1920, 1080))
+			MapUi.applyLayout(Vector2.new(1920, 1080))
+			local canvas = full:FindFirstChild("Canvas") :: Frame
+			expect(canvas).to.be.ok()
+			expect(frame.AnchorPoint.X).to.equal(0)
+			expect(frame.Position.X.Offset >= canvas.Position.X.Offset + canvas.Size.X.Offset).to.equal(true)
+			-- A PHONE'S 44 PX THUMB MINIMUM, MEASURED ON SCREEN (mobile-controls.md §B) and not
+			-- transcribed: the panel shrinks to about a third at 400 x 800 and the list must not
+			-- shrink with it. `AbsoluteSize` is the engine's own layout answer and it does not depend
+			-- on `Visible`, so this part may take the frame the layout pass needs.
+			-- IT IS THE ENGINE'S OWN TWO SCALES AND THE ROW'S OWN HEIGHT, multiplied by the rule the
+			-- engine applies, because `AbsoluteSize` IS ZERO FOR A HIDDEN ELEMENT (measured, round 3:
+			-- the live Hud shuts the window before the layout pass runs, so there is no frame in
+			-- which this list is both visible and laid out inside a spec). What has to be true is
+			-- that the list's inverse scale cancels the panel's shrink exactly -- which is the
+			-- product below, and it is 1 at every viewport.
+			MapUi.setRailColumn(Rail.columnPx(1), Vector2.new(400, 800))
+			MapUi.applyLayout(Vector2.new(400, 800))
+			local panelScale = full:FindFirstChildOfClass("UIScale") :: UIScale
+			local listScale = frame:FindFirstChild("ListScale") :: UIScale
+			expect(panelScale).to.be.ok()
+			expect(listScale).to.be.ok()
+			expect(panelScale.Scale < 0.5).to.equal(true) -- a 400 x 800 phone really does shrink it
+			expect(panelScale.Scale * listScale.Scale).to.be.near(1, 1e-6)
+			local rowPx = row1.Size.Y.Offset * panelScale.Scale * listScale.Scale
+			expect(rowPx >= CONFIG.STAND_LIST_ROW_PX - 2).to.equal(true)
+			-- ...AND THE LIST STILL FITS THE ROOM THE PANEL HAS ON SCREEN, which is what the
+			-- `ScrollingFrame` is for: it is cut to the panel and scrolls through the fifteen.
+			expect(frame.Size.Y.Offset <= math.floor(frame.CanvasSize.Y.Offset)).to.equal(true)
+			expect(frame.Size.Y.Offset <= full.Size.Y.Offset * panelScale.Scale).to.equal(true)
+			MapUi.setPickSystem(nil)
+			MapUi.setRailColumn(nil)
+			MapUi.applyLayout()
+			MapUi.setGeometry(restore)
+			TestKit.note(string.format("map_ui 327f: %d list rows, %.0f px a row at 400 x 800", rows, rowPx))
+		end)
+
+		it("case 33: cellStateFor is a table, and the map FOLLOWS the dealt cell", function()
+			-- THE FOUR STATES, every combination, `driven` reachable BY PARAMETER (the cell vote that
+			-- would publish it is task 327e and is not built).
+			for mask = 0, 7 do
+				local cell = {
+					id = "B1",
+					bounds = Grid.worldBoundsOf("B1"),
+					active = bit32.band(mask, 1) == 1,
+					driven = bit32.band(mask, 2) == 2,
+					empty = bit32.band(mask, 4) == 4,
+				}
+				local want = if cell.active
+					then "active"
+					elseif cell.driven then "driven"
+					elseif cell.empty then "empty"
+					else "free"
+				expect(MapUi.cellStateFor(cell)).to.equal(want)
+			end
+			local driven = MapUi.geometryFromGrid(Grid, "C1", { B1 = true }) :: any
+			for _, cell in ipairs(driven.cells) do
+				expect(cell.driven).to.equal(cell.id == "B1")
+			end
+
+			-- THE MAP FOLLOWS THE DRIVE (327f: it updates when the cell changes, no rejoin).
+			local data = forest()
+			local restore = MapUi.geometry()
+			local before = MapUi.stats().rebuilds
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, "C1", Grid))
+			MapUi.setOpen(true)
+			task.wait()
+			local function brass(id: string): boolean
+				local canvas = (Hud.fullMap() :: Frame):FindFirstChild("Canvas") :: Frame
+				local box = canvas:FindFirstChild(string.format("Cell%s", id))
+				expect(box).to.be.ok()
+				local edge = (box :: Frame):FindFirstChild("Edge") :: UIStroke
+				return edge.Color == CONFIG.RIM_COLOR
+			end
+			expect(brass("C1")).to.equal(true)
+			expect(brass("C2")).to.equal(false)
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, "C2", Grid))
+			task.wait()
+			expect(MapUi.stats().rebuilds > before).to.equal(true)
+			expect(brass("C2")).to.equal(true)
+			expect(brass("C1")).to.equal(false)
+			-- EVERY SECTION IS ON THE PICTURE, counted on the drawn nodes and not on the table.
+			local canvas = (Hud.fullMap() :: Frame):FindFirstChild("Canvas") :: Frame
+			local boxes = 0
+			for _, child in ipairs(canvas:GetChildren()) do
+				if string.match(child.Name, "^Cell%u%d$") then
+					boxes += 1
+				end
+			end
+			expect(boxes).to.equal(#Grid.cellIds())
+			MapUi.setOpen(false)
+			MapUi.setGeometry(restore)
+			TestKit.note(string.format("map_ui 327f: %d section boxes drawn, dealt cell marked in brass", boxes))
+		end)
+	end)
 end

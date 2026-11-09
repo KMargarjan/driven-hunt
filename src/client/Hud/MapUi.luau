@@ -136,6 +136,31 @@ MapUi.CONFIG = {
 	-- finer sample buys nothing visible and costs frames.
 	ROAD_SAMPLES = 33,
 
+	-- ---------------- THE GRID WORLD (task 327f; docs/design/grid-map.md 10.4, map-ui.md 21)
+	--
+	-- Karen, 2026-11-09: *"map is not updated I want to see all map all sections"*. The whole grid is
+	-- drawn -- eight cells and every road -- and the DEALT cell is the one marked.
+	GRID_ROAD_SAMPLES = 9, -- 8 roads x 8 segments. 17 cost frames for a bend that is 9 px wide
+	-- THE FLOOR UNDER A MEASURED PAD. The world view draws the main line's stands ~31 px apart, so
+	-- `STAND_HIT_PX` 72 would overlap three ways: `standHitPx` measures the drawn spacing and clamps
+	-- the pad to it, and this is the smallest thing that is still a pad.
+	STAND_HIT_MIN_PX = 14,
+	-- A TOWER STAND IS A BIGGER SQUARE WITH THE MAP'S OWN BRASS RIM -- no new colour (§12), and the
+	-- same ring a free seat wears, which is the same fact: a tower is a high seat.
+	STAND_TOWER_PX = 9,
+	CELL_LABEL_SIZE = Style.SIZE.MICRO[1],
+	CELL_EDGE_COLOR = Style.LOOK.WELL_EDGE,
+	CELL_EDGE_TRANSPARENCY = 0.3,
+	-- A CELL WITH NO WOOD (`Grid.PLANTED_CELLS` has no A1) is drawn and said to be empty rather than
+	-- left off: a hole in the map is a map with a bug in it.
+	CELL_EMPTY_TRANSPARENCY = 0.75,
+	CELL_EMPTY_WORD = "%s empty",
+	-- THE STAND LIST (task 323c): fifteen `STAND_LIST_ROW_PX` rows is 660 px against a phone panel's
+	-- 644, so it is a `ScrollingFrame` (grid-map §10.4).
+	STAND_LIST_WIDTH_PX = 132,
+	STAND_LIST_SCROLL_PX = 6,
+	STAND_LIST_TEXT_PX = 13,
+
 	-- ---------------- how often
 	--
 	-- 20 Hz, AND THE COMPASS'S PER-FRAME `RenderStepped` IS NOT A PRECEDENT FOR IT: a compass tracks
@@ -345,11 +370,28 @@ export type MapView = {
 	shape: ClipShape,
 }
 
+-- ONE CELL OF THE GRID WORLD, as drawn (task 327f). `empty` is a cell with no wood planted in it.
+export type CellView = {
+	id: string,
+	bounds: Bounds,
+	active: boolean, -- the cell this drive is in
+	driven: boolean, -- already driven this cycle
+	empty: boolean, -- no wood planted (`Grid.PLANTED_CELLS`)
+}
+
+-- THE FOUR GRID FIELDS ARE OPTIONAL AND ABSENT IS PRE-327 BEHAVIOUR (map-ui.md §21), so the DEV map
+-- and the four drive places draw exactly what they drew.
 export type MapGeometry = {
 	world: string,
+	label: string?, -- what the panel's title says, when it is not the world's own name
 	bounds: Bounds,
 	road: { Vector2 }, -- the hunters' line as a polyline of (x, z), in x order
 	stands: { Vector2 }, -- one point per stand, in index order. MAY BE EMPTY.
+	roads: { { Vector2 } }?, -- every road in the world, each as a polyline
+	cells: { CellView }?, -- the eight drive cells
+	standKinds: { string }?, -- "ground" or "tower", by stand index
+	standSides: { string }?, -- "MAIN" / "WEST" / "EAST", by stand index
+	activeCell: string?,
 }
 
 -- ONE STAND'S STATE, AS DRAWN (task 323b, design section 9.4). `name` is set only for `taken` --
@@ -662,6 +704,28 @@ function MapUi.standStateFor(index: number, view: StandView): StandState
 	return { state = "free" }
 end
 
+-- ONE ROW OF THE TOUCH LIST (task 323c, grid-map §10.4): the index, the side word and the state
+-- word, and nothing else. PURE, so a case reads it with no frame at all.
+function MapUi.standRowText(index: number, side: string?, state: StandState?, kind: string?): string
+	local config = MapUi.CONFIG
+	local word = if state ~= nil then state.state else "free"
+	local said
+	if word == "taken" then
+		said = if state ~= nil and state.name ~= nil
+			then string.sub(state.name :: string, 1, config.STAND_NAME_CHARS)
+			else "TAKEN"
+	elseif word == "mine" then
+		said = "YOURS"
+	elseif word == "seat" then
+		said = "BARRED"
+	elseif word == "high" or kind == "tower" then
+		said = "TOWER"
+	else
+		said = "FREE"
+	end
+	return string.format("%2d  %-4s  %s", index, side or "", said)
+end
+
 -- MAY HE TAP A STAND RIGHT NOW? PURE, and it is the ONE predicate both the mouse grab and its
 -- release are driven off (design section 9.2, case 25) -- a missed release costs a free mouse in a
 -- drive, which is why there is one rule and not two.
@@ -804,6 +868,148 @@ function MapUi.geometryFromMap(map: any): MapGeometry
 	}
 end
 
+-- THE GRID WORLD'S MAP: ALL EIGHT SECTIONS, AND THE DEALT ONE MARKED (task 327f).
+--
+-- Karen, 2026-11-09: *"map is not updated I want to see all map all sections"*. Every number is
+-- ASKED OF `Grid` and none is copied: the cell boxes are `worldBoundsOf`, the roads are
+-- `roadPolyline` of `Grid.roads()`, the towers are `towerStands` and the sides are `sideOf`.
+--
+-- `base` IS THE DEALT CELL'S OWN GEOMETRY and it is what the hunter's feet are on, so the road, the
+-- stands and the exit plane are carried through VALUE FOR VALUE from `geometryFromForestTest` -- the
+-- bounds are the UNION of the whole grid and that cell, never a second answer to "where is stand 7".
+-- With no base the two are derived from `Grid` itself, which is the same curve by construction
+-- (`ForestTest.roadZ` delegates to `Grid.roadCentreAt` for a cell).
+-- Design: docs/design/grid-map.md §10.4 · docs/design/map-ui.md §21.
+function MapUi.geometryFromGrid(
+	grid: any,
+	cellId: string,
+	driven: { [string]: boolean }?,
+	base: MapGeometry?
+): MapGeometry?
+	if grid == nil or type(cellId) ~= "string" or grid.cellOf(cellId) == nil then
+		return nil
+	end
+	local config = MapUi.CONFIG
+	local margin = config.GEOMETRY_MARGIN_STUDS
+	local world = grid.worldFootprint()
+	local bounds = {
+		minX = world.minX - margin,
+		maxX = world.maxX + margin,
+		minZ = world.minZ - margin,
+		maxZ = world.maxZ + margin,
+	}
+	if base ~= nil then
+		bounds.minX = math.min(bounds.minX, base.bounds.minX)
+		bounds.maxX = math.max(bounds.maxX, base.bounds.maxX)
+		bounds.minZ = math.min(bounds.minZ, base.bounds.minZ)
+		bounds.maxZ = math.max(bounds.maxZ, base.bounds.maxZ)
+	end
+
+	local roads = {}
+	for _, road in ipairs(grid.roads()) do
+		table.insert(roads, grid.roadPolyline(road, config.GRID_ROAD_SAMPLES))
+	end
+
+	local planted = {}
+	for _, id in ipairs(grid.PLANTED_CELLS) do
+		planted[id] = true
+	end
+	local cells: { CellView } = {}
+	for _, id in ipairs(grid.cellIds()) do
+		table.insert(cells, {
+			id = id,
+			bounds = grid.worldBoundsOf(id),
+			active = id == cellId,
+			-- NOBODY PUBLISHES THE DRIVEN SET TODAY (the cell vote is task 327e and is not built),
+			-- so this is nil in the game and REACHABLE BY PARAMETER in a case -- the flag rule's own
+			-- shape for a path whose fact has not arrived yet.
+			driven = driven ~= nil and driven[id] == true,
+			empty = not planted[id],
+		})
+	end
+
+	local stands = {}
+	if base ~= nil then
+		for index, point in ipairs(base.stands) do
+			stands[index] = point
+		end
+	else
+		for index = 1, grid.standCount(cellId) do
+			local at = grid.standPosition(cellId, index)
+			stands[index] = Vector2.new(at.X, at.Z)
+		end
+	end
+
+	local towers = {}
+	for _, index in ipairs(grid.towerStands(cellId)) do
+		towers[index] = true
+	end
+	local kinds, sides = {}, {}
+	local count = math.min(#stands, grid.standCount(cellId))
+	for index = 1, count do
+		kinds[index] = if towers[index] then "tower" else "ground"
+		sides[index] = string.upper(grid.sideOf(cellId, index))
+	end
+
+	return {
+		world = if base ~= nil then base.world else grid.VERSION,
+		-- WHAT THE TITLE SAYS, because "forest-test" does not tell her which section she is in and
+		-- the section is the one thing this picture is about.
+		label = string.format("section %s", cellId),
+		bounds = bounds,
+		road = if base ~= nil then base.road else grid.roadPolyline(grid.roadsOf(cellId).main, config.ROAD_SAMPLES),
+		stands = stands,
+		roads = roads,
+		cells = cells,
+		standKinds = kinds,
+		standSides = sides,
+		activeCell = cellId,
+	}
+end
+
+-- HOW ONE CELL IS DRAWN, as a word. PURE, and the four states are exclusive in this order: the cell
+-- being hunted, a cell already driven this cycle, a cell with no wood, and the rest.
+function MapUi.cellStateFor(cell: CellView): string
+	if cell.active then
+		return "active"
+	elseif cell.driven then
+		return "driven"
+	elseif cell.empty then
+		return "empty"
+	end
+	return "free"
+end
+
+-- HOW BIG EACH STAND'S PAD MAY BE, MEASURED OFF THE DRAWN PICTURE (task 327f) and never transcribed.
+-- The world view puts fifteen stands in one eighth of the canvas, so the 72 px pad that never
+-- overlapped on a one-cell map would cover three stands here -- and a pad that claims the wrong
+-- stand is worse than no pad. The answer is the closest pair's distance in pixels, clamped.
+function MapUi.standHitPx(points: { Vector2 }, view: MapView): number
+	local config = MapUi.CONFIG
+	local closest = math.huge
+	for i = 1, #points do
+		local ax, ay = MapUi.rawOffsetPx(points[i].X, points[i].Y, view)
+		for j = i + 1, #points do
+			local bx, by = MapUi.rawOffsetPx(points[j].X, points[j].Y, view)
+			-- THE LARGER AXIS GAP, NOT THE STRAIGHT LINE: the pads are axis-aligned SQUARES, and two
+			-- squares of side s share a pixel exactly when BOTH axis gaps are under s. The diagonal
+			-- distance would pass a pair that overlaps.
+			local d = math.max(math.abs(bx - ax), math.abs(by - ay))
+			if d < closest then
+				closest = d
+			end
+		end
+	end
+	if closest == math.huge then
+		return config.STAND_HIT_PX
+	end
+	-- TWO PIXELS OF AIR, and it is a MEASUREMENT and not caution: the canvas is drawn under a
+	-- `UIScale`, so the engine's `AbsolutePosition` and `AbsoluteSize` are rounded AFTER the scale
+	-- and a pad exactly as wide as the gap came out one pixel over its neighbour -- measured, 1
+	-- overlapping pair of 105, in the 327f round-1 harness run.
+	return math.clamp(math.floor(closest) - 2, config.STAND_HIT_MIN_PX, config.STAND_HIT_PX)
+end
+
 -- WHICH WORLD'S GEOMETRY, or `nil`. A world that has stated nothing gets NO MAP AT ALL and says so
 -- out loud -- never a blank panel, because `docs/PROJECT_CONTEXT.md` records a visibility audit that
 -- *"certified a blank screen twice"* and an empty map frame is exactly that picture.
@@ -814,7 +1020,11 @@ end
 -- nothing. The attribute signal in `Hud` redraws the instant a name arrives, so the no-name case is
 -- a frame at worst -- the server publishes inside `Match.start`'s first marker read, before any
 -- player's Hud runs.
-function MapUi.geometryFor(world: string, forestTest: any?, map: any?, layoutName: string?): MapGeometry?
+--
+-- `grid` IS INJECTED AND OPTIONAL (task 327f): with it, a drive in a CELL draws the whole eight-cell
+-- world with that cell marked; without it the dealt cell's own layout is drawn, which is every map
+-- written before this task, value for value.
+function MapUi.geometryFor(world: string, forestTest: any?, map: any?, layoutName: string?, grid: any?): MapGeometry?
 	if world == "forest-test" then
 		if forestTest == nil then
 			return nil
@@ -826,7 +1036,13 @@ function MapUi.geometryFor(world: string, forestTest: any?, map: any?, layoutNam
 		if layout == nil then
 			return nil
 		end
-		return MapUi.geometryFromForestTest(forestTest, layout)
+		local base = MapUi.geometryFromForestTest(forestTest, layout)
+		-- A DRIVE IN A CELL DRAWS THE WORLD (task 327f). The dealt cell's own road and stands are
+		-- `base`'s, so the picture gains the other seven sections and changes nothing about this one.
+		if grid ~= nil and grid.cellOf(layoutName) ~= nil then
+			return MapUi.geometryFromGrid(grid, layoutName :: string, nil, base) or base
+		end
+		return base
 	end
 	-- THE WORLD MUST BE THE ONE THE MAP MODULE IS ABOUT (task 155 round 1, the Reviewer's note).
 	-- Without this compare, ANY unrecognised world fell through to the DEV geometry and would have
@@ -890,8 +1106,31 @@ local targetWord: string? = nil
 -- THE FULL MAP'S NINE STAND NODES, held from the build so `setStandStates` never does a
 -- `FindFirstChild` -- the `drawers` discipline. The MINIMAP's stands are not in this list and are
 -- not clickable: the pick is a panel gesture, and a 23 px pad on a disc is not one (section 9.5).
-type StandNode = { frame: Frame, index: TextLabel, holder: TextLabel, stroke: UIStroke, hit: TextButton }
+type StandNode = {
+	frame: Frame,
+	index: TextLabel,
+	holder: TextLabel,
+	stroke: UIStroke,
+	hit: TextButton,
+	tower: boolean,
+}
 local standNodes: { StandNode } = {}
+-- THE TOUCH LIST'S ROWS (task 323c), parallel to `standNodes` and written by the same two functions:
+-- a phone cannot tap a 31 px pad (grid-map §10.4), so the same `tapStand` is offered as a list.
+type StandRow = { button: TextButton, index: number }
+local standRows: { StandRow } = {}
+local standListFrame: ScrollingFrame? = nil
+-- THE LIST'S OWN INVERSE SCALE and the canvas height it may use. `layoutFor` writes both, for the
+-- reason stated there: a map shrinks on a phone and a thumb does not.
+local standListScale: UIScale? = nil
+local standListRoomPx = 0
+-- IS THE LIST UP? `layoutFor` reserves room beside the map for it only while it is, and `applyPick`
+-- re-lays the panel out on the edge -- one boolean, written in one place.
+local listShown = false
+-- WHAT THE WORLD SAID ABOUT EACH STAND, kept from the build so a row's word can be rewritten without
+-- asking the geometry again. Empty for a world that stated neither (the four drive places, DEV).
+local standKinds: { string } = {}
+local standSides: { string } = {}
 -- WHAT WAS LAST WRITTEN, so a per-frame caller costs one comparison and no property write at all
 -- (section 9.7's edge trigger). `standVersion` is the Hud's own integer; `standDrawn` is what this
 -- module actually put on screen, which is the half a stale version cannot fake.
@@ -1139,22 +1378,84 @@ end
 local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView, standLabels: boolean): { StandNode }
 	local config = MapUi.CONFIG
 	local nodes: { StandNode } = {}
-	local previousU: number? = nil
-	local previousV: number? = nil
-	for _, point in ipairs(model.road) do
-		local u, v = MapUi.rawOffsetPx(point.X, point.Y, view)
-		if previousU ~= nil then
-			segment(holder, previousU :: number, previousV :: number, u, v, config.ROAD_PX)
+
+	-- THE EIGHT SECTIONS, ON THE FULL MAP ONLY (task 327f). The minimap sees 300 studs and a cell is
+	-- 1,070, so a box there would be an edge crossing the disc and no information at all.
+	if standLabels and model.cells ~= nil then
+		for _, cell in ipairs(model.cells :: { CellView }) do
+			local u0, v0 = MapUi.rawOffsetPx(cell.bounds.minX, cell.bounds.minZ, view)
+			local u1, v1 = MapUi.rawOffsetPx(cell.bounds.maxX, cell.bounds.maxZ, view)
+			local state = MapUi.cellStateFor(cell)
+			local box = Instance.new("Frame")
+			box.Name = string.format("Cell%s", cell.id)
+			box.BackgroundTransparency = 1
+			box.Position = UDim2.new(0.5, math.round(math.min(u0, u1)), 0.5, math.round(math.min(v0, v1)))
+			box.Size = UDim2.fromOffset(math.round(math.abs(u1 - u0)), math.round(math.abs(v1 - v0)))
+			box.ZIndex = config.Z_INDEX
+			local edge = Instance.new("UIStroke")
+			edge.Name = "Edge"
+			-- THE DEALT CELL WEARS THE MAP'S OWN BRASS RIM AND EVERY OTHER CELL A WELL EDGE: one
+			-- mark, no new colour (map-ui.md §12).
+			edge.Color = if state == "active" then config.RIM_COLOR else config.CELL_EDGE_COLOR
+			edge.Thickness = if state == "active" then config.RIM_THICKNESS else 1
+			edge.Transparency = if state == "active"
+				then config.RIM_TRANSPARENCY
+				elseif state == "empty" then config.CELL_EMPTY_TRANSPARENCY
+				else config.CELL_EDGE_TRANSPARENCY
+			edge.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+			edge.Parent = box
+			local name = label(
+				box,
+				"Label",
+				config.CELL_LABEL_SIZE,
+				if state == "empty" then string.format(config.CELL_EMPTY_WORD, cell.id) else cell.id
+			)
+			name.Position = UDim2.fromOffset(4, 2)
+			name.Size = UDim2.fromOffset(math.max(28, math.abs(u1 - u0) - 8), config.CELL_LABEL_SIZE + 2)
+			name.TextXAlignment = Enum.TextXAlignment.Left
+			name.TextColor3 = if state == "active" then config.RIM_COLOR else config.TEXT_COLOR
+			name.TextTransparency = if state == "active" then 0 else config.PINNED_TRANSPARENCY
+			box.Parent = holder
 		end
-		previousU, previousV = u, v
 	end
 
+	-- EVERY ROAD IN THE WORLD, ON THE FULL MAP ONLY -- and that is a MEASUREMENT, not a taste
+	-- (327f): with the world's eight roads on the minimap as well, `map_ui.spec`'s own tick case
+	-- measured the client at 9.4 Hz against its 20 Hz target, twice. The minimap is drawn every
+	-- frame and the panel only while it is open, so the 128 extra segments come off the one that is
+	-- always on screen. The minimap keeps the drive's own road, exactly as before this task.
+	local function polyline(points: { Vector2 }, thickness: number)
+		local lastU: number? = nil
+		local lastV: number? = nil
+		for _, point in ipairs(points) do
+			local u, v = MapUi.rawOffsetPx(point.X, point.Y, view)
+			if lastU ~= nil then
+				segment(holder, lastU :: number, lastV :: number, u, v, thickness)
+			end
+			lastU, lastV = u, v
+		end
+	end
+	if standLabels and model.roads ~= nil then
+		for _, line in ipairs(model.roads :: { { Vector2 } }) do
+			polyline(line, config.ROAD_PX)
+		end
+	end
+	polyline(model.road, config.ROAD_PX)
+
+	-- HOW BIG A PAD MAY BE HERE, MEASURED OFF THIS VIEW (task 327f): on the world view the stands
+	-- are ~31 px apart and the one-cell map's 72 px pad would claim a stand two along.
+	local hitPx = MapUi.standHitPx(model.stands, view)
 	for index, point in ipairs(model.stands) do
 		local u, v = MapUi.rawOffsetPx(point.X, point.Y, view)
+		-- GROUND OR TOWER (task 327f, D4: *"ground spots and towers"*). A tower is the bigger square
+		-- and it keeps its brass rim whatever the pick says, because the kind is a fact about the
+		-- world and the five pick states are facts about the players.
+		local tower = model.standKinds ~= nil and (model.standKinds :: { string })[index] == "tower"
+		local sizePx = if tower then config.STAND_TOWER_PX else config.STAND_PX
 		local node = Instance.new("Frame")
 		node.Name = string.format("Stand%d", index)
 		node.AnchorPoint = Vector2.new(0.5, 0.5)
-		node.Size = UDim2.fromOffset(config.STAND_PX, config.STAND_PX)
+		node.Size = UDim2.fromOffset(sizePx, sizePx)
 		node.Position = UDim2.new(0.5, math.round(u), 0.5, math.round(v))
 		node.BackgroundColor3 = MapUi.COLORS.stand
 		node.BorderSizePixel = 0
@@ -1178,7 +1479,9 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 		stroke.Thickness = config.STAND_SEAT_STROKE_PX
 		stroke.Color = config.RIM_COLOR
 		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-		stroke.Enabled = false
+		-- ON FOR A TOWER FROM THE BUILD, and `setStandStates` ORs the two rather than overwriting
+		-- one with the other: one stroke, two reasons, so a tower never loses its ring to a state.
+		stroke.Enabled = tower
 		stroke.Parent = node
 
 		local holderName = label(node, "Holder", config.LABEL_SIZE, "")
@@ -1199,7 +1502,7 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 		hit.AutoButtonColor = false
 		hit.AnchorPoint = Vector2.new(0.5, 0.5)
 		hit.Position = UDim2.fromScale(0.5, 0.5)
-		hit.Size = UDim2.fromOffset(config.STAND_HIT_PX, config.STAND_HIT_PX)
+		hit.Size = UDim2.fromOffset(hitPx, hitPx)
 		hit.ZIndex = config.Z_INDEX + 4
 		hit.Active = false
 		hit.Visible = false
@@ -1209,9 +1512,80 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 			MapUi.tapStand(at)
 		end)
 
-		table.insert(nodes, { frame = node, index = text, holder = holderName, stroke = stroke, hit = hit })
+		table.insert(
+			nodes,
+			{ frame = node, index = text, holder = holderName, stroke = stroke, hit = hit, tower = tower }
+		)
 	end
 	return nodes
+end
+
+-- THE STAND LIST (task 323c, grid-map §10.4): fifteen rows at the thumb minimum, in a
+-- `ScrollingFrame` because 15 x 44 = 660 px is taller than a phone panel's 644. ONE TAP RULE, NOT
+-- TWO: every row's `Activated` calls the same `MapUi.tapStand` the pads call.
+--
+-- Built once with the picture and hidden until the window opens, which is `applyPick`'s own job.
+local function buildStandList(parent: GuiObject, model: MapGeometry, heightPx: number, rightPx: number)
+	local config = MapUi.CONFIG
+	local rows = #model.stands
+	if rows == 0 then
+		return
+	end
+	local list = Instance.new("ScrollingFrame")
+	list.Name = "StandList"
+	list.BackgroundColor3 = config.LEGEND_WELL_COLOR
+	list.BackgroundTransparency = 0.1
+	list.BorderSizePixel = 0
+	list.AnchorPoint = Vector2.new(1, 0)
+	list.Position = UDim2.fromOffset(rightPx, config.FULL_TITLE_HEIGHT + config.FULL_PADDING)
+	list.Size = UDim2.fromOffset(config.STAND_LIST_WIDTH_PX, math.min(heightPx, rows * config.STAND_LIST_ROW_PX))
+	list.CanvasSize = UDim2.fromOffset(0, rows * config.STAND_LIST_ROW_PX)
+	list.ScrollBarThickness = config.STAND_LIST_SCROLL_PX
+	list.ScrollingDirection = Enum.ScrollingDirection.Y
+	list.ClipsDescendants = true
+	list.Active = false
+	list.Visible = false
+	list.ZIndex = config.Z_INDEX + 5
+	Style.corner(list, config.LEGEND_WELL_CORNER)
+	Style.stroke(list, config.LEGEND_WELL_EDGE, Style.EDGE_T.WELL)
+	claim(list).Parent = parent
+	standListFrame = list
+	local scale = Instance.new("UIScale")
+	scale.Name = "ListScale"
+	scale.Parent = list
+	standListScale = scale
+	standListRoomPx = heightPx
+	for index = 1, rows do
+		local row = Instance.new("TextButton")
+		row.Name = string.format("Row%d", index)
+		row.BackgroundColor3 = config.BACKGROUND
+		row.BackgroundTransparency = 0.4
+		row.BorderSizePixel = 0
+		row.AutoButtonColor = false
+		row.FontFace = Style.faceFor("MICRO")
+		row.TextSize = config.STAND_LIST_TEXT_PX
+		row.TextColor3 = config.TEXT_COLOR
+		row.TextXAlignment = Enum.TextXAlignment.Left
+		row.Position = UDim2.fromOffset(0, (index - 1) * config.STAND_LIST_ROW_PX)
+		row.Size = UDim2.new(1, -config.STAND_LIST_SCROLL_PX, 0, config.STAND_LIST_ROW_PX - 2)
+		row.ZIndex = config.Z_INDEX + 6
+		row.Active = false
+		local pad = Instance.new("UIPadding")
+		pad.PaddingLeft = UDim.new(0, 8)
+		pad.Parent = row
+		row.Text = MapUi.standRowText(
+			index,
+			if model.standSides then (model.standSides :: { string })[index] else nil,
+			nil,
+			if model.standKinds then (model.standKinds :: { string })[index] else nil
+		)
+		row.Parent = list
+		local at = index
+		row.Activated:Connect(function()
+			MapUi.tapStand(at)
+		end)
+		table.insert(standRows, { button = row, index = index })
+	end
 end
 
 -- THE MARKERS, THE OWN MARKER, ITS WEDGE AND THE PUSH ARROW: built once per drawer, hidden until
@@ -1392,7 +1766,13 @@ local function layoutFor(viewport: Vector2)
 	-- in the one function that already writes both `UIScale`s. Since task 220 it is the column the
 	-- rail SAYS it is occupying, because a folded rail is 124 wide and not 68.
 	local column = MapUi.railColumn()
-	local roomX = viewport.X - config.FULL_SIDE_INSET - column
+	-- THE STAND LIST GETS ITS OWN ROOM WHILE IT IS UP, and the map is scaled to what is left
+	-- (327f, measured in Karen's Forest Test): at her 969 px viewport there was no room beside the
+	-- panel, so the list sat over the map and covered the right-hand cells' own stands. The map is a
+	-- little smaller for the fifteen seconds of a pick and whole again afterwards -- `applyPick`
+	-- re-runs this on the edge, so nothing is reserved for a list nobody is looking at.
+	local reserve = if listShown and standListFrame ~= nil then config.STAND_LIST_WIDTH_PX + Style.SPACE.S else 0
+	local roomX = viewport.X - config.FULL_SIDE_INSET - column - reserve
 	local roomY = viewport.Y - config.FULL_TOP - config.FULL_BOTTOM_INSET
 	local scale = 1
 	if panelWidth > 0 and panelHeight > 0 then
@@ -1402,8 +1782,51 @@ local function layoutFor(viewport: Vector2)
 	if fullUiScale ~= nil then
 		fullUiScale.Scale = math.max(0.1, scale)
 	end
-	-- SHIFTED LEFT BY HALF THE COLUMN, so the panel stays centred in the room it actually has.
-	full.Position = UDim2.new(0.5, -math.round(column / 2), 0, config.FULL_TOP)
+	-- SHIFTED LEFT BY HALF THE COLUMN -- AND BY HALF THE LIST'S, so the panel stays centred in the
+	-- room it actually has. Measured (327f): reserving the width without shifting leaves only half
+	-- of it on the right, so the list came back over the map.
+	full.Position = UDim2.new(0.5, -math.round((column + reserve) / 2), 0, config.FULL_TOP)
+
+	-- THE STAND LIST IS SIZED IN SCREEN PIXELS AND NOT IN CANVAS PIXELS (tasks 323c, 327f).
+	-- Everything else in this panel shrinks with it, which is right for a map and wrong for a thumb:
+	-- a 44 px row at a phone's 0.32 scale renders at 14 px, under `mobile-controls.md`'s 44 px
+	-- minimum. An inverse `UIScale` on the list alone undoes the panel's shrink, so a row is 44 REAL
+	-- pixels at every viewport, and the list is cut to the room the panel has on screen -- which is
+	-- what the `ScrollingFrame` is for (grid-map §10.4).
+	local listScale, list = standListScale, standListFrame
+	if listScale ~= nil and list ~= nil then
+		local shown = math.max(0.1, scale)
+		listScale.Scale = 1 / shown
+		local room = math.floor(standListRoomPx * shown)
+		local wantedHeight = #standRows * config.STAND_LIST_ROW_PX
+		local node = list :: ScrollingFrame
+		node.Size = UDim2.fromOffset(
+			config.STAND_LIST_WIDTH_PX,
+			math.max(config.STAND_LIST_ROW_PX, math.min(wantedHeight, room))
+		)
+		-- BESIDE THE MAP WHEN THERE IS ROOM, OVER IT ONLY WHEN THERE IS NOT -- and it is a
+		-- MEASUREMENT, not a preference (327f, measured in Karen's Forest Test): a list inside the
+		-- panel covered the right-hand cells' own stands, so a click meant for stand 4 of D1 landed
+		-- on a list row instead. A list that hides the thing it is a list OF is a bug.
+		--
+		-- The arithmetic is in RENDERED pixels and the position in canvas ones, which is why it is
+		-- divided by the scale: an inverse-scaled list can never fit a column reserved INSIDE a
+		-- shrunk panel (the column shrinks and the list does not), so the only place it fits is
+		-- outside. On a phone there is no outside, and then it sits over a map whose 10 px pads
+		-- nobody can tap anyway -- which is what the list is for.
+		local panelRightPx = viewport.X / 2 - math.round((column + reserve) / 2) + (panelWidth * shown) / 2
+		local gapPx = Style.SPACE.S
+		local roomRight = viewport.X - column - panelRightPx
+		if roomRight >= config.STAND_LIST_WIDTH_PX + gapPx then
+			node.AnchorPoint = Vector2.new(0, 0)
+			node.Position =
+				UDim2.fromOffset(math.round(panelWidth + gapPx / shown), config.FULL_TITLE_HEIGHT + config.FULL_PADDING)
+		else
+			node.AnchorPoint = Vector2.new(1, 0)
+			node.Position =
+				UDim2.fromOffset(panelWidth - config.FULL_PADDING, config.FULL_TITLE_HEIGHT + config.FULL_PADDING)
+		end
+	end
 
 	-- THE LEGEND GOES WITH THE PANEL'S SCALE, so it is hidden when no font inside the panel could be
 	-- read (`legendVisible`). It is positioned once here rather than per tick: it says nothing that
@@ -1551,6 +1974,28 @@ local function applyPick()
 		node.hit.Active = on
 		node.hit.Visible = on
 	end
+	-- ...AND THE LIST, WHICH IS THE SAME PERMISSION (task 323c): a row that took a tap on a closed
+	-- map would be the pads' own bug in another shape.
+	local list = standListFrame
+	if list ~= nil then
+		local node = list :: ScrollingFrame
+		node.Visible = on
+		node.Active = on
+		node.ScrollingEnabled = on
+		-- ON THE EDGE ONLY: the panel is re-measured so the list has room beside the map while it is
+		-- up (see `layoutFor`). A per-tick caller costs one comparison and no layout at all.
+		if on ~= listShown then
+			listShown = on
+			-- NOT BEFORE THE FIRST LAYOUT: `lastViewport` is (0, 0) until one has run, and a panel
+			-- measured against a zero viewport is a panel at the minimum scale.
+			if lastViewport.X > 0 then
+				layoutFor(lastViewport)
+			end
+		end
+	end
+	for _, row in ipairs(standRows) do
+		row.button.Active = on
+	end
 	local footer = footerLabel
 	if footer ~= nil then
 		local text = MapUi.pickFooterText()
@@ -1618,7 +2063,8 @@ function MapUi.setStandStates(states: { StandState }?, version: number?)
 		end
 		-- A FREE SEAT IS RINGED IN THE MAP'S OWN BRASS; a barred one is NOT (it is nobody's, so it
 		-- gets no rim at all) and a taken one is dimmed with its holder's name under it.
-		node.stroke.Enabled = word == "high"
+		-- ...OR THE STAND IS A TOWER, which is a fact about the world and outlives every state.
+		node.stroke.Enabled = word == "high" or node.tower
 		local name = if state then state.name else nil
 		if word == "taken" and name ~= nil then
 			local cut = string.sub(name :: string, 1, config.STAND_NAME_CHARS)
@@ -1628,6 +2074,14 @@ function MapUi.setStandStates(states: { StandState }?, version: number?)
 			node.holder.Visible = true
 		else
 			node.holder.Visible = false
+		end
+	end
+	-- THE LIST SAYS THE SAME THING IN WORDS (task 323c), off the same `standDrawn` -- so a row and
+	-- the pad above it cannot disagree about who holds stand 7.
+	for _, row in ipairs(standRows) do
+		local text = MapUi.standRowText(row.index, standSides[row.index], standDrawn[row.index], standKinds[row.index])
+		if row.button.Text ~= text then
+			row.button.Text = text
 		end
 	end
 	applyPick()
@@ -2057,6 +2511,11 @@ local function sameGeometry(a: MapGeometry?, b: MapGeometry?): boolean
 	if a.world ~= b.world or #a.road ~= #b.road or #a.stands ~= #b.stands then
 		return false
 	end
+	-- THE DEALT CELL IS PART OF THE PICTURE (task 327f): the map follows the drive, so a new cell is
+	-- a new map even before its stands are compared. One drive, one redraw, no rejoin.
+	if a.activeCell ~= b.activeCell or #(a.cells or {}) ~= #(b.cells or {}) or #(a.roads or {}) ~= #(b.roads or {}) then
+		return false
+	end
 	for key, value in pairs(a.bounds) do
 		if math.abs(value - (b.bounds :: any)[key]) > 1e-6 then
 			return false
@@ -2108,6 +2567,13 @@ local function teardown()
 	pickOpenedByWindow = false
 	applyPick()
 	table.clear(standNodes)
+	table.clear(standRows)
+	table.clear(standKinds)
+	table.clear(standSides)
+	standListFrame = nil
+	standListScale = nil
+	standListRoomPx = 0
+	listShown = false
 	table.clear(standDrawn)
 	standVersion = nil
 	standMine = nil
@@ -2213,7 +2679,9 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	eyebrow.Position = UDim2.new(0.5, 0, 0, 5)
 	eyebrow.Size = UDim2.new(1, -2 * config.FULL_PADDING, 0, config.FULL_EYEBROW_HEIGHT)
 
-	local title = claim(label(full, "Title", config.TITLE_SIZE, model.world))
+	-- THE WORLD'S NAME, OR WHAT THE WORLD CALLS THIS PICTURE (task 327f): "forest-test" does not tell
+	-- her which section is being hunted, and the section is the one thing this map is about.
+	local title = claim(label(full, "Title", config.TITLE_SIZE, model.label or model.world))
 	title.FontFace = Style.FONT.OSWALD_SB
 	title.AnchorPoint = Vector2.new(0.5, 0)
 	title.Position = UDim2.new(0.5, 0, 0, 5 + config.FULL_EYEBROW_HEIGHT)
@@ -2231,6 +2699,11 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	-- THE NINE PADS, THE NINE SEAT RINGS AND THE NINE NAME LABELS COME BACK HERE (task 323b), held
 	-- for the life of this picture so `setStandStates` writes properties and never builds.
 	standNodes = drawGeometry(canvas, model, fullView, true)
+	standKinds = if model.standKinds then table.clone(model.standKinds :: { string }) else {}
+	standSides = if model.standSides then table.clone(model.standSides :: { string }) else {}
+	-- ...AND THE LIST OF THE SAME FIFTEEN (task 323c), over the canvas's right edge: it is the only
+	-- way to pick on a phone, where the pads are 10 px apart (grid-map §10.4).
+	buildStandList(full, model, usedHeight, config.FULL_PADDING + usedWidth)
 
 	-- NORTH UP, SAID ON THE PICTURE. A map with no north is a map you have to be told about.
 	local north = label(canvas, "North", config.TITLE_SIZE, "N")
