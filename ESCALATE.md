@@ -1,3 +1,57 @@
+## 2026-11-09 ~00:40 UTC, Task 327d -- TWO DESIGN NUMBERS, ONE MEASURED WRONG. Not blocking the PR.
+
+Both are `docs/design/`, which is not the Builder's (dispatch: *"NOT YOURS: docs/design/ -- a wrong
+number goes to ESCALATE.md"*). The task is built and gated; neither of these stops it.
+
+### 1. `Grid.CONFIG.beaterWalkStudsPerSecond` 5.2 IS ~20 s TOO SLOW. MEASURED IN HER PLACE.
+
+`docs/design/grid-map.md` 4.3 writes the arithmetic as *"1430 / 5.2 = 275 s, inside `DRIVE.seconds`
+300 less the 15 s through-grace"*. **It leaves two terms out, and the live drive shows what they
+cost.** Measured in Karen's Forest Test at the code commit `52716ba4`, cell C1, four bot beaters:
+
+| | studs | at 5.2 | measured |
+|---|---|---|---|
+| design 4.3 | 1,430 | 275.0 s | -- |
+| plus `Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS` 20 | 1,450 | 278.8 s | -- |
+| the ground (1,135 side-steps, 74 detours, 0 stuck) | -- | -- | **292.9 s, FIRST beater** |
+
+`[bots] drive 3 hunters, 4/4 beaters (0 failed, 0 stale) | 4 walking, **1 arrived in 292.9s** | 0
+stuck, worst pin 0.0s, 1135 side-steps, 0 no-ground | 74 detours (1 boxed in), 0 recoveries`.
+
+The last beater was ~35 studs behind the first when the clock ended the drive (dz 58 and 23 against
+the line at the last sample), so **all four would have been through at ~300-305 s**.
+`Phase.beatersThrough` needs ALL of them, so **`END_ON_BEATERS_CROSS` did not fire**: the 300 s clock
+ended the drive, which is the thing Karen's *"once I am driver ended with line I wait untile hunt
+ends? its shit boring"* asked to end. **Dispatch item 3 is NOT MET at 5.2, and the measurement is
+why.** Every bot walked at exactly `WalkSpeed = 5.2` (`sp=5.20` on every sample), so the lever works;
+the number is wrong.
+
+**The arithmetic for a number that would work.** The crossing has to be through before
+`DRIVE.seconds` 300 less `BEATERS_THROUGH_GRACE_SECONDS` 15, or the grace has nothing to run in. The
+measured overhead is 292.9 / 278.8 = **1.051**:
+
+- through at 285 s needs `1450 * 1.051 / 285` = **5.35 studs/s** (bare; no margin at all)
+- through at 270 s needs **5.64 studs/s** -- 1.58 m/s, which `bots_lane.spec`'s m/s ceiling (1.5)
+  **refuses**, so that band moves too, or
+- keep 5.2 and raise `ForestTest.DRIVE.seconds` 300 -> **330** (through at 293 s + 15 s grace = 308 s,
+  22 s of room), which costs nothing in `Bots` and is one row.
+
+**The Director's call, and it is one line either way.** I did not take it: 5.2 is the Director's own
+decision in this dispatch and the number lives in a design document I may not write.
+
+### 2. `grid-map.md`'s 327d row says `Map.WORLD_BY_PLACE` -> `"grid:v1"`. NOT DONE, deliberately.
+
+The dispatch's DO list does not ask for it and cites `cell-loading.md` 13 D1 / 17 D-4 instead, which
+do not mention it. It is also not a rename: `Map.EXPECTED_WORLD == "forest-test"` is the string
+`ForestTestBoot` returns early on (`src/server/ForestTestBoot.server.luau`), that `MatchBoot` skips
+on, that `RangeData.anchorFor` keys the range's anchor row by, and that `Hud` and `MapUi` compare
+to for the forest map. Changing it to `"grid:v1"` would disable the whole Forest Test boot unless all
+five are changed with it -- and the grid is a world INSIDE the forest-test place, not a replacement
+place. **The design row and `cell-loading.md` disagree about whether 327d touches `Map` at all.** One
+of the two needs correcting; the Architect owns both.
+
+---
+
 ## 2026-11-08 ~21:40 UTC, Task 337 -- NEEDS KAREN: one click, and the world trim is blocked behind it
 
 The dispatch asked for two things in one task: (A) only the round's cell in `Workspace`, and (B) the
