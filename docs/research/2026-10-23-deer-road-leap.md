@@ -322,6 +322,19 @@ So the change is three lines of data and one pure function:
 
 The calf's 2x is 2 x **1.668** and not 2 x 1.485: `Body.leapApex`'s sink floor binds on it today.
 
+### 9.4 Task 339: only the stag bounds
+
+KAREN, 2026-11-09: *"btw I mentioned that deer famale and kid doesnt jumt you need to remove that
+only male jump"*. Task 334 read her 2026-11-07 sentence as "make every kind's leap bigger"; she
+meant the stag's, and the hind and the calf must not bound at all. So the hind's **5.132** and the
+calf's **3.336** are deleted from `APEX_STUDS` (archived in `backups/task-339-hind-calf-apex.md`)
+and the rule is **no apex row, no bound**: `Boar.leapByKind` hands a kind with no row a config whose
+`MODEL.LEAP.ENABLED` is false, which switches off the road crossing (`Brain.leapStarts`), the spook
+bound (`Brain.boundStarts`) and the drawing (`intent.leaping`) in one place. The stag's 6.0 studs,
+`SPEED_SCALE` and `SECONDS` are untouched. MEASURED in her Forest Test, 215 s, 8 staged herds, probe
+`<runs-dir>/339-instrument.luau`: hind 23 bounds and calf 21 at main `d91d65e9`, both 0 after, with
+both still crossing the road.
+
 ### 9.3 Against life
 
 A red deer clears a 1.8 m fence routinely (section 8). At `METRES_PER_STUD` 0.28 the stag's new

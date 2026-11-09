@@ -553,19 +553,28 @@ return function()
 			-- where it was 4 of 15.
 			expect(normal.deerGroups).to.equal(7)
 			expect(normal.boarGroups).to.equal(6)
-			-- THIRTY-TWO LEAPING ANIMALS AND NO BOAR AMONG THEM. *"how many groups jumping over
-			-- road"*: `leaps` is only ever on a `reddeer` row, and `leapingGroups` COUNTS GROUPS
-			-- (round 1's note) while the ANIMALS are weighed through the owner just below. Six of
-			-- the seven deer rows leap; slot 12 is the deer REFUSAL and never reaches the road.
-			expect(normal.leapingGroups).to.equal(6)
+			-- FOUR BOUNDING GROUPS, 22 ANIMALS IN THEM, AND NINE OF THOSE ACTUALLY BOUND.
+			-- *"how many groups jumping over road"*: `leaps` is only ever on a `reddeer` row, and
+			-- `leapingGroups` COUNTS GROUPS (round 1's note) while the ANIMALS are weighed through
+			-- the owner just below. 6 -> 4 FOR TASK 339: Karen, 2026-11-09, *"only male jump"*, so
+			-- the two hind-only `hindherd` rows (slots 2 and 14) carry no `leaps` at all, and in the
+			-- four that are left it is the STAGS that bound -- one each in `herd`, `stag` and
+			-- `bigherd` and six in `stags`. Slot 12 is the deer REFUSAL and never reaches the road.
+			expect(normal.leapingGroups).to.equal(4)
 			local config3 = configOn()
-			local leaping = 0
+			local leaping, stags = 0, 0
 			for _, row in ipairs(normal.rows) do
 				if row.leaps == true then
-					leaping += Boar.compositionSize(Boar.deerComposition(0, 0, config3, row.party), config3)
+					local party = Boar.deerComposition(0, 0, config3, row.party)
+					leaping += Boar.compositionSize(party, config3)
+					stags += party.stag or 0
+					-- **THIS CASE DIES IF A HIND-ONLY ROW GETS `leaps` BACK**: every bounding group
+					-- has a stag in it, because the stag is the only animal that bounds.
+					expect((party.stag or 0) > 0).to.equal(true)
 				end
 			end
-			expect(leaping).to.equal(32)
+			expect(leaping).to.equal(22)
+			expect(stags).to.equal(9)
 			for _, row in ipairs(SCHEDULE.drive) do
 				if row.leaps == true then
 					expect(row.species).to.equal("reddeer")
