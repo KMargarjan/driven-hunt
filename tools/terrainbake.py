@@ -685,6 +685,11 @@ SERVER_FOREST_LUAU = os.path.join(REPO, "src", "server", "ForestTest", "init.lua
 # tuple rather than a second copy of the list.
 PLANT_MUTATING = ("bake", "archive", "plant")
 
+# ...AND THE WHOLE MUTATING SET. `trim` is not a plant and not a bake, but it writes terrain, so it
+# takes the same ladder: Edit mode, the place id re-asked before every call, a clean tree, a fresh
+# --backup and the flag rule (design 10.1 reason 2 -- the ladder must not be written twice).
+MUTATING = PLANT_MUTATING + ("trim",)
+
 # READ-ONLY, BUT IT IS EVIDENCE, so it refuses a dirty tree exactly as a mutating command does
 # (lesson L-162: every live proof at the code commit). `proof` writes nothing; what it produces is a
 # claim about a commit, and a claim measured off uncommitted code names no commit.
@@ -2294,11 +2299,480 @@ def tile_pass(studio, studio_id, args, facts, sha, dry, injected=None, profiles=
     return 0, entries
 
 
+# ---------------------------------------------------------------- THE WORLD TRIM (task 337b)
+#
+# `trim` REMOVES THE LAND OUTSIDE THE GRID, and it is the SECOND DRIVER of one writer -- the same
+# precedent `plant` set (design docs/design/cell-loading.md 10.1): `TerrainBake.trimBlock` writes the
+# terrain, this half does the complement arithmetic and takes the refusal ladder already here.
+# Karen, 2026-11-08: *"so rest part of map we can remove we can only focus on those what we have
+# from A1 ect"*. Terrain cannot be MOVED, so the .rbxl backup is the only undo (design 10.4).
+
+# K2 -- THE LOBBY, THE SPAWN, THE RANGE AND `OurForest`, design 10.2's own rectangle. It is typed
+# HERE because it is a box around hand-made Studio content and no Luau file states it; every point
+# it exists to hold is checked against it below, and `plan` checks the live world as well.
+TRIM_K2 = {"minX": 2200, "maxX": 3900, "minZ": -3500, "maxZ": -1250}
+
+# THE POINTS K2 MUST HOLD. The two anchors are read off their own Luau files by `trim_anchors`; the
+# spawn and `OurForest`'s corners are MEASURED (design 10.2, and `plan` re-reads both live).
+TRIM_KEEP_POINTS = (
+    ("ForestRoadSpawn", 3000, -2109),
+    ("Lobby.ANCHORS forest-test", 2850, -2950),
+    ("Range.ANCHORS forest-test", 2790, -3090),
+    ("OurForest SW", 2229, -2896),
+    ("OurForest NE", 3833, -1297),
+)
+RANGE_LUAU = os.path.join(REPO, "src", "shared", "Range", "init.luau")
+LOBBY_LUAU = os.path.join(REPO, "src", "shared", "Lobby", "init.luau")
+FOREST_LUAU = os.path.join(REPO, "src", "shared", "ForestTest", "init.luau")
+
+# The block, the Y pad, the report lattice, and the world box used when no Studio answers.
+TRIM_BLOCK_STUDS = 1024
+TRIM_Y_PAD = 64
+TRIM_PROBE_STUDS = 100
+TRIM_CENSUS_STEP = 500
+TRIM_CENSUS_LIMIT = 10000
+TRIM_WORLD_FALLBACK = {"minX": -7680, "maxX": 7680, "minZ": -7680, "maxZ": 7680}
+# THE Y BAND'S FLOOR AND ITS CEILING when nothing is measured. See `trim_world`: the floor cannot be
+# read by a downward ray, so it is declared generously and the AFTER census checks it.
+TRIM_Y_FLOOR = -512
+TRIM_Y_CEILING = 1024
+
+# T4's INSTRUMENT, IN THE TOOL so before and after are the same one: the 500-stud ray lattice of
+# `<runs-dir>/337-terrain.luau`, plus how many of its hits fall OUTSIDE the keep boxes.
+TRIM_CENSUS_SEAM = """(function()
+	local Workspace = game:GetService("Workspace")
+	local Http = game:GetService("HttpService")
+	local keeps = Http:JSONDecode([==[%s]==])
+	local STEP, LIM = %d, %d
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = { Workspace.Terrain }
+	params.IgnoreWater = true
+	local nodes, hits, outside = 0, 0, 0
+	local nx, xx, nz, xz, ny, xy = math.huge, -math.huge, math.huge, -math.huge, math.huge, -math.huge
+	for x = -LIM, LIM, STEP do
+		for z = -LIM, LIM, STEP do
+			nodes += 1
+			local r = Workspace:Raycast(Vector3.new(x, 4000, z), Vector3.new(0, -8000, 0), params)
+			if r then
+				hits += 1
+				local kept = false
+				for _, k in keeps do
+					if x >= k.minX and x <= k.maxX and z >= k.minZ and z <= k.maxZ then
+						kept = true
+					end
+				end
+				if not kept then
+					outside += 1
+				end
+				nx = math.min(nx, x); xx = math.max(xx, x)
+				nz = math.min(nz, z); xz = math.max(xz, z)
+				ny = math.min(ny, r.Position.Y); xy = math.max(xy, r.Position.Y)
+			end
+		end
+	end
+	local e = Workspace.Terrain.MaxExtents
+	local forest = Workspace:FindFirstChild("OurForest")
+	local spawn = Workspace:FindFirstChild("ForestRoadSpawn")
+	local out = { nodes = nodes, hits = hits, outside = outside,
+		minX = nx, maxX = xx, minZ = nz, maxZ = xz, minY = ny, maxY = xy,
+		extMinX = e.Min.X, extMaxX = e.Max.X, extMinY = e.Min.Y, extMaxY = e.Max.Y,
+		extMinZ = e.Min.Z, extMaxZ = e.Max.Z }
+	if spawn ~= nil and spawn:IsA("BasePart") then
+		out.spawnX, out.spawnZ = spawn.Position.X, spawn.Position.Z
+	end
+	if forest ~= nil then
+		local fnx, fxx, fnz, fxz = math.huge, -math.huge, math.huge, -math.huge
+		for _, thing in forest:GetDescendants() do
+			if thing:IsA("BasePart") then
+				fnx = math.min(fnx, thing.Position.X); fxx = math.max(fxx, thing.Position.X)
+				fnz = math.min(fnz, thing.Position.Z); fxz = math.max(fxz, thing.Position.Z)
+			end
+		end
+		out.forestMinX, out.forestMaxX, out.forestMinZ, out.forestMaxZ = fnx, fxx, fnz, fxz
+	end
+	return out
+end)()"""
+
+
+def trim_anchors():
+    """The lobby and range anchors, read off their own files -- one fact, never retyped here."""
+    out = {}
+    for label, path in (("Lobby.ANCHORS forest-test", LOBBY_LUAU),
+                        ("Range.ANCHORS forest-test", RANGE_LUAU)):
+        with open(path, "r", encoding="utf-8") as handle:
+            found = re.search(r'\["forest-test"\]\s*=\s*\{\s*x\s*=\s*(-?[0-9]+)\s*,\s*'
+                              r'z\s*=\s*(-?[0-9]+)', handle.read(), re.S)
+        if not found:
+            raise RuntimeError("%s: the forest-test anchor is not in the file"
+                               % os.path.relpath(path, REPO))
+        out[label] = (int(found.group(1)), int(found.group(2)))
+    return out
+
+
+def trim_points(anchors=None):
+    """`TRIM_KEEP_POINTS` with the two anchors taken from the files."""
+    anchors = trim_anchors() if anchors is None else anchors
+    return tuple((name, anchors.get(name, (x, z))[0], anchors.get(name, (x, z))[1])
+                 for name, x, z in TRIM_KEEP_POINTS)
+
+
+def trim_keeps(facts):
+    """K1 and K2. **K1 IS `region_for` OVER EVERY CELL** -- the same arithmetic the bake writes
+    with, computed and never typed (design 10.2), so a narrower box cannot be smuggled in."""
+    return (("K1", region_for(list(CELL_IDS), facts)), ("K2", dict(TRIM_K2)))
+
+
+def box_holds(box, x, z):
+    return box["minX"] <= x <= box["maxX"] and box["minZ"] <= z <= box["maxZ"]
+
+
+def box_area(box):
+    return max(0, box["maxX"] - box["minX"]) * max(0, box["maxZ"] - box["minZ"])
+
+
+def box_meet(a, b):
+    """The overlap of two boxes, possibly empty."""
+    return {"minX": max(a["minX"], b["minX"]), "maxX": min(a["maxX"], b["maxX"]),
+            "minZ": max(a["minZ"], b["minZ"]), "maxZ": min(a["maxZ"], b["maxZ"])}
+
+
+def trim_keep_problem(facts, anchors=None, keeps=None):
+    """REFUSAL 11, design 10.4: *"a keep list that does not contain the grid is a typo that deletes
+    the game"*. K1 is re-derived here from `region_for` and compared, and every point K2 exists for
+    is checked -- the spawn, the two anchors and `OurForest`'s measured corners."""
+    keeps = trim_keeps(facts) if keeps is None else keeps
+    named = dict(keeps)
+    if named.get("K1") != region_for(list(CELL_IDS), facts):
+        return ("the keep list's K1 is not TerrainBake.regionFor's own region: %s vs %s"
+                % (named.get("K1"), region_for(list(CELL_IDS), facts)))
+    missing = ["%s (%g, %g)" % (name, x, z) for name, x, z in trim_points(anchors)
+               if not any(box_holds(box, x, z) for _, box in keeps)]
+    if missing:
+        return "the keep list does not hold " + ", ".join(missing)
+    return None
+
+
+def planted_cells():
+    """`Grid.PLANTED_CELLS`, off the file."""
+    with open(GRID_LUAU, "r", encoding="utf-8") as handle:
+        found = re.search(r"^Grid\.PLANTED_CELLS = table\.freeze\(\{([^}]*)\}\)",
+                          handle.read(), re.M)
+    if not found:
+        raise RuntimeError("src/shared/Grid/init.luau: Grid.PLANTED_CELLS is not in the file")
+    return tuple(re.findall(r'"([A-Za-z0-9]+)"', found.group(1)))
+
+
+def trim_rotation_problem(text=None, cells=None):
+    """REFUSAL 10, design 10.4: refuse unless every name `ForestTest.LAYOUT_ORDER` can deal is a
+    grid cell. `ride` (4900, -4540) and `track` (4700, -3900) stand OUTSIDE K2, so a trim taken
+    while the rotation can still deal them would hold a drive over a void."""
+    if text is None:
+        with open(FOREST_LUAU, "r", encoding="utf-8") as handle:
+            text = handle.read()
+    if not re.search(r"^ForestTest\.LAYOUT_ORDER = Grid\.PLANTED_CELLS\s*$", text, re.M):
+        return ("ForestTest.LAYOUT_ORDER is no longer `Grid.PLANTED_CELLS`: the rotation may deal a "
+                "line place whose ground this trim removes")
+    cells = planted_cells() if cells is None else cells
+    if not cells:
+        return "ForestTest.LAYOUT_ORDER is empty: there would be no drive to hold"
+    stray = [c for c in cells if c not in CELL_IDS]
+    if stray:
+        return ("ForestTest.LAYOUT_ORDER still deals %s, which is not a grid cell: its ground is in "
+                "the removal set" % ", ".join(stray))
+    return None
+
+
+def subtract_box(rect, cut):
+    """`rect` minus `cut`, as up to four non-overlapping rectangles that cover exactly the rest."""
+    if (cut["maxX"] <= rect["minX"] or cut["minX"] >= rect["maxX"]
+            or cut["maxZ"] <= rect["minZ"] or cut["minZ"] >= rect["maxZ"]):
+        return [dict(rect)]
+    out = []
+    low_x, high_x = max(rect["minX"], cut["minX"]), min(rect["maxX"], cut["maxX"])
+    if cut["minX"] > rect["minX"]:
+        out.append({"minX": rect["minX"], "maxX": cut["minX"],
+                    "minZ": rect["minZ"], "maxZ": rect["maxZ"]})
+    if cut["maxX"] < rect["maxX"]:
+        out.append({"minX": cut["maxX"], "maxX": rect["maxX"],
+                    "minZ": rect["minZ"], "maxZ": rect["maxZ"]})
+    if cut["minZ"] > rect["minZ"]:
+        out.append({"minX": low_x, "maxX": high_x,
+                    "minZ": rect["minZ"], "maxZ": cut["minZ"]})
+    if cut["maxZ"] < rect["maxZ"]:
+        out.append({"minX": low_x, "maxX": high_x,
+                    "minZ": cut["maxZ"], "maxZ": rect["maxZ"]})
+    return out
+
+
+def trim_complement(world, keeps):
+    """The world minus every keep box, as non-overlapping rectangles. The REMOVAL SET."""
+    rects = [dict(world)]
+    for _, box in keeps:
+        rects = [piece for rect in rects for piece in subtract_box(rect, box)]
+    return [r for r in rects if box_area(r) > 0]
+
+
+def grid_inward(box, voxel):
+    """A box rounded INWARD to the voxel lattice. Outward is into a keep box, which is why
+    `TerrainBake.trimBlock` refuses a block it has to expand (design 10.4)."""
+    out = {"minX": voxel * math.ceil(box["minX"] / voxel),
+           "maxX": voxel * math.floor(box["maxX"] / voxel),
+           "minZ": voxel * math.ceil(box["minZ"] / voxel),
+           "maxZ": voxel * math.floor(box["maxZ"] / voxel)}
+    return out if out["maxX"] > out["minX"] and out["maxZ"] > out["minZ"] else None
+
+
+def trim_blocks(rects, block, voxel):
+    """The removal rectangles cut into blocks of at most `block` studs a side, every edge on the
+    voxel lattice. A sliver under one voxel wide is dropped, because a block that had to be
+    EXPANDED to the lattice would be expanded into a keep box."""
+    assert block % voxel == 0, "the block must be a whole number of voxels"
+    out = []
+    for rect in rects:
+        snapped = grid_inward(rect, voxel)
+        if snapped is None:
+            continue
+        x = snapped["minX"]
+        while x < snapped["maxX"]:
+            z = snapped["minZ"]
+            while z < snapped["maxZ"]:
+                out.append({"minX": x, "maxX": min(x + block, snapped["maxX"]),
+                            "minZ": z, "maxZ": min(z + block, snapped["maxZ"])})
+                z += block
+            x += block
+    return out
+
+
+def trim_world(census, facts, keeps=()):
+    """The world box the trim works over, and the Y band.
+
+    **IT IS THE MEASURED OCCUPIED BOX, NOT `Terrain.MaxExtents`.** Measured in Karen's Forest Test
+    2026-11-09: `MaxExtents` reads x,y,z [-32000..32000] -- the whole allocatable terrain space, not
+    the ground -- so a world box taken from it is 4,073 blocks of mostly nothing. The census's own
+    ray lattice reads x,z [-7000..7000], and the box is that, grown by ONE LATTICE STEP (so terrain
+    that only just missed a node is still inside) and rounded out to the voxel lattice. Terrain
+    further out than the lattice reaches (`TRIM_CENSUS_LIMIT`, 10,000 studs) is therefore NOT in the
+    removal set, and that is a measurement with a stated bound rather than an assumption.
+
+    **THE Y FLOOR IS DECLARED, NOT MEASURED, AND IT IS SELF-CHECKING.** A downward ray reads the
+    terrain's SURFACE, so the census cannot say how deep the ground goes. The floor is generous, and
+    the AFTER census is the check: terrain left below the band is terrain a ray still hits, so T4
+    would not read 0 and the floor would be lowered and the run repeated.
+    """
+    voxel = facts["voxel"]
+    if census is None or census["hits"] == 0:
+        box = dict(TRIM_WORLD_FALLBACK)
+        band = (float(TRIM_Y_FLOOR), float(TRIM_Y_CEILING))
+        measured = False
+    else:
+        pad = TRIM_CENSUS_STEP
+        box = {"minX": voxel * math.floor((census["minX"] - pad) / voxel),
+               "maxX": voxel * math.ceil((census["maxX"] + pad) / voxel),
+               "minZ": voxel * math.floor((census["minZ"] - pad) / voxel),
+               "maxZ": voxel * math.ceil((census["maxZ"] + pad) / voxel)}
+        band = (float(TRIM_Y_FLOOR),
+                float(voxel * math.ceil((census["maxY"] + TRIM_Y_PAD) / voxel)))
+        measured = True
+    # THE WORLD BOX ALWAYS HOLDS THE KEEP BOXES, so the complement is the whole of what is removable
+    # and the kept percentage is a share of one box and not of two.
+    for _, keep in keeps:
+        box = {"minX": min(box["minX"], keep["minX"]), "maxX": max(box["maxX"], keep["maxX"]),
+               "minZ": min(box["minZ"], keep["minZ"]), "maxZ": max(box["maxZ"], keep["maxZ"])}
+    return box, band, measured
+
+
+def trim_measured_seconds():
+    """The mean seconds a block took in the newest `trim` run log, or None. The ESTIMATE IS A
+    READING or it is absent: design 10.4 step 3 measures one block before step 4 picks a size."""
+    if not os.path.isdir(RUN_LOG_DIR):
+        return None, None
+    logs = sorted(name for name in os.listdir(RUN_LOG_DIR) if name.endswith("-trim.json"))
+    for name in reversed(logs):
+        try:
+            with open(os.path.join(RUN_LOG_DIR, name), "r", encoding="utf-8") as handle:
+                body = json.load(handle)
+        except (ValueError, OSError):
+            continue
+        blocks = body.get("tiles") if isinstance(body, dict) else body
+        times = [b["ms"] for b in (blocks or []) if isinstance(b, dict) and b.get("ms")]
+        if times:
+            return sum(times) / len(times) / 1000.0, name
+    return None, None
+
+
+def trim_census(studio, studio_id, keeps, injected=None):
+    boxes = json.dumps([box for _, box in keeps])
+    return call(studio, studio_id,
+                TRIM_CENSUS_SEAM % (boxes, TRIM_CENSUS_STEP, TRIM_CENSUS_LIMIT),
+                timeout=300, injected=injected)
+
+
+def trim_live_problem(census, keeps):
+    """What the LIVE world says about the keep boxes: the spawn and every part of `OurForest` must
+    stand inside one of them. The typed K2 is checked against the place, not only against itself."""
+    if census is None:
+        return None
+    bad = []
+    if census.get("spawnX") is not None:
+        if not any(box_holds(box, census["spawnX"], census["spawnZ"]) for _, box in keeps):
+            bad.append("ForestRoadSpawn (%.0f, %.0f)" % (census["spawnX"], census["spawnZ"]))
+    corners = []
+    if census.get("forestMinX") is not None:
+        corners = [("OurForest SW", census["forestMinX"], census["forestMinZ"]),
+                   ("OurForest NE", census["forestMaxX"], census["forestMaxZ"]),
+                   ("OurForest NW", census["forestMinX"], census["forestMaxZ"]),
+                   ("OurForest SE", census["forestMaxX"], census["forestMinZ"])]
+    for name, x, z in corners:
+        if not any(box_holds(box, x, z) for _, box in keeps):
+            bad.append("%s (%.0f, %.0f)" % (name, x, z))
+    if bad:
+        return ("the live world puts %s OUTSIDE every keep box: the trim would remove the ground "
+                "under it" % ", ".join(bad))
+    return None
+
+
+def trim_report(census, keeps):
+    if census is None:
+        print("  census   NOT READ: no Studio answered, so the world box is the declared fallback")
+        return
+    print("  census   lattice step=%d over +-%d: %d/%d node(s) hit, %d of them OUTSIDE the keep "
+          "boxes" % (TRIM_CENSUS_STEP, TRIM_CENSUS_LIMIT, census["hits"], census["nodes"],
+                     census["outside"]))
+    print("           occupied x[%.0f..%.0f] z[%.0f..%.0f] y[%.0f..%.0f]; MaxExtents "
+          "x[%.0f..%.0f] y[%.0f..%.0f] z[%.0f..%.0f]"
+          % (census["minX"], census["maxX"], census["minZ"], census["maxZ"],
+             census["minY"], census["maxY"], census["extMinX"], census["extMaxX"],
+             census["extMinY"], census["extMaxY"], census["extMinZ"], census["extMaxZ"]))
+    if census.get("spawnX") is not None:
+        print("           ForestRoadSpawn (%.0f, %.0f) is inside %s"
+              % (census["spawnX"], census["spawnZ"],
+                 ",".join(name for name, box in keeps
+                          if box_holds(box, census["spawnX"], census["spawnZ"])) or "NOTHING"))
+    if census.get("forestMinX") is not None:
+        print("           OurForest parts x[%.0f..%.0f] z[%.0f..%.0f]"
+              % (census["forestMinX"], census["forestMaxX"],
+                 census["forestMinZ"], census["forestMaxZ"]))
+
+
+def command_trim_plan(args, facts, studio=None, studio_id=None):
+    """READ-ONLY (design 10.4 step 1): the keep boxes, the removal rectangles, the block list, the
+    estimated calls and minutes, and the lattice census this run's T4 is measured with."""
+    keeps = trim_keeps(facts)
+    problem = trim_keep_problem(facts, keeps=keeps)
+    if problem:
+        return refuse(problem)  # refusal 11
+    problem = trim_rotation_problem()
+    if problem:
+        return refuse(problem)  # refusal 10
+    census = None
+    if studio is not None and studio_id is not None:
+        try:
+            census = trim_census(studio, studio_id, keeps)
+        except Exception as problem:  # noqa: BLE001 -- a read-only plan still prints with no Studio
+            print("[bake] note: the census was not read (%s)" % str(problem).strip()[:160])
+    world, band, measured = trim_world(census, facts, keeps)
+    problem = trim_live_problem(census, keeps)
+    if problem:
+        return refuse(problem)  # refusal 11, the live half
+    print("[bake] trim plan (READ-ONLY):")
+    for name, box in keeps:
+        print("  keep %-3s x[%d,%d] z[%d,%d]  %d x %d studs"
+              % (name, box["minX"], box["maxX"], box["minZ"], box["maxZ"],
+                 box["maxX"] - box["minX"], box["maxZ"] - box["minZ"]))
+    print("  world    x[%d,%d] z[%d,%d] y[%g,%g]  (%s)"
+          % (world["minX"], world["maxX"], world["minZ"], world["maxZ"], band[0], band[1],
+             "the census's own occupied box, grown by one lattice step"
+             if measured else "the declared fallback"))
+    rects = trim_complement(world, keeps)
+    blocks = trim_blocks(rects, args.block_studs or TRIM_BLOCK_STUDS, facts["voxel"])
+    kept = sum(box_area(box_meet(box, world)) for _, box in keeps)
+    kept -= box_area(box_meet(box_meet(keeps[0][1], keeps[1][1]), world))
+    print("  removal  %d rectangle(s), %d block(s) of at most %d studs, %.1f%% of the world box"
+          % (len(rects), len(blocks), args.block_studs or TRIM_BLOCK_STUDS,
+             100.0 * sum(box_area(r) for r in rects) / box_area(world)))
+    for rect in rects:
+        print("    rect   x[%d,%d] z[%d,%d]" % (rect["minX"], rect["maxX"],
+                                                rect["minZ"], rect["maxZ"]))
+    print("  keep     %.1f%% of the world box is kept (K1 u K2, clipped to it)"
+          % (100.0 * kept / box_area(world)))
+    seconds, log = trim_measured_seconds()
+    if seconds is None:
+        print("  estimate %d call(s); the MINUTES ARE NOT MEASURED YET -- run "
+              "`trim --backup <f>.rbxl --blocks 1` first, which is design 10.4 step 3" % len(blocks))
+    else:
+        print("  estimate %d call(s) at %.1f s a block (the mean of %s) = %.1f minute(s)"
+              % (len(blocks), seconds, log, len(blocks) * seconds / 60.0))
+    trim_report(census, keeps)
+    return 0
+
+
+def command_trim(studio, studio_id, args, facts, injected, keep, live):
+    """THE RUN (design 10.4 steps 3 and 4). Resumable: an Air write over Air is a no-op, so a run
+    that stops half way is continued by running it again -- and `--blocks` bounds every run, so the
+    size of the next step is chosen from the LAST reading and never from an estimate."""
+    keeps = trim_keeps(facts)
+    problem = trim_keep_problem(facts, keeps=keeps) or trim_rotation_problem()
+    if problem:
+        return refuse(problem)  # refusals 10 and 11, before anything is written
+    census = trim_census(studio, studio_id, keeps, injected)
+    problem = trim_live_problem(census, keeps)
+    if problem:
+        return refuse(problem)
+    world, band, _ = trim_world(census, facts, keeps)
+    rects = trim_complement(world, keeps)
+    blocks = trim_blocks(rects, args.block_studs or TRIM_BLOCK_STUDS, facts["voxel"])
+    trim_report(census, keeps)
+    wanted = min(args.blocks, len(blocks))
+    print("[bake] trim: %d block(s) in the removal set, %d in THIS run, y[%g,%g], probe step %d"
+          % (len(blocks), wanted, band[0], band[1], TRIM_PROBE_STUDS))
+    entries, air, hit_before, hit_after = [], 0, 0, 0
+    for index, box in enumerate(blocks[:wanted], start=1):
+        problem = check_place(studio, studio_id, args.studio_name)  # refusals 1 and 2, every call
+        if problem:
+            return refuse(problem)
+        started = time.time()
+        answer = call(studio, studio_id,
+                      "TerrainBake.trimBlock(HttpService:JSONDecode([==[%s]==]), %g, %g, %d)"
+                      % (json.dumps(box), band[0], band[1], TRIM_PROBE_STUDS),
+                      timeout=BAKE_CALL_TIMEOUT, injected=injected)
+        ms = int((time.time() - started) * 1000)
+        if answer.get("refused"):
+            log_run(["trim"], entries, keep=keep, live=live)
+            return refuse("block %d x[%d,%d] z[%d,%d]: %s"
+                          % (index, box["minX"], box["maxX"], box["minZ"], box["maxZ"],
+                             answer["refused"]))
+        air += 1
+        hit_before += answer["hitsBefore"]
+        hit_after += answer["hitsAfter"]
+        entries.append(dict(box, ms=ms, nodes=answer["nodes"], hitsBefore=answer["hitsBefore"],
+                            hitsAfter=answer["hitsAfter"], step=answer["step"]))
+        print("  block %4d/%-4d x[%6d,%6d] z[%6d,%6d]  %6d ms  probe %4d node(s): "
+              "%4d hit -> %4d" % (index, wanted, box["minX"], box["maxX"], box["minZ"],
+                                  box["maxZ"], ms, answer["nodes"], answer["hitsBefore"],
+                                  answer["hitsAfter"]))
+    # WHAT THE RUN REMOVED, PRINTED BY THE RUN (lesson L-182), never left to be re-derived.
+    print("[bake] trim OK: %d of %d block(s) filled with Air; the run's own probe read %d hit(s) "
+          "before and %d after; 0 part(s) moved to Workspace.Archive337 (design 10.3: every part "
+          "outside the keep boxes is rebuilt each boot or is a template source that stays)"
+          % (air, len(blocks), hit_before, hit_after))
+    if air < len(blocks):
+        print("  %d block(s) are LEFT: run `trim` again -- an Air write over Air is a no-op, so the "
+              "run resumes where it stopped" % (len(blocks) - air))
+    log_run(["trim"], entries, keep=keep, live=live)
+    return 0
+
+
 def main(argv):
     parser = argparse.ArgumentParser(prog="terrainbake")
     parser.add_argument("command", choices=("plan", "snapshot", "diff", "measure", "proof",
                                             "delta", "clear-proof", "bake", "survey", "archive",
-                                            "census", "plant", "rows", "selftest"))
+                                            "census", "plant", "rows", "trim", "selftest"))
+    # `trim plan` IS THE ONLY TWO-WORD FORM (design 10.4 step 1): read-only, and it is a different
+    # command from the run, so the run cannot be reached by forgetting a word.
+    parser.add_argument("subject", nargs="?", choices=("plan",),
+                        help="`trim plan` -- read-only: the keep boxes, the removal blocks, the "
+                             "estimated calls and minutes, and the lattice census")
     parser.add_argument("--cells", help="comma list, e.g. C1")
     parser.add_argument("--backup", help="a .rbxl saved by File -> Save to File, outside the repo")
     parser.add_argument("--min-columns", type=int, help="`delta` only: the fewest bench columns a "
@@ -2309,6 +2783,13 @@ def main(argv):
                         "its stand pads. Leaving a cell out of --cells instead writes a NEIGHBOUR's "
                         "landform across it at full strength (task 328x)")
     parser.add_argument("--tiles", type=int, help="stop after this many tiles")
+    parser.add_argument("--blocks", type=int, help="`trim` only: how many removal blocks THIS run "
+                        "fills with Air. REQUIRED -- an unbounded terrain run cannot be stopped "
+                        "half way and terrain cannot be moved back (design 10.4 steps 3 and 4)")
+    parser.add_argument("--block-studs", type=int, help="`trim` only: the side of one removal "
+                        "block, default %d studs. MEASURE ONE FIRST: an Air fill is a different "
+                        "engine call from WriteVoxels and its cost was not verified when the design "
+                        "was written" % TRIM_BLOCK_STUDS)
     parser.add_argument("--out", help="where `snapshot` writes, default "
                                       "<runs-dir>/terrain-base-<its own sha>.bin")
     parser.add_argument("--base", help="the base snapshot .bin every bake reads the ORIGINAL ground "
@@ -2360,6 +2841,10 @@ def main(argv):
         if unknown:
             return refuse("no such cell: %s" % ", ".join(unknown))
 
+    if args.subject is not None and args.command != "trim":
+        return refuse("`%s` takes no second word; `%s` is only `trim plan`'s"
+                      % (args.command, args.subject))
+
     if args.command == "selftest":
         return selftest()
 
@@ -2380,6 +2865,21 @@ def main(argv):
             if studio is not None:
                 studio.close()
 
+    if args.command == "trim" and args.subject == "plan":
+        # READ-ONLY like `plan`, so a Studio is a bonus: with one it reads the census and checks the
+        # keep boxes against the LIVE world, and without one it says the census was not read.
+        studio = None
+        try:
+            studio = Studio()
+            studio_id, _ = resolve(studio, args.studio_name)
+        except Exception as problem:  # noqa: BLE001 -- a plan must still print with no Studio
+            print("[bake] note: no Studio addressed (%s)" % str(problem)[:120])
+            studio_id = None
+        try:
+            return command_trim_plan(args, facts, studio if studio_id else None, studio_id)
+        finally:
+            if studio is not None:
+                studio.close()
     # THE LOCAL-FILE DOOR IS ONE COMMAND WIDE. `snapshot` writes nothing in the world; everything
     # else either writes terrain or measures the live place, and both need the place id.
     local = bool(args.allow_local_file)
@@ -2389,9 +2889,21 @@ def main(argv):
     # `plant` WRITES ~10,000 CLONES INTO HER PLACE, so it takes every refusal a bake takes: Edit
     # mode, the place id asked again before each call, a clean tree, a fresh --backup, and the flag
     # rule. `rows` only reads.
-    mutating = args.command in PLANT_MUTATING
-    if mutating and not args.cells:
+    mutating = args.command in MUTATING
+    if mutating and args.command != "trim" and not args.cells:
         return refuse("--cells is missing: an unnamed cell is an unbounded run")  # refusal 6
+    if args.command == "trim":
+        # REFUSAL 6, THE TRIM'S OWN SHAPE: it takes no cells (it is the complement of them), so
+        # what bounds it is the block count, and it is required for the same reason.
+        if not args.blocks or args.blocks < 1:
+            return refuse("--blocks is missing or under 1: an unbounded Air fill cannot be stopped "
+                          "half way, and terrain cannot be moved back")
+        if args.cells:
+            return refuse("`trim` takes no --cells: the removal set is the COMPLEMENT of the keep "
+                          "boxes, and K1 is every cell by construction")
+        if (args.block_studs or TRIM_BLOCK_STUDS) % facts["voxel"] != 0:
+            return refuse("--block-studs %s is not a whole number of %d-stud voxels"
+                          % (args.block_studs, facts["voxel"]))
 
     sha, dirty = check_clean_tree()
     if (mutating or args.command in PROOF_NEEDS_CLEAN) and dirty:
@@ -2448,6 +2960,8 @@ def main(argv):
                 return refuse(problem)
             live = override_names(studio, studio_id)
             print("  flags  live overrides: %s" % (",".join(live) or "none"))
+        if args.command == "trim":
+            return command_trim(studio, studio_id, args, facts, injected, keep, live)
         if args.command == "survey":
             return command_survey(studio, studio_id, args, injected)
         if args.command == "census":
@@ -3480,6 +3994,93 @@ def selftest():
     ok("the equality proof refuses a dirty tree although it writes nothing (task 330, L-162)",
        "proof" in PROOF_NEEDS_CLEAN and "proof" not in PLANT_MUTATING
        and "delta" in PROOF_NEEDS_CLEAN and "delta" not in PLANT_MUTATING)
+
+    # ---------------------------------------------------------------- THE WORLD TRIM (task 337b)
+    keeps = trim_keeps(facts)
+    k1 = dict(keeps)["K1"]
+    # L-093, FIRST HALF: K1 IS COMPUTED. Move the bend in a COPY of the facts and K1 must move with
+    # it on all four sides -- a typed rectangle cannot, so this case dies the day K1 is typed.
+    grown = max(facts["bendEw"], facts["bendNs"]) + 40
+    bent = dict(facts, bendEw=grown, bendNs=grown)
+    k1_bent = dict(trim_keeps(bent))["K1"]
+    ok("K1 is TerrainBake.regionFor's own region, COMPUTED -- a bend of +40 moves all four sides "
+       "(L-093: the case dies if K1 is typed)",
+       k1 == region_for(list(CELL_IDS), facts)
+       and k1_bent["minX"] == k1["minX"] - 40 and k1_bent["maxX"] == k1["maxX"] + 40
+       and k1_bent["minZ"] == k1["minZ"] - 40 and k1_bent["maxZ"] == k1["maxZ"] + 40,
+       "x[%d,%d] z[%d,%d]" % (k1["minX"], k1["maxX"], k1["minZ"], k1["maxZ"]))
+    narrow = (("K1", {"minX": k1["minX"] + 500, "maxX": k1["maxX"], "minZ": k1["minZ"],
+                      "maxZ": k1["maxZ"]}), ("K2", dict(TRIM_K2)))
+    ok("refusal 11 passes the real keep list and REFUSES a K1 that is not regionFor's region",
+       trim_keep_problem(facts, keeps=keeps) is None
+       and trim_keep_problem(facts, keeps=narrow) is not None)
+    # L-093, SECOND HALF: K2 holds the spawn, the two anchors and OurForest's corners -- and the
+    # refusal fires when any one of them is moved out, so the check is not a tautology.
+    points = trim_points()
+    ok("K2 holds the spawn, the lobby and range anchors and OurForest's corners",
+       all(any(box_holds(box, x, z) for _, box in keeps) for _, x, z in points),
+       " ".join("%s(%g,%g)" % (n.split(".")[0], x, z) for n, x, z in points))
+    moved = {"Lobby.ANCHORS forest-test": (9000, -9000),
+             "Range.ANCHORS forest-test": trim_anchors()["Range.ANCHORS forest-test"]}
+    ok("...and refusal 11 fires for each one of them in turn, the anchors included -- so the two "
+       "anchors really are READ OFF Lobby and Range and not retyped here",
+       trim_keep_problem(facts, anchors=moved) is not None
+       and all(trim_keep_problem(
+           facts, anchors=dict(trim_anchors(), **{name: (9000, -9000)})) is not None
+           for name in trim_anchors())
+       and trim_anchors()["Range.ANCHORS forest-test"] == (2790, -3090)
+       and trim_anchors()["Lobby.ANCHORS forest-test"] == (2850, -2950))
+    # REFUSAL 10: the rotation. `ride` and `track` stand outside K2, so a trim taken while the
+    # rotation can still deal them would hold a drive over a void (design 10.4).
+    ok("refusal 10 passes today's rotation (LAYOUT_ORDER IS Grid.PLANTED_CELLS, %s) and refuses a "
+       "hand-written list, an empty one, and a line place" % ",".join(planted_cells()),
+       trim_rotation_problem() is None
+       and trim_rotation_problem(text='ForestTest.LAYOUT_ORDER = { "ride", "track" }\n') is not None
+       and trim_rotation_problem(cells=()) is not None
+       and "ride" in (trim_rotation_problem(cells=("C1", "ride")) or ""))
+    # THE COMPLEMENT: exact, and nothing in it touches a keep box.
+    world = {"minX": -2000, "maxX": 2000, "minZ": -2000, "maxZ": 2000}
+    fake = (("K1", {"minX": -1000, "maxX": -200, "minZ": -800, "maxZ": 600}),
+            ("K2", {"minX": 400, "maxX": 1200, "minZ": -100, "maxZ": 900}))
+    rects = trim_complement(world, fake)
+    union = sum(box_area(box_meet(box, world)) for _, box in fake)
+    union -= box_area(box_meet(box_meet(fake[0][1], fake[1][1]), world))
+
+    def overlap(a, b):
+        return box_area(box_meet(a, b)) > 0
+
+    ok("the removal set is the EXACT complement: its area is the world less the keep union, no "
+       "rectangle meets a keep box, and no two of them meet each other",
+       abs(sum(box_area(r) for r in rects) - (box_area(world) - union)) < 1e-9
+       and not any(overlap(r, box) for r in rects for _, box in fake)
+       and not any(overlap(rects[i], rects[j])
+                   for i in range(len(rects)) for j in range(i + 1, len(rects))),
+       "%d rectangle(s)" % len(rects))
+    # THE BLOCKS: inside the complement, on the voxel lattice, and never bigger than asked.
+    blocks = trim_blocks(rects, 512, facts["voxel"])
+    ok("every block is on the %d-stud voxel lattice, at most 512 studs a side, inside a removal "
+       "rectangle and clear of both keep boxes" % facts["voxel"],
+       blocks
+       and all(b[k] % facts["voxel"] == 0 for b in blocks for k in b)
+       and all(b["maxX"] - b["minX"] <= 512 and b["maxZ"] - b["minZ"] <= 512 for b in blocks)
+       and not any(overlap(b, box) for b in blocks for _, box in fake)
+       and all(any(box_area(box_meet(b, r)) == box_area(b) for r in rects) for b in blocks),
+       "%d block(s)" % len(blocks))
+    ok("a box is rounded INWARD to the lattice, never outward -- an outward block would be "
+       "expanded INTO a keep box, which TerrainBake.trimBlock refuses",
+       grid_inward({"minX": -1.0, "maxX": 9.0, "minZ": -9.0, "maxZ": 1.0}, 4)
+       == {"minX": 0, "maxX": 8, "minZ": -8, "maxZ": 0}
+       and grid_inward({"minX": 0.0, "maxX": 3.0, "minZ": 0.0, "maxZ": 3.0}, 4) is None)
+    ok("`trim` takes every refusal a bake takes, and `trim plan` writes nothing",
+       "trim" in MUTATING and "trim" not in PLANT_MUTATING
+       and check_backup(None) is not None)
+    ok("TerrainBake.trimBlock refuses a block it would have to expand, fills with Air, and reads "
+       "its own lattice before AND after (lesson L-182)",
+       "trimBlock" in open(BAKE_LUAU, encoding="utf-8").read()
+       and "FillRegion" in open(BAKE_LUAU, encoding="utf-8").read()
+       and "not aligned to the" in open(BAKE_LUAU, encoding="utf-8").read()
+       and "hitsBefore" in open(BAKE_LUAU, encoding="utf-8").read()
+       and "hitsAfter" in open(BAKE_LUAU, encoding="utf-8").read())
 
     print("[bake] selftest: %d check(s) failed" % len(failures) if failures else "[bake] selftest: PASS")
     return 1 if failures else 0

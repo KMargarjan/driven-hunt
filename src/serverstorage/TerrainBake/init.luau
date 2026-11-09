@@ -3031,10 +3031,70 @@ function TerrainBake.stampShape(cellIds: { string }, where: Instance?): number
 	return written
 end
 
+-- ---------------------------------------------------------------- THE WORLD TRIM (task 337b)
+
+-- THE TRIM'S OWN "WHAT I REMOVED" INSTRUMENT (lesson L-182): a ray lattice inside ONE block, read
+-- before and after the fill, so the run reports its own effect instead of leaving it to be
+-- re-derived. Same shape as the world lattice this task measures T4 with, five times finer.
+function TerrainBake.trimHits(box: Bounds, yMin: number, yMax: number, step: number): any
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = { Workspace.Terrain }
+	params.IgnoreWater = true
+	local height = (yMax - yMin) + 8
+	local hits, nodes = 0, 0
+	local x = box.minX + step / 2
+	while x < box.maxX do
+		local z = box.minZ + step / 2
+		while z < box.maxZ do
+			nodes += 1
+			if Workspace:Raycast(Vector3.new(x, yMax + 4, z), Vector3.new(0, -height, 0), params) then
+				hits += 1
+			end
+			z += step
+		end
+		x += step
+	end
+	return { nodes = nodes, hits = hits }
+end
+
+-- ONE BLOCK OF THE WORLD OUTSIDE THE KEEP BOXES, FILLED WITH AIR (design cell-loading.md 10.4).
+-- The complement arithmetic is the CALLER's (`tools/terrainbake.py trim`), so this writes only the
+-- box it is handed; terrain cannot be moved, so the .rbxl backup is the only undo.
+--   Terrain:FillRegion https://create.roblox.com/docs/reference/engine/classes/Terrain#FillRegion
+function TerrainBake.trimBlock(box: Bounds, yMin: number, yMax: number, step: number?): any
+	local v = Relief.VOXEL
+	local region = Region3.new(Vector3.new(box.minX, yMin, box.minZ), Vector3.new(box.maxX, yMax, box.maxZ))
+	local grid = region:ExpandToGrid(v)
+	-- ALIGNED ALREADY, OR REFUSED. `ExpandToGrid` grows OUTWARD, and outward from a removal block is
+	-- into a keep box: the caller rounds every block inward, so a difference here is a defect.
+	if
+		(grid.Size - region.Size).Magnitude > 0.001
+		or (grid.CFrame.Position - region.CFrame.Position).Magnitude > 0.001
+	then
+		return { filled = 0, refused = string.format("the block is not aligned to the %d-stud voxel grid", v) }
+	end
+	local probe = step or 100
+	local before = TerrainBake.trimHits(box, yMin, yMax, probe)
+	Workspace.Terrain:FillRegion(grid, v, AIR)
+	local after = TerrainBake.trimHits(box, yMin, yMax, probe)
+	return {
+		filled = 1,
+		nodes = before.nodes,
+		hitsBefore = before.hits,
+		hitsAfter = after.hits,
+		step = probe,
+		sizeX = grid.Size.X,
+		sizeY = grid.Size.Y,
+		sizeZ = grid.Size.Z,
+	}
+end
+
 -- ---------------------------------------------------------------- the archive, and the census
 
 -- B3: REPARENT ONLY, never Destroy (rule 7). `seams.archiveParent` is handed in, so nothing here
 -- requires a server script.
+
 function TerrainBake.archive(folderName: string, seams: any): any
 	local source = Workspace:FindFirstChild(folderName)
 	if source == nil then
