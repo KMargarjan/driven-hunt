@@ -1956,7 +1956,7 @@ return function()
 			expect(frame.Visible).to.equal(true)
 			-- A PHONE'S 44 PX THUMB MINIMUM, MEASURED ON SCREEN (mobile-controls.md §B) and not
 			-- transcribed: the panel shrinks to about a third at 400 x 800 and the list must not.
-			MapUi.setRailColumn(Rail.columnPx(), Vector2.new(400, 800))
+			MapUi.setRailColumn(Rail.columnPx(1), Vector2.new(400, 800))
 			MapUi.applyLayout(Vector2.new(400, 800))
 			task.wait()
 			MapUi.setSuppressed(false)
