@@ -2690,15 +2690,15 @@ def command_trim_plan(args, facts, studio=None, studio_id=None):
     problem = trim_rotation_problem()
     if problem:
         return refuse(problem)  # refusal 10
-    census, live = None, None
+    census, region = None, None
     if studio is not None and studio_id is not None:
         try:
             census = trim_census(studio, studio_id, keeps)
-            live = trim_live_region(studio, studio_id)
+            region = trim_live_region(studio, studio_id)
         except Exception as problem:  # noqa: BLE001 -- a read-only plan still prints with no Studio
             print("[bake] note: Studio was not read (%s)" % str(problem).strip()[:160])
-    if live is not None:
-        problem = trim_region_problem(dict(keeps)["K1"], live)
+    if region is not None:
+        problem = trim_region_problem(dict(keeps)["K1"], region)
         if problem:
             return refuse(problem)  # refusal 11, against the Luau's own region
     world, band, measured = trim_world(census, facts, keeps)
@@ -2726,13 +2726,13 @@ def command_trim_plan(args, facts, studio=None, studio_id=None):
                                                 rect["minZ"], rect["maxZ"]))
     print("  keep     %.1f%% of the world box is kept (K1 u K2, clipped to it)"
           % (100.0 * kept / box_area(world)))
-    if live is None:
+    if region is None:
         print("  K1       NOT ASKED: no Studio answered, so K1 stands on this tool's twin alone -- "
               "`trim` itself REFUSES in that state")
     else:
         print("  K1       ASSERTED: TerrainBake.regionFor(Grid.cellIds()) in Studio agrees -- "
               "x[%g,%g] z[%g,%g]"
-              % (live["minX"], live["maxX"], live["minZ"], live["maxZ"]))
+              % (region["minX"], region["maxX"], region["minZ"], region["maxZ"]))
     seconds, log = trim_measured_seconds()
     if seconds is None:
         print("  estimate %d call(s); the MINUTES ARE NOT MEASURED YET -- run "
@@ -2752,16 +2752,19 @@ def command_trim(studio, studio_id, args, facts, injected, keep, live):
     problem = trim_keep_problem(facts, keeps=keeps) or trim_rotation_problem()
     if problem:
         return refuse(problem)  # refusals 10 and 11, before anything is written
-    live = None
+    # `live` IS REFUSAL 7's RECORD and `log_run` writes it; the Studio region gets its own name.
+    # Round 2's finding: `live = trim_live_region(...)` here put `["minX", "maxX", ...]` in the run
+    # log of the one irreversible command and threw the override list away.
+    region = None
     try:
-        live = trim_live_region(studio, studio_id, injected)
+        region = trim_live_region(studio, studio_id, injected)
     except Exception as problem:  # noqa: BLE001 -- the refusal below says what that means
         print("[bake] note: TerrainBake.regionFor was not read (%s)" % str(problem).strip()[:160])
-    problem = trim_region_problem(dict(keeps)["K1"], live)
+    problem = trim_region_problem(dict(keeps)["K1"], region)
     if problem:
         return refuse(problem)  # refusal 11, against the Luau's own region
     print("[bake] K1 ASSERTED against TerrainBake.regionFor(Grid.cellIds()) in Studio: "
-          "x[%g,%g] z[%g,%g]" % (live["minX"], live["maxX"], live["minZ"], live["maxZ"]))
+          "x[%g,%g] z[%g,%g]" % (region["minX"], region["maxX"], region["minZ"], region["maxZ"]))
     census = trim_census(studio, studio_id, keeps, injected)
     problem = trim_live_problem(census, keeps)
     if problem:
@@ -2804,8 +2807,12 @@ def command_trim(studio, studio_id, args, facts, injected, keep, live):
           "outside the keep boxes is rebuilt each boot or is a template source that stays)"
           % (air, len(blocks), hit_before, hit_after))
     if air < len(blocks):
-        print("  %d block(s) are LEFT: run `trim` again -- an Air write over Air is a no-op, so the "
-              "run resumes where it stopped" % (len(blocks) - air))
+        # NO CURSOR, SO SAY SO (round-2 note): a second run starts at block 1 again. An Air write
+        # over Air is a no-op, so repeating is harmless but it is not progress -- the way to finish
+        # is a bigger `--blocks`, and `trim plan`'s after-census is what says what is left.
+        print("  %d block(s) of this removal set were NOT reached. There is no cursor: the next run "
+              "starts at block 1 again, so finish with a bigger --blocks and read `trim plan`'s "
+              "census for what is left" % (len(blocks) - air))
     log_run(["trim"], entries, keep=keep, live=live)
     return 0
 
@@ -2912,10 +2919,13 @@ def main(argv):
             if studio is not None:
                 studio.close()
 
-    if args.command == "trim" and (args.block_studs or TRIM_BLOCK_STUDS) % facts["voxel"] != 0:
+    if args.command == "trim" and args.block_studs is not None and (
+            args.block_studs < facts["voxel"] or args.block_studs % facts["voxel"] != 0):
         # BEFORE the `plan` return, or `trim plan --block-studs 7` reaches `trim_blocks`' bare
         # assert and prints a traceback instead of a refusal (round-1 note).
-        return refuse("--block-studs %s is not a whole number of %d-stud voxels"
+        # A NEGATIVE OR SUB-VOXEL BLOCK WALKS AWAY FROM THE EDGE FOR EVER (round-2 note): a bare
+        # `assert` in `trim_blocks` is not a refusal, and this tool writes terrain.
+        return refuse("--block-studs %s must be a whole number of %d-stud voxels, at least one"
                       % (args.block_studs, facts["voxel"]))
     if args.command == "trim" and args.subject == "plan":
         # READ-ONLY like `plan`, so a Studio is a bonus: with one it reads the census and checks the

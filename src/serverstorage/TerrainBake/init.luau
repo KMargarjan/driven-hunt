@@ -3106,7 +3106,6 @@ end
 
 -- B3: REPARENT ONLY, never Destroy (rule 7). `seams.archiveParent` is handed in, so nothing here
 -- requires a server script.
-
 function TerrainBake.archive(folderName: string, seams: any): any
 	local source = Workspace:FindFirstChild(folderName)
 	if source == nil then
