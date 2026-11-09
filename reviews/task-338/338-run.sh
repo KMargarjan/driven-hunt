@@ -2,7 +2,7 @@
 # Task 338: one cell drive, counting released animals, animals that left the cell, and escape
 # entries on the wire (what the toast stacks) at 15 s, 60 s and drive end.
 set -u
-R=/c/Users/karen/Desktop/driven-hunt-runs; cd "$R" || exit 9
+R=<runs-dir>; cd "$R" || exit 9
 TAG=${1:-before}
 m=$(python ftplay.py mode 2>/dev/null | tail -1)
 [ "$m" = "Edit" ] || { echo "REFUSED: Studio is '$m'"; exit 2; }
