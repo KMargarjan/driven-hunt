@@ -2743,20 +2743,22 @@ function Brain:step(dt: number, obs)
 			-- the gait's own cap. Still a cap, and still per gait -- a walking boar does not pivot.
 			degrees *= config.LINE.TURN_SCALE
 		end
-		-- ...AND A BOUND LANDS RUNNING STRAIGHT ON (task 344). Karen: *"animals go on the side after
-		-- jum"*. LAST of the three, so it caps the route's corner too: a crossing is exactly where
-		-- `ordered` is true and 220 x 1.6 = 352 deg/s is the rate the drawn body cannot follow.
-		-- `math.min`, so this can only ever SLOW a turn -- a world with no `LAND_SECONDS` never
-		-- opens the window and every number above is the one it was before this task.
-		local landDeg = config.MOVE ~= nil and config.MOVE.LAND_TURN_DEG or nil
-		if self._landFor > 0 and type(landDeg) == "number" then
-			degrees = math.min(degrees, landDeg)
-		end
 		turnRate = math.rad(degrees)
 		local dot = math.clamp(self._desired:Dot(unit(desiredDirection, self._desired)), -1, 1)
 		if math.deg(math.acos(dot)) <= pace.TURN_DEADBAND_DEG then
 			desiredDirection = self._desired
 		end
+	end
+
+	-- ...AND A BOUND LANDS RUNNING STRAIGHT ON (task 344). Karen: *"animals go on the side after
+	-- jum"*. AFTER the gait block and not inside it, so it caps `TURN_RATE` as well as the per-gait
+	-- rate and the route's `LINE.TURN_SCALE` corner -- a crossing is exactly where `ordered` is true
+	-- and 220 x 1.6 = 352 deg/s is the rate the drawn body cannot follow.
+	-- `math.min`, so it can only ever SLOW a turn: a world with no `LAND_SECONDS` never opens the
+	-- window, and the DEV world has no road, so `_landFor` is 0 there for ever.
+	local landDeg = config.MOVE ~= nil and config.MOVE.LAND_TURN_DEG or nil
+	if self._landFor > 0 and type(landDeg) == "number" then
+		turnRate = math.min(turnRate, math.rad(landDeg))
 	end
 
 	-- Turn rate and acceleration limit the SETPOINT, not the physics, so both are assertable with no

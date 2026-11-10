@@ -1916,11 +1916,6 @@ return function()
 					local config = table.clone(CONFIG)
 					config.SENSE = table.clone(CONFIG.SENSE)
 					config.SENSE.ENABLED = true
-					-- PACE ON IN BOTH RUNS. Every per-gait turn rate lives inside that block and so
-					-- does the landing cap, and the bound only exists in a world that has it: the
-					-- playtest world turns both on together (`ForestTestBoot`, `pace.ENABLED = true`).
-					config.PACE = table.clone(CONFIG.PACE)
-					config.PACE.ENABLED = true
 					local model = table.clone(CONFIG.MODEL)
 					model.LEAP = table.clone(CONFIG.MODEL.LEAP)
 					model.LEAP.ENABLED = true
