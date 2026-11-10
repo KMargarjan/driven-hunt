@@ -1815,14 +1815,21 @@ return function()
 			local past = Vector3.new(0, 0, -185) -- a stud short of the exit line, as that case uses
 			local brain = Brain.new(outOfPlay(true), noRoad, past, Random.new(5))
 			expect(brain:step(DT, obs(past)).despawn).to.equal(false)
-			-- ...and the settled clock never starts either, because it measures from the road.
+			-- ...and it never goes, however long it stands there. (The SETTLED half is not what
+			-- this case pins -- that brain was never `leadTo`'d -- so the sentence that used to
+			-- claim it has gone; `pastRoad` is the half a road would have fired, at -185 with the
+			-- road at z = 0, inside `pastRoadSeconds`.)
 			for _ = 1, math.ceil(3 / DT) do
 				expect(brain:step(DT, obs(past)).despawn).to.equal(false)
 			end
 		end)
 
 		it("does NOT take an animal a hunter shot -- the gather owns the carcass", function()
-			local past = Vector3.new(0, 0, -85)
+			-- AT THE POSITION THE `pastRoad` CASE ABOVE PROVES DOES GO (-155, past the 150-stud
+			-- margin) AND HELD THERE FOR THE DWELL, so this case fails the moment the DOWN
+			-- exclusion is deleted from `_outcome` or `_updateOutOfPlay`. At -85 it passed for the
+			-- wrong reason: the margin alone refused it, and the exclusion was never exercised.
+			local past = Vector3.new(0, 0, -155)
 			local brain = Brain.new(outOfPlay(true), ROAD_FIELD, START, Random.new(7))
 			-- KILLED WHERE IT STOOD, through the hit path the weapon uses, and then it is south of
 			-- the line: a carcass may only leave by its own `CARCASS_SECONDS` timer.
@@ -1834,7 +1841,17 @@ return function()
 			local intent = settle(brain, past)
 			expect(intent.despawn).to.equal(false)
 			expect(intent.reason).to.equal(nil)
-			TestKit.note("out of play: a DOWN animal 85 studs past the road is left alone -- the gather owns it")
+			-- ...AND A CRIPPLED ONE TOO, which is the other half of the same claim and had no case:
+			-- it circles where it was hit until the wound finishes it or a second shot does, so the
+			-- margin may not take it either. A rump hit that is at least mortal is what cripples.
+			local crippled = Brain.new(outOfPlay(true), ROAD_FIELD, START, Random.new(8))
+			crippled:step(
+				DT,
+				obs(START, nil, { hitEvents = { { severity = "mortal", class = "crippling", zone = "ZoneRear" } } })
+			)
+			expect(crippled:state()).to.equal("CRIPPLED")
+			expect(settle(crippled, past).despawn).to.equal(false)
+			TestKit.note("out of play: a DOWN and a CRIPPLED animal 155 studs past the road are both left alone")
 		end)
 
 		it("takes a group the drive let go of, bedded far behind the line for long", function()

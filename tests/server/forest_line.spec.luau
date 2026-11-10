@@ -2197,7 +2197,7 @@ return function()
 				releasePath = function() end,
 			})
 			expect(runtime:liveCount()).to.equal(0)
-			runtime:spawn(Vector3.new(0, 0, 0), "male")
+			local first = runtime:spawn(Vector3.new(0, 0, 0), "male")
 			runtime:spawn(Vector3.new(6, 0, 0), "male")
 			expect(runtime:liveCount()).to.equal(2)
 			expect(runtime:count()).to.equal(2)
@@ -2208,16 +2208,37 @@ return function()
 			expect(folder:GetAttribute("Live")).to.equal(2)
 			expect(folder:GetAttribute("LiveMax")).to.equal(2)
 			expect(folder:GetAttribute("DespawnByReason")).to.equal("")
+			-- ---------------------------------------- A CARCASS IS NOT A LIVE ANIMAL (task 342)
+			--
+			-- THIS IS THE WHOLE REASON `liveCount` EXISTS and `count` could not be used: a shot
+			-- animal holds a `MAX_BOARS` slot for `CARCASS_SECONDS`, and `releaseLine`'s budget is
+			-- about animals being stepped as animals -- "a hunter who shoots well must not close
+			-- the drive's own door". Replace `liveCount`'s body with `return self:count()` and the
+			-- next three lines fail.
+			runtime:takeHit(first.part, { zone = "head", ammo = "Slug", pellets = 1, at = os.clock() })
+			for _ = 1, 20 do
+				runtime:step(1 / 60)
+			end
+			expect(first.state()).to.equal("DOWN")
+			expect(runtime:count()).to.equal(2) -- the carcass still holds its slot
+			expect(runtime:liveCount()).to.equal(1) -- ...and is not one of the live animals
+			for _ = 1, Boar.STEP_PUBLISH_EVERY do
+				runtime:step(1 / 60)
+			end
+			expect(folder:GetAttribute("Live")).to.equal(1)
+			expect(folder:GetAttribute("LiveMax")).to.equal(2) -- the drive's high water mark stands
 			-- ONE ANIMAL OUT, BY REASON: the line is the published diagnostic and the stats table
-			-- carries the same count.
+			-- carries the same count. The one still on its feet, so the counts stay readable.
 			local ids = runtime:boars()
-			expect(runtime:clearOne(ids[1].id, "pastRoad")).to.equal(true)
+			local standing = if ids[1].id == first.id then ids[2] else ids[1]
+			expect(runtime:clearOne(standing.id, "pastRoad")).to.equal(true)
 			expect(runtime:stats().despawnReasons.pastRoad).to.equal(1)
 			for _ = 1, Boar.STEP_PUBLISH_EVERY do
 				runtime:step(1 / 60)
 			end
 			expect(folder:GetAttribute("DespawnByReason")).to.equal("pastRoad=1")
-			expect(folder:GetAttribute("Live")).to.equal(1)
+			expect(folder:GetAttribute("Live")).to.equal(0)
+			expect(runtime:count()).to.equal(1) -- the carcass, still holding its slot
 			-- ...AND THE PEAK IS THE DRIVE'S HIGH WATER MARK, not the count right now.
 			expect(folder:GetAttribute("LiveMax")).to.equal(2)
 			-- PER DRIVE: `clear` is this owner's one drive boundary, so the step cost, the peak and
@@ -2232,7 +2253,7 @@ return function()
 			expect(after.stepMsAvg).to.equal(0)
 			expect(after.liveMax).to.equal(0)
 			expect(next(after.despawnReasons)).to.equal(nil)
-			expect(after.despawned).to.equal(beforeClear.despawned + 1)
+			expect(after.despawned).to.equal(beforeClear.despawned + 1) -- the carcass, taken by clear
 			runtime:destroy()
 			holder:Destroy()
 		end)
