@@ -67,6 +67,9 @@ export type Planting = {
 	yaw: number, -- radians about Y
 	band: string, -- "herb" | "shrub" | "wood" | "deep", for the report and the spec
 	side: number, -- -1 south of the line, +1 north of it
+	-- SCENERY ONLY, FAR BEHIND THE ROAD (task 346b): no shadow, no collision, no raycast. Set by
+	-- `Places.skirtBands` past `SKIRT_CHEAP_FROM_STUDS` and applied by `Places.plantOne`.
+	cheap: boolean?,
 }
 
 -- HOW FAR BEYOND THE STRIP NOTHING IS PLANTED, on top of the strip's own half-width. The dispatch's
@@ -1017,6 +1020,19 @@ Places.SKIRT_DEEPEST_STUDS = 420
 -- DERIVED, NOT TYPED (lesson L-167): one road plus the deepest band is exactly the reach that
 -- covers a corner quadrant and a road-end channel; change the band and this moves with it.
 Places.SKIRT_WIDEN_STUDS = Grid.CONFIG.roadClearStuds + Places.SKIRT_DEEPEST_STUDS
+
+-- HOW FAR PAST THE SHARED ROAD A SKIRT BAND STOPS BEING WORTH FULL PRICE (task 346b). A band whose
+-- NEAR edge is at least this far out is CHEAP: `Places.plantOne` gives it no shadow, no collision
+-- and no raycast, and it is planted on `SKIRT_CHEAP_SPACING_STUDS`. Today exactly one band
+-- qualifies, the deepest (230 to 420) -- band 2 starts at 80, where a player can still walk.
+Places.SKIRT_CHEAP_FROM_STUDS = 150
+
+-- THE CHEAP BAND'S OWN GRID, replacing the plan's `deepSpacingStuds` (52) there. Karen,
+-- 2026-11-10: *"more tree needs behind ... also more trees on back side specially on corners or
+-- ending"*. MEASURED at #360 (`reviews/task-346b/MEASUREMENTS.md` sections 5 and 7): at 52 studs
+-- the north road end showed trees in only 29 of 37 columns of its own frame and the NE corner in
+-- 22 of 37. 34 is the LOOSEST grid that leaves the road end no empty column; 36 and 38 leave 3.
+Places.SKIRT_CHEAP_SPACING_STUDS = 34
 
 -- THE RANDOM STREAMS, one per layer, hashed through `Grid.seedFor` -- so the trees, the floor and the
 -- skirt cannot shift each other, and NO stream is a counter (design 4.6: a cell's wood is the same
@@ -2877,6 +2893,9 @@ function Places.skirtBands(cellId: string, other: string?, axis: string, plan: a
 			widen = if other == nil then Places.SKIRT_WIDEN_STUDS else 0,
 		},
 	}) do
+		-- CHEAP IS DECIDED BY THE BAND'S OWN NEAR EDGE (task 346b), so the rule is one comparison
+		-- and whichever band qualifies gets both halves of it -- the spacing and the flag.
+		local cheap = band.near >= Places.SKIRT_CHEAP_FROM_STUDS
 		local a = from + step * band.near
 		local b = from + step * band.far
 		local low = math.max(clipLow, math.min(a, b))
@@ -2890,7 +2909,8 @@ function Places.skirtBands(cellId: string, other: string?, axis: string, plan: a
 		if rect.maxX > rect.minX and rect.maxZ > rect.minZ then
 			table.insert(out, {
 				rect = rect,
-				spacing = band.spacing,
+				spacing = if cheap then Places.SKIRT_CHEAP_SPACING_STUDS else band.spacing,
+				cheap = cheap,
 				deep = band.near > 0,
 				-- WHICH BAND THIS IS, so a spec can count the sites the DEEPEST one produced instead
 				-- of guessing a depth off the cell box (`grid.spec` case 16a, round 1 finding 1).
@@ -2965,6 +2985,8 @@ type ScatterOpts = {
 	cap: number?,
 	-- THE BEND, carried from `plantCell` (task 328r, 328q note (a)). nil is `Grid.CONFIG.bend`.
 	bend: any?,
+	-- EVERY SITE THIS CALL MAKES IS SCENERY (task 346b). One flag on the call, not a test per site.
+	cheap: boolean?,
 }
 -- WHY A SITE WAS REFUSED, COUNTED WHERE IT IS REFUSED (task 328s). `plantCell` resets it; read it
 -- straight after. Two totals alone cannot say whether the gap rule, the mask or the crown term costs
@@ -3117,6 +3139,7 @@ local function scatter(
 						yaw = rng:NextNumber() * math.pi * 2,
 						band = band,
 						side = side,
+						cheap = if opts ~= nil and opts.cheap then true else nil,
 					})
 				end
 			end
@@ -3253,7 +3276,13 @@ function Places.plantCell(cellId: string, heightAt: ((number, number) -> number?
 					return nil, nil
 				end
 				return Places.cellMixNamed(zoneThere.mix), zoneThere.band
-			end, { maskCell = groundCell, maskPlan = speciesPlan, heightAt = heightAt, bend = bend })
+			end, {
+				maskCell = groundCell,
+				maskPlan = speciesPlan,
+				heightAt = heightAt,
+				bend = bend,
+				cheap = band.cheap,
+			})
 		end
 	end
 	return out
@@ -3299,11 +3328,17 @@ Places.PARTS_PER_MODEL = 3.76
 --    stand before and after (`reviews/task-346/MEASUREMENTS.md`).
 --  * `PART_BUDGET_DRIVE` bounds the PLAN and is a typo guard: nothing renders a plan. The heaviest
 --    bound is D1's `cellCapacity` 7,561 sites = 28,429 parts, so 29,000 leaves 151 sites.
-Places.PART_BUDGET_DRIVE = 29000
-Places.PART_BUDGET_CELL = 14200
+--
+-- **RAISED AGAIN IN TASK 346b** for the cheap band's tighter grid: C1's planted wood goes 3,507 to
+-- 3,969 models / 12,927 to 14,628 parts (`reviews/task-346b/MEASUREMENTS.md` 4). A part ceiling is
+-- a typo guard and not the gate -- the gate is the MEASURED client frame p95 at the stand, which
+-- this task reads three times a side. The parts it buys cast no shadow, collide with nothing and
+-- stop no ray, so a part under this ceiling is not the part the ceiling was first derived from.
+Places.PART_BUDGET_DRIVE = 32000
+Places.PART_BUDGET_CELL = 16000
 
 -- THE MODEL CAPS, COMPUTED AND NOT TYPED (lesson L-167): change a budget or the ratio and these move
--- with it. Today 7,712 bounds the PLAN (a typo guard) and 3,776 bounds what is DRAWN in one cell.
+-- with it. Today 8,510 bounds the PLAN (a typo guard) and 4,255 bounds what is DRAWN in one cell.
 Places.CELL_PLAN_CAP = math.floor(Places.PART_BUDGET_DRIVE / Places.PARTS_PER_MODEL)
 Places.CELL_PART_CAP = math.floor(Places.PART_BUDGET_CELL / Places.PARTS_PER_MODEL)
 

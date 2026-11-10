@@ -1787,6 +1787,72 @@ return function()
 			source:Destroy()
 		end)
 
+		it("a cheap far-band clone casts no shadow, collides with nothing and stops no ray", function()
+			-- Task 346b. A tree 230+ studs behind the road is a silhouette, so it pays for a
+			-- silhouette only. The SAME template planted WITHOUT the flag is the control, so this
+			-- compares the flag's effect and not a template's defaults.
+			local source = template("CheapTree", Vector3.new(2, 40, 2), Vector3.new(16, 10, 16))
+			local folder = Instance.new("Folder")
+			local box = Grid.boundsOf("C1")
+			local midZ = (box.minZ + box.maxZ) / 2
+			local plain = Planter.plantOne(plantingAt("CheapTree", box.minX + 500, midZ), source, folder, flat)
+			local far = plantingAt("CheapTree", box.minX + 540, midZ)
+			far.cheap = true
+			local cheap = Planter.plantOne(far, source, folder, flat)
+			expect(plain ~= nil and cheap ~= nil).to.equal(true)
+			local shadows, collides, queries, touches, total = 0, 0, 0, 0, 0
+			for _, part in ipairs(cheap:GetDescendants()) do
+				if part:IsA("BasePart") then
+					total += 1
+					if part.CastShadow then
+						shadows += 1
+					end
+					if part.CanCollide then
+						collides += 1
+					end
+					if part.CanQuery then
+						queries += 1
+					end
+					-- THE FOURTH PROPERTY `plantOne` CLEARS, counted too (round 1 note): three
+					-- counters and a four-property producer leave one line nothing asserts.
+					if part.CanTouch then
+						touches += 1
+					end
+				end
+			end
+			expect(total > 0).to.equal(true)
+			expect(shadows).to.equal(0)
+			expect(collides).to.equal(0)
+			expect(queries).to.equal(0)
+			expect(touches).to.equal(0)
+			expect(cheap:GetAttribute("DrivePlaceCheap")).to.equal(true)
+			-- FAIL FIRST: delete the `item.cheap` block in `plantOne` and the cheap clone becomes
+			-- this control, which still casts a shadow and still stops a ray.
+			local keptShadow, keptQuery = 0, 0
+			for _, part in ipairs(plain:GetDescendants()) do
+				if part:IsA("BasePart") then
+					if part.CastShadow then
+						keptShadow += 1
+					end
+					if part.CanQuery then
+						keptQuery += 1
+					end
+				end
+			end
+			expect(keptShadow > 0).to.equal(true)
+			expect(keptQuery > 0).to.equal(true)
+			expect(plain:GetAttribute("DrivePlaceCheap")).to.equal(nil)
+			TestKit.note(
+				string.format(
+					"cheap clone: %d parts, 0 shadow/collide/query; the control keeps %d shadows",
+					total,
+					keptShadow
+				)
+			)
+			folder:Destroy()
+			source:Destroy()
+		end)
+
 		it("a planted clone streams Atomic AND keeps the foliage flags quieten set (lesson L-060)", function()
 			local source = template("FlagTree", Vector3.new(2, 40, 2), Vector3.new(16, 10, 16))
 			local folder = Instance.new("Folder")
