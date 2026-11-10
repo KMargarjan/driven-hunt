@@ -3417,4 +3417,37 @@ ForestTest.MAX_BOARS = 60
 -- `Data.MAX_BOARS` = 60 and `releaseLine`'s "the whole line fits or none of it".
 ForestTest.MAX_DEER_GROUPS = 40
 
+-- ---------------------------------------- THE LIVE BUDGET (task 342, design 9.2)
+--
+-- HOW MANY ANIMALS MAY BE ON THEIR FEET AT THE BUSIEST INSTANT. `docs/design/grid-map.md` 9.2:
+-- *"live animals at the busiest instant <= 24 ... slot 12 releases nine today, so 24 is three
+-- overlapping groups"*. `MAX_BOARS` 60 above stays the HARD ceiling and this never replaces it.
+--
+-- MEASURED on main e77e755a, full 400 s drives in her Forest Test: live reached 60 in C1 and A2 and
+-- 50 in quiet D1, and it never came down -- C1 sat at 50 for the drive's last 70 seconds. The
+-- fifteen-slot script ends at 192 s and `repeatFrom..repeatTo` then releases a group every 13 s for
+-- the rest of the clock.
+ForestTest.LIVE_CAP = 24
+
+-- MAY THE REPEAT WINDOW LET THIS GROUP OUT? PURE, and the whole of the budget's release rule.
+--
+-- IT BINDS THE REPEAT WINDOW ONLY, and that is the Director's decision (2026-11-10): the SCRIPTED
+-- slots release exactly what they release today, so the density dial's own shape -- which rows are
+-- silent at quiet, normal and busy -- is untouched. Past the script a slot is an extra, and an
+-- extra may only go out if the whole group still fits inside the budget.
+--
+-- THE WHOLE GROUP OR NONE OF IT: `size` is the row's own count, not what `MAX_BOARS` would leave
+-- room for, because half a group is not that row's group.
+--
+-- IT IS ASKED PER RELEASE AGAINST THE CURRENT LIVE COUNT, never latched when the window opens
+-- (L-029): `releaseLine` reads `Runtime:liveCount()` on the slot it is releasing, so an animal that
+-- joins or leaves between two slots moves the answer.
+function ForestTest.repeatRoomFor(slot: number?, rows: number?, live: number, size: number, cap: number?): boolean
+	if type(slot) ~= "number" or type(rows) ~= "number" or slot <= rows then
+		return true -- a scripted slot (and a staged release, which has slot 0) is not capped
+	end
+	local ceiling = cap or ForestTest.LIVE_CAP
+	return live + math.max(0, size) <= ceiling
+end
+
 return ForestTest

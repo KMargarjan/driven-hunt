@@ -2080,4 +2080,148 @@ return function()
 			holder:Destroy()
 		end)
 	end)
+
+	-- --------------------------------------- AT MOST 24 ANIMALS ALIVE (task 342, design 9.2)
+	--
+	-- MEASURED on main e77e755a, three full 400 s drives in her Forest Test: live reached 60
+	-- (`MAX_BOARS`) in C1 and A2 and 50 in quiet D1, and never came down. The script's fifteen slots
+	-- end at 192 s and `repeatFrom..repeatTo` then releases a group every 13 s for the rest of the
+	-- clock, with nothing taking a group that has left play off the board.
+	--
+	-- THESE CASES DIE IF THE FIX IS DELETED (L-093). Case 1 walks a schedule twice as long as the
+	-- script with nothing ever leaving: make `repeatRoomFor` answer true and live passes 24 on the
+	-- first repeated slot. Case 2 holds the other side -- a SCRIPTED slot is never capped, which is
+	-- what keeps the density dial's own shape.
+	describe("the live budget on the repeat window (task 342)", function()
+		local CAP = Data.LIVE_CAP
+
+		-- HOW BIG THE GROUP A SLOT RELEASES IS, asked of the ANIMAL owner exactly as `releaseLine`
+		-- asks it. A deer row is never repeated (`slotAt`), so only boar compositions reach this.
+		local function sizeOf(row): number
+			local composition = Boar.CONFIG.SOUNDER.COMPOSITIONS[row.composition]
+			return if composition ~= nil then Boar.compositionSize(composition, Boar.CONFIG) else 1
+		end
+
+		it("is 24, which is design 9.2's number, and MAX_BOARS is still the hard ceiling", function()
+			expect(CAP).to.equal(24)
+			expect(Data.MAX_BOARS).to.equal(60)
+			expect(CAP < Data.MAX_BOARS).to.equal(true)
+		end)
+
+		it("never lets live past 24 over a schedule twice as long as the script", function()
+			local schedule = Data.cellSchedule(Grid.animalsOf("C1"), Grid.CONFIG.cellDepthStuds)
+			local rows = #schedule.drive
+			-- THE WORST CASE THERE IS: nothing ever leaves the world. Every animal that is released
+			-- stays live for the whole simulated drive, so the only thing that can hold the count
+			-- down is the gate itself.
+			local live, released, repeats, held = 0, 0, 0, 0
+			local worst = 0
+			for slot = 1, rows * 2 do
+				local row = Data.slotAt(slot, schedule.density, schedule)
+				if row ~= nil then
+					local size = sizeOf(row)
+					if Data.repeatRoomFor(slot, rows, live, size, CAP) then
+						live += size
+						released += size
+					elseif slot > rows then
+						held += 1
+					end
+					if slot > rows then
+						repeats += 1
+					end
+				end
+				if live > worst then
+					worst = live
+				end
+			end
+			-- THE REPEAT WINDOW WAS ACTUALLY EXERCISED, and it actually refused: a case where the
+			-- window never ran, or never said no, would pass for the wrong reason.
+			expect(repeats > 0).to.equal(true)
+			expect(held > 0).to.equal(true)
+			expect(released > 0).to.equal(true)
+			-- ...and the scripted part alone is what put it over, which is why only the repeats are
+			-- gated: the budget is enforced from the end of the script onward.
+			expect(Data.repeatRoomFor(rows * 2, rows, CAP, 1, CAP)).to.equal(false)
+			expect(worst > CAP).to.equal(false)
+			TestKit.note(
+				string.format("live budget: %d repeated slots, %d held, worst live %d of %d", repeats, held, worst, CAP)
+			)
+		end)
+
+		it("is asked per release against the live count of that moment, not latched (L-029)", function()
+			-- THE SAME SLOT, TWO LIVE COUNTS, TWO ANSWERS. A gate evaluated once when the window
+			-- opened could not tell these apart.
+			expect(Data.repeatRoomFor(99, 15, CAP - 4, 4, CAP)).to.equal(true)
+			expect(Data.repeatRoomFor(99, 15, CAP - 3, 4, CAP)).to.equal(false)
+			-- A SCRIPTED SLOT IS NEVER CAPPED -- the dial's own shape is untouched -- and nor is a
+			-- staged release, which carries slot 0.
+			expect(Data.repeatRoomFor(15, 15, 60, 9, CAP)).to.equal(true)
+			expect(Data.repeatRoomFor(0, 15, 60, 9, CAP)).to.equal(true)
+		end)
+
+		it("publishes live, the drive's peak and the despawn reasons, and hands them back on clear", function()
+			local holder = Instance.new("Folder")
+			holder.Name = "BudgetProbe"
+			holder.Parent = workspace
+			local runtime = Boar.newRuntime({
+				field = { bounds = { minX = -200, maxX = 200, minZ = -200, maxZ = 200 }, exitZ = -190, groundY = 0 },
+				parent = holder,
+				folderName = "BudgetProbe",
+				rng = Random.new(342),
+				threats = function()
+					return {}
+				end,
+				requestPath = function(_agentId, _from, _to, done)
+					done(nil)
+				end,
+				releasePath = function() end,
+			})
+			expect(runtime:liveCount()).to.equal(0)
+			runtime:spawn(Vector3.new(0, 0, 0), "male")
+			runtime:spawn(Vector3.new(6, 0, 0), "male")
+			expect(runtime:liveCount()).to.equal(2)
+			expect(runtime:count()).to.equal(2)
+			for _ = 1, Boar.STEP_PUBLISH_EVERY do
+				runtime:step(1 / 60)
+			end
+			local folder = holder:FindFirstChild("BudgetProbe")
+			expect(folder:GetAttribute("Live")).to.equal(2)
+			expect(folder:GetAttribute("LiveMax")).to.equal(2)
+			expect(folder:GetAttribute("DespawnByReason")).to.equal("")
+			-- ONE ANIMAL OUT, BY REASON: the line is the published diagnostic and the stats table
+			-- carries the same count.
+			local ids = runtime:boars()
+			expect(runtime:clearOne(ids[1].id, "pastRoad")).to.equal(true)
+			expect(runtime:stats().despawnReasons.pastRoad).to.equal(1)
+			for _ = 1, Boar.STEP_PUBLISH_EVERY do
+				runtime:step(1 / 60)
+			end
+			expect(folder:GetAttribute("DespawnByReason")).to.equal("pastRoad=1")
+			expect(folder:GetAttribute("Live")).to.equal(1)
+			-- ...AND THE PEAK IS THE DRIVE'S HIGH WATER MARK, not the count right now.
+			expect(folder:GetAttribute("LiveMax")).to.equal(2)
+			-- PER DRIVE: `clear` is this owner's one drive boundary, so the step cost, the peak and
+			-- the reasons all start again. `despawned` above them stays cumulative.
+			local beforeClear = runtime:stats()
+			expect(beforeClear.steps > 0).to.equal(true)
+			runtime:clear("driveOver")
+			local after = runtime:stats()
+			expect(after.steps).to.equal(0)
+			expect(after.stepMsTotal).to.equal(0)
+			expect(after.stepMsMax).to.equal(0)
+			expect(after.stepMsAvg).to.equal(0)
+			expect(after.liveMax).to.equal(0)
+			expect(next(after.despawnReasons)).to.equal(nil)
+			expect(after.despawned).to.equal(beforeClear.despawned + 1)
+			runtime:destroy()
+			holder:Destroy()
+		end)
+
+		it("names every reason it has counted, in one line a probe can read", function()
+			expect(Boar.reasonLine({})).to.equal("")
+			expect(Boar.reasonLine({ escaped = 12, pastRoad = 3, settled = 4 })).to.equal(
+				"escaped=12 pastRoad=3 settled=4"
+			)
+		end)
+	end)
 end
