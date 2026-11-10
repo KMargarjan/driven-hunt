@@ -8,9 +8,8 @@ written to the place. Driver: `<runs-dir>/346b-run.sh`, built on 346's probes.
 - **BEFORE 346** = `driven-hunt-rev` at `29fd976c`. `git diff 1bd9583b 29fd976c -- src tests tools`
   is **empty**, so this IS the build the dispatch names.
 - **#360** = a throwaway worktree at `a36899b6`.
-- **AFTER** = `driven-hunt` at `b397aa41`, the code commit. `git diff 1d2bc385 b397aa41 -- src` is
-  empty, so readings taken at `1d2bc385` are readings of this `src/`; the whole set was re-taken at
-  `b397aa41` anyway (section 6, L-162).
+- **AFTER** = `driven-hunt` at `2487dddb`, the code commit. The round-2 commit changed one COMMENT
+  in `src/` and two spec files, so the readings are re-taken at `2487dddb` itself (section 6, L-162).
 
 ## 1. Four instrument faults, found and fixed before anything was claimed (rule 6)
 
@@ -103,9 +102,10 @@ frontage. **That is a design decision and not a Builder call: it is for the Dire
 
 ## 6. Every live reading re-taken at the code commit (L-162)
 
-At `b397aa41`, Karen's Forest Test, C1 replanted and the cell checked standing:
+At **`2487dddb`**, Karen's Forest Test, C1 replanted and the cell checked standing:
 `models=3969 parts=14628 cheapModels=825`, F3 `0 % open, 118 trees`, F2 `29.7 %, 80`, F1
-`0 %, 2008` — identical to the `1d2bc385` readings, as `git diff -- src` predicts.
+`0 %, 2008`. The same three readings came out identical at `1d2bc385` and at `b397aa41`: the two
+later commits change specs and one comment, which no planting reads.
 
 ## 7. Six iteration cycles on the cheap band's grid (core protocol step 2)
 
