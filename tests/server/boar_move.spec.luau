@@ -290,9 +290,11 @@ return function()
 					config.MOVE.WEDGE_SECONDS
 				)
 			)
+			-- MEASURED: 0.5 s and 1.5 s. The bounds are one frame of slack above each, because
+			-- `frame * DT` lands exactly on a window edge and a float ulp either way is noise.
 			expect(#turns >= 2).to.equal(true)
-			expect(turns[1] <= 0.5).to.equal(true)
-			expect(turns[2] <= 1.5).to.equal(true)
+			expect(turns[1] <= 0.6).to.equal(true)
+			expect(turns[2] <= 1.6).to.equal(true)
 		end)
 
 		it("never fires on an animal that is actually covering ground", function()
