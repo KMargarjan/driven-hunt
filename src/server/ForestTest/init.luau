@@ -29,6 +29,10 @@ local Workspace = game:GetService("Workspace")
 local PathfindingService = game:GetService("PathfindingService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+-- FOR THE STUDIO-ONLY PLACEMENT PROBE ATTRIBUTE AND NOTHING ELSE (task 345b, design 9.2): a
+-- `require` over StudioMCP answers a fresh copy of this module, so the roster's counts have to live
+-- on an Instance to be readable live. It is not a `DHFlag_*` name, which `tools/studio_mcp.py` owns.
+local ServerStorage = game:GetService("ServerStorage")
 -- FOR THE RUT ROAR'S FADE AND NOTHING ELSE (task 254): `ForestTest.roarFade` tweens the one Sound
 -- this module owns, because a region cut out of a field recording clicks without one.
 local TweenService = game:GetService("TweenService")
@@ -2864,6 +2868,28 @@ function ForestTest.placementReport(): { string }
 		table.insert(skips, string.format("%s %d", reason, count))
 	end
 	table.sort(skips)
+	-- ...AND WHERE A PROBE CAN READ IT, IN STUDIO (design 9.2; brought forward from T3 because T2's
+	-- own measurement needs it). A counter that lives only in module state is not a diagnostic: a
+	-- `require` over StudioMCP answers a FRESH copy of this module with empty state, so the only way
+	-- to read the roster live is off an Instance. The shape is `Runtime:step`'s `DHBoarHistory` and
+	-- the name is NOT `DHFlag_*`, which `tools/studio_mcp.py` owns.
+	if RunService:IsStudio() then
+		ServerStorage:SetAttribute(
+			"DHForestPlacement",
+			string.format(
+				"drive=%s placed=%d bedded=%d awake=%d gone=%d skipped=%d animals=%d bodies=%d searches=%d",
+				tostring(stats.drive),
+				stats.placed,
+				stats.groupsBedded,
+				stats.awake,
+				stats.gone,
+				stats.skipped,
+				stats.animals,
+				stats.bedded,
+				stats.searches
+			)
+		)
+	end
 	return {
 		string.format(
 			"drive %s: %s (%d animals placed, %d bedded bodies, %d searches, skips %s)",
