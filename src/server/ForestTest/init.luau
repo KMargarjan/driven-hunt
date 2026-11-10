@@ -2084,7 +2084,7 @@ function ForestTest.planDrive(driveNumber: number?, inPlace: boolean?): string?
 		Grid.animalsOf(chosen.name),
 		Data.REST,
 		Data.SPOOK,
-		ForestTest.beaterNorthStuds(chosen.layout),
+		Data.beaterNorthStuds(chosen.layout),
 		Grid.CONFIG.beaterWalkStudsPerSecond,
 		boarConfig(),
 		state.rng,

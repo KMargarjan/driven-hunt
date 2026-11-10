@@ -253,7 +253,9 @@ return function()
 		end)
 
 		it("puts every planned bed inside the band, at every density", function()
-			local layoutFar = Placement.bandFar(Data.beaterNorthStuds(), Data.noticeAheadStuds(SPOOK, nil), SPOOK)
+			-- THE BAND `planAt` ACTUALLY PLANS IN: a cell's own muster, which is where every drive
+			-- Karen plays musters (`Grid.CELLS[i].beaterNorthStuds = cellDepthStuds`).
+			local layoutFar = Placement.bandFar(CELL_MUSTER, Data.noticeAheadStuds(SPOOK, nil), SPOOK)
 			local layoutNear = Placement.bandNear(SPOOK, REST)
 			for _, density in ipairs(DENSITIES) do
 				local rows = planAt(density)
@@ -461,7 +463,9 @@ return function()
 		it("is due only when the line is within the lead, and never for a skip or a body", function()
 			local rows = planAt("normal")
 			local deepest = rows[1]
-			expect(deepest.reachAtSeconds).to.equal(0)
+			-- THE DEEPEST BED IS THE FIRST SLOT'S, and the line reaches it at the second the script
+			-- says that slot moves -- which is the whole point of `bedNorth`'s one rule.
+			expect(math.abs(deepest.reachAtSeconds - Data.slotSeconds(deepest.slot, SCHEDULE)) < 1e-6).to.equal(true)
 			expect(Placement.dueNow(deepest, 0, CONFIG.leadSeconds)).to.equal(true)
 			local shallow = rows[#rows - CONFIG.walkersPerDrive]
 			-- Its own arrival is beyond the lead, so it is not due at the opening...
