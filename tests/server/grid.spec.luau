@@ -2657,6 +2657,72 @@ return function()
 		end)
 	end)
 
+	-- ------------------------------------------ 16b. the cheap far band (task 346b)
+
+	describe("the deepest band is scenery and is planted tighter for it", function()
+		-- Karen, 2026-11-10: *"more tree needs behind, it has to be feeling animals run away to
+		-- another forest"*. Task 346 answered it and cost 3.80 ms of client frame at C1 stand 8
+		-- (`reviews/task-346b/MEASUREMENTS.md` 1), so the band it added is now CHEAP -- no shadow,
+		-- no collision, no raycast -- and spends that on density instead of depth.
+		--
+		-- **THIS CASE DIES IF EITHER HALF IS DELETED** (lesson L-093). Drop `cheap` from the band
+		-- `Plan.skirtBands` returns and no planting carries it; drop the spacing substitution and
+		-- the deepest band falls back to `deepSpacingStuds`, which the last assertion refuses.
+		it("flags every deepest-band site cheap, and nothing nearer", function()
+			local lines = {}
+			for _, id in ipairs(Grid.cellIds()) do
+				local plan = Plan.cellPlanFor(id)
+				local deepRects, nearBands, deepBands = {}, 0, 0
+				for _, side in ipairs(Plan.skirtSides(id)) do
+					for _, band in ipairs(Plan.skirtBands(id, side.id, side.axis, plan, side.sign)) do
+						if band.deepest then
+							deepBands += 1
+							table.insert(deepRects, band.rect)
+							-- THE DEEPEST BAND IS CHEAP AND IS PLANTED ON THE CHEAP GRID.
+							expect(band.cheap).to.equal(true)
+							expect(band.spacing).to.equal(Plan.SKIRT_CHEAP_SPACING_STUDS)
+						else
+							nearBands += 1
+							-- ...AND THE BANDS A PLAYER CAN WALK INTO ARE NOT.
+							expect(band.cheap).to.equal(false)
+							expect(band.spacing).to.equal(plan.spacingStuds == 0 and 0 or band.spacing)
+						end
+					end
+				end
+				expect(deepBands).to.equal(4)
+				expect(nearBands > 0).to.equal(true)
+				-- EVERY CHEAP SITE LIES INSIDE A DEEPEST RECTANGLE, and there are some. Counted off
+				-- the PLANTED sites, so a flag that never reaches a planting fails here too.
+				local cheap, stray = 0, 0
+				for _, item in ipairs(Plan.plantCell(id)) do
+					if item.cheap then
+						cheap += 1
+						local inside = false
+						for _, r in ipairs(deepRects) do
+							if item.x >= r.minX and item.x <= r.maxX and item.z >= r.minZ and item.z <= r.maxZ then
+								inside = true
+							end
+						end
+						if not inside then
+							stray += 1
+						end
+					end
+				end
+				expect(cheap > 0).to.equal(true)
+				expect(stray).to.equal(0)
+				table.insert(lines, string.format("%s cheap%d", id, cheap))
+			end
+			-- THE CHEAP GRID IS TIGHTER THAN THE ONE IT REPLACES, on every cell -- that is what the
+			-- saving was spent on. Equal would make the whole change a no-op the counts above miss.
+			for _, id in ipairs(Grid.cellIds()) do
+				expect(Plan.SKIRT_CHEAP_SPACING_STUDS < Plan.cellPlanFor(id).deepSpacingStuds).to.equal(true)
+			end
+			-- ...AND CHEAP STARTS BEYOND WHERE A PLAYER WALKS: band 2 reaches `skirtFullStuds`.
+			expect(Plan.SKIRT_CHEAP_FROM_STUDS > 0).to.equal(true)
+			TestKit.note(string.format("cheap far band: %s", table.concat(lines, " ")))
+		end)
+	end)
+
 	-- ---------------------------------------------------------------- 17/18. the slice
 
 	describe("the slice", function()

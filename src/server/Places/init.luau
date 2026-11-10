@@ -610,6 +610,21 @@ function Places.plantOne(
 		made:PivotTo(made:GetPivot() + Vector3.new(0, verdict.lift, 0))
 	end
 	Places.quieten(made)
+	-- SCENERY, AND ONLY SCENERY (task 346b). A tree this far behind the road is a silhouette: no
+	-- shadow to render, no collision to solve, no raycast to filter. The attribute is published so a
+	-- probe can COUNT what the flag produced instead of trusting the plan (lesson V293b).
+	-- https://create.roblox.com/docs/reference/engine/classes/BasePart#CastShadow
+	if item.cheap then
+		for _, part in ipairs(made:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CastShadow = false
+				part.CanCollide = false
+				part.CanQuery = false
+				part.CanTouch = false
+			end
+		end
+		made:SetAttribute("DrivePlaceCheap", true)
+	end
 	-- ONE TREE IS ONE THING TO STREAM IN (task 328b, design 16's 328b row). `Atomic` sends the whole
 	-- model or none of it, so a client can never be handed a trunk with no crown -- or a crown with no
 	-- trunk to stop a bullet. It touches no part property, so the foliage flags `quieten` just set
