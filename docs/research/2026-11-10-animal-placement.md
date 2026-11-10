@@ -201,7 +201,7 @@ therefore the **plan's own arithmetic**, every one of them a case in
 | deepest bed | `bandFar` = `beaterNorth − noticeAhead − SWEEP.MIN_AHEAD_STUDS` = **450** at 580 | design §4.2 |
 | shallowest bed | `bandNear` = `max(neverStuds, REST.nearRoadStuds)` rounded up = **150** | design §6.2 |
 | bed spacing | **37.5 / 25.0 / 21.4** studs | `(far − near) / (g − 1)` |
-| the line finds a group every | **12.1 / 8.1 / 6.9 s** | `(far − near) / WALK_SPEED / (g − 1)` at 3.1 studs/s |
+| the line finds a group every | **6.65 / 4.43 / 3.80 s** | `(far − near) / WALK_SPEED / (g − 1)` at the LIVE `Bots.CONFIG.WALK_SPEED` = `Grid.CONFIG.beaterWalkStudsPerSecond` **5.64** (task 327d2, 2026-11-09). The design's 12.1 / 8.1 / 6.9 is the same arithmetic at **3.1**, which that task superseded the day before the design was written -- so the design's *"releases finish at ~97 s"* is really **53 s**. MEASURED by the spec: *"placement normal: the line finds a group every 4.43 s"*. Against the 13 s Karen accepted this is the number that needs a decision, and it is in `ESCALATE.md` 2026-11-10 ~13:50 |
 | `neverStuds` | **145** = `SPOOK.NOTICE_STUDS` 125 + `bedSpreadStuds` 40 / 2 | design §6.2 |
 | min distance between two beds | ≥ **71** = `SPOOK.BEATER_STUDS` | design §4.2 |
 | walkers per drive | **2**, the two shallowest beds | design §4.5, Karen's K-2 |

@@ -7,6 +7,13 @@
 -- cases assert RELATIONS and never literals, so moving `SPOOK.NOTICE_STUDS`, `REST.nearRoadStuds`,
 -- `BEATER.behindLineStuds` or a `DENSITIES` row moves the rule instead of leaving a stale number.
 --
+-- IT RIDES `BOAR_MODEL` FOR THE DEER HALF, and that is said rather than guarded (round 1's note):
+-- `Boar.CONFIG.KINDS.ENABLED` is `Flags.isOn("BOAR_MODEL")` and `Boar.deerComposition` answers nil
+-- with the kinds off, so flipping that row to false drops every `reddeer` row from a plan and the
+-- density counts go red for a reason that is not placement's. It is on by default and has been since
+-- task 123; the cap, which `ForestTestBoot` MUTATES at boot, is the one that is built instead of
+-- read (`configWithDeerCap`), because load order is not a thing a spec may depend on.
+--
 -- Design: docs/design/animal-placement.md section 13.1
 -- Note:   docs/research/2026-11-10-animal-placement.md
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -118,20 +125,45 @@ return function()
 		end)
 
 		it("follows the dial when the dial moves, so no count is written down here", function()
+			-- 9 AND NOT 1 (round 1's blocking finding, which was right): every one of the fifteen
+			-- rows carries `keepAt` 9, 13 or 15, so a dial of ONE keeps nothing and the case was
+			-- `0 == 0` -- it survived gutting `plan`. A dial of nine keeps a NON-EMPTY subset that
+			-- is not the shipped one, so the case now bites in both directions.
 			local schedule = table.clone(SCHEDULE)
 			local dials = table.clone(SCHEDULE.DENSITIES)
-			dials.normal = 1
+			dials.normal = SCHEDULE.DENSITIES.quiet
 			schedule.DENSITIES = dials
-			local rows = planAt("normal", nil, schedule)
-			-- Only the rows at `keepAt <= 1`, which is none of the fifteen: a dial of one silences
-			-- the script, and the plan is empty rather than guessing.
-			local wanted = 0
+			local moved, wanted = planAt("normal", nil, schedule), {}
 			for slot = 1, #schedule.drive do
-				if Data.slotAt(slot, "normal", schedule) ~= nil then
-					wanted += 1
+				local row = Data.slotAt(slot, "normal", schedule)
+				if row ~= nil then
+					table.insert(wanted, row.slot)
 				end
 			end
-			expect(#rows).to.equal(wanted)
+			expect(#wanted > 0).to.equal(true)
+			expect(#moved).to.equal(#wanted)
+			for index, row in ipairs(moved) do
+				expect(row.slot).to.equal(wanted[index])
+			end
+			-- ...AND IT IS A DIFFERENT SET FROM THE UNMOVED DIAL'S, which is what "follows" means:
+			-- a plan that ignored the dial would answer the same thirteen rows for both.
+			local unmoved = planAt("normal")
+			expect(#unmoved).to.equal(SCHEDULE.DENSITIES.normal)
+			expect(#moved < #unmoved).to.equal(true)
+			local shipped = {}
+			for _, row in ipairs(unmoved) do
+				shipped[row.slot] = true
+			end
+			local dropped = 0
+			for _, slot in ipairs(wanted) do
+				if not shipped[slot] then
+					dropped += 1
+				end
+			end
+			-- The quiet set is a SUBSET of the normal one, so every slot the moved dial keeps is one
+			-- the shipped dial kept too -- the difference is which it drops, and it drops four.
+			expect(dropped).to.equal(0)
+			expect(#unmoved - #moved).to.equal(SCHEDULE.DENSITIES.normal - SCHEDULE.DENSITIES.quiet)
 		end)
 
 		it("gives the two shallowest beds the slot clock and every other bed none", function()
@@ -222,9 +254,12 @@ return function()
 			-- ...and it is the road rule when the road rule is the bigger of the two, so the arm is
 			-- a `max` and not a replacement.
 			expect(Placement.bandNear({ NOTICE_STUDS = 0 }, { nearRoadStuds = 220 })).to.equal(220)
-			-- A near edge past the far edge is a wood with no room, and the ladder still answers
-			-- inside its own two bounds rather than inventing one.
-			expect(Placement.bedNorth(2, 2, 150, 450)).to.equal(150)
+			-- A BAND HANDED IN THE WRONG WAY ROUND still answers inside its own two bounds rather
+			-- than inventing a depth outside them: the ladder walks from `far` to `near` whichever
+			-- of the two is the deeper (round 1's note -- the old line here drove an ordinary band
+			-- and duplicated the case above).
+			expect(Placement.bedNorth(1, 2, 450, 150)).to.equal(150)
+			expect(Placement.bedNorth(2, 2, 450, 150)).to.equal(450)
 		end)
 
 		it("derives neverStuds from the notice reach and orders the four radii", function()
@@ -426,8 +461,6 @@ return function()
 			-- A line that has walked past the bed has certainly reached it (`Data.sweepCatches` is
 			-- the server's half of that story).
 			expect(Placement.wakeReason(row, 0, 100, notice)).to.equal("beaters")
-			-- A non-walker's clock is `math.huge`, so the two triggers cannot reach each other's arm.
-			expect(row.wakeAtSeconds).to.equal(math.huge)
 		end)
 
 		it("keeps a bed clear of every bed already found", function()

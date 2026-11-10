@@ -454,7 +454,23 @@ function Placement.plan(
 			end
 		else
 			composition = sounders[row.composition]
-			size = if composition ~= nil then deps.compositionSize(composition, boarConfig) else 1
+			if composition == nil then
+				-- PRINTED, NOT DROPPED (design must-not 11; round 1's note). No shipped row reaches
+				-- this -- a boar row's `composition` indexes `SOUNDER.COMPOSITIONS` -- so it is a
+				-- typo in the script, and a typo that silently removes a group from a drive is the
+				-- kind of hole this module exists to close.
+				table.insert(
+					lines,
+					string.format(
+						"plan %d: slot %s names no sounder composition %s",
+						driveNumber,
+						tostring(row.slot),
+						tostring(row.composition)
+					)
+				)
+			else
+				size = deps.compositionSize(composition, boarConfig)
+			end
 		end
 		if composition ~= nil then
 			table.insert(admitted, { row = row, composition = composition, size = size })
