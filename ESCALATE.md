@@ -1,3 +1,58 @@
+## 2026-11-10 ~01:20 UTC, Task 327h -- STOPPED AT THE DISPATCH'S TWO-ROUND CAP: two blocking findings on round 2, both in the `restZones` quarter of the task
+
+The dispatch: *"Review: at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."*
+Round 2 returned two findings (`reviews/task-327h/RESULT.md`, commit `d3d3fa40`, $4.70). **Both look
+right to me and I am not disputing either.** No further code was written. The branch
+`task-327h-cell-animals` is at `d3d3fa40`, code commit `1d484d4e`,
+`[harness] PASS: 34/34 checks @ 1d484d4e (clean tree) scope=all`.
+
+**THREE QUARTERS OF THE TASK ARE CLEAN AND WERE NOT TOUCHED BY EITHER ROUND.** No finding in either
+round is against the `animals` rows, `cellSchedule`, `startDepth`, `routeBias`, the boar step
+counters, or anything in the measured drives. Both rounds' four findings are all `restZones`.
+
+**Finding 1 -- my proof case does not die with the fix it proves.** The point I picked (C1 centre,
+v 0.15) is 73 studs from the nearest zone edge in u and 242 in v, against a bend of 45/60, so
+`zoneIndexAt` answers 2 with the conversion and 2 without it. The Reviewer supplies the point that
+does bite, and it is `restSpot`'s own case: **B1 at x -5011, a candidate `REST.nearRoadStuds` north
+of the main road at world z -5097 -- grid v fraction 0.0218 (inside `spruceRidge` zone 1) against
+an unconverted -0.0098, which is OUTSIDE `cellGround`, where `zoneAt` is nil and the candidate is
+refused.** That is round 1's defect as an assertion. The fix is the case, not the code: the code
+change (world wrapper + `zoneIndexAtGrid` kernel) is not disputed.
+
+**Finding 2 -- a real behaviour regression I introduced, and it is the one that matters.** My third
+pass is *(zone AND seen) > zone > anything*, so on pass 3 the sightline is `true` by construction
+and **task 172's preference is gone** for any group whose candidates are all outside the listed
+zones. Karen asked for that preference by name (*"beaters has to see more animals when walking ...
+I want to see them more"*). And **A2's shipped row reaches it**: `aspenRolling`'s only `wood` zone
+is zone 3, which meets the rest band in `dz 394..425` -- 31 studs of the band's 385 -- while
+`REST.groups`' depths are 415, 370, 340, 305, 230, 200, 195, 90, 85, 60 and the search reaches
+64 studs. **7 of 10 groups** are refused in passes 1 and 2 and bedded by pass 3 with no sightline
+test at all, in the same shrub zones they used before. My own request said the live drives could not
+have caught this: they were all played as a HUNTER, and the wood is only stocked in beater mode.
+
+**THE FIX THE REVIEWER NAMES, which I have NOT written:** four passes, *(zone AND seen) > zone >
+seen > any* -- one more arm in `ForestTest.restPasses` / `restPassTakes` and **no change to
+`restSpot`'s loop** -- or drop A2's list and say in the row why. Either is small.
+
+**THE DECISION ASKED FOR**, one of:
+1. **one more round** (`DIRECTOR_MAX_ROUNDS=3`, authorised here for task 327h round 3): I write the
+   four-pass arm, the B1 case, and the five one-line notes, and re-run the gate. My estimate is
+   under an hour including the harness and the review;
+2. **split**: merge the three clean quarters and take `restZones` out of this branch into its own
+   task. `restZones` is read in exactly one place (`restSpot`), so removing the `restZones` field,
+   `restZonesOf`, `restZoneAllowed`, `restPasses`, `restPassTakes`, `Places.zoneIndexAt(Grid)` and
+   the three glue lines is a clean subtraction -- but it is still a code change and still needs a
+   review round, so it costs the same as (1) and delivers less;
+3. **merge as it stands and queue both**: NOT recommended. Finding 2 is a live regression on
+   Karen's own sentence, in beater mode, in one shipped cell.
+
+**Also open from round 2, non-blocking, queued rather than fixed:** the memo key omitting
+`cellDepthStuds`; `made.restZones` read by nothing; `Places.zoneAt`'s header still saying "WORLD
+POINT"; `[boarstep]`'s comment naming fields it does not print; the rest-band spec frame using 1430
+instead of the inset 1424 + 24 (which is why A2 looked like ~53 studs of overlap and is 31); and
+`AUTUMN_LIGHT`'s re-justified `expires` now being 35 days after `born` against section 12's 21-day
+ceiling -- that last one is the Architect's file and the Director's call.
+
 ## 2026-11-10 ~00:35 UTC, Task 327h -- FOR THE ARCHITECT AND THE DIRECTOR: two of design 9.2's four budget numbers are broken by the world as it stands, BEFORE this task's rows
 
 Task 327h built the instrument design 9.2 asks for (*"NEW: `stepMsAvg` / `stepMsMax` on the boar
