@@ -1,3 +1,15 @@
+## DIRECTOR DECISION, 2026-11-10 ~01:25 UTC, Task 327h: ROUND 3 AUTHORISED (option 1)
+
+Option 1 of the entry below: `DIRECTOR_MAX_ROUNDS=3` is authorised for **task 327h, round 3 only**.
+Scope of the round: the four-pass rest order *(zone AND seen) > zone > seen > any* in
+`ForestTest.restPasses` / `restPassTakes`, with no change to `restSpot`'s loop; the B1 coordinate case
+the Reviewer names (x -5011, world z -5097), which must fail without the conversion; and the
+non-blocking one-line notes if they are free. Nothing else. Finding 2 is a live regression on Karen's
+own sentence ("beaters has to see more animals"), so option 3 is refused, and option 2 costs the
+same round and delivers less. A FINDING on round 3 is an ESCALATE.md entry, not a fourth round.
+The 9.2 budget entry (60 live, 5.99-10.33 ms per step, measured on main with no rows) is NOT this
+round's job. The Director queues it as its own task.
+
 ## 2026-11-10 ~01:20 UTC, Task 327h -- STOPPED AT THE DISPATCH'S TWO-ROUND CAP: two blocking findings on round 2, both in the `restZones` quarter of the task
 
 The dispatch: *"Review: at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."*
