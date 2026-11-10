@@ -1816,17 +1816,7 @@ function Body.stepVisual(handle, dt: number, info, config)
 		handle.hitFor = math.max(handle.hitFor - dt, 0)
 	end
 
-	-- IS THE POSE STILL ON IT? The death track this carcass is held by, playing at weight, at its
-	-- held frame -- the state `Body.shouldRehold` refuses to touch. Read once, here, because both
-	-- repairs below ask about the same track.
-	local heldName = handle.heldClip or handle.clip
-	local heldTrack = if heldName ~= nil then handle.tracks[heldName] else nil
-	local posed = heldTrack ~= nil
-		and heldTrack.IsPlaying == true
-		and heldTrack.WeightCurrent >= 0.5
-		and heldTrack.Length > 0
-		and heldTrack.TimePosition >= heldTrack.Length - config.MODEL.HOLD_EPSILON
-	if handle.collapsed and Body.shouldReassert(handle.deadFor + dt, handle.reasserted, config.WOUND, posed) then
+	if handle.collapsed and Body.shouldReassert(handle.deadFor + dt, handle.reasserted, config.WOUND) then
 		-- SAY IT AGAIN, ONCE (task 150). Measured: every carcass lies down on the SERVER and about one
 		-- in ten stands on the CLIENT, with no track on it there -- the client missed the one `Play`
 		-- the death ever got. By now the fall and the paddle have both ended and the track is held at
@@ -3123,24 +3113,8 @@ function Body.holdFrame(heldAt: number?, length: number, config): number
 end
 
 -- WHETHER TO SAY THE DEATH POSE AGAIN (task 150). Pure, like every rule here, and once per carcass.
---
--- ...AND ONLY WHEN THE POSE HAS ACTUALLY BEEN LOST (task 344b). `posed` is "this carcass's death
--- track is playing, at weight, at the frame it is held on" -- `Body.shouldRehold`'s own question,
--- asked the other way round. MEASURED in Karen's Forest Test with the restart unconditional: of 14
--- kills ONE carcass drew its BIND POSE on the client -- `span` 3.07 studs with no track on it at
--- all -- **at exactly 6 s after death**, `CARCASS_REASSERT_SECONDS` to the second, and was lying
--- again by the next sample. Karen, 2026-11-10: *"animal died and then stand and then again die"*.
--- A `Play` restarts a track at frame 0, and frame 0 of a death is the animal ON ITS FEET; the
--- server writes `TimePosition` back inside the same frame, which is why the server never saw it.
---
--- SO IT IS A REPAIR AND NO LONGER A RITUAL. A carcass whose pose is right is left alone, which is
--- every carcass in a healthy session; the one that lost it -- task 150's client that missed the
--- first `Play` -- still gets the pose said again, because for that one `posed` is false.
-function Body.shouldReassert(deadFor: number, reasserted: boolean, config, posed: boolean?): boolean
+function Body.shouldReassert(deadFor: number, reasserted: boolean, config): boolean
 	if reasserted or config.CARCASS_REASSERT_SECONDS == nil then
-		return false
-	end
-	if posed == true then
 		return false
 	end
 	return deadFor >= config.CARCASS_REASSERT_SECONDS

@@ -1166,18 +1166,6 @@ return function()
 			expect(w.CARCASS_REASSERT_SECONDS > both).to.equal(true)
 			-- ...and long before the carcass is taken off the board.
 			expect(w.CARCASS_REASSERT_SECONDS < w.CARCASS_SECONDS).to.equal(true)
-			-- ...AND ONLY WHEN THE POSE HAS ACTUALLY BEEN LOST (task 344b). KAREN, 2026-11-10:
-			-- *"animal died and then stand and then again die"*. MEASURED in her place with the
-			-- restart unconditional: of 14 kills one carcass drew its BIND POSE on the client --
-			-- 3.07 studs of span, no track on it -- at exactly 6 s after death, and was lying again
-			-- by the next sample. A `Play` restarts at frame 0, and frame 0 of a death is the animal
-			-- on its feet. FAILS AT MAIN, where the fourth argument does not exist.
-			expect(Boar.shouldReassert(w.CARCASS_REASSERT_SECONDS, false, w, true)).to.equal(false)
-			expect(Boar.shouldReassert(60, false, w, true)).to.equal(false)
-			-- THE CASE TASK 150 EXISTS FOR is untouched: a carcass that has lost its pose still
-			-- gets it said again.
-			expect(Boar.shouldReassert(w.CARCASS_REASSERT_SECONDS, false, w, false)).to.equal(true)
-			expect(Boar.shouldReassert(w.CARCASS_REASSERT_SECONDS, false, w, nil)).to.equal(true)
 		end)
 
 		-- ONE CARCASS HANDLE FOR TASK 293 (the fields `Body.stepVisual` reads, and nothing else), so
