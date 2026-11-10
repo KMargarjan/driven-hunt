@@ -157,7 +157,18 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- PREVIOUSLY, 23 -> 24: `GRID_PREVIEW` (task 327a). The Director approved the one row rather than retiring
 -- two; `docs/design/grid-map.md` section 11.1 asks for 25 because it counts `CELL_VOTE` too,
 -- and that row is task 327e's.
-Flags.MAX_FLAGS = 23
+--
+-- 23 -> 24 FOR TASK 345a's `PLACEMENT_IN_PLACE`, and the same sentence a fourth time, said out loud
+-- rather than paid for by quietly retiring somebody else's row: the table held exactly 23 and the
+-- tripwire refused the twenty-fourth, MEASURED at this commit (`flags.spec`'s rot tripwire failed
+-- with "Expected 0, got 1" before this line moved). `docs/design/animal-placement.md` section 11
+-- asks for the row and asks for it born OFF, and what it switches is where every animal of a drive
+-- is standing when the drive opens -- a feel change and Karen's, so it cannot ship lit (section 11
+-- step 1 of `docs/design/feature-flags.md` forbids it). The two ways out of the cap are still task
+-- 238's two: retire the lit rows queued as TASKS.md 82b, which is the DIRECTOR's call and deletes a
+-- losing branch per retirement, or ship lit, which is forbidden. **The Director may prefer to spend
+-- 82b instead**: this is one line either way.
+Flags.MAX_FLAGS = 24
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -817,6 +828,42 @@ Flags.DEFAULTS = {
 		why = "A red stag bounds once when he is spooked from a stand-still, instead of simply "
 			.. "running. OFF until TASKS.md 245c fixes the leap clip's measured hoof sink, which this "
 			.. "reuses and which a bound on flat ground is the case that shows.",
+	} :: FlagRow,
+
+	-- ------------------------------------- THE ANIMALS ARE ALREADY THERE (task 345)
+	--
+	-- KAREN, 2026-11-10: *"animals has to be in palces not just apear magically"* and *"we need to
+	-- have them not magically apearing it has to be there then it spooked or it walkks towards"*.
+	--
+	-- WHAT IT SWITCHES. OFF is the drive this game has always run: `ForestTest.releaseLine` spawns
+	-- each scheduled group at `Data.releaseDepth(...)`, whose floor is 25 studs north of the road --
+	-- inside the lane a hunter is looking down, which IS the magic she is reporting. ON, a drive's
+	-- whole population exists as rows in `state.roster` from the drive's first frame, each row is
+	-- given a body only in cover and only where no player can see it, and the line then FINDS them.
+	--
+	-- READ ONCE, at the owner's boundary: `ForestTest.start` resolves it into `state.placementInPlace`
+	-- and `planDrive` / `stepPlacement` / `releaseLine` take it as a PARAMETER, so both states are
+	-- reachable from a spec while the row sits at false (the only permitted shape,
+	-- docs/design/feature-flags.md).
+	--
+	-- BORN OFF AND NOTHING READS IT YET (task 345a / T1): the pure rules
+	-- (`ReplicatedStorage.ForestTest.Placement`) and their spec ship first, dark. T2 to T6 wire the
+	-- owner behind this row, and Karen's OK after T6's playtest flips the default in a later
+	-- three-line commit -- at which point the losing branch is archived under `backups/` (rule 7).
+	--
+	-- Design: docs/design/animal-placement.md section 11
+	-- Note:   docs/research/2026-11-10-animal-placement.md
+	PLACEMENT_IN_PLACE = {
+		default = false,
+		-- The Director, because the switch is the drive's and not one module's: the owner of the
+		-- roster is `ServerScriptService.ForestTest`, and what this row decides is whether that owner
+		-- runs at all.
+		owner = "Director",
+		born = "2026-11-10 task 345a",
+		expires = "2026-11-30", -- 20 days, inside the 21-day ceiling in feature-flags.md section 12
+		why = "Every animal of a drive is already standing in the wood before the drive opens, and "
+			.. "the beater line finds it, instead of each group being spawned in front of whoever is "
+			.. "looking. OFF is today's drive, byte for byte.",
 	} :: FlagRow,
 }
 

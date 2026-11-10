@@ -1060,6 +1060,10 @@ SCOPE_SPECS = {
                # resolve here. Triple membership with `lobby` and `map` (design 13.2).
                "tests/server/grid_ground.spec.luau"),
     "match": ("tests/server/match_config.spec.luau", "tests/server/forest_markers.spec.luau",
+              # Task 345: the pure rules of animal placement -- the roster, the beds, the band, the
+              # never-in-view distance, the budget door and the wake rule. `src/shared/ForestTest/`
+              # resolves here, so a change to the drive's data plays the arithmetic that reads it.
+              "tests/server/forest_placement.spec.luau",
               # Task 287: the LIVE door a pad step goes through, last in the suite because a restart
               # is a drive boundary. DUAL MEMBERSHIP with `lobby`, which reads that door.
               "tests/server/zz_pad_restart.spec.luau",
