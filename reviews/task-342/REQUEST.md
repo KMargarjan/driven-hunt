@@ -1,11 +1,34 @@
 # Task 342 -- at most 24 animals alive, so the animals never lag the server
 
 Task: 342
-Round: 1
+Round: 2
 Base: e77e755a (main, #354)
-Code commit: 56973867
+Code commit: 9461aacb
 
-`[harness] PASS: 34/34 checks @ 56973867e19e616c29f1318c0f156b9588a4e192 (clean tree) scope=all`
+`[harness] PASS: 34/34 checks @ 9461aacbba6ec42e35464ecfd524e4bcd8048383 (clean tree) scope=all`
+
+**ROUND 2 CHANGED `tests/` ONLY.** `git diff 56973867..9461aacb -- src/` is EMPTY, so the live proof
+below -- taken in her Forest Test at `56973867` -- covers this code byte for byte.
+
+## Round 1's two findings, both right, both fixed
+
+1. **The DOWN case could not fail.** It sat at -85 while `pastRoadStuds` had moved to 150, so the
+   MARGIN refused it and the `state == "DOWN"` exclusion was never exercised. It is now at **-155**
+   -- the position the `pastRoad` case directly above it proves an IDLE animal DOES leave from --
+   and is held there for the whole dwell, so deleting the exclusion from `_outcome` or
+   `_updateOutOfPlay` now fails it. **CRIPPLED** was named in the claim and asserted by nothing; it
+   has its own half now (a rump hit that is at least mortal, `expect(state) == "CRIPPLED"`, then the
+   same held position).
+2. **Nothing distinguished `liveCount` from `count`** -- `clearOne` removes the entry, so both read
+   the same -- and that distinction is the whole reason `liveCount` exists. One animal is now put
+   DOWN through `Runtime:takeHit` (a slug to the head), and the case asserts **`count() == 2` while
+   `liveCount() == 1`**, then `Live` 1; the animal `clearOne` takes is the one still on its feet, so
+   the case ends on `Live` 0 with `count` 1 -- the carcass still holding its `MAX_BOARS` slot.
+   Replace `liveCount`'s body with `return self:count()` and three assertions fail.
+
+Also taken, being one line and free: the no-road case's sentence claimed the settled clock, which
+that brain (never `leadTo`'d) could not have started. The other notes are queued in `TASKS.md`, not
+fixed (CLAUDE.md step 5).
 
 `test2`: **N/A.** Nothing changed under `TWO_PLAYER_PATHS` (`src/server/Match/`,
 `src/server/MatchBoot.server.luau`, `src/client/Match/`, `src/client/MatchBoot.client.luau`,
