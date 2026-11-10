@@ -1787,10 +1787,15 @@ Boar.CONFIG.MOVE = {
 	-- the animal is not moving -- and it fires the same sidestep, so there is one recovery and not
 	-- two that can disagree.
 	--
-	-- THE WINDOW IS THE DIRECTOR'S 0.75 s. At `PACE.WALK_SPEED` 4.5 an unobstructed animal covers
-	-- 3.4 studs in it, so the 0.375-stud threshold (0.5 studs/s) is a ninth of that -- nothing
-	-- actually walking can trip it, and anything pinned does.
-	WEDGE_SECONDS = 0.75,
+	-- THE WINDOW WAS THE DIRECTOR'S 0.75 s AND IS 0.4 SINCE TASK 344. Karen, 2026-11-10: *"animals
+	-- still sometimes stuck for few seconds hitting tree"*. MEASURED in her place at main over one
+	-- C1 drive (`<runs-dir>/344-BEFORE-C1.txt`): 8 animals ordered to move at 3+ studs/s and
+	-- covering under 1, for longer than a second each, the worst 2.03 s. 0.75 s of detection plus
+	-- `WEDGE_HOLD_SECONDS` 0.6 of hold cannot answer inside a second even when the first sidestep
+	-- works. At 0.4 s the sidestep fires before Karen can read the animal as stopped, and the floor
+	-- still holds: at `PACE.WALK_SPEED` 4.5 an unobstructed animal covers 1.8 studs in the window
+	-- against the 0.2-stud threshold (0.5 studs/s) -- a ninth of it, exactly as at 0.75.
+	WEDGE_SECONDS = 0.4,
 	WEDGE_SPEED = 0.5, -- studs/s ACTUALLY covered
 	WEDGE_ORDERED_SPEED = 2, -- ...while the setpoint says this or more
 	-- HOW LONG THE SIDESTEP IS HELD. The sidestep rotates `_desired` AFTER the slew, so it persists
@@ -1798,6 +1803,29 @@ Boar.CONFIG.MOVE = {
 	-- once, and `WHISKER_HOLD_SECONDS` (0.6) is how long the whiskers found an animal needs to
 	-- actually get past the thing it committed to going round. The same number, for the same reason.
 	WEDGE_HOLD_SECONDS = 0.6,
+
+	-- ---------------------------------------------------------------- sideways after the bound
+	--
+	-- KAREN, 2026-11-10: *"there is bug animals go on the side after jum"*.
+	--
+	-- MEASURED in her place at main over 15 stag leaps (`<runs-dir>/344-BEFORE-C1.txt`): the angle
+	-- between the body's FACING and its TRAVEL was 22.4 deg at +0.5 s after touchdown and 22.5 at
+	-- +1.0, worst 103.9. The MOTION is never wrong -- `Mover.PlaneVelocity` and the body's own
+	-- `AssemblyLinearVelocity` agreed to 0.0 deg in all 50 samples of `<runs-dir>/344-disc.luau` --
+	-- so it is not a slide and not a new heading: the heading SETPOINT turns at up to 441 deg/s
+	-- (`RUN_TURN_DEG` 220 x `LINE.TURN_SCALE` 1.6 = 352, plus the deadband's stop-start) where the
+	-- DRAWN body manages about 140, and the gap opens at the crossing and stays open for over a
+	-- second. An animal drawn 50-100 deg off the line it is running IS *"on the side"*.
+	--
+	-- 90 deg/s IS TASK 123's OWN MEASUREMENT, not a new dial: capping the setpoint at 90 took the
+	-- mean body turn from 50-85 deg/s to 28-34 (`PACE.WALK_TURN_DEG`'s comment), which is the drawn
+	-- body following its setpoint with room to spare. That is the whole condition here.
+	LAND_TURN_DEG = 90,
+	-- HOW LONG PAST THE BOUND IT HOLDS. The window is refreshed every tick the bound is published,
+	-- so it expires `LAND_SECONDS` after `LEAP.SECONDS` (0.75) and a stag is on the ground from
+	-- `Body.leapAir` 0.495 -- 0.8 therefore covers 1.055 s of ground past touchdown, which is past
+	-- the +1.0 s the defect was measured at.
+	LAND_SECONDS = 0.8,
 }
 
 -- THE SOUND OF A BOAR (task 116). Karen, 2026-10-03: *"I just need that once they walk you can hear

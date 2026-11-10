@@ -1904,6 +1904,105 @@ return function()
 				expect(air / BEFORE_AIR).to.be.near(math.sqrt(2), 0.1)
 			end)
 
+			it("LANDS RUNNING STRAIGHT ON: the heading cannot outrun the drawn body (task 344)", function()
+				-- KAREN, 2026-11-10: *"there is bug animals go on the side after jum"*.
+				-- FAILS WHEN THE `LAND_TURN_DEG` `math.min` IN `Brain:step` IS DELETED: both runs
+				-- then slew at the gait's own rate and `capped` is no smaller than `free`.
+				--
+				-- The two runs differ in NOTHING but `MOVE.LAND_SECONDS`. The animal bounds over the
+				-- road away from a driver, and on the first tick after the bound the driver is moved
+				-- to the far side -- one 180-degree demand, at the instant the defect was measured.
+				local function run(landSeconds: number?)
+					local config = table.clone(CONFIG)
+					config.SENSE = table.clone(CONFIG.SENSE)
+					config.SENSE.ENABLED = true
+					local model = table.clone(CONFIG.MODEL)
+					model.LEAP = table.clone(CONFIG.MODEL.LEAP)
+					model.LEAP.ENABLED = true
+					config.MODEL = model
+					config.MOVE = table.clone(CONFIG.MOVE)
+					config.MOVE.LEAP_AIR_SECONDS = Body.leapAir("stag", model.LEAP)
+					config.MOVE.LAND_SECONDS = landSeconds
+					-- THE SIDESTEP IS OFF IN BOTH RUNS, exactly as `boar_move.spec`'s own wedge case
+					-- switches it off: it rotates `_desired` by 90 degrees AFTER the slew and is
+					-- deliberately not capped (a pinned animal must still step round the trunk), so
+					-- leaving it on would measure that mechanism and not this one.
+					config.MOVE.WEDGE_SECONDS = nil
+					local field = {
+						bounds = FIELD.bounds,
+						exitZ = FIELD.exitZ,
+						groundY = 0,
+						road = {
+							halfWidthStuds = 20,
+							zAt = function(_x: number): number
+								return 0
+							end,
+						},
+					}
+					local brain = Brain.new(config, field, Vector3.zero, Random.new(7))
+					local bounded, flipped, since, worst = false, false, 0, 0
+					local previous, position = nil, Vector3.zero
+					for _ = 1, 900 do
+						local threatZ = if flipped then -8 else 8
+						local intent = brain:step(1 / 60, {
+							position = position,
+							velocity = Vector3.zero,
+							threats = {
+								{ id = "d", position = position + Vector3.new(0, 0, threatZ), kind = "driver" },
+							},
+							waypoints = nil,
+							pathFailed = false,
+							blockedAhead = false,
+						})
+						if intent.leaping then
+							bounded = true
+						elseif bounded and not flipped then
+							flipped = true -- the 180-degree demand, on the first tick back on the ground
+						end
+						-- THE GROUND IS HELD UNTIL THE BOUND and passes afterwards, which is task
+						-- 334's own harness plus the one thing this case needs: an animal whose
+						-- position never changes is a WEDGED animal, and `_updateWedge`'s 90-degree
+						-- sidestep is applied after the slew and is deliberately not capped.
+						if flipped then
+							position += intent.targetVelocity * (1 / 60)
+						end
+						if flipped then
+							since += 1 / 60
+							local facing = intent.facing
+							if previous ~= nil and facing ~= nil and facing.Magnitude > 1e-6 and since <= 0.7 then
+								local dot = math.clamp(previous:Dot(facing.Unit), -1, 1)
+								worst = math.max(worst, math.deg(math.acos(dot)) * 60)
+							end
+							if facing ~= nil and facing.Magnitude > 1e-6 then
+								previous = facing.Unit
+							end
+						end
+					end
+					return bounded, worst
+				end
+				local boundedCapped, capped = run(CONFIG.MOVE.LAND_SECONDS)
+				local boundedFree, free = run(nil)
+				TestKit.note(
+					string.format(
+						"deer 344: worst heading turn in the 0.7 s after the bound -- %.0f deg/s with the"
+							.. " landing hold, %.0f deg/s without (cap %d)",
+						capped,
+						free,
+						CONFIG.MOVE.LAND_TURN_DEG
+					)
+				)
+				-- BOTH BOUNDED: the hold changes how it steers out of the bound, never whether it bounds.
+				expect(boundedCapped).to.equal(true)
+				expect(boundedFree).to.equal(true)
+				-- ...AND THE SHIPPED WORLD HOLDS THE CAP, where the world without the window does not.
+				-- 0.5 deg/s OF SLACK, AND IT IS ONE FLOAT ULP: the rate is ONE FRAME's angle times
+				-- 60, so the rounding of a 1.5-degree `acos` comes out 60 times bigger here. Read at
+				-- full precision in a DEV Play probe it is 90.0067871327 against the free run's
+				-- 229.1865142121 -- the two are three orders of magnitude apart.
+				expect(capped <= CONFIG.MOVE.LAND_TURN_DEG + 0.5).to.equal(true)
+				expect(free > CONFIG.MOVE.LAND_TURN_DEG).to.equal(true)
+			end)
+
 			it("the burst is on the published velocity and nowhere else (task 334)", function()
 				-- FAILS WHEN THE `leapSpeedScale` CALL AT `Brain:step`'s `targetVelocity` LINE IS
 				-- DELETED. The two runs below differ in NOTHING but `LEAP.SPEED_SCALE`: the
