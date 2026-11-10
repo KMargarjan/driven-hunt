@@ -1,11 +1,13 @@
 # Task 345a (T1): the pure rules of animal placement, dark
 
 Task: 345a
-Round: 1
+Round: 2
 Base: 0ded8b8f (the design, on top of `main` 459f89ed / #357)
-Code commit: 9df17202002867282d540a30cdfb1cd0a66fea99
+Round 1's code commit: 9df17202 — the two L-028 delete-and-fail proofs in claims 4 and 5 were run at
+it, and neither guard changed in round 2.
+Code commit: 62ed274aab75bdb43b160eb63dac2d1a000b13f9
 
-`[harness] PASS: 34/34 checks @ 9df17202002867282d540a30cdfb1cd0a66fea99 (clean tree) scope=all`
+`[harness] PASS: 34/34 checks @ 62ed274aab75bdb43b160eb63dac2d1a000b13f9 (clean tree) scope=all`
 
 `test2`: **N/A**. No path here is in `TWO_PLAYER_PATHS` (`src/shared/ForestTest/`, `src/shared/Flags/`,
 `tests/server/`, `tools/studio_mcp.py`, `docs/`), and `docs/design/animal-placement.md` section 17
@@ -42,15 +44,23 @@ flag table. Flag OFF is byte-for-byte today's drive.
    → two hits, and neither is a reader: a prose line in the `Flags` comment, and the spec's own
    `require`. `grep -rn "PLACEMENT_IN_PLACE" src/` → only the `Flags` row and its `MAX_FLAGS`
    comment. And **no file under `src/server/` or `src/client/` changed at all**:
-   `git diff --name-only 0ded8b8f..9df17202` lists six paths, of which the only `src/` ones are
+   `git diff --name-only 0ded8b8f..62ed274a` lists ten paths — three of them `reviews/` /
+   `TASKS.md` / `ESCALATE.md` paperwork — of which the only `src/` ones are
    `src/shared/Flags/init.luau` and the new `src/shared/ForestTest/Placement.luau`.
 3. **The roster is the dial, and the dial is `Data.slotAt`'s.** `plan` asks `deps.slotAt` once per
    slot and copies none of its rules. MEASURED by the spec's own notes:
    quiet **9 groups / 53 animals**, normal **13 / 73**, busy **15 / 83**, matching design 5.2.
-   A second case moves `DENSITIES.normal` and the roster follows, so no count is written here.
    Verify: the case "keeps exactly the rows Data.slotAt keeps, at every density" compares the
    roster's slot list and animal total against a list rebuilt from `Data.slotAt` and
    `Boar.compositionSize` / `Boar.deerComposition` in the spec.
+   **ROUND 1's BLOCKING FINDING, FIXED, and it was right.** The second case drove
+   `DENSITIES.normal = 1`; every one of the fifteen rows carries `keepAt` 9, 13 or 15, so that dial
+   keeps NOTHING and the case asserted `0 == 0` — it survived gutting `plan`. It now drives
+   `DENSITIES.normal = DENSITIES.quiet` (**9**), which keeps a NON-EMPTY subset that is not the
+   shipped one, and asserts four things: `#wanted > 0`, the moved roster's slot list equals
+   `Data.slotAt`'s at that dial, `#moved < #unmoved` (9 against 13), and
+   `#unmoved − #moved == DENSITIES.normal − DENSITIES.quiet`. Verify it bites: `return {}, {}` from
+   `plan` now fails it on `#moved == #wanted`, and ignoring the dial fails it on `#moved < #unmoved`.
 4. **The band is derived, not written, and it cannot start inside a hunter's reach.**
    `bandFar == beaterNorth − Data.noticeAheadStuds − SPOOK.SWEEP.MIN_AHEAD_STUDS`, asserted at the
    shipped muster **and at 700**, so moving `BEATER.behindLineStuds` moves the band.
@@ -121,6 +131,29 @@ flag table. Flag OFF is byte-for-byte today's drive.
   `dueNow` needs it and `wakeAtSeconds` is the walker clock. **`Placement.tally`** is added because
   `line` and the caller's stats must not count twice.
 * **`clearX` is new** (design 4.2 expected an `assert`; claim 6 says why it could not be one).
+* **`bedOffsetX` is the row's RAW `offsetX`, not an `offsetX` biased by `routeBias`** — design 4.2
+  says *"the row's `offsetX` biased by `routeBias`"*, and round 1's note is right that nothing
+  applies that bias: `Data.cellSchedule` biases **`crossOffset` only**
+  (`copy.crossOffset = ForestTest.crossBias(...)`), so a cell's `routeBias` moves where its animals
+  BREAK OUT and not where they lie up. Listed here rather than changed, because the fix belongs to
+  `cellSchedule` (not this task's file) and would move the live cell schedule every drive reads,
+  which T1 must not do. Queued as TASKS.md **345a-notes (a)** for T2. The shipped comment on
+  `RosterRow.bedOffsetX` now says "after the gap sweep", which is what the code does.
+
+## Round 1's notes
+
+Fixed in this round, because each was a one-line risk and this round was already open:
+the vacuous dial case (claim 3, blocking); the **silent drop** of a boar row whose `composition`
+indexes nothing, which now prints *"names no sounder composition"* like the deer path;
+the `expect(row.wakeAtSeconds).to.equal(math.huge)` self-assertion of a literal the case itself
+wrote, deleted; the mis-commented `bedNorth(2, 2, 150, 450)` case, which now drives the band the
+wrong way round as its comment claims; and the research note's tempo row, which listed the refuted
+3.1 studs/s figure its own section 5 corrects.
+
+Queued in TASKS.md as **345a-notes**, not fixed here: the `routeBias` gap (above, (a)); one walker
+instead of two when a shallowest bed is skipped (b); `tally.animals` counting skipped rows (c); and
+`clearX`'s local `clears` vs `gapOk` being two spellings of one question (d). The `BOAR_MODEL`
+dependency is now stated in the spec's header, as the note offered.
 
 ## Not verified
 
