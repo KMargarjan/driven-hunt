@@ -1730,18 +1730,16 @@ return function()
 			expect(CONFIG.OUT_OF_PLAY.settledSeconds).to.equal(60)
 			-- BOTH MARGINS ARE PAST ANYTHING A STAND WATCHES. `REST.nearRoadStuds` is 40 and its own
 			-- comment calls that already far enough from the verge that a hunter is not looking at a
-			-- boar standing still, so 150 north and 80 south are both well past it.
-			expect(CONFIG.OUT_OF_PLAY.settledNorthStuds >= 150).to.equal(true)
-			expect(CONFIG.OUT_OF_PLAY.pastRoadStuds).to.equal(80)
-			-- ...AND THE SOUTH MARGIN IS SHORT OF `exitZ`'s 120 studs past the road, so an animal
-			-- that is CROSSING is never taken by it: `escaped` is still what claims that one.
-			expect(CONFIG.OUT_OF_PLAY.pastRoadStuds < 120).to.equal(true)
+			-- boar standing still, so 80 north and 150 south are both well past it.
+			expect(CONFIG.OUT_OF_PLAY.settledNorthStuds).to.equal(80)
+			expect(CONFIG.OUT_OF_PLAY.pastRoadStuds).to.equal(150)
 		end)
 
 		it("takes an animal that stopped past the outer road with nobody driving it", function()
-			-- 85 STUDS SOUTH OF THE ROAD (which is at z = 0 here), NORTH of `exitZ` -190 and well
-			-- inside the bounds -- so neither `escaped` nor `outOfBounds` can be what fires.
-			local past = Vector3.new(0, 0, -85)
+			-- 155 STUDS SOUTH OF THE ROAD (which is at z = 0 here), NORTH of `exitZ` -190 and well
+			-- inside the bounds -- so neither the escape test at the exit line nor `outOfBounds` can
+			-- be what fires.
+			local past = Vector3.new(0, 0, -155)
 			local on = Brain.new(outOfPlay(true), ROAD_FIELD, past, Random.new(342))
 			expect(on:state()).to.equal("IDLE")
 			local intent = on:step(DT, obs(past))
@@ -1751,11 +1749,31 @@ return function()
 			-- there for the rest of the drive, which is the defect: with the rule off, nothing.
 			local off = Brain.new(outOfPlay(false), ROAD_FIELD, past, Random.new(342))
 			expect(off:step(DT, obs(past)).despawn).to.equal(false)
-			-- ...AND 75 STUDS SOUTH IS STILL IN PLAY: the margin is a margin, not the road's edge.
-			local near = Vector3.new(0, 0, -75)
+			-- ...AND 145 STUDS SOUTH IS STILL IN PLAY: the margin is a margin, not the road's edge.
+			local near = Vector3.new(0, 0, -145)
 			local short = Brain.new(outOfPlay(true), ROAD_FIELD, near, Random.new(342))
 			expect(short:step(DT, obs(near)).despawn).to.equal(false)
-			TestKit.note("out of play: an idle animal 85 studs south of the road goes as pastRoad; at 75 it stays")
+			TestKit.note("out of play: an idle animal 155 studs south of the road goes as pastRoad; at 145 it stays")
+		end)
+
+		it("still reports a GOT AWAY as escaped, so the toast and the report keep it", function()
+			-- MEASURED (task 342, C1 at 185 s): sixteen of the forty-four live animals were 264 to
+			-- 332 studs south of the road, still ORDERED and still walking toward a route end beyond
+			-- this cell's own exit line. They leave at the margin now -- but as what they are.
+			local past = Vector3.new(0, 0, -155)
+			local brain = Brain.new(outOfPlay(true), ROAD_FIELD, past, Random.new(21))
+			expect(brain:leadTo(Vector3.new(0, 0, -400), 10)).to.equal(true)
+			local intent = brain:step(DT, obs(past))
+			expect(intent.despawn).to.equal(true)
+			expect(intent.reason).to.equal("escaped")
+			-- A FLEEING ONE TOO, which is the same rule: "escaped" is the reason for anything that
+			-- was on its way out, and that is what `Match.onDespawned` scores.
+			local fleeing = Brain.new(outOfPlay(true), ROAD_FIELD, past, Random.new(22))
+			fleeing:spook(Vector3.new(0, 0, 100))
+			expect(fleeing:step(DT, obs(past)).reason).to.equal("escaped")
+			TestKit.note(
+				"out of play: an ordered or fleeing animal past the margin is still a got-away, reason escaped"
+			)
 		end)
 
 		it("is inert in a field with no road -- the DEV arena is unchanged", function()
@@ -1794,7 +1812,7 @@ return function()
 		end)
 
 		it("takes a group the drive let go of, bedded far behind the line for long", function()
-			-- DEEP IN THE WOOD: 300 studs north of the road at z = 0, which is twice
+			-- DEEP IN THE WOOD: 300 studs north of the road at z = 0, well past
 			-- `settledNorthStuds`. Two seconds instead of sixty, by parameter, so the case is 120
 			-- steps rather than 3,600; the shipped 60 is asserted above.
 			local deep = Vector3.new(0, 0, 300)

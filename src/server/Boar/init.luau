@@ -503,20 +503,21 @@ Boar.CONFIG = {
 	-- is what the toast and the report count.
 	OUT_OF_PLAY = {
 		ENABLED = true,
-		-- HOW FAR SOUTH OF THE ROAD IS OUT OF SIGHT OF EVERY STAND. `REST.nearRoadStuds` 40 is this
-		-- world's own "far enough from the verge that a hunter at a stand is not looking at a boar
-		-- standing still", measured on the other side of the same road, so 80 is twice it -- and it
-		-- is still 40 studs short of `exitZ` (120 past the road), so an animal that is CROSSING is
-		-- never taken by it. It fires only for an animal that is not fleeing, wounded, avoiding,
-		-- ordered, down or crippled: one that stopped out there with nobody driving it.
-		pastRoadStuds = 80,
+		-- HOW FAR SOUTH OF THE ROAD IS OUT OF SIGHT OF EVERY STAND. 150 studs is 42 m, past any
+		-- sightline down a 40-stud lane in planted wood and nearly four times this world's own
+		-- "a hunter at a stand is not looking at a boar standing still" (`REST.nearRoadStuds` 40).
+		-- An animal crossing at a run covers it in about seven seconds, so it leaves the board well
+		-- into the far wood and never at the verge.
+		pastRoadStuds = 150,
+		-- ...AND 80 NORTH, which is where the ones that stop actually are: MEASURED in C1 at 185 s,
+		-- ten of the forty-four live animals were 80 to 150 studs north and six beyond 150, so a
+		-- line at 150 reached a quarter of them. 80 is twice `REST.nearRoadStuds`.
 		-- BEDDED OR STOOD STILL FAR BEHIND THE LINE, FOR LONG. Only an animal the DRIVE actually
 		-- ordered out and then let go of: a group stocked in the wood for the beaters was never
 		-- ordered and is never taken by this, so Karen's stocked wood is unchanged.
-		-- 150 studs north of the road, because `REST.nearRoadStuds` 40 is already "far enough from
-		-- the verge that a hunter at a stand is not looking at a boar standing still"; 60 s because
-		-- the drive's own slot gap is 13 s, so a minute is four slots of nothing happening to it.
-		settledNorthStuds = 150,
+		-- 60 s because the drive's own slot gap is 13 s, so a minute is four slots of nothing at all
+		-- happening to it.
+		settledNorthStuds = 80,
 		settledSeconds = 60,
 	},
 
