@@ -1,3 +1,12 @@
+## DIRECTOR DECISION, 2026-11-10 ~11:10 UTC, Task 345 (docs/design/animal-placement.md, Architect PASS)
+
+- **D-1 CONFIRMED.** The budget restatement in section 5.2 is taken: at most 24 bodies (at most 12 bedded), boar step at most 7.0 ms average and 20 ms peak per drive, and **server heartbeat p95 at most 32 ms is the guard that decides**. This answers the 2026-11-10 ~00:35 and ~04:30 budget entries.
+- **D-2 CONFIRMED.** The retirements (`REST.groups`, `stockWood`, `stepRest`, the repeat window, `releaseDepth`, the clamp family) are archived under rule 7. That happens only when Karen's OK flips `PLACEMENT_IN_PLACE`'s default. Until then flag OFF stays today's drive.
+- **D-3.** Archive `deerWaveOf` / `deerWanted` and the window-only functions in T5.
+- **D-4.** The streaming radii are re-read at Karen's next Properties-pane visit. It is not blocking.
+- **K-1..K-4** are built at the design's recommendations (`behindLineStuds` 580, then measured; `walkersPerDrive` 2; near 150 studs empty; `bedSpreadStuds` 40). Karen judges them in T6's playtest.
+- The task split T1..T6 is dispatched as 345a..345f, one at a time, after Task 344.
+
 ## 2026-11-10 ~04:30 UTC, Task 342 -- FOR THE ARCHITECT: design 9.2's <= 24 LIVE AND <= 4.0 ms ARE NOT BOTH REACHABLE, AND 24 IS ALREADY SPENT BEFORE A WAVE IS RELEASED
 
 Task 342's dispatch (option 2 of 327h's escalation): *"If <= 4.0 ms average is still broken at <= 24
