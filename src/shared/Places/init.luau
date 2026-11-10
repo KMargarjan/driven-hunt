@@ -988,6 +988,32 @@ end
 -- that and costs 0.6 % of the cell's area.
 Places.CELL_EDGE_STUDS = 3
 
+-- HOW DEEP THE CORNERS AND THE ROAD ENDS GO, past `skirtStuds` (task 346). Karen, 2026-11-10:
+-- *"more tree needs behind, it has to be feeling animals run away to another forest"* and *"also
+-- more trees on back side specially on corners or ending"*; the Director: corners and road ends get
+-- the deepest band. 420 studs from the kerb is inside the 490 studs of ground the task 340 trim
+-- keeps outside the footprint (`grid-terrain.md` 10.2's K1), so the deepest trees still stand on
+-- terrain. It is drawn on the WIDENED FLANKS ONLY -- the corner quadrants and the road-end caps --
+-- and never across the cell's own frontage, which is what keeps it inside the part budget.
+Places.SKIRT_DEEPEST_STUDS = 420
+
+-- HOW FAR PAST THE CELL'S OWN FRONTAGE EACH SKIRT BAND RUNS, at both ends.
+--
+-- WHAT WAS WRONG, as geometry and not as taste: every band's CROSS span was the cell's own inset
+-- ground (`skirtBands`), so two bands meeting at a corner each stopped at the road between them.
+-- That left (a) the diagonal quadrant beyond every cell corner planted by NEITHER side and (b) the
+-- full `roadClearStuds` width of every road running out through the skirt unplanted -- an open
+-- channel exactly where a road ends. Both read as bare field from a stand.
+--
+-- INSIDE the footprint the road cross-section in `Places.maskGrid` still refuses the lane, so a
+-- real road stays a road; OUTSIDE it `Places.roadDistanceGrid` finds no road in range (a road
+-- carries `from`/`to`), so the channel closes. One cell stands at a time, so a widened band can
+-- never meet a neighbour's own wood (the task 337c argument, unchanged).
+--
+-- DERIVED, NOT TYPED (lesson L-167): one road plus the deepest band is exactly the reach that
+-- covers a corner quadrant and a road-end channel; change the band and this moves with it.
+Places.SKIRT_WIDEN_STUDS = Grid.CONFIG.roadClearStuds + Places.SKIRT_DEEPEST_STUDS
+
 -- THE RANDOM STREAMS, one per layer, hashed through `Grid.seedFor` -- so the trees, the floor and the
 -- skirt cannot shift each other, and NO stream is a counter (design 4.6: a cell's wood is the same
 -- whatever order the cells were built in).
@@ -2776,11 +2802,13 @@ end
 -- at the grid's outer edge, and into A1 which has no wood at all, this cell's own zone, read at the
 -- point pushed back inside its ground so the wood across the road continues the wood behind it.
 function Places.skirtZoneAt(cellId: string, other: string?, x: number, z: number): any
-	if other ~= nil and Places.hasOwnWood(other) then
-		return Places.zoneAt(other :: string, x, z)
-	end
-	local g = Places.cellGround(cellId)
-	return Places.zoneAt(cellId, math.clamp(x, g.minX, g.maxX), math.clamp(z, g.minZ, g.maxZ))
+	-- **CLAMPED INTO THE SPECIES CELL'S OWN GROUND, ON BOTH BRANCHES** (task 346). The widened
+	-- bands reach past the end of the cell they read their species from -- that is what covers a
+	-- corner quadrant -- and an unclamped read answers nil there, which plants nothing and leaves
+	-- the hole the widening exists to fill.
+	local speciesCell = if other ~= nil and Places.hasOwnWood(other) then other :: string else cellId
+	local g = Places.cellGround(speciesCell)
+	return Places.zoneAt(speciesCell, math.clamp(x, g.minX, g.maxX), math.clamp(z, g.minZ, g.maxZ))
 end
 
 -- THE SKIRT'S BANDS INSIDE ONE NEIGHBOUR, measured from the SHARED ROAD inward (design 8.2): the
@@ -2820,25 +2848,50 @@ function Places.skirtBands(cellId: string, other: string?, axis: string, plan: a
 			from = if step > 0 then box.maxZ else box.minZ
 			lowCross, highCross = ground.minX, ground.maxX
 		end
-		clipLow = math.min(from, from + step * plan.skirtStuds)
-		clipHigh = math.max(from, from + step * plan.skirtStuds)
+		-- THE DEEPEST BAND IS WHAT THE CLIP HAS TO REACH (task 346), not `skirtStuds`.
+		local reach = math.max(plan.skirtStuds, Places.SKIRT_DEEPEST_STUDS)
+		clipLow = math.min(from, from + step * reach)
+		clipHigh = math.max(from, from + step * reach)
 	end
+	-- THE CROSS SPAN IS WIDENED PAST BOTH ENDS OF THE CELL'S FRONTAGE (task 346), which is what
+	-- plants the corner quadrants and closes the road-end channels. `flankLow` / `flankHigh` are
+	-- the two widened pieces, and the deepest band is drawn on THOSE ONLY.
+	local widen = Places.SKIRT_WIDEN_STUDS
+	local flankLow, flankHigh = lowCross - widen, highCross + widen
 	for _, band in ipairs({
-		{ near = 0, far = plan.skirtFullStuds, spacing = plan.spacingStuds },
-		{ near = plan.skirtFullStuds, far = plan.skirtStuds, spacing = plan.deepSpacingStuds },
+		{ near = 0, far = plan.skirtFullStuds, spacing = plan.spacingStuds, full = true },
+		{ near = plan.skirtFullStuds, far = plan.skirtStuds, spacing = plan.deepSpacingStuds, full = true },
+		{
+			near = plan.skirtStuds,
+			far = Places.SKIRT_DEEPEST_STUDS,
+			spacing = plan.deepSpacingStuds,
+			full = false,
+		},
 	}) do
 		local a = from + step * band.near
 		local b = from + step * band.far
 		local low = math.max(clipLow, math.min(a, b))
 		local high = math.min(clipHigh, math.max(a, b))
-		local rect
-		if axis == "z" then
-			rect = { minX = low, maxX = high, minZ = lowCross, maxZ = highCross }
-		else
-			rect = { minX = lowCross, maxX = highCross, minZ = low, maxZ = high }
-		end
-		if rect.maxX > rect.minX and rect.maxZ > rect.minZ then
-			table.insert(out, { rect = rect, spacing = band.spacing, deep = band.near > 0 })
+		-- THE DEEPEST BAND IS THE TWO FLANKS AND NOTHING BETWEEN THEM; the other two run the whole
+		-- widened span in one rectangle, so the corner is covered once and the spec can add areas.
+		local spans = if band.full
+			then { { flankLow, flankHigh } }
+			else { { flankLow, lowCross }, { highCross, flankHigh } }
+		for _, span in ipairs(spans) do
+			local rect
+			if axis == "z" then
+				rect = { minX = low, maxX = high, minZ = span[1], maxZ = span[2] }
+			else
+				rect = { minX = span[1], maxX = span[2], minZ = low, maxZ = high }
+			end
+			if rect.maxX > rect.minX and rect.maxZ > rect.minZ then
+				table.insert(out, {
+					rect = rect,
+					spacing = band.spacing,
+					deep = band.near > 0,
+					deepest = not band.full,
+				})
+			end
 		end
 	end
 	return out
@@ -3232,17 +3285,21 @@ Places.PARTS_PER_MODEL = 3.76
 --
 -- **RAISED IN TASK 337c TO FIT THE FOUR-SIDED SKIRT**, off the measured plans of all eight cells
 -- (`<runs-dir>/337c-plan-all.txt`), not off an estimate:
---  * `PART_BUDGET_CELL` bounds what is DRAWN in one cell. The heaviest plan is D2's 3,256 models =
---    12,243 parts at 3.76, so 12,800 leaves 148 models of headroom -- and it is still 4,200 parts
---    under the only MEASURED ceiling there is, 328g's client frame (<= 16.7 ms with <= 17,000 parts
---    inside 1,024 studs, `grid-terrain.md` 12.2). Nothing may cite it as a measurement itself.
+--  * `PART_BUDGET_CELL` bounds what is DRAWN in one cell. **RAISED AGAIN IN TASK 346** for the
+--    widened skirt and its deepest band, off the measured plans of all eight cells
+--    (`<runs-dir>/346-count-after.txt`): the heaviest is D2's 3,978 models = 14,957 parts at 3.76,
+--    so 15,500 leaves 144 models of headroom -- and it is still 1,500 parts under the only
+--    MEASURED ceiling there is, 328g's client frame (<= 16.7 ms with <= 17,000 parts inside 1,024
+--    studs, `grid-terrain.md` 12.2). Nothing may cite it as a measurement itself; what task 346
+--    measured instead is the Director's own budget, the client frame p95 and memory at the C1
+--    stand before and after (`reviews/task-346/MEASUREMENTS.md`).
 --  * `PART_BUDGET_DRIVE` bounds the PLAN and is a typo guard: nothing renders a plan. The heaviest
---    bound is D1's `cellCapacity` 7,025 sites = 26,414 parts, so 27,000 leaves 155 sites.
-Places.PART_BUDGET_DRIVE = 27000
-Places.PART_BUDGET_CELL = 12800
+--    bound is D1's `cellCapacity` 8,137 sites = 30,595 parts, so 31,000 leaves 107 sites.
+Places.PART_BUDGET_DRIVE = 31000
+Places.PART_BUDGET_CELL = 15500
 
 -- THE MODEL CAPS, COMPUTED AND NOT TYPED (lesson L-167): change a budget or the ratio and these move
--- with it. Today 7,180 bounds the PLAN (a typo guard) and 3,404 bounds what is DRAWN in one cell.
+-- with it. Today 8,244 bounds the PLAN (a typo guard) and 4,122 bounds what is DRAWN in one cell.
 Places.CELL_PLAN_CAP = math.floor(Places.PART_BUDGET_DRIVE / Places.PARTS_PER_MODEL)
 Places.CELL_PART_CAP = math.floor(Places.PART_BUDGET_CELL / Places.PARTS_PER_MODEL)
 

@@ -2131,9 +2131,13 @@ return function()
 			-- a change to the ratio or to either budget reddens here before it ships undocumented.
 			-- **TASK 337c raised all three**: 3.03 -> 3.76 parts a model (C1's own live 9,318/2,476),
 			-- and the budgets to fit a skirt on all four roads -- 12,800 drawn, 27,000 planned.
+			-- **TASK 346 raised the two budgets again** for the widened skirt and its deepest band at
+			-- the corners and the road ends -- 15,500 drawn, 31,000 planned. The ratio is unchanged:
+			-- C1's live wood re-measured 3.707 parts a model (`<runs-dir>/346-split.luau`), which
+			-- 3.76 still bounds.
 			expect(Plan.PARTS_PER_MODEL).to.equal(3.76)
-			expect(Plan.CELL_PLAN_CAP).to.equal(7180)
-			expect(Plan.CELL_PART_CAP).to.equal(3404)
+			expect(Plan.CELL_PLAN_CAP).to.equal(8244)
+			expect(Plan.CELL_PART_CAP).to.equal(4122)
 			local worstId, worstTotal, worstCap = "", 0, 0
 			local planSlack, partSlack = math.huge, math.huge
 			local lines = {}
@@ -2490,6 +2494,88 @@ return function()
 					Plan.VERGE_STUDS.to
 				)
 			)
+		end)
+	end)
+
+	-- ------------------------------------------- 16a. the corners and the road ends (task 346)
+
+	describe("the deep corners and road ends", function()
+		-- Karen, 2026-11-10: *"more tree needs behind, it has to be feeling animals run away to
+		-- another forest"* / *"also more trees on back side specially on corners or ending"*.
+		--
+		-- **THIS CASE DIES IF EITHER HALF OF THE DEEPENING IS DELETED** (lesson L-093). Set
+		-- `SKIRT_WIDEN_STUDS` to 0 and every corner quadrant empties; drop the third band from
+		-- `skirtBands` and nothing stands past `skirtStuds`. Both are counted off the PLANTED
+		-- sites, not off the band rectangles, so a band that plans ground the mask refuses would
+		-- not pass it either.
+		it("plants every corner quadrant and carries the wood past the old skirt depth", function()
+			local lines = {}
+			local fp = Grid.footprint()
+			for _, id in ipairs(Grid.cellIds()) do
+				local box = Grid.boundsOf(id)
+				local plan = Plan.cellPlanFor(id)
+				local half = Grid.CONFIG.roadClearStuds / 2
+				-- A CORNER QUADRANT: beyond the cell in BOTH axes, past the middle of the road, so
+				-- nothing a side band drew across the cell's own frontage can be counted here.
+				local quads = { SW = 0, SE = 0, NW = 0, NE = 0 }
+				local deepest, beyondSkirt, outside = 0, 0, 0
+				for _, item in ipairs(Plan.plantCell(id)) do
+					if item.side < 0 then
+						local dx = if item.x < box.minX - half
+							then box.minX - item.x
+							elseif item.x > box.maxX + half then item.x - box.maxX
+							else nil
+						local dz = if item.z < box.minZ - half
+							then box.minZ - item.z
+							elseif item.z > box.maxZ + half then item.z - box.maxZ
+							else nil
+						if dx ~= nil and dz ~= nil then
+							local key = (if item.z > box.maxZ then "N" else "S")
+								.. (if item.x > box.maxX then "E" else "W")
+							quads[key] += 1
+						end
+						-- HOW FAR OUT OF THE CELL IT STANDS, on whichever axis took it there.
+						local out = math.max(dx or 0, dz or 0)
+						if out > plan.skirtStuds then
+							beyondSkirt += 1
+						end
+						deepest = math.max(deepest, out)
+						-- ...AND HOW FAR OUTSIDE THE WHOLE GRID, which is the terrain question.
+						outside =
+							math.max(outside, fp.minX - item.x, item.x - fp.maxX, fp.minZ - item.z, item.z - fp.maxZ)
+					end
+				end
+				for key, n in pairs(quads) do
+					if n <= 0 then
+						error(string.format("%s: corner quadrant %s holds no tree", id, key), 0)
+					end
+				end
+				-- THE DEEPEST BAND REACHED GROUND NO EARLIER BAND COULD...
+				expect(beyondSkirt > 0).to.equal(true)
+				-- ...AND EVERY SKIRT SITE STILL STANDS ON GROUND THE TASK 340 TRIM KEPT. K1 is the
+				-- footprint grown by `Relief.BLEND_STUDS + 230 + Grid.maxBendStuds()`
+				-- (`tools/terrainbake.py`'s `region_for`), which is 490 studs at today's bend;
+				-- outside it there is no terrain, so a tree planted there has nothing to stand on.
+				-- 230 of that pad is the OLD skirt depth, and the deepest band spends the rest of it.
+				expect(outside <= 490).to.equal(true)
+				table.insert(
+					lines,
+					string.format(
+						"%s SW%d SE%d NW%d NE%d past%d max%.0f out%.0f",
+						id,
+						quads.SW,
+						quads.SE,
+						quads.NW,
+						quads.NE,
+						beyondSkirt,
+						deepest,
+						outside
+					)
+				)
+			end
+			-- THE TWO NUMBERS ARE ONE FACT WITH THE ROAD, not two typed constants.
+			expect(Plan.SKIRT_WIDEN_STUDS).to.equal(Grid.CONFIG.roadClearStuds + Plan.SKIRT_DEEPEST_STUDS)
+			TestKit.note(string.format("corners and ends: %s", table.concat(lines, " ")))
 		end)
 	end)
 
