@@ -1,3 +1,85 @@
+## 2026-11-10 ~13:50 UTC, Task 345a (T1) -- FOR THE DIRECTOR: THREE OF `animal-placement.md`'s NUMBERS ARE REFUTED BY ARITHMETIC. T1 IS BUILT AND GREEN; NONE OF THE THREE BLOCKS IT
+
+T1 is finished, the gate is green and nothing live reads any of it, so this is **not** a stop: it is
+the three numbers the Director and Karen have to move before T2 wires the roster into the drive.
+Every figure below was produced by `tests/server/forest_placement.spec.luau` at code commit
+`9df17202`, or by the arithmetic the spec asserts.
+
+**1. THE 71-STUD BED GAP IS NOT CARRIED BY THE WRITTEN LATERAL OFFSETS (design 4.2).** The design
+says it *"is carried by the lateral offsets, and `Placement.plan` **asserts it** rather than
+hoping"*. It is not. At `normal` the ladder puts the beds 25 studs apart in depth, and slots 4 and 6
+sit at `offsetX` +45 and +95 -- **55.9 studs** apart in 3-D. At `busy` slots 5 and 8 at -75 and -95
+are **67.3** apart. An `assert` would have failed the drive at the first plan.
+
+*What T1 does instead, and it needs no decision:* the bed is **placed** rather than asserted about.
+`Placement.clearX` keeps the row's depth and sweeps the lateral offset outward from the x the script
+wrote, one stud at a time, inside `crossCapStuds` 95, to the first x that clears every bed already
+laid; a row with no such x is **skipped (`nobed`), counted and printed** -- design must-not 3. The
+measured closest pair is then **71.60 / 71.42 / 71.30** studs at quiet / normal / busy, against a gap
+of 71.
+
+**2. ...AND AT `busy` THE BAND CANNOT HOLD FIFTEEN BEDS AT ALL. THIS ONE IS THE DIRECTOR'S, AND IT IS
+K-1.** With `beaterNorth` 580 the band is `[150, 450]` = 300 studs deep, the ladder spaces 15 beds
+21.4 studs apart, and **3 of the 15 groups cannot be bedded**: 12 beds laid, 3 skipped `nobed`. It is
+not a search failure -- with the depths pinned to an even ladder, adjacent ordinals need
+`sqrt(71^2 - 21.4^2)` = 67.7 studs of lateral separation and the corridor is 190 studs wide, which
+holds at most two such columns. Quiet and normal skip nothing.
+
+**AND THE THREE ARE NOT ANONYMOUS -- ALL THREE ARE RED DEER, AND ONE OF THEM IS THE STAG** (round
+2's review raised this; re-derived independently by the Builder with the same sweep over the same
+fifteen rows, and the two derivations agree). At `busy`, muster 580, the rows with no bed are
+**slots 4, 8 and 12**: the `herd` of seven, **the lone stag**, and the second `herd` of seven. So
+that drive silently loses **15 of its 83 animals and 3 of its 7 deer groups**, including the one row
+this repo bends its own deer cap for (`LONE_PARTY_EXTRA_GROUPS`, *"the stag is the last deer"*). It
+is the deer rows because they sit at the lateral offsets the sweep cannot reconcile, not because
+anything prefers boar -- but the effect is a busy drive with no stag in it. **K-1 is being decided on
+this number, so here is which three it is.**
+
+**MEASURED, AND IT IS THE ANSWER TO K-1: `behindLineStuds` 400 -> 520 (muster 700) BEDS EVERY GROUP
+AT EVERY DENSITY** -- so at 700 the stag keeps his bed. Same spec arithmetic, both musters:
+
+| muster | band | quiet | normal | busy |
+|---|---|---|---|---|
+| **580** (today) | 300 studs | 9 beds, 0 skipped | 13 beds, 0 skipped | 12 beds, **3 skipped** |
+| **700** (K-1's recommendation) | 420 studs | 9, 0 | 13, 0 | **15, 0** |
+
+So K-1 is no longer only about tempo: at 580 a busy drive has three holes in the wood by
+construction. The design's own survey says the wood holds it (*"700 WOULD ALSO FIT THE WOOD"*; the
+trees run out at 775-850). **T1 builds at 580** as this file's K-1 line says, because
+`behindLineStuds` is live data that would change today's drive and T1 changes nothing live --
+`beaterNorth` is a parameter of `Placement.plan`, so the switch is a one-row commit in T2 and the
+spec already asserts the band at both 580 and 700.
+
+**3. THE WHOLE TEMPO TABLE IS COMPUTED AT A WALK SPEED THAT WAS SUPERSEDED THE DAY BEFORE.** Design
+4.2's intervals (12.1 / 8.1 / 6.9 s) and its *"releases finish at ~97 s of a 300-second drive"* are
+`(bandFar - bandNear) / 3.1`. The live `Bots.CONFIG.WALK_SPEED` is `Grid.CONFIG.beaterWalkStudsPerSecond`
+= **5.64** -- task **327d2**'s own decision of 2026-11-09, *"so the drive ends on the crossing"*. At
+5.64 the real figures are:
+
+| muster | the line walks the whole band in | quiet | normal | busy |
+|---|---|---|---|---|
+| 580 | **53.2 s** (not 96.8) | 6.65 s | **4.43 s** | 3.80 s |
+| 700 | 74.5 s | 9.31 s | 6.21 s | 5.32 s |
+
+The spec prints the live one: *"placement normal: the line finds a group every 4.43 s"*. Against the
+**13 s** Karen accepted that is **a group every four and a half seconds**, and even at a muster of
+700 it is 6.2 s. Neither muster reaches 13 s with 13 groups in one band; the levers are the band's
+depth (`behindLineStuds`), the group count (`DENSITIES`), or the line's pace (327d2's, and it was
+just set deliberately). **This is a feel decision and it is Karen's and the Director's, not the
+Builder's.** It bites in T2, where the roster starts driving releases; T1 only measures it.
+
+**Nothing here changes a line of `docs/design/animal-placement.md`** -- the Builder does not write
+designs (rule 3). It is reported so the numbers move before T2 is dispatched.
+
+## DIRECTOR DECISION, 2026-11-10 ~11:10 UTC, Task 345 (docs/design/animal-placement.md, Architect PASS)
+
+- **D-1 CONFIRMED.** The budget restatement in section 5.2 is taken: at most 24 bodies (at most 12 bedded), boar step at most 7.0 ms average and 20 ms peak per drive, and **server heartbeat p95 at most 32 ms is the guard that decides**. This answers the 2026-11-10 ~00:35 and ~04:30 budget entries.
+- **D-2 CONFIRMED.** The retirements (`REST.groups`, `stockWood`, `stepRest`, the repeat window, `releaseDepth`, the clamp family) are archived under rule 7. That happens only when Karen's OK flips `PLACEMENT_IN_PLACE`'s default. Until then flag OFF stays today's drive.
+- **D-3.** Archive `deerWaveOf` / `deerWanted` and the window-only functions in T5.
+- **D-4.** The streaming radii are re-read at Karen's next Properties-pane visit. It is not blocking.
+- **K-1..K-4** are built at the design's recommendations (`behindLineStuds` 580, then measured; `walkersPerDrive` 2; near 150 studs empty; `bedSpreadStuds` 40). Karen judges them in T6's playtest.
+- The task split T1..T6 is dispatched as 345a..345f, one at a time, after Task 344.
+
 ## 2026-11-10 ~04:30 UTC, Task 342 -- FOR THE ARCHITECT: design 9.2's <= 24 LIVE AND <= 4.0 ms ARE NOT BOTH REACHABLE, AND 24 IS ALREADY SPENT BEFORE A WAVE IS RELEASED
 
 Task 342's dispatch (option 2 of 327h's escalation): *"If <= 4.0 ms average is still broken at <= 24
