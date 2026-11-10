@@ -1923,6 +1923,11 @@ return function()
 					config.MOVE = table.clone(CONFIG.MOVE)
 					config.MOVE.LEAP_AIR_SECONDS = Body.leapAir("stag", model.LEAP)
 					config.MOVE.LAND_SECONDS = landSeconds
+					-- THE SIDESTEP IS OFF IN BOTH RUNS, exactly as `boar_move.spec`'s own wedge case
+					-- switches it off: it rotates `_desired` by 90 degrees AFTER the slew and is
+					-- deliberately not capped (a pinned animal must still step round the trunk), so
+					-- leaving it on would measure that mechanism and not this one.
+					config.MOVE.WEDGE_SECONDS = nil
 					local field = {
 						bounds = FIELD.bounds,
 						exitZ = FIELD.exitZ,
@@ -1936,13 +1941,15 @@ return function()
 					}
 					local brain = Brain.new(config, field, Vector3.zero, Random.new(7))
 					local bounded, flipped, since, worst = false, false, 0, 0
-					local previous = nil
+					local previous, position = nil, Vector3.zero
 					for _ = 1, 900 do
 						local threatZ = if flipped then -8 else 8
 						local intent = brain:step(1 / 60, {
-							position = Vector3.zero,
+							position = position,
 							velocity = Vector3.zero,
-							threats = { { id = "d", position = Vector3.new(0, 0, threatZ), kind = "driver" } },
+							threats = {
+								{ id = "d", position = position + Vector3.new(0, 0, threatZ), kind = "driver" },
+							},
 							waypoints = nil,
 							pathFailed = false,
 							blockedAhead = false,
@@ -1951,6 +1958,13 @@ return function()
 							bounded = true
 						elseif bounded and not flipped then
 							flipped = true -- the 180-degree demand, on the first tick back on the ground
+						end
+						-- THE GROUND IS HELD UNTIL THE BOUND and passes afterwards, which is task
+						-- 334's own harness plus the one thing this case needs: an animal whose
+						-- position never changes is a WEDGED animal, and `_updateWedge`'s 90-degree
+						-- sidestep is applied after the slew and is deliberately not capped.
+						if flipped then
+							position += intent.targetVelocity * (1 / 60)
 						end
 						if flipped then
 							since += 1 / 60
