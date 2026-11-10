@@ -1927,10 +1927,10 @@ return function()
 			expect(Data.restPasses(nil)).to.equal(2)
 			expect(index).to.equal(1)
 			expect(pass).to.equal(1)
-			-- THE CELL'S LIST: three passes, and the answer MOVES to the group's own zone -- taken
+			-- THE CELL'S LIST: four passes, and the answer MOVES to the group's own zone -- taken
 			-- on pass 2, because the zone wins over the sightline.
 			local zoned, zpass = search({ 1, 2 })
-			expect(Data.restPasses({ 1, 2 })).to.equal(3)
+			expect(Data.restPasses({ 1, 2 })).to.equal(4)
 			expect(zoned).to.equal(2)
 			expect(zpass).to.equal(2)
 			expect(zoned ~= index).to.equal(true) -- the two searches differ: the pass count bites
