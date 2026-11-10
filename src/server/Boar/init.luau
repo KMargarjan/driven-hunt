@@ -73,6 +73,12 @@ Boar.shouldBackstopDeath = Body.shouldBackstopDeath
 -- move to be ON the ground -- both decisions a spec states with no physics and no world.
 Boar.collapseVelocity = Body.collapseVelocity
 Boar.groundDrop = Body.groundDrop
+-- ...AND THE TWO OF TASK 344b, for the identical reason: one says what torque holds a body of a
+-- given size up, the other what a death CFrame is with the roll and the pitch taken out. Both are
+-- arithmetic a spec states with no animal in the world. Karen, 2026-11-10: *"still bug with redstag
+-- jumping then fall on side and glide"* and *"animal died and then stand and then again die"*.
+Boar.uprightTorque = Body.uprightTorque
+Boar.levelCFrame = Body.levelCFrame
 -- ...and the one the ground correction measures its body with, for the same reason: it is pure, and
 -- round 1's blocking finding was arithmetic that a spec can state without a carcass in the world.
 Boar.verticalHalf = Body.verticalHalf

@@ -119,6 +119,104 @@ return function()
 			end)
 		end)
 
+		-- 0b. THE TWO OF TASK 344b: ON ITS FEET AFTER A BOUND, AND DEAD THE WAY UP ---------------
+		--
+		-- KAREN, 2026-11-10, playing her Forest Test at #357: *"still bug with redstag jumping then
+		-- fall on side and glide"* and *"animal died and then stand and then again die"*. MEASURED in
+		-- her place with `<runs-dir>/344b-srv.luau` before the fix: over 58 stag landings **10 ended
+		-- past 20 degrees of tilt and the worst reached 96** -- the body on its side, still driven at
+		-- 28.3 studs/s -- and of 11 kills the ONE animal shot in that state drew a bone span of
+		-- **5.20 studs** (a deer standing; a lying one is ~1.4) for the whole 110 s it was watched.
+		-- The two are one fault: the box is the frame the death clip lays the rig down IN.
+		describe("the upright torque and the level death (task 344b)", function()
+			it("gives a bigger box more torque, and the reference box exactly MAX_TORQUE", function()
+				local config = Boar.CONFIG
+				-- THE REFERENCE AND EVERY BOAR KIND: unchanged to the byte, which is the floor.
+				expect(Body.uprightTorque(config.MAX_FORCE_BODY, config)).to.equal(config.MAX_TORQUE)
+				expect(Body.uprightTorque(config.BODY_SIZE, config)).to.equal(config.MAX_TORQUE)
+				-- ...INCLUDING THE SMALLER ONES. A cub-sized box is never given LESS.
+				expect(Body.uprightTorque(Vector3.new(1, 1.5, 2.75), config)).to.equal(config.MAX_TORQUE)
+				-- EVERY WORLD WRITTEN BEFORE THIS TASK: no `MAX_FORCE_BODY`, so no scaling at all.
+				expect(Body.uprightTorque(Vector3.new(1.8, 4.8, 7.05), { MAX_TORQUE = 20000 })).to.equal(20000)
+				-- THE DEER, AND THE ARITHMETIC IT IS: roll inertia is `m * (X^2 + Y^2) / 12` and the
+				-- density is shared, so `volume * (X^2 + Y^2)` is the whole ratio -- 3.73 for the stag.
+				local deer = (config.SPECIES.reddeer :: any).BODY_SIZE
+				local ref = config.MAX_FORCE_BODY
+				local ratio = (deer.X * deer.Y * deer.Z * (deer.X * deer.X + deer.Y * deer.Y))
+					/ (ref.X * ref.Y * ref.Z * (ref.X * ref.X + ref.Y * ref.Y))
+				expect(ratio > 3).to.equal(true)
+				-- FAILS AT MAIN, where the stag is handed the boar's 20000.
+				expect(Body.uprightTorque(deer, config) > config.MAX_TORQUE * 3).to.equal(true)
+				expect(math.abs(Body.uprightTorque(deer, config) - config.MAX_TORQUE * ratio) < 1e-6).to.equal(true)
+			end)
+
+			it("takes the roll and the pitch out of a death CFrame and keeps the yaw", function()
+				-- THE STATE KAREN PHOTOGRAPHED: a trunk rolled onto its side when the shot lands.
+				local yaw = math.rad(37)
+				local at = Vector3.new(12, 5, -8)
+				local tipped = CFrame.new(at) * CFrame.Angles(0, yaw, 0) * CFrame.Angles(0, 0, math.rad(90))
+				expect(tipped.UpVector.Y < 0.01).to.equal(true) -- on its side, which is the defect
+				local level = Body.levelCFrame(tipped)
+				-- FAILS AT MAIN (nothing levels the box) AND IF THE FUNCTION IS DELETED.
+				expect(level.UpVector.Y).to.be.near(1, 1e-5)
+				expect(level.Position).to.equal(at)
+				-- ...AND IT IS STILL FACING WHERE IT DIED.
+				local kept = CFrame.new(at) * CFrame.Angles(0, yaw, 0)
+				expect(level.LookVector:Dot(kept.LookVector)).to.be.near(1, 1e-4)
+				-- AN ANIMAL ALREADY THE WAY UP IS NOT MOVED.
+				expect(Body.levelCFrame(kept).LookVector:Dot(kept.LookVector)).to.be.near(1, 1e-5)
+				-- NOSE STRAIGHT UP: there is no yaw to keep, and it must not error or return junk.
+				local nose = CFrame.new(at) * CFrame.Angles(math.rad(90), 0, 0)
+				expect(Body.levelCFrame(nose).UpVector.Y).to.be.near(1, 1e-5)
+			end)
+
+			it("stops the tumble on the frame the bound ends, and not before", function()
+				-- MEASURED in her place: a stag touched down already rotating at **252 deg/s** and
+				-- was at 90 degrees of tilt half a second later. The brake is one write, at the one
+				-- instant the bound ends -- beside the write that already cancels the second little
+				-- hop there -- so the upright constraint has an ANGLE to correct and not a SPIN.
+				local deer = Boar.speciesConfig("reddeer", Boar.CONFIG)
+				local part = Instance.new("Part")
+				part.Size = Vector3.new(1.8, 4.8, 7.05)
+				part.Anchored = false
+				part.CanCollide = false
+				part.Parent = workspace
+				local handle: any = {
+					part = part,
+					visual = Instance.new("Model"),
+					clip = "leap", -- `play` short-circuits, so no track machinery runs in a spec
+					collapsed = false,
+					toppled = false,
+					reasserted = true,
+					deadFor = 0,
+					reholds = 0,
+					tracks = {},
+					hitFor = 0,
+					clipHeldFor = 0,
+					exitFor = 0,
+					activityFor = 0,
+					paddleFor = 0,
+					warmFor = 0,
+					yawRate = 0,
+					rateWrites = 0,
+					kind = "stag",
+					leapFor = 0.2,
+					leapSpent = false,
+				}
+				local info = { speed = 28.3, leaping = true, kind = "stag" }
+				part.AssemblyAngularVelocity = Vector3.new(0, 0, 4.4) -- 252 deg/s, the measured one
+				-- MID-BOUND: the brake has not fired, and the spin is the animal's own.
+				Boar.stepVisual(handle, 1 / 60, info, deer)
+				expect(handle.leapSpent).to.equal(false)
+				expect(part.AssemblyAngularVelocity.Magnitude > 1).to.equal(true)
+				-- THE FRAME THE BOUND ENDS: spun down to nothing. FAILS AT MAIN.
+				Boar.stepVisual(handle, 0.5, info, deer)
+				expect(handle.leapSpent).to.equal(true)
+				expect(part.AssemblyAngularVelocity.Magnitude).to.be.near(0, 1e-5)
+				part:Destroy()
+			end)
+		end)
+
 		-- 1 + 2. THE LICENCE RULE, AS A PAIR, ON A REAL ANIMAL -----------------------------------
 		--
 		-- Not the hand-made stub `weapon_rules.spec` drives (that one proves the GATE with no world
