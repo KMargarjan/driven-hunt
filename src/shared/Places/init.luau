@@ -1029,8 +1029,9 @@ Places.SKIRT_CHEAP_FROM_STUDS = 150
 
 -- THE CHEAP BAND'S OWN GRID, replacing the plan's `deepSpacingStuds` (52) there. Karen,
 -- 2026-11-10: *"more tree needs behind ... also more trees on back side specially on corners or
--- ending"*. MEASURED at #360 (`reviews/task-346b/MEASUREMENTS.md` 2): at 52 studs the north road
--- end showed trees in only 29 of 37 columns of its own frame and the NE corner in 22 of 37.
+-- ending"*. MEASURED at #360 (`reviews/task-346b/MEASUREMENTS.md` sections 5 and 7): at 52 studs
+-- the north road end showed trees in only 29 of 37 columns of its own frame and the NE corner in
+-- 22 of 37. 34 is the LOOSEST grid that leaves the road end no empty column; 36 and 38 leave 3.
 Places.SKIRT_CHEAP_SPACING_STUDS = 34
 
 -- THE RANDOM STREAMS, one per layer, hashed through `Grid.seedFor` -- so the trees, the floor and the

@@ -1800,7 +1800,7 @@ return function()
 			far.cheap = true
 			local cheap = Planter.plantOne(far, source, folder, flat)
 			expect(plain ~= nil and cheap ~= nil).to.equal(true)
-			local shadows, collides, queries, total = 0, 0, 0, 0
+			local shadows, collides, queries, touches, total = 0, 0, 0, 0, 0
 			for _, part in ipairs(cheap:GetDescendants()) do
 				if part:IsA("BasePart") then
 					total += 1
@@ -1813,12 +1813,18 @@ return function()
 					if part.CanQuery then
 						queries += 1
 					end
+					-- THE FOURTH PROPERTY `plantOne` CLEARS, counted too (round 1 note): three
+					-- counters and a four-property producer leave one line nothing asserts.
+					if part.CanTouch then
+						touches += 1
+					end
 				end
 			end
 			expect(total > 0).to.equal(true)
 			expect(shadows).to.equal(0)
 			expect(collides).to.equal(0)
 			expect(queries).to.equal(0)
+			expect(touches).to.equal(0)
 			expect(cheap:GetAttribute("DrivePlaceCheap")).to.equal(true)
 			-- FAIL FIRST: delete the `item.cheap` block in `plantOne` and the cheap clone becomes
 			-- this control, which still casts a shadow and still stops a ray.

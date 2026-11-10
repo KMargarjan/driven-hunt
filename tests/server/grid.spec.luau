@@ -2666,13 +2666,16 @@ return function()
 
 	describe("the deepest band is scenery and is planted tighter for it", function()
 		-- Karen, 2026-11-10: *"more tree needs behind, it has to be feeling animals run away to
-		-- another forest"*. Task 346 answered it and cost 3.80 ms of client frame at C1 stand 8
-		-- (`reviews/task-346b/MEASUREMENTS.md` 1), so the band it added is now CHEAP -- no shadow,
-		-- no collision, no raycast -- and spends that on density instead of depth.
+		-- another forest"*. Task 346 answered it and cost 0.58 ms of client frame p95 at C1 stand 8
+		-- (23.35 -> 23.93, `reviews/task-346b/MEASUREMENTS.md` section 3), so the band it added is
+		-- now CHEAP -- no shadow, no collision, no raycast -- and spends that on density instead of
+		-- depth. This task reads 20.31 ms at the same station.
 		--
 		-- **THIS CASE DIES IF EITHER HALF IS DELETED** (lesson L-093). Drop `cheap` from the band
 		-- `Plan.skirtBands` returns and no planting carries it; drop the spacing substitution and
-		-- the deepest band falls back to `deepSpacingStuds`, which the last assertion refuses.
+		-- the deepest band falls back to `deepSpacingStuds`, which
+		-- `expect(band.spacing).to.equal(Plan.SKIRT_CHEAP_SPACING_STUDS)` in the `band.deepest` arm
+		-- refuses. Hand the cheap grid to EVERY band instead and the near arm above refuses it.
 		it("flags every deepest-band site cheap, and nothing nearer", function()
 			local lines = {}
 			for _, id in ipairs(Grid.cellIds()) do
@@ -2688,9 +2691,16 @@ return function()
 							expect(band.spacing).to.equal(Plan.SKIRT_CHEAP_SPACING_STUDS)
 						else
 							nearBands += 1
-							-- ...AND THE BANDS A PLAYER CAN WALK INTO ARE NOT.
+							-- ...AND THE BANDS A PLAYER CAN WALK INTO ARE NOT, AT EITHER END: not
+							-- cheap, and still on the PLAN's own grid. Asserted against the plan and
+							-- never against `band.spacing` itself (round 1, finding 1): the first
+							-- version of this line was `band.spacing == band.spacing` and survived
+							-- handing 34 studs to every band -- which would plant bands 1 and 2 at
+							-- 34 at full price, 0 to 230 studs behind the road, where a player walks.
 							expect(band.cheap).to.equal(false)
-							expect(band.spacing).to.equal(plan.spacingStuds == 0 and 0 or band.spacing)
+							expect(band.spacing).to.equal(
+								if band.deep then plan.deepSpacingStuds else plan.spacingStuds
+							)
 						end
 					end
 				end
@@ -2698,8 +2708,10 @@ return function()
 				expect(nearBands > 0).to.equal(true)
 				-- EVERY CHEAP SITE LIES INSIDE A DEEPEST RECTANGLE, and there are some. Counted off
 				-- the PLANTED sites, so a flag that never reaches a planting fails here too.
+				-- THE CACHED PLAN, not a third full eight-cell `plantCell` in one file (round 1
+				-- note; 346a note (e) queued the same for case 16a). `plantCell` is pure.
 				local cheap, stray = 0, 0
-				for _, item in ipairs(Plan.plantCell(id)) do
+				for _, item in ipairs(woods[id]) do
 					if item.cheap then
 						cheap += 1
 						-- A BAND RECT IS IN GRID SPACE AND A PLANTING IS IN WORLD SPACE, which is
@@ -2726,8 +2738,12 @@ return function()
 			for _, id in ipairs(Grid.cellIds()) do
 				expect(Plan.SKIRT_CHEAP_SPACING_STUDS < Plan.cellPlanFor(id).deepSpacingStuds).to.equal(true)
 			end
-			-- ...AND CHEAP STARTS BEYOND WHERE A PLAYER WALKS: band 2 reaches `skirtFullStuds`.
-			expect(Plan.SKIRT_CHEAP_FROM_STUDS > 0).to.equal(true)
+			-- ...AND CHEAP STARTS BEYOND WHERE A PLAYER WALKS, said as the number and not as `> 0`
+			-- (round 1 note): band 2 reaches `skirtFullStuds`, 80 on every recipe, so a threshold at
+			-- or below it would make a band a player can walk into shadowless and bulletproof-less.
+			for _, id in ipairs(Grid.cellIds()) do
+				expect(Plan.SKIRT_CHEAP_FROM_STUDS > Plan.cellPlanFor(id).skirtFullStuds).to.equal(true)
+			end
 			TestKit.note(string.format("cheap far band: %s", table.concat(lines, " ")))
 		end)
 	end)
