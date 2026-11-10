@@ -2220,6 +2220,10 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
 		local status = runtime:statusOf(handle.id)
 		alive[handle.id] = status ~= nil and status.alive == true
 	end
+	-- WHERE THE LINE HAS GOT TO, at each bed's own x. Read once per step, because `realBeaters`
+	-- walks `Players:GetPlayers()` and `Data.lineFrontAt` interpolates the whole list.
+	local beaters = ForestTest.realBeaters()
+	local noticeAhead = Data.noticeAheadStuds(Data.SPOOK, chosen.layout)
 	for _, row in ipairs(state.roster) do
 		if row.state == "bedded" or row.state == "awake" then
 			local standing, woken = 0, false
@@ -2227,7 +2231,26 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
 				if alive[id] then
 					standing += 1
 				end
+				-- A SHOT, THE HORN, OR THE FLUSH ITSELF: `spookNearBeaters` latches an animal it
+				-- has sent, and `Runtime:hearShot` / `hearHorn` reach a bedded body like any other.
 				if state.latched[id] == true then
+					woken = true
+				end
+			end
+			-- ...AND THE LINE'S OWN REACH, WHICH IS THE RULE AND NOT THE LATCH (design 4.5).
+			-- MEASURED, the first live ON drive at C1 (`345b-ON-C1-track.txt`): with the latch as the
+			-- only signal, `awake` read **0 for the whole drive** while six groups were refused on
+			-- `budget` -- a group the line had walked through still counted against `bedCap` 12, so
+			-- the bed cap was spent after three groups and the rest of the drive was skipped. A
+			-- group the line has reached is no longer LYING UP whatever the runtime did with it.
+			--
+			-- ONLY THE `beaters` ARM IS READ HERE: `wakeReason`'s `slot` arm is the walkers' own
+			-- clock and belongs to T6, which is what actually orders them.
+			if row.state == "bedded" and typeof(row.at) == "Vector3" then
+				local at = row.at :: Vector3
+				local frontZ = Data.lineFrontAt(beaters, at.X)
+				local frontNorth = if frontZ ~= nil then (frontZ :: number) - Data.roadZ(at.X, chosen.layout) else nil
+				if Placement.wakeReason(row, elapsed, frontNorth, noticeAhead) == "beaters" then
 					woken = true
 				end
 			end
