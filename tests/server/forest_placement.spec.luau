@@ -563,7 +563,13 @@ return function()
 				SPOOK,
 				Data.beaterNorthStuds(Forest.layout()),
 				Grid.CONFIG.beaterWalkStudsPerSecond,
-				FOREST,
+				-- THE CONFIG THE OWNER ITSELF USED, which is `Boar.CONFIG` while no boar runtime
+				-- exists (`ForestTest`'s own `boarConfig()`) -- and NOT this file's `FOREST`, whose
+				-- deer cap is the one `ForestTestBoot` installs in the Forest Test. In the DEV place
+				-- that boot does not run, so `FOREST` admits five deer rows the owner's own config
+				-- refuses and the two plans would differ by five groups for a reason that is not
+				-- placement's (measured: 13 against 8).
+				Boar.CONFIG,
 				Random.new(1),
 				depsFor(Forest.layout())
 			)
