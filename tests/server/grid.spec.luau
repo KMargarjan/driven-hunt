@@ -15,6 +15,7 @@ return function()
 	local ServerScriptService = game:GetService("ServerScriptService")
 	local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 	local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
+	local Relief = require(ReplicatedStorage:WaitForChild("Grid"):WaitForChild("Relief"))
 	local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
 	local Plan = require(ReplicatedStorage:WaitForChild("Places"))
 	local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
@@ -2541,6 +2542,21 @@ return function()
 				-- A CORNER QUADRANT: beyond the cell in BOTH axes, past the middle of the road, so
 				-- nothing a side band drew across the cell's own frontage can be counted here.
 				local quads = { SW = 0, SE = 0, NW = 0, NE = 0 }
+				-- **THE DEEPEST BAND'S OWN RECTANGLES, ONE A SIDE** (round 1, finding 1). Depth has
+				-- to be measured from the kerb each band starts at and NOT from the cell's box: on
+				-- an interior side a band starts at the NEIGHBOUR's inset ground, 45 studs outside
+				-- the box, so band 2's outer rim already stands more than `skirtStuds` from it and
+				-- a "deeper than skirtStuds" count fed by the box passed with band 3 deleted.
+				-- `scatter` refuses a jittered site that leaves its band rect, so lying inside one
+				-- of these IS the measurement.
+				local deepRects = {}
+				for _, side in ipairs(Plan.skirtSides(id)) do
+					for _, band in ipairs(Plan.skirtBands(id, side.id, side.axis, plan, side.sign)) do
+						if band.deepest then
+							table.insert(deepRects, band.rect)
+						end
+					end
+				end
 				-- WHICH CORNERS MUST BE FILLED: the ones an OUTER edge touches, because only an
 				-- outer edge's deepest band is widened past the cell's frontage. A middle cell has
 				-- one outer side and so two; a corner cell of the grid has two sides and three.
@@ -2557,6 +2573,7 @@ return function()
 					end
 				end
 				local deepest, beyondSkirt, outside = 0, 0, 0
+				local inDeepest = 0
 				for _, item in ipairs(Plan.plantCell(id)) do
 					if item.side < 0 then
 						local dx = if item.x < box.minX - half
@@ -2578,6 +2595,14 @@ return function()
 							beyondSkirt += 1
 						end
 						deepest = math.max(deepest, out)
+						-- IS IT IN THE DEEPEST BAND ITSELF? The one count a deletion kills.
+						local gx, gz = Grid.toGrid(item.x, item.z)
+						for _, rect in ipairs(deepRects) do
+							if gx >= rect.minX and gx <= rect.maxX and gz >= rect.minZ and gz <= rect.maxZ then
+								inDeepest += 1
+								break
+							end
+						end
 						-- ...AND HOW FAR OUTSIDE THE WHOLE GRID, which is the terrain question.
 						outside =
 							math.max(outside, fp.minX - item.x, item.x - fp.maxX, fp.minZ - item.z, item.z - fp.maxZ)
@@ -2592,23 +2617,29 @@ return function()
 				end
 				-- IT HAS TO BITE: every cell of a 2 x 4 grid touches at least one outer edge.
 				expect(filled >= 2).to.equal(true)
-				-- THE DEEPEST BAND REACHED GROUND NO EARLIER BAND COULD...
-				expect(beyondSkirt > 0).to.equal(true)
+				-- THE DEEPEST BAND EXISTS ON ALL FOUR SIDES AND IS PLANTED. Delete it from
+				-- `skirtBands` and both of these go to zero; `beyondSkirt`, measured off the box,
+				-- does not, and is kept only as the note line's figure.
+				expect(#deepRects).to.equal(4)
+				expect(inDeepest > 0).to.equal(true)
 				-- ...AND EVERY SKIRT SITE STILL STANDS ON GROUND THE TASK 340 TRIM KEPT. K1 is the
 				-- footprint grown by `Relief.BLEND_STUDS + 230 + Grid.maxBendStuds()`
-				-- (`tools/terrainbake.py`'s `region_for`), which is 490 studs at today's bend;
-				-- outside it there is no terrain, so a tree planted there has nothing to stand on.
-				-- 230 of that pad is the OLD skirt depth, and the deepest band spends the rest of it.
-				expect(outside <= 490).to.equal(true)
+				-- (`tools/terrainbake.py`'s `region_for`); outside it there is no terrain, so a tree
+				-- planted there has nothing to stand on. **DERIVED, NOT TYPED** (round 1 note), so a
+				-- larger bend grows the bound the way it grows the real keep box. The 230 is the
+				-- tool's own `BORDER_WOOD_STUDS`, which is the OLD skirt depth; the deepest band
+				-- spends the blend's share of the same pad.
+				expect(outside <= Relief.BLEND_STUDS + 230 + Grid.maxBendStuds()).to.equal(true)
 				table.insert(
 					lines,
 					string.format(
-						"%s SW%d SE%d NW%d NE%d past%d max%.0f out%.0f",
+						"%s SW%d SE%d NW%d NE%d deep%d past%d max%.0f out%.0f",
 						id,
 						quads.SW,
 						quads.SE,
 						quads.NW,
 						quads.NE,
+						inDeepest,
 						beyondSkirt,
 						deepest,
 						outside
@@ -2617,6 +2648,11 @@ return function()
 			end
 			-- THE TWO NUMBERS ARE ONE FACT WITH THE ROAD, not two typed constants.
 			expect(Plan.SKIRT_WIDEN_STUDS).to.equal(Grid.CONFIG.roadClearStuds + Plan.SKIRT_DEEPEST_STUDS)
+			-- **AND THE DEPTH ITSELF IS PINNED AS A FLOOR** (round 1, finding 1): a band that
+			-- exists but reaches 250 instead of 420 is 20 studs of deepening where Karen asked for
+			-- the forest to carry on, and every count above would stay green. 420 is the number the
+			-- frames were taken at; raising it is free, lowering it has to be a decision.
+			expect(Plan.SKIRT_DEEPEST_STUDS >= 420).to.equal(true)
 			TestKit.note(string.format("corners and ends: %s", table.concat(lines, " ")))
 		end)
 	end)

@@ -993,8 +993,11 @@ Places.CELL_EDGE_STUDS = 3
 -- more trees on back side specially on corners or ending"*; the Director: corners and road ends get
 -- the deepest band. 420 studs from the kerb is inside the 490 studs of ground the task 340 trim
 -- keeps outside the footprint (`grid-terrain.md` 10.2's K1), so the deepest trees still stand on
--- terrain. It is drawn on the WIDENED FLANKS ONLY -- the corner quadrants and the road-end caps --
--- and never across the cell's own frontage, which is what keeps it inside the part budget.
+-- terrain; measured worst, 470.
+--
+-- **IT RUNS ON ALL FOUR SIDES**, across the cell's own frontage as well -- that is what deepens the
+-- view from an INTERIOR stand, and it is where most of the ~370 extra sites a cell come from. Only
+-- its WIDENING past the ends of that frontage is confined to an outer edge (`SKIRT_WIDEN_STUDS`).
 Places.SKIRT_DEEPEST_STUDS = 420
 
 -- HOW FAR PAST THE CELL'S OWN FRONTAGE THE DEEPEST BAND RUNS AT AN OUTER EDGE, both ends.
@@ -2866,7 +2869,10 @@ function Places.skirtBands(cellId: string, other: string?, axis: string, plan: a
 		{ near = plan.skirtFullStuds, far = plan.skirtStuds, spacing = plan.deepSpacingStuds, widen = 0 },
 		{
 			near = plan.skirtStuds,
-			far = Places.SKIRT_DEEPEST_STUDS,
+			-- `math.max` SO A RECIPE CANNOT INVERT THE BAND (round 1 note): a `skirtStuds` past 420
+			-- would make `near > far`, which the empty-rect guard cannot catch and which would
+			-- re-offer band 2's outer rim on the same neighbour grid. All eight are 230 today.
+			far = math.max(plan.skirtStuds, Places.SKIRT_DEEPEST_STUDS),
 			spacing = plan.deepSpacingStuds,
 			widen = if other == nil then Places.SKIRT_WIDEN_STUDS else 0,
 		},
@@ -2886,6 +2892,8 @@ function Places.skirtBands(cellId: string, other: string?, axis: string, plan: a
 				rect = rect,
 				spacing = band.spacing,
 				deep = band.near > 0,
+				-- WHICH BAND THIS IS, so a spec can count the sites the DEEPEST one produced instead
+				-- of guessing a depth off the cell box (`grid.spec` case 16a, round 1 finding 1).
 				deepest = band.near >= plan.skirtStuds,
 			})
 		end
@@ -3290,7 +3298,7 @@ Places.PARTS_PER_MODEL = 3.76
 --    measured instead is the Director's own budget, the client frame p95 and memory at the C1
 --    stand before and after (`reviews/task-346/MEASUREMENTS.md`).
 --  * `PART_BUDGET_DRIVE` bounds the PLAN and is a typo guard: nothing renders a plan. The heaviest
---    bound is D1's `cellCapacity` 7,561 sites = 28,429 parts, so 29,000 leaves 150 sites.
+--    bound is D1's `cellCapacity` 7,561 sites = 28,429 parts, so 29,000 leaves 151 sites.
 Places.PART_BUDGET_DRIVE = 29000
 Places.PART_BUDGET_CELL = 14200
 
