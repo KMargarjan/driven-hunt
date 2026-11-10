@@ -701,7 +701,11 @@ Flags.DEFAULTS = {
 		-- `tests/server/light.spec.luau` calls `plan(false, CONFIG)` with no service and no Play.
 		owner = "ServerScriptService.Light",
 		born = "2026-10-19 task 215",
-		expires = "2026-11-09", -- 21 days: the ceiling in feature-flags.md section 12
+		-- RE-JUSTIFIED, NOT RETIRED (the rot tripwire fired on 2026-11-10, mid task 327h). The row's
+		-- whole reason is that the Director can take the look off LIVE the moment Karen says it is
+		-- too dark, and she has not seen a drive in the grid world yet -- 327h's own three cells
+		-- were measured with nobody watching. Two more weeks, and her verdict retires it.
+		expires = "2026-11-23",
 		why = "One late-autumn Central-European morning, written from code in every world: a warm "
 			.. "near-black Ambient, a cool OutdoorAmbient, a low 8.2 sun, one Atmosphere and two "
 			.. "post effects. OFF leaves the place's own Lighting exactly as it is.",

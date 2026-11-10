@@ -29,6 +29,10 @@ local Data = ForestTest.Data
 -- case that checks the two agree may not hold a second copy of 0.28.
 local Report = require(game:GetService("ReplicatedStorage"):WaitForChild("Report"))
 local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestKit"))
+-- THE CELLS AND THEIR RECIPES (task 327h): the `animals` rows live in `Grid` and the zones a
+-- resting group may use live in `Places`, so the per-cell cases read both and copy neither.
+local Grid = require(game:GetService("ReplicatedStorage"):WaitForChild("Grid"))
+local Places = require(game:GetService("ReplicatedStorage"):WaitForChild("Places"))
 
 -- A straight trail east along +X, one crumb a stud, then a right-angle turn south along -Z.
 local function elbow()
@@ -1694,6 +1698,386 @@ return function()
 			expect(type(row.note)).to.equal("string")
 			expect(row.lateral).to.equal(nil)
 			expect(row.sneak).to.equal(nil)
+		end)
+	end)
+
+	-- --------------------------------------- EACH SECTION ITS OWN ANIMAL PATTERN (task 327h)
+	--
+	-- Karen, 2026-11-09: *"each sections ahs different animal patters to be intrestin"*. The whole
+	-- of it is `Data.cellSchedule`, which is pure, so every one of these is arithmetic with no
+	-- world, no cell dressed and no animal.
+	--
+	-- THESE CASES DIE IF THE FIX IS DELETED (L-093). Each of the first three states a DIFFERENCE
+	-- between two cells' derived schedules -- how many slots carry animals, where they cross, how
+	-- deep they start. Remove `animals` from `Grid.CELLS`, or make `cellSchedule` hand back the base
+	-- table, and both sides of every comparison become the same number and the case fails.
+	describe("each section's own animal pattern (task 327h)", function()
+		local DEPTH = Grid.CONFIG.cellDepthStuds
+
+		local function scheduleOf(cellId: string)
+			return Data.cellSchedule(Grid.animalsOf(cellId), DEPTH)
+		end
+
+		-- HOW MANY OF THE FIFTEEN SLOTS ACTUALLY RELEASE, counted the way the drive counts them:
+		-- `slotAt` over every slot, which is the dial's own rule.
+		local function releases(schedule): number
+			local out = 0
+			for slot = 1, #schedule.drive do
+				if Data.slotAt(slot, schedule.density, schedule) ~= nil then
+					out += 1
+				end
+			end
+			return out
+		end
+
+		-- WHERE THEY CROSS, as the three thirds of the line's own span the Director asked to be
+		-- measured: west / centre / east of the stand, in studs of `crossOffset`.
+		local function thirds(schedule): (number, number, number)
+			local west, centre, east = 0, 0, 0
+			local cap = schedule.crossCapStuds
+			for slot = 1, #schedule.drive do
+				local row = Data.slotAt(slot, schedule.density, schedule)
+				local offset = row ~= nil and row.crossOffset or nil
+				if type(offset) == "number" then
+					if offset < -cap / 3 then
+						west += 1
+					elseif offset > cap / 3 then
+						east += 1
+					else
+						centre += 1
+					end
+				end
+			end
+			return west, centre, east
+		end
+
+		it("gives two cells different release counts -- the density dial, per cell", function()
+			-- D1 is `quiet` and A2 is `busy`, which is the Director's own spread (two quiet, three
+			-- normal, two busy). The NUMBERS are the dial's: `DENSITIES` quiet 9 / busy 15.
+			local quiet = releases(scheduleOf("D1"))
+			local busy = releases(scheduleOf("A2"))
+			expect(quiet < busy).to.equal(true)
+			expect(quiet).to.equal(Data.SCHEDULE.DENSITIES.quiet)
+			expect(busy).to.equal(Data.SCHEDULE.DENSITIES.busy)
+			-- ...AND A CELL WITH NO ROW IS THE BASE TABLE BY IDENTITY, so "plays exactly as today"
+			-- is not an approximation. A1 is the unplanted cell; `road` is not a cell at all.
+			expect(Data.cellSchedule(Grid.animalsOf("A1"), DEPTH)).to.equal(Data.SCHEDULE)
+			expect(Data.cellSchedule(Grid.animalsOf("nosuchcell"), DEPTH)).to.equal(Data.SCHEDULE)
+			expect(releases(Data.SCHEDULE)).to.equal(Data.SCHEDULE.DENSITIES.normal)
+		end)
+
+		it("gives two cells different crossing distributions -- the route bias, per cell", function()
+			-- D1 is `centre`: every crossing inside a third of the cap, and NONE on either flank.
+			local w1, c1, e1 = thirds(scheduleOf("D1"))
+			expect(w1).to.equal(0)
+			expect(e1).to.equal(0)
+			expect(c1 > 0).to.equal(true)
+			-- A2 is `east`: no crossing west of the stand at all.
+			local w2, c2, e2 = thirds(scheduleOf("A2"))
+			expect(w2).to.equal(0)
+			expect(e2 > 0).to.equal(true)
+			-- B1 is `west`: the mirror image, and it is a DIFFERENT distribution from A2's.
+			local w3, _c3, e3 = thirds(scheduleOf("B1"))
+			expect(e3).to.equal(0)
+			expect(w3 > 0).to.equal(true)
+			-- C1 is `split`: two streams and the MIDDLE EMPTY, which is the one shape the three
+			-- one-sided words cannot make.
+			local w4, c4, e4 = thirds(scheduleOf("C1"))
+			expect(c4).to.equal(0)
+			expect(w4 > 0).to.equal(true)
+			expect(e4 > 0).to.equal(true)
+			-- ...AND NOT ONE OF THEM IS THE BASE TABLE'S OWN SPREAD, which has all three thirds.
+			local wb, cb, eb = thirds(Data.SCHEDULE)
+			expect(wb > 0 and cb > 0 and eb > 0).to.equal(true)
+			expect(c2 ~= cb or w2 ~= wb or e2 ~= eb).to.equal(true)
+		end)
+
+		it("gives two cells different start depths, as fractions of the cell's own depth", function()
+			-- A2 works BACK into the wood (0.50 -> 0.90 of the band) and B2 comes forward out of it
+			-- (0.90 -> 0.45), so the first and last quarters are the other way round between them.
+			local a2, b2 = scheduleOf("A2"), scheduleOf("B2")
+			local band = DEPTH * Data.SCHEDULE.bandFraction
+			expect(Data.startDepthStuds(1, { 0.5 }, DEPTH)).to.equal(math.floor(0.5 * band / 5 + 0.5) * 5)
+			-- Slot 1 is in quarter 1 and slot 15 in quarter 4 (`depthQuarter` over fifteen rows).
+			expect(Data.depthQuarter(1, 15)).to.equal(1)
+			expect(Data.depthQuarter(15, 15)).to.equal(4)
+			expect(a2.drive[1].northStuds < a2.drive[11].northStuds).to.equal(true)
+			expect(b2.drive[1].northStuds > b2.drive[11].northStuds).to.equal(true)
+			-- ...AND NEITHER IS THE BASE TABLE'S OWN DEPTH for that slot.
+			expect(a2.drive[1].northStuds ~= Data.SCHEDULE.drive[1].northStuds).to.equal(true)
+			-- EVERY GENERATED ROW IS STILL WALKABLE: no clamped row is shallower than its own
+			-- `routeFloor`, which is the invariant `releaseDepth`'s floor depends on.
+			for _, cellId in ipairs(Grid.PLANTED_CELLS) do
+				local schedule = scheduleOf(cellId)
+				for index, row in ipairs(schedule.drive) do
+					local base = Data.SCHEDULE.drive[index]
+					expect(row.northStuds >= Data.routeFloor(row, schedule)).to.equal(true)
+					-- THE ONE THAT HOLDS KEEPS ITS OWN BED: it never comes, and a shallower start for
+					-- it is task 253's measured defect (a sow lying up in front of the hunter).
+					if not Data.clampedToLine(base) then
+						expect(row.northStuds).to.equal(base.northStuds)
+					end
+					-- A BIAS MAY NOT INVENT A CROSSING for a row that never crosses.
+					if base.crossOffset == nil then
+						expect(row.crossOffset).to.equal(nil)
+					else
+						expect(math.abs(row.crossOffset) <= schedule.crossCapStuds).to.equal(true)
+					end
+				end
+			end
+		end)
+
+		-- THE BAND IS DERIVED FROM THE SCRIPT, NOT CHOSEN: `bandFraction` x the cell's depth is the
+		-- deepest row this drive already writes, so a fraction of 1.0 can never ask for a depth the
+		-- accepted table has not already used.
+		it("derives the depth band from the schedule's own deepest row", function()
+			local deepest = 0
+			for _, row in ipairs(Data.SCHEDULE.drive) do
+				deepest = math.max(deepest, row.northStuds or 0)
+			end
+			local band = Grid.CONFIG.cellDepthStuds * Data.SCHEDULE.bandFraction
+			expect(band).to.be.near(deepest, 5)
+		end)
+
+		-- THE SEVEN ROWS ARE SEVEN DIFFERENT PATTERNS, which is the Director's own condition and the
+		-- whole of Karen's sentence. Asserted over the data rather than written down twice.
+		it("has one row per planted cell, all different, every bias word used", function()
+			local pairsSeen, biases, densities = {}, {}, {}
+			for _, cellId in ipairs(Grid.PLANTED_CELLS) do
+				local row = Grid.animalsOf(cellId)
+				expect(row).to.be.ok()
+				expect(Data.SCHEDULE.DENSITIES[row.density]).to.be.ok()
+				expect(Data.SCHEDULE.ROUTE_BIAS[row.routeBias]).to.be.ok()
+				expect(#row.startDepth).to.equal(4)
+				expect(#row.restZones > 0).to.equal(true)
+				local key = row.density .. "/" .. row.routeBias
+				expect(pairsSeen[key]).to.equal(nil) -- no two cells share a (density, routeBias)
+				pairsSeen[key] = true
+				biases[row.routeBias] = true
+				densities[row.density] = (densities[row.density] or 0) + 1
+			end
+			for word in pairs(Data.SCHEDULE.ROUTE_BIAS) do
+				expect(biases[word]).to.equal(true) -- all five words are used
+			end
+			expect(densities.quiet).to.equal(2)
+			expect(densities.normal).to.equal(3)
+			expect(densities.busy).to.equal(2)
+			-- A1 IS NOT PLANTED AND HAS NO ROW, so the unplanted cell is the one that plays as today.
+			expect(Grid.animalsOf("A1")).to.equal(nil)
+		end)
+
+		-- REST ZONES ARE A READING OF THE RECIPE, not a preference: every listed zone must be TREED
+		-- and must reach the band a resting group may be put in (`REST.nearRoadStuds`..`farRoadStuds`
+		-- as fractions of the cell's depth). A clearing or a shrub band cannot satisfy
+		-- `REST.nearTrunkStuds`, so naming one would be naming a zone no group can rest in.
+		it("rests its groups only in treed zones that reach the rest band", function()
+			-- THE EXACT MAP, not a loose frame (round 2's note): a zone fraction is of
+			-- `Places.cellGround`'s INSET depth, measured from the main road plus the inset. So a
+			-- rest depth `dz` is `(dz - inset) / (cellDepth - 2 * inset)`. The loose version read
+			-- A2's overlap as ~53 studs where it is 31.
+			local inset = Places.CELL_EDGE_STUDS
+			local depth = Grid.CONFIG.cellDepthStuds - 2 * inset
+			local fromV = (Data.REST.nearRoadStuds - inset) / depth
+			local toV = (Data.REST.farRoadStuds - inset) / depth
+			for _, cellId in ipairs(Grid.PLANTED_CELLS) do
+				local plan = Places.cellPlanFor(cellId)
+				expect(plan).to.be.ok()
+				for _, index in ipairs(Grid.animalsOf(cellId).restZones) do
+					local zone = plan.zones[index]
+					expect(zone).to.be.ok()
+					expect(zone.band).to.equal("wood") -- a trunk, not a shrub
+					expect(zone.spacingStuds > 0).to.equal(true) -- not the clearing
+					expect(zone.at[2] < toV and zone.at[4] > fromV).to.equal(true)
+				end
+			end
+			-- AND THE PURE RULE `restSpot` ASKS: no list is "any legal spot", which is what every
+			-- cell did before this task.
+			expect(Data.restZoneAllowed(nil, 4)).to.equal(true)
+			expect(Data.restZoneAllowed({ 1, 2 }, 2)).to.equal(true)
+			expect(Data.restZoneAllowed({ 1, 2 }, 3)).to.equal(false)
+			expect(Data.restZoneAllowed({ 1, 2 }, nil)).to.equal(false)
+			expect(Data.restZonesOf(nil)).to.equal(nil)
+		end)
+
+		-- THE THIRD PASS ITSELF, DRIVEN (review round 1, finding 2, which was right: the case above
+		-- reads only data tables and survives deleting the whole search change).
+		--
+		-- IT IS `restSpot`'s OWN LOOP with the two world facts handed in -- the zone a candidate is
+		-- in and whether the lane can see it -- so it tells THREE passes from TWO by the answer it
+		-- returns, not by counting them. The candidates are ordered as the rings order them.
+		it("takes a bedded group out of the cell's own zones first, and settles for any zone last", function()
+			-- Ring order: the first legal spot is in zone 4, the second in zone 2, and only the
+			-- second is seen from the lane. A cell that names zones 1 and 2 must walk past the first.
+			local candidates = {
+				{ zone = 4, seen = true },
+				{ zone = 2, seen = false },
+			}
+			local function search(zones)
+				for pass = 1, Data.restPasses(zones) do
+					for index, c in ipairs(candidates) do
+						if Data.restPassTakes(pass, zones, c.zone, c.seen) then
+							return index, pass
+						end
+					end
+				end
+				return nil, nil
+			end
+			-- NO LIST: two passes, and the answer is task 172's -- the seen spot, on pass 1.
+			local index, pass = search(nil)
+			expect(Data.restPasses(nil)).to.equal(2)
+			expect(index).to.equal(1)
+			expect(pass).to.equal(1)
+			-- THE CELL'S LIST: four passes, and the answer MOVES to the group's own zone -- taken
+			-- on pass 2, because the zone wins over the sightline.
+			local zoned, zpass = search({ 1, 2 })
+			expect(Data.restPasses({ 1, 2 })).to.equal(4)
+			expect(zoned).to.equal(2)
+			expect(zpass).to.equal(2)
+			expect(zoned ~= index).to.equal(true) -- the two searches differ: the pass count bites
+			-- ...AND THE LAST PASS IS A SETTLEMENT, NOT A RULE: a list naming a zone no candidate
+			-- is in still beds the group rather than leaving the wood empty.
+			local last, lpass = search({ 7 })
+			expect(last).to.equal(1)
+			expect(lpass).to.equal(3)
+		end)
+
+		-- FINDING 2 OF ROUND 2, AS A CASE. A group whose candidates are ALL outside the cell's list
+		-- still takes a SEEN spot when one exists -- task 172's preference, which the three-pass
+		-- order (zone AND seen) > zone > anything lost, because its last pass took whatever the
+		-- rings reached first. Karen: *"beaters has to see more animals when walking"*.
+		--
+		-- RED ON THE THREE-PASS CODE: with three passes the answer is candidate 1 (the screened one,
+		-- reached first); with four it is candidate 2, and `expect(index).to.equal(2)` fails.
+		it("still prefers a spot the lane can see when no candidate is in the cell's zones", function()
+			local candidates = {
+				{ zone = 4, seen = false }, -- reached first by the rings, and screened
+				{ zone = 5, seen = true }, -- further out, and visible from the lane
+			}
+			local function search(zones)
+				for pass = 1, Data.restPasses(zones) do
+					for index, c in ipairs(candidates) do
+						if Data.restPassTakes(pass, zones, c.zone, c.seen) then
+							return index, pass
+						end
+					end
+				end
+				return nil, nil
+			end
+			-- NEITHER CANDIDATE IS IN THE LIST, so passes 1 and 2 take nothing at all.
+			local zones = { 1, 2 }
+			expect(Data.restPassTakes(1, zones, 4, false)).to.equal(false)
+			expect(Data.restPassTakes(1, zones, 5, true)).to.equal(false)
+			expect(Data.restPassTakes(2, zones, 4, false)).to.equal(false)
+			expect(Data.restPassTakes(2, zones, 5, true)).to.equal(false)
+			-- PASS 3 IS THE SIGHTLINE, and it passes over the screened candidate the rings reach
+			-- first -- which is exactly what the three-pass order could not do.
+			local index, pass = search(zones)
+			expect(index).to.equal(2)
+			expect(pass).to.equal(3)
+			expect(Data.restPassTakes(3, zones, 4, false)).to.equal(false)
+			-- ...AND PASS 4 TAKES ANYTHING, so a wood where nothing is visible is still stocked.
+			expect(Data.restPassTakes(4, zones, 4, false)).to.equal(true)
+			-- THE ORDER, WRITTEN OUT: what each pass wants, and nothing else.
+			local function wants(p, z)
+				local a, b = Data.restPassWants(p, z)
+				return (if a then "zone" else "-") .. "/" .. (if b then "seen" else "-")
+			end
+			expect(wants(1, zones)).to.equal("zone/seen")
+			expect(wants(2, zones)).to.equal("zone/-")
+			expect(wants(3, zones)).to.equal("-/seen")
+			expect(wants(4, zones)).to.equal("-/-")
+			-- WITH NO LIST IT IS STILL TASK 172's TWO PASSES, unchanged by any of this.
+			expect(Data.restPasses(nil)).to.equal(2)
+			expect(wants(1, nil)).to.equal("-/seen")
+			expect(wants(2, nil)).to.equal("-/-")
+		end)
+
+		-- THE COORDINATE SPACE (review rounds 1 and 2, both right): zone rectangles are GRID space
+		-- (`Places.cellGround` -> `Grid.boundsOf`, no bend term) and a rest candidate is a WORLD
+		-- point off `ForestTest.roadZ` (full bend). The world wrapper converts once.
+		--
+		-- THE POINT IS `restSpot`'s OWN, and it is the one round 2 supplied: B1's centre x, a
+		-- candidate at the near edge of the rest band. Round 2's case used C1's middle, 73 studs
+		-- from the nearest zone edge against a 45/60 bend, so it answered 2 either way and survived
+		-- deleting the conversion. This one does not: the unconverted query lands OUTSIDE the
+		-- cell's inset ground, where `zoneAt` is nil and `restZoneAllowed(zones, nil)` is false --
+		-- which is the refusal round 1 described, as an assertion.
+		it("asks the zone question in the space the zones are written in", function()
+			local cellId = "B1"
+			local roads = Grid.roadsOf(cellId)
+			local x = (Grid.boundsOf(cellId).minX + Grid.boundsOf(cellId).maxX) / 2
+			-- A REST CANDIDATE, built the way `ForestTest.restPoint` builds one: the main road's
+			-- own z AT THIS x (the bend included) plus a depth inside the rest band.
+			local z = Grid.roadCentreAt(roads.main, x) + Data.REST.nearRoadStuds
+			local u, v = Grid.toGrid(x, z)
+			-- THE TWO SPACES DISAGREE HERE, and by enough to change the answer. That is the whole
+			-- case: the converted query is inside `spruceRidge`'s own zone 1, the unconverted one
+			-- is outside the cell.
+			expect(math.abs(z - v) > 40).to.equal(true)
+			local converted = Places.zoneIndexAt(cellId, x, z)
+			local unconverted = Places.zoneIndexAtGrid(cellId, x, z)
+			expect(converted).to.equal(Places.zoneIndexAtGrid(cellId, u, v))
+			expect(converted).to.equal(1)
+			expect(unconverted).to.equal(nil)
+			expect(converted ~= unconverted).to.equal(true)
+			-- ...AND THE REFUSAL THAT FOLLOWS FROM IT, which is what the search would have done.
+			local zones = Grid.animalsOf(cellId).restZones
+			expect(Data.restZoneAllowed(zones, converted)).to.equal(true)
+			expect(Data.restZoneAllowed(zones, unconverted)).to.equal(false)
+		end)
+
+		-- THE BUDGET'S OWN INSTRUMENT (design 9.2): the boar runtime had NO step counter at all
+		-- before this task. The case proves the three fields exist and that the average is DIVIDED
+		-- rather than stored -- a runtime that has never stepped reads 0 and not nan.
+		it("the boar runtime reports what its step costs", function()
+			local holder = Instance.new("Folder")
+			holder.Name = "CellPatternStepProbe"
+			holder.Parent = workspace
+			local runtime = Boar.newRuntime({
+				field = { bounds = { minX = -200, maxX = 200, minZ = -200, maxZ = 200 }, exitZ = -190, groundY = 0 },
+				parent = holder,
+				folderName = "StepProbe",
+				rng = Random.new(327),
+				threats = function()
+					return {}
+				end,
+				requestPath = function(_agentId, _from, _to, done)
+					done(nil)
+				end,
+				releasePath = function() end,
+			})
+			local before = runtime:stats()
+			expect(before.steps).to.equal(0)
+			-- DIVIDED, NOT STORED: a runtime that has never stepped reads 0 and not nan.
+			expect(before.stepMsAvg).to.equal(0)
+			expect(before.stepMsMax).to.equal(0)
+			runtime:step(1 / 60)
+			runtime:step(1 / 60)
+			local after = runtime:stats()
+			expect(after.steps).to.equal(2)
+			expect(after.stepMsAvg >= 0).to.equal(true)
+			expect(after.stepMsMax >= after.stepMsAvg).to.equal(true)
+			-- ...AND UNDER design 9.2's 8.0 ms peak, which an empty world had better be.
+			expect(after.stepMsMax < 8.0).to.equal(true)
+			expect(runtime:partCount()).to.equal(0)
+			-- ...AND PUBLISHED WHERE A PROBE CAN READ IT (V293b): a counter that only lives in module
+			-- state is not a diagnostic, because a live probe gets a fresh copy of the module. The
+			-- folder carries nothing until the publish interval is reached, and then it carries the
+			-- same numbers `stats()` does.
+			local folder = holder:FindFirstChild("StepProbe")
+			expect(folder).to.be.ok()
+			expect(folder:GetAttribute("StepCount")).to.equal(nil)
+			-- EXACTLY TO THE INTERVAL (two steps are already taken above), so the published snapshot
+			-- and `stats()` are the same moment and the case is an equality rather than a window.
+			for _ = 1, Boar.STEP_PUBLISH_EVERY - 2 do
+				runtime:step(1 / 60)
+			end
+			expect(runtime:stats().steps).to.equal(Boar.STEP_PUBLISH_EVERY)
+			expect(folder:GetAttribute("StepCount")).to.equal(runtime:stats().steps)
+			expect(folder:GetAttribute("StepMsAvg")).to.be.near(runtime:stats().stepMsAvg, 1e-9)
+			expect(folder:GetAttribute("StepMsMax")).to.be.near(runtime:stats().stepMsMax, 1e-9)
+			runtime:destroy()
+			holder:Destroy()
 		end)
 	end)
 end

@@ -1789,7 +1789,42 @@ function Places.zoneRect(cellId: string, z: any): { minX: number, maxX: number, 
 	return made
 end
 
--- WHICH ZONE A WORLD POINT IS IN, or nil outside the cell's ground and in a gap no zone covers. The
+-- WHICH ZONE **INDEX** A WORLD POINT IS IN, or nil for none -- the same answer as `zoneAt`, as the
+-- ordinal the data is written in, so a cell's `animals.restZones` can name a zone (task 327h).
+--
+-- **WORLD IN; `Grid.toGrid` ONCE** -- `Places.mask` and `Places.clearOfEveryRoad`'s own shape, and
+-- it is load-bearing rather than tidy (review round 1, finding 1, which was right). Every zone
+-- rectangle comes from `Places.cellGround` -> `Grid.boundsOf`, which carries NO bend term, while a
+-- rest candidate is built from `ForestTest.roadZ` -> `Grid.roadCentreAt`, which carries the full
+-- one. Asking the grid question with a world point answers the zone up to `bend.nsStuds` 60 away
+-- in v and `ewStuds` 45 in u -- and near the rest band's own edge it answers nil, which refuses a
+-- candidate that is squarely inside the zone the row named.
+function Places.zoneIndexAt(cellId: string, x: number, z: number, bend: any?): number?
+	local u, v = Grid.toGrid(x, z, bend)
+	return Places.zoneIndexAtGrid(cellId, u, v)
+end
+
+-- THE SAME QUESTION IN GRID COORDINATES, which is the space every zone rectangle is written in.
+function Places.zoneIndexAtGrid(cellId: string, u: number, v: number): number?
+	local plan = Places.cellPlanFor(cellId)
+	if plan == nil then
+		return nil
+	end
+	local found = Places.zoneAt(cellId, u, v)
+	if found == nil then
+		return nil
+	end
+	for index, item in ipairs(plan.zones) do
+		if item == found then
+			return index
+		end
+	end
+	return nil
+end
+
+-- WHICH ZONE A **GRID** POINT IS IN, or nil outside the cell's ground and in a gap no zone covers.
+-- Both callers (`maskGrid`, `zoneIndexAtGrid`) hand it grid coordinates; the header said WORLD,
+-- which is the space the round-1 defect came from. The
 -- SKIRT asks this of the NEIGHBOUR cell, which is how the wood across a road is that cell's own wood
 -- and not the active cell's -- Karen's *"different trees growing in different section"* (design 8.2).
 function Places.zoneAt(cellId: string, x: number, z: number): any

@@ -169,8 +169,15 @@ Grid.PLANTED_CELLS = table.freeze({ "C1", "C2", "A2", "B1", "D1", "B2", "D2" })
 --
 -- `recipe` NAMES THE ROW IN `Places.CELL_PLANS` THIS CELL IS DRESSED WITH (task 327c), and it is
 -- chosen from the MEASURED `relief.character` above -- character, then recipe (design 12D). It is
--- a string and not the recipe itself, so `Grid` still requires nothing. `animals` (327h) is not
--- here yet.
+-- a string and not the recipe itself, so `Grid` still requires nothing.
+--
+-- `animals` IS HOW THIS SECTION PLAYS (task 327h, design 9.1). Karen, 2026-11-09: *"each sections
+-- ahs different animal patters to be intrestin"*. Four fields and nothing else -- `density`,
+-- `startDepth` (fractions of the cell's own depth), `routeBias`, `restZones` -- and they
+-- PARAMETERISE the one schedule in `ForestTest.SCHEDULE` rather than replacing it. A1 has none
+-- because A1 is not planted (`PLANTED_CELLS`), and a cell with no row plays exactly as today.
+-- THE SEVEN ROWS ARE ALL DIFFERENT PAIRS: no two share a (density, routeBias), the densities run
+-- two quiet / three normal / two busy, and all five bias words are used (Director, 2026-11-09).
 Grid.CELLS = table.freeze({
 	table.freeze({
 		id = "A1",
@@ -207,6 +214,16 @@ Grid.CELLS = table.freeze({
 			lineSpreadStuds = 22.82,
 			lineMeanY = 81.29,
 		}),
+		-- HOW THIS SECTION PLAYS (task 327h): a NORMAL wood whose one wide clearing funnels every
+		-- crossing WEST, and they come from deeper and deeper as the drive goes on.
+		animals = table.freeze({
+			density = "normal",
+			routeBias = "west",
+			startDepth = table.freeze({ 0.45, 0.60, 0.75, 0.90 }),
+			-- `spruceRidge` zones 1 and 2 (`Places.CELL_PLANS`): the two treed bands that reach the
+			-- rest band (v 0.03-0.30 of the cell, which is `REST.nearRoadStuds`..`farRoadStuds`).
+			restZones = table.freeze({ 1, 2 }),
+		}),
 		-- RE-MEASURED IN A PLAY SESSION (task 328h; design 6.1 -- an Edit run reads
 		-- `DrivePlaces=ABSENT`), 218's instrument over B1's fifteen stands at their bent world
 		-- points. Ranked by gain, never two adjacent, `gain >= 60`, `spread <= 4.0`,
@@ -232,6 +249,16 @@ Grid.CELLS = table.freeze({
 			lineSpreadStuds = 20.49,
 			lineMeanY = 106.03,
 		}),
+		-- HOW THIS SECTION PLAYS (task 327h): the preview cell keeps the depth curve the accepted
+		-- script already has (its own quarter means, 0.30/0.40/0.75/0.70 of the band), and SPLITS
+		-- the crossings into two streams with the middle of the line left empty.
+		animals = table.freeze({
+			density = "normal",
+			routeBias = "split",
+			startDepth = table.freeze({ 0.30, 0.40, 0.75, 0.70 }),
+			-- `mixedRolling` zones 1 and 2: the two birch bands over the rest band.
+			restZones = table.freeze({ 1, 2 }),
+		}),
 		-- RE-MEASURED TOO (task 328r), with 327b's own instrument over C1's fifteen stands at their
 		-- new world points (`<runs-dir>/328r-towers.luau`). Ranked by gain, never two adjacent,
 		-- `gain >= 60`, `spread <= 4.0`, `relief <= 1.8`: 13 (+234), then 10 (+216), then 8 (+120)
@@ -256,6 +283,15 @@ Grid.CELLS = table.freeze({
 			lineSpreadStuds = 36.27,
 			lineMeanY = 135.85,
 		}),
+		-- HOW THIS SECTION PLAYS (task 327h): QUIET oak -- nine slots of fifteen -- but every one of
+		-- them comes at the MIDDLE of the line, already close, so a thin drive is still a drive.
+		animals = table.freeze({
+			density = "quiet",
+			routeBias = "centre",
+			startDepth = table.freeze({ 0.80, 0.80, 0.65, 0.50 }),
+			-- `oakRolling` zones 1, 2 and 3: the frontage band and the two behind it.
+			restZones = table.freeze({ 1, 2, 3 }),
+		}),
 		-- RE-MEASURED IN PLAY (task 328h): only 9 (+234) and 10 (+120) clear the +60 floor and they
 		-- are adjacent, so the set is ONE. **11 LEFT THE SET** -- its gain fell +95 -> +40 when the
 		-- bake cut the road it overlooks. All fifteen pads `spread 0.00`, `relief <= 0.08`.
@@ -275,6 +311,16 @@ Grid.CELLS = table.freeze({
 			lineSpreadStuds = 42.2,
 			lineMeanY = 115.44,
 		}),
+		-- HOW THIS SECTION PLAYS (task 327h): BUSY -- all fifteen slots -- and the plantation rows
+		-- carry everything EAST, starting near and working back into the wood.
+		animals = table.freeze({
+			density = "busy",
+			routeBias = "east",
+			startDepth = table.freeze({ 0.50, 0.65, 0.80, 0.90 }),
+			-- `aspenRolling` zone 3 is its only TREED zone over the rest band; 1 and 2 are `shrub`,
+			-- and `REST.nearTrunkStuds` wants a trunk.
+			restZones = table.freeze({ 3 }),
+		}),
 		towers = table.freeze({ 7 }), -- 7 main gain +88, spread 1.01, relief 3.57 -- RELAXED (best relief of 1 candidate)
 		towersRelaxed = true,
 	}),
@@ -292,6 +338,15 @@ Grid.CELLS = table.freeze({
 			lineSpreadStuds = 61.3,
 			lineMeanY = 181.83,
 		}),
+		-- HOW THIS SECTION PLAYS (task 327h): QUIET and WIDE -- the open larch gives nothing away in
+		-- the middle, so the few that come break right out on the flanks, deep first.
+		animals = table.freeze({
+			density = "quiet",
+			routeBias = "wide",
+			startDepth = table.freeze({ 0.90, 0.75, 0.60, 0.45 }),
+			-- `larchSlope` zone 1: the one band of its four over the rest band.
+			restZones = table.freeze({ 1 }),
+		}),
 		towers = table.freeze({ 2 }), -- 2 main gain +163, spread 1.08, relief 2.13 -- RELAXED (best relief of 2 candidates)
 		towersRelaxed = true,
 	}),
@@ -308,6 +363,15 @@ Grid.CELLS = table.freeze({
 			spreadStuds = 142.7,
 			lineSpreadStuds = 53.6,
 			lineMeanY = 211.22,
+		}),
+		-- HOW THIS SECTION PLAYS (task 327h): the LATE one -- nothing deep early, then act III comes
+		-- out of the back of the wood at 0.85-0.95 of the band, at the middle of the line.
+		animals = table.freeze({
+			density = "normal",
+			routeBias = "centre",
+			startDepth = table.freeze({ 0.40, 0.55, 0.85, 0.95 }),
+			-- `spruceBirchRolling` zones 1, 2 and 3: all three reach the rest band and all are treed.
+			restZones = table.freeze({ 1, 2, 3 }),
 		}),
 		towers = table.freeze({ 14 }), -- 14 east gain +141, spread 1.66, relief 6.70 -- RELAXED (only candidate)
 		towersRelaxed = true,
@@ -327,6 +391,15 @@ Grid.CELLS = table.freeze({
 			spreadStuds = 173.0,
 			lineSpreadStuds = 70.2,
 			lineMeanY = 252.01,
+		}),
+		-- HOW THIS SECTION PLAYS (task 327h): BUSY and SPLIT -- fifteen slots in two streams either
+		-- side of the stand, near at first and out of deep cover by the end. The steepest cell.
+		animals = table.freeze({
+			density = "busy",
+			routeBias = "split",
+			startDepth = table.freeze({ 0.35, 0.50, 0.70, 0.90 }),
+			-- `oakAspenRolling` zones 1 and 2.
+			restZones = table.freeze({ 1, 2 }),
 		}),
 		towers = table.freeze({ 12 }), -- 12 east gain +155, spread 0.87, relief 2.79 -- RELAXED (best relief of 4; stand 3 scores +160 at relief 9.88)
 		towersRelaxed = true,
@@ -353,6 +426,15 @@ function Grid.cellOf(id: string?): any
 		return nil
 	end
 	return BY_ID[id]
+end
+
+-- HOW THIS CELL'S ANIMALS COME, or nil for "exactly as every cell did before task 327h".
+--
+-- RETURNED AS IT IS, not cloned: the row is frozen, and `ForestTest.cellSchedule` MEMOISES on its
+-- identity -- a fresh table per call would build a fresh schedule per slot.
+function Grid.animalsOf(id: string?): any
+	local cell = Grid.cellOf(id)
+	return if cell ~= nil then cell.animals else nil
 end
 
 -- THE WHOLE WORLD'S BOUNDS: 4 x 1070 + 5 x 42 by 2 x 1430 + 3 x 42 (design 4.1). Three east-west

@@ -1,3 +1,111 @@
+## DIRECTOR DECISION, 2026-11-10 ~01:25 UTC, Task 327h: ROUND 3 AUTHORISED (option 1)
+
+Option 1 of the entry below: `DIRECTOR_MAX_ROUNDS=3` is authorised for **task 327h, round 3 only**.
+Scope of the round: the four-pass rest order *(zone AND seen) > zone > seen > any* in
+`ForestTest.restPasses` / `restPassTakes`, with no change to `restSpot`'s loop; the B1 coordinate case
+the Reviewer names (x -5011, world z -5097), which must fail without the conversion; and the
+non-blocking one-line notes if they are free. Nothing else. Finding 2 is a live regression on Karen's
+own sentence ("beaters has to see more animals"), so option 3 is refused, and option 2 costs the
+same round and delivers less. A FINDING on round 3 is an ESCALATE.md entry, not a fourth round.
+The 9.2 budget entry (60 live, 5.99-10.33 ms per step, measured on main with no rows) is NOT this
+round's job. The Director queues it as its own task.
+
+## 2026-11-10 ~01:20 UTC, Task 327h -- STOPPED AT THE DISPATCH'S TWO-ROUND CAP: two blocking findings on round 2, both in the `restZones` quarter of the task
+
+The dispatch: *"Review: at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."*
+Round 2 returned two findings (`reviews/task-327h/RESULT.md`, commit `d3d3fa40`, $4.70). **Both look
+right to me and I am not disputing either.** No further code was written. The branch
+`task-327h-cell-animals` is at `d3d3fa40`, code commit `1d484d4e`,
+`[harness] PASS: 34/34 checks @ 1d484d4e (clean tree) scope=all`.
+
+**THREE QUARTERS OF THE TASK ARE CLEAN AND WERE NOT TOUCHED BY EITHER ROUND.** No finding in either
+round is against the `animals` rows, `cellSchedule`, `startDepth`, `routeBias`, the boar step
+counters, or anything in the measured drives. Both rounds' four findings are all `restZones`.
+
+**Finding 1 -- my proof case does not die with the fix it proves.** The point I picked (C1 centre,
+v 0.15) is 73 studs from the nearest zone edge in u and 242 in v, against a bend of 45/60, so
+`zoneIndexAt` answers 2 with the conversion and 2 without it. The Reviewer supplies the point that
+does bite, and it is `restSpot`'s own case: **B1 at x -5011, a candidate `REST.nearRoadStuds` north
+of the main road at world z -5097 -- grid v fraction 0.0218 (inside `spruceRidge` zone 1) against
+an unconverted -0.0098, which is OUTSIDE `cellGround`, where `zoneAt` is nil and the candidate is
+refused.** That is round 1's defect as an assertion. The fix is the case, not the code: the code
+change (world wrapper + `zoneIndexAtGrid` kernel) is not disputed.
+
+**Finding 2 -- a real behaviour regression I introduced, and it is the one that matters.** My third
+pass is *(zone AND seen) > zone > anything*, so on pass 3 the sightline is `true` by construction
+and **task 172's preference is gone** for any group whose candidates are all outside the listed
+zones. Karen asked for that preference by name (*"beaters has to see more animals when walking ...
+I want to see them more"*). And **A2's shipped row reaches it**: `aspenRolling`'s only `wood` zone
+is zone 3, which meets the rest band in `dz 394..425` -- 31 studs of the band's 385 -- while
+`REST.groups`' depths are 415, 370, 340, 305, 230, 200, 195, 90, 85, 60 and the search reaches
+64 studs. **7 of 10 groups** are refused in passes 1 and 2 and bedded by pass 3 with no sightline
+test at all, in the same shrub zones they used before. My own request said the live drives could not
+have caught this: they were all played as a HUNTER, and the wood is only stocked in beater mode.
+
+**THE FIX THE REVIEWER NAMES, which I have NOT written:** four passes, *(zone AND seen) > zone >
+seen > any* -- one more arm in `ForestTest.restPasses` / `restPassTakes` and **no change to
+`restSpot`'s loop** -- or drop A2's list and say in the row why. Either is small.
+
+**THE DECISION ASKED FOR**, one of:
+1. **one more round** (`DIRECTOR_MAX_ROUNDS=3`, authorised here for task 327h round 3): I write the
+   four-pass arm, the B1 case, and the five one-line notes, and re-run the gate. My estimate is
+   under an hour including the harness and the review;
+2. **split**: merge the three clean quarters and take `restZones` out of this branch into its own
+   task. `restZones` is read in exactly one place (`restSpot`), so removing the `restZones` field,
+   `restZonesOf`, `restZoneAllowed`, `restPasses`, `restPassTakes`, `Places.zoneIndexAt(Grid)` and
+   the three glue lines is a clean subtraction -- but it is still a code change and still needs a
+   review round, so it costs the same as (1) and delivers less;
+3. **merge as it stands and queue both**: NOT recommended. Finding 2 is a live regression on
+   Karen's own sentence, in beater mode, in one shipped cell.
+
+**Also open from round 2, non-blocking, queued rather than fixed:** the memo key omitting
+`cellDepthStuds`; `made.restZones` read by nothing; `Places.zoneAt`'s header still saying "WORLD
+POINT"; `[boarstep]`'s comment naming fields it does not print; the rest-band spec frame using 1430
+instead of the inset 1424 + 24 (which is why A2 looked like ~53 studs of overlap and is 31); and
+`AUTUMN_LIGHT`'s re-justified `expires` now being 35 days after `born` against section 12's 21-day
+ceiling -- that last one is the Architect's file and the Director's call.
+
+## 2026-11-10 ~00:35 UTC, Task 327h -- FOR THE ARCHITECT AND THE DIRECTOR: two of design 9.2's four budget numbers are broken by the world as it stands, BEFORE this task's rows
+
+Task 327h built the instrument design 9.2 asks for (*"NEW: `stepMsAvg` / `stepMsMax` on the boar
+runtime ... a hole this task closes rather than inherits"*) and then read it. Two of the four
+numbers do not hold, and **neither is caused by the `animals` rows**: the first was measured on
+**merged main, 516b9698, with no row anywhere**.
+
+| design 9.2 | target | measured | where |
+|---|---|---|---|
+| live animals at the busiest instant | **<= 24** | **60** | BEFORE, C1, `normal`, main 516b9698 (`327h-BEFORE-C1b-track.txt`) |
+| same, after | | **55 / 60 / 60** | D1 `quiet` / C1 `normal` / A2 `busy` at b80635aa |
+| boar runtime step, average | **<= 4.0 ms** | **5.99 / 7.09 / 10.33 ms** | C1 / D1 / A2, full 400 s drives |
+| boar runtime step, peak | **<= 8.0 ms** | **76.6 / 88.4 / 91.6 ms** | same three |
+| animal parts | **< 2,000** | **1,050** peak | MET |
+| `MAX_BOARS` hard ceiling | **60** | **60, never exceeded** | MET -- the cap refuses past it |
+
+**WHY <= 24 CANNOT BE REACHED BY MAKING A CELL QUIETER**, which is the Director's own instruction
+(*"If a busy cell breaks a number, make it less busy, not the budget bigger"*). It is not the
+density dial. A drive is 300 s and the script is fifteen slots ending at 192 s; past the end,
+`SCHEDULE.repeatFrom..repeatTo` releases a group every 13 s for the rest of the clock, and nothing
+despawns a group that is still walking. So live animals climb to the `MAX_BOARS` ceiling in EVERY
+cell at EVERY density -- the **quiet** cell D1 reached **55**. The dial is visible where the script
+is (crossings in the first 220 s: quiet 49, normal 63-69, busy 74) and gone after it.
+
+**THE PEAK IS A SESSION HIGH-WATER MARK, and one cold frame sets it.** `stepMsMax` is never reset,
+so 76-92 ms is "the worst single Heartbeat since the runtime was created", spawn frames included.
+The AVERAGE is the number to act on, and it is 1.5x to 2.6x the budget. A per-drive reset would
+make the peak readable; it is not in this task's scope.
+
+**WHAT THE BUILDER DID NOT DO.** Nothing. `docs/design/` is the Architect's (rule 3) and the
+dispatch says so by name (*"NOT YOURS: docs/design/ (a wrong number goes to ESCALATE.md)"*). The
+rows ship as dispatched; this entry is the reading, not a change.
+
+**THE DECISION ASKED FOR**, one of:
+1. the budget is wrong for a 300 s drive with a repeat window -- the Architect restates 9.2 against
+   what the world actually does;
+2. the budget is right and the WORLD is wrong -- then the fix is the repeat window or a despawn
+   rule, which is a task of its own and is not 327h;
+3. 4.0 ms was never measured for this runtime at all (it is `Bots`' number, borrowed) -- then the
+   first thing to decide is what an animal runtime carrying 60 bodies may cost.
+
 ## 2026-11-09 ~22:30 UTC, Task 341 -- FOR THE ARCHITECT: `cell-loading.md` D2 now reads as forbidding the shipped code
 
 Task 341 passed review round 1 (`reviews/task-341/RESULT.md`). Its first non-blocking note is a
