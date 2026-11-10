@@ -25,8 +25,18 @@ not a search failure -- with the depths pinned to an even ladder, adjacent ordin
 `sqrt(71^2 - 21.4^2)` = 67.7 studs of lateral separation and the corridor is 190 studs wide, which
 holds at most two such columns. Quiet and normal skip nothing.
 
+**AND THE THREE ARE NOT ANONYMOUS -- ALL THREE ARE RED DEER, AND ONE OF THEM IS THE STAG** (round
+2's review raised this; re-derived independently by the Builder with the same sweep over the same
+fifteen rows, and the two derivations agree). At `busy`, muster 580, the rows with no bed are
+**slots 4, 8 and 12**: the `herd` of seven, **the lone stag**, and the second `herd` of seven. So
+that drive silently loses **15 of its 83 animals and 3 of its 7 deer groups**, including the one row
+this repo bends its own deer cap for (`LONE_PARTY_EXTRA_GROUPS`, *"the stag is the last deer"*). It
+is the deer rows because they sit at the lateral offsets the sweep cannot reconcile, not because
+anything prefers boar -- but the effect is a busy drive with no stag in it. **K-1 is being decided on
+this number, so here is which three it is.**
+
 **MEASURED, AND IT IS THE ANSWER TO K-1: `behindLineStuds` 400 -> 520 (muster 700) BEDS EVERY GROUP
-AT EVERY DENSITY.** Same spec arithmetic, both musters:
+AT EVERY DENSITY** -- so at 700 the stag keeps his bed. Same spec arithmetic, both musters:
 
 | muster | band | quiet | normal | busy |
 |---|---|---|---|---|
