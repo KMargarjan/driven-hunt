@@ -1,16 +1,47 @@
 # Task 327h — each section its own animal pattern
 
 Task: 327h
-Round: 1
+Round: 2
 Base: 516b9698 (main, PR #353)
-Code commit: b80635aa5270cd35f38621f9850d6ffa96b954b7
+Code commit: 1d484d4e2ac97608e66c5faa6eb32ee021752a39
 
-`[harness] PASS: 34/34 checks @ b80635aa5270cd35f38621f9850d6ffa96b954b7 (clean tree) scope=all`
+`[harness] PASS: 34/34 checks @ 1d484d4e2ac97608e66c5faa6eb32ee021752a39 (clean tree) scope=all`
 
 `test2` N/A: `tools/agents.py`'s `TWO_PLAYER_PATHS` names none of the changed files — no
 `src/server/Match/`, no `src/shared/Drive/`, no `MatchBoot`, no `tests/client/Role.luau`, none of
 the named specs. The change is `Grid`, `ForestTest` (shared + server), `Places`, the boar runtime,
 `ForestTestBoot` and `forest_line.spec`.
+
+## Round 2: what changed, and nothing else
+
+Round 1's two blocking findings were **both right** and both are fixed. Nothing else in `src/`
+moved, except one line of `Flags` the clock broke (below).
+
+1. **WORLD COORDINATES FED INTO A GRID-SPACE TEST.** `Places.zoneIndexAt` is now the WORLD wrapper
+   -- `Grid.toGrid` once, `bend` a trailing optional -- over a new `Places.zoneIndexAtGrid` kernel,
+   which is `Places.mask` / `clearOfEveryRoad`'s own shape. The header says which space each takes.
+   New case *"asks the zone question in the space the zones are written in"*: the world call and
+   the grid call agree for the same point, and a **zero-amplitude bend** makes the unconverted call
+   right -- so the defect is reachable by parameter, not only by reading.
+2. **THE CASE SURVIVED DELETING THE THIRD PASS.** The pass count and the per-candidate rule are now
+   `ForestTest.restPasses` / `ForestTest.restPassTakes`, pure and by parameter; `restSpot` supplies
+   the two world facts (the zone index, the sightline) and asks nothing itself. New case *"takes a
+   bedded group out of the cell's own zones first…"* runs `restSpot`'s own loop over two
+   hand-written candidates and asserts **the answer moves**: with no list, two passes return
+   candidate 1 on pass 1 (task 172's answer, unchanged); with `{1, 2}`, three passes return
+   candidate **2** on pass **2**; with `{7}` -- a zone nobody is in -- the group is still bedded, on
+   pass 3. Delete the widening or the filter and the two sides stop differing.
+
+**One line outside the task, named rather than hidden:** `AUTUMN_LIGHT`'s `expires` was
+`2026-11-09` and the clock rolled over to 2026-11-10 during this task, so
+`tests/server/flags.spec.luau`'s rot tripwire failed the gate (`flags.spec:124`, `2879 passed, 1
+failed`). The date is moved to `2026-11-23` with the reason in the row, which is one of the three
+answers `docs/design/feature-flags.md` section 11 allows. Commit `1d484d4e`, three lines.
+
+**On the first run of this round the client reported `map_ui.spec:1071` failed** -- one of the
+specs the dispatch names as a known flake. It is **not** in the PASS line above: the run was
+repeated at the same commit `1d484d4e` and came back `34/34` with `2880 passed, 0 failed` on the
+server and the client clean. No FAIL line is offered as evidence here.
 
 ## PLAN (core quality protocol, step 0)
 
@@ -71,9 +102,12 @@ the named specs. The change is `Grid`, `ForestTest` (shared + server), `Places`,
 7. **The band is derived, not chosen.** `bandFraction` x `cellDepthStuds` = 357.5, which is this
    script's own deepest row (360) to within 5 studs — asserted, so the band cannot drift from the
    table.
-8. **`restZones` is a reading of the recipe.** Every listed zone is `band == "wood"`, has
-   `spacingStuds > 0` (not the clearing) and overlaps `REST.nearRoadStuds..farRoadStuds` as
-   fractions of the cell's depth. Asserted over all seven cells against `Places.cellPlanFor`.
+8. **`restZones` is a reading of the recipe, asked in the right space, and the third pass bites.**
+   Every listed zone is `band == "wood"`, has `spacingStuds > 0` (not the clearing) and overlaps
+   `REST.nearRoadStuds..farRoadStuds` as fractions of the cell's depth — asserted over all seven
+   cells against `Places.cellPlanFor`. Plus the two round-2 cases above: the space (world call ==
+   grid call, and a flat bend makes the unconverted call right) and the search (two passes and
+   three passes return different candidates).
 9. **The boar runtime now reports what its step costs, and a probe can read it.** The spec steps a
    real runtime exactly to `STEP_PUBLISH_EVERY` and asserts the folder's `StepCount` / `StepMsAvg` /
    `StepMsMax` are the same three numbers `stats()` answers. Live: `327h-step.luau` read
@@ -92,8 +126,11 @@ the named specs. The change is `Grid`, `ForestTest` (shared + server), `Places`,
 - **Nobody has watched a drive and said the three cells FEEL different.** Karen is away. The
   frames (`327h-F1/F2/F3.png`) and the counts are what exists; the feel claim is NOT PROVEN.
 - `stepMsMax` is a session high-water mark and is never reset, so the peak includes cold frames.
-- The `restZones` third pass is proved by its pure rule and by the recipe reading, not by a live
-  count of which zone each stocked group landed in — beater mode was not played in this session.
+- The `restZones` third pass is proved by its two pure rules (the pass count and the per-candidate
+  filter, driven as a search) and by the recipe reading, **not by a live count of which zone each
+  stocked group landed in** — beater mode was not played in this session, and the live drives in
+  the measurement above were all played as a HUNTER, where the wood is not stocked at all. So the
+  coordinate-space defect round 1 found could not have been caught by the live runs either.
 
 ## Learning flags the dispatch checked
 
