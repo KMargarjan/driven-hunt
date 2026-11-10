@@ -1,16 +1,75 @@
 # Task 327h — each section its own animal pattern
 
 Task: 327h
-Round: 2
+Round: 3
 Base: 516b9698 (main, PR #353)
-Code commit: 1d484d4e2ac97608e66c5faa6eb32ee021752a39
+Code commit: b2b12ee8d534c31aa33f71215e0f21f52de2db20
 
-`[harness] PASS: 34/34 checks @ 1d484d4e2ac97608e66c5faa6eb32ee021752a39 (clean tree) scope=all`
+`[harness] PASS: 34/34 checks @ b2b12ee8d534c31aa33f71215e0f21f52de2db20 (clean tree) scope=all`
 
 `test2` N/A: `tools/agents.py`'s `TWO_PLAYER_PATHS` names none of the changed files — no
 `src/server/Match/`, no `src/shared/Drive/`, no `MatchBoot`, no `tests/client/Role.luau`, none of
 the named specs. The change is `Grid`, `ForestTest` (shared + server), `Places`, the boar runtime,
 `ForestTestBoot` and `forest_line.spec`.
+
+## Round 3: what changed, and nothing else
+
+Authorised in `ESCALATE.md` (Director, 2026-11-10 ~01:25 UTC, commit `78c8610e`): option 1, scope
+named there. Round 2's two findings were **both right** and both are fixed. Nothing else in `src/`
+moved.
+
+1. **THE FOUR-PASS REST ORDER, *(zone AND seen) > zone > seen > any***, in `ForestTest.restPasses`
+   and a new `ForestTest.restPassWants` (the one statement of what each pass reads).
+   Round 2 shipped three passes, so on the last one `seen` was `true` by construction and task
+   172's sightline was gone for any group whose candidates all fall outside the cell's list.
+   `restSpot`'s loop is structurally unchanged — it now asks `restPassWants` which of the two world
+   facts to read, and asks the cheaper zone test before casting a ray (round 2's note).
+   **With no list it is still exactly task 172's two passes.**
+2. **THE B1 COORDINATE CASE the Reviewer named.** `restSpot`'s own point: B1's centre x **-5011**,
+   a candidate `REST.nearRoadStuds` north of the main road at world z **-5112**. The two spaces
+   differ by **45 studs** there: converted it is `spruceRidge` **zone 1**, unconverted it is
+   **nil** — outside the cell's inset ground — and `restZoneAllowed` refuses it. Both values are
+   asserted, not only their equality.
+3. **A case for finding 2**: two candidates, neither in the cell's zones, the one the rings reach
+   first screened and the second visible. Four passes take the **second**, on pass 3; three passes
+   took the first.
+
+**FAIL FIRST (L-093), one run with BOTH producers deleted** — `Grid.toGrid` removed from
+`Places.zoneIndexAt`, and `restPasses`/`restPassWants` reverted to their three-pass arms:
+
+`[harness] FAIL: 30/34 checks @ b2b12ee8d534c31aa33f71215e0f21f52de2db20 (DIRTY TREE (2 paths) - NOT valid evidence) scope=all`
+```
+failed [server] forest_line.spec:1933 Expected value "4" (number), got "3" (number) instead
+failed [server] forest_line.spec:1975 Expected value "2" (number), got "1" (number) instead   <- finding 2's case
+failed [server] forest_line.spec:2019 Expected value "1" (number), got "nil" (nil) instead    <- the B1 case
+```
+The producers were then restored and the tree is clean at `b2b12ee8`; the PASS line above is that
+tree. `:1975` is the finding-2 case and `:2019` the B1 one, and both are in the commit reported.
+
+## MEASURED: the ten resting groups, A2 and C1, before and after
+
+Same probe file (`<runs-dir>/327h-rest.luau`), same place, run in her Forest Test from the
+`driven-hunt-rev` route — **before at `1d484d4e`** (three passes) and **after at `b2b12ee8`** (four).
+It beds all ten `REST.groups` through the live `restSpot`, then recovers the pass from that spot's
+own two world facts, so each build is read by its own shipped rule.
+
+| run | cell | passes | placed | seen from the lane | p1 / p2 / p3 / p4 |
+|---|---|---|---|---|---|
+| BEFORE `1d484d4e` | A2 | 3 | 10/10 | **10** | 2 / 0 / 8 / — |
+| AFTER `b2b12ee8` | A2 | 4 | 10/10 | **10** | 2 / 0 / 8 / 0 |
+| BEFORE `1d484d4e` | C1 | 3 | 10/10 | **10** | 10 / 0 / 0 / — |
+| AFTER `b2b12ee8` | C1 | 4 | 10/10 | **10** | 10 / 0 / 0 / 0 |
+
+**The ten spots are identical in both builds** — `diff` of the two A2 files differs only in the
+`passes=` header and the tally line; every group keeps its `dz`, its zone and `seen=true`.
+
+**WHAT THIS DOES AND DOES NOT SHOW, plainly.** The Reviewer's arithmetic is confirmed: **8 of A2's
+10 groups** fall past the zone test (they land in zone 1, a `shrub` band, while `restZones = {3}`),
+so under three passes they were bedded with **no sightline test at all**. In this sample all eight
+happened to be visible anyway — so the regression cost nothing *here*, by luck. The four-pass order
+makes it a **rule** rather than luck, at no measured cost: same spots, same count, and pass 4 is
+never reached in either cell. A case where luck runs out is the spec case, which goes red on the
+three-pass build (`:1975`).
 
 ## Round 2: what changed, and nothing else
 
@@ -102,12 +161,13 @@ server and the client clean. No FAIL line is offered as evidence here.
 7. **The band is derived, not chosen.** `bandFraction` x `cellDepthStuds` = 357.5, which is this
    script's own deepest row (360) to within 5 studs — asserted, so the band cannot drift from the
    table.
-8. **`restZones` is a reading of the recipe, asked in the right space, and the third pass bites.**
+8. **`restZones` is a reading of the recipe, asked in the right space, and the order bites.**
    Every listed zone is `band == "wood"`, has `spacingStuds > 0` (not the clearing) and overlaps
-   `REST.nearRoadStuds..farRoadStuds` as fractions of the cell's depth — asserted over all seven
-   cells against `Places.cellPlanFor`. Plus the two round-2 cases above: the space (world call ==
-   grid call, and a flat bend makes the unconverted call right) and the search (two passes and
-   three passes return different candidates).
+   `REST.nearRoadStuds..farRoadStuds` — now as fractions of `Places.cellGround`'s **inset** depth
+   measured from the road plus the inset, which is the exact map (round 2's note; A2's overlap is
+   **31** studs, not ~53). Asserted over all seven cells against `Places.cellPlanFor`. Plus the
+   three round-3 cases: the B1 space, the four-pass order, and the finding-2 preference — all
+   three red with the producers deleted (the FAIL-FIRST block above).
 9. **The boar runtime now reports what its step costs, and a probe can read it.** The spec steps a
    real runtime exactly to `STEP_PUBLISH_EVERY` and asserts the folder's `StepCount` / `StepMsAvg` /
    `StepMsMax` are the same three numbers `stats()` answers. Live: `327h-step.luau` read
@@ -126,11 +186,17 @@ server and the client clean. No FAIL line is offered as evidence here.
 - **Nobody has watched a drive and said the three cells FEEL different.** Karen is away. The
   frames (`327h-F1/F2/F3.png`) and the counts are what exists; the feel claim is NOT PROVEN.
 - `stepMsMax` is a session high-water mark and is never reset, so the peak includes cold frames.
-- The `restZones` third pass is proved by its two pure rules (the pass count and the per-candidate
-  filter, driven as a search) and by the recipe reading, **not by a live count of which zone each
-  stocked group landed in** — beater mode was not played in this session, and the live drives in
-  the measurement above were all played as a HUNTER, where the wood is not stocked at all. So the
-  coordinate-space defect round 1 found could not have been caught by the live runs either.
+- The rest search is now read live as well as by rule (the A2/C1 table above), but **through
+  `restSpot` called from a probe, not through a played beater drive** — nobody has walked a lane
+  and seen the bedded animals. Karen is away.
+- `restSpot`'s three lines of GLUE (`restZonesOf`, the `for pass` bound, the `restPassTakes` call)
+  are still driven by no spec case — round 2's note, and it is NOT fixed: closing it needs a seam
+  that takes the pass rule by parameter, which is outside the round the Director authorised. The
+  live A2/C1 table is what stands in for it: it is `restSpot`'s own answer, not the rule's.
+- **The non-blocking notes I did NOT take**, named rather than dropped silently: that glue seam
+  (above), and `AUTUMN_LIGHT`'s re-justified `expires` being 35 days after `born` against section
+  12's 21-day ceiling — the Reviewer called that the Architect's file and the Director's call, and
+  `docs/design/` is not mine. The other five one-liners are all taken.
 
 ## Learning flags the dispatch checked
 
@@ -151,10 +217,17 @@ on :34873 and :34873 now serves `driven-hunt-karen` again, reconnected
 ANSWERED: L-101 — her attributes were dumped before (`327h-attrs-BEFORE.txt`) and after
 (`327h-attrs-AFTER.txt`) with the same probe: the diff is **EMPTY**, `DHFlag_STAND_PICK = true`
 included. The one attribute this task wrote, `DHForestLayout`, was cleared back to nil.
-ANSWERED: L-093 — the six new cases die if the fix is deleted: three of them compare TWO cells'
-derived schedules, so removing the `animals` rows (or making `cellSchedule` return the base table)
-makes both sides of every comparison the same number. The seventh asserts the published step
-counters against `stats()`, which is nil before the publish line exists.
+ANSWERED: L-093 — both producers were DELETED and the gate run, and three cases went red:
+`forest_line.spec:1933`, `:1975` (finding 2's case) and `:2019` (the B1 case). The producers were
+restored and the clean-tree PASS above is that tree. The pattern cases die the same way: three of
+them compare TWO cells' derived schedules, so removing the `animals` rows collapses both sides.
+ANSWERED: L-136 — `map_ui.spec:1071` (named in the dispatch's flake list) fired on **2 of the 4**
+runs of this round and on 1 of the 2 runs of round 2, at THREE different commits —
+`1d484d4e`, `5dcbafc5` and the dirty FAIL-FIRST tree — and passed at `b2b12ee8`, which is the
+commit the PASS line above names. No FAIL line is offered as evidence anywhere in this request.
+ANSWERED: L-162 — the A2/C1 measurement was read at the two commits it names (`1d484d4e` before,
+`b2b12ee8` after), each served to her Forest Test from `driven-hunt-rev` and confirmed connected
+(`327h-r3-conn2.png`, `327h-r3-re2.png`).
 ANSWERED: L-150 / L-176 — the frame instrument DID fail on its first try, exactly as warned: the
 probe pivoted the player to the stand, the lobby pulled him back to the lodge, and the frame was
 unstreamed haze over a "step on a truck pad" HUD with `0 ANIMALS`. It is not reported as a crossing
