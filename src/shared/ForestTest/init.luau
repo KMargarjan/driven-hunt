@@ -2848,7 +2848,29 @@ function ForestTest.restZonesOf(animals: any?): { number }?
 	return animals.restZones
 end
 
--- IS THIS ZONE INDEX ONE OF THEM? Pure, and it is the whole of what `restSpot` asks.
+-- HOW MANY PASSES `restSpot` MAKES, and WHETHER A PASS TAKES A CANDIDATE. These two are the whole
+-- of the zone search, pure and by parameter, so three passes can be told from two with no world,
+-- no wood and no raycast (review round 1, finding 2, which was right: the case offered as proof of
+-- the third pass survived deleting it).
+--
+-- PASS 1 wants the cell's zone AND the lane's sightline; PASS 2 the zone alone; PASS 3 drops the
+-- zone -- because a wood whose legal spots all fall in another zone is a wood with no animals in
+-- it, which is worse than a group bedded one zone over. With no list there are TWO passes and the
+-- answers are exactly task 172's.
+function ForestTest.restPasses(zones: { number }?): number
+	return if type(zones) == "table" and #zones > 0 then 3 else 2
+end
+
+function ForestTest.restPassTakes(pass: number, zones: { number }?, zoneIndex: number?, seen: boolean): boolean
+	local wantZone = ForestTest.restPasses(zones) == 3 and pass <= 2
+	if wantZone and not ForestTest.restZoneAllowed(zones, zoneIndex) then
+		return false
+	end
+	-- THE SIGHTLINE IS PASS 1's ONLY, exactly as before: a preference, never a rule.
+	return pass ~= 1 or seen
+end
+
+-- IS THIS ZONE INDEX ONE OF THEM? Pure, and it is the whole of what `restPassTakes` asks.
 function ForestTest.restZoneAllowed(zones: { number }?, index: number?): boolean
 	if type(zones) ~= "table" or #zones == 0 then
 		return true

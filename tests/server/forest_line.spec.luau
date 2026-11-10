@@ -1894,6 +1894,66 @@ return function()
 			expect(Data.restZonesOf(nil)).to.equal(nil)
 		end)
 
+		-- THE THIRD PASS ITSELF, DRIVEN (review round 1, finding 2, which was right: the case above
+		-- reads only data tables and survives deleting the whole search change).
+		--
+		-- IT IS `restSpot`'s OWN LOOP with the two world facts handed in -- the zone a candidate is
+		-- in and whether the lane can see it -- so it tells THREE passes from TWO by the answer it
+		-- returns, not by counting them. The candidates are ordered as the rings order them.
+		it("takes a bedded group out of the cell's own zones first, and settles for any zone last", function()
+			-- Ring order: the first legal spot is in zone 4, the second in zone 2, and only the
+			-- second is seen from the lane. A cell that names zones 1 and 2 must walk past the first.
+			local candidates = {
+				{ zone = 4, seen = true },
+				{ zone = 2, seen = false },
+			}
+			local function search(zones)
+				for pass = 1, Data.restPasses(zones) do
+					for index, c in ipairs(candidates) do
+						if Data.restPassTakes(pass, zones, c.zone, c.seen) then
+							return index, pass
+						end
+					end
+				end
+				return nil, nil
+			end
+			-- NO LIST: two passes, and the answer is task 172's -- the seen spot, on pass 1.
+			local index, pass = search(nil)
+			expect(Data.restPasses(nil)).to.equal(2)
+			expect(index).to.equal(1)
+			expect(pass).to.equal(1)
+			-- THE CELL'S LIST: three passes, and the answer MOVES to the group's own zone -- taken
+			-- on pass 2, because the zone wins over the sightline.
+			local zoned, zpass = search({ 1, 2 })
+			expect(Data.restPasses({ 1, 2 })).to.equal(3)
+			expect(zoned).to.equal(2)
+			expect(zpass).to.equal(2)
+			expect(zoned ~= index).to.equal(true) -- the two searches differ: the pass count bites
+			-- ...AND THE THIRD PASS IS A SETTLEMENT, NOT A RULE: a list naming a zone no candidate
+			-- is in still beds the group, on pass 3, rather than leaving the wood empty.
+			local last, lpass = search({ 7 })
+			expect(last).to.equal(1)
+			expect(lpass).to.equal(3)
+		end)
+
+		-- THE COORDINATE SPACE (review round 1, finding 1, which was right): zone rectangles are
+		-- GRID space (`Places.cellGround` -> `Grid.boundsOf`, no bend term) and a rest candidate is
+		-- a WORLD point off `ForestTest.roadZ` (full bend). The world wrapper converts once.
+		it("asks the zone question in the space the zones are written in", function()
+			local cellId = "C1"
+			local box = Grid.boundsOf(cellId)
+			-- A point in the middle of the cell, in GRID space, and the same point in WORLD space.
+			local u = (box.minX + box.maxX) / 2
+			local v = box.minZ + (box.maxZ - box.minZ) * 0.15 -- inside the rest band
+			local x, z = Grid.toWorld(u, v)
+			expect(Places.zoneIndexAt(cellId, x, z)).to.equal(Places.zoneIndexAtGrid(cellId, u, v))
+			-- ...AND THE BEND IS WHAT THE TWO SPACES DIFFER BY, so a zero-amplitude bend makes the
+			-- unconverted call right and the real one wrong -- which is the defect, by parameter.
+			local flat = { ewStuds = 0, nsStuds = 0, harmonic = 1 }
+			expect(Places.zoneIndexAt(cellId, u, v, flat)).to.equal(Places.zoneIndexAtGrid(cellId, u, v))
+			expect(Grid.maxBendStuds() > 0).to.equal(true)
+		end)
+
 		-- THE BUDGET'S OWN INSTRUMENT (design 9.2): the boar runtime had NO step counter at all
 		-- before this task. The case proves the three fields exist and that the average is DIVIDED
 		-- rather than stored -- a runtime that has never stepped reads 0 and not nan.

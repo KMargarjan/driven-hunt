@@ -1791,12 +1791,26 @@ end
 
 -- WHICH ZONE **INDEX** A WORLD POINT IS IN, or nil for none -- the same answer as `zoneAt`, as the
 -- ordinal the data is written in, so a cell's `animals.restZones` can name a zone (task 327h).
-function Places.zoneIndexAt(cellId: string, x: number, z: number): number?
+--
+-- **WORLD IN; `Grid.toGrid` ONCE** -- `Places.mask` and `Places.clearOfEveryRoad`'s own shape, and
+-- it is load-bearing rather than tidy (review round 1, finding 1, which was right). Every zone
+-- rectangle comes from `Places.cellGround` -> `Grid.boundsOf`, which carries NO bend term, while a
+-- rest candidate is built from `ForestTest.roadZ` -> `Grid.roadCentreAt`, which carries the full
+-- one. Asking the grid question with a world point answers the zone up to `bend.nsStuds` 60 away
+-- in v and `ewStuds` 45 in u -- and near the rest band's own edge it answers nil, which refuses a
+-- candidate that is squarely inside the zone the row named.
+function Places.zoneIndexAt(cellId: string, x: number, z: number, bend: any?): number?
+	local u, v = Grid.toGrid(x, z, bend)
+	return Places.zoneIndexAtGrid(cellId, u, v)
+end
+
+-- THE SAME QUESTION IN GRID COORDINATES, which is the space every zone rectangle is written in.
+function Places.zoneIndexAtGrid(cellId: string, u: number, v: number): number?
 	local plan = Places.cellPlanFor(cellId)
 	if plan == nil then
 		return nil
 	end
-	local found = Places.zoneAt(cellId, x, z)
+	local found = Places.zoneAt(cellId, u, v)
 	if found == nil then
 		return nil
 	end

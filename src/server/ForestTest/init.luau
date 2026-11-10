@@ -1814,15 +1814,11 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 	-- the group's own lane can SEE, the second takes any legal spot. Never the sweep rule -- that one
 	-- holds in both, because "behind the line" is not a preference.
 	-- WHICH RECIPE ZONES THIS CELL RESTS ITS GROUPS IN (task 327h), or nil for "any legal spot",
-	-- which is every cell before this task and every road layout. A THIRD PASS, not a rule: pass 1
-	-- wants the zone AND the sightline, pass 2 the zone alone, pass 3 drops the zone -- because a
-	-- wood whose legal spots all happen to fall in another zone is a wood with no animals in it,
-	-- which is worse than a group bedded one zone over. With no list there are two passes, exactly
-	-- as before.
+	-- which is every cell before this task and every road layout. The pass count and what a pass
+	-- takes are `Data.restPasses` / `Data.restPassTakes`, pure and by parameter, so the rule is
+	-- drivable with no wood and no raycast; this loop supplies the two world facts.
 	local zones = Data.restZonesOf(Grid.animalsOf(chosen.name))
-	for pass = 1, (if zones ~= nil then 3 else 2) do
-		local wantSeen = pass == 1
-		local wantZone = zones ~= nil and pass <= 2
+	for pass = 1, Data.restPasses(zones) do
 		local avoidSweep = #beaters > 0
 		for ring = 0, rest.searchRings do
 			local tries = if ring == 0 then 1 else 8
@@ -1866,10 +1862,13 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 					-- that lane's group whatever the trunks do -- and the ray is only cast for the
 					-- spots that have already passed everything else.
 					local spot = Vector3.new(at.X, terrain :: number, at.Z)
-					local zoneOk = not wantZone
-						or Data.restZoneAllowed(zones, Places.zoneIndexAt(chosen.name, at.X, at.Z))
-					if zoneOk and Data.offLaneStuds(standX, spec, spot) <= (rest.laneSideStuds or math.huge) then
-						if not wantSeen or ForestTest.restSeenFromLane(standX, spec, spot, rest) then
+					if Data.offLaneStuds(standX, spec, spot) <= (rest.laneSideStuds or math.huge) then
+						-- THE TWO WORLD FACTS, asked only for the pass that wants them: the zone is
+						-- `Places.zoneIndexAt` (WORLD in, `Grid.toGrid` once inside it) and the
+						-- sightline is one ray. `restPassTakes` is the rule.
+						local zoneIndex = if pass <= 2 then Places.zoneIndexAt(chosen.name, at.X, at.Z) else nil
+						local seen = pass ~= 1 or ForestTest.restSeenFromLane(standX, spec, spot, rest)
+						if Data.restPassTakes(pass, zones, zoneIndex, seen) then
 							return spot
 						end
 					end
