@@ -5,9 +5,17 @@
 --
 -- Karen, 2026-11-08: *"so we will need to optimize, we only load one per game thats it"*.
 --
--- IT CREATES NOTHING AND DESTROYS NOTHING. `Places.dressCell` makes and destroys models in its own
--- cell's folder; this moves whole folders between `Workspace.<home>` and `ServerStorage.GridWood`.
--- The split is by VERB, which is the shape `Places.Ground` and `Places.Slice` already have.
+-- IT MAKES AND DESTROYS NO WOOD. `Places.dressCell` makes and destroys models in its own cell's
+-- folder; this MOVES a cell's models between `Workspace.<home>` and `ServerStorage.GridWood`.
+-- The split is by VERB, which is the shape `Places.Ground` and `Places.Slice` already have. The one
+-- thing it does create is the cell's own empty folder SHELL on the receiving side, and the one thing
+-- it destroys is the emptied shell it left behind -- which is the price of the slice below.
+--
+-- SINCE TASK 343 THE MOVE IS SLICED, PER MODEL, THROUGH `Slice` -- `cell-loading.md` 12's own named
+-- fallback for T7, taken because the whole-folder write measured 738 ms of frame against T7's 500 ms
+-- (337c, and `343-before-swap-*.txt`). `begin` queues and moves nothing; `spend` is one bite;
+-- `reconcile` is begin-then-drain and is what the boot and the specs call. STORE IS QUEUED BEFORE
+-- STAND (`Slice.ORDER`), so the peak is one cell's parts plus one bite and never two cells.
 --
 -- LEVEL-TRIGGERED, NEVER EDGE-TRIGGERED (lesson L-029). `reconcile` compares what stands against the
 -- one cell that should, and corrects the difference. A keep set computed per call is what let task
@@ -26,6 +34,8 @@ local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
 -- rewrites every `require` line in `Places/init.luau` for its Edit injection and its selftest
 -- asserts each rewrite matches once -- a require pointing the other way would hang that call.
 local Places = require(ServerScriptService:WaitForChild("Places"))
+-- THE BUDGETED LOOP THE SWAP IS SLICED THROUGH (task 343). `Slice` requires nothing of this module.
+local Slice = require(ServerScriptService:WaitForChild("Places"):WaitForChild("Slice"))
 
 local Cells = {}
 
@@ -40,6 +50,12 @@ Cells.HOME_ATTRIBUTE = "WoodHome"
 -- THE TWO FOLDERS A CELL'S WOOD CAN STAND IN, read off the planter and never written as literals:
 -- "is C1 standing" must have exactly one answer.
 Cells.HOMES = table.freeze({ Places.FOREST_FOLDER, Places.GRID_FOLDER })
+
+-- HOW LONG THE SWAP MAY STAY BUDGETED. Past it the rest of the queue is finished in ONE step
+-- (`Slice.step(now, true)`), because the drive must not start on a half-stood cell:
+-- `Match.CONFIG.INTERMISSION_SECONDS` is 5, the drain measures ~1 s, and 3 s leaves 2 s of margin
+-- before the horn. The arm is COUNTED (`unbudgetedSteps`), never assumed.
+Cells.DRAIN_SECONDS = 3
 
 export type Wood = {
 	cell: string,
@@ -64,7 +80,16 @@ export type Report = {
 	storedCells: number,
 	storedModels: number,
 	moved: number,
+	-- HOW MANY MODELS WENT WITH THOSE CELLS (task 343). `moved` counts CELLS and always has;
+	-- the slice moves models, so the two numbers are both printed and neither is renamed.
+	models: number,
 	ms: number,
+	-- THE SLICE'S OWN THREE NUMBERS (task 343): how many bites it took, how long the drain ran, and
+	-- whether the deadline arm had to fire. A budget nobody measures is a hope (`Slice.stats`).
+	bites: number,
+	seconds: number,
+	unbudgetedSteps: number,
+	pending: number,
 	anomalies: { string },
 	reason: string?,
 }
@@ -230,6 +255,37 @@ end
 
 -- ---------------------------------------------------------------- the one writer
 
+-- THE ONE SWAP IN FLIGHT. Module state, because a bite is a call and the queue outlives it; there is
+-- never more than one, since `begin` refuses while one is pending. `Cells.reset()` drops it.
+type Flight = {
+	want: string,
+	storeRoot: Instance,
+	report: Report,
+	startedAt: number,
+	-- THE EMPTIED SHELLS, destroyed when the queue drains. An empty folder left standing would make
+	-- `Cells.standing` answer "this cell stands" with no wood in it, so this is not tidying.
+	tidy: { Instance },
+}
+local flight: Flight? = nil
+
+local function emptyReport(want: string?): Report
+	return {
+		want = want,
+		stood = nil,
+		stoodModels = 0,
+		storedCells = 0,
+		storedModels = 0,
+		moved = 0,
+		models = 0,
+		ms = 0,
+		bites = 0,
+		seconds = 0,
+		unbudgetedSteps = 0,
+		pending = 0,
+		anomalies = {},
+	}
+end
+
 local function ensure(parent: Instance, name: string): Instance
 	local found = parent:FindFirstChild(name)
 	if found then
@@ -241,16 +297,77 @@ local function ensure(parent: Instance, name: string): Instance
 	return made
 end
 
--- MAKE THE WORLD HOLD THE CELL IT SHOULD, AND NOTHING ELSE. Returns what it found and what it moved.
+-- THE RECEIVING SHELL FOR ONE CELL'S MODELS, carrying every attribute the shell it replaces had, so
+-- a move stays attribute-preserving whatever a later task stamps on a cell folder.
+local function shellFor(parent: Instance, from: Instance, home: string): Instance
+	local made = Instance.new("Folder")
+	made.Name = from.Name
+	for key, value in pairs(from:GetAttributes()) do
+		made:SetAttribute(key, value)
+	end
+	made:SetAttribute(Cells.HOME_ATTRIBUTE, home)
+	made.Parent = parent
+	return made
+end
+
+-- HOW MANY MODELS THE SWAP IN FLIGHT HAS LEFT TO MOVE; 0 when none is running.
+function Cells.pending(): number
+	return if flight == nil then 0 else Slice.pending()
+end
+
+-- HOW LONG THE SWAP IN FLIGHT HAS BEEN RUNNING, in seconds; 0 when none is.
+function Cells.elapsed(now: number): number
+	local one = flight
+	return if one == nil then 0 else now - one.startedAt
+end
+
+-- DROP THE SWAP IN FLIGHT. A spec calls it between cases.
+function Cells.reset()
+	flight = nil
+	Slice.reset()
+end
+
+local function finish(
+	storeRoot: Instance,
+	report: Report,
+	tidy: { Instance },
+	tick: () -> number,
+	started: number
+): Report
+	for _, shell in ipairs(tidy) do
+		-- EMPTY BY CONSTRUCTION: its children were the job's items. Checked anyway, because an empty
+		-- folder destroyed is tidying and a full one destroyed is Karen's wood.
+		if #shell:GetChildren() == 0 then
+			shell:Destroy()
+		else
+			table.insert(report.anomalies, string.format("%s's shell was not empty; left standing", shell.Name))
+		end
+	end
+	local stats = Slice.stats()
+	report.models = stats.moved
+	report.bites = stats.steps
+	report.unbudgetedSteps = stats.unbudgetedSteps
+	report.seconds = stats.seconds
+	report.pending = 0
+	report.storedCells = 0
+	report.storedModels = 0
+	for _, wood in ipairs(Cells.stored(storeRoot)) do
+		report.storedCells += 1
+		report.storedModels += wood.models
+	end
+	report.ms = (tick() - started) * 1000
+	return report
+end
+
+-- QUEUE THE SWAP THE WORLD NEEDS, AND MOVE NOTHING (task 343). **IT DOES NOT YIELD AND IT MOVES NO
+-- MODEL**, which is what lets the `markers` closure call it: that closure runs inside `Match`'s
+-- `dispatch`, whose own contract is *"it MUST NOT YIELD"* (`Match.measureMarkers`).
 --
 -- IT REFUSES AT EDIT TIME, and that refusal is not caution (design 4.3): `default.project.json` maps
 -- ALL of `ServerStorage` to `src/serverstorage` with Rojo's default `$ignoreUnknownInstances: false`,
 -- so a store created in Edit would be DELETED at the next Connect -- and 9,318 parts of Karen's wood
 -- with it. https://rojo.space/docs/v7/project-format/
---
--- STORE FIRST, THEN STAND: `Slice.ORDER`'s destroy-before-plant rule borrowed by name, so the peak
--- number of cell parts in `Workspace` is one cell's and never two.
-function Cells.reconcile(
+function Cells.begin(
 	want: string?,
 	world: Instance?,
 	store: Instance?,
@@ -260,18 +377,17 @@ function Cells.reconcile(
 ): Report
 	local tick = clock or os.clock
 	local started = tick()
-	local report: Report = {
-		want = want,
-		stood = nil,
-		stoodModels = 0,
-		storedCells = 0,
-		storedModels = 0,
-		moved = 0,
-		ms = 0,
-		anomalies = {},
-	}
+	local report = emptyReport(want)
 	if if isEdit == nil then Cells.editTime() else isEdit then
 		report.reason = "edit-time"
+		return report
+	end
+	-- ONE SWAP AT A TIME. A second `begin` while one is in flight would queue a second answer to
+	-- which cell stands, which is two writers of one fact (rule 3). The level-triggered caller asks
+	-- again next frame, and by then this one has drained.
+	if flight ~= nil then
+		report.reason = "in-flight"
+		report.pending = Slice.pending()
 		return report
 	end
 	local root = world or Workspace
@@ -284,36 +400,144 @@ function Cells.reconcile(
 	end
 	-- NOTHING IS CREATED UNLESS SOMETHING MOVES. A no-op reconcile is two `FindFirstChild`s and a
 	-- list compare, and it writes nothing at all (target T8).
-	if #plan.store > 0 then
-		local shelf = ensure(storeRoot, Cells.STORE_NAME)
-		for _, wood in ipairs(plan.store) do
-			wood.folder:SetAttribute(Cells.HOME_ATTRIBUTE, wood.home)
-			wood.folder.Parent = shelf
-			report.moved += 1
+	local queued = #plan.store + (if plan.stand ~= nil then 1 else 0)
+	if queued == 0 then
+		if plan.keep ~= nil then
+			report.stood = (plan.keep :: Wood).cell
+			report.stoodModels = (plan.keep :: Wood).models
 		end
+		Slice.reset()
+		return finish(storeRoot, report, {}, tick, started)
+	end
+	Slice.reset()
+	local tidy: { Instance } = {}
+	-- STORE FIRST, THEN STAND -- and `Slice.ORDER` is where that is true rather than this loop's
+	-- order (`store = 1, stand = 2`): the peak number of cell parts in `Workspace` is one cell's
+	-- plus one bite's, never two cells'.
+	for _, wood in ipairs(plan.store) do
+		local shelf = ensure(storeRoot, Cells.STORE_NAME)
+		local into: Instance? = nil
+		Slice.begin("store", wood.folder:GetChildren(), {
+			clock = tick,
+			work = function(model: Instance)
+				if into == nil then
+					into = shellFor(shelf, wood.folder, wood.home)
+				end
+				model.Parent = into
+			end,
+		})
+		table.insert(tidy, wood.folder)
 	end
 	if plan.stand ~= nil then
 		local wood = plan.stand :: Wood
-		wood.folder.Parent = ensure(root, wood.home)
-		report.moved += 1
+		local home = ensure(root, wood.home)
+		local into: Instance? = nil
+		Slice.begin("stand", wood.folder:GetChildren(), {
+			clock = tick,
+			work = function(model: Instance)
+				if into == nil then
+					into = shellFor(home, wood.folder, wood.home)
+				end
+				model.Parent = into
+			end,
+		})
+		table.insert(tidy, wood.folder)
 		report.stood = wood.cell
 		report.stoodModels = wood.models
 	elseif plan.keep ~= nil then
 		report.stood = (plan.keep :: Wood).cell
 		report.stoodModels = (plan.keep :: Wood).models
 	end
-	for _, wood in ipairs(Cells.stored(storeRoot)) do
-		report.storedCells += 1
-		report.storedModels += wood.models
-	end
-	report.ms = (tick() - started) * 1000
+	report.moved = queued
+	report.pending = Slice.pending()
+	flight = {
+		want = want :: string,
+		storeRoot = storeRoot,
+		report = report,
+		startedAt = started,
+		tidy = tidy,
+	}
 	return report
+end
+
+-- SPEND ONE BITE OF THE SWAP IN FLIGHT. Returns (models moved this bite, whether it is finished, the
+-- finished report or nil). **IT DOES NOT YIELD**: the caller owns the frame boundary, exactly as
+-- `Places.dressCell`'s loop does.
+--
+-- `unbudgeted` FINISHES THE QUEUE IN THIS ONE CALL. The caller passes it once the drain has run past
+-- `Cells.DRAIN_SECONDS`, so a swap that is somehow slow still cannot bleed into the drive.
+function Cells.spend(now: number, unbudgeted: boolean?, clock: (() -> number)?): (number, boolean, Report?)
+	local one = flight
+	if one == nil then
+		return 0, true, nil
+	end
+	local tick = clock or os.clock
+	local spent, finished = Slice.step(now, unbudgeted)
+	if unbudgeted then
+		-- ONE CALL, WHATEVER IS LEFT: `Slice.step` drains one JOB per call, and a swap has at most
+		-- one `store` job per standing cell plus one `stand`.
+		local guard = 0
+		while not finished and guard < 16 do
+			local more: number
+			more, finished = Slice.step(tick(), true)
+			spent += more
+			guard += 1
+		end
+	end
+	one.report.pending = Slice.pending()
+	if not finished then
+		return spent, false, nil
+	end
+	flight = nil
+	return spent, true, finish(one.storeRoot, one.report, one.tidy, tick, one.startedAt)
+end
+
+-- MAKE THE WORLD HOLD THE CELL IT SHOULD, AND NOTHING ELSE, DRIVING THE SWAP TO ITS END. Returns
+-- what it found and what it moved. The BOOT and the specs call this; the drive boundary calls
+-- `begin` and lets the composition root's Heartbeat spend the bites, because it may not yield there.
+--
+-- `breathe` IS THE FRAME BOUNDARY AND IT IS THE CALLER'S (`Places.dressCell`'s own shape): with it,
+-- one bite per frame; without it, a tight loop, which is what a spec with a fake clock wants.
+function Cells.reconcile(
+	want: string?,
+	world: Instance?,
+	store: Instance?,
+	clock: (() -> number)?,
+	isEdit: boolean?,
+	breathe: (() -> ())?
+): Report
+	local tick = clock or os.clock
+	local report = Cells.begin(want, world, store, clock, isEdit)
+	if flight == nil then
+		return report
+	end
+	-- A HARD BITE CEILING SO A BROKEN `work` CANNOT SPIN FOR EVER: every bite does at least one
+	-- model, so the queue cannot need more bites than it has models.
+	local ceiling = report.pending + 4
+	local bites = 0
+	local done = false
+	local final: Report? = nil
+	while not done and bites < ceiling do
+		local _, finished, out = Cells.spend(tick(), false, clock)
+		done = finished
+		final = out or final
+		bites += 1
+		if breathe ~= nil and not done then
+			breathe()
+		end
+	end
+	if flight ~= nil then
+		-- THE CEILING WAS HIT: finish it rather than leave a half-stood cell behind.
+		local _, _, out = Cells.spend(tick(), true, clock)
+		final = out or final
+	end
+	return final or report
 end
 
 -- THE CONSOLE LINE, OR NIL WHEN NOTHING HAPPENED. A print every drive that said nothing had changed
 -- would bury the one that did (`ForestTest.layoutForDrive`'s own rule).
 function Cells.line(report: Report): string?
-	if report.moved == 0 and report.reason == nil and #report.anomalies == 0 then
+	if report.moved == 0 and report.bites == 0 and report.reason == nil and #report.anomalies == 0 then
 		return nil
 	end
 	local head = if report.reason == "missing"
@@ -329,14 +553,19 @@ function Cells.line(report: Report): string?
 			tostring(report.reason)
 		)
 		else string.format(
-			"[Places.Cells] want=%s stood=%s (%d models) stored=%d cell(s)/%d models moved=%d in %.0f ms",
+			"[Places.Cells] want=%s stood=%s (%d models) stored=%d cell(s)/%d models moved=%d cell(s)"
+				.. "/%d model(s) in %.0f ms over %d bite(s) / %.2f s (unbudgeted=%d)",
 			tostring(report.want),
 			tostring(report.stood),
 			report.stoodModels,
 			report.storedCells,
 			report.storedModels,
 			report.moved,
-			report.ms
+			report.models,
+			report.ms,
+			report.bites,
+			report.seconds,
+			report.unbudgetedSteps
 		)
 	if #report.anomalies == 0 then
 		return head

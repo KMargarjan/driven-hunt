@@ -1072,6 +1072,12 @@ end
 -- where it belongs: both seams take a `Player` and `Economy` *"must not hold a Player"* (its own
 -- header). With the shop off neither is wired at all, and then every reader answers nil -- which is
 -- today's game by every branch (docs/design/shop.md section 7.1).
+-- THE SWAP IN FLIGHT, SPENT ON THIS ONE HEARTBEAT (task 343). The two numbers the drive boundary
+-- hands over: when the swap was queued, and how many models it had. `swapStartedAt` is nil whenever
+-- nothing is in flight, so "is the next cell still arriving" has one answer in this file.
+local swapStartedAt: number? = nil
+local swapModels = 0
+
 local shopOn = Shop.start({
 	purchase = Economy.purchase,
 	snapshotFor = Economy.shopStateFor,
@@ -1164,9 +1170,28 @@ Match.start({
 		-- list compare, and it prints nothing. It is HERE and not on a `PhaseChanged` edge because
 		-- an edge handler would be a second place that decides when wood exists (lesson L-029), and
 		-- this closure already runs at that edge -- before `Match`'s own `placePlayers` effect.
-		local moved = Cells.line(Cells.reconcile(Cells.wantedCell(ForestTest.layoutName()), workspace, ServerStorage))
-		if moved then
-			print(moved)
+		-- IT QUEUES AND MOVES NOTHING (task 343). This closure is called from inside `Match`'s
+		-- `dispatch`, whose contract is *"it MUST NOT YIELD"* (`Match.measureMarkers`), and the
+		-- whole-folder write it used to make cost 738 ms of frame in Karen's place. `Cells.begin`
+		-- plans and queues; the Heartbeat below spends the bites, store before stand.
+		local queued = Cells.begin(Cells.wantedCell(ForestTest.layoutName()), workspace, ServerStorage)
+		if queued.pending > 0 then
+			swapStartedAt = os.clock()
+			swapModels = queued.pending
+			print(
+				string.format(
+					"[Places.Cells] swap queued: want=%s %d model(s) to move (drive %d, %s)",
+					tostring(queued.want),
+					queued.pending,
+					Match.driveNumber(),
+					Match.phase()
+				)
+			)
+		else
+			local line = Cells.line(queued)
+			if line then
+				print(line)
+			end
 		end
 		-- THE HIGH SEATS, BEFORE THE MARKERS, AND THE ORDER IS THE WHOLE OF TASK 218 (design
 		-- section 9.3). `Seats.ensure` is LEVEL-TRIGGERED on the layout's name: a folder already
@@ -1770,6 +1795,32 @@ local lastReportAt = 0
 
 RunService.Heartbeat:Connect(function()
 	local now = os.clock()
+	-- THE NEXT CELL ARRIVES IN BITES, AND THE DRIVE DOES NOT START ON HALF OF IT (task 343).
+	-- `Cells.DRAIN_SECONDS` of budgeted bites, then whatever is left in ONE step: the intermission
+	-- is `Match.CONFIG.INTERMISSION_SECONDS` = 5 s, so a drain that has run 3 s must finish now
+	-- rather than bleed past the horn. The wait is PRINTED, because a budget nobody measures is a
+	-- hope (`Slice.stats`' own reason).
+	if Cells.pending() > 0 then
+		local over = Cells.elapsed(now) >= Cells.DRAIN_SECONDS
+		local _, done, report = Cells.spend(now, over)
+		if done and report ~= nil then
+			local line = Cells.line(report)
+			if line then
+				print(line)
+			end
+			print(
+				string.format(
+					"[Places.Cells] drive-start wait: %.2f s for %d model(s) (drive %d, %s)",
+					now - (swapStartedAt or now),
+					swapModels,
+					Match.driveNumber(),
+					Match.phase()
+				)
+			)
+			swapStartedAt = nil
+			swapModels = 0
+		end
+	end
 	local line = ForestTest.step(now)
 	if line then
 		print("[ForestTest] " .. line)

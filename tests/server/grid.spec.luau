@@ -3423,6 +3423,10 @@ return function()
 			expect(first.stood).to.equal("C1")
 			expect(first.stoodModels).to.equal(7)
 			expect(first.moved).to.equal(1)
+			-- `moved` COUNTS CELLS; `models` IS WHAT THE SLICE MOVED (task 343). Both, so a change
+			-- to either number is a red case rather than a quiet rename.
+			expect(first.models).to.equal(5)
+			expect(first.bites > 0).to.equal(true)
 			expect(first.storedCells).to.equal(1)
 			expect(first.storedModels).to.equal(5)
 			expect(first.reason).to.equal(nil)
@@ -3441,6 +3445,7 @@ return function()
 			expect(swap.stood).to.equal("C2")
 			expect(swap.stoodModels).to.equal(5)
 			expect(swap.moved).to.equal(2)
+			expect(swap.models).to.equal(12)
 			expect(table.concat(names(Cells.standing(world)), " ")).to.equal("C2@" .. Planter.FOREST_FOLDER)
 			expect(table.concat(names(Cells.stored(store)), " ")).to.equal("C1@" .. Planter.FOREST_FOLDER)
 			expect(Cells.stored(store)[1].models).to.equal(7)
@@ -3449,6 +3454,8 @@ return function()
 			-- **LEVEL-TRIGGERED**: the same want again writes nothing and says nothing (target T8).
 			local again = Cells.reconcile("C2", world, store, nil, false)
 			expect(again.moved).to.equal(0)
+			expect(again.models).to.equal(0)
+			expect(again.bites).to.equal(0)
 			expect(again.stood).to.equal("C2")
 			expect(Cells.line(again)).to.equal(nil)
 			expect(table.concat(names(Cells.standing(world)), " ")).to.equal("C2@" .. Planter.FOREST_FOLDER)
@@ -3520,6 +3527,145 @@ return function()
 			expect(defaulted.stood).to.equal("C1")
 			expect(#Cells.standing(world)).to.equal(1)
 			expect(#Cells.stored(store)).to.equal(1)
+			world:Destroy()
+			store:Destroy()
+		end)
+
+		-- **TASK 343 -- THE SWAP GOES IN BITES, STORE BEFORE STAND, AND MOVES NOTHING WHEN QUEUED.**
+		-- `cell-loading.md` 12's named fallback for T7, taken because the whole-folder write measured
+		-- 738 ms of FRAME in Karen's place against T7's 500 ms (`343-before-swap-C1.txt`).
+		--
+		-- **IT DIES IF THE SLICE DIES.** Delete the slicing (go back to `wood.folder.Parent = ...`)
+		-- and every one of the three assertions below goes red: `begin` would have moved the models
+		-- already (so `pending` is 0 and the world is swapped before a single bite), `bites` would be
+		-- 1, and the bite-by-bite walk would never see a store-only intermediate state.
+		it("swaps a cell in Slice bites, store before stand, and queues without moving", function()
+			local Slicer = require(ServerScriptService.Places:WaitForChild("Slice"))
+			local world = Instance.new("Folder")
+			local store = Instance.new("Folder")
+			-- BIG ENOUGH TO NEED MANY BITES at the move cap, so "it was sliced" is not an accident
+			-- of a small cell: 2 x `MOVE_MAX_PER_STEP` + 7.
+			local n = Slicer.MOVE_MAX_PER_STEP * 2 + 7
+			putCell(world, Planter.FOREST_FOLDER, "C1", n)
+			putCell(world, Planter.FOREST_FOLDER, "C2", n)
+			Cells.reset()
+			-- FIRST: stand C1, store C2, so both halves exist in the next swap.
+			Cells.reconcile("C1", world, store, nil, false)
+
+			-- **A CLOCK THAT NEVER ADVANCES**, so the time budget can never end a bite and the ITEM
+			-- cap is what does -- which is the only way to count bites deterministically.
+			local frozen = function()
+				return 0
+			end
+			Cells.reset()
+			local queued = Cells.begin("C2", world, store, frozen, false)
+			-- (1) **QUEUED AND NOTHING MOVED.** This is what lets the `markers` closure call it from
+			-- inside `Match`'s `dispatch`, which may not yield and may not stall for 738 ms.
+			expect(queued.pending).to.equal(n * 2)
+			expect(queued.models).to.equal(0)
+			expect(queued.bites).to.equal(0)
+			expect(Cells.pending()).to.equal(n * 2)
+			expect(Cells.isStanding("C1", world)).to.equal(true)
+			expect(Cells.isStanding("C2", world)).to.equal(false)
+
+			-- (2) **STORE BEFORE STAND.** Walk the bites and watch the world: C1 must be fully gone
+			-- from `Workspace` before C2 has put its first model there, so the peak is one cell's
+			-- models plus one bite's and never two cells'.
+			-- MODELS, NEVER `isStanding`: the emptied shell survives until the queue drains, so the
+			-- NAME of a cell in the world is not the question -- how many of its models are.
+			local peak, bites, bothHadModels = 0, 0, false
+			local done, final = false, nil
+			while not done and bites < n * 2 + 4 do
+				local _, finished, report = Cells.spend(frozen(), false, frozen)
+				done = finished
+				final = report or final
+				bites += 1
+				local inWorld, byCell = 0, {}
+				for _, wood in ipairs(Cells.standing(world)) do
+					inWorld += wood.models
+					byCell[wood.cell] = wood.models
+				end
+				peak = math.max(peak, inWorld)
+				if (byCell.C1 or 0) > 0 and (byCell.C2 or 0) > 0 then
+					bothHadModels = true
+				end
+			end
+			expect(done).to.equal(true)
+			expect(bothHadModels).to.equal(false)
+			-- ONE CELL'S MODELS PLUS ONE BITE, NEVER TWO CELLS'.
+			expect(peak <= n + Slicer.MOVE_MAX_PER_STEP).to.equal(true)
+			-- (3) **IT TOOK MANY BITES**, which a single `Parent` write cannot do.
+			expect(bites > 2).to.equal(true)
+			expect((final :: any).bites).to.equal(bites)
+			expect((final :: any).models).to.equal(n * 2)
+			expect((final :: any).moved).to.equal(2)
+			expect((final :: any).unbudgetedSteps).to.equal(0)
+			-- ...AND THE WORLD ENDED WHERE IT HAD TO: C2 stands with every model, C1 is in the store
+			-- with every model, and no empty shell was left behind to answer "C1 stands".
+			expect(table.concat(names(Cells.standing(world)), " ")).to.equal("C2@" .. Planter.FOREST_FOLDER)
+			expect(Cells.standing(world)[1].models).to.equal(n)
+			expect(table.concat(names(Cells.stored(store)), " ")).to.equal("C1@" .. Planter.FOREST_FOLDER)
+			expect(Cells.stored(store)[1].models).to.equal(n)
+			expect(Cells.stored(store)[1].folder:GetAttribute(Cells.HOME_ATTRIBUTE)).to.equal(Planter.FOREST_FOLDER)
+			TestKit.note(
+				string.format(
+					"343 swap: %d models in %d bites, peak %d in world (one cell is %d)",
+					n * 2,
+					bites,
+					peak,
+					n
+				)
+			)
+			Cells.reset()
+			world:Destroy()
+			store:Destroy()
+		end)
+
+		-- **TASK 343 -- THE DRIVE DOES NOT START MID-SWAP.** Past `Cells.DRAIN_SECONDS` the rest of
+		-- the queue is finished in ONE step, so a slow drain cannot bleed past the horn
+		-- (`Match.CONFIG.INTERMISSION_SECONDS` is 5 and the drain measures ~1 s).
+		--
+		-- **IT DIES IF THE DEADLINE ARM DIES**: without `unbudgeted`, one bite leaves `pending > 0`
+		-- and `unbudgetedSteps` stays 0, so both halves of this case go red.
+		it("finishes the swap in one step once the drain deadline has passed", function()
+			local world = Instance.new("Folder")
+			local store = Instance.new("Folder")
+			local n = 400
+			putCell(world, Planter.FOREST_FOLDER, "C1", n)
+			putCell(world, Planter.FOREST_FOLDER, "C2", n)
+			Cells.reset()
+			Cells.reconcile("C1", world, store, nil, false)
+
+			-- A CLOCK THE CASE OWNS, so the deadline is reached by arithmetic and not by waiting.
+			local at = 0
+			local clock = function()
+				return at
+			end
+			Cells.reset()
+			Cells.begin("C2", world, store, clock, false)
+			expect(Cells.pending()).to.equal(n * 2)
+			-- ONE BUDGETED BITE: still pending, because a bite is bounded.
+			local _, done = Cells.spend(clock(), false, clock)
+			expect(done).to.equal(false)
+			expect(Cells.pending() > 0).to.equal(true)
+			-- THE DEADLINE PASSES, and the CALLER sees it the way the Heartbeat does.
+			at = Cells.DRAIN_SECONDS + 0.5
+			expect(Cells.elapsed(at) >= Cells.DRAIN_SECONDS).to.equal(true)
+			local _, finished, report = Cells.spend(clock(), true, clock)
+			expect(finished).to.equal(true)
+			expect(Cells.pending()).to.equal(0)
+			expect((report :: any).unbudgetedSteps > 0).to.equal(true)
+			expect((report :: any).models).to.equal(n * 2)
+			expect(Cells.isStanding("C2", world)).to.equal(true)
+			expect(Cells.isStanding("C1", world)).to.equal(false)
+			-- A SECOND `begin` WHILE ONE IS IN FLIGHT IS REFUSED, never a second queue (rule 3).
+			Cells.reset()
+			putCell(world, Planter.FOREST_FOLDER, "C3", 5)
+			Cells.begin("C1", world, store, clock, false)
+			local twice = Cells.begin("C1", world, store, clock, false)
+			expect(twice.reason).to.equal("in-flight")
+			expect(twice.models).to.equal(0)
+			Cells.reset()
 			world:Destroy()
 			store:Destroy()
 		end)
