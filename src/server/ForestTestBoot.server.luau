@@ -1180,7 +1180,11 @@ Match.start({
 		-- whole-folder write it used to make cost 738 ms of frame in Karen's place. `Cells.begin`
 		-- plans and queues; the Heartbeat below spends the bites, store before stand.
 		local queued = Cells.begin(Cells.wantedCell(ForestTest.layoutName()), workspace, ServerStorage)
-		if queued.pending > 0 then
+		-- ONLY A NEW SWAP IS A NEW SWAP. This closure runs again while one is draining and `begin`
+		-- answers `in-flight` with the REMAINING pending -- which, taken for a fresh queue, moved
+		-- the start time forward and reported 5,671 models for a swap of 5,767 (measured, the first
+		-- live edge run). Two readings of one number must agree or the mismatch IS the finding.
+		if queued.reason ~= "in-flight" and queued.pending > 0 then
 			swapStartedAt = os.clock()
 			swapModels = queued.pending
 			print(
@@ -1192,7 +1196,9 @@ Match.start({
 					Match.phase()
 				)
 			)
-		else
+		elseif queued.reason ~= "in-flight" then
+			-- (a refused in-flight call says nothing: the swap's own lines say the rest, and a line
+			-- per frame would bury them.)
 			local line = Cells.line(queued)
 			if line then
 				print(line)
