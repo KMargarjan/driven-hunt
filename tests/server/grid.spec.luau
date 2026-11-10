@@ -44,7 +44,7 @@ return function()
 	-- and in the straight world. MEASURED (`<runs-dir>/337c-plan-all.txt`,
 	-- `<runs-dir>/337c-straight.luau`), not a bound: a count that moves on its own means a recipe
 	-- changed by accident. Named once, because cases 5 and 6 pin the same two numbers.
-	local BENT_C1, STRAIGHT_C1 = 3558, 3574
+	local BENT_C1, STRAIGHT_C1 = 4020, 4036
 
 	-- A STAND IN WORLD COORDINATES AT ANY AMPLITUDE: the grid point through the map, which is
 	-- exactly what `Grid.standPosition` does at the shipped bend. Two returns, x and z.
@@ -835,6 +835,7 @@ return function()
 			-- again.** It was 2,538 from task 335 (C1's own rectangle, skirt withdrawn because every
 			-- neighbour is planted). Measured, not a bound: a straight-world count that moved on its
 			-- own would mean the recipe changed by accident.
+			-- TASK 346b: 3,574 -> 4,036, the cheap band's grid at 34 studs instead of 52.
 			local drawn = Plan.plantCell("C1", nil, STRAIGHT)
 			expect(#drawn).to.equal(STRAIGHT_C1)
 			for _, item in ipairs(drawn) do
@@ -2138,9 +2139,13 @@ return function()
 			-- at the corners and the road ends -- 14,200 drawn, 29,000 planned. The ratio is
 			-- unchanged: C1's live wood re-measured 3.707 parts a model
 			-- (`<runs-dir>/346-split.luau`), which 3.76 still bounds.
+			-- **TASK 346b raised them once more** -- 16,000 drawn, 32,000 planned -- for the cheap
+			-- band's tighter grid: C1 goes 3,507 to 3,969 planted models and 12,927 to 14,628 parts
+			-- in Karen's Forest Test. The parts it buys cast no shadow, collide with nothing and
+			-- stop no ray, and the gate stayed the MEASURED client frame p95 at the stand.
 			expect(Plan.PARTS_PER_MODEL).to.equal(3.76)
-			expect(Plan.CELL_PLAN_CAP).to.equal(7712)
-			expect(Plan.CELL_PART_CAP).to.equal(3776)
+			expect(Plan.CELL_PLAN_CAP).to.equal(8510)
+			expect(Plan.CELL_PART_CAP).to.equal(4255)
 			local worstId, worstTotal, worstCap = "", 0, 0
 			local planSlack, partSlack = math.huge, math.huge
 			local lines = {}
@@ -2697,9 +2702,13 @@ return function()
 				for _, item in ipairs(Plan.plantCell(id)) do
 					if item.cheap then
 						cheap += 1
+						-- A BAND RECT IS IN GRID SPACE AND A PLANTING IS IN WORLD SPACE, which is
+						-- what case 16a's `Grid.toGrid` is for: comparing them raw counted 193 of
+						-- C1's cheap sites as strays on the first run.
+						local gx, gz = Grid.toGrid(item.x, item.z)
 						local inside = false
 						for _, r in ipairs(deepRects) do
-							if item.x >= r.minX and item.x <= r.maxX and item.z >= r.minZ and item.z <= r.maxZ then
+							if gx >= r.minX and gx <= r.maxX and gz >= r.minZ and gz <= r.maxZ then
 								inside = true
 							end
 						end
