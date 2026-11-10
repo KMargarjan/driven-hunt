@@ -1,3 +1,44 @@
+## 2026-11-10 ~00:35 UTC, Task 327h -- FOR THE ARCHITECT AND THE DIRECTOR: two of design 9.2's four budget numbers are broken by the world as it stands, BEFORE this task's rows
+
+Task 327h built the instrument design 9.2 asks for (*"NEW: `stepMsAvg` / `stepMsMax` on the boar
+runtime ... a hole this task closes rather than inherits"*) and then read it. Two of the four
+numbers do not hold, and **neither is caused by the `animals` rows**: the first was measured on
+**merged main, 516b9698, with no row anywhere**.
+
+| design 9.2 | target | measured | where |
+|---|---|---|---|
+| live animals at the busiest instant | **<= 24** | **60** | BEFORE, C1, `normal`, main 516b9698 (`327h-BEFORE-C1b-track.txt`) |
+| same, after | | **55 / 60 / 60** | D1 `quiet` / C1 `normal` / A2 `busy` at b80635aa |
+| boar runtime step, average | **<= 4.0 ms** | **5.99 / 7.09 / 10.33 ms** | C1 / D1 / A2, full 400 s drives |
+| boar runtime step, peak | **<= 8.0 ms** | **76.6 / 88.4 / 91.6 ms** | same three |
+| animal parts | **< 2,000** | **1,050** peak | MET |
+| `MAX_BOARS` hard ceiling | **60** | **60, never exceeded** | MET -- the cap refuses past it |
+
+**WHY <= 24 CANNOT BE REACHED BY MAKING A CELL QUIETER**, which is the Director's own instruction
+(*"If a busy cell breaks a number, make it less busy, not the budget bigger"*). It is not the
+density dial. A drive is 300 s and the script is fifteen slots ending at 192 s; past the end,
+`SCHEDULE.repeatFrom..repeatTo` releases a group every 13 s for the rest of the clock, and nothing
+despawns a group that is still walking. So live animals climb to the `MAX_BOARS` ceiling in EVERY
+cell at EVERY density -- the **quiet** cell D1 reached **55**. The dial is visible where the script
+is (crossings in the first 220 s: quiet 49, normal 63-69, busy 74) and gone after it.
+
+**THE PEAK IS A SESSION HIGH-WATER MARK, and one cold frame sets it.** `stepMsMax` is never reset,
+so 76-92 ms is "the worst single Heartbeat since the runtime was created", spawn frames included.
+The AVERAGE is the number to act on, and it is 1.5x to 2.6x the budget. A per-drive reset would
+make the peak readable; it is not in this task's scope.
+
+**WHAT THE BUILDER DID NOT DO.** Nothing. `docs/design/` is the Architect's (rule 3) and the
+dispatch says so by name (*"NOT YOURS: docs/design/ (a wrong number goes to ESCALATE.md)"*). The
+rows ship as dispatched; this entry is the reading, not a change.
+
+**THE DECISION ASKED FOR**, one of:
+1. the budget is wrong for a 300 s drive with a repeat window -- the Architect restates 9.2 against
+   what the world actually does;
+2. the budget is right and the WORLD is wrong -- then the fix is the repeat window or a despawn
+   rule, which is a task of its own and is not 327h;
+3. 4.0 ms was never measured for this runtime at all (it is `Bots`' number, borrowed) -- then the
+   first thing to decide is what an animal runtime carrying 60 bodies may cost.
+
 ## 2026-11-09 ~22:30 UTC, Task 341 -- FOR THE ARCHITECT: `cell-loading.md` D2 now reads as forbidding the shipped code
 
 Task 341 passed review round 1 (`reviews/task-341/RESULT.md`). Its first non-blocking note is a
