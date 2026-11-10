@@ -2108,43 +2108,63 @@ return function()
 			expect(CAP < Data.MAX_BOARS).to.equal(true)
 		end)
 
-		it("never lets live past 24 over a schedule twice as long as the script", function()
+		it("never lets live past 24 over a long repeat window, and would without the gate", function()
 			local schedule = Data.cellSchedule(Grid.animalsOf("C1"), Grid.CONFIG.cellDepthStuds)
 			local rows = #schedule.drive
-			-- THE WORST CASE THERE IS: nothing ever leaves the world. Every animal that is released
-			-- stays live for the whole simulated drive, so the only thing that can hold the count
-			-- down is the gate itself.
-			local live, released, repeats, held = 0, 0, 0, 0
-			local worst = 0
-			for slot = 1, rows * 2 do
-				local row = Data.slotAt(slot, schedule.density, schedule)
-				if row ~= nil then
-					local size = sizeOf(row)
-					if Data.repeatRoomFor(slot, rows, live, size, CAP) then
-						live += size
-						released += size
-					elseif slot > rows then
-						held += 1
-					end
-					if slot > rows then
+			-- THE WORST CASE THERE IS: nothing ever leaves the world of its own accord. Every animal
+			-- released stays live, so the only thing that can hold the count down is the gate.
+			-- `rows * 6` slots at 13 s apiece is more than twenty minutes of drive, five times the
+			-- clock Karen plays.
+			--
+			-- IT STARTS AT THE END OF THE SCRIPT, with the budget already full: the SCRIPTED slots
+			-- are not gated (the Director's decision -- the density dial keeps today's shape), so
+			-- what holds live down there is `Brain:_outcome`'s two out-of-play reasons, whose own
+			-- cases are in `boar_behaviour.spec`, and the live drive in her place.
+			local function walk(cap: number?): (number, number, number)
+				local live, repeats, held = CAP, 0, 0
+				local worst = live
+				for slot = rows + 1, rows * 6 do
+					local row = Data.slotAt(slot, schedule.density, schedule)
+					if row ~= nil then
 						repeats += 1
+						local size = sizeOf(row)
+						if Data.repeatRoomFor(slot, rows, live, size, cap) then
+							live += size
+						else
+							held += 1
+							-- ONE ANIMAL LEAVES between two refused slots, so the gate is asked
+							-- again from a live count that has MOVED: a check made once when the
+							-- window opened could not tell this run from one where nothing changed
+							-- (L-029), and it is what lets the window fill again as room appears.
+							live = math.max(0, live - 1)
+						end
+						if live > worst then
+							worst = live
+						end
 					end
 				end
-				if live > worst then
-					worst = live
-				end
+				return worst, repeats, held
 			end
-			-- THE REPEAT WINDOW WAS ACTUALLY EXERCISED, and it actually refused: a case where the
-			-- window never ran, or never said no, would pass for the wrong reason.
+
+			local worst, repeats, held = walk(CAP)
+			-- THE WINDOW WAS ACTUALLY EXERCISED AND IT ACTUALLY REFUSED: a case where the window
+			-- never ran, or never said no, would pass for the wrong reason.
 			expect(repeats > 0).to.equal(true)
 			expect(held > 0).to.equal(true)
-			expect(released > 0).to.equal(true)
-			-- ...and the scripted part alone is what put it over, which is why only the repeats are
-			-- gated: the budget is enforced from the end of the script onward.
-			expect(Data.repeatRoomFor(rows * 2, rows, CAP, 1, CAP)).to.equal(false)
 			expect(worst > CAP).to.equal(false)
+			-- ...AND IT DIES IF THE GATE GOES. The same walk with no ceiling -- which is what
+			-- `releaseLine` did before this task -- passes 24 and keeps climbing.
+			local unbounded = walk(math.huge)
+			expect(unbounded > CAP).to.equal(true)
 			TestKit.note(
-				string.format("live budget: %d repeated slots, %d held, worst live %d of %d", repeats, held, worst, CAP)
+				string.format(
+					"live budget: %d repeated slots, %d held, worst live %d of %d -- with no gate %d",
+					repeats,
+					held,
+					worst,
+					CAP,
+					unbounded
+				)
 			)
 		end)
 

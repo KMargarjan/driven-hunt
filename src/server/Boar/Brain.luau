@@ -855,17 +855,36 @@ function Brain:_outcome(position: Vector3): string?
 	end
 	-- ---------------------------------------- OUT OF PLAY (task 342, design 9.2, config OUT_OF_PLAY)
 	--
-	-- NEITHER OF THESE TOUCHES A SHOT ANIMAL. A DOWN boar is a carcass the gather owns and a
-	-- CRIPPLED one circles where it was hit until a wound or a second shot ends it (see the escape
-	-- test above), so both are out of this test exactly as the crippled one is out of that one.
+	-- FIVE MOODS ARE SOMEBODY ELSE'S AND NEITHER RULE BELOW TOUCHES THEM. DOWN is a carcass the
+	-- gather owns; CRIPPLED circles where it was hit until a wound or a second shot ends it (the
+	-- escape test above leaves it alone for the same reason); and FLEE, WOUNDED, AVOID and an
+	-- ORDERED animal are all on their way out, so `exitZ` and "escaped" must be what claims them --
+	-- taking one of those at a shallower line would turn a GOT AWAY into a quiet deletion and lose
+	-- it from the toast and the report.
 	local out = config.OUT_OF_PLAY
-	if out == nil or out.ENABLED ~= true or self._state == "DOWN" or self._state == "CRIPPLED" then
+	local state = self._state
+	if
+		out == nil
+		or out.ENABLED ~= true
+		or state == "DOWN"
+		or state == "CRIPPLED"
+		or state == "FLEE"
+		or state == "WOUNDED"
+		or state == "AVOID"
+		or self:ordered()
+	then
 		return nil
 	end
-	-- PAST THE OUTER ROAD IN ANY MOOD. Everything that got here is NOT fleeing, wounded, avoiding or
-	-- ordered -- those four already answered "escaped" -- so this is the group that crossed and then
-	-- calmed down, or drifted south with nobody driving it. `exitZ` is 120 studs beyond the road.
-	if out.pastRoad == true and position.Z <= field.exitZ then
+	-- PAST THE CELL'S OUTER ROAD BY A MARGIN NO STAND CAN SEE. Measured from the ROAD and not from
+	-- `exitZ`, because the road is where the stands are and the margin is about what they can see --
+	-- and because a boar that merely DRIFTS over the exit line while idling must still be left
+	-- alone (Task 17 review, finding 6: "deleting it would lose the only boar in the grey box with
+	-- no driver anywhere near", which `boar_brain.spec` holds).
+	--
+	-- A FIELD WITH NO ROAD HAS NO "PAST THE ROAD", so this is inert in the DEV arena -- which has
+	-- none -- exactly as the deer's leap is (`ForestTest.fieldFor` is the only thing that adds one).
+	local road = field.road
+	if out.pastRoadStuds ~= nil and road ~= nil and road.zAt(position.X) - position.Z >= out.pastRoadStuds then
 		return "pastRoad"
 	end
 	-- ...AND BEDDED OR STOOD STILL FAR BEHIND THE LINE FOR LONG (`_settledFor`, counted in `step`).

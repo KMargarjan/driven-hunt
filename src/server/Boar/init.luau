@@ -503,10 +503,13 @@ Boar.CONFIG = {
 	-- is what the toast and the report count.
 	OUT_OF_PLAY = {
 		ENABLED = true,
-		-- PAST THE OUTER ROAD IN ANY MOOD. `exitZ` is already 120 studs beyond the road -- no stand
-		-- can see that far into the far wood -- so the margin is the line itself; what this changes
-		-- is that reaching it no longer requires a flight or a live order.
-		pastRoad = true,
+		-- HOW FAR SOUTH OF THE ROAD IS OUT OF SIGHT OF EVERY STAND. `REST.nearRoadStuds` 40 is this
+		-- world's own "far enough from the verge that a hunter at a stand is not looking at a boar
+		-- standing still", measured on the other side of the same road, so 80 is twice it -- and it
+		-- is still 40 studs short of `exitZ` (120 past the road), so an animal that is CROSSING is
+		-- never taken by it. It fires only for an animal that is not fleeing, wounded, avoiding,
+		-- ordered, down or crippled: one that stopped out there with nobody driving it.
+		pastRoadStuds = 80,
 		-- BEDDED OR STOOD STILL FAR BEHIND THE LINE, FOR LONG. Only an animal the DRIVE actually
 		-- ordered out and then let go of: a group stocked in the wood for the beaters was never
 		-- ordered and is never taken by this, so Karen's stocked wood is unchanged.

@@ -1727,33 +1727,58 @@ return function()
 
 		it("ships the design's numbers", function()
 			expect(CONFIG.OUT_OF_PLAY.ENABLED).to.equal(true)
-			expect(CONFIG.OUT_OF_PLAY.pastRoad).to.equal(true)
 			expect(CONFIG.OUT_OF_PLAY.settledSeconds).to.equal(60)
-			-- PAST ANYTHING A STAND WATCHES: `REST.nearRoadStuds` is 40 and its own comment calls
-			-- that already far enough from the verge, so 150 is well past it.
+			-- BOTH MARGINS ARE PAST ANYTHING A STAND WATCHES. `REST.nearRoadStuds` is 40 and its own
+			-- comment calls that already far enough from the verge that a hunter is not looking at a
+			-- boar standing still, so 150 north and 80 south are both well past it.
 			expect(CONFIG.OUT_OF_PLAY.settledNorthStuds >= 150).to.equal(true)
+			expect(CONFIG.OUT_OF_PLAY.pastRoadStuds).to.equal(80)
+			-- ...AND THE SOUTH MARGIN IS SHORT OF `exitZ`'s 120 studs past the road, so an animal
+			-- that is CROSSING is never taken by it: `escaped` is still what claims that one.
+			expect(CONFIG.OUT_OF_PLAY.pastRoadStuds < 120).to.equal(true)
 		end)
 
-		it("takes an animal that is past the outer road in ANY mood", function()
-			-- SOUTH OF `exitZ` AND INSIDE THE BOUNDS, so `outOfBounds` cannot be what fires: the
-			-- rectangle reaches -600 and the exit line is at -190.
-			local past = Vector3.new(0, 0, -195)
+		it("takes an animal that stopped past the outer road with nobody driving it", function()
+			-- 85 STUDS SOUTH OF THE ROAD (which is at z = 0 here), NORTH of `exitZ` -190 and well
+			-- inside the bounds -- so neither `escaped` nor `outOfBounds` can be what fires.
+			local past = Vector3.new(0, 0, -85)
 			local on = Brain.new(outOfPlay(true), ROAD_FIELD, past, Random.new(342))
 			expect(on:state()).to.equal("IDLE")
 			local intent = on:step(DT, obs(past))
 			expect(intent.despawn).to.equal(true)
 			expect(intent.reason).to.equal("pastRoad")
-			-- ...AND BEFORE THIS TASK IT DID NOT. An idle animal south of the line kept standing
-			-- there, which is the defect: with the rule off the same step despawns nothing.
+			-- ...AND BEFORE THIS TASK IT DID NOT. An animal that crossed and then calmed down stood
+			-- there for the rest of the drive, which is the defect: with the rule off, nothing.
 			local off = Brain.new(outOfPlay(false), ROAD_FIELD, past, Random.new(342))
 			expect(off:step(DT, obs(past)).despawn).to.equal(false)
-			TestKit.note(
-				"out of play: an IDLE animal 5 studs past exitZ is removed as pastRoad; with the rule off it stands"
-			)
+			-- ...AND 75 STUDS SOUTH IS STILL IN PLAY: the margin is a margin, not the road's edge.
+			local near = Vector3.new(0, 0, -75)
+			local short = Brain.new(outOfPlay(true), ROAD_FIELD, near, Random.new(342))
+			expect(short:step(DT, obs(near)).despawn).to.equal(false)
+			TestKit.note("out of play: an idle animal 85 studs south of the road goes as pastRoad; at 75 it stays")
+		end)
+
+		it("is inert in a field with no road -- the DEV arena is unchanged", function()
+			-- `ForestTest.fieldFor` is the only thing that puts a road on a field, so neither rule
+			-- can reach the DEV place: "past the outer road" is undefined where there is no road.
+			-- This is the other half of `boar_brain.spec`'s "does not despawn an idle boar that
+			-- drifts over the exit line" (Task 17 review, finding 6).
+			local noRoad = {
+				bounds = ROAD_FIELD.bounds,
+				exitZ = ROAD_FIELD.exitZ,
+				groundY = 0,
+			}
+			local past = Vector3.new(0, 0, -185) -- a stud short of the exit line, as that case uses
+			local brain = Brain.new(outOfPlay(true), noRoad, past, Random.new(5))
+			expect(brain:step(DT, obs(past)).despawn).to.equal(false)
+			-- ...and the settled clock never starts either, because it measures from the road.
+			for _ = 1, math.ceil(3 / DT) do
+				expect(brain:step(DT, obs(past)).despawn).to.equal(false)
+			end
 		end)
 
 		it("does NOT take an animal a hunter shot -- the gather owns the carcass", function()
-			local past = Vector3.new(0, 0, -195)
+			local past = Vector3.new(0, 0, -85)
 			local brain = Brain.new(outOfPlay(true), ROAD_FIELD, START, Random.new(7))
 			-- KILLED WHERE IT STOOD, through the hit path the weapon uses, and then it is south of
 			-- the line: a carcass may only leave by its own `CARCASS_SECONDS` timer.
@@ -1765,7 +1790,7 @@ return function()
 			local intent = brain:step(DT, obs(past))
 			expect(intent.despawn).to.equal(false)
 			expect(intent.reason).to.equal(nil)
-			TestKit.note("out of play: a DOWN animal past exitZ is left alone -- the gather, not this rule, owns it")
+			TestKit.note("out of play: a DOWN animal 85 studs past the road is left alone -- the gather owns it")
 		end)
 
 		it("takes a group the drive let go of, bedded far behind the line for long", function()
