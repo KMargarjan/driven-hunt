@@ -509,6 +509,10 @@ Boar.CONFIG = {
 		-- An animal crossing at a run covers it in about seven seconds, so it leaves the board well
 		-- into the far wood and never at the verge.
 		pastRoadStuds = 150,
+		-- ...AND IT HAS TO HOLD THAT LONG. `deer.spec`'s leap case moves the ROAD 400 studs for two
+		-- ticks, and a rule that fired on one frame's reading deleted the deer mid-bound. 1.5 s is
+		-- ninety frames: nothing a real crossing notices, and far more than any one-frame reading.
+		pastRoadSeconds = 1.5,
 		-- ...AND 80 NORTH, which is where the ones that stop actually are: MEASURED in C1 at 185 s,
 		-- ten of the forty-four live animals were 80 to 150 studs north and six beyond 150, so a
 		-- line at 150 reached a quarter of them. 80 is twice `REST.nearRoadStuds`.

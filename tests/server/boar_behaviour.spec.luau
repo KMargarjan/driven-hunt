@@ -1708,6 +1708,22 @@ return function()
 			},
 		}
 
+		-- STEPS IT UNTIL THE SOUTH DWELL HAS ELAPSED (`pastRoadSeconds`), returning the LAST intent
+		-- -- or the first one that despawns. A rule that has to hold needs a case that holds it.
+		local function settle(brain, position: Vector3, each)
+			local intent = nil
+			for _ = 1, math.ceil(CONFIG.OUT_OF_PLAY.pastRoadSeconds / DT) + 2 do
+				if each then
+					each(brain)
+				end
+				intent = brain:step(DT, obs(position))
+				if intent.despawn then
+					return intent
+				end
+			end
+			return intent
+		end
+
 		-- THE WHOLE `OUT_OF_PLAY` BLOCK, overridden key by key -- a replaced block would leave every
 		-- number nil, the mistake `configWith`'s own header records.
 		local function outOfPlay(on: boolean, overrides)
@@ -1733,6 +1749,8 @@ return function()
 			-- boar standing still, so 80 north and 150 south are both well past it.
 			expect(CONFIG.OUT_OF_PLAY.settledNorthStuds).to.equal(80)
 			expect(CONFIG.OUT_OF_PLAY.pastRoadStuds).to.equal(150)
+			-- ...AND IT HAS TO HOLD: one frame's reading may not take an animal off the board.
+			expect(CONFIG.OUT_OF_PLAY.pastRoadSeconds).to.equal(1.5)
 		end)
 
 		it("takes an animal that stopped past the outer road with nobody driving it", function()
@@ -1742,17 +1760,24 @@ return function()
 			local past = Vector3.new(0, 0, -155)
 			local on = Brain.new(outOfPlay(true), ROAD_FIELD, past, Random.new(342))
 			expect(on:state()).to.equal("IDLE")
-			local intent = on:step(DT, obs(past))
+			local intent = settle(on, past)
 			expect(intent.despawn).to.equal(true)
 			expect(intent.reason).to.equal("pastRoad")
-			-- ...AND BEFORE THIS TASK IT DID NOT. An animal that crossed and then calmed down stood
-			-- there for the rest of the drive, which is the defect: with the rule off, nothing.
+			-- ONE FRAME IS NOT ENOUGH, and that is `pastRoadSeconds`: `deer.spec`'s leap case moves
+			-- the ROAD 400 studs for two ticks, so a rule that fired on a single reading deleted a
+			-- deer mid-bound. Half the dwell still stands.
+			local brief = Brain.new(outOfPlay(true), ROAD_FIELD, past, Random.new(343))
+			for _ = 1, math.floor(CONFIG.OUT_OF_PLAY.pastRoadSeconds / 2 / DT) do
+				expect(brief:step(DT, obs(past)).despawn).to.equal(false)
+			end
+			-- ...AND BEFORE THIS TASK IT DID NOT GO AT ALL. An animal that crossed and then calmed
+			-- down stood there for the whole drive: with the rule off, nothing, however long.
 			local off = Brain.new(outOfPlay(false), ROAD_FIELD, past, Random.new(342))
-			expect(off:step(DT, obs(past)).despawn).to.equal(false)
+			expect(settle(off, past).despawn).to.equal(false)
 			-- ...AND 145 STUDS SOUTH IS STILL IN PLAY: the margin is a margin, not the road's edge.
 			local near = Vector3.new(0, 0, -145)
 			local short = Brain.new(outOfPlay(true), ROAD_FIELD, near, Random.new(342))
-			expect(short:step(DT, obs(near)).despawn).to.equal(false)
+			expect(settle(short, near).despawn).to.equal(false)
 			TestKit.note("out of play: an idle animal 155 studs south of the road goes as pastRoad; at 145 it stays")
 		end)
 
@@ -1762,15 +1787,16 @@ return function()
 			-- this cell's own exit line. They leave at the margin now -- but as what they are.
 			local past = Vector3.new(0, 0, -155)
 			local brain = Brain.new(outOfPlay(true), ROAD_FIELD, past, Random.new(21))
-			expect(brain:leadTo(Vector3.new(0, 0, -400), 10)).to.equal(true)
-			local intent = brain:step(DT, obs(past))
+			local intent = settle(brain, past, function(b)
+				b:leadTo(Vector3.new(0, 0, -400), 10) -- the drive re-issues it every step
+			end)
 			expect(intent.despawn).to.equal(true)
 			expect(intent.reason).to.equal("escaped")
 			-- A FLEEING ONE TOO, which is the same rule: "escaped" is the reason for anything that
 			-- was on its way out, and that is what `Match.onDespawned` scores.
 			local fleeing = Brain.new(outOfPlay(true), ROAD_FIELD, past, Random.new(22))
 			fleeing:spook(Vector3.new(0, 0, 100))
-			expect(fleeing:step(DT, obs(past)).reason).to.equal("escaped")
+			expect(settle(fleeing, past).reason).to.equal("escaped")
 			TestKit.note(
 				"out of play: an ordered or fleeing animal past the margin is still a got-away, reason escaped"
 			)
@@ -1805,7 +1831,7 @@ return function()
 				obs(START, nil, { hitEvents = { { severity = "lethal", class = "vital", zone = "ZoneVitals" } } })
 			)
 			expect(brain:state()).to.equal("DOWN")
-			local intent = brain:step(DT, obs(past))
+			local intent = settle(brain, past)
 			expect(intent.despawn).to.equal(false)
 			expect(intent.reason).to.equal(nil)
 			TestKit.note("out of play: a DOWN animal 85 studs past the road is left alone -- the gather owns it")

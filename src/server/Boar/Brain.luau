@@ -744,6 +744,7 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	-- out of the settled rule: a group bedded for the beaters is never led anywhere.
 	self._orderedEver = false
 	self._settledFor = 0
+	self._pastRoadFor = 0
 	return self
 end
 
@@ -879,8 +880,12 @@ function Brain:_outcome(position: Vector3): string?
 	-- none -- exactly as the deer's leap is (`ForestTest.fieldFor` is the only thing that adds one),
 	-- and a boar that merely drifts over that arena's exit line is still left alone (Task 17
 	-- review, finding 6, which `boar_brain.spec` holds).
-	local road = field.road
-	if out.pastRoadStuds ~= nil and road ~= nil and road.zAt(position.X) - position.Z >= out.pastRoadStuds then
+	-- IT HAS TO HOLD, NOT FLICKER (`_pastRoadFor`, counted in `step`). `deer.spec`'s leap case
+	-- caught this: it moves the ROAD 400 studs for two ticks rather than the animal, and a rule that
+	-- fired on ONE frame's reading deleted the deer mid-bound. A road is a curve read per x, so a
+	-- cell edge or a body that is momentarily somewhere else must not be able to take an animal off
+	-- the board; an animal that really has crossed is past the margin for the rest of its life.
+	if out.pastRoadSeconds ~= nil and self._pastRoadFor >= out.pastRoadSeconds then
 		local leaving = state == "FLEE" or state == "WOUNDED" or state == "AVOID" or self:ordered()
 		return if leaving then "escaped" else "pastRoad"
 	end
@@ -891,35 +896,42 @@ function Brain:_outcome(position: Vector3): string?
 	return nil
 end
 
--- HOW LONG THIS ANIMAL HAS BEEN SETTLED DEEP BEHIND THE ROAD WITH NOBODY DRIVING IT (task 342).
--- One number, counted with dt beside the other timers, and it is RESET the moment any part of the
--- condition stops holding -- so it is level-triggered and an animal the drive picks up again, or
--- that walks back toward the road, starts from zero (L-029).
+-- THE TWO OUT-OF-PLAY CLOCKS (task 342), counted with dt beside the other timers and BOTH RESET the
+-- moment any part of their condition stops holding -- so each is level-triggered and an animal that
+-- walks back, or that the drive picks up again, starts from zero (L-029).
 --
--- THE THREE PARTS, AND WHY EACH: the drive ORDERED it out once (`_orderedEver`) and is not ordering
--- it now, so it is nobody's group any more; it is at least `settledNorthStuds` north of the road,
--- which is past anything a stand watches; and it is not fleeing or wounded, because an animal in
--- either of those is on its way somewhere and `_outcome`'s escape test is what ends it.
-function Brain:_updateSettled(dt: number, position: Vector3)
+-- `_pastRoadFor`: how long it has been more than `pastRoadStuds` SOUTH of the road, in any mood but
+-- DOWN and CRIPPLED. `_settledFor`: how long the drive has had nothing to do with it while it sits
+-- at least `settledNorthStuds` NORTH -- the drive ORDERED it out once (`_orderedEver`) and is not
+-- ordering it now, so it is nobody's group; and it is not fleeing or wounded, because an animal in
+-- either of those is on its way somewhere and the escape test is what ends it.
+function Brain:_updateOutOfPlay(dt: number, position: Vector3)
 	local out = self._config.OUT_OF_PLAY
 	local road = self._field.road
-	if
-		out == nil
-		or out.ENABLED ~= true
-		or out.settledSeconds == nil
-		or road == nil
-		or not self._orderedEver
-		or self:ordered()
-		or self._state == "FLEE"
-		or self._state == "WOUNDED"
-		or self._state == "DOWN"
-		or self._state == "CRIPPLED"
-		or position.Z - road.zAt(position.X) < (out.settledNorthStuds or math.huge)
-	then
+	local state = self._state
+	if out == nil or out.ENABLED ~= true or road == nil or state == "DOWN" or state == "CRIPPLED" then
+		self._pastRoadFor = 0
 		self._settledFor = 0
 		return
 	end
-	self._settledFor += dt
+	local north = position.Z - road.zAt(position.X)
+	if out.pastRoadStuds ~= nil and -north >= out.pastRoadStuds then
+		self._pastRoadFor += dt
+	else
+		self._pastRoadFor = 0
+	end
+	if
+		out.settledSeconds == nil
+		or not self._orderedEver
+		or self:ordered()
+		or state == "FLEE"
+		or state == "WOUNDED"
+		or north < (out.settledNorthStuds or math.huge)
+	then
+		self._settledFor = 0
+	else
+		self._settledFor += dt
+	end
 end
 
 -- IDLE: Reynolds wander. Keep a heading, jitter it a little each sense tick, pull back toward home
@@ -2130,9 +2142,9 @@ function Brain:step(dt: number, obs)
 
 	local position = obs.position
 
-	-- THE SETTLED CLOCK IS ADVANCED BEFORE THE OUTCOME IS ASKED (task 342), because the outcome
-	-- reads it. One `+= dt` or one reset per animal per step; nothing else changed order.
-	self:_updateSettled(dt, position)
+	-- THE TWO OUT-OF-PLAY CLOCKS ARE ADVANCED BEFORE THE OUTCOME IS ASKED (task 342), because the
+	-- outcome reads them. Two `+= dt`-or-reset per animal per step; nothing else changed order.
+	self:_updateOutOfPlay(dt, position)
 
 	-- Despawn wins over everything else, and is reported exactly once.
 	local outcome = self:_outcome(position)
