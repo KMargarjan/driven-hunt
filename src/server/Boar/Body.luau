@@ -400,6 +400,44 @@ function Body.driveForce(size: Vector3?, config): number
 	return math.max(force, force * volume / refVolume)
 end
 
+-- WHAT TORQUE HOLDS THIS BODY UP (task 344b). PURE, and `Body.driveForce`'s own shape for the same
+-- reason: `MAX_TORQUE` 20000 was tuned on the BOAR's box (design boar-ai section, "Mass = 33 studs^3
+-- x 0.7"), and a torque is not an angular acceleration -- a stag's box (1.8 x 4.8 x 7.05) has 3.73x
+-- the roll inertia of the reference (2 x 3 x 5.5), so on one number it rights itself at 0.27 of the
+-- boar's rate. MEASURED in Karen's Forest Test, 58 stag landings: 10 ended past 20 degrees of tilt
+-- and the worst reached 96 -- the body lying on its side, still driven at 28.3 studs/s.
+-- Karen, 2026-11-10: *"still bug with redstag jumping then fall on side and glide"*.
+--
+-- INERTIA, NOT VOLUME: a box's roll inertia is `m * (X^2 + Y^2) / 12` and the density is the same
+-- for every animal, so `volume * (X^2 + Y^2)` against the reference's is the whole ratio.
+--
+-- IT IS A FLOOR AND NEVER A CUT, exactly as `driveForce` is: the male IS the reference box, so the
+-- male, the sow and the cub keep 20000 to the byte and only a BIGGER animal is given more. A config
+-- with no `MAX_FORCE_BODY` gets `MAX_TORQUE` unchanged -- every world written before this task.
+--
+-- TWO ANIMALS ARE BIGGER AND BOTH ARE RAISED, which is `Body.driveForce`'s own list: the three red
+-- deer, and THE LEGENDARY BOAR -- the male's box at `scale` 1.35, so 4.48x the reference's roll
+-- inertia and ~89,680 here. That one is UNMEASURED: every run in `reviews/task-344b/REQUEST.md`
+-- staged a stag. It is the same arithmetic in the same direction, and `tests/server/deer.spec.luau`
+-- asserts the number off his real trunk so nobody meets it by surprise.
+function Body.uprightTorque(size: Vector3?, config): number
+	local torque = if config ~= nil then config.MAX_TORQUE else nil
+	if type(torque) ~= "number" then
+		return 0
+	end
+	local ref = if config ~= nil then config.MAX_FORCE_BODY else nil
+	if typeof(ref) ~= "Vector3" or typeof(size) ~= "Vector3" then
+		return torque
+	end
+	local body = size :: Vector3
+	local refInertia = ref.X * ref.Y * ref.Z * (ref.X * ref.X + ref.Y * ref.Y)
+	local inertia = body.X * body.Y * body.Z * (body.X * body.X + body.Y * body.Y)
+	if refInertia <= 0 or inertia <= 0 then
+		return torque
+	end
+	return math.max(torque, torque * inertia / refInertia)
+end
+
 -- Builds one boar body at `position` and returns a handle the Runtime keeps. The Part is parented
 -- last, then the zone parts are welded on and the network owner is set: all of those need the part
 -- to be in the DataModel.
@@ -504,7 +542,7 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 			and pace.ALIGN_RESPONSIVENESS ~= nil
 		then pace.ALIGN_RESPONSIVENESS
 		else config.ALIGN_RESPONSIVENESS
-	upright.MaxTorque = config.MAX_TORQUE
+	upright.MaxTorque = Body.uprightTorque(geometry.bodySize, config)
 	upright.CFrame = CFrame.new(position)
 	upright.Parent = part
 
@@ -1974,6 +2012,11 @@ function Body.stepVisual(handle, dt: number, info, config)
 				if v.Y > 0 then
 					part.AssemblyLinearVelocity = Vector3.new(v.X, 0, v.Z)
 				end
+				-- AND NO TUMBLE EITHER (task 344b). The same one write, at the same instant, for the
+				-- same reason: MEASURED over 58 landings in her place, a stag touched down already
+				-- rotating at 252 deg/s and was on its side 0.5 s later. The upright constraint then
+				-- has an angle to correct instead of a spin to catch.
+				part.AssemblyAngularVelocity = Vector3.zero
 			end
 		end
 	end
@@ -2963,6 +3006,30 @@ function Body.collapseVelocity(velocity: Vector3, config): Vector3
 	return Vector3.new(velocity.X * scale, math.min(velocity.Y, 0), velocity.Z * scale)
 end
 
+-- THE SAME CFrame WITH THE ROLL AND THE PITCH TAKEN OUT (task 344b). PURE: yaw in, yaw out, up is
+-- world up. A box that is lying on its side when the animal is shot makes the carcass STAND, because
+-- the death clip lays the rig down in the BOX's frame and the two rotations compose -- the fault this
+-- file's own `collapse` comment has described since task 150 ("a dead boar standing on its feet, made
+-- of two correct rotations"). MEASURED in Karen's Forest Test: of 22 kills over two sessions one stag
+-- died at 90 degrees of tilt -- it was run B3's eleven -- and its drawn bone span read 5.20 studs,
+-- a deer standing in the grass, for the whole 110 s it was watched (`<runs-dir>/344b-B3-srv.txt`).
+-- Karen, 2026-11-10: *"animal died and then stand and then again die"*.
+--
+-- THE LEVELLED BODY IS BRIEFLY LOW, AND THE CORRECTION THAT CATCHES IT WORKS BOTH WAYS (round 1,
+-- note): standing half-extent 2.4 against a lying 0.9, so a 90-degree box dropped level sits up to
+-- ~1.5 studs into the ground until `Body.groundDrop` lifts it at the anchor -- which corrects in
+-- BOTH directions on purpose ("a carcass sunk to its spine is the same defect upside down"). Narrow
+-- that to one direction and this write starts burying carcasses.
+function Body.levelCFrame(cf: CFrame): CFrame
+	local look = cf.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 1e-4 then
+		-- Nose straight up or straight down: there is no yaw to keep, so keep the world's.
+		return CFrame.new(cf.Position)
+	end
+	return CFrame.lookAt(cf.Position, cf.Position + flat.Unit)
+end
+
 function Body.topple(handle, config)
 	if handle.toppled then
 		return
@@ -3148,6 +3215,13 @@ function Body.collapse(handle, config, full)
 		Body.topple(handle, config)
 		return
 	end
+	-- IT DIES THE WAY UP (task 344b). ONE CFrame write, at the moment of death and in the same
+	-- place and shape as `Body.topple`'s: the clip is about to lay the rig down in the BOX's frame,
+	-- so a box that is rolled over when the shot lands composes with it and draws a carcass STANDING
+	-- (`Body.levelCFrame`, and this function's own task 150 comment above). The yaw it died facing is
+	-- kept; only the roll and the pitch go.
+	handle.part.CFrame = Body.levelCFrame(handle.part.CFrame)
+
 	-- THE CLIP IS NOW THE ONLY THING THAT CAN LAY THIS ANIMAL DOWN, so the backstop is armed
 	-- (task 249). `stepCarcass` holds this track to its promise: a death that has not advanced a
 	-- frame by `DEATH_BACKSTOP_SECONDS` never will, and the box rolls after all.

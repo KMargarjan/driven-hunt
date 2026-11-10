@@ -2565,6 +2565,46 @@ return function()
 				expect(plain.toppled).to.equal(true)
 			end)
 
+			-- ------------------------------ AND IT DIES THE WAY UP (task 344b, round 1 finding 3)
+			it("levels a rolled box at the moment of death, and keeps the yaw it died facing", function()
+				-- KAREN, 2026-11-10: *"animal died and then stand and then again die"*. MEASURED in
+				-- her Forest Test (`<runs-dir>/344b-B3-srv.txt`, the `DEATH stag Boar28` block): a
+				-- stag tipped by its landing was shot at **tilt=90**, the death clip held correctly
+				-- at 1.14 -- and the drawn bone span read **5.20 studs** (a deer standing; lying is
+				-- ~1.4) for the whole 110 s it was watched. The clip lays the rig down in the BOX's
+				-- frame, so the two rotations compose, which is `Body.collapse`'s own task-150
+				-- comment: *"a dead boar standing on its feet, made of two correct rotations"*.
+				--
+				-- THE ONE WRITE IS WHAT IS ASSERTED, off the Instance the owner built. FAILS AT MAIN
+				-- and fails the moment the `Body.levelCFrame` line is taken out of `Body.collapse`:
+				-- every other case in this block collapses an UNROLLED body, where the write is an
+				-- identity.
+				local fall = Body.deathClips(CONFIG)
+				local handle = newBody()
+				local yaw = math.rad(37)
+				local at = handle.part.Position
+				handle.part.CFrame = CFrame.new(at) * CFrame.Angles(0, yaw, 0) * CFrame.Angles(0, 0, math.rad(90))
+				expect(handle.part.CFrame.UpVector.Y < 0.01).to.equal(true) -- on its side: the defect
+				local model = Instance.new("Model")
+				model.Parent = testRoot
+				handle.visual = model
+				handle.tracks[fall] = { TimePosition = 0, Length = MODEL.CLIPS[fall].seconds }
+				Body.collapse(handle, CONFIG.WOUND, CONFIG)
+				-- THE CLIP-FALLS ARM: the box did not topple, the constraint is still on, and the
+				-- body is the way up for the clip that is about to lay it down.
+				expect(handle.toppled).to.equal(false)
+				expect(handle.part.CFrame.UpVector.Y > 0.999).to.equal(true)
+				-- ...AND IT IS STILL FACING WHERE IT DIED.
+				local kept = CFrame.new(at) * CFrame.Angles(0, yaw, 0)
+				expect(handle.part.CFrame.LookVector:Dot(kept.LookVector) > 0.999).to.equal(true)
+				model:Destroy()
+				-- THE BOX-FALLS ARM IS UNTOUCHED: nothing is drawn on it, so `Body.topple` rolls it
+				-- exactly as it has since task 28 and the level write is never reached.
+				local plain = newBody()
+				Body.collapse(plain, CONFIG.WOUND, CONFIG)
+				expect(plain.toppled).to.equal(true)
+			end)
+
 			-- ------------------------------ AND THE PADDLE IS A DEATH TOO (row 249b, note (ii))
 			--
 			-- *"`deathDrawn` watches only the FALL track -- in a world where `deathLeft`'s id never
