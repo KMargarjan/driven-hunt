@@ -131,11 +131,21 @@ return function()
 		describe("the upright torque and the level death (task 344b)", function()
 			it("gives a bigger box more torque, and the reference box exactly MAX_TORQUE", function()
 				local config = Boar.CONFIG
-				-- THE REFERENCE AND EVERY BOAR KIND: unchanged to the byte, which is the floor.
+				-- THE REFERENCE BOX: unchanged to the byte, which is the floor.
 				expect(Body.uprightTorque(config.MAX_FORCE_BODY, config)).to.equal(config.MAX_TORQUE)
 				expect(Body.uprightTorque(config.BODY_SIZE, config)).to.equal(config.MAX_TORQUE)
-				-- ...INCLUDING THE SMALLER ONES. A cub-sized box is never given LESS.
+				-- ...AND SO IS EVERY BOX SMALLER THAN IT. A cub-sized box is never given LESS.
 				expect(Body.uprightTorque(Vector3.new(1, 1.5, 2.75), config)).to.equal(config.MAX_TORQUE)
+				-- THE LEGENDARY BOAR IS NOT UNCHANGED, AND THAT IS SAID OUT LOUD (round 1, finding
+				-- 1): he is the male's box at `scale` 1.35, so his roll inertia is 4.48x the
+				-- reference's and this rule hands him ~89,680. It is the same arithmetic the stag
+				-- gets and `Body.driveForce` already treats him the same way ("THE TWO ANIMALS
+				-- BIGGER THAN IT"), but NO RUN IN THIS TASK SAMPLED HIM -- every measurement in
+				-- `reviews/task-344b/REQUEST.md` is a staged stag.
+				local legendary = config.BODY_SIZE * (config.KINDS.legendary :: any).scale
+				local got = Body.uprightTorque(legendary, config)
+				expect(got > config.MAX_TORQUE * 4).to.equal(true)
+				expect(got < config.MAX_TORQUE * 5).to.equal(true)
 				-- EVERY WORLD WRITTEN BEFORE THIS TASK: no `MAX_FORCE_BODY`, so no scaling at all.
 				expect(Body.uprightTorque(Vector3.new(1.8, 4.8, 7.05), { MAX_TORQUE = 20000 })).to.equal(20000)
 				-- THE DEER, AND THE ARITHMETIC IT IS: roll inertia is `m * (X^2 + Y^2) / 12` and the
@@ -145,9 +155,11 @@ return function()
 				local ratio = (deer.X * deer.Y * deer.Z * (deer.X * deer.X + deer.Y * deer.Y))
 					/ (ref.X * ref.Y * ref.Z * (ref.X * ref.X + ref.Y * ref.Y))
 				expect(ratio > 3).to.equal(true)
-				-- FAILS AT MAIN, where the stag is handed the boar's 20000.
+				-- FAILS AT MAIN, where the stag is handed the boar's 20000. THE NUMBER IS THE ONE
+				-- READ LIVE out of her Forest Test at the code commit (`344b-FINAL.out`, `build:`),
+				-- not a transcription of the function under test (verdict 278).
 				expect(Body.uprightTorque(deer, config) > config.MAX_TORQUE * 3).to.equal(true)
-				expect(math.abs(Body.uprightTorque(deer, config) - config.MAX_TORQUE * ratio) < 1e-6).to.equal(true)
+				expect(Body.uprightTorque(deer, config)).to.be.near(74627.86, 0.01)
 			end)
 
 			it("takes the roll and the pitch out of a death CFrame and keeps the yaw", function()
@@ -299,6 +311,39 @@ return function()
 					local accel = mover.MaxForce / trunk.AssemblyMass
 					expect(math.abs(accel - boarAccel) / boarAccel < 1e-6).to.equal(true)
 				end
+			end)
+
+			-- THE UPRIGHT TORQUE IS PER INERTIA, ON THE REAL TRUNK (task 344b, round 1 finding 2).
+			-- Read off the Instance `Body.create` built, exactly as the force case above is: the
+			-- pure rule can be right while the line that puts it in the game is missing, and
+			-- deleting `upright.MaxTorque = Body.uprightTorque(...)` left the whole suite green.
+			it("gives the stag the upright torque his inertia needs, and takes none off any animal", function()
+				local function uprightOf(kind: string): (BasePart, AlignOrientation)
+					local trunk = trunks[kind] :: BasePart
+					local upright = trunk:FindFirstChild("Upright") :: AlignOrientation
+					expect(upright).to.be.ok()
+					return trunk, upright
+				end
+				-- NOTHING LOSES TORQUE: the rule is a floor, like `driveForce`.
+				for _, kind in ipairs(ALL_KINDS) do
+					local _, upright = uprightOf(kind)
+					expect(upright.MaxTorque >= Boar.CONFIG.MAX_TORQUE).to.equal(true)
+				end
+				-- THE THREE BUILT ON THE REFERENCE BOX OR SMALLER KEEP 20000 EXACTLY.
+				for _, kind in ipairs({ "male", "female", "cub" }) do
+					local _, upright = uprightOf(kind)
+					expect(upright.MaxTorque).to.equal(Boar.CONFIG.MAX_TORQUE)
+				end
+				-- THE STAG GETS 3.73x, which is what he was missing: MEASURED in Karen's Forest
+				-- Test, 10 of 58 landings ended past 20 degrees of tilt and the worst reached 96 --
+				-- the body on its side, still driven at 28.3 studs/s. FAILS AT MAIN.
+				local _, stag = uprightOf("stag")
+				expect(stag.MaxTorque).to.be.near(74627.86, 0.01)
+				-- ...AND THE LEGENDARY BOAR GETS 4.48x (round 1, finding 1). Unmeasured: no run in
+				-- this task staged him. It is the same arithmetic and the same direction as the
+				-- stag's, and `driveForce` already scales him the same way.
+				local _, legendary = uprightOf("legendary")
+				expect(legendary.MaxTorque > Boar.CONFIG.MAX_TORQUE * 4).to.equal(true)
 			end)
 
 			it("publishes reddeer on every deer kind and boar on every boar kind", function()

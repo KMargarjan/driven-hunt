@@ -414,6 +414,12 @@ end
 -- IT IS A FLOOR AND NEVER A CUT, exactly as `driveForce` is: the male IS the reference box, so the
 -- male, the sow and the cub keep 20000 to the byte and only a BIGGER animal is given more. A config
 -- with no `MAX_FORCE_BODY` gets `MAX_TORQUE` unchanged -- every world written before this task.
+--
+-- TWO ANIMALS ARE BIGGER AND BOTH ARE RAISED, which is `Body.driveForce`'s own list: the three red
+-- deer, and THE LEGENDARY BOAR -- the male's box at `scale` 1.35, so 4.48x the reference's roll
+-- inertia and ~89,680 here. That one is UNMEASURED: every run in `reviews/task-344b/REQUEST.md`
+-- staged a stag. It is the same arithmetic in the same direction, and `tests/server/deer.spec.luau`
+-- asserts the number off his real trunk so nobody meets it by surprise.
 function Body.uprightTorque(size: Vector3?, config): number
 	local torque = if config ~= nil then config.MAX_TORQUE else nil
 	if type(torque) ~= "number" then
@@ -3004,9 +3010,16 @@ end
 -- world up. A box that is lying on its side when the animal is shot makes the carcass STAND, because
 -- the death clip lays the rig down in the BOX's frame and the two rotations compose -- the fault this
 -- file's own `collapse` comment has described since task 150 ("a dead boar standing on its feet, made
--- of two correct rotations"). MEASURED in Karen's Forest Test: of 11 kills one stag died at 90 degrees
--- of tilt, and its drawn bone span read 5.20 studs -- a deer standing in the grass -- for the whole
--- 110 s it was watched. Karen, 2026-11-10: *"animal died and then stand and then again die"*.
+-- of two correct rotations"). MEASURED in Karen's Forest Test: of 22 kills over two sessions one stag
+-- died at 90 degrees of tilt -- it was run B3's eleven -- and its drawn bone span read 5.20 studs,
+-- a deer standing in the grass, for the whole 110 s it was watched (`<runs-dir>/344b-B3-srv.txt`).
+-- Karen, 2026-11-10: *"animal died and then stand and then again die"*.
+--
+-- THE LEVELLED BODY IS BRIEFLY LOW, AND THE CORRECTION THAT CATCHES IT WORKS BOTH WAYS (round 1,
+-- note): standing half-extent 2.4 against a lying 0.9, so a 90-degree box dropped level sits up to
+-- ~1.5 studs into the ground until `Body.groundDrop` lifts it at the anchor -- which corrects in
+-- BOTH directions on purpose ("a carcass sunk to its spine is the same defect upside down"). Narrow
+-- that to one direction and this write starts burying carcasses.
 function Body.levelCFrame(cf: CFrame): CFrame
 	local look = cf.LookVector
 	local flat = Vector3.new(look.X, 0, look.Z)
