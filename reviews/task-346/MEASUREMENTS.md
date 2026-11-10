@@ -85,7 +85,8 @@ From `<runs-dir>/346-verify.py` and each run's own `PLANT(...)` line:
 | `PART_BUDGET_CELL` / `CELL_PART_CAP` | 12,800 / 3,404 | **14,200 / 3,776** |
 | `PART_BUDGET_DRIVE` / `CELL_PLAN_CAP` | 27,000 / 7,180 | **29,000 / 7,712** |
 | corner quadrants holding wood | **0, on all 8 cells** | every corner an outer edge touches, 26–63 stems each |
-| skirt sites past the old 230-stud depth | **0** | 411–515 a cell |
+| worst site outside the footprint | 0 (the skirt stopped at 230 inside K1's pad) | **479** (A1), against a derived bound of `Relief.BLEND_STUDS + 230 + maxBendStuds` = 490 |
+| sites inside the DEEPEST band's own rectangles | **0** (no such band) | **348–451 a cell**; `deepRects` 0 → 4 a cell |
 | `Workspace` parts, whole place | **22,878** (census) | 24,161 — derived as before + the measured cell delta; the after census was not re-read in its own pass |
 
 `PARTS_PER_MODEL` is unchanged at 3.76. C1's live wood re-measured **3.707** (11,645 parts for
@@ -114,6 +115,21 @@ was taken **twice**, reading 21.27 then 20.22 ms at C1 stand 8 and 21.54 then 24
 budget: C1's +5.51 ms is larger than its own spread, while A2's −2.26 ms has the opposite sign.
 **This is a Director decision, not a Builder claim** — either the budget is breached at C1 and the
 deepest band needs a coarser spacing, or the C1 sample is session drift. Recorded as NOT PROVEN.
+
+## 5a. The delete-and-fail proof, RUN (L-093)
+
+`<runs-dir>/346-deepproof.py`, in a Play server of Karen's place, the planter injected from the
+worktree, at the code commit and then with the third band deleted from `Places.skirtBands`:
+
+| | with band 3 | band 3 deleted |
+|---|---|---|
+| `deepRects` (the rectangles case 16a collects), C1 and A2 | **4** each | **0** each |
+| `inDeepest` (planted sites inside them), C1 | **371** | **0** |
+| `inDeepest`, A2 | **451** | **0** |
+
+So `expect(#deepRects).to.equal(4)` and `expect(inDeepest > 0)` both redden on the deletion. The
+file was restored immediately and `git diff` confirms it. Round 1's version of this count was fed
+by band 2 and survived the deletion — that was the Reviewer's finding 1.
 
 ## 6. Attribute diff (L-101)
 
