@@ -632,6 +632,10 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	-- the flight and `_leapFor` is the drawing: a calf flies 0.369 s and `LEAP.SECONDS` holds the
 	-- clip for 0.75. `MOVE.LEAP_AIR_SECONDS` is this kind's own, from `Body.leapAir`.
 	self._burstFor = 0
+	-- SECONDS LEFT OF THE LANDING HOLD (task 344). Karen, 2026-11-10: *"animals go on the side after
+	-- jum"*. Refreshed every leaping tick and counted down after, so it spans the flight AND
+	-- `MOVE.LAND_SECONDS` of ground past it; while it runs the slew is capped at `MOVE.LAND_TURN_DEG`.
+	self._landFor = 0
 	self._leapArmed = true
 	-- HAS IT HEARD A SHOT? One way, for the rest of its life here (task 150). Karen: *"once they
 	-- hear shoot they run and don't stop"*. Set by `spook` when the fright IS a bang; read by
@@ -1263,6 +1267,13 @@ function Brain:_updateWedge(dt: number, position: Vector3): boolean
 	if self._wedgeFor > 0 then
 		-- ALREADY STEPPING ROUND ONE. No second turn, and no re-arming either: the window stays shut
 		-- until the hold ends, so the 0.6 s is spent going somewhere rather than turning again.
+		-- ...AND THE NEXT WINDOW STARTS WHERE THE HOLD ENDS (task 344). `_wedgeFrom` was left at the
+		-- position the sidestep FIRED at, so the next window divided 0.6 s of the hold's travel plus
+		-- its own by its own length alone: a sidestep that did not work measured as movement and the
+		-- second attempt could not fire. That is the *"stuck for few seconds"* half the window
+		-- length does not reach.
+		self._wedgeFrom = flat(position)
+		self._wedgeTime = 0
 		return false
 	end
 	if self._speed < (move.WEDGE_ORDERED_SPEED or 2) then
@@ -2217,6 +2228,18 @@ function Brain:step(dt: number, obs)
 		self._burstFor = (config.MOVE ~= nil and config.MOVE.LEAP_AIR_SECONDS) or 0
 	end
 	intent.leaping = self._leapFor > 0
+	-- THE LANDING HOLD (task 344). MEASURED in her place at main: over 15 stag leaps the angle
+	-- between the body's FACING and its TRAVEL was 22.4 deg at +0.5 s and 22.5 deg at +1.0 s after
+	-- touchdown, worst 103.9 -- an animal drawn broadside to the line it is running. The travel is
+	-- never wrong (`Mover.PlaneVelocity` and `AssemblyLinearVelocity` agreed to 0.0 deg in every one
+	-- of 50 samples): the heading SETPOINT turns at up to 441 deg/s where the drawn body manages
+	-- ~140, so the gap opens at the crossing and stays open. This is the window the cap runs in --
+	-- refreshed while the bound is published, so it covers the flight as well as the ground past it.
+	if intent.leaping then
+		self._landFor = (config.MOVE ~= nil and config.MOVE.LAND_SECONDS) or 0
+	else
+		self._landFor = math.max(0, self._landFor - dt)
+	end
 	-- TASK 126's three timers, counted with dt beside the others. With `MOVE.ENABLED` off none of
 	-- them is ever set, so this is three subtractions and nothing else.
 	self._flightFor = math.max(0, self._flightFor - dt)
@@ -2725,6 +2748,17 @@ function Brain:step(dt: number, obs)
 		if math.deg(math.acos(dot)) <= pace.TURN_DEADBAND_DEG then
 			desiredDirection = self._desired
 		end
+	end
+
+	-- ...AND A BOUND LANDS RUNNING STRAIGHT ON (task 344). Karen: *"animals go on the side after
+	-- jum"*. AFTER the gait block and not inside it, so it caps `TURN_RATE` as well as the per-gait
+	-- rate and the route's `LINE.TURN_SCALE` corner -- a crossing is exactly where `ordered` is true
+	-- and 220 x 1.6 = 352 deg/s is the rate the drawn body cannot follow.
+	-- `math.min`, so it can only ever SLOW a turn: a world with no `LAND_SECONDS` never opens the
+	-- window, and the DEV world has no road, so `_landFor` is 0 there for ever.
+	local landDeg = config.MOVE ~= nil and config.MOVE.LAND_TURN_DEG or nil
+	if self._landFor > 0 and type(landDeg) == "number" then
+		turnRate = math.min(turnRate, math.rad(landDeg))
 	end
 
 	-- Turn rate and acceleration limit the SETPOINT, not the physics, so both are assertable with no

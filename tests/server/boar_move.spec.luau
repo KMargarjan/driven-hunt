@@ -237,6 +237,66 @@ return function()
 			expect(without).to.equal(nil)
 		end)
 
+		it("SIDESTEPS AGAIN INSIDE 1.5 s WHEN THE FIRST ONE DID NOT WORK (task 344)", function()
+			-- KAREN, 2026-11-10: *"animals still sometimes stuck for few seconds hitting tree"*.
+			-- MEASURED in her place at main over one C1 drive: 8 animals ordered to move at 3+
+			-- studs/s and covering under 1 for longer than a second each, the worst 2.03 s.
+			--
+			-- FAILS ON EITHER HALF OF THE FIX BEING REVERTED:
+			--   * put `WEDGE_SECONDS` back to 0.75 and the first turn is at ~0.78 s and the second
+			--     cannot be before 0.78 + 0.6 + 0.75 = 2.13 s;
+			--   * delete the `_wedgeFrom` re-base in `_updateWedge`'s hold branch and the second
+			--     window divides the hold's slide by its OWN length, reads 1.0 studs/s, and no
+			--     second turn ever fires.
+			--
+			-- THE WORLD IS A BOAR PRESSED INTO A TRUNK AND STILL SLIDING, which is exactly what she
+			-- described in task 150 (*"wal in place"*): the ground passes at 0.4 studs/s -- under
+			-- `WEDGE_SPEED` 0.5, so the animal IS stuck, but not zero, which is what tells the two
+			-- halves apart.
+			local SLIDE = 0.4
+			local config = moveConfig(true)
+			local brain = Brain.new(config, FIELD, START, Random.new(97))
+			brain:spook(Vector3.new(0, 0, 60))
+			local position = START
+			for _ = 1, math.ceil(SETTLE / DT) do
+				local intent = brain:step(DT, obs(position, {}))
+				position += intent.targetVelocity * DT
+			end
+			local previous, turns = nil, {}
+			for frame = 1, math.ceil(3 / DT) do
+				local intent = brain:step(DT, obs(position, {}))
+				local heading = intent.targetVelocity
+				if heading.Magnitude > 1e-6 then
+					position += heading.Unit * SLIDE * DT
+				end
+				local facing = intent.facing
+				if facing.Magnitude > 1e-6 then
+					if previous ~= nil then
+						local dot = math.clamp(previous:Dot(facing.Unit), -1, 1)
+						-- ONE FRAME, 45 DEGREES: the sidestep rotates `_desired` by 90 after the
+						-- slew, and the slew itself moves it by about 6 degrees a frame.
+						if math.deg(math.acos(dot)) >= 45 then
+							table.insert(turns, frame * DT)
+						end
+					end
+					previous = facing.Unit
+				end
+			end
+			TestKit.note(
+				string.format(
+					"wedge 344: sidesteps at %s s while pinned and sliding %.1f studs/s (window %.2f)",
+					(if #turns > 0 then table.concat(turns, ", ") else "none"),
+					SLIDE,
+					config.MOVE.WEDGE_SECONDS
+				)
+			)
+			-- MEASURED: 0.5 s and 1.5 s. The bounds are one frame of slack above each, because
+			-- `frame * DT` lands exactly on a window edge and a float ulp either way is noise.
+			expect(#turns >= 2).to.equal(true)
+			expect(turns[1] <= 0.6).to.equal(true)
+			expect(turns[2] <= 1.6).to.equal(true)
+		end)
+
 		it("never fires on an animal that is actually covering ground", function()
 			-- THE FALSE POSITIVE IS THE RISK, and this is the case that holds it down: the same
 			-- frightened animal, running the same latched line, with its position INTEGRATED from
