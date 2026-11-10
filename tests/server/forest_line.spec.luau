@@ -2080,4 +2080,189 @@ return function()
 			holder:Destroy()
 		end)
 	end)
+
+	-- --------------------------------------- AT MOST 24 ANIMALS ALIVE (task 342, design 9.2)
+	--
+	-- MEASURED on main e77e755a, three full 400 s drives in her Forest Test: live reached 60
+	-- (`MAX_BOARS`) in C1 and A2 and 50 in quiet D1, and never came down. The script's fifteen slots
+	-- end at 192 s and `repeatFrom..repeatTo` then releases a group every 13 s for the rest of the
+	-- clock, with nothing taking a group that has left play off the board.
+	--
+	-- THESE CASES DIE IF THE FIX IS DELETED (L-093). Case 1 walks a schedule twice as long as the
+	-- script with nothing ever leaving: make `repeatRoomFor` answer true and live passes 24 on the
+	-- first repeated slot. Case 2 holds the other side -- a SCRIPTED slot is never capped, which is
+	-- what keeps the density dial's own shape.
+	describe("the live budget on the repeat window (task 342)", function()
+		local CAP = Data.LIVE_CAP
+
+		-- HOW BIG THE GROUP A SLOT RELEASES IS, asked of the ANIMAL owner exactly as `releaseLine`
+		-- asks it. A deer row is never repeated (`slotAt`), so only boar compositions reach this.
+		local function sizeOf(row): number
+			local composition = Boar.CONFIG.SOUNDER.COMPOSITIONS[row.composition]
+			return if composition ~= nil then Boar.compositionSize(composition, Boar.CONFIG) else 1
+		end
+
+		it("is 24, which is design 9.2's number, and MAX_BOARS is still the hard ceiling", function()
+			expect(CAP).to.equal(24)
+			expect(Data.MAX_BOARS).to.equal(60)
+			expect(CAP < Data.MAX_BOARS).to.equal(true)
+		end)
+
+		it("never lets live past 24 over a long repeat window, and would without the gate", function()
+			local schedule = Data.cellSchedule(Grid.animalsOf("C1"), Grid.CONFIG.cellDepthStuds)
+			local rows = #schedule.drive
+			-- THE WORST CASE THERE IS: nothing ever leaves the world of its own accord. Every animal
+			-- released stays live, so the only thing that can hold the count down is the gate.
+			-- `rows * 6` slots at 13 s apiece is more than twenty minutes of drive, five times the
+			-- clock Karen plays.
+			--
+			-- IT STARTS AT THE END OF THE SCRIPT, with the budget already full: the SCRIPTED slots
+			-- are not gated (the Director's decision -- the density dial keeps today's shape), so
+			-- what holds live down there is `Brain:_outcome`'s two out-of-play reasons, whose own
+			-- cases are in `boar_behaviour.spec`, and the live drive in her place.
+			local function walk(cap: number?): (number, number, number)
+				local live, repeats, held = CAP, 0, 0
+				local worst = live
+				for slot = rows + 1, rows * 6 do
+					local row = Data.slotAt(slot, schedule.density, schedule)
+					if row ~= nil then
+						repeats += 1
+						local size = sizeOf(row)
+						if Data.repeatRoomFor(slot, rows, live, size, cap) then
+							live += size
+						else
+							held += 1
+							-- ONE ANIMAL LEAVES between two refused slots, so the gate is asked
+							-- again from a live count that has MOVED: a check made once when the
+							-- window opened could not tell this run from one where nothing changed
+							-- (L-029), and it is what lets the window fill again as room appears.
+							live = math.max(0, live - 1)
+						end
+						if live > worst then
+							worst = live
+						end
+					end
+				end
+				return worst, repeats, held
+			end
+
+			local worst, repeats, held = walk(CAP)
+			-- THE WINDOW WAS ACTUALLY EXERCISED AND IT ACTUALLY REFUSED: a case where the window
+			-- never ran, or never said no, would pass for the wrong reason.
+			expect(repeats > 0).to.equal(true)
+			expect(held > 0).to.equal(true)
+			expect(worst > CAP).to.equal(false)
+			-- ...AND IT DIES IF THE GATE GOES. The same walk with no ceiling -- which is what
+			-- `releaseLine` did before this task -- passes 24 and keeps climbing.
+			local unbounded = walk(math.huge)
+			expect(unbounded > CAP).to.equal(true)
+			TestKit.note(
+				string.format(
+					"live budget: %d repeated slots, %d held, worst live %d of %d -- with no gate %d",
+					repeats,
+					held,
+					worst,
+					CAP,
+					unbounded
+				)
+			)
+		end)
+
+		it("is asked per release against the live count of that moment, not latched (L-029)", function()
+			-- THE SAME SLOT, TWO LIVE COUNTS, TWO ANSWERS. A gate evaluated once when the window
+			-- opened could not tell these apart.
+			expect(Data.repeatRoomFor(99, 15, CAP - 4, 4, CAP)).to.equal(true)
+			expect(Data.repeatRoomFor(99, 15, CAP - 3, 4, CAP)).to.equal(false)
+			-- A SCRIPTED SLOT IS NEVER CAPPED -- the dial's own shape is untouched -- and nor is a
+			-- staged release, which carries slot 0.
+			expect(Data.repeatRoomFor(15, 15, 60, 9, CAP)).to.equal(true)
+			expect(Data.repeatRoomFor(0, 15, 60, 9, CAP)).to.equal(true)
+		end)
+
+		it("publishes live, the drive's peak and the despawn reasons, and hands them back on clear", function()
+			local holder = Instance.new("Folder")
+			holder.Name = "BudgetProbe"
+			holder.Parent = workspace
+			local runtime = Boar.newRuntime({
+				field = { bounds = { minX = -200, maxX = 200, minZ = -200, maxZ = 200 }, exitZ = -190, groundY = 0 },
+				parent = holder,
+				folderName = "BudgetProbe",
+				rng = Random.new(342),
+				threats = function()
+					return {}
+				end,
+				requestPath = function(_agentId, _from, _to, done)
+					done(nil)
+				end,
+				releasePath = function() end,
+			})
+			expect(runtime:liveCount()).to.equal(0)
+			local first = runtime:spawn(Vector3.new(0, 0, 0), "male")
+			runtime:spawn(Vector3.new(6, 0, 0), "male")
+			expect(runtime:liveCount()).to.equal(2)
+			expect(runtime:count()).to.equal(2)
+			for _ = 1, Boar.STEP_PUBLISH_EVERY do
+				runtime:step(1 / 60)
+			end
+			local folder = holder:FindFirstChild("BudgetProbe")
+			expect(folder:GetAttribute("Live")).to.equal(2)
+			expect(folder:GetAttribute("LiveMax")).to.equal(2)
+			expect(folder:GetAttribute("DespawnByReason")).to.equal("")
+			-- ---------------------------------------- A CARCASS IS NOT A LIVE ANIMAL (task 342)
+			--
+			-- THIS IS THE WHOLE REASON `liveCount` EXISTS and `count` could not be used: a shot
+			-- animal holds a `MAX_BOARS` slot for `CARCASS_SECONDS`, and `releaseLine`'s budget is
+			-- about animals being stepped as animals -- "a hunter who shoots well must not close
+			-- the drive's own door". Replace `liveCount`'s body with `return self:count()` and the
+			-- next three lines fail.
+			runtime:takeHit(first.part, { zone = "head", ammo = "Slug", pellets = 1, at = os.clock() })
+			for _ = 1, 20 do
+				runtime:step(1 / 60)
+			end
+			expect(first.state()).to.equal("DOWN")
+			expect(runtime:count()).to.equal(2) -- the carcass still holds its slot
+			expect(runtime:liveCount()).to.equal(1) -- ...and is not one of the live animals
+			for _ = 1, Boar.STEP_PUBLISH_EVERY do
+				runtime:step(1 / 60)
+			end
+			expect(folder:GetAttribute("Live")).to.equal(1)
+			expect(folder:GetAttribute("LiveMax")).to.equal(2) -- the drive's high water mark stands
+			-- ONE ANIMAL OUT, BY REASON: the line is the published diagnostic and the stats table
+			-- carries the same count. The one still on its feet, so the counts stay readable.
+			local ids = runtime:boars()
+			local standing = if ids[1].id == first.id then ids[2] else ids[1]
+			expect(runtime:clearOne(standing.id, "pastRoad")).to.equal(true)
+			expect(runtime:stats().despawnReasons.pastRoad).to.equal(1)
+			for _ = 1, Boar.STEP_PUBLISH_EVERY do
+				runtime:step(1 / 60)
+			end
+			expect(folder:GetAttribute("DespawnByReason")).to.equal("pastRoad=1")
+			expect(folder:GetAttribute("Live")).to.equal(0)
+			expect(runtime:count()).to.equal(1) -- the carcass, still holding its slot
+			-- ...AND THE PEAK IS THE DRIVE'S HIGH WATER MARK, not the count right now.
+			expect(folder:GetAttribute("LiveMax")).to.equal(2)
+			-- PER DRIVE: `clear` is this owner's one drive boundary, so the step cost, the peak and
+			-- the reasons all start again. `despawned` above them stays cumulative.
+			local beforeClear = runtime:stats()
+			expect(beforeClear.steps > 0).to.equal(true)
+			runtime:clear("driveOver")
+			local after = runtime:stats()
+			expect(after.steps).to.equal(0)
+			expect(after.stepMsTotal).to.equal(0)
+			expect(after.stepMsMax).to.equal(0)
+			expect(after.stepMsAvg).to.equal(0)
+			expect(after.liveMax).to.equal(0)
+			expect(next(after.despawnReasons)).to.equal(nil)
+			expect(after.despawned).to.equal(beforeClear.despawned + 1) -- the carcass, taken by clear
+			runtime:destroy()
+			holder:Destroy()
+		end)
+
+		it("names every reason it has counted, in one line a probe can read", function()
+			expect(Boar.reasonLine({})).to.equal("")
+			expect(Boar.reasonLine({ escaped = 12, pastRoad = 3, settled = 4 })).to.equal(
+				"escaped=12 pastRoad=3 settled=4"
+			)
+		end)
+	end)
 end

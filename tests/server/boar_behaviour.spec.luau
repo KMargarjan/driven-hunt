@@ -1682,4 +1682,213 @@ return function()
 			)
 		end)
 	end)
+
+	-- --------------------------------------- WHEN AN ANIMAL IS OUT OF PLAY (task 342, design 9.2)
+	--
+	-- MEASURED on main e77e755a, three full 400 s drives in her Forest Test: live reached 60 in C1
+	-- and A2 against design 9.2's <= 24, because `_outcome` took an animal off the board only when a
+	-- FLEEING or ORDERED one reached `exitZ`. A group that broke back, lay up, or simply outlived
+	-- its order stood in the wood for the rest of the drive.
+	--
+	-- THESE CASES DIE IF THE FIX IS DELETED (L-093). Each OFF case is the behaviour before this
+	-- task and each ON case is the new one, reached by parameter (`OUT_OF_PLAY.ENABLED`), so the
+	-- pair fails in both directions if the rule goes.
+	describe("out of play (task 342)", function()
+		-- A FIELD WITH A ROAD, which the settled rule needs: the road is at z = 0 here, so a
+		-- position's own z IS its distance north of it and the case's numbers read straight.
+		local ROAD_FIELD = {
+			bounds = { minX = -600, maxX = 600, minZ = -600, maxZ = 600 },
+			exitZ = -190,
+			groundY = 0,
+			road = {
+				halfWidthStuds = 20,
+				zAt = function(_x: number): number
+					return 0
+				end,
+			},
+		}
+
+		-- STEPS IT UNTIL THE SOUTH DWELL HAS ELAPSED (`pastRoadSeconds`), returning the LAST intent
+		-- -- or the first one that despawns. A rule that has to hold needs a case that holds it.
+		local function settle(brain, position: Vector3, each)
+			local intent = nil
+			for _ = 1, math.ceil(CONFIG.OUT_OF_PLAY.pastRoadSeconds / DT) + 2 do
+				if each then
+					each(brain)
+				end
+				intent = brain:step(DT, obs(position))
+				if intent.despawn then
+					return intent
+				end
+			end
+			return intent
+		end
+
+		-- THE WHOLE `OUT_OF_PLAY` BLOCK, overridden key by key -- a replaced block would leave every
+		-- number nil, the mistake `configWith`'s own header records.
+		local function outOfPlay(on: boolean, overrides)
+			local block = table.clone(CONFIG.OUT_OF_PLAY)
+			block.ENABLED = on
+			for key, value in pairs(overrides or {}) do
+				block[key] = value
+			end
+			local config = configWith(false)
+			config.OUT_OF_PLAY = block
+			-- The drive's own orders, which the settled rule needs to have been given once.
+			local line = table.clone(CONFIG.LINE)
+			line.ENABLED = true
+			config.LINE = line
+			return config
+		end
+
+		it("ships the design's numbers", function()
+			expect(CONFIG.OUT_OF_PLAY.ENABLED).to.equal(true)
+			expect(CONFIG.OUT_OF_PLAY.settledSeconds).to.equal(60)
+			-- BOTH MARGINS ARE PAST ANYTHING A STAND WATCHES. `REST.nearRoadStuds` is 40 and its own
+			-- comment calls that already far enough from the verge that a hunter is not looking at a
+			-- boar standing still, so 80 north and 150 south are both well past it.
+			expect(CONFIG.OUT_OF_PLAY.settledNorthStuds).to.equal(80)
+			expect(CONFIG.OUT_OF_PLAY.pastRoadStuds).to.equal(150)
+			-- ...AND IT HAS TO HOLD: one frame's reading may not take an animal off the board.
+			expect(CONFIG.OUT_OF_PLAY.pastRoadSeconds).to.equal(1.5)
+		end)
+
+		it("takes an animal that stopped past the outer road with nobody driving it", function()
+			-- 155 STUDS SOUTH OF THE ROAD (which is at z = 0 here), NORTH of `exitZ` -190 and well
+			-- inside the bounds -- so neither the escape test at the exit line nor `outOfBounds` can
+			-- be what fires.
+			local past = Vector3.new(0, 0, -155)
+			local on = Brain.new(outOfPlay(true), ROAD_FIELD, past, Random.new(342))
+			expect(on:state()).to.equal("IDLE")
+			local intent = settle(on, past)
+			expect(intent.despawn).to.equal(true)
+			expect(intent.reason).to.equal("pastRoad")
+			-- ONE FRAME IS NOT ENOUGH, and that is `pastRoadSeconds`: `deer.spec`'s leap case moves
+			-- the ROAD 400 studs for two ticks, so a rule that fired on a single reading deleted a
+			-- deer mid-bound. Half the dwell still stands.
+			local brief = Brain.new(outOfPlay(true), ROAD_FIELD, past, Random.new(343))
+			for _ = 1, math.floor(CONFIG.OUT_OF_PLAY.pastRoadSeconds / 2 / DT) do
+				expect(brief:step(DT, obs(past)).despawn).to.equal(false)
+			end
+			-- ...AND BEFORE THIS TASK IT DID NOT GO AT ALL. An animal that crossed and then calmed
+			-- down stood there for the whole drive: with the rule off, nothing, however long.
+			local off = Brain.new(outOfPlay(false), ROAD_FIELD, past, Random.new(342))
+			expect(settle(off, past).despawn).to.equal(false)
+			-- ...AND 145 STUDS SOUTH IS STILL IN PLAY: the margin is a margin, not the road's edge.
+			local near = Vector3.new(0, 0, -145)
+			local short = Brain.new(outOfPlay(true), ROAD_FIELD, near, Random.new(342))
+			expect(settle(short, near).despawn).to.equal(false)
+			TestKit.note("out of play: an idle animal 155 studs south of the road goes as pastRoad; at 145 it stays")
+		end)
+
+		it("still reports a GOT AWAY as escaped, so the toast and the report keep it", function()
+			-- MEASURED (task 342, C1 at 185 s): sixteen of the forty-four live animals were 264 to
+			-- 332 studs south of the road, still ORDERED and still walking toward a route end beyond
+			-- this cell's own exit line. They leave at the margin now -- but as what they are.
+			local past = Vector3.new(0, 0, -155)
+			local brain = Brain.new(outOfPlay(true), ROAD_FIELD, past, Random.new(21))
+			local intent = settle(brain, past, function(b)
+				b:leadTo(Vector3.new(0, 0, -400), 10) -- the drive re-issues it every step
+			end)
+			expect(intent.despawn).to.equal(true)
+			expect(intent.reason).to.equal("escaped")
+			-- A FLEEING ONE TOO, which is the same rule: "escaped" is the reason for anything that
+			-- was on its way out, and that is what `Match.onDespawned` scores.
+			local fleeing = Brain.new(outOfPlay(true), ROAD_FIELD, past, Random.new(22))
+			fleeing:spook(Vector3.new(0, 0, 100))
+			expect(settle(fleeing, past).reason).to.equal("escaped")
+			TestKit.note(
+				"out of play: an ordered or fleeing animal past the margin is still a got-away, reason escaped"
+			)
+		end)
+
+		it("is inert in a field with no road -- the DEV arena is unchanged", function()
+			-- `ForestTest.fieldFor` is the only thing that puts a road on a field, so neither rule
+			-- can reach the DEV place: "past the outer road" is undefined where there is no road.
+			-- This is the other half of `boar_brain.spec`'s "does not despawn an idle boar that
+			-- drifts over the exit line" (Task 17 review, finding 6).
+			local noRoad = {
+				bounds = ROAD_FIELD.bounds,
+				exitZ = ROAD_FIELD.exitZ,
+				groundY = 0,
+			}
+			local past = Vector3.new(0, 0, -185) -- a stud short of the exit line, as that case uses
+			local brain = Brain.new(outOfPlay(true), noRoad, past, Random.new(5))
+			expect(brain:step(DT, obs(past)).despawn).to.equal(false)
+			-- ...and it never goes, however long it stands there. (The SETTLED half is not what
+			-- this case pins -- that brain was never `leadTo`'d -- so the sentence that used to
+			-- claim it has gone; `pastRoad` is the half a road would have fired, at -185 with the
+			-- road at z = 0, inside `pastRoadSeconds`.)
+			for _ = 1, math.ceil(3 / DT) do
+				expect(brain:step(DT, obs(past)).despawn).to.equal(false)
+			end
+		end)
+
+		it("does NOT take an animal a hunter shot -- the gather owns the carcass", function()
+			-- AT THE POSITION THE `pastRoad` CASE ABOVE PROVES DOES GO (-155, past the 150-stud
+			-- margin) AND HELD THERE FOR THE DWELL, so this case fails the moment the DOWN
+			-- exclusion is deleted from `_outcome` or `_updateOutOfPlay`. At -85 it passed for the
+			-- wrong reason: the margin alone refused it, and the exclusion was never exercised.
+			local past = Vector3.new(0, 0, -155)
+			local brain = Brain.new(outOfPlay(true), ROAD_FIELD, START, Random.new(7))
+			-- KILLED WHERE IT STOOD, through the hit path the weapon uses, and then it is south of
+			-- the line: a carcass may only leave by its own `CARCASS_SECONDS` timer.
+			brain:step(
+				DT,
+				obs(START, nil, { hitEvents = { { severity = "lethal", class = "vital", zone = "ZoneVitals" } } })
+			)
+			expect(brain:state()).to.equal("DOWN")
+			local intent = settle(brain, past)
+			expect(intent.despawn).to.equal(false)
+			expect(intent.reason).to.equal(nil)
+			-- ...AND A CRIPPLED ONE TOO, which is the other half of the same claim and had no case:
+			-- it circles where it was hit until the wound finishes it or a second shot does, so the
+			-- margin may not take it either. A rump hit that is at least mortal is what cripples.
+			local crippled = Brain.new(outOfPlay(true), ROAD_FIELD, START, Random.new(8))
+			crippled:step(
+				DT,
+				obs(START, nil, { hitEvents = { { severity = "mortal", class = "crippling", zone = "ZoneRear" } } })
+			)
+			expect(crippled:state()).to.equal("CRIPPLED")
+			expect(settle(crippled, past).despawn).to.equal(false)
+			TestKit.note("out of play: a DOWN and a CRIPPLED animal 155 studs past the road are both left alone")
+		end)
+
+		it("takes a group the drive let go of, bedded far behind the line for long", function()
+			-- DEEP IN THE WOOD: 300 studs north of the road at z = 0, well past
+			-- `settledNorthStuds`. Two seconds instead of sixty, by parameter, so the case is 120
+			-- steps rather than 3,600; the shipped 60 is asserted above.
+			local deep = Vector3.new(0, 0, 300)
+			local config = outOfPlay(true, { settledSeconds = 2 })
+			local brain = Brain.new(config, ROAD_FIELD, deep, Random.new(11))
+			-- THE DRIVE ORDERED IT OUT ONCE, and then stopped: the order is a dead-man's handle
+			-- (`LINE.ORDER_SECONDS` 0.6), so it lapses on its own.
+			expect(brain:leadTo(deep + Vector3.new(0, 0, -10), 10)).to.equal(true)
+			local last = nil
+			for _ = 1, math.ceil(3 / DT) do
+				last = brain:step(DT, obs(deep))
+				if last.despawn then
+					break
+				end
+			end
+			expect(last.despawn).to.equal(true)
+			expect(last.reason).to.equal("settled")
+			-- AN ANIMAL THE DRIVE NEVER ORDERED OUT IS NEVER TAKEN -- which is what leaves Karen's
+			-- stocked wood exactly as it is. Same config, same spot, same three seconds.
+			local stocked = Brain.new(config, ROAD_FIELD, deep, Random.new(11))
+			for _ = 1, math.ceil(3 / DT) do
+				expect(stocked:step(DT, obs(deep)).despawn).to.equal(false)
+			end
+			-- ...AND SO IS ONE THE DRIVE IS STILL LEADING: re-issued every step, as the drive
+			-- re-issues it, the clock never starts.
+			local led = Brain.new(config, ROAD_FIELD, deep, Random.new(11))
+			for _ = 1, math.ceil(3 / DT) do
+				led:leadTo(deep + Vector3.new(0, 0, -10), 10)
+				expect(led:step(DT, obs(deep)).despawn).to.equal(false)
+			end
+			TestKit.note(
+				"out of play: a released group left 300 studs north goes as settled; a stocked one and a led one do not"
+			)
+		end)
+	end)
 end

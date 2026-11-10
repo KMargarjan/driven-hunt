@@ -1,3 +1,51 @@
+## 2026-11-10 ~04:30 UTC, Task 342 -- FOR THE ARCHITECT: design 9.2's <= 24 LIVE AND <= 4.0 ms ARE NOT BOTH REACHABLE, AND 24 IS ALREADY SPENT BEFORE A WAVE IS RELEASED
+
+Task 342's dispatch (option 2 of 327h's escalation): *"If <= 4.0 ms average is still broken at <= 24
+live, do NOT tune the AI; report the measured ms per live animal and write ESCALATE.md for the
+Architect (option 3)."* This is that entry. The fix itself is done and measured and is NOT in
+dispute; what follows is arithmetic off the same instrument, before and after.
+
+**MEASURED**, her Forest Test, full 400 s drives, `<runs-dir>/342-drive.sh` with `342-arm.luau` and
+`342-step.luau`, per DRIVE (the drive report's own `drive 1: N step(s) avg X ms worst Y` line):
+
+| cell | mean live in drive 1 | step avg | | mean live | step avg |
+|---|---|---|---|---|---|
+| | **before (e77e755a)** | | | **after (e7720997)** | |
+| C1 normal | 26.3 | 6.45 ms | | 13.6 | **4.03 ms** |
+| D1 quiet | 19.3 | 5.44 ms | | 13.4 | **4.13 ms** |
+
+**1. THE TWO NUMBERS IN 9.2 DO NOT MEET.** Two points per cell, same instrument, same place:
+
+    C1: (26.3 live, 6.45 ms) and (13.6 live, 4.03 ms) -> 0.191 ms per live animal + 1.44 ms fixed
+    D1: (19.3 live, 5.44 ms) and (13.4 live, 4.13 ms) -> 0.222 ms per live animal + 1.16 ms fixed
+
+    at 24 live  -> 6.0 ms (C1) / 6.5 ms (D1), not 4.0
+    at 4.0 ms   -> 13.4 live (C1) / 12.8 live (D1), not 24
+
+So **<= 4.0 ms/frame average is reached at about 13 live animals on this machine, not 24.** Design
+9.2 asks for both at once. One of the two has to move, and that is the Architect's call, not mine:
+either the budget becomes ~13 live, or the step cost per animal comes down (0.19-0.22 ms each is
+what the Brain, the Body, the sounder and the path cost today), or 4.0 ms is the wrong ceiling.
+
+**2. `REST.groups` SPENDS THE WHOLE BUDGET BEFORE A SINGLE WAVE IS RELEASED.** `ForestTest.REST` is
+**36 animals in ten groups** ("36 ANIMALS IN TEN GROUPS, up from 28 in six"), stocked once per drive
+on the first heartbeat of beater mode. MEASURED in every one of the six 400 s runs: live goes from 9
+to 60 in one ten-second sample at the second drive's opening, and the console says *"the wood is
+stocked"* at exactly that moment. 36 > 24 with no drive in it at all. Nothing in task 342 may touch
+that (the animals rows are 327h's), and no release gate can help: the stocking is not a release.
+
+**3. THE PEAK IS 32, NOT 24, AND THE REMAINDER IS THE SCRIPT ITSELF.** Peak live inside drive 1,
+from the ten-second samples: C1 47 -> **32**, D1 33 -> **27**, A2 59 -> **32**. The Director's
+decision put the budget on the REPEAT WINDOW only, so the fifteen-slot script releases what it
+released before; a group every 13 s with a 60-90 s crossing is about seven groups overlapping, which
+is ~32 animals. Capping the scripted slots is the only lever left and it would change the density
+dial, which this task was told not to touch.
+
+**WHAT I AM NOT DISPUTING.** The direction is right and it works: the step average is down 37 % in
+C1 and 24 % in D1, the south-of-road backlog is gone (16 live animals 264-332 studs past the road at
+185 s, now 0), and the repeat window is held at the budget when it binds (*"repeat slot 16 held --
+28 live + 9 would pass the budget of 24"*). What cannot be delivered is the pair of numbers.
+
 ## DIRECTOR DECISION, 2026-11-10 ~01:25 UTC, Task 327h: ROUND 3 AUTHORISED (option 1)
 
 Option 1 of the entry below: `DIRECTOR_MAX_ROUNDS=3` is authorised for **task 327h, round 3 only**.

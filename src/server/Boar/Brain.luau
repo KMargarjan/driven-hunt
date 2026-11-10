@@ -738,6 +738,13 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	self._homePoint = nil :: Vector3?
 
 	self._despawned = false
+
+	-- TASK 342. HAS THE DRIVE EVER ORDERED THIS ANIMAL OUT, and how long has it been settled deep
+	-- behind the road since the drive let go of it. `_orderedEver` is what keeps the stocked wood
+	-- out of the settled rule: a group bedded for the beaters is never led anywhere.
+	self._orderedEver = false
+	self._settledFor = 0
+	self._pastRoadFor = 0
 	return self
 end
 
@@ -847,7 +854,84 @@ function Brain:_outcome(position: Vector3): string?
 	then
 		return "outOfBounds"
 	end
+	-- ---------------------------------------- OUT OF PLAY (task 342, design 9.2, config OUT_OF_PLAY)
+	--
+	-- TWO MOODS ARE SOMEBODY ELSE'S AND NEITHER RULE BELOW TOUCHES THEM: DOWN is a carcass the
+	-- gather owns, and CRIPPLED circles where it was hit until a wound or a second shot ends it
+	-- (the escape test above leaves it alone for the same reason).
+	local out = config.OUT_OF_PLAY
+	local state = self._state
+	if out == nil or out.ENABLED ~= true or state == "DOWN" or state == "CRIPPLED" then
+		return nil
+	end
+	-- PAST THE CELL'S OUTER ROAD BY A MARGIN NO STAND CAN SEE. Measured from the ROAD and not from
+	-- `exitZ`, because the road is where the stands are and the margin is about what they can see.
+	-- MEASURED (task 342, C1 at 185 s): SIXTEEN of the forty-four live animals were 264 to 332
+	-- studs south of the road, walking at 4.5 studs a second -- this cell's `exitZ` is far beyond
+	-- the road's own 120, so a group that had crossed stayed on the board for most of the drive.
+	--
+	-- AND AN ANIMAL ON ITS WAY OUT STILL REPORTS "escaped", so nothing about the got-away toast,
+	-- `Score.escape` or the report changes: what moves is WHERE it is counted as gone, from a line
+	-- hundreds of studs into the far wood to a margin past the last thing anybody can see. An
+	-- animal that is NOT leaving -- it crossed and calmed down, or drifted south with nobody driving
+	-- it -- was never counted as a got-away and is "pastRoad".
+	--
+	-- A FIELD WITH NO ROAD HAS NO "PAST THE ROAD", so this is inert in the DEV arena -- which has
+	-- none -- exactly as the deer's leap is (`ForestTest.fieldFor` is the only thing that adds one),
+	-- and a boar that merely drifts over that arena's exit line is still left alone (Task 17
+	-- review, finding 6, which `boar_brain.spec` holds).
+	-- IT HAS TO HOLD, NOT FLICKER (`_pastRoadFor`, counted in `step`). `deer.spec`'s leap case
+	-- caught this: it moves the ROAD 400 studs for two ticks rather than the animal, and a rule that
+	-- fired on ONE frame's reading deleted the deer mid-bound. A road is a curve read per x, so a
+	-- cell edge or a body that is momentarily somewhere else must not be able to take an animal off
+	-- the board; an animal that really has crossed is past the margin for the rest of its life.
+	if out.pastRoadSeconds ~= nil and self._pastRoadFor >= out.pastRoadSeconds then
+		local leaving = state == "FLEE" or state == "WOUNDED" or state == "AVOID" or self:ordered()
+		return if leaving then "escaped" else "pastRoad"
+	end
+	-- ...AND BEDDED OR STOOD STILL FAR BEHIND THE LINE FOR LONG (`_settledFor`, counted in `step`).
+	if out.settledSeconds ~= nil and self._settledFor >= out.settledSeconds then
+		return "settled"
+	end
 	return nil
+end
+
+-- THE TWO OUT-OF-PLAY CLOCKS (task 342), counted with dt beside the other timers and BOTH RESET the
+-- moment any part of their condition stops holding -- so each is level-triggered and an animal that
+-- walks back, or that the drive picks up again, starts from zero (L-029).
+--
+-- `_pastRoadFor`: how long it has been more than `pastRoadStuds` SOUTH of the road, in any mood but
+-- DOWN and CRIPPLED. `_settledFor`: how long the drive has had nothing to do with it while it sits
+-- at least `settledNorthStuds` NORTH -- the drive ORDERED it out once (`_orderedEver`) and is not
+-- ordering it now, so it is nobody's group; and it is not fleeing or wounded, because an animal in
+-- either of those is on its way somewhere and the escape test is what ends it.
+function Brain:_updateOutOfPlay(dt: number, position: Vector3)
+	local out = self._config.OUT_OF_PLAY
+	local road = self._field.road
+	local state = self._state
+	if out == nil or out.ENABLED ~= true or road == nil or state == "DOWN" or state == "CRIPPLED" then
+		self._pastRoadFor = 0
+		self._settledFor = 0
+		return
+	end
+	local north = position.Z - road.zAt(position.X)
+	if out.pastRoadStuds ~= nil and -north >= out.pastRoadStuds then
+		self._pastRoadFor += dt
+	else
+		self._pastRoadFor = 0
+	end
+	if
+		out.settledSeconds == nil
+		or not self._orderedEver
+		or self:ordered()
+		or state == "FLEE"
+		or state == "WOUNDED"
+		or north < (out.settledNorthStuds or math.huge)
+	then
+		self._settledFor = 0
+	else
+		self._settledFor += dt
+	end
 end
 
 -- IDLE: Reynolds wander. Keep a heading, jitter it a little each sense tick, pull back toward home
@@ -1668,6 +1752,9 @@ function Brain:leadTo(point: Vector3, speed: number): boolean
 	self._orderPoint = flat(point)
 	self._orderSpeed = math.max(0, speed)
 	self._orderFor = line.ORDER_SECONDS
+	-- ...AND IT IS REMEMBERED FOR EVER (task 342): this animal is one the DRIVE released, so the
+	-- settled rule may take it once the drive has let go of it.
+	self._orderedEver = true
 	return true
 end
 
@@ -2054,6 +2141,10 @@ function Brain:step(dt: number, obs)
 	end
 
 	local position = obs.position
+
+	-- THE TWO OUT-OF-PLAY CLOCKS ARE ADVANCED BEFORE THE OUTCOME IS ASKED (task 342), because the
+	-- outcome reads them. Two `+= dt`-or-reset per animal per step; nothing else changed order.
+	self:_updateOutOfPlay(dt, position)
 
 	-- Despawn wins over everything else, and is reported exactly once.
 	local outcome = self:_outcome(position)

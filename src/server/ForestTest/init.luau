@@ -3226,6 +3226,28 @@ function ForestTest.releaseLine(now: number, staged: any?): string?
 		count = if composition ~= nil then Boar.compositionSize(composition, boar) else 1
 	end
 
+	-- ---------------------------------------- THE LIVE BUDGET, ON THE REPEAT WINDOW (task 342)
+	--
+	-- A SLOT PAST THE END OF THE SCRIPT IS AN EXTRA, and an extra goes out only if the whole group
+	-- still fits inside `Data.LIVE_CAP` 24 (design 9.2). The SCRIPTED slots are not asked, so the
+	-- density dial's own shape is exactly today's. `Data.repeatRoomFor` is the rule, pure; this is
+	-- its one call, and it reads `liveCount` HERE -- on the slot being released -- so the answer is
+	-- the live count at this instant and never one latched when the window opened (L-029).
+	--
+	-- ANIMALS ON THEIR FEET, NOT `count()`: a carcass holds a `MAX_BOARS` slot but is the gather's,
+	-- not the drive's, and a hunter who shoots well must not close the drive's own door.
+	local live = if type(runtime.liveCount) == "function" then runtime:liveCount() else runtime:count()
+	if not Data.repeatRoomFor(slot, #(schedule.drive or {}), live, count, Data.LIVE_CAP) then
+		return string.format(
+			"line %d: repeat slot %d held -- %d live + %d would pass the budget of %d",
+			state.waveIndex,
+			slot,
+			live,
+			count,
+			Data.LIVE_CAP
+		)
+	end
+
 	-- ...AND THE CAP IS CHECKED BEFORE ANYTHING IS SPAWNED, for the reason `ForestTest.release`'s own
 	-- comment gives: `Runtime:spawn` ASSERTS at the ceiling rather than refusing, so asking past it
 	-- kills the heartbeat the whole drive runs on.

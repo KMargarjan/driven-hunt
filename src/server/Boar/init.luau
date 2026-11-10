@@ -489,6 +489,42 @@ Boar.CONFIG = {
 	BOUNDS_SLACK = 10,
 	FALL_LIMIT = 50,
 
+	-- ---------------------------------------- WHEN AN ANIMAL IS OUT OF PLAY (task 342, design 9.2)
+	--
+	-- A *Treiben* IS BEATEN ONCE: an animal either crosses the shooting line or breaks back through
+	-- the beaters, and nothing comes back in -- so the count inside a beaten section only FALLS once
+	-- the push starts. MEASURED on main e77e755a it only ROSE: live reached 60 (`MAX_BOARS`) in
+	-- every cell against design 9.2's <= 24, because `_outcome` took an animal off the board only
+	-- when a FLEEING or ORDERED one reached `field.exitZ` -- a group that broke back, lay up, or
+	-- simply outlived its order stood in the wood for the rest of the drive.
+	--
+	-- `Brain:_outcome` IS THE ONE PLACE THESE ARE DECIDED and `Runtime:_despawn` the one path out
+	-- (nothing else may remove an animal). GOT AWAY is unchanged and still reports "escaped", which
+	-- is what the toast and the report count.
+	OUT_OF_PLAY = {
+		ENABLED = true,
+		-- HOW FAR SOUTH OF THE ROAD IS OUT OF SIGHT OF EVERY STAND. 150 studs is 42 m, past any
+		-- sightline down a 40-stud lane in planted wood and nearly four times this world's own
+		-- "a hunter at a stand is not looking at a boar standing still" (`REST.nearRoadStuds` 40).
+		-- An animal crossing at a run covers it in about seven seconds, so it leaves the board well
+		-- into the far wood and never at the verge.
+		pastRoadStuds = 150,
+		-- ...AND IT HAS TO HOLD THAT LONG. `deer.spec`'s leap case moves the ROAD 400 studs for two
+		-- ticks, and a rule that fired on one frame's reading deleted the deer mid-bound. 1.5 s is
+		-- ninety frames: nothing a real crossing notices, and far more than any one-frame reading.
+		pastRoadSeconds = 1.5,
+		-- ...AND 80 NORTH, which is where the ones that stop actually are: MEASURED in C1 at 185 s,
+		-- ten of the forty-four live animals were 80 to 150 studs north and six beyond 150, so a
+		-- line at 150 reached a quarter of them. 80 is twice `REST.nearRoadStuds`.
+		-- BEDDED OR STOOD STILL FAR BEHIND THE LINE, FOR LONG. Only an animal the DRIVE actually
+		-- ordered out and then let go of: a group stocked in the wood for the beaters was never
+		-- ordered and is never taken by this, so Karen's stocked wood is unchanged.
+		-- 60 s because the drive's own slot gap is 13 s, so a minute is four slots of nothing at all
+		-- happening to it.
+		settledNorthStuds = 80,
+		settledSeconds = 60,
+	},
+
 	-- HIT ZONES (hit-zones design section 4.2), AND SINCE TASK 284 THEY ARE THE DRAWN BOAR, not a
 	-- grey box. Fifteen volumes in five zones, every one fitted to the mesh by ray, and the trunk is
 	-- out of every cast: air beside, under or over the animal is a MISS.
@@ -5117,6 +5153,8 @@ function Boar.newRuntime(world)
 	self._signal = Instance.new("BindableEvent")
 	self._connection = nil
 	self._destroyed = false
+	-- The published despawn-by-reason line, rebuilt in `_despawn` (task 342).
+	self._reasonLine = ""
 	self._stats = {
 		-- ---------------------------------- WHAT THE SERVER STEP COSTS (task 327h, design 9.2)
 		--
@@ -5143,6 +5181,14 @@ function Boar.newRuntime(world)
 		-- One per flock per approach (task 123 round 6).
 		approachGrunts = 0,
 		despawned = 0,
+		-- ---------------------------------------- PER DRIVE, NOT PER SESSION (task 342, design 9.2)
+		--
+		-- HOW MANY ANIMALS LEFT THE WORLD FOR EACH REASON, and the worst live count seen. Both are
+		-- handed back by `clear`, which is this owner's ONE drive boundary (see that function) --
+		-- `despawned` above it stays cumulative, and the two lifetimes are said here so a reader
+		-- cannot mistake one for the other. `stepMsAvg`/`stepMsMax` are per drive from this task too.
+		despawnReasons = {},
+		liveMax = 0,
 		hits = 0,
 		pelletsTaken = 0,
 		damageTaken = 0,
@@ -5549,6 +5595,7 @@ end
 function Runtime:stats()
 	local out = table.clone(self._stats)
 	out.zoneHits = table.clone(self._stats.zoneHits) -- table.clone is shallow; this is a counter, not state
+	out.despawnReasons = table.clone(self._stats.despawnReasons) -- the same reason, task 342
 	-- HOW MANY OF THE WORLD'S VOICES ARE BOOKED RIGHT NOW (task 251 part 2, review round 2's note on
 	-- the alarm bark). `squealsSkipped` counts REFUSALS, so a slot taken and WASTED -- claimed for a
 	-- cue that then could not play -- was invisible from outside: nothing could tell "the bark was
@@ -5830,6 +5877,18 @@ function Runtime:clear(reason: string?)
 	-- next drive roll again; zeroing the count is what gives it a fresh permission.
 	self._legendaryInDrive = nil
 	self._legendaryDrawn = 0
+	-- ...AND THE DRIVE'S OWN METERS ARE HANDED BACK (task 342). The step cost and the peak live
+	-- count are questions about ONE drive -- "did the animals lag the server this time" -- and a
+	-- session-long average hides the drive that did. `despawned` and `legendariesSpawned` stay
+	-- cumulative on purpose; these four do not. Reset AFTER the loop above, so the clear's own
+	-- despawns belong to the drive that is ending and not to the one about to start.
+	local stats = self._stats
+	stats.steps = 0
+	stats.stepMsTotal = 0
+	stats.stepMsMax = 0
+	stats.liveMax = 0
+	stats.despawnReasons = {}
+	self._reasonLine = ""
 end
 
 -- ONE ANIMAL, BY ID, through the same `_despawn` path `clear` and the out-of-bounds step use
@@ -6676,6 +6735,38 @@ function Runtime:count(): number
 	return #self._boars -- carcasses included: they hold a slot for CARCASS_SECONDS
 end
 
+-- HOW MANY ANIMALS ARE ON THEIR FEET RIGHT NOW (task 342, design 9.2's "live animals"), which is
+-- NOT `count` above: a carcass holds a slot for `CARCASS_SECONDS` and the budget is about animals
+-- that are being stepped as animals. The test is the same one `statusOf` answers `alive` with, read
+-- off the brain rather than off an attribute so it costs no Instance call.
+function Runtime:liveCount(): number
+	local live = 0
+	for _, entry in ipairs(self._boars) do
+		if not entry.dead then
+			local state = entry.brain:state()
+			if state ~= "DOWN" and state ~= "GONE" then
+				live += 1
+			end
+		end
+	end
+	return live
+end
+
+-- "escaped=12 settled=4 pastRoad=3", ordered by name so two runs can be diffed. PURE, so a spec
+-- drives it with a hand-written table and no runtime.
+function Boar.reasonLine(reasons: { [string]: number }): string
+	local names = {}
+	for name in pairs(reasons) do
+		table.insert(names, name)
+	end
+	table.sort(names)
+	local parts = {}
+	for _, name in ipairs(names) do
+		table.insert(parts, string.format("%s=%d", name, reasons[name]))
+	end
+	return table.concat(parts, " ")
+end
+
 -- HOW MANY PARTS THIS RUNTIME'S ANIMALS ARE MADE OF, right now (task 327h, design 9.2's "< 2,000").
 --
 -- COUNTED OFF THE FOLDER EVERY ANIMAL IS PARENTED INTO, not off `#self._boars` times a model's
@@ -7446,6 +7537,27 @@ function Runtime:_despawn(entry, index: number, reason: string, position: Vector
 		self._world.releasePath(entry.id)
 	end
 	self._stats.despawned += 1
+	-- ...BY REASON, AND THE LINE A PROBE READS IS REBUILT HERE AND NOWHERE ELSE (task 342). A live
+	-- probe over StudioMCP `require`s a FRESH copy of this module with empty state, so a counter
+	-- that only lives here is not a diagnostic -- `_stepCost` publishes this string on the folder.
+	-- Rebuilt on a despawn (a few a second at worst), never on a step.
+	local reasons = self._stats.despawnReasons
+	reasons[reason] = (reasons[reason] or 0) + 1
+	self._reasonLine = Boar.reasonLine(reasons)
+	-- ...AND THE REASON IS PRINTED, PER DESPAWN, FOR THE TWO OUT-OF-PLAY ONES (the Director's own
+	-- condition for this task). Only those two: "escaped" and "killed" are already events the drive
+	-- reports, and 190 extra lines a drive would drown a 17 KB rolling console buffer.
+	if reason == "pastRoad" or reason == "settled" then
+		print(string.format(
+			"[outofplay] %s %s left at %+d/%+d after %.0fs -- %d live",
+			reason,
+			tostring(entry.body.kind),
+			position.X,
+			position.Z,
+			os.clock() - entry.bornAt,
+			#self._boars -- this one is already out of the list: `table.remove` is above
+		))
+	end
 	if reason == "killed" then
 		self._stats.killed += 1
 	elseif reason == "escaped" and entry.wound.damage > 0 then
@@ -8074,6 +8186,16 @@ function Runtime:_stepCost(began: number)
 			folder:SetAttribute("StepMsAvg", stats.stepMsTotal / stats.steps)
 			folder:SetAttribute("StepMsMax", stats.stepMsMax)
 			folder:SetAttribute("Alive", #self._boars)
+			-- TASK 342's THREE: animals on their feet, the worst this drive has seen, and why the
+			-- ones that left left. Sampled here (every two seconds) and not every step, because
+			-- `liveCount` walks the list and the list is what this counter measures the cost of.
+			local live = self:liveCount()
+			if live > stats.liveMax then
+				stats.liveMax = live
+			end
+			folder:SetAttribute("Live", live)
+			folder:SetAttribute("LiveMax", stats.liveMax)
+			folder:SetAttribute("DespawnByReason", self._reasonLine or "")
 		end
 	end
 end
