@@ -225,7 +225,12 @@ end
 --
 -- IT REFUSES AT EDIT TIME BY ITSELF (`Cells.editTime`), so this line is a no-op in the Edit place
 -- and the store cannot be created where Rojo would delete it at the next Connect.
-local cells = Cells.reconcile(Cells.wantedCell(ForestTest.layoutName()), workspace, ServerStorage)
+-- ...AND IT GOES IN BITES HERE TOO (task 343): the breathe is the frame boundary, so the boot's
+-- own 17,458-model reconcile is ~124 frames of ~12 ms instead of one 1.5 s stall. Nobody is in the
+-- world yet, but a printed "124 bite(s)" that was really one frame would be a lie in the log.
+local cells = Cells.reconcile(Cells.wantedCell(ForestTest.layoutName()), workspace, ServerStorage, nil, nil, function()
+	RunService.Heartbeat:Wait()
+end)
 -- UNCONDITIONALLY ONCE, so a session always says what it started with; the drive boundary's own
 -- calls print only when something moved.
 print(
