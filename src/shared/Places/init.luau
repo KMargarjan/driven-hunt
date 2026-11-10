@@ -1822,7 +1822,9 @@ function Places.zoneIndexAtGrid(cellId: string, u: number, v: number): number?
 	return nil
 end
 
--- WHICH ZONE A WORLD POINT IS IN, or nil outside the cell's ground and in a gap no zone covers. The
+-- WHICH ZONE A **GRID** POINT IS IN, or nil outside the cell's ground and in a gap no zone covers.
+-- Both callers (`maskGrid`, `zoneIndexAtGrid`) hand it grid coordinates; the header said WORLD,
+-- which is the space the round-1 defect came from. The
 -- SKIRT asks this of the NEIGHBOUR cell, which is how the wood across a road is that cell's own wood
 -- and not the active cell's -- Karen's *"different trees growing in different section"* (design 8.2).
 function Places.zoneAt(cellId: string, x: number, z: number): any

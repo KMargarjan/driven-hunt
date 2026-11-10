@@ -2792,7 +2792,7 @@ end
 -- THIS CELL'S SCHEDULE. The base one when the cell has no `animals` row -- **by identity**, so a
 -- cell without a row plays exactly as today and not merely nearly so.
 --
--- MEMOISED PER (schedule, animals) ROW, because `releaseLine` asks once per slot and `Grid.CELLS` is
+-- MEMOISED PER (schedule, cell DEPTH, animals row), because `releaseLine` asks once per slot and `Grid.CELLS` is
 -- frozen: the row's identity is stable for the session, so the derived table is built once per cell.
 --
 -- THE DEPTH CURVE MOVES ONLY THE ROWS THE LINE CLAMP MOVES (`clampedToLine`). The one that HOLDS
@@ -2807,12 +2807,20 @@ function ForestTest.cellSchedule(animals: any?, cellDepthStuds: number?, schedul
 	if animals == nil then
 		return resolved
 	end
+	-- KEYED BY (schedule, DEPTH, row) -- the depth is in the key because it is in the answer
+	-- (round 2's note): without it the second depth any caller drives gets the first one's table.
 	local forSchedule = CELL_SCHEDULES[resolved]
 	if forSchedule == nil then
 		forSchedule = {}
 		CELL_SCHEDULES[resolved] = forSchedule
 	end
-	local found = forSchedule[animals]
+	local depthKey = if type(cellDepthStuds) == "number" then cellDepthStuds else 0
+	local forDepth = forSchedule[depthKey]
+	if forDepth == nil then
+		forDepth = {}
+		forSchedule[depthKey] = forDepth
+	end
+	local found = forDepth[animals]
 	if found ~= nil then
 		return found
 	end
@@ -2831,10 +2839,11 @@ function ForestTest.cellSchedule(animals: any?, cellDepthStuds: number?, schedul
 	local made = table.clone(resolved)
 	made.drive = table.freeze(rows)
 	made.density = animals.density or resolved.density
-	-- CARRIED, NOT USED HERE: `restSpot` is the only reader and it is on the server (design 9.1).
+	-- CARRIED FOR A READER OF THE DERIVED TABLE, and nothing reads it yet (round 2's note): the
+	-- search asks `Grid.animalsOf` directly, because `restSpot` has a cell and not a schedule.
 	made.restZones = animals.restZones
 	made = table.freeze(made)
-	forSchedule[animals] = made
+	forDepth[animals] = made
 	return made
 end
 
@@ -2848,26 +2857,39 @@ function ForestTest.restZonesOf(animals: any?): { number }?
 	return animals.restZones
 end
 
--- HOW MANY PASSES `restSpot` MAKES, and WHETHER A PASS TAKES A CANDIDATE. These two are the whole
--- of the zone search, pure and by parameter, so three passes can be told from two with no world,
--- no wood and no raycast (review round 1, finding 2, which was right: the case offered as proof of
--- the third pass survived deleting it).
+-- HOW MANY PASSES `restSpot` MAKES, WHAT EACH ONE WANTS, and WHETHER IT TAKES A CANDIDATE. These
+-- three are the whole of the zone search, pure and by parameter, so the orders can be told apart
+-- with no world, no wood and no raycast.
 --
--- PASS 1 wants the cell's zone AND the lane's sightline; PASS 2 the zone alone; PASS 3 drops the
--- zone -- because a wood whose legal spots all fall in another zone is a wood with no animals in
--- it, which is worse than a group bedded one zone over. With no list there are TWO passes and the
--- answers are exactly task 172's.
+-- **FOUR PASSES: (zone AND seen) > zone > seen > any** (review round 2, finding 2, which was
+-- right). Round 2 shipped three -- (zone AND seen) > zone > anything -- and that LOST task 172's
+-- sightline for every group whose candidates all fall outside the cell's list: on the last pass
+-- `seen` was true by construction, so a screened spot and a visible one were the same answer.
+-- Karen asked for that preference by name (*"beaters has to see more animals when walking"*), and
+-- A2's row reaches it for 7 of its 10 groups. The zone still outranks the sightline, and the last
+-- pass still beds the group rather than leaving the wood empty.
+--
+-- WITH NO LIST THERE ARE TWO PASSES and the answers are exactly task 172's: seen, then any.
 function ForestTest.restPasses(zones: { number }?): number
-	return if type(zones) == "table" and #zones > 0 then 3 else 2
+	return if type(zones) == "table" and #zones > 0 then 4 else 2
+end
+
+-- WHICH OF THE TWO WORLD FACTS THIS PASS WANTS -- the zone a candidate is in, and whether its lane
+-- can see it. `restSpot` asks this so it reads only what the pass will use (a ray and a zone lookup
+-- each cost, per candidate, over five rings of eight).
+function ForestTest.restPassWants(pass: number, zones: { number }?): (boolean, boolean)
+	if ForestTest.restPasses(zones) == 4 then
+		return pass <= 2, pass == 1 or pass == 3
+	end
+	return false, pass == 1
 end
 
 function ForestTest.restPassTakes(pass: number, zones: { number }?, zoneIndex: number?, seen: boolean): boolean
-	local wantZone = ForestTest.restPasses(zones) == 3 and pass <= 2
+	local wantZone, wantSeen = ForestTest.restPassWants(pass, zones)
 	if wantZone and not ForestTest.restZoneAllowed(zones, zoneIndex) then
 		return false
 	end
-	-- THE SIGHTLINE IS PASS 1's ONLY, exactly as before: a preference, never a rule.
-	return pass ~= 1 or seen
+	return not wantSeen or seen
 end
 
 -- IS THIS ZONE INDEX ONE OF THEM? Pure, and it is the whole of what `restPassTakes` asks.

@@ -1863,13 +1863,19 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 					-- spots that have already passed everything else.
 					local spot = Vector3.new(at.X, terrain :: number, at.Z)
 					if Data.offLaneStuds(standX, spec, spot) <= (rest.laneSideStuds or math.huge) then
-						-- THE TWO WORLD FACTS, asked only for the pass that wants them: the zone is
+						-- ONLY THE WORLD FACTS THIS PASS WANTS (`Data.restPassWants`): the zone is
 						-- `Places.zoneIndexAt` (WORLD in, `Grid.toGrid` once inside it) and the
-						-- sightline is one ray. `restPassTakes` is the rule.
-						local zoneIndex = if pass <= 2 then Places.zoneIndexAt(chosen.name, at.X, at.Z) else nil
-						local seen = pass ~= 1 or ForestTest.restSeenFromLane(standX, spec, spot, rest)
-						if Data.restPassTakes(pass, zones, zoneIndex, seen) then
-							return spot
+						-- sightline is one ray. The zone is asked FIRST and is the cheaper of the
+						-- two, so a candidate it refuses never costs a ray -- the inner `if` cannot
+						-- change the answer, because `Data.restPassTakes` refuses the same
+						-- candidate anyway. That function is still the rule.
+						local wantZone, wantSeen = Data.restPassWants(pass, zones)
+						local zoneIndex = if wantZone then Places.zoneIndexAt(chosen.name, at.X, at.Z) else nil
+						if not wantZone or Data.restZoneAllowed(zones, zoneIndex) then
+							local seen = not wantSeen or ForestTest.restSeenFromLane(standX, spec, spot, rest)
+							if Data.restPassTakes(pass, zones, zoneIndex, seen) then
+								return spot
+							end
 						end
 					end
 				end

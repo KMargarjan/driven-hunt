@@ -1871,9 +1871,14 @@ return function()
 		-- as fractions of the cell's depth). A clearing or a shrub band cannot satisfy
 		-- `REST.nearTrunkStuds`, so naming one would be naming a zone no group can rest in.
 		it("rests its groups only in treed zones that reach the rest band", function()
-			local depth = Grid.CONFIG.cellDepthStuds
-			local fromV = Data.REST.nearRoadStuds / depth
-			local toV = Data.REST.farRoadStuds / depth
+			-- THE EXACT MAP, not a loose frame (round 2's note): a zone fraction is of
+			-- `Places.cellGround`'s INSET depth, measured from the main road plus the inset. So a
+			-- rest depth `dz` is `(dz - inset) / (cellDepth - 2 * inset)`. The loose version read
+			-- A2's overlap as ~53 studs where it is 31.
+			local inset = Places.CELL_EDGE_STUDS
+			local depth = Grid.CONFIG.cellDepthStuds - 2 * inset
+			local fromV = (Data.REST.nearRoadStuds - inset) / depth
+			local toV = (Data.REST.farRoadStuds - inset) / depth
 			for _, cellId in ipairs(Grid.PLANTED_CELLS) do
 				local plan = Places.cellPlanFor(cellId)
 				expect(plan).to.be.ok()
@@ -1929,29 +1934,96 @@ return function()
 			expect(zoned).to.equal(2)
 			expect(zpass).to.equal(2)
 			expect(zoned ~= index).to.equal(true) -- the two searches differ: the pass count bites
-			-- ...AND THE THIRD PASS IS A SETTLEMENT, NOT A RULE: a list naming a zone no candidate
-			-- is in still beds the group, on pass 3, rather than leaving the wood empty.
+			-- ...AND THE LAST PASS IS A SETTLEMENT, NOT A RULE: a list naming a zone no candidate
+			-- is in still beds the group rather than leaving the wood empty.
 			local last, lpass = search({ 7 })
 			expect(last).to.equal(1)
 			expect(lpass).to.equal(3)
 		end)
 
-		-- THE COORDINATE SPACE (review round 1, finding 1, which was right): zone rectangles are
-		-- GRID space (`Places.cellGround` -> `Grid.boundsOf`, no bend term) and a rest candidate is
-		-- a WORLD point off `ForestTest.roadZ` (full bend). The world wrapper converts once.
+		-- FINDING 2 OF ROUND 2, AS A CASE. A group whose candidates are ALL outside the cell's list
+		-- still takes a SEEN spot when one exists -- task 172's preference, which the three-pass
+		-- order (zone AND seen) > zone > anything lost, because its last pass took whatever the
+		-- rings reached first. Karen: *"beaters has to see more animals when walking"*.
+		--
+		-- RED ON THE THREE-PASS CODE: with three passes the answer is candidate 1 (the screened one,
+		-- reached first); with four it is candidate 2, and `expect(index).to.equal(2)` fails.
+		it("still prefers a spot the lane can see when no candidate is in the cell's zones", function()
+			local candidates = {
+				{ zone = 4, seen = false }, -- reached first by the rings, and screened
+				{ zone = 5, seen = true }, -- further out, and visible from the lane
+			}
+			local function search(zones)
+				for pass = 1, Data.restPasses(zones) do
+					for index, c in ipairs(candidates) do
+						if Data.restPassTakes(pass, zones, c.zone, c.seen) then
+							return index, pass
+						end
+					end
+				end
+				return nil, nil
+			end
+			-- NEITHER CANDIDATE IS IN THE LIST, so passes 1 and 2 take nothing at all.
+			local zones = { 1, 2 }
+			expect(Data.restPassTakes(1, zones, 4, false)).to.equal(false)
+			expect(Data.restPassTakes(1, zones, 5, true)).to.equal(false)
+			expect(Data.restPassTakes(2, zones, 4, false)).to.equal(false)
+			expect(Data.restPassTakes(2, zones, 5, true)).to.equal(false)
+			-- PASS 3 IS THE SIGHTLINE, and it passes over the screened candidate the rings reach
+			-- first -- which is exactly what the three-pass order could not do.
+			local index, pass = search(zones)
+			expect(index).to.equal(2)
+			expect(pass).to.equal(3)
+			expect(Data.restPassTakes(3, zones, 4, false)).to.equal(false)
+			-- ...AND PASS 4 TAKES ANYTHING, so a wood where nothing is visible is still stocked.
+			expect(Data.restPassTakes(4, zones, 4, false)).to.equal(true)
+			-- THE ORDER, WRITTEN OUT: what each pass wants, and nothing else.
+			local function wants(p, z)
+				local a, b = Data.restPassWants(p, z)
+				return (if a then "zone" else "-") .. "/" .. (if b then "seen" else "-")
+			end
+			expect(wants(1, zones)).to.equal("zone/seen")
+			expect(wants(2, zones)).to.equal("zone/-")
+			expect(wants(3, zones)).to.equal("-/seen")
+			expect(wants(4, zones)).to.equal("-/-")
+			-- WITH NO LIST IT IS STILL TASK 172's TWO PASSES, unchanged by any of this.
+			expect(Data.restPasses(nil)).to.equal(2)
+			expect(wants(1, nil)).to.equal("-/seen")
+			expect(wants(2, nil)).to.equal("-/-")
+		end)
+
+		-- THE COORDINATE SPACE (review rounds 1 and 2, both right): zone rectangles are GRID space
+		-- (`Places.cellGround` -> `Grid.boundsOf`, no bend term) and a rest candidate is a WORLD
+		-- point off `ForestTest.roadZ` (full bend). The world wrapper converts once.
+		--
+		-- THE POINT IS `restSpot`'s OWN, and it is the one round 2 supplied: B1's centre x, a
+		-- candidate at the near edge of the rest band. Round 2's case used C1's middle, 73 studs
+		-- from the nearest zone edge against a 45/60 bend, so it answered 2 either way and survived
+		-- deleting the conversion. This one does not: the unconverted query lands OUTSIDE the
+		-- cell's inset ground, where `zoneAt` is nil and `restZoneAllowed(zones, nil)` is false --
+		-- which is the refusal round 1 described, as an assertion.
 		it("asks the zone question in the space the zones are written in", function()
-			local cellId = "C1"
-			local box = Grid.boundsOf(cellId)
-			-- A point in the middle of the cell, in GRID space, and the same point in WORLD space.
-			local u = (box.minX + box.maxX) / 2
-			local v = box.minZ + (box.maxZ - box.minZ) * 0.15 -- inside the rest band
-			local x, z = Grid.toWorld(u, v)
-			expect(Places.zoneIndexAt(cellId, x, z)).to.equal(Places.zoneIndexAtGrid(cellId, u, v))
-			-- ...AND THE BEND IS WHAT THE TWO SPACES DIFFER BY, so a zero-amplitude bend makes the
-			-- unconverted call right and the real one wrong -- which is the defect, by parameter.
-			local flat = { ewStuds = 0, nsStuds = 0, harmonic = 1 }
-			expect(Places.zoneIndexAt(cellId, u, v, flat)).to.equal(Places.zoneIndexAtGrid(cellId, u, v))
-			expect(Grid.maxBendStuds() > 0).to.equal(true)
+			local cellId = "B1"
+			local roads = Grid.roadsOf(cellId)
+			local x = (Grid.boundsOf(cellId).minX + Grid.boundsOf(cellId).maxX) / 2
+			-- A REST CANDIDATE, built the way `ForestTest.restPoint` builds one: the main road's
+			-- own z AT THIS x (the bend included) plus a depth inside the rest band.
+			local z = Grid.roadCentreAt(roads.main, x) + Data.REST.nearRoadStuds
+			local u, v = Grid.toGrid(x, z)
+			-- THE TWO SPACES DISAGREE HERE, and by enough to change the answer. That is the whole
+			-- case: the converted query is inside `spruceRidge`'s own zone 1, the unconverted one
+			-- is outside the cell.
+			expect(math.abs(z - v) > 40).to.equal(true)
+			local converted = Places.zoneIndexAt(cellId, x, z)
+			local unconverted = Places.zoneIndexAtGrid(cellId, x, z)
+			expect(converted).to.equal(Places.zoneIndexAtGrid(cellId, u, v))
+			expect(converted).to.equal(1)
+			expect(unconverted).to.equal(nil)
+			expect(converted ~= unconverted).to.equal(true)
+			-- ...AND THE REFUSAL THAT FOLLOWS FROM IT, which is what the search would have done.
+			local zones = Grid.animalsOf(cellId).restZones
+			expect(Data.restZoneAllowed(zones, converted)).to.equal(true)
+			expect(Data.restZoneAllowed(zones, unconverted)).to.equal(false)
 		end)
 
 		-- THE BUDGET'S OWN INSTRUMENT (design 9.2): the boar runtime had NO step counter at all
