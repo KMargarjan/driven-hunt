@@ -94,3 +94,38 @@ the named specs. The change is `Grid`, `ForestTest` (shared + server), `Places`,
 - `stepMsMax` is a session high-water mark and is never reset, so the peak includes cold frames.
 - The `restZones` third pass is proved by its pure rule and by the recipe reading, not by a live
   count of which zone each stocked group landed in — beater mode was not played in this session.
+
+## Learning flags the dispatch checked
+
+ANSWERED: L-136 — the gate ran clean twice and NO spec from the dispatch's flake list fired. Both
+runs: `34/34 checks ... scope=all`, 2,878 server + 684 client assertions, 0 failed. `boar_behaviour`
+and `boar_shot`, the two named as in my area, did not fire, so there is no control run to paste.
+ANSWERED: L-127 — every item is MET / NOT MET / NOT PROVEN in the report's handover block, and the
+two that are NOT PROVEN (the feel claim, the `restZones` live landing) say so in "What I could not
+verify" above rather than being left to be read as done.
+ANSWERED: L-162 — every live number here was read at the code commit `b80635aa`: the Forest Test was
+served from `driven-hunt-rev` detached at that commit, Rojo showed `DrivenHunt localhost:34873`
+connected (`327h-connect3.png`), and the build was confirmed live by `327h-table.txt` printing
+`cellSchedule` output that does not exist at the base.
+ANSWERED: L-014 — `driven-hunt-karen` was never checked out; it stayed at `516b9698` throughout
+(`git -C driven-hunt-karen log` before and after). The proof build was served from `driven-hunt-rev`
+on :34873 and :34873 now serves `driven-hunt-karen` again, reconnected
+(`327h-reconnect2.png` shows `Disconnect`), place in **Edit**.
+ANSWERED: L-101 — her attributes were dumped before (`327h-attrs-BEFORE.txt`) and after
+(`327h-attrs-AFTER.txt`) with the same probe: the diff is **EMPTY**, `DHFlag_STAND_PICK = true`
+included. The one attribute this task wrote, `DHForestLayout`, was cleared back to nil.
+ANSWERED: L-093 — the six new cases die if the fix is deleted: three of them compare TWO cells'
+derived schedules, so removing the `animals` rows (or making `cellSchedule` return the base table)
+makes both sides of every comparison the same number. The seventh asserts the published step
+counters against `stats()`, which is nil before the publish line exists.
+ANSWERED: L-150 / L-176 — the frame instrument DID fail on its first try, exactly as warned: the
+probe pivoted the player to the stand, the lobby pulled him back to the lodge, and the frame was
+unstreamed haze over a "step on a truck pad" HUD with `0 ANIMALS`. It is not reported as a crossing
+frame. The pivot was removed, the game put him at stand 4 itself (`dist=0`, `team=Shooters`,
+`gun=true`), and the three frames were re-taken with one common due-north look. Each is opened and
+described in the report, with `within220` beside it as the number.
+ANSWERED: ROUTE (339's queued in-band speed finding) — `computeRoute`, `computeRouteVia`,
+`repathVia`, `clearRoute` and `wavePoint` are **byte-identical** in this diff
+(`git diff 516b9698..b80635aa -- src` touches none of them). What moves is the two numbers they are
+handed, and both stay inside the caps already measured: `crossCapStuds` 95 and `routeFloor`. The
+finding is neither worsened nor fixed here and stays queued.
