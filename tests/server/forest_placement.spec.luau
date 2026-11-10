@@ -14,7 +14,12 @@
 -- task 123; the cap, which `ForestTestBoot` MUTATES at boot, is the one that is built instead of
 -- read (`configWithDeerCap`), because load order is not a thing a spec may depend on.
 --
--- Design: docs/design/animal-placement.md section 13.1
+-- SINCE T2 IT ALSO DRIVES THE OWNER (`ServerScriptService.ForestTest`), for the two rules the pure
+-- half cannot carry: that the roster IS the drive's population behind the flag, and that a slot
+-- whose group is already in the wood is not released again (the bridge). Both are driven with no
+-- runtime, so they are about the decision and not about a body.
+--
+-- Design: docs/design/animal-placement.md sections 13.1, 17 (T2)
 -- Note:   docs/research/2026-11-10-animal-placement.md
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -25,6 +30,9 @@ local Boar = require(ServerScriptService:WaitForChild("Boar"))
 -- The BEATERS' own pace, for the arithmetic that turns a bed's depth into a time.
 local Bots = require(ServerScriptService:WaitForChild("Bots"))
 local Data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+-- THE OWNER OF THE ROSTER (T2), and the GRID that holds the live beater pace and a cell's depth.
+local Forest = require(ServerScriptService:WaitForChild("ForestTest"))
+local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
 local Placement = require(ReplicatedStorage:WaitForChild("ForestTest"):WaitForChild("Placement"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
@@ -41,6 +49,7 @@ local function depsFor(layout: any?)
 		noticeAheadStuds = Data.noticeAheadStuds(SPOOK, layout),
 		laneSpacingStuds = Data.laneSpacing(layout),
 		slotAt = Data.slotAt,
+		slotSeconds = Data.slotSeconds,
 		compositionSize = Boar.compositionSize,
 		deerComposition = Boar.deerComposition,
 		sounderKinds = Boar.sounderKinds,
@@ -65,6 +74,12 @@ end
 
 local FOREST = configWithDeerCap(Data.MAX_DEER_GROUPS)
 
+-- WHERE THE LINE ACTUALLY MUSTERS IN A DRIVE KAREN PLAYS: a CELL's own depth (`grid-map.md` 4.3;
+-- every layout the rotation deals has been a cell since task 327d), and not the archived road
+-- place's 580. The band is `beaterNorth - noticeAhead - MIN_AHEAD`, so this is what decides whether
+-- fifteen slots 73 studs apart fit in front of the line at all.
+local CELL_MUSTER = Grid.CONFIG.cellDepthStuds
+
 local function planAt(density: string, beaterNorth: number?, schedule: any?, config: any?)
 	return Placement.plan(
 		1,
@@ -72,7 +87,7 @@ local function planAt(density: string, beaterNorth: number?, schedule: any?, con
 		{ density = density, restZones = { 2, 3 } },
 		REST,
 		SPOOK,
-		beaterNorth or Data.beaterNorthStuds(),
+		beaterNorth or CELL_MUSTER,
 		Bots.CONFIG.WALK_SPEED,
 		config or FOREST,
 		Random.new(1),
@@ -186,19 +201,55 @@ return function()
 	end)
 
 	describe("the beds", function()
-		it("run deepest first, evenly, and end on the band's two edges", function()
-			local far, near = 450, 150
-			expect(Placement.bedNorth(1, 9, near, far)).to.equal(far)
-			expect(Placement.bedNorth(9, 9, near, far)).to.equal(near)
-			local spacing = (far - near) / 8
-			for ordinal = 2, 9 do
-				local above = Placement.bedNorth(ordinal - 1, 9, near, far)
-				local here = Placement.bedNorth(ordinal, 9, near, far)
+		it("lie where the line will be at the moment the script says the group moves", function()
+			local far, near = Placement.bandFar(CELL_MUSTER, Data.noticeAheadStuds(SPOOK, nil), SPOOK), 150
+			local speed = Grid.CONFIG.beaterWalkStudsPerSecond
+			-- SLOT 1 IS THE DEEPEST, and it is `firstSlotSeconds` of the line's walk short of the far
+			-- edge -- so the roster's clock and the metronome's are one clock.
+			local first = Placement.bedNorth(far, Data.slotSeconds(1, SCHEDULE), speed, near)
+			expect(math.abs(first - (far - SCHEDULE.firstSlotSeconds * speed)) < 1e-9).to.equal(true)
+			-- ...AND CONSECUTIVE SLOTS ARE ONE TEMPO APART, deepest first, for all fifteen rows.
+			for slot = 2, #SCHEDULE.drive do
+				local above = Placement.bedNorth(far, Data.slotSeconds(slot - 1, SCHEDULE), speed, near)
+				local here = Placement.bedNorth(far, Data.slotSeconds(slot, SCHEDULE), speed, near)
 				expect(above > here).to.equal(true)
-				expect(math.abs((above - here) - spacing) < 1e-9).to.equal(true)
+				expect(math.abs((above - here) - CONFIG.bedSpacingStuds) < 1e-9).to.equal(true)
+				expect(here >= near).to.equal(true)
 			end
-			-- One group has no ladder to stand on, and the honest answer is the deepest bed.
-			expect(Placement.bedNorth(1, 1, near, far)).to.equal(far)
+			-- THE FLOOR, AND THE SECOND RETURN IS WHAT SAYS IT BIT. Delete the `near` arm and a slot
+			-- due at 10,000 s is bedded on the far side of the road.
+			local bed, clamped = Placement.bedNorth(far, 10000, speed, near)
+			expect(bed).to.equal(near)
+			expect(clamped).to.equal(true)
+			local _, untouched = Placement.bedNorth(far, 0, speed, near)
+			expect(untouched).to.equal(false)
+			-- A LINE THAT IS NOT WALKING MOVES NO BED: the far edge, not a divide.
+			expect(Placement.bedNorth(far, 10, 0, near)).to.equal(far)
+		end)
+
+		it("keeps the tempo Karen accepted, at the live line speed and not the design's 3.1", function()
+			-- THE ONE DERIVED CONSTANT (the Director, 2026-11-10 ~13:50): 13 s x 5.64 studs/s. Both
+			-- owners' own numbers, so neither can move without this line failing.
+			local speed = Grid.CONFIG.beaterWalkStudsPerSecond
+			expect(Bots.CONFIG.WALK_SPEED).to.equal(speed)
+			local want = Placement.bedSpacingStuds(SCHEDULE.intervalSeconds, speed)
+			expect(math.abs(CONFIG.bedSpacingStuds - want) < 1e-9).to.equal(true)
+			-- ...AND A PLANNED DRIVE DELIVERS IT: consecutive KEPT slots of a busy drive (every one of
+			-- the fifteen fires) are one interval apart in the second the line reaches them.
+			local rows = planAt("busy")
+			for index = 2, #rows do
+				local gap = rows[index].reachAtSeconds - rows[index - 1].reachAtSeconds
+				expect(math.abs(gap - SCHEDULE.intervalSeconds) < 1e-6).to.equal(true)
+			end
+			TestKit.note(
+				string.format(
+					"placement tempo: %.2f studs per slot = %d s x %.2f studs/s; busy delivers %.2f s between groups",
+					CONFIG.bedSpacingStuds,
+					SCHEDULE.intervalSeconds,
+					speed,
+					rows[2].reachAtSeconds - rows[1].reachAtSeconds
+				)
+			)
 		end)
 
 		it("puts every planned bed inside the band, at every density", function()
@@ -236,7 +287,9 @@ return function()
 		it("takes the far edge off the muster, the notice band and the sweep floor", function()
 			-- BOTH THE SHIPPED MUSTER AND THE ONE K-1 PROPOSES, so moving `behindLineStuds` moves
 			-- the band with nothing else edited.
-			for _, beaterNorth in ipairs({ Data.beaterNorthStuds(), 700 }) do
+			-- THE ROAD PLACE'S 580, K-1's 700, AND THE ONE EVERY DRIVE KAREN PLAYS MUSTERS AT -- a
+			-- CELL's own depth, 1,430 (`Grid.CELLS[i].beaterNorthStuds = cellDepthStuds`).
+			for _, beaterNorth in ipairs({ Data.beaterNorthStuds(), 700, CELL_MUSTER }) do
 				local notice = Data.noticeAheadStuds(SPOOK, nil)
 				local want = beaterNorth - notice - SPOOK.SWEEP.MIN_AHEAD_STUDS
 				expect(Placement.bandFar(beaterNorth, notice, SPOOK)).to.equal(want)
@@ -254,12 +307,9 @@ return function()
 			-- ...and it is the road rule when the road rule is the bigger of the two, so the arm is
 			-- a `max` and not a replacement.
 			expect(Placement.bandNear({ NOTICE_STUDS = 0 }, { nearRoadStuds = 220 })).to.equal(220)
-			-- A BAND HANDED IN THE WRONG WAY ROUND still answers inside its own two bounds rather
-			-- than inventing a depth outside them: the ladder walks from `far` to `near` whichever
-			-- of the two is the deeper (round 1's note -- the old line here drove an ordinary band
-			-- and duplicated the case above).
-			expect(Placement.bedNorth(1, 2, 450, 150)).to.equal(150)
-			expect(Placement.bedNorth(2, 2, 450, 150)).to.equal(450)
+			-- ...AND THE FLOOR IS THE NEAR EDGE AND NOT A SEPARATE NUMBER: a slot whose moment is
+			-- past the whole band beds on it, which is what the clamp's second return reports.
+			expect(Placement.bedNorth(450, 1000, 5.64, near)).to.equal(near)
 		end)
 
 		it("derives neverStuds from the notice reach and orders the four radii", function()
@@ -312,10 +362,12 @@ return function()
 		end)
 
 		it("skips a group it cannot bed, counts it and says so, rather than bedding it on another", function()
-			-- A BAND WITH NO ROOM: one stud of lateral cap and thirteen beds 25 studs apart cannot
-			-- hold a 71-stud gap, so the plan must refuse rather than stack them.
+			-- A BAND WITH NO ROOM: one stud of lateral cap, and a tempo of one second puts the beds
+			-- 5.64 studs apart in depth, which cannot hold a 71-stud gap -- so the plan must refuse
+			-- rather than stack them.
 			local schedule = table.clone(SCHEDULE)
 			schedule.crossCapStuds = 1
+			schedule.intervalSeconds = 1
 			local rows, lines = planAt("normal", nil, schedule)
 			local total = Placement.tally(rows)
 			expect(total.placed).to.equal(SCHEDULE.DENSITIES.normal)
@@ -478,6 +530,85 @@ return function()
 			expect(Placement.gapOk(rows, Vector3.new(20, 0, 200), gap)).to.equal(true)
 			-- 3-D, as everywhere else in this file.
 			expect(Placement.gapOk(rows, Vector3.new(0, gap - 1, 0), gap)).to.equal(false)
+		end)
+	end)
+
+	-- =============================================== T2: THE ROSTER **IS** THE POPULATION
+	describe("the owner's roster is the drive's population, behind the flag", function()
+		it("plans a roster when the switch is on and nothing at all when it is off", function()
+			-- A KNOWN CELL, so the dial and the schedule are that cell's and not whatever the last
+			-- spec promoted. `layoutForDrive` is the one promoter and `forest_stand.spec` drives it
+			-- the same way.
+			Forest.layoutForDrive(951, "c1")
+			-- OFF: NO ROSTER. Delete the `inPlace ~= true` guard in `ForestTest.planDrive` and this
+			-- is the line that fails -- the flag would decide nothing and Karen's drive would change
+			-- under her with the switch off.
+			expect(Forest.planDrive(951, false)).to.equal(nil)
+			expect(#Forest.roster()).to.equal(0)
+			expect(Forest.placementStats().placed).to.equal(0)
+			-- ON: the roster is the dial's rows, and the count is the one `Placement.plan` answers.
+			local line = Forest.planDrive(951, true)
+			expect(line ~= nil).to.equal(true)
+			local rows = Forest.roster()
+			expect(#rows > 0).to.equal(true)
+			local planned = Placement.plan(
+				951,
+				Forest.cellSchedule(),
+				Grid.animalsOf("c1"),
+				REST,
+				SPOOK,
+				Data.beaterNorthStuds(Forest.layout()),
+				Grid.CONFIG.beaterWalkStudsPerSecond,
+				FOREST,
+				Random.new(1),
+				depsFor(Forest.layout())
+			)
+			-- THE SAME ROWS, SLOT FOR SLOT: the owner asks the pure half and copies nothing.
+			expect(#rows).to.equal(#planned)
+			for index, row in ipairs(rows) do
+				expect(row.slot).to.equal(planned[index].slot)
+				expect(math.abs(row.bedNorth - planned[index].bedNorth) < 1e-6).to.equal(true)
+				-- NOTHING HAS A BODY YET: a record costs no instance and no millisecond.
+				expect(row.state).to.equal("record")
+				expect(#row.ids).to.equal(0)
+			end
+			expect(Forest.placementStats().placed).to.equal(#rows)
+			expect(Forest.placementStats().bedded).to.equal(0)
+			-- IDEMPOTENT PER DRIVE NUMBER: the once-a-second `Waiting` read plans once. Delete the
+			-- `rosterDrive` key and a group already lying in the wood is re-planned every second.
+			expect(Forest.planDrive(951, true)).to.equal(nil)
+			expect(#Forest.roster()).to.equal(#rows)
+			-- AND ONE SLOT IS FOUND BY ITS NUMBER, which is what the bridge below asks.
+			expect(Forest.rosterSlot(rows[1].slot)).to.equal(rows[1])
+			expect(Forest.rosterSlot(-7)).to.equal(nil)
+			TestKit.note(string.format("placement owner: c1 drive 951 planned %s", Placement.line(rows)))
+		end)
+
+		it("holds a slot whose group is already in the wood, and only that slot", function()
+			-- THE BRIDGE'S RULE (design 17's T2 row): a row with bodies is lying in its bed and the
+			-- line is what finds it; a row with none is still released the old way, so the drive
+			-- works end to end at every commit. Delete `Placement.alreadyInTheWood`'s body and
+			-- `releaseLine` releases a second copy of every group of the roster.
+			expect(Placement.alreadyInTheWood(nil)).to.equal(false)
+			expect(Placement.alreadyInTheWood({ state = "record", ids = {} })).to.equal(false)
+			expect(Placement.alreadyInTheWood({ state = "bedded", ids = { "Boar1" } })).to.equal(true)
+			expect(Placement.alreadyInTheWood({ state = "awake", ids = { "Boar1", "Boar2" } })).to.equal(true)
+			-- A GROUP THAT HAS GONE IS NOT IN THE WOOD: shot, crossed or despawned, its slot is a
+			-- hole and the bridge fills it rather than reporting an animal nobody can see.
+			expect(Placement.alreadyInTheWood({ state = "gone", ids = { "Boar1" } })).to.equal(false)
+			-- ...AND NEITHER IS ONE THE WOOD REFUSED.
+			expect(Placement.alreadyInTheWood({ state = "record", ids = {}, skipped = "nobed" })).to.equal(false)
+		end)
+
+		it("steps nothing while the switch is off", function()
+			-- `stepPlacement` IS THE ONE PLACE A BODY IS MADE, so with the flag off it must answer nil
+			-- before it reads anything at all -- which is also why the OFF side of the live proof can
+			-- be compared with `main` line for line.
+			expect(Forest.stepPlacement(os.clock(), false)).to.equal(nil)
+			expect(Forest.stepPlacement(os.clock(), nil)).to.equal(nil)
+			-- ...and with it on and no runtime there is nothing to make, which is a refusal and not
+			-- an error (every spec in this file runs with no boar runtime at all).
+			expect(Forest.stepPlacement(os.clock(), true)).to.equal(nil)
 		end)
 	end)
 

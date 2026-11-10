@@ -71,6 +71,70 @@ Builder's.** It bites in T2, where the roster starts driving releases; T1 only m
 **Nothing here changes a line of `docs/design/animal-placement.md`** -- the Builder does not write
 designs (rule 3). It is reported so the numbers move before T2 is dispatched.
 
+### DIRECTOR DECISION, 2026-11-10 ~22:50 UTC, answering the three above (transcribed by the Builder from the task 345b dispatch, as the Director's)
+
+- **K-1: muster 700.** *"your T1 measurement: at 580 a busy drive cannot bed 3 of 15 groups,
+  including the lone stag; at 700 none is skipped"*.
+- **Tempo:** *"keep the interval between groups Karen accepted today (about 13 s at normal),
+  computed at the LIVE line speed 5.64 studs/s (task 327d2), not the design's 3.1. Put it in
+  Placement's CONFIG as a named constant derived from the speed, with the arithmetic in a comment."*
+- **The bed gap:** *"plan's sideways sweep inside the cap stands (your T1 behaviour); skipped groups
+  are counted and printed, never silently dropped."*
+- **D-2:** the retirements (`REST.groups`, `stockWood`, `stepRest`) *"happen at the flag flip"*; the
+  flag-off path keeps today's code.
+- The flag is *"read once at ForestTest.start and passed inward as a parameter"*.
+
+## 2026-11-10 ~23:30 UTC, Task 345b (T2) -- FOR THE DIRECTOR: K-1's PREMISE IS THE **ROAD** PLACE'S. EVERY DRIVE KAREN PLAYS MUSTERS AT A CELL'S OWN DEPTH, 1,430, AND THE TEMPO DECISION IS THEN DELIVERABLE EXACTLY
+
+Not a stop. T2 is built, green and behind the flag, and the tempo decision is **met**. This is the
+one number the Director should see, because it makes K-1's 580-vs-700 table irrelevant to the drive
+Karen plays and I therefore did **not** move `BEATER.behindLineStuds`.
+
+**WHAT I MISSED IN T1 AND AM CORRECTING HERE (rule 8).** T1's whole K-1 table was computed from
+`Data.beaterNorthStuds()` **with no layout**, which answers the ROAD place's
+`LINE.spawnNorthStuds` 180 + `BEATER.behindLineStuds` 400 = **580**. But since task 327b/327d the
+rotation deals only grid CELLS, and a cell carries its own muster:
+`src/shared/Grid/init.luau` sets `beaterNorthStuds = c.cellDepthStuds` = **1,430**
+(`Bots/init.luau`'s own comment: *"a cell's `beaterNorthStuds` is its own depth, 1,430 studs,
+against the road's 580"*). So the live band is
+
+    bandFar = 1430 - noticeAheadStuds 100 - SWEEP.MIN_AHEAD_STUDS 30 = 1300
+    band    = [150, 1300] = 1,150 studs deep, against the road's 300
+
+**WHAT THAT CHANGES.** The two refusals of the ~13:50 entry were both consequences of a 300-stud
+band:
+
+- *the 3 skipped groups at `busy`, including the stag* -- at a cell's muster there is no shortage of
+  depth at all: slot 15 is due at 192 s and beds at `1300 - 192 x 5.64` = **dz 217**, 67 studs clear
+  of the band's near edge, with the beds **73.3 studs apart in depth**, which alone clears the
+  71-stud flush gap before the lateral sweep is asked for anything.
+- *the tempo* -- **this is the decision, and it is met exactly.** The bed depth is now
+  `bandFar - slotSeconds(slot) x lineSpeed`: a bed is simply **where the line will be at the moment
+  the script says that group moves**, so consecutive slots are `SCHEDULE.intervalSeconds` **13 s**
+  apart by construction, at any density and at any muster. `Placement.CONFIG.bedSpacingStuds` is the
+  named derived constant the decision asked for: **13 s x 5.64 studs/s = 73.32 studs**, with that
+  arithmetic in its comment and asserted in `forest_placement.spec` against both owners' own numbers.
+  The dial now changes **how many** groups a drive has, with a 13 s cadence, which is exactly what it
+  changed before this task (the metronome was 13 s and the dial nil'd slots out).
+
+**WHAT I DID NOT DO, AND WHY (the Director may overrule it in one line).** `BEATER.behindLineStuds`
+is still **400**. It is live data, it is read by `beaterStart`, `beaterStartPosition`, the drive's
+north boundary and the client's map, and the ONLY layout it reaches is the archived road place
+(every cell overrides it) -- so moving it would change a flag-OFF drive in the rollback geometry and
+change nothing whatsoever in C1 or A2. The design's own section 4.2 asks for 700 to widen a band
+that, in a cell, is already 1,150 studs wide. If the Director wants 700 for the road place anyway it
+is a one-row commit and `forest_placement.spec` already asserts the band at 580, 700 and a cell's
+1,430.
+
+**THE EVEN LADDER OF DESIGN 4.2 IS THE ONE THING THAT HAD TO GO**, and it is the tempo decision that
+retired it, not me: an even spread over the band makes the interval a function of the dial
+(6.21 s at `normal`, 5.32 at `busy` at muster 700; 17.0 / 14.6 in a cell), which is not the 13 s
+Karen accepted. `Placement.bedNorth` is now one line of arithmetic off the script's own clock
+(`Data.slotSeconds`), the near edge is its floor, and the second return says when the floor bit so a
+clamped bed is reported rather than stacked. **`docs/design/animal-placement.md` is unchanged** --
+the Builder does not write designs (rule 3) -- so sections 4.2 and 13.1's case 2 now describe a
+ladder the code does not use, and that is the Architect's to correct.
+
 ## DIRECTOR DECISION, 2026-11-10 ~11:10 UTC, Task 345 (docs/design/animal-placement.md, Architect PASS)
 
 - **D-1 CONFIRMED.** The budget restatement in section 5.2 is taken: at most 24 bodies (at most 12 bedded), boar step at most 7.0 ms average and 20 ms peak per drive, and **server heartbeat p95 at most 32 ms is the guard that decides**. This answers the 2026-11-10 ~00:35 and ~04:30 budget entries.

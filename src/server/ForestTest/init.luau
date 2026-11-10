@@ -41,6 +41,13 @@ local Data = require(DataModule)
 -- through both tables -- see `layoutByName`. 327d puts the cells into `Data.LAYOUTS` and the second
 -- lookup collapses into the first.
 local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
+-- THE PURE RULES OF WHERE EVERY ANIMAL OF A DRIVE IS STANDING (task 345, T1). A child of `Data`'s
+-- own folder, pure, requiring nothing: this file is the only writer of the roster it returns.
+-- Design: docs/design/animal-placement.md sections 4, 8.
+local Placement = require(DataModule:WaitForChild("Placement"))
+-- READ ONCE, AT THIS OWNER'S BOUNDARY (`ForestTest.start`), AND PASSED INWARD AS A PARAMETER --
+-- `docs/design/feature-flags.md`'s only permitted shape. `PLACEMENT_IN_PLACE` off is today's drive.
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 -- FOR ONE QUESTION ONLY: which recipe ZONE a resting spot is in (`Places.zoneIndexAt`), so a
 -- cell's `animals.restZones` can be honoured where the cover is decided (task 327h, design 9.1).
 local Places = require(ReplicatedStorage:WaitForChild("Places"))
@@ -630,6 +637,19 @@ local state = {
 	lines = {} :: { any },
 	rng = Random.new(),
 	stuck = 0,
+	-- TASK 345 T2: THE DRIVE'S WHOLE POPULATION, AS RECORDS. One row per group, built once at the
+	-- drive boundary by `ForestTest.planDrive` and written by nothing else (design 3.1). Empty while
+	-- `PLACEMENT_IN_PLACE` is off, which is every drive Karen has played.
+	roster = {} :: { any },
+	-- WHICH DRIVE THE ROSTER IS FOR, so the once-a-second `markers` read plans once and not sixty
+	-- times -- `layoutForDrive`'s own key, for its own reason.
+	rosterDrive = nil :: number?,
+	placementInPlace = false,
+	-- HOW MANY GROUPS WERE REFUSED, BY REASON, AND HOW MANY RING SEARCHES WERE SPENT. A skip is a
+	-- hole in the wood and it is REPORTED, never hidden (design 4.3, must-not 11); `searches` is
+	-- beside it so a drive that reports no skips cannot be one that tested nothing (design 12.3).
+	placementSkips = {} :: { [string]: number },
+	placementSearches = 0,
 }
 
 -- THIS WORLD'S BOAR CONFIG, AND NOT THE MODULE'S (task 122 round 2).
@@ -681,6 +701,9 @@ function ForestTest.stats()
 		deerDone = state.deerDone == true,
 		restStocked = state.restStocked == true,
 		restAlive = ForestTest.restAlive(),
+		-- TASK 345 T2: the roster, as the four counts plus the refusals. `placed` is every group of
+		-- this drive whether it has a body or not, which is the number Karen's sentence is about.
+		placement = ForestTest.placementStats(),
 		active = #state.active,
 		boars = if state.runtime then state.runtime:count() else 0,
 		-- TASK 179, rotation since TASK 193: which of the drive places this drive is standing on,
@@ -1748,8 +1771,13 @@ function ForestTest.restSeenFromLane(standX: number, spec, spot: Vector3, rest):
 	return hit == nil or Data.characterOf(hit.Instance) ~= nil
 end
 
-function ForestTest.restSpot(standX: number, spec): Vector3?
-	local rest = Data.REST
+-- ...AND SINCE TASK 345 T2 IT SEARCHES FOR A **BED** TOO, on the one band override
+-- (`Placement.searchBand`). The rules below are unchanged and are still the only ones: what the
+-- override replaces is three NUMBERS -- the band's near and far edges, the keep-away's margin and
+-- the lane ceiling -- because a planned bed at dz 1,244 is outside the stocked wood's 40..425 and
+-- would be refused by the searcher meant to find it. `band` is nil for every caller before T2.
+function ForestTest.restSpot(standX: number, spec, band: any?): Vector3?
+	local rest = band or Data.REST
 	-- WHERE SHE ACTUALLY IS, NOT WHERE SHE SPAWNED (task 155, from task 154's review).
 	--
 	-- THIS WAS RIGHT FOR THE FIRST STOCK AND WRONG FOR THE RE-STOCK, which is the one Karen meets on
@@ -1967,6 +1995,295 @@ function ForestTest.restAlive(): number
 		end
 	end
 	return alive
+end
+
+-- ================================================= THE ROSTER IS THE POPULATION (task 345, T2)
+--
+-- KAREN, 2026-11-10: *"animals has to be in palces not just apear magically"*.
+--
+-- ONE POPULATION FOR BOTH ROLES. Before this task a hunter's drive and a beater's drive had
+-- DIFFERENT animals, placed by different code at different times: `releaseLine` spawned a scheduled
+-- group per slot 25-85 studs north of the road -- inside the lane a hunter is looking down -- and
+-- `stockWood` put 36 more into the wood on the first heartbeat of beater mode. Now every group of a
+-- drive is a RECORD from the drive's first frame, and a record acquires a BODY only when the drive
+-- needs one, in cover, before anybody can notice it.
+--
+-- Design: docs/design/animal-placement.md sections 3.2, 4.2, 4.3, 4.4, 5.2, 17 (T2)
+-- Note:   docs/research/2026-11-10-animal-placement.md
+--
+-- WHAT T2 IS AND IS NOT. It builds the roster, beds it and counts it. The never-in-view PREDICATE
+-- (the ray) is T3's, `orderGroup` and the end of `releaseLine`'s spawn half are T4's, and the
+-- walkers' own clock is T6's. Until T4, `releaseLine` still spawns for a slot whose row has NO body
+-- -- the bridge, so the drive works end to end at every commit.
+
+-- IS THE SWITCH ON? Read ONCE, at `ForestTest.start`, and handed inward as a parameter from there
+-- (`docs/design/feature-flags.md`: the owner reads it once, at its boundary, and passes the value
+-- inward). Published as a function so the boot can hand it to `planDrive` without reading `Flags` a
+-- second time.
+function ForestTest.placementInPlace(): boolean
+	return state.placementInPlace == true
+end
+
+-- THE ROSTER, READ-ONLY. The table itself and not a copy: a copy per probe read would allocate
+-- thirteen rows a second, and every writer of a row is in this file.
+function ForestTest.roster(): { any }
+	return state.roster
+end
+
+-- THE FOUR COUNTS, THE REFUSALS AND THE WORK SPENT. `searches` is published beside the skips
+-- deliberately (design 12.3): a drive that reports no refusals and no searches has not tested
+-- anything, and "a counter that is 0 because nothing wrote it" is the failure this task's own
+-- must-not list names.
+function ForestTest.placementStats()
+	local tally = Placement.tally(state.roster)
+	local bedded = 0
+	for _, row in ipairs(state.roster) do
+		if row.state == "bedded" then
+			bedded += #(row.ids or {})
+		end
+	end
+	return {
+		inPlace = state.placementInPlace == true,
+		drive = state.rosterDrive,
+		placed = tally.placed,
+		animals = tally.animals,
+		groupsBedded = tally.bedded,
+		awake = tally.awake,
+		gone = tally.gone,
+		skipped = tally.skipped,
+		bedded = bedded,
+		skips = state.placementSkips,
+		searches = state.placementSearches,
+	}
+end
+
+-- WHO IS IN THIS DRIVE AND WHERE EACH GROUP LIES UP. Built ONCE per drive, at the drive boundary,
+-- from inside `ForestTestBoot`'s `markers` closure -- whose contract is "it MUST NOT YIELD"
+-- (`Match.measureMarkers`), which is why `Placement.plan` is pure and why not one raycast is taken
+-- here. The beds are MEASURED later, in Heartbeat bites (`stepPlacement`).
+--
+-- IDEMPOTENT PER DRIVE NUMBER, exactly as `layoutForDrive` is and for the same reason: `Match` reads
+-- the markers once a second while it is `Waiting`, and a planner that ran on every call would move
+-- the wood under a group that is already lying in it.
+--
+-- THE SPEED IT IS PLANNED AT IS THE GRID'S, 5.64 studs/s (`Grid.CONFIG.beaterWalkStudsPerSecond`,
+-- task 327d2), read off the one owner that holds it -- which is what `Bots.CONFIG.WALK_SPEED` reads
+-- too, so the bed depths and the men who walk to them cannot be planned at two speeds.
+function ForestTest.planDrive(driveNumber: number?, inPlace: boolean?): string?
+	if inPlace ~= true then
+		return nil
+	end
+	local key = math.max(1, driveNumber or 0)
+	if state.rosterDrive == key then
+		return nil
+	end
+	local schedule = ForestTest.cellSchedule()
+	local rows, lines = Placement.plan(
+		key,
+		schedule,
+		Grid.animalsOf(chosen.name),
+		Data.REST,
+		Data.SPOOK,
+		ForestTest.beaterNorthStuds(chosen.layout),
+		Grid.CONFIG.beaterWalkStudsPerSecond,
+		boarConfig(),
+		state.rng,
+		{
+			noticeAheadStuds = Data.noticeAheadStuds(Data.SPOOK, chosen.layout),
+			laneSpacingStuds = Data.laneSpacing(chosen.layout),
+			slotAt = Data.slotAt,
+			slotSeconds = Data.slotSeconds,
+			compositionSize = Boar.compositionSize,
+			deerComposition = Boar.deerComposition,
+			sounderKinds = Boar.sounderKinds,
+		}
+	)
+	state.roster = rows
+	state.rosterDrive = key
+	state.placementSkips = {}
+	state.placementSearches = 0
+	return table.concat(lines, " | ")
+end
+
+-- THIS DRIVE'S ROW FOR ONE SLOT, or nil when the dial dropped it (a silence) or the flag is off.
+-- One lookup, so `releaseLine`'s bridge and a probe cannot disagree about which row a slot is.
+function ForestTest.rosterSlot(slot: number?): any
+	for _, row in ipairs(state.roster) do
+		if row.slot == slot then
+			return row
+		end
+	end
+	return nil
+end
+
+-- WHERE THIS GROUP'S BED ACTUALLY IS: on the ground, in cover, and clear of every bed already laid.
+--
+-- IT IS `ForestTest.restSpot`, THE ONE SEARCHER THIS WORLD HAS -- the ring search, the trunk gap, the
+-- canopy slack, the zone passes and the sweep rule, all unchanged -- on this bed's own band
+-- (`Placement.searchBand`). The gap between beds is then checked against the roster, because the
+-- searcher knows about beaters and trunks and nothing about the twelve other groups of this drive.
+--
+-- T3 ADDS THE RAY (`bedHidden`). Until then the only thing keeping a bed out of a player's view is
+-- the band's near edge, 150 studs (`Placement.CONFIG.bandNearStuds`), plus `restSpot`'s own
+-- preference for a spot its own lane can see into. Said here so nobody reads T2 as the guarantee.
+function ForestTest.bedSpot(row: any): Vector3?
+	local band = Placement.searchBand(row.bedNorth, row.bedOffsetX, row.laneOffset, Data.REST, Placement.CONFIG)
+	state.placementSearches += 1
+	local at = ForestTest.restSpot(
+		ForestTest.hunterStandX(),
+		{ offsetX = row.bedOffsetX, laneOffset = row.laneOffset, northStuds = row.bedNorth },
+		band
+	)
+	if at == nil then
+		return nil
+	end
+	if not Placement.gapOk(state.roster, at, Placement.bedGapStuds(Data.SPOOK)) then
+		return nil
+	end
+	return at
+end
+
+-- A RECORD GETS A BODY. Returns false and the reason, which is a `SkipReason` or "runtime".
+--
+-- THE DOORS ARE IN THIS ORDER AND THE ORDER IS THE POINT: the budget is two comparisons and the bed
+-- is a ring search with two raycasts per candidate, so a group the budget refuses never costs a
+-- search. `Runtime:spawn` ASSERTS past `maxBoars` rather than refusing -- an assert inside the
+-- Heartbeat kills the step the whole drive runs on -- so the hard ceiling is checked here as well,
+-- exactly as `stockWood` and `releaseLine` check it.
+function ForestTest.materialise(row: any, now: number): (boolean, string?, string?)
+	local runtime = state.runtime
+	if runtime == nil then
+		return false, "runtime", nil
+	end
+	local size = math.max(1, math.floor(tonumber(row.size) or 1))
+	-- ANIMALS ON THEIR FEET, NOT `count()`: a carcass holds a `MAX_BOARS` slot but it is the
+	-- gather's, not the drive's -- `releaseLine`'s own rule, read the same way.
+	local live = if type(runtime.liveCount) == "function" then runtime:liveCount() else runtime:count()
+	local bedded = ForestTest.placementStats().bedded
+	local room, which = Placement.roomFor(live, bedded, size, Data.LIVE_CAP, Placement.CONFIG.bedCap)
+	if not room then
+		return false, "budget", which
+	end
+	local ceiling = math.min(Data.MAX_BOARS, runtime:capacity())
+	if runtime:count() + size > ceiling then
+		return false, "budget", "ceiling"
+	end
+	local at = ForestTest.bedSpot(row)
+	if at == nil then
+		return false, "nobed", nil
+	end
+	-- THE SAME TWO CALLS `stockWood` MAKES, and for the same reason: a composition IS the size and
+	-- the kinds (`Runtime:spawnSounder` asks `Boar.compositionSize` and `Boar.sounderKinds` itself),
+	-- so a deer party and a sounder go out through one door and this file writes no kind.
+	local handles = if size <= 1
+		then { runtime:spawn(at, row.kinds[1] or boarConfig().SOUNDER.MAKEUP.LONE) }
+		else runtime:spawnSounder(at, size, Placement.CONFIG.bedSpreadStuds, row.composition)
+	local ids = {}
+	for _, handle in ipairs(handles) do
+		if handle ~= nil then
+			table.insert(ids, handle.id)
+		end
+	end
+	if #ids == 0 then
+		return false, "nobed", nil
+	end
+	row.ids = ids
+	row.at = at
+	row.state = "bedded"
+	row.beddedAt = now
+	state.released += #ids
+	return true, nil, nil
+end
+
+-- ONE BITE PER HEARTBEAT: at most one group materialised and at most one ring search, which is
+-- `Cells.begin`'s shape for `Cells.begin`'s measured reason (the whole-folder write it replaced cost
+-- 738 ms of frame in Karen's place, task 343).
+--
+-- THE STATES ARE RECONCILED FIRST AND READ OFF THE WORLD, never latched here (L-029): a bedded group
+-- the line has flushed is AWAKE, because `spookNearBeaters` has latched one of its animals, and a
+-- group whose bodies have all gone is GONE. `spookNearBeaters` and `stepLines` are untouched -- a
+-- bedded group is a real body in the world, so the flush, the horn and a shot already reach it.
+function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
+	local runtime = state.runtime
+	if inPlace ~= true or runtime == nil then
+		return nil
+	end
+	local elapsed = now - (state.driveOpenedAt or now)
+	-- ONE WALK OF THE RUNTIME, not one `statusOf` per animal: `Runtime:statusOf` scans `_boars`, so
+	-- thirteen groups of six would scan it 78 times a heartbeat.
+	local alive = {}
+	for _, handle in ipairs(runtime:boars()) do
+		local status = runtime:statusOf(handle.id)
+		alive[handle.id] = status ~= nil and status.alive == true
+	end
+	for _, row in ipairs(state.roster) do
+		if row.state == "bedded" or row.state == "awake" then
+			local standing, woken = 0, false
+			for _, id in ipairs(row.ids or {}) do
+				if alive[id] then
+					standing += 1
+				end
+				if state.latched[id] == true then
+					woken = true
+				end
+			end
+			if standing == 0 then
+				row.state = "gone"
+			elseif woken then
+				row.state = "awake"
+			end
+		end
+	end
+	-- THE GROUP THE LINE WILL REACH SOONEST, of the ones that are due. One bite, so this order is
+	-- what decides which group is bedded first, and the line meets the deepest one first.
+	local due = nil
+	for _, row in ipairs(state.roster) do
+		if Placement.dueNow(row, elapsed, Placement.CONFIG.leadSeconds) then
+			if due == nil or row.reachAtSeconds < due.reachAtSeconds then
+				due = row
+			end
+		end
+	end
+	if due == nil then
+		return nil
+	end
+	local ok, reason, detail = ForestTest.materialise(due, now)
+	if ok then
+		local at = due.at :: Vector3
+		return string.format(
+			"bed %s: slot %d act %d %d animal(s) at %+d/%+d studs (planned dz %.0f, due %.0fs, trunk %.0f) -- %s",
+			due.id,
+			due.slot,
+			due.act or 0,
+			#due.ids,
+			at.X - ForestTest.hunterStandX(),
+			at.Z - Data.roadZ(at.X, chosen.layout),
+			due.bedNorth,
+			due.reachAtSeconds,
+			ForestTest.nearestSolid(at + Vector3.new(0, 2, 0), Data.REST.nearTrunkStuds),
+			Placement.line(state.roster)
+		)
+	end
+	-- A REFUSAL THAT IS THE GROUP'S OWN ENDS ITS DRIVE, and one that is this instant's does not.
+	-- `nobed` is a fact about the wood and will not change inside a drive; `budget` is a fact about
+	-- the moment, so it is re-tried -- until the line has walked PAST the bed, after which there is
+	-- nowhere left to put the group that is not behind somebody (design must-not 3, task 172's rule:
+	-- "a wood is beaten once; when it is empty it stays empty for this drive").
+	local final = if reason == "nobed" then "nobed" elseif elapsed > due.reachAtSeconds then reason else nil
+	if final == nil then
+		return nil
+	end
+	due.skipped = final
+	state.placementSkips[final] = (state.placementSkips[final] or 0) + 1
+	return string.format(
+		"bed %s: slot %d SKIPPED for this drive (%s%s) at planned dz %.0f -- %s",
+		due.id,
+		due.slot,
+		final,
+		if detail ~= nil then ": " .. detail else "",
+		due.bedNorth,
+		Placement.line(state.roster)
+	)
 end
 
 -- ---------------------------------------------- THE OPENING SIGNAL'S OWN REACH (task 251, item 4)
@@ -2418,6 +2735,14 @@ local function promote(name: string, source: string)
 	-- drive's latch.
 	state.restStocked = false
 	state.restTriedAt = nil
+	-- ...AND SO IS THE ROSTER (task 345 T2). The bodies have just gone with `runtime:clear`, and a
+	-- roster is about ONE cell's wood: its beds are measured off this layout's road and its depth.
+	-- Clearing the KEY rather than the rows is what makes the `planDrive` call in the `markers`
+	-- closure -- which runs immediately after this, in the same read -- build the new cell's roster.
+	state.roster = {}
+	state.rosterDrive = nil
+	state.placementSkips = {}
+	state.placementSearches = 0
 	print(
 		string.format(
 			"[ForestTest] layout=%s (%s): %d stands %d apart, centre (%d, %d), exit %d",
@@ -2525,6 +2850,33 @@ end
 -- the nearest beater, +1 for straight away and -1 for straight at her. The previous position is
 -- kept here rather than asked of the Brain, because what a hunter sees is where the body went and
 -- not what it was ordered to do.
+-- ...AND WHAT THE ROSTER IS DOING, ON THE SAME CHANNEL (task 345 T2). It is the drive's own
+-- account of itself -- placed / bedded / awake / gone / skipped, with the refusals by reason and the
+-- searches spent -- and it is printed every two seconds beside the wave report, which is the
+-- instrument the measurement plan (design 12.1) reads. Nothing while the flag is off.
+function ForestTest.placementReport(): { string }
+	if state.placementInPlace ~= true or #state.roster == 0 then
+		return {}
+	end
+	local stats = ForestTest.placementStats()
+	local skips = {}
+	for reason, count in pairs(stats.skips) do
+		table.insert(skips, string.format("%s %d", reason, count))
+	end
+	table.sort(skips)
+	return {
+		string.format(
+			"drive %s: %s (%d animals placed, %d bedded bodies, %d searches, skips %s)",
+			tostring(stats.drive),
+			Placement.line(state.roster),
+			stats.animals,
+			stats.bedded,
+			stats.searches,
+			if #skips > 0 then table.concat(skips, " ") else "none"
+		),
+	}
+end
+
 function ForestTest.restReport(_now: number): { string }
 	local runtime = state.runtime
 	if runtime == nil then
@@ -2642,6 +2994,11 @@ function ForestTest.start(runtime, now: number)
 	-- in hand when it sounds. It is one anchored invisible Part either way, and `roarEmitter` is
 	-- idempotent -- `roarNow` still calls it, and still gets the same Sound back.
 	ForestTest.roarEmitter()
+	-- THE SWITCH IS READ HERE AND NOWHERE ELSE (task 345 T2, `docs/design/feature-flags.md`): once,
+	-- at this owner's boundary, and handed inward as a parameter from there -- `planDrive(…, inPlace)`
+	-- and `stepPlacement(…, inPlace)` both take it, so both of its states are reachable from a spec
+	-- while the flag itself sits at one of them.
+	state.placementInPlace = Flags.isOn("PLACEMENT_IN_PLACE")
 	-- ...AND IT OPENS THE FIRST DRIVE, WHICH IS WHAT BASES THE SLOT CLOCK (task 251 part 2). It used
 	-- to be set here as `now + intervalSeconds`; it is `newDrive`'s now, so a server start and a drive
 	-- boundary cannot put slot 1 at two different times.
@@ -2707,6 +3064,13 @@ function ForestTest.step(now: number): string?
 	-- phantom beaters below are untouched and come back with one word, because Karen has accepted
 	-- parts of them before.
 	if Data.LINE ~= nil and Data.LINE.enabled == true then
+		-- THE SWITCH, READ OFF THE VALUE `start` TOOK, and passed inward from here (task 345 T2).
+		local inPlace = ForestTest.placementInPlace()
+		-- ONE GROUP OF THE ROSTER GETS A BODY, BEFORE ANYTHING IS SPOOKED OR LED (task 345 T2): a bed
+		-- must exist before the line can find it, and `stepPlacement` is level-triggered on the
+		-- drive's own clock, so it cannot be missed and cannot fire twice. Nil on every tick with
+		-- nothing due, and nil on every tick at all while the flag is off.
+		local bed = ForestTest.stepPlacement(now, inPlace)
 		-- WHO HAS BEEN WALKED UP ON, BEFORE ANYTHING ELSE IS DECIDED (task 154). It runs in BOTH
 		-- modes and over every live animal, so a beater meeting a scheduled line and a beater
 		-- meeting a resting sounder get the same rule -- see `ForestTest.spookNearBeaters`.
@@ -2721,6 +3085,11 @@ function ForestTest.step(now: number): string?
 		-- boot prints whatever `step` returns, and "the beater had no visible effect" is the kind of
 		-- claim that needs a number beside it.
 		local flush = ForestTest.takeFlushLine() or spooked or roared
+		-- THE BED LINE IS THE HEADLINE OF ITS TICK and never swallows another one (round 2 of task
+		-- 251's note, which was right about exactly this): the two are joined rather than ored.
+		if bed ~= nil then
+			flush = if flush ~= nil then bed .. " | " .. flush else bed
+		end
 		-- THE STAGED RELEASE, BEFORE THE METRONOME AND INDEPENDENT OF IT (task 268). It is asked for
 		-- on EVERY tick, including a tick inside a slot's own gap and including beater mode below --
 		-- an instrument that had to wait up to `intervalSeconds` for its deer would be measuring the
@@ -2734,7 +3103,17 @@ function ForestTest.step(now: number): string?
 		-- probably need to wait 10s ?"*. So nothing is released on a timer while she is a beater --
 		-- the wood is already full, and `stepRest` is what fills and re-fills it. A HUNTER's world
 		-- is untouched: he stands still and the drive comes to him, which is what a schedule is for.
-		if ForestTest.beaterMode() then
+		-- ...AND WITH THE ROSTER IN PLACE THERE IS NO SECOND POPULATION TO CHOOSE (task 345 T2,
+		-- design 3.2 and 4.4). `stockWood` put 36 animals into the wood on the first heartbeat of
+		-- beater mode while `releaseLine` released a different set for a hunter, so a hunter's drive
+		-- and a beater's drive had different animals under different rules -- and the thing Karen
+		-- asked for already existed in one of them and not the other. Both roles now run the one
+		-- path: the roster is bedded by `stepPlacement` above and the line finds it.
+		--
+		-- WITH THE FLAG OFF THIS BRANCH IS EXACTLY TODAY'S. `stepRest`, `stockWood` and `REST.groups`
+		-- are archived (`backups/2026-11-10_task-345b_rest-groups.md`) and NOT deleted: the losing
+		-- branch goes at the flag flip, which is `docs/design/feature-flags.md`'s own rule (D-2).
+		if not inPlace and ForestTest.beaterMode() then
 			return ForestTest.stepRest(now, spooked) or flush
 		end
 		if now < state.nextWaveAt then
@@ -3104,6 +3483,36 @@ function ForestTest.releaseLine(now: number, staged: any?): string?
 	end
 	if row == nil then
 		return string.format("line %d: slot %d of the drive is SILENT -- nothing released", state.waveIndex, slot)
+	end
+	-- ---------------------------------------------- THE BRIDGE (task 345 T2, design 17's T2 row)
+	--
+	-- A SLOT WHOSE GROUP IS ALREADY IN THE WOOD IS NOT RELEASED. It is lying in its bed, `leadSeconds`
+	-- 20 ahead of the line, and the line is what finds it -- which is the whole of Karen's *"it has to
+	-- be there then it spooked"*. A STAGED row is never in the roster (it has no slot), so the
+	-- Director's instrument is untouched.
+	--
+	-- A SLOT WHOSE ROW HAS **NO** BODY IS STILL SPAWNED BELOW, exactly as before this task: a group
+	-- the budget or the wood refused is a hole, and a drive with a hole in it is still a drive. T4
+	-- replaces this half with `orderGroup`, which orders the bodies that already exist.
+	local inRoster = if staged == nil and ForestTest.placementInPlace() then ForestTest.rosterSlot(slot) else nil
+	if Placement.alreadyInTheWood(inRoster) then
+		-- ...AND THE DRIVE'S DEER IS STILL SPENT BY THE DRIVE'S DEER (task 239's latch), because what
+		-- `stats().deerDone` is read for is *"this drive's deer group is out"* and it is: it is lying
+		-- in the wood.
+		if row.species == "reddeer" then
+			state.deerDone = true
+		end
+		return string.format(
+			"line %d: SLOT %d act %d %s -- ALREADY IN THE WOOD since the plan: %d animal(s) %s at dz %.0f -- %s",
+			state.waveIndex,
+			slot,
+			row.act or 0,
+			tostring(Data.slotRoute(row)),
+			#inRoster.ids,
+			inRoster.state,
+			inRoster.bedNorth,
+			row.note or "--"
+		)
 	end
 	local route = Data.slotRoute(row)
 
