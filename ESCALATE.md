@@ -4096,3 +4096,52 @@ then `DRIVE_AIMS_AT_PICKED_STAND` stays off and the flag row says why.
 
 **Also for the Director, separately:** on the main line, `max gap` swings 24-49 s between single
 drives while the median holds at 4-8 s. One 299 s drive is not enough to judge a max-gap target.
+
+## 2026-11-11 22:30 UTC -- Task 349 ROUND 2: the aim works on her path; OFF is not clean. STOP.
+
+**For the Director.** Round 2 returned three blocking findings (`reviews/task-349/RESULT.md`). The
+dispatch says a finding on round 2 goes here and I stop, so I have not started a round 3. Branch
+`task-349-more-action`, code commit `f4e7962d`,
+`[harness] PASS: 34/34 checks @ f4e7962d81034ab428d1bce3e7e179250d743fad (clean tree) scope=all`,
+CI green. **The flag stays OFF.**
+
+**What round 2 PROVED on her path, and does not need redoing.** Three live drives in her Forest
+Test, C1, stand 11 picked by a real click, each at its own commit:
+
+| cycle | commit | corner stand measured |
+|---|---|---|
+| 1 | `c6d6e7a2` | `drive aimed: dz +0, nobody locked` -- nearest animal 1,112 studs. The latch fired before the pick locked |
+| 2 | `03b279ee` | aimed, frame taken from her eye, but `released` 72 and `outOfBounds` 101 -- the field's box culled the band |
+| 3 | `f4e7962d` | **212 of 304 samples with an animal inside 120 studs, no gap over 20 s, `released` 121 (main line 121), `escaped` 105, `outOfBounds` 0, step avg 3.294 against the main line's 3.618** |
+
+Against the same stand with the flag OFF: **0 of 290 samples, all drive**. `A11d-left.png` is four
+red deer on the open ground from stand 11's own eye. The thing Karen asked for is on screen.
+
+**What blocks it.**
+1. **`restSpot`/`bedSpot`: I shifted the GATE and not the GENERATOR.** `restPoint` still builds
+   candidates on the main road from `hunterStandX`, while `restSpot` measures them with `driveZ`, so
+   with the aim on no bed can pass its band and `materialise` puts nothing down. This bites only
+   when `PLACEMENT_IN_PLACE` is ON. **The Reviewer's consequence quotes a stale TASKS.md line:** I
+   read her place today and `DHFlag_PLACEMENT_IN_PLACE=false` (the Director set it off at 11:59),
+   so her place is not currently affected -- but the two flags together would give a drive with
+   zero animals, and that interaction is named at neither flag row.
+2. **`settleAim` latches on `why == "off"`, so the flag-OFF path is NOT today's drive.** Before this
+   task `releaseLine`, `orderGroup` and `roarPoint` each read `hunterStandX()` live; now they read
+   a latched `aim.x`. A pick locked or changed after the drive's first tick no longer aims that
+   drive even with the flag off. **This is the one that must not merge.** The fix is one line --
+   do not latch unless there IS a locked frame (`why == "off"` takes the same `return ..., false`
+   arm as `"nobody locked"`) -- but it changes behaviour, so it needs a round and a run, not a
+   patch at the deadline.
+3. **`aimAcross` is not 0 with no aim**, so the field's box is widened on the OFF path too (a
+   locked main-line pick alone makes `across` up to +-450). Same class as 2: OFF must be inert.
+
+**What I ask for.** A round 3 that: makes OFF inert again (2 and 3), shifts the bed generator with
+its gate or leaves the gate on the main road (1), names the `PLACEMENT_IN_PLACE` interaction at both
+flag rows, and re-measures one flank drive with BOTH flags on. The aim itself is proven and I would
+not reopen it.
+
+**Also queued from round 2's notes:** `signalPoint` is still on the main road (an aimed drive's
+opening signal sounds `aim.dz` studs from the band); the x union is a whole half-span where the
+band's own extent would do; the request's claim 6 cites `:160/:163` where the assertions are now
+`:166/:170` (both bite, the citation is stale); and no design section carries the aim, the flag or
+`AIM_FLAT_STUDS`.
