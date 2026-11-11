@@ -657,6 +657,12 @@ local state = {
 	-- beside it so a drive that reports no skips cannot be one that tested nothing (design 12.3).
 	placementSkips = {} :: { [string]: number },
 	placementSearches = 0,
+	-- TASK 345 T3: THE RAYS SPENT ON THE SIGHT TEST, AND THE BODIES BORN IN VIEW ANYWAY. `rays` is
+	-- published beside `inView` because a drive reporting `inView = 0` with `rays = 0` has tested
+	-- nothing (design 12.3); `inView` is the AUDIT -- counted over the bodies that were really made,
+	-- never over the point that was tested (design 12.2, "spawns in view of a player = 0").
+	placementRays = 0,
+	placementInView = 0,
 }
 
 -- THIS WORLD'S BOAR CONFIG, AND NOT THE MODULE'S (task 122 round 2).
@@ -2061,6 +2067,8 @@ function ForestTest.placementStats()
 		bedded = bedded,
 		skips = state.placementSkips,
 		searches = state.placementSearches,
+		rays = state.placementRays,
+		inView = state.placementInView,
 	}
 end
 
@@ -2109,6 +2117,8 @@ function ForestTest.planDrive(driveNumber: number?, inPlace: boolean?): string?
 	state.rosterDrive = key
 	state.placementSkips = {}
 	state.placementSearches = 0
+	state.placementRays = 0
+	state.placementInView = 0
 	return table.concat(lines, " | ")
 end
 
@@ -2123,6 +2133,75 @@ function ForestTest.rosterSlot(slot: number?): any
 	return nil
 end
 
+-- ---------------------------------------------------------- "NEVER IN VIEW" (task 345 T3, design 6)
+--
+-- EVERY PLAYER WHO CAN SEE ANYTHING, AS ONE POINT EACH. A player with no character is not an
+-- observer (design 6.1), and the point is the HEAD rather than the root: a hunter on a high seat
+-- deck is 12.5 studs up and that height is part of the distance, which `clearOfEyes` measures in 3-D.
+function ForestTest.eyes(): { { name: string, at: Vector3, character: Instance? } }
+	local out = {}
+	for _, player in ipairs(Players:GetPlayers()) do
+		local character = player.Character
+		local head = character and (character:FindFirstChild("Head") or character.PrimaryPart)
+		if head ~= nil and head:IsA("BasePart") then
+			table.insert(out, { name = player.Name, at = (head :: BasePart).Position, character = character })
+		end
+	end
+	return out
+end
+
+-- CAN THAT POINT BE SEEN FROM THIS EYE? It is `restSeenFromLane`'s ray with the origin moved from the
+-- beater's lane to a player's head: `RespectCanCollide = true` because this forest is mostly ferns
+-- and leaf cards a man sees straight through, the TERRAIN INCLUDED because a rise between the eye
+-- and the group hides the group, and a character is NOT a screen (`Data.characterOf`) -- a bot
+-- standing in the way is no reason to call a bed hidden.
+--
+-- THE OBSERVER'S OWN BODY IS EXCLUDED, which `restSeenFromLane` has no need of: this ray STARTS
+-- inside a head, so without it a hat would hide the whole wood from its wearer.
+function ForestTest.seenFromEye(from: Vector3, to: Vector3, own: Instance?): boolean
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local ignore = {}
+	local boars = Workspace:FindFirstChild("Boars")
+	if boars then
+		table.insert(ignore, boars)
+	end
+	if own ~= nil then
+		table.insert(ignore, own)
+	end
+	params.FilterDescendantsInstances = ignore
+	params.RespectCanCollide = true
+	params.IgnoreWater = true
+	local hit = Workspace:Raycast(from, to - from, params)
+	return hit == nil or Data.characterOf(hit.Instance) ~= nil
+end
+
+-- IS THIS BED OUT OF EVERY PLAYER'S VIEW? (design 6.1). Two halves, and the ORDER IS THE BUDGET:
+-- the distance half is pure arithmetic (`Placement.clearOfEyes`, one call per eye so the refusal can
+-- name the player), and only a spot that passes it costs a ray -- one per player, once per
+-- materialise attempt, never once per ring candidate (design 6.2: rays per step <= #Players).
+--
+-- IT IS A REFUSAL AND NOT A CORRECTION (must-not 2): a bed in view is not moved closer or nudged,
+-- the attempt fails and `stepPlacement` counts it.
+function ForestTest.bedHidden(spot: Vector3, eyes: any?): (boolean, string?)
+	local watchers = eyes or ForestTest.eyes()
+	local never = Placement.neverStuds(Data.SPOOK)
+	for _, eye in ipairs(watchers) do
+		local clear, nearest = Placement.clearOfEyes(spot, { eye.at }, never)
+		if not clear then
+			return false, string.format("within %.0f studs of %s (%.0f)", never, eye.name, nearest)
+		end
+	end
+	local target = spot + Vector3.new(0, Data.REST.sightTargetStuds or 0, 0)
+	for _, eye in ipairs(watchers) do
+		state.placementRays += 1
+		if ForestTest.seenFromEye(eye.at, target, eye.character) then
+			return false, string.format("in sight of %s", eye.name)
+		end
+	end
+	return true, nil
+end
+
 -- WHERE THIS GROUP'S BED ACTUALLY IS: on the ground, in cover, and clear of every bed already laid.
 --
 -- IT IS `ForestTest.restSpot`, THE ONE SEARCHER THIS WORLD HAS -- the ring search, the trunk gap, the
@@ -2130,10 +2209,11 @@ end
 -- (`Placement.searchBand`). The gap between beds is then checked against the roster, because the
 -- searcher knows about beaters and trunks and nothing about the twelve other groups of this drive.
 --
--- T3 ADDS THE RAY (`bedHidden`). Until then the only thing keeping a bed out of a player's view is
--- the band's near edge, 150 studs (`Placement.CONFIG.bandNearStuds`), plus `restSpot`'s own
--- preference for a spot its own lane can see into. Said here so nobody reads T2 as the guarantee.
-function ForestTest.bedSpot(row: any): Vector3?
+-- ...AND SINCE T3 IT IS ALSO OUT OF EVERY PLAYER'S VIEW (`bedHidden`). The band's near edge, 150
+-- studs, is the arithmetic half of that guarantee and the ray is the measured half; the reason comes
+-- back so `stepPlacement` can tell "the wood had no room" (`nobed`, a fact about the wood that ends
+-- this group's drive) from "somebody was looking at it" (`inview`, a fact about this instant).
+function ForestTest.bedSpot(row: any): (Vector3?, string?, string?)
 	local band = Placement.searchBand(row.bedNorth, row.bedOffsetX, row.laneOffset, Data.REST, Placement.CONFIG)
 	state.placementSearches += 1
 	local at = ForestTest.restSpot(
@@ -2142,12 +2222,16 @@ function ForestTest.bedSpot(row: any): Vector3?
 		band
 	)
 	if at == nil then
-		return nil
+		return nil, "nobed", nil
 	end
 	if not Placement.gapOk(state.roster, at, Placement.bedGapStuds(Data.SPOOK)) then
-		return nil
+		return nil, "nobed", "within the bed gap of a bed already laid"
 	end
-	return at
+	local hidden, why = ForestTest.bedHidden(at)
+	if not hidden then
+		return nil, "inview", why
+	end
+	return at, nil, nil
 end
 
 -- A RECORD GETS A BODY. Returns false and the reason, which is a `SkipReason` or "runtime".
@@ -2175,9 +2259,9 @@ function ForestTest.materialise(row: any, now: number): (boolean, string?, strin
 	if runtime:count() + size > ceiling then
 		return false, "budget", "ceiling"
 	end
-	local at = ForestTest.bedSpot(row)
+	local at, refused, why = ForestTest.bedSpot(row)
 	if at == nil then
-		return false, "nobed", nil
+		return false, refused or "nobed", why
 	end
 	-- THE SAME TWO CALLS `stockWood` MAKES, and for the same reason: a composition IS the size and
 	-- the kinds (`Runtime:spawnSounder` asks `Boar.compositionSize` and `Boar.sounderKinds` itself),
@@ -2199,6 +2283,28 @@ function ForestTest.materialise(row: any, now: number): (boolean, string?, strin
 	row.state = "bedded"
 	row.beddedAt = now
 	state.released += #ids
+	-- THE AUDIT, OVER THE BODIES THAT WERE REALLY MADE (design 12.2: *spawns in view of a player =
+	-- 0*). `bedHidden` tested ONE point; `spawnSounder` spreads the group over `bedSpreadStuds` 40,
+	-- so a member can land 20 studs nearer an eye than the point that passed -- which is exactly
+	-- why `neverStuds` carries `bedSpreadStuds / 2`. Distance only, so it costs no ray and the
+	-- budget of design 6.2 is unchanged, and it is counted where the body appears rather than where
+	-- the plan hoped it would.
+	local eyes = ForestTest.eyes()
+	if #eyes > 0 then
+		local never = Placement.neverStuds(Data.SPOOK)
+		for _, id in ipairs(ids) do
+			local status = runtime:statusOf(id)
+			local where = status and status.position
+			if typeof(where) == "Vector3" then
+				for _, eye in ipairs(eyes) do
+					if not Placement.clearOfEyes(where :: Vector3, { eye.at }, never) then
+						state.placementInView += 1
+						break
+					end
+				end
+			end
+		end
+	end
 	return true, nil, nil
 end
 
@@ -2778,6 +2884,8 @@ local function promote(name: string, source: string)
 	state.rosterDrive = nil
 	state.placementSkips = {}
 	state.placementSearches = 0
+	state.placementRays = 0
+	state.placementInView = 0
 	print(
 		string.format(
 			"[ForestTest] layout=%s (%s): %d stands %d apart, centre (%d, %d), exit %d",
@@ -2908,7 +3016,7 @@ function ForestTest.placementReport(): { string }
 		ServerStorage:SetAttribute(
 			"DHForestPlacement",
 			string.format(
-				"drive=%s placed=%d bedded=%d awake=%d gone=%d skipped=%d animals=%d bodies=%d searches=%d",
+				"drive=%s placed=%d bedded=%d awake=%d gone=%d skipped=%d animals=%d bodies=%d searches=%d rays=%d inView=%d",
 				tostring(stats.drive),
 				stats.placed,
 				stats.groupsBedded,
@@ -2917,18 +3025,22 @@ function ForestTest.placementReport(): { string }
 				stats.skipped,
 				stats.animals,
 				stats.bedded,
-				stats.searches
+				stats.searches,
+				stats.rays,
+				stats.inView
 			)
 		)
 	end
 	return {
 		string.format(
-			"drive %s: %s (%d animals placed, %d bedded bodies, %d searches, skips %s)",
+			"drive %s: %s (%d animals placed, %d bedded bodies, %d searches, %d rays, %d in view, skips %s)",
 			tostring(stats.drive),
 			Placement.line(state.roster),
 			stats.animals,
 			stats.bedded,
 			stats.searches,
+			stats.rays,
+			stats.inView,
 			if #skips > 0 then table.concat(skips, " ") else "none"
 		),
 	}
