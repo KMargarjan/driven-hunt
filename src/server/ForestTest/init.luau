@@ -1045,6 +1045,8 @@ end
 -- at `position.Z <= field.exitZ` and the last waypoint was 20 studs north of it.
 ForestTest.EXIT_PAST_STUDS = 10
 
+-- The `aim` argument is for a caller that was HANDED one (`releaseLine`, `orderGroup`); with none
+-- it reads this drive's latched frame, which ONE FRAME PER DRIVE makes the only frame there is.
 function ForestTest.driveZ(x: number, aim: { dz: number }?): number
 	return Data.roadZ(x, chosen.layout) + (aim or state.aim).dz
 end
