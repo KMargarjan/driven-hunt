@@ -1,3 +1,38 @@
+## 2026-11-11 ~11:58 UTC, Task 348 -- FOR THE DIRECTOR: **`test2` DOES NOT PASS AT THE CODE COMMIT, AND THE DEFECT IS NOT THIS BRANCH'S.** THE MERGE GATE IS BLOCKED BY A SPEC THIS TASK DOES NOT TOUCH
+
+Written at the hard stop (V280). Task 348 changes `src/server/Match/init.luau`, which is in
+`TWO_PLAYER_PATHS`, so the PR to `main` needs a clean-tree `[harness2] PASS` for code commit
+`66de5029`. **It cannot be produced.**
+
+`python tools/studio_mcp.py test2` at `66de5029`, clean tree: **34/36**. One server spec errors:
+
+    TestService: ServerScriptService.ForestTest:2743: attempt to call a nil value
+    ServerScriptService.ForestTest:2743 function spookNearBeaters
+    ServerScriptService.ForestTest:3470 function step
+    ServerStorage.Tests.forest_placement.spec:1310
+    [tests:server] FAIL: 2944 passed, 1 failed, 0 skipped, 1 errors, 82 spec files
+
+**WHY IT ONLY BITES WITH TWO PLAYERS.** `spookNearBeaters` is gated on
+`#ForestTest.realBeaters() > 0`. With one player there is no beater, the loop is never entered, and
+the one-player run at the same commit is **34/34 with that spec green**. With a second player on
+`Drivers` the loop runs, and `forest_placement.spec`'s `stubRuntime()` builds its `boars()` handles
+as `table.insert(out, { id = id })` -- **no `position` field** -- while line 2743 does
+`local at = handle.position()`.
+
+**IT IS NOT THIS BRANCH'S.** The Reviewer checked it independently (`reviews/task-348/RESULT.md`):
+*"The stub and the call are both in the base, and this diff changes three files, none of them
+`ForestTest`. So it predates the branch."* This branch touches `src/server/Match/init.luau`,
+`tests/server/match_stand_pick.spec.luau` and paperwork.
+
+**WHAT I DID NOT DO, and why it matters.** I did **not** run a control `test2` at the merge base
+`0c1dd2ac`, so the claim above rests on reading plus the one-player result, not on a second run.
+Doing it costs one branch switch, one Rojo reconnect and one `test2` (~15 min). I spent that time on
+the Forest Test before/after proof of Karen's bug instead, which was the dispatch's first ask.
+
+**THE DECISION IS THE DIRECTOR'S:** run the control at `0c1dd2ac` and, if it fails there too, fix
+`forest_placement.spec`'s stub (or `spookNearBeaters`' tolerance of a handle with no `position`) as
+its own task, then merge 348. Queued in `TASKS.md` as 348-notes (d).
+
 ## 2026-11-11 ~02:05 UTC, Task 345b (T2) -- FOR THE DIRECTOR: **NOBODY CAN TAKE A FRAME OF AN ANIMAL AWAY FROM THE STAND.** BOTH ROUTES ARE CLOSED FROM THE SERVER, MEASURED. THIS IS A ROUTE-FIX TASK, NOT A 345b FIX
 
 Written at the hard stop (V280, L-150: the frame route has now failed twice and this is the last
