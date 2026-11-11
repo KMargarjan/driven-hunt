@@ -333,16 +333,29 @@ function Placement.wakeReason(row: any, elapsed: number, frontNorth: number?, no
 	return nil
 end
 
--- IS THIS GROUP ALREADY STANDING IN THE WOOD? THE BRIDGE'S WHOLE RULE (design 17's T2 row), named
--- here so it is one answer and a spec can drive it: a row with bodies on their feet is lying in its
--- bed and the line is what finds it, so its slot releases nothing. Everything else -- a silence, a
--- record the budget refused, a group the wood refused, a group that has gone -- is a HOLE, and
--- `ForestTest.releaseLine` still fills it the old way until T4.
+-- IS THIS GROUP ALREADY STANDING IN THE WOOD? A row with bodies on their feet is lying in its bed
+-- and the line is what finds it.
 function Placement.alreadyInTheWood(row: any): boolean
 	if type(row) ~= "table" or row.skipped ~= nil or row.state == "gone" then
 		return false
 	end
 	return #(row.ids or {}) > 0
+end
+
+-- THE BRIDGE'S WHOLE RULE (design 17's T2 row), named here so it is one answer and a spec can drive
+-- it: **the only hole `ForestTest.releaseLine` still fills is one the WOOD refused.**
+--
+-- A GROUP THE **BUDGET** REFUSED MUST NOT BE RELEASED, and that is measured rather than argued.
+-- `345b-ON3-C1-track.txt`, one live drive at C1: the bridge released every group the live cap had
+-- just refused a bed to, which put **31 bodies against a `LIVE_CAP` of 24** -- and those bodies then
+-- refused the NEXT group's bed, so the two doors fed each other: 7 of 13 groups skipped and **6 ring
+-- searches spent in a whole drive**. A budget refusal is the world saying "there is no room for a
+-- body right now"; a second door past it is not a bridge, it is the bug the cap exists to stop.
+--
+-- A record still waiting for room is therefore the ROSTER's, and it comes out at its own bed when
+-- the room appears. T4 retires this function with the spawn half it guards.
+function Placement.bridgeMustRelease(row: any): boolean
+	return type(row) == "table" and row.skipped == "nobed"
 end
 
 -- IS THIS SPOT CLEAR OF EVERY BED ALREADY LAID? 3-D, over the beds that still count: a skipped row

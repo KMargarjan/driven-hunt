@@ -608,6 +608,14 @@ return function()
 			expect(Placement.alreadyInTheWood({ state = "gone", ids = { "Boar1" } })).to.equal(false)
 			-- ...AND NEITHER IS ONE THE WOOD REFUSED.
 			expect(Placement.alreadyInTheWood({ state = "record", ids = {}, skipped = "nobed" })).to.equal(false)
+			-- ...AND THE BRIDGE FILLS ONLY THE HOLE THE **WOOD** REFUSED. Delete the `== "nobed"`
+			-- test and `releaseLine` releases every group the live cap had just refused a bed to,
+			-- which measured 31 bodies against a `LIVE_CAP` of 24 (`345b-ON3-C1`).
+			expect(Placement.bridgeMustRelease({ state = "record", ids = {}, skipped = "nobed" })).to.equal(true)
+			expect(Placement.bridgeMustRelease({ state = "record", ids = {}, skipped = "budget" })).to.equal(false)
+			expect(Placement.bridgeMustRelease({ state = "record", ids = {} })).to.equal(false)
+			expect(Placement.bridgeMustRelease({ state = "bedded", ids = { "Boar1" } })).to.equal(false)
+			expect(Placement.bridgeMustRelease(nil)).to.equal(false)
 		end)
 
 		it("steps nothing while the switch is off", function()

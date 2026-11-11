@@ -3540,11 +3540,12 @@ function ForestTest.releaseLine(now: number, staged: any?): string?
 	-- be there then it spooked"*. A STAGED row is never in the roster (it has no slot), so the
 	-- Director's instrument is untouched.
 	--
-	-- A SLOT WHOSE ROW HAS **NO** BODY IS STILL SPAWNED BELOW, exactly as before this task: a group
-	-- the budget or the wood refused is a hole, and a drive with a hole in it is still a drive. T4
-	-- replaces this half with `orderGroup`, which orders the bodies that already exist.
+	-- THE ONE HOLE IT STILL FILLS IS ONE THE **WOOD** REFUSED (`Placement.bridgeMustRelease`): a
+	-- group with no legal bed in its own band. A group the BUDGET refused is NOT released here --
+	-- measured, `345b-ON3-C1`: that put 31 bodies against a `LIVE_CAP` of 24 and those bodies then
+	-- refused the next group's bed. T4 replaces this half with `orderGroup`.
 	local inRoster = if staged == nil and ForestTest.placementInPlace() then ForestTest.rosterSlot(slot) else nil
-	if Placement.alreadyInTheWood(inRoster) then
+	if inRoster ~= nil and not Placement.bridgeMustRelease(inRoster) then
 		-- ...AND THE DRIVE'S DEER IS STILL SPENT BY THE DRIVE'S DEER (task 239's latch), because what
 		-- `stats().deerDone` is read for is *"this drive's deer group is out"* and it is: it is lying
 		-- in the wood.
@@ -3552,13 +3553,14 @@ function ForestTest.releaseLine(now: number, staged: any?): string?
 			state.deerDone = true
 		end
 		return string.format(
-			"line %d: SLOT %d act %d %s -- ALREADY IN THE WOOD since the plan: %d animal(s) %s at dz %.0f -- %s",
+			"line %d: SLOT %d act %d %s -- THE ROSTER'S: %d animal(s) %s%s at dz %.0f, the line finds it -- %s",
 			state.waveIndex,
 			slot,
 			row.act or 0,
 			tostring(Data.slotRoute(row)),
-			#inRoster.ids,
+			#(inRoster.ids or {}),
 			inRoster.state,
+			if inRoster.skipped ~= nil then " (skipped: " .. tostring(inRoster.skipped) .. ")" else "",
 			inRoster.bedNorth,
 			row.note or "--"
 		)
