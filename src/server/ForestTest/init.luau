@@ -3399,6 +3399,11 @@ end
 
 function ForestTest.start(runtime, now: number)
 	state.runtime = runtime
+	-- A FRESH SESSION HAS NO DRIVE AIM YET (task 349 r2), so the field it starts with is the
+	-- main road's. Without this reset a new runtime inherits the LAST drive's shift and every
+	-- animal it spawns is judged against a road hundreds of studs from where it stands.
+	state.aim = { x = ForestTest.hunterStandX(), dz = 0, why = "off" }
+	state.aimSettled = false
 	-- THE FIELD THE CHOSEN LAYOUT NEEDS, AND THIS IS THE FIRST DRIVE'S ONLY CHANCE AT IT (round 1,
 	-- finding 2). `promote` swaps the field on the runtime, but the FIRST deal happens inside
 	-- `Match.start`'s own first marker read -- which the boot runs BEFORE this function, so
@@ -3410,7 +3415,7 @@ function ForestTest.start(runtime, now: number)
 	-- drive of a session no longer hits that case -- but the call stays, because a FORCED first
 	-- drive (`DHForestLayout = ride`) still does, and because the second drive onwards always did.
 	-- Task 179's finding was that the swap was skipped, not that it was skipped only once.
-	ForestTest.applyField(runtime)
+	ForestTest.applyField(runtime, 0)
 	state.started = true
 	state.startedAt = now
 	state.waveIndex = 0
