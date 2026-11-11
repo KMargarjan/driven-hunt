@@ -3825,3 +3825,10 @@ drive total (80 shown against 114 on the wire): late in the drive the escapes ar
 **The Director's decision, not mine:** whether ~130 released / ~110 escaped per drive is the drive
 Karen wants (that is drive density, which this task's NOT YOURS list puts outside it), and whether a
 "got away" line is worth drawing at all for an animal that crossed 400 m from the stand.
+
+## Director, 2026-11-11 ~01:45 UTC -- Task 345b: deviations 4 and 5 DECIDED, round 3 AUTHORISED
+
+- **Deviation 5, `Placement.CONFIG.bedCap` 12 -> 18: ACCEPTED, as a change to D-1.** D-1's binding line is "at most 24 bodies". The "at most 12 bedded" sub-line was the Architect's estimate before anyone had measured a bedded body. Task 345b measured it in Karen's FT: bedded 0.273 ms/animal against running 0.227 ms/animal, so a bedded body costs about the same as a running one. The cap that buys the budget is `LIVE_CAP` 24, and it held at exactly 24 (ON peak live 24, parts 438, against OFF 34 / 608). At 12, 6 of 13 C1 groups were refused. This entry supersedes the "<= 12" rows in the design's sections 5.2 and 16; the Architect updates them at T5's budget restatement.
+- **Deviation 4, the bridge holds a budget-refused slot: ACCEPTED.** It is what keeps live bodies at 24 instead of the design's measured 39.
+- **Heartbeat p95** is over 32 ms on both sides (OFF 32.38, ON 33.18). This change did not cause it; T5 restates and measures it. REQUEST claim 9 must say "breached on both sides", not "holds".
+- **Round 3 AUTHORISED** for task 345b (`DIRECTOR_MAX_ROUNDS=3`), within MAX_ROUNDS 3. Round 3 must also fix the round-2 note on `stepPlacement`: when a row goes `gone`, clear `row.ids` (or key `releaseLine`'s arms on live bodies), so "the line finds it" is never printed for a group with no body. Also declare `state.latched`.
