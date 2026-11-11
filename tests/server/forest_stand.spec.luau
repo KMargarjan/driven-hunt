@@ -240,6 +240,98 @@ return function()
 			expect(worst > 0).to.equal(true)
 		end)
 
+		-- TASK 349 ROUND 3, DECISIONS 1 AND 2: WITH THE FLAG OFF THIS IS TODAY'S DRIVE.
+		--
+		-- Round 2's finding: `settleAim` latched on `why == "off"`, so `releaseLine`, `orderGroup`
+		-- and `roarPoint` read a frozen `aim.x` where they used to read `hunterStandX()` live -- a
+		-- pick changed mid-drive no longer aimed that drive. And `aimAcross` was non-zero with no
+		-- aim, so the field's box was widened on the OFF path too.
+		--
+		-- IT DRIVES THE PLAYER'S PATH: a real player's pick is MOVED between two reads.
+		it("with the flag off, a pick changed mid-drive still aims the very next release", function()
+			local player = game:GetService("Players"):GetPlayers()[1]
+			if player == nil then
+				TestKit.note("NOT COUNTED: no player in this session, and the locked-pick path needs one")
+				return
+			end
+			local captured = nil
+			local fake = {
+				setField = function(_self, field)
+					captured = field
+				end,
+				clear = function() end,
+				count = function()
+					return 0
+				end,
+				capacity = function()
+					return Data.MAX_BOARS
+				end,
+				liveCount = function()
+					return 0
+				end,
+				boars = function()
+					return {}
+				end,
+			}
+			ForestTest.layoutForDrive(1, "c1")
+			ForestTest.start(fake, 0)
+			local layout = ForestTest.layout()
+			ForestTest.clearPick(player.UserId)
+			ForestTest.newDrive(0)
+
+			-- lock stand 2, read the aim, then RE-PICK stand 6 and read it again
+			ForestTest.lockPick(player.UserId, Data.standPosition(2, layout), 1, 2)
+			local first = select(1, ForestTest.settleAim(false))
+			expect(ForestTest.aimStandX(first)).to.equal(Data.standX(2, layout))
+			expect(select(2, ForestTest.settleAim(false))).to.equal(false) -- OFF never latches
+			ForestTest.clearPick(player.UserId)
+			ForestTest.lockPick(player.UserId, Data.standPosition(6, layout), 2, 6)
+			local second = select(1, ForestTest.settleAim(false))
+			-- THE NEXT RELEASE FOLLOWS THE NEW STAND, which is what main does.
+			expect(ForestTest.aimStandX(second)).to.equal(Data.standX(6, layout))
+			expect(second.dz).to.equal(0)
+			expect(ForestTest.aimAcross(second)).to.equal(0)
+			-- ...AND THE BOX IS THE UNAIMED ONE, exactly.
+			local plain = Data.fieldFor(layout)
+			expect(captured ~= nil).to.equal(true)
+			for _, key in ipairs({ "minX", "maxX", "minZ", "maxZ" }) do
+				expect((captured :: any).bounds[key]).to.equal((plain.bounds :: any)[key])
+			end
+			expect((captured :: any).exitZ).to.equal(plain.exitZ)
+			ForestTest.clearPick(player.UserId)
+			TestKit.note(
+				string.format(
+					"off: stand 2 -> 6 followed live, box unmoved at %.0f..%.0f",
+					(captured :: any).bounds.minX,
+					(captured :: any).bounds.maxX
+				)
+			)
+		end)
+
+		-- DECISION 3: THE BED GENERATOR STANDS IN THE FRAME ITS GATE MEASURES.
+		-- Round 2's finding: `restPoint` built candidates on the main road while `restSpot` measured
+		-- them with `driveZ`, so with the aim ON every ring of every pass was refused.
+		it("generates a bed in the same frame it judges it in", function()
+			local layout = Data.layoutOf("C1") :: any
+			if layout == nil then
+				TestKit.note("C1 is not a cell in this build")
+				return
+			end
+			local spec = { offsetX = 0, laneOffset = 0, northStuds = 150 }
+			local shift = 975
+			local plain = Data.restPoint(-3900, spec, 0, 0, layout, 0)
+			local moved = Data.restPoint(-3900, spec, 0, 0, layout, shift)
+			expect(math.abs((moved.Z - plain.Z) - shift) < 1e-6).to.equal(true)
+			-- THE GATE'S OWN ARITHMETIC: depth measured off the SAME shifted road is the row's own
+			-- `northStuds`, so the band accepts it. With the generator left on the main road it
+			-- would read `northStuds - shift` and no band of any row could hold it.
+			local inFrame = moved.Z - (Data.roadZ(moved.X, layout) + shift)
+			expect(math.abs(inFrame - 150) < 1e-6).to.equal(true)
+			local mixed = plain.Z - (Data.roadZ(plain.X, layout) + shift)
+			expect(math.abs(mixed - (150 - shift)) < 1e-6).to.equal(true)
+			TestKit.note(string.format("bed depth in frame %.0f, mixed frames %.0f", inFrame, mixed))
+		end)
+
 		-- THE ROSTER RULE (Director decision 4), as the pure rule it is. The LIVE two-player branch
 		-- -- two real Players with locked picks on different frames -- cannot be reached by a
 		-- one-player harness; `src/server/ForestTest/` is not in `TWO_PLAYER_PATHS`, so this is said
@@ -252,7 +344,9 @@ return function()
 			expect(Data.rosterAim({ west }, true).dz).to.equal(975)
 			-- two on the SAME frame still aim at it
 			expect(Data.rosterAim({ west, { x = -4504, dz = 975, who = "C@11" } }, true).dz).to.equal(975)
-			-- ...and two on DIFFERENT frames go back to the main road, naming them both
+			-- ...and two on DIFFERENT frames go back to the main road, naming them both. THIS PAIR
+			-- IS THE LINE THAT BITES: the three-frame case above survives deleting the split arm,
+			-- because its first entry is already the main-road frame (round 2 note).
 			-- THE ODD ONE OUT IN THE MIDDLE: every name is in the line, not just the ones before it.
 			local three = Data.rosterAim({ main, west, { x = -3754, dz = 0, who = "D@5" } }, true)
 			expect(three.dz).to.equal(0)
