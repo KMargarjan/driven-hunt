@@ -3,7 +3,7 @@
 Task: 349
 Round: 2
 Base: 6fa59255 (origin/main, #365)
-Code commit: PENDING
+Code commit: f4e7962d81034ab428d1bce3e7e179250d743fad
 
 ## PLAN (Core Quality Protocol step 0, committed before any `src/` edit)
 
@@ -96,3 +96,79 @@ Round 1 shifted the START but not the EXIT, so every route ran from dz ~1100 to 
 plane ~1000 studs south. I expect that to be why the flank drive released 72 where the main line
 released 121, and I expect the named arms to say `no route could be drawn` if I am right. If the
 AFTER run shows the count restored without those lines, my explanation was wrong and I will say so.
+
+## MEASURED, on her Forest Test, C1, hunter, stands picked by REAL clicks on the map
+
+```
+[harness] PASS: 34/34 checks @ f4e7962d81034ab428d1bce3e7e179250d743fad (clean tree) scope=all
+```
+`test2`: N/A -- no changed file is in `TWO_PLAYER_PATHS`.
+
+One drive each, 299 s, same instrument (`<runs-dir>/349-arm.luau`, 1 Hz: an animal counts when it
+is within 120 studs of her stand AND the ray from her own eye to it is unobstructed).
+
+| run | commit | stand | in view | worst gap | released | peak live | step avg | escaped | outOfBounds |
+|---|---|---|---|---|---|---|---|---|---|
+| `B11` OFF | 6fa59255 | 11 corner | **0 of 290** | -- (never) | 120 | 35 | -- | -- | -- |
+| `A11d` ON | f4e7962d | 11 corner | **212 of 304** | none > 20 s | 121 | 28 | 3.294 | 105 | 0 |
+| `A4` ON | f4e7962d | 4 central | first at 2 s | none > 20 s | 121 | 33 | 3.618 | 112 | 0 |
+
+**THREE CYCLES ON HER PATH, each one a live drive at its own commit (core protocol step 2):**
+
+| cycle | commit | change | corner stand measured | distance to target |
+|---|---|---|---|---|
+| 1 | c6d6e7a2 | one frame per drive, latched at the first release | `minD` 1112 studs, `drive aimed: dz +0, nobody locked`, 0 in view | inert: the latch fired before the pick locked |
+| 2 | 03b279ee | "nobody locked" is a not-yet; field box translated | frame taken from her eye, but `released` 72, `outOfBounds` 101 | band culled by the field's box |
+| 3 | f4e7962d | box unioned ACROSS as well as along | 212 of 304 in view, `released` 121, `outOfBounds` 0, `escaped` 105 | **met** |
+
+Cycle 1 was found by the diagnostic line this round added (`drive aimed:`); cycle 2 by
+`DespawnByReason`, which the instrument now reads.
+
+## Claims
+
+1. **The corner stand went from nothing to a drive.** `B11-track.txt` line 1: `near=0` on every row
+   of 290. `A11d-track.txt`: 212 of 304 rows carry a visible animal, `minD` reaching 26 studs, and
+   `349-gaps.py A11d:9` reports no gap over 20 s. Target was <= 40 s.
+2. **Nothing can escape on an unaimed flank drive, and now 105 do.** Round 1: `escaped` absent.
+   `A11d` `fate=escaped=105` with `outOfBounds=0`. The lever is `Data.fieldFor`'s `exitZ`.
+3. **The flank drive is the same drive, translated.** `released` 121 against the main line's 121
+   (0%), `escaped` 105 against 112 (-6%), `step avg` 3.294 against 3.618 (-9%, cost DOWN).
+   **`peak live` 28 against 33 is -15% and misses the dispatch's 10%** -- in the direction of less
+   load, and reported rather than rounded.
+4. **The field's box is a union, not a translation, on BOTH axes, and both halves were measured.**
+   Translating z culled the groups released before she locks (114 in a drive); leaving x alone
+   culled the whole aimed band, because a flank stand is 604 studs outside the main line's box
+   (101 in a drive). `forest_stand.spec` asserts the stand is inside its own drive's box and that
+   the main road stays inside it.
+5. **A pick locked after the first slot still aims its own drive.** The first slot is due at 10 s
+   and the pick window is 15 s, so latching at the first release latched `nobody locked`. The
+   invariant kept is the stronger one -- every animal is judged by the frame it was RELEASED into,
+   because a Brain is born with its field -- and the case asserts `settleAim` returns `latched=false`
+   while nobody is locked.
+6. **The case fails if the server wiring is deleted (L-093), run twice.** Deleting `lockedFrames`'
+   producer: `failed [server] forest_stand.spec:160` (`math.abs(on.dz - want) < 1e-6`). Deleting
+   `applyField`'s shift: `failed [server] forest_stand.spec:163` (the field's `road.zAt`). Both were
+   run, both reverted, tree clean.
+7. **The frame.** `<runs-dir>/A11d-sighting.png`, from stand 11's own eye (-4504.4, 133.7, -4087.3;
+   stand 11 is at -4504, -4087) at the instant the probe measured a hind 118 studs out with a clear
+   ray. I opened it: hunter's first-person view, shotgun barrel and glove bottom-left, long grass,
+   the yellow verge, two tracks running north, conifers either side; HUD `DRIVE 1 / 4:45 TIME /
+   0 ANIMALS / HUNTER`. **`A11d-left.png` is its left edge at 6x: four red deer walking across the
+   open under the treeline.** The hind the probe named is NOT identifiable at the frame centre --
+   a hind at a run covers ~20 studs in the second between the probe and the capture -- so the frame
+   is cited for what it shows: animals in front of her stand, which is the thing that was absent.
+
+## What I could not verify
+
+- **No OFF row at the code commit for stands 4 and 7, and no ON row for stand 7.** The window in
+  her place opened at 21:30 and three of the four drives I could fit went into the three iteration
+  cycles. `B11` is at `6fa59255` and is labelled with it (L-162); with the flag OFF the aim is 0 for
+  every stand and the released points are identical to that commit, but I did not re-measure it.
+- `neverNearAnyStand` 10 at the corner against 0 on the main line: a band translated onto one stand
+  passes hers and no other. Nobody has judged whether that reads as emptier elsewhere.
+- **`urgeAcrossRoad` and `checkAtTheEdge` do not run in today's game** (`ForestTest.step` returns
+  inside the `LINE.enabled == true` branch). They are aimed; nothing here makes them live.
+- The roster SPLIT branch is proven as the pure rule only. Two real Players with locked picks on
+  different frames cannot be reached by a one-player harness, and `src/server/ForestTest/` is not in
+  `TWO_PLAYER_PATHS`. Said here rather than assumed (L-137/L-158): adding it is the Director's call.
+- Karen has not played it. The flag is OFF in her Forest Test.
