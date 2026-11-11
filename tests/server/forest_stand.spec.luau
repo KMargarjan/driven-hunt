@@ -110,10 +110,16 @@ return function()
 				local off = Data.aimFrame(Data.standX(index, layout), at.Z, road, false)
 				-- OFF is the drive before task 349: no shift, whatever the stand is.
 				expect(off.dz).to.equal(0)
-				expect(math.abs(on.dz - (at.Z - road)) < 1e-6).to.equal(true)
+				local raw = at.Z - road
+				if math.abs(raw) >= Data.AIM_FLAT_STUDS then
+					expect(math.abs(on.dz - raw) < 1e-6).to.equal(true)
+				end
 				if Grid.sideOf("C1", index) == "main" then
-					-- A MAIN-LINE STAND IS ON THE ROAD, so its band does not move one stud.
-					expect(math.abs(on.dz) < 1e-3).to.equal(true)
+					-- A MAIN-LINE STAND IS ON THE ROAD, so its band does not move AT ALL -- exactly
+					-- 0, not nearly 0. `releaseLine` compares `aim.dz == 0` to decide whether the
+					-- beater-line clamp still applies, and a thousandth of a stud there cost the
+					-- main line its clamp and 25 s of its worst gap before `AIM_FLAT_STUDS` existed.
+					expect(on.dz).to.equal(0)
 					flat += 1
 				else
 					-- A FLANK STAND IS HUNDREDS OF STUDS OFF IT, and that distance is the defect.

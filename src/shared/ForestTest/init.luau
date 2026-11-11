@@ -456,6 +456,14 @@ end
 --
 -- OFF (`enabled = false`) IS EXACTLY THE DRIVE BEFORE THIS TASK: the clamped x, and no shift.
 -- Flag: `DRIVE_AIMS_AT_PICKED_STAND`. Design: docs/design/forest-drive.md section 7.
+-- A SHIFT UNDER ONE STUD IS NO SHIFT, AND IT IS SNAPPED HERE rather than compared at the call site.
+-- MEASURED (task 349, C1): a main-line stand's z is the road's to within a thousandth of a stud but
+-- not to the bit, so `aim.dz == 0` in `releaseLine` was FALSE for it -- which silently dropped the
+-- beater-line clamp on the main line and lengthened its worst sighting gap from 24 s to 49 s at
+-- stand 4 and 26 s to 57 s at stand 7. Snapping makes "a main-line drive does not move" true by
+-- construction instead of true by luck, and one stud is nothing against the clamp's 130-stud lead.
+ForestTest.AIM_FLAT_STUDS = 1
+
 function ForestTest.aimFrame(
 	standX: number,
 	standZ: number?,
@@ -465,7 +473,11 @@ function ForestTest.aimFrame(
 	if enabled ~= true or standZ == nil or roadZAtStand == nil then
 		return { x = standX, dz = 0 }
 	end
-	return { x = standX, dz = standZ - roadZAtStand }
+	local dz = standZ - roadZAtStand
+	if math.abs(dz) < ForestTest.AIM_FLAT_STUDS then
+		dz = 0
+	end
+	return { x = standX, dz = dz }
 end
 
 -- THE HUNTER LINE. Karen: *"hunter line just a hunter no treestand anything"* -- so a stand here is
