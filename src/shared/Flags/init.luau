@@ -262,19 +262,6 @@ Flags.DEFAULTS = {
 	-- SOLO ON THE WHOLE RANGE (task 313). KAREN, 2026-10-30, after playing: *"when I click E it
 	-- will make that I am alone in all shooting range and then we can test all way running waling
 	-- ect animal, now is to short for one specific stand"*.
-	DRIVE_AIMS_AT_PICKED_STAND = {
-		default = false,
-		owner = "ServerScriptService.ForestTest",
-		born = "2026-11-11 task 349",
-		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
-		expires = "2026-12-02",
-		why = "The drive is built around the stand she LOCKED, in x and in z, instead of around a "
-			.. "point clamped onto the main line. MEASURED on C1 (2026-11-11, before): a hunter on "
-			.. "west-flank stand 11 had 0 animals inside 120 studs in a whole 299 s drive out of "
-			.. "120 released, because every release and every crossing is built on the MAIN road's "
-			.. "z and her stand is 975 studs north of it. OFF is exactly the drive before task 349 "
-			.. "-- main-line stands are unchanged either way, since their shift is 0.",
-	} :: FlagRow,
 	RANGE_SOLO = {
 		default = false,
 		owner = "ServerScriptService.Range",
@@ -286,6 +273,26 @@ Flags.DEFAULTS = {
 			.. "2.96-6.50 s at run instead of 1.50), and every other player's body is hidden for "
 			.. "him. OFF is exactly the game before task 313 -- the window is his own mat +- 18, "
 			.. "the leg is 76 studs, and nobody is hidden.",
+	} :: FlagRow,
+	DRIVE_AIMS_AT_PICKED_STAND = {
+		default = false,
+		owner = "ServerScriptService.ForestTest",
+		born = "2026-11-11 task 349",
+		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
+		expires = "2026-12-02",
+		why = "The drive's RELEASES, crossings and exits are built around the stand she locked, in "
+			.. "x and in z, instead of around a point clamped onto the main line. MEASURED on C1 "
+			.. "(2026-11-11): a hunter on west-flank stand 11 had 0 animals inside 120 studs in a "
+			.. "whole 299 s drive out of 120 released; with this on, first sighting 15 s and median "
+			.. "gap 11 s. OFF is exactly the drive before task 349, and a main-line stand's shift "
+			.. "is snapped to 0, so stands 1-7 are identical either way with ONE hunter. "
+			.. "**IT MAY NOT BE SWITCHED ON YET** (review round 1, 2026-11-11): only the release "
+			.. "frame moves. The animals' owner still gets the MAIN road in `fieldFor`, so on a "
+			.. "flank drive nothing can report `escaped` and every animal is despawned as "
+			.. "`settled` 60 s after it stops being ordered -- 120 released became 72. "
+			.. "`orderGroup` (the `PLACEMENT_IN_PLACE` path) is not aimed at all, and `hunterAim` "
+			.. "takes the FIRST locked pick, so with a roster one flank hunter moves the band off "
+			.. "the road every other hunter is standing on. ESCALATE.md, 2026-11-11.",
 	} :: FlagRow,
 	STAND_PICK = {
 		default = false,
