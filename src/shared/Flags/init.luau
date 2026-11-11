@@ -252,6 +252,19 @@ Flags.DEFAULTS = {
 	-- SOLO ON THE WHOLE RANGE (task 313). KAREN, 2026-10-30, after playing: *"when I click E it
 	-- will make that I am alone in all shooting range and then we can test all way running waling
 	-- ect animal, now is to short for one specific stand"*.
+	DRIVE_AIMS_AT_PICKED_STAND = {
+		default = false,
+		owner = "ServerScriptService.ForestTest",
+		born = "2026-11-11 task 349",
+		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
+		expires = "2026-12-02",
+		why = "The drive is built around the stand she LOCKED, in x and in z, instead of around a "
+			.. "point clamped onto the main line. MEASURED on C1 (2026-11-11, before): a hunter on "
+			.. "west-flank stand 11 had 0 animals inside 120 studs in a whole 299 s drive out of "
+			.. "120 released, because every release and every crossing is built on the MAIN road's "
+			.. "z and her stand is 975 studs north of it. OFF is exactly the drive before task 349 "
+			.. "-- main-line stands are unchanged either way, since their shift is 0.",
+	} :: FlagRow,
 	RANGE_SOLO = {
 		default = false,
 		owner = "ServerScriptService.Range",

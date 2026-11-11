@@ -652,6 +652,7 @@ local state = {
 	-- times -- `layoutForDrive`'s own key, for its own reason.
 	rosterDrive = nil :: number?,
 	placementInPlace = false,
+	aimAtPickedStand = false,
 	-- HOW MANY GROUPS WERE REFUSED, BY REASON, AND HOW MANY RING SEARCHES WERE SPENT. A skip is a
 	-- hole in the wood and it is REPORTED, never hidden (design 4.3, must-not 11); `searches` is
 	-- beside it so a drive that reports no skips cannot be one that tested nothing (design 12.3).
@@ -983,6 +984,31 @@ function ForestTest.hunterStandX(): number
 	-- the first stand of the DEAL, so with nobody playing the waves are aimed at the stand the one
 	-- hunter is actually put on (task 327b round 3). On the road that is `defaultIndex` 5, unchanged.
 	return onLine(Data.standX(ForestTest.defaultPickIndex(), chosen.layout))
+end
+
+-- THE STAND SHE LOCKED, AS A POINT, UNCLAMPED -- or nil when nobody has locked one. `hunterStandX`
+-- above answers an x on the MAIN line (it has to: the beaters, the rest spots and the corridor are
+-- all main-line readers). This one is the stand itself, which is what the drive has to be aimed at.
+function ForestTest.lockedStandPoint(): Vector3?
+	for _, pick in pairs(state.picks) do
+		if pick.lockedAt ~= nil and pick.index <= chosen.layout.standCount then
+			return Data.standPosition(pick.index, chosen.layout)
+		end
+	end
+	return nil
+end
+
+-- WHERE THIS DRIVE IS AIMED. `Data.aimFrame` is the rule and it is pure; this reads the two live
+-- facts it needs -- the locked stand and the main road's z under it -- and the flag's value off the
+-- boundary above. With the flag OFF, or with nobody locked, it is `{ x = hunterStandX(), dz = 0 }`,
+-- which is the drive exactly as it was before task 349.
+function ForestTest.hunterAim(): { x: number, dz: number }
+	local standX = ForestTest.hunterStandX()
+	local point = if state.aimAtPickedStand then ForestTest.lockedStandPoint() else nil
+	if point == nil then
+		return Data.aimFrame(standX, nil, nil, false)
+	end
+	return Data.aimFrame(point.X, point.Z, Data.roadZ(point.X, chosen.layout), true)
 end
 
 -- RELEASES ONE WAVE. Returns how many animals it actually put on the ground, which is never assumed
@@ -3387,6 +3413,10 @@ function ForestTest.start(runtime, now: number)
 	-- and `stepPlacement(…, inPlace)` both take it, so both of its states are reachable from a spec
 	-- while the flag itself sits at one of them.
 	state.placementInPlace = Flags.isOn("PLACEMENT_IN_PLACE")
+	-- THE SAME SHAPE, ONE LINE DOWN (task 349): read once here, handed inward as the `enabled`
+	-- parameter of `Data.aimFrame`, so both of its states are reachable from a spec while the flag
+	-- itself sits at one of them.
+	state.aimAtPickedStand = Flags.isOn("DRIVE_AIMS_AT_PICKED_STAND")
 	-- ...AND IT OPENS THE FIRST DRIVE, WHICH IS WHAT BASES THE SLOT CLOCK (task 251 part 2). It used
 	-- to be set here as `now + intervalSeconds`; it is `newDrive`'s now, so a server start and a drive
 	-- boundary cannot put slot 1 at two different times.
@@ -3950,7 +3980,10 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): s
 	local boar = boarConfig()
 	local lineData = Data.LINE
 	local rng = state.rng
-	local standX = ForestTest.hunterStandX()
+	-- AIMED AT THE STAND SHE LOCKED (task 349). `aim.x` replaces the clamped `hunterStandX` and
+	-- `aim.dz` translates this drive's whole band onto her stand; both are 0 on the main line.
+	local aim = ForestTest.hunterAim()
+	local standX = aim.x
 
 	-- ---------------------------------------------------------------- THE SLOT (task 251)
 	--
@@ -4063,9 +4096,12 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): s
 	-- row's own depth, and `leadStuds` / `minNorthStuds` come from the same table the row came out of,
 	-- so one derived schedule decides the whole of a slot's depth.
 	local schedule = ForestTest.cellSchedule()
-	local lineNorth = if Data.clampedToLine(row) then ForestTest.lineNorthAt(nominal.X) else nil
+	-- A SHIFTED BAND IS NOT CLAMPED TO THE LINE: the beaters walk the MAIN band, so their depth
+	-- says nothing about a band translated onto a flank stand, and clamping to it would put every
+	-- row of such a drive on its `minNorthStuds` floor.
+	local lineNorth = if Data.clampedToLine(row) and aim.dz == 0 then ForestTest.lineNorthAt(nominal.X) else nil
 	local startNorth = Data.releaseDepth(row.northStuds, lineNorth, Data.routeFloor(row, schedule), schedule)
-	nominal = Vector3.new(nominal.X, nominal.Y, Data.roadZ(nominal.X, chosen.layout) + startNorth)
+	nominal = Vector3.new(nominal.X, nominal.Y, Data.roadZ(nominal.X, chosen.layout) + aim.dz + startNorth)
 	local start = Vector3.new(nominal.X, Data.groundAt(nominal.X, nominal.Z) or chosen.layout.centre.Y, nominal.Z)
 
 	-- WHERE IT CROSSES, and it is relative to the stand she locked (task 123 round 8). A
@@ -4074,7 +4110,7 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): s
 	local crossing = nil :: Vector3?
 	if type(offset) == "number" then
 		local crossX = standX + offset
-		crossing = Vector3.new(crossX, chosen.layout.centre.Y, Data.roadZ(crossX, chosen.layout))
+		crossing = Vector3.new(crossX, chosen.layout.centre.Y, Data.roadZ(crossX, chosen.layout) + aim.dz)
 	end
 	-- PAST THE DESPAWN LINE, NOT UP TO IT, and that was a measured bug: the route ended at
 	-- `EXIT_Z + 20`, which is twenty studs NORTH of the line `Brain:_outcome` despawns at -- so every
@@ -4083,7 +4119,7 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): s
 	-- long a 600-stud route takes. Ending ten studs PAST the line means the last thing they do is
 	-- cross it, which is Karen's *"once they in another side of road they run away"*.
 	local exitPoint = if crossing ~= nil
-		then Vector3.new((crossing :: Vector3).X, chosen.layout.centre.Y, Data.exitZOf(chosen.layout) - 10)
+		then Vector3.new((crossing :: Vector3).X, chosen.layout.centre.Y, Data.exitZOf(chosen.layout) + aim.dz - 10)
 		else nil
 
 	-- HOW MANY FILES, AND AT WHAT PACE -- both the row's, both read and neither drawn. What this task

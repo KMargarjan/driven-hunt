@@ -86,6 +86,46 @@ return function()
 			TestKit.note(string.format("archived: %s", table.concat(Data.LINE_PLACES, ", ")))
 		end)
 
+		-- TASK 349: THE DRIVE IS AIMED AT THE STAND SHE LOCKED.
+		--
+		-- MEASURED BEFORE THIS CASE EXISTED (C1, 2026-11-11): a hunter on west-flank stand 11 had 0
+		-- animals inside 120 studs in a whole 299 s drive out of 120 released, because the whole
+		-- band is built on the MAIN road's z and her stand is 975 studs north of it.
+		--
+		-- IT BITES WHEN THE LEVER IS DELETED (L-093): the shift IS `standZ - roadZ`, so a rule that
+		-- answered 0 -- which is what `releaseLine` did before, and what OFF still does -- fails the
+		-- flank half of this case. The main-line half is the other direction: a stand ON the road
+		-- shifts by 0 even with the lever on, which is why it is safe for every stand at once.
+		it("shifts the drive onto a flank stand and leaves a main-line stand where it was", function()
+			local layout = Data.layoutOf("C1") :: any
+			if layout == nil or layout.sides == nil then
+				TestKit.note("C1 is not a cell in this build: nothing to shift")
+				return
+			end
+			local shifted, flat = 0, 0
+			for index = 1, layout.standCount do
+				local at = Data.standPosition(index, layout)
+				local road = Data.roadZ(at.X, layout)
+				local on = Data.aimFrame(at.X, at.Z, road, true)
+				local off = Data.aimFrame(Data.standX(index, layout), at.Z, road, false)
+				-- OFF is the drive before task 349: no shift, whatever the stand is.
+				expect(off.dz).to.equal(0)
+				expect(math.abs(on.dz - (at.Z - road)) < 1e-6).to.equal(true)
+				if Grid.sideOf("C1", index) == "main" then
+					-- A MAIN-LINE STAND IS ON THE ROAD, so its band does not move one stud.
+					expect(math.abs(on.dz) < 1e-3).to.equal(true)
+					flat += 1
+				else
+					-- A FLANK STAND IS HUNDREDS OF STUDS OFF IT, and that distance is the defect.
+					expect(math.abs(on.dz) > 100).to.equal(true)
+					shifted += 1
+				end
+			end
+			expect(flat > 0).to.equal(true)
+			expect(shifted > 0).to.equal(true)
+			TestKit.note(string.format("C1: %d stands unmoved, %d shifted onto their own ground", flat, shifted))
+		end)
+
 		it("puts every layout's stands on its own line, sorted, at its own spacing", function()
 			-- **THE UNIFORM GRID IS A LINE PLACE'S PROPERTY (task 327d).** A grid cell's 15 stands sit
 			-- on THREE sides of it -- 7 on the main line at 150 and 4 on each flank at 220 -- so they

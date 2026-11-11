@@ -442,6 +442,32 @@ function ForestTest.exitZOf(layout: Layout?): number
 	return resolved.centre.Z - resolved.amplitudeStuds - ForestTest.EXIT_SOUTH_STUDS
 end
 
+-- WHERE THE DRIVE IS AIMED: the stand she LOCKED, as an x and a z SHIFT off the main road.
+--
+-- MEASURED, AND IT IS WHY THIS EXISTS (task 349, C1, 2026-11-11): a hunter on west-flank stand 11
+-- saw 0 animals inside 120 studs in a whole 299 s drive, out of 120 released. Every release and
+-- every crossing is built on the MAIN road's z (`roadZ`), and `hunterStandX` clamps a flank x onto
+-- the main line -- so the whole drive played 975 studs south of where she was standing.
+--
+-- THE SHIFT IS THE WHOLE RULE AND IT IS PURE. `dz` is how far her stand is north of the main road
+-- AT HER OWN x, so the drive's band keeps its shape and is translated onto her. A main-line stand
+-- sits on the road, so its shift is 0 and its drive does not move one stud -- which is what makes
+-- this safe to switch on for every stand at once.
+--
+-- OFF (`enabled = false`) IS EXACTLY THE DRIVE BEFORE THIS TASK: the clamped x, and no shift.
+-- Flag: `DRIVE_AIMS_AT_PICKED_STAND`. Design: docs/design/forest-drive.md section 7.
+function ForestTest.aimFrame(
+	standX: number,
+	standZ: number?,
+	roadZAtStand: number?,
+	enabled: boolean?
+): { x: number, dz: number }
+	if enabled ~= true or standZ == nil or roadZAtStand == nil then
+		return { x = standX, dz = 0 }
+	end
+	return { x = standX, dz = standZ - roadZAtStand }
+end
+
 -- THE HUNTER LINE. Karen: *"hunter line just a hunter no treestand anything"* -- so a stand here is
 -- a SPOT, not a structure. These are the x values a hunter may choose between; the z comes from the
 -- line, so every one of them is on it.
