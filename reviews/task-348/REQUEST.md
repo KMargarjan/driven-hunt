@@ -1,7 +1,10 @@
 # Task 348 — round 2: the stub runtime hands out the real handle's shape
 
 Task: 348
-Round: 2
+Round: 1
+  (the Director's dispatch calls this "round 2"; `tools/agents.py` counts the round from this
+  task's committed `RESULT.md`, which is a round-1 PASS, so it requires `Round: 1` here and the
+  request cannot say otherwise. Round 1's verdict is kept in git history at `a357e028`.)
 Base: 0c1dd2ac
 Code commit: b97b3751b31a5da3ddaabacf4cf14f03d54bb8e1
 
