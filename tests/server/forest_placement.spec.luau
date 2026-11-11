@@ -1183,6 +1183,105 @@ return function()
 			Forest.start(nil :: any, 0)
 		end)
 
+		it("makes the file itself: one line, in march order, trailed from the leader's own feet", function()
+			-- ROUND 1, FINDING 1, WHICH WAS RIGHT: every other case in this file asserts a REFUSAL,
+			-- so the whole half the task was written to build -- `Line.order`/`Line.split`, the
+			-- `state.lines` row, the seeded trail, the `woken` tag, `row.lineId` -- could be deleted
+			-- and they would all still pass. The DEV place has no navmesh, so the only way to drive
+			-- it here is to hand `orderGroup` a route: `routeFilesFor` asks
+			-- `ForestTest.computeRouteVia` through the module table, which is the same patch point
+			-- the retry-cap case uses for `bedSpot`.
+			local _made, standing, fake, where = stubRuntime()
+			Forest.layoutForDrive(962, "c1")
+			Forest.start(fake, 0)
+			Forest.newDrive(0)
+			expect(Forest.planDrive(962, true) ~= nil).to.equal(true)
+			local row = Forest.roster()[1]
+			row.state = "awake"
+			row.ids = { "Boar1", "Boar2", "Boar3" }
+			row.at = Vector3.new(0, 0, -900)
+			row.lineId = nil
+			-- THE BODIES ARE NOT AT THE BED AND NOT IN A FILE: a group lying up has drifted over its
+			-- graze repertoire, which is the whole reason the route starts at the LEADER'S FEET.
+			-- The march leader (`Boar.MARCH_RANK`: a sow leads) is deliberately NOT the foremost
+			-- animal, so a file built off position alone would put the wrong one at the head.
+			local leaderAt = Vector3.new(20, 0, -830)
+			where.Boar1 = { at = Vector3.new(-6, 0, -860), kind = "male" }
+			where.Boar2 = { at = leaderAt, kind = "female" }
+			where.Boar3 = { at = Vector3.new(9, 0, -845), kind = "cub" }
+			for _, id in ipairs(row.ids) do
+				table.insert(standing, id)
+			end
+			-- THE LADDER OF STARTS (`ORDER_START_STUDS` = 0, 30, 60, 90), measured in the Forest Test
+			-- because the pathfinder answers `NoPath` from a bed: the first two candidates are
+			-- refused here and the third is taken, so the case fails if the ladder is replaced by a
+			-- single try.
+			local realVia = Forest.computeRouteVia
+			local asked = {}
+			Forest.computeRouteVia = function(via)
+				table.insert(asked, via[1])
+				if #asked < 3 then
+					return nil
+				end
+				local out = {}
+				for _, point in ipairs(via) do
+					table.insert(out, point)
+				end
+				return out
+			end
+			local line, why = Forest.orderGroup(row, 11)
+			Forest.computeRouteVia = realVia
+			expect(why).to.equal(nil)
+			expect(line ~= nil).to.equal(true)
+			expect(string.find(line :: string, "3 animal(s)", 1, true) ~= nil).to.equal(true)
+			expect(string.find(line :: string, "from its BED", 1, true) ~= nil).to.equal(true)
+			-- THE STARTS THAT WERE OFFERED: the leader's own feet, then 30 studs along the way out,
+			-- then 60 -- which is the one that was taken.
+			expect(#asked).to.equal(3)
+			expect((asked[1] - leaderAt).Magnitude < 1e-3).to.equal(true)
+			expect(math.abs((asked[2] - leaderAt).Magnitude - 30) < 1e-3).to.equal(true)
+			expect(math.abs((asked[3] - leaderAt).Magnitude - 60) < 1e-3).to.equal(true)
+			-- ONE FILE, AND IT IS THE ROSTER ROW'S.
+			local lines = Forest.lines()
+			expect(#lines).to.equal(1)
+			local file = lines[1]
+			expect(row.lineId).to.equal(file.id)
+			expect(file.id).to.equal(row.id .. "-f1")
+			expect(Forest.placementStats().ordered).to.equal(1)
+			-- ...TAGGED AS WOKEN, which is what keeps the measurement honest: without the tag a file
+			-- that got up out of a bed would be counted in the RELEASED control and claim 3 would be
+			-- reading the wrong population.
+			expect(file.woken).to.equal(true)
+			-- ...IN MARCH ORDER, the ANIMAL owner's fact: the sow is at the head although she is the
+			-- rearmost body on the ground.
+			expect(#file.members).to.equal(3)
+			expect(file.members[1].id).to.equal("Boar2")
+			expect(file.members[1].kind).to.equal("female")
+			-- ...AND TRAILED FROM HER OWN FEET, BACKWARDS ALONG THE FIRST LEG. The head of the trail
+			-- is where she is standing NOW, never the bed the plan wrote (70 studs away here), and
+			-- every other point is behind her, so station k exists on the first step.
+			expect(#file.trail > 1).to.equal(true)
+			local head = file.trail[#file.trail].at
+			expect((head - leaderAt).Magnitude < 1e-3).to.equal(true)
+			expect((head - (row.at :: Vector3)).Magnitude > 50).to.equal(true)
+			expect(file.trail[#file.trail].s > 3 * Data.LINE.spacingStuds).to.equal(true)
+			-- ...WITH THE PINS THE DRIVE CHOSE, which is what a stuck leader is re-pathed through.
+			expect(#file.pins > 0).to.equal(true)
+			expect(file.speed > 0).to.equal(true)
+			expect(type(file.pace)).to.equal("string")
+			expect(file.bornAt).to.equal(11)
+			-- AND THE INSTRUMENT READS IT AS A WOKEN FILE, not as the control.
+			local before = Forest.fileGaps().woken.files
+			Forest.measureFile(file, {
+				{ status = { position = Vector3.new(0, 0, 0) } },
+				{ status = { position = Vector3.new(0, 0, -9) } },
+			}, 11 + Placement.CONFIG.fileFormedSeconds + 0.1)
+			expect(Forest.fileGaps().woken.files).to.equal(before + 1)
+			expect(Forest.fileGaps().released.files).to.equal(0)
+			Forest.start(nil :: any, 0)
+			TestKit.note(string.format("T4 file: %s, %d members, trail %.1f studs", file.id, #file.members, head.Y))
+		end)
+
 		it("releases nothing for a scheduled slot the switch owns, whether or not it has a body", function()
 			-- THE BRIDGE IS GONE (design 4.6; `backups/2026-11-11_task-345d_release-line-bridge.md`).
 			-- T2 still SPAWNED a group the wood had refused a bed to; a group with no legal bed is now

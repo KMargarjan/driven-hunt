@@ -2057,6 +2057,12 @@ function ForestTest.roster(): { any }
 	return state.roster
 end
 
+-- THE LIVE FILES, READ-ONLY -- `ForestTest.roster()`'s own shape and for its own reason: every
+-- writer of a row is in this file, and a copy per read would allocate one table per file per probe.
+function ForestTest.lines(): { any }
+	return state.lines
+end
+
 -- THE FOUR COUNTS, THE REFUSALS AND THE WORK SPENT. `searches` is published beside the skips
 -- deliberately (design 12.3): a drive that reports no refusals and no searches has not tested
 -- anything, and "a counter that is 0 because nothing wrote it" is the failure this task's own
@@ -2137,9 +2143,12 @@ function ForestTest.fileGaps(): { [string]: any }
 		table.sort(medians)
 		return {
 			files = #rows,
+			-- THE LOWER MIDDLE VALUE on an even count, and it is said rather than left to be found
+			-- (round 1's note): both sides go through this one function, so the control carries the
+			-- same convention and the comparison is fair.
 			median = if #medians > 0 then medians[math.max(1, math.ceil(#medians / 2))] else 0,
 			worst = worst,
-			rows = rows,
+			rows = table.clone(rows),
 		}
 	end
 	return { woken = digest(state.fileGapsWoken), released = digest(state.fileGapsReleased) }
@@ -2349,11 +2358,14 @@ function ForestTest.materialise(row: any, now: number): (boolean, string?, strin
 	-- refusal fifteen times a second.
 	local cap = Placement.CONFIG.searchesPerWake
 	row.searchesSpent = (tonumber(row.searchesSpent) or 0) + 1
-	if row.searchesSpent >= cap then
-		state.placementCaps = (state.placementCaps or 0) + 1
-	end
 	local at, refused, why = ForestTest.bedSpot(row)
 	if at == nil then
+		-- COUNTED WHEN THE ROW IS ACTUALLY PARKED (round 1's note, which was right): the search that
+		-- SUCCEEDS and beds the row was being counted as a cap, so `caps` read "parked" for rows
+		-- that are lying in their beds.
+		if row.searchesSpent >= cap then
+			state.placementCaps = (state.placementCaps or 0) + 1
+		end
 		return false, refused or "nobed", why
 	end
 	-- THE SAME TWO CALLS `stockWood` MAKES, and for the same reason: a composition IS the size and
@@ -4486,13 +4498,22 @@ function ForestTest.orderGroup(row: any, now: number): (string?, string?)
 		then Vector3.new((crossing :: Vector3).X, chosen.layout.centre.Y, Data.exitZOf(chosen.layout) - 10)
 		else nil
 
-	-- HOW MANY FILES AND AT WHAT PACE -- the row's, both read and neither drawn, and a deer group is
-	-- ONE column (`SPECIES.reddeer.RELEASE.FORMATION`), which is `releaseLine`'s own rule.
-	local files = math.max(1, math.floor(spec.files or 1))
-	if spec.species == "reddeer" then
-		files = 1
-	end
-	files = math.min(files, #able)
+	-- ONE FILE, AND THE PACK IS THE ONE THE BED GAVE IT (round 1, finding 2, which was right).
+	-- `materialise` makes a group through `Runtime:spawnSounder`, which sets `sounderId` on every
+	-- member; `Runtime:formSounder` claims only ids whose `sounderId` is **nil**, so calling it here
+	-- formed nothing at all -- and a `files > 1` woken row would then have had two files walking two
+	-- routes inside ONE sounder, where `_stepSounders`' `BREAK_STUDS` rule expels whichever members
+	-- fall behind the other file's slot-ahead animal and `_leaveSounder` clears their `sounderId`:
+	-- the lone-animal voice hole task 139 added `formSounder` to close.
+	--
+	-- Splitting one bedded sounder into two packs needs a `Runtime` function that does not exist
+	-- (there is no public "leave"), and `src/server/Boar/` is not this task's. So a WOKEN group walks
+	-- as one file behind its march leader, keeps the pack it was bedded with, and the row's `files`
+	-- is not read on this path. The consequence is named: a `SPLIT` row crosses ONCE on the flag-ON
+	-- path instead of twice (`ESCALATE.md` 2026-11-11, entry 6). A RELEASED group is untouched --
+	-- `releaseLine` spawns one animal at a time, so its members have no sounder and `formSounder`
+	-- does form one per file.
+	local files = 1
 	local pace = if type(spec.pace) == "string"
 		then spec.pace
 		else ForestTest.paceFor(state.rng:NextNumber(), lineData.paceMix)
@@ -4577,12 +4598,9 @@ function ForestTest.orderGroup(row: any, now: number): (string?, string?)
 				end
 				local toward = Vector3.new(first.X - start.X, 0, first.Z - start.Z)
 				local group = {}
-				local pack = {}
 				for _, member in ipairs(plan) do
 					table.insert(group, { id = member.id, kind = member.kind })
-					table.insert(pack, member.id)
 				end
-				runtime:formSounder(pack)
 				table.insert(state.lines, {
 					id = string.format("%s-f%d", tostring(row.id), which),
 					members = group,
