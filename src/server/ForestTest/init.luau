@@ -667,6 +667,7 @@ local state = {
 	-- `flights` the groups the fright had already taken (design 4.1's other legal shape of AWAKE),
 	-- `caps`/`reopens` the retry cap's two halves (the Director, 2026-11-11 ~04:55).
 	placementOrdered = 0,
+	placementWokeBand = 0,
 	placementFlights = 0,
 	placementNoRoute = 0,
 	placementCaps = 0,
@@ -2084,6 +2085,7 @@ function ForestTest.placementStats()
 		inView = state.placementInView,
 		-- T4: what the drive did with its bedded groups, and what the retry cap cost.
 		ordered = state.placementOrdered or 0,
+		wokeBand = state.placementWokeBand or 0,
 		flights = state.placementFlights or 0,
 		noroute = state.placementNoRoute or 0,
 		caps = state.placementCaps or 0,
@@ -2191,6 +2193,7 @@ function ForestTest.planDrive(driveNumber: number?, inPlace: boolean?): string?
 	state.placementRays = 0
 	state.placementInView = 0
 	state.placementOrdered = 0
+	state.placementWokeBand = 0
 	state.placementFlights = 0
 	state.placementNoRoute = 0
 	state.placementCaps = 0
@@ -2419,14 +2422,19 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
 	-- ONE WALK OF THE RUNTIME, not one `statusOf` per animal: `Runtime:statusOf` scans `_boars`, so
 	-- thirteen groups of six would scan it 78 times a heartbeat.
 	local alive = {}
+	local whereIs = {}
 	for _, handle in ipairs(runtime:boars()) do
 		local status = runtime:statusOf(handle.id)
 		alive[handle.id] = status ~= nil and status.alive == true
+		if status ~= nil then
+			whereIs[handle.id] = status.position
+		end
 	end
 	-- WHERE THE LINE HAS GOT TO, at each bed's own x. Read once per step, because `realBeaters`
 	-- walks `Players:GetPlayers()` and `Data.lineFrontAt` interpolates the whole list.
 	local beaters = ForestTest.realBeaters()
 	local noticeAhead = Data.noticeAheadStuds(Data.SPOOK, chosen.layout)
+	local wakeLead = Placement.wakeLeadStuds(Placement.CONFIG)
 	for _, row in ipairs(state.roster) do
 		-- A PARKED RECORD GETS ONE MORE WINDOW WHEN THE DRIVE WANTS IT (the Director's retry cap,
 		-- 2026-11-11 ~04:55). The cap stops a refusal being re-tried fifteen times a second; this is
@@ -2448,9 +2456,24 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
 		end
 		if row.state == "bedded" or row.state == "awake" then
 			local standing, woken = 0, false
+			-- WHERE THE GROUP ACTUALLY IS, every step, taken off the member NEAREST THE LINE. The
+			-- wake is judged on this and not on the bed, because the flush is: `spookNearBeaters`
+			-- measures its band off each ANIMAL's live position, and `CALM.ENABLED`'s graze/stand/lie
+			-- repertoire walks a group well off the point it was bedded at over a hundred seconds of
+			-- lying up. MEASURED, `345d-ON2-C1-console.txt`: *"a beater spooked Boar65 at 145 studs,
+			-- **137 ahead of the front**"* -- a group the bed-point rule still called "lying up"
+			-- while the line was already flushing it, so it bolted instead of filing out.
+			local lead = nil :: number?
 			for _, id in ipairs(row.ids or {}) do
 				if alive[id] then
 					standing += 1
+					local at = whereIs[id]
+					if typeof(at) == "Vector3" then
+						local dz = (at :: Vector3).Z - Data.roadZ((at :: Vector3).X, chosen.layout)
+						if lead == nil or dz > (lead :: number) then
+							lead = dz
+						end
+					end
 				end
 				-- A SHOT, THE HORN, OR THE FLUSH ITSELF: `spookNearBeaters` latches an animal it
 				-- has sent, and `Runtime:hearShot` / `hearHorn` reach a bedded body like any other.
@@ -2467,13 +2490,16 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
 			--
 			-- ONLY THE `beaters` ARM IS READ HERE: `wakeReason`'s `slot` arm is the walkers' own
 			-- clock and belongs to T6, which is what actually orders them.
+			if lead ~= nil then
+				row.atNorth = lead
+			end
 			if row.state == "bedded" and typeof(row.at) == "Vector3" then
 				local at = row.at :: Vector3
 				local frontZ = Data.lineFrontAt(beaters, at.X)
 				local frontNorth = if frontZ ~= nil then (frontZ :: number) - Data.roadZ(at.X, chosen.layout) else nil
-				local lead = Placement.wakeLeadStuds(Placement.CONFIG)
-				if Placement.wakeReason(row, elapsed, frontNorth, noticeAhead, lead) == "beaters" then
+				if Placement.wakeReason(row, elapsed, frontNorth, noticeAhead, wakeLead) == "beaters" then
 					woken = true
+					state.placementWokeBand = (state.placementWokeBand or 0) + 1
 				end
 			end
 			if standing == 0 then
@@ -3155,7 +3181,7 @@ function ForestTest.placementReport(): { string }
 			"DHForestPlacement",
 			string.format(
 				"drive=%s placed=%d bedded=%d awake=%d gone=%d skipped=%d animals=%d bodies=%d searches=%d rays=%d inView=%d"
-					.. " ordered=%d flights=%d noroute=%d caps=%d reopens=%d"
+					.. " ordered=%d wokeBand=%d flights=%d noroute=%d caps=%d reopens=%d"
 					.. " wokenFiles=%d wokenMedian=%.1f wokenWorst=%.1f releasedFiles=%d releasedMedian=%.1f releasedWorst=%.1f",
 				tostring(stats.drive),
 				stats.placed,
@@ -3169,6 +3195,7 @@ function ForestTest.placementReport(): { string }
 				stats.rays,
 				stats.inView,
 				stats.ordered,
+				stats.wokeBand,
 				stats.flights,
 				stats.noroute,
 				stats.caps,
