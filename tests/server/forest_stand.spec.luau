@@ -204,10 +204,8 @@ return function()
 				TestKit.note("C1 is not a cell in this build")
 				return
 			end
-			-- THE FIELD'S OWN BOX, not the Grid cell's: `fieldFor` builds `bounds` from
-			-- `Data.boundsOf`, and that is what `outOfBounds` culls against (MEASURED: 114 animals
-			-- in one drive when the box was translated instead of unioned).
-			local cell = Data.boundsOf(layout)
+			-- THE FIELD'S OWN BOX is what `outOfBounds` culls against, and it is read per stand
+			-- below (MEASURED: 114 animals culled in one drive when it was translated, not unioned).
 			local deepest = 0
 			for _, row in ipairs(Data.SCHEDULE.drive) do
 				deepest = math.max(deepest, row.northStuds or 0)
