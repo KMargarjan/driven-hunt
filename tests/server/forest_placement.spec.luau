@@ -766,10 +766,13 @@ return function()
 			expect(string.find(why :: string, "Hunter", 1, true) ~= nil).to.equal(true)
 			-- THE ORDER IS THE BUDGET (design 6.2): a spot the arithmetic refuses costs NO ray.
 			expect(Forest.placementStats().rays).to.equal(before)
-			-- ...AND AN EYE EXACTLY AT THE REACH IS ALLOWED, so the two halves agree on the boundary.
+			-- ...AND AN EYE EXACTLY AT THE REACH IS PAST THE ARITHMETIC: the refusal changes its
+			-- words and a ray is spent, which is how the two halves agree on the boundary.
+			-- MEASURED: over the open DEV arena that ray then answers "seen", so the ASSERTION is
+			-- the arm that refused and not the verdict.
 			local never = Placement.neverStuds(SPOOK)
-			local atEdge = Forest.bedHidden(spot, { { name = "Hunter", at = Vector3.new(0, 0, never) } })
-			expect(atEdge).to.equal(true)
+			local _atEdge, edgeWhy = Forest.bedHidden(spot, { { name = "Hunter", at = Vector3.new(0, 0, never) } })
+			expect(string.find(edgeWhy :: string, "within", 1, true)).to.equal(nil)
 			expect(Forest.placementStats().rays).to.equal(before + 1)
 		end)
 
@@ -930,10 +933,15 @@ return function()
 		it("publishes the two counters a drive is read by", function()
 			-- `rays` AND `inView` ARE PUBLISHED TOGETHER, deliberately (design 12.3): a drive that
 			-- reports `inView = 0` with `rays = 0` has not tested anything.
+			-- THE COUNTERS ARE PER DRIVE and `planDrive` zeroes them, which is why this case spends
+			-- its own ray instead of reading what an earlier case left behind (MEASURED: the cases
+			-- above plan three drives, so the tally here was 0).
+			local zeroed = Forest.placementStats()
+			expect(type(zeroed.rays)).to.equal("number")
+			expect(type(zeroed.inView)).to.equal("number")
+			Forest.bedHidden(Vector3.new(0, 600, 0), { { name = "Hunter", at = Vector3.new(0, 600, 400) } })
 			local stats = Forest.placementStats()
-			expect(type(stats.rays)).to.equal("number")
-			expect(type(stats.inView)).to.equal("number")
-			expect(stats.rays > 0).to.equal(true)
+			expect(stats.rays > zeroed.rays).to.equal(true)
 			-- ...AND THE MARGIN THAT MAKES THE CLIENT SPEC VALID, as a statement (design 7.3): the
 			-- reach is well inside the place's documented `StreamingMinRadius` 384, so an arrival
 			-- inside it cannot be the engine streaming a bed in.
