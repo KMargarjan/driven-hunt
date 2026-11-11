@@ -124,6 +124,19 @@ Placement.CONFIG = table.freeze({
 	-- At most one group materialised per Heartbeat: `Cells.begin`'s bite shape, for its measured
 	-- reason (a whole-folder write cost 738 ms of frame in Karen's place, task 343).
 	bitesPerStep = 1,
+	-- HOW MANY RING SEARCHES ONE ROW MAY SPEND BEFORE IT IS PARKED (the Director's decision of
+	-- 2026-11-11 ~04:55, after A2 spent **~2,940 searches re-trying three `inview` refusals** in one
+	-- drive). A parked row stays a RECORD and is woken once more by the beaters or its slot clock
+	-- (`Placement.reopenNow`), so it is never lost -- it just stops paying for the same refusal
+	-- fifteen times a second. ARITHMETIC: 15 rows x 3 searches + 15 one-off reopens x 3 = **90**
+	-- searches worst case per drive, against the Director's target of under 100.
+	searchesPerWake = 3,
+	-- WHEN A FILE IS JUDGED TO BE FORMED (design 12.1: *"median nose-to-nose <= 17 studs within 5 s
+	-- of a break"*). A woken group is standing in a loose bed, so its followers walk UP to their
+	-- stations; five seconds is the window the design gives them and the window the measurement is
+	-- taken in. The 17 studs is `2 x LINE.spacingStuds` and belongs to `Data.LINE`, not here --
+	-- `forest_placement.spec` asserts the two agree.
+	fileFormedSeconds = 5,
 	settleSeconds = 3,
 })
 
@@ -256,8 +269,15 @@ end
 -- A SKIPPED ROW IS NEVER DUE AGAIN -- design must-not 3, task 172's rule: *"a wood is beaten once;
 -- when it is empty it stays empty for this drive"*. A refused group must never come back inside the
 -- drive, because the only place left to put it is in front of somebody.
-function Placement.dueNow(row: any, elapsed: number, lead: number): boolean
+-- ...AND A ROW THAT HAS SPENT ITS SEARCHES IS PARKED (the Director, 2026-11-11 ~04:55). It is NOT
+-- skipped and NOT lost: `Placement.reopenNow` hands it one more window when the line reaches its bed
+-- or its slot clock comes, and a row that beds in that window is in the hunt like any other.
+function Placement.dueNow(row: any, elapsed: number, lead: number, searchCap: number?): boolean
 	if type(row) ~= "table" or row.skipped ~= nil or row.state ~= "record" then
+		return false
+	end
+	local cap = tonumber(searchCap) or tonumber(Placement.CONFIG.searchesPerWake) or math.huge
+	if (tonumber(row.searchesSpent) or 0) >= cap then
 		return false
 	end
 	local reach = tonumber(row.reachAtSeconds) or math.huge
@@ -329,20 +349,67 @@ function Placement.wakeReason(row: any, elapsed: number, frontNorth: number?, no
 	return nil
 end
 
--- THE BRIDGE'S WHOLE RULE (design 17's T2 row), named here so it is one answer and a spec can drive
--- it: **the only hole `ForestTest.releaseLine` still fills is one the WOOD refused.**
+-- THE BRIDGE IS GONE (T4). `Placement.bridgeMustRelease` -- the one case in which
+-- `ForestTest.releaseLine` could still SPAWN a scheduled group on the flag-ON path -- is archived
+-- with the spawn half it guarded: `backups/2026-11-11_task-345d_release-line-bridge.md`. A group the
+-- wood refused is now a hole in the wood that is REPORTED (design 4.3), not one filled 25 studs off
+-- the road.
+
+-- MAY A PARKED ROW HAVE ONE MORE WINDOW? (the Director's retry cap, 2026-11-11 ~04:55.)
 --
--- A GROUP THE **BUDGET** REFUSED MUST NOT BE RELEASED, and that is measured rather than argued.
--- `345b-ON3-C1-track.txt`, one live drive at C1: the bridge released every group the live cap had
--- just refused a bed to, which put **31 bodies against a `LIVE_CAP` of 24** -- and those bodies then
--- refused the NEXT group's bed, so the two doors fed each other: 7 of 13 groups skipped and **6 ring
--- searches spent in a whole drive**. A budget refusal is the world saying "there is no room for a
--- body right now"; a second door past it is not a bridge, it is the bug the cap exists to stop.
+-- ONE REOPEN PER ROW PER DRIVE, whichever signal arrives first, and that bound is the whole of the
+-- arithmetic in `CONFIG.searchesPerWake`: 3 searches, then parked, then 3 more when the drive
+-- actually wants the group, then its refusal is final. Two signals and not three, because they are
+-- the two that mean "the drive needs this group NOW": the line's notice band has reached its bed, or
+-- its own slot clock has come (a walker). `row.reopened` is the latch, because the geometry arm is
+-- level-triggered and would otherwise reopen the window on every step it is true.
+function Placement.reopenNow(
+	row: any,
+	elapsed: number,
+	frontNorth: number?,
+	noticeAheadStuds: number,
+	searchCap: number?
+): WakeReason?
+	if type(row) ~= "table" or row.skipped ~= nil or row.state ~= "record" or row.reopened == true then
+		return nil
+	end
+	local cap = tonumber(searchCap) or tonumber(Placement.CONFIG.searchesPerWake) or math.huge
+	if (tonumber(row.searchesSpent) or 0) < cap then
+		return nil
+	end
+	if elapsed >= (tonumber(row.wakeAtSeconds) or math.huge) then
+		return "slot"
+	end
+	if type(frontNorth) ~= "number" then
+		return nil
+	end
+	if frontNorth - (tonumber(row.bedNorth) or math.huge) <= (tonumber(noticeAheadStuds) or 0) then
+		return "beaters"
+	end
+	return nil
+end
+
+-- THE TRAIL A FILE IS BORN WITH, and it is a MEASURED fix rather than a tidy-up (task 127).
+-- `Line.pointBack` answers nil until the leader has walked as far as the station being asked for, so
+-- with an empty trail every follower is told "walk at the leader" for the first few seconds: the
+-- measured nose-to-nose median came out **9.6 studs against a `spacingStuds` of 3**.
 --
--- A record still waiting for room is therefore the ROSTER's, and it comes out at its own bed when
--- the room appears. T4 retires this function with the spawn half it guards.
-function Placement.bridgeMustRelease(row: any): boolean
-	return type(row) == "table" and row.skipped == "nobed"
+-- `toward` IS THE DIRECTION OF TRAVEL and the seed is laid BEHIND the origin along it, so station k
+-- exists on the very first step. A released file hands in the approach's own direction; a WOKEN
+-- group (T4) hands in the first leg of the route it has just been given, because it is standing in a
+-- bed and not on an approach.
+function Placement.seedTrail(origin: Vector3, toward: Vector3, members: number, spacing: number)
+	local flat = Vector3.new(toward.X, 0, toward.Z)
+	local unit = if flat.Magnitude > 1e-4 then flat.Unit else Vector3.new(0, 0, -1)
+	local step = math.max(0.1, tonumber(spacing) or 1)
+	local out = {}
+	for back = math.ceil((math.max(1, math.floor(tonumber(members) or 1)) + 1) * step), 0, -1 do
+		table.insert(out, { at = origin - unit * back, s = 0 })
+	end
+	for index = 2, #out do
+		out[index].s = out[index - 1].s + (out[index].at - out[index - 1].at).Magnitude
+	end
+	return out
 end
 
 -- IS THIS SPOT CLEAR OF EVERY BED ALREADY LAID? 3-D, over the beds that still count: a skipped row
