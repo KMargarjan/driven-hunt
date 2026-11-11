@@ -522,14 +522,20 @@ function ForestTest.rosterAim(frames: { { x: number, dz: number, who: string? } 
 		return { x = nil :: number?, dz = 0, why = if enabled ~= true then "off" else "nobody locked" }
 	end
 	local first = list[1]
-	local names = { tostring(first.who or "?") }
-	for index = 2, #list do
-		local other = list[index]
-		table.insert(names, tostring(other.who or "?"))
-		if math.abs(other.dz - first.dz) >= ForestTest.AIM_FLAT_STUDS then
-			table.sort(names)
-			return { x = nil :: number?, dz = 0, why = "split: " .. table.concat(names, ", ") }
+	-- EVERY NAME IS COLLECTED BEFORE THE TEST, so a split names everyone who is standing -- not just
+	-- the ones listed before the first disagreement.
+	local names, split = {}, false
+	for _, frame in ipairs(list) do
+		table.insert(names, tostring(frame.who or "?"))
+		if math.abs(frame.dz - first.dz) >= ForestTest.AIM_FLAT_STUDS then
+			split = true
 		end
+	end
+	table.sort(names)
+	if split then
+		-- BACK TO THE MAIN ROAD, which is EXACTLY the drive before task 349: `x` nil sends the
+		-- caller to `hunterStandX`, the clamped first locked pick it has always used.
+		return { x = nil :: number?, dz = 0, why = "split: " .. table.concat(names, ", ") }
 	end
 	return {
 		x = first.x,

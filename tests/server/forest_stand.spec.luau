@@ -201,6 +201,10 @@ return function()
 			-- two on the SAME frame still aim at it
 			expect(Data.rosterAim({ west, { x = -4504, dz = 975, who = "C@11" } }, true).dz).to.equal(975)
 			-- ...and two on DIFFERENT frames go back to the main road, naming them both
+			-- THE ODD ONE OUT IN THE MIDDLE: every name is in the line, not just the ones before it.
+			local three = Data.rosterAim({ main, west, { x = -3754, dz = 0, who = "D@5" } }, true)
+			expect(three.dz).to.equal(0)
+			expect(three.why:find("D@5") ~= nil).to.equal(true)
 			local split = Data.rosterAim({ west, main }, true)
 			expect(split.dz).to.equal(0)
 			expect(split.why:find("A@11") ~= nil).to.equal(true)
