@@ -29,10 +29,27 @@ DHFlag_RANGE=true DHFlag_RANGE_SOLO=true DHFlag_SHOP=true DHFlag_STAND_PICK=true
 DHFlag_ZONES_FOLLOW_GAIT=true DHForestLayout=D1 DHForestStartRole=hunter DHShopTestGrant=true
 DHTestOwns=rifle.scoped,rifle.lever,shotgun.semiauto,ammo.unlimited,ammo.slug,licence.reddeer`
 
-**WHAT THIS COSTS THIS ROUND.** Dispatch items 1 and 3's `test2` halves are **NOT OBTAINABLE**: no
-control line at `0c1dd2ac`, and no `[harness2] PASS` at the new code commit. The stub fix itself is
-written, committed and carries the one-player gate; its bite is argued by reading the two stub
-shapes, not by a run, and the request says so on the line.
+**WHAT IT ACTUALLY COST, now that the round is run (this paragraph replaces what I first wrote here).**
+The check is NOT fatal -- it records a FAIL and the run continues, and task 226's scoping right
+below it already resolves the editor BY PLACE, so a second Studio cannot confuse the run. So the
+STUB FIX IS FULLY PROVEN; what is lost is only the 36/36 line:
+
+* `[harness] PASS: 34/34 checks @ b97b3751b31a5da3ddaabacf4cf14f03d54bb8e1 (clean tree) scope=all`
+* `test2` @ `b97b3751`, twice, `<runs-dir>/348r2-after.log` and `348r2-after2.log`:
+  **`forest_placement` and `spookNearBeaters` appear 0 times in either log**, against round 1's
+  `348-test2.log` @ `66de5029` where that error is the failure. The only delta between those two
+  commits in that file is the stub's `position`/`kind` -- so round 1's run IS the delete-and-fail
+  side, taken at a commit that has the field absent.
+* the two runs scored 31/36 and 33/36. Their remaining failures are **not** `forest_placement`:
+  `deer_hitbox.spec:682` (on this dispatch's own KNOWN FLAKE list) in both, `deer_hitbox.spec:340`
+  and `gun_client.spec:393` once each, neither recurring. Plus the one-Studio check, in both.
+
+**THE MERGE-BASE CONTROL IS STILL NOT OBTAINABLE**, for a different reason: run from the
+`driven-hunt-rev` worktree, `test2` never reaches the specs -- `Rojo synced the fresh token from
+disk` reads `'<missing>'` then `''` across three attempts (`348r2-control.log`, `-control2.log`,
+`-control3.log`), because `tests/sync-token.txt` is git-ignored and absent from a fresh worktree, and
+re-serving after creating it did not fix the empty read. I stopped after the third attempt and spent
+the time on the two runs above instead, which answer the same question with a tighter delta.
 
 **THE ONE ACTION THAT UNBLOCKS IT** (yours or Karen's, in this order):
 1. close the Forest Test Studio window (answer **No** to any save prompt -- the place must not be saved);
