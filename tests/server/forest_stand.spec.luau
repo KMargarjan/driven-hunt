@@ -188,6 +188,42 @@ return function()
 			)
 		end)
 
+		-- THE SHIFTED BAND HAS TO FIT INSIDE THE CELL, and the tightest case is the stand furthest
+		-- from the main road with the deepest row the script writes. Stated as a relation rather
+		-- than a number, so a shallower cell or a stand further out fails HERE and not in a playtest
+		-- with animals walking into the next section.
+		it("keeps the deepest release of every stand inside its own cell", function()
+			local layout = Data.layoutOf("C1") :: any
+			if layout == nil or layout.sides == nil then
+				TestKit.note("C1 is not a cell in this build")
+				return
+			end
+			local cell = Grid.boundsOf("C1")
+			local deepest = 0
+			for _, row in ipairs(Data.SCHEDULE.drive) do
+				deepest = math.max(deepest, row.northStuds or 0)
+			end
+			expect(deepest > 0).to.equal(true)
+			local worst, worstAt = math.huge, 0
+			for index = 1, layout.standCount do
+				local at = Data.standPosition(index, layout)
+				local dz = Data.aimFrame(at.X, at.Z, Data.roadZ(at.X, layout), true).dz
+				local margin = cell.maxZ - (Data.roadZ(at.X, layout) + dz + deepest)
+				if margin < worst then
+					worst, worstAt = margin, index
+				end
+			end
+			TestKit.note(
+				string.format(
+					"deepest row %d studs: worst margin %.0f studs inside the cell, at stand %d",
+					deepest,
+					worst,
+					worstAt
+				)
+			)
+			expect(worst > 0).to.equal(true)
+		end)
+
 		-- THE ROSTER RULE (Director decision 4), as the pure rule it is. The LIVE two-player branch
 		-- -- two real Players with locked picks on different frames -- cannot be reached by a
 		-- one-player harness; `src/server/ForestTest/` is not in `TWO_PLAYER_PATHS`, so this is said
