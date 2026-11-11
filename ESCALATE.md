@@ -1,3 +1,45 @@
+## 2026-11-11 ~01:40 UTC, Task 345b (T2) -- FOR THE DIRECTOR: DEVIATION 5. `bedCap` 12 -> 18, WHICH MOVES A NUMBER D-1 CONFIRMED. THE ROUND-2 REVIEWER WAS RIGHT THAT IT WAS NOT ESCALATED, AND HERE IT IS
+
+**STOPPED AT THE DISPATCH'S TWO-ROUND CAP.** Task 345b's dispatch: *"Review: at most 2 rounds; a
+FINDING on round 2 goes to ESCALATE.md, then stop."* Round 2 returned one blocking finding, this is
+it, and this entry is its own required remedy. No third review was run.
+
+**WHAT MOVED.** `Placement.CONFIG.bedCap` 12 -> 18 (`src/shared/ForestTest/Placement.luau`).
+
+**WHAT IT CONTRADICTS.** `docs/design/animal-placement.md` section 5.2: *"of which BEDDED (a body,
+not under orders) | <= 12 (`PLACEMENT.bedCap`)"*, and the Director's own entry of 2026-11-10 ~11:10:
+*"D-1 CONFIRMED. The budget restatement in section 5.2 is taken: at most 24 bodies (at most 12
+bedded)"*. I moved it in a commit and argued it only in the code comment, which is not the standard
+the other four deviations were held to. The Reviewer was right.
+
+**THE ARITHMETIC.** Design 5.2 derives 12 as *"four groups of three"*. **There is no group of three
+in `Data.SCHEDULE.drive`**: its thirteen `normal` groups hold 73 animals, 1 to 9 each, 5.6 on
+average. At `leadSeconds` 20 against a 13 s tempo, **two groups are bedded-and-not-yet-reached at
+once** -- measured at every sample of `345b-ON-C1-track.txt` and `345b-ON2-C1-track.txt` -- and two
+groups is 11 to 18 animals. So 12 refused the third group of every drive:
+
+| `bedCap` | run | groups skipped at C1 | ring searches spent in a whole drive |
+|---|---|---|---|
+| **12** | `345b-ON2-C1` | **6 of 13**, every one `budget: bedded` | 6 |
+| **18** | `345b-ON4-C1` | 4 of 13 | 9 |
+
+    2 groups in flight  x  the largest composition the script can ask for (9)  =  18
+
+**WHAT IT DOES NOT MOVE.** `Data.LIVE_CAP` 24 is unchanged and is still the binding arm:
+`345b-ON4-C1` peaked at **24 live bodies exactly**, against the flag-OFF drive's 34. 18 is a SUB-cap
+of 24, so the ceiling D-1 actually guards -- *"at most 24 bodies"* -- is honoured, and the drive got
+cheaper rather than dearer (boar step avg 4.08 ms ON against 4.30 ms OFF; peak parts 438 against
+608).
+
+**THE DIRECTOR'S CALL, in one line:** take 18 (the third group of a drive gets a bed; 18 of 24 are
+bedded at the busiest instant), or restore 12 and accept that six of thirteen groups are refused a
+bed at `normal`. Either way `docs/design/animal-placement.md` section 5.2's derivation (*"four groups
+of three"*) is wrong about this drive script and is the Architect's to correct.
+
+**THE THREE ROUND-2 NOTES ARE QUEUED, NOT FIXED** (`TASKS.md` 345b-notes): the request's claim-8
+console quote elides `bedded bodies`; the tempo case's time half is an algebraic identity (its depth
+half is what carries the claim); and `state.latched` is undeclared in the `state` table.
+
 ## 2026-11-11 ~01:20 UTC, Task 345b (T2) -- FOR THE DIRECTOR: DEVIATION 4. THE BRIDGE HOLDS A SLOT THE **BUDGET** REFUSED, WHERE THE DESIGN SAYS IT SHOULD RELEASE IT. THE ROUND-1 REVIEWER WAS RIGHT TO ASK, AND HERE IS THE ARITHMETIC
 
 Not a stop; T2 is green and behind the flag. This is the fourth deviation from
