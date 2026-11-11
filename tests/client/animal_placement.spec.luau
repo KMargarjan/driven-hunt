@@ -36,8 +36,14 @@ local CONFIG = Placement.CONFIG
 local STREAMING_MIN_RADIUS_STUDS = 384
 -- A SINGLE-FRAME MOVE THIS BIG IS A TELEPORT AND NOT A WALK (design section 7.3).
 local JUMP_STUDS = 100
--- How long the listener is given to collect before the case reads it.
-local WATCH_SECONDS = 4
+-- ONE FRAME, AND NOT A WINDOW OF ITS OWN. The listener has been collecting since this file was
+-- loaded -- eleven seconds by the time the case runs, in the measured DEV runs -- so a wait here
+-- would buy nothing and COST something: the client suite shares its session with the harness's real
+-- input replay, and a case that holds the clock for four seconds moves every later case into a
+-- different part of that replay. MEASURED: with a 4 s wait here, `camera_client.spec:2610` (the
+-- cursor's two-tag release, which runs after this file) failed in 2 of 4 runs at this same commit
+-- and passed in 2; with this line it is one frame.
+local WATCH_FRAMES = 1
 
 local player = Players.LocalPlayer
 
@@ -162,10 +168,9 @@ return function()
 		end)
 
 		it("measures every arrival it was sent, and says how many it ignored", function()
-			-- The listener has been connected since this file was loaded; this is the window it is
-			-- given to finish collecting.
-			local until_ = os.clock() + WATCH_SECONDS
-			while os.clock() < until_ do
+			-- The listener has been connected since this file was loaded; this is one frame to let
+			-- an arrival in flight land, and the note below says how long that window really was.
+			for _ = 1, WATCH_FRAMES do
 				RunService.Heartbeat:Wait()
 			end
 			local nearest, inView, seen = math.huge, 0, 0
