@@ -480,6 +480,30 @@ function ForestTest.aimFrame(
 	return { x = standX, dz = dz }
 end
 
+-- THE THREE z'S OF ONE RELEASE, IN THIS DRIVE'S FRAME (task 349 r2). PURE, and it is THE one place
+-- the shift is applied to them -- `releaseLine` and `orderGroup` both read it, so a spec that drives
+-- it is driving what production draws, not a transcription of it (round 1 finding 2, verdict 278).
+--
+-- `dz` 0 is the main road and every number is the drive before task 349. `exitSouthStuds` is how
+-- far PAST the despawn plane the route ends (`releaseLine`'s own 10): a route that stopped ON it
+-- left every file standing on its last waypoint for ever.
+function ForestTest.releaseFrame(
+	layout: Layout?,
+	dz: number?,
+	startX: number,
+	startNorth: number,
+	crossX: number?,
+	exitSouthStuds: number?
+): { startZ: number, crossZ: number?, exitZ: number }
+	local resolved = layout or ForestTest.ROAD_LAYOUT
+	local shift = dz or 0
+	return {
+		startZ = ForestTest.roadZ(startX, resolved) + shift + startNorth,
+		crossZ = if crossX ~= nil then ForestTest.roadZ(crossX :: number, resolved) + shift else nil,
+		exitZ = ForestTest.exitZOf(resolved) + shift - (exitSouthStuds or 0),
+	}
+end
+
 -- WHOSE STAND THE DRIVE IS AIMED AT, WITH A ROSTER (task 349 round 2, Director decision 4). PURE.
 --
 -- `frames` is one entry per REAL player with a LOCKED pick: `{ x, dz, who }`. Bots never appear in

@@ -1040,6 +1040,11 @@ end
 -- THIS DRIVE'S z AT AN x: the main road's, plus this drive's shift. THE ONE DEFINITION -- every
 -- reader that decides an animal's fate reads it, so the release, the route, the crossing, the exit,
 -- the edge check, the trot urge, the beds and the roar cannot disagree about where the road is.
+-- HOW FAR PAST THE DESPAWN PLANE A ROUTE ENDS. MEASURED (task 251c): a route that stopped ON the
+-- plane left every file standing on its last waypoint for ever, because `Brain._outcome` despawns
+-- at `position.Z <= field.exitZ` and the last waypoint was 20 studs north of it.
+ForestTest.EXIT_PAST_STUDS = 10
+
 function ForestTest.driveZ(x: number, aim: { dz: number }?): number
 	return Data.roadZ(x, chosen.layout) + (aim or state.aim).dz
 end
@@ -4148,7 +4153,10 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 	-- row of such a drive on its `minNorthStuds` floor.
 	local lineNorth = if Data.clampedToLine(row) and aim.dz == 0 then ForestTest.lineNorthAt(nominal.X) else nil
 	local startNorth = Data.releaseDepth(row.northStuds, lineNorth, Data.routeFloor(row, schedule), schedule)
-	nominal = Vector3.new(nominal.X, nominal.Y, ForestTest.driveZ(nominal.X, aim) + startNorth)
+	-- THE THREE z'S COME OUT OF ONE PURE FUNCTION (`Data.releaseFrame`), so the start, the
+	-- crossing and the exit cannot disagree about where this drive's road is.
+	local frame = Data.releaseFrame(chosen.layout, aim.dz, nominal.X, startNorth, nil, nil)
+	nominal = Vector3.new(nominal.X, nominal.Y, frame.startZ)
 	local start = Vector3.new(nominal.X, Data.groundAt(nominal.X, nominal.Z) or chosen.layout.centre.Y, nominal.Z)
 
 	-- WHERE IT CROSSES, and it is relative to the stand she locked (task 123 round 8). A
@@ -4157,7 +4165,8 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 	local crossing = nil :: Vector3?
 	if type(offset) == "number" then
 		local crossX = standX + offset
-		crossing = Vector3.new(crossX, chosen.layout.centre.Y, ForestTest.driveZ(crossX, aim))
+		local at = Data.releaseFrame(chosen.layout, aim.dz, crossX, 0, crossX, ForestTest.EXIT_PAST_STUDS)
+		crossing = Vector3.new(crossX, chosen.layout.centre.Y, at.crossZ :: number)
 	end
 	-- PAST THE DESPAWN LINE, NOT UP TO IT, and that was a measured bug: the route ended at
 	-- `EXIT_Z + 20`, which is twenty studs NORTH of the line `Brain:_outcome` despawns at -- so every
@@ -4166,7 +4175,11 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 	-- long a 600-stud route takes. Ending ten studs PAST the line means the last thing they do is
 	-- cross it, which is Karen's *"once they in another side of road they run away"*.
 	local exitPoint = if crossing ~= nil
-		then Vector3.new((crossing :: Vector3).X, chosen.layout.centre.Y, Data.exitZOf(chosen.layout) + aim.dz - 10)
+		then Vector3.new(
+			(crossing :: Vector3).X,
+			chosen.layout.centre.Y,
+			Data.releaseFrame(chosen.layout, aim.dz, (crossing :: Vector3).X, 0, nil, ForestTest.EXIT_PAST_STUDS).exitZ
+		)
 		else nil
 
 	-- HOW MANY FILES, AND AT WHAT PACE -- both the row's, both read and neither drawn. What this task
@@ -4603,10 +4616,15 @@ function ForestTest.orderGroup(row: any, now: number, aimIn: any?): (string?, st
 	local crossing = nil :: Vector3?
 	if type(offset) == "number" then
 		local crossX = standX + offset
-		crossing = Vector3.new(crossX, chosen.layout.centre.Y, ForestTest.driveZ(crossX, aim))
+		local at = Data.releaseFrame(chosen.layout, aim.dz, crossX, 0, crossX, ForestTest.EXIT_PAST_STUDS)
+		crossing = Vector3.new(crossX, chosen.layout.centre.Y, at.crossZ :: number)
 	end
 	local exitPoint = if crossing ~= nil
-		then Vector3.new((crossing :: Vector3).X, chosen.layout.centre.Y, Data.exitZOf(chosen.layout) - 10)
+		then Vector3.new(
+			(crossing :: Vector3).X,
+			chosen.layout.centre.Y,
+			Data.releaseFrame(chosen.layout, aim.dz, (crossing :: Vector3).X, 0, nil, ForestTest.EXIT_PAST_STUDS).exitZ
+		)
 		else nil
 
 	-- ONE FILE, AND THE PACK IS THE ONE THE BED GAVE IT (round 1, finding 2, which was right).

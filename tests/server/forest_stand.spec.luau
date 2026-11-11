@@ -162,6 +162,19 @@ return function()
 			-- THE FIELD THE ANIMALS ARE BORN WITH -- escape and out-of-play are judged by these two.
 			expect(math.abs((captured :: any).exitZ - (Data.exitZOf(layout) + want)) < 1e-6).to.equal(true)
 			expect(math.abs((captured :: any).road.zAt(at.X) - at.Z) < 1e-6).to.equal(true)
+			-- THE RELEASE, THE CROSSING AND THE EXIT, out of the one function `releaseLine` and
+			-- `orderGroup` both draw them with. A row 40 studs out and 150 deep, on and off.
+			local crossX = at.X + 40
+			local onFrame = Data.releaseFrame(layout, on.dz, at.X, 150, crossX, ForestTest.EXIT_PAST_STUDS)
+			local offFrame = Data.releaseFrame(layout, 0, at.X, 150, crossX, ForestTest.EXIT_PAST_STUDS)
+			expect(math.abs(onFrame.startZ - (offFrame.startZ + want)) < 1e-6).to.equal(true)
+			expect(math.abs((onFrame.crossZ :: number) - ((offFrame.crossZ :: number) + want)) < 1e-6).to.equal(true)
+			expect(math.abs(onFrame.exitZ - (offFrame.exitZ + want)) < 1e-6).to.equal(true)
+			-- ...and the crossing is at HER stand's own z, not the main road's, which is the defect.
+			expect(math.abs((onFrame.crossZ :: number) - Data.roadZ(crossX, layout) - want) < 1e-6).to.equal(true)
+			-- THE EXIT IS PAST THE PLANE THE ANIMALS ARE JUDGED AT, in the SAME frame: an exit north
+			-- of `field.exitZ` is the round-1 defect (nothing can ever report `escaped`).
+			expect(onFrame.exitZ < (captured :: any).exitZ).to.equal(true)
 			-- ...AND THE LATCH HOLDS FOR THE REST OF THE DRIVE (one frame per drive).
 			expect(select(2, ForestTest.settleAim(true))).to.equal(false)
 			ForestTest.clearPick(player.UserId)
