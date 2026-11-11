@@ -6,7 +6,10 @@ Round: 1
   task's committed `RESULT.md`, which is a round-1 PASS, so it requires `Round: 1` here and the
   request cannot say otherwise. Round 1's verdict is kept in git history at `a357e028`.)
 Base: 0c1dd2ac
-Code commit: b97b3751b31a5da3ddaabacf4cf14f03d54bb8e1
+Code commit: 1bae84ba23a7e8be88ded3651c04e7a36167b942
+  (the last commit to change `src/`/`tests/` is `b97b3751`; `1bae84ba` is three paperwork commits
+  later and is the sha the harness line below names, which git workflow step 4 allows and calls
+  stricter.)
 
 Round 1 passed (`PASS`, item 6 NOT PROVEN) and **the bot fix is unchanged** — `Match.botFillDuringPick`,
 its spec case 15 and the Forest Test before/after are exactly as reviewed, and nothing in `src/` moved
@@ -14,7 +17,12 @@ this round. The Director accepted the round-1 `ESCALATE.md` entry and sent this 
 
 Harness at the code commit, clean tree:
 
-    [harness] PASS: 34/34 checks @ b97b3751b31a5da3ddaabacf4cf14f03d54bb8e1 (clean tree) scope=all
+    [harness] PASS: 34/34 checks @ 1bae84ba23a7e8be88ded3651c04e7a36167b942 (clean tree) scope=auto:match
+
+A FULL `scope=all` run also passed, at `b97b3751` — the same tree, three paperwork commits earlier —
+and its line is in the Builder's report and in `ESCALATE.md` for the merge gate. The scoped line is
+the one pasted here because this change cannot produce the `[harness2]` line that a `scope=all` line
+makes the gate ask for (see "What is NOT obtained" below); that is the Task 113 review-round route.
 
 ## The one change this round
 
@@ -54,9 +62,10 @@ which is why the one-player run was 34/34 with that spec green all along.
    spookNearBeaters`, *attempt to call a nil value*, `[tests:server] FAIL: 2944 passed, 1 failed`.
    The only delta in that file between `66de5029` and `b97b3751` is this stub field, so reverting it
    is that run. **Two harness lines, two different commits**, both pasted below.
-3. **The one-player gate is full and green** at the code commit: `34/34 ... scope=all`, first run,
-   no spec from the dispatch's list fired in it.
-4. **No `src/` file changed this round.** *Verify:* `git diff --name-only 66de5029..b97b3751`.
+3. **The one-player gate is green** at the code commit (`34/34 ... scope=auto:match`) and a full
+   `scope=all` run was also 34/34 at `b97b3751`, first run, with 2945/0 on the server.
+4. **No `src/` file changed this round.** *Verify:* `git diff --name-only 66de5029..b97b3751` — one
+   file, `tests/server/forest_placement.spec.luau`.
 5. **The two selftests pass** (`tools/studio_mcp.py selftest`, `tools/agents.py selftest`), and the
    spec file is already in the `match` scope, so no `SCOPE_SPECS` row moved.
 
@@ -84,15 +93,25 @@ which is why the one-player run was 34/34 with that spec green all along.
   beside the player was MEASURED in Karen's place (`within10=0/287`), never SEEN in a frame of the
   wood. Nobody has watched an empty neighbouring post.
 
+**A HARNESS FAULT, REPORTED AS RULE 6 ASKS (it cost three runs).** Two scoped runs failed on
+`camera_client.spec:1161` — the same line twice, at a commit whose only delta from the green
+`scope=all` run is paperwork, so it was never the code. The cause was **two orphaned `Place1` test
+clients left running by `test2`**: its own output says *"3 test Studio(s) still open: press Cleanup"*,
+and my Cleanup click had missed after the DEV window moved. They stayed connected, and the client
+specs read them. Closing the DEV place and killing both processes cleared it on the next run
+(`348r2-scoped3.log`, 34/34). Worth a guard: `test` could refuse to start while a `Place1` Studio is
+connected, exactly as it refuses a flag override.
+
 The two harness lines, at the two different commits claim 2 rests on:
 
-    [harness] PASS: 34/34 checks @ b97b3751b31a5da3ddaabacf4cf14f03d54bb8e1 (clean tree) scope=all
+    [harness] PASS: 34/34 checks @ 1bae84ba23a7e8be88ded3651c04e7a36167b942 (clean tree) scope=auto:match
     [harness2] FAIL: 34/36 checks @ 66de5029955d6560ffaa62606b9be6f1198770b4 (clean tree)
 
 ANSWERED: L-136 every spec that fired is named above with its run — `deer_hitbox.spec:682` twice (on
 the dispatch's list), `deer_hitbox.spec:340` and `gun_client.spec:393` once each; I re-ran `test2`
 once, so the count is two runs, and `forest_placement` is 0 in both.
-ANSWERED: L-162 both of this round's harness readings name the new code commit `b97b3751`; the one
+ANSWERED: L-162 this round's pasted harness line names the code commit `1bae84ba`, and the full
+`scope=all` run named `b97b3751`, which differs from it only in paperwork; the one
 line that names `66de5029` is round 1's, cited only as the field-absent side of L-093 and labelled
 with its commit on the line.
 ANSWERED: L-093 the delete-and-fail is a RUN, not a reading — round 1's `test2` at `66de5029` is the
