@@ -653,6 +653,10 @@ local state = {
 	rosterDrive = nil :: number?,
 	placementInPlace = false,
 	aimAtPickedStand = false,
+	-- THIS DRIVE'S AIM AND WHETHER IT HAS BEEN SETTLED (task 349 round 2). `newDrive` clears the
+	-- latch; the first release of the drive settles it and the field moves with it.
+	aim = { x = 0, dz = 0, why = "off" },
+	aimSettled = false,
 	-- HOW MANY GROUPS WERE REFUSED, BY REASON, AND HOW MANY RING SEARCHES WERE SPENT. A skip is a
 	-- hole in the wood and it is REPORTED, never hidden (design 4.3, must-not 11); `searches` is
 	-- beside it so a drive that reports no skips cannot be one that tested nothing (design 12.3).
@@ -920,7 +924,7 @@ function ForestTest.boarThreats(now: number)
 	for _, wave in ipairs(ForestTest.wavesToPush(state.active, bots)) do
 		local centre = ForestTest.herdShape(wave.handles)
 		if centre ~= nil then
-			local dz = (centre :: Vector3).Z - Data.roadZ((centre :: Vector3).X, chosen.layout)
+			local dz = (centre :: Vector3).Z - ForestTest.driveZ((centre :: Vector3).X)
 			local at = ForestTest.beaterPosition(
 				centre :: Vector3,
 				now - wave.at,
@@ -986,29 +990,58 @@ function ForestTest.hunterStandX(): number
 	return onLine(Data.standX(ForestTest.defaultPickIndex(), chosen.layout))
 end
 
--- THE STAND SHE LOCKED, AS A POINT, UNCLAMPED -- or nil when nobody has locked one. `hunterStandX`
--- above answers an x on the MAIN line (it has to: the beaters, the rest spots and the corridor are
--- all main-line readers). This one is the stand itself, which is what the drive has to be aimed at.
-function ForestTest.lockedStandPoint(): Vector3?
-	for _, pick in pairs(state.picks) do
-		if pick.lockedAt ~= nil and pick.index <= chosen.layout.standCount then
-			return Data.standPosition(pick.index, chosen.layout)
+-- EVERY REAL PLAYER'S LOCKED PICK, AS A FRAME (task 349 round 2). Bots cannot be in this list:
+-- `Players:GetPlayerByUserId` is the filter, so a bot on a flank stand never moves the drive.
+function ForestTest.lockedFrames(): { { x: number, dz: number, who: string? } }
+	local out = {}
+	for userId, pick in pairs(state.picks) do
+		local player = Players:GetPlayerByUserId(userId)
+		if player ~= nil and pick.lockedAt ~= nil and pick.index <= chosen.layout.standCount then
+			local at = Data.standPosition(pick.index, chosen.layout)
+			local frame = Data.aimFrame(at.X, at.Z, Data.roadZ(at.X, chosen.layout), true)
+			table.insert(out, { x = frame.x, dz = frame.dz, who = player.Name .. "@" .. tostring(pick.index) })
 		end
 	end
-	return nil
+	table.sort(out, function(a, b)
+		return tostring(a.who) < tostring(b.who)
+	end)
+	return out
 end
 
--- WHERE THIS DRIVE IS AIMED. `Data.aimFrame` is the rule and it is pure; this reads the two live
--- facts it needs -- the locked stand and the main road's z under it -- and the flag's value off the
--- boundary above. With the flag OFF, or with nobody locked, it is `{ x = hunterStandX(), dz = 0 }`,
--- which is the drive exactly as it was before task 349.
-function ForestTest.hunterAim(): { x: number, dz: number }
-	local standX = ForestTest.hunterStandX()
-	local point = if state.aimAtPickedStand then ForestTest.lockedStandPoint() else nil
-	if point == nil then
-		return Data.aimFrame(standX, nil, nil, false)
+-- WHERE THIS DRIVE WOULD BE AIMED IF IT WERE SETTLED NOW. `Data.rosterAim` is the rule and it is
+-- pure; this reads the live picks and the flag's value off the boundary. `x` nil means "no aim":
+-- the caller keeps `hunterStandX`, which is the drive exactly as it was before task 349.
+function ForestTest.aimNow(enabled: boolean?): { x: number, dz: number, why: string }
+	local on = if type(enabled) == "boolean" then enabled else state.aimAtPickedStand == true
+	local aim = Data.rosterAim(ForestTest.lockedFrames(), on)
+	return { x = aim.x or ForestTest.hunterStandX(), dz = aim.dz, why = aim.why }
+end
+
+-- THIS DRIVE'S AIM, LATCHED. ONE FRAME PER DRIVE (Director decision 1): it is settled at the first
+-- release of a drive and never moves again inside it, because a Brain is born with its field
+-- (`Runtime:spawn` -> `Brain.new(animalConfig, self._field, ...)`) and an aim that changed mid-drive
+-- would leave half the animals judged by a frame they were not released into. A pick locked after
+-- the first release applies from the NEXT drive.
+function ForestTest.aim(): { x: number, dz: number, why: string }
+	return state.aim
+end
+
+-- SETTLES IT, AND MOVES THE FIELD WITH IT. Returns the aim and whether this call is what settled it.
+function ForestTest.settleAim(enabled: boolean?): ({ x: number, dz: number, why: string }, boolean)
+	if state.aimSettled then
+		return state.aim, false
 	end
-	return Data.aimFrame(point.X, point.Z, Data.roadZ(point.X, chosen.layout), true)
+	state.aim = ForestTest.aimNow(enabled)
+	state.aimSettled = true
+	ForestTest.applyField(state.runtime, state.aim.dz)
+	return state.aim, true
+end
+
+-- THIS DRIVE'S z AT AN x: the main road's, plus this drive's shift. THE ONE DEFINITION -- every
+-- reader that decides an animal's fate reads it, so the release, the route, the crossing, the exit,
+-- the edge check, the trot urge, the beds and the roar cannot disagree about where the road is.
+function ForestTest.driveZ(x: number, aim: { dz: number }?): number
+	return Data.roadZ(x, chosen.layout) + (aim or state.aim).dz
 end
 
 -- RELEASES ONE WAVE. Returns how many animals it actually put on the ground, which is never assumed
@@ -1156,7 +1189,7 @@ function ForestTest.retire(now: number)
 	for index = #state.active, 1, -1 do
 		local wave = state.active[index]
 		local centre = ForestTest.herdCentre(wave.handles)
-		local dz = if centre then centre.Z - Data.roadZ(centre.X, chosen.layout) else nil
+		local dz = if centre then centre.Z - ForestTest.driveZ(centre.X) else nil
 		local gone = ForestTest.wavePhase(
 			now - wave.at,
 			wave.turnsBack,
@@ -1908,7 +1941,7 @@ function ForestTest.restSpot(standX: number, spec, band: any?): Vector3?
 				local radius = ring * rest.searchStepStuds
 				local at =
 					Data.restPoint(standX, spec, math.cos(angle) * radius, math.sin(angle) * radius, chosen.layout)
-				local dz = at.Z - Data.roadZ(at.X, chosen.layout)
+				local dz = at.Z - ForestTest.driveZ(at.X)
 				local frontZ = if avoidSweep then Data.lineFrontAt(beaters, at.X) else nil
 				local swept = frontZ ~= nil and Data.sweepCatches((frontZ :: number) - at.Z, sweepDepth, Data.SPOOK)
 				-- THE NEAREST REAL BEATER, or the spawn point when nobody has a body yet. `nearestBeater`
@@ -2012,7 +2045,7 @@ function ForestTest.stockWood(now: number): string?
 						spec.note,
 						made,
 						at.X - standX,
-						at.Z - Data.roadZ(at.X, chosen.layout),
+						at.Z - ForestTest.driveZ(at.X),
 						ForestTest.nearestSolid(at + Vector3.new(0, 2, 0), rest.nearTrunkStuds)
 					)
 				)
@@ -2414,7 +2447,7 @@ function ForestTest.materialise(row: any, now: number): (boolean, string?, strin
 	-- THE DEPTH OF THE BED THAT WAS FOUND, which is what the wake is judged against (T4): the ring
 	-- search may take a bed `bedSpreadStuds / 2` either side of the planned depth, and 20 studs is
 	-- 3.5 s of the line's walk against a 2-second stand.
-	row.atNorth = at.Z - Data.roadZ(at.X, chosen.layout)
+	row.atNorth = at.Z - ForestTest.driveZ(at.X)
 	row.state = "bedded"
 	row.beddedAt = now
 	state.released += #ids
@@ -2459,7 +2492,7 @@ local ORDER_RETRY_SECONDS = 4
 -- the line has flushed is AWAKE, because `spookNearBeaters` has latched one of its animals, and a
 -- group whose bodies have all gone is GONE. `spookNearBeaters` and `stepLines` are untouched -- a
 -- bedded group is a real body in the world, so the flush, the horn and a shot already reach it.
-function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
+function ForestTest.stepPlacement(now: number, inPlace: boolean?, aimIn: any?): string?
 	local runtime = state.runtime
 	if inPlace ~= true or runtime == nil then
 		return nil
@@ -2492,7 +2525,7 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
 			-- studs west of the stand is compared with the part of the line in front of IT.
 			local atX = ForestTest.hunterStandX() + (row.bedOffsetX or 0)
 			local frontZ = Data.lineFrontAt(beaters, atX)
-			local frontNorth = if frontZ ~= nil then (frontZ :: number) - Data.roadZ(atX, chosen.layout) else nil
+			local frontNorth = if frontZ ~= nil then (frontZ :: number) - ForestTest.driveZ(atX) else nil
 			local why = Placement.reopenNow(row, elapsed, frontNorth, noticeAhead, Placement.CONFIG.searchesPerWake)
 			if why ~= nil then
 				row.reopened = true
@@ -2515,7 +2548,7 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
 					standing += 1
 					local at = whereIs[id]
 					if typeof(at) == "Vector3" then
-						local dz = (at :: Vector3).Z - Data.roadZ((at :: Vector3).X, chosen.layout)
+						local dz = (at :: Vector3).Z - ForestTest.driveZ((at :: Vector3).X)
 						if lead == nil or dz > (lead :: number) then
 							lead = dz
 						end
@@ -2550,7 +2583,7 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
 			if row.state == "bedded" and typeof(row.at) == "Vector3" then
 				local at = row.at :: Vector3
 				local frontZ = Data.lineFrontAt(beaters, at.X)
-				local frontNorth = if frontZ ~= nil then (frontZ :: number) - Data.roadZ(at.X, chosen.layout) else nil
+				local frontNorth = if frontZ ~= nil then (frontZ :: number) - ForestTest.driveZ(at.X) else nil
 				if Placement.wakeReason(row, elapsed, frontNorth, noticeAhead, wakeLead) == "beaters" then
 					woken = true
 					state.placementWokeBand = (state.placementWokeBand or 0) + 1
@@ -2588,7 +2621,7 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
 		then
 			row.orderTries = (tonumber(row.orderTries) or 0) + 1
 			row.orderNextAt = now + ORDER_RETRY_SECONDS
-			local ordered, why = ForestTest.orderGroup(row, now)
+			local ordered, why = ForestTest.orderGroup(row, now, aimIn)
 			if ordered ~= nil then
 				return ordered
 			end
@@ -2626,7 +2659,7 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
 			due.act or 0,
 			#due.ids,
 			at.X - ForestTest.hunterStandX(),
-			at.Z - Data.roadZ(at.X, chosen.layout),
+			at.Z - ForestTest.driveZ(at.X),
 			due.bedNorth,
 			due.reachAtSeconds,
 			ForestTest.nearestSolid(at + Vector3.new(0, 2, 0), Data.REST.nearTrunkStuds),
@@ -2968,6 +3001,9 @@ function ForestTest.newDrive(now: number?)
 		state.nextWaveAt = now + Data.slotSeconds(1)
 		state.nextRoarAt = now + Data.ROAR.firstAtSeconds
 	end
+	-- ONE FRAME PER DRIVE (task 349 r2): the latch is cleared here and the FIRST release of this
+	-- drive settles the aim, so every animal in it is judged by the frame it was released into.
+	state.aimSettled = false
 	state.roars = 0
 	state.rest = {}
 	state.restStocked = false
@@ -3058,11 +3094,13 @@ end
 -- PUTS THE LIVE LAYOUT'S FIELD ON A RUNTIME -- the bounds, the exit line and the ground height. The
 -- ONE place that writes a runtime's field, so "which field is this world on" cannot be answered twice
 -- differently (round 1, finding 2). Returns whether it wrote one, so a spec and the console can say.
-function ForestTest.applyField(runtime): boolean
+function ForestTest.applyField(runtime, dz: number?): boolean
 	if runtime == nil or runtime.setField == nil then
 		return false
 	end
-	runtime:setField(Data.fieldFor(chosen.layout))
+	-- `dz` IS THIS DRIVE'S SHIFT: `exitZ`, `road.zAt` and `bounds` move with the band, so escape and
+	-- out-of-play are judged against the road the animals were actually released at (task 349 r2).
+	runtime:setField(Data.fieldFor(chosen.layout, dz or state.aim.dz))
 	return true
 end
 
@@ -3312,7 +3350,7 @@ function ForestTest.restReport(_now: number): { string }
 				alive += 1
 				states[status.state] = (states[status.state] or 0) + 1
 				speedSum += status.speed
-				dzSum += status.position.Z - Data.roadZ(status.position.X, chosen.layout)
+				dzSum += status.position.Z - ForestTest.driveZ(status.position.X)
 				if state.latched[id] == true then
 					walked += 1
 				end
@@ -3435,7 +3473,7 @@ function ForestTest.waveReport(now: number): { string }
 		local centre = ForestTest.herdShape(wave.handles)
 		if centre ~= nil then
 			local elapsed = now - wave.at
-			local dz = (centre :: Vector3).Z - Data.roadZ((centre :: Vector3).X, chosen.layout)
+			local dz = (centre :: Vector3).Z - ForestTest.driveZ((centre :: Vector3).X)
 			local at = ForestTest.beaterPosition(
 				centre :: Vector3,
 				elapsed,
@@ -3460,11 +3498,7 @@ function ForestTest.waveReport(now: number): { string }
 					alive,
 					dz,
 					if at
-						then string.format(
-							"dz=%.0f gap=%.1f",
-							at.Z - Data.roadZ(at.X, chosen.layout),
-							(at - centre).Magnitude
-						)
+						then string.format("dz=%.0f gap=%.1f", at.Z - ForestTest.driveZ(at.X), (at - centre).Magnitude)
 						else "none"
 				)
 			)
@@ -3493,7 +3527,15 @@ function ForestTest.step(now: number, inPlace: boolean?): string?
 		-- must exist before the line can find it, and `stepPlacement` is level-triggered on the
 		-- drive's own clock, so it cannot be missed and cannot fire twice. Nil on every tick with
 		-- nothing due, and nil on every tick at all while the flag is off.
-		local bed = ForestTest.stepPlacement(now, resolved)
+		-- THIS DRIVE'S AIM, SETTLED ONCE AND SAID ONCE (task 349 r2). The settling call is here, in
+		-- front of the first thing that puts an animal down, so the field is already the band's before
+		-- any Brain is born into it; the line names the frame and, when real players stand on different
+		-- ones, who they are (`Data.rosterAim`'s `why`).
+		local aim, settled = ForestTest.settleAim()
+		if settled and aim.why ~= "off" then
+			print(string.format("[ForestTest] drive aimed: dz %+.0f, %s", aim.dz, aim.why))
+		end
+		local bed = ForestTest.stepPlacement(now, resolved, aim)
 		-- WHO HAS BEEN WALKED UP ON, BEFORE ANYTHING ELSE IS DECIDED (task 154). It runs in BOTH
 		-- modes and over every live animal, so a beater meeting a scheduled line and a beater
 		-- meeting a resting sounder get the same rule -- see `ForestTest.spookNearBeaters`.
@@ -3552,7 +3594,7 @@ function ForestTest.step(now: number, inPlace: boolean?): string?
 		-- flush`, so a roar -- or a flush, or a walked-up animal -- that happened on the same tick as a
 		-- slot release never reached the console at all, and the drive's own proof then undercounts the
 		-- very thing it is evidence for. The slot line comes first because it is the drive's headline.
-		local released = ForestTest.releaseLine(now, nil, resolved)
+		local released = ForestTest.releaseLine(now, nil, resolved, aim)
 		if released ~= nil and flush ~= nil then
 			return released .. " | " .. flush
 		end
@@ -3590,7 +3632,7 @@ function ForestTest.urgeAcrossRoad()
 	-- it replaced: no wave, no centroid, no empty-handle case.
 	for _, handle in ipairs(runtime:boars()) do
 		local at = handle.position()
-		local dz = at.Z - Data.roadZ(at.X, chosen.layout)
+		local dz = at.Z - ForestTest.driveZ(at.X)
 		if dz <= wave.crossTrotDz and dz >= -wave.crossTrotPastDz then
 			runtime:urge(handle.id, 1)
 		end
@@ -3618,7 +3660,7 @@ function ForestTest.checkAtTheEdge()
 	-- The band is OUTSIDE the road and north of it: from the road's near verge out to `edgeDz`.
 	for _, handle in ipairs(runtime:boars()) do
 		local at = handle.position()
-		local dz = at.Z - Data.roadZ(at.X, chosen.layout)
+		local dz = at.Z - ForestTest.driveZ(at.X)
 		if dz > wave.edgeNearDz and dz <= wave.edgeFarDz and runtime:leads(handle.id) then
 			runtime:check(handle.id)
 		end
@@ -3894,12 +3936,12 @@ local function routeFilesFor(
 			local turnAt = row.turnAtDz or Data.SCHEDULE.turnBackStuds
 			local homeAt = Data.SCHEDULE.breakBackToDz
 			local x = start.X + lateral
-			table.insert(via, Vector3.new(x, chosen.layout.centre.Y, Data.roadZ(x, chosen.layout) + turnAt))
-			table.insert(via, Vector3.new(x, chosen.layout.centre.Y, Data.roadZ(x, chosen.layout) + homeAt))
+			table.insert(via, Vector3.new(x, chosen.layout.centre.Y, ForestTest.driveZ(x) + turnAt))
+			table.insert(via, Vector3.new(x, chosen.layout.centre.Y, ForestTest.driveZ(x) + homeAt))
 		elseif route == "HOLD" then
 			local x = start.X + lateral
-			local north = start.Z - Data.roadZ(start.X, chosen.layout) - (row.holdStuds or 60)
-			table.insert(via, Vector3.new(x, chosen.layout.centre.Y, Data.roadZ(x, chosen.layout) + north))
+			local north = start.Z - ForestTest.driveZ(start.X) - (row.holdStuds or 60)
+			table.insert(via, Vector3.new(x, chosen.layout.centre.Y, ForestTest.driveZ(x) + north))
 		elseif crossing ~= nil and exitPoint ~= nil then
 			-- THE SPLINTER'S OWN CROSSING (`SPLIT`): file 1 keeps the row's crossing, every later
 			-- file takes `splitStuds` from it, so the group crosses in two places 40 studs apart.
@@ -3925,20 +3967,16 @@ local function routeFilesFor(
 				local entryX =
 					Data.sneakEntryX(start.X + lateral, (crossing :: Vector3).X + lateral + shift, row.sneakStuds)
 				local dz = row.sneakDz or 0
-				table.insert(via, Vector3.new(entryX, chosen.layout.centre.Y, Data.roadZ(entryX, chosen.layout) + dz))
+				table.insert(via, Vector3.new(entryX, chosen.layout.centre.Y, ForestTest.driveZ(entryX) + dz))
 				local turnX = (crossing :: Vector3).X + lateral + shift
-				table.insert(via, Vector3.new(turnX, chosen.layout.centre.Y, Data.roadZ(turnX, chosen.layout) + dz))
+				table.insert(via, Vector3.new(turnX, chosen.layout.centre.Y, ForestTest.driveZ(turnX) + dz))
 			end
 			if route == "LATERAL" then
 				local sign = ForestTest.lateralSign(row.lateral)
 				local walkTo = start.X + lateral + sign * ForestTest.WAVE.lateralSpan
 				table.insert(
 					via,
-					Vector3.new(
-						walkTo,
-						chosen.layout.centre.Y,
-						Data.roadZ(walkTo, chosen.layout) + ForestTest.WAVE.lateralDz
-					)
+					Vector3.new(walkTo, chosen.layout.centre.Y, ForestTest.driveZ(walkTo) + ForestTest.WAVE.lateralDz)
 				)
 			end
 			table.insert(via, acrossAt)
@@ -3972,7 +4010,7 @@ local function routeFilesFor(
 	return routes
 end
 
-function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): string?
+function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, aimIn: any?): string?
 	local runtime = state.runtime
 	if runtime == nil then
 		return nil
@@ -3980,9 +4018,13 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): s
 	local boar = boarConfig()
 	local lineData = Data.LINE
 	local rng = state.rng
-	-- AIMED AT THE STAND SHE LOCKED (task 349). `aim.x` replaces the clamped `hunterStandX` and
-	-- `aim.dz` translates this drive's whole band onto her stand; both are 0 on the main line.
-	local aim = ForestTest.hunterAim()
+	-- AIMED AT THE STAND SHE LOCKED (task 349). BY PARAMETER, exactly as `inPlace` is, so a spec can
+	-- drive both states while the flag sits at one of them; `nil` settles this drive's own aim and
+	-- moves the field with it (ONE FRAME PER DRIVE, `ForestTest.settleAim`).
+	local aim = aimIn
+	if aim == nil then
+		aim = (ForestTest.settleAim())
+	end
 	local standX = aim.x
 
 	-- ---------------------------------------------------------------- THE SLOT (task 251)
@@ -4101,7 +4143,7 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): s
 	-- row of such a drive on its `minNorthStuds` floor.
 	local lineNorth = if Data.clampedToLine(row) and aim.dz == 0 then ForestTest.lineNorthAt(nominal.X) else nil
 	local startNorth = Data.releaseDepth(row.northStuds, lineNorth, Data.routeFloor(row, schedule), schedule)
-	nominal = Vector3.new(nominal.X, nominal.Y, Data.roadZ(nominal.X, chosen.layout) + aim.dz + startNorth)
+	nominal = Vector3.new(nominal.X, nominal.Y, ForestTest.driveZ(nominal.X, aim) + startNorth)
 	local start = Vector3.new(nominal.X, Data.groundAt(nominal.X, nominal.Z) or chosen.layout.centre.Y, nominal.Z)
 
 	-- WHERE IT CROSSES, and it is relative to the stand she locked (task 123 round 8). A
@@ -4110,7 +4152,7 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): s
 	local crossing = nil :: Vector3?
 	if type(offset) == "number" then
 		local crossX = standX + offset
-		crossing = Vector3.new(crossX, chosen.layout.centre.Y, Data.roadZ(crossX, chosen.layout) + aim.dz)
+		crossing = Vector3.new(crossX, chosen.layout.centre.Y, ForestTest.driveZ(crossX, aim))
 	end
 	-- PAST THE DESPAWN LINE, NOT UP TO IT, and that was a measured bug: the route ended at
 	-- `EXIT_Z + 20`, which is twenty studs NORTH of the line `Brain:_outcome` despawns at -- so every
@@ -4233,7 +4275,13 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): s
 	end
 	count = math.min(count, room)
 	if count <= 0 then
-		return nil
+		return string.format(
+			"line %d: slot %d held -- %d of %d animals already out, no room for one" .. " more",
+			state.waveIndex,
+			slot,
+			runtime:count(),
+			ceiling
+		)
 	end
 
 	-- ---------------------------------------------------------------- THE ROUTES, ONE PER ROUTE WORD
@@ -4272,7 +4320,12 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): s
 	-- actually computed rather than on the one its index would have had.
 	local routes = routeFilesFor(row, route, start, crossing, exitPoint, lines, lineData.lineGapStuds)
 	if #routes == 0 then
-		return nil
+		return string.format(
+			"line %d: slot %d held -- no route could be drawn for %s from its start" .. " to its crossing",
+			state.waveIndex,
+			slot,
+			tostring(route)
+		)
 	end
 	local asked = lines
 	lines = #routes
@@ -4339,7 +4392,12 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): s
 		end
 	end
 	if #members == 0 then
-		return nil
+		return string.format(
+			"line %d: slot %d held -- the runtime handed back no handle for any of" .. " the %d animal(s) asked for",
+			state.waveIndex,
+			slot,
+			count
+		)
 	end
 	local placed = 0
 	for which, group in ipairs(groups) do
@@ -4403,7 +4461,11 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): s
 		end
 	end
 	if placed == 0 then
-		return nil
+		return string.format(
+			"line %d: slot %d put NOTHING on the ground -- every file refused its" .. " ground",
+			state.waveIndex,
+			slot
+		)
 	end
 	state.released += placed
 	-- THE DEER LATCH IS STILL SET (task 239), AND SINCE TASK 251 IT IS A BELT AND NOT THE BRACE.
@@ -4490,14 +4552,21 @@ end
 -- `Runtime:flying` is the Brain's answer and a flight owns the animal until it ends. A group whose
 -- every member is flying is AWAKE AS A FLIGHT, which design 4.1 names as the other legal shape of
 -- AWAKE, and it is counted (`flights`) rather than argued about.
-function ForestTest.orderGroup(row: any, now: number): (string?, string?)
+function ForestTest.orderGroup(row: any, now: number, aimIn: any?): (string?, string?)
 	local runtime = state.runtime
 	if runtime == nil or type(row) ~= "table" then
 		return nil, "runtime"
 	end
+	-- AIMED BY THE SAME AIM AS `releaseLine` (task 349 r2, Director decision 3). This is the path
+	-- that actually moves a group when `PLACEMENT_IN_PLACE` is on, so an unaimed one here would
+	-- leave the whole scripted drive on the main road while the flag said otherwise.
+	local aim = aimIn
+	if aim == nil then
+		aim = (ForestTest.settleAim())
+	end
 	local boar = boarConfig()
 	local lineData = Data.LINE
-	local standX = ForestTest.hunterStandX()
+	local standX = aim.x
 	local spec = row.row
 	if type(spec) ~= "table" then
 		return nil, "norow"
@@ -4521,14 +4590,15 @@ function ForestTest.orderGroup(row: any, now: number): (string?, string?)
 		return nil, if flying > 0 then "flight" else "nobody"
 	end
 
-	-- WHERE IT CROSSES AND WHERE IT LEAVES: the row's own, exactly as `releaseLine` reads them. A
-	-- `BREAK-BACK` and a `HOLD` never cross, and `crossOffset` is nil on exactly those rows.
+	-- WHERE IT CROSSES AND WHERE IT LEAVES: the row's own, in THIS DRIVE'S frame -- `ForestTest.driveZ`
+	-- and `aim`, the same two `releaseLine` reads. A `BREAK-BACK` and a `HOLD` never cross, and
+	-- `crossOffset` is nil on exactly those rows.
 	local route = Data.slotRoute(spec)
 	local offset = spec.crossOffset
 	local crossing = nil :: Vector3?
 	if type(offset) == "number" then
 		local crossX = standX + offset
-		crossing = Vector3.new(crossX, chosen.layout.centre.Y, Data.roadZ(crossX, chosen.layout))
+		crossing = Vector3.new(crossX, chosen.layout.centre.Y, ForestTest.driveZ(crossX, aim))
 	end
 	local exitPoint = if crossing ~= nil
 		then Vector3.new((crossing :: Vector3).X, chosen.layout.centre.Y, Data.exitZOf(chosen.layout) - 10)
@@ -4560,15 +4630,17 @@ function ForestTest.orderGroup(row: any, now: number): (string?, string?)
 	-- what is decided here is the order WITHIN one rank, and the cheapest file to form is the one
 	-- whose ranks are already laid out along the way they are about to walk. `Line.order` breaks a
 	-- rank tie by input index, so sorting the input along the route is the whole of it.
-	local aim = if crossing ~= nil
+	-- `aimPoint`, not `aim`: the drive's AIM is the frame (task 349 r2), this is the POINT this
+	-- file walks at.
+	local aimPoint = if crossing ~= nil
 		then crossing :: Vector3
-		else Vector3.new(standX, chosen.layout.centre.Y, Data.roadZ(standX, chosen.layout))
+		else Vector3.new(standX, chosen.layout.centre.Y, ForestTest.driveZ(standX, aim))
 	local centre = Vector3.zero
 	for _, member in ipairs(able) do
 		centre += member.at
 	end
 	centre /= #able
-	local forward = Vector3.new(aim.X - centre.X, 0, aim.Z - centre.Z)
+	local forward = Vector3.new(aimPoint.X - centre.X, 0, aimPoint.Z - centre.Z)
 	forward = if forward.Magnitude > 1e-3 then forward.Unit else Vector3.new(0, 0, -1)
 	table.sort(able, function(a, b)
 		return a.at:Dot(forward) > b.at:Dot(forward)
@@ -4733,9 +4805,14 @@ function ForestTest.roarPoint(): Vector3?
 	if row == nil then
 		return nil -- a drive with no stag in it: the dial, at `quiet`
 	end
-	local standX = ForestTest.hunterStandX()
+	-- THE ROAR IS WHERE THE STAG IS, so it moves with this drive's band (task 349 r2):
+	-- `ForestTest.aim()` is the latched frame, and on the main road its shift is 0.
+	local aim = ForestTest.aim()
+	local standX = aim.x
 	local nominal = Data.wavePoint(standX, row, chosen.layout)
 	local x = nominal.X
+	-- `wavePoint` builds on the MAIN road, so the band's own shift is added here.
+	nominal = Vector3.new(x, nominal.Y, nominal.Z + aim.dz)
 	-- FURTHER NORTH IS DEEPER INTO THE WOOD: `wavePoint` puts a row at `roadZ(x) + northStuds`, so
 	-- `+ deeperStuds` is `+ deeperStuds` and no second conversion is needed.
 	local z = nominal.Z + Data.ROAR.deeperStuds
@@ -4931,7 +5008,7 @@ function ForestTest.roarNow(at: Vector3, where: string): string?
 			.. "audible to %d -- id %d %s, volume %.2f, pitch %.2f",
 		state.roars,
 		where,
-		(Vector3.new(at.X - ForestTest.hunterStandX(), 0, at.Z - Data.roadZ(at.X, chosen.layout))).Magnitude,
+		(Vector3.new(at.X - ForestTest.hunterStandX(), 0, at.Z - ForestTest.driveZ(at.X))).Magnitude,
 		Data.ROAR.audibleStuds,
 		clip.id,
 		if clip.from ~= nil and clip.to ~= nil

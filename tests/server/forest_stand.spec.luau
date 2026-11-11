@@ -86,50 +86,112 @@ return function()
 			TestKit.note(string.format("archived: %s", table.concat(Data.LINE_PLACES, ", ")))
 		end)
 
-		-- TASK 349: THE DRIVE IS AIMED AT THE STAND SHE LOCKED.
+		-- TASK 349 ROUND 2: THE DRIVE IS AIMED AT THE STAND SHE LOCKED, AND SO IS EVERY READER THAT
+		-- DECIDES AN ANIMAL'S FATE.
 		--
-		-- MEASURED BEFORE THIS CASE EXISTED (C1, 2026-11-11): a hunter on west-flank stand 11 had 0
-		-- animals inside 120 studs in a whole 299 s drive out of 120 released, because the whole
-		-- band is built on the MAIN road's z and her stand is 975 studs north of it.
+		-- MEASURED BEFORE THIS CASE EXISTED (C1, her Forest Test, 2026-11-11): a hunter on west-flank
+		-- stand 11 saw 0 of 120 released animals inside 120 studs in a whole 299 s drive. Round 1
+		-- moved the release frame only, and the animals' owner kept the MAIN road -- so the same
+		-- drive released 72 instead of 120 and despawned the rest as `settled`.
 		--
-		-- IT BITES WHEN THE LEVER IS DELETED (L-093): the shift IS `standZ - roadZ`, so a rule that
-		-- answered 0 -- which is what `releaseLine` did before, and what OFF still does -- fails the
-		-- flank half of this case. The main-line half is the other direction: a stand ON the road
-		-- shifts by 0 even with the lever on, which is why it is safe for every stand at once.
-		it("shifts the drive onto a flank stand and leaves a main-line stand where it was", function()
-			local layout = Data.layoutOf("C1") :: any
-			if layout == nil or layout.sides == nil then
-				TestKit.note("C1 is not a cell in this build: nothing to shift")
+		-- IT DRIVES THE PLAYER'S PATH, not the pure rule (round 1 finding 2): a REAL player's locked
+		-- pick goes in, and what comes out is this drive's z, the field the animals are born with,
+		-- and the aim the release path reads. Delete `lockedFrames`, `aimNow`, `settleAim`,
+		-- `driveZ`'s `+ aim.dz`, or `applyField`'s shift, and a line below fails.
+		it("aims the drive AND the field at a real player's locked flank stand", function()
+			local player = Players:GetPlayers()[1]
+			if player == nil then
+				TestKit.note("no player in this session: the locked-pick path needs one")
 				return
 			end
-			local shifted, flat = 0, 0
+			local captured = nil
+			local fake = {
+				setField = function(_self, field)
+					captured = field
+				end,
+				clear = function() end,
+				count = function()
+					return 0
+				end,
+				capacity = function()
+					return Data.MAX_BOARS
+				end,
+				liveCount = function()
+					return 0
+				end,
+				boars = function()
+					return {}
+				end,
+			}
+			ForestTest.layoutForDrive(1, "c1")
+			ForestTest.start(fake, 0)
+			local layout = ForestTest.layout()
+			-- A WEST-FLANK STAND, which is the whole case: `Grid.sideOf` names it, and its own z is
+			-- hundreds of studs from the main road's z under it.
+			local flank = nil
 			for index = 1, layout.standCount do
-				local at = Data.standPosition(index, layout)
-				local road = Data.roadZ(at.X, layout)
-				local on = Data.aimFrame(at.X, at.Z, road, true)
-				local off = Data.aimFrame(Data.standX(index, layout), at.Z, road, false)
-				-- OFF is the drive before task 349: no shift, whatever the stand is.
-				expect(off.dz).to.equal(0)
-				local raw = at.Z - road
-				if math.abs(raw) >= Data.AIM_FLAT_STUDS then
-					expect(math.abs(on.dz - raw) < 1e-6).to.equal(true)
-				end
-				if Grid.sideOf("C1", index) == "main" then
-					-- A MAIN-LINE STAND IS ON THE ROAD, so its band does not move AT ALL -- exactly
-					-- 0, not nearly 0. `releaseLine` compares `aim.dz == 0` to decide whether the
-					-- beater-line clamp still applies, and a thousandth of a stud there cost the
-					-- main line its clamp and 25 s of its worst gap before `AIM_FLAT_STUDS` existed.
-					expect(on.dz).to.equal(0)
-					flat += 1
-				else
-					-- A FLANK STAND IS HUNDREDS OF STUDS OFF IT, and that distance is the defect.
-					expect(math.abs(on.dz) > 100).to.equal(true)
-					shifted += 1
+				if Grid.sideOf("C1", index) ~= "main" then
+					flank = index
+					break
 				end
 			end
-			expect(flat > 0).to.equal(true)
-			expect(shifted > 0).to.equal(true)
-			TestKit.note(string.format("C1: %d stands unmoved, %d shifted onto their own ground", flat, shifted))
+			expect(flank ~= nil).to.equal(true)
+			local at = Data.standPosition(flank :: number, layout)
+			local road = Data.roadZ(at.X, layout)
+			local want = at.Z - road
+			expect(math.abs(want) > 100).to.equal(true)
+
+			ForestTest.clearPick(player.UserId)
+			ForestTest.newDrive(0)
+			-- OFF IS THE DRIVE BEFORE TASK 349: no shift, and the field is the main road's.
+			local off = select(1, ForestTest.settleAim(false))
+			expect(off.dz).to.equal(0)
+			expect(math.abs(ForestTest.driveZ(at.X) - road) < 1e-6).to.equal(true)
+			expect(captured ~= nil).to.equal(true)
+			expect(math.abs((captured :: any).exitZ - Data.exitZOf(layout)) < 1e-6).to.equal(true)
+			expect(math.abs((captured :: any).road.zAt(at.X) - road) < 1e-6).to.equal(true)
+
+			-- ...AND ON, WITH HER PICK LOCKED, EVERY ONE OF THEM MOVES BY THE SAME `want`.
+			ForestTest.lockPick(player.UserId, at, 1, flank)
+			ForestTest.newDrive(1)
+			local on, settled = ForestTest.settleAim(true)
+			expect(settled).to.equal(true)
+			expect(math.abs(on.dz - want) < 1e-6).to.equal(true)
+			expect(math.abs(ForestTest.driveZ(at.X) - at.Z) < 1e-6).to.equal(true)
+			-- THE FIELD THE ANIMALS ARE BORN WITH -- escape and out-of-play are judged by these two.
+			expect(math.abs((captured :: any).exitZ - (Data.exitZOf(layout) + want)) < 1e-6).to.equal(true)
+			expect(math.abs((captured :: any).road.zAt(at.X) - at.Z) < 1e-6).to.equal(true)
+			-- ...AND THE LATCH HOLDS FOR THE REST OF THE DRIVE (one frame per drive).
+			expect(select(2, ForestTest.settleAim(true))).to.equal(false)
+			ForestTest.clearPick(player.UserId)
+			TestKit.note(
+				string.format(
+					"stand %d (%s) shifts the drive and its field by %+.0f studs",
+					flank :: number,
+					Grid.sideOf("C1", flank :: number),
+					want
+				)
+			)
+		end)
+
+		-- THE ROSTER RULE (Director decision 4), as the pure rule it is. The LIVE two-player branch
+		-- -- two real Players with locked picks on different frames -- cannot be reached by a
+		-- one-player harness; `src/server/ForestTest/` is not in `TWO_PLAYER_PATHS`, so this is said
+		-- here rather than left to be assumed.
+		it("refuses to move the band when real players stand on different frames", function()
+			local west = { x = -4504, dz = 975, who = "A@11" }
+			local main = { x = -3905, dz = 0, who = "B@4" }
+			expect(Data.rosterAim({}, true).dz).to.equal(0)
+			expect(Data.rosterAim({ west }, false).dz).to.equal(0)
+			expect(Data.rosterAim({ west }, true).dz).to.equal(975)
+			-- two on the SAME frame still aim at it
+			expect(Data.rosterAim({ west, { x = -4504, dz = 975, who = "C@11" } }, true).dz).to.equal(975)
+			-- ...and two on DIFFERENT frames go back to the main road, naming them both
+			local split = Data.rosterAim({ west, main }, true)
+			expect(split.dz).to.equal(0)
+			expect(split.why:find("A@11") ~= nil).to.equal(true)
+			expect(split.why:find("B@4") ~= nil).to.equal(true)
+			TestKit.note("roster split -> " .. split.why)
 		end)
 
 		it("puts every layout's stands on its own line, sorted, at its own spacing", function()

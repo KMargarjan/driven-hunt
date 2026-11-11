@@ -480,6 +480,40 @@ function ForestTest.aimFrame(
 	return { x = standX, dz = dz }
 end
 
+-- WHOSE STAND THE DRIVE IS AIMED AT, WITH A ROSTER (task 349 round 2, Director decision 4). PURE.
+--
+-- `frames` is one entry per REAL player with a LOCKED pick: `{ x, dz, who }`. Bots never appear in
+-- it -- the server filters `state.picks` by `Players:GetPlayerByUserId` -- so a bot standing on a
+-- flank stand cannot move the drive off the road the players are on.
+--
+-- THE RULE IS THE THREE CASES AND NOTHING ELSE:
+--   nobody locked          -> no aim; the caller keeps the stand it already had, shift 0
+--   one frame, or several that AGREE to within `AIM_FLAT_STUDS` -> that frame
+--   real players on DIFFERENT frames -> shift 0, the main road, and a `why` that names them.
+-- The last case is the one that matters: aiming at the first pick `pairs` happened to yield moved
+-- the band off the road every other hunter was standing on, which is round 1 finding 4.
+function ForestTest.rosterAim(frames: { { x: number, dz: number, who: string? } }?, enabled: boolean?)
+	local list = frames or {}
+	if enabled ~= true or #list == 0 then
+		return { x = nil :: number?, dz = 0, why = if enabled ~= true then "off" else "nobody locked" }
+	end
+	local first = list[1]
+	local names = { tostring(first.who or "?") }
+	for index = 2, #list do
+		local other = list[index]
+		table.insert(names, tostring(other.who or "?"))
+		if math.abs(other.dz - first.dz) >= ForestTest.AIM_FLAT_STUDS then
+			table.sort(names)
+			return { x = nil :: number?, dz = 0, why = "split: " .. table.concat(names, ", ") }
+		end
+	end
+	return {
+		x = first.x,
+		dz = first.dz,
+		why = (if #list == 1 then "one: " else "agreed: ") .. table.concat(names, ", "),
+	}
+end
+
 -- THE HUNTER LINE. Karen: *"hunter line just a hunter no treestand anything"* -- so a stand here is
 -- a SPOT, not a structure. These are the x values a hunter may choose between; the z comes from the
 -- line, so every one of them is on it.
@@ -1181,11 +1215,23 @@ function ForestTest.boundsOf(layout: Layout?): { minX: number, maxX: number, min
 end
 
 -- ...AND THE WHOLE FIELD, which is what `Boar.defaultWorld` and `Runtime:setField` take.
-function ForestTest.fieldFor(layout: Layout?)
+-- `dz` IS THIS DRIVE'S OWN SHIFT (task 349 round 2) and it moves the whole field with the band:
+-- `exitZ` is where an animal counts as `escaped` and `road.zAt` is what `_updateOutOfPlay` measures
+-- `settledNorthStuds` from, so a band translated onto a flank stand with an unshifted field scores
+-- no escapes and despawns every animal as `settled`. `bounds` moves too: a box that excludes the
+-- band would clamp every animal in it. 0 is the main road and every number below it is unchanged.
+function ForestTest.fieldFor(layout: Layout?, dz: number?)
 	local resolved = layout or ForestTest.ROAD_LAYOUT
+	local shift = dz or 0
+	local bounds = ForestTest.boundsOf(resolved)
 	return {
-		bounds = ForestTest.boundsOf(resolved),
-		exitZ = ForestTest.exitZOf(resolved),
+		bounds = {
+			minX = bounds.minX,
+			maxX = bounds.maxX,
+			minZ = bounds.minZ + shift,
+			maxZ = bounds.maxZ + shift,
+		},
+		exitZ = ForestTest.exitZOf(resolved) + shift,
 		-- ONE GROUND HEIGHT FOR EVERY LAYOUT, and `GROUND_Y`'s own comment is why: a per-layout 185
 		-- would put `Brain:_outcome`'s fall floor at 135 on an edge drive, and this wood goes down to
 		-- 99.
@@ -1206,7 +1252,7 @@ function ForestTest.fieldFor(layout: Layout?)
 		road = {
 			halfWidthStuds = ForestTest.SHAPE.halfWidthStuds,
 			zAt = function(x: number): number
-				return ForestTest.roadZ(x, resolved)
+				return ForestTest.roadZ(x, resolved) + shift
 			end,
 		},
 	}
