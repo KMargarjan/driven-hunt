@@ -1,3 +1,47 @@
+## 2026-11-11 ~02:05 UTC, Task 345b (T2) -- FOR THE DIRECTOR: **NOBODY CAN TAKE A FRAME OF AN ANIMAL AWAY FROM THE STAND.** BOTH ROUTES ARE CLOSED FROM THE SERVER, MEASURED. THIS IS A ROUTE-FIX TASK, NOT A 345b FIX
+
+Written at the hard stop (V280, L-150: the frame route has now failed twice and this is the last
+round of 345b). **Design 12.2 frame 3 -- a bedded group in cover, seen from close, before the beaters
+arrive -- is NOT OBTAINABLE on any route this repo has, and so is any frame of any animal that is not
+in front of the stand.** T3's `bedHidden` ray and T6's playtest both need one.
+
+**ROUTE 1, the camera (round 2).** `<runs-dir>/244-hold-cam.luau` sets
+`CurrentCamera.CameraType = Scriptable` and re-asserts the CFrame every frame for 12 s. The client
+camera has ONE owner (`src/client/Camera`) and it writes the camera every frame, so the capture
+returns the hunter's own view: `345b-F3-bedded.png`, `345b-F3b.png`, both opened, both the stand.
+
+**ROUTE 2, the character (round 3, new).** `<runs-dir>/345b-standnext.luau` picks the deepest
+standing animal and writes `HumanoidRootPart.CFrame` from the SERVER every Heartbeat for 12 s. The
+server reports it did: *"standing at -3807,111.8,-4358 looking at Boars (-3814,105.3,-4338) dz=725
+gap=22.2 studs"*. **The client disagrees.** `<runs-dir>/345b-clientsee.luau`, read 3 s later in the
+same Play session:
+
+    CLIENT sees Boars children=16, within 120 studs=0
+    cam  = -4493.1, 133.9, -4091.2
+    root = -4493.1, 132.2, -4091.6
+
+**760 studs from where the server put it.** The client owns its own character's network ownership,
+so a server-side CFrame write is overwritten by the client's own replication; the 16 animals ARE
+replicated to the client, and not one of them is within 120 studs of where the camera actually is.
+The two frames taken on this route (`345b-F3-r3.png`, `345b-F3-r3b.png`, both opened) show deep
+grass, pines, a hill and one orange-vested bot beater -- the world renders, the animal is simply
+nowhere near the lens.
+
+**SO THE WHY SENTENCE OF ROUND 3's DISPATCH IS NOT PROVEN ON SCREEN.** *"With the switch on, the
+drive's animals are already lying in the wood"* is proved by the console and the probe --
+`placed 13 / 73 animals / bedded 4 groups / 17 bodies / peak live 24` -- and by the hunter's own
+frames showing **nothing appearing in front of him**, which is Karen's complaint answered from her
+eye. **Nobody has yet SEEN a bedded animal.** It is not a nicety: it is the one thing a number
+cannot answer (rule 5).
+
+**WHAT WOULD FIX IT, for whoever gets the task.** A CLIENT-side probe is the only thing left that
+can move either the camera or the character without fighting an owner -- the camera owner is a
+module on the client and a client probe can ask it, or set the character's CFrame where the network
+owner actually is. `tools/studio_mcp.py capture`'s own `camera_position` / `look_at_position`
+arguments are applied to the Studio viewport, which in Play is the client camera, so they lose the
+same race. Neither is 345b's to build: it is one small instrument, and T3 is the first task that
+cannot be proved without it.
+
 ## 2026-11-11 ~01:40 UTC, Task 345b (T2) -- FOR THE DIRECTOR: DEVIATION 5. `bedCap` 12 -> 18, WHICH MOVES A NUMBER D-1 CONFIRMED. THE ROUND-2 REVIEWER WAS RIGHT THAT IT WAS NOT ESCALATED, AND HERE IT IS
 
 **STOPPED AT THE DISPATCH'S TWO-ROUND CAP.** Task 345b's dispatch: *"Review: at most 2 rounds; a
