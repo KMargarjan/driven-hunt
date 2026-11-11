@@ -475,6 +475,66 @@ return function()
 		end)
 	end)
 
+	-- ------------------------- case 15: the bot that stood next to Karen, and then was gone (348)
+	describe("Match.botFillDuringPick: no bot is dealt a stand while a human can still claim one", function()
+		-- WHAT `syncBots` BUILDS, as the expression it builds it from: the bot line is the hunters'
+		-- line lengthened, carrying the SAME `picks`, and the Forest Test's `placement` closure deals
+		-- it through `HighSeats.dealLine`. The walk is this file's own helper, so the case holds no
+		-- geometry of its own.
+		local function botStands(picks: { number? }, want): { number }
+			local walk = walkOf("road")
+			local count = 1 + (want.hunters or 0) -- one real hunter, bots at 2..n
+			local deal = HighSeats.dealLine(walk, seatedOf("road"), nil, count, picks)
+			local out = {}
+			for index = 2, count do
+				table.insert(out, deal[index])
+			end
+			return out
+		end
+
+		local function holds(stands: { number }, stand: number): boolean
+			for _, value in ipairs(stands) do
+				if value == stand then
+					return true
+				end
+			end
+			return false
+		end
+
+		it("case 15: the stand he releases goes to a rig, and the rule is what stops it", function()
+			-- KAREN, 2026-11-11: *"when I change place on map position standing I can see bot next
+			-- to me but then he is gone"*. He holds stand 5 and his body is standing on it; he taps
+			-- stand 2 on the map. He is not carried until `applyStandSettle` on the `Running` edge.
+			local before = { 5 }
+			local after = { 2 }
+
+			-- THE BITE. Without the rule, `fillCounts` still answers four hunters while the window
+			-- is open, `dealLine` sweep B hands the released stand 5 to a bot index, and
+			-- `Bots.fill`'s moved branch TELEPORTS that rig onto the post he is standing on.
+			local unguarded = Match.botFillDuringPick({ hunters = 4, beaters = 4 }, false)
+			expect(unguarded.hunters).to.equal(4)
+			expect(holds(botStands(before, unguarded), 5)).to.equal(false) -- it was HIS
+			expect(holds(botStands(after, unguarded), 5)).to.equal(true) -- ...and now it is a bot's
+
+			-- THE RULE: no bot hunter is dealt a stand at all while the window is open, so there is
+			-- no rig to land on him and none to delete in front of him when it shuts.
+			local guarded = Match.botFillDuringPick({ hunters = 4, beaters = 4 }, true)
+			expect(guarded.hunters).to.equal(0)
+			expect(#botStands(after, guarded)).to.equal(0)
+
+			-- THE BEATERS ARE UNTOUCHED: they hold the start line through the countdown (task 158),
+			-- and an empty line is a worse drive than a bot on a far stand.
+			expect(guarded.beaters).to.equal(4)
+			expect(Match.botFillDuringPick({ hunters = 4, beaters = 0 }, true).beaters).to.equal(0)
+
+			-- FLAG OFF IS IDENTITY, AND SO IS A CALLER THAT NEVER MEASURED THE WINDOW. `nil` is
+			-- "nobody answered", which is not "it is open" -- the `botsNeedRebuild` rule exactly.
+			local want = { hunters = 4, beaters = 4 }
+			expect(Match.botFillDuringPick(want, false)).to.equal(want)
+			expect(Match.botFillDuringPick(want, nil)).to.equal(want)
+		end)
+	end)
+
 	-- ------------------------------------------------- FINDING 2: the one inbound door, driven
 	describe("Match.onStandRequest: the real door, by parameter", function()
 		local HUNTER = { Name = "DoorHunter", UserId = 323101 }

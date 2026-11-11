@@ -2284,7 +2284,8 @@ local function syncBots()
 	-- on every dispatch -- clearing on the level would destroy and rebuild eight bodies four times a
 	-- second. `Match.botsNeedRebuild` is that edge, pure and exported so a spec can state it.
 	local drive = state.driveNumber
-	if Match.botsNeedRebuild(phase, drive, botsRebuiltForDrive, Phase.pickWindow(state, config, standCount())) then
+	local pickOpen = Phase.pickWindow(state, config, standCount())
+	if Match.botsNeedRebuild(phase, drive, botsRebuiltForDrive, pickOpen) then
 		bots.clear()
 		botsRebuiltForDrive = drive
 		stats.botRebuilds += 1
@@ -2300,7 +2301,10 @@ local function syncBots()
 	-- stands" -- so only a real number clamps. The subtraction is `Bots.Fill.standsFree`'s and is
 	-- reached through the view, because this owner must not require that one.
 	local standsFree = if posts ~= nil then bots.standsFree(#posts, real.hunters) else nil
-	local want = bots.fillCounts(real, config, standsFree)
+	-- ...AND NO BOT HUNTER IS DEALT A STAND WHILE A HUMAN CAN STILL CLAIM ONE (task 348).
+	-- `botsNeedRebuild`'s `pickOpen` deferred the REBUILD for this reason and the fill ran anyway.
+	-- Karen, 2026-11-11: *"I can see bot next to me but then he is gone"*.
+	local want = Match.botFillDuringPick(bots.fillCounts(real, config, standsFree), pickOpen)
 	stats.botsWanted = want.hunters + want.beaters
 	if want.hunters + want.beaters == 0 then
 		-- NOT A NO-OP: the flag may have gone off, or real players may have taken every slot, and
@@ -3583,6 +3587,33 @@ function Match.botsNeedRebuild(phase: string, driveNumber: number, lastRebuilt: 
 	-- happen on the first `Running` tick -- and with the flag off the first `Assigning` tick has
 	-- already rebuilt and moved `lastRebuilt`, so this line is false. Today's behaviour, by identity.
 	return phase == "Running" and pickOpen == false and lastRebuilt ~= driveNumber
+end
+
+-- HOW MANY BOTS A DRIVE PLACES **WHILE THE PICK WINDOW IS STILL OPEN** (task 348). PURE and
+-- exported, the shape `Match.botsNeedRebuild` already has, so a spec can state both sides of it
+-- while the flag sits at one.
+--
+-- KAREN, 2026-11-11: *"when I change place on map position standing I can see bot next to me but
+-- then he is gone"*. The stand a hunter RELEASES by changing his pick is free in the same frame,
+-- `dealLine` sweep B hands it to the next bot index, and `Bots.fill`'s moved branch TELEPORTS that
+-- rig onto it -- while his body is still standing there, because he is not carried to his new
+-- stand until `applyStandSettle` on the `Running` edge.
+--
+-- SO NO BOT HUNTER IS DEALT A STAND UNTIL THE CLAIMS ARE SETTLED. `botsNeedRebuild`'s `pickOpen`
+-- was written for this hazard and defers only the clear-and-rebuild; the fill ran every dispatch
+-- regardless, which is the path that actually places a body.
+--
+-- BEATERS ARE UNTOUCHED: they hold the start line through the countdown (task 158/163), they stand
+-- nowhere near a post, and dropping them would empty the line Karen watches during the 15 s.
+--
+-- FLAG OFF IS IDENTITY: with `STAND_PICK` off `STAND_PICK_SECONDS` is 0, so `Phase.pickWindow` is
+-- false and this returns its argument. `nil` is "this caller did not measure the window", which is
+-- not the same fact as "it is open" -- every pure caller written before this keeps its answer.
+function Match.botFillDuringPick(want, pickOpen: boolean?)
+	if pickOpen ~= true then
+		return want
+	end
+	return { hunters = 0, beaters = want.beaters or 0 }
 end
 
 --
