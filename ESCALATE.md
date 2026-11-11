@@ -4,11 +4,13 @@
 
     FAIL One Studio instance before the test starts  (Driven Hunt DEV (placeId: 136410205938347); Driven Hunt Forest Test (placeId: 130094961655666))
 
-It is fatal, not cosmetic. Measured both ways today: with two Studios the run stops at 9/11 (round 2
-control attempt, `<runs-dir>/348r2-control.log`); with one, the same command reached the specs and
-scored 34/36 (round 1, `<runs-dir>/348-test2.log`). **Even a second Studio with NO place open fails
-it** -- that is what round 1's first attempt read. So the ceiling while the Forest Test is open is
-35/36, which is a FAIL.
+**It is RECORDED, not fatal** -- the run continues past it, and task 226's scoping directly below it
+resolves the editor BY PLACE, so a second Studio cannot confuse the run. What it costs is the LINE:
+while the Forest Test is open the ceiling is 35/36, which is a FAIL, so there can be no
+`[harness2] PASS`. **Even a second Studio with NO place open fails it** -- round 1's first attempt
+read exactly that. (An earlier draft of this entry called the check fatal, on the strength of a 9/11
+control attempt; that attempt died on a different check -- the missing `tests/sync-token.txt` in the
+`driven-hunt-rev` worktree, below -- and the two full runs at 31/36 and 33/36 are what settle it.)
 
 **WHY I DID NOT CLOSE IT.** This round's dispatch says *"Her Forest Test: NOT needed for this round;
 do not touch it (Karen may play; PLACEMENT_IN_PLACE was set off there by the Director at 11:59
