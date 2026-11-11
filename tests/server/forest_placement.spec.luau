@@ -77,11 +77,14 @@ local FOREST = configWithDeerCap(Data.MAX_DEER_GROUPS)
 -- A STUB BOAR RUNTIME, so the OWNER's two flag states can be told apart (round 1, findings 1 and 2).
 -- `ForestTest.stepPlacement` and `ForestTest.releaseLine` both answer nil on their first line while
 -- `state.runtime` is nil, so without one every case that called them passed through the same arm and
--- could not fail. It is `forest_stand.spec`'s own `fake` plus the five methods the placement path
--- asks for, and it records what was spawned so "nothing was released" is a reading and not a hope.
+-- could not fail. It is `forest_stand.spec`'s own `fake` plus the methods the placement path asks
+-- for; it records what was spawned, and `standing` is the list of ids it reports ON THEIR FEET --
+-- which is what `stepPlacement`'s reconcile reads, so a case decides for itself whether a bedded
+-- group still has bodies (round 3).
 local function stubRuntime()
-	local made = {}
+	local made, standing = {}, {}
 	return made,
+		standing,
 		{
 			setField = function() end,
 			clear = function() end,
@@ -95,9 +98,18 @@ local function stubRuntime()
 				return 0
 			end,
 			boars = function()
-				return {}
+				local out = {}
+				for _, id in ipairs(standing) do
+					table.insert(out, { id = id })
+				end
+				return out
 			end,
-			statusOf = function()
+			statusOf = function(_self, id)
+				for _, live in ipairs(standing) do
+					if live == id then
+						return { alive = true }
+					end
+				end
 				return nil
 			end,
 			config = function()
@@ -644,7 +656,7 @@ return function()
 			-- ROUND 1, FINDING 1: the bridge is a branch of `ForestTest.releaseLine`, so the case that
 			-- proves it has to DRIVE `ForestTest.releaseLine`. Through `ForestTest.step`, which is
 			-- what advances the metronome onto a slot, with a stub runtime that records every spawn.
-			local made, fake = stubRuntime()
+			local made, standing, fake = stubRuntime()
 			Forest.layoutForDrive(953, "c1")
 			Forest.start(fake, 0)
 			Forest.newDrive(0)
@@ -655,6 +667,10 @@ return function()
 			first.state = "bedded"
 			first.ids = { "Boar1", "Boar2" }
 			first.at = Vector3.new(0, 0, 0)
+			-- ...AND THE TWO BODIES ARE ON THEIR FEET, which is what makes this the BEDDED case and
+			-- the next one the GONE case: the reconcile inside `step` reads the runtime, not the row.
+			table.insert(standing, "Boar1")
+			table.insert(standing, "Boar2")
 			table.clear(made)
 			local held = Forest.step(Data.slotSeconds(1, Forest.cellSchedule()), true)
 			expect(held ~= nil).to.equal(true)
@@ -684,7 +700,7 @@ return function()
 			-- ROUND 2'S NOTE, the Director's round-3 instruction: a row that goes `gone` clears its
 			-- ids, so `releaseLine`'s bridge -- which keys its two arms on `#row.ids` -- can never
 			-- print "the line finds it" for a group that is not in the wood.
-			local _made, fake = stubRuntime()
+			local _made, _standing, fake = stubRuntime()
 			Forest.layoutForDrive(955, "c1")
 			Forest.start(fake, 0)
 			Forest.newDrive(0)
@@ -714,7 +730,7 @@ return function()
 			-- states differ: ON reaches the materialise door and answers a line for the group it
 			-- refused (there is no terrain in this place, so every bed search answers `nobed`), OFF
 			-- answers nil before it reads anything at all.
-			local _made, fake = stubRuntime()
+			local _made, _standing2, fake = stubRuntime()
 			Forest.layoutForDrive(954, "c1")
 			Forest.start(fake, 0)
 			Forest.newDrive(0)
