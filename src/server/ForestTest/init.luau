@@ -2405,6 +2405,14 @@ function ForestTest.materialise(row: any, now: number): (boolean, string?, strin
 	return true, nil, nil
 end
 
+-- WHERE A WOKEN GROUP'S ROUTE MAY BE STARTED, in studs along the way out, in order (0 = the ground
+-- under the leader's own feet). MEASURED: see `ForestTest.orderGroup`, which reads it.
+local ORDER_START_STUDS = { 0, 30, 60, 90 }
+-- How many times one group may be offered its route, and how long between the offers. The flight a
+-- horn starts is the commonest refusal and it ends; four tries, four seconds apart, covers it.
+local ORDER_TRIES = 4
+local ORDER_RETRY_SECONDS = 4
+
 -- ONE BITE PER HEARTBEAT: at most one group materialised and at most one ring search, which is
 -- `Cells.begin`'s shape for `Cells.begin`'s measured reason (the whole-folder write it replaced cost
 -- 738 ms of frame in Karen's place, task 343).
@@ -2477,7 +2485,15 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
 				end
 				-- A SHOT, THE HORN, OR THE FLUSH ITSELF: `spookNearBeaters` latches an animal it
 				-- has sent, and `Runtime:hearShot` / `hearHorn` reach a bedded body like any other.
-				if state.latched[id] == true then
+				--
+				-- ...AND THE HORN LEAVES NO LATCH, which is a MEASURED hole and not a tidy-up
+				-- (`345d-ON2-C1-console.txt`: *"horn blown ... 9 boar(s) pushed within 357 studs"*,
+				-- four times in one drive). `Horn.SPOOK_STUDS` 357 reaches five beds at once from a
+				-- line that is still 300 studs away, so with the latch as the only signal those rows
+				-- sat in the roster reading "bedded" while their animals ran, and then went straight
+				-- to "gone" -- 7 of 13 in one drive. A fleeing group is not lying up. The Brain's own
+				-- answer is the one that cannot be missed.
+				if state.latched[id] == true or runtime:flying(id) then
 					woken = true
 				end
 			end
@@ -2518,21 +2534,31 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
 	-- below it: `orderGroup` asks `PathfindingService` once per file, which is the same order of work
 	-- as a ring search, so a step that orders does not also materialise.
 	--
-	-- ONE ATTEMPT PER ROW, LATCHED BEFORE THE ATTEMPT (`orderTried`): a route that cannot be found is
-	-- `releaseLine`'s own answer -- *"a wave whose route cannot be found never spawns anything"* --
-	-- and re-asking the pathfinder every step for a group standing in a dead end is exactly the
-	-- re-try spiral the search cap exists to stop. A group that is not ordered is still a real body
-	-- in the wood, so the flush, the horn and a shot all reach it.
+	-- FOUR ATTEMPTS PER ROW, FOUR SECONDS APART, AND THE CLOCK IS SET BEFORE THE ATTEMPT. Not one,
+	-- because the commonest reason an order fails is that the fright has the group RIGHT NOW (the
+	-- horn: 357 studs, five beds at once) -- and a flight ends. A group whose flight has ended and
+	-- that is still in the wood is a group with no orders, which is the thing this task exists to
+	-- stop. Not unbounded, because each attempt is a `PathfindingService` call: re-asking it every
+	-- step for a group in a dead end is the re-try spiral the search cap exists to stop.
 	for _, row in ipairs(state.roster) do
-		if row.state == "awake" and row.lineId == nil and row.orderTried ~= true and #(row.ids or {}) > 0 then
-			row.orderTried = true
+		if
+			row.state == "awake"
+			and row.lineId == nil
+			and #(row.ids or {}) > 0
+			and (tonumber(row.orderTries) or 0) < ORDER_TRIES
+			and now >= (tonumber(row.orderNextAt) or 0)
+		then
+			row.orderTries = (tonumber(row.orderTries) or 0) + 1
+			row.orderNextAt = now + ORDER_RETRY_SECONDS
 			local ordered, why = ForestTest.orderGroup(row, now)
 			if ordered ~= nil then
 				return ordered
 			end
 			return string.format(
-				"up %s: NOT ordered (%s) -- it is awake where it lay -- %s",
+				"up %s: NOT ordered on try %d of %d (%s) -- %s",
 				tostring(row.id),
+				row.orderTries,
+				ORDER_TRIES,
 				tostring(why),
 				Placement.line(state.roster)
 			)
@@ -4411,7 +4437,6 @@ end
 --
 -- HOW FAR ALONG THE WAY OUT A ROUTE MAY BE STARTED, in studs, in order (0 = the ground under the
 -- leader's own feet). MEASURED, not chosen: see the comment on the loop that reads it.
-local ORDER_START_STUDS = { 0, 30, 60, 90 }
 
 -- AN ANIMAL THE FRIGHT HAS ALREADY TAKEN IS NOT ORDERED (the one-owner boundary `stepLines` keeps):
 -- `Runtime:flying` is the Brain's answer and a flight owns the animal until it ends. A group whose

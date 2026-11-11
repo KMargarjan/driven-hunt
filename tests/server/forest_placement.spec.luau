@@ -1154,21 +1154,32 @@ return function()
 			expect(Forest.placementStats().noroute).to.equal(1)
 			-- AND STILL NOT ONE ANIMAL IS CREATED. `orderGroup` has no `spawn` call at all.
 			expect(#made).to.equal(0)
-			-- THE PATHFINDER IS ASKED ONCE PER GROUP, not once per Heartbeat. `stepPlacement` latches
-			-- `orderTried` BEFORE the attempt, so a group in a dead end costs one route and not
-			-- fifteen a second. Delete that latch and `noroute` grows with every step below.
+			-- THE PATHFINDER IS ASKED FOUR TIMES PER GROUP AT MOST, FOUR SECONDS APART, and never
+			-- once per Heartbeat. `stepPlacement` writes the try count and the next-try clock BEFORE
+			-- the attempt, so a group in a dead end costs four routes in a drive and not fifteen a
+			-- second; and FOUR rather than one because the commonest refusal is a fright that is
+			-- holding the group right now (the horn reaches 357 studs) and a flight ends. Delete the
+			-- clock and `noroute` grows with every step below; delete the counter and it never stops.
 			row.state = "awake"
 			row.lineId = nil
-			row.orderTried = nil
+			row.orderTries = nil
+			row.orderNextAt = nil
 			local first = Forest.stepPlacement(1, true)
 			expect(first ~= nil).to.equal(true)
 			expect(string.find(first :: string, "NOT ordered", 1, true) ~= nil).to.equal(true)
-			expect(row.orderTried).to.equal(true)
+			expect(row.orderTries).to.equal(1)
 			local before = Forest.placementStats().noroute
-			for step = 2, 6 do
-				Forest.stepPlacement(step, true)
+			-- A WHOLE SECOND OF HEARTBEATS AT 60 Hz, inside the retry window: not one more route.
+			for step = 1, 60 do
+				Forest.stepPlacement(1 + step / 60, true)
 			end
 			expect(Forest.placementStats().noroute).to.equal(before)
+			-- ...AND SIXTY SECONDS OF THEM COST THE THREE THAT ARE LEFT, AND THEN NOTHING FOR EVER.
+			for step = 1, 600 do
+				Forest.stepPlacement(2 + step / 10, true)
+			end
+			expect(row.orderTries).to.equal(4)
+			expect(Forest.placementStats().noroute).to.equal(before + 3)
 			Forest.start(nil :: any, 0)
 		end)
 
