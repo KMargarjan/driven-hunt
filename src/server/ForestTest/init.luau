@@ -4565,6 +4565,18 @@ function ForestTest.orderGroup(row: any, now: number): (string?, string?)
 	end
 	row.lineId = string.format("%s-f1", tostring(row.id))
 	state.placementOrdered = (state.placementOrdered or 0) + 1
+	-- WHERE THE FILE THAT HAS JUST GOT UP IS STANDING, where a probe can read it (V293b: a
+	-- diagnostic that lives only in module state is not a diagnostic -- MEASURED this session, a
+	-- live `require` over StudioMCP answers a FRESH copy of this module and `placementStats()` read
+	-- `drive=nil` while this attribute read `drive=1`). Studio only, like `DHForestPlacement`, and
+	-- it is what parks the camera for the frame this task owes.
+	if RunService:IsStudio() then
+		local shown = head1 or centre
+		ServerStorage:SetAttribute(
+			"DHForestOrdered",
+			string.format("%s|%.1f,%.1f,%.1f|%d|%.1f", tostring(row.id), shown.X, shown.Y, shown.Z, placed, now)
+		)
+	end
 	-- ...AND THE STAG ANNOUNCES HIMSELF AS HE COMES (task 251 part 2), from where he actually is.
 	if spec.species == "reddeer" and spec.party == "stag" then
 		ForestTest.roarNow(head1 or centre, "his own line, moving")
