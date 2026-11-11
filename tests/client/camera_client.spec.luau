@@ -2619,9 +2619,14 @@ return function()
 			end)
 			TestKit.note(string.format("camera_client: cursor free after both releases=%s", tostring(not handedBack)))
 			expect(handedBack).to.equal(true)
-			-- ...and the owner needs a frame to re-assert the lock it now owns again.
-			waitFrames(2)
-			expect(UserInputService.MouseBehavior).to.equal(Enum.MouseBehavior.LockCenter)
+			-- ...and the LOCK is waited for the same way, for the same reason: the owner re-asserts
+			-- it the frame after the last tag goes, and a modal that opened in between would hold
+			-- `Default` for as long as it is open. MEASURED: with only `waitFrames(2)` here, this
+			-- line fired once during task 345c's delete-and-fail run.
+			local locked = waitUntil(15, function()
+				return UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter
+			end)
+			expect(locked).to.equal(true)
 			expect(Camera.Cursor.stats().reasserts).to.equal(0)
 		end)
 	end)
