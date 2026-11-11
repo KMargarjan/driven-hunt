@@ -615,6 +615,23 @@ return function()
 			-- A line that has walked past the bed has certainly reached it (`Data.sweepCatches` is
 			-- the server's half of that story).
 			expect(Placement.wakeReason(row, 0, 100, notice)).to.equal("beaters")
+			-- THE WAKE LEADS THE NOTICE BY HALF A BED SPREAD (T4), and the reason is measured: with
+			-- no lead, 3 of 4 woken groups at C1 were already FLYING when `orderGroup` reached them
+			-- (`345d-diag-mid.txt`: `flights=3 ordered=1`), because `spookNearBeaters` measures its
+			-- band off each ANIMAL's live position and a member can stand half a spread in front of
+			-- the bed point. A group that bolts instead of filing out cannot form a file at all.
+			local lead = Placement.wakeLeadStuds(Placement.CONFIG)
+			expect(lead).to.equal(Placement.CONFIG.bedSpreadStuds / 2)
+			expect(Placement.wakeReason(row, 0, 450 + notice + lead, notice, lead)).to.equal("beaters")
+			expect(Placement.wakeReason(row, 0, 450 + notice + lead + 1, notice, lead)).to.equal(nil)
+			-- ...AND IT IS THE BED THAT WAS FOUND, NOT THE ONE THAT WAS PLANNED. `searchBand` may
+			-- take a bed half a spread either side of the plan, so a row that has a body is judged
+			-- where that body IS. Delete `row.atNorth` from `materialise` (or the `or` here) and a
+			-- bed 20 studs shallower than its plan wakes 3.5 s late -- longer than the two-second
+			-- stand that bolts it.
+			local found = { state = "bedded", walker = false, wakeAtSeconds = math.huge, bedNorth = 450, atNorth = 430 }
+			expect(Placement.wakeReason(found, 0, 430 + notice + lead, notice, lead)).to.equal("beaters")
+			expect(Placement.wakeReason(found, 0, 450 + notice + lead, notice, lead)).to.equal(nil)
 		end)
 
 		it("keeps a bed clear of every bed already found", function()

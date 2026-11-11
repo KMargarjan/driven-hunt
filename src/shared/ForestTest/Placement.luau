@@ -331,7 +331,13 @@ end
 -- group the line must find has `math.huge`, so one row of data decides which rule applies. A shot
 -- and the horn are the Boar runtime's own (`hearShot`, `hearHorn`) and need nothing here, because a
 -- bedded animal is a real body in the world.
-function Placement.wakeReason(row: any, elapsed: number, frontNorth: number?, noticeAheadStuds: number): WakeReason?
+function Placement.wakeReason(
+	row: any,
+	elapsed: number,
+	frontNorth: number?,
+	noticeAheadStuds: number,
+	leadStuds: number?
+): WakeReason?
 	if type(row) ~= "table" or row.state ~= "bedded" then
 		return nil
 	end
@@ -341,12 +347,29 @@ function Placement.wakeReason(row: any, elapsed: number, frontNorth: number?, no
 	if type(frontNorth) ~= "number" then
 		return nil
 	end
+	-- THE BED THAT WAS FOUND, NOT THE ONE THAT WAS PLANNED (T4). `searchBand` lets the ring search
+	-- take a bed `bedSpreadStuds / 2` either side of the planned depth, so the two can be 20 studs
+	-- apart -- 3.5 s of the line's walk, which is longer than `SPOOK.ALERT_SECONDS` 2.
+	local bed = tonumber(row.atNorth) or tonumber(row.bedNorth) or math.huge
+	-- ...AND THE WAKE LEADS THE NOTICE BY HALF A BED SPREAD, for `neverStuds`' own reason: the
+	-- nearest MEMBER of a group can be half the spread in front of the point that was tested, and
+	-- `spookNearBeaters` measures its band off each animal's live position. MEASURED, the first ON
+	-- drive of task 345d at C1: with no lead, **3 of 4 woken groups were already flying** when
+	-- `orderGroup` reached them (`345d-diag-mid.txt`, `flights=3 ordered=1`) -- the stand had run its
+	-- two seconds and the flush had taken them, and a flying animal is never ordered. A group that
+	-- bolts instead of filing out is Karen's *"it has to be there then it spooked"* half-built.
 	-- No lower bound: a front that has already passed the bed is past it, and a group the line
 	-- walked through is exactly the one that must move (`Data.sweepCatches` is the server's half).
-	if frontNorth - (tonumber(row.bedNorth) or math.huge) <= noticeAheadStuds then
+	if frontNorth - bed <= noticeAheadStuds + (tonumber(leadStuds) or 0) then
 		return "beaters"
 	end
 	return nil
+end
+
+-- HOW FAR THE WAKE LEADS THE NOTICE, in studs: half a bed spread, which is how far the nearest
+-- member can be in front of the bed point the rule is written against.
+function Placement.wakeLeadStuds(config: any?): number
+	return (tonumber(configOr(config).bedSpreadStuds) or 0) / 2
 end
 
 -- THE BRIDGE IS GONE (T4). `Placement.bridgeMustRelease` -- the one case in which

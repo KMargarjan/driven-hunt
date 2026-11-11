@@ -2370,6 +2370,10 @@ function ForestTest.materialise(row: any, now: number): (boolean, string?, strin
 	end
 	row.ids = ids
 	row.at = at
+	-- THE DEPTH OF THE BED THAT WAS FOUND, which is what the wake is judged against (T4): the ring
+	-- search may take a bed `bedSpreadStuds / 2` either side of the planned depth, and 20 studs is
+	-- 3.5 s of the line's walk against a 2-second stand.
+	row.atNorth = at.Z - Data.roadZ(at.X, chosen.layout)
 	row.state = "bedded"
 	row.beddedAt = now
 	state.released += #ids
@@ -2467,7 +2471,8 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
 				local at = row.at :: Vector3
 				local frontZ = Data.lineFrontAt(beaters, at.X)
 				local frontNorth = if frontZ ~= nil then (frontZ :: number) - Data.roadZ(at.X, chosen.layout) else nil
-				if Placement.wakeReason(row, elapsed, frontNorth, noticeAhead) == "beaters" then
+				local lead = Placement.wakeLeadStuds(Placement.CONFIG)
+				if Placement.wakeReason(row, elapsed, frontNorth, noticeAhead, lead) == "beaters" then
 					woken = true
 				end
 			end
@@ -4377,6 +4382,10 @@ end
 -- not the schedule's `northStuds`. A group lying up has drifted over its graze/stand/lie repertoire,
 -- and a route from where it is NOT is a route whose first leg walks the file sideways.
 --
+-- HOW FAR ALONG THE WAY OUT A ROUTE MAY BE STARTED, in studs, in order (0 = the ground under the
+-- leader's own feet). MEASURED, not chosen: see the comment on the loop that reads it.
+local ORDER_START_STUDS = { 0, 30, 60, 90 }
+
 -- AN ANIMAL THE FRIGHT HAS ALREADY TAKEN IS NOT ORDERED (the one-owner boundary `stepLines` keeps):
 -- `Runtime:flying` is the Brain's answer and a flight owns the animal until it ends. A group whose
 -- every member is flying is AWAKE AS A FLIGHT, which design 4.1 names as the other legal shape of
@@ -4474,8 +4483,31 @@ function ForestTest.orderGroup(row: any, now: number): (string?, string?)
 			if which == 1 then
 				head1 = start
 			end
-			local routes = routeFilesFor(spec, route, start, crossing, exitPoint, #plans, 0, which)
-			local made = routes[1]
+			-- WHERE A ROUTE CAN ACTUALLY START, AND IT IS MEASURED (task 345d, the Forest Test,
+			-- `345d-path.luau`): **the pathfinder answers `NoPath` from a bed**. A bed is in COVER by
+			-- construction (`restSpot` picks a spot by a trunk), and a point inside a trunk's
+			-- `AgentRadius` is off the navmesh -- the same family as `releaseLine`'s own measured
+			-- *"ComputeAsync from inside a pile of colliders fails"*. Two readings, same animal, same
+			-- tick: from its BODY's Y, 100 studs south = `NoPath`; from the GROUND under its feet,
+			-- the same leg = `Success, 31 waypoints`.
+			--
+			-- SO THE ROUTE STARTS AT THE FIRST POINT ON THE WAY OUT THAT THE PATHFINDER ACCEPTS: the
+			-- ground under the leader, then 30, 60, 90 studs along the way she is about to walk. The
+			-- file is STEERED to `route[1]` by `Runtime:leadTo` and never pathed to it (`stepLines`),
+			-- so a route that begins a few studs ahead of the group IS the group walking out of its
+			-- cover -- which is what it does anyway. At most four `ComputeAsync` calls, once per
+			-- group, because `stepPlacement` latches `orderTried` before the attempt.
+			local made = nil
+			for _, ahead in ipairs(ORDER_START_STUDS) do
+				local at = start + forward * ahead
+				local ground = Data.groundAt(at.X, at.Z)
+				local from = Vector3.new(at.X, ground or at.Y, at.Z)
+				local routes = routeFilesFor(spec, route, from, crossing, exitPoint, #plans, 0, which)
+				made = routes[1]
+				if made ~= nil then
+					break
+				end
+			end
 			if made ~= nil then
 				-- THE TRAIL IS SEEDED FROM THE LEADER'S FEET BACKWARDS ALONG THE FIRST LEG (design
 				-- 4.6, the one named technical risk of this task): the group is standing in a loose
