@@ -99,7 +99,8 @@ return function()
 		-- and the aim the release path reads. Delete `lockedFrames`, `aimNow`, `settleAim`,
 		-- `driveZ`'s `+ aim.dz`, or `applyField`'s shift, and a line below fails.
 		it("aims the drive AND the field at a real player's locked flank stand", function()
-			local player = Players:GetPlayers()[1]
+			-- `lockedFrames` filters picks by REAL Player, so this case needs the session's own.
+			local player = game:GetService("Players"):GetPlayers()[1]
 			if player == nil then
 				TestKit.note("no player in this session: the locked-pick path needs one")
 				return
