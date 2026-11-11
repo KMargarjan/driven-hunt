@@ -74,6 +74,52 @@ end
 
 local FOREST = configWithDeerCap(Data.MAX_DEER_GROUPS)
 
+-- A STUB BOAR RUNTIME, so the OWNER's two flag states can be told apart (round 1, findings 1 and 2).
+-- `ForestTest.stepPlacement` and `ForestTest.releaseLine` both answer nil on their first line while
+-- `state.runtime` is nil, so without one every case that called them passed through the same arm and
+-- could not fail. It is `forest_stand.spec`'s own `fake` plus the five methods the placement path
+-- asks for, and it records what was spawned so "nothing was released" is a reading and not a hope.
+local function stubRuntime()
+	local made = {}
+	return made,
+		{
+			setField = function() end,
+			clear = function() end,
+			count = function()
+				return 0
+			end,
+			capacity = function()
+				return Data.MAX_BOARS
+			end,
+			liveCount = function()
+				return 0
+			end,
+			boars = function()
+				return {}
+			end,
+			statusOf = function()
+				return nil
+			end,
+			config = function()
+				return Boar.CONFIG
+			end,
+			deerAllowed = function()
+				return true
+			end,
+			formSounder = function() end,
+			spawn = function(_self, _at, kind)
+				table.insert(made, tostring(kind))
+				return nil
+			end,
+			spawnSounder = function(_self, _at, size)
+				for _ = 1, size do
+					table.insert(made, "sounder")
+				end
+				return {}
+			end,
+		}
+end
+
 -- WHERE THE LINE ACTUALLY MUSTERS IN A DRIVE KAREN PLAYS: a CELL's own depth (`grid-map.md` 4.3;
 -- every layout the rotation deals has been a cell since task 327d), and not the archived road
 -- place's 580. The band is `beaterNorth - noticeAhead - MIN_AHEAD`, so this is what decides whether
@@ -594,39 +640,64 @@ return function()
 			TestKit.note(string.format("placement owner: c1 drive 951 planned %s", Placement.line(rows)))
 		end)
 
-		it("holds a slot whose group is already in the wood, and only that slot", function()
-			-- THE BRIDGE'S RULE (design 17's T2 row): a row with bodies is lying in its bed and the
-			-- line is what finds it; a row with none is still released the old way, so the drive
-			-- works end to end at every commit. Delete `Placement.alreadyInTheWood`'s body and
-			-- `releaseLine` releases a second copy of every group of the roster.
-			expect(Placement.alreadyInTheWood(nil)).to.equal(false)
-			expect(Placement.alreadyInTheWood({ state = "record", ids = {} })).to.equal(false)
-			expect(Placement.alreadyInTheWood({ state = "bedded", ids = { "Boar1" } })).to.equal(true)
-			expect(Placement.alreadyInTheWood({ state = "awake", ids = { "Boar1", "Boar2" } })).to.equal(true)
-			-- A GROUP THAT HAS GONE IS NOT IN THE WOOD: shot, crossed or despawned, its slot is a
-			-- hole and the bridge fills it rather than reporting an animal nobody can see.
-			expect(Placement.alreadyInTheWood({ state = "gone", ids = { "Boar1" } })).to.equal(false)
-			-- ...AND NEITHER IS ONE THE WOOD REFUSED.
-			expect(Placement.alreadyInTheWood({ state = "record", ids = {}, skipped = "nobed" })).to.equal(false)
-			-- ...AND THE BRIDGE FILLS ONLY THE HOLE THE **WOOD** REFUSED. Delete the `== "nobed"`
-			-- test and `releaseLine` releases every group the live cap had just refused a bed to,
-			-- which measured 31 bodies against a `LIVE_CAP` of 24 (`345b-ON3-C1`).
+		it("releases a slot the WOOD refused and releases nothing for one the roster owns", function()
+			-- ROUND 1, FINDING 1: the bridge is a branch of `ForestTest.releaseLine`, so the case that
+			-- proves it has to DRIVE `ForestTest.releaseLine`. Through `ForestTest.step`, which is
+			-- what advances the metronome onto a slot, with a stub runtime that records every spawn.
+			local made, fake = stubRuntime()
+			Forest.layoutForDrive(953, "c1")
+			Forest.start(fake, 0)
+			Forest.newDrive(0)
+			expect(Forest.planDrive(953, true) ~= nil).to.equal(true)
+			local first = Forest.roster()[1]
+			expect(first ~= nil).to.equal(true)
+			-- ITS GROUP IS LYING IN ITS BED: the slot releases nothing and says whose it is.
+			first.state = "bedded"
+			first.ids = { "Boar1", "Boar2" }
+			first.at = Vector3.new(0, 0, 0)
+			table.clear(made)
+			local held = Forest.step(Data.slotSeconds(1, Forest.cellSchedule()), true)
+			expect(held ~= nil).to.equal(true)
+			expect(string.find(held :: string, "THE ROSTER'S", 1, true) ~= nil).to.equal(true)
+			expect(string.find(held :: string, "the line finds it", 1, true) ~= nil).to.equal(true)
+			expect(#made).to.equal(0)
+			-- ...AND WITH THE SWITCH OFF THE SAME SLOT IS THE OLD PATH: no roster line at all. Delete
+			-- the bridge block from `releaseLine` and this is the line the BEDDED case above fails on,
+			-- because both states then print the same `SLOT ... -- n of n animal(s)` line.
+			Forest.newDrive(0)
+			local plain = Forest.step(Data.slotSeconds(1, Forest.cellSchedule()), false)
+			expect(plain ~= nil).to.equal(true)
+			expect(string.find(plain :: string, "THE ROSTER'S", 1, true)).to.equal(nil)
+			expect(string.find(plain :: string, "HELD BY THE ROSTER", 1, true)).to.equal(nil)
+			-- A ROW WITH NO BODY AND NO BED IS A HOLE THE **WOOD** REFUSED, and the bridge fills it.
+			-- A row the BUDGET refused is held -- `ESCALATE.md` 2026-11-11, deviation 4.
 			expect(Placement.bridgeMustRelease({ state = "record", ids = {}, skipped = "nobed" })).to.equal(true)
 			expect(Placement.bridgeMustRelease({ state = "record", ids = {}, skipped = "budget" })).to.equal(false)
 			expect(Placement.bridgeMustRelease({ state = "record", ids = {} })).to.equal(false)
 			expect(Placement.bridgeMustRelease({ state = "bedded", ids = { "Boar1" } })).to.equal(false)
 			expect(Placement.bridgeMustRelease(nil)).to.equal(false)
+			Forest.start(nil :: any, 0)
 		end)
 
-		it("steps nothing while the switch is off", function()
-			-- `stepPlacement` IS THE ONE PLACE A BODY IS MADE, so with the flag off it must answer nil
-			-- before it reads anything at all -- which is also why the OFF side of the live proof can
-			-- be compared with `main` line for line.
-			expect(Forest.stepPlacement(os.clock(), false)).to.equal(nil)
-			expect(Forest.stepPlacement(os.clock(), nil)).to.equal(nil)
-			-- ...and with it on and no runtime there is nothing to make, which is a refusal and not
-			-- an error (every spec in this file runs with no boar runtime at all).
-			expect(Forest.stepPlacement(os.clock(), true)).to.equal(nil)
+		it("makes a body when the switch is on and nothing at all when it is off", function()
+			-- ROUND 1, FINDING 2: with no runtime both states answered nil through the SAME arm, so
+			-- deleting `inPlace ~= true` changed nothing. With the stub runtime installed the two
+			-- states differ: ON reaches the materialise door and answers a line for the group it
+			-- refused (there is no terrain in this place, so every bed search answers `nobed`), OFF
+			-- answers nil before it reads anything at all.
+			local _made, fake = stubRuntime()
+			Forest.layoutForDrive(954, "c1")
+			Forest.start(fake, 0)
+			Forest.newDrive(0)
+			expect(Forest.planDrive(954, true) ~= nil).to.equal(true)
+			expect(Forest.stepPlacement(0, false)).to.equal(nil)
+			expect(Forest.stepPlacement(0, nil)).to.equal(nil)
+			expect(Forest.placementStats().searches).to.equal(0)
+			local line = Forest.stepPlacement(0, true)
+			expect(line ~= nil).to.equal(true)
+			expect(string.find(line :: string, "bed g954-s", 1, true) ~= nil).to.equal(true)
+			expect(Forest.placementStats().searches > 0).to.equal(true)
+			Forest.start(nil :: any, 0)
 		end)
 	end)
 

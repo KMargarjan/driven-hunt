@@ -3104,7 +3104,11 @@ function ForestTest.waveReport(now: number): { string }
 	return out
 end
 
-function ForestTest.step(now: number): string?
+-- `inPlace` IS A PARAMETER AND NOT ONLY A FLAG (task 345b round 2, finding 2;
+-- `docs/design/feature-flags.md`: *"a flagged path must be reachable BY PARAMETER as well as by
+-- flag, or its two states cannot be tested while the flag sits at one of them"*). Production passes
+-- nothing and gets the value `ForestTest.start` read once at this owner's boundary.
+function ForestTest.step(now: number, inPlace: boolean?): string?
 	if not state.started then
 		return nil
 	end
@@ -3113,13 +3117,14 @@ function ForestTest.step(now: number): string?
 	-- phantom beaters below are untouched and come back with one word, because Karen has accepted
 	-- parts of them before.
 	if Data.LINE ~= nil and Data.LINE.enabled == true then
-		-- THE SWITCH, READ OFF THE VALUE `start` TOOK, and passed inward from here (task 345 T2).
-		local inPlace = ForestTest.placementInPlace()
+		-- THE SWITCH, READ OFF THE VALUE `start` TOOK unless the caller named one, and passed inward
+		-- from here into all three of the paths it decides (task 345 T2).
+		local resolved = if type(inPlace) == "boolean" then inPlace else ForestTest.placementInPlace()
 		-- ONE GROUP OF THE ROSTER GETS A BODY, BEFORE ANYTHING IS SPOOKED OR LED (task 345 T2): a bed
 		-- must exist before the line can find it, and `stepPlacement` is level-triggered on the
 		-- drive's own clock, so it cannot be missed and cannot fire twice. Nil on every tick with
 		-- nothing due, and nil on every tick at all while the flag is off.
-		local bed = ForestTest.stepPlacement(now, inPlace)
+		local bed = ForestTest.stepPlacement(now, resolved)
 		-- WHO HAS BEEN WALKED UP ON, BEFORE ANYTHING ELSE IS DECIDED (task 154). It runs in BOTH
 		-- modes and over every live animal, so a beater meeting a scheduled line and a beater
 		-- meeting a resting sounder get the same rule -- see `ForestTest.spookNearBeaters`.
@@ -3162,7 +3167,7 @@ function ForestTest.step(now: number): string?
 		-- WITH THE FLAG OFF THIS BRANCH IS EXACTLY TODAY'S. `stepRest`, `stockWood` and `REST.groups`
 		-- are archived (`backups/2026-11-10_task-345b_rest-groups.md`) and NOT deleted: the losing
 		-- branch goes at the flag flip, which is `docs/design/feature-flags.md`'s own rule (D-2).
-		if not inPlace and ForestTest.beaterMode() then
+		if not resolved and ForestTest.beaterMode() then
 			return ForestTest.stepRest(now, spooked) or flush
 		end
 		if now < state.nextWaveAt then
@@ -3178,7 +3183,7 @@ function ForestTest.step(now: number): string?
 		-- flush`, so a roar -- or a flush, or a walked-up animal -- that happened on the same tick as a
 		-- slot release never reached the console at all, and the drive's own proof then undercounts the
 		-- very thing it is evidence for. The slot line comes first because it is the drive's headline.
-		local released = ForestTest.releaseLine(now)
+		local released = ForestTest.releaseLine(now, nil, resolved)
 		if released ~= nil and flush ~= nil then
 			return released .. " | " .. flush
 		end
@@ -3486,7 +3491,7 @@ function ForestTest.stagedLine(now: number): string?
 	return string.format("STAGED %s -- %s", tostring(raw), line or "NOTHING RELEASED (no route, or the animal cap)")
 end
 
-function ForestTest.releaseLine(now: number, staged: any?): string?
+function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): string?
 	local runtime = state.runtime
 	if runtime == nil then
 		return nil
@@ -3544,24 +3549,38 @@ function ForestTest.releaseLine(now: number, staged: any?): string?
 	-- group with no legal bed in its own band. A group the BUDGET refused is NOT released here --
 	-- measured, `345b-ON3-C1`: that put 31 bodies against a `LIVE_CAP` of 24 and those bodies then
 	-- refused the next group's bed. T4 replaces this half with `orderGroup`.
-	local inRoster = if staged == nil and ForestTest.placementInPlace() then ForestTest.rosterSlot(slot) else nil
+	local onNow = if type(inPlace) == "boolean" then inPlace else ForestTest.placementInPlace()
+	local inRoster = if staged == nil and onNow then ForestTest.rosterSlot(slot) else nil
 	if inRoster ~= nil and not Placement.bridgeMustRelease(inRoster) then
-		-- ...AND THE DRIVE'S DEER IS STILL SPENT BY THE DRIVE'S DEER (task 239's latch), because what
-		-- `stats().deerDone` is read for is *"this drive's deer group is out"* and it is: it is lying
-		-- in the wood.
-		if row.species == "reddeer" then
+		-- ...AND THE DRIVE'S DEER IS SPENT ONLY BY A DEER THAT EXISTS (round 1, finding 3, which was
+		-- right). `stats().deerDone` is read as *"this drive's deer group is out"*, and a row the
+		-- budget has not found room for is not out: it has no body anywhere.
+		local bodies = #(inRoster.ids or {})
+		if row.species == "reddeer" and bodies > 0 then
 			state.deerDone = true
 		end
+		-- ...AND THE LINE SAYS WHICH OF THE TWO IT IS. "the line finds it" is true of a group lying
+		-- in its bed and FALSE of a record with no body, and printing it for both was the second
+		-- half of round 1's finding 3.
 		return string.format(
-			"line %d: SLOT %d act %d %s -- THE ROSTER'S: %d animal(s) %s%s at dz %.0f, the line finds it -- %s",
+			"line %d: SLOT %d act %d %s -- %s -- %s",
 			state.waveIndex,
 			slot,
 			row.act or 0,
 			tostring(Data.slotRoute(row)),
-			#(inRoster.ids or {}),
-			inRoster.state,
-			if inRoster.skipped ~= nil then " (skipped: " .. tostring(inRoster.skipped) .. ")" else "",
-			inRoster.bedNorth,
+			if bodies > 0
+				then string.format(
+					"THE ROSTER'S: %d animal(s) %s at dz %.0f, the line finds it",
+					bodies,
+					inRoster.state,
+					inRoster.bedNorth
+				)
+				else string.format(
+					"HELD BY THE ROSTER: NO BODY YET (%s%s) at dz %.0f -- nothing is released for this slot",
+					inRoster.state,
+					if inRoster.skipped ~= nil then ", skipped: " .. tostring(inRoster.skipped) else "",
+					inRoster.bedNorth
+				),
 			row.note or "--"
 		)
 	end

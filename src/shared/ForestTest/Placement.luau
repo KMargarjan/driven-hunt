@@ -333,15 +333,6 @@ function Placement.wakeReason(row: any, elapsed: number, frontNorth: number?, no
 	return nil
 end
 
--- IS THIS GROUP ALREADY STANDING IN THE WOOD? A row with bodies on their feet is lying in its bed
--- and the line is what finds it.
-function Placement.alreadyInTheWood(row: any): boolean
-	if type(row) ~= "table" or row.skipped ~= nil or row.state == "gone" then
-		return false
-	end
-	return #(row.ids or {}) > 0
-end
-
 -- THE BRIDGE'S WHOLE RULE (design 17's T2 row), named here so it is one answer and a spec can drive
 -- it: **the only hole `ForestTest.releaseLine` still fills is one the WOOD refused.**
 --
