@@ -1834,7 +1834,7 @@ end
 --                from it -- a spot with nothing solid near it is out in the open, which is the
 --                other way to get this wrong. `nearestSolid` is why a fern does not count.
 function ForestTest.restSpotOk(
-	dz: number,
+	atNorth: number, -- the CANDIDATE's depth in this drive's frame, never the drive's own shift
 	fromStart: number,
 	trunkGap: number,
 	terrainY: number?,
@@ -1842,7 +1842,7 @@ function ForestTest.restSpotOk(
 	rest,
 	keepAway: number
 ): boolean
-	if dz < rest.nearRoadStuds or dz > rest.farRoadStuds then
+	if atNorth < rest.nearRoadStuds or atNorth > rest.farRoadStuds then
 		return false
 	end
 	if fromStart < keepAway then
@@ -2023,7 +2023,7 @@ function ForestTest.restSpot(standX: number, spec, band: any?, dz: number?): Vec
 						)
 					end
 				end
-				if not swept and ForestTest.restSpotOk(dz, fromStart, gap, terrain, ground, rest, keepAway) then
+				if not swept and ForestTest.restSpotOk(atNorth, fromStart, gap, terrain, ground, rest, keepAway) then
 					-- BESIDE ITS OWN LANE, AND SEEN FROM IT (task 172). The lateral test is cheap and
 					-- is checked in BOTH passes -- a group 200 studs off the lane it belongs to is not
 					-- that lane's group whatever the trunks do -- and the ray is only cast for the
