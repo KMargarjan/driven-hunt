@@ -168,7 +168,17 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- 238's two: retire the lit rows queued as TASKS.md 82b, which is the DIRECTOR's call and deletes a
 -- losing branch per retirement, or ship lit, which is forbidden. **The Director may prefer to spend
 -- 82b instead**: this is one line either way.
-Flags.MAX_FLAGS = 24
+--
+-- 24 -> 25 FOR TASK 349's `DRIVE_AIMS_AT_PICKED_STAND`, and the same sentence a fifth time, said
+-- out loud rather than paid for by quietly retiring somebody else's row: the table held exactly 24
+-- and the tripwire refused the twenty-fifth, MEASURED at this commit (`flags.spec`'s rot tripwire
+-- failed with "Expected 0, got 1" before this line moved). The dispatch of 2026-11-11 asks for the
+-- row and asks for it born OFF -- *"put the change behind a new flag born OFF ... then the Director
+-- switches it ON in her FT for her evening playtest"* -- and what it switches is where a drive is
+-- aimed, which is feel and Karen's, so it cannot ship lit. The two ways out of the cap are still
+-- task 238's two: retire the lit rows queued as TASKS.md 82b, which is the DIRECTOR's call, or ship
+-- lit, which is forbidden. **The Director may prefer to spend 82b instead**: this is one line either way.
+Flags.MAX_FLAGS = 25
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
