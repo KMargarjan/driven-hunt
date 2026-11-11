@@ -1250,19 +1250,22 @@ end
 -- `settledNorthStuds` from, so a band translated onto a flank stand with an unshifted field scores
 -- no escapes and despawns every animal as `settled`. `bounds` moves too: a box that excludes the
 -- band would clamp every animal in it. 0 is the main road and every number below it is unchanged.
-function ForestTest.fieldFor(layout: Layout?, dz: number?)
+function ForestTest.fieldFor(layout: Layout?, dz: number?, dx: number?)
 	local resolved = layout or ForestTest.ROAD_LAYOUT
 	local shift = dz or 0
+	local across = dx or 0
 	local bounds = ForestTest.boundsOf(resolved)
 	return {
 		-- THE BOX IS A UNION, NOT A TRANSLATION, and that was MEASURED (2026-11-11, her Forest Test,
 		-- stand 11): translating it put its SOUTH edge 875 studs north of the main road, so the two
 		-- groups a drive releases BEFORE she locks -- which are on the main road, correctly -- were
 		-- culled as `outOfBounds`, 114 of them in one drive. The box is a sanity cage, not a game
-		-- rule: it has to hold every frame this drive has animals in.
+		-- rule: it has to hold every frame this drive has animals in. The SAME is true across:
+		-- the box spans the MAIN line, and a flank stand is 604 studs outside it, so an
+		-- un-unioned x culled the whole aimed band (101 of one drive's animals, MEASURED).
 		bounds = {
-			minX = bounds.minX,
-			maxX = bounds.maxX,
+			minX = math.min(bounds.minX, bounds.minX + across),
+			maxX = math.max(bounds.maxX, bounds.maxX + across),
 			minZ = math.min(bounds.minZ, bounds.minZ + shift),
 			maxZ = math.max(bounds.maxZ, bounds.maxZ + shift),
 		},

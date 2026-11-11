@@ -216,7 +216,11 @@ return function()
 				local at = Data.standPosition(index, layout)
 				local dz = Data.aimFrame(at.X, at.Z, Data.roadZ(at.X, layout), true).dz
 				-- the box this drive's animals are actually judged against
-				local box = Data.fieldFor(layout, dz).bounds
+				local box = Data.fieldFor(layout, dz, at.X - layout.centre.X).bounds
+				-- THE STAND ITSELF HAS TO BE INSIDE THE BOX ITS OWN DRIVE IS JUDGED BY. MEASURED:
+				-- a flank stand is 604 studs outside the main line's box, and an un-unioned x
+				-- culled the whole aimed band as `outOfBounds` -- 101 animals in one drive.
+				expect(at.X >= box.minX and at.X <= box.maxX).to.equal(true)
 				local margin = box.maxZ - (Data.roadZ(at.X, layout) + dz + deepest)
 				-- ...AND THE MAIN ROAD STAYS INSIDE IT, which is what the union is for: the groups a
 				-- drive releases before she locks are on the main road and must not be culled.

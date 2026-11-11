@@ -1022,6 +1022,15 @@ end
 -- (`Runtime:spawn` -> `Brain.new(animalConfig, self._field, ...)`) and an aim that changed mid-drive
 -- would leave half the animals judged by a frame they were not released into. A pick locked after
 -- the first release applies from the NEXT drive.
+-- HOW FAR ACROSS THE MAIN LINE'S OWN CENTRE THIS DRIVE IS AIMED. The field's box spans the main
+-- line, and a flank stand is hundreds of studs outside it, so the box is unioned by this.
+function ForestTest.aimAcross(aim: { x: number }?): number
+	if aim == nil then
+		return 0
+	end
+	return aim.x - chosen.layout.centre.X
+end
+
 function ForestTest.aim(): { x: number, dz: number, why: string }
 	return state.aim
 end
@@ -1044,10 +1053,10 @@ function ForestTest.settleAim(enabled: boolean?): ({ x: number, dz: number, why:
 		return state.aim, false
 	end
 	local aim = ForestTest.aimNow(enabled)
-	local moved = aim.dz ~= state.aim.dz
+	local moved = aim.dz ~= state.aim.dz or aim.x ~= state.aim.x
 	state.aim = aim
 	if moved then
-		ForestTest.applyField(state.runtime, aim.dz)
+		ForestTest.applyField(state.runtime, aim.dz, ForestTest.aimAcross(aim))
 	end
 	if aim.why == "nobody locked" then
 		return state.aim, false -- ask again at the next slot
@@ -3120,13 +3129,13 @@ end
 -- PUTS THE LIVE LAYOUT'S FIELD ON A RUNTIME -- the bounds, the exit line and the ground height. The
 -- ONE place that writes a runtime's field, so "which field is this world on" cannot be answered twice
 -- differently (round 1, finding 2). Returns whether it wrote one, so a spec and the console can say.
-function ForestTest.applyField(runtime, dz: number?): boolean
+function ForestTest.applyField(runtime, dz: number?, dx: number?): boolean
 	if runtime == nil or runtime.setField == nil then
 		return false
 	end
 	-- `dz` IS THIS DRIVE'S SHIFT: `exitZ`, `road.zAt` and `bounds` move with the band, so escape and
 	-- out-of-play are judged against the road the animals were actually released at (task 349 r2).
-	runtime:setField(Data.fieldFor(chosen.layout, dz or state.aim.dz))
+	runtime:setField(Data.fieldFor(chosen.layout, dz or state.aim.dz, dx or ForestTest.aimAcross(state.aim)))
 	return true
 end
 
@@ -3441,7 +3450,7 @@ function ForestTest.start(runtime, now: number)
 	-- drive of a session no longer hits that case -- but the call stays, because a FORCED first
 	-- drive (`DHForestLayout = ride`) still does, and because the second drive onwards always did.
 	-- Task 179's finding was that the swap was skipped, not that it was skipped only once.
-	ForestTest.applyField(runtime, 0)
+	ForestTest.applyField(runtime, 0, 0)
 	state.started = true
 	state.startedAt = now
 	state.waveIndex = 0
