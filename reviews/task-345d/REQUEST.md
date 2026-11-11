@@ -1,11 +1,11 @@
 # Task 345d -- `releaseLine` STOPS SPAWNING; `orderGroup` ORDERS (T4 of animal-placement)
 
 Task: 345d
-Round: 1
+Round: 2
 Base: 85c4aef1 (origin/main, #363)
-Code commit: 3e1c259ad60c25ae4e9b6d06c9e9d9ad121ea8c4
+Code commit: 9f73125e64b20c53b7c483e80dab12d53b45fb1e
 
-`[harness] PASS: 34/34 checks @ 3e1c259ad60c25ae4e9b6d06c9e9d9ad121ea8c4 (clean tree) scope=all`
+`[harness] PASS: 34/34 checks @ 9f73125e64b20c53b7c483e80dab12d53b45fb1e (clean tree) scope=all`
 `test2` **N/A** -- no `TWO_PLAYER_PATHS` path is touched (design section 17 says so for all six tasks).
 
 ## PLAN (core quality protocol step 0, committed at `783382d2` before any `src/` edit)
@@ -40,6 +40,18 @@ woken group its own route from where it is standing, seeded from the leader's fe
 the first leg. The Director's retry cap: three searches per row, then PARKED, then one reopen. Three
 things were measured wrong on the way and fixed, each with its reading (claims 5-7).
 
+## Round 1's two findings, both right
+
+1. **Every case asserted a REFUSAL**, so the whole file-making half could be deleted and they all
+   still passed. A new case drives it: it patches `ForestTest.computeRouteVia` (the patch point the
+   retry-cap case already uses for `bedSpot`) and asserts the `state.lines` row itself. **L-093 RUN
+   at the code commit:** replace everything from `Line.split(...)` to the `state.lines` insert with
+   `return nil, "noroute"` -> `forest_placement.spec:1234` fails.
+2. **`runtime:formSounder` was a dead call** -- `materialise` makes the group with `spawnSounder`,
+   which sets `sounderId` on every member, and `formSounder` claims only nil ones. The call is gone
+   and a woken group now walks as **one file**, keeping the pack its bed gave it; the consequence
+   (a `SPLIT` row crosses once, not twice, while the switch is on) is `ESCALATE.md` entry 6.
+
 ## Claims
 
 1. **Nothing is spawned for a scheduled slot while the switch is on.** `ForestTest.releaseLine`'s
@@ -54,9 +66,13 @@ things were measured wrong on the way and fixed, each with its reading (claims 5
    `routeFilesFor` for the pins, `Line.order`/`Line.split` for the march (rank ties broken by who is
    already in front), `Placement.seedTrail` for the trail, `formSounder` for the ears, one
    `state.lines` row per file. No `spawn` call anywhere in it.
-   *Verify:* the spec's *"orders a woken group once, counts a group the fright already took, and
-   spawns nothing"*; live, `ordered=` on the probe attribute: **12 groups over eight drives**,
-   `noroute=0` in every one.
+   *Verify:* **the new case** *"makes the file itself: one line, in march order, trailed from the
+   leader's own feet"* -- one `state.lines` row, `woken == true`, the sow at the head although she is
+   the REARMOST body, the trail's head on her live position and 70 studs off the bed, the pins kept,
+   `row.lineId` set, and the `ORDER_START_STUDS` ladder offering 0/30/60 studs. Plus the refusal case
+   (*"orders a woken group once..."*). Live: `ordered=` on the probe attribute, **12 groups over the
+   eight drives at `3e1c259a` and 1 more at the code commit** (`345d-R2c-C1-track.txt`), `noroute=0`
+   in every one of the eleven drives.
 3. **A file formed from a bed is as tight as one spawned along its approach, and inside the target.**
    MEASURED, `ForestTest.measureFile`, same instrument both sides, at +5 s after the order:
    **woken 3 files, medians 7.7 and 8.5 studs, worst 10.3** (`345d-ON2-C1-track.txt`,
@@ -64,12 +80,21 @@ things were measured wrong on the way and fixed, each with its reading (claims 5
    8.4-8.6, worst 14.5**. **NOT PROVEN over the design's >= 10 breaks: 3.** The reason is measured
    and is the horn (`ESCALATE.md` entry 4): 357 studs reaches five beds from a line 300 studs away,
    6-9 animals pushed per blast, four blasts a drive, and a flight can never be a file.
+   **WHICH COMMIT (L-162):** these three medians are from `3e1c259a`, not the code commit. The four
+   drives since differ in `files = 1` on the woken path, the dead `formSounder` call, two counters
+   and the spec -- none of which touches the trail seed or the nose-to-nose geometry, and all three
+   measured files were single-file groups, so `files = 1` could not have moved them. At the code
+   commit the same instrument reports the CONTROL on four drives (released 2-4 files, medians
+   7.9-8.5) and no woken file: the three drives that ordered nothing had `flights=0 wokeBand=0` --
+   nothing disturbed their beds at all -- and the fourth ordered one group whose file did not keep
+   two live members to +5 s. The median is the LOWER middle value on an even count, both sides.
 4. **The retry cap: a refused bed is not re-searched every step, and the row is not lost.**
    `Placement.CONFIG.searchesPerWake` 3 + `Placement.dueNow`'s cap arm + `Placement.reopenNow` (one
    reopen per row per drive, on the line's band or the slot clock). Arithmetic: 15 x (3 + 3) = **90**
    worst case, under the Director's 100.
-   *Verify:* live at **A2, the cell that produced the 2,940: 24 searches, caps=3, reopens=3**
-   (`345d-ON5-A2-track.txt`); C1 7-10 per drive. Spec: *"parks a row that has spent its searches, and
+   *Verify:* live at **A2, the cell that produced the 2,940: 24 searches, caps=3, reopens=3 -- at
+   the code commit** (`345d-R2-A2-track.txt`) and the same 24/3/3 at `3e1c259a`
+   (`345d-ON5-A2-track.txt`); C1 6-10 searches per drive. Spec: *"parks a row that has spent its searches, and
    the drive wakes it once more"* drives **two wake cycles in one drive** and asserts the row ends up
    with a body (L-142). **L-093 RUN:** delete the cap arm -> `forest_placement.spec:1276` fails.
 5. **MEASURED AND FIXED #1: the pathfinder answers `NoPath` from a bed.** A bed is in COVER by
@@ -95,12 +120,12 @@ things were measured wrong on the way and fixed, each with its reading (claims 5
    *Verify:* the spec's try-count case (60 heartbeats inside the window cost no route; 60 s cost the
    three that are left and then nothing); live, `flights=` is now counted instead of hidden.
 8. **Nothing is created in view, and the flag-OFF drive is unchanged.** `inView = 0` on every one of
-   the eight ON drives. OFF (`345d-OFF-C1-console.txt`): every scheduled slot released its animals
+   the twelve ON drives (eight at `3e1c259a`, four at the code commit). OFF (`345d-OFF-C1-console.txt`): every scheduled slot released its animals
    (`SLOT 1..4, 6, 7, 8 -- n of n animal(s)`), **no roster line at all** (`grep -c ROSTER` = 0) and no
    `DHForestPlacement` attribute, which is today's drive.
 9. **One bite per Heartbeat is still one bite.** A step that orders does not also materialise;
-   `orderGroup` is at most 4 `ComputeAsync` calls once per group per try, bounded by claim 7's
-   counter. Boar step avg over the ON drives 4.53 ms (`345d-ON*-track.txt`), inside the 7.0 ms of
+   `orderGroup` is at most 4 `ComputeAsync` calls per FILE per try (round 1's note), and a woken
+   group is one file, bounded by claim 7's four tries. Boar step avg over the ON drives 4.53 ms (`345d-ON*-track.txt`), inside the 7.0 ms of
    design 12.1; heartbeat p95 27.09 ms at C1, inside 32.
 10. **Rule 5 / the frame: NOT OBTAINABLE, with the measured reason** -- `ESCALATE.md` entry 1. Four
     attempts; a woken file is 700-900 studs from the hunter and `ModelStreamingMode = Atomic` keeps
