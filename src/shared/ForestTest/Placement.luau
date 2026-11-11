@@ -95,17 +95,13 @@ Placement.CONFIG = table.freeze({
 	bedGapStuds = 71,
 	-- Of the 24 bodies the budget allows, at most this many are bedded-and-not-yet-reached.
 	--
-	-- **12 WAS REFUTED BY THE DRIVE SCRIPT'S OWN COMPOSITIONS AND BY TWO LIVE DRIVES.** Design 5.2
-	-- derives it as *"four groups of three"*; there is no group of three in `SCHEDULE.drive`, whose
-	-- thirteen `normal` groups hold 73 animals (1 to 9 each, 5.6 on average). At `leadSeconds` 20
-	-- against a 13 s tempo, two groups are bedded-and-not-yet-reached at once -- MEASURED, every
-	-- sample of `345b-ON-C1` and `345b-ON2-C1` -- and two groups is 11 to 18 animals, so a cap of 12
-	-- refused the third group of EVERY drive: 6 of 13 groups skipped on `budget` at C1, with only 6
-	-- ring searches spent in a whole drive.
-	--
-	--     2 groups in flight  x  the largest composition the script can ask for (9)  =  18
-	--
-	-- It is still a SUB-cap of `Data.LIVE_CAP` 24 and the live arm is still the one that binds.
+	-- 18 AND NOT THE DESIGN'S 12, BY THE DIRECTOR'S DECISION of 2026-11-11 ~01:45 (`ESCALATE.md`,
+	-- deviation 5): *"ACCEPTED, as a change to D-1 ... This entry supersedes the '<= 12' rows in the
+	-- design's sections 5.2 and 16"*. 12 was *"four groups of three"* and there is no group of three
+	-- in `SCHEDULE.drive` (73 animals in 13 groups of 1 to 9), so it refused the third group of every
+	-- drive -- 6 of 13 skipped on `budget` at C1. Two groups are in flight at once x the largest
+	-- composition the script can ask for (9) = 18, still a SUB-cap of `Data.LIVE_CAP` 24, which is
+	-- the arm that binds and which held at exactly 24.
 	bedCap = 18,
 	-- The line covers 62 studs in 20 s, well inside the 100-stud notice band, so a group always has
 	-- a body before anything can notice it and no body exists more than 20 s before it is needed.

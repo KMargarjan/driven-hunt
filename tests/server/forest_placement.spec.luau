@@ -680,6 +680,34 @@ return function()
 			Forest.start(nil :: any, 0)
 		end)
 
+		it("never says the line finds a group whose bodies have gone", function()
+			-- ROUND 2'S NOTE, the Director's round-3 instruction: a row that goes `gone` clears its
+			-- ids, so `releaseLine`'s bridge -- which keys its two arms on `#row.ids` -- can never
+			-- print "the line finds it" for a group that is not in the wood.
+			local _made, fake = stubRuntime()
+			Forest.layoutForDrive(955, "c1")
+			Forest.start(fake, 0)
+			Forest.newDrive(0)
+			expect(Forest.planDrive(955, true) ~= nil).to.equal(true)
+			local first = Forest.roster()[1]
+			first.state = "bedded"
+			first.ids = { "Boar1", "Boar2" }
+			first.at = Vector3.new(0, 0, 0)
+			-- `step` reconciles FIRST and releases second, which is the live ordering: the stub's
+			-- `boars()` is empty, so those two bodies are gone by the time the slot fires.
+			local line = Forest.step(Data.slotSeconds(1, Forest.cellSchedule()), true)
+			-- THE STATE WORD, and the ids that must go with it. Delete `row.ids = {}` from
+			-- `stepPlacement`'s reconcile and this line is the first that fails.
+			expect(first.state).to.equal("gone")
+			expect(#first.ids).to.equal(0)
+			expect(line ~= nil).to.equal(true)
+			expect(string.find(line :: string, "HELD BY THE ROSTER", 1, true) ~= nil).to.equal(true)
+			expect(string.find(line :: string, "gone", 1, true) ~= nil).to.equal(true)
+			-- ...AND THE SENTENCE THAT MUST NEVER BE PRINTED FOR IT.
+			expect(string.find(line :: string, "the line finds it", 1, true)).to.equal(nil)
+			Forest.start(nil :: any, 0)
+		end)
+
 		it("makes a body when the switch is on and nothing at all when it is off", function()
 			-- ROUND 1, FINDING 2: with no runtime both states answered nil through the SAME arm, so
 			-- deleting `inPlace ~= true` changed nothing. With the stub runtime installed the two

@@ -641,6 +641,9 @@ local state = {
 	lines = {} :: { any },
 	rng = Random.new(),
 	stuck = 0,
+	-- WHICH ANIMALS THE LINE HAS ALREADY SENT (task 154), declared here rather than springing into
+	-- existence in `spookNearBeaters` -- this table's own rule, and round 2's note.
+	latched = {} :: { [string]: boolean },
 	-- TASK 345 T2: THE DRIVE'S WHOLE POPULATION, AS RECORDS. One row per group, built once at the
 	-- drive boundary by `ForestTest.planDrive` and written by nothing else (design 3.1). Empty while
 	-- `PLACEMENT_IN_PLACE` is off, which is every drive Karen has played.
@@ -2255,7 +2258,12 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
 				end
 			end
 			if standing == 0 then
+				-- GONE MEANS GONE, AND THE IDS GO WITH IT (round 2's note, the Director's round-3
+				-- instruction). `releaseLine`'s bridge keys its two arms on `#row.ids`, so a row that
+				-- kept the ids of destroyed bodies would print "the line finds it" for a group that is
+				-- not in the wood at all.
 				row.state = "gone"
+				row.ids = {}
 			elseif woken then
 				row.state = "awake"
 			end
