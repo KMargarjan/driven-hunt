@@ -204,7 +204,10 @@ return function()
 				TestKit.note("C1 is not a cell in this build")
 				return
 			end
-			local cell = Grid.boundsOf("C1")
+			-- THE FIELD'S OWN BOX, not the Grid cell's: `fieldFor` builds `bounds` from
+			-- `Data.boundsOf`, and that is what `outOfBounds` culls against (MEASURED: 114 animals
+			-- in one drive when the box was translated instead of unioned).
+			local cell = Data.boundsOf(layout)
 			local deepest = 0
 			for _, row in ipairs(Data.SCHEDULE.drive) do
 				deepest = math.max(deepest, row.northStuds or 0)
@@ -214,7 +217,12 @@ return function()
 			for index = 1, layout.standCount do
 				local at = Data.standPosition(index, layout)
 				local dz = Data.aimFrame(at.X, at.Z, Data.roadZ(at.X, layout), true).dz
-				local margin = cell.maxZ - (Data.roadZ(at.X, layout) + dz + deepest)
+				-- the box this drive's animals are actually judged against
+				local box = Data.fieldFor(layout, dz).bounds
+				local margin = box.maxZ - (Data.roadZ(at.X, layout) + dz + deepest)
+				-- ...AND THE MAIN ROAD STAYS INSIDE IT, which is what the union is for: the groups a
+				-- drive releases before she locks are on the main road and must not be culled.
+				expect(box.minZ <= Data.boundsOf(layout).minZ).to.equal(true)
 				if margin < worst then
 					worst, worstAt = margin, index
 				end

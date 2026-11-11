@@ -1255,11 +1255,16 @@ function ForestTest.fieldFor(layout: Layout?, dz: number?)
 	local shift = dz or 0
 	local bounds = ForestTest.boundsOf(resolved)
 	return {
+		-- THE BOX IS A UNION, NOT A TRANSLATION, and that was MEASURED (2026-11-11, her Forest Test,
+		-- stand 11): translating it put its SOUTH edge 875 studs north of the main road, so the two
+		-- groups a drive releases BEFORE she locks -- which are on the main road, correctly -- were
+		-- culled as `outOfBounds`, 114 of them in one drive. The box is a sanity cage, not a game
+		-- rule: it has to hold every frame this drive has animals in.
 		bounds = {
 			minX = bounds.minX,
 			maxX = bounds.maxX,
-			minZ = bounds.minZ + shift,
-			maxZ = bounds.maxZ + shift,
+			minZ = math.min(bounds.minZ, bounds.minZ + shift),
+			maxZ = math.max(bounds.maxZ, bounds.maxZ + shift),
 		},
 		exitZ = ForestTest.exitZOf(resolved) + shift,
 		-- ONE GROUND HEIGHT FOR EVERY LAYOUT, and `GROUND_Y`'s own comment is why: a per-layout 185
