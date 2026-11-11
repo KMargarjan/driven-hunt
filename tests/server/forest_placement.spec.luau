@@ -1237,10 +1237,16 @@ return function()
 			expect(string.find(line :: string, "from its BED", 1, true) ~= nil).to.equal(true)
 			-- THE STARTS THAT WERE OFFERED: the leader's own feet, then 30 studs along the way out,
 			-- then 60 -- which is the one that was taken.
+			-- FLAT, because the ladder walks along the ground and each candidate's HEIGHT is
+			-- `Data.groundAt`'s answer at that point -- which is the other half of the same measured
+			-- fix (the body's own Y is what the pathfinder refuses).
+			local function flat(a: Vector3, b: Vector3)
+				return (Vector3.new(a.X - b.X, 0, a.Z - b.Z)).Magnitude
+			end
 			expect(#asked).to.equal(3)
-			expect((asked[1] - leaderAt).Magnitude < 1e-3).to.equal(true)
-			expect(math.abs((asked[2] - leaderAt).Magnitude - 30) < 1e-3).to.equal(true)
-			expect(math.abs((asked[3] - leaderAt).Magnitude - 60) < 1e-3).to.equal(true)
+			expect(flat(asked[1], leaderAt) < 1e-3).to.equal(true)
+			expect(math.abs(flat(asked[2], leaderAt) - 30) < 1e-3).to.equal(true)
+			expect(math.abs(flat(asked[3], leaderAt) - 60) < 1e-3).to.equal(true)
 			-- ONE FILE, AND IT IS THE ROSTER ROW'S.
 			local lines = Forest.lines()
 			expect(#lines).to.equal(1)
