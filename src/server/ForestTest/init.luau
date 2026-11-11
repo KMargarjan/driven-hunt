@@ -662,6 +662,7 @@ local state = {
 	-- beside it so a drive that reports no skips cannot be one that tested nothing (design 12.3).
 	placementSkips = {} :: { [string]: number },
 	placementSearches = 0,
+	bedRefusals = nil :: any,
 	-- TASK 345 T3: THE RAYS SPENT ON THE SIGHT TEST, AND THE BODIES BORN IN VIEW ANYWAY. `rays` is
 	-- published beside `inView` because a drive reporting `inView = 0` with `rays = 0` has tested
 	-- nothing (design 12.3); `inView` is the AUDIT -- counted over the bodies that were really made,
@@ -1912,6 +1913,10 @@ end
 -- would be refused by the searcher meant to find it. `band` is nil for every caller before T2.
 function ForestTest.restSpot(standX: number, spec, band: any?, dz: number?): Vector3?
 	local rest = band or Data.REST
+	-- WHY A CANDIDATE WAS REFUSED, counted for this search (task 349 r3). `bedSpot` prints it,
+	-- so a drive with no beds names the test that refused instead of saying only "nobed".
+	local refusals = { swept = 0, band = 0, lane = 0, zone = 0, unseen = 0 }
+	state.bedRefusals = refusals
 	-- WHERE SHE ACTUALLY IS, NOT WHERE SHE SPAWNED (task 155, from task 154's review).
 	--
 	-- THIS WAS RIGHT FOR THE FIRST STOCK AND WRONG FOR THE RE-STOCK, which is the one Karen meets on
@@ -2431,7 +2436,19 @@ function ForestTest.bedSpot(row: any, aimIn: any?): (Vector3?, string?, string?)
 		aim.dz
 	)
 	if at == nil then
-		return nil, "nobed", nil
+		local r = state.bedRefusals
+		return nil,
+			"nobed",
+			if r ~= nil
+				then string.format(
+					"refused: swept=%d band=%d lane=%d zone=%d unseen=%d",
+					r.swept,
+					r.band,
+					r.lane,
+					r.zone,
+					r.unseen
+				)
+				else nil
 	end
 	if not Placement.gapOk(state.roster, at, Placement.bedGapStuds(Data.SPOOK)) then
 		return nil, "nobed", "within the bed gap of a bed already laid"
