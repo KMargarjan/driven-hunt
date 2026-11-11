@@ -3944,3 +3944,13 @@ nothing here is edited there.
    shows *"SLOT 16 ... 9 of 9 animal(s) ... in 2 of 2 file(s)"*. That is design section 17's **T5**
    ("retire the repeat window"), named there, and T4 left it alone deliberately. Until T5 lands,
    "spawns in the lane on the ON path = 0" is true of the fifteen SCRIPTED slots only.
+6. **A `SPLIT` row crosses ONCE on the flag-ON path, not twice** (round 1, finding 2). A woken group
+   was made by `Runtime:spawnSounder`, which sets `sounderId` on every member, and
+   `Runtime:formSounder` claims only ids whose `sounderId` is nil -- so the call `orderGroup` made
+   formed nothing, and two files walking two routes inside ONE sounder is what `_stepSounders`'
+   `BREAK_STUDS` rule expels members from (the lone-voice hole task 139 closed). Splitting a bedded
+   sounder into two packs needs a `Runtime` function that does not exist and `src/server/Boar/` is
+   not this task's, so a woken group now walks as ONE file behind its march leader and keeps the
+   pack its bed gave it. The drive's SPLIT shape -- *"it splits at the verge and crosses twice"* --
+   is therefore a RELEASED-path shape only while the switch is on. A `Runtime` "leave your sounder"
+   function would give it back; that is a Boar-owner task for T5/T6 to queue, not a hole to hide.
