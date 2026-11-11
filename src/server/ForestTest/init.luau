@@ -3463,9 +3463,10 @@ function ForestTest.start(runtime, now: number)
 	-- and `stepPlacement(…, inPlace)` both take it, so both of its states are reachable from a spec
 	-- while the flag itself sits at one of them.
 	state.placementInPlace = Flags.isOn("PLACEMENT_IN_PLACE")
-	-- THE SAME SHAPE, ONE LINE DOWN (task 349). **IT IS NOT YET REACHABLE BY PARAMETER the way
-	-- `inPlace` is** (review round 1): `ForestTest.hunterAim` reads `state.aimAtPickedStand`, so a
-	-- spec can only reach the pure rule `Data.aimFrame`, not the live path. ESCALATE.md, 2026-11-11.
+	-- THE SAME SHAPE, ONE LINE DOWN (task 349 r2): read once here and handed inward, so
+	-- `releaseLine`, `stepPlacement` and `orderGroup` all take the aim as a parameter exactly as
+	-- they take `inPlace`, and `ForestTest.settleAim(enabled)` reaches both states from a spec
+	-- while the flag itself sits at one of them.
 	state.aimAtPickedStand = Flags.isOn("DRIVE_AIMS_AT_PICKED_STAND")
 	-- ...AND IT OPENS THE FIRST DRIVE, WHICH IS WHAT BASES THE SLOT CLOCK (task 251 part 2). It used
 	-- to be set here as `now + intervalSeconds`; it is `newDrive`'s now, so a server start and a drive
