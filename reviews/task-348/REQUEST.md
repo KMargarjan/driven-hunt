@@ -1,118 +1,100 @@
-# Task 348 — a bot stands next to the player after a map stand change, then vanishes
+# Task 348 — round 2: the stub runtime hands out the real handle's shape
 
 Task: 348
-Round: 1
+Round: 2
 Base: 0c1dd2ac
-Code commit: 66de5029955d6560ffaa62606b9be6f1198770b4
+Code commit: b97b3751b31a5da3ddaabacf4cf14f03d54bb8e1
 
-Karen, 2026-11-11: *"bug at the begining when I change place on map position standing I can see
-bot next to me but then he is gone"*. **Reproduced on her path, measured, fixed, re-measured.**
+Round 1 passed (`PASS`, item 6 NOT PROVEN) and **the bot fix is unchanged** — `Match.botFillDuringPick`,
+its spec case 15 and the Forest Test before/after are exactly as reviewed, and nothing in `src/` moved
+this round. The Director accepted the round-1 `ESCALATE.md` entry and sent this round to unblock `test2`.
 
-Harness, one player, clean tree, at the code commit:
+Harness at the code commit, clean tree:
 
-    [harness] PASS: 34/34 checks @ 66de5029955d6560ffaa62606b9be6f1198770b4 (clean tree) scope=auto:match
+    [harness] PASS: 34/34 checks @ b97b3751b31a5da3ddaabacf4cf14f03d54bb8e1 (clean tree) scope=all
 
-## PLAN (step 0)
+## The one change this round
 
-**(a) REAL LIFE.** No ballistics figure applies. The rule is a fact about a drive line: **a stand
-carries exactly one hunter** — `Bots.Fill`'s own stated reason for `standsFree` (*"two hunters on
-one post is one hunter"*). The number is **0** other bodies on the post a player holds.
+`tests/server/forest_placement.spec.luau`, `stubRuntime().boars()` — and nothing else, in any file.
 
-**(b) MEASURED NOW** — her Forest Test, her flags (DRIVE_BOTS on, STAND_PICK on), base 0c1dd2ac,
-served to the place from `driven-hunt-karen`. Probe `<runs-dir>/348-arm.luau` + `348-read.luau`:
-a Heartbeat sampler at 10 Hz over the whole 15 s pick window, reading INSTANCE facts only
-(`Workspace.DriveBots` roots vs the player's `HumanoidRootPart`). **Two windows, six stand changes
-by real mouse clicks on the map's own stand rows**: a bot was within 10 studs of the player in
-**188 of 268 samples**, closest **0.8 studs**, `nearMe12=1`.
+    before:  table.insert(out, { id = id })
+    after:   id, kind, and position AS A FUNCTION, read live from the stub's own `where` table
 
-**(c) TARGET.** **0** samples with a bot within 10 studs, over the same number of changes. 10 studs
-because `STAND_RADIUS_STUDS` is 12 — a body inside that circle is "next to me".
+**It is a STUB defect, and the fix is at the stub.** The real handle is built in
+`src/server/Boar/init.luau` (`Runtime:boars` returns `entry.handle`) and carries
+`id`, `kind`, `part`, `soundPlays`, `state()` and `position()`. `ForestTest.spookNearBeaters` reads
+`handle.id`, `handle.kind` and `handle.position()` **unguarded**; the stub supplied only `id`, so
+`local at = handle.position()` was a call of a nil value.
 
-**(d) LEVER.** `syncBots` in `src/server/Match/init.luau`, the one writer of how many bots a drive
-places:
+**Production was NOT made tolerant of a handle with no `position`**, as the dispatch required: the
+real `Runtime` always hands one out — `position = function() return Body.position(body) end` in the
+`local handle = {` literal in `src/server/Boar/init.luau` — so a missing one is a stub bug, not a
+contract the server has to defend against.
 
-    2303:  local want = bots.fillCounts(real, config, standsFree)
-    2327:  local slots = Match.botSlotsFor(markerSet, place, real, want, config, botLine)
-    2328:  local made = bots.fill(slots, nil)
+**`part` is deliberately left out.** `ForestTest` reads `handle.part` three times and **both call
+sites nil-guard it** (`local part = handle and handle.part; if part ~= nil and part.Parent ~= nil`,
+and `if handle and handle.part and handle.part.Parent`), and a stub has no instance to hand over.
+`id`/`position`/`kind` are the three read unguarded, and those are the three now supplied.
 
-**(e) MEASURED AFTER:** the same probe, same place, same clicks.
-
-## The defect, with every writer named (no guess)
-
-1. `syncBots` is **level**-triggered — called at the end of every `dispatch` — and deals the bot
-   hunters' stands out of `hunterLine.picks`, the **live** claim table (`StandPick.picksFor`).
-2. `HighSeats.dealLine` sweep A gives the claimant his new stand; sweep B hands the stand he
-   **released** to the first bot index whose pass-1 scan finds it free.
-3. `Bots.fill`'s *"the same slot, moved"* branch **teleports** that rig onto it (`Rig.place`).
-4. The player is **not** carried until `applyStandSettle`, on the `Running` edge — so the rig lands
-   on the post his body is still standing on. At `Running` every rig is destroyed and rebuilt and he
-   is carried away: *"then he is gone"*.
-
-**Tick/event model.** The rebuild is **edge**-triggered on the drive number; the fill is **level**-
-triggered per dispatch. This is **not** a missing reconcile — it is a reconcile running against an
-**unsettled input**. `Match.botsNeedRebuild`'s `pickOpen` (task 323) was written for exactly this
-hazard — *"a line dealt while a human could still claim would hand a rig the stand he was about to
-take"* — but it defers only the clear-and-rebuild, never the fill, which is the path that places a
-body.
+**Why only `test2` ever found it:** the loop is gated on `#ForestTest.realBeaters() > 0` — real
+beater players plus bot DRIVERS. With one player there is no beater and the loop is never entered,
+which is why the one-player run was 34/34 with that spec green all along.
 
 ## Claims
 
-1. **The fix is one pure rule at the owner.** `Match.botFillDuringPick(want, pickOpen)` returns
-   `{hunters = 0, beaters = want.beaters}` while the window is open, and its argument unchanged
-   otherwise. `syncBots` is its only caller. *Verify:* read `Match.botFillDuringPick` and line 2303.
-2. **Beaters are untouched** — they hold the start line through the countdown (task 158/163).
-   *Verify:* the `beaters` field in the rule; case 15 asserts both 4 and 0.
-3. **Flag off is identity.** `STAND_PICK` off ⇒ `STAND_PICK_SECONDS = 0` ⇒ `Phase.pickWindow` false
-   ⇒ the rule returns its argument; `nil` ("nobody measured") is the same. *Verify:* `init.luau:865`
-   plus the last two assertions of case 15.
-4. **Case 15 has a bite** (`tests/server/match_stand_pick.spec.luau`): with the rule off, the deal
-   that follows a change hands the released stand **to a bot**; with it on, no bot hunter is dealt
-   at all. Delete `botFillDuringPick` and the case fails. *Verify:* read it; it is `dealLine` over
-   this file's own `walkOf("road")`, so it holds no geometry of its own.
-5. **BEFORE, her place, base 0c1dd2ac** — 2 windows, 6 changes: `within10=101/135 minDist=0.8
-   nearMe12=1` and `within10=87/133 minDist=0.9 nearMe12=1`.
-6. **AFTER, her place, code commit 66de5029** — 2 windows, the same 6 changes:
-   `within10=0/141 minDist=401.6 nearMe12=0` and `within10=0/146 minDist=150.7 nearMe12=0`.
-   The fix was proven present in that place first: `botFillDuringPick(..., true) -> hunters=0 beaters=4`.
-7. **CLICK PROOF, her path.** Every change is a real mouse click on a map stand row, and the row
-   text turns `FREE` into `YOURS` in the same probe (`11 WEST YOURS`, `3 MAIN YOURS`,
-   `7 MAIN YOURS`). No remote was called.
-8. **FRAMES, a matched pair, each opened.** `348-before-B-frame.png`: *DRIVE 5 · ASSIGNING · 0:10
-   LEFT*, row `2 MAIN YOURS`, caption *"stand 2 is yours"*, a GO HERE diamond on stand 2 and the
-   pale YOU circle still on stand 4. `348-after-B-frame.png`: *DRIVE 1 · ASSIGNING · 0:11 LEFT*,
-   row `7 MAIN YOURS`, diamond on 7, YOU circle still on 4. The map draws no bot markers in either,
-   so the bot is the probe's number and not the picture's — said here rather than implied.
-9. **Her settings were never touched.** Attributes read before any action and again at the end:
-   token-level diff **EMPTY** (`DHFlag_STAND_PICK=true`, `DHFlag_DRIVE_BOTS=true`,
-   `DHFlag_PLACEMENT_IN_PLACE=true`, `DHForestLayout=D1`). The FT ends on :34873 from
-   `driven-hunt-karen`, Edit. Nothing was ever checked out in `driven-hunt-karen`.
-10. **No flag.** A plain bug fix on today's path; it does not change how bots pick stands, only
-    **when** they are dealt one.
+1. **The defect is gone, twice.** `test2` @ `b97b3751`, two independent runs
+   (`<runs-dir>/348r2-after.log`, `348r2-after2.log`): `grep -c "forest_placement\|spookNearBeaters"`
+   answers **0** in both. *Verify:* the two logs.
+2. **L-093, the delete-and-fail side, is a RUN and not a reading.** Round 1's `test2`
+   @ `66de5029` (`<runs-dir>/348-test2.log`) is the same spec with the field **absent**:
+   `ServerStorage.Tests.forest_placement.spec:1310` → `ServerScriptService.ForestTest:2743 function
+   spookNearBeaters`, *attempt to call a nil value*, `[tests:server] FAIL: 2944 passed, 1 failed`.
+   The only delta in that file between `66de5029` and `b97b3751` is this stub field, so reverting it
+   is that run. **Two harness lines, two different commits**, both pasted below.
+3. **The one-player gate is full and green** at the code commit: `34/34 ... scope=all`, first run,
+   no spec from the dispatch's list fired in it.
+4. **No `src/` file changed this round.** *Verify:* `git diff --name-only 66de5029..b97b3751`.
+5. **The two selftests pass** (`tools/studio_mcp.py selftest`, `tools/agents.py selftest`), and the
+   spec file is already in the `match` scope, so no `SCOPE_SPECS` row moved.
 
-## What is NOT verified
+## What is NOT obtained, and why — read this before judging claim 1
 
-* `python tools/studio_mcp.py test2` does **not** pass at this commit. One server spec errors:
-  `forest_placement.spec:1310` reaching `ForestTest:2743 spookNearBeaters`, *attempt to call a nil
-  value* (`handle.position` on that spec's stub runtime, a path reached only when a real beater
-  exists, which needs two players). I did **not** run a control at the merge base, so I make no
-  claim about whether it predates this branch — only that this branch touches no `ForestTest` file
-  and the one-player run at the same commit is 34/34 with that spec green. It blocks the merge
-  gate; the Director decides.
-* `DHFlag_PLACEMENT_IN_PLACE` is **true** in her place; the dispatch said "NOT set". Reported, not
-  changed.
-* `perStand` could not be measured: `GetTagged("DrivenHunt.ShooterPost")` answers **0** in the
-  Forest Test (that world provides its markers by function, not by tag). `nearMe12` and `pairs12`
-  stand in for it, and both are reported above.
+* **There is no `[harness2] PASS` line, and there cannot be one this session.** `test2`'s first
+  check is `One Studio instance before the test starts`, and Karen's Forest Test Studio is the
+  second. It **FAILs in every run** — it is recorded, not fatal, and task 226's scoping directly
+  below it resolves the editor BY PLACE, so the run itself is sound. Closing that Studio would
+  discard the Director's 11:59 UTC `PLACEMENT_IN_PLACE=false`, which `tools/flags.py` wrote as an
+  unsaved session attribute, and this round's dispatch says not to touch it. Written up at the hard
+  stop in `ESCALATE.md` (12:15 UTC, corrected after the runs) with the three steps that unblock it.
+* **The merge-base control at `0c1dd2ac` was attempted three times and never reached the specs.**
+  Run from the `driven-hunt-rev` worktree, `Rojo synced the fresh token from disk` reads
+  `'<missing>'` then `''` (`348r2-control.log`, `-control2.log`, `-control3.log`) because
+  `tests/sync-token.txt` is git-ignored and absent from a fresh worktree; re-serving after creating
+  it did not clear the empty read. Claim 2 answers the same question with a **tighter** delta — one
+  field in one file — so I stopped rather than spend the rest of the session on it.
+* **Other specs fired in the two `test2` runs, and none is `forest_placement`:**
+  `deer_hitbox.spec:682` in both (it is on this dispatch's own KNOWN FLAKE list),
+  `deer_hitbox.spec:340` and `gun_client.spec:393` once each, neither recurring. The two runs scored
+  31/36 and 33/36. I make no claim about `:340` or `gun_client.spec:393` beyond "fired once, did not
+  recur"; neither is on the dispatch's list and neither is touched by this diff.
+* **Round 1's item 6 is still NOT PROVEN** and this round does not change it: the bot's absence
+  beside the player was MEASURED in Karen's place (`within10=0/287`), never SEEN in a frame of the
+  wood. Nobody has watched an empty neighbouring post.
 
-ANSWERED: L-136 no spec in the dispatch's list fired; both harness runs were green first time, count 0.
-ANSWERED: L-127 every claim above is MET or carries its own line in "What is NOT verified".
-ANSWERED: L-162 the AFTER set is at the code commit, proven present in that place before the trials;
-the BEFORE set is at base 0c1dd2ac — a fix cannot have both sides at one commit — and both were
-taken in this session, same place, same probe, same clicks.
-ANSWERED: L-014 nothing was checked out in `driven-hunt-karen`; the fixed build was served from
-`driven-hunt-rev`, which was restored to dacb75e4, and the FT ends on :34873 from
-`driven-hunt-karen`, in Edit.
-ANSWERED: L-101 the attribute reading was taken BEFORE any action and again at the end; diff EMPTY.
-ANSWERED: L-093 deleting `Match.botFillDuringPick` makes case 15 fail.
-ANSWERED: L-029 the tick/event model is named above: a level-triggered fill over an unsettled input.
-ANSWERED: L-146 the BEFORE runs are not a quiet state — the bot was actually there, at 0.8 studs.
+The two harness lines, at the two different commits claim 2 rests on:
+
+    [harness] PASS: 34/34 checks @ b97b3751b31a5da3ddaabacf4cf14f03d54bb8e1 (clean tree) scope=all
+    [harness2] FAIL: 34/36 checks @ 66de5029955d6560ffaa62606b9be6f1198770b4 (clean tree)
+
+ANSWERED: L-136 every spec that fired is named above with its run — `deer_hitbox.spec:682` twice (on
+the dispatch's list), `deer_hitbox.spec:340` and `gun_client.spec:393` once each; I re-ran `test2`
+once, so the count is two runs, and `forest_placement` is 0 in both.
+ANSWERED: L-162 both of this round's harness readings name the new code commit `b97b3751`; the one
+line that names `66de5029` is round 1's, cited only as the field-absent side of L-093 and labelled
+with its commit on the line.
+ANSWERED: L-093 the delete-and-fail is a RUN, not a reading — round 1's `test2` at `66de5029` is the
+stub with the field absent and it fails at `forest_placement.spec:1310`; claim 2.
+ANSWERED: L-034 the control line and the new-commit lines are kept apart above and never blended;
+the control was not obtained and says so in its own bullet.
+ANSWERED: L-173 iteration used `test --scope auto` where it helps; this defect only fires in `test2`,
+so the fix-and-recheck loop had to be `test2` itself — two runs, not ten.
