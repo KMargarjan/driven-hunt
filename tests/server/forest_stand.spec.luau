@@ -144,6 +144,12 @@ return function()
 
 			ForestTest.clearPick(player.UserId)
 			ForestTest.newDrive(0)
+			-- NOBODY LOCKED IS A "NOT YET", NOT AN ANSWER (MEASURED on her Forest Test: the first
+			-- slot is due at 10 s and the pick window is 15 s, so a latch here held `dz +0` for the
+			-- whole drive and the feature was inert). It releases on the main road and asks again.
+			local waiting, latched = ForestTest.settleAim(true)
+			expect(waiting.dz).to.equal(0)
+			expect(latched).to.equal(false)
 			-- OFF IS THE DRIVE BEFORE TASK 349: no shift, and the field is the main road's.
 			local off = select(1, ForestTest.settleAim(false))
 			expect(off.dz).to.equal(0)

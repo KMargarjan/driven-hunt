@@ -1027,13 +1027,32 @@ function ForestTest.aim(): { x: number, dz: number, why: string }
 end
 
 -- SETTLES IT, AND MOVES THE FIELD WITH IT. Returns the aim and whether this call is what settled it.
+--
+-- NOBODY LOCKED YET IS NOT AN ANSWER, IT IS A "NOT YET" (MEASURED, 2026-11-11, her Forest Test:
+-- the first slot is due 10 s into a drive and the pick window is 15 s, so latching at the first
+-- release latched `dz +0, nobody locked` and held it for the whole drive -- the whole feature
+-- inert, and the hunter on stand 11 was still 1,112 studs from the nearest animal). So a release
+-- with no locked pick goes out on the main road and ASKS AGAIN at the next slot.
+--
+-- THE INVARIANT THAT MATTERS IS KEPT, and it is not "one aim per drive" but the thing one aim per
+-- drive was for: EVERY ANIMAL IS JUDGED BY THE FRAME IT WAS RELEASED INTO. A Brain is born with
+-- its field (`Runtime:spawn` -> `Brain.new(animalConfig, self._field, ...)`), so the two groups the
+-- drive puts out before she locks keep the main road they were released on, and everything after
+-- the lock is hers. Once it is settled it never moves again inside the drive.
 function ForestTest.settleAim(enabled: boolean?): ({ x: number, dz: number, why: string }, boolean)
 	if state.aimSettled then
 		return state.aim, false
 	end
-	state.aim = ForestTest.aimNow(enabled)
+	local aim = ForestTest.aimNow(enabled)
+	local moved = aim.dz ~= state.aim.dz
+	state.aim = aim
+	if moved then
+		ForestTest.applyField(state.runtime, aim.dz)
+	end
+	if aim.why == "nobody locked" then
+		return state.aim, false -- ask again at the next slot
+	end
 	state.aimSettled = true
-	ForestTest.applyField(state.runtime, state.aim.dz)
 	return state.aim, true
 end
 
