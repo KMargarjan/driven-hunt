@@ -1,3 +1,134 @@
+## 2026-11-11 ~02:05 UTC, Task 345b (T2) -- FOR THE DIRECTOR: **NOBODY CAN TAKE A FRAME OF AN ANIMAL AWAY FROM THE STAND.** BOTH ROUTES ARE CLOSED FROM THE SERVER, MEASURED. THIS IS A ROUTE-FIX TASK, NOT A 345b FIX
+
+Written at the hard stop (V280, L-150: the frame route has now failed twice and this is the last
+round of 345b). **Design 12.2 frame 3 -- a bedded group in cover, seen from close, before the beaters
+arrive -- is NOT OBTAINABLE on any route this repo has, and so is any frame of any animal that is not
+in front of the stand.** T3's `bedHidden` ray and T6's playtest both need one.
+
+**ROUTE 1, the camera (round 2).** `<runs-dir>/244-hold-cam.luau` sets
+`CurrentCamera.CameraType = Scriptable` and re-asserts the CFrame every frame for 12 s. The client
+camera has ONE owner (`src/client/Camera`) and it writes the camera every frame, so the capture
+returns the hunter's own view: `345b-F3-bedded.png`, `345b-F3b.png`, both opened, both the stand.
+
+**ROUTE 2, the character (round 3, new).** `<runs-dir>/345b-standnext.luau` picks the deepest
+standing animal and writes `HumanoidRootPart.CFrame` from the SERVER every Heartbeat for 12 s. The
+server reports it did: *"standing at -3807,111.8,-4358 looking at Boars (-3814,105.3,-4338) dz=725
+gap=22.2 studs"*. **The client disagrees.** `<runs-dir>/345b-clientsee.luau`, read 3 s later in the
+same Play session:
+
+    CLIENT sees Boars children=16, within 120 studs=0
+    cam  = -4493.1, 133.9, -4091.2
+    root = -4493.1, 132.2, -4091.6
+
+**760 studs from where the server put it.** The client owns its own character's network ownership,
+so a server-side CFrame write is overwritten by the client's own replication; the 16 animals ARE
+replicated to the client, and not one of them is within 120 studs of where the camera actually is.
+The two frames taken on this route (`345b-F3-r3.png`, `345b-F3-r3b.png`, both opened) show deep
+grass, pines, a hill and one orange-vested bot beater -- the world renders, the animal is simply
+nowhere near the lens.
+
+**SO THE WHY SENTENCE OF ROUND 3's DISPATCH IS NOT PROVEN ON SCREEN.** *"With the switch on, the
+drive's animals are already lying in the wood"* is proved by the console and the probe --
+`placed 13 / 73 animals / bedded 4 groups / 17 bodies / peak live 24` -- and by the hunter's own
+frames showing **nothing appearing in front of him**, which is Karen's complaint answered from her
+eye. **Nobody has yet SEEN a bedded animal.** It is not a nicety: it is the one thing a number
+cannot answer (rule 5).
+
+**WHAT WOULD FIX IT, for whoever gets the task.** A CLIENT-side probe is the only thing left that
+can move either the camera or the character without fighting an owner -- the camera owner is a
+module on the client and a client probe can ask it, or set the character's CFrame where the network
+owner actually is. `tools/studio_mcp.py capture`'s own `camera_position` / `look_at_position`
+arguments are applied to the Studio viewport, which in Play is the client camera, so they lose the
+same race. Neither is 345b's to build: it is one small instrument, and T3 is the first task that
+cannot be proved without it.
+
+## 2026-11-11 ~01:40 UTC, Task 345b (T2) -- FOR THE DIRECTOR: DEVIATION 5. `bedCap` 12 -> 18, WHICH MOVES A NUMBER D-1 CONFIRMED. THE ROUND-2 REVIEWER WAS RIGHT THAT IT WAS NOT ESCALATED, AND HERE IT IS
+
+**STOPPED AT THE DISPATCH'S TWO-ROUND CAP.** Task 345b's dispatch: *"Review: at most 2 rounds; a
+FINDING on round 2 goes to ESCALATE.md, then stop."* Round 2 returned one blocking finding, this is
+it, and this entry is its own required remedy. No third review was run.
+
+**WHAT MOVED.** `Placement.CONFIG.bedCap` 12 -> 18 (`src/shared/ForestTest/Placement.luau`).
+
+**WHAT IT CONTRADICTS.** `docs/design/animal-placement.md` section 5.2: *"of which BEDDED (a body,
+not under orders) | <= 12 (`PLACEMENT.bedCap`)"*, and the Director's own entry of 2026-11-10 ~11:10:
+*"D-1 CONFIRMED. The budget restatement in section 5.2 is taken: at most 24 bodies (at most 12
+bedded)"*. I moved it in a commit and argued it only in the code comment, which is not the standard
+the other four deviations were held to. The Reviewer was right.
+
+**THE ARITHMETIC.** Design 5.2 derives 12 as *"four groups of three"*. **There is no group of three
+in `Data.SCHEDULE.drive`**: its thirteen `normal` groups hold 73 animals, 1 to 9 each, 5.6 on
+average. At `leadSeconds` 20 against a 13 s tempo, **two groups are bedded-and-not-yet-reached at
+once** -- measured at every sample of `345b-ON-C1-track.txt` and `345b-ON2-C1-track.txt` -- and two
+groups is 11 to 18 animals. So 12 refused the third group of every drive:
+
+| `bedCap` | run | groups skipped at C1 | ring searches spent in a whole drive |
+|---|---|---|---|
+| **12** | `345b-ON2-C1` | **6 of 13**, every one `budget: bedded` | 6 |
+| **18** | `345b-ON4-C1` | 4 of 13 | 9 |
+
+    2 groups in flight  x  the largest composition the script can ask for (9)  =  18
+
+**WHAT IT DOES NOT MOVE.** `Data.LIVE_CAP` 24 is unchanged and is still the binding arm:
+`345b-ON4-C1` peaked at **24 live bodies exactly**, against the flag-OFF drive's 34. 18 is a SUB-cap
+of 24, so the ceiling D-1 actually guards -- *"at most 24 bodies"* -- is honoured, and the drive got
+cheaper rather than dearer (boar step avg 4.08 ms ON against 4.30 ms OFF; peak parts 438 against
+608).
+
+**THE DIRECTOR'S CALL, in one line:** take 18 (the third group of a drive gets a bed; 18 of 24 are
+bedded at the busiest instant), or restore 12 and accept that six of thirteen groups are refused a
+bed at `normal`. Either way `docs/design/animal-placement.md` section 5.2's derivation (*"four groups
+of three"*) is wrong about this drive script and is the Architect's to correct.
+
+**THE THREE ROUND-2 NOTES ARE QUEUED, NOT FIXED** (`TASKS.md` 345b-notes): the request's claim-8
+console quote elides `bedded bodies`; the tempo case's time half is an algebraic identity (its depth
+half is what carries the claim); and `state.latched` is undeclared in the `state` table.
+
+## 2026-11-11 ~01:20 UTC, Task 345b (T2) -- FOR THE DIRECTOR: DEVIATION 4. THE BRIDGE HOLDS A SLOT THE **BUDGET** REFUSED, WHERE THE DESIGN SAYS IT SHOULD RELEASE IT. THE ROUND-1 REVIEWER WAS RIGHT TO ASK, AND HERE IS THE ARITHMETIC
+
+Not a stop; T2 is green and behind the flag. This is the fourth deviation from
+`docs/design/animal-placement.md`, raised because round 1's finding 3 was right that it was argued
+only in a code comment.
+
+**WHAT THE DESIGN SAYS.** Section 17's T2 row, verbatim: *"`releaseLine` still spawns for a row with
+no body (the bridge, so the drive works end to end at every commit)"*. The 345b dispatch repeats it:
+*"releaseLine still spawns for a row with no body (the bridge)"*.
+
+**WHAT THE CODE DOES.** `Placement.bridgeMustRelease(row)` is `row.skipped == "nobed"` and nothing
+else, so a row the WOOD refused is released the old way and a row the BUDGET refused is held.
+
+**WHY, MEASURED.** `345b-ON3-C1-track.txt`, one live drive in C1 with the design's bridge:
+
+| what | with the design's bridge (`345b-ON3-C1`) | with this one (`345b-ON4-C1`) |
+|---|---|---|
+| peak live bodies | **39** against `Data.LIVE_CAP` **24** | **24** -- exactly the cap |
+| peak animal parts | 693 | 438 |
+| groups skipped | 7 of 13 | 4 of 13 |
+| ring searches spent in a whole drive | **6** | 9 |
+
+The two doors fed each other. The budget refuses a bed because the cap is full; `releaseLine` then
+releases that very group through its own door; those bodies fill the cap further; the next group's
+bed is refused as well. **A budget refusal is the world saying "there is no room for a body right
+now", and a second door past it is not a bridge.** The design's own must-not list has this shape
+twice (must-not 3: a refused group is *"skipped for that drive, counted and printed -- never retried
+into a player's view"*).
+
+**WHAT IT COSTS, SAID PLAINLY.** Four of thirteen groups at C1 put no animal anywhere in that drive
+(all four `budget: bedded`); at A2 two of fifteen, both `nobed`, which the bridge DOES fill. So the
+flag-ON drive is thinner than the flag-OFF one by up to four groups until T3 and T4 land -- T4 is
+where `releaseLine` stops spawning at all and the roster is the only source, at which point this
+deviation disappears with the function.
+
+**ROUND 1'S TWO OTHER REQUIREMENTS ARE DONE EITHER WAY** (they were right and are not a decision): a
+slot with no body no longer prints *"the line finds it"* -- it prints `HELD BY THE ROSTER: NO BODY
+YET (<state>) at dz <n> -- nothing is released for this slot` -- and `state.deerDone` is no longer
+set for a deer row with no body.
+
+**THE DIRECTOR'S CALL, in one line:** keep this (the cap is honoured, the drive is thinner until T4),
+or restore the design's bridge (every group comes out, the cap is exceeded by 15 bodies and more than
+half the beds are never searched for). `docs/design/animal-placement.md` is unchanged -- the Builder
+does not write designs (rule 3).
+
 ## 2026-11-10 ~13:50 UTC, Task 345a (T1) -- FOR THE DIRECTOR: THREE OF `animal-placement.md`'s NUMBERS ARE REFUTED BY ARITHMETIC. T1 IS BUILT AND GREEN; NONE OF THE THREE BLOCKS IT
 
 T1 is finished, the gate is green and nothing live reads any of it, so this is **not** a stop: it is
@@ -70,6 +201,70 @@ Builder's.** It bites in T2, where the roster starts driving releases; T1 only m
 
 **Nothing here changes a line of `docs/design/animal-placement.md`** -- the Builder does not write
 designs (rule 3). It is reported so the numbers move before T2 is dispatched.
+
+### DIRECTOR DECISION, 2026-11-10 ~22:50 UTC, answering the three above (transcribed by the Builder from the task 345b dispatch, as the Director's)
+
+- **K-1: muster 700.** *"your T1 measurement: at 580 a busy drive cannot bed 3 of 15 groups,
+  including the lone stag; at 700 none is skipped"*.
+- **Tempo:** *"keep the interval between groups Karen accepted today (about 13 s at normal),
+  computed at the LIVE line speed 5.64 studs/s (task 327d2), not the design's 3.1. Put it in
+  Placement's CONFIG as a named constant derived from the speed, with the arithmetic in a comment."*
+- **The bed gap:** *"plan's sideways sweep inside the cap stands (your T1 behaviour); skipped groups
+  are counted and printed, never silently dropped."*
+- **D-2:** the retirements (`REST.groups`, `stockWood`, `stepRest`) *"happen at the flag flip"*; the
+  flag-off path keeps today's code.
+- The flag is *"read once at ForestTest.start and passed inward as a parameter"*.
+
+## 2026-11-10 ~23:30 UTC, Task 345b (T2) -- FOR THE DIRECTOR: K-1's PREMISE IS THE **ROAD** PLACE'S. EVERY DRIVE KAREN PLAYS MUSTERS AT A CELL'S OWN DEPTH, 1,430, AND THE TEMPO DECISION IS THEN DELIVERABLE EXACTLY
+
+Not a stop. T2 is built, green and behind the flag, and the tempo decision is **met**. This is the
+one number the Director should see, because it makes K-1's 580-vs-700 table irrelevant to the drive
+Karen plays and I therefore did **not** move `BEATER.behindLineStuds`.
+
+**WHAT I MISSED IN T1 AND AM CORRECTING HERE (rule 8).** T1's whole K-1 table was computed from
+`Data.beaterNorthStuds()` **with no layout**, which answers the ROAD place's
+`LINE.spawnNorthStuds` 180 + `BEATER.behindLineStuds` 400 = **580**. But since task 327b/327d the
+rotation deals only grid CELLS, and a cell carries its own muster:
+`src/shared/Grid/init.luau` sets `beaterNorthStuds = c.cellDepthStuds` = **1,430**
+(`Bots/init.luau`'s own comment: *"a cell's `beaterNorthStuds` is its own depth, 1,430 studs,
+against the road's 580"*). So the live band is
+
+    bandFar = 1430 - noticeAheadStuds 100 - SWEEP.MIN_AHEAD_STUDS 30 = 1300
+    band    = [150, 1300] = 1,150 studs deep, against the road's 300
+
+**WHAT THAT CHANGES.** The two refusals of the ~13:50 entry were both consequences of a 300-stud
+band:
+
+- *the 3 skipped groups at `busy`, including the stag* -- at a cell's muster there is no shortage of
+  depth at all: slot 15 is due at 192 s and beds at `1300 - 192 x 5.64` = **dz 217**, 67 studs clear
+  of the band's near edge, with the beds **73.3 studs apart in depth**, which alone clears the
+  71-stud flush gap before the lateral sweep is asked for anything.
+- *the tempo* -- **this is the decision, and it is met exactly.** The bed depth is now
+  `bandFar - slotSeconds(slot) x lineSpeed`: a bed is simply **where the line will be at the moment
+  the script says that group moves**, so consecutive slots are `SCHEDULE.intervalSeconds` **13 s**
+  apart by construction, at any density and at any muster. `Placement.CONFIG.bedSpacingStuds` is the
+  named derived constant the decision asked for: **13 s x 5.64 studs/s = 73.32 studs**, with that
+  arithmetic in its comment and asserted in `forest_placement.spec` against both owners' own numbers.
+  The dial now changes **how many** groups a drive has, with a 13 s cadence, which is exactly what it
+  changed before this task (the metronome was 13 s and the dial nil'd slots out).
+
+**WHAT I DID NOT DO, AND WHY (the Director may overrule it in one line).** `BEATER.behindLineStuds`
+is still **400**. It is live data, it is read by `beaterStart`, `beaterStartPosition`, the drive's
+north boundary and the client's map, and the ONLY layout it reaches is the archived road place
+(every cell overrides it) -- so moving it would change a flag-OFF drive in the rollback geometry and
+change nothing whatsoever in C1 or A2. The design's own section 4.2 asks for 700 to widen a band
+that, in a cell, is already 1,150 studs wide. If the Director wants 700 for the road place anyway it
+is a one-row commit and `forest_placement.spec` already asserts the band at 580, 700 and a cell's
+1,430.
+
+**THE EVEN LADDER OF DESIGN 4.2 IS THE ONE THING THAT HAD TO GO**, and it is the tempo decision that
+retired it, not me: an even spread over the band makes the interval a function of the dial
+(6.21 s at `normal`, 5.32 at `busy` at muster 700; 17.0 / 14.6 in a cell), which is not the 13 s
+Karen accepted. `Placement.bedNorth` is now one line of arithmetic off the script's own clock
+(`Data.slotSeconds`), the near edge is its floor, and the second return says when the floor bit so a
+clamped bed is reported rather than stacked. **`docs/design/animal-placement.md` is unchanged** --
+the Builder does not write designs (rule 3) -- so sections 4.2 and 13.1's case 2 now describe a
+ladder the code does not use, and that is the Architect's to correct.
 
 ## DIRECTOR DECISION, 2026-11-10 ~11:10 UTC, Task 345 (docs/design/animal-placement.md, Architect PASS)
 
@@ -3674,3 +3869,10 @@ drive total (80 shown against 114 on the wire): late in the drive the escapes ar
 **The Director's decision, not mine:** whether ~130 released / ~110 escaped per drive is the drive
 Karen wants (that is drive density, which this task's NOT YOURS list puts outside it), and whether a
 "got away" line is worth drawing at all for an animal that crossed 400 m from the stand.
+
+## Director, 2026-11-11 ~01:45 UTC -- Task 345b: deviations 4 and 5 DECIDED, round 3 AUTHORISED
+
+- **Deviation 5, `Placement.CONFIG.bedCap` 12 -> 18: ACCEPTED, as a change to D-1.** D-1's binding line is "at most 24 bodies". The "at most 12 bedded" sub-line was the Architect's estimate before anyone had measured a bedded body. Task 345b measured it in Karen's FT: bedded 0.273 ms/animal against running 0.227 ms/animal, so a bedded body costs about the same as a running one. The cap that buys the budget is `LIVE_CAP` 24, and it held at exactly 24 (ON peak live 24, parts 438, against OFF 34 / 608). At 12, 6 of 13 C1 groups were refused. This entry supersedes the "<= 12" rows in the design's sections 5.2 and 16; the Architect updates them at T5's budget restatement.
+- **Deviation 4, the bridge holds a budget-refused slot: ACCEPTED.** It is what keeps live bodies at 24 instead of the design's measured 39.
+- **Heartbeat p95** is over 32 ms on both sides (OFF 32.38, ON 33.18). This change did not cause it; T5 restates and measures it. REQUEST claim 9 must say "breached on both sides", not "holds".
+- **Round 3 AUTHORISED** for task 345b (`DIRECTOR_MAX_ROUNDS=3`), within MAX_ROUNDS 3. Round 3 must also fix the round-2 note on `stepPlacement`: when a row goes `gone`, clear `row.ids` (or key `releaseLine`'s arms on live bodies), so "the line finds it" is never printed for a group with no body. Also declare `state.latched`.

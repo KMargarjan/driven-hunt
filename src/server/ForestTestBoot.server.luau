@@ -1215,6 +1215,20 @@ Match.start({
 		-- place that decides when seats exist, and this closure already runs at that edge. One call
 		-- site, level-triggered, cannot be missed, cannot fire twice and cannot be ordered wrongly.
 		ForestTest.Seats.ensure(ForestTest.layout())
+		-- WHO IS IN THIS DRIVE AND WHERE EACH GROUP LIES UP (task 345 T2). It is HERE, in this
+		-- closure, because this is the one place that sees the drive boundary BEFORE anybody is
+		-- placed -- the same reason `layoutForDrive` above it and `Seats.ensure` beside it are here,
+		-- and an `Assigning` edge handler would be a second place that decides when a roster exists
+		-- (L-029). `ForestTest.planDrive` is IDEMPOTENT PER DRIVE NUMBER, so the once-a-second
+		-- `Waiting` reads plan nothing after the first, and it is PURE: `Placement.plan` takes no
+		-- raycast, no clock and no yield, which is what `Match.measureMarkers`' contract demands.
+		--
+		-- THE FLAG IS NOT READ HERE. `ForestTest.start` read it once at its owner's boundary and this
+		-- hands that same value back inward, which is `docs/design/feature-flags.md`'s own shape.
+		local planned = ForestTest.planDrive(Match.driveNumber(), ForestTest.placementInPlace())
+		if planned ~= nil then
+			print("[placement] " .. planned)
+		end
 		return ForestTest.Markers.build(ForestTest.hunterStandX(), ForestTest.layout())
 	end,
 	placement = placement,
@@ -1847,6 +1861,12 @@ RunService.Heartbeat:Connect(function()
 		-- sandboxed copy with empty state (measured, task 122).
 		for _, report in ipairs(ForestTest.restReport(now)) do
 			print("[rest] " .. report)
+		end
+		-- ...AND WHAT THE ROSTER IS DOING (task 345 T2). Same channel, same two seconds and the same
+		-- reason: "the animals were already there" is the kind of claim that needs a number beside
+		-- it, and this line IS the measurement plan's instrument (design 12.1).
+		for _, report in ipairs(ForestTest.placementReport()) do
+			print("[placement] " .. report)
 		end
 	end
 	local players = Players:GetPlayers()

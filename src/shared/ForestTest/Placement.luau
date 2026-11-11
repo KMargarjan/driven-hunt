@@ -15,8 +15,8 @@
 -- anything. It owns no state: the roster it returns is written only by
 -- `src/server/ForestTest/init.luau`.
 --
--- NOTHING READS THIS FILE YET. T1 ships the rules; `PLACEMENT_IN_PLACE` is born OFF and the live
--- drive is byte-for-byte unchanged (design section 11).
+-- SINCE T2 `src/server/ForestTest/init.luau` READS IT BEHIND `PLACEMENT_IN_PLACE`, which is still
+-- born OFF: with the flag off the drive is today's drive and this file decides nothing (design 11).
 
 local Placement = {}
 
@@ -30,6 +30,7 @@ export type RosterRow = {
 	act: number,
 	row: any, -- the frozen schedule row: species, party/composition, route, pace...
 	size: number, -- nominal members
+	composition: any, -- the composition the group IS, decided once at plan time
 	kinds: { string }, -- decided once, at plan time, in march order
 	bedNorth: number, -- dz north of the road: WHERE IT STANDS
 	bedOffsetX: number, -- studs from the stand the drive aims at, after the gap sweep
@@ -57,6 +58,10 @@ export type Deps = {
 	laneSpacingStuds: number,
 	-- `Data.slotAt(slot, density, schedule)` -- THE WHOLE OF THE DENSITY DIAL. Asked, never copied.
 	slotAt: (number, string?, any) -> any?,
+	-- `Data.slotSeconds(slot, schedule)` -- WHEN THE SCRIPT SAYS THIS SLOT MOVES. It is the drive
+	-- script's own clock and it is what the bed depths are measured off (`Placement.bedNorth`), so
+	-- the roster's clock and the metronome's cannot be two clocks.
+	slotSeconds: (number, any) -> number,
 	-- `Boar.compositionSize(composition, config)` -- how many animals a composition is.
 	compositionSize: (any, any) -> number,
 	-- `Boar.deerComposition(roll, pick, config, wanted)` -- which party a `reddeer` row names.
@@ -88,15 +93,34 @@ Placement.CONFIG = table.freeze({
 	-- = SPOOK.BEATER_STUDS 71. The fright latches, so two groups inside one flush circle both bolt
 	-- on one approach -- `REST.groups`' own measured rule (min pair 101.3 studs over 45 pairs).
 	bedGapStuds = 71,
-	-- Of the 24 bodies the budget allows, at most this many are bedded-and-not-yet-woken: four
-	-- groups of three, leaving half the cap for the ones crossing (design 5.2).
-	bedCap = 12,
+	-- Of the 24 bodies the budget allows, at most this many are bedded-and-not-yet-reached.
+	--
+	-- 18 AND NOT THE DESIGN'S 12, BY THE DIRECTOR'S DECISION of 2026-11-11 ~01:45 (`ESCALATE.md`,
+	-- deviation 5): *"ACCEPTED, as a change to D-1 ... This entry supersedes the '<= 12' rows in the
+	-- design's sections 5.2 and 16"*. 12 was *"four groups of three"* and there is no group of three
+	-- in `SCHEDULE.drive` (73 animals in 13 groups of 1 to 9), so it refused the third group of every
+	-- drive -- 6 of 13 skipped on `budget` at C1. Two groups are in flight at once x the largest
+	-- composition the script can ask for (9) = 18, still a SUB-cap of `Data.LIVE_CAP` 24, which is
+	-- the arm that binds and which held at exactly 24.
+	bedCap = 18,
 	-- The line covers 62 studs in 20 s, well inside the 100-stud notice band, so a group always has
 	-- a body before anything can notice it and no body exists more than 20 s before it is needed.
 	leadSeconds = 20,
 	-- Karen's K-2. More fills the opening and risks a wood walking out of itself (task 342's
 	-- `settled` despawn); fewer means a quiet first 30 seconds.
 	walkersPerDrive = 2,
+	-- THE TEMPO, AS A DEPTH -- the Director's decision of 2026-11-10 ~13:50, and the ONE constant
+	-- derived from the line's speed. Karen accepted a drive that moves a group every
+	-- `SCHEDULE.intervalSeconds` 13 s, so two consecutive slots' beds are that many seconds of the
+	-- line's walk apart:
+	--
+	--     13 s  x  Grid.CONFIG.beaterWalkStudsPerSecond 5.64 studs/s  =  73.32 studs
+	--
+	-- THE SPEED IS THE LIVE ONE (5.64 since task 327d2; it is also `Bots.CONFIG.WALK_SPEED`) AND NOT
+	-- the 3.1 the design's section 4.2 table was computed at -- at 3.1 the same 13 s is 40 studs and
+	-- the line would find a group every 7 s. `forest_placement.spec` asserts this against both
+	-- owners' own numbers, so neither can move without the other.
+	bedSpacingStuds = 73.32,
 	-- At most one group materialised per Heartbeat: `Cells.begin`'s bite shape, for its measured
 	-- reason (a whole-folder write cost 738 ms of frame in Karen's place, task 343).
 	bitesPerStep = 1,
@@ -157,16 +181,65 @@ function Placement.bandFar(beaterNorth: number, noticeAheadStuds: number, spook:
 	return beaterNorth - noticeAheadStuds - minAheadOf(spook)
 end
 
--- WHERE THE n-TH GROUP LIES UP: DEEPEST FIRST, evenly across the band.
+-- HOW FAR APART TWO CONSECUTIVE SLOTS' BEDS ARE. The derivation of `CONFIG.bedSpacingStuds`, so
+-- the published number cannot drift from the two it comes from.
+function Placement.bedSpacingStuds(intervalSeconds: number, lineSpeed: number): number
+	return (tonumber(intervalSeconds) or 0) * (tonumber(lineSpeed) or 0)
+end
+
+-- WHERE A GROUP LIES UP: **WHERE THE LINE WILL BE AT THE MOMENT THE SCRIPT SAYS THAT GROUP MOVES.**
 --
--- Deepest first is arithmetic, not a preference: the line musters at the far edge and walks SOUTH,
--- so whatever the schedule says, the first animals it can possibly reach are the deepest ones.
-function Placement.bedNorth(ordinal: number, groups: number, near: number, far: number): number
-	if groups <= 1 then
-		return far
+-- ONE RULE, and it makes the roster's clock and the drive script's clock the SAME clock by
+-- arithmetic rather than by hope (design 4.2). The line starts at `far` and walks south at
+-- `lineSpeed`, so the bed it reaches at the slot's own `atSeconds` is `far - atSeconds * lineSpeed`.
+-- Slot 1 is therefore the DEEPEST and the last slot the shallowest, which is also the only order a
+-- line walking south can meet them in.
+--
+-- THE TEMPO IS THE SCRIPT'S OWN: consecutive slots are `intervalSeconds` apart in TIME, so their
+-- beds are `bedSpacingStuds` apart in DEPTH, and a density that drops a slot leaves that slot's
+-- depth EMPTY -- the same silence the metronome gave it. The even spread the design's section 4.2
+-- wrote instead was measured in T1 and refused by the Director: it makes the interval a function of
+-- the dial (6.2 s at `normal` in a cell), which is not the drive Karen accepted.
+--
+-- `near` IS A FLOOR AND THE SECOND RETURN SAYS IT BIT: a clamped bed shares its depth with the one
+-- before it, so the caller must find it room sideways (`clearX`) or skip the group.
+function Placement.bedNorth(far: number, atSeconds: number, lineSpeed: number, near: number): (number, boolean)
+	local want = far - math.max(0, tonumber(atSeconds) or 0) * math.max(0, tonumber(lineSpeed) or 0)
+	if want < near then
+		return near, true
 	end
-	local n = math.clamp(ordinal, 1, groups)
-	return far - (n - 1) * (far - near) / (groups - 1)
+	return want, false
+end
+
+-- THE BAND `ForestTest.restSpot`'S RING SEARCH MAY TAKE **THIS** BED FROM: the stocked wood's own
+-- searcher with three of its numbers replaced by this bed's.
+--
+-- IT IS WHY A BED CAN BE DEEP AT ALL. `REST.farRoadStuds` 425 is the band a STOCKED group was spread
+-- over; a cell's bandFar is 1,300, so every plan deeper than 425 would be refused by the very
+-- searcher meant to find it. And `clearOfStartStuds` 30 goes to 0 because the extra margin is
+-- already carried in DEPTH by `bandFar`'s own `SWEEP.MIN_AHEAD_STUDS` term -- what is left is the
+-- NOTICE reach, which is the question that matters ("could this group already be reacting to her").
+function Placement.searchBand(bedNorth: number, offsetX: number, laneOffset: number, rest: any, config: any?): any
+	local resolved = configOr(config)
+	local half = (tonumber(resolved.bedSpreadStuds) or 0) / 2
+	local out = {}
+	if type(rest) == "table" then
+		for key, value in pairs(rest) do
+			out[key] = value
+		end
+	end
+	out.nearRoadStuds = math.max(0, bedNorth - half)
+	out.farRoadStuds = bedNorth + half
+	out.clearOfStartStuds = 0
+	-- A group LYING UP, not a released sounder's 90-stud ring.
+	out.spreadStuds = tonumber(resolved.bedSpreadStuds) or 0
+	-- HOW FAR OFF ITS OWN BEATER LANE THIS BED IS ALLOWED TO BE: as far as the plan already put it,
+	-- plus half its spread. `REST.laneSideStuds` 40 is the stocked rows' own ceiling and every one of
+	-- them sits within 24 studs of its lane; a planned bed may be up to `crossCapStuds` 95 from the
+	-- stand, which `laneOf` rounds to the lane 150 studs out -- so the stocked ceiling would refuse
+	-- every candidate of a bed the plan itself wrote.
+	out.laneSideStuds = math.abs((tonumber(offsetX) or 0) - (tonumber(laneOffset) or 0)) + half
+	return out
 end
 
 -- WHEN THE LINE REACHES A BED, in seconds from the drive opening. `math.huge` for a line that is not
@@ -254,6 +327,22 @@ function Placement.wakeReason(row: any, elapsed: number, frontNorth: number?, no
 		return "beaters"
 	end
 	return nil
+end
+
+-- THE BRIDGE'S WHOLE RULE (design 17's T2 row), named here so it is one answer and a spec can drive
+-- it: **the only hole `ForestTest.releaseLine` still fills is one the WOOD refused.**
+--
+-- A GROUP THE **BUDGET** REFUSED MUST NOT BE RELEASED, and that is measured rather than argued.
+-- `345b-ON3-C1-track.txt`, one live drive at C1: the bridge released every group the live cap had
+-- just refused a bed to, which put **31 bodies against a `LIVE_CAP` of 24** -- and those bodies then
+-- refused the NEXT group's bed, so the two doors fed each other: 7 of 13 groups skipped and **6 ring
+-- searches spent in a whole drive**. A budget refusal is the world saying "there is no room for a
+-- body right now"; a second door past it is not a bridge, it is the bug the cap exists to stop.
+--
+-- A record still waiting for room is therefore the ROSTER's, and it comes out at its own bed when
+-- the room appears. T4 retires this function with the spawn half it guards.
+function Placement.bridgeMustRelease(row: any): boolean
+	return type(row) == "table" and row.skipped == "nobed"
 end
 
 -- IS THIS SPOT CLEAR OF EVERY BED ALREADY LAID? 3-D, over the beds that still count: a skipped row
@@ -490,7 +579,23 @@ function Placement.plan(
 
 	for ordinal, entry in ipairs(admitted) do
 		local row = entry.row
-		local bedNorth = Placement.bedNorth(ordinal, groups, near, far)
+		-- THE SLOT'S OWN MOMENT IS THE BED'S DEPTH. `deps.slotSeconds` is the drive script's clock
+		-- (`firstSlotSeconds` + (slot - 1) * `intervalSeconds`), so slot 1 lies where the line will be
+		-- 10 s in and each later slot `bedSpacingStuds` shallower.
+		local atSeconds = deps.slotSeconds(tonumber(row.slot) or ordinal, schedule)
+		local bedNorth, clamped = Placement.bedNorth(far, atSeconds, walkSpeed, near)
+		if clamped then
+			table.insert(
+				lines,
+				string.format(
+					"plan %d: slot %s is due at %.0f s, which is past the near edge of the band -- its bed is CLAMPED to dz %.0f",
+					driveNumber,
+					tostring(row.slot),
+					atSeconds,
+					near
+				)
+			)
+		end
 		local wantedX = math.clamp(tonumber(row.offsetX) or 0, -capStuds, capStuds)
 		local x = Placement.clearX(placed, wantedX, bedNorth, capStuds, gap)
 		local skipped: SkipReason? = nil
@@ -534,6 +639,7 @@ function Placement.plan(
 			act = tonumber(row.act) or 0,
 			row = row,
 			size = entry.size,
+			composition = entry.composition,
 			kinds = kinds,
 			bedNorth = bedNorth,
 			bedOffsetX = x,
@@ -554,13 +660,14 @@ function Placement.plan(
 	table.insert(
 		lines,
 		string.format(
-			"plan %d: %s / %d animals / %d walkers, beds dz %.1f..%.1f at %s",
+			"plan %d: %s / %d animals / %d walkers, band dz %.0f..%.0f, %.1f studs per slot, at %s",
 			driveNumber,
 			Placement.line(rows),
 			t.animals,
 			t.walkers,
 			near,
 			far,
+			Placement.bedSpacingStuds(interval, walkSpeed),
 			tostring(density)
 		)
 	)
