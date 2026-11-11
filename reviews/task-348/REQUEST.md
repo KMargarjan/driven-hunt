@@ -99,5 +99,6 @@ ANSWERED: L-093 the delete-and-fail is a RUN, not a reading — round 1's `test2
 stub with the field absent and it fails at `forest_placement.spec:1310`; claim 2.
 ANSWERED: L-034 the control line and the new-commit lines are kept apart above and never blended;
 the control was not obtained and says so in its own bullet.
-ANSWERED: L-173 iteration used `test --scope auto` where it helps; this defect only fires in `test2`,
-so the fix-and-recheck loop had to be `test2` itself — two runs, not ten.
+ANSWERED: L-173 I ran NO scoped harness this round, and the lesson does not apply: this defect fires
+only in `test2`, which has no `--scope` form at all, so the fix-and-recheck loop had to be `test2`
+itself. It cost two runs, not ten, because the fix was read off the real handle before it was written.
