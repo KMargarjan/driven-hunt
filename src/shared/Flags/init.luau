@@ -280,19 +280,18 @@ Flags.DEFAULTS = {
 		born = "2026-11-11 task 349",
 		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
 		expires = "2026-12-02",
-		why = "The drive's RELEASES, crossings and exits are built around the stand she locked, in "
-			.. "x and in z, instead of around a point clamped onto the main line. MEASURED on C1 "
-			.. "(2026-11-11): a hunter on west-flank stand 11 had 0 animals inside 120 studs in a "
-			.. "whole 299 s drive out of 120 released; with this on, first sighting 15 s and median "
-			.. "gap 11 s. OFF is exactly the drive before task 349, and a main-line stand's shift "
-			.. "is snapped to 0, so stands 1-7 are identical either way with ONE hunter. "
-			.. "**IT MAY NOT BE SWITCHED ON YET** (review round 1, 2026-11-11): only the release "
-			.. "frame moves. The animals' owner still gets the MAIN road in `fieldFor`, so on a "
-			.. "flank drive nothing can report `escaped` and every animal is despawned as "
-			.. "`settled` 60 s after it stops being ordered -- 120 released became 72. "
-			.. "`orderGroup` (the `PLACEMENT_IN_PLACE` path) is not aimed at all, and `hunterAim` "
-			.. "takes the FIRST locked pick, so with a roster one flank hunter moves the band off "
-			.. "the road every other hunter is standing on. ESCALATE.md, 2026-11-11.",
+		why = "The drive is built around the stand she LOCKED -- the releases, the routes, the "
+			.. "crossing, the exit AND the field the animals are judged by (`fieldFor`'s exitZ, "
+			.. "road.zAt and bounds). MEASURED on C1 (2026-11-11): a hunter on west-flank stand 11 "
+			.. "had 0 animals inside 120 studs in a whole 299 s drive out of 120 released, because "
+			.. "every one of those is built on the MAIN road's z and her stand is 975 studs north "
+			.. "of it. ONE FRAME PER DRIVE: the aim is settled at the first release and latched, so "
+			.. "every animal is judged by the frame it was released into; a pick locked later "
+			.. "applies from the next drive. THE ROSTER RULE: only REAL players' locked picks move "
+			.. "it (bots are filtered out by Players:GetPlayerByUserId), and real players standing "
+			.. "on DIFFERENT frames put the band back on the main road with one line naming them -- "
+			.. "which is exactly the drive before this flag. OFF is that drive for everyone, and a "
+			.. "main-line stand's shift is snapped to 0, so stands 1-7 are identical either way.",
 	} :: FlagRow,
 	STAND_PICK = {
 		default = false,
