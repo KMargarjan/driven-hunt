@@ -81,55 +81,95 @@ local FOREST = configWithDeerCap(Data.MAX_DEER_GROUPS)
 -- for; it records what was spawned, and `standing` is the list of ids it reports ON THEIR FEET --
 -- which is what `stepPlacement`'s reconcile reads, so a case decides for itself whether a bedded
 -- group still has bodies (round 3).
+-- `where` IS WHAT T4 NEEDS OF THE STUB: `orderGroup` reads every member's POSITION and KIND off the
+-- runtime (never off the roster row, because a bedded group has drifted over its graze repertoire)
+-- and asks the Brain whether the fright has already taken it (`flying`). A row of `where` is one
+-- body: `{ at = Vector3, kind = "female", flying = false }`.
 local function stubRuntime()
-	local made, standing = {}, {}
-	return made,
-		standing,
-		{
-			setField = function() end,
-			clear = function() end,
-			count = function()
-				return 0
-			end,
-			capacity = function()
-				return Data.MAX_BOARS
-			end,
-			liveCount = function()
-				return 0
-			end,
-			boars = function()
-				local out = {}
-				for _, id in ipairs(standing) do
-					table.insert(out, { id = id })
+	local made, standing, where = {}, {}, {}
+	local fake
+	fake = {
+		setField = function() end,
+		clear = function() end,
+		count = function()
+			return 0
+		end,
+		capacity = function()
+			return Data.MAX_BOARS
+		end,
+		liveCount = function()
+			return 0
+		end,
+		boars = function()
+			local out = {}
+			for _, id in ipairs(standing) do
+				table.insert(out, { id = id })
+			end
+			return out
+		end,
+		statusOf = function(_self, id)
+			for _, live in ipairs(standing) do
+				if live == id then
+					local body = where[id] or {}
+					return {
+						alive = true,
+						position = body.at or Vector3.new(0, 0, 0),
+						kind = body.kind or "female",
+						speed = 0,
+						want = 0,
+					}
 				end
-				return out
-			end,
-			statusOf = function(_self, id)
-				for _, live in ipairs(standing) do
-					if live == id then
-						return { alive = true }
-					end
-				end
-				return nil
-			end,
-			config = function()
-				return Boar.CONFIG
-			end,
-			deerAllowed = function()
-				return true
-			end,
-			formSounder = function() end,
-			spawn = function(_self, _at, kind)
-				table.insert(made, tostring(kind))
-				return nil
-			end,
-			spawnSounder = function(_self, _at, size)
-				for _ = 1, size do
-					table.insert(made, "sounder")
-				end
-				return {}
-			end,
-		}
+			end
+			return nil
+		end,
+		flying = function(_self, id)
+			return (where[id] or {}).flying == true
+		end,
+		leadTo = function() end,
+		woundOf = function()
+			return nil
+		end,
+		sounderOf = function()
+			return nil
+		end,
+		check = function() end,
+		notice = function()
+			return false
+		end,
+		spook = function()
+			return false
+		end,
+		config = function()
+			return Boar.CONFIG
+		end,
+		deerAllowed = function()
+			return true
+		end,
+		formSounder = function() end,
+		-- A BODY THE STUB MAKES IS REALLY ALIVE IN IT (T4): `materialise` keeps the ids `spawn`
+		-- and `spawnSounder` hand back, and `orderGroup` then reads those ids' positions off the
+		-- runtime -- so a stub that answered nil could not carry a group from its bed to its
+		-- route at all.
+		spawn = function(_self, at, kind)
+			table.insert(made, tostring(kind))
+			local id = string.format("Stub%d", #made)
+			table.insert(standing, id)
+			where[id] = { at = at, kind = tostring(kind) }
+			return { id = id }
+		end,
+		spawnSounder = function(_self, at, size)
+			local out = {}
+			for index = 1, size do
+				table.insert(made, "sounder")
+				local id = string.format("Stub%d", #made)
+				table.insert(standing, id)
+				where[id] = { at = at + Vector3.new(index * 2, 0, 0), kind = "female" }
+				table.insert(out, { id = id })
+			end
+			return out
+		end,
+	}
+	return made, standing, fake, where
 end
 
 -- WHERE THE LINE ACTUALLY MUSTERS IN A DRIVE KAREN PLAYS: a CELL's own depth (`grid-map.md` 4.3;
@@ -575,6 +615,23 @@ return function()
 			-- A line that has walked past the bed has certainly reached it (`Data.sweepCatches` is
 			-- the server's half of that story).
 			expect(Placement.wakeReason(row, 0, 100, notice)).to.equal("beaters")
+			-- THE WAKE LEADS THE NOTICE BY HALF A BED SPREAD (T4), and the reason is measured: with
+			-- no lead, 3 of 4 woken groups at C1 were already FLYING when `orderGroup` reached them
+			-- (`345d-diag-mid.txt`: `flights=3 ordered=1`), because `spookNearBeaters` measures its
+			-- band off each ANIMAL's live position and a member can stand half a spread in front of
+			-- the bed point. A group that bolts instead of filing out cannot form a file at all.
+			local lead = Placement.wakeLeadStuds(Placement.CONFIG)
+			expect(lead).to.equal(Placement.CONFIG.bedSpreadStuds / 2)
+			expect(Placement.wakeReason(row, 0, 450 + notice + lead, notice, lead)).to.equal("beaters")
+			expect(Placement.wakeReason(row, 0, 450 + notice + lead + 1, notice, lead)).to.equal(nil)
+			-- ...AND IT IS THE BED THAT WAS FOUND, NOT THE ONE THAT WAS PLANNED. `searchBand` may
+			-- take a bed half a spread either side of the plan, so a row that has a body is judged
+			-- where that body IS. Delete `row.atNorth` from `materialise` (or the `or` here) and a
+			-- bed 20 studs shallower than its plan wakes 3.5 s late -- longer than the two-second
+			-- stand that bolts it.
+			local found = { state = "bedded", walker = false, wakeAtSeconds = math.huge, bedNorth = 450, atNorth = 430 }
+			expect(Placement.wakeReason(found, 0, 430 + notice + lead, notice, lead)).to.equal("beaters")
+			expect(Placement.wakeReason(found, 0, 450 + notice + lead, notice, lead)).to.equal(nil)
 		end)
 
 		it("keeps a bed clear of every bed already found", function()
@@ -650,50 +707,6 @@ return function()
 			expect(Forest.rosterSlot(rows[1].slot)).to.equal(rows[1])
 			expect(Forest.rosterSlot(-7)).to.equal(nil)
 			TestKit.note(string.format("placement owner: c1 drive 951 planned %s", Placement.line(rows)))
-		end)
-
-		it("releases a slot the WOOD refused and releases nothing for one the roster owns", function()
-			-- ROUND 1, FINDING 1: the bridge is a branch of `ForestTest.releaseLine`, so the case that
-			-- proves it has to DRIVE `ForestTest.releaseLine`. Through `ForestTest.step`, which is
-			-- what advances the metronome onto a slot, with a stub runtime that records every spawn.
-			local made, standing, fake = stubRuntime()
-			Forest.layoutForDrive(953, "c1")
-			Forest.start(fake, 0)
-			Forest.newDrive(0)
-			expect(Forest.planDrive(953, true) ~= nil).to.equal(true)
-			local first = Forest.roster()[1]
-			expect(first ~= nil).to.equal(true)
-			-- ITS GROUP IS LYING IN ITS BED: the slot releases nothing and says whose it is.
-			first.state = "bedded"
-			first.ids = { "Boar1", "Boar2" }
-			first.at = Vector3.new(0, 0, 0)
-			-- ...AND THE TWO BODIES ARE ON THEIR FEET, which is what makes this the BEDDED case and
-			-- the next one the GONE case: the reconcile inside `step` reads the runtime, not the row.
-			table.insert(standing, "Boar1")
-			table.insert(standing, "Boar2")
-			table.clear(made)
-			local held = Forest.step(Data.slotSeconds(1, Forest.cellSchedule()), true)
-			expect(held ~= nil).to.equal(true)
-			expect(string.find(held :: string, "THE ROSTER'S", 1, true) ~= nil).to.equal(true)
-			expect(string.find(held :: string, "the line finds it", 1, true) ~= nil).to.equal(true)
-			expect(#made).to.equal(0)
-			-- ...AND WITH THE SWITCH OFF THE SAME SLOT IS THE OLD PATH AND SAYS NOTHING ABOUT A ROSTER.
-			-- MEASURED: it answers **nil** here, because the old path computes its routes through
-			-- `PathfindingService` and this place has no navigable ground, so `releaseLine` returns on
-			-- `#routes == 0` -- which is why the assertion is "not a roster line" and not "a line".
-			-- THE BITE IS THE BEDDED HALF ABOVE: delete the bridge block from `releaseLine` and the ON
-			-- call falls through to that same old path, answers nil too, and its three lines fail.
-			Forest.newDrive(0)
-			local plain = Forest.step(Data.slotSeconds(1, Forest.cellSchedule()), false)
-			expect(plain == nil or string.find(plain :: string, "ROSTER", 1, true) == nil).to.equal(true)
-			-- A ROW WITH NO BODY AND NO BED IS A HOLE THE **WOOD** REFUSED, and the bridge fills it.
-			-- A row the BUDGET refused is held -- `ESCALATE.md` 2026-11-11, deviation 4.
-			expect(Placement.bridgeMustRelease({ state = "record", ids = {}, skipped = "nobed" })).to.equal(true)
-			expect(Placement.bridgeMustRelease({ state = "record", ids = {}, skipped = "budget" })).to.equal(false)
-			expect(Placement.bridgeMustRelease({ state = "record", ids = {} })).to.equal(false)
-			expect(Placement.bridgeMustRelease({ state = "bedded", ids = { "Boar1" } })).to.equal(false)
-			expect(Placement.bridgeMustRelease(nil)).to.equal(false)
-			Forest.start(nil :: any, 0)
 		end)
 
 		it("never says the line finds a group whose bodies have gone", function()
@@ -1005,6 +1018,433 @@ return function()
 			-- reach is well inside the place's documented `StreamingMinRadius` 384, so an arrival
 			-- inside it cannot be the engine streaming a bed in.
 			expect(Placement.neverStuds(SPOOK) < 384).to.equal(true)
+		end)
+	end)
+
+	-- ======================================= T4: `releaseLine` STOPS SPAWNING; `orderGroup` ORDERS
+	--
+	-- Karen, 2026-11-10: *"it has to be there then it spooked or it walkks towards"*. These cases are
+	-- about the two halves of that sentence: nothing is created for a scheduled slot any more, and a
+	-- group that wakes is handed its own route from where it is standing.
+	--
+	-- WHAT THIS PLACE CANNOT DO is compute a route: `PathfindingService` has no navigable ground in
+	-- the DEV place, so `ForestTest.computeRouteVia` answers nil and `orderGroup` gets as far as
+	-- "noroute". That is stated rather than worked around -- the FILE itself is measured live in her
+	-- Forest Test (the request's claim 4) -- and what is asserted here is every rule around it: who
+	-- is ordered and who is not, that the pathfinder is asked ONCE, the trail's arithmetic, and the
+	-- retry cap over more than one wake cycle.
+	describe("a bedded group is handed its route and nothing is spawned for its slot", function()
+		it("seeds the trail behind the leader along the way it is about to walk", function()
+			-- DESIGN 4.6'S ONE NAMED TECHNICAL RISK, as arithmetic. A woken group stands in a loose
+			-- bed, not in a file, so station k must EXIST on the first step: with an empty trail
+			-- `Line.pointBack` answers nil and every follower is told "walk at the leader", which
+			-- task 127 measured as a 9.6-stud median against a 3-stud station.
+			local origin = Vector3.new(100, 10, -200)
+			local toward = Vector3.new(0, 0, -1) -- south, the road
+			local spacing = Data.LINE.spacingStuds
+			local trail = Placement.seedTrail(origin, toward, 4, spacing)
+			expect(#trail > 1).to.equal(true)
+			-- THE HEAD IS THE LEADER'S OWN FEET: the last point is where she is standing.
+			local head = trail[#trail]
+			expect((head.at - origin).Magnitude < 1e-6).to.equal(true)
+			-- ...AND EVERY OTHER POINT IS BEHIND HER ALONG THE WAY SHE WILL WALK (north here), never
+			-- in front. Seed it forwards and the file is ordered into the ground it has not reached.
+			for index = 1, #trail - 1 do
+				expect(trail[index].at.Z > origin.Z).to.equal(true)
+			end
+			-- `s` IS CUMULATIVE AND RISING, which is what `Line.arcAt` and `Line.pointAt` read.
+			expect(trail[1].s).to.equal(0)
+			for index = 2, #trail do
+				expect(trail[index].s > trail[index - 1].s).to.equal(true)
+			end
+			-- AND IT IS LONG ENOUGH TO HOLD EVERY STATION: rank k stands (k - 1) x spacing behind the
+			-- head, so a trail shorter than that is a station that does not exist yet. Delete the
+			-- `+ 1` or the `members` term from `Placement.seedTrail` and this line fails.
+			expect(trail[#trail].s >= 4 * spacing).to.equal(true)
+			-- A FIRST LEG THAT IS NOT AN AXIS IS THE NORMAL CASE (a crossing is off to one side), and
+			-- the seed follows the leg and not the compass.
+			local slant = Placement.seedTrail(origin, Vector3.new(3, 0, -4), 2, spacing)
+			local back = slant[1].at - origin
+			expect(math.abs(back.Unit:Dot(Vector3.new(-0.6, 0, 0.8)) - 1) < 1e-3).to.equal(true)
+			-- A DEGENERATE LEG (the route's first point under her feet) falls back to south rather
+			-- than dividing by zero.
+			local flat = Placement.seedTrail(origin, Vector3.new(0, 5, 0), 2, spacing)
+			expect(flat[1].at.Z > origin.Z).to.equal(true)
+			TestKit.note(
+				string.format("T4 seed: %d points, %.1f studs for 4 members at %.1f", #trail, trail[#trail].s, spacing)
+			)
+		end)
+
+		it("judges a file five seconds after it was ordered, and keeps the two kinds apart", function()
+			-- THE INSTRUMENT ITSELF (design 12.1, core protocol 0(e)): one reading per file, taken
+			-- once, at the first step past `fileFormedSeconds`, over the members still in it. Both
+			-- sides go through it -- a WOKEN file and a RELEASED one -- so the measurement cannot be
+			-- the thing that differs between them.
+			local _made, _standing, fake = stubRuntime()
+			Forest.layoutForDrive(960, "c1")
+			Forest.start(fake, 0)
+			local function body(z: number)
+				return { status = { position = Vector3.new(0, 0, z) } }
+			end
+			-- THREE ANIMALS 10 STUDS APART: two gaps of 10, so the median is 10.
+			local woken = { id = "g960-s1-f1", bornAt = 0, woken = true }
+			Forest.measureFile(woken, { body(0), body(-10), body(-20) }, 4.9)
+			-- BEFORE THE WINDOW, NOTHING IS WRITTEN. Delete the `fileFormedSeconds` guard and a file
+			-- is judged on the step it was born, when nobody has walked anywhere.
+			expect(Forest.fileGaps().woken.files).to.equal(0)
+			Forest.measureFile(woken, { body(0), body(-10), body(-20) }, 5.1)
+			local gaps = Forest.fileGaps()
+			expect(gaps.woken.files).to.equal(1)
+			expect(math.abs(gaps.woken.median - 10) < 1e-6).to.equal(true)
+			expect(math.abs(gaps.woken.worst - 10) < 1e-6).to.equal(true)
+			-- ONCE PER FILE: a second call on the same line is not a second reading.
+			Forest.measureFile(woken, { body(0), body(-40), body(-80) }, 9)
+			expect(Forest.fileGaps().woken.files).to.equal(1)
+			-- ...AND A RELEASED FILE IS THE CONTROL, in its own digest and never in the woken one.
+			Forest.measureFile({ id = "line-1-1", bornAt = 0 }, { body(0), body(-30) }, 6)
+			local both = Forest.fileGaps()
+			expect(both.woken.files).to.equal(1)
+			expect(both.released.files).to.equal(1)
+			expect(math.abs(both.released.median - 30) < 1e-6).to.equal(true)
+			-- A FILE OF ONE HAS NO GAP TO READ, and reads as nothing rather than as zero.
+			Forest.measureFile({ id = "g960-s2-f1", bornAt = 0, woken = true }, { body(0) }, 9)
+			expect(Forest.fileGaps().woken.files).to.equal(1)
+			-- THE TARGET IS `2 x LINE.spacingStuds` AND IT IS THE LINE OWNER'S NUMBER, not a literal
+			-- here: 8.5 -> 17. Move `spacingStuds` and the target moves with it.
+			expect(2 * Data.LINE.spacingStuds).to.equal(17)
+			expect(Placement.CONFIG.fileFormedSeconds).to.equal(5)
+			Forest.start(nil :: any, 0)
+		end)
+
+		it("orders a woken group once, counts a group the fright already took, and spawns nothing", function()
+			local made, standing, fake, where = stubRuntime()
+			Forest.layoutForDrive(961, "c1")
+			Forest.start(fake, 0)
+			Forest.newDrive(0)
+			expect(Forest.planDrive(961, true) ~= nil).to.equal(true)
+			local row = Forest.roster()[1]
+			expect(row ~= nil).to.equal(true)
+			-- A GROUP LYING IN ITS BED WITH TWO BODIES ON THEIR FEET, 12 studs apart.
+			row.state = "bedded"
+			row.ids = { "Boar1", "Boar2" }
+			row.at = Vector3.new(0, 0, -300)
+			table.insert(standing, "Boar1")
+			table.insert(standing, "Boar2")
+			where.Boar1 = { at = Vector3.new(0, 0, -300), kind = "female" }
+			where.Boar2 = { at = Vector3.new(6, 0, -288), kind = "cub" }
+			-- THE FRIGHT HAS ALREADY TAKEN BOTH OF THEM: they are AWAKE AS A FLIGHT (design 4.1's
+			-- other legal shape) and the drive does NOT order a flying animal -- that is the one-owner
+			-- boundary `stepLines` keeps and `Runtime:flying` is the Brain's answer. Delete the
+			-- `flying` guard in `orderGroup` and this is the line that fails: the reason becomes
+			-- "noroute" and `flights` stays 0.
+			where.Boar1.flying = true
+			where.Boar2.flying = true
+			local line, why = Forest.orderGroup(row, 0)
+			expect(line).to.equal(nil)
+			expect(why).to.equal("flight")
+			expect(Forest.placementStats().flights).to.equal(1)
+			expect(#made).to.equal(0)
+			-- ON THEIR FEET, THE SAME CALL REACHES THE ROUTE and gets as far as this place can go:
+			-- no navmesh, so no route, and the group stays where it lay -- which is reported, not
+			-- hidden.
+			where.Boar1.flying = false
+			where.Boar2.flying = false
+			local _again, why2 = Forest.orderGroup(row, 0)
+			expect(why2).to.equal("noroute")
+			expect(Forest.placementStats().noroute).to.equal(1)
+			-- AND STILL NOT ONE ANIMAL IS CREATED. `orderGroup` has no `spawn` call at all.
+			expect(#made).to.equal(0)
+			-- THE PATHFINDER IS ASKED FOUR TIMES PER GROUP AT MOST, FOUR SECONDS APART, and never
+			-- once per Heartbeat. `stepPlacement` writes the try count and the next-try clock BEFORE
+			-- the attempt, so a group in a dead end costs four routes in a drive and not fifteen a
+			-- second; and FOUR rather than one because the commonest refusal is a fright that is
+			-- holding the group right now (the horn reaches 357 studs) and a flight ends. Delete the
+			-- clock and `noroute` grows with every step below; delete the counter and it never stops.
+			row.state = "awake"
+			row.lineId = nil
+			row.orderTries = nil
+			row.orderNextAt = nil
+			local first = Forest.stepPlacement(1, true)
+			expect(first ~= nil).to.equal(true)
+			expect(string.find(first :: string, "NOT ordered", 1, true) ~= nil).to.equal(true)
+			expect(row.orderTries).to.equal(1)
+			local before = Forest.placementStats().noroute
+			-- A WHOLE SECOND OF HEARTBEATS AT 60 Hz, inside the retry window: not one more route.
+			for step = 1, 60 do
+				Forest.stepPlacement(1 + step / 60, true)
+			end
+			expect(Forest.placementStats().noroute).to.equal(before)
+			-- ...AND SIXTY SECONDS OF THEM COST THE THREE THAT ARE LEFT, AND THEN NOTHING FOR EVER.
+			for step = 1, 600 do
+				Forest.stepPlacement(2 + step / 10, true)
+			end
+			expect(row.orderTries).to.equal(4)
+			expect(Forest.placementStats().noroute).to.equal(before + 3)
+			Forest.start(nil :: any, 0)
+		end)
+
+		it("makes the file itself: one line, in march order, trailed from the leader's own feet", function()
+			-- ROUND 1, FINDING 1, WHICH WAS RIGHT: every other case in this file asserts a REFUSAL,
+			-- so the whole half the task was written to build -- `Line.order`/`Line.split`, the
+			-- `state.lines` row, the seeded trail, the `woken` tag, `row.lineId` -- could be deleted
+			-- and they would all still pass. The DEV place has no navmesh, so the only way to drive
+			-- it here is to hand `orderGroup` a route: `routeFilesFor` asks
+			-- `ForestTest.computeRouteVia` through the module table, which is the same patch point
+			-- the retry-cap case uses for `bedSpot`.
+			local _made, standing, fake, where = stubRuntime()
+			Forest.layoutForDrive(962, "c1")
+			Forest.start(fake, 0)
+			Forest.newDrive(0)
+			expect(Forest.planDrive(962, true) ~= nil).to.equal(true)
+			local row = Forest.roster()[1]
+			row.state = "awake"
+			row.ids = { "Boar1", "Boar2", "Boar3" }
+			row.at = Vector3.new(0, 0, -900)
+			row.lineId = nil
+			-- THE BODIES ARE NOT AT THE BED AND NOT IN A FILE: a group lying up has drifted over its
+			-- graze repertoire, which is the whole reason the route starts at the LEADER'S FEET.
+			-- The march leader (`Boar.MARCH_RANK`: a sow leads) is deliberately NOT the foremost
+			-- animal, so a file built off position alone would put the wrong one at the head.
+			local leaderAt = Vector3.new(20, 0, -830)
+			where.Boar1 = { at = Vector3.new(-6, 0, -860), kind = "male" }
+			where.Boar2 = { at = leaderAt, kind = "female" }
+			where.Boar3 = { at = Vector3.new(9, 0, -845), kind = "cub" }
+			for _, id in ipairs(row.ids) do
+				table.insert(standing, id)
+			end
+			-- THE LADDER OF STARTS (`ORDER_START_STUDS` = 0, 30, 60, 90), measured in the Forest Test
+			-- because the pathfinder answers `NoPath` from a bed: the first two candidates are
+			-- refused here and the third is taken, so the case fails if the ladder is replaced by a
+			-- single try.
+			local realVia = Forest.computeRouteVia
+			local asked = {}
+			Forest.computeRouteVia = function(via)
+				table.insert(asked, via[1])
+				if #asked < 3 then
+					return nil
+				end
+				local out = {}
+				for _, point in ipairs(via) do
+					table.insert(out, point)
+				end
+				return out
+			end
+			local line, why = Forest.orderGroup(row, 11)
+			Forest.computeRouteVia = realVia
+			expect(why).to.equal(nil)
+			expect(line ~= nil).to.equal(true)
+			expect(string.find(line :: string, "3 animal(s)", 1, true) ~= nil).to.equal(true)
+			expect(string.find(line :: string, "from its BED", 1, true) ~= nil).to.equal(true)
+			-- THE STARTS THAT WERE OFFERED: the leader's own feet, then 30 studs along the way out,
+			-- then 60 -- which is the one that was taken.
+			-- FLAT, because the ladder walks along the ground and each candidate's HEIGHT is
+			-- `Data.groundAt`'s answer at that point -- which is the other half of the same measured
+			-- fix (the body's own Y is what the pathfinder refuses).
+			local function flat(a: Vector3, b: Vector3)
+				return (Vector3.new(a.X - b.X, 0, a.Z - b.Z)).Magnitude
+			end
+			expect(#asked).to.equal(3)
+			expect(flat(asked[1], leaderAt) < 1e-3).to.equal(true)
+			expect(math.abs(flat(asked[2], leaderAt) - 30) < 1e-3).to.equal(true)
+			expect(math.abs(flat(asked[3], leaderAt) - 60) < 1e-3).to.equal(true)
+			-- ONE FILE, AND IT IS THE ROSTER ROW'S.
+			local lines = Forest.lines()
+			expect(#lines).to.equal(1)
+			local file = lines[1]
+			expect(row.lineId).to.equal(file.id)
+			expect(file.id).to.equal(row.id .. "-f1")
+			expect(Forest.placementStats().ordered).to.equal(1)
+			-- ...TAGGED AS WOKEN, which is what keeps the measurement honest: without the tag a file
+			-- that got up out of a bed would be counted in the RELEASED control and claim 3 would be
+			-- reading the wrong population.
+			expect(file.woken).to.equal(true)
+			-- ...IN MARCH ORDER, the ANIMAL owner's fact: the sow is at the head although she is the
+			-- rearmost body on the ground.
+			expect(#file.members).to.equal(3)
+			expect(file.members[1].id).to.equal("Boar2")
+			expect(file.members[1].kind).to.equal("female")
+			-- ...AND TRAILED FROM HER OWN FEET, BACKWARDS ALONG THE FIRST LEG. The head of the trail
+			-- is where she is standing NOW, never the bed the plan wrote (70 studs away here), and
+			-- every other point is behind her, so station k exists on the first step.
+			expect(#file.trail > 1).to.equal(true)
+			local head = file.trail[#file.trail].at
+			expect((head - leaderAt).Magnitude < 1e-3).to.equal(true)
+			expect((head - (row.at :: Vector3)).Magnitude > 50).to.equal(true)
+			expect(file.trail[#file.trail].s > 3 * Data.LINE.spacingStuds).to.equal(true)
+			-- ...WITH THE PINS THE DRIVE CHOSE, which is what a stuck leader is re-pathed through.
+			expect(#file.pins > 0).to.equal(true)
+			expect(file.speed > 0).to.equal(true)
+			expect(type(file.pace)).to.equal("string")
+			expect(file.bornAt).to.equal(11)
+			-- AND THE INSTRUMENT READS IT AS A WOKEN FILE, not as the control.
+			local before = Forest.fileGaps().woken.files
+			Forest.measureFile(file, {
+				{ status = { position = Vector3.new(0, 0, 0) } },
+				{ status = { position = Vector3.new(0, 0, -9) } },
+			}, 11 + Placement.CONFIG.fileFormedSeconds + 0.1)
+			expect(Forest.fileGaps().woken.files).to.equal(before + 1)
+			expect(Forest.fileGaps().released.files).to.equal(0)
+			Forest.start(nil :: any, 0)
+			TestKit.note(string.format("T4 file: %s, %d members, trail %.1f studs", file.id, #file.members, head.Y))
+		end)
+
+		it("releases nothing for a scheduled slot the switch owns, whether or not it has a body", function()
+			-- THE BRIDGE IS GONE (design 4.6; `backups/2026-11-11_task-345d_release-line-bridge.md`).
+			-- T2 still SPAWNED a group the wood had refused a bed to; a group with no legal bed is now
+			-- a HOLE IN THE WOOD and is reported (design 4.3), because spawning it 25 studs off the
+			-- road is the magic appearance Karen's *"not just apear magically"* is about.
+			local made, standing, fake = stubRuntime()
+			Forest.layoutForDrive(953, "c1")
+			Forest.start(fake, 0)
+			Forest.newDrive(0)
+			expect(Forest.planDrive(953, true) ~= nil).to.equal(true)
+			local first = Forest.roster()[1]
+			expect(first ~= nil).to.equal(true)
+			-- ITS GROUP IS LYING IN ITS BED: the slot releases nothing and says whose it is.
+			first.state = "bedded"
+			first.ids = { "Boar1", "Boar2" }
+			first.at = Vector3.new(0, 0, 0)
+			table.insert(standing, "Boar1")
+			table.insert(standing, "Boar2")
+			table.clear(made)
+			local held = Forest.step(Data.slotSeconds(1, Forest.cellSchedule()), true)
+			expect(held ~= nil).to.equal(true)
+			expect(string.find(held :: string, "THE ROSTER'S", 1, true) ~= nil).to.equal(true)
+			expect(string.find(held :: string, "the line finds it", 1, true) ~= nil).to.equal(true)
+			expect(#made).to.equal(0)
+			-- ...AND A ROW THE **WOOD** REFUSED IS NOT RELEASED EITHER, which is the whole of T4's
+			-- first half. THE BITE: restore the T2 bridge (`and not Placement.bridgeMustRelease(...)`)
+			-- and this call falls through to the old spawn path, which answers **nil** in this place
+			-- (no navmesh, so `#routes == 0`) -- so both of the next two lines fail.
+			Forest.newDrive(0)
+			local refused = Forest.roster()[1]
+			refused.state = "record"
+			refused.ids = {}
+			refused.skipped = "nobed"
+			local hole = Forest.step(Data.slotSeconds(1, Forest.cellSchedule()), true)
+			expect(hole ~= nil).to.equal(true)
+			expect(string.find(hole :: string, "nothing is released for this slot", 1, true) ~= nil).to.equal(true)
+			expect(string.find(hole :: string, "nobed", 1, true) ~= nil).to.equal(true)
+			expect(#made).to.equal(0)
+			-- ...AND WITH THE SWITCH OFF THE SAME SLOT IS THE OLD PATH AND SAYS NOTHING ABOUT A ROSTER.
+			-- MEASURED: it answers nil here, for the same missing navmesh.
+			Forest.newDrive(0)
+			local plain = Forest.step(Data.slotSeconds(1, Forest.cellSchedule()), false)
+			expect(plain == nil or string.find(plain :: string, "ROSTER", 1, true) == nil).to.equal(true)
+			Forest.start(nil :: any, 0)
+		end)
+
+		it("parks a row that has spent its searches, and the drive wakes it once more", function()
+			-- THE DIRECTOR'S RETRY CAP, 2026-11-11 ~04:55: A2 spent **~2,940 ring searches re-trying
+			-- three `inview` refusals** in one drive. Three searches per row, then the row is PARKED
+			-- -- still a record, not skipped -- and one more window is opened when the drive actually
+			-- wants the group.
+			--
+			-- L-142, AND IT IS THE WHOLE POINT OF THE CASE: a bounded self-repair that LOSES the row
+			-- is the "it has to be there" bug in a new form. So this drives TWO wake cycles in one
+			-- drive and asserts the row ends up with a body.
+			local _made, _standing, fake = stubRuntime()
+			Forest.layoutForDrive(959, "c1")
+			Forest.start(fake, 0)
+			Forest.newDrive(0)
+			expect(Forest.planDrive(959, true) ~= nil).to.equal(true)
+			-- ONE ROW IN PLAY, so the counters are about it and not about twelve others.
+			local rows = Forest.roster()
+			local row = rows[1]
+			for index = #rows, 2, -1 do
+				table.remove(rows, index)
+			end
+			-- ITS SLOT CLOCK IS AT 2 s AND THE LINE IS 40 s AWAY, so the reopen below is the CLOCK's
+			-- arm and the refusal never becomes final inside the window being measured (a refusal
+			-- past `reachAtSeconds` ends the row's drive, which is the other rule and has its own
+			-- case).
+			row.walker = true
+			row.wakeAtSeconds = 2
+			row.reachAtSeconds = 40
+			-- THE WOOD SAYS "SOMEBODY IS LOOKING AT IT" EVERY TIME, which is the refusal that is a
+			-- fact about THIS INSTANT and is therefore re-tried -- the one the cap bounds.
+			local realBedSpot = Forest.bedSpot
+			local asks = 0
+			local giveIn = math.huge
+			Forest.bedSpot = function(_row)
+				asks += 1
+				if asks >= giveIn then
+					return Vector3.new(0, 0, -300), nil, nil
+				end
+				return nil, "inview", "a player is looking at it (spec)"
+			end
+			for step = 1, 12 do
+				Forest.stepPlacement(step * 0.1, true)
+			end
+			-- THREE SEARCHES AND THEN SILENCE. Delete the cap arm from `Placement.dueNow` (or the
+			-- `searchesSpent` increment in `materialise`) and `asks` is 12 here, not 3.
+			expect(asks).to.equal(3)
+			expect(Forest.placementStats().caps).to.equal(1)
+			-- PARKED, NOT SKIPPED: the row is still a record and still in the drive.
+			expect(row.state).to.equal("record")
+			expect(row.skipped).to.equal(nil)
+			expect(Placement.dueNow(row, 1.2, Placement.CONFIG.leadSeconds, Placement.CONFIG.searchesPerWake)).to.equal(
+				false
+			)
+			-- CYCLE TWO: its slot clock comes, the window reopens ONCE, and this time the wood says
+			-- yes on the second search -- so the row reaches the hunt with a body before the drive
+			-- ends. Delete `Placement.reopenNow`'s call in `stepPlacement` and the row is lost here:
+			-- `asks` stays 3 and the row never beds.
+			giveIn = 5
+			for step = 1, 12 do
+				Forest.stepPlacement(2 + step * 0.1, true)
+			end
+			expect(Forest.placementStats().reopens).to.equal(1)
+			expect(asks).to.equal(5)
+			expect(row.state).to.equal("bedded")
+			expect(#row.ids > 0).to.equal(true)
+			-- ONE REOPEN PER ROW PER DRIVE, so the cap cannot be re-armed for ever: 3 + 3 = 6 searches
+			-- is the bound the arithmetic in `CONFIG.searchesPerWake` is written against.
+			expect(Placement.reopenNow(row, 99, nil, 100, Placement.CONFIG.searchesPerWake)).to.equal(nil)
+			Forest.bedSpot = realBedSpot
+			Forest.start(nil :: any, 0)
+			TestKit.note(string.format("T4 retry cap: %d searches over two wake cycles, one reopen", asks))
+		end)
+
+		it("reopens on the beaters as well as on the clock, and never for a skipped row", function()
+			-- THE TWO SIGNALS THAT MEAN "NOW", as arithmetic (`Placement.reopenNow`). The geometry arm
+			-- is the same one `wakeReason` uses -- the line's notice band reaching the bed -- so a
+			-- group the line has walked up to gets its last window whatever the clock says.
+			local cap = Placement.CONFIG.searchesPerWake
+			local function parked(extra: any?)
+				local row = {
+					state = "record",
+					bedNorth = 300,
+					wakeAtSeconds = math.huge,
+					reachAtSeconds = 20,
+					searchesSpent = cap,
+				}
+				for key, value in pairs(extra or {}) do
+					row[key] = value
+				end
+				return row
+			end
+			-- NOT YET: the front is 140 studs north of the bed and the notice band is 100.
+			expect(Placement.reopenNow(parked(), 5, 440, 100, cap)).to.equal(nil)
+			-- NOW: the band has reached it.
+			expect(Placement.reopenNow(parked(), 5, 395, 100, cap)).to.equal("beaters")
+			-- ...AND A FRONT THAT HAS PASSED THE BED IS STILL "NOW", for the same reason `wakeReason`
+			-- has no lower bound: a group the line walked through is exactly the one that must move.
+			expect(Placement.reopenNow(parked(), 5, 100, 100, cap)).to.equal("beaters")
+			-- A ROW THAT HAS NOT SPENT ITS SEARCHES IS NOT PARKED and needs no window.
+			expect(Placement.reopenNow(parked({ searchesSpent = cap - 1 }), 5, 100, 100, cap)).to.equal(nil)
+			-- A SKIPPED ROW NEVER COMES BACK (design must-not 3, task 172's rule: a wood is beaten
+			-- once), and neither does one that has already had its reopen, or one with a body.
+			expect(Placement.reopenNow(parked({ skipped = "nobed" }), 5, 100, 100, cap)).to.equal(nil)
+			expect(Placement.reopenNow(parked({ reopened = true }), 5, 100, 100, cap)).to.equal(nil)
+			expect(Placement.reopenNow(parked({ state = "bedded" }), 5, 100, 100, cap)).to.equal(nil)
+			-- THE CLOCK ARM, for a walker: no line in the world and it still stands up on time.
+			expect(Placement.reopenNow(parked({ wakeAtSeconds = 10 }), 10, nil, 100, cap)).to.equal("slot")
+			expect(Placement.reopenNow(parked({ wakeAtSeconds = 10 }), 9.9, nil, 100, cap)).to.equal(nil)
+			-- AND THE CAP ITSELF IS A NUMBER WITH ARITHMETIC BEHIND IT: 15 rows x (3 + 3) = 90
+			-- searches worst case in a drive, under the Director's target of 100.
+			expect(cap).to.equal(3)
+			expect(#SCHEDULE.drive * cap * 2 < 100).to.equal(true)
 		end)
 	end)
 

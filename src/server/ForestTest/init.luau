@@ -663,6 +663,20 @@ local state = {
 	-- never over the point that was tested (design 12.2, "spawns in view of a player = 0").
 	placementRays = 0,
 	placementInView = 0,
+	-- TASK 345 T4: WHAT WAS DONE WITH THE BEDDED GROUPS. `ordered` is the files handed a route,
+	-- `flights` the groups the fright had already taken (design 4.1's other legal shape of AWAKE),
+	-- `caps`/`reopens` the retry cap's two halves (the Director, 2026-11-11 ~04:55).
+	placementOrdered = 0,
+	placementWokeBand = 0,
+	placementFlights = 0,
+	placementNoRoute = 0,
+	placementCaps = 0,
+	placementReopens = 0,
+	-- HOW FORMED EVERY FILE WAS FIVE SECONDS AFTER IT WAS ORDERED, woken and released kept apart so
+	-- the two are one instrument with a control (design 12.1). Per SESSION and not per drive: the
+	-- target is over ">= 10 breaks".
+	fileGapsWoken = {} :: { any },
+	fileGapsReleased = {} :: { any },
 }
 
 -- THIS WORLD'S BOAR CONFIG, AND NOT THE MODULE'S (task 122 round 2).
@@ -2043,6 +2057,12 @@ function ForestTest.roster(): { any }
 	return state.roster
 end
 
+-- THE LIVE FILES, READ-ONLY -- `ForestTest.roster()`'s own shape and for its own reason: every
+-- writer of a row is in this file, and a copy per read would allocate one table per file per probe.
+function ForestTest.lines(): { any }
+	return state.lines
+end
+
 -- THE FOUR COUNTS, THE REFUSALS AND THE WORK SPENT. `searches` is published beside the skips
 -- deliberately (design 12.3): a drive that reports no refusals and no searches has not tested
 -- anything, and "a counter that is 0 because nothing wrote it" is the failure this task's own
@@ -2069,7 +2089,69 @@ function ForestTest.placementStats()
 		searches = state.placementSearches,
 		rays = state.placementRays,
 		inView = state.placementInView,
+		-- T4: what the drive did with its bedded groups, and what the retry cap cost.
+		ordered = state.placementOrdered or 0,
+		wokeBand = state.placementWokeBand or 0,
+		flights = state.placementFlights or 0,
+		noroute = state.placementNoRoute or 0,
+		caps = state.placementCaps or 0,
+		reopens = state.placementReopens or 0,
+		files = ForestTest.fileGaps(),
 	}
+end
+
+-- WHAT A FILE LOOKS LIKE FIVE SECONDS AFTER IT WAS GIVEN ITS ROUTE (design 12.1: *"file formed
+-- after a break: median nose-to-nose <= 17 studs within 5 s"*, = `2 x LINE.spacingStuds`).
+--
+-- ONE INSTRUMENT, BOTH SIDES, which is what makes it evidence (core protocol 0(e)): a WOKEN file is
+-- the thing T4 built -- it got up out of a bed, so its followers walk up to their stations -- and a
+-- RELEASED file, spawned along its own approach by the flag-OFF drive or the staged instrument, is
+-- the control. Measured ONCE per file, over the members still in it, and published where a probe can
+-- read it (V293b: a counter that lives only in module state is not a diagnostic).
+function ForestTest.measureFile(line: any, live: { any }, now: number)
+	if type(line) ~= "table" or line.gapAt ~= nil or #live < 2 then
+		return
+	end
+	if now - (tonumber(line.bornAt) or now) < Placement.CONFIG.fileFormedSeconds then
+		return
+	end
+	line.gapAt = now
+	local gaps = {}
+	for rank = 2, #live do
+		local ahead, behind = live[rank - 1].status.position, live[rank].status.position
+		table.insert(gaps, (Vector3.new(ahead.X - behind.X, 0, ahead.Z - behind.Z)).Magnitude)
+	end
+	table.sort(gaps)
+	local into = if line.woken == true then state.fileGapsWoken else state.fileGapsReleased
+	table.insert(into, {
+		id = tostring(line.id),
+		members = #live,
+		median = gaps[math.max(1, math.ceil(#gaps / 2))],
+		worst = gaps[#gaps],
+	})
+end
+
+-- THE FILES MEASURED SO FAR, woken and released, as one line a probe and a spec can both read.
+function ForestTest.fileGaps(): { [string]: any }
+	local function digest(rows: { any })
+		local medians = {}
+		local worst = 0
+		for _, row in ipairs(rows) do
+			table.insert(medians, row.median)
+			worst = math.max(worst, row.worst)
+		end
+		table.sort(medians)
+		return {
+			files = #rows,
+			-- THE LOWER MIDDLE VALUE on an even count, and it is said rather than left to be found
+			-- (round 1's note): both sides go through this one function, so the control carries the
+			-- same convention and the comparison is fair.
+			median = if #medians > 0 then medians[math.max(1, math.ceil(#medians / 2))] else 0,
+			worst = worst,
+			rows = table.clone(rows),
+		}
+	end
+	return { woken = digest(state.fileGapsWoken), released = digest(state.fileGapsReleased) }
 end
 
 -- WHO IS IN THIS DRIVE AND WHERE EACH GROUP LIES UP. Built ONCE per drive, at the drive boundary,
@@ -2119,6 +2201,15 @@ function ForestTest.planDrive(driveNumber: number?, inPlace: boolean?): string?
 	state.placementSearches = 0
 	state.placementRays = 0
 	state.placementInView = 0
+	state.placementOrdered = 0
+	state.placementWokeBand = 0
+	state.placementFlights = 0
+	state.placementNoRoute = 0
+	state.placementCaps = 0
+	state.placementReopens = 0
+	-- THE FILE MEASUREMENTS ARE **NOT** RESET PER DRIVE, and that is deliberate: the design's target
+	-- is over *">= 10 breaks"*, which is more breaks than one drive of thirteen groups delivers at
+	-- the near end of the band. They are reset with the session, by `ForestTest.start`.
 	return table.concat(lines, " | ")
 end
 
@@ -2259,8 +2350,22 @@ function ForestTest.materialise(row: any, now: number): (boolean, string?, strin
 	if runtime:count() + size > ceiling then
 		return false, "budget", "ceiling"
 	end
+	-- ONE SEARCH SPENT, COUNTED ON THE ROW (the Director's retry cap, 2026-11-11 ~04:55). The budget
+	-- doors above are two comparisons and cost nothing; `bedSpot` is the ring search with two
+	-- raycasts per candidate, and A2 spent **~2,940 of them re-trying three `inview` refusals** in
+	-- one drive. Three per row, then `Placement.dueNow` parks the row until the drive actually wants
+	-- it (`Placement.reopenNow`) -- so the row is never lost, it just stops paying for the same
+	-- refusal fifteen times a second.
+	local cap = Placement.CONFIG.searchesPerWake
+	row.searchesSpent = (tonumber(row.searchesSpent) or 0) + 1
 	local at, refused, why = ForestTest.bedSpot(row)
 	if at == nil then
+		-- COUNTED WHEN THE ROW IS ACTUALLY PARKED (round 1's note, which was right): the search that
+		-- SUCCEEDS and beds the row was being counted as a cap, so `caps` read "parked" for rows
+		-- that are lying in their beds.
+		if row.searchesSpent >= cap then
+			state.placementCaps = (state.placementCaps or 0) + 1
+		end
 		return false, refused or "nobed", why
 	end
 	-- THE SAME TWO CALLS `stockWood` MAKES, and for the same reason: a composition IS the size and
@@ -2280,6 +2385,10 @@ function ForestTest.materialise(row: any, now: number): (boolean, string?, strin
 	end
 	row.ids = ids
 	row.at = at
+	-- THE DEPTH OF THE BED THAT WAS FOUND, which is what the wake is judged against (T4): the ring
+	-- search may take a bed `bedSpreadStuds / 2` either side of the planned depth, and 20 studs is
+	-- 3.5 s of the line's walk against a 2-second stand.
+	row.atNorth = at.Z - Data.roadZ(at.X, chosen.layout)
 	row.state = "bedded"
 	row.beddedAt = now
 	state.released += #ids
@@ -2308,6 +2417,14 @@ function ForestTest.materialise(row: any, now: number): (boolean, string?, strin
 	return true, nil, nil
 end
 
+-- WHERE A WOKEN GROUP'S ROUTE MAY BE STARTED, in studs along the way out, in order (0 = the ground
+-- under the leader's own feet). MEASURED: see `ForestTest.orderGroup`, which reads it.
+local ORDER_START_STUDS = { 0, 30, 60, 90 }
+-- How many times one group may be offered its route, and how long between the offers. The flight a
+-- horn starts is the commonest refusal and it ends; four tries, four seconds apart, covers it.
+local ORDER_TRIES = 4
+local ORDER_RETRY_SECONDS = 4
+
 -- ONE BITE PER HEARTBEAT: at most one group materialised and at most one ring search, which is
 -- `Cells.begin`'s shape for `Cells.begin`'s measured reason (the whole-folder write it replaced cost
 -- 738 ms of frame in Karen's place, task 343).
@@ -2325,24 +2442,70 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
 	-- ONE WALK OF THE RUNTIME, not one `statusOf` per animal: `Runtime:statusOf` scans `_boars`, so
 	-- thirteen groups of six would scan it 78 times a heartbeat.
 	local alive = {}
+	local whereIs = {}
 	for _, handle in ipairs(runtime:boars()) do
 		local status = runtime:statusOf(handle.id)
 		alive[handle.id] = status ~= nil and status.alive == true
+		if status ~= nil then
+			whereIs[handle.id] = status.position
+		end
 	end
 	-- WHERE THE LINE HAS GOT TO, at each bed's own x. Read once per step, because `realBeaters`
 	-- walks `Players:GetPlayers()` and `Data.lineFrontAt` interpolates the whole list.
 	local beaters = ForestTest.realBeaters()
 	local noticeAhead = Data.noticeAheadStuds(Data.SPOOK, chosen.layout)
+	local wakeLead = Placement.wakeLeadStuds(Placement.CONFIG)
 	for _, row in ipairs(state.roster) do
+		-- A PARKED RECORD GETS ONE MORE WINDOW WHEN THE DRIVE WANTS IT (the Director's retry cap,
+		-- 2026-11-11 ~04:55). The cap stops a refusal being re-tried fifteen times a second; this is
+		-- what stops the cap LOSING the group -- `Placement.reopenNow` is one reopen per row per
+		-- drive, on the first of the two signals that mean "now": the line's notice band has reached
+		-- its bed, or its own slot clock has come.
+		if row.state == "record" then
+			-- AT THE BED'S OWN x, because the front is interpolated across the beaters and a row 250
+			-- studs west of the stand is compared with the part of the line in front of IT.
+			local atX = ForestTest.hunterStandX() + (row.bedOffsetX or 0)
+			local frontZ = Data.lineFrontAt(beaters, atX)
+			local frontNorth = if frontZ ~= nil then (frontZ :: number) - Data.roadZ(atX, chosen.layout) else nil
+			local why = Placement.reopenNow(row, elapsed, frontNorth, noticeAhead, Placement.CONFIG.searchesPerWake)
+			if why ~= nil then
+				row.reopened = true
+				row.searchesSpent = 0
+				state.placementReopens = (state.placementReopens or 0) + 1
+			end
+		end
 		if row.state == "bedded" or row.state == "awake" then
 			local standing, woken = 0, false
+			-- WHERE THE GROUP ACTUALLY IS, every step, taken off the member NEAREST THE LINE. The
+			-- wake is judged on this and not on the bed, because the flush is: `spookNearBeaters`
+			-- measures its band off each ANIMAL's live position, and `CALM.ENABLED`'s graze/stand/lie
+			-- repertoire walks a group well off the point it was bedded at over a hundred seconds of
+			-- lying up. MEASURED, `345d-ON2-C1-console.txt`: *"a beater spooked Boar65 at 145 studs,
+			-- **137 ahead of the front**"* -- a group the bed-point rule still called "lying up"
+			-- while the line was already flushing it, so it bolted instead of filing out.
+			local lead = nil :: number?
 			for _, id in ipairs(row.ids or {}) do
 				if alive[id] then
 					standing += 1
+					local at = whereIs[id]
+					if typeof(at) == "Vector3" then
+						local dz = (at :: Vector3).Z - Data.roadZ((at :: Vector3).X, chosen.layout)
+						if lead == nil or dz > (lead :: number) then
+							lead = dz
+						end
+					end
 				end
 				-- A SHOT, THE HORN, OR THE FLUSH ITSELF: `spookNearBeaters` latches an animal it
 				-- has sent, and `Runtime:hearShot` / `hearHorn` reach a bedded body like any other.
-				if state.latched[id] == true then
+				--
+				-- ...AND THE HORN LEAVES NO LATCH, which is a MEASURED hole and not a tidy-up
+				-- (`345d-ON2-C1-console.txt`: *"horn blown ... 9 boar(s) pushed within 357 studs"*,
+				-- four times in one drive). `Horn.SPOOK_STUDS` 357 reaches five beds at once from a
+				-- line that is still 300 studs away, so with the latch as the only signal those rows
+				-- sat in the roster reading "bedded" while their animals ran, and then went straight
+				-- to "gone" -- 7 of 13 in one drive. A fleeing group is not lying up. The Brain's own
+				-- answer is the one that cannot be missed.
+				if state.latched[id] == true or runtime:flying(id) then
 					woken = true
 				end
 			end
@@ -2355,12 +2518,16 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
 			--
 			-- ONLY THE `beaters` ARM IS READ HERE: `wakeReason`'s `slot` arm is the walkers' own
 			-- clock and belongs to T6, which is what actually orders them.
+			if lead ~= nil then
+				row.atNorth = lead
+			end
 			if row.state == "bedded" and typeof(row.at) == "Vector3" then
 				local at = row.at :: Vector3
 				local frontZ = Data.lineFrontAt(beaters, at.X)
 				local frontNorth = if frontZ ~= nil then (frontZ :: number) - Data.roadZ(at.X, chosen.layout) else nil
-				if Placement.wakeReason(row, elapsed, frontNorth, noticeAhead) == "beaters" then
+				if Placement.wakeReason(row, elapsed, frontNorth, noticeAhead, wakeLead) == "beaters" then
 					woken = true
+					state.placementWokeBand = (state.placementWokeBand or 0) + 1
 				end
 			end
 			if standing == 0 then
@@ -2375,11 +2542,46 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?): string?
 			end
 		end
 	end
+	-- ...AND THE GROUP THAT HAS JUST WOKEN IS HANDED ITS ROUTE (T4). ONE BITE, like the materialise
+	-- below it: `orderGroup` asks `PathfindingService` once per file, which is the same order of work
+	-- as a ring search, so a step that orders does not also materialise.
+	--
+	-- FOUR ATTEMPTS PER ROW, FOUR SECONDS APART, AND THE CLOCK IS SET BEFORE THE ATTEMPT. Not one,
+	-- because the commonest reason an order fails is that the fright has the group RIGHT NOW (the
+	-- horn: 357 studs, five beds at once) -- and a flight ends. A group whose flight has ended and
+	-- that is still in the wood is a group with no orders, which is the thing this task exists to
+	-- stop. Not unbounded, because each attempt is a `PathfindingService` call: re-asking it every
+	-- step for a group in a dead end is the re-try spiral the search cap exists to stop.
+	for _, row in ipairs(state.roster) do
+		if
+			row.state == "awake"
+			and row.lineId == nil
+			and #(row.ids or {}) > 0
+			and (tonumber(row.orderTries) or 0) < ORDER_TRIES
+			and now >= (tonumber(row.orderNextAt) or 0)
+		then
+			row.orderTries = (tonumber(row.orderTries) or 0) + 1
+			row.orderNextAt = now + ORDER_RETRY_SECONDS
+			local ordered, why = ForestTest.orderGroup(row, now)
+			if ordered ~= nil then
+				return ordered
+			end
+			return string.format(
+				"up %s: NOT ordered on try %d of %d (%s) -- %s",
+				tostring(row.id),
+				row.orderTries,
+				ORDER_TRIES,
+				tostring(why),
+				Placement.line(state.roster)
+			)
+		end
+	end
+
 	-- THE GROUP THE LINE WILL REACH SOONEST, of the ones that are due. One bite, so this order is
 	-- what decides which group is bedded first, and the line meets the deepest one first.
 	local due = nil
 	for _, row in ipairs(state.roster) do
-		if Placement.dueNow(row, elapsed, Placement.CONFIG.leadSeconds) then
+		if Placement.dueNow(row, elapsed, Placement.CONFIG.leadSeconds, Placement.CONFIG.searchesPerWake) then
 			if due == nil or row.reachAtSeconds < due.reachAtSeconds then
 				due = row
 			end
@@ -3016,7 +3218,9 @@ function ForestTest.placementReport(): { string }
 		ServerStorage:SetAttribute(
 			"DHForestPlacement",
 			string.format(
-				"drive=%s placed=%d bedded=%d awake=%d gone=%d skipped=%d animals=%d bodies=%d searches=%d rays=%d inView=%d",
+				"drive=%s placed=%d bedded=%d awake=%d gone=%d skipped=%d animals=%d bodies=%d searches=%d rays=%d inView=%d"
+					.. " ordered=%d wokeBand=%d flights=%d noroute=%d caps=%d reopens=%d"
+					.. " wokenFiles=%d wokenMedian=%.1f wokenWorst=%.1f releasedFiles=%d releasedMedian=%.1f releasedWorst=%.1f",
 				tostring(stats.drive),
 				stats.placed,
 				stats.groupsBedded,
@@ -3027,7 +3231,19 @@ function ForestTest.placementReport(): { string }
 				stats.bedded,
 				stats.searches,
 				stats.rays,
-				stats.inView
+				stats.inView,
+				stats.ordered,
+				stats.wokeBand,
+				stats.flights,
+				stats.noroute,
+				stats.caps,
+				stats.reopens,
+				stats.files.woken.files,
+				stats.files.woken.median,
+				stats.files.woken.worst,
+				stats.files.released.files,
+				stats.files.released.median,
+				stats.files.released.worst
 			)
 		)
 	end
@@ -3138,6 +3354,9 @@ function ForestTest.start(runtime, now: number)
 	state.active = {}
 	-- TASK 127: the live lines, their own Random, and the stuck counter the proof reads.
 	state.lines = {}
+	-- TASK 345 T4: the file-formation readings, per SESSION (the target is over ">= 10 breaks").
+	state.fileGapsWoken = {}
+	state.fileGapsReleased = {}
 	state.rng = Random.new()
 	state.stuck = 0
 	-- TASK 153: how many animals a real beater has walked up to, and the line the console gets.
@@ -3611,6 +3830,118 @@ function ForestTest.stagedLine(now: number): string?
 	return string.format("STAGED %s -- %s", tostring(raw), line or "NOTHING RELEASED (no route, or the animal cap)")
 end
 
+-- ---------------------------------------------- THE ROUTES, ONE PER FILE (task 345d, T4)
+--
+-- LIFTED OUT OF `releaseLine` UNCHANGED so that the two things that need a route -- a SPAWNED group
+-- (the staged instrument and the whole flag-OFF drive) and a WOKEN one (`ForestTest.orderGroup`) --
+-- ask one function for it. Design section 4.6: *"`computeRouteVia`, the pins, `Line.split`,
+-- `formSounder`, the trail seed, the pace and speed: kept, as `ForestTest.orderGroup(row, now)`,
+-- operating on bodies that already exist"*.
+--
+-- `lateralStep` IS THE ONE DIFFERENCE BETWEEN THE TWO CALLERS. A released file is spawned at
+-- `start + side`, so its route carries the same side offset (`LINE.lineGapStuds`); a woken file's
+-- bodies are already standing where they lay, so it hands in 0 and the only lateral shift left is
+-- `SPLIT`'s own crossing shift below.
+local function routeFilesFor(
+	row: any,
+	route: string,
+	start: Vector3,
+	crossing: Vector3?,
+	exitPoint: Vector3?,
+	files: number,
+	lateralStep: number,
+	onlyFile: number?
+): { any }
+	local routes = {}
+	-- ONE FILE AT A TIME FOR `orderGroup`, because each woken file's route starts from ITS OWN
+	-- leader's feet. `which` is still the file's real index, so `SPLIT`'s second crossing is the
+	-- second file's wherever it is asked for.
+	for which = (onlyFile or 1), (onlyFile or files) do
+		local lateral = (which - 1 - (files - 1) / 2) * lateralStep
+		local side = Vector3.new(lateral, 0, 0)
+		local via = { start + side }
+		if route == "BREAK-BACK" then
+			local turnAt = row.turnAtDz or Data.SCHEDULE.turnBackStuds
+			local homeAt = Data.SCHEDULE.breakBackToDz
+			local x = start.X + lateral
+			table.insert(via, Vector3.new(x, chosen.layout.centre.Y, Data.roadZ(x, chosen.layout) + turnAt))
+			table.insert(via, Vector3.new(x, chosen.layout.centre.Y, Data.roadZ(x, chosen.layout) + homeAt))
+		elseif route == "HOLD" then
+			local x = start.X + lateral
+			local north = start.Z - Data.roadZ(start.X, chosen.layout) - (row.holdStuds or 60)
+			table.insert(via, Vector3.new(x, chosen.layout.centre.Y, Data.roadZ(x, chosen.layout) + north))
+		elseif crossing ~= nil and exitPoint ~= nil then
+			-- THE SPLINTER'S OWN CROSSING (`SPLIT`): file 1 keeps the row's crossing, every later
+			-- file takes `splitStuds` from it, so the group crosses in two places 40 studs apart.
+			local shift = if route == "SPLIT" and which > 1 then (row.splitStuds or 0) else 0
+			local acrossAt =
+				Vector3.new((crossing :: Vector3).X + lateral + shift, chosen.layout.centre.Y, (crossing :: Vector3).Z)
+			-- THE STAG'S SNEAK ALONG THE TREELINE (task 251 part 2, spec section 3.2). KAREN OK'd
+			-- *"ein Stueck innerhalb des Waldrands ... ehe es das offene Feld annimmt"*: he comes down
+			-- to the band inside the trees, walks `sneakStuds` ALONG it, and only then takes the open.
+			--
+			-- IT IS TWO PINS AND NO NEW MACHINERY, which is the whole of why the spec called this the
+			-- longest job and it was not: `computeRouteVia` already walks a chain of legs, so the
+			-- "two-leg route" is two more points in `via` and the pathfinder does the rest. The entry
+			-- x is the pure rule (`Data.sneakEntryX` -- he enters on the side he came from), and both
+			-- points sit at the row's own `sneakDz` north of the road AT THEIR OWN x, because the lane
+			-- is a sine in this world and a constant z would be in the trees at one end and on the
+			-- tarmac at the other.
+			--
+			-- IT IS TESTED BEFORE `LATERAL` AND THE TWO CANNOT BOTH FIRE: a row carrying both would
+			-- walk the lateral span and then double back along the treeline, which is not a sneak and
+			-- not a broadside pass. Only row 13 declares `sneak`, and `forest_line.spec` asserts that.
+			if row.sneak == true and route ~= "LATERAL" then
+				local entryX =
+					Data.sneakEntryX(start.X + lateral, (crossing :: Vector3).X + lateral + shift, row.sneakStuds)
+				local dz = row.sneakDz or 0
+				table.insert(via, Vector3.new(entryX, chosen.layout.centre.Y, Data.roadZ(entryX, chosen.layout) + dz))
+				local turnX = (crossing :: Vector3).X + lateral + shift
+				table.insert(via, Vector3.new(turnX, chosen.layout.centre.Y, Data.roadZ(turnX, chosen.layout) + dz))
+			end
+			if route == "LATERAL" then
+				local sign = ForestTest.lateralSign(row.lateral)
+				local walkTo = start.X + lateral + sign * ForestTest.WAVE.lateralSpan
+				table.insert(
+					via,
+					Vector3.new(
+						walkTo,
+						chosen.layout.centre.Y,
+						Data.roadZ(walkTo, chosen.layout) + ForestTest.WAVE.lateralDz
+					)
+				)
+			end
+			table.insert(via, acrossAt)
+			table.insert(
+				via,
+				Vector3.new(
+					(exitPoint :: Vector3).X + lateral + shift,
+					chosen.layout.centre.Y,
+					(exitPoint :: Vector3).Z
+				)
+			)
+		end
+		local made = ForestTest.computeRouteVia(via)
+		if made ~= nil then
+			-- THE PINS ARE KEPT, AND THEY ARE WHAT A STUCK LEADER IS RE-PINNED THROUGH (round 1's
+			-- blocking finding, which was right). `stepLines` used to re-compute a stuck leader's
+			-- route through `line.crossing` -- fine while every wave had one, and a nil index the
+			-- moment a route word has none: a `BREAK-BACK` or a `HOLD` row carries no `crossOffset`
+			-- at all, so the first stuck leader on one of them would have raised "attempt to index
+			-- nil" inside the drive's own un-pcalled Heartbeat and taken the rest of that tick with
+			-- it. These are the points the DRIVE chose for this file -- the turn and the way home,
+			-- the hold point, or the crossing and the exit -- so re-pinning through them is right for
+			-- every route word and needs no second table of special cases.
+			local pins = {}
+			for index = 2, #via do
+				table.insert(pins, via[index])
+			end
+			table.insert(routes, { route = made, lateral = lateral, pins = pins })
+		end
+	end
+	return routes
+end
+
 function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): string?
 	local runtime = state.runtime
 	if runtime == nil then
@@ -3665,13 +3996,16 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): s
 	-- be there then it spooked"*. A STAGED row is never in the roster (it has no slot), so the
 	-- Director's instrument is untouched.
 	--
-	-- THE ONE HOLE IT STILL FILLS IS ONE THE **WOOD** REFUSED (`Placement.bridgeMustRelease`): a
-	-- group with no legal bed in its own band. A group the BUDGET refused is NOT released here --
-	-- measured, `345b-ON3-C1`: that put 31 bodies against a `LIVE_CAP` of 24 and those bodies then
-	-- refused the next group's bed. T4 replaces this half with `orderGroup`.
+	-- AND SINCE T4 THERE IS NO HOLE LEFT FOR IT TO FILL. The T2 bridge -- a group the WOOD refused
+	-- a bed to was still spawned here -- is archived with the spawn half it guarded
+	-- (`backups/2026-11-11_task-345d_release-line-bridge.md`): a group with no legal bed is a HOLE IN
+	-- THE WOOD and is REPORTED (design 4.3, `placementStats().skipped.nobed`), not filled 25 studs
+	-- off the road, which is the magic appearance Karen's *"not just apear magically"* is about.
+	-- **ON THE FLAG-ON PATH THIS FUNCTION NOW SPAWNS NOTHING FOR A SCHEDULED SLOT.** What moves a
+	-- group is `ForestTest.orderGroup`, on bodies `materialise` made in cover.
 	local onNow = if type(inPlace) == "boolean" then inPlace else ForestTest.placementInPlace()
 	local inRoster = if staged == nil and onNow then ForestTest.rosterSlot(slot) else nil
-	if inRoster ~= nil and not Placement.bridgeMustRelease(inRoster) then
+	if inRoster ~= nil then
 		-- ...AND THE DRIVE'S DEER IS SPENT ONLY BY A DEER THAT EXISTS (round 1, finding 3, which was
 		-- right). `stats().deerDone` is read as *"this drive's deer group is out"*, and a row the
 		-- budget has not found room for is not out: it has no body anywhere.
@@ -3900,90 +4234,7 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): s
 	--
 	-- EACH SURVIVOR KEEPS ITS OWN LATERAL OFFSET, so the animals are spawned on the route that was
 	-- actually computed rather than on the one its index would have had.
-	local routes = {}
-	for which = 1, lines do
-		local lateral = (which - 1 - (lines - 1) / 2) * lineData.lineGapStuds
-		local side = Vector3.new(lateral, 0, 0)
-		local via = { start + side }
-		if route == "BREAK-BACK" then
-			local turnAt = row.turnAtDz or Data.SCHEDULE.turnBackStuds
-			local homeAt = Data.SCHEDULE.breakBackToDz
-			local x = start.X + lateral
-			table.insert(via, Vector3.new(x, chosen.layout.centre.Y, Data.roadZ(x, chosen.layout) + turnAt))
-			table.insert(via, Vector3.new(x, chosen.layout.centre.Y, Data.roadZ(x, chosen.layout) + homeAt))
-		elseif route == "HOLD" then
-			local x = start.X + lateral
-			local north = start.Z - Data.roadZ(start.X, chosen.layout) - (row.holdStuds or 60)
-			table.insert(via, Vector3.new(x, chosen.layout.centre.Y, Data.roadZ(x, chosen.layout) + north))
-		elseif crossing ~= nil and exitPoint ~= nil then
-			-- THE SPLINTER'S OWN CROSSING (`SPLIT`): file 1 keeps the row's crossing, every later
-			-- file takes `splitStuds` from it, so the group crosses in two places 40 studs apart.
-			local shift = if route == "SPLIT" and which > 1 then (row.splitStuds or 0) else 0
-			local acrossAt =
-				Vector3.new((crossing :: Vector3).X + lateral + shift, chosen.layout.centre.Y, (crossing :: Vector3).Z)
-			-- THE STAG'S SNEAK ALONG THE TREELINE (task 251 part 2, spec section 3.2). KAREN OK'd
-			-- *"ein Stueck innerhalb des Waldrands ... ehe es das offene Feld annimmt"*: he comes down
-			-- to the band inside the trees, walks `sneakStuds` ALONG it, and only then takes the open.
-			--
-			-- IT IS TWO PINS AND NO NEW MACHINERY, which is the whole of why the spec called this the
-			-- longest job and it was not: `computeRouteVia` already walks a chain of legs, so the
-			-- "two-leg route" is two more points in `via` and the pathfinder does the rest. The entry
-			-- x is the pure rule (`Data.sneakEntryX` -- he enters on the side he came from), and both
-			-- points sit at the row's own `sneakDz` north of the road AT THEIR OWN x, because the lane
-			-- is a sine in this world and a constant z would be in the trees at one end and on the
-			-- tarmac at the other.
-			--
-			-- IT IS TESTED BEFORE `LATERAL` AND THE TWO CANNOT BOTH FIRE: a row carrying both would
-			-- walk the lateral span and then double back along the treeline, which is not a sneak and
-			-- not a broadside pass. Only row 13 declares `sneak`, and `forest_line.spec` asserts that.
-			if row.sneak == true and route ~= "LATERAL" then
-				local entryX =
-					Data.sneakEntryX(start.X + lateral, (crossing :: Vector3).X + lateral + shift, row.sneakStuds)
-				local dz = row.sneakDz or 0
-				table.insert(via, Vector3.new(entryX, chosen.layout.centre.Y, Data.roadZ(entryX, chosen.layout) + dz))
-				local turnX = (crossing :: Vector3).X + lateral + shift
-				table.insert(via, Vector3.new(turnX, chosen.layout.centre.Y, Data.roadZ(turnX, chosen.layout) + dz))
-			end
-			if route == "LATERAL" then
-				local sign = ForestTest.lateralSign(row.lateral)
-				local walkTo = start.X + lateral + sign * ForestTest.WAVE.lateralSpan
-				table.insert(
-					via,
-					Vector3.new(
-						walkTo,
-						chosen.layout.centre.Y,
-						Data.roadZ(walkTo, chosen.layout) + ForestTest.WAVE.lateralDz
-					)
-				)
-			end
-			table.insert(via, acrossAt)
-			table.insert(
-				via,
-				Vector3.new(
-					(exitPoint :: Vector3).X + lateral + shift,
-					chosen.layout.centre.Y,
-					(exitPoint :: Vector3).Z
-				)
-			)
-		end
-		local made = ForestTest.computeRouteVia(via)
-		if made ~= nil then
-			-- THE PINS ARE KEPT, AND THEY ARE WHAT A STUCK LEADER IS RE-PINNED THROUGH (round 1's
-			-- blocking finding, which was right). `stepLines` used to re-compute a stuck leader's
-			-- route through `line.crossing` -- fine while every wave had one, and a nil index the
-			-- moment a route word has none: a `BREAK-BACK` or a `HOLD` row carries no `crossOffset`
-			-- at all, so the first stuck leader on one of them would have raised "attempt to index
-			-- nil" inside the drive's own un-pcalled Heartbeat and taken the rest of that tick with
-			-- it. These are the points the DRIVE chose for this file -- the turn and the way home,
-			-- the hold point, or the crossing and the exit -- so re-pinning through them is right for
-			-- every route word and needs no second table of special cases.
-			local pins = {}
-			for index = 2, #via do
-				table.insert(pins, via[index])
-			end
-			table.insert(routes, { route = made, lateral = lateral, pins = pins })
-		end
-	end
+	local routes = routeFilesFor(row, route, start, crossing, exitPoint, lines, lineData.lineGapStuds)
 	if #routes == 0 then
 		return nil
 	end
@@ -4074,19 +4325,15 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): s
 			-- exactly the body overlap `spacingStuds` exists to prevent, and the seam between the
 			-- seed and the leader's real crumbs had a 2.5-stud jog in it. It bit a ONE-line wave too
 			-- whenever the route that survived was not the first.
-			local seeded = {}
-			local origin = start + Vector3.new(routes[which].lateral, 0, 0)
-			for back = math.ceil((#group + 1) * lineData.spacingStuds), 0, -1 do
-				table.insert(seeded, { at = origin - toward * back, s = 0 })
-			end
-			for index = 2, #seeded do
-				seeded[index].s = seeded[index - 1].s
-					+ (Vector3.new(
-						seeded[index].at.X - seeded[index - 1].at.X,
-						0,
-						seeded[index].at.Z - seeded[index - 1].at.Z
-					)).Magnitude
-			end
+			-- ...AND THE ARITHMETIC IS `Placement.seedTrail`'S SINCE T4, so the released file and the
+			-- WOKEN one (`ForestTest.orderGroup`) are seeded by one rule: the direction of travel in,
+			-- the polyline behind the origin out.
+			local seeded = Placement.seedTrail(
+				start + Vector3.new(routes[which].lateral, 0, 0),
+				toward,
+				#group,
+				lineData.spacingStuds
+			)
 			-- A LINE IS A PACK FOR THE EARS TOO (task 139). Without this its members have no
 			-- `sounderId` and `Boar.hasVoice` lets every one of them speak -- see
 			-- `Runtime:formSounder`.
@@ -4181,6 +4428,244 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?): s
 			else "no crossing",
 		row.note or "--"
 	)
+end
+
+-- ============================================ A BEDDED GROUP IS HANDED ITS ROUTE (task 345d, T4)
+--
+-- KAREN, 2026-11-10: *"it has to be there then it spooked or it walkks towards"*. The group has been
+-- lying in cover since `materialise` made it (design 4.3); this is the other half -- when the drive
+-- reaches it, it GETS UP FROM WHERE IT LAY and walks its scripted route in a file: the crossing the
+-- script wrote, the exit past the despawn line, the turn-back, the hold, the stag's treeline sneak.
+-- Not one animal is created here. Design: animal-placement.md sections 4.5, 4.6, 8.2, 17 (T4).
+--
+-- IT IS `releaseLine`'S ROUTE HALF ON BODIES THAT ALREADY EXIST: `routeFilesFor` for the pins,
+-- `Line.order`/`Line.split` for the march, `Placement.seedTrail` for the trail, `formSounder` for
+-- the ears, one row of `state.lines` per file. What it does NOT take is the depth clamp (the bed IS
+-- the depth) and `runtime:spawn` (the bodies were made in cover, 20 s earlier, out of every view).
+--
+-- THE START IS THE LEADER'S OWN POSITION, measured this step -- not the bed point the plan wrote and
+-- not the schedule's `northStuds`. A group lying up has drifted over its graze/stand/lie repertoire,
+-- and a route from where it is NOT is a route whose first leg walks the file sideways.
+--
+-- HOW FAR ALONG THE WAY OUT A ROUTE MAY BE STARTED, in studs, in order (0 = the ground under the
+-- leader's own feet). MEASURED, not chosen: see the comment on the loop that reads it.
+
+-- AN ANIMAL THE FRIGHT HAS ALREADY TAKEN IS NOT ORDERED (the one-owner boundary `stepLines` keeps):
+-- `Runtime:flying` is the Brain's answer and a flight owns the animal until it ends. A group whose
+-- every member is flying is AWAKE AS A FLIGHT, which design 4.1 names as the other legal shape of
+-- AWAKE, and it is counted (`flights`) rather than argued about.
+function ForestTest.orderGroup(row: any, now: number): (string?, string?)
+	local runtime = state.runtime
+	if runtime == nil or type(row) ~= "table" then
+		return nil, "runtime"
+	end
+	local boar = boarConfig()
+	local lineData = Data.LINE
+	local standX = ForestTest.hunterStandX()
+	local spec = row.row
+	if type(spec) ~= "table" then
+		return nil, "norow"
+	end
+
+	-- WHO CAN STILL BE ORDERED, AND WHERE EACH ONE IS STANDING.
+	local able = {}
+	local flying, dead = 0, 0
+	for _, id in ipairs(row.ids or {}) do
+		local status = runtime:statusOf(id)
+		if status == nil or status.alive ~= true then
+			dead += 1
+		elseif runtime:flying(id) then
+			flying += 1
+		else
+			table.insert(able, { id = id, kind = status.kind, at = status.position })
+		end
+	end
+	if #able == 0 then
+		state.placementFlights = (state.placementFlights or 0) + 1
+		return nil, if flying > 0 then "flight" else "nobody"
+	end
+
+	-- WHERE IT CROSSES AND WHERE IT LEAVES: the row's own, exactly as `releaseLine` reads them. A
+	-- `BREAK-BACK` and a `HOLD` never cross, and `crossOffset` is nil on exactly those rows.
+	local route = Data.slotRoute(spec)
+	local offset = spec.crossOffset
+	local crossing = nil :: Vector3?
+	if type(offset) == "number" then
+		local crossX = standX + offset
+		crossing = Vector3.new(crossX, chosen.layout.centre.Y, Data.roadZ(crossX, chosen.layout))
+	end
+	local exitPoint = if crossing ~= nil
+		then Vector3.new((crossing :: Vector3).X, chosen.layout.centre.Y, Data.exitZOf(chosen.layout) - 10)
+		else nil
+
+	-- ONE FILE, AND THE PACK IS THE ONE THE BED GAVE IT (round 1, finding 2, which was right).
+	-- `materialise` makes a group through `Runtime:spawnSounder`, which sets `sounderId` on every
+	-- member; `Runtime:formSounder` claims only ids whose `sounderId` is **nil**, so calling it here
+	-- formed nothing at all -- and a `files > 1` woken row would then have had two files walking two
+	-- routes inside ONE sounder, where `_stepSounders`' `BREAK_STUDS` rule expels whichever members
+	-- fall behind the other file's slot-ahead animal and `_leaveSounder` clears their `sounderId`:
+	-- the lone-animal voice hole task 139 added `formSounder` to close.
+	--
+	-- Splitting one bedded sounder into two packs needs a `Runtime` function that does not exist
+	-- (there is no public "leave"), and `src/server/Boar/` is not this task's. So a WOKEN group walks
+	-- as one file behind its march leader, keeps the pack it was bedded with, and the row's `files`
+	-- is not read on this path. The consequence is named: a `SPLIT` row crosses ONCE on the flag-ON
+	-- path instead of twice (`ESCALATE.md` 2026-11-11, entry 6). A RELEASED group is untouched --
+	-- `releaseLine` spawns one animal at a time, so its members have no sounder and `formSounder`
+	-- does form one per file.
+	local files = 1
+	local pace = if type(spec.pace) == "string"
+		then spec.pace
+		else ForestTest.paceFor(state.rng:NextNumber(), lineData.paceMix)
+	local speed = ForestTest.paceSpeed(pace, boar)
+
+	-- THE MARCH ORDER, AND THE TIE IS BROKEN BY WHO IS ALREADY IN FRONT. `Boar.MARCH_RANK` is the
+	-- ANIMAL owner's fact (a sow leads her young, a harem's stag walks last) and it is not touched:
+	-- what is decided here is the order WITHIN one rank, and the cheapest file to form is the one
+	-- whose ranks are already laid out along the way they are about to walk. `Line.order` breaks a
+	-- rank tie by input index, so sorting the input along the route is the whole of it.
+	local aim = if crossing ~= nil
+		then crossing :: Vector3
+		else Vector3.new(standX, chosen.layout.centre.Y, Data.roadZ(standX, chosen.layout))
+	local centre = Vector3.zero
+	for _, member in ipairs(able) do
+		centre += member.at
+	end
+	centre /= #able
+	local forward = Vector3.new(aim.X - centre.X, 0, aim.Z - centre.Z)
+	forward = if forward.Magnitude > 1e-3 then forward.Unit else Vector3.new(0, 0, -1)
+	table.sort(able, function(a, b)
+		return a.at:Dot(forward) > b.at:Dot(forward)
+	end)
+	local whereOf = {}
+	for _, member in ipairs(able) do
+		whereOf[member.id] = member.at
+	end
+	local plans = Line.split(Line.order(able, Boar.MARCH_RANK), files)
+
+	-- EVERY FILE'S ROUTE COMES FROM ITS OWN LEADER'S FEET, so `lateralStep` is 0: the bodies carry
+	-- their own offsets already and a second side shift would aim the route beside them. `SPLIT`'s
+	-- crossing shift is inside `routeFilesFor` and is unaffected.
+	local madeFiles, placed = 0, 0
+	local parts = {}
+	local head1 = nil :: Vector3?
+	for which, plan in ipairs(plans) do
+		local head = plan[1]
+		if head ~= nil then
+			local start = whereOf[head.id] or centre
+			if which == 1 then
+				head1 = start
+			end
+			-- WHERE A ROUTE CAN ACTUALLY START, AND IT IS MEASURED (task 345d, the Forest Test,
+			-- `345d-path.luau`): **the pathfinder answers `NoPath` from a bed**. A bed is in COVER by
+			-- construction (`restSpot` picks a spot by a trunk), and a point inside a trunk's
+			-- `AgentRadius` is off the navmesh -- the same family as `releaseLine`'s own measured
+			-- *"ComputeAsync from inside a pile of colliders fails"*. Two readings, same animal, same
+			-- tick: from its BODY's Y, 100 studs south = `NoPath`; from the GROUND under its feet,
+			-- the same leg = `Success, 31 waypoints`.
+			--
+			-- SO THE ROUTE STARTS AT THE FIRST POINT ON THE WAY OUT THAT THE PATHFINDER ACCEPTS: the
+			-- ground under the leader, then 30, 60, 90 studs along the way she is about to walk. The
+			-- file is STEERED to `route[1]` by `Runtime:leadTo` and never pathed to it (`stepLines`),
+			-- so a route that begins a few studs ahead of the group IS the group walking out of its
+			-- cover -- which is what it does anyway. At most four `ComputeAsync` calls, once per
+			-- group, because `stepPlacement` latches `orderTried` before the attempt.
+			local made = nil
+			for _, ahead in ipairs(ORDER_START_STUDS) do
+				local at = start + forward * ahead
+				local ground = Data.groundAt(at.X, at.Z)
+				local from = Vector3.new(at.X, ground or at.Y, at.Z)
+				local routes = routeFilesFor(spec, route, from, crossing, exitPoint, #plans, 0, which)
+				made = routes[1]
+				if made ~= nil then
+					break
+				end
+			end
+			if made ~= nil then
+				-- THE TRAIL IS SEEDED FROM THE LEADER'S FEET BACKWARDS ALONG THE FIRST LEG (design
+				-- 4.6, the one named technical risk of this task): the group is standing in a loose
+				-- bed and not in a file, so station k must exist on the first step or every follower
+				-- is told "walk at the leader" and the file never forms -- task 127 measured a
+				-- 9.6-stud median that way. The LEG and not the crossing: the first waypoint more
+				-- than two studs off, so a route whose first point is under her feet is skipped.
+				local first = made.route[1]
+				for index = 1, #made.route do
+					local point = made.route[index]
+					if (Vector3.new(point.X - start.X, 0, point.Z - start.Z)).Magnitude > 2 then
+						first = point
+						break
+					end
+				end
+				local toward = Vector3.new(first.X - start.X, 0, first.Z - start.Z)
+				local group = {}
+				for _, member in ipairs(plan) do
+					table.insert(group, { id = member.id, kind = member.kind })
+				end
+				table.insert(state.lines, {
+					id = string.format("%s-f%d", tostring(row.id), which),
+					members = group,
+					route = made.route,
+					leg = 1,
+					trail = Placement.seedTrail(start, toward, #group, lineData.spacingStuds),
+					speed = speed,
+					baseSpeed = speed,
+					pace = pace,
+					bornAt = now,
+					-- WHERE THIS FILE CAME FROM, for the one measurement this task owes: a file that
+					-- got up out of a bed is the thing being judged, and a file spawned along its
+					-- approach (the flag-OFF drive, the staged instrument) is the control. One
+					-- instrument, both sides -- `ForestTest.measureFile`.
+					woken = true,
+					crossing = crossing,
+					pins = made.pins,
+					checked = false,
+					stuckFrom = {},
+					stuckAt = {},
+					repaths = 0,
+				})
+				madeFiles += 1
+				placed += #group
+				table.insert(parts, string.format("%d behind a %s", #group, tostring(head.kind)))
+			end
+		end
+	end
+	if madeFiles == 0 then
+		state.placementNoRoute = (state.placementNoRoute or 0) + 1
+		return nil, "noroute"
+	end
+	row.lineId = string.format("%s-f1", tostring(row.id))
+	state.placementOrdered = (state.placementOrdered or 0) + 1
+	-- WHERE THE FILE THAT HAS JUST GOT UP IS STANDING, where a probe can read it (V293b: a
+	-- diagnostic that lives only in module state is not a diagnostic -- MEASURED this session, a
+	-- live `require` over StudioMCP answers a FRESH copy of this module and `placementStats()` read
+	-- `drive=nil` while this attribute read `drive=1`). Studio only, like `DHForestPlacement`, and
+	-- it is what parks the camera for the frame this task owes.
+	if RunService:IsStudio() then
+		local shown = head1 or centre
+		ServerStorage:SetAttribute(
+			"DHForestOrdered",
+			string.format("%s|%.1f,%.1f,%.1f|%d|%.1f", tostring(row.id), shown.X, shown.Y, shown.Z, placed, now)
+		)
+	end
+	-- ...AND THE STAG ANNOUNCES HIMSELF AS HE COMES (task 251 part 2), from where he actually is.
+	if spec.species == "reddeer" and spec.party == "stag" then
+		ForestTest.roarNow(head1 or centre, "his own line, moving")
+	end
+	return string.format(
+		"up %s: slot %d act %d %s -- %d animal(s) [%s] in %d file(s) at a %s from its BED at dz %.0f%s%s",
+		tostring(row.id),
+		row.slot or 0,
+		row.act or 0,
+		route,
+		placed,
+		table.concat(parts, "+"),
+		madeFiles,
+		pace,
+		row.bedNorth or 0,
+		if type(offset) == "number" then string.format(", crossing %+d studs from the stand", offset) else "",
+		if flying + dead > 0 then string.format(" (%d flying, %d gone, not ordered)", flying, dead) else ""
+	),
+		nil
 end
 
 -- ======================================================= THE STAG'S RUT ROAR (task 251 part 2)
@@ -4507,6 +4992,9 @@ function ForestTest.stepLines(now: number)
 		end
 
 		line.arcOf = line.arcOf or {}
+		-- THE ONE MEASUREMENT THIS FILE OWES (T4): how formed the file is five seconds after it was
+		-- given its route. `live` is in rank order, so consecutive pairs ARE nose-to-nose.
+		ForestTest.measureFile(line, live, now)
 
 		-- AN ANIMAL IN FLIGHT IS NOT IN THE LINE ANY MORE (task 126 round 2, the Reviewer's blocking
 		-- finding). `Brain` now drops an order the moment a fright latches, and the drive must not

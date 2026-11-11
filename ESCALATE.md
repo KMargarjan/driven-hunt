@@ -3898,3 +3898,59 @@ drives at code commit `ea0cbbb7`, Karen's Forest Test, `<runs-dir>/345c-ON-{C1,A
    the drive, `budget` and `inview` are retried) is what produces it.
 
 Both belong to T5's budget restatement or to a design edit; the Builder has queued neither as a fix.
+
+## Builder, 2026-11-11 ~07:15 UTC -- Task 345d (T4): one proof not obtainable, and three design deltas
+
+All five readings are from Karen's Forest Test at code commit `3e1c259a`, eight flag-ON drives
+(`<runs-dir>/345d-ON*-{C1,A2}-track.txt`, `-console.txt`). `docs/design/` is not the Builder's, so
+nothing here is edited there.
+
+1. **NOT OBTAINABLE: the frame of a woken file 2-3 s after its break.** Four attempts, measured each
+   time. A woken file is 700-900 studs from the hunter, and `Boar.Body.create` sets
+   `ModelStreamingMode = Atomic` (T3), so those models are **not on his client at all**: with the
+   camera parked 32 studs from a live animal the client answered `Boars=10 within145=0 nearest=841`
+   (`345d-ON7-C1-frame-got.txt`). `RequestStreamAroundAsync` moved it to `nearest=190` (ON10) and
+   `Player.ReplicationFocus` on a pin at the group to `within145=3 nearest=117` (ON11) -- still not
+   the group, inside the 2-4 s the frame has. **A camera is not a streaming anchor; the character
+   is.** The two frames that WERE taken and opened (`345d-ON7-C1-F1.png`, `345d-ON9-C1-F1.png`) show
+   the right patch of wood -- trunks, grass, autumn leaves, the HUD reading DRIVE 1 / 0 ANIMALS --
+   and no animal in it, which is the streaming fact and not the drive's. A frame of a woken file
+   needs the hunter to BE there (a beater-role client, or a second player), which is a Director
+   decision about the proof route, not something the Builder can work around.
+2. **The retry cap adds a state design section 4.3 does not name.** The Director's decision of
+   2026-11-11 ~04:55 is implemented as `searchesPerWake = 3`: a row that spends three ring searches
+   is **PARKED** -- still a RECORD, not skipped -- and `Placement.reopenNow` gives it one more window
+   when the line reaches its bed or its slot clock comes. No design NUMBER changes; one is added.
+   **The arithmetic:** 15 rows x (3 + 3) = **90** searches worst case per drive, under the Director's
+   target of 100. **MEASURED at A2, the cell that produced the 2,940: 24 searches, caps=3,
+   reopens=3** (`345d-ON5-A2-track.txt`), and C1 7-10 per drive.
+3. **A group woken by the LINE no longer stands before it moves.** Design section 4.5's "spooked"
+   row says the stand-then-flush path is untouched; T4 orders the group ON THE WAKE TICK instead,
+   and an ordered animal is not IDLE, so `Runtime:notice` refuses it the `ALERT_SECONDS` 2 stand.
+   It cannot be had both ways: `Line.stillInFile` drops a FLYING animal out of a file permanently,
+   so a file cannot be made of flushed animals, and Karen's *"it gets up from where it lay and runs
+   in a file across the line"* needs the file. **Design section 12.2's frame 3 -- "an animal standing
+   at the tree line, head up, before it breaks" -- is therefore not what the ON path shows for a
+   line-woken group.** Karen's call.
+4. **The horn empties the wood in front of the line, and nobody has costed it.** `Horn.SPOOK_STUDS`
+   357 reaches five beds at once from a line still 300 studs away. MEASURED, `345d-ON2-C1-console`:
+   *"horn blown ... 9 boar(s) pushed within 357 studs"*, four blasts in one drive, 6-9 animals each.
+   Design section 4.5 lists the horn as a legitimate wake and it is -- but a horn-woken group RUNS
+   (a flight), and a flight cannot be a file. Over eight drives: **12 groups ordered into files**
+   against 16-20 refused attempts per drive whose every member was already flying (`flights=`). It
+   is why the file-formation target could be measured over **3 breaks and not the design's 10**.
+5. **The repeat window past slot 15 still SPAWNS on the flag-ON path.** `releaseLine`'s roster branch
+   only fires for a slot that has a roster row, and slots 16+ have none, so `345d-ON1-C1-console`
+   shows *"SLOT 16 ... 9 of 9 animal(s) ... in 2 of 2 file(s)"*. That is design section 17's **T5**
+   ("retire the repeat window"), named there, and T4 left it alone deliberately. Until T5 lands,
+   "spawns in the lane on the ON path = 0" is true of the fifteen SCRIPTED slots only.
+6. **A `SPLIT` row crosses ONCE on the flag-ON path, not twice** (round 1, finding 2). A woken group
+   was made by `Runtime:spawnSounder`, which sets `sounderId` on every member, and
+   `Runtime:formSounder` claims only ids whose `sounderId` is nil -- so the call `orderGroup` made
+   formed nothing, and two files walking two routes inside ONE sounder is what `_stepSounders`'
+   `BREAK_STUDS` rule expels members from (the lone-voice hole task 139 closed). Splitting a bedded
+   sounder into two packs needs a `Runtime` function that does not exist and `src/server/Boar/` is
+   not this task's, so a woken group now walks as ONE file behind its march leader and keeps the
+   pack its bed gave it. The drive's SPLIT shape -- *"it splits at the verge and crosses twice"* --
+   is therefore a RELEASED-path shape only while the switch is on. A `Runtime` "leave your sounder"
+   function would give it back; that is a Boar-owner task for T5/T6 to queue, not a hole to hide.
