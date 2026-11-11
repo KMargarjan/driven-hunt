@@ -582,6 +582,11 @@ local function update(dt: number)
 		local cam = Workspace.CurrentCamera
 		stats.probeCameraAt = if cam then cam.CFrame else nil
 		stats.frames += 1
+		-- COUNTED LIKE ANY OTHER FRAME, both numbers or neither (round 1, note): a parked frame that
+		-- raised `frames` alone would dilute the camera's own average update cost downward.
+		local parkedMs = (os.clock() - startedAt) * 1000
+		stats.maxUpdateMs = math.max(stats.maxUpdateMs, parkedMs)
+		stats.totalUpdateMs += parkedMs
 		return
 	end
 	local hold = Poses.hold()

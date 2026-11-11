@@ -3876,3 +3876,25 @@ Karen wants (that is drive density, which this task's NOT YOURS list puts outsid
 - **Deviation 4, the bridge holds a budget-refused slot: ACCEPTED.** It is what keeps live bodies at 24 instead of the design's measured 39.
 - **Heartbeat p95** is over 32 ms on both sides (OFF 32.38, ON 33.18). This change did not cause it; T5 restates and measures it. REQUEST claim 9 must say "breached on both sides", not "holds".
 - **Round 3 AUTHORISED** for task 345b (`DIRECTOR_MAX_ROUNDS=3`), within MAX_ROUNDS 3. Round 3 must also fix the round-2 note on `stepPlacement`: when a row goes `gone`, clear `row.ids` (or key `releaseLine`'s arms on live bodies), so "the line finds it" is never printed for a group with no body. Also declare `state.latched`.
+
+## Builder, 2026-11-11 ~04:55 UTC -- Task 345c (T3): two measured numbers that moved against the design
+
+Neither is fixed here (`docs/design/` is not the Builder's). Both are read off the two live flag-ON
+drives at code commit `ea0cbbb7`, Karen's Forest Test, `<runs-dir>/345c-ON-{C1,A2}-console.txt`.
+
+1. **`skipped.inview` has a target of 0 at a stand (design section 12.1) and cell A2 gave 3.**
+   C1 gave 0. The refused bed was `bed g1-s13: slot 13 SKIPPED for this drive (inview: in sight of
+   Alhamdulilah824) at planned dz 364` -- i.e. the band's near edge (150 studs) is not enough in A2,
+   where a hunter on that stand has a clear 364-stud sight line. Either the target is wrong for a
+   cell with long lanes, or the band's near edge is (design sections 6.2, 12.1). **The predicate did
+   its job** -- nothing was created in view, `inView = 0` on both drives -- so this is a hole in the
+   wood, not an animal appearing.
+2. **An `inview` refusal is retried every Heartbeat, and each retry costs a full ring search.**
+   C1 spent 9 searches / 9 rays over the drive; A2 spent **2,952 searches / 2,950 rays**, almost all
+   of them re-searching the one bed slot 13 was refused. The per-step budget of design section 6.2
+   holds (0.21 rays/step against `<= #Players`), and A2's own cost was not worse for it (boar step
+   avg 2.07 ms, client frame p95 26.49 ms), but `searches` is the expensive counter -- each ring
+   candidate raycasts -- and `rays` does not count that work. The design's retry rule (`nobed` ends
+   the drive, `budget` and `inview` are retried) is what produces it.
+
+Both belong to T5's budget restatement or to a design edit; the Builder has queued neither as a fix.

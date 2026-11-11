@@ -49,17 +49,22 @@ local player = Players.LocalPlayer
 
 -- ------------------------------------------------------------------------------ THE PURE CLASSIFIER
 -- IS THIS ARRIVAL ONE THE RULE JUDGES, AND DOES IT BREAK THE RULE? Returns "ignored", "clear" or
--- "inview". Pure: a distance and two ages, so both answers are reachable with no world (the half of
--- this file that has bite in any place).
+-- "inview".
+--
+-- THE DISTANCE RULE IS **ASKED**, NOT RESTATED (round 1, finding 2): the one answer to "is that
+-- point clear of a player's eyes" is `Placement.clearOfEyes`, so replacing it with `return true`
+-- reds this file's own case, exactly as it reds the server's (lesson L-093). What is this file's own
+-- is the two exceptions below and nothing else.
 local function verdictFor(
-	distanceStuds: number?,
+	at: Vector3?,
+	eye: Vector3?,
 	sinceCharacter: number,
 	sinceJump: number,
 	settle: number,
 	never: number
 ): string
 	-- NO BODY TO MEASURE FROM is not a pass: it is an arrival nobody can judge.
-	if distanceStuds == nil then
+	if at == nil or eye == nil then
 		return "ignored"
 	end
 	-- A RESPAWN OR A TELEPORT BRINGS A WHOLE 384-STUD SPHERE AT ONCE, from 0 studs outward: the
@@ -68,7 +73,8 @@ local function verdictFor(
 	if sinceCharacter < settle or sinceJump < settle then
 		return "ignored"
 	end
-	return if (distanceStuds :: number) < never then "inview" else "clear"
+	local clear = Placement.clearOfEyes(at :: Vector3, { eye :: Vector3 }, never)
+	return if clear then "clear" else "inview"
 end
 
 -- ---------------------------------------------------------------------------------- THE LIVE WATCH
@@ -105,9 +111,10 @@ local function observe(child: Instance)
 		then child :: BasePart
 		else (child:IsA("Model") and (child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart")) or nil)
 	local me = rootPosition()
-	local studs = if root ~= nil and me ~= nil then ((root :: BasePart).Position - (me :: Vector3)).Magnitude else nil
+	local where = if root ~= nil then (root :: BasePart).Position else nil
+	local studs = if where ~= nil and me ~= nil then ((where :: Vector3) - (me :: Vector3)).Magnitude else nil
 	local now = os.clock()
-	local verdict = verdictFor(studs, now - characterAt, now - jumpAt, CONFIG.settleSeconds, CONFIG.neverStuds)
+	local verdict = verdictFor(where, me, now - characterAt, now - jumpAt, CONFIG.settleSeconds, CONFIG.neverStuds)
 	if verdict == "ignored" then
 		ignored += 1
 		return
@@ -146,17 +153,23 @@ return function()
 		it("classifies an arrival by distance, and ignores a respawn's whole sphere", function()
 			local never = CONFIG.neverStuds
 			local settle = CONFIG.settleSeconds
-			-- THE RULE: inside the reach is a failure, outside it is not.
-			expect(verdictFor(never - 1, 60, 60, settle, never)).to.equal("inview")
-			expect(verdictFor(never + 1, 60, 60, settle, never)).to.equal("clear")
-			-- ...and the boundary belongs to the allowed side, as `Placement.clearOfEyes` has it.
-			expect(verdictFor(never, 60, 60, settle, never)).to.equal("clear")
+			local eye = Vector3.new(0, 0, 0)
+			local function at(studs: number): Vector3
+				return Vector3.new(0, 0, studs)
+			end
+			-- THE RULE, THROUGH `Placement.clearOfEyes`: inside the reach is a failure, outside it is
+			-- not. Replace that function with `return true` and these three lines go red.
+			expect(verdictFor(at(never - 1), eye, 60, 60, settle, never)).to.equal("inview")
+			expect(verdictFor(at(never + 1), eye, 60, 60, settle, never)).to.equal("clear")
+			-- ...and the boundary belongs to the allowed side, as `clearOfEyes` has it.
+			expect(verdictFor(at(never), eye, 60, 60, settle, never)).to.equal("clear")
 			-- THE TWO HONEST EXCEPTIONS, both counted: a fresh character and a single-frame jump.
-			expect(verdictFor(1, settle - 0.1, 60, settle, never)).to.equal("ignored")
-			expect(verdictFor(1, 60, settle - 0.1, settle, never)).to.equal("ignored")
-			expect(verdictFor(1, settle + 0.1, settle + 0.1, settle, never)).to.equal("inview")
+			expect(verdictFor(at(1), eye, settle - 0.1, 60, settle, never)).to.equal("ignored")
+			expect(verdictFor(at(1), eye, 60, settle - 0.1, settle, never)).to.equal("ignored")
+			expect(verdictFor(at(1), eye, settle + 0.1, settle + 0.1, settle, never)).to.equal("inview")
 			-- AN ARRIVAL NOBODY CAN MEASURE FROM IS NOT A PASS.
-			expect(verdictFor(nil, 60, 60, settle, never)).to.equal("ignored")
+			expect(verdictFor(nil, eye, 60, 60, settle, never)).to.equal("ignored")
+			expect(verdictFor(at(1), nil, 60, 60, settle, never)).to.equal("ignored")
 		end)
 
 		it("keeps the margin that makes the measurement meaningful", function()
@@ -184,6 +197,11 @@ return function()
 				end
 			end
 			local switch = Flags.isOn("PLACEMENT_IN_PLACE")
+			if not switch then
+				TestKit.note(
+					"placement client: PLACEMENT_IN_PLACE is OFF, so NOTHING WAS JUDGED by the in-view rule in this run"
+				)
+			end
 			TestKit.note(
 				string.format(
 					"placement client: switch=%s watched %.0fs, %d arrivals judged, %d ignored (respawn/teleport), %d inside %d studs, %d with a clear camera ray, nearest %s studs",
@@ -197,14 +215,14 @@ return function()
 					if nearest == math.huge then "none" else string.format("%.0f", nearest)
 				)
 			)
-			-- THE RULE IS ASSERTED WHERE THE SYSTEM IS RUNNING. With the switch off the arrivals
-			-- belong to other specs and to the old release path, and they are reported rather than
-			-- judged -- the header says why. The live number with the switch ON is in the task's
-			-- report, measured by a probe of exactly this shape in Karen's own place.
+			-- THE RULE IS ASSERTED WHERE THE SYSTEM IS RUNNING, AND NOTHING IS ASSERTED WHERE IT IS
+			-- NOT (round 1, finding 2). With the switch off the arrivals belong to other specs and
+			-- to the old release path; the note above carries the measurement and says in so many
+			-- words that nothing was judged, rather than an `expect` that cannot fail standing in
+			-- for one. The live number with the switch ON is in the task's report, measured by a
+			-- probe of exactly this shape in Karen's own place.
 			if switch then
 				expect(inView).to.equal(0)
-			else
-				expect(#arrivals >= 0).to.equal(true)
 			end
 		end)
 	end)

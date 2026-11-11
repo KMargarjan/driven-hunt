@@ -2911,11 +2911,13 @@ return function()
 				-- screenshot's description rests on.
 				expect((achieved.Position - at).Magnitude < 0.01).to.equal(true)
 				expect(achieved.LookVector:Dot((look - at).Unit) > 0.999).to.equal(true)
-				-- ...AND THE OWNER PUBLISHES THE SAME FRAME, so a probe can read it without a camera
-				-- of its own.
+				-- ...AND THE OWNER PUBLISHES THAT SAME FRAME, so a probe can read it without a camera
+				-- of its own. This pair is a CONVENIENCE and not the claim (round 1, note): both
+				-- sides are reads of the one engine property, and the assertion that carries the
+				-- instrument is `achieved` against `at` above.
 				local reported = Camera.stats().probeCameraAt
 				expect(reported ~= nil).to.equal(true)
-				expect(((reported :: CFrame).Position - achieved.Position).Magnitude < 0.01).to.equal(true)
+				expect(((reported :: CFrame).Position - at).Magnitude < 0.01).to.equal(true)
 				-- THE ATTRIBUTE IS STILL THERE: the camera never writes it back, so re-asking for
 				-- the same frame from the server is idempotent (`TestLook`'s measured reason).
 				expect(player:GetAttribute("DHProbeCamera")).to.be.ok()
@@ -2934,8 +2936,10 @@ return function()
 				expect(Camera.stats().probeCameraFrames).to.equal(stopped)
 				local root = character:FindFirstChild("HumanoidRootPart")
 				if root ~= nil then
+					-- 50 AND NOT 300 (round 1, note): the park was exactly 300 studs up, so a bound
+					-- of 300 is the third-person offset's own width and proves nothing.
 					local back = (Workspace.CurrentCamera.CFrame.Position - (root :: BasePart).Position).Magnitude
-					expect(back < 300).to.equal(true)
+					expect(back < 50).to.equal(true)
 				end
 			else
 				error(why, 0)

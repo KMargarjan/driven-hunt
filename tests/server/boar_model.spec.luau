@@ -336,6 +336,17 @@ return function()
 			)
 		end)
 
+		it("is ONE thing to stream in, so no client is handed an animal limb by limb", function()
+			-- TASK 345c, design `animal-placement.md` 7.2. This is the one line of that task that
+			-- runs with `PLACEMENT_IN_PLACE` off, on every animal in every drive Karen plays, so it
+			-- is asserted rather than assumed -- `grid_ground.spec`'s own rule for `Places.plantOne`,
+			-- which sets the same property on a tree for the same reason (lesson L-060).
+			-- `Persistent` is refused by the design: it would send every animal to every client
+			-- whatever the distance.
+			local visual = visualsOf(handle.part)[1]
+			expect(visual.ModelStreamingMode).to.equal(Enum.ModelStreamingMode.Atomic)
+		end)
+
 		it("ends up with exactly ONE AnimationController and ONE Animator", function()
 			-- THE BUG THIS TASK SHIPPED AND MEASURED ITS WAY OUT OF. The uploaded asset carries an
 			-- AnimationController of its own, so the visual had two: every track loaded with the
