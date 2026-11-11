@@ -58,3 +58,41 @@ The aim is settled at the FIRST RELEASE of a drive and latched for that drive, a
 field is re-applied in the same breath -- a Brain is born with its field
 (`src/server/Boar/init.luau:7144`), so every animal of that drive is judged by the frame it was
 released into. A pick locked after that applies from the next drive.
+
+## WHAT CHANGED (round 2)
+
+`ForestTest.driveZ(x, aim?)` is the one definition of this drive's z at an x, and every reader of an
+animal's FATE reads it. The aim is settled ONCE per drive, in front of the first thing that puts an
+animal down, and the runtime's field moves with it -- a Brain is born with its field, so every
+animal of a drive is judged by the frame it was released into.
+
+- **`Data.fieldFor(layout, dz)`** shifts `exitZ`, `road.zAt` and `bounds`. These are the two the
+  round-1 defect was made of: `Brain._outcome` reports `escaped` at `position.Z <= field.exitZ`, and
+  `_updateOutOfPlay` measures `settledNorthStuds` from `road.zAt`. `bounds` moves with them because
+  a box that excludes the band would clamp every animal in it.
+- **`Data.releaseFrame(layout, dz, startX, startNorth, crossX, exitSouthStuds)`** is the one place
+  the shift reaches a release's three z's. `releaseLine` AND `orderGroup` both draw the start, the
+  crossing and the exit with it, so they cannot disagree.
+- **`Data.rosterAim(frames, enabled)`** is the roster rule. `ForestTest.lockedFrames` builds its
+  input from `state.picks` filtered by `Players:GetPlayerByUserId`, so a bot can never be in it.
+- **By parameter**: `releaseLine(now, staged, inPlace, aim)`, `stepPlacement(now, inPlace, aim)` and
+  `orderGroup(row, now, aim)` all take it, exactly as `inPlace` is taken.
+- **The silent arms speak**: `releaseLine`'s four `return nil` arms now name their reason (no room,
+  no route, no handle, nothing placed).
+- `retire`, `urgeAcrossRoad`, `checkAtTheEdge`, `waveReport`, `boarThreats`, `restSpot`/`bedSpot`,
+  `restReport` and the roar all read `driveZ`.
+
+### Two things I found by reading, said here rather than left to be found
+1. **`urgeAcrossRoad` and `checkAtTheEdge` do not run in today's game.** `ForestTest.step` returns
+   inside the `Data.LINE.enabled == true` branch before reaching them; the code says so itself
+   (`"checkAtTheEdge -- the wave path's only caller of Runtime:check"`). They are aimed for
+   correctness, but round 1's finding 1(c) is about a path that is already dead with `LINE.enabled`
+   true. Nothing here makes them live.
+2. **`ForestTest.start` re-applied the LAST drive's shift** to a fresh runtime. Found by
+   `forest_stand.spec:643` while building this round; a new runtime now starts on the main road.
+
+### A prediction, written before the measurement
+Round 1 shifted the START but not the EXIT, so every route ran from dz ~1100 to the main road's exit
+plane ~1000 studs south. I expect that to be why the flank drive released 72 where the main line
+released 121, and I expect the named arms to say `no route could be drawn` if I am right. If the
+AFTER run shows the count restored without those lines, my explanation was wrong and I will say so.
