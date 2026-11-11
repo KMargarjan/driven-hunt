@@ -103,7 +103,19 @@ local function stubRuntime()
 		boars = function()
 			local out = {}
 			for _, id in ipairs(standing) do
-				table.insert(out, { id = id })
+				-- THE REAL HANDLE'S SHAPE, copied from `Runtime:boars` -> `entry.handle`
+				-- (`src/server/Boar/init.luau`): `position` is a FUNCTION, read live, and `kind` is
+				-- on the handle. `ForestTest.spookNearBeaters` reads all three unguarded, and it is
+				-- reached whenever a real beater exists -- which is why only `test2` found this.
+				-- `part` is left out on purpose: both of its readers nil-guard it and a stub has no
+				-- instance to hand over.
+				table.insert(out, {
+					id = id,
+					kind = (where[id] or {}).kind or "female",
+					position = function()
+						return (where[id] or {}).at or Vector3.new(0, 0, 0)
+					end,
+				})
 			end
 			return out
 		end,

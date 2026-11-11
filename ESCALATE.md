@@ -1,3 +1,102 @@
+## 2026-11-11 ~12:15 UTC, Task 348 round 2 -- FOR THE DIRECTOR: **`test2` CANNOT BE RUN WHILE KAREN'S FOREST TEST STUDIO IS OPEN, AND CLOSING IT WOULD DISCARD YOUR 11:59 FLAG CHANGE.** HARD STOP, WRITTEN BEFORE ANY WORKAROUND
+
+`python tools/studio_mcp.py test2` refuses on its own first check:
+
+    FAIL One Studio instance before the test starts  (Driven Hunt DEV (placeId: 136410205938347); Driven Hunt Forest Test (placeId: 130094961655666))
+
+**It is RECORDED, not fatal** -- the run continues past it, and task 226's scoping directly below it
+resolves the editor BY PLACE, so a second Studio cannot confuse the run. What it costs is the LINE:
+while the Forest Test is open the ceiling is 35/36, which is a FAIL, so there can be no
+`[harness2] PASS`. **Even a second Studio with NO place open fails it** -- round 1's first attempt
+read exactly that. (An earlier draft of this entry called the check fatal, on the strength of a 9/11
+control attempt; that attempt died on a different check -- the missing `tests/sync-token.txt` in the
+`driven-hunt-rev` worktree, below -- and the two full runs at 31/36 and 33/36 are what settle it.)
+
+**WHY I DID NOT CLOSE IT.** This round's dispatch says *"Her Forest Test: NOT needed for this round;
+do not touch it (Karen may play; PLACEMENT_IN_PLACE was set off there by the Director at 11:59
+UTC)"*. I read its attributes at 12:07 UTC rather than act on them:
+
+    DHFlag_PLACEMENT_IN_PLACE=false   (your 11:59 change, live in that Edit session)
+
+`tools/flags.py` writes an ATTRIBUTE into the open session, not a file. The place has not been saved
+(saving is forbidden to me), so **closing that Studio window discards your change** and Karen's next
+Forest Test would run with `PLACEMENT_IN_PLACE` back at `true` -- the state it held all morning. I am
+not willing to spend your flag change to buy a harness line, and the dispatch told me not to.
+
+**THE FULL 12:07 UTC READING, so nothing is lost if it is closed later:**
+`DHFlag_AIM_REWIND=true DHFlag_BOAR_BEHAVIOUR=true DHFlag_BOAR_MODEL=true DHFlag_COINS=true
+DHFlag_DEER_ROAD_LEAP=true DHFlag_DRIVE_BOTS=true DHFlag_GRID_PREVIEW=true DHFlag_HIT_CLAIM=false
+DHFlag_HORN=true DHFlag_LICENCE_POPUP=true DHFlag_LOBBY=true DHFlag_PLACEMENT_IN_PLACE=false
+DHFlag_RANGE=true DHFlag_RANGE_SOLO=true DHFlag_SHOP=true DHFlag_STAND_PICK=true
+DHFlag_ZONES_FOLLOW_GAIT=true DHForestLayout=D1 DHForestStartRole=hunter DHShopTestGrant=true
+DHTestOwns=rifle.scoped,rifle.lever,shotgun.semiauto,ammo.unlimited,ammo.slug,licence.reddeer`
+
+**WHAT IT ACTUALLY COST, now that the round is run (this paragraph replaces what I first wrote here).**
+The check is NOT fatal -- it records a FAIL and the run continues, and task 226's scoping right
+below it already resolves the editor BY PLACE, so a second Studio cannot confuse the run. So the
+STUB FIX IS FULLY PROVEN; what is lost is only the 36/36 line:
+
+* `[harness] PASS: 34/34 checks @ b97b3751b31a5da3ddaabacf4cf14f03d54bb8e1 (clean tree) scope=all`
+* `test2` @ `b97b3751`, twice, `<runs-dir>/348r2-after.log` and `348r2-after2.log`:
+  **`forest_placement` and `spookNearBeaters` appear 0 times in either log**, against round 1's
+  `348-test2.log` @ `66de5029` where that error is the failure. The only delta between those two
+  commits in that file is the stub's `position`/`kind` -- so round 1's run IS the delete-and-fail
+  side, taken at a commit that has the field absent.
+* the two runs scored 31/36 and 33/36. Their remaining failures are **not** `forest_placement`:
+  `deer_hitbox.spec:682` (on this dispatch's own KNOWN FLAKE list) in both, `deer_hitbox.spec:340`
+  and `gun_client.spec:393` once each, neither recurring. Plus the one-Studio check, in both.
+
+**THE MERGE-BASE CONTROL IS STILL NOT OBTAINABLE**, for a different reason: run from the
+`driven-hunt-rev` worktree, `test2` never reaches the specs -- `Rojo synced the fresh token from
+disk` reads `'<missing>'` then `''` across three attempts (`348r2-control.log`, `-control2.log`,
+`-control3.log`), because `tests/sync-token.txt` is git-ignored and absent from a fresh worktree, and
+re-serving after creating it did not fix the empty read. I stopped after the third attempt and spent
+the time on the two runs above instead, which answer the same question with a tighter delta.
+
+**THE ONE ACTION THAT UNBLOCKS IT** (yours or Karen's, in this order):
+1. close the Forest Test Studio window (answer **No** to any save prompt -- the place must not be saved);
+2. `python tools/flags.py --place forest set PLACEMENT_IN_PLACE off` once it is reopened, to put your
+   11:59 change back;
+3. then `python tools/studio_mcp.py test2` from `driven-hunt` at the code commit, and the control at
+   `0c1dd2ac` if you still want it.
+
+I left the Forest Test open, in Edit, on :34873 from `driven-hunt-karen`, untouched.
+
+## 2026-11-11 ~11:58 UTC, Task 348 -- FOR THE DIRECTOR: **`test2` DOES NOT PASS AT THE CODE COMMIT, AND THE DEFECT IS NOT THIS BRANCH'S.** THE MERGE GATE IS BLOCKED BY A SPEC THIS TASK DOES NOT TOUCH
+
+Written at the hard stop (V280). Task 348 changes `src/server/Match/init.luau`, which is in
+`TWO_PLAYER_PATHS`, so the PR to `main` needs a clean-tree `[harness2] PASS` for code commit
+`66de5029`. **It cannot be produced.**
+
+`python tools/studio_mcp.py test2` at `66de5029`, clean tree: **34/36**. One server spec errors:
+
+    TestService: ServerScriptService.ForestTest:2743: attempt to call a nil value
+    ServerScriptService.ForestTest:2743 function spookNearBeaters
+    ServerScriptService.ForestTest:3470 function step
+    ServerStorage.Tests.forest_placement.spec:1310
+    [tests:server] FAIL: 2944 passed, 1 failed, 0 skipped, 1 errors, 82 spec files
+
+**WHY IT ONLY BITES WITH TWO PLAYERS.** `spookNearBeaters` is gated on
+`#ForestTest.realBeaters() > 0`. With one player there is no beater, the loop is never entered, and
+the one-player run at the same commit is **34/34 with that spec green**. With a second player on
+`Drivers` the loop runs, and `forest_placement.spec`'s `stubRuntime()` builds its `boars()` handles
+as `table.insert(out, { id = id })` -- **no `position` field** -- while line 2743 does
+`local at = handle.position()`.
+
+**IT IS NOT THIS BRANCH'S.** The Reviewer checked it independently (`reviews/task-348/RESULT.md`):
+*"The stub and the call are both in the base, and this diff changes three files, none of them
+`ForestTest`. So it predates the branch."* This branch touches `src/server/Match/init.luau`,
+`tests/server/match_stand_pick.spec.luau` and paperwork.
+
+**WHAT I DID NOT DO, and why it matters.** I did **not** run a control `test2` at the merge base
+`0c1dd2ac`, so the claim above rests on reading plus the one-player result, not on a second run.
+Doing it costs one branch switch, one Rojo reconnect and one `test2` (~15 min). I spent that time on
+the Forest Test before/after proof of Karen's bug instead, which was the dispatch's first ask.
+
+**THE DECISION IS THE DIRECTOR'S:** run the control at `0c1dd2ac` and, if it fails there too, fix
+`forest_placement.spec`'s stub (or `spookNearBeaters`' tolerance of a handle with no `position`) as
+its own task, then merge 348. Queued in `TASKS.md` as 348-notes (d).
+
 ## 2026-11-11 ~02:05 UTC, Task 345b (T2) -- FOR THE DIRECTOR: **NOBODY CAN TAKE A FRAME OF AN ANIMAL AWAY FROM THE STAND.** BOTH ROUTES ARE CLOSED FROM THE SERVER, MEASURED. THIS IS A ROUTE-FIX TASK, NOT A 345b FIX
 
 Written at the hard stop (V280, L-150: the frame route has now failed twice and this is the last
