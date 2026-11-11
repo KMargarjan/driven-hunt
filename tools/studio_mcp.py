@@ -1064,6 +1064,10 @@ SCOPE_SPECS = {
               # never-in-view distance, the budget door and the wake rule. `src/shared/ForestTest/`
               # resolves here, so a change to the drive's data plays the arithmetic that reads it.
               "tests/server/forest_placement.spec.luau",
+              # Task 345 T3: what the CLIENT was sent, and how close it was when it arrived.
+              # The server counter and this one are two independent instruments on one claim
+              # (design 12.2), so a change to the drive's data plays both.
+              "tests/client/animal_placement.spec.luau",
               # Task 287: the LIVE door a pad step goes through, last in the suite because a restart
               # is a drive boundary. DUAL MEMBERSHIP with `lobby`, which reads that door.
               "tests/server/zz_pad_restart.spec.luau",

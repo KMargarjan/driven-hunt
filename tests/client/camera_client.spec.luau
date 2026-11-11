@@ -2818,6 +2818,118 @@ return function()
 		end)
 	end)
 
+	-- THE STUDIO-ONLY PARKED CAMERA (task 345 T3). `Camera.ProbeCamera` is the one reader of
+	-- `DHProbeCamera`, and like `TestLook` above its production branch can never run inside a Studio
+	-- session -- so the gate is a PARAMETER of the pure resolver and the hold is proved on the real
+	-- camera. It exists because task 345b had no way to photograph a bed: the server cannot hold the
+	-- client's camera or its character, measured at 760 studs of disagreement (ESCALATE.md,
+	-- 2026-11-10), and `TestLook` turns the view without moving it.
+	describe("the Studio-only parked camera", function()
+		it("answers a frame in Studio and NOTHING outside it", function()
+			local ProbeCamera = Camera.ProbeCamera
+			local parked = ProbeCamera.frame(true, "10,20,30,10,20,0")
+			expect(parked ~= nil).to.equal(true)
+			expect((parked :: CFrame).Position).to.equal(Vector3.new(10, 20, 30))
+			-- IT LOOKS AT THE SECOND POINT, which is `studio_mcp capture`'s own pair of points.
+			expect((parked :: CFrame).LookVector:Dot(Vector3.new(0, 0, -1)) > 0.99).to.equal(true)
+			-- THE PRODUCTION BRANCH, and the whole safety of the instrument: a live client reads
+			-- nothing, however the attribute got there.
+			expect(ProbeCamera.frame(false, "10,20,30,10,20,0")).to.equal(nil)
+		end)
+
+		it("takes a full twelve-component CFrame too, and refuses anything else", function()
+			local ProbeCamera = Camera.ProbeCamera
+			local want = CFrame.new(5, 6, 7) * CFrame.Angles(0.3, 0.4, 0.5)
+			local pieces = {}
+			for _, value in ipairs({ want:GetComponents() }) do
+				table.insert(pieces, string.format("%.6f", value))
+			end
+			local back = ProbeCamera.frame(true, table.concat(pieces, ","))
+			expect(back ~= nil).to.equal(true)
+			expect(((back :: CFrame).Position - want.Position).Magnitude < 1e-3).to.equal(true)
+			expect((back :: CFrame).LookVector:Dot(want.LookVector) > 0.999).to.equal(true)
+			-- NEVER AN ERROR AND NEVER A GUESS: a malformed attribute must not take the player's
+			-- whole view down for a typo in a test tool. The last case is the one the number parse
+			-- cannot catch -- a look-at point on top of the camera, whose rotation is a NaN.
+			for _, bad in ipairs({
+				"1,2,3",
+				"1,2,3,4,5",
+				"a,2,3,4,5,6",
+				"",
+				"1,2,nan,4,5,6",
+				"1,2,inf,4,5,6",
+				"1,2,3,1,2,3",
+			}) do
+				expect(ProbeCamera.frame(true, bad)).to.equal(nil)
+			end
+			expect(ProbeCamera.frame(true, nil)).to.equal(nil)
+			expect(ProbeCamera.frame(true, CFrame.new(1, 2, 3))).to.equal(nil)
+		end)
+
+		it("parks the REAL camera at the asked frame, holds it, and gives it back", function()
+			-- THE INSTRUMENT IS PROVED AGAINST A KNOWN LANDMARK BEFORE ANY FRAME IS TRUSTED
+			-- (lessons L-109, L-185): the achieved CFrame is READ BACK off the engine, and the
+			-- counter that says it steered is the owner's own -- nothing here reads the attribute to
+			-- decide whether it worked.
+			local character = player.Character or player.CharacterAdded:Wait()
+			character:WaitForChild("HumanoidRootPart", 10)
+			local before = Workspace.CurrentCamera.CFrame
+			-- 300 STUDS STRAIGHT UP, LOOKING DOWN: no hold that merely turned the view could land
+			-- here, and "it was already there" cannot pass it.
+			local at = before.Position + Vector3.new(0, 300, 0)
+			local look = before.Position
+			local framesBefore = Camera.stats().probeCameraFrames
+			-- THE WRITE IS INSIDE A pcall AND THE RELEASE IS OUTSIDE IT, for task 264 item 5's
+			-- reason: `DHProbeCamera` is level-triggered, so a throw between the write and the
+			-- release would leave every later case in this session looking at the sky.
+			player:SetAttribute(
+				"DHProbeCamera",
+				string.format("%f,%f,%f,%f,%f,%f", at.X, at.Y, at.Z, look.X, look.Y, look.Z)
+			)
+			local ok, why = pcall(function()
+				for _ = 1, 12 do
+					RunService.RenderStepped:Wait()
+				end
+				local held = Camera.stats().probeCameraFrames - framesBefore
+				-- HELD, NOT SNAPPED ONCE: a one-shot would steer exactly one of those twelve frames.
+				expect(held >= 8).to.equal(true)
+				local achieved = Workspace.CurrentCamera.CFrame
+				-- WHERE IT ACTUALLY PARKED, against where it was asked to: this is the number a
+				-- screenshot's description rests on.
+				expect((achieved.Position - at).Magnitude < 0.01).to.equal(true)
+				expect(achieved.LookVector:Dot((look - at).Unit) > 0.999).to.equal(true)
+				-- ...AND THE OWNER PUBLISHES THE SAME FRAME, so a probe can read it without a camera
+				-- of its own.
+				local reported = Camera.stats().probeCameraAt
+				expect(reported ~= nil).to.equal(true)
+				expect(((reported :: CFrame).Position - achieved.Position).Magnitude < 0.01).to.equal(true)
+				-- THE ATTRIBUTE IS STILL THERE: the camera never writes it back, so re-asking for
+				-- the same frame from the server is idempotent (`TestLook`'s measured reason).
+				expect(player:GetAttribute("DHProbeCamera")).to.be.ok()
+			end)
+			player:SetAttribute("DHProbeCamera", nil)
+			if ok then
+				-- IT GIVES THE VIEW BACK, and that is asserted after the release rather than inside
+				-- it: the counter stops moving and the camera returns to the character's own head.
+				for _ = 1, 8 do
+					RunService.RenderStepped:Wait()
+				end
+				local stopped = Camera.stats().probeCameraFrames
+				for _ = 1, 6 do
+					RunService.RenderStepped:Wait()
+				end
+				expect(Camera.stats().probeCameraFrames).to.equal(stopped)
+				local root = character:FindFirstChild("HumanoidRootPart")
+				if root ~= nil then
+					local back = (Workspace.CurrentCamera.CFrame.Position - (root :: BasePart).Position).Magnitude
+					expect(back < 300).to.equal(true)
+				end
+			else
+				error(why, 0)
+			end
+		end)
+	end)
+
 	-- THE SOURCE THROTTLE AND A CLOCK THAT WENT BACKWARDS (task 314). `main` went red in DEV with no
 	-- code change at all: `gun_client.spec` drives `update` on a fake clock of 4000.0, and in a Studio
 	-- restarted an hour ago `os.clock()` is BELOW that -- so `now - lastSourceCheck` stayed negative,

@@ -746,6 +746,201 @@ return function()
 		end)
 	end)
 
+	-- =============================================== T3: "NEVER IN VIEW", AS A PREDICATE AND A COUNTER
+	--
+	-- `bedHidden` TAKES ITS EYES AS A PARAMETER, which is what makes it drivable here: the distance
+	-- arm is hand-written points, and the ray arm is a real raycast over real geometry this case
+	-- builds and destroys. The DEV place has no terrain, so `bedSpot` answers `nobed` before it ever
+	-- reaches the predicate (the T2 case above says so) -- the live wiring is measured in the Forest
+	-- Test, and what is asserted here is the rule, the order, the counters and the refusal's words.
+	describe("nothing is created where a player can see it", function()
+		it("refuses inside the reach by arithmetic, before it spends a ray", function()
+			local spot = Vector3.new(0, 0, 0)
+			local before = Forest.placementStats().rays
+			-- THE DISTANCE ARM IS `Placement.clearOfEyes` AND NOTHING ELSE: replace that function
+			-- with `return true` and this case is the first that fails (lesson L-093).
+			local hidden, why = Forest.bedHidden(spot, { { name = "Hunter", at = Vector3.new(0, 0, 100) } })
+			expect(hidden).to.equal(false)
+			expect(why ~= nil).to.equal(true)
+			expect(string.find(why :: string, "within", 1, true) ~= nil).to.equal(true)
+			expect(string.find(why :: string, "Hunter", 1, true) ~= nil).to.equal(true)
+			-- THE ORDER IS THE BUDGET (design 6.2): a spot the arithmetic refuses costs NO ray.
+			expect(Forest.placementStats().rays).to.equal(before)
+			-- ...AND AN EYE EXACTLY AT THE REACH IS ALLOWED, so the two halves agree on the boundary.
+			local never = Placement.neverStuds(SPOOK)
+			local atEdge = Forest.bedHidden(spot, { { name = "Hunter", at = Vector3.new(0, 0, never) } })
+			expect(atEdge).to.equal(true)
+			expect(Forest.placementStats().rays).to.equal(before + 1)
+		end)
+
+		it("spends one ray per eye, and calls a bed in clear air SEEN", function()
+			-- A POINT NOBODY IS NEAR, so the distance arm passes and the ray decides. High in the
+			-- air over the DEV arena: nothing is between these two points.
+			local spot = Vector3.new(0, 600, 0)
+			local eye = { name = "Hunter", at = Vector3.new(0, 600, 400) }
+			local before = Forest.placementStats().rays
+			local hidden, why = Forest.bedHidden(spot, { eye })
+			-- DELETE THE RAY LOOP FROM `bedHidden` AND THIS IS THE LINE THAT FAILS: with only the
+			-- distance arm a bed 400 studs away down an open lane reads "hidden" (lesson L-093).
+			expect(hidden).to.equal(false)
+			expect(string.find(why :: string, "in sight of Hunter", 1, true) ~= nil).to.equal(true)
+			expect(Forest.placementStats().rays).to.equal(before + 1)
+			-- ...AND ONE RAY PER EYE, never one per candidate (design 6.2).
+			Forest.bedHidden(spot, { eye, { name = "Second", at = Vector3.new(0, 600, -400) } })
+			expect(Forest.placementStats().rays).to.equal(before + 2)
+		end)
+
+		it("calls the same bed HIDDEN behind something a bullet would stop", function()
+			local spot = Vector3.new(0, 600, 0)
+			local eye = { name = "Hunter", at = Vector3.new(0, 600, 400) }
+			local wall = Instance.new("Part")
+			wall.Name = "ForestPlacementSpecWall"
+			wall.Anchored = true
+			wall.CanCollide = true
+			wall.Size = Vector3.new(60, 60, 4)
+			wall.CFrame = CFrame.new(0, 600, 200)
+			wall.Parent = workspace
+			local hidden = Forest.bedHidden(spot, { eye })
+			-- THE SCREEN IS THE WHOLE DIFFERENCE between this case and the one above: one part
+			-- between the eye and the bed, and the same two points answer the other way.
+			expect(hidden).to.equal(true)
+			-- A CHARACTER IS NOT A SCREEN (`Data.characterOf`, `restSeenFromLane`'s own rule): the
+			-- same wall inside a character hides nothing. Built with a Humanoid, because that is
+			-- what `Data.characterOf` looks for.
+			local body = Instance.new("Model")
+			body.Name = "ForestPlacementSpecBody"
+			local humanoid = Instance.new("Humanoid")
+			humanoid.Parent = body
+			wall.Parent = body
+			body.Parent = workspace
+			expect(Forest.bedHidden(spot, { eye })).to.equal(false)
+			body:Destroy()
+		end)
+
+		it("counts a body born in view, over the bodies that were really made", function()
+			-- THE AUDIT (design 12.2). `bedHidden` tests ONE point; `spawnSounder` spreads a group
+			-- over 40 studs, so the count that matters is taken over the bodies' OWN positions after
+			-- the spawn. Driven with a stub runtime that reports where it put them, and with
+			-- `bedSpot` replaced -- the DEV place has no ground for the real searcher to find.
+			local eyes = Forest.eyes()
+			local realBedSpot = Forest.bedSpot
+			local placed = Vector3.new(0, 900, 0)
+			local fake = {
+				setField = function() end,
+				clear = function() end,
+				count = function()
+					return 0
+				end,
+				capacity = function()
+					return Data.MAX_BOARS
+				end,
+				liveCount = function()
+					return 0
+				end,
+				boars = function()
+					return {}
+				end,
+				statusOf = function()
+					return { alive = true, position = placed }
+				end,
+				config = function()
+					return Boar.CONFIG
+				end,
+				deerAllowed = function()
+					return true
+				end,
+				formSounder = function() end,
+				spawn = function()
+					return { id = "specBoar" }
+				end,
+				spawnSounder = function(_self, _at, size)
+					local out = {}
+					for index = 1, size do
+						table.insert(out, { id = string.format("specBoar%d", index) })
+					end
+					return out
+				end,
+			}
+			Forest.layoutForDrive(957, "c1")
+			Forest.start(fake :: any, 0)
+			Forest.newDrive(0)
+			expect(Forest.planDrive(957, true) ~= nil).to.equal(true)
+			local row = Forest.roster()[1]
+			-- FAR FROM EVERY EYE: the bodies are made and nothing is in view.
+			local far = Vector3.new(0, 20000, 0)
+			Forest.bedSpot = function()
+				return far, nil, nil
+			end
+			placed = far
+			local before = Forest.placementStats().inView
+			local ok = Forest.materialise(row, 0)
+			expect(ok).to.equal(true)
+			expect(Forest.placementStats().inView).to.equal(before)
+			-- ...AND NOW THE BODIES LAND ON TOP OF A PLAYER'S HEAD. Every one of them is counted,
+			-- which is what makes `inView` a measurement of the spawn and not of the plan: delete
+			-- the audit loop in `materialise` and this is the line that fails (lesson L-093).
+			if #eyes > 0 then
+				local second = Forest.roster()[2]
+				placed = eyes[1].at
+				second.state = "record"
+				local okTwo = Forest.materialise(second, 0)
+				expect(okTwo).to.equal(true)
+				expect(Forest.placementStats().inView >= before + 1).to.equal(true)
+				TestKit.note(
+					string.format(
+						"placement audit: %d bodies counted in view of %s",
+						Forest.placementStats().inView - before,
+						eyes[1].name
+					)
+				)
+			else
+				TestKit.note("placement audit: no player had a character, so the in-view arm was not driven")
+			end
+			Forest.bedSpot = realBedSpot
+			Forest.start(nil :: any, 0)
+		end)
+
+		it("writes the refusal into the drive's own ledger, by its reason", function()
+			-- THE LEDGER AND THE CONSOLE LINE carry whatever `bedSpot` refused with, which is how
+			-- `inview` becomes a number Karen's drive can print. `bedSpot` is replaced here for the
+			-- reason the case above gives -- there is no ground in this place -- so what this asserts
+			-- is the BOOKKEEPING: the reason, the detail and the count.
+			local realBedSpot = Forest.bedSpot
+			local _made, _standing, fake = stubRuntime()
+			Forest.layoutForDrive(958, "c1")
+			Forest.start(fake, 0)
+			Forest.newDrive(0)
+			expect(Forest.planDrive(958, true) ~= nil).to.equal(true)
+			Forest.bedSpot = function()
+				return nil, "inview", "in sight of Hunter"
+			end
+			local row = Forest.roster()[1]
+			-- PAST THE SECOND THE LINE REACHES THE BED: a refusal that is this instant's is retried
+			-- until then, and only then becomes a skip (`stepPlacement`'s own rule).
+			local line = Forest.stepPlacement(row.reachAtSeconds + 1, true)
+			expect(line ~= nil).to.equal(true)
+			expect(string.find(line :: string, "SKIPPED", 1, true) ~= nil).to.equal(true)
+			expect(string.find(line :: string, "inview", 1, true) ~= nil).to.equal(true)
+			expect(string.find(line :: string, "in sight of Hunter", 1, true) ~= nil).to.equal(true)
+			expect((Forest.placementStats().skips.inview or 0) > 0).to.equal(true)
+			Forest.bedSpot = realBedSpot
+			Forest.start(nil :: any, 0)
+		end)
+
+		it("publishes the two counters a drive is read by", function()
+			-- `rays` AND `inView` ARE PUBLISHED TOGETHER, deliberately (design 12.3): a drive that
+			-- reports `inView = 0` with `rays = 0` has not tested anything.
+			local stats = Forest.placementStats()
+			expect(type(stats.rays)).to.equal("number")
+			expect(type(stats.inView)).to.equal("number")
+			expect(stats.rays > 0).to.equal(true)
+			-- ...AND THE MARGIN THAT MAKES THE CLIENT SPEC VALID, as a statement (design 7.3): the
+			-- reach is well inside the place's documented `StreamingMinRadius` 384, so an arrival
+			-- inside it cannot be the engine streaming a bed in.
+			expect(Placement.neverStuds(SPOOK) < 384).to.equal(true)
+		end)
+	end)
+
 	describe("the deer cap is spent once per drive, at plan time", function()
 		it("admits one group of two, refuses the other and prints the refusal", function()
 			-- TWO DEER ROWS, NEITHER OF THEM A PARTY OF ONE, and a cap of one group.

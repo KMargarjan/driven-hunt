@@ -809,6 +809,13 @@ function Body.attachVisual(handle, template: Instance, config): boolean
 	local trunk = handle.part
 	local model = Instance.new("Model")
 	model.Name = config.MODEL.NAME
+	-- ONE ANIMAL IS ONE THING TO STREAM IN (task 345 T3, design 7.2). `Atomic` sends the whole drawn
+	-- body or none of it, so a client is never handed an animal limb by limb -- which is what a
+	-- player would read as "it appeared". Borrowed from `Places.plantOne`, which sets it on a tree
+	-- for the same reason. `Persistent` is REFUSED: it would send every animal to every client
+	-- whatever the distance, which is this design's guarantee inverted.
+	-- https://create.roblox.com/docs/workspace/streaming#model-streaming-modes
+	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	local clone = template:Clone()
 	local cloneMesh = soleMesh(clone) :: BasePart
 	-- The template may be the MeshPart itself, in which case the clone IS the mesh and there is

@@ -34,6 +34,9 @@ local Rig = require(script.Rig)
 -- THE STUDIO-ONLY HELD LOOK (task 263): the ONE reader of `DHTestLook`, pure apart from its own
 -- `IsStudio` gate, so the camera owner learns one point per frame and nothing about attributes.
 local TestLook = require(script.TestLook)
+-- THE STUDIO-ONLY PARKED CAMERA (task 345 T3): the ONE reader of `DHProbeCamera`, pure apart from
+-- its own `IsStudio` gate. `TestLook` turns the view; this one moves it.
+local ProbeCamera = require(script.ProbeCamera)
 local Viewmodel = require(script.Viewmodel)
 
 local Camera = {}
@@ -49,6 +52,9 @@ Camera.Viewmodel = Viewmodel
 -- only way to assert the production branch from inside a Studio session, where `IsStudio()` is
 -- always true (`Economy.testGrantFor`'s own reason).
 Camera.TestLook = TestLook
+-- Exported for the client spec, which drives `ProbeCamera.frame`'s branches by parameter -- the only
+-- way to assert the production branch from inside a Studio session, where `IsStudio()` is true.
+Camera.ProbeCamera = ProbeCamera
 
 export type AimSource = { isAiming: () -> boolean }
 -- WHAT THE WEAPON SAYS ABOUT ITS OWN RELOAD (task 96): is it broken open, and how many barrels had
@@ -121,6 +127,12 @@ local stats = {
 	-- counter is how a probe knows the view is being held rather than merely asked for. Zero in
 	-- every production frame, because `TestLook.current` answers nil outside Studio.
 	testLookFrames = 0,
+	-- HOW MANY FRAMES THE STUDIO-ONLY PARKED CAMERA ACTUALLY HELD, AND WHERE IT LANDED (task 345
+	-- T3). The CFrame is read back by the probe BEFORE it trusts a screenshot: lesson L-185 --
+	-- *"a camera probe is evidence only for the CFrame it actually parked at, not the one
+	-- requested"*. Zero and nil in every production frame.
+	probeCameraFrames = 0,
+	probeCameraAt = nil :: CFrame?,
 }
 
 -- Every mode the camera has been in, in order, from boot. The harness-driven spec asserts over this
@@ -554,6 +566,24 @@ local function update(dt: number)
 	-- viewmodel reads the id off the Tool its source hands it -- so the poses cannot be a frame
 	-- behind a state replica, which is what would draw the shotgun in the rifle's hands.
 	local config = Poses.config(Config, Viewmodel.weaponId())
+	-- THE STUDIO-ONLY PARKED CAMERA, BEFORE ANYTHING ELSE IN THE FRAME AND INSTEAD OF IT (task 345
+	-- T3). A probe has asked for one frame of the wood from a fixed point: the owner puts the camera
+	-- there through `Rig.apply` -- still the one writer of `workspace.CurrentCamera` -- and does
+	-- nothing else, so no mode step, no viewmodel and no occlusion can pull it off the mark. The
+	-- state is left exactly as it was, so releasing the attribute gives the player back the camera
+	-- they had. `ProbeCamera.current` answers nil outside Studio and with no attribute, so a
+	-- production frame pays one boolean.
+	local parked = ProbeCamera.current(Players.LocalPlayer)
+	if parked ~= nil then
+		-- THE UNZOOMED FIELD OF VIEW, so a parked frame is the wood at the same scale every time.
+		Rig.apply(parked :: CFrame, config.FOV_THIRD_DEG)
+		stats.probeCameraFrames += 1
+		-- WHAT IT ACTUALLY PARKED AT, read back off the engine rather than echoed (L-185).
+		local cam = Workspace.CurrentCamera
+		stats.probeCameraAt = if cam then cam.CFrame else nil
+		stats.frames += 1
+		return
+	end
 	local hold = Poses.hold()
 	-- ...AND THE OPTICS, ONCE A FRAME, at the same boundary that resolves the poses and the break.
 	lastOptics = if opticsSource then opticsSource.optics() else nil
