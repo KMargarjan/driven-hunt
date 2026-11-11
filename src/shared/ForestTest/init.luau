@@ -455,7 +455,10 @@ end
 -- this safe to switch on for every stand at once.
 --
 -- OFF (`enabled = false`) IS EXACTLY THE DRIVE BEFORE THIS TASK: the clamped x, and no shift.
--- Flag: `DRIVE_AIMS_AT_PICKED_STAND`. Design: docs/design/forest-drive.md section 7.
+-- Flag: `DRIVE_AIMS_AT_PICKED_STAND`. NO DESIGN SECTION CARRIES THIS YET: the aim, the flag and
+-- `AIM_FLAT_STUDS` are queued for `docs/design/forest-drive.md` (the Architect's file, not the
+-- Builder's). Round 1 and round 2 both noted the old pointer at section 7, which is about the
+-- record and the report and never was about where a drive is aimed.
 -- A SHIFT UNDER ONE STUD IS NO SHIFT, AND IT IS SNAPPED HERE rather than compared at the call site.
 -- MEASURED (task 349, C1): a main-line stand's z is the road's to within a thousandth of a stud but
 -- not to the bit, so `aim.dz == 0` in `releaseLine` was FALSE for it -- which silently dropped the
@@ -463,6 +466,11 @@ end
 -- stand 4 and 26 s to 57 s at stand 7. Snapping makes "a main-line drive does not move" true by
 -- construction instead of true by luck, and one stud is nothing against the clamp's 130-stud lead.
 ForestTest.AIM_FLAT_STUDS = 1
+
+-- HOW WIDE THE AIMED BAND IS, EITHER SIDE OF THE STAND IT IS AIMED AT. `SCHEDULE.crossCapStuds` is
+-- 95 and caps every `offsetX` and `crossOffset`; 60 more is room for a group that strings out at
+-- the crossing. The field's box is unioned with THIS, so the cage stays a cage.
+ForestTest.AIM_BAND_HALF_STUDS = 155
 
 function ForestTest.aimFrame(
 	standX: number,
@@ -1264,8 +1272,11 @@ function ForestTest.fieldFor(layout: Layout?, dz: number?, dx: number?)
 		-- the box spans the MAIN line, and a flank stand is 604 studs outside it, so an
 		-- un-unioned x culled the whole aimed band (101 of one drive's animals, MEASURED).
 		bounds = {
-			minX = math.min(bounds.minX, bounds.minX + across),
-			maxX = math.max(bounds.maxX, bounds.maxX + across),
+			-- ACROSS, THE UNION IS THE BAND'S OWN EXTENT, not a whole half-span (round 2 note): the
+			-- band is `crossCapStuds` either side of the aimed x plus room for a group that strings
+			-- out, so unioning a half-span pushed the cage 605 studs into the next cell.
+			minX = math.min(bounds.minX, resolved.centre.X + across - ForestTest.AIM_BAND_HALF_STUDS),
+			maxX = math.max(bounds.maxX, resolved.centre.X + across + ForestTest.AIM_BAND_HALF_STUDS),
 			minZ = math.min(bounds.minZ, bounds.minZ + shift),
 			maxZ = math.max(bounds.maxZ, bounds.maxZ + shift),
 		},
@@ -2004,11 +2015,20 @@ end
 -- WHERE A RESTING GROUP IS NOMINALLY PUT, before the ground and the trunks are measured. PURE, the
 -- same division `wavePoint` has: the arithmetic here, the world's own answer in
 -- `ForestTest.restSpot`.
-function ForestTest.restPoint(standX: number, spec, sideOffset: number?, outOffset: number?, layout: Layout?): Vector3
+-- `dz` IS THIS DRIVE'S SHIFT (task 349 r3, round 2 finding 1): the GENERATOR has to stand in the
+-- frame the GATE measures it in, or no candidate can pass its band and nothing is ever bedded.
+function ForestTest.restPoint(
+	standX: number,
+	spec,
+	sideOffset: number?,
+	outOffset: number?,
+	layout: Layout?,
+	dz: number?
+): Vector3
 	local resolved = layout or ForestTest.ROAD_LAYOUT
 	local x = standX + (spec.offsetX or 0) + (sideOffset or 0)
 	local north = (spec.northStuds or 120) + (outOffset or 0)
-	return Vector3.new(x, resolved.centre.Y, ForestTest.roadZ(x, resolved) + north)
+	return Vector3.new(x, resolved.centre.Y, ForestTest.roadZ(x, resolved) + (dz or 0) + north)
 end
 
 -- WHERE A BEATER IS STANDING WHEN HE OUGHT TO SEE THIS GROUP (task 172). PURE: the point on the
@@ -2019,12 +2039,15 @@ end
 -- point asks is not "can he see it from anywhere" but "can he see it from where he will be standing
 -- when it puts its head up", and the answer has to be taken from inside the band or it is about a
 -- different moment.
-function ForestTest.laneLookPoint(standX: number, spec, spot: Vector3, rest, layout: Layout?): Vector3
+function ForestTest.laneLookPoint(standX: number, spec, spot: Vector3, rest, layout: Layout?, dz: number?): Vector3
 	local laneX = standX + (spec.laneOffset or 0)
 	local resolved = rest or ForestTest.REST
 	local where = layout or ForestTest.ROAD_LAYOUT
-	local north = spot.Z - ForestTest.roadZ(spot.X, where) + (resolved.sightFromStuds or 0)
-	return Vector3.new(laneX, where.centre.Y, ForestTest.roadZ(laneX, where) + north)
+	-- BOTH ENDS IN THE SAME FRAME: the spot's depth is measured off this drive's road and the look
+	-- point is put back on it, so the shift cancels for a main-line drive and holds for an aimed one.
+	local shift = dz or 0
+	local north = spot.Z - (ForestTest.roadZ(spot.X, where) + shift) + (resolved.sightFromStuds or 0)
+	return Vector3.new(laneX, where.centre.Y, ForestTest.roadZ(laneX, where) + shift + north)
 end
 
 -- HOW FAR OFF ITS OWN LANE A GROUP'S SPOT IS. PURE, flat, and the one thing `laneSideStuds` is

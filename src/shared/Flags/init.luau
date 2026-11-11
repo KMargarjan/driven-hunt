@@ -287,7 +287,10 @@ Flags.DEFAULTS = {
 			.. "every one of those is built on the MAIN road's z and her stand is 975 studs north "
 			.. "of it. ONE FRAME PER DRIVE: the aim is settled at the first release and latched, so "
 			.. "every animal is judged by the frame it was released into; a pick locked later "
-			.. "applies from the next drive. THE ROSTER RULE: only REAL players' locked picks move "
+			.. "inside that drive; until there is one the drive reads `hunterStandX()` live, which is "
+			.. "the drive before this flag. **WITH `PLACEMENT_IN_PLACE` ON** the beds are generated and "
+			.. "judged in this same frame; the two flags were measured together (task 349 round 3). "
+			.. "THE ROSTER RULE: only REAL players' locked picks move "
 			.. "it (bots are filtered out by Players:GetPlayerByUserId), and real players standing "
 			.. "on DIFFERENT frames put the band back on the main road with one line naming them -- "
 			.. "which is exactly the drive before this flag. OFF is that drive for everyone, and a "
@@ -892,7 +895,10 @@ Flags.DEFAULTS = {
 		expires = "2026-11-30", -- 20 days, inside the 21-day ceiling in feature-flags.md section 12
 		why = "Every animal of a drive is already standing in the wood before the drive opens, and "
 			.. "the beater line finds it, instead of each group being spawned in front of whoever is "
-			.. "looking. OFF is today's drive, byte for byte.",
+			.. "looking. OFF is today's drive, byte for byte."
+			.. " **WITH `DRIVE_AIMS_AT_PICKED_STAND` ON** the beds this path lays are generated and "
+			.. "judged in that drive's aimed frame, not on the main road; the two were measured "
+			.. "together from stand 11 (task 349 round 3).",
 	} :: FlagRow,
 }
 
