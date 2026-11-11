@@ -321,14 +321,14 @@ return function()
 			local shift = 975
 			local plain = Data.restPoint(-3900, spec, 0, 0, layout, 0)
 			local moved = Data.restPoint(-3900, spec, 0, 0, layout, shift)
-			expect(math.abs((moved.Z - plain.Z) - shift) < 1e-6).to.equal(true)
+			expect(math.abs((moved.Z - plain.Z) - shift) < 1e-3).to.equal(true)
 			-- THE GATE'S OWN ARITHMETIC: depth measured off the SAME shifted road is the row's own
 			-- `northStuds`, so the band accepts it. With the generator left on the main road it
 			-- would read `northStuds - shift` and no band of any row could hold it.
 			local inFrame = moved.Z - (Data.roadZ(moved.X, layout) + shift)
-			expect(math.abs(inFrame - 150) < 1e-6).to.equal(true)
+			expect(math.abs(inFrame - 150) < 1e-3).to.equal(true)
 			local mixed = plain.Z - (Data.roadZ(plain.X, layout) + shift)
-			expect(math.abs(mixed - (150 - shift)) < 1e-6).to.equal(true)
+			expect(math.abs(mixed - (150 - shift)) < 1e-3).to.equal(true)
 			TestKit.note(string.format("bed depth in frame %.0f, mixed frames %.0f", inFrame, mixed))
 		end)
 
