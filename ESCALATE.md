@@ -1,3 +1,48 @@
+## 2026-11-11 ~01:20 UTC, Task 345b (T2) -- FOR THE DIRECTOR: DEVIATION 4. THE BRIDGE HOLDS A SLOT THE **BUDGET** REFUSED, WHERE THE DESIGN SAYS IT SHOULD RELEASE IT. THE ROUND-1 REVIEWER WAS RIGHT TO ASK, AND HERE IS THE ARITHMETIC
+
+Not a stop; T2 is green and behind the flag. This is the fourth deviation from
+`docs/design/animal-placement.md`, raised because round 1's finding 3 was right that it was argued
+only in a code comment.
+
+**WHAT THE DESIGN SAYS.** Section 17's T2 row, verbatim: *"`releaseLine` still spawns for a row with
+no body (the bridge, so the drive works end to end at every commit)"*. The 345b dispatch repeats it:
+*"releaseLine still spawns for a row with no body (the bridge)"*.
+
+**WHAT THE CODE DOES.** `Placement.bridgeMustRelease(row)` is `row.skipped == "nobed"` and nothing
+else, so a row the WOOD refused is released the old way and a row the BUDGET refused is held.
+
+**WHY, MEASURED.** `345b-ON3-C1-track.txt`, one live drive in C1 with the design's bridge:
+
+| what | with the design's bridge (`345b-ON3-C1`) | with this one (`345b-ON4-C1`) |
+|---|---|---|
+| peak live bodies | **39** against `Data.LIVE_CAP` **24** | **24** -- exactly the cap |
+| peak animal parts | 693 | 438 |
+| groups skipped | 7 of 13 | 4 of 13 |
+| ring searches spent in a whole drive | **6** | 9 |
+
+The two doors fed each other. The budget refuses a bed because the cap is full; `releaseLine` then
+releases that very group through its own door; those bodies fill the cap further; the next group's
+bed is refused as well. **A budget refusal is the world saying "there is no room for a body right
+now", and a second door past it is not a bridge.** The design's own must-not list has this shape
+twice (must-not 3: a refused group is *"skipped for that drive, counted and printed -- never retried
+into a player's view"*).
+
+**WHAT IT COSTS, SAID PLAINLY.** Four of thirteen groups at C1 put no animal anywhere in that drive
+(all four `budget: bedded`); at A2 two of fifteen, both `nobed`, which the bridge DOES fill. So the
+flag-ON drive is thinner than the flag-OFF one by up to four groups until T3 and T4 land -- T4 is
+where `releaseLine` stops spawning at all and the roster is the only source, at which point this
+deviation disappears with the function.
+
+**ROUND 1'S TWO OTHER REQUIREMENTS ARE DONE EITHER WAY** (they were right and are not a decision): a
+slot with no body no longer prints *"the line finds it"* -- it prints `HELD BY THE ROSTER: NO BODY
+YET (<state>) at dz <n> -- nothing is released for this slot` -- and `state.deerDone` is no longer
+set for a deer row with no body.
+
+**THE DIRECTOR'S CALL, in one line:** keep this (the cap is honoured, the drive is thinner until T4),
+or restore the design's bridge (every group comes out, the cap is exceeded by 15 bodies and more than
+half the beds are never searched for). `docs/design/animal-placement.md` is unchanged -- the Builder
+does not write designs (rule 3).
+
 ## 2026-11-10 ~13:50 UTC, Task 345a (T1) -- FOR THE DIRECTOR: THREE OF `animal-placement.md`'s NUMBERS ARE REFUTED BY ARITHMETIC. T1 IS BUILT AND GREEN; NONE OF THE THREE BLOCKS IT
 
 T1 is finished, the gate is green and nothing live reads any of it, so this is **not** a stop: it is
