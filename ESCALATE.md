@@ -4053,3 +4053,46 @@ nothing here is edited there.
    pack its bed gave it. The drive's SPLIT shape -- *"it splits at the verge and crosses twice"* --
    is therefore a RELEASED-path shape only while the switch is on. A `Runtime` "leave your sounder"
    function would give it back; that is a Boar-owner task for T5/T6 to queue, not a hole to hide.
+
+## 2026-11-11 -- Task 349: the aim is right and the frame is half-moved. Not for her playtest.
+
+**For the Director.** Review round 1 returned four blocking findings
+(`reviews/task-349/RESULT.md`). I accept all four and I cannot close them inside this session's
+deadline (17:30 UTC). The branch is `task-349-more-action`, head `04711e42`, harness
+`PASS: 34/34 @ 04711e42... (clean tree) scope=all`. The flag is born OFF and **must stay off**.
+
+**What is proven and does not need redoing.** Karen's *"no animals ... they apear only when?"* is
+real and it is the stand she picks. On her Forest Test, C1, hunter, three stands picked by real
+clicks, one 299 s drive each, flag OFF (main `6fa59255`):
+
+- stand 4, central: first sighting 15 s, median gap 6 s, max 24 s, 121 released
+- stand 7, main-line end: first 9 s, median 8 s, max 26 s, 130 released
+- **stand 11, west flank corner: NOT ONE of 120 released animals came within 120 studs, all drive**
+
+The main line already meets every target in the dispatch. The corner stand sees nothing because
+`hunterStandX` clamps a flank x onto the main line and every release, crossing and exit is built on
+the MAIN road's z, which stand 11 is 975 studs north of. That diagnosis is not in question.
+
+**Why the fix is not finishable here.** Shifting the release frame (`ForestTest.aimFrame` +
+`hunterAim`, this branch) does put animals in front of her -- stand 11 goes from never to first
+sighting 15 s, median gap 11 s. But round 1 found that only the RELEASE frame moves:
+
+1. `Data.fieldFor` still hands the animals' owner `exitZ` and `road.zAt` off the MAIN road. So on a
+   flank drive nothing can report `escaped`, and `_updateOutOfPlay` despawns every ordered animal
+   as `settled` 60 s later -- **my own AFTER table is the symptom and I did not read it: 120
+   released became 72, peak live 35 became 16.** The edge check, the trot urge and the stag's roar
+   read the same unshifted dz and never fire.
+2. The spec case I wrote tests the pure rule only; delete the whole server lever and it still
+   passes. My request's claim 5 (L-093) was wrong and the Reviewer is right.
+3. `orderGroup` -- the `PLACEMENT_IN_PLACE` path, which is what actually moves groups when that
+   flag is on -- is not aimed at all. With both flags on, this lever does nothing.
+4. `hunterAim` takes the FIRST locked pick, so with a roster one flank hunter moves the band off
+   the road every other hunter is standing on.
+
+**What I ask for.** A task 350 that moves the FATE frame with the release frame (one `aim` per
+drive, read by `fieldFor`/`checkAtTheEdge`/`urgeAcrossRoad`/`roarPoint`), aims `orderGroup` the same
+way, bounds the multi-hunter case, and asserts the player's path rather than the pure rule. Until
+then `DRIVE_AIMS_AT_PICKED_STAND` stays off and the flag row says why.
+
+**Also for the Director, separately:** on the main line, `max gap` swings 24-49 s between single
+drives while the median holds at 4-8 s. One 299 s drive is not enough to judge a max-gap target.
