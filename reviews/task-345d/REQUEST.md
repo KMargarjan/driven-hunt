@@ -46,7 +46,8 @@ things were measured wrong on the way and fixed, each with its reading (claims 5
    still passed. A new case drives it: it patches `ForestTest.computeRouteVia` (the patch point the
    retry-cap case already uses for `bedSpot`) and asserts the `state.lines` row itself. **L-093 RUN
    at the code commit:** replace everything from `Line.split(...)` to the `state.lines` insert with
-   `return nil, "noroute"` -> `forest_placement.spec:1234` fails.
+   `return nil, "noroute"` -> the new case's `expect(why).to.equal(nil)` fails (`spec:1234` at the
+   run, which was at the code commit).
 2. **`runtime:formSounder` was a dead call** -- `materialise` makes the group with `spawnSounder`,
    which sets `sounderId` on every member, and `formSounder` claims only nil ones. The call is gone
    and a woken group now walks as **one file**, keeping the pack its bed gave it; the consequence
@@ -60,12 +61,13 @@ things were measured wrong on the way and fixed, each with its reading (claims 5
    and live, eight ON drives in Karen's Forest Test: every `SLOT n` line is a roster line
    (`grep -oE "SLOT [0-9]+ act [0-9]+ [A-Z-]+ -- [0-9]+ of" 345d-ON*-console.txt` finds none for
    slots 1-15). **L-093 RUN at the code commit:** restore the bridge (`and inRoster.skipped == nil`)
-   -> `forest_placement.spec:1221` fails. Slots **16+** (the repeat window) still spawn: design 17's
+   -> the *"releases nothing for a scheduled slot"* case's `"nothing is released for this slot"`
+   line fails (`spec:1221` at the run, which was at `3e1c259a`). Slots **16+** (the repeat window) still spawn: design 17's
    T5, `ESCALATE.md` entry 5.
 2. **A woken group is handed its route in a file, from where it stands.** `ForestTest.orderGroup`:
    `routeFilesFor` for the pins, `Line.order`/`Line.split` for the march (rank ties broken by who is
-   already in front), `Placement.seedTrail` for the trail, `formSounder` for the ears, one
-   `state.lines` row per file. No `spawn` call anywhere in it.
+   already in front), `Placement.seedTrail` for the trail, one `state.lines` row -- ONE file, keeping
+   the pack its bed gave it (finding 2). No `spawn` call anywhere in it.
    *Verify:* **the new case** *"makes the file itself: one line, in march order, trailed from the
    leader's own feet"* -- one `state.lines` row, `woken == true`, the sow at the head although she is
    the REARMOST body, the trail's head on her live position and 70 studs off the bed, the pins kept,
@@ -96,7 +98,8 @@ things were measured wrong on the way and fixed, each with its reading (claims 5
    the code commit** (`345d-R2-A2-track.txt`) and the same 24/3/3 at `3e1c259a`
    (`345d-ON5-A2-track.txt`); C1 6-10 searches per drive. Spec: *"parks a row that has spent its searches, and
    the drive wakes it once more"* drives **two wake cycles in one drive** and asserts the row ends up
-   with a body (L-142). **L-093 RUN:** delete the cap arm -> `forest_placement.spec:1276` fails.
+   with a body (L-142). **L-093 RUN:** delete `Placement.dueNow`'s cap arm -> the cap case's `expect(asks).to.equal(3)`
+   fails (`spec:1276` at the run, which was at `3e1c259a`).
 5. **MEASURED AND FIXED #1: the pathfinder answers `NoPath` from a bed.** A bed is in COVER by
    construction and a point inside a trunk's `AgentRadius` is off the navmesh. Same animal, same
    tick (`<runs-dir>/345d-path.luau`): from the body's Y, 100 studs south = `NoPath`; from the GROUND
