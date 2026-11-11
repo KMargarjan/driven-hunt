@@ -1064,13 +1064,13 @@ return function()
 			-- sides go through it -- a WOKEN file and a RELEASED one -- so the measurement cannot be
 			-- the thing that differs between them.
 			local _made, _standing, fake = stubRuntime()
-			Forest.layoutForDrive(957, "c1")
+			Forest.layoutForDrive(960, "c1")
 			Forest.start(fake, 0)
 			local function body(z: number)
 				return { status = { position = Vector3.new(0, 0, z) } }
 			end
 			-- THREE ANIMALS 10 STUDS APART: two gaps of 10, so the median is 10.
-			local woken = { id = "g957-s1-f1", bornAt = 0, woken = true }
+			local woken = { id = "g960-s1-f1", bornAt = 0, woken = true }
 			Forest.measureFile(woken, { body(0), body(-10), body(-20) }, 4.9)
 			-- BEFORE THE WINDOW, NOTHING IS WRITTEN. Delete the `fileFormedSeconds` guard and a file
 			-- is judged on the step it was born, when nobody has walked anywhere.
@@ -1090,7 +1090,7 @@ return function()
 			expect(both.released.files).to.equal(1)
 			expect(math.abs(both.released.median - 30) < 1e-6).to.equal(true)
 			-- A FILE OF ONE HAS NO GAP TO READ, and reads as nothing rather than as zero.
-			Forest.measureFile({ id = "g957-s2-f1", bornAt = 0, woken = true }, { body(0) }, 9)
+			Forest.measureFile({ id = "g960-s2-f1", bornAt = 0, woken = true }, { body(0) }, 9)
 			expect(Forest.fileGaps().woken.files).to.equal(1)
 			-- THE TARGET IS `2 x LINE.spacingStuds` AND IT IS THE LINE OWNER'S NUMBER, not a literal
 			-- here: 8.5 -> 17. Move `spacingStuds` and the target moves with it.
@@ -1101,10 +1101,10 @@ return function()
 
 		it("orders a woken group once, counts a group the fright already took, and spawns nothing", function()
 			local made, standing, fake, where = stubRuntime()
-			Forest.layoutForDrive(958, "c1")
+			Forest.layoutForDrive(961, "c1")
 			Forest.start(fake, 0)
 			Forest.newDrive(0)
-			expect(Forest.planDrive(958, true) ~= nil).to.equal(true)
+			expect(Forest.planDrive(961, true) ~= nil).to.equal(true)
 			local row = Forest.roster()[1]
 			expect(row ~= nil).to.equal(true)
 			-- A GROUP LYING IN ITS BED WITH TWO BODIES ON THEIR FEET, 12 studs apart.
