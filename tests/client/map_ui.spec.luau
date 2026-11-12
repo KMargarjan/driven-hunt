@@ -2611,12 +2611,12 @@ return function()
 	-- case here drives the layer on BY PARAMETER -- `geometryFor`'s own `paintedMap` argument --
 	-- which is the flag rule's requirement that both states be reachable while the row sits at one.
 	--
-	-- **THE ALIGNMENT CASE IS THE ONE THAT MATTERS, AND ITS TWO SIDES ARE DIFFERENT INSTRUMENTS.**
-	-- `ReplicatedStorage.Map.PaintedLandmarks` is written by `tools/map_paint.py` and holds, for 83
-	-- world points, the pixel THAT SCRIPT PAINTED THEM AT. This file projects the same world points
-	-- with `MapUi.rawOffsetPx` and reads them back off the placed image. A case that recomputed the
-	-- expected pixel here would agree with itself, which is task 129's *"agreed with the wrong one"*
-	-- in another shape.
+	-- **WHAT THE ALIGNMENT CASES CAN AND CANNOT SAY.** `ReplicatedStorage.Map.PaintedLandmarks` is
+	-- written by `tools/map_paint.py` and holds, for 63 world points, the pixel that script maps them
+	-- to; this file projects the same points with `MapUi.rawOffsetPx`. BOTH SIDES ARE THE SAME
+	-- ARITHMETIC, so a 0 px table proves the CONVENTION (corners, axis signs, rounding) and CANNOT
+	-- fail on the strength of the picture -- `map_paint.py verify` reads the pixels, by hand. The
+	-- drawn case below is the one measured off INSTANCES.
 	describe("the painted map sits exactly on the drawn one (task 354)", function()
 		local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
 		local Places = require(ReplicatedStorage:WaitForChild("Places"))
@@ -2626,17 +2626,19 @@ return function()
 		local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
 		local LODGE = Vector2.new(2850, -2950)
 
-		-- EVERY TILE AS IF IT HAD BEEN UPLOADED. The nine rows ship with `assetId` 0 until the
-		-- pictures are uploaded, and `paintedFromGrid` drops a tile with no picture -- which is the
-		-- behaviour case 1 asserts. So the arithmetic cases stand the tiles up by PARAMETER, with a
-		-- stand-in id, exactly as the ground cases stand up `places`.
+		-- EVERY TILE AS IF IT HAD BEEN UPLOADED **AND RESOLVED**. The nine rows ship with `decalId`
+		-- and `imageId` 0 until the pictures are uploaded, and `paintedFromGrid` drops a tile with no
+		-- RESOLVED image -- which is the behaviour case 1 asserts. So the arithmetic cases stand the
+		-- tiles up by PARAMETER, with stand-in ids, exactly as the ground cases stand up `places`.
+		-- The two ids are deliberately DIFFERENT numbers here: the drawer must use `imageId`.
 		local function uploaded(): any
 			local tiles = {}
 			for index, tile in ipairs(PaintedMap.TILES) do
 				table.insert(tiles, {
 					id = tile.id,
 					kind = tile.kind,
-					assetId = 900000 + index,
+					decalId = 800000 + index,
+					imageId = 900000 + index,
 					rect = tile.rect,
 					pixels = tile.pixels,
 				})
@@ -2665,17 +2667,19 @@ return function()
 			expect(cells).to.equal(#Grid.cellIds())
 			expect(background).to.equal(1)
 
-			-- A TILE WITH `assetId` 0 IS NOT DRAWN, and that is the rule that keeps a part-uploaded
+			-- A TILE WITH `imageId` 0 IS NOT DRAWN, and that is the rule that keeps a part-uploaded
 			-- set honest. With one id set, exactly one tile comes back.
 			local one = {
-				TILES = { { id = "C1", kind = "cell", assetId = 0, rect = PaintedMap.TILES[1].rect } },
+				TILES = {
+					{ id = "C1", kind = "cell", decalId = 0, imageId = 0, rect = PaintedMap.TILES[1].rect },
+				},
 			}
 			expect(MapUi.paintedFromGrid(one)).to.equal(nil)
-			one.TILES[1].assetId = 12345
+			one.TILES[1].imageId = 12345
 			local got = MapUi.paintedFromGrid(one) :: any
 			expect(got).to.be.ok()
 			expect(#got).to.equal(1)
-			expect(got[1].assetId).to.equal(12345)
+			expect(got[1].imageId).to.equal(12345)
 
 			-- THE BACKGROUND COMES FIRST whatever order the table is in: it is the tile the others
 			-- sit on, and tree order is what puts it under them.
@@ -2787,7 +2791,8 @@ return function()
 			-- **What speaks for the PICTURE is `python tools/map_paint.py verify`**, which cuts a
 			-- transect across every road in the saved tiles and finds the painted road within 8.68
 			-- studs of the centreline, while blank tiles and tiles pushed by the bend's own 45 studs
-			-- both fail it (`map_paint.py selftest`, in CI).
+			-- both fail it (`map_paint.py selftest`). **THAT IS A HAND CHECK, NOT CI** (round 2,
+			-- finding 2): no workflow step runs `map_paint.py`, and queued as TASKS.md 354-notes (ci).
 			local model =
 				MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid, Places, LODGE, uploaded()) :: any
 			local config = MapUi.CONFIG
@@ -2938,7 +2943,9 @@ return function()
 			-- ...AND THE ICONS ARE STILL THERE, over it. The painted layer replaced the TINT, not
 			-- the map.
 			expect(stands > 0).to.equal(true)
-			-- NO BAND BELOW THE PANEL'S OWN (`GROUND.Z_BELOW`'s rule, and the same guard).
+			-- NO BAND BELOW THE PANEL'S OWN (`GROUND.Z_BELOW`'s rule, and the same guard). A TRIPWIRE
+			-- FOR A FUTURE POSITIVE `PAINTED.Z_BELOW`, exactly as `GROUND.Z_BELOW`'s comment says of
+			-- its own: it cannot fail while that value is 0, and it reddens the moment one is set.
 			expect(worstZ >= MapUi.CONFIG.Z_INDEX).to.equal(true)
 
 			-- ...AND WITH THE TILES ABSENT, THE GROUND TINT IS BACK, value for value. Flag OFF is
@@ -2979,7 +2986,7 @@ return function()
 			local dark = Grid.DEFAULT_CELL
 			for _, tile in ipairs(half.TILES) do
 				if tile.id == dark then
-					tile.assetId = 0
+					tile.imageId = 0
 				end
 			end
 			local model =
@@ -3017,6 +3024,99 @@ return function()
 					ownBands,
 					dark,
 					otherBands
+				)
+			)
+		end)
+
+		it("draws the IMAGE id, and a tile with only a Decal id paints nothing and keeps its ground", function()
+			-- **ROUND 2, FINDING 1: AN `ImageLabel` CANNOT DRAW A DECAL ID.** An Open Cloud upload of
+			-- a PNG returns the DECAL's id; the image id is got on the server with
+			-- `InsertService:LoadAsset(decalId).Texture` (`src/shared/Report/init.luau`,
+			-- `src/client/Hud/ShopDisplay.luau`, both of which paid a round for it). Here the wrong id
+			-- would be worse than blank: `PAINTED.REPLACES_GROUND` drops task 347's tint under any
+			-- cell this layer claims, so a tile with an unloadable id would leave the cell with NO
+			-- ground. Both arms are asserted -- the unresolved one keeps its ground, the resolved one
+			-- paints and is drawn with `imageId`.
+			local restore = MapUi.geometry()
+			local dark = Grid.DEFAULT_CELL
+			local DECAL, IMAGE = 811111, 922222
+
+			-- ARM 1, THE KNOWN-BAD ONE: uploaded but never resolved, so there is no `imageId` field
+			-- at all -- the shape a pre-change manifest or a hand edit gives. `nil ~= NO_ASSET` is
+			-- TRUE, so only the type check in `paintedFromGrid` stops it.
+			local decalOnly = uploaded()
+			for _, tile in ipairs(decalOnly.TILES) do
+				if tile.id == dark then
+					tile.decalId = DECAL
+					tile.imageId = nil
+				end
+			end
+			local dropped = MapUi.paintedFromGrid(decalOnly) :: any
+			expect(#dropped).to.equal(#PaintedMap.TILES - 1)
+			expect(MapUi.paintedCells(dropped)[dark]).to.equal(nil)
+			local model =
+				MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid, Places, LODGE, decalOnly) :: any
+			MapUi.setGeometry(model)
+			MapUi.setOpen(true)
+			task.wait()
+			local badImages, badOwnBands, decalDrawn = 0, 0, 0
+			for _, child in ipairs((Hud.fullMap() :: Frame):GetDescendants()) do
+				if child:IsA("ImageLabel") and string.find(child.Name, "^Painted") ~= nil then
+					badImages += 1
+					expect(child.Name).never.to.equal("Painted" .. dark)
+					-- THE DECAL ID IS NEVER PUT IN FRONT OF AN `ImageLabel`, on any tile.
+					if string.find((child :: ImageLabel).Image, tostring(DECAL), 1, true) ~= nil then
+						decalDrawn += 1
+					end
+				elseif string.match(child.Name, "^Ground(%w%d)_") == dark then
+					badOwnBands += 1
+				end
+			end
+			expect(decalDrawn).to.equal(0)
+			expect(badImages).to.equal(#PaintedMap.TILES - 1)
+			-- THE GROUND IS STILL THERE under the cell nobody resolved. This is the hole.
+			expect(badOwnBands > 0).to.equal(true)
+
+			-- ARM 2, THE SUCCESS ARM: resolve that one id and the cell DOES paint, with the image id
+			-- and not the decal id, and its tint stands down.
+			local resolved = uploaded()
+			for _, tile in ipairs(resolved.TILES) do
+				if tile.id == dark then
+					tile.decalId = DECAL
+					tile.imageId = IMAGE
+				end
+			end
+			expect(MapUi.paintedCells(MapUi.paintedFromGrid(resolved))[dark]).to.equal(true)
+			local good =
+				MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid, Places, LODGE, resolved) :: any
+			MapUi.setGeometry(good)
+			task.wait()
+			local goodImages, goodOwnBands, drawnImage = 0, 0, ""
+			for _, child in ipairs((Hud.fullMap() :: Frame):GetDescendants()) do
+				if child:IsA("ImageLabel") and string.find(child.Name, "^Painted") ~= nil then
+					goodImages += 1
+					if child.Name == "Painted" .. dark then
+						drawnImage = (child :: ImageLabel).Image
+					end
+				elseif string.match(child.Name, "^Ground(%w%d)_") == dark then
+					goodOwnBands += 1
+				end
+			end
+			MapUi.setOpen(false)
+			MapUi.setGeometry(restore)
+			expect(goodImages).to.equal(#PaintedMap.TILES)
+			expect(drawnImage).to.equal(string.format("rbxassetid://%d", IMAGE))
+			expect(goodOwnBands).to.equal(0)
+			TestKit.note(
+				string.format(
+					"map_ui 354 decal-vs-image: decal only -> %d image(s), %d band(s) for %s, %d decal id drawn; resolved -> %d image(s), %d band(s), %s",
+					badImages,
+					badOwnBands,
+					dark,
+					decalDrawn,
+					goodImages,
+					goodOwnBands,
+					drawnImage
 				)
 			)
 		end)

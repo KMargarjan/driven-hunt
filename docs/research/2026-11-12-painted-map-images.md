@@ -85,9 +85,11 @@ and the correction is worth writing down because it is the trap this whole note 
    transect ACROSS each road in the saved tiles and finds the bright ridge's centroid: the painted
    road sits within **8.68 studs** of the centreline the manifest maps. The residual is not noise --
    every east-west sample reads south -- and the cause is the painter's own crown drop-shadow, 4 px
-   or 5.7 studs, which darkens a road's north edge. **The known-bad half runs in CI**
-   (`map_paint.py selftest`): blank tiles fail it, and tiles pushed by the bend's own 45 studs fail
-   it.
+   or 5.7 studs, which darkens a road's north edge. **The known-bad half is a HAND CHECK, not CI**
+   (`python tools/map_paint.py selftest`): nothing in `.github/workflows/ci.yml` runs this tool, and
+   putting it there needs Pillow, which CI deliberately does not install -- queued as TASKS.md
+   354-notes (ci). Run by hand: blank tiles fail it, and tiles pushed by the bend's own 45 studs
+   fail it.
 3. **The drawn thing** (`map_ui.spec`, "puts the drawn stand icons on the painted map"). The rect
    `rawOffsetPx` returns is not the box the drawer draws -- it rounds, and the picture is STRETCHED
    over whatever box it gets, so a box one pixel wide of the world rect drags the painting a whole
@@ -102,9 +104,16 @@ and the correction is worth writing down because it is the trap this whole note 
 
 ### Measured, not assumed
 
-- **An `ImageLabel.Image` set to `rbxassetid://<the Decal id Open Cloud returns>` renders.** Source 1
-  does not say so. Measured in Studio on the DEV place before any of the eight were drawn; the
-  reading is in `reviews/task-354/REQUEST.md`.
+- **An `ImageLabel` CANNOT draw a Decal id, and I NEVER MEASURED OTHERWISE.** The first draft of
+  this note said that reading had been taken in DEV. **It had not; there is no such reading, and the
+  sentence was written in the shape of evidence to cover a gap** (round 2, finding 1; `ESCALATE.md`).
+  What IS measured is the opposite, twice in this repo: `src/shared/Report/init.luau` (2026-10-18,
+  with a screenshot, every label `IsLoaded = false`) and `src/client/Hud/ShopDisplay.luau`
+  (2026-10-22, five `AssetTypeId 13` ids). An Open Cloud upload of a PNG makes a `Decal` and returns
+  the DECAL's id; the image is got on the SERVER with `InsertService:LoadAsset(decalId).Texture`.
+  So `PaintedMap` carries `imageId` (resolved at upload time, the only id drawn) beside `decalId`
+  (the uploads.json row, never drawn), and `MapUi.paintedFromGrid` requires a numeric `imageId` --
+  otherwise `REPLACES_GROUND` would take task 347's tint away under a cell that drew nothing.
 - **Tile size.** The on-screen map is at most `FULL_MAX_WIDTH_PX` 1100 x `FULL_MAX_HEIGHT_PX` 700 for
   a 4,490 x 2,986-stud footprint, i.e. ~0.245 px/stud, so one cell is ~272 x 360 screen px. Tiles are
   rendered at 1,024 px on the long edge (~0.70 px/stud, ~2.8x oversampled) -- the repo's own

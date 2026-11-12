@@ -480,9 +480,20 @@ MapUi.PAINTED = {
 	-- READ ONCE, HERE (CLAUDE.md "Feature flags": the owner reads it at its boundary and passes the
 	-- value inward). OFF means `paintedFromGrid` is never called and no `ImageLabel` exists.
 	ENABLED = Flags.isOn("MAP_PAINTED"),
-	-- A TILE WITH NO PICTURE IS NOT DRAWN. `assetId` 0 is `PaintedMap`'s own word for "not uploaded
-	-- yet", and a tile drawn with it would be a blank rectangle over the ground layer -- worse than
-	-- the ground layer. This is the ONE rule that keeps a part-uploaded set honest.
+	-- A TILE WITH NO RESOLVED PICTURE IS NOT DRAWN. `imageId` 0 is `PaintedMap`'s own word for "not
+	-- uploaded or not resolved", and a tile drawn with it would be a blank rectangle over the ground
+	-- layer -- worse than the ground layer. This is the ONE rule that keeps a part-uploaded set
+	-- honest, and `paintedFromGrid` is where it is applied.
+	--
+	-- **IT IS THE IMAGE'S ID, NOT THE DECAL'S** (round 2, finding 1). An Open Cloud upload of a PNG
+	-- makes a `Decal` and returns the DECAL's id, which an `ImageLabel` CANNOT draw; the image id is
+	-- got on the server with `InsertService:LoadAsset(decalId).Texture`, at upload time, and that is
+	-- the id `PaintedMap.TILES[i].imageId` carries. `src/shared/Report/init.luau` and
+	-- `src/client/Hud/ShopDisplay.luau` record the same trap costing a round each. Here it would be
+	-- worse than blank: `REPLACES_GROUND` below drops task 347's tint under any cell this layer
+	-- claims, so a decal id that never loads would leave the cell with NO ground at all. Hence the
+	-- filter asks for a numeric `imageId`, and `map_ui.spec` proves a decal-only tile paints nothing
+	-- and strips nothing.
 	NO_ASSET = 0,
 	-- THE SAME BAND AS THE PANEL, AND TREE ORDER IS WHAT PUTS IT UNDER THE MARKS -- exactly the
 	-- reasoning `GROUND.Z_BELOW`'s own comment sets out, and for the same reason: under
@@ -546,7 +557,7 @@ export type GroundPatch = {
 export type PaintedTile = {
 	id: string,
 	kind: string,
-	assetId: number,
+	imageId: number, -- the RESOLVED image id (never the uploaded Decal id); see `PAINTED.NO_ASSET`
 	rect: Bounds,
 }
 
@@ -1342,10 +1353,16 @@ end
 -- THE TILES TO DRAW, from `ReplicatedStorage.Map.PaintedMap`'s table. PURE, and `paintedMap` is a
 -- PARAMETER so a spec can hand in its own tiles with the flag sitting at false.
 --
--- A TILE WITH NO PICTURE IS DROPPED HERE, not at the drawer: nine rows ship whether or not their
--- pictures have been uploaded, and `PAINTED.NO_ASSET` is the only thing that decides. Dropping them
--- here is what lets `drawGeometry` ask one question -- "is this cell painted?" -- when it decides
--- whether task 347's ground columns are still needed.
+-- A TILE WITH NO RESOLVED PICTURE IS DROPPED HERE, not at the drawer: nine rows ship whether or not
+-- their pictures have been uploaded, and `PAINTED.NO_ASSET` is the only thing that decides. Dropping
+-- them here is what lets `drawGeometry` ask one question -- "is this cell painted?" -- when it
+-- decides whether task 347's ground columns are still needed.
+--
+-- **THE FIELD IS `imageId` AND THE TYPE IS CHECKED** (round 2, finding 1). A row that carries only a
+-- `decalId` -- an uploaded picture nobody resolved through `InsertService:LoadAsset(decalId).Texture`
+-- -- has no drawable id, and `nil ~= NO_ASSET` would otherwise be TRUE and claim the cell: the tile
+-- would draw nothing while `REPLACES_GROUND` took task 347's tint away under it. So the test is
+-- "is there a number, and is it not 0", and deleting either half fails `map_ui.spec`'s own case.
 --
 -- Returns nil rather than an empty list when nothing is drawable, so `MapGeometry.painted` is absent
 -- exactly as it is with the flag off, and `sameGeometry` compares one thing instead of two.
@@ -1357,11 +1374,17 @@ function MapUi.paintedFromGrid(paintedMap: any?): { PaintedTile }?
 	-- THE BACKGROUND FIRST, whatever order the table is in: it is the one tile the others sit on.
 	for _, want in ipairs({ "background", "cell" }) do
 		for _, tile in ipairs(paintedMap.TILES) do
-			if tile.kind == want and tile.assetId ~= MapUi.PAINTED.NO_ASSET and tile.rect ~= nil then
+			local imageId = tile.imageId
+			if
+				tile.kind == want
+				and type(imageId) == "number"
+				and imageId ~= MapUi.PAINTED.NO_ASSET
+				and tile.rect ~= nil
+			then
 				table.insert(out, {
 					id = tile.id,
 					kind = tile.kind,
-					assetId = tile.assetId,
+					imageId = imageId,
 					rect = {
 						minX = tile.rect.minX,
 						maxX = tile.rect.maxX,
@@ -1880,7 +1903,8 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 			local left, top, width, height = MapUi.paintedRectPx(tile, view)
 			local image = Instance.new("ImageLabel")
 			image.Name = string.format("Painted%s", tile.id)
-			image.Image = string.format("rbxassetid://%d", tile.assetId)
+			-- THE RESOLVED IMAGE ID (`PAINTED.NO_ASSET`'s comment): a Decal id here draws nothing.
+			image.Image = string.format("rbxassetid://%d", tile.imageId)
 			image.BackgroundTransparency = 1
 			image.BorderSizePixel = 0
 			-- **SIZED FROM ITS ROUNDED CORNERS, NOT FROM A ROUNDED SIZE** (round 1, finding 2). The
@@ -3169,7 +3193,7 @@ local function sameGeometry(a: MapGeometry?, b: MapGeometry?): boolean
 	end
 	for index, tile in ipairs(aPainted) do
 		local other = bPainted[index]
-		if tile.id ~= other.id or tile.assetId ~= other.assetId then
+		if tile.id ~= other.id or tile.imageId ~= other.imageId then
 			return false
 		end
 		for key, value in pairs(tile.rect) do

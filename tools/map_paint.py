@@ -37,6 +37,7 @@ import math
 import os
 import re
 import sys
+import tempfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GRID_LUAU = os.path.join(REPO, "src", "shared", "Grid", "init.luau")
@@ -58,10 +59,11 @@ BG_MARGIN_STUDS = 460.0
 # a different --pps scales each of them by pps/this, so the picture is the same picture at a
 # different resolution rather than a different picture.
 TUNED_PPS = 0.40
-# HOW FAR EITHER SIDE OF A ROAD  CUTS ITS TRANSECT, in studs. Past the 42-stud clearance's
+# HOW FAR EITHER SIDE OF A ROAD `verify` CUTS ITS TRANSECT, in studs. Past the 42-stud clearance's
 # own half-width (21) and into whatever borders the road, so the carriageway stands out against it;
 # and small enough that a whole transect fits inside one tile wherever the bend has pushed the road
-# that far off the tile edge.  keeps exactly the road samples where it does fit.
+# that far off the tile edge. `landmarks` drops the samples where it does not fit and keeps
+# exactly the road samples where it does.
 TRANSECT_HALF_STUDS = 30.0
 
 
@@ -775,14 +777,21 @@ def manifest_luau(plan, geo, ids, sizes):
     add("-- exact corners -- the Leaflet tile-layer pattern with the projection derived, not fitted.")
     add("-- Note: docs/research/2026-11-12-painted-map-images.md")
     add("--")
-    add("-- `assetId` 0 means NOT UPLOADED YET, and `MapUi` draws no tile for it. Every non-zero id")
-    add("-- has a row in `assets/uploads.json` carrying its sha256, its moderation state and Karen's")
-    add("-- OK. A Decal cannot be updated through the Assets API, so a re-render is a NEW id.")
+    add("-- **`imageId` IS THE IMAGE'S ID AND NOT THE DECAL'S.** An Open Cloud upload of a PNG makes")
+    add("-- a `Decal` and returns the DECAL's id, which an `ImageLabel` cannot draw; the image is got")
+    add("-- on the server, once, with `InsertService:LoadAsset(decalId).Texture`. This repo has paid")
+    add("-- for that trap twice -- `src/shared/Report/init.luau`, `src/client/Hud/ShopDisplay.luau`.")
+    add("--")
+    add("-- `imageId` 0 means NOT UPLOADED OR NOT RESOLVED: `MapUi` draws no tile for it AND leaves")
+    add("-- task 347's ground under it. `decalId` is the uploaded id, kept for the")
+    add("-- `assets/uploads.json` row (sha256, moderation state, Karen's OK) and never drawn. A Decal")
+    add("-- cannot be updated through the Assets API, so a re-render is a NEW pair.")
     add("")
     add("export type Tile = {")
     add("\tid: string,")
     add("\tkind: string, -- \"cell\" or \"background\"")
-    add("\tassetId: number,")
+    add("\tdecalId: number, -- the UPLOADED id; traceability only, never drawn")
+    add("\timageId: number, -- the RESOLVED image id, the only id `MapUi` draws")
     add("\tpixels: { width: number, height: number },")
     add("\trect: { minX: number, maxX: number, minZ: number, maxZ: number },")
     add("}")
@@ -799,7 +808,9 @@ def manifest_luau(plan, geo, ids, sizes):
         add("\ttable.freeze({")
         add("\t\tid = \"%s\"," % tile["id"])
         add("\t\tkind = \"%s\"," % tile["kind"])
-        add("\t\tassetId = %d," % ids.get(tile["id"], 0))
+        decal_id, image_id = ids.get(tile["id"], (0, 0))
+        add("\t\tdecalId = %d," % decal_id)
+        add("\t\timageId = %d," % image_id)
         add("\t\tpixels = table.freeze({ width = %d, height = %d })," % (out_w, out_h))
         add("\t\trect = table.freeze({")
         for key in ("minX", "maxX", "minZ", "maxZ"):
@@ -914,8 +925,9 @@ def cmd_render(args):
     marks = landmarks(geo, plan)
     # THE PROOF TABLE SHIPS WITH THE PLACE, as a Rojo JSON module (CLAUDE.md "File types": a .json in
     # a Rojo path becomes a ModuleScript returning the decoded table). tests/client/map_ui.spec.luau
-    # reads it and compares THIS script's pixel for each world point against MapUi.paintedRectPx's --
-    # two independent instruments, which is the only kind of alignment claim worth making.
+    # reads it and compares THIS script's pixel for each world point against MapUi.paintedRectPx's.
+    # BOTH SIDES ARE THE SAME ARITHMETIC (`landmarks`' own docstring), so a 0 px table proves the
+    # CONVENTION -- corners, axis signs, rounding -- and cannot speak for the painting. `verify` does.
     marks_path = os.path.join(REPO, "src", "shared", "Map", "PaintedLandmarks.json")
     with io.open(marks_path, "w", encoding="utf-8", newline="\n") as handle:
         json.dump(dict(tool=TOOL_VERSION, pxPerStud=plan["pps"], landmarks=marks),
@@ -927,8 +939,8 @@ def cmd_render(args):
     with io.open(os.path.join(REPO, "src", "shared", "Map", "PaintedMap.luau"), "w",
                  encoding="utf-8", newline="\n") as handle:
         handle.write(text)
-    print("  src/shared/Map/PaintedMap.luau  %d tiles, %d with an asset id"
-          % (len(plan["tiles"]), sum(1 for v in ids.values() if v)))
+    print("  src/shared/Map/PaintedMap.luau  %d tiles, %d with a resolved image id"
+          % (len(plan["tiles"]), sum(1 for pair in ids.values() if pair[1])))
     return 0
 
 
@@ -941,13 +953,13 @@ def cmd_render(args):
 #
 # 12 STUDS, AND THE NUMBER WAS MEASURED RATHER THAN CHOSEN. Over the 16 samples this keeps, the
 # signed residual runs -6.3 to +8.7 studs, and it is NOT noise: every east-west sample reads POSITIVE
-# (south). That is the painter's own crown drop-shadow, which  draws  pixels
+# (south). That is the painter's own crown drop-shadow, which `paint_canvas` draws `drop` pixels
 # down-and-right of each crown -- 4 px at 0.70 px/stud, or 5.7 studs -- so wood standing north of an
 # east-west road darkens that road's north edge and pushes the bright ridge south. It is a fact about
 # the PICTURE, not a misplacement of it, and the observed +6.5-stud mean matches the 5.7-stud shadow.
 #
 # IT STILL BITES WHERE IT MATTERS. The subtle geometric failure this check exists for is the BEND
-# being dropped or mis-signed, which moves a road by  45 to  60 studs -- four to
+# being dropped or mis-signed, which moves a road by 45 to 60 studs -- four to
 # five times this bound. A wrong tile, a flipped axis or a bad crop are hundreds of studs. A blank
 # tile is caught by the contrast test below instead.
 MAX_ROAD_OFFSET_STUDS = 12.0
@@ -1090,14 +1102,29 @@ def parse_plan_tiles():
 
 
 def read_ids(path):
-    """tile id -> Roblox asset id, from a JSON file. Absent is all zeros (nothing uploaded yet)."""
+    """tile id -> (decal id, resolved IMAGE id), from a JSON file. Absent is all zeros.
+
+    A ROW IS A PAIR: `{"C1": {"decal": <uploaded>, "image": <resolved>}}`. An Open Cloud upload
+    returns the DECAL's id, which an `ImageLabel` cannot draw; it is resolved on the server with
+    `InsertService:LoadAsset(decalId).Texture` (src/shared/Report/init.luau). A bare number is
+    REFUSED, not guessed at: a guess writes a decal id into `imageId`, and a non-zero `imageId`
+    strips task 347's ground while drawing nothing.
+    """
     if not path:
         path = os.path.join(OUT_DIR, "asset-ids.json")
     if not os.path.isfile(path):
         return {}
     with io.open(path, encoding="utf-8") as handle:
         raw = json.load(handle)
-    return dict((str(k), int(v)) for k, v in raw.items())
+    out = {}
+    for key, value in raw.items():
+        if not isinstance(value, dict):
+            raise Refused(
+                '%s: tile %s must read {"decal": <uploaded id>, "image": <resolved id>} -- a bare id '
+                "is the DECAL's, which an ImageLabel cannot draw; resolve it on the server with "
+                "InsertService:LoadAsset(decalId).Texture" % (path, key))
+        out[str(key)] = (int(value.get("decal", 0) or 0), int(value.get("image", 0) or 0))
+    return out
 
 
 # ---------------------------------------------------------------- selftest
@@ -1177,11 +1204,43 @@ def cmd_selftest(_args):
     # THE MANIFEST, and that a missing id file means zeros rather than a guess.
     sizes = dict((t["id"], scaled_size(t["box"])) for t in plan["tiles"])
     text = manifest_luau(plan, geo, {}, sizes)
-    ok("the manifest writes assetId 0 for a tile with no id", text.count("assetId = 0,") == 9)
-    text = manifest_luau(plan, geo, {"C1": 123}, sizes)
-    ok("the manifest writes the id it is given", "assetId = 123," in text)
+    ok("the manifest writes imageId 0 for a tile with no id", text.count("imageId = 0,") == 9)
+    ok("...and decalId 0 with it", text.count("decalId = 0,") == 9)
+    # ROUND 2, FINDING 1: THE DRAWN ID IS THE IMAGE'S, NOT THE UPLOADED DECAL'S. The pair is kept
+    # apart here, where a `render` would otherwise put a decal id in front of an `ImageLabel`.
+    text = manifest_luau(plan, geo, {"C1": (123, 456)}, sizes)
+    ok("the manifest writes the decal id it is given", "decalId = 123," in text)
+    ok("...and the resolved image id beside it", "imageId = 456," in text)
+    ok("the manifest says which id is drawn and which is not",
+       "IS THE IMAGE'S ID AND NOT THE DECAL'S" in text and "never drawn" in text)
     ok("the manifest names the generator and the note",
        "tools/map_paint.py" in text and "2026-11-12-painted-map-images.md" in text)
+    # THE COMMITTED MANIFEST IS WHAT THIS GENERATOR WRITES, byte for byte, with nothing uploaded --
+    # so a hand edit of PaintedMap.luau (the file says EDIT THAT, NOT THIS) fails here.
+    shipped = os.path.join(REPO, "src", "shared", "Map", "PaintedMap.luau")
+    with io.open(shipped, encoding="utf-8") as handle:
+        on_disk = handle.read()
+    ok("src/shared/Map/PaintedMap.luau is this generator's own output",
+       on_disk == manifest_luau(plan, geo, {}, sizes),
+       "run `python tools/map_paint.py render` -- the committed file is not what the tool writes")
+    # AN ids FILE THAT CARRIES A BARE NUMBER IS REFUSED, because a bare upload id is the DECAL's.
+    bare = os.path.join(tempfile.gettempdir(), "map_paint_bare_ids.json")
+    with io.open(bare, "w", encoding="utf-8") as handle:
+        handle.write(u'{"C1": 123}')
+    refused = ""
+    try:
+        read_ids(bare)
+    except Refused as exc:
+        refused = str(exc)
+    os.remove(bare)
+    ok("a bare asset id in the ids file is refused as the DECAL's",
+       "ImageLabel cannot draw" in refused, refused or "it was accepted")
+    paired = os.path.join(tempfile.gettempdir(), "map_paint_paired_ids.json")
+    with io.open(paired, "w", encoding="utf-8") as handle:
+        handle.write(u'{"C1": {"decal": 7, "image": 8}}')
+    pairs = read_ids(paired)
+    os.remove(paired)
+    ok("a paired row reads back as (decal, image)", pairs.get("C1") == (7, 8), repr(pairs))
 
     # ---- THE PICTURE ITSELF, AND THE TWO KNOWN-BAD INPUTS THAT PROVE THE CHECK BITES.
     # Round 1, finding 1: the landmark/rect round-trip above is an ALGEBRAIC IDENTITY and passes
@@ -1192,7 +1251,6 @@ def cmd_selftest(_args):
         worst = max(row[1] for row in measured) if measured else 999.0
         ok("the SAVED tiles have a road at every centreline the manifest maps (worst %.2f studs)"
            % worst, measured and not failures, "; ".join(failures[:3]))
-        import tempfile
         from PIL import Image
         import numpy as np
         names = [t["id"].lower() for t in tile_plan(Geometry(grid, places, slug), 0.70)["tiles"]]

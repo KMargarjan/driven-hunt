@@ -78,6 +78,8 @@ One more round, on a `DIRECTOR_MAX_ROUNDS=3` authorisation, spent on finding 1's
 plus finding 2's CI step and the stale wording the notes list. Finding 2 alone would be
 documentation-only; finding 1 is not, so this is the Director's call and not something I may take.
 
+> Director 2026-11-12 22:05 UTC: round 3 authorised for task 354, to close round 2's two findings.
+
 ## 2026-11-12 ~20:14 UTC, Task 354 -- **NEEDS KAREN**: the Roblox Open Cloud key is rejected, so the nine painted pictures CANNOT be uploaded, and the flag-ON frame cannot exist
 
 Written at the hard stop, before any workaround was designed (lesson V280).
@@ -115,17 +117,30 @@ and no row was written.
    new process reads it. It must never be pasted into the repo -- it is public, and
    `tools/privacy_scan.py` fails CI on the shape.
 
-Then one command finishes the upload half of this task, with no code change:
+Then the upload half of this task is two commands and **one resolve step that is not optional**
+(corrected 2026-11-12 round 3; the earlier wording here said "no code change ... No `src/` logic
+changes", which was WRONG -- see finding 1 above):
 
 ```
 python tools/map_paint.py render            # re-renders, deterministic, same nine files
 python tools/roblox_upload.py upload <folder> --type Decal --name "..." --karen-ok "..."
 ```
 
-...and the nine ids go into `assets/ready/map/asset-ids.json`, after which
-`python tools/map_paint.py render --ids assets/ready/map/asset-ids.json` rewrites
-`src/shared/Map/PaintedMap.luau` with them. **No `src/` logic changes**: `assetId = 0` already means
-"not uploaded", and `MapUi` draws no tile for it.
+Each upload returns a **DECAL** id, which an `ImageLabel` cannot draw. **Resolve each one to its
+IMAGE id on the SERVER** -- `InsertService:LoadAsset(decalId).Texture`, the route
+`src/shared/Report/init.luau` and `src/client/Hud/ShopDisplay.luau` both record -- and write the
+PAIRS into `assets/ready/map/asset-ids.json`:
+
+```
+{ "C1": { "decal": <uploaded id>, "image": <resolved id> }, ... }
+```
+
+after which `python tools/map_paint.py render --ids assets/ready/map/asset-ids.json` rewrites
+`src/shared/Map/PaintedMap.luau` with them. A bare number in that file is REFUSED by the tool,
+because a bare upload id is the decal's. No `src/` logic change is needed at that point: since round
+3, `imageId = 0` means "not uploaded or not resolved", `MapUi` draws no tile for it AND leaves task
+347's ground under it (`tests/client/map_ui.spec.luau`, "draws the IMAGE id, and a tile with only a
+Decal id paints nothing and keeps its ground").
 
 ### What this costs the task, said plainly
 

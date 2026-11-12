@@ -7,14 +7,21 @@
 -- exact corners -- the Leaflet tile-layer pattern with the projection derived, not fitted.
 -- Note: docs/research/2026-11-12-painted-map-images.md
 --
--- `assetId` 0 means NOT UPLOADED YET, and `MapUi` draws no tile for it. Every non-zero id
--- has a row in `assets/uploads.json` carrying its sha256, its moderation state and Karen's
--- OK. A Decal cannot be updated through the Assets API, so a re-render is a NEW id.
+-- **`imageId` IS THE IMAGE'S ID AND NOT THE DECAL'S.** An Open Cloud upload of a PNG makes
+-- a `Decal` and returns the DECAL's id, which an `ImageLabel` cannot draw; the image is got
+-- on the server, once, with `InsertService:LoadAsset(decalId).Texture`. This repo has paid
+-- for that trap twice -- `src/shared/Report/init.luau`, `src/client/Hud/ShopDisplay.luau`.
+--
+-- `imageId` 0 means NOT UPLOADED OR NOT RESOLVED: `MapUi` draws no tile for it AND leaves
+-- task 347's ground under it. `decalId` is the uploaded id, kept for the
+-- `assets/uploads.json` row (sha256, moderation state, Karen's OK) and never drawn. A Decal
+-- cannot be updated through the Assets API, so a re-render is a NEW pair.
 
 export type Tile = {
 	id: string,
 	kind: string, -- "cell" or "background"
-	assetId: number,
+	decalId: number, -- the UPLOADED id; traceability only, never drawn
+	imageId: number, -- the RESOLVED image id, the only id `MapUi` draws
 	pixels: { width: number, height: number },
 	rect: { minX: number, maxX: number, minZ: number, maxZ: number },
 }
@@ -28,7 +35,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "A1",
 		kind = "cell",
-		assetId = 0,
+		decalId = 0,
+		imageId = 0,
 		pixels = table.freeze({ width = 773, height = 1024 }),
 		rect = table.freeze({
 			minX = -6678.571428571428,
@@ -40,7 +48,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "A2",
 		kind = "cell",
-		assetId = 0,
+		decalId = 0,
+		imageId = 0,
 		pixels = table.freeze({ width = 773, height = 1024 }),
 		rect = table.freeze({
 			minX = -6678.571428571428,
@@ -52,7 +61,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "B1",
 		kind = "cell",
-		assetId = 0,
+		decalId = 0,
+		imageId = 0,
 		pixels = table.freeze({ width = 773, height = 1024 }),
 		rect = table.freeze({
 			minX = -5567.142857142857,
@@ -64,7 +74,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "B2",
 		kind = "cell",
-		assetId = 0,
+		decalId = 0,
+		imageId = 0,
 		pixels = table.freeze({ width = 773, height = 1024 }),
 		rect = table.freeze({
 			minX = -5567.142857142857,
@@ -76,7 +87,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "C1",
 		kind = "cell",
-		assetId = 0,
+		decalId = 0,
+		imageId = 0,
 		pixels = table.freeze({ width = 774, height = 1024 }),
 		rect = table.freeze({
 			minX = -4455.714285714285,
@@ -88,7 +100,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "C2",
 		kind = "cell",
-		assetId = 0,
+		decalId = 0,
+		imageId = 0,
 		pixels = table.freeze({ width = 774, height = 1024 }),
 		rect = table.freeze({
 			minX = -4455.714285714285,
@@ -100,7 +113,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "D1",
 		kind = "cell",
-		assetId = 0,
+		decalId = 0,
+		imageId = 0,
 		pixels = table.freeze({ width = 773, height = 1024 }),
 		rect = table.freeze({
 			minX = -3342.8571428571427,
@@ -112,7 +126,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "D2",
 		kind = "cell",
-		assetId = 0,
+		decalId = 0,
+		imageId = 0,
 		pixels = table.freeze({ width = 773, height = 1024 }),
 		rect = table.freeze({
 			minX = -3342.8571428571427,
@@ -124,7 +139,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "WOOD",
 		kind = "background",
-		assetId = 0,
+		decalId = 0,
+		imageId = 0,
 		pixels = table.freeze({ width = 1024, height = 739 }),
 		rect = table.freeze({
 			minX = -7160,
