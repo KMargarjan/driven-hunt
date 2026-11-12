@@ -154,7 +154,8 @@ MapUi.CONFIG = {
 	CELL_LABEL_SIZE = Style.SIZE.MICRO[1],
 	CELL_EDGE_COLOR = Style.LOOK.WELL_EDGE,
 	CELL_EDGE_TRANSPARENCY = 0.3,
-	-- A CELL WITH NO WOOD (`Grid.PLANTED_CELLS` has no A1) is drawn and said to be empty rather than
+	-- A CELL WITH NO WOOD (`Grid.PLANTED_CELLS`; since task 352 every cell is in it) is drawn and
+	-- said to be empty rather than
 	-- left off: a hole in the map is a map with a bug in it.
 	CELL_EMPTY_TRANSPARENCY = 0.75,
 	CELL_EMPTY_WORD = "%s empty",
@@ -1236,8 +1237,8 @@ end
 -- ground, which is how `MAP_LOOK` off draws today's map.
 --
 -- **A CELL WITH NO WOOD GETS NO GROUND, AND THE DOOR IS `Grid.PLANTED_CELLS`** (round 1, finding 1,
--- which was right). A1 is absent from `PLANTED_CELLS` and is the one cell with nothing planted in
--- it -- but its `Grid.CELLS` row still names `recipe = "spruceSlope"`, so keying off
+-- which was right). A1 was absent from `PLANTED_CELLS` until task 352 and was the one cell with
+-- nothing planted in it -- but its `Grid.CELLS` row still named `recipe = "spruceSlope"`, so keying off
 -- `Places.cellPlanFor` alone painted six patches of dark-green conifer under the words `A1 empty`.
 -- `geometryFromGrid` forty lines up already reads the right door for exactly this (`empty = not
 -- planted[id]`), and now so does this. A plan that exists is not a wood that was planted.

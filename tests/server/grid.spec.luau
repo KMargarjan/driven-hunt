@@ -1734,14 +1734,19 @@ return function()
 		end)
 
 		-- **THE CASE THAT DIES IF THE ROTATION IS PUT BACK (lesson L-093).** Delete the producer --
-		-- `ForestTest.LAYOUT_ORDER = Grid.PLANTED_CELLS` back to
+		-- `ForestTest.LAYOUT_ORDER = Grid.ROTATION_CELLS` back to
 		-- `table.freeze({ "road", "edge", "ride", "track" })` -- and every assertion below reddens.
-		it("deals ONLY the planted cells, never a line place and never A1", function()
+		it("deals ONLY the rotation cells, never a line place and never A1", function()
 			local order = Forest.LAYOUT_ORDER
-			-- IT IS THE PLANTED LIST ITSELF, not a copy of it: the cells with a wood and the cells
-			-- the rotation deals cannot drift apart.
-			expect(order).to.equal(Grid.PLANTED_CELLS)
+			-- IT IS THE ROTATION LIST ITSELF, not a copy of it. **TASK 352 SPLIT IT FROM
+			-- `PLANTED_CELLS`**: A1 now HAS a wood and is still not DEALT, so the identity became
+			-- the SUBSET asserted below -- every dealt cell has a wood, and A1 has one without
+			-- being dealt.
+			expect(order).to.equal(Grid.ROTATION_CELLS)
 			expect(#order).to.equal(7)
+			for _, name in ipairs(order) do
+				expect(table.find(Grid.PLANTED_CELLS, name)).to.be.ok()
+			end
 			for _, name in ipairs(order) do
 				-- EVERY NAME IS A CELL, AND NO NAME IS A LINE PLACE.
 				expect(Grid.cellOf(name)).to.be.ok()
@@ -1753,8 +1758,11 @@ return function()
 				expect(layout.name).to.equal(name)
 				expect(layout.cellOf).to.be.ok()
 			end
-			-- A1 IS THE ONE CELL WITH NO BAKED GROUND, so it is in neither list.
+			-- A1 IS THE ONE CELL WITH NO BAKED GROUND, so it is dealt by nothing -- though since
+			-- task 352 it DOES have a wood (`PLANTED_CELLS`). That is the split, asserted as one
+			-- line: a real cell, in the planted list, out of the rotation.
 			expect(Grid.cellOf("A1")).to.be.ok()
+			expect(table.find(Grid.PLANTED_CELLS, "A1")).to.be.ok()
 			expect(table.find(order, "A1")).to.equal(nil)
 			-- THE ROTATION CANNOT REACH A LINE PLACE: four full cycles and not one of the four.
 			local previous = nil
@@ -3027,10 +3035,11 @@ return function()
 		-- `Grid.DEFAULT_CELL` and nothing else, so seven cells had never had a tree in them.
 		it("is a list of baked cells, C1 first and C2 -- the cell behind the line -- second", function()
 			local planted = Grid.PLANTED_CELLS
-			-- SEVEN SINCE TASK 336: B2 and D2 joined, each with its own species (Karen, 2026-11-08:
-			-- *"can you make now all grounds with different trees"*). Their ground is the raw base
-			-- and that was the question the plant answered -- by raying every site, not by argument.
-			expect(#planted).to.equal(7)
+			-- **EIGHT SINCE TASK 352**: A1 joined, because Karen ringed the whole of it on the
+			-- painted map (*"marked where need more trees"*). Seven since task 336 before that,
+			-- when B2 and D2 joined, each with its own species -- their ground is the raw base and
+			-- that was the question the plant answered, by raying every site, not by argument.
+			expect(#planted).to.equal(8)
 			expect(planted[1]).to.equal(Grid.DEFAULT_CELL)
 			expect(planted[2]).to.equal("C2")
 			local seen: { [string]: boolean } = {}
@@ -3041,13 +3050,24 @@ return function()
 				expect(seen[id]).never.to.equal(true)
 				seen[id] = true
 			end
-			-- **A1 IS THE ONE THAT IS OUT**, and it is out because it has no ground at all: it was
-			-- never in a bake (`grid-terrain.md` 16's 328h/328x rows). B2 and D2 were out with it
-			-- until task 336 for a different reason -- their landform was HELD
-			-- (`terrainbake.py --hold-landform`) -- and that reason is spent: holding a landform is
-			-- not the same as having none, and both planted.
-			expect(seen["A1"]).never.to.equal(true)
-			TestKit.note("PLANTED_CELLS: " .. table.concat(planted, ","))
+			-- **A1 IS IN, AND IT IS LAST** (task 352): a wood is planted on the ground that is
+			-- there, and `tools/terrainbake.py plant` rays every site and refuses the ones over a
+			-- cliff -- the same answer-by-measurement task 336 gave for B2 and D2, whose landform
+			-- was HELD rather than absent. What A1 still does NOT have is a bake, which is why it
+			-- is out of `ROTATION_CELLS`: a drive needs cut roads, a wood does not.
+			expect(seen["A1"]).to.equal(true)
+			expect(planted[#planted]).to.equal("A1")
+			expect(table.find(Grid.ROTATION_CELLS, "A1")).to.equal(nil)
+			-- EVERY ROTATION CELL HAS A WOOD: the subset that replaced the old identity.
+			for _, id in ipairs(Grid.ROTATION_CELLS) do
+				expect(table.find(planted, id)).to.be.ok()
+			end
+			TestKit.note(
+				"PLANTED_CELLS: "
+					.. table.concat(planted, ",")
+					.. " | ROTATION_CELLS: "
+					.. table.concat(Grid.ROTATION_CELLS, ",")
+			)
 		end)
 
 		-- THE DENSITY, MEASURED ON THE CELL'S OWN GROUND. The SKIRT is excluded on purpose: a

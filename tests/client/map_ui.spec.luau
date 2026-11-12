@@ -1781,7 +1781,9 @@ return function()
 			end
 			expect(active).to.equal(1)
 			expect(shown.activeCell).to.equal(Grid.DEFAULT_CELL)
-			-- THE CELL WITH NO WOOD IS DRAWN AND SAID TO BE EMPTY (`Grid.PLANTED_CELLS` has no A1).
+			-- A CELL WITH NO WOOD IS DRAWN AND SAID TO BE EMPTY. **SINCE TASK 352 THERE IS NONE** -- A1
+			-- joined `Grid.PLANTED_CELLS` -- and this reads the door rather than the count, so it is
+			-- the same assertion either way.
 			expect(#empty).to.equal(#Grid.cellIds() - #Grid.PLANTED_CELLS)
 			for _, id in ipairs(Grid.PLANTED_CELLS) do
 				expect(ids[id].empty).to.equal(false)
@@ -2387,9 +2389,9 @@ return function()
 				end
 			end
 			expect(planted).to.equal(#Grid.PLANTED_CELLS)
-			-- ...AND NO OTHERS. A1 is the one cell with nothing planted in it, and it must carry no
-			-- band at all (round 1, finding 1): the count above passes happily with an eighth cell
-			-- drawn.
+			-- ...AND NO OTHERS. The door is `PLANTED_CELLS` and never the recipe (round 1, finding
+			-- 1): the count above passes happily with a ninth cell drawn, so an id that is not in
+			-- the list must carry no band at all. Since task 352 the list is all eight.
 			for id in pairs(cells) do
 				local isPlanted = false
 				for _, planted_ in ipairs(Grid.PLANTED_CELLS) do

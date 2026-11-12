@@ -85,7 +85,7 @@ local Cells = require(ServerScriptService.Places:WaitForChild("Cells"))
 -- THE SOURCES THAT ARE NO LONGER DRAWN (task 341): the one writer of `ServerStorage.Sources`.
 local Store = require(ServerScriptService.Places:WaitForChild("Store"))
 -- THE GRID'S EIGHT CELLS (task 327a) ARE NOT REQUIRED HERE ANY MORE (task 327d). This file asked
--- `Grid` for one cell's layout row under `GRID_PREVIEW`; the rotation IS `Grid.PLANTED_CELLS` now,
+-- `Grid` for one cell's layout row under `GRID_PREVIEW`; the rotation IS `Grid.ROTATION_CELLS` now,
 -- so the cell reaches this file through `ForestTest` like any other layout and there is one path.
 local Data = ForestTest.Data
 
@@ -156,7 +156,8 @@ local planted = Places.build(
 		task.wait()
 	end,
 	-- NO CELL LIST WHEN THE PREBUILD STANDS (or was refused): an empty list dresses nothing. nil is
-	-- today's boot exactly -- `Grid.PLANTED_CELLS`, read at the planter's own boundary.
+	-- today's boot exactly -- `Grid.PLANTED_CELLS` (every cell that has a wood, A1 included since task
+	-- 352), read at the planter's own boundary.
 	if prebuild.dress then nil else {}
 )
 print(string.format(

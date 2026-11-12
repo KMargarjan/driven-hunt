@@ -300,9 +300,11 @@ ForestTest.LAYOUTS = table.freeze({
 -- part of map we can remove we can only focus on those what we have from A1 ect"* and *"we only
 -- load one per game thats it"*.
 --
--- IT **IS** `Grid.PLANTED_CELLS` AND NOT A COPY OF IT, which is the whole of the item: the cells
--- that have a wood and the cells the rotation deals cannot drift apart, and A1 -- the one cell with
--- no baked ground to plant on -- is out of both by one fact rather than by two lists agreeing.
+-- IT **IS** `Grid.ROTATION_CELLS` AND NOT A COPY OF IT, which is the whole of the item: the rotation
+-- cannot drift from the list the grid keeps. **IT WAS `Grid.PLANTED_CELLS` UNTIL TASK 352**, when
+-- the two questions came apart: A1 now HAS a wood (Karen ringed it on the map) but is still not
+-- DEALT, because its roads are not cut and its landform is not shaped. `grid.spec` asserts the
+-- rotation is a subset of the planted cells, which is the invariant that used to be an identity.
 -- C1 is first, so the cell `Places.build` dresses at boot and `Grid.DEFAULT_CELL` stands IS drive
 -- 1's cell: no wood is swapped before anybody has played.
 --
@@ -310,7 +312,7 @@ ForestTest.LAYOUTS = table.freeze({
 -- rows stay in `ForestTest.LAYOUTS` and every number in them is still asserted, and the Director
 -- reaches any of them with `DHForestLayout=road` -- which is the rollback, and it is one attribute
 -- rather than a commit. Archived with its reasons: backups/2026-11-09_task-327d_the-four-line-places.md
-ForestTest.LAYOUT_ORDER = Grid.PLANTED_CELLS
+ForestTest.LAYOUT_ORDER = Grid.ROTATION_CELLS
 
 -- THE FOUR LINE PLACES, BY NAME, FOR THE READERS THAT STILL MEAN THEM (task 327d). `LAYOUT_ORDER`
 -- is the ROTATION and it holds cells now, so a reader asking "every line place's lane" had to stop

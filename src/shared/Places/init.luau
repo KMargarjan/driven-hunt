@@ -1130,11 +1130,13 @@ Places.CELL_PLANS = table.freeze({
 	-- Strips across the fall line, which is what a slope reads as from the road.
 	spruceSlope = table.freeze({
 		halfStripStuds = 9,
-		spacingStuds = 26,
-		deepSpacingStuds = 60,
+		-- v2 (task 352): C1's accepted skirt and gap, borrowed whole. See THE DENSITY RULE above.
+		-- A1 was the one recipe that never took it, because A1 was the one cell nothing planted.
+		spacingStuds = 24,
+		deepSpacingStuds = 52,
 		fernSpacing = 24,
 		fernBandStuds = 30,
-		minGapStuds = 12,
+		minGapStuds = 11,
 		skirtFullStuds = 80,
 		skirtStuds = 230,
 		shrubScale = table.freeze({ 0.25, 0.45 }),
@@ -1149,13 +1151,17 @@ Places.CELL_PLANS = table.freeze({
 		-- verge, so no bracken stands in the ditch or on the verge design 7.1 keeps bare.
 		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
 		scaleFloor = 0.35,
+		-- THE CLEARING IS GONE AND EVERY ZONE CARRIES THE SECOND STOREY (task 352). Karen,
+		-- 2026-11-12, ringed the WHOLE of A1 on the painted map: *"marked where need more trees"*.
+		-- The 0-spacing `clearing` was 60 % x 19 % of the cell -- 130,000 sq studs of bare ground in
+		-- the middle of it -- and it is now `spruceHigh` at the uphill pitch.
 		zones = table.freeze({
-			zone(0.00, 0.00, 1.00, 0.30, 24, "spruceThicket", "wood"),
-			zone(0.00, 0.30, 1.00, 0.55, 30, "mixedWood", "wood"),
-			zone(0.20, 0.55, 0.80, 0.74, 0, "clearing", "wood"),
-			zone(0.00, 0.55, 0.20, 0.74, 34, "spruceHigh", "wood"),
-			zone(0.80, 0.55, 1.00, 0.74, 34, "spruceHigh", "wood"),
-			zone(0.00, 0.74, 1.00, 1.00, 34, "spruceHigh", "wood"),
+			zone(0.00, 0.00, 1.00, 0.30, 24, "spruceThicket", "wood", SPRUCE_CANOPY),
+			zone(0.00, 0.30, 1.00, 0.55, 30, "mixedWood", "wood", SPRUCE_CANOPY),
+			zone(0.20, 0.55, 0.80, 0.74, 34, "spruceHigh", "wood", SPRUCE_CANOPY),
+			zone(0.00, 0.55, 0.20, 0.74, 34, "spruceHigh", "wood", SPRUCE_CANOPY),
+			zone(0.80, 0.55, 1.00, 0.74, 34, "spruceHigh", "wood", SPRUCE_CANOPY),
+			zone(0.00, 0.74, 1.00, 1.00, 34, "spruceHigh", "wood", SPRUCE_CANOPY),
 		}),
 	}),
 
@@ -1381,12 +1387,18 @@ Places.CELL_PLANS = table.freeze({
 		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
 		scaleFloor = 0.35,
 		zones = table.freeze({
-			zone(0.00, 0.00, 1.00, 0.26, 24, "aspenUnder", "shrub", {
+			-- A2's SOUTH BAND AND WEST THIRD ARE WOOD, NOT SCRUB (task 352). Karen, 2026-11-12, on
+			-- the painted map with these two rectangles ringed: *"those gaps also full of trees"*.
+			-- They were already planted at 24/25 studs -- what read as a gap was the SCALE: band
+			-- `shrub` is `shrubScale` 0.30-0.55 of an `aspenUnder` sapling, so a 1,070-stud frontage
+			-- of knee-high growth. Band and mix only; the pitch, the rows and the second storey are
+			-- untouched, so the plantation character and the tree COUNT are exactly as before.
+			zone(0.00, 0.00, 1.00, 0.26, 24, "aspenAll", "wood", {
 				rows = "NS",
 				jitter = 0.25,
 				under = ASPEN_UNDER,
 			}),
-			zone(0.00, 0.26, 0.35, 0.65, 25, "aspenUnder", "shrub", {
+			zone(0.00, 0.26, 0.35, 0.65, 25, "aspenAll", "wood", {
 				rows = "NS",
 				jitter = 0.25,
 				under = ASPEN_UNDER,
