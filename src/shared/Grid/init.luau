@@ -97,7 +97,7 @@ Grid.CELL_ORDER = table.freeze({ "A1", "B1", "C1", "D1", "A2", "B2", "C2", "D2" 
 
 -- THE CELL A SESSION FALLS BACK TO, so a boot with no drive dealt yet stands ONE cell rather than
 -- none. `Cells.wantedCell` and `Places.build`'s boot dress are its two readers, and it is
--- `PLANTED_CELLS[1]` so those two and the rotation's first deal are the same cell.
+-- `PLANTED_CELLS[1]` and `ROTATION_CELLS[1]` so those two and the rotation's first deal are one cell.
 -- C1 BECAUSE IT HAS THE MOST TO SHOW: the only cell whose tower measurement takes three stands, on
 -- both flanks, with no relief relaxation. It was `PREVIEW_CELL` until task 327d retired the preview.
 Grid.DEFAULT_CELL = "C1"
@@ -120,8 +120,25 @@ Grid.DEFAULT_CELL = "C1"
 -- stood on a cliff. `tools/terrainbake.py plant` rays EVERY site and reports the ones it refuses as
 -- `cliff`, and the task's request pastes that count per cell -- a held landform is not the same as
 -- no landform, which is what kept them out until now.
--- A1 IS STILL ABSENT and is the one cell with no ground to plant on at all.
-Grid.PLANTED_CELLS = table.freeze({ "C1", "C2", "A2", "B1", "D1", "B2", "D2" })
+-- **TASK 352 ADDS A1, AND SPLITS THE ROTATION OFF THIS LIST.** Karen, 2026-11-12, ringed the whole
+-- of A1 on the painted map (`A1 empty`): *"marked where need more trees ... those gaps also full of
+-- trees"*. A1 is the one cell with no bake at all, so the two questions this one list used to
+-- answer have come apart and are now two lists:
+--  * `PLANTED_CELLS` -- WHICH CELLS HAVE A WOOD. It is what `Places.build` dresses, what
+--    `Places.hasOwnWood` and the skirt rule read, and what the map paints ground for. A1 joins it,
+--    because a wood needs ground to SIT on, and `tools/terrainbake.py plant` rays every site and
+--    refuses the ones over a cliff -- the same answer-by-measurement task 336 gave for B2 and D2.
+--  * `ROTATION_CELLS` -- WHICH CELLS A DRIVE IS DEALT IN (`ForestTest.LAYOUT_ORDER`). A1 is NOT in
+--    it: its roads are not cut and its landform is not shaped, so a drive there would put beaters
+--    and stands on raw ground. That is a BAKE, which is the Director's step, not a planting.
+-- Until A1 is baked the two lists differ by exactly A1, and `grid.spec` asserts the rotation is a
+-- subset of the planted cells rather than the same table.
+Grid.PLANTED_CELLS = table.freeze({ "C1", "C2", "A2", "B1", "D1", "B2", "D2", "A1" })
+
+-- THE CELLS A DRIVE IS DEALT IN, in the order the rotation deals them. `ForestTest.LAYOUT_ORDER`
+-- **IS** this table (not a copy), so "the rotation deals only cells it can be played in" is true by
+-- construction. C1 IS FIRST for the reason above.
+Grid.ROTATION_CELLS = table.freeze({ "C1", "C2", "A2", "B1", "D1", "B2", "D2" })
 
 -- THE EIGHT CELLS. **`relief` IS MEASURED AND NOT WRITTEN** (design 4.4): no terrain height is
 -- generated anywhere, because 13.41 M sq studs is ~750 `MapGen` tiles and ~50 minutes of Edit-time
@@ -175,7 +192,7 @@ Grid.PLANTED_CELLS = table.freeze({ "C1", "C2", "A2", "B1", "D1", "B2", "D2" })
 -- ahs different animal patters to be intrestin"*. Four fields and nothing else -- `density`,
 -- `startDepth` (fractions of the cell's own depth), `routeBias`, `restZones` -- and they
 -- PARAMETERISE the one schedule in `ForestTest.SCHEDULE` rather than replacing it. A1 has none
--- because A1 is not planted (`PLANTED_CELLS`), and a cell with no row plays exactly as today.
+-- because A1 is not DEALT (`ROTATION_CELLS`, task 352), and a cell with no row plays as today.
 -- THE SEVEN ROWS ARE ALL DIFFERENT PAIRS: no two share a (density, routeBias), the densities run
 -- two quiet / three normal / two busy, and all five bias words are used (Director, 2026-11-09).
 Grid.CELLS = table.freeze({

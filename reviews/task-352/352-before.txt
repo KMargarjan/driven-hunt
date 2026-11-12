@@ -1,0 +1,38 @@
+[harness] 2 Studios connected; unscoped calls default to Driven Hunt DEV (placeId: 136410205938347)
+SID bb300770-429d-4958-bc3e-166b5fd16a3c ['Driven Hunt DEV (placeId: 136410205938347)', 'Driven Hunt Forest Test (placeId: 130094961655666)']
+[352] canary spruceSlopeSpacing=26 aspen=shrub/skirtFull80 plantedCount=7
+[352] planted=C1,C2,A2,B1,D1,B2,D2  rotation=C1,C2,A2,B1,D1,B2,D2
+[352] cell A1 planted=false total=3042 own=1343 skirt=1699 ring=970 cap=4348 partCap=4255
+[352] cell B1 planted=true total=3906 own=2299 skirt=1607 ring=395 cap=6157 partCap=4255
+[352] cell C1 planted=true total=4020 own=2433 skirt=1587 ring=476 cap=7279 partCap=4255
+[352] cell D1 planted=true total=4157 own=2361 skirt=1796 ring=822 cap=8243 partCap=4255
+[352] cell A2 planted=true total=4213 own=2356 skirt=1857 ring=827 cap=6464 partCap=4255
+[352] cell B2 planted=true total=4123 own=2418 skirt=1705 ring=483 cap=6515 partCap=4255
+[352] cell C2 planted=true total=4082 own=2474 skirt=1608 ring=395 cap=6665 partCap=4255
+[352] cell D2 planted=true total=4195 own=2490 skirt=1705 ring=1020 cap=6598 partCap=4255
+[352] stand C1-1 (-4351,-5094) hit=26/36 road=8 share=92.9% meanFirst=57 deepest=140 miss=0r,10r,160r,170r,180r,190r,200r,210r,220,350
+[352] stand C1-2 (-4203,-5078) hit=29/36 road=6 share=96.7% meanFirst=59 deepest=130 miss=0r,10r,170,180r,190r,200r,350r
+[352] stand C1-3 (-4055,-5067) hit=31/36 road=5 share=100.0% meanFirst=69 deepest=140 miss=0r,10r,180r,190r,350r
+[352] stand C1-4 (-3905,-5063) hit=28/36 road=7 share=96.6% meanFirst=65 deepest=123 miss=0r,10r,20r,170r,180r,190r,200,350r
+[352] stand C1-5 (-3755,-5066) hit=27/36 road=8 share=96.4% meanFirst=81 deepest=139 miss=0r,90r,100r,110r,170r,180r,190r,200,350r
+[352] stand C1-6 (-3603,-5077) hit=30/36 road=6 share=100.0% meanFirst=67 deepest=146 miss=0r,160r,170r,180r,340r,350r
+[352] stand C1-7 (-3451,-5094) hit=27/36 road=7 share=93.1% meanFirst=63 deepest=143 miss=0r,20r,30,170r,180r,190,330r,340r,350r
+[352] stand C1-8 (-4497,-4747) hit=29/36 road=5 share=93.5% meanFirst=58 deepest=142 miss=90r,100r,110,260,270r,280r,290r
+[352] stand C1-9 (-4512,-4529) hit=25/36 road=10 share=96.2% meanFirst=75 deepest=150 miss=0r,10r,20r,80r,90r,100r,260r,270r,280r,290,350r
+[352] stand C1-10 (-4515,-4309) hit=29/36 road=6 share=96.7% meanFirst=62 deepest=130 miss=80r,90r,100r,110,260r,270r,280r
+[352] stand C1-11 (-4505,-4088) hit=30/36 road=6 share=100.0% meanFirst=72 deepest=148 miss=80r,90r,100r,260r,270r,280r
+[352] stand C1-12 (-3386,-4736) hit=30/36 road=5 share=96.8% meanFirst=63 deepest=149 miss=80r,90r,100r,260,270r,280r
+[352] stand C1-13 (-3401,-4514) hit=31/36 road=5 share=100.0% meanFirst=68 deepest=148 miss=80r,90r,100r,270r,280r
+[352] stand C1-14 (-3403,-4294) hit=24/36 road=10 share=92.3% meanFirst=77 deepest=133 miss=70,80r,90r,100r,150,160r,170r,180r,190r,260r,270r,280r
+[352] stand C1-15 (-3392,-4075) hit=28/36 road=6 share=93.3% meanFirst=72 deepest=150 miss=80r,90r,100r,110,250,260r,270r,280r
+[352] stand D1-4 (-2782,-5152) hit=30/36 road=6 share=100.0% meanFirst=62 deepest=121 miss=0r,10r,170r,180r,190r,350r
+[352] stand D1-14 (-2291,-4309) hit=30/36 road=6 share=100.0% meanFirst=68 deepest=147 miss=80r,90r,100r,260r,270r,280r
+[352] stand A2-4 (-6118,-6535) hit=29/36 road=6 share=96.7% meanFirst=76 deepest=141 miss=0r,10r,170r,180r,190r,210,350r
+[352] stand A2-8 (-6637,-6208) hit=28/36 road=6 share=93.3% meanFirst=62 deepest=134 miss=70,80r,90r,100r,250r,260r,270r,280
+[352] stand A2-11 (-6631,-5547) hit=30/36 road=5 share=96.8% meanFirst=67 deepest=147 miss=90r,100r,260r,270r,280r,290
+[352] stand A2-14 (-5508,-5781) hit=27/36 road=6 share=90.0% meanFirst=75 deepest=136 miss=10,80r,90r,100r,250,260r,270r,280r,350
+[352] stand B1-4 (-5006,-5152) hit=30/36 road=6 share=100.0% meanFirst=63 deepest=135 miss=0r,10r,170r,180r,190r,350r
+[352] stand B1-11 (-5616,-4075) hit=26/36 road=6 share=86.7% meanFirst=73 deepest=126 miss=60,70,80r,90r,100r,110,250,260r,270r,280r
+[352] stand A1-4 (-6129,-5063) hit=24/36 road=6 share=80.0% meanFirst=75 deepest=147 miss=0r,10r,20,160,170r,180r,190r,200,260,280,300,350r
+[352] stand A1-8 (-6721,-4747) hit=30/36 road=5 share=96.8% meanFirst=80 deepest=147 miss=90r,100r,260,270r,280r,290r
+[352] stand A1-11 (-6729,-4088) hit=28/36 road=6 share=93.3% meanFirst=62 deepest=119 miss=70,80r,90r,100r,250,260r,270r,280r

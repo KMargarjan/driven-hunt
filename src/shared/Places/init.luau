@@ -926,6 +926,13 @@ Places.CELL_MIXES = table.freeze({
 	-- B2. `larchYoung` is NOT reused: it carries birch at 2 of 10, and this cell is one species.
 	larchAll = mix({ "young", 1 }),
 	larchUnder = mix({ "young", 1 }),
+	-- A1 (task 352). Karen ringed the whole cell on the painted map, so A1 is planted now and
+	-- task 336's rule applies to it like every other cell: ONE CELL, ONE KIND OF FOREST. Its pair
+	-- is spruce AND larch, which no other cell carries (B1 is conifer alone, B2 larch alone,
+	-- C2 conifer and birch) -- and it is what `spruceSlope` already drew in its thicket, 8:2.
+	-- EQUAL WEIGHTS, like the other two-species cells: that is what makes "half and half" a number.
+	spruceLarchAll = mix({ "conifer", 1 }, { "young", 1 }),
+	spruceLarchUnder = mix({ "conifer", 1 }, { "young", 1 }),
 	-- THE TWO MIXED CELLS, HALF AND HALF BY WEIGHT -- the Director's assignment, which Karen
 	-- delegated. Equal weights are the only thing that makes "roughly half and half" a number.
 	spruceBirchAll = mix({ "conifer", 1 }, { "birch", 1 }),
@@ -1114,6 +1121,8 @@ local OAK_UNDER = table.freeze({ spacingStuds = 30, mix = "oakUnder" })
 local ASPEN_UNDER = table.freeze({ spacingStuds = 30, mix = "aspenUnder" })
 local LARCH_UNDER = table.freeze({ spacingStuds = 30, mix = "larchUnder" })
 local SPRUCE_BIRCH_UNDER = table.freeze({ spacingStuds = 30, mix = "spruceBirchUnder" })
+-- A1's (task 352), the same 30 studs every other cell took.
+local SPRUCE_LARCH_UNDER = table.freeze({ spacingStuds = 30, mix = "spruceLarchUnder" })
 local OAK_ASPEN_UNDER = table.freeze({ spacingStuds = 30, mix = "fieldOakAspenUnder" })
 
 -- ...AND THE `extra` RECORD EACH CANOPY ZONE TAKES: `CANOPY`'s jitter with that cell's own storey.
@@ -1122,40 +1131,50 @@ local OAK_CANOPY = table.freeze({ jitter = 1.0, under = OAK_UNDER })
 local ASPEN_CANOPY = table.freeze({ jitter = 1.0, under = ASPEN_UNDER })
 local LARCH_CANOPY = table.freeze({ jitter = 1.0, under = LARCH_UNDER })
 local SPRUCE_BIRCH_CANOPY = table.freeze({ jitter = 1.0, under = SPRUCE_BIRCH_UNDER })
+local SPRUCE_LARCH_CANOPY = table.freeze({ jitter = 1.0, under = SPRUCE_LARCH_UNDER })
 local OAK_ASPEN_CANOPY = table.freeze({ jitter = 1.0, under = OAK_ASPEN_UNDER })
 
 Places.CELL_PLANS = table.freeze({
-	-- A1, measured `slope`, 113.4 studs of spread: the thicket is on the LOW ground by the main road
-	-- and the wood thins uphill, so the hunter looks into cover and the beaters walk out of light.
-	-- Strips across the fall line, which is what a slope reads as from the road.
+	-- A1, measured `slope`, 113.4 studs of spread. **SINCE TASK 352 IT IS ONE WOOD, NOT THREE
+	-- MIXES**: the thicket, the mixed belt and the high wood are all `spruceLarchAll`, and what
+	-- thins uphill is the PITCH alone -- 24 on the low ground by the main road, 30 across the
+	-- middle, 34 above it. Strips across the fall line, which is what a slope reads as from the
+	-- road. The hunter still looks into the closest cover and the beaters still walk out of light.
 	spruceSlope = table.freeze({
 		halfStripStuds = 9,
-		spacingStuds = 26,
-		deepSpacingStuds = 60,
+		-- v2 (task 352): C1's accepted skirt and gap, borrowed whole. See THE DENSITY RULE above.
+		-- A1 was the one recipe that never took it, because A1 was the one cell nothing planted.
+		spacingStuds = 24,
+		deepSpacingStuds = 52,
 		fernSpacing = 24,
 		fernBandStuds = 30,
-		minGapStuds = 12,
+		minGapStuds = 11,
 		skirtFullStuds = 80,
 		skirtStuds = 230,
 		shrubScale = table.freeze({ 0.25, 0.45 }),
 		woodScale = table.freeze({ 0.8, 1.2 }),
 		seed = 3271,
-		-- v2 (task 328f). THE FRONTAGE RULE (design 7.2): within 60 studs of any road or ride
-		-- centreline only these four groups are drawn, so a mature crown is set back from the one
-		-- thing a hunter sights along at no cost in density -- the roadside draws birch and larch
-		-- instead of spruce rather than drawing nothing.
-		frontage = table.freeze({ studs = 60, groups = table.freeze({ "birch", "young", "aspen", "fieldOak" }) }),
+		-- THE FRONTAGE RULE, NOW THIS CELL'S OWN SPECIES (task 352; design 7.2 for the band). The
+		-- 60-stud band stays; what it allows is the LARCH half of this cell's pair, the smaller
+		-- tree -- so the roadside draws A1's own wood rather than four groups the cell does not
+		-- otherwise contain. The crown term (`Places.roadTrunkMin`) is what keeps a crown off the
+		-- carriageway, and it is geometric, so species purity costs no clearance.
+		frontage = table.freeze({ studs = 60, groups = table.freeze({ "young" }) }),
 		-- THE FERN BAND, MEASURED FROM THE ROAD CENTRELINE (defect F-5): 34 is the far edge of the
 		-- verge, so no bracken stands in the ditch or on the verge design 7.1 keeps bare.
 		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
 		scaleFloor = 0.35,
+		-- THE CLEARING IS GONE AND EVERY ZONE CARRIES THE SECOND STOREY (task 352). Karen,
+		-- 2026-11-12, ringed the WHOLE of A1 on the painted map: *"marked where need more trees"*.
+		-- The 0-spacing `clearing` was 60 % x 19 % of the cell -- 130,000 sq studs of bare ground in
+		-- the middle of it -- and it is now wood at the uphill pitch, like the five zones round it.
 		zones = table.freeze({
-			zone(0.00, 0.00, 1.00, 0.30, 24, "spruceThicket", "wood"),
-			zone(0.00, 0.30, 1.00, 0.55, 30, "mixedWood", "wood"),
-			zone(0.20, 0.55, 0.80, 0.74, 0, "clearing", "wood"),
-			zone(0.00, 0.55, 0.20, 0.74, 34, "spruceHigh", "wood"),
-			zone(0.80, 0.55, 1.00, 0.74, 34, "spruceHigh", "wood"),
-			zone(0.00, 0.74, 1.00, 1.00, 34, "spruceHigh", "wood"),
+			zone(0.00, 0.00, 1.00, 0.30, 24, "spruceLarchAll", "wood", SPRUCE_LARCH_CANOPY),
+			zone(0.00, 0.30, 1.00, 0.55, 30, "spruceLarchAll", "wood", SPRUCE_LARCH_CANOPY),
+			zone(0.20, 0.55, 0.80, 0.74, 34, "spruceLarchAll", "wood", SPRUCE_LARCH_CANOPY),
+			zone(0.00, 0.55, 0.20, 0.74, 34, "spruceLarchAll", "wood", SPRUCE_LARCH_CANOPY),
+			zone(0.80, 0.55, 1.00, 0.74, 34, "spruceLarchAll", "wood", SPRUCE_LARCH_CANOPY),
+			zone(0.00, 0.74, 1.00, 1.00, 34, "spruceLarchAll", "wood", SPRUCE_LARCH_CANOPY),
 		}),
 	}),
 
@@ -1381,12 +1400,21 @@ Places.CELL_PLANS = table.freeze({
 		fernBand = table.freeze({ fromStuds = 34, depthStuds = 30 }),
 		scaleFloor = 0.35,
 		zones = table.freeze({
-			zone(0.00, 0.00, 1.00, 0.26, 24, "aspenUnder", "shrub", {
+			-- A2's SOUTH BAND AND WEST THIRD ARE WOOD, NOT SCRUB (task 352). Karen, 2026-11-12, on
+			-- the painted map with these two rectangles ringed: *"those gaps also full of trees"*.
+			-- They were already planted at 24/25 studs -- what read as a gap was the SCALE: band
+			-- `shrub` is `shrubScale` 0.30-0.55 of an `aspenUnder` sapling, so a 1,070-stud frontage
+			-- of knee-high growth. The pitch, the rows and the second storey are untouched.
+			-- TWO SIDE EFFECTS, MEASURED AND NAMED: A2's whole plan goes 4,213 -> 4,172 and its own
+			-- wood 2,356 -> 2,414, because `minGapStuds` 11 refuses full-size crowns the saplings
+			-- fitted between; and `aspenAll` is in `Places.FERN_MIXES` where `aspenUnder` is not, so
+			-- these two rectangles gain the fern floor.
+			zone(0.00, 0.00, 1.00, 0.26, 24, "aspenAll", "wood", {
 				rows = "NS",
 				jitter = 0.25,
 				under = ASPEN_UNDER,
 			}),
-			zone(0.00, 0.26, 0.35, 0.65, 25, "aspenUnder", "shrub", {
+			zone(0.00, 0.26, 0.35, 0.65, 25, "aspenAll", "wood", {
 				rows = "NS",
 				jitter = 0.25,
 				under = ASPEN_UNDER,
@@ -2017,6 +2045,9 @@ Places.FERN_MIXES = table.freeze({
 	-- TASK 336's SIX CELLS, the `*All` row of each. `larchAll` is DELIBERATELY ABSENT: this table's
 	-- own rule is "not in a larch plantation", and B2 is one.
 	spruceAll = true,
+	-- A1's wood (task 352). A spruce-and-larch slope is a wood, not a plantation, so unlike
+	-- `larchAll` it takes the floor -- the same reading that put `spruceAll` here.
+	spruceLarchAll = true,
 	oakAll = true,
 	aspenAll = true,
 	spruceBirchAll = true,

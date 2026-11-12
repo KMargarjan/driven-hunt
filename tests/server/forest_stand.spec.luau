@@ -607,7 +607,7 @@ return function()
 			-- grid's planted cells, and the road is reached with the Director's `DHForestLayout`
 			-- attribute instead of a commit -- which is a smaller rollback, not a lost one. What makes
 			-- it real is the eleven numbers above, which still hold value for value.
-			expect(Data.LAYOUT_ORDER[1]).to.equal(Grid.PLANTED_CELLS[1])
+			expect(Data.LAYOUT_ORDER[1]).to.equal(Grid.ROTATION_CELLS[1])
 			expect(Data.layoutNamed(Data.LAYOUT_ORDER[1])).to.equal(nil)
 			expect(ForestTest.forcedLayout("road")).to.equal("road")
 		end)

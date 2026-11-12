@@ -1734,14 +1734,19 @@ return function()
 		end)
 
 		-- **THE CASE THAT DIES IF THE ROTATION IS PUT BACK (lesson L-093).** Delete the producer --
-		-- `ForestTest.LAYOUT_ORDER = Grid.PLANTED_CELLS` back to
+		-- `ForestTest.LAYOUT_ORDER = Grid.ROTATION_CELLS` back to
 		-- `table.freeze({ "road", "edge", "ride", "track" })` -- and every assertion below reddens.
-		it("deals ONLY the planted cells, never a line place and never A1", function()
+		it("deals ONLY the rotation cells, never a line place and never A1", function()
 			local order = Forest.LAYOUT_ORDER
-			-- IT IS THE PLANTED LIST ITSELF, not a copy of it: the cells with a wood and the cells
-			-- the rotation deals cannot drift apart.
-			expect(order).to.equal(Grid.PLANTED_CELLS)
+			-- IT IS THE ROTATION LIST ITSELF, not a copy of it. **TASK 352 SPLIT IT FROM
+			-- `PLANTED_CELLS`**: A1 now HAS a wood and is still not DEALT, so the identity became
+			-- the SUBSET asserted below -- every dealt cell has a wood, and A1 has one without
+			-- being dealt.
+			expect(order).to.equal(Grid.ROTATION_CELLS)
 			expect(#order).to.equal(7)
+			for _, name in ipairs(order) do
+				expect(table.find(Grid.PLANTED_CELLS, name)).to.be.ok()
+			end
 			for _, name in ipairs(order) do
 				-- EVERY NAME IS A CELL, AND NO NAME IS A LINE PLACE.
 				expect(Grid.cellOf(name)).to.be.ok()
@@ -1753,8 +1758,11 @@ return function()
 				expect(layout.name).to.equal(name)
 				expect(layout.cellOf).to.be.ok()
 			end
-			-- A1 IS THE ONE CELL WITH NO BAKED GROUND, so it is in neither list.
+			-- A1 IS THE ONE CELL WITH NO BAKED GROUND, so it is dealt by nothing -- though since
+			-- task 352 it DOES have a wood (`PLANTED_CELLS`). That is the split, asserted as one
+			-- line: a real cell, in the planted list, out of the rotation.
 			expect(Grid.cellOf("A1")).to.be.ok()
+			expect(table.find(Grid.PLANTED_CELLS, "A1")).to.be.ok()
 			expect(table.find(order, "A1")).to.equal(nil)
 			-- THE ROTATION CANNOT REACH A LINE PLACE: four full cycles and not one of the four.
 			local previous = nil
@@ -1861,15 +1869,12 @@ return function()
 				-- gap is a bald patch nobody declared: a clearing is a ZONE with spacing 0, so an
 				-- uncovered rectangle can only ever be an arithmetic slip in a recipe.
 				expect(math.abs(covered - 1) < 1e-9).to.equal(true)
-				-- NO CELL IS MORE THAN A THIRD CLEAR, and **A1 IS THE ONLY CELL WITH A CLEARING LEFT**
-				-- (task 336, after 335 took C1's). Karen, 2026-11-08: *"all has to be forest no free
-				-- spot excep road"* for C1, and *"can you make now all grounds with different
-				-- trees"* for the rest -- so every cell that is PLANTED is planted wall to wall and
-				-- its cut is gone. A1 is not planted and keeps its own.
-				-- The pair BITES BOTH WAYS: a planted cell gaining a clearing back fails here, and
-				-- A1 losing its own fails too.
-				expect(clear < 0.34).to.equal(true)
-				expect(clear > 0).to.equal(id == "A1")
+				-- **NO CELL HAS A CLEARING AT ALL ANY MORE** (task 352, after 335 took C1's and 336
+				-- the other five's). Karen, 2026-11-08: *"all has to be forest no free spot excep
+				-- road"*; 2026-11-12, ringing the whole of A1: *"those gaps also full of trees"*.
+				-- A1 was the last cell with a 0-spacing zone and it was 11 % of the cell.
+				-- IT BITES: give any recipe a `clearing` zone back and this line reddens.
+				expect(clear).to.equal(0)
 				table.insert(
 					lines,
 					string.format("%s=%s(%d zones, %.0f%% clear)", id, cell.recipe, #plan.zones, clear * 100)
@@ -3027,10 +3032,11 @@ return function()
 		-- `Grid.DEFAULT_CELL` and nothing else, so seven cells had never had a tree in them.
 		it("is a list of baked cells, C1 first and C2 -- the cell behind the line -- second", function()
 			local planted = Grid.PLANTED_CELLS
-			-- SEVEN SINCE TASK 336: B2 and D2 joined, each with its own species (Karen, 2026-11-08:
-			-- *"can you make now all grounds with different trees"*). Their ground is the raw base
-			-- and that was the question the plant answered -- by raying every site, not by argument.
-			expect(#planted).to.equal(7)
+			-- **EIGHT SINCE TASK 352**: A1 joined, because Karen ringed the whole of it on the
+			-- painted map (*"marked where need more trees"*). Seven since task 336 before that,
+			-- when B2 and D2 joined, each with its own species -- their ground is the raw base and
+			-- that was the question the plant answered, by raying every site, not by argument.
+			expect(#planted).to.equal(8)
 			expect(planted[1]).to.equal(Grid.DEFAULT_CELL)
 			expect(planted[2]).to.equal("C2")
 			local seen: { [string]: boolean } = {}
@@ -3041,13 +3047,24 @@ return function()
 				expect(seen[id]).never.to.equal(true)
 				seen[id] = true
 			end
-			-- **A1 IS THE ONE THAT IS OUT**, and it is out because it has no ground at all: it was
-			-- never in a bake (`grid-terrain.md` 16's 328h/328x rows). B2 and D2 were out with it
-			-- until task 336 for a different reason -- their landform was HELD
-			-- (`terrainbake.py --hold-landform`) -- and that reason is spent: holding a landform is
-			-- not the same as having none, and both planted.
-			expect(seen["A1"]).never.to.equal(true)
-			TestKit.note("PLANTED_CELLS: " .. table.concat(planted, ","))
+			-- **A1 IS IN, AND IT IS LAST** (task 352): a wood is planted on the ground that is
+			-- there, and `tools/terrainbake.py plant` rays every site and refuses the ones over a
+			-- cliff -- the same answer-by-measurement task 336 gave for B2 and D2, whose landform
+			-- was HELD rather than absent. What A1 still does NOT have is a bake, which is why it
+			-- is out of `ROTATION_CELLS`: a drive needs cut roads, a wood does not.
+			expect(seen["A1"]).to.equal(true)
+			expect(planted[#planted]).to.equal("A1")
+			expect(table.find(Grid.ROTATION_CELLS, "A1")).to.equal(nil)
+			-- EVERY ROTATION CELL HAS A WOOD: the subset that replaced the old identity.
+			for _, id in ipairs(Grid.ROTATION_CELLS) do
+				expect(table.find(planted, id)).to.be.ok()
+			end
+			TestKit.note(
+				"PLANTED_CELLS: "
+					.. table.concat(planted, ",")
+					.. " | ROTATION_CELLS: "
+					.. table.concat(Grid.ROTATION_CELLS, ",")
+			)
 		end)
 
 		-- THE DENSITY, MEASURED ON THE CELL'S OWN GROUND. The SKIRT is excluded on purpose: a
@@ -3092,9 +3109,11 @@ return function()
 				expect(#woods[id] <= Plan.CELL_PART_CAP).to.equal(true)
 				expect(Plan.cellCapacity(id) <= Plan.CELL_PLAN_CAP).to.equal(true)
 			end
-			-- ...AND A1, THE ONE CELL WITH NO GROUND, IS NOT TOUCHED: it is well under the band, which
-			-- is what makes the case above a reading of THESE rows and not of the planter in general.
-			expect(ownTrees("A1") < math.floor(standard * 0.9)).to.equal(true)
+			-- **A1 IS IN THE BAND NOW** (task 352), and the loop above is what says so -- it walks
+			-- `PLANTED_CELLS`, which A1 joined. It used to be the control that sat UNDER the band,
+			-- which was a reading of a cell nobody planted; the control the case keeps is C1,
+			-- pinned exactly three lines up.
+			expect(table.find(Grid.PLANTED_CELLS, "A1")).to.be.ok()
 			TestKit.note(string.format("336 own wood: %s", table.concat(lines, " ")))
 		end)
 
@@ -3119,6 +3138,9 @@ return function()
 				B2 = { "young" },
 				C2 = { "conifer", "birch" },
 				D2 = { "fieldOak", "aspen" },
+				-- A1 JOINED IN TASK 352 and takes the rule with it: spruce and larch, a pair no
+				-- other cell carries.
+				A1 = { "conifer", "young" },
 			}
 			local lines = {}
 			for _, id in ipairs(Grid.PLANTED_CELLS) do
@@ -3291,11 +3313,13 @@ return function()
 			expect(outerRows > 0).to.equal(true)
 			-- THE ROWS 328i's RULE WOULD HAVE REFUSED, and the one count that dies with the fix.
 			expect(intoPlanted > 0).to.equal(true)
-			-- EVERY CELL SKIRTS, and `A1` -- the one cell with no wood of its own -- is still read
-			-- as bare, because that is what decides WHOSE species the skirt into it draws.
+			-- EVERY CELL SKIRTS, and since task 352 EVERY CELL has a wood of its own -- so a skirt
+			-- into any neighbour draws that neighbour's species, A1's included. `hasOwnWood` is
+			-- what decides it, and the cell that is NOT a cell is still the `false` side of it.
 			expect(Plan.hasOwnWood("B2")).to.equal(true)
-			expect(Plan.hasOwnWood("A1")).to.equal(false)
+			expect(Plan.hasOwnWood("A1")).to.equal(true)
 			expect(Plan.hasOwnWood("Z9")).to.equal(false)
+			expect(Plan.hasOwnWood(nil)).to.equal(false)
 			local worstSkirt = math.huge
 			for _, id in ipairs(Grid.cellIds()) do
 				local n = 0
