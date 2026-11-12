@@ -387,11 +387,14 @@ MapUi.COLORS = {
 MapUi.GROUND = {
 	-- READ ONCE, HERE. OFF means `groundFromGrid` is never called and no ground instance exists.
 	ENABLED = Flags.isOn("MAP_LOOK"),
-	-- FOUR COLUMNS PER ZONE, BECAUSE THE WORLD IS BENT. `Grid.CONFIG.bend` is 45 studs east-west and
-	-- 60 north-south, which at the full map's ~0.25 px/stud is up to 15 px -- a single axis-aligned
-	-- rect would sit that far off the road it borders. Four columns cut the worst error to ~4 px at
-	-- 192 frames for all 48 zones.
-	COLUMNS = 4,
+	-- EIGHT COLUMNS PER ZONE, BECAUSE THE WORLD IS BENT -- AND THE NUMBER IS A MEASUREMENT.
+	-- `Grid.CONFIG.bend` is 45 studs east-west and 60 north-south, so a single axis-aligned rect per
+	-- zone would sit up to that far off the road it borders. At FOUR columns, with each column
+	-- TRANSLATED to the middle of its own bent corners (`groundColumns`), the worst residual
+	-- measured 15.2 studs of band over the east flank road at stand 12 -- the harness run of
+	-- 2026-11-12 07:30 UTC, which is the case refusing it. Eight halves the span each column has to
+	-- stand for, and the realised worst is printed by `map_ui.spec` rather than promised here.
+	COLUMNS = 8,
 	-- THE PITCH BAND THIS WORLD ACTUALLY PLANTS AT, read off `Places.CELL_PLANS`: 24 studs is its
 	-- densest zone (`spruceRidge` zone 1) and 60 its thinnest (`spruceSlope.deepSpacingStuds`). A
 	-- pitch outside the band clamps; a pitch of 0 is a CLEARING and is drawn as open ground.
@@ -1204,11 +1207,21 @@ function MapUi.groundColumns(grid: any, rect: Bounds, columns: number?): { Bound
 		local bx, bz = grid.toWorld(u1, rect.minZ, bend)
 		local cx, cz = grid.toWorld(u0, rect.maxZ, bend)
 		local dx, dz = grid.toWorld(u1, rect.maxZ, bend)
+		-- **TRANSLATED, NOT GROWN.** A bend is a SHEAR, so locally it MOVES a rectangle rather than
+		-- widening it: the box of the four bent corners is strictly larger than the band it stands
+		-- for, and that surplus is what put 15.2 studs of wood over the east flank road (the harness
+		-- run of 2026-11-12 07:30 UTC). The column keeps its own GRID size and takes the centre of
+		-- its four bent corners, so the only error left is the bend's variation ACROSS one column --
+		-- which is what `COLUMNS` buys down, and what `map_ui.spec` measures.
+		local halfWidth = (u1 - u0) / 2
+		local halfDepth = (rect.maxZ - rect.minZ) / 2
+		local midX = (ax + bx + cx + dx) / 4
+		local midZ = (az + bz + cz + dz) / 4
 		table.insert(out, {
-			minX = math.min(ax, bx, cx, dx),
-			maxX = math.max(ax, bx, cx, dx),
-			minZ = math.min(az, bz, cz, dz),
-			maxZ = math.max(az, bz, cz, dz),
+			minX = midX - halfWidth,
+			maxX = midX + halfWidth,
+			minZ = midZ - halfDepth,
+			maxZ = midZ + halfDepth,
 		})
 	end
 	return out

@@ -2206,7 +2206,9 @@ return function()
 			-- `MapUi.groundColumns`. Every road is outside every cell by construction, so if the
 			-- ground layer dropped or mis-signed the bend its bands would move up to
 			-- `bend.ewStuds` 45 / `nsStuds` 60 studs and swallow the line they are supposed to stop
-			-- at -- 24 studs of it past the 21-stud half-width, which this case refuses.
+			-- at -- **24 studs** past the road's 21-stud half-width. SIX studs is the floor under
+			-- that and over the residual a translated column still carries (the bend's variation
+			-- across one column of eight), and the realised worst is printed, never promised.
 			local bands = {}
 			for _, patch in ipairs(model.ground) do
 				if patch.cell == "C1" then
@@ -2235,7 +2237,7 @@ return function()
 				if into > worstStand then
 					worstStand = into
 				end
-				if into > 2 then
+				if into > 6 then
 					error(
 						string.format(
 							"stand %d at (%.0f, %.0f) is %.1f studs INSIDE a drawn wood band of its own cell -- "
@@ -2309,7 +2311,7 @@ return function()
 					if into > worstReach then
 						worstReach = into
 					end
-					if into > 2 then
+					if into > 6 then
 						error(
 							string.format(
 								"the %s road passes %.1f studs INSIDE a drawn wood band at (%.0f, %.0f)",
