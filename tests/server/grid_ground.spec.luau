@@ -1223,25 +1223,32 @@ return function()
 			expect(inside).to.equal(0)
 		end)
 
-		it("a clearing refuses, and the zone beside it does not", function()
-			-- A1 AND NOT B1 (task 336, after 335 moved it off C1): every PLANTED cell is now planted
-			-- wall to wall and has no cut left in it, so the one cell that still declares a clearing
-			-- is the one that is not planted at all.
-			local id = "A1"
-			local plan = Plan.cellPlanFor(id)
-			local empty, solid = nil, nil
-			for _, zone in ipairs(plan.zones) do
-				if zone.spacingStuds <= 0 then
-					empty = Plan.zoneRect(id, zone)
-				elseif solid == nil then
-					solid = Plan.zoneRect(id, zone)
+		-- **NO RECIPE DECLARES A CLEARING ANY MORE** (task 352). 335 took C1's, 336 the other
+		-- five's, and A1 -- the last one, and the cell this case used to fire the arm in -- lost
+		-- its own when Karen ringed the whole cell: *"those gaps also full of trees"*.
+		--
+		-- SO THE CASE IS NOW THE DATA FACT, AND IT SAYS SO. `Places.REASON.CLEARING` and the arm in
+		-- `maskGrid` that returns it are KEPT, for a recipe that cuts a glade again; with no zone at
+		-- spacing 0 anywhere, nothing in this suite can reach that arm, and that is stated rather
+		-- than hidden behind a case that no longer proves it. `Places.CELL_MIXES.clearing` is still
+		-- the empty mix the pair rule in `grid.spec` reads.
+		it("declares no clearing in any recipe, so the arm that refuses one has nothing to refuse", function()
+			local zones, cleared = 0, 0
+			for _, id in ipairs(Grid.cellIds()) do
+				local plan = Plan.cellPlanFor(id)
+				expect(plan).to.be.ok()
+				for _, zone in ipairs(plan.zones) do
+					zones += 1
+					if zone.spacingStuds <= 0 then
+						cleared += 1
+					end
 				end
 			end
-			expect(empty ~= nil).to.equal(true)
-			-- A `zoneRect` CENTRE IS A GRID POINT (round 1, note 2).
-			expect(Plan.maskGrid(id, (empty.minX + empty.maxX) / 2, (empty.minZ + empty.maxZ) / 2, nil, nil)).to.equal(
-				Plan.REASON.CLEARING
-			)
+			expect(zones > 0).to.equal(true)
+			expect(cleared).to.equal(0)
+			-- THE ARM IS STILL THERE, as a named reason the mask can return.
+			expect(Plan.REASON.CLEARING).to.equal("clearing")
+			TestKit.note(string.format("grid_ground 352: %d planting zones, %d of them a clearing", zones, cleared))
 		end)
 
 		it("the stand and tower arms are SUBSUMED by the road band, and that is why they cannot fire", function()

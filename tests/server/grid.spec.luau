@@ -3109,9 +3109,11 @@ return function()
 				expect(#woods[id] <= Plan.CELL_PART_CAP).to.equal(true)
 				expect(Plan.cellCapacity(id) <= Plan.CELL_PLAN_CAP).to.equal(true)
 			end
-			-- ...AND A1, THE ONE CELL WITH NO GROUND, IS NOT TOUCHED: it is well under the band, which
-			-- is what makes the case above a reading of THESE rows and not of the planter in general.
-			expect(ownTrees("A1") < math.floor(standard * 0.9)).to.equal(true)
+			-- **A1 IS IN THE BAND NOW** (task 352), and the loop above is what says so -- it walks
+			-- `PLANTED_CELLS`, which A1 joined. It used to be the control that sat UNDER the band,
+			-- which was a reading of a cell nobody planted; the control the case keeps is C1,
+			-- pinned exactly three lines up.
+			expect(table.find(Grid.PLANTED_CELLS, "A1")).to.be.ok()
 			TestKit.note(string.format("336 own wood: %s", table.concat(lines, " ")))
 		end)
 
@@ -3311,11 +3313,13 @@ return function()
 			expect(outerRows > 0).to.equal(true)
 			-- THE ROWS 328i's RULE WOULD HAVE REFUSED, and the one count that dies with the fix.
 			expect(intoPlanted > 0).to.equal(true)
-			-- EVERY CELL SKIRTS, and `A1` -- the one cell with no wood of its own -- is still read
-			-- as bare, because that is what decides WHOSE species the skirt into it draws.
+			-- EVERY CELL SKIRTS, and since task 352 EVERY CELL has a wood of its own -- so a skirt
+			-- into any neighbour draws that neighbour's species, A1's included. `hasOwnWood` is
+			-- what decides it, and the cell that is NOT a cell is still the `false` side of it.
 			expect(Plan.hasOwnWood("B2")).to.equal(true)
-			expect(Plan.hasOwnWood("A1")).to.equal(false)
+			expect(Plan.hasOwnWood("A1")).to.equal(true)
 			expect(Plan.hasOwnWood("Z9")).to.equal(false)
+			expect(Plan.hasOwnWood(nil)).to.equal(false)
 			local worstSkirt = math.huge
 			for _, id in ipairs(Grid.cellIds()) do
 				local n = 0
