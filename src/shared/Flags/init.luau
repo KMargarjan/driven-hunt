@@ -186,7 +186,18 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- ... OFF = today's map exactly"* -- and what it switches is how the map LOOKS, which is feel and
 -- Karen's, so it cannot ship lit. The two ways out of the cap are still task 238's two: retire the
 -- lit rows queued as TASKS.md 82b, which is the DIRECTOR's call, or ship lit, which is forbidden.
-Flags.MAX_FLAGS = 26
+-- 26 -> 27 FOR TASK 351's `DRIVE_VARIETY`, AND THE SAME SENTENCE A SEVENTH TIME, said out loud
+-- rather than paid for by quietly retiring somebody else's row: the table held exactly 26 and the
+-- tripwire refused the twenty-seventh, MEASURED at this commit (`flags.spec:124` failed with
+-- "Expected 0, got 1" in the harness run of 2026-11-12 10:58 UTC, and the probe read it back as
+-- *"27 flags declared, and MAX_FLAGS is 26"*). The dispatch of 2026-11-12 asks for the row and asks
+-- for it born OFF -- *"Behind a new flag DRIVE_VARIETY, born OFF ... OFF = today's script byte for
+-- byte"* -- and what it switches is the PATTERN of a drive, which is feel and Karen's, so it cannot
+-- ship lit. The two ways out of the cap are still task 238's two: retire the lit rows queued as
+-- TASKS.md 82b, which is the DIRECTOR's call and deletes a losing branch per retirement, or ship
+-- lit, which `docs/design/feature-flags.md` section 11 step 1 forbids. **The Director may prefer to
+-- spend 82b instead**: this is one line either way.
+Flags.MAX_FLAGS = 27
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
