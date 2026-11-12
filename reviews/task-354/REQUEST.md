@@ -1,89 +1,65 @@
-# Task 354 -- the painted map in the game, behind `MAP_PAINTED` (born OFF)
+# Task 354, Round 4 -- the INDEX row says what the repo measured
 
 Task: 354
-Round: 3
-Base: 8cc53d35 (origin/main)
-Code commit: fb453e710b7a9e31f50e72315138d5f625829435
+Round: 4
+Base: 8cc53d35
+Code commit: 41be43704a4e7373ab3d68d0e17b802994e9faf9
+
+Round 3's single blocking finding, fixed. **One line, one file, no code.** The Director
+authorised this one extra round at 22:40 UTC (`ESCALATE.md`, under the 22:35 entry) because the
+finding is documentation-only; `DIRECTOR_MAX_ROUNDS=4` was set in the environment for this one
+`review.ps1` call and is not committed anywhere.
+
+Nothing else in the branch moved. `MAP_PAINTED` is still OFF, no upload was attempted, no Forest
+Test session was started, and the whole of round 3's code (`PaintedMap.imageId`, `MapUi`'s numeric
+`imageId` guard, `map_paint.py`'s refusals, the `report_panel.spec` repair) is byte-identical to the
+commit round 3's verdict already read.
+
+## Harness
 
 ```
-[harness] PASS: 34/34 checks @ fb453e710b7a9e31f50e72315138d5f625829435 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 41be43704a4e7373ab3d68d0e17b802994e9faf9 (clean tree) scope=all
 ```
 
-`test2` is **N/A**: nothing here touches `TWO_PLAYER_PATHS` (the change is `MapUi`, `PaintedMap`,
-`map_paint.py`, one client spec and paperwork).
-
-Round 3 was authorised by the Director, 2026-11-12 22:05 UTC, and the authorisation is recorded in
-`ESCALATE.md` under the round-2 entry. It fixes round 2's two findings and the notes that were
-one-line comment fixes. **Nothing else changed**: no upload (the Open Cloud key is still refused --
-`ESCALATE.md` NEEDS KAREN), `MAP_PAINTED` still OFF everywhere, `ci.yml` untouched.
+Full run, `scope=all`, clean tree, at the code commit. 2966 server + 704 client assertions, 0 failed,
+0 errors. `test2` is N/A: the change is one documentation line and touches no path in
+`TWO_PLAYER_PATHS`. **No known flake fired** -- every spec the dispatch named passed.
 
 ## Claims
 
-1. **The drawn id is the IMAGE's, not the uploaded Decal's** (finding 1). `PaintedMap.Tile` now has
-   `imageId` -- resolved at upload time with `InsertService:LoadAsset(decalId).Texture`, the route
-   `src/shared/Report/init.luau` and `src/client/Hud/ShopDisplay.luau` both record and ship -- beside
-   `decalId`, which is kept for the `assets/uploads.json` row and never drawn. Verify: the manifest's
-   own header; `MapUi`'s drawer in `drawGeometry` formats `tile.imageId`; `MapUi.PaintedTile` has no
-   `assetId` field, and `grep -rn assetId src/client/Hud/MapUi.luau src/shared/Map/PaintedMap.luau`
-   is empty.
-2. **An unresolved tile paints nothing AND keeps task 347's ground.** `MapUi.paintedFromGrid`
-   requires `type(tile.imageId) == "number"` as well as `~= PAINTED.NO_ASSET`, so a row that carries
-   only a `decalId` is dropped before `paintedCells` can claim its cell. Verify: the new case
-   `tests/client/map_ui.spec.luau` -> "draws the IMAGE id, and a tile with only a Decal id paints
-   nothing and keeps its ground". Measured, both arms, at this code commit:
-   `map_ui 354 decal-vs-image: decal only -> 8 image(s), 56 band(s) for C1, 0 decal id drawn;
-   resolved -> 9 image(s), 0 band(s), rbxassetid://922222` -- the decal id (811111) is never put in
-   front of an `ImageLabel`, and the resolved arm draws the image id and stands its tint down.
-3. **FAIL FIRST, run and pasted.** With `type(imageId) == "number"` deleted from
-   `paintedFromGrid` and nothing else changed, the suite went red on the new case's first assertion
-   (the decal-only tile is not dropped: 9 tiles instead of 8):
-   `failed [client] map_ui.spec:3055 Expected value "8" (number), got "9" (number) instead`, client
-   `703 passed, 1 failed, 1 errors` (that run also recorded one error, which I did not capture
-   before re-running -- the drawer formatting a nil id is the expected shape of it). The guard was
-   restored before the code commit, and `[harness] PASS: 34/34 @ fb453e71 (clean tree) scope=all`
-   is the same suite with it back.
-4. **`map_paint.py` refuses a bare id, because a bare upload id is the decal's.** `read_ids` takes
-   `{"C1": {"decal": <uploaded>, "image": <resolved>}}` and raises `Refused` on a bare number.
-   Verify: `python tools/map_paint.py selftest` -> "a bare asset id in the ids file is refused as the
-   DECAL's", "a paired row reads back as (decal, image)", "the manifest writes the decal id it is
-   given", "...and the resolved image id beside it".
-5. **The committed manifest is the generator's own output.** `PaintedMap.luau` says "EDIT THAT, NOT
-   THIS", so the selftest now compares the file on disk with `manifest_luau(..., {}, ...)`: a hand
-   edit fails it. Verify: the selftest check "src/shared/Map/PaintedMap.luau is this generator's own
-   output". The nine rects, pixel sizes, `VERSION` and `PX_PER_STUD` are byte-identical to round 2's
-   (`git diff de6330d8..HEAD -- src/shared/Map/PaintedMap.luau` touches the header and the two id
-   fields only).
-6. **"In CI" is struck and called a hand check** (finding 2). The claim is gone from this request,
-   from the spec comment under the alignment case and from the research note; each now says the
-   known-bad half of `map_paint.py verify` runs **by hand**. The real fix is queued as
-   `TASKS.md` -> `354-notes (ci)`, with the Pillow problem written down. **`ci.yml` is not touched by
-   this task.** Verify: `grep -rn "in CI" tools/map_paint.py tests/client/map_ui.spec.luau
-   docs/research/2026-11-12-painted-map-images.md reviews/task-354/REQUEST.md` and
-   `git diff de6330d8..HEAD -- .github/` (empty).
-7. **The false "Measured" sentence is replaced by what was really measured.** The research note's
-   "Measured in Studio on the DEV place ... the reading is in `reviews/task-354/REQUEST.md`" is gone;
-   in its place the note says plainly that the reading was never taken, names the two measurements
-   that say the opposite (`Report` 2026-10-18, `ShopDisplay` 2026-10-22) and states the resolve
-   route. Verify: the note's "Measured, not assumed" section.
-8. **`ESCALATE.md`'s finishing instruction is corrected.** The upload entry said "with no code
-   change ... **No `src/` logic changes**". It now carries the resolve step, the paired
-   `asset-ids.json` shape, and what `imageId = 0` means since this round. Verify: that entry.
-9. **Round 2's one-line comment notes.** The spec's describe header no longer calls the two sides
-   "different instruments" and reads 63 landmarks, not 83; `cmd_render`'s "two independent
-   instruments" sentence is corrected the same way; the four gapped comments in `map_paint.py`
-   (`TRANSECT_HALF_STUDS`, `landmarks`, the crown shadow, the bend) have their missing words; the
-   `worstZ >= Z_INDEX` assertion says it is a tripwire for a future positive `PAINTED.Z_BELOW`.
-   The other notes are queued, not taken (the per-axis drawn bound, `canvas_px`, `docs/design/map-ui.md`).
-10. **The flag is still OFF and nothing is uploaded.** `Flags.isOn("MAP_PAINTED")` default `false`,
-    all nine rows `decalId = 0, imageId = 0`, `assets/uploads.json` unchanged.
+1. **`docs/research/INDEX.md`'s task-354 row no longer asserts the fabricated measurement.** Its last
+   clause now reads *"an `ImageLabel` **cannot** draw the Decal id the Assets API returns
+   (`src/shared/Report/init.luau` 2026-10-18, `src/client/Hud/ShopDisplay.luau` 2026-10-22); the image
+   id is resolved on the server with `InsertService:LoadAsset(decalId).Texture`, and that is what
+   `PaintedMap.imageId` carries"*. Verify: `sed -n '7p' docs/research/INDEX.md | tail -c 420`.
+2. **The row now agrees with the code and the note.** The same statement is made by
+   `PaintedMap.luau`'s header, `MapUi.PAINTED.NO_ASSET`'s comment, `MapUi.paintedFromGrid`'s
+   `-- THE RESOLVED IMAGE ID ... a Decal id here draws nothing`, `map_paint.py`'s `read_ids` refusal
+   text, and the note's "Measured, not assumed" section. Verify: grep `LoadAsset` /
+   `cannot draw` in those files; nothing in the repo now claims the opposite.
+3. **No other copy of the sentence survives as an assertion.**
+   `grep -rn "DOES render"` over the tree (excluding `.git/` and the git-ignored `.agent-logs/`)
+   finds three files, all QUOTING it as the error: `ESCALATE.md:10` (a blockquote inside my own
+   22:35 entry), `reviews/task-354/RESULT.md:1` (round 3's verdict), `TASKS.md:7` (the status row
+   repeating the verdict). I also grepped the looser shapes
+   `(does|can) (render|draw) .*decal` and `decal id .*(renders|draws|works)`: the only other hit is
+   `ESCALATE.md:95`, round 2's blockquote of the note's older wording, again as the error.
+4. **The Director's authorisation is recorded in `ESCALATE.md` before the review ran.** It is the
+   blockquote `Director 2026-11-12 22:40 UTC: one extra round authorised for task 354, Round 4 ...`,
+   appended under the 22:35 entry and committed in the code commit `41be4370` -- i.e. before this
+   request and before `review.ps1` was called. Verify: `git show 41be4370 -- ESCALATE.md`.
+5. **Only paperwork follows the code commit.** `41be4370` changed `docs/research/INDEX.md` and
+   `ESCALATE.md` and nothing else; after it only this `REQUEST.md`. Verify:
+   `git diff --name-only 41be4370..HEAD` and `.agent-evidence/paperwork-after-code-commit.txt`.
+6. **Rule G, green.** `tools/studio_mcp.py selftest`, `tools/agents.py selftest` and
+   `tools/map_paint.py selftest` (40 checks) all exit 0 at this commit.
+7. **Round 3's six non-blocking notes are queued, not lost**, as `354-notes2` in `TASKS.md` --
+   the `{}`-ids selftest expectation, `--ids`' help text, `paintedRectPx`'s identity caveat, the
+   Euclidean drawn bound, `local _ = index`, and rule 4 on the `report_panel.spec` repair.
 
-## What I could not verify
+## Not verified
 
-- **Nothing in this change has been seen in the game, and that is unchanged from round 2.** With no
-  ids, no `ImageLabel` can draw a picture, so there is no flag-ON frame and rule 5 is **N/A with the
-  reason** (`ESCALATE.md` NEEDS KAREN: the Open Cloud key answers `401 Invalid API Key`). The
-  decal->image route itself is adopted from two recorded measurements in this repo, **not measured
-  here** -- there is still no decal id of these nine to resolve.
-- The alignment table remains the same arithmetic on both sides; it proves the convention, not the
-  picture. `map_paint.py verify` (8.68 studs, blank and bend-shifted tiles both failing) is the
-  picture's check and runs by hand.
+- **Nobody has seen the painted map, in any place.** The nine uploads still answer
+  `401 Invalid API Key` (`ESCALATE.md` NEEDS KAREN, 20:14 UTC), every `imageId` is 0, so the flag-ON
+  frame remains **NOT OBTAINABLE** and `MAP_PAINTED` is left OFF. Unchanged by this round.
+- No core item (animal behaviour, shooting) is touched, so no Step 3 proof is owed.
