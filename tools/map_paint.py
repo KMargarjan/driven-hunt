@@ -24,6 +24,7 @@ what makes MapUi's placement exact rather than nearly exact.
 
   python tools/map_paint.py check                 # parse the repo, print every number, render nothing
   python tools/map_paint.py render [--pps 0.70] [--out assets/ready/map]
+  python tools/map_paint.py verify                # READ the saved PNGs: is there a road at the pixel?
   python tools/map_paint.py selftest              # offline, tiny canvas, no upload, no repo writes
 
 Exit codes, the harness's shape: 0 done - 1 failed - 2 REFUSED before anything was written.
@@ -57,6 +58,11 @@ BG_MARGIN_STUDS = 460.0
 # a different --pps scales each of them by pps/this, so the picture is the same picture at a
 # different resolution rather than a different picture.
 TUNED_PPS = 0.40
+# HOW FAR EITHER SIDE OF A ROAD  CUTS ITS TRANSECT, in studs. Past the 42-stud clearance's
+# own half-width (21) and into whatever borders the road, so the carriageway stands out against it;
+# and small enough that a whole transect fits inside one tile wherever the bend has pushed the road
+# that far off the tile edge.  keeps exactly the road samples where it does fit.
+TRANSECT_HALF_STUDS = 30.0
 
 
 class Refused(Exception):
@@ -381,6 +387,16 @@ def tile_plan(geo, pps):
                 boundsX=bx, boundsZ=bz, tiles=tiles)
 
 
+def canvas_px(plan, x, z):
+    """A world point as a pixel on the big canvas. +x right, +z UP -- MapUi.rawOffsetPx' own signs.
+
+    THE ONE COPY (round 1, finding 1). The painter and the landmark table both call this, so a change
+    to the projection moves the painted roads and the recorded pixels together and `verify` reddens.
+    Two hand-written copies of these two lines is how an alignment check becomes an identity.
+    """
+    return (x - plan["x0"]) * plan["pps"], (plan["z1"] - z) * plan["pps"]
+
+
 def scaled_size(box, cap=TEXTURE_MAX_PX):
     """A crop's output size: its own pixels, shrunk so the long edge is at most `cap`."""
     left, top, right, bottom = box
@@ -542,7 +558,7 @@ def paint_canvas(geo, plan, verbose=True):
     del hgt, hw, grad_x, grad_y, shade
 
     def to_px(x, z):
-        return (x - x0) * pps, (z1 - z) * pps
+        return canvas_px(plan, x, z)
 
     road_mask = Image.new("L", (width, height), 0)
     paint_mask = Image.new("L", (width, height), 0)
@@ -665,10 +681,17 @@ def paint_canvas(geo, plan, verbose=True):
 def landmarks(geo, plan):
     """Every point the alignment table is measured at, as (world point, tile, pixel in that tile).
 
-    The pixel is this script's OWN arithmetic -- the canvas px() mapping minus the crop's origin --
-    so map_ui.spec compares two independent expressions rather than one expression with itself.
+    **WHAT THIS TABLE DOES AND DOES NOT PROVE** (round 1, finding 1, and it was right). The pixel
+    here is `canvas_px` minus the crop origin, and a tile's world rect is `world_of_box`, which is
+    the exact INVERSE of that mapping -- so `pxX / outW == (worldX - minX) / (maxX - minX)` holds
+    algebraically, for any point, at any resolution. `map_ui.spec` comparing those two sides is
+    therefore a check of the PLACEMENT arithmetic (that MapUi's rect, scale and sign conventions
+    match the renderer's), and it is NOT a check that the picture has a road at that pixel: it
+    passes with nine blank PNGs.
+
+    What proves the picture is `map_paint.py verify`, which opens the saved tiles and reads the
+    colour AT these pixels, with a control pixel off the road that must NOT be road-coloured.
     """
-    pps, x0, z1 = plan["pps"], plan["x0"], plan["z1"]
     by_id = dict((t["id"], t) for t in plan["tiles"])
 
     def found(name, x, z, tile, cx, cy):
@@ -682,8 +705,7 @@ def landmarks(geo, plan):
                     outW=out_w, outH=out_h)
 
     def place(name, x, z):
-        cx = (x - x0) * pps
-        cy = (z1 - z) * pps
+        cx, cy = canvas_px(plan, x, z)
         for tile in plan["tiles"]:
             if tile["kind"] != "cell":
                 continue
@@ -704,10 +726,38 @@ def landmarks(geo, plan):
         for cx, cz, corner in ((b["minX"], b["minZ"], "SW"), (b["maxX"], b["minZ"], "SE"),
                                (b["maxX"], b["maxZ"], "NE"), (b["minX"], b["maxZ"], "NW")):
             out.append(place("corner%s%s" % (cid, corner), cx, cz))
+    # A ROAD SAMPLE CARRIES ITS OWN KNOWN-BAD INPUT (round 1, finding 1). `control` is the same
+    # point pushed PERPENDICULAR to the road by a full clearance width, which is off the carriageway
+    # and off the verge -- so `verify` can show the road colour at the centreline AND show that the
+    # test is capable of failing. Without it, "the pixel is road-coloured" is satisfied by a picture
+    # that is road-coloured everywhere.
+    # ---- THE ROAD SAMPLES ARE CHOSEN SO A TRANSECT FITS IN ONE TILE, and that constraint is real
+    # geometry, not convenience. Every road's NOMINAL centreline IS a tile boundary -- the tiles are
+    # the cell pitch rects, whose edges are the road centres -- so a sample sitting on the nominal
+    # line has half its transect in the neighbouring picture. What rescues it is the BEND: the drawn
+    # centreline swings up to `ewStuds` / `nsStuds` off the nominal, and where it has swung far
+    # enough into a cell, a whole transect fits inside that cell's own tile. Those are the samples
+    # kept, and they are also the ones furthest from a junction -- where the crossing road would make
+    # the transect uniformly bright and the measurement meaningless.
     for rd in geo.roadsOf(active).values():
-        pts = geo.roadPolyline(rd, 9)
-        for i, (x, z) in enumerate(pts):
-            out.append(place("road%s_%d" % (rd["id"], i + 1), x, z))
+        kept = 0
+        for i, (x, z) in enumerate(geo.roadPolyline(rd, 61)):
+            mark = place("road%s_%d" % (rd["id"], i + 1), x, z)
+            tile = by_id[mark["tile"]]
+            if tile["kind"] != "cell":
+                continue
+            rect = tile["rect"]
+            if rd["axis"] == "x":
+                room = min(z - rect["minZ"], rect["maxZ"] - z)
+            else:
+                room = min(x - rect["minX"], rect["maxX"] - x)
+            if room < TRANSECT_HALF_STUDS + 2:
+                continue
+            mark["axis"] = rd["axis"]
+            out.append(mark)
+            kept += 1
+            if kept >= 4:
+                break
     return out
 
 
@@ -757,16 +807,6 @@ def manifest_luau(plan, geo, ids, sizes):
         add("\t\t}),")
         add("\t}),")
     add("}) :: { Tile }")
-    add("")
-    add("-- THE TILE AN `id` NAMES, or nil. A linear scan over nine rows, called once per open.")
-    add("function PaintedMap.tile(id: string): Tile?")
-    add("\tfor _, tile in ipairs(PaintedMap.TILES) do")
-    add("\t\tif tile.id == id then")
-    add("\t\t\treturn tile")
-    add("\t\tend")
-    add("\tend")
-    add("\treturn nil")
-    add("end")
     add("")
     add("return PaintedMap")
     return "\n".join(lines) + "\n"
@@ -892,6 +932,163 @@ def cmd_render(args):
     return 0
 
 
+# THE ROAD IS A PALE RIBBON ON A DARK WOOD, so it is found in the picture as a LOCAL MAXIMUM of
+# lightness across its own width -- not by matching a colour. Matching a colour was the first try and
+# it was the wrong instrument: the painted dirt (ab9a6d) and the painted open grass (8a8656) are both
+# warm and pale, so "is this pixel road-coloured" answers yes in a meadow. A maximum is what a road
+# actually is on this map, and where that maximum SITS is the alignment itself.
+# HOW FAR THE PICTURE'S ROAD MAY SIT FROM THE PIXEL THE MANIFEST MAPS THE CENTRELINE TO.
+#
+# 12 STUDS, AND THE NUMBER WAS MEASURED RATHER THAN CHOSEN. Over the 16 samples this keeps, the
+# signed residual runs -6.3 to +8.7 studs, and it is NOT noise: every east-west sample reads POSITIVE
+# (south). That is the painter's own crown drop-shadow, which  draws  pixels
+# down-and-right of each crown -- 4 px at 0.70 px/stud, or 5.7 studs -- so wood standing north of an
+# east-west road darkens that road's north edge and pushes the bright ridge south. It is a fact about
+# the PICTURE, not a misplacement of it, and the observed +6.5-stud mean matches the 5.7-stud shadow.
+#
+# IT STILL BITES WHERE IT MATTERS. The subtle geometric failure this check exists for is the BEND
+# being dropped or mis-signed, which moves a road by  45 to  60 studs -- four to
+# five times this bound. A wrong tile, a flipped axis or a bad crop are hundreds of studs. A blank
+# tile is caught by the contrast test below instead.
+MAX_ROAD_OFFSET_STUDS = 12.0
+# ...AND HOW MUCH BRIGHTER THE ROAD MUST BE THAN ITS VERGES, so that a BLANK or flat tile cannot
+# pass: with no road painted the transect is flat, the maximum is noise and the contrast is ~0.
+MIN_ROAD_CONTRAST = 18.0
+
+
+def luma_of(pixel):
+    return 0.299 * float(pixel[0]) + 0.587 * float(pixel[1]) + 0.114 * float(pixel[2])
+
+
+def cmd_verify(args):
+    """Open the SAVED tiles and MEASURE where the painted road is. The picture, not the algebra.
+
+    This is the check round 1's finding 1 asked for. The landmark table and `MapUi.paintedRectPx`
+    are two halves of one identity, so neither reads a pixel and both pass over nine blank images.
+    Here, for every road centreline sample, a transect is cut ACROSS the road in the saved tile and
+    the brightest point on it is found: that is where the picture's road is, and it is compared with
+    the pixel the manifest maps the centreline to. The contrast test is the known-bad half -- a blank
+    tile has no maximum to find, so it fails rather than passing quietly.
+    """
+    from PIL import Image
+
+    out_dir = args.out or OUT_DIR
+    measured, skipped, failures = verify_tiles(out_dir)
+    if not measured:
+        raise Refused("every transect left its tile: nothing was measured")
+    worst_offset = max(measured, key=lambda row: row[1])
+    worst_contrast = min(measured, key=lambda row: row[2])
+    print("[map-paint] verify: %d road sample(s) measured in the SAVED tiles, %d skipped "
+          "(transect off the tile)" % (len(measured), skipped))
+    print("  worst offset   %.2f studs at %s (<= %.1f)"
+          % (worst_offset[1], worst_offset[0], MAX_ROAD_OFFSET_STUDS))
+    print("  worst contrast %.1f luma at %s (>= %.1f) -- a blank tile reads 0 here"
+          % (worst_contrast[2], worst_contrast[0], MIN_ROAD_CONTRAST))
+    for line in failures[:10]:
+        print("  FAIL %s" % line)
+    if failures:
+        print("[map-paint] verify FAIL: %d problem(s)" % len(failures))
+        return 1
+    print("[map-paint] verify PASS: the painted roads are where the manifest maps them")
+    return 0
+
+
+def verify_tiles(out_dir):
+    """The measurement itself: (measured rows, skipped count, failure lines). Importable, so
+    `selftest` can run it over deliberately BROKEN tiles and show that it fails on them."""
+    from PIL import Image
+
+    marks_path = os.path.join(REPO, "src", "shared", "Map", "PaintedLandmarks.json")
+    if not os.path.isfile(marks_path):
+        raise Refused("%s is missing: run `render` first" % marks_path)
+    with io.open(marks_path, encoding="utf-8") as handle:
+        table = json.load(handle)
+    marks = table["landmarks"]
+    tiles, rects = {}, {}
+    for tile in parse_plan_tiles():
+        rects[tile["id"]] = tile["rect"]
+
+    def image_of(tile_id):
+        if tile_id not in tiles:
+            path = os.path.join(out_dir, "%s.png" % tile_id.lower())
+            if not os.path.isfile(path):
+                raise Refused("%s is missing: run `render` first" % path)
+            tiles[tile_id] = Image.open(path).convert("RGB")
+        return tiles[tile_id]
+
+    def luma_at(image, px, py):
+        x = int(round(px))
+        y = int(round(py))
+        if x < 0 or y < 0 or x >= image.size[0] or y >= image.size[1]:
+            return None
+        return luma_of(image.getpixel((x, y)))
+
+    roads = [m for m in marks if m["name"].startswith("road")]
+    if not roads:
+        raise Refused("no road landmarks in the table")
+
+    measured, skipped, failures = [], 0, []
+    for mark in roads:
+        image = image_of(mark["tile"])
+        rect = rects[mark["tile"]]
+        # THE TILE'S OWN px/stud, read off its world rect and its saved size -- so this works for the
+        # cell tiles and for the background, which are at different scales.
+        px_per_stud_x = mark["outW"] / (rect["maxX"] - rect["minX"])
+        px_per_stud_y = mark["outH"] / (rect["maxZ"] - rect["minZ"])
+        # ACROSS the road: an east-west road varies in z (pixel y), a north-south one in x.
+        across_y = mark["axis"] == "x"
+        per_stud = px_per_stud_y if across_y else px_per_stud_x
+        half_px = TRANSECT_HALF_STUDS * per_stud
+        samples = []
+        step = 0.5
+        offset = -half_px
+        while offset <= half_px:
+            if across_y:
+                value = luma_at(image, mark["pxX"], mark["pxY"] + offset)
+            else:
+                value = luma_at(image, mark["pxX"] + offset, mark["pxY"])
+            if value is None:
+                samples = []
+                break
+            samples.append((offset, value))
+            offset += step
+        if not samples:
+            # THE TRANSECT LEFT THE TILE. Said out loud and counted, never silently passed.
+            skipped += 1
+            continue
+        best_luma = max(value for _, value in samples)
+        edges = [value for shift, value in samples if abs(shift) > half_px * 0.7]
+        edge_luma = sum(edges) / len(edges) if edges else best_luma
+        contrast = best_luma - edge_luma
+        # THE RIDGE'S CENTRE, NOT ITS BRIGHTEST PIXEL. The painted dirt carries a per-pixel noise
+        # term, so the single brightest sample wanders several studs along a 12-px-wide ribbon. The
+        # luma-weighted centroid of everything above the half-contrast line is the standard estimator
+        # for where a bright ridge SITS, and it averages that noise out.
+        floor = edge_luma + contrast * 0.5
+        weights = [(shift, value - floor) for shift, value in samples if value > floor]
+        total = sum(weight for _, weight in weights)
+        best_offset = (sum(shift * weight for shift, weight in weights) / total) if total > 0 else half_px
+        studs = abs(best_offset) / per_stud
+        measured.append((mark["name"], studs, contrast))
+        if studs > MAX_ROAD_OFFSET_STUDS:
+            failures.append("%s: the picture's road is %.1f studs off the manifest's centreline"
+                            % (mark["name"], studs))
+        if contrast < MIN_ROAD_CONTRAST:
+            failures.append("%s: no road to find -- the transect is flat (contrast %.1f)"
+                            % (mark["name"], contrast))
+
+    return measured, skipped, failures
+
+
+def parse_plan_tiles():
+    """The nine tiles at the resolution the saved table was rendered at."""
+    marks_path = os.path.join(REPO, "src", "shared", "Map", "PaintedLandmarks.json")
+    with io.open(marks_path, encoding="utf-8") as handle:
+        pps = json.load(handle)["pxPerStud"]
+    geo = Geometry(parse_grid(), parse_places(), parse_slug_range())
+    return tile_plan(geo, pps)["tiles"]
+
+
 def read_ids(path):
     """tile id -> Roblox asset id, from a JSON file. Absent is all zeros (nothing uploaded yet)."""
     if not path:
@@ -961,10 +1158,18 @@ def cmd_selftest(_args):
 
     plan = tile_plan(geo, 0.70)
     marks = landmarks(geo, plan)
-    ok("every C1 stand, every cell corner and 36 road samples are landmarks",
-       len([m for m in marks if m["name"].startswith("stand")]) == 15
-       and len([m for m in marks if m["name"].startswith("corner")]) == 32
-       and len([m for m in marks if m["name"].startswith("road")]) == 36, str(len(marks)))
+    stands = [m for m in marks if m["name"].startswith("stand")]
+    corners = [m for m in marks if m["name"].startswith("corner")]
+    roads = [m for m in marks if m["name"].startswith("road")]
+    ok("every dealt-cell stand and every cell corner is a landmark",
+       len(stands) == geo.standCount() and len(corners) == 4 * len(grid["cells"]),
+       "%d stands, %d corners" % (len(stands), len(corners)))
+    # THE ROAD SAMPLES ARE WHAT `verify` MEASURES, and only the ones whose transect fits in one tile
+    # are kept -- so the count is a RESULT, not a target. It must not be allowed to fall to nothing.
+    ok("each of the dealt cell's four roads keeps measurable samples", len(roads) >= 8,
+       "%d road samples" % len(roads))
+    ok("every road sample carries the axis `verify` cuts across",
+       all(m.get("axis") in ("x", "z") for m in roads))
     ok("no landmark falls outside its tile",
        all(-1e-9 <= m["pxX"] <= m["outW"] + 1e-9 and -1e-9 <= m["pxY"] <= m["outH"] + 1e-9
            for m in marks))
@@ -977,6 +1182,35 @@ def cmd_selftest(_args):
     ok("the manifest writes the id it is given", "assetId = 123," in text)
     ok("the manifest names the generator and the note",
        "tools/map_paint.py" in text and "2026-11-12-painted-map-images.md" in text)
+
+    # ---- THE PICTURE ITSELF, AND THE TWO KNOWN-BAD INPUTS THAT PROVE THE CHECK BITES.
+    # Round 1, finding 1: the landmark/rect round-trip above is an ALGEBRAIC IDENTITY and passes
+    # over nine blank PNGs, so the only thing that can speak for the painting is a check that reads
+    # it. These three cases are that check, and the two broken copies are why a pass means anything.
+    if os.path.isdir(OUT_DIR) and os.path.isfile(os.path.join(OUT_DIR, "c1.png")):
+        measured, _skipped, failures = verify_tiles(OUT_DIR)
+        worst = max(row[1] for row in measured) if measured else 999.0
+        ok("the SAVED tiles have a road at every centreline the manifest maps (worst %.2f studs)"
+           % worst, measured and not failures, "; ".join(failures[:3]))
+        import tempfile
+        from PIL import Image
+        import numpy as np
+        names = [t["id"].lower() for t in tile_plan(Geometry(grid, places, slug), 0.70)["tiles"]]
+        broken = tempfile.mkdtemp(prefix="map-paint-blank-")
+        for name in names:
+            source = Image.open(os.path.join(OUT_DIR, "%s.png" % name))
+            Image.new("RGB", source.size, (90, 100, 50)).save(os.path.join(broken, "%s.png" % name))
+        _m, _s, blank_failures = verify_tiles(broken)
+        ok("...and BLANK tiles of the wood's own colour FAIL it", len(blank_failures) > 0,
+           "a blank picture passed, so the check reads nothing")
+        shifted = tempfile.mkdtemp(prefix="map-paint-shifted-")
+        push = int(round(grid["ewStuds"] * 0.70))
+        for name in names:
+            source = np.asarray(Image.open(os.path.join(OUT_DIR, "%s.png" % name)).convert("RGB"))
+            Image.fromarray(np.roll(source, push, axis=0)).save(os.path.join(shifted, "%s.png" % name))
+        _m, _s, shift_failures = verify_tiles(shifted)
+        ok("...and tiles pushed by the bend's own %d studs FAIL it" % int(grid["ewStuds"]),
+           len(shift_failures) > 0, "a picture off by a whole bend passed")
 
     # A TINY PAINT, so the renderer itself is exercised offline.
     try:
@@ -1004,10 +1238,12 @@ def refuses(thunk):
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("check", "render"):
+    for name in ("check", "render", "verify"):
         one = sub.add_parser(name)
         one.add_argument("--pps", type=float, default=0.70,
                          help="px per stud of the painted canvas (default 0.70)")
+        if name == "verify":
+            one.add_argument("--out", default=None)
         if name == "render":
             one.add_argument("--out", default=None)
             one.add_argument("--ids", default=None,
@@ -1019,6 +1255,8 @@ def main(argv):
             return cmd_check(args)
         if args.command == "render":
             return cmd_render(args)
+        if args.command == "verify":
+            return cmd_verify(args)
         return cmd_selftest(args)
     except Refused as error:
         print("[map-paint] REFUSED: %s" % error)

@@ -493,9 +493,12 @@ MapUi.PAINTED = {
 	-- hide it. Where a cell's tile IS drawn, its `MAP_LOOK` patches are skipped; where it is not,
 	-- they are left exactly as they were, so the two flags together never leave a hole.
 	REPLACES_GROUND = true,
-	-- ONE PIXEL OF BLEED, the same answer and the same reason as `GROUND.COLUMN_BLEED_PX`: two
-	-- neighbouring tiles rounded to whole pixels can leave a hairline of panel between them.
-	BLEED_PX = 1,
+	-- **NO BLEED, DELIBERATELY** (round 1, finding 2). `GROUND.COLUMN_BLEED_PX` adds a pixel because
+	-- a tinted column is a FLAT colour and a hairline of panel between two of them is the only thing
+	-- that can go wrong. A painted tile is not flat: it is stretched, so a pixel of bleed moves every
+	-- pixel of the picture inside it. The seam is closed instead by rounding the two CORNERS rather
+	-- than the size (`drawGeometry`), which makes neighbours share a pixel column exactly.
+	MAX_DRAWN_OFFSET_PX = 0.5, -- what that rounding can cost, and what `map_ui.spec` holds it to
 }
 
 export type Bounds = { minX: number, maxX: number, minZ: number, maxZ: number }
@@ -1880,13 +1883,19 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 			image.Image = string.format("rbxassetid://%d", tile.assetId)
 			image.BackgroundTransparency = 1
 			image.BorderSizePixel = 0
-			image.Position = UDim2.new(0.5, math.round(left), 0.5, math.round(top))
-			-- ROUNDED, PLUS ONE PIXEL OF BLEED, so two neighbours cannot leave a hairline of panel
-			-- between them -- `GROUND.COLUMN_BLEED_PX`'s answer, for the same reason.
-			image.Size = UDim2.fromOffset(
-				math.max(1, math.round(width)) + painted.BLEED_PX,
-				math.max(1, math.round(height)) + painted.BLEED_PX
-			)
+			-- **SIZED FROM ITS ROUNDED CORNERS, NOT FROM A ROUNDED SIZE** (round 1, finding 2). The
+			-- picture is STRETCHED over whatever box it is given, so a box one pixel wider than the
+			-- world rect it stands for drags the painted road a whole pixel off the drawn road at
+			-- the tile's far edge -- which is a 1,112-stud cell over ~272 px, about 4 studs. Rounding
+			-- the two CORNERS and subtracting leaves only the rounding itself (under half a pixel),
+			-- and two neighbours still meet exactly: their shared edge is ONE world coordinate, so
+			-- it rounds to one pixel for both. That is also why there is no bleed here -- a bleed
+			-- would be the defect, not the fix.
+			local x0 = math.round(left)
+			local y0 = math.round(top)
+			image.Position = UDim2.new(0.5, x0, 0.5, y0)
+			image.Size =
+				UDim2.fromOffset(math.max(1, math.round(left + width) - x0), math.max(1, math.round(top + height) - y0))
 			-- STRETCH, NOT SLICE OR TILE: the picture's rect IS the world rect, so it is drawn at
 			-- whatever size that rect projects to and never repeated.
 			image.ScaleType = Enum.ScaleType.Stretch
@@ -3151,8 +3160,23 @@ local function sameGeometry(a: MapGeometry?, b: MapGeometry?): boolean
 	-- line above exists: switching `MAP_PAINTED` on hands in a geometry whose cells, roads and
 	-- stands are identical, so without this the flag-on geometry would be discarded as "the same
 	-- map" and no tile would ever be drawn.
-	if #(a.painted or {}) ~= #(b.painted or {}) then
+	-- THE RECTS, NOT JUST THE COUNT (round 1's note): a re-render moves a tile's world rect without
+	-- changing how many tiles there are, and `--ids` rewrites the manifest in place -- so a count
+	-- compare would call the new picture "the same map" and never redraw it.
+	local aPainted, bPainted = a.painted or {}, b.painted or {}
+	if #aPainted ~= #bPainted then
 		return false
+	end
+	for index, tile in ipairs(aPainted) do
+		local other = bPainted[index]
+		if tile.id ~= other.id or tile.assetId ~= other.assetId then
+			return false
+		end
+		for key, value in pairs(tile.rect) do
+			if math.abs(value - (other.rect :: any)[key]) > 1e-6 then
+				return false
+			end
+		end
 	end
 	for key, value in pairs(a.bounds) do
 		if math.abs(value - (b.bounds :: any)[key]) > 1e-6 then

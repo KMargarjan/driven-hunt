@@ -66,10 +66,34 @@ one thing (`map_ui.spec`'s task 129 note: a case that *"agreed with the wrong on
 - **No calibration anywhere.** `tools/map_paint.py` writes each tile's world rect into
   `src/shared/Map/PaintedMap.luau`, and `MapUi` places the `ImageLabel` with
   `MapUi.rawOffsetPx(rect.minX, rect.maxZ, view)` / `(rect.maxX, rect.minZ, view)` -- the **same
-  function** that places every road sample and stand mark. Alignment is then not a thing to tune:
-  the two sides are one expression, and the spec proves it by comparing the render script's own
-  pixel arithmetic against `rawOffsetPx` at the 15 C1 stands, the 8 cell corners and 36 road
-  centreline samples.
+  function** that places every road sample and stand mark.
+
+### How that is actually proved, in three pieces that do different jobs
+
+The first attempt at this claimed one check proved everything and it did not -- the review caught it,
+and the correction is worth writing down because it is the trap this whole note is about.
+
+1. **The placement arithmetic** (`map_ui.spec`, "agrees with the render script about where a world
+   point is on a tile"). The renderer's pixel and the renderer's rect are two halves of ONE mapping:
+   the rect is read back out of the same crop box the pixel is measured from, so
+   `pxX / width == (worldX - minX) / (maxX - minX)` is an **algebraic identity**. Comparing it with
+   `rawOffsetPx` therefore checks the conventions -- which corner is the origin, which way z runs,
+   one scale for both axes -- and it reads 0.000000 px. **It would also read 0.000000 px over nine
+   blank images.** Saying so is the point; the first draft of this note called the two sides
+   "independent instruments", which was false.
+2. **The picture** (`python tools/map_paint.py verify`). Something has to read a pixel. It cuts a
+   transect ACROSS each road in the saved tiles and finds the bright ridge's centroid: the painted
+   road sits within **8.68 studs** of the centreline the manifest maps. The residual is not noise --
+   every east-west sample reads south -- and the cause is the painter's own crown drop-shadow, 4 px
+   or 5.7 studs, which darkens a road's north edge. **The known-bad half runs in CI**
+   (`map_paint.py selftest`): blank tiles fail it, and tiles pushed by the bend's own 45 studs fail
+   it.
+3. **The drawn thing** (`map_ui.spec`, "puts the drawn stand icons on the painted map"). The rect
+   `rawOffsetPx` returns is not the box the drawer draws -- it rounds, and the picture is STRETCHED
+   over whatever box it gets, so a box one pixel wide of the world rect drags the painting a whole
+   pixel off at the tile's far edge. So the last check reads the `ImageLabel` and the stand `Frame`
+   back out of the live map and measures between the two instances, which is the dispatch's own
+   sentence. The drawer sizes from its two ROUNDED CORNERS for this reason, and carries no bleed.
 - **The render script lives in `tools/`** (rule 9), reads repo data at `origin/main`, and is
   re-runnable when the forest changes. `<runs-dir>/352/paint.py` is its parent and renders ONE
   combined canvas -- the per-cell split did not exist and is new here.
@@ -96,6 +120,8 @@ one thing (`map_ui.spec`'s task 129 note: a case that *"agreed with the wrong on
 |---|---|---|
 | Images | 9 (8 cells + 1 outer wood) | the Director's cut; 8 cells tile the footprint, 1 carries the skirt |
 | Longest edge | <= 1024 px | repo ceiling; source 1's platform limit is 8000 |
-| Alignment | **0 px** at all 15 C1 stands, 8 cell corners, 36 road samples | same projection on both sides, so anything but 0 is a defect |
+| Placement arithmetic | **0 px** at every landmark | an identity, so anything but 0 is a convention bug |
+| The painted road, in the picture | **<= 12 studs** of the mapped centreline | measured 8.68; the residual is the 5.7-stud crown shadow, and the bound still catches a dropped bend (45-60 studs) |
+| The drawn icon on the drawn picture | **<= 1 px** | two roundings of half a pixel each |
 | Map open | p50 <= 50 ms | task 347's budget |
 | Instances on open | <= 1,500 | task 347's budget |

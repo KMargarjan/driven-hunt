@@ -2687,15 +2687,111 @@ return function()
 			end
 		end)
 
-		it("puts every landmark at the SAME pixel the render script painted it at (0 px)", function()
-			-- THE VIEW IS THE FULL MAP'S OWN, built from the geometry the game builds.
+		it("puts the drawn stand icons on the painted map, measured off the INSTANCES", function()
+			-- **THE DISPATCH'S OWN CLAIM, AND IT IS MEASURED BETWEEN TWO DRAWN THINGS** -- "the icons
+			-- sitting exactly on the painted roads". Round 1, finding 2: the first version of this
+			-- case compared `MapUi.paintedRectPx`'s raw floats, which is NOT the rectangle the drawer
+			-- draws -- it rounds the corners and once added a pixel of bleed, and the picture is
+			-- STRETCHED over whatever box it is given, so a box one pixel wide of the world rect
+			-- drags the painting a whole pixel off at the tile's far edge.
+			--
+			-- So nothing here computes a position. The painted tile's `ImageLabel` and the stand's
+			-- own `Frame` are both read back out of the live map, and the question asked of them is
+			-- the one Karen would ask: for stand i, is the pixel of the PICTURE that holds that
+			-- stand's ground the pixel the ICON is drawn at? `PaintedLandmarks` supplies where in
+			-- the picture that ground is, and it is the render script's number, not this file's.
+			--
+			-- IT IS ALSO VIEW-FREE: both instances live in the same canvas, so no `MapView` is
+			-- rebuilt here and the panel's own scaling cannot make the two sides agree by accident.
+			local restore = MapUi.geometry()
 			local model =
 				MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid, Places, LODGE, uploaded()) :: any
-			expect(model).to.be.ok()
-			expect(model.painted).to.be.ok()
+			MapUi.setGeometry(model)
+			MapUi.setOpen(true)
+			task.wait()
+			local canvas = Hud.fullMap()
+			expect(canvas).to.be.ok()
+
+			local images: { [string]: ImageLabel } = {}
+			local stands: { [number]: Frame } = {}
+			for _, child in ipairs((canvas :: Frame):GetDescendants()) do
+				local painted = string.match(child.Name, "^Painted(%w+)$")
+				if painted ~= nil and child:IsA("ImageLabel") then
+					images[painted] = child :: ImageLabel
+				end
+				local index = string.match(child.Name, "^Stand(%d+)$")
+				if index ~= nil and child:IsA("Frame") then
+					stands[tonumber(index) :: number] = child :: Frame
+				end
+			end
+
+			local pixels: { [string]: any } = {}
+			for _, tile in ipairs(PaintedMap.TILES) do
+				pixels[tile.id] = tile.pixels
+			end
+
+			local worstPx, worstName, checked = 0, "none", 0
+			for _, mark in ipairs(PaintedLandmarks.landmarks) do
+				local index = string.match(mark.name, "^stand" .. Grid.DEFAULT_CELL .. "(%d+)$")
+				if index == nil then
+					continue
+				end
+				local node = stands[tonumber(index) :: number]
+				local image = images[mark.tile]
+				expect(node).to.be.ok()
+				expect(image).to.be.ok()
+				local size = pixels[mark.tile]
+				-- WHERE THE PICTURE PUTS THAT STAND'S GROUND, off the image instance as drawn.
+				local onPicture = Vector2.new(
+					image.Position.X.Offset + mark.pxX / size.width * image.Size.X.Offset,
+					image.Position.Y.Offset + mark.pxY / size.height * image.Size.Y.Offset
+				)
+				-- ...AND WHERE THE ICON IS. `AnchorPoint` is the centre, so the offset IS the point.
+				local onIcon = Vector2.new(node.Position.X.Offset, node.Position.Y.Offset)
+				local off = (onPicture - onIcon).Magnitude
+				checked += 1
+				if off > worstPx then
+					worstPx, worstName = off, mark.name
+				end
+			end
+
+			MapUi.setOpen(false)
+			MapUi.setGeometry(restore)
+			expect(checked).to.equal(Grid.standCount(Grid.DEFAULT_CELL))
+			-- THE BOUND IS THE TWO ROUNDINGS AND NOTHING ELSE: the icon is placed at `math.round(u)`
+			-- and the image's corner at `math.round(left)`, so half a pixel each, plus what the
+			-- stretch costs between those rounded corners. `PAINTED.MAX_DRAWN_OFFSET_PX` is the
+			-- rounding's own half-pixel; two of them is the honest ceiling.
+			expect(worstPx <= MapUi.PAINTED.MAX_DRAWN_OFFSET_PX * 2).to.equal(true)
+			TestKit.note(
+				string.format(
+					"map_ui 354 drawn alignment: %d stand icons against the painted tiles, worst %.3f px at %s (<= %.1f)",
+					checked,
+					worstPx,
+					worstName,
+					MapUi.PAINTED.MAX_DRAWN_OFFSET_PX * 2
+				)
+			)
+		end)
+
+		it("agrees with the render script about where a world point is on a tile", function()
+			-- **WHAT THIS IS AND IS NOT** (round 1, finding 1, which was right). `PaintedLandmarks`'
+			-- pixel and `PaintedMap`'s rect are two halves of ONE mapping in `tools/map_paint.py`:
+			-- the rect is read back out of the same crop box the pixel is measured from, so
+			-- `pxX / width == (worldX - minX) / (maxX - minX)` holds algebraically and this case
+			-- CANNOT fail on the strength of the picture -- it passes over nine blank PNGs.
+			--
+			-- It is kept because it still guards something real and cheap: that `MapUi`'s half of
+			-- the mapping -- which corner is the image's origin, which way z runs, one scale for
+			-- both axes -- is the renderer's. Get the z sign wrong and this reddens at once.
+			-- **What speaks for the PICTURE is `python tools/map_paint.py verify`**, which cuts a
+			-- transect across every road in the saved tiles and finds the painted road within 8.68
+			-- studs of the centreline, while blank tiles and tiles pushed by the bend's own 45 studs
+			-- both fail it (`map_paint.py selftest`, in CI).
+			local model =
+				MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid, Places, LODGE, uploaded()) :: any
 			local config = MapUi.CONFIG
 			local view = MapUi.fullView(model.bounds, config.FULL_MAX_WIDTH_PX, config.FULL_MAX_HEIGHT_PX)
-
 			local byId: { [string]: any } = {}
 			for _, tile in ipairs(model.painted) do
 				byId[tile.id] = tile
@@ -2704,21 +2800,15 @@ return function()
 			for _, tile in ipairs(PaintedMap.TILES) do
 				pixels[tile.id] = tile.pixels
 			end
-
-			local marks = PaintedLandmarks.landmarks
-			expect(#marks > 0).to.equal(true)
 			local worstPx, worstName = 0, "none"
 			local stands, corners, roads = 0, 0, 0
-			for _, mark in ipairs(marks) do
+			for _, mark in ipairs(PaintedLandmarks.landmarks) do
 				local tile = byId[mark.tile]
 				expect(tile).to.be.ok()
 				local size = pixels[mark.tile]
-				-- WHERE THE IMAGE IS, by the owner's own placement.
 				local left, top, width, height = MapUi.paintedRectPx(tile, view)
-				-- ...AND WHERE THE RENDER SCRIPT'S PIXEL LANDS INSIDE IT.
 				local throughImage =
 					Vector2.new(left + mark.pxX / size.width * width, top + mark.pxY / size.height * height)
-				-- ...AGAINST THE SAME WORLD POINT PROJECTED DIRECTLY.
 				local dx, dy = MapUi.rawOffsetPx(mark.worldX, mark.worldZ, view)
 				local off = (throughImage - Vector2.new(dx, dy)).Magnitude
 				if off > worstPx then
@@ -2732,18 +2822,14 @@ return function()
 					roads += 1
 				end
 			end
-			-- THE DISPATCH'S OWN LIST: the fifteen stands of the dealt cell, the eight cells' corners
-			-- and the dealt cell's four road centrelines.
 			expect(stands).to.equal(Grid.standCount(Grid.DEFAULT_CELL))
 			expect(corners).to.equal(4 * #Grid.cellIds())
 			expect(roads > 0).to.equal(true)
-			-- 0 PX. The tolerance is float noise on a ~0.245 px/stud projection, not a budget: the
-			-- two sides are the same arithmetic, so anything a pixel could see is a defect.
 			expect(worstPx < 0.001).to.equal(true)
 			TestKit.note(
 				string.format(
-					"map_ui 354 alignment: %d landmarks (%d stands, %d corners, %d road), worst %.6f px at %s",
-					#marks,
+					"map_ui 354 placement arithmetic: %d landmarks (%d stands, %d corners, %d road), worst %.6f px at %s",
+					#PaintedLandmarks.landmarks,
 					stands,
 					corners,
 					roads,
@@ -2778,6 +2864,26 @@ return function()
 				else
 					local key = string.match(mark.name, "^corner(%w+)$")
 					want = if key ~= nil then corners[key] else nil
+					if want == nil and string.find(mark.name, "^road") ~= nil then
+						-- THE ROAD SAMPLES TOO (round 1's note): without these, the render script's
+						-- `roadPolyline` mirror -- and with it `bendZ`/`bendX` along a road, which is
+						-- the whole reason the painted roads curve -- is never compared with Luau.
+						-- The world point must lie ON the cell's own road curve, so the nearest
+						-- sample of `Grid.roadPolyline` at a fine step is the comparison.
+						local at = Vector2.new(mark.worldX, mark.worldZ)
+						local roadId = string.match(mark.name, "^road(%u%u%d+)_")
+						for _, road in pairs(Grid.roadsOf(Grid.DEFAULT_CELL)) do
+							if road.id == roadId then
+								local best = math.huge
+								for _, point in ipairs(Grid.roadPolyline(road, 601)) do
+									local gap = (point - at).Magnitude
+									if gap < best then
+										best, want = gap, point
+									end
+								end
+							end
+						end
+					end
 				end
 				if want ~= nil then
 					checked += 1
@@ -2787,8 +2893,11 @@ return function()
 					end
 				end
 			end
-			expect(checked).to.equal(Grid.standCount(Grid.DEFAULT_CELL) + 4 * #Grid.cellIds())
-			expect(worstStuds < 1e-6).to.equal(true)
+			-- EVERY landmark is now compared, the road samples included.
+			expect(checked).to.equal(#marks)
+			-- THE STANDS AND CORNERS ARE EXACT; a road sample is matched to the NEAREST point of a
+			-- 601-step polyline over a 4,490-stud road, so it carries that step's own half-width.
+			expect(worstStuds < 4).to.equal(true)
 			TestKit.note(
 				string.format(
 					"map_ui 354 geometry mirror: %d points against Grid, worst %.3e studs at %s",
@@ -2856,6 +2965,58 @@ return function()
 					bands,
 					againImages,
 					againBands
+				)
+			)
+		end)
+
+		it("leaves a cell its ground tint when that cell's picture is missing", function()
+			-- **THE PART-UPLOADED STATE, WHICH IS THE ONE MODERATION REALLY PRODUCES** (round 1's
+			-- note). A batch of nine can come back with eight approved and one rejected, and the
+			-- rule `PAINTED.REPLACES_GROUND` states -- a painted cell drops its tint, an unpainted
+			-- one keeps it -- had no case: every earlier case paints all eight or none.
+			local restore = MapUi.geometry()
+			local half = uploaded()
+			local dark = Grid.DEFAULT_CELL
+			for _, tile in ipairs(half.TILES) do
+				if tile.id == dark then
+					tile.assetId = 0
+				end
+			end
+			local model =
+				MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid, Places, LODGE, half) :: any
+			MapUi.setGeometry(model)
+			MapUi.setOpen(true)
+			task.wait()
+			local images, ownBands, otherBands = 0, 0, 0
+			for _, child in ipairs((Hud.fullMap() :: Frame):GetDescendants()) do
+				if child:IsA("ImageLabel") and string.find(child.Name, "^Painted") ~= nil then
+					images += 1
+					-- THE REJECTED TILE IS NOT DRAWN AT ALL, not drawn blank.
+					expect(child.Name).never.to.equal("Painted" .. dark)
+				else
+					local cell = string.match(child.Name, "^Ground(%w%d)_")
+					if cell == dark then
+						ownBands += 1
+					elseif cell ~= nil then
+						otherBands += 1
+					end
+				end
+			end
+			MapUi.setOpen(false)
+			MapUi.setGeometry(restore)
+			expect(images).to.equal(#PaintedMap.TILES - 1)
+			-- THE HOLE IS FILLED: the cell with no picture still draws its task 347 tint...
+			expect(ownBands > 0).to.equal(true)
+			-- ...and every cell that DID get a picture has dropped its tint.
+			expect(otherBands).to.equal(0)
+			TestKit.note(
+				string.format(
+					"map_ui 354 part-uploaded: %s rejected -> %d image(s), %d band(s) for %s, %d for the painted cells",
+					dark,
+					images,
+					ownBands,
+					dark,
+					otherBands
 				)
 			)
 		end)

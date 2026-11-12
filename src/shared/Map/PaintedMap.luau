@@ -135,14 +135,4 @@ PaintedMap.TILES = table.freeze({
 	}),
 }) :: { Tile }
 
--- THE TILE AN `id` NAMES, or nil. A linear scan over nine rows, called once per open.
-function PaintedMap.tile(id: string): Tile?
-	for _, tile in ipairs(PaintedMap.TILES) do
-		if tile.id == id then
-			return tile
-		end
-	end
-	return nil
-end
-
 return PaintedMap
