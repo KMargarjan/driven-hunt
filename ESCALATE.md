@@ -1,3 +1,26 @@
+## 2026-11-12 ~19:28 UTC, Task 352b -- NOT BLOCKING, FOR THE RECORD: Studio dropped Karen's Forest Test place with `RCC-277` during the smoke run, and the UNSAVED A1 plant went with it
+
+Written at the hard stop, before any workaround (lesson V280).
+
+**What happened.** The A1 plant of step 3 went in at 18:45 UTC and was measured on both sides (the
+census, the frames and two Play runs all read it). The dispatch forbids Save, Publish and Drafts
+Commit, so the planted wood lived only in that Studio session. At the end of the gate's
+`smoke.sh` run the harness printed `SID None [None, 'Driven Hunt DEV ...']` and three FAILs whose
+cause was that listing, not the game; a screenshot (`<runs-dir>/352b-ftstate.png`) shows the Forest
+Test Studio back at the start screen with **"Unable to Connect to Server -- Failed to connect,
+Place ID: 130094961655666, Error Code: RCC-277"**. The place had closed, so the plant was lost.
+
+**What I did about it, and what it cost: nothing.** I re-opened the place with the dialog's own
+*Try connecting*. **Studio restored the session with the plant in it** -- the census read back
+`GridForest` 176,494 desc / 79,463 parts in 8 cells and `A1` 25,413 / 11,537 / 3,627 models, which
+is the AFTER census line for line (`<runs-dir>/352b-census-edit-after.txt`). No re-plant was
+needed and every number in `reviews/task-352b/MEASUREMENTS.md` is from the one plant.
+
+**For the Director.** A plant that is never saved cannot survive a Studio crash, and this is the
+second time a long unsaved session has been the only home of a day's world work. Whether the plant
+should be committed to the place (a Save, which this dispatch forbids) is the Director's and
+Karen's call, not the Builder's -- but until it is, any crash costs the whole thing.
+
 ## 2026-11-12 ~13:55 UTC, Task 351 -- FOR THE DIRECTOR: round 2 produced one finding, so the dispatch's cap is reached. The finding is fixed; a round 3 is yours to authorise
 
 The dispatch: *"Review: at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."*
