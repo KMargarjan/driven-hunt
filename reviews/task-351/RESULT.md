@@ -1,18 +1,82 @@
-1. `tests/server/forest_line.spec.luau` / "keeps the dial's own shape: nine groups at quiet, no more than the script at normal", "never deals a drive with no red deer in it", "still releases in the LAST act: the drive ends with the last runners" — **all three cases survive deleting the producer**, and one line of the first cannot fail at all. This is the same hole round 1's finding 4 raised about a sibling case: it was closed in the geometry case and left open in the two cases written that round to close findings 1 and 2, plus in claim 6's only named verification. Evidence, with `Data.generateDrive` stubbed to `return resolved.drive` (round 1's own deletion), so `rows == SCHEDULE.drive`:
-   - **claim 6's case** (`*Verify:* "keeps the dial's own shape"`) passes in full. `expect(summarise(rows, "quiet", weigh).groups).to.equal(Data.groupsWanted("quiet", SCHEDULE))` — the shipped table has exactly nine rows at `keepAt = 9` (slots 1, 2, 3, 4, 6, 7, 9, 11, 14) against `DENSITIES.quiet` 9, which this same spec file already asserts in "answers Karen's counts at the dial she OK'd: 13 groups, 10 crossings, 2 back, 1 that holds". `expect(summarise(rows, "normal", weigh).groups <= Data.groupsWanted("normal", SCHEDULE))` — the shipped table fires exactly 13 at `normal`. And the third line, offered as claim 6's *"a silent slot is silent at every density"*, is a comparison of two constants that reads no generated row at all: `expect(Data.SILENT_KEEP_AT > Data.groupsWanted("busy", SCHEDULE)).to.equal(true)` is `99 > 15`, loop-invariant inside `for drive = 1, 12`, under the comment *"A SILENT SLOT IS SILENT AT EVERY DENSITY, including `busy`: that is what `SILENT_KEEP_AT` is for"*. Nothing in `tests/` ever asserts that a generated row carries `keepAt == SILENT_KEEP_AT` — grep for `SILENT_KEEP_AT` in `tests/` returns that one line.
-   - **the deer case** (round 1 finding 1's guard, "both FAIL FIRST") passes: `expect(got.deerGroups >= 1)` and `expect(got.deerGroups <= base.deerGroups)` with `got == base`; the shipped script fires 7 deer rows at `normal` (slots 2, 4, 6, 8, 9, 12, 14).
-   - **the last-act case** (round 1 finding 2's guard) passes: the shipped script fires slots 11, 12, 13, 14 and 15 at `normal`, so `lateFiring` is 5 and `lastSlot` is 15, and `expect(Data.slotSeconds(lastSlot, SCHEDULE) >= 140)` reads 192.
-   Required: give each of the three the line the geometry case now has — the generated row list must be shown to differ from `SCHEDULE.drive` (the `tuple`/`differed > 0` shape, or `expect(rows).never.to.equal(SCHEDULE.drive)` plus a field-level difference), so "the generator returned the script" fails; and replace the `99 > 15` line with an assertion on a generated drive — that at least one row carries `keepAt == Data.SILENT_KEEP_AT` and that `Data.slotAt(that slot, "busy", schedule)` is nil — which is the sentence its own comment makes.
+PASS (item 1 NOT PROVEN)
+
+Rule 5, stated so this PASS is not read as rule 5 having been met: this IS a core item (animal
+behaviour — which animals come, in what groups, in what order). **No live run was taken at this
+commit and none was asked for.** The harness line `[harness] PASS: 34/34 checks @ adf2a276…
+(clean tree) scope=all` names the request's `Code commit:` and `.agent-evidence/paperwork-after-code-commit.txt`
+says OK (`ESCALATE.md`, `TASKS.md`, `reviews/task-351/REQUEST.md` only), so the gate evidence is
+sound. What was SEEN this round: nothing in Karen's place. What has NOT been seen in her place: the
+generated drive at this commit; stands 7 and 11 (the request says so — the real click lands on the
+row and the hunter is still dealt stand 4); `351r2-sighting.png` and every `<runs-dir>` figure, which
+sit outside the worktree and I cannot open. Round 3's only new evidence is a DEV harness run with the
+producer stubbed, which the request labels as a test-bite proof and not a claim about her place.
+
+Round 2's single finding is closed, and closed by a case that actually bites. Verified by reading,
+not taken on the request's word:
+
+- `tests/server/forest_line.spec.luau` / `differsFromScript` — `local base = source or SCHEDULE.drive;
+  expect(rows).never.to.equal(base)` then a field-level count over `species`, `composition`, `party`,
+  `keepAt`, `northStuds`, `offsetX`. Under the round-1 stub (`return resolved.drive`) the identity
+  line fails; under a clone-returning stub `differed` is 0 and the caller's `> 0` fails. Both
+  deletions are covered, which is what the claim says.
+- The three call sites are the FIRST assertion in each case: `:2525` ("keeps the dial's own shape"),
+  `:2662` ("never deals a drive with no red deer in it"), `:2680` ("still releases in the LAST act").
+  All three read as `expect(differsFromScript(rows) > 0).to.equal(true)` inside the per-drive loop.
+- **The pasted FAIL output is consistent with the repo, line for line.** `differsFromScript`'s
+  `never.to.equal` is at file line 2352 and the three callers at 2525 / 2662 / 2680 — exactly the
+  four numbers the request quotes from the stubbed run, and the same table address appears in all
+  three failures, which is what one shared `SCHEDULE.drive` looks like.
+- Claim 2's replacement bites too: `ForestTest.SILENT_KEEP_AT = 99` has exactly one writer,
+  `out.keepAt = ForestTest.SILENT_KEEP_AT` inside `generateDrive`; `DENSITIES = { quiet = 9,
+  normal = 13, busy = 15 }`, and `slotAt` answers nil when `(row.keepAt or 1) > want`, so the
+  three-dial assertion is a real one. No row of `SCHEDULE.drive` carries 99 (nine at 9, four at 13,
+  two at 15), so with the generator stubbed `silentSeen` would be 0 and the floor line would fail on
+  its own. `driveTally` walks `slot = 1, #rows` through `slotAt`, so the companion
+  `groups == groupsWanted("quiet")` reads the generated rows and is not vacuous — a carrying row does
+  answer in the same cloned schedule.
+- Claim 3 ("comments, not behaviour") holds against round 2's own verbatim quotes: `minDeer` is still
+  `if deerDrawn > 0 then 0 else math.min(1, #deerGroup)` and the act-III pool is still
+  `if act == 3 and #ordinary[2] > 0 then …`. The hunk grew 576 → 583 lines, which is 9 added and 2
+  replaced — consistent with "nine added lines, all comment".
+- Claim 4's arithmetic checks out (spec hunk 371 → 417 lines = +46 net = +50/−4). selene 0/0/0,
+  stylua clean, `rojo build` exit 0.
 
 ## Notes (non-blocking)
 
-- Rule 5, stated so nothing here is read as rule 5 having been met: this IS a core item (animal behaviour — which animals come, in what groups, in what order). The harness line `[harness] PASS: 34/34 checks @ 5350c8c7… (clean tree) scope=all` names the request's `Code commit:`, `.agent-evidence/paperwork-after-code-commit.txt` says OK (only `reviews/task-351/REQUEST.md` followed it), and `src/shared/ForestTest/init.luau` has a single purely additive hunk at `@@ -3115,6 +3115,576 @@`, so claim 1's byte-identity of `SCHEDULE.drive` holds by construction. What has NOT been seen in Karen's place: `351r2-sighting.png` and every `<runs-dir>` console figure sit outside the worktree and I cannot open them; stands 7 and 11 (the request says so); the sighting figures for drives 2 and 4 (the request says so); and the runs were taken in `driven-hunt-rev`, not in her place.
-- `ForestTest.generateDrive` / `minDeer` — `local minDeer = if deerDrawn > 0 then 0 else math.min(1, #deerGroup)` counts the SNEAK row as a deer, and the SNEAK row is the lone stag (`party = "stag"`, weight 1). So a drive that drew SNEAK may reduce `deerWant` to 0 and fire one lone stag and no deer PARTY; `haveDeer` is satisfied by it (`rows[at].species == "reddeer"`) and the rescue does not run. `driveTally` counts it as a `deerGroup`, so the research note's target *"Deer groups per drive | at least 1"* is met as measured — but the thing Karen asked for (*"we need all a time in drive deer"*) is then one animal. Either exclude a single from `deerDrawn` or say in the comment that a stag counts.
-- `ForestTest.generateDrive`, the specials' `keepAt` — every drawn special gets `out.keepAt = 13`, so a generated drive at `quiet` fires **no special act at all**, where the shipped script fires the SPLIT at `quiet` (slot 11 is `route = "SPLIT"`, `keepAt = 9`). Not Karen's dial (C1 is `normal`) and not asserted; the comment *"the specials get 13 and the rest 15"* states the mechanism but not this consequence.
-- `ForestTest.generateDrive`, the act-III geometry pool — the comment *"Act II's rows are the deeper half of the script, which is what act III needs anyway"* is wrong on the numbers: act II's ordinary rows are at `northStuds` 150, 170, 210 and 265, and act III's own ordinary row (slot 14) is at 290. Act II is the shallower half. The change itself is right (one act-III row cloned every drive was the round-1 note); only the reason given is.
-- `reviews/task-351/REQUEST.md` claim 8 and "What I could not verify" — drive 1's `released` 145 against the OFF control's 122 is +19 %, outside the dispatch's *"released and peak live within 15 %"*, and the request says so rather than hiding it. The dispatch also asked for **five** consecutive drives at C1 flag ON; four are at the code commit and the other ten are labelled as the round-1 commit's. Both are the Director's call, not a met target.
-- `ForestTest.variedSchedule` / `VARIED` — round 1's note was not taken: the memo is keyed `[schedule][seed]` and never pruned, so one cloned schedule plus fifteen frozen rows accumulates per drive for the life of the server context. Harmless at `DRIVE.seconds` 300 (~12 entries an hour); a one-entry-per-schedule cache closes it.
-- `src/shared/Flags/init.luau` — `MAX_FLAGS` 26 -> 27, the seventh time, said out loud with task 238's sentence as the rule requires. The comment's own alternative (*"The Director may prefer to spend 82b instead"*) is the one to queue.
+- `forest_line.spec` / "keeps the dial's own shape" — `expect(silentSeen >= 12).to.equal(true)` is a
+  TOTAL over twelve drives, but the comment above it says *"EVERY DRIVE HAS AT LEAST ONE
+  (`silenceWant` is drawn from 1), so the loop above is never vacuous"*. A drive with no silent row
+  is paid for by another with two and the case stays green. The non-vacuity it was written for is
+  still delivered (≥ 12 silent rows walked), so this is a note and not a hole: a per-drive counter
+  asserted inside the loop says what the comment says.
+- `forest_line.spec` / `differsFromScript(rows, source)` — `source` is never passed by any of the
+  three callers. Dead parameter; drop it or use it.
+- `forest_line.spec` / `differsFromScript` — a row counts as differing if only `keepAt` moved, so a
+  generator that returned the script's geometry and parties with nothing but re-ranked `keepAt` would
+  still clear `> 0`. The teeth for *"a different pattern"* are in the purity case (`distinct == 5`)
+  and the geometry case (`differed > 0` on the tuple), not here. Fine as a stub-killer; say so in the
+  helper's comment rather than letting it read as the pattern assertion.
+- `reviews/task-351/REQUEST.md` claim 2 — the keepAt census *"9 ×12, 13 ×8, 15 ×5, 0 ×1"* does not
+  match the file: `keepAt = ` appears as 9 ×10, 13 ×5, 15 ×3, 0 ×1, of which `SCHEDULE.drive`'s own
+  rows are nine 9s, four 13s and two 15s. The conclusion the count was offered for — no shipped row
+  carries 99 — holds.
+- `ForestTest.variedSchedule` / `VARIED` — round 2's note is still not taken: the memo is keyed
+  `[schedule][seed]` and never pruned, so a cloned schedule plus fifteen frozen rows accumulates per
+  drive for the life of the server context (~12/hour at `DRIVE.seconds` 300). Still bounded and still
+  harmless; a one-entry-per-schedule cache closes it. Queue it rather than reopen it here.
+- `ForestTest.generateDrive` / `minDeer` — round 2's note was taken as a COMMENT only, which the
+  request states plainly: a drive that draws SNEAK can satisfy `deerGroups >= 1` with the lone stag
+  (`party = "stag"`, weight 1) and no deer party. The comment now says so and offers the one-word
+  tightening. Backlog item, the Director's call, as the request asks.
+- `ForestTest.generateDrive`, the specials' `keepAt` — unchanged from round 2: every drawn special
+  gets `out.keepAt = 13`, so a generated drive at `quiet` fires no special act where the shipped
+  script fires the SPLIT. Karen's cells are `normal`; documented in the comment, not asserted.
+- `ForestTest.generateDrive` — at `busy` a generated drive carries 11–14 groups against the script's
+  15 (the silences are silent at every density). Said out loud in the function's header; no case pins
+  it. Queue a `busy` case if the Director ever moves her dial.
+- `ESCALATE.md` / `TASKS.md` — the two NOT MET items (stands 7 and 11 not measured; drive 1's
+  `released` +19 % against the dispatch's 15 %) are carried honestly in both files and in the
+  request. Prose, and the Director's to rule on, not a review finding.
 
 ---
-REVIEWER verdict on commit `8bedd4ddff24db7d39b65bcdd49d5d8aa80ff9f2` (round 2) · 2026-11-12 13:46 UTC · session cost $3.22, 27 turns · written by tools/agents.py
+REVIEWER verdict on commit `16cdc01f43e7b0ecf1d41caf5c576315b9d3f2fc` (round 3) · 2026-11-12 14:19 UTC · session cost $1.90, 25 turns · written by tools/agents.py
