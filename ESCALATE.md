@@ -30,6 +30,15 @@ pick code was touched. **It is reported as `NOT PROVEN`, not as done.**
 What would close it: a Director-run session that holds the Forest Test in `Assigning` (or a probe
 that may end a drive), with `MAP_LOOK` on, before Karen's next playtest.
 
+### 1b. "Director: FT frame needed" -- the AFTER frame predates the code commit
+
+`<runs-dir>/347-AFTER-final.png` was taken at commit `3dbdb5d2` and shows the layer working. Round 2
+then fixed two things that are IN that picture: A1 was painted with a wood it does not have, and the
+columns were bounding boxes that put 15.2 studs of band over the east flank road. **So the frame
+proves the layer renders and is not a picture of the code commit.** Her Forest Test was back on
+`:34873`, Edit, before the 07:45 UTC cutoff and she wakes about 08:00, so I did not take another.
+One `M` in her FT with `MAP_LOOK` on, at `c5195de3` or later, closes it.
+
 ### 2. THERE IS NO WATER IN THIS WORLD AT ALL, so none is drawn
 
 Karen, 2026-11-08: *"it shows where is lake struckture trees ecat"*. **`Grid` and `Places` hold no
