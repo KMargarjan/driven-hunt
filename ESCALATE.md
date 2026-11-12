@@ -1,3 +1,76 @@
+## 2026-11-12 ~07:00 UTC, Task 347 -- FOR THE DIRECTOR: the CLICK PROOF was NOT OBTAINABLE, there is NO WATER in this world to draw, and the baked-image option is Karen's to take
+
+### 1. CLICK PROOF: NOT OBTAINABLE. The stand-pick window never opened in ~9 minutes of live play
+
+The dispatch asks: *"open M by a real key press and pick a stand by a real click on the NEW map,
+flag ON; show the stand became YOURS."* **The first half was done and is in the frames**: two real
+`M` key presses (`key.ps1 M`, a real OS keystroke into the Forest Test window) opened the new map,
+and `347-AFTER-final.png` is what came up. **The second half has no route, and the reason is
+measured, not assumed.**
+
+A stand's pad is built `Visible = false, Active = false` and is switched on only by
+`MapUi.setPickWindow`, which the match client calls during the `Assigning` phase. In the session of
+06:37-06:51 UTC, with `STAND_PICK=true` in that place and the player enrolled as a HUNTER, a probe
+polling all fifteen pads four times a second reported:
+
+    mapOpen=true stands=15 pickable=0 footer=[STAND]
+
+four times over, across **four waits of 105-110 s each** (06:40, 06:42, 06:44, 06:48 UTC). The drive
+was live throughout -- `[rest] rest-1..rest-10` lines were still printing beaters at 500-900 studs
+at 06:46 -- so the Assigning window simply did not come round inside the session, and there was
+nothing on the map to click. I did not force a phase change: that is the match's own owner and not
+this task's.
+
+**This is a tooling gap, not a defect in the work, and it was the Learning Agent's own prediction
+for this dispatch.** What the task CAN show instead, and does: `tests/client/map_ui.spec.luau`
+proves the pads are still built for all fifteen stands with the ground layer on, that the ground
+and the icons share ONE projection (fifteen stands agree to **0.00 px** by both paths), and that no
+pick code was touched. **It is reported as `NOT PROVEN`, not as done.**
+
+What would close it: a Director-run session that holds the Forest Test in `Assigning` (or a probe
+that may end a drive), with `MAP_LOOK` on, before Karen's next playtest.
+
+### 1b. "Director: FT frame needed" -- the AFTER frame predates the code commit
+
+`<runs-dir>/347-AFTER-final.png` was taken at commit `3dbdb5d2` and shows the layer working. Round 2
+then fixed two things that are IN that picture: A1 was painted with a wood it does not have, and the
+columns were bounding boxes that put 15.2 studs of band over the east flank road. **So the frame
+proves the layer renders and is not a picture of the code commit.** Her Forest Test was back on
+`:34873`, Edit, before the 07:45 UTC cutoff and she wakes about 08:00, so I did not take another.
+One `M` in her FT with `MAP_LOOK` on, at `c5195de3` or later, closes it.
+
+### 2. THERE IS NO WATER IN THIS WORLD AT ALL, so none is drawn
+
+Karen, 2026-11-08: *"it shows where is lake struckture trees ecat"*. **`Grid` and `Places` hold no
+lake, pond or water field, and the ground is water-free by construction**:
+`src/serverstorage/TerrainBake/init.luau` REFUSES any tile whose base columns have no single
+height, in its own words -- *"Water, an overhang or a pond. That is ground this bake would have to
+INVENT, so the tile is REFUSED, never guessed."*
+
+So a water layer here would be a producer with an empty input, which is exactly what L-093 exists to
+catch. **Nothing water is drawn and the gap is reported rather than faked.** Putting a lake on the
+map is a WORLD task first (the dispatch's own NOT YOURS list holds the world), and then one more
+patch kind here -- an hour's work once the water exists.
+
+### 3. THE BAKED-IMAGE OPTION, for Karen, as the dispatch asked
+
+The dispatch said: *"If the best answer is a baked image that must be UPLOADED, do NOT upload: build
+the data-drawn version now and write the upload as an option in ESCALATE.md for Karen."* The
+data-drawn version is built and measured. The upload option, stated once:
+
+* **What it would buy.** The ground is 48 planting rectangles today, so it reads as a QUILT with
+  hard edges -- honest about where the wood is, not painterly like Karen's reference. One baked
+  top-down image per cell (or one for the whole grid) would carry soft edges, texture and tree
+  canopy, and would cost **1 `ImageLabel` instead of 192 `Frame`s**.
+* **What it would cost.** Eight uploads through `tools/roblox_upload.py` with Karen's OK and a
+  moderation wait; and the image would then be a SECOND statement of where the wood is -- it would
+  go stale the next time a cell is re-baked or re-planted, silently, which the data-drawn layer
+  cannot do.
+* **The middle option, no upload:** keep the data layer and add soft edges by drawing each zone as
+  more, narrower strips with a graded alpha at its boundary -- more instances (the budget has
+  ~470 spare of 1,500) and no second source of truth. **This is what I would do next**, and it is
+  Karen's call because it is a look.
+
 ## 2026-11-11 ~12:15 UTC, Task 348 round 2 -- FOR THE DIRECTOR: **`test2` CANNOT BE RUN WHILE KAREN'S FOREST TEST STUDIO IS OPEN, AND CLOSING IT WOULD DISCARD YOUR 11:59 FLAG CHANGE.** HARD STOP, WRITTEN BEFORE ANY WORKAROUND
 
 `python tools/studio_mcp.py test2` refuses on its own first check:

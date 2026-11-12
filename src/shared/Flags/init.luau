@@ -178,7 +178,15 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- aimed, which is feel and Karen's, so it cannot ship lit. The two ways out of the cap are still
 -- task 238's two: retire the lit rows queued as TASKS.md 82b, which is the DIRECTOR's call, or ship
 -- lit, which is forbidden. **The Director may prefer to spend 82b instead**: this is one line either way.
-Flags.MAX_FLAGS = 25
+-- 25 -> 26 FOR TASK 347's `MAP_LOOK`, AND THE SAME SENTENCE A SIXTH TIME, said out loud rather than
+-- paid for by quietly retiring somebody else's row: the table held exactly 25 and the tripwire
+-- refused the twenty-sixth, MEASURED at this commit (`flags.spec:124` failed with "Expected 0, got
+-- 1" before this line moved, in the harness run of 2026-11-12 06:12 UTC). The dispatch of
+-- 2026-11-12 asks for the row and asks for it born OFF -- *"Behind a new flag MAP_LOOK, born OFF
+-- ... OFF = today's map exactly"* -- and what it switches is how the map LOOKS, which is feel and
+-- Karen's, so it cannot ship lit. The two ways out of the cap are still task 238's two: retire the
+-- lit rows queued as TASKS.md 82b, which is the DIRECTOR's call, or ship lit, which is forbidden.
+Flags.MAX_FLAGS = 26
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -899,6 +907,29 @@ Flags.DEFAULTS = {
 			.. " **WITH `DRIVE_AIMS_AT_PICKED_STAND` ON** the beds this path lays are generated and "
 			.. "judged in that drive's aimed frame, not on the main road; the two were measured "
 			.. "together from stand 11 (task 349 round 3).",
+	} :: FlagRow,
+	-- THE M MAP THAT READS LIKE GROUND (task 347). KAREN, 2026-11-10: *"map is odd and hard to
+	-- understand what and where ... clear with icons and actial map terrain as I send example"*.
+	-- ON draws a GROUND LAYER under the roads and the icons -- the 48 planting zones of
+	-- `Places.CELL_PLANS`, as wood / shrub / open fills on their real bends -- and the clearer icon
+	-- set over it. OFF is today's map, value for value: `MapUi.groundFromGrid` is never called and
+	-- no ground instance is created.
+	--
+	-- BOTH STATES ARE REACHABLE BY PARAMETER while the row sits at false: `MapUi.setGeometry` takes
+	-- the geometry whose `ground` field it draws, and `tests/client/map_ui.spec.luau` drives the
+	-- layer on with the row off.
+	--
+	-- Note: docs/research/2026-11-12-map-ground-layer.md
+	MAP_LOOK = {
+		default = false,
+		-- The module that READS it at its boundary and draws the layer. One writer of everything
+		-- inside the two map frames, exactly as `docs/design/map-ui.md` has it.
+		owner = "StarterPlayerScripts.Hud.MapUi",
+		born = "2026-11-12 task 347",
+		expires = "2026-12-03", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "The eight cells read as ground at a glance -- wood where the wood is, open where it "
+			.. "is open, the roads curving on their real bends -- with small clear icons over it "
+			.. "and one legend. OFF draws today's map and no ground layer at all.",
 	} :: FlagRow,
 }
 

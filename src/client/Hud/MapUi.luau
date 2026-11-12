@@ -58,6 +58,9 @@ local Report = require(ReplicatedStorage:WaitForChild("Report"))
 -- design system, 2026-10-17). `script.Parent` and not a service path: `Style` is this folder's own
 -- module, exactly as `ReportPanel` and `Rail` require it.
 local Style = require(script.Parent:WaitForChild("Style"))
+-- THE ONE READ OF `MAP_LOOK`, at this module's own boundary (CLAUDE.md "Feature flags": the owner
+-- reads it once and passes the value inward). `Hud.LicenceCard.ENABLED` is the same shape.
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 
 local MapUi = {}
 
@@ -320,7 +323,11 @@ MapUi.CONFIG = {
 	-- loses is the colour key for the OTHER players' teams. Stated, not hidden: the real fix is a
 	-- phone layout for the Hud's fixed-width panels, which is its own task.
 	LEGEND_WIDTH_PX = 150,
+	-- SIX ROWS AT `LEGEND_ROW_HEIGHT` 15 PLUS THE PAD. It is kept as the number the six-row legend
+	-- has always been, and `MapUi.legendHeightPx` is what the drawer asks -- so task 347's twelve
+	-- rows get a well that holds twelve.
 	LEGEND_HEIGHT_PX = 96,
+	LEGEND_HEIGHT_PAD = 6,
 	LEGEND_ROW_HEIGHT = 15,
 	LEGEND_SWATCH_PX = 9,
 	LEGEND_TEXT_PX = 12,
@@ -358,6 +365,102 @@ MapUi.COLORS = {
 	arrow = Style.LOOK.BLAZE_HI,
 }
 
+-- ---------------------------------------------------------------- THE GROUND LAYER (task 347)
+--
+-- KAREN, 2026-11-10: *"map is odd and hard to understand what and where ... clear with icons and
+-- actial map terrain as I send example"*. The eight cells are drawn as GROUND -- wood where the wood
+-- is, open where it is open -- and the icons sit on top of it.
+--
+-- IT IS THE PLANTER'S OWN TABLE AND NOT A SAMPLE OF THE WORLD. `Places.CELL_PLANS[recipe].zones` is
+-- 48 rectangles over the eight cells, each carrying the lattice pitch the planter used
+-- (`spacingStuds`; **0 plants nothing** -- a clearing), its mix name and a wood/shrub band. So the
+-- wood on the map is the wood in the world by construction -- `MapUi`'s header's own argument for
+-- the road and the stands -- with no raycast, no streamed-in world and no uploaded image.
+--
+-- NO `EditableImage` RAYCAST SAMPLER, AND THE REASON IS A MEASUREMENT: task 337 loads ONE CELL AT A
+-- TIME, so seven of the eight cells have no instances to ray at and that sampler would draw one
+-- cell and a void.
+--
+-- Note: docs/research/2026-11-12-map-ground-layer.md (sources 1-5, and the two measurements that
+-- changed this design: there is NO WATER in this world at all, and the lodge is 5,270 studs outside
+-- the grid)
+MapUi.GROUND = {
+	-- READ ONCE, HERE. OFF means `groundFromGrid` is never called and no ground instance exists.
+	ENABLED = Flags.isOn("MAP_LOOK"),
+	-- EIGHT COLUMNS PER ZONE, BECAUSE THE WORLD IS BENT -- AND THE NUMBER IS A MEASUREMENT.
+	-- `Grid.CONFIG.bend` is 45 studs east-west and 60 north-south, so a single axis-aligned rect per
+	-- zone would sit up to that far off the road it borders. At FOUR columns, with each column
+	-- TRANSLATED to the middle of its own bent corners (`groundColumns`), the worst residual
+	-- measured 15.2 studs of band over the east flank road at stand 12 -- the harness run of
+	-- 2026-11-12 07:30 UTC, which is the case refusing it. Eight halves the span each column has to
+	-- stand for, and the realised worst is printed by `map_ui.spec` rather than promised here.
+	COLUMNS = 8,
+	-- THE PITCH BAND THIS WORLD ACTUALLY PLANTS AT, read off `Places.CELL_PLANS`: 24 studs is its
+	-- densest zone (`spruceRidge` zone 1) and 60 its thinnest (`spruceSlope.deepSpacingStuds`). A
+	-- pitch outside the band clamps; a pitch of 0 is a CLEARING and is drawn as open ground.
+	DENSEST_SPACING_STUDS = 24,
+	THINNEST_SPACING_STUDS = 60,
+	-- WHAT A DENSITY DOES TO THE FILL. The thinnest wood keeps `FILL_T_THIN` of the ground showing
+	-- through and the thickest `FILL_T_THICK`, so density reads as weight and not only as hue.
+	FILL_T_THIN = 0.62,
+	FILL_T_THICK = 0.18,
+	-- OPEN GROUND IS A WASH AND NEVER A BLOCK: it is the ABSENCE of wood, so it must read lighter
+	-- than every wood on the map.
+	OPEN_T = 0.80,
+	-- THE PAINTERLY FALL ACROSS A BAND (reference: a top-down painted map, never flat tint). One
+	-- `UIGradient` per drawn COLUMN -- so 4 per zone and 168 over the seven planted cells, not 42
+	-- (round 1's note, which was right: `drawGeometry` makes it inside the per-column loop). The
+	-- fall is along the band's own depth.
+	GRADIENT_T = 0.10,
+	-- ONE PIXEL OF OVERLAP PER COLUMN, AND IT IS A MEASUREMENT (the 06:45 UTC Forest Test frame):
+	-- the canvas is drawn under a `UIScale`, so two columns whose world edges are the SAME number
+	-- land on fractional `AbsolutePosition`s and the engine rounds them apart -- a hairline of panel
+	-- through every band. `standHitPx` records the same engine fact for the pick pads.
+	COLUMN_BLEED_PX = 1,
+	GRADIENT_ROTATION = 90,
+	-- THE STIPPLE, ON THE DEALT CELL ONLY -- the one cell a player is standing in. Deterministic off
+	-- `Grid.seedFor`, so it is the same picture every open and nothing is recomputed per frame.
+	STIPPLE_MAX_PER_ZONE = 24,
+	STIPPLE_PX = 3,
+	STIPPLE_T = 0.45,
+	-- THE LODGE. It is 5,270 studs east of the grid's east edge (footprint x -6700..-2420 against
+	-- `Lobby.ANCHORS["forest-test"].x` 2850), so drawing it in bounds would halve every cell. It is
+	-- PINNED to the border by the rule this map already has for an out-of-range marker.
+	LODGE_PX = 11,
+	LODGE_WORD = "LODGE",
+	-- THE GROUND SITS UNDER EVERYTHING THIS MODULE ALREADY DRAWS, AND THAT IS **TREE ORDER, NOT A
+	-- LOWER `ZIndex`** -- MEASURED IN KAREN'S FOREST TEST, 2026-11-12 06:45 UTC. `Hud`'s ScreenGui
+	-- runs `ZIndexBehavior.Global` (probed live), where a descendant's `ZIndex` is compared against
+	-- EVERY other object in the screen and not against its siblings -- so the first draft's
+	-- `Z_INDEX - 2` put the whole layer BEHIND the panel it is drawn on, 192 frames of it, visible
+	-- in the instance tree and invisible on screen (the C1 pixels read `(28, 25, 21)`, the panel's
+	-- own colour, in both the flag-off and the flag-on frame).
+	--   https://create.roblox.com/docs/reference/engine/enums/ZIndexBehavior
+	-- At `Z_INDEX` the layer clears the panel (also `Z_INDEX`) because it is deeper in the tree, and
+	-- the cell boxes, roads, stands and markers still cover it because they are drawn AFTER it into
+	-- the same canvas -- which is the one thing `drawGeometry`'s own order guarantees.
+	--
+	-- **SO THE NAME IS HALF A LIE AND IT IS SAID OUT LOUD** (round 1's note): at 0 the layer is LEVEL
+	-- with the panel's band and nothing but tree order puts it under the marks. The row is kept at 0
+	-- rather than deleted because what it names -- how far under the map's own band the ground may
+	-- go -- is exactly the thing `ZIndexBehavior.Global` makes dangerous, and `map_ui.spec` fails on
+	-- any band below `Z_INDEX`, which is a regression guard for a positive value here.
+	Z_BELOW = 0,
+}
+
+-- EVERY GROUND COLOUR IS A `Style` TOKEN OR A LERP OF TWO, AND THAT IS §12's "no new colour" kept
+-- rather than quoted (task 201 E). `PINE` / `PINE_DARK` are this system's conifer greens, `AMBER`
+-- its autumn warm and `FIELD_MUTED` its pale field grey; a broadleaf wood is PINE walked toward
+-- AMBER, which is also the *"leafy autumn trees"* the inspiration reference asks for. Nothing here
+-- introduces a hex.
+MapUi.GROUND_COLORS = {
+	conifer = { base = Style.LOOK.PINE_DARK, rich = Style.LOOK.PINE },
+	broadleaf = { base = Style.LOOK.PINE, rich = Style.LOOK.AMBER },
+	mixed = { base = Style.LOOK.PINE_DARK, rich = Style.LOOK.AMBER_BAR },
+	scrub = { base = Style.LOOK.PINE_DARK, rich = Style.LOOK.FIELD_MUTED },
+	open = { base = Style.LOOK.FIELD_MUTED, rich = Style.LOOK.FIELD_MUTED },
+}
+
 export type Bounds = { minX: number, maxX: number, minZ: number, maxZ: number }
 export type ClipShape = "rect" | "disc"
 
@@ -381,6 +484,21 @@ export type CellView = {
 
 -- THE FOUR GRID FIELDS ARE OPTIONAL AND ABSENT IS PRE-327 BEHAVIOUR (map-ui.md §21), so the DEV map
 -- and the four drive places draw exactly what they drew.
+-- ONE PLANTING ZONE AS DRAWN (task 347). `columns` are AXIS-ALIGNED WORLD RECTANGLES in x order --
+-- the zone's grid rectangle pushed through `Grid.toWorld`, so the band follows the world's bend --
+-- and `density` is 0..1 off the pitch the planter used. `kind` is one of the five words
+-- `MapUi.GROUND_COLORS` keys on.
+export type GroundPatch = {
+	cell: string,
+	kind: string,
+	density: number,
+	columns: { Bounds },
+	-- THE TREE MARKS, AS WORLD POINTS, AND ONLY ON THE DEALT CELL. They are computed in the PRODUCER
+	-- and carried here rather than rolled in the drawer, for two reasons: the drawer would need the
+	-- grid (its seed), and a roll in the drawer would be a different picture on every rebuild.
+	stipple: { Vector2 }?,
+}
+
 export type MapGeometry = {
 	world: string,
 	label: string?, -- what the panel's title says, when it is not the world's own name
@@ -392,6 +510,13 @@ export type MapGeometry = {
 	standKinds: { string }?, -- "ground" or "tower", by stand index
 	standSides: { string }?, -- "MAIN" / "WEST" / "EAST", by stand index
 	activeCell: string?,
+	-- THE GROUND LAYER (task 347), ABSENT UNLESS `MAP_LOOK` IS ON or a caller hands the planting
+	-- data in. Absent is pre-347 behaviour, value for value -- the same discipline the four grid
+	-- fields above carry (map-ui.md section 21).
+	ground: { GroundPatch }?,
+	-- WHERE THE LODGE IS, when the world has one. Out of bounds is expected and is PINNED, not
+	-- dropped (`MapUi.GROUND.LODGE_PX`'s own comment).
+	lodge: Vector2?,
 }
 
 -- ONE STAND'S STATE, AS DRAWN (task 323b, design section 9.4). `name` is set only for `taken` --
@@ -561,9 +686,9 @@ end
 -- problem -- it has always drawn the target turned 45 degrees (`buildDrawer`'s `goal.Rotation = 45`)
 -- and a body as a circle -- so the fix is to make the key draw what the map draws. Found by looking
 -- at `t201e-fullmap.png` (rule 5), not by a test.
-function MapUi.legendRows(): { { word: string, color: Color3, shape: string } }
+function MapUi.legendRows(ground: boolean?): { { word: string, color: Color3, shape: string } }
 	local colors = MapUi.COLORS
-	return {
+	local rows = {
 		{ word = "ROAD", color = MapUi.CONFIG.ROAD_COLOR, shape = "line" },
 		{ word = "STAND", color = colors.stand, shape = "square" },
 		{ word = "GO HERE", color = colors.arrow, shape = "diamond" },
@@ -571,6 +696,33 @@ function MapUi.legendRows(): { { word: string, color: Color3, shape: string } }
 		{ word = "HUNTER", color = colors.Shooters, shape = "dot" },
 		{ word = "BEATER", color = colors.Drivers, shape = "dot" },
 	}
+	if ground ~= true then
+		return rows
+	end
+	-- ONE LEGEND AND NOT TWO (task 347): the ground layer's own words go in the SAME well, under the
+	-- marks, in the order the eye meets them -- the ground first, then the thing standing on it.
+	-- Each swatch is drawn at that kind's own THICK fill, so the key is the picture's own colour and
+	-- not a second answer to "what is dark green".
+	local wood = MapUi.groundLook("conifer", 1)
+	local leaf = MapUi.groundLook("broadleaf", 1)
+	local scrub = MapUi.groundLook("scrub", 1)
+	local open = MapUi.groundLook("open", 0)
+	table.insert(rows, { word = "CONIFER", color = wood, shape = "square" })
+	table.insert(rows, { word = "LEAFY", color = leaf, shape = "square" })
+	table.insert(rows, { word = "SCRUB", color = scrub, shape = "square" })
+	table.insert(rows, { word = "OPEN", color = open, shape = "square" })
+	table.insert(rows, { word = "HIGH SEAT", color = MapUi.CONFIG.RIM_COLOR, shape = "square" })
+	table.insert(rows, { word = MapUi.GROUND.LODGE_WORD, color = Style.LOOK.BRASS, shape = "dot" })
+	return rows
+end
+
+-- HOW TALL THE LEGEND'S WELL IS, FOR A ROW COUNT. DERIVED and not written down, because task 347
+-- adds six rows to a block whose height was a constant: `LEGEND_HEIGHT_PX` 96 at
+-- `LEGEND_ROW_HEIGHT` 15 holds exactly six, so a seventh row would have hung out of the well it is
+-- supposed to be inside.
+function MapUi.legendHeightPx(rowCount: number): number
+	local config = MapUi.CONFIG
+	return math.max(1, math.floor(rowCount)) * config.LEGEND_ROW_HEIGHT + config.LEGEND_HEIGHT_PAD
 end
 
 -- IS THERE ROOM TO READ IT? The legend lives in the panel's fixed pixel space and is scaled with it,
@@ -884,7 +1036,12 @@ function MapUi.geometryFromGrid(
 	grid: any,
 	cellId: string,
 	driven: { [string]: boolean }?,
-	base: MapGeometry?
+	base: MapGeometry?,
+	-- THE PLANTING DATA, INJECTED AND OPTIONAL (task 347). With it the geometry carries a `ground`
+	-- layer; without it the map is exactly the map it was. `lodge` is a world point the CALLER has
+	-- (`Lobby.anchorFor`), so this file requires neither module.
+	places: any?,
+	lodge: Vector2?
 ): MapGeometry?
 	if grid == nil or type(cellId) ~= "string" or grid.cellOf(cellId) == nil then
 		return nil
@@ -964,7 +1121,186 @@ function MapUi.geometryFromGrid(
 		standKinds = kinds,
 		standSides = sides,
 		activeCell = cellId,
+		ground = MapUi.groundFromGrid(grid, places, grid.cellIds(), cellId),
+		lodge = lodge,
 	}
+end
+
+-- ---------------------------------------------------------------- the ground layer, pure (task 347)
+
+-- WHICH OF THE FIVE WORDS A PLANTING ZONE IS, from its mix name and its band. PURE, and the order is
+-- exclusive: a zone that plants nothing is OPEN whatever it is called; then a shrub band is SCRUB;
+-- then the species in the name. A name carrying both a conifer and a broadleaf is MIXED.
+--
+-- THE NAMES ARE THE PLANTER'S OWN and are matched by substring rather than listed, because
+-- `Places.CELL_PLANS` names its mixes `spruceAll` / `spruceUnder` / `birchThicket` / `oakPark` and a
+-- closed list would silently answer the wrong word for the next one added. An UNRECOGNISED name is
+-- `mixed` and never nil: a hole in the ground layer is a map with a bug in it
+-- (`CELL_EMPTY_TRANSPARENCY`'s own rule).
+function MapUi.groundKindFor(mix: string?, band: string?, spacingStuds: number?): string
+	if type(spacingStuds) == "number" and spacingStuds <= 0 then
+		return "open"
+	end
+	local name = string.lower(tostring(mix))
+	if name == "clearing" then
+		return "open"
+	end
+	if band == "shrub" then
+		return "scrub"
+	end
+	local conifer = string.find(name, "spruce") ~= nil or string.find(name, "larch") ~= nil
+	local broadleaf = string.find(name, "birch") ~= nil
+		or string.find(name, "oak") ~= nil
+		or string.find(name, "aspen") ~= nil
+	if conifer and broadleaf then
+		return "mixed"
+	elseif conifer then
+		return "conifer"
+	elseif broadleaf then
+		return "broadleaf"
+	end
+	return "mixed"
+end
+
+-- HOW THICK THAT ZONE READS, 0..1, FROM THE PITCH THE PLANTER ACTUALLY USED. A lattice pitch is an
+-- INVERSE density -- 24 studs apart is thick wood and 60 is open-grown -- so the band is mapped
+-- backwards and clamped to its ends. A pitch of 0 plants nothing and is 0.
+function MapUi.groundDensityFor(spacingStuds: number?): number
+	local ground = MapUi.GROUND
+	if type(spacingStuds) ~= "number" or spacingStuds <= 0 then
+		return 0
+	end
+	local thick = ground.DENSEST_SPACING_STUDS
+	local thin = ground.THINNEST_SPACING_STUDS
+	local t = (thin - spacingStuds) / (thin - thick)
+	return math.clamp(t, 0, 1)
+end
+
+-- WHAT ONE PATCH IS PAINTED, as a colour and a transparency. PURE, and it reads
+-- `MapUi.GROUND_COLORS` so every answer is a `Style` token or a lerp of two (§12).
+function MapUi.groundLook(kind: string, density: number): (Color3, number)
+	local ground = MapUi.GROUND
+	local pair = (MapUi.GROUND_COLORS :: any)[kind] or MapUi.GROUND_COLORS.mixed
+	local d = math.clamp(density, 0, 1)
+	if kind == "open" then
+		return pair.base, ground.OPEN_T
+	end
+	return pair.base:Lerp(pair.rich, d), ground.FILL_T_THIN + (ground.FILL_T_THICK - ground.FILL_T_THIN) * d
+end
+
+-- ONE ZONE AS AXIS-ALIGNED WORLD RECTANGLES, IN X ORDER, FOLLOWING THE BEND. The zone's rectangle is
+-- in GRID coordinates (`Places.zoneRect` is built off `Grid.boundsOf`, which carries no bend term),
+-- so each column's four corners are pushed through `Grid.toWorld` -- the grid's own inverse -- and
+-- the column is the box of those four points. `columns` columns, left to right.
+--
+-- THE SAME PROJECTION AS EVERY OTHER MARK ON THIS MAP. These are WORLD points when they leave here,
+-- so `MapUi.rawOffsetPx` puts them on screen exactly as it puts a stand and a road sample -- one
+-- projection for the ground layer and the icons, which is what makes a tree agree with a stand.
+function MapUi.groundColumns(grid: any, rect: Bounds, columns: number?): { Bounds }
+	local n = math.max(1, math.floor(columns or MapUi.GROUND.COLUMNS))
+	local out: { Bounds } = table.create(n)
+	local bend = grid.CONFIG.bend
+	for i = 1, n do
+		local u0 = rect.minX + (rect.maxX - rect.minX) * (i - 1) / n
+		local u1 = rect.minX + (rect.maxX - rect.minX) * i / n
+		local ax, az = grid.toWorld(u0, rect.minZ, bend)
+		local bx, bz = grid.toWorld(u1, rect.minZ, bend)
+		local cx, cz = grid.toWorld(u0, rect.maxZ, bend)
+		local dx, dz = grid.toWorld(u1, rect.maxZ, bend)
+		-- **TRANSLATED, NOT GROWN.** A bend is a SHEAR, so locally it MOVES a rectangle rather than
+		-- widening it: the box of the four bent corners is strictly larger than the band it stands
+		-- for, and that surplus is what put 15.2 studs of wood over the east flank road (the harness
+		-- run of 2026-11-12 07:30 UTC). The column keeps its own GRID size and takes the centre of
+		-- its four bent corners, so the only error left is the bend's variation ACROSS one column --
+		-- which is what `COLUMNS` buys down, and what `map_ui.spec` measures.
+		local halfWidth = (u1 - u0) / 2
+		local halfDepth = (rect.maxZ - rect.minZ) / 2
+		local midX = (ax + bx + cx + dx) / 4
+		local midZ = (az + bz + cz + dz) / 4
+		table.insert(out, {
+			minX = midX - halfWidth,
+			maxX = midX + halfWidth,
+			minZ = midZ - halfDepth,
+			maxZ = midZ + halfDepth,
+		})
+	end
+	return out
+end
+
+-- THE WHOLE GROUND LAYER, OR NIL. One patch per planting zone of every cell the grid names, read out
+-- of `Places.CELL_PLANS` through `Places.cellPlanFor` and `Places.zoneRect` -- the two doors the
+-- planter itself uses, so there is no second copy of where a wood is.
+--
+-- BOTH MODULES ARE **INJECTED**, exactly as `grid` is (task 327f): this file requires neither, so
+-- the function stays pure over its arguments and a spec can hand it a stub. Nil `places` is nil
+-- ground, which is how `MAP_LOOK` off draws today's map.
+--
+-- **A CELL WITH NO WOOD GETS NO GROUND, AND THE DOOR IS `Grid.PLANTED_CELLS`** (round 1, finding 1,
+-- which was right). A1 is absent from `PLANTED_CELLS` and is the one cell with nothing planted in
+-- it -- but its `Grid.CELLS` row still names `recipe = "spruceSlope"`, so keying off
+-- `Places.cellPlanFor` alone painted six patches of dark-green conifer under the words `A1 empty`.
+-- `geometryFromGrid` forty lines up already reads the right door for exactly this (`empty = not
+-- planted[id]`), and now so does this. A plan that exists is not a wood that was planted.
+function MapUi.groundFromGrid(grid: any, places: any?, cellIds: { string }?, activeCell: string?): { GroundPatch }?
+	if grid == nil or places == nil then
+		return nil
+	end
+	local ids = cellIds or grid.cellIds()
+	local planted: { [string]: boolean } = {}
+	for _, id in ipairs(grid.PLANTED_CELLS) do
+		planted[id] = true
+	end
+	local out: { GroundPatch } = {}
+	for _, id in ipairs(ids) do
+		local plan = places.cellPlanFor(id)
+		if plan == nil or plan.zones == nil or not planted[id] then
+			continue
+		end
+		for _, zone in ipairs(plan.zones) do
+			-- THE PITCH IS THE ZONE'S OWN, and the plan's `spacingStuds` is the fallback the planter
+			-- itself falls back to -- never a number invented here.
+			local spacing = if type(zone.spacingStuds) == "number" then zone.spacingStuds else plan.spacingStuds
+			local patch: GroundPatch = {
+				cell = id,
+				kind = MapUi.groundKindFor(zone.mix, zone.band, spacing),
+				density = MapUi.groundDensityFor(spacing),
+				columns = MapUi.groundColumns(grid, places.zoneRect(id, zone), MapUi.GROUND.COLUMNS),
+			}
+			if activeCell ~= nil and id == activeCell then
+				patch.stipple = MapUi.groundStipple(grid, patch, #out)
+			end
+			table.insert(out, patch)
+		end
+	end
+	if #out == 0 then
+		return nil
+	end
+	return out
+end
+
+-- WHERE THE STIPPLE MARKS GO INSIDE ONE PATCH, as world points. DETERMINISTIC off `Grid.seedFor`, so
+-- the same cell draws the same picture on every open and on every client -- the per-cell stream rule
+-- `Grid.CONFIG.seed` already states. Count scales with the patch's own density, and open ground gets
+-- none: a stipple mark means "there are trees here".
+function MapUi.groundStipple(grid: any, patch: GroundPatch, stream: number?): { Vector2 }
+	local ground = MapUi.GROUND
+	local out: { Vector2 } = {}
+	if patch.kind == "open" or patch.density <= 0 then
+		return out
+	end
+	local wanted = math.floor(ground.STIPPLE_MAX_PER_ZONE * patch.density + 0.5)
+	if wanted <= 0 or #patch.columns == 0 then
+		return out
+	end
+	local rng = Random.new(grid.seedFor(patch.cell, stream or 347))
+	for i = 1, wanted do
+		local column = patch.columns[1 + (i - 1) % #patch.columns]
+		table.insert(
+			out,
+			Vector2.new(rng:NextNumber(column.minX, column.maxX), rng:NextNumber(column.minZ, column.maxZ))
+		)
+	end
+	return out
 end
 
 -- HOW ONE CELL IS DRAWN, as a word. PURE, and the four states are exclusive in this order: the cell
@@ -1024,7 +1360,18 @@ end
 -- `grid` IS INJECTED AND OPTIONAL (task 327f): with it, a drive in a CELL draws the whole eight-cell
 -- world with that cell marked; without it the dealt cell's own layout is drawn, which is every map
 -- written before this task, value for value.
-function MapUi.geometryFor(world: string, forestTest: any?, map: any?, layoutName: string?, grid: any?): MapGeometry?
+function MapUi.geometryFor(
+	world: string,
+	forestTest: any?,
+	map: any?,
+	layoutName: string?,
+	grid: any?,
+	-- `places` AND `lodge` ARE THE GROUND LAYER'S TWO INPUTS (task 347), and the FLAG IS READ BY THE
+	-- CALLER'S SIDE OF THIS DOOR: `Hud` hands them in only while `MapUi.GROUND.ENABLED`, so with the
+	-- row off this function cannot build a ground layer at all and a spec can build one anyway.
+	places: any?,
+	lodge: Vector2?
+): MapGeometry?
 	if world == "forest-test" then
 		if forestTest == nil then
 			return nil
@@ -1040,7 +1387,7 @@ function MapUi.geometryFor(world: string, forestTest: any?, map: any?, layoutNam
 		-- A DRIVE IN A CELL DRAWS THE WORLD (task 327f). The dealt cell's own road and stands are
 		-- `base`'s, so the picture gains the other seven sections and changes nothing about this one.
 		if grid ~= nil and grid.cellOf(layoutName) ~= nil then
-			return MapUi.geometryFromGrid(grid, layoutName :: string, nil, base) or base
+			return MapUi.geometryFromGrid(grid, layoutName :: string, nil, base, places, lodge) or base
 		end
 		return base
 	end
@@ -1379,6 +1726,70 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 	local config = MapUi.CONFIG
 	local nodes: { StandNode } = {}
 
+	-- THE GROUND LAYER, ON THE FULL MAP ONLY AND BUILT ONCE (task 347). It is the FIRST thing drawn
+	-- and it sits `GROUND.Z_BELOW` under everything else, so the cell boxes, the roads, the stands
+	-- and the markers all keep the band they had and no existing mark moves.
+	--
+	-- A COLUMN IS ONE `Frame` AND THE BEND IS WHY THERE ARE FOUR OF THEM (`MapUi.GROUND.COLUMNS`).
+	-- The minimap is excluded for the measured reason 327f gives for the roads: it is drawn every
+	-- frame and the panel only while it is open, so a layer that is always on screen is the one that
+	-- costs frames. The minimap keeps the drive's own road, exactly as before.
+	if standLabels and model.ground ~= nil then
+		local ground = MapUi.GROUND
+		for patchIndex, patch in ipairs(model.ground :: { GroundPatch }) do
+			local fill, transparency = MapUi.groundLook(patch.kind, patch.density)
+			for columnIndex, column in ipairs(patch.columns) do
+				local u0, v0 = MapUi.rawOffsetPx(column.minX, column.minZ, view)
+				local u1, v1 = MapUi.rawOffsetPx(column.maxX, column.maxZ, view)
+				local band = Instance.new("Frame")
+				band.Name = string.format("Ground%s_%d_%d", patch.cell, patchIndex, columnIndex)
+				band.BackgroundColor3 = fill
+				band.BackgroundTransparency = transparency
+				band.BorderSizePixel = 0
+				band.Position = UDim2.new(0.5, math.round(math.min(u0, u1)), 0.5, math.round(math.min(v0, v1)))
+				-- A COLUMN IS NEVER THINNER THAN ONE PIXEL: four columns of a narrow zone round to
+				-- zero width at a phone's scale, and a zone that is drawn as nothing is a hole.
+				band.Size = UDim2.fromOffset(
+					math.max(1, math.round(math.abs(u1 - u0))) + ground.COLUMN_BLEED_PX,
+					math.max(1, math.round(math.abs(v1 - v0))) + ground.COLUMN_BLEED_PX
+				)
+				band.ZIndex = config.Z_INDEX - ground.Z_BELOW
+				-- THE PAINTERLY FALL, one gradient per column: the reference is a PAINTED map, and a
+				-- flat tint is the thing Karen called *"odd"*.
+				local shade = Instance.new("UIGradient")
+				shade.Name = "Shade"
+				shade.Rotation = ground.GRADIENT_ROTATION
+				shade.Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 0),
+					NumberSequenceKeypoint.new(1, ground.GRADIENT_T),
+				})
+				shade.Parent = band
+				band.Parent = holder
+			end
+			-- THE STIPPLE, ON THE DEALT CELL ONLY. Seven other cells read by fill and density; the
+			-- cell a player is standing in gets small tree marks so it reads as WOOD and not as a
+			-- tint. Deterministic, so it is the same picture on every open.
+			if model.activeCell ~= nil and patch.cell == model.activeCell then
+				for markIndex, point in ipairs(patch.stipple or {}) do
+					local u, v = MapUi.rawOffsetPx(point.X, point.Y, view)
+					local mark = Instance.new("Frame")
+					mark.Name = string.format("Tree%s_%d_%d", patch.cell, patchIndex, markIndex)
+					mark.AnchorPoint = Vector2.new(0.5, 0.5)
+					mark.Size = UDim2.fromOffset(ground.STIPPLE_PX, ground.STIPPLE_PX)
+					mark.Position = UDim2.new(0.5, math.round(u), 0.5, math.round(v))
+					mark.BackgroundColor3 = fill
+					mark.BackgroundTransparency = ground.STIPPLE_T
+					mark.BorderSizePixel = 0
+					mark.ZIndex = config.Z_INDEX - ground.Z_BELOW + 1
+					local round = Instance.new("UICorner")
+					round.CornerRadius = UDim.new(0.5, 0)
+					round.Parent = mark
+					mark.Parent = holder
+				end
+			end
+		end
+	end
+
 	-- THE EIGHT SECTIONS, ON THE FULL MAP ONLY (task 327f). The minimap sees 300 studs and a cell is
 	-- 1,070, so a box there would be an edge crossing the disc and no information at all.
 	if standLabels and model.cells ~= nil then
@@ -1441,6 +1852,49 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 		end
 	end
 	polyline(model.road, config.ROAD_PX)
+
+	-- THE LODGE (task 347). Karen asked for *"the lodge"* among the icons, and it is 5,270 studs east
+	-- of the grid's east edge -- so it is PINNED to the border by `MapUi.project`'s own clamp, dimmer
+	-- than a real position exactly as an out-of-range player marker is. A house glyph and its word:
+	-- a brass square with a brass roof wedge over it, both drawn here, no asset id and no icon pack.
+	--
+	-- FULL MAP ONLY. The minimap sees 300 studs and the lodge is thousands away, so a pinned house on
+	-- its rim would be on the rim of every disc in the world and say nothing.
+	if standLabels and model.lodge ~= nil then
+		local ground = MapUi.GROUND
+		local at = model.lodge :: Vector2
+		-- `project`'s THIRD RETURN IS "IN RANGE", NOT "PINNED" -- it is `true` when the point was NOT
+		-- clamped. Read the other way round the lodge came out at full opacity, which is round 1's
+		-- own harness line (`map_ui.spec` expected 0.45 and got 0).
+		local u, v, inRange = MapUi.project(at.X, at.Y, view)
+		local pinned = not inRange
+		local house = Instance.new("Frame")
+		house.Name = "Lodge"
+		house.AnchorPoint = Vector2.new(0.5, 0.5)
+		house.Size = UDim2.fromOffset(ground.LODGE_PX, ground.LODGE_PX)
+		house.Position = UDim2.new(0.5, math.round(u), 0.5, math.round(v))
+		house.BackgroundColor3 = Style.LOOK.BRASS
+		house.BackgroundTransparency = if pinned then config.PINNED_TRANSPARENCY else 0
+		house.BorderSizePixel = 0
+		house.ZIndex = config.Z_INDEX + 2
+		local roof = Instance.new("Frame")
+		roof.Name = "Roof"
+		roof.AnchorPoint = Vector2.new(0.5, 0.5)
+		roof.Size = UDim2.fromOffset(math.round(ground.LODGE_PX * 0.72), math.round(ground.LODGE_PX * 0.72))
+		roof.Position = UDim2.fromScale(0.5, 0)
+		roof.Rotation = 45
+		roof.BackgroundColor3 = Style.LOOK.BRASS_HI
+		roof.BackgroundTransparency = house.BackgroundTransparency
+		roof.BorderSizePixel = 0
+		roof.ZIndex = config.Z_INDEX + 3
+		roof.Parent = house
+		local word = label(house, "Word", config.LABEL_SIZE, ground.LODGE_WORD)
+		word.AnchorPoint = Vector2.new(0.5, 0)
+		word.Position = UDim2.new(0.5, 0, 1, 2)
+		word.Size = UDim2.fromOffset(46, config.LABEL_SIZE + 2)
+		word.TextColor3 = Style.LOOK.BRASS
+		house.Parent = holder
+	end
 
 	-- HOW BIG A PAD MAY BE HERE, MEASURED OFF THIS VIEW (task 327f): on the world view the stands
 	-- are ~31 px apart and the one-cell map's 72 px pad would claim a stand two along.
@@ -2516,6 +2970,12 @@ local function sameGeometry(a: MapGeometry?, b: MapGeometry?): boolean
 	if a.activeCell ~= b.activeCell or #(a.cells or {}) ~= #(b.cells or {}) or #(a.roads or {}) ~= #(b.roads or {}) then
 		return false
 	end
+	-- THE GROUND LAYER IS PART OF THE PICTURE (task 347): switching `MAP_LOOK` on hands in a geometry
+	-- whose cells, roads and stands are identical, so without this a flag-on geometry would be
+	-- discarded as "the same map" and the layer would never be drawn.
+	if #(a.ground or {}) ~= #(b.ground or {}) or a.lodge ~= b.lodge then
+		return false
+	end
 	for key, value in pairs(a.bounds) do
 		if math.abs(value - (b.bounds :: any)[key]) > 1e-6 then
 			return false
@@ -2748,7 +3208,19 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	local legend = legendFrame
 	if legend ~= nil then
 		local holder = legend :: Frame
-		holder.Position = UDim2.new(1, -config.FULL_PADDING, 1, -(config.FULL_FOOTER_HEIGHT - 4))
+		-- WHICH ROWS, AND BOTH THE WELL AND THE BLOCK'S TOP ARE SIZED FROM THE COUNT (task 347): the
+		-- ground layer adds six words to the same key, so a constant height would have hung them
+		-- outside the well and through the footer.
+		local rows = MapUi.legendRows(geometry ~= nil and geometry.ground ~= nil)
+		-- THE BLOCK IS ANCHORED AT ITS BOTTOM-RIGHT and the rows run DOWNWARD from `holder`, so a
+		-- taller legend has to start higher or its last words fall through the footer. The offset is
+		-- the height the rows will take, which is the same arithmetic the well uses.
+		holder.Position = UDim2.new(
+			1,
+			-config.FULL_PADDING,
+			1,
+			-(config.FULL_FOOTER_HEIGHT - 4) - (MapUi.legendHeightPx(#rows) - config.LEGEND_HEIGHT_PX)
+		)
 		-- IT IS A WELL NOW (§5 surface 22, task 201 E): *"the legend becomes a well of swatch
 		-- rows"*. It was six swatches and six black-outlined words floating on the map itself, so
 		-- the key and the thing it keyed were the same surface. A well is one step darker and one
@@ -2767,13 +3239,13 @@ function MapUi.setGeometry(next_: MapGeometry?)
 		well.Position = UDim2.fromOffset(-Style.SPACE.M, -Style.SPACE.S)
 		well.Size = UDim2.fromOffset(
 			config.LEGEND_WIDTH_PX + Style.SPACE.M + Style.SPACE.S,
-			config.LEGEND_HEIGHT_PX + Style.SPACE.S
+			MapUi.legendHeightPx(#rows) + Style.SPACE.S
 		)
 		well.ZIndex = config.Z_INDEX + 2
 		Style.corner(well, config.LEGEND_WELL_CORNER)
 		Style.stroke(well, config.LEGEND_WELL_EDGE, Style.EDGE_T.WELL)
 		claim(well).Parent = holder
-		for index, row in ipairs(MapUi.legendRows()) do
+		for index, row in ipairs(rows) do
 			local y = (index - 1) * config.LEGEND_ROW_HEIGHT
 			local swatch = Instance.new("Frame")
 			swatch.Name = string.format("Swatch%d", index)
