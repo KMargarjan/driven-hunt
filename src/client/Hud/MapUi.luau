@@ -405,7 +405,9 @@ MapUi.GROUND = {
 	-- than every wood on the map.
 	OPEN_T = 0.80,
 	-- THE PAINTERLY FALL ACROSS A BAND (reference: a top-down painted map, never flat tint). One
-	-- `UIGradient` per zone, 48 instances, and the fall is along the band's own depth.
+	-- `UIGradient` per drawn COLUMN -- so 4 per zone and 168 over the seven planted cells, not 42
+	-- (round 1's note, which was right: `drawGeometry` makes it inside the per-column loop). The
+	-- fall is along the band's own depth.
 	GRADIENT_T = 0.10,
 	-- ONE PIXEL OF OVERLAP PER COLUMN, AND IT IS A MEASUREMENT (the 06:45 UTC Forest Test frame):
 	-- the canvas is drawn under a `UIScale`, so two columns whose world edges are the SAME number
@@ -434,6 +436,12 @@ MapUi.GROUND = {
 	-- At `Z_INDEX` the layer clears the panel (also `Z_INDEX`) because it is deeper in the tree, and
 	-- the cell boxes, roads, stands and markers still cover it because they are drawn AFTER it into
 	-- the same canvas -- which is the one thing `drawGeometry`'s own order guarantees.
+	--
+	-- **SO THE NAME IS HALF A LIE AND IT IS SAID OUT LOUD** (round 1's note): at 0 the layer is LEVEL
+	-- with the panel's band and nothing but tree order puts it under the marks. The row is kept at 0
+	-- rather than deleted because what it names -- how far under the map's own band the ground may
+	-- go -- is exactly the thing `ZIndexBehavior.Global` makes dangerous, and `map_ui.spec` fails on
+	-- any band below `Z_INDEX`, which is a regression guard for a positive value here.
 	Z_BELOW = 0,
 }
 
@@ -1214,17 +1222,25 @@ end
 -- the function stays pure over its arguments and a spec can hand it a stub. Nil `places` is nil
 -- ground, which is how `MAP_LOOK` off draws today's map.
 --
--- A CELL WITH NO PLAN CONTRIBUTES NOTHING AND IS NOT AN ERROR: A1 has no wood (`Grid.PLANTED_CELLS`
--- omits it), and the cell box already says `A1 empty` in words.
+-- **A CELL WITH NO WOOD GETS NO GROUND, AND THE DOOR IS `Grid.PLANTED_CELLS`** (round 1, finding 1,
+-- which was right). A1 is absent from `PLANTED_CELLS` and is the one cell with nothing planted in
+-- it -- but its `Grid.CELLS` row still names `recipe = "spruceSlope"`, so keying off
+-- `Places.cellPlanFor` alone painted six patches of dark-green conifer under the words `A1 empty`.
+-- `geometryFromGrid` forty lines up already reads the right door for exactly this (`empty = not
+-- planted[id]`), and now so does this. A plan that exists is not a wood that was planted.
 function MapUi.groundFromGrid(grid: any, places: any?, cellIds: { string }?, activeCell: string?): { GroundPatch }?
 	if grid == nil or places == nil then
 		return nil
 	end
 	local ids = cellIds or grid.cellIds()
+	local planted: { [string]: boolean } = {}
+	for _, id in ipairs(grid.PLANTED_CELLS) do
+		planted[id] = true
+	end
 	local out: { GroundPatch } = {}
 	for _, id in ipairs(ids) do
 		local plan = places.cellPlanFor(id)
-		if plan == nil or plan.zones == nil then
+		if plan == nil or plan.zones == nil or not planted[id] then
 			continue
 		end
 		for _, zone in ipairs(plan.zones) do

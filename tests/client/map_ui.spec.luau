@@ -2119,17 +2119,37 @@ return function()
 
 			-- ...AND ON, THE COUNT IS THE PLANTER'S OWN, counted out of `Places.CELL_PLANS` here so
 			-- the case cannot pass by agreeing with itself.
+			-- COUNTED OVER THE **PLANTED** CELLS, which is a different list from "the cells with a
+			-- recipe" -- round 1, finding 1. A1 carries `recipe = "spruceSlope"` and is absent from
+			-- `Grid.PLANTED_CELLS`, so a producer that keys off the recipe paints six patches of
+			-- conifer under the words `A1 empty`. Both halves are asserted: the count, and A1 by
+			-- name.
 			local wanted = 0
+			local plantedSet = {}
+			for _, id in ipairs(Grid.PLANTED_CELLS) do
+				plantedSet[id] = true
+			end
+			local withRecipe = 0
 			for _, id in ipairs(Grid.cellIds()) do
 				local plan = Places.cellPlanFor(id)
 				if plan ~= nil and plan.zones ~= nil then
-					wanted += #plan.zones
+					withRecipe += #plan.zones
+					if plantedSet[id] then
+						wanted += #plan.zones
+					end
 				end
 			end
 			expect(wanted > 0).to.equal(true)
+			-- THE TWO LISTS REALLY DO DIFFER, or the case above proves nothing.
+			expect(withRecipe > wanted).to.equal(true)
 			local on = groundOf("C1") :: any
 			expect(on.ground).to.be.ok()
 			expect(#on.ground).to.equal(wanted)
+			for _, patch in ipairs(on.ground) do
+				if plantedSet[patch.cell] ~= true then
+					error(string.format("a ground patch was built for %s, which has no wood planted in it", patch.cell))
+				end
+			end
 			expect(on.lodge).to.equal(LODGE)
 			TestKit.note(string.format("map_ui 347: %d planting zones become %d ground patches", wanted, #on.ground))
 		end)
@@ -2174,27 +2194,56 @@ return function()
 			local model = groundOf("C1") :: any
 			local view = MapUi.fullView(model.bounds, 1100, 700)
 
-			-- ONE: A STAND'S PIXEL IS THE SAME BY BOTH PATHS. `standGridOf` gives its grid station;
-			-- pushing that through the ground layer's own map must land on the pixel the icon is
-			-- drawn at, which is `rawOffsetPx(standPosition)`.
+			-- (Round 1, finding 2, which was right: the first draft of this case compared
+			-- `Grid.standPosition` with `Grid.toWorld(Grid.standGridOf(...))`, which IS its own
+			-- definition -- two names for one value, 0.00 px by construction, and still 0.00 with
+			-- the whole ground layer deleted. Both parts below put `MapUi.groundColumns`' own output
+			-- on one side of the comparison.)
+
+			-- ONE: NO STAND AND NO ROAD SAMPLE STANDS INSIDE THE WOOD. The stands and the roads come
+			-- from `Grid.standPosition` / `Grid.roadPolyline`, which carry the full bend; the bands
+			-- come from `Places.zoneRect` (GRID coordinates, NO bend) pushed through
+			-- `MapUi.groundColumns`. Every road is outside every cell by construction, so if the
+			-- ground layer dropped or mis-signed the bend its bands would move up to
+			-- `bend.ewStuds` 45 / `nsStuds` 60 studs and swallow the line they are supposed to stop
+			-- at -- 24 studs of it past the 21-stud half-width, which this case refuses.
+			local bands = {}
+			for _, patch in ipairs(model.ground) do
+				if patch.cell == "C1" then
+					for _, column in ipairs(patch.columns) do
+						table.insert(bands, column)
+					end
+				end
+			end
+			expect(#bands > 0).to.equal(true)
+			local function intoWood(x: number, z: number): number
+				local worst = 0
+				for _, column in ipairs(bands) do
+					if x >= column.minX and x <= column.maxX and z >= column.minZ and z <= column.maxZ then
+						local into = math.min(x - column.minX, column.maxX - x, z - column.minZ, column.maxZ - z)
+						if into > worst then
+							worst = into
+						end
+					end
+				end
+				return worst
+			end
 			local worstStand = 0
 			for index = 1, Grid.standCount("C1") do
 				local at = Grid.standPosition("C1", index)
-				local iconU, iconV = MapUi.rawOffsetPx(at.X, at.Z, view)
-				local u, v = Grid.standGridOf("C1", index)
-				local gx, gz = Grid.toWorld(u, v, Grid.CONFIG.bend)
-				local groundU, groundV = MapUi.rawOffsetPx(gx, gz, view)
-				local miss = math.max(math.abs(iconU - groundU), math.abs(iconV - groundV))
-				if miss > worstStand then
-					worstStand = miss
+				local into = intoWood(at.X, at.Z)
+				if into > worstStand then
+					worstStand = into
 				end
-				if miss > 1 then
+				if into > 2 then
 					error(
 						string.format(
-							"stand %d is %.2f px apart by the icon path and the ground path -- the two are NOT "
-								.. "on one projection",
+							"stand %d at (%.0f, %.0f) is %.1f studs INSIDE a drawn wood band of its own cell -- "
+								.. "the icons and the ground are not on one projection",
 							index,
-							miss
+							at.X,
+							at.Z,
+							into
 						)
 					)
 				end
@@ -2248,29 +2297,35 @@ return function()
 			end
 			expect(checked).to.equal(#plan.zones)
 
-			-- THREE, MEASURED AND REPORTED RATHER THAN ASSERTED: how far a band reaches over the
-			-- main road. A column is the axis-aligned BOX of four bent corners, so it bulges past
-			-- the curved band it stands for, and the honest number is the worst reach -- not a
-			-- promise that it is zero. Four columns is what keeps it small.
-			local road = Grid.roadsOf("C1").main
-			local samples = Grid.roadPolyline(road, 17, Grid.CONFIG.bend)
+			-- THREE: THE SAME QUESTION ASKED OF ALL FOUR OF THE CELL'S ROADS, 17 samples each. A
+			-- column is the axis-aligned BOX of four bent corners, so it bulges a little past the
+			-- curved band it stands for; the worst reach is reported and a reach past 2 studs
+			-- fails, because that is the band eating the carriageway.
 			local worstReach = 0
-			for _, point in ipairs(samples) do
-				for _, patch in ipairs(patches) do
-					for _, column in ipairs(patch.columns) do
-						if point.X >= column.minX and point.X <= column.maxX then
-							local into = math.min(point.Y - column.minZ, column.maxZ - point.Y)
-							if into > worstReach then
-								worstReach = into
-							end
-						end
+			for _, name in ipairs({ "main", "west", "east", "muster" }) do
+				local road = Grid.roadsOf("C1")[name]
+				for _, point in ipairs(Grid.roadPolyline(road, 17, Grid.CONFIG.bend)) do
+					local into = intoWood(point.X, point.Y)
+					if into > worstReach then
+						worstReach = into
+					end
+					if into > 2 then
+						error(
+							string.format(
+								"the %s road passes %.1f studs INSIDE a drawn wood band at (%.0f, %.0f)",
+								name,
+								into,
+								point.X,
+								point.Y
+							)
+						)
 					end
 				end
 			end
 			TestKit.note(
 				string.format(
-					"map_ui 347 projection: %d stands agree to %.2f px, %d zone middles inside their own band, "
-						.. "worst band reach over the main road %.1f studs",
+					"map_ui 347 projection: %d stands at worst %.2f studs inside a wood band, %d zone middles "
+						.. "inside their own band, worst band reach over the four roads %.1f studs",
 					Grid.standCount("C1"),
 					worstStand,
 					checked,
@@ -2330,6 +2385,20 @@ return function()
 				end
 			end
 			expect(planted).to.equal(#Grid.PLANTED_CELLS)
+			-- ...AND NO OTHERS. A1 is the one cell with nothing planted in it, and it must carry no
+			-- band at all (round 1, finding 1): the count above passes happily with an eighth cell
+			-- drawn.
+			for id in pairs(cells) do
+				local isPlanted = false
+				for _, planted_ in ipairs(Grid.PLANTED_CELLS) do
+					if planted_ == id then
+						isPlanted = true
+					end
+				end
+				if not isPlanted then
+					error(string.format("the canvas carries Ground%s_* bands, but %s has no wood", id, id))
+				end
+			end
 			-- THE TREE MARKS ARE ON THE DEALT CELL ONLY.
 			expect(trees > 0).to.equal(true)
 			for _, child in ipairs(canvas:GetChildren()) do
@@ -2372,6 +2441,10 @@ return function()
 			local restore = MapUi.geometry()
 			local off = MapUi.geometryFor("forest-test", data, Map, "C1", Grid)
 			local on = groundOf("C1")
+			-- ROUND 1, FINDING 3, WHICH WAS RIGHT: with `groundFromGrid` returning nil this case
+			-- timed the flag-off map twice and passed, printing two identical columns. The timed
+			-- build must be of a geometry that HAS a layer, and the layer must reach the canvas.
+			expect(#(on :: any).ground > 0).to.equal(true)
 
 			-- TWO BUILDS AND FIVE OPENS, NOT MORE, AND THAT IS A MEASUREMENT TOO: this case shares the
 			-- ONE live Hud with every other client spec, and `setGeometry(nil)` runs `teardown`,
@@ -2416,10 +2489,27 @@ return function()
 			local openOffP50, openOffMax = openMs(off)
 			local openOnP50, openOnMax = openMs(on)
 
-			-- THE REBUILD COUNTER IS THE "NOT PER FRAME" HALF: with the map open and the geometry
-			-- unchanged, six ticks must redraw the ground exactly zero times.
+			-- THE REBUILD COUNTER IS THE "NOT PER FRAME" HALF, AND IT GUARDS THE ARCHITECTURE RATHER
+			-- THAN THIS TASK (round 1's note, which was right): `stats.rebuilds` moves in exactly one
+			-- place, the end of `teardown`, which only `setGeometry` on a CHANGED geometry reaches,
+			-- so `render()` has no path to it today. What it refuses is a future tick that redraws.
 			MapUi.setGeometry(on)
 			MapUi.setOpen(true)
+			local drawn = 0
+			for _, child in ipairs(((Hud.fullMap() :: Frame):FindFirstChild("Canvas") :: Frame):GetChildren()) do
+				if string.match(child.Name, "^Ground%u%d_") ~= nil then
+					drawn += 1
+				end
+			end
+			if drawn < #(on :: any).ground then
+				error(
+					string.format(
+						"the timed build drew %d ground band(s) for %d patch(es): the cost above is not this layer's",
+						drawn,
+						#(on :: any).ground
+					)
+				)
+			end
 			local rebuildsBefore = MapUi.stats().rebuilds
 			for _ = 1, 6 do
 				MapUi.render()
@@ -2435,13 +2525,14 @@ return function()
 			TestKit.note(
 				string.format(
 					"map_ui 347 cost (DEV): open p50 %.2f / %.2f ms, max %.2f / %.2f ms (off / on); "
-						.. "build worst %.1f / %.1f ms; %d ground rebuild(s) over 6 ticks with the map open",
+						.. "build worst %.1f / %.1f ms (%d bands drawn); %d ground rebuild(s) over 6 ticks, map open",
 					openOffP50,
 					openOnP50,
 					openOffMax,
 					openOnMax,
 					buildOff,
 					buildOn,
+					drawn,
 					rebuilt
 				)
 			)
