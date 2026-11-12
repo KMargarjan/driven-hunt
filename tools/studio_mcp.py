@@ -1009,6 +1009,9 @@ SCOPE_SPECS = {
              "tests/server/boar_body.spec.luau", "tests/server/boar_brain.spec.luau",
              "tests/server/boar_calm.spec.luau", "tests/server/boar_kinds.spec.luau",
              "tests/server/boar_hit.spec.luau", "tests/server/boar_model.spec.luau",
+             # Task 355: the frame budget on `Body.attachVisual` -- `Boar.CONFIG.MODEL`'s own row,
+             # the runtime's own step, and a flag the boar owns, so it is `boar` and `flags`.
+             "tests/server/boar_attach_budget.spec.luau",
              "tests/server/boar_shot.spec.luau", "tests/server/boar_sounder.spec.luau",
              "tests/server/boar_wound.spec.luau", "tests/server/boar_zones.spec.luau",
              # Task 280: the deer's shot volumes against the DRAWN mesh -- every ray that answers a
@@ -1206,6 +1209,7 @@ SCOPE_SPECS = {
               # asserts its owner reads it at a boundary -- so a flags change plays it too.
               "tests/server/light.spec.luau",
               "tests/server/boar_model.spec.luau", "tests/server/boar_shot.spec.luau",
+              "tests/server/boar_attach_budget.spec.luau",
               "tests/server/boar_calm.spec.luau",
               # Task 238: `LICENCE_POPUP` is a row in the same table, and this spec is what asserts
               # its owner reads it at a boundary and that both arms are reachable by parameter --

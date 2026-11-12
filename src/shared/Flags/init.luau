@@ -450,6 +450,30 @@ Flags.DEFAULTS = {
 			.. "is a sow and her young, and a drive can release red deer. OFF is the grey box with "
 			.. "its tinted hit zones and no deer at all, exactly as before task 115.",
 	} :: FlagRow,
+	BOAR_ATTACH_BUDGET = {
+		-- BORN OFF on 2026-11-12 (task 355). A FRAME BUDGET on the one thing that makes the server's
+		-- worst frame: `Body.attachVisual`. MEASURED in Karen's Forest Test, C1, one 340 s drive --
+		-- the boar runtime's worst step was 104.2 ms and 92.1 ms of it was attaching models, because a
+		-- wave releases ten animals and all ten are built in the same step. ON, a step stops attaching
+		-- once it has spent `MODEL.ATTACH_BUDGET_MS` on attaching; the animals it did not reach are
+		-- attached on the next pass, because the step already asks `visual == nil` every frame.
+		--
+		-- WHAT CHANGES FOR A PLAYER: an animal that arrives in a crowded release keeps the grey box
+		-- for a few more frames before its coat appears. That is "more than one frame", which is why
+		-- this is a flag and not a straight fix (the dispatch's own rule). NOTHING ELSE moves: the
+		-- same animals, the same count, the same timings -- the budget defers, it never drops, and
+		-- `boar_attach_budget.spec.luau` asserts that every animal still ends up with a model.
+		--
+		-- OFF is byte-for-byte today's world: `ATTACH_BUDGET_MS` is 0 and 0 means no budget.
+		default = false,
+		-- The owner is the module that READS it at its boundary (`Boar.CONFIG.MODEL.ATTACH_BUDGET_MS`).
+		owner = "src/server/Boar/init.luau",
+		born = "2026-11-12",
+		expires = "2026-12-03",
+		why = "The server's worst frame during a drive is ten animal models built in one step "
+			.. "(92.1 of 104.2 ms, measured). ON spends at most 8 ms a frame on them and lets the rest "
+			.. "arrive on the next pass; OFF is today's single-frame burst.",
+	} :: FlagRow,
 	BOAR_BEHAVIOUR = {
 		-- BORN OFF on 2026-10-04 (task 118). What a boar DOES about what it notices: it notices a
 		-- standing person at 25 studs and a moving one at 60, goes head-up (ALERT), turns away and

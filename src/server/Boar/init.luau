@@ -3425,6 +3425,12 @@ Boar.CONFIG.MODEL = {
 	-- (CLAUDE.md, feature flags). Every function below takes the value as a parameter, so both
 	-- branches stay reachable while the flag sits at one of them.
 	ENABLED = Flags.isOn("BOAR_MODEL"),
+	-- HOW MANY MILLISECONDS ONE STEP MAY SPEND BUILDING MODELS (task 355, research note
+	-- `docs/research/2026-11-12-frame-budget-for-attaching-models.md`). The same boundary shape as
+	-- `ENABLED` above, and **0 MEANS NO BUDGET**, which is the flag-off world byte for byte.
+	-- 8 ms: one attach measured 9.4 ms at its worst, and the test is made BEFORE the call, so a
+	-- frame can reach 8 + one attach = 17.4 ms against the 92.1 ms measured without it.
+	ATTACH_BUDGET_MS = if Flags.isOn("BOAR_ATTACH_BUDGET") then 8 else 0,
 	NAME = "Visual", -- the one child `Body.attachVisual` adds, and the only one
 	-- THE DISPLAY ANIMAL AT THE GATHERING (task 173). Karen, 2026-10-13: *"and after hunt over we
 	-- need to see boars shooted not boxes when we stand around"*. `Match.Scene` asks for one of these
@@ -5203,6 +5209,11 @@ function Boar.newRuntime(world)
 		attach = 0, -- `Body.attachVisual`: the skinned model going on
 		draw = 0, -- `stepVisual` / `stepSound` / `stepCarcass` / `stepFlash` / `collapse` / `drive`
 	}
+	-- ...AND THE SAME NINE KEYS CARRIED ACROSS THE DRIVE. The worst FRAME alone is not an owner
+	-- table: one 378 ms frame in another loop hides every other owner's worst behind it (measured,
+	-- `<runs-dir>/355-BEF3-track.txt`). So each section keeps its own max and its own total.
+	self._profMax = table.clone(self._prof)
+	self._profTotal = table.clone(self._prof)
 	self._stats = {
 		-- ---------------------------------- WHAT THE SERVER STEP COSTS (task 327h, design 9.2)
 		--
@@ -8070,7 +8081,15 @@ function Runtime:step(dt: number)
 
 		local attachAt = os.clock()
 		local visualTemplate = visualTemplates[entry.body.kind or config.KINDS.DEFAULT]
-		if config.MODEL.ENABLED and visualTemplate ~= nil and entry.body.visual == nil then
+		-- THE FRAME BUDGET (task 355). React Scheduler's `shouldYieldToHost`: keep working while the
+		-- slice has time left, measured on the clock and never counted in units. There is no queue
+		-- and no bookkeeping, because this sweep is level-triggered -- `visual == nil` is asked of
+		-- every animal every frame, so one the budget stopped is reached on the next pass.
+		-- `prof.attach` is this frame's attach spend, the same number the instrument publishes.
+		-- 0 is no budget at all, which is the world before this task.
+		local budget = config.MODEL.ATTACH_BUDGET_MS
+		local mayAttach = budget <= 0 or prof.attach < budget
+		if config.MODEL.ENABLED and mayAttach and visualTemplate ~= nil and entry.body.visual == nil then
 			-- `entry.config` AND NOT `config` (task 223), because `attachVisual` reads
 			-- `MODEL.NAME`, `MODEL.HIDE_BOX` and the kind's mesh scale, and a deer's `MODEL` is its
 			-- own table. For every boar `entry.config` IS `config` by reference.
@@ -8268,6 +8287,14 @@ function Runtime:_stepCost(began: number)
 	local stats = self._stats
 	stats.steps += 1
 	stats.stepMsTotal += took
+	-- EVERY OWNER'S OWN WORST AND OWN TOTAL (task 355), rolled up once per step over nine keys.
+	local profMax, profTotal = self._profMax, self._profTotal
+	for key, ms in pairs(self._prof) do
+		profTotal[key] += ms
+		if ms > profMax[key] then
+			profMax[key] = ms
+		end
+	end
 	if took > stats.stepMsMax then
 		stats.stepMsMax = took
 		-- WHO SPENT THE WORST FRAME (task 355). Formatted only when a new worst arrives -- a few
