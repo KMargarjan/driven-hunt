@@ -114,17 +114,21 @@ licence to carry.
 | What | Target | Why that number |
 |---|---|---|
 | M-open cost, client | **< 50 ms** (p50 and max of 5 opens) | the dispatch's budget. One frame at 60 Hz is 16.7 ms, so 50 ms is three frames -- a visible blink at worst, never a stall |
-| open-map UI instances | **< 1,500** | the dispatch's budget. The arithmetic below lands at ~700 |
+| open-map UI instances | **< 1,500** | the dispatch's budget. MEASURED at 1,317 |
 | ground-layer rebuilds | **once per cell set**, 0 per frame | `MapUi.CONFIG.TICK_HZ` is 20 and the tick's job is MARKERS; the ground cannot change inside a drive |
-| zone count | 48 | counted out of `Places.CELL_PLANS` |
-| columns per zone | 4 | 48 x 4 = 192 frames, and it cuts the bend error to ~4 px |
-| stipple marks | active cell only, <= 24 per zone | 7 zones x 24 = 168 worst case |
+| zone count | **42**, over the seven PLANTED cells | counted out of `Places.CELL_PLANS` -- 48 cells carry a recipe but A1 carries no wood (`Grid.PLANTED_CELLS`), and a plan that exists is not a wood that was planted (review round 1, finding 1) |
+| columns per zone | **8**, each TRANSLATED by the bend and not grown by it | 42 x 8 = 336 frames. A bend is a shear, so the bounding box of a column's four bent corners is strictly LARGER than the band -- measured at **15.2 studs of wood over the east flank road** with 4 boxed columns, and **0.0 studs** with 8 translated ones |
+| stipple marks | active cell only, <= 24 per zone | 166 measured on C1 |
 | frame time p95 with the map open | no worse than OFF, measured | the map is drawn once; the tick is unchanged |
 
-**Instance arithmetic, worst case (C1, fifteen stands, the full map open):** 192 zone strips + 48
-gradients + 168 stipple marks + 8 cell boxes with their edge and label (24) + 64 road segments + 15
-stands x 6 (90) + 16 markers x 2 (32) + the stand list's 15 rows x 3 (45) + the legend's ~8 rows x 2
-(16) + the panel's own chrome (~20) = **~700**, against the 1,500 ceiling.
+**Instance arithmetic, and the estimate written here first was WRONG -- the MEASURED number is what
+counts.** The estimate said *"192 zone strips + 48 gradients + 168 stipple marks ... = ~700"*, and
+it under-counted twice: the `UIGradient` is made per drawn COLUMN and not per zone, and every
+stipple mark carries a `UICorner`. The harness measures the open map's whole descendant count on
+the real Hud, and at the code commit it reads **1,317** -- 336 ground bands with a gradient each,
+166 tree marks with a corner each, 8 cell boxes, 64 road segments, 15 stands, the stand list, the
+twelve-row legend and the panel's chrome -- against the 1,500 ceiling, with 183 to spare. A ninth
+column per zone would not fit, which is why 8 is the number.
 
 ## 6. What was NOT borrowed, and why nothing was invented
 
