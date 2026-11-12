@@ -2440,7 +2440,9 @@ return function()
 				for index, row in ipairs(rows) do
 					expect(row.slot).to.equal(index)
 					expect(row.atSeconds).to.equal(Data.slotSeconds(index, SCHEDULE))
-					expect(row.act >= 1 and row.act <= 3).to.equal(true)
+					-- THE ACT IS THE SLOT'S OWN BAND and not merely "1 to 3", which `generateDrive`
+					-- clamps and so could never fail (review round 1's note).
+					expect(row.act).to.equal(math.clamp(math.ceil(index / math.floor(#rows / 3)), 1, 3))
 					expect(type(row.note)).to.equal("string")
 					-- ONE SPECIES PER GROUP, which is Karen's *"(do not mix different animals)"*:
 					-- a boar row carries a composition and no party, a deer row the other way.
@@ -2544,20 +2546,106 @@ return function()
 			end
 		end)
 
-		it("generates from the CELL's rows, so a generated drive feeds the same rows", function()
+		it("takes each slot's GEOMETRY from a shipped row of that slot's own act", function()
+			-- FAIL FIRST (review round 1, finding 4): the first cut of this case passed with
+			-- `generateDrive` stubbed to `return resolved.drive`, because it only asked that each
+			-- `northStuds` was one the cell table wrote -- which is trivially true of the cell table
+			-- itself. It now pins the whole geometry TUPLE to a row of the SAME ACT and demands the
+			-- list differ from the script, so both "it returned the script" and "it drew act-I
+			-- geometry for an act-III slot" fail.
 			local config = configOn()
 			local weigh = weigher(config)
 			-- C1's own depths and bias are applied FIRST (`cellSchedule`), and the generator draws
-			-- from those rows: every generated start depth is one a cell row actually wrote.
+			-- from those rows: a generated drive feeds the same rows the fixed one does.
 			local cell = Data.cellSchedule(Grid.animalsOf("C1"), Grid.CONFIG.cellDepthStuds)
-			local depths = {}
-			for _, row in ipairs(cell.drive) do
-				depths[row.northStuds] = true
+			local slots = #cell.drive
+			-- WHICH GEOMETRY EACH ACT MAY LEND. Act III may also take act II's, because act III has
+			-- exactly one ordinary row of its own (the generator says so and this is the other half).
+			local lend = { {}, {}, {} }
+			for index, row in ipairs(cell.drive) do
+				if Data.slotSpecial(row) == nil then
+					local act = math.clamp(math.ceil((row.slot or index) / math.floor(slots / 3)), 1, 3)
+					table.insert(lend[act], row)
+				end
 			end
-			local schedule = Data.variedSchedule(cell, Data.driveSeed(13, 1, "C1"), weigh, true)
-			expect(schedule).never.to.equal(cell)
-			for _, row in ipairs(schedule.drive) do
-				expect(depths[row.northStuds]).to.equal(true)
+			for _, row in ipairs(lend[2]) do
+				table.insert(lend[3], row)
+			end
+			local function tuple(row)
+				return string.format(
+					"%s/%s/%s/%s/%s",
+					tostring(row.northStuds),
+					tostring(row.offsetX),
+					tostring(row.crossOffset),
+					tostring(row.route),
+					tostring(row.pace)
+				)
+			end
+			local differed = 0
+			for drive = 1, 12 do
+				local schedule = Data.variedSchedule(cell, Data.driveSeed(13, drive, "C1"), weigh, true)
+				expect(schedule).never.to.equal(cell)
+				for index, row in ipairs(schedule.drive) do
+					if tuple(row) ~= tuple(cell.drive[index]) then
+						differed += 1
+					end
+					local ok = false
+					-- A SPECIAL IS CLONED WHOLE, so it matches a special of the script; an ordinary
+					-- row must match an ordinary row of its own act.
+					local pool = if Data.slotSpecial(row) ~= nil then cell.drive else lend[row.act]
+					for _, source in ipairs(pool) do
+						if tuple(row) == tuple(source) then
+							ok = true
+							break
+						end
+					end
+					expect(ok).to.equal(true)
+				end
+			end
+			-- ...AND IT IS NOT THE SCRIPT. Twelve drives of fifteen slots: a generator that returned
+			-- `cell.drive` scores 0 here.
+			expect(differed > 0).to.equal(true)
+		end)
+
+		it("never deals a drive with no red deer in it", function()
+			-- FAIL FIRST (review round 1, finding 1): the budget's reduction was deer-first and
+			-- unbounded, so about a quarter of drives came out as nine boar groups and nothing else
+			-- -- which deletes tasks 239, 251c and 328z. Karen, 2026-10-21: *"we need all a time in
+			-- drive deer"*.
+			local config = configOn()
+			local weigh = weigher(config)
+			local base = summarise(SCHEDULE.drive, DENSITY, weigh)
+			for drive = 1, 40 do
+				local rows = Data.generateDrive(Data.driveSeed(404, drive, "C1"), DENSITY, SCHEDULE, weigh)
+				local got = summarise(rows, DENSITY, weigh)
+				expect(got.deerGroups >= 1).to.equal(true)
+				expect(got.deerGroups <= base.deerGroups).to.equal(true)
+			end
+		end)
+
+		it("still releases in the LAST act: the drive ends with the last runners", function()
+			-- FAIL FIRST (review round 1, finding 2): the nine carrying rows were taken in SLOT
+			-- order, so they were always the earliest nine and slots 11-15 -- 140 s to 192 s -- fired
+			-- nothing at `normal`. The dispatch: *"The shape of a drive stays: early movers, a
+			-- build-up, the last runners"*.
+			local config = configOn()
+			local weigh = weigher(config)
+			local slots = #SCHEDULE.drive
+			local third = math.floor(slots / 3)
+			for drive = 1, 40 do
+				local rows = Data.generateDrive(Data.driveSeed(77, drive, "C1"), DENSITY, SCHEDULE, weigh)
+				local schedule = table.clone(SCHEDULE)
+				schedule.drive = rows
+				local lateFiring, lastSlot = 0, 0
+				for slot = 2 * third + 1, slots do
+					if Data.slotAt(slot, DENSITY, schedule) ~= nil then
+						lateFiring += 1
+						lastSlot = slot
+					end
+				end
+				expect(lateFiring >= 1).to.equal(true)
+				-- ...AND THE LAST ONE IS LATE IN THE DRIVE, not merely inside act III's band.
+				expect(Data.slotSeconds(lastSlot, SCHEDULE) >= 140).to.equal(true)
 			end
 		end)
 	end)

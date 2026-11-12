@@ -43,7 +43,7 @@ It must instead, behind a flag:
 | Singles per drive | 0-3 | the dispatch's own number |
 | Species per group | exactly 1 | Karen: *"do not mix different animals"* |
 | Specials per drive | each at most 1, and 0-4 of the four | the dispatch: *"sometimes, not every drive"* |
-| Deer groups per drive | 1 to the base's own count (7 at `normal`), never above it | `MAX_DEER_GROUPS` 40 is *"past every deer this script can have on its feet at once (39)"* and that 39 is the script's own seven deer rows at `normal`; more deer parties would risk the cap refusing a slot, which releases NOTHING |
+| Deer groups per drive | **at least 1**, and never above the base's own count (7 at `normal`) | `MAX_DEER_GROUPS` 40 is *"past every deer this script can have on its feet at once (39)"* and that 39 is the script's own seven deer rows at `normal`; more deer parties would risk the cap refusing a slot, which releases NOTHING |
 | Animals released | within +-10% of the fixed script at the same density. **MEASURED, not quoted: the base at `normal` is 13 groups, 73 animals, 7 deer parties** (`<runs-dir>/351-gen-probe.luau`, through `Boar.compositionSize`), so the band is 65..81. The 59 / 2 deer in the `SCHEDULE` header is stale -- that header's own note says the counts above its `leaps` line are task 251's | the dispatch allows 15%; 10% is the generator's own band, so the measured figure has headroom |
 | First sighting | <= 30 s | task 349's action, kept |
 | Median gap between sightings | <= 20 s | task 349's action, kept |

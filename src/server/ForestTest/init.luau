@@ -468,13 +468,19 @@ end
 -- `start` and handed in here, so both states are reachable from a spec while the flag sits at one
 -- of them. The weigher is the ANIMAL owner's own (`Boar.compositionSize`), because how many animals
 -- a composition is is not this file's fact (rule 3).
-function ForestTest.cellSchedule(varietyIn: boolean?)
+--
+-- THE DRIVE NUMBER IS A PARAMETER TOO (review round 1, finding 3). `planDrive` runs on the marker
+-- read, BEFORE anybody is placed, while `state.driveKey` is written later on the drive-opening
+-- phase edge -- so a `cellSchedule()` that seeded off module state handed `planDrive` drive N-1's
+-- table and the release path drive N's: the roster that was bedded and the drive that was dealt
+-- were two different drives from drive 2 onward. Whoever knows the number passes it.
+function ForestTest.cellSchedule(varietyIn: boolean?, driveNumber: number?)
 	local base = Data.cellSchedule(Grid.animalsOf(chosen.name), Grid.CONFIG.cellDepthStuds)
 	local on = if type(varietyIn) == "boolean" then varietyIn else ForestTest.driveVariety()
 	if not on then
 		return base
 	end
-	return Data.variedSchedule(base, ForestTest.driveSeed(), ForestTest.weighParty, true)
+	return Data.variedSchedule(base, ForestTest.driveSeed(driveNumber), ForestTest.weighParty, true)
 end
 
 -- ------------------------------------------------------- THE DRIVE'S RED DEER (task 239)
@@ -725,8 +731,9 @@ end
 
 -- THIS DRIVE'S SEED: the server's session draw, the drive number and the cell that is dealt. The
 -- arithmetic is `Data.driveSeed`'s and is pure; this supplies the three facts.
-function ForestTest.driveSeed(): number
-	return Data.driveSeed(state.sessionSeed, state.driveKey, chosen.name)
+function ForestTest.driveSeed(driveNumber: number?): number
+	local key = if type(driveNumber) == "number" then math.max(1, math.floor(driveNumber)) else state.driveKey
+	return Data.driveSeed(state.sessionSeed, key, chosen.name)
 end
 
 -- IS THE VARIETY SWITCH ON? Read ONCE, at `ForestTest.start`, exactly as `placementInPlace` is.
@@ -742,7 +749,7 @@ function ForestTest.patternLine(): string?
 	if not ForestTest.driveVariety() then
 		return nil
 	end
-	local schedule = ForestTest.cellSchedule()
+	local schedule = ForestTest.cellSchedule(nil, state.driveKey)
 	local tally = Data.driveTally(schedule.density, schedule)
 	local animals, singles = 0, 0
 	local specials, mix = {}, {}
@@ -2411,7 +2418,9 @@ function ForestTest.planDrive(driveNumber: number?, inPlace: boolean?): string?
 	if state.rosterDrive == key then
 		return nil
 	end
-	local schedule = ForestTest.cellSchedule()
+	-- THIS DRIVE'S TABLE, keyed on THIS drive's number (review round 1, finding 3): the roster that
+	-- is bedded and the drive that is dealt must be the same generated drive.
+	local schedule = ForestTest.cellSchedule(nil, key)
 	local rows, lines = Placement.plan(
 		key,
 		schedule,
