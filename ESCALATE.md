@@ -61,6 +61,8 @@ it is the difference between evidence that bites and evidence that does not.
   number the generator does control -- the roster each drive declares -- is 65-73 against the
   script's 73, i.e. -11 % to 0 %, inside the band.
 
+**Director 2026-11-12 14:02 UTC: round 3 authorised (option 1).**
+
 ## 2026-11-12 ~07:00 UTC, Task 347 -- FOR THE DIRECTOR: the CLICK PROOF was NOT OBTAINABLE, there is NO WATER in this world to draw, and the baked-image option is Karen's to take
 
 ### 1. CLICK PROOF: NOT OBTAINABLE. The stand-pick window never opened in ~9 minutes of live play
