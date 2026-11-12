@@ -1317,6 +1317,12 @@ Match.PhaseChanged:Connect(function(_before, phase, driveNumber)
 		-- the only thing that knows it.
 		ForestTest.newDrive(os.clock(), driveNumber)
 		print(string.format("[report] drive %d opened (%ds windows)", driveNumber or 1, Data.DRIVE.seconds))
+		-- ...AND WHICH PATTERN IT IS (task 351), when the slot list is generated. One line per drive,
+		-- so two drives in a row can be compared without a probe reading module state.
+		local pattern = ForestTest.patternLine()
+		if pattern ~= nil then
+			print(pattern)
+		end
 	elseif phase == "Running" then
 		-- THE DRIVE IS OPENED, NOT FLUSHED (task 251, item 4). KAREN, 2026-10-23, through the plan she
 		-- OK'd: *"the opening horn gets its own 120-stud alert radius; the beater's hand horn keeps

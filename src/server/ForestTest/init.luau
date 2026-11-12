@@ -734,6 +734,44 @@ function ForestTest.driveVariety(): boolean
 	return state.driveVariety == true
 end
 
+-- WHAT PATTERN THIS DRIVE IS, as one console line, or nil with the switch off. PUBLISHED and not
+-- kept in module state (Learning Agent V293b): a probe that `require`s this module gets a fresh one
+-- with no state, so the only honest place for "which drive did we just deal" is the console the
+-- drive already writes to. The Director reads it per drive and so does the live proof.
+function ForestTest.patternLine(): string?
+	if not ForestTest.driveVariety() then
+		return nil
+	end
+	local schedule = ForestTest.cellSchedule()
+	local tally = Data.driveTally(schedule.density, schedule)
+	local animals, singles = 0, 0
+	local specials, mix = {}, {}
+	for _, row in ipairs(tally.rows) do
+		local size = ForestTest.weighParty(row.species, row.composition or row.party)
+		animals += size
+		if size <= 1 then
+			singles += 1
+		end
+		local kind = Data.slotSpecial(row)
+		if kind ~= nil then
+			table.insert(specials, kind)
+		end
+		table.insert(mix, string.format("%s%d", if row.species == "reddeer" then "D" else "B", size))
+	end
+	return string.format(
+		"[forest] drive %d pattern cell=%s seed=%d groups=%d animals=%d singles=%d deer=%d specials=[%s] mix=%s",
+		state.driveKey or 0,
+		tostring(chosen.name),
+		ForestTest.driveSeed(),
+		tally.groups,
+		animals,
+		singles,
+		tally.deerGroups,
+		table.concat(specials, ","),
+		table.concat(mix, " ")
+	)
+end
+
 function ForestTest.stats()
 	return {
 		started = state.started,
