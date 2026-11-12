@@ -1,133 +1,137 @@
 # Task 351 — every drive a different pattern
 
 Task: 351
-Round: 1
+Round: 2
 Base: 2f9524ca (origin/main, #368)
-Code commit: 4542600b467dc2453809ff6791fbc120ce146c61
+Code commit: 5350c8c799b961299e9e22ed0e8fa02d245d1c76
 
 ```
-[harness] PASS: 34/34 checks @ 4542600b467dc2453809ff6791fbc120ce146c61 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 5350c8c799b961299e9e22ed0e8fa02d245d1c76 (clean tree) scope=all
 ```
 
-`[harness2]` is **N/A**: nothing changed under `TWO_PLAYER_PATHS` (`src/shared/ForestTest/`,
+`[harness2]` is **N/A**: nothing under `TWO_PLAYER_PATHS` changed (`src/shared/ForestTest/`,
 `src/server/ForestTest/`, `src/server/ForestTestBoot.server.luau`, `src/shared/Flags/`,
-`tests/server/forest_line.spec.luau` — none of `src/server/Match/`, `src/client/Match/`,
-`src/shared/Drive/`, `tests/client/Role.luau` or the match specs). CI green at 5867989b
-(run 43207667214).
+`tests/server/forest_line.spec.luau` — no `Match/`, no `Drive/`, no `Role.luau`, no match spec).
+**Every live figure below was taken from `driven-hunt-rev` checked out at this commit** (L-162).
 
-## PLAN (core-quality step 0)
+## Round 1's five findings, each with what fixed it
 
-(a) **REAL LIFE.** At a Drückjagd boar come out *"meist in kleinen Gruppen oder Rotten, oft aber
-auch als Einzeltiere"* — mostly in small groups or sounders, often as singles
-(`jagdwelten.de/jagden/drueckjagden/`), and red, fallow and roe deer are taken on the same drives
-(`purewild.de/Glossar/Drueckjagd/`). A drive is a MIX, and which it is this time is not scripted.
-(b) **MEASURED NOW.** The shipped script at `normal` is **13 groups, 73 animals, 7 deer parties**,
-counted through `Boar.compositionSize` (`<runs-dir>/351-gen-probe.luau`). The `SCHEDULE` header's
-"59 / 2 deer" is stale and that header says so itself.
-(c) **TARGET.** Groups 9–13 and varying; 0–3 singles; each special at most once and not every
-drive; deer parties never above the script's own count; animals within ±10 % of 73 (65–81), which
-is inside the dispatch's ±15 %.
-(d) **LEVER.** `ForestTest.SCHEDULE.drive` is read by exactly one function, `ForestTest.slotAt`,
-through `ForestTest.cellSchedule`. The generator replaces the TABLE and leaves `slotAt` untouched.
-(e) **HOW MEASURED AFTER.** The same probe, plus `ForestTest.patternLine()` in the live console.
+1. **A drive could contain no red deer.** The budget's reduction was deer-first and unbounded. Two
+   causes, both fixed: the reduction now has a floor of one deer party (`minDeer`, 0 only when a
+   special already carries a deer, and the SINGLES give way instead); and — which the floor alone
+   did not catch — a deer token can land on a slot the rank puts at `keepAt = 15`, so after the
+   ranking the last firing ordinary group is turned into the deer party **nearest its own size** if
+   no firing row is a deer. **Measured:** the draw floor alone still left **4 of 160** drives with
+   no deer; with both, **0 of 160**. Two spec cases, both FAIL FIRST: "never deals a drive with no
+   red deer in it" asserts `deerGroups >= 1`, and the 40-drive case keeps the ceiling.
+2. **The last act was silenced.** The nine carrying rows are now spread by the shipped script's own
+   per-act split, read off the pool (`keepAt <= quiet` gives 4 / 3 / 2), with a spill so the total
+   is still nine. The spec case "still releases in the LAST act" asserts, on each of 40 drives, that
+   a slot in the last third fires at `normal` **and** that the last firing one is due at ≥ 140 s.
+   The 160-drive probe checks the same two (`noLateAct`, `lastSlotEarly`): 0 failures.
+3. **`planDrive` keyed on the previous drive.** The drive number is a parameter now:
+   `cellSchedule(varietyIn, driveNumber)` → `driveSeed(driveNumber)`, and `planDrive` passes its own
+   `key`. **Proved live with `PLACEMENT_IN_PLACE` ON** (`<runs-dir>/351pip-console.txt`):
+   `plan 1: … 65 animals` against `drive 1 pattern … groups=11 animals=65`, and
+   `plan 2: … 66 animals` against `drive 2 pattern … groups=11 animals=66`. Before the fix plan 2
+   carried drive 1's roster. No error line in that session (`Stack Begin` / `attempt to` /
+   `invalid argument`: 0), and the beds include act-III slots 13 and 14.
+4. **The cell-rows case survived deleting the producer.** It now pins the whole geometry tuple
+   (`northStuds` / `offsetX` / `crossOffset` / `route` / `pace`) to a shipped row **of the same act**
+   over twelve drives, and requires the row list to differ from `cell.drive` — so both "it returned
+   the script" and "act-I geometry on an act-III slot" fail.
+5. **Max gap was measured and not reported.** It is in claim 8 below, per drive.
 
-## What changed
-
-- `src/shared/ForestTest/init.luau`: `slotSpecial`, `driveSeed`, `generateDrive`, `variedSchedule`,
-  `SILENT_KEEP_AT`, and a file-local `animalTarget`. Pure; nothing else in the module changed.
-- `src/server/ForestTest/init.luau`: `cellSchedule(varietyIn)` wraps the cell's table;
-  `weighParty`, `driveSeed`, `driveVariety`, `patternLine`; the flag and a session seed read once in
-  `start`; `newDrive(now, driveNumber)`.
-- `src/server/ForestTestBoot.server.luau`: hands the drive number to `newDrive` and prints the
-  pattern line.
-- `src/shared/Flags/init.luau`: the `DRIVE_VARIETY` row (default false, expires 2026-12-03), and
-  `MAX_FLAGS` 26 → 27 with the reason written out.
-- `tests/server/forest_line.spec.luau`: a new `describe` (no new spec file, so no `SCOPE_SPECS`
-  change). `docs/research/2026-11-12-drive-variety.md` + `INDEX.md`.
+Round 1's notes were taken too: act III may now draw act II's geometry (it had exactly one ordinary
+row of its own, so every act-III slot cloned it); `ForestTest.rowNote` is one function called after
+every budget step, so a resized group no longer prints the party it used to be; the act assertion
+is the slot's own band rather than `1..3`; the `busy` column is written down; `INDEX.md`'s two stale
+numbers are corrected.
 
 ## Claims
 
-1. **OFF is the shipped script, by identity.** `variedSchedule(SCHEDULE, seed, weigh, false)` and
-   `(…, nil)` return `SCHEDULE` itself. *Verify:* the spec case "is the shipped table BY IDENTITY
-   with the switch off"; and `git show origin/main:src/shared/ForestTest/init.luau` vs `HEAD:` over
-   the `drive = {` table is **byte-identical** (377 lines).
-2. **OFF measured live, slot by slot, not as a summary.** One flag-OFF drive in her Forest Test
-   (`<runs-dir>/351off-console.txt`) released, in order: lone male / hind party / sow and young /
-   near herd / SILENT / six stags LATERAL / big sounder of nine / THE RED STAG / held / SILENT /
-   SPLIT / BREAK-BACK deer / THE REFUSAL / last hinds running / THE ONE THAT STAYS — the fifteen
-   shipped rows, with their own notes. No `[forest] … pattern` line was printed at all.
-3. **Pure.** Same seed → the same rows field for field; the five seeds `driveSeed` produces for five
-   consecutive drives of one cell give five different drives. *Verify:* the spec case "gives the
-   same drive for one seed and a different one for the next" (it asserts `distinct == 5`).
-4. **Karen's rules hold on every drive.** Over 40 drives the spec asserts: one species per group
-   (a boar row carries a composition and no party and vice versa, and both resolve in `Boar`);
-   0–3 singles; each special at most once; deer parties ≤ the script's own count; 9 ≤ groups ≤ 13;
-   animals inside ±10 %; slot 1 always carries; fifteen slots and `atSeconds == slotSeconds`.
-   *Verify:* "keeps every one of Karen's rules on every drive a real session deals". Independently,
-   `<runs-dir>/351-band-probe.luau` ran **160 drives: animals 65..81, out of spec 0**, group counts
-   9×12, 10×37, 11×66, 12×35, 13×10.
-5. **"Sometimes, not every drive."** Each of SNEAK, BREAK-BACK, SPLIT and HOLD is both present in
-   some of 40 drives and absent from others. *Verify:* the spec case of that name; and live, drive 2
-   of `<runs-dir>/351s-console.txt` printed `specials=[]`.
-6. **The dial keeps its meaning.** `quiet` fires exactly 9 groups on every generated drive and
-   `normal` never more than the script's 13; a silent slot is silent at every density
-   (`SILENT_KEEP_AT` > `DENSITIES.busy`). *Verify:* the spec case "keeps the dial's own shape".
-7. **Nothing is invented.** Every generated row's geometry is a shipped row's of the same act and
-   its party a shipped party; the vocabulary is read off the pool, not written down again. *Verify:*
-   the spec case "generates from the CELL's rows" (every generated `northStuds` is one C1's own
-   table wrote), and the live release lines, which carry the cell's depths and the script's crossings.
-8. **Ten live drives in her Forest Test at C1, flag ON, all ten different.** `351on` drives 1–5,
-   `351f` 1–2, `351s` 1–3 — groups 9–13, animals 65–70, singles 0–2, deer 1–7, specials 0–4, and
-   two sessions gave drive 1 of C1 two different seeds (1562638763 and 1330611673), which is the
-   session seed doing its job. *Verify:* `grep "pattern cell=" <runs-dir>/351*-console.txt`.
-9. **349's action is kept, at stand 4.** First sighting 1–8 s (target ≤ 30), median gap 6–12 s
-   (target ≤ 20) over the five on-stand drives; released 126–134 against the flag-OFF control's 122
-   (+3 % to +10 %); peak live 60 on both paths, where `MAX_BOARS` binds. *Verify:*
-   `python 351-table.py 351on` / `351off` / `351s`. **Stands 7 and 11 are NOT MEASURED** — see below.
-10. **The frame.** `<runs-dir>/351f-sighting.png`, opened: a first-person view from the stand at
-    `DRIVE 1 · 4:53 TIME` (≈7 s in), the shotgun's barrels and the hunter's hand low-centre, and
-    **six red deer crossing left-to-right at 66–80 studs** — four broadside at the treeline edge,
-    a paler calf centre-left, one more part-hidden by a bush — on open green ground before a
-    birch/leafy wood. HUD: DRIVE compass bar (drive from N), minimap, verge chevrons, "stay on
-    stand, animals coming", "an animal got away x4", INF SLUG. That drive's own pattern line reads
-    `groups=13 … deer=5 … mix=D7 D8 D8 B6 …` — its first three groups are deer parties, which is
-    what the frame shows.
+1. **OFF is the shipped script, by identity.** `variedSchedule(…, false)` and `(…, nil)` return
+   `SCHEDULE` itself, and `SCHEDULE.drive` is **byte-identical to `origin/main`** (377 lines,
+   `git show origin/main:… | awk '/^\tdrive = \{$/,/^\t\},$/'`). *Verify:* the spec case "is the
+   shipped table BY IDENTITY with the switch off".
+2. **OFF measured live, slot by slot.** The flag-OFF drive (`<runs-dir>/351off-console.txt`)
+   released, in order: lone male / hind party / sow and young / near herd / SILENT / six stags
+   LATERAL / big sounder of nine / THE RED STAG / held / SILENT / SPLIT / BREAK-BACK deer / THE
+   REFUSAL / last hinds running / THE ONE THAT STAYS — the fifteen shipped rows with their own
+   notes, and no `[forest] … pattern` line at all.
+3. **Pure.** Same seed → the same rows field for field; the five seeds `driveSeed` gives five
+   consecutive drives of one cell give five different drives (`distinct == 5`). *Verify:* "gives the
+   same drive for one seed and a different one for the next".
+4. **Karen's rules hold on every drive.** Over 40 drives the spec asserts one species per group,
+   0–3 singles, each special at most once, 1 ≤ deer parties ≤ the script's own count, 9 ≤ groups
+   ≤ 13, animals inside ±10 %, slot 1 carries, a late slot carries, fifteen slots, and each row's
+   act is its own band. Independently `<runs-dir>/351-band-probe.luau` ran **160 drives: animals
+   65..81, out of spec 0**; group counts 9×12, 10×37, 11×66, 12×35, 13×10.
+5. **"Sometimes, not every drive."** Each of SNEAK, BREAK-BACK, SPLIT and HOLD is present in some of
+   40 drives and absent from others (spec, and the probe's `seen=true missed=true` for all four).
+   Live: drive 2 of `<runs-dir>/351s-console.txt` printed `specials=[]`.
+6. **The dial keeps its meaning.** `quiet` fires exactly 9 groups on every generated drive, `normal`
+   never more than 13, and a silent slot is silent at every density. *Verify:* "keeps the dial's own
+   shape"; the probe checks `quiet` on all 160.
+7. **Nothing is invented.** Claim 4's spec case (finding 4's rewrite) plus the live release lines,
+   which carry the cell's own depths and the script's own crossings.
+8. **Four live drives at THIS commit, all different** (`<runs-dir>/351r2-console.txt`,
+   `python 351-table.py 351r2`):
 
-## Three measured cycles (core-quality step 2)
+   | drive | groups | animals | singles | deer | specials | first sighting | median gap | max gap | released | peak live |
+   |---|---|---|---|---|---|---|---|---|---|---|
+   | 1 | 12 | 73 | 1 | 5 | SNEAK, BREAK-BACK, HOLD | 6 s | 7 s | 51 s | 145 | 51 |
+   | 2 | 12 | 69 | 3 | 1 | HOLD, SPLIT, BREAK-BACK | — | — | — | — | 51 |
+   | 3 | 10 | 67 | 1 | 4 | HOLD | 6 s | 7 s | 44 s | 122 | 57 |
+   | 4 | 10 | 65 | 2 | 1 | SPLIT | — | — | — | — | 57 |
+   | **OFF control** | 13 | 73 | 1 | 7 | all four | 7 s | 7 s | 50 s | 122 | 60 |
 
-| cycle | change | measured over 160 drives | distance to target |
-|---|---|---|---|
-| 1 | singles capped by the ladder's reach | animals 60..81 | 20 of 160 out of spec |
-| 2 | deer then singles reduced until the ceiling clears the floor (a deer party tops out at 8, a sounder at 9) | animals 65..81 | 10 of 160 (all `singles=4`) |
-| 3 | the specials' own singles counted toward the 0–3 (the SNEAK stag weighs one) | animals 65..81 | **0 of 160** |
+   First sighting 6 s against the target ≤ 30; median gap 7 s against ≤ 20; max gap 44–51 s against
+   the OFF control's 50 s. Drives 2 and 4 have no sighting row because the hunter was at the lodge
+   for them — see "What I could not verify". Ten more drives were measured at the round-1 commit
+   (`351on`, `351f`, `351s`), all fourteen patterns different, and two sessions gave drive 1 of C1
+   two different seeds, which is the session seed doing its job.
+9. **The frame, opened.** `<runs-dir>/351r2-sighting.png`, taken at this commit at
+   `DRIVE 1 · 4:53 TIME` (≈7 s in): a first-person view from stand 4 — the shotgun's barrels and the
+   hunter's hand and boot low-centre, the yellow verge chevrons across the foreground grass, a birch
+   and leafy wood behind — and **two dark boar on the open grass at the left edge, ~86 studs out**,
+   one broadside and one behind it. HUD: `0 ANIMALS`, `HUNTER`, `$13500`, the DRIVE compass bar
+   (drive from N), the minimap, "stay on stand, animals coming", "Drive on", "an animal got away
+   x2", `INF SLUG`. That drive's own pattern line begins `mix=B2 D8 B2 …` — its FIRST group is two
+   boar, which is what is in the frame.
+10. **`PLACEMENT_IN_PLACE` ON does not break** — finding 3's evidence above, plus 65 and 66 animals
+    placed into bands `dz 150..1300` with `skipped 0` and `in view 0`, and the generated rows
+    reaching `restSpot`/`bedSpot` without a refusal.
 
 ## What I could not verify
 
-- **Stands 7 and 11: NOT MEASURED.** The real click lands on the row (the console reads
-  `clicked row 11 -> 11 WEST FREE`) but the hunter is still dealt stand 4 — `351s-track.txt` reads
-  `stand=4 at=0` for every on-stand sample of that run. That is the stand-pick path (tasks 323/349),
-  not this change; handing it back rather than chasing it. Stand 4's numbers are above.
-- **`PLACEMENT_IN_PLACE` ON: NOT RUN.** Her live path is OFF and that is what was measured; the
-  generated rows feed the same `slotAt`/`Placement` seam either way, and the spec drives the cell
-  table rather than the base one.
-- A per-drive `released` is read off the console's own release lines, and the console buffer rolls:
-  two of the ten drives logged only a handful of lines while the watcher was between polls. Those
-  two rows are reported as incomplete captures, not as small drives.
+- **Stands 7 and 11: NOT MEASURED.** The real click lands on the row (`clicked row 11 -> 11 WEST
+  FREE`) but the hunter is still dealt stand 4 — `351s-track.txt` reads `stand=4 at=0` for every
+  on-stand sample of that run. That is the stand-pick path (tasks 323/349), not this change.
+- **Drives 2 and 4 of the table have no sighting figures.** Between drives the player is returned to
+  the lodge unenrolled; the watcher puts him back and re-picks, which costs about half a drive. Those
+  two rows are a gap in the INSTRUMENT, not a quiet drive — their pattern lines and peak live are real.
+- **`released` is not a clean comparison.** It counts the console's own release lines, which include
+  the repeat window past slot 15 on the OFF placement path, so it is a function of how long the drive
+  ran as much as of the roster. Drive 1's 145 against the control's 122 is **+19 %, outside the
+  dispatch's ±15 %**, while drive 3's 122 is +0 %. The number the generator actually controls — the
+  roster the drive declares — is 65–73 against the script's 73, i.e. **−11 % to 0 %**, inside the
+  band. Saying both rather than picking the flattering one.
+- **Peak live** is 51–57 against the control's 60, i.e. −5 % to −15 %, inside ±15 % at the edge.
 
 ## ANSWERED (the dispatch's CHECKED flags)
 
-- ANSWERED: L-136 — no spec failed in the run that names the code commit (34/34, 0 failed, 0 errors
-  on both server and client), so no flake is named or relied on.
-- ANSWERED: L-127 — every dispatch item is MET / NOT MEASURED by name in "Claims" and "What I could
-  not verify" above; stands 7 and 11 and `PLACEMENT_IN_PLACE` ON are the two NOT MEASURED.
-- ANSWERED: L-162 — every live proof was taken from `driven-hunt-rev` checked out at 5867989b, the
-  code commit's own tree; the harness line names 4542600b, a paperwork commit after it.
-- ANSWERED: L-014 — nothing was ever checked out in `driven-hunt-karen`; her Forest Test ends on
-  :34873 served from `driven-hunt-karen`, in Edit (`351-ft-final.png`, reconnected).
-- ANSWERED: L-101 — the override set in her place before and after is identical
-  (`351-attrs-before-overrides.txt` vs `351-attrs-final2.txt`, diff empty); `DRIVE_VARIETY` was
-  removed as an attribute rather than set to false, and `--place forest clear` was never run.
-- ANSWERED: L-190 — the flag-OFF arm is shown slot by slot (claim 2), not as "identical to the
+- ANSWERED: L-136 — no spec failed in the run naming the code commit (34/34, 0 failed, 0 errors on
+  both server and client), so no flake is named or leaned on.
+- ANSWERED: L-127 — every dispatch item is MET or NOT MEASURED by name, max gap included this round.
+- ANSWERED: L-162 — every live figure in claims 8, 9 and 10 comes from `driven-hunt-rev` at
+  5350c8c7, the code commit; the round-1 figures are labelled as the round-1 commit's.
+- ANSWERED: L-014 — nothing was checked out in `driven-hunt-karen`; her Forest Test ends on :34873
+  served from `driven-hunt-karen`, Edit, reconnected (`351-ft-final2.png`).
+- ANSWERED: L-101 — the overrides in her place are identical before and after
+  (`351-attrs-before-overrides.txt` vs `351-attrs-final3.txt`, diff empty): `DRIVE_VARIETY` removed
+  as an attribute, `PLACEMENT_IN_PLACE` set back to the `off` it was. `--place forest clear` never run.
+- ANSWERED: L-190 — the flag-OFF arm is shown slot by slot (claim 2), never as "identical to the
   drive before", and the shipped table is proved byte-identical to `origin/main`.
-- ANSWERED: L-093 — delete `generateDrive`'s body and the spec cases for purity, the forty-drive
-  rules, the specials and the dial all fail; delete `patternLine` and claim 8's evidence disappears.
+- ANSWERED: L-093 — delete `generateDrive`'s body and the purity, 40-rule, deer, last-act, specials,
+  dial and geometry cases all fail; delete `patternLine` and claims 8 and 10's evidence disappears.
