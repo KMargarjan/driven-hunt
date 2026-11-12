@@ -1,3 +1,63 @@
+## 2026-11-12 ~20:14 UTC, Task 354 -- **NEEDS KAREN**: the Roblox Open Cloud key is rejected, so the nine painted pictures CANNOT be uploaded, and the flag-ON frame cannot exist
+
+Written at the hard stop, before any workaround was designed (lesson V280).
+
+**What happened.** The nine tiles rendered (`tools/map_paint.py render`, 46 s, all nine PNGs under
+1.3 MB). Every one of the nine `tools/roblox_upload.py upload ... --type Decal` calls came back:
+
+```
+[upload] FAILED: create returned HTTP 401: {"errors":[{"code":0,"message":"Invalid API Key"}]}
+```
+
+**It is the key, not this task.** `--dry-run` passed for the same folder, the same name, the same
+Karen OK, so nothing in the request shape is wrong. A bare read with the same key --
+`GET https://apis.roblox.com/assets/v1/assets/1` -- answers the same `401 Invalid API Key`, so it is
+not the Decal scope and not the asset type: the credential itself is refused. `ROBLOX_OPEN_CLOUD_KEY`
+IS set (read from the environment, 964 characters, one token, no whitespace and no quotes), so this
+is not a missing key either. **It is also not the shape of a current Open Cloud key**: the value
+holds characters outside base64url, which a Roblox key does not. The key was last known good on
+2026-10-24 (`assets/uploads.json`, the deer-bark row). Nothing further was probed -- it is a secret.
+
+**Nothing was sent and nothing was published.** No asset exists, `assets/uploads.json` is unchanged,
+and no row was written.
+
+### NEEDS KAREN -- the exact clicks, in order
+
+1. Open <https://create.roblox.com/dashboard/credentials>.
+2. If the key named for this repo is expired or missing, press **Create API Key**; otherwise open the
+   existing one and press **Regenerate key**.
+3. Give it the **Assets** API, operations **asset:read** and **asset:write**, for her own account
+   (creator id `8167651842`), with **Accepted IP addresses** `0.0.0.0/0` and an expiry she is happy
+   with.
+4. Press **Save & Generate key** and **copy the key string**.
+5. Set it as the Windows user environment variable `ROBLOX_OPEN_CLOUD_KEY` (System Properties ->
+   Environment Variables -> User variables -> New/Edit), then **close and reopen the terminal** so a
+   new process reads it. It must never be pasted into the repo -- it is public, and
+   `tools/privacy_scan.py` fails CI on the shape.
+
+Then one command finishes the upload half of this task, with no code change:
+
+```
+python tools/map_paint.py render            # re-renders, deterministic, same nine files
+python tools/roblox_upload.py upload <folder> --type Decal --name "..." --karen-ok "..."
+```
+
+...and the nine ids go into `assets/ready/map/asset-ids.json`, after which
+`python tools/map_paint.py render --ids assets/ready/map/asset-ids.json` rewrites
+`src/shared/Map/PaintedMap.luau` with them. **No `src/` logic changes**: `assetId = 0` already means
+"not uploaded", and `MapUi` draws no tile for it.
+
+### What this costs the task, said plainly
+
+- **The upload is NOT DONE.** Nine rows in `assets/uploads.json` do not exist.
+- **The flag-ON frame of the painted forest CANNOT BE TAKEN.** With every `assetId` at 0 there is no
+  picture to draw, so a flag-ON Forest Test frame would show today's map and would be a frame named
+  for a state it does not show -- which `docs/REVIEWER_PROMPT.md` refuses, rightly. It is reported
+  `NOT OBTAINABLE` with this entry as the measured reason, never as a frame.
+- **Everything else is unaffected and was finished**: the render script, the nine PNGs, the flag, the
+  `MapUi` owner change, and the 0 px alignment table -- which is pure arithmetic over the tile rects
+  and `MapUi.rawOffsetPx`, so it is proved without a single uploaded byte.
+
 ## 2026-11-12 ~19:28 UTC, Task 352b -- NOT BLOCKING, FOR THE RECORD: Studio dropped Karen's Forest Test place with `RCC-277` during the smoke run, and the UNSAVED A1 plant went with it
 
 Written at the hard stop, before any workaround (lesson V280).
