@@ -363,6 +363,7 @@ return function()
 			local why = ForestTest.bedRefusals()
 			expect(why ~= nil).to.equal(true)
 			expect((why :: any).band > 0).to.equal(true)
+			expect((why :: any).ground).to.equal(0) -- the band refused first, so nothing reached the ground test
 			expect((why :: any).lane).to.equal(0)
 			expect((why :: any).zone).to.equal(0)
 

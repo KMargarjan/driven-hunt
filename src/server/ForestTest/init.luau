@@ -1921,7 +1921,7 @@ function ForestTest.restSpot(standX: number, spec, band: any?, dz: number?): Vec
 	local rest = band or Data.REST
 	-- WHY A CANDIDATE WAS REFUSED, counted for this search (task 349 r3). `bedSpot` prints it,
 	-- so a drive with no beds names the test that refused instead of saying only "nobed".
-	local refusals = { swept = 0, band = 0, lane = 0, zone = 0, unseen = 0 }
+	local refusals = { swept = 0, band = 0, ground = 0, lane = 0, zone = 0, unseen = 0 }
 	state.bedRefusals = refusals
 	-- WHERE SHE ACTUALLY IS, NOT WHERE SHE SPAWNED (task 155, from task 154's review).
 	--
@@ -2043,10 +2043,16 @@ function ForestTest.restSpot(standX: number, spec, band: any?, dz: number?): Vec
 				-- EACH ARM COUNTS ITS OWN REFUSAL (task 349b finding 1): the tally `bedSpot` prints
 				-- was created and published but never written, so a drive with no beds said
 				-- "swept=0 band=0 lane=0 zone=0 unseen=0" with 85 refusals behind it.
+				local inBand = atNorth >= rest.nearRoadStuds and atNorth <= rest.farRoadStuds
 				if swept then
 					refusals.swept += 1
-				elseif not ForestTest.restSpotOk(atNorth, fromStart, gap, terrain, ground, rest, keepAway) then
+				elseif not inBand then
+					-- THE BAND ALONE, so this counter names the FRAME and nothing else: a candidate
+					-- generated on the main road while the gate measures the aimed one lands here.
 					refusals.band += 1
+				elseif not ForestTest.restSpotOk(atNorth, fromStart, gap, terrain, ground, rest, keepAway) then
+					-- the ground, the canopy slack, the trunks, or `keepAway`
+					refusals.ground += 1
 				else
 					-- BESIDE ITS OWN LANE, AND SEEN FROM IT (task 172). The lateral test is cheap and
 					-- is checked in BOTH passes -- a group 200 studs off the lane it belongs to is not
@@ -2465,9 +2471,10 @@ function ForestTest.bedSpot(row: any, aimIn: any?): (Vector3?, string?, string?)
 			"nobed",
 			if r ~= nil
 				then string.format(
-					"refused: swept=%d band=%d lane=%d zone=%d unseen=%d",
+					"refused: swept=%d band=%d ground=%d lane=%d zone=%d unseen=%d",
 					r.swept,
 					r.band,
+					r.ground,
 					r.lane,
 					r.zone,
 					r.unseen
