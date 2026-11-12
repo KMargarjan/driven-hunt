@@ -5189,6 +5189,20 @@ function Boar.newRuntime(world)
 	self._destroyed = false
 	-- The published despawn-by-reason line, rebuilt in `_despawn` (task 342).
 	self._reasonLine = ""
+	-- THE STEP'S BILL, ONE TABLE FOR THE RUNTIME'S WHOLE LIFE (task 355). Reused and zeroed at the
+	-- top of every `step`, because a table per Heartbeat is the allocation this file refuses
+	-- elsewhere (see the history ring's own comment).
+	self._prof = {
+		prep = 0, -- threats, motion, the sound drain
+		snap = 0, -- the snapshot / gait / history loop
+		sounders = 0,
+		voices = 0,
+		templates = 0,
+		probe = 0, -- every `world.probe` cast and the avoidance fan
+		brain = 0,
+		attach = 0, -- `Body.attachVisual`: the skinned model going on
+		draw = 0, -- `stepVisual` / `stepSound` / `stepCarcass` / `stepFlash` / `collapse` / `drive`
+	}
 	self._stats = {
 		-- ---------------------------------- WHAT THE SERVER STEP COSTS (task 327h, design 9.2)
 		--
@@ -5200,6 +5214,10 @@ function Boar.newRuntime(world)
 		steps = 0,
 		stepMsTotal = 0,
 		stepMsMax = 0,
+		-- ...AND WHO SPENT THE WORST ONE (task 355). `stepMsMax` says the server lost 73 ms in one
+		-- frame; it cannot say to whom. `_prof` is the reused per-step bill (zero allocation) and
+		-- `worst` is the formatted bill of the frame that set `stepMsMax`, published beside it.
+		worst = "",
 		pathRequests = 0,
 		pathFailures = 0,
 		pathBlocked = 0,
@@ -5920,6 +5938,7 @@ function Runtime:clear(reason: string?)
 	stats.steps = 0
 	stats.stepMsTotal = 0
 	stats.stepMsMax = 0
+	stats.worst = "" -- the worst frame's bill is per drive too (task 355)
 	stats.liveMax = 0
 	stats.despawnReasons = {}
 	self._reasonLine = ""
@@ -7781,6 +7800,10 @@ function Runtime:step(dt: number)
 	-- starts after the destroyed guard -- a destroyed runtime does no work and may not be averaged
 	-- in -- and `_stepCost` at the bottom is the only writer of the three counters.
 	local began = os.clock()
+	-- THE BILL STARTS EMPTY (task 355). One reused table, so this costs nine stores a frame.
+	local prof = self._prof
+	prof.prep, prof.snap, prof.sounders, prof.voices, prof.templates = 0, 0, 0, 0, 0
+	prof.probe, prof.brain, prof.attach, prof.draw = 0, 0, 0, 0
 	local config = self._config
 	local threats = self._world.threats()
 	-- THE SPEED OF EVERY STIMULUS, MEASURED (task 118, section 4.6), and only when the flag is on:
@@ -7801,6 +7824,8 @@ function Runtime:step(dt: number)
 	-- observations inside the loop below would let one member see a neighbour before it moved and
 	-- another after, which is a formation that depends on the order of a list. It also reads each
 	-- body's position and velocity once instead of twice.
+	prof.prep = (os.clock() - began) * 1000
+	local snapAt = os.clock()
 	local snapshot = {}
 	-- ONE READING OF THE SHARED CLOCK PER STEP, NOT ONE PER ANIMAL (task 266). The seam is
 	-- `src/server/Match/init.luau`'s `serverTimeFor` verbatim -- the world's own clock when it
@@ -7865,21 +7890,27 @@ function Runtime:step(dt: number)
 			)
 		end)
 	end
+	prof.snap = (os.clock() - snapAt) * 1000
+	local sounderAt = os.clock()
 	if #self._sounders > 0 then
 		self:_stepSounders(dt, snapshot)
 	end
+	prof.sounders = (os.clock() - sounderAt) * 1000
 
 	-- WHO THE WORLD HEARS THIS STEP (task 123), after the sounders have settled their membership and
 	-- before any animal is asked to make a noise. One pass, so the ceiling is a fact about the whole
 	-- world rather than a race between the boars in list order.
+	local voiceAt = os.clock()
 	self:_rationVoices(snapshot, threats, os.clock())
 	self:_stepApproachGrunts(os.clock())
+	prof.voices = (os.clock() - voiceAt) * 1000
 
 	-- THE SKINNED MODEL, once per step and not once per boar: the template is one Instance every
 	-- boar clones from, and asking for it per boar would multiply both the lookup and the miss
 	-- counter by however many are alive.
 	-- ONE LOOKUP PER KIND PER STEP (task 119), not one per boar: a sounder of five is a sow and four
 	-- cubs, which is two assets however many animals are standing in it.
+	local templateAt = os.clock()
 	local visualTemplates: { [string]: Instance? } = {}
 	if config.MODEL.ENABLED then
 		local now = os.clock()
@@ -7887,6 +7918,7 @@ function Runtime:step(dt: number)
 			visualTemplates[kind] = self:_modelTemplate(kind, now)
 		end
 	end
+	prof.templates = (os.clock() - templateAt) * 1000
 
 	for index = #self._boars, 1, -1 do
 		local entry = self._boars[index]
@@ -7914,6 +7946,7 @@ function Runtime:step(dt: number)
 			entry.wound, collapse = Wound.advance(entry.wound, moved.Magnitude, dt, config.WOUND)
 		end
 
+		local probeAt = os.clock()
 		local blockedAhead = false
 		if self._world.probe then
 			blockedAhead = self._world.probe(position, facing, config.PROBE_LENGTH)
@@ -7965,6 +7998,8 @@ function Runtime:step(dt: number)
 			end
 		end
 
+		prof.probe += (os.clock() - probeAt) * 1000
+
 		local waypoints = entry.waypoints
 		entry.waypoints = nil -- the Brain takes ownership of the list it is handed
 		local pathFailed = entry.pathFailed
@@ -7975,6 +8010,7 @@ function Runtime:step(dt: number)
 		local hitEvents = entry.hitEvents
 		entry.hitEvents = {}
 
+		local brainAt = os.clock()
 		local intent = entry.brain:step(dt, {
 			position = position,
 			velocity = if sample then sample.velocity else Body.velocity(entry.body),
@@ -8008,6 +8044,9 @@ function Runtime:step(dt: number)
 		-- bounded at 15 s and the first boar can exist before it lands -- so a boar born grey puts
 		-- its coat on as soon as the asset arrives, the same "late is not lost" rule the loader
 		-- itself follows. With the flag off neither line runs and nothing differs from before task 115.
+		prof.brain += (os.clock() - brainAt) * 1000
+
+		local attachAt = os.clock()
 		local visualTemplate = visualTemplates[entry.body.kind or config.KINDS.DEFAULT]
 		if config.MODEL.ENABLED and visualTemplate ~= nil and entry.body.visual == nil then
 			-- `entry.config` AND NOT `config` (task 223), because `attachVisual` reads
@@ -8015,6 +8054,8 @@ function Runtime:step(dt: number)
 			-- own table. For every boar `entry.config` IS `config` by reference.
 			Body.attachVisual(entry.body, visualTemplate, entry.config or config)
 		end
+		prof.attach += (os.clock() - attachAt) * 1000
+		local drawAt = os.clock()
 
 		-- ALERT AND AVOID, COUNTED ON THE EDGE (task 118): one per transition, so a stat says how
 		-- often the animal reacted and not how many frames it spent reacting.
@@ -8191,6 +8232,7 @@ function Runtime:step(dt: number)
 				self:_requestPath(entry, intent.pathRequest)
 			end
 		end
+		prof.draw += (os.clock() - drawAt) * 1000
 	end
 
 	self:_stepCost(began)
@@ -8206,6 +8248,35 @@ function Runtime:_stepCost(began: number)
 	stats.stepMsTotal += took
 	if took > stats.stepMsMax then
 		stats.stepMsMax = took
+		-- WHO SPENT THE WORST FRAME (task 355). Formatted only when a new worst arrives -- a few
+		-- dozen times in a drive, not sixty times a second -- and `rest` is what the nine named
+		-- sections did NOT account for, so the bill always adds up to `took`.
+		local prof = self._prof
+		local named = prof.prep
+			+ prof.snap
+			+ prof.sounders
+			+ prof.voices
+			+ prof.templates
+			+ prof.probe
+			+ prof.brain
+			+ prof.attach
+			+ prof.draw
+		stats.worst = string.format(
+			"total=%.1f animals=%d prep=%.1f snap=%.1f sounders=%.1f voices=%.1f templates=%.1f "
+				.. "probe=%.1f brain=%.1f attach=%.1f draw=%.1f rest=%.1f",
+			took,
+			#self._boars,
+			prof.prep,
+			prof.snap,
+			prof.sounders,
+			prof.voices,
+			prof.templates,
+			prof.probe,
+			prof.brain,
+			prof.attach,
+			prof.draw,
+			took - named
+		)
 	end
 	-- ...AND PUBLISHED WHERE A PROBE CAN READ IT, on the folder this runtime owns. A counter that
 	-- only lives in module state is not a diagnostic: a live probe over StudioMCP `require`s a FRESH
@@ -8219,6 +8290,9 @@ function Runtime:_stepCost(began: number)
 			folder:SetAttribute("StepCount", stats.steps)
 			folder:SetAttribute("StepMsAvg", stats.stepMsTotal / stats.steps)
 			folder:SetAttribute("StepMsMax", stats.stepMsMax)
+			-- ...AND THE BILL OF THAT ONE FRAME (task 355, V293b: a diagnostic the Director is asked
+			-- to read live is published where a probe can reach it, not left in module state).
+			folder:SetAttribute("StepWorst", stats.worst)
 			folder:SetAttribute("Alive", #self._boars)
 			-- TASK 342's THREE: animals on their feet, the worst this drive has seen, and why the
 			-- ones that left left. Sampled here (every two seconds) and not every step, because

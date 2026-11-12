@@ -1828,7 +1828,18 @@ end)
 -- honest channel for "what is the push doing".
 local lastReportAt = 0
 
+-- WHAT THIS HEARTBEAT COSTS, AND WHO SPENT ITS WORST FRAME (task 355). `workspace.Boars.StepMsMax`
+-- already bills the boar runtime's own Heartbeat; this one -- the cell drain, the drive clock, the
+-- reports, the stand wall and the lobby scan -- had no instrument at all, so a 73 ms server frame
+-- could not be attributed between the two. Same shape as `Boar`'s: one reused table (no allocation
+-- per frame), the bill of the worst frame only, published where a probe can read it (V293b).
+local bootProf = { cells = 0, drive = 0, reports = 0, wire = 0, wall = 0, lobby = 0 }
+local bootSteps, bootMsTotal, bootMsMax, bootWorst = 0, 0, 0, ""
+
 RunService.Heartbeat:Connect(function()
+	local bootBegan = os.clock()
+	bootProf.cells, bootProf.drive, bootProf.reports = 0, 0, 0
+	bootProf.wire, bootProf.wall, bootProf.lobby = 0, 0, 0
 	local now = os.clock()
 	-- THE NEXT CELL ARRIVES IN BITES, AND THE DRIVE DOES NOT START ON HALF OF IT (task 343).
 	-- `Cells.DRAIN_SECONDS` of budgeted bites, then whatever is left in ONE step: the intermission
@@ -1856,10 +1867,14 @@ RunService.Heartbeat:Connect(function()
 			swapModels = 0
 		end
 	end
+	bootProf.cells = (os.clock() - bootBegan) * 1000
+	local driveAt = os.clock()
 	local line = ForestTest.step(now)
 	if line then
 		print("[ForestTest] " .. line)
 	end
+	bootProf.drive = (os.clock() - driveAt) * 1000
+	local reportAt = os.clock()
 	if now - lastReportAt >= 2 then
 		lastReportAt = now
 		for _, report in ipairs(ForestTest.waveReport(now)) do
@@ -1879,6 +1894,8 @@ RunService.Heartbeat:Connect(function()
 			print("[placement] " .. report)
 		end
 	end
+	bootProf.reports = (os.clock() - reportAt) * 1000
+	local wireAt = os.clock()
 	local players = Players:GetPlayers()
 	-- EVERYBODY IS WIRED UP, WHENEVER HE JOINED (task 202). One table lookup per player per tick
 	-- while nothing has changed, and `toWire` allocates nothing in that case.
@@ -1900,6 +1917,8 @@ RunService.Heartbeat:Connect(function()
 			honour(player)
 		end
 	end
+	bootProf.wire = (os.clock() - wireAt) * 1000
+	local wallAt = os.clock()
 	for _, player in ipairs(players) do
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -1955,8 +1974,44 @@ RunService.Heartbeat:Connect(function()
 	-- CLOCK. This loop already walks every player's root every frame, and `Lobby.step` throttles
 	-- itself to `SCAN_HZ` inside the module -- so a second `RunService.Heartbeat` would be a second
 	-- answer to "what time is it" in the file whose own header above says ONE HEARTBEAT FOR BOTH JOBS.
+	bootProf.wall = (os.clock() - wallAt) * 1000
+	local lobbyAt = os.clock()
 	Lobby.step(now, players)
 	reportLobby()
+	bootProf.lobby = (os.clock() - lobbyAt) * 1000
+
+	-- THE BILL (task 355). Published every 120 steps, the same cadence and for the same reason as
+	-- `Boar.STEP_PUBLISH_EVERY`: two attribute writes every two seconds at 60 Hz.
+	local tookMs = (os.clock() - bootBegan) * 1000
+	bootSteps += 1
+	bootMsTotal += tookMs
+	if tookMs > bootMsMax then
+		bootMsMax = tookMs
+		local named = bootProf.cells
+			+ bootProf.drive
+			+ bootProf.reports
+			+ bootProf.wire
+			+ bootProf.wall
+			+ bootProf.lobby
+		bootWorst = string.format(
+			"total=%.1f cells=%.1f drive=%.1f reports=%.1f wire=%.1f wall=%.1f lobby=%.1f rest=%.1f",
+			tookMs,
+			bootProf.cells,
+			bootProf.drive,
+			bootProf.reports,
+			bootProf.wire,
+			bootProf.wall,
+			bootProf.lobby,
+			tookMs - named
+		)
+	end
+	if bootSteps % 120 == 0 and RunService:IsStudio() then
+		ServerStorage:SetAttribute(
+			"DHBootStep",
+			string.format("steps=%d avg=%.2f max=%.2f", bootSteps, bootMsTotal / bootSteps, bootMsMax)
+		)
+		ServerStorage:SetAttribute("DHBootWorst", bootWorst)
+	end
 end)
 
 HitLog.start()
