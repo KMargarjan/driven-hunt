@@ -5218,6 +5218,11 @@ function Boar.newRuntime(world)
 		-- frame; it cannot say to whom. `_prof` is the reused per-step bill (zero allocation) and
 		-- `worst` is the formatted bill of the frame that set `stepMsMax`, published beside it.
 		worst = "",
+		-- ...AND WHAT MAKING AN ANIMAL COSTS (task 355). `spawn` and `spawnSounder` are called from
+		-- the DRIVE's Heartbeat, not this one, so their cost never reached `stepMsMax` at all.
+		spawnMsMax = 0,
+		spawnMsTotal = 0,
+		spawnCalls = 0,
 		pathRequests = 0,
 		pathFailures = 0,
 		pathBlocked = 0,
@@ -5939,6 +5944,7 @@ function Runtime:clear(reason: string?)
 	stats.stepMsTotal = 0
 	stats.stepMsMax = 0
 	stats.worst = "" -- the worst frame's bill is per drive too (task 355)
+	stats.spawnMsMax, stats.spawnMsTotal, stats.spawnCalls = 0, 0, 0
 	stats.liveMax = 0
 	stats.despawnReasons = {}
 	self._reasonLine = ""
@@ -7090,6 +7096,9 @@ function Runtime:formSounder(ids: { string }): string?
 end
 
 function Runtime:spawn(position: Vector3?, kind: string?)
+	-- WHAT ONE ANIMAL COSTS TO MAKE (task 355). The leaf: `spawnSounder` calls this once per member,
+	-- so timing it here counts every animal exactly once and no call twice.
+	local spawnBegan = os.clock()
 	assert(not self._destroyed, "Boar runtime is destroyed")
 	assert(#self._boars < self._config.maxBoars, "Boar runtime is at maxBoars")
 
@@ -7249,6 +7258,12 @@ function Runtime:spawn(position: Vector3?, kind: string?)
 		-- reason the ones already out there are running, so it leaves for the same reason too.
 		brain:spook(self._lastShotPos, nil, true)
 		self._stats.spawnedSpooked += 1
+	end
+	local spawnTook = (os.clock() - spawnBegan) * 1000
+	self._stats.spawnCalls += 1
+	self._stats.spawnMsTotal += spawnTook
+	if spawnTook > self._stats.spawnMsMax then
+		self._stats.spawnMsMax = spawnTook
 	end
 	return handle
 end
@@ -8293,6 +8308,15 @@ function Runtime:_stepCost(began: number)
 			-- ...AND THE BILL OF THAT ONE FRAME (task 355, V293b: a diagnostic the Director is asked
 			-- to read live is published where a probe can reach it, not left in module state).
 			folder:SetAttribute("StepWorst", stats.worst)
+			folder:SetAttribute(
+				"SpawnCost",
+				string.format(
+					"calls=%d totalMs=%.1f maxMs=%.1f",
+					stats.spawnCalls,
+					stats.spawnMsTotal,
+					stats.spawnMsMax
+				)
+			)
 			folder:SetAttribute("Alive", #self._boars)
 			-- TASK 342's THREE: animals on their feet, the worst this drive has seen, and why the
 			-- ones that left left. Sampled here (every two seconds) and not every step, because

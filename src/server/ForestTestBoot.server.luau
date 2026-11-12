@@ -1993,8 +1993,13 @@ RunService.Heartbeat:Connect(function()
 			+ bootProf.wire
 			+ bootProf.wall
 			+ bootProf.lobby
+		-- ...AND `drive` SPLIT ONE LEVEL FURTHER, by the owner of that function (task 355). Read
+		-- HERE, after the call returned, so `ForestTest.step`'s six early returns need no wrapper:
+		-- whatever ran is in the table and whatever did not reads 0.
+		local inner = ForestTest.stepSections()
 		bootWorst = string.format(
-			"total=%.1f cells=%.1f drive=%.1f reports=%.1f wire=%.1f wall=%.1f lobby=%.1f rest=%.1f",
+			"total=%.1f cells=%.1f drive=%.1f reports=%.1f wire=%.1f wall=%.1f lobby=%.1f rest=%.1f"
+				.. " | drive: placement=%.1f spook=%.1f lines=%.1f roar=%.1f staged=%.1f rest=%.1f release=%.1f",
 			tookMs,
 			bootProf.cells,
 			bootProf.drive,
@@ -2002,7 +2007,14 @@ RunService.Heartbeat:Connect(function()
 			bootProf.wire,
 			bootProf.wall,
 			bootProf.lobby,
-			tookMs - named
+			tookMs - named,
+			inner.placement,
+			inner.spook,
+			inner.lines,
+			inner.roar,
+			inner.staged,
+			inner.rest,
+			inner.release
 		)
 	end
 	if bootSteps % 120 == 0 and RunService:IsStudio() then
