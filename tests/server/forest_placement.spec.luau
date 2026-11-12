@@ -1529,4 +1529,96 @@ return function()
 			end
 		end)
 	end)
+	-- ------------------------------------------------- THE BUDGET, RESTATED (task 345 T5, design 5.2)
+	--
+	-- `grid-map.md` 9.2 still prints the OLD rows -- <= 4.0 ms average and <= 8.0 ms peak, and no
+	-- bedded row at all. `animal-placement.md` 5.2 is the restatement and it is what these cases
+	-- assert (the discrepancy is in `ESCALATE.md`, 2026-11-12: `docs/design/` is not the Builder's).
+	--
+	-- ONE OWNER PER NUMBER (rule 3): the enforced rows are ASKED of the constant that enforces them,
+	-- so `ForestTest.budget()` cannot drift from `Data.LIVE_CAP`, `Placement.CONFIG.bedCap`,
+	-- `Data.MAX_BOARS` or `SPOOK.BEATER_STUDS`. Only the MEASURED targets are literals here, because
+	-- a target nothing enforces has nowhere else to live.
+	describe("the budget", function()
+		it("names design 5.2's rows, and each enforced one through its own owner", function()
+			local budget = Forest.budget()
+			expect(budget.liveCap).to.equal(Data.LIVE_CAP)
+			expect(budget.liveCap).to.equal(24)
+			-- 18 AND NOT THE DESIGN'S 12, by the Director's decision of 2026-11-11 ~01:45
+			-- (`ESCALATE.md`, deviation 5), which supersedes the "<= 12" rows in sections 5.2 and 16.
+			expect(budget.beddedCap).to.equal(CONFIG.bedCap)
+			expect(budget.beddedCap).to.equal(18)
+			-- ...AND IT IS STILL A SUB-CAP, which is the thing that makes `liveCap` the binding arm.
+			expect(budget.beddedCap < budget.liveCap).to.equal(true)
+			expect(budget.hardCeiling).to.equal(Data.MAX_BOARS)
+			expect(budget.hardCeiling).to.equal(60)
+			expect(budget.bedGapStuds).to.equal(SPOOK.BEATER_STUDS)
+			-- THE MEASURED TARGETS, raised from `grid-map.md` 9.2's 4.0 / 8.0. 7.0 is the fit's own
+			-- answer at the cap (`0.222 x 24 + 1.44 = 6.77`) and 22 % of the 32.05 ms heartbeat.
+			expect(budget.stepMsAvg).to.equal(7.0)
+			expect(budget.stepMsPeak).to.equal(20.0)
+			expect(budget.heartbeatP95Ms).to.equal(32.0)
+			-- A peak below the average, or an average above the heartbeat it is a share of, would be
+			-- a restatement that does not hold together.
+			expect(budget.stepMsPeak > budget.stepMsAvg).to.equal(true)
+			expect(budget.stepMsAvg < budget.heartbeatP95Ms).to.equal(true)
+			expect(budget.parts).to.equal(2000)
+			-- THE NUMBER THIS TASK EXISTS FOR.
+			expect(budget.laneSpawns).to.equal(0)
+			TestKit.note(
+				string.format(
+					"task 345 T5 budget: live <= %d, bedded <= %d, ceiling %d, step <= %.1f/%.1f ms,"
+						.. " heartbeat p95 <= %.1f ms, parts < %d, lane spawns %d",
+					budget.liveCap,
+					budget.beddedCap,
+					budget.hardCeiling,
+					budget.stepMsAvg,
+					budget.stepMsPeak,
+					budget.heartbeatP95Ms,
+					budget.parts,
+					budget.laneSpawns
+				)
+			)
+		end)
+
+		it("holds the dormant roster inside 120 rows, at 0 instances and 0 parts", function()
+			local budget = Forest.budget()
+			expect(budget.dormantRows).to.equal(120)
+			-- THE SCRIPT'S OWN WORST CASE, not a number typed here: fifteen slots at `busy`, which is
+			-- the density that silences nothing. Design 5.2 puts it at "15 slots x <= 9 animals".
+			local rows = planAt("busy")
+			expect(#rows <= budget.dormantRows).to.equal(true)
+			local animals = 0
+			for _, row in ipairs(rows) do
+				animals += row.size
+				-- A RECORD COSTS NO INSTANCE AND NO PART, which is the whole of the tier: the roster
+				-- is a table of rows and `Runtime:step` never sees one.
+				expect(row.state).to.equal("record")
+				expect(#row.ids).to.equal(0)
+				expect(row.at).to.equal(nil)
+			end
+			-- 83 at `busy` (design 5.2's "53 / 73 / 83"), and every one of them dormant.
+			expect(animals <= budget.dormantRows).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task 345 T5: a busy drive is %d dormant rows / %d animals, 0 instances, 0 parts (cap %d rows)",
+					#rows,
+					animals,
+					budget.dormantRows
+				)
+			)
+		end)
+
+		it("starts a drive with 0 lane spawns and 0 of each wake source counted", function()
+			-- THE COUNTERS EXIST AND ARE ZEROED BY `planDrive`, which is what makes a live reading of
+			-- 0 evidence rather than a counter nothing ever wrote (design 12.3).
+			local stats = Forest.placementStats()
+			for _, key in ipairs({ "laneSpawns", "laneSlots", "laneWorstSlot", "wokeWalk", "wokeHorn", "wokeSlot" }) do
+				expect(type(stats[key])).to.equal("number")
+			end
+			expect(stats.laneSpawns).to.equal(0)
+			expect(stats.laneSlots).to.equal(0)
+			expect(stats.laneWorstSlot).to.equal(0)
+		end)
+	end)
 end

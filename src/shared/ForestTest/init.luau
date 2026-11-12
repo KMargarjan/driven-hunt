@@ -1617,9 +1617,8 @@ ForestTest.DRIVE = { seconds = 300 }
 ForestTest.LINE = {
 	enabled = true,
 
-	-- HOW MANY LINES. *"could be 2 i line"* -- the Director's figure: about a quarter of waves come
-	-- as two parallel lines, the rest as one.
-	twoLineChance = 0.25,
+	-- HOW MANY LINES IS THE ROW'S OWN (`files`) SINCE TASK 251. `twoLineChance = 0.25` is archived
+	-- in `backups/2026-11-12_task-345e_repeat-window-and-dead-window-arithmetic.md` -- it was read by nothing.
 	-- Two leaders this far apart across the direction of travel. 5 studs is a body's width plus a
 	-- gap: close enough to read as one group, far enough that the two files do not merge.
 	lineGapStuds = 5,
@@ -3055,13 +3054,16 @@ end
 
 -- WHICH ROW A SLOT RELEASES, or **nil for silence**. THE WHOLE OF THE DIAL IS THIS FUNCTION.
 --
--- TWO RULES AND NOTHING ELSE:
---   1. a slot past the end of the script repeats the window (`repeatFrom`..`repeatTo`), so a drive
---      longer than `DRIVE.seconds` can never run out of animals. The window excludes the stag.
---   2. a row fires only when `row.keepAt <= groups`. That is how one number moves all five columns
+-- THREE RULES AND NOTHING ELSE:
+--   1. **WITH `PLACEMENT_IN_PLACE` ON (`inPlace`), A SLOT PAST THE END OF THE SCRIPT IS SILENT.**
+--      The fixed roster IS the drive's population (design `animal-placement.md` 5.3: *"a fixed
+--      roster has nothing to repeat"*), so there is nothing for an extra slot to release.
+--   2. with the flag OFF, a slot past the end repeats the window (`repeatFrom`..`repeatTo`), so a
+--      drive longer than `DRIVE.seconds` can never run out of animals. The window excludes the stag.
+--   3. a row fires only when `row.keepAt <= groups`. That is how one number moves all five columns
 --      of the dial's table at once: the four rows at `keepAt = 13` ARE the stag, the two refusals
 --      and the one that holds, and the two at `keepAt = 15` are the drive's two silences.
-function ForestTest.slotAt(slot: number, density: string?, schedule)
+function ForestTest.slotAt(slot: number, density: string?, schedule, inPlace: boolean?)
 	local resolved = schedule or ForestTest.SCHEDULE
 	local rows = resolved.drive or {}
 	if #rows == 0 or type(slot) ~= "number" or slot < 1 then
@@ -3070,6 +3072,13 @@ function ForestTest.slotAt(slot: number, density: string?, schedule)
 	local index = math.floor(slot)
 	local want = ForestTest.groupsWanted(density, resolved)
 	if index > #rows then
+		-- THE REPEAT WINDOW IS RETIRED ON THE FLAG-ON PATH (task 345 T5, design 5.3). It is what
+		-- took live animals to the `MAX_BOARS` 60 ceiling in every cell at every density -- quiet D1
+		-- reached 55 -- and `ESCALATE.md` 2026-11-11 item 5 measured it still spawning past slot 15
+		-- with the switch on. The OFF path is Karen's drive today and keeps it, byte for byte.
+		if inPlace == true then
+			return nil
+		end
 		local from = math.clamp(resolved.repeatFrom or 1, 1, #rows)
 		local to = math.clamp(resolved.repeatTo or #rows, from, #rows)
 		local span = to - from + 1
@@ -3571,10 +3580,18 @@ ForestTest.MAX_DEER_GROUPS = 40
 -- MEASURED on main e77e755a, full 400 s drives in her Forest Test: live reached 60 in C1 and A2 and
 -- 50 in quiet D1, and it never came down -- C1 sat at 50 for the drive's last 70 seconds. The
 -- fifteen-slot script ends at 192 s and `repeatFrom..repeatTo` then releases a group every 13 s for
--- the rest of the clock.
+-- the rest of the clock. **THAT WINDOW IS RETIRED ON THE FLAG-ON PATH** (task 345 T5): the roster
+-- is the whole population, so the cap binds at the materialise door instead of at a release door.
+--
+-- `ForestTest.budget()` (server) prints this beside design 5.2's measured targets.
 ForestTest.LIVE_CAP = 24
 
 -- MAY THE REPEAT WINDOW LET THIS GROUP OUT? PURE, and the whole of the budget's release rule.
+--
+-- **IT IS UNREACHABLE WITH `PLACEMENT_IN_PLACE` ON** (task 345 T5, design 5.3): `slotAt` answers
+-- nil past `#rows` on that path, so no slot the window would have fed ever gets a row. It is kept,
+-- not deleted, because the OFF path is Karen's drive today and still has the window -- see
+-- `backups/2026-11-12_task-345e_repeat-window-and-dead-window-arithmetic.md`. It goes with the OFF path at T6.
 --
 -- IT BINDS THE REPEAT WINDOW ONLY, and that is the Director's decision (2026-11-10): the SCRIPTED
 -- slots release exactly what they release today, so the density dial's own shape -- which rows are

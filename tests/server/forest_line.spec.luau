@@ -342,82 +342,11 @@ return function()
 			TestKit.note(string.format("forest-deer: %d animals drawn with no composition, %d deer", drawn, deer))
 		end)
 
-		it("counts a drive's waves from the metronome rather than from a number", function()
-			expect(ForestTest.wavesPerDrive(300, 20)).to.equal(15)
-			expect(ForestTest.wavesPerDrive(100, 20)).to.equal(5)
-			-- The live pair, so a retune of either number is a retune of this answer.
-			expect(ForestTest.wavesPerDrive()).to.equal(math.floor(Data.DRIVE.seconds / Data.SCHEDULE.intervalSeconds))
-			-- A drive shorter than one interval still has a wave to put the deer in.
-			expect(ForestTest.wavesPerDrive(5, 20)).to.equal(1)
-		end)
-
-		it("draws the deer's wave inside the first third of the drive, and varies it", function()
-			-- THE WINDOW IS WHAT MAKES THIS A GUARANTEE INSTEAD OF A BETTER CHANCE: a 15-wave drive
-			-- picks from 1..5, so the ordinal is always reached.
-			local waves = ForestTest.wavesPerDrive(300, 20)
-			local window = math.floor(waves / 3)
-			local seen = {}
-			for step = 0, 100 do
-				local which = ForestTest.deerWaveOf(step / 100, waves)
-				expect(which >= 1).to.equal(true)
-				expect(which <= window).to.equal(true)
-				seen[which] = true
-			end
-			local distinct = 0
-			for _ in pairs(seen) do
-				distinct += 1
-			end
-			expect(distinct).to.equal(window)
-			-- The boundaries, exactly, at a window of five.
-			expect(ForestTest.deerWaveOf(0, waves)).to.equal(1)
-			expect(ForestTest.deerWaveOf(0.999999, waves)).to.equal(5)
-			-- ...and a pick outside [0, 1) can still only answer inside the window.
-			expect(ForestTest.deerWaveOf(1.5, waves)).to.equal(5)
-			expect(ForestTest.deerWaveOf(-1, waves)).to.equal(1)
-			-- A one-wave drive puts them in the only wave it has.
-			expect(ForestTest.deerWaveOf(0.5, 1)).to.equal(1)
-		end)
-
-		it("asks on its wave, keeps asking until it lands, and asks once per drive", function()
-			-- The latch.
-			expect(ForestTest.deerWanted(1, 3, false)).to.equal(false)
-			expect(ForestTest.deerWanted(3, 3, false)).to.equal(true)
-			expect(ForestTest.deerWanted(3, 3, true)).to.equal(false)
-			-- `>=` AND NOT `==`: a wave that could not carry the deer -- no route, no room, the cap
-			-- -- must hand the drive's one group to the next wave rather than lose it.
-			expect(ForestTest.deerWanted(4, 3, false)).to.equal(true)
-			expect(ForestTest.deerWanted(12, 3, false)).to.equal(true)
-			-- Before the drive's first wave has drawn an ordinal there is nothing to want.
-			expect(ForestTest.deerWanted(9, nil, false)).to.equal(false)
-		end)
-
-		it("GUARANTEES a group inside every drive, at the roll that refuses one", function()
-			-- The whole rule, walked over a drive, with `Boar.deerComposition`'s chance roll pinned
-			-- at 1.0 -- the value that draws NOTHING. So what this case proves is the GUARANTEE and
-			-- not the dial: every drive carries deer even when the dice never would.
-			local config = configWith(true)
-			local waves = ForestTest.wavesPerDrive(300, 20)
-			local window = math.floor(waves / 3)
-			local rng = Random.new(2391)
-			for _ = 1, 50 do
-				local ordinal = ForestTest.deerWaveOf(rng:NextNumber(), waves)
-				local done, at, group = false, nil, nil
-				for wave = 1, waves do
-					if ForestTest.deerWanted(wave, ordinal, done) then
-						local composition = Boar.deerComposition(1.0, rng:NextNumber(), config, true)
-						expect(composition).to.be.ok()
-						done, at, group = true, wave, composition
-					end
-				end
-				expect(done).to.equal(true)
-				expect(at).to.equal(ordinal)
-				expect(at <= window).to.equal(true)
-				-- ...and it is a real group of real deer, named by the animal's own owner.
-				local size = Boar.compositionSize(group, config)
-				expect(size >= 1).to.equal(true)
-				expect(deerIn(Boar.sounderKinds(size, {}, config, group))).to.equal(size)
-			end
-		end)
+		-- `wavesPerDrive`, `deerWaveOf` AND `deerWanted` ARE ARCHIVED (task 345 T5, design 15's D-3):
+		-- they had no production reader and these four cases were their only ones. The guarantee they
+		-- existed for is DATA now -- `SCHEDULE.drive`'s slot 2 carries the hind party at t 30 s of every
+		-- drive -- and `forest_placement.spec` is where the script's own deer rows are asserted. See
+		-- `backups/2026-11-12_task-345e_repeat-window-and-dead-window-arithmetic.md`.
 
 		it("marches a deer file by the animal owner's rank, not by spawn order", function()
 			-- THE HAREM IS THE CASE: `{ stag = 1, hind = 2 }` is dealt stag-first by `KINDS.ORDER`,
@@ -542,6 +471,90 @@ return function()
 			-- outlives its script can never run out of animals.
 			expect(Data.slotAt(#SCHEDULE.drive + 1, "normal", SCHEDULE)).to.be.ok()
 			expect(Data.slotAt(#SCHEDULE.drive + 3, "normal", SCHEDULE)).to.be.ok()
+		end)
+
+		-- ----------------------------------- THE REPEAT WINDOW IS RETIRED, ON THE ON PATH (task 345 T5)
+		--
+		-- `docs/design/animal-placement.md` 5.3: *"a fixed roster has nothing to repeat"*. The window
+		-- is what took live animals to `MAX_BOARS` 60 in every cell at every density -- quiet D1
+		-- reached 55 -- and `ESCALATE.md` 2026-11-11 item 5 measured it STILL spawning with the
+		-- switch on: *"SLOT 16 ... 9 of 9 animal(s)"*.
+		it("is SILENT past the end of the script with PLACEMENT_IN_PLACE on, and repeats with it off", function()
+			local rows = #SCHEDULE.drive
+			-- FAIL FIRST, and this is the case that bites if the `inPlace` branch of `Data.slotAt`
+			-- comes back (L-093): with the window reachable, EVERY one of these thirty slots answers
+			-- a row at `normal`, which is exactly what the OFF arm below asserts.
+			local onRows, offRows = 0, 0
+			for slot = rows + 1, rows + 30 do
+				expect(Data.slotAt(slot, "normal", SCHEDULE, true)).to.equal(nil)
+				if Data.slotAt(slot, "normal", SCHEDULE, false) ~= nil then
+					offRows += 1
+				end
+			end
+			expect(onRows).to.equal(0)
+			-- ...AND THE OFF PATH IS KAREN'S DRIVE TODAY, UNTOUCHED. It is not "mostly the same": the
+			-- window answers a row for all thirty, which is the behaviour that must survive to T6.
+			expect(offRows).to.equal(30)
+			-- AT EVERY DENSITY, because the dial decides which rows the window may land on and
+			-- `quiet` is the setting that has the fewest.
+			for _, density in ipairs({ "quiet", "normal", "busy" }) do
+				for slot = rows + 1, rows + 10 do
+					expect(Data.slotAt(slot, density, SCHEDULE, true)).to.equal(nil)
+				end
+			end
+			-- THE FIFTEEN SCRIPTED SLOTS ARE THE SAME ROW, BY IDENTITY, IN BOTH STATES. The switch
+			-- retires the window and changes nothing about the drive the roster is planned from.
+			local same = 0
+			for slot = 1, rows do
+				local on = Data.slotAt(slot, "normal", SCHEDULE, true)
+				expect(on).to.equal(Data.slotAt(slot, "normal", SCHEDULE, false))
+				-- ...and OMITTING the argument is the OFF arm, which is what every pre-T5 caller does.
+				expect(on).to.equal(Data.slotAt(slot, "normal", SCHEDULE))
+				if on ~= nil then
+					same += 1
+				end
+			end
+			expect(same).to.equal(13)
+			TestKit.note(
+				string.format(
+					"task 345 T5: slots %d..%d answer a row %d/30 times OFF and %d/30 ON; %d scripted rows identical",
+					rows + 1,
+					rows + 30,
+					offRows,
+					onRows,
+					same
+				)
+			)
+		end)
+
+		it("hands the switch through ForestTest.waveAt, so the live path cannot keep the window", function()
+			local rows = #SCHEDULE.drive
+			-- BY PARAMETER AS WELL AS BY FLAG (`docs/design/feature-flags.md`), which is the only
+			-- reason this is testable at all while the flag sits OFF.
+			for slot = rows + 1, rows + 12 do
+				expect(ForestTest.waveAt(slot, true)).to.equal(nil)
+				expect(ForestTest.waveAt(slot, false)).to.equal(Data.slotAt(slot, SCHEDULE.density, SCHEDULE, false))
+			end
+			-- ...and the scripted slots still agree with the pure rule in both states.
+			for slot = 1, rows do
+				expect(ForestTest.waveAt(slot, true)).to.equal(Data.slotAt(slot, SCHEDULE.density, SCHEDULE, true))
+				expect(ForestTest.waveAt(slot, false)).to.equal(Data.slotAt(slot, SCHEDULE.density, SCHEDULE, false))
+			end
+		end)
+
+		it("leaves repeatRoomFor unreachable on the ON path and binding on the OFF one", function()
+			local rows = #SCHEDULE.drive
+			-- IT IS KEPT, NOT DELETED, because the OFF path still has a window for it to bind
+			-- (`backups/2026-11-12_task-345e_repeat-window-and-dead-window-arithmetic.md`). A
+			-- scripted slot is never capped; an extra one is.
+			expect(Data.repeatRoomFor(1, rows, 100, 9, Data.LIVE_CAP)).to.equal(true)
+			expect(Data.repeatRoomFor(rows + 1, rows, Data.LIVE_CAP, 1, Data.LIVE_CAP)).to.equal(false)
+			expect(Data.repeatRoomFor(rows + 1, rows, Data.LIVE_CAP - 1, 1, Data.LIVE_CAP)).to.equal(true)
+			-- ...AND NO SLOT IT COULD EVER BIND HAS A ROW ON THE ON PATH, which is what "unreachable"
+			-- means: the two halves of the claim, in one case.
+			for slot = rows + 1, rows + 20 do
+				expect(Data.slotAt(slot, "normal", SCHEDULE, true)).to.equal(nil)
+			end
 		end)
 
 		it("answers Karen's counts at the dial she OK'd: 13 groups, 10 crossings, 2 back, 1 that holds", function()

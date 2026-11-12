@@ -427,16 +427,9 @@ function ForestTest.layoutName(): string
 	return chosen.name
 end
 
--- in; the drive's number (counting from 1) and how many seconds are left in it, out.
---
--- It is a WINDOW OVER A CLOCK and not a state machine, which is why it needs no state: at any instant
--- the answer is the same arithmetic, so a restarted script, a late join and a spec all agree.
-function ForestTest.driveIndexAt(startedAt: number, now: number, seconds: number): (number, number)
-	local length = math.max(1, seconds)
-	local elapsed = math.max(0, now - startedAt)
-	local index = math.floor(elapsed / length) + 1
-	return index, length - (elapsed % length)
-end
+-- `ForestTest.driveIndexAt` AND `ForestTest.drive` ARE ARCHIVED (task 345 T5, design 15's D-3) in
+-- `backups/2026-11-12_task-345e_repeat-window-and-dead-window-arithmetic.md`: no production reader and no spec reader.
+-- The real drive's window is `Match.PhaseChanged` (`docs/design/forest-drive.md` 7.1).
 
 -- WHICH SLOT OF THE DRIVE SCRIPT IS DUE (task 251), or **nil for one of the drive's two silences**.
 --
@@ -449,9 +442,14 @@ end
 -- THE DENSITY IS THE WORLD'S, NOT THE CALLER'S: it is the LIVE CELL's since task 327h, and
 -- `Data.SCHEDULE.density` for a cell that has no `animals` row (and for every road layout), so one
 -- dial still moves every drive this world has no row for. `Data.slotAt` is the pure rule.
-function ForestTest.waveAt(index: number)
+--
+-- `inPlace` IS A PARAMETER AND NOT ONLY A FLAG (`docs/design/feature-flags.md`): production passes
+-- nothing and gets the value `start` read at this owner's boundary. With it ON a slot past the end
+-- of the script is SILENT -- the repeat window is retired (task 345 T5, design 5.3).
+function ForestTest.waveAt(index: number, inPlace: boolean?)
 	local schedule = ForestTest.cellSchedule()
-	return Data.slotAt(index, schedule.density, schedule)
+	local onNow = if type(inPlace) == "boolean" then inPlace else ForestTest.placementInPlace()
+	return Data.slotAt(index, schedule.density, schedule, onNow)
 end
 
 -- THE SCHEDULE OF THE CELL THAT IS DEALT -- the one place this file asks "how does THIS section
@@ -488,37 +486,10 @@ end
 -- The two below are the same SHAPE -- one drive, one guaranteed group, drawn rather than fixed --
 -- in this world's own terms.
 
--- HOW MANY WAVES A DRIVE OF THIS WORLD RELEASES. Pure, and it is the metronome's own arithmetic
--- rather than a number: 300 seconds at one wave per 20 is 15.
-function ForestTest.wavesPerDrive(driveSeconds: number?, intervalSeconds: number?): number
-	local seconds = driveSeconds or Data.DRIVE.seconds
-	local gap = math.max(1, intervalSeconds or Data.SCHEDULE.intervalSeconds)
-	return math.max(1, math.floor(seconds / gap))
-end
-
--- WHICH WAVE OF A DRIVE CARRIES THE DEER. Pure: a unit draw in, an ordinal out.
---
--- IT IS DRAWN FROM THE FIRST THIRD OF THE DRIVE, AND THAT IS WHAT MAKES IT A GUARANTEE RATHER THAN
--- A BETTER CHANCE. `Match.Phase.deerRelease` draws over the whole drive and needs a third clause --
--- *"and if that ordinal is never reached, the last release carries it"* -- because its release
--- count is itself drawn. Here the ordinal is only ever reached: a 300-second drive runs 15 waves
--- and the window is five, so the deer are out inside the first 100 seconds whatever else happens.
--- It is not always wave 1 either, which a fixed "the first wave of every drive" would have been.
-function ForestTest.deerWaveOf(pick: number, waves: number): number
-	local window = math.max(1, math.floor(math.max(1, waves) / 3))
-	return math.clamp(math.floor(math.clamp(pick, 0, 0.999999) * window) + 1, 1, window)
-end
-
--- IS THIS WAVE THE ONE? Pure, and `>=` and not `==` on purpose: a wave that could not carry the
--- deer -- the cap said no, there was no room, the flag is off -- must not spend the drive's
--- guarantee, so the next wave picks it up. `done` is the latch, and it is set only once a group has
--- actually been placed.
-function ForestTest.deerWanted(driveWave: number, deerWave: number?, done: boolean): boolean
-	if done or deerWave == nil then
-		return false
-	end
-	return driveWave >= (deerWave :: number)
-end
+-- `ForestTest.wavesPerDrive`, `deerWaveOf` AND `deerWanted` ARE ARCHIVED (task 345 T5, design 15's
+-- D-3) in `backups/2026-11-12_task-345e_repeat-window-and-dead-window-arithmetic.md`. Since task 251 `SCHEDULE.drive` says which
+-- SLOTS carry deer -- the hind party and the stag have rows -- so the drawn ordinal and the
+-- "has this drive spent its one group" latch decide nothing, and nothing read them.
 
 -- IS THIS POSITION INSIDE THE STAND'S CIRCLE? Pure, so the boundary is one rule and not one rule
 -- per caller. FLAT: the Y is ignored, because a hunter standing on his post is a stud above the
@@ -678,6 +649,22 @@ local state = {
 	placementNoRoute = 0,
 	placementCaps = 0,
 	placementReopens = 0,
+	-- WHAT WOKE EACH GROUP, COUNTED AND NOTHING MORE (`ESCALATE.md` 2026-11-11 item 4; the Director,
+	-- 2026-11-12: *"COUNT only, change nothing"*). Three sources and they are measured apart:
+	--   `wokeBand`  the LINE's own reach (`Placement.wakeReason`'s `beaters` arm) -- above.
+	--   `wokeWalk`  a fright THIS module sent, which is the beater walk-up (`state.latched`).
+	--   `wokeHorn`  flying with no latch of ours = a fright we never sent = the horn or a shot.
+	--   `wokeSlot`  `wakeReason`'s `slot` arm. ASKED AND COUNTED, never acted on: the walkers are
+	--               T6's and nothing sets `row.walker` yet, so this reads 0 until T6 lands.
+	placementWokeWalk = 0,
+	placementWokeHorn = 0,
+	placementWokeSlot = 0,
+	-- ANIMALS SPAWNED IN THE LANE BY A SCHEDULED SLOT WITH THE SWITCH ON. The target is 0 (design
+	-- 5.2) and `laneWorstSlot` names the highest slot that broke it, which is the number
+	-- `ESCALATE.md` item 5 reported as "SLOT 16".
+	laneSpawns = 0,
+	laneSlots = 0,
+	laneWorstSlot = 0,
 	-- HOW FORMED EVERY FILE WAS FIVE SECONDS AFTER IT WAS ORDERED, woken and released kept apart so
 	-- the two are one instrument with a control (design 12.1). Per SESSION and not per drive: the
 	-- target is over ">= 10 breaks".
@@ -946,23 +933,6 @@ function ForestTest.boarThreats(now: number)
 	return out
 end
 
--- THE LIVE READER over this world's own start time (task 124). It lives below `state` because that is
--- where `state` exists; the arithmetic above it is pure and testable without one.
---
--- SINCE TASK 157 IT HAS NO PRODUCTION CALLER, and that is said here rather than left to be
--- discovered: the report's window is now the real drive's own phases (`Match.PhaseChanged`, in both
--- worlds, docs/design/forest-drive.md section 7.1). This and `driveIndexAt` are RETAINED as the pure
--- window arithmetic `forest_stand.spec` drives, and `Data.DRIVE.seconds` is still the one home of the
--- number the forest's `DRIVE_SECONDS` override is read from. If nothing claims them by the next
--- audit they are archived with a note (rule 7) -- a function nothing reads is the next reader's trap.
-function ForestTest.drive(now: number)
-	-- `state.startedAt` IS A NUMBER, ALWAYS: it is initialised to 0 and `ForestTest.start` sets it
-	-- before the first heartbeat. The `or now` that used to be here could never fire -- 0 is truthy
-	-- in Luau -- so it read as a guard and was none (task 122 round 2).
-	local index, left = ForestTest.driveIndexAt(state.startedAt, now, Data.DRIVE.seconds)
-	return { index = index, secondsLeft = left }
-end
-
 -- WHERE THE HUNTER IS STANDING, in world X, for aiming the waves at him (task 123 round 8). The
 -- stand he LOCKED; the default stand's x until he has locked one, which is also the answer with
 -- nobody playing at all.
@@ -1097,7 +1067,7 @@ end
 -- -- `spawnSounder` can refuse, and a wave that silently released nothing is a playtest with no
 -- action in it and no line saying why.
 function ForestTest.release(now: number): (number, string)
-	local spec = ForestTest.waveAt(state.waveIndex + 1)
+	local spec = ForestTest.waveAt(state.waveIndex + 1, ForestTest.placementInPlace())
 	local runtime = state.runtime
 	-- A SILENCE IS A SLOT THAT RELEASES NOTHING (task 251), and it still COSTS its slot: the drive's
 	-- shape is the fifteen rows in order, so a gap that was skipped rather than waited out would pull
@@ -2245,7 +2215,43 @@ function ForestTest.placementStats()
 		noroute = state.placementNoRoute or 0,
 		caps = state.placementCaps or 0,
 		reopens = state.placementReopens or 0,
+		-- T5: WHAT WOKE EACH GROUP (`ESCALATE.md` item 4, count only) and WHAT STILL SPAWNED IN THE
+		-- LANE. `laneSpawns` is the number design 5.2 puts at 0 and `laneWorstSlot` names the slot
+		-- that broke it -- "SLOT 16" in `345d-ON1-C1-console.txt`, which T5 exists to close.
+		wokeWalk = state.placementWokeWalk or 0,
+		wokeHorn = state.placementWokeHorn or 0,
+		wokeSlot = state.placementWokeSlot or 0,
+		laneSpawns = state.laneSpawns or 0,
+		laneSlots = state.laneSlots or 0,
+		laneWorstSlot = state.laneWorstSlot or 0,
 		files = ForestTest.fileGaps(),
+	}
+end
+
+-- ------------------------------------------- THE BUDGET, AS THE THING IT IS MEASURED AGAINST (T5)
+--
+-- `docs/design/animal-placement.md` 5.2 restates it, and the restatement is NOT a new dial: every
+-- row here is either a constant this code already enforces or a TARGET that only a live reading can
+-- meet. It is exported so `tests/server/forest_placement.spec.luau` asserts the design's own table
+-- rather than numbers retyped in a spec, and so the live proof prints its targets beside its
+-- readings. Nothing in the game reads it to decide anything.
+function ForestTest.budget()
+	return {
+		-- ENFORCED, and this names the one owner of each so a second copy cannot drift in.
+		liveCap = Data.LIVE_CAP, -- 24; the arm that binds, `Placement.roomFor`
+		beddedCap = Placement.CONFIG.bedCap, -- 18 by the Director's 2026-11-11 decision, not 12
+		hardCeiling = Data.MAX_BOARS, -- 60; `Runtime:spawn` asserts past it
+		bedGapStuds = Data.SPOOK.BEATER_STUDS, -- 71; asserted in `Placement.plan`
+		-- MEASURED TARGETS. Raised from 4.0 / 8.0 (`grid-map.md` 9.2) because 4.0 was borrowed from
+		-- `src/server/Bots/init.luau` for a runtime with no brain, no wound and no sounder; 7.0 is
+		-- `0.222 x 24 + 1.44` and is 22 % of the 32.05 ms heartbeat measured at task 342.
+		stepMsAvg = 7.0,
+		stepMsPeak = 20.0,
+		heartbeatP95Ms = 32.0,
+		dormantRows = 120,
+		parts = 2000,
+		-- THE NUMBER THIS TASK EXISTS FOR (design 5.2, 5.3).
+		laneSpawns = 0,
 	}
 end
 
@@ -2356,6 +2362,12 @@ function ForestTest.planDrive(driveNumber: number?, inPlace: boolean?): string?
 	state.placementNoRoute = 0
 	state.placementCaps = 0
 	state.placementReopens = 0
+	state.placementWokeWalk = 0
+	state.placementWokeHorn = 0
+	state.placementWokeSlot = 0
+	state.laneSpawns = 0
+	state.laneSlots = 0
+	state.laneWorstSlot = 0
 	-- THE FILE MEASUREMENTS ARE **NOT** RESET PER DRIVE, and that is deliberate: the design's target
 	-- is over *">= 10 breaks"*, which is more breaks than one drive of thirteen groups delivers at
 	-- the near end of the band. They are reset with the session, by `ForestTest.start`.
@@ -2650,6 +2662,10 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?, aimIn: any?): 
 		end
 		if row.state == "bedded" or row.state == "awake" then
 			local standing, woken = 0, false
+			-- WHICH OF THE THREE SOURCES WOKE THIS GROUP, for the count and for nothing else
+			-- (`ESCALATE.md` 2026-11-11 item 4; the Director, 2026-11-12: *"COUNT only, change
+			-- nothing"*). First claim wins, per GROUP, so a nine-animal sounder counts once.
+			local wokeAs = nil :: string?
 			-- WHERE THE GROUP ACTUALLY IS, every step, taken off the member NEAREST THE LINE. The
 			-- wake is judged on this and not on the bed, because the flush is: `spookNearBeaters`
 			-- measures its band off each ANIMAL's live position, and `CALM.ENABLED`'s graze/stand/lie
@@ -2679,8 +2695,15 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?, aimIn: any?): 
 				-- sat in the roster reading "bedded" while their animals ran, and then went straight
 				-- to "gone" -- 7 of 13 in one drive. A fleeing group is not lying up. The Brain's own
 				-- answer is the one that cannot be missed.
-				if state.latched[id] == true or runtime:flying(id) then
+				-- ...AND THE TWO ARMS ARE COUNTED APART: a latch of OURS is the beater walk-up;
+				-- flying with no latch of ours is a fright this module never sent, which in this
+				-- world is the horn (357 studs) or a shot.
+				local ours = state.latched[id] == true
+				if ours or runtime:flying(id) then
 					woken = true
+					if wokeAs == nil then
+						wokeAs = if ours then "walk" else "horn"
+					end
 				end
 			end
 			-- ...AND THE LINE'S OWN REACH, WHICH IS THE RULE AND NOT THE LATCH (design 4.5).
@@ -2704,9 +2727,16 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?, aimIn: any?): 
 				local frontNorth = if frontZ ~= nil and aim.dz == 0
 					then (frontZ :: number) - ForestTest.driveZ(at.X, aim)
 					else nil
-				if Placement.wakeReason(row, elapsed, frontNorth, noticeAhead, wakeLead) == "beaters" then
+				local why = Placement.wakeReason(row, elapsed, frontNorth, noticeAhead, wakeLead)
+				if why == "beaters" then
 					woken = true
 					state.placementWokeBand = (state.placementWokeBand or 0) + 1
+					wokeAs = wokeAs or "band"
+				elseif why == "slot" then
+					-- COUNTED, NOT ACTED ON (T6 owns the walkers' wake). Nothing sets `row.walker`
+					-- yet, so this reads 0 until T6 lands -- and a 0 beside a non-zero `wokeBand`
+					-- is what shows the arm was asked rather than skipped.
+					state.placementWokeSlot = (state.placementWokeSlot or 0) + 1
 				end
 			end
 			if standing == 0 then
@@ -2718,6 +2748,14 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?, aimIn: any?): 
 				row.ids = {}
 			elseif woken then
 				row.state = "awake"
+				-- ONE TALLY PER GROUP, ON THE TICK IT WAKES: the row is "bedded" on the way into
+				-- this block and "awake" after it, so it cannot run twice for one group.
+				if wokeAs == "walk" then
+					state.placementWokeWalk = (state.placementWokeWalk or 0) + 1
+				elseif wokeAs == "horn" then
+					state.placementWokeHorn = (state.placementWokeHorn or 0) + 1
+				end
+				row.wokeAs = wokeAs
 			end
 		end
 	end
@@ -3409,6 +3447,7 @@ function ForestTest.placementReport(): { string }
 			string.format(
 				"drive=%s placed=%d bedded=%d awake=%d gone=%d skipped=%d animals=%d bodies=%d searches=%d rays=%d inView=%d"
 					.. " ordered=%d wokeBand=%d flights=%d noroute=%d caps=%d reopens=%d"
+					.. " wokeWalk=%d wokeHorn=%d wokeSlot=%d laneSpawns=%d laneSlots=%d laneWorstSlot=%d"
 					.. " wokenFiles=%d wokenMedian=%.1f wokenWorst=%.1f releasedFiles=%d releasedMedian=%.1f releasedWorst=%.1f",
 				tostring(stats.drive),
 				stats.placed,
@@ -3427,6 +3466,12 @@ function ForestTest.placementReport(): { string }
 				stats.noroute,
 				stats.caps,
 				stats.reopens,
+				stats.wokeWalk,
+				stats.wokeHorn,
+				stats.wokeSlot,
+				stats.laneSpawns,
+				stats.laneSlots,
+				stats.laneWorstSlot,
 				stats.files.woken.files,
 				stats.files.woken.median,
 				stats.files.woken.worst,
@@ -3447,6 +3492,24 @@ function ForestTest.placementReport(): { string }
 			stats.rays,
 			stats.inView,
 			if #skips > 0 then table.concat(skips, " ") else "none"
+		),
+		-- T5's OWN LINE, on the same channel: what woke the groups (count only, `ESCALATE.md` item
+		-- 4) and whether anything still spawned in the lane (design 5.2's 0). `filed` is the files
+		-- that got a route, `fled` the groups the fright had already taken.
+		string.format(
+			"drive %s woke: band %d, horn %d, walk-up %d, slot clock %d -- filed %d, fled %d"
+				.. " -- LANE SPAWNS %d in %d slot(s), worst slot %d (target %d)",
+			tostring(stats.drive),
+			stats.wokeBand,
+			stats.wokeHorn,
+			stats.wokeWalk,
+			stats.wokeSlot,
+			stats.ordered,
+			stats.flights,
+			stats.laneSpawns,
+			stats.laneSlots,
+			stats.laneWorstSlot,
+			ForestTest.budget().laneSpawns
 		),
 	}
 end
@@ -4177,7 +4240,10 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 	-- own counters are untouched -- `state.driveWave` is advanced by the metronome in `ForestTest.step`
 	-- and a staged release does not go through it -- so staging costs no slot and shifts no act.
 	local slot = if staged ~= nil then 0 else (state.driveWave or 1)
-	local row = if staged ~= nil then staged else ForestTest.waveAt(slot)
+	-- THE SWITCH, RESOLVED ONCE FOR THIS RELEASE and handed to both the things that read it: the
+	-- script lookup (whose repeat window is retired when ON, task 345 T5) and the roster branch.
+	local onNow = if type(inPlace) == "boolean" then inPlace else ForestTest.placementInPlace()
+	local row = if staged ~= nil then staged else ForestTest.waveAt(slot, onNow)
 	-- A DEER PARTY THE CAP REFUSED TAKES THE DRIVE'S NEXT SILENCE (task 251, and it is MEASURED, not
 	-- defensive: the first live drive of this task's own Forest Test run printed *"slot 2 wanted the
 	-- hinds and the deer cap refused -- nothing released"*, because a hind party released in the
@@ -4209,7 +4275,6 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 	-- off the road, which is the magic appearance Karen's *"not just apear magically"* is about.
 	-- **ON THE FLAG-ON PATH THIS FUNCTION NOW SPAWNS NOTHING FOR A SCHEDULED SLOT.** What moves a
 	-- group is `ForestTest.orderGroup`, on bodies `materialise` made in cover.
-	local onNow = if type(inPlace) == "boolean" then inPlace else ForestTest.placementInPlace()
 	local inRoster = if staged == nil and onNow then ForestTest.rosterSlot(slot) else nil
 	if inRoster ~= nil then
 		-- ...AND THE DRIVE'S DEER IS SPENT ONLY BY A DEER THAT EXISTS (round 1, finding 3, which was
@@ -4306,11 +4371,9 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 	-- HOW MANY FILES, AND AT WHAT PACE -- both the row's, both read and neither drawn. What this task
 	-- changed is that a SCRIPTED drive does not roll for the shape of its own groups.
 	--
-	-- `paceMix` IS STILL READ (the fallback below, for a row that names no pace); `LINE.twoLineChance`
-	-- IS NOW READ BY NOTHING and is dead data -- round 1's note, and it is right: `ForestTest.release`
-	-- never touched it either. It is left in place rather than deleted (rule 7) because the number it
-	-- carries is Karen's *"could be 2 i line"* and the rows above now say the same thing per group;
-	-- retiring it belongs with the next task that touches that table.
+	-- `paceMix` IS STILL READ (the fallback below, for a row that names no pace). `LINE.twoLineChance`
+	-- was read by nothing and is archived in `backups/2026-11-12_task-345e_repeat-window-and-dead-window-arithmetic.md`
+	-- (task 345 T5): the rows above say *"could be 2 i line"* per group instead.
 	local lines = math.max(1, math.floor(row.files or 1))
 	local pace = if type(row.pace) == "string" then row.pace else ForestTest.paceFor(rng:NextNumber(), lineData.paceMix)
 	local speed = ForestTest.paceSpeed(pace, boar)
@@ -4607,13 +4670,24 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 		)
 	end
 	state.released += placed
+	-- ---------------------------------------------- SPAWNS IN THE LANE, ON THE ON PATH (task 345 T5)
+	--
+	-- THE TARGET IS **0** (design 5.2, *"spawns in view of a player, per drive"*) AND IT IS COUNTED
+	-- HERE RATHER THAN ARGUED FROM THE CODE. This is the only line in this file that puts a scheduled
+	-- group on the ground, so a non-zero `laneSpawns` with the switch on names the slot that did it.
+	-- A STAGED release is the Director's own instrument and costs no slot, so it is not a lane spawn.
+	if onNow and staged == nil then
+		state.laneSpawns = (state.laneSpawns or 0) + placed
+		state.laneSlots = (state.laneSlots or 0) + 1
+		state.laneWorstSlot = math.max(tonumber(state.laneWorstSlot) or 0, slot)
+	end
 	-- THE DEER LATCH IS STILL SET (task 239), AND SINCE TASK 251 IT IS A BELT AND NOT THE BRACE.
 	-- The SCRIPT now says which slots carry deer -- slot 2's hind party and slot 8's stag -- so the
-	-- drawn ordinal (`deerWaveOf`) and *"has the drive spent its one group"* (`deerWanted`) are no
-	-- longer what decides it here. Both pure rules are kept, exported and tested: they are the shape
-	-- an UNSCRIPTED drive needs, which is what `Match` runs in the DEV place. What task 239's
-	-- guarantee was for is met BY DATA now -- slot 2 is at t 30 s, inside the first third of the
-	-- drive, every drive, with nothing drawn at all.
+	-- drawn ordinal and *"has the drive spent its one group"* are no longer what decides it here --
+	-- `deerWaveOf` / `deerWanted` are archived with no reader at all (task 345 T5, design 15's D-3;
+	-- `backups/2026-11-12_task-345e_repeat-window-and-dead-window-arithmetic.md`). What task 239's guarantee was
+	-- for is met BY DATA now -- slot 2 is at t 30 s, inside the first third of the drive, every
+	-- drive, with nothing drawn at all.
 	-- ...AND ONLY A DEER GROUP SPENDS IT (round 1, note). `composition` is no longer deer-only --
 	-- the boar branch above fills it from `SOUNDER.COMPOSITIONS` -- so the old `composition ~= nil`
 	-- test set the latch on EVERY release, and `stats().deerDone` would have read "something went
@@ -5477,8 +5551,8 @@ end
 -- default stand, and the real drive does that now: `ForestTest.Markers` builds a marker part per
 -- stand at measured ground and `Match.Body.place` -- the one writer of where a character stands --
 -- puts her on the one `ForestTest.standIndexFor` names. It is archived rather than retained because
--- the thing it measured is measured in two better places already; `drive`/`driveIndexAt` above are
--- retained instead, because their arithmetic has a spec and this had none.
+-- the thing it measured is measured in two better places already. `drive` / `driveIndexAt`, which
+-- were retained here for their spec, have since lost that too and are archived with it (task 345 T5).
 
 -- WHICH STAND A HUNTER GETS, from her index within the team. PURE.
 --

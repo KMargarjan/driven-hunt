@@ -1296,7 +1296,8 @@ Match.start({
 })
 
 -- THE REPORTING WINDOW IS THE DRIVE, in this world as in the DEV one (task 157): `MatchBoot`'s two
--- lines verbatim. The Heartbeat latch on `ForestTest.drive(...).index` is archived with the rest.
+-- lines verbatim. The Heartbeat latch on the old `ForestTest.drive(...).index` is archived with the
+-- rest, and so is that function itself (task 345 T5).
 -- Both `HitLog` calls are idempotent at the other end, so a phase that fires twice cannot open two
 -- drives.
 Match.PhaseChanged:Connect(function(_before, phase, driveNumber)
