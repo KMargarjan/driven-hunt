@@ -654,8 +654,9 @@ local state = {
 	--   `wokeBand`  the LINE's own reach (`Placement.wakeReason`'s `beaters` arm) -- above.
 	--   `wokeWalk`  a fright THIS module sent, which is the beater walk-up (`state.latched`).
 	--   `wokeHorn`  flying with no latch of ours = a fright we never sent = the horn or a shot.
-	--   `wokeSlot`  `wakeReason`'s `slot` arm. ASKED AND COUNTED, never acted on: the walkers are
-	--               T6's and nothing sets `row.walker` yet, so this reads 0 until T6 lands.
+	--   `wokeSlot`  `wakeReason`'s `slot` arm, for the WALKERS `Placement.plan` already marks.
+	--               ASKED AND COUNTED ONCE PER ROW (`row.slotDue`), never acted on: ordering them
+	--               is T6's. Without the latch it counted ticks -- 7866 in one drive, measured.
 	placementWokeWalk = 0,
 	placementWokeHorn = 0,
 	placementWokeSlot = 0,
@@ -2732,11 +2733,16 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?, aimIn: any?): 
 					woken = true
 					state.placementWokeBand = (state.placementWokeBand or 0) + 1
 					wokeAs = wokeAs or "band"
-				elseif why == "slot" then
-					-- COUNTED, NOT ACTED ON (T6 owns the walkers' wake). Nothing sets `row.walker`
-					-- yet, so this reads 0 until T6 lands -- and a 0 beside a non-zero `wokeBand`
-					-- is what shows the arm was asked rather than skipped.
+				elseif why == "slot" and row.slotDue ~= true then
+					-- COUNTED ONCE PER ROW, AND NOT ACTED ON (T6 owns the walkers' wake).
+					--
+					-- THE LATCH IS THE WHOLE OF IT, and it is a MEASURED fix: the band arm sets
+					-- `woken`, so the row leaves "bedded" on the same tick and can only be counted
+					-- once; this arm does not, so without a latch it counted every Heartbeat a
+					-- walker lay past its clock. `345e2-AFT-C1-track.txt` read **wokeSlot=7866**
+					-- over one drive, which is a tick count and not a number of groups.
 					state.placementWokeSlot = (state.placementWokeSlot or 0) + 1
+					row.slotDue = true
 				end
 			end
 			if standing == 0 then

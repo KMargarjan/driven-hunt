@@ -1609,6 +1609,30 @@ return function()
 			)
 		end)
 
+		it("marks walkers, so the slot arm of the wake reason has rows to count", function()
+			-- THE COUNTER IS LATCHED PER ROW (`row.slotDue`) BECAUSE THE ARM HAS REAL ROWS: it was
+			-- commented as "0 until T6" and MEASURED at **7866** in one live C1 drive
+			-- (`345e2-AFT-C1-track.txt`), which is a tick count. `Placement.plan` has marked walkers
+			-- since T1, and `wakeReason`'s slot arm does NOT set `woken`, so without the latch the
+			-- row stays bedded and is counted every Heartbeat.
+			local rows = planAt("normal")
+			local walkers = 0
+			for _, row in ipairs(rows) do
+				if row.walker == true then
+					walkers += 1
+					expect(type(row.wakeAtSeconds)).to.equal("number")
+					-- THE ARM ANSWERS "slot" FOR SUCH A ROW, over and over, for as long as it lies
+					-- bedded -- which is the thing the latch is for.
+					local bedded = table.clone(row)
+					bedded.state = "bedded"
+					expect(Placement.wakeReason(bedded, row.wakeAtSeconds, nil, 100, 20)).to.equal("slot")
+					expect(Placement.wakeReason(bedded, row.wakeAtSeconds + 60, nil, 100, 20)).to.equal("slot")
+				end
+			end
+			expect(walkers).to.equal(CONFIG.walkersPerDrive)
+			expect(walkers > 0).to.equal(true)
+		end)
+
 		it("starts a drive with 0 lane spawns and 0 of each wake source counted", function()
 			-- THE COUNTERS EXIST AND ARE ZEROED BY `planDrive`, which is what makes a live reading of
 			-- 0 evidence rather than a counter nothing ever wrote (design 12.3).
