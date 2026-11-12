@@ -1822,7 +1822,7 @@ return function()
 			expect(a2.drive[1].northStuds ~= Data.SCHEDULE.drive[1].northStuds).to.equal(true)
 			-- EVERY GENERATED ROW IS STILL WALKABLE: no clamped row is shallower than its own
 			-- `routeFloor`, which is the invariant `releaseDepth`'s floor depends on.
-			for _, cellId in ipairs(Grid.PLANTED_CELLS) do
+			for _, cellId in ipairs(Grid.ROTATION_CELLS) do
 				local schedule = scheduleOf(cellId)
 				for index, row in ipairs(schedule.drive) do
 					local base = Data.SCHEDULE.drive[index]
@@ -1856,9 +1856,12 @@ return function()
 
 		-- THE SEVEN ROWS ARE SEVEN DIFFERENT PATTERNS, which is the Director's own condition and the
 		-- whole of Karen's sentence. Asserted over the data rather than written down twice.
-		it("has one row per planted cell, all different, every bias word used", function()
+		-- **IT WALKS `ROTATION_CELLS` SINCE TASK 352**, not `PLANTED_CELLS`: an `animals` row says
+		-- how a cell PLAYS, so it belongs to the cells a drive is dealt in. A1 has a wood now and
+		-- is still not dealt, and the line below says so by name.
+		it("has one row per cell a drive is dealt in, all different, every bias word used", function()
 			local pairsSeen, biases, densities = {}, {}, {}
-			for _, cellId in ipairs(Grid.PLANTED_CELLS) do
+			for _, cellId in ipairs(Grid.ROTATION_CELLS) do
 				local row = Grid.animalsOf(cellId)
 				expect(row).to.be.ok()
 				expect(Data.SCHEDULE.DENSITIES[row.density]).to.be.ok()
@@ -1877,8 +1880,10 @@ return function()
 			expect(densities.quiet).to.equal(2)
 			expect(densities.normal).to.equal(3)
 			expect(densities.busy).to.equal(2)
-			-- A1 IS NOT PLANTED AND HAS NO ROW, so the unplanted cell is the one that plays as today.
+			-- A1 IS NOT DEALT AND HAS NO ROW, so the one cell out of the rotation is the one that
+			-- plays as today. It HAS a wood (task 352); the two lists are not the same question.
 			expect(Grid.animalsOf("A1")).to.equal(nil)
+			expect(table.find(Grid.PLANTED_CELLS, "A1")).to.be.ok()
 		end)
 
 		-- REST ZONES ARE A READING OF THE RECIPE, not a preference: every listed zone must be TREED
@@ -1894,7 +1899,7 @@ return function()
 			local depth = Grid.CONFIG.cellDepthStuds - 2 * inset
 			local fromV = (Data.REST.nearRoadStuds - inset) / depth
 			local toV = (Data.REST.farRoadStuds - inset) / depth
-			for _, cellId in ipairs(Grid.PLANTED_CELLS) do
+			for _, cellId in ipairs(Grid.ROTATION_CELLS) do
 				local plan = Places.cellPlanFor(cellId)
 				expect(plan).to.be.ok()
 				for _, index in ipairs(Grid.animalsOf(cellId).restZones) do

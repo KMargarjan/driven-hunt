@@ -1869,15 +1869,12 @@ return function()
 				-- gap is a bald patch nobody declared: a clearing is a ZONE with spacing 0, so an
 				-- uncovered rectangle can only ever be an arithmetic slip in a recipe.
 				expect(math.abs(covered - 1) < 1e-9).to.equal(true)
-				-- NO CELL IS MORE THAN A THIRD CLEAR, and **A1 IS THE ONLY CELL WITH A CLEARING LEFT**
-				-- (task 336, after 335 took C1's). Karen, 2026-11-08: *"all has to be forest no free
-				-- spot excep road"* for C1, and *"can you make now all grounds with different
-				-- trees"* for the rest -- so every cell that is PLANTED is planted wall to wall and
-				-- its cut is gone. A1 is not planted and keeps its own.
-				-- The pair BITES BOTH WAYS: a planted cell gaining a clearing back fails here, and
-				-- A1 losing its own fails too.
-				expect(clear < 0.34).to.equal(true)
-				expect(clear > 0).to.equal(id == "A1")
+				-- **NO CELL HAS A CLEARING AT ALL ANY MORE** (task 352, after 335 took C1's and 336
+				-- the other five's). Karen, 2026-11-08: *"all has to be forest no free spot excep
+				-- road"*; 2026-11-12, ringing the whole of A1: *"those gaps also full of trees"*.
+				-- A1 was the last cell with a 0-spacing zone and it was 11 % of the cell.
+				-- IT BITES: give any recipe a `clearing` zone back and this line reddens.
+				expect(clear).to.equal(0)
 				table.insert(
 					lines,
 					string.format("%s=%s(%d zones, %.0f%% clear)", id, cell.recipe, #plan.zones, clear * 100)
@@ -3139,6 +3136,9 @@ return function()
 				B2 = { "young" },
 				C2 = { "conifer", "birch" },
 				D2 = { "fieldOak", "aspen" },
+				-- A1 JOINED IN TASK 352 and takes the rule with it: spruce and larch, a pair no
+				-- other cell carries.
+				A1 = { "conifer", "young" },
 			}
 			local lines = {}
 			for _, id in ipairs(Grid.PLANTED_CELLS) do

@@ -2121,11 +2121,12 @@ return function()
 
 			-- ...AND ON, THE COUNT IS THE PLANTER'S OWN, counted out of `Places.CELL_PLANS` here so
 			-- the case cannot pass by agreeing with itself.
-			-- COUNTED OVER THE **PLANTED** CELLS, which is a different list from "the cells with a
-			-- recipe" -- round 1, finding 1. A1 carries `recipe = "spruceSlope"` and is absent from
-			-- `Grid.PLANTED_CELLS`, so a producer that keys off the recipe paints six patches of
-			-- conifer under the words `A1 empty`. Both halves are asserted: the count, and A1 by
-			-- name.
+			-- COUNTED OVER THE **PLANTED** CELLS, which is a different QUESTION from "the cells
+			-- with a recipe" -- round 1, finding 1. **SINCE TASK 352 THE TWO LISTS HAPPEN TO AGREE**
+			-- (A1 joined `PLANTED_CELLS`), so the old tripwire -- `withRecipe > wanted` -- could no
+			-- longer be true and was no proof of anything anyway: it asserted the DATA, not the
+			-- door. What replaces it is a grid STUB whose `PLANTED_CELLS` is one cell short: a
+			-- producer that keys off the recipe still paints that cell, and the case reddens.
 			local wanted = 0
 			local plantedSet = {}
 			for _, id in ipairs(Grid.PLANTED_CELLS) do
@@ -2142,8 +2143,8 @@ return function()
 				end
 			end
 			expect(wanted > 0).to.equal(true)
-			-- THE TWO LISTS REALLY DO DIFFER, or the case above proves nothing.
-			expect(withRecipe > wanted).to.equal(true)
+			-- EVERY CELL WITH A RECIPE IS PLANTED TODAY, which is why the count alone has no teeth.
+			expect(withRecipe).to.equal(wanted)
 			local on = groundOf("C1") :: any
 			expect(on.ground).to.be.ok()
 			expect(#on.ground).to.equal(wanted)
@@ -2153,7 +2154,32 @@ return function()
 				end
 			end
 			expect(on.lodge).to.equal(LODGE)
-			TestKit.note(string.format("map_ui 347: %d planting zones become %d ground patches", wanted, #on.ground))
+			-- **THE DOOR, PROVED BY A STUB** (task 352). `D2` is dropped from the grid's planted
+			-- list and nothing else moves: its recipe, its zones and its bounds are untouched. A
+			-- producer reading `Places.cellPlanFor` would paint it anyway.
+			local short: { string } = {}
+			for _, id in ipairs(Grid.PLANTED_CELLS) do
+				if id ~= "D2" then
+					table.insert(short, id)
+				end
+			end
+			local stub = setmetatable({ PLANTED_CELLS = short }, { __index = Grid })
+			local trimmed = MapUi.groundFromGrid(stub :: any, Places, nil, "C1") :: any
+			expect(trimmed).to.be.ok()
+			local d2Zones = #Places.cellPlanFor("D2").zones
+			expect(d2Zones > 0).to.equal(true)
+			expect(#trimmed).to.equal(#on.ground - d2Zones)
+			for _, patch in ipairs(trimmed) do
+				expect(patch.cell).never.to.equal("D2")
+			end
+			TestKit.note(
+				string.format(
+					"map_ui 347: %d planting zones become %d ground patches; dropping D2 from the planted list drops %d of them",
+					wanted,
+					#on.ground,
+					d2Zones
+				)
+			)
 		end)
 
 		it("calls each zone by the right word, and reads its density off the planter's own pitch", function()
