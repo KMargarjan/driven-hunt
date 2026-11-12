@@ -12,7 +12,8 @@ below therefore starts Play fresh, and the probe prints a **canary** -- `spruceS
 `aspenRolling.zones[1].band`, `#PLANTED_CELLS` -- so which module ran is a reading, not a hope.
 
 BEFORE = `origin/main` `42a25d46` (the `src/` changes stashed, same instrument, same session kind).
-AFTER = the code commit `7a283b2f`.
+AFTER = the code commit `b2c0d567` (the harness line names `26426cb5`, a paperwork commit after
+it; `352-after.txt` is the complete run, 26 stand rows, with its canary).
 
 ---
 
@@ -38,21 +39,24 @@ See `352-table.txt` for the full table. Summary:
 |---|---|---|
 | stands measured | 26 | 26 |
 | below the 90 % target | 2 | 2 |
-| the two | B1-11 86.7 %, A1-4 80.0 %* | A2-14 86.7 %, A1-11 86.7 % |
+| the two | B1-11 86.7 %, A1-4 80.0 %* | A2-14 86.7 %, A1-11 86.7 %* |
 
-*A1's BEFORE rows are A1's PLAN. Nothing was planted in A1 at all, so a hunter standing there saw
-**no tree whatsoever** -- the honest before-number for all three A1 rows is 0 %.
+*The three A1 rows are a view **no hunter can occupy, in either column**. Before, A1 was unplanted,
+so a hunter standing there saw no tree whatsoever and the honest before-number is 0 %. After, A1 has
+a wood and is still out of `ROTATION_CELLS`, so no drive is dealt there until it is baked. They are
+reported because they are what A1's wood will look like, not because anyone stands in them.
 
-Moved up: A1-4 (plan 80.0 -> 96.7, from nothing planted), A1-8 (-> 100.0), B1-11 86.7 -> 90.3,
-A2-8 93.3 -> 100.0. Moved down: A2-14 90.0 -> 86.7, A2-4 96.7 -> 93.3, B1-4 100.0 -> 96.7,
-A1-11 (plan 93.3 -> 86.7). C1 and D1 are untouched in both directions, which is the expected result:
-nothing in their recipes moved.
+**The seventeen C1 and D1 rows are identical before and after**, and they are exactly the set the
+dispatch's target names ("every stand of C1 and two stands of one other cell"). That target was
+already met before this task. The net movement on stands a player can stand on today is B1-11
+86.7 -> 90.3 and A2-8 93.3 -> 100.0, against A2-4 96.7 -> 93.3, B1-4 100.0 -> 96.7 and A2-14
+90.0 -> 86.7.
 
 ## 2. Trees planted per cell
 
 | cell | has a wood | total plantings | own wood | skirt | ring (outside the footprint) |
 |---|---|---|---|---|---|
-| A1 | false -> **true** | 3042 -> **4225** | 1343 -> **2301** | 1699 -> 1924 | 970 -> **1031** |
+| A1* | false -> **true** | 3042 -> **4225** | 1343 -> **2301** | 1699 -> 1924 | 970 -> **1031** |
 | B1 | true | 3906 -> 3964 | 2299 | 1607 -> 1665 | 395 -> 389 |
 | C1 | true | 4020 | 2433 | 1587 | 476 |
 | D1 | true | 4157 | 2361 | 1796 | 822 |
@@ -60,6 +64,9 @@ nothing in their recipes moved.
 | B2 | true | 4123 -> 4118 | 2418 | 1705 -> 1700 | 483 |
 | C2 | true | 4082 | 2474 | 1608 | 395 |
 | D2 | true | 4195 | 2490 | 1705 | 1020 |
+
+*A1's BEFORE column is its PLAN: `352-before.txt` prints `planted=false` on that row, so none of
+those 3,042 plantings existed on the ground. Every other row is a wood that was built.
 
 Over the cells that HAVE a wood: **28,696 -> 32,933** plantings, of which **4,418 -> 5,439** stand
 outside the grid's own footprint (the ring). A1's `own wood` 2,301 is 95 % of C1's pinned 2,418,
@@ -78,8 +85,8 @@ column above. **What is bare is the PICTURE, not the ground**: `MapUi.groundFrom
 `<runs-dir>/350/paint.py` both draw one patch per CELL ZONE and nothing else, so no skirt has ever
 been on the map Karen marked.
 
-Two things did change the ring: A1's quadrant of it went 0 -> **1,031** trees (A1 was unplanted, so
-its skirt was never built), and `<runs-dir>/352/paint.py` now draws the outer skirt, so the picture
+Two things did change the ring: A1's quadrant of it went **0 trees on the ground -> 1,031** (its
+PLAN always said 970, and `352-before.txt` prints `planted=false` on that row -- nothing was built), and `<runs-dir>/352/paint.py` now draws the outer skirt, so the picture
 ends in woods.
 
 **Not done, and why:** making the ring DENSER is out of budget. A2 stood 42 models under
@@ -93,9 +100,14 @@ Director's 14:30 addendum puts off limits for this task.
 A2-14 is a flank stand that sits 35 studs INSIDE the 80-stud full-pitch skirt band across its road,
 and then looks through the deep band's 52-stud lattice. The lever is `skirtFullStuds`.
 
+Each row is one DEV Play session, its canary printed, logged in `<runs-dir>/352-stderr.log` and
+quoted here. **Cycle 1's A2 count is 4,194 and not the shipped 4,172**: it was taken before A1's
+recipe became one species, and A1's `hasOwnWood` and species feed A2's skirt across their shared
+road. The A2-14 share is the same 86.7 % in both.
+
 | cycle | change | A2 plantings (cap 4255) | A2-14 share | distance to 90 % |
 |---|---|---|---|---|
-| 1 | A1 + A2's two zones (`skirtFullStuds` 80, shipped) | 4194 | 86.7 % | -3.3 |
+| 1 | A1 + A2's two zones (`skirtFullStuds` 80, shipped) | 4194 (4172 once A1 is one species) | 86.7 % | -3.3 |
 | 2 | `skirtFullStuds` 80 -> 110 | **4373 -- OVER THE CAP by 118** | 90.0 % | 0.0 |
 | 3 | `skirtFullStuds` 80 -> 90 | 4249 (fits) | **76.7 % -- WORSE** | -13.3 |
 

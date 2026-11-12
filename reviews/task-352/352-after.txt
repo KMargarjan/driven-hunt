@@ -33,4 +33,6 @@ SID bb300770-429d-4958-bc3e-166b5fd16a3c ['Driven Hunt DEV (placeId: 13641020593
 [352] stand A2-14 (-5508,-5781) hit=26/36 road=6 share=86.7% meanFirst=82 deepest=146 miss=10,80r,90r,100r,250,260r,270r,280r,330,350
 [352] stand B1-4 (-5006,-5152) hit=29/36 road=6 share=96.7% meanFirst=66 deepest=135 miss=0r,10r,170r,180r,190r,340,350r
 [352] stand B1-11 (-5616,-4075) hit=28/36 road=5 share=90.3% meanFirst=67 deepest=129 miss=60,70,80r,90r,250,260r,270r,280r
-[352] stand A1-4 (-6129,-5063) hit=29/36 road=6 share=96.7% meanFirst=71 deepest=149 miss=0r,10
+[352] stand A1-4 (-6129,-5063) hit=29/36 road=6 share=96.7% meanFirst=71 deepest=149 miss=0r,10r,170r,180r,190r,340,350r
+[352] stand A1-8 (-6721,-4747) hit=30/36 road=6 share=100.0% meanFirst=67 deepest=144 miss=80r,90r,100r,270r,280r,290r
+[352] stand A1-11 (-6729,-4088) hit=26/36 road=6 share=86.7% meanFirst=71 deepest=146 miss=0,40,60,80r,90r,100r,260r,270r,280r,290

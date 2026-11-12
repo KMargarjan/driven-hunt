@@ -1,19 +1,22 @@
-TREES PLANTED PER CELL (plantings: trees + ground cover), from Places.plantCell -- cap 4255
-cell   has a wood       total          own wood        skirt        ring (outside the footprint)
-A1    false -> true    3042 -> 4225    1343 -> 2301    1699 -> 1924     970 -> 1031 
-B1     true -> true    3906 -> 3964    2299 -> 2299    1607 -> 1665     395 -> 389  
-C1     true -> true    4020 -> 4020    2433 -> 2433    1587 -> 1587     476 -> 476  
-D1     true -> true    4157 -> 4157    2361 -> 2361    1796 -> 1796     822 -> 822  
-A2     true -> true    4213 -> 4172    2356 -> 2414    1857 -> 1758     827 -> 823  
-B2     true -> true    4123 -> 4118    2418 -> 2418    1705 -> 1700     483 -> 483  
-C2     true -> true    4082 -> 4082    2474 -> 2474    1608 -> 1608     395 -> 395  
-D2     true -> true    4195 -> 4195    2490 -> 2490    1705 -> 1705    1020 -> 1020 
+BEFORE = origin/main 42a25d46 (src/ stashed).  AFTER = the code commit, same instrument.
+Both runs are in 352-before.txt / 352-after.txt, each with its canary line.
 
-TOTAL over the cells that have a wood:  28696 -> 32933  (ring: 4418 -> 5439)
+TREES PLANTED PER CELL (plantings = trees + ground cover), from Places.plantCell. Cap 4255.
+cell   has a wood        total           own wood         skirt         ring (outside the footprint)
+A1    false -> true     3042 -> 4225     1343 -> 2301     1699 -> 1924      970 -> 1031    <- PLAN ONLY before: nothing was planted in A1
+B1     true -> true     3906 -> 3964     2299 -> 2299     1607 -> 1665      395 -> 389  
+C1     true -> true     4020 -> 4020     2433 -> 2433     1587 -> 1587      476 -> 476  
+D1     true -> true     4157 -> 4157     2361 -> 2361     1796 -> 1796      822 -> 822  
+A2     true -> true     4213 -> 4172     2356 -> 2414     1857 -> 1758      827 -> 823  
+B2     true -> true     4123 -> 4118     2418 -> 2418     1705 -> 1700      483 -> 483  
+C2     true -> true     4082 -> 4082     2474 -> 2474     1608 -> 1608      395 -> 395  
+D2     true -> true     4195 -> 4195     2490 -> 2490     1705 -> 1705     1020 -> 1020 
 
-THE VIEW FROM THE STAND -- 36 rays at 10 deg, eye height 5, 150 studs, that cell's OWN plan
-(one cell stands at a time, so a stand never sees another cell's wood). Target >= 90 % of
-the directions that are NOT a road, a lane or a cut ride.
+TOTAL over the cells that HAVE a wood:  28696 -> 32933   (ring: 4418 -> 5439)
+
+THE VIEW FROM THE STAND -- 36 rays at 10 deg, eye height 5 studs, 150 studs of reach,
+against THAT CELL'S OWN plan (one cell stands at a time). Target: >= 90 % of the directions
+that are not a road, a lane or a cut ride.
 
 stand    share non-road        first tree, mean studs
 C1-1      92.9% ->  92.9%       57 -> 57  
@@ -39,8 +42,13 @@ A2-11     96.8% ->  96.7%       67 -> 60
 A2-14     90.0% ->  86.7%       75 -> 82     <-- BELOW TARGET
 B1-4     100.0% ->  96.7%       63 -> 66  
 B1-11     86.7% ->  90.3%       73 -> 67  
-A1-4      80.0% ->  96.7%       75 -> 71     (BEFORE = A1's PLAN; nothing was planted in A1, so a hunter there saw NO tree at all)
-A1-8      96.8% -> 100.0%       80 -> 67     (BEFORE = A1's PLAN; nothing was planted in A1, so a hunter there saw NO tree at all)
-A1-11     93.3% ->  86.7%       62 -> 71     <-- BELOW TARGET   (BEFORE = A1's PLAN; nothing was planted in A1, so a hunter there saw NO tree at all)
+A1-4      80.0% ->  96.7%       75 -> 71     (A1: BOTH columns are a view no hunter can occupy -- A1 was unplanted before, and is planted and NOT DEALT after)
+A1-8      96.8% -> 100.0%       80 -> 67     (A1: BOTH columns are a view no hunter can occupy -- A1 was unplanted before, and is planted and NOT DEALT after)
+A1-11     93.3% ->  86.7%       62 -> 71     <-- BELOW TARGET   (A1: BOTH columns are a view no hunter can occupy -- A1 was unplanted before, and is planted and NOT DEALT after)
 
 stands below 90 %: before 2 of 26   after 2 of 26
+
+THE SEVENTEEN C1 AND D1 ROWS ARE IDENTICAL BEFORE AND AFTER, and they are the set the
+dispatch's target names. That target was already met. The net movement on stands a player
+can stand on is: B1-11 86.7 -> 90.3 and A2-8 93.3 -> 100.0, against A2-4 96.7 -> 93.3,
+B1-4 100.0 -> 96.7 and A2-14 90.0 -> 86.7.
