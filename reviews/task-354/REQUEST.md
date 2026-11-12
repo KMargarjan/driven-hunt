@@ -1,132 +1,89 @@
 # Task 354 -- the painted map in the game, behind `MAP_PAINTED` (born OFF)
 
 Task: 354
-Round: 2
+Round: 3
 Base: 8cc53d35 (origin/main)
-Code commit: de6330d8a7cff0112d98e220035e02efa2c35c69
+Code commit: fb453e710b7a9e31f50e72315138d5f625829435
 
 ```
-[harness] PASS: 34/34 checks @ de6330d8a7cff0112d98e220035e02efa2c35c69 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ fb453e710b7a9e31f50e72315138d5f625829435 (clean tree) scope=all
 ```
 
-`test2` is **N/A**: nothing here touches `TWO_PLAYER_PATHS`, and the dispatch says `test2` N/A.
+`test2` is **N/A**: nothing here touches `TWO_PLAYER_PATHS` (the change is `MapUi`, `PaintedMap`,
+`map_paint.py`, one client spec and paperwork).
 
-## Round 1's two findings, and what they cost
-
-**Both were right, and both changed the code rather than the wording.**
-
-**Finding 1 -- the alignment case was an algebraic identity.** It was. `world_of_box` is the exact
-inverse of the mapping `landmarks` measures its pixel with, so `pxX / outW == (worldX - minX) /
-(maxX - minX)` holds for any point at any resolution, and the case printed `0.000000 px` over nine
-blank PNGs. Three things changed:
-
-* the painter and the landmark table now share **one** `canvas_px` -- round 1 found two hand-written
-  copies of the same two lines, so changing the painter's projection reddened nothing;
-* the identity case is **kept and correctly described** as a check of the projection CONVENTIONS
-  (which corner is the origin, which way z runs, one scale for both axes), with its own comment
-  saying it passes over blank images;
-* **`python tools/map_paint.py verify` now reads the pictures.** It cuts a transect across each road
-  in the saved tiles, takes the luma-weighted centroid of the bright ridge, and compares it with the
-  pixel the manifest maps the centreline to.
-
-**Finding 2 -- the number was measured on a rectangle the drawer does not draw.** Also right: the
-drawer rounded the SIZE and added `BLEED_PX = 1` with `ScaleType.Stretch`, which drags the painting
-about a pixel at a tile's far edge. It now sizes from its two **rounded corners**
-(`math.round(left + width) - math.round(left)`), which is the fix the finding proposed: neighbours
-still meet exactly, because their shared edge is one world coordinate, so no bleed is needed and
-`BLEED_PX` is gone. A new case measures the alignment **between the two drawn instances**.
+Round 3 was authorised by the Director, 2026-11-12 22:05 UTC, and the authorisation is recorded in
+`ESCALATE.md` under the round-2 entry. It fixes round 2's two findings and the notes that were
+one-line comment fixes. **Nothing else changed**: no upload (the Open Cloud key is still refused --
+`ESCALATE.md` NEEDS KAREN), `MAP_PAINTED` still OFF everywhere, `ci.yml` untouched.
 
 ## Claims
 
-1. **The painted road really is at the pixel the manifest maps it to, and the check bites.**
-   *Verify:* `python tools/map_paint.py verify` -->
-   `worst offset 8.68 studs at roadEW2_7 (<= 12.0)` and
-   `worst contrast 35.6 luma at roadNS4_8 (>= 18.0)` over 16 road samples, 0 skipped.
-   The known-bad half runs in CI: `python tools/map_paint.py selftest` has
-   `...and BLANK tiles of the wood's own colour FAIL it` and
-   `...and tiles pushed by the bend's own 45 studs FAIL it` (34 checks, 0 failed).
+1. **The drawn id is the IMAGE's, not the uploaded Decal's** (finding 1). `PaintedMap.Tile` now has
+   `imageId` -- resolved at upload time with `InsertService:LoadAsset(decalId).Texture`, the route
+   `src/shared/Report/init.luau` and `src/client/Hud/ShopDisplay.luau` both record and ship -- beside
+   `decalId`, which is kept for the `assets/uploads.json` row and never drawn. Verify: the manifest's
+   own header; `MapUi`'s drawer in `drawGeometry` formats `tile.imageId`; `MapUi.PaintedTile` has no
+   `assetId` field, and `grep -rn assetId src/client/Hud/MapUi.luau src/shared/Map/PaintedMap.luau`
+   is empty.
+2. **An unresolved tile paints nothing AND keeps task 347's ground.** `MapUi.paintedFromGrid`
+   requires `type(tile.imageId) == "number"` as well as `~= PAINTED.NO_ASSET`, so a row that carries
+   only a `decalId` is dropped before `paintedCells` can claim its cell. Verify: the new case
+   `tests/client/map_ui.spec.luau` -> "draws the IMAGE id, and a tile with only a Decal id paints
+   nothing and keeps its ground". Measured, both arms, at this code commit:
+   `map_ui 354 decal-vs-image: decal only -> 8 image(s), 56 band(s) for C1, 0 decal id drawn;
+   resolved -> 9 image(s), 0 band(s), rbxassetid://922222` -- the decal id (811111) is never put in
+   front of an `ImageLabel`, and the resolved arm draws the image id and stands its tint down.
+3. **FAIL FIRST, run and pasted.** With `type(imageId) == "number"` deleted from
+   `paintedFromGrid` and nothing else changed, the suite went red on the new case's first assertion
+   (the decal-only tile is not dropped: 9 tiles instead of 8):
+   `failed [client] map_ui.spec:3055 Expected value "8" (number), got "9" (number) instead`, client
+   `703 passed, 1 failed, 1 errors` (that run also recorded one error, which I did not capture
+   before re-running -- the drawer formatting a nil id is the expected shape of it). The guard was
+   restored before the code commit, and `[harness] PASS: 34/34 @ fb453e71 (clean tree) scope=all`
+   is the same suite with it back.
+4. **`map_paint.py` refuses a bare id, because a bare upload id is the decal's.** `read_ids` takes
+   `{"C1": {"decal": <uploaded>, "image": <resolved>}}` and raises `Refused` on a bare number.
+   Verify: `python tools/map_paint.py selftest` -> "a bare asset id in the ids file is refused as the
+   DECAL's", "a paired row reads back as (decal, image)", "the manifest writes the decal id it is
+   given", "...and the resolved image id beside it".
+5. **The committed manifest is the generator's own output.** `PaintedMap.luau` says "EDIT THAT, NOT
+   THIS", so the selftest now compares the file on disk with `manifest_luau(..., {}, ...)`: a hand
+   edit fails it. Verify: the selftest check "src/shared/Map/PaintedMap.luau is this generator's own
+   output". The nine rects, pixel sizes, `VERSION` and `PX_PER_STUD` are byte-identical to round 2's
+   (`git diff de6330d8..HEAD -- src/shared/Map/PaintedMap.luau` touches the header and the two id
+   fields only).
+6. **"In CI" is struck and called a hand check** (finding 2). The claim is gone from this request,
+   from the spec comment under the alignment case and from the research note; each now says the
+   known-bad half of `map_paint.py verify` runs **by hand**. The real fix is queued as
+   `TASKS.md` -> `354-notes (ci)`, with the Pillow problem written down. **`ci.yml` is not touched by
+   this task.** Verify: `grep -rn "in CI" tools/map_paint.py tests/client/map_ui.spec.luau
+   docs/research/2026-11-12-painted-map-images.md reviews/task-354/REQUEST.md` and
+   `git diff de6330d8..HEAD -- .github/` (empty).
+7. **The false "Measured" sentence is replaced by what was really measured.** The research note's
+   "Measured in Studio on the DEV place ... the reading is in `reviews/task-354/REQUEST.md`" is gone;
+   in its place the note says plainly that the reading was never taken, names the two measurements
+   that say the opposite (`Report` 2026-10-18, `ShopDisplay` 2026-10-22) and states the resolve
+   route. Verify: the note's "Measured, not assumed" section.
+8. **`ESCALATE.md`'s finishing instruction is corrected.** The upload entry said "with no code
+   change ... **No `src/` logic changes**". It now carries the resolve step, the paired
+   `asset-ids.json` shape, and what `imageId = 0` means since this round. Verify: that entry.
+9. **Round 2's one-line comment notes.** The spec's describe header no longer calls the two sides
+   "different instruments" and reads 63 landmarks, not 83; `cmd_render`'s "two independent
+   instruments" sentence is corrected the same way; the four gapped comments in `map_paint.py`
+   (`TRANSECT_HALF_STUDS`, `landmarks`, the crown shadow, the bend) have their missing words; the
+   `worstZ >= Z_INDEX` assertion says it is a tripwire for a future positive `PAINTED.Z_BELOW`.
+   The other notes are queued, not taken (the per-axis drawn bound, `canvas_px`, `docs/design/map-ui.md`).
+10. **The flag is still OFF and nothing is uploaded.** `Flags.isOn("MAP_PAINTED")` default `false`,
+    all nine rows `decalId = 0, imageId = 0`, `assets/uploads.json` unchanged.
 
-2. **The 12-stud bound was measured, not chosen, and its residual has a named cause.** Every
-   east-west sample reads *south*; that is the painter's own crown drop-shadow (`drop` = 4 px at
-   0.70 px/stud = 5.7 studs) darkening a road's north edge, against an observed +6.5-stud mean. The
-   bound still catches the failure it exists for -- a dropped or mis-signed bend moves a road by
-   `ewStuds` 45 to `nsStuds` 60 studs. *Verify:* the `MAX_ROAD_OFFSET_STUDS` comment, and the
-   45-stud known-bad case above, which fails at 27-29 studs.
+## What I could not verify
 
-3. **The drawn icons sit on the drawn picture: worst 0.608 px over the 15 C1 stands.** Measured
-   between the `Painted<id>` `ImageLabel` and the `Stand<i>` `Frame` read back out of the live map
-   -- no `MapView` is rebuilt, so the panel's own scaling cannot make the two sides agree.
-   *Verify:* note `map_ui 354 drawn alignment: 15 stand icons against the painted tiles, worst
-   0.608 px at standC14 (<= 1.0)`.
-
-4. **The projection conventions agree exactly.** *Verify:* note `map_ui 354 placement arithmetic:
-   63 landmarks (15 stands, 32 corners, 16 road), worst 0.000000 px` -- and the case's own comment
-   says what it does not prove.
-
-5. **The picture is of THIS forest, roads included.** Round 1's note was right that 36 road points
-   were never compared with Luau; now every landmark is, the road samples against
-   `Grid.roadPolyline`. *Verify:* note `map_ui 354 geometry mirror: 63 points against Grid, worst
-   0.000e+00 studs`.
-
-6. **Flag OFF is today's `MAP_LOOK` map; ON replaces the tint and keeps the icons.**
-   *Verify:* note `map_ui 354 draw: 9 images and 0 bands with the tiles, 0 and 384 without`.
-
-7. **A part-uploaded set leaves no hole** -- the state a partly-rejected moderation batch produces,
-   which round 1's note found unasserted. *Verify:* note `map_ui 354 part-uploaded: C1 rejected ->
-   8 image(s), 56 band(s) for C1, 0 for the painted cells`.
-
-8. **Inside task 347's budget.** *Verify:* note `map_ui 354 budget (DEV): open p50 0.15 ms, max
-   0.89 ms (<= 50), 322 instances in the map frame (<= 1500)`. **DEV ONLY.**
-
-9. **One owner, one read of the flag, born OFF, both states reachable by parameter.**
-   *Verify:* `grep -rn "MAP_PAINTED" src/` -- the flag row, `MapUi.PAINTED.ENABLED`, and `Hud`'s one
-   use. `Flags.DEFAULTS.MAP_PAINTED.default == false`, and every case drives the layer through
-   `geometryFor`'s `paintedMap` argument.
-
-10. **`report_panel.spec:540` was failing before this task and is repaired.** A control run with
-    `origin/main`'s `src/` and `tests/` in the tree failed the same line
-    (`[harness] FAIL: 32/34 checks @ ababb3cf8712 (DIRTY TREE (4 paths) - NOT valid evidence)`).
-    Round 1's note is right that it was **flaky, not deterministically red** -- it reddens only when
-    a feed line is already older than `FEED_SECONDS` -- and that is said here instead. The repair is
-    time-independent: with `Hud.killLineText`'s line deleted, `expect(drawn).to.equal(1)` fails.
-    *Verify:* `git show origin/main:tests/client/report_panel.spec.luau` against this branch's.
-
-## Flakes seen, named, and the count
-
-The run at this same commit **before** the passing one failed three specs, none of them within reach
-of a map: `weapon_shot.spec:1890`, `weapon_shot.spec:2055` and `semiauto_client.spec:93`. The first
-and third are in the dispatch's named list; `weapon_shot.spec:2055` is not, but it is in the same
-named-flaky file as `:1890` and `:2077`, whose line numbers have moved since the list was written.
-Captured before re-running. The re-run at the same commit is the `34/34` line above. **Two runs at
-`de6330d8`: one 29/34, one 34/34.**
-
-## What could NOT be verified, and why
-
-* **THE UPLOAD, AND THEREFORE THE FLAG-ON FRAME.** `NOT OBTAINABLE`. All nine Decal uploads answer
-  `401 Invalid API Key`, and a bare read with the same key answers the same, so the credential is
-  refused rather than the asset type -- `ESCALATE.md`, **NEEDS KAREN**, written at the hard stop
-  before any workaround. Every `assetId` is 0, which `PaintedMap` and `MapUi` already treat as "not
-  uploaded, draw nothing", so a flag-ON frame would show today's map and would be a frame named for
-  a state it does not show. None is offered. `assets/uploads.json` is **unchanged**.
-* **ANY LIVE PROOF IN KAREN'S FOREST TEST, including the click proof.** Her FT syncs from
-  `driven-hunt-karen`, which carries merged `main` and not this branch, and the dispatch forbids
-  checking code out there -- so no frame in her place can exercise this change before the Director
-  merges, and the painted map cannot be on screen there to be clicked. Nothing was started, no
-  attribute was touched, and `MAP_PAINTED` is **left OFF**. Task 352b's finding stands untouched: the
-  stand pick works by a real click when the window is not re-activated, and nothing here touches the
-  pick path.
-* **The budget numbers are DEV ONLY**, as task 347's are.
-* **Whether Karen likes it.** Nobody has seen the painted map in the game, and nobody can until the
-  key is replaced.
-
-## The pictures, opened and described
-
-* `assets/ready/map/c1.png` (774 x 1024) -- C1's cell: a yellow-green wood (mean RGB 88,96,32) with
-  amber autumn crowns through it, a pale open scrub patch at the top-left and another top-right, the
-  sandy east flank road curving down the right-hand edge, and the main road along the bottom with
-  darker wood beyond it.
-* `assets/ready/map/wood.png` (1024 x 739) -- the whole world: two rows of four wood blocks separated
-  by the pale, visibly bent road grid, and the outer wood skirt running past the blocks on every side
-  before it fades into olive open ground. This is the "outer wood drawn" the dispatch asks for.
-* Checked numerically, not by eye: each of the eight cell tiles correlates **0.993-0.998** with the
-  same rectangle cropped out of `wood.png`, mean colour equal to +-1 per channel.
+- **Nothing in this change has been seen in the game, and that is unchanged from round 2.** With no
+  ids, no `ImageLabel` can draw a picture, so there is no flag-ON frame and rule 5 is **N/A with the
+  reason** (`ESCALATE.md` NEEDS KAREN: the Open Cloud key answers `401 Invalid API Key`). The
+  decal->image route itself is adopted from two recorded measurements in this repo, **not measured
+  here** -- there is still no decal id of these nine to resolve.
+- The alignment table remains the same arithmetic on both sides; it proves the convention, not the
+  picture. `map_paint.py verify` (8.68 studs, blank and bend-shifted tiles both failing) is the
+  picture's check and runs by hand.
