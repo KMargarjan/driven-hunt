@@ -1821,7 +1821,11 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 	if standLabels and model.lodge ~= nil then
 		local ground = MapUi.GROUND
 		local at = model.lodge :: Vector2
-		local u, v, pinned = MapUi.project(at.X, at.Y, view)
+		-- `project`'s THIRD RETURN IS "IN RANGE", NOT "PINNED" -- it is `true` when the point was NOT
+		-- clamped. Read the other way round the lodge came out at full opacity, which is round 1's
+		-- own harness line (`map_ui.spec` expected 0.45 and got 0).
+		local u, v, inRange = MapUi.project(at.X, at.Y, view)
+		local pinned = not inRange
 		local house = Instance.new("Frame")
 		house.Name = "Lodge"
 		house.AnchorPoint = Vector2.new(0.5, 0.5)
