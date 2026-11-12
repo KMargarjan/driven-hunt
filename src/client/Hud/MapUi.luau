@@ -154,9 +154,9 @@ MapUi.CONFIG = {
 	CELL_LABEL_SIZE = Style.SIZE.MICRO[1],
 	CELL_EDGE_COLOR = Style.LOOK.WELL_EDGE,
 	CELL_EDGE_TRANSPARENCY = 0.3,
-	-- A CELL WITH NO WOOD (`Grid.PLANTED_CELLS`; since task 352 every cell is in it) is drawn and
-	-- said to be empty rather than
-	-- left off: a hole in the map is a map with a bug in it.
+	-- A CELL WITH NO WOOD (`Grid.PLANTED_CELLS`) is drawn and said to be empty rather than left
+	-- off: a hole in the map is a map with a bug in it. **SINCE TASK 352 EVERY CELL IS IN THAT
+	-- LIST**, so nothing is drawn empty today -- the door stays, the data no longer opens it.
 	CELL_EMPTY_TRANSPARENCY = 0.75,
 	CELL_EMPTY_WORD = "%s empty",
 	-- THE STAND LIST (task 323c): fifteen `STAND_LIST_ROW_PX` rows is 660 px against a phone panel's

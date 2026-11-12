@@ -2453,14 +2453,22 @@ def trim_keep_problem(facts, anchors=None, keeps=None):
     return None
 
 
-def planted_cells():
-    """`Grid.PLANTED_CELLS`, off the file."""
+def planted_cells(name="PLANTED_CELLS"):
+    """One of `Grid`'s two cell lists, off the file. **TASK 352 SPLIT THEM**: `PLANTED_CELLS` is the
+    cells that have a WOOD (all eight, A1 included) and `ROTATION_CELLS` the cells a drive is DEALT
+    in (seven; A1 has no bake, so it is planted and not dealt). Refusal 10 below is about the
+    ROTATION and asks for that one by name."""
     with open(GRID_LUAU, "r", encoding="utf-8") as handle:
-        found = re.search(r"^Grid\.PLANTED_CELLS = table\.freeze\(\{([^}]*)\}\)",
+        found = re.search(r"^Grid\.%s = table\.freeze\(\{([^}]*)\}\)" % re.escape(name),
                           handle.read(), re.M)
     if not found:
-        raise RuntimeError("src/shared/Grid/init.luau: Grid.PLANTED_CELLS is not in the file")
+        raise RuntimeError("src/shared/Grid/init.luau: Grid.%s is not in the file" % name)
     return tuple(re.findall(r'"([A-Za-z0-9]+)"', found.group(1)))
+
+
+def rotation_cells():
+    """`Grid.ROTATION_CELLS` -- the list `ForestTest.LAYOUT_ORDER` IS (task 352)."""
+    return planted_cells("ROTATION_CELLS")
 
 
 def trim_rotation_problem(text=None, cells=None):
@@ -2470,10 +2478,10 @@ def trim_rotation_problem(text=None, cells=None):
     if text is None:
         with open(FOREST_LUAU, "r", encoding="utf-8") as handle:
             text = handle.read()
-    if not re.search(r"^ForestTest\.LAYOUT_ORDER = Grid\.PLANTED_CELLS\s*$", text, re.M):
-        return ("ForestTest.LAYOUT_ORDER is no longer `Grid.PLANTED_CELLS`: the rotation may deal a "
+    if not re.search(r"^ForestTest\.LAYOUT_ORDER = Grid\.ROTATION_CELLS\s*$", text, re.M):
+        return ("ForestTest.LAYOUT_ORDER is no longer `Grid.ROTATION_CELLS`: the rotation may deal a "
                 "line place whose ground this trim removes")
-    cells = planted_cells() if cells is None else cells
+    cells = rotation_cells() if cells is None else cells
     if not cells:
         return "ForestTest.LAYOUT_ORDER is empty: there would be no drive to hold"
     stray = [c for c in cells if c not in CELL_IDS]
@@ -4101,12 +4109,20 @@ def selftest():
        and trim_anchors()["Lobby.ANCHORS forest-test"] == (2850, -2950))
     # REFUSAL 10: the rotation. `ride` and `track` stand outside K2, so a trim taken while the
     # rotation can still deal them would hold a drive over a void (design 10.4).
-    ok("refusal 10 passes today's rotation (LAYOUT_ORDER IS Grid.PLANTED_CELLS, %s) and refuses a "
-       "hand-written list, an empty one, and a line place" % ",".join(planted_cells()),
+    ok("refusal 10 passes today's rotation (LAYOUT_ORDER IS Grid.ROTATION_CELLS, %s) and refuses a "
+       "hand-written list, an empty one, and a line place" % ",".join(rotation_cells()),
        trim_rotation_problem() is None
        and trim_rotation_problem(text='ForestTest.LAYOUT_ORDER = { "ride", "track" }\n') is not None
+       and trim_rotation_problem(text='ForestTest.LAYOUT_ORDER = Grid.PLANTED_CELLS\n') is not None
        and trim_rotation_problem(cells=()) is not None
        and "ride" in (trim_rotation_problem(cells=("C1", "ride")) or ""))
+    # ...AND THE TWO LISTS ARE READ SEPARATELY (task 352): the rotation is a SUBSET of the planted
+    # cells, A1 is the difference, and refusal 10 reads the rotation.
+    ok("the two Grid lists are read apart: ROTATION_CELLS is a subset of PLANTED_CELLS and A1 is "
+       "the difference  planted=%s rotation=%s" % (",".join(planted_cells()), ",".join(rotation_cells())),
+       set(rotation_cells()) < set(planted_cells())
+       and "A1" in planted_cells() and "A1" not in rotation_cells()
+       and all(c in CELL_IDS for c in planted_cells()))
     # THE COMPLEMENT: exact, and nothing in it touches a keep box.
     world = {"minX": -2000, "maxX": 2000, "minZ": -2000, "maxZ": 2000}
     fake = (("K1", {"minX": -1000, "maxX": -200, "minZ": -800, "maxZ": 600}),

@@ -1135,9 +1135,11 @@ local SPRUCE_LARCH_CANOPY = table.freeze({ jitter = 1.0, under = SPRUCE_LARCH_UN
 local OAK_ASPEN_CANOPY = table.freeze({ jitter = 1.0, under = OAK_ASPEN_UNDER })
 
 Places.CELL_PLANS = table.freeze({
-	-- A1, measured `slope`, 113.4 studs of spread: the thicket is on the LOW ground by the main road
-	-- and the wood thins uphill, so the hunter looks into cover and the beaters walk out of light.
-	-- Strips across the fall line, which is what a slope reads as from the road.
+	-- A1, measured `slope`, 113.4 studs of spread. **SINCE TASK 352 IT IS ONE WOOD, NOT THREE
+	-- MIXES**: the thicket, the mixed belt and the high wood are all `spruceLarchAll`, and what
+	-- thins uphill is the PITCH alone -- 24 on the low ground by the main road, 30 across the
+	-- middle, 34 above it. Strips across the fall line, which is what a slope reads as from the
+	-- road. The hunter still looks into the closest cover and the beaters still walk out of light.
 	spruceSlope = table.freeze({
 		halfStripStuds = 9,
 		-- v2 (task 352): C1's accepted skirt and gap, borrowed whole. See THE DENSITY RULE above.
@@ -1402,8 +1404,11 @@ Places.CELL_PLANS = table.freeze({
 			-- the painted map with these two rectangles ringed: *"those gaps also full of trees"*.
 			-- They were already planted at 24/25 studs -- what read as a gap was the SCALE: band
 			-- `shrub` is `shrubScale` 0.30-0.55 of an `aspenUnder` sapling, so a 1,070-stud frontage
-			-- of knee-high growth. Band and mix only; the pitch, the rows and the second storey are
-			-- untouched, so the plantation character and the tree COUNT are exactly as before.
+			-- of knee-high growth. The pitch, the rows and the second storey are untouched.
+			-- TWO SIDE EFFECTS, MEASURED AND NAMED: A2's whole plan goes 4,213 -> 4,172 and its own
+			-- wood 2,356 -> 2,414, because `minGapStuds` 11 refuses full-size crowns the saplings
+			-- fitted between; and `aspenAll` is in `Places.FERN_MIXES` where `aspenUnder` is not, so
+			-- these two rectangles gain the fern floor.
 			zone(0.00, 0.00, 1.00, 0.26, 24, "aspenAll", "wood", {
 				rows = "NS",
 				jitter = 0.25,
