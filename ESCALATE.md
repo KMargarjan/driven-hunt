@@ -59,6 +59,8 @@ not run a fourth review.** The Director's call.
 5. `local _ = index` in the painted draw block is a discard with a paragraph attached;
 6. rule 4: the `report_panel.spec` repair is still a second task in this change (sound, test-only).
 
+> Director 2026-11-12 22:40 UTC: one extra round authorised for task 354, Round 4, because round 3's findings were documentation-only (docs/research/INDEX.md task-354 row). DIRECTOR_MAX_ROUNDS=4 for that one review only.
+
 ## 2026-11-12 ~21:58 UTC, Task 354 -- FOR THE DIRECTOR: round 2 produced two findings, so the dispatch's cap is reached. **Both are right, I have not fixed them, and one of them is me writing down a measurement I never made**
 
 The dispatch: *"Review: at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."* Round
