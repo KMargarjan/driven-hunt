@@ -2665,7 +2665,10 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?, aimIn: any?): 
 			local standing, woken = 0, false
 			-- WHICH OF THE THREE SOURCES WOKE THIS GROUP, for the count and for nothing else
 			-- (`ESCALATE.md` 2026-11-11 item 4; the Director, 2026-11-12: *"COUNT only, change
-			-- nothing"*). First claim wins, per GROUP, so a nine-animal sounder counts once.
+			-- nothing"*). First claim wins **for `row.wokeAs`**, per GROUP, so a nine-animal sounder
+			-- counts once -- but NOT across the four totals: `wokeBand` is T4's and still counts the
+			-- line's own reach whether or not a fright had the group on the same tick, so a group
+			-- can appear in `wokeBand` and in `wokeWalk` (round 1's note, which was right).
 			local wokeAs = nil :: string?
 			-- WHERE THE GROUP ACTUALLY IS, every step, taken off the member NEAREST THE LINE. The
 			-- wake is judged on this and not on the bed, because the flush is: `spookNearBeaters`
@@ -4685,8 +4688,10 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 	-- ---------------------------------------------- SPAWNS IN THE LANE, ON THE ON PATH (task 345 T5)
 	--
 	-- THE TARGET IS **0** (design 5.2, *"spawns in view of a player, per drive"*) AND IT IS COUNTED
-	-- HERE RATHER THAN ARGUED FROM THE CODE. This is the only line in this file that puts a scheduled
-	-- group on the ground, so a non-zero `laneSpawns` with the switch on names the slot that did it.
+	-- HERE RATHER THAN ARGUED FROM THE CODE. While `Data.LINE.enabled` is true -- which it is, and is
+	-- the only arm `step` takes -- this is the one line in this file that puts a scheduled group on
+	-- the ground, so a non-zero `laneSpawns` with the switch on names the slot that did it. The
+	-- pre-task-127 `ForestTest.release` arm spawns too and counts none of this; it is unreachable.
 	-- A STAGED release is the Director's own instrument and costs no slot, so it is not a lane spawn.
 	if onNow and staged == nil then
 		state.laneSpawns = (state.laneSpawns or 0) + placed

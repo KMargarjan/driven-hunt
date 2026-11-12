@@ -486,7 +486,9 @@ return function()
 			-- a row at `normal`, which is exactly what the OFF arm below asserts.
 			local onRows, offRows = 0, 0
 			for slot = rows + 1, rows + 30 do
-				expect(Data.slotAt(slot, "normal", SCHEDULE, true)).to.equal(nil)
+				if Data.slotAt(slot, "normal", SCHEDULE, true) ~= nil then
+					onRows += 1
+				end
 				if Data.slotAt(slot, "normal", SCHEDULE, false) ~= nil then
 					offRows += 1
 				end

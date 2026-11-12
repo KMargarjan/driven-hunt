@@ -1539,6 +1539,47 @@ return function()
 	-- so `ForestTest.budget()` cannot drift from `Data.LIVE_CAP`, `Placement.CONFIG.bedCap`,
 	-- `Data.MAX_BOARS` or `SPOOK.BEATER_STUDS`. Only the MEASURED targets are literals here, because
 	-- a target nothing enforces has nowhere else to live.
+	-- ONE SLOT THE ROSTER DOES NOT OWN, RELEASED ON THE ON PATH, so `releaseLine` reaches its spawn
+	-- half and the lane counters see it fire (round 1, finding 1). The DEV place has no navmesh, so
+	-- `routeFilesFor` is handed a route through `ForestTest.computeRouteVia` -- the same patch point
+	-- the retry-cap and file cases use. Returns the counters plus how many handles the runtime made.
+	local function laneSpawnOnce()
+		local made, _standing, fake = stubRuntime()
+		Forest.layoutForDrive(973, "c1")
+		Forest.start(fake, 0)
+		Forest.newDrive(0)
+		expect(Forest.planDrive(973, true) ~= nil).to.equal(true)
+		-- THE SLOT THE ROSTER LOSES. `Forest.roster()` hands out `state.roster` itself (its own
+		-- documented shape), so removing a row here is exactly the hole `Placement.plan` leaves when it
+		-- drops a row -- a deer the cap refused, or a composition the table does not name.
+		local roster = Forest.roster()
+		local dropped = table.remove(roster, 1)
+		expect(dropped ~= nil).to.equal(true)
+		local slot = dropped.slot
+		expect(Forest.rosterSlot(slot)).to.equal(nil)
+		table.clear(made)
+		local realVia = Forest.computeRouteVia
+		Forest.computeRouteVia = function(via)
+			local out = {}
+			for _, point in ipairs(via) do
+				table.insert(out, point)
+			end
+			return out
+		end
+		local said = Forest.step(Data.slotSeconds(slot, Forest.cellSchedule()), true)
+		Forest.computeRouteVia = realVia
+		local stats = Forest.placementStats()
+		Forest.start(nil :: any, 0)
+		return {
+			slot = slot,
+			said = said,
+			made = #made,
+			laneSpawns = stats.laneSpawns,
+			laneSlots = stats.laneSlots,
+			laneWorstSlot = stats.laneWorstSlot,
+		}
+	end
+
 	describe("the budget", function()
 		it("names design 5.2's rows, and each enforced one through its own owner", function()
 			local budget = Forest.budget()
@@ -1597,7 +1638,9 @@ return function()
 				expect(#row.ids).to.equal(0)
 				expect(row.at).to.equal(nil)
 			end
-			-- 83 at `busy` (design 5.2's "53 / 73 / 83"), and every one of them dormant.
+			-- 83 at `busy` -- design 5.2's own "53 / 73 / 83" row, asserted as that number and not
+			-- only as "inside 120" (round 1's note, which was right: 120 is the ROW cap).
+			expect(animals).to.equal(83)
 			expect(animals <= budget.dormantRows).to.equal(true)
 			TestKit.note(
 				string.format(
@@ -1633,16 +1676,103 @@ return function()
 			expect(walkers > 0).to.equal(true)
 		end)
 
-		it("starts a drive with 0 lane spawns and 0 of each wake source counted", function()
-			-- THE COUNTERS EXIST AND ARE ZEROED BY `planDrive`, which is what makes a live reading of
-			-- 0 evidence rather than a counter nothing ever wrote (design 12.3).
-			local stats = Forest.placementStats()
-			for _, key in ipairs({ "laneSpawns", "laneSlots", "laneWorstSlot", "wokeWalk", "wokeHorn", "wokeSlot" }) do
-				expect(type(stats[key])).to.equal("number")
+		it("zeroes all six new counters in planDrive, and the reset is what answers", function()
+			-- ROUND 1, FINDING 1, AND IT WAS RIGHT: the first version of this case asked
+			-- `placementStats()` with no drive planned, so the `state` literal's own zeroes answered and
+			-- deleting the six resets in `planDrive` changed nothing. It now DIRTIES every counter first
+			-- and plans a drive over the top, so the reset is the only thing that can produce the zeroes.
+			-- Every assertion is BY VALUE and not by type (verdict 281): `wokeSlot` reads non-zero in
+			-- a live C1 drive, so 0 here is a reading and not a tautology.
+			--
+			-- FIVE OF THE SIX DIRTIED THROUGH A REAL PATH. The lane three come from a slot the roster
+			-- does not own (the case below); `wokeHorn` from a bedded group the runtime says is
+			-- FLYING with no latch of ours, which is what the horn looks like from here; `wokeSlot`
+			-- from a walker lying past its own clock. **`wokeWalk` is NOT dirtied and is said so
+			-- rather than faked:** it needs `state.latched`, which only `spookNearBeaters` writes,
+			-- and that needs a live beater -- so its reset is the one of the six this case does not
+			-- cover, and the live reading (`345e4-AFT-C1`, `walk-up 0`) is all there is for it.
+			local dirty = laneSpawnOnce()
+			expect(dirty.laneSpawns > 0).to.equal(true)
+
+			local _made, standing, fake, where = stubRuntime()
+			Forest.layoutForDrive(971, "c1")
+			Forest.start(fake, 0)
+			Forest.newDrive(0)
+			expect(Forest.planDrive(971, true) ~= nil).to.equal(true)
+			local flier, walker = nil, nil
+			for _, row in ipairs(Forest.roster()) do
+				if row.walker == true and walker == nil then
+					walker = row
+				elseif flier == nil then
+					flier = row
+				end
 			end
-			expect(stats.laneSpawns).to.equal(0)
-			expect(stats.laneSlots).to.equal(0)
-			expect(stats.laneWorstSlot).to.equal(0)
+			expect(flier ~= nil).to.equal(true)
+			expect(walker ~= nil).to.equal(true)
+			-- THE HORN'S SHAPE: a body on its feet that this module never spooked.
+			flier.state = "bedded"
+			flier.ids = { "Boar9" }
+			flier.at = Vector3.new(0, 0, -900)
+			where.Boar9 = { at = Vector3.new(0, 0, -900), flying = true }
+			table.insert(standing, "Boar9")
+			-- THE SLOT CLOCK'S SHAPE: a walker still lying up past `wakeAtSeconds`.
+			walker.state = "bedded"
+			walker.ids = { "Boar8" }
+			walker.at = Vector3.new(40, 0, -900)
+			where.Boar8 = { at = Vector3.new(40, 0, -900) }
+			table.insert(standing, "Boar8")
+			Forest.stepPlacement((tonumber(walker.wakeAtSeconds) or 0) + 1, true)
+			local before = Forest.placementStats()
+			expect(before.wokeHorn > 0).to.equal(true)
+			expect(before.wokeSlot > 0).to.equal(true)
+			-- ...AND EACH IS A COUNT OF GROUPS AND NOT OF TICKS, which is what the two latches are
+			-- for: nine more steps add nothing. MEASURED before the latches: one live drive read
+			-- `wokeHorn=6677` and `wokeSlot=7866` (`345e3-AFT-D1`, `345e2-AFT-C1`).
+			for tick = 1, 9 do
+				Forest.stepPlacement((tonumber(walker.wakeAtSeconds) or 0) + 1 + tick, true)
+			end
+			local held = Forest.placementStats()
+			expect(held.wokeHorn).to.equal(before.wokeHorn)
+			expect(held.wokeSlot).to.equal(before.wokeSlot)
+			expect(held.wokeHorn <= #Forest.roster()).to.equal(true)
+			expect(held.wokeSlot <= #Forest.roster()).to.equal(true)
+			-- ...AND THE NEXT DRIVE STARTS AT ZERO. THE BITE: delete the `wokeHorn` / `wokeSlot` resets
+			-- in `planDrive` and the two lines below fail, because the two above them are non-zero.
+			Forest.newDrive(0)
+			expect(Forest.planDrive(972, true) ~= nil).to.equal(true)
+			local after = Forest.placementStats()
+			expect(after.wokeHorn).to.equal(0)
+			expect(after.wokeSlot).to.equal(0)
+			expect(after.wokeWalk).to.equal(0)
+			-- The lane three were dirtied in their own session above, so they are asserted where
+			-- they were set; a `planDrive` in a fresh session cannot distinguish reset from literal.
+			expect(after.laneSpawns).to.equal(0)
+			expect(after.laneSlots).to.equal(0)
+			expect(after.laneWorstSlot).to.equal(0)
+			Forest.start(nil :: any, 0)
+		end)
+
+		it("counts a lane spawn when a slot the roster does not own reaches the spawn half", function()
+			-- ROUND 1, FINDING 1: "LANE SPAWNS 0" rests on an instrument that no case had ever seen
+			-- FIRE. This is the one that fires it. The door is the one the Reviewer named: a scheduled
+			-- slot with no roster row still falls through `releaseLine`'s roster branch to the spawn
+			-- half, and `laneSpawns` is what makes that visible instead of silent.
+			--
+			-- THE BITE: delete the `if onNow and staged == nil then state.laneSpawns = ... end` block in
+			-- `releaseLine` and all four assertions below fail.
+			local got = laneSpawnOnce()
+			expect(got.laneSpawns > 0).to.equal(true)
+			expect(got.laneSlots).to.equal(1)
+			expect(got.laneWorstSlot).to.equal(got.slot)
+			-- ...AND THE SPAWN REALLY HAPPENED: the runtime handed out that many handles.
+			expect(got.made).to.equal(got.laneSpawns)
+			TestKit.note(
+				string.format(
+					"task 345 T5: a roster-less slot %d on the ON path spawned %d animal(s) in the lane, and the counter saw it",
+					got.slot,
+					got.laneSpawns
+				)
+			)
 		end)
 	end)
 end

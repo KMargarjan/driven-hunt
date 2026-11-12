@@ -44,6 +44,11 @@ export type RosterRow = {
 	ids: { string }, -- the live Boar ids, once it has bodies
 	lineId: string?, -- its row in state.lines, once it is awake
 	skipped: SkipReason?,
+	-- WRITTEN BY `ForestTest.stepPlacement`, and they are LATCHES AND NOT STATE: each one stops a
+	-- counter that would otherwise be read every Heartbeat instead of once per group (task 345 T5).
+	atNorth: number?, -- where the group actually lies, off the member nearest the line (T4)
+	wokeAs: string?, -- "band" / "walk" / "horn" / "slot": what woke it, first claim only
+	slotDue: boolean?, -- its slot clock has been counted once
 }
 
 -- WHAT THE OWNERS ANSWER, HANDED IN. Every entry is one owner's own function or one owner's own
