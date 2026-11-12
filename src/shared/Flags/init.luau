@@ -900,6 +900,29 @@ Flags.DEFAULTS = {
 			.. "judged in that drive's aimed frame, not on the main road; the two were measured "
 			.. "together from stand 11 (task 349 round 3).",
 	} :: FlagRow,
+	-- THE M MAP THAT READS LIKE GROUND (task 347). KAREN, 2026-11-10: *"map is odd and hard to
+	-- understand what and where ... clear with icons and actial map terrain as I send example"*.
+	-- ON draws a GROUND LAYER under the roads and the icons -- the 48 planting zones of
+	-- `Places.CELL_PLANS`, as wood / shrub / open fills on their real bends -- and the clearer icon
+	-- set over it. OFF is today's map, value for value: `MapUi.groundFromGrid` is never called and
+	-- no ground instance is created.
+	--
+	-- BOTH STATES ARE REACHABLE BY PARAMETER while the row sits at false: `MapUi.setGeometry` takes
+	-- the geometry whose `ground` field it draws, and `tests/client/map_ui.spec.luau` drives the
+	-- layer on with the row off.
+	--
+	-- Note: docs/research/2026-11-12-map-ground-layer.md
+	MAP_LOOK = {
+		default = false,
+		-- The module that READS it at its boundary and draws the layer. One writer of everything
+		-- inside the two map frames, exactly as `docs/design/map-ui.md` has it.
+		owner = "StarterPlayerScripts.Hud.MapUi",
+		born = "2026-11-12 task 347",
+		expires = "2026-12-03", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "The eight cells read as ground at a glance -- wood where the wood is, open where it "
+			.. "is open, the roads curving on their real bends -- with small clear icons over it "
+			.. "and one legend. OFF draws today's map and no ground layer at all.",
+	} :: FlagRow,
 }
 
 -- deepFreeze, REQUIRED and not copied: table.freeze is shallow, and this repo has already paid for

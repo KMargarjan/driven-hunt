@@ -5634,6 +5634,20 @@ function Hud.start()
 			-- has replicated and been required the grid is here too -- and it is INJECTED into
 			-- `geometryFor` rather than required inside it, which is what keeps that function pure.
 			local grid = require(ReplicatedStorage:WaitForChild("Grid"))
+			-- THE GROUND LAYER'S TWO INPUTS (task 347), AND THE FLAG IS READ ON THIS SIDE OF THE
+			-- DOOR: `MapUi.GROUND.ENABLED` is that module's own one read of `MAP_LOOK`
+			-- (CLAUDE.md "Feature flags"), so with the row OFF nothing is handed in and
+			-- `geometryFor` cannot build a layer at all. `Places` is the planter's own table --
+			-- where the wood is -- and `Lobby.anchorFor` is where the lodge stands.
+			--
+			-- REQUIRED ONLY WHEN THE FLAG IS ON, so an off build does not even load them.
+			local places = if MapUi.GROUND.ENABLED then require(ReplicatedStorage:WaitForChild("Places")) else nil
+			local lodgeAt: Vector2? = nil
+			if MapUi.GROUND.ENABLED then
+				local lobby = require(ReplicatedStorage:WaitForChild("Lobby"))
+				local anchor = lobby.anchorFor(Map.EXPECTED_WORLD)
+				lodgeAt = if anchor then Vector2.new(anchor.x, anchor.z) else nil
+			end
 			-- THE MAP'S GEOMETRY COMES OFF THE SAME MODULE, through the same door. `setGeometry` is
 			-- idempotent and builds once.
 			--
@@ -5663,7 +5677,9 @@ function Hud.start()
 				-- and it is this closure -- the same one that is already the only place the
 				-- server's published layout name is read.
 				driveLayoutName = if live then live:GetAttribute(data.LAYOUT_ATTRIBUTE) else nil
-				MapUi.setGeometry(MapUi.geometryFor(Map.EXPECTED_WORLD, data, Map, driveLayoutName, grid))
+				MapUi.setGeometry(
+					MapUi.geometryFor(Map.EXPECTED_WORLD, data, Map, driveLayoutName, grid, places, lodgeAt)
+				)
 			end
 			drawMap()
 			if live then

@@ -2091,4 +2091,293 @@ return function()
 			TestKit.note(string.format("map_ui 327f: %d section boxes drawn, dealt cell marked in brass", boxes))
 		end)
 	end)
+
+	-- ---------------------------------------------------------------- the ground layer (task 347)
+	--
+	-- KAREN, 2026-11-10: *"map is odd and hard to understand what and where ... clear with icons and
+	-- actial map terrain as I send example"*. The flag `MAP_LOOK` is BORN OFF, so every case here
+	-- drives the layer on BY PARAMETER -- `geometryFor`'s own `places` argument -- which is the flag
+	-- rule's requirement that both states be reachable while the row sits at one of them.
+	describe("the ground layer reads like ground (task 347)", function()
+		local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
+		local Places = require(ReplicatedStorage:WaitForChild("Places"))
+		local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+		local LODGE = Vector2.new(2850, -2950)
+
+		local function groundOf(cellId: string): any
+			return MapUi.geometryFor("forest-test", data, Map, cellId, Grid, Places, LODGE)
+		end
+
+		it("is one patch per planting zone, and NOTHING without the planting data", function()
+			-- OFF IS TODAY'S MAP: no `places`, no layer, no lodge. The flag-off picture, asserted
+			-- rather than assumed.
+			local off = MapUi.geometryFor("forest-test", data, Map, "C1", Grid) :: any
+			expect(off).to.be.ok()
+			expect(off.ground).to.equal(nil)
+			expect(off.lodge).to.equal(nil)
+			expect(MapUi.groundFromGrid(Grid, nil, nil)).to.equal(nil)
+
+			-- ...AND ON, THE COUNT IS THE PLANTER'S OWN, counted out of `Places.CELL_PLANS` here so
+			-- the case cannot pass by agreeing with itself.
+			local wanted = 0
+			for _, id in ipairs(Grid.cellIds()) do
+				local plan = Places.cellPlanFor(id)
+				if plan ~= nil and plan.zones ~= nil then
+					wanted += #plan.zones
+				end
+			end
+			expect(wanted > 0).to.equal(true)
+			local on = groundOf("C1") :: any
+			expect(on.ground).to.be.ok()
+			expect(#on.ground).to.equal(wanted)
+			expect(on.lodge).to.equal(LODGE)
+			TestKit.note(string.format("map_ui 347: %d planting zones become %d ground patches", wanted, #on.ground))
+		end)
+
+		it("calls each zone by the right word, and reads its density off the planter's own pitch", function()
+			-- THE FIVE WORDS, against the mix names `Places.CELL_PLANS` actually writes.
+			expect(MapUi.groundKindFor("spruceAll", "wood", 26)).to.equal("conifer")
+			expect(MapUi.groundKindFor("larchUnder", "wood", 30)).to.equal("conifer")
+			expect(MapUi.groundKindFor("birchWood", "wood", 28)).to.equal("broadleaf")
+			expect(MapUi.groundKindFor("oakAll", "wood", 30)).to.equal("broadleaf")
+			expect(MapUi.groundKindFor("fieldOakAspenAll", "wood", 30)).to.equal("broadleaf")
+			expect(MapUi.groundKindFor("spruceBirchAll", "wood", 30)).to.equal("mixed")
+			expect(MapUi.groundKindFor("birchScrub", "shrub", 30)).to.equal("scrub")
+			-- A ZONE THAT PLANTS NOTHING IS OPEN GROUND WHATEVER IT IS CALLED.
+			expect(MapUi.groundKindFor("spruceAll", "wood", 0)).to.equal("open")
+			expect(MapUi.groundKindFor("clearing", "wood", 24)).to.equal("open")
+
+			-- THE PITCH IS AN INVERSE DENSITY: 24 studs apart is thick, 60 is open-grown, 0 is
+			-- nothing. The band's two ends are the only two numbers written down.
+			expect(MapUi.groundDensityFor(MapUi.GROUND.DENSEST_SPACING_STUDS)).to.equal(1)
+			expect(MapUi.groundDensityFor(MapUi.GROUND.THINNEST_SPACING_STUDS)).to.equal(0)
+			expect(MapUi.groundDensityFor(0)).to.equal(0)
+			local mid = MapUi.groundDensityFor(42)
+			expect(mid > 0.4 and mid < 0.6).to.equal(true)
+			expect(MapUi.groundDensityFor(8)).to.equal(1)
+			expect(MapUi.groundDensityFor(400)).to.equal(0)
+
+			-- A THICKER WOOD IS A HEAVIER FILL, so density reads as weight and not only as hue...
+			local _, thinT = MapUi.groundLook("conifer", 0)
+			local _, thickT = MapUi.groundLook("conifer", 1)
+			expect(thickT < thinT).to.equal(true)
+			-- ...AND OPEN GROUND IS THE LIGHTEST THING ON THE MAP: it is the ABSENCE of wood.
+			local _, openT = MapUi.groundLook("open", 0)
+			expect(openT > thinT).to.equal(true)
+		end)
+
+		it("THE GROUND AND THE ICONS SHARE ONE PROJECTION (the dispatch's spec)", function()
+			-- THE GROUND LAYER is built from GRID rectangles pushed through `Grid.toWorld`; the
+			-- STANDS come from `Grid.standPosition` and the ROAD from `Grid.roadPolyline`. Three
+			-- doors, and the bend is up to 60 studs -- 15 px at this view. If any of them carried
+			-- the bend differently a stand would be drawn over the wrong band.
+			local model = groundOf("C1") :: any
+			local view = MapUi.fullView(model.bounds, 1100, 700)
+
+			-- ONE: A STAND'S PIXEL IS THE SAME BY BOTH PATHS. `standGridOf` gives its grid station;
+			-- pushing that through the ground layer's own map must land on the pixel the icon is
+			-- drawn at, which is `rawOffsetPx(standPosition)`.
+			local worstStand = 0
+			for index = 1, Grid.standCount("C1") do
+				local at = Grid.standPosition("C1", index)
+				local iconU, iconV = MapUi.rawOffsetPx(at.X, at.Z, view)
+				local u, v = Grid.standGridOf("C1", index)
+				local gx, gz = Grid.toWorld(u, v, Grid.CONFIG.bend)
+				local groundU, groundV = MapUi.rawOffsetPx(gx, gz, view)
+				local miss = math.max(math.abs(iconU - groundU), math.abs(iconV - groundV))
+				if miss > worstStand then
+					worstStand = miss
+				end
+				if miss > 1 then
+					error(
+						string.format(
+							"stand %d is %.2f px apart by the icon path and the ground path -- the two are NOT "
+								.. "on one projection",
+							index,
+							miss
+						)
+					)
+				end
+			end
+
+			-- TWO: EVERY ZONE'S OWN MIDDLE IS INSIDE THE BAND DRAWN FOR IT. Asked of `Places`
+			-- (`zoneIndexAt`, a WORLD question) and answered by the drawn rectangle, so a band in
+			-- the wrong place fails here even though the stands above agreed.
+			local plan = Places.cellPlanFor("C1")
+			local patches = {}
+			for _, patch in ipairs(model.ground) do
+				if patch.cell == "C1" then
+					table.insert(patches, patch)
+				end
+			end
+			expect(#patches).to.equal(#plan.zones)
+			local checked = 0
+			for zoneIndex, zone in ipairs(plan.zones) do
+				local rect = Places.zoneRect("C1", zone)
+				local cx = (rect.minX + rect.maxX) / 2
+				local cz = (rect.minZ + rect.maxZ) / 2
+				local wx, wz = Grid.toWorld(cx, cz, Grid.CONFIG.bend)
+				-- `Places` ITSELF must agree that this world point is in that zone: the round trip
+				-- through `toGrid` is what makes the two spaces one.
+				expect(Places.zoneIndexAt("C1", wx, wz)).to.equal(zoneIndex)
+				local u, v = MapUi.rawOffsetPx(wx, wz, view)
+				local inside = false
+				for _, column in ipairs(patches[zoneIndex].columns) do
+					local u0, v0 = MapUi.rawOffsetPx(column.minX, column.minZ, view)
+					local u1, v1 = MapUi.rawOffsetPx(column.maxX, column.maxZ, view)
+					if
+						u >= math.min(u0, u1) - 1
+						and u <= math.max(u0, u1) + 1
+						and v >= math.min(v0, v1) - 1
+						and v <= math.max(v0, v1) + 1
+					then
+						inside = true
+					end
+				end
+				if not inside then
+					error(
+						string.format(
+							"zone %d of C1 has its own middle (%.0f, %.0f) OUTSIDE every band drawn for it",
+							zoneIndex,
+							wx,
+							wz
+						)
+					)
+				end
+				checked += 1
+			end
+			expect(checked).to.equal(#plan.zones)
+
+			-- THREE, MEASURED AND REPORTED RATHER THAN ASSERTED: how far a band reaches over the
+			-- main road. A column is the axis-aligned BOX of four bent corners, so it bulges past
+			-- the curved band it stands for, and the honest number is the worst reach -- not a
+			-- promise that it is zero. Four columns is what keeps it small.
+			local road = Grid.roadsOf("C1").main
+			local samples = Grid.roadPolyline(road, 17, Grid.CONFIG.bend)
+			local worstReach = 0
+			for _, point in ipairs(samples) do
+				for _, patch in ipairs(patches) do
+					for _, column in ipairs(patch.columns) do
+						if point.X >= column.minX and point.X <= column.maxX then
+							local into = math.min(point.Y - column.minZ, column.maxZ - point.Y)
+							if into > worstReach then
+								worstReach = into
+							end
+						end
+					end
+				end
+			end
+			TestKit.note(
+				string.format(
+					"map_ui 347 projection: %d stands agree to %.2f px, %d zone middles inside their own band, "
+						.. "worst band reach over the main road %.1f studs",
+					Grid.standCount("C1"),
+					worstStand,
+					checked,
+					worstReach
+				)
+			)
+		end)
+
+		it("draws the ground, the tree marks and the lodge, and stays inside the budget", function()
+			local restore = MapUi.geometry()
+			local model = groundOf("C1")
+			MapUi.setGeometry(model)
+			MapUi.setOpen(true)
+			task.wait()
+			local full = Hud.fullMap() :: Frame
+			local canvas = full:FindFirstChild("Canvas") :: Frame
+			expect(canvas).to.be.ok()
+
+			-- L-093: THE PRODUCER'S OWN OUTPUT, COUNTED ON THE DRAWN PICTURE. Make
+			-- `MapUi.groundFromGrid` return nil and `bands` is 0, so this is the line that fails --
+			-- which is what makes the case bite.
+			local bands, trees, cells = 0, 0, {}
+			for _, child in ipairs(canvas:GetChildren()) do
+				local cell = string.match(child.Name, "^Ground(%u%d)_")
+				if cell ~= nil then
+					bands += 1
+					cells[cell] = true
+				elseif string.match(child.Name, "^Tree%u%d_") ~= nil then
+					trees += 1
+				end
+			end
+			expect(bands >= #(model :: any).ground).to.equal(true)
+			-- EVERY PLANTED CELL IS ON THE PICTURE and not only the dealt one: Karen asked to *"see
+			-- all map all sections"* (327f), and the ground answers the same way the boxes do.
+			local planted = 0
+			for _, id in ipairs(Grid.PLANTED_CELLS) do
+				if cells[id] then
+					planted += 1
+				end
+			end
+			expect(planted).to.equal(#Grid.PLANTED_CELLS)
+			-- THE TREE MARKS ARE ON THE DEALT CELL ONLY.
+			expect(trees > 0).to.equal(true)
+			for _, child in ipairs(canvas:GetChildren()) do
+				local cell = string.match(child.Name, "^Tree(%u%d)_")
+				if cell ~= nil then
+					expect(cell).to.equal("C1")
+				end
+			end
+			-- THE LODGE, PINNED: it is 5,270 studs outside the grid, so it is drawn AND dimmer than
+			-- a real position.
+			local lodge = canvas:FindFirstChild("Lodge") :: Frame
+			expect(lodge).to.be.ok()
+			expect(lodge.BackgroundTransparency).to.equal(CONFIG.PINNED_TRANSPARENCY)
+			expect(lodge:FindFirstChild("Roof")).to.be.ok()
+
+			-- THE BUDGET, MEASURED ON THE OPEN MAP (the dispatch's 1,500).
+			local instances = #full:GetDescendants()
+			if instances >= 1500 then
+				error(string.format("the open map is %d UI instances, over the 1,500 budget", instances))
+			end
+			TestKit.note(
+				string.format(
+					"map_ui 347 drawn: %d ground bands over %d planted cells, %d tree marks, lodge pinned, %d instances",
+					bands,
+					planted,
+					trees,
+					instances
+				)
+			)
+			MapUi.setOpen(false)
+			MapUi.setGeometry(restore)
+		end)
+
+		it("keeps ONE legend, and the well grows to hold its rows", function()
+			local plain = MapUi.legendRows(false)
+			local withGround = MapUi.legendRows(true)
+			expect(#withGround > #plain).to.equal(true)
+			-- THE FIRST SIX ROWS ARE THE ROWS THEY ALWAYS WERE: the ground's words are ADDED to one
+			-- key, never a second key beside it.
+			for index, row in ipairs(plain) do
+				expect(withGround[index].word).to.equal(row.word)
+			end
+			-- THE HEIGHT IS DERIVED, so a twelfth row cannot hang out of the well.
+			expect(MapUi.legendHeightPx(#plain)).to.equal(CONFIG.LEGEND_HEIGHT_PX)
+			expect(MapUi.legendHeightPx(#withGround) > MapUi.legendHeightPx(#plain)).to.equal(true)
+
+			-- ...AND ON THE REAL HUD THERE IS STILL EXACTLY ONE legend, with one well in it.
+			local restore = MapUi.geometry()
+			MapUi.setGeometry(groundOf("C1"))
+			MapUi.setOpen(true)
+			task.wait()
+			local legend = Hud.mapLegend()
+			expect(legend).to.be.ok()
+			local wells, words = 0, 0
+			for _, child in ipairs((legend :: Frame):GetChildren()) do
+				if child.Name == "Well" then
+					wells += 1
+				elseif string.match(child.Name, "^Word%d+$") ~= nil then
+					words += 1
+				end
+			end
+			expect(wells).to.equal(1)
+			expect(words).to.equal(#withGround)
+			MapUi.setOpen(false)
+			MapUi.setGeometry(restore)
+			TestKit.note(string.format("map_ui 347 legend: %d rows in one well", words))
+		end)
+	end)
 end
