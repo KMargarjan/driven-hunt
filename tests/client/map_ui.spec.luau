@@ -2365,6 +2365,83 @@ return function()
 			MapUi.setGeometry(restore)
 		end)
 
+		it("costs under 50 ms to open, and the ground layer is built ONCE and not per frame", function()
+			-- THE DISPATCH'S BUDGET, MEASURED ON BOTH SIDES. The picture is BUILT at `setGeometry`
+			-- and only SHOWN at `setOpen`, so both halves are timed: the build is what the first M
+			-- of a drive pays and the open is what every M after it pays.
+			local restore = MapUi.geometry()
+			local off = MapUi.geometryFor("forest-test", data, Map, "C1", Grid)
+			local on = groundOf("C1")
+
+			local function buildMs(model: any): number
+				local worst = 0
+				for _ = 1, 3 do
+					MapUi.setGeometry(nil)
+					task.wait()
+					local t0 = os.clock()
+					MapUi.setGeometry(model)
+					local took = (os.clock() - t0) * 1000
+					if took > worst then
+						worst = took
+					end
+					task.wait()
+				end
+				return worst
+			end
+			local function openMs(model: any): (number, number)
+				MapUi.setGeometry(model)
+				task.wait()
+				local times = {}
+				for _ = 1, 5 do
+					MapUi.setOpen(false)
+					task.wait()
+					local t0 = os.clock()
+					MapUi.setOpen(true)
+					table.insert(times, (os.clock() - t0) * 1000)
+					task.wait()
+				end
+				MapUi.setOpen(false)
+				table.sort(times)
+				return times[3], times[5]
+			end
+
+			local buildOff = buildMs(off)
+			local buildOn = buildMs(on)
+			local openOffP50, openOffMax = openMs(off)
+			local openOnP50, openOnMax = openMs(on)
+
+			-- THE REBUILD COUNTER IS THE "NOT PER FRAME" HALF: with the map open and the geometry
+			-- unchanged, twenty ticks must redraw the ground exactly zero times.
+			MapUi.setGeometry(on)
+			MapUi.setOpen(true)
+			local rebuildsBefore = MapUi.stats().rebuilds
+			for _ = 1, 20 do
+				MapUi.render()
+				task.wait()
+			end
+			local rebuilt = MapUi.stats().rebuilds - rebuildsBefore
+			MapUi.setOpen(false)
+			expect(rebuilt).to.equal(0)
+
+			if openOnMax >= 50 then
+				error(string.format("opening M with the ground layer costs %.1f ms, over the 50 ms budget", openOnMax))
+			end
+			TestKit.note(
+				string.format(
+					"map_ui 347 cost (DEV): open p50 %.2f / %.2f ms, max %.2f / %.2f ms (off / on); "
+						.. "build worst %.1f / %.1f ms; %d ground rebuild(s) over 20 ticks with the map open",
+					openOffP50,
+					openOnP50,
+					openOffMax,
+					openOnMax,
+					buildOff,
+					buildOn,
+					rebuilt
+				)
+			)
+			MapUi.setGeometry(restore)
+		end)
+
 		it("keeps ONE legend, and the well grows to hold its rows", function()
 			local plain = MapUi.legendRows(false)
 			local withGround = MapUi.legendRows(true)
