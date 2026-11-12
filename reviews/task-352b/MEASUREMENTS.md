@@ -117,81 +117,76 @@ sits **at the waterline** — the lower half of F3 and F3b is water, and the new
 it. A1 is not in `ROTATION_CELLS`, so no drive deals a stand there and nobody is put in that water
 today; but A1's west flank is wet, and a bake of A1 would have to answer it.
 
-## Task 349's action, from the stand the drive was actually played on
+## Task 349's action, from stand 4 and from stand 11
 
-One drive, C1, `DRIVE_VARIETY` and `DRIVE_AIMS_AT_PICKED_STAND` both ON, the stand taken by a
-**real click** on the M map (`352b-ft.py`, task 351's instrument). Track:
-`<runs-dir>/352b-s11-track.txt`, 46 clocked samples at ~6 s across the whole 300 s drive.
+Two drives, C1, `DRIVE_VARIETY` and `DRIVE_AIMS_AT_PICKED_STAND` both ON, ~6 s samples across the
+whole 300 s drive (`352b-ft.py` / `352b-ft2.py`, task 351's instrument).
 
-| | target | measured | |
+| | target | **stand 4** | **stand 11** |
 |---|---|---|---|
-| first sighting after the drive opened | ≤ 30 s | **7 s** | **MET** |
-| median gap between samples with an animal in sight | ≤ 20 s | **6.0 s** (mean 7.4, worst 19) | **MET** |
-| samples with an animal in sight | — | **40 of 46**; median **6** visible, worst **23** | |
-| the stand it was played from | **stand 11** | **stand 4, every single sample** | **NOT the stand that was clicked** |
+| how the stand was reached | — | the pick did not take — he was dealt it (see below) | **a REAL click: `clicked row 11 -> 11 WEST YOURS`** |
+| samples on that stand | — | 46 of 46 clocked | **47 of 47 clocked, within 20 studs** |
+| first sighting after the drive opened | ≤ 30 s | **7 s — MET** | **36 s — NOT MET** |
+| median gap between samples with an animal in sight | ≤ 20 s | **6.0 s — MET** | **6.0 s — MET** |
+| worst gap | — | 19 s | 32 s |
+| samples with an animal in sight | — | 40 of 46 (median 6 visible, worst 23) | 32 of 47 (median 4 visible, worst 14) |
 
-**Stand 11's own numbers are NOT OBTAINABLE**, and that is this task's second finding rather than a
-gap in the method: the map pick cannot be taken at all (below), so nothing in this repo can put a
-hunter on stand 11 by the dispatch's own means — a **real click**. The numbers above are stand 4's
-and are labelled stand 4 wherever they appear.
+Tracks: `<runs-dir>/352b-s11-track.txt` (stand 4) and `352b-s11c-track.txt` (stand 11). The stand-11
+run's sighting frame is taken from `eye=-4504.4,133.8,-4087.3`, which is stand 11's own point.
 
-## The stand pick: reproduced, and the cause named
+**The aimed drive does reach the west flank** — stand 11 sees an animal in two samples out of three
+and never waits longer than 32 s — but **it takes 36 s to show her the first one**, against the
+dispatch's 30 s. Stand 4, on the main line, is quicker on both counts. That gap is the Director's to
+decide on; it is not a defect this task was asked to fix.
+
+## The stand pick: reproduced, then found to be MY instrument and not the game
 
 Task 351 logged `clicked row 11 -> 11 WEST FREE` and the hunter was dealt stand 4. **Reproduced
-here**, same place, same flags: `352b-s11-pick.txt` holds all fifteen rows before and after the
-click and **not one of them changed** — no row became MINE — and `352b-s11-track.txt` reads
-`stand=4` for every sample of the drive. There are **two faults**, and the first had to be measured
-before it stopped hiding the second.
+first**, same place, same flags: `352b-s11-pick.txt` holds all fifteen rows before and after the
+click and **not one of them changed**, and `352b-s11-track.txt` reads `stand=4` for every sample of
+that drive. Then it was taken apart, and **the game is not at fault**.
 
-**(1) The harness never clicked the row.** `click.ps1` taps Alt and calls `SetForegroundWindow`
-before it moves the cursor. With the window activated that way the client reports the pointer at
-**804,392 — exactly half of its own 1609x784 viewport** — and `GetGuiObjectsAtPosition` there
-returns `Canvas > CellC2 > GroundC2_42_5 > FullMap`, the map canvas, not a row
-(`352b-clicktest.txt`). No ask is sent: the footer stayed at `"click a stand"` through clicks aimed
-at row 2 and at row 9 (`352b-aim-175-2.txt`, `352b-aim-175-9.txt`). That is task 351's line exactly
-— a click that reported a row and reached nothing.
+**THE CAUSE: `click.ps1` activates the Studio window before it moves the cursor, and the client
+re-centres the pointer when the window is activated.** After a `click.ps1` call the client reports
+`GetMouseLocation = 804,392` — **exactly half of its own 1609x784 viewport** — and
+`GetGuiObjectsAtPosition` there returns `Canvas > CellC2 > GroundC2_42_5 > FullMap`, the map canvas,
+not a row (`352b-clicktest.txt`). **The click lands in the middle of the map and no ask is ever
+sent**: the footer stays at `"click a stand"`. That is task 351's line exactly — a click that
+reported a row and reached nothing. `click.ps1` is `<runs-dir>`, not the repo; the same tap is in
+`351-ft.py`'s `pick_stand` and its `start` block.
 
-**(2) With the pointer genuinely on the row, the SERVER refuses the ask.** Focusing first, parking
-the cursor, then clicking with no re-activation (`352b-focuspark.ps1` then `352b-rawclick.ps1`) puts
-the pointer where it is aimed and leaves it there: `GetMouseLocation = 1161,586`, which is Row11's
-own centre (`abs=1106,565 size=126,42`); `MouseBehavior=Default`; and
-`under the mouse, topmost first: Row11(TextButton) > StandList(ScrollingFrame) > MapScrim(Frame)`.
-`applyPick` writes `row.button.Active = pickableNow()` and **all 15 rows read `Active=true`**, so
-the client-side predicate was true as well. The click then changes the footer from
-`"click a stand"` to **`"you need tree-stand access"`** (`352b-focusdiag.txt`) — which is
-`MapUi.CONFIG.PICK_WORDS.seat`, drawn from the **last server verdict's reason** at
-`src/client/Hud/init.luau`'s `MapUi.setPickWindow(...)` call. So the ask reached the server and the
-server answered `StandPick.REASON.SEAT`.
+**THE PROOF THAT THE GAME IS FINE.** Hold the focus first, park the cursor, then click with no
+re-activation (`352b-focuspark.ps1` then `352b-rawclick.ps1`) and the pick works:
 
-**Where that word is produced, file and symbol:**
+| aimed | what the game answered |
+|---|---|
+| Row4 with offset 175 | **`"stand 3 is yours"`, `Row3 3 MAIN YOURS`** — a claim, one row above the one aimed at |
+| Row11 with offset **219** | **`"stand 11 is yours"`, `Row11 11 WEST YOURS`** (`352b-aim2-11.txt`) |
+| a whole drive, Row11 with offset 219 | `clicked row 11 -> 11 WEST YOURS`, and the hunter stood on stand 11 for all 47 clocked samples |
 
-- `src/server/Match/StandPick.luau`, `StandPick.judge` —
-  `if ask.seated == true and ask.entitled == false then return false, StandPick.REASON.SEAT end`;
-- its two inputs are measured in `src/server/Match/init.luau`, `Match.onStandRequest` —
-  `seated = seatedStands ~= nil and seatedStands[stand] == true` and
-  `entitled = if ownedOf ~= nil then Shop.grantsHighSeat(ownedOf(userId)) else nil`.
+So `StandPick`, `Match.onStandRequest`, the remote and the map rows all do what task 323 says they
+do. **Nothing in `src/` needs fixing for the pick.**
 
-**`entitled` is false and that is correct**: `ServerStorage.DHTestOwns` is
-`rifle.scoped,rifle.lever,shotgun.semiauto,ammo.unlimited,ammo.slug,licence.reddeer` — no high-seat
-item in it. **`seated` is the wrong half: the refusal fires on stands that carry no seat.** The
-evidence, one line: **row 9 and row 11 are both labelled `FREE` by the map and both were refused
-with the seat word** (`352b-aim2-9.txt`, `352b-focusdiag.txt`), while the world's own seats are
-`Workspace.HighSeats = Seat8 | Seat10 | Seat13`, `HighSeats.standsFor("C1") = {8,10,13}` and
-`ReplicatedStorage.ForestTest.Live.Layout = C1` (`352b-seats.luau`, read in that same Play server).
+**Two traps, written down so the next run does not fall into them.**
 
-**What follows, and why stand 4.** No claim is ever accepted, so `Match.standOf(userId)` stays nil;
-`openPickFor` in `src/server/ForestTestBoot.server.luau` then calls
-`ForestTest.lockPick(userId, position, os.clock(), Match.standOf(userId))`, whose documented
-fallback with a nil claim is `ForestTest.nearestStand` — the stand `Body.place` put him on. The
-console says it in both runs: `[ForestTest] Alhamdulilah824 has the pick window open on stand 4`.
-**Stand 4 is not a choice; it is where he was already standing.**
+1. **`GetMouseLocation()` and `GetGuiObjectsAtPosition()` read one row LOW** for this
+   `IgnoreGuiInset` ScreenGui. Parking the cursor at the point computed with offset 175 made the
+   client report `Row11(TextButton)` topmost under the mouse — and the click claimed **stand 10**.
+   Aiming Row11 with offset 219 made it report `Row12`, and the click claimed **stand 11**. The
+   probe is 44 px — one row — out of step with the `TextButton`'s own `AbsolutePosition`. **The
+   claim outcome is the instrument; the hit-test probe is not.**
+2. That is what cost this session its first diagnosis. Aiming with 175 put the click on rows **8**
+   and **10**, which are C1's towers (`Workspace.HighSeats = Seat8 | Seat10 | Seat13`,
+   `HighSeats.standsFor("C1") = {8,10,13}`), and the server **correctly** refused them with
+   `StandPick.REASON.SEAT` — `"you need tree-stand access"` — because `ServerStorage.DHTestOwns`
+   carries no high-seat item. A right refusal on a row I did not mean to click read as a wrong
+   refusal on the row I did.
 
-**What is NOT settled, said here rather than left to a review round** (lesson V293): from outside
-the server I can read the refusal WORD but not the `measured` table that produced it, so I cannot
-separate *"`seatedStands[stand]` answers true for an unseated stand"* from *"the number that
-reaches the server is not the row's"*. Both produce this word and this outcome. **One line in
-`Match.onStandRequest` printing `measured` settles it in a single drive** — that is a code change,
-so it belongs to the fix, which the dispatch reserves for the next task. **Not fixed here.**
+**What the Director may want anyway:** `351-ft.py`'s own constants are `OX, OY = 5, 232`, which is
+geometrically fine — 232 lands 13 px below a row's centre and a row is 42 px tall — so the ONLY
+thing that has to change in the harness is the window activation. `352b-ft2.py` is that change
+(focus-park, then a bare click) and it is the file that produced `11 WEST YOURS`. Both live in
+`<runs-dir>`; no repo file is involved.
 
 ## What Karen will see
 
@@ -201,9 +196,8 @@ are trees looking in and trees looking out (F3, F3b); from the air A1 is wood to
 From **C1 stand 11** nothing changed, and nothing should have — C1's own wood closes that view at
 1,100 studs (F1, F1b, both below the noise floor). The M map's A1 corner is solid conifer.
 
-**What she will NOT get is the stand she picks.** The map pick is refused for every stand, so a
-hunter is dealt whatever stand the drive stood him on. **This is still unproven to work; nobody has
-seen it work.**
+**And the stand she clicks is the stand she gets.** Proven on screen: `11 WEST YOURS`, and a whole
+drive stood on stand 11.
 
 ## Gate
 
