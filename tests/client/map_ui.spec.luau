@@ -2859,5 +2859,41 @@ return function()
 				)
 			)
 		end)
+
+		it("opens inside task 347's budget: p50 <= 50 ms and <= 1,500 instances", function()
+			-- THE DISPATCH'S TWO NUMBERS, on the SAME instrument task 347's cost case uses (five
+			-- timed opens, the median) so the two rows are comparable rather than merely similar.
+			-- DEV, and said so: the probe gets this client's own Hud.
+			local restore = MapUi.geometry()
+			local on =
+				MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid, Places, LODGE, uploaded()) :: any
+			MapUi.setGeometry(on)
+			task.wait()
+			local times = {}
+			for _ = 1, 5 do
+				MapUi.setOpen(false)
+				task.wait()
+				local t0 = os.clock()
+				MapUi.setOpen(true)
+				table.insert(times, (os.clock() - t0) * 1000)
+				task.wait()
+			end
+			table.sort(times)
+			local p50, worst = times[3], times[5]
+			-- EVERYTHING INSIDE THE MAP'S OWN FRAME, which is what "instances on open" counts.
+			local instances = #(Hud.fullMap() :: Frame):GetDescendants()
+			MapUi.setOpen(false)
+			MapUi.setGeometry(restore)
+			expect(p50 < 50).to.equal(true)
+			expect(instances <= 1500).to.equal(true)
+			TestKit.note(
+				string.format(
+					"map_ui 354 budget (DEV): open p50 %.2f ms, max %.2f ms (<= 50), %d instances in the map frame (<= 1500)",
+					p50,
+					worst,
+					instances
+				)
+			)
+		end)
 	end)
 end
