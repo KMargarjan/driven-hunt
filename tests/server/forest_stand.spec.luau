@@ -373,22 +373,28 @@ return function()
 			local aimed = table.clone(band)
 			aimed.nearRoadStuds = 120
 			aimed.farRoadStuds = 180
+			-- THE DISCRIMINATOR IS ARITHMETIC, not luck: `restSpot` offsets each ring by
+			-- `sin(angle) * radius` (+-64 studs over 4 rings of 16), so with the shift reaching the
+			-- generator the depth is 150 +- 64 and the inner rings clear a 120..180 band. WITHOUT it
+			-- the depth is 150 - 975 +- 64 and NO ring can clear it -- every candidate lands on the
+			-- band arm and `ground` stays 0. So `ground > 0` IS the frame, read off the counters.
 			local spot = ForestTest.restSpot(standX, spec, aimed, shift)
+			local after = ForestTest.bedRefusals()
+			expect((after :: any).ground > 0).to.equal(true)
 			if spot == nil then
-				-- the ground or the trunks may refuse this particular x; the counters say which, and
-				-- a band refusal here WOULD mean the shift never reached the generator.
-				local r = ForestTest.bedRefusals()
+				-- DEV has no C1 ground, so no spot is found here; the counters still say the
+				-- candidate reached the ground test, which is what the frame decides.
 				TestKit.note(
 					string.format(
-						"no spot: swept=%d band=%d lane=%d zone=%d unseen=%d",
-						r.swept,
-						r.band,
-						r.lane,
-						r.zone,
-						r.unseen
+						"no spot (DEV has no C1 ground): swept=%d band=%d ground=%d lane=%d zone=%d unseen=%d",
+						after.swept,
+						after.band,
+						after.ground,
+						after.lane,
+						after.zone,
+						after.unseen
 					)
 				)
-				expect((r :: any).band).to.equal(0)
 			else
 				local depth = (spot :: Vector3).Z - (Data.roadZ((spot :: Vector3).X, layout) + shift)
 				expect(depth >= 120 and depth <= 180).to.equal(true)
