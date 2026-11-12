@@ -2343,6 +2343,31 @@ return function()
 			return out
 		end
 
+		-- THE GENERATED LIST IS NOT THE SHIPPED ONE, asserted wherever a case's own figures would
+		-- also be true of the script (review round 2, finding 1: three cases passed with
+		-- `generateDrive` stubbed to `return resolved.drive`). Field-level, not identity: a clone of
+		-- the script would pass `never.to.equal` and is still the script.
+		local function differsFromScript(rows, source)
+			local base = source or SCHEDULE.drive
+			expect(rows).never.to.equal(base)
+			local differed = 0
+			for index, row in ipairs(rows) do
+				local was = base[index]
+				if
+					was == nil
+					or row.species ~= was.species
+					or row.composition ~= was.composition
+					or row.party ~= was.party
+					or row.keepAt ~= was.keepAt
+					or row.northStuds ~= was.northStuds
+					or row.offsetX ~= was.offsetX
+				then
+					differed += 1
+				end
+			end
+			return differed
+		end
+
 		local function generated(seed: number, density: string?)
 			local config = configOn()
 			local weigh = weigher(config)
@@ -2492,14 +2517,31 @@ return function()
 		it("keeps the dial's own shape: nine groups at quiet, no more than the script at normal", function()
 			local config = configOn()
 			local weigh = weigher(config)
+			local silentSeen = 0
 			for drive = 1, 12 do
 				local rows = Data.generateDrive(Data.driveSeed(31, drive, "C1"), DENSITY, SCHEDULE, weigh)
+				-- FAIL FIRST: the shipped table satisfies both counts on its own, so without this
+				-- the case passes with the generator stubbed out (review round 2, finding 1).
+				expect(differsFromScript(rows) > 0).to.equal(true)
 				expect(summarise(rows, "quiet", weigh).groups).to.equal(Data.groupsWanted("quiet", SCHEDULE))
 				expect(summarise(rows, "normal", weigh).groups <= Data.groupsWanted("normal", SCHEDULE)).to.equal(true)
-				-- A SILENT SLOT IS SILENT AT EVERY DENSITY, including `busy`: that is what
-				-- `SILENT_KEEP_AT` is for, and it is past every dial.
-				expect(Data.SILENT_KEEP_AT > Data.groupsWanted("busy", SCHEDULE)).to.equal(true)
+				-- A SILENT SLOT IS SILENT AT EVERY DENSITY, including `busy`, and that is asserted of
+				-- a GENERATED ROW rather than of two constants: the old line read `99 > 15` and never
+				-- touched the drive it was inside a loop over.
+				local schedule = table.clone(SCHEDULE)
+				schedule.drive = rows
+				for slot, row in ipairs(rows) do
+					if row.keepAt == Data.SILENT_KEEP_AT then
+						silentSeen += 1
+						expect(Data.slotAt(slot, "busy", schedule)).to.equal(nil)
+						expect(Data.slotAt(slot, "normal", schedule)).to.equal(nil)
+						expect(Data.slotAt(slot, "quiet", schedule)).to.equal(nil)
+					end
+				end
 			end
+			-- ...AND EVERY DRIVE HAS AT LEAST ONE (`silenceWant` is drawn from 1), so the loop above
+			-- is never vacuous. The shipped table carries no `SILENT_KEEP_AT` row at all.
+			expect(silentSeen >= 12).to.equal(true)
 		end)
 
 		it("tells a special act from an ordinary row by the row's own fields", function()
@@ -2617,6 +2659,7 @@ return function()
 			local base = summarise(SCHEDULE.drive, DENSITY, weigh)
 			for drive = 1, 40 do
 				local rows = Data.generateDrive(Data.driveSeed(404, drive, "C1"), DENSITY, SCHEDULE, weigh)
+				expect(differsFromScript(rows) > 0).to.equal(true) -- FAIL FIRST (round 2, finding 1)
 				local got = summarise(rows, DENSITY, weigh)
 				expect(got.deerGroups >= 1).to.equal(true)
 				expect(got.deerGroups <= base.deerGroups).to.equal(true)
@@ -2634,6 +2677,7 @@ return function()
 			local third = math.floor(slots / 3)
 			for drive = 1, 40 do
 				local rows = Data.generateDrive(Data.driveSeed(77, drive, "C1"), DENSITY, SCHEDULE, weigh)
+				expect(differsFromScript(rows) > 0).to.equal(true) -- FAIL FIRST (round 2, finding 1)
 				local schedule = table.clone(SCHEDULE)
 				schedule.drive = rows
 				local lateFiring, lastSlot = 0, 0

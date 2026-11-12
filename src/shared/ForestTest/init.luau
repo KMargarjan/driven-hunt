@@ -3424,6 +3424,11 @@ function ForestTest.generateDrive(
 	-- *"we need all a time in drive deer"*. A drive whose SPECIALS already carry a deer has its one,
 	-- so the floor is 0 there; otherwise one ordinary slot stays a deer party and the SINGLES give
 	-- way instead (`ceilingFor(1,1) = 72` clears 65 with room).
+	-- ...AND A SPECIAL'S DEER COUNTS, INCLUDING THE LONE STAG (review round 2's note). The SNEAK act
+	-- IS one red deer -- `party = "stag"`, one animal -- so a drive that drew him may carry him and
+	-- no other deer: `driveTally` counts that as a deer group and it is, but it is one animal where
+	-- Karen's *"we need all a time in drive deer"* probably means a party. Said rather than hidden;
+	-- tightening it to "a deer GROUP" is a one-word change to this line if the Director wants it.
 	local minDeer = if deerDrawn > 0 then 0 else math.min(1, #deerGroup)
 	while deerWant > minDeer and ceilingFor(deerWant, singleWant) < floorWanted do
 		deerWant -= 1
@@ -3460,7 +3465,9 @@ function ForestTest.generateDrive(
 		-- Act III holds exactly ONE ordinary row, slot 14: slots 11, 12, 13 and 15 are all specials,
 		-- so every generated act-III slot cloned the same depth, the same side and the same crossing,
 		-- every drive. Against *"from different sides"* that was the one act with no sides at all.
-		-- Act II's rows are the deeper half of the script, which is what act III needs anyway.
+		-- Act II's ordinary rows are at 150, 170, 210 and 265 studs against act III's own 290, so they
+		-- are SHALLOWER, not deeper (review round 2's note corrected this sentence); what they give
+		-- act III is four more sides and crossings instead of one.
 		local geoms = ordinary[act]
 		if act == 3 and #ordinary[2] > 0 then
 			geoms = table.clone(ordinary[3])
