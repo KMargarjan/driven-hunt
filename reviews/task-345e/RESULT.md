@@ -1,15 +1,89 @@
-1. `tests/server/forest_placement.spec.luau` / `it("starts a drive with 0 lane spawns and 0 of each wake source counted")` — the case offered as claim 6's proof for the new counters does not drive the owner at all, and neither of the two things T5 added (the per-drive reset, the increment at the spawn site) is reachable from it. Evidence: the whole body is `local stats = Forest.placementStats()`, then `for _, key in ipairs({ "laneSpawns", "laneSlots", "laneWorstSlot", "wokeWalk", "wokeHorn", "wokeSlot" }) do expect(type(stats[key])).to.equal("number") end` and three `expect(stats.laneX).to.equal(0)`. There is no `Forest.start`, no `Forest.planDrive` and no `Forest.step` — yet the case's own comment says *"THE COUNTERS EXIST AND ARE ZEROED BY `planDrive`, which is what makes a live reading of 0 evidence rather than a counter nothing ever wrote (design 12.3)"*. Delete the six `state.placement...`/`state.lane...` resets in `ForestTest.planDrive` and the case still passes (the `state` literal initialises all six to 0); delete the `if onNow and staged == nil then state.laneSpawns = ... end` block in `releaseLine` and it still passes. The three wake counters the title says are "0" are only `type(...) == "number"` — the pattern verdict 281 names as blocking, and `wokeSlot` in particular is non-zero in a live C1 drive, so a value assertion there is not idle. The same file already has the scaffolding (`Forest.start(fake, 0)` + `Forest.planDrive(n, true)` + `Forest.step(Data.slotSeconds(1, ...), true)` in *"releases nothing for a scheduled slot the switch owns"*), so the biting version is reachable here. Required: plan a drive in the case and assert all six counters are 0 **after** `planDrive` (so the reset is what answers), assert `wokeWalk`/`wokeHorn`/`wokeSlot` by value and not by type, and add a case in which `releaseLine` reaches the spawn half on the ON path (a slot the roster does not own, with `computeRouteVia` patched as the T4 file case does) so `laneSpawns`/`laneSlots`/`laneWorstSlot` are asserted NON-ZERO once — otherwise claim 3's headline "LANE SPAWNS 0" rests on an instrument no case has ever seen fire. (The behaviour claim itself is independently backed by the console grep `SLOT 1[6-9] act` = 0; what is unproven is the counter.)
+PASS (items 3, 4, 7 NOT PROVEN)
+
+Rule 5, stated so this PASS is not read as rule 5 having been met: of this task's core items only
+claim 10 has been SEEN in Karen's place — one hunter-view frame of an A2 lane, from the hunter's own
+camera, with no animal in the lane or at the tree line, which is the absence T5 claims. Claims 3, 4
+and 7 are MEASURED off the console and the `DHForestPlacement` attribute and were never seen; nobody
+has watched a flag-ON drive's groups be found by the line (that is T6).
+
+Harness/evidence consistency checked: the request's `[harness] PASS: 34/34 checks @ 713711b8...
+(clean tree) scope=all` names the request's `Code commit:`, and
+`.agent-evidence/paperwork-after-code-commit.txt` says only `reviews/task-345e/REQUEST.md` changed
+after it. selene 0/0, stylua clean, rojo build exit 0. `test2` N/A is TRUE against the real list:
+`tools/agents.py` `TWO_PLAYER_PATHS` contains no `src/server/ForestTest/`, `src/shared/ForestTest/`,
+`forest_line.spec` or `forest_placement.spec` entry.
+
+Delete-the-producer, by reading, for each case offered as proof:
+- claim 1, `forest_line.spec` "is SILENT past the end of the script..." — delete
+  `if inPlace == true then return nil end` in `Data.slotAt` and `expect(onRows).to.equal(0)` fails
+  (`onRows` is now incremented), as do all thirty `to.equal(nil)` rows: the window at slots 16+ has
+  non-deer candidates 7 and 11, both kept at `quiet`, so every density answers a row with the branch
+  gone. BITES.
+- claim 2, "hands the switch through ForestTest.waveAt" — the ON arm `to.equal(nil)` bites; the OFF
+  arm is `waveAt`'s own callee at the same arguments and proves nothing, which the request itself
+  declares rather than claims.
+- claim 5, "counts a lane spawn when a slot the roster does not own reaches the spawn half" — delete
+  the `if onNow and staged == nil then state.laneSpawns = ... end` block in `releaseLine` and
+  `expect(got.laneSpawns > 0)`, `laneSlots == 1`, `laneWorstSlot == got.slot` and
+  `got.made == got.laneSpawns` all fail. BITES. The Builder's reported trace
+  (`:1695` plus `:1551 function laneSpawnOnce ... :1763`) is internally consistent: the reset case
+  aborts first, leaving `state.rosterDrive == 973`, so the second `laneSpawnOnce` fails at
+  `expect(Forest.planDrive(973, true) ~= nil)`. Round 1's blocking finding is fixed.
+- claim 6, "zeroes all six new counters in planDrive" — `wokeHorn`/`wokeSlot` are dirtied through
+  `stepPlacement` (a `where[id].flying = true` body with no latch of ours; a walker past
+  `wakeAtSeconds`), asserted `> 0`, then zeroed by `planDrive`: delete those two resets and the two
+  `to.equal(0)` lines fail. The nine extra steps bite the two latches: remove `if row.wokeAs == nil`
+  or `row.slotDue` and `held.wokeHorn == before.wokeHorn` / `held.wokeSlot == before.wokeSlot` fail.
+  BITES.
+- claim 7's fix verified in code: `Placement.wakeReason` returns nil for a row that is not `bedded`,
+  and the band/slot arm sits behind `row.state == "bedded"`, so `wokeBand` needs no latch while the
+  slot arm (which never sets `woken`) does. `row.slotDue` and `row.wokeAs` gate counters only —
+  nothing else reads them, so "COUNT only, change nothing" holds.
+- claim 9 verified by grep: `driveIndexAt`, `wavesPerDrive`, `deerWaveOf`, `deerWanted`,
+  `twoLineChance` and `ForestTest.drive` have no reader in `src/`, `tests/` or `tools/` — comments
+  and the `backups/` copy only. The archive file exists with the code and the reason (rule 7).
+- the three remaining `slotAt` callers (`stagRow`, `driveTally`, `Placement.plan`) all loop
+  `1..#rows`, so the retired branch is unreachable for them and the 3-argument calls are unaffected.
+- `releaseLine`'s `if placed == 0 then return` precedes the lane block, so `laneSlots` cannot count a
+  slot that put nothing on the ground.
 
 ## Notes (non-blocking)
-- Rule 5, stated so the next round's PASS is not read as rule 5 having been met: of this task's core items, only claim 8 has been SEEN in Karen's place — one hunter-view frame of an A2 lane with no animal in it, which is the absence T5 claims. Claims 3, 4 and 5 are MEASURED in her place off the console and the `DHForestPlacement` attribute, not seen; nobody has watched a flag-ON drive's groups be found by the line (that is T6). On a PASS, line 1 should read `PASS (items 3, 4, 5 NOT PROVEN)`.
-- `tests/server/forest_line.spec.luau` / `it("is SILENT past the end of the script with PLACEMENT_IN_PLACE on, and repeats with it off")` — `onRows` is declared and never incremented, so `expect(onRows).to.equal(0)` cannot fail and the closing `TestKit.note` prints *"0/30 ON"* as if it were a reading. The case still bites (the in-loop `expect(Data.slotAt(slot, "normal", SCHEDULE, true)).to.equal(nil)` is what fails if the `inPlace` branch comes back). Increment `onRows` when the ON arm answers a row, or drop the variable and the `%d/30 ON` field.
-- `tests/server/forest_line.spec.luau` / `it("hands the switch through ForestTest.waveAt...")` — the OFF-arm line `expect(ForestTest.waveAt(slot, false)).to.equal(Data.slotAt(slot, SCHEDULE.density, SCHEDULE, false))` compares the function under test with its own callee at the same arguments; `waveAt` is `return Data.slotAt(index, schedule.density, schedule, onNow)`, so it can only fail if `ForestTest.cellSchedule()` is not `SCHEDULE`. The ON arm (`to.equal(nil)`) is the half that bites.
-- `tests/server/forest_placement.spec.luau` / `it("holds the dormant roster inside 120 rows...")` — the comment says *"83 at `busy` (design 5.2's "53 / 73 / 83")"* but the assertion is `expect(animals <= budget.dormantRows)`, i.e. ≤ 120; design 5.2's own row for animals placed is 53/73/83 and 120 is the ROW cap. Assert the density's own number.
-- `ForestTest.stepPlacement` — the four wake counters are not mutually exclusive, though the new comment says *"First claim wins, per GROUP"*. `wokeAs` is set in the member loop first, and the band arm still does `state.placementWokeBand = ... + 1` unconditionally, so a group latched by this module on the same tick the band fires is counted in both `wokeBand` and `wokeWalk`. "First claim wins" is true of `row.wokeAs`, not of the totals; say so, or move the band increment behind `wokeAs == nil`.
-- `ForestTest.releaseLine` — "spawns in the lane on the ON path = 0 for EVERY slot" rests on the roster covering every scheduled slot, not on `slotAt` alone. Two paths still reach the spawn half with the switch on: `if row == nil and state.owedRow ~= nil then row = state.owedRow end` can resurrect a held deer row at a slot past `#rows`, where `ForestTest.rosterSlot` finds nothing; and a scheduled slot `Placement.plan` dropped (`deerGroups >= cap`, or a `composition` the table does not name — both `table.insert(lines, ...)` with no `table.insert(admitted, ...)`) has no roster row either. Neither fires in her Forest Test today because `ForestTestBoot` raises `MAX_GROUPS_ALIVE` to `Data.MAX_DEER_GROUPS` 40, which is consistent with the measured `laneSpawns` 0. Queue a case for the two.
-- `ForestTest.budget()` — claim 6's *"publishes design 5.2's rows"* is a subset: "groups PLACED per drive 9 / 13 / 15", "animals PLACED per drive 53 / 73 / 83" and "groups skipped for `inview`, per drive 0" have no row, and the first two are already derivable from the dial.
-- `ForestTest.releaseLine`'s new comment — *"This is the only line in this file that puts a scheduled group on the ground"* holds only while `Data.LINE.enabled` is true: `ForestTest.step`'s other arm calls `ForestTest.release`, which spawns and increments none of the new counters. Name the condition.
-- `Placement.RosterRow` — the two new latches `row.slotDue` and `row.wokeAs` are written by `stepPlacement` but are not declared in the exported type (nor in design 8.1's shape), the same way `row.atNorth` already is not. Add them to the type where the rest of the row's fields are owned.
+- `forest_placement.spec` / `it("zeroes all six new counters in planDrive...")` — the title says all
+  six, but `expect(after.wokeWalk).to.equal(0)` cannot fail: `state.placementWokeWalk` is only ever
+  written behind `state.latched`, which only `spookNearBeaters` writes, which needs a live beater.
+  The comment says exactly this and claim 6 declares it, so nothing false is claimed — but delete
+  `state.placementWokeWalk = 0` from `planDrive` and the case still passes. Retitle to five, or
+  queue the live-beater case.
+- `forest_placement.spec` / `laneSpawnOnce` — it patches `Forest.computeRouteVia` and restores it
+  without `pcall`, and both call sites use drive key `973`, so the first failure leaks the patch and
+  leaves `state.rosterDrive == 973`, which turns the second call's `planDrive` into a second,
+  misleading failure (that is precisely the Builder's own delete-and-fail trace). Give each call its
+  own drive number and restore the patch in a `pcall`.
+- `ForestTest.budget()` / `it("holds the dormant roster inside 120 rows...")` — the new
+  `expect(animals).to.equal(83)` is right, but the old `expect(animals <= budget.dormantRows)` is
+  kept beside it and still compares an ANIMAL count with a ROW cap. Drop it; `#rows <=
+  budget.dormantRows` above already asserts the row half.
+- `ForestTest.budget()` — still a subset of design 5.2: "groups PLACED per drive 9 / 13 / 15",
+  "animals PLACED per drive 53 / 73 / 83" and "groups skipped for `inview`, per drive 0" have no row,
+  so the spec asserts 83 as a literal where a published row would have had an owner.
+- `forest_placement.spec` / `laneSpawnOnce` — `expect(got.made).to.equal(got.laneSpawns)` holds only
+  while the same `Forest.step` does not also materialise a bed (both go through `runtime:spawn`). It
+  passes today; if `stepPlacement` ever materialises on the release tick this line turns red for a
+  reason that has nothing to do with the counter. Count the handles made by the release instead.
+- `ForestTest.releaseLine` — the `state.owedRow` door is still open on the ON path: a deer row
+  `Placement.plan` dropped can be refused by `runtime:deerAllowed`, latched into `owedRow`, and then
+  resurrected at a slot past `#rows` where `rosterSlot` finds nothing, which is a lane spawn. It
+  cannot fire in her Forest Test (`ForestTestBoot` raises `MAX_GROUPS_ALIVE` to `MAX_DEER_GROUPS`
+  40), which is consistent with the measured 0, and the request queues it. Still the one hole in
+  "0 for EVERY slot".
+- `docs/design/animal-placement.md` 17's T5 row asks for `repeatFrom`/`repeatTo`/`repeatRoomFor` and
+  the clamp family to be **archived**; they are KEPT, per the dispatch's *"flag OFF stays today's
+  drive byte for byte"*, with the reason written in `backups/2026-11-12_task-345e_...md` and beside
+  each function. The design row and the code now disagree — the Architect's to reconcile at T6.
+- `TASKS.md` row 345e — status still reads "in review (round 1)" and the third column still names
+  code commit `982e52c9`, not `713711b8`.
+- `REQUEST.md` preamble — *"the live measurements of claims 3, 4 and 8"*: claim 8 is the budget spec
+  and carries no live reading; claim 7 is the one that does.
 
 ---
-REVIEWER verdict on commit `52d73b10bc7c18f954e9e5399e7cc05b21109ee6` (round 1) · 2026-11-12 05:11 UTC · session cost $4.25, 43 turns · written by tools/agents.py
+REVIEWER verdict on commit `08a498fb2b0eb8f1386603072d7941e2ea19f449` (round 2) · 2026-11-12 05:36 UTC · session cost $3.75, 39 turns · written by tools/agents.py
