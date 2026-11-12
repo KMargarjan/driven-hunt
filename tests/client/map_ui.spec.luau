@@ -2303,6 +2303,24 @@ return function()
 				end
 			end
 			expect(bands >= #(model :: any).ground).to.equal(true)
+			-- ...AND THEY ARE ACTUALLY ON SCREEN. `Hud`'s ScreenGui is `ZIndexBehavior.Global`, where
+			-- a `ZIndex` under the PANEL's hides a child of the canvas completely: round 1 drew all
+			-- 192 bands behind the panel and the pixels never changed (measured in the Forest Test,
+			-- 2026-11-12 06:45 UTC). A band must therefore never sit under the panel's own band.
+			for _, child in ipairs(canvas:GetChildren()) do
+				if string.match(child.Name, "^Ground%u%d_") ~= nil or string.match(child.Name, "^Tree%u%d_") ~= nil then
+					if (child :: GuiObject).ZIndex < CONFIG.Z_INDEX then
+						error(
+							string.format(
+								"%s is at ZIndex %d, under the panel's %d -- with ZIndexBehavior.Global it is invisible",
+								child.Name,
+								(child :: GuiObject).ZIndex,
+								CONFIG.Z_INDEX
+							)
+						)
+					end
+				end
+			end
 			-- EVERY PLANTED CELL IS ON THE PICTURE and not only the dealt one: Karen asked to *"see
 			-- all map all sections"* (327f), and the ground answers the same way the boxes do.
 			local planted = 0

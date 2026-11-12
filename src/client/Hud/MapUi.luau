@@ -406,7 +406,12 @@ MapUi.GROUND = {
 	OPEN_T = 0.80,
 	-- THE PAINTERLY FALL ACROSS A BAND (reference: a top-down painted map, never flat tint). One
 	-- `UIGradient` per zone, 48 instances, and the fall is along the band's own depth.
-	GRADIENT_T = 0.22,
+	GRADIENT_T = 0.10,
+	-- ONE PIXEL OF OVERLAP PER COLUMN, AND IT IS A MEASUREMENT (the 06:45 UTC Forest Test frame):
+	-- the canvas is drawn under a `UIScale`, so two columns whose world edges are the SAME number
+	-- land on fractional `AbsolutePosition`s and the engine rounds them apart -- a hairline of panel
+	-- through every band. `standHitPx` records the same engine fact for the pick pads.
+	COLUMN_BLEED_PX = 1,
 	GRADIENT_ROTATION = 90,
 	-- THE STIPPLE, ON THE DEALT CELL ONLY -- the one cell a player is standing in. Deterministic off
 	-- `Grid.seedFor`, so it is the same picture every open and nothing is recomputed per frame.
@@ -418,10 +423,18 @@ MapUi.GROUND = {
 	-- PINNED to the border by the rule this map already has for an out-of-range marker.
 	LODGE_PX = 11,
 	LODGE_WORD = "LODGE",
-	-- THE GROUND SITS UNDER EVERYTHING THIS MODULE ALREADY DRAWS. The cell boxes, the roads, the
-	-- stands and the markers are all at `Z_INDEX` or above, so the layer takes the band below it and
-	-- no existing mark moves.
-	Z_BELOW = 2,
+	-- THE GROUND SITS UNDER EVERYTHING THIS MODULE ALREADY DRAWS, AND THAT IS **TREE ORDER, NOT A
+	-- LOWER `ZIndex`** -- MEASURED IN KAREN'S FOREST TEST, 2026-11-12 06:45 UTC. `Hud`'s ScreenGui
+	-- runs `ZIndexBehavior.Global` (probed live), where a descendant's `ZIndex` is compared against
+	-- EVERY other object in the screen and not against its siblings -- so the first draft's
+	-- `Z_INDEX - 2` put the whole layer BEHIND the panel it is drawn on, 192 frames of it, visible
+	-- in the instance tree and invisible on screen (the C1 pixels read `(28, 25, 21)`, the panel's
+	-- own colour, in both the flag-off and the flag-on frame).
+	--   https://create.roblox.com/docs/reference/engine/enums/ZIndexBehavior
+	-- At `Z_INDEX` the layer clears the panel (also `Z_INDEX`) because it is deeper in the tree, and
+	-- the cell boxes, roads, stands and markers still cover it because they are drawn AFTER it into
+	-- the same canvas -- which is the one thing `drawGeometry`'s own order guarantees.
+	Z_BELOW = 0,
 }
 
 -- EVERY GROUND COLOUR IS A `Style` TOKEN OR A LERP OF TWO, AND THAT IS §12's "no new colour" kept
@@ -1708,8 +1721,8 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 				-- A COLUMN IS NEVER THINNER THAN ONE PIXEL: four columns of a narrow zone round to
 				-- zero width at a phone's scale, and a zone that is drawn as nothing is a hole.
 				band.Size = UDim2.fromOffset(
-					math.max(1, math.round(math.abs(u1 - u0))),
-					math.max(1, math.round(math.abs(v1 - v0)))
+					math.max(1, math.round(math.abs(u1 - u0))) + ground.COLUMN_BLEED_PX,
+					math.max(1, math.round(math.abs(v1 - v0))) + ground.COLUMN_BLEED_PX
 				)
 				band.ZIndex = config.Z_INDEX - ground.Z_BELOW
 				-- THE PAINTERLY FALL, one gradient per column: the reference is a PAINTED map, and a
