@@ -1,0 +1,9 @@
+[harness] 2 Studios connected; unscoped calls default to Driven Hunt DEV (placeId: 136410205938347)
+SID bb300770-429d-4958-bc3e-166b5fd16a3c ['Driven Hunt DEV (placeId: 136410205938347)', 'Driven Hunt Forest Test (placeId: 130094961655666)']
+Workspace.OurForest: ABSENT
+Workspace.Session: ABSENT
+ServerStorage.Sources: ABSENT
+Workspace.GridForest (the prebuild): ABSENT
+Workspace.GridPlaces (the boot dress): ABSENT
+Places.templates found 0 template folder(s)
+Places.stats(GridPlaces): folder=false total=0
