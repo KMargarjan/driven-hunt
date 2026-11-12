@@ -4053,3 +4053,149 @@ nothing here is edited there.
    pack its bed gave it. The drive's SPLIT shape -- *"it splits at the verge and crosses twice"* --
    is therefore a RELEASED-path shape only while the switch is on. A `Runtime` "leave your sounder"
    function would give it back; that is a Boar-owner task for T5/T6 to queue, not a hole to hide.
+
+## ~~2026-11-11 -- Task 349: the aim is right and the frame is half-moved~~ (SUPERSEDED by round 2's 22:30 entry and round 3's below; all four round-1 findings are closed)
+
+**For the Director.** Review round 1 returned four blocking findings
+(`reviews/task-349/RESULT.md`). I accept all four and I cannot close them inside this session's
+deadline (17:30 UTC). The branch is `task-349-more-action`, head `04711e42`, harness
+`PASS: 34/34 @ 04711e42... (clean tree) scope=all`. The flag is born OFF and **must stay off**.
+
+**What is proven and does not need redoing.** Karen's *"no animals ... they apear only when?"* is
+real and it is the stand she picks. On her Forest Test, C1, hunter, three stands picked by real
+clicks, one 299 s drive each, flag OFF (main `6fa59255`):
+
+- stand 4, central: first sighting 15 s, median gap 6 s, max 24 s, 121 released
+- stand 7, main-line end: first 9 s, median 8 s, max 26 s, 130 released
+- **stand 11, west flank corner: NOT ONE of 120 released animals came within 120 studs, all drive**
+
+The main line already meets every target in the dispatch. The corner stand sees nothing because
+`hunterStandX` clamps a flank x onto the main line and every release, crossing and exit is built on
+the MAIN road's z, which stand 11 is 975 studs north of. That diagnosis is not in question.
+
+**Why the fix is not finishable here.** Shifting the release frame (`ForestTest.aimFrame` +
+`hunterAim`, this branch) does put animals in front of her -- stand 11 goes from never to first
+sighting 15 s, median gap 11 s. But round 1 found that only the RELEASE frame moves:
+
+1. `Data.fieldFor` still hands the animals' owner `exitZ` and `road.zAt` off the MAIN road. So on a
+   flank drive nothing can report `escaped`, and `_updateOutOfPlay` despawns every ordered animal
+   as `settled` 60 s later -- **my own AFTER table is the symptom and I did not read it: 120
+   released became 72, peak live 35 became 16.** The edge check, the trot urge and the stag's roar
+   read the same unshifted dz and never fire.
+2. The spec case I wrote tests the pure rule only; delete the whole server lever and it still
+   passes. My request's claim 5 (L-093) was wrong and the Reviewer is right.
+3. `orderGroup` -- the `PLACEMENT_IN_PLACE` path, which is what actually moves groups when that
+   flag is on -- is not aimed at all. With both flags on, this lever does nothing.
+4. `hunterAim` takes the FIRST locked pick, so with a roster one flank hunter moves the band off
+   the road every other hunter is standing on.
+
+**What I ask for.** A task 350 that moves the FATE frame with the release frame (one `aim` per
+drive, read by `fieldFor`/`checkAtTheEdge`/`urgeAcrossRoad`/`roarPoint`), aims `orderGroup` the same
+way, bounds the multi-hunter case, and asserts the player's path rather than the pure rule. Until
+then `DRIVE_AIMS_AT_PICKED_STAND` stays off and the flag row says why.
+
+**Also for the Director, separately:** on the main line, `max gap` swings 24-49 s between single
+drives while the median holds at 4-8 s. One 299 s drive is not enough to judge a max-gap target.
+
+## 2026-11-11 22:30 UTC -- Task 349 ROUND 2: the aim works on her path; OFF is not clean. STOP.
+
+**For the Director.** Round 2 returned three blocking findings (`reviews/task-349/RESULT.md`). The
+dispatch says a finding on round 2 goes here and I stop, so I have not started a round 3. Branch
+`task-349-more-action`, code commit `f4e7962d`,
+`[harness] PASS: 34/34 checks @ f4e7962d81034ab428d1bce3e7e179250d743fad (clean tree) scope=all`,
+CI green. **The flag stays OFF.**
+
+**What round 2 PROVED on her path, and does not need redoing.** Three live drives in her Forest
+Test, C1, stand 11 picked by a real click, each at its own commit:
+
+| cycle | commit | corner stand measured |
+|---|---|---|
+| 1 | `c6d6e7a2` | `drive aimed: dz +0, nobody locked` -- nearest animal 1,112 studs. The latch fired before the pick locked |
+| 2 | `03b279ee` | aimed, frame taken from her eye, but `released` 72 and `outOfBounds` 101 -- the field's box culled the band |
+| 3 | `f4e7962d` | **212 of 304 samples with an animal inside 120 studs, no gap over 20 s, `released` 121 (main line 121), `escaped` 105, `outOfBounds` 0, step avg 3.294 against the main line's 3.618** |
+
+Against the same stand with the flag OFF: **0 of 290 samples, all drive**. `A11d-left.png` is four
+red deer on the open ground from stand 11's own eye. The thing Karen asked for is on screen.
+
+**What blocks it.**
+1. **`restSpot`/`bedSpot`: I shifted the GATE and not the GENERATOR.** `restPoint` still builds
+   candidates on the main road from `hunterStandX`, while `restSpot` measures them with `driveZ`, so
+   with the aim on no bed can pass its band and `materialise` puts nothing down. This bites only
+   when `PLACEMENT_IN_PLACE` is ON. **The Reviewer's consequence quotes a stale TASKS.md line:** I
+   read her place today and `DHFlag_PLACEMENT_IN_PLACE=false` (the Director set it off at 11:59),
+   so her place is not currently affected -- but the two flags together would give a drive with
+   zero animals, and that interaction is named at neither flag row.
+2. **`settleAim` latches on `why == "off"`, so the flag-OFF path is NOT today's drive.** Before this
+   task `releaseLine`, `orderGroup` and `roarPoint` each read `hunterStandX()` live; now they read
+   a latched `aim.x`. A pick locked or changed after the drive's first tick no longer aims that
+   drive even with the flag off. **This is the one that must not merge.** The fix is one line --
+   do not latch unless there IS a locked frame (`why == "off"` takes the same `return ..., false`
+   arm as `"nobody locked"`) -- but it changes behaviour, so it needs a round and a run, not a
+   patch at the deadline.
+3. **`aimAcross` is not 0 with no aim**, so the field's box is widened on the OFF path too (a
+   locked main-line pick alone makes `across` up to +-450). Same class as 2: OFF must be inert.
+
+**What I ask for.** A round 3 that: makes OFF inert again (2 and 3), shifts the bed generator with
+its gate or leaves the gate on the main road (1), names the `PLACEMENT_IN_PLACE` interaction at both
+flag rows, and re-measures one flank drive with BOTH flags on. The aim itself is proven and I would
+not reopen it.
+
+**Also queued from round 2's notes:** `signalPoint` is still on the main road (an aimed drive's
+opening signal sounds `aim.dz` studs from the band); the x union is a whole half-span where the
+band's own extent would do; the request's claim 6 cites `:160/:163` where the assertions are now
+`:166/:170` (both bite, the citation is stale); and no design section carries the aim, the flag or
+`AIM_FLAT_STUDS`.
+
+## 2026-11-12 01:25 UTC -- Task 349 ROUND 3: the behaviour is measured; three PROOFS do not bind. STOP.
+
+**For the Director.** Round 3 returned three blocking findings (`reviews/task-349/RESULT.md`). The
+dispatch says a finding on round 3 goes here and I stop with no round 4, so I have stopped. Branch
+`task-349-more-action`, code commit `956d6e5b`,
+`[harness] PASS: 34/34 checks @ 956d6e5b0a42565943a431579de25f3084750a2b (clean tree) scope=all`,
+CI green. **The flag stays OFF.**
+
+**All five of your decisions were implemented and the behaviour is measured on her path.** Every row
+is one 299 s drive, the instrument is `<runs-dir>/349-count.py`:
+
+| stand | main `6fa59255` | code commit, flag OFF | code commit, flag ON |
+|---|---|---|---|
+| 4 | 213/288 in view, median 6 s | 222/287, median 5 s | 216/288, median 3 s |
+| 7 | -- | 219/288, median 6 s | 207/288, median 5 s |
+| 11 | **never, 0/289** | **never, 0/289** | **184/288, first 15 s, median 4 s** |
+
+OFF matches main at both stands measured (decisions 1 and 2, live). The corner stand still has its
+drive (decision 3's aim half). `signalPoint` is aimed (decision 4). Both flag rows name the
+interaction and the stale pointers are fixed (decision 5).
+
+**What round 3 found, and it is all about PROOF, not behaviour.**
+1. **The bed-refusal counters are never incremented.** My own commit `a1548070` is subjected
+   *"a refused bed names the test that refused it"* and it does not: the initialiser and the printed
+   tally landed, the five `refusals.X += 1` lines did not (a Python edit asserted out before writing
+   and I did not re-read the file -- V298, my error). So the line always reads all zeros, and it is
+   the instrument the open bed failure would be diagnosed with. **This is the one I would fix first**
+   -- an inert diagnostic that claims to be a diagnostic is worse than none.
+2. **The latch assertion cannot fail.** My case asserts `settleAim` returns `false` on the SECOND
+   consecutive call, and `settleAim`'s first line returns `false` whenever it is already settled --
+   so round 3's actual change to it is proven by no case. Claim 2 of the request overstates what the
+   file asserts; the live rows (OFF == main at both stands) are unaffected.
+3. **The bed case proves the pure `restPoint` and transcribes the gate's arithmetic.** Delete
+   `dz or 0` from `restSpot`'s call -- the exact round-2 defect -- and every line still passes,
+   because no spec calls `restSpot`/`bedSpot` with a shift.
+
+**Two numbers the flag cannot be switched on over, whatever happens to the proofs:** the corner
+stand's worst gap is **46 s against your 40 s target**, and its `peak live` is -21% against the 10%
+band (in the direction of less load; `stepAvg` is down 19%). The main line's own spread across
+single drives is 16-40 s, so one drive cannot settle a max-gap target.
+
+**And a refuted premise, with its control:** decision 3 asked for beds > 0 with both flags on.
+`X11d` (both ON) lays 0 beds; the control `P11` (`PLACEMENT_IN_PLACE` ON, aim OFF) also lays 0.
+This cell's placement path beds nothing with or without the aim, so that target was not the aim's
+to meet. What the aim does there is still measured: stand 11 goes from `never` to 92 of 289.
+
+**For and against one more round (L-038).** FOR: all three findings are small and local -- five
+increments, one assertion moved to the first call, one case that calls `restSpot` through a stub --
+and the behaviour they would pin is already measured on her path, so a round 4 is cheap and would
+close the task. AGAINST: the gate allows three rounds and this is the third; and even with perfect
+proofs the two numbers above are yours to accept or refuse, so a round 4 cannot by itself make the
+flag switchable. **My recommendation: authorise ONE round for findings 1-3 only, no new behaviour,
+and decide the 46 s separately.** I have not started it.

@@ -168,7 +168,17 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- 238's two: retire the lit rows queued as TASKS.md 82b, which is the DIRECTOR's call and deletes a
 -- losing branch per retirement, or ship lit, which is forbidden. **The Director may prefer to spend
 -- 82b instead**: this is one line either way.
-Flags.MAX_FLAGS = 24
+--
+-- 24 -> 25 FOR TASK 349's `DRIVE_AIMS_AT_PICKED_STAND`, and the same sentence a fifth time, said
+-- out loud rather than paid for by quietly retiring somebody else's row: the table held exactly 24
+-- and the tripwire refused the twenty-fifth, MEASURED at this commit (`flags.spec`'s rot tripwire
+-- failed with "Expected 0, got 1" before this line moved). The dispatch of 2026-11-11 asks for the
+-- row and asks for it born OFF -- *"put the change behind a new flag born OFF ... then the Director
+-- switches it ON in her FT for her evening playtest"* -- and what it switches is where a drive is
+-- aimed, which is feel and Karen's, so it cannot ship lit. The two ways out of the cap are still
+-- task 238's two: retire the lit rows queued as TASKS.md 82b, which is the DIRECTOR's call, or ship
+-- lit, which is forbidden. **The Director may prefer to spend 82b instead**: this is one line either way.
+Flags.MAX_FLAGS = 25
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -263,6 +273,28 @@ Flags.DEFAULTS = {
 			.. "2.96-6.50 s at run instead of 1.50), and every other player's body is hidden for "
 			.. "him. OFF is exactly the game before task 313 -- the window is his own mat +- 18, "
 			.. "the leg is 76 studs, and nobody is hidden.",
+	} :: FlagRow,
+	DRIVE_AIMS_AT_PICKED_STAND = {
+		default = false,
+		owner = "ServerScriptService.ForestTest",
+		born = "2026-11-11 task 349",
+		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
+		expires = "2026-12-02",
+		why = "The drive is built around the stand she LOCKED -- the releases, the routes, the "
+			.. "crossing, the exit AND the field the animals are judged by (`fieldFor`'s exitZ, "
+			.. "road.zAt and bounds). MEASURED on C1 (2026-11-11): a hunter on west-flank stand 11 "
+			.. "had 0 animals inside 120 studs in a whole 299 s drive out of 120 released, because "
+			.. "every one of those is built on the MAIN road's z and her stand is 975 studs north "
+			.. "of it. ONE FRAME PER DRIVE: the aim is settled at the first release and latched, so "
+			.. "every animal is judged by the frame it was released into; a pick locked later "
+			.. "inside that drive; until there is one the drive reads `hunterStandX()` live, which is "
+			.. "the drive before this flag. **WITH `PLACEMENT_IN_PLACE` ON** the beds are generated and "
+			.. "judged in this same frame; the two flags were measured together (task 349 round 3). "
+			.. "THE ROSTER RULE: only REAL players' locked picks move "
+			.. "it (bots are filtered out by Players:GetPlayerByUserId), and real players standing "
+			.. "on DIFFERENT frames put the band back on the main road with one line naming them -- "
+			.. "which is exactly the drive before this flag. OFF is that drive for everyone, and a "
+			.. "main-line stand's shift is snapped to 0, so stands 1-7 are identical either way.",
 	} :: FlagRow,
 	STAND_PICK = {
 		default = false,
@@ -863,7 +895,10 @@ Flags.DEFAULTS = {
 		expires = "2026-11-30", -- 20 days, inside the 21-day ceiling in feature-flags.md section 12
 		why = "Every animal of a drive is already standing in the wood before the drive opens, and "
 			.. "the beater line finds it, instead of each group being spawned in front of whoever is "
-			.. "looking. OFF is today's drive, byte for byte.",
+			.. "looking. OFF is today's drive, byte for byte."
+			.. " **WITH `DRIVE_AIMS_AT_PICKED_STAND` ON** the beds this path lays are generated and "
+			.. "judged in that drive's aimed frame, not on the main road; the two were measured "
+			.. "together from stand 11 (task 349 round 3).",
 	} :: FlagRow,
 }
 

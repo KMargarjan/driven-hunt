@@ -442,6 +442,116 @@ function ForestTest.exitZOf(layout: Layout?): number
 	return resolved.centre.Z - resolved.amplitudeStuds - ForestTest.EXIT_SOUTH_STUDS
 end
 
+-- WHERE THE DRIVE IS AIMED: the stand she LOCKED, as an x and a z SHIFT off the main road.
+--
+-- MEASURED, AND IT IS WHY THIS EXISTS (task 349, C1, 2026-11-11): a hunter on west-flank stand 11
+-- saw 0 animals inside 120 studs in a whole 299 s drive, out of 120 released. Every release and
+-- every crossing is built on the MAIN road's z (`roadZ`), and `hunterStandX` clamps a flank x onto
+-- the main line -- so the whole drive played 975 studs south of where she was standing.
+--
+-- THE SHIFT IS THE WHOLE RULE AND IT IS PURE. `dz` is how far her stand is north of the main road
+-- AT HER OWN x, so the drive's band keeps its shape and is translated onto her. A main-line stand
+-- sits on the road, so its shift is 0 and its drive does not move one stud -- which is what makes
+-- this safe to switch on for every stand at once.
+--
+-- OFF (`enabled = false`) IS EXACTLY THE DRIVE BEFORE THIS TASK: the clamped x, and no shift.
+-- Flag: `DRIVE_AIMS_AT_PICKED_STAND`. NO DESIGN SECTION CARRIES THIS YET: the aim, the flag and
+-- `AIM_FLAT_STUDS` are queued for `docs/design/forest-drive.md` (the Architect's file, not the
+-- Builder's). Round 1 and round 2 both noted the old pointer at section 7, which is about the
+-- record and the report and never was about where a drive is aimed.
+-- A SHIFT UNDER ONE STUD IS NO SHIFT, AND IT IS SNAPPED HERE rather than compared at the call site.
+-- MEASURED (task 349, C1): a main-line stand's z is the road's to within a thousandth of a stud but
+-- not to the bit, so `aim.dz == 0` in `releaseLine` was FALSE for it -- which silently dropped the
+-- beater-line clamp on the main line and lengthened its worst sighting gap from 24 s to 49 s at
+-- stand 4 and 26 s to 57 s at stand 7. Snapping makes "a main-line drive does not move" true by
+-- construction instead of true by luck, and one stud is nothing against the clamp's 130-stud lead.
+ForestTest.AIM_FLAT_STUDS = 1
+
+-- HOW WIDE THE AIMED BAND IS, EITHER SIDE OF THE STAND IT IS AIMED AT. `SCHEDULE.crossCapStuds` is
+-- 95 and caps every `offsetX` and `crossOffset`; 60 more is room for a group that strings out at
+-- the crossing. The field's box is unioned with THIS, so the cage stays a cage.
+ForestTest.AIM_BAND_HALF_STUDS = 155
+
+function ForestTest.aimFrame(
+	standX: number,
+	standZ: number?,
+	roadZAtStand: number?,
+	enabled: boolean?
+): { x: number, dz: number }
+	if enabled ~= true or standZ == nil or roadZAtStand == nil then
+		return { x = standX, dz = 0 }
+	end
+	local dz = standZ - roadZAtStand
+	if math.abs(dz) < ForestTest.AIM_FLAT_STUDS then
+		dz = 0
+	end
+	return { x = standX, dz = dz }
+end
+
+-- THE THREE z'S OF ONE RELEASE, IN THIS DRIVE'S FRAME (task 349 r2). PURE, and it is THE one place
+-- the shift is applied to them -- `releaseLine` and `orderGroup` both read it, so a spec that drives
+-- it is driving what production draws, not a transcription of it (round 1 finding 2, verdict 278).
+--
+-- `dz` 0 is the main road and every number is the drive before task 349. `exitSouthStuds` is how
+-- far PAST the despawn plane the route ends (`releaseLine`'s own 10): a route that stopped ON it
+-- left every file standing on its last waypoint for ever.
+function ForestTest.releaseFrame(
+	layout: Layout?,
+	dz: number?,
+	startX: number,
+	startNorth: number,
+	crossX: number?,
+	exitSouthStuds: number?
+): { startZ: number, crossZ: number?, exitZ: number }
+	local resolved = layout or ForestTest.ROAD_LAYOUT
+	local shift = dz or 0
+	return {
+		startZ = ForestTest.roadZ(startX, resolved) + shift + startNorth,
+		crossZ = if crossX ~= nil then ForestTest.roadZ(crossX :: number, resolved) + shift else nil,
+		exitZ = ForestTest.exitZOf(resolved) + shift - (exitSouthStuds or 0),
+	}
+end
+
+-- WHOSE STAND THE DRIVE IS AIMED AT, WITH A ROSTER (task 349 round 2, Director decision 4). PURE.
+--
+-- `frames` is one entry per REAL player with a LOCKED pick: `{ x, dz, who }`. Bots never appear in
+-- it -- the server filters `state.picks` by `Players:GetPlayerByUserId` -- so a bot standing on a
+-- flank stand cannot move the drive off the road the players are on.
+--
+-- THE RULE IS THE THREE CASES AND NOTHING ELSE:
+--   nobody locked          -> no aim; the caller keeps the stand it already had, shift 0
+--   one frame, or several that AGREE to within `AIM_FLAT_STUDS` -> that frame
+--   real players on DIFFERENT frames -> shift 0, the main road, and a `why` that names them.
+-- The last case is the one that matters: aiming at the first pick `pairs` happened to yield moved
+-- the band off the road every other hunter was standing on, which is round 1 finding 4.
+function ForestTest.rosterAim(frames: { { x: number, dz: number, who: string? } }?, enabled: boolean?)
+	local list = frames or {}
+	if enabled ~= true or #list == 0 then
+		return { x = nil :: number?, dz = 0, why = if enabled ~= true then "off" else "nobody locked" }
+	end
+	local first = list[1]
+	-- EVERY NAME IS COLLECTED BEFORE THE TEST, so a split names everyone who is standing -- not just
+	-- the ones listed before the first disagreement.
+	local names, split = {}, false
+	for _, frame in ipairs(list) do
+		table.insert(names, tostring(frame.who or "?"))
+		if math.abs(frame.dz - first.dz) >= ForestTest.AIM_FLAT_STUDS then
+			split = true
+		end
+	end
+	table.sort(names)
+	if split then
+		-- BACK TO THE MAIN ROAD, which is EXACTLY the drive before task 349: `x` nil sends the
+		-- caller to `hunterStandX`, the clamped first locked pick it has always used.
+		return { x = nil :: number?, dz = 0, why = "split: " .. table.concat(names, ", ") }
+	end
+	return {
+		x = first.x,
+		dz = first.dz,
+		why = (if #list == 1 then "one: " else "agreed: ") .. table.concat(names, ", "),
+	}
+end
+
 -- THE HUNTER LINE. Karen: *"hunter line just a hunter no treestand anything"* -- so a stand here is
 -- a SPOT, not a structure. These are the x values a hunter may choose between; the z comes from the
 -- line, so every one of them is on it.
@@ -1143,11 +1253,34 @@ function ForestTest.boundsOf(layout: Layout?): { minX: number, maxX: number, min
 end
 
 -- ...AND THE WHOLE FIELD, which is what `Boar.defaultWorld` and `Runtime:setField` take.
-function ForestTest.fieldFor(layout: Layout?)
+-- `dz` IS THIS DRIVE'S OWN SHIFT (task 349 round 2) and it moves the whole field with the band:
+-- `exitZ` is where an animal counts as `escaped` and `road.zAt` is what `_updateOutOfPlay` measures
+-- `settledNorthStuds` from, so a band translated onto a flank stand with an unshifted field scores
+-- no escapes and despawns every animal as `settled`. `bounds` moves too: a box that excludes the
+-- band would clamp every animal in it. 0 is the main road and every number below it is unchanged.
+function ForestTest.fieldFor(layout: Layout?, dz: number?, dx: number?)
 	local resolved = layout or ForestTest.ROAD_LAYOUT
+	local shift = dz or 0
+	local across = dx or 0
+	local bounds = ForestTest.boundsOf(resolved)
 	return {
-		bounds = ForestTest.boundsOf(resolved),
-		exitZ = ForestTest.exitZOf(resolved),
+		-- THE BOX IS A UNION, NOT A TRANSLATION, and that was MEASURED (2026-11-11, her Forest Test,
+		-- stand 11): translating it put its SOUTH edge 875 studs north of the main road, so the two
+		-- groups a drive releases BEFORE she locks -- which are on the main road, correctly -- were
+		-- culled as `outOfBounds`, 114 of them in one drive. The box is a sanity cage, not a game
+		-- rule: it has to hold every frame this drive has animals in. The SAME is true across:
+		-- the box spans the MAIN line, and a flank stand is 604 studs outside it, so an
+		-- un-unioned x culled the whole aimed band (101 of one drive's animals, MEASURED).
+		bounds = {
+			-- ACROSS, THE UNION IS THE BAND'S OWN EXTENT, not a whole half-span (round 2 note): the
+			-- band is `crossCapStuds` either side of the aimed x plus room for a group that strings
+			-- out, so unioning a half-span pushed the cage 605 studs into the next cell.
+			minX = math.min(bounds.minX, resolved.centre.X + across - ForestTest.AIM_BAND_HALF_STUDS),
+			maxX = math.max(bounds.maxX, resolved.centre.X + across + ForestTest.AIM_BAND_HALF_STUDS),
+			minZ = math.min(bounds.minZ, bounds.minZ + shift),
+			maxZ = math.max(bounds.maxZ, bounds.maxZ + shift),
+		},
+		exitZ = ForestTest.exitZOf(resolved) + shift,
 		-- ONE GROUND HEIGHT FOR EVERY LAYOUT, and `GROUND_Y`'s own comment is why: a per-layout 185
 		-- would put `Brain:_outcome`'s fall floor at 135 on an edge drive, and this wood goes down to
 		-- 99.
@@ -1168,7 +1301,7 @@ function ForestTest.fieldFor(layout: Layout?)
 		road = {
 			halfWidthStuds = ForestTest.SHAPE.halfWidthStuds,
 			zAt = function(x: number): number
-				return ForestTest.roadZ(x, resolved)
+				return ForestTest.roadZ(x, resolved) + shift
 			end,
 		},
 	}
@@ -1882,11 +2015,20 @@ end
 -- WHERE A RESTING GROUP IS NOMINALLY PUT, before the ground and the trunks are measured. PURE, the
 -- same division `wavePoint` has: the arithmetic here, the world's own answer in
 -- `ForestTest.restSpot`.
-function ForestTest.restPoint(standX: number, spec, sideOffset: number?, outOffset: number?, layout: Layout?): Vector3
+-- `dz` IS THIS DRIVE'S SHIFT (task 349 r3, round 2 finding 1): the GENERATOR has to stand in the
+-- frame the GATE measures it in, or no candidate can pass its band and nothing is ever bedded.
+function ForestTest.restPoint(
+	standX: number,
+	spec,
+	sideOffset: number?,
+	outOffset: number?,
+	layout: Layout?,
+	dz: number?
+): Vector3
 	local resolved = layout or ForestTest.ROAD_LAYOUT
 	local x = standX + (spec.offsetX or 0) + (sideOffset or 0)
 	local north = (spec.northStuds or 120) + (outOffset or 0)
-	return Vector3.new(x, resolved.centre.Y, ForestTest.roadZ(x, resolved) + north)
+	return Vector3.new(x, resolved.centre.Y, ForestTest.roadZ(x, resolved) + (dz or 0) + north)
 end
 
 -- WHERE A BEATER IS STANDING WHEN HE OUGHT TO SEE THIS GROUP (task 172). PURE: the point on the
@@ -1897,12 +2039,15 @@ end
 -- point asks is not "can he see it from anywhere" but "can he see it from where he will be standing
 -- when it puts its head up", and the answer has to be taken from inside the band or it is about a
 -- different moment.
-function ForestTest.laneLookPoint(standX: number, spec, spot: Vector3, rest, layout: Layout?): Vector3
+function ForestTest.laneLookPoint(standX: number, spec, spot: Vector3, rest, layout: Layout?, dz: number?): Vector3
 	local laneX = standX + (spec.laneOffset or 0)
 	local resolved = rest or ForestTest.REST
 	local where = layout or ForestTest.ROAD_LAYOUT
-	local north = spot.Z - ForestTest.roadZ(spot.X, where) + (resolved.sightFromStuds or 0)
-	return Vector3.new(laneX, where.centre.Y, ForestTest.roadZ(laneX, where) + north)
+	-- BOTH ENDS IN THE SAME FRAME: the spot's depth is measured off this drive's road and the look
+	-- point is put back on it, so the shift cancels for a main-line drive and holds for an aimed one.
+	local shift = dz or 0
+	local north = spot.Z - (ForestTest.roadZ(spot.X, where) + shift) + (resolved.sightFromStuds or 0)
+	return Vector3.new(laneX, where.centre.Y, ForestTest.roadZ(laneX, where) + shift + north)
 end
 
 -- HOW FAR OFF ITS OWN LANE A GROUP'S SPOT IS. PURE, flat, and the one thing `laneSideStuds` is
