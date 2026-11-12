@@ -3172,6 +3172,20 @@ function ForestTest.driveSeed(sessionSeed: number?, driveNumber: number?, cellNa
 	return (seed + math.floor(math.abs(driveNumber or 1)) * 7919 + cell) % 2147483647
 end
 
+-- HOW MANY ANIMALS THE FIXED SCRIPT RELEASES at a density, through the injected weigher. The
+-- budget's target, and the singles cap's floor, read it from the same place so the two cannot
+-- disagree about what the drive is being measured against.
+local function animalTarget(density: string?, resolved: any, weigh: (string, any) -> number): number
+	local total = 0
+	for slot = 1, #(resolved.drive or {}) do
+		local row = ForestTest.slotAt(slot, density, resolved)
+		if row ~= nil then
+			total += weigh(row.species, row.composition or row.party)
+		end
+	end
+	return total
+end
+
 -- WHICH ACT A SLOT IS IN, for a list of this length: three acts of equal length, which is what the
 -- fifteen-row script's own 1-5 / 6-10 / 11-15 is.
 local function actOfSlot(slot: number, slots: number): number
@@ -3344,7 +3358,50 @@ function ForestTest.generateDrive(
 	-- already brought.
 	local baseDeer = math.max(1, ForestTest.driveTally(density, resolved).deerGroups)
 	local deerWant = math.clamp(rng:NextInteger(1, baseDeer) - deerDrawn, 0, #carry)
-	local singleWant = math.min(rng:NextInteger(0, 3), #carry)
+	-- HOW MANY SINGLES THE BUDGET CAN AFFORD, and this is arithmetic rather than taste. A single
+	-- weighs one animal, so three of them in a drive that fires only nine groups leave six to carry
+	-- the whole release: 6 x the biggest sounder (9) + 3 = 57, against a floor of 65. MEASURED: the
+	-- 40-drive spec case failed on exactly that, `animals >= lo` on a drive the pool could not fund.
+	-- So the dispatch's 0-3 is a CEILING and the ladder's own reach is the other bound.
+	local firingOrdinary = if want >= slots then #carry else math.min(9, #carry)
+	local specialAnimals = 0
+	local specialSingles = 0
+	for _, row in pairs(assigned) do
+		local size = weigh(row.species, row.composition or row.party)
+		specialAnimals += size
+		if size <= 1 then
+			specialSingles += 1
+		end
+	end
+	local floorWanted = math.floor(animalTarget(density, resolved, weigh) * 0.9)
+	-- 0-3 SINGLES IN THE WHOLE DRIVE, which counts the ones the SPECIALS brought: the red stag of
+	-- the SNEAK act weighs one animal and is a single by anybody's reading. MEASURED over 160
+	-- drives: without this, ten of them came out at four.
+	local singleWant = math.clamp(rng:NextInteger(0, 3) - specialSingles, 0, #carry)
+	-- THE CEILING THIS DRAW CAN ACTUALLY REACH, with every group at the biggest its own species
+	-- has. MEASURED over 160 drives: the first cut of this capped the SINGLES only and still fell to
+	-- 60 animals against a floor of 65, because a DEER party tops out at 8 where a sounder tops out
+	-- at 9 and a drive drawn with seven deer parties cannot be funded however the ladder is walked.
+	-- So both numbers are reduced, deer first (Karen asked for the singles by name), until the
+	-- ceiling clears the floor. `biggest` above is the pool's own largest and nothing is invented.
+	local boarMax, deerMax = 1, 0
+	for _, index in ipairs(boarGroup) do
+		boarMax = math.max(boarMax, parties[index].size)
+	end
+	for _, index in ipairs(deerGroup) do
+		deerMax = math.max(deerMax, parties[index].size)
+	end
+	local function ceilingFor(deerN: number, singleN: number): number
+		local groupsN = math.max(0, firingOrdinary - singleN)
+		local deerG = math.min(deerN, groupsN)
+		return specialAnimals + singleN + deerG * deerMax + (groupsN - deerG) * boarMax
+	end
+	while deerWant > 0 and ceilingFor(deerWant, singleWant) < floorWanted do
+		deerWant -= 1
+	end
+	while singleWant > 0 and ceilingFor(deerWant, singleWant) < floorWanted do
+		singleWant -= 1
+	end
 	local tokens = {}
 	for index = 1, #carry do
 		local deer = index <= deerWant
@@ -3450,13 +3507,7 @@ function ForestTest.generateDrive(
 		end
 		return total
 	end
-	local target = 0
-	for at = 1, slots do
-		local row = ForestTest.slotAt(at, density, resolved)
-		if row ~= nil then
-			target += weigh(row.species, row.composition or row.party)
-		end
-	end
+	local target = animalTarget(density, resolved, weigh)
 	-- A ROTATING CURSOR, AND IT IS NOT TIDINESS. Walking from slot 1 every pass put the WHOLE
 	-- shortfall into the first group it could grow: a measured drive read `B9 B9 B9 B9 B9 ...`, five
 	-- maximum sounders in a row, which is one pattern repeated and not *"different count of
