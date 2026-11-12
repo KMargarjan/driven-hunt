@@ -462,6 +462,56 @@ MapUi.GROUND_COLORS = {
 	open = { base = Style.LOOK.FIELD_MUTED, rich = Style.LOOK.FIELD_MUTED },
 }
 
+-- THE PAINTED GROUND (task 354). Nine uploaded pictures -- one per drive cell plus one for the
+-- 420-stud outer wood -- drawn as `ImageLabel`s under everything else.
+--
+-- WHY A PICTURE AND NOT MORE FRAMES. Task 347's layer draws 8 columns per zone over 48 zones plus a
+-- stipple; this draws at most nine instances for the same ground, and it is the forest Karen
+-- actually approved rather than a tint standing for it.
+--
+-- THE ALIGNMENT IS NOT TUNED, IT IS ONE EXPRESSION. `tools/map_paint.py` writes each tile's world
+-- rect into `ReplicatedStorage.Map.PaintedMap`, and `MapUi.paintedRectPx` places it with
+-- `MapUi.rawOffsetPx` -- the same function that puts every road sample and every stand mark on
+-- screen. So "0 px of offset" is not a measurement that could drift: the two sides are the same
+-- arithmetic, and `map_ui.spec` proves it against the render script's own pixel table.
+--
+-- Note: docs/research/2026-11-12-painted-map-images.md
+MapUi.PAINTED = {
+	-- READ ONCE, HERE (CLAUDE.md "Feature flags": the owner reads it at its boundary and passes the
+	-- value inward). OFF means `paintedFromGrid` is never called and no `ImageLabel` exists.
+	ENABLED = Flags.isOn("MAP_PAINTED"),
+	-- A TILE WITH NO RESOLVED PICTURE IS NOT DRAWN. `imageId` 0 is `PaintedMap`'s own word for "not
+	-- uploaded or not resolved", and a tile drawn with it would be a blank rectangle over the ground
+	-- layer -- worse than the ground layer. This is the ONE rule that keeps a part-uploaded set
+	-- honest, and `paintedFromGrid` is where it is applied.
+	--
+	-- **IT IS THE IMAGE'S ID, NOT THE DECAL'S** (round 2, finding 1). An Open Cloud upload of a PNG
+	-- makes a `Decal` and returns the DECAL's id, which an `ImageLabel` CANNOT draw; the image id is
+	-- got on the server with `InsertService:LoadAsset(decalId).Texture`, at upload time, and that is
+	-- the id `PaintedMap.TILES[i].imageId` carries. `src/shared/Report/init.luau` and
+	-- `src/client/Hud/ShopDisplay.luau` record the same trap costing a round each. Here it would be
+	-- worse than blank: `REPLACES_GROUND` below drops task 347's tint under any cell this layer
+	-- claims, so a decal id that never loads would leave the cell with NO ground at all. Hence the
+	-- filter asks for a numeric `imageId`, and `map_ui.spec` proves a decal-only tile paints nothing
+	-- and strips nothing.
+	NO_ASSET = 0,
+	-- THE SAME BAND AS THE PANEL, AND TREE ORDER IS WHAT PUTS IT UNDER THE MARKS -- exactly the
+	-- reasoning `GROUND.Z_BELOW`'s own comment sets out, and for the same reason: under
+	-- `ZIndexBehavior.Global` a band below `Z_INDEX` falls behind the panel itself. The tiles are
+	-- drawn FIRST of everything in `drawGeometry`, background before cells.
+	Z_BELOW = 0,
+	-- A PAINTED PICTURE IS THE GROUND, so the tinted columns of task 347 would sit on top of it and
+	-- hide it. Where a cell's tile IS drawn, its `MAP_LOOK` patches are skipped; where it is not,
+	-- they are left exactly as they were, so the two flags together never leave a hole.
+	REPLACES_GROUND = true,
+	-- **NO BLEED, DELIBERATELY** (round 1, finding 2). `GROUND.COLUMN_BLEED_PX` adds a pixel because
+	-- a tinted column is a FLAT colour and a hairline of panel between two of them is the only thing
+	-- that can go wrong. A painted tile is not flat: it is stretched, so a pixel of bleed moves every
+	-- pixel of the picture inside it. The seam is closed instead by rounding the two CORNERS rather
+	-- than the size (`drawGeometry`), which makes neighbours share a pixel column exactly.
+	MAX_DRAWN_OFFSET_PX = 0.5, -- what that rounding can cost, and what `map_ui.spec` holds it to
+}
+
 export type Bounds = { minX: number, maxX: number, minZ: number, maxZ: number }
 export type ClipShape = "rect" | "disc"
 
@@ -500,6 +550,17 @@ export type GroundPatch = {
 	stipple: { Vector2 }?,
 }
 
+-- ONE PAINTED PICTURE AS DRAWN (task 354). `rect` is the WORLD rectangle the picture covers, read
+-- back out of the render's own whole-pixel crop box, so the image's four corners ARE four world
+-- points and nothing is fitted. `kind` is "cell" or "background"; a background tile is drawn first
+-- and carries the wood outside the eight cells.
+export type PaintedTile = {
+	id: string,
+	kind: string,
+	imageId: number, -- the RESOLVED image id (never the uploaded Decal id); see `PAINTED.NO_ASSET`
+	rect: Bounds,
+}
+
 export type MapGeometry = {
 	world: string,
 	label: string?, -- what the panel's title says, when it is not the world's own name
@@ -515,6 +576,9 @@ export type MapGeometry = {
 	-- data in. Absent is pre-347 behaviour, value for value -- the same discipline the four grid
 	-- fields above carry (map-ui.md section 21).
 	ground: { GroundPatch }?,
+	-- THE PAINTED TILES (task 354), ABSENT UNLESS `MAP_PAINTED` IS ON or a caller hands them in.
+	-- Absent is pre-354 behaviour, value for value -- the same discipline `ground` carries above.
+	painted: { PaintedTile }?,
 	-- WHERE THE LODGE IS, when the world has one. Out of bounds is expected and is PINNED, not
 	-- dropped (`MapUi.GROUND.LODGE_PX`'s own comment).
 	lodge: Vector2?,
@@ -1042,7 +1106,11 @@ function MapUi.geometryFromGrid(
 	-- layer; without it the map is exactly the map it was. `lodge` is a world point the CALLER has
 	-- (`Lobby.anchorFor`), so this file requires neither module.
 	places: any?,
-	lodge: Vector2?
+	lodge: Vector2?,
+	-- THE PAINTED TILES, INJECTED AND OPTIONAL (task 354), on the same door and for the same reason
+	-- `places` is: with it the geometry carries a `painted` layer, without it the map is exactly the
+	-- map it was, and the FLAG IS READ ON THE CALLER'S SIDE.
+	paintedMap: any?
 ): MapGeometry?
 	if grid == nil or type(cellId) ~= "string" or grid.cellOf(cellId) == nil then
 		return nil
@@ -1123,6 +1191,7 @@ function MapUi.geometryFromGrid(
 		standSides = sides,
 		activeCell = cellId,
 		ground = MapUi.groundFromGrid(grid, places, grid.cellIds(), cellId),
+		painted = MapUi.paintedFromGrid(paintedMap),
 		lodge = lodge,
 	}
 end
@@ -1279,6 +1348,88 @@ function MapUi.groundFromGrid(grid: any, places: any?, cellIds: { string }?, act
 	return out
 end
 
+-- ---------------------------------------------------------------- the painted layer, pure (task 354)
+
+-- THE TILES TO DRAW, from `ReplicatedStorage.Map.PaintedMap`'s table. PURE, and `paintedMap` is a
+-- PARAMETER so a spec can hand in its own tiles with the flag sitting at false.
+--
+-- A TILE WITH NO RESOLVED PICTURE IS DROPPED HERE, not at the drawer: nine rows ship whether or not
+-- their pictures have been uploaded, and `PAINTED.NO_ASSET` is the only thing that decides. Dropping
+-- them here is what lets `drawGeometry` ask one question -- "is this cell painted?" -- when it
+-- decides whether task 347's ground columns are still needed.
+--
+-- **THE FIELD IS `imageId` AND THE TYPE IS CHECKED** (round 2, finding 1). A row that carries only a
+-- `decalId` -- an uploaded picture nobody resolved through `InsertService:LoadAsset(decalId).Texture`
+-- -- has no drawable id, and `nil ~= NO_ASSET` would otherwise be TRUE and claim the cell: the tile
+-- would draw nothing while `REPLACES_GROUND` took task 347's tint away under it. So the test is
+-- "is there a number, and is it not 0", and deleting either half fails `map_ui.spec`'s own case.
+--
+-- Returns nil rather than an empty list when nothing is drawable, so `MapGeometry.painted` is absent
+-- exactly as it is with the flag off, and `sameGeometry` compares one thing instead of two.
+function MapUi.paintedFromGrid(paintedMap: any?): { PaintedTile }?
+	if paintedMap == nil or paintedMap.TILES == nil then
+		return nil
+	end
+	local out: { PaintedTile } = {}
+	-- THE BACKGROUND FIRST, whatever order the table is in: it is the one tile the others sit on.
+	for _, want in ipairs({ "background", "cell" }) do
+		for _, tile in ipairs(paintedMap.TILES) do
+			local imageId = tile.imageId
+			if
+				tile.kind == want
+				and type(imageId) == "number"
+				and imageId ~= MapUi.PAINTED.NO_ASSET
+				and tile.rect ~= nil
+			then
+				table.insert(out, {
+					id = tile.id,
+					kind = tile.kind,
+					imageId = imageId,
+					rect = {
+						minX = tile.rect.minX,
+						maxX = tile.rect.maxX,
+						minZ = tile.rect.minZ,
+						maxZ = tile.rect.maxZ,
+					},
+				})
+			end
+		end
+	end
+	if #out == 0 then
+		return nil
+	end
+	return out
+end
+
+-- WHERE ONE TILE GOES, in pixels from the view's own centre: left, top, width, height.
+--
+-- THIS IS THE WHOLE ALIGNMENT ARGUMENT, and it is four calls to `MapUi.rawOffsetPx` and nothing
+-- else. The image's top-left corner is the world point (minX, maxZ) and its bottom-right is
+-- (maxX, minZ) -- north is up, so maxZ is the top -- which means a world point inside the picture
+-- lands at the same pixel whether it is projected directly or read off the image. There is no
+-- scale to calibrate and no offset to tune: `map_ui.spec` compares this against the pixel
+-- `tools/map_paint.py` painted that point at, and the difference is 0.
+--
+-- PURE AND EXPORTED, for the same reason `MapUi.project` is: the arithmetic is provable with
+-- hand-written studs, no world and no image.
+function MapUi.paintedRectPx(tile: PaintedTile, view: MapView): (number, number, number, number)
+	local left, top = MapUi.rawOffsetPx(tile.rect.minX, tile.rect.maxZ, view)
+	local right, bottom = MapUi.rawOffsetPx(tile.rect.maxX, tile.rect.minZ, view)
+	return left, top, right - left, bottom - top
+end
+
+-- WHICH CELLS A PAINTED SET COVERS, as a set of cell ids. The drawer asks it once and then skips
+-- task 347's ground columns for exactly those cells -- see `PAINTED.REPLACES_GROUND`.
+function MapUi.paintedCells(painted: { PaintedTile }?): { [string]: boolean }
+	local out: { [string]: boolean } = {}
+	for _, tile in ipairs(painted or {}) do
+		if tile.kind == "cell" then
+			out[tile.id] = true
+		end
+	end
+	return out
+end
+
 -- WHERE THE STIPPLE MARKS GO INSIDE ONE PATCH, as world points. DETERMINISTIC off `Grid.seedFor`, so
 -- the same cell draws the same picture on every open and on every client -- the per-cell stream rule
 -- `Grid.CONFIG.seed` already states. Count scales with the patch's own density, and open ground gets
@@ -1371,7 +1522,11 @@ function MapUi.geometryFor(
 	-- CALLER'S SIDE OF THIS DOOR: `Hud` hands them in only while `MapUi.GROUND.ENABLED`, so with the
 	-- row off this function cannot build a ground layer at all and a spec can build one anyway.
 	places: any?,
-	lodge: Vector2?
+	lodge: Vector2?,
+	-- THE PAINTED TILES (task 354), handed in by `Hud` only while `MapUi.PAINTED.ENABLED` -- the
+	-- same door `places` comes through, so with the row off no tile can be built here and a spec
+	-- can build one anyway.
+	paintedMap: any?
 ): MapGeometry?
 	if world == "forest-test" then
 		if forestTest == nil then
@@ -1388,7 +1543,7 @@ function MapUi.geometryFor(
 		-- A DRIVE IN A CELL DRAWS THE WORLD (task 327f). The dealt cell's own road and stands are
 		-- `base`'s, so the picture gains the other seven sections and changes nothing about this one.
 		if grid ~= nil and grid.cellOf(layoutName) ~= nil then
-			return MapUi.geometryFromGrid(grid, layoutName :: string, nil, base, places, lodge) or base
+			return MapUi.geometryFromGrid(grid, layoutName :: string, nil, base, places, lodge, paintedMap) or base
 		end
 		return base
 	end
@@ -1735,9 +1890,57 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 	-- The minimap is excluded for the measured reason 327f gives for the roads: it is drawn every
 	-- frame and the panel only while it is open, so a layer that is always on screen is the one that
 	-- costs frames. The minimap keeps the drive's own road, exactly as before.
+	-- THE PAINTED LAYER (task 354), ON THE FULL MAP ONLY AND FIRST OF EVERYTHING. The background
+	-- tile carries the wood outside the cells and the eight cell tiles sit on it; `paintedFromGrid`
+	-- has already put them in that order. The minimap is excluded for the measured reason 327f gives
+	-- for the roads: it is drawn every frame, and a layer that is always on screen is what costs
+	-- frames.
+	local paintedCells: { [string]: boolean } = {}
+	if standLabels and model.painted ~= nil then
+		local painted = MapUi.PAINTED
+		paintedCells = MapUi.paintedCells(model.painted)
+		for index, tile in ipairs(model.painted :: { PaintedTile }) do
+			local left, top, width, height = MapUi.paintedRectPx(tile, view)
+			local image = Instance.new("ImageLabel")
+			image.Name = string.format("Painted%s", tile.id)
+			-- THE RESOLVED IMAGE ID (`PAINTED.NO_ASSET`'s comment): a Decal id here draws nothing.
+			image.Image = string.format("rbxassetid://%d", tile.imageId)
+			image.BackgroundTransparency = 1
+			image.BorderSizePixel = 0
+			-- **SIZED FROM ITS ROUNDED CORNERS, NOT FROM A ROUNDED SIZE** (round 1, finding 2). The
+			-- picture is STRETCHED over whatever box it is given, so a box one pixel wider than the
+			-- world rect it stands for drags the painted road a whole pixel off the drawn road at
+			-- the tile's far edge -- which is a 1,112-stud cell over ~272 px, about 4 studs. Rounding
+			-- the two CORNERS and subtracting leaves only the rounding itself (under half a pixel),
+			-- and two neighbours still meet exactly: their shared edge is ONE world coordinate, so
+			-- it rounds to one pixel for both. That is also why there is no bleed here -- a bleed
+			-- would be the defect, not the fix.
+			local x0 = math.round(left)
+			local y0 = math.round(top)
+			image.Position = UDim2.new(0.5, x0, 0.5, y0)
+			image.Size =
+				UDim2.fromOffset(math.max(1, math.round(left + width) - x0), math.max(1, math.round(top + height) - y0))
+			-- STRETCH, NOT SLICE OR TILE: the picture's rect IS the world rect, so it is drawn at
+			-- whatever size that rect projects to and never repeated.
+			image.ScaleType = Enum.ScaleType.Stretch
+			image.ZIndex = config.Z_INDEX - painted.Z_BELOW
+			-- THE BACKGROUND SITS UNDER THE CELLS by tree order, which is why it is inserted first
+			-- and why `index` is not used for a band: `GROUND.Z_BELOW`'s comment says why a band
+			-- below `Z_INDEX` is the dangerous answer here.
+			local _ = index
+			image.Parent = holder
+		end
+	end
+
 	if standLabels and model.ground ~= nil then
 		local ground = MapUi.GROUND
 		for patchIndex, patch in ipairs(model.ground :: { GroundPatch }) do
+			-- A PAINTED CELL NEEDS NO TINT: the picture IS its ground, and a column over it would
+			-- hide the thing the flag is for. A cell with no picture keeps its columns untouched,
+			-- so a part-uploaded set never leaves a hole (`PAINTED.REPLACES_GROUND`).
+			if MapUi.PAINTED.REPLACES_GROUND and paintedCells[patch.cell] then
+				continue
+			end
 			local fill, transparency = MapUi.groundLook(patch.kind, patch.density)
 			for columnIndex, column in ipairs(patch.columns) do
 				local u0, v0 = MapUi.rawOffsetPx(column.minX, column.minZ, view)
@@ -2976,6 +3179,28 @@ local function sameGeometry(a: MapGeometry?, b: MapGeometry?): boolean
 	-- discarded as "the same map" and the layer would never be drawn.
 	if #(a.ground or {}) ~= #(b.ground or {}) or a.lodge ~= b.lodge then
 		return false
+	end
+	-- THE PAINTED LAYER IS PART OF THE PICTURE TOO (task 354), and for the same reason task 347's
+	-- line above exists: switching `MAP_PAINTED` on hands in a geometry whose cells, roads and
+	-- stands are identical, so without this the flag-on geometry would be discarded as "the same
+	-- map" and no tile would ever be drawn.
+	-- THE RECTS, NOT JUST THE COUNT (round 1's note): a re-render moves a tile's world rect without
+	-- changing how many tiles there are, and `--ids` rewrites the manifest in place -- so a count
+	-- compare would call the new picture "the same map" and never redraw it.
+	local aPainted, bPainted = a.painted or {}, b.painted or {}
+	if #aPainted ~= #bPainted then
+		return false
+	end
+	for index, tile in ipairs(aPainted) do
+		local other = bPainted[index]
+		if tile.id ~= other.id or tile.imageId ~= other.imageId then
+			return false
+		end
+		for key, value in pairs(tile.rect) do
+			if math.abs(value - (other.rect :: any)[key]) > 1e-6 then
+				return false
+			end
+		end
 	end
 	for key, value in pairs(a.bounds) do
 		if math.abs(value - (b.bounds :: any)[key]) > 1e-6 then

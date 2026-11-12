@@ -534,13 +534,26 @@ return function()
 			-- ONE KILL IS ONE LINE, and that is a rule with two halves: `HitLog`'s own event draws the
 			-- line (it carries the animal's KIND, which the Match feed has never had), and the Match
 			-- feed's own `kill` entry therefore draws NOTHING. Both halves are asserted here.
-			local before = #Hud.feedText()
+			-- **THE RULE IS "ONE LINE", NOT "ONE MORE LINE"** (repaired in task 354). This read
+			-- `#after == before + 1` until 2026-11-12, and that is a count of two DIFFERENT lists:
+			-- `Hud.onKilled` renders the feed at its own clock, and that render both EXPIRES every
+			-- line older than `Drive.CONFIG.FEED_SECONDS` (8 s) and caps what is left at
+			-- `Style.FEED_LINES` (3). So a feed holding one eight-second-old line draws this kill
+			-- correctly and still counts 1, which is the failure task 354 measured here on
+			-- `origin/main` -- *"Expected value 2, got 1"* -- in a control run with none of its own
+			-- code in the tree. Asserted below as what the rule actually says: the kill's line is
+			-- the LAST line, and it is in the feed exactly ONCE.
+			local killLine = Hud.killLineText({ name = "Anna", animalKind = "female", zone = "chest", distance = 35 })
 			Hud.onKilled({ name = "Anna", animalKind = "female", zone = "chest", distance = 35 })
 			local after = Hud.feedText()
-			expect(#after).to.equal(before + 1)
-			expect(after[#after]).to.equal(
-				Hud.killLineText({ name = "Anna", animalKind = "female", zone = "chest", distance = 35 })
-			)
+			expect(after[#after]).to.equal(killLine)
+			local drawn = 0
+			for _, text in ipairs(after) do
+				if text == killLine then
+					drawn += 1
+				end
+			end
+			expect(drawn).to.equal(1)
 			-- ...and the Match entry for the same kill adds no second line.
 			expect(Hud.feedTextFor({ kind = "kill", name = "Anna", userId = 101 })).to.equal(nil)
 			-- The feed's other events are untouched by that rule.

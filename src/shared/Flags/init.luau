@@ -197,7 +197,17 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- TASKS.md 82b, which is the DIRECTOR's call and deletes a losing branch per retirement, or ship
 -- lit, which `docs/design/feature-flags.md` section 11 step 1 forbids. **The Director may prefer to
 -- spend 82b instead**: this is one line either way.
-Flags.MAX_FLAGS = 27
+-- 27 -> 28 FOR TASK 354's `MAP_PAINTED`, AND THE SAME SENTENCE AN EIGHTH TIME, said out loud rather
+-- than paid for by quietly retiring somebody else's row: the table held exactly 27, MEASURED at
+-- this commit by counting the rows of `Flags.DEFAULTS` itself, so the tripwire refuses the
+-- twenty-eighth until this line moves. The dispatch of 2026-11-12 asks for the row and asks for it
+-- born OFF -- *"THE PAINTED MAP IN THE GAME, behind MAP_PAINTED (born OFF)"* -- and what it
+-- switches is how the map LOOKS, which is feel and Karen's, so it cannot ship lit. The two ways out
+-- of the cap are still task 238's two: retire the lit rows queued as TASKS.md 82b, which is the
+-- DIRECTOR's call and deletes a losing branch per retirement, or ship lit, which
+-- `docs/design/feature-flags.md` section 11 step 1 forbids. **The Director may prefer to spend 82b
+-- instead**: this is one line either way.
+Flags.MAX_FLAGS = 28
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -962,6 +972,36 @@ Flags.DEFAULTS = {
 		why = "The eight cells read as ground at a glance -- wood where the wood is, open where it "
 			.. "is open, the roads curving on their real bends -- with small clear icons over it "
 			.. "and one legend. OFF draws today's map and no ground layer at all.",
+	} :: FlagRow,
+	-- THE M MAP'S GROUND IS A PAINTED PICTURE (task 354). KAREN, 2026-11-12: *"lets see how painted
+	-- looks"*, then *"rest is ok"* on the preview, then *"yes"* to uploading the eight painted
+	-- pictures into the game.
+	--
+	-- ON draws nine uploaded images under the icons -- one per drive cell plus one for the 420-stud
+	-- outer wood -- each placed by `MapUi.rawOffsetPx`, the same function that places every road
+	-- sample and stand mark, so the painted roads sit on the drawn ones at 0 px. OFF is today's map,
+	-- value for value: `MapUi.paintedFromGrid` is never called and no `ImageLabel` is created.
+	--
+	-- IT ALSO STANDS DOWN TASK 347's `MAP_LOOK` LAYER WHERE IT DRAWS, and that is deliberate: the
+	-- painting IS the ground, so the tinted columns over it would hide the thing this flag is for.
+	-- Where no tile is drawn -- a cell whose picture is not uploaded -- the `MAP_LOOK` layer is left
+	-- exactly as it was, so the two flags never leave a hole.
+	--
+	-- BOTH STATES ARE REACHABLE BY PARAMETER while the row sits at false: `MapUi.setGeometry` takes
+	-- the geometry whose `painted` field it draws, and `tests/client/map_ui.spec.luau` drives the
+	-- tiles on with the row off.
+	--
+	-- Note: docs/research/2026-11-12-painted-map-images.md
+	MAP_PAINTED = {
+		default = false,
+		-- The module that READS it at its boundary and draws the tiles. One writer of everything
+		-- inside the two map frames, exactly as `docs/design/map-ui.md` has it.
+		owner = "StarterPlayerScripts.Hud.MapUi",
+		born = "2026-11-12 task 354",
+		expires = "2026-12-03", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "The M map shows the painted forest Karen approved -- the wood where the wood is, the "
+			.. "roads on their real bends, the outer wood drawn -- under today's icons, stands, "
+			.. "labels and YOU marker. OFF draws today's map and no painted tile at all.",
 	} :: FlagRow,
 }
 
