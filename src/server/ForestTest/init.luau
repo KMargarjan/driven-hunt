@@ -1992,8 +1992,14 @@ function ForestTest.restSpot(standX: number, spec, band: any?, dz: number?): Vec
 			for step = 1, tries do
 				local angle = (step - 1) * (math.pi * 2 / tries)
 				local radius = ring * rest.searchStepStuds
-				local at =
-					Data.restPoint(standX, spec, math.cos(angle) * radius, math.sin(angle) * radius, chosen.layout)
+				local at = Data.restPoint(
+					standX,
+					spec,
+					math.cos(angle) * radius,
+					math.sin(angle) * radius,
+					chosen.layout,
+					dz or 0
+				)
 				local atNorth = at.Z - (Data.roadZ(at.X, chosen.layout) + (dz or 0))
 				local frontZ = if avoidSweep then Data.lineFrontAt(beaters, at.X) else nil
 				local swept = frontZ ~= nil and Data.sweepCatches((frontZ :: number) - at.Z, sweepDepth, Data.SPOOK)
