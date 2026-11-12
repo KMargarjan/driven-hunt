@@ -872,13 +872,16 @@ def cmd_render(args):
         print("  %-4s %4d x %4d px  %7.1f KB  %s"
               % (tile["id"], out_w, out_h, os.path.getsize(path) / 1024.0, os.path.basename(path)))
     marks = landmarks(geo, plan)
-    with io.open(os.path.join(out_dir, "landmarks.json"), "w", encoding="utf-8", newline="\n") as handle:
-        json.dump(dict(tool=TOOL_VERSION, pxPerStud=plan["pps"],
-                       tiles=[dict(id=t["id"], kind=t["kind"], rect=t["rect"],
-                                   pixels=dict(width=sizes[t["id"]][0], height=sizes[t["id"]][1]))
-                              for t in plan["tiles"]],
-                       landmarks=marks), handle, indent=1, sort_keys=True)
-    print("  landmarks.json            %d points" % len(marks))
+    # THE PROOF TABLE SHIPS WITH THE PLACE, as a Rojo JSON module (CLAUDE.md "File types": a .json in
+    # a Rojo path becomes a ModuleScript returning the decoded table). tests/client/map_ui.spec.luau
+    # reads it and compares THIS script's pixel for each world point against MapUi.paintedRectPx's --
+    # two independent instruments, which is the only kind of alignment claim worth making.
+    marks_path = os.path.join(REPO, "src", "shared", "Map", "PaintedLandmarks.json")
+    with io.open(marks_path, "w", encoding="utf-8", newline="\n") as handle:
+        json.dump(dict(tool=TOOL_VERSION, pxPerStud=plan["pps"], landmarks=marks),
+                  handle, indent=1, sort_keys=True)
+        handle.write("\n")
+    print("  src/shared/Map/PaintedLandmarks.json  %d points" % len(marks))
     ids = read_ids(args.ids)
     text = manifest_luau(plan, geo, ids, sizes)
     with io.open(os.path.join(REPO, "src", "shared", "Map", "PaintedMap.luau"), "w",

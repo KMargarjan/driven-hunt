@@ -2604,4 +2604,260 @@ return function()
 			TestKit.note(string.format("map_ui 347 legend: %d rows in one well", words))
 		end)
 	end)
+	-- ---------------------------------------------------------------- the painted layer (task 354)
+	--
+	-- KAREN, 2026-11-12: *"lets see how painted looks"*, then *"rest is ok"* on the preview, then
+	-- *"yes"* to uploading the eight painted pictures. The flag `MAP_PAINTED` is BORN OFF, so every
+	-- case here drives the layer on BY PARAMETER -- `geometryFor`'s own `paintedMap` argument --
+	-- which is the flag rule's requirement that both states be reachable while the row sits at one.
+	--
+	-- **THE ALIGNMENT CASE IS THE ONE THAT MATTERS, AND ITS TWO SIDES ARE DIFFERENT INSTRUMENTS.**
+	-- `ReplicatedStorage.Map.PaintedLandmarks` is written by `tools/map_paint.py` and holds, for 83
+	-- world points, the pixel THAT SCRIPT PAINTED THEM AT. This file projects the same world points
+	-- with `MapUi.rawOffsetPx` and reads them back off the placed image. A case that recomputed the
+	-- expected pixel here would agree with itself, which is task 129's *"agreed with the wrong one"*
+	-- in another shape.
+	describe("the painted map sits exactly on the drawn one (task 354)", function()
+		local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
+		local Places = require(ReplicatedStorage:WaitForChild("Places"))
+		local MapFolder = ReplicatedStorage:WaitForChild("Map")
+		local PaintedMap = require(MapFolder:WaitForChild("PaintedMap"))
+		local PaintedLandmarks = require(MapFolder:WaitForChild("PaintedLandmarks"))
+		local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+		local LODGE = Vector2.new(2850, -2950)
+
+		-- EVERY TILE AS IF IT HAD BEEN UPLOADED. The nine rows ship with `assetId` 0 until the
+		-- pictures are uploaded, and `paintedFromGrid` drops a tile with no picture -- which is the
+		-- behaviour case 1 asserts. So the arithmetic cases stand the tiles up by PARAMETER, with a
+		-- stand-in id, exactly as the ground cases stand up `places`.
+		local function uploaded(): any
+			local tiles = {}
+			for index, tile in ipairs(PaintedMap.TILES) do
+				table.insert(tiles, {
+					id = tile.id,
+					kind = tile.kind,
+					assetId = 900000 + index,
+					rect = tile.rect,
+					pixels = tile.pixels,
+				})
+			end
+			return { TILES = tiles }
+		end
+
+		it("is absent without the tiles, and drops a tile that has no picture", function()
+			-- OFF IS TODAY'S MAP: no `paintedMap`, no layer at all.
+			local off = MapUi.geometryFor("forest-test", data, Map, "C1", Grid, Places, LODGE) :: any
+			expect(off).to.be.ok()
+			expect(off.painted).to.equal(nil)
+			expect(MapUi.paintedFromGrid(nil)).to.equal(nil)
+			expect(MapUi.paintedFromGrid({})).to.equal(nil)
+
+			-- THE SHIPPED TABLE IS NINE ROWS -- eight cells and one background -- and the eight are
+			-- counted out of `Grid` here rather than written down, so a ninth cell fails this case.
+			local cells, background = 0, 0
+			for _, tile in ipairs(PaintedMap.TILES) do
+				if tile.kind == "cell" then
+					cells += 1
+				elseif tile.kind == "background" then
+					background += 1
+				end
+			end
+			expect(cells).to.equal(#Grid.cellIds())
+			expect(background).to.equal(1)
+
+			-- A TILE WITH `assetId` 0 IS NOT DRAWN, and that is the rule that keeps a part-uploaded
+			-- set honest. With one id set, exactly one tile comes back.
+			local one = {
+				TILES = { { id = "C1", kind = "cell", assetId = 0, rect = PaintedMap.TILES[1].rect } },
+			}
+			expect(MapUi.paintedFromGrid(one)).to.equal(nil)
+			one.TILES[1].assetId = 12345
+			local got = MapUi.paintedFromGrid(one) :: any
+			expect(got).to.be.ok()
+			expect(#got).to.equal(1)
+			expect(got[1].assetId).to.equal(12345)
+
+			-- THE BACKGROUND COMES FIRST whatever order the table is in: it is the tile the others
+			-- sit on, and tree order is what puts it under them.
+			local every = MapUi.paintedFromGrid(uploaded()) :: any
+			expect(#every).to.equal(#PaintedMap.TILES)
+			expect(every[1].kind).to.equal("background")
+			for index = 2, #every do
+				expect(every[index].kind).to.equal("cell")
+			end
+		end)
+
+		it("puts every landmark at the SAME pixel the render script painted it at (0 px)", function()
+			-- THE VIEW IS THE FULL MAP'S OWN, built from the geometry the game builds.
+			local model =
+				MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid, Places, LODGE, uploaded()) :: any
+			expect(model).to.be.ok()
+			expect(model.painted).to.be.ok()
+			local config = MapUi.CONFIG
+			local view = MapUi.fullView(model.bounds, config.FULL_MAX_WIDTH_PX, config.FULL_MAX_HEIGHT_PX)
+
+			local byId: { [string]: any } = {}
+			for _, tile in ipairs(model.painted) do
+				byId[tile.id] = tile
+			end
+			local pixels: { [string]: any } = {}
+			for _, tile in ipairs(PaintedMap.TILES) do
+				pixels[tile.id] = tile.pixels
+			end
+
+			local marks = PaintedLandmarks.landmarks
+			expect(#marks > 0).to.equal(true)
+			local worstPx, worstName = 0, "none"
+			local stands, corners, roads = 0, 0, 0
+			for _, mark in ipairs(marks) do
+				local tile = byId[mark.tile]
+				expect(tile).to.be.ok()
+				local size = pixels[mark.tile]
+				-- WHERE THE IMAGE IS, by the owner's own placement.
+				local left, top, width, height = MapUi.paintedRectPx(tile, view)
+				-- ...AND WHERE THE RENDER SCRIPT'S PIXEL LANDS INSIDE IT.
+				local throughImage =
+					Vector2.new(left + mark.pxX / size.width * width, top + mark.pxY / size.height * height)
+				-- ...AGAINST THE SAME WORLD POINT PROJECTED DIRECTLY.
+				local dx, dy = MapUi.rawOffsetPx(mark.worldX, mark.worldZ, view)
+				local off = (throughImage - Vector2.new(dx, dy)).Magnitude
+				if off > worstPx then
+					worstPx, worstName = off, mark.name
+				end
+				if string.find(mark.name, "^stand") ~= nil then
+					stands += 1
+				elseif string.find(mark.name, "^corner") ~= nil then
+					corners += 1
+				elseif string.find(mark.name, "^road") ~= nil then
+					roads += 1
+				end
+			end
+			-- THE DISPATCH'S OWN LIST: the fifteen stands of the dealt cell, the eight cells' corners
+			-- and the dealt cell's four road centrelines.
+			expect(stands).to.equal(Grid.standCount(Grid.DEFAULT_CELL))
+			expect(corners).to.equal(4 * #Grid.cellIds())
+			expect(roads > 0).to.equal(true)
+			-- 0 PX. The tolerance is float noise on a ~0.245 px/stud projection, not a budget: the
+			-- two sides are the same arithmetic, so anything a pixel could see is a defect.
+			expect(worstPx < 0.001).to.equal(true)
+			TestKit.note(
+				string.format(
+					"map_ui 354 alignment: %d landmarks (%d stands, %d corners, %d road), worst %.6f px at %s",
+					#marks,
+					stands,
+					corners,
+					roads,
+					worstPx,
+					worstName
+				)
+			)
+		end)
+
+		it("paints the world the GAME says is there, not a world of its own", function()
+			-- THE RENDER SCRIPT MIRRORS `Grid`'s arithmetic in Python, so the one thing that could
+			-- silently rot is that mirror. Every landmark's world point is compared against the Luau
+			-- function it claims to come from -- which is what makes the pixel case above a claim
+			-- about THIS forest and not about a picture of some other one.
+			local marks = PaintedLandmarks.landmarks
+			local worstStuds, worstName = 0, "none"
+			local checked = 0
+			local corners: { [string]: Vector2 } = {}
+			for _, id in ipairs(Grid.cellIds()) do
+				local b = Grid.boundsOf(id)
+				corners[id .. "SW"] = Vector2.new(b.minX, b.minZ)
+				corners[id .. "SE"] = Vector2.new(b.maxX, b.minZ)
+				corners[id .. "NE"] = Vector2.new(b.maxX, b.maxZ)
+				corners[id .. "NW"] = Vector2.new(b.minX, b.maxZ)
+			end
+			for _, mark in ipairs(marks) do
+				local want: Vector2? = nil
+				local index = string.match(mark.name, "^stand" .. Grid.DEFAULT_CELL .. "(%d+)$")
+				if index ~= nil then
+					local at = Grid.standPosition(Grid.DEFAULT_CELL, tonumber(index) :: number)
+					want = Vector2.new(at.X, at.Z)
+				else
+					local key = string.match(mark.name, "^corner(%w+)$")
+					want = if key ~= nil then corners[key] else nil
+				end
+				if want ~= nil then
+					checked += 1
+					local off = ((want :: Vector2) - Vector2.new(mark.worldX, mark.worldZ)).Magnitude
+					if off > worstStuds then
+						worstStuds, worstName = off, mark.name
+					end
+				end
+			end
+			expect(checked).to.equal(Grid.standCount(Grid.DEFAULT_CELL) + 4 * #Grid.cellIds())
+			expect(worstStuds < 1e-6).to.equal(true)
+			TestKit.note(
+				string.format(
+					"map_ui 354 geometry mirror: %d points against Grid, worst %.3e studs at %s",
+					checked,
+					worstStuds,
+					worstName
+				)
+			)
+		end)
+
+		it("draws one image per tile, under the icons, and stands down the tint it covers", function()
+			local restore = MapUi.geometry()
+			local withPaint =
+				MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid, Places, LODGE, uploaded()) :: any
+			MapUi.setGeometry(withPaint)
+			MapUi.setOpen(true)
+			task.wait()
+			local canvas = Hud.fullMap()
+			expect(canvas).to.be.ok()
+			local images, bands, stands = 0, 0, 0
+			local worstZ = math.huge
+			for _, child in ipairs((canvas :: Frame):GetDescendants()) do
+				if child:IsA("ImageLabel") and string.find(child.Name, "^Painted") ~= nil then
+					images += 1
+					expect(string.find((child :: ImageLabel).Image, "^rbxassetid://%d+$")).to.be.ok()
+					worstZ = math.min(worstZ, (child :: ImageLabel).ZIndex)
+				elseif string.find(child.Name, "^Ground") ~= nil then
+					bands += 1
+				elseif string.find(child.Name, "^Stand%d+$") ~= nil then
+					stands += 1
+				end
+			end
+			-- ONE IMAGE PER DRAWABLE TILE, and not one more.
+			expect(images).to.equal(#withPaint.painted)
+			-- THE GROUND TINT IS GONE WHERE A PICTURE COVERS IT (`PAINTED.REPLACES_GROUND`), and
+			-- every cell is painted here, so no band survives.
+			expect(bands).to.equal(0)
+			-- ...AND THE ICONS ARE STILL THERE, over it. The painted layer replaced the TINT, not
+			-- the map.
+			expect(stands > 0).to.equal(true)
+			-- NO BAND BELOW THE PANEL'S OWN (`GROUND.Z_BELOW`'s rule, and the same guard).
+			expect(worstZ >= MapUi.CONFIG.Z_INDEX).to.equal(true)
+
+			-- ...AND WITH THE TILES ABSENT, THE GROUND TINT IS BACK, value for value. Flag OFF is
+			-- today's map, asserted rather than assumed.
+			local noPaint = MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid, Places, LODGE) :: any
+			MapUi.setGeometry(noPaint)
+			task.wait()
+			local againImages, againBands = 0, 0
+			for _, child in ipairs((Hud.fullMap() :: Frame):GetDescendants()) do
+				if child:IsA("ImageLabel") and string.find(child.Name, "^Painted") ~= nil then
+					againImages += 1
+				elseif string.find(child.Name, "^Ground") ~= nil then
+					againBands += 1
+				end
+			end
+			expect(againImages).to.equal(0)
+			expect(againBands > 0).to.equal(true)
+			MapUi.setOpen(false)
+			MapUi.setGeometry(restore)
+			TestKit.note(
+				string.format(
+					"map_ui 354 draw: %d images and %d bands with the tiles, %d and %d without",
+					images,
+					bands,
+					againImages,
+					againBands
+				)
+			)
+		end)
+	end)
 end

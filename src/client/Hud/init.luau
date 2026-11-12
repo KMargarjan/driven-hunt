@@ -5642,6 +5642,12 @@ function Hud.start()
 			--
 			-- REQUIRED ONLY WHEN THE FLAG IS ON, so an off build does not even load them.
 			local places = if MapUi.GROUND.ENABLED then require(ReplicatedStorage:WaitForChild("Places")) else nil
+			-- THE PAINTED TILES (task 354), ON THE SAME SIDE OF THE SAME DOOR. `MapUi.PAINTED.ENABLED`
+			-- is that module's own one read of `MAP_PAINTED`, so with the row OFF `PaintedMap` is not
+			-- even required and `geometryFor` cannot build a painted layer at all.
+			local paintedMap = if MapUi.PAINTED.ENABLED
+				then require(ReplicatedStorage:WaitForChild("Map"):WaitForChild("PaintedMap"))
+				else nil
 			local lodgeAt: Vector2? = nil
 			if MapUi.GROUND.ENABLED then
 				local lobby = require(ReplicatedStorage:WaitForChild("Lobby"))
@@ -5678,7 +5684,7 @@ function Hud.start()
 				-- server's published layout name is read.
 				driveLayoutName = if live then live:GetAttribute(data.LAYOUT_ATTRIBUTE) else nil
 				MapUi.setGeometry(
-					MapUi.geometryFor(Map.EXPECTED_WORLD, data, Map, driveLayoutName, grid, places, lodgeAt)
+					MapUi.geometryFor(Map.EXPECTED_WORLD, data, Map, driveLayoutName, grid, places, lodgeAt, paintedMap)
 				)
 			end
 			drawMap()
