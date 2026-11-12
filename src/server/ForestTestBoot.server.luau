@@ -1833,7 +1833,15 @@ local lastReportAt = 0
 -- reports, the stand wall and the lobby scan -- had no instrument at all, so a 73 ms server frame
 -- could not be attributed between the two. Same shape as `Boar`'s: one reused table (no allocation
 -- per frame), the bill of the worst frame only, published where a probe can read it (V293b).
+local BOOT_ORDER = { "cells", "drive", "reports", "wire", "wall", "lobby" }
+local DRIVE_ORDER = { "placement", "spook", "lines", "roar", "staged", "rest", "release" }
 local bootProf = { cells = 0, drive = 0, reports = 0, wire = 0, wall = 0, lobby = 0 }
+-- ...EACH OWNER'S OWN WORST AND OWN TOTAL, and not only the worst FRAME: one 1,274 ms lobby frame
+-- at the join hid every other owner's worst behind it (measured, `<runs-dir>/355-BEF3-track.txt`).
+local bootMax = { cells = 0, drive = 0, reports = 0, wire = 0, wall = 0, lobby = 0 }
+local bootTotal = { cells = 0, drive = 0, reports = 0, wire = 0, wall = 0, lobby = 0 }
+local driveMax = { placement = 0, spook = 0, lines = 0, roar = 0, staged = 0, rest = 0, release = 0 }
+local driveTotal = { placement = 0, spook = 0, lines = 0, roar = 0, staged = 0, rest = 0, release = 0 }
 local bootSteps, bootMsTotal, bootMsMax, bootWorst = 0, 0, 0, ""
 
 RunService.Heartbeat:Connect(function()
@@ -1985,6 +1993,19 @@ RunService.Heartbeat:Connect(function()
 	local tookMs = (os.clock() - bootBegan) * 1000
 	bootSteps += 1
 	bootMsTotal += tookMs
+	local inner = ForestTest.stepSections()
+	for key, ms in pairs(bootProf) do
+		bootTotal[key] += ms
+		if ms > bootMax[key] then
+			bootMax[key] = ms
+		end
+	end
+	for key, ms in pairs(inner) do
+		driveTotal[key] += ms
+		if ms > driveMax[key] then
+			driveMax[key] = ms
+		end
+	end
 	if tookMs > bootMsMax then
 		bootMsMax = tookMs
 		local named = bootProf.cells
@@ -1994,9 +2015,8 @@ RunService.Heartbeat:Connect(function()
 			+ bootProf.wall
 			+ bootProf.lobby
 		-- ...AND `drive` SPLIT ONE LEVEL FURTHER, by the owner of that function (task 355). Read
-		-- HERE, after the call returned, so `ForestTest.step`'s six early returns need no wrapper:
+		-- after the call returned, so `ForestTest.step`'s six early returns need no wrapper:
 		-- whatever ran is in the table and whatever did not reads 0.
-		local inner = ForestTest.stepSections()
 		bootWorst = string.format(
 			"total=%.1f cells=%.1f drive=%.1f reports=%.1f wire=%.1f wall=%.1f lobby=%.1f rest=%.1f"
 				.. " | drive: placement=%.1f spook=%.1f lines=%.1f roar=%.1f staged=%.1f rest=%.1f release=%.1f",
@@ -2023,6 +2043,14 @@ RunService.Heartbeat:Connect(function()
 			string.format("steps=%d avg=%.2f max=%.2f", bootSteps, bootMsTotal / bootSteps, bootMsMax)
 		)
 		ServerStorage:SetAttribute("DHBootWorst", bootWorst)
+		local owners = {}
+		for _, key in ipairs(BOOT_ORDER) do
+			table.insert(owners, string.format("%s=%.1f/%.1f", key, bootMax[key], bootTotal[key]))
+		end
+		for _, key in ipairs(DRIVE_ORDER) do
+			table.insert(owners, string.format("drive.%s=%.1f/%.1f", key, driveMax[key], driveTotal[key]))
+		end
+		ServerStorage:SetAttribute("DHBootOwners", table.concat(owners, " "))
 	end
 end)
 

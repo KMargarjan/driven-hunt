@@ -5945,6 +5945,10 @@ function Runtime:clear(reason: string?)
 	stats.stepMsMax = 0
 	stats.worst = "" -- the worst frame's bill is per drive too (task 355)
 	stats.spawnMsMax, stats.spawnMsTotal, stats.spawnCalls = 0, 0, 0
+	for key in pairs(self._profMax) do
+		self._profMax[key] = 0
+		self._profTotal[key] = 0
+	end
 	stats.liveMax = 0
 	stats.despawnReasons = {}
 	self._reasonLine = ""
@@ -6788,6 +6792,9 @@ end
 -- HOW OFTEN THE STEP COST IS PUBLISHED on the runtime's folder (task 327h). 120 steps is about two
 -- seconds at 60 Hz: often enough for a probe taken at any moment in a drive, rare enough that four
 -- attribute writes cost nothing measurable against the step they are measuring.
+-- THE ORDER THE STEP'S NINE SECTIONS ARE PRINTED IN (task 355), so two runs' owner tables line up.
+Boar.PROF_ORDER = { "prep", "snap", "sounders", "voices", "templates", "probe", "brain", "attach", "draw" }
+
 Boar.STEP_PUBLISH_EVERY = 120
 
 function Runtime:count(): number
@@ -8317,6 +8324,13 @@ function Runtime:_stepCost(began: number)
 					stats.spawnMsMax
 				)
 			)
+			-- THE OWNER TABLE ITSELF: `<section>=max/total`, one pass over the nine keys in a fixed
+			-- order so two runs' lines can be read side by side.
+			local parts = {}
+			for _, key in ipairs(Boar.PROF_ORDER) do
+				table.insert(parts, string.format("%s=%.1f/%.1f", key, self._profMax[key], self._profTotal[key]))
+			end
+			folder:SetAttribute("StepOwners", table.concat(parts, " "))
 			folder:SetAttribute("Alive", #self._boars)
 			-- TASK 342's THREE: animals on their feet, the worst this drive has seen, and why the
 			-- ones that left left. Sampled here (every two seconds) and not every step, because
