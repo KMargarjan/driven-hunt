@@ -2324,7 +2324,9 @@ return function()
 			-- a real position.
 			local lodge = canvas:FindFirstChild("Lodge") :: Frame
 			expect(lodge).to.be.ok()
-			expect(lodge.BackgroundTransparency).to.equal(CONFIG.PINNED_TRANSPARENCY)
+			-- WITHIN A FLOAT32 STEP, not equal: a `BackgroundTransparency` is stored as a 32-bit
+			-- float, so 0.45 reads back as 0.44999998807907104 (measured, the 06:12 UTC run).
+			expect(math.abs(lodge.BackgroundTransparency - CONFIG.PINNED_TRANSPARENCY) < 1e-5).to.equal(true)
 			expect(lodge:FindFirstChild("Roof")).to.be.ok()
 
 			-- THE BUDGET, MEASURED ON THE OPEN MAP (the dispatch's 1,500).

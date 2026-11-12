@@ -178,7 +178,15 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- aimed, which is feel and Karen's, so it cannot ship lit. The two ways out of the cap are still
 -- task 238's two: retire the lit rows queued as TASKS.md 82b, which is the DIRECTOR's call, or ship
 -- lit, which is forbidden. **The Director may prefer to spend 82b instead**: this is one line either way.
-Flags.MAX_FLAGS = 25
+-- 25 -> 26 FOR TASK 347's `MAP_LOOK`, AND THE SAME SENTENCE A SIXTH TIME, said out loud rather than
+-- paid for by quietly retiring somebody else's row: the table held exactly 25 and the tripwire
+-- refused the twenty-sixth, MEASURED at this commit (`flags.spec:124` failed with "Expected 0, got
+-- 1" before this line moved, in the harness run of 2026-11-12 06:12 UTC). The dispatch of
+-- 2026-11-12 asks for the row and asks for it born OFF -- *"Behind a new flag MAP_LOOK, born OFF
+-- ... OFF = today's map exactly"* -- and what it switches is how the map LOOKS, which is feel and
+-- Karen's, so it cannot ship lit. The two ways out of the cap are still task 238's two: retire the
+-- lit rows queued as TASKS.md 82b, which is the DIRECTOR's call, or ship lit, which is forbidden.
+Flags.MAX_FLAGS = 26
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
