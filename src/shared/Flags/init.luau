@@ -893,6 +893,27 @@ Flags.DEFAULTS = {
 	--
 	-- Design: docs/design/animal-placement.md section 11
 	-- Note:   docs/research/2026-11-10-animal-placement.md
+	-- EVERY DRIVE A DIFFERENT PATTERN (task 351). KAREN, 2026-11-12: *"patterns needs to be diffret
+	-- for each drive could be singles groups different count of groups and mixes (do not mix
+	-- different animals)"*.
+	--
+	-- ON generates the drive's slot list per drive from a seed (drive number + cell + server seed),
+	-- drawing from the shipped fifteen rows as a POOL; OFF is that script, byte for byte.
+	-- Note: docs/research/2026-11-12-drive-variety.md
+	DRIVE_VARIETY = {
+		default = false,
+		-- The drive's own owner: the slot list is `ForestTest.SCHEDULE.drive` and the generator that
+		-- replaces it is in the same module.
+		owner = "ServerScriptService.ForestTest",
+		born = "2026-11-12 task 351",
+		expires = "2026-12-03", -- 21 days, the ceiling in feature-flags.md section 12
+		why = "The drive's slot list is GENERATED per drive from a seed (drive number + cell + server "
+			.. "seed) out of the shipped script's own rows, acts, parties and routes as a pool: a "
+			.. "different mix of singles and groups, different group sizes, a different number of "
+			.. "groups, and the special acts (break-back, split, hold, the red stag) appearing "
+			.. "sometimes rather than every drive. Every group stays ONE SPECIES. OFF is the fixed "
+			.. "fifteen-slot script of task 251, byte for byte.",
+	} :: FlagRow,
 	PLACEMENT_IN_PLACE = {
 		default = false,
 		-- The Director, because the switch is the drive's and not one module's: the owner of the

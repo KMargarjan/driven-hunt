@@ -1313,7 +1313,9 @@ Match.PhaseChanged:Connect(function(_before, phase, driveNumber)
 		-- starting: before this the metronome ran continuously, so slot 1 of the second drive fell
 		-- wherever the session's clock happened to be and the measured drives of part 1 reached slot 7,
 		-- 5, 5 and 5 for no reason anybody could read off the table (`ESCALATE.md`, 2026-10-23).
-		ForestTest.newDrive(os.clock())
+		-- ...AND THE DRIVE NUMBER GOES WITH IT (task 351): it is the seed's own key, and `Match` is
+		-- the only thing that knows it.
+		ForestTest.newDrive(os.clock(), driveNumber)
 		print(string.format("[report] drive %d opened (%ds windows)", driveNumber or 1, Data.DRIVE.seconds))
 	elseif phase == "Running" then
 		-- THE DRIVE IS OPENED, NOT FLUSHED (task 251, item 4). KAREN, 2026-10-23, through the plan she
