@@ -1,3 +1,68 @@
+## 2026-11-12 ~13:55 UTC, Task 351 -- FOR THE DIRECTOR: round 2 produced one finding, so the dispatch's cap is reached. The finding is fixed; a round 3 is yours to authorise
+
+The dispatch: *"Review: at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."*
+Round 2 came back with exactly one blocking finding, so this is that entry. **I did not run a third
+review.**
+
+### 1. What the finding was, and that it is right
+
+`reviews/task-351/RESULT.md` (round 2, commit `8bedd4dd`): three of the spec cases written in round
+1 -- "keeps the dial's own shape", "never deals a drive with no red deer in it" and "still releases
+in the LAST act" -- **all passed with `Data.generateDrive` stubbed to `return resolved.drive`**,
+because the shipped fifteen-row table satisfies every figure they asserted on its own (it fires nine
+groups at `quiet`, thirteen at `normal`, seven deer rows, and slots 11-15 in act III). And one line
+offered as claim 6's verification, `expect(Data.SILENT_KEEP_AT > Data.groupsWanted("busy", SCHEDULE))`,
+is `99 > 15` -- two constants, loop-invariant, reading no generated row at all.
+
+The finding is correct and I am not disputing it. It is the same hole round 1's finding 4 raised
+about a sibling case; I closed it there and did not carry the lesson to the two cases I wrote in
+the same round to close findings 1 and 2.
+
+### 2. What I did about it, and where the branch stands
+
+Fixed in `92d55fc1` (branch `task-351-drive-variety`), **after** the round-2 verdict and therefore
+**unreviewed**:
+
+- a `differsFromScript(rows)` helper, field-level rather than identity (a clone of the script fails
+  it too), called first in each of the three cases;
+- claim 6's constant comparison replaced by a walk of the GENERATED rows: every row carrying
+  `Data.SILENT_KEEP_AT` must make `Data.slotAt` answer nil at `quiet`, `normal` **and** `busy`, with
+  a floor of one such row per drive so the walk is never vacuous;
+- round 2's two non-blocking notes taken in the same commit (the lone stag of the SNEAK act counts as
+  the drive's deer party, said in the comment rather than left implied; and act II is the SHALLOWER
+  half of the script, not the deeper one -- the sentence was wrong, the change it justified is not).
+
+`[harness] PASS: 34/34 checks @ adf2a276b9eb0d3112e17580293f527ab3c990a4 (clean tree) scope=all`.
+CI is green on the branch.
+
+### 3. The decision
+
+`MAX_ROUNDS` is 3, so `tools/review.sh` would accept `Round: 3` with no override -- it is the
+DISPATCH that caps this task at two, which is why this entry exists rather than a third request.
+
+- **Authorise a round 3** and the branch is one review call from a verdict on `92d55fc1`; or
+- **merge on round 2's evidence** knowing the three cases bite only as of a commit no Reviewer has
+  seen (everything round 2 did pass still holds -- the generator, the five round-1 fixes and the
+  live proofs are all at `5350c8c7`, which round 2 reviewed); or
+- **revert `92d55fc1`** and merge exactly what round 2 saw, leaving the three weak cases as a
+  `TASKS.md` item.
+
+My recommendation is a round 3: it is one call, the diff is three spec cases and two comments, and
+it is the difference between evidence that bites and evidence that does not.
+
+### 4. Two things the dispatch asked for that are NOT met, for the same decision
+
+- **Stands 7 and 11: NOT MEASURED.** The real click lands on the row (`clicked row 11 -> 11 WEST
+  FREE`) but the hunter is still dealt stand 4 -- `<runs-dir>/351s-track.txt` reads `stand=4 at=0`
+  for every on-stand sample. That is the stand-pick path (tasks 323/349), not this change.
+- **`released` within 15 %: one drive of four is outside it.** Drive 1 released 145 against the
+  flag-OFF control's 122 (+19 %); drive 3 released 122 (+0 %). `released` counts the OFF placement
+  path's repeat window past slot 15, so it tracks how long a drive ran as much as what it was. The
+  number the generator does control -- the roster each drive declares -- is 65-73 against the
+  script's 73, i.e. -11 % to 0 %, inside the band.
+
+**Director 2026-11-12 14:02 UTC: round 3 authorised (option 1).**
+
 ## 2026-11-12 ~07:00 UTC, Task 347 -- FOR THE DIRECTOR: the CLICK PROOF was NOT OBTAINABLE, there is NO WATER in this world to draw, and the baked-image option is Karen's to take
 
 ### 1. CLICK PROOF: NOT OBTAINABLE. The stand-pick window never opened in ~9 minutes of live play

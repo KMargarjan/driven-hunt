@@ -3115,6 +3115,583 @@ function ForestTest.slotAt(slot: number, density: string?, schedule, inPlace: bo
 	return row
 end
 
+-- ------------------------------- EVERY DRIVE A DIFFERENT PATTERN (task 351, flag DRIVE_VARIETY)
+--
+-- KAREN, 2026-11-12: *"patterns needs to be diffret for each drive could be singles groups
+-- different count of groups and mixes (do not mix different animals)"*.
+--
+-- Note: docs/research/2026-11-12-drive-variety.md
+--
+-- WHAT IS BORROWED (rule 2), and the three sources are in the note: a band-filtered weighted draw
+-- over a pool (Dungeon Crawl's `mon-pick.cc`, GPL-2.0-or-later), entries that are ONE SPECIES plus a
+-- pack size (Cataclysm-DDA's monstergroups, docs CC BY-SA 3.0), and a four-beat arc the generated
+-- population must keep (Valve's Left 4 Dead AI Director, GDC 2009).
+--
+-- THE POOL IS THE FIFTEEN SHIPPED ROWS AND NOTHING ELSE. A generated row's depth, side, crossing,
+-- route, pace and files are a shipped row's, and its party is a shipped party -- so no composition,
+-- no route and no zone exists here that `SCHEDULE.drive` did not already carry. The flag OFF is
+-- that table byte for byte: nothing below runs.
+
+-- HOW A SILENT SLOT IS SAID. A generated list must be fifteen rows long -- `slotAt` indexes it and a
+-- hole would shorten the drive's clock -- so a slot that carries nothing at ANY density is a row
+-- whose `keepAt` is past every dial (`DENSITIES` tops out at 15). Its party is never read, because
+-- `slotAt` answers nil for it.
+ForestTest.SILENT_KEEP_AT = 99
+
+-- WHICH SPECIAL ACT A ROW IS, or nil for an ordinary one. The four acts Karen's drive has: the
+-- refusal that breaks back, the sounder that splits at the verge, the one that holds and never
+-- comes, and the red stag who sneaks the treeline. PURE, and it reads the row's own fields rather
+-- than its slot number, so moving a row cannot change what it is.
+function ForestTest.slotSpecial(row: any?): string?
+	if row == nil then
+		return nil
+	end
+	if row.sneak == true then
+		return "SNEAK"
+	end
+	local route = ForestTest.slotRoute(row)
+	if route == "BREAK-BACK" or route == "SPLIT" or route == "HOLD" then
+		return route
+	end
+	return nil
+end
+
+-- THIS DRIVE'S SEED: drive number + cell + server seed, as the Director's decision writes it. PURE,
+-- so a spec gets the same seed twice and two drives of one session never get the same one.
+--
+-- THE CELL IS IN IT BY NAME, hashed the ordinary way (31x + byte), because the same drive number in
+-- two cells must not deal the same pattern. The session seed is the server's own draw and is what
+-- stops Karen seeing the same five drives every time she presses Play.
+function ForestTest.driveSeed(sessionSeed: number?, driveNumber: number?, cellName: string?): number
+	local cell = 7
+	local name = if type(cellName) == "string" then cellName else ""
+	for index = 1, #name do
+		cell = (cell * 31 + string.byte(name, index)) % 1000003
+	end
+	local seed = math.floor(math.abs(sessionSeed or 0)) % 2147483647
+	return (seed + math.floor(math.abs(driveNumber or 1)) * 7919 + cell) % 2147483647
+end
+
+-- HOW MANY ANIMALS THE FIXED SCRIPT RELEASES at a density, through the injected weigher. The
+-- budget's target, and the singles cap's floor, read it from the same place so the two cannot
+-- disagree about what the drive is being measured against.
+local function animalTarget(density: string?, resolved: any, weigh: (string, any) -> number): number
+	local total = 0
+	for slot = 1, #(resolved.drive or {}) do
+		local row = ForestTest.slotAt(slot, density, resolved)
+		if row ~= nil then
+			total += weigh(row.species, row.composition or row.party)
+		end
+	end
+	return total
+end
+
+-- WHICH ACT A SLOT IS IN, for a list of this length: three acts of equal length, which is what the
+-- fifteen-row script's own 1-5 / 6-10 / 11-15 is.
+local function actOfSlot(slot: number, slots: number): number
+	local per = math.max(1, math.floor(slots / 3))
+	return math.clamp(math.ceil(slot / per), 1, 3)
+end
+
+-- WHAT A GENERATED ROW SAYS IT IS, in the one sentence the release lines print (`row.note`). ONE
+-- function, called where the row is built AND after every budget step (review round 1's note): the
+-- walk rewrites the party and the size, and a note written once named the group that used to be
+-- there -- on the very lines the proof reads.
+function ForestTest.rowNote(row: any, size: number): string
+	return string.format(
+		"generated act %d: %s of %d, %d studs out and %d %s, %s at a %s",
+		row.act or 1,
+		tostring(row.party or ("sounder " .. tostring(row.composition))),
+		size,
+		math.floor(row.northStuds or 0),
+		math.floor(math.abs(row.offsetX or 0)),
+		if (row.offsetX or 0) < 0 then "west" else "east",
+		ForestTest.slotRoute(row),
+		tostring(row.pace)
+	)
+end
+
+-- THE DRIVE'S SLOT LIST, GENERATED FROM A SEED. PURE: same seed -> the same fifteen rows, field for
+-- field; a different seed -> a different drive. `Random.new(seed)` is Roblox's own seeded generator
+-- and is the only source of chance in here.
+--
+-- `weigh(species, key)` IS INJECTED because how many animals a composition is belongs to the
+-- ANIMAL's owner (`Boar.compositionSize`) and not to the drive -- rule 3, and the same seam
+-- `Placement.luau` already uses for `slotAt`. With no weigher the script itself is returned, which
+-- is the honest answer to "I cannot count what I am drawing".
+--
+-- WHAT VARIES, AND WHAT MAY NOT:
+--   * which special acts appear (each about half the time, at most once) -- so they are
+--     *"sometimes, not every drive"*;
+--   * how many slots fall silent (1-4, never adjacent, never slot 1), so the count of groups moves;
+--   * how many singles (0-3) and how many deer parties (1 to the base's own count, never above);
+--   * which party each carrying slot takes, and therefore the group SIZES.
+--   * NOT the slot count, NOT the clock, NOT the acts, and NOT the species inside a group: a row is
+--     one species by construction, which is Karen's *"(do not mix different animals)"*.
+--
+-- THE DIAL KEEPS ITS MEANING: exactly nine rows get `keepAt = 9`, the specials get 13 and the rest
+-- 15, so `quiet` still fires nine groups and `normal` at most thirteen, and `slotAt` is untouched.
+-- AT `busy` A GENERATED DRIVE CARRIES FEWER GROUPS THAN THE SCRIPT (11-14 against 15), because the
+-- silences are silent at every density. Karen's cells are `normal`, so nothing plays it today; said
+-- here rather than discovered (review round 1's note).
+function ForestTest.generateDrive(
+	seed: number?,
+	density: string?,
+	schedule: any?,
+	weigh: ((string, any) -> number)?
+): { any }
+	local resolved = schedule or ForestTest.SCHEDULE
+	local pool = resolved.drive or {}
+	local slots = #pool
+	if slots == 0 or type(weigh) ~= "function" then
+		return pool
+	end
+	local rng = Random.new(math.floor(math.abs(seed or 0)))
+	local want = ForestTest.groupsWanted(density, resolved)
+
+	-- 1. THE POOL, PARTITIONED. Ordinary rows by ACT (the band: an act I slot may only take act I
+	-- geometry, so a far-wood group can never be released 85 studs from the road), specials by the
+	-- act they are. The VOCABULARY -- which boar compositions and which deer parties this script
+	-- uses -- is read off the same rows rather than written down a second time, and each party
+	-- brings the `check`, `leaps` and `files` the script declared for it.
+	local ordinary: { { any } } = { {}, {}, {} }
+	local specials: { [string]: { any } } = {}
+	local parties: { any } = {}
+	local seen: { [string]: boolean } = {}
+	for index, row in ipairs(pool) do
+		local kind = ForestTest.slotSpecial(row)
+		if kind ~= nil then
+			local bag = specials[kind] or {}
+			table.insert(bag, row)
+			specials[kind] = bag
+		else
+			table.insert(ordinary[actOfSlot(row.slot or index, slots)], row)
+		end
+		local key = if row.species == "reddeer" then row.party else row.composition
+		local token = tostring(row.species) .. "/" .. tostring(key)
+		if key ~= nil and not seen[token] then
+			seen[token] = true
+			table.insert(parties, {
+				species = row.species,
+				composition = if row.species == "reddeer" then nil else key,
+				party = if row.species == "reddeer" then key else nil,
+				size = weigh(row.species, key),
+				check = row.check,
+				leaps = row.leaps,
+				files = row.files,
+			})
+		end
+	end
+	-- SORTED BY SIZE, so the budget below has a ladder to walk and the order never depends on
+	-- `pairs`. The tie-break is the key's own text, so the list is the same list every run.
+	table.sort(parties, function(a, b)
+		if a.size ~= b.size then
+			return a.size < b.size
+		end
+		return tostring(a.composition or a.party) < tostring(b.composition or b.party)
+	end)
+	-- FOUR BAGS OF INDICES INTO `parties`, each already in size order: boar singles, boar groups,
+	-- deer singles, deer groups. Four and not one table keyed by a built-up word, because a key
+	-- spelled at run time is a key nobody can check.
+	local boarSingle, boarGroup, deerSingle, deerGroup = {}, {}, {}, {}
+	for index, entry in ipairs(parties) do
+		if entry.species == "reddeer" then
+			table.insert(if entry.size <= 1 then deerSingle else deerGroup, index)
+		else
+			table.insert(if entry.size <= 1 then boarSingle else boarGroup, index)
+		end
+	end
+	if #boarGroup == 0 then
+		return pool -- a pool with no boar group in it is not this script; draw nothing
+	end
+	local function bagFor(deer: boolean, single: boolean): { number }
+		local bag = if deer
+			then (if single then deerSingle else deerGroup)
+			else (if single then boarSingle else boarGroup)
+		return if #bag > 0 then bag else boarGroup
+	end
+
+	-- 2. THE DRAW. Which specials this drive has, how many silences, how many singles, how many
+	-- deer -- four numbers, and every one of them is what makes two drives different.
+	local drawnSpecials: { any } = {}
+	for _, kind in ipairs({ "SNEAK", "BREAK-BACK", "SPLIT", "HOLD" }) do
+		local rows = specials[kind]
+		if rows ~= nil and #rows > 0 and rng:NextNumber() < 0.5 then
+			table.insert(drawnSpecials, rows[rng:NextInteger(1, #rows)])
+		end
+	end
+	-- NINE ORDINARY ROWS ARE RESERVED, so `quiet` fires exactly nine groups whatever else is drawn:
+	-- the silences take what is left over after the specials.
+	local silenceRoom = math.max(1, math.min(4, slots - 9 - #drawnSpecials))
+	local silenceWant = rng:NextInteger(1, silenceRoom)
+	local silent: { [number]: boolean } = {}
+	local silences = 0
+	for _ = 1, 40 do
+		if silences >= silenceWant then
+			break
+		end
+		-- NEVER SLOT 1 and never two in a row: slot 1 is the early mover the first sighting is
+		-- measured from, and two adjacent holes would be a 39-second gap in a drive whose target is
+		-- a 20-second median.
+		local at = rng:NextInteger(2, slots)
+		if not silent[at] and not silent[at - 1] and not silent[at + 1] then
+			silent[at] = true
+			silences += 1
+		end
+	end
+
+	-- EACH SPECIAL KEEPS ITS OWN ACT, so the stag still comes out of act II and the refusals and the
+	-- hold are still late. A special with no free slot in its act is DROPPED rather than moved: a
+	-- break-back in act I is not the act the script wrote.
+	local assigned: { [number]: any } = {}
+	local deerDrawn = 0
+	local stagDrawn = false
+	for _, row in ipairs(drawnSpecials) do
+		local act = math.clamp(row.act or 2, 1, 3)
+		local free = {}
+		for at = 1, slots do
+			if at > 1 and not silent[at] and assigned[at] == nil and actOfSlot(at, slots) == act then
+				table.insert(free, at)
+			end
+		end
+		if #free > 0 then
+			assigned[free[rng:NextInteger(1, #free)]] = row
+			if row.species == "reddeer" then
+				deerDrawn += 1
+				stagDrawn = stagDrawn or weigh(row.species, row.party) <= 1
+			end
+		end
+	end
+
+	-- 3. WHO IS IN THE CARRYING SLOTS. A token per slot first -- boar or deer, single or group --
+	-- then shuffled, so the SPECIES ORDER of a drive varies and not only its sizes.
+	local carry = {}
+	for at = 1, slots do
+		if not silent[at] and assigned[at] == nil then
+			table.insert(carry, at)
+		end
+	end
+	-- THE DEER CAP IS THE BASE SCRIPT'S OWN COUNT AND NEVER ABOVE IT, and it is not a nicety.
+	-- `MAX_DEER_GROUPS` 40 is *"past every deer this script can have on its feet at once (39)"* --
+	-- and the 39 is this script's seven deer rows at `normal` -- and a cap that refuses a slot
+	-- releases NOTHING, a hole in the drive rather than fewer deer. So a generated drive may have
+	-- FEWER deer parties than the script, never more: 1 to its own count, counting any the specials
+	-- already brought.
+	local baseDeer = math.max(1, ForestTest.driveTally(density, resolved).deerGroups)
+	local deerWant = math.clamp(rng:NextInteger(1, baseDeer) - deerDrawn, 0, #carry)
+	-- HOW MANY SINGLES THE BUDGET CAN AFFORD, and this is arithmetic rather than taste. A single
+	-- weighs one animal, so three of them in a drive that fires only nine groups leave six to carry
+	-- the whole release: 6 x the biggest sounder (9) + 3 = 57, against a floor of 65. MEASURED: the
+	-- 40-drive spec case failed on exactly that, `animals >= lo` on a drive the pool could not fund.
+	-- So the dispatch's 0-3 is a CEILING and the ladder's own reach is the other bound.
+	local firingOrdinary = if want >= slots then #carry else math.min(9, #carry)
+	local specialAnimals = 0
+	local specialSingles = 0
+	for _, row in pairs(assigned) do
+		local size = weigh(row.species, row.composition or row.party)
+		specialAnimals += size
+		if size <= 1 then
+			specialSingles += 1
+		end
+	end
+	local floorWanted = math.floor(animalTarget(density, resolved, weigh) * 0.9)
+	-- 0-3 SINGLES IN THE WHOLE DRIVE, which counts the ones the SPECIALS brought: the red stag of
+	-- the SNEAK act weighs one animal and is a single by anybody's reading. MEASURED over 160
+	-- drives: without this, ten of them came out at four.
+	local singleWant = math.clamp(rng:NextInteger(0, 3) - specialSingles, 0, #carry)
+	-- THE CEILING THIS DRAW CAN ACTUALLY REACH, with every group at the biggest its own species
+	-- has. MEASURED over 160 drives: the first cut of this capped the SINGLES only and still fell to
+	-- 60 animals against a floor of 65, because a DEER party tops out at 8 where a sounder tops out
+	-- at 9 and a drive drawn with seven deer parties cannot be funded however the ladder is walked.
+	-- So both numbers are reduced, deer first (Karen asked for the singles by name), until the
+	-- ceiling clears the floor. `biggest` above is the pool's own largest and nothing is invented.
+	local boarMax, deerMax = 1, 0
+	for _, index in ipairs(boarGroup) do
+		boarMax = math.max(boarMax, parties[index].size)
+	end
+	for _, index in ipairs(deerGroup) do
+		deerMax = math.max(deerMax, parties[index].size)
+	end
+	local function ceilingFor(deerN: number, singleN: number): number
+		local groupsN = math.max(0, firingOrdinary - singleN)
+		local deerG = math.min(deerN, groupsN)
+		return specialAnimals + singleN + deerG * deerMax + (groupsN - deerG) * boarMax
+	end
+	-- ...AND THE REDUCTION HAS A FLOOR OF ONE DEER PARTY (review round 1, finding 1). Unbounded, it
+	-- took the deer to ZERO on about a quarter of drives -- `ceilingFor(7,3) = 51` against a floor of
+	-- 65, and every step down stays short until the last deer is gone -- which deletes the system
+	-- tasks 239, 251c and 328z built and breaks this task's own written target. Karen, 2026-10-21:
+	-- *"we need all a time in drive deer"*. A drive whose SPECIALS already carry a deer has its one,
+	-- so the floor is 0 there; otherwise one ordinary slot stays a deer party and the SINGLES give
+	-- way instead (`ceilingFor(1,1) = 72` clears 65 with room).
+	-- ...AND A SPECIAL'S DEER COUNTS, INCLUDING THE LONE STAG (review round 2's note). The SNEAK act
+	-- IS one red deer -- `party = "stag"`, one animal -- so a drive that drew him may carry him and
+	-- no other deer: `driveTally` counts that as a deer group and it is, but it is one animal where
+	-- Karen's *"we need all a time in drive deer"* probably means a party. Said rather than hidden;
+	-- tightening it to "a deer GROUP" is a one-word change to this line if the Director wants it.
+	local minDeer = if deerDrawn > 0 then 0 else math.min(1, #deerGroup)
+	while deerWant > minDeer and ceilingFor(deerWant, singleWant) < floorWanted do
+		deerWant -= 1
+	end
+	while singleWant > 0 and ceilingFor(deerWant, singleWant) < floorWanted do
+		singleWant -= 1
+	end
+	local tokens = {}
+	for index = 1, #carry do
+		local deer = index <= deerWant
+		local single = index > #carry - singleWant
+		-- ONE LONE STAG PER DRIVE AT MOST. A deer single IS a lone stag, and so is the SNEAK
+		-- special, so the second one becomes a boar single rather than a second stag -- the same
+		-- rule `slotAt`'s repeat window already makes for a deer row.
+		if deer and single and (stagDrawn or #deerSingle == 0) then
+			deer = false
+		end
+		if deer and single then
+			stagDrawn = true
+		end
+		table.insert(tokens, { deer = deer, single = single })
+	end
+	for index = #tokens, 2, -1 do
+		local swap = rng:NextInteger(1, index)
+		tokens[index], tokens[swap] = tokens[swap], tokens[index]
+	end
+
+	-- 4. THE ROWS. The GEOMETRY is a shipped row of this slot's own act; the PARTY is the drawn one.
+	local rows: { any } = {}
+	local picked: { [number]: number } = {}
+	for at = 1, slots do
+		local act = actOfSlot(at, slots)
+		-- THE GEOMETRY POOL FOR THIS SLOT'S ACT -- plus act II's for act III (review round 1's note).
+		-- Act III holds exactly ONE ordinary row, slot 14: slots 11, 12, 13 and 15 are all specials,
+		-- so every generated act-III slot cloned the same depth, the same side and the same crossing,
+		-- every drive. Against *"from different sides"* that was the one act with no sides at all.
+		-- Act II's ordinary rows are at 150, 170, 210 and 265 studs against act III's own 290, so they
+		-- are SHALLOWER, not deeper (review round 2's note corrected this sentence); what they give
+		-- act III is four more sides and crossings instead of one.
+		local geoms = ordinary[act]
+		if act == 3 and #ordinary[2] > 0 then
+			geoms = table.clone(ordinary[3])
+			table.move(ordinary[2], 1, #ordinary[2], #geoms + 1, geoms)
+		end
+		if #geoms == 0 then
+			geoms = ordinary[2]
+		end
+		if #geoms == 0 then
+			geoms = pool
+		end
+		local out: any
+		-- THE ACT IS WRITTEN BEFORE THE NOTE, because `rowNote` reads it.
+		if assigned[at] ~= nil then
+			-- A SPECIAL IS CLONED WHOLE, its own note included: it IS that act, written the way the
+			-- script wrote it, and inventing a species or a turn for it would be inventing an act.
+			out = table.clone(assigned[at])
+			out.act = act
+			out.keepAt = 13
+		else
+			out = table.clone(geoms[rng:NextInteger(1, #geoms)])
+			out.act = act
+			if silent[at] then
+				out.keepAt = ForestTest.SILENT_KEEP_AT
+				out.note = "generated: this slot is silent at every density"
+			else
+				local token = table.remove(tokens, 1) or { deer = false, single = false }
+				local bag = bagFor(token.deer == true, token.single == true)
+				local index = bag[rng:NextInteger(1, #bag)]
+				picked[at] = index
+				local entry = parties[index]
+				out.species = entry.species
+				out.composition = entry.composition
+				out.party = entry.party
+				-- THE PARTY BRINGS ITS OWN BEHAVIOUR AND ITS OWN FORMATION, taken from the row the
+				-- script already wrote for it: `check` and `leaps` are the DEER's own behaviour at
+				-- the verge and `files` is whether a sounder comes down in two.
+				out.check = entry.check
+				out.leaps = entry.leaps
+				out.files = entry.files
+				out.keepAt = 9
+				out.note = ForestTest.rowNote(out, entry.size)
+			end
+		end
+		out.slot = at
+		out.atSeconds = ForestTest.slotSeconds(at, resolved)
+		rows[at] = out
+	end
+	-- ...AND THE NINE THAT CARRY AT `quiet` ARE SPREAD BY ACT, in the shipped script's own split
+	-- (review round 1, finding 2). Taking the first nine in SLOT order silenced the whole tail: with
+	-- one silence and no act-III special the nine were slots 1-10 and slots 11-15 -- 140 s to 192 s,
+	-- the last runners -- released nothing, which is the one thing the dispatch orders kept. The
+	-- quota is READ OFF THE POOL (`keepAt <= quiet`), which is 4 / 3 / 2 across the three acts, and
+	-- an act with too few carrying rows gives its share back so the total is still nine.
+	local quiet = ForestTest.groupsWanted("quiet", resolved)
+	local quota = { 0, 0, 0 }
+	local nine = 0
+	for index, row in ipairs(pool) do
+		if (row.keepAt or 1) <= quiet then
+			local act = actOfSlot(row.slot or index, slots)
+			quota[act] += 1
+			nine += 1
+		end
+	end
+	local taken = 0
+	for at = 1, slots do
+		if rows[at].keepAt == 9 then
+			local act = actOfSlot(at, slots)
+			if quota[act] > 0 then
+				quota[act] -= 1
+				taken += 1
+			else
+				rows[at].keepAt = 15
+			end
+		end
+	end
+	-- THE SPILL: an act that had fewer carrying rows than its share leaves the total short, so the
+	-- rows it could not use are handed to whoever is still at 15. Without it a drive whose silences
+	-- all landed in one act would fire fewer than nine at `quiet` and the dial would move.
+	for at = 1, slots do
+		if taken >= nine then
+			break
+		end
+		if rows[at].keepAt == 15 and picked[at] ~= nil then
+			rows[at].keepAt = 9
+			taken += 1
+		end
+	end
+
+	-- ...AND AT LEAST ONE OF THE ROWS THAT ACTUALLY FIRE IS A DEER PARTY. Drawing `deerWant >= 1` is
+	-- not enough on its own: a deer token can land on a carrying slot whose rank put it at
+	-- `keepAt = 15`, which `normal` refuses, and the drive plays with no deer in it. MEASURED: 4 of
+	-- 160 drives (`<runs-dir>/351-band-probe.luau`) after the draw floor alone. So the LAST firing
+	-- ordinary group is turned into the deer party nearest its own size -- nearest, so the budget
+	-- below has least to do -- and nothing else moves.
+	local function firesAt(at: number): boolean
+		return (rows[at].keepAt or 1) <= want
+	end
+	local haveDeer = false
+	for at = 1, slots do
+		if firesAt(at) and rows[at].species == "reddeer" then
+			haveDeer = true
+			break
+		end
+	end
+	if not haveDeer and #deerGroup > 0 then
+		for at = slots, 1, -1 do
+			local index = picked[at]
+			local entry = if index ~= nil then parties[index] else nil
+			if firesAt(at) and entry ~= nil and entry.size > 1 then
+				local best = deerGroup[1]
+				for _, which in ipairs(deerGroup) do
+					if math.abs(parties[which].size - entry.size) < math.abs(parties[best].size - entry.size) then
+						best = which
+					end
+				end
+				local moveTo = parties[best]
+				rows[at].species = moveTo.species
+				rows[at].composition = moveTo.composition
+				rows[at].party = moveTo.party
+				rows[at].check = moveTo.check
+				rows[at].leaps = moveTo.leaps
+				rows[at].files = moveTo.files
+				rows[at].note = ForestTest.rowNote(rows[at], moveTo.size)
+				picked[at] = best
+				break
+			end
+		end
+	end
+
+	-- 5. THE BUDGET CLOSES IT (Cataclysm-DDA's `cost_multiplier` idea): a varied drive is a
+	-- different drive, not a smaller one. The rows that will actually fire at this density are
+	-- weighed, and a group is stepped one place up or down its own species' size ladder until the
+	-- total is inside +-10 % of what the fixed script releases at the same density.
+	local function animalsNow(): number
+		local total = 0
+		for at = 1, slots do
+			if firesAt(at) then
+				total += weigh(rows[at].species, rows[at].composition or rows[at].party)
+			end
+		end
+		return total
+	end
+	local target = animalTarget(density, resolved, weigh)
+	-- A ROTATING CURSOR, AND IT IS NOT TIDINESS. Walking from slot 1 every pass put the WHOLE
+	-- shortfall into the first group it could grow: a measured drive read `B9 B9 B9 B9 B9 ...`, five
+	-- maximum sounders in a row, which is one pattern repeated and not *"different count of
+	-- groups"*. Rotating spreads a step over the drive, so the sizes differ as well as the total.
+	local cursor = 0
+	local lo, hi = math.floor(target * 0.9), math.ceil(target * 1.1)
+	for _ = 1, 200 do
+		local have = animalsNow()
+		if have >= lo and have <= hi then
+			break
+		end
+		local step = if have < lo then 1 else -1
+		local moved = false
+		for offset = 1, slots do
+			local at = ((cursor + offset - 1) % slots) + 1
+			local index = picked[at]
+			local entry = if index ~= nil then parties[index] else nil
+			if firesAt(at) and entry ~= nil and entry.size > 1 then
+				local bag = bagFor(entry.species == "reddeer", false)
+				for place, which in ipairs(bag) do
+					if which == index and bag[place + step] ~= nil then
+						local moveTo = parties[bag[place + step]]
+						rows[at].composition = moveTo.composition
+						rows[at].party = moveTo.party
+						rows[at].check = moveTo.check
+						rows[at].leaps = moveTo.leaps
+						rows[at].files = moveTo.files
+						rows[at].note = ForestTest.rowNote(rows[at], moveTo.size)
+						picked[at] = bag[place + step]
+						moved = true
+					end
+					if moved then
+						break
+					end
+				end
+			end
+			if moved then
+				cursor = at
+				break
+			end
+		end
+		if not moved then
+			break -- the ladder is spent: this is as close to the budget as the pool reaches
+		end
+	end
+	for at = 1, slots do
+		rows[at] = table.freeze(rows[at])
+	end
+	return table.freeze(rows)
+end
+
+-- THIS DRIVE'S SCHEDULE WITH A GENERATED SLOT LIST. One table per (schedule, seed), because
+-- `releaseLine` asks once per slot and a drive must not be re-dealt underneath itself.
+--
+-- IT IS THE BASE TABLE BY IDENTITY when the switch is off, so a drive with the flag off plays
+-- exactly as today rather than nearly so -- the same promise `cellSchedule` makes for a cell with
+-- no `animals` row.
+local VARIED: { [any]: { [number]: any } } = {}
+function ForestTest.variedSchedule(schedule: any?, seed: number?, weigh: ((string, any) -> number)?, on: boolean?): any
+	local resolved = schedule or ForestTest.SCHEDULE
+	if on ~= true then
+		return resolved
+	end
+	local key = math.floor(math.abs(seed or 0))
+	local forSchedule = VARIED[resolved]
+	if forSchedule == nil then
+		forSchedule = {}
+		VARIED[resolved] = forSchedule
+	end
+	local found = forSchedule[key]
+	if found ~= nil then
+		return found
+	end
+	local made = table.clone(resolved)
+	made.drive = ForestTest.generateDrive(key, resolved.density, resolved, weigh)
+	made = table.freeze(made)
+	forSchedule[key] = made
+	return made
+end
+
 -- WHERE THE STAG ENTERS THE TREELINE BAND, so that walking `studs` along it brings him to his own
 -- crossing (task 251 part 2). PURE: three numbers in, one out, so the two-leg route is a spec case
 -- with no world, no layout and no pathfinder.

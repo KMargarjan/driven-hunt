@@ -186,7 +186,18 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- ... OFF = today's map exactly"* -- and what it switches is how the map LOOKS, which is feel and
 -- Karen's, so it cannot ship lit. The two ways out of the cap are still task 238's two: retire the
 -- lit rows queued as TASKS.md 82b, which is the DIRECTOR's call, or ship lit, which is forbidden.
-Flags.MAX_FLAGS = 26
+-- 26 -> 27 FOR TASK 351's `DRIVE_VARIETY`, AND THE SAME SENTENCE A SEVENTH TIME, said out loud
+-- rather than paid for by quietly retiring somebody else's row: the table held exactly 26 and the
+-- tripwire refused the twenty-seventh, MEASURED at this commit (`flags.spec:124` failed with
+-- "Expected 0, got 1" in the harness run of 2026-11-12 10:58 UTC, and the probe read it back as
+-- *"27 flags declared, and MAX_FLAGS is 26"*). The dispatch of 2026-11-12 asks for the row and asks
+-- for it born OFF -- *"Behind a new flag DRIVE_VARIETY, born OFF ... OFF = today's script byte for
+-- byte"* -- and what it switches is the PATTERN of a drive, which is feel and Karen's, so it cannot
+-- ship lit. The two ways out of the cap are still task 238's two: retire the lit rows queued as
+-- TASKS.md 82b, which is the DIRECTOR's call and deletes a losing branch per retirement, or ship
+-- lit, which `docs/design/feature-flags.md` section 11 step 1 forbids. **The Director may prefer to
+-- spend 82b instead**: this is one line either way.
+Flags.MAX_FLAGS = 27
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -893,6 +904,27 @@ Flags.DEFAULTS = {
 	--
 	-- Design: docs/design/animal-placement.md section 11
 	-- Note:   docs/research/2026-11-10-animal-placement.md
+	-- EVERY DRIVE A DIFFERENT PATTERN (task 351). KAREN, 2026-11-12: *"patterns needs to be diffret
+	-- for each drive could be singles groups different count of groups and mixes (do not mix
+	-- different animals)"*.
+	--
+	-- ON generates the drive's slot list per drive from a seed (drive number + cell + server seed),
+	-- drawing from the shipped fifteen rows as a POOL; OFF is that script, byte for byte.
+	-- Note: docs/research/2026-11-12-drive-variety.md
+	DRIVE_VARIETY = {
+		default = false,
+		-- The drive's own owner: the slot list is `ForestTest.SCHEDULE.drive` and the generator that
+		-- replaces it is in the same module.
+		owner = "ServerScriptService.ForestTest",
+		born = "2026-11-12 task 351",
+		expires = "2026-12-03", -- 21 days, the ceiling in feature-flags.md section 12
+		why = "The drive's slot list is GENERATED per drive from a seed (drive number + cell + server "
+			.. "seed) out of the shipped script's own rows, acts, parties and routes as a pool: a "
+			.. "different mix of singles and groups, different group sizes, a different number of "
+			.. "groups, and the special acts (break-back, split, hold, the red stag) appearing "
+			.. "sometimes rather than every drive. Every group stays ONE SPECIES. OFF is the fixed "
+			.. "fifteen-slot script of task 251, byte for byte.",
+	} :: FlagRow,
 	PLACEMENT_IN_PLACE = {
 		default = false,
 		-- The Director, because the switch is the drive's and not one module's: the owner of the

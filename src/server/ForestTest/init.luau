@@ -459,8 +459,28 @@ end
 -- IT IS `Data.SCHEDULE` ITSELF, BY IDENTITY, for a layout with no `animals` row: `Grid.animalsOf`
 -- answers nil for a road layout and for A1, and `Data.cellSchedule(nil, ...)` hands the base table
 -- straight back -- so a cell without a row plays exactly as today rather than nearly so.
-function ForestTest.cellSchedule()
-	return Data.cellSchedule(Grid.animalsOf(chosen.name), Grid.CONFIG.cellDepthStuds)
+--
+-- ...AND SINCE TASK 351 THE SLOT LIST ON TOP OF IT MAY BE GENERATED (flag `DRIVE_VARIETY`). The
+-- cell's own depth and bias are applied FIRST, by `Data.cellSchedule`, and the generator draws from
+-- those rows -- so a generated drive feeds the same rows the fixed one does.
+--
+-- THE SWITCH IS A PARAMETER (`docs/design/feature-flags.md`): read once at this owner's boundary in
+-- `start` and handed in here, so both states are reachable from a spec while the flag sits at one
+-- of them. The weigher is the ANIMAL owner's own (`Boar.compositionSize`), because how many animals
+-- a composition is is not this file's fact (rule 3).
+--
+-- THE DRIVE NUMBER IS A PARAMETER TOO (review round 1, finding 3). `planDrive` runs on the marker
+-- read, BEFORE anybody is placed, while `state.driveKey` is written later on the drive-opening
+-- phase edge -- so a `cellSchedule()` that seeded off module state handed `planDrive` drive N-1's
+-- table and the release path drive N's: the roster that was bedded and the drive that was dealt
+-- were two different drives from drive 2 onward. Whoever knows the number passes it.
+function ForestTest.cellSchedule(varietyIn: boolean?, driveNumber: number?)
+	local base = Data.cellSchedule(Grid.animalsOf(chosen.name), Grid.CONFIG.cellDepthStuds)
+	local on = if type(varietyIn) == "boolean" then varietyIn else ForestTest.driveVariety()
+	if not on then
+		return base
+	end
+	return Data.variedSchedule(base, ForestTest.driveSeed(driveNumber), ForestTest.weighParty, true)
 end
 
 -- ------------------------------------------------------- THE DRIVE'S RED DEER (task 239)
@@ -623,6 +643,13 @@ local state = {
 	-- times -- `layoutForDrive`'s own key, for its own reason.
 	rosterDrive = nil :: number?,
 	placementInPlace = false,
+	-- TASK 351: whether the drive's slot list is GENERATED, the server's own session draw, and the
+	-- drive number the seed is keyed on. `driveVariety` is read once in `start`; `sessionSeed` is
+	-- drawn there too, so two sessions on the same cell and drive number play different drives;
+	-- `driveKey` is the drive number `Match` hands `newDrive`, counted here when it gives none.
+	driveVariety = false,
+	sessionSeed = 0,
+	driveKey = 0,
 	aimAtPickedStand = false,
 	-- THIS DRIVE'S AIM AND WHETHER IT HAS BEEN SETTLED (task 349 round 2). `newDrive` clears the
 	-- latch; the first release of the drive settles it and the field moves with it.
@@ -689,6 +716,67 @@ local function boarConfig()
 		return runtime:config()
 	end
 	return Boar.CONFIG
+end
+
+-- HOW MANY ANIMALS A PARTY IS, asked of the animal's owner (task 351). The one bridge between the
+-- drive's "which flock comes next" and the boar's "who is in a flock" (`Boar.compositionSize`).
+function ForestTest.weighParty(species: string, key: any): number
+	local config = boarConfig()
+	if species == "reddeer" then
+		local party = Boar.deerComposition(0, 0, config, key)
+		return if party ~= nil then Boar.compositionSize(party, config) else 0
+	end
+	return Boar.compositionSize(config.SOUNDER.COMPOSITIONS[key], config)
+end
+
+-- THIS DRIVE'S SEED: the server's session draw, the drive number and the cell that is dealt. The
+-- arithmetic is `Data.driveSeed`'s and is pure; this supplies the three facts.
+function ForestTest.driveSeed(driveNumber: number?): number
+	local key = if type(driveNumber) == "number" then math.max(1, math.floor(driveNumber)) else state.driveKey
+	return Data.driveSeed(state.sessionSeed, key, chosen.name)
+end
+
+-- IS THE VARIETY SWITCH ON? Read ONCE, at `ForestTest.start`, exactly as `placementInPlace` is.
+function ForestTest.driveVariety(): boolean
+	return state.driveVariety == true
+end
+
+-- WHAT PATTERN THIS DRIVE IS, as one console line, or nil with the switch off. PUBLISHED and not
+-- kept in module state (Learning Agent V293b): a probe that `require`s this module gets a fresh one
+-- with no state, so the only honest place for "which drive did we just deal" is the console the
+-- drive already writes to. The Director reads it per drive and so does the live proof.
+function ForestTest.patternLine(): string?
+	if not ForestTest.driveVariety() then
+		return nil
+	end
+	local schedule = ForestTest.cellSchedule(nil, state.driveKey)
+	local tally = Data.driveTally(schedule.density, schedule)
+	local animals, singles = 0, 0
+	local specials, mix = {}, {}
+	for _, row in ipairs(tally.rows) do
+		local size = ForestTest.weighParty(row.species, row.composition or row.party)
+		animals += size
+		if size <= 1 then
+			singles += 1
+		end
+		local kind = Data.slotSpecial(row)
+		if kind ~= nil then
+			table.insert(specials, kind)
+		end
+		table.insert(mix, string.format("%s%d", if row.species == "reddeer" then "D" else "B", size))
+	end
+	return string.format(
+		"[forest] drive %d pattern cell=%s seed=%d groups=%d animals=%d singles=%d deer=%d specials=[%s] mix=%s",
+		state.driveKey or 0,
+		tostring(chosen.name),
+		ForestTest.driveSeed(),
+		tally.groups,
+		animals,
+		singles,
+		tally.deerGroups,
+		table.concat(specials, ","),
+		table.concat(mix, " ")
+	)
 end
 
 function ForestTest.stats()
@@ -2330,7 +2418,9 @@ function ForestTest.planDrive(driveNumber: number?, inPlace: boolean?): string?
 	if state.rosterDrive == key then
 		return nil
 	end
-	local schedule = ForestTest.cellSchedule()
+	-- THIS DRIVE'S TABLE, keyed on THIS drive's number (review round 1, finding 3): the roster that
+	-- is bedded and the drive that is dealt must be the same generated drive.
+	local schedule = ForestTest.cellSchedule(nil, key)
 	local rows, lines = Placement.plan(
 		key,
 		schedule,
@@ -3163,7 +3253,15 @@ end
 -- stocked, whether it has been, which animals have been latched, and which have been noticed. The
 -- COUNTERS (`flushed`, `noticed`, `released`) are the session's and are not touched -- they are what
 -- `stats()` publishes and what the `[rest]` lines count up.
-function ForestTest.newDrive(now: number?)
+function ForestTest.newDrive(now: number?, driveNumber: number?)
+	-- WHICH DRIVE THIS IS, for task 351's seed. `Match` already carries the number through
+	-- `PhaseChanged`, so it is HANDED IN rather than re-derived; with none (a spec, or a boot with
+	-- no phase yet) this counts its own, so two drives of one session cannot be dealt one pattern.
+	if type(driveNumber) == "number" then
+		state.driveKey = math.floor(driveNumber)
+	else
+		state.driveKey = (state.driveKey or 0) + 1
+	end
 	-- THE SLOT CLOCK IS RE-BASED ON THE DRIVE, NOT ON THE SESSION (task 251 part 2), and this is the
 	-- second half of the fix part 1's escalation asked for. The metronome used to be set once in
 	-- `start` and then advance for ever, so slot 1 of the SECOND drive fell wherever the session's
@@ -3664,6 +3762,12 @@ function ForestTest.start(runtime, now: number)
 	-- they take `inPlace`, and `ForestTest.settleAim(enabled)` reaches both states from a spec
 	-- while the flag itself sits at one of them.
 	state.aimAtPickedStand = Flags.isOn("DRIVE_AIMS_AT_PICKED_STAND")
+	-- ...AND THE THIRD OF THE SAME SHAPE (task 351): read once here and handed in by parameter from
+	-- `cellSchedule(varietyIn)`, so a spec reaches both states while the flag sits at one of them.
+	-- THE SESSION SEED IS DRAWN HERE and nowhere else -- the one unseeded draw in this task, so a
+	-- drive is reproducible inside a session and a different one between sessions.
+	state.driveVariety = Flags.isOn("DRIVE_VARIETY")
+	state.sessionSeed = Random.new():NextInteger(0, 2147483646)
 	-- ...AND IT OPENS THE FIRST DRIVE, WHICH IS WHAT BASES THE SLOT CLOCK (task 251 part 2). It used
 	-- to be set here as `now + intervalSeconds`; it is `newDrive`'s now, so a server start and a drive
 	-- boundary cannot put slot 1 at two different times.
