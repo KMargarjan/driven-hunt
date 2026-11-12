@@ -2754,14 +2754,20 @@ function ForestTest.stepPlacement(now: number, inPlace: boolean?, aimIn: any?): 
 				row.ids = {}
 			elseif woken then
 				row.state = "awake"
-				-- ONE TALLY PER GROUP, ON THE TICK IT WAKES: the row is "bedded" on the way into
-				-- this block and "awake" after it, so it cannot run twice for one group.
-				if wokeAs == "walk" then
-					state.placementWokeWalk = (state.placementWokeWalk or 0) + 1
-				elseif wokeAs == "horn" then
-					state.placementWokeHorn = (state.placementWokeHorn or 0) + 1
+				-- ONE TALLY PER GROUP, LATCHED ON `row.wokeAs`, AND THE LATCH IS WHAT MAKES IT A
+				-- COUNT OF GROUPS. This block's guard above is `bedded OR awake`, so an already-woken
+				-- row whose members are still flying re-enters it on every Heartbeat: MEASURED at
+				-- **wokeHorn=6677** over one D1 drive (`345e3-AFT-D1-console.txt`), which is ticks.
+				-- The band arm needs no latch -- `wakeReason` answers nil for a row that is not
+				-- bedded -- and the slot arm has its own (`row.slotDue`).
+				if row.wokeAs == nil then
+					if wokeAs == "walk" then
+						state.placementWokeWalk = (state.placementWokeWalk or 0) + 1
+					elseif wokeAs == "horn" then
+						state.placementWokeHorn = (state.placementWokeHorn or 0) + 1
+					end
+					row.wokeAs = wokeAs
 				end
-				row.wokeAs = wokeAs
 			end
 		end
 	end
