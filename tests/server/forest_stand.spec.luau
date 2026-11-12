@@ -24,6 +24,7 @@ local Workspace = game:GetService("Workspace")
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Grid = require(ReplicatedStorage:WaitForChild("Grid"))
+local Placement = require(ReplicatedStorage:WaitForChild("ForestTest"):WaitForChild("Placement"))
 local Data = require(ReplicatedStorage:WaitForChild("ForestTest"))
 local ForestTest = require(ServerScriptService:WaitForChild("ForestTest"))
 local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
@@ -281,12 +282,17 @@ return function()
 
 			-- lock stand 2, read the aim, then RE-PICK stand 6 and read it again
 			ForestTest.lockPick(player.UserId, Data.standPosition(2, layout), 1, 2)
-			local first = select(1, ForestTest.settleAim(false))
+			-- THE FIRST CALL AFTER `newDrive` IS THE ONE THAT CAN LATCH (task 349b finding 2).
+			-- Asserting the SECOND proved nothing: `settleAim` returns false for any already-settled
+			-- drive whether or not the first call latched.
+			local first, latchedFirst = ForestTest.settleAim(false)
+			expect(latchedFirst).to.equal(false)
 			expect(ForestTest.aimStandX(first)).to.equal(Data.standX(2, layout))
-			expect(select(2, ForestTest.settleAim(false))).to.equal(false) -- OFF never latches
 			ForestTest.clearPick(player.UserId)
 			ForestTest.lockPick(player.UserId, Data.standPosition(6, layout), 2, 6)
-			local second = select(1, ForestTest.settleAim(false))
+			local second, latchedSecond = ForestTest.settleAim(false)
+			-- ...AND THE FIRST CALL AFTER THE RE-PICK IS ALSO NOT A LATCH.
+			expect(latchedSecond).to.equal(false)
 			-- THE NEXT RELEASE FOLLOWS THE NEW STAND, which is what main does.
 			expect(ForestTest.aimStandX(second)).to.equal(Data.standX(6, layout))
 			expect(second.dz).to.equal(0)
@@ -330,6 +336,63 @@ return function()
 			local mixed = plain.Z - (Data.roadZ(plain.X, layout) + shift)
 			expect(math.abs(mixed - (150 - shift)) < 1e-3).to.equal(true)
 			TestKit.note(string.format("bed depth in frame %.0f, mixed frames %.0f", inFrame, mixed))
+		end)
+
+		-- TASK 349b FINDINGS 1 AND 3: the bed search itself, not the pure point it is built from.
+		--
+		-- Round 3 asserted `Data.restPoint` and re-wrote the gate's arithmetic in the spec, so the
+		-- production wiring was pinned by nothing, and the refusal counters were published but never
+		-- written. This drives `ForestTest.restSpot` and reads both out of it.
+		it("counts why a bed was refused, and generates the candidate in the aimed frame", function()
+			local layout = Data.layoutOf("C1") :: any
+			if layout == nil then
+				TestKit.note("NOT COUNTED: C1 is not a cell in this build")
+				return
+			end
+			ForestTest.layoutForDrive(1, "c1")
+			local standX = Data.standX(4, layout)
+			local spec = { offsetX = 0, laneOffset = 0, northStuds = 150 }
+			local shift = 975
+
+			-- (1) A BAND THAT CANNOT HOLD THIS ROW refuses on the band arm, and says so.
+			local band = Placement.searchBand(150, 0, 0, Data.REST, Placement.CONFIG)
+			local impossible = table.clone(band)
+			impossible.nearRoadStuds = 9000
+			impossible.farRoadStuds = 9100
+			expect(ForestTest.restSpot(standX, spec, impossible, 0)).to.equal(nil)
+			local why = ForestTest.bedRefusals()
+			expect(why ~= nil).to.equal(true)
+			expect((why :: any).band > 0).to.equal(true)
+			expect((why :: any).lane).to.equal(0)
+			expect((why :: any).zone).to.equal(0)
+
+			-- (2) THE SHIFT REACHES THE GENERATOR. With the band moved up by the same shift, the
+			-- ONLY way a candidate can land inside it is if `restSpot` built it on the shifted road.
+			-- Round 3's defect -- generator on the main road, gate in the aimed frame -- fails here.
+			local aimed = table.clone(band)
+			aimed.nearRoadStuds = 120
+			aimed.farRoadStuds = 180
+			local spot = ForestTest.restSpot(standX, spec, aimed, shift)
+			if spot == nil then
+				-- the ground or the trunks may refuse this particular x; the counters say which, and
+				-- a band refusal here WOULD mean the shift never reached the generator.
+				local r = ForestTest.bedRefusals()
+				TestKit.note(
+					string.format(
+						"no spot: swept=%d band=%d lane=%d zone=%d unseen=%d",
+						r.swept,
+						r.band,
+						r.lane,
+						r.zone,
+						r.unseen
+					)
+				)
+				expect((r :: any).band).to.equal(0)
+			else
+				local depth = (spot :: Vector3).Z - (Data.roadZ((spot :: Vector3).X, layout) + shift)
+				expect(depth >= 120 and depth <= 180).to.equal(true)
+				TestKit.note(string.format("bed at depth %.0f in the shifted frame", depth))
+			end
 		end)
 
 		-- THE ROSTER RULE (Director decision 4), as the pure rule it is. The LIVE two-player branch

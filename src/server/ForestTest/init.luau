@@ -1911,6 +1911,12 @@ end
 -- override replaces is three NUMBERS -- the band's near and far edges, the keep-away's margin and
 -- the lane ceiling -- because a planned bed at dz 1,244 is outside the stocked wood's 40..425 and
 -- would be refused by the searcher meant to find it. `band` is nil for every caller before T2.
+-- WHY THE LAST BED SEARCH REFUSED WHAT IT REFUSED, as counts. Published so a spec and a probe can
+-- read it, not only the console line `bedSpot` prints (task 349b finding 1).
+function ForestTest.bedRefusals(): any
+	return state.bedRefusals
+end
+
 function ForestTest.restSpot(standX: number, spec, band: any?, dz: number?): Vector3?
 	local rest = band or Data.REST
 	-- WHY A CANDIDATE WAS REFUSED, counted for this search (task 349 r3). `bedSpot` prints it,
@@ -2034,13 +2040,22 @@ function ForestTest.restSpot(standX: number, spec, band: any?, dz: number?): Vec
 						)
 					end
 				end
-				if not swept and ForestTest.restSpotOk(atNorth, fromStart, gap, terrain, ground, rest, keepAway) then
+				-- EACH ARM COUNTS ITS OWN REFUSAL (task 349b finding 1): the tally `bedSpot` prints
+				-- was created and published but never written, so a drive with no beds said
+				-- "swept=0 band=0 lane=0 zone=0 unseen=0" with 85 refusals behind it.
+				if swept then
+					refusals.swept += 1
+				elseif not ForestTest.restSpotOk(atNorth, fromStart, gap, terrain, ground, rest, keepAway) then
+					refusals.band += 1
+				else
 					-- BESIDE ITS OWN LANE, AND SEEN FROM IT (task 172). The lateral test is cheap and
 					-- is checked in BOTH passes -- a group 200 studs off the lane it belongs to is not
 					-- that lane's group whatever the trunks do -- and the ray is only cast for the
 					-- spots that have already passed everything else.
 					local spot = Vector3.new(at.X, terrain :: number, at.Z)
-					if Data.offLaneStuds(standX, spec, spot) <= (rest.laneSideStuds or math.huge) then
+					if Data.offLaneStuds(standX, spec, spot) > (rest.laneSideStuds or math.huge) then
+						refusals.lane += 1
+					else
 						-- ONLY THE WORLD FACTS THIS PASS WANTS (`Data.restPassWants`): the zone is
 						-- `Places.zoneIndexAt` (WORLD in, `Grid.toGrid` once inside it) and the
 						-- sightline is one ray. The zone is asked FIRST and is the cheaper of the
@@ -2049,11 +2064,14 @@ function ForestTest.restSpot(standX: number, spec, band: any?, dz: number?): Vec
 						-- candidate anyway. That function is still the rule.
 						local wantZone, wantSeen = Data.restPassWants(pass, zones)
 						local zoneIndex = if wantZone then Places.zoneIndexAt(chosen.name, at.X, at.Z) else nil
-						if not wantZone or Data.restZoneAllowed(zones, zoneIndex) then
+						if wantZone and not Data.restZoneAllowed(zones, zoneIndex) then
+							refusals.zone += 1
+						else
 							local seen = not wantSeen or ForestTest.restSeenFromLane(standX, spec, spot, rest, dz)
 							if Data.restPassTakes(pass, zones, zoneIndex, seen) then
 								return spot
 							end
+							refusals.unseen += 1
 						end
 					end
 				end
