@@ -4199,3 +4199,53 @@ close the task. AGAINST: the gate allows three rounds and this is the third; and
 proofs the two numbers above are yours to accept or refuse, so a round 4 cannot by itself make the
 flag switchable. **My recommendation: authorise ONE round for findings 1-3 only, no new behaviour,
 and decide the 46 s separately.** I have not started it.
+
+## Builder, 2026-11-12 ~05:05 UTC -- Task 345e (T5): four numbers that disagree, and one design table that was never updated
+
+All readings are from Karen's Forest Test at code commit `982e52c9`, through
+`driven-hunt-rev` on :34873, one drive and one window per row
+(`<runs-dir>/345e2-BEF-*`, `345e4-AFT-*`, `-track.txt` / `-console.txt`). Her attributes were put
+back and the diff is EMPTY (`345e2-attrs-before.txt` vs `345e2-attrs-after.txt`). `docs/design/` is
+not the Builder's, so nothing here is edited there.
+
+1. **`docs/design/grid-map.md` 9.2 still prints the OLD rows** -- *"<= 4.0 ms/frame average,
+   <= 8.0 ms peak"* and no bedded row at all -- so the dispatch's *"assert grid-map.md 9.2's new
+   rows"* has nothing to assert against. T5 asserts **`animal-placement.md` 5.2** instead
+   (`ForestTest.budget()`, `forest_placement.spec.luau` "the budget"). The Architect's paste into
+   `grid-map.md` is still owed.
+2. **The design's 5.2 still says `bedded <= 12`**; the code and the Director's decision of
+   2026-11-11 ~01:45 (deviation 5 in this file) say **18**. `ForestTest.budget().beddedCap` asks
+   `Placement.CONFIG.bedCap`, so the spec follows the decision, not the table.
+3. **The step PEAK target of 20 ms is NOT MET, on both sides of this change.** Measured
+   `stepMsMax` over one drive, flag ON: C1 **80.8 -> 73.3 ms**, D1 **82.9 -> 62.9 ms**, A2
+   **77.9 -> 93.6 ms**. Every reading is 3-5x the design's 20 ms. It is NOT a regression -- BEFORE
+   is at the merge base `1fe6d2ea` and is as bad or worse in two cells of three -- and T5 changes
+   nothing that could move it. Either the target is wrong for this runtime (the same argument 5.1
+   makes about the borrowed 4.0 ms average) or there is a spawn frame still inside the per-drive
+   window. **It needs an owner; it is not T5's and T5 has not fixed it.**
+4. **The heartbeat p95 target of 32 ms is NOT MET in two cells of three.** Flag ON: C1
+   **38.19 -> 38.02 ms**, D1 **31.09 -> 35.98 ms**, A2 **27.93 -> 31.93 ms**. C1 is flat, D1 and A2
+   are up ~4 ms with FEWER animals on the ground, which one run per row cannot separate from noise
+   (the design's own instrument is one window). The honest statement is **NOT PROVEN either way at
+   one run per cell**, and C1 was already over 32 before this task.
+5. **With the switch ON, groups bed and then go without ANY wake being counted.** C1 at the default
+   stand: `band 0, horn 7, walk-up 0, slot clock 2 -- filed 1, fled 24`, `placed 13 / bedded 0 /
+   gone 9 / skipped 4` at the end of the drive. BEFORE at the merge base is the same shape
+   (`gone 9 / skipped 4`), so it is **not** this task's: a bedded body is being retired without the
+   line ever reaching it (task 342's `settled` despawn is the candidate). It is `src/server/Boar/`'s
+   and it is what makes the ON-path wood empty by the time the line arrives.
+6. **The six-way bed tally (`swept/band/ground/lane/zone/unseen`) could not be read.** It is printed
+   only on the `bed ... SKIPPED` console line, and in a 340 s drive those lines have rolled out of
+   the 6000-character console buffer by the time the probe reads it. The run-level tally survives
+   (`skips budget N nobed M`) and that is what item 7 uses. Publishing the six counts on the
+   `DHForestPlacement` attribute, the way T3 did for `rays`/`inView`, would fix it (V293b); it is a
+   one-line change in somebody's next round, not T5's scope.
+7. **"C1 beds 0 animals from stand 11" does NOT reproduce at `982e52c9`.** Measured, stand 11
+   locked, aim ON as Karen has it, flag ON (`345e-S11-console.txt`): **placed 13 / bedded 1 /
+   gone 4 / skipped 9**, split `budget 4 nobed 5`, and four groups had bodies. So five of thirteen
+   groups are refused by the BED SEARCH and four by the CAP; eight of thirteen were placed. The
+   349b reading of `nobed 13` was at `7950974d`; whatever closed the other eight is not named here.
+8. **Task 345d's ESCALATE item 3 is untouched and still Karen's call** (L-095): *"a group woken by
+   the LINE no longer stands before it moves"*. T5 neither diagnosed nor patched it. Karen's
+   *"it has to be there then it spooked or it walkks towards"* is the sentence it is about, and the
+   prompt's WHY line quotes it; this task only stopped animals being created in the lane.
