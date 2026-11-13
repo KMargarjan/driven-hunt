@@ -442,6 +442,7 @@ local function sweep()
 					if
 						not record.posed
 						and answer ~= "skip"
+						and answer ~= "leave"
 						and now - record.firstSeen >= CarcassPose.POSE_TIMEOUT_SECONDS
 					then
 						record.timedOut = true

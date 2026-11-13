@@ -94,7 +94,6 @@ return function()
 				deathPlaying = false,
 				assetReady = true,
 				trackLength = 4,
-				posed = false,
 			}
 			for k, value in pairs(over or {}) do
 				v[k] = if value == NONE then nil else value
@@ -108,8 +107,6 @@ return function()
 			expect(CarcassPose.decide(view({ poseId = 0 }))).to.equal("skip")
 			expect(CarcassPose.decide(view({ poseAt = NONE }))).to.equal("skip")
 			expect(CarcassPose.decide(view({ poseAt = -0.1 }))).to.equal("skip")
-			-- ONCE PER CARCASS PER PUBLISHED POSE: no storm, no per-frame write.
-			expect(CarcassPose.decide(view({ posed = true }))).to.equal("skip")
 			-- The rig is Atomic-streamed and can arrive after the trunk.
 			expect(CarcassPose.decide(view({ hasAnimator = false }))).to.equal("wait-rig")
 			-- A death is already drawing it: measured benign in 19/19 kills and 80/80 forced repairs.
@@ -124,7 +121,11 @@ return function()
 			-- ORDER MATTERS: a living animal is skipped even with everything else broken, and a
 			-- posed one is skipped before the rig is ever looked for.
 			expect(CarcassPose.decide(view({ carcass = false, hasAnimator = false }))).to.equal("skip")
-			expect(CarcassPose.decide(view({ posed = true, hasAnimator = false }))).to.equal("skip")
+			-- THE QUESTION IS ASKED EVERY SWEEP: "is the published death drawing this animal", never
+			-- "have I posed it already". A carcass that lost its pose after being left alone was
+			-- never repaired by the latch -- MEASURED, 3 of 3 stood for ever (358-bind.luau).
+			expect(CarcassPose.decide(view({ deathPlaying = true }))).to.equal("leave")
+			expect(CarcassPose.decide(view({ deathPlaying = false }))).to.equal("pose")
 		end)
 	end)
 
