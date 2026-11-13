@@ -1,77 +1,112 @@
-## 2026-11-13 ~05:35 UTC, Task 357 -- THE 1.4 s LOBBY JOIN FRAME DOES NOT EXIST. Measured, controlled, and I stopped where the dispatch said to
+## 2026-11-13 ~06:35 UTC, Task 357 -- THE LOBBY'S 1.2 s AT THE JOIN IS NOT A FRAME (that stands). THE ROUND CAP IS REACHED on a finding I agree with, and one claim of mine is STRUCK
 
-The dispatch: *"If the 1.2-1.4 s is NOT in one frame, write that in MEASUREMENTS and ESCALATE.md and
-stop: no fix for a stall that does not exist."* It is not in one frame. No fix was written.
+The dispatch: *"Review: at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."*
+Round 2 returned two findings. **Both are right, and I checked them myself rather than taking
+them.** So I stopped. Nothing in `src/` has moved since the reviewed code commit `4f3a0da2`, so the
+harness evidence still covers it and the merge gate's *"only paperwork after the code commit"* still
+holds. `reviews/task-357/MEASUREMENTS.md` carries the tables; this entry carries the decisions.
 
-`reviews/task-357/MEASUREMENTS.md` has the tables; this entry is the three decisions they leave.
+### WHAT STANDS, and the Reviewer says so in writing
 
-**What the lobby really spends at the join**, in Karen's Forest Test, C1, her flags, at the code
-commit `fdc04963` (`ServerStorage.DHLobbyBill`, run `CODEC`):
+> *"The primary refutation does not depend on this and stands: `build=82.6 ms / 0 frames` and
+> `place` spanning 11-17 frames refute '1.2-1.4 s in one frame' on their own."*
+
+The dispatch's premise is **REFUTED**. `Lobby.step` calls `world.place` -> `Body.place` ->
+`player:LoadCharacter()`, which Roblox documents as a yielding function and whose call site has said
+so since task 182, so the boot bill's `lobby` bucket is **wall time**. Five joins in Karen's place,
+C1, her flags:
 
 | bite | symbol | ms | **frames it spanned** |
 |---|---|---|---|
 | `ground` | `world.groundAt` | 0.0 | 0 |
-| **`build`** | `Lobby.tryBuild` (`Field.fill` + `Build.build`) | **82.6** | **0** |
-| **`place`** | `world.place` -- `Body.place` -- `player:LoadCharacter()` | **328.0** | **14** |
+| **`build`** | `Lobby.tryBuild` (`Field.fill` + `Build.build`) | **82.6** (67.9-82.6 over four sound runs) | **0** |
+| **`place`** | `world.place` -- `Body.place` -- `player:LoadCharacter()` | **328.0** | **14** (11-17) |
 | `rest` | occupancy, pads, next-drive, the player loop, the keeper | 0.2 | -- |
 | `reportLobby` | six prints | 0.7 | 0 |
 
-`LoadCharacter` is documented as a yielding function, and the call site's own comment has said so
-since task 182. **The lobby's whole one-frame cost at a join is 82.6 ms** -- already inside the
-dispatch's 100 ms target, with no change to the game; it reads 67.9-82.6 ms across the four runs
-whose bill is sound, and it has ONE source (`stats.buildMs`, which the console prints, is the same
-bracket printed twice -- review round 1, finding 1). What a second mechanism corroborates is the
-`frames=0`, which comes from an integer the Heartbeat increments and has no clock in it. Five joins
-agree (13 / 17 / 11 / 14 / 14 frames). The instrument is not blind:
-a spin of 800 ms at that seam read back `1034.4 ms / 7 frames` and put a new 811.4 ms frame in the
-Heartbeat channel, a wait of 800 ms read back `1125.2 ms / 37 frames` and put none there.
+**The lobby's whole one-frame cost at a join is the 82.6 ms build, already inside the dispatch's
+100 ms target, with no change to the game.** No fix was written, which is what the dispatch asks for
+a stall that does not exist. The instrument is not blind: a SPIN of 800 ms at the `place` seam read
+back `1034.4 ms / 7 frames` plus a new 811.4 ms frame at step 502; a WAIT of 800 ms read back
+`1125.2 ms / 37 frames` and no new frame.
 
-### 1. THE REAL 1.5 s FRAME IS THE ENGINE'S, AND IT HAS NO OWNER IN THIS REPOSITORY
+### 1. STRUCK: "there is a real 1.5 s frame at the join". I claimed it and this run's own second channel refutes it
 
-The worst three frames of a 5,520-frame session are **1,666.5 ms at step 15**, **890.9 ms at step
-17** and **149.5 ms at step 932**. `ForestTestBoot`'s whole handler cost **0.1 ms** before the
-second and **0.9 ms** before the third; before the first it is **unknowable and the bill says `?`**,
-because the handler that entered `world.place` on step 1 had not returned (review round 1, finding
-2 -- the first draft published a counter's initial zero there). **Outside the server's first ~20
-frames, the worst frame of a 150-second session is 149.5 ms**, and across five runs that figure
-reads 99.7-162.2. Steps 15 and 17 are the first fraction of a second of the server's life, while the
-place and the first avatar load.
+Round 2's finding 1, and it is correct. **The instrument's two channels contradict each other inside
+one published line**, and both count with the same `bootSteps`:
 
-So task 356's *"1,399.7-1,421.7 ms at the join"* is real and it is **not** `Lobby.step` +
-`reportLobby`: the two were a similar size and they are not the same thing. Nothing in Lua moves an
-engine frame.
+| run | the scan's own `os.clock` bite | the `dt` channel |
+|---|---|---|
+| `BEF3` | **429.2 ms** across frames 1 -> 12 (**39.0 ms a frame**) | `1539.6@12` |
+| `CODEC` | **386.5 ms** across frames 1 -> 15 (**27.6 ms a frame**) | `1545.7@15` |
+| `R2` | **410.8 ms** across frames 1 -> 15 (**29.3 ms a frame**) | `1666.5@15` |
 
-**The decision I cannot take:** whether anybody cares. Karen joins her Forest Test through Studio's
-Play, where the server's step 15 and the client's own load are the same two seconds of black screen,
-so this may never have been visible at all. **It needs Karen to say whether she sees a freeze when
-she arrives, and nothing else will settle it** -- the MicroProfiler is the tool that would attribute
-it and it has no scripting API, so no agent here can read what the engine spent it on. If she does
-see one, the only levers are the place's own content (31,437 parts at boot, the 869-part lobby
-built on the first scan) and Roblox's streaming, neither of which is this task.
+A single gap inside a 410.8 ms window cannot be 1,666.5 ms. **Either the opening cluster's `dt` is
+not an elapsed wall gap -- and then there is no 1.6 s frame to report at all -- or the frame counts
+are wrong, and then `build=82.6/0f` loses its meaning.** The positive control only validates `dt`
+at step 502, mid-session, outside the cluster the claim was about.
 
-### 2. TASK 356'S DECISION #2 STILL HAS NO OWNER: the boar step peak, 80-102 ms, with the fix switched off
+**So the sentences *"THE REAL 1.5 s FRAME IS THE ENGINE'S"* and *"heartbeat max 1,666.5 ms"* are
+withdrawn as measured facts**, here and in `reviews/task-357/MEASUREMENTS.md`. What is left is: the
+`dt` channel reports 1.4-1.7 ms-scale numbers in the server's first ~20 frames, **and this run's own
+wall-clock bite says those frames averaged 27-39 ms** -- which channel is right is **unmeasured**.
+Everything the `dt` channel says from step ~20 onward is uncontradicted and small (99.7-162.2 ms
+worst across five runs), and so is the control's 811.4 ms at step 502.
 
-Carried forward because it was not in task 357's dispatch and is in nobody else's either.
-`BOAR_ATTACH_BUDGET` was written, reviewed and merged in task 355 and is **OFF in Karen's place by
-the Director's instruction**. Nobody has yet run a drive with it on. `StepMsMax` read 80.97 / 82.36 /
-88.2 / 101.9 ms across task 356's drives against task 355's 40 ms target. Turning it on is cheaper
-than any new work. **It needs a task or an explicit deferral with an owner.**
+**The reading that would settle it, and it is one commit:** stamp `os.clock()` at the top of the
+Heartbeat handler and publish, beside the worst frame, the **wall gap since the previous handler
+ran** -- and, separately, the sum of `dt` across the scan's own frame window against that scan's
+`os.clock` milliseconds. Two numbers, one run, and the contradiction resolves by measurement rather
+than by argument. **It needs a round 3, which the dispatch's two-round cap does not give me.**
 
-### 3. TASK 356'S DECISION #3 STILL HAS NO OWNER: `Runtime:spawn`, 23.2 ms in one frame
+**And this is why task 356's `1,399.7-1,421.7 ms at the join` should not be quoted again until that
+reading exists.** It comes from the same `dt` channel in the same opening window. Task 357 was
+dispatched to fix a number that (a) is not the lobby's Lua, and (b) may not be a frame at all.
 
-Also carried forward. Nine animals built in the frame a wave releases; the only thing inside
-`releaseLine` above task 356's 16 ms bar. It would be sliced the way task 355 sliced `attachVisual`,
-at the price of a group appearing over several frames -- **which is a look question for Karen, not a
-performance one**. Same status: a task, or a deferral with an owner.
+### 2. NOT FIXED: "prev frame's lobby" is still not the previous frame's at a join
+
+Round 2's finding 2, also correct, and the fix I wrote for round 1's finding 3 does not reach it.
+`prevStepMs` is snapshotted at the top of the handler, but `lobbyStepMs` is only written when a
+handler **returns** -- and the handler that measures the build does not return for 11-17 frames, so
+on every frame in between `prevStepMs` holds a value from a handler several frames older. The `R2`
+line prints `prev frame's lobby step=0.0/0f` **and** `top3 1666.5@15(lua ?)` in the same string, and
+the `?` means no handler completed on step 14 -- so my claim that the `0.0/0f` was step 14's
+throttled scan is contradicted by the other half of the line I quoted it from.
+
+**The fix is finding 2's own, applied to this field**: carry the step each snapshot came from and
+print `?` when the previous frame's handler had not returned. One commit, and it belongs with the
+round-3 reading above.
+
+### 3 and 4. TASK 356's TWO UNOWNED DECISIONS, carried for the second night running
+
+Neither is in any dispatch and neither has an owner. **(3)** `BOAR_ATTACH_BUDGET` -- written,
+reviewed and merged in task 355, **OFF in Karen's place by the Director's instruction**, and nobody
+has yet run a drive with it on; `StepMsMax` read 80.97 / 82.36 / 88.2 / 101.9 ms against task 355's
+40 ms target. Turning it on is cheaper than any new work. **(4)** `Runtime:spawn`, 23.2 ms in one
+frame for nine animals at once -- real, small, the Boar owner's, and the only thing inside
+`releaseLine` above task 356's 16 ms bar; slicing it costs a group appearing over several frames,
+**which is a look question for Karen, not a performance one**. Both need a task or an explicit
+deferral with an owner.
+
+### Queued, because they cannot be committed after the code commit
+
+`docs/research/INDEX.md`'s task-357 row and the bill headers in `src/server/Lobby/init.luau` and
+`src/server/ForestTestBoot.server.luau` quote round 1's run (`69.1 / 386.5 / 317.1 / 1,545.7`, *"four
+joins"*, `[lobby] built in 71 ms`) where MEASUREMENTS now reports `R2`. `docs/research/` and `src/`
+are **not** paperwork the merge gate lets follow the code commit, so they wait for whoever takes
+round 3. `docs/design/lobby.md` 12.2's seam table still omits the new optional `frames`, correctly
+left alone (*"NOT YOURS: docs/design/"*).
 
 ### What this task leaves in the tree
 
-An instrument and its proof, nothing else. `ServerStorage.DHLobbyBill` (the lobby's three bites with
-ms, frames and calls; `Lobby.step` and `reportLobby` billed apart, each with its worst call's frame
-count; the three worst Heartbeats with the step each fired on and the Lua on the frame before, or
-`?` where that frame's handler never returned), one frame counter with one writer, three spec cases, a research note and the archived control. **No line of the lobby's build, pads, shop,
-range, drive or gun was touched**, so there is no behaviour to playtest and `smoke.sh`'s
-gun-in-hand time has nothing to move.
+An instrument and its proof, and **no behaviour change at all**: `ServerStorage.DHLobbyBill` (the
+lobby's three bites with ms, frames and calls; `Lobby.step` and `reportLobby` billed apart with
+their worst call's frame counts; the three worst Heartbeats with the step each fired on and the Lua
+before each, or `?`), one frame counter with one writer, three spec cases with a FAIL-FIRST proof,
+a research note and an archived positive control. No line of the lobby's build, pads, shop, range,
+drive or gun was touched, so there is nothing to playtest and `smoke.sh`'s gun-in-hand time has
+nothing to move. Karen's attribute diff is **EMPTY** (24 rows) and her Forest Test is back on
+`driven-hunt-karen` `690265d8`, :34873, Edit.
 
 ## 2026-11-13 ~03:35 UTC, Task 356 -- round 2's finding is RIGHT, the round cap is reached, I stopped. The refutation stands on two legs; the third one's LABEL is wrong
 

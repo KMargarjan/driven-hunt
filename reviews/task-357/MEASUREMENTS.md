@@ -77,46 +77,50 @@ stop: no fix for a stall that does not exist"* -- no fix was written.
 
 ---
 
-## 2. THERE **IS** A REAL 1.6 s FRAME, AND IT IS NOT THIS GAME'S LUA
+## 2. STRUCK IN ROUND 2: "there is a real 1.6 s frame". The two channels contradict each other
 
-`Heartbeat`'s `dt` is the only number in Lua's reach that includes the engine's own work, and it
-does report long frames at a join. The three worst of the 5,520-frame `R2` session, each with what
-`ForestTestBoot`'s whole handler cost on the frame before it (`dt` looks **backward**, so that is
-the handler whose work it covers):
+**This section claimed a 1,666.5 ms server frame at the join. It is withdrawn as a measured fact.**
+Round 2's finding 1, which I checked rather than took: the instrument's two channels disagree inside
+one published line, and both count with the same `bootSteps`.
 
-| rank | frame `dt` | at step | the boot handler's own Lua on the frame before |
+| run | the scan's own `os.clock` bite | that window's average frame | the `dt` channel |
 |---|---|---|---|
-| 1 | **1,666.5 ms** | **15** | **`?` -- unknowable** |
-| 2 | **890.9 ms** | **17** | **0.1 ms** |
-| 3 | **149.5 ms** | **932** | **0.9 ms** |
+| `BEF3` | **429.2 ms** across frames 1 -> 12 | **39.0 ms** | `1539.6@12` |
+| `CODEC` | **386.5 ms** across frames 1 -> 15 | **27.6 ms** | `1545.7@15` |
+| `R2` | **410.8 ms** across frames 1 -> 15 | **29.3 ms** | `1666.5@15` |
 
-**`?` is the honest answer and it is review round 1's finding 2.** The handler that calls
-`world.place` is entered on step 1 and does not return until step 15, so for a frame whose
-predecessor never completed there is no handler cost to report; the first draft published the
-counter's initial `0` there as though it were a reading. `lastTookStep` now says which frame the
-number belongs to, and anything else prints `?`.
+A single gap inside a 410.8 ms window cannot be 1,666.5 ms. **Either the opening cluster's `dt` is
+not an elapsed wall gap -- and there is no 1.6 s frame at all -- or the frame counts are wrong, and
+then `build=82.6/0f` loses its meaning.** The positive control (section 5) validates `dt` only at
+step 502, mid-session, outside the cluster this claim was about. Nothing measured here settles it,
+so nothing here asserts it.
 
-What the table still carries is the finding: **ranks 2 and 3 are known, and they are 0.1 and
-0.9 ms of Lua against 890.9 and 149.5 ms of frame.** The long frames at steps 15 and 17 are the
-first fraction of a second of the server's life, while the place and the first character load; the
-third-worst frame of a whole 150-second session is 149.5 ms. Across the five runs the opening pair
-reads `1607.2@14 / 1591.4@18 / 1539.6@12 / 1545.7@15 / 1666.5@15`, and the third-worst reads
-`162.2@16 / 99.7@2 / 104.0@2 / 149.5@932` -- **so outside the server's first ~20 frames, nothing in
-a 150-second session comes near a second.**
+**What survives, uncontradicted.** From step ~20 onward the `dt` channel and the `os.clock` bites
+agree, and what it reports there is small: the third-worst frame of a 150-second session reads
+`162.2@16 / 99.7@2 / 104.0@2 / 149.5@932` across the runs, and the known Lua cost before the second-
+and third-worst frames is 0.1-0.9 ms. The control's injected 800 ms spin appeared there correctly as
+`811.4@502`.
 
-**So what task 356 saw as "1,399.7-1,421.7 ms at the join" is real, and it is the place loading --
-not `Lobby.step`, not `reportLobby`, and not anything a Lua fix in this repository can move.** The
-two numbers were a similar size and they are not the same thing.
+**`lua ?` is round 1's finding 2, and it is also what makes the contradiction visible.** `lastTookMs`
+is written only when a handler returns; the handler that enters `world.place` on step 1 does not
+return for 11-17 frames, so for a frame whose predecessor never completed there is no handler cost
+to report and the bill prints `?` rather than the counter's initial `0`, which the first draft
+published as though it were a reading.
 
----
+**The reading that would settle section 2, and it is one commit:** stamp `os.clock()` at the top of
+the Heartbeat handler and publish, beside the worst frame, the wall gap since the previous handler
+ran -- and the sum of `dt` across the scan's own frame window against that scan's `os.clock` ms.
+Two numbers, one run. It needs a round 3, which this task's two-round cap does not give; `ESCALATE.md`
+item 1 carries it, and it says why task 356's `1,399.7-1,421.7 ms at the join` -- the same channel in
+the same window -- should not be quoted again until that reading exists.
 
 ## 3. THE TARGETS THE DISPATCH SET
 
 | | measured (`R2`) | target | verdict |
 |---|---|---|---|
 | the lobby's **one-frame** cost at the join | **82.6 ms** (`build`, 0 frames), with `rest` 0.2 and `report` 0.7 / 0 frames | <= 100 ms | **MET, with no change to the game** (67.9-82.6 ms over the four runs whose bill is sound) |
-| **the join's worst server frame** | **1,666.5 ms at step 15**, boot Lua on the frame before it unknowable; rank 2 **890.9 ms at step 17 with 0.1 ms of Lua**; **third-worst of the whole session 149.5 ms** | <= 100 ms | **NOT MET, and NOT this owner's** -- it is the engine loading the place and the first avatar. See `ESCALATE.md` |
-| **heartbeat max, reported** | **1,666.5 ms** (`hbmax`), and **under 149.5 ms for every frame outside the opening cluster** | reported | **REPORTED** |
+| **the join's worst server frame** | **NOT ESTABLISHED.** The `dt` channel says 1,666.5 ms at step 15; the same run's `os.clock` bite says that whole window averaged 29.3 ms a frame. Section 2 | <= 100 ms | **UNRESOLVED, and in either case not this owner's Lua** -- the lobby's own one-frame cost is the row above. `ESCALATE.md` item 1 names the one-commit reading that settles it |
+| **heartbeat max, reported** | **`hbmax` 1,666.5 ms, reported WITH the contradiction beside it** (section 2). Outside the opening ~20 frames, where the two channels agree, the worst frame of a 150-second session is **99.7-162.2 ms** across five runs | reported | **REPORTED, with its caveat** |
 | `smoke.sh` gun-in-hand time BEFORE / AFTER | **N/A -- no behaviour changed.** The diff is an instrument, a research note, three spec cases and an archived control; no line of the lobby's build, pads, shop, range or gun was touched, so there is no AFTER to compare | unchanged +-1 s | **N/A, by reason** |
 | lobby bite table BEFORE / AFTER | **BEFORE only**, section 1 | both | **BEFORE only, because no fix shipped** |
 
@@ -193,26 +197,37 @@ instrument's own cost was measured**.
 
 ---
 
-## 7. ROUND 2: the four findings, all four right
+## 7. ROUND 1's four findings, all four right
 
 1. **The "independent cross-check" was empty** -- `stats.buildMs` and `profMs.build` read the same
-   `began`. Struck here, in `ESCALATE.md`, in the research note and in `docs/research/INDEX.md`, and
-   replaced by what is actually corroborated and by what the consistency check actually bounds
-   (section 1).
+   `began`. Struck here, in `ESCALATE.md`, in the research note and in `docs/research/INDEX.md`.
 2. **`lua 0.0` was the counter's initial value, not a reading**, for a frame whose predecessor was
-   still suspended -- which is exactly the step-2 row the first draft published. `lastTookStep` now
-   says which frame the number belongs to and the bill prints `?` otherwise; the `R2` reading above
-   shows `lua ?` on rank 1 (section 2).
-3. **`hbWorst`'s "prev frame's lobby" fields were this frame's.** `lobbyStepMs` is reassigned
-   earlier in the same handler, including on the throttled frames, so a long frame following the
-   build frame would have printed `0.0/0f` and hidden it. The previous frame's four numbers are
-   snapshotted at the top of the handler; `R2` prints `prev frame's lobby step=0.0/0f`, which is
-   now true (step 14's scan was throttled out) instead of accidentally true.
+   still suspended. `lastTookStep` now scopes it and the bill prints `?` otherwise.
+3. **`hbWorst`'s "prev frame's lobby" fields were this frame's.** The previous frame's four numbers
+   are snapshotted at the top of the handler -- **and round 2's finding 2 says that is still not
+   enough**, correctly: `lobbyStepMs` is only written when a handler RETURNS, so during the 11-17
+   frames the join's handler is suspended the snapshot holds a value from several frames earlier.
+   Finding 2's own fix (carry the step, print `?`) has to be applied to this field too. **NOT FIXED
+   in this task** -- the round cap was reached. `ESCALATE.md` item 2.
 4. **A segment of the bill was dropped from the paste, and the report's frame count was published
    nowhere.** The line is now pasted verbatim, and `report max=%.1f frames=%d` publishes it.
+
+## 8. ROUND 2's two findings, both right, and why this task stopped
+
+The dispatch: *"at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."*
+
+1. **The two channels contradict each other** -- section 2 above, and the claim is struck.
+2. **"prev frame's lobby" is still not the previous frame's at a join** -- section 7 item 3.
+
+**The Reviewer says in writing what section 1 rests on:** *"The primary refutation does not depend on
+this and stands: `build=82.6 ms / 0 frames` and `place` spanning 11-17 frames refute '1.2-1.4 s in
+one frame' on their own."*
 
 **The known flake, captured before re-running** (`<runs-dir>/357-flake.txt`). The first gate run at
 the code commit `4f3a0da2` failed one assertion, `ServerStorage.Tests.weapon_shot.spec:1890`, which
 is named in the dispatch's own flake list and is untouched by this diff (no weapon file is in it).
 Re-run at the **same** commit: `[harness] PASS: 34/34 checks @ 4f3a0da2 (clean tree) scope=all`. The
 same spec was green at `6106812d` and at `fdc04963` on this branch.
+
+**`REQUEST.md` is left exactly as the Reviewer read it**, so claim 7 and claim 3 still carry the
+wordings findings 1 and 2 refute. This file and `ESCALATE.md` are the corrected record.
