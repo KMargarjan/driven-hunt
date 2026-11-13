@@ -1,14 +1,50 @@
-1. `reviews/task-361/REQUEST.md` — claims 9 and 10 cite a `## The frames` section that does not exist, and no frame is described anywhere in the change. Evidence: claim 9 reads *"REAL clicks, in Karen's own Forest Test, C1, her flags (`<runs-dir>/361-FT-*.png`, all opened and described in `## The frames`)"*; claim 10 reads *"Measured and in the frames"*; "What I could not verify" reads *"the REAL click in DEV Play and in the Forest Test is what proves the wire. Both are in the report with frames."* `reviews/task-361/` contains exactly one file (`REQUEST.md`, 95 lines: title, `test2`, Karen's quote, `## What changed`, `## Claims, and how to verify each`, `## What I could not verify`) — there is no `## The frames` heading and no screenshot description in it, and `.agent-evidence/changed-files.txt` lists no other task-361 report. This is blocking on three counts: (a) rule 5 — this change is almost entirely visual (a new 44 px close button, markers 6/9 -> 16/20 with the number moved inside, a brass peak, two rings, rows rebuilt as three-label cards, `STAND_LIST_WIDTH_PX` 132 -> 150) and not one frame is described; (b) the dispatch's own `MEASURED NOW` asks for *"BEFORE | AFTER frames of the open map with one stand picked, both opened and described ... the two click frames"* and `CLICK PROOF` for *"a REAL click on a stand marker AND on a list row ... and a REAL click on the X in DEV Play (rawclick.ps1), frames before and after the click, both opened and described"* — none of it is in the deliverable; (c) the request itself names the real click as the ONLY proof of the `Activated` connection (`button.Activated:Connect(function() paint(false); MapUi.pressClose() end)` in `buildCloseButton`), which `map_ui.spec` case 34 deliberately does not cover — delete that one `Connect` line and case 34 still passes on every assertion. With the frames absent, the X's wiring has no proof of any kind in this change, and claim 10 (painted tiles, 9 of 9, none blank, aligned) has none either. Required: add the `## The frames` section the request points at — each `<runs-dir>/361-FT-*.png` and the DEV-Play click frames named, opened and described, including the before/after pair with one stand picked, the marker click, the list-row click, the X click, and the painted-tile look — or strike claims 9 and 10 and the `## What I could not verify` sentence that leans on them and say plainly that nobody has seen the button work.
+PASS
+
+Rule 5, stated so this PASS is not read as rule 5 having been met: this task has NO core item -- it is
+the map panel, not animal behaviour and not shooting. The thing Karen will judge (the X, the chip
+markers, the ringed pick, the card rows) HAS been seen in her place: `361-R2-AFTER-open.png`,
+`361-FT-AFTER-mark5.png`, `361-AFTER-zoom-stands.png`, `361-R2-AFTER-hover8.png`,
+`361-FT-AFTER-row8.png`, `361-R2-ROWX-row2.png` and `361-R2-ROWX-close.png` are her own Forest Test,
+C1, her flags, at code commit `11faec07`, each opened and described, against a BEFORE pair at
+`3533e137`. I cannot open an image; I checked those descriptions against the code and the numbers
+agree. NOT seen by anyone: a real touch tap (`TouchEnabled` false on that PC, so "44 px is enough for
+a thumb" is a measured pixel size plus the HIG number), and this map on a real phone.
 
 ## Notes (non-blocking)
-
-- `MapUi.buildCloseButton` / `layoutFor` — the close button and the stand list are both pinned to the panel's top-right and both inverse-scaled to real pixels, and nothing measures whether they collide. `button.Position = UDim2.new(1, -inset, 0, inset)` with `inset ≈ 8` real px and a 44 real px box puts the button's bottom at ~52 real px below the panel top; `buildStandList` puts the list at canvas `(panelWidth - FULL_PADDING, FULL_TITLE_HEIGHT + FULL_PADDING)` = canvas y 50, which at a phone's panel scale (case 34 asserts `panelScale.Scale < 0.5`) is ~15-20 real px below the panel top. Case 34 settles the stacking (`expect(button.ZIndex > (list:FindFirstChild("Row1") :: TextButton).ZIndex)`) but not the overlap: on a phone a tap on the right-hand ~44 px of row 1 closes the map instead of picking stand 1, and the button also covers the map's own top-right corner at ~147 canvas px square. Measure row 1's surviving tap rectangle at 400x800, or drop the list's top below the button.
-- `tests/client/map_ui.spec.luau`, the stand-size case — `CONFIG.STAND_PX` / `CONFIG.STAND_TOWER_PX` (the minimap's 6 / 9) are now asserted by no case at all: the one assertion that named them was rewritten to `FULL_STAND_TOWER_PX` / `FULL_STAND_PX`. Claim 6 ("the minimap is untouched") rests on reading `drawGeometry`'s `standLabels` branch, not on a case. One assertion on the `Geometry` layer's `Stand%d` size would restore it.
-- `map_ui.spec` case 35 — `expect(pickRing.Size.X.Offset > hoverRing.Size.X.Offset).to.equal(true)` compares the ring on stand 5 with the ring on stand 7, and `place` sizes each from its own `node.tower`. It is green only because neither 5 nor 7 is in `Grid.towerStands(Grid.DEFAULT_CELL)`; the day a tower lands on stand 7, a correct pair of rings (pick 16+10 = 26, hover 20+8 = 28) turns the case red. Compare the two pads (`STAND_PICK_PAD_PX > STAND_HOVER_PAD_PX`) or ring the same stand twice.
-- `map_ui.spec` case 36 — `expect(number.Size.X.Offset <= node.Size.X.Offset).to.equal(true)` is an identity: `drawGeometry` writes `text.Size = UDim2.fromOffset(sizePx, sizePx)` and `node.Size = UDim2.fromOffset(sizePx, sizePx)` from the same local. It cannot fail. The rest of the case has teeth; this line has none.
-- `MapUi.standRowParts` — the `high` state now produces no word of its own: `elseif word == "high" or kind == "tower" then said = "TOWER"` is gone and `high` falls to `said = "Free"`, with "tower" carried by `name` from `kind`. `kind` comes from `Grid.towerStands` (`geometryFor`) while the `high` state comes from `HighSeats.standsFor(driveLayoutName)` (`Hud/init.luau`) — two records. A stand those two disagree about now reads `Main / Free` with nothing saying it carries a seat, where it used to read `TOWER`. The marker still rings it (`node.stroke.Enabled = word == "high" or node.tower`), so the loss is the list only.
-- `map_ui.spec` case 34, the 44 px measurement — `button.Size.X.Offset * panelScale.Scale * closeScale.Scale` is a re-derivation of the engine's product, not `AbsoluteSize`, and is algebraically `CLOSE_BUTTON_PX` for any scale once `layoutFor` writes `closeScale = 1 / shown`. The case has teeth only because of `expect(panelScale.Scale < 0.5)` — without that line, deleting `layoutFor`'s close block would still read 44.0 at both viewports. Worth saying in the case's own comment, since the note it prints (`44.0 px at 1366x768, 44.0 px at 400x800`) reads like two independent measurements.
-- `docs/design/stand-pick.md` §9.5 — *"Each row carries the index, the state word (`FREE` / a name / `SEAT`) and nothing else"* is now false in three ways (sentence case, a name column, `Locked` for `seat`). Queue a design round; `docs/design/` is an owner change and not this task's.
+- `MapUi.applyStandAccent` / `applyPick` -- `standHover` survives the window closing. `applyPick`
+  sets `node.hit.Visible = on` and `list.Visible = on`, and Roblox fires no `MouseLeave` for a widget
+  hidden under the cursor, so the hover ring stays drawn on the stand the mouse was last over and is
+  still there at the next open until the mouse moves. One `MapUi.setHoverStand(nil)` in `applyPick`'s
+  not-pickable arm (or in `setOpen(false)`) closes it.
+- `map_ui.spec` case 34b, the 1366 arm -- `expect(list.Position.X.Offset >= full.Size.X.Offset)` is a
+  tautology: `layoutFor`'s beside branch writes `math.round(panelWidth + gapPx / shown)` and
+  `full.Size.X.Offset` IS `panelWidth`, so with `gapPx > 0` it cannot fail. The case's teeth are
+  entirely in the 400x800 arm. Worth saying in the case's comment, since the note it prints
+  (`1366 beside | 400 over`) reads like two measurements that both bite.
+- `map_ui.spec` case 35 -- `expect(pickRing.Size.X.Offset).to.equal(CONFIG.FULL_STAND_PX +
+  CONFIG.STAND_PICK_PAD_PX)` still assumes stand 5 is a GROUND stand: `place` sizes each ring from
+  `node.tower`, so the day `Grid.towerStands("C1")` gains 5 this reddens on correct code. It is round
+  1's note moved one stand over. Size it against `if towers[5] then FULL_STAND_TOWER_PX else
+  FULL_STAND_PX`, the way case 36 already does for the marker.
+- `layoutFor`, the pushed list -- the fix costs the over-the-panel list `(topPx - (FULL_TITLE_HEIGHT +
+  FULL_PADDING)) * shown` of visible height, which at the 400x800 the case measures (list top 60 real
+  px, panel scale under 0.5) is 35-46 real px, about one 44 px row of the four it had. It is a
+  `ScrollingFrame` with `CanvasSize` at `rows * 44`, so no row is unreachable; it is a row more
+  scrolling on a phone, and nothing in the request says so.
+- rule 4 -- the commit carries another task's deliverable: `reviews/task-360b/MEASUREMENTS.md`, the
+  360b `ESCALATE.md` entry and the 360b `TASKS.md` row. `REQUEST.md`'s "What changed" says
+  "`src/client/Hud/MapUi.luau` only" and never mentions them. Docs-only, breaks nothing, and 360b was
+  dispatched with "no review round: the Director checks the file" -- but the Director should know
+  360b's file rides in on this PR.
+- `MapUi.standRowText` -- after this change nothing in `src/` calls it; `map_ui.spec` is its only
+  reader. Kept deliberately (its own comment says why), but it is now test-only surface.
+- round 1's notes 5 and 11 are still open and are correctly left for a queue, not for a round: the
+  `high` state has lost its own word in the list (`standRowParts` falls through to `Free` when
+  `HighSeats.standsFor` and `Grid.towerStands` disagree), and `docs/design/stand-pick.md` section 9.5
+  now describes a row that no longer exists.
+- `REQUEST.md` claim 4, "the picked ring is the brighter, thicker, larger one" -- larger only on one
+  and the same stand: a tower's hover ring is `20 + 8 = 28` against a ground pick ring's `16 + 10 =
+  26`. The case asserts the two pads, which is the right statement; the prose overstates it.
 
 ---
-REVIEWER verdict on commit `7a6217ac135ba7b5f8cac0b7df5763cd70c99d3f` (round 1) · 2026-11-13 21:44 UTC · session cost $4.32, 44 turns · written by tools/agents.py
+REVIEWER verdict on commit `9db5ff7a96bb365391c9bb0ff56a10901ca7b49a` (round 2) · 2026-11-13 22:26 UTC · session cost $4.33, 41 turns · written by tools/agents.py
