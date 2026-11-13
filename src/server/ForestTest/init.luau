@@ -3932,14 +3932,14 @@ function ForestTest.releaseRollup(totalMs: number)
 	end
 end
 
--- WORST FRAME, THEN EVERY SECTION'S OWN max/total -- because one 1,274 ms frame hid every other
--- owner's worst behind it in task 355 (`355-BEF3-track.txt`), and the same trap is here.
 -- IS A WAVE BEING RELEASED RIGHT NOW. `ForestTestBoot` charges each Heartbeat's `dt` to this answer
 -- or to its opposite, which is the one measurement that separates WALL time from a FROZEN FRAME.
 function ForestTest.releasing(): boolean
 	return releaseInFlight > 0
 end
 
+-- WORST FRAME, THEN EVERY SECTION'S OWN max/total -- because one 1,274 ms frame hid every other
+-- owner's worst behind it in task 355 (`355-BEF3-track.txt`), and the same trap is here.
 function ForestTest.releaseBill(): string
 	local out = { string.format("calls=%d worst: %s", releaseCalls, releaseWorst) }
 	local each = {}
@@ -4051,9 +4051,15 @@ function ForestTest.step(now: number, inPlace: boolean?): string?
 		-- slot release never reached the console at all, and the drive's own proof then undercounts the
 		-- very thing it is evidence for. The slot line comes first because it is the drive's headline.
 		sectionAt = os.clock()
+		-- THE DEPTH COMES BACK DOWN EVEN IF THE RELEASE RAISES (round 2's note). This is the drive's
+		-- own un-pcalled Heartbeat: a raise used to leave the depth at >= 1 and charge every later
+		-- frame of the session in-release. The error is re-raised unchanged, so nothing else moves.
 		releaseInFlight += 1
-		local released = ForestTest.releaseLine(now, nil, resolved, aim)
+		local ok, released = pcall(ForestTest.releaseLine, now, nil, resolved, aim)
 		releaseInFlight -= 1
+		if not ok then
+			error(released, 0)
+		end
 		sections.release = (os.clock() - sectionAt) * 1000
 		ForestTest.releaseRollup(sections.release)
 		if released ~= nil and flush ~= nil then
@@ -4389,9 +4395,13 @@ function ForestTest.stagedLine(now: number): string?
 	-- BILLED LIKE THE DRIVE'S OWN SLOT (round 1's note): a staged release used to zero the bill, never
 	-- be rolled up, and have its frames charged to `hb-elsewhere` -- so both channels lied about it.
 	local stagedAt = os.clock()
+	-- ...AND THE SAME GUARD AS `step`'s: decrement on a raise, then re-raise unchanged.
 	releaseInFlight += 1
-	local line = ForestTest.releaseLine(now, row)
+	local okStaged, line = pcall(ForestTest.releaseLine, now, row)
 	releaseInFlight -= 1
+	if not okStaged then
+		error(line, 0)
+	end
 	ForestTest.releaseRollup((os.clock() - stagedAt) * 1000)
 	return string.format("STAGED %s -- %s", tostring(raw), line or "NOTHING RELEASED (no route, or the animal cap)")
 end

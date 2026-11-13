@@ -1837,7 +1837,8 @@ return function()
 			--
 			-- `spawns` IS CHECKED AGAINST THE RUNTIME'S OWN COUNT, not against a literal: the stub
 			-- records every handle it handed out, so the bill is compared with the world and not
-			-- with itself. Delete `releaseCount.spawns += 1` and this reads 0 against 6.
+			-- with itself. Delete `releaseCount.spawns += 1` and this reads 0 against the count the
+			-- stub handed out (1 in this case's own harness note).
 			local got = oneRelease(3)
 			expect(got.made > 0).to.equal(true)
 			expect(field(got.bill, "spawns")).to.equal(got.made)
@@ -1881,8 +1882,9 @@ return function()
 
 		it("names every section, the pathfinder's counts and the frames the call spanned", function()
 			-- A SECTION DROPPED FROM THE FORMAT IS A SECTION NOBODY WILL EVER SEE AGAIN. This case is
-			-- about the SHAPE of the line; the two above are about its numbers.
-			local bill = Forest.releaseBill()
+			-- about the SHAPE of the line; the two above are about its numbers. It drives its own
+			-- release, so it does not read state the case before it happened to leave (round 2's note).
+			local bill = oneRelease(0).bill
 			for _, key in ipairs({ "prep", "frame", "comp", "routes", "path", "clear", "order", "spawn", "files" }) do
 				expect(string.find(bill, key .. "=", 1, true) ~= nil).to.equal(true)
 			end
@@ -1900,6 +1902,34 @@ return function()
 			expect(string.find(Forest.releaseBill(), "total=987654.0", 1, true) ~= nil).to.equal(true)
 			Forest.releaseRollup(1)
 			expect(string.find(Forest.releaseBill(), "total=987654.0", 1, true) ~= nil).to.equal(true)
+			-- 987654 IS NOT LEFT IN MODULE STATE for whatever requires `ForestTest` next (round 2's
+			-- note): it is a process-lifetime global and no later spec would know where it came from.
+			Forest.releaseReset()
+		end)
+
+		it("brings the depth back down when the release RAISES", function()
+			-- FAIL FIRST, on this case: with the `pcall` in `ForestTest.step` replaced by the plain
+			-- call, `releaseInFlight -= 1` is skipped on a raise, `Forest.releasing()` reads true
+			-- here, and every later frame of the session is charged in-release. Measured: the case
+			-- fails exactly that way (`reviews/task-356/MEASUREMENTS.md` 6).
+			local _made, _standing, fake = stubRuntime()
+			Forest.layoutForDrive(973, "c1")
+			Forest.start(fake, 0)
+			Forest.newDrive(0)
+			Forest.releaseReset()
+			local realVia = Forest.computeRouteVia
+			local now = Data.slotSeconds(1, Forest.cellSchedule())
+			Forest.computeRouteVia = function()
+				error("task 356 spec: the release raised", 0)
+			end
+			local ok, err = pcall(Forest.step, now, false)
+			Forest.computeRouteVia = realVia
+			Forest.start(nil :: any, 0)
+			-- THE RAISE STILL REACHES THE CALLER, which is the behaviour the guard must not change.
+			expect(ok).to.equal(false)
+			expect(string.find(tostring(err), "the release raised", 1, true) ~= nil).to.equal(true)
+			expect(Forest.releasing()).to.equal(false)
+			Forest.releaseReset()
 		end)
 	end)
 end

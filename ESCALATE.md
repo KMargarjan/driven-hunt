@@ -1,5 +1,11 @@
 ## 2026-11-13 ~03:35 UTC, Task 356 -- round 2's finding is RIGHT, the round cap is reached, I stopped. The refutation stands on two legs; the third one's LABEL is wrong
 
+**Director 2026-11-13 03:35 UTC: round 3 authorised for task 356, the Reviewer's option (b).** The
+refuted premise is ACCEPTED: no fix is written, the task merges as an instrument plus its
+measurements. `MAX_ROUNDS` stays 3, so no `DIRECTOR_MAX_ROUNDS` is set or needed. Builder, round 3:
+the dead second read and its comment deleted, MEASUREMENTS 2(b)/3a saying what `hb-in-release` really
+holds, and the one-line notes from `RESULT.md`.
+
 **The dispatch: *"at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."* So I
 stopped.** Nothing in `src/` has been touched since the reviewed commit `10584da8`, so the harness
 evidence still covers it and the merge gate's "only paperwork after the code commit" still holds.

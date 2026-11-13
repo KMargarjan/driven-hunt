@@ -1852,9 +1852,9 @@ local idleHbMax, idleHbFrames, idleHbTotal = 0, 0, 0
 
 RunService.Heartbeat:Connect(function(dt)
 	local frameMs = dt * 1000
-	-- READ BEFORE AND AFTER `ForestTest.step` AND OR-ED (round 1's note). Read only here, the frame
-	-- a release STARTS on and the frame it RESUMES on -- the two that carry its Lua -- both fell in
-	-- `hb-elsewhere`, so the label was off by up to two frames per release.
+	-- THE DEPTH AS THIS FRAME STARTED, READ ONCE (round 2's finding, `reviews/task-356/RESULT.md`).
+	-- So `hb-in-release` holds the frames a release is SUSPENDED through; the frame it starts on and
+	-- the one whose backward-looking `dt` covers its resumed Lua are in `hb-elsewhere`.
 	local releasingBefore = ForestTest.releasing()
 	-- THE POSITIVE CONTROL THAT PROVED THIS CHANNEL IS NOT BLIND is archived rather than shipped:
 	-- `backups/2026-11-13_task-356_release-burn-control.md` (a Studio-only spin of `DHReleaseBurn`
@@ -2002,7 +2002,7 @@ RunService.Heartbeat:Connect(function(dt)
 	Lobby.step(now, players)
 	reportLobby()
 	bootProf.lobby = (os.clock() - lobbyAt) * 1000
-	if releasingBefore or ForestTest.releasing() then
+	if releasingBefore then
 		relHbFrames += 1
 		relHbTotal += frameMs
 		if frameMs > relHbMax then

@@ -78,6 +78,22 @@ while an earlier release is still suspended):
 | **while a wave release is in flight** | **46.5 ms** | **23.0 ms** | 373 |
 | everywhere else in the same drive | **1,421.7 ms** | **23.3 ms** | 14,507 |
 
+**WHAT THE IN-RELEASE COLUMN ACTUALLY HOLDS, said exactly (round 2's finding, option (b)).** The
+charge reads the depth **once**, at the top of the Heartbeat, so `hb-in-release` is the frames a
+release is **suspended through** -- the purely-yielding ones, where `ComputeAsync` has the handler
+thread parked and the frame carries no release Lua at all. Two frames per release are **not** in it,
+and both are in `hb-elsewhere`: (i) the frame the release **starts** on -- the depth was 0 when that
+frame's charge was read -- and (ii) the frame whose `dt` covers the **resumed** `order` / `spawn` /
+`files` Lua, because `Heartbeat`'s `dt` is *"the time elapsed since the previous frame"* and so the
+frame that reports it is the one **after** the release finished, by when the depth is 0 again.
+Round 2 tried to close that with a second, or-ed read and it was a **no-op**: the only writers of the
+depth are inside `ForestTest.step`, so in the thread that carries the release both reads are false
+(`reviews/task-356/RESULT.md` round 2, finding 1). Round 3 deleted the dead read rather than
+pretending it worked. **So the leg this table carries is bounded:** no frame on which a release is
+merely waiting is long. The resumed-Lua frame is bounded instead by section 1's arithmetic --
+`order` + `spawn` + `files`, worst `spawn` 23.2 ms -- and by `heartbeat max`, and an in-release frame
+is invisible in the `elsewhere` column's max because the 1,399.7 ms lobby join frame is in it.
+
 **The two counters run for the whole Play SESSION, not only the 340 s drive** -- which is what lets
 the join's own frame appear in the `elsewhere` column at all, and is why that column holds 14,507
 frames. Both columns are over the same session, so the comparison between them is a fair one.
@@ -120,10 +136,13 @@ a paragraph because the dispatch asked for one.
 
 ### 3a. THE SAME DRIVE AT THE REVIEWED COMMIT (`R2B`, `88c324a8`)
 
-Round 2 changed the instrument (round 1's notes): the frame charge is now read **before and after**
-`ForestTest.step` and or-ed, so the frames a release STARTS and RESUMES on -- the two that carry its
-Lua -- are charged in-release instead of elsewhere. That makes the in-release column stricter, so
-the claim is re-measured rather than carried over.
+Round 2 changed the instrument (round 1's notes), so the claim was re-measured rather than carried
+over. **One of those changes was a no-op and round 3 removed it:** the or-ed second read of the depth
+cannot see a release's own frames (2(b) above, and `RESULT.md` round 2 finding 1), so this table's
+`hb-in-release` row is the **purely-yielding** frames, exactly as the `BEFORE` column's is -- the
+same instrument on both sides. The release's start frame and the frame whose `dt` covers its resumed
+Lua are in the `hb-elsewhere` row of both columns. The row that was re-measured and the row it is
+compared against are therefore like for like, which is all the comparison needs.
 
 | | `BEFORE` (`f5f06f93`) | **`R2B` (`88c324a8`, reviewed)** |
 |---|---|---|
@@ -197,3 +216,25 @@ rather than implied.
    ~0.2-0.7 s before its line starts walking, because the bodies are spawned before the route is
    known. **That is a question about how the drive LOOKS, and it is Karen's**, not a server-cost
    question. Nothing in this task measured whether it is visible.
+
+## 6. ROUND 3: the depth cannot be poisoned, measured by removing the guard
+
+`releaseInFlight -= 1` sits after `ForestTest.releaseLine` in the drive's own **un-pcalled**
+Heartbeat, so a raise inside the release used to leave the depth at >= 1 -- and then every remaining
+frame of the session is charged in-release and 2(b) means nothing. Round 3 wraps the call in a
+`pcall` and re-raises the error unchanged (`ForestTest.step` and `ForestTest.stagedLine`).
+
+**FAIL FIRST, measured, not argued.** With the `pcall` in `ForestTest.step` replaced by the plain
+call and nothing else changed, the suite was run (`<runs-dir>/356r3-failfirst.txt`):
+
+```
+[tests:server] FAIL: 2976 passed, 1 failed, 0 skipped, 1 errors, 83 spec files
+TestService: ... Expected value "false" (boolean), got "true" (boolean) instead
+ServerStorage.Tests.forest_placement.spec:1931
+[harness] FAIL: 32/34 checks @ e893d08a (DIRTY TREE (3 paths) - NOT valid evidence) scope=all
+```
+
+Line 1931 of that tree is `expect(Forest.releasing()).to.equal(false)` in
+`it("brings the depth back down when the release RAISES")` -- the depth stuck at 1 after the raise.
+Exactly one case failed, and no other spec moved -- so this is the case's own bite and not a
+side-effect. With the guard restored the full clean run passes; its line is `REQUEST.md`'s.
