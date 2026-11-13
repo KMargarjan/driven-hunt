@@ -990,13 +990,18 @@ Flags.DEFAULTS = {
 	-- drawing from the shipped fifteen rows as a POOL; OFF is that script, byte for byte.
 	-- Note: docs/research/2026-11-12-drive-variety.md
 	DRIVE_VARIETY = {
-		default = false,
+		-- LIT 2026-11-13 (task 364). KAREN, having played her Forest Test with this on by
+		-- attribute: *"variation also good"*.
+		default = true,
 		-- The drive's own owner: the slot list is `ForestTest.SCHEDULE.drive` and the generator that
 		-- replaces it is in the same module.
 		owner = "ServerScriptService.ForestTest",
 		born = "2026-11-12 task 351",
-		expires = "2026-12-03", -- 21 days, the ceiling in feature-flags.md section 12
-		why = "The drive's slot list is GENERATED per drive from a seed (drive number + cell + server "
+		-- ACCEPTED by Karen, so not a 21-day dark path any more (design section 11 step 6a): it
+		-- stays until the losing branch is archived and the row retired.
+		expires = "2026-12-31",
+		why = 'KAREN\'S OK, 2026-11-13: *"variation also good"*, after playing it on in her Forest '
+			.. "Test. The drive's slot list is GENERATED per drive from a seed (drive number + cell + server "
 			.. "seed) out of the shipped script's own rows, acts, parties and routes as a pool: a "
 			.. "different mix of singles and groups, different group sizes, a different number of "
 			.. "groups, and the special acts (break-back, split, hold, the red stag) appearing "

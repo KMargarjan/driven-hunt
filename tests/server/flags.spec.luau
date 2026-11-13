@@ -108,6 +108,21 @@ return function()
 			end).to.throw()
 		end)
 
+		it("ships DRIVE_VARIETY ON, which is Karen's OK and not a default nobody chose", function()
+			-- TASK 364. KAREN, 2026-11-13, after playing her Forest Test with it on by attribute:
+			-- *"variation also good"*. The flip is three lines in one row, so the thing that keeps it
+			-- flipped is this case: revert `default` to false and it fails here.
+			expect(Flags.DEFAULTS.DRIVE_VARIETY.default).to.equal(true)
+			-- ...AND THE SHIPPED VALUE IS WHAT A SERVER WITH NO OVERRIDE READS, which is the claim
+			-- that matters -- the row above could be true while `isOn` answered something else.
+			expect(Flags.resolve(Flags.DEFAULTS, nil).DRIVE_VARIETY).to.equal(true)
+			-- THE FLAG IS NOT RETIRED: the OFF branch still exists and is still reachable, by
+			-- parameter (`ForestTest.cellSchedule(false)` / `Data.variedSchedule(..., false)`, both
+			-- driven in `forest_line.spec`). Retiring it is a later task with an archive (rule 7).
+			expect(type(Flags.DEFAULTS.DRIVE_VARIETY.why)).to.equal("string")
+			expect(string.find(Flags.DEFAULTS.DRIVE_VARIETY.why, "variation also good", 1, true) ~= nil).to.equal(true)
+		end)
+
 		it("have no fault today -- this is the rot tripwire", function()
 			-- An `expires` in the past fails HERE, which fails the harness, which blocks the merge
 			-- gate. The fix is one of three: retire the flag, flip its default, or move the date

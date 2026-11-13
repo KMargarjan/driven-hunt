@@ -734,6 +734,43 @@ quiet edit". Nobody has walked it: `GRID_PREVIEW` builds C1 only, so no drive ru
 CLAUDE.md gives the Builder this one right in `TASKS.md`: a Director dispatch that arrived outside
 the repo, transcribed verbatim and marked as the Director's. Newest first.
 
+### Task 364 - 2026-11-13 (the Director's, transcribed verbatim)
+
+> [DIRECTOR -> BUILDER] TASK 364: FLIP DRIVE_VARIETY'S DEFAULT TO ON IN GIT (KAREN'S OK). Karen,
+> 2026-11-13 ~11:55 UTC, after playing her Forest Test with DRIVE_VARIETY on, verbatim: "variation
+> also good". CLAUDE.md "Feature flags": Karen's OK flips the default in a later small commit that
+> needs `test` like any src/ change. Main is 840d01ed. Branch task-364-drive-variety-default from
+> origin/main (create and push; stop rojo serve before switching driven-hunt, re-serve after).
+> Reviews in reviews/task-364/ (Task: 364, Round: 1). Transcribe this dispatch into TASKS.md as the
+> Director's. The Director opens the PR.
+> DEADLINE: 03:00 UTC 2026-11-14
+>
+> WHAT KAREN SEES AFTER: nothing new in her Forest Test (DRIVE_VARIETY is already ON there as a
+> place attribute); every other place and every new server gets the varied drive by default.
+> DO:
+> 1. In src/shared/Flags/init.luau, DRIVE_VARIETY's row: default = true, and its why/expires updated
+>    to say Karen's OK (date and her words). Do NOT retire the flag or delete the OFF branch in this
+>    task (retiring is a later task with an archive under backups/).
+> 2. Any spec that asserts the default value of DRIVE_VARIETY, or that relies on the OFF path by
+>    default, is updated to pass the value by parameter (the CLAUDE.md shape: the flagged path is
+>    reachable by parameter as well as by flag), never by deleting the case.
+> 3. MEASURED NOW: before | after, `Flags.isOn("DRIVE_VARIETY")` with no override, read in DEV
+>    (false | true); and one DEV Play drive showing the varied pattern's own log line with no
+>    override set.
+> FOREST TEST PROOF: not needed for the change itself (her place already has the attribute ON). Do
+> not touch her Forest Test at all in this task; if you must look, `python ftplay.py mode` first and
+> the attribute diff must be EMPTY. Never flags.py --place forest clear. Never Save, Publish or
+> Drafts Commit.
+> CLICK PROOF: no control is added or changed.
+> NOT YOURS: any other flag, docs/design/.
+> GATE: `python tools/studio_mcp.py test` full run, PASS line at the code commit; test2 N/A unless a
+> TWO_PLAYER_PATHS file is touched (then say so and stop: ESCALATE). Then tools/review.ps1.
+
+**Builder's status.** Done, round 1. The flip is the flag row and nothing else: measured, no spec in
+`tests/` asserts `DRIVE_VARIETY`'s default or reaches the gated path by the flag -- both arms are
+already driven by parameter in `forest_line.spec` (`Data.variedSchedule(..., false/true)`), so item 2
+needed no edit and no case was deleted. Proofs in `reviews/task-364/REQUEST.md`.
+
 ### Task 352b - 2026-11-12
 
 > [DIRECTOR -> BUILDER] TASK 352b: PUT 352'S FOREST INTO KAREN'S FOREST TEST AND PROVE IT THERE;
