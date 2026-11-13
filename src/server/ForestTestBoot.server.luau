@@ -1865,18 +1865,10 @@ RunService.Heartbeat:Connect(function(dt)
 			idleHbMax = frameMs
 		end
 	end
-	-- THE POSITIVE CONTROL (task 356). A null result -- "no frame during a release is long" -- only
-	-- means something if the same channel WOULD have reported a long one. `DHReleaseBurn` spins that
-	-- many ms of Lua inside a release, in Studio only, and `hb-in-release max` must then read it
-	-- back. Removed from the tree before the code commit; the run it produced is the evidence.
-	if RunService:IsStudio() and ForestTest.releasing() then
-		local burn = tonumber(ServerStorage:GetAttribute("DHReleaseBurn")) or 0
-		if burn > 0 then
-			local until_ = os.clock() + burn / 1000
-			while os.clock() < until_ do
-			end
-		end
-	end
+	-- THE POSITIVE CONTROL THAT PROVED THIS CHANNEL IS NOT BLIND is archived rather than shipped:
+	-- `backups/2026-11-13_task-356_release-burn-control.md` (a Studio-only spin of `DHReleaseBurn`
+	-- ms inside a release). It read 250 ms back as `hb-in-release max=277.9 mean=188.7`, against
+	-- 46.5 / 23.0 with it off. A spin loop in the Heartbeat is not something to leave in the tree.
 	local bootBegan = os.clock()
 	bootProf.cells, bootProf.drive, bootProf.reports = 0, 0, 0
 	bootProf.wire, bootProf.wall, bootProf.lobby = 0, 0, 0

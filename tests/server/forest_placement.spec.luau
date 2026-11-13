@@ -1775,4 +1775,70 @@ return function()
 			)
 		end)
 	end)
+
+	-- ================================= THE RELEASE BILL, AND WHAT IT IS ALLOWED TO SAY (task 356)
+	--
+	-- The bill is the whole deliverable of task 356: `drive.release=569.3 ms` named a FUNCTION and
+	-- not a cost, and the two claims that replaced it -- *"`ComputeAsync` is 98 % of it"* and
+	-- *"it is 43 frames, not one"* -- are only worth the instrument that read them. These cases are
+	-- what fails if that instrument is quietly broken by a later task.
+	-- Measurements: `reviews/task-356/MEASUREMENTS.md`. Note:
+	-- `docs/research/2026-11-13-yielding-work-is-not-a-frame.md`.
+	describe("the release bill (task 356)", function()
+		it("keeps the WORST call and not the last one", function()
+			-- FAIL FIRST: with the `totalMs > releaseWorstMs` guard deleted the rollup keeps
+			-- whatever came last, and `DHReleaseBill` then reports a quiet release while the
+			-- expensive one it exists to find goes unrecorded. The number is larger than any call a
+			-- spec or a drive can make, so the case does not depend on what ran before it.
+			Forest.releaseRollup(987654)
+			expect(string.find(Forest.releaseBill(), "total=987654.0", 1, true) ~= nil).to.equal(true)
+			Forest.releaseRollup(1)
+			expect(string.find(Forest.releaseBill(), "total=987654.0", 1, true) ~= nil).to.equal(true)
+		end)
+
+		it("names every section, the pathfinder's counts and the frames the call spanned", function()
+			-- A SECTION DROPPED FROM THE FORMAT IS A SECTION NOBODY WILL EVER SEE AGAIN, and the one
+			-- that matters most is `FRAMES`: it is the single number that separates 745 ms of WALL
+			-- time from a 745 ms frozen frame, which is the finding this whole task is.
+			local bill = Forest.releaseBill()
+			for _, key in ipairs({ "prep", "frame", "comp", "routes", "path", "clear", "order", "spawn", "files" }) do
+				expect(string.find(bill, key .. "=", 1, true) ~= nil).to.equal(true)
+			end
+			for _, key in ipairs({ "FRAMES=", "legs=", "wps=", "casts=", "spawns=", "worst legs:" }) do
+				expect(string.find(bill, key, 1, true) ~= nil).to.equal(true)
+			end
+		end)
+
+		it("charges a real release to `releasing()`, and lets go of it afterwards", function()
+			-- `ForestTestBoot` charges every Heartbeat's `dt` to "a release is in flight" or "not"
+			-- on this one answer, so a depth that never came back down would charge the REST OF THE
+			-- SESSION to the release -- and the measurement that refuted the dispatch's premise
+			-- (`hb-in-release mean 23.0 vs 23.3 elsewhere`) would be meaningless.
+			expect(Forest.releasing()).to.equal(false)
+			local _made, _standing, fake = stubRuntime()
+			Forest.layoutForDrive(973, "c1")
+			Forest.start(fake, 0)
+			Forest.newDrive(0)
+			-- The DEV place has no navmesh, so the route is patched exactly as `laneSpawnOnce` and
+			-- the retry-cap cases patch it -- this case is about the counter, not the pathfinder.
+			local realVia = Forest.computeRouteVia
+			local sawDuring = nil
+			Forest.computeRouteVia = function(via)
+				-- READ FROM INSIDE THE CALL, which is the only place the answer can be `true`: this
+				-- is the stand-in for the Heartbeat that fires while `ComputeAsync` is suspended.
+				sawDuring = Forest.releasing()
+				local out = {}
+				for _, point in ipairs(via) do
+					table.insert(out, point)
+				end
+				return out
+			end
+			Forest.step(Data.slotSeconds(1, Forest.cellSchedule()), false)
+			Forest.computeRouteVia = realVia
+			Forest.start(nil :: any, 0)
+			expect(sawDuring).to.equal(true)
+			expect(Forest.releasing()).to.equal(false)
+			TestKit.note("task 356: a release is charged to `releasing()` while it runs and to nobody after it")
+		end)
+	end)
 end
