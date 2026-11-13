@@ -284,7 +284,8 @@ return function()
 			local stats = CarcassPose.stats()
 			expect(loaded).to.equal(0)
 			expect(stats.posed).to.equal(0)
-			expect(stats.leftAlone).to.equal(1)
+			-- ONE PER SWEEP, not one per carcass: the question is live, so two steps ask it twice.
+			expect(stats.leftAlone).to.equal(2)
 			real:Stop(0)
 		end)
 
