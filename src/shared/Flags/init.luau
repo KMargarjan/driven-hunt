@@ -843,7 +843,12 @@ Flags.DEFAULTS = {
 		-- not a rule and not a till.
 		owner = "StarterPlayerScripts.Hud.LicenceCard",
 		born = "2026-10-22 task 238",
-		expires = "2026-11-12", -- 21 days: the ceiling in feature-flags.md section 12
+		-- 2026-11-12 -> 2026-12-03 (task 355, which tripped it the moment the UTC date rolled over).
+		-- THE REASON THE ROW STILL EXISTS, which is what this date is for: the card has never been
+		-- put in front of Karen with the row at its default. She plays with `DHFlag_LICENCE_POPUP`
+		-- ON as a Forest Test override (read 2026-11-12, `<runs-dir>/355-attrs-before.txt`), so the
+		-- feature is alive and in use and what is missing is only her word on it; the flip is hers.
+		expires = "2026-12-03", -- 21 days from the move: the ceiling in feature-flags.md section 12
 		why = "One card, when a hunter aims at a red deer he has no licence for: NO DEER LICENCE, "
 			.. "what the rule actually is, and a BUY button that goes through the shop's own "
 			.. "server purchase path from wherever he is standing. OFF draws nothing.",
