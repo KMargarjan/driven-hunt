@@ -1793,6 +1793,10 @@ return function()
 			Forest.layoutForDrive(973, "c1")
 			Forest.start(fake, 0)
 			Forest.newDrive(0)
+			-- A FRESH WINDOW, so `worst:` is THIS release and not whatever earlier spec file drove a
+			-- bigger one through `Forest.step`. `newDrive` does not do this for the reason its own
+			-- comment gives -- a drive ending would wipe its own bill before anyone read it.
+			Forest.releaseReset()
 			local realVia = Forest.computeRouteVia
 			local sawDuring, now = nil, Data.slotSeconds(1, Forest.cellSchedule())
 			Forest.computeRouteVia = function(via)

@@ -3254,9 +3254,6 @@ end
 -- COUNTERS (`flushed`, `noticed`, `released`) are the session's and are not touched -- they are what
 -- `stats()` publishes and what the `[rest]` lines count up.
 function ForestTest.newDrive(now: number?, driveNumber: number?)
-	-- THE RELEASE BILL IS THIS DRIVE'S (task 356). A table field and not the local, because the
-	-- bill is declared 570 lines below this one.
-	ForestTest.releaseReset()
 	-- WHICH DRIVE THIS IS, for task 351's seed. `Match` already carries the number through
 	-- `PhaseChanged`, so it is HANDED IN rather than re-derived; with none (a spec, or a boot with
 	-- no phase yet) this counts its own, so two drives of one session cannot be dealt one pattern.
@@ -3879,9 +3876,11 @@ local function releaseZero()
 	table.clear(releaseLegs)
 end
 
--- PER DRIVE, exactly as task 355's `StepMsMax` / `StepOwners` are per drive and its `DHBoot*` are
--- per session: a bill that ran all session would report the worst release of a Studio window rather
--- than of the drive being measured. `ForestTest.newDrive` is the one caller.
+-- OPENS A FRESH MEASUREMENT WINDOW. **`ForestTest.newDrive` deliberately does NOT call this**, and
+-- that is MEASURED, not a preference: wiring it there made the bill per-drive the way task 355's
+-- `StepOwners` is, and the drive that ENDS before the probe reads it then wiped its own bill --
+-- `calls=0 worst:` with 253 in-release frames on the same run (`<runs-dir>/R2-track.txt`). The bill
+-- is per SESSION, like `DHBoot*`, and a caller that wants a window says so.
 function ForestTest.releaseReset()
 	releaseCalls, releaseWorstMs, releaseWorst, releaseWorstLegs = 0, 0, "", ""
 	for key in pairs(releaseMax) do
