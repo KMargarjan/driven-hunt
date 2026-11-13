@@ -1921,7 +1921,12 @@ return function()
 				towers[index] = true
 			end
 			for index, node in ipairs(stands) do
-				expect(node.Size.X.Offset).to.equal(if towers[index] then CONFIG.STAND_TOWER_PX else CONFIG.STAND_PX)
+				-- THE FULL MAP'S OWN TWO NUMBERS SINCE TASK 361 (`FULL_STAND_*`): the panel carries a
+				-- 16 px chip with its number inside it, and the 150 px minimap still carries the 6 px
+				-- square -- two drawers, two numbers, instead of one compromise wrong on both.
+				expect(node.Size.X.Offset).to.equal(
+					if towers[index] then CONFIG.FULL_STAND_TOWER_PX else CONFIG.FULL_STAND_PX
+				)
 				local ring = node:FindFirstChild("Seat")
 				expect((ring :: UIStroke).Enabled).to.equal(towers[index] == true)
 			end
@@ -1973,11 +1978,13 @@ return function()
 			expect(row1.Active).to.equal(true)
 			-- THE WORDS: FREE, a tower, a holder's name and his own.
 			local towers = Grid.towerStands(Grid.DEFAULT_CELL)
-			expect(MapUi.standRowText(1, "MAIN", { state = "free" }, "ground")).to.equal(" 1  MAIN  FREE")
-			expect(string.match(MapUi.standRowText(towers[1], "WEST", { state = "free" }, "tower"), "TOWER")).to.be.ok()
+			-- SENTENCE CASE SINCE TASK 361 (Karen: *"postions has to be nicer"*), and the KIND is part
+			-- of the NAME now rather than a state word -- so a tower that is taken says both.
+			expect(MapUi.standRowText(1, "MAIN", { state = "free" }, "ground")).to.equal(" 1  Main  Free")
+			expect(string.match(MapUi.standRowText(towers[1], "WEST", { state = "free" }, "tower"), "tower")).to.be.ok()
 			local taken = MapUi.standRowText(2, "MAIN", { state = "taken", name = "Rival" }, "ground")
 			expect(string.match(taken, "Rival")).to.be.ok()
-			expect(string.match(MapUi.standRowText(3, "MAIN", { state = "mine" }, "ground"), "YOURS")).to.be.ok()
+			expect(string.match(MapUi.standRowText(3, "MAIN", { state = "mine" }, "ground"), "Yours")).to.be.ok()
 			-- ...AND THE DRAWN ROW SAYS IT TOO, off the same states the pads are drawn from.
 			local states = {}
 			for index = 1, rows do
@@ -1985,7 +1992,8 @@ return function()
 			end
 			states[2] = { state = "taken", name = "Rival" }
 			MapUi.setStandStates(states, 327327)
-			expect(string.match((frame:FindFirstChild("Row2") :: TextButton).Text, "Rival")).to.be.ok()
+			local row2 = frame:FindFirstChild("Row2") :: TextButton
+			expect(string.match((row2:FindFirstChild("State") :: TextLabel).Text, "Rival")).to.be.ok()
 			-- A ROW ASKS THE SAME DOOR THE PAD DOES -- one tap rule, not two.
 			MapUi.tapStand(13)
 			expect(#asked).to.equal(1)
@@ -2033,6 +2041,331 @@ return function()
 			MapUi.applyLayout()
 			MapUi.setGeometry(restore)
 			TestKit.note(string.format("map_ui 327f: %d list rows, %.0f px a row at 400 x 800", rows, rowPx))
+		end)
+
+		-- ---------------- TASK 361: THE WAY OUT, AND A PICK YOU CAN READ
+		--
+		-- KAREN, 2026-11-13: *"I want to be able turn off the map x or something visible"* and
+		-- *"postions has to be nicer and selcet more nicer"*. Her frame
+		-- (`<runs-dir>/360-karen-map.png`) is the map auto-opened at the start of a drive with no
+		-- way out of it but the M key.
+		--   Note: docs/research/2026-11-13-map-close-and-stand-pick.md
+
+		it("case 34: the X is on the panel, 44 real px at a desktop AND a phone, and it CLOSES", function()
+			local data = forest()
+			local restore = MapUi.geometry()
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid))
+			local full = Hud.fullMap() :: Frame
+			local close = MapUi.closeButtonNode()
+			expect(close).to.be.ok()
+			local button = close :: TextButton
+			-- IT IS THE PANEL'S OWN CHILD, which is rule 3: `MapUi` is the one writer inside
+			-- `FullMap`, so the way out cannot be left behind by a Hud that forgot it.
+			expect(button.Parent).to.equal(full)
+			expect(button.Active).to.equal(true)
+			-- TRAILING EDGE, TOP (Material's place for a close): anchored to the panel's right.
+			expect(button.AnchorPoint.X).to.equal(1)
+			expect(button.AnchorPoint.Y).to.equal(0)
+			-- OVER EVERYTHING THIS MODULE DRAWS. A close control under a stand pad or a list row is
+			-- not a close control -- it is a pad that happens to be near one.
+			local list = full:FindFirstChild("StandList") :: ScrollingFrame
+			expect(list).to.be.ok()
+			expect(button.ZIndex > list.ZIndex).to.equal(true)
+			expect(button.ZIndex > (list:FindFirstChild("Row1") :: TextButton).ZIndex).to.equal(true)
+			for _, node in ipairs(canvasStands()) do
+				local pad = node:FindFirstChild("Hit") :: TextButton
+				expect(button.ZIndex > pad.ZIndex).to.equal(true)
+			end
+			-- THE X ITSELF IS TWO ROTATED FRAMES and not a font glyph, so it cannot ship blank.
+			local arms = 0
+			for _, child in ipairs(button:GetChildren()) do
+				if child:IsA("Frame") and string.match(child.Name, "^Arm%d$") then
+					arms += 1
+					expect(math.abs((child :: Frame).Rotation)).to.equal(45)
+				end
+			end
+			expect(arms).to.equal(2)
+
+			-- 44 REAL PIXELS AT BOTH VIEWPORTS, measured the way case 32 measures the list's rows
+			-- and for its stated reason: `AbsoluteSize` is zero for a hidden element, so the two
+			-- `UIScale`s and the written size are multiplied here exactly as the engine does it.
+			local panelScale = full:FindFirstChildOfClass("UIScale") :: UIScale
+			local closeScale = button:FindFirstChild("CloseScale") :: UIScale
+			expect(closeScale).to.be.ok()
+			local measured = {}
+			for _, viewport in ipairs({ Vector2.new(1366, 768), Vector2.new(400, 800) }) do
+				MapUi.setRailColumn(Rail.columnPx(1), viewport)
+				MapUi.applyLayout(viewport)
+				local px = button.Size.X.Offset * panelScale.Scale * closeScale.Scale
+				measured[viewport.X] = px
+				-- THE HIG FLOOR, AND A TOLERANCE OF ONE PIXEL for the two float scales.
+				expect(px >= CONFIG.CLOSE_BUTTON_PX - 1).to.equal(true)
+				-- ...AND THE INSET IS REAL PIXELS TOO: 8 canvas px would render at 3 on a phone and
+				-- the button would sit on the panel's rim.
+				local inset = math.abs(button.Position.X.Offset) * panelScale.Scale
+				expect(math.abs(inset - CONFIG.CLOSE_INSET_PX) <= 1).to.equal(true)
+			end
+			expect(panelScale.Scale < 0.5).to.equal(true) -- the 400 x 800 phone really does shrink it
+			MapUi.setRailColumn(nil)
+			MapUi.applyLayout()
+
+			-- AND IT CLOSES THE MAP. `GuiButton.Activated` cannot be fired from Lua, so a case
+			-- drives the ONE implementation the `Activated` handler drives -- `Hud.Rail.press`'s own
+			-- shape -- and the REAL click on the real button is the proof in Play (task 361's click
+			-- proof, `rawclick.ps1`). Delete `pressClose`'s body, or hand the button a different
+			-- callback, and this case reddens: `closes` is counted nowhere else.
+			MapUi.setOpen(true)
+			expect(MapUi.isOpen()).to.equal(true)
+			local closes = MapUi.stats().closes
+			expect(MapUi.pressClose()).to.equal(true)
+			expect(MapUi.isOpen()).to.equal(false)
+			expect(MapUi.stats().closes).to.equal(closes + 1)
+			-- A PRESS ON A CLOSED MAP IS NOT A CLOSE, so the counter is the CLICK and never the state.
+			expect(MapUi.pressClose()).to.equal(false)
+			expect(MapUi.stats().closes).to.equal(closes + 1)
+			-- ...AND M STILL DOES WHAT IT DID. The X is a second door, not a replacement.
+			expect(#MapUi.boundActions()).to.equal(1)
+			MapUi.toggle()
+			expect(MapUi.isOpen()).to.equal(true)
+			MapUi.toggle()
+			expect(MapUi.isOpen()).to.equal(false)
+			MapUi.setGeometry(restore)
+			TestKit.note(
+				string.format(
+					"map_ui 361 close button: %.1f px at 1366x768, %.1f px at 400x800 (floor %d)",
+					measured[1366],
+					measured[400],
+					CONFIG.CLOSE_BUTTON_PX
+				)
+			)
+		end)
+
+		it("case 34b: the X never sits on a list row, at a desktop OR a phone", function()
+			-- ROUND 1'S FIRST NOTE, MEASURED RATHER THAN ARGUED. The button and the list are both
+			-- pinned to the panel's top-right and both inverse-scaled to REAL pixels, so at a
+			-- phone's panel scale the 44 px button sat on the right 44 px of row 1: a thumb aiming
+			-- at stand 1 closed the map instead of picking it -- the exact defect this task's touch
+			-- sizing exists to prevent. `layoutFor` now starts an OVER-THE-PANEL list below the
+			-- button; delete that and this case reddens at 400 x 800.
+			--
+			-- IT ASSERTS THE TWO RULES AND NOT A RECTANGLE MODEL. `AbsolutePosition` is zero for a
+			-- hidden element (case 32's measured reason) and reconstructing it from offsets needs a
+			-- model of how `UIScale` treats a child's position -- which is the thing most likely to
+			-- be wrong. The two statements below are in REAL pixels on one axis each, and together
+			-- they make an overlap impossible: a list BESIDE the panel starts at or past the panel's
+			-- right edge, which the button (inset INSIDE that edge) never reaches; a list OVER the
+			-- panel starts below the button's own bottom.
+			local data = forest()
+			local restore = MapUi.geometry()
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid))
+			local full = Hud.fullMap() :: Frame
+			local button = MapUi.closeButtonNode() :: TextButton
+			local list = full:FindFirstChild("StandList") :: ScrollingFrame
+			expect(button).to.be.ok()
+			expect(list).to.be.ok()
+			local panelScale = full:FindFirstChildOfClass("UIScale") :: UIScale
+			local said = {}
+			for _, viewport in ipairs({ Vector2.new(1366, 768), Vector2.new(400, 800) }) do
+				MapUi.setRailColumn(Rail.columnPx(1), viewport)
+				MapUi.applyLayout(viewport)
+				local shown = panelScale.Scale
+				-- THE BUTTON'S BOTTOM, in real px below the panel's top. Its POSITION is scaled by
+				-- the panel and its HEIGHT is not -- its own inverse `UIScale` cancels that, which
+				-- is why it is 44 real px at every viewport. Same two units as the list below.
+				local buttonBottom = button.Position.Y.Offset * shown + button.Size.Y.Offset
+				if list.AnchorPoint.X == 0 then
+					-- BESIDE: at or past the panel's own right edge.
+					expect(list.Position.X.Offset >= full.Size.X.Offset).to.equal(true)
+					table.insert(said, string.format("%d beside", viewport.X))
+				else
+					-- OVER: below the button's bottom.
+					local listTop = list.Position.Y.Offset * shown
+					expect(listTop >= buttonBottom - 1).to.equal(true)
+					table.insert(
+						said,
+						string.format(
+							"%d over, list top %.0f px vs button bottom %.0f",
+							viewport.X,
+							listTop,
+							buttonBottom
+						)
+					)
+				end
+				-- ...AND THE LIST STILL FITS INSIDE THE PANEL IT WAS PUSHED DOWN IN. Its POSITION is
+				-- scaled by the panel and its HEIGHT is not (the inverse `UIScale` cancels that
+				-- exactly, which is the whole point of it), so the two halves take two units.
+				local bottom = list.Position.Y.Offset * shown + list.Size.Y.Offset
+				expect(bottom <= full.Size.Y.Offset * shown + 1).to.equal(true)
+			end
+			MapUi.setRailColumn(nil)
+			MapUi.applyLayout()
+			MapUi.setGeometry(restore)
+			TestKit.note("map_ui 361 the X and the stand list: " .. table.concat(said, " | "))
+		end)
+
+		it("case 35: hover and picked come from ONE source, so the marker and its row agree", function()
+			-- LEARNING AGENT L-029, and the dispatch names it: a marker handler and a row handler
+			-- each writing its own half is TWO sources for one fact, and under a fast hover-then-
+			-- click the two end up showing different stands. Everything below is read back off the
+			-- two DRAWN widgets, never off the variable.
+			local data = forest()
+			local restore = MapUi.geometry()
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid))
+			local full = Hud.fullMap() :: Frame
+			local canvas = full:FindFirstChild("Canvas") :: Frame
+			local list = full:FindFirstChild("StandList") :: ScrollingFrame
+			local stands = canvasStands()
+			expect(#stands >= 8).to.equal(true)
+
+			-- THE TWO RINGS ARE ONE EACH FOR THE WHOLE MAP, moved onto the marker they belong to --
+			-- so "which stand is ringed" is read as a POSITION and not as a name, which is the
+			-- strictest form of the claim: the ring is literally where the stand's own icon is.
+			local hoverRing = canvas:FindFirstChild("HoverRing") :: Frame
+			local pickRing = canvas:FindFirstChild("PickRing") :: Frame
+			expect(hoverRing).to.be.ok()
+			expect(pickRing).to.be.ok()
+			local function row(index: number): TextButton
+				return list:FindFirstChild(string.format("Row%d", index)) :: TextButton
+			end
+			local function ringedBy(ring: Frame): number?
+				if not ring.Visible then
+					return nil
+				end
+				for index, node in ipairs(stands) do
+					if node.Position == ring.Position then
+						return index
+					end
+				end
+				return -1 -- visible, but over no stand at all
+			end
+			local function stroke(ring: Frame): UIStroke
+				return ring:FindFirstChildWhichIsA("UIStroke") :: UIStroke
+			end
+			local base = row(1).BackgroundColor3
+
+			-- ONE HOVER AT A TIME, ON BOTH WIDGETS.
+			MapUi.setHoverStand(3)
+			expect(MapUi.hoverStand()).to.equal(3)
+			expect(ringedBy(hoverRing)).to.equal(3)
+			expect(pickRing.Visible).to.equal(false)
+			expect(row(3).BackgroundColor3).to.equal(CONFIG.STAND_HOVER_ROW_COLOR)
+			expect(stroke(hoverRing).Color).to.equal(CONFIG.STAND_HOVER_COLOR)
+			-- MOVING TO ANOTHER STAND MOVES BOTH, and leaves nothing behind on the first.
+			MapUi.setHoverStand(7)
+			expect(ringedBy(hoverRing)).to.equal(7)
+			expect(row(3).BackgroundColor3).to.equal(base)
+			expect(row(7).BackgroundColor3).to.equal(CONFIG.STAND_HOVER_ROW_COLOR)
+			-- A LEAVE ONLY CLEARS THE STAND IT IS LEAVING: the marker and the row point at the SAME
+			-- stand, so a blind clear from one would wipe the hover the other had just stated.
+			MapUi.clearHoverStand(3)
+			expect(MapUi.hoverStand()).to.equal(7)
+			expect(ringedBy(hoverRing)).to.equal(7)
+
+			-- PICKED IS THE SERVER'S ANSWER, AND IT BEATS HOVER ON ITS OWN STAND. Both widgets say
+			-- so, and the ring is the brighter, thicker one -- never the hover's.
+			local states = {}
+			for index = 1, #stands do
+				states[index] = { state = "free" }
+			end
+			states[5] = { state = "mine" }
+			MapUi.setStandStates(states, 361001)
+			expect(MapUi.myStandMark()).to.equal(5)
+			-- BOTH RINGS UP, ON THEIR OWN TWO STANDS -- the hover did not move and the pick landed.
+			expect(ringedBy(pickRing)).to.equal(5)
+			expect(ringedBy(hoverRing)).to.equal(7)
+			expect(stroke(pickRing).Color).to.equal(CONFIG.STAND_PICK_COLOR)
+			expect(stroke(pickRing).Thickness).to.equal(CONFIG.STAND_PICK_STROKE_PX)
+			expect(stroke(pickRing).Thickness > CONFIG.STAND_HOVER_STROKE_PX).to.equal(true)
+			-- THE TWO PADS AND NOT THE TWO DRAWN RINGS (round 1's note): each ring is sized from its
+			-- OWN stand's kind, so comparing the ring on 5 with the ring on 7 would go red the day a
+			-- tower lands on stand 7 with both rings perfectly correct.
+			expect(CONFIG.STAND_PICK_PAD_PX > CONFIG.STAND_HOVER_PAD_PX).to.equal(true)
+			expect(pickRing.Size.X.Offset).to.equal(CONFIG.FULL_STAND_PX + CONFIG.STAND_PICK_PAD_PX)
+			expect(row(5).BackgroundColor3).to.equal(CONFIG.STAND_PICK_ROW_COLOR)
+			expect(row(5).BackgroundColor3).never.to.equal(row(7).BackgroundColor3)
+			-- THE ROW SAYS IT IN WORDS TOO, off the same states (`standRowParts` is the one answer).
+			expect((row(5):FindFirstChild("State") :: TextLabel).Text).to.equal("Yours")
+			-- HOVERING THE PICKED STAND DOES NOT DOWNGRADE IT: the picked ring stays and the hover
+			-- ring stands down, so one stand never wears two rings.
+			MapUi.setHoverStand(5)
+			expect(ringedBy(pickRing)).to.equal(5)
+			expect(hoverRing.Visible).to.equal(false)
+			expect(row(5).BackgroundColor3).to.equal(CONFIG.STAND_PICK_ROW_COLOR)
+			MapUi.setHoverStand(nil)
+			expect(ringedBy(pickRing)).to.equal(5)
+			expect(hoverRing.Visible).to.equal(false)
+			MapUi.setStandStates(nil, nil)
+			MapUi.setGeometry(restore)
+			TestKit.note("map_ui 361 accent: one hover ring, one picked ring, marker and row from one writer")
+		end)
+
+		it("case 36: a stand marker carries its number INSIDE it, and a tower says it is one", function()
+			local data = forest()
+			local restore = MapUi.geometry()
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, Grid.DEFAULT_CELL, Grid))
+			local stands = canvasStands()
+			local towers = {}
+			for _, index in ipairs(Grid.towerStands(Grid.DEFAULT_CELL)) do
+				towers[index] = true
+			end
+			local peaks = 0
+			for index, node in ipairs(stands) do
+				local number = node:FindFirstChild("Index") :: TextLabel
+				expect(number).to.be.ok()
+				expect(number.Text).to.equal(tostring(index))
+				-- INSIDE THE MARKER, which is the whole of Karen's *"postions has to be nicer"*: her
+				-- frame drew a 10 px number BESIDE a 6 px square.
+				expect(number.TextSize).to.equal(CONFIG.STAND_NUMBER_PX)
+				expect(number.AnchorPoint).to.equal(Vector2.new(0.5, 0.5))
+				expect(number.Position).to.equal(UDim2.fromScale(0.5, 0.5))
+				-- THE MARKER IS BIG ENOUGH TO HOLD IT, which is the claim; `number.Size == node.Size`
+				-- is an identity (both are written from one local) and says nothing, so the SIZE is
+				-- asserted against the config instead (round 1's note).
+				expect(number.Size.X.Offset <= node.Size.X.Offset).to.equal(true)
+				expect(node.Size.X.Offset).to.equal(
+					if towers[index] then CONFIG.FULL_STAND_TOWER_PX else CONFIG.FULL_STAND_PX
+				)
+				expect(node.Size.X.Offset >= CONFIG.STAND_NUMBER_PX + 4).to.equal(true)
+				-- IT HAS TO BE READ AGAINST THE MARKER IT SITS ON, so it is the dark token and not
+				-- the map's paper over the hunters' orange.
+				expect(number.TextColor3).to.equal(CONFIG.STAND_NUMBER_COLOR)
+				local peak = node:FindFirstChild("Peak")
+				if towers[index] then
+					expect(peak).to.be.ok()
+					peaks += 1
+				else
+					expect(peak).to.equal(nil)
+				end
+			end
+			expect(peaks).to.equal(#Grid.towerStands(Grid.DEFAULT_CELL))
+			-- ...AND THE MINIMAP KEEPS ITS OWN TWO NUMBERS (round 1's note: the one case that named
+			-- `STAND_PX` / `STAND_TOWER_PX` was rewritten to the full map's, leaving the minimap
+			-- asserted nowhere). Its stands are 23 px apart and the pick is a panel gesture, so it
+			-- draws the small square and no number at all.
+			local mini = Hud.minimap()
+			expect(mini).to.be.ok()
+			local inner = (mini :: Frame):FindFirstChildWhichIsA("Frame")
+			local miniStands = 0
+			for _, child in ipairs((mini :: Frame):GetDescendants()) do
+				if string.match(child.Name, "^Stand%d+$") and child:IsA("Frame") then
+					miniStands += 1
+					local small = (child :: Frame).Size.X.Offset
+					expect(small == CONFIG.STAND_PX or small == CONFIG.STAND_TOWER_PX).to.equal(true)
+					expect(small < CONFIG.FULL_STAND_PX).to.equal(true)
+					expect(child:FindFirstChild("Index")).to.equal(nil)
+				end
+			end
+			expect(inner).to.be.ok()
+			expect(miniStands).to.equal(#stands)
+			MapUi.setGeometry(restore)
+			TestKit.note(
+				string.format(
+					"map_ui 361 markers: %d stands at %d px with the number inside, %d towers with a peak",
+					#stands,
+					CONFIG.FULL_STAND_PX,
+					peaks
+				)
+			)
 		end)
 
 		it("case 33: cellStateFor is a table, and the map FOLLOWS the dealt cell", function()
