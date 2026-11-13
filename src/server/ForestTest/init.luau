@@ -3839,11 +3839,20 @@ end
 -- `ForestTest.step` with the total IT measured -- so `releaseLine`'s fifteen early returns need no
 -- wrapper, whatever ran is in the table and whatever did not reads 0. Diagnostic only.
 local releaseProf = { prep = 0, frame = 0, comp = 0, routes = 0, path = 0, clear = 0, order = 0, spawn = 0, files = 0 }
-local releaseCount = { legs = 0, wps = 0, casts = 0, spawns = 0 }
+local releaseCount = { legs = 0, wps = 0, casts = 0, spawns = 0, ticks = 0 }
+-- HOW MANY FRAMES THE CALL SPANNED (task 356). `Path:ComputeAsync` is documented as a YIELDING
+-- function (https://create.roblox.com/docs/reference/engine/classes/Path#ComputeAsync), and a yield
+-- inside the boot's Heartbeat connection does not stop the next frame firing that connection again
+-- -- so `drive.release=569.3 ms` of WALL time is not by itself a 569 ms frozen frame. `ForestTest.step`
+-- is called once per Heartbeat, so counting its entries across the call settles which it is.
+local stepTicks = 0
+-- THE LEGS OF THE WORST RELEASE, one row each: the pathfinder's own cost, what it answered, and how
+-- far it was asked to go. `drive.release` cannot say whether two legs cost the same.
+local releaseLegs: { string } = {}
 local RELEASE_ORDER = { "prep", "frame", "comp", "routes", "path", "clear", "order", "spawn", "files" }
 local releaseMax = { prep = 0, frame = 0, comp = 0, routes = 0, path = 0, clear = 0, order = 0, spawn = 0, files = 0 }
 local releaseTotal = { prep = 0, frame = 0, comp = 0, routes = 0, path = 0, clear = 0, order = 0, spawn = 0, files = 0 }
-local releaseCalls, releaseWorstMs, releaseWorst = 0, 0, ""
+local releaseCalls, releaseWorstMs, releaseWorst, releaseWorstLegs = 0, 0, "", ""
 
 local function releaseZero()
 	for key in pairs(releaseProf) do
@@ -3852,6 +3861,7 @@ local function releaseZero()
 	for key in pairs(releaseCount) do
 		releaseCount[key] = 0
 	end
+	table.clear(releaseLegs)
 end
 
 function ForestTest.releaseRollup(totalMs: number)
@@ -3864,6 +3874,7 @@ function ForestTest.releaseRollup(totalMs: number)
 	end
 	if totalMs > releaseWorstMs then
 		releaseWorstMs = totalMs
+		releaseWorstLegs = table.concat(releaseLegs, " ")
 		local named = releaseProf.prep
 			+ releaseProf.frame
 			+ releaseProf.comp
@@ -3873,7 +3884,7 @@ function ForestTest.releaseRollup(totalMs: number)
 			+ releaseProf.files
 		releaseWorst = string.format(
 			"total=%.1f prep=%.1f frame=%.1f comp=%.1f routes=%.1f (path=%.1f clear=%.1f)"
-				.. " order=%.1f spawn=%.1f files=%.1f rest=%.1f | legs=%d wps=%d casts=%d spawns=%d",
+				.. " order=%.1f spawn=%.1f files=%.1f rest=%.1f | legs=%d wps=%d casts=%d spawns=%d FRAMES=%d",
 			totalMs,
 			releaseProf.prep,
 			releaseProf.frame,
@@ -3888,7 +3899,8 @@ function ForestTest.releaseRollup(totalMs: number)
 			releaseCount.legs,
 			releaseCount.wps,
 			releaseCount.casts,
-			releaseCount.spawns
+			releaseCount.spawns,
+			releaseCount.ticks
 		)
 	end
 end
@@ -3902,10 +3914,12 @@ function ForestTest.releaseBill(): string
 		table.insert(each, string.format("%s=%.1f/%.1f", key, releaseMax[key], releaseTotal[key]))
 	end
 	table.insert(out, table.concat(each, " "))
+	table.insert(out, "worst legs: " .. releaseWorstLegs)
 	return table.concat(out, " ;; ")
 end
 
 function ForestTest.step(now: number, inPlace: boolean?): string?
+	stepTicks += 1
 	sections.placement, sections.spook, sections.lines, sections.roar = 0, 0, 0, 0
 	sections.staged, sections.rest, sections.release = 0, 0, 0
 	if not state.started then
@@ -4199,11 +4213,23 @@ function ForestTest.computeRouteVia(via: { Vector3 }): { Vector3 }?
 		-- THE PATHFINDER'S OWN BITE (task 356). `ComputeAsync` is synchronous and it is the one call
 		-- in this function that leaves Lua.
 		local legAt = os.clock()
+		local legTick = stepTicks
 		local ok = pcall(function()
 			path:ComputeAsync(leg[1], leg[2])
 		end)
-		releaseProf.path += (os.clock() - legAt) * 1000
+		local legMs = (os.clock() - legAt) * 1000
+		releaseProf.path += legMs
 		releaseCount.legs += 1
+		table.insert(
+			releaseLegs,
+			string.format(
+				"[%.0fms %s %.0fstuds +%df]",
+				legMs,
+				string.gsub(tostring(path.Status), "Enum.PathStatus.", ""),
+				(leg[2] - leg[1]).Magnitude,
+				stepTicks - legTick
+			)
+		)
 		if not ok or path.Status ~= Enum.PathStatus.Success then
 			return nil
 		end
@@ -4439,6 +4465,7 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 	-- discarded rather than charged to this release. `ForestTest.step` rolls it up after the return.
 	releaseZero()
 	local releaseAt = os.clock()
+	local entryTick = stepTicks
 	local runtime = state.runtime
 	if runtime == nil then
 		return nil
@@ -4911,6 +4938,7 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 		end
 	end
 	releaseProf.files = (os.clock() - sectionAt) * 1000
+	releaseCount.ticks = stepTicks - entryTick
 	if placed == 0 then
 		return string.format(
 			"line %d: slot %d put NOTHING on the ground -- every file refused its" .. " ground",
