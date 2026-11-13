@@ -1847,17 +1847,35 @@ local bootSteps, bootMsTotal, bootMsMax, bootWorst = 0, 0, 0, ""
 -- THE FRAME ITSELF, CHARGED TO "A WAVE IS BEING RELEASED" OR NOT (task 356). `dt` is the WHOLE
 -- server frame -- engine work included, which no `os.clock` bite in Lua can see. `Path:ComputeAsync`
 -- yields, so a release spans many frames; this is what says whether any ONE of them is long.
-local relHbMax, relHbFrames, idleHbMax = 0, 0, 0
+local relHbMax, relHbFrames, relHbTotal = 0, 0, 0
+local idleHbMax, idleHbFrames, idleHbTotal = 0, 0, 0
 
 RunService.Heartbeat:Connect(function(dt)
 	local frameMs = dt * 1000
 	if ForestTest.releasing() then
 		relHbFrames += 1
+		relHbTotal += frameMs
 		if frameMs > relHbMax then
 			relHbMax = frameMs
 		end
-	elseif frameMs > idleHbMax then
-		idleHbMax = frameMs
+	else
+		idleHbFrames += 1
+		idleHbTotal += frameMs
+		if frameMs > idleHbMax then
+			idleHbMax = frameMs
+		end
+	end
+	-- THE POSITIVE CONTROL (task 356). A null result -- "no frame during a release is long" -- only
+	-- means something if the same channel WOULD have reported a long one. `DHReleaseBurn` spins that
+	-- many ms of Lua inside a release, in Studio only, and `hb-in-release max` must then read it
+	-- back. Removed from the tree before the code commit; the run it produced is the evidence.
+	if RunService:IsStudio() and ForestTest.releasing() then
+		local burn = tonumber(ServerStorage:GetAttribute("DHReleaseBurn")) or 0
+		if burn > 0 then
+			local until_ = os.clock() + burn / 1000
+			while os.clock() < until_ do
+			end
+		end
 	end
 	local bootBegan = os.clock()
 	bootProf.cells, bootProf.drive, bootProf.reports = 0, 0, 0
@@ -2070,10 +2088,13 @@ RunService.Heartbeat:Connect(function(dt)
 		ServerStorage:SetAttribute(
 			"DHReleaseBill",
 			string.format(
-				"hb-in-release max=%.1f over %d frames | hb-elsewhere max=%.1f ;; %s",
+				"hb-in-release max=%.1f mean=%.1f over %d frames | hb-elsewhere max=%.1f mean=%.1f over %d ;; %s",
 				relHbMax,
+				if relHbFrames > 0 then relHbTotal / relHbFrames else 0,
 				relHbFrames,
 				idleHbMax,
+				if idleHbFrames > 0 then idleHbTotal / idleHbFrames else 0,
+				idleHbFrames,
 				ForestTest.releaseBill()
 			)
 		)
