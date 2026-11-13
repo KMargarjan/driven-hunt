@@ -35,8 +35,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "A1",
 		kind = "cell",
-		decalId = 0,
-		imageId = 0,
+		decalId = 135667574051998,
+		imageId = 107857152970642,
 		pixels = table.freeze({ width = 773, height = 1024 }),
 		rect = table.freeze({
 			minX = -6678.571428571428,
@@ -48,8 +48,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "A2",
 		kind = "cell",
-		decalId = 0,
-		imageId = 0,
+		decalId = 87409889528750,
+		imageId = 109920061059050,
 		pixels = table.freeze({ width = 773, height = 1024 }),
 		rect = table.freeze({
 			minX = -6678.571428571428,
@@ -61,8 +61,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "B1",
 		kind = "cell",
-		decalId = 0,
-		imageId = 0,
+		decalId = 79562321806238,
+		imageId = 88105522318562,
 		pixels = table.freeze({ width = 773, height = 1024 }),
 		rect = table.freeze({
 			minX = -5567.142857142857,
@@ -74,8 +74,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "B2",
 		kind = "cell",
-		decalId = 0,
-		imageId = 0,
+		decalId = 75767827417628,
+		imageId = 110432674511729,
 		pixels = table.freeze({ width = 773, height = 1024 }),
 		rect = table.freeze({
 			minX = -5567.142857142857,
@@ -87,8 +87,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "C1",
 		kind = "cell",
-		decalId = 0,
-		imageId = 0,
+		decalId = 122343736914152,
+		imageId = 136803921093660,
 		pixels = table.freeze({ width = 774, height = 1024 }),
 		rect = table.freeze({
 			minX = -4455.714285714285,
@@ -100,8 +100,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "C2",
 		kind = "cell",
-		decalId = 0,
-		imageId = 0,
+		decalId = 86559492704868,
+		imageId = 129920561232978,
 		pixels = table.freeze({ width = 774, height = 1024 }),
 		rect = table.freeze({
 			minX = -4455.714285714285,
@@ -113,8 +113,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "D1",
 		kind = "cell",
-		decalId = 0,
-		imageId = 0,
+		decalId = 111943313939065,
+		imageId = 88084526779597,
 		pixels = table.freeze({ width = 773, height = 1024 }),
 		rect = table.freeze({
 			minX = -3342.8571428571427,
@@ -126,8 +126,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "D2",
 		kind = "cell",
-		decalId = 0,
-		imageId = 0,
+		decalId = 136380820684632,
+		imageId = 107528269441496,
 		pixels = table.freeze({ width = 773, height = 1024 }),
 		rect = table.freeze({
 			minX = -3342.8571428571427,
@@ -139,8 +139,8 @@ PaintedMap.TILES = table.freeze({
 	table.freeze({
 		id = "WOOD",
 		kind = "background",
-		decalId = 0,
-		imageId = 0,
+		decalId = 117507970509664,
+		imageId = 80741860013708,
 		pixels = table.freeze({ width = 1024, height = 739 }),
 		rect = table.freeze({
 			minX = -7160,

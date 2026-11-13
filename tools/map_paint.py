@@ -1215,14 +1215,16 @@ def cmd_selftest(_args):
        "IS THE IMAGE'S ID AND NOT THE DECAL'S" in text and "never drawn" in text)
     ok("the manifest names the generator and the note",
        "tools/map_paint.py" in text and "2026-11-12-painted-map-images.md" in text)
-    # THE COMMITTED MANIFEST IS WHAT THIS GENERATOR WRITES, byte for byte, with nothing uploaded --
-    # so a hand edit of PaintedMap.luau (the file says EDIT THAT, NOT THIS) fails here.
+    # THE COMMITTED MANIFEST IS WHAT THIS GENERATOR WRITES, byte for byte, for the COMMITTED ids
+    # file -- so a hand edit of PaintedMap.luau (the file says EDIT THAT, NOT THIS) fails here.
+    # Task 359: against a hardcoded `{}` this reddened on correct output once real ids were rendered.
     shipped = os.path.join(REPO, "src", "shared", "Map", "PaintedMap.luau")
     with io.open(shipped, encoding="utf-8") as handle:
         on_disk = handle.read()
     ok("src/shared/Map/PaintedMap.luau is this generator's own output",
-       on_disk == manifest_luau(plan, geo, {}, sizes),
-       "run `python tools/map_paint.py render` -- the committed file is not what the tool writes")
+       on_disk == manifest_luau(plan, geo, read_ids(None), sizes),
+       "run `python tools/map_paint.py render --ids assets/ready/map/asset-ids.json` -- the "
+       "committed file is not what the tool writes for the committed ids")
     # AN ids FILE THAT CARRIES A BARE NUMBER IS REFUSED, because a bare upload id is the DECAL's.
     bare = os.path.join(tempfile.gettempdir(), "map_paint_bare_ids.json")
     with io.open(bare, "w", encoding="utf-8") as handle:
