@@ -3,9 +3,13 @@
 All readings are from **Karen's own Forest Test**, cell **C1**, **her flags exactly as they are**
 (`DHFlag_PLACEMENT_IN_PLACE=false`, `DHFlag_BOAR_ATTACH_BUDGET` absent = OFF, the rest as
 `<runs-dir>/356-attrs-before.txt` records), served from `driven-hunt-rev` on :34873, one drive and
-one window per row. **Every table below is also re-measured at the REVIEWED commit** -- see section
-3a, run `R2B` at `88c324a8` -- so no number here is only true of an instrument that was later
-changed. **Nothing was written to her place at all** -- the one attribute this task set
+one window per row. **Every table below is also re-measured at round 2's commit** -- see section 3a,
+run `R2B` at `88c324a8` -- so no number here is only true of an instrument that was later changed.
+Round 3 changed `src/` after that run, and the numbers still cover it **by reading, not by a third
+run**: the operand it deleted could only ever be true when a *different*, later release is in flight
+while an earlier handler finishes, and there is no yield between `ForestTest.step` returning and the
+charge, so it was unreachable in these runs; and the `pcall` changes nothing unless a release raises,
+which none did. **Nothing was written to her place at all** -- the one attribute this task set
 (`DHReleaseBurn`, the control) was set at RUNTIME in the Play session, which is discarded at stop,
 never in Edit. `356-attrs-before.txt` vs `356-attrs-after.txt` is **EMPTY**.
 
@@ -134,7 +138,7 @@ a paragraph because the dispatch asked for one.
 | peak live / peak parts | 33 / 561 (`BEFORE`), 59 / 1,003 (`BEF2`), 60 / 1,020 (`BEF356`) | -- | the three drives released different patterns (`DRIVE_VARIETY` is on in her place) |
 | releases per drive | 26 calls, 24 of them putting animals down | -- | `<runs-dir>/BEFORE-console.txt` |
 
-### 3a. THE SAME DRIVE AT THE REVIEWED COMMIT (`R2B`, `88c324a8`)
+### 3a. THE SAME DRIVE AT ROUND 2'S COMMIT (`R2B`, `88c324a8`)
 
 Round 2 changed the instrument (round 1's notes), so the claim was re-measured rather than carried
 over. **One of those changes was a no-op and round 3 removed it:** the or-ed second read of the depth
@@ -144,7 +148,7 @@ same instrument on both sides. The release's start frame and the frame whose `dt
 Lua are in the `hb-elsewhere` row of both columns. The row that was re-measured and the row it is
 compared against are therefore like for like, which is all the comparison needs.
 
-| | `BEFORE` (`f5f06f93`) | **`R2B` (`88c324a8`, reviewed)** |
+| | `BEFORE` (`f5f06f93`) | **`R2B` (`88c324a8`, round 2)** |
 |---|---|---|
 | worst `releaseLine` | 745.4 ms | **764.4 ms** |
 | of which `path:ComputeAsync` | 732.0 ms (98.2 %) | **748.2 ms (97.9 %)** |
@@ -156,9 +160,9 @@ compared against are therefore like for like, which is all the comparison needs.
 | peak live / parts | 33 / 561 | **60 / 1,020** |
 | boar `StepMsMax` | 80.97 ms | **82.36 ms** |
 
-**The in-release mean is still BELOW the elsewhere mean (24.2 against 24.8) under the stricter
-charge, and the worst in-release frame is still 28x smaller than the worst frame elsewhere.** The
-finding does not depend on which commit it was read at.
+**The in-release mean is still BELOW the elsewhere mean (24.2 against 24.8), and the worst
+in-release frame is still 28x smaller than the worst frame elsewhere.** The finding does not depend
+on which commit it was read at.
 
 **One bug this re-measurement caught, and it was mine.** Round 2 first made the bill per-drive by
 calling `releaseReset` from `ForestTest.newDrive`. A drive that ends before the probe reads it then
@@ -175,9 +179,10 @@ from stand 4 cannot have moved. Re-running 349's drive pair would measure the sa
 
 ## 4. What the instrument itself costs, said rather than left out
 
-It is permanent and unflagged, so every number above carries it. Per **frame**: one
-`ForestTest.releasing()` call before `ForestTest.step` and one after, plus two adds, in
-`ForestTestBoot`'s Heartbeat. Per **release** (26 a drive): ~26 `os.clock()` calls for the worst
+It is permanent and unflagged, so every number above carries it. Per **frame**: **one**
+`ForestTest.releasing()` call, before `ForestTest.step`, plus two adds, in `ForestTestBoot`'s
+Heartbeat (the runs above carried two -- round 3 deleted the second, dead one, so the real cost is
+now lower than every table here was measured with). Per **release** (26 a drive): ~26 `os.clock()` calls for the worst
 call -- 14 in `releaseLine`, 2 per pathfinder leg, 2 per `clearRoute` -- one `table.clear`, one `string.format` of nine numbers, and one
 small string per pathfinder leg. `os.clock` is a C call of tens of nanoseconds. The boot's own
 average step is **1.21 ms** with the instrument in (`BEFORE`), against 1.10 ms in `BEF2`, which is
