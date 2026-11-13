@@ -2703,13 +2703,8 @@ local function layoutFor(viewport: Vector2)
 	if listScale ~= nil and list ~= nil then
 		local shown = math.max(0.1, scale)
 		listScale.Scale = 1 / shown
-		local room = math.floor(standListRoomPx * shown)
 		local wantedHeight = #standRows * config.STAND_LIST_ROW_PX
 		local node = list :: ScrollingFrame
-		node.Size = UDim2.fromOffset(
-			config.STAND_LIST_WIDTH_PX,
-			math.max(config.STAND_LIST_ROW_PX, math.min(wantedHeight, room))
-		)
 		-- BESIDE THE MAP WHEN THERE IS ROOM, OVER IT ONLY WHEN THERE IS NOT -- and it is a
 		-- MEASUREMENT, not a preference (327f, measured in Karen's Forest Test): a list inside the
 		-- panel covered the right-hand cells' own stands, so a click meant for stand 4 of D1 landed
@@ -2723,14 +2718,29 @@ local function layoutFor(viewport: Vector2)
 		local panelRightPx = viewport.X / 2 - math.round((column + reserve) / 2) + (panelWidth * shown) / 2
 		local gapPx = Style.SPACE.S
 		local roomRight = viewport.X - column - panelRightPx
-		if roomRight >= config.STAND_LIST_WIDTH_PX + gapPx then
+		local beside = roomRight >= config.STAND_LIST_WIDTH_PX + gapPx
+		-- ...AND THE WAY OUT OWNS THE PANEL'S TOP-RIGHT CORNER (task 361, round 1's first note).
+		-- Both are pinned there and both are inverse-scaled to REAL pixels, so on a phone the 44 px
+		-- button sat on the right 44 px of row 1: a thumb aiming at stand 1 closed the map instead.
+		-- A list that sits OVER the panel therefore starts below the button; one BESIDE it is
+		-- outside the panel's right edge and cannot touch it, so it keeps the top it had.
+		local topPx = config.FULL_TITLE_HEIGHT + config.FULL_PADDING
+		if not beside then
+			topPx = math.max(topPx, (2 * config.CLOSE_INSET_PX + config.CLOSE_BUTTON_PX) / shown)
+		end
+		-- THE ROOM THE LIST HAS LOSES WHAT THE BUTTON TOOK, so a pushed list is cut at the panel's
+		-- bottom edge rather than hanging past it.
+		local room = math.floor((standListRoomPx - (topPx - (config.FULL_TITLE_HEIGHT + config.FULL_PADDING))) * shown)
+		node.Size = UDim2.fromOffset(
+			config.STAND_LIST_WIDTH_PX,
+			math.max(config.STAND_LIST_ROW_PX, math.min(wantedHeight, room))
+		)
+		if beside then
 			node.AnchorPoint = Vector2.new(0, 0)
-			node.Position =
-				UDim2.fromOffset(math.round(panelWidth + gapPx / shown), config.FULL_TITLE_HEIGHT + config.FULL_PADDING)
+			node.Position = UDim2.fromOffset(math.round(panelWidth + gapPx / shown), math.round(topPx))
 		else
 			node.AnchorPoint = Vector2.new(1, 0)
-			node.Position =
-				UDim2.fromOffset(panelWidth - config.FULL_PADDING, config.FULL_TITLE_HEIGHT + config.FULL_PADDING)
+			node.Position = UDim2.fromOffset(panelWidth - config.FULL_PADDING, math.round(topPx))
 		end
 	end
 
