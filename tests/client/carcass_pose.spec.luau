@@ -255,6 +255,33 @@ return function()
 			expect(track.plays).to.equal(2)
 		end)
 
+		it("asks the asset owner with the ANIMATION, never the trunk (round 1, finding 1)", function()
+			-- `PreloadAsync` fetches what the instance it is handed refers to. Handed the trunk -- a
+			-- plain Part with no AnimationId -- it fetches nothing, so a client that had never
+			-- downloaded that death clip answered "wait-asset" for ever and its carcass stood for
+			-- the rest of its life. This is the only case that can see which instance was passed.
+			fakeRig(folder, true, CarcassData.format(FAKE_ID, FAKE_AT))
+			local asked: Instance? = nil
+			local askedId: string? = nil
+			CarcassPose.start({
+				enabled = true,
+				folder = folder,
+				sweepSeconds = 0,
+				ready = function(id, holder)
+					askedId, asked = id, holder
+					return true
+				end,
+				load = function()
+					return stubTrack(4)
+				end,
+			})
+			CarcassPose.step(1)
+			expect(askedId).to.equal(CarcassData.contentId(FAKE_ID))
+			expect(asked).never.to.equal(nil)
+			expect((asked :: Instance):IsA("Animation")).to.equal(true)
+			expect(((asked :: any) :: Animation).AnimationId).to.equal(CarcassData.contentId(FAKE_ID))
+		end)
+
 		it("leaves a carcass alone when a death is already drawing it", function()
 			local trunk = fakeRig(folder, true, CarcassData.format(FAKE_ID, FAKE_AT))
 			-- A REAL playing track on the rig's own Animator, with the published id on it. The owner
@@ -398,13 +425,11 @@ return function()
 			expect(clips:GetAttribute("bindBefore")).to.equal(stats.bindBefore)
 			-- EVERY counter in `stats()` is published, or a diagnostic quietly goes missing: the
 			-- first version left `repairs` out of the list and a live trace read it as nil.
+			-- EVERY key, with no exclusions, so the claim and the case say the same thing
+			-- (review round 1, note): `worstSweepMs` and `lastSweepAt` carry the per-sweep budget
+			-- the design asks to be read live, and they were missing too.
 			for key, value in pairs(stats) do
-				if
-					type(value) == "number"
-					and key ~= "worstSweepMs"
-					and key ~= "lastSweepAt"
-					and key ~= "candidates"
-				then
+				if type(value) == "number" then
 					expect(clips:GetAttribute(key)).to.equal(value)
 				end
 			end

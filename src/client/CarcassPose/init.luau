@@ -160,8 +160,13 @@ local state: State = {
 	folder = nil,
 	now = os.clock,
 	sweepSeconds = CarcassPose.SWEEP_SECONDS,
-	-- `AssetFetch.readyId` IS the ask as well as the answer: it requests when its own `nextAsk` rule
-	-- says so. DEVIATION from design 6.2's two-function seam, which asked for `ready` and `ask`:
+	-- `AssetFetch.readyId(id, holder)` IS the ask as well as the answer: it preloads `holder` when
+	-- its own `nextAsk` rule says to. THE HOLDER MUST CARRY THE ID -- `AssetFetch.ready` passes the
+	-- `MeshPart` itself and `warm` recurses by hand for exactly that reason -- so this owner hands
+	-- it the `Animation` it made, never the trunk (review round 1, finding 1: a `PreloadAsync` aimed
+	-- at a plain Part warms nothing, so a client that had never downloaded the clip answered
+	-- "wait-asset" until it timed out, and that carcass stood for the rest of its life).
+	-- DEVIATION from design 6.2's two-function seam, which asked for `ready` and `ask`:
 	-- `AssetFetch` has no separate `ask` for a bare id, and adding one would be a second asker.
 	ready = AssetFetch.readyId,
 	load = nil,
@@ -211,8 +216,9 @@ local function deathPlaying(animator: Instance, id: number): boolean
 	return false
 end
 
--- RECORDED, NOT GUESSED (design 9.2): was the rig at its bind pose when we posed it? A bone at bind
--- has an identity `Transform`. One read of up to 40 bones, once, on the frame it poses -- so "the
+-- RECORDED, NOT GUESSED (design 9.2): was the rig at its bind pose when we posed it? It samples the
+-- TRANSLATION only (`Transform.Position`), so a rotation-only pose reads as bind; it is a
+-- diagnostic, never a gate (review round 1, note). One read of up to 40 bones, once, on the frame it poses -- so "the
 -- ON state fixed the ones that were broken" is a number and not a belief.
 local BIND_SAMPLE = 40
 local function atBind(trunk: Instance): boolean
@@ -335,6 +341,9 @@ local PUBLISHED = {
 	"loads",
 	"plays",
 	"writes",
+	-- The two the per-sweep budget is read from (design 9.1, 11.4). Numbers, like the rest.
+	"worstSweepMs",
+	"lastSweepAt",
 }
 local function publish(stats: Stats)
 	local clips = state.clips
@@ -372,6 +381,13 @@ local function sweep()
 				if id ~= nil and at ~= nil and (record == nil or record.pose ~= value) then
 					-- A NEW PUBLISHED POSE is a new record: the paddle superseding the fall is the
 					-- one time it happens, and the carcass is posed again at the new frame.
+					-- ...AND THE OLD TRACK GOES WITH IT. Two `Action` tracks at weight 1 on one rig is
+					-- a 50/50 blend of two held frames (review round 1, note).
+					if record ~= nil and record.track ~= nil then
+						pcall(function()
+							(record.track :: AnimationTrack):Stop(0)
+						end)
+					end
 					record = {
 						pose = tostring(value),
 						id = id,
@@ -399,7 +415,10 @@ local function sweep()
 						poseAt = record.at,
 						hasAnimator = animator ~= nil,
 						deathPlaying = drawing,
-						assetReady = animator ~= nil and state.ready(CarcassData.contentId(record.id), trunk),
+						-- THE ANIMATION, NOT THE TRUNK: `PreloadAsync` fetches what the instance it is
+						-- given refers to, and a trunk refers to no animation.
+						assetReady = animator ~= nil
+							and state.ready(CarcassData.contentId(record.id), animationFor(record.id)),
 						trackLength = if track ~= nil then track.Length else nil,
 					}
 					local answer = CarcassPose.decide(view)
