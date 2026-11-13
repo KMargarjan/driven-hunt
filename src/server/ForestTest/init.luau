@@ -3833,6 +3833,78 @@ function ForestTest.stepSections()
 	return sections
 end
 
+-- THE BILL OF ONE `releaseLine` (task 356). `drive.release` is 569-846 ms in ONE frame every time a
+-- slot fires (task 355, `reviews/task-355/MEASUREMENTS.md`), and that number cannot say to whom.
+-- Same shape and the same reason as `sections` above: zeroed at the top of the call, rolled up by
+-- `ForestTest.step` with the total IT measured -- so `releaseLine`'s fifteen early returns need no
+-- wrapper, whatever ran is in the table and whatever did not reads 0. Diagnostic only.
+local releaseProf = { prep = 0, frame = 0, comp = 0, routes = 0, path = 0, clear = 0, order = 0, spawn = 0, files = 0 }
+local releaseCount = { legs = 0, wps = 0, casts = 0, spawns = 0 }
+local RELEASE_ORDER = { "prep", "frame", "comp", "routes", "path", "clear", "order", "spawn", "files" }
+local releaseMax = { prep = 0, frame = 0, comp = 0, routes = 0, path = 0, clear = 0, order = 0, spawn = 0, files = 0 }
+local releaseTotal = { prep = 0, frame = 0, comp = 0, routes = 0, path = 0, clear = 0, order = 0, spawn = 0, files = 0 }
+local releaseCalls, releaseWorstMs, releaseWorst = 0, 0, ""
+
+local function releaseZero()
+	for key in pairs(releaseProf) do
+		releaseProf[key] = 0
+	end
+	for key in pairs(releaseCount) do
+		releaseCount[key] = 0
+	end
+end
+
+function ForestTest.releaseRollup(totalMs: number)
+	releaseCalls += 1
+	for key, ms in pairs(releaseProf) do
+		releaseTotal[key] += ms
+		if ms > releaseMax[key] then
+			releaseMax[key] = ms
+		end
+	end
+	if totalMs > releaseWorstMs then
+		releaseWorstMs = totalMs
+		local named = releaseProf.prep
+			+ releaseProf.frame
+			+ releaseProf.comp
+			+ releaseProf.routes
+			+ releaseProf.order
+			+ releaseProf.spawn
+			+ releaseProf.files
+		releaseWorst = string.format(
+			"total=%.1f prep=%.1f frame=%.1f comp=%.1f routes=%.1f (path=%.1f clear=%.1f)"
+				.. " order=%.1f spawn=%.1f files=%.1f rest=%.1f | legs=%d wps=%d casts=%d spawns=%d",
+			totalMs,
+			releaseProf.prep,
+			releaseProf.frame,
+			releaseProf.comp,
+			releaseProf.routes,
+			releaseProf.path,
+			releaseProf.clear,
+			releaseProf.order,
+			releaseProf.spawn,
+			releaseProf.files,
+			totalMs - named,
+			releaseCount.legs,
+			releaseCount.wps,
+			releaseCount.casts,
+			releaseCount.spawns
+		)
+	end
+end
+
+-- WORST FRAME, THEN EVERY SECTION'S OWN max/total -- because one 1,274 ms frame hid every other
+-- owner's worst behind it in task 355 (`355-BEF3-track.txt`), and the same trap is here.
+function ForestTest.releaseBill(): string
+	local out = { string.format("calls=%d worst: %s", releaseCalls, releaseWorst) }
+	local each = {}
+	for _, key in ipairs(RELEASE_ORDER) do
+		table.insert(each, string.format("%s=%.1f/%.1f", key, releaseMax[key], releaseTotal[key]))
+	end
+	table.insert(out, table.concat(each, " "))
+	return table.concat(out, " ;; ")
+end
+
 function ForestTest.step(now: number, inPlace: boolean?): string?
 	sections.placement, sections.spook, sections.lines, sections.roar = 0, 0, 0, 0
 	sections.staged, sections.rest, sections.release = 0, 0, 0
@@ -3934,6 +4006,7 @@ function ForestTest.step(now: number, inPlace: boolean?): string?
 		sectionAt = os.clock()
 		local released = ForestTest.releaseLine(now, nil, resolved, aim)
 		sections.release = (os.clock() - sectionAt) * 1000
+		ForestTest.releaseRollup(sections.release)
 		if released ~= nil and flush ~= nil then
 			return released .. " | " .. flush
 		end
@@ -4123,13 +4196,20 @@ function ForestTest.computeRouteVia(via: { Vector3 }): { Vector3 }?
 		table.insert(legs, { via[index - 1], via[index] })
 	end
 	for _, leg in ipairs(legs) do
+		-- THE PATHFINDER'S OWN BITE (task 356). `ComputeAsync` is synchronous and it is the one call
+		-- in this function that leaves Lua.
+		local legAt = os.clock()
 		local ok = pcall(function()
 			path:ComputeAsync(leg[1], leg[2])
 		end)
+		releaseProf.path += (os.clock() - legAt) * 1000
+		releaseCount.legs += 1
 		if not ok or path.Status ~= Enum.PathStatus.Success then
 			return nil
 		end
-		for index, waypoint in ipairs(path:GetWaypoints()) do
+		local waypoints = path:GetWaypoints()
+		releaseCount.wps += #waypoints
+		for index, waypoint in ipairs(waypoints) do
 			-- The first waypoint of a leg is where the leg starts, which is the previous leg's last.
 			if index > 1 or #points == 0 then
 				table.insert(points, waypoint.Position)
@@ -4154,6 +4234,8 @@ end
 -- the animal actually is -- a raycast down the centreline would miss a trunk its shoulder hits.
 --   https://create.roblox.com/docs/reference/engine/classes/WorldRoot#Blockcast
 function ForestTest.clearRoute(points: { Vector3 }): { Vector3 }
+	-- THE SWEEP'S OWN BITE (task 356): one `Blockcast` per segment, plus up to four per blocked one.
+	local clearAt = os.clock()
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { Workspace:FindFirstChild("Boars") :: any, Workspace.Terrain }
@@ -4168,6 +4250,7 @@ function ForestTest.clearRoute(points: { Vector3 }): { Vector3 }
 		if length > 1e-3 then
 			local direction = span.Unit
 			local start = CFrame.lookAt(from + Vector3.new(0, 1.5, 0), from + direction + Vector3.new(0, 1.5, 0))
+			releaseCount.casts += 1
 			local hit = Workspace:Blockcast(start, body, direction * length, params)
 			if hit ~= nil then
 				-- SIDESTEP THE MIDPOINT, both ways, and keep the first side that is clear. One
@@ -4181,6 +4264,7 @@ function ForestTest.clearRoute(points: { Vector3 }): { Vector3 }
 					local toDetour = Vector3.new(detour.X - from.X, 0, detour.Z - from.Z)
 					local b = CFrame.lookAt(detour + Vector3.new(0, 1.5, 0), to + Vector3.new(0, 1.5, 0))
 					local toEnd = Vector3.new(to.X - detour.X, 0, to.Z - detour.Z)
+					releaseCount.casts += 2
 					if
 						Workspace:Blockcast(a, body, toDetour, params) == nil
 						and Workspace:Blockcast(b, body, toEnd, params) == nil
@@ -4193,6 +4277,7 @@ function ForestTest.clearRoute(points: { Vector3 }): { Vector3 }
 		end
 		table.insert(out, to)
 	end
+	releaseProf.clear += (os.clock() - clearAt) * 1000
 	return out
 end
 
@@ -4350,6 +4435,10 @@ local function routeFilesFor(
 end
 
 function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, aimIn: any?): string?
+	-- THE BILL IS ZEROED HERE (task 356), so a repath or a woken group earlier in the same frame is
+	-- discarded rather than charged to this release. `ForestTest.step` rolls it up after the return.
+	releaseZero()
+	local releaseAt = os.clock()
 	local runtime = state.runtime
 	if runtime == nil then
 		return nil
@@ -4455,6 +4544,8 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 		)
 	end
 	local route = Data.slotRoute(row)
+	releaseProf.prep = (os.clock() - releaseAt) * 1000
+	local sectionAt = os.clock()
 
 	-- WHERE IT STARTS: the row's own zone, through the one function that turns an `offsetX` and a
 	-- `northStuds` into a point on this layout (`Data.wavePoint`, which adds the stand she locked --
@@ -4512,6 +4603,9 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 			Data.releaseFrame(chosen.layout, aim.dz, (crossing :: Vector3).X, 0, nil, ForestTest.EXIT_PAST_STUDS).exitZ
 		)
 		else nil
+
+	releaseProf.frame = (os.clock() - sectionAt) * 1000
+	sectionAt = os.clock()
 
 	-- HOW MANY FILES, AND AT WHAT PACE -- both the row's, both read and neither drawn. What this task
 	-- changed is that a SCRIPTED drive does not roll for the shape of its own groups.
@@ -4665,7 +4759,11 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 	--
 	-- EACH SURVIVOR KEEPS ITS OWN LATERAL OFFSET, so the animals are spawned on the route that was
 	-- actually computed rather than on the one its index would have had.
+	releaseProf.comp = (os.clock() - sectionAt) * 1000
+	sectionAt = os.clock()
 	local routes = routeFilesFor(row, route, start, crossing, exitPoint, lines, lineData.lineGapStuds)
+	releaseProf.routes = (os.clock() - sectionAt) * 1000
+	sectionAt = os.clock()
 	if #routes == 0 then
 		return string.format(
 			"line %d: slot %d held -- no route could be drawn for %s from its start" .. " to its crossing",
@@ -4722,6 +4820,8 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 	-- the boars, so a hind leads her calf and a harem's stag walks last. Without it `Line.order`'s
 	-- own default knows three words and all three deer tie at the unknown rank.
 	local plans = Line.split(Line.order(order, Boar.MARCH_RANK), lines)
+	releaseProf.order = (os.clock() - sectionAt) * 1000
+	sectionAt = os.clock()
 
 	local groups = {}
 	for which, plan in ipairs(plans) do
@@ -4730,6 +4830,7 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 		for rank, member in ipairs(plan) do
 			local at = start - toward * ((rank - 1) * lineData.spacingStuds) + Vector3.new(lateral, 0, 0)
 			local ground = Data.groundAt(at.X, at.Z)
+			releaseCount.spawns += 1
 			local handle = runtime:spawn(Vector3.new(at.X, (ground or chosen.layout.centre.Y) + 2, at.Z), member.kind)
 			if handle ~= nil then
 				local entry = { id = handle.id, kind = member.kind }
@@ -4746,6 +4847,8 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 			count
 		)
 	end
+	releaseProf.spawn = (os.clock() - sectionAt) * 1000
+	sectionAt = os.clock()
 	local placed = 0
 	for which, group in ipairs(groups) do
 		if #group > 0 then
@@ -4807,6 +4910,7 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 			placed += #group
 		end
 	end
+	releaseProf.files = (os.clock() - sectionAt) * 1000
 	if placed == 0 then
 		return string.format(
 			"line %d: slot %d put NOTHING on the ground -- every file refused its" .. " ground",

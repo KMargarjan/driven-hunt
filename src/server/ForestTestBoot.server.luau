@@ -2051,6 +2051,9 @@ RunService.Heartbeat:Connect(function()
 			table.insert(owners, string.format("drive.%s=%.1f/%.1f", key, driveMax[key], driveTotal[key]))
 		end
 		ServerStorage:SetAttribute("DHBootOwners", table.concat(owners, " "))
+		-- ...AND `drive.release` SPLIT ONE LEVEL FURTHER (task 356). Same cadence, same channel and
+		-- the same reason as the two above: `drive.release=569.3/4650` names a function, not a cost.
+		ServerStorage:SetAttribute("DHReleaseBill", ForestTest.releaseBill())
 	end
 end)
 
