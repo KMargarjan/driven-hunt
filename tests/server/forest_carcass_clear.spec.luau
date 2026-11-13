@@ -14,12 +14,13 @@ local Workspace = game:GetService("Workspace")
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Forest = require(ServerScriptService:WaitForChild("ForestTest"))
 
-local GROUND_Y = 10
+-- `boar_hit.spec`'s own field, verbatim: the runtime reads `field.groundY` when the world has no
+-- `groundAt`, and `bounds`/`exitZ` are what keep a hit animal from running off the edge mid-case.
+local GROUND_Y = 500
 local FIELD = {
-	centre = Vector3.new(0, GROUND_Y, 0),
-	halfWidth = 160,
-	halfDepth = 160,
-	exitZ = -160,
+	bounds = { minX = -150, maxX = 150, minZ = -150, maxZ = 150 },
+	exitZ = -140,
+	groundY = GROUND_Y,
 }
 
 -- Two minutes of carcass would be two minutes of suite; the boundary is what is under test, not the
