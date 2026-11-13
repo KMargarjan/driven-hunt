@@ -44,7 +44,6 @@ export type PoseView = {
 	deathPlaying: boolean,
 	assetReady: boolean,
 	trackLength: number?,
-	posed: boolean,
 }
 
 -- THE WHOLE DECISION, PURE, and it answers a NAMED REASON so every branch can be driven with no rig,
@@ -58,16 +57,17 @@ function CarcassPose.decide(view: PoseView): string
 	if id == nil or id <= 0 or at == nil or at < 0 then
 		return "skip" -- nothing was published; not knowing is not a licence to invent
 	end
-	if view.posed then
-		return "skip" -- once per carcass per published pose. No storm, no per-frame write
-	end
 	if not view.hasAnimator then
 		return "wait-rig" -- `Visual` is Atomic-streamed and can arrive after the trunk
 	end
 	if view.deathPlaying then
-		-- Some death is already drawing this animal. Measured benign in 19/19 kills and 80/80 forced
-		-- server repairs, and snapping a fall that is still running to its end would be a defect
-		-- this owner would have caused.
+		-- THE PUBLISHED DEATH IS DRAWING THIS ANIMAL -- whether the server put it there or this
+		-- owner did -- so there is nothing to do, and snapping a fall still running to its end would
+		-- be a defect this owner caused. THIS IS THE QUESTION, ASKED EVERY SWEEP, and it is not
+		-- "have I posed this one already": MEASURED in Karen's Forest Test with the flag on, a
+		-- carcass left alone because the SERVER was drawing it, and which then lost that pose, was
+		-- never repaired by a once-per-carcass latch -- 3 of 3 stood for ever (358-bind.luau).
+		-- It cannot storm: a pose's own result is the state that refuses the next one.
 		return "leave"
 	end
 	if not view.assetReady then
@@ -383,34 +383,24 @@ local function sweep()
 					}
 					state.records[trunk] = record
 				end
-				-- A POSE THIS OWNER PUT ON AND SOMETHING ELSE TOOK OFF IS PUT BACK, and the test is
-				-- the state the defect produces rather than a count: OUR OWN track has stopped.
-				-- That cannot happen by itself -- a track pinned at speed 0 stays playing -- so a
-				-- repair follows an external stop and nothing else, and the repair's own result is
-				-- the state that refuses the next one. It is `Body.shouldRehold`'s rule, on this
-				-- side of the wire, and unbounded for task 293b's reason: a carcass that loses its
-				-- hold on the 4th stop, or the 400th, is Karen's bug either way.
-				if record ~= nil and record.posed and record.track ~= nil and not record.track.IsPlaying then
-					record.posed = false
-					stats.repairs += 1
-				end
-				if
-					record ~= nil
-					and not record.timedOut
-					and not record.posed
-					and posedThisSweep < CarcassPose.MAX_POSES_PER_SWEEP
-				then
+				if record ~= nil and not record.timedOut and posedThisSweep < CarcassPose.MAX_POSES_PER_SWEEP then
 					local animator = animatorOf(trunk)
 					local track = record.track
+					-- IS THE PUBLISHED DEATH ACTUALLY BEING DRAWN, THIS SWEEP? Our own track first,
+					-- because it is one property read and it is the common case once we have posed;
+					-- otherwise the rig is asked. A pinned track cannot stop by itself, so "ours has
+					-- stopped" can only mean something else stopped it -- and then this is a repair.
+					local drawing = if track ~= nil
+						then track.IsPlaying
+						else animator ~= nil and deathPlaying(animator, record.id)
 					local view: PoseView = {
 						carcass = true,
 						poseId = record.id,
 						poseAt = record.at,
 						hasAnimator = animator ~= nil,
-						deathPlaying = animator ~= nil and track == nil and deathPlaying(animator, record.id),
+						deathPlaying = drawing,
 						assetReady = animator ~= nil and state.ready(CarcassData.contentId(record.id), trunk),
 						trackLength = if track ~= nil then track.Length else nil,
-						posed = record.posed,
 					}
 					local answer = CarcassPose.decide(view)
 					if answer ~= "skip" then
@@ -418,7 +408,6 @@ local function sweep()
 					end
 					if answer == "leave" then
 						stats.leftAlone += 1
-						record.posed = true -- it is already drawn; stop asking about it
 					elseif answer == "wait-rig" then
 						stats.waitingRig += 1
 					elseif answer == "wait-asset" then
@@ -437,6 +426,9 @@ local function sweep()
 							end
 						end
 						if track ~= nil and track.Length > 0 then
+							if record.posed then
+								stats.repairs += 1 -- it was drawn, and something took it off again
+							end
 							pin(record, track)
 							stats.posed += 1
 							posedThisSweep += 1
