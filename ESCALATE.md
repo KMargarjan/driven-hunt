@@ -1,3 +1,75 @@
+## 2026-11-13 ~03:35 UTC, Task 356 -- round 2's finding is RIGHT, the round cap is reached, I stopped. The refutation stands on two legs; the third one's LABEL is wrong
+
+**The dispatch: *"at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."* So I
+stopped.** Nothing in `src/` has been touched since the reviewed commit `10584da8`, so the harness
+evidence still covers it and the merge gate's "only paperwork after the code commit" still holds.
+
+### The finding, and I checked it myself rather than taking it
+
+> `src/server/ForestTestBoot.server.luau` -- *"the round-2 'stricter' charge is a no-op, and the
+> frames that carry a release's own Lua are still in `hb-elsewhere`."*
+
+**It is correct.** Verified by reading the three line numbers rather than by agreeing:
+`releasingBefore` is read at `ForestTestBoot.server.luau:1858`, **before** `ForestTest.step(now)` at
+`:1895`; the charge is at `:2005`; and the only writers of the depth are inside `ForestTest.step`
+(`init.luau:4054` / `:4056`) and `stagedLine` (`:4392` / `:4394`). So in the thread that actually
+carries a release: the first read happened before the release began (false), and by the time that
+thread reaches `:2005` its `releaseLine` has returned and the decrement has run (false). **Both
+operands are false in exactly the thread I claimed to have fixed.** My round-2 change does nothing
+it says it does.
+
+**What is false in the tree, and should be struck by whoever picks this up** (the Reviewer's own
+option (b), which is the bound the data supports):
+
+1. `ForestTestBoot.server.luau:1855-1858`, the comment beginning *"READ BEFORE AND AFTER
+   `ForestTest.step` AND OR-ED"* -- delete it and the dead second read.
+2. `reviews/task-356/REQUEST.md` claim 5's last sentence (*"Round 2 made this stricter..."*) --
+   **it is wrong.** Left in place rather than edited, so the verdict and the request it was written
+   against still match.
+3. `reviews/task-356/MEASUREMENTS.md` 2(b) and 3a should say what `hb-in-release` actually holds:
+   **the purely yielding frames**, and that a release's start frame and the frame whose `dt` covers
+   its resumed Lua are in `hb-elsewhere`.
+
+### WHAT THIS DOES NOT TOUCH -- the premise is still refuted, on two independent legs
+
+The Reviewer says so in the finding itself: *"claim 5's numbers (24.2 vs 24.8, max 49.3) and claim
+4's `FRAMES=24/27/43/44` are not disputed: `releaseCount.ticks = stepTicks - releaseEntryTick` is a
+sound counter and on its own refutes '569 ms in ONE frame'."*
+
+1. **The frame counter.** One `releaseLine` call spans **24 / 27 / 43 / 44 Heartbeats** over four
+   drives in her place. A stall reads 0. This alone disposes of *"in ONE frame"*.
+2. **The section bill.** The heaviest thing `releaseLine` can put into any single frame is its
+   `spawn` loop, which does not yield: **23.2 ms worst over a drive**, with every other section
+   <= 1.5 ms. So the worst frame of release Lua is ~23 ms, not 570. That number is read, not
+   derived, and it is in MEASUREMENTS section 1 and the round-2 "DERIVED" row of section 3.
+3. The in-release / elsewhere split was the third leg. **Its numbers stand; its label is off by one
+   to two frames per release**, and those frames are the ones carrying leg 2's ~23 ms -- which is
+   separately measured and under the dispatch's own 16 ms bar only for the eight sections that are
+   `releaseLine`'s own arithmetic, `spawn` being the Boar owner's.
+
+So: **`path:ComputeAsync` is 97.9-98.2 % of the 570-845 ms, it yields, and there is no half-second
+server freeze when a wave releases.** Nothing in round 2's finding moves that.
+
+### THE DECISIONS ARE UNCHANGED FROM THE 02:45 ENTRY
+
+1. **The drive's real worst frame is 1,399.7-1,421.7 ms, at the join, and it is the LOBBY's**
+   (`Lobby.step` + `reportLobby`, 1,214.6 ms of it in Lua) -- task 355's spike #2, 3.2x bigger than
+   355 measured, and nobody owns it.
+2. **Task 355's own fix is switched OFF in Karen's place.** Her boar step peak is 80-102 ms against
+   the 40 ms target; 355 measured 26.1 ms with `BOAR_ATTACH_BUDGET` on. Nobody has ever looked at a
+   drive with it on. One playtest.
+3. **`Runtime:spawn` is 23.2 ms in one frame** -- the only thing inside `releaseLine` over the 16 ms
+   bar, the Boar owner's, and slicing it changes when a group appears, which is Karen's call.
+
+### RULE 5, SAID PLAINLY
+
+**Nothing in this task was seen in Karen's place, as a picture or as play.** The dispatch's *"no
+hitch when a wave releases"* is a core item; its stand-ins are the two legs above, read off
+`ServerStorage.DHReleaseBill` in a headless Play session. The only frame I looked at is the Rojo
+panel. **This is NOT PROVEN on screen -- nobody has watched a wave release and seen no hitch.**
+
+---
+
 ## 2026-11-13 ~02:45 UTC, Task 356 -- THE PREMISE IS REFUTED. There is no half-second stall when a wave releases, and the drive's real worst frame belongs to the lobby
 
 **For the Director.** The dispatch is built on one sentence from task 355:
