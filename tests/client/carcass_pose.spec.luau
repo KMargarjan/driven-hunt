@@ -395,6 +395,18 @@ return function()
 			expect(clips:GetAttribute("carcasses")).to.equal(stats.carcasses)
 			expect(clips:GetAttribute("leftAlone")).to.equal(stats.leftAlone)
 			expect(clips:GetAttribute("bindBefore")).to.equal(stats.bindBefore)
+			-- EVERY counter in `stats()` is published, or a diagnostic quietly goes missing: the
+			-- first version left `repairs` out of the list and a live trace read it as nil.
+			for key, value in pairs(stats) do
+				if
+					type(value) == "number"
+					and key ~= "worstSweepMs"
+					and key ~= "lastSweepAt"
+					and key ~= "candidates"
+				then
+					expect(clips:GetAttribute(key)).to.equal(value)
+				end
+			end
 			expect(stats.posed).to.equal(1)
 		end)
 

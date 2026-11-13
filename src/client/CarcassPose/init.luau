@@ -325,6 +325,7 @@ local PUBLISHED = {
 	"posed",
 	"leftAlone",
 	"bindBefore",
+	"repairs",
 	"waitingRig",
 	"waitingAsset",
 	"waitingLength",
