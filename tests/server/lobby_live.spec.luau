@@ -313,6 +313,80 @@ return function()
 		end)
 	end)
 
+	-- WHAT ONE SCAN COST, AND HOW MANY FRAMES EACH BITE SPANNED (task 357). The boot bill charged
+	-- `Lobby.step` + `reportLobby` 1,214.6 ms of a 1,214.79 ms step at a player's join, and an
+	-- `os.clock` bite across a yield measures WALL time and not a frame -- so the frame count beside
+	-- each bite is the whole instrument, and this is the case that fails when it stops being taken.
+	describe("the bill", function()
+		it("counts the frames each bite spanned, and the yielding seam is the one that moves", function()
+			-- THE FRAME COUNTER IS THE SPEC'S OWN, which is what makes this a measurement and not a
+			-- timing: `world.frames` is an injected reader, so a fake that advances it by exactly 7
+			-- across `place` and by 0 across the build proves the bill attributes frames to the bite
+			-- that spent them, with no clock and no Play.
+			local frame = 0
+			local seen, on = fresh(bin, function(world)
+				world.frames = function()
+					return frame
+				end
+				local realPlace = world.place
+				world.place = function(player: any, cframe: CFrame)
+					-- A YIELD, AS A SPEC CAN EXPRESS IT: seven frames went by inside this call, and
+					-- it cost 2 ms of wall time -- enough that the worst-scan rule cannot be won by
+					-- a later quiet scan, which is what the last assertion in this case rests on.
+					frame += 7
+					local spinUntil = os.clock() + 0.002
+					local spins = 0
+					while os.clock() < spinUntil do
+						spins += 1
+					end
+					expect(spins > 0).to.equal(true)
+					realPlace(player, cframe)
+				end
+			end)
+			expect(on).to.equal(true)
+
+			-- THE BUILD SCAN: `groundAt` and the build ran, `place` did not, and nothing yielded.
+			Lobby.step(1000, {})
+			expect(Lobby.isBuilt()).to.equal(true)
+			local built = Lobby.bill()
+			expect(typeof(built)).to.equal("string")
+			expect(string.find(built, "build=", 1, true) ~= nil).to.equal(true)
+			expect(string.find(built, "ground=", 1, true) ~= nil).to.equal(true)
+			expect(string.find(built, "build=%d+%.%d+/0f/1c") ~= nil).to.equal(true)
+			expect(string.find(built, "place=0%.0/0f/0c") ~= nil).to.equal(true)
+			expect(Lobby.stats().scanFrames).to.equal(0)
+
+			-- ...AND NOW A MAN STANDING OUTSIDE THE LODGE, so `place` is called exactly once and the
+			-- seven frames it spanned land on ITS bite and on the scan's total, and on no other bite.
+			local away = occupant(901, Vector3.new(ANCHOR.x + 4000, SHELF, ANCHOR.z), bin)
+			frame = 100
+			Lobby.step(2000, { away })
+			expect(#seen.placed).to.equal(1)
+			local billed = Lobby.bill()
+			expect(string.find(billed, "place=%d+%.%d+/7f/1c") ~= nil).to.equal(true)
+			expect(string.find(billed, "ground=0%.0/0f/0c") ~= nil).to.equal(true)
+			expect(string.find(billed, "build=0%.0/0f/0c") ~= nil).to.equal(true)
+			expect(string.find(billed, "frames=7", 1, true) ~= nil).to.equal(true)
+			expect(Lobby.stats().scanFrames).to.equal(7)
+			expect(frame).to.equal(107)
+
+			-- AND THE WORST SCAN IS KEPT, NOT THE LAST ONE: a quiet scan after it must not erase the
+			-- bill of the scan that spent the frames, which is what makes the attribute worth reading.
+			Lobby.step(3000, {})
+			expect(Lobby.bill()).to.equal(billed)
+		end)
+
+		it("counts no frames at all when nobody injected a counter", function()
+			-- nil IS "NOBODY SAID", which is every spec above and the DEV place: the bill is still
+			-- taken, and every frame count reads 0 rather than erroring.
+			local _seen, on = fresh(bin)
+			expect(on).to.equal(true)
+			Lobby.step(1000, {})
+			expect(Lobby.stats().scanFrames).to.equal(0)
+			expect(string.find(Lobby.bill(), "frames=0", 1, true) ~= nil).to.equal(true)
+		end)
+	end)
+
 	describe("the build", function()
 		it("measures the shelf rather than typing it, and fills the terrain through the argument", function()
 			local seen, on = fresh(bin)

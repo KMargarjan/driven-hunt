@@ -107,6 +107,22 @@ local spawnPart: BasePart? = nil
 local lastScan = -math.huge
 local firstStepAt: number? = nil
 local degraded = false
+-- WHAT ONE SCAN COSTS, AND HOW MANY SERVER FRAMES IT SPANNED (task 357). The boot bill charged
+-- `Lobby.step` + `reportLobby` 1,214.6 ms of a 1,214.79 ms step at the player's join, and
+-- `[lobby] built in 71 ms` says the BUILD is not it. An `os.clock` bite across a yield measures
+-- WALL time, not a frame (task 356), and this scan calls `world.place`, which yields on
+-- `LoadCharacter` -- so the frame count beside each bite is what says whether it is a stall.
+-- `world.frames` is the composition root's own per-frame counter, injected like every other reader:
+-- nil means nobody said, and then every count reads 0.
+-- Note: docs/research/2026-11-13-the-join-frame.md
+local BILL_ORDER = { "ground", "build", "place" }
+local profMs = { ground = 0, build = 0, place = 0 }
+local profFrames = { ground = 0, build = 0, place = 0 }
+local profCalls = { ground = 0, build = 0, place = 0 }
+local billWorstMs, billWorst = 0, ""
+local function frameNow(): number
+	return if world ~= nil and world.frames ~= nil then world.frames() else 0
+end
 local phase: string? = nil
 local dismissPending = false
 -- THE PARTY THAT GOES AGAIN (task 246). ONE of them, held here because this owner is the one that
@@ -204,6 +220,10 @@ local connections: { RBXScriptConnection } = {}
 
 local stats = {
 	scans = 0,
+	-- THE LAST SCAN'S COST AND THE FRAMES IT SPANNED (task 357), beside the counters, so a spec can
+	-- assert the bill was taken at all without reaching into the module's locals.
+	scanMs = 0,
+	scanFrames = 0,
 	buildAttempts = 0,
 	buildMs = 0,
 	shelfY = 0,
@@ -394,11 +414,18 @@ local function tryBuild(): boolean
 		return false
 	end
 	stats.buildAttempts += 1
+	-- BITTEN SEPARATELY (task 357) because it is the one call this function makes on EVERY scan
+	-- before the lobby exists, and it is outside `began` -- so `stats.buildMs` has never covered it.
+	local groundAt, groundFrame = os.clock(), frameNow()
 	local shelf = world.groundAt((centre :: Vector3).X, (centre :: Vector3).Z)
+	profMs.ground += (os.clock() - groundAt) * 1000
+	profFrames.ground += frameNow() - groundFrame
+	profCalls.ground += 1
 	if type(shelf) ~= "number" then
 		return false
 	end
 	local began = os.clock()
+	local beganFrame = frameNow()
 	-- ---------------- WHERE THE TERRAIN IS CUT, AND WHERE THE PARTS ARE THEN LAID (task 311)
 	--
 	-- TWO DIFFERENT NUMBERS, AND THAT IS THE WHOLE OF THE FLAT-YARD FIX. Measured in Karen's place,
@@ -538,6 +565,9 @@ local function tryBuild(): boolean
 	end
 	stats.parts = parts
 	stats.buildMs = math.floor((os.clock() - began) * 1000 + 0.5)
+	profMs.build += (os.clock() - began) * 1000
+	profFrames.build += frameNow() - beganFrame
+	profCalls.build += 1
 	return true
 end
 
@@ -891,7 +921,13 @@ local function stepPlayer(
 		if last == nil or now - last >= cfg.RETURN_COOLDOWN_SECONDS then
 			returnedAt[userId] = now
 			stats.returns += 1
+			-- BITTEN (task 357) because the comment above names it as the one call in this scan that
+			-- YIELDS, and a yield is what turns an `os.clock` bite into wall time.
+			local placeAt, placeFrame = os.clock(), frameNow()
 			world.place(player, Lobby.spawnCFrame(anchor :: Vector3, indexFor(userId), cfg))
+			profMs.place += (os.clock() - placeAt) * 1000
+			profFrames.place += frameNow() - placeFrame
+			profCalls.place += 1
 		end
 	end
 end
@@ -1533,14 +1569,9 @@ end
 
 -- THE ONE ENTRY POINT, from the world's own clock. `players` is handed in -- the `Match` / `Bots`
 -- test seam -- so a spec drives the whole flow with fake occupants and no `Players` service.
-function Lobby.step(now: number, players: { any }?)
-	if not started then
-		return
-	end
-	if now - lastScan < 1 / cfg.SCAN_HZ then
-		return
-	end
-	lastScan = now
+-- THE SCAN ITSELF. `Lobby.step` is this function with a bill around it (task 357), so the two
+-- early returns below stay exactly where they were and nothing has to be wrapped twice.
+local function scanOnce(now: number, players: { any }?)
 	stats.scans += 1
 	if firstStepAt == nil then
 		firstStepAt = now
@@ -1667,6 +1698,52 @@ function Lobby.step(now: number, players: { any }?)
 	end
 end
 
+-- ONE SCAN, BILLED, WITH THE FRAMES EACH BITE SPANNED BESIDE ITS MILLISECONDS (task 357). The
+-- throttle and the started guard live here rather than in `scanOnce`, so a frame on which this owner
+-- does nothing costs one comparison and is not billed at all.
+function Lobby.step(now: number, players: { any }?)
+	if not started then
+		return
+	end
+	if now - lastScan < 1 / cfg.SCAN_HZ then
+		return
+	end
+	lastScan = now
+	local began, beganFrame = os.clock(), frameNow()
+	for _, key in ipairs(BILL_ORDER) do
+		profMs[key], profFrames[key], profCalls[key] = 0, 0, 0
+	end
+	scanOnce(now, players)
+	local ms = (os.clock() - began) * 1000
+	local frames = frameNow() - beganFrame
+	stats.scanMs = ms
+	stats.scanFrames = frames
+	if ms > billWorstMs then
+		billWorstMs = ms
+		billWorst = string.format(
+			"worst=%.1f frames=%d | ground=%.1f/%df/%dc build=%.1f/%df/%dc place=%.1f/%df/%dc rest=%.1f",
+			ms,
+			frames,
+			profMs.ground,
+			profFrames.ground,
+			profCalls.ground,
+			profMs.build,
+			profFrames.build,
+			profCalls.build,
+			profMs.place,
+			profFrames.place,
+			profCalls.place,
+			ms - profMs.ground - profMs.build - profMs.place
+		)
+	end
+end
+
+-- THE WORST SCAN'S BILL, where a probe can read it (V293b: a counter that only lives in module
+-- state is not a diagnostic, because a live probe gets a FRESH copy of the module).
+function Lobby.bill(): string
+	return billWorst
+end
+
 -- Returns false when it built nothing, and says why. The boot reads the answer and only THEN takes
 -- the drive's own enrolment away -- so "no lobby" is today's game and never a server nobody can join
 -- a drive from (design section 7.4, last row).
@@ -1708,6 +1785,13 @@ function Lobby.start(injected: any?): boolean
 	dismissPending = false
 	lastScan = -math.huge
 	firstStepAt = nil
+	-- `world.frames` IS OPTIONAL AND IS AN INSTRUMENT, NOT A SEAM THIS OWNER DECIDES WITH (task 357):
+	-- the composition root owns the Heartbeat, so it is the only thing that can say which frame this
+	-- is. nil is every spec and the DEV place, and then the bill's frame counts read 0.
+	billWorstMs, billWorst = 0, ""
+	for _, key in ipairs(BILL_ORDER) do
+		profMs[key], profFrames[key], profCalls[key] = 0, 0, 0
+	end
 	nextSpawnIndex = 0
 	table.clear(pads)
 	table.clear(padAt)

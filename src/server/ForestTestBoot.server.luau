@@ -864,7 +864,25 @@ do
 	end
 end
 
+-- WHICH SERVER FRAME THIS IS, ONE COUNTER (task 357). It is declared up here and not with the bill
+-- below for one reason: `Lobby.start` is called on this line and the Heartbeat is connected 900
+-- lines later, so the lobby's own bill cannot be handed a counter that does not exist yet. There is
+-- exactly one of these -- the bill's step count IS this number -- because "which frame is it" must
+-- not have two answers.
+local bootSteps = 0
+-- HOW MANY TIMES THE CONTROL'S SPIN WENT ROUND, so selene has a loop body and the control has a
+-- witness that it really ran. Removed with the control.
+local burnSpins = 0
+
 local lobbyOn = Lobby.start({
+	--   frames       WHICH SERVER FRAME IT IS (task 357), the lobby's bill's only new seam. An
+	--                `os.clock` bite across `world.place` measures WALL time, because `Body.place`
+	--                yields on `LoadCharacter` -- so the lobby needs the frame count to say whether
+	--                its 1,214 ms at the join is a stall or a wait, and only the owner of the
+	--                Heartbeat can tell it. It reads one integer and decides nothing.
+	frames = function()
+		return bootSteps
+	end,
 	enabled = true,
 	world = Map.EXPECTED_WORLD,
 	homeAreas = rangeHomeAreas,
@@ -890,6 +908,33 @@ local lobbyOn = Lobby.start({
 	--                injects nothing never spends a wish, which is a world with no drive.
 	assignedTeam = Match.assignmentOf,
 	place = function(player, cframe)
+		-- THE POSITIVE CONTROL FOR THE LOBBY BILL (task 357), STUDIO ONLY, AND IT IS REMOVED AND
+		-- ARCHIVED IN THIS SAME BRANCH -- it is here only long enough to prove the instrument is not
+		-- blind, which is task 356's own lesson about a NULL result. Two knobs on `ServerStorage`,
+		-- set at RUNTIME in a Play session so nothing is written to the place:
+		--   DHLobbyBurn  ms SPUN on the main thread. A real stall: the `place` bite's ms must rise by
+		--                it and its FRAME count must not, and the Heartbeat max must move.
+		--   DHLobbyWait  ms WAITED. A yield: the bite's ms must rise by it and its frame count must
+		--                rise by about ms/16.7, and the Heartbeat max must NOT move.
+		-- One instrument, two known inputs, two different readings.
+		if RunService:IsStudio() then
+			local burn = ServerStorage:GetAttribute("DHLobbyBurn")
+			if type(burn) == "number" and burn > 0 then
+				local spinUntil = os.clock() + burn / 1000
+				local spins = 0
+				while os.clock() < spinUntil do
+					spins += 1
+				end
+				burnSpins = spins
+			end
+			local waited = ServerStorage:GetAttribute("DHLobbyWait")
+			if type(waited) == "number" and waited > 0 then
+				local waitUntil = os.clock() + waited / 1000
+				while os.clock() < waitUntil do
+					task.wait()
+				end
+			end
+		end
 		Body.place(player, cframe, Match.CONFIG)
 	end,
 	--   dress        `Match.Body.dress` -- the ONE owner of what anybody in this game wears, and the
@@ -1842,7 +1887,7 @@ local bootMax = { cells = 0, drive = 0, reports = 0, wire = 0, wall = 0, lobby =
 local bootTotal = { cells = 0, drive = 0, reports = 0, wire = 0, wall = 0, lobby = 0 }
 local driveMax = { placement = 0, spook = 0, lines = 0, roar = 0, staged = 0, rest = 0, release = 0 }
 local driveTotal = { placement = 0, spook = 0, lines = 0, roar = 0, staged = 0, rest = 0, release = 0 }
-local bootSteps, bootMsTotal, bootMsMax, bootWorst = 0, 0, 0, ""
+local bootMsTotal, bootMsMax, bootWorst = 0, 0, ""
 
 -- THE FRAME ITSELF, CHARGED TO "A WAVE IS BEING RELEASED" OR NOT (task 356). `dt` is the WHOLE
 -- server frame -- engine work included, which no `os.clock` bite in Lua can see. `Path:ComputeAsync`
@@ -1850,8 +1895,20 @@ local bootSteps, bootMsTotal, bootMsMax, bootWorst = 0, 0, 0, ""
 local relHbMax, relHbFrames, relHbTotal = 0, 0, 0
 local idleHbMax, idleHbFrames, idleHbTotal = 0, 0, 0
 
+-- ...AND WHICH FRAME THE WORST ONE WAS, AND WHAT RAN ON IT (task 357). `hb-elsewhere max` was
+-- 1,421.7 ms and the lobby bucket's worst was 1,214.6 ms on the same drive -- two numbers of a
+-- similar size, which is not the same as the same frame. This records the step number and this
+-- file's own buckets AS READ ON the frame that set the max, so the two can be joined rather than
+-- assumed. The lobby's bill is the frame count beside it.
+local hbWorst, hbWorst_ms = "", 0
+local lobbyStepMs, lobbyStepFrames, lobbyReportMs, lobbyReportFrames = 0, 0, 0, 0
+local lobbyStepMax, lobbyStepMaxFrames, lobbyReportMax = 0, 0, 0
+
 RunService.Heartbeat:Connect(function(dt)
 	local frameMs = dt * 1000
+	-- COUNTED FIRST, BEFORE ANYTHING IN THIS HANDLER CAN YIELD (task 357), so a bite that starts in
+	-- this frame and ends three frames later reads 3 and not 2.
+	bootSteps += 1
 	-- THE DEPTH AS THIS FRAME STARTED, READ ONCE (round 2's finding, `reviews/task-356/RESULT.md`).
 	-- So `hb-in-release` holds the frames a release is SUSPENDED through; the frame it starts on and
 	-- the one whose backward-looking `dt` covers its resumed Lua are in `hb-elsewhere`.
@@ -1999,8 +2056,23 @@ RunService.Heartbeat:Connect(function(dt)
 	-- answer to "what time is it" in the file whose own header above says ONE HEARTBEAT FOR BOTH JOBS.
 	bootProf.wall = (os.clock() - wallAt) * 1000
 	local lobbyAt = os.clock()
+	-- ...AND THE TWO HALVES OF IT BILLED APART, WITH THE FRAMES EACH SPANNED (task 357). The bucket
+	-- was 1,214.6 ms of a 1,214.79 ms step at the join and `[lobby] built in 71 ms` says the build is
+	-- not it, so the two calls and the frame count are what name the spender.
+	local lobbyStepAt, lobbyStepFrame = os.clock(), bootSteps
 	Lobby.step(now, players)
+	lobbyStepMs = (os.clock() - lobbyStepAt) * 1000
+	lobbyStepFrames = bootSteps - lobbyStepFrame
+	local lobbyReportAt, lobbyReportFrame = os.clock(), bootSteps
 	reportLobby()
+	lobbyReportMs = (os.clock() - lobbyReportAt) * 1000
+	lobbyReportFrames = bootSteps - lobbyReportFrame
+	if lobbyStepMs > lobbyStepMax then
+		lobbyStepMax, lobbyStepMaxFrames = lobbyStepMs, lobbyStepFrames
+	end
+	if lobbyReportMs > lobbyReportMax then
+		lobbyReportMax = lobbyReportMs
+	end
 	bootProf.lobby = (os.clock() - lobbyAt) * 1000
 	if releasingBefore then
 		relHbFrames += 1
@@ -2015,11 +2087,30 @@ RunService.Heartbeat:Connect(function(dt)
 			idleHbMax = frameMs
 		end
 	end
+	-- THE WORST FRAME OF THE SESSION, NAMED (task 357). `dt` looks BACKWARD -- it is the time since
+	-- the previous frame -- so what it measures ran BEFORE this handler, and the buckets printed
+	-- beside it are the ones this handler filled LAST frame. That is said here rather than left to
+	-- be worked out, because reading them as this frame's work is exactly the mistake that would
+	-- charge a 1.4 s frame to whichever owner happened to be slow after it.
+	if frameMs > hbWorst_ms then
+		hbWorst_ms = frameMs
+		hbWorst = string.format(
+			"hbmax=%.1f at step=%d | prev frame's lobby step=%.1f/%df report=%.1f/%df",
+			frameMs,
+			bootSteps,
+			lobbyStepMs,
+			lobbyStepFrames,
+			lobbyReportMs,
+			lobbyReportFrames
+		)
+	end
 
 	-- THE BILL (task 355). Published every 120 steps, the same cadence and for the same reason as
 	-- `Boar.STEP_PUBLISH_EVERY`: two attribute writes every two seconds at 60 Hz.
 	local tookMs = (os.clock() - bootBegan) * 1000
-	bootSteps += 1
+	-- `bootSteps` IS COUNTED AT THE TOP OF THIS HANDLER SINCE TASK 357, not here: a bite that spans
+	-- a yield has to see the frames that ran while it was suspended, and the count it reads must not
+	-- depend on where in the handler the increment sits. `avg` below is unchanged by the move.
 	bootMsTotal += tookMs
 	local inner = ForestTest.stepSections()
 	for key, ms in pairs(bootProf) do
@@ -2071,6 +2162,23 @@ RunService.Heartbeat:Connect(function(dt)
 			string.format("steps=%d avg=%.2f max=%.2f", bootSteps, bootMsTotal / bootSteps, bootMsMax)
 		)
 		ServerStorage:SetAttribute("DHBootWorst", bootWorst)
+		-- THE LOBBY'S OWN BILL AND THE WORST FRAME, WHERE A PROBE CAN READ THEM (task 357), on the
+		-- same cadence and for `DHBootWorst`'s own reason: a live probe gets a FRESH copy of every
+		-- module, so a number that is only in module state is not a diagnostic (V293b).
+		ServerStorage:SetAttribute(
+			"DHLobbyBill",
+			string.format(
+				"step max=%.1f frames=%d report max=%.1f | scan %s | %s",
+				lobbyStepMax,
+				lobbyStepMaxFrames,
+				lobbyReportMax,
+				Lobby.bill(),
+				hbWorst
+			)
+		)
+		if burnSpins > 0 then
+			ServerStorage:SetAttribute("DHLobbyBurnSpins", burnSpins)
+		end
 		local owners = {}
 		for _, key in ipairs(BOOT_ORDER) do
 			table.insert(owners, string.format("%s=%.1f/%.1f", key, bootMax[key], bootTotal[key]))
