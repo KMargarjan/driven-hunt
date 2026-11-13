@@ -5996,6 +5996,35 @@ function ForestTest.postIndexFor(posts, index: number): number
 	return index
 end
 
+-- THE PREVIOUS DRIVE'S BODIES, AT THE MOMENT THE NEXT DRIVE STARTS (task 362). Karen, 2026-11-13:
+-- *"dribve started leftover from prebviuos"*.
+--
+-- WHY IT IS HERE AND NOT IN `Match`. `Match` asks for exactly this at both drive edges
+-- (`Phase.enterScoring` and `enterAssigning` emit `clearBoars`), and in THIS world its
+-- `applyClearBoars` can do nothing: the drive holds `readOnlyBoars` below, which has no `clear` on
+-- purpose (design section 9.4). So the owner of these animals answers the boundary itself. The
+-- view's shape is untouched, the drive still may not spawn, clear or move an animal here, and the
+-- WOOD this world stocked is still never cleared at a boundary -- only the bodies go, which is what
+-- `Runtime:clearCarcasses` means. A carcass is not wood.
+--
+-- `Assigning` AND NOT `Scoring`: the drive's own report and its results scene belong to the drive
+-- that has just ended, so the bodies outlive it and go when the NEXT drive opens -- the dispatch's
+-- *"at the latest when the next drive starts"*. Inside a drive nothing moves: a kill lies where it
+-- fell for the whole `CARCASS_SECONDS`.
+--
+-- PURE OF ANY INSTANCE: the runtime is handed in, so both branches are drivable by parameter.
+ForestTest.CARCASS_CLEAR_PHASE = "Assigning"
+
+function ForestTest.clearPreviousDriveCarcasses(runtime, phase: string?): number
+	if phase ~= ForestTest.CARCASS_CLEAR_PHASE then
+		return 0
+	end
+	if runtime == nil or runtime.clearCarcasses == nil then
+		return 0
+	end
+	return runtime:clearCarcasses("driveOver") or 0
+end
+
 -- THE BOAR RUNTIME AS `Match` MAY SEE IT IN THIS WORLD: two signals and three reads, and NO `spawn`,
 -- `spawnSounder` or `clear` (task 157, design section 9.4).
 --

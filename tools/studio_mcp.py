@@ -1043,6 +1043,11 @@ SCOPE_SPECS = {
              # already in `hud`; what is here is the animal.
              "tests/server/boar_legendary.spec.luau",
              "tests/server/forest_line.spec.luau", "tests/server/forest_stand.spec.luau",
+             # Task 362: the previous drive's bodies go when the next drive starts. It is in `boar`
+             # because the door is `Runtime:clearCarcasses` and in `match` because the phase edge
+             # and the Forest Test's own owner are what call it -- the dual membership `zz_horn`
+             # and `boar_hit` already use.
+             "tests/server/forest_carcass_clear.spec.luau",
              "tests/server/boar_move.spec.luau", "tests/server/hitlog.spec.luau",
              "tests/server/report_silhouette.spec.luau",
              # A horn blast is a boar stimulus (task 152), so a change to either side reaches it.
@@ -1096,6 +1101,9 @@ SCOPE_SPECS = {
               # leash, the rest, the threats, the line) and they belong to `boar` as well. A
               # ForestTest edit now plays them, which is what this scope claims to do.
               "tests/server/forest_stand.spec.luau", "tests/server/forest_line.spec.luau",
+              # Task 362: `src/server/ForestTest/` and `ForestTestBoot.server.luau` both map here,
+              # and this is the spec that plays what they decide at a drive boundary.
+              "tests/server/forest_carcass_clear.spec.luau",
               "tests/server/match_live.spec.luau", "tests/server/match_outfit.spec.luau",
               "tests/server/match_phase.spec.luau", "tests/server/match_roster.spec.luau",
               # Task 159: the end of a drive and the results scene -- the crossing predicate, the
