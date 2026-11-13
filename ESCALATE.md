@@ -11,24 +11,31 @@ commit `fdc04963` (`ServerStorage.DHLobbyBill`, run `CODEC`):
 | bite | symbol | ms | **frames it spanned** |
 |---|---|---|---|
 | `ground` | `world.groundAt` | 0.0 | 0 |
-| **`build`** | `Lobby.tryBuild` (`Field.fill` + `Build.build`) | **69.1** | **0** |
-| **`place`** | `world.place` -- `Body.place` -- `player:LoadCharacter()` | **317.1** | **14** |
+| **`build`** | `Lobby.tryBuild` (`Field.fill` + `Build.build`) | **82.6** | **0** |
+| **`place`** | `world.place` -- `Body.place` -- `player:LoadCharacter()` | **328.0** | **14** |
 | `rest` | occupancy, pads, next-drive, the player loop, the keeper | 0.2 | -- |
 | `reportLobby` | six prints | 0.7 | 0 |
 
 `LoadCharacter` is documented as a yielding function, and the call site's own comment has said so
-since task 182. **The lobby's whole one-frame cost at a join is 69.1 ms** -- already inside the
-dispatch's 100 ms target, with no change to the game -- and it agrees with the console's independent
-`[lobby] built in 69 ms`. Four joins agree (13 / 17 / 11 / 14 frames). The instrument is not blind:
+since task 182. **The lobby's whole one-frame cost at a join is 82.6 ms** -- already inside the
+dispatch's 100 ms target, with no change to the game; it reads 67.9-82.6 ms across the four runs
+whose bill is sound, and it has ONE source (`stats.buildMs`, which the console prints, is the same
+bracket printed twice -- review round 1, finding 1). What a second mechanism corroborates is the
+`frames=0`, which comes from an integer the Heartbeat increments and has no clock in it. Five joins
+agree (13 / 17 / 11 / 14 / 14 frames). The instrument is not blind:
 a spin of 800 ms at that seam read back `1034.4 ms / 7 frames` and put a new 811.4 ms frame in the
 Heartbeat channel, a wait of 800 ms read back `1125.2 ms / 37 frames` and put none there.
 
 ### 1. THE REAL 1.5 s FRAME IS THE ENGINE'S, AND IT HAS NO OWNER IN THIS REPOSITORY
 
-The worst three frames of a 5,760-frame session are **1,545.7 ms at step 15**, **827.8 ms at step
-17** and **104.0 ms at step 2** -- and `ForestTestBoot`'s whole handler cost **0.0-0.1 ms** on the
-frame before each. **Every frame from step 18 to step 5,760 is under 104.0 ms.** Those three are the
-first fraction of a second of the server's life, while the place and the first avatar load.
+The worst three frames of a 5,520-frame session are **1,666.5 ms at step 15**, **890.9 ms at step
+17** and **149.5 ms at step 932**. `ForestTestBoot`'s whole handler cost **0.1 ms** before the
+second and **0.9 ms** before the third; before the first it is **unknowable and the bill says `?`**,
+because the handler that entered `world.place` on step 1 had not returned (review round 1, finding
+2 -- the first draft published a counter's initial zero there). **Outside the server's first ~20
+frames, the worst frame of a 150-second session is 149.5 ms**, and across five runs that figure
+reads 99.7-162.2. Steps 15 and 17 are the first fraction of a second of the server's life, while the
+place and the first avatar load.
 
 So task 356's *"1,399.7-1,421.7 ms at the join"* is real and it is **not** `Lobby.step` +
 `reportLobby`: the two were a similar size and they are not the same thing. Nothing in Lua moves an
@@ -60,9 +67,9 @@ performance one**. Same status: a task, or a deferral with an owner.
 ### What this task leaves in the tree
 
 An instrument and its proof, nothing else. `ServerStorage.DHLobbyBill` (the lobby's three bites with
-ms, frames and calls; `Lobby.step` and `reportLobby` billed apart; the three worst Heartbeats with
-the step each fired on and the Lua on the frame before), one frame counter with one writer, two
-spec cases, a research note and the archived control. **No line of the lobby's build, pads, shop,
+ms, frames and calls; `Lobby.step` and `reportLobby` billed apart, each with its worst call's frame
+count; the three worst Heartbeats with the step each fired on and the Lua on the frame before, or
+`?` where that frame's handler never returned), one frame counter with one writer, three spec cases, a research note and the archived control. **No line of the lobby's build, pads, shop,
 range, drive or gun was touched**, so there is no behaviour to playtest and `smoke.sh`'s
 gun-in-hand time has nothing to move.
 
