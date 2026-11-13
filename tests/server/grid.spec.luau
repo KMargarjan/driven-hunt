@@ -44,7 +44,7 @@ return function()
 	-- and in the straight world. MEASURED (`<runs-dir>/337c-plan-all.txt`,
 	-- `<runs-dir>/337c-straight.luau`), not a bound: a count that moves on its own means a recipe
 	-- changed by accident. Named once, because cases 5 and 6 pin the same two numbers.
-	local BENT_C1, STRAIGHT_C1 = 4020, 4036
+	local BENT_C1, STRAIGHT_C1 = 4483, 4493
 
 	-- A STAND IN WORLD COORDINATES AT ANY AMPLITUDE: the grid point through the map, which is
 	-- exactly what `Grid.standPosition` does at the shipped bend. Two returns, x and z.
@@ -2198,7 +2198,7 @@ return function()
 			-- **TASK 360 raised the drawn budget once more** -- 18,200 -- for the stand side's
 			-- full-density band and its storey; the gate stayed the measured frame p95.
 			expect(Plan.PARTS_PER_MODEL).to.equal(3.76)
-			expect(Plan.CELL_PLAN_CAP).to.equal(8510)
+			expect(Plan.CELL_PLAN_CAP).to.equal(9175)
 			expect(Plan.CELL_PART_CAP).to.equal(4840)
 			local worstId, worstTotal, worstCap = "", 0, 0
 			local planSlack, partSlack = math.huge, math.huge
@@ -2752,8 +2752,15 @@ return function()
 							-- handing 34 studs to every band -- which would plant bands 1 and 2 at
 							-- 34 at full price, 0 to 230 studs behind the road, where a player walks.
 							expect(band.cheap).to.equal(false)
+							-- THE STAND SIDE IS ONE BAND AT ITS OWN GRID (task 360) and the other
+							-- three sides are still two at the plan's; `band.deep` tells the 80-230
+							-- band from the 0-80 one and is false for the stand band, which starts
+							-- at 0.
 							expect(band.spacing).to.equal(
-								if band.deep then plan.deepSpacingStuds else plan.spacingStuds
+								if band.stand == true
+									then Plan.STAND_SIDE_SPACING_STUDS
+									elseif band.deep then plan.deepSpacingStuds
+									else plan.spacingStuds
 							)
 						end
 					end

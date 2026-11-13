@@ -3410,7 +3410,10 @@ Places.PARTS_PER_MODEL = 3.76
 -- a typo guard and not the gate -- the gate is the MEASURED client frame p95 at the stand, which
 -- this task reads three times a side. The parts it buys cast no shadow, collide with nothing and
 -- stop no ray, so a part under this ceiling is not the part the ceiling was first derived from.
-Places.PART_BUDGET_DRIVE = 32000
+-- **RAISED IN TASK 360** with the drawn budget: the stand side's full-density band takes the
+-- heaviest BOUND, D1's `cellCapacity`, from 8,243 to 9,005 sites = 33,859 parts at 3.76, so 34,500
+-- leaves 170 sites. Nothing renders a plan; this stays a typo guard.
+Places.PART_BUDGET_DRIVE = 34500
 -- **RAISED AGAIN IN TASK 360** for the stand side's full-density band and its second storey: the
 -- heaviest plan goes 4,225 to 4,483 models = 16,856 parts at 3.76, so 17,000 leaves 38 models. A
 -- part ceiling is a typo guard and not the gate -- the gate is the MEASURED client frame p95 and
