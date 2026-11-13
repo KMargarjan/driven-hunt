@@ -159,12 +159,16 @@ return function()
 			Boar.stepVisual(handle, 1 / 60, { speed = 0 }, config)
 			local firstId = (CarcassData.parse(handle.part:GetAttribute(CarcassData.ATTRIBUTE)))
 			expect(firstId).to.equal(111)
-			-- The paddle is now the held clip, at its own frame.
+			-- THE PADDLE IS NOW THE HELD CLIP, at its own frame. `handle.clip` is left alone on
+			-- purpose: it is what `play` last STARTED, and moving it makes `play` restart the fall
+			-- over the paddle on the next step (it finds this spec's own track for it) and clear the
+			-- held clip -- which is what the first version of this case did, and the harness caught.
 			handle.heldClip = paddle
-			handle.clip = paddle
 			handle.tracks[paddle] = heldTrack(paddleLen)
 			handle.heldAt = paddleLen - CONFIG.MODEL.HOLD_EPSILON
 			Boar.stepVisual(handle, 1 / 60, { speed = 0 }, config)
+			expect(handle.heldClip).to.equal(paddle)
+			expect(config.MODEL.ANIMATION_IDS[handle.heldClip]).to.equal(222)
 			local id, at = CarcassData.parse(handle.part:GetAttribute(CarcassData.ATTRIBUTE))
 			-- BOTH HALVES MOVED TOGETHER: an id from one clip with the other's frame is the torn
 			-- pair one attribute exists to make impossible.
