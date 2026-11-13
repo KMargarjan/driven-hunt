@@ -1984,9 +1984,10 @@ return function()
 			end
 			expect(#Plan.skirtSides("C1")).to.equal(4)
 			expect(outer).to.equal(1)
-			-- 12 SINCE TASK 346: four sides, three bands a side -- the near band, the deep band and
-			-- the deepest one, which on an outer edge also runs `SKIRT_WIDEN_STUDS` past both ends.
-			expect(bands).to.equal(12)
+			-- 11 SINCE TASK 360: three sides carry three bands -- the near band, the deep band and
+			-- the deepest one, which on an outer edge also runs `SKIRT_WIDEN_STUDS` past both ends
+			-- -- and the STAND side carries two, its near and deep bands being one full-density band.
+			expect(bands).to.equal(11)
 			expect(skirt > 0).to.equal(true)
 			expect(under > 0).to.equal(true)
 			expect(Plan.cellCapacity("C1")).to.equal(zones + under + ferns + skirt)
@@ -2020,6 +2021,52 @@ return function()
 				streams[value] = name
 			end
 			expect(type(Plan.CELL_STREAM.under)).to.equal("number")
+
+			-- 16a (task 360). THE STAND SIDE -- the one road of the cell that carries its seven
+			-- main-line stands, and the one a hunter turns round INTO. Exactly one side is it, it is
+			-- an east-west side, its near band runs the whole `skirtStuds` at
+			-- `STAND_SIDE_SPACING_STUDS`, and it carries a SECOND STOREY, which the other three do
+			-- not. Karen, 2026-11-13: *"more trees neede back"*.
+			local standSides, standBand = 0, nil
+			for _, side in ipairs(Plan.skirtSides("C1")) do
+				local bandList = Plan.skirtBands("C1", side.id, side.axis, plan, side.sign)
+				local here = 0
+				for _, band in ipairs(bandList) do
+					if band.stand == true then
+						here += 1
+						standBand = band
+					end
+				end
+				if here > 0 then
+					standSides += 1
+					expect(side.axis).to.equal("x")
+					expect(here).to.equal(1)
+					expect(#bandList).to.equal(2)
+				end
+			end
+			expect(standSides).to.equal(1)
+			expect(standBand).never.to.equal(nil)
+			expect((standBand :: any).spacing).to.equal(Plan.STAND_SIDE_SPACING_STUDS)
+			expect((standBand :: any).cheap).to.equal(false)
+
+			-- ...AND IT IS PLANTED, AT THAT DENSITY. The count is taken inside the band's OWN rect,
+			-- so it cannot be satisfied by the cell's wood or by another side's skirt. **THIS IS
+			-- THE CASE THAT REDDENS IF THE BAND BEHIND THE LINE IS NOT PLANTED** (lesson L-093).
+			local backWood = 0
+			local rect = (standBand :: any).rect
+			for _, item in ipairs(woods.C1) do
+				local inBand = item.x >= rect.minX
+					and item.x <= rect.maxX
+					and item.z >= rect.minZ
+					and item.z <= rect.maxZ
+				if inBand and item.band ~= "herb" then
+					backWood += 1
+				end
+			end
+			-- MEASURED, NOT GUESSED (`<runs-dir>/360-count.txt`): the band holds **605** stems at
+			-- 16, where the 24/52 pair it replaces held **159** over the same rect. The bound IS
+			-- that old count, so a re-roll cannot redden the case and a return to 24/52 must.
+			expect(backWood > 159).to.equal(true)
 
 			-- AND THE GAP RULE HAS NO SEAM IN IT. The understorey shares the canopy's neighbour grid
 			-- AND its `minGapStuds`, which is both what makes it clump into the gaps between trunks
@@ -2148,9 +2195,11 @@ return function()
 			-- band's tighter grid: C1 goes 3,507 to 3,969 planted models and 12,927 to 14,628 parts
 			-- in Karen's Forest Test. The parts it buys cast no shadow, collide with nothing and
 			-- stop no ray, and the gate stayed the MEASURED client frame p95 at the stand.
+			-- **TASK 360 raised the drawn budget once more** -- 18,200 -- for the stand side's
+			-- full-density band and its storey; the gate stayed the measured frame p95.
 			expect(Plan.PARTS_PER_MODEL).to.equal(3.76)
 			expect(Plan.CELL_PLAN_CAP).to.equal(8510)
-			expect(Plan.CELL_PART_CAP).to.equal(4255)
+			expect(Plan.CELL_PART_CAP).to.equal(4840)
 			local worstId, worstTotal, worstCap = "", 0, 0
 			local planSlack, partSlack = math.huge, math.huge
 			local lines = {}
