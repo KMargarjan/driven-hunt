@@ -149,7 +149,12 @@ return function()
 			expect(writes).to.equal(1)
 		end)
 
-		it("re-publishes when the PADDLE supersedes the fall, as one untearable string", function()
+		it("says NOTHING while the paddle is still to come, then publishes the paddle's own frame", function()
+			-- MEASURED IN KAREN'S FOREST TEST, the ON arm of this task's first proof run: a boar's
+			-- death is two clips, the fall frozen at 1.18 s and the PADDLE playing 4 s over it. The
+			-- first version published the fall's hold in that window, and every client pinned it at
+			-- `Action` priority with the paddle still running -- 12 carcasses posed over a clip that
+			-- was drawing them perfectly well. The final pose is the only one anybody is told.
 			local fall, paddle = Boar.deathClips(CONFIG)
 			expect(paddle).never.to.equal(fall)
 			local fallLen = CONFIG.MODEL.CLIPS[fall].seconds
@@ -157,8 +162,7 @@ return function()
 			local config = configWith(true, { [fall] = 111, [paddle] = 222 })
 			local handle = carcass(fall, heldTrack(fallLen), { heldAt = fallLen - CONFIG.MODEL.HOLD_EPSILON })
 			Boar.stepVisual(handle, 1 / 60, { speed = 0 }, config)
-			local firstId = (CarcassData.parse(handle.part:GetAttribute(CarcassData.ATTRIBUTE)))
-			expect(firstId).to.equal(111)
+			expect(handle.part:GetAttribute(CarcassData.ATTRIBUTE)).to.equal(nil)
 			-- THE PADDLE IS NOW THE HELD CLIP, at its own frame. `handle.clip` is left alone on
 			-- purpose: it is what `play` last STARTED, and moving it makes `play` restart the fall
 			-- over the paddle on the next step (it finds this spec's own track for it) and clear the
@@ -174,6 +178,21 @@ return function()
 			-- pair one attribute exists to make impossible.
 			expect(id).to.equal(222)
 			expect(at).to.be.near(paddleLen - CONFIG.MODEL.HOLD_EPSILON, 1e-4)
+		end)
+
+		it("an animal with NO paddle clip publishes its fall, which is its final pose", function()
+			-- The red deer package ships no `Death_Paddle_L/R` (`Body.hasClip` asks `ANIMATION_IDS`),
+			-- so the fall IS the pose the carcass keeps -- and the deer are the kind Karen's defect
+			-- was reported on.
+			local fall, paddle = Boar.deathClips(CONFIG)
+			local len = CONFIG.MODEL.CLIPS[fall].seconds
+			local config = configWith(true, { [fall] = 333 })
+			expect(Boar.hasClip(paddle, config)).to.equal(false)
+			local handle = carcass(fall, heldTrack(len), { heldAt = len - CONFIG.MODEL.HOLD_EPSILON })
+			Boar.stepVisual(handle, 1 / 60, { speed = 0 }, config)
+			local id, at = CarcassData.parse(handle.part:GetAttribute(CarcassData.ATTRIBUTE))
+			expect(id).to.equal(333)
+			expect(at).to.be.near(len - CONFIG.MODEL.HOLD_EPSILON, 1e-4)
 		end)
 
 		it("publishes nothing with the flag off, no visual, a topple, no id, a live animal or a gait", function()

@@ -112,6 +112,7 @@ type Stats = {
 	plays: number,
 	writes: number,
 	bindBefore: number,
+	repairs: number,
 	worstSweepMs: number,
 	lastSweepAt: number,
 }
@@ -147,6 +148,7 @@ local function freshStats(): Stats
 		plays = 0,
 		writes = 0,
 		bindBefore = 0,
+		repairs = 0,
 		worstSweepMs = 0,
 		lastSweepAt = 0,
 	}
@@ -377,6 +379,17 @@ local function sweep()
 						timedOut = false,
 					}
 					state.records[trunk] = record
+				end
+				-- A POSE THIS OWNER PUT ON AND SOMETHING ELSE TOOK OFF IS PUT BACK, and the test is
+				-- the state the defect produces rather than a count: OUR OWN track has stopped.
+				-- That cannot happen by itself -- a track pinned at speed 0 stays playing -- so a
+				-- repair follows an external stop and nothing else, and the repair's own result is
+				-- the state that refuses the next one. It is `Body.shouldRehold`'s rule, on this
+				-- side of the wire, and unbounded for task 293b's reason: a carcass that loses its
+				-- hold on the 4th stop, or the 400th, is Karen's bug either way.
+				if record ~= nil and record.posed and record.track ~= nil and not record.track.IsPlaying then
+					record.posed = false
+					stats.repairs += 1
 				end
 				if
 					record ~= nil

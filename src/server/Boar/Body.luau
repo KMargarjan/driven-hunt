@@ -2170,9 +2170,18 @@ function Body.stepVisual(handle, dt: number, info, config)
 	-- buried-upside-down carcass). `carcass_pose.spec` asserts that rather than describing it.
 	-- Design: docs/design/carcass-pose.md sections 5.2, 11.1
 	if config.MODEL.PUBLISH_DEATH_POSE and handle.collapsed and not handle.toppled and handle.part ~= nil then
+		-- THE FINAL POSE ONLY, AND THAT IS NOT TIDINESS -- IT IS MEASURED (the ON arm of this task's
+		-- own proof run). A boar's death is two clips: the fall is frozen at 1.18 s and the PADDLE
+		-- then plays for 4 s over it. Publishing the fall's hold in that window told every client to
+		-- pin a pose while the paddle was still running, and `CarcassPose` did: 12 carcasses were
+		-- posed at the fall's last frame with the paddle playing underneath. So an animal that HAS a
+		-- paddle publishes when the PADDLE is held; one that does not (the red deer package ships no
+		-- `Death_Paddle_L/R`) publishes when its fall is. Design 5.3's own numbers: deer ~1.14 s,
+		-- boar ~5.18 s after collapse.
 		local held = handle.heldClip
 		local fall, paddle = Body.deathClips(config)
-		if (held == fall or held == paddle) and handle.heldAt ~= nil then
+		local final = if Body.hasClip(paddle, config) then paddle else fall
+		if held == final and handle.heldAt ~= nil then
 			local value = CarcassData.format(config.MODEL.ANIMATION_IDS[held], handle.heldAt)
 			if value ~= "" and handle.part:GetAttribute(CarcassData.ATTRIBUTE) ~= value then
 				handle.part:SetAttribute(CarcassData.ATTRIBUTE, value)

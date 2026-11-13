@@ -210,6 +210,50 @@ return function()
 			expect(track.plays).to.equal(1)
 		end)
 
+		it("puts its own pose back when something stops it (the 358-bind state, forced)", function()
+			-- MEASURED IN KAREN'S FOREST TEST: a carcass whose rig is drawing nothing shows the BIND
+			-- pose -- standing -- and before this owner nothing ever put it back (3 of 3 never
+			-- recovered in 12 s, `358-bind.luau`). Posing once is not enough: a pose that is taken
+			-- off later is Karen's sentence exactly, "died and then stand".
+			fakeRig(folder, true, CarcassData.format(FAKE_ID, FAKE_AT))
+			local track = stubTrack(4)
+			local loaded = 0
+			CarcassPose.start({
+				enabled = true,
+				folder = folder,
+				sweepSeconds = 0,
+				ready = function()
+					return true
+				end,
+				load = function()
+					loaded += 1
+					return track
+				end,
+			})
+			CarcassPose.step(1)
+			expect(CarcassPose.stats().posed).to.equal(1)
+			expect(track.plays).to.equal(1)
+			-- Something else stops it. A pinned track cannot stop by itself, which is why this and
+			-- not a count is the test.
+			track:Stop()
+			track.TimePosition = 0 -- ...and the rig is back at frame 0: the animal on its feet
+			CarcassPose.step(1)
+			local stats = CarcassPose.stats()
+			expect(stats.repairs).to.equal(1)
+			expect(stats.posed).to.equal(2)
+			expect(track.plays).to.equal(2)
+			expect(track.IsPlaying).to.equal(true)
+			expect(track.Speed).to.equal(0)
+			expect(track.TimePosition).to.be.near(FAKE_AT, 1e-4)
+			-- ...and it does NOT reload: the track it owns is the track it repairs.
+			expect(loaded).to.equal(1)
+			-- A repair's own result refuses the next one.
+			CarcassPose.step(1)
+			CarcassPose.step(1)
+			expect(CarcassPose.stats().repairs).to.equal(1)
+			expect(track.plays).to.equal(2)
+		end)
+
 		it("leaves a carcass alone when a death is already drawing it", function()
 			local trunk = fakeRig(folder, true, CarcassData.format(FAKE_ID, FAKE_AT))
 			-- A REAL playing track on the rig's own Animator, with the published id on it. The owner
