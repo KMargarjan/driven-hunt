@@ -2423,6 +2423,12 @@ Lobby.CONFIG = {
 	SCAN_HZ = 10,
 	RETURN_COOLDOWN_SECONDS = 3,
 	BUILD_TIMEOUT_SECONDS = 10,
+	-- HOW LONG THE FIRST CHARACTER IS HELD BACK (task 363). Karen, 2026-11-13: *"when game starts I
+	-- need to be in lobby not in road"* -- measured, her character auto-loaded at
+	-- `Workspace.ForestRoadSpawn` and the return rule only reached her 5.5 s later.
+	-- It is `BUILD_TIMEOUT_SECONDS`' own 10 s: the hold must outlive a slow build and must give up
+	-- at the same moment the degraded path does, or the two would disagree about who owes her a body.
+	FIRST_SPAWN_HOLD_SECONDS = 10,
 	-- THE BUDGET IS 1500 SINCE TASK 187, and the arithmetic is written down so the number is a bound
 	-- and not a shrug: OUR lodge -- plinth, seven courses of log, the corner ends, four windows with
 	-- their shutters, the door, the roof with its rafter ends, the chimney, the porch with its

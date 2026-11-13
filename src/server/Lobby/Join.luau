@@ -160,4 +160,35 @@ function Join.needsReturn(inDrive: boolean, held: boolean, inField: boolean?): b
 	return inField == false
 end
 
+-- DOES THIS PLAYER NEED A BODY AT ALL? (task 363)
+--
+-- KAREN, 2026-11-13: *"when game starts I need to be in lobby not in road"*. MEASURED in her place,
+-- three Plays: the engine's own `CharacterAutoLoads` put her character at `Workspace.ForestRoadSpawn`
+-- (3000, 141, -2109) before the lobby existed, and `needsReturn` above only reached her at
+-- DistributedGameTime 5.5 -- so she stood on the road for five seconds and was then respawned.
+-- `Lobby.holdFirstSpawn` stops that first auto-load; this predicate is what then owes her the body.
+--
+-- `held` IS THE HOLD AND NOT `Match.isHeld`: this rule is live ONLY while the lobby is holding the
+-- engine's auto-load back, so with the hold off (the DEV place, a spec, a world with no lobby)
+-- nothing in the game changes. `inDrive`/`inHunt` keep `needsReturn`'s meaning -- a man the drive has
+-- is `Match.Body`'s, body and all.
+function Join.needsBody(inDrive: boolean, inHunt: boolean, hasCharacter: boolean, spawnsHeld: boolean): boolean
+	if not spawnsHeld then
+		return false
+	end
+	if inDrive or inHunt then
+		return false
+	end
+	return hasCharacter == false
+end
+
+-- MAY THE LOBBY HAND THE ENGINE ITS AUTO-LOAD BACK? (task 363) Only once it has built itself AND
+-- nobody is standing there without a body -- so the hold covers exactly the window in which the
+-- lobby could not answer "where does he stand", and every respawn after it is the engine's again
+-- (a death in the lobby goes to `RespawnLocation`, a death in a drive to the place's own spawn,
+-- both exactly as before this task).
+function Join.releasesHold(built: boolean, bodiless: number): boolean
+	return built and bodiless <= 0
+end
+
 return Join

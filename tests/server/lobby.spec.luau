@@ -904,6 +904,38 @@ return function()
 			expect(Join.needsReturn(true, false, nil)).to.equal(false)
 		end)
 
+		-- TASK 363. KAREN, 2026-11-13: *"when game starts I need to be in lobby not in road"*. The
+		-- rule above answers "where does he belong"; this one answers the question in front of it,
+		-- "has he got a body at all", which `needsReturn` cannot be asked (a man with no character
+		-- has no position, and absent is not outside).
+		it("owes a body only while the engine's auto-load is held back", function()
+			-- THE ONE CASE THAT LOADS HIM: held, not in a hunt, no character.
+			expect(Join.needsBody(false, false, false, true)).to.equal(true)
+			-- NOT HELD: nothing in the game changes -- the DEV place, a spec, a world with no lobby.
+			expect(Join.needsBody(false, false, false, false)).to.equal(false)
+			-- HE HAS ONE ALREADY.
+			expect(Join.needsBody(false, false, true, true)).to.equal(false)
+			-- IN THE DRIVE, OR HELD BY IT: `Match.Body` owns him, body and all.
+			expect(Join.needsBody(true, false, false, true)).to.equal(false)
+			expect(Join.needsBody(false, true, false, true)).to.equal(false)
+			expect(Join.needsBody(true, true, false, true)).to.equal(false)
+		end)
+
+		it("hands the auto-load back only when it is built and nobody is waiting on it", function()
+			expect(Join.releasesHold(true, 0)).to.equal(true)
+			-- A man still without a body: the hold stays, because this owner still owes him one.
+			expect(Join.releasesHold(true, 1)).to.equal(false)
+			-- NOT BUILT: it cannot answer "where does he stand" yet, so it keeps the hold.
+			expect(Join.releasesHold(false, 0)).to.equal(false)
+			expect(Join.releasesHold(false, 2)).to.equal(false)
+		end)
+
+		-- THE CEILING IS THE BUILD'S OWN (task 363): the hold must give up at the moment the
+		-- degraded path takes over, or the two would disagree about who owes her a body.
+		it("holds the first spawn for no longer than the build timeout", function()
+			expect(CFG.FIRST_SPAWN_HOLD_SECONDS).to.equal(CFG.BUILD_TIMEOUT_SECONDS)
+		end)
+
 		it("reads the field as a rectangle and not as a circle", function()
 			local anchor = Vector3.new(2850, 153, -2950)
 			local half = CFG.FIELD.SPAN_STUDS / 2
