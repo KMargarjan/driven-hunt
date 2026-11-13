@@ -1,106 +1,90 @@
 # Task 356 -- the half-second stall when a wave releases
 
 Task: 356
-Round: 2
+Round: 3
 Base: fc2f99ba10de470ced7282dea1b44cc50f1a8ec8 (`main`)
-Code commit: 10584da8a2e0f011bd371da4e6d69ce3cc645315
+Code commit: 14435f2ad7c15c6b5d4e91ae071132c81a551015
 
 ```
-[harness] PASS: 34/34 checks @ 10584da8a2e0f011bd371da4e6d69ce3cc645315 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 14435f2ad7c15c6b5d4e91ae071132c81a551015 (clean tree) scope=all
 ```
 
 `test2` is **N/A**: nothing in `TWO_PLAYER_PATHS` is touched (`src/server/ForestTest/`,
-`src/server/ForestTestBoot.server.luau`, `tests/server/forest_placement.spec.luau`, `docs/`,
-`backups/` -- no `Match/`, no `Drive/`, no client role spec).
+`src/server/ForestTestBoot.server.luau`, `tests/server/forest_placement.spec.luau`, `reviews/`,
+`docs/`, `backups/` -- no `Match/`, no `Drive/`, no client role spec).
 
-## WHAT CHANGED SINCE ROUND 1
+## WHAT THIS TASK IS
 
-**Round 1's blocking finding was right and is fixed.** All three cases did pass with every
-measurement producer deleted; they asserted format literals and the rollup's own argument.
-
-**No behaviour changed, in either round.** Not one line that decides what a drive does was touched:
-no animal, no slot, no route, no position, no release time. The diff is an instrument, its spec, a
-research note, a control archived under `backups/`, and the measurements.
-
-**The fix the dispatch asked for was still not written, because its premise is false.**
-`ESCALATE.md` (2026-11-13) is the entry. `releaseLine` really does take 570-845 ms of WALL time per
-wave, 97.9-98.2 % of it `path:ComputeAsync` -- but `ComputeAsync` **yields**, the call spans
-**24-44 Heartbeats**, and a frame during a release is not fatter than any other frame.
+**The dispatch's premise is refuted and the Director has ACCEPTED that** (`ESCALATE.md`, 2026-11-13
+03:35 UTC, round 3 authorised, the Reviewer's option (b)). No stall fix is written. What ships is an
+instrument -- the release bill and the per-frame charge -- plus the measurements that refute
+*"569.3 ms in ONE frame"*, and the spec cases that fail if a later task breaks that instrument.
+Round 3 does exactly what round 2's finding asked for and nothing else.
 
 ## CLAIMS
 
-1. **The spec now fails when the measurement producers are deleted, and it is checked, not argued.**
-   Deleting `releaseCount.spawns += 1`, `stepTicks += 1` and all seven
-   `releaseProf.<section> = (os.clock() - ...) * 1000` assignments fails
-   `forest_placement.spec:1839`, `:1867` and `:1886` -- the exact cases that assert measurements.
-   *Verify:* `<runs-dir>/356-delete-fail.txt` (a whole harness run with the producers deleted:
-   `FAIL: 32/34`, 115 spec files, only those three cases down); the tree was restored and the run
-   above is 34/34.
-2. **Those cases assert the world, not the bill's own format.** `expect(field(bill, "spawns"))
-   .to.equal(got.made)` compares the bill with the **stub runtime's own handle count**;
-   `FRAMES >= 3` is driven by the patched `computeRouteVia` calling `Forest.step` itself -- the
-   stand-in for the Heartbeat that fires while `ComputeAsync` is suspended; and the third sums the
-   `releaseMax`/`releaseTotal` half and requires it non-zero. *Verify:* the four cases under
-   `describe("the release bill (task 356)")`, and the harness's own notes from the run above:
-   *"the bill counted 1 spawn(s) against the runtime's 1, and 3 frame(s) across the call"* and
-   *"the sections billed 0.300 ms of real work"*.
-3. **`path:ComputeAsync` is 748.2 of `releaseLine`'s worst 764.4 ms (97.9 %) AT THE REVIEWED
-   COMMIT**, and 732.0 of 745.4 (98.2 %) at `f5f06f93`. *Verify:* MEASUREMENTS sections 1 and 3a;
-   `<runs-dir>/R2B-track.txt` and `BEFORE-track.txt`.
-4. **The call spans 24 / 27 / 43 / 44 Heartbeats over four drives, so the 570 ms is not a frame.**
-   *Verify:* MEASUREMENTS 2(a) and 3a; the `FRAMES=` field of `ServerStorage.DHReleaseBill` in
-   `BEF2-`, `BEF3-`, `BEFORE-` and `R2B-track.txt`.
-5. **A frame during a release is not fatter than any other: mean 24.2 ms against 24.8 ms elsewhere
-   at the reviewed commit** (23.0 / 23.3 at `f5f06f93`), with max 49.3 ms against 1,399.7 ms.
-   *Verify:* MEASUREMENTS 2(b) and 3a. Round 2 made this **stricter** on round 1's note: the charge
-   is read before AND after `ForestTest.step` and or-ed, so the frames a release starts and resumes
-   on no longer fall in `hb-elsewhere`.
-6. **That null result has a positive control: a 250 ms spin inside a release read back as
-   `hb-in-release max=277.9`** against 46.5 with it off. *Verify:* `<runs-dir>/CTRL-track.txt` vs
-   `BEFORE-track.txt`; archived with its code and its reason in
-   `backups/2026-11-13_task-356_release-burn-control.md` (rule 7).
-7. **The drive's real worst frame is 1,399.7-1,421.7 ms with NO release in flight, and it is the
-   lobby's** (`Lobby.step` + `reportLobby`, 1,214.6 ms of it in Lua, at the join).
-   *Verify:* MEASUREMENTS 2(b) and 5; `<runs-dir>/BEFORE-track.txt`'s
-   `BOOTOWNERS ... lobby=1214.6/1857.0`.
-8. **Round 2 found and fixed a bug of its own by re-measuring rather than carrying numbers
-   forward.** Making the bill per-drive (`releaseReset` called from `newDrive`) meant a drive that
-   ends before the probe reads it wiped its own bill: `calls=0 worst:` with 253 in-release frames.
-   *Verify:* `<runs-dir>/R2-track.txt` (the broken run, commit `dbc7dbf0`) against `R2B-track.txt`
-   (`88c324a8`); MEASUREMENTS 3a's last paragraph; the comment on `ForestTest.releaseReset`.
-9. **Round 1's other notes are answered in code**, each with its reason on the line: `FRAMES` is
-   worked out in the rollup so every early return publishes it; `stagedLine` is billed like a slot;
-   `clearRoute` no longer counts a cast that `and` short-circuits away; `releaseDepth` is renamed
-   `releaseInFlight` (`Data.releaseDepth` is studs); the comment on `releasing()` is its own; and
-   `computeRouteVia`'s comment no longer calls `ComputeAsync` synchronous. *Verify:*
-   `git diff 72e3f254..10584da8 -- src/`.
-10. **Her place was not written to and nothing was left behind, across all six drives.** The one
-    attribute this task set (`DHReleaseBurn`) was set at RUNTIME inside a Play session, never in
-    Edit; `flags.py --place forest clear` was never run (rule K). Her Forest Test ends on :34873
-    from `driven-hunt-karen` (`fc2f99ba`), Edit, connected (`<runs-dir>/356-connect-karen-final.png`,
-    looked at). *Verify:* `<runs-dir>/356-attrs-before.txt` vs `356-attrs-final.txt` --
-    **24 attributes, identical**, with neither `DHReleaseBurn` nor `DHFlag_BOAR_ATTACH_BUDGET` in
-    either.
+1. **The dead second read is gone.** `ForestTestBoot.server.luau`: the charge is `if releasingBefore
+   then`, and the depth is read **once**, at the top of the Heartbeat connection. Verify:
+   `grep -n "releasing()" src/server/ForestTestBoot.server.luau` -- one hit, the `releasingBefore`
+   assignment above `ForestTest.step`. The comment that claimed "READ BEFORE AND AFTER ... AND OR-ED"
+   is deleted and replaced by what the charge really means.
+2. **`MEASUREMENTS.md` 2(b) and 3a now say what the in-release column holds**: the purely-yielding
+   frames; a release's **start** frame (depth was 0 when the charge was read) and the frame whose
+   backward-looking `dt` covers its **resumed** `order`/`spawn`/`files` Lua are in `hb-elsewhere`;
+   round 2's or-ed read is named as the no-op it was. 3a also says both columns are the same
+   instrument, so the comparison is like for like. Verify: read 2(b)'s bold paragraph and 3a's first
+   paragraph. **No claim here says the charge was made stricter.**
+3. **The refutation's two legs are untouched by this round.** (a) `releaseCount.ticks = stepTicks -
+   releaseEntryTick` counts the Heartbeats a `releaseLine` spanned: `FRAMES=24/27/43/44` against a
+   claimed single frame. (b) In-release mean 24.2 ms over 254 frames against elsewhere 24.8 ms over
+   13,666, worst in-release frame 49.3 ms against 1,399.7 ms elsewhere (the lobby's join).
+   Verify: `MEASUREMENTS.md` 2(a), 2(b), 3a; `git diff fc2f99ba..HEAD -- src/server/ForestTest/init.luau`
+   shows no change to either counter.
+4. **The depth cannot be poisoned by a raise.** `ForestTest.step` and `ForestTest.stagedLine` call
+   `releaseLine` through `pcall`, decrement, then `error(..., 0)` -- the raise still reaches the
+   caller, so nothing else moves. New case `it("brings the depth back down when the release RAISES")`
+   asserts the raise propagates AND `Forest.releasing() == false` after it.
+   **FAIL FIRST, measured** (`<runs-dir>/356r3-failfirst.txt`, that case's own `expect`):
+   ```
+   [tests:server] FAIL: 2976 passed, 1 failed, 0 skipped, 1 errors, 83 spec files
+   TestService: ... Expected value "false" (boolean), got "true" (boolean) instead
+   ServerStorage.Tests.forest_placement.spec:1931
+   ```
+   with the `pcall` in `step` replaced by the plain call and nothing else changed. Exactly one case
+   failed.
+5. **One case was reading the bill's format floor, and now reads real work.** `it("times the sections
+   it really ran, and charges the call to `releasing()` only while it runs")` sums `%.1f` pairs; with
+   the pathfinder stubbed every section is under 0.05 ms, so the sum can print 0 -- it read 0.400 ms
+   and passed, then 0 and failed, at the same tree (`MEASUREMENTS.md` 7). The spec's own
+   `computeRouteVia` patch now burns 1 ms, so `releaseProf.routes` is a measured millisecond: the
+   harness note reads `the sections billed 1.000 ms ... (13001 spin(s) in `routes`)`. The timer is
+   still the one under test, so the case still dies with the nine `releaseProf.<section> =` lines
+   deleted. Verify: the note in `<runs-dir>/356r3-harness2.txt`, and the patch in `oneRelease`.
+6. **The shape case establishes its own state.** `it("names every section, the pathfinder's counts
+   and the frames the call spanned")` calls `oneRelease(0)` and reads that bill, so it no longer
+   depends on the case before it having driven a release.
+7. **Nothing is left in module state for the next spec file.** `it("keeps the WORST call and not the
+   last one")` ends with `Forest.releaseReset()`, so `releaseWorstMs = 987654` does not outlive it.
+8. **The misplaced comment is moved, not duplicated.** "WORST FRAME, THEN EVERY SECTION'S OWN
+   max/total..." now sits above `ForestTest.releaseBill`, which is what it describes;
+   `ForestTest.releasing` keeps only its own two lines. Verify: read both in
+   `src/server/ForestTest/init.luau`.
+9. **The `spawns` comment names the count the case produces** (1, from the stub's own handles, as
+   that case's harness note says), not 6.
+10. **No behaviour outside the instrument changes.** `git diff fc2f99ba..HEAD -- src/server/` is: the
+    charge's single read, the two `pcall`+re-raise pairs, the moved comment, and round 1-2's
+    instrument. One deliberate instrument difference from round 2: a frame on which a *different*,
+    later release is in flight while an earlier handler finishes is now charged `hb-elsewhere` -- it
+    was the only case the or could ever make true, and charging one frame's `dt` by another frame's
+    state is what the finding called the opposite of the intent.
 
 ## WHAT I COULD NOT VERIFY
 
-- **That `ComputeAsync` costs the main thread nothing at all.** The bound this instrument can put on
-  it is claim 5. Only the MicroProfiler answers it directly and it has no scripting API (research
-  note, last section).
-- **Nothing here was seen as a picture or as play** (rule 5). Claims 4 and 5 are the stand-in for
-  the dispatch's *"no hitch when a wave releases"*, and they were read off
-  `ServerStorage.DHReleaseBill` in a headless Play session. Round 1's note asked for this to be
-  said: **items 4 and 5 are NOT PROVEN on screen.** The one frame that was looked at is the Rojo
-  panel, for the sync state, not the game.
-- **Whether the 0.2-0.7 s a released group stands still before its line walks is visible.** Nobody
-  has looked; it is Karen's question (MEASUREMENTS 5 item 4, `ESCALATE.md`).
-- **349's first sighting and median gap from stand 4.** N/A rather than measured: no behaviour code
-  was touched, so re-running 349's drive pair would measure the same build twice.
-- **A cross-caller leak into `releaseProf.path` is bounded by arithmetic, not by a guard.** A repath
-  or a woken group inside the ~44-frame window would be billed to the release. The worst call's four
-  printed legs sum to `path` exactly and `path <= routes`, which a leak would break -- but nothing
-  enforces it. MEASUREMENTS section 4a says so.
-- **A flake fired on the first harness attempt of round 1 and I did not capture the server half by
-  name** -- `semiauto_client.spec:93` (on the dispatch's known-flake list) plus one unnamed server
-  failure; the next run was 0 failed on both sides. The miss is mine: I re-ran before saving the
-  output. Round 2's three harness runs (the delete-the-producer run included) showed no flake.
+- **Rule 5: nothing in this task was seen in Karen's place.** Items 4 and 5 of the dispatch (*"no
+  hitch when a wave releases"*) are **NOT PROVEN on screen**: their stand-ins are claims 3's numbers,
+  read off `ServerStorage.DHReleaseBill` in headless Play. The dispatch for round 3 says no Forest
+  Test proof is needed (no behaviour change) and her Forest Test was not opened.
+- **The 1,399.7 ms lobby join frame and `Runtime:spawn`'s 23.2 ms are measured and escalated, not
+  fixed** (`MEASUREMENTS.md` 5, `ESCALATE.md`). They are other owners'.
+- **`MEASUREMENTS.md` 4a's bound is checked by arithmetic, not enforced by a guard** -- said there
+  rather than implied.
