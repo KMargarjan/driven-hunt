@@ -3431,6 +3431,11 @@ Boar.CONFIG.MODEL = {
 	-- 8 ms: one attach measured 9.4 ms at its worst, and the test is made BEFORE the call, so a
 	-- frame can reach 8 + one attach = 17.4 ms against the 92.1 ms measured without it.
 	ATTACH_BUDGET_MS = if Flags.isOn("BOAR_ATTACH_BUDGET") then 8 else 0,
+	-- WHETHER A DEAD ANIMAL TELLS EVERY CLIENT WHICH POSE IT IS HOLDING (task 358, flag
+	-- `CARCASS_POSE`, design docs/design/carcass-pose.md section 5). The same boundary shape as
+	-- `ENABLED` above: read once here, passed inward as `config`, so `Body.stepVisual`'s one write is
+	-- reachable by parameter with the flag at either value. OFF writes no attribute at all.
+	PUBLISH_DEATH_POSE = Flags.isOn("CARCASS_POSE"),
 	NAME = "Visual", -- the one child `Body.attachVisual` adds, and the only one
 	-- THE DISPLAY ANIMAL AT THE GATHERING (task 173). Karen, 2026-10-13: *"and after hunt over we
 	-- need to see boars shooted not boxes when we stand around"*. `Match.Scene` asks for one of these

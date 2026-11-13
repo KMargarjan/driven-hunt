@@ -1012,6 +1012,11 @@ SCOPE_SPECS = {
              # Task 355: the frame budget on `Body.attachVisual` -- `Boar.CONFIG.MODEL`'s own row,
              # the runtime's own step, and a flag the boar owns, so it is `boar` and `flags`.
              "tests/server/boar_attach_budget.spec.luau",
+             # Task 358: the pose a dead animal publishes about itself and the client owner that
+             # draws it. `boar` because the writer is `Body.stepVisual`, and `flags` because
+             # `CARCASS_POSE` is the row that switches both halves.
+             "tests/server/carcass_pose.spec.luau",
+             "tests/client/carcass_pose.spec.luau",
              "tests/server/boar_shot.spec.luau", "tests/server/boar_sounder.spec.luau",
              "tests/server/boar_wound.spec.luau", "tests/server/boar_zones.spec.luau",
              # Task 280: the deer's shot volumes against the DRAWN mesh -- every ray that answers a
@@ -1210,6 +1215,11 @@ SCOPE_SPECS = {
               "tests/server/light.spec.luau",
               "tests/server/boar_model.spec.luau", "tests/server/boar_shot.spec.luau",
               "tests/server/boar_attach_budget.spec.luau",
+              # Task 358: `CARCASS_POSE` is a row in the same table, and these two are what assert
+              # both of its owners read it at a boundary and that both arms are reachable by
+              # parameter (the server's publish and the client's draw).
+              "tests/server/carcass_pose.spec.luau",
+              "tests/client/carcass_pose.spec.luau",
               "tests/server/boar_calm.spec.luau",
               # Task 238: `LICENCE_POPUP` is a row in the same table, and this spec is what asserts
               # its owner reads it at a boundary and that both arms are reachable by parameter --

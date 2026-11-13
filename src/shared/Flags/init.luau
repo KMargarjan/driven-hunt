@@ -215,7 +215,16 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- few more frames. The two ways out of the cap are still task 238's two: retire the lit rows queued
 -- as TASKS.md 82b, which is the DIRECTOR's call, or ship lit, which `docs/design/feature-flags.md`
 -- section 11 step 1 forbids.
-Flags.MAX_FLAGS = 29
+-- 29 -> 30 FOR TASK 358's `CARCASS_POSE`, and the same sentence a tenth time, said out loud rather
+-- than paid for by quietly retiring somebody else's row: the table held exactly 29 before this
+-- commit. The dispatch of 2026-11-13 asks for the row and asks for it born OFF -- *"FIX behind a
+-- flag born OFF (Flags row, expires within 21 days)"* -- and what it switches is what a player SEES
+-- on a dead animal, which is feel and Karen's, so it cannot ship lit. The two ways out of the cap
+-- are still task 238's two: retire the lit rows queued as TASKS.md 82b, which is the DIRECTOR's call
+-- and deletes a losing branch per retirement, or ship lit, which `docs/design/feature-flags.md`
+-- section 11 step 1 forbids. **The Director may prefer to spend 82b instead**: this is one line
+-- either way.
+Flags.MAX_FLAGS = 30
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -457,6 +466,28 @@ Flags.DEFAULTS = {
 		why = "The boar is a real animal that walks, trots, runs, flinches and falls over, a sounder "
 			.. "is a sow and her young, and a drive can release red deer. OFF is the grey box with "
 			.. "its tinted hit zones and no deer at all, exactly as before task 115.",
+	} :: FlagRow,
+	CARCASS_POSE = {
+		-- BORN OFF on 2026-11-13 (task 358). Karen, 2026-11-10: *"animal died and then stand and then
+		-- again die"*. MEASURED in her Forest Test before a line was written: the 6 s death re-assert
+		-- does NOT do it (0 client pops in 19 kills, 0 in 80 forced server repairs). What stands an
+		-- animal back up is a client whose rig is drawing NO pose -- bind pose, which for every animal
+		-- here is on its feet -- and it NEVER recovers: hind 1.05 -> 4.94 studs of drawn bone span,
+		-- 3 of 3 still standing after 12 s, because the server's re-assert is one-shot at 6 s.
+		--
+		-- ON: the server publishes the pose it froze as one string attribute on the carcass
+		-- (`Carcass.ATTRIBUTE`), and `PlayerScripts.CarcassPose` makes sure THIS client is drawing it.
+		-- OFF is byte for byte today's world: nothing is published, nothing is loaded, nothing sweeps.
+		default = false,
+		-- The owner is the module that READS it at its boundary. There are two boundaries and one flag:
+		-- `CarcassPoseBoot` (the client owner) and `Boar.CONFIG.MODEL.PUBLISH_DEATH_POSE` (the one
+		-- server write). The client is the owner named here because it is the one this flag exists for.
+		owner = "src/client/CarcassPoseBoot.client.luau",
+		born = "2026-11-13",
+		expires = "2026-12-04",
+		why = "A dead animal whose rig reached a client with no pose on it stands on its feet for the "
+			.. "rest of its life (measured: 3 of 3 never recovered in 12 s). ON, each client draws the "
+			.. "death pose the server published; OFF is today's world.",
 	} :: FlagRow,
 	BOAR_ATTACH_BUDGET = {
 		-- BORN OFF on 2026-11-12 (task 355). A FRAME BUDGET on the one thing that makes the server's

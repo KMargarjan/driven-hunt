@@ -4786,3 +4786,21 @@ not the Builder's, so nothing here is edited there.
    the LINE no longer stands before it moves"*. T5 neither diagnosed nor patched it. Karen's
    *"it has to be there then it spooked or it walkks towards"* is the sentence it is about, and the
    prompt's WHY line quotes it; this task only stopped animals being created in the lane.
+
+## 2026-11-13 — Task 358: the design and the code disagree on one rule, and the Builder may not edit the design
+
+`docs/design/carcass-pose.md` §4.1 test 3 (`posed` → `"skip"`, and `posed: boolean` in `PoseView`)
+and §6.2's `Stats` (no `repairs`) no longer describe what ships. The shipped rule asks **"is the
+published death DRAWING this animal"** every sweep, and counts `repairs`.
+
+**Why it changed, measured in Karen's Forest Test with the flag on (not argued):** a
+once-per-carcass latch marks a carcass done the moment the SERVER is drawing it, and the measured
+defect is exactly a carcass that was being drawn and then was not — `leftAlone` read **10 over 10
+kills**, one answer per carcass for its whole life, and **3 of 3** forced carcasses stood for ever
+(`<runs-dir>/358-ON4-stats.txt`, `358-ON4-bind.txt`). With the live question: **2 of 2 recovered in
+0.2 s** and 0 pops in 16 kills (`358-ON7-*`). The Reviewer's round-1 note says the change is right
+and asks that the two stop disagreeing.
+
+**For the Director/Architect:** one `tools/architect.ps1 design carcass-pose --task 358` re-run (or
+an audit item) to update §4.1 and §6.2. Rule: the Builder does not edit `docs/design/`. Nothing is
+blocked by this — the code is argued where it stands and the Reviewer did not block on it.
