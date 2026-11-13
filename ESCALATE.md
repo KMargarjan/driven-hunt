@@ -1,3 +1,71 @@
+## 2026-11-13 ~05:35 UTC, Task 357 -- THE 1.4 s LOBBY JOIN FRAME DOES NOT EXIST. Measured, controlled, and I stopped where the dispatch said to
+
+The dispatch: *"If the 1.2-1.4 s is NOT in one frame, write that in MEASUREMENTS and ESCALATE.md and
+stop: no fix for a stall that does not exist."* It is not in one frame. No fix was written.
+
+`reviews/task-357/MEASUREMENTS.md` has the tables; this entry is the three decisions they leave.
+
+**What the lobby really spends at the join**, in Karen's Forest Test, C1, her flags, at the code
+commit `fdc04963` (`ServerStorage.DHLobbyBill`, run `CODEC`):
+
+| bite | symbol | ms | **frames it spanned** |
+|---|---|---|---|
+| `ground` | `world.groundAt` | 0.0 | 0 |
+| **`build`** | `Lobby.tryBuild` (`Field.fill` + `Build.build`) | **69.1** | **0** |
+| **`place`** | `world.place` -- `Body.place` -- `player:LoadCharacter()` | **317.1** | **14** |
+| `rest` | occupancy, pads, next-drive, the player loop, the keeper | 0.2 | -- |
+| `reportLobby` | six prints | 0.7 | 0 |
+
+`LoadCharacter` is documented as a yielding function, and the call site's own comment has said so
+since task 182. **The lobby's whole one-frame cost at a join is 69.1 ms** -- already inside the
+dispatch's 100 ms target, with no change to the game -- and it agrees with the console's independent
+`[lobby] built in 69 ms`. Four joins agree (13 / 17 / 11 / 14 frames). The instrument is not blind:
+a spin of 800 ms at that seam read back `1034.4 ms / 7 frames` and put a new 811.4 ms frame in the
+Heartbeat channel, a wait of 800 ms read back `1125.2 ms / 37 frames` and put none there.
+
+### 1. THE REAL 1.5 s FRAME IS THE ENGINE'S, AND IT HAS NO OWNER IN THIS REPOSITORY
+
+The worst three frames of a 5,760-frame session are **1,545.7 ms at step 15**, **827.8 ms at step
+17** and **104.0 ms at step 2** -- and `ForestTestBoot`'s whole handler cost **0.0-0.1 ms** on the
+frame before each. **Every frame from step 18 to step 5,760 is under 104.0 ms.** Those three are the
+first fraction of a second of the server's life, while the place and the first avatar load.
+
+So task 356's *"1,399.7-1,421.7 ms at the join"* is real and it is **not** `Lobby.step` +
+`reportLobby`: the two were a similar size and they are not the same thing. Nothing in Lua moves an
+engine frame.
+
+**The decision I cannot take:** whether anybody cares. Karen joins her Forest Test through Studio's
+Play, where the server's step 15 and the client's own load are the same two seconds of black screen,
+so this may never have been visible at all. **It needs Karen to say whether she sees a freeze when
+she arrives, and nothing else will settle it** -- the MicroProfiler is the tool that would attribute
+it and it has no scripting API, so no agent here can read what the engine spent it on. If she does
+see one, the only levers are the place's own content (31,437 parts at boot, the 869-part lobby
+built on the first scan) and Roblox's streaming, neither of which is this task.
+
+### 2. TASK 356'S DECISION #2 STILL HAS NO OWNER: the boar step peak, 80-102 ms, with the fix switched off
+
+Carried forward because it was not in task 357's dispatch and is in nobody else's either.
+`BOAR_ATTACH_BUDGET` was written, reviewed and merged in task 355 and is **OFF in Karen's place by
+the Director's instruction**. Nobody has yet run a drive with it on. `StepMsMax` read 80.97 / 82.36 /
+88.2 / 101.9 ms across task 356's drives against task 355's 40 ms target. Turning it on is cheaper
+than any new work. **It needs a task or an explicit deferral with an owner.**
+
+### 3. TASK 356'S DECISION #3 STILL HAS NO OWNER: `Runtime:spawn`, 23.2 ms in one frame
+
+Also carried forward. Nine animals built in the frame a wave releases; the only thing inside
+`releaseLine` above task 356's 16 ms bar. It would be sliced the way task 355 sliced `attachVisual`,
+at the price of a group appearing over several frames -- **which is a look question for Karen, not a
+performance one**. Same status: a task, or a deferral with an owner.
+
+### What this task leaves in the tree
+
+An instrument and its proof, nothing else. `ServerStorage.DHLobbyBill` (the lobby's three bites with
+ms, frames and calls; `Lobby.step` and `reportLobby` billed apart; the three worst Heartbeats with
+the step each fired on and the Lua on the frame before), one frame counter with one writer, two
+spec cases, a research note and the archived control. **No line of the lobby's build, pads, shop,
+range, drive or gun was touched**, so there is no behaviour to playtest and `smoke.sh`'s
+gun-in-hand time has nothing to move.
+
 ## 2026-11-13 ~03:35 UTC, Task 356 -- round 2's finding is RIGHT, the round cap is reached, I stopped. The refutation stands on two legs; the third one's LABEL is wrong
 
 **Director 2026-11-13 03:35 UTC: round 3 authorised for task 356, the Reviewer's option (b).** The
