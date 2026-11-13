@@ -113,8 +113,9 @@ return function()
 		-- L-028: delete `Runtime:clearCarcasses` (or the call in
 		-- `ForestTest.clearPreviousDriveCarcasses`) and this case fails -- the body is still in the
 		-- world at the next drive's start, which is exactly Karen's frame.
-		it("takes the previous drive's bodies when the next drive starts, and leaves the wood", function()
-			expect(Forest.clearPreviousDriveCarcasses(runtime, "Assigning")).to.equal(1)
+		it("takes the previous drive's bodies at the drive's end, and leaves the wood", function()
+			expect(Forest.CARCASS_CLEAR_PHASES.Scoring).to.equal(true)
+			expect(Forest.clearPreviousDriveCarcasses(runtime, "Scoring")).to.equal(1)
 
 			expect(dead.part.Parent == nil).to.equal(true)
 			expect(alive.part.Parent).to.be.ok()
@@ -122,11 +123,21 @@ return function()
 			expect(runtime:liveCount()).to.equal(1)
 		end)
 
-		-- L-093, the other branch: inside the drive the kill stays where it fell. The phase that
-		-- clears is the owner's own constant, so this case cannot drift away from the one above.
+		-- THE BACKSTOP, for a drive that ends any other way: the next drive's own edge takes
+		-- whatever is left. It is the same door, so this case only asserts the edge is in the set.
+		it("takes them at the next drive's start too", function()
+			expect(Forest.CARCASS_CLEAR_PHASES.Assigning).to.equal(true)
+			expect(Forest.clearPreviousDriveCarcasses(runtime, "Assigning")).to.equal(1)
+			expect(dead.part.Parent == nil).to.equal(true)
+			expect(alive.part.Parent).to.be.ok()
+		end)
+
+		-- L-093, the other branch: inside the drive the kill stays where it fell. `Running` is the
+		-- phase a player is shooting in, and the set is the owner's own, so this case cannot drift
+		-- away from the two above.
 		it("removes nothing on any other phase -- a kill inside the drive stays where it fell", function()
-			for _, phase in ipairs({ "Waiting", "Running", "Scoring" }) do
-				expect(phase).never.to.equal(Forest.CARCASS_CLEAR_PHASE)
+			for _, phase in ipairs({ "Waiting", "Running" }) do
+				expect(Forest.CARCASS_CLEAR_PHASES[phase]).never.to.equal(true)
 				expect(Forest.clearPreviousDriveCarcasses(runtime, phase)).to.equal(0)
 				expect(dead.part.Parent).to.be.ok()
 				expect(dead.part:GetAttribute("Carcass")).to.equal(true)

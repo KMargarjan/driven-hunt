@@ -6007,16 +6007,23 @@ end
 -- WOOD this world stocked is still never cleared at a boundary -- only the bodies go, which is what
 -- `Runtime:clearCarcasses` means. A carcass is not wood.
 --
--- `Assigning` AND NOT `Scoring`: the drive's own report and its results scene belong to the drive
--- that has just ended, so the bodies outlive it and go when the NEXT drive opens -- the dispatch's
--- *"at the latest when the next drive starts"*. Inside a drive nothing moves: a kill lies where it
--- fell for the whole `CARCASS_SECONDS`.
+-- BOTH OF THE DRIVE'S OWN EDGES, which is where `Match.Phase` itself asks: `enterScoring` and
+-- `enterAssigning` each emit `clearBoars`. `Scoring` does the work -- it is the drive's END, after
+-- the kills are counted and the results scene is built out of its own display copies -- and
+-- `Assigning` is the backstop for a drive that ends any other way. MEASURED, and that is why both
+-- are here: `Match` fires `PhaseChanged` at the END of its dispatch, and `enterAssigning`'s
+-- `placePlayers` YIELDS on `Player:LoadCharacter()`, so an `Assigning`-only clear landed SECONDS
+-- after the next drive had visibly started -- the bodies were still standing at +3 s in the Forest
+-- Test (task 362, round 1). `Scoring` fires with nothing before it that yields.
+--
+-- NOTHING MOVES INSIDE A DRIVE: `Running` is not in the set, so a kill lies where it fell for the
+-- whole `CARCASS_SECONDS` and the report, the claim and the score are untouched.
 --
 -- PURE OF ANY INSTANCE: the runtime is handed in, so both branches are drivable by parameter.
-ForestTest.CARCASS_CLEAR_PHASE = "Assigning"
+ForestTest.CARCASS_CLEAR_PHASES = table.freeze({ Scoring = true, Assigning = true })
 
 function ForestTest.clearPreviousDriveCarcasses(runtime, phase: string?): number
-	if phase ~= ForestTest.CARCASS_CLEAR_PHASE then
+	if phase == nil or ForestTest.CARCASS_CLEAR_PHASES[phase] ~= true then
 		return 0
 	end
 	if runtime == nil or runtime.clearCarcasses == nil then
