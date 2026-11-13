@@ -57,13 +57,24 @@ local PhysicsService = game:GetService("PhysicsService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
--- THIS MODULE'S FIRST AND ONLY REQUIRE, and it buys one string plus one word: the name of the
+-- THIS MODULE'S TWO REQUIRES, AND BOTH ARE PURE SHARED DATA (task 358 added the second; this line
+-- used to say "first and only"). The test either has to pass is the one written below: the module
+-- creates no Instance, reads no service and holds no state, so it adds no dependency on an owner
+-- and nothing here can be written by it.
+--
+-- `Licences` buys one string plus one word: the name of the
 -- attribute that says which species an animal is, and this animal's own species (task 171). Pure
 -- shared DATA -- `src/shared/Licences` creates no Instance, reads no service and holds no state --
 -- so it adds no dependency on an owner and nothing here can be written by it. The alternative was
 -- the literal "Species" in this file and again in `Match.classifyTarget`, which is the drift this
 -- project is a document about (docs/PROJECT_CONTEXT.md).
 local Licences = require(ReplicatedStorage:WaitForChild("Licences"))
+-- `Carcass` buys the NAME and the FORMAT of the one thing this file tells a client about a dead
+-- animal's drawn pose (task 358). The alternative was the literal "DeathPose" and a `string.format`
+-- here and a `string.match` again in `PlayerScripts.CarcassPose` -- two homes for one format, which
+-- is the drift this project is a document about (docs/PROJECT_CONTEXT.md).
+-- Design: docs/design/carcass-pose.md section 5
+local CarcassData = require(ReplicatedStorage:WaitForChild("Carcass"))
 
 local Body = {}
 
@@ -2142,6 +2153,30 @@ function Body.stepVisual(handle, dt: number, info, config)
 		handle.paddleFor = math.max(handle.paddleFor - dt, 0)
 		if handle.paddleFor <= 0 and track and heldAt then
 			track.TimePosition = heldAt -- back on the held frame, and silent from here
+		end
+	end
+
+	-- SAY THE POSE OUT LOUD, ON THE CARCASS ITSELF (task 358), so a client whose rig reached it with
+	-- no pose on it can draw the death instead of the bind pose -- which for every animal here is
+	-- standing. Read-compare-write, exactly as `Reholds` above: one write when the held frame
+	-- changes (the paddle superseding the fall is the only time it does), and no write at all on a
+	-- step that changed nothing. `ServerStorage.Assets` does not replicate, so the ID is the one
+	-- thing the client cannot get any other way.
+	--
+	-- WRITTEN ONLY WHERE THE DEATH IS FROZEN, and that is what makes it safe: the freeze only
+	-- happens to a track that reached the end of its own clip, so `Body.shouldBackstopDeath` is
+	-- already false for the rest of this carcass's life. A carcass carrying this attribute can never
+	-- be toppled afterwards, so a client's clip can never compose with a rolled box (task 150's
+	-- buried-upside-down carcass). `carcass_pose.spec` asserts that rather than describing it.
+	-- Design: docs/design/carcass-pose.md sections 5.2, 11.1
+	if config.MODEL.PUBLISH_DEATH_POSE and handle.collapsed and not handle.toppled and handle.part ~= nil then
+		local held = handle.heldClip
+		local fall, paddle = Body.deathClips(config)
+		if (held == fall or held == paddle) and handle.heldAt ~= nil then
+			local value = CarcassData.format(config.MODEL.ANIMATION_IDS[held], handle.heldAt)
+			if value ~= "" and handle.part:GetAttribute(CarcassData.ATTRIBUTE) ~= value then
+				handle.part:SetAttribute(CarcassData.ATTRIBUTE, value)
+			end
 		end
 	end
 end
