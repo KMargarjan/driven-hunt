@@ -207,7 +207,15 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- DIRECTOR's call and deletes a losing branch per retirement, or ship lit, which
 -- `docs/design/feature-flags.md` section 11 step 1 forbids. **The Director may prefer to spend 82b
 -- instead**: this is one line either way.
-Flags.MAX_FLAGS = 28
+-- 28 -> 29 FOR TASK 355's `BOAR_ATTACH_BUDGET`, and the same sentence a ninth time, said out loud
+-- rather than paid for by quietly retiring somebody else's row: the table held exactly 28 before
+-- this commit. The dispatch of 2026-11-12 asks for the frame budget and asks for it behind a flag
+-- born OFF -- *"If the fix changes WHEN something visible happens by more than one frame, put it
+-- behind a flag born OFF"* -- and it does: an animal in a crowded release keeps the grey box for a
+-- few more frames. The two ways out of the cap are still task 238's two: retire the lit rows queued
+-- as TASKS.md 82b, which is the DIRECTOR's call, or ship lit, which `docs/design/feature-flags.md`
+-- section 11 step 1 forbids.
+Flags.MAX_FLAGS = 29
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -449,6 +457,30 @@ Flags.DEFAULTS = {
 		why = "The boar is a real animal that walks, trots, runs, flinches and falls over, a sounder "
 			.. "is a sow and her young, and a drive can release red deer. OFF is the grey box with "
 			.. "its tinted hit zones and no deer at all, exactly as before task 115.",
+	} :: FlagRow,
+	BOAR_ATTACH_BUDGET = {
+		-- BORN OFF on 2026-11-12 (task 355). A FRAME BUDGET on the one thing that makes the server's
+		-- worst frame: `Body.attachVisual`. MEASURED in Karen's Forest Test, C1, one 340 s drive --
+		-- the boar runtime's worst step was 104.2 ms and 92.1 ms of it was attaching models, because a
+		-- wave releases ten animals and all ten are built in the same step. ON, a step stops attaching
+		-- once it has spent `MODEL.ATTACH_BUDGET_MS` on attaching; the animals it did not reach are
+		-- attached on the next pass, because the step already asks `visual == nil` every frame.
+		--
+		-- WHAT CHANGES FOR A PLAYER: an animal that arrives in a crowded release keeps the grey box
+		-- for a few more frames before its coat appears. That is "more than one frame", which is why
+		-- this is a flag and not a straight fix (the dispatch's own rule). NOTHING ELSE moves: the
+		-- same animals, the same count, the same timings -- the budget defers, it never drops, and
+		-- `boar_attach_budget.spec.luau` asserts that every animal still ends up with a model.
+		--
+		-- OFF is byte-for-byte today's world: `ATTACH_BUDGET_MS` is 0 and 0 means no budget.
+		default = false,
+		-- The owner is the module that READS it at its boundary (`Boar.CONFIG.MODEL.ATTACH_BUDGET_MS`).
+		owner = "src/server/Boar/init.luau",
+		born = "2026-11-12",
+		expires = "2026-12-03",
+		why = "The server's worst frame during a drive is ten animal models built in one step "
+			.. "(92.1 of 104.2 ms, measured). ON spends at most 8 ms a frame on them and lets the rest "
+			.. "arrive on the next pass; OFF is today's single-frame burst.",
 	} :: FlagRow,
 	BOAR_BEHAVIOUR = {
 		-- BORN OFF on 2026-10-04 (task 118). What a boar DOES about what it notices: it notices a
@@ -811,7 +843,12 @@ Flags.DEFAULTS = {
 		-- not a rule and not a till.
 		owner = "StarterPlayerScripts.Hud.LicenceCard",
 		born = "2026-10-22 task 238",
-		expires = "2026-11-12", -- 21 days: the ceiling in feature-flags.md section 12
+		-- 2026-11-12 -> 2026-12-03 (task 355, which tripped it the moment the UTC date rolled over).
+		-- THE REASON THE ROW STILL EXISTS, which is what this date is for: the card has never been
+		-- put in front of Karen with the row at its default. She plays with `DHFlag_LICENCE_POPUP`
+		-- ON as a Forest Test override (read 2026-11-12, `<runs-dir>/355-attrs-before.txt`), so the
+		-- feature is alive and in use and what is missing is only her word on it; the flip is hers.
+		expires = "2026-12-03", -- 21 days from the move: the ceiling in feature-flags.md section 12
 		why = "One card, when a hunter aims at a red deer he has no licence for: NO DEER LICENCE, "
 			.. "what the rule actually is, and a BUY button that goes through the shop's own "
 			.. "server purchase path from wherever he is standing. OFF draws nothing.",

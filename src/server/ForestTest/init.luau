@@ -3824,7 +3824,18 @@ end
 -- `docs/design/feature-flags.md`: *"a flagged path must be reachable BY PARAMETER as well as by
 -- flag, or its two states cannot be tested while the flag sits at one of them"*). Production passes
 -- nothing and gets the value `ForestTest.start` read once at this owner's boundary.
+-- THE BILL OF ONE `ForestTest.step` (task 355). Zeroed at the top of `step` and READ BY THE
+-- COMPOSITION ROOT AFTER THE CALL RETURNS, so `step`'s six early returns need no wrapper and nothing
+-- about its shape changes. Diagnostic only: nothing in the game reads it.
+local sections = { placement = 0, spook = 0, lines = 0, roar = 0, staged = 0, rest = 0, release = 0 }
+
+function ForestTest.stepSections()
+	return sections
+end
+
 function ForestTest.step(now: number, inPlace: boolean?): string?
+	sections.placement, sections.spook, sections.lines, sections.roar = 0, 0, 0, 0
+	sections.staged, sections.rest, sections.release = 0, 0, 0
 	if not state.started then
 		return nil
 	end
@@ -3848,17 +3859,26 @@ function ForestTest.step(now: number, inPlace: boolean?): string?
 		if settled and aim.why ~= "off" then
 			print(string.format("[ForestTest] drive aimed: dz %+.0f, %s", aim.dz, aim.why))
 		end
+		local sectionAt = os.clock()
 		local bed = ForestTest.stepPlacement(now, resolved, aim)
+		sections.placement = (os.clock() - sectionAt) * 1000
+		sectionAt = os.clock()
 		-- WHO HAS BEEN WALKED UP ON, BEFORE ANYTHING ELSE IS DECIDED (task 154). It runs in BOTH
 		-- modes and over every live animal, so a beater meeting a scheduled line and a beater
 		-- meeting a resting sounder get the same rule -- see `ForestTest.spookNearBeaters`.
 		local spooked = ForestTest.spookNearBeaters(now)
+		sections.spook = (os.clock() - sectionAt) * 1000
+		sectionAt = os.clock()
 		ForestTest.stepLines(now)
+		sections.lines = (os.clock() - sectionAt) * 1000
+		sectionAt = os.clock()
 		-- THE RUT ROAR, BEFORE THE SCHEDULE AND BESIDE THE FLUSH (task 251 part 2): it is a sound and
 		-- nothing else -- it releases nothing, moves nothing and refuses nothing -- so it sits with
 		-- the other things that only have a line to say. `ForestTest.stepRoar` owns its own clock and
 		-- its own window, and answers nil on all but four ticks of a drive.
 		local roared = ForestTest.stepRoar(now)
+		sections.roar = (os.clock() - sectionAt) * 1000
+		sectionAt = os.clock()
 		-- ONE LINE PER FLUSH (task 153), through the channel this module already answers on: the
 		-- boot prints whatever `step` returns, and "the beater had no visible effect" is the kind of
 		-- claim that needs a number beside it.
@@ -3873,6 +3893,7 @@ function ForestTest.step(now: number, inPlace: boolean?): string?
 		-- an instrument that had to wait up to `intervalSeconds` for its deer would be measuring the
 		-- schedule. It costs no slot and returns its own line.
 		local stagedLine = ForestTest.stagedLine(now)
+		sections.staged = (os.clock() - sectionAt) * 1000
 		if stagedLine ~= nil then
 			flush = if flush ~= nil then stagedLine .. " | " .. flush else stagedLine
 		end
@@ -3892,7 +3913,10 @@ function ForestTest.step(now: number, inPlace: boolean?): string?
 		-- are archived (`backups/2026-11-10_task-345b_rest-groups.md`) and NOT deleted: the losing
 		-- branch goes at the flag flip, which is `docs/design/feature-flags.md`'s own rule (D-2).
 		if not resolved and ForestTest.beaterMode() then
-			return ForestTest.stepRest(now, spooked) or flush
+			sectionAt = os.clock()
+			local restLine = ForestTest.stepRest(now, spooked)
+			sections.rest = (os.clock() - sectionAt) * 1000
+			return restLine or flush
 		end
 		if now < state.nextWaveAt then
 			return flush
@@ -3907,7 +3931,9 @@ function ForestTest.step(now: number, inPlace: boolean?): string?
 		-- flush`, so a roar -- or a flush, or a walked-up animal -- that happened on the same tick as a
 		-- slot release never reached the console at all, and the drive's own proof then undercounts the
 		-- very thing it is evidence for. The slot line comes first because it is the drive's headline.
+		sectionAt = os.clock()
 		local released = ForestTest.releaseLine(now, nil, resolved, aim)
+		sections.release = (os.clock() - sectionAt) * 1000
 		if released ~= nil and flush ~= nil then
 			return released .. " | " .. flush
 		end
