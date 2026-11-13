@@ -272,6 +272,11 @@ local stats = {
 	nextWrites = 0,
 	nextRateLimited = 0,
 	returns = 0,
+	-- THE FIRST BODY (task 363): how many characters this owner loaded because the engine's
+	-- auto-load was held back and the man had none. One per join in Karen's solo place, and it is
+	-- the number that says the hold is actually being undone by somebody.
+	firstBodies = 0,
+	spawnHoldReleases = 0,
 	degradedEnrolments = 0,
 	-- WHICH LODGE AND WHICH TRUCKS GOT BUILT (task 180): how many free-model templates were cloned
 	-- and how many were asked for and not found. The boot prints them, so "the models are in" is a
@@ -723,6 +728,90 @@ function Lobby.setAlwaysHunters(reader: (() -> { [number]: boolean })?)
 	alwaysHunters = if type(reader) == "function" then reader else nil
 end
 
+-- ---------------------------------------------------------------- the first character (task 363)
+--
+-- KAREN, 2026-11-13: *"when game starts I need to be in lobby not in road"*.
+--
+-- MEASURED IN HER PLACE, THREE PLAYS: the engine auto-loads her character the moment she joins --
+-- seconds before this owner has built itself -- and it picks between the two enabled neutral
+-- `SpawnLocation`s in that world. It picked `Workspace.ForestRoadSpawn` (3000, 141, -2109) every
+-- time, 838 studs from the lodge, and `Join.needsReturn` then respawned her at the lodge at
+-- `DistributedGameTime` 5.5. The return rule works; it is just five seconds too late to be the
+-- answer to her sentence, and what she sees in those five seconds is the road.
+--
+-- SO THE ENGINE'S AUTO-LOAD IS HELD BACK FOR THAT WINDOW AND THIS OWNER OWES HER THE BODY.
+-- `Players.CharacterAutoLoads` is a new owned thing on `RespawnLocation`'s own terms
+-- (`docs/design/lobby.md` 8.2: nothing else in the repo writes it, and it is the engine's own
+-- documented lobby mechanism):
+--   https://create.roblox.com/docs/reference/engine/classes/Players#CharacterAutoLoads
+--
+-- IT IS A WINDOW AND NOT A POLICY, and that is the whole blast radius of this task: the hold is
+-- handed back the moment the lobby is built and nobody is bodiless (`Join.releasesHold`), so every
+-- respawn after it -- a death at the lodge, a Reset in a drive, the stand wall's own measured case
+-- -- is the engine's exactly as it was. `FIRST_SPAWN_HOLD_SECONDS` is the ceiling, armed here and
+-- not in the scan, because a boot that dies before `Lobby.start` must still end with a body: the
+-- release loads anybody who has none, at the engine's own spawn, through the caller's `load`.
+local spawnsHeld = false
+local holdPlayers: any = nil
+local holdLoad: ((any) -> ())? = nil
+
+local function releaseHold()
+	if not spawnsHeld then
+		return
+	end
+	spawnsHeld = false
+	stats.spawnHoldReleases += 1
+	local players = holdPlayers
+	local load = holdLoad
+	holdPlayers = nil
+	holdLoad = nil
+	if players == nil then
+		return
+	end
+	players.CharacterAutoLoads = true
+	-- ...AND NOBODY IS LEFT WITHOUT ONE. `load` writes no position (`Body.place` with a nil CFrame
+	-- is "they spawned, and that is not a failure"), so this is the hold's exact inverse and not a
+	-- second opinion about where a man stands.
+	if load == nil then
+		return
+	end
+	for _, player in ipairs(players:GetPlayers()) do
+		if player.Character == nil then
+			load(player)
+		end
+	end
+end
+
+-- THE ONE WRITER OF `Players.CharacterAutoLoads`. Called by the composition root BEFORE its own
+-- heavy work, which is the only moment early enough to be in front of the engine.
+--
+-- `seconds` IS THE CEILING, AND IT IS A PARAMETER SO THE CEILING ITSELF CAN BE TESTED (round 1's
+-- note 5): it is the one release path with no case otherwise, because the live number is 25 s and
+-- no spec may wait that long. The live call passes nothing and gets `FIRST_SPAWN_HOLD_SECONDS`.
+function Lobby.holdFirstSpawn(players: any, hold: boolean, load: ((any) -> ())?, seconds: number?)
+	if not hold then
+		-- HANDED BACK BY THE CALLER: this world has no lobby, or a spec is tearing down. With nothing
+		-- held this is a no-op, because there is nothing to undo.
+		if holdPlayers == nil then
+			holdPlayers = players
+		end
+		releaseHold()
+		return
+	end
+	if spawnsHeld then
+		return
+	end
+	spawnsHeld = true
+	holdPlayers = players
+	holdLoad = load
+	players.CharacterAutoLoads = false
+	task.delay(if seconds ~= nil then seconds else Data.CONFIG.FIRST_SPAWN_HOLD_SECONDS, releaseHold)
+end
+
+function Lobby.spawnsHeld(): boolean
+	return spawnsHeld
+end
+
 -- WRITTEN ONLY WHEN IT DIFFERS, so it is one write per change and not one per scan.
 local function setRespawn(player: any, to: BasePart?)
 	if player.RespawnLocation ~= to then
@@ -883,7 +972,12 @@ local function stepPlayer(
 	local here = rootOf(player)
 	local held = world.isHeld ~= nil and world.isHeld(userId) == true
 	local inHome: boolean? = if here == nil then nil else Join.insideHome(here :: Vector3, homeAreas)
-	if Join.needsReturn(inDrive, held, inHome) then
+	-- A MAN WITH NO BODY AT ALL (task 363), through the SAME throttled door the return uses -- the
+	-- lodge spawn CFrame -- because it is the same question: where does a man who is not in a hunt
+	-- belong? `needsBody` is false unless this owner is holding the engine's auto-load back, so with
+	-- the hold gone this line cannot fire at all.
+	local needsBody = Join.needsBody(inDrive, held, player.Character ~= nil, spawnsHeld)
+	if needsBody or Join.needsReturn(inDrive, held, inHome) then
 		local last = returnedAt[userId]
 		-- THROTTLED, because `Body.place` yields on `LoadCharacter` and this scan runs at 10 Hz. The
 		-- nil-position rule above already covers most of it (a respawning player has no root); this
@@ -891,6 +985,18 @@ local function stepPlayer(
 		if last == nil or now - last >= cfg.RETURN_COOLDOWN_SECONDS then
 			returnedAt[userId] = now
 			stats.returns += 1
+			-- COUNTED WHERE IT IS DONE AND NOT WHERE IT IS DECIDED: the throttle can refuse, and a
+			-- counter in front of it would claim a body nobody was given.
+			if needsBody then
+				stats.firstBodies += 1
+				print(
+					string.format(
+						"[lobby] %s had no body: loading it at the lodge (first bodies %d)",
+						player.Name,
+						stats.firstBodies
+					)
+				)
+			end
 			world.place(player, Lobby.spawnCFrame(anchor :: Vector3, indexFor(userId), cfg))
 		end
 	end
@@ -1561,6 +1667,10 @@ function Lobby.step(now: number, players: { any }?)
 					end
 				end
 				stats.degradedEnrolments = enrolled
+				-- ...AND THE ENGINE GETS ITS AUTO-LOAD BACK WITH THEM (task 363). A lobby that could
+				-- not build itself is a lobby that cannot owe anybody a body: `releaseHold` loads
+				-- whoever still has none, at the engine's own spawn, which IS today's game.
+				releaseHold()
 				warn(
 					string.format(
 						"[lobby] no ground at the anchor after %ds and %d attempts: %d player(s) enrolled directly,"
@@ -1638,8 +1748,18 @@ function Lobby.step(now: number, players: { any }?)
 	-- `Economy.ownedOf`, which does `table.freeze(table.clone(set))` PER CALL and would be ~160
 	-- clones a second at sixteen players.
 	local owners: { [number]: boolean }? = if alwaysHunters ~= nil then alwaysHunters() else nil
+	-- WHO STILL HAS NO BODY, COUNTED ON THE SAME PASS (task 363): the hold is handed back on the
+	-- first scan where this owner is built and nobody is waiting on it, which is `Join.releasesHold`.
+	-- Level-triggered, for `needsReturn`'s own stated reason -- there is no edge to hang it off.
+	local bodiless = 0
 	for _, player in ipairs(occupants) do
+		if player.Character == nil then
+			bodiless += 1
+		end
 		stepPlayer(player, now, padOf[player.UserId], serverNow, owners)
+	end
+	if spawnsHeld and Join.releasesHold(Lobby.isBuilt(), bodiless) then
+		releaseHold()
 	end
 
 	-- WHO THE SHOPKEEPER LOOKS AT (task 181): the nearest man to him, decided HERE and written by
@@ -1779,6 +1899,10 @@ function Lobby.stop()
 		return
 	end
 	started = false
+	-- THE ENGINE'S AUTO-LOAD IS HANDED BACK WITH EVERYTHING ELSE THIS OWNER WROTE (task 363): the
+	-- teardown assertion above is "every attribute it wrote is nil, every `RespawnLocation` it set is
+	-- handed back", and `Players.CharacterAutoLoads` is now on that list.
+	releaseHold()
 	for _, connection in ipairs(connections) do
 		connection:Disconnect()
 	end

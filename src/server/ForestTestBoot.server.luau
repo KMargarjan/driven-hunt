@@ -99,6 +99,27 @@ print(
 	)
 )
 
+-- ---------------------------------------------------------------- where she stands at the start
+--
+-- KAREN, 2026-11-13: *"also when game starts I need to be in lobby not in road"*.
+--
+-- MEASURED FIRST, three Plays of her place with her own attributes: the engine auto-loaded her
+-- character at `Workspace.ForestRoadSpawn` -- (3000, 141, -2109), 838 studs from the lodge -- and the
+-- lobby's return rule only reached her at `DistributedGameTime` 5.5, because everything below this
+-- line (the places, the forest, the boars, the drive) runs before the lobby can measure its own
+-- ground. Nothing was broken: she was simply standing on the road for those five seconds.
+--
+-- SO THE HOLD IS ARMED **HERE**, and the position in this file is the whole point of it: this is the
+-- last line before the root starts yielding, and the engine auto-loads the only player in a Play
+-- Solo session during those yields (task 202 measured the same race from the other side --
+-- `PlayerAdded` had already fired by the time this root reached its handler). `Lobby` is its one
+-- writer and this root only says when; `Body.place` with no CFrame is the undo -- "give him a body
+-- where the engine would have" -- and it is injected for the reason every other seam here is: the
+-- lobby never learns what a drive's `Body` is.
+Lobby.holdFirstSpawn(Players, true, function(player)
+	Body.place(player, nil, Match.CONFIG)
+end)
+
 -- ---------------------------------------------------------------- the four places
 
 -- KAREN'S FOUR PLACES, PLANTED ONCE, BEFORE ANYTHING ELSE RUNS. Her 2026-10-15: *"make 4 hunting
@@ -948,6 +969,12 @@ print(
 			else "off: joining the server joins the drive, as before task 177"
 	)
 )
+-- ...AND WITH NO LOBBY, THE ENGINE GETS ITS AUTO-LOAD BACK AT ONCE (task 363). A world where
+-- `Lobby.start` refused has nobody to owe anybody a body, so the hold armed above must not outlive
+-- that answer -- the ceiling would otherwise keep her bodiless for the rest of its ten seconds.
+if not lobbyOn then
+	Lobby.holdFirstSpawn(Players, false)
+end
 
 -- THE LOBBY'S OWN NUMBERS, ONCE, ON THE CONSOLE (review round 1, note 4). `docs/design/lobby.md`
 -- section 18 item 2 asks for exactly this -- *"`Lobby.stats().shelfY` must be printed so it is a

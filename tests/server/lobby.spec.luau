@@ -904,6 +904,45 @@ return function()
 			expect(Join.needsReturn(true, false, nil)).to.equal(false)
 		end)
 
+		-- TASK 363. KAREN, 2026-11-13: *"when game starts I need to be in lobby not in road"*. The
+		-- rule above answers "where does he belong"; this one answers the question in front of it,
+		-- "has he got a body at all", which `needsReturn` cannot be asked (a man with no character
+		-- has no position, and absent is not outside).
+		it("owes a body only while the engine's auto-load is held back", function()
+			-- THE ONE CASE THAT LOADS HIM: held, not in a hunt, no character.
+			expect(Join.needsBody(false, false, false, true)).to.equal(true)
+			-- NOT HELD: nothing in the game changes -- the DEV place, a spec, a world with no lobby.
+			expect(Join.needsBody(false, false, false, false)).to.equal(false)
+			-- HE HAS ONE ALREADY.
+			expect(Join.needsBody(false, false, true, true)).to.equal(false)
+			-- IN THE DRIVE, OR HELD BY IT: `Match.Body` owns him, body and all.
+			expect(Join.needsBody(true, false, false, true)).to.equal(false)
+			expect(Join.needsBody(false, true, false, true)).to.equal(false)
+			expect(Join.needsBody(true, true, false, true)).to.equal(false)
+		end)
+
+		it("hands the auto-load back only when it is built and nobody is waiting on it", function()
+			expect(Join.releasesHold(true, 0)).to.equal(true)
+			-- A man still without a body: the hold stays, because this owner still owes him one.
+			expect(Join.releasesHold(true, 1)).to.equal(false)
+			-- NOT BUILT: it cannot answer "where does he stand" yet, so it keeps the hold.
+			expect(Join.releasesHold(false, 0)).to.equal(false)
+			expect(Join.releasesHold(false, 2)).to.equal(false)
+		end)
+
+		-- THE CEILING IS LONGER THAN THE SLOWEST BOOT ANYBODY HAS MEASURED (task 363): it is the
+		-- belt for a boot that died, and its undo is a body at the engine's own spawn -- the road.
+		-- The lobby took her at DistributedGameTime 5.6/6.0/6.1 in this task's Plays and
+		-- `smoke.sh` records 12.2-14.5 s over 11 Plays of the same place, so a ceiling inside that
+		-- older range would fire on a slow boot and put her back where the task started.
+		it("holds the first spawn for longer than any measured boot", function()
+			expect(CFG.FIRST_SPAWN_HOLD_SECONDS >= 2 * 12.2).to.equal(true)
+			-- ...AND IT IS NOT THE BUILD TIMEOUT. That one is counted from the lobby's first scan
+			-- and this one from the boot's first line: one number for two clocks would be a lie
+			-- about when either of them starts.
+			expect(CFG.FIRST_SPAWN_HOLD_SECONDS ~= CFG.BUILD_TIMEOUT_SECONDS).to.equal(true)
+		end)
+
 		it("reads the field as a rectangle and not as a circle", function()
 			local anchor = Vector3.new(2850, 153, -2950)
 			local half = CFG.FIELD.SPAN_STUDS / 2

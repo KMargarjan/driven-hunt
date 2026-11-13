@@ -486,6 +486,164 @@ return function()
 		end)
 	end)
 
+	-- ---------------------------------------------------------------- task 363
+	--
+	-- KAREN, 2026-11-13: *"also when game starts I need to be in lobby not in road"*. MEASURED in
+	-- her place: the engine auto-loaded her character at `Workspace.ForestRoadSpawn`, 838 studs from
+	-- the lodge, and the return rule reached her 5.5 s later. These cases drive the hold that stops
+	-- that first auto-load and the release that hands the engine its own behaviour back.
+	describe("the first character", function()
+		local function fakePlayers(list: { any })
+			return {
+				CharacterAutoLoads = true,
+				GetPlayers = function()
+					return list
+				end,
+			}
+		end
+
+		it("is loaded at the lodge, and never by the engine on the road", function()
+			local seen, on = fresh(bin)
+			expect(on).to.equal(true)
+			-- THE COUNTERS ARE THIS MODULE'S OWN AND ARE NOT CLEARED BETWEEN CASES (`stats.scans`
+			-- climbs across this whole file), so every count here is asserted as a DELTA.
+			local firstBodies0 = Lobby.stats().firstBodies
+			Lobby.step(1000, {})
+			expect(Lobby.isBuilt()).to.equal(true)
+			-- A MAN WITH NO BODY AT ALL: `occupant` with no position is a player whose `Character`
+			-- is nil, which is exactly what a join looks like with the auto-load held back.
+			local man = occupant(77, nil, bin)
+			local loaded: { number } = {}
+			local players = fakePlayers({ man })
+			Lobby.holdFirstSpawn(players, true, function(player: any)
+				table.insert(loaded, player.UserId)
+			end)
+			expect(players.CharacterAutoLoads).to.equal(false)
+			expect(Lobby.spawnsHeld()).to.equal(true)
+			-- ONE SCAN, AND THE LOBBY OWES HIM THE BODY -- through `world.place`, the one writer of
+			-- where a character stands, at the porch spawn the return rule uses.
+			Lobby.step(1001, { man })
+			expect(#seen.placed).to.equal(1)
+			expect(seen.placed[1].userId).to.equal(77)
+			expect(Lobby.stats().firstBodies - firstBodies0).to.equal(1)
+			-- WHERE: the porch, which is the point `Join.needsReturn` would have walked him back to
+			-- anyway -- so the first body and every later return are the same spot, inside the
+			-- field's own half-span of the anchor and facing +Z at the forest.
+			local at = seen.placed[1].cframe.Position
+			local half = CFG.FIELD.SPAN_STUDS / 2
+			expect(math.abs(at.X - ANCHOR.x) <= half).to.equal(true)
+			expect(math.abs(at.Z - ANCHOR.z) <= half).to.equal(true)
+			expect(seen.placed[1].cframe.LookVector.Z > 0.99).to.equal(true)
+			-- ...AND THE HOLD IS NOT HANDED BACK WHILE HE IS STILL WITHOUT ONE.
+			expect(players.CharacterAutoLoads).to.equal(false)
+			-- THE BODY ARRIVES (the real `Body.place` yields on `LoadCharacter`), and on the next
+			-- scan the engine gets its auto-load back: every respawn after this one is the engine's,
+			-- exactly as it was before this task.
+			man.Character = man.root.Parent
+			Lobby.step(1002, { man })
+			expect(players.CharacterAutoLoads).to.equal(true)
+			expect(Lobby.spawnsHeld()).to.equal(false)
+			expect(#loaded).to.equal(0)
+			-- AND IT IS NOT LOADED TWICE: `firstBodies` is one per join and not one per scan.
+			expect(Lobby.stats().firstBodies - firstBodies0).to.equal(1)
+		end)
+
+		it("is the engine's own business when nothing is held", function()
+			local seen, on = fresh(bin)
+			expect(on).to.equal(true)
+			local firstBodies0 = Lobby.stats().firstBodies
+			Lobby.step(1000, {})
+			local man = occupant(78, nil, bin)
+			Lobby.step(1001, { man })
+			Lobby.step(1002, { man })
+			-- NO HOLD, NO FIRST BODY. This is the whole blast radius of the task: with the hold off
+			-- -- the DEV place, a world with no lobby, every spec that came before this one -- a
+			-- player with no character is left alone.
+			expect(#seen.placed).to.equal(0)
+			expect(Lobby.stats().firstBodies - firstBodies0).to.equal(0)
+		end)
+
+		it("gets one anyway when the lobby cannot build itself", function()
+			local seen, on = fresh(bin, function(world)
+				world.groundAt = function(): number?
+					return nil
+				end
+			end)
+			expect(on).to.equal(true)
+			local man = occupant(79, nil, bin)
+			local loaded: { number } = {}
+			local players = fakePlayers({ man })
+			Lobby.holdFirstSpawn(players, true, function(player: any)
+				table.insert(loaded, player.UserId)
+			end)
+			Lobby.step(1000, { man })
+			expect(Lobby.isBuilt()).to.equal(false)
+			expect(players.CharacterAutoLoads).to.equal(false)
+			-- THE LOBBY CAN NEVER LOCK THE GAME OUT (design 7.4), and from this task on that
+			-- includes never leaving a man without a body: the degraded path hands the auto-load
+			-- back AND loads whoever has none, at the engine's own spawn.
+			Lobby.step(1000 + CFG.BUILD_TIMEOUT_SECONDS, { man })
+			expect(#seen.enrolled).to.equal(1)
+			expect(players.CharacterAutoLoads).to.equal(true)
+			expect(Lobby.spawnsHeld()).to.equal(false)
+			expect(#loaded).to.equal(1)
+			expect(loaded[1]).to.equal(79)
+		end)
+
+		-- THE CEILING, DRIVEN AT 50 ms (round 1's note 5). The live number is 25 s -- longer than any
+		-- boot anybody has measured, because its undo is a body at the engine's own spawn -- so the
+		-- ONE release path with no other case is this one: a boot that dies before `Lobby.start`
+		-- must still end with a body.
+		it("gives up by itself when nothing ever releases it", function()
+			local man = occupant(81, nil, bin)
+			local loaded: { number } = {}
+			local players = fakePlayers({ man })
+			Lobby.holdFirstSpawn(players, true, function(player: any)
+				table.insert(loaded, player.UserId)
+			end, 0.05)
+			expect(players.CharacterAutoLoads).to.equal(false)
+			expect(Lobby.spawnsHeld()).to.equal(true)
+			-- NOTHING CALLS ANYTHING: no scan, no stop, no build. Only the ceiling is left.
+			local waited = 0
+			while Lobby.spawnsHeld() and waited < 2 do
+				waited += task.wait(0.05)
+			end
+			expect(Lobby.spawnsHeld()).to.equal(false)
+			expect(players.CharacterAutoLoads).to.equal(true)
+			-- ...AND HE IS GIVEN A BODY WHERE THE ENGINE WOULD HAVE PUT HIM, which is this one
+			-- release that does NOT go through `world.place`: there is no lobby to place him at.
+			expect(#loaded).to.equal(1)
+			expect(loaded[1]).to.equal(81)
+		end)
+
+		it("hands the auto-load back on teardown, with everything else this owner wrote", function()
+			local _seen, on = fresh(bin)
+			expect(on).to.equal(true)
+			local man = occupant(80, nil, bin)
+			local players = fakePlayers({ man })
+			Lobby.holdFirstSpawn(players, true, nil)
+			expect(players.CharacterAutoLoads).to.equal(false)
+			Lobby.stop()
+			expect(players.CharacterAutoLoads).to.equal(true)
+			expect(Lobby.spawnsHeld()).to.equal(false)
+		end)
+
+		it("can be handed back by the caller, for a world with no lobby at all", function()
+			local players = fakePlayers({})
+			Lobby.holdFirstSpawn(players, true, nil)
+			expect(players.CharacterAutoLoads).to.equal(false)
+			Lobby.holdFirstSpawn(players, false)
+			expect(players.CharacterAutoLoads).to.equal(true)
+			expect(Lobby.spawnsHeld()).to.equal(false)
+			-- A SECOND HAND-BACK IS A NO-OP, not a second write. The counter is this module's own and
+			-- is not cleared between cases (`stats.scans` climbs across the file), so the assertion
+			-- is on the DELTA: a count read as an absolute passed here only by accident of order.
+			local before = Lobby.stats().spawnHoldReleases
+			Lobby.holdFirstSpawn(players, false)
+			expect(Lobby.stats().spawnHoldReleases - before).to.equal(0)
+		end)
+	end)
+
 	describe("a player walking to the truck", function()
 		it("does nothing while he stands away from the circle", function()
 			local seen = fresh(bin)
