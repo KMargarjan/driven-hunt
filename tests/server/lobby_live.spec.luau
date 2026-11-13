@@ -39,9 +39,6 @@ local RangeData = require(ReplicatedStorage:WaitForChild("Range"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local CFG = Data.CONFIG
--- THE WORLD THE FAKES BUILD IN, named once: `fakes` hands `Lobby.start` `world = "forest-test"`,
--- so that is the `ANCHORS` row a case may measure a placed point against (task 363).
-local CFG_WORLD = "forest-test"
 local ANCHOR = Data.anchorFor("forest-test") :: any
 local SHELF = 153
 
@@ -508,6 +505,9 @@ return function()
 		it("is loaded at the lodge, and never by the engine on the road", function()
 			local seen, on = fresh(bin)
 			expect(on).to.equal(true)
+			-- THE COUNTERS ARE THIS MODULE'S OWN AND ARE NOT CLEARED BETWEEN CASES (`stats.scans`
+			-- climbs across this whole file), so every count here is asserted as a DELTA.
+			local firstBodies0 = Lobby.stats().firstBodies
 			Lobby.step(1000, {})
 			expect(Lobby.isBuilt()).to.equal(true)
 			-- A MAN WITH NO BODY AT ALL: `occupant` with no position is a player whose `Character`
@@ -525,15 +525,14 @@ return function()
 			Lobby.step(1001, { man })
 			expect(#seen.placed).to.equal(1)
 			expect(seen.placed[1].userId).to.equal(77)
-			expect(Lobby.stats().firstBodies).to.equal(1)
+			expect(Lobby.stats().firstBodies - firstBodies0).to.equal(1)
 			-- WHERE: the porch, which is the point `Join.needsReturn` would have walked him back to
 			-- anyway -- so the first body and every later return are the same spot, inside the
 			-- field's own half-span of the anchor and facing +Z at the forest.
 			local at = seen.placed[1].cframe.Position
-			local anchor = Data.ANCHORS[CFG_WORLD]
 			local half = CFG.FIELD.SPAN_STUDS / 2
-			expect(math.abs(at.X - anchor.x) <= half).to.equal(true)
-			expect(math.abs(at.Z - anchor.z) <= half).to.equal(true)
+			expect(math.abs(at.X - ANCHOR.x) <= half).to.equal(true)
+			expect(math.abs(at.Z - ANCHOR.z) <= half).to.equal(true)
 			expect(seen.placed[1].cframe.LookVector.Z > 0.99).to.equal(true)
 			-- ...AND THE HOLD IS NOT HANDED BACK WHILE HE IS STILL WITHOUT ONE.
 			expect(players.CharacterAutoLoads).to.equal(false)
@@ -546,12 +545,13 @@ return function()
 			expect(Lobby.spawnsHeld()).to.equal(false)
 			expect(#loaded).to.equal(0)
 			-- AND IT IS NOT LOADED TWICE: `firstBodies` is one per join and not one per scan.
-			expect(Lobby.stats().firstBodies).to.equal(1)
+			expect(Lobby.stats().firstBodies - firstBodies0).to.equal(1)
 		end)
 
 		it("is the engine's own business when nothing is held", function()
 			local seen, on = fresh(bin)
 			expect(on).to.equal(true)
+			local firstBodies0 = Lobby.stats().firstBodies
 			Lobby.step(1000, {})
 			local man = occupant(78, nil, bin)
 			Lobby.step(1001, { man })
@@ -560,7 +560,7 @@ return function()
 			-- -- the DEV place, a world with no lobby, every spec that came before this one -- a
 			-- player with no character is left alone.
 			expect(#seen.placed).to.equal(0)
-			expect(Lobby.stats().firstBodies).to.equal(0)
+			expect(Lobby.stats().firstBodies - firstBodies0).to.equal(0)
 		end)
 
 		it("gets one anyway when the lobby cannot build itself", function()
@@ -609,9 +609,12 @@ return function()
 			Lobby.holdFirstSpawn(players, false)
 			expect(players.CharacterAutoLoads).to.equal(true)
 			expect(Lobby.spawnsHeld()).to.equal(false)
-			-- A SECOND HAND-BACK IS A NO-OP, not a second write.
+			-- A SECOND HAND-BACK IS A NO-OP, not a second write. The counter is this module's own and
+			-- is not cleared between cases (`stats.scans` climbs across the file), so the assertion
+			-- is on the DELTA: a count read as an absolute passed here only by accident of order.
+			local before = Lobby.stats().spawnHoldReleases
 			Lobby.holdFirstSpawn(players, false)
-			expect(Lobby.stats().spawnHoldReleases).to.equal(1)
+			expect(Lobby.stats().spawnHoldReleases - before).to.equal(0)
 		end)
 	end)
 
