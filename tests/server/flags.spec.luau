@@ -113,9 +113,11 @@ return function()
 			-- *"variation also good"*. The flip is three lines in one row, so the thing that keeps it
 			-- flipped is this case: revert `default` to false and it fails here.
 			expect(Flags.DEFAULTS.DRIVE_VARIETY.default).to.equal(true)
-			-- ...AND THE SHIPPED VALUE IS WHAT A SERVER WITH NO OVERRIDE READS, which is the claim
-			-- that matters -- the row above could be true while `isOn` answered something else.
-			expect(Flags.resolve(Flags.DEFAULTS, nil).DRIVE_VARIETY).to.equal(true)
+			-- ...AND THE SHIPPED VALUE IS WHAT A SERVER WITH NO OVERRIDE RESOLVES, which is the claim
+			-- that matters -- the row above could be true while the resolved map said otherwise.
+			-- `resolve` takes the name->boolean map (`Flags.defaults()`), never the rows themselves.
+			expect(Flags.defaults().DRIVE_VARIETY).to.equal(true)
+			expect(Flags.resolve(Flags.defaults(), nil).DRIVE_VARIETY).to.equal(true)
 			-- THE FLAG IS NOT RETIRED: the OFF branch still exists and is still reachable, by
 			-- parameter (`ForestTest.cellSchedule(false)` / `Data.variedSchedule(..., false)`, both
 			-- driven in `forest_line.spec`). Retiring it is a later task with an archive (rule 7).
