@@ -8,7 +8,7 @@ for 570 ms or merely **elapsed** 570 ms while continuing to run. Task 355 measur
 named it the biggest single stall a drive takes. That claim rests on an `os.clock()` bite, and an
 `os.clock()` bite across a yield measures the wrong thing.
 
-## The three external sources
+## The four external sources
 
 1. **Roblox, `Path:ComputeAsync`** --
    <https://create.roblox.com/docs/reference/engine/classes/Path#ComputeAsync>. First-party API
@@ -66,8 +66,8 @@ Nothing was invented: the frame counter, the depth flag and the two accumulators
 |---|---|---|
 | frames spanned by one `releaseLine` | **reported, not bounded** | the number that decides stall vs elapse; 0 extra frames would mean the dispatch is right |
 | `hb-in-release` mean vs `hb-elsewhere` mean | **within 10 % of each other** | if a release cost the frame anything, its frames would be measurably fatter than the drive's others |
-| the control reads its own burn back | **within 20 % of N** | a channel that cannot see N ms cannot be trusted to report 0 |
-| instrument cost | **< 0.05 ms per frame** | one `ForestTest.releasing()` call plus two adds per Heartbeat, and ~10 `os.clock()` calls per release (26 releases per drive) |
+| the control reads its own burn back | **`hb-in-release` MAX within 20 % of N** | a channel that cannot see N ms cannot be trusted to report 0. The MAX is the statistic named, because the mean mixes the frames the burn ran on with those around them: measured 277.9 ms max (+11 %, inside) and 188.7 ms mean (-24.5 %, outside) for N = 250 |
+| instrument cost | **< 0.05 ms per frame** | two `ForestTest.releasing()` calls plus two adds per Heartbeat, and ~26 `os.clock()` calls for the worst release -- 14 in `releaseLine`, 2 per pathfinder leg, 2 per `clearRoute` -- at 26 releases per drive |
 
 ## What this does NOT establish
 

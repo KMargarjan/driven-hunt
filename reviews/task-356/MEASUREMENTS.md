@@ -3,7 +3,9 @@
 All readings are from **Karen's own Forest Test**, cell **C1**, **her flags exactly as they are**
 (`DHFlag_PLACEMENT_IN_PLACE=false`, `DHFlag_BOAR_ATTACH_BUDGET` absent = OFF, the rest as
 `<runs-dir>/356-attrs-before.txt` records), served from `driven-hunt-rev` on :34873, one drive and
-one window per row. **Nothing was written to her place at all** -- the one attribute this task set
+one window per row. **Every table below is also re-measured at the REVIEWED commit** -- see section
+3a, run `R2B` at `88c324a8` -- so no number here is only true of an instrument that was later
+changed. **Nothing was written to her place at all** -- the one attribute this task set
 (`DHReleaseBurn`, the control) was set at RUNTIME in the Play session, which is discarded at stop,
 never in Edit. `356-attrs-before.txt` vs `356-attrs-after.txt` is **EMPTY**.
 
@@ -71,10 +73,14 @@ pathfinding -- so no `os.clock()` bite could see it. `ForestTestBoot` charges ev
 side (`ForestTest.releasing()`, a depth, because the yield lets a later Heartbeat enter `step`
 while an earlier release is still suspended):
 
-| `BEFORE` drive, 340 s, C1, her flags | max | **mean** | frames |
+| `BEFORE` run, C1, her flags | max | **mean** | frames |
 |---|---|---|---|
 | **while a wave release is in flight** | **46.5 ms** | **23.0 ms** | 373 |
 | everywhere else in the same drive | **1,421.7 ms** | **23.3 ms** | 14,507 |
+
+**The two counters run for the whole Play SESSION, not only the 340 s drive** -- which is what lets
+the join's own frame appear in the `elsewhere` column at all, and is why that column holds 14,507
+frames. Both columns are over the same session, so the comparison between them is a fair one.
 
 **A frame during a wave release is, on average, 0.3 ms FASTER than a frame that is not.** The worst
 frame of the whole drive, 1,421.7 ms, happens with **no release in flight**: the same drive's boot
@@ -106,11 +112,41 @@ a paragraph because the dispatch asked for one.
 
 | | measured (`BEFORE`, `f5f06f93`) | target | verdict |
 |---|---|---|---|
-| `releaseLine` **worst frame** | **1.5 ms** of Lua in the worst frame of the worst call, and `23.2 ms` worst over the drive for the one section that cannot yield (`spawn`) | <= 16 ms | **MET for eight of nine sections.** `spawn` is 23.2 ms worst -- and it is `Boar.Runtime:spawn`, 4.3-6.1 ms an animal (task 355), not this file's arithmetic. See *next owner* |
+| `releaseLine` **worst frame** | **DERIVED, not read: no instrument here produces a per-frame Lua figure.** `order` + `spawn` + `files` land together on the frame the call resumes on, so the implied worst in-release Lua frame is **>= 23.2 ms** (`spawn`'s own worst over the drive); every other section is <= 1.5 ms. The number actually READ for a frame is `hb-in-release max`, **46.5 / 49.3 ms**, which is the WHOLE frame and not this file's share | <= 16 ms | **MET for the eight sections that are this file's own arithmetic.** `spawn` is 23.2 ms worst -- and it is `Boar.Runtime:spawn`, 4.3-6.1 ms an animal (task 355), not this file's arithmetic. See *next owner* |
 | **server step peak during a drive** | `StepMsMax` **88.2 / 101.9 / 80.97** ms over three drives | <= 40 ms with `BOAR_ATTACH_BUDGET` as in her place | **NOT MET, and not this task's.** That is the BOAR runtime's step and task 355 already measured it (104.2 ms), fixed it (26.1 ms) and shipped the fix behind `BOAR_ATTACH_BUDGET`, which is **OFF in her place by the Director's instruction** ("leave it"). Turning it on is the fix; nothing in `releaseLine` moves it |
 | **heartbeat p95** | **29.10 ms** (`BEFORE`), 32.06 (`BEF2`), 33.02 (`BEF356`) | reported | **REPORTED.** Unchanged from task 355's 30.8-34.0 |
 | peak live / peak parts | 33 / 561 (`BEFORE`), 59 / 1,003 (`BEF2`), 60 / 1,020 (`BEF356`) | -- | the three drives released different patterns (`DRIVE_VARIETY` is on in her place) |
 | releases per drive | 26 calls, 24 of them putting animals down | -- | `<runs-dir>/BEFORE-console.txt` |
+
+### 3a. THE SAME DRIVE AT THE REVIEWED COMMIT (`R2B`, `88c324a8`)
+
+Round 2 changed the instrument (round 1's notes): the frame charge is now read **before and after**
+`ForestTest.step` and or-ed, so the frames a release STARTS and RESUMES on -- the two that carry its
+Lua -- are charged in-release instead of elsewhere. That makes the in-release column stricter, so
+the claim is re-measured rather than carried over.
+
+| | `BEFORE` (`f5f06f93`) | **`R2B` (`88c324a8`, reviewed)** |
+|---|---|---|
+| worst `releaseLine` | 745.4 ms | **764.4 ms** |
+| of which `path:ComputeAsync` | 732.0 ms (98.2 %) | **748.2 ms (97.9 %)** |
+| **FRAMES it spanned** | 43 | **44** |
+| its four legs | 399+166+68+99 ms, +23/+10/+4/+6 frames | **356+214+78+100 (= 748.2) and 20+13+5+6 (= 44)** |
+| `hb-in-release` max / mean / frames | 46.5 / 23.0 / 373 | **49.3 / 24.2 / 254** |
+| `hb-elsewhere` max / mean / frames | 1,421.7 / 23.3 / 14,507 | **1,399.7 / 24.8 / 13,666** |
+| heartbeat p95 / max | 29.10 / 116.04 ms | **31.79 / 386.68 ms** |
+| peak live / parts | 33 / 561 | **60 / 1,020** |
+| boar `StepMsMax` | 80.97 ms | **82.36 ms** |
+
+**The in-release mean is still BELOW the elsewhere mean (24.2 against 24.8) under the stricter
+charge, and the worst in-release frame is still 28x smaller than the worst frame elsewhere.** The
+finding does not depend on which commit it was read at.
+
+**One bug this re-measurement caught, and it was mine.** Round 2 first made the bill per-drive by
+calling `releaseReset` from `ForestTest.newDrive`. A drive that ends before the probe reads it then
+wiped its own bill: run `R2` at `dbc7dbf0` printed `calls=0 worst:` with 253 in-release frames on
+the same run (`<runs-dir>/R2-track.txt`). The bill is per SESSION, like `DHBoot*`; `releaseReset`
+stays as a window a caller opens deliberately, and `newDrive` does not call it. Had I carried round
+1's numbers forward instead of re-running, that would have shipped silently.
 
 **349's instrument, stand 4 (must not get worse): N/A, nothing changed.** No line of behaviour code
 was touched -- the diff is an instrument and a comment -- so the first sighting and the median gap
@@ -121,14 +157,26 @@ from stand 4 cannot have moved. Re-running 349's drive pair would measure the sa
 ## 4. What the instrument itself costs, said rather than left out
 
 It is permanent and unflagged, so every number above carries it. Per **frame**: one
-`ForestTest.releasing()` call and two adds in `ForestTestBoot`'s Heartbeat. Per **release** (26 a
-drive): ~20 `os.clock()` calls, one `table.clear`, one `string.format` of nine numbers, and one
+`ForestTest.releasing()` call before `ForestTest.step` and one after, plus two adds, in
+`ForestTestBoot`'s Heartbeat. Per **release** (26 a drive): ~26 `os.clock()` calls for the worst
+call -- 14 in `releaseLine`, 2 per pathfinder leg, 2 per `clearRoute` -- one `table.clear`, one `string.format` of nine numbers, and one
 small string per pathfinder leg. `os.clock` is a C call of tens of nanoseconds. The boot's own
 average step is **1.21 ms** with the instrument in (`BEFORE`), against 1.10 ms in `BEF2`, which is
 inside the run-to-run spread of two drives that released different patterns -- so the charge is not
 separately resolvable and this task does not claim it was measured.
 
 ---
+
+## 4a. One bound this instrument does not enforce
+
+`releaseProf.path`, `releaseProf.clear` and `releaseCount.legs` accumulate from **every** caller of
+`computeRouteVia` / `clearRoute`, and because a release yields for ~44 frames, a stuck-leader repath
+(`stepLines`) or a woken group (`orderGroup`) falling in that window would be billed to it. Nothing
+in the code prevents it. What says it did not happen on these runs is arithmetic inside the
+published line itself: the worst call's four printed legs sum to `path` exactly (356+214+78+100 =
+748.2 against `path=748.2`), `legs=4` matches the four rows, and `path <= routes` (748.2 <= 749.0).
+A leak would break all three at once. It is checked by reading, not by a guard, and that is said
+rather than implied.
 
 ## 5. WHAT IS REAL, AND WHOSE IT IS NEXT
 
