@@ -161,9 +161,17 @@ MapUi.CONFIG = {
 	CELL_EMPTY_WORD = "%s empty",
 	-- THE STAND LIST (task 323c): fifteen `STAND_LIST_ROW_PX` rows is 660 px against a phone panel's
 	-- 644, so it is a `ScrollingFrame` (grid-map §10.4).
-	STAND_LIST_WIDTH_PX = 132,
+	-- 132 -> 150 (task 361): a row is a CARD now -- a number badge, the stand's name and a state
+	-- word -- and 132 could not hold the three without cutting the last one.
+	STAND_LIST_WIDTH_PX = 150,
 	STAND_LIST_SCROLL_PX = 6,
 	STAND_LIST_TEXT_PX = 13,
+	-- THE CARD'S THREE PARTS (task 361). The badge carries the number in the panel's own brass, the
+	-- name is sentence case ("West tower", not "WEST TOWE"), and the state is one quiet word.
+	STAND_ROW_BADGE_PX = 26,
+	STAND_ROW_NAME_PX = 13,
+	STAND_ROW_STATE_PX = 11,
+	STAND_ROW_PAD_PX = 6,
 
 	-- ---------------- how often
 	--
@@ -239,8 +247,51 @@ MapUi.CONFIG = {
 	ROAD_COLOR = Style.LOOK.BODY,
 	ROAD_PX = 3,
 
-	-- EACH HUNTER STAND. A SQUARE, so a stand is not a player.
+	-- EACH HUNTER STAND ON THE MINIMAP. A SQUARE, so a stand is not a player.
 	STAND_PX = 6,
+
+	-- ---------------- THE CLOSE BUTTON (task 361)
+	--
+	-- KAREN, 2026-11-13: *"I want to be able turn off the map x or something visible"*. The map
+	-- opens BY ITSELF at the start of a drive and M was the only way out of it.
+	--
+	-- 44 REAL PIXELS, which is Apple's HIG touch floor and the number `STAND_LIST_ROW_PX` already
+	-- took; Material puts the close at the trailing edge of the top bar. Sized in REAL px through
+	-- its own inverse `UIScale`, the trick the stand list uses (task 327f): the panel shrinks to fit
+	-- a phone and a thumb does not.
+	--   Note: docs/research/2026-11-13-map-close-and-stand-pick.md
+	CLOSE_BUTTON_PX = 44,
+	-- TWO ROTATED FRAMES AND NOT A `✕` CHARACTER: this file draws its roads and the lodge's roof
+	-- that way already, and a font that does not carry the glyph would ship a blank button.
+	CLOSE_GLYPH_PX = 16,
+	CLOSE_GLYPH_THICK_PX = 2,
+	CLOSE_INSET_PX = 8,
+
+	-- ---------------- THE FULL MAP'S STANDS (task 361)
+	--
+	-- KAREN, the same minute: *"postions has to be nicer and selcet more nicer"*. Her frame had 6 px
+	-- squares with the number BESIDE them at 10 px; at the panel's own scale that is 4 px of mark.
+	-- The world view draws the stands 31 canvas px apart, so 20 < 31 keeps two markers apart -- the
+	-- arithmetic `STAND_HIT_PX` is written against, not an eye.
+	FULL_STAND_PX = 16,
+	FULL_STAND_TOWER_PX = 20,
+	-- THE NUMBER GOES INSIDE THE MARKER, dark on the hunters' orange: `LABEL_SIZE` under a 6 px
+	-- square was the unreadable thing in her frame.
+	STAND_NUMBER_PX = 11,
+	STAND_NUMBER_COLOR = Style.LOOK.SLATE,
+	-- HOVER AND SELECTED, AS ONE RING EACH (and ONE writer for both -- `applyStandAccent`). The
+	-- selected ring is one step brighter and thicker than the hover one, so the two are never read
+	-- as the same thing.
+	STAND_HOVER_PAD_PX = 8,
+	STAND_HOVER_STROKE_PX = 2,
+	STAND_PICK_PAD_PX = 10,
+	STAND_PICK_STROKE_PX = 3,
+	STAND_HOVER_COLOR = Style.LOOK.BRASS,
+	STAND_PICK_COLOR = Style.LOOK.BRASS_HI,
+	-- ...AND THE SAME TWO STEPS ON THE ROW, which are the design system's own row tokens (§3): a
+	-- selected row and a hovered row already have one answer each in this game and this is it.
+	STAND_HOVER_ROW_COLOR = Style.LOOK.ROW_HOVER,
+	STAND_PICK_ROW_COLOR = Style.LOOK.ROW_SELECTED,
 
 	-- ---------------- THE STAND PICK (task 323b, docs/design/stand-pick.md sections 9.4, 9.5, 12)
 	--
@@ -921,26 +972,52 @@ function MapUi.standStateFor(index: number, view: StandView): StandState
 	return { state = "free" }
 end
 
--- ONE ROW OF THE TOUCH LIST (task 323c, grid-map §10.4): the index, the side word and the state
--- word, and nothing else. PURE, so a case reads it with no frame at all.
-function MapUi.standRowText(index: number, side: string?, state: StandState?, kind: string?): string
+-- ONE ROW OF THE TOUCH LIST, AS ITS THREE PARTS (task 323c, grid-map §10.4; the parts are task
+-- 361). PURE, so a case reads it with no frame at all.
+--
+-- KAREN, 2026-11-13: *"postions has to be nicer and selcet more nicer"*. Her frame's rows were
+-- `1 MAIN FREE` -- three shouted words in one string, with the last one cut off by the panel's
+-- edge. A row is a CARD now: a number in a badge, the stand's NAME ("West tower"), and one quiet
+-- state word. `tone` is the state the drawer colours it by, and it is the pick's own vocabulary --
+-- no sixth word is invented here.
+function MapUi.standRowParts(
+	index: number,
+	side: string?,
+	state: StandState?,
+	kind: string?
+): { num: string, name: string, said: string, tone: string }
 	local config = MapUi.CONFIG
 	local word = if state ~= nil then state.state else "free"
+	-- SENTENCE CASE OFF THE WORLD'S OWN WORD: the sides arrive as `MAIN` / `WEST` / `EAST` and a
+	-- card does not shout. `kind` is the world's fact and outlives every state, so it belongs to
+	-- the NAME and not to the state column (which is why "TOWER" is no longer a state word).
+	local name = side or ""
+	if name ~= "" then
+		name = string.upper(string.sub(name, 1, 1)) .. string.lower(string.sub(name, 2))
+	end
+	if kind == "tower" then
+		name = if name == "" then "Tower" else name .. " tower"
+	end
 	local said
 	if word == "taken" then
 		said = if state ~= nil and state.name ~= nil
 			then string.sub(state.name :: string, 1, config.STAND_NAME_CHARS)
-			else "TAKEN"
+			else "Taken"
 	elseif word == "mine" then
-		said = "YOURS"
+		said = "Yours"
 	elseif word == "seat" then
-		said = "BARRED"
-	elseif word == "high" or kind == "tower" then
-		said = "TOWER"
+		said = "Locked"
 	else
-		said = "FREE"
+		said = "Free"
 	end
-	return string.format("%2d  %-4s  %s", index, side or "", said)
+	return { num = tostring(index), name = name, said = said, tone = word }
+end
+
+-- ...AND THE SAME ROW AS ONE SENTENCE, off the same parts -- so the card and anything that reads a
+-- row as a string cannot say two different things about stand 7.
+function MapUi.standRowText(index: number, side: string?, state: StandState?, kind: string?): string
+	local parts = MapUi.standRowParts(index, side, state, kind)
+	return string.format("%2d  %s  %s", index, parts.name, parts.said)
 end
 
 -- MAY HE TAP A STAND RIGHT NOW? PURE, and it is the ONE predicate both the mouse grab and its
@@ -1616,17 +1693,24 @@ type StandNode = {
 	stroke: UIStroke,
 	hit: TextButton,
 	tower: boolean,
+	-- THE HOVER / PICKED RING (task 361), nil on the minimap, which has no pick and no hover.
+	accent: Frame?,
 }
 local standNodes: { StandNode } = {}
 -- THE TOUCH LIST'S ROWS (task 323c), parallel to `standNodes` and written by the same two functions:
 -- a phone cannot tap a 31 px pad (grid-map §10.4), so the same `tapStand` is offered as a list.
-type StandRow = { button: TextButton, index: number }
+-- A ROW IS A CARD SINCE TASK 361: the button is the card, and the three labels are its parts.
+type StandRow = { button: TextButton, index: number, badge: Frame, num: TextLabel, name: TextLabel, said: TextLabel }
 local standRows: { StandRow } = {}
 local standListFrame: ScrollingFrame? = nil
 -- THE LIST'S OWN INVERSE SCALE and the canvas height it may use. `layoutFor` writes both, for the
 -- reason stated there: a map shrinks on a phone and a thumb does not.
 local standListScale: UIScale? = nil
 local standListRoomPx = 0
+-- THE WAY OUT (task 361) and its own inverse scale, so the button is 44 REAL px at every viewport.
+-- `layoutFor` is the one writer of the scale, exactly as it is for the list's.
+local closeButton: TextButton? = nil
+local closeScale: UIScale? = nil
 -- IS THE LIST UP? `layoutFor` reserves room beside the map for it only while it is, and `applyPick`
 -- re-lays the panel out on the edge -- one boolean, written in one place.
 local listShown = false
@@ -1642,6 +1726,11 @@ local standDrawn: { StandState } = {}
 -- WHICH STAND IS HIS, lifted out of the states so `renderDrawer` can hang the `Target` diamond on it
 -- -- "mine" IS the target mark (section 9.4), so this map still carries exactly one orange mark.
 local standMine: number? = nil
+-- WHICH STAND THE MOUSE IS OVER (task 361), AND IT IS ONE VARIABLE FOR BOTH WIDGETS. The marker's
+-- pad and the list's row each STATE it here and then ask `applyStandAccent`; neither of them draws.
+-- Learning Agent L-029: two edge-triggered writers for one state is how the gun-backpack race was
+-- born, and "the map and the list show the same stand" is exactly that shape.
+local standHover: number? = nil
 -- IS THE WINDOW OPEN FOR A HUNTER, told by the Hud's one evaluation and never derived here.
 local pickWindow = false
 local pickIsHunter = false
@@ -1750,6 +1839,10 @@ local stats = {
 	-- states in at 20 Hz must leave this number alone.
 	standWrites = 0,
 	taps = 0,
+	-- HOW MANY TIMES THE X WAS PRESSED (task 361). Counted apart from `toggles` for `keyToggles`'
+	-- own stated reason: a case asserting `toggles` passes with the button's wiring DELETED, and
+	-- this one does not.
+	closes = 0,
 	builtAt = nil :: number?,
 	elapsed = 0,
 }
@@ -2109,7 +2202,40 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 		-- and it keeps its brass rim whatever the pick says, because the kind is a fact about the
 		-- world and the five pick states are facts about the players.
 		local tower = model.standKinds ~= nil and (model.standKinds :: { string })[index] == "tower"
-		local sizePx = if tower then config.STAND_TOWER_PX else config.STAND_PX
+		-- THE FULL MAP'S MARKER IS BIGGER THAN THE MINIMAP'S, and that is the whole of Karen's
+		-- *"postions has to be nicer"* (task 361): the panel can carry a 16 px chip with its number
+		-- inside it, and a 150 px disc cannot -- so the two drawers take two numbers instead of one
+		-- compromise that is wrong on both.
+		local sizePx = if standLabels
+			then (if tower then config.FULL_STAND_TOWER_PX else config.FULL_STAND_PX)
+			else (if tower then config.STAND_TOWER_PX else config.STAND_PX)
+		-- THE RING THAT SAYS "THIS ONE" -- hover and picked, one node, written ONLY by
+		-- `applyStandAccent` (task 361). It is a SIBLING of the marker and not a child, because the
+		-- marker steps aside for the `Target` diamond when the stand is yours and the ring is
+		-- exactly what has to stay visible then.
+		local accent = nil :: Frame?
+		if standLabels then
+			local ring = Instance.new("Frame")
+			ring.Name = string.format("Accent%d", index)
+			ring.AnchorPoint = Vector2.new(0.5, 0.5)
+			ring.Size = UDim2.fromOffset(sizePx + config.STAND_PICK_PAD_PX, sizePx + config.STAND_PICK_PAD_PX)
+			ring.Position = UDim2.new(0.5, math.round(u), 0.5, math.round(v))
+			ring.BackgroundTransparency = 1
+			ring.BorderSizePixel = 0
+			ring.ZIndex = config.Z_INDEX + 2
+			ring.Visible = false
+			local ringCorner = Instance.new("UICorner")
+			ringCorner.CornerRadius = UDim.new(0, 4)
+			ringCorner.Parent = ring
+			local ringStroke = Instance.new("UIStroke")
+			ringStroke.Name = "Ring"
+			ringStroke.Thickness = config.STAND_PICK_STROKE_PX
+			ringStroke.Color = config.STAND_PICK_COLOR
+			ringStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+			ringStroke.Parent = ring
+			ring.Parent = holder
+			accent = ring
+		end
 		local node = Instance.new("Frame")
 		node.Name = string.format("Stand%d", index)
 		node.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -2123,10 +2249,33 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 			-- THE MINIMAP: a 6 px square and nothing else, exactly as before this task.
 			continue
 		end
-		local text = label(node, "Index", config.LABEL_SIZE, tostring(index))
-		text.AnchorPoint = Vector2.new(0.5, 0)
-		text.Position = UDim2.new(0.5, 0, 1, 1)
-		text.Size = UDim2.fromOffset(18, config.LABEL_SIZE + 2)
+		-- A ROUNDED CHIP AND NOT A BARE SQUARE (task 361): at 16 px a square reads as a pixel of
+		-- the painted ground and a rounded chip reads as a mark somebody put there.
+		local chip = Instance.new("UICorner")
+		chip.CornerRadius = UDim.new(0, 3)
+		chip.Parent = node
+		-- A TOWER SAYS SO ON THE MAP, with the peak the lodge's own roof is drawn with -- a 45-degree
+		-- square in the map's brass. The ring a high seat wears is a STATE; this is the world.
+		if tower then
+			local peak = Instance.new("Frame")
+			peak.Name = "Peak"
+			peak.AnchorPoint = Vector2.new(0.5, 1)
+			peak.Size = UDim2.fromOffset(math.round(sizePx * 0.45), math.round(sizePx * 0.45))
+			peak.Position = UDim2.new(0.5, 0, 0, 2)
+			peak.Rotation = 45
+			peak.BackgroundColor3 = config.RIM_COLOR
+			peak.BorderSizePixel = 0
+			peak.ZIndex = config.Z_INDEX + 2
+			peak.Parent = node
+		end
+		-- THE NUMBER INSIDE THE MARKER (task 361), dark on the hunters' orange. Karen's frame drew
+		-- it BESIDE a 6 px square at 10 px, which is the thing she could not read.
+		local text = label(node, "Index", config.STAND_NUMBER_PX, tostring(index))
+		text.AnchorPoint = Vector2.new(0.5, 0.5)
+		text.Position = UDim2.fromScale(0.5, 0.5)
+		text.Size = UDim2.fromOffset(sizePx, sizePx)
+		text.TextColor3 = config.STAND_NUMBER_COLOR
+		text.ZIndex = config.Z_INDEX + 3
 
 		-- THE FOUR THINGS THE PICK WRITES, BUILT HERE AND NEVER IN THE TICK (section 9.7:
 		-- `Instance.new` per change is 0). A stroke that is off, a name that is empty and a
@@ -2144,7 +2293,7 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 
 		local holderName = label(node, "Holder", config.LABEL_SIZE, "")
 		holderName.AnchorPoint = Vector2.new(0.5, 0)
-		holderName.Position = UDim2.new(0.5, 0, 1, 1 + config.LABEL_SIZE + 2)
+		holderName.Position = UDim2.new(0.5, 0, 1, 1)
 		holderName.Size = UDim2.fromOffset(44, config.LABEL_SIZE + 2)
 		holderName.TextColor3 = MapUi.COLORS.Shooters
 		holderName.Visible = false
@@ -2169,11 +2318,27 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 		hit.Activated:Connect(function()
 			MapUi.tapStand(at)
 		end)
+		-- HOVER IS STATED, NEVER DRAWN HERE (task 361, L-029). The handler writes ONE variable and
+		-- asks the reconciler; `applyStandAccent` is the only thing that touches the ring or the
+		-- row, so the marker and its row cannot end up showing two different stands.
+		-- `MouseEnter` never fires on a touch screen, which is why hover is an affordance and a tap
+		-- is the rule.
+		hit.MouseEnter:Connect(function()
+			MapUi.setHoverStand(at)
+		end)
+		hit.MouseLeave:Connect(function()
+			MapUi.clearHoverStand(at)
+		end)
 
-		table.insert(
-			nodes,
-			{ frame = node, index = text, holder = holderName, stroke = stroke, hit = hit, tower = tower }
-		)
+		table.insert(nodes, {
+			frame = node,
+			index = text,
+			holder = holderName,
+			stroke = stroke,
+			hit = hit,
+			tower = tower,
+			accent = accent,
+		})
 	end
 	return nodes
 end
@@ -2220,30 +2385,143 @@ local function buildStandList(parent: GuiObject, model: MapGeometry, heightPx: n
 		row.BackgroundTransparency = 0.4
 		row.BorderSizePixel = 0
 		row.AutoButtonColor = false
-		row.FontFace = Style.faceFor("MICRO")
-		row.TextSize = config.STAND_LIST_TEXT_PX
-		row.TextColor3 = config.TEXT_COLOR
-		row.TextXAlignment = Enum.TextXAlignment.Left
+		row.Text = ""
 		row.Position = UDim2.fromOffset(0, (index - 1) * config.STAND_LIST_ROW_PX)
 		row.Size = UDim2.new(1, -config.STAND_LIST_SCROLL_PX, 0, config.STAND_LIST_ROW_PX - 2)
 		row.ZIndex = config.Z_INDEX + 6
 		row.Active = false
-		local pad = Instance.new("UIPadding")
-		pad.PaddingLeft = UDim.new(0, 8)
-		pad.Parent = row
-		row.Text = MapUi.standRowText(
+		Style.corner(row, Style.RADIUS.WELL)
+
+		-- THE CARD'S THREE PARTS (task 361): the number in a badge, the stand's name, and one quiet
+		-- state word under it. `MapUi.standRowParts` is the one answer all three are written from.
+		local parts = MapUi.standRowParts(
 			index,
 			if model.standSides then (model.standSides :: { string })[index] else nil,
 			nil,
 			if model.standKinds then (model.standKinds :: { string })[index] else nil
 		)
+		local badge = Instance.new("Frame")
+		badge.Name = "Badge"
+		badge.AnchorPoint = Vector2.new(0, 0.5)
+		badge.Position = UDim2.new(0, config.STAND_ROW_PAD_PX, 0.5, 0)
+		badge.Size = UDim2.fromOffset(config.STAND_ROW_BADGE_PX, config.STAND_ROW_BADGE_PX)
+		badge.BackgroundColor3 = config.LEGEND_WELL_COLOR
+		badge.BorderSizePixel = 0
+		badge.ZIndex = config.Z_INDEX + 7
+		Style.corner(badge, Style.RADIUS.WELL)
+		badge.Parent = row
+
+		local num = label(badge, "Num", config.STAND_ROW_NAME_PX, parts.num)
+		num.FontFace = Style.FONT.OSWALD_SB
+		num.Size = UDim2.fromScale(1, 1)
+		num.TextColor3 = Style.LOOK.BRASS
+		num.ZIndex = config.Z_INDEX + 8
+
+		local textLeft = config.STAND_ROW_PAD_PX * 2 + config.STAND_ROW_BADGE_PX
+		local name = label(row, "Name", config.STAND_ROW_NAME_PX, parts.name)
+		name.AnchorPoint = Vector2.new(0, 0)
+		name.Position = UDim2.fromOffset(textLeft, 6)
+		name.Size = UDim2.new(1, -textLeft - config.STAND_ROW_PAD_PX, 0, config.STAND_ROW_NAME_PX + 3)
+		name.TextXAlignment = Enum.TextXAlignment.Left
+		name.ZIndex = config.Z_INDEX + 7
+
+		local said = label(row, "State", config.STAND_ROW_STATE_PX, parts.said)
+		said.AnchorPoint = Vector2.new(0, 1)
+		said.Position = UDim2.new(0, textLeft, 1, -6)
+		said.Size = UDim2.new(1, -textLeft - config.STAND_ROW_PAD_PX, 0, config.STAND_ROW_STATE_PX + 3)
+		said.TextXAlignment = Enum.TextXAlignment.Left
+		said.TextColor3 = Style.LOOK.MUTED
+		said.ZIndex = config.Z_INDEX + 7
+
 		row.Parent = list
 		local at = index
 		row.Activated:Connect(function()
 			MapUi.tapStand(at)
 		end)
-		table.insert(standRows, { button = row, index = index })
+		-- THE SAME STATEMENT THE MARKER MAKES, into the same one variable (task 361, L-029).
+		row.MouseEnter:Connect(function()
+			MapUi.setHoverStand(at)
+		end)
+		row.MouseLeave:Connect(function()
+			MapUi.clearHoverStand(at)
+		end)
+		table.insert(standRows, { button = row, index = index, badge = badge, num = num, name = name, said = said })
 	end
+end
+
+-- THE WAY OUT OF THE MAP (task 361). KAREN, 2026-11-13: *"I want to be able turn off the map x or
+-- something visible"* -- the panel opens BY ITSELF at the start of a drive and M was the only exit.
+--
+-- MATERIAL'S TRAILING EDGE, AT APPLE'S 44 px FLOOR, drawn in this panel's own brass. Its tap area
+-- is 44 REAL pixels at every viewport, through the inverse `UIScale` the stand list already uses
+-- for the same reason (`layoutFor` writes it): the panel shrinks to fit a phone and a thumb does
+-- not. The X is two rotated `Frame`s, which is how this file draws its roads and the lodge's roof --
+-- a `✕` character would be a blank button on a face that does not carry it.
+--   Note: docs/research/2026-11-13-map-close-and-stand-pick.md
+local function buildCloseButton(parent: GuiObject): TextButton
+	local config = MapUi.CONFIG
+	-- `Activated` IS THE WHOLE OF "MOUSE AND TOUCH" -- a click, a tap and a gamepad A on one
+	-- handler, which is why `Hud.Rail` and this map's own stand pads already use it.
+	local button = Instance.new("TextButton")
+	button.Name = "Close"
+	button.Text = ""
+	button.AutoButtonColor = false
+	button.BackgroundColor3 = Style.LOOK.COLUMN
+	button.BackgroundTransparency = 0.15
+	button.BorderSizePixel = 0
+	button.AnchorPoint = Vector2.new(1, 0)
+	button.Size = UDim2.fromOffset(config.CLOSE_BUTTON_PX, config.CLOSE_BUTTON_PX)
+	button.Position = UDim2.new(1, -config.CLOSE_INSET_PX, 0, config.CLOSE_INSET_PX)
+	-- OVER THE LIST AND OVER EVERY PAD: a close control under something else is not a close control.
+	button.ZIndex = config.Z_INDEX + 8
+	button.Active = true
+	Style.corner(button, Style.RADIUS.WELL)
+	local edge = Style.stroke(button, config.RIM_COLOR, Style.EDGE_T.SLATE)
+	local scale = Instance.new("UIScale")
+	scale.Name = "CloseScale"
+	scale.Parent = button
+	closeScale = scale
+
+	local arms = {}
+	for turn = 1, 2 do
+		local arm = Instance.new("Frame")
+		arm.Name = string.format("Arm%d", turn)
+		arm.AnchorPoint = Vector2.new(0.5, 0.5)
+		arm.Position = UDim2.fromScale(0.5, 0.5)
+		arm.Size = UDim2.fromOffset(config.CLOSE_GLYPH_PX, config.CLOSE_GLYPH_THICK_PX)
+		arm.Rotation = if turn == 1 then 45 else -45
+		arm.BackgroundColor3 = Style.LOOK.PAPER
+		arm.BorderSizePixel = 0
+		arm.ZIndex = config.Z_INDEX + 9
+		arm.Parent = button
+		table.insert(arms, arm)
+	end
+
+	-- THE PRESSED AND HOVERED LOOK, BY HAND: Material's state layer is a ripple this engine has no
+	-- equivalent of, and `AutoButtonColor` tints the whole button including the X.
+	local function paint(hot: boolean)
+		button.BackgroundTransparency = if hot then 0 else 0.15
+		edge.Color = if hot then Style.LOOK.BLAZE_HI else config.RIM_COLOR
+		for _, arm in ipairs(arms) do
+			arm.BackgroundColor3 = if hot then Style.LOOK.BLAZE_HI else Style.LOOK.PAPER
+		end
+	end
+	button.MouseEnter:Connect(function()
+		paint(true)
+	end)
+	button.MouseLeave:Connect(function()
+		paint(false)
+	end)
+	-- ONE IMPLEMENTATION AND A ONE-LINE CONNECTION, which is `Hud.Rail.press`'s own shape: the
+	-- button's `Activated` cannot be fired from Lua, so `MapUi.pressClose` is what a case drives and
+	-- what a REAL click drives, and there is no second copy of the behaviour to drift.
+	button.Activated:Connect(function()
+		paint(false)
+		MapUi.pressClose()
+	end)
+	claim(button).Parent = parent
+	closeButton = button
+	return button
 end
 
 -- THE MARKERS, THE OWN MARKER, ITS WEDGE AND THE PUSH ARROW: built once per drawer, hidden until
@@ -2486,6 +2764,18 @@ local function layoutFor(viewport: Vector2)
 		end
 	end
 
+	-- THE WAY OUT IS 44 REAL PIXELS WHATEVER THE PANEL'S SCALE (task 361), which is the stand list's
+	-- own arithmetic and the same reason: Apple's 44 px touch floor is a measurement of a THUMB, and
+	-- a thumb does not shrink with the viewport. The inset is divided by the panel's scale for the
+	-- same reason -- 8 canvas px would render at 3 px on a phone and the button would touch the rim.
+	local closer, closerScale = closeButton, closeScale
+	if closer ~= nil and closerScale ~= nil then
+		local shown = math.max(0.1, scale);
+		(closerScale :: UIScale).Scale = 1 / shown
+		local inset = math.round(config.CLOSE_INSET_PX / shown);
+		(closer :: TextButton).Position = UDim2.new(1, -inset, 0, inset)
+	end
+
 	-- THE LEGEND GOES WITH THE PANEL'S SCALE, so it is hidden when no font inside the panel could be
 	-- read (`legendVisible`). It is positioned once here rather than per tick: it says nothing that
 	-- changes.
@@ -2665,6 +2955,82 @@ local function applyPick()
 	end
 end
 
+-- THE ONE WRITER OF "THIS STAND" ON BOTH WIDGETS (task 361). It reads the two module variables --
+-- `standMine` (the server's answer) and `standHover` (the mouse's) -- and writes the map marker's
+-- ring AND the list row's card from them, in one pass. Nothing else touches either.
+--
+-- WHY ONE FUNCTION AND NOT TWO HANDLERS (L-029, and the dispatch names it): a marker handler and a
+-- row handler each writing its own half is two sources for one fact, and under a fast hover-then-
+-- click the two end up showing different stands. Here the handlers only STATE the hover.
+--
+-- PICKED BEATS HOVERED, and "picked" is not re-derived: `standMine` is what `setStandStates` wrote
+-- from the SERVER's own `mine`, so the ring and the `Target` diamond cannot point at two stands.
+local function applyStandAccent()
+	local config = MapUi.CONFIG
+	for index, node in ipairs(standNodes) do
+		local ring = node.accent
+		if ring == nil then
+			continue
+		end
+		local frame = ring :: Frame
+		local picked = standMine == index
+		local hovered = standHover == index
+		local stroke = frame:FindFirstChildWhichIsA("UIStroke")
+		frame.Visible = picked or hovered
+		if stroke ~= nil then
+			local pad = if picked then config.STAND_PICK_PAD_PX else config.STAND_HOVER_PAD_PX
+			local base = if node.tower then config.FULL_STAND_TOWER_PX else config.FULL_STAND_PX
+			frame.Size = UDim2.fromOffset(base + pad, base + pad)
+			stroke.Thickness = if picked then config.STAND_PICK_STROKE_PX else config.STAND_HOVER_STROKE_PX
+			stroke.Color = if picked then config.STAND_PICK_COLOR else config.STAND_HOVER_COLOR
+		end
+	end
+	for _, row in ipairs(standRows) do
+		local picked = standMine == row.index
+		local hovered = standHover == row.index
+		-- THE CARD'S THREE STEPS, and they are the design system's own row tokens: a selected row
+		-- is `ROW_SELECTED` under the pick's brass, a hovered one is `ROW_HOVER`, and everything
+		-- else is the map's own slate.
+		row.button.BackgroundColor3 = if picked
+			then config.STAND_PICK_ROW_COLOR
+			elseif hovered then config.STAND_HOVER_ROW_COLOR
+			else config.BACKGROUND
+		row.button.BackgroundTransparency = if picked or hovered then 0.05 else 0.4
+		row.badge.BackgroundColor3 = if picked then Style.LOOK.BLAZE_LO else config.LEGEND_WELL_COLOR
+		row.num.TextColor3 = if picked then Style.LOOK.PAPER else Style.LOOK.BRASS
+		row.name.TextColor3 = if picked or hovered then Style.LOOK.PAPER else config.TEXT_COLOR
+	end
+end
+
+-- A HOVER IS STATED HERE AND NOWHERE ELSE. Public because a spec cannot move a real mouse onto a
+-- 16 px marker, and because a touch screen never sends `MouseEnter` at all -- so the same two calls
+-- are the only door, and the reconciler above has one caller shape.
+function MapUi.setHoverStand(index: number?)
+	if standHover == index then
+		return
+	end
+	standHover = index
+	applyStandAccent()
+end
+
+-- ...AND A LEAVE ONLY CLEARS THE STAND IT IS LEAVING. Two widgets point at the same stand, so a
+-- blind `setHoverStand(nil)` from the marker would wipe the hover the row had just stated.
+function MapUi.clearHoverStand(index: number)
+	if standHover == index then
+		MapUi.setHoverStand(nil)
+	end
+end
+
+function MapUi.hoverStand(): number?
+	return standHover
+end
+
+-- THE WAY OUT, AS DRAWN, so a case measures the real instance's rectangle rather than this file's
+-- intention about it (task 361).
+function MapUi.closeButtonNode(): TextButton?
+	return closeButton
+end
+
 -- THE FIVE MARKS, EDGE-TRIGGERED (section 9.7). A caller may hand this in every frame: a matching
 -- `version` returns at once, and so does a states list equal to the one on screen -- so the worst
 -- case is 36 property writes per real change and zero otherwise.
@@ -2737,11 +3103,23 @@ function MapUi.setStandStates(states: { StandState }?, version: number?)
 	-- THE LIST SAYS THE SAME THING IN WORDS (task 323c), off the same `standDrawn` -- so a row and
 	-- the pad above it cannot disagree about who holds stand 7.
 	for _, row in ipairs(standRows) do
-		local text = MapUi.standRowText(row.index, standSides[row.index], standDrawn[row.index], standKinds[row.index])
-		if row.button.Text ~= text then
-			row.button.Text = text
+		local parts =
+			MapUi.standRowParts(row.index, standSides[row.index], standDrawn[row.index], standKinds[row.index])
+		if row.name.Text ~= parts.name then
+			row.name.Text = parts.name
 		end
+		if row.said.Text ~= parts.said then
+			row.said.Text = parts.said
+		end
+		-- THE STATE WORD CARRIES THE STATE'S OWN COLOUR -- yours in the pick's brass, taken and
+		-- locked in the quiet one. No new colour (§12): these are the tokens the marker uses.
+		row.said.TextColor3 = if parts.tone == "mine"
+			then Style.LOOK.BRASS_HI
+			elseif parts.tone == "taken" or parts.tone == "seat" then Style.LOOK.FAINT
+			else Style.LOOK.MUTED
 	end
+	-- ...AND THE RING AND THE CARD FOLLOW THE SAME STATES, through the one writer (task 361).
+	applyStandAccent()
 	applyPick()
 end
 
@@ -3068,6 +3446,19 @@ function MapUi.toggle()
 	MapUi.setOpen(not open)
 end
 
+-- WHAT THE X DOES (task 361). It closes the map and nothing else: the pick rules are untouched, so
+-- a hunter who closes the window without choosing keeps whatever default the SERVER gives him --
+-- exactly as if he had never opened it. `pickOpenedByWindow` is left standing for the same reason
+-- it is in `setPickWindow`: a map he closed must not re-open itself at the next tick.
+function MapUi.pressClose(): boolean
+	if not open then
+		return false
+	end
+	stats.closes += 1
+	MapUi.setOpen(false)
+	return true
+end
+
 -- A TAGGED NEED FROM `Hud.renderScope`, applied AT ONCE rather than at the next 20 Hz tick -- so the
 -- blackout and the map arrive on the same frame. Task 141's lesson: *"a sight picture that waits for
 -- the blend was computed exactly once, at the only moment it is false"*.
@@ -3263,6 +3654,11 @@ local function teardown()
 	table.clear(standDrawn)
 	standVersion = nil
 	standMine = nil
+	-- THE HOVER AND THE WAY OUT GO WITH THE PICTURE (task 361): a hover held across a rebuild would
+	-- ring a stand that is no longer there, and a `closeButton` kept would be a destroyed instance.
+	standHover = nil
+	closeButton = nil
+	closeScale = nil
 	footerLabel = nil
 	for index = #claimed, 1, -1 do
 		claimed[index]:Destroy()
@@ -3390,6 +3786,10 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	-- ...AND THE LIST OF THE SAME FIFTEEN (task 323c), over the canvas's right edge: it is the only
 	-- way to pick on a phone, where the pads are 10 px apart (grid-map §10.4).
 	buildStandList(full, model, usedHeight, config.FULL_PADDING + usedWidth)
+	-- ...AND THE WAY OUT OF IT (task 361). Built with the picture, so it is there for the auto-open
+	-- at the start of a drive and for every M press -- there is no state in which the panel is up
+	-- and this button is not.
+	buildCloseButton(full)
 
 	-- NORTH UP, SAID ON THE PICTURE. A map with no north is a map you have to be told about.
 	local north = label(canvas, "North", config.TITLE_SIZE, "N")
