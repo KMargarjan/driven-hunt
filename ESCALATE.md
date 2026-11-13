@@ -1,3 +1,33 @@
+## 2026-11-13 ~20:10 UTC, Task 360b -- NEEDS KAREN: the eight-cell plant stands in her session, unsaved. Only she can make it durable
+
+**What happened, in order, all read by this session.** The backup was taken
+(`<backups-dir>/FT-before-360b.rbxl`, 14,115,825 bytes, header `<roblox!`, 19:35 UTC), the BEFORE
+readings taken, `terrainbake.py plant --cells A1,B1,C1,D1,A2,B2,C2,D2` ran clean
+(`[bake] plant OK: 8 cell(s) @ 3533e137 PlantEpoch=58575af518ae6156 32966 models / 108396 parts`),
+and the AFTER readings and frames were taken. Then, during the step-5 drive, the **Forest Test place
+closed itself out of a Play session**: the client probe answered `Target is not reachable
+(DMN_ID_PLAYCLIENT)`, the next call answered `get_studio_state: Place is not open`, and a screen shot
+caught Studio re-opening the place and then sitting on its start page with no place open.
+
+**I WROTE HERE FIRST THAT THE PLANT WAS WIPED. IT WAS NOT, AND THE MEASUREMENT SAYS SO.**
+`ft-open.sh` reopened the place and clicked Rojo Connect (panel shot `<runs-dir>/360b-ft-open.png`,
+reading `localhost:34873`, button `Disconnect`), and the census read back **32,966 models / 108,396
+parts across all eight cells, `PlantEpoch=58575af518ae6156`** -- identical, cell for cell, to the
+AFTER census taken before the crash. The 21 `DHFlag_*` attributes and the four `DH*` ones came back
+unchanged too. So nothing was lost; what the incident proves is only that a Play session in this
+place can close it.
+
+**THE DECISION KAREN STILL HAS TO MAKE, and it is the real one.** The dispatch says *"Never Save,
+Publish or Drafts Commit (the plant lives in her session; saving is Karen's call)"*. The plant is
+therefore **standing but unsaved**: it is in her open session and survives Play, but it is not in the
+saved place, and no agent may put it there. Either:
+
+  (a) Karen opens the Forest Test, looks at the wood behind the stands, and **saves the place**; or
+  (b) the Director authorises a Save after a plant, in writing, and the rule above is relaxed.
+
+Re-planting from scratch costs ~9 minutes and is reproducible:
+`python tools/terrainbake.py plant --cells A1,B1,C1,D1,A2,B2,C2,D2 --backup <a fresh Download a Copy>`.
+
 ## 2026-11-13 ~03:35 UTC, Task 356 -- round 2's finding is RIGHT, the round cap is reached, I stopped. The refutation stands on two legs; the third one's LABEL is wrong
 
 **Director 2026-11-13 03:35 UTC: round 3 authorised for task 356, the Reviewer's option (b).** The
