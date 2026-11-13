@@ -238,3 +238,19 @@ Line 1931 of that tree is `expect(Forest.releasing()).to.equal(false)` in
 `it("brings the depth back down when the release RAISES")` -- the depth stuck at 1 after the raise.
 Exactly one case failed, and no other spec moved -- so this is the case's own bite and not a
 side-effect. With the guard restored the full clean run passes; its line is `REQUEST.md`'s.
+
+## 7. ROUND 3: one case was reading the bill's FORMAT FLOOR, and that is fixed
+
+`it("times the sections it really ran")` sums the bill's `max/total` pairs and asserts the sum is
+> 0. The bill prints `%.1f`, and with `computeRouteVia` stubbed out every section of a spec release
+is **under 0.05 ms**, so each pair can print `0.0` and the sum reads 0. Measured, both at the same
+tree: `356r3-failfirst.txt` read **0.400 ms** and passed; `356r3-harness1.txt`, five minutes later at
+`055cbaf7`, read 0 and **failed** (`forest_placement.spec:1872`, `Expected true, got false`). Nothing
+about the release changed between them -- the case was reading rounding noise, which is a flaky
+assertion and not a defect in the instrument it guards.
+
+**The fix is REAL WORK, not a loosened assertion:** the spec's own `computeRouteVia` patch now burns
+1 ms of `os.clock` before it returns, so `releaseProf.routes` is a measured millisecond and the
+printed pair cannot round to 0.0. The timer that reads it is the one under test, so the case still
+dies if the nine `releaseProf.<section> = (os.clock() - sectionAt) * 1000` assignments are deleted --
+its FAIL FIRST claim is unchanged. The spin count is printed in the case's own harness note.

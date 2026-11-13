@@ -1799,6 +1799,7 @@ return function()
 			Forest.releaseReset()
 			local realVia = Forest.computeRouteVia
 			local sawDuring, now = nil, Data.slotSeconds(1, Forest.cellSchedule())
+			local spun = 0
 			Forest.computeRouteVia = function(via)
 				-- READ FROM INSIDE THE CALL, which is the only place the answer can be `true`.
 				sawDuring = Forest.releasing()
@@ -1809,6 +1810,14 @@ return function()
 				for _ = 1, (stepsInside or 0) do
 					Forest.step(now, false)
 				end
+				-- ONE MEASURABLE MILLISECOND OF REAL WORK, so `routes` is a time and not rounding noise:
+				-- the bill prints `%.1f`, and with the pathfinder stubbed out every section is under
+				-- 0.05 ms and prints 0.0. That failed "times the sections it really ran" at 055cbaf7 and
+				-- passed it at 0.400 ms five minutes earlier: the case was reading the format's floor.
+				local spinUntil = os.clock() + 0.001
+				while os.clock() < spinUntil do
+					spun += 1
+				end
 				local out = {}
 				for _, point in ipairs(via) do
 					table.insert(out, point)
@@ -1818,7 +1827,7 @@ return function()
 			local said = Forest.step(now, false)
 			Forest.computeRouteVia = realVia
 			Forest.start(nil :: any, 0)
-			return { said = said, sawDuring = sawDuring, made = #made, bill = Forest.releaseBill() }
+			return { said = said, sawDuring = sawDuring, spun = spun, made = #made, bill = Forest.releaseBill() }
 		end
 
 		-- WHAT THE BILL SAYS, read out of either half. `worst:` carries the counts of the worst call;
@@ -1876,7 +1885,11 @@ return function()
 			expect(got.sawDuring).to.equal(true)
 			expect(Forest.releasing()).to.equal(false)
 			TestKit.note(
-				string.format("task 356: the sections billed %.3f ms of real work over this spec's releases", totals)
+				string.format(
+					"task 356: the sections billed %.3f ms of real work over this spec's releases (%d spin(s) in `routes`)",
+					totals,
+					got.spun
+				)
 			)
 		end)
 
