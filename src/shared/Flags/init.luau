@@ -207,7 +207,15 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- DIRECTOR's call and deletes a losing branch per retirement, or ship lit, which
 -- `docs/design/feature-flags.md` section 11 step 1 forbids. **The Director may prefer to spend 82b
 -- instead**: this is one line either way.
-Flags.MAX_FLAGS = 28
+-- 28 -> 29 FOR TASK 355's `BOAR_ATTACH_BUDGET`, and the same sentence a ninth time, said out loud
+-- rather than paid for by quietly retiring somebody else's row: the table held exactly 28 before
+-- this commit. The dispatch of 2026-11-12 asks for the frame budget and asks for it behind a flag
+-- born OFF -- *"If the fix changes WHEN something visible happens by more than one frame, put it
+-- behind a flag born OFF"* -- and it does: an animal in a crowded release keeps the grey box for a
+-- few more frames. The two ways out of the cap are still task 238's two: retire the lit rows queued
+-- as TASKS.md 82b, which is the DIRECTOR's call, or ship lit, which `docs/design/feature-flags.md`
+-- section 11 step 1 forbids.
+Flags.MAX_FLAGS = 29
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"

@@ -8079,23 +8079,29 @@ function Runtime:step(dt: number)
 		-- itself follows. With the flag off neither line runs and nothing differs from before task 115.
 		prof.brain += (os.clock() - brainAt) * 1000
 
-		local attachAt = os.clock()
 		local visualTemplate = visualTemplates[entry.body.kind or config.KINDS.DEFAULT]
-		-- THE FRAME BUDGET (task 355). React Scheduler's `shouldYieldToHost`: keep working while the
-		-- slice has time left, measured on the clock and never counted in units. There is no queue
-		-- and no bookkeeping, because this sweep is level-triggered -- `visual == nil` is asked of
-		-- every animal every frame, so one the budget stopped is reached on the next pass.
-		-- `prof.attach` is this frame's attach spend, the same number the instrument publishes.
-		-- 0 is no budget at all, which is the world before this task.
-		local budget = config.MODEL.ATTACH_BUDGET_MS
-		local mayAttach = budget <= 0 or prof.attach < budget
-		if config.MODEL.ENABLED and mayAttach and visualTemplate ~= nil and entry.body.visual == nil then
+		if config.MODEL.ENABLED and visualTemplate ~= nil and entry.body.visual == nil then
 			-- `entry.config` AND NOT `config` (task 223), because `attachVisual` reads
 			-- `MODEL.NAME`, `MODEL.HIDE_BOX` and the kind's mesh scale, and a deer's `MODEL` is its
 			-- own table. For every boar `entry.config` IS `config` by reference.
-			Body.attachVisual(entry.body, visualTemplate, entry.config or config)
+			-- THE FRAME BUDGET (task 355). React Scheduler's `shouldYieldToHost`: keep working while
+			-- the slice has time left, measured on the clock and never counted in units. There is no
+			-- queue and no bookkeeping, because this sweep is level-triggered -- `visual == nil` is
+			-- asked of every animal every frame, so one the budget stopped is reached on the next
+			-- pass. 0 is no budget at all, which is the world before this task.
+			--
+			-- IT IS TESTED HERE, INSIDE THE BRANCH THAT ACTUALLY BUILDS ONE, and that is a MEASURED
+			-- correction and not a tidy-up: with the test outside, every ALREADY-DRESSED animal also
+			-- added its (tiny) check to the frame's attach spend, so a small budget was used up by
+			-- animals that attached nothing and the deferred ones were never reached --
+			-- `boar_attach_budget.spec` read `1,1,1,1` where it must read `1,2,3,4`.
+			local budget = config.MODEL.ATTACH_BUDGET_MS
+			if budget <= 0 or prof.attach < budget then
+				local attachAt = os.clock()
+				Body.attachVisual(entry.body, visualTemplate, entry.config or config)
+				prof.attach += (os.clock() - attachAt) * 1000
+			end
 		end
-		prof.attach += (os.clock() - attachAt) * 1000
 		local drawAt = os.clock()
 
 		-- ALERT AND AVOID, COUNTED ON THE EDGE (task 118): one per transition, so a stat says how
