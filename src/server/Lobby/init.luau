@@ -119,6 +119,10 @@ local BILL_ORDER = { "ground", "build", "place" }
 local profMs = { ground = 0, build = 0, place = 0 }
 local profFrames = { ground = 0, build = 0, place = 0 }
 local profCalls = { ground = 0, build = 0, place = 0 }
+-- ...AND WHICH FRAME THE BUILD AND THE PLACEMENT HAPPENED ON (task 357, second reading). The worst
+-- Heartbeat of the session was step 14 of ~5,760, which is the server's own start and not a join --
+-- so "at the join" needs a step number beside it or it is a guess.
+local atFrame = { build = 0, place = 0 }
 local billWorstMs, billWorst = 0, ""
 local function frameNow(): number
 	return if world ~= nil and world.frames ~= nil then world.frames() else 0
@@ -568,6 +572,7 @@ local function tryBuild(): boolean
 	profMs.build += (os.clock() - began) * 1000
 	profFrames.build += frameNow() - beganFrame
 	profCalls.build += 1
+	atFrame.build = beganFrame
 	return true
 end
 
@@ -928,6 +933,7 @@ local function stepPlayer(
 			profMs.place += (os.clock() - placeAt) * 1000
 			profFrames.place += frameNow() - placeFrame
 			profCalls.place += 1
+			atFrame.place = placeFrame
 		end
 	end
 end
@@ -1721,7 +1727,7 @@ function Lobby.step(now: number, players: { any }?)
 	if ms > billWorstMs then
 		billWorstMs = ms
 		billWorst = string.format(
-			"worst=%.1f frames=%d | ground=%.1f/%df/%dc build=%.1f/%df/%dc place=%.1f/%df/%dc rest=%.1f",
+			"worst=%.1f frames=%d | ground=%.1f/%df/%dc build=%.1f/%df/%dc@step%d place=%.1f/%df/%dc@step%d rest=%.1f",
 			ms,
 			frames,
 			profMs.ground,
@@ -1730,9 +1736,11 @@ function Lobby.step(now: number, players: { any }?)
 			profMs.build,
 			profFrames.build,
 			profCalls.build,
+			atFrame.build,
 			profMs.place,
 			profFrames.place,
 			profCalls.place,
+			atFrame.place,
 			ms - profMs.ground - profMs.build - profMs.place
 		)
 	end
@@ -1789,6 +1797,7 @@ function Lobby.start(injected: any?): boolean
 	-- the composition root owns the Heartbeat, so it is the only thing that can say which frame this
 	-- is. nil is every spec and the DEV place, and then the bill's frame counts read 0.
 	billWorstMs, billWorst = 0, ""
+	atFrame.build, atFrame.place = 0, 0
 	for _, key in ipairs(BILL_ORDER) do
 		profMs[key], profFrames[key], profCalls[key] = 0, 0, 0
 	end

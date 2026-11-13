@@ -1901,6 +1901,13 @@ local idleHbMax, idleHbFrames, idleHbTotal = 0, 0, 0
 -- file's own buckets AS READ ON the frame that set the max, so the two can be joined rather than
 -- assumed. The lobby's bill is the frame count beside it.
 local hbWorst, hbWorst_ms = "", 0
+-- THE THREE WORST FRAMES OF THE SESSION AND THE STEP EACH FIRED ON (task 357, second reading). One
+-- max is not enough to tell a server STARTING from a server stalling: the first reading's worst was
+-- 1,607.2 ms at step 14 of 5,760, which is the place loading and not a join. Three rows, each with
+-- its step, say whether a long frame ever happens again after the first second.
+local HB_TOP = 3
+local hbTopMs = { 0, 0, 0 }
+local hbTopStep = { 0, 0, 0 }
 local lobbyStepMs, lobbyStepFrames, lobbyReportMs, lobbyReportFrames = 0, 0, 0, 0
 local lobbyStepMax, lobbyStepMaxFrames, lobbyReportMax = 0, 0, 0
 
@@ -2092,6 +2099,15 @@ RunService.Heartbeat:Connect(function(dt)
 	-- beside it are the ones this handler filled LAST frame. That is said here rather than left to
 	-- be worked out, because reading them as this frame's work is exactly the mistake that would
 	-- charge a 1.4 s frame to whichever owner happened to be slow after it.
+	for i = 1, HB_TOP do
+		if frameMs > hbTopMs[i] then
+			for j = HB_TOP, i + 1, -1 do
+				hbTopMs[j], hbTopStep[j] = hbTopMs[j - 1], hbTopStep[j - 1]
+			end
+			hbTopMs[i], hbTopStep[i] = frameMs, bootSteps
+			break
+		end
+	end
 	if frameMs > hbWorst_ms then
 		hbWorst_ms = frameMs
 		hbWorst = string.format(
@@ -2173,7 +2189,16 @@ RunService.Heartbeat:Connect(function(dt)
 				lobbyStepMaxFrames,
 				lobbyReportMax,
 				Lobby.bill(),
-				hbWorst
+				string.format(
+					"%s | top3 %.1f@%d %.1f@%d %.1f@%d",
+					hbWorst,
+					hbTopMs[1],
+					hbTopStep[1],
+					hbTopMs[2],
+					hbTopStep[2],
+					hbTopMs[3],
+					hbTopStep[3]
+				)
 			)
 		)
 		if burnSpins > 0 then
