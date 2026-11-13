@@ -1,7 +1,7 @@
 # Task 363 -- when the game starts she is in the lobby, not on the road
 
 Task: 363
-Round: 2
+Round: 1
 Base: e883fa5a (origin/main)
 Code commit: 9abf33a80e1aaa8520bb8790a54c10eec508a2db
 
@@ -29,8 +29,11 @@ stands -- becomes the one writer of `Players.CharacterAutoLoads`. `ForestTestBoo
 its last non-yielding line, the lobby loads the first body at the lodge through `world.place`, and
 the auto-load is handed back on the first scan where the lobby is built and nobody is bodiless.
 
-**Round 2 changes one number and adds one case** (round 1 was `PASS`; this is not a fix to a
-finding). The ceiling that releases a hold nobody else released was `BUILD_TIMEOUT_SECONDS`' 10 s,
+**THIS IS A RE-REVIEW OF AN UPDATED TREE, NOT A SECOND ROUND.** The first review of this task
+passed (`PASS (item 2 NOT PROVEN)`, verdict committed at `9abf33a8`, reviewing `5027776e`); nothing
+in it was a finding. Since then I changed one number and added one case, so the verdict has to name
+the tree that will be merged -- `tools/agents.py` counts the round from the committed verdict and
+says this run is `Round: 1`. What is new since that verdict: The ceiling that releases a hold nobody else released was `BUILD_TIMEOUT_SECONDS`' 10 s,
 and its undo is a body at the engine's own spawn -- the road. 10 s sits INSIDE the range of boots
 measured in that place: 5.6/6.0/6.1 s here, but 12.2-14.5 s over 11 Plays per `<runs-dir>/smoke.sh`.
 A slow boot would have fired my own belt and put her back where the task started. It is 25 s now,
