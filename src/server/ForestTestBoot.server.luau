@@ -1844,7 +1844,22 @@ local driveMax = { placement = 0, spook = 0, lines = 0, roar = 0, staged = 0, re
 local driveTotal = { placement = 0, spook = 0, lines = 0, roar = 0, staged = 0, rest = 0, release = 0 }
 local bootSteps, bootMsTotal, bootMsMax, bootWorst = 0, 0, 0, ""
 
-RunService.Heartbeat:Connect(function()
+-- THE FRAME ITSELF, CHARGED TO "A WAVE IS BEING RELEASED" OR NOT (task 356). `dt` is the WHOLE
+-- server frame -- engine work included, which no `os.clock` bite in Lua can see. `Path:ComputeAsync`
+-- yields, so a release spans many frames; this is what says whether any ONE of them is long.
+local relHbMax, relHbFrames, relHbTotal = 0, 0, 0
+local idleHbMax, idleHbFrames, idleHbTotal = 0, 0, 0
+
+RunService.Heartbeat:Connect(function(dt)
+	local frameMs = dt * 1000
+	-- THE DEPTH AS THIS FRAME STARTED, READ ONCE (round 2's finding, `reviews/task-356/RESULT.md`).
+	-- So `hb-in-release` holds the frames a release is SUSPENDED through; the frame it starts on and
+	-- the one whose backward-looking `dt` covers its resumed Lua are in `hb-elsewhere`.
+	local releasingBefore = ForestTest.releasing()
+	-- THE POSITIVE CONTROL THAT PROVED THIS CHANNEL IS NOT BLIND is archived rather than shipped:
+	-- `backups/2026-11-13_task-356_release-burn-control.md` (a Studio-only spin of `DHReleaseBurn`
+	-- ms inside a release). It read 250 ms back as `hb-in-release max=277.9 mean=188.7`, against
+	-- 46.5 / 23.0 with it off. A spin loop in the Heartbeat is not something to leave in the tree.
 	local bootBegan = os.clock()
 	bootProf.cells, bootProf.drive, bootProf.reports = 0, 0, 0
 	bootProf.wire, bootProf.wall, bootProf.lobby = 0, 0, 0
@@ -1987,6 +2002,19 @@ RunService.Heartbeat:Connect(function()
 	Lobby.step(now, players)
 	reportLobby()
 	bootProf.lobby = (os.clock() - lobbyAt) * 1000
+	if releasingBefore then
+		relHbFrames += 1
+		relHbTotal += frameMs
+		if frameMs > relHbMax then
+			relHbMax = frameMs
+		end
+	else
+		idleHbFrames += 1
+		idleHbTotal += frameMs
+		if frameMs > idleHbMax then
+			idleHbMax = frameMs
+		end
+	end
 
 	-- THE BILL (task 355). Published every 120 steps, the same cadence and for the same reason as
 	-- `Boar.STEP_PUBLISH_EVERY`: two attribute writes every two seconds at 60 Hz.
@@ -2051,6 +2079,21 @@ RunService.Heartbeat:Connect(function()
 			table.insert(owners, string.format("drive.%s=%.1f/%.1f", key, driveMax[key], driveTotal[key]))
 		end
 		ServerStorage:SetAttribute("DHBootOwners", table.concat(owners, " "))
+		-- ...AND `drive.release` SPLIT ONE LEVEL FURTHER (task 356). Same cadence, same channel and
+		-- the same reason as the two above: `drive.release=569.3/4650` names a function, not a cost.
+		ServerStorage:SetAttribute(
+			"DHReleaseBill",
+			string.format(
+				"hb-in-release max=%.1f mean=%.1f over %d frames | hb-elsewhere max=%.1f mean=%.1f over %d ;; %s",
+				relHbMax,
+				if relHbFrames > 0 then relHbTotal / relHbFrames else 0,
+				relHbFrames,
+				idleHbMax,
+				if idleHbFrames > 0 then idleHbTotal / idleHbFrames else 0,
+				idleHbFrames,
+				ForestTest.releaseBill()
+			)
+		)
 	end
 end)
 

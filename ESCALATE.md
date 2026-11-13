@@ -1,3 +1,161 @@
+## 2026-11-13 ~03:35 UTC, Task 356 -- round 2's finding is RIGHT, the round cap is reached, I stopped. The refutation stands on two legs; the third one's LABEL is wrong
+
+**Director 2026-11-13 03:35 UTC: round 3 authorised for task 356, the Reviewer's option (b).** The
+refuted premise is ACCEPTED: no fix is written, the task merges as an instrument plus its
+measurements. `MAX_ROUNDS` stays 3, so no `DIRECTOR_MAX_ROUNDS` is set or needed. Builder, round 3:
+the dead second read and its comment deleted, MEASUREMENTS 2(b)/3a saying what `hb-in-release` really
+holds, and the one-line notes from `RESULT.md`.
+
+**The dispatch: *"at most 2 rounds; a FINDING on round 2 goes to ESCALATE.md, then stop."* So I
+stopped.** Nothing in `src/` has been touched since the reviewed commit `10584da8`, so the harness
+evidence still covers it and the merge gate's "only paperwork after the code commit" still holds.
+
+### The finding, and I checked it myself rather than taking it
+
+> `src/server/ForestTestBoot.server.luau` -- *"the round-2 'stricter' charge is a no-op, and the
+> frames that carry a release's own Lua are still in `hb-elsewhere`."*
+
+**It is correct.** Verified by reading the three line numbers rather than by agreeing:
+`releasingBefore` is read at `ForestTestBoot.server.luau:1858`, **before** `ForestTest.step(now)` at
+`:1895`; the charge is at `:2005`; and the only writers of the depth are inside `ForestTest.step`
+(`init.luau:4054` / `:4056`) and `stagedLine` (`:4392` / `:4394`). So in the thread that actually
+carries a release: the first read happened before the release began (false), and by the time that
+thread reaches `:2005` its `releaseLine` has returned and the decrement has run (false). **Both
+operands are false in exactly the thread I claimed to have fixed.** My round-2 change does nothing
+it says it does.
+
+**What is false in the tree, and should be struck by whoever picks this up** (the Reviewer's own
+option (b), which is the bound the data supports):
+
+1. `ForestTestBoot.server.luau:1855-1858`, the comment beginning *"READ BEFORE AND AFTER
+   `ForestTest.step` AND OR-ED"* -- delete it and the dead second read.
+2. `reviews/task-356/REQUEST.md` claim 5's last sentence (*"Round 2 made this stricter..."*) --
+   **it is wrong.** Left in place rather than edited, so the verdict and the request it was written
+   against still match.
+3. `reviews/task-356/MEASUREMENTS.md` 2(b) and 3a should say what `hb-in-release` actually holds:
+   **the purely yielding frames**, and that a release's start frame and the frame whose `dt` covers
+   its resumed Lua are in `hb-elsewhere`.
+
+### WHAT THIS DOES NOT TOUCH -- the premise is still refuted, on two independent legs
+
+The Reviewer says so in the finding itself: *"claim 5's numbers (24.2 vs 24.8, max 49.3) and claim
+4's `FRAMES=24/27/43/44` are not disputed: `releaseCount.ticks = stepTicks - releaseEntryTick` is a
+sound counter and on its own refutes '569 ms in ONE frame'."*
+
+1. **The frame counter.** One `releaseLine` call spans **24 / 27 / 43 / 44 Heartbeats** over four
+   drives in her place. A stall reads 0. This alone disposes of *"in ONE frame"*.
+2. **The section bill.** The heaviest thing `releaseLine` can put into any single frame is its
+   `spawn` loop, which does not yield: **23.2 ms worst over a drive**, with every other section
+   <= 1.5 ms. So the worst frame of release Lua is ~23 ms, not 570. That number is read, not
+   derived, and it is in MEASUREMENTS section 1 and the round-2 "DERIVED" row of section 3.
+3. The in-release / elsewhere split was the third leg. **Its numbers stand; its label is off by one
+   to two frames per release**, and those frames are the ones carrying leg 2's ~23 ms -- which is
+   separately measured and under the dispatch's own 16 ms bar only for the eight sections that are
+   `releaseLine`'s own arithmetic, `spawn` being the Boar owner's.
+
+So: **`path:ComputeAsync` is 97.9-98.2 % of the 570-845 ms, it yields, and there is no half-second
+server freeze when a wave releases.** Nothing in round 2's finding moves that.
+
+### THE DECISIONS ARE UNCHANGED FROM THE 02:45 ENTRY
+
+1. **The drive's real worst frame is 1,399.7-1,421.7 ms, at the join, and it is the LOBBY's**
+   (`Lobby.step` + `reportLobby`, 1,214.6 ms of it in Lua) -- task 355's spike #2, 3.2x bigger than
+   355 measured, and nobody owns it.
+2. **Task 355's own fix is switched OFF in Karen's place.** Her boar step peak is 80-102 ms against
+   the 40 ms target; 355 measured 26.1 ms with `BOAR_ATTACH_BUDGET` on. Nobody has ever looked at a
+   drive with it on. One playtest.
+3. **`Runtime:spawn` is 23.2 ms in one frame** -- the only thing inside `releaseLine` over the 16 ms
+   bar, the Boar owner's, and slicing it changes when a group appears, which is Karen's call.
+
+### RULE 5, SAID PLAINLY
+
+**Nothing in this task was seen in Karen's place, as a picture or as play.** The dispatch's *"no
+hitch when a wave releases"* is a core item; its stand-ins are the two legs above, read off
+`ServerStorage.DHReleaseBill` in a headless Play session. The only frame I looked at is the Rojo
+panel. **This is NOT PROVEN on screen -- nobody has watched a wave release and seen no hitch.**
+
+---
+
+## 2026-11-13 ~02:45 UTC, Task 356 -- THE PREMISE IS REFUTED. There is no half-second stall when a wave releases, and the drive's real worst frame belongs to the lobby
+
+**For the Director.** The dispatch is built on one sentence from task 355:
+
+> *"`ForestTest.releaseLine` ... takes 569.3 / 567.5 / 845.7 ms in ONE frame each time a slot fires
+> ... That is a half-second server freeze every wave."*
+
+The first half is right and I reproduced it. **The words "in ONE frame" are wrong, and with them the
+whole task.** Measured in Karen's own Forest Test, C1, her flags exactly as they are, four drives,
+`reviews/task-356/MEASUREMENTS.md`:
+
+1. **Where the 570 ms goes.** `path:ComputeAsync`, called from `ForestTest.computeRouteVia` by
+   `routeFilesFor`, is **732.0 of the worst call's 745.4 ms -- 98.2 %**. Everything `releaseLine`'s
+   own Lua does, all nine sections, is **13.4 ms**. A single `ComputeAsync` costs 68-399 ms in this
+   world and never less than ~90 ms, whatever is asked of it (an immediately unreachable search
+   still costs 90.6 ms).
+2. **`Path:ComputeAsync` is documented as a YIELDING function**
+   (<https://create.roblox.com/docs/reference/engine/classes/Path#ComputeAsync>). An `os.clock()`
+   bite across a yield measures **wall** time -- working plus waiting -- which is the error class
+   Brendan Gregg's off-CPU analysis is about. Task 355's instrument (and mine, until I added the
+   frame counter) could not tell the two apart.
+3. **The call spans 27 / 24 / 43 Heartbeats**, counted by `ForestTest.step`'s own entries between
+   the call's entry and its exit. 745.4 ms over 43 frames is 17.3 ms a frame.
+4. **The frame itself, charged to "a release is in flight" or not** -- `Heartbeat`'s `deltaTimeSec`,
+   the only number in Lua's reach that includes the engine's own work:
+
+   | one 340 s C1 drive, her flags | max | **mean** | frames |
+   |---|---|---|---|
+   | **while a wave is being released** | **46.5 ms** | **23.0 ms** | 373 |
+   | everywhere else in the same drive | **1,421.7 ms** | **23.3 ms** | 14,507 |
+
+   **A frame during a release is 0.3 ms FASTER on average than a frame that is not.**
+5. **The result is a null one, so it has a positive control.** A Studio-only 250 ms spin injected
+   into in-release frames read back as `hb-in-release max=277.9 mean=188.7` against 46.5 / 23.0
+   with it off. The channel is not blind. Archived:
+   `backups/2026-11-13_task-356_release-burn-control.md`.
+
+**So I did not write the fix.** Every borrowed pattern the dispatch offers -- time-slicing,
+precompute, cache -- buys frame time, and there is no frame time to buy here. Slicing cannot break
+one `ComputeAsync`, and precomputing a route would change where a group starts, because the start
+depth is clamped to where the beaters have actually got to at the moment of release. Shipping any
+of them would have been a change to a working drive paid for by a measurement error. Karen,
+2026-10-25: *"think before to implement implementation. And then only apply."*
+
+**What I shipped instead:** the instrument that settles this class of question (nine sections, the
+pathfinder's legs and waypoints, the frames a call spans, and the per-frame in-release/elsewhere
+split), a spec that fails if it is quietly broken, the research note, and the measurements.
+
+### THREE DECISIONS FOR THE DIRECTOR
+
+1. **The drive's real worst frame is the LOBBY's and it is 1,421.7 ms**, at the join, with no
+   release in flight -- `Lobby.step` + `reportLobby` in one bucket, 1,214.6 ms of it in Lua
+   (`src/server/Lobby/init.luau`). Task 355 saw it at 378.4 ms, called it spike #2 and left it
+   because it is "at the join, before any drive". **It is 3.2x bigger than 355 measured and it is
+   the largest stall the server actually takes.** It is a real task and nobody owns it.
+2. **Task 355's own fix is switched OFF in Karen's place** (`BOAR_ATTACH_BUDGET`, by this
+   dispatch's instruction, "leave it"). With it off her boar step peak is **80-102 ms** against the
+   40 ms target; 355 measured 26.1 ms with it on. **Nobody has ever looked at a drive with it on**
+   -- that is 355's own "Needs Karen". Turning it on costs one playtest and is worth more than any
+   new server work queued today.
+3. **`Runtime:spawn` is 23.2 ms in one frame** (nine animals at once) -- the only thing inside
+   `releaseLine` above this dispatch's 16 ms bar, and the Boar owner's, not this file's. It would be
+   sliced the way 355 sliced `attachVisual`, at the price of a group appearing over several frames.
+   **That is a look question for Karen, not a performance one**, and I have not touched it.
+
+### AND ONE THING NOBODY HAS MEASURED
+
+`ComputeAsync` costs no frames, but it does mean a released group **stands on the ground for
+0.2-0.7 s before its line starts walking** -- the bodies are spawned before the route is known.
+Whether that is visible is Karen's question and nothing in this task looked at it.
+
+### A NOTE ON THE DISPATCH ITSELF (the Learning Agent's L-175, again)
+
+The `CHECKED:` line reads `L-093 delete the producer`. **L-093 is branch coverage; "delete the
+producer" is L-028.** The Learning Agent flagged this exact mislabel as recurring on 2026-11-04 and
+again on 2026-11-12, and task 355 -- this prompt's direct predecessor, same wording -- answered it
+the same wrong way. I have answered **L-028** below and said so by name.
+
+---
+
 ## 2026-11-12 ~22:35 UTC, Task 354 -- round 3 fixed both of round 2's findings and produced ONE new one: the sentence I deleted from the note is still asserted in `docs/research/INDEX.md`. The cap is reached again
 
 The dispatch: *"A finding on round 3 -> ESCALATE.md and stop."* So I stopped. **The finding is

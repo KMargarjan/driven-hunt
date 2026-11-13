@@ -3833,7 +3833,126 @@ function ForestTest.stepSections()
 	return sections
 end
 
+-- THE BILL OF ONE `releaseLine` (task 356). `drive.release` is 569-846 ms in ONE frame every time a
+-- slot fires (task 355, `reviews/task-355/MEASUREMENTS.md`), and that number cannot say to whom.
+-- Same shape and the same reason as `sections` above: zeroed at the top of the call, rolled up by
+-- `ForestTest.step` with the total IT measured -- so `releaseLine`'s fifteen early returns need no
+-- wrapper, whatever ran is in the table and whatever did not reads 0. Diagnostic only.
+local releaseProf = { prep = 0, frame = 0, comp = 0, routes = 0, path = 0, clear = 0, order = 0, spawn = 0, files = 0 }
+local releaseCount = { legs = 0, wps = 0, casts = 0, spawns = 0, ticks = 0 }
+-- HOW MANY FRAMES THE CALL SPANNED (task 356). `Path:ComputeAsync` is documented as a YIELDING
+-- function (https://create.roblox.com/docs/reference/engine/classes/Path#ComputeAsync), and a yield
+-- inside the boot's Heartbeat connection does not stop the next frame firing that connection again
+-- -- so `drive.release=569.3 ms` of WALL time is not by itself a 569 ms frozen frame. `ForestTest.step`
+-- is called once per Heartbeat, so counting its entries across the call settles which it is.
+local stepTicks = 0
+-- ...AND WHETHER ONE IS IN FLIGHT RIGHT NOW (task 356). A DEPTH and not a boolean, because the
+-- yield above means a later Heartbeat can enter `step` while an earlier release is still suspended.
+-- `ForestTestBoot` reads it to charge each Heartbeat's `dt` to "during a release" or "not", which is
+-- the one measurement that separates a 595 ms WALL time from a 595 ms FROZEN FRAME.
+-- NOT `releaseDepth`: `Data.releaseDepth` is a route's start depth in STUDS and is called 760 lines
+-- below, in this same function (round 1's note).
+local releaseInFlight = 0
+-- THE TICK THE CALL ENTERED ON, kept here rather than in a local, so `releaseRollup` can work the
+-- frame span out for EVERY return (round 1's note: a call that yielded through `routeFilesFor` and
+-- then refused used to publish `FRAMES=0` -- which is exactly the reading this task treats as proof
+-- of a real stall).
+local releaseEntryTick = 0
+-- THE LEGS OF THE WORST RELEASE, one row each: the pathfinder's own cost, what it answered, and how
+-- far it was asked to go. `drive.release` cannot say whether two legs cost the same.
+local releaseLegs: { string } = {}
+local RELEASE_ORDER = { "prep", "frame", "comp", "routes", "path", "clear", "order", "spawn", "files" }
+local releaseMax = { prep = 0, frame = 0, comp = 0, routes = 0, path = 0, clear = 0, order = 0, spawn = 0, files = 0 }
+local releaseTotal = { prep = 0, frame = 0, comp = 0, routes = 0, path = 0, clear = 0, order = 0, spawn = 0, files = 0 }
+local releaseCalls, releaseWorstMs, releaseWorst, releaseWorstLegs = 0, 0, "", ""
+
+local function releaseZero()
+	for key in pairs(releaseProf) do
+		releaseProf[key] = 0
+	end
+	for key in pairs(releaseCount) do
+		releaseCount[key] = 0
+	end
+	table.clear(releaseLegs)
+end
+
+-- OPENS A FRESH MEASUREMENT WINDOW. **`ForestTest.newDrive` deliberately does NOT call this**, and
+-- that is MEASURED, not a preference: wiring it there made the bill per-drive the way task 355's
+-- `StepOwners` is, and the drive that ENDS before the probe reads it then wiped its own bill --
+-- `calls=0 worst:` with 253 in-release frames on the same run (`<runs-dir>/R2-track.txt`). The bill
+-- is per SESSION, like `DHBoot*`, and a caller that wants a window says so.
+function ForestTest.releaseReset()
+	releaseCalls, releaseWorstMs, releaseWorst, releaseWorstLegs = 0, 0, "", ""
+	for key in pairs(releaseMax) do
+		releaseMax[key] = 0
+		releaseTotal[key] = 0
+	end
+	releaseZero()
+end
+
+function ForestTest.releaseRollup(totalMs: number)
+	releaseCalls += 1
+	releaseCount.ticks = stepTicks - releaseEntryTick
+	for key, ms in pairs(releaseProf) do
+		releaseTotal[key] += ms
+		if ms > releaseMax[key] then
+			releaseMax[key] = ms
+		end
+	end
+	if totalMs > releaseWorstMs then
+		releaseWorstMs = totalMs
+		releaseWorstLegs = table.concat(releaseLegs, " ")
+		local named = releaseProf.prep
+			+ releaseProf.frame
+			+ releaseProf.comp
+			+ releaseProf.routes
+			+ releaseProf.order
+			+ releaseProf.spawn
+			+ releaseProf.files
+		releaseWorst = string.format(
+			"total=%.1f prep=%.1f frame=%.1f comp=%.1f routes=%.1f (path=%.1f clear=%.1f)"
+				.. " order=%.1f spawn=%.1f files=%.1f rest=%.1f | legs=%d wps=%d casts=%d spawns=%d FRAMES=%d",
+			totalMs,
+			releaseProf.prep,
+			releaseProf.frame,
+			releaseProf.comp,
+			releaseProf.routes,
+			releaseProf.path,
+			releaseProf.clear,
+			releaseProf.order,
+			releaseProf.spawn,
+			releaseProf.files,
+			totalMs - named,
+			releaseCount.legs,
+			releaseCount.wps,
+			releaseCount.casts,
+			releaseCount.spawns,
+			releaseCount.ticks
+		)
+	end
+end
+
+-- IS A WAVE BEING RELEASED RIGHT NOW. `ForestTestBoot` charges each Heartbeat's `dt` to this answer
+-- or to its opposite, which is the one measurement that separates WALL time from a FROZEN FRAME.
+function ForestTest.releasing(): boolean
+	return releaseInFlight > 0
+end
+
+-- WORST FRAME, THEN EVERY SECTION'S OWN max/total -- because one 1,274 ms frame hid every other
+-- owner's worst behind it in task 355 (`355-BEF3-track.txt`), and the same trap is here.
+function ForestTest.releaseBill(): string
+	local out = { string.format("calls=%d worst: %s", releaseCalls, releaseWorst) }
+	local each = {}
+	for _, key in ipairs(RELEASE_ORDER) do
+		table.insert(each, string.format("%s=%.1f/%.1f", key, releaseMax[key], releaseTotal[key]))
+	end
+	table.insert(out, table.concat(each, " "))
+	table.insert(out, "worst legs: " .. releaseWorstLegs)
+	return table.concat(out, " ;; ")
+end
+
 function ForestTest.step(now: number, inPlace: boolean?): string?
+	stepTicks += 1
 	sections.placement, sections.spook, sections.lines, sections.roar = 0, 0, 0, 0
 	sections.staged, sections.rest, sections.release = 0, 0, 0
 	if not state.started then
@@ -3932,8 +4051,17 @@ function ForestTest.step(now: number, inPlace: boolean?): string?
 		-- slot release never reached the console at all, and the drive's own proof then undercounts the
 		-- very thing it is evidence for. The slot line comes first because it is the drive's headline.
 		sectionAt = os.clock()
-		local released = ForestTest.releaseLine(now, nil, resolved, aim)
+		-- THE DEPTH COMES BACK DOWN EVEN IF THE RELEASE RAISES (round 2's note). This is the drive's
+		-- own un-pcalled Heartbeat: a raise used to leave the depth at >= 1 and charge every later
+		-- frame of the session in-release. The error is re-raised unchanged, so nothing else moves.
+		releaseInFlight += 1
+		local ok, released = pcall(ForestTest.releaseLine, now, nil, resolved, aim)
+		releaseInFlight -= 1
+		if not ok then
+			error(released, 0)
+		end
 		sections.release = (os.clock() - sectionAt) * 1000
+		ForestTest.releaseRollup(sections.release)
 		if released ~= nil and flush ~= nil then
 			return released .. " | " .. flush
 		end
@@ -4123,13 +4251,32 @@ function ForestTest.computeRouteVia(via: { Vector3 }): { Vector3 }?
 		table.insert(legs, { via[index - 1], via[index] })
 	end
 	for _, leg in ipairs(legs) do
+		-- THE PATHFINDER'S OWN BITE (task 356). `ComputeAsync` is a YIELDING function, so this is
+		-- WALL time -- working plus waiting -- and `releaseCount.ticks` is what says which.
+		local legAt = os.clock()
+		local legTick = stepTicks
 		local ok = pcall(function()
 			path:ComputeAsync(leg[1], leg[2])
 		end)
+		local legMs = (os.clock() - legAt) * 1000
+		releaseProf.path += legMs
+		releaseCount.legs += 1
+		table.insert(
+			releaseLegs,
+			string.format(
+				"[%.0fms %s %.0fstuds +%df]",
+				legMs,
+				string.gsub(tostring(path.Status), "Enum.PathStatus.", ""),
+				(leg[2] - leg[1]).Magnitude,
+				stepTicks - legTick
+			)
+		)
 		if not ok or path.Status ~= Enum.PathStatus.Success then
 			return nil
 		end
-		for index, waypoint in ipairs(path:GetWaypoints()) do
+		local waypoints = path:GetWaypoints()
+		releaseCount.wps += #waypoints
+		for index, waypoint in ipairs(waypoints) do
 			-- The first waypoint of a leg is where the leg starts, which is the previous leg's last.
 			if index > 1 or #points == 0 then
 				table.insert(points, waypoint.Position)
@@ -4154,6 +4301,8 @@ end
 -- the animal actually is -- a raycast down the centreline would miss a trunk its shoulder hits.
 --   https://create.roblox.com/docs/reference/engine/classes/WorldRoot#Blockcast
 function ForestTest.clearRoute(points: { Vector3 }): { Vector3 }
+	-- THE SWEEP'S OWN BITE (task 356): one `Blockcast` per segment, plus up to four per blocked one.
+	local clearAt = os.clock()
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { Workspace:FindFirstChild("Boars") :: any, Workspace.Terrain }
@@ -4168,6 +4317,7 @@ function ForestTest.clearRoute(points: { Vector3 }): { Vector3 }
 		if length > 1e-3 then
 			local direction = span.Unit
 			local start = CFrame.lookAt(from + Vector3.new(0, 1.5, 0), from + direction + Vector3.new(0, 1.5, 0))
+			releaseCount.casts += 1
 			local hit = Workspace:Blockcast(start, body, direction * length, params)
 			if hit ~= nil then
 				-- SIDESTEP THE MIDPOINT, both ways, and keep the first side that is clear. One
@@ -4181,10 +4331,14 @@ function ForestTest.clearRoute(points: { Vector3 }): { Vector3 }
 					local toDetour = Vector3.new(detour.X - from.X, 0, detour.Z - from.Z)
 					local b = CFrame.lookAt(detour + Vector3.new(0, 1.5, 0), to + Vector3.new(0, 1.5, 0))
 					local toEnd = Vector3.new(to.X - detour.X, 0, to.Z - detour.Z)
-					if
-						Workspace:Blockcast(a, body, toDetour, params) == nil
-						and Workspace:Blockcast(b, body, toEnd, params) == nil
-					then
+					-- COUNTED ONE AT A TIME, because `and` short-circuits: charging two before the
+					-- test counted a cast that never happened (round 1's note).
+					releaseCount.casts += 1
+					local firstClear = Workspace:Blockcast(a, body, toDetour, params) == nil
+					if firstClear then
+						releaseCount.casts += 1
+					end
+					if firstClear and Workspace:Blockcast(b, body, toEnd, params) == nil then
 						table.insert(out, Vector3.new(detour.X, middle.Y, detour.Z))
 						break
 					end
@@ -4193,6 +4347,7 @@ function ForestTest.clearRoute(points: { Vector3 }): { Vector3 }
 		end
 		table.insert(out, to)
 	end
+	releaseProf.clear += (os.clock() - clearAt) * 1000
 	return out
 end
 
@@ -4237,7 +4392,17 @@ function ForestTest.stagedLine(now: number): string?
 			tostring(raw)
 		)
 	end
-	local line = ForestTest.releaseLine(now, row)
+	-- BILLED LIKE THE DRIVE'S OWN SLOT (round 1's note): a staged release used to zero the bill, never
+	-- be rolled up, and have its frames charged to `hb-elsewhere` -- so both channels lied about it.
+	local stagedAt = os.clock()
+	-- ...AND THE SAME GUARD AS `step`'s: decrement on a raise, then re-raise unchanged.
+	releaseInFlight += 1
+	local okStaged, line = pcall(ForestTest.releaseLine, now, row)
+	releaseInFlight -= 1
+	if not okStaged then
+		error(line, 0)
+	end
+	ForestTest.releaseRollup((os.clock() - stagedAt) * 1000)
 	return string.format("STAGED %s -- %s", tostring(raw), line or "NOTHING RELEASED (no route, or the animal cap)")
 end
 
@@ -4350,6 +4515,11 @@ local function routeFilesFor(
 end
 
 function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, aimIn: any?): string?
+	-- THE BILL IS ZEROED HERE (task 356), so a repath or a woken group earlier in the same frame is
+	-- discarded rather than charged to this release. `ForestTest.step` rolls it up after the return.
+	releaseZero()
+	local releaseAt = os.clock()
+	releaseEntryTick = stepTicks
 	local runtime = state.runtime
 	if runtime == nil then
 		return nil
@@ -4455,6 +4625,8 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 		)
 	end
 	local route = Data.slotRoute(row)
+	releaseProf.prep = (os.clock() - releaseAt) * 1000
+	local sectionAt = os.clock()
 
 	-- WHERE IT STARTS: the row's own zone, through the one function that turns an `offsetX` and a
 	-- `northStuds` into a point on this layout (`Data.wavePoint`, which adds the stand she locked --
@@ -4512,6 +4684,9 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 			Data.releaseFrame(chosen.layout, aim.dz, (crossing :: Vector3).X, 0, nil, ForestTest.EXIT_PAST_STUDS).exitZ
 		)
 		else nil
+
+	releaseProf.frame = (os.clock() - sectionAt) * 1000
+	sectionAt = os.clock()
 
 	-- HOW MANY FILES, AND AT WHAT PACE -- both the row's, both read and neither drawn. What this task
 	-- changed is that a SCRIPTED drive does not roll for the shape of its own groups.
@@ -4665,7 +4840,11 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 	--
 	-- EACH SURVIVOR KEEPS ITS OWN LATERAL OFFSET, so the animals are spawned on the route that was
 	-- actually computed rather than on the one its index would have had.
+	releaseProf.comp = (os.clock() - sectionAt) * 1000
+	sectionAt = os.clock()
 	local routes = routeFilesFor(row, route, start, crossing, exitPoint, lines, lineData.lineGapStuds)
+	releaseProf.routes = (os.clock() - sectionAt) * 1000
+	sectionAt = os.clock()
 	if #routes == 0 then
 		return string.format(
 			"line %d: slot %d held -- no route could be drawn for %s from its start" .. " to its crossing",
@@ -4722,6 +4901,8 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 	-- the boars, so a hind leads her calf and a harem's stag walks last. Without it `Line.order`'s
 	-- own default knows three words and all three deer tie at the unknown rank.
 	local plans = Line.split(Line.order(order, Boar.MARCH_RANK), lines)
+	releaseProf.order = (os.clock() - sectionAt) * 1000
+	sectionAt = os.clock()
 
 	local groups = {}
 	for which, plan in ipairs(plans) do
@@ -4730,6 +4911,7 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 		for rank, member in ipairs(plan) do
 			local at = start - toward * ((rank - 1) * lineData.spacingStuds) + Vector3.new(lateral, 0, 0)
 			local ground = Data.groundAt(at.X, at.Z)
+			releaseCount.spawns += 1
 			local handle = runtime:spawn(Vector3.new(at.X, (ground or chosen.layout.centre.Y) + 2, at.Z), member.kind)
 			if handle ~= nil then
 				local entry = { id = handle.id, kind = member.kind }
@@ -4746,6 +4928,8 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 			count
 		)
 	end
+	releaseProf.spawn = (os.clock() - sectionAt) * 1000
+	sectionAt = os.clock()
 	local placed = 0
 	for which, group in ipairs(groups) do
 		if #group > 0 then
@@ -4807,6 +4991,7 @@ function ForestTest.releaseLine(now: number, staged: any?, inPlace: boolean?, ai
 			placed += #group
 		end
 	end
+	releaseProf.files = (os.clock() - sectionAt) * 1000
 	if placed == 0 then
 		return string.format(
 			"line %d: slot %d put NOTHING on the ground -- every file refused its" .. " ground",
