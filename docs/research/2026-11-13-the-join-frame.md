@@ -82,7 +82,17 @@ leave the Heartbeat max alone. One instrument, two known inputs, two different r
 
 - **Reading `stats.buildMs` alone** (already printed as `[lobby] built in 71 ms`). It is 6 % of the
   bucket and it excludes the first `world.groundAt` and every call after the build, so it cannot
-  name the spender. It is kept as a cross-check: the new `build` bite must agree with it.
+  name the spender. **It is NOT a cross-check of the new `build` bite, and saying so was the first
+  review round's finding 1:** both lines sit in `tryBuild` and read the same `began`, so they are
+  one reading printed twice and cannot disagree. The `build` bite's milliseconds have exactly one
+  source. **What IS corroborated is the thing the task turns on** -- that those milliseconds are
+  *one frame* -- and it is corroborated by a different mechanism, not a second clock: `frames=0`
+  comes from `bootSteps`, an integer the Heartbeat increments, with no `os.clock` in it at all.
+- **Treating the boot's own bracket as a second instrument.** `ForestTestBoot` times `Lobby.step`
+  from outside (`lobbyStepMs`) while `Lobby.step` times itself from inside (`scan worst`), and the
+  two read 386.5 and 386.5. That bounds the call and throttle overhead at under 0.1 ms, which is
+  worth having -- but they are nested spans off the same clock, so it is a consistency check and is
+  written here as one.
 - **A second `RunService.Heartbeat` connection inside `Lobby`.** `ForestTestBoot`'s header already
   forbids it in writing (*"ONE HEARTBEAT FOR BOTH JOBS"*), and it would be a second answer to "what
   time is it".

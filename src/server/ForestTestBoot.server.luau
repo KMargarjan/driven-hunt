@@ -1879,6 +1879,13 @@ local idleHbMax, idleHbFrames, idleHbTotal = 0, 0, 0
 -- file's own buckets AS READ ON the frame that set the max, so the two can be joined rather than
 -- assumed. The lobby's bill is the frame count beside it.
 local hbWorst, hbWorst_ms = "", 0
+-- THE PREVIOUS FRAME'S LOBBY NUMBERS, SNAPSHOTTED BEFORE THIS FRAME OVERWRITES THEM (review round 1,
+-- finding 3). `dt` looks backward, so the handler whose work it covers is the previous one -- and
+-- `lobbyStepMs` has already been reassigned by the time the worst-frame block runs, including on the
+-- 9 frames in 10 the lobby is throttled out of, where it reads ~0. Printing it there labelled it
+-- "prev frame's" and showed this frame's: a long frame that followed the 69 ms build frame would
+-- have printed `0.0/0f` and hidden it, which is the exact misattribution this channel exists to stop.
+local prevStepMs, prevStepFrames, prevReportMs, prevReportFrames = 0, 0, 0, 0
 -- THE THREE WORST FRAMES OF THE SESSION AND THE STEP EACH FIRED ON (task 357, second reading). One
 -- max is not enough to tell a server STARTING from a server stalling: the first reading's worst was
 -- 1,607.2 ms at step 14 of 5,760, which is the place loading and not a join. Three rows, each with
@@ -1890,16 +1897,29 @@ local hbTopStep = { 0, 0, 0 }
 -- handler whose work it covers is the previous one: if `dt` is 1,591 ms and the handler before it
 -- cost 1 ms, the frame was spent by the ENGINE and not by anything this repository writes, and that
 -- is the difference between a stall to fix and a load to wait for.
-local hbTopPrev = { 0, 0, 0 }
-local lastTookMs = 0
+-- ...AND -1 WHERE THAT IS UNKNOWABLE (review round 1, finding 2). `lastTookMs` is written only when
+-- a handler RETURNS, and the handler that calls `world.place` does not return for 11-17 frames -- so
+-- for a frame whose predecessor was still suspended there is no handler cost to report, and the
+-- initial 0 was being published as if it were a reading. `lastTookStep` says which frame the number
+-- belongs to; anything else is -1, which the bill prints as `lua ?`.
+local hbTopPrev = { -1, -1, -1 }
+local lastTookMs, lastTookStep = 0, 0
+local function luaOn(rank: number): string
+	-- `?` AND NOT A NUMBER when the frame before that one was still suspended: there is no handler
+	-- cost for a handler that had not finished, and a zero printed there reads as "this game spent
+	-- nothing", which is the opposite of what is known.
+	return if hbTopPrev[rank] < 0 then "?" else string.format("%.1f", hbTopPrev[rank])
+end
 local lobbyStepMs, lobbyStepFrames, lobbyReportMs, lobbyReportFrames = 0, 0, 0, 0
-local lobbyStepMax, lobbyStepMaxFrames, lobbyReportMax = 0, 0, 0
+local lobbyStepMax, lobbyStepMaxFrames, lobbyReportMax, lobbyReportMaxFrames = 0, 0, 0, 0
 
 RunService.Heartbeat:Connect(function(dt)
 	local frameMs = dt * 1000
 	-- COUNTED FIRST, BEFORE ANYTHING IN THIS HANDLER CAN YIELD (task 357), so a bite that starts in
 	-- this frame and ends three frames later reads 3 and not 2.
 	bootSteps += 1
+	prevStepMs, prevStepFrames = lobbyStepMs, lobbyStepFrames
+	prevReportMs, prevReportFrames = lobbyReportMs, lobbyReportFrames
 	-- THE DEPTH AS THIS FRAME STARTED, READ ONCE (round 2's finding, `reviews/task-356/RESULT.md`).
 	-- So `hb-in-release` holds the frames a release is SUSPENDED through; the frame it starts on and
 	-- the one whose backward-looking `dt` covers its resumed Lua are in `hb-elsewhere`.
@@ -2062,7 +2082,7 @@ RunService.Heartbeat:Connect(function(dt)
 		lobbyStepMax, lobbyStepMaxFrames = lobbyStepMs, lobbyStepFrames
 	end
 	if lobbyReportMs > lobbyReportMax then
-		lobbyReportMax = lobbyReportMs
+		lobbyReportMax, lobbyReportMaxFrames = lobbyReportMs, lobbyReportFrames
 	end
 	bootProf.lobby = (os.clock() - lobbyAt) * 1000
 	if releasingBefore then
@@ -2088,7 +2108,8 @@ RunService.Heartbeat:Connect(function(dt)
 			for j = HB_TOP, i + 1, -1 do
 				hbTopMs[j], hbTopStep[j], hbTopPrev[j] = hbTopMs[j - 1], hbTopStep[j - 1], hbTopPrev[j - 1]
 			end
-			hbTopMs[i], hbTopStep[i], hbTopPrev[i] = frameMs, bootSteps, lastTookMs
+			hbTopMs[i], hbTopStep[i], hbTopPrev[i] =
+				frameMs, bootSteps, if lastTookStep == bootSteps - 1 then lastTookMs else -1
 			break
 		end
 	end
@@ -2098,10 +2119,10 @@ RunService.Heartbeat:Connect(function(dt)
 			"hbmax=%.1f at step=%d | prev frame's lobby step=%.1f/%df report=%.1f/%df",
 			frameMs,
 			bootSteps,
-			lobbyStepMs,
-			lobbyStepFrames,
-			lobbyReportMs,
-			lobbyReportFrames
+			prevStepMs,
+			prevStepFrames,
+			prevReportMs,
+			prevReportFrames
 		)
 	end
 
@@ -2110,9 +2131,11 @@ RunService.Heartbeat:Connect(function(dt)
 	local tookMs = (os.clock() - bootBegan) * 1000
 	-- `bootSteps` IS COUNTED AT THE TOP OF THIS HANDLER SINCE TASK 357, not here: a bite that spans
 	-- a yield has to see the frames that ran while it was suspended, and the count it reads must not
-	-- depend on where in the handler the increment sits. `avg` below is unchanged by the move.
+	-- depend on where in the handler the increment sits. `avg` below divides completed-handler
+	-- milliseconds by STARTED frames, so while one is suspended (14 frames at the join) it is
+	-- diluted; at thousands of frames that is immaterial, and it is said rather than glossed.
 	bootMsTotal += tookMs
-	lastTookMs = tookMs
+	lastTookMs, lastTookStep = tookMs, bootSteps
 	local inner = ForestTest.stepSections()
 	for key, ms in pairs(bootProf) do
 		bootTotal[key] += ms
@@ -2169,23 +2192,24 @@ RunService.Heartbeat:Connect(function(dt)
 		ServerStorage:SetAttribute(
 			"DHLobbyBill",
 			string.format(
-				"step max=%.1f frames=%d report max=%.1f | scan %s | %s",
+				"step max=%.1f frames=%d report max=%.1f frames=%d | scan %s | %s",
 				lobbyStepMax,
 				lobbyStepMaxFrames,
 				lobbyReportMax,
+				lobbyReportMaxFrames,
 				Lobby.bill(),
 				string.format(
-					"%s | top3 %.1f@%d(lua %.1f) %.1f@%d(lua %.1f) %.1f@%d(lua %.1f)",
+					"%s | top3 %.1f@%d(lua %s) %.1f@%d(lua %s) %.1f@%d(lua %s)",
 					hbWorst,
 					hbTopMs[1],
 					hbTopStep[1],
-					hbTopPrev[1],
+					luaOn(1),
 					hbTopMs[2],
 					hbTopStep[2],
-					hbTopPrev[2],
+					luaOn(2),
 					hbTopMs[3],
 					hbTopStep[3],
-					hbTopPrev[3]
+					luaOn(3)
 				)
 			)
 		)

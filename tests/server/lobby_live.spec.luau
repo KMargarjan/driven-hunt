@@ -383,7 +383,10 @@ return function()
 			-- worst scan reported `build=0.0` with the build's 82 ms sitting in `rest`, because the
 			-- Heartbeat seven frames into `world.place`'s yield entered `Lobby.step` again and its
 			-- reset wiped the suspended call's bites. Here the re-entry is explicit instead of timed.
-			local frame = 0
+			-- THE COUNTER STARTS AWAY FROM ZERO (review round 1 note), so `@step41` can only be
+			-- right if `atFrame` really carries the frame the bite began on: with it starting at 0
+			-- the reset in `Lobby.step` would satisfy the assertion on its own.
+			local frame = 41
 			local reentered = 0
 			local _seen, on = fresh(bin, function(world)
 				world.frames = function()
@@ -412,16 +415,18 @@ return function()
 			local billed = Lobby.bill()
 			-- THE BUILD IS STILL ON ITS OWN BITE, which is the whole finding: before the depth guard
 			-- this read `build=0.0/0f/0c` and the milliseconds were in `rest`.
-			expect(string.find(billed, "build=%d+%.%d+/0f/1c@step0") ~= nil).to.equal(true)
+			expect(string.find(billed, "build=%d+%.%d+/0f/1c@step41") ~= nil).to.equal(true)
 			expect(string.find(billed, "build=0%.0/") ~= nil).to.equal(false)
-			expect(string.find(billed, "place=%d+%.%d+/9f/1c@step0") ~= nil).to.equal(true)
+			expect(string.find(billed, "place=%d+%.%d+/9f/1c@step41") ~= nil).to.equal(true)
 			expect(string.find(billed, "frames=9", 1, true) ~= nil).to.equal(true)
 			expect(Lobby.stats().scanFrames).to.equal(9)
 		end)
 
 		it("counts no frames at all when nobody injected a counter", function()
 			-- nil IS "NOBODY SAID", which is every spec above and the DEV place: the bill is still
-			-- taken, and every frame count reads 0 rather than erroring.
+			-- taken, and every frame count reads 0 rather than erroring. THIS CASE PROVES ONLY THAT
+			-- (review round 1 note): both assertions expect 0, so it survives deletion of every
+			-- frame-counting line. The teeth are in the two cases above.
 			local _seen, on = fresh(bin)
 			expect(on).to.equal(true)
 			Lobby.step(1000, {})

@@ -127,8 +127,13 @@ local billWorstMs, billWorst = 0, ""
 -- HOW MANY SCANS ARE IN FLIGHT AT ONCE. See `Lobby.step`: the yield in `world.place` lets a later
 -- Heartbeat enter the scan while an earlier one is still suspended.
 local scanDepth, scanBegan, scanBeganFrame = 0, 0, 0
+-- `world.frames` IS OPTIONAL AND IS AN INSTRUMENT, NOT A SEAM THIS OWNER DECIDES WITH: the
+-- composition root owns the Heartbeat, so it is the only thing that can say which frame this is.
+-- nil is every spec and the DEV place, and then every count reads 0. TYPE-CHECKED like the six
+-- seams `Lobby.start` requires (review round 1 note): a world injecting a non-function would
+-- otherwise raise inside the scan rather than be ignored.
 local function frameNow(): number
-	return if world ~= nil and world.frames ~= nil then world.frames() else 0
+	return if world ~= nil and type(world.frames) == "function" then world.frames() else 0
 end
 local phase: string? = nil
 local dismissPending = false
@@ -1726,6 +1731,12 @@ function Lobby.step(now: number, players: { any }?)
 	-- scan only, and an inner one accumulates into it instead of clearing it. The depth is the same
 	-- shape as `ForestTest.releaseInFlight`, and for the same reason it is `pcall`ed: a raise that
 	-- left the depth standing would silence the bill for the rest of the session (task 356 round 3).
+	-- TWO THINGS IT DELIBERATELY DOES NOT DO (review round 1 notes). An inner scan's work is
+	-- ACCUMULATED INTO the outer scan's bites rather than billed apart -- that is what "what the
+	-- lobby spent between these two frames" means -- so `profCalls` can read `2c` and the derived
+	-- `rest` can go negative if both scans place somebody (not seen in any of the four runs). And
+	-- `error(err, 0)` keeps the message verbatim and drops the stack below this line, exactly as
+	-- task 356 round 3's does.
 	scanDepth += 1
 	if scanDepth == 1 then
 		scanBegan, scanBeganFrame = os.clock(), frameNow()
@@ -1815,9 +1826,9 @@ function Lobby.start(injected: any?): boolean
 	dismissPending = false
 	lastScan = -math.huge
 	firstStepAt = nil
-	-- `world.frames` IS OPTIONAL AND IS AN INSTRUMENT, NOT A SEAM THIS OWNER DECIDES WITH (task 357):
-	-- the composition root owns the Heartbeat, so it is the only thing that can say which frame this
-	-- is. nil is every spec and the DEV place, and then the bill's frame counts read 0.
+	-- THE BILL STARTS EMPTY ON EVERY START (task 357), so a second `Lobby.start` in one Studio
+	-- session cannot report the previous one's worst scan. `frameNow` above says what `world.frames`
+	-- is.
 	billWorstMs, billWorst = 0, ""
 	scanDepth, scanBegan, scanBeganFrame = 0, 0, 0
 	atFrame.build, atFrame.place = 0, 0
