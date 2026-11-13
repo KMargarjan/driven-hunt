@@ -80,6 +80,11 @@ return function()
 	end
 
 	describe("CarcassPose.decide, the whole rule", function()
+		-- A FIELD CAN BE CLEARED AS WELL AS SET: `pairs` cannot see a `nil` in an override table, so
+		-- `{ poseId = nil }` is an empty table and the case it was written for never ran (round 1 of
+		-- this task's own harness caught exactly that).
+		local NONE = newproxy()
+
 		local function view(over)
 			local v = {
 				carcass = true,
@@ -92,16 +97,16 @@ return function()
 				posed = false,
 			}
 			for k, value in pairs(over or {}) do
-				v[k] = value
+				v[k] = if value == NONE then nil else value
 			end
 			return v
 		end
 
 		it("answers a named reason for every branch, in order", function()
 			expect(CarcassPose.decide(view({ carcass = false }))).to.equal("skip")
-			expect(CarcassPose.decide(view({ poseId = nil }))).to.equal("skip")
+			expect(CarcassPose.decide(view({ poseId = NONE }))).to.equal("skip")
 			expect(CarcassPose.decide(view({ poseId = 0 }))).to.equal("skip")
-			expect(CarcassPose.decide(view({ poseAt = nil }))).to.equal("skip")
+			expect(CarcassPose.decide(view({ poseAt = NONE }))).to.equal("skip")
 			expect(CarcassPose.decide(view({ poseAt = -0.1 }))).to.equal("skip")
 			-- ONCE PER CARCASS PER PUBLISHED POSE: no storm, no per-frame write.
 			expect(CarcassPose.decide(view({ posed = true }))).to.equal("skip")
@@ -112,7 +117,7 @@ return function()
 			expect(CarcassPose.decide(view({ assetReady = false }))).to.equal("wait-asset")
 			-- Nothing loaded yet is a reason to LOAD, and a zero length is a reason to WAIT: frame 0
 			-- of a death is the animal standing, which is the defect, caused by the fix.
-			expect(CarcassPose.decide(view({ trackLength = nil }))).to.equal("pose")
+			expect(CarcassPose.decide(view({ trackLength = NONE }))).to.equal("pose")
 			expect(CarcassPose.decide(view({ trackLength = 0 }))).to.equal("wait-length")
 			expect(CarcassPose.decide(view({ trackLength = -1 }))).to.equal("wait-length")
 			expect(CarcassPose.decide(view())).to.equal("pose")
