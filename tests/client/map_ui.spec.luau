@@ -2169,8 +2169,10 @@ return function()
 				MapUi.setRailColumn(Rail.columnPx(1), viewport)
 				MapUi.applyLayout(viewport)
 				local shown = panelScale.Scale
-				-- THE BUTTON'S BOTTOM, in real px below the panel's top.
-				local buttonBottom = button.Position.Y.Offset * shown + button.Size.Y.Offset * shown
+				-- THE BUTTON'S BOTTOM, in real px below the panel's top. Its POSITION is scaled by
+				-- the panel and its HEIGHT is not -- its own inverse `UIScale` cancels that, which
+				-- is why it is 44 real px at every viewport. Same two units as the list below.
+				local buttonBottom = button.Position.Y.Offset * shown + button.Size.Y.Offset
 				if list.AnchorPoint.X == 0 then
 					-- BESIDE: at or past the panel's own right edge.
 					expect(list.Position.X.Offset >= full.Size.X.Offset).to.equal(true)
@@ -2340,7 +2342,7 @@ return function()
 			-- `STAND_PX` / `STAND_TOWER_PX` was rewritten to the full map's, leaving the minimap
 			-- asserted nowhere). Its stands are 23 px apart and the pick is a panel gesture, so it
 			-- draws the small square and no number at all.
-			local mini = Hud.miniMap()
+			local mini = Hud.minimap()
 			expect(mini).to.be.ok()
 			local inner = (mini :: Frame):FindFirstChildWhichIsA("Frame")
 			local miniStands = 0
