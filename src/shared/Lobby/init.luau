@@ -2426,9 +2426,19 @@ Lobby.CONFIG = {
 	-- HOW LONG THE FIRST CHARACTER IS HELD BACK (task 363). Karen, 2026-11-13: *"when game starts I
 	-- need to be in lobby not in road"* -- measured, her character auto-loaded at
 	-- `Workspace.ForestRoadSpawn` and the return rule only reached her 5.5 s later.
-	-- It is `BUILD_TIMEOUT_SECONDS`' own 10 s: the hold must outlive a slow build and must give up
-	-- at the same moment the degraded path does, or the two would disagree about who owes her a body.
-	FIRST_SPAWN_HOLD_SECONDS = 10,
+	--
+	-- 25 SECONDS, AND THE ARITHMETIC IS WHY IT IS NOT 10. This ceiling is the belt for a boot that
+	-- DIED before `Lobby.start` -- nothing else would ever hand the auto-load back -- so it must sit
+	-- well beyond the slowest healthy boot, and its undo is a body at the engine's own spawn, which
+	-- in her place is the road this task exists to get her off. Two measurements bound it: the lobby
+	-- took her at `DistributedGameTime` 5.6 / 6.0 / 6.1 in this task's three Plays, and
+	-- `<runs-dir>/smoke.sh` records 12.2-14.5 s over 11 Plays of the same place (2026-11-05, before
+	-- tasks 355/356 cut the boot's frames). A 10-second ceiling sits INSIDE that older range -- it
+	-- would fire on a slow boot and put her back on the road -- so the ceiling is the worst of those
+	-- (14.5) plus the same again: 25. It is deliberately NOT `BUILD_TIMEOUT_SECONDS`: that one is
+	-- counted from the lobby's FIRST SCAN and this one from the boot's first line, so sharing a
+	-- number would be two clocks pretending to be one.
+	FIRST_SPAWN_HOLD_SECONDS = 25,
 	-- THE BUDGET IS 1500 SINCE TASK 187, and the arithmetic is written down so the number is a bound
 	-- and not a shrug: OUR lodge -- plinth, seven courses of log, the corner ends, four windows with
 	-- their shutters, the door, the roof with its rafter ends, the chimney, the porch with its

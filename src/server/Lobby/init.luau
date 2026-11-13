@@ -784,7 +784,11 @@ end
 
 -- THE ONE WRITER OF `Players.CharacterAutoLoads`. Called by the composition root BEFORE its own
 -- heavy work, which is the only moment early enough to be in front of the engine.
-function Lobby.holdFirstSpawn(players: any, hold: boolean, load: ((any) -> ())?)
+--
+-- `seconds` IS THE CEILING, AND IT IS A PARAMETER SO THE CEILING ITSELF CAN BE TESTED (round 1's
+-- note 5): it is the one release path with no case otherwise, because the live number is 25 s and
+-- no spec may wait that long. The live call passes nothing and gets `FIRST_SPAWN_HOLD_SECONDS`.
+function Lobby.holdFirstSpawn(players: any, hold: boolean, load: ((any) -> ())?, seconds: number?)
 	if not hold then
 		-- HANDED BACK BY THE CALLER: this world has no lobby, or a spec is tearing down. With nothing
 		-- held this is a no-op, because there is nothing to undo.
@@ -801,7 +805,7 @@ function Lobby.holdFirstSpawn(players: any, hold: boolean, load: ((any) -> ())?)
 	holdPlayers = players
 	holdLoad = load
 	players.CharacterAutoLoads = false
-	task.delay(Data.CONFIG.FIRST_SPAWN_HOLD_SECONDS, releaseHold)
+	task.delay(if seconds ~= nil then seconds else Data.CONFIG.FIRST_SPAWN_HOLD_SECONDS, releaseHold)
 end
 
 function Lobby.spawnsHeld(): boolean

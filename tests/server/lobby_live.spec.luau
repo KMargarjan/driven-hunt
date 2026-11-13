@@ -590,6 +590,32 @@ return function()
 			expect(loaded[1]).to.equal(79)
 		end)
 
+		-- THE CEILING, DRIVEN AT 50 ms (round 1's note 5). The live number is 25 s -- longer than any
+		-- boot anybody has measured, because its undo is a body at the engine's own spawn -- so the
+		-- ONE release path with no other case is this one: a boot that dies before `Lobby.start`
+		-- must still end with a body.
+		it("gives up by itself when nothing ever releases it", function()
+			local man = occupant(81, nil, bin)
+			local loaded: { number } = {}
+			local players = fakePlayers({ man })
+			Lobby.holdFirstSpawn(players, true, function(player: any)
+				table.insert(loaded, player.UserId)
+			end, 0.05)
+			expect(players.CharacterAutoLoads).to.equal(false)
+			expect(Lobby.spawnsHeld()).to.equal(true)
+			-- NOTHING CALLS ANYTHING: no scan, no stop, no build. Only the ceiling is left.
+			local waited = 0
+			while Lobby.spawnsHeld() and waited < 2 do
+				waited += task.wait(0.05)
+			end
+			expect(Lobby.spawnsHeld()).to.equal(false)
+			expect(players.CharacterAutoLoads).to.equal(true)
+			-- ...AND HE IS GIVEN A BODY WHERE THE ENGINE WOULD HAVE PUT HIM, which is this one
+			-- release that does NOT go through `world.place`: there is no lobby to place him at.
+			expect(#loaded).to.equal(1)
+			expect(loaded[1]).to.equal(81)
+		end)
+
 		it("hands the auto-load back on teardown, with everything else this owner wrote", function()
 			local _seen, on = fresh(bin)
 			expect(on).to.equal(true)

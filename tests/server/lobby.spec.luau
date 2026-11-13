@@ -930,10 +930,17 @@ return function()
 			expect(Join.releasesHold(false, 2)).to.equal(false)
 		end)
 
-		-- THE CEILING IS THE BUILD'S OWN (task 363): the hold must give up at the moment the
-		-- degraded path takes over, or the two would disagree about who owes her a body.
-		it("holds the first spawn for no longer than the build timeout", function()
-			expect(CFG.FIRST_SPAWN_HOLD_SECONDS).to.equal(CFG.BUILD_TIMEOUT_SECONDS)
+		-- THE CEILING IS LONGER THAN THE SLOWEST BOOT ANYBODY HAS MEASURED (task 363): it is the
+		-- belt for a boot that died, and its undo is a body at the engine's own spawn -- the road.
+		-- The lobby took her at DistributedGameTime 5.6/6.0/6.1 in this task's Plays and
+		-- `smoke.sh` records 12.2-14.5 s over 11 Plays of the same place, so a ceiling inside that
+		-- older range would fire on a slow boot and put her back where the task started.
+		it("holds the first spawn for longer than any measured boot", function()
+			expect(CFG.FIRST_SPAWN_HOLD_SECONDS >= 2 * 12.2).to.equal(true)
+			-- ...AND IT IS NOT THE BUILD TIMEOUT. That one is counted from the lobby's first scan
+			-- and this one from the boot's first line: one number for two clocks would be a lie
+			-- about when either of them starts.
+			expect(CFG.FIRST_SPAWN_HOLD_SECONDS ~= CFG.BUILD_TIMEOUT_SECONDS).to.equal(true)
 		end)
 
 		it("reads the field as a rectangle and not as a circle", function()
