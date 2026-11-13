@@ -2154,45 +2154,49 @@ return function()
 			local stands = canvasStands()
 			expect(#stands >= 8).to.equal(true)
 
-			local function ring(index: number): Frame?
-				return canvas:FindFirstChild(string.format("Accent%d", index)) :: Frame?
-			end
+			-- THE TWO RINGS ARE ONE EACH FOR THE WHOLE MAP, moved onto the marker they belong to --
+			-- so "which stand is ringed" is read as a POSITION and not as a name, which is the
+			-- strictest form of the claim: the ring is literally where the stand's own icon is.
+			local hoverRing = canvas:FindFirstChild("HoverRing") :: Frame
+			local pickRing = canvas:FindFirstChild("PickRing") :: Frame
+			expect(hoverRing).to.be.ok()
+			expect(pickRing).to.be.ok()
 			local function row(index: number): TextButton
 				return list:FindFirstChild(string.format("Row%d", index)) :: TextButton
 			end
-			local function ringed(): { number }
-				local out = {}
-				for index = 1, #stands do
-					local node = ring(index)
-					if node ~= nil and (node :: Frame).Visible then
-						table.insert(out, index)
+			local function ringedBy(ring: Frame): number?
+				if not ring.Visible then
+					return nil
+				end
+				for index, node in ipairs(stands) do
+					if node.Position == ring.Position then
+						return index
 					end
 				end
-				return out
+				return -1 -- visible, but over no stand at all
 			end
-			local function ringStroke(index: number): UIStroke
-				return (ring(index) :: Frame):FindFirstChildWhichIsA("UIStroke") :: UIStroke
+			local function stroke(ring: Frame): UIStroke
+				return ring:FindFirstChildWhichIsA("UIStroke") :: UIStroke
 			end
 			local base = row(1).BackgroundColor3
 
 			-- ONE HOVER AT A TIME, ON BOTH WIDGETS.
 			MapUi.setHoverStand(3)
 			expect(MapUi.hoverStand()).to.equal(3)
-			expect(#ringed()).to.equal(1)
-			expect(ringed()[1]).to.equal(3)
+			expect(ringedBy(hoverRing)).to.equal(3)
+			expect(pickRing.Visible).to.equal(false)
 			expect(row(3).BackgroundColor3).to.equal(CONFIG.STAND_HOVER_ROW_COLOR)
-			expect(ringStroke(3).Color).to.equal(CONFIG.STAND_HOVER_COLOR)
+			expect(stroke(hoverRing).Color).to.equal(CONFIG.STAND_HOVER_COLOR)
 			-- MOVING TO ANOTHER STAND MOVES BOTH, and leaves nothing behind on the first.
 			MapUi.setHoverStand(7)
-			expect(#ringed()).to.equal(1)
-			expect(ringed()[1]).to.equal(7)
+			expect(ringedBy(hoverRing)).to.equal(7)
 			expect(row(3).BackgroundColor3).to.equal(base)
 			expect(row(7).BackgroundColor3).to.equal(CONFIG.STAND_HOVER_ROW_COLOR)
 			-- A LEAVE ONLY CLEARS THE STAND IT IS LEAVING: the marker and the row point at the SAME
 			-- stand, so a blind clear from one would wipe the hover the other had just stated.
 			MapUi.clearHoverStand(3)
 			expect(MapUi.hoverStand()).to.equal(7)
-			expect(ringed()[1]).to.equal(7)
+			expect(ringedBy(hoverRing)).to.equal(7)
 
 			-- PICKED IS THE SERVER'S ANSWER, AND IT BEATS HOVER ON ITS OWN STAND. Both widgets say
 			-- so, and the ring is the brighter, thicker one -- never the hover's.
@@ -2203,25 +2207,26 @@ return function()
 			states[5] = { state = "mine" }
 			MapUi.setStandStates(states, 361001)
 			expect(MapUi.myStandMark()).to.equal(5)
-			local lit = ringed()
-			table.sort(lit)
-			expect(#lit).to.equal(2)
-			expect(lit[1]).to.equal(5)
-			expect(lit[2]).to.equal(7)
-			expect(ringStroke(5).Color).to.equal(CONFIG.STAND_PICK_COLOR)
-			expect(ringStroke(5).Thickness).to.equal(CONFIG.STAND_PICK_STROKE_PX)
-			expect(ringStroke(5).Thickness > CONFIG.STAND_HOVER_STROKE_PX).to.equal(true)
+			-- BOTH RINGS UP, ON THEIR OWN TWO STANDS -- the hover did not move and the pick landed.
+			expect(ringedBy(pickRing)).to.equal(5)
+			expect(ringedBy(hoverRing)).to.equal(7)
+			expect(stroke(pickRing).Color).to.equal(CONFIG.STAND_PICK_COLOR)
+			expect(stroke(pickRing).Thickness).to.equal(CONFIG.STAND_PICK_STROKE_PX)
+			expect(stroke(pickRing).Thickness > CONFIG.STAND_HOVER_STROKE_PX).to.equal(true)
+			expect(pickRing.Size.X.Offset > hoverRing.Size.X.Offset).to.equal(true)
 			expect(row(5).BackgroundColor3).to.equal(CONFIG.STAND_PICK_ROW_COLOR)
 			expect(row(5).BackgroundColor3).never.to.equal(row(7).BackgroundColor3)
 			-- THE ROW SAYS IT IN WORDS TOO, off the same states (`standRowParts` is the one answer).
 			expect((row(5):FindFirstChild("State") :: TextLabel).Text).to.equal("Yours")
-			-- HOVERING THE PICKED STAND DOES NOT DOWNGRADE IT.
+			-- HOVERING THE PICKED STAND DOES NOT DOWNGRADE IT: the picked ring stays and the hover
+			-- ring stands down, so one stand never wears two rings.
 			MapUi.setHoverStand(5)
-			expect(ringStroke(5).Color).to.equal(CONFIG.STAND_PICK_COLOR)
+			expect(ringedBy(pickRing)).to.equal(5)
+			expect(hoverRing.Visible).to.equal(false)
 			expect(row(5).BackgroundColor3).to.equal(CONFIG.STAND_PICK_ROW_COLOR)
 			MapUi.setHoverStand(nil)
-			expect(#ringed()).to.equal(1)
-			expect(ringed()[1]).to.equal(5)
+			expect(ringedBy(pickRing)).to.equal(5)
+			expect(hoverRing.Visible).to.equal(false)
 			MapUi.setStandStates(nil, nil)
 			MapUi.setGeometry(restore)
 			TestKit.note("map_ui 361 accent: one hover ring, one picked ring, marker and row from one writer")

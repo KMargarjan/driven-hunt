@@ -1693,14 +1693,12 @@ type StandNode = {
 	stroke: UIStroke,
 	hit: TextButton,
 	tower: boolean,
-	-- THE HOVER / PICKED RING (task 361), nil on the minimap, which has no pick and no hover.
-	accent: Frame?,
 }
 local standNodes: { StandNode } = {}
 -- THE TOUCH LIST'S ROWS (task 323c), parallel to `standNodes` and written by the same two functions:
 -- a phone cannot tap a 31 px pad (grid-map §10.4), so the same `tapStand` is offered as a list.
 -- A ROW IS A CARD SINCE TASK 361: the button is the card, and the three labels are its parts.
-type StandRow = { button: TextButton, index: number, badge: Frame, num: TextLabel, name: TextLabel, said: TextLabel }
+type StandRow = { button: TextButton, index: number, num: TextLabel, name: TextLabel, said: TextLabel }
 local standRows: { StandRow } = {}
 local standListFrame: ScrollingFrame? = nil
 -- THE LIST'S OWN INVERSE SCALE and the canvas height it may use. `layoutFor` writes both, for the
@@ -1711,6 +1709,10 @@ local standListRoomPx = 0
 -- `layoutFor` is the one writer of the scale, exactly as it is for the list's.
 local closeButton: TextButton? = nil
 local closeScale: UIScale? = nil
+-- THE TWO RINGS (task 361): one for the mouse's answer and one for the server's, moved onto the
+-- marker each belongs to. `applyStandAccent` is their one writer.
+local hoverRing: Frame? = nil
+local pickRing: Frame? = nil
 -- IS THE LIST UP? `layoutFor` reserves room beside the map for it only while it is, and `applyPick`
 -- re-lays the panel out on the edge -- one boolean, written in one place.
 local listShown = false
@@ -2209,33 +2211,6 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 		local sizePx = if standLabels
 			then (if tower then config.FULL_STAND_TOWER_PX else config.FULL_STAND_PX)
 			else (if tower then config.STAND_TOWER_PX else config.STAND_PX)
-		-- THE RING THAT SAYS "THIS ONE" -- hover and picked, one node, written ONLY by
-		-- `applyStandAccent` (task 361). It is a SIBLING of the marker and not a child, because the
-		-- marker steps aside for the `Target` diamond when the stand is yours and the ring is
-		-- exactly what has to stay visible then.
-		local accent = nil :: Frame?
-		if standLabels then
-			local ring = Instance.new("Frame")
-			ring.Name = string.format("Accent%d", index)
-			ring.AnchorPoint = Vector2.new(0.5, 0.5)
-			ring.Size = UDim2.fromOffset(sizePx + config.STAND_PICK_PAD_PX, sizePx + config.STAND_PICK_PAD_PX)
-			ring.Position = UDim2.new(0.5, math.round(u), 0.5, math.round(v))
-			ring.BackgroundTransparency = 1
-			ring.BorderSizePixel = 0
-			ring.ZIndex = config.Z_INDEX + 2
-			ring.Visible = false
-			local ringCorner = Instance.new("UICorner")
-			ringCorner.CornerRadius = UDim.new(0, 4)
-			ringCorner.Parent = ring
-			local ringStroke = Instance.new("UIStroke")
-			ringStroke.Name = "Ring"
-			ringStroke.Thickness = config.STAND_PICK_STROKE_PX
-			ringStroke.Color = config.STAND_PICK_COLOR
-			ringStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-			ringStroke.Parent = ring
-			ring.Parent = holder
-			accent = ring
-		end
 		local node = Instance.new("Frame")
 		node.Name = string.format("Stand%d", index)
 		node.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -2337,7 +2312,6 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 			stroke = stroke,
 			hit = hit,
 			tower = tower,
-			accent = accent,
 		})
 	end
 	return nodes
@@ -2390,7 +2364,6 @@ local function buildStandList(parent: GuiObject, model: MapGeometry, heightPx: n
 		row.Size = UDim2.new(1, -config.STAND_LIST_SCROLL_PX, 0, config.STAND_LIST_ROW_PX - 2)
 		row.ZIndex = config.Z_INDEX + 6
 		row.Active = false
-		Style.corner(row, Style.RADIUS.WELL)
 
 		-- THE CARD'S THREE PARTS (task 361): the number in a badge, the stand's name, and one quiet
 		-- state word under it. `MapUi.standRowParts` is the one answer all three are written from.
@@ -2400,22 +2373,19 @@ local function buildStandList(parent: GuiObject, model: MapGeometry, heightPx: n
 			nil,
 			if model.standKinds then (model.standKinds :: { string })[index] else nil
 		)
-		local badge = Instance.new("Frame")
-		badge.Name = "Badge"
-		badge.AnchorPoint = Vector2.new(0, 0.5)
-		badge.Position = UDim2.new(0, config.STAND_ROW_PAD_PX, 0.5, 0)
-		badge.Size = UDim2.fromOffset(config.STAND_ROW_BADGE_PX, config.STAND_ROW_BADGE_PX)
-		badge.BackgroundColor3 = config.LEGEND_WELL_COLOR
-		badge.BorderSizePixel = 0
-		badge.ZIndex = config.Z_INDEX + 7
-		Style.corner(badge, Style.RADIUS.WELL)
-		badge.Parent = row
-
-		local num = label(badge, "Num", config.STAND_ROW_NAME_PX, parts.num)
+		-- THE BADGE IS THE NUMBER'S OWN BACKGROUND and not a frame behind it: one instance a row
+		-- against task 347's 1,500 budget, and the same picture.
+		local num = label(row, "Num", config.STAND_ROW_NAME_PX, parts.num)
 		num.FontFace = Style.FONT.OSWALD_SB
-		num.Size = UDim2.fromScale(1, 1)
+		num.AnchorPoint = Vector2.new(0, 0.5)
+		num.Position = UDim2.new(0, config.STAND_ROW_PAD_PX, 0.5, 0)
+		num.Size = UDim2.fromOffset(config.STAND_ROW_BADGE_PX, config.STAND_ROW_BADGE_PX)
+		num.BackgroundColor3 = config.LEGEND_WELL_COLOR
+		num.BackgroundTransparency = 0
+		num.BorderSizePixel = 0
 		num.TextColor3 = Style.LOOK.BRASS
-		num.ZIndex = config.Z_INDEX + 8
+		num.ZIndex = config.Z_INDEX + 7
+		Style.corner(num, Style.RADIUS.WELL)
 
 		local textLeft = config.STAND_ROW_PAD_PX * 2 + config.STAND_ROW_BADGE_PX
 		local name = label(row, "Name", config.STAND_ROW_NAME_PX, parts.name)
@@ -2445,7 +2415,7 @@ local function buildStandList(parent: GuiObject, model: MapGeometry, heightPx: n
 		row.MouseLeave:Connect(function()
 			MapUi.clearHoverStand(at)
 		end)
-		table.insert(standRows, { button = row, index = index, badge = badge, num = num, name = name, said = said })
+		table.insert(standRows, { button = row, index = index, num = num, name = name, said = said })
 	end
 end
 
@@ -2967,24 +2937,30 @@ end
 -- from the SERVER's own `mine`, so the ring and the `Target` diamond cannot point at two stands.
 local function applyStandAccent()
 	local config = MapUi.CONFIG
-	for index, node in ipairs(standNodes) do
-		local ring = node.accent
+	-- EACH RING ONTO ITS STAND, or hidden. `at` nil is "nobody", and a hover on the stand that is
+	-- already YOURS shows the picked ring alone -- picked beats hovered, in one expression.
+	local function place(ring: Frame?, at: number?, padPx: number)
 		if ring == nil then
-			continue
+			return
 		end
 		local frame = ring :: Frame
-		local picked = standMine == index
-		local hovered = standHover == index
-		local stroke = frame:FindFirstChildWhichIsA("UIStroke")
-		frame.Visible = picked or hovered
-		if stroke ~= nil then
-			local pad = if picked then config.STAND_PICK_PAD_PX else config.STAND_HOVER_PAD_PX
-			local base = if node.tower then config.FULL_STAND_TOWER_PX else config.FULL_STAND_PX
-			frame.Size = UDim2.fromOffset(base + pad, base + pad)
-			stroke.Thickness = if picked then config.STAND_PICK_STROKE_PX else config.STAND_HOVER_STROKE_PX
-			stroke.Color = if picked then config.STAND_PICK_COLOR else config.STAND_HOVER_COLOR
+		local node = if at ~= nil then standNodes[at :: number] else nil
+		if node == nil then
+			frame.Visible = false
+			return
 		end
+		local base = if node.tower then config.FULL_STAND_TOWER_PX else config.FULL_STAND_PX
+		frame.Size = UDim2.fromOffset(base + padPx, base + padPx)
+		-- COPIED, NOT RECOMPUTED: the ring is wherever the marker is, by construction.
+		frame.Position = node.frame.Position
+		frame.Visible = true
 	end
+	place(pickRing, standMine, config.STAND_PICK_PAD_PX)
+	place(
+		hoverRing,
+		if standHover ~= nil and standHover ~= standMine then standHover else nil,
+		config.STAND_HOVER_PAD_PX
+	)
 	for _, row in ipairs(standRows) do
 		local picked = standMine == row.index
 		local hovered = standHover == row.index
@@ -2996,7 +2972,7 @@ local function applyStandAccent()
 			elseif hovered then config.STAND_HOVER_ROW_COLOR
 			else config.BACKGROUND
 		row.button.BackgroundTransparency = if picked or hovered then 0.05 else 0.4
-		row.badge.BackgroundColor3 = if picked then Style.LOOK.BLAZE_LO else config.LEGEND_WELL_COLOR
+		row.num.BackgroundColor3 = if picked then Style.LOOK.BLAZE_LO else config.LEGEND_WELL_COLOR
 		row.num.TextColor3 = if picked then Style.LOOK.PAPER else Style.LOOK.BRASS
 		row.name.TextColor3 = if picked or hovered then Style.LOOK.PAPER else config.TEXT_COLOR
 	end
@@ -3657,6 +3633,8 @@ local function teardown()
 	-- THE HOVER AND THE WAY OUT GO WITH THE PICTURE (task 361): a hover held across a rebuild would
 	-- ring a stand that is no longer there, and a `closeButton` kept would be a destroyed instance.
 	standHover = nil
+	hoverRing = nil
+	pickRing = nil
 	closeButton = nil
 	closeScale = nil
 	footerLabel = nil
@@ -3778,6 +3756,40 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	canvas.ClipsDescendants = true
 	canvas.ZIndex = config.Z_INDEX + 1
 	claim(canvas).Parent = full
+	-- THE TWO RINGS THAT SAY "THIS ONE" (task 361): ONE hover ring and ONE picked ring for the whole
+	-- map, moved onto the marker they belong to by `applyStandAccent`. One per stand cost 45 instances
+	-- against task 347's 1,500 budget (the 20:44 UTC run read 1,557) -- and it also said the same
+	-- thing fifteen times: only one stand can be hovered and only one can be yours, so ONE ring each
+	-- is the honest shape as well as the cheap one.
+	--
+	-- A SIBLING OF THE MARKERS AND NOT A CHILD, because the marker steps aside for the `Target`
+	-- diamond when the stand is yours -- and the ring is exactly what has to stay up then. Its
+	-- position is COPIED off the marker's own, so no second arithmetic can drift.
+	for _, name in ipairs({ "HoverRing", "PickRing" }) do
+		local picked = name == "PickRing"
+		local ring = Instance.new("Frame")
+		ring.Name = name
+		ring.AnchorPoint = Vector2.new(0.5, 0.5)
+		ring.BackgroundTransparency = 1
+		ring.BorderSizePixel = 0
+		ring.ZIndex = config.Z_INDEX + 2
+		ring.Visible = false
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 4)
+		corner.Parent = ring
+		local stroke = Instance.new("UIStroke")
+		stroke.Name = "Ring"
+		stroke.Thickness = if picked then config.STAND_PICK_STROKE_PX else config.STAND_HOVER_STROKE_PX
+		stroke.Color = if picked then config.STAND_PICK_COLOR else config.STAND_HOVER_COLOR
+		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		stroke.Parent = ring
+		ring.Parent = canvas
+		if picked then
+			pickRing = ring
+		else
+			hoverRing = ring
+		end
+	end
 	-- THE NINE PADS, THE NINE SEAT RINGS AND THE NINE NAME LABELS COME BACK HERE (task 323b), held
 	-- for the life of this picture so `setStandStates` writes properties and never builds.
 	standNodes = drawGeometry(canvas, model, fullView, true)
