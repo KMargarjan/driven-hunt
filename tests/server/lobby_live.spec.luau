@@ -376,6 +376,47 @@ return function()
 			expect(Lobby.bill()).to.equal(billed)
 		end)
 
+		it("keeps the outer scan's bites when the yield lets a second scan in", function()
+			-- THE DEFECT THIS CASE EXISTS FOR, MEASURED IN KAREN'S PLACE BEFORE IT WAS FIXED: the
+			-- worst scan reported `build=0.0` with the build's 82 ms sitting in `rest`, because the
+			-- Heartbeat seven frames into `world.place`'s yield entered `Lobby.step` again and its
+			-- reset wiped the suspended call's bites. Here the re-entry is explicit instead of timed.
+			local frame = 0
+			local reentered = 0
+			local _seen, on = fresh(bin, function(world)
+				world.frames = function()
+					return frame
+				end
+				local realPlace = world.place
+				world.place = function(player: any, cframe: CFrame)
+					frame += 9
+					-- THE SECOND SCAN, FROM INSIDE THE FIRST, which is exactly what a Heartbeat does
+					-- while this call is suspended. `now` is well past the throttle, so it is a real
+					-- scan and not a return at the gate.
+					reentered += 1
+					if reentered == 1 then
+						Lobby.step(9999, {})
+					end
+					realPlace(player, cframe)
+				end
+			end)
+			expect(on).to.equal(true)
+
+			-- ONE SCAN that builds AND places, with a whole scan nested inside the placement.
+			local away = occupant(902, Vector3.new(ANCHOR.x + 4000, SHELF, ANCHOR.z), bin)
+			Lobby.step(1000, { away })
+			expect(reentered).to.equal(1)
+			expect(Lobby.isBuilt()).to.equal(true)
+			local billed = Lobby.bill()
+			-- THE BUILD IS STILL ON ITS OWN BITE, which is the whole finding: before the depth guard
+			-- this read `build=0.0/0f/0c` and the milliseconds were in `rest`.
+			expect(string.find(billed, "build=%d+%.%d+/0f/1c@step0") ~= nil).to.equal(true)
+			expect(string.find(billed, "build=0%.0/") ~= nil).to.equal(false)
+			expect(string.find(billed, "place=%d+%.%d+/9f/1c@step0") ~= nil).to.equal(true)
+			expect(string.find(billed, "frames=9", 1, true) ~= nil).to.equal(true)
+			expect(Lobby.stats().scanFrames).to.equal(9)
+		end)
+
 		it("counts no frames at all when nobody injected a counter", function()
 			-- nil IS "NOBODY SAID", which is every spec above and the DEV place: the bill is still
 			-- taken, and every frame count reads 0 rather than erroring.

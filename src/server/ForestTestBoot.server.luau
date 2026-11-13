@@ -1908,6 +1908,12 @@ local hbWorst, hbWorst_ms = "", 0
 local HB_TOP = 3
 local hbTopMs = { 0, 0, 0 }
 local hbTopStep = { 0, 0, 0 }
+-- ...AND WHAT THIS FILE'S OWN LUA COST ON THE FRAME BEFORE EACH OF THEM. `dt` looks BACKWARD, so the
+-- handler whose work it covers is the previous one: if `dt` is 1,591 ms and the handler before it
+-- cost 1 ms, the frame was spent by the ENGINE and not by anything this repository writes, and that
+-- is the difference between a stall to fix and a load to wait for.
+local hbTopPrev = { 0, 0, 0 }
+local lastTookMs = 0
 local lobbyStepMs, lobbyStepFrames, lobbyReportMs, lobbyReportFrames = 0, 0, 0, 0
 local lobbyStepMax, lobbyStepMaxFrames, lobbyReportMax = 0, 0, 0
 
@@ -2102,9 +2108,9 @@ RunService.Heartbeat:Connect(function(dt)
 	for i = 1, HB_TOP do
 		if frameMs > hbTopMs[i] then
 			for j = HB_TOP, i + 1, -1 do
-				hbTopMs[j], hbTopStep[j] = hbTopMs[j - 1], hbTopStep[j - 1]
+				hbTopMs[j], hbTopStep[j], hbTopPrev[j] = hbTopMs[j - 1], hbTopStep[j - 1], hbTopPrev[j - 1]
 			end
-			hbTopMs[i], hbTopStep[i] = frameMs, bootSteps
+			hbTopMs[i], hbTopStep[i], hbTopPrev[i] = frameMs, bootSteps, lastTookMs
 			break
 		end
 	end
@@ -2128,6 +2134,7 @@ RunService.Heartbeat:Connect(function(dt)
 	-- a yield has to see the frames that ran while it was suspended, and the count it reads must not
 	-- depend on where in the handler the increment sits. `avg` below is unchanged by the move.
 	bootMsTotal += tookMs
+	lastTookMs = tookMs
 	local inner = ForestTest.stepSections()
 	for key, ms in pairs(bootProf) do
 		bootTotal[key] += ms
@@ -2190,14 +2197,17 @@ RunService.Heartbeat:Connect(function(dt)
 				lobbyReportMax,
 				Lobby.bill(),
 				string.format(
-					"%s | top3 %.1f@%d %.1f@%d %.1f@%d",
+					"%s | top3 %.1f@%d(lua %.1f) %.1f@%d(lua %.1f) %.1f@%d(lua %.1f)",
 					hbWorst,
 					hbTopMs[1],
 					hbTopStep[1],
+					hbTopPrev[1],
 					hbTopMs[2],
 					hbTopStep[2],
+					hbTopPrev[2],
 					hbTopMs[3],
-					hbTopStep[3]
+					hbTopStep[3],
+					hbTopPrev[3]
 				)
 			)
 		)

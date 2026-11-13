@@ -124,6 +124,9 @@ local profCalls = { ground = 0, build = 0, place = 0 }
 -- so "at the join" needs a step number beside it or it is a guess.
 local atFrame = { build = 0, place = 0 }
 local billWorstMs, billWorst = 0, ""
+-- HOW MANY SCANS ARE IN FLIGHT AT ONCE. See `Lobby.step`: the yield in `world.place` lets a later
+-- Heartbeat enter the scan while an earlier one is still suspended.
+local scanDepth, scanBegan, scanBeganFrame = 0, 0, 0
 local function frameNow(): number
 	return if world ~= nil and world.frames ~= nil then world.frames() else 0
 end
@@ -1715,13 +1718,32 @@ function Lobby.step(now: number, players: { any }?)
 		return
 	end
 	lastScan = now
-	local began, beganFrame = os.clock(), frameNow()
-	for _, key in ipairs(BILL_ORDER) do
-		profMs[key], profFrames[key], profCalls[key] = 0, 0, 0
+	-- THE SCAN RE-ENTERS ITSELF, AND THE FIRST READING IN KAREN'S PLACE CAUGHT THE BILL LYING ABOUT
+	-- IT (task 357). `world.place` yields for 13-17 frames, `lastScan` is 1/SCAN_HZ = 100 ms behind,
+	-- so the Heartbeat seven frames later enters this function again while the first call is still
+	-- suspended -- and its reset wiped the outer call's `build` bite: the worst scan reported
+	-- `build=0.0` with the build's 82 ms sitting in `rest`. So the bill is taken for the OUTERMOST
+	-- scan only, and an inner one accumulates into it instead of clearing it. The depth is the same
+	-- shape as `ForestTest.releaseInFlight`, and for the same reason it is `pcall`ed: a raise that
+	-- left the depth standing would silence the bill for the rest of the session (task 356 round 3).
+	scanDepth += 1
+	if scanDepth == 1 then
+		scanBegan, scanBeganFrame = os.clock(), frameNow()
+		atFrame.build, atFrame.place = 0, 0
+		for _, key in ipairs(BILL_ORDER) do
+			profMs[key], profFrames[key], profCalls[key] = 0, 0, 0
+		end
 	end
-	scanOnce(now, players)
-	local ms = (os.clock() - began) * 1000
-	local frames = frameNow() - beganFrame
+	local ok, err = pcall(scanOnce, now, players)
+	scanDepth -= 1
+	if not ok then
+		error(err, 0)
+	end
+	if scanDepth > 0 then
+		return
+	end
+	local ms = (os.clock() - scanBegan) * 1000
+	local frames = frameNow() - scanBeganFrame
 	stats.scanMs = ms
 	stats.scanFrames = frames
 	if ms > billWorstMs then
@@ -1797,6 +1819,7 @@ function Lobby.start(injected: any?): boolean
 	-- the composition root owns the Heartbeat, so it is the only thing that can say which frame this
 	-- is. nil is every spec and the DEV place, and then the bill's frame counts read 0.
 	billWorstMs, billWorst = 0, ""
+	scanDepth, scanBegan, scanBeganFrame = 0, 0, 0
 	atFrame.build, atFrame.place = 0, 0
 	for _, key in ipairs(BILL_ORDER) do
 		profMs[key], profFrames[key], profCalls[key] = 0, 0, 0
