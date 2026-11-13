@@ -5996,6 +5996,42 @@ function ForestTest.postIndexFor(posts, index: number): number
 	return index
 end
 
+-- THE PREVIOUS DRIVE'S BODIES, AT THE MOMENT THE NEXT DRIVE STARTS (task 362). Karen, 2026-11-13:
+-- *"dribve started leftover from prebviuos"*.
+--
+-- WHY IT IS HERE AND NOT IN `Match`. `Match` asks for exactly this at both drive edges
+-- (`Phase.enterScoring` and `enterAssigning` emit `clearBoars`), and in THIS world its
+-- `applyClearBoars` can do nothing: the drive holds `readOnlyBoars` below, which has no `clear` on
+-- purpose (design section 9.4). So the owner of these animals answers the boundary itself. The
+-- view's shape is untouched, the drive still may not spawn, clear or move an animal here, and the
+-- WOOD this world stocked is still never cleared at a boundary -- only the bodies go, which is what
+-- `Runtime:clearCarcasses` means. A carcass is not wood.
+--
+-- BOTH OF THE DRIVE'S OWN EDGES, which is where `Match.Phase` itself asks: `enterScoring` and
+-- `enterAssigning` each emit `clearBoars`. `Scoring` does the work -- it is the drive's END, after
+-- the kills are counted and the results scene is built out of its own display copies -- and
+-- `Assigning` is the backstop for a drive that ends any other way. MEASURED, and that is why both
+-- are here: `Match` fires `PhaseChanged` at the END of its dispatch, and `enterAssigning`'s
+-- `placePlayers` YIELDS on `Player:LoadCharacter()`, so an `Assigning`-only clear landed SECONDS
+-- after the next drive had visibly started -- the bodies were still standing at +3 s in the Forest
+-- Test (task 362, round 1). `Scoring` fires with nothing before it that yields.
+--
+-- NOTHING MOVES INSIDE A DRIVE: `Running` is not in the set, so a kill lies where it fell for the
+-- whole `CARCASS_SECONDS` and the report, the claim and the score are untouched.
+--
+-- PURE OF ANY INSTANCE: the runtime is handed in, so both branches are drivable by parameter.
+ForestTest.CARCASS_CLEAR_PHASES = table.freeze({ Scoring = true, Assigning = true })
+
+function ForestTest.clearPreviousDriveCarcasses(runtime, phase: string?): number
+	if phase == nil or ForestTest.CARCASS_CLEAR_PHASES[phase] ~= true then
+		return 0
+	end
+	if runtime == nil or runtime.clearCarcasses == nil then
+		return 0
+	end
+	return runtime:clearCarcasses("driveOver") or 0
+end
+
 -- THE BOAR RUNTIME AS `Match` MAY SEE IT IN THIS WORLD: two signals and three reads, and NO `spawn`,
 -- `spawnSounder` or `clear` (task 157, design section 9.4).
 --

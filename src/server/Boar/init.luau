@@ -5985,6 +5985,24 @@ function Runtime:clearOne(id: string, reason: string?): boolean
 	return false
 end
 
+-- EVERY BODY, AND NOTHING THAT IS STILL ON ITS FEET, through the same `_despawn` path `clear` and
+-- `clearOne` use. The test is `liveCount`'s, inverted, so "on its feet" has one definition here.
+-- It exists because the Forest Test owns its animals and the drive does not
+-- (`docs/design/forest-drive.md` 9.4): a drive boundary there has to take the bodies of the drive
+-- that just ended WITHOUT taking the wood that world stocked, which `clear` cannot do.
+function Runtime:clearCarcasses(reason: string?): number
+	local taken = 0
+	for index = #self._boars, 1, -1 do
+		local entry = self._boars[index]
+		local state = entry.brain:state()
+		if entry.dead or state == "DOWN" or state == "GONE" then
+			self:_despawn(entry, index, reason or "driveOver", Body.position(entry.body))
+			taken += 1
+		end
+	end
+	return taken
+end
+
 function Runtime:boars()
 	local out = {}
 	for _, entry in ipairs(self._boars) do

@@ -1302,6 +1302,19 @@ Match.start({
 -- Both `HitLog` calls are idempotent at the other end, so a phase that fires twice cannot open two
 -- drives.
 Match.PhaseChanged:Connect(function(_before, phase, driveNumber)
+	-- ...AND THE PREVIOUS DRIVE'S BODIES GO FIRST (task 362). Karen, 2026-11-13: *"dribve started
+	-- leftover from prebviuos"*. The owner decides WHICH phase and takes only the bodies
+	-- (`ForestTest.clearPreviousDriveCarcasses`); this line holds no rule of its own.
+	local cleared = ForestTest.clearPreviousDriveCarcasses(runtime, phase)
+	if cleared > 0 then
+		print(
+			string.format(
+				"[ForestTest] drive %d: %d body(ies) of the previous drive removed",
+				driveNumber or 1,
+				cleared
+			)
+		)
+	end
 	if phase == "Assigning" then
 		HitLog.openDrive(driveNumber or 1, os.clock())
 		-- ...AND THE WOOD IS A NEW WOOD (task 172 round 2). `ForestTest.stepRest` stocks it once per
