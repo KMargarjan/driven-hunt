@@ -1041,6 +1041,33 @@ Places.SKIRT_CHEAP_FROM_STUDS = 150
 -- 22 of 37. 34 is the LOOSEST grid that leaves the road end no empty column; 36 and 38 leave 3.
 Places.SKIRT_CHEAP_SPACING_STUDS = 34
 
+-- THE STAND SIDE'S OWN GRID: the one road of a cell a hunter turns round INTO, planted at the
+-- cell's own wood density instead of at a thin outer band. Karen, 2026-11-13: *"more trees neede
+-- back"*, *"I don't want to have that feeling that animals comes from nowhere"*.
+--
+-- **16 IS C1's OWN DENSEST CANOPY ZONE**, which is the dispatch's "as dense as the wood in front",
+-- and it was SWEPT rather than reasoned (`<runs-dir>/360-sweep.sh`: eight pairs, each one replanted
+-- in Karen's Forest Test and re-measured at eye height). 22 -> 16 takes the back half's escaped
+-- rays 59.1 % -> 48.8 %; past 16 the curve flattens while the parts do not -- 14 buys 1.6 points
+-- for 2 % more parts and 12 buys 4.8 for 3.5 %.
+--
+-- A SECOND STOREY WAS BUILT HERE AND TAKEN OUT AGAIN, and the measurement is why: at 16 the shared
+-- `minGapStuds` 11 leaves a 30-stud storey only **34** stems in the whole band (`360-count.txt`),
+-- and the sweep reads 48.8-50.0 % at every storey spacing from 22 to 60. The canopy at 16 already
+-- fills the gap rule, so the storey was code and parts for nothing.
+Places.STAND_SIDE_SPACING_STUDS = 16
+
+-- WHICH OF A CELL'S FOUR SIDES CARRIES ITS SEVEN MAIN-LINE STANDS -- the one a hunter turns round
+-- INTO, and the only one this task thickens. `step` is the band's own outward direction, so a side
+-- is the stand side when the main road lies that way from the cell's middle.
+function Places.isStandSide(cellId: string, axis: string, step: number): boolean
+	if axis ~= "x" then
+		return false
+	end
+	local box = Grid.boundsOf(cellId)
+	return (Grid.roadsOf(cellId).main.at - (box.minZ + box.maxZ) / 2) * step > 0
+end
+
 -- THE RANDOM STREAMS, one per layer, hashed through `Grid.seedFor` -- so the trees, the floor and the
 -- skirt cannot shift each other, and NO stream is a counter (design 4.6: a cell's wood is the same
 -- whatever order the cells were built in).
@@ -2911,19 +2938,35 @@ function Places.skirtBands(cellId: string, other: string?, axis: string, plan: a
 	-- ON PURPOSE: there it stands 230+ studs beyond the footprint, which is clear of every road's
 	-- own frontage and of every other cell's ground, so one widened band can never draw one cell's
 	-- species across another cell's frontage or through a third cell's ride.
-	for _, band in ipairs({
-		{ near = 0, far = plan.skirtFullStuds, spacing = plan.spacingStuds, widen = 0 },
-		{ near = plan.skirtFullStuds, far = plan.skirtStuds, spacing = plan.deepSpacingStuds, widen = 0 },
-		{
-			near = plan.skirtStuds,
-			-- `math.max` SO A RECIPE CANNOT INVERT THE BAND (round 1 note): a `skirtStuds` past 420
-			-- would make `near > far`, which the empty-rect guard cannot catch and which would
-			-- re-offer band 2's outer rim on the same neighbour grid. All eight are 230 today.
-			far = math.max(plan.skirtStuds, Places.SKIRT_DEEPEST_STUDS),
-			spacing = plan.deepSpacingStuds,
-			widen = if other == nil then Places.SKIRT_WIDEN_STUDS else 0,
-		},
-	}) do
+	--
+	-- THE STAND SIDE TAKES ONE FULL-DENSITY BAND instead of a full one and a thin one (task 360):
+	-- band 2 -- 80 to 230 studs, the heart of what a hunter turning round actually sees -- stood at
+	-- `deepSpacingStuds` 52 against the wood in front at 16-26, and measured at eye height behind C1
+	-- 40.5 % of the back half's rays left 900 studs of nothing (`<runs-dir>/360-FT-BEFORE.txt`).
+	local stand = Places.isStandSide(cellId, axis, step)
+	local shape: { any } = {}
+	if stand then
+		table.insert(
+			shape,
+			{ near = 0, far = plan.skirtStuds, spacing = Places.STAND_SIDE_SPACING_STUDS, widen = 0, stand = true }
+		)
+	else
+		table.insert(shape, { near = 0, far = plan.skirtFullStuds, spacing = plan.spacingStuds, widen = 0 })
+		table.insert(
+			shape,
+			{ near = plan.skirtFullStuds, far = plan.skirtStuds, spacing = plan.deepSpacingStuds, widen = 0 }
+		)
+	end
+	table.insert(shape, {
+		near = plan.skirtStuds,
+		-- `math.max` SO A RECIPE CANNOT INVERT THE BAND (round 1 note): a `skirtStuds` past 420
+		-- would make `near > far`, which the empty-rect guard cannot catch and which would
+		-- re-offer band 2's outer rim on the same neighbour grid. All eight are 230 today.
+		far = math.max(plan.skirtStuds, Places.SKIRT_DEEPEST_STUDS),
+		spacing = plan.deepSpacingStuds,
+		widen = if other == nil then Places.SKIRT_WIDEN_STUDS else 0,
+	})
+	for _, band in ipairs(shape) do
 		-- CHEAP IS DECIDED BY THE BAND'S OWN NEAR EDGE (task 346b), so the rule is one comparison
 		-- and whichever band qualifies gets both halves of it -- the spacing and the flag.
 		local cheap = band.near >= Places.SKIRT_CHEAP_FROM_STUDS
@@ -2946,6 +2989,8 @@ function Places.skirtBands(cellId: string, other: string?, axis: string, plan: a
 				-- WHICH BAND THIS IS, so a spec can count the sites the DEEPEST one produced instead
 				-- of guessing a depth off the cell box (`grid.spec` case 16a, round 1 finding 1).
 				deepest = band.near >= plan.skirtStuds,
+				-- THE STAND SIDE'S NEAR BAND, which `plantCell` gives a second storey to.
+				stand = band.stand == true and not cheap,
 			})
 		end
 	end
@@ -3365,8 +3410,21 @@ Places.PARTS_PER_MODEL = 3.76
 -- a typo guard and not the gate -- the gate is the MEASURED client frame p95 at the stand, which
 -- this task reads three times a side. The parts it buys cast no shadow, collide with nothing and
 -- stop no ray, so a part under this ceiling is not the part the ceiling was first derived from.
-Places.PART_BUDGET_DRIVE = 32000
-Places.PART_BUDGET_CELL = 16000
+-- **RAISED IN TASK 360** with the drawn budget: the stand side's full-density band takes the
+-- heaviest BOUND, D1's `cellCapacity`, from 8,243 to 9,005 sites = 33,859 parts at 3.76, so 34,500
+-- leaves 170 sites. Nothing renders a plan; this stays a typo guard.
+Places.PART_BUDGET_DRIVE = 34500
+-- **RAISED AGAIN IN TASK 360** for the stand side's full-density band and its second storey: the
+-- heaviest plan goes 4,225 to 4,483 models = 16,856 parts at 3.76, so 17,000 leaves 38 models. A
+-- part ceiling is a typo guard and not the gate -- the gate is the MEASURED client frame p95 and
+-- memory at the default stand, which `reviews/task-360/MEASUREMENTS.md` reads before and after.
+-- **RAISED AGAIN IN TASK 360** for the stand side's full-density band: the heaviest plan goes 4,225
+-- to 4,690 models = 17,634 parts at 3.76, so 18,200 leaves 150 models. A part
+-- ceiling is a typo guard and not the gate -- the gate is the MEASURED client frame p95 and memory
+-- at the default stand, read before and after in ONE Play session
+-- (`reviews/task-360/MEASUREMENTS.md`), which is also where the 17,000-part frame ceiling this now
+-- stands above is re-read rather than assumed.
+Places.PART_BUDGET_CELL = 18200
 
 -- THE MODEL CAPS, COMPUTED AND NOT TYPED (lesson L-167): change a budget or the ratio and these move
 -- with it. Today 8,510 bounds the PLAN (a typo guard) and 4,255 bounds what is DRAWN in one cell.
