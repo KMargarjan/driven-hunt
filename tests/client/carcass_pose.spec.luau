@@ -324,6 +324,35 @@ return function()
 			expect(CarcassPose.stats().posed).to.equal(1)
 		end)
 
+		it("publishes its counters on its own Clips folder, where a live probe can read them", function()
+			-- A live `execute_luau` probe gets a FRESH module cache, so `stats()` through one is
+			-- always zeroes (V293b). The counters are therefore written where a probe already looks:
+			-- attributes on the ONE instance this owner creates. Nothing else is ever written.
+			fakeRig(folder, true, CarcassData.format(FAKE_ID, FAKE_AT))
+			CarcassPose.start({
+				enabled = true,
+				folder = folder,
+				sweepSeconds = 0,
+				ready = function()
+					return true
+				end,
+				load = function()
+					return stubTrack(4)
+				end,
+			})
+			CarcassPose.step(1)
+			local clips =
+				Players.LocalPlayer:FindFirstChild("PlayerScripts"):FindFirstChild(CarcassPose.CLIP_FOLDER_NAME)
+			expect(clips).never.to.equal(nil)
+			local stats = CarcassPose.stats()
+			expect(clips:GetAttribute("posed")).to.equal(stats.posed)
+			expect(clips:GetAttribute("sweeps")).to.equal(stats.sweeps)
+			expect(clips:GetAttribute("carcasses")).to.equal(stats.carcasses)
+			expect(clips:GetAttribute("leftAlone")).to.equal(stats.leftAlone)
+			expect(clips:GetAttribute("bindBefore")).to.equal(stats.bindBefore)
+			expect(stats.posed).to.equal(1)
+		end)
+
 		it("THE REAL LOADER on a real Animator: the mechanism, in the player's own client", function()
 			-- `358-feas.luau` measured this on a live carcass in Karen's Forest Test: a client-loaded
 			-- track on a SERVER-owned Animator plays beside the replicated one and changes what is

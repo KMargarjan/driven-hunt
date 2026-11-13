@@ -310,6 +310,40 @@ function CarcassPose.start(seams: any): boolean
 	return true
 end
 
+-- SAY THE COUNTS OUT LOUD, WHERE A PROBE CAN READ THEM (the rule task 293c wrote for `Reholds`,
+-- and V293b restated: a counter that lives only in module state is not a diagnostic). A live
+-- `execute_luau` probe gets a FRESH module cache, so `stats()` through one is always zeroes.
+--
+-- ON ITS OWN FOLDER, which is the whole of the boundary here: this owner may write no attribute on
+-- anything it did not create, and `Clips` is the one instance it creates. Read-compare-write, so a
+-- sweep that changed nothing writes nothing.
+local PUBLISHED = {
+	"sweeps",
+	"carcasses",
+	"posed",
+	"leftAlone",
+	"bindBefore",
+	"waitingRig",
+	"waitingAsset",
+	"waitingLength",
+	"timedOut",
+	"loads",
+	"plays",
+	"writes",
+}
+local function publish(stats: Stats)
+	local clips = state.clips
+	if clips == nil then
+		return
+	end
+	for _, key in ipairs(PUBLISHED) do
+		local value = (stats :: any)[key]
+		if clips:GetAttribute(key) ~= value then
+			clips:SetAttribute(key, value)
+		end
+	end
+end
+
 local function sweep()
 	local folder = state.folder
 	if folder == nil then
@@ -415,6 +449,7 @@ local function sweep()
 	if spent > stats.worstSweepMs then
 		stats.worstSweepMs = spent
 	end
+	publish(stats)
 end
 
 function CarcassPose.step(dt: number)
