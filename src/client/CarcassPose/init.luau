@@ -321,7 +321,9 @@ end
 -- sweep that changed nothing writes nothing.
 local PUBLISHED = {
 	"sweeps",
+	"trunks",
 	"carcasses",
+	"candidates",
 	"posed",
 	"leftAlone",
 	"bindBefore",
