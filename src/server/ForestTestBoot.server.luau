@@ -870,9 +870,6 @@ end
 -- exactly one of these -- the bill's step count IS this number -- because "which frame is it" must
 -- not have two answers.
 local bootSteps = 0
--- HOW MANY TIMES THE CONTROL'S SPIN WENT ROUND, so selene has a loop body and the control has a
--- witness that it really ran. Removed with the control.
-local burnSpins = 0
 
 local lobbyOn = Lobby.start({
 	--   frames       WHICH SERVER FRAME IT IS (task 357), the lobby's bill's only new seam. An
@@ -907,34 +904,15 @@ local lobbyOn = Lobby.start({
 	--                It is OPTIONAL in `Lobby.start`, like `depart` and `remotes`: a world that
 	--                injects nothing never spends a wish, which is a world with no drive.
 	assignedTeam = Match.assignmentOf,
+	--   place        AND ITS POSITIVE CONTROL IS ARCHIVED, NOT SHIPPED (task 357):
+	--                `backups/2026-11-13_task-357_lobby-place-control.md`. Two Studio-only knobs at
+	--                this seam -- `DHLobbyBurn` ms SPUN and `DHLobbyWait` ms WAITED -- proved the
+	--                bill's frame count tells a stall from a wait: the spin read back
+	--                `place=1034.4 ms / 7 frames` and put a new 811.4 ms frame in the Heartbeat
+	--                channel, the wait read back `1125.2 ms / 37 frames` and put none there, against
+	--                `361.1 ms / 11 frames` with both off. A spin loop is not something to leave in
+	--                the tree.
 	place = function(player, cframe)
-		-- THE POSITIVE CONTROL FOR THE LOBBY BILL (task 357), STUDIO ONLY, AND IT IS REMOVED AND
-		-- ARCHIVED IN THIS SAME BRANCH -- it is here only long enough to prove the instrument is not
-		-- blind, which is task 356's own lesson about a NULL result. Two knobs on `ServerStorage`,
-		-- set at RUNTIME in a Play session so nothing is written to the place:
-		--   DHLobbyBurn  ms SPUN on the main thread. A real stall: the `place` bite's ms must rise by
-		--                it and its FRAME count must not, and the Heartbeat max must move.
-		--   DHLobbyWait  ms WAITED. A yield: the bite's ms must rise by it and its frame count must
-		--                rise by about ms/16.7, and the Heartbeat max must NOT move.
-		-- One instrument, two known inputs, two different readings.
-		if RunService:IsStudio() then
-			local burn = ServerStorage:GetAttribute("DHLobbyBurn")
-			if type(burn) == "number" and burn > 0 then
-				local spinUntil = os.clock() + burn / 1000
-				local spins = 0
-				while os.clock() < spinUntil do
-					spins += 1
-				end
-				burnSpins = spins
-			end
-			local waited = ServerStorage:GetAttribute("DHLobbyWait")
-			if type(waited) == "number" and waited > 0 then
-				local waitUntil = os.clock() + waited / 1000
-				while os.clock() < waitUntil do
-					task.wait()
-				end
-			end
-		end
 		Body.place(player, cframe, Match.CONFIG)
 	end,
 	--   dress        `Match.Body.dress` -- the ONE owner of what anybody in this game wears, and the
@@ -2211,9 +2189,6 @@ RunService.Heartbeat:Connect(function(dt)
 				)
 			)
 		)
-		if burnSpins > 0 then
-			ServerStorage:SetAttribute("DHLobbyBurnSpins", burnSpins)
-		end
 		local owners = {}
 		for _, key in ipairs(BOOT_ORDER) do
 			table.insert(owners, string.format("%s=%.1f/%.1f", key, bootMax[key], bootTotal[key]))

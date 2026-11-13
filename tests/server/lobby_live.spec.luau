@@ -330,11 +330,13 @@ return function()
 				end
 				local realPlace = world.place
 				world.place = function(player: any, cframe: CFrame)
-					-- A YIELD, AS A SPEC CAN EXPRESS IT: seven frames went by inside this call, and
-					-- it cost 2 ms of wall time -- enough that the worst-scan rule cannot be won by
-					-- a later quiet scan, which is what the last assertion in this case rests on.
+					-- A YIELD, AS A SPEC CAN EXPRESS IT: seven frames went by inside this call.
+					-- IT ALSO COSTS LONGER THAN THE BUILD DID, and that is not decoration -- the
+					-- bill keeps the WORST scan, the build scan is the one before this, and a spec
+					-- that spun a fixed 2 ms asserted against the build's bill and failed (measured,
+					-- `<runs-dir>/357-failfirst.txt`, before this line scaled itself).
 					frame += 7
-					local spinUntil = os.clock() + 0.002
+					local spinUntil = os.clock() + (Lobby.stats().buildMs + 20) / 1000
 					local spins = 0
 					while os.clock() < spinUntil do
 						spins += 1
