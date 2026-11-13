@@ -3846,6 +3846,11 @@ local releaseCount = { legs = 0, wps = 0, casts = 0, spawns = 0, ticks = 0 }
 -- -- so `drive.release=569.3 ms` of WALL time is not by itself a 569 ms frozen frame. `ForestTest.step`
 -- is called once per Heartbeat, so counting its entries across the call settles which it is.
 local stepTicks = 0
+-- ...AND WHETHER ONE IS IN FLIGHT RIGHT NOW (task 356). A DEPTH and not a boolean, because the
+-- yield above means a later Heartbeat can enter `step` while an earlier release is still suspended.
+-- `ForestTestBoot` reads it to charge each Heartbeat's `dt` to "during a release" or "not", which is
+-- the one measurement that separates a 595 ms WALL time from a 595 ms FROZEN FRAME.
+local releaseDepth = 0
 -- THE LEGS OF THE WORST RELEASE, one row each: the pathfinder's own cost, what it answered, and how
 -- far it was asked to go. `drive.release` cannot say whether two legs cost the same.
 local releaseLegs: { string } = {}
@@ -3907,6 +3912,10 @@ end
 
 -- WORST FRAME, THEN EVERY SECTION'S OWN max/total -- because one 1,274 ms frame hid every other
 -- owner's worst behind it in task 355 (`355-BEF3-track.txt`), and the same trap is here.
+function ForestTest.releasing(): boolean
+	return releaseDepth > 0
+end
+
 function ForestTest.releaseBill(): string
 	local out = { string.format("calls=%d worst: %s", releaseCalls, releaseWorst) }
 	local each = {}
@@ -4018,7 +4027,9 @@ function ForestTest.step(now: number, inPlace: boolean?): string?
 		-- slot release never reached the console at all, and the drive's own proof then undercounts the
 		-- very thing it is evidence for. The slot line comes first because it is the drive's headline.
 		sectionAt = os.clock()
+		releaseDepth += 1
 		local released = ForestTest.releaseLine(now, nil, resolved, aim)
+		releaseDepth -= 1
 		sections.release = (os.clock() - sectionAt) * 1000
 		ForestTest.releaseRollup(sections.release)
 		if released ~= nil and flush ~= nil then

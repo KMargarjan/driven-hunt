@@ -1844,7 +1844,21 @@ local driveMax = { placement = 0, spook = 0, lines = 0, roar = 0, staged = 0, re
 local driveTotal = { placement = 0, spook = 0, lines = 0, roar = 0, staged = 0, rest = 0, release = 0 }
 local bootSteps, bootMsTotal, bootMsMax, bootWorst = 0, 0, 0, ""
 
-RunService.Heartbeat:Connect(function()
+-- THE FRAME ITSELF, CHARGED TO "A WAVE IS BEING RELEASED" OR NOT (task 356). `dt` is the WHOLE
+-- server frame -- engine work included, which no `os.clock` bite in Lua can see. `Path:ComputeAsync`
+-- yields, so a release spans many frames; this is what says whether any ONE of them is long.
+local relHbMax, relHbFrames, idleHbMax = 0, 0, 0
+
+RunService.Heartbeat:Connect(function(dt)
+	local frameMs = dt * 1000
+	if ForestTest.releasing() then
+		relHbFrames += 1
+		if frameMs > relHbMax then
+			relHbMax = frameMs
+		end
+	elseif frameMs > idleHbMax then
+		idleHbMax = frameMs
+	end
 	local bootBegan = os.clock()
 	bootProf.cells, bootProf.drive, bootProf.reports = 0, 0, 0
 	bootProf.wire, bootProf.wall, bootProf.lobby = 0, 0, 0
@@ -2053,7 +2067,16 @@ RunService.Heartbeat:Connect(function()
 		ServerStorage:SetAttribute("DHBootOwners", table.concat(owners, " "))
 		-- ...AND `drive.release` SPLIT ONE LEVEL FURTHER (task 356). Same cadence, same channel and
 		-- the same reason as the two above: `drive.release=569.3/4650` names a function, not a cost.
-		ServerStorage:SetAttribute("DHReleaseBill", ForestTest.releaseBill())
+		ServerStorage:SetAttribute(
+			"DHReleaseBill",
+			string.format(
+				"hb-in-release max=%.1f over %d frames | hb-elsewhere max=%.1f ;; %s",
+				relHbMax,
+				relHbFrames,
+				idleHbMax,
+				ForestTest.releaseBill()
+			)
+		)
 	end
 end)
 
