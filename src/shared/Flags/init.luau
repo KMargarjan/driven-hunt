@@ -58,9 +58,9 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- without touching this line, and that is the Director's call (docs/design/shop.md section 16
 -- item 8), not this task's.
 --
--- LIT (14): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
+-- LIT (15): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
 --           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN, COINS and LOBBY (task 233), SHOP (233b),
---           AIM_REWIND and ZONES_FOLLOW_GAIT (task 312).
+--           AIM_REWIND and ZONES_FOLLOW_GAIT (task 312), DRIVE_VARIETY (task 364).
 -- DARK (8): QUICK_TEST, DRIVE_BOTS, LICENCE_POPUP (task 238), DEER_ROAD_LEAP (task 245b),
 --           STAG_BOUND_ON_SPOOK (task 251 part 2), RANGE (task 298), HIT_CLAIM (task 266),
 --           RANGE_SOLO (task 313).

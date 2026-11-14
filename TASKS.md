@@ -766,10 +766,15 @@ the repo, transcribed verbatim and marked as the Director's. Newest first.
 > GATE: `python tools/studio_mcp.py test` full run, PASS line at the code commit; test2 N/A unless a
 > TWO_PLAYER_PATHS file is touched (then say so and stop: ESCALATE). Then tools/review.ps1.
 
-**Builder's status.** Done, round 1. The flip is the flag row and nothing else: measured, no spec in
-`tests/` asserts `DRIVE_VARIETY`'s default or reaches the gated path by the flag -- both arms are
-already driven by parameter in `forest_line.spec` (`Data.variedSchedule(..., false/true)`), so item 2
-needed no edit and no case was deleted. Proofs in `reviews/task-364/REQUEST.md`.
+**Builder's status.** Done, round 2. The flip itself is the flag row and nothing else. No spec
+asserts `DRIVE_VARIETY`'s default BY NAME -- but round 1's claim that none reaches the gated path was
+WRONG, and the Reviewer caught it: `forest_placement.spec` (26 sites) and `forest_stand.spec` (6)
+call `ForestTest.start`, which is the one reader, so after the flip they dealt a GENERATED drive on
+an unseeded seed. Item 2 is therefore done as the dispatch asked: `start(runtime, now, varietyIn,
+seedIn)` and `waveAt(index, inPlace, varietyIn)` take the value by parameter, every spec site passes
+`false`, no case was deleted. Two things for the Director in `ESCALATE.md`: `DEER_ROAD_LEAP` expired
+at midnight UTC and was blocking the harness for every task (date moved, its own commit), and the
+dispatch's DEV pattern-line proof cannot be produced in DEV at all.
 
 ### Task 352b - 2026-11-12
 
