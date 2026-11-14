@@ -190,7 +190,7 @@ return function()
 			tool.Parent = backpack
 			local before = Weapon.stats()
 
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				Hardware.equip(tool, player)
 
 				-- THE TOOL IS IN THE HAND, which is the only thing Karen can see. Before task 129
@@ -310,7 +310,7 @@ return function()
 				end
 			end)
 
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				for _, tool in ipairs(Hardware.toolsOf(player)) do
 					tool:Destroy()
 				end
@@ -407,7 +407,7 @@ return function()
 				end
 			end)
 
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				-- Take every gun away and let the owner's own sweep hand the loadout back, which is
 				-- the path a spawn takes.
 				for _, tool in ipairs(Hardware.toolsOf(player)) do
@@ -552,7 +552,7 @@ return function()
 			local mine = realGunOf(player)
 			local detached = Instance.new("Backpack")
 
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				Weapon.refreshArming(player, armed)
 				expect(waitUntil(6, function()
 					return #Hardware.toolsOf(player) >= #armed
@@ -645,7 +645,7 @@ return function()
 				end)
 			end
 
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				expect(Hardware.wearsMesh(tool)).to.equal(false)
 
 				-- THE MESH LANDS. `Weapon.upgradeLook` is the one path both callers use (`WeaponBoot`

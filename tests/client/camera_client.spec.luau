@@ -71,6 +71,23 @@ local function stateAtBlend(blend: number)
 	return table.freeze(state)
 end
 
+-- THE AIM COUNTERS BEFORE THE REPLAY EXISTS (task 367). `InputReady.ready` below is what can
+-- publish the attribute the harness waits for, so nothing replayed can have landed yet on the line
+-- above it -- and that makes this the ONE instant a baseline is provably pre-replay.
+--
+-- MEASURED: taken inside the `it` instead, this case failed 1 of 5 runs on main
+-- (`camera_client.spec:614`). The suite RUNS WHILE THE REPLAY PLAYS (InputReady's own header), so
+-- in a run where the client fell behind -- 10,451 frames against 6,627, the same commit -- the
+-- aim-hold scenario's right mouse had already been and gone before the case took its baseline, and
+-- a counter that had already moved could never move again. A wall-clock race, not a camera.
+local preReplay = Camera.stats()
+-- ...AND THE MODE HISTORY'S LENGTH AT THE SAME INSTANT (round 2 finding 1). `Camera.modeHistory()`
+-- grows from boot and the aim case scans it from a baseline index: read inside the `it`, that index
+-- carried exactly the race the counters were moved here to close -- in a run where both replayed
+-- holds land before the case starts, every counter claim passes instantly and the scan then walks
+-- an empty range. One instant, one baseline, for both.
+local preReplayHistory = #Camera.modeHistory()
+
 -- The harness replays every scenario once the LAST expected spec says it is ready, so this file
 -- signals at require time like the others (docs/design/shotgun.md section 13.3).
 InputReady.ready("camera_client")
@@ -360,6 +377,89 @@ return function()
 
 		it("keeps the update inside its frame budget", function()
 			local stats = Camera.stats()
+			-- THE BUDGET IS THE CAMERA'S, SO THE SAMPLE HAS TO BE THE CAMERA'S (task 367).
+			--
+			-- MEASURED, 11 runs of the same commits: the session average read 0.126 ms in ten of
+			-- them and 0.336 ms in one (worst frame 0.909), over about 370 frames. `stats.frames` is
+			-- EVERY rendered frame -- `Camera.update` is bound at `Enum.RenderPriority.Camera` and
+			-- `stats.frames += 1` sits in both of its arms with no earlier return -- so 370 by this
+			-- case means the case runs about six seconds into the client suite, and the session
+			-- average is an average over those six seconds. One starved stretch inside them, with
+			-- 2,998 server specs and a second Studio on the same machine, moves the whole thing past
+			-- 0.3 and the case reports "false" about a camera nobody changed.
+			--
+			-- SO THREE FRESH WINDOWS ARE MEASURED HERE and the BEST is what faces the budget. A
+			-- hitch cannot poison all three; a camera that genuinely costs more than its budget
+			-- poisons every one of them, so the 0.3 ms of `docs/design/camera.md` section 8.2 is not
+			-- widened by a thousandth. The STATISTIC does change -- from that section's session
+			-- `avgUpdateMs` to the least of three windows -- and the window is the 120 frames the
+			-- same section already names, so the sample is the design's and not a smaller one.
+			-- Section 8.2 and 9.2 item 17 still say `avgUpdateMs`: queued as TASKS.md 367(f), because
+			-- `docs/design/` is the Architect's.
+			local WINDOW_FRAMES = 120
+			-- A WINDOW IS 120 RENDERED FRAMES OR IT IS NOT A WINDOW. Returning a short one as though
+			-- it were full is how a one-frame sample would face a per-frame budget (round 1 finding
+			-- 1). 12 s is 120 frames at 10 fps, so a window that cannot be filled means the client
+			-- rendered below 10 fps -- a fault, which is what the assertion below then says.
+			local function windowAverage(): (number?, number)
+				local before = Camera.stats()
+				local deadline = os.clock() + 12
+				while Camera.stats().frames < before.frames + WINDOW_FRAMES and os.clock() < deadline do
+					RunService.RenderStepped:Wait()
+				end
+				local after = Camera.stats()
+				local took = after.frames - before.frames
+				if took < WINDOW_FRAMES then
+					return nil, took
+				end
+				return (after.avgUpdateMs * after.frames - before.avgUpdateMs * before.frames) / took, took
+			end
+			local readings: { string } = {}
+			local best: number? = nil
+			for _ = 1, 3 do
+				local average, took = windowAverage()
+				if average ~= nil then
+					table.insert(readings, string.format("%.3f ms over %d frames", average, took))
+					if best == nil or average < best then
+						best = average
+					end
+				else
+					table.insert(readings, string.format("SHORT: only %d of %d frames", took, WINDOW_FRAMES))
+				end
+			end
+			TestKit.note(
+				string.format(
+					"camera_client: three fresh windows -- %s; best %s against the 0.3 budget",
+					table.concat(readings, " / "),
+					if best then string.format("%.3f", best) else "none"
+				)
+			)
+			-- THE SESSION FIGURE BEFORE THE ASSERTIONS, not after them (round 2 note): the one run
+			-- where the budget fires is the run that needs it, and an assertion ends the case.
+			TestKit.note(
+				string.format(
+					"camera_client: the session so far: %.3f ms average, %.3f ms worst, over %d frames",
+					stats.avgUpdateMs,
+					stats.maxUpdateMs,
+					stats.frames
+				)
+			)
+			-- NOT ONE FULL WINDOW IN THREE TRIES is a client that could not render 120 frames in 12
+			-- seconds, three times over. That is a fault, not a hitch, so it fails rather than
+			-- waiving the budget -- and the note above says how short each try was.
+			expect(best).to.be.ok()
+			expect((best :: number) < 0.3).to.equal(true)
+			-- A NOTE AND NOT ONLY A PRINT (task 367). This assertion failed 1 of 5 runs on main and
+			-- the console had already rolled past the figure, so the run said "false" and nothing
+			-- about how far over it was. A note rides in the report whatever happens to the console.
+			TestKit.note(
+				string.format(
+					"camera_client: update %.3f ms average, %.3f ms worst, over %d frames (budget 0.3 / 5)",
+					stats.avgUpdateMs,
+					stats.maxUpdateMs,
+					stats.frames
+				)
+			)
 			print(
 				string.format(
 					"[camera_client] update: %.3f ms average, %.3f ms worst, over %d frames",
@@ -368,11 +468,10 @@ return function()
 					stats.frames
 				)
 			)
-			-- The AVERAGE against the design's 0.3 ms budget: the cost of the camera every frame.
+			-- The SESSION average is reported above and no longer asserted: the three windows are.
 			-- The worst frame of a session is a hitch, not a budget (Task 26 measured 0.22-0.34 ms
-			-- maxima for identical code), so it is printed and not asserted -- except loosely, to
-			-- catch a hitch that could only be a bug.
-			expect(stats.avgUpdateMs < 0.3).to.equal(true)
+			-- maxima for identical code), so it is printed and only loosely asserted, to catch a
+			-- hitch that could only be a bug.
 			expect(stats.maxUpdateMs < 5).to.equal(true)
 		end)
 	end)
@@ -590,9 +689,11 @@ return function()
 			if Role.isDriver() then
 				return -- asserted above, the other way round
 			end
-			local before = Camera.stats()
+			-- THE PRE-REPLAY BASELINE, not one taken here: see `preReplay` at the top of the file.
+			local before = preReplay
 			local baselineEnters, baselineExits = before.aimEnters, before.aimExits
-			local baselineHistory = #Camera.modeHistory()
+			-- THE PRE-REPLAY INDEX, not one read here: see `preReplayHistory` at the top of the file.
+			local baselineHistory = preReplayHistory
 			print(
 				string.format(
 					"[camera_client] baseline before the replay: enters=%d exits=%d history=%d",
@@ -604,11 +705,42 @@ return function()
 
 			-- TWO holds are replayed in a run: the weapon scenario's, then the camera's own
 			-- `aim-hold`. Round 2's note: waiting for the first delta was satisfied by the weapon
-			-- scenario, so deleting `aim-hold` would not have failed this. Wait for BOTH.
+			-- scenario, so deleting `aim-hold` would not have failed this. Wait for BOTH -- and
+			-- since the baseline is now the pre-replay one, "both" is a COUNT (>= 2 more than
+			-- before the replay existed), which is what makes deleting either scenario fail here
+			-- whether or not this case is still running when its button arrives.
 			local first = waitUntil(60, function()
 				return Camera.stats().aimEnters > baselineEnters
 			end)
 			if not first then
+				-- IN THE REPORT, NOT ONLY IN A CONSOLE THAT ROLLS PAST (task 367). With the
+				-- baseline taken before the replay existed, this failing means NO replayed hold
+				-- reached the aim action in the whole session -- and the three things that decide
+				-- that are whether the gun is in hand, which actions are bound, and what the camera
+				-- did instead.
+				local bound = {}
+				for name in pairs(ContextActionService:GetAllBoundActionInfo()) do
+					table.insert(bound, name)
+				end
+				table.sort(bound)
+				local character = player.Character
+				local tool = if character then character:FindFirstChildWhichIsA("Tool") else nil
+				local now = Camera.stats()
+				TestKit.note(
+					string.format(
+						"camera_client: FAILING -- no replayed hold reached the aim action."
+							.. " enters %d -> %d, exits %d -> %d; mode now %s; in hand %s;"
+							.. " bound [%s]; history %s",
+						baselineEnters,
+						now.aimEnters,
+						baselineExits,
+						now.aimExits,
+						tostring(Camera.getMode()),
+						if tool then tool.Name else "nothing",
+						table.concat(bound, ", "),
+						table.concat(Camera.modeHistory(), ",")
+					)
+				)
 				print("[camera_client] no replayed right mouse reached the weapon's aim action at all")
 			end
 			expect(first).to.equal(true)
@@ -616,27 +748,48 @@ return function()
 				return Camera.stats().aimExits > baselineExits
 			end)).to.equal(true)
 
-			local afterFirst = Camera.stats()
+			-- THE SECOND HOLD, COUNTED FROM BEFORE THE REPLAY -- not from a baseline taken here
+			-- (task 367). Re-reading the counters at this line was the same race one level deeper:
+			-- in a run where the client fell behind, the aim-hold scenario's own button had
+			-- already arrived by the time `afterFirst` was taken, and a counter that had already
+			-- moved could never move again. MEASURED: `camera_client.spec:657` failed with *"the
+			-- aim-hold scenario's own right mouse never arrived"* while the mode history below
+			-- showed it had. Two holds are replayed in a run, so the claim is >= 2 -- which still
+			-- fails if either scenario is deleted, whenever this case happens to run.
 			local second = waitUntil(60, function()
-				return Camera.stats().aimEnters > afterFirst.aimEnters
+				local now = Camera.stats()
+				return now.aimEnters >= baselineEnters + 2 and now.aimExits >= baselineExits + 2
 			end)
 			if not second then
-				print("[camera_client] the aim-hold scenario's own right mouse never arrived")
+				local now = Camera.stats()
+				print(
+					string.format(
+						"[camera_client] only %d of the 2 replayed holds reached the aim action"
+							.. " (enters %d -> %d, exits %d -> %d)",
+						now.aimEnters - baselineEnters,
+						baselineEnters,
+						now.aimEnters,
+						baselineExits,
+						now.aimExits
+					)
+				)
 			end
 			expect(second).to.equal(true)
-			expect(waitUntil(20, function()
-				return Camera.stats().aimExits > afterFirst.aimExits
-			end)).to.equal(true)
 
 			local history = Camera.modeHistory()
 			print("[camera_client] mode history: " .. table.concat(history, ","))
 			local sawAimingAfterBaseline = false
+			local aimingAfterBaseline = 0
 			for index = baselineHistory + 1, #history do
 				if history[index] == "Aiming" then
 					sawAimingAfterBaseline = true
+					aimingAfterBaseline += 1
 				end
 			end
 			expect(sawAimingAfterBaseline).to.equal(true)
+			-- BOTH replayed holds, in the history as well as in the counters, counted from the one
+			-- pre-replay instant (round 2 finding 1).
+			expect(aimingAfterBaseline >= 2).to.equal(true)
 		end)
 	end)
 
@@ -951,7 +1104,7 @@ return function()
 			-- the gun: the live first-person render step would otherwise have built it already, from
 			-- this spec's source but with the LIVE config.
 			Camera.Viewmodel.clear()
-			local ok, why = pcall(body)
+			local ok, why = TestKit.tracedCall(body)
 			Camera.Viewmodel.clear()
 			Camera.Viewmodel.setSource(live)
 			handle:Destroy()
@@ -1219,7 +1372,7 @@ return function()
 			Camera.Viewmodel.setSource(function()
 				return handle
 			end)
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				Camera.Viewmodel.clear()
 				task.wait(0.3)
 
@@ -1472,7 +1625,7 @@ return function()
 				return fakes[name]
 			end)
 
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				stage = "the first build"
 				Camera.Viewmodel.clear()
 				task.wait(0.3)
@@ -1760,7 +1913,7 @@ return function()
 			Camera.Viewmodel.setSource(function()
 				return handle
 			end)
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				Camera.Viewmodel.clear()
 				task.wait(0.3)
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
@@ -1806,7 +1959,7 @@ return function()
 			Camera.Viewmodel.setSource(function()
 				return handle
 			end)
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				Camera.Viewmodel.clear()
 				-- THE SOURCE IS ASKED FOUR TIMES A SECOND, NOT EVERY FRAME (task 133's throttle), and
 				-- `clear()` does not drop the cached Handle -- so an update called the instant after
@@ -1965,7 +2118,7 @@ return function()
 			Camera.Viewmodel.setSource(function()
 				return handle
 			end)
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				Camera.Viewmodel.clear()
 				task.wait(0.3) -- the source throttle: see the case above
 				local cam = CFrame.new(0, 12, 0)
@@ -2058,7 +2211,7 @@ return function()
 			Camera.Viewmodel.setSource(function()
 				return handle
 			end)
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				Camera.Viewmodel.clear()
 				task.wait(0.3) -- the source throttle: see the case above
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
@@ -2662,7 +2815,7 @@ return function()
 			-- lives under `weapons.<id>`, so a v3 path is refused whole -- which is the behaviour this
 			-- case would otherwise mistake for "the override did not reach the camera".
 			folder:SetAttribute("DHPose", '{"weapons.shotgun.aim.eyeReliefStuds": 9.5}')
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				local resolved = Camera.Poses.config(firstPersonConfig)
 				expect(resolved).never.to.equal(firstPersonConfig)
 				expect(resolved.EYE_RELIEF_STUDS).to.equal(9.5)
@@ -2716,7 +2869,7 @@ return function()
 		it("releases a held pose when the attribute is removed, not just when it changes", function()
 			local folder = ReplicatedStorage:WaitForChild("Viewmodel")
 			local before = folder:GetAttribute("DHPose")
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				folder:SetAttribute("DHPose", '{"hold": "aim"}')
 				expect(Camera.Poses.config(firstPersonConfig)).never.to.equal(firstPersonConfig)
 				expect(Camera.Poses.hold()).to.equal("aim")
@@ -2795,7 +2948,7 @@ return function()
 			-- `error(why, 0)` so the original message is what the runner reports.
 			player:SetAttribute("DHTestLookOff", nil)
 			player:SetAttribute("DHTestLook", string.format("%f,%f,%f", point.X, point.Y, point.Z))
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				for _ = 1, 12 do
 					RunService.RenderStepped:Wait()
 				end
@@ -2904,7 +3057,7 @@ return function()
 				"DHProbeCamera",
 				string.format("%f,%f,%f,%f,%f,%f", at.X, at.Y, at.Z, look.X, look.Y, look.Z)
 			)
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				for _ = 1, 12 do
 					RunService.RenderStepped:Wait()
 				end
@@ -2981,7 +3134,7 @@ return function()
 			Camera.Viewmodel.setClock(function()
 				return fake
 			end)
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
 				expect(Camera.Viewmodel.weaponId()).to.equal("shotgun")
 				-- THE CLOCK DROPS, AND `setClock` IS NOT CALLED IN BETWEEN, so this bites the throttle

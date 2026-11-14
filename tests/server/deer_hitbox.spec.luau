@@ -126,11 +126,11 @@ return function()
 			-- since task 280 it is also what passes a bullet THROUGH a `ZonesOnly` animal's trunk --
 			-- so a spec casting for itself would be measuring a different flight from the one the
 			-- game flies. A `nil` here is a MISS, exactly as it is for a pellet.
-			local function zoneAt(localPoint: Vector3): (string?, Instance?)
+			local function zoneAtIgnoring(localPoint: Vector3, ignore: { Instance }): (string?, Instance?)
 				local cf = trunk.CFrame
 				local target = cf:PointToWorldSpace(localPoint)
 				local offset = cf:VectorToWorldSpace(Vector3.new(1, 0, 0)) * 20
-				local impact = Weapon.Cast.world(target + offset, -offset * 2, { Workspace.Terrain })
+				local impact = Weapon.Cast.world(target + offset, -offset * 2, ignore)
 				if not impact then
 					return nil, nil
 				end
@@ -139,6 +139,141 @@ return function()
 					return nil, impact.instance
 				end
 				return zone, impact.instance
+			end
+
+			-- THIS ANIMAL, IN ITS OWN EMPTY SPACE (task 367). The fixture stands at the origin of a
+			-- LIVE Play session, and whatever the drive has released wanders past it: a tree stops a
+			-- flank ray outright, and three foreign `ZonesOnly` trunks on the segment exhaust
+			-- `Pierce.MAX_PASS_THROUGH` (4) so the cast returns NIL -- which reads here exactly like
+			-- "this box is unreachable".
+			--
+			-- MEASURED, 7 runs of `014f70ba` and `0bb4f497`: `deer_hitbox.spec:528` answered "nil on
+			-- ?" once -- a nil impact, no instance, which only pass-through exhaustion produces --
+			-- and `:772` said "calf: legs box 1 is unreachable by a flank ray" once, while the same
+			-- kind's 63-ray sweep answered an identical 32 of 63 in every single run. A deterministic
+			-- fixture with an intermittent answer is a fixture measuring something else.
+			--
+			-- EVERY SIBLING OF THE HOLDER IS IGNORED, rebuilt per cast because the drive adds and
+			-- removes animals while this file runs. Nothing of this animal's is excluded -- the
+			-- trunk, its twelve volumes and its coat all live under `holder` -- so no claim here is
+			-- weakened: what is removed is a world the measurement was never about.
+			-- HOW FAR EVERY BUILT BOX IS FROM THE DESIGN OFFSET THIS FILE PROBES WITH (task 367).
+			--
+			-- `Body.buildZones` has the only writer -- `zonePart.CFrame = trunk.CFrame *
+			-- CFrame.new(box.offset)` -- and then welds it, so the two should agree exactly. They do
+			-- not always: measured 0.032 studs on a calf leg box 0.060 studs deep (which read as
+			-- "unreachable by a flank ray") and 0.1405 studs on a calf rear box one run in five. The
+			-- engine solves a welded assembly on a physics step, so the agreement is reached a frame
+			-- or two after the build rather than inside it -- which is why waiting for it is the
+			-- answer and a fixed delay was not.
+			-- THE BUILT PART FOR ONE DESIGN BOX, BY NAME. `Body.buildZones` names it
+			-- `spec.part` when the zone has one box and `spec.part .. index` when it has several, so
+			-- the pairing is exact -- and `trunk:GetChildren()` order is NOT (task 367: pairing by
+			-- that order read 0.13 studs of "drift" on a calf's rear, which is the gap between its
+			-- barrel box and its dorsal band, not a part that had moved).
+			local function builtBoxFor(zoneName: string, index: number): BasePart?
+				local spec = geometry.zones[zoneName]
+				local name = if #spec.boxes == 1 then spec.part else spec.part .. index
+				local child = trunk:FindFirstChild(name)
+				return if child ~= nil and child:IsA("BasePart") then child :: BasePart else nil
+			end
+
+			local function worstBoxDrift(): (number, string)
+				local worst, worstName = 0, "none"
+				for _, zoneName in ipairs(geometry.zoneOrder) do
+					for index, box in ipairs(geometry.zones[zoneName].boxes) do
+						local part = builtBoxFor(zoneName, index)
+						if part ~= nil then
+							local at = trunk.CFrame:PointToObjectSpace(part.Position)
+							local off = (at - box.offset).Magnitude
+							if off > worst then
+								worst, worstName = off, string.format("%s box %d", zoneName, index)
+							end
+						end
+					end
+				end
+				return worst, worstName
+			end
+
+			local function ownSpace(): { Instance }
+				local ignore: { Instance } = { Workspace.Terrain }
+				for _, child in ipairs(Workspace:GetChildren()) do
+					if child ~= holder then
+						table.insert(ignore, child)
+					end
+				end
+				return ignore
+			end
+
+			local function zoneAt(localPoint: Vector3): (string?, Instance?)
+				return zoneAtIgnoring(localPoint, ownSpace())
+			end
+
+			-- WHAT A FLANK RAY ACTUALLY CROSSES, surface by surface (task 367). `Pierce.cast` steps
+			-- past at most `MAX_PASS_THROUGH` surfaces that belong to a `ZonesOnly` animal and is a
+			-- MISS on the next one, so "answered nil" can mean "the budget ran out" rather than
+			-- "nothing is there" -- and this walk is what tells the two apart. Read-only: the same
+			-- params, the same step, no state.
+			-- WHERE THE PROBE AND THE BUILT PART ACTUALLY ARE (task 367). A nil answer with the
+			-- pass-through budget barely touched (2 of 4) is not exhaustion, so the next question is
+			-- whether the box is where the design table says -- and that needs the design offset,
+			-- the built part's own offset and the trunk's size side by side.
+			local function boxReport(zoneName: string, index: number, box: any): string
+				local built = builtBoxFor(zoneName, index)
+				local localBuilt = if built then trunk.CFrame:PointToObjectSpace(built.Position) else nil
+				return string.format(
+					"design offset (%.3f, %.3f, %.3f) size (%.3f, %.3f, %.3f); built %s at local"
+						.. " (%s) size (%s); trunk size (%.3f, %.3f, %.3f) at %s",
+					box.offset.X,
+					box.offset.Y,
+					box.offset.Z,
+					box.size.X,
+					box.size.Y,
+					box.size.Z,
+					if built then built.Name else "MISSING",
+					if localBuilt
+						then string.format("%.3f, %.3f, %.3f", localBuilt.X, localBuilt.Y, localBuilt.Z)
+						else "?",
+					if built then tostring(built.Size) else "?",
+					trunk.Size.X,
+					trunk.Size.Y,
+					trunk.Size.Z,
+					tostring(trunk.Position)
+				)
+			end
+
+			local function surfaceWalk(localPoint: Vector3): (number, string)
+				local cf = trunk.CFrame
+				local target = cf:PointToWorldSpace(localPoint)
+				local offset = cf:VectorToWorldSpace(Vector3.new(1, 0, 0)) * 20
+				local origin, direction = target + offset, -offset * 2
+				local params = RaycastParams.new()
+				params.FilterType = Enum.RaycastFilterType.Exclude
+				params.FilterDescendantsInstances = ownSpace()
+				params.IgnoreWater = true
+				local unit = direction.Unit
+				local length = direction.Magnitude
+				local from, travelled, passes = origin, 0, 0
+				local crossed = {}
+				while passes <= Pierce.MAX_PASS_THROUGH + 2 do
+					local result = Workspace:Raycast(from, unit * (length - travelled), params)
+					if result == nil then
+						table.insert(crossed, "nothing")
+						break
+					end
+					table.insert(crossed, result.Instance.Name)
+					if not Pierce.passesThrough(result.Instance) then
+						break
+					end
+					passes += 1
+					travelled += result.Distance + Pierce.STEP
+					if length - travelled <= 1e-6 then
+						table.insert(crossed, "ran out")
+						break
+					end
+					from = result.Position + unit * Pierce.STEP
+				end
+				return passes, table.concat(crossed, " -> ")
 			end
 
 			beforeAll(function()
@@ -185,6 +320,25 @@ return function()
 				end)
 				handle = runtime:spawn(Vector3.new(0, GROUND_Y, 0), kind)
 				trunk = handle.part
+				-- ANCHORED BEFORE THE STEP RUNS, SO THE ASSEMBLY CANNOT SETTLE (task 367).
+				--
+				-- MEASURED, and this is what the intermittent "unreachable by a flank ray" was:
+				--   design offset (-0.235, -1.068, -0.315) size (0.060, 0.240, 0.060)
+				--   built ZoneLegs1 at local (-0.239, -1.085, -0.283)
+				-- The built part had moved 0.032 studs in Z inside a box 0.060 studs deep, so the
+				-- DESIGN point this file probes with fell a couple of thousandths OUTSIDE the box
+				-- and a ray through it answered nil. The zone parts are `Anchored = false` and
+				-- welded to the trunk (`Body.buildZones`), so the whole assembly settles a fraction
+				-- of a stud while `runtime:run()` steps it -- and HOW FAR it settles depends on how
+				-- long the coat took to load, which is the run-to-run difference.
+				--
+				-- An anchored part welded into an assembly anchors the whole animal (`Body`'s own
+				-- comment), so anchoring here freezes every box at exactly where `buildZones` put
+				-- it. The only thing in `attachVisual` that reads `trunk.Anchored` is
+				-- `SetNetworkOwner(nil)`, which it correctly skips for an anchored part, and the
+				-- coat is still cloned, parented and welded.
+				-- Already anchored above, before the step ran; kept so the intent is local.
+				trunk.Anchored = true
 				geometry = Boar.kindGeometry(kind, Boar.kindConfig(kind, CONFIG))
 				disconnect = runtime:run()
 				-- THE COAT GOES ON IN THE STEP AFTER THE SPAWN (`Runtime:step`), so this waits a few
@@ -220,6 +374,41 @@ return function()
 					end
 				end
 				task.wait()
+				-- ...AND THE WELDS THE GAIT MOVED (task 367). Zeroing the bones is NOT enough:
+				-- `Body.followGait` writes every zone box's weld `C0` to its rest offset PLUS that
+				-- box's own bone deformation, clamped at 1 stud ("Each box's weld `C0` becomes its
+				-- rest offset plus its own bone's deformation, so the rig is on the animal the
+				-- shooter sees"), and nothing re-runs it once the Animator is gone -- so the welds
+				-- keep the last pose the clip wrote. MEASURED: `ZoneRear1` 0.1447 studs from its
+				-- design offset on a hind and 0.1462 on a calf, in the same run, where the same
+				-- boxes read 0.0000 in the run before. That is the whole of the intermittent
+				-- "unreachable by a flank ray" and "the skull answered nil": the box had been
+				-- carried off the point this file probes with.
+				--
+				-- THE BIND POSE IS WHAT THEY GO BACK TO, because that is where they were measured
+				-- (this file's header, and `boar_zones.spec`'s): `CFrame.new(box.offset)` is exactly
+				-- what `buildZones` set before any clip ran.
+				for _, zoneName in ipairs(geometry.zoneOrder) do
+					for index, box in ipairs(geometry.zones[zoneName].boxes) do
+						local part = builtBoxFor(zoneName, index)
+						local weld = if part ~= nil then part:FindFirstChild("ZoneWeld") else nil
+						if weld ~= nil and weld:IsA("Weld") then
+							(weld :: Weld).C0 = CFrame.new(box.offset)
+						end
+					end
+				end
+
+				-- EVERY BUILT BOX AGREES WITH ITS DESIGN OFFSET BEFORE ANYTHING IS PROBED, waited for
+				-- on the CONDITION (task 367). See `worstBoxDrift`: the engine reaches that agreement
+				-- a physics step or two after `buildZones` welds, and every geometric case below
+				-- probes with the DESIGN offset, so a box still a tenth of a stud out answers nil for
+				-- a reason that is not about the animal. Two seconds is 120 steps at 60 Hz; if it
+				-- still disagrees the case below fails and NAMES the number.
+				local settleBy = os.clock() + 2
+				while worstBoxDrift() >= 0.001 and os.clock() < settleBy do
+					task.wait()
+				end
+
 				-- THE MESH BECOMES QUERYABLE FOR THIS FILE ONLY, and `afterAll` puts it back. In the
 				-- game it is `false` and must stay so (`Body.attachVisual`: *"A RAY MUST NEVER MEET
 				-- THIS"*); here it is the instrument.
@@ -239,6 +428,32 @@ return function()
 				end
 				runtime:destroy()
 				holder:Destroy()
+			end)
+
+			it("has every built box at the offset the design table gives it", function()
+				-- THE DRIFT THAT WAS INVISIBLE (task 367). Nothing in this file compared a BUILT
+				-- part's position with the design offset the geometric cases probe with, so a box
+				-- that had not yet settled read as "unreachable by a flank ray" -- intermittently,
+				-- and with nothing in the failure to say so. `beforeAll` now waits for the agreement
+				-- on the condition; this case is what says it was reached, and what names the number
+				-- when it was not.
+				--
+				-- 0.001 STUDS, NOT ZERO: `buildZones` positions through a CFrame and this comparison
+				-- makes two round trips through one, so the floor is float noise and not a budget.
+				local worst, worstName = worstBoxDrift()
+				TestKit.note(
+					string.format(
+						"deer-hitbox %s: worst built-vs-design box offset %.4f studs (%s)",
+						kind,
+						worst,
+						worstName
+					)
+				)
+				-- ...AND IT IS NOT VACUOUS: a loop that found no built part would report "none",
+				-- which is the one name this must refuse (standing rule E -- a metric that reads
+				-- 0.00 for everything is suspect until it is shown to have measured something).
+				expect(worstName).never.to.equal("none")
+				expect(worst < 0.001).to.equal(true)
 			end)
 
 			it("is built from this kind's own measured volumes, and the trunk is not a target", function()
@@ -311,6 +526,22 @@ return function()
 				local half = trunk.Size / 2
 				local air, both, meshOnly = 0, 0, 0
 				local firstAir = nil
+				-- THE SAME SWEEP WITH THE DRAWN MESH OUT OF THE BULLET'S WAY (task 367), which is
+				-- the geometry the GAME casts through: `Body.attachVisual` leaves the drawn mesh
+				-- `CanQuery = false` (*"A RAY MUST NEVER MEET THIS"*) and this file turns it on as
+				-- an instrument. Reported, not asserted: the difference is how much of this case's
+				-- answer comes from the instrument rather than from the animal.
+				-- REBUILT PER CAST, like `ownSpace` and for its reason: the drive adds and removes
+				-- animals while this file runs, so a list built once reads a stale world (round 1
+				-- note). Reported only, never asserted, but a stale control is not a control.
+				local function noMeshIgnore(): { Instance }
+					local ignore = ownSpace()
+					for _, mesh in ipairs(meshes) do
+						table.insert(ignore, mesh)
+					end
+					return ignore
+				end
+				local bothNoMesh, airNoMesh, worstPasses = 0, 0, 0
 				local y = -half.Y - GRID
 				while y <= half.Y + GRID * 4 do
 					local z = -half.Z - GRID
@@ -320,6 +551,18 @@ return function()
 						local origin = target + offset
 						local onMesh = Workspace:Raycast(origin, -offset * 2, meshParams) ~= nil
 						local zone = zoneAt(Vector3.new(0, y, z))
+						local zoneNoMesh = zoneAtIgnoring(Vector3.new(0, y, z), noMeshIgnore())
+						if zoneNoMesh ~= nil then
+							if onMesh then
+								bothNoMesh += 1
+							else
+								airNoMesh += 1
+							end
+						end
+						if zone == nil and onMesh then
+							local passes = surfaceWalk(Vector3.new(0, y, z))
+							worstPasses = math.max(worstPasses, passes)
+						end
 						if zone ~= nil and not onMesh then
 							air += 1
 							if firstAir == nil then
@@ -383,6 +626,22 @@ return function()
 						both + meshOnly,
 						covered * 100,
 						meshOnly
+					)
+				)
+				-- THE INSTRUMENT'S OWN COST (task 367), so the next reader does not have to measure
+				-- it again: what the same sweep answers with the drawn mesh out of the way, and the
+				-- worst pass-through count among the rays that crossed the mesh and answered nil.
+				TestKit.note(
+					string.format(
+						"deer-hitbox %s: with the drawn mesh excluded (the game's own geometry) %d of %d"
+							.. " cross-mesh rays answer a zone and %d answer one off the mesh;"
+							.. " worst pass-through count on a nil answer %d of %d allowed",
+						kind,
+						bothNoMesh,
+						both + meshOnly,
+						airNoMesh,
+						worstPasses,
+						Pierce.MAX_PASS_THROUGH
 					)
 				)
 			end)
@@ -525,15 +784,24 @@ return function()
 					local inBand = Vector3.new(0, bandTop - 0.03, band.offset.Z)
 					local zone, instance = zoneAt(inBand)
 					if zone ~= zoneName then
+						-- WHAT THE RAY CROSSED, in the failure (task 367). This case failed 1 of 5
+						-- runs on main with `answered nil on ?` -- nil impact, no instance -- and a
+						-- bare nil cannot say whether nothing was there or `Pierce` ran out of
+						-- pass-throughs on the drawn mesh this file made queryable.
+						local passes, crossed = surfaceWalk(inBand)
 						error(
 							string.format(
-								"%s: the %s band at (0, %+.2f, %+.2f) answered %s on %s",
+								"%s: the %s band at (0, %+.2f, %+.2f) answered %s on %s"
+									.. " -- the ray crossed %s (%d pass-through(s) of %d allowed)",
 								kind,
 								zoneName,
 								inBand.Y,
 								inBand.Z,
 								tostring(zone),
-								instance and instance.Name or "?"
+								instance and instance.Name or "?",
+								crossed,
+								passes,
+								Pierce.MAX_PASS_THROUGH
 							),
 							0
 						)
@@ -656,16 +924,21 @@ return function()
 				for _, probe in ipairs(named) do
 					local zone = zoneAt(probe[2])
 					if zone ~= probe[3] then
+						local passes, crossed = surfaceWalk(probe[2])
 						error(
 							string.format(
-								"%s: %s at (%.2f, %.2f, %.2f) answered %s, wanted %s",
+								"%s: %s at (%.2f, %.2f, %.2f) answered %s, wanted %s"
+									.. " -- the ray crossed %s (%d pass-through(s) of %d allowed)",
 								kind,
 								probe[1],
 								probe[2].X,
 								probe[2].Y,
 								probe[2].Z,
 								tostring(zone),
-								probe[3]
+								probe[3],
+								crossed,
+								passes,
+								Pierce.MAX_PASS_THROUGH
 							),
 							0
 						)
@@ -677,10 +950,28 @@ return function()
 				-- names.
 				for _, zoneName in ipairs(geometry.zoneOrder) do
 					for index, box in ipairs(geometry.zones[zoneName].boxes) do
-						local zone = zoneAt(box.offset)
+						-- THE BUILT PART'S OWN CENTRE, not the design offset (task 367). This case
+						-- asks whether a box can be HIT, and what a bullet meets is the part that is
+						-- there; whether that part sits where the design says is the case above,
+						-- which measures exactly that and fails first when it does not. Probing the
+						-- design point here asked both questions at once and answered neither.
+						local part = builtBoxFor(zoneName, index)
+						local probe = if part ~= nil then trunk.CFrame:PointToObjectSpace(part.Position) else box.offset
+						local zone = zoneAt(probe)
 						if zone == nil then
+							local passes, crossed = surfaceWalk(probe)
 							error(
-								string.format("%s: %s box %d is unreachable by a flank ray", kind, zoneName, index),
+								string.format(
+									"%s: %s box %d is unreachable by a flank ray -- it crossed %s"
+										.. " (%d pass-through(s) of %d allowed); %s",
+									kind,
+									zoneName,
+									index,
+									crossed,
+									passes,
+									Pierce.MAX_PASS_THROUGH,
+									boxReport(zoneName, index, box)
+								),
 								0
 							)
 						end

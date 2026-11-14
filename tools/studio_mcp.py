@@ -3586,15 +3586,27 @@ def replay_input(studio, data, token, check, studio_id=None, mirror_ids=(), serv
                 # The whole batch is re-sent for that target because the CALL failed, so none of
                 # its steps arrived -- a re-send repeats nothing.
                 if failure is not None and still_loading(failure):
-                    deadline = time.time() + INPUT_RETRY
+                    began = time.time()
+                    deadline = began + INPUT_RETRY
+                    tries = 0
                     while time.time() < deadline:
                         time.sleep(1)
+                        tries += 1
                         failure = studio.send_input_many(device, payload, [target]).get(target)
                         if failure is None or not still_loading(failure):
                             break
-                    if failure is not None:
+                    # HOW LONG IT TOOK, EITHER WAY (task 367). "stayed unreachable for 20 s" could
+                    # not say whether 21 would have done, and a budget moved without that reading
+                    # is a guess. Printed on the recovery too, so the next reader sees the margin.
+                    waited = time.time() - began
+                    if failure is None:
+                        print(f"[input] {scenario.get('name')}: {target} answered after "
+                              f"{waited:.0f} s and {tries} retr(ies) ({device} batch of "
+                              f"{len(payload)})")
+                    else:
                         print(f"[input] {scenario.get('name')}: {target} stayed unreachable for "
-                              f"{INPUT_RETRY} s")
+                              f"{waited:.0f} s over {tries} retr(ies) of the {device} batch of "
+                              f"{len(payload)}; budget {INPUT_RETRY} s")
                 if failure is not None:
                     # Not just RuntimeError: the transport raises queue.Empty when StudioMCP stops
                     # answering, and a hung input call must fail this check, not the whole run
@@ -3867,6 +3879,13 @@ def run_test(studio, scope=None):
             print(f"  note   [{side}] {note}")
         for failure in (reports.get(side) or {}).get("failures", []):
             print(f"  failed [{side}] {describe_failure(failure)}")
+        # HOW MUCH OF THIS RUN WAS ACTUALLY EXERCISED (task 367, TASKS.md 285). A live case that
+        # could not reach its state asserts the arithmetic instead and counted toward "34/34" with
+        # nothing here to say so. Not a check -- the run is not wrong -- but on the page, so a green
+        # line is read with the number of unproven claims beside it.
+        unproven = (reports.get(side) or {}).get("notProven", [])
+        if unproven:
+            print(f"  ----   [{side}] {len(unproven)} claim(s) NOT PROVEN in this run")
     for side in sides:
         report = reports.get(side)
         if not check(f"[{side}] runner reported within {REPORT_WINDOW} s", report is not None,
@@ -4308,7 +4327,28 @@ def end_session(studio, before):
 # drive, so the server legitimately reports after the client does, and reading the server first burned
 # the whole window before the client was looked at once.
 # Seconds a single input batch is re-sent to a Play client that answers "not yet" (task 328t).
-INPUT_RETRY = 20
+# HOW LONG A PLAY CLIENT MAY BE BUSY BEFORE AN INPUT CALL AGAINST IT IS A FAULT.
+#
+# 90 s, AND IT WAS MEASURED (task 367). It was 20 (task 328t), and "Target is not reachable ...
+# No OnInvoke handler responded" on the LAST scenario failed 2 of 5 runs of main at 014f70ba with
+# `tie-the-driver: None stayed unreachable for 20 s`. The reading that settled it is the next run's
+# own line: `tie-the-driver: None answered after 25 s and 3 retr(ies)` -- the client WAS coming
+# back, five seconds past the budget. The client suite runs while the replay plays, so by the last
+# scenario the client can be deep inside a synchronous stretch and StudioMCP's handler cannot be
+# scheduled; that is the client being busy, not a fault, and it is what this budget is for.
+#
+# 90 IS A CEILING AND NOT THE MEASUREMENT. The readings are 15 s to 35 s over 25 recoveries; 90 is
+# chosen to sit well clear of the worst of them, not derived from it.
+#
+# WHAT IT COSTS WHEN IT IS NOT NEEDED: nothing. The loop below returns the instant the client
+# answers, so a healthy run pays one second per genuinely dropped call and 0 s otherwise.
+#
+# WHAT IT COSTS WHEN THE CLIENT IS REALLY DEAD: a dropped batch is held for 90 s rather than 20,
+# which is longer than the replay's own waiters (`RUN_TIMEOUT` 70 in weapon_client, `waitUntil(60)`
+# in camera_client). Such a run fails on THOSE instead of on the input check, and takes about a
+# minute longer to say so. That is the trade: a busy client no longer fails a green run, and a dead
+# one is reported by the specs rather than by the transport.
+INPUT_RETRY = 90
 REPORT_WINDOW = 300
 
 
@@ -4322,12 +4362,25 @@ def describe_failure(text):
     """One line naming the spec and the line, and what went wrong.
 
     A TestEZ failure is a message plus a stack, and the only part that says WHICH spec broke is the
-    first frame inside tests/ -- so both are kept and everything between them is dropped."""
-    lines = [line.strip() for line in str(text).splitlines() if line.strip()]
-    message = lines[0] if lines else str(text)
+    first frame inside tests/ -- so both are kept and everything between them is dropped.
+
+    TWO SHAPES, BOTH NAMED (task 367). Since `TestKit.compactFailure` the report carries
+    "<message> | <spec frame>" on ONE line, because truncating the raw stack at 400 characters cut
+    the spec frame off whenever the message was long and this function then had nothing to name
+    (TASKS.md 362b). The raw multi-line shape is still read, so a report written by an older place
+    -- or the console's own text -- is described exactly as before."""
+    raw = str(text)
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    message = lines[0] if lines else raw
+    where = ""
+    if len(lines) == 1 and " | " in message:
+        message, _, where = message.rpartition(" | ")
+        if ".spec:" not in where:
+            message, where = lines[0], ""
+    if not where:
+        where = next((line for line in lines[1:]
+                      if ".spec:" in line and ("ClientTests" in line or "Tests." in line)), "")
     message = re.sub(r"^.*?TestRunner:\d+: ", "", message)
-    where = next((line for line in lines[1:]
-                  if ".spec:" in line and ("ClientTests" in line or "Tests." in line)), "")
     if where:
         where = re.sub(r"^.*?(ClientTests|Tests)\.", "", where)
     return (f"{where} " if where else "") + message[:200]
@@ -4575,6 +4628,11 @@ def run_test2(studio, wait_seconds=180):
             print(f"  note   [{name}] {note}")
         for failure in (reports.get(name) or {}).get("failures", []):
             print(f"  failed [{name}] {describe_failure(failure)}")
+        # ...AND HOW MUCH OF IT WAS EXERCISED (task 367, round 1 note): the one-player path prints
+        # this and `test2` did not, so a two-player run could not show its own gaps.
+        unproven = (reports.get(name) or {}).get("notProven", [])
+        if unproven:
+            print(f"  ----   [{name}] {len(unproven)} claim(s) NOT PROVEN in this run")
 
     for name in ("server", "shooter", "driver"):
         report = reports.get(name)
@@ -5549,6 +5607,28 @@ def selftest():
        map_streaming_radius() == 1024 and "stage.streamingRadius" in QUERY_STAGE
        and "require(" not in QUERY_STAGE_TARGET,
        f"{map_streaming_radius()} / {'require(' in QUERY_STAGE_TARGET}")
+
+    # 12. EVERY FAILURE THE REPORT CARRIES IS NAMED (task 367). The hole 362b fell into was a
+    # failure printed with no spec and no line, so the Builder re-ran instead of reading. Both
+    # shapes are described here, and the long-message case is the one that used to lose the name.
+    long_message = ("TestService: ReplicatedStorage.DevPackages._Index.roblox_testez_0_4_1.testez"
+                    ".TestRunner:86: Expected value \"nil\" (nil), got \"no-range\" (string) instead")
+    compact = long_message + " | ServerStorage.Tests.licence_popup.spec:367"
+    ok("a compacted failure names its spec and line",
+       describe_failure(compact).startswith("licence_popup.spec:367 Expected value"),
+       describe_failure(compact))
+    raw = (long_message
+           + "\nReplicatedStorage.DevPackages._Index.roblox_testez_0_4_1.testez.Expectation:47 function equal"
+           + "\nReplicatedStorage.ClientTests.camera_client.spec:375")
+    ok("a raw multi-line failure is still named",
+       describe_failure(raw).startswith("camera_client.spec:375 Expected value"), describe_failure(raw))
+    ok("a failure with no frame at all is still printed",
+       describe_failure("nothing recognisable here") == "nothing recognisable here",
+       describe_failure("nothing recognisable here"))
+    # ...AND THE BITE: a pipe that is NOT a spec frame must not be mistaken for one, or a message
+    # carrying " | " of its own would lose its tail.
+    ok("a pipe that is not a spec frame is left in the message",
+       describe_failure("left | right") == "left | right", describe_failure("left | right"))
 
     # 11. THE SCOPE MAP (Task 113), driven by file lists, which is all the decision is made of.
     # The dangerous direction is a GAMEPLAY path that resolves to "nothing to run": every case

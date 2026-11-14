@@ -2069,7 +2069,7 @@ return function()
 			-- IT CREATES NO SCRIPT, so the harness's own "no script outside a Rojo path" check is
 			-- untouched, and the folder is gone before the case returns.
 			local made = Build.build(Workspace, anchor, CFG, fakeTemplates())
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				expect(#Data.padPositions()).to.equal(CFG.TRUCK.COUNT)
 				for index = 1, CFG.TRUCK.COUNT do
 					local deck = Data.padPart(index)

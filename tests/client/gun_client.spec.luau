@@ -68,7 +68,7 @@ return function()
 			end)
 			task.wait(0.3) -- the source is asked four times a second, not per frame
 			Camera.Viewmodel.clear()
-			local ok, why = pcall(body)
+			local ok, why = TestKit.tracedCall(body)
 			Camera.Viewmodel.setReload(nil)
 			-- AND THE CLOCK, for the same reason the source and the reload are put back: a case that
 			-- drives the load on the seam (`setClock`, task 111) and then fails would otherwise leave
@@ -140,7 +140,7 @@ return function()
 			Camera.Viewmodel.setSource(function()
 				return handle
 			end)
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				task.wait(0.3)
 				Camera.Viewmodel.clear()
 				Camera.Viewmodel.setReload(nil)
@@ -257,7 +257,7 @@ return function()
 				return handle
 			end)
 			local at = CFrame.new(0, 16, 0)
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				task.wait(0.3)
 				Camera.Viewmodel.clear()
 				local state = stateAtBlend(0)
@@ -443,7 +443,7 @@ return function()
 			Camera.Viewmodel.setSource(function()
 				return handle
 			end)
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				task.wait(0.3)
 				Camera.Viewmodel.clear()
 				Camera.Viewmodel.setReload(nil)
@@ -766,7 +766,7 @@ return function()
 				table.insert(made, stand)
 			end
 
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				withNewGun(function()
 					local at = CFrame.new(0, 16, 0)
 					local open = table.clone(stateAtBlend(0)) :: any
@@ -945,7 +945,7 @@ return function()
 				return hand :: BasePart
 			end
 
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				-- The published pair's own size when it IS there, and a stand-in of that size when
 				-- it is not.
 				local size = template(HandAssets.FOLDER_NAME, Vector3.new(0.67, 0.35, 0.21)).Size
@@ -1040,7 +1040,7 @@ return function()
 			Camera.Viewmodel.setSource(function()
 				return handle
 			end)
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				task.wait(0.3)
 				Camera.Viewmodel.clear()
 				Camera.Viewmodel.setReload(nil)

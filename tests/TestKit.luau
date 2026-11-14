@@ -84,13 +84,97 @@ end
 -- the report instead, which is JSON on an attribute the harness reads whole, so the numbers that
 -- explain a failure arrive with the failure.
 local notes: { string } = {}
+-- ...and of those, the ones that say a claim could not be exercised (task 367, TASKS.md 285).
+local notProven: { string } = {}
 
 function TestKit.note(text: string)
 	table.insert(notes, text)
+	-- A CLAIM THIS RUN COULD NOT EXERCISE, counted here so the gate's own page carries the number
+	-- (task 367, TASKS.md 285). `TestKit.NOT_PROVEN` is declared below, and the comment there says
+	-- why the marker is read out of the text rather than passed in.
+	if string.find(text, TestKit.NOT_PROVEN, 1, true) ~= nil then
+		table.insert(notProven, text)
+	end
 	print("[note] " .. text)
 	-- A note is also the furthest point a run is KNOWN to have reached, and it is the only signal
 	-- TestEZ's own run emits from inside (task 328t): its reporter speaks once, at the end.
 	TestKit.stage("note:" .. string.sub(text, 1, 80))
+end
+
+-- RUN `fn`, AND KEEP THE LINE THAT ACTUALLY BROKE (task 367).
+--
+-- Thirty-two cases -- 21 client, 11 server -- are wrapped in `local ok, why = pcall(body)` ...
+-- `error(why, 0)`, so that the live viewmodel, camera, cursor or asset seam is always put back. `error(why, 0)` rethrows the MESSAGE, and
+-- TestEZ then reports the rethrow site -- which is why `semiauto_client.spec:93` is the line in
+-- TASKS.md 281a(k) and `gun_client.spec:393` in this task's own run 4: both are the `error(why, 0)`
+-- in the wrapper, the same line for every case in the file, and neither says which claim failed.
+-- `debug.traceback` captures the stack WHERE the error happened, so the rethrown text still carries
+-- the real `*.spec:<line>` frame and `TestKit.compactFailure` finds it.
+--   debug.traceback  https://create.roblox.com/docs/reference/engine/libraries/debug#traceback
+function TestKit.tracedCall(fn: () -> ()): (boolean, string?)
+	local ok, why = xpcall(fn, function(err)
+		return tostring(err) .. "\n" .. debug.traceback(nil, 2)
+	end)
+	return ok, if ok then nil else tostring(why)
+end
+
+-- A CASE THAT COULD NOT RUN SAYS SO WHERE THE GATE CAN COUNT IT (task 367, TASKS.md 285).
+--
+-- Several live cases need something only a Play session can provide -- a player holding a loaded
+-- gun, an animal in range -- and when it is not there they print a line and assert the arithmetic
+-- instead. That is honest, and it still counted toward "34/34" with nothing on the gate's own page
+-- to say a claim had gone unproven: `weapon_shot.spec`'s self-block case ran in 2 of 5 runs on
+-- task 281's head and the report said PASS either way (TASKS.md 285). A `notProven` note is an
+-- ordinary note -- so nothing about pass or fail changes -- plus a COUNT the harness prints on its
+-- own line, so the Builder reads how much of the run was actually exercised.
+-- THE WORDS THE SPECS ALREADY USE. Ten lines in two files end their fallback with "NOT PROVEN in
+-- this run" -- nine in `tests/server/weapon_shot.spec.luau` and one in `range.spec.luau` -- so the
+-- marker is read out of the note rather than requiring every one of them to be rewritten, and
+-- `TestKit.notProven` (two callers so far, both in `weapon_shot.spec`) is the explicit way to say it
+-- for a new case. A note about a case that RAN and BROKE must not carry the marker: the count means
+-- "could not be exercised", not "failed" (round 2 note).
+TestKit.NOT_PROVEN = "NOT PROVEN"
+
+function TestKit.notProven(text: string)
+	TestKit.note(TestKit.NOT_PROVEN .. ": " .. text)
+end
+
+-- HOW MANY FAILURES THE REPORT NAMES. Was 5 (task 34); twelve, because a run with six or more
+-- failures is exactly the run whose console is longest and least likely to survive, and each
+-- compacted entry below is ~200 characters rather than 400.
+TestKit.FAILURES_REPORTED = 12
+
+-- ONE FAILURE, AS "<message> | <spec>:<line>" (task 367).
+--
+-- A TestEZ failure is a message plus a stack whose spec frame sits under three or four
+-- `testez.Expectation` / `testez.TestRunner` lines of ~80 characters each, so truncating the raw
+-- text cut the only part that says WHICH spec broke (TASKS.md 362b). The frames are dropped here,
+-- where the whole text exists, and the message is what gets shortened.
+function TestKit.compactFailure(failure: any): string
+	local text = tostring(failure)
+	local message, where = nil, nil
+	for line in string.gmatch(text, "[^\r\n]+") do
+		local trimmed = string.match(line, "^%s*(.-)%s*$") or line
+		if trimmed ~= "" then
+			if message == nil then
+				-- THE MESSAGE IS THE FIRST LINE AND IT IS NEVER READ AS A FRAME. TestEZ puts its
+				-- own position in front of the text, so a message can itself contain `.spec:<line>`
+				-- -- and taking that as the frame printed the WRAPPER's line twice and never the
+				-- stack's own (measured: `semiauto_client.spec:84 ... | ...spec:84`, task 367).
+				message = trimmed
+			elseif where == nil and string.find(trimmed, ".spec:", 1, true) ~= nil then
+				-- The INNERMOST frame inside a spec file: `debug.traceback` lists them from where
+				-- the error was raised outwards, so the first one is the claim that broke rather
+				-- than the `error(why, 0)` that rethrew it.
+				where = trimmed
+			end
+		end
+	end
+	message = string.sub(message or text, 1, 300)
+	if where == nil then
+		return message
+	end
+	return message .. " | " .. where
 end
 
 -- Seconds of non-yielding execution after which the suite yields one frame.
@@ -142,6 +226,8 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 		placeId = game.PlaceId,
 		specs = {}, -- full names of every spec module found; the harness matches these to *.spec.* files
 		notes = notes, -- whatever the specs asked the harness to see (TestKit.note)
+		-- The claims this run could not exercise (TestKit.notProven); the harness prints the count.
+		notProven = notProven,
 		failures = {}, -- the first few failure messages, so a truncated console cannot hide them
 		successCount = 0,
 		failureCount = 0,
@@ -236,13 +322,20 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 	local results = resultsOrErr
 	-- THE FAILURES THEMSELVES, in the report. Studio's console comes back truncated from a long
 	-- session and takes the failure list with it: a two-player run said "13 failed" and nothing
-	-- about which 13 (Task 34). Five is enough to name the spec and the line; the console still has
-	-- the rest when it survives.
+	-- about which 13 (Task 34). The console still has the rest when it survives.
+	--
+	-- THE SPEC FRAME IS KEPT, NOT THE FIRST 400 CHARACTERS (task 367). A `expect(...)` failure is a
+	-- message plus a TestEZ stack, and the frame that names the spec sits BELOW three or four
+	-- `testez.Expectation`/`testez.TestRunner` lines of ~80 characters each -- so a blind
+	-- `string.sub(..., 400)` cut the name off whenever the message was long, and `describe_failure`
+	-- in tools/studio_mcp.py then printed a failure with no spec and no line (TASKS.md 362b, where
+	-- a failing client spec's name was lost). `failureFrames` throws the TestEZ frames away and
+	-- keeps the first frame inside a spec, so the name cannot be cut off by a long message.
 	for index, failure in ipairs(results.errors) do
-		if index > 5 then
+		if index > TestKit.FAILURES_REPORTED then
 			break
 		end
-		table.insert(report.failures, string.sub(tostring(failure), 1, 400))
+		table.insert(report.failures, TestKit.compactFailure(failure))
 	end
 	report.successCount = results.successCount
 	report.failureCount = results.failureCount

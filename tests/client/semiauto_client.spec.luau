@@ -76,7 +76,7 @@ local function withSemiAutoDrawn(body)
 		return fakes[name]
 	end)
 
-	local ok, why = pcall(function()
+	local ok, why = TestKit.tracedCall(function()
 		Camera.Viewmodel.clear()
 		Camera.Viewmodel.setReload(nil)
 		Camera.Viewmodel.setLift(nil)

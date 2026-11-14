@@ -176,7 +176,7 @@ return function()
 				end
 				return fakes[name]
 			end)
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				Viewmodel.clear()
 				Viewmodel.setReload(nil)
 				Viewmodel.setLift(nil)
@@ -293,7 +293,7 @@ return function()
 				return ContentProvider:GetAssetFetchStatus(id)
 			end)
 
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				withGunDrawn(function()
 					local clockNow = 1000
 					Viewmodel.setClock(function()
@@ -383,7 +383,7 @@ return function()
 					askedIds[id] = (askedIds[id] or 0) + 1
 				end
 			end)
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				-- TO SEE IT FAIL: delete the `request(id, part)` line in `AssetFetch.warm`.
 				expect(AssetFetch.warm({ character })).to.equal(ids)
 				for id in pairs(wanted) do
@@ -456,7 +456,7 @@ return function()
 				end
 				return 0
 			end
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				expect(WeaponClient.warmWeapons()).to.equal(0) -- the spy's answer, passed straight out
 			end)
 			AssetFetch.warm = realWarm

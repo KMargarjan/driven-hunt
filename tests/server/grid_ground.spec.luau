@@ -401,7 +401,7 @@ return function()
 			expect(sound.report.quarantined).to.equal(0)
 
 			-- AFTER: the same name, quarantined. Three doors, each asserted on its own.
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				Plan.isQuarantined = function(name: string): boolean
 					return name == victim
 				end
@@ -1391,7 +1391,7 @@ return function()
 			end
 			-- EVERYTHING THAT CAN THROW IS INSIDE THE `pcall`, the two heights included: an error
 			-- out here would leave `cellPlanFor` stubbed for every later case in the run.
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				local low = cell.relief.minY + 0.1 * cell.relief.spreadStuds
 				local high = cell.relief.minY + 0.9 * cell.relief.spreadStuds
 				local cold = histogram(function()

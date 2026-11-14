@@ -47,6 +47,61 @@ local function angleDeg(a: Vector3, b: Vector3): number
 	return math.deg(math.acos(math.clamp(a.Unit:Dot(b.Unit), -1, 1)))
 end
 
+-- NOTHING OF ANYBODY ELSE'S IN THE AIR (task 367).
+--
+-- `Weapon.setCast` is the OWNER's one caster and `Weapon.stats()` is the owner's one set of
+-- counters, so a shot the replayed clicks fired a moment ago lands its `Flight` segments inside a
+-- staged cast stub and its claim inside a staged before/after pair. MEASURED, the 5th run of this
+-- task's AFTER set: `self-block claim: rifle/Slug, 1 report(s), accepted 3 -> 3, refusedClaimBy
+-- [claim-blocked=1 claim-moved=1]` -- TWO refusals counted where the case made ONE claim, and the
+-- stub's `firstOrigin` had been captured from the other shot, so its reach arithmetic was measured
+-- from a muzzle that was not this one's. That is TASKS.md 285's "ran in 2 of 5 runs and FAILED both
+-- times (claim-blocked, accepted 3 -> 3)", in one line, from the case's own note.
+--
+-- The player's own fire limiter is per second and each of these cases fires as that player, so once
+-- the sky is empty nothing of his can launch inside the case's own window either.
+local function waitForEmptySky(): boolean
+	local clearBy = os.clock() + 2
+	while Weapon.flightCount() > 0 and os.clock() < clearBy do
+		task.wait()
+	end
+	local clear = Weapon.flightCount() == 0
+	if not clear then
+		-- A SKY THAT DID NOT CLEAR IS SAID OUT LOUD AND COUNTED (round 1 note). The callers below
+		-- run anyway -- a case that refuses to run proves nothing either -- but a green line that
+		-- was measured with somebody else's shot still in it is now readable as such, and the
+		-- harness prints the count.
+		TestKit.notProven(
+			string.format(
+				"weapon_shot: %d pellet(s) still in the air after 2 s, so this case's counters may not be its own",
+				Weapon.flightCount()
+			)
+		)
+	end
+	return clear
+end
+
+-- AN AIM THE ACTION LIMITER DROPPED IS NOT AN ANSWER (task 367).
+--
+-- `CONFIG.ACTION_RATE_LIMIT` is per second and the replayed right mouse spends the same bucket --
+-- the client asks for aim advice on the rising edge of ADS -- so a case that asks ONCE can be told
+-- "rate-limited" by the replay rather than by the rule it is testing. MEASURED:
+-- `weapon_shot.spec:2123`, `Expected value "nil" (nil), got "rate-limited" (string) instead`, once
+-- in seventeen runs. The Aim branch MOVES NOTHING -- no shell, no state, and no publish unless it
+-- has advice -- and a dropped ask increments `rateDropped`, never `aimQuestions`, so asking again
+-- costs nothing and changes no counter this file asserts on.
+local function aimOnce(player: Player, ray: any): string?
+	local why = Weapon.onActionRequest(player, "Aim", nil, ray)
+	for _ = 1, 3 do
+		if why ~= "rate-limited" then
+			break
+		end
+		task.wait(1.1)
+		why = Weapon.onActionRequest(player, "Aim", nil, ray)
+	end
+	return why
+end
+
 return function()
 	describe("shot validation", function()
 		local root = Vector3.new(0, 5, 0)
@@ -407,6 +462,22 @@ return function()
 				return true
 			end)
 
+			-- AN EMPTY SKY FIRST (task 367). `Weapon.setCast` is the OWNER'S one caster, so the stub
+			-- above records every segment of every shot in the air -- including a shot the replayed
+			-- clicks fired a moment ago, whose `Flight` steps land in this list between the stub
+			-- going in and the drain below. MEASURED: `weapon_shot.spec:483` ("every later cast
+			-- walks the path from there") failed with a segment that did not continue the previous
+			-- one, which is what two interleaved flights look like. Waited for on the CONDITION,
+			-- and `casts` is emptied after it, so the sample starts with one shot's worth of sky.
+			-- The player's own fire limiter is per second and this case's own shot resets it, so
+			-- nothing of his can launch inside the drain that follows.
+			local clearBy = os.clock() + 2
+			while Weapon.flightCount() > 0 and os.clock() < clearBy do
+				task.wait()
+			end
+			local skyWasClear = Weapon.flightCount() == 0
+			casts = {}
+
 			-- THREE TRIES, AND THE TWO REASONS THAT ARE NOT ABOUT GEOMETRY: the fire limiter is per
 			-- second, and the gun can go busy between the readiness check above and the trigger
 			-- (the same replayed clicks). Nothing else is retried -- a refusal from `Rules` would
@@ -438,16 +509,17 @@ return function()
 			Weapon.setDriveOpenProvider(Match.driveOpen)
 			plate:Destroy()
 
-			if why ~= nil or #casts < 2 then
+			if why ~= nil or #casts < 2 or not skyWasClear then
 				-- SAID OUT LOUD AND THEN ASSERTED PURELY, never silent: if the live handler could
 				-- not be driven, the claim still has to be made against the arithmetic it would
 				-- have done, which is what the no-subject branch above does too.
-				TestKit.note(
+				TestKit.notProven(
 					string.format(
-						"weapon_shot sight line: the handler refused (%s) with %d cast(s); asserting the "
-							.. "convergence arithmetic instead",
+						"weapon_shot sight line: the handler refused (%s) with %d cast(s), sky clear=%s;"
+							.. " asserting the convergence arithmetic instead",
 						tostring(why),
-						#casts
+						#casts,
+						tostring(skyWasClear)
 					)
 				)
 				expect(Weapons.ROWS.rifle.SPREAD_FULL_DEG.Slug).to.equal(0)
@@ -1031,6 +1103,8 @@ return function()
 				asked += 1
 				return zone.CFrame
 			end)
+			-- Nothing of anybody else's in the air before this case stages its own (task 367).
+			waitForEmptySky()
 			local wasPolicy = Weapon.setClaimPolicy(true)
 			Weapon.setDriveOpenProvider(function(): boolean
 				return true
@@ -1317,6 +1391,8 @@ return function()
 				local seconds = if type(at) == "number" then at - workspace:GetServerTimeNow() else 0
 				return CFrame.new(zone.Position + travel * seconds)
 			end)
+			-- Nothing of anybody else's in the air before this case stages its own (task 367).
+			waitForEmptySky()
 			local wasPolicy = Weapon.setClaimPolicy(true)
 			Weapon.setDriveOpenProvider(function(): boolean
 				return true
@@ -1580,6 +1656,8 @@ return function()
 			Weapon.setHistoryProvider(function()
 				return zone.CFrame
 			end)
+			-- Nothing of anybody else's in the air before this case stages its own (task 367).
+			waitForEmptySky()
 			local wasPolicy = Weapon.setClaimPolicy(true)
 			Weapon.setDriveOpenProvider(function(): boolean
 				return true
@@ -1804,6 +1882,8 @@ return function()
 			Weapon.setHistoryProvider(function()
 				return zone.CFrame
 			end)
+			-- Nothing of anybody else's in the air before this case stages its own (task 367).
+			waitForEmptySky()
 			local wasPolicy = Weapon.setClaimPolicy(true)
 			Weapon.setDriveOpenProvider(function(): boolean
 				return true
@@ -2005,7 +2085,7 @@ return function()
 			-- UNWIRED: the shipped list and nothing else -- the shooter's character, plus the
 			-- `WeaponEffects` folder IF one exists server-side (normally it does not).
 			Weapon.setIgnoreProvider(nil)
-			expect(Weapon.onActionRequest(subject, "Aim", nil, ray)).to.equal(nil)
+			expect(aimOnce(subject, ray)).to.equal(nil)
 			expect(#lists >= 1).to.equal(true)
 			local shipped = lists[1]
 			local effects = workspace:FindFirstChild("WeaponEffects")
@@ -2022,7 +2102,7 @@ return function()
 				return { marker }
 			end)
 			lists = {}
-			expect(Weapon.onActionRequest(subject, "Aim", nil, ray)).to.equal(nil)
+			expect(aimOnce(subject, ray)).to.equal(nil)
 			expect(sawMarker()).to.equal(true)
 			expect(#asked).to.equal(1)
 			expect(asked[1].player).to.equal(subject)
@@ -2074,7 +2154,7 @@ return function()
 				error("the range exploded")
 			end)
 			lists = {}
-			expect(Weapon.onActionRequest(subject, "Aim", nil, ray)).to.equal(nil)
+			expect(aimOnce(subject, ray)).to.equal(nil)
 			expect(#lists >= 1).to.equal(true)
 			expect(#lists[1]).to.equal(if effects ~= nil then 2 else 1)
 

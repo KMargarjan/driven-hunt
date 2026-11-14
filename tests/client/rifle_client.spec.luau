@@ -555,7 +555,7 @@ return function()
 			-- to be in the hand while the spec runs.
 			local plain = firstPerson
 			expect((plain :: any).SHELL_LOAD).to.be.ok()
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				Camera.Viewmodel.setReload({ open = true, spent = 1, loaded = { false, true } })
 				-- A BREAK ACTION IS MID-FEED HERE, which is what makes the case able to fail: the
 				-- weight is non-zero for the hand-fed gun...
@@ -882,7 +882,7 @@ return function()
 				part.Parent = folder
 			end
 			folder.Parent = ReplicatedStorage
-			local ok, why = pcall(function()
+			local ok, why = TestKit.tracedCall(function()
 				expect(Camera.Viewmodel.readyMeshesIn("DHSpecReadyProbe")).to.equal(3)
 				-- ...AND A DIFFERENT NAME IS A DIFFERENT ANSWER, which is the assertion the bug
 				-- fails: before the fix this function ignored its argument entirely.

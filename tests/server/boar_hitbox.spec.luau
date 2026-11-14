@@ -112,13 +112,41 @@ return function()
 			local meshes: { BasePart } = {}
 			local geometry
 
+			-- THIS ANIMAL, IN ITS OWN EMPTY SPACE (task 367). The fixture stands in a LIVE Play
+			-- session and whatever the drive has released wanders past it: a tree stops a flank ray
+			-- outright, and three foreign `ZonesOnly` trunks on the segment exhaust
+			-- `Pierce.MAX_PASS_THROUGH` so the cast returns NIL -- which reads exactly like "this
+			-- box cannot be hit". MEASURED in `deer_hitbox.spec`, the sibling of this file: the same
+			-- probe answered nil in 1 of 7 runs while the kind's whole 63-ray sweep answered an
+			-- identical 32 of 63 in every one of them. Rebuilt per cast, because the drive adds and
+			-- removes animals while this file runs; nothing of THIS animal's is excluded.
+			local function ownSpace(): { Instance }
+				local ignore: { Instance } = { Workspace.Terrain }
+				for _, child in ipairs(Workspace:GetChildren()) do
+					if child ~= holder then
+						table.insert(ignore, child)
+					end
+				end
+				return ignore
+			end
+
+			-- THE BUILT PART FOR ONE DESIGN BOX, BY NAME (task 367). `Body.buildZones` names it
+			-- `spec.part` when the zone has one box and `spec.part .. index` when it has several, so
+			-- the pairing is exact where `trunk:GetChildren()` order is not.
+			local function builtBoxFor(zoneName: string, index: number): BasePart?
+				local spec = geometry.zones[zoneName]
+				local name = if #spec.boxes == 1 then spec.part else spec.part .. index
+				local child = trunk:FindFirstChild(name)
+				return if child ~= nil and child:IsA("BasePart") then child :: BasePart else nil
+			end
+
 			-- THE QUESTION A BULLET ASKS, along any axis, through the bullet's own caster. `nil` is a
 			-- MISS, exactly as it is for a pellet.
 			local function zoneAt(localPoint: Vector3, dir: Vector3): (string?, Instance?)
 				local cf = trunk.CFrame
 				local target = cf:PointToWorldSpace(localPoint)
 				local offset = cf:VectorToWorldSpace(dir) * 20
-				local impact = Weapon.Cast.world(target - offset, offset * 2, { Workspace.Terrain })
+				local impact = Weapon.Cast.world(target - offset, offset * 2, ownSpace())
 				if not impact then
 					return nil, nil
 				end
@@ -192,6 +220,25 @@ return function()
 				end)
 				handle = runtime:spawn(Vector3.new(0, GROUND_Y, 0), kind)
 				trunk = handle.part
+				-- ANCHORED BEFORE THE STEP RUNS, SO THE ASSEMBLY CANNOT SETTLE (task 367).
+				--
+				-- MEASURED, and this is what the intermittent "unreachable by a flank ray" was:
+				--   design offset (-0.235, -1.068, -0.315) size (0.060, 0.240, 0.060)
+				--   built ZoneLegs1 at local (-0.239, -1.085, -0.283)
+				-- The built part had moved 0.032 studs in Z inside a box 0.060 studs deep, so the
+				-- DESIGN point this file probes with fell a couple of thousandths OUTSIDE the box
+				-- and a ray through it answered nil. The zone parts are `Anchored = false` and
+				-- welded to the trunk (`Body.buildZones`), so the whole assembly settles a fraction
+				-- of a stud while `runtime:run()` steps it -- and HOW FAR it settles depends on how
+				-- long the coat took to load, which is the run-to-run difference.
+				--
+				-- An anchored part welded into an assembly anchors the whole animal (`Body`'s own
+				-- comment), so anchoring here freezes every box at exactly where `buildZones` put
+				-- it. The only thing in `attachVisual` that reads `trunk.Anchored` is
+				-- `SetNetworkOwner(nil)`, which it correctly skips for an anchored part, and the
+				-- coat is still cloned, parented and welded.
+				-- Already anchored above, before the step ran; kept so the intent is local.
+				trunk.Anchored = true
 				geometry = Boar.kindGeometry(kind, CONFIG)
 				disconnect = runtime:run()
 				local started = os.clock()
@@ -223,6 +270,30 @@ return function()
 						descendant.Transform = CFrame.new()
 					end
 				end
+				-- ...AND THE WELDS THE GAIT MOVED (task 367). Zeroing the bones is NOT enough:
+				-- `Body.followGait` writes every zone box's weld `C0` to its rest offset PLUS that
+				-- box's own bone deformation, clamped at 1 stud ("Each box's weld `C0` becomes its
+				-- rest offset plus its own bone's deformation, so the rig is on the animal the
+				-- shooter sees"), and nothing re-runs it once the Animator is gone -- so the welds
+				-- keep the last pose the clip wrote. MEASURED: `ZoneRear1` 0.1447 studs from its
+				-- design offset on a hind and 0.1462 on a calf, in the same run, where the same
+				-- boxes read 0.0000 in the run before. That is the whole of the intermittent
+				-- "unreachable by a flank ray" and "the skull answered nil": the box had been
+				-- carried off the point this file probes with.
+				--
+				-- THE BIND POSE IS WHAT THEY GO BACK TO, because that is where they were measured
+				-- (this file's header, and `boar_zones.spec`'s): `CFrame.new(box.offset)` is exactly
+				-- what `buildZones` set before any clip ran.
+				for _, zoneName in ipairs(geometry.zoneOrder) do
+					for index, box in ipairs(geometry.zones[zoneName].boxes) do
+						local part = builtBoxFor(zoneName, index)
+						local weld = if part ~= nil then part:FindFirstChild("ZoneWeld") else nil
+						if weld ~= nil and weld:IsA("Weld") then
+							(weld :: Weld).C0 = CFrame.new(box.offset)
+						end
+					end
+				end
+
 				trunk.Anchored = true
 				task.wait()
 				-- The mesh becomes queryable FOR THIS FILE ONLY; in the game it is false and must

@@ -74,6 +74,27 @@ local function waitUntil(seconds: number, predicate: () -> boolean): boolean
 	return predicate()
 end
 
+-- AN AIM THE ACTION LIMITER DROPPED IS NOT AN ANSWER (task 367).
+--
+-- `CONFIG.ACTION_RATE_LIMIT` is per second and the replayed right mouse spends the same bucket --
+-- the client asks for aim advice on the rising edge of ADS -- so a case that asks ONCE can be told
+-- "rate-limited" by the replay rather than by the rule it is testing. MEASURED:
+-- `weapon_shot.spec:2123`, `Expected value "nil" (nil), got "rate-limited" (string) instead`, once
+-- in seventeen runs. The Aim branch MOVES NOTHING -- no shell, no state, and no publish unless it
+-- has advice -- and a dropped ask increments `rateDropped`, never `aimQuestions`, so asking again
+-- costs nothing and changes no counter this file asserts on.
+local function aimOnce(player: Player, ray: any): string?
+	local why = Weapon.onActionRequest(player, "Aim", nil, ray)
+	for _ = 1, 3 do
+		if why ~= "rate-limited" then
+			break
+		end
+		task.wait(1.1)
+		why = Weapon.onActionRequest(player, "Aim", nil, ray)
+	end
+	return why
+end
+
 return function()
 	-- ------------------------------------------------------------------ 1. THE AIM QUESTION
 	describe("the aim question", function()
@@ -199,7 +220,7 @@ return function()
 			Weapon.setLicenceProvider(nil)
 
 			local start = Weapon.stats()
-			local unlicensedWhy = Weapon.onActionRequest(subject, "Aim", nil, ray)
+			local unlicensedWhy = aimOnce(subject, ray)
 			local afterUnlicensed = Weapon.stats()
 			local stateAfter = Weapon.getSnapshot(subject)
 
@@ -208,12 +229,12 @@ return function()
 			Weapon.setLicenceProvider(function(): { [string]: boolean }
 				return { reddeer = true }
 			end)
-			local licensedWhy = Weapon.onActionRequest(subject, "Aim", nil, ray)
+			local licensedWhy = aimOnce(subject, ray)
 			local afterLicensed = Weapon.stats()
 
 			-- ...AND A FORGED RAY, which is refused on the trigger's own terms and publishes nothing.
 			Weapon.setLicenceProvider(nil)
-			local forgedWhy = Weapon.onActionRequest(subject, "Aim", nil, { origin = origin, direction = Vector3.zero })
+			local forgedWhy = aimOnce(subject, { origin = origin, direction = Vector3.zero })
 			local afterForged = Weapon.stats()
 
 			Weapon.setCast(nil)
@@ -325,6 +346,71 @@ return function()
 				TestKit.note("licence_popup: no armed player, so the UNKNOWN aim was not driven live")
 				return
 			end
+
+			-- THE GUN THIS LIVE ARM IS ASKED THROUGH, AND A LOADED BARREL BEFORE IT IS (task 367).
+			--
+			-- MEASURED: this case failed 2 of 5 runs on main with `Expected nil, got "no-range"`,
+			-- because `onActionRequest`'s Aim branch reads `state.loaded[state.selected] or
+			-- state.ammo` and `"None"` -- an emptied barrel -- is a VALUE and not a hole
+			-- (`Shotgun.AmmoLoad`: *"None is a VALUE, never a hole"*), so `row.RANGE_STUDS["None"]`
+			-- is nil and the branch answers "no-range" before it ever asks about the licence. The
+			-- live player's barrels are whatever the replayed clicks of an earlier scenario left,
+			-- which is shared state between specs, so WHICH answer this case got was a coin toss.
+			--
+			-- THE OWNER'S OWN RELOAD puts a shell in the selected barrel, waited for on the
+			-- CONDITION rather than for a fixed delay. ESCALATE.md (task 367) carries the game
+			-- defect this uncovered: an emptied gun gets no licence advice at all, which is the
+			-- opposite of what the branch's own header promises.
+			local function ammoAhead(): string?
+				local live = Weapon.getSnapshot(subject)
+				if live == nil then
+					return nil
+				end
+				local loaded = live.loaded[live.selected]
+				return if loaded ~= nil and loaded ~= "None" then loaded else nil
+			end
+			local reloadWhy: string? = nil
+			local heldId = Weapon.heldId(subject) or Weapons.PRIMARY
+			local heldRow = Weapons.row(heldId) or Weapons.ROWS[Weapons.PRIMARY]
+			local before = Weapon.getSnapshot(subject)
+			if ammoAhead() == nil then
+				-- THROUGH THE SAME RETRY AS `aimOnce` (round 1 note). `onActionRequest` drops a
+				-- request at the ACTION limiter before it reads anything, so a Reload asked once can
+				-- be answered "rate-limited" by the replay and the wait below would then spend its
+				-- whole budget on a gun nobody reloaded -- a new flake with the cause this task just
+				-- named. "not-ready" is retried for the same reason: the gun can be mid-cycle.
+				local why = Weapon.onActionRequest(subject, "Reload", nil, nil)
+				for _ = 1, 3 do
+					if why ~= "rate-limited" and why ~= "not-ready" then
+						break
+					end
+					task.wait(1.1)
+					why = Weapon.onActionRequest(subject, "Reload", nil, nil)
+				end
+				reloadWhy = why
+				local deadline = os.clock() + 10
+				while ammoAhead() == nil and os.clock() < deadline do
+					task.wait(0.05)
+				end
+			end
+			local ahead = ammoAhead()
+			TestKit.note(string.format(
+				"licence_popup: the live arm runs on %s, barrel %s held %s before and %s now;"
+					.. " its row ranges %s; the reload answered %s",
+				heldId,
+				tostring(before and before.selected),
+				tostring(before and before.loaded[before.selected]),
+				tostring(ahead),
+				tostring(ahead and heldRow.RANGE_STUDS[ahead]),
+				-- WHY, not just the state (round 2 note): an `empty-pocket` or `busy` refusal
+				-- burns the wait below and the note could not say which.
+				if reloadWhy ~= nil then reloadWhy else "nil (or no reload was needed)"
+			))
+			-- A BARREL WITH A SHELL IN IT IS THIS CASE'S OWN PRECONDITION, so a gun that could not
+			-- be loaded fails HERE, naming it, instead of failing the licence claim 40 lines down
+			-- with a reason that is not about licences.
+			expect(ahead).to.be.ok()
+			expect(type(heldRow.RANGE_STUDS[ahead :: string])).to.equal("number")
 			local root = subject.Character and subject.Character:FindFirstChild("HumanoidRootPart")
 			expect(root).to.be.ok()
 			local origin = (root :: BasePart).Position + Vector3.new(0, 2, 0)
@@ -348,14 +434,14 @@ return function()
 				return nil
 			end)
 			local start = Weapon.stats()
-			local unknownWhy = Weapon.onActionRequest(subject, "Aim", nil, ray)
+			local unknownWhy = aimOnce(subject, ray)
 			local afterUnknown = Weapon.stats()
 
 			-- ARM 2: the SAME aim with a profile that is open and empty -- a table, so the rule bites.
 			Weapon.setLicenceProvider(function(): { [string]: boolean }
 				return {}
 			end)
-			local knownWhy = Weapon.onActionRequest(subject, "Aim", nil, ray)
+			local knownWhy = aimOnce(subject, ray)
 			local afterKnown = Weapon.stats()
 
 			Weapon.setCast(nil)
