@@ -773,6 +773,38 @@ alone failed that spec (measured: FAIL 29/34 at `2d7995b9`). The pin follows the
 task 364 did for the sibling `DEER_ROAD_LEAP` pin in the same file. Code commit `0b2069d3`,
 `[harness] PASS: 34/34 ... scope=all`.
 
+**Reviewer: PASS, round 1** (`reviews/task-365/RESULT.md`, verdict on `f508fba5`). Its notes are
+non-blocking and are queued here rather than fixed in another round (CLAUDE.md loop step 5):
+
+- **365(a)** `reviews/task-365/REQUEST.md` claim 4 and `ANSWERED: L-127` overstate the instrument
+  count. `tools/flags.py` is a thin wrapper over `studio_mcp.py run_flags`, which parses `expires`
+  and `default` **from the file text** (`flag_rows_in_text`, "PARSED FROM THE FILE, NOT EVALUATED IN
+  STUDIO", task 101). Only `override`, and therefore `effective`, is a live read of the `DHFlag_*`
+  attributes. The two readings could not have disagreed about the dates. Wording only; the dates and
+  the live `override none` / `effective off` are both correct as printed.
+- **365(b)** The `HIT_CLAIM`, `RANGE` and `RANGE_SOLO` rows each still carry `-- 21 days, the ceiling
+  in docs/design/feature-flags.md section 12.` directly above a date 37, 35 and 32 days from their
+  own `born`. The STAG row's trailing comment was reworded to "inside the 21-day ceiling" and these
+  three were not. Three lines, same fix.
+- **365(c)** Design §11 step 6b wants the new date's reason carried in `why`, which is what
+  `tools/flags.py` actually prints; task 364 put it in both `why` and a comment. Task 365 put it in
+  comments only (the dispatch asked for a comment), so a Director reading `flags.py` to make the
+  keep/retire call sees no sign the date moved.
+- **365(d)** `Flags.problems(defaults, today)` takes `today` as a parameter, so one line in
+  `tests/server/flags.spec.luau` -- `expect(#Flags.problems(Flags.DEFAULTS, <today + 7>)).to.equal(0)`
+  -- would make "no row rots this week" **assertable** instead of something someone has to remember.
+  This is the item that would have caught task 364's and task 365's rot a week early.
+- **365(e)** `RANGE_SOLO`'s effective value in **Karen's Forest Test** is unknown: that place was
+  correctly not read, and `tools/terrainbake.py` lists `RANGE_SOLO` among `KARENS_FLAGS` ("Karen has
+  set on purpose"). The MEASURED table's override column is the DEV place's only. Changes nothing --
+  no runtime path reads `expires` -- but the request's no-screenshot bullet claims more than it
+  measured.
+- **365(f)** One server assertion failed in the middle run at `0b2069d3` and was not captured by
+  name (the harness keeps no report file; that run was read through `tail`). The same commit then ran
+  2998/2998 green. Give it an identity with a named re-run before it lands in a round where it
+  matters. The Reviewer confirmed this change cannot be its cause: nothing at runtime reads
+  `expires`, and the one case that does is deterministic in its `today` argument.
+
 ### Task 364 - 2026-11-13 (the Director's, transcribed verbatim)
 
 > [DIRECTOR -> BUILDER] TASK 364: FLIP DRIVE_VARIETY'S DEFAULT TO ON IN GIT (KAREN'S OK). Karen,
