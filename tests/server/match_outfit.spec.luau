@@ -753,7 +753,7 @@ return function()
 			Body.setAccessorySource(function(slot)
 				return fakeAccessoryTemplate(if slot == "hat" then "HatAttachment" else "BodyFrontAttachment")
 			end)
-			local ok, err = TestKit.tracedCall(function()
+			local ok, err = pcall(function()
 				local strayBefore = Body.strayCleared()
 				Body.dressWhenLoaded(stub :: any, character, ON)
 				expect(Body.isWatching(userId)).to.equal(true)
@@ -842,7 +842,7 @@ return function()
 			Body.setAccessorySource(function(slot)
 				return fakeAccessoryTemplate(if slot == "hat" then "HatAttachment" else "BodyFrontAttachment")
 			end)
-			local ok, err = TestKit.tracedCall(function()
+			local ok, err = pcall(function()
 				Body.setTeam(stub :: any, "Drivers", ON)
 				expect(Body.teamOf(stub :: any)).to.equal("Drivers")
 				expect(stub.Neutral).to.equal(false)
@@ -886,7 +886,7 @@ return function()
 				table.insert(asked, slot)
 				return fakeAccessoryTemplate(if slot == "hat" then "HatAttachment" else "BodyFrontAttachment")
 			end)
-			local ok, err = TestKit.tracedCall(function()
+			local ok, err = pcall(function()
 				-- A HUMANOID IS WHAT `AddAccessory` NEEDS, so this rig has one. Every other rig in
 				-- this file has none, which is exactly why the plates can never be deleted.
 				local character = newRig("Task151Accessory")
@@ -940,7 +940,7 @@ return function()
 
 		it("falls back to the plates when the slot has no accessory, or the rig cannot wear one", function()
 			local saved = Body.accessorySource()
-			local ok, err = TestKit.tracedCall(function()
+			local ok, err = pcall(function()
 				-- ONE slot answers, the other does not: the answering slot wears its accessory and
 				-- the silent one builds its plates. Both halves, one character.
 				Body.setAccessorySource(function(slot)
@@ -994,7 +994,7 @@ return function()
 			-- grey-box hat never had the problem because Task 77 RAISED its crown; a catalog
 			-- accessory hangs where its own attachment puts it and cannot be raised.
 			local saved = Body.accessorySource()
-			local ok, err = TestKit.tracedCall(function()
+			local ok, err = pcall(function()
 				Body.setAccessorySource(function(slot)
 					return fakeAccessoryTemplate(if slot == "hat" then "HatAttachment" else "BodyFrontAttachment")
 				end)
@@ -1029,7 +1029,7 @@ return function()
 			-- to make room for something that is not coming. A character that loses its hair and
 			-- then gets no cap would be strictly worse than before this task.
 			local saved = Body.accessorySource()
-			local ok, err = TestKit.tracedCall(function()
+			local ok, err = pcall(function()
 				Body.setAccessorySource(function(_slot): Instance?
 					return nil
 				end)

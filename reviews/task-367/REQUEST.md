@@ -206,9 +206,10 @@ TASKS.md 285's own case, now counted on the gate's page instead of passing silen
 counters, and the history claim is the same `>= 2`. The case was internally inconsistent and is not
 any more.
 
-**The notes are acted on, not queued:** twenty more restore-and-rethrow wrappers traced (52 in all;
+**The notes are acted on, not queued:** fourteen more restore-and-rethrow wrappers traced (46 in all;
 `match_config`'s two and `forest_placement`'s `pcall(Forest.step, ...)` are assertions ON the raise
-and are deliberately left); `TestKit.compactFailure`'s contract asserted in Luau for the first time
+and are deliberately left, and `match_outfit.spec`'s six were converted and then REVERTED because
+`tests/server/match_*.spec.luau` is in `TWO_PLAYER_PATHS` and `test2` needs a human click -- 367(k)); `TestKit.compactFailure`'s contract asserted in Luau for the first time
 in `sync.spec` -- the separator, the innermost frame, the message never read as a frame, a frameless
 failure, and a 900-character message that keeps its frame, which is TASKS.md 362b as a case;
 `camera_client`'s failing note says FAILING not NOT PROVEN, so the count still means "could not be
