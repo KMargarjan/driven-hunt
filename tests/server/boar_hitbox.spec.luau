@@ -130,6 +130,16 @@ return function()
 				return ignore
 			end
 
+			-- THE BUILT PART FOR ONE DESIGN BOX, BY NAME (task 367). `Body.buildZones` names it
+			-- `spec.part` when the zone has one box and `spec.part .. index` when it has several, so
+			-- the pairing is exact where `trunk:GetChildren()` order is not.
+			local function builtBoxFor(zoneName: string, index: number): BasePart?
+				local spec = geometry.zones[zoneName]
+				local name = if #spec.boxes == 1 then spec.part else spec.part .. index
+				local child = trunk:FindFirstChild(name)
+				return if child ~= nil and child:IsA("BasePart") then child :: BasePart else nil
+			end
+
 			-- THE QUESTION A BULLET ASKS, along any axis, through the bullet's own caster. `nil` is a
 			-- MISS, exactly as it is for a pellet.
 			local function zoneAt(localPoint: Vector3, dir: Vector3): (string?, Instance?)
@@ -260,6 +270,30 @@ return function()
 						descendant.Transform = CFrame.new()
 					end
 				end
+				-- ...AND THE WELDS THE GAIT MOVED (task 367). Zeroing the bones is NOT enough:
+				-- `Body.followGait` writes every zone box's weld `C0` to its rest offset PLUS that
+				-- box's own bone deformation, clamped at 1 stud ("Each box's weld `C0` becomes its
+				-- rest offset plus its own bone's deformation, so the rig is on the animal the
+				-- shooter sees"), and nothing re-runs it once the Animator is gone -- so the welds
+				-- keep the last pose the clip wrote. MEASURED: `ZoneRear1` 0.1447 studs from its
+				-- design offset on a hind and 0.1462 on a calf, in the same run, where the same
+				-- boxes read 0.0000 in the run before. That is the whole of the intermittent
+				-- "unreachable by a flank ray" and "the skull answered nil": the box had been
+				-- carried off the point this file probes with.
+				--
+				-- THE BIND POSE IS WHAT THEY GO BACK TO, because that is where they were measured
+				-- (this file's header, and `boar_zones.spec`'s): `CFrame.new(box.offset)` is exactly
+				-- what `buildZones` set before any clip ran.
+				for _, zoneName in ipairs(geometry.zoneOrder) do
+					for index, box in ipairs(geometry.zones[zoneName].boxes) do
+						local part = builtBoxFor(zoneName, index)
+						local weld = if part ~= nil then part:FindFirstChild("ZoneWeld") else nil
+						if weld ~= nil and weld:IsA("Weld") then
+							(weld :: Weld).C0 = CFrame.new(box.offset)
+						end
+					end
+				end
+
 				trunk.Anchored = true
 				task.wait()
 				-- The mesh becomes queryable FOR THIS FILE ONLY; in the game it is false and must
