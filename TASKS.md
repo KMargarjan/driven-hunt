@@ -818,9 +818,16 @@ to remove. Measured in her Forest Test at `c311f278` (the commit `driven-hunt-ka
   dealt cell's wood costs IS measured -- **+11.1 MB of `GraphicsParts`**, 16.6 detached against
   27.1-27.7 attached, in all four pairs. 360b's remaining ~600 MB is **not decomposed**.
 
-Round 2 after the Reviewer's two blocking findings, both measurement gaps and both closed by
-measurement: the memory reading above, and the 2x2 that varies residency on its own
-(camera up x forest ON/OFF: **+0.85 ms**, with the confound running against the claim).
+Rounds 2 and 3 after the Reviewer's blocking findings, every one of them a measurement fault and
+every one closed by measurement rather than rewording: the memory reading above (round 2); then
+(round 3) the residency "median" that was a MINIMUM -- the probe's `med()` was `s[ceil(n/2)]`,
+which at n=2 is the lowest sample, and it picked p95 and memory column by column. Re-run at **n=4
+interleaved with a true median** the gap is **+1.93 ms**, not +0.85 -- and that pair is **withdrawn
+as a bound anyway**, because its two sides draw 126,887 and 1,778,814 triangles and this task
+measured that cost is NOT a function of triangle count (at the stand, 40,248 FEWER triangles and
+10.92 ms CHEAPER). Residency now rests on the one pair that holds drawing exactly constant -- the
+lobby, `Opaque` identical on both sides -- at **+0.82 ms with the ranges overlapping**, a ceiling of
+about a millisecond rather than a figure.
 
 Full tables: `reviews/task-366/MEASUREMENTS.md`, with the probe output the conclusions rest on
 committed under `reviews/task-366/evidence/`. The options and the decision the Director owns:

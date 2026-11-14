@@ -10,8 +10,8 @@ plant intact (32,966 models, 8 cells).
 | candidate | measured |
 |---|---|
 | wood of cells **not dealt** | **costs nothing.** Task 337's `Places.Cells` already stores 7 of the 8 cells in `ServerStorage.GridWood` (28,535 models / 92,052 parts). `Workspace.GridForest` holds **C1 only**, on the server AND on the client. The client is never sent the other seven |
-| wood **out of sight** of the player | **costs at most ~0.9 ms.** The one pair that varies residency alone -- camera straight up, forest attached vs detached -- is **+0.85 ms p95**, and the resident side is also the side drawing 1.65 M FEWER triangles, so the true figure is lower. Every condition with the near wood out of frustum sits at 19-21 ms whether it is resident or not |
-| the **dealt cell's own density** | **costs all of it: +10.91 ms p95, +54 %** at C1 stand 4 (forest ON median 31.13, OFF 20.22, four interleaved pairs; an independent 2x2 in a second session puts it at +8.00). At the lobby the same wood draws **0 extra triangles** and costs **+0.82 ms (+3.4 %)** |
+| wood **out of sight** of the player | **about a millisecond.** The one pair that holds DRAWING exactly constant is the lobby: the wood is out of frustum attached or detached, `Opaque` is the identical 2,452,223 on both sides, and across 4 interleaved pairs the gap is **+0.82 ms p95 with the two ranges overlapping** -- not distinguishable from zero. (A camera-up pair gives +1.93 ms at n=4, but its two sides draw different content and this task measured that cost is not a function of triangle count, so it bounds nothing; it is reported and not relied on.) |
+| the **dealt cell's own density** | **costs all of it: +10.92 ms p95, +54 %** at C1 stand 4 (forest ON median 31.13, OFF 20.22, four interleaved pairs; an independent three-station run in another session puts the same wood's DRAWN cost at +13.65 ms against the same residency). At the lobby the same wood draws **0 extra triangles** and costs **+0.82 ms (+3.4 %)** |
 | the **memory**, 360b's +11.6 % | **not a client figure, and still unexplained.** `Stats` in Studio reports the PROCESS: the same probe run against the server and against the client DataModel seconds apart returns byte-identical numbers (`BaseParts 565.4`, `GraphicsParts 14.9`, `Instances 336.6`). So 360b's "client memory" includes the server holding all eight cells' 108,396 parts. What the client's own share of the dealt cell's wood costs IS measured: **+11.1 MB of `GraphicsParts`** (16.6 detached, 27.1-27.7 attached, all four pairs). The remaining ~600 MB is **NOT decomposed** -- the seven stored cells cannot leave the process without destroying Karen's unsaved plant |
 
 **So the dispatch's premise does not hold.** The client is not carrying or drawing wood it cannot
@@ -31,9 +31,11 @@ memory half of 360b's charge is a different thing: its instrument was never meas
    twice** -- the player's own, at C1 stand 4, because the Forest Test opens a drive by itself ~10 s
    after boot. That is why both rose, and it is the whole of the "the lobby got slower too"
    observation. Every station reading taken with `*-park.luau` since task 352b is suspect.
-2. **One 10 s frame-p95 sample of this place is worth +/- 47 %.** Six consecutive 8 s samples, one
+2. **One 8 s frame-p95 sample of this place is worth +/- 47 %.** Six consecutive 8 s samples, one
    held station, nothing changed between them -- same resident parts, same boars, same character,
-   same drawn triangles -- spread **23.72 -> 34.79 ms (1.47x)**. The +24 % and +30 % the trees were
+   the same drawn triangles in four of the six -- spread **23.72 -> 34.79 ms (1.47x)**. Absolute
+   figures also drift between SESSIONS: the same three stations read 19.5/22.8/35.5 in one and
+   21.7/31.1/35.4 in another. The +24 % and +30 % the trees were
    charged with sit inside that. The section-4 result survives only because it is interleaved and
    its two distributions do not overlap.
 
@@ -59,7 +61,7 @@ drawn in 169 draw calls, CPU-bound (CPU 18-25 ms against GPU 7-16 ms):
 | **A** | **change nothing.** The stand runs at 28-35 fps with the trees she asked for | 0 | exactly what she asked for | **Karen, by playing it.** She has not seen it; nobody has asked her whether it feels worse |
 | **B** | `RenderFidelity = Performance` on planted tree MeshParts, at the forest's existing owner (`Places.plantOne` already writes part properties), behind a flag born OFF | **-2.20 ms p95 (-8.7 % of its own ON median)**, consistent in all 3 interleaved pairs; triangles 2,423,487 -> 1,914,595 (-21 %) | coarser trunk and branch shape close in. A LOOK change | Karen (look), then a normal task. Buys 2.2 ms of the 10.9 |
 | **C** | thin the wood in view: density, or a shorter dense band behind the stand | up to the full -10.9 ms, in proportion | fewer trees -- the thing she asked to have back | Karen. This is task 360's `skirtBands`, explicitly NOT this task's |
-| **D** | `Workspace.StreamOutBehavior = Opportunistic` so the client releases wood it has walked away from. (`Default`, which is what is set today, does **not** stream out except under memory pressure -- that is why the resident share never falls) | **the switch itself was not tried.** Its ceiling is bounded by what residency costs: **<= 0.9 ms p95 and 11.1 MB of `GraphicsParts`**. It is NOT sized by 360b's +608 MB, which is a process figure (row 4 above) | nothing | needs an owner: `Workspace` is **not Rojo-owned** (CLAUDE.md Layout), so no file under `src/` can write it. An Architect decision, not a Builder fix |
+| **D** | `Workspace.StreamOutBehavior = Opportunistic` so the client releases wood it has walked away from. (`Default`, which is what is set today, does **not** stream out except under memory pressure -- that is why the resident share never falls) | **the switch itself was not tried.** What it could win is what residency costs, and the one pair that isolates residency -- the lobby, drawing held exactly constant -- says **+0.82 ms p95, ranges overlapping, and 11.1 MB of `GraphicsParts`**. It is NOT sized by 360b's +608 MB, which is a process figure (row 4 above) | nothing | needs an owner: `Workspace` is **not Rojo-owned** (CLAUDE.md Layout), so no file under `src/` can write it. An Architect decision, not a Builder fix |
 | **E** | shadows off | forest `CastShadow=false`: -0.33 ms (noise). `Lighting.GlobalShadows=false`: -3.01 ms (-11 %) | the whole scene loses shadows | Karen (look). Lighting is not Rojo-owned either |
 
 **The dispatch's target -- 28.40 ms at C1 stand 4 with the trees unchanged -- is not reachable.**
@@ -82,12 +84,15 @@ content lane exists to stop.
 * **The lobby rows were taken with the player at the stand**, because moving the character to the
   lobby mid-drive did not stick -- the server pulled it back. So the lobby figures are the *harder*
   case (C1's wood resident), not the easier one.
-* **Option D's ceiling is inferred** from the residency measurement (<= 0.9 ms, 11.1 MB), not from
-  switching `StreamOutBehavior` and re-reading.
+* **Option D's size is inferred** from the lobby residency pair (+0.82 ms with overlapping ranges,
+  11.1 MB), not from switching `StreamOutBehavior` and re-reading.
 * **360b's +608 MB is not decomposed.** Section 3b of the measurements says what it is not (a client
   figure) and what the client's own share is (+11.1 MB); it does not say where the rest went.
-* **The residency pair has a confound** -- the resident side also draws 1.65 M fewer triangles -- so
-  0.85 ms is an upper bound, not a measurement.
+* **Residency rests on ONE pair, the lobby's, and its two ranges overlap.** +0.82 ms is a ceiling of
+  about a millisecond, not a measurement. The camera-up pair is reported in the measurements and
+  bounds nothing, because its two sides draw different content.
+* **Absolute frame times drift between Play sessions** -- the same three stations read 19.5/22.8/35.5
+  in one session and 21.7/31.1/35.4 in another. Only pairs taken inside one probe call are quoted.
 
 ## 2026-11-14 00:40 UTC, Task 364 -- the dispatch's own pattern-line proof is NOT OBTAINABLE in DEV
 
