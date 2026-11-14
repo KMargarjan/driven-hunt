@@ -93,6 +93,18 @@ return function()
 		it("answers the resolved value for a declared one", function()
 			expect(type(Flags.isOn("TIE_UNTIL_DRIVE_END"))).to.equal("boolean")
 			expect(Flags.isOn("TIE_UNTIL_DRIVE_END")).to.equal(Flags.all().TIE_UNTIL_DRIVE_END)
+			-- ...AND `DRIVE_VARIETY` SHIPS ON (task 364). KAREN, 2026-11-13, after playing her Forest
+			-- Test with it on by attribute: *"variation also good"*. The flip is three lines in one
+			-- row, so what keeps it flipped is here: revert `default` to false and these fail.
+			-- IN THIS CASE AND NOT A NEW ONE, deliberately: a new `it` node shifts the live moment
+			-- every later spec samples, and measured here it failed the suite 7 runs out of 7
+			-- (task 80's lesson, TASKS.md row 364).
+			expect(Flags.DEFAULTS.DRIVE_VARIETY.default).to.equal(true)
+			expect(Flags.defaults().DRIVE_VARIETY).to.equal(true)
+			expect(Flags.resolve(Flags.defaults(), nil).DRIVE_VARIETY).to.equal(true)
+			-- THE FLAG IS NOT RETIRED: her words are in the row, and the OFF branch is still
+			-- reachable by parameter (`Data.variedSchedule(.., false)`, driven in forest_line.spec).
+			expect(string.find(Flags.DEFAULTS.DRIVE_VARIETY.why, "variation also good", 1, true) ~= nil).to.equal(true)
 		end)
 	end)
 
@@ -106,23 +118,6 @@ return function()
 			expect(function()
 				(Flags.DEFAULTS.TIE_UNTIL_DRIVE_END :: any).default = false
 			end).to.throw()
-		end)
-
-		it("ships DRIVE_VARIETY ON, which is Karen's OK and not a default nobody chose", function()
-			-- TASK 364. KAREN, 2026-11-13, after playing her Forest Test with it on by attribute:
-			-- *"variation also good"*. The flip is three lines in one row, so the thing that keeps it
-			-- flipped is this case: revert `default` to false and it fails here.
-			expect(Flags.DEFAULTS.DRIVE_VARIETY.default).to.equal(true)
-			-- ...AND THE SHIPPED VALUE IS WHAT A SERVER WITH NO OVERRIDE RESOLVES, which is the claim
-			-- that matters -- the row above could be true while the resolved map said otherwise.
-			-- `resolve` takes the name->boolean map (`Flags.defaults()`), never the rows themselves.
-			expect(Flags.defaults().DRIVE_VARIETY).to.equal(true)
-			expect(Flags.resolve(Flags.defaults(), nil).DRIVE_VARIETY).to.equal(true)
-			-- THE FLAG IS NOT RETIRED: the OFF branch still exists and is still reachable, by
-			-- parameter (`ForestTest.cellSchedule(false)` / `Data.variedSchedule(..., false)`, both
-			-- driven in `forest_line.spec`). Retiring it is a later task with an archive (rule 7).
-			expect(type(Flags.DEFAULTS.DRIVE_VARIETY.why)).to.equal("string")
-			expect(string.find(Flags.DEFAULTS.DRIVE_VARIETY.why, "variation also good", 1, true) ~= nil).to.equal(true)
 		end)
 
 		it("have no fault today -- this is the rot tripwire", function()
