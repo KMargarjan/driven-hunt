@@ -400,7 +400,19 @@ return function()
 			-- the trunk's own face -- it is still queryable and still collides -- and it is
 			-- `Weapon.Cast.world` that steps past a `ZonesOnly` trunk to the measured boxes inside.
 			local from = handle.part.Position + handle.part.CFrame.LookVector * -40
-			local impact = Weapon.Cast.world(from, handle.part.CFrame.LookVector * 80, { Workspace.Terrain })
+			-- THIS ANIMAL, IN ITS OWN EMPTY SPACE (task 367). The fixture stands in a LIVE Play
+			-- session and whatever the drive has released wanders past it: a tree stops the ray
+			-- outright, and three foreign `ZonesOnly` trunks on the segment exhaust
+			-- `Pierce.MAX_PASS_THROUGH` so the cast returns NIL. MEASURED in `deer_hitbox.spec`: the
+			-- same probe answered nil in 1 of 7 runs of a fixture whose own sweep was identical in
+			-- every one of them.
+			local ignore: { Instance } = { Workspace.Terrain }
+			for _, child in ipairs(Workspace:GetChildren()) do
+				if child ~= testRoot then
+					table.insert(ignore, child)
+				end
+			end
+			local impact = Weapon.Cast.world(from, handle.part.CFrame.LookVector * 80, ignore)
 			expect(impact).to.be.ok()
 			local hit = impact.instance
 			local target, zone = Weapon.Hits.targetOf(hit)

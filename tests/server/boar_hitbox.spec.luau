@@ -112,13 +112,31 @@ return function()
 			local meshes: { BasePart } = {}
 			local geometry
 
+			-- THIS ANIMAL, IN ITS OWN EMPTY SPACE (task 367). The fixture stands in a LIVE Play
+			-- session and whatever the drive has released wanders past it: a tree stops a flank ray
+			-- outright, and three foreign `ZonesOnly` trunks on the segment exhaust
+			-- `Pierce.MAX_PASS_THROUGH` so the cast returns NIL -- which reads exactly like "this
+			-- box cannot be hit". MEASURED in `deer_hitbox.spec`, the sibling of this file: the same
+			-- probe answered nil in 1 of 7 runs while the kind's whole 63-ray sweep answered an
+			-- identical 32 of 63 in every one of them. Rebuilt per cast, because the drive adds and
+			-- removes animals while this file runs; nothing of THIS animal's is excluded.
+			local function ownSpace(): { Instance }
+				local ignore: { Instance } = { Workspace.Terrain }
+				for _, child in ipairs(Workspace:GetChildren()) do
+					if child ~= holder then
+						table.insert(ignore, child)
+					end
+				end
+				return ignore
+			end
+
 			-- THE QUESTION A BULLET ASKS, along any axis, through the bullet's own caster. `nil` is a
 			-- MISS, exactly as it is for a pellet.
 			local function zoneAt(localPoint: Vector3, dir: Vector3): (string?, Instance?)
 				local cf = trunk.CFrame
 				local target = cf:PointToWorldSpace(localPoint)
 				local offset = cf:VectorToWorldSpace(dir) * 20
-				local impact = Weapon.Cast.world(target - offset, offset * 2, { Workspace.Terrain })
+				local impact = Weapon.Cast.world(target - offset, offset * 2, ownSpace())
 				if not impact then
 					return nil, nil
 				end

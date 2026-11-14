@@ -141,8 +141,34 @@ return function()
 				return zone, impact.instance
 			end
 
+			-- THIS ANIMAL, IN ITS OWN EMPTY SPACE (task 367). The fixture stands at the origin of a
+			-- LIVE Play session, and whatever the drive has released wanders past it: a tree stops a
+			-- flank ray outright, and three foreign `ZonesOnly` trunks on the segment exhaust
+			-- `Pierce.MAX_PASS_THROUGH` (4) so the cast returns NIL -- which reads here exactly like
+			-- "this box is unreachable".
+			--
+			-- MEASURED, 7 runs of `014f70ba` and `0bb4f497`: `deer_hitbox.spec:528` answered "nil on
+			-- ?" once -- a nil impact, no instance, which only pass-through exhaustion produces --
+			-- and `:772` said "calf: legs box 1 is unreachable by a flank ray" once, while the same
+			-- kind's 63-ray sweep answered an identical 32 of 63 in every single run. A deterministic
+			-- fixture with an intermittent answer is a fixture measuring something else.
+			--
+			-- EVERY SIBLING OF THE HOLDER IS IGNORED, rebuilt per cast because the drive adds and
+			-- removes animals while this file runs. Nothing of this animal's is excluded -- the
+			-- trunk, its twelve volumes and its coat all live under `holder` -- so no claim here is
+			-- weakened: what is removed is a world the measurement was never about.
+			local function ownSpace(): { Instance }
+				local ignore: { Instance } = { Workspace.Terrain }
+				for _, child in ipairs(Workspace:GetChildren()) do
+					if child ~= holder then
+						table.insert(ignore, child)
+					end
+				end
+				return ignore
+			end
+
 			local function zoneAt(localPoint: Vector3): (string?, Instance?)
-				return zoneAtIgnoring(localPoint, { Workspace.Terrain })
+				return zoneAtIgnoring(localPoint, ownSpace())
 			end
 
 			-- WHAT A FLANK RAY ACTUALLY CROSSES, surface by surface (task 367). `Pierce.cast` steps
@@ -157,7 +183,7 @@ return function()
 				local origin, direction = target + offset, -offset * 2
 				local params = RaycastParams.new()
 				params.FilterType = Enum.RaycastFilterType.Exclude
-				params.FilterDescendantsInstances = { Workspace.Terrain }
+				params.FilterDescendantsInstances = ownSpace()
 				params.IgnoreWater = true
 				local unit = direction.Unit
 				local length = direction.Magnitude
@@ -359,7 +385,7 @@ return function()
 				-- `CanQuery = false` (*"A RAY MUST NEVER MEET THIS"*) and this file turns it on as
 				-- an instrument. Reported, not asserted: the difference is how much of this case's
 				-- answer comes from the instrument rather than from the animal.
-				local noMeshIgnore: { Instance } = { Workspace.Terrain }
+				local noMeshIgnore: { Instance } = ownSpace()
 				for _, mesh in ipairs(meshes) do
 					table.insert(noMeshIgnore, mesh)
 				end
@@ -746,16 +772,21 @@ return function()
 				for _, probe in ipairs(named) do
 					local zone = zoneAt(probe[2])
 					if zone ~= probe[3] then
+						local passes, crossed = surfaceWalk(probe[2])
 						error(
 							string.format(
-								"%s: %s at (%.2f, %.2f, %.2f) answered %s, wanted %s",
+								"%s: %s at (%.2f, %.2f, %.2f) answered %s, wanted %s"
+									.. " -- the ray crossed %s (%d pass-through(s) of %d allowed)",
 								kind,
 								probe[1],
 								probe[2].X,
 								probe[2].Y,
 								probe[2].Z,
 								tostring(zone),
-								probe[3]
+								probe[3],
+								crossed,
+								passes,
+								Pierce.MAX_PASS_THROUGH
 							),
 							0
 						)
@@ -769,8 +800,18 @@ return function()
 					for index, box in ipairs(geometry.zones[zoneName].boxes) do
 						local zone = zoneAt(box.offset)
 						if zone == nil then
+							local passes, crossed = surfaceWalk(box.offset)
 							error(
-								string.format("%s: %s box %d is unreachable by a flank ray", kind, zoneName, index),
+								string.format(
+									"%s: %s box %d is unreachable by a flank ray -- it crossed %s"
+										.. " (%d pass-through(s) of %d allowed)",
+									kind,
+									zoneName,
+									index,
+									crossed,
+									passes,
+									Pierce.MAX_PASS_THROUGH
+								),
 								0
 							)
 						end
