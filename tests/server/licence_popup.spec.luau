@@ -487,6 +487,156 @@ return function()
 				)
 			)
 		end)
+
+		-- ------------------------------------- AN EMPTIED GUN STILL GETS THE ADVICE (task 368)
+		--
+		-- KAREN'S PATH, as `ESCALATE.md` (2026-11-14) recorded it: both barrels into a red deer she
+		-- has no licence for, aim at the next animal, and NO CARD APPEARS. `"None"` is a VALUE and
+		-- not a hole (`Shotgun.AmmoLoad`), so the Aim branch's `state.loaded[state.selected] or
+		-- state.ammo` never fell back, `row.RANGE_STUDS["None"]` was nil, and the branch answered
+		-- "no-range" before it asked about the licence -- charging `stats.badRequests`, the FORGERY
+		-- counter, to an honest aim.
+		it("advises an aim down an EMPTY barrel, and charges no forgery for it", function()
+			-- THE BRIDGE TO HER PATH, PURELY: two trigger pulls leave `loaded[selected] == "None"`
+			-- with `selected` STILL on that barrel (`nextLive` moves only to a LIVE one). That is
+			-- the same field and the same value the owner's own `Break` writes below, which is how
+			-- the live arm reaches her state without firing into the live arena.
+			local pair = StateMachine.setEquipped(StateMachine.initial(ROW), true)
+			local one = StateMachine.apply(pair, { kind = "Fire" }, 0, ROW)
+			local none = StateMachine.apply(one, { kind = "Fire" }, ROW.BARREL_DELAY + 1, ROW)
+			expect(none.loaded[none.selected]).to.equal("None")
+			expect(ROW.RANGE_STUDS[none.loaded[none.selected]]).to.equal(nil)
+			expect(type(ROW.RANGE_STUDS[none.ammo])).to.equal("number")
+
+			local subject = nil
+			for _, player in ipairs(Players:GetPlayers()) do
+				local state = Weapon.getSnapshot(player)
+				if state ~= nil and state.equipped == true then
+					subject = player
+					break
+				end
+			end
+			if subject == nil then
+				TestKit.notProven("licence_popup 368: no equipped player, so the EMPTY aim was not driven live")
+				return
+			end
+			local heldId = Weapon.heldId(subject) or Weapons.PRIMARY
+			local heldRow = Weapons.row(heldId) or Weapons.ROWS[Weapons.PRIMARY]
+
+			-- THE OWNER'S OWN BREAK EMPTIES THE SELECTED BARREL, and nothing here reaches into the
+			-- state: `Reload` spawns `runCycle`, whose first step puts every chamber at "None" for
+			-- `RELOAD_BREAK` before the first shell goes back in. A gun the replayed clicks already
+			-- emptied is used as it stands.
+			local function aheadNow(): string?
+				local live = Weapon.getSnapshot(subject)
+				return if live ~= nil then live.loaded[live.selected] else nil
+			end
+			local reloadWhy: string? = nil
+			if aheadNow() ~= "None" then
+				-- "not-ready" and "rate-limited" are retried for `aimOnce`'s own reason: the gun can
+				-- be mid-cycle and the action limiter is per second, so a Reload asked once can be
+				-- dropped before the reducer ever sees it.
+				reloadWhy = Weapon.onActionRequest(subject, "Reload", nil, nil)
+				for _ = 1, 3 do
+					if reloadWhy ~= "rate-limited" and reloadWhy ~= "not-ready" then
+						break
+					end
+					task.wait(1.1)
+					reloadWhy = Weapon.onActionRequest(subject, "Reload", nil, nil)
+				end
+			end
+
+			local root = subject.Character and subject.Character:FindFirstChild("HumanoidRootPart")
+			expect(root).to.be.ok()
+			local origin = (root :: BasePart).Position + Vector3.new(0, 2, 0)
+			local ray = { origin = origin, direction = Vector3.new(0, 0, -1) }
+			local stub = Instance.new("Part")
+			stub.Name = "LicencePopupSpecEmptyDeer"
+			Weapon.setCast(function()
+				return {
+					instance = stub,
+					position = origin + Vector3.new(0, 0, -30),
+					normal = Vector3.new(0, 0, 1),
+					distance = 30,
+				}
+			end)
+			Weapon.setTargetProvider(function(instance)
+				return if instance == stub then { species = "reddeer" } else nil
+			end)
+			-- KNOWN AND EMPTY: he holds nothing and the server knows it, so task 255's "unknown is
+			-- not no" arm cannot be what answers this case.
+			Weapon.setLicenceProvider(function(): { [string]: boolean }
+				return {}
+			end)
+
+			-- THE AIM IS MEASURED ONLY FROM A BARREL READ AS "None" IN THE SAME BREATH -- there is
+			-- no yield between the read and the call -- so a rate-limited retry can never slip a
+			-- RELOADED gun into the measurement and pass this case for something other than the
+			-- defect.
+			local measured: string? = nil
+			local selection: string? = nil
+			local before, after, why = nil, nil, nil
+			local deadline = os.clock() + 8
+			while os.clock() < deadline do
+				local live = Weapon.getSnapshot(subject)
+				measured = if live ~= nil then live.loaded[live.selected] else nil
+				selection = if live ~= nil then live.ammo else nil
+				if measured == "None" then
+					before = Weapon.stats()
+					why = Weapon.onActionRequest(subject, "Aim", nil, ray)
+					after = Weapon.stats()
+					if why ~= "rate-limited" then
+						break
+					end
+					task.wait(1.1)
+					-- The window may have closed while the limiter recovered: open another one.
+					if aheadNow() ~= "None" then
+						reloadWhy = Weapon.onActionRequest(subject, "Reload", nil, nil)
+					end
+				else
+					task.wait(0.02)
+				end
+			end
+
+			Weapon.setCast(nil)
+			Weapon.setTargetProvider(Match.classifyTarget)
+			-- PUT BACK WHAT BOTH COMPOSITION ROOTS WIRED (task 221), not nil.
+			Weapon.setLicenceProvider(function(player)
+				return ShopData.licencesFor(Economy.ownedOf(player.UserId))
+			end)
+			stub:Destroy()
+
+			TestKit.note(
+				string.format(
+					"licence_popup 368: %s on %s aimed with the selected barrel holding %s (range %s)"
+						.. " and the selection %s (range %s); answered %s, advised +%s; reload answered %s",
+					subject.Name,
+					heldId,
+					tostring(measured),
+					tostring(measured ~= nil and heldRow.RANGE_STUDS[measured]),
+					tostring(selection),
+					tostring(selection ~= nil and heldRow.RANGE_STUDS[selection]),
+					tostring(why),
+					if after ~= nil and before ~= nil then tostring(after.aimAdvised - before.aimAdvised) else "n/a",
+					if reloadWhy ~= nil then reloadWhy else "nil (or no reload was needed)"
+				)
+			)
+
+			-- THIS CASE'S OWN PRECONDITION FIRST, so a gun that could not be emptied fails HERE
+			-- naming itself instead of failing the licence claim for a reason that is not about
+			-- licences. The SELECTION has a range even though the chamber has none: that is the
+			-- number the branch was written to fall back to.
+			expect(measured).to.equal("None")
+			expect(heldRow.RANGE_STUDS["None"]).to.equal(nil)
+			expect(type(heldRow.RANGE_STUDS[selection :: string])).to.equal("number")
+
+			-- THE ANSWER: the question was accepted, the card went out, and the forgery counter did
+			-- NOT move. An aim with an empty gun is not a forged packet.
+			expect(why).to.equal(nil)
+			expect((after :: any).aimQuestions).to.equal((before :: any).aimQuestions + 1)
+			expect((after :: any).aimAdvised).to.equal((before :: any).aimAdvised + 1)
+			expect((after :: any).badRequests).to.equal((before :: any).badRequests)
+		end)
 	end)
 
 	-- ------------------------------------------------------- 2. BUYING AWAY FROM THE COUNTER
