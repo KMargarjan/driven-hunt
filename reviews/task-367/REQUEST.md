@@ -1,19 +1,26 @@
 # Task 367 -- main's harness green every run: the flaky specs, measured first
 
 Task: 367
-Round: 2
+Round: 3
 Base: 014f70ba35a6a1ce2c16365a8a3a682b561e706a (origin/main)
-Code commit: 65048f0f9198c7b1b586c85b2cfa4b1b9a9d2c91
+Code commit: a753eedc809e92dde8f1b99f0107aff92ff1a138
 
 Nothing in `src/` changed. Every fix is in `tests/` plus the harness's own report.
 
 ```
-[harness] PASS: 34/34 checks @ 65048f0f9198c7b1b586c85b2cfa4b1b9a9d2c91 (clean tree) scope=all
-[harness] PASS: 34/34 checks @ 65048f0f9198c7b1b586c85b2cfa4b1b9a9d2c91 (clean tree) scope=all
-[harness] PASS: 34/34 checks @ 65048f0f9198c7b1b586c85b2cfa4b1b9a9d2c91 (clean tree) scope=all
-[harness] PASS: 34/34 checks @ 65048f0f9198c7b1b586c85b2cfa4b1b9a9d2c91 (clean tree) scope=all
-[harness] PASS: 34/34 checks @ 65048f0f9198c7b1b586c85b2cfa4b1b9a9d2c91 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ a753eedc809e92dde8f1b99f0107aff92ff1a138 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ a753eedc809e92dde8f1b99f0107aff92ff1a138 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ a753eedc809e92dde8f1b99f0107aff92ff1a138 (clean tree) scope=all
+[harness] FAIL: 30/34 checks @ a753eedc809e92dde8f1b99f0107aff92ff1a138 (clean tree) scope=all
+[harness] FAIL: 30/34 checks @ a753eedc809e92dde8f1b99f0107aff92ff1a138 (clean tree) scope=all
 ```
+
+**3 of 5 at this commit, not 5 of 5. The target is NOT met and the two cases that
+miss it are named below** (`weapon_shot`'s live claim counters, `semiauto_client`'s drawn
+count) -- both pre-existing, both out of the dispatch's six, and neither fixed. Three
+earlier commits of this branch DID hit 5 of 5, fifteen green runs running
+(`7f32cd84`, `bc543778`, `65048f0f`); the two rounds of Reviewer findings after them added
+one new assertion that was legitimately red until `a753eedc` fixed what it had found.
 
 `test2` N/A: no `TWO_PLAYER_PATHS` file is touched. The files changed are `tests/TestKit.luau`,
 `tools/studio_mcp.py`, `tests/client/input_scenarios.txt` and nine `*.spec.luau` -- none of
@@ -24,10 +31,8 @@ Nothing in `src/` changed. Every fix is in `tests/` plus the harness's own repor
 ## BEFORE | AFTER (L-127)
 
 5 full runs at `014f70ba` (origin/main), clean tree, each FAIL captured before the next run
-(`<runs-dir>/367/before-1..5.txt`); 5 full runs at the round-2 code commit
-(`<runs-dir>/367/f-1..5.txt`). Round 1's own five at `7f32cd84` (`gate-1..5.txt`) and the
-round-2 code's five at `bc543778` (`r2-1..5.txt`) were 5 of 5 as well -- fifteen green runs in a row
-across the three commits.
+(`<runs-dir>/367/before-1..5.txt`); 5 full runs at the round-3 code commit
+(`<runs-dir>/367/n-1..5.txt`).
 
 | case | B1 | B2 | B3 | B4 | B5 | A1 | A2 | A3 | A4 | A5 |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -37,11 +42,24 @@ across the three commits.
 | `camera_client.spec` avg > 0.3 ms | ok | ok | ok | FAIL | ok | ok | ok | ok | ok | ok |
 | `camera_client.spec` replayed hold | ok | ok | ok | FAIL | ok | ok | ok | ok | ok | ok |
 | `weapon_client.spec` end state / swap | ok | ok | ok | FAIL | ok | ok | ok | ok | ok | ok |
-| **run** | **FAIL 31/34** | **FAIL 31/34** | **PASS** | **FAIL 32/34** | **PASS** | **PASS** | **PASS** | **PASS** | **PASS** | **PASS** |
+| `weapon_shot.spec` live claim counters | ok | ok | ok | ok | ok | FAIL | ok | ok | ok | FAIL |
+| `semiauto_client.spec` drawn count | ok | ok | ok | ok | ok | FAIL | ok | ok | ok | FAIL |
+| **run** | **FAIL 31/34** | **FAIL 31/34** | **PASS** | **FAIL 32/34** | **PASS** | **FAIL 30/34** | **PASS** | **PASS** | **PASS** | **FAIL 30/34** |
 
-**BEFORE 2 of 5 PASS, AFTER 5 of 5 PASS.** Six more faults surfaced in the 12 intermediate runs
-(`measure-*`, `after-*`, `aft-*`, `final5-*`) and are in the claims below: `weapon_shot.spec:483`,
-the three live-claim counters, `semiauto_client.spec:93`, `weapon_shot.spec:2123`.
+**BEFORE 2 of 5. AFTER 3 of 5.** Every one of the six cases the dispatch named is fixed and each
+fix is measured; what misses the target is two cases that were NOT in the BEFORE set and are NOT in
+the dispatch's six -- `weapon_shot`'s live claim counters (TASKS.md 285, which the dispatch cites as a
+known row but asks only to REPORT, step 3) and `semiauto_client`'s drawn count (TASKS.md 281a(k)).
+Both are named below with what is known and what is not.
+
+**THE WHOLE-SESSION RATE, because five runs is a small sample of a 40 % failure rate.** 51 clean-tree
+runs at the eleven commits of this branch, excluding the deliberately-broken FAIL-FIRST run:
+**37 PASS, 14 FAIL (73 %)**, against `014f70ba`'s measured 2 of 5. Three consecutive commits gave
+5 of 5 each -- `7f32cd84`, `bc543778`, `65048f0f`, fifteen green runs in a row -- then round 2's and
+round 3's findings added the built-vs-design case, which was legitimately red on the calf and the
+hind until it had named its own cause and `a753eedc` fixed it.
+
+
 
 ## Claims
 
@@ -65,12 +83,31 @@ the three live-claim counters, `semiauto_client.spec:93`, `weapon_shot.spec:2123
    answered `"no-range"` before it ever reached the licence. **The GAME defect this uncovered is
    `ESCALATE.md` 2026-11-14 05:05 and TASKS.md 367(a); no `src/` change here.**
 
-3. **The hitbox fixtures cast in their own empty space.** `ownSpace()` in `deer_hitbox.spec`,
-   `boar_hitbox.spec`, `boar_zones.spec` (both casters) and `boar_model.spec` ignores every sibling
-   of the fixture's holder. Verify: `aft-2.txt`'s *"calf: legs box 1 is unreachable by a flank ray"*
-   against the same kind's sweep answering an identical 32 of 63 in **all 17 runs**; a tree stops a
-   flank ray and three foreign `ZonesOnly` trunks exhaust `Pierce.MAX_PASS_THROUGH`. Nothing of the
-   animal under test is excluded -- trunk, volumes and coat are all under that holder.
+3. **THE HITBOX FIXTURE'S REAL CAUSE: the gait carries the hit boxes, and freezing the bones does
+   not bring them back.** `Body.followGait` is a SECOND writer of every zone box's position --
+   *"Each box's weld `C0` becomes its rest offset plus its own bone's deformation"*, clamped at 1
+   stud -- and the fixture destroys the Animator and zeroes every `Bone.Transform` without ever
+   re-running it, so each weld keeps the LAST pose the clip wrote. How far the clip had got depends
+   on how long the coat took to load: the run-to-run difference. `deer_hitbox.spec` and
+   `boar_hitbox.spec` now put every `ZoneWeld.C0` back to `CFrame.new(box.offset)` -- what
+   `buildZones` set before any clip ran, and the pose the boxes were MEASURED in (both files' own
+   headers).
+   Verify the case that measured it: *"worst built-vs-design box offset"*, which read
+   **0.1447 studs on a hind and 0.1462 on a calf in one run** (`<runs-dir>/367/m-5.txt`) and
+   **0.0000 on all three kinds in every run since** (`n-1..5.txt`) -- more than a calf's leg box is
+   deep (0.060), which is exactly how it surfaced as *"legs box 1 is unreachable by a flank ray"*
+   and *"the skull answered nil"*. The case also refuses its own vacuous pass
+   (`expect(worstName).never.to.equal("none")`, standing rule E).
+   **Two earlier theories of mine are refuted IN THE FILE, not quietly dropped:** the live world was
+   a real and separate cause (a tree stops a flank ray; three foreign `ZonesOnly` trunks exhaust
+   `Pierce.MAX_PASS_THROUGH`), fixed by `ownSpace()` in `deer_hitbox`, `boar_hitbox`, `boar_zones`
+   (both casters) and `boar_model`; pass-through exhaustion was refuted by the fixture's own note
+   (worst 2 of 4 allowed, every run); and the 0.13 studs I first read as physics settling was my own
+   order-based pairing comparing a barrel box with a dorsal band -- `builtBoxFor` pairs by the name
+   `buildZones` gives the part, which is exact.
+   **And the two questions are separated:** "can this box be hit" is asked of the part that is
+   actually there, and "is that part where the design says" is the case above it, which fails first
+   and names the number.
 
 4. **The frame budget is measured in the camera's own 120-frame windows. The NUMBER is not widened;
    the STATISTIC is, and that is the substantive change.** `camera_client.spec`, "keeps the update
@@ -162,25 +199,60 @@ The non-blocking notes, acted on rather than queued, because four of them were l
 can fire"*. One run in five has only one (the accepted-claim case found an armed player). That is
 TASKS.md 285's own case, now counted on the gate's page instead of passing silently.
 
-## What I could not verify
+## Round 3: the blocking finding, and what the round found
 
-* **`deer_hitbox`'s "unreachable box" is fixed for the live-world cause only.** The second cause is
-  NOT named: `aft-4.txt` printed `Boar1 -> Red_Deer_Doe_NoAlpha -> nothing (2 pass-through(s) of 4
-  allowed)` -- the fixture's OWN trunk and coat, so neither contamination nor exhaustion. It has not
-  recurred in the 6 runs since, and the failure now also prints the design offset, the built part's
-  own local offset and the trunk's size. Queued as 367(b).
-* **`weapon_client.spec`'s exploit window** failed once (`final5-2.txt`, `:1853` Live -> Spent) and
-  the cause IS named and NOT fixed: the SERVER suite's live-fire cases spend this player's barrels,
-  and `lastWeaponInput` only sees the CLIENT's own input, so the window looks quiet while a server
-  spec fires. A cross-side quiet protocol (the server marking a replicated player attribute while it
-  fires) is the fix; queued as 367(c).
-* **`weapon_client.spec:1291`** (reserve Slug 13 vs 11, once in 17) is not explained. 367(d).
-* **`semiauto_client`'s 35-vs-36 (TASKS.md 281a(k))** is NOT fixed and its cause is NOT named. It
-  did not fire in any of the 22 runs of this task. What changed is only that the report now names the
-  real line instead of the wrapper's `:93` (claim 8), so the next occurrence can be read. The fixed
-  `task.wait(0.3)` in that file's `withSemiAutoDrawn` is the obvious suspect -- a fixed delay where
-  the condition is "the live viewmodel has redrawn from the fake source" -- but suspecting is not
-  measuring, so it is left. 367(g).
-* **The 12-name cap**: the fail-first run had 41 server failures and named 12. That is the design,
-  not a defect, but a run with more than 12 failures still loses names to the console.
-* No screenshot: nothing visual changed (rule 5 N/A).
+**Round 2's finding is closed:** `preReplayHistory` is taken beside `preReplay`, above
+`InputReady.ready`, so the mode-history index comes from the same provably-pre-replay instant as the
+counters, and the history claim is the same `>= 2`. The case was internally inconsistent and is not
+any more.
+
+**The notes are acted on, not queued:** twenty more restore-and-rethrow wrappers traced (52 in all;
+`match_config`'s two and `forest_placement`'s `pcall(Forest.step, ...)` are assertions ON the raise
+and are deliberately left); `TestKit.compactFailure`'s contract asserted in Luau for the first time
+in `sync.spec` -- the separator, the innermost frame, the message never read as a frame, a frameless
+failure, and a 900-character message that keeps its frame, which is TASKS.md 362b as a case;
+`camera_client`'s failing note says FAILING not NOT PROVEN, so the count still means "could not be
+exercised"; the session-average note moved above the budget assertions; `licence_popup` prints why
+its reload was refused; the TestKit comment counts what is there.
+
+**What the round itself found, which is the point of having added the instruments:** the
+built-vs-design case that round 2's work made possible is what finally named the gait as the hitbox
+cause (claim 3). It was red on two runs while it did that. That is the instrument working, not a
+regression -- the same fixture had been failing silently and intermittently for ten runs before it
+existed.
+
+## What I could not verify, and what still misses the target
+
+**The two cases that keep this at 3 of 5. Neither is in the dispatch's six and neither was in the
+BEFORE set; both are known rows the dispatch cites.**
+
+* **`weapon_shot.spec`'s live claim counters** (`:1566`, `:1970` *"Expected 4, got 3"*), TASKS.md
+  285. `waitForEmptySky` removed the cause I could measure -- a shot already in the air when the stub
+  went in, proven by *"1 report(s), accepted 3 -> 3, refusedClaimBy [claim-blocked=1
+  claim-moved=1]"*, two refusals for one claim -- and the cases went from failing in that shape to
+  failing in another: the counter moves by one less than the case expects. What I have NOT measured
+  is whether the missing claim was refused or never made, because the note prints the totals and not
+  this claim's own verdict. 367(i), with the instrument named there.
+* **`semiauto_client.spec`'s drawn count** (`:262`, `:279`), TASKS.md 281a(k). Not fixed, cause not
+  named. What changed is that the report now names the real case line instead of the wrapper's
+  `:93` -- which is how `:262` and `:279` are known at all. The suspect is the fixed
+  `task.wait(0.3)` in `withSemiAutoDrawn` where the condition is "the live viewmodel has redrawn
+  from the fake source". 367(g).
+
+**The rest, each queued with its evidence:**
+
+* **`weapon_client.spec`'s exploit window** (`:1853` Live -> Spent, once in 30 runs): cause NAMED,
+  not fixed. The SERVER suite's live-fire cases spend this player's barrels and `lastWeaponInput`
+  only sees the CLIENT's own input. 367(c).
+* **`weapon_client.spec`'s reserve claims** (`:1291` 13 vs 11, 12 vs 14; `:1343` 2 vs 0): not
+  explained. 367(d).
+* **`asset_fetch.spec:376`** (once in 30 runs): not seen before this task and not explained. 367(j).
+* **The 12-name cap**: the FAIL-FIRST run had 41 server failures and named 12. That is the design --
+  the report is an attribute -- but the rest still depend on the console surviving. 367(e).
+* **CI**: I cannot read it. `gh` is not authenticated in this session (`gh auth login` required), so
+  "CI green" is for the Director to check on the PR. Every CI step was run locally instead: `selene
+  src`, `selene --config tests/selene.toml tests`, `stylua --check src tests`, `rojo build`,
+  `python tools/studio_mcp.py selftest`, `python tools/agents.py selftest`, `python
+  tools/privacy_scan.py selftest` and `scan`.
+* No screenshot: nothing visual changed (rule 5 N/A). No `src/` path is in the diff.
+
