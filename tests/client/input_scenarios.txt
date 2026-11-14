@@ -29,7 +29,7 @@
 				{ "device": "mouse", "action": "mouseButtonClick", "button": "left" },
 				{ "device": "wait", "ms": 500 },
 				{ "device": "keyboard", "action": "keyPress", "key": "R" },
-				{ "device": "wait", "ms": 3000 },
+				{ "device": "wait", "ms": 5000 },
 				{ "device": "keyboard", "action": "keyPress", "key": "X" },
 				{ "device": "wait", "ms": 2600 },
 				{ "device": "mouse", "action": "mouseButtonDown", "button": "right" },

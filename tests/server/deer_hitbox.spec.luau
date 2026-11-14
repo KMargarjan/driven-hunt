@@ -176,6 +176,43 @@ return function()
 			-- MISS on the next one, so "answered nil" can mean "the budget ran out" rather than
 			-- "nothing is there" -- and this walk is what tells the two apart. Read-only: the same
 			-- params, the same step, no state.
+			-- WHERE THE PROBE AND THE BUILT PART ACTUALLY ARE (task 367). A nil answer with the
+			-- pass-through budget barely touched (2 of 4) is not exhaustion, so the next question is
+			-- whether the box is where the design table says -- and that needs the design offset,
+			-- the built part's own offset and the trunk's size side by side.
+			local function boxReport(zoneName: string, index: number, box: any): string
+				local built: BasePart? = nil
+				local seen = 0
+				for _, child in ipairs(trunk:GetChildren()) do
+					if child:IsA("BasePart") and child:GetAttribute("HitZone") == zoneName then
+						seen += 1
+						if seen == index then
+							built = child
+							break
+						end
+					end
+				end
+				local localBuilt = if built then trunk.CFrame:PointToObjectSpace(built.Position) else nil
+				return string.format(
+					"design offset (%.3f, %.3f, %.3f) size (%.3f, %.3f, %.3f); built %s at local"
+						.. " (%s); trunk size (%.3f, %.3f, %.3f) at %s",
+					box.offset.X,
+					box.offset.Y,
+					box.offset.Z,
+					box.size.X,
+					box.size.Y,
+					box.size.Z,
+					if built then built.Name else "MISSING",
+					if localBuilt
+						then string.format("%.3f, %.3f, %.3f", localBuilt.X, localBuilt.Y, localBuilt.Z)
+						else "?",
+					trunk.Size.X,
+					trunk.Size.Y,
+					trunk.Size.Z,
+					tostring(trunk.Position)
+				)
+			end
+
 			local function surfaceWalk(localPoint: Vector3): (number, string)
 				local cf = trunk.CFrame
 				local target = cf:PointToWorldSpace(localPoint)
@@ -804,13 +841,14 @@ return function()
 							error(
 								string.format(
 									"%s: %s box %d is unreachable by a flank ray -- it crossed %s"
-										.. " (%d pass-through(s) of %d allowed)",
+										.. " (%d pass-through(s) of %d allowed); %s",
 									kind,
 									zoneName,
 									index,
 									crossed,
 									passes,
-									Pierce.MAX_PASS_THROUGH
+									Pierce.MAX_PASS_THROUGH,
+									boxReport(zoneName, index, box)
 								),
 								0
 							)

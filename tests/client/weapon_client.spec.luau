@@ -1148,6 +1148,21 @@ return function()
 			end)
 
 			it("runs the whole scenario and ends where the design says", function()
+				-- WHY THE SCENARIO'S R -> X GAP IS 5,000 ms AND NOT 3,000 (task 367; the gap is in
+				-- tests/client/input_scenarios.txt, which is JSON and cannot carry this comment).
+				--
+				-- MEASURED, the window's own timeline in the run that failed:
+				--   #5 +64.6s Slug None/None open=true  busy=0.50 action=Break
+				--   #6 +65.1s Slug Slug/None open=true  busy=0.45 action=Load
+				--   #7 +67.8s Slug Slug/Slug open=true  busy=0.45 action=Load   <- 2.7 s for one step
+				--   #8 +68.2s Slug Slug/Slug open=false busy=0.60 action=Close
+				--  #10 +68.4s Slug Slug/Slug open=false busy=0.00
+				-- The R reload took 3.8 s where `Shotgun.CONFIG.RELOAD_TOTAL` is 2.0: the server is
+				-- running 2,998 specs at the same time and a step overran its own wait. The 3,000 ms
+				-- gap was sized against the NOMINAL 2.0 s, so `X` landed while `open=true` and
+				-- `SelectAmmo` was refused `not-ready` -- no swap, and this case's end state stayed
+				-- Slug. 5,000 ms is the measured worst (3.8 s) plus 1.2 s, which is the only number
+				-- here that is not a guess.
 				-- THE STATE THE SCENARIO ENDED ON, captured when it ended -- not the newest one the gun
 				-- ever published. The server may hand this player a fresh weapon later in the session
 				-- for reasons that have nothing to do with the scenario (a respawn, a drive placement,
