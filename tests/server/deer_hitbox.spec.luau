@@ -166,17 +166,23 @@ return function()
 			-- engine solves a welded assembly on a physics step, so the agreement is reached a frame
 			-- or two after the build rather than inside it -- which is why waiting for it is the
 			-- answer and a fixed delay was not.
+			-- THE BUILT PART FOR ONE DESIGN BOX, BY NAME. `Body.buildZones` names it
+			-- `spec.part` when the zone has one box and `spec.part .. index` when it has several, so
+			-- the pairing is exact -- and `trunk:GetChildren()` order is NOT (task 367: pairing by
+			-- that order read 0.13 studs of "drift" on a calf's rear, which is the gap between its
+			-- barrel box and its dorsal band, not a part that had moved).
+			local function builtBoxFor(zoneName: string, index: number): BasePart?
+				local spec = geometry.zones[zoneName]
+				local name = if #spec.boxes == 1 then spec.part else spec.part .. index
+				local child = trunk:FindFirstChild(name)
+				return if child ~= nil and child:IsA("BasePart") then child :: BasePart else nil
+			end
+
 			local function worstBoxDrift(): (number, string)
 				local worst, worstName = 0, "none"
 				for _, zoneName in ipairs(geometry.zoneOrder) do
-					local built = {}
-					for _, child in ipairs(trunk:GetChildren()) do
-						if child:IsA("BasePart") and child:GetAttribute("HitZone") == zoneName then
-							table.insert(built, child)
-						end
-					end
 					for index, box in ipairs(geometry.zones[zoneName].boxes) do
-						local part = built[index]
+						local part = builtBoxFor(zoneName, index)
 						if part ~= nil then
 							local at = trunk.CFrame:PointToObjectSpace(part.Position)
 							local off = (at - box.offset).Magnitude
@@ -213,21 +219,11 @@ return function()
 			-- whether the box is where the design table says -- and that needs the design offset,
 			-- the built part's own offset and the trunk's size side by side.
 			local function boxReport(zoneName: string, index: number, box: any): string
-				local built: BasePart? = nil
-				local seen = 0
-				for _, child in ipairs(trunk:GetChildren()) do
-					if child:IsA("BasePart") and child:GetAttribute("HitZone") == zoneName then
-						seen += 1
-						if seen == index then
-							built = child
-							break
-						end
-					end
-				end
+				local built = builtBoxFor(zoneName, index)
 				local localBuilt = if built then trunk.CFrame:PointToObjectSpace(built.Position) else nil
 				return string.format(
 					"design offset (%.3f, %.3f, %.3f) size (%.3f, %.3f, %.3f); built %s at local"
-						.. " (%s); trunk size (%.3f, %.3f, %.3f) at %s",
+						.. " (%s) size (%s); trunk size (%.3f, %.3f, %.3f) at %s",
 					box.offset.X,
 					box.offset.Y,
 					box.offset.Z,
@@ -238,6 +234,7 @@ return function()
 					if localBuilt
 						then string.format("%.3f, %.3f, %.3f", localBuilt.X, localBuilt.Y, localBuilt.Z)
 						else "?",
+					if built then tostring(built.Size) else "?",
 					trunk.Size.X,
 					trunk.Size.Y,
 					trunk.Size.Z,
@@ -929,9 +926,16 @@ return function()
 				-- names.
 				for _, zoneName in ipairs(geometry.zoneOrder) do
 					for index, box in ipairs(geometry.zones[zoneName].boxes) do
-						local zone = zoneAt(box.offset)
+						-- THE BUILT PART'S OWN CENTRE, not the design offset (task 367). This case
+						-- asks whether a box can be HIT, and what a bullet meets is the part that is
+						-- there; whether that part sits where the design says is the case above,
+						-- which measures exactly that and fails first when it does not. Probing the
+						-- design point here asked both questions at once and answered neither.
+						local part = builtBoxFor(zoneName, index)
+						local probe = if part ~= nil then trunk.CFrame:PointToObjectSpace(part.Position) else box.offset
+						local zone = zoneAt(probe)
 						if zone == nil then
-							local passes, crossed = surfaceWalk(box.offset)
+							local passes, crossed = surfaceWalk(probe)
 							error(
 								string.format(
 									"%s: %s box %d is unreachable by a flank ray -- it crossed %s"
