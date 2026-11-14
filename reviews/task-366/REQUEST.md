@@ -30,8 +30,9 @@ commit's content. Five Play sessions, each started and stopped by this session, 
    *Verify:* `evidence/366-forestoff-c1s4.txt` and `evidence/366-forestoff-lobby.txt`; the lobby
    pair's `RenderBreakdown/Opaque` is the identical 2,452,223 on both sides. An independent
    three-station run in another session (`evidence/366-grid3-three.txt`) puts the stand's DRAWN-wood
-   cost at `35.38 - 21.73 = +13.65 ms` with residency held constant on both sides; the two bracket
-   the same thing from either side and neither is averaged into the other.
+   cost at `35.38 - 21.73 = +13.65 ms` with residency held constant on both sides -- an upper
+   bracket, since that difference is everything drawn at the stand and not the wood alone. Neither
+   is averaged into the other.
 3. **Residency is about a millisecond, and only ONE pair establishes it.** The lobby pair holds
    DRAWING exactly constant -- the wood is out of frustum attached or detached and `Opaque` is the
    identical **2,452,223** tris on all four ON and all four OFF samples -- and gives
@@ -108,11 +109,11 @@ commit's content. Five Play sessions, each started and stopped by this session, 
 9. **Karen's place was left as found.** `ftplay.py mode` -> Edit on `:34873`; attribute diff EMPTY;
    360b's unsaved plant intact at 32,966 models / 108,396 parts / 8 cells / the same `PlantEpoch`;
    never Saved, Published or Drafts-Committed; `ft-open.sh` not used; 0 game error lines.
-   Checked after each of the three Play sessions.
+   Checked after each of the five Play sessions.
    *Verify:* `diff reviews/task-366/evidence/366-attrs-BEFORE.txt
    reviews/task-366/evidence/366-attrs-END.txt` (identical) and
    `diff evidence/366-census-EDIT.txt evidence/366-census-END.txt` -- both now committed.
-10. **The harness FAILs, and it FAILs the same way on `main` with none of this branch's files.**
+10. **The harness is red, and it is red on `main` too, with none of this branch's files.**
    Two lines, two different commits:
    - `[harness] FAIL: 31/34 checks @ eae6bf537b2d9ab7463a62fcc2d18bc15b078258 (clean tree) scope=all`
    - `[harness] FAIL: 29/34 checks @ c311f27821e53e1433a96e65658a504ff4d324db (clean tree) scope=all`
@@ -196,9 +197,9 @@ committed, the `Internal`/`LuaHeap` caveat on "byte-identical", and the 8 s word
 * **ANSWERED: L-162** -- her Forest Test serves on `:34873` from `driven-hunt-karen` at
   `c311f278`, which is this branch's base; `git rev-parse HEAD` in that worktree is pasted in
   `MEASUREMENTS.md`.
-* **ANSWERED: L-136** -- the flakes are named before any re-run: `licence_popup.spec`,
+* **ANSWERED: L-136** -- the flakes are named before any re-run (claim 10): `licence_popup.spec`,
   `weapon_shot.spec` x2, `deer_hitbox.spec`, `semiauto_client.spec`, and the `tie-the-driver`
-  `user_keyboard_input` transport fault, with a control run at a second commit (claim 9).
+  `user_keyboard_input` transport fault, with a control run at a second commit.
 * **ANSWERED: L-093** -- no fix, so no new case. The equivalent control was run anyway: claim 2's
   OFF condition *is* "the thing removed", and it moves the number by 10.9 ms at the stand and by
   0.8 ms at the lobby. The instrument fault of claim 4 likewise reproduces on demand

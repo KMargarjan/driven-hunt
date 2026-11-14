@@ -1,7 +1,7 @@
 ## 2026-11-14 04:10 UTC, Task 366 -- there is no invisible wood. The cost is the trees Karen asked for, and the +30 % lobby row was an instrument fault
 
 **For the Director. Step 3 of the dispatch fires: no code was written.** Full tables and every probe
-name: `reviews/task-366/MEASUREMENTS.md`. Read in Karen's Forest Test at `c311f278`, one Play, held
+name: `reviews/task-366/MEASUREMENTS.md`. Read in Karen's Forest Test at `c311f278`, five Play sessions, held
 camera, interleaved A/B. Her place was left in Edit with an EMPTY attribute diff and 360b's unsaved
 plant intact (32,966 models, 8 cells).
 
@@ -23,9 +23,9 @@ memory half of 360b's charge is a different thing: its instrument was never meas
 
 1. **`360b-park.luau` never parks the camera.** It writes `cam.CFrame` once and never binds to
    RenderStep, so `src/client/Camera/Rig.luau` -- the camera owner, bound at
-   `Enum.RenderPriority.Camera` -- overwrites it every frame. Measured: the camera sat **6,791
+   `Enum.RenderPriority.Camera` -- overwrites it every frame. Measured: the camera sat **7,082
    studs** from the station it was asked for, constant across 28 samples over 14 s
-   (`366-camcheck.luau`). `360-holdA.luau` gets this right and says so in its own comment; the park
+   (`reviews/task-366/evidence/366-camcheck.txt`). `360-holdA.luau` gets this right and says so in its own comment; the park
    probe was borrowed from `352b-park.luau`, which has the same fault.
    **Consequence:** 360b's "lobby spawn" row and its "C1 stand 4" row are the **same view measured
    twice** -- the player's own, at C1 stand 4, because the Forest Test opens a drive by itself ~10 s
@@ -62,7 +62,7 @@ drawn in 169 draw calls, CPU-bound (CPU 18-25 ms against GPU 7-16 ms):
 | **B** | `RenderFidelity = Performance` on planted tree MeshParts, at the forest's existing owner (`Places.plantOne` already writes part properties), behind a flag born OFF | **-2.20 ms p95 (-8.7 % of its own ON median)**, consistent in all 3 interleaved pairs; triangles 2,423,487 -> 1,914,595 (-21 %) | coarser trunk and branch shape close in. A LOOK change | Karen (look), then a normal task. Buys 2.2 ms of the 10.9 |
 | **C** | thin the wood in view: density, or a shorter dense band behind the stand | up to the full -10.9 ms, in proportion | fewer trees -- the thing she asked to have back | Karen. This is task 360's `skirtBands`, explicitly NOT this task's |
 | **D** | `Workspace.StreamOutBehavior = Opportunistic` so the client releases wood it has walked away from. (`Default`, which is what is set today, does **not** stream out except under memory pressure -- that is why the resident share never falls) | **the switch itself was not tried.** What it could win is what residency costs, and the one pair that isolates residency -- the lobby, drawing held exactly constant -- says **+0.82 ms p95, ranges overlapping, and 11.1 MB of `GraphicsParts`**. It is NOT sized by 360b's +608 MB, which is a process figure (row 4 above) | nothing | needs an owner: `Workspace` is **not Rojo-owned** (CLAUDE.md Layout), so no file under `src/` can write it. An Architect decision, not a Builder fix |
-| **E** | shadows off | forest `CastShadow=false`: -0.33 ms (noise). `Lighting.GlobalShadows=false`: -3.01 ms (-11 %) | the whole scene loses shadows | Karen (look). Lighting is not Rojo-owned either |
+| **E** | shadows off | **both figures are SOFT** -- that run is the one sequence here that is not interleaved, and its two controls differ by 2.20 ms with nothing changed. Forest `CastShadow=false`: **-0.33 ms**. `GlobalShadows` on its own: **-2.68 ms** (the -3.01 ms figure is both levers together, since that sample also had the forest's shadows off) | the whole scene loses shadows | Karen (look). Lighting is not Rojo-owned either |
 
 **The dispatch's target -- 28.40 ms at C1 stand 4 with the trees unchanged -- is not reachable.**
 B is the only ownable lever worth more than noise and it is 2.2 of the 10.9 ms, at the price of how

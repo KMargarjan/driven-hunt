@@ -44,9 +44,12 @@ undone**: one cell stands, seven are stored, and the client is never sent the se
 
 `StreamingEnabled=true`, `StreamingMinRadius=384`, `StreamingTargetRadius=512`,
 `StreamOutBehavior=Default`, `StreamingIntegrityMode=Default`. The client's resident share of C1
-grows as the player moves (6,663 -> 11,254 parts) and does not fall again: `Default` **does not stream
-out except under memory pressure**, which is why nothing is released when the player walks away. It is
-bounded by the one dealt cell, and it is not what costs (section 3a).
+grows as the player moves: **6,663 -> 11,254 parts, measured**. That it never FALLS again is an
+**inference, not a measurement** -- `Default` is documented not to stream out except under memory
+pressure, and the walking-away case could not be staged here because moving the character to the
+lobby mid-drive did not stick (section 9.6). The distinction matters: the non-fall is option D's
+premise. Either way the resident set is bounded by the one dealt cell, and it is not what costs
+(section 3a).
 
 What the resident wood is (`evidence/366-client-census.txt`): 10,353 MeshParts plus 901 Parts; `RenderFidelity`
 Automatic on all 10,353; `CollisionFidelity` Default 5,466 / Box 4,887; `Anchored` 11,254;
@@ -89,7 +92,7 @@ frames and lost every one).
 |---|---|---|---|---|---|
 | C1 stand 4, **straight up** | **21.73 ms** | 21.31-22.15 | 17.25 / 17.20 | 125,523 tris | 22 |
 | **lobby** spawn, looking east | **31.13 ms** | 29.55-32.71 | 22.20 / 22.94 | 2,452,223 tris | 342 |
-| **C1 stand 4**, Karen's S/SW angle | **35.38 ms** | 34.04-36.72 | 25.75 / 27.80 | 2,418,401 tris | 176 |
+| **C1 stand 4**, Karen's S/SW angle | **35.38 ms** | 34.04-36.72 | 25.75 / 27.80 | 2,418,401 / 2,482,711 tris | 176 |
 
 **No row here varies residency** -- the forest is attached in all three -- so these bound the cost of
 what is DRAWN and nothing else. The ordering is the finding: looking away from everything costs
@@ -119,7 +122,8 @@ pair varies residency and nothing else.
 
 **Residency = +0.82 ms, and the two ranges overlap**, so it is not distinguishable from zero by this
 instrument. What it does establish is a ceiling: residency is about a millisecond, against the
-~11-14 ms the drawn wood costs.
+~11 ms the wood itself costs (section 4) -- or the 13.65 ms that EVERYTHING drawn at the stand
+costs over the up view (section 3), of which the wood is the larger part.
 
 ### The pair that does NOT work: camera up, forest ON vs OFF (`evidence/366-grid3-up.txt`)
 
@@ -158,7 +162,7 @@ them stored in `ServerStorage.GridWood` where no client ever sees them.
 
 **What IS attributable to the wood the client draws:** `GraphicsParts`, the renderer's own memory,
 which is the one tag the detach moves and it moves it identically every time --
-**16.6 MB detached, 27.1-27.7 MB attached, in all four pairs: +11.1 MB**, and again +11.0 MB at n=4 in `evidence/366-grid3-up.txt` (16.6-16.7 detached, 27.2-27.7 attached). `BaseParts` (565-582),
+**16.6 MB detached, 27.1-27.7 MB attached, in all four pairs: +10.5 MB on the first pair and +11.1 on the other three**, and again +11.0 MB at n=4 in `evidence/366-grid3-up.txt` (16.6-16.7 detached, 27.2-27.7 attached). `BaseParts` (565-582),
 `Instances` (336-379), `GraphicsMeshParts` (8.1) and `GraphicsTexture` (121.8) do not move at all,
 because the detach keeps every instance alive.
 
@@ -186,9 +190,10 @@ Note also that OFF is tight (18.1-21.2) where ON is wild (21.4-35.9): the wood i
 the variance.
 
 Section 3's independent three-station run, a different Play session, puts the stand's drawn-wood
-cost at `stand 35.38 - up 21.73 = +13.65 ms` with residency held constant on both sides. The two
-are not averaged into each other: +10.92 is wood present vs absent, +13.65 is wood drawn vs wood
-resident-but-not-drawn, and they bracket the same thing from either side.
+cost at `stand 35.38 - up 21.73 = +13.65 ms` with residency held constant on both sides. **That
+13.65 is everything drawn at the stand**, not the wood alone -- the up view still draws 125,523
+triangles of something -- so it is an upper bracket. The two are not averaged into each other:
++10.92 is wood present vs absent, +13.65 is the whole stand view against looking away from it.
 
 ## 5. Why 360b read "+30 % at the lobby"
 
@@ -224,8 +229,8 @@ window (282-598 frames per sample, printed on every line). No `os.clock` spans a
 |---|---|---|---|---|
 | the dealt cell's wood gone | **-10.92 ms (-35 % of the ON median 31.13)** | occlusion flips; -40 k net | the trees she asked for, gone | -- |
 | `RenderFidelity = Performance` on the 10,353 tree MeshParts (`evidence/366-lod.txt`) | **-2.20 ms (-8.7 % of its own ON median 25.40)**, all 3 pairs improved (28.92->26.98, 25.40->23.20, 23.13->21.04) | **2,423,487 -> 1,914,595 (-21 %)** | coarser trunk and branch shape close in | **yes** -- `Places.plantOne` already writes part properties |
-| forest `CastShadow = false` (`evidence/366-shadow-out.txt`) | -0.33 ms (-1.2 %), noise | 0 | trees stop casting shadows | yes, same place |
-| `Lighting.GlobalShadows = false` | -3.01 ms (-11 %) | 0 | the whole scene loses shadows | Lighting is not Rojo-owned |
+| forest `CastShadow = false` (`evidence/366-shadow-out.txt`) | -0.33 ms (-1.2 %), **soft** | 0 | trees stop casting shadows | yes, same place |
+| `Lighting.GlobalShadows = false` | **-2.68 ms** on its own (B->C); the -3.01 ms A->C figure is this lever AND the forest's own shadows together. **Soft** | 0 | the whole scene loses shadows | Lighting is not Rojo-owned |
 | residency / wood out of frustum | **-0.82 ms** (section 3a's lobby pair, ranges overlapping) | 0 | nothing | nothing to change |
 | cells not dealt | **0** | 0 | nothing | already done (task 337) |
 
@@ -299,6 +304,11 @@ above is like-for-like because both sides are read with my rule.
 * `ft-open.sh` was **not** used (360b section 9: it can spawn a second Studio and kill the session
   holding the plant). The existing session was used throughout;
 * **never Saved, Published or Drafts-Committed**; no code was checked out in `driven-hunt-karen`;
+* **every property this task wrote was written on the CLIENT, inside a Play session that has since
+  been stopped**, so none of it could outlive the run: the `GridForest` detach (`restored=true` on
+  its own last line), `CastShadow`, `GlobalShadows` and `RenderFidelity`. `evidence/366-lod.txt`
+  prints no `restored=` line -- the probe does set `RenderFidelity` back to `Automatic` after its
+  last sample, but the file does not show it, so the Play stop is what the claim rests on;
 * game error lines in the console at the end of each session: **0** (`366-console-END.txt`,
   `366-console-R2.txt`, `366-console-R3.txt`, searched for
   `Stack Begin`, `attempt to`, `invalid argument`). The two that appeared mid-session were this

@@ -1,21 +1,105 @@
-1. `reviews/task-366/MEASUREMENTS.md` §3a + `evidence/366-grid2.txt` — the residency figure the round-1 finding demanded is a minimum-vs-minimum difference between cells whose own within-cell spread is 12x the effect, transcribed as a "median". Evidence: the four summary lines are each the LOWEST of their two samples, column by column — `up/ON p95 median 19.84` against samples `p95 30.47` and `p95 19.84`; `stand/ON p95 median 29.31` against `29.31` and `41.78`; `up/OFF 18.99` of (19.02, 18.99); `stand/OFF 21.31` of (21.31, 23.61) — and the memory column is picked the same way, so §3a's up/ON row quotes sample 2's p95 (19.84) beside sample 1's memory (4,927.5 MB). The same probe family computes a real median at n=4 (`366-forestoff-c1s4.txt`: `median p95 31.13` = (28.19+34.08)/2), so this is the n=2 case picking the low sample, not a convention stated anywhere. Consequence: `RESIDENCY = up/ON - up/OFF = +0.85 ms` is min(19.84, 30.47) - min(18.99, 19.02); with the pairs' means it is +6.15 ms, and across the four possible pairings it ranges 0.82 to 11.48 ms. The derived `DRAWING ... = +9.47` (means: +10.39) and `wood present vs absent at the stand = +8.00` (means: +13.09) are built the same way — and §4 and REQUEST.md claim 2 offer that +8.00 as "an independent 2x2 ... puts the same quantity at +8.00 ms", i.e. as corroboration of a number the statistic itself depressed. This document's own §6 is the reason it matters: "a single 8-10 s p95 window in this place does not separate a 30 % effect from nothing", and up/ON's two windows differ by 10.63 ms while the effect claimed off them is 0.85 ms. Required: either repeat the up/ON and up/OFF cells to n>=4 interleaved and quote the median with its range as §4 does, or withdraw +0.85 / +9.47 / +8.00 from §0, §3a, §7, §9.5, §9.7 and ESCALATE's candidate table and option D, and quote the residency isolate that is already committed and clean — `evidence/366-forestoff-lobby.txt`, 4 ON and 4 OFF interleaved with `Opaque` the identical 2,452,223 on both sides, i.e. residency varied with drawing held exactly constant, +0.82 ms with the two ranges overlapping (ON 25.31-25.66, OFF 22.97-26.12).
+PASS (item 7 NOT PROVEN)
 
-2. `reviews/task-366/MEASUREMENTS.md` §3a and §9.5 (same text in REQUEST.md claim 3, ESCALATE.md candidate row 2 and §6) — the confound's sign is stated backwards, so the stated ceiling is a floor, and it is the stated basis for ESCALATE option D. Evidence: "the resident side is also the side with 1.65 M **fewer** triangles to draw, and it is still the **dearer** of the two by 0.85 ms. Residency's own cost is therefore **at most ~0.9 ms**, and the true figure is lower." The two sides are up/ON = 19.84 ms at 126,887 tris and up/OFF = 18.99 ms at 1,778,814 tris, so t(ON) - t(OFF) = R - [D(1,778,814) - D(126,887)], giving R = 0.85 + ΔD with ΔD >= 0: the extra triangles inflate the OFF side's time and SHRINK the measured gap, so 0.85 ms is a lower bound on residency and correcting the confound widens it. "Dearer despite drawing less" is exactly the statement that something other than drawing accounts for >= 0.85 ms — which is residency. `evidence/366-grid2.txt` carries the same error in its own derived line, labelling the pair `RESIDENCY (same ~nothing drawn)` for a comparison of 126,887 against 1,778,814 triangles. Load-bearing: `ESCALATE.md` option D reads "Its ceiling is bounded by what residency costs: **<= 0.9 ms p95 and 11.1 MB**", and §9.7 "Its frame-time ceiling is section 3a's <= 0.9 ms" — a Director deciding `StreamOutBehavior` is being given a ceiling the cited pair does not establish. Required: strike "so the true figure is lower" / "at most" from §3a, §9.5, claim 3 and both ESCALATE occurrences, and state the pair as a gap of +0.85 ms whose confound makes it a floor; then rest the <= ~0.9 ms ceiling on the lobby pair of finding 1, which holds drawing constant and does establish it.
+Rule 5, stated so this PASS is not read as rule 5 having been met: nothing in this change is animal
+behaviour or shooting, and no code changed, so no core path moved. The one thing Karen will judge by
+looking -- claim 7's `366-GA-NOW.png`, the trunk wall behind C1 stand 4 -- was captured in HER place
+(130094961655666) and described by the Builder (`MEASUREMENTS.md` section 8: "a continuous wall of
+spruce and birch trunks across the full width at ~15-40 studs, canopy closing the top"), but the
+frame is NOT committed, I cannot see it, and the sky rule (`366-sky.py`) and both PNGs live only in
+`<runs-dir>`. The frame-time finding itself -- 31.13 ms at the stand against 20.22 ms with the wood
+detached -- has NEVER BEEN PLAYED by anyone, which the request says itself ("Nobody has played it");
+that is the decision ESCALATE.md hands the Director. Item 7 is therefore not proven in her place in
+the sense rule 5 means.
+
+Duty (a), delete the producer, done by reading on every case offered:
+- `366-forestoff-lobby.txt` is the one case that could have been the same condition twice: `Opaque`
+  is the identical 2,452,223 on all eight samples, so the triangle column cannot tell ON from OFF.
+  It survives the test on the memory column alone -- ON 5011/5018/5017/5016 MB against OFF
+  5006/5008/5008/5009 MB, every ON above every OFF, interleaved -- so the detach demonstrably
+  happened and the pair is not one state read twice. The claim drawn from it (+0.82 ms, ranges
+  overlapping, not distinguishable from zero) is what the data supports.
+- `366-forestoff-c1s4.txt`: with the detach deleted, `Opaque` 2,418,401 vs 2,378,153 and the
+  medians 31.13 vs 20.22 collapse. Fails without the producer, correctly.
+- `366-grid3-up.txt`, `366-grid3-three.txt`: medians re-derived by hand from the per-sample lines --
+  ON (19.15, 19.95, 21.19, 31.67) -> 20.57; OFF (18.05, 18.52, 18.76, 18.77) -> 18.64; gap 1.93.
+  Round 2's `s[ceil(n/2)]` minimum bug is verifiably gone FROM THE OUTPUT ITSELF (even n averages
+  the two middle values in all five summaries), which is the right way to prove it, since
+  `366-grid3.luau` is not committed and I could not read it.
+- Claim 4's server/client pair is not the same engine identity: the two files disagree on
+  `Workspace parts 27488`/`GridWood 92052` against `parts=2857`/`GridForest parts=0`, and agree to
+  the byte on `BaseParts 565.4`, `GraphicsParts 14.9`, `Instances 336.6` plus nine more tags, while
+  `Internal`, `LuaHeap`, `TerrainVoxels`, `Gui`, `Animation`, `Navigation` differ exactly as claimed.
+  The discriminator moves and the measurand does not, which is the structure the conclusion needs.
+- Claim 7's sky rule discriminates: run over 360b's own frames it reads GA 13.01 -> 2.29 %, so with
+  the planting deleted the case would not pass at 1.95 %.
+- Claim 10's harness lines name `eae6bf53` and `c311f278`, NEITHER of which is the request's
+  `Code commit: 4330c6ca`. That is carried only by the docs-only exemption, and I checked the
+  exemption rather than took it: `harness_gate` in `tools/agents.py` -- "docs-only change: no
+  harness line required" -- fires when no path under `CODE_PATHS` appears in either
+  `base...head` or `code_full~1..head`, and `.agent-evidence/changed-files.txt` has 22 entries, none
+  under `src/`, `tests/` or `tools/`. `paperwork-after-code-commit.txt` says OK (only
+  `reviews/task-366/REQUEST.md` followed the tested commit).
+
+Claim 5's two code facts hold: `src/client/Camera/init.luau` carries the quoted
+`RunService:BindToRenderStep(Config.RENDER_STEP_NAME, Enum.RenderPriority.Camera.Value, update)`,
+and `src/client/Camera/Rig.luau`'s header is "Camera.Rig: THE ONLY WRITER OF
+workspace.CurrentCamera IN src/". Claim 9 holds: `366-attrs-BEFORE.txt` / `366-attrs-END.txt` are
+identical, and `366-census-EDIT.txt` / `366-census-END.txt` are identical down to
+`PlantEpoch=58575af518ae6156` and `parts=108396`.
 
 ## Notes (non-blocking)
-- `MEASUREMENTS.md` §2 — the quoted block `0.5s:Scriptable/6791 ... 14.0s:Scriptable/6791` is attributed to `(output: evidence/366-camcheck.txt)`, and that file's single line reads `7082` at all 28 samples. The 6,791 run is from an uncommitted earlier session; the paragraph names both numbers two sentences later and REQUEST.md claim 5 has them the right way round. Swap the block for the committed line.
-- `MEASUREMENTS.md` §2 — "`src/client/Camera/Rig.luau` owns the camera and binds at `Enum.RenderPriority.Camera`". `Rig.luau` is the only writer (its header says so), but the bind is `src/client/Camera/init.luau`: `RunService:BindToRenderStep(Config.RENDER_STEP_NAME, Enum.RenderPriority.Camera.Value, update)`. Round 1 raised this; REQUEST.md claim 5 was fixed and MEASUREMENTS.md was not.
-- `MEASUREMENTS.md` §6 — "same 2,418,401 drawn triangles" across all six samples is contradicted by `evidence/366-noise-1.txt`, where s5 and s6 read `Opaque 2446353`. The 1.47x survives (min s1 and max s4 are both in the 2,418,401 group); the sentence should say four of the six.
-- `MEASUREMENTS.md` §3a — "Every condition in which the near wood is not in front of the camera sits at 19-21 ms" is contradicted by its own evidence: `366-grid2.txt` up/ON sample 1 is p95 30.47, and the lobby rows are 22.97-26.12.
-- `MEASUREMENTS.md` §0 and §3a say "+10.92 ms"; §4 and §7 say "+10.91"; `evidence/366-forestoff-c1s4.txt`'s own last line prints "+10.92". The request's round-2 list claims this was settled at 10.91. Pick one and let the evidence file's wording stand or be explained.
-- `MEASUREMENTS.md` §7 heading — "(all at C1 stand 4, **interleaved**)" is true of the LOD rows (`366-lod.txt` alternates Automatic/Performance three times) but not of the shadow rows: `366-shadow-out.txt` is one A->B->C->D sequence. Its two controls drift 2.20 ms with nothing changed (A 27.24, D "restored (control 2)" 29.44), which is larger than the -0.33 ms it calls noise and comparable to the -3.01 ms it reports for `GlobalShadows`; both shadow figures are taken against A alone.
-- `MEASUREMENTS.md` header — "One Play session, started and stopped by this session" against REQUEST.md's "Three Play sessions" and §3a's "a different Play session". Stale from round 1.
-- `MEASUREMENTS.md` §3 and §2 — the three-station table (19.54/18.78, 22.76/22.76, 35.47/36.03) and the `HELD: offset 0.00 studs` line that proves the park held have no output under `evidence/`, though they are what §2's correction rests on. Round 1's note asked for the files the conclusions rest on; twelve were committed and these were not.
-- `MEASUREMENTS.md` §10 — cites `366-census-END.txt`, `366-attrs-BEFORE.txt` and `366-attrs-AFTER.txt`; REQUEST.md claim 9 cites `366-attrs-END.txt`. None is committed, and the one census that is (`evidence/366-census-EDIT.txt`) is used as the opening Edit baseline in §1 and as the match for the closing census in §10. The numbers it carries (32,966 / 108,396 / 8 cells / `PlantEpoch=58575af518ae6156`) do match what §10 quotes.
-- `REQUEST.md` claim 4 — "returns **byte-identical** numbers" holds for the three tags it names and for `Signals`, `Script`, `GraphicsMeshParts`, `GraphicsParticles`, `GraphicsSpatialHash`, `GraphicsTerrain`, `GraphicsTexture`, `GraphicsTextureCharacter`, `Sounds`; `Internal` (4000.7/4002.5), `LuaHeap` (1513.7/1495.9), `TerrainVoxels`, `Gui`, `Animation` and `Navigation` all differ. The conclusion does not need them to: `BaseParts 565.4` identical while the server file shows `Workspace parts 27488` / `GridWood parts 92052` and the client file `Workspace ... parts=2857` / `GridForest parts=0` is the proof, and it is a strong one — the two files are demonstrably different DataModels.
-- `ESCALATE.md` §2.2 — "One **10 s** frame-p95 sample"; the samples are 8 s. The request's round-2 list says this was corrected, and it was corrected in MEASUREMENTS.md §6 only.
-- the harness is red on `main` (`29/34 @ c311f278`, clean tree) and the docs-only exemption is real — `tools/agents.py` `cmd_harness`, `if not changed: print("[agents] docs-only change: no harness line required")`, and `changed-files.txt` touches no `src/`, `tests/` or `tools/` path, so this branch cannot have caused it. The Director's own item; it gates every later merge.
-- Rule 5, stated so this review is not read as rule 5 having been met: nothing in this task was seen by Karen. No item is animal behaviour or shooting, so no core item is outstanding — but claims 2, 3, 6 and 8 are probe frame-times, claim 7's `366-GA-NOW.png` is not committed and was described by the Builder, not seen by me or by her, and the decision the escalation exists to ask ("28-35 fps with the trees, ~50 without, keep them?") has still not been put to her.
+
+- `MEASUREMENTS.md` section 1, "What the resident wood is (`evidence/366-client-census.txt`): 10,353
+  MeshParts plus 901 Parts; ... `Anchored` 11,254; `CastShadow` 11,254" -- the cited file contains
+  none of it. `366-client-census.txt` reads `models=1803 parts=6663` plus a memory-tag list and no
+  property breakdown at all. Fix: cite the probe output that holds those counts, or commit it.
+- `MEASUREMENTS.md` section 1, "`CastShadow` 11,254" is contradicted by committed evidence:
+  `366-shadow-out.txt` reads "forest parts touched=11254, had CastShadow=true: 9923" over the same
+  part count. One of the two is wrong; 9,923 is the one with a committed line behind it.
+- `MEASUREMENTS.md` section 1, "does not fall again: `Default` **does not stream out except under
+  memory pressure**, which is why nothing is released when the player walks away" -- the walking-away
+  case was never measured, and section 9.6 says why ("moving the character to the lobby mid-drive
+  did not stick -- the server pulled it back"). The growth 6,663 -> 11,254 is measured; the non-fall
+  is an inference from the engine's documented semantics. Say which is which, since it is option D's
+  premise.
+- `TASKS.md` Builder status, third bullet -- still carries the pair this round WITHDREW, and carries
+  it with the sign reversed: "Residency is ~free (camera straight up, same 11,254 resident parts:
+  p95 19.2 ms, against 20.2 ms with the forest detached entirely)". In `366-grid3-up.txt` the
+  resident side is the DEARER one (ON 20.57 against OFF 18.64), and neither 19.2 nor 20.2 appears in
+  any committed file. The later paragraph in the same entry states the correction, so the entry now
+  asserts both. Strike the bullet's parenthesis.
+- `ESCALATE.md` section 2 item 1 still quotes the uncommitted reading with the committed run's
+  sample count: "the camera sat **6,791 studs** from the station it was asked for, constant across 28
+  samples over 14 s". The committed `366-camcheck.txt` is 28 samples over 14 s at **7,082**; 6,791
+  was the earlier session. `MEASUREMENTS.md` section 2 was fixed this round and `ESCALATE.md` was not.
+- `ESCALATE.md` option E, "`Lighting.GlobalShadows=false`: -3.01 ms (-11 %)" -- that is A->C in
+  `366-shadow-out.txt`, and C has forest `CastShadow` off as well ("C GlobalShadows=off too"), so
+  -3.01 is both levers together. `GlobalShadows` on its own is B->C = 26.91 - 24.23 = -2.68 ms.
+  `MEASUREMENTS.md` section 7 marks both shadow figures soft; the ESCALATE table that the Director
+  will actually read does not carry that caveat.
+- `MEASUREMENTS.md` section 4 and claim 2, "puts the stand's DRAWN-wood cost at `35.38 - 21.73 =
+  +13.65 ms`" -- that difference is the cost of EVERYTHING drawn at the stand, not the wood alone;
+  the up view draws 125,523 triangles of anything. It is a valid upper bracket and section 3's own
+  prose is careful about it ("the lobby's own content costs 31.1"), but "the stand's DRAWN-wood
+  cost" and section 0's "~11-14 ms the drawn wood costs" read as if the whole 13.65 were wood.
+- `MEASUREMENTS.md` section 3b, "16.6 MB detached, 27.1-27.7 MB attached, in all four pairs: +11.1
+  MB" -- `366-grid2.txt`'s first pair is 27.1 against 16.6 = +10.5, not +11.1. The other three are
+  +11.1.
+- `366-lod.txt` prints no `restored=` line, where `366-forestoff-*.txt` print `restored=true` and
+  `366-shadow-out.txt` prints "D restored (control 2)". Its last sample is `Performance 3`, so the
+  file does not show `RenderFidelity` put back on the 10,353 MeshParts. The Edit census END proves
+  the plant's instance counts intact, but a property is not a count. A restore line would close it.
+- Session count is inconsistent across the four documents: the request header and
+  `MEASUREMENTS.md` say "Five Play sessions", claim 9 says "after each of the three Play sessions",
+  and `ESCALATE.md` and the `TASKS.md` status both say "one Play".
+- Claim 10's headline, "it FAILs the same way on `main`", is contradicted by its own body, "The
+  failing specs **differ** between runs" -- which is the point being made. "FAILs red the same way"
+  or "is red too" would say it.
+- Citations: the L-136 answer sends the reader to "claim 9" for the named flakes and the control run;
+  they are claim 10. Section 3's `Opaque drawn` column quotes one value per station where rep2
+  differs (stand rep2 is 2,482,711 against the table's 2,418,401), and section 4's `Opaque ON vs OFF`
+  column likewise omits that ON4/OFF4 read 2,431,239 / 2,390,991 -- the 40,248 delta is identical
+  either way, so nothing turns on it.
 
 ---
-REVIEWER verdict on commit `9511a6984a45aed95237f7d6dec4573d66bf788a` (round 2) · 2026-11-14 03:31 UTC · session cost $1.98, 33 turns · written by tools/agents.py
+REVIEWER verdict on commit `2624c0779777bb6e32e2c58ea53ac85456c5f973` (round 3) · 2026-11-14 03:47 UTC · session cost $1.91, 36 turns · written by tools/agents.py

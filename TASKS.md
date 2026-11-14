@@ -796,14 +796,15 @@ the repo, transcribed verbatim and marked as the Director's. Newest first.
 **Builder status, 2026-11-14: STEP 3 -- MEASURED, NO CODE, ESCALATED.** The dispatch's own step 3
 fires: the cost is the dealt cell's wood **in the camera's frustum**, and there is no invisible wood
 to remove. Measured in her Forest Test at `c311f278` (the commit `driven-hunt-karen` serves on
-:34873), one Play, held camera, interleaved A/B:
+:34873), five Play sessions, held camera, interleaved A/B:
 
 - **cells not dealt cost nothing on the client**: task 337's `Places.Cells` already stores 7 of the
   8 cells in `ServerStorage.GridWood` (28,535 models / 92,052 parts), and `Workspace.GridForest` on
   both server and client holds **C1 only**;
 - **the dealt cell's wood costs +10.92 ms p95 (+54 %) at C1 stand 4 and +0.82 ms (+3.4 %) at the
-  lobby**, where it draws **0 extra triangles**. Residency is ~free (camera straight up, same
-  11,254 resident parts: p95 19.2 ms, against 20.2 ms with the forest detached entirely);
+  lobby**, where it draws **0 extra triangles**. That lobby pair is also the one thing that isolates
+  RESIDENCY, because it holds drawing exactly constant, and its two ranges overlap: residency is
+  about a millisecond and is not distinguishable from zero;
 - **two instrument faults make 360b's two rows one measurement, not two.** `360b-park.luau` writes
   `cam.CFrame` once and never binds, so `src/client/Camera/Rig.luau` (bound at
   `RenderPriority.Camera`) overwrites it every frame -- measured: the camera sat **6,791 studs** from
@@ -832,6 +833,54 @@ about a millisecond rather than a figure.
 Full tables: `reviews/task-366/MEASUREMENTS.md`, with the probe output the conclusions rest on
 committed under `reviews/task-366/evidence/`. The options and the decision the Director owns:
 `ESCALATE.md`, 2026-11-14. No `src/`, `tests/` or `tools/` file changed.
+
+**Reviewer: PASS, round 3** (`reviews/task-366/RESULT.md`, verdict on `2624c077`), with
+**item 7 marked NOT PROVEN**. Rounds 1 and 2 each found two blocking items and every one of them was
+a real measurement fault in this Builder's own work -- memory never taken; a "median" that was a
+MINIMUM at n=2; a confound whose sign was stated backwards. All four were closed by re-measuring,
+not by rewording, and the corrected answers are in `MEASUREMENTS.md`.
+
+The notes that were factual errors in the Director's own decision document were fixed in the same
+round rather than queued, because `ESCALATE.md` is what the merge decision is read from: the
+camcheck figure (7,082, the committed run, not 6,791), option E's shadow row (`GlobalShadows` alone
+is **-2.68 ms**; the -3.01 ms was that lever AND the forest's own shadows together, and both are
+soft because that one sequence is not interleaved and its controls drift 2.20 ms), the `CastShadow`
+count (9,923, the committed figure, not 11,254), the withdrawn residency bullet above, and the
+session count. The rest is queued here:
+
+- **366(a) NOT PROVEN, and it is the whole decision: nobody has looked.** The Reviewer's own words:
+  the frame-time finding *"has NEVER BEEN PLAYED by anyone"*, and `366-GA-NOW.png` -- the trunk wall
+  behind C1 stand 4 -- was described by this Builder, not seen by Karen, and is not committed. The
+  question `ESCALATE.md` puts to her is one sentence: *the trees behind the stand cost about half
+  the frame rate there, 28-35 fps with them against ~50 without -- keep them?* Until she answers it,
+  nothing here is decided.
+- **366(b)** `<runs-dir>/366-props.luau`'s output is not committed, so `MEASUREMENTS.md` section 1's
+  property breakdown (RenderFidelity, CollisionFidelity, CanCollide/CanQuery, ModelStreamingMode) is
+  uncheckable. It is labelled as such in the document. Commit it, or re-take it, next time any of
+  those properties is proposed as a lever.
+- **366(c)** `evidence/366-lod.txt` prints no `restored=` line, so the file does not itself show
+  `RenderFidelity` put back on the 10,353 MeshParts. The probe does set it back, and the write was
+  client-side in a Play session that has since been stopped, so nothing could persist -- but a
+  restore line would close it by evidence instead of by argument. Every A/B probe in this family
+  should print one, as `366-forestoff-*` does.
+- **366(d)** `MEASUREMENTS.md` section 4's `Opaque ON vs OFF` column quotes one value per side where
+  the fourth pair read 2,431,239 / 2,390,991. The 40,248 delta is identical either way, so nothing
+  turns on it, but the column reads as if all four pairs were identical.
+- **366(e) the harness is RED on `main`** -- `[harness] FAIL: 29/34 checks @ c311f278 (clean tree)
+  scope=all`, with `weapon_shot.spec` x2, `deer_hitbox.spec` and `semiauto_client.spec` failing, and
+  a different set failing on the next run (`licence_popup.spec`). **This gates every task's merge
+  until someone owns it**, and it is not task 366's: no `src/`, `tests/` or `tools/` file is touched
+  here. It also gives task 365's note **365(f)** -- *"one server assertion failed ... and was not
+  captured by name"* -- its names.
+- **366(f) two instruments in `<runs-dir>` are wrong and should be retired, not just worked around.**
+  `*-park.luau` (352b's and 360b's) writes `cam.CFrame` once and never binds, so
+  `src/client/Camera/init.luau` overwrites it every frame and **every station reading ever taken
+  with it is the player's own view** -- measured at 7,082 studs off station. `366-hold.luau` /
+  `366-grid3.luau` are the corrected form: they bind at `RenderPriority.Camera.Value + 10` and print
+  `held offset 0.00 studs` so a reader can see the park held. And a single 8 s p95 window in this
+  place is worth +/- 47 %, with absolutes drifting between sessions as well (the same three stations
+  read 19.5/22.8/35.5 in one and 21.7/31.1/35.4 in another), so no future perf claim should rest on
+  fewer than four interleaved samples quoted as a median with its range.
 
 ### Task 365 - 2026-11-14 (the Director's, transcribed verbatim)
 
