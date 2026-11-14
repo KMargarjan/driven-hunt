@@ -127,10 +127,12 @@ end
 -- task 281's head and the report said PASS either way (TASKS.md 285). A `notProven` note is an
 -- ordinary note -- so nothing about pass or fail changes -- plus a COUNT the harness prints on its
 -- own line, so the Builder reads how much of the run was actually exercised.
--- THE WORDS THE SPECS ALREADY USE. Eleven lines in two files end their fallback with "NOT PROVEN
--- in this run" -- ten in `tests/server/weapon_shot.spec.luau` and one in `range.spec.luau` -- so the
+-- THE WORDS THE SPECS ALREADY USE. Ten lines in two files end their fallback with "NOT PROVEN in
+-- this run" -- nine in `tests/server/weapon_shot.spec.luau` and one in `range.spec.luau` -- so the
 -- marker is read out of the note rather than requiring every one of them to be rewritten, and
--- `TestKit.notProven` is the explicit way to say it for a new case.
+-- `TestKit.notProven` (two callers so far, both in `weapon_shot.spec`) is the explicit way to say it
+-- for a new case. A note about a case that RAN and BROKE must not carry the marker: the count means
+-- "could not be exercised", not "failed" (round 2 note).
 TestKit.NOT_PROVEN = "NOT PROVEN"
 
 function TestKit.notProven(text: string)

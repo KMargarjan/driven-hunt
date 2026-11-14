@@ -81,6 +81,12 @@ end
 -- aim-hold scenario's right mouse had already been and gone before the case took its baseline, and
 -- a counter that had already moved could never move again. A wall-clock race, not a camera.
 local preReplay = Camera.stats()
+-- ...AND THE MODE HISTORY'S LENGTH AT THE SAME INSTANT (round 2 finding 1). `Camera.modeHistory()`
+-- grows from boot and the aim case scans it from a baseline index: read inside the `it`, that index
+-- carried exactly the race the counters were moved here to close -- in a run where both replayed
+-- holds land before the case starts, every counter claim passes instantly and the scan then walks
+-- an empty range. One instant, one baseline, for both.
+local preReplayHistory = #Camera.modeHistory()
 
 -- The harness replays every scenario once the LAST expected spec says it is ready, so this file
 -- signals at require time like the others (docs/design/shotgun.md section 13.3).
@@ -428,6 +434,16 @@ return function()
 					if best then string.format("%.3f", best) else "none"
 				)
 			)
+			-- THE SESSION FIGURE BEFORE THE ASSERTIONS, not after them (round 2 note): the one run
+			-- where the budget fires is the run that needs it, and an assertion ends the case.
+			TestKit.note(
+				string.format(
+					"camera_client: the session so far: %.3f ms average, %.3f ms worst, over %d frames",
+					stats.avgUpdateMs,
+					stats.maxUpdateMs,
+					stats.frames
+				)
+			)
 			-- NOT ONE FULL WINDOW IN THREE TRIES is a client that could not render 120 frames in 12
 			-- seconds, three times over. That is a fault, not a hitch, so it fails rather than
 			-- waiving the budget -- and the note above says how short each try was.
@@ -676,7 +692,8 @@ return function()
 			-- THE PRE-REPLAY BASELINE, not one taken here: see `preReplay` at the top of the file.
 			local before = preReplay
 			local baselineEnters, baselineExits = before.aimEnters, before.aimExits
-			local baselineHistory = #Camera.modeHistory()
+			-- THE PRE-REPLAY INDEX, not one read here: see `preReplayHistory` at the top of the file.
+			local baselineHistory = preReplayHistory
 			print(
 				string.format(
 					"[camera_client] baseline before the replay: enters=%d exits=%d history=%d",
@@ -711,7 +728,7 @@ return function()
 				local now = Camera.stats()
 				TestKit.note(
 					string.format(
-						"camera_client: NOT PROVEN -- no replayed hold reached the aim action."
+						"camera_client: FAILING -- no replayed hold reached the aim action."
 							.. " enters %d -> %d, exits %d -> %d; mode now %s; in hand %s;"
 							.. " bound [%s]; history %s",
 						baselineEnters,
@@ -762,12 +779,17 @@ return function()
 			local history = Camera.modeHistory()
 			print("[camera_client] mode history: " .. table.concat(history, ","))
 			local sawAimingAfterBaseline = false
+			local aimingAfterBaseline = 0
 			for index = baselineHistory + 1, #history do
 				if history[index] == "Aiming" then
 					sawAimingAfterBaseline = true
+					aimingAfterBaseline += 1
 				end
 			end
 			expect(sawAimingAfterBaseline).to.equal(true)
+			-- BOTH replayed holds, in the history as well as in the counters, counted from the one
+			-- pre-replay instant (round 2 finding 1).
+			expect(aimingAfterBaseline >= 2).to.equal(true)
 		end)
 	end)
 
@@ -1350,7 +1372,7 @@ return function()
 			Camera.Viewmodel.setSource(function()
 				return handle
 			end)
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				Camera.Viewmodel.clear()
 				task.wait(0.3)
 
@@ -1603,7 +1625,7 @@ return function()
 				return fakes[name]
 			end)
 
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				stage = "the first build"
 				Camera.Viewmodel.clear()
 				task.wait(0.3)
@@ -1891,7 +1913,7 @@ return function()
 			Camera.Viewmodel.setSource(function()
 				return handle
 			end)
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				Camera.Viewmodel.clear()
 				task.wait(0.3)
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
@@ -1937,7 +1959,7 @@ return function()
 			Camera.Viewmodel.setSource(function()
 				return handle
 			end)
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				Camera.Viewmodel.clear()
 				-- THE SOURCE IS ASKED FOUR TIMES A SECOND, NOT EVERY FRAME (task 133's throttle), and
 				-- `clear()` does not drop the cached Handle -- so an update called the instant after
@@ -2096,7 +2118,7 @@ return function()
 			Camera.Viewmodel.setSource(function()
 				return handle
 			end)
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				Camera.Viewmodel.clear()
 				task.wait(0.3) -- the source throttle: see the case above
 				local cam = CFrame.new(0, 12, 0)
@@ -2189,7 +2211,7 @@ return function()
 			Camera.Viewmodel.setSource(function()
 				return handle
 			end)
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				Camera.Viewmodel.clear()
 				task.wait(0.3) -- the source throttle: see the case above
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
@@ -3112,7 +3134,7 @@ return function()
 			Camera.Viewmodel.setClock(function()
 				return fake
 			end)
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
 				expect(Camera.Viewmodel.weaponId()).to.equal("shotgun")
 				-- THE CLOCK DROPS, AND `setClock` IS NOT CALLED IN BETWEEN, so this bites the throttle

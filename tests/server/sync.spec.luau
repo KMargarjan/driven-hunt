@@ -10,6 +10,45 @@ local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local DEV_PLACE_ID = 136410205938347 -- default.project.json servePlaceIds
 
 return function()
+	-- THE REPORT'S OWN COMPACTION (task 367, round 2 note). `TestKit.compactFailure` is what puts
+	-- the failing spec's name into the report, and `describe_failure` in tools/studio_mcp.py reads
+	-- the `" | "` it writes. That contract was pinned only by a literal transcribed into the Python
+	-- selftest, so the Luau half could drift and degrade silently back to the hole TASKS.md 362b
+	-- fell into: a failure printed with no spec and no line. This file is the harness seam, so the
+	-- contract is asserted here.
+	describe("the report names the spec that failed", function()
+		it("keeps the innermost spec frame, whatever the message contains", function()
+			local message =
+				'TestService: X.testez.TestRunner:86: Expected value "nil" (nil), got "no-range" (string) instead'
+			local compact = TestKit.compactFailure(
+				message
+					.. "\nX.testez.Expectation:47 function equal"
+					.. "\nServerStorage.Tests.licence_popup.spec:367"
+					.. "\nServerStorage.Tests.weapon_shot.spec:1"
+			)
+			-- THE SEPARATOR `describe_failure` SPLITS ON, and the INNERMOST frame, not the last.
+			expect(string.find(compact, " | ServerStorage.Tests.licence_popup.spec:367", 1, true)).to.be.ok()
+			expect(string.find(compact, "weapon_shot.spec:1", 1, true)).to.equal(nil)
+			-- THE MESSAGE IS NEVER READ AS A FRAME: TestEZ puts its own position in front of the
+			-- text, and taking that as the frame printed the wrapper's line twice and never the
+			-- stack's own.
+			local ownPosition = TestKit.compactFailure(
+				'ReplicatedStorage.ClientTests.semiauto_client.spec:84: Expected value "true", got "false"'
+					.. "\nReplicatedStorage.ClientTests.semiauto_client.spec:262"
+			)
+			expect(string.find(ownPosition, " | ReplicatedStorage.ClientTests.semiauto_client.spec:262", 1, true)).to.be.ok()
+			-- A FAILURE WITH NO FRAME AT ALL still carries its message, and gains no separator.
+			local bare = TestKit.compactFailure("nothing recognisable here")
+			expect(bare).to.equal("nothing recognisable here")
+			-- AND THE 400-CHARACTER TRUNCATION THAT CAUSED 362b CANNOT COME BACK: a long message
+			-- used to push the frame past the cut, so the frame is kept and the MESSAGE is what
+			-- gets shortened.
+			local long = TestKit.compactFailure(string.rep("x", 900) .. "\nServerStorage.Tests.deer_hitbox.spec:528")
+			expect(string.find(long, " | ServerStorage.Tests.deer_hitbox.spec:528", 1, true)).to.be.ok()
+			expect(#long < 400).to.equal(true)
+		end)
+	end)
+
 	describe("Rojo sync", function()
 		it("runs in the Driven Hunt DEV place", function()
 			expect(game.PlaceId).to.equal(DEV_PLACE_ID)

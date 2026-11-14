@@ -66,7 +66,7 @@ return function()
 			container.Name = "HudBootSpecContainer"
 
 			local seen: Instance? = nil
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				local wasThere = Hud.whenReady(container, "Match", function(child)
 					seen = child
 				end)
@@ -104,7 +104,7 @@ return function()
 			early.Parent = container
 
 			local seen: Instance? = nil
-			local ok, err = pcall(function()
+			local ok, err = TestKit.tracedCall(function()
 				local wasThere = Hud.whenReady(container, "Match", function(child)
 					seen = child
 				end)

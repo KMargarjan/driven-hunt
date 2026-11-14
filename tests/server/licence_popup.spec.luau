@@ -369,6 +369,7 @@ return function()
 				local loaded = live.loaded[live.selected]
 				return if loaded ~= nil and loaded ~= "None" then loaded else nil
 			end
+			local reloadWhy: string? = nil
 			local heldId = Weapon.heldId(subject) or Weapons.PRIMARY
 			local heldRow = Weapons.row(heldId) or Weapons.ROWS[Weapons.PRIMARY]
 			local before = Weapon.getSnapshot(subject)
@@ -386,23 +387,25 @@ return function()
 					task.wait(1.1)
 					why = Weapon.onActionRequest(subject, "Reload", nil, nil)
 				end
+				reloadWhy = why
 				local deadline = os.clock() + 10
 				while ammoAhead() == nil and os.clock() < deadline do
 					task.wait(0.05)
 				end
 			end
 			local ahead = ammoAhead()
-			TestKit.note(
-				string.format(
-					"licence_popup: the live arm runs on %s, barrel %s held %s before and %s now;"
-						.. " its row ranges %s",
-					heldId,
-					tostring(before and before.selected),
-					tostring(before and before.loaded[before.selected]),
-					tostring(ahead),
-					tostring(ahead and heldRow.RANGE_STUDS[ahead])
-				)
-			)
+			TestKit.note(string.format(
+				"licence_popup: the live arm runs on %s, barrel %s held %s before and %s now;"
+					.. " its row ranges %s; the reload answered %s",
+				heldId,
+				tostring(before and before.selected),
+				tostring(before and before.loaded[before.selected]),
+				tostring(ahead),
+				tostring(ahead and heldRow.RANGE_STUDS[ahead]),
+				-- WHY, not just the state (round 2 note): an `empty-pocket` or `busy` refusal
+				-- burns the wait below and the note could not say which.
+				if reloadWhy ~= nil then reloadWhy else "nil (or no reload was needed)"
+			))
 			-- A BARREL WITH A SHELL IN IT IS THIS CASE'S OWN PRECONDITION, so a gun that could not
 			-- be loaded fails HERE, naming it, instead of failing the licence claim 40 lines down
 			-- with a reason that is not about licences.
