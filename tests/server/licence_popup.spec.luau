@@ -325,6 +325,56 @@ return function()
 				TestKit.note("licence_popup: no armed player, so the UNKNOWN aim was not driven live")
 				return
 			end
+
+			-- THE GUN THIS LIVE ARM IS ASKED THROUGH, AND A LOADED BARREL BEFORE IT IS (task 367).
+			--
+			-- MEASURED: this case failed 2 of 5 runs on main with `Expected nil, got "no-range"`,
+			-- because `onActionRequest`'s Aim branch reads `state.loaded[state.selected] or
+			-- state.ammo` and `"None"` -- an emptied barrel -- is a VALUE and not a hole
+			-- (`Shotgun.AmmoLoad`: *"None is a VALUE, never a hole"*), so `row.RANGE_STUDS["None"]`
+			-- is nil and the branch answers "no-range" before it ever asks about the licence. The
+			-- live player's barrels are whatever the replayed clicks of an earlier scenario left,
+			-- which is shared state between specs, so WHICH answer this case got was a coin toss.
+			--
+			-- THE OWNER'S OWN RELOAD puts a shell in the selected barrel, waited for on the
+			-- CONDITION rather than for a fixed delay. ESCALATE.md (task 367) carries the game
+			-- defect this uncovered: an emptied gun gets no licence advice at all, which is the
+			-- opposite of what the branch's own header promises.
+			local function ammoAhead(): string?
+				local live = Weapon.getSnapshot(subject)
+				if live == nil then
+					return nil
+				end
+				local loaded = live.loaded[live.selected]
+				return if loaded ~= nil and loaded ~= "None" then loaded else nil
+			end
+			local heldId = Weapon.heldId(subject) or Weapons.PRIMARY
+			local heldRow = Weapons.row(heldId) or Weapons.ROWS[Weapons.PRIMARY]
+			local before = Weapon.getSnapshot(subject)
+			if ammoAhead() == nil then
+				Weapon.onActionRequest(subject, "Reload", nil, nil)
+				local deadline = os.clock() + 10
+				while ammoAhead() == nil and os.clock() < deadline do
+					task.wait(0.05)
+				end
+			end
+			local ahead = ammoAhead()
+			TestKit.note(
+				string.format(
+					"licence_popup: the live arm runs on %s, barrel %s held %s before and %s now;"
+						.. " its row ranges %s",
+					heldId,
+					tostring(before and before.selected),
+					tostring(before and before.loaded[before.selected]),
+					tostring(ahead),
+					tostring(ahead and heldRow.RANGE_STUDS[ahead])
+				)
+			)
+			-- A BARREL WITH A SHELL IN IT IS THIS CASE'S OWN PRECONDITION, so a gun that could not
+			-- be loaded fails HERE, naming it, instead of failing the licence claim 40 lines down
+			-- with a reason that is not about licences.
+			expect(ahead).to.be.ok()
+			expect(type(heldRow.RANGE_STUDS[ahead :: string])).to.equal("number")
 			local root = subject.Character and subject.Character:FindFirstChild("HumanoidRootPart")
 			expect(root).to.be.ok()
 			local origin = (root :: BasePart).Position + Vector3.new(0, 2, 0)

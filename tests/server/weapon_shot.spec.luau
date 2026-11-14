@@ -407,6 +407,22 @@ return function()
 				return true
 			end)
 
+			-- AN EMPTY SKY FIRST (task 367). `Weapon.setCast` is the OWNER'S one caster, so the stub
+			-- above records every segment of every shot in the air -- including a shot the replayed
+			-- clicks fired a moment ago, whose `Flight` steps land in this list between the stub
+			-- going in and the drain below. MEASURED: `weapon_shot.spec:483` ("every later cast
+			-- walks the path from there") failed with a segment that did not continue the previous
+			-- one, which is what two interleaved flights look like. Waited for on the CONDITION,
+			-- and `casts` is emptied after it, so the sample starts with one shot's worth of sky.
+			-- The player's own fire limiter is per second and this case's own shot resets it, so
+			-- nothing of his can launch inside the drain that follows.
+			local clearBy = os.clock() + 2
+			while Weapon.flightCount() > 0 and os.clock() < clearBy do
+				task.wait()
+			end
+			local skyWasClear = Weapon.flightCount() == 0
+			casts = {}
+
 			-- THREE TRIES, AND THE TWO REASONS THAT ARE NOT ABOUT GEOMETRY: the fire limiter is per
 			-- second, and the gun can go busy between the readiness check above and the trigger
 			-- (the same replayed clicks). Nothing else is retried -- a refusal from `Rules` would
@@ -438,16 +454,17 @@ return function()
 			Weapon.setDriveOpenProvider(Match.driveOpen)
 			plate:Destroy()
 
-			if why ~= nil or #casts < 2 then
+			if why ~= nil or #casts < 2 or not skyWasClear then
 				-- SAID OUT LOUD AND THEN ASSERTED PURELY, never silent: if the live handler could
 				-- not be driven, the claim still has to be made against the arithmetic it would
 				-- have done, which is what the no-subject branch above does too.
-				TestKit.note(
+				TestKit.notProven(
 					string.format(
-						"weapon_shot sight line: the handler refused (%s) with %d cast(s); asserting the "
-							.. "convergence arithmetic instead",
+						"weapon_shot sight line: the handler refused (%s) with %d cast(s), sky clear=%s;"
+							.. " asserting the convergence arithmetic instead",
 						tostring(why),
-						#casts
+						#casts,
+						tostring(skyWasClear)
 					)
 				)
 				expect(Weapons.ROWS.rifle.SPREAD_FULL_DEG.Slug).to.equal(0)

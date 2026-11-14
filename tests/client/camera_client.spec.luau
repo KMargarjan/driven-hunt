@@ -71,6 +71,17 @@ local function stateAtBlend(blend: number)
 	return table.freeze(state)
 end
 
+-- THE AIM COUNTERS BEFORE THE REPLAY EXISTS (task 367). `InputReady.ready` below is what can
+-- publish the attribute the harness waits for, so nothing replayed can have landed yet on the line
+-- above it -- and that makes this the ONE instant a baseline is provably pre-replay.
+--
+-- MEASURED: taken inside the `it` instead, this case failed 1 of 5 runs on main
+-- (`camera_client.spec:614`). The suite RUNS WHILE THE REPLAY PLAYS (InputReady's own header), so
+-- in a run where the client fell behind -- 10,451 frames against 6,627, the same commit -- the
+-- aim-hold scenario's right mouse had already been and gone before the case took its baseline, and
+-- a counter that had already moved could never move again. A wall-clock race, not a camera.
+local preReplay = Camera.stats()
+
 -- The harness replays every scenario once the LAST expected spec says it is ready, so this file
 -- signals at require time like the others (docs/design/shotgun.md section 13.3).
 InputReady.ready("camera_client")
@@ -360,6 +371,17 @@ return function()
 
 		it("keeps the update inside its frame budget", function()
 			local stats = Camera.stats()
+			-- A NOTE AND NOT ONLY A PRINT (task 367). This assertion failed 1 of 5 runs on main and
+			-- the console had already rolled past the figure, so the run said "false" and nothing
+			-- about how far over it was. A note rides in the report whatever happens to the console.
+			TestKit.note(
+				string.format(
+					"camera_client: update %.3f ms average, %.3f ms worst, over %d frames (budget 0.3 / 5)",
+					stats.avgUpdateMs,
+					stats.maxUpdateMs,
+					stats.frames
+				)
+			)
 			print(
 				string.format(
 					"[camera_client] update: %.3f ms average, %.3f ms worst, over %d frames",
@@ -590,7 +612,8 @@ return function()
 			if Role.isDriver() then
 				return -- asserted above, the other way round
 			end
-			local before = Camera.stats()
+			-- THE PRE-REPLAY BASELINE, not one taken here: see `preReplay` at the top of the file.
+			local before = preReplay
 			local baselineEnters, baselineExits = before.aimEnters, before.aimExits
 			local baselineHistory = #Camera.modeHistory()
 			print(
@@ -604,7 +627,10 @@ return function()
 
 			-- TWO holds are replayed in a run: the weapon scenario's, then the camera's own
 			-- `aim-hold`. Round 2's note: waiting for the first delta was satisfied by the weapon
-			-- scenario, so deleting `aim-hold` would not have failed this. Wait for BOTH.
+			-- scenario, so deleting `aim-hold` would not have failed this. Wait for BOTH -- and
+			-- since the baseline is now the pre-replay one, "both" is a COUNT (>= 2 more than
+			-- before the replay existed), which is what makes deleting either scenario fail here
+			-- whether or not this case is still running when its button arrives.
 			local first = waitUntil(60, function()
 				return Camera.stats().aimEnters > baselineEnters
 			end)
@@ -616,17 +642,33 @@ return function()
 				return Camera.stats().aimExits > baselineExits
 			end)).to.equal(true)
 
-			local afterFirst = Camera.stats()
+			-- THE SECOND HOLD, COUNTED FROM BEFORE THE REPLAY -- not from a baseline taken here
+			-- (task 367). Re-reading the counters at this line was the same race one level deeper:
+			-- in a run where the client fell behind, the aim-hold scenario's own button had
+			-- already arrived by the time `afterFirst` was taken, and a counter that had already
+			-- moved could never move again. MEASURED: `camera_client.spec:657` failed with *"the
+			-- aim-hold scenario's own right mouse never arrived"* while the mode history below
+			-- showed it had. Two holds are replayed in a run, so the claim is >= 2 -- which still
+			-- fails if either scenario is deleted, whenever this case happens to run.
 			local second = waitUntil(60, function()
-				return Camera.stats().aimEnters > afterFirst.aimEnters
+				local now = Camera.stats()
+				return now.aimEnters >= baselineEnters + 2 and now.aimExits >= baselineExits + 2
 			end)
 			if not second then
-				print("[camera_client] the aim-hold scenario's own right mouse never arrived")
+				local now = Camera.stats()
+				print(
+					string.format(
+						"[camera_client] only %d of the 2 replayed holds reached the aim action"
+							.. " (enters %d -> %d, exits %d -> %d)",
+						now.aimEnters - baselineEnters,
+						baselineEnters,
+						now.aimEnters,
+						baselineExits,
+						now.aimExits
+					)
+				)
 			end
 			expect(second).to.equal(true)
-			expect(waitUntil(20, function()
-				return Camera.stats().aimExits > afterFirst.aimExits
-			end)).to.equal(true)
 
 			local history = Camera.modeHistory()
 			print("[camera_client] mode history: " .. table.concat(history, ","))

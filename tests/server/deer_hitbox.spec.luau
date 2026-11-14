@@ -126,11 +126,11 @@ return function()
 			-- since task 280 it is also what passes a bullet THROUGH a `ZonesOnly` animal's trunk --
 			-- so a spec casting for itself would be measuring a different flight from the one the
 			-- game flies. A `nil` here is a MISS, exactly as it is for a pellet.
-			local function zoneAt(localPoint: Vector3): (string?, Instance?)
+			local function zoneAtIgnoring(localPoint: Vector3, ignore: { Instance }): (string?, Instance?)
 				local cf = trunk.CFrame
 				local target = cf:PointToWorldSpace(localPoint)
 				local offset = cf:VectorToWorldSpace(Vector3.new(1, 0, 0)) * 20
-				local impact = Weapon.Cast.world(target + offset, -offset * 2, { Workspace.Terrain })
+				local impact = Weapon.Cast.world(target + offset, -offset * 2, ignore)
 				if not impact then
 					return nil, nil
 				end
@@ -139,6 +139,49 @@ return function()
 					return nil, impact.instance
 				end
 				return zone, impact.instance
+			end
+
+			local function zoneAt(localPoint: Vector3): (string?, Instance?)
+				return zoneAtIgnoring(localPoint, { Workspace.Terrain })
+			end
+
+			-- WHAT A FLANK RAY ACTUALLY CROSSES, surface by surface (task 367). `Pierce.cast` steps
+			-- past at most `MAX_PASS_THROUGH` surfaces that belong to a `ZonesOnly` animal and is a
+			-- MISS on the next one, so "answered nil" can mean "the budget ran out" rather than
+			-- "nothing is there" -- and this walk is what tells the two apart. Read-only: the same
+			-- params, the same step, no state.
+			local function surfaceWalk(localPoint: Vector3): (number, string)
+				local cf = trunk.CFrame
+				local target = cf:PointToWorldSpace(localPoint)
+				local offset = cf:VectorToWorldSpace(Vector3.new(1, 0, 0)) * 20
+				local origin, direction = target + offset, -offset * 2
+				local params = RaycastParams.new()
+				params.FilterType = Enum.RaycastFilterType.Exclude
+				params.FilterDescendantsInstances = { Workspace.Terrain }
+				params.IgnoreWater = true
+				local unit = direction.Unit
+				local length = direction.Magnitude
+				local from, travelled, passes = origin, 0, 0
+				local crossed = {}
+				while passes <= Pierce.MAX_PASS_THROUGH + 2 do
+					local result = Workspace:Raycast(from, unit * (length - travelled), params)
+					if result == nil then
+						table.insert(crossed, "nothing")
+						break
+					end
+					table.insert(crossed, result.Instance.Name)
+					if not Pierce.passesThrough(result.Instance) then
+						break
+					end
+					passes += 1
+					travelled += result.Distance + Pierce.STEP
+					if length - travelled <= 1e-6 then
+						table.insert(crossed, "ran out")
+						break
+					end
+					from = result.Position + unit * Pierce.STEP
+				end
+				return passes, table.concat(crossed, " -> ")
 			end
 
 			beforeAll(function()
@@ -311,6 +354,16 @@ return function()
 				local half = trunk.Size / 2
 				local air, both, meshOnly = 0, 0, 0
 				local firstAir = nil
+				-- THE SAME SWEEP WITH THE DRAWN MESH OUT OF THE BULLET'S WAY (task 367), which is
+				-- the geometry the GAME casts through: `Body.attachVisual` leaves the drawn mesh
+				-- `CanQuery = false` (*"A RAY MUST NEVER MEET THIS"*) and this file turns it on as
+				-- an instrument. Reported, not asserted: the difference is how much of this case's
+				-- answer comes from the instrument rather than from the animal.
+				local noMeshIgnore: { Instance } = { Workspace.Terrain }
+				for _, mesh in ipairs(meshes) do
+					table.insert(noMeshIgnore, mesh)
+				end
+				local bothNoMesh, airNoMesh, worstPasses = 0, 0, 0
 				local y = -half.Y - GRID
 				while y <= half.Y + GRID * 4 do
 					local z = -half.Z - GRID
@@ -320,6 +373,18 @@ return function()
 						local origin = target + offset
 						local onMesh = Workspace:Raycast(origin, -offset * 2, meshParams) ~= nil
 						local zone = zoneAt(Vector3.new(0, y, z))
+						local zoneNoMesh = zoneAtIgnoring(Vector3.new(0, y, z), noMeshIgnore)
+						if zoneNoMesh ~= nil then
+							if onMesh then
+								bothNoMesh += 1
+							else
+								airNoMesh += 1
+							end
+						end
+						if zone == nil and onMesh then
+							local passes = surfaceWalk(Vector3.new(0, y, z))
+							worstPasses = math.max(worstPasses, passes)
+						end
 						if zone ~= nil and not onMesh then
 							air += 1
 							if firstAir == nil then
@@ -383,6 +448,22 @@ return function()
 						both + meshOnly,
 						covered * 100,
 						meshOnly
+					)
+				)
+				-- THE INSTRUMENT'S OWN COST (task 367), so the next reader does not have to measure
+				-- it again: what the same sweep answers with the drawn mesh out of the way, and the
+				-- worst pass-through count among the rays that crossed the mesh and answered nil.
+				TestKit.note(
+					string.format(
+						"deer-hitbox %s: with the drawn mesh excluded (the game's own geometry) %d of %d"
+							.. " cross-mesh rays answer a zone and %d answer one off the mesh;"
+							.. " worst pass-through count on a nil answer %d of %d allowed",
+						kind,
+						bothNoMesh,
+						both + meshOnly,
+						airNoMesh,
+						worstPasses,
+						Pierce.MAX_PASS_THROUGH
 					)
 				)
 			end)
@@ -525,15 +606,24 @@ return function()
 					local inBand = Vector3.new(0, bandTop - 0.03, band.offset.Z)
 					local zone, instance = zoneAt(inBand)
 					if zone ~= zoneName then
+						-- WHAT THE RAY CROSSED, in the failure (task 367). This case failed 1 of 5
+						-- runs on main with `answered nil on ?` -- nil impact, no instance -- and a
+						-- bare nil cannot say whether nothing was there or `Pierce` ran out of
+						-- pass-throughs on the drawn mesh this file made queryable.
+						local passes, crossed = surfaceWalk(inBand)
 						error(
 							string.format(
-								"%s: the %s band at (0, %+.2f, %+.2f) answered %s on %s",
+								"%s: the %s band at (0, %+.2f, %+.2f) answered %s on %s"
+									.. " -- the ray crossed %s (%d pass-through(s) of %d allowed)",
 								kind,
 								zoneName,
 								inBand.Y,
 								inBand.Z,
 								tostring(zone),
-								instance and instance.Name or "?"
+								instance and instance.Name or "?",
+								crossed,
+								passes,
+								Pierce.MAX_PASS_THROUGH
 							),
 							0
 						)

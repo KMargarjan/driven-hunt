@@ -82,8 +82,18 @@ local ownLogEntries: number? = nil
 local equippedAt = nil
 local driveAtCue: string? = nil
 local baseline = nil
+-- WHAT THE GUN HELD WHEN THE WINDOW SHUT (task 367). This spec's end-state case failed 1 of 5 runs
+-- on main (`weapon_client.spec:1175`) with `ammo=Slug` where the scenario ends on Buck, and the note
+-- it printed could not say whether the swap had not been asked for, had been refused, or was still
+-- running when `StagedTarget` shut the window. One line, written at the shut.
+local closedAt: number? = nil
+local closedState: any = nil
 player:GetAttributeChangedSignal("StagedTarget"):Connect(function()
-	ownLogEntries = ownLogEntries or #log
+	if ownLogEntries == nil then
+		ownLogEntries = #log
+		closedAt = os.clock()
+		closedState = if #log > 0 then log[#log].state else nil
+	end
 end)
 
 -- THIS SPEC'S OWN WINDOW: from its cue to the moment the harness staged the next scenario.
@@ -1145,6 +1155,13 @@ return function()
 				-- wrong. Task 30 turned two session-wide claims into window claims for the same reason;
 				-- Task 34 found this one the same way, through a spec that respawned the player.
 				local endState = nil
+				-- WAITING STOPS BEING EVIDENCE THE MOMENT THE WINDOW SHUTS (task 367). `last()` is
+				-- the last entry BEFORE `ownLogEntries`, so once the harness has staged the next
+				-- scenario this predicate's answer can never change -- and the 70 s it then burned
+				-- were handed to every spec after this one as lateness, which is its own source of
+				-- flakes. Two seconds of grace for a snapshot already in flight, then give up and
+				-- let the notes below say what the window actually held.
+				local gaveUp = false
 				local finished = waitUntil(RUN_TIMEOUT, function()
 					local state = last()
 					if
@@ -1157,8 +1174,15 @@ return function()
 						endState = state
 						return true
 					end
+					if closedAt ~= nil and os.clock() - closedAt > 2 then
+						gaveUp = true
+						return true
+					end
 					return false
 				end)
+				if gaveUp then
+					finished = false
+				end
 				if not finished then
 					local state = last()
 					TestKit.note(
@@ -1171,6 +1195,47 @@ return function()
 							#aimEvents
 						)
 					)
+					-- WHY THE WINDOW HELD NO END STATE (task 367): the window is frozen at the first
+					-- `StagedTarget`, so `last()` can never change afterwards and waiting is futile.
+					-- These are the facts that distinguish "the swap never happened" from "the swap
+					-- was still running when the next scenario was staged".
+					TestKit.note(
+						string.format(
+							"weapon_client: the window shut %.1f s before this case on entry %s of %s;"
+								.. " at the shut ammo=%s loaded=%s/%s open=%s busyFor=%.2f",
+							if closedAt then os.clock() - closedAt else -1,
+							tostring(ownLogEntries),
+							tostring(#log),
+							tostring(closedState and closedState.ammo),
+							tostring(closedState and closedState.loaded and closedState.loaded[1]),
+							tostring(closedState and closedState.loaded and closedState.loaded[2]),
+							tostring(closedState and closedState.open),
+							(closedState and closedState.busyFor) or -1
+						)
+					)
+					-- THE WINDOW'S OWN TIMELINE (task 367). The `X` swap either never reached the
+					-- owner, was refused, or was still running at the shut, and only the published
+					-- states can say which: `notice` is what an `empty-pocket` refusal puts on the
+					-- wire ("NO BUCK") and `action` is the step the server's sequence was on.
+					local timeline = {}
+					for index, entry in ipairs(ownLog()) do
+						table.insert(
+							timeline,
+							string.format(
+								"#%d +%.1fs %s %s/%s open=%s busy=%.2f%s%s",
+								index,
+								entry.at - suiteStart,
+								tostring(entry.state.ammo),
+								tostring(entry.state.loaded[1]),
+								tostring(entry.state.loaded[2]),
+								tostring(entry.state.open),
+								entry.state.busyFor,
+								if entry.state.action then " action=" .. entry.state.action else "",
+								if entry.state.notice then " notice=" .. entry.state.notice else ""
+							)
+						)
+					end
+					TestKit.note("weapon_client: the window was " .. table.concat(timeline, " | "))
 				end
 				expect(finished).to.equal(true)
 
