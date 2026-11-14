@@ -3,17 +3,18 @@
 Task: 367
 Round: 3
 Base: 014f70ba35a6a1ce2c16365a8a3a682b561e706a (origin/main)
-Code commit: a753eedc809e92dde8f1b99f0107aff92ff1a138
+Code commit: ea5b8ef19332b47620edf4673a2141b1973822fc
 
 Nothing in `src/` changed. Every fix is in `tests/` plus the harness's own report.
 
 ```
-[harness] PASS: 34/34 checks @ a753eedc809e92dde8f1b99f0107aff92ff1a138 (clean tree) scope=all
-[harness] PASS: 34/34 checks @ a753eedc809e92dde8f1b99f0107aff92ff1a138 (clean tree) scope=all
-[harness] PASS: 34/34 checks @ a753eedc809e92dde8f1b99f0107aff92ff1a138 (clean tree) scope=all
-[harness] FAIL: 30/34 checks @ a753eedc809e92dde8f1b99f0107aff92ff1a138 (clean tree) scope=all
-[harness] FAIL: 30/34 checks @ a753eedc809e92dde8f1b99f0107aff92ff1a138 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ ea5b8ef19332b47620edf4673a2141b1973822fc (clean tree) scope=all
+[harness] FAIL: 32/34 checks @ ea5b8ef19332b47620edf4673a2141b1973822fc (clean tree) scope=all
 ```
+
+The five-run table below is at `a753eedc`, the commit before this one; `ea5b8ef1` differs from it
+ONLY by reverting `tests/server/match_outfit.spec.luau` to main's content byte for byte (see
+round 3), and it has 2 runs: 1 PASS, 1 FAIL.
 
 **3 of 5 at this commit, not 5 of 5. The target is NOT met and the two cases that
 miss it are named below** (`weapon_shot`'s live claim counters, `semiauto_client`'s drawn
@@ -255,5 +256,13 @@ BEFORE set; both are known rows the dispatch cites.**
   src`, `selene --config tests/selene.toml tests`, `stylua --check src tests`, `rojo build`,
   `python tools/studio_mcp.py selftest`, `python tools/agents.py selftest`, `python
   tools/privacy_scan.py selftest` and `scan`.
+* **The camera budget is genuinely exceeded in some sessions, and the new instrument proves it is
+  not a hitch.** `<runs-dir>/367/p-1.txt`: **all three** 120-frame windows read
+  **0.339 / 0.345 / 0.330 ms**, where `p-2.txt` minutes later read **0.124 / 0.116 / 0.115**. Three
+  independent windows agreeing at 0.33 is a session that really costs 2.8x what another one costs
+  for the same code -- so the case now FAILS for a true reason instead of passing or failing on one
+  hitch, and `expect(best < 0.3)` is doing its job. What the 0.3 ms budget should be for a Studio
+  Play client sharing a machine with a second Studio and 2,998 server specs is a DESIGN question,
+  not mine: added to 367(f). I did not widen it.
 * No screenshot: nothing visual changed (rule 5 N/A). No `src/` path is in the diff.
 
