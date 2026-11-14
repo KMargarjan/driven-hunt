@@ -446,8 +446,10 @@ end
 -- `inPlace` IS A PARAMETER AND NOT ONLY A FLAG (`docs/design/feature-flags.md`): production passes
 -- nothing and gets the value `start` read at this owner's boundary. With it ON a slot past the end
 -- of the script is SILENT -- the repeat window is retired (task 345 T5, design 5.3).
-function ForestTest.waveAt(index: number, inPlace: boolean?)
-	local schedule = ForestTest.cellSchedule()
+-- ...AND SO IS `varietyIn` (task 364): `cellSchedule()` with no argument reads what `start` wrote,
+-- so a spec comparing this against the SCRIPT's own row must be able to say which drive it means.
+function ForestTest.waveAt(index: number, inPlace: boolean?, varietyIn: boolean?)
+	local schedule = ForestTest.cellSchedule(varietyIn)
 	local onNow = if type(inPlace) == "boolean" then inPlace else ForestTest.placementInPlace()
 	return Data.slotAt(index, schedule.density, schedule, onNow)
 end
@@ -3698,7 +3700,11 @@ end
 
 -- ---------------------------------------------------------------- the loop
 
-function ForestTest.start(runtime, now: number)
+-- `varietyIn` AND `seedIn` ARE PARAMETERS AND NOT ONLY A FLAG (task 364, the Reviewer's round-1
+-- finding 1, `docs/design/feature-flags.md`). Production passes neither and gets the flag plus a
+-- fresh session draw; a spec passes `false` and gets the fixed script deterministically, which it
+-- needs because EVERY later `cellSchedule()` of the session reads what this line wrote.
+function ForestTest.start(runtime, now: number, varietyIn: boolean?, seedIn: number?)
 	state.runtime = runtime
 	-- A FRESH SESSION HAS NO DRIVE AIM YET (task 349 r2), so the field it starts with is the
 	-- main road's. Without this reset a new runtime inherits the LAST drive's shift and every
@@ -3766,8 +3772,8 @@ function ForestTest.start(runtime, now: number)
 	-- `cellSchedule(varietyIn)`, so a spec reaches both states while the flag sits at one of them.
 	-- THE SESSION SEED IS DRAWN HERE and nowhere else -- the one unseeded draw in this task, so a
 	-- drive is reproducible inside a session and a different one between sessions.
-	state.driveVariety = Flags.isOn("DRIVE_VARIETY")
-	state.sessionSeed = Random.new():NextInteger(0, 2147483646)
+	state.driveVariety = if type(varietyIn) == "boolean" then varietyIn else Flags.isOn("DRIVE_VARIETY")
+	state.sessionSeed = if type(seedIn) == "number" then seedIn else Random.new():NextInteger(0, 2147483646)
 	-- ...AND IT OPENS THE FIRST DRIVE, WHICH IS WHAT BASES THE SLOT CLOCK (task 251 part 2). It used
 	-- to be set here as `now + intervalSeconds`; it is `newDrive`'s now, so a server start and a drive
 	-- boundary cannot put slot 1 at two different times.
