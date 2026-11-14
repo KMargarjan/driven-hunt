@@ -4337,9 +4337,17 @@ def end_session(studio, before):
 # scenario the client can be deep inside a synchronous stretch and StudioMCP's handler cannot be
 # scheduled; that is the client being busy, not a fault, and it is what this budget is for.
 #
-# IT COSTS NOTHING WHEN IT IS NOT NEEDED: the loop below returns the instant the client answers, so
-# a healthy run pays one second per genuinely dropped call and 0 s otherwise. The budget only ever
-# decides whether a busy client fails the run.
+# 90 IS A CEILING AND NOT THE MEASUREMENT. The readings are 15 s to 35 s over 25 recoveries; 90 is
+# chosen to sit well clear of the worst of them, not derived from it.
+#
+# WHAT IT COSTS WHEN IT IS NOT NEEDED: nothing. The loop below returns the instant the client
+# answers, so a healthy run pays one second per genuinely dropped call and 0 s otherwise.
+#
+# WHAT IT COSTS WHEN THE CLIENT IS REALLY DEAD: a dropped batch is held for 90 s rather than 20,
+# which is longer than the replay's own waiters (`RUN_TIMEOUT` 70 in weapon_client, `waitUntil(60)`
+# in camera_client). Such a run fails on THOSE instead of on the input check, and takes about a
+# minute longer to say so. That is the trade: a busy client no longer fails a green run, and a dead
+# one is reported by the specs rather than by the transport.
 INPUT_RETRY = 90
 REPORT_WINDOW = 300
 
