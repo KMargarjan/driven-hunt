@@ -734,6 +734,154 @@ quiet edit". Nobody has walked it: `GRID_PREVIEW` builds C1 only, so no drive ru
 CLAUDE.md gives the Builder this one right in `TASKS.md`: a Director dispatch that arrived outside
 the repo, transcribed verbatim and marked as the Director's. Newest first.
 
+### Task 366 - 2026-11-14 (the Director's, transcribed verbatim)
+
+> [DIRECTOR -> BUILDER] TASK 366: GET THE FRAME TIME BACK AFTER 360b'S TREES, WITHOUT LOSING TREES.
+> MEASURE FIRST. Karen asked for more trees ("first rive default position more trees neede back")
+> and wants to play on her return (~2026-11-15, "I will come then after 2 days and will test each
+> part"). Task 360b planted all 8 cells in her Forest Test (32,966 models in Workspace.GridForest,
+> UNSAVED in her session) and measured: frame p95 lobby 21.68 -> 28.18 ms (+30 %), C1 stand 4 25.82
+> -> 32.03 ms (+24 %), client memory +11.6 % (reviews/task-360b/MEASUREMENTS.md section 3). The
+> LOBBY got slower too, which suggests the client is carrying or drawing wood it cannot see. Main is
+> c311f278. Branch task-366-forest-frame-cost from origin/main (create and push; stop rojo serve
+> before switching driven-hunt, re-serve after). Reviews in reviews/task-366/ (Task: 366, Round: 1).
+> Transcribe this dispatch into TASKS.md as the Director's. The Director opens the PR.
+> DEADLINE: 10:00 UTC 2026-11-14
+>
+> WHAT KAREN SEES AFTER: the same trees behind every stand, and the game as smooth as before 360b.
+> DO, in order:
+> 1. MEASURE FIRST, in her Forest Test, one Play, at the lobby spawn and at C1 stand 4: how many
+>    GridForest models and parts are in the CLIENT's Workspace per cell (is StreamingEnabled on,
+>    what radius), what the client draws (render stats: draw calls / triangles if readable), frame
+>    p95 and memory, with the same instrument as 360b (360b-park.luau). Say where the +24/+30 %
+>    comes from, with numbers: wood of cells not dealt, wood out of sight of the player, or the
+>    dealt cell's own density.
+> 2. If the cost is wood the player cannot see (other cells, or far wood), fix it at the forest's
+>    existing owner (src/server/ForestTest, src/server/Places or src/shared/Places: read
+>    docs/design/ for who owns the GridForest folder; do NOT create a second writer). Behind a NEW
+>    flag born OFF if it changes what is in the world during a drive (CLAUDE.md Feature flags).
+>    Target: frame p95 within +10 % of 360b's BEFORE (lobby <= 23.85 ms, C1 stand 4 <= 28.40 ms)
+>    with the trees behind the default stand unchanged (360b's eye-height raycast, sky at eye level
+>    <= 2 %).
+> 3. If the cost is the dealt cell's own density, or the fix needs an owner change or a design: NO
+>    CODE, write ESCALATE.md with the numbers and the options, and stop. The Director decides.
+> 4. AFTER (flag ON via the Director's route: flags.py --place forest set <NAME> on, and back OFF at
+>    the end unless the Director says otherwise): the same readings, same session, BEFORE | AFTER
+>    per line, plus one drive from C1 stand 4 started by a real click (animals come, gun in hand, 0
+>    errors).
+> MEASURED NOW: the step-1 table per cell; BEFORE | AFTER frame p95 and memory; sky at eye level
+> behind the default stand.
+> FOREST TEST PROOF: driven-hunt-rev route at the code commit for live proofs, then END with her FT
+> on :34873 from driven-hunt-karen, Edit. Check `python ftplay.py mode` before every Play start; if
+> Karen is in Play, WAIT. Her session holds 360b's UNSAVED plant: never reload or close her place
+> without making sure the plant survives. Her attributes include DHFlag_PLACEMENT_IN_PLACE=true,
+> DHFlag_MAP_PAINTED=true, DHFlag_CARCASS_POSE=true: leave them. Attribute diff EMPTY at the end
+> apart from your own new flag set back as the Director says (L-101). Never flags.py --place forest
+> clear. Never check out code in driven-hunt-karen. Never Save, Publish or Drafts Commit.
+> CLICK PROOF: the drive in step 4 starts by a REAL click on a truck pad (rawclick), not a forced
+> phase.
+> NOT YOURS: tree density or placement rules (task 360's skirtBands), docs/design/, uploads.
+> GATE: `python tools/studio_mcp.py test` full run, PASS line at the code commit; test2 N/A unless a
+> TWO_PLAYER_PATHS file is touched. Then tools/review.ps1.
+> CHECKED: L-127 BEFORE | AFTER per line, same instrument, same session. L-162 proofs at the code
+> commit. L-136 name any flake before re-running. L-093 the new case fails with the fix removed
+> (paste the FAIL line). L-101 attribute diff. Perf lesson (task 357): count the frames a cost spans
+> before calling it a stall; os.clock across a yielding call is wall time, not frame time.
+> [L-095] ROUTE: step 4's "real click on a truck pad (rawclick)" names no literal control path --
+> 360b already proved no TruckSpot/TruckPad2-4 carries a ClickDetector or ProximityPrompt
+> (360b-buttons.luau) and that the only working click is on
+> HunterHud.PadNext.RoleBlock.RoleSwitch.Hunter at a calibrated screen offset, after lobby-go.luau
+> places the character.
+
+**Builder status, 2026-11-14: STEP 3 -- MEASURED, NO CODE, ESCALATED.** The dispatch's own step 3
+fires: the cost is the dealt cell's wood **in the camera's frustum**, and there is no invisible wood
+to remove. Measured in her Forest Test at `c311f278` (the commit `driven-hunt-karen` serves on
+:34873), five Play sessions, held camera, interleaved A/B:
+
+- **cells not dealt cost nothing on the client**: task 337's `Places.Cells` already stores 7 of the
+  8 cells in `ServerStorage.GridWood` (28,535 models / 92,052 parts), and `Workspace.GridForest` on
+  both server and client holds **C1 only**;
+- **the dealt cell's wood costs +10.92 ms p95 (+54 %) at C1 stand 4 and +0.82 ms (+3.4 %) at the
+  lobby**, where it draws **0 extra triangles**. That lobby pair is also the one thing that isolates
+  RESIDENCY, because it holds drawing exactly constant, and its two ranges overlap: residency is
+  about a millisecond and is not distinguishable from zero;
+- **two instrument faults make 360b's two rows one measurement, not two.** `360b-park.luau` writes
+  `cam.CFrame` once and never binds, so `src/client/Camera/Rig.luau` (bound at
+  `RenderPriority.Camera`) overwrites it every frame -- measured: the camera sat **6,791 studs** from
+  the station it was asked for and never moved (`366-camcheck.luau`). And six identical 8 s samples
+  of one held station, nothing changed, spread **23.72 -> 34.79 ms (+46.7 %)** -- wider than the
+  +24 %/+30 % the trees were charged with.
+
+- **the memory half of 360b's charge was never a client figure.** The same probe run against the
+  server DataModel and against the client, seconds apart in one Play, returns **byte-identical**
+  numbers (`BaseParts 565.4`, `GraphicsParts 14.9`, `Instances 336.6`): Studio's `Stats` reports the
+  PROCESS, and in Studio the server and the client are one. What the client's own share of the
+  dealt cell's wood costs IS measured -- **+11.1 MB of `GraphicsParts`**, 16.6 detached against
+  27.1-27.7 attached, in all four pairs. 360b's remaining ~600 MB is **not decomposed**.
+
+Rounds 2 and 3 after the Reviewer's blocking findings, every one of them a measurement fault and
+every one closed by measurement rather than rewording: the memory reading above (round 2); then
+(round 3) the residency "median" that was a MINIMUM -- the probe's `med()` was `s[ceil(n/2)]`,
+which at n=2 is the lowest sample, and it picked p95 and memory column by column. Re-run at **n=4
+interleaved with a true median** the gap is **+1.93 ms**, not +0.85 -- and that pair is **withdrawn
+as a bound anyway**, because its two sides draw 126,887 and 1,778,814 triangles and this task
+measured that cost is NOT a function of triangle count (at the stand, 40,248 FEWER triangles and
+10.92 ms CHEAPER). Residency now rests on the one pair that holds drawing exactly constant -- the
+lobby, `Opaque` identical on both sides -- at **+0.82 ms with the ranges overlapping**, a ceiling of
+about a millisecond rather than a figure.
+
+Full tables: `reviews/task-366/MEASUREMENTS.md`, with the probe output the conclusions rest on
+committed under `reviews/task-366/evidence/`. The options and the decision the Director owns:
+`ESCALATE.md`, 2026-11-14. No `src/`, `tests/` or `tools/` file changed.
+
+**Reviewer: PASS, round 3** (`reviews/task-366/RESULT.md`, verdict on `2624c077`), with
+**item 7 marked NOT PROVEN**. Rounds 1 and 2 each found two blocking items and every one of them was
+a real measurement fault in this Builder's own work -- memory never taken; a "median" that was a
+MINIMUM at n=2; a confound whose sign was stated backwards. All four were closed by re-measuring,
+not by rewording, and the corrected answers are in `MEASUREMENTS.md`.
+
+The notes that were factual errors in the Director's own decision document were fixed in the same
+round rather than queued, because `ESCALATE.md` is what the merge decision is read from: the
+camcheck figure (7,082, the committed run, not 6,791), option E's shadow row (`GlobalShadows` alone
+is **-2.68 ms**; the -3.01 ms was that lever AND the forest's own shadows together, and both are
+soft because that one sequence is not interleaved and its controls drift 2.20 ms), the `CastShadow`
+count (9,923, the committed figure, not 11,254), the withdrawn residency bullet above, and the
+session count. The rest is queued here:
+
+- **366(a) NOT PROVEN, and it is the whole decision: nobody has looked.** The Reviewer's own words:
+  the frame-time finding *"has NEVER BEEN PLAYED by anyone"*, and `366-GA-NOW.png` -- the trunk wall
+  behind C1 stand 4 -- was described by this Builder, not seen by Karen, and is not committed. The
+  question `ESCALATE.md` puts to her is one sentence: *the trees behind the stand cost about half
+  the frame rate there, 28-35 fps with them against ~50 without -- keep them?* Until she answers it,
+  nothing here is decided.
+- **366(b)** `<runs-dir>/366-props.luau`'s output is not committed, so `MEASUREMENTS.md` section 1's
+  property breakdown (RenderFidelity, CollisionFidelity, CanCollide/CanQuery, ModelStreamingMode) is
+  uncheckable. It is labelled as such in the document. Commit it, or re-take it, next time any of
+  those properties is proposed as a lever.
+- **366(c)** `evidence/366-lod.txt` prints no `restored=` line, so the file does not itself show
+  `RenderFidelity` put back on the 10,353 MeshParts. The probe does set it back, and the write was
+  client-side in a Play session that has since been stopped, so nothing could persist -- but a
+  restore line would close it by evidence instead of by argument. Every A/B probe in this family
+  should print one, as `366-forestoff-*` does.
+- **366(d)** `MEASUREMENTS.md` section 4's `Opaque ON vs OFF` column quotes one value per side where
+  the fourth pair read 2,431,239 / 2,390,991. The 40,248 delta is identical either way, so nothing
+  turns on it, but the column reads as if all four pairs were identical.
+- **366(e) the harness is RED on `main`** -- `[harness] FAIL: 29/34 checks @ c311f278 (clean tree)
+  scope=all`, with `weapon_shot.spec` x2, `deer_hitbox.spec` and `semiauto_client.spec` failing, and
+  a different set failing on the next run (`licence_popup.spec`). **This gates every task's merge
+  until someone owns it**, and it is not task 366's: no `src/`, `tests/` or `tools/` file is touched
+  here. It also gives task 365's note **365(f)** -- *"one server assertion failed ... and was not
+  captured by name"* -- its names.
+- **366(f) two instruments in `<runs-dir>` are wrong and should be retired, not just worked around.**
+  `*-park.luau` (352b's and 360b's) writes `cam.CFrame` once and never binds, so
+  `src/client/Camera/init.luau` overwrites it every frame and **every station reading ever taken
+  with it is the player's own view** -- measured at 7,082 studs off station. `366-hold.luau` /
+  `366-grid3.luau` are the corrected form: they bind at `RenderPriority.Camera.Value + 10` and print
+  `held offset 0.00 studs` so a reader can see the park held. And a single 8 s p95 window in this
+  place is worth +/- 47 %, with absolutes drifting between sessions as well (the same three stations
+  read 19.5/22.8/35.5 in one and 21.7/31.1/35.4 in another), so no future perf claim should rest on
+  fewer than four interleaved samples quoted as a median with its range.
+
 ### Task 365 - 2026-11-14 (the Director's, transcribed verbatim)
 
 > [DIRECTOR -> BUILDER] TASK 365: FOUR FLAG EXPIRY DATES MOVED SO THE HARNESS STAYS GREEN WHILE

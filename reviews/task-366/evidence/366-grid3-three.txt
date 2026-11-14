@@ -1,0 +1,11 @@
+[366g3] up/ON      rep1  464 frames mean 17.25 p95 22.15 | total 5156.9 MB | GraphicsParts 28.1 | Opaque 125523 tris, 22 draws | held offset 0.00 studs
+[366g3] lobby/ON   rep1  361 frames mean 22.20 p95 29.55 | total 5155.1 MB | GraphicsParts 28.0 | Opaque 2452223 tris, 342 draws | held offset 0.00 studs
+[366g3] stand/ON   rep1  311 frames mean 25.75 p95 34.04 | total 5154.9 MB | GraphicsParts 28.0 | Opaque 2418401 tris, 176 draws | held offset 0.00 studs
+[366g3] up/ON      rep2  465 frames mean 17.20 p95 21.31 | total 5161.3 MB | GraphicsParts 28.1 | Opaque 125523 tris, 22 draws | held offset 0.00 studs
+[366g3] lobby/ON   rep2  349 frames mean 22.94 p95 32.71 | total 5160.4 MB | GraphicsParts 28.2 | Opaque 2452223 tris, 342 draws | held offset 0.00 studs
+[366g3] stand/ON   rep2  288 frames mean 27.80 p95 36.72 | total 5160.3 MB | GraphicsParts 28.2 | Opaque 2482711 tris, 173 draws | held offset 0.00 studs
+[366g3] up/ON      n=2  p95 median 21.73 ms (range 21.31-22.15)  memory median 5159.1 MB (range 5156.9-5161.3)
+[366g3] lobby/ON   n=2  p95 median 31.13 ms (range 29.55-32.71)  memory median 5157.7 MB (range 5155.1-5160.4)
+[366g3] stand/ON   n=2  p95 median 35.38 ms (range 34.04-36.72)  memory median 5157.6 MB (range 5154.9-5160.3)
+[366g3] camera owner tried to drift the park on 2969 frame(s); final offset 0.00 enforced every frame
+[366g3] restored = true

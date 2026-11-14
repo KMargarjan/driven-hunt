@@ -1,0 +1,16 @@
+[366g2] up/ON       377 frames mean 21.22 p95 30.47 | total 4927.5 MB | BaseParts 581.3 GraphicsParts 27.1 GraphicsMeshParts 8.1 GraphicsTexture 121.8 Instances 377.9 | Opaque 126887 tris, 27 draws
+[366g2] up/OFF      480 frames mean 16.70 p95 19.02 | total 4931.5 MB | BaseParts 581.8 GraphicsParts 16.6 GraphicsMeshParts 8.1 GraphicsTexture 121.8 Instances 378.5 | Opaque 1778814 tris, 166 draws
+[366g2] stand/ON    327 frames mean 24.49 p95 29.31 | total 4944.5 MB | BaseParts 582.1 GraphicsParts 27.7 GraphicsMeshParts 8.1 GraphicsTexture 121.8 Instances 378.5 | Opaque 2418401 tris, 170 draws
+[366g2] stand/OFF   461 frames mean 17.40 p95 21.31 | total 4941.4 MB | BaseParts 582.2 GraphicsParts 16.6 GraphicsMeshParts 8.1 GraphicsTexture 121.8 Instances 378.5 | Opaque 2378153 tris, 245 draws
+[366g2] up/ON       472 frames mean 16.95 p95 19.84 | total 4949.8 MB | BaseParts 582.3 GraphicsParts 27.7 GraphicsMeshParts 8.1 GraphicsTexture 121.8 Instances 378.5 | Opaque 126887 tris, 21 draws
+[366g2] up/OFF      481 frames mean 16.66 p95 18.99 | total 4946.4 MB | BaseParts 582.2 GraphicsParts 16.6 GraphicsMeshParts 8.1 GraphicsTexture 121.8 Instances 378.5 | Opaque 1778814 tris, 145 draws
+[366g2] stand/ON    240 frames mean 33.35 p95 41.78 | total 4958.1 MB | BaseParts 582.1 GraphicsParts 27.7 GraphicsMeshParts 8.1 GraphicsTexture 121.8 Instances 378.5 | Opaque 2418401 tris, 168 draws
+[366g2] stand/OFF   425 frames mean 18.84 p95 23.61 | total 4951.1 MB | BaseParts 582.0 GraphicsParts 16.6 GraphicsMeshParts 8.1 GraphicsTexture 121.8 Instances 378.5 | Opaque 2378153 tris, 245 draws
+[366g2] up/ON p95 median 19.84 ms, memory median 4927.5 MB (n=2)
+[366g2] up/OFF p95 median 18.99 ms, memory median 4931.5 MB (n=2)
+[366g2] stand/ON p95 median 29.31 ms, memory median 4944.5 MB (n=2)
+[366g2] stand/OFF p95 median 21.31 ms, memory median 4941.4 MB (n=2)
+[366g2] RESIDENCY (same ~nothing drawn) = up/ON - up/OFF = +0.85 ms p95, -4.0 MB
+[366g2] DRAWING the wood (same residency) = stand/ON - up/ON = +9.47 ms p95, +17.0 MB
+[366g2] wood present vs absent at the stand = stand/ON - stand/OFF = +8.00 ms p95, +3.1 MB
+[366g2] restored = true

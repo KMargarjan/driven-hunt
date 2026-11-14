@@ -1,0 +1,24 @@
+[366c] char=2897,153,-2926 focus=nil cam=2897,155,-2926
+[366c] StreamingEnabled=true min=384 target=512 out=Enum.StreamOutBehavior.Default integrity=Enum.StreamingIntegrityMode.Default
+[366c] Workspace.GridForest models=0 parts=0 desc=1 children=1
+[366c]   GridForest/C1 models=0 parts=0 desc=0
+[366c] Workspace models=4953 parts=2857 desc=10571
+[366c] totalMemory=4902.5 MB
+[366m] Internal = 4002.5 MB
+[366m] Instances = 336.6 MB
+[366m] Signals = 100.0 MB
+[366m] LuaHeap = 1495.9 MB
+[366m] Script = 283.2 MB
+[366m] BaseParts = 565.4 MB
+[366m] GraphicsMeshParts = 7.4 MB
+[366m] GraphicsParticles = 11.9 MB
+[366m] GraphicsParts = 14.9 MB
+[366m] GraphicsSpatialHash = 2.3 MB
+[366m] GraphicsTerrain = 58.2 MB
+[366m] GraphicsTexture = 84.4 MB
+[366m] GraphicsTextureCharacter = 6.0 MB
+[366m] Sounds = 16.3 MB
+[366m] TerrainVoxels = 128.1 MB
+[366m] Gui = 98.9 MB
+[366m] Animation = 21.3 MB
+[366m] Navigation = 48.6 MB
